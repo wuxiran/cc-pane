@@ -28,9 +28,9 @@ export function createPanel(tab?: Tab): Panel {
     restoreMode: "shell",
     sessionId: null,
   };
-  // 占位空标签（docs/78）：**不走** usePanesStore.createTab 富工厂——本模块
-  // 按头部约定只依赖 @/types，反向 import 会成环；且这不是可启动身份，只是
-  // 空 pane 的 UI 占位。真正的会话标签一律经富工厂构造。
+  // 占位空标签（docs/78 批4）：**不走** lib/tabLifecycle/tabFactory 的唯一构造
+  // 点——tabFactory 反过来依赖本模块的 generateId，改道会成环；且这不是可启动
+  // 身份，只是空 pane 的 UI 占位。真正的会话标签一律经工厂构造。
   const defaultTab: Tab = tab || {
     id: generateId("tab"),
     title: "Terminal",
@@ -48,8 +48,6 @@ export function createPanel(tab?: Tab): Panel {
     activeTabId: defaultTab.id,
   };
 }
-
-/** 创建新标签 */
 
 /** 递归查找面板 */
 export function findPane(node: PaneNode, paneId: string): PaneNode | null {
@@ -283,13 +281,13 @@ export function syncTabTerminalState(tab: Tab): void {
   tab.ssh = activeLeaf.ssh;
   tab.wsl = activeLeaf.wsl;
   tab.machineName = activeLeaf.machineName;
-  tab.disconnected = activeLeaf.disconnected;
-  tab.restoring = activeLeaf.restoring;
-  tab.savedSessionId = activeLeaf.savedSessionId;
   tab.restoreBlockedReason = activeLeaf.restoreBlockedReason;
   tab.leaseReadOnly = activeLeaf.leaseReadOnly;
-  tab.launchError = activeLeaf.launchError;
   tab.launchAttempt = activeLeaf.launchAttempt;
+  // 批5 绞杀第一段：restoring / disconnected / savedSessionId / launchError 不再
+  // 物化到 tab——消费方已全部迁到 leaf 单源（读侧经 activeTerminalLeaf/phaseOf 现算，
+  // 会话收集经 collectTerminalSessionIdsWithSaved 全量口径）。tab 上的同名字段仅剩
+  // 「无 terminalRootPane 的 legacy 形态」语义，读写都只允许出现在该形态的兜底分支。
 }
 
 export function closeTerminalLeafInTab(tab: Tab, terminalPaneId: string): boolean {

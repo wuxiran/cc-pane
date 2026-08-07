@@ -217,9 +217,68 @@ removeView(tabId, role);              // 批1 的 removeTabsInternal 也调
 registry 补 `createDefaults(input): Partial<Tab>`；`usePanesStore.createTab` 成唯一构造点，6 处内联字面量改道（**逐处 diff，不顺手统一**——字面量里可能有故意差异），删 `paneTreeHelpers.ts:41` 遗留工厂；修 `useOrchestratorListener.ts` 把 projectId 复用当 launchId 的 bug（docs/69 暗雷活体：launch id 必须每次新生成）；`ClosedTabSnapshot` 扩容（starred/pinned/parentTabId/launchExtras/分屏结构，以 `cloneTerminalLeaf` 的重置清单为准）让撤销真正无损；`canCreateTerminalSession` 6 处守卫收进模块级 `acquireTerminalSlot()`（防重入状态从组件 ref 移出）；三处 PTY spawn 本体**不合并**。`onPersist/onRestoreState` 推广同批：browser 存 URL+滚动、editor 存 filePath+光标。
 测试：工厂输出与原字面量逐字段快照相等；ClosedTabSnapshot 往返全等；launchId 唯一性。验收仪表：内联构造点 grep 归零。
 
+> **0.12.0 实施记录（批4 · 六项全落地）**
+>
+> 落点：①`createDefaults` 进登记表 + 新增 `lib/tabLifecycle/tabFactory.ts` 唯一
+> 构造点（终端构造真身搬到 `terminalTabDefaults.ts`——`lib → stores` 反向 import
+> 会成环，只能搬家不能反向调用）；②6 处内联字面量全部改道；③遗留工厂善后；
+> ④`ClosedTabSnapshot` 扩容；⑤`acquireTerminalSlot` 接进 TerminalView 两条
+> spawn 路径；⑥`onPersist/onRestoreState` 推广。`useOrchestratorListener` 的
+> launchId 复用 bug 在补账期已修（6dfe667），本批只补了唯一性回归测试。
+>
+> **与计划的三处偏差**：
+> 1. **browser 滚动位置未做**。读 webview 的 scrollY 需要 CDP `Runtime.evaluate`
+>    ——该能力在 Rust 侧存在（`browser_service.rs::evaluate`）却**没有注册成
+>    command**，前端够不着；补一条命令属于新增 IPC 面，与本批「收敛既有构造」
+>    的范围不同。已在 `registry.ts` 就地记录缺口，免得后来者以为「存了 URL 就
+>    等于存了浏览位置」。editor 光标则是完整闭环（上报/存/还三段齐全）。
+> 2. **`createPanel` 的占位空标签保留字面量**（第 7 处内联点）。它不是可启动
+>    身份，且 `paneTree` 是 `tabFactory` 的被依赖方，改道会成环。
+> 3. **三处 PTY spawn 本体未合并**——按本文「明确不做」第 5 条。
+>
+> **两个实施期发现的活体问题**（都不是测试观察点过时，是真退化）：
+> - **槽位泄漏（自造）**：持有者初版声明在 async 函数内部，「`createSession`
+>   永不落定就被卸载」时 `finally` 不执行，槽位永久泄漏——那一格此后再也建不出
+>   会话，且**零报错**。TerminalView 13 个测试因此转红。修法：持有者提到 effect
+>   作用域，两条路径的卸载清理都 release；释放统一走 `finally` 覆盖全部提前
+>   return 分支。已补回归守卫。**槽位不得比组件活得长**是这条链路的新不变式。
+> - **`openEditor` 返回 layoutId 不是 tabId**：`onRestoreState` 接线时若直接拿它
+>   当新标签 id，光标会记到不存在的标签上、恢复静默失效（docs/69 同型）。改为按
+>   filePath 去树里定位，并在端到端测试里锁死。
+>
+> **顺带的既有隐患修复**：撤销快照此前直接留住 Immer draft 里的嵌套对象
+> （ssh/wsl/providerSelection），`set()` 结束后 proxy 被 revoke，**撤销那一刻**
+> 才抛 revoked（CLAUDE.md 明列的坑，写快照时一切正常）。统一走 `detach()`。
+>
+> 为守住行数棘轮（TerminalView 2242 → 2236），另做两处行为零变化的抽取：初始化
+> 失败文案三级降级抽成 `describeTerminalInitError`（此前埋在 catch 里不可测），
+> 两处逐字相同的 8 位置参数 backfill 调用收敛成 `startLaunchBackfillIfNeeded`
+> （6 个同类型 string 参数错位不会报错、只会写错一行历史）。
+
 ### 批 5 · Tab/leaf 双写收敛 + 判别联合（先评估再动）
 
 判据：批 1-4 观察期内 `syncTabTerminalState` 相关 bug 数与被迫双写次数，接近零则**降级为只做判别联合**（`TerminalRuntimePhase`: idle/launching/restoring/restore-blocked/running/disconnected/exited——非法组合类型层不可表达，独立有价值）。若做全量：leaf 为终端运行时单一真相、删 syncTabTerminalState；持久化版本号 + 单向迁移 + 旧格式读入测试；恢复链路全量手工回归（18-tab 重启恢复为既有事故复现用例）。全项目最高风险，独占一批灰度发版。
+
+> **架构合理性复评（0.12.0 收官期）**：门判据实测——观察期双写归因 bug **0**、
+> 被迫新增双写 **0**（调用点反而净减 2），维持「不做大爆炸」；但**推翻「双写可
+> 作为终态」**。结构性问题三条：①tab 拷贝是**有损投影**（分屏 N leaf 只反映活跃
+> 那个，per-session 逻辑读 tab.* 构造上就错，逃生舱 collect*/phaseOf/statusMap
+> 全是为绕它长出来的）；②**存储型投影 = 每个 mutation 点付同步税**，忘调即静默
+> 发散；③同批字段双份持久化。正确终态：leaf 单源 + tab 级访问经**计算型投影**
+> （`activeTerminalLeaf(tab)` selector 现算，永不过期），title/pinned/starred 等
+> 真 tab 域字段留 Tab。原「全量 or 降级」二选一是错误切法——改**绞杀者式逐字段
+> 迁移**，按剩余 tab 读者数排班：
+>
+> - **第一段（已落地）**：restoring / disconnected / savedSessionId / launchError
+>   ——4 字段从 syncTabTerminalState 复制清单移除，读侧迁 leaf 单源（quickCommand
+>   经 activeTerminalLeaf；保护集读 tab.savedSessionId 保留=超集安全+legacy 兜底），
+>   Tab 类型标 @deprecated（仅无树 legacy 形态可读写）。回归：sync 不物化断言 +
+>   selector 三态测试。
+> - **第二段（M3b 之后）**：sessionId / resumeId（约 54 消费点，真正的工作量）——
+>   借批4 构造收敛 + branded ids 导航（类型改 selector 返回值让编译器列出全部消费点）。
+> - **第三段（纯机械）**：从 Tab 类型删字段 + 持久化版本号。
+>
+> 复评触发器：M3b 被迫新增双写 ≥3 处即提前动第二段。
 
 ## 5. 明确不做
 
@@ -283,5 +342,8 @@ registry 补 `createDefaults(input): Partial<Tab>`；`usePanesStore.createTab` �
 4. **`removeTabsInternal` 拆段**：118 行 8 步平铺，抽 relocateAndCollect /
    spliceAcrossLayouts / cleanupSatelliteState 三个命名私有函数。
 
-另записан：exitCode→leaf 写回（让 phaseOf 的 "exited" 真可达）、非终端撤销的
-pinned/starred 保留、useHiddenSessionReporter 订阅面收窄（当前判定可接受）。
+另记：exitCode→leaf 写回（让 phaseOf 的 "exited" 真可达）、
+~~非终端撤销的 pinned/starred 保留~~（批4 已覆盖：`restoreClosedTabIdentity`
+对全部 contentType 生效，撤销往返测试锁死 starred/parentTabId；pinned 因
+`user-close` 尊重 pinned、置顶标签根本进不了撤销栈，改由该函数单测覆盖）、
+useHiddenSessionReporter 订阅面收窄（当前判定可接受）。

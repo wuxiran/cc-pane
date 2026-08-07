@@ -8,7 +8,8 @@ import {
   eachLayoutTree,
   resolveLayoutWriteTarget,
 } from "./paneLayoutHelpers";
-import { collectPanels, findPane, generateId } from "@/lib/paneTree";
+import { collectPanels, findPane } from "@/lib/paneTree";
+import { createTabOfType } from "@/lib/tabLifecycle/tabFactory";
 import { useActivityBarStore } from "./useActivityBarStore";
 import { useEditorTabsStore } from "./useEditorTabsStore";
 
@@ -130,15 +131,7 @@ export function createEditorTabActions(
         const basePane = findPane(target.tree, fallbackPaneId);
         const pane = basePane?.type === "panel" ? basePane : collectPanels(target.tree)[0];
         if (pane?.type !== "panel") return;
-        const newTab: Tab = {
-          id: generateId("tab"),
-          title,
-          contentType: "editor",
-          projectId: "",
-          projectPath,
-          sessionId: null,
-          filePath,
-        };
+        const newTab = createTabOfType("editor", { title, projectPath, filePath });
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
         // 非当前布局：把落点记进该布局的 activePaneId，用户切过去就能看到这个文件

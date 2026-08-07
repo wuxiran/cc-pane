@@ -37,6 +37,37 @@ export function acquireTerminalSlot(
   };
 }
 
+/**
+ * 一次创建流程的槽位持有者（docs/78 批4）。
+ *
+ * spawn 路径的申请点与释放点隔着 try/catch——catch 看不见 try 内的绑定，而
+ * 失败路径必须能释放（否则该 (tabId, paneId) 永久无法创建）。持有者把这段
+ * 记账收进来，调用点只剩 acquire/release 两行。
+ *
+ * 无 tabId/paneId 身份（弹窗预览等无标签视图）时视为占到：没有身份就无从记账，
+ * 挡住反而会让这些视图永远建不出会话。
+ */
+export interface TerminalSlotHolder {
+  acquire(tabId?: string, terminalPaneId?: string): boolean;
+  /** 幂等，成功与失败路径都可调。 */
+  release(): void;
+}
+
+export function createTerminalSlotHolder(): TerminalSlotHolder {
+  let release: (() => void) | null = null;
+  return {
+    acquire(tabId, terminalPaneId) {
+      if (!tabId || !terminalPaneId) return true;
+      release = acquireTerminalSlot(tabId, terminalPaneId);
+      return release !== null;
+    },
+    release() {
+      release?.();
+      release = null;
+    },
+  };
+}
+
 /** 测试用。 */
 export function resetTerminalSlots(): void {
   inFlight.clear();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatTerminalInitError } from "./terminalInitError";
+import { describeTerminalInitError, formatTerminalInitError } from "./terminalInitError";
 
 describe("formatTerminalInitError", () => {
   it("formats WSL host resolution errors", () => {
@@ -41,5 +41,30 @@ describe("formatTerminalInitError", () => {
 
   it("returns null for unknown errors", () => {
     expect(formatTerminalInitError("plain failure")).toBeNull();
+  });
+});
+
+// 从 TerminalView 的 catch 抽出后才可测（docs/78 批4）。
+describe("describeTerminalInitError", () => {
+  it("结构化错误码优先", () => {
+    const lines = describeTerminalInitError("WSL_HOST_UNRESOLVED: boom");
+    expect(lines[0]).toContain("Failed to resolve the Windows host address");
+  });
+
+  it("CLI 未安装：报错 + 指引 + 安装命令", () => {
+    const lines = describeTerminalInitError("opencode CLI not found in PATH");
+    expect(lines[0]).toContain("opencode CLI is not installed");
+    expect(lines[1]).toContain("available in your PATH");
+    expect(lines[2]).toContain("npm install -g opencode-ai");
+  });
+
+  it("无安装指引的 CLI 只给两行", () => {
+    expect(describeTerminalInitError("claude CLI not found")).toHaveLength(2);
+  });
+
+  it("其余错误走通用文案，且原文照带", () => {
+    const lines = describeTerminalInitError("plain failure");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("plain failure");
   });
 });

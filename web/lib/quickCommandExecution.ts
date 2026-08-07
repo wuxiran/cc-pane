@@ -1,11 +1,7 @@
 import { terminalService } from "@/services";
 import { useDialogStore, usePanesStore } from "@/stores";
-import type {
-  QuickCommand,
-  Tab,
-  TerminalPaneLeaf,
-  TerminalPaneNode,
-} from "@/types";
+import { activeTerminalLeaf } from "@/lib/paneSessions";
+import type { QuickCommand, Tab } from "@/types";
 
 export interface QuickCommandExecutionContext {
   paneId: string;
@@ -35,34 +31,10 @@ export interface QuickCommandExecutionAdapter {
 
 const sendQueues = new Map<string, Promise<void>>();
 
-function findTerminalLeaf(
-  node: TerminalPaneNode,
-  paneId: string,
-): TerminalPaneLeaf | null {
-  if (node.type === "leaf") return node.id === paneId ? node : null;
-  for (const child of node.children) {
-    const found = findTerminalLeaf(child, paneId);
-    if (found) return found;
-  }
-  return null;
-}
-
-function firstTerminalLeaf(node: TerminalPaneNode): TerminalPaneLeaf | null {
-  if (node.type === "leaf") return node;
-  for (const child of node.children) {
-    const found = firstTerminalLeaf(child);
-    if (found) return found;
-  }
-  return null;
-}
-
 export function getQuickCommandSessionId(tab: Tab): string | null {
   if (tab.contentType !== "terminal") return null;
   if (!tab.terminalRootPane) return tab.sessionId;
-  const activeLeaf = tab.activeTerminalPaneId
-    ? findTerminalLeaf(tab.terminalRootPane, tab.activeTerminalPaneId)
-    : null;
-  return (activeLeaf ?? firstTerminalLeaf(tab.terminalRootPane))?.sessionId ?? null;
+  return activeTerminalLeaf(tab)?.sessionId ?? null;
 }
 
 function enqueueSessionOperation(
@@ -108,10 +80,12 @@ function waitForTabSession(tabId: string): Promise<string> {
         reject(new Error("Quick command terminal tab was closed before launch"));
         return;
       }
-      if (tab.launchError) {
+      // 运行时字段读 leaf（单源），无树的 legacy 形态回退 tab 字段
+      const launchError = activeTerminalLeaf(tab)?.launchError ?? (tab.terminalRootPane ? undefined : tab.launchError);
+      if (launchError) {
         window.clearTimeout(timeout);
         unsubscribe();
-        reject(new Error(tab.launchError.message));
+        reject(new Error(launchError.message));
         return;
       }
       const sessionId = getQuickCommandSessionId(tab);

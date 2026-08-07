@@ -595,7 +595,7 @@ describe("usePanesStore", () => {
       });
 
       tab = (usePanesStore.getState().rootPane as Panel).tabs[1];
-      expect(tab.launchError).toMatchObject({ code: "PATH_NOT_FOUND" });
+      // 批5 绞杀：launchError 单源在 leaf，tab 不再物化
       expect(tab.terminalRootPane).toMatchObject({
         type: "leaf",
         launchError: { code: "PATH_NOT_FOUND" },
@@ -604,7 +604,6 @@ describe("usePanesStore", () => {
       usePanesStore.getState().retryTerminalLaunch(tab.id, leafId);
 
       tab = (usePanesStore.getState().rootPane as Panel).tabs[1];
-      expect(tab.launchError).toBeUndefined();
       expect(tab.launchAttempt).toBe(1);
       expect(tab.terminalRootPane).toMatchObject({
         type: "leaf",

@@ -11,12 +11,14 @@ import type {
   SplitDirection,
   SshConnectionInfo,
   Tab,
+  TerminalPaneNode,
   TerminalRestoreBlockedReason,
   TerminalStatusInfo,
   WslLaunchInfo,
 } from "@/types";
 import type { LayoutPresetId } from "@/types/pane";
 import type { DestroyReason } from "@/lib/tabLifecycle/destroyPipeline";
+import type { TabViewState } from "@/lib/tabLifecycle/tabViewState";
 import type { BrowserTabActions } from "./browserTabActions";
 
 export interface CreateTabOptions {
@@ -141,13 +143,29 @@ export interface ClosedTabSnapshot {
   starred?: boolean;
   parentTabId?: string;
   /**
+   * 启动附加项（yolo / skipMcp / appendSystemPrompt / adapterOptions）。
+   * initialPrompt 在存快照时就已剥掉——撤销出来的会话不得重放首启 prompt。
+   */
+  launchExtras?: LaunchExtras;
+  /**
+   * 分屏结构（docs/78 批4）。只有多格 tab 才存：单格由 addTab 自然重建。
+   * 存的是**已过重置清单**的树（resetTerminalTreeForRelaunch），里面绝无
+   * 活会话字段——撤销恢复的是「布局与启动身份」，不是死掉的 PTY。
+   */
+  terminalRootPane?: TerminalPaneNode;
+  /**
    * 非终端标签的撤销（docs/78）。缺省 = terminal（历史快照兼容）。
-   * browser 存 URL、editor 存 filePath——滚动位置与光标需要组件级通道，
-   * 留作后续（registry.onPersist 的形状已为此预留）。
+   * browser 存 URL、editor 存 filePath。
    */
   contentType?: "terminal" | "browser" | "editor";
   browserUrl?: string;
   filePath?: string;
+  /**
+   * 组件级视图状态（docs/78 批4 的 onPersist）：editor 光标等。
+   * 与上面的字段分工——那些是标签数据（组件没挂载也读得到），这个只活在
+   * 组件实例里，由组件上报到 lib/tabLifecycle/tabViewState。
+   */
+  viewState?: TabViewState;
 }
 
 export interface PanesState extends BrowserTabActions {

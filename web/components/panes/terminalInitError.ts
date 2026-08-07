@@ -1,3 +1,5 @@
+import { getCliInstallHint } from "./terminalCliInstallHint";
+
 const red = (text: string) => `\x1b[31m${text}\x1b[0m`;
 const yellow = (text: string) => `\x1b[33m${text}\x1b[0m`;
 const gray = (text: string) => `\x1b[90m${text}\x1b[0m`;
@@ -45,4 +47,28 @@ export function formatTerminalInitError(errorMsg: string): string[] | null {
     default:
       return null;
   }
+}
+
+/**
+ * 初始化失败时写进终端的整段文案（docs/78 批4 从 TerminalView 的 catch 里抽出）。
+ *
+ * 三级降级：结构化错误码 → 「某某 CLI 未安装」附安装指引 → 通用报错。
+ * 抽成纯函数是为了让文案可单测——它此前埋在 2000 多行组件的 catch 里，
+ * 只能靠手工触发失败才看得到。
+ */
+export function describeTerminalInitError(errorMsg: string): string[] {
+  const formatted = formatTerminalInitError(errorMsg);
+  if (formatted) return formatted;
+
+  const cliNotFoundMatch = errorMsg.match(/(\w+) CLI not found/);
+  if (!cliNotFoundMatch) {
+    return [red(`Failed to initialize terminal session: ${errorMsg}`)];
+  }
+  const toolName = cliNotFoundMatch[1];
+  const installHint = getCliInstallHint(toolName);
+  return [
+    red(`${toolName} CLI is not installed or not in PATH.`),
+    yellow(`Please install the ${toolName} CLI and make sure it's available in your PATH.`),
+    ...(installHint ? [yellow(installHint)] : []),
+  ];
 }

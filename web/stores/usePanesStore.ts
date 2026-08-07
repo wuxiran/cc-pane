@@ -10,6 +10,11 @@ import { projectPathsEquivalent } from "@/utils/projectIdentity";
 import { collectTabs, collectTerminalLeaves, findTerminalPane } from "@/lib/paneSessions";
 import { assignTreeAndConvergeActive } from "@/lib/paneTree";
 import { sweepOwnerState } from "@/lib/tabLifecycle/destroyPipeline";
+import { createTabOfType } from "@/lib/tabLifecycle/tabFactory";
+import {
+  resetTerminalLeafForRelaunch,
+  stripInitialPrompt,
+} from "@/lib/tabLifecycle/terminalLeafReset";
 // createPanel 唯一实现在 paneTreeHelpers（该模块只依赖 @/types，反向引用不会成环）。
 // 注意它接受可选 tab：openSessionBesidePane 依赖 createPanel(createTab(opts)) 避免多出空标签。
 // 树辅助（findPane 等）与 close 系树操作已下沉到 paneTreeHelpers /
@@ -50,7 +55,12 @@ import { inferCliTool, resolveRestoreMode } from "@/lib/terminalRestoreMode";
 import { migratePersistedPanes } from "./panesPersistMigrations";
 import { createEditorTabActions } from "./editorTabActions";
 import { createTerminalColdRestoreActions } from "./terminalColdRestoreActions";
-import { reopenNonTerminalSnapshot, restoreClosedTabIdentity, trimClosedTabs } from "./closedTabsUndo";
+import {
+  reopenNonTerminalSnapshot,
+  restoreClosedTabIdentity,
+  restoreClosedTabSplitTree,
+  trimClosedTabs,
+} from "./closedTabsUndo";
 import type {
   CreateTabOptions,
   DraftTabAcrossLayoutsLocation,
@@ -75,7 +85,6 @@ import type {
   SplitDirection,
   TerminalPaneNode,
   TerminalPaneLeaf,
-  LaunchExtras,
 } from "@/types";
 import type { LayoutPresetId } from "@/types/pane";
 import { getLayoutWorkspaceBinding } from "@/utils/layoutWorkspace";
@@ -84,113 +93,24 @@ import { getLayoutWorkspaceBinding } from "@/utils/layoutWorkspace";
 // 真身在 paneTreeHelpers；这里保留 re-export 维持既有 import 路径。
 export { TERMINAL_LAYOUT_CHANGED_EVENT } from "@/lib/paneTree";
 
+/**
+ * 终端标签工厂。真身在 `lib/tabLifecycle/tabFactory` + 登记表的 createDefaults
+ * （docs/78 批4：Tab 构造收敛成唯一入口），这里保留既有调用签名与 import 路径。
+ */
 export function createTab(opts: CreateTabOptions): Tab {
-  const { projectId, projectPath, launchId, sessionId, resumeId, workspaceName, providerId, modelId, providerSelection, launchProfileId, workspacePath, workspaceSnapshotId, cliTool, customTitle, ssh, wsl, machineName, parentTabId, launchExtras } = opts;
-  let title: string;
-  if (customTitle) {
-    title = customTitle;
-  } else {
-    const name = projectPath.split(/[/\\]/).pop() || "Terminal";
-    if (ssh) {
-      const label = machineName || "SSH";
-      title = `[${label}] ${name}`;
-    } else if (wsl && cliTool && cliTool !== "none") {
-      const toolLabel = cliTool.charAt(0).toUpperCase() + cliTool.slice(1);
-      title = `${name} (${toolLabel} WSL)`;
-    } else if (cliTool && cliTool !== "none") {
-      const toolLabel = cliTool.charAt(0).toUpperCase() + cliTool.slice(1);
-      title = `${name} (${toolLabel})`;
-    } else if (resumeId === "new") {
-      title = `${name} (Claude)`;
-    } else if (resumeId) {
-      title = `${name} (resume)`;
-    } else {
-      title = name;
-    }
-  }
-  const terminalLeaf: TerminalPaneLeaf = {
-    type: "leaf",
-    id: generateId("terminal-pane"),
-    launchId: launchId ?? generateId("launch"),
-    restoreMode: resolveRestoreMode({
-      cliTool: inferCliTool(cliTool, resumeId),
-      resumeId,
-    }),
-    sessionId: sessionId ?? null,
-    resumeId,
-    workspaceName,
-    providerId,
-    modelId,
-    providerSelection,
-    launchProfileId,
-    workspacePath,
-    workspaceSnapshotId,
-    cliTool,
-    launchClaude: (cliTool && cliTool !== "none") || undefined,
-    ssh,
-    wsl,
-    machineName,
-    launchExtras,
-  };
-
-  return {
-    id: generateId("tab"),
-    title,
-    contentType: "terminal",
-    projectId,
-    projectPath,
-    sessionId: terminalLeaf.sessionId,
-    resumeId: terminalLeaf.resumeId,
-    resumeIdSource: terminalLeaf.resumeIdSource,
-    workspaceName: terminalLeaf.workspaceName,
-    providerId: terminalLeaf.providerId,
-    modelId: terminalLeaf.modelId,
-    providerSelection: terminalLeaf.providerSelection,
-    launchProfileId: terminalLeaf.launchProfileId,
-    workspacePath: terminalLeaf.workspacePath,
-    workspaceSnapshotId: terminalLeaf.workspaceSnapshotId,
-    cliTool: terminalLeaf.cliTool,
-    launchClaude: terminalLeaf.launchClaude,
-    ssh: terminalLeaf.ssh,
-    wsl: terminalLeaf.wsl,
-    machineName: terminalLeaf.machineName,
-    terminalRootPane: terminalLeaf,
-    activeTerminalPaneId: terminalLeaf.id,
-    parentTabId,
-    launchExtras: terminalLeaf.launchExtras,
-    launchError: terminalLeaf.launchError,
-    launchAttempt: terminalLeaf.launchAttempt,
-  };
+  return createTabOfType("terminal", {
+    projectId: opts.projectId,
+    projectPath: opts.projectPath,
+    terminal: opts,
+  });
 }
 
+/**
+ * 分屏克隆。重置清单的唯一真身在 `lib/tabLifecycle/terminalLeafReset`
+ * （关闭撤销的树回放共用同一份，docs/78 批4）。
+ */
 function cloneTerminalLeaf(source: TerminalPaneLeaf): TerminalPaneLeaf {
-  return {
-    ...source,
-    id: generateId("terminal-pane"),
-    launchId: generateId("launch"),
-    restoreMode: resolveRestoreMode({
-      cliTool: inferCliTool(source.cliTool, source.launchClaude, source.resumeId),
-      resumeId: source.resumeId,
-    }),
-    sessionId: null,
-    disconnected: false,
-    restoring: false,
-    savedSessionId: undefined,
-    restoreBlockedReason: undefined,
-    leaseReadOnly: false,
-    launchError: undefined,
-    launchAttempt: 0,
-    // initialPrompt 仅首启生效：分屏克隆的新 leaf 不得重放
-    launchExtras: stripInitialPrompt(source.launchExtras),
-  };
-}
-
-/** 去掉 launchExtras 中的 initialPrompt（防重放）；无其余字段时整体归 undefined */
-function stripInitialPrompt(extras: LaunchExtras | undefined): LaunchExtras | undefined {
-  if (!extras) return undefined;
-  if (extras.initialPrompt === undefined) return extras;
-  const { initialPrompt: _initialPrompt, ...rest } = extras;
-  return Object.keys(rest).length > 0 ? rest : undefined;
+  return resetTerminalLeafForRelaunch(source);
 }
 
 export const STARRED_LAYOUT_NAME = "星标";
@@ -1739,7 +1659,21 @@ export const usePanesStore = create<PanesState>()(
       });
 
       // 非终端撤销分流（docs/78）：browser/editor 各走自己的创建入口。
-      if (reopenNonTerminalSnapshot(get(), lastClosed)) return;
+      // findEditorTabIdByPath 供 onRestoreState 定位新标签——openEditor 返回的
+      // 是 layoutId，不能当 tabId 用。
+      const reopenHost = {
+        ...get(),
+        findEditorTabIdByPath: (filePath: string): string | null => {
+          const state = get();
+          for (const panel of state.allPanelsAcrossLayouts()) {
+            for (const tab of panel.tabs) {
+              if (tab.contentType === "editor" && tab.filePath === filePath) return tab.id;
+            }
+          }
+          return null;
+        },
+      };
+      if (reopenNonTerminalSnapshot(reopenHost, lastClosed)) return;
 
       get().addTab(paneId, {
         projectId: lastClosed.projectId,
@@ -1759,8 +1693,23 @@ export const usePanesStore = create<PanesState>()(
         wsl: lastClosed.wsl,
         machineName: lastClosed.machineName,
         parentTabId: lastClosed.parentTabId,
+        launchExtras: lastClosed.launchExtras,
       });
 
+      // 分屏结构回放（docs/78 批4）：addTab 只建单格。
+      restoreClosedTabSplitTree(
+        (tabId, root, activeLeafId) => {
+          set((state) => {
+            const location = findTabAcrossLayouts(state, tabId);
+            if (!location) return;
+            location.tab.terminalRootPane = root;
+            location.tab.activeTerminalPaneId = activeLeafId;
+          });
+        },
+        get().findPaneById,
+        paneId,
+        lastClosed,
+      );
       restoreClosedTabIdentity(get(), paneId, lastClosed);
     },
 
@@ -1780,14 +1729,10 @@ export const usePanesStore = create<PanesState>()(
       set((state) => {
         const pane = findPane(state.rootPane, state.activePaneId);
         if (pane?.type !== "panel") return;
-        const newTab: Tab = {
-          id: generateId("tab"),
+        const newTab = createTabOfType("mcp-config", {
           title: `MCP - ${title}`,
-          contentType: "mcp-config",
-          projectId: "",
           projectPath,
-          sessionId: null,
-        };
+        });
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
       });
@@ -1808,14 +1753,10 @@ export const usePanesStore = create<PanesState>()(
       set((state) => {
         const pane = findPane(state.rootPane, state.activePaneId);
         if (pane?.type !== "panel") return;
-        const newTab: Tab = {
-          id: generateId("tab"),
+        const newTab = createTabOfType("skill-manager", {
           title: `Skill - ${title}`,
-          contentType: "skill-manager",
-          projectId: "",
           projectPath,
-          sessionId: null,
-        };
+        });
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
       });
@@ -1836,14 +1777,10 @@ export const usePanesStore = create<PanesState>()(
       set((state) => {
         const pane = findPane(state.rootPane, state.activePaneId);
         if (pane?.type !== "panel") return;
-        const newTab: Tab = {
-          id: generateId("tab"),
+        const newTab = createTabOfType("memory-manager", {
           title: `Memory - ${title}`,
-          contentType: "memory-manager",
-          projectId: "",
           projectPath,
-          sessionId: null,
-        };
+        });
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
       });
@@ -1864,14 +1801,10 @@ export const usePanesStore = create<PanesState>()(
       set((state) => {
         const pane = findPane(state.rootPane, state.activePaneId);
         if (pane?.type !== "panel") return;
-        const newTab: Tab = {
-          id: generateId("tab"),
+        const newTab = createTabOfType("file-explorer", {
           title: `Explorer - ${title}`,
-          contentType: "file-explorer",
-          projectId: "",
           projectPath,
-          sessionId: null,
-        };
+        });
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
       });
@@ -2171,6 +2104,8 @@ export const usePanesStore = create<PanesState>()(
           for (const tab of panel.tabs) {
             if (tab.contentType !== "terminal") continue;
             if (tab.sessionId) referenced.add(tab.sessionId);
+            // tab.savedSessionId 自批5 绞杀后不再物化刷新：有树时该值可能是快照载入的
+            // 陈旧拷贝。保护集语义是超集安全（多保护≠误杀），保留读取以覆盖 legacy 形态。
             if (tab.savedSessionId) referenced.add(tab.savedSessionId);
             for (const leaf of collectTerminalLeaves(tab.terminalRootPane)) {
               if (leaf.sessionId) referenced.add(leaf.sessionId);
