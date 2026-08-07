@@ -631,6 +631,51 @@ impl CodexAdapter {
         }
     }
 
+    /// 经 stdin 向发行版内 bash 送脚本、经 WSLENV 透传参数。
+    ///
+    /// **不能走 argv**：wsl.exe 的 Windows argv → Linux argv 转换会搅坏含
+    /// `"$(cmd arg)"` 形态的脚本（CreateProcess 正确转义后 bash 仍报
+    /// unexpected EOF；带位置参数时更险——exit 0 但输出是坏数据，wsl 2.7.11
+    /// 实测）。stdin 完全绕过 argv 转换；参数用 WSLENV `/u` 标志原样转发。
+    #[cfg(windows)]
+    fn run_wsl_script_via_stdin(
+        wsl_path: &Path,
+        distro: &str,
+        script: &str,
+        envs: &[(&str, &str)],
+    ) -> Option<std::process::Output> {
+        use std::io::Write as _;
+        use std::process::Stdio;
+
+        let mut command = crate::no_window_command(&wsl_path.to_string_lossy());
+        command.args(["-d", distro, "bash", "-l", "-s"]);
+        if !envs.is_empty() {
+            let forwarded = envs
+                .iter()
+                .map(|(name, _)| format!("{name}/u"))
+                .collect::<Vec<_>>()
+                .join(":");
+            // 叠加而非覆盖用户已有的 WSLENV 转发表
+            let wslenv = match std::env::var("WSLENV") {
+                Ok(existing) if !existing.is_empty() => format!("{existing}:{forwarded}"),
+                _ => forwarded,
+            };
+            for (name, value) in envs {
+                command.env(name, value);
+            }
+            command.env("WSLENV", wslenv);
+        }
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .ok()?;
+        child.stdin.take()?.write_all(script.as_bytes()).ok()?;
+        let output = child.wait_with_output().ok()?;
+        output.status.success().then_some(output)
+    }
+
     #[cfg(windows)]
     fn resolve_wsl_trust_paths(
         wsl_path: &Path,
@@ -639,7 +684,7 @@ impl CodexAdapter {
     ) -> Option<(PathBuf, String, PathBuf)> {
         let script = r#"cfg="${CODEX_HOME:-$HOME/.codex}/config.toml"
 mkdir -p "$(dirname "$cfg")" || exit 1
-target="$1"
+target="$CCPANES_TRUST_TARGET"
 case "$target" in
   "~"|"~/") target="$HOME" ;;
   "~/"*) target="$HOME/${target:2}" ;;
@@ -647,26 +692,21 @@ esac
 cd -- "$target" || exit 1
 cwd="$(pwd -P)" || exit 1
 printf '%s\n%s\n%s\n' "$(wslpath -w "$cfg")" "$cwd" "$(wslpath -w "$cwd/.git")""#;
-        let output = crate::no_window_command(&wsl_path.to_string_lossy())
-            .args([
-                "-d",
-                distro,
-                "bash",
-                "-lc",
-                script,
-                "ccpanes-auto-trust",
-                project_path,
-            ])
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
+        let output = Self::run_wsl_script_via_stdin(
+            wsl_path,
+            distro,
+            script,
+            &[("CCPANES_TRUST_TARGET", project_path)],
+        )?;
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut lines = stdout.lines().map(|line| line.trim_end_matches('\r'));
         let config_path = PathBuf::from(lines.next()?);
         let project_path = lines.next()?.to_string();
         let dot_git_path = PathBuf::from(lines.next()?);
+        // argv 时代的坏数据形态是「exit 0 + 空行」——空值必须视为失败
+        if config_path.as_os_str().is_empty() || project_path.is_empty() {
+            return None;
+        }
         Some((config_path, project_path, dot_git_path))
     }
 
@@ -843,13 +883,7 @@ printf '%s\n%s\n%s\n' "$(wslpath -w "$cfg")" "$cwd" "$(wslpath -w "$cwd/.git")""
     #[cfg(windows)]
     fn resolve_wsl_codex_config_windows_path(wsl_path: &Path, distro: &str) -> Option<PathBuf> {
         let script = r#"cfg="${CODEX_HOME:-$HOME/.codex}/config.toml"; [ -f "$cfg" ] || exit 0; wslpath -w "$cfg""#;
-        let output = crate::no_window_command(&wsl_path.to_string_lossy())
-            .args(["-d", distro, "bash", "-lc", script])
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
+        let output = Self::run_wsl_script_via_stdin(wsl_path, distro, script, &[])?;
         let win = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if win.is_empty() {
             None
