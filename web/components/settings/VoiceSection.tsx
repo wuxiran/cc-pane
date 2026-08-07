@@ -1,8 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { resolveVoiceProvider, VOICE_PROVIDERS, VOICE_PROVIDER_IDS } from "@/lib/voiceProviders";
 import type { VoiceSettings } from "@/types";
 
 interface VoiceSectionProps {
@@ -19,20 +19,62 @@ const LANGUAGE_OPTIONS = [
   { value: "ko", labelKey: "voiceLanguageKo" },
 ] as const;
 
-const PROVIDER_OPTIONS = [
-  { value: "dashscope", labelKey: "voiceProviderDashscope" },
-  { value: "mimo", labelKey: "voiceProviderMimo" },
-] as const;
-
-const AUTO_LANGUAGE_VALUE = "__auto__";
-
 export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
   const { t } = useTranslation("settings");
-  const selectedProvider = value.provider ?? "dashscope";
+  const capability = resolveVoiceProvider(value.provider);
 
   function update<K extends keyof VoiceSettings>(key: K, next: VoiceSettings[K]) {
     onChange({ ...value, [key]: next });
   }
+
+  const selectClassName = "h-9 rounded-md px-2 text-[13px] outline-none";
+  const selectStyle = {
+    border: "1px solid var(--app-border)",
+    background: "var(--app-content)",
+    color: "var(--app-text-primary)",
+  };
+
+  const languageSelect = (
+    <div className="flex flex-col gap-1">
+      <Label>{t("voiceLanguage")}</Label>
+      <select
+        value={value.language ?? ""}
+        onChange={(event) => update("language", event.target.value || null)}
+        className={selectClassName}
+        style={selectStyle}
+      >
+        {LANGUAGE_OPTIONS.map((option) => (
+          <option key={option.value || "auto"} value={option.value}>
+            {t(option.labelKey)}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+
+  const maxRecordSecondsInput = (
+    <div className="flex flex-col gap-1">
+      <Label>{t("voiceMaxRecordSeconds")}</Label>
+      <Input
+        type="number"
+        min={1}
+        max={300}
+        value={value.maxRecordSeconds}
+        onChange={(event) => update("maxRecordSeconds", Number(event.target.value))}
+      />
+    </div>
+  );
+
+  const modelInput = (
+    <div className="flex flex-col gap-1">
+      <Label>{t("voiceModel")}</Label>
+      <Input
+        value={value[capability.modelField]}
+        onChange={(event) => update(capability.modelField, event.target.value)}
+        placeholder={capability.modelPlaceholder}
+      />
+    </div>
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -68,13 +110,14 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
       <div className="flex flex-col gap-2">
         <Label>{t("voiceProvider")}</Label>
         <div className="flex flex-wrap gap-2">
-          {PROVIDER_OPTIONS.map((option) => {
-            const active = selectedProvider === option.value;
+          {VOICE_PROVIDER_IDS.map((providerId) => {
+            const option = VOICE_PROVIDERS[providerId];
+            const active = capability.id === providerId;
             return (
               <button
-                key={option.value}
+                key={providerId}
                 type="button"
-                onClick={() => update("provider", option.value)}
+                onClick={() => update("provider", providerId)}
                 className={cn(
                   "h-9 rounded-md border px-3 text-[13px] font-medium transition-colors",
                   active
@@ -89,158 +132,93 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
         </div>
       </div>
 
-      {selectedProvider === "dashscope" ? (
-        <>
       <div className="flex flex-col gap-1">
-        <Label>{t("voiceDashscopeApiKey")}</Label>
+        <Label>{t(capability.apiKeyLabelKey)}</Label>
         <Input
           type="password"
-          value={value.dashscopeApiKey}
-          onChange={(event) => update("dashscopeApiKey", event.target.value)}
-          placeholder="sk-..."
+          value={value[capability.apiKeyField]}
+          onChange={(event) => update(capability.apiKeyField, event.target.value)}
+          placeholder={capability.apiKeyPlaceholder}
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="flex flex-col gap-1">
-          <Label>{t("voiceRegion")}</Label>
-          <Select value={value.region} onValueChange={(next) => update("region", next as VoiceSettings["region"])}>
-            <SelectTrigger aria-label={t("voiceRegion")} className="w-full bg-[var(--app-content)] text-[13px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="cn">{t("voiceRegionCn")}</SelectItem>
-              <SelectItem value="intl">{t("voiceRegionIntl")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <Label>{t("voiceLanguage")}</Label>
-          <Select
-            value={value.language || AUTO_LANGUAGE_VALUE}
-            onValueChange={(next) => update("language", next === AUTO_LANGUAGE_VALUE ? null : next)}
-          >
-            <SelectTrigger aria-label={t("voiceLanguage")} className="w-full bg-[var(--app-content)] text-[13px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {LANGUAGE_OPTIONS.map((option) => (
-                <SelectItem key={option.value || "auto"} value={option.value || AUTO_LANGUAGE_VALUE}>
-                  {t(option.labelKey)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-[1fr_120px] gap-3">
-        <div className="flex flex-col gap-1">
-          <Label>{t("voiceModel")}</Label>
-          <Input
-            value={value.model}
-            onChange={(event) => update("model", event.target.value)}
-            placeholder="qwen3-asr-flash"
-          />
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <Label>{t("voiceMaxRecordSeconds")}</Label>
-          <Input
-            type="number"
-            min={1}
-            max={300}
-            value={value.maxRecordSeconds}
-            onChange={(event) => update("maxRecordSeconds", Number(event.target.value))}
-          />
-        </div>
-      </div>
-
-      <label className="flex items-center gap-2 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
-        <input
-          type="checkbox"
-          checked={value.enableItn}
-          onChange={(event) => update("enableItn", event.target.checked)}
-          className="h-4 w-4 cursor-pointer"
-          style={{ accentColor: "var(--app-accent)" }}
-        />
-        {t("voiceEnableItn")}
-      </label>
-
-      <p className="text-[11px] leading-5" style={{ color: "var(--app-text-tertiary)" }}>
-        {t("voiceLimitHint")}
-      </p>
-        </>
-      ) : (
-        <>
+      {capability.baseUrlField ? (
+        <div className="grid grid-cols-[1fr_180px] gap-3">
           <div className="flex flex-col gap-1">
-            <Label>{t("voiceMimoApiKey")}</Label>
+            <Label>{t(capability.baseUrlLabelKey ?? "voiceMimoBaseUrl")}</Label>
             <Input
-              type="password"
-              value={value.mimoApiKey}
-              onChange={(event) => update("mimoApiKey", event.target.value)}
-              placeholder="mimo-..."
+              value={value[capability.baseUrlField]}
+              onChange={(event) => update(capability.baseUrlField!, event.target.value)}
+              placeholder={capability.baseUrlPlaceholder}
             />
           </div>
+          {modelInput}
+        </div>
+      ) : null}
 
-          <div className="grid grid-cols-[1fr_180px] gap-3">
+      {capability.showRegion ? (
+        <>
+          <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
-              <Label>{t("voiceMimoBaseUrl")}</Label>
-              <Input
-                value={value.mimoBaseUrl}
-                onChange={(event) => update("mimoBaseUrl", event.target.value)}
-                placeholder="https://api.xiaomimimo.com/v1"
-              />
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <Label>{t("voiceModel")}</Label>
-              <Input
-                value={value.mimoModel}
-                onChange={(event) => update("mimoModel", event.target.value)}
-                placeholder="mimo-v2.5"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-[1fr_120px] gap-3">
-            <div className="flex flex-col gap-1">
-              <Label>{t("voiceLanguage")}</Label>
-              <Select
-                value={value.language || AUTO_LANGUAGE_VALUE}
-                onValueChange={(next) => update("language", next === AUTO_LANGUAGE_VALUE ? null : next)}
+              <Label>{t("voiceRegion")}</Label>
+              <select
+                value={value.region}
+                onChange={(event) => update("region", event.target.value as VoiceSettings["region"])}
+                className={selectClassName}
+                style={selectStyle}
               >
-                <SelectTrigger aria-label={t("voiceLanguage")} className="w-full bg-[var(--app-content)] text-[13px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {LANGUAGE_OPTIONS.map((option) => (
-                    <SelectItem key={option.value || "auto"} value={option.value || AUTO_LANGUAGE_VALUE}>
-                      {t(option.labelKey)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                <option value="cn">{t("voiceRegionCn")}</option>
+                <option value="intl">{t("voiceRegionIntl")}</option>
+              </select>
             </div>
-
-            <div className="flex flex-col gap-1">
-              <Label>{t("voiceMaxRecordSeconds")}</Label>
-              <Input
-                type="number"
-                min={1}
-                max={300}
-                value={value.maxRecordSeconds}
-                onChange={(event) => update("maxRecordSeconds", Number(event.target.value))}
-              />
-            </div>
+            {languageSelect}
           </div>
-
-          <p className="text-[11px] leading-5" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("voiceMimoHint")}
-          </p>
+          <div className="grid grid-cols-[1fr_120px] gap-3">
+            {modelInput}
+            {maxRecordSecondsInput}
+          </div>
         </>
+      ) : (
+        <div className="grid grid-cols-[1fr_120px] gap-3">
+          {languageSelect}
+          {maxRecordSecondsInput}
+        </div>
       )}
+
+      {capability.showEnableItn ? (
+        <label className="flex items-center gap-2 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+          <input
+            type="checkbox"
+            checked={value.enableItn}
+            onChange={(event) => update("enableItn", event.target.checked)}
+            className="h-4 w-4 cursor-pointer"
+            style={{ accentColor: "var(--app-accent)" }}
+          />
+          {t("voiceEnableItn")}
+        </label>
+      ) : null}
+
+      {capability.showPreferWavToggle ? (
+        <div className="flex flex-col gap-0.5">
+          <label className="flex items-center gap-2 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+            <input
+              type="checkbox"
+              checked={value.customPreferWav}
+              onChange={(event) => update("customPreferWav", event.target.checked)}
+              className="h-4 w-4 cursor-pointer"
+              style={{ accentColor: "var(--app-accent)" }}
+            />
+            {t("voiceCustomPreferWav")}
+          </label>
+          <p className="text-[12px] pl-6 m-0" style={{ color: "var(--app-text-tertiary)" }}>
+            {t("voiceCustomPreferWavDesc")}
+          </p>
+        </div>
+      ) : null}
+
+      <p className="text-[11px] leading-5" style={{ color: "var(--app-text-tertiary)" }}>
+        {t(capability.hintKey)}
+      </p>
     </div>
   );
 }

@@ -692,6 +692,17 @@ pub struct VoiceSettings {
     pub mimo_base_url: String,
     #[serde(default = "default_voice_mimo_model")]
     pub mimo_model: String,
+    /// 自定义 OpenAI 兼容 provider（/v1/audio/transcriptions multipart）。
+    /// apiKey 允许为空——本地 whisper.cpp server / faster-whisper 无鉴权。
+    #[serde(default)]
+    pub custom_api_key: String,
+    #[serde(default = "default_voice_custom_base_url")]
+    pub custom_base_url: String,
+    #[serde(default = "default_voice_custom_model")]
+    pub custom_model: String,
+    /// 录音先在前端转成 WAV 再发送（目标服务不支持 WebM 时开启）
+    #[serde(default)]
+    pub custom_prefer_wav: bool,
     /// 可选语种；为空时交给模型自动识别
     #[serde(default)]
     pub language: Option<String>,
@@ -706,7 +717,7 @@ pub struct VoiceSettings {
 
 impl VoiceSettings {
     pub fn merge_missing_defaults(&mut self) {
-        if !matches!(self.provider.as_str(), "dashscope" | "mimo") {
+        if !matches!(self.provider.as_str(), "dashscope" | "mimo" | "custom") {
             self.provider = default_voice_provider();
         }
         if !matches!(self.region.as_str(), "cn" | "intl") {
@@ -722,6 +733,14 @@ impl VoiceSettings {
         }
         if self.mimo_model.trim().is_empty() {
             self.mimo_model = default_voice_mimo_model();
+        }
+        if self.custom_base_url.trim().is_empty() {
+            self.custom_base_url = default_voice_custom_base_url();
+        } else {
+            self.custom_base_url = self.custom_base_url.trim().trim_end_matches('/').to_string();
+        }
+        if self.custom_model.trim().is_empty() {
+            self.custom_model = default_voice_custom_model();
         }
         if let Some(language) = self.language.as_ref() {
             if language.trim().is_empty() {
@@ -1001,6 +1020,14 @@ fn default_voice_mimo_model() -> String {
     "mimo-v2.5".to_string()
 }
 
+fn default_voice_custom_base_url() -> String {
+    "http://127.0.0.1:8080/v1".to_string()
+}
+
+fn default_voice_custom_model() -> String {
+    "whisper-1".to_string()
+}
+
 fn default_voice_max_record_seconds() -> u32 {
     60
 }
@@ -1200,6 +1227,10 @@ impl Default for VoiceSettings {
             mimo_api_key: String::new(),
             mimo_base_url: default_voice_mimo_base_url(),
             mimo_model: default_voice_mimo_model(),
+            custom_api_key: String::new(),
+            custom_base_url: default_voice_custom_base_url(),
+            custom_model: default_voice_custom_model(),
+            custom_prefer_wav: false,
             language: None,
             enable_itn: false,
             max_record_seconds: default_voice_max_record_seconds(),
@@ -1697,6 +1728,10 @@ mod tests {
             mimo_api_key: "mimo-test".to_string(),
             mimo_base_url: " https://api.xiaomimimo.com/v1/ ".to_string(),
             mimo_model: String::new(),
+            custom_api_key: String::new(),
+            custom_base_url: " http://127.0.0.1:9000/v1/ ".to_string(),
+            custom_model: String::new(),
+            custom_prefer_wav: false,
             language: Some(" ".to_string()),
             enable_itn: true,
             max_record_seconds: 999,
@@ -1710,8 +1745,26 @@ mod tests {
         assert_eq!(settings.model, "qwen3-asr-flash");
         assert_eq!(settings.mimo_base_url, "https://api.xiaomimimo.com/v1");
         assert_eq!(settings.mimo_model, "mimo-v2.5");
+        assert_eq!(settings.custom_base_url, "http://127.0.0.1:9000/v1");
+        assert_eq!(settings.custom_model, "whisper-1");
         assert_eq!(settings.language, None);
         assert_eq!(settings.max_record_seconds, 60);
+    }
+
+    #[test]
+    fn voice_merge_keeps_custom_provider_and_backfills_legacy_config() {
+        // 老配置没有 custom 字段：serde default 兜底 + merge 回填默认值
+        let legacy: VoiceSettings =
+            serde_json::from_str(r#"{"provider":"custom","dashscopeApiKey":"sk-keep"}"#).unwrap();
+        let mut settings = legacy;
+        settings.merge_missing_defaults();
+
+        assert_eq!(settings.provider, "custom");
+        assert_eq!(settings.dashscope_api_key, "sk-keep");
+        assert_eq!(settings.custom_api_key, "");
+        assert_eq!(settings.custom_base_url, "http://127.0.0.1:8080/v1");
+        assert_eq!(settings.custom_model, "whisper-1");
+        assert!(!settings.custom_prefer_wav);
     }
 
     #[test]

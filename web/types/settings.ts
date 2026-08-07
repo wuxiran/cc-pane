@@ -237,13 +237,19 @@ export interface ScreenshotSettings {
 /** 语音输入设置 */
 export interface VoiceSettings {
   enabled: boolean;
-  provider: "dashscope" | "mimo";
+  provider: "dashscope" | "mimo" | "custom";
   dashscopeApiKey: string;
   region: "cn" | "intl";
   model: string;
   mimoApiKey: string;
   mimoBaseUrl: string;
   mimoModel: string;
+  /** 自定义 OpenAI 兼容 provider（/v1/audio/transcriptions）；apiKey 可空 = 无鉴权本地服务 */
+  customApiKey: string;
+  customBaseUrl: string;
+  customModel: string;
+  /** 录音先转 WAV 再发送（目标服务不支持 WebM 时开启） */
+  customPreferWav: boolean;
   language: string | null;
   enableItn: boolean;
   maxRecordSeconds: number;

@@ -173,6 +173,18 @@ describe("VoiceInputButton", () => {
     expect(toast.error).toHaveBeenCalledWith(tPanes("voiceApiKeyMissing"));
   });
 
+  it("allows the custom provider to record with an empty api key", async () => {
+    // 本地 whisper.cpp server 等无鉴权服务：空 key 不拦
+    setVoiceSettings({ provider: "custom", customApiKey: "", dashscopeApiKey: "" });
+    const user = userEvent.setup();
+    renderButton();
+
+    await user.click(screen.getByRole("button"));
+
+    expect(toast.error).not.toHaveBeenCalledWith(tPanes("voiceApiKeyMissing"));
+    expect(getUserMedia).toHaveBeenCalled();
+  });
+
   it("refuses to start while another pane is recording", async () => {
     useVoiceInputStore.setState({ activeTargetId: "other-pane:sess-9" });
     const user = userEvent.setup();

@@ -6,6 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { terminalService, voiceService } from "@/services";
 import { useSettingsStore, useVoiceInputStore } from "@/stores";
 import { cn } from "@/lib/utils";
+import { missingApiKey, shouldPreferWav } from "@/lib/voiceProviders";
 import { isTauriRuntime } from "@/services/runtime";
 
 type VoiceStatus = "idle" | "recording" | "transcribing";
@@ -23,7 +24,7 @@ const MIME_CANDIDATES = [
   "audio/mp4",
   "audio/ogg;codecs=opus",
 ];
-const MIMO_SUPPORTED_MIME_TYPES = new Set([
+const WAV_FALLBACK_MIME_TYPES = new Set([
   "audio/wav",
   "audio/mpeg",
   "audio/mp3",
@@ -80,19 +81,19 @@ async function blobToAudioPayload(blob: Blob, preferWav: boolean): Promise<Audio
       mimeType: "audio/wav",
     };
   } catch {
-    if (isMimoSupportedMimeType(blob.type)) {
+    if (isWavFallbackMimeType(blob.type)) {
       return {
         audioBase64: await blobToBase64(blob),
         mimeType: blob.type,
       };
     }
-    throw new Error("Xiaomi MiMo requires WAV/MP3/M4A/OGG/FLAC audio; local WAV conversion failed.");
+    throw new Error("The voice provider requires WAV/MP3/M4A/OGG/FLAC audio; local WAV conversion failed.");
   }
 }
 
-function isMimoSupportedMimeType(mimeType: string): boolean {
+function isWavFallbackMimeType(mimeType: string): boolean {
   const baseType = mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
-  return MIMO_SUPPORTED_MIME_TYPES.has(baseType);
+  return WAV_FALLBACK_MIME_TYPES.has(baseType);
 }
 
 async function transcodeBlobToMonoWav(blob: Blob): Promise<Blob> {
@@ -215,11 +216,7 @@ export default function VoiceInputButton({ sessionId, paneId, disabled = false }
     if (!sessionId) return t("voiceNoSession");
     if (disabled) return t("voiceUnavailable");
     if (!voice?.enabled) return t("voiceEnableInSettings");
-    if (voice.provider === "mimo") {
-      if (!voice.mimoApiKey.trim()) return t("voiceApiKeyMissing");
-    } else if (!voice.dashscopeApiKey.trim()) {
-      return t("voiceApiKeyMissing");
-    }
+    if (missingApiKey(voice)) return t("voiceApiKeyMissing");
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       return t("voiceRecorderUnsupported");
     }
@@ -257,7 +254,7 @@ export default function VoiceInputButton({ sessionId, paneId, disabled = false }
         if (blob.size === 0) {
           throw new Error(t("voiceEmptyAudio"));
         }
-        const audio = await blobToAudioPayload(blob, voice?.provider === "mimo");
+        const audio = await blobToAudioPayload(blob, voice ? shouldPreferWav(voice) : false);
         const result = await voiceService.transcribe({
           audioBase64: audio.audioBase64,
           mimeType: audio.mimeType || blob.type || mimeType || "audio/webm",

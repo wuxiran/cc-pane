@@ -28,13 +28,30 @@ pub struct VoiceTranscribeResponse {
     pub duration: Option<f64>,
 }
 
+enum VoiceProvider {
+    Dashscope,
+    Mimo,
+    Custom,
+}
+
+impl VoiceProvider {
+    fn from_settings(provider: &str) -> Self {
+        match provider {
+            "mimo" => Self::Mimo,
+            "custom" => Self::Custom,
+            _ => Self::Dashscope,
+        }
+    }
+}
+
 pub async fn transcribe(
     settings: &VoiceSettings,
     request: &VoiceTranscribeRequest,
 ) -> AppResult<VoiceTranscribeResponse> {
-    match settings.provider.as_str() {
-        "mimo" => transcribe_with_mimo(settings, request).await,
-        _ => transcribe_with_dashscope(settings, request).await,
+    match VoiceProvider::from_settings(&settings.provider) {
+        VoiceProvider::Dashscope => transcribe_with_dashscope(settings, request).await,
+        VoiceProvider::Mimo => transcribe_with_mimo(settings, request).await,
+        VoiceProvider::Custom => transcribe_with_custom(settings, request).await,
     }
 }
 
@@ -112,6 +129,114 @@ async fn transcribe_with_mimo(
     let value: Value = serde_json::from_str(&response_body)
         .map_err(|err| format!("Failed to parse Xiaomi MiMo response: {}", err))?;
     parse_transcribe_response(&value)
+}
+
+async fn transcribe_with_custom(
+    settings: &VoiceSettings,
+    request: &VoiceTranscribeRequest,
+) -> AppResult<VoiceTranscribeResponse> {
+    // apiKey 允许为空：本地 whisper.cpp server / faster-whisper 无鉴权
+    let form = build_custom_form(settings, request)?;
+    let endpoint = custom_endpoint(&settings.custom_base_url);
+    let client = reqwest::Client::new();
+    let mut builder = client.post(endpoint).multipart(form);
+    let api_key = settings.custom_api_key.trim();
+    if !api_key.is_empty() {
+        builder = builder.bearer_auth(api_key);
+    }
+    let response = builder
+        .send()
+        .await
+        .map_err(|err| format!("Voice transcription request failed: {}", err))?;
+
+    let status = response.status();
+    let response_body = response
+        .text()
+        .await
+        .map_err(|err| format!("Failed to read voice transcription response: {}", err))?;
+    if !status.is_success() {
+        return Err(format!(
+            "Voice transcription request failed: HTTP {} {}",
+            status,
+            extract_error_message(&response_body)
+        )
+        .into());
+    }
+
+    let value: Value = serde_json::from_str(&response_body)
+        .map_err(|err| format!("Failed to parse voice transcription response: {}", err))?;
+    parse_custom_response(&value)
+}
+
+fn custom_endpoint(base_url: &str) -> String {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    if trimmed.ends_with("/audio/transcriptions") {
+        trimmed.to_string()
+    } else {
+        format!("{}/audio/transcriptions", trimmed)
+    }
+}
+
+fn build_custom_form(
+    settings: &VoiceSettings,
+    request: &VoiceTranscribeRequest,
+) -> AppResult<reqwest::multipart::Form> {
+    let audio_base64 = normalize_audio_base64(&request.audio_base64)?;
+    let mime_type = normalize_mime_type(&request.mime_type)?;
+    let audio_bytes = validate_base64_audio(audio_base64)?;
+
+    // OpenAI/Groq 按文件扩展名判格式，file_name 必须与实际 MIME 匹配；
+    // "audio/webm;codecs=opus" 要取基础类型再映射
+    let base_mime = mime_type.split(';').next().unwrap_or(mime_type).trim();
+    let part = reqwest::multipart::Part::bytes(audio_bytes)
+        .file_name(file_name_for_mime(base_mime))
+        .mime_str(base_mime)
+        .map_err(|err| format!("Invalid audio MIME type {}: {}", base_mime, err))?;
+
+    let mut form = reqwest::multipart::Form::new()
+        .part("file", part)
+        .text("model", settings.custom_model.trim().to_string())
+        .text("response_format", "json");
+
+    let language = request
+        .language
+        .as_ref()
+        .or(settings.language.as_ref())
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty());
+    if let Some(language) = language {
+        form = form.text("language", language.to_string());
+    }
+    Ok(form)
+}
+
+fn file_name_for_mime(base_mime: &str) -> &'static str {
+    match base_mime {
+        "audio/wav" | "audio/x-wav" | "audio/wave" => "audio.wav",
+        "audio/mpeg" | "audio/mp3" => "audio.mp3",
+        "audio/mp4" | "audio/m4a" | "audio/x-m4a" => "audio.mp4",
+        "audio/ogg" => "audio.ogg",
+        "audio/flac" => "audio.flac",
+        _ => "audio.webm",
+    }
+}
+
+fn parse_custom_response(value: &Value) -> AppResult<VoiceTranscribeResponse> {
+    // 标准 json 格式为 {"text": ...}；verbose_json 同样带 text，另有 language/duration
+    let text = value
+        .get("text")
+        .and_then(Value::as_str)
+        .and_then(|text| non_empty_text(text.to_string()))
+        .ok_or_else(|| "Voice provider returned an empty transcript".to_string())?;
+    Ok(VoiceTranscribeResponse {
+        text,
+        language: value
+            .get("language")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        emotion: None,
+        duration: value.get("duration").and_then(Value::as_f64),
+    })
 }
 
 fn dashscope_endpoint(region: &str) -> &'static str {
@@ -250,7 +375,8 @@ fn normalize_mime_type(input: &str) -> AppResult<&str> {
     Ok(trimmed)
 }
 
-fn validate_base64_audio(audio_base64: &str) -> AppResult<()> {
+/// 校验并解码音频 base64；custom 分支消费解码后的字节，JSON 分支丢弃返回值即可
+fn validate_base64_audio(audio_base64: &str) -> AppResult<Vec<u8>> {
     if audio_base64.len() > MAX_COMPATIBLE_AUDIO_PAYLOAD_BYTES {
         return Err(format!(
             "Audio payload is too large: {} bytes, maximum is {} bytes",
@@ -261,8 +387,7 @@ fn validate_base64_audio(audio_base64: &str) -> AppResult<()> {
     }
     STANDARD
         .decode(audio_base64)
-        .map_err(|err| format!("Invalid audio base64 data: {}", err))?;
-    Ok(())
+        .map_err(|err| format!("Invalid audio base64 data: {}", err).into())
 }
 
 fn parse_transcribe_response(value: &Value) -> AppResult<VoiceTranscribeResponse> {
@@ -501,6 +626,79 @@ mod tests {
         assert!(err
             .to_string()
             .contains("Unsupported voice input MIME type"));
+    }
+
+    #[test]
+    fn builds_custom_endpoint_variants() {
+        assert_eq!(
+            custom_endpoint("http://127.0.0.1:8080/v1"),
+            "http://127.0.0.1:8080/v1/audio/transcriptions"
+        );
+        assert_eq!(
+            custom_endpoint("http://127.0.0.1:8080/v1/"),
+            "http://127.0.0.1:8080/v1/audio/transcriptions"
+        );
+        assert_eq!(
+            custom_endpoint("https://api.groq.com/openai/v1/audio/transcriptions"),
+            "https://api.groq.com/openai/v1/audio/transcriptions"
+        );
+    }
+
+    #[test]
+    fn builds_custom_form_with_empty_api_key() {
+        let settings = VoiceSettings {
+            provider: "custom".to_string(),
+            enabled: true,
+            custom_api_key: String::new(),
+            custom_model: "whisper-1".to_string(),
+            language: Some("zh".to_string()),
+            ..VoiceSettings::default()
+        };
+        let request = VoiceTranscribeRequest {
+            audio_base64: STANDARD.encode(b"audio"),
+            mime_type: "audio/webm;codecs=opus".to_string(),
+            language: None,
+            enable_itn: None,
+        };
+
+        // 空 apiKey 不报错——multipart Form 不可内省，构造成功即视为通过
+        build_custom_form(&settings, &request).unwrap();
+    }
+
+    #[test]
+    fn maps_mime_to_file_name() {
+        assert_eq!(file_name_for_mime("audio/webm"), "audio.webm");
+        assert_eq!(file_name_for_mime("audio/wav"), "audio.wav");
+        assert_eq!(file_name_for_mime("audio/mp4"), "audio.mp4");
+        assert_eq!(file_name_for_mime("audio/ogg"), "audio.ogg");
+        assert_eq!(file_name_for_mime("audio/mpeg"), "audio.mp3");
+    }
+
+    #[test]
+    fn parses_custom_json_response() {
+        let parsed = parse_custom_response(&json!({ "text": "hello whisper" })).unwrap();
+        assert_eq!(parsed.text, "hello whisper");
+        assert_eq!(parsed.language, None);
+    }
+
+    #[test]
+    fn parses_custom_verbose_json_response() {
+        let parsed = parse_custom_response(&json!({
+            "task": "transcribe",
+            "text": "你好",
+            "language": "zh",
+            "duration": 1.5
+        }))
+        .unwrap();
+        assert_eq!(parsed.text, "你好");
+        assert_eq!(parsed.language.as_deref(), Some("zh"));
+        assert_eq!(parsed.duration, Some(1.5));
+    }
+
+    #[test]
+    fn rejects_empty_custom_transcript() {
+        let err = parse_custom_response(&json!({ "text": "  " })).unwrap_err();
+        assert!(err.to_string().contains("empty transcript"));
     }
 
     #[test]
