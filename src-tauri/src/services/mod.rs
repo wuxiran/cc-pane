@@ -19,6 +19,7 @@ mod terminal_daemon_bridge_reliability;
 mod terminal_daemon_control_link;
 mod terminal_daemon_event_bridge;
 mod terminal_daemon_lifecycle;
+pub mod voice_service;
 mod web_access_lifecycle;
 
 pub use browser_service::{
