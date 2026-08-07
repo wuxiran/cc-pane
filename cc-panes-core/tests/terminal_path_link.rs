@@ -190,6 +190,26 @@ fn terminal_path_link_rejects_symlink_escape() {
         ),
         "TERMINAL_PATH_OUTSIDE_ROOT",
     );
+
+    // 别名绕过钉子：`..` 迂回别名与穿过 symlink 的下级目录。raw 文本与 canonical
+    // root 做包含比较时，这两类都会被误判成「外部路径」从而降级成确认放行。
+    let detour = parent.path().join("detour");
+    std::fs::create_dir_all(&detour).expect("detour dir");
+    assert_error_code(
+        resolve_terminal_path_link_for_desktop(
+            &context(&root, "local"),
+            &detour.join("../project/linked-dir").to_string_lossy(),
+        ),
+        "TERMINAL_PATH_OUTSIDE_ROOT",
+    );
+    std::fs::create_dir_all(outside_dir.join("sub")).expect("outside sub dir");
+    assert_error_code(
+        resolve_terminal_path_link_for_desktop(
+            &context(&root, "local"),
+            &root.join("linked-dir/sub").to_string_lossy(),
+        ),
+        "TERMINAL_PATH_OUTSIDE_ROOT",
+    );
 }
 
 /// Windows 侧的逃逸面：junction（目录联结）。
@@ -238,17 +258,40 @@ fn terminal_path_link_rejects_junction_escape() {
         resolve_terminal_path_link_for_desktop(&context(&root, "local"), &link.to_string_lossy()),
         "TERMINAL_PATH_OUTSIDE_ROOT",
     );
+
+    // 别名绕过钉子（与 unix symlink 用例同款）：`..` 迂回别名与穿过 junction 的
+    // 下级目录都必须硬拒，不得降级成外部目录确认。
+    let detour = parent.path().join("detour");
+    std::fs::create_dir_all(&detour).expect("detour dir");
+    assert_error_code(
+        resolve_terminal_path_link_for_desktop(
+            &context(&root, "local"),
+            &detour.join("..\\project\\linked-dir").to_string_lossy(),
+        ),
+        "TERMINAL_PATH_OUTSIDE_ROOT",
+    );
+    std::fs::create_dir_all(outside_dir.join("sub")).expect("outside sub dir");
+    assert_error_code(
+        resolve_terminal_path_link_for_desktop(
+            &context(&root, "local"),
+            &root.join("linked-dir\\sub").to_string_lossy(),
+        ),
+        "TERMINAL_PATH_OUTSIDE_ROOT",
+    );
 }
 
-/// 意图锁（钉住**故意**行为，非缺陷）：UNC 绝对路径输入一律按
-/// TERMINAL_PATH_INVALID 拒收，而不是 OUTSIDE_ROOT。
+/// 意图锁（钉住**故意**行为，非缺陷）：UNC / 设备命名空间绝对路径输入按
+/// TERMINAL_PATH_INVALID 在语法层拒收，而不是 OUTSIDE_ROOT。
 ///
-/// `has_invalid_windows_syntax` 在语法层就砍掉 `\\?\` / `\\.\` / `\\` 三类前缀，
-/// 早于任何 canonicalize 与包含性判定。代价是 WSL 项目的 `\\wsl.localhost\...`
-/// 绝对路径也进不来（相对路径仍可用，见上面的 wsl 用例）。
+/// `has_invalid_windows_syntax` 在语法层砍掉 `\\.\` / `\\` 与非盘符形式的 `\\?\`
+/// 前缀，早于任何 canonicalize 与包含性判定。代价是 WSL 项目的
+/// `\\wsl.localhost\...` 绝对路径也进不来（相对路径仍可用，见上面的 wsl 用例）。
 /// 这是权衡后的取舍：设备命名空间与 UNC 的等价形式太多，逐一规范化容易漏。
-/// 将来若要放开 UNC，必须先补足等价形式的规范化，改动会让这条用例变红——
-/// 那时是提醒复核，不是「测试过时了随手改绿」。
+///
+/// 0.12.1 复核记录：`\\?\C:\...` verbatim **盘符**形式已按本注释的要求放开——
+/// 它的规范化是完整的（strip `\\?\` → canonicalize → 包含性复核，ADS 冒号仍拒），
+/// 语法合法后由包含性判定接管，项目外报 OUTSIDE_ROOT（见下）。其余三类维持语法层拒收；
+/// 再要放开任何一类，同样必须先补足等价形式的规范化，让本用例变红时来复核。
 #[cfg(windows)]
 #[test]
 fn terminal_path_link_rejects_unc_absolute_input_by_syntax() {
@@ -258,7 +301,6 @@ fn terminal_path_link_rejects_unc_absolute_input_by_syntax() {
     for raw in [
         r"\\wsl.localhost\Ubuntu\home\dev\repo\src\main.rs",
         r"\\server\share\file.md",
-        r"\\?\C:\Windows\System32\drivers\etc\hosts",
         r"\\.\PhysicalDrive0",
     ] {
         assert_error_code(
@@ -266,6 +308,12 @@ fn terminal_path_link_rejects_unc_absolute_input_by_syntax() {
             "TERMINAL_PATH_INVALID",
         );
     }
+
+    // verbatim 盘符形式语法合法，但项目外的目标要被包含性判定拦下。
+    assert_error_code(
+        resolve_terminal_path_link(&ctx, r"\\?\C:\Windows\System32\drivers\etc\hosts"),
+        "TERMINAL_PATH_OUTSIDE_ROOT",
+    );
 }
 
 /// 回归：绝对路径输入可能是与规范形不同的拼写（8.3 短名、大小写变体——

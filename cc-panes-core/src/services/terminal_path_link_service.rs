@@ -156,6 +156,32 @@ fn requested_path(root: &Path, raw_path: &str) -> AppResult<PathBuf> {
     Ok(root.join(requested))
 }
 
+/// 「显式外部目录」判定：用户点击的字面路径必须**完全不经过项目内部**才算外部。
+///
+/// 不能拿 raw 文本与 canonical root 做包含比较——raw 可能是 8.3 短名/大小写/`..`
+/// 别名（见 `requested_path` 的注释），文本比较会把「穿过项目根的路径」误判成外部，
+/// 让本应硬拒的项目内 symlink/junction 逃逸降级成确认放行。这里沿 raw 的所有祖先
+/// 前缀逐级 canonicalize：任何一级落在项目根内，即说明解析过程穿过了项目内部
+/// （symlink 本体或其上层目录），一律硬拒；宁可把可疑的别名路径误拒（fail-closed）。
+fn raw_path_is_explicitly_external(raw_path: &str, root: &Path) -> bool {
+    #[cfg(windows)]
+    let raw_path = raw_path.strip_prefix("\\\\?\\").unwrap_or(raw_path);
+    let raw = Path::new(raw_path);
+    if !raw.is_absolute() {
+        return false;
+    }
+    let mut ancestor = raw.parent();
+    while let Some(prefix) = ancestor {
+        if let Ok(canonical) = std::fs::canonicalize(prefix) {
+            if path_is_within(&canonical, root) {
+                return false;
+            }
+        }
+        ancestor = prefix.parent();
+    }
+    true
+}
+
 fn resolve_terminal_path_link_with_scope(
     context: &TerminalLinkContext,
     raw_path: &str,
@@ -211,12 +237,8 @@ fn resolve_terminal_path_link_with_scope(
         ));
     };
     let explicitly_external_directory = scope == TerminalPathScope::ExplicitAbsoluteDirectory
-        && Path::new(raw_path.strip_prefix("\\\\?\\").unwrap_or(raw_path)).is_absolute()
-        && !path_is_within(
-            Path::new(raw_path.strip_prefix("\\\\?\\").unwrap_or(raw_path)),
-            &root,
-        )
-        && kind == TerminalPathKind::Directory;
+        && kind == TerminalPathKind::Directory
+        && raw_path_is_explicitly_external(raw_path, &root);
     if !path_is_within(&target, &root) && !explicitly_external_directory {
         return Err(coded(
             "TERMINAL_PATH_OUTSIDE_ROOT",
