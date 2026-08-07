@@ -51,11 +51,10 @@ describe("useThemeStore", () => {
 
     it("应更新 localStorage", () => {
       useThemeStore.setState({ isDark: false });
-      const setItemSpy = vi.spyOn(window.localStorage, "setItem");
 
       useThemeStore.getState().toggleTheme();
 
-      expect(setItemSpy).toHaveBeenCalledWith("theme", "dark");
+      expect(window.localStorage.getItem("theme")).toBe("dark");
     });
 
     it("切换到 dark 时应在 DOM 添加 dark class", () => {

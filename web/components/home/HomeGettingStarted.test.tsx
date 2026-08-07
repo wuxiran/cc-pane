@@ -3,7 +3,12 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { skillService } from "@/services/skillService";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
-import { useDialogStore, useOrchestratorStore, useWorkspacesStore } from "@/stores";
+import {
+  useDialogStore,
+  useOrchestratorStore,
+  useRightDockStore,
+  useWorkspacesStore,
+} from "@/stores";
 import HomeGettingStarted from "./HomeGettingStarted";
 
 describe("HomeGettingStarted", () => {
@@ -18,6 +23,7 @@ describe("HomeGettingStarted", () => {
       orchestrationOverlayOpen: false,
     });
     useDialogStore.setState({ onboardingOpen: false });
+    useRightDockStore.setState({ visible: false, activeView: "git" });
     useWorkspacesStore.setState({ workspaces: [] });
     useOrchestratorStore.setState({ bindings: [] });
   });
@@ -70,7 +76,11 @@ describe("HomeGettingStarted", () => {
     await screen.findByText("0 / 5 已完成");
 
     fireEvent.click(screen.getByText("打开编排"));
-    expect(useActivityBarStore.getState().orchestrationOverlayOpen).toBe(true);
+    expect(useActivityBarStore.getState().orchestrationOverlayOpen).toBe(false);
+    expect(useRightDockStore.getState()).toMatchObject({
+      visible: true,
+      activeView: "orchestration",
+    });
 
     fireEvent.click(screen.getByText("浏览 Skills"));
     expect(useActivityBarStore.getState().appViewMode).toBe("resources");

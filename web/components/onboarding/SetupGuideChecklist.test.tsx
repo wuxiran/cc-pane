@@ -1,9 +1,12 @@
 import "@/i18n";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { skillService } from "@/services/skillService";
 import {
+  useActivityBarStore,
+  useDialogStore,
   useOrchestratorStore,
+  useRightDockStore,
   useWorkspacesStore,
 } from "@/stores";
 import type { InstalledUserSkill, TaskBinding, Workspace } from "@/types";
@@ -47,7 +50,24 @@ describe("SetupGuideChecklist", () => {
     localStorage.clear();
     useWorkspacesStore.setState({ workspaces: [] });
     useOrchestratorStore.setState({ bindings: [] });
+    useActivityBarStore.setState({ orchestrationOverlayOpen: false });
+    useRightDockStore.setState({ visible: false, activeView: "git" });
     vi.spyOn(skillService, "listUserSkills").mockResolvedValue([]);
+  });
+
+  it("opens orchestration in the right dock from the checklist", async () => {
+    useActivityBarStore.setState({ orchestrationOverlayOpen: true });
+    useDialogStore.setState({ settingsOpen: true });
+    render(<SetupGuideChecklist />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open orchestration|打开编排/i }));
+
+    expect(useDialogStore.getState().settingsOpen).toBe(false);
+    expect(useActivityBarStore.getState().orchestrationOverlayOpen).toBe(false);
+    expect(useRightDockStore.getState()).toMatchObject({
+      visible: true,
+      activeView: "orchestration",
+    });
   });
 
   it("shows every core workflow item as pending for a new user", async () => {

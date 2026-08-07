@@ -95,6 +95,10 @@ function openSkillsPage(): void {
   activity.setAppViewMode("resources");
 }
 
+function openOrchestrationModule(): void {
+  MODULE_REGISTRY.find((module) => module.id === "orchestration")?.open("rightDock");
+}
+
 function shortcutTip(
   definition: Omit<FeatureTipDefinition, "tryAction" | "eligible"> & { actionId: string },
 ): FeatureTipDefinition {
@@ -151,7 +155,7 @@ export const FEATURE_TIPS: readonly FeatureTipDefinition[] = [
     guidePath: "docs/guide/12-leader-worker.md",
     visual: DispatchOrchestrationVisual,
     // 任务编排面板就是盯 worker 的地方；没有项目就没有可派的活。
-    tryAction: () => useActivityBarStore.getState().openOrchestrationOverlay(),
+    tryAction: openOrchestrationModule,
     eligible: () => isModuleEnabled("orchestration") && hasAnyProject(),
     weight: 4,
   },

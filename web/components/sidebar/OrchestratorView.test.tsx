@@ -2,7 +2,7 @@ import "@/i18n";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import OrchestratorView from "./OrchestratorView";
-import { useActivityBarStore, useOrchestratorStore } from "@/stores";
+import { useOrchestratorStore } from "@/stores";
 import type { TaskBinding } from "@/types";
 
 vi.mock("./OrchestratorFilterBar", () => ({ default: () => <div>filter-bar-stub</div> }));
@@ -106,13 +106,6 @@ describe("OrchestratorView", () => {
     // one call on mount, one on click
     fireEvent.click(screen.getByRole("button", { name: /Refresh|刷新/i }));
     expect(loadBindings).toHaveBeenCalledTimes(2);
-  });
-
-  it("opens the orchestration overlay from the maximize button", () => {
-    const spy = vi.spyOn(useActivityBarStore.getState(), "openOrchestrationOverlay");
-    render(<OrchestratorView onOpenTerminal={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Open overlay" }));
-    expect(spy).toHaveBeenCalled();
   });
 
   it("renders the filter bar without a dispatch composer", () => {
