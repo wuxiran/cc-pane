@@ -5789,6 +5789,41 @@ mod tests {
         assert!(service.sessions_needing_checkpoint(1024).is_empty());
     }
 
+    /// 阈值语义是**严格大于**，且该语义必须一路传到 service 层。
+    ///
+    /// ReplayBuffer 那层已有对照用例，但 service 是 daemon 周期扫描真正调的入口；
+    /// 若这里的比较写成 `>=`，每轮扫描都会把"差值恰好等于阈值"的会话算进候选，
+    /// 而重拍后差值归零、再涨回同一水位又被算进去——形成稳态的重复催拍。
+    /// 前端每 60s（节流下限）被迫做一次全屏序列化，纯属白烧 CPU。
+    #[test]
+    fn sessions_needing_checkpoint_threshold_is_strictly_greater() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        install_recording_session(&service, "session-1", Arc::new(Mutex::new(Vec::new())));
+
+        {
+            let sessions = service.sessions.lock().expect("sessions lock");
+            let session = sessions.get("session-1").expect("session");
+            let mut replay = session.replay_buffer.lock().expect("replay lock");
+            replay.push("base");
+            let cp = test_checkpoint(&replay, 4);
+            assert_eq!(
+                replay.store_checkpoint(cp),
+                StoreCheckpointOutcome::Accepted { anchor_seq: 4 }
+            );
+            replay.push("abc"); // 锚点之后恰好 3 字节
+        }
+
+        assert!(
+            service.sessions_needing_checkpoint(3).is_empty(),
+            "差值 == 阈值不该催（严格大于）；写成 >= 会造成稳态重复催拍"
+        );
+        assert_eq!(
+            service.sessions_needing_checkpoint(2),
+            vec!["session-1".to_string()],
+            "差值 > 阈值必须催"
+        );
+    }
+
     #[test]
     fn test_spinner_line_filters_claude_dynamic_status() {
         assert!(is_spinner_line("✶ Boondoggling… (44s · ↓ 1.5k tokens)"));
