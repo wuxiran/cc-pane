@@ -686,6 +686,75 @@ mod tests {
         );
     }
 
+    /// 基线重置不变式（行为侧）：Mismatch 之后基线必须换成**新**快照。
+    ///
+    /// 漏掉这一步的话基线永远停在断裂前的旧内容，之后**每一轮**轮询都判
+    /// Mismatch → 每 100ms 发一次 desync → 前端每轮 reset+全量重放，画面持续
+    /// 闪烁且永不收敛。症状看着像「daemon 一直在丢数据」，实际是基线卡住了。
+    /// 判据：连续两轮同一快照，第二轮必须 Unchanged 而不是再发一次 desync。
+    #[test]
+    fn mismatch_baseline_reset_makes_a_repeated_snapshot_unchanged() {
+        // 模拟轮询循环：非 Unchanged 即重置基线（两侧实现的共同规格）。
+        let mut baseline = String::new();
+        let mut round = |current: &str| {
+            let outcome = replay_snapshot_delta(&baseline, current);
+            if !matches!(outcome, SnapshotDelta::Unchanged) {
+                baseline = current.to_string();
+            }
+            outcome
+        };
+
+        assert_eq!(
+            round("old prefix"),
+            SnapshotDelta::Delta("old prefix".to_string()),
+            "首轮空基线 = 全量增量"
+        );
+        assert_eq!(
+            round("new buffer"),
+            SnapshotDelta::Mismatch,
+            "前缀断裂 = 失配"
+        );
+        assert_eq!(
+            round("new buffer"),
+            SnapshotDelta::Unchanged,
+            "基线没重置：同一快照被反复判 Mismatch，desync 风暴"
+        );
+        assert_eq!(
+            round("new buffer tail"),
+            SnapshotDelta::Delta(" tail".to_string()),
+            "重置后的基线必须能继续做前缀增量"
+        );
+    }
+
+    /// 基线重置不变式（接线侧）。
+    ///
+    /// 上面那条锁的是规格，这条锁的是**本文件真的照规格接了线**——
+    /// `apply_snapshot_delta` 依赖 `AppHandle<Wry>`，`tauri::test::mock_app()`
+    /// 只给得出 `MockRuntime` 句柄，构造不出来，所以行为测试够不到它。
+    /// 删掉 Mismatch 分支的基线赋值不会有任何测试变红，这条扫源码补上缺口
+    /// （与 boundary_events / daemonEventContract 的扫源码守卫同款手法）。
+    #[test]
+    fn apply_snapshot_delta_resets_baseline_on_non_unchanged_outcomes() {
+        let source = include_str!("terminal_daemon_event_bridge.rs");
+        // 只看生产代码段，避免扫到本测试自己的文本而自证。
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production section");
+        let body = production
+            .split("fn apply_snapshot_delta")
+            .nth(1)
+            .expect("apply_snapshot_delta must exist")
+            .split("\n    fn ")
+            .next()
+            .expect("function body");
+
+        assert!(
+            body.contains("SnapshotDelta::Unchanged") && body.contains("state.last_snapshot ="),
+            "Mismatch/Delta 之后必须重置基线，否则每轮都重发 desync"
+        );
+    }
+
     #[test]
     fn same_status_payload_detects_relevant_changes() {
         let first = status("s1", SessionStatus::Active, 10);
