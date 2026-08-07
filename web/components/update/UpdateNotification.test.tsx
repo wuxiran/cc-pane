@@ -26,6 +26,7 @@ const updaterMocks = vi.hoisted(() => ({
 vi.mock("@/lib/interruptGate", () => ({
   useInterruptGate: () => ({ activeInterrupt: null, ...gateMocks }),
   hasBusySessions: busyMocks.hasBusySessions,
+  selectHasOpenDialog: () => false,
 }));
 
 vi.mock("@/services/updaterService", () => updaterMocks);

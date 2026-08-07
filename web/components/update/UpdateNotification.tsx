@@ -17,7 +17,7 @@ import { useTranslation } from "react-i18next";
 import packageJson from "../../../package.json";
 import { Button } from "@/components/ui/button";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
-import { hasBusySessions, useInterruptGate } from "@/lib/interruptGate";
+import { hasBusySessions, selectHasOpenDialog, useInterruptGate } from "@/lib/interruptGate";
 import {
   useDialogStore,
   useFullscreenStore,
@@ -61,23 +61,6 @@ export function shouldShowUpdateNotification({
   if (!lastNotifiedAt) return true;
   const lastNotified = Date.parse(lastNotifiedAt);
   return !Number.isFinite(lastNotified) || now - lastNotified >= NOTIFICATION_COOLDOWN_MS;
-}
-
-function selectHasOpenDialog(state: ReturnType<typeof useDialogStore.getState>): boolean {
-  return (
-    state.settingsOpen ||
-    state.journalOpen ||
-    state.localHistoryOpen ||
-    state.gitTimelineOpen ||
-    state.sessionCleanerOpen ||
-    state.todoOpen ||
-    state.plansOpen ||
-    state.selfChatOpen ||
-    state.aiPanelOpen ||
-    state.onboardingOpen ||
-    state.workspaceEnvironmentOpen ||
-    state.launcherOpen
-  );
 }
 
 export default function UpdateNotification() {
@@ -246,11 +229,12 @@ export default function UpdateNotification() {
       ? t("updateDownloading")
       : t("updateCheckingLatest");
 
+  // 定位由 NotificationCenter 的 fixed 容器持有；本卡只负责自身外观
   return (
     <aside
       aria-live="polite"
       aria-label={t("updateCardTitle", { version: normalizedNextVersion })}
-      className="fixed bottom-11 right-3 z-40 w-[min(380px,calc(100vw-24px))] overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-lg motion-safe:animate-in motion-safe:slide-in-from-bottom-2 motion-safe:fade-in"
+      className="w-full overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-lg motion-safe:animate-in motion-safe:slide-in-from-bottom-2 motion-safe:fade-in"
     >
       <div className="flex items-start gap-3 px-4 pt-4">
         <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-[var(--app-active-bg)] text-[var(--app-accent)]">

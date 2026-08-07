@@ -8,7 +8,7 @@ import {
 } from "@/stores";
 import { isBusyStatus, type TerminalStatusType } from "@/types";
 
-export type InterruptKind = "update" | "tip";
+export type InterruptKind = "update" | "tip" | "notice" | "askInput";
 
 export interface InterruptGateDeps {
   now: () => number;
@@ -32,26 +32,77 @@ const STARTUP_GRACE_MS = 30_000;
 const INTERRUPT_PRIORITY: Record<InterruptKind, number> = {
   tip: 0,
   update: 1,
+  // notice/askInput 不参与单槽互斥（useSingleSlot=false），优先级仅为类型完备
+  notice: 0,
+  askInput: 2,
 };
 
+interface GateRuleRow {
+  agentBusy: boolean;
+  startupGrace: boolean;
+  dialogOpen: boolean;
+  miniMode: boolean;
+  fullscreen: boolean;
+  /** 是否参与 update/tip 的单槽互斥；通知栈自管容量，不占槽 */
+  useSingleSlot: boolean;
+}
+
 /**
- * 哪些打扰会被「有会话忙碌」挡住。
+ * 闸门规则矩阵：true = 该规则会挡住这类打扰。
  *
- * `tip: true` —— 功能提示在 agent 忙的时候弹正是 docs/58 说的那种烦人，
+ * `tip.agentBusy: true` —— 功能提示在 agent 忙的时候弹正是 docs/58 说的那种烦人，
  * 「tip 系统失败只有一种方式：烦人」。
  *
- * `update: false` —— CC-Panes 的典型用法就是长时间挂着 agent 干活，几乎总有 busy
- * 会话；若一并挡住，更新卡片不是不显示，而是**永远在等**。放行的只是「显示卡片」
- * ——它在右下角不打断任何操作；真正会杀掉在跑的活的是**安装**，那条路径另有
- * `hasBusySessions()` 的确认警告（见 UpdateNotification 的 busyAtConfirmation），
- * 不受本放行影响。
+ * `update.agentBusy: false` —— CC-Panes 的典型用法就是长时间挂着 agent 干活，几乎
+ * 总有 busy 会话；若一并挡住，更新卡片不是不显示，而是**永远在等**。放行的只是
+ * 「显示卡片」——它在右下角不打断任何操作；真正会杀掉在跑的活的是**安装**，那条
+ * 路径另有 `hasBusySessions()` 的确认警告（见 UpdateNotification 的
+ * busyAtConfirmation），不受本放行影响。
+ *
+ * `notice` —— 普通通知（会话事件 / AI 主动通知）：agent 忙时静默入历史 + 未读
+ * badge，不弹卡片；被挡 ≠ 丢。
+ *
+ * `askInput` —— agent 在等用户输入，弹出本身就是目的，几乎全放行：
+ * startupGrace 放行（恢复期 waiting_input 常见）、dialogOpen 放行（右下角
+ * z-index 低于 dialog 不遮挡）、fullscreen 放行；miniMode 仍挡（没地方渲染，
+ * OS 通知兜底）。
  *
  * 规则按 kind 写在这里、不做成调用方传的布尔参数：否则规则散到调用方去，
  * 下一个人不读闸门源码就不知道有这回事。
  */
-const AGENT_BUSY_BLOCKS: Record<InterruptKind, boolean> = {
-  tip: true,
-  update: false,
+const GATE_RULES: Record<InterruptKind, GateRuleRow> = {
+  update: {
+    agentBusy: false,
+    startupGrace: true,
+    dialogOpen: true,
+    miniMode: true,
+    fullscreen: true,
+    useSingleSlot: true,
+  },
+  tip: {
+    agentBusy: true,
+    startupGrace: true,
+    dialogOpen: true,
+    miniMode: true,
+    fullscreen: true,
+    useSingleSlot: true,
+  },
+  notice: {
+    agentBusy: true,
+    startupGrace: true,
+    dialogOpen: true,
+    miniMode: true,
+    fullscreen: true,
+    useSingleSlot: false,
+  },
+  askInput: {
+    agentBusy: false,
+    startupGrace: false,
+    dialogOpen: false,
+    miniMode: true,
+    fullscreen: false,
+    useSingleSlot: false,
+  },
 };
 
 const appStartedAt = Date.now();
@@ -77,14 +128,18 @@ export function checkInterruptGate(
   kind: InterruptKind,
   deps: InterruptGateDeps,
 ): GateBlockReason | null {
-  if (AGENT_BUSY_BLOCKS[kind] && isAnySessionBusy(deps.sessionStatuses)) {
+  const rules = GATE_RULES[kind];
+  if (rules.agentBusy && isAnySessionBusy(deps.sessionStatuses)) {
     return "agentBusy";
   }
-  if (deps.now() - deps.appStartedAt < STARTUP_GRACE_MS) return "startupGrace";
-  if (deps.hasOpenDialog) return "dialogOpen";
-  if (deps.isMiniMode) return "miniMode";
-  if (deps.isFullscreen) return "fullscreen";
+  if (rules.startupGrace && deps.now() - deps.appStartedAt < STARTUP_GRACE_MS) {
+    return "startupGrace";
+  }
+  if (rules.dialogOpen && deps.hasOpenDialog) return "dialogOpen";
+  if (rules.miniMode && deps.isMiniMode) return "miniMode";
+  if (rules.fullscreen && deps.isFullscreen) return "fullscreen";
   if (
+    rules.useSingleSlot &&
     deps.activeInterrupt !== null &&
     INTERRUPT_PRIORITY[deps.activeInterrupt] >= INTERRUPT_PRIORITY[kind]
   ) {
@@ -106,8 +161,14 @@ export const useInterruptCoordinatorStore = create<InterruptCoordinatorState>((s
     set((state) => (state.activeInterrupt === kind ? { activeInterrupt: null } : state)),
 }));
 
-function hasOpenDialog(): boolean {
-  const dialogs = useDialogStore.getState();
+/**
+ * 全局 dialog 打开态的唯一 selector。
+ * UpdateNotification 曾维护过一份重复列表（漂移风险），统一收敛到这里；
+ * 组件内需要响应式订阅时用 `useDialogStore(selectHasOpenDialog)`。
+ */
+export function selectHasOpenDialog(
+  dialogs: ReturnType<typeof useDialogStore.getState>,
+): boolean {
   return (
     dialogs.settingsOpen ||
     dialogs.journalOpen ||
@@ -124,6 +185,10 @@ function hasOpenDialog(): boolean {
   );
 }
 
+export function hasOpenDialog(): boolean {
+  return selectHasOpenDialog(useDialogStore.getState());
+}
+
 export interface InterruptGateController {
   activeInterrupt: InterruptKind | null;
   check: (options?: { ignoreOwnInterrupt?: boolean }) => GateBlockReason | null;
@@ -131,27 +196,36 @@ export interface InterruptGateController {
   release: () => void;
 }
 
+/**
+ * 非 hook 场景（NotificationCenter 的事件驱动准入）直查实时 store 过闸门。
+ * notice/askInput 不占单槽，无需 occupy/release，事件到达时查一次即可。
+ */
+export function checkInterruptGateLive(
+  kind: InterruptKind,
+  options?: { ignoreOwnInterrupt?: boolean },
+): GateBlockReason | null {
+  const currentInterrupt = useInterruptCoordinatorStore.getState().activeInterrupt;
+  return checkInterruptGate(kind, {
+    now: Date.now,
+    appStartedAt,
+    sessionStatuses: Array.from(
+      useTerminalStatusStore.getState().statusMap.values(),
+      (info) => info.status,
+    ),
+    hasOpenDialog: hasOpenDialog(),
+    isMiniMode: useMiniModeStore.getState().isMiniMode,
+    isFullscreen: useFullscreenStore.getState().isFullscreen,
+    activeInterrupt:
+      options?.ignoreOwnInterrupt && currentInterrupt === kind ? null : currentInterrupt,
+  });
+}
+
 /** 从真实 store 读取最新状态；调用方可在定时器和点击瞬间重复检查。 */
 export function useInterruptGate(kind: InterruptKind): InterruptGateController {
   const activeInterrupt = useInterruptCoordinatorStore((state) => state.activeInterrupt);
 
   const check = useCallback(
-    (options?: { ignoreOwnInterrupt?: boolean }) => {
-      const currentInterrupt = useInterruptCoordinatorStore.getState().activeInterrupt;
-      return checkInterruptGate(kind, {
-        now: Date.now,
-        appStartedAt,
-        sessionStatuses: Array.from(
-          useTerminalStatusStore.getState().statusMap.values(),
-          (info) => info.status,
-        ),
-        hasOpenDialog: hasOpenDialog(),
-        isMiniMode: useMiniModeStore.getState().isMiniMode,
-        isFullscreen: useFullscreenStore.getState().isFullscreen,
-        activeInterrupt:
-          options?.ignoreOwnInterrupt && currentInterrupt === kind ? null : currentInterrupt,
-      });
-    },
+    (options?: { ignoreOwnInterrupt?: boolean }) => checkInterruptGateLive(kind, options),
     [kind],
   );
 

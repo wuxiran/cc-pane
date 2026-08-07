@@ -48,6 +48,7 @@ function makeNotification(overrides?: Partial<NotificationRecord>): Notification
     kind: "task",
     title: "Task update",
     timestamp: 1_700_000_000_000,
+    read: false,
     ...overrides,
   };
 }

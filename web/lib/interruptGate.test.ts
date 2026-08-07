@@ -114,6 +114,55 @@ describe("checkInterruptGate", () => {
     expect(check("tip")).toBeNull();
   });
 
+  // notice：普通通知，agent 忙时静默入历史；其余规则与 tip 同，但不占单槽
+  describe("notice 规则", () => {
+    it("agent 忙时被挡", () => {
+      expect(check("notice", { sessionStatuses: ["thinking"] })).toBe("agentBusy");
+    });
+
+    it("启动宽限期被挡", () => {
+      expect(check("notice", { now: () => APP_STARTED_AT })).toBe("startupGrace");
+    });
+
+    it("不参与单槽互斥（update 占槽时照弹）", () => {
+      expect(check("notice", { activeInterrupt: "update" })).toBeNull();
+    });
+
+    it("迷你模式仍被挡", () => {
+      expect(check("notice", { isMiniMode: true })).toBe("miniMode");
+    });
+  });
+
+  // askInput：agent 等的就是人，弹出本身就是目的
+  describe("askInput 规则", () => {
+    it.each(["active", "thinking", "toolRunning", "waitingInput"] as const)(
+      "会话 %s 时照弹",
+      (status) => {
+        expect(check("askInput", { sessionStatuses: [status] })).toBeNull();
+      },
+    );
+
+    it("启动宽限期照弹（恢复期 waiting_input 常见）", () => {
+      expect(check("askInput", { now: () => APP_STARTED_AT })).toBeNull();
+    });
+
+    it("对话框打开照弹（右下角不遮 dialog）", () => {
+      expect(check("askInput", { hasOpenDialog: true })).toBeNull();
+    });
+
+    it("全屏照弹", () => {
+      expect(check("askInput", { isFullscreen: true })).toBeNull();
+    });
+
+    it("迷你模式仍被挡（没地方渲染，OS 通知兜底）", () => {
+      expect(check("askInput", { isMiniMode: true })).toBe("miniMode");
+    });
+
+    it("不参与单槽互斥", () => {
+      expect(check("askInput", { activeInterrupt: "update" })).toBeNull();
+    });
+  });
+
   it("返回首个命中的拒绝原因", () => {
     expect(
       check("tip", {

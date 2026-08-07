@@ -2773,6 +2773,15 @@ struct McpTriggerNotificationParams {
     #[serde(default)]
     #[schemars(schema_with = "notification_metadata_schema")]
     metadata: Option<serde_json::Value>,
+    /// 关联的终端会话 ID。requiresInput=true 时必填：用户在通知卡片里的输入会以提交形式写回该会话
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    /// 声明「需要用户输入」：通知卡片带输入框，用户输入直接回传 sessionId 指定的会话
+    #[serde(rename = "requiresInput")]
+    requires_input: Option<bool>,
+    /// 输入框占位提示文案（仅 requiresInput=true 时有意义）
+    #[serde(rename = "inputPlaceholder")]
+    input_placeholder: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2917,6 +2926,9 @@ impl From<McpTriggerNotificationParams> for NotificationRequest {
             group_key: value.group_key,
             only_when_unfocused: value.only_when_unfocused,
             metadata: value.metadata,
+            session_id: value.session_id,
+            requires_input: value.requires_input,
+            input_placeholder: value.input_placeholder,
         }
     }
 }
@@ -6136,7 +6148,9 @@ impl McpToolHandler {
         }
     }
 
-    /// 显式触发桌面通知。适用于 MCP、hooks 或脚本按需发送通知。
+    /// 显式触发桌面通知，同时在应用右下角弹出通知卡片。适用于告知任务完成、请求用户关注等场景。
+    /// 传 requiresInput=true 时卡片会带输入框，用户输入会以提交形式直接写回 sessionId 指定的终端会话
+    /// ——此时 sessionId 必填（即目标 PTY 会话 ID；自己的可从环境变量 CC_PANES_PTY_SESSION_ID 获取）。
     #[tool]
     async fn trigger_notification(
         &self,
@@ -8863,6 +8877,9 @@ struct TriggerNotificationRequest {
     group_key: Option<String>,
     only_when_unfocused: Option<bool>,
     metadata: Option<serde_json::Value>,
+    session_id: Option<String>,
+    requires_input: Option<bool>,
+    input_placeholder: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -8896,6 +8913,9 @@ impl From<TriggerNotificationRequest> for NotificationRequest {
             group_key: value.group_key,
             only_when_unfocused: value.only_when_unfocused,
             metadata: value.metadata,
+            session_id: value.session_id,
+            requires_input: value.requires_input,
+            input_placeholder: value.input_placeholder,
         }
     }
 }
@@ -14200,6 +14220,24 @@ mod tests {
             assert!(!required
                 .iter()
                 .any(|field| field.as_str() == Some("metadata")));
+        }
+    }
+
+    #[test]
+    fn test_trigger_notification_schema_exposes_input_fields_as_optional() {
+        let schema = serde_json::to_value(schemars::schema_for!(McpTriggerNotificationParams))
+            .expect("serialize schema");
+        let props = schema["properties"]
+            .as_object()
+            .expect("schema properties");
+        for field in ["sessionId", "requiresInput", "inputPlaceholder"] {
+            assert!(props.contains_key(field), "missing property {field}");
+            if let Some(required) = schema["required"].as_array() {
+                assert!(
+                    !required.iter().any(|f| f.as_str() == Some(field)),
+                    "{field} must stay optional"
+                );
+            }
         }
     }
 

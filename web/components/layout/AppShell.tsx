@@ -16,7 +16,7 @@ import AppDialogs from "@/components/layout/AppDialogs";
 import RightDock from "@/components/rightdock/RightDock";
 import OrchestratorAlertBanner from "@/components/OrchestratorAlertBanner";
 import RestoreRegressionBanner from "@/components/RestoreRegressionBanner";
-import UpdateNotification from "@/components/update/UpdateNotification";
+import NotificationCenter from "@/components/notifications/NotificationCenter";
 import FeatureTips from "@/components/tips/FeatureTips";
 import { useThemeStore, useMiniModeStore, useWorkspacesStore } from "@/stores";
 import { useFollowActiveTerminalContext } from "@/hooks/useFollowActiveTerminalContext";
@@ -44,8 +44,8 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
         <OrchestratorAlertBanner />
         <RestoreRegressionBanner />
 
-        {/* 更新提示独立固定在右下角，不改变全局 toast 位置。 */}
-        <UpdateNotification />
+        {/* 统一通知中心固定在右下角（update 卡 + 通知栈 + 历史面板），不改变全局 toast 位置。 */}
+        <NotificationCenter />
         <FeatureTips />
 
         {isMiniMode ? (

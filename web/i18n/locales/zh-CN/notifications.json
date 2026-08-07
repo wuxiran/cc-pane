@@ -56,5 +56,43 @@
   "mcpServerUpdated": "MCP Server 已更新",
   "mcpServerAdded": "MCP Server 已添加",
   "mcpServerDeleted": "MCP Server 已删除",
-  "mcpNameCommandRequired": "名称和命令不能为空"
+  "mcpNameCommandRequired": "名称和命令不能为空",
+
+  "center": {
+    "title": "通知",
+    "bellTooltip": "通知中心",
+    "unreadCount": "{{count}} 未读",
+    "markAllRead": "全部已读",
+    "clearAll": "清空",
+    "filterAll": "全部",
+    "filterErrors": "错误",
+    "filterCompleted": "已完成",
+    "filterAskInput": "等输入",
+    "empty": "暂无通知",
+    "foldBar": "还有更早的通知",
+    "close": "关闭",
+    "focusSession": "聚焦会话",
+    "viewTask": "查看任务",
+    "ignore": "忽略",
+    "send": "发送",
+    "sending": "发送中…",
+    "inputPlaceholder": "输入回复，Enter 发送…",
+    "responded": "已回传会话",
+    "respondedShort": "已回复",
+    "sessionGone": "会话已不存在，无法回传输入",
+    "expand": "展开全文",
+    "collapse": "收起",
+    "paneLocation": "窗格 #{{index}}",
+    "timeJustNow": "刚刚",
+    "timeMinutesAgo": "{{count}} 分钟前",
+    "timeHoursAgo": "{{count}} 小时前",
+    "timeDaysAgo": "{{count}} 天前",
+    "kindTitle": {
+      "session_exited": "会话退出",
+      "waiting_input": "需要你输入",
+      "turn_end": "任务完成",
+      "error": "会话报错",
+      "slow_tool": "工具运行较慢"
+    }
+  }
 }

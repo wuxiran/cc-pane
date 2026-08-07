@@ -26,6 +26,12 @@ pub struct NotificationRequest {
     pub only_when_unfocused: Option<bool>,
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub requires_input: Option<bool>,
+    #[serde(default)]
+    pub input_placeholder: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -65,9 +71,12 @@ struct PreparedNotificationRequest {
     group_key: Option<String>,
     only_when_unfocused: Option<bool>,
     metadata: Option<serde_json::Value>,
+    session_id: Option<String>,
+    requires_input: Option<bool>,
+    input_placeholder: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 struct NotificationSentEvent<'a> {
     kind: &'a str,
     title: &'a str,
@@ -76,6 +85,10 @@ struct NotificationSentEvent<'a> {
     scope: Option<&'a str>,
     dedupe_key: Option<&'a str>,
     group_key: Option<&'a str>,
+    metadata: Option<&'a serde_json::Value>,
+    session_id: Option<&'a str>,
+    requires_input: Option<bool>,
+    input_placeholder: Option<&'a str>,
 }
 
 /// 通知服务 - 管理显式触发的桌面通知与去重
@@ -137,6 +150,10 @@ impl NotificationService {
                 scope: request.scope.as_deref(),
                 dedupe_key: request.dedupe_key.as_deref(),
                 group_key: request.group_key.as_deref(),
+                metadata: request.metadata.as_ref(),
+                session_id: request.session_id.as_deref(),
+                requires_input: request.requires_input,
+                input_placeholder: request.input_placeholder.as_deref(),
             },
         );
         Ok(NotificationTriggerResult::sent())
@@ -184,6 +201,8 @@ impl NotificationService {
                     scope: Some("session"),
                     dedupe_key: Some(&format!("session_exit:{session_id}")),
                     group_key: group_key.as_deref(),
+                    session_id: Some(session_id),
+                    ..Default::default()
                 },
             );
         }
@@ -229,6 +248,8 @@ impl NotificationService {
                     scope: Some("session"),
                     dedupe_key: Some(&format!("session_waiting_input:{session_id}")),
                     group_key: group_key.as_deref(),
+                    session_id: Some(session_id),
+                    ..Default::default()
                 },
             );
         }
@@ -295,6 +316,8 @@ impl NotificationService {
                     scope: Some("session"),
                     dedupe_key: Some(&dedupe_key),
                     group_key: group_key.as_deref(),
+                    session_id: Some(session_id),
+                    ..Default::default()
                 },
             );
         }
@@ -335,6 +358,8 @@ impl NotificationService {
                     scope: Some("session"),
                     dedupe_key: Some(&dedupe_key),
                     group_key: group_key.as_deref(),
+                    session_id: Some(session_id),
+                    ..Default::default()
                 },
             );
         }
@@ -381,6 +406,8 @@ impl NotificationService {
                     scope: Some("session"),
                     dedupe_key: Some(&dedupe_key),
                     group_key: group_key.as_deref(),
+                    session_id: Some(session_id),
+                    ..Default::default()
                 },
             );
         }
@@ -432,6 +459,15 @@ impl NotificationService {
                 .filter(|value| !value.is_empty()),
             only_when_unfocused: request.only_when_unfocused,
             metadata: request.metadata,
+            session_id: request
+                .session_id
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
+            requires_input: request.requires_input,
+            input_placeholder: request
+                .input_placeholder
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
         })
     }
 
@@ -490,19 +526,32 @@ impl NotificationService {
     }
 
     fn emit_notification_sent(&self, app: &AppHandle, event: NotificationSentEvent<'_>) {
-        let _ = app.emit(
-            "notification-sent",
-            serde_json::json!({
-                "kind": event.kind,
-                "title": event.title,
-                "body": event.body,
-                "source": event.source,
-                "scope": event.scope,
-                "dedupeKey": event.dedupe_key,
-                "groupKey": event.group_key,
-            }),
-        );
+        let _ = app.emit("notification-sent", build_notification_sent_payload(event));
     }
+}
+
+/// 前端 useNotificationStore 消费的完整 payload。
+/// id/timestamp 由后端生成，前端不再自造（否则跨窗口同一条通知 id 不一致）。
+fn build_notification_sent_payload(event: NotificationSentEvent<'_>) -> serde_json::Value {
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    serde_json::json!({
+        "id": uuid::Uuid::new_v4().to_string(),
+        "timestamp": timestamp_ms,
+        "kind": event.kind,
+        "title": event.title,
+        "body": event.body,
+        "source": event.source,
+        "scope": event.scope,
+        "dedupeKey": event.dedupe_key,
+        "groupKey": event.group_key,
+        "metadata": event.metadata,
+        "sessionId": event.session_id,
+        "requiresInput": event.requires_input,
+        "inputPlaceholder": event.input_placeholder,
+    })
 }
 
 fn task_metadata_muted(metadata: &Option<serde_json::Value>) -> bool {
@@ -536,6 +585,9 @@ mod tests {
             group_key: Some(" group:1 ".to_string()),
             only_when_unfocused: Some(true),
             metadata: Some(serde_json::json!({ "taskId": "1" })),
+            session_id: Some(" term-abc ".to_string()),
+            requires_input: Some(true),
+            input_placeholder: Some(" 回复 yes/no ".to_string()),
         })
         .expect("request should be valid");
 
@@ -547,6 +599,9 @@ mod tests {
         assert_eq!(normalized.dedupe_key.as_deref(), Some("session:123"));
         assert_eq!(normalized.group_key.as_deref(), Some("group:1"));
         assert_eq!(normalized.only_when_unfocused, Some(true));
+        assert_eq!(normalized.session_id.as_deref(), Some("term-abc"));
+        assert_eq!(normalized.requires_input, Some(true));
+        assert_eq!(normalized.input_placeholder.as_deref(), Some("回复 yes/no"));
     }
 
     #[test]
@@ -561,8 +616,50 @@ mod tests {
             group_key: None,
             only_when_unfocused: None,
             metadata: None,
+            session_id: None,
+            requires_input: None,
+            input_placeholder: None,
         });
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn notification_sent_payload_carries_identity_and_input_fields() {
+        let metadata = serde_json::json!({ "taskBindingId": "tb-1" });
+        let payload = build_notification_sent_payload(NotificationSentEvent {
+            kind: "waiting_input",
+            title: "Action Required",
+            body: Some("body"),
+            source: Some("terminal"),
+            scope: Some("session"),
+            dedupe_key: Some("session_waiting_input:term-1"),
+            group_key: Some("g1"),
+            metadata: Some(&metadata),
+            session_id: Some("term-1"),
+            requires_input: Some(true),
+            input_placeholder: Some("回复…"),
+        });
+
+        assert!(!payload["id"].as_str().unwrap_or_default().is_empty());
+        assert!(payload["timestamp"].as_u64().unwrap_or(0) > 0);
+        assert_eq!(payload["sessionId"], "term-1");
+        assert_eq!(payload["requiresInput"], true);
+        assert_eq!(payload["inputPlaceholder"], "回复…");
+        assert_eq!(payload["metadata"]["taskBindingId"], "tb-1");
+    }
+
+    #[test]
+    fn notification_sent_payload_defaults_optional_fields_to_null() {
+        let payload = build_notification_sent_payload(NotificationSentEvent {
+            kind: "session_exited",
+            title: "Session Exited",
+            session_id: Some("term-2"),
+            ..Default::default()
+        });
+        assert_eq!(payload["sessionId"], "term-2");
+        assert!(payload["requiresInput"].is_null());
+        assert!(payload["metadata"].is_null());
+        assert!(payload["inputPlaceholder"].is_null());
     }
 
     #[test]
