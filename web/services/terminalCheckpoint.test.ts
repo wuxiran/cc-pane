@@ -131,6 +131,13 @@ describe("registerCheckpointRequest", () => {
     return entry![1] as unknown as RequestHandler;
   }
 
+  async function listenCallCount(): Promise<number> {
+    const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+    return vi
+      .mocked(getCurrentWebview().listen)
+      .mock.calls.filter(([event]) => event === "terminal-checkpoint-request").length;
+  }
+
   it("按 sessionId 分发补拍请求，unsubscribe 只摘掉自己", async () => {
     const a = vi.fn();
     const b = vi.fn();
@@ -150,5 +157,77 @@ describe("registerCheckpointRequest", () => {
     handler({ payload: { sessionId: "s1" } });
     expect(a).toHaveBeenCalledTimes(1);
     expect(b).toHaveBeenCalledTimes(2);
+  });
+
+  it("监听器只装一次：多会话多订阅共用同一个 listen（18 标签各装一次会重复分发）", async () => {
+    const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+    vi.mocked(getCurrentWebview().listen).mockClear();
+
+    await registerCheckpointRequest("s1", vi.fn());
+    await registerCheckpointRequest("s1", vi.fn());
+    await registerCheckpointRequest("s2", vi.fn());
+
+    expect(await listenCallCount()).toBe(1);
+  });
+
+  it("无订阅者的会话请求直接丢弃，不抛（best-effort：daemon 30s 会重发）", async () => {
+    await registerCheckpointRequest("s1", vi.fn());
+    const handler = await getRequestHandler();
+    expect(() => handler({ payload: { sessionId: "never-registered" } })).not.toThrow();
+  });
+
+  it("重复 unsubscribe 幂等，不影响同会话其他订阅者", async () => {
+    const a = vi.fn();
+    const b = vi.fn();
+    const unsubA = await registerCheckpointRequest("s1", a);
+    await registerCheckpointRequest("s1", b);
+
+    unsubA();
+    unsubA();
+
+    const handler = await getRequestHandler();
+    handler({ payload: { sessionId: "s1" } });
+    expect(a).not.toHaveBeenCalled();
+    expect(b).toHaveBeenCalledTimes(1);
+  });
+
+  it("最后一个订阅者退订后，该会话的请求不再命中任何回调", async () => {
+    const a = vi.fn();
+    const unsub = await registerCheckpointRequest("s1", a);
+    const handler = await getRequestHandler();
+
+    unsub();
+    handler({ payload: { sessionId: "s1" } });
+
+    expect(a).not.toHaveBeenCalled();
+  });
+
+  it("_resetCheckpointRequestForTest 会真的 unlisten（否则测试间监听器堆积）", async () => {
+    const unlisten = vi.fn();
+    const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+    vi.mocked(getCurrentWebview().listen).mockResolvedValueOnce(unlisten as never);
+
+    await registerCheckpointRequest("s1", vi.fn());
+    _resetCheckpointRequestForTest();
+
+    expect(unlisten).toHaveBeenCalledTimes(1);
+  });
+
+  it("web 模式（无 Tauri）不注册监听器——没有 control 通道，事件永不到达", async () => {
+    const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+    vi.mocked(getCurrentWebview().listen).mockClear();
+
+    const internals = window.__TAURI_INTERNALS__;
+    // 模拟浏览器端：删掉 Tauri 注入（isTauriRuntime 就是看这个字段）
+    delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+    try {
+      // 订阅本身仍成功（返回可用的 unsubscribe），只是事件源不存在
+      const unsub = await registerCheckpointRequest("s1", vi.fn());
+      expect(typeof unsub).toBe("function");
+      expect(await listenCallCount()).toBe(0);
+      expect(() => unsub()).not.toThrow();
+    } finally {
+      window.__TAURI_INTERNALS__ = internals;
+    }
   });
 });
