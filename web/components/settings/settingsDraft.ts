@@ -11,6 +11,7 @@ export const SECTION_DRAFT_KEYS: Partial<
   theme: ["theme"],
   general: ["general", "localHistory", "update", "tips"],
   notification: ["notification"],
+  "im-bridge": ["im"],
   "web-access": ["webAccess", "orchestrator"],
   "cli-launchers": ["cliLaunchers"],
   proxy: ["proxy"],

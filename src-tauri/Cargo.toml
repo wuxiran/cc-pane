@@ -21,6 +21,7 @@ tauri-build = { version = "2", features = [] }
 cc-panes-core = { path = "../cc-panes-core" }
 cc-memory = { path = "../cc-memory" }
 cc-cli-adapters = { path = "../cc-cli-adapters" }
+cc-notify = { path = "../cc-notify" }
 tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png", "macos-private-api", "unstable", "devtools"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-deep-link = "2"
@@ -69,7 +70,8 @@ tauri-plugin-updater = ">=2.10"
 # 让 tauri-plugin-updater 内部的 reqwest 获得读取 Windows/macOS 系统代理配置的能力
 # 注意：环境变量代理（HTTP_PROXY/HTTPS_PROXY）由 reqwest 基础的 client-proxy 提供，无需此 feature
 # 要求 tauri-plugin-updater >=2.10（2.10 起依赖 reqwest 0.13，与此处版本一致才能触发 feature 合并）
-reqwest = { version = "0.13", default-features = false, features = ["system-proxy", "json", "rustls", "multipart"] }
+# socks feature：IM 外推（im_bridge）按用户 ProxySettings 走 socks5 代理时需要
+reqwest = { version = "0.13", default-features = false, features = ["system-proxy", "json", "rustls", "multipart", "socks"] }
 tauri-plugin-process = "2"
 tracing = "0.1"
 log = "0.4"

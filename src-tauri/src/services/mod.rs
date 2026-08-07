@@ -3,6 +3,7 @@ pub use cc_panes_core::services::*;
 
 // Tauri-specific services (kept in src-tauri)
 mod browser_service;
+pub mod im_bridge;
 mod launch_backfill_service;
 mod notification_service;
 pub mod orchestrator_service;

@@ -233,6 +233,11 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
         useVideoAudio: false,
       },
     },
+    im: {
+      enabled: false,
+      pushWhenFocused: true,
+      channels: [],
+    },
     ...overrides,
   };
 }

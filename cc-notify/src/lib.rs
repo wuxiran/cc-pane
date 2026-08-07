@@ -1,3 +1,5 @@
 pub mod channels;
 pub mod models;
-pub mod sender;
+
+pub use channels::build_request;
+pub use models::{BuiltRequest, ChannelConfig, ChannelType, NotifyPayload};

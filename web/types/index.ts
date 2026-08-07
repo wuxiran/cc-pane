@@ -150,6 +150,11 @@ export type {
   WallpaperFit,
   WallpaperPowerSaver,
   WallpaperFileInfo,
+  ImSettings,
+  ImChannelConfig,
+  ImChannelType,
+  ImChannelStatus,
+  ImEventKind,
 } from "./settings";
 export { BUSY_STATUSES, isBusyStatus } from "./settings";
 export type {

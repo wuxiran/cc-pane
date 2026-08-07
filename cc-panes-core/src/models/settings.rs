@@ -55,6 +55,35 @@ pub struct AppSettings {
     pub orchestrator: OrchestratorSettings,
     #[serde(default)]
     pub wallpaper: WallpaperSettings,
+    #[serde(default)]
+    pub im: ImSettings,
+}
+
+/// IM 外推通知设置（钉钉/企业微信/飞书等群机器人）。
+///
+/// 与桌面通知（NotificationSettings）刻意分离：`only_when_unfocused` 对 IM
+/// 语义相反——用户不在电脑前才最需要 IM 推送，故默认聚焦时也推。
+/// 渠道凭证沿用 config.toml 明文现状（与 Provider API key 同级）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    /// 窗口聚焦时是否仍外推（默认 true；关掉后聚焦时跳过外推）
+    #[serde(default = "default_true")]
+    pub push_when_focused: bool,
+    #[serde(default)]
+    pub channels: Vec<cc_notify::ChannelConfig>,
+}
+
+impl Default for ImSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            push_when_focused: true,
+            channels: Vec::new(),
+        }
+    }
 }
 
 /// Local History 全局设置。项目级配置只有在该开关开启时才生效。
@@ -737,7 +766,11 @@ impl VoiceSettings {
         if self.custom_base_url.trim().is_empty() {
             self.custom_base_url = default_voice_custom_base_url();
         } else {
-            self.custom_base_url = self.custom_base_url.trim().trim_end_matches('/').to_string();
+            self.custom_base_url = self
+                .custom_base_url
+                .trim()
+                .trim_end_matches('/')
+                .to_string();
         }
         if self.custom_model.trim().is_empty() {
             self.custom_model = default_voice_custom_model();

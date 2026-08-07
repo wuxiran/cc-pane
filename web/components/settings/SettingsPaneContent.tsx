@@ -12,6 +12,7 @@ const CCChanSettings = lazyWithRetry(() => import("./CCChanSettings"), "CCChanSe
 const CliLaunchersSection = lazyWithRetry(() => import("./CliLaunchersSection"), "CliLaunchersSection");
 const ExperimentalSection = lazyWithRetry(() => import("./ExperimentalSection"), "ExperimentalSection");
 const GeneralSection = lazyWithRetry(() => import("./GeneralSection"), "GeneralSection");
+const ImSection = lazyWithRetry(() => import("./ImSection"), "ImSection");
 const ModulesSection = lazyWithRetry(() => import("./ModulesSection"), "ModulesSection");
 const NotificationSection = lazyWithRetry(() => import("./NotificationSection"), "NotificationSection");
 const ProviderSection = lazyWithRetry(() => import("./ProviderSection"), "ProviderSection");
@@ -65,6 +66,8 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
       return <ThemeSection view="shape" value={draft.theme} onChange={(theme) => updateDraft({ ...draft, theme })} />;
     case "notification":
       return <NotificationSection value={draft.notification} onChange={(notification) => updateDraft({ ...draft, notification })} />;
+    case "im-bridge":
+      return <ImSection value={draft.im} onChange={(im) => updateDraft({ ...draft, im })} />;
     case "modules":
       return <ModulesSection />;
     case "web-access":

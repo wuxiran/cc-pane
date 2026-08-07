@@ -5,7 +5,7 @@ import { handleErrorSilent } from "@/utils";
 import { getDefaultSidebarFavoriteLaunchActionIds } from "@/components/sidebar/launchMenu";
 import { DEFAULT_CCCHAN_SETTINGS } from "./useCCChanStore";
 import type { CCChanSettings } from "@/ccchan/types";
-import type { CliLauncherSettings, LayoutSwitcherSettings, OrchestratorSettings, WallpaperSettings, WebAccessSettings } from "@/types";
+import type { CliLauncherSettings, ImSettings, LayoutSwitcherSettings, OrchestratorSettings, WallpaperSettings, WebAccessSettings } from "@/types";
 import { canonicalThemeShape, DEFAULT_THEME_SHAPE } from "@/theme/themeShapes";
 
 const defaultCloseToTray = () => {
@@ -104,6 +104,12 @@ const DEFAULT_TIPS_SETTINGS = {
   sessionCount: 0,
 };
 
+export const DEFAULT_IM_SETTINGS: ImSettings = {
+  enabled: false,
+  pushWhenFocused: true,
+  channels: [],
+};
+
 export const DEFAULT_WALLPAPER_SETTINGS: WallpaperSettings = {
   enabled: false,
   kind: "none",
@@ -187,6 +193,11 @@ function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
         ...DEFAULT_WALLPAPER_SETTINGS.music,
         ...maybeSettings.wallpaper?.music,
       },
+    },
+    im: {
+      ...DEFAULT_IM_SETTINGS,
+      ...maybeSettings.im,
+      channels: maybeSettings.im?.channels ?? [],
     },
     ccchan: {
       ...DEFAULT_CCCHAN_SETTINGS,
@@ -377,5 +388,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     webAccess: DEFAULT_WEB_ACCESS_SETTINGS,
     orchestrator: DEFAULT_ORCHESTRATOR_SETTINGS,
     wallpaper: DEFAULT_WALLPAPER_SETTINGS,
+    im: DEFAULT_IM_SETTINGS,
   }),
 }));

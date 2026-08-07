@@ -2,9 +2,12 @@
 name = "cc-notify"
 version = "0.94.0"
 edition = "2021"
-description = "Push notification system for CC-Panes"
+description = "IM notification protocol builders for CC-Panes (pure request construction, no transport)"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-ureq = "3"
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
+urlencoding = "2"

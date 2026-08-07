@@ -405,5 +405,6 @@ flutter pub get && flutter analyze && flutter test
 | `docs/85-cli-launcher-overrides.md` | **CLI 路径解析链与 launcher override**：四层解析优先级 / override 三通道 / macOS "not found" 排查顺序（0.12.1 semver 修复与兜底记录） |
 | `docs/87-git-collaboration.md` | **Git 协作规范**：分支模型（main / dev/v* / release/*）/ PR base 规则 / 发版七步 / 多 AI 实例并行纪律——所有 PR 与发版操作前对照 |
 | `docs/86-resume-chain-staleness.md` | **Resume 链路陈旧化**：三症状归因（对话旧/画面旧/空会话）+ 六条断链 + ResumeBindingStore 单源 / outbox ack / 失败可见化三批修复——排障判据速查在文末 |
+| `docs/88-im-bridge.md` | **IM 外推桥**：钉钉/企微/飞书通知集成（批次1 出站已落地）+ 双向长连接 roadmap（钉钉 Stream / 企微智能机器人协议公开可自实现，飞书不公开走伪双向）——三平台调研结论与安全模型在此 |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |

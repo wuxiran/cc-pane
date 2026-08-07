@@ -1,17 +1,15 @@
-use crate::models::{ChannelConfig, NotifyPayload};
+use crate::models::{BuiltRequest, ChannelConfig, NotifyPayload};
 
-/// 通用 Webhook：POST JSON 到指定 URL
-pub fn send(config: &ChannelConfig, payload: &NotifyPayload) -> Result<(), String> {
-    let body = serde_json::to_string(payload).map_err(|e| format!("序列化失败: {}", e))?;
-
-    let mut req = ureq::post(&config.url).header("Content-Type", "application/json");
-
-    if let Some(ref token) = config.token {
-        req = req.header("Authorization", &format!("Bearer {}", token));
+/// 通用 Webhook：POST 完整 NotifyPayload JSON，可选 Bearer token。
+pub fn build(config: &ChannelConfig, payload: &NotifyPayload) -> Result<BuiltRequest, String> {
+    let body = serde_json::to_value(payload).map_err(|e| format!("序列化失败: {}", e))?;
+    let mut headers = vec![];
+    if let Some(token) = config.token.as_deref().filter(|t| !t.is_empty()) {
+        headers.push(("Authorization".to_string(), format!("Bearer {}", token)));
     }
-
-    req.send(body.as_bytes())
-        .map_err(|e| format!("Webhook 发送失败: {}", e))?;
-
-    Ok(())
+    Ok(BuiltRequest {
+        url: config.url.clone(),
+        body,
+        headers,
+    })
 }

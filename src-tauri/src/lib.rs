@@ -135,6 +135,8 @@ use commands::{
     get_git_status,
     get_history_config,
     get_history_watch_stats,
+    // IM 外推命令
+    get_im_bridge_status,
     get_journal_index,
     get_launch_profile,
     get_layout_switcher_snapshot,
@@ -363,6 +365,7 @@ use commands::{
     sync_spec_tasks,
     take_pending_import,
     test_cli_launcher,
+    test_im_channel,
     test_proxy,
     toggle_always_on_top,
     toggle_todo_my_day,
@@ -2154,6 +2157,19 @@ pub fn run() {
                 }
                 // 阶段 2.8：注入 SessionStateMachine 到 TerminalService（hook 主导时降级 PTY 推断）
                 term_svc.set_state_machine(orch_svc.session_state_machine());
+
+                // IM 外推桥：订阅状态机 broadcast，把会话事件推送到钉钉/企微/飞书。
+                // 挂 app 进程侧（不进 daemon），不涉及 boundary_events 契约表。
+                let im_bridge = Arc::new(services::im_bridge::ImBridgeService::new(
+                    app.handle().clone(),
+                    settings_svc.inner().clone(),
+                    tb_svc.inner().clone(),
+                ));
+                app.manage(im_bridge.clone());
+                services::im_bridge::spawn_im_transition_consumer(
+                    im_bridge,
+                    orch_svc.session_state_machine().subscribe_transitions(),
+                );
             }
             info!(
                 "[boot] +{}ms: orchestrator started",
@@ -2593,6 +2609,9 @@ pub fn run() {
             generate_claude_md,
             get_log_dir,
             trigger_notification,
+            // IM 外推命令
+            test_im_channel,
+            get_im_bridge_status,
             // Provider 命令
             list_launch_profiles,
             get_launch_profile,

@@ -14,6 +14,7 @@ import {
   Keyboard,
   LibraryBig,
   ListChecks,
+  MessageSquare,
   Mic,
   Package,
   Palette,
@@ -58,6 +59,7 @@ export type SettingsPaneId =
   | "proxy"
   | "web-access"
   | "notification"
+  | "im-bridge"
   | "screenshot"
   | "voice"
   | "ccchan"
@@ -133,7 +135,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     icon: Globe,
     titleKey: "pages.system.title",
     group: "services",
-    paneIds: ["proxy", "web-access", "notification", "screenshot", "voice"],
+    paneIds: ["proxy", "web-access", "notification", "im-bridge", "screenshot", "voice"],
   },
   {
     id: "ccchan",
@@ -340,6 +342,9 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   },
   { id: "notification", icon: Bell, titleKey: "notification", descriptionKey: "notificationDescription", page: "system", searchEntries: [
     { id: "events", titleKey: "notificationTitle", keywordsKey: "searchKeywords.notification", targetSectionId: "notification-controls" },
+  ] },
+  { id: "im-bridge", icon: MessageSquare, titleKey: "imBridge", descriptionKey: "imBridgeDescription", page: "system", availability: "tauri", searchEntries: [
+    { id: "channels", titleKey: "imBridgeTitle", descriptionKey: "imBridgeDescription", keywordsKey: "searchKeywords.imBridge", targetSectionId: "im-bridge-root" },
   ] },
   {
     id: "screenshot",

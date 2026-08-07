@@ -5,6 +5,7 @@
 import type {
   AppSettings,
   DataDirInfo,
+  ImChannelStatus,
   TailscaleStatus,
   UninstallCleanupReport,
   WebAccessStatus,
@@ -87,6 +88,18 @@ export const settingsService = {
 
   async testProxy(): Promise<boolean> {
     return invokeOrApi<boolean>("test_proxy", undefined, async () => false);
+  },
+
+  /** IM 外推：向指定渠道发一条测试消息（仅桌面端；web 模式直接报错提示） */
+  async testImChannel(channelId: string): Promise<void> {
+    return invokeOrApi<void>("test_im_channel", { channelId }, async () => {
+      throw new Error("IM channel test is only available in the desktop app");
+    });
+  },
+
+  /** IM 外推：各渠道最近一次发送结果 */
+  async getImBridgeStatus(): Promise<ImChannelStatus[]> {
+    return invokeOrApi<ImChannelStatus[]>("get_im_bridge_status", undefined, async () => []);
   },
 
   async testCliLauncher(command: string, versionArgs?: string[]): Promise<string> {
