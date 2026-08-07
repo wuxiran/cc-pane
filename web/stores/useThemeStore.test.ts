@@ -55,6 +55,8 @@ describe("useThemeStore", () => {
 
     it("应更新 localStorage", () => {
       useThemeStore.setState({ isDark: false });
+      // jsdom 的 localStorage 是 Proxy：往实例上 spy 会被当作存储条目写入而
+      // 替换不掉方法，必须 spy 在 Storage.prototype 上。
       const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
 
       useThemeStore.getState().toggleTheme();

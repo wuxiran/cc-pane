@@ -4,6 +4,7 @@ import { Files, FolderOpen, GitBranch, type LucideIcon } from "lucide-react";
 import ExplorerFilesSection from "@/components/sidebar/ExplorerFilesSection";
 import ExplorerGitSection from "@/components/sidebar/ExplorerGitSection";
 import SshMachinesView from "@/components/sidebar/SshMachinesView";
+import OrchestratorView from "@/components/sidebar/OrchestratorView";
 import AiPanelView from "@/components/aipanel/AiPanelView";
 import SessionHistoryView from "./SessionHistoryView";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -31,7 +32,7 @@ import { useOrchestratorStore } from "@/stores/useOrchestratorStore";
 interface RightDockViewDefinition {
   id: RightDockView;
   icon: LucideIcon;
-  titleKey: "rightDock.git" | "rightDock.files";
+  titleKey: "rightDock.git" | "rightDock.files" | "rightDock.orchestration";
 }
 
 const RIGHT_DOCK_VIEWS: readonly RightDockViewDefinition[] = [
@@ -125,14 +126,17 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
   const widthRef = useRef(width);
   const dockModules = MODULE_CONSUMERS.rightDock.filter((module) => {
     const preference = modulePreferences[module.id];
-    return preference.enabled
-      && preference.position === "rightDock"
+    const fixedRightDock = module.id === "orchestration";
+    return (fixedRightDock || preference.enabled)
+      && (fixedRightDock || preference.position === "rightDock")
       && module.surfaces.includes("rightDock");
   });
   const sshDocked = dockModules.some((module) => module.id === "ssh");
   const aiPanelDocked = dockModules.some((module) => module.id === "aiPanel");
+  const orchestrationDocked = dockModules.some((module) => module.id === "orchestration");
   const activeDockModuleMissing = (activeView === "ssh" && !sshDocked)
-    || (activeView === "aiPanel" && !aiPanelDocked);
+    || (activeView === "aiPanel" && !aiPanelDocked)
+    || (activeView === "orchestration" && !orchestrationDocked);
   const resolvedActiveView = activeDockModuleMissing ? "git" : activeView;
 
   useEffect(() => {
@@ -310,7 +314,11 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
         </div>
       </div>
 
-      {resolvedActiveView === "aiPanel" ? (
+      {resolvedActiveView === "orchestration" ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <OrchestratorView onOpenTerminal={onOpenTerminal} compact />
+        </div>
+      ) : resolvedActiveView === "aiPanel" ? (
         <div className="min-h-0 flex-1 overflow-hidden">
           <AiPanelView />
         </div>

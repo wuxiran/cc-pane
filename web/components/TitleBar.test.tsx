@@ -77,6 +77,7 @@ describe("TitleBar", () => {
   it("keeps window controls out of the drag region", () => {
     renderTitleBar(<TitleBar />);
 
+    expect(screen.queryByRole("button", { name: "设置" })).not.toBeInTheDocument();
     const minimizeButton = screen.getByRole("button", { name: "最小化" });
 
     fireEvent.click(minimizeButton);

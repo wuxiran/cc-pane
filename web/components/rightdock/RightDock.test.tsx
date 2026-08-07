@@ -67,6 +67,12 @@ vi.mock("./SessionHistoryView", () => ({
   ),
 }));
 
+vi.mock("@/components/sidebar/OrchestratorView", () => ({
+  default: ({ compact }: { compact?: boolean }) => (
+    <div data-testid="right-dock-orchestration">{compact ? "compact orchestration" : "orchestration"}</div>
+  ),
+}));
+
 const workspace: Workspace = {
   id: "workspace-1",
   name: "Workspace One",
@@ -198,7 +204,7 @@ describe("RightDock", () => {
     expect(screen.getByRole("tab", { name: "SSH 机器" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "资源中心" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "TodoList" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "任务编排" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "任务编排" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "AI 面板" })).toBeInTheDocument();
   });
 
@@ -223,6 +229,17 @@ describe("RightDock", () => {
 
     expect(useRightDockStore.getState().activeView).toBe("sessionHistory");
     expect(screen.getByTestId("right-dock-session-history")).toHaveTextContent("project-1");
+  });
+
+  it("renders task orchestration as a compact right dock view", async () => {
+    const user = userEvent.setup();
+    renderDock();
+
+    const orchestrationTab = screen.getByRole("tab", { name: "任务编排" });
+    await user.click(orchestrationTab);
+
+    expect(useRightDockStore.getState().activeView).toBe("orchestration");
+    expect(screen.getByTestId("right-dock-orchestration")).toHaveTextContent("compact orchestration");
   });
 
   it("SSH tab 驻留坞内并复用终端打开回调", async () => {

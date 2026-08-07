@@ -29,13 +29,15 @@ describe("ModulesSection", () => {
     useModulePrefsStore.setState({ preferences: createDefaultModulePreferences() });
   });
 
-  it("renders every registry module with an enabled switch and position menu", () => {
+  it("renders configurable modules with an enabled switch and position menu", () => {
     renderSection();
 
-    expect(screen.getAllByTestId(/^module-setting-/)).toHaveLength(MODULE_REGISTRY.length);
+    const configurableModuleCount = MODULE_REGISTRY.filter((module) => module.configurable !== false).length;
+    expect(screen.getAllByTestId(/^module-setting-/)).toHaveLength(configurableModuleCount);
+    expect(screen.queryByTestId("module-setting-orchestration")).not.toBeInTheDocument();
     // 每个模块一个启用开关，外加 aiPanel 独有的自动打开 + 允许 AI 请求弹框两个开关
-    expect(screen.getAllByRole("switch")).toHaveLength(MODULE_REGISTRY.length + 2);
-    expect(screen.getAllByTestId(/^module-position-trigger-/)).toHaveLength(MODULE_REGISTRY.length);
+    expect(screen.getAllByRole("switch")).toHaveLength(configurableModuleCount + 2);
+    expect(screen.getAllByTestId(/^module-position-trigger-/)).toHaveLength(configurableModuleCount);
   });
 
   it("updates enabled independently from placement", async () => {

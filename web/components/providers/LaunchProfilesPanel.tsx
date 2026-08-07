@@ -2,16 +2,19 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useLaunchProfilesStore, usePanesStore, useProvidersStore, useSharedMcpStore, useWorkspacesStore } from "@/stores";
-import type { DiscoveredExternalSkill, LaunchProfile, LaunchProfileDraft, LaunchProfileResolution, LaunchProfileRuntime, SkillMarketEntry } from "@/types";
+import type { DiscoveredExternalSkill, LaunchProfile, LaunchProfileDraft, LaunchProfileResolution, LaunchProfileRuntime, SkillMarketEntry, Workspace } from "@/types";
 import { useCliTools } from "@/hooks/useCliTools";
 import { isProviderTypeCompatibleWithCli } from "@/utils/providerCompatibility";
 import type { KnownCliTool } from "@/types/terminal";
 import LaunchProfileBasicsCard from "./LaunchProfileBasicsCard";
-import LaunchProfileListAside from "./LaunchProfileListAside";
+import LaunchProfileListAside, {
+  type LaunchProfileListMode,
+} from "./LaunchProfileListAside";
 import LaunchProfileMcpCard from "./LaunchProfileMcpCard";
 import LaunchProfileSkillCard from "./LaunchProfileSkillCard";
 import LaunchProfileSummaryCard from "./LaunchProfileSummaryCard";
 import { useSkillMarketData } from "./useSkillMarketData";
+import { useLaunchProfileSkillEditor } from "./useLaunchProfileSkillEditor";
 import {
   SYSTEM_DEFAULT_PROFILE_ID,
   WORKSPACE_FILTER_ALL,
@@ -25,7 +28,6 @@ import {
 } from "./launchProfileHelpers";
 import {
   nextClearBuiltinSkills,
-  nextDeleteProfileSkill,
   nextEnableUserSkill,
   nextMcpMode,
   nextSelectAllBuiltinSkills,
@@ -36,9 +38,7 @@ import {
   nextToggleProfileSkill,
   nextToggleServer,
   nextToggleUserSkill,
-  nextUpsertProfileSkill,
 } from "./launchProfileSkillPolicy";
-
 
 interface LaunchProfilesPanelProps {
   compact?: boolean;
@@ -84,9 +84,7 @@ export default function LaunchProfilesPanel({
   const [workspaceBindingOpen, setWorkspaceBindingOpen] = useState(false);
   const [bindingWorkspaceName, setBindingWorkspaceName] = useState<string | null>(null);
   const [workspaceFilterName, setWorkspaceFilterName] = useState(WORKSPACE_FILTER_ALL);
-  const [profileSkillEditorOpen, setProfileSkillEditorOpen] = useState(false);
-  const [editingProfileSkillId, setEditingProfileSkillId] = useState<string | null>(null);
-  const [profileSkillForm, setProfileSkillForm] = useState({ name: "", description: "", content: "" });
+  const [listMode, setListMode] = useState<LaunchProfileListMode>("profiles");
   const {
     marketEntries,
     userSkills,
@@ -96,6 +94,17 @@ export default function LaunchProfilesPanel({
     refreshSkillMarket,
     installSkill,
   } = useSkillMarketData();
+  const {
+    profileSkillEditorOpen,
+    editingProfileSkillId,
+    profileSkillForm,
+    setProfileSkillForm,
+    beginNewProfileSkill,
+    beginEditProfileSkill,
+    cancelProfileSkillEdit,
+    saveProfileSkill,
+    deleteProfileSkill,
+  } = useLaunchProfileSkillEditor(draft, setDraft);
   // YOLO（权限绕过）是危险操作：开启需二次确认，避免误触。
   const [yoloConfirmOpen, setYoloConfirmOpen] = useState(false);
   const workspaceContext = useMemo(
@@ -213,13 +222,16 @@ export default function LaunchProfilesPanel({
   const isSystemDefaultSelected = selectedId === SYSTEM_DEFAULT_PROFILE_ID;
   const isNewProfile = selectedId === null;
   const providerDisabled = isSystemDefaultSelected;
+  const profilesForActiveTool = useMemo(
+    () => profiles.filter((profile) => profileMatchesTool(profile, activeTool)),
+    [activeTool, profiles],
+  );
   const filteredProfiles = useMemo(() => {
-    const compatible = profiles.filter((profile) => profileMatchesTool(profile, activeTool));
-    if (!workspaceContext) return compatible;
-    return compatible.filter(
+    if (!workspaceContext) return profilesForActiveTool;
+    return profilesForActiveTool.filter(
       (profile) => profile.isDefault || workspaceBoundProfileIds.has(profile.id),
     );
-  }, [activeTool, profiles, toolDefaultProfile?.id, workspaceBoundProfileIds, workspaceContext]);
+  }, [profilesForActiveTool, workspaceBoundProfileIds, workspaceContext]);
   const compatibleProviders = useMemo(() => providers.filter((provider) => isProviderTypeCompatibleWithCli(provider.providerType, activeTool, cliTools)), [activeTool, cliTools, providers]);
   const selectedDraftProvider = providers.find((provider) => provider.id === draft.providerId);
   const selectedProviderModels = selectedDraftProvider?.models ?? [];
@@ -247,10 +259,8 @@ export default function LaunchProfilesPanel({
     setMcpManagerOpen(false);
     setWorkspaceBindingOpen(false);
     setBindingWorkspaceName(null);
-    setProfileSkillEditorOpen(false);
-    setEditingProfileSkillId(null);
-    setProfileSkillForm({ name: "", description: "", content: "" });
-  }, []);
+    cancelProfileSkillEdit();
+  }, [cancelProfileSkillEdit]);
 
   const handleToolChange = useCallback((nextTool: KnownCliTool) => {
     if (nextTool === activeTool) return;
@@ -277,6 +287,35 @@ export default function LaunchProfilesPanel({
     setDraft(toDraft(profile));
     resetTransientState();
   }, [resetTransientState]);
+
+  const handleListModeChange = useCallback((mode: LaunchProfileListMode) => {
+    setListMode(mode);
+    if (mode === "profiles") {
+      setWorkspaceFilterName(WORKSPACE_FILTER_ALL);
+    }
+  }, []);
+
+  const handleSelectWorkspace = useCallback((workspace: Workspace) => {
+    setWorkspaceFilterName(workspace.name);
+    const boundProfile = workspace.launchProfileId
+      ? profiles.find(
+          (profile) => profile.id === workspace.launchProfileId
+            && profileMatchesTool(profile, activeTool),
+        ) ?? null
+      : null;
+
+    if (boundProfile) {
+      handleSelect(boundProfile);
+      return;
+    }
+
+    handleSelectSystemDefault();
+  }, [activeTool, handleSelect, handleSelectSystemDefault, profiles]);
+
+  const handleSelectWorkspaceProfile = useCallback((workspace: Workspace, profile: LaunchProfile) => {
+    setWorkspaceFilterName(workspace.name);
+    handleSelect(profile);
+  }, [handleSelect]);
 
   const handleCopySystemDefault = useCallback(() => {
     const base = selectedId === SYSTEM_DEFAULT_PROFILE_ID ? draft : systemDefaultLaunchProfileDraft(activeTool, draft.targetRuntime ?? null, t);
@@ -407,51 +446,6 @@ export default function LaunchProfilesPanel({
   const clearBuiltinSkills = () => {
     setDraft(nextClearBuiltinSkills);
   };
-  const beginNewProfileSkill = () => {
-    setProfileSkillEditorOpen(true);
-    setEditingProfileSkillId(null);
-    setProfileSkillForm({ name: "", description: "", content: "" });
-  };
-  const beginEditProfileSkill = (id: string) => {
-    const skill = draft.skillPolicy.profileSkills.find((item) => item.id === id);
-    if (!skill) return;
-    setProfileSkillEditorOpen(true);
-    setEditingProfileSkillId(id);
-    setProfileSkillForm({
-      name: skill.name,
-      description: skill.description ?? "",
-      content: skill.content,
-    });
-  };
-  const cancelProfileSkillEdit = () => {
-    setProfileSkillEditorOpen(false);
-    setEditingProfileSkillId(null);
-    setProfileSkillForm({ name: "", description: "", content: "" });
-  };
-  const saveProfileSkill = () => {
-    const name = profileSkillForm.name.trim();
-    const content = profileSkillForm.content.trim();
-    if (!name || !content) {
-      toast.error(t("toast.profileSkillRequired"));
-      return;
-    }
-
-    const id = editingProfileSkillId ?? crypto.randomUUID();
-    setDraft((current) => nextUpsertProfileSkill(current, {
-      id,
-      name,
-      description: profileSkillForm.description.trim() || null,
-      content,
-    }));
-    cancelProfileSkillEdit();
-  };
-  const deleteProfileSkill = (id: string) => {
-    setDraft((current) => nextDeleteProfileSkill(current, id));
-    if (editingProfileSkillId === id) cancelProfileSkillEdit();
-  };
-  const openProjectSkillManager = (projectPath: string, title: string) => {
-    openSkillManager(projectPath, title);
-  };
 
   const previewProviderLabel = isSystemDefaultSelected
     ? t("previewSystemProvider")
@@ -466,110 +460,112 @@ export default function LaunchProfilesPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden max-[760px]:flex-col">
         <LaunchProfileListAside
           compact={compact}
           activeTool={activeTool}
           workspaces={workspaces}
           workspaceContext={workspaceContext}
-          workspaceFilterName={workspaceFilterName}
-          onWorkspaceFilterChange={setWorkspaceFilterName}
-          workspaceBoundProfileIds={workspaceBoundProfileIds}
+          listMode={listMode}
+          onListModeChange={handleListModeChange}
           providers={providers}
-          filteredProfiles={filteredProfiles}
+          profiles={profiles}
+          filteredProfiles={profilesForActiveTool}
           selectedId={selectedId}
           isSystemDefaultSelected={isSystemDefaultSelected}
           onCopySystemDefault={handleCopySystemDefault}
           onSelectSystemDefault={handleSelectSystemDefault}
           onSelect={handleSelect}
+          onSelectWorkspaceProfile={handleSelectWorkspaceProfile}
+          onSelectWorkspace={handleSelectWorkspace}
         />
 
-        <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl space-y-4 px-5 py-5">
-          <LaunchProfileSummaryCard
-            draft={draft}
-            activeTool={activeTool}
-            currentTitle={currentTitle}
-            isSystemDefaultSelected={isSystemDefaultSelected}
-            isNewProfile={isNewProfile}
-            selectedProfile={selectedProfile}
-            selectedProfileId={selectedProfileId}
-            profiles={profiles}
-            preview={preview}
-            previewProviderLabel={previewProviderLabel}
-            previewModelLabel={previewModelLabel}
-            previewMcpCount={previewMcpCount}
-            previewSkillCount={previewSkillCount}
-            workspaces={workspaces}
-            workspacesLoading={workspacesLoading}
-            workspaceContext={workspaceContext}
-            boundWorkspaces={boundWorkspaces}
-            bindingWorkspaceName={bindingWorkspaceName}
-            workspaceBindingOpen={workspaceBindingOpen}
-            onToggleWorkspaceBindingOpen={() => setWorkspaceBindingOpen((value) => !value)}
-            onToggleWorkspaceBinding={handleToggleWorkspaceBinding}
-            onCopySystemDefault={handleCopySystemDefault}
-            onSave={handleSave}
-            onSetDefault={handleSetDefault}
-            onDelete={handleDelete}
-          />
+        <main className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-5xl space-y-3 px-4 py-4">
+            <LaunchProfileSummaryCard
+              draft={draft}
+              activeTool={activeTool}
+              currentTitle={currentTitle}
+              isSystemDefaultSelected={isSystemDefaultSelected}
+              isNewProfile={isNewProfile}
+              selectedProfile={selectedProfile}
+              selectedProfileId={selectedProfileId}
+              profiles={profiles}
+              preview={preview}
+              previewProviderLabel={previewProviderLabel}
+              previewModelLabel={previewModelLabel}
+              previewMcpCount={previewMcpCount}
+              previewSkillCount={previewSkillCount}
+              workspaces={workspaces}
+              workspacesLoading={workspacesLoading}
+              workspaceContext={workspaceContext}
+              boundWorkspaces={boundWorkspaces}
+              bindingWorkspaceName={bindingWorkspaceName}
+              workspaceBindingOpen={workspaceBindingOpen}
+              onToggleWorkspaceBindingOpen={() => setWorkspaceBindingOpen((value) => !value)}
+              onToggleWorkspaceBinding={handleToggleWorkspaceBinding}
+              onCopySystemDefault={handleCopySystemDefault}
+              onSave={handleSave}
+              onSetDefault={handleSetDefault}
+              onDelete={handleDelete}
+            />
 
-          <LaunchProfileBasicsCard
-            draft={draft}
-            setDraft={setDraft}
-            activeTool={activeTool}
-            providerDisabled={providerDisabled}
-            providerOptions={providerOptions}
-            selectedProviderModels={selectedProviderModels}
-            selectedProviderDefaultModel={selectedProviderDefaultModel}
-            selectedEffectiveModel={selectedEffectiveModel}
-            selectedProfileEffort={selectedProfileEffort}
-            yoloConfirmOpen={yoloConfirmOpen}
-            setYoloConfirmOpen={setYoloConfirmOpen}
-          />
+            <LaunchProfileBasicsCard
+              draft={draft}
+              setDraft={setDraft}
+              activeTool={activeTool}
+              providerDisabled={providerDisabled}
+              providerOptions={providerOptions}
+              selectedProviderModels={selectedProviderModels}
+              selectedProviderDefaultModel={selectedProviderDefaultModel}
+              selectedEffectiveModel={selectedEffectiveModel}
+              selectedProfileEffort={selectedProfileEffort}
+              yoloConfirmOpen={yoloConfirmOpen}
+              setYoloConfirmOpen={setYoloConfirmOpen}
+            />
 
-          <LaunchProfileMcpCard
-            draft={draft}
-            setDraft={setDraft}
-            servers={servers}
-            mcpManagerOpen={mcpManagerOpen}
-            setMcpManagerOpen={setMcpManagerOpen}
-            setMcpMode={setMcpMode}
-            toggleServer={toggleServer}
-          />
+            <LaunchProfileMcpCard
+              draft={draft}
+              setDraft={setDraft}
+              servers={servers}
+              mcpManagerOpen={mcpManagerOpen}
+              setMcpManagerOpen={setMcpManagerOpen}
+              setMcpMode={setMcpMode}
+              toggleServer={toggleServer}
+            />
 
-          <LaunchProfileSkillCard
-            draft={draft}
-            setDraft={setDraft}
-            activeTool={activeTool}
-            externalSkills={externalSkills}
-            userSkills={userSkills}
-            marketEntries={marketEntries}
-            skillMarketLoading={skillMarketLoading}
-            installingSkillId={installingSkillId}
-            refreshSkillMarket={refreshSkillMarket}
-            setSkillMode={setSkillMode}
-            selectAllBuiltinSkills={selectAllBuiltinSkills}
-            clearBuiltinSkills={clearBuiltinSkills}
-            toggleSkill={toggleSkill}
-            toggleExternalSource={toggleExternalSource}
-            toggleExternalSkill={toggleExternalSkill}
-            toggleUserSkill={toggleUserSkill}
-            installAndEnableSkill={installAndEnableSkill}
-            workspaceContext={workspaceContext}
-            openProjectSkillManager={openProjectSkillManager}
-            profileSkillEditorOpen={profileSkillEditorOpen}
-            editingProfileSkillId={editingProfileSkillId}
-            profileSkillForm={profileSkillForm}
-            setProfileSkillForm={setProfileSkillForm}
-            beginNewProfileSkill={beginNewProfileSkill}
-            beginEditProfileSkill={beginEditProfileSkill}
-            cancelProfileSkillEdit={cancelProfileSkillEdit}
-            saveProfileSkill={saveProfileSkill}
-            toggleProfileSkill={toggleProfileSkill}
-            deleteProfileSkill={deleteProfileSkill}
-          />
-        </div>
+            <LaunchProfileSkillCard
+              draft={draft}
+              setDraft={setDraft}
+              activeTool={activeTool}
+              externalSkills={externalSkills}
+              userSkills={userSkills}
+              marketEntries={marketEntries}
+              skillMarketLoading={skillMarketLoading}
+              installingSkillId={installingSkillId}
+              refreshSkillMarket={refreshSkillMarket}
+              setSkillMode={setSkillMode}
+              selectAllBuiltinSkills={selectAllBuiltinSkills}
+              clearBuiltinSkills={clearBuiltinSkills}
+              toggleSkill={toggleSkill}
+              toggleExternalSource={toggleExternalSource}
+              toggleExternalSkill={toggleExternalSkill}
+              toggleUserSkill={toggleUserSkill}
+              installAndEnableSkill={installAndEnableSkill}
+              workspaceContext={workspaceContext}
+              openProjectSkillManager={openSkillManager}
+              profileSkillEditorOpen={profileSkillEditorOpen}
+              editingProfileSkillId={editingProfileSkillId}
+              profileSkillForm={profileSkillForm}
+              setProfileSkillForm={setProfileSkillForm}
+              beginNewProfileSkill={beginNewProfileSkill}
+              beginEditProfileSkill={beginEditProfileSkill}
+              cancelProfileSkillEdit={cancelProfileSkillEdit}
+              saveProfileSkill={saveProfileSkill}
+              toggleProfileSkill={toggleProfileSkill}
+              deleteProfileSkill={deleteProfileSkill}
+            />
+          </div>
         </main>
       </div>
     </div>

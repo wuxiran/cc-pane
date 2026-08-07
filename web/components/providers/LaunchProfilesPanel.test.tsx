@@ -5,8 +5,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useLaunchProfilesStore, useProvidersStore, useSharedMcpStore, useWorkspacesStore } from "@/stores";
+import { createTestWorkspace, createTestWorkspaceProject } from "@/test/utils/testData";
 import { mockTauriInvoke, resetTauriInvoke } from "@/test/utils/mockTauriInvoke";
 import type { DiscoveredExternalSkill, LaunchProfile, LaunchProfileDraft, LaunchProfileResolution, Provider } from "@/types";
+import { defaultLaunchProfileDraft } from "@/types/launch-profile";
 import type { SkillMarketEntry } from "@/types/skill";
 import LaunchProfilesPanel from "./LaunchProfilesPanel";
 
@@ -59,6 +61,22 @@ function savedProfileFromDraft(draft: LaunchProfileDraft): LaunchProfile {
     ...draft,
     id: "profile-1",
     name: draft.name ?? "Claude 系统默认配置",
+    createdAt: "2026-05-12T00:00:00Z",
+    updatedAt: "2026-05-12T00:00:00Z",
+  };
+}
+
+function makeLaunchProfile(
+  id: string,
+  name: string,
+  targetTools: string[] = ["claude"],
+): LaunchProfile {
+  return {
+    ...defaultLaunchProfileDraft(),
+    id,
+    name,
+    alias: name,
+    targetTools,
     createdAt: "2026-05-12T00:00:00Z",
     updatedAt: "2026-05-12T00:00:00Z",
   };
@@ -365,5 +383,66 @@ describe("LaunchProfilesPanel external skills", () => {
     // 无运行配置 → 左列表空态，其动作与顶部「复制为运行配置」同一回调
     await user.click(await screen.findByRole("button", { name: tp("listEmptyAction") }));
     expect(await screen.findByRole("button", { name: new RegExp(tp("saveAsProfile")) })).toBeInTheDocument();
+  });
+
+  it("switches between all saved profiles and workspace bindings", async () => {
+    const user = userEvent.setup();
+    const designProfile = makeLaunchProfile("profile-design", "Design Profile");
+    const codexProfile = makeLaunchProfile("profile-codex", "Codex Profile", ["codex"]);
+    const designWorkspace = createTestWorkspace({
+      id: "workspace-design",
+      name: "design",
+      alias: "Design Workspace",
+      launchProfileId: designProfile.id,
+      projects: [
+        createTestWorkspaceProject({
+          id: "project-design",
+          launchProfileId: designProfile.id,
+        }),
+      ],
+    });
+    const apiWorkspace = createTestWorkspace({
+      id: "workspace-api",
+      name: "api",
+      alias: "API Workspace",
+      projects: [],
+    });
+
+    mockTauriInvoke({
+      list_launch_profiles: [designProfile, codexProfile],
+      list_providers: [],
+      list_workspaces: [designWorkspace, apiWorkspace],
+      get_shared_mcp_status: [],
+      list_skill_market_entries: [],
+      list_user_skills: [],
+      list_external_skills: [],
+      list_cli_tools: [],
+      preview_launch_profile_resolution: emptyResolution,
+    });
+
+    render(<LaunchProfilesPanel initialTool="claude" />);
+
+    expect(await screen.findByText("Design Profile")).toBeInTheDocument();
+    expect(screen.queryByText("Codex Profile")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", {
+      name: new RegExp(tp("workspaceListTab")),
+    }));
+
+    const designWorkspaceRow = (await screen.findByText("Design Workspace")).closest("button");
+    expect(designWorkspaceRow).not.toBeNull();
+    expect(designWorkspaceRow).toHaveTextContent("Design Profile");
+    expect(designWorkspaceRow).toHaveTextContent(
+      tp("workspaceProjectBindings", { count: 1 }),
+    );
+    const apiWorkspaceRow = screen.getByText("API Workspace").closest("button");
+    expect(apiWorkspaceRow).not.toBeNull();
+    expect(apiWorkspaceRow).toHaveTextContent(
+      tp("workspaceUsesDefault", { tool: "Claude" }),
+    );
+
+    await user.click(designWorkspaceRow as HTMLElement);
+    expect(await screen.findByRole("heading", { name: "Design Profile" })).toBeInTheDocument();
+    expect(designWorkspaceRow).toHaveTextContent(tp("currentWorkspace"));
   });
 });

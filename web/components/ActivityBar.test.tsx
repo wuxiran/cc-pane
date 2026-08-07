@@ -59,9 +59,9 @@ describe("ActivityBar", () => {
   it("渲染主视图图标集合（含 Home 与 设置）以及 LayoutBar 桩", () => {
     const { container } = renderBar();
     expect(screen.getByTestId("layout-bar-stub")).toBeInTheDocument();
-    // Home + explorer/ssh/orchestration + 资源中心 + todo + settings = 7 按钮
+    // Home + explorer/ssh + 资源中心 + todo + settings = 6 按钮
     //（files 与 sessions 图标已移除：Explorer 侧栏自带 文件 / 最近启动 tab）
-    expect(container.querySelectorAll("button")).toHaveLength(7);
+    expect(container.querySelectorAll("button")).toHaveLength(6);
   });
 
   it("不再有 sessions 竖排入口：explorer 之后紧跟 ssh（最近启动已迁至 Explorer 顶部 tab）", async () => {
@@ -124,13 +124,13 @@ describe("ActivityBar", () => {
     expect(state.activeView).toBe("explorer");
   });
 
-  it("有运行中的编排任务时 orchestration 图标显示数量徽标", () => {
+  it("keeps orchestration out of the activity bar even with running tasks", () => {
+    useModulePrefsStore.getState().setPosition("orchestration", "activityBar");
     useOrchestratorStore.setState({
       bindings: [binding("running"), binding("waiting")],
     });
-    renderBar();
-    // 2 个 running/waiting → 徽标数字 2
-    expect(screen.getByText("2")).toBeInTheDocument();
+    const { container } = renderBar();
+    expect(container.querySelector('[data-module-id="orchestration"]')).not.toBeInTheDocument();
   });
 
   it("只渲染启用且位于左栏的注册模块", () => {
@@ -171,9 +171,12 @@ describe("ActivityBar", () => {
     useActivityBarStore.setState({ appViewMode: "home" });
     const { container } = renderBar();
     const homeBtn = container.querySelectorAll("button")[0] as HTMLElement;
+    const explorerBtn = container.querySelectorAll("button")[1] as HTMLElement;
     expect(homeBtn.style.background).toContain("app-activity-item-active");
     // demo 式激活指示条：激活项左缘 3px accent 竖条
-    const indicator = homeBtn.parentElement?.querySelector('[aria-hidden]');
+    const indicator = homeBtn.parentElement?.querySelector('span[aria-hidden]');
     expect(indicator).not.toBeNull();
+    expect(explorerBtn.style.background).toBe("");
+    expect(explorerBtn.parentElement?.querySelector('span[aria-hidden]')).toBeNull();
   });
 });

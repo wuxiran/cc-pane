@@ -54,6 +54,8 @@ describe("OrchestratorInput", () => {
     seedWorkspaces();
   });
 
+  const getSendButton = () => screen.getByRole("button", { name: /Send|发送/i });
+
   it("renders the target label with the first project and default CLI", () => {
     render(<OrchestratorInput />);
 
@@ -78,7 +80,7 @@ describe("OrchestratorInput", () => {
   it("disables the send button when input is empty", () => {
     render(<OrchestratorInput />);
 
-    expect(screen.getByRole("button", { name: /send/i })).toBeDisabled();
+    expect(getSendButton()).toBeDisabled();
   });
 
   it("enables send after typing and creates a task on click", async () => {
@@ -88,7 +90,7 @@ describe("OrchestratorInput", () => {
     const textarea = screen.getByPlaceholderText(/Enter task|输入任务/i);
     await user.type(textarea, "Build feature X");
 
-    const sendBtn = screen.getByRole("button", { name: /send/i });
+    const sendBtn = getSendButton();
     expect(sendBtn).toBeEnabled();
 
     await user.click(sendBtn);
@@ -112,7 +114,7 @@ describe("OrchestratorInput", () => {
 
     const textarea = screen.getByPlaceholderText(/Enter task|输入任务/i) as HTMLTextAreaElement;
     await user.type(textarea, "hello");
-    await user.click(screen.getByRole("button", { name: /send/i }));
+    await user.click(getSendButton());
 
     await waitFor(() => expect(textarea.value).toBe(""));
   });
@@ -136,7 +138,7 @@ describe("OrchestratorInput", () => {
 
     const longText = "x".repeat(120);
     await user.type(screen.getByPlaceholderText(/Enter task|输入任务/i), longText);
-    await user.click(screen.getByRole("button", { name: /send/i }));
+    await user.click(getSendButton());
 
     await waitFor(() => expect(createMock).toHaveBeenCalledTimes(1));
     const arg = createMock.mock.calls[0][0] as { title: string; prompt: string };
@@ -150,7 +152,7 @@ describe("OrchestratorInput", () => {
     render(<OrchestratorInput />);
 
     await user.type(screen.getByPlaceholderText(/Enter task|输入任务/i), "task");
-    await user.click(screen.getByRole("button", { name: /send/i }));
+    await user.click(getSendButton());
 
     await waitFor(() => expect(createMock).toHaveBeenCalledTimes(1));
     const arg = createMock.mock.calls[0][0] as { metadata: { ui: { gitBranch?: string } } };
@@ -163,7 +165,7 @@ describe("OrchestratorInput", () => {
 
     expect(screen.getByText(/No project|无项目/i)).toBeVisible();
     // Send is disabled with no target project.
-    expect(screen.getByRole("button", { name: /send/i })).toBeDisabled();
+    expect(getSendButton()).toBeDisabled();
   });
 
   it("selecting a different project in the popover updates the target", async () => {

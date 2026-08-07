@@ -24,7 +24,7 @@ export default function ModulesSection() {
 
   return (
     <div className="flex flex-col gap-3">
-      {MODULE_CONSUMERS.settings.map((module) => {
+      {MODULE_CONSUMERS.settings.filter((module) => module.configurable !== false).map((module) => {
         const Icon = module.icon;
         const preference = preferences[module.id];
         const moduleName = t(module.titleKey as never, { ns: "sidebar" });

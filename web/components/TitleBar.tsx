@@ -8,7 +8,6 @@ import {
   PanelLeftClose,
   PanelRight,
   PanelRightClose,
-  Settings,
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -23,7 +22,6 @@ import {
 import {
   useActivityBarStore,
   useBorderlessStore,
-  useDialogStore,
   useRightDockStore,
   useWorkspacesStore,
 } from "@/stores";
@@ -65,7 +63,6 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
   const expandedProjectId = useWorkspacesStore((s) => s.expandedProjectId);
   const expandWorkspace = useWorkspacesStore((s) => s.expandWorkspace);
   const expandProject = useWorkspacesStore((s) => s.expandProject);
-  const openSettings = useDialogStore((s) => s.openSettings);
   const {
     closeWindow,
     minimizeWindow,
@@ -292,18 +289,6 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
             />
           )}
         </IconTooltipButton>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              aria-label={t("settings", { defaultValue: "Settings" })}
-              className="w-[32px] h-[28px] mr-1 flex items-center justify-center rounded-[4px] transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
-              onClick={openSettings}
-            >
-              <Settings className="w-[13px] h-[13px]" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{t("settings", { defaultValue: "Settings" })}</TooltipContent>
-        </Tooltip>
       </div>
 
       {/* 窗口控件（macOS 使用原生红绿灯，不需要自定义按钮） */}

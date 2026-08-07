@@ -50,6 +50,7 @@ export interface ModuleDef {
   open: (position: ModulePosition) => void;
   badge?: BadgeSource;
   minimal: boolean;
+  configurable?: boolean;
 }
 
 function openSsh(position: ModulePosition) {
@@ -69,13 +70,10 @@ function openSsh(position: ModulePosition) {
   });
 }
 
-function openOrchestration(position: ModulePosition) {
+function openOrchestration(_position: ModulePosition) {
   const activity = useActivityBarStore.getState();
-  if (position === "activityBar") {
-    activity.toggleView("orchestration");
-    return;
-  }
-  activity.openOrchestrationOverlay();
+  activity.closeOrchestrationOverlay();
+  useRightDockStore.setState({ visible: true, activeView: "orchestration" });
 }
 
 function openResources(position: ModulePosition) {
@@ -139,11 +137,12 @@ export const MODULE_REGISTRY: readonly ModuleDef[] = [
     id: "orchestration",
     icon: Workflow,
     titleKey: "moduleNames.orchestration",
-    surfaces: ["activityBar", "rightDock", "overlay"],
-    defaultPosition: "activityBar",
+    surfaces: ["rightDock", "overlay"],
+    defaultPosition: "rightDock",
     open: openOrchestration,
     badge: orchestrationBadge,
     minimal: false,
+    configurable: false,
   },
   {
     id: "resources",

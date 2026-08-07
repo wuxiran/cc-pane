@@ -47,12 +47,14 @@ describe("module registry", () => {
     expect(MODULE_REGISTRY.every((module) => module.minimal === false)).toBe(true);
     expect(MODULE_REGISTRY.find((module) => module.id === "aiPanel")?.defaultPosition)
       .toBe("rightDock");
+    expect(MODULE_REGISTRY.find((module) => module.id === "orchestration")?.defaultPosition)
+      .toBe("rightDock");
   });
 
-  it("declares the existing presentation shape without moving module content", () => {
+  it("declares the presentation shape with orchestration fixed to the right dock", () => {
     expect(MODULE_REGISTRY.map(({ id, surfaces }) => [id, surfaces])).toEqual([
       ["ssh", ["activityBar", "rightDock"]],
-      ["orchestration", ["activityBar", "rightDock", "overlay"]],
+      ["orchestration", ["rightDock", "overlay"]],
       ["resources", ["activityBar", "rightDock", "fullscreen"]],
       ["todo", ["activityBar", "rightDock", "fullscreen"]],
       ["aiPanel", ["rightDock", "dialog"]],
@@ -96,13 +98,29 @@ describe("module registry", () => {
 
   it("opens hidden modules through their existing views", () => {
     MODULE_REGISTRY.find((module) => module.id === "orchestration")?.open("hidden");
-    expect(useActivityBarStore.getState().orchestrationOverlayOpen).toBe(true);
+    expect(useActivityBarStore.getState().orchestrationOverlayOpen).toBe(false);
+    expect(useRightDockStore.getState()).toMatchObject({
+      visible: true,
+      activeView: "orchestration",
+    });
 
     MODULE_REGISTRY.find((module) => module.id === "resources")?.open("hidden");
     expect(useActivityBarStore.getState().appViewMode).toBe("resources");
 
     MODULE_REGISTRY.find((module) => module.id === "todo")?.open("hidden");
     expect(useActivityBarStore.getState().appViewMode).toBe("todo");
+  });
+
+  it("opens orchestration in the right dock and closes any existing overlay", () => {
+    useActivityBarStore.setState({ orchestrationOverlayOpen: true });
+
+    MODULE_REGISTRY.find((module) => module.id === "orchestration")?.open("rightDock");
+
+    expect(useActivityBarStore.getState().orchestrationOverlayOpen).toBe(false);
+    expect(useRightDockStore.getState()).toMatchObject({
+      visible: true,
+      activeView: "orchestration",
+    });
   });
 
   it("opens ssh in its selected host surface", () => {

@@ -22,6 +22,13 @@
     "title": "暂无编排任务",
     "description": "由 leader/worker 派发的任务会出现在这里"
   },
+  "composer": {
+    "noProject": "无项目",
+    "placeholder": "输入任务...",
+    "project": "项目",
+    "cli": "CLI",
+    "send": "发送"
+  },
   "emptyNotifications": {
     "title": "暂无通知",
     "description": "任务完成或出错时会在这里提醒"
@@ -83,6 +90,7 @@
     "project": "项目",
     "allProjects": "全部项目",
     "allRoles": "全部角色",
+    "filters": "筛选",
     "roleAll": "全部",
     "details": "详情",
     "kill": "终止会话",

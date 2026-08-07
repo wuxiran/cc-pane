@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type RightDockView = "git" | "files" | "ssh" | "aiPanel" | "sessionHistory";
+export type RightDockView = "git" | "files" | "ssh" | "aiPanel" | "sessionHistory" | "orchestration";
 
 export const RIGHT_DOCK_STORAGE_KEY = "cc-panes-right-dock";
 export const DEFAULT_RIGHT_DOCK_WIDTH = 340;
@@ -49,6 +49,7 @@ export const useRightDockStore = create<RightDockState>()(
             || persisted.activeView === "ssh"
             || persisted.activeView === "aiPanel"
             || persisted.activeView === "sessionHistory"
+            || persisted.activeView === "orchestration"
             ? persisted.activeView
             : currentState.activeView,
           width: typeof persisted.width === "number"

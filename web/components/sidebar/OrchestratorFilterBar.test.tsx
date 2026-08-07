@@ -49,6 +49,19 @@ describe("OrchestratorFilterBar", () => {
     expect(screen.getByTitle("worker")).toBeVisible();
   });
 
+  it("moves advanced filters into a popover in compact mode", async () => {
+    const user = userEvent.setup();
+    render(<OrchestratorFilterBar compact />);
+
+    expect(screen.getByPlaceholderText(tt("searchPlaceholder"))).toBeVisible();
+    expect(screen.queryByRole("button", { name: tt("sidebar.workspace") })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: tt("sidebar.filters") }));
+
+    expect(screen.getByRole("button", { name: tt("sidebar.workspace") })).toBeVisible();
+    expect(screen.getByTitle(tt("sidebar.allRoles"))).toBeVisible();
+  });
+
   it("shows the active workspace name on the workspace chip", () => {
     resetOrchestratorFilters();
     useOrchestratorStore.setState({ filterWorkspace: "alpha-ws" });

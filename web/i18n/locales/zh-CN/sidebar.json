@@ -423,6 +423,7 @@
   "explorer.gitContentComparison": "内容对比",
   "rightDock.git": "Git",
   "rightDock.files": "文件",
+  "rightDock.orchestration": "任务编排",
   "rightDock.expand": "展开右侧面板",
   "rightDock.collapse": "折叠右侧面板",
   "rightDock.resize": "调整右侧面板宽度",
