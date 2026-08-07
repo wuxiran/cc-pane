@@ -4564,6 +4564,100 @@ mod tests {
         assert_eq!(KillReason::OrphanReclaim.as_str(), "orphan-reclaim");
     }
 
+    /// 合批规格模拟：与 `spawn_pty` 里的批量合并线程同构（16KB 阈值 / 超时 /
+    /// 断开三条刷出路径），返回每次 emit 的 `(data, end_seq)`。
+    ///
+    /// 真身是 `spawn_pty` 内联的 `thread::spawn` 闭包，取不出来单测，故在这里
+    /// 锁规格，另配一条扫源码守卫盯住接线。
+    fn simulate_output_batching(chunks: Vec<(&str, Option<u64>)>) -> Vec<(String, Option<u64>)> {
+        const BATCH_SIZE_THRESHOLD: usize = 16384;
+
+        let mut emits = Vec::new();
+        let mut batch = String::new();
+        let mut batch_end_seq: Option<u64> = None;
+
+        for (data, end_seq) in chunks {
+            batch.push_str(data);
+            batch_end_seq = end_seq;
+            if batch.len() >= BATCH_SIZE_THRESHOLD {
+                emits.push((std::mem::take(&mut batch), batch_end_seq.take()));
+            }
+        }
+        // 收尾等价于 timeout / disconnected 两条路径
+        if !batch.is_empty() {
+            emits.push((std::mem::take(&mut batch), batch_end_seq.take()));
+        }
+        emits
+    }
+
+    /// 不变式：`batch_end_seq` 恒等于**批内最后一个 chunk** 的 end seq。
+    ///
+    /// 这是「前端见到的任何 endSeq 必落 chunk 边界」的上游保证——checkpoint
+    /// 的 anchor 就锚在这个 seq 上。若合批取成了首个 chunk 的 seq（或不更新），
+    /// anchor 会指到批中段的字节位置：daemon 侧按 anchor 裁 delta 时要么少发
+    /// （画面缺一段）要么多发（重复渲染），且**只在一批装进多个 chunk 时**发生
+    /// ——低吞吐时一批一 chunk，测不出来，正好躲过日常使用。
+    #[test]
+    fn batch_end_seq_is_always_the_last_chunk_in_the_batch() {
+        // 低吞吐：每个 chunk 各自成批，end seq 逐一对应
+        let emits = simulate_output_batching(vec![("a", Some(1)), ("b", Some(2))]);
+        assert_eq!(
+            emits,
+            vec![("ab".to_string(), Some(2))],
+            "同批多 chunk 必须取最后一个 chunk 的 seq"
+        );
+
+        // 跨越 16KB 阈值：第一批在阈值处刷出，其 end seq 是让它越线的那个 chunk
+        let big = "x".repeat(16384);
+        let emits = simulate_output_batching(vec![
+            ("head", Some(10)),
+            (big.as_str(), Some(11)),
+            ("tail", Some(12)),
+        ]);
+        assert_eq!(emits.len(), 2);
+        assert_eq!(emits[0].1, Some(11), "阈值批的 seq 必须是越线的那个 chunk");
+        assert_eq!(emits[1].1, Some(12), "残留批的 seq 是最后一个 chunk");
+        assert_eq!(
+            emits.iter().map(|(data, _)| data.len()).sum::<usize>(),
+            "head".len() + big.len() + "tail".len(),
+            "合批不得丢字节"
+        );
+
+        // 旧 daemon 不发 seq：末位为 None 时整批就是 None，不得回退到前一个
+        // chunk 的 seq——那会让 anchor 指向本批没覆盖到的位置。
+        let emits = simulate_output_batching(vec![("a", Some(1)), ("b", None)]);
+        assert_eq!(emits, vec![("ab".to_string(), None)]);
+    }
+
+    /// 接线守卫：三条刷出路径都必须 `batch_end_seq.take()`。
+    /// 少 take 一处，下一批会带着上一批的 seq 发出（陈旧 anchor）。
+    #[test]
+    fn all_three_batch_flush_paths_take_the_batch_end_seq() {
+        let source = include_str!("terminal_service.rs");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production section");
+        let batching = production
+            .split("let mut batch_end_seq: Option<u64> = None;")
+            .nth(1)
+            .expect("batching thread must exist")
+            .split("// Codex 会话")
+            .next()
+            .expect("batching thread body");
+
+        assert_eq!(
+            batching.matches("batch_end_seq.take()").count(),
+            3,
+            "三条刷出路径（16KB 阈值 / 超时 / 断开）都必须 take，少一处就发陈旧 anchor"
+        );
+        assert_eq!(
+            batching.matches("batch_end_seq = ").count(),
+            2,
+            "recv 与排空 try_recv 两处都必须更新为最新 chunk 的 seq"
+        );
+    }
+
     /// KillReason 穷举守卫（同 boundary_events 的 origin 表手法）。
     ///
     /// `parse` 的 `_ => Unknown` 兜底会把**漏接的新变体**静默吞成 Unknown：
