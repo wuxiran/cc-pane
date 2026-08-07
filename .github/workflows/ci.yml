@@ -104,8 +104,11 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace -- -D warnings
 
+      # --no-fail-fast：单个测试二进制失败不得掩盖其余包的结果——实测
+      # start_runner_integration flaky 时曾把 cc-panes-core 的整组集成测试
+      # 挡在 fail-fast 后面，真实失败（terminal_path_link 意图锁）随之漏网。
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo test --workspace --no-fail-fast
 
   tauri-build-check:
     name: Tauri Build Check (${{ matrix.os }})

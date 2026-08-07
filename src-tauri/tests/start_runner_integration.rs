@@ -63,7 +63,7 @@ async fn wait_for_session_pid(terminal: &TerminalService, session_id: &str) -> u
 }
 
 async fn wait_for_session_exit(terminal: &TerminalService, session_id: &str) {
-    for _ in 0..140 {
+    for attempt in 0..200 {
         let exited = terminal
             .get_all_status()
             .expect("status")
@@ -73,6 +73,12 @@ async fn wait_for_session_exit(terminal: &TerminalService, session_id: &str) {
             .unwrap_or(false);
         if exited {
             return;
+        }
+        // 已知同形态卡死（CI 实测 flaky）：命令回显在提示符上但从未提交——
+        // PSReadLine 重绘期间 CR 被吞。补发一个裸 CR（与 WSL codex 未提交
+        // prompt 的处置同款），命令已在跑时多一个 CR 无害。
+        if attempt == 50 {
+            let _ = terminal.write(session_id, "\r");
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
@@ -87,7 +93,18 @@ async fn wait_for_session_exit(terminal: &TerminalService, session_id: &str) {
 async fn submit_shell_command(terminal: &TerminalService, session_id: &str, command: &str) {
     tokio::time::sleep(Duration::from_millis(300)).await;
     terminal.write(session_id, command).expect("write command");
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    // 固定 sleep 后盲发 CR 在慢 runner 上会撞上 PSReadLine 初始化/重绘窗口
+    // （回显交错成 `ppowershell ...`、CR 丢失）。等到完整回显出现再回车。
+    for _ in 0..40 {
+        let echoed = terminal
+            .get_session_output(session_id, 80)
+            .map(|output| output.lines.join("\n"))
+            .unwrap_or_default();
+        if echoed.contains(command) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
     terminal.write(session_id, "\r").expect("enter");
 }
 
