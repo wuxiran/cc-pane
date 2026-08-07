@@ -252,4 +252,66 @@ mod tests {
             SnapshotDelta::Mismatch
         );
     }
+
+    /// 基线重置不变式：Mismatch 之后 `last_snapshot` 必须换成**新**快照。
+    ///
+    /// 漏掉的话基线永远停在断裂前的内容，之后每轮（100ms）都判 Mismatch、
+    /// 每轮发一次 desync，远程端画面持续 reset+重放、永不收敛。
+    /// 判据：连续两轮同一快照，第二轮必须 Unchanged。
+    /// 桌面侧 terminal_daemon_event_bridge.rs 有同名对照用例。
+    #[test]
+    fn mismatch_baseline_reset_makes_a_repeated_snapshot_unchanged() {
+        // 模拟本文件轮询循环的基线维护：非 Unchanged 即重置。
+        let mut last_snapshot = String::new();
+        let mut round = |current: &str| {
+            let outcome = replay_snapshot_delta(&last_snapshot, current);
+            if !matches!(outcome, SnapshotDelta::Unchanged) {
+                last_snapshot = current.to_string();
+            }
+            outcome
+        };
+
+        assert_eq!(
+            round("old prefix"),
+            SnapshotDelta::Delta("old prefix".to_string())
+        );
+        assert_eq!(round("new buffer"), SnapshotDelta::Mismatch);
+        assert_eq!(
+            round("new buffer"),
+            SnapshotDelta::Unchanged,
+            "基线没重置：同一快照被反复判 Mismatch，desync 风暴"
+        );
+        assert_eq!(
+            round("new buffer tail"),
+            SnapshotDelta::Delta(" tail".to_string()),
+            "重置后的基线必须能继续做前缀增量"
+        );
+    }
+
+    /// 接线侧守卫：轮询循环的 Mismatch 分支真的赋了新基线。
+    /// 该循环嵌在 WS 长连接任务里，行为测试够不到，删掉赋值不会有测试变红。
+    #[test]
+    fn polling_loop_mismatch_branch_resets_last_snapshot() {
+        let source = include_str!("ws_handler.rs");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production section");
+        let branch = production
+            .split("SnapshotDelta::Mismatch => {")
+            .nth(1)
+            .expect("mismatch branch must exist")
+            .split("SnapshotDelta::Unchanged")
+            .next()
+            .expect("branch body");
+
+        assert!(
+            branch.contains("last_snapshot = snapshot.data"),
+            "Mismatch 分支必须重置基线，否则每轮都重发 desync"
+        );
+        assert!(
+            branch.contains("\"desync\""),
+            "Mismatch 必须发 desync，不能把整屏当增量 append"
+        );
+    }
 }

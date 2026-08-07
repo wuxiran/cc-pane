@@ -1721,6 +1721,7 @@ mod tests {
         kill_reasons: Mutex<Vec<(String, KillReason)>>,
         hook_statuses: Mutex<Vec<(String, SessionStatus)>>,
         checkpoints: Mutex<Vec<(String, TerminalCheckpoint)>>,
+        recovery_snapshot_calls: Mutex<Vec<String>>,
     }
 
     impl TerminalBackend for MockTerminalBackend {
@@ -1853,6 +1854,35 @@ mod tests {
                 .unwrap()
                 .push((session_id.to_string(), checkpoint));
             Ok(StoreCheckpointOutcome::Accepted { anchor_seq })
+        }
+
+        /// 约定同 store：只有 "session-1" 存在，其余返回 None（→ handler 404）。
+        fn get_session_recovery_snapshot(
+            &self,
+            session_id: &str,
+        ) -> AppResult<Option<cc_panes_core::models::TerminalRecoverySnapshot>> {
+            self.recovery_snapshot_calls
+                .lock()
+                .unwrap()
+                .push(session_id.to_string());
+            if session_id != "session-1" {
+                return Ok(None);
+            }
+            Ok(Some(cc_panes_core::models::TerminalRecoverySnapshot {
+                checkpoint: Some(TerminalCheckpoint {
+                    checkpoint_epoch: 7,
+                    anchor_seq: 5,
+                    snapshot_ansi: "PHOTO".to_string(),
+                    buffer_mode: TerminalBufferMode::Normal,
+                    cols: 80,
+                    rows: 24,
+                    checkpointed_at_ms: 1,
+                }),
+                delta: "TAIL".to_string(),
+                buffer_mode: TerminalBufferMode::Normal,
+                end_seq: 9,
+                checkpoint_epoch: 7,
+            }))
         }
     }
 
@@ -2011,6 +2041,94 @@ mod tests {
             .await
             .expect("missing response");
         assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+    }
+
+    // ===== recovery-snapshot 读链（M3b-3）=====
+
+    fn recovery_snapshot_request(session_id: &str, token: bool) -> Request<Body> {
+        let mut builder = Request::builder()
+            .method("GET")
+            .uri(format!("/api/sessions/{session_id}/recovery-snapshot"));
+        if token {
+            builder = builder.header(header::AUTHORIZATION, "Bearer secret");
+        }
+        builder.body(Body::empty()).expect("request")
+    }
+
+    async fn json_body(response: axum::response::Response) -> serde_json::Value {
+        serde_json::from_slice(
+            &to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body"),
+        )
+        .expect("json")
+    }
+
+    #[tokio::test]
+    async fn recovery_snapshot_requires_token() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let config = test_config("secret", "127.0.0.1:18097", backend.clone());
+
+        let response = router(config)
+            .oneshot(recovery_snapshot_request("session-1", false))
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(
+            backend.recovery_snapshot_calls.lock().unwrap().is_empty(),
+            "鉴权失败必须在碰后端之前短路"
+        );
+    }
+
+    #[tokio::test]
+    async fn recovery_snapshot_returns_checkpoint_and_delta_shape() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let config = test_config("secret", "127.0.0.1:18098", backend.clone());
+
+        let response = router(config.clone())
+            .oneshot(recovery_snapshot_request("session-1", true))
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_body(response).await;
+        assert_eq!(body["checkpoint"]["snapshotAnsi"], "PHOTO");
+        assert_eq!(body["checkpoint"]["anchorSeq"], 5);
+        assert_eq!(body["delta"], "TAIL");
+        assert_eq!(body["bufferMode"], "normal");
+        assert_eq!(body["endSeq"], 9);
+        assert_eq!(body["checkpointEpoch"], 7);
+        assert_eq!(
+            backend.recovery_snapshot_calls.lock().unwrap().as_slice(),
+            ["session-1"]
+        );
+        // 读快照算活动：不 touch 的话恢复中的会话会被 idle reaper 当死会话收掉。
+        assert!(
+            config.session_activity_snapshot().contains_key("session-1"),
+            "读 recovery-snapshot 必须刷新会话活跃时间"
+        );
+    }
+
+    /// 404 必须带结构化 `code=NOT_FOUND`。这是 app 侧区分「会话真没了」与
+    /// 「旧 daemon 缺这条路由」的**唯一**信号：裸 404 会被判成
+    /// CHECKPOINT_UNSUPPORTED，把一次正常的会话消失升级成永久能力关断。
+    #[tokio::test]
+    async fn recovery_snapshot_missing_session_is_404_with_structured_code() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let config = test_config("secret", "127.0.0.1:18099", backend);
+
+        let response = router(config)
+            .oneshot(recovery_snapshot_request("session-nope", true))
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = json_body(response).await;
+        assert_eq!(
+            body["code"], "NOT_FOUND",
+            "裸 404 会被 app 侧误判成旧 daemon 缺路由"
+        );
     }
 
     #[tokio::test]

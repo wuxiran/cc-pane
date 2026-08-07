@@ -76,6 +76,9 @@ log = "0.4"
 
 [dev-dependencies]
 tempfile = "3"
+# test-util 提供 `#[tokio::test(start_paused = true)]`：launch 超时分支的
+# deadline 是 50s 常量（不可注入），只有虚拟时钟才能在测试里稳定触发。
+tokio = { version = "1", features = ["test-util"] }
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "=0.38.2"

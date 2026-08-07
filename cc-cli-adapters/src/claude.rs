@@ -1475,6 +1475,144 @@ mod tests {
             .all(|arg| !arg.contains("provider-secret")));
     }
 
+    /// 读出 build_command 写下的那份 managed settings。
+    fn managed_settings(result: &CliCommandResult) -> serde_json::Value {
+        let settings_pos = result
+            .args
+            .iter()
+            .position(|arg| arg == "--settings")
+            .expect("managed settings argument present");
+        serde_json::from_str(&fs::read_to_string(&result.args[settings_pos + 1]).unwrap()).unwrap()
+    }
+
+    fn managed_provider_context(dir: &Path, env: serde_json::Value) -> CliAdapterContext {
+        let mut ctx = test_context(Some(r"C:\Tools\claude.exe"));
+        ctx.data_dir = dir.to_path_buf();
+        ctx.adapter_options.insert(
+            "__ccpanesModelId".to_string(),
+            serde_json::json!("claude-sonnet-5"),
+        );
+        ctx.adapter_options
+            .insert(crate::MANAGED_PROVIDER_ENV_OPTION.to_string(), env);
+        ctx
+    }
+
+    /// 路由键必须**逐个**出现且为空串。漏掉任何一个，用户 shell 里残留的
+    /// 那个变量就会活下来——表现是「切了 Provider 但请求还打到旧网关」，
+    /// 且只在设了该变量的机器上复现。穷举而非抽查，防新增键漏接。
+    #[test]
+    fn managed_settings_resets_every_provider_routing_key() {
+        let dir = tempdir().unwrap();
+        let adapter = ClaudeAdapter::new();
+        let ctx = managed_provider_context(
+            dir.path(),
+            serde_json::json!({ "ANTHROPIC_BASE_URL": "https://provider.example.test" }),
+        );
+
+        let settings = managed_settings(&adapter.build_command(&ctx).unwrap());
+
+        for key in PROVIDER_ENV_RESET_KEYS {
+            let value = settings
+                .pointer(&format!("/env/{key}"))
+                .unwrap_or_else(|| panic!("路由键 {key} 缺失：用户环境里的残留值会活下来"));
+            if *key == "ANTHROPIC_BASE_URL" {
+                // 显式给了值的键走下一条用例，这里只确认没被清空
+                assert_eq!(value, &serde_json::json!("https://provider.example.test"));
+            } else {
+                assert_eq!(value, &serde_json::json!(""), "路由键 {key} 未被重置为空串");
+            }
+        }
+    }
+
+    /// `or_default` 与 `insert` 的不对称是刻意的，两个方向各钉一条：
+    /// 路由键用 `or_default`（**不覆盖**用户显式值——那是用户选的 Provider），
+    /// 模型键用 `insert`（**强制覆盖**——模型由 CC-Panes 的选择决定，
+    /// Provider 配置里带的模型不算数）。写反任一边都是静默的行为错误。
+    #[test]
+    fn managed_settings_keep_explicit_routing_values_but_force_model_keys() {
+        let dir = tempdir().unwrap();
+        let adapter = ClaudeAdapter::new();
+        let ctx = managed_provider_context(
+            dir.path(),
+            serde_json::json!({
+                "ANTHROPIC_API_KEY": "provider-secret",
+                "ANTHROPIC_BASE_URL": "https://provider.example.test",
+                "AWS_REGION": "us-west-2",
+                // Provider 环境里自带的模型：必须被 CC-Panes 选定的模型顶掉
+                "ANTHROPIC_MODEL": "model-from-provider-config",
+                "CLAUDE_CODE_SUBAGENT_MODEL": "subagent-from-provider-config",
+            }),
+        );
+
+        let settings = managed_settings(&adapter.build_command(&ctx).unwrap());
+
+        // 路由键：显式值原样保留
+        assert_eq!(
+            settings.pointer("/env/ANTHROPIC_API_KEY"),
+            Some(&serde_json::json!("provider-secret"))
+        );
+        assert_eq!(
+            settings.pointer("/env/AWS_REGION"),
+            Some(&serde_json::json!("us-west-2")),
+            "or_default 不得覆盖用户显式给的路由值"
+        );
+        // 模型键：一律被覆盖成 CC-Panes 选定的模型
+        for key in MODEL_ENV_KEYS {
+            assert_eq!(
+                settings.pointer(&format!("/env/{key}")),
+                Some(&serde_json::json!("claude-sonnet-5")),
+                "模型键 {key} 必须被强制覆盖"
+            );
+        }
+    }
+
+    /// 清理只该删「旧的、别人的」那份。
+    ///
+    /// 误删当前会话的文件 = 该会话的 `--settings` 指向不存在的路径，Claude 启动
+    /// 即失败；误删别的**活着**的会话的文件 = 把另一个正在跑的会话打挂。
+    /// 三个维度各造一份：新的（未过期）、旧的（过期）、当前会话的（旧但在用）。
+    #[test]
+    fn cleanup_stale_provider_settings_only_removes_expired_foreign_files() {
+        let dir = tempdir().unwrap();
+        let old = std::time::SystemTime::now() - Duration::from_secs(7200);
+
+        let fresh = dir
+            .path()
+            .join(format!("{PROVIDER_SETTINGS_PREFIX}fresh.json"));
+        let stale = dir
+            .path()
+            .join(format!("{PROVIDER_SETTINGS_PREFIX}stale.json"));
+        let current_name = format!("{PROVIDER_SETTINGS_PREFIX}current.json");
+        let current = dir.path().join(&current_name);
+        // 前缀不匹配的无关文件：不归我们管，绝不能顺手删（哪怕更旧）
+        let unrelated = dir.path().join("unrelated-old.json");
+
+        for path in [&fresh, &stale, &current, &unrelated] {
+            fs::write(path, b"{}").unwrap();
+        }
+        for path in [&stale, &current, &unrelated] {
+            fs::OpenOptions::new()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_modified(old)
+                .unwrap();
+        }
+
+        ClaudeAdapter::cleanup_stale_provider_settings(dir.path(), &current_name);
+
+        assert!(fresh.exists(), "未过期的文件不得删——可能属于刚启动的会话");
+        assert!(
+            current.exists(),
+            "当前会话的文件被删 = 本次启动的 --settings 指向空路径"
+        );
+        assert!(unrelated.exists(), "前缀不匹配的文件不归本清理器管");
+        assert!(
+            !stale.exists(),
+            "过期的他人文件应被回收，否则 per-session 文件无限堆积"
+        );
+    }
+
     #[test]
     fn build_command_omits_model_when_no_model_was_resolved() {
         let adapter = ClaudeAdapter::new();

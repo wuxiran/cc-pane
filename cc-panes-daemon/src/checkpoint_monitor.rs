@@ -118,6 +118,84 @@ mod tests {
         assert_eq!(selected, vec!["s1".to_string()]);
     }
 
+    /// 组合接线：候选 → 节流 → `publish_checkpoint_request` 落到 control 通道。
+    ///
+    /// 三段各有单测，但**接线**没有：扫描线程内联在 `spawn_checkpoint_monitor`
+    /// 里（30s sleep 起步，测试等不起），把 publish 那行删掉或错发到 per-session
+    /// 流，所有既有用例照样全绿——表现是「补拍请求从来不到前端」，delta 无限
+    /// 增长直到 front-drop 把照片顶失效，恢复退回全量重放。这里按扫描线程的
+    /// 真实顺序把三段串起来跑一轮。
+    #[test]
+    fn scan_round_publishes_throttled_candidates_to_the_control_channel() {
+        let emitter = WsEmitter::new();
+        let mut control = emitter.subscribe_control();
+        let mut session_stream = emitter.subscribe("s1");
+        let mut last_requested: HashMap<String, Instant> = HashMap::new();
+        let start = Instant::now();
+
+        // 扫描线程一轮的等价体：候选 → select_throttled → publish。
+        let mut scan_round = |candidates: Vec<String>, now: Instant| {
+            for session_id in select_throttled(
+                candidates,
+                &mut last_requested,
+                now,
+                Duration::from_secs(60),
+            ) {
+                emitter.publish_checkpoint_request(&session_id);
+            }
+        };
+
+        scan_round(vec!["s1".to_string(), "s2".to_string()], start);
+
+        let mut published = Vec::new();
+        while let Ok(message) = control.try_recv() {
+            let value: serde_json::Value = serde_json::from_str(&message).expect("json");
+            assert_eq!(value["type"], "checkpointRequest");
+            published.push(value["sessionId"].as_str().expect("sessionId").to_string());
+        }
+        assert_eq!(published, vec!["s1".to_string(), "s2".to_string()]);
+        assert!(
+            session_stream.try_recv().is_err(),
+            "补拍请求走 control，绝不能挤进 per-session 镜像流"
+        );
+
+        // 第二轮仍在候选但在节流窗内：一条都不该发出去。
+        scan_round(
+            vec!["s1".to_string(), "s2".to_string()],
+            start + Duration::from_secs(30),
+        );
+        assert!(
+            control.try_recv().is_err(),
+            "节流窗内重复催拍 = 前端每轮被迫全屏序列化，白烧 CPU"
+        );
+
+        // 节流窗过后重新放行（best-effort 丢失后靠下一轮补发，契约表要求）。
+        scan_round(vec!["s1".to_string()], start + Duration::from_secs(61));
+        let message = control.try_recv().expect("resend after throttle window");
+        let value: serde_json::Value = serde_json::from_str(&message).expect("json");
+        assert_eq!(value["sessionId"], "s1");
+    }
+
+    /// 空候选轮次不得产生任何 control 流量（30s 一轮，绝大多数轮次都是空的）。
+    #[test]
+    fn empty_candidate_round_publishes_nothing() {
+        let emitter = WsEmitter::new();
+        let mut control = emitter.subscribe_control();
+        let mut last_requested: HashMap<String, Instant> = HashMap::new();
+
+        for session_id in select_throttled(
+            Vec::new(),
+            &mut last_requested,
+            Instant::now(),
+            Duration::from_secs(60),
+        ) {
+            emitter.publish_checkpoint_request(&session_id);
+        }
+
+        assert!(control.try_recv().is_err());
+        assert!(last_requested.is_empty());
+    }
+
     #[test]
     fn stale_entries_outside_candidates_are_pruned() {
         let mut last = HashMap::new();
