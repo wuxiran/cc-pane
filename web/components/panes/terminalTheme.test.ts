@@ -119,14 +119,22 @@ describe("terminalTheme", () => {
   });
 
   describe("withTransparentTerminalBackground", () => {
-    it("alpha < 1 时 xterm 侧 background 全透明——底色归容器独占，避免叠两层", () => {
+    it("alpha < 1 时 xterm 侧 background 全透明并保留逻辑底色的 RGB", () => {
       const container = getTerminalTheme(true, "followApp", 0.3);
       const xterm = withTransparentTerminalBackground(container, 0.3);
       expect(container.background).toBe("rgba(23, 25, 30, 0.3)");
-      expect(xterm.background).toBe("rgba(0, 0, 0, 0)");
+      expect(xterm.background).toBe("rgba(23, 25, 30, 0)");
       // 只动 background，字色/光标不变
       expect(xterm.foreground).toBe(container.foreground);
       expect(xterm.cursorAccent).toBe(container.cursorAccent);
+    });
+
+    it("浅色透明终端保留浅色 RGB，供 ANSI 前景色对比度校正", () => {
+      const container = getTerminalTheme(false, "followApp", 0.3);
+      expect(container.background).toBe("rgba(255, 255, 255, 0.3)");
+      expect(withTransparentTerminalBackground(container, 0.3).background).toBe(
+        "rgba(255, 255, 255, 0)",
+      );
     });
 
     it("alpha >= 1（壁纸未激活）保持恒等引用，零行为变化", () => {
@@ -142,7 +150,7 @@ describe("terminalTheme", () => {
       const container = getTerminalTheme(true, "followApp", 0);
       expect(container.background).toBe("rgba(23, 25, 30, 0)");
       expect(withTransparentTerminalBackground(container, 0).background).toBe(
-        "rgba(0, 0, 0, 0)",
+        "rgba(23, 25, 30, 0)",
       );
     });
   });

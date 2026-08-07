@@ -100,10 +100,10 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-sm: var(--shape-radius-sm, calc(var(--radius) - 4px));
+  --radius-md: var(--shape-radius-md, calc(var(--radius) - 2px));
+  --radius-lg: var(--shape-radius-lg, var(--radius));
+  --radius-xl: var(--shape-radius-xl, calc(var(--radius) + 4px));
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -898,6 +898,185 @@
   --notch-tab-hover-fg: #192838;
   --notch-tab-border: rgba(28, 69, 105, 0.10);
 }
+
+/* THEME SHAPES START */
+:root[data-shape="soft"] {
+  --radius: 0.5rem;
+  --shape-radius-sm: 0.25rem;
+  --shape-radius-md: 0.375rem;
+  --shape-radius-lg: 0.5rem;
+  --shape-radius-xl: 0.75rem;
+  --shape-border-width: 1px;
+  --shape-shadow: none;
+  --shape-backdrop-blur: 0px;
+}
+
+:root[data-shape="slab"] {
+  --radius: 0.25rem;
+  --shape-radius-sm: 0.125rem;
+  --shape-radius-md: 0.1875rem;
+  --shape-radius-lg: 0.25rem;
+  --shape-radius-xl: 0.375rem;
+  --shape-border-width: 1px;
+  --shape-shadow: var(--hi), var(--sh-sm);
+  --shape-backdrop-blur: 0px;
+}
+
+:root[data-shape="sharp"] {
+  --radius: 0px;
+  --shape-radius-sm: 0px;
+  --shape-radius-md: 0px;
+  --shape-radius-lg: 0px;
+  --shape-radius-xl: 0px;
+  --shape-border-width: 1px;
+  --shape-shadow: none;
+  --shape-backdrop-blur: 0px;
+}
+
+:root[data-shape="glass"] {
+  --radius: 0.75rem;
+  --shape-radius-sm: 0.5rem;
+  --shape-radius-md: 0.625rem;
+  --shape-radius-lg: 0.75rem;
+  --shape-radius-xl: 1rem;
+  --shape-border-width: 1px;
+  --shape-shadow: var(--sh-md);
+  --shape-backdrop-blur: 16px;
+}
+
+:root[data-shape="panel"] {
+  --radius: 0px;
+  --shape-radius-sm: 0px;
+  --shape-radius-md: 0px;
+  --shape-radius-lg: 0px;
+  --shape-radius-xl: 0px;
+  --shape-border-width: 1px;
+  --shape-shadow: none;
+  --shape-backdrop-blur: 0px;
+}
+
+:root[data-shape="carbon"] {
+  --radius: 0.375rem;
+  --shape-radius-sm: 0.125rem;
+  --shape-radius-md: 0.25rem;
+  --shape-radius-lg: 0.375rem;
+  --shape-radius-xl: 0.5rem;
+  --shape-border-width: 1px;
+  --shape-shadow: var(--sh-md);
+  --shape-backdrop-blur: 8px;
+}
+
+:where(.shape-chrome, .shape-surface) {
+  transition:
+    box-shadow var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+
+.shape-panel {
+  border-radius: var(--shape-radius-lg);
+  transition:
+    border-radius var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+
+:where(.shape-control, .shape-input) {
+  border-radius: var(--shape-radius-md);
+  transition:
+    border-radius var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+:root[data-shape="slab"] :where(.shape-chrome, .shape-surface, .shape-panel),
+:root[data-shape="sharp"] :where(.shape-chrome, .shape-surface, .shape-panel),
+:root[data-shape="panel"] :where(.shape-chrome, .shape-surface, .shape-panel) {
+  border-width: var(--shape-border-width);
+  border-style: solid;
+  border-color: var(--app-border);
+  box-shadow: var(--shape-shadow);
+}
+
+:root[data-shape="glass"] :where(.shape-chrome, .shape-surface, .shape-panel) {
+  background-color: color-mix(in srgb, var(--app-panel-bg-effective) 78%, transparent) !important;
+  border: var(--shape-border-width) solid var(--app-border);
+  box-shadow: var(--shape-shadow);
+  backdrop-filter: blur(var(--shape-backdrop-blur));
+}
+
+:root[data-shape="carbon"] :where(.shape-chrome, .shape-surface, .shape-panel) {
+  background-color: color-mix(in srgb, var(--app-panel-bg-effective) 90%, transparent) !important;
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--app-border) 38%, transparent) 0 1px,
+    transparent 1px 4px
+  ) !important;
+  border: var(--shape-border-width) solid var(--app-border);
+  box-shadow: var(--shape-shadow);
+  backdrop-filter: blur(var(--shape-backdrop-blur));
+}
+
+:root[data-shape="glass"] .shape-input,
+:root[data-shape="carbon"] .shape-input {
+  background-color: var(--app-panel-bg-effective);
+  background-image: none;
+  backdrop-filter: none;
+}
+
+.theme-shape-preview {
+  border-radius: var(--preview-radius);
+  background: var(--app-bg-deep);
+  box-shadow: var(--preview-shadow, none);
+}
+
+.theme-shape-preview-chrome {
+  background: var(--app-menubar);
+}
+
+.theme-shape-preview-sidebar {
+  border-radius: var(--preview-radius);
+  background: var(--app-sidebar-bg);
+}
+
+.theme-shape-preview-panel {
+  border-radius: var(--preview-radius);
+  background: var(--app-panel-bg-effective);
+}
+
+.theme-shape-preview[data-shape-preview="soft"] {
+  --preview-radius: 0.5rem;
+}
+
+.theme-shape-preview[data-shape-preview="slab"] {
+  --preview-radius: 0.25rem;
+  --preview-shadow: var(--hi), var(--sh-sm);
+}
+
+.theme-shape-preview[data-shape-preview="sharp"],
+.theme-shape-preview[data-shape-preview="panel"] {
+  --preview-radius: 0px;
+}
+
+.theme-shape-preview[data-shape-preview="panel"] {
+  border-width: 2px;
+}
+
+.theme-shape-preview[data-shape-preview="glass"] {
+  --preview-radius: 0.75rem;
+  --preview-shadow: var(--sh-md);
+  background: color-mix(in srgb, var(--app-panel-bg-effective) 72%, transparent);
+}
+
+.theme-shape-preview[data-shape-preview="carbon"] {
+  --preview-radius: 0.375rem;
+  --preview-shadow: var(--sh-md);
+  background-color: color-mix(in srgb, var(--app-panel-bg-effective) 88%, transparent);
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--app-border) 45%, transparent) 0 1px,
+    transparent 1px 4px
+  );
+}
+/* THEME SHAPES END */
 
 @layer base {
   * {

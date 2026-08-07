@@ -13,6 +13,7 @@ import App from "./App";
 import "./assets/index.css";
 import { recordFrontendCrash } from "@/utils/frontendCrashLog";
 import { installAppMenuPasteHandler } from "@/utils/appMenuPaste";
+import { isolateSpecialWindowShape } from "@/stores/useThemeStore";
 
 const appPlatform = (() => {
   const platform = navigator.platform.toLowerCase();
@@ -54,6 +55,9 @@ window.addEventListener("unhandledrejection", (e) => {
 
 async function renderRoot() {
   const mode = new URLSearchParams(window.location.search).get("mode");
+  if (mode === "ccchan" || mode === "popup" || mode === "webgl-lab") {
+    isolateSpecialWindowShape();
+  }
   const root = ReactDOM.createRoot(document.getElementById("root")!);
 
   if (mode === "ccchan") {

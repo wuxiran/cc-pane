@@ -1,3 +1,5 @@
+import type { ThemeShape } from "@/theme/themeShapes";
+
 /** 应用设置 */
 export interface AppSettings {
   /** 配置语义版本；由后端用于一次性默认值迁移。 */
@@ -102,6 +104,8 @@ export interface ProxySettings {
 export interface ThemeSettings {
   /** Theme preset id, or the legacy light/dark/system values. */
   mode: string;
+  /** Independent surface shape applied to application chrome and controls. */
+  shape: ThemeShape;
 }
 
 /** 终端设置 */
@@ -122,6 +126,8 @@ export interface TerminalSettings {
   showContextUsage: boolean;
   /** 终端底部状态栏(整条)的开关。关闭后状态栏整段不渲染,把空间让给终端区。 */
   showStatusBar: boolean;
+  /** Show local file and directory paths in terminal output as clickable links. */
+  pathLinksEnabled: boolean;
   /** 用户选择的 Shell ID（如 "pwsh", "cmd"），null 表示自动探测 */
   shell: string | null;
   /** 禁用 ConPTY 输出 sanitize（默认 true） */

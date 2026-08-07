@@ -16,6 +16,7 @@
   "searchKeywords": {
     "general": "启动 托盘 语言 历史 数据目录 搜索范围 版本更新提示 功能提示",
     "theme": "主题 风格 皮肤 深色 浅色 系统 外观 配色",
+    "themeShape": "形态 圆角 直角 边界 分隔线 玻璃 磨砂 壁纸 柔和 层板 面板 碳纹 Soft Slab Sharp Glass Panel Carbon",
     "wallpaper": "图片 视频 背景 音乐 透明度 模糊",
     "font": "字体 字号 font family 中文 CJK",
     "shortcuts": "快捷键 热键 键盘 绑定",
@@ -70,9 +71,20 @@
   },
   "general": "通用",
   "theme": {
-    "styleTitle": "主题风格",
-    "styleDescription": "选择应用外观。点击后立即生效并自动保存。",
-    "openMenu": "选择主题",
+    "styleTitle": "配色与形态",
+    "styleDescription": "分别选择界面配色和结构形态。两项可以自由组合，修改后立即生效并自动保存。",
+    "openMenu": "选择配色主题",
+    "colorTitle": "配色主题",
+    "colorDescription": "控制应用的背景、文字、强调色和状态色。",
+    "shapeTitle": "界面形态",
+    "shapeDescription": "调整界面的边角、分隔线和表面材质，不改变当前配色。",
+    "shapeScopeNote": "形态不会改变配色主题、终端主题、字体、字号或窗格布局。",
+    "wallpaperHint": "开启壁纸后效果更明显；未开启时继续使用当前主题背景。",
+    "restoreDefault": "恢复默认形态",
+    "restoredDefault": "已恢复为柔和 Soft",
+    "blurFallback": "当前环境不支持背景模糊，已保留半透明层次。",
+    "defaultBadge": "默认",
+    "wallpaperBadge": "适合壁纸",
     "groups": {
       "dark": "深色",
       "light": "浅色",
@@ -86,6 +98,32 @@
       "classicWhite": "雪原白",
       "warmGray": "暖雾灰",
       "skyBlue": "晴空蓝"
+    },
+    "shapes": {
+      "soft": {
+        "name": "柔和 Soft",
+        "description": "保留 CC-Panes 当前的圆角与轻边界，升级后外观不变。"
+      },
+      "slab": {
+        "name": "层板 Slab",
+        "description": "缩小圆角，用轻微的上下沿明暗区分相邻面板。"
+      },
+      "sharp": {
+        "name": "直角 Sharp",
+        "description": "取消容器圆角，让标签、侧栏和面板贴齐网格。"
+      },
+      "glass": {
+        "name": "玻璃 Glass",
+        "description": "标题栏、侧栏和浮层采用半透明磨砂；终端与输入框保持实底。"
+      },
+      "panel": {
+        "name": "面板 Panel",
+        "description": "使用直角和更清晰的分隔线，强化多窗格与工具区域的边界。"
+      },
+      "carbon": {
+        "name": "碳纹 Carbon",
+        "description": "在半透明表面叠加低对比几何纹理，同时保持终端内容清晰。"
+      }
     }
   },
   "notification": "通知",
@@ -253,6 +291,8 @@
   "rendererWebgl": "尝试 WebGL",
   "rendererDom": "DOM 降级",
   "rendererHint": "自动模式在 Windows 上默认使用 DOM（WebGL 存在中文字形花屏问题），其他 Chromium 宿主优先 WebGL；显式选择 WebGL 仍会尝试启用。",
+  "pathLinksEnabled": "终端文件路径链接",
+  "pathLinksEnabledHint": "将终端输出中的文件和目录路径显示为可点击链接，点击后选择打开方式。",
   "showContextUsage": "显示上下文使用量",
   "showContextUsageHint": "在全局和每个终端的状态栏中显示上下文使用量指示器。",
   "showStatusBar": "显示终端状态栏",
@@ -427,6 +467,11 @@
       "title": "从统一启动器新建标签",
       "body": "在一个入口选择项目、CLI、运行环境和启动参数。",
       "bodyUnbound": "去设置绑定新建标签快捷键，从统一启动器选择项目、CLI 和环境。"
+    },
+    "interfaceShapes": {
+      "title": "试试界面形态",
+      "body": "保留当前配色，只改变界面的边角、分隔线和表面材质。",
+      "action": "打开主题设置"
     },
     "dispatchOrchestration": {
       "title": "让一个 AI 指挥另一批 AI",
