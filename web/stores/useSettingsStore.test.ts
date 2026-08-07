@@ -9,6 +9,7 @@ import {
 import { DEFAULT_CCCHAN_SETTINGS } from "./useCCChanStore";
 import { settingsService } from "@/services";
 import { createTestSettings, resetTestDataCounter } from "@/test/utils/testData";
+import type { AppSettings } from "@/types";
 
 vi.mock("@/services", () => ({
   settingsService: {
@@ -88,6 +89,18 @@ describe("useSettingsStore", () => {
       expect(useSettingsStore.getState().settings?.localHistory.enabled).toBe(true);
     });
 
+    it("旧设置缺少 shape 时默认使用 soft", async () => {
+      const legacySettings = createTestSettings() as unknown as {
+        theme: { mode: string; shape?: string };
+      };
+      delete legacySettings.theme.shape;
+      vi.mocked(settingsService.getSettings).mockResolvedValue(legacySettings as never);
+
+      await useSettingsStore.getState().loadSettings();
+
+      expect(useSettingsStore.getState().settings?.theme.shape).toBe("soft");
+    });
+
     it("加载失败时不应抛异常且 loading 恢复 false", async () => {
       const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       vi.mocked(settingsService.getSettings).mockRejectedValue(
@@ -107,7 +120,7 @@ describe("useSettingsStore", () => {
   describe("saveSettings", () => {
     it("应调用 updateSettings 并更新 settings", async () => {
       const newSettings = createTestSettings({
-        theme: { mode: "light" },
+        theme: { mode: "light", shape: "soft" },
       });
       vi.mocked(settingsService.updateSettings).mockResolvedValue();
 
@@ -131,6 +144,20 @@ describe("useSettingsStore", () => {
 
       consoleSpy.mockRestore();
     });
+
+    it("保存前把非法 shape 归一化为 soft", async () => {
+      const newSettings = createTestSettings() as unknown as AppSettings;
+      (newSettings.theme as { mode: string; shape: string }).shape = "glass; color: red";
+      vi.mocked(settingsService.updateSettings).mockResolvedValue();
+
+      await useSettingsStore.getState().saveSettings(newSettings);
+
+      expect(settingsService.updateSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          theme: expect.objectContaining({ shape: "soft" }),
+        }),
+      );
+    });
   });
 
   describe("getDefaults", () => {
@@ -138,6 +165,7 @@ describe("useSettingsStore", () => {
       const defaults = useSettingsStore.getState().getDefaults();
 
       expect(defaults.theme.mode).toBe("dark");
+      expect(defaults.theme.shape).toBe("soft");
       expect(defaults.terminal.fontSize).toBe(15);
       expect(defaults.terminal.cursorStyle).toBe("block");
       expect(defaults.terminal.cursorBlink).toBe(false);
@@ -146,6 +174,7 @@ describe("useSettingsStore", () => {
       expect(defaults.terminal.rendererMode).toBe("auto");
       expect(defaults.terminal.showContextUsage).toBe(true);
       expect(defaults.terminal.showStatusBar).toBe(true);
+      expect(defaults.terminal.pathLinksEnabled).toBe(true);
       expect(defaults.terminal.autoAdoptDaemonSessions).toBe(true);
       expect(defaults.proxy.enabled).toBe(false);
       expect(defaults.general.language).toBe("zh-CN");

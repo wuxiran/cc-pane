@@ -113,7 +113,8 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     descriptionKey: "theme.styleDescription",
     group: "appearance",
     searchEntries: [
-      { id: "theme-style", titleKey: "theme.styleTitle", descriptionKey: "theme.styleDescription", keywordsKey: "searchKeywords.theme", targetSectionId: "theme-style" },
+      { id: "color", titleKey: "theme.colorTitle", descriptionKey: "theme.colorDescription", keywordsKey: "searchKeywords.theme", targetSectionId: "theme-color" },
+      { id: "shape", titleKey: "theme.shapeTitle", descriptionKey: "theme.shapeDescription", keywordsKey: "searchKeywords.themeShape", targetSectionId: "theme-shape" },
     ],
   },
   {
@@ -152,6 +153,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
       { id: "font", titleKey: "fontSize", descriptionKey: "fontFamilyCjkHint", keywordsKey: "searchKeywords.font", targetSectionId: "terminal-font" },
       { id: "theme", titleKey: "terminalTheme", targetSectionId: "terminal-root" },
       { id: "renderer", titleKey: "rendererMode", descriptionKey: "rendererHint", targetSectionId: "terminal-root" },
+      { id: "path-links", titleKey: "pathLinksEnabled", descriptionKey: "pathLinksEnabledHint", targetSectionId: "terminal-path-links" },
       { id: "context-usage", titleKey: "showContextUsage", descriptionKey: "showContextUsageHint", targetSectionId: "terminal-context-usage" },
       { id: "status-bar", titleKey: "showStatusBar", descriptionKey: "showStatusBarHint", targetSectionId: "terminal-status-bar" },
       { id: "session-priority", titleKey: "lowerSessionPriority", descriptionKey: "lowerSessionPriorityHint", targetSectionId: "terminal-root" },

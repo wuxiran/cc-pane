@@ -29,6 +29,7 @@ function createValue(overrides: Partial<TerminalSettings> = {}): TerminalSetting
     rendererMode: "auto",
     showContextUsage: true,
     showStatusBar: true,
+    pathLinksEnabled: true,
     shell: null,
     disableConptySanitize: null,
     resumeIdBackfillEnabled: null,
@@ -115,6 +116,18 @@ describe("TerminalSection", () => {
     await user.click(checkboxes[1]);
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ showContextUsage: false }));
+  });
+
+  it("emits terminal path link changes", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<TerminalSection value={createValue()} onChange={onChange} />);
+
+    const pathLinks = screen.getByRole("switch", { name: /终端文件路径链接|Terminal file path links/i });
+    expect(pathLinks).toBeChecked();
+    await user.click(pathLinks);
+
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ pathLinksEnabled: false }));
   });
 
   it("emits showStatusBar changes", async () => {

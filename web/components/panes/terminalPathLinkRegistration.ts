@@ -11,10 +11,12 @@ export function createTerminalPathLinkIntegration(
   allowPosixAbsolute: boolean,
   getSessionId: () => string | null,
   isSsh: () => boolean,
+  isEnabled: () => boolean,
   translate: TFunction<"panes">,
 ) {
   const options: TerminalPathLinkOptions = { allowPosixAbsolute };
   const activate = (reference: TerminalPathReference) => {
+    if (!isEnabled()) return;
     const sessionId = getSessionId();
     if (!sessionId) {
       toast.error(translate("terminalPathLink.sessionUnavailable"));
@@ -31,7 +33,7 @@ export function createTerminalPathLinkIntegration(
       activate: (_event: unknown, uri: string) => {
         const target = classifyOsc8TerminalLink(uri, options);
         if (target?.type === "local") {
-          if (!isSsh()) activate(target.reference);
+          if (!isSsh() && isEnabled()) activate(target.reference);
           return;
         }
         if (target?.type === "external") {
@@ -42,6 +44,6 @@ export function createTerminalPathLinkIntegration(
       },
     },
     register: (terminal: Terminal): IDisposable =>
-      terminal.registerLinkProvider(new TerminalPathLinkProvider(terminal, activate, options)),
+      terminal.registerLinkProvider(new TerminalPathLinkProvider(terminal, activate, options, isEnabled)),
   };
 }

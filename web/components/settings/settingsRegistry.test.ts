@@ -47,6 +47,30 @@ describe("settings registry", () => {
     }));
   });
 
+  it("registers the terminal path link setting for search", () => {
+    const terminal = SETTINGS_PANES.find((pane) => pane.id === "terminal");
+
+    expect(terminal?.searchEntries).toContainEqual(expect.objectContaining({
+      id: "path-links",
+      targetSectionId: "terminal-path-links",
+    }));
+  });
+
+  it("registers independent color and shape search targets", () => {
+    const theme = SETTINGS_PANES.find((pane) => pane.id === "theme");
+
+    expect(theme?.searchEntries).toContainEqual(expect.objectContaining({
+      id: "color",
+      keywordsKey: "searchKeywords.theme",
+      targetSectionId: "theme-color",
+    }));
+    expect(theme?.searchEntries).toContainEqual(expect.objectContaining({
+      id: "shape",
+      keywordsKey: "searchKeywords.themeShape",
+      targetSectionId: "theme-shape",
+    }));
+  });
+
   it("registers the module pane and its placement search target", () => {
     const modules = SETTINGS_PANES.find((pane) => pane.id === "modules");
 

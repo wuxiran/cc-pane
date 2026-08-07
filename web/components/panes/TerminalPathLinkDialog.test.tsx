@@ -66,8 +66,8 @@ describe("TerminalPathLinkDialog", () => {
 
     expect(screen.getByText(`${longPath}:12:8`)).toHaveTextContent(`${longPath}:12:8`);
     expect(screen.getByRole("button", { name: /在编辑器中打开|Open in editor/i })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /使用默认程序打开|Open with default app/i })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /在文件管理器中显示|Show in file manager/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /(?:使用)?默认程序打开|Open with default app/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /打开所在目录|Open containing folder/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /复制路径|Copy path/i })).toBeEnabled();
   });
 

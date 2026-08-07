@@ -98,7 +98,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       password: null,
       noProxy: null,
     },
-    theme: { mode: "dark" },
+    theme: { mode: "dark", shape: "soft" },
     terminal: {
       fontSize: 15,
       fontFamily: "monospace",
@@ -109,6 +109,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       rendererMode: "auto",
       showContextUsage: true,
       showStatusBar: true,
+      pathLinksEnabled: true,
       shell: null,
       disableConptySanitize: null,
       resumeIdBackfillEnabled: null,

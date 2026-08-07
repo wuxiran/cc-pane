@@ -38,30 +38,36 @@ const LOCATION_SUFFIX = /:([1-9]\d*)(?::([1-9]\d*))?$/;
 const URI_SCHEME = /^[a-z][a-z\d+.-]*:/i;
 const CONTROL_OR_BIDI = /[\u0000-\u001f\u007f\u061c\u200b\u200e\u200f\u202a-\u202e\u2060-\u2069\ufeff]/u;
 const FULLWIDTH_BOUNDARY = "　、。，：；！？（）【】《》「」『』";
+const WINDOWS_EXTENDED_DRIVE = /^\\\\\?\\[A-Za-z]:[\\/]/;
+const PATH_START = String.raw`(?:\\\\\?\\[A-Za-z]:[\\/]|[A-Za-z]:[\\/]|/(?!/)|\.{1,2}[\\/]|[A-Za-z0-9_.-]+[\\/])`;
 
 const WITH_LOCATION = new RegExp(
-  `(?:[A-Za-z]:[\\/]|/(?!/)|\\.{1,2}[\\/]|[A-Za-z0-9_.-]+[\\/])` +
+  PATH_START +
     `[^\\r\\n<>\"\x60${FULLWIDTH_BOUNDARY}]*?` +
     `:[1-9]\\d*(?::[1-9]\\d*)?` +
     `(?=$|[\\s,.;!?)}\\]]|[${FULLWIDTH_BOUNDARY}])`,
   "gu",
 );
 const WITHOUT_LOCATION = new RegExp(
-  `(?:[A-Za-z]:[\\/]|/(?!/)|\\.{1,2}[\\/]|[A-Za-z0-9_.-]+[\\/])` +
+  PATH_START +
     `[^\\s<>\"\x60${FULLWIDTH_BOUNDARY}]*` +
     `[^\\s<>\"\x60'),;!?\\]}${FULLWIDTH_BOUNDARY}]`,
   "gu",
 );
 
 function hasUnsupportedWindowsSyntax(path: string): boolean {
-  if (/^(?:\\\\|\/\/|\\\\[?.]\\)/.test(path)) return true;
+  const extendedWindowsAbsolute = WINDOWS_EXTENDED_DRIVE.test(path);
+  if (/^\\\\\?\\/.test(path)) {
+    return !extendedWindowsAbsolute || path.slice(6).includes(":");
+  }
+  if (/^(?:\\\\|\/\/|\\\\\.\\)/.test(path)) return true;
   if (/^[A-Za-z]:(?![\\/])/.test(path)) return true;
   const withoutDrive = /^[A-Za-z]:/.test(path) ? path.slice(2) : path;
   return withoutDrive.includes(":");
 }
 
 function hasSupportedPathShape(path: string, options: TerminalPathLinkOptions): boolean {
-  const windowsAbsolute = /^[A-Za-z]:[\\/]/.test(path);
+  const windowsAbsolute = WINDOWS_EXTENDED_DRIVE.test(path) || /^[A-Za-z]:[\\/]/.test(path);
   if (
     !path ||
     CONTROL_OR_BIDI.test(path) ||
@@ -316,9 +322,14 @@ export class TerminalPathLinkProvider implements ILinkProvider {
     private readonly terminal: XtermTerminal,
     private readonly onActivate: (reference: TerminalPathReference) => void,
     private readonly options: TerminalPathLinkOptions,
+    private readonly isEnabled: () => boolean = () => true,
   ) {}
 
   provideLinks(viewportLine: number, callback: (links: ILink[] | undefined) => void): void {
+    if (!this.isEnabled()) {
+      callback(undefined);
+      return;
+    }
     const window = getSoftWrappedChunks(this.terminal, viewportLine);
     const { chunks } = window;
     const source = chunks.map((chunk) => chunk.text).join("");

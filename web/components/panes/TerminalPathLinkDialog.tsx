@@ -1,4 +1,5 @@
-import { Code2, Copy, ExternalLink, FolderOpen, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { Code2, Copy, ExternalLink, FileText, FolderOpen, Loader2, Maximize2, Minimize2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -7,7 +8,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -38,6 +38,7 @@ export default function TerminalPathLinkDialog() {
   const { t } = useTranslation("panes");
   const dialog = useTerminalPathLinkStore((state) => state.dialog);
   const desktop = isTauriRuntime();
+  const [expanded, setExpanded] = useState(false);
   const open = dialog.phase !== "closed";
   const acting = dialog.phase === "acting";
   const ready = dialog.phase === "ready" || acting;
@@ -101,14 +102,31 @@ export default function TerminalPathLinkDialog() {
         if (!nextOpen) useTerminalPathLinkStore.getState().close();
       }}
     >
-      <DialogContent className="sm:max-w-[440px]" aria-busy={dialog.phase === "resolving"}>
-        <DialogHeader>
-          <DialogTitle>
+      <DialogContent
+        className={`${expanded ? "sm:max-w-[min(720px,calc(100%-2rem))]" : "sm:max-w-[440px]"} gap-3 p-5`}
+        aria-busy={dialog.phase === "resolving"}
+      >
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          className="absolute right-10 top-3.5 text-muted-foreground"
+          aria-label={t(expanded ? "terminalPathLink.restoreSize" : "terminalPathLink.expand")}
+          title={t(expanded ? "terminalPathLink.restoreSize" : "terminalPathLink.expand")}
+          disabled={acting}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? <Minimize2 /> : <Maximize2 />}
+        </Button>
+
+        <DialogHeader className="pr-16">
+          <DialogTitle className="flex items-center gap-2 text-sm leading-5">
+            <FileText className="size-4 shrink-0 text-primary" aria-hidden="true" />
             {ready
               ? t(dialog.kind === "file" ? "terminalPathLink.fileTitle" : "terminalPathLink.directoryTitle")
               : t("terminalPathLink.resolvingTitle")}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="sr-only">
             {ready
               ? t(dialog.kind === "file" ? "terminalPathLink.fileDescription" : "terminalPathLink.directoryDescription")
               : t("terminalPathLink.resolvingDescription")}
@@ -116,7 +134,7 @@ export default function TerminalPathLinkDialog() {
         </DialogHeader>
 
         {dialog.phase !== "closed" && (
-          <div className="min-w-0 select-text break-all rounded-md border bg-muted/40 px-3 py-2 font-mono text-xs leading-5">
+          <div className="shape-control min-w-0 select-text break-all rounded-md border bg-muted/50 px-3 py-2.5 font-mono text-xs leading-5">
             {displayPath(ready ? dialog.canonicalPath : dialog.rawPath, dialog.line, dialog.column)}
           </div>
         )}
@@ -127,15 +145,9 @@ export default function TerminalPathLinkDialog() {
             <span className="sr-only">{t("terminalPathLink.resolvingDescription")}</span>
           </div>
         ) : ready ? (
-          <DialogFooter className="sm:flex-wrap">
-            {dialog.kind === "file" && (
-              <Button onClick={openEditor} disabled={acting}>
-                {acting && dialog.pendingAction === "openEditor" ? <Loader2 className="animate-spin" /> : <Code2 />}
-                {t("terminalPathLink.openEditor")}
-              </Button>
-            )}
+          <div className="grid grid-cols-2 gap-2">
             {desktop && dialog.kind === "file" && (
-              <Button variant="outline" onClick={() => runDesktopAction("openDefault")} disabled={acting}>
+              <Button onClick={() => runDesktopAction("openDefault")} disabled={acting}>
                 {acting && dialog.pendingAction === "openDefault" ? <Loader2 className="animate-spin" /> : <ExternalLink />}
                 {t("terminalPathLink.openDefault")}
               </Button>
@@ -143,6 +155,7 @@ export default function TerminalPathLinkDialog() {
             {desktop && (
               <Button
                 variant={dialog.kind === "directory" ? "default" : "outline"}
+                className={dialog.kind === "directory" ? "col-span-2" : undefined}
                 onClick={() => runDesktopAction("reveal")}
                 disabled={acting}
               >
@@ -150,15 +163,31 @@ export default function TerminalPathLinkDialog() {
                 {t(dialog.kind === "directory" ? "terminalPathLink.openFolder" : "terminalPathLink.reveal")}
               </Button>
             )}
-            <Button
-              variant={!desktop && dialog.kind === "directory" ? "default" : "outline"}
-              onClick={copyPath}
-              disabled={acting}
-            >
-              {acting && dialog.pendingAction === "copy" ? <Loader2 className="animate-spin" /> : <Copy />}
-              {t("terminalPathLink.copy")}
-            </Button>
-          </DialogFooter>
+            {!desktop && dialog.kind === "file" && (
+              <Button className="col-span-2" onClick={openEditor} disabled={acting}>
+                {acting && dialog.pendingAction === "openEditor" ? <Loader2 className="animate-spin" /> : <Code2 />}
+                {t("terminalPathLink.openEditor")}
+              </Button>
+            )}
+            <div className="col-span-2 flex min-w-0 items-center justify-between gap-2">
+              {desktop && dialog.kind === "file" && (
+                <Button variant="ghost" size="sm" onClick={openEditor} disabled={acting}>
+                  {acting && dialog.pendingAction === "openEditor" ? <Loader2 className="animate-spin" /> : <Code2 />}
+                  {t("terminalPathLink.openEditor")}
+                </Button>
+              )}
+              <Button
+                variant={!desktop && dialog.kind === "directory" ? "default" : "ghost"}
+                size={!desktop && dialog.kind === "directory" ? "default" : "sm"}
+                className="ml-auto"
+                onClick={copyPath}
+                disabled={acting}
+              >
+                {acting && dialog.pendingAction === "copy" ? <Loader2 className="animate-spin" /> : <Copy />}
+                {t("terminalPathLink.copy")}
+              </Button>
+            </div>
+          </div>
         ) : null}
       </DialogContent>
     </Dialog>
