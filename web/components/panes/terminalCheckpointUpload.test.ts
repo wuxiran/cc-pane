@@ -134,6 +134,58 @@ describe("captureAndUploadCheckpoint", () => {
     expect(uploadMock).toHaveBeenCalledTimes(2);
   });
 
+  it("去抖按会话隔离：A 刚拍过不影响 B 立刻拍", async () => {
+    reanchorSeq("s1", 100, 7);
+    reanchorSeq("s2", 200, 7);
+    uploadMock.mockResolvedValue({ kind: "accepted", anchorSeq: 100 });
+
+    await captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, {
+      reason: "a",
+      nowMs: 1_000,
+    });
+    const other = await captureAndUploadCheckpoint("s2", fakeTerm(), serializeAddon, {
+      reason: "b",
+      nowMs: 1_000,
+    });
+
+    expect(other).toBe("uploaded");
+    expect(uploadMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("去抖在尝试时点落账（先于 await）：上传失败也不放行第二次，防重试风暴", async () => {
+    reanchorSeq("s1", 100, 7);
+    uploadMock.mockRejectedValue(new Error("boom"));
+
+    const first = await captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, {
+      reason: "first",
+      nowMs: 1_000,
+    });
+    const second = await captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, {
+      reason: "second",
+      nowMs: 1_000 + 1,
+    });
+
+    expect(first).toBe("failed");
+    expect(second).toBe("skipped-debounce");
+    expect(uploadMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("跳过路径（无锚点）不落去抖账：锚点接通后可立即拍", async () => {
+    const skipped = await captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, {
+      reason: "no-anchor",
+      nowMs: 1_000,
+    });
+    expect(skipped).toBe("skipped-no-anchor");
+
+    reanchorSeq("s1", 100, 7);
+    uploadMock.mockResolvedValue({ kind: "accepted", anchorSeq: 100 });
+    const after = await captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, {
+      reason: "now-anchored",
+      nowMs: 1_000 + 1,
+    });
+    expect(after).toBe("uploaded");
+  });
+
   it("capability 关断（uploadCheckpoint 返回 null）→ skipped-capability", async () => {
     reanchorSeq("s1", 100, 7);
     uploadMock.mockResolvedValue(null);

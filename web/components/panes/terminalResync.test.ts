@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resyncFromReplaySnapshot } from "./terminalResync";
+import { createTerminalDesyncHandler, resyncFromReplaySnapshot } from "./terminalResync";
 import {
   _resetSeqTrackersForTest,
   anchorCandidate,
@@ -193,5 +193,164 @@ describe("resyncFromReplaySnapshot", () => {
     });
 
     expect(anchorCandidate("s-4")).toBeNull();
+  });
+});
+
+// createTerminalDesyncHandler 是 registerDesync 的标准回调，此前零覆盖。
+// 它的三条不变式全都是「错了也不报错、只是丢字或永久静默」的类型：
+// 闸门必须先落再发快照请求；不完整积压必须丢；无论成败都要放闸。
+describe("createTerminalDesyncHandler", () => {
+  function harness(
+    overrides: {
+      getRecoverySnapshot?: (sessionId: string) => Promise<TerminalRecoverySnapshot | null>;
+      term?: ReturnType<typeof createTerm> | null;
+    } = {},
+  ) {
+    const order: string[] = [];
+    const term = overrides.term === undefined ? createTerm() : overrides.term;
+    if (term) term.reset.mockImplementation(() => order.push("term.reset"));
+    const hiddenWriteBuffer = { reset: vi.fn(() => order.push("buffer.reset")) };
+    const setResyncActive = vi.fn((active: boolean) => order.push(`gate:${active}`));
+    const onResyncSettled = vi.fn((resynced: boolean) => order.push(`settled:${resynced}`));
+    const getRecoverySnapshot = vi.fn(
+      overrides.getRecoverySnapshot
+        ?? (async () => {
+          order.push("snapshot.request");
+          return recoverySnapshot({ delta: "D" });
+        }),
+    );
+
+    const handler = createTerminalDesyncHandler({
+      sessionId: "s-desync",
+      terminalRef: { current: term },
+      hiddenWriteBufferRef: { current: hiddenWriteBuffer },
+      getRecoverySnapshot,
+      writeData: async () => {},
+      writeCheckpointData: async () => {},
+      syncTrackedBufferType: () => {},
+      setResyncActive,
+      onResyncSettled,
+      debugLog: () => {},
+    });
+
+    return { handler, order, hiddenWriteBuffer, setResyncActive, onResyncSettled, getRecoverySnapshot };
+  }
+
+  /** handler 是同步返回的，内部 promise 链要多刷几轮微任务才结算。 */
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+  }
+
+  it("闸门先落再发快照请求（否则「抓快照后、reset 前」到达的输出会被 reset 抹掉且不在快照里 = 真丢字）", async () => {
+    const { handler, order } = harness();
+    handler();
+    await flush();
+
+    expect(order.indexOf("gate:true")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("gate:true")).toBeLessThan(order.indexOf("snapshot.request"));
+  });
+
+  it("丢弃 desync 前的不完整积压（缺口在它中间），且发生在快照请求之前", async () => {
+    const { handler, order, hiddenWriteBuffer } = harness();
+    handler();
+    await flush();
+
+    expect(hiddenWriteBuffer.reset).toHaveBeenCalledTimes(1);
+    expect(order.indexOf("buffer.reset")).toBeLessThan(order.indexOf("snapshot.request"));
+    // 积压丢弃也在闸门之后：闸门保证之后的新输出进积压
+    expect(order.indexOf("gate:true")).toBeLessThan(order.indexOf("buffer.reset"));
+  });
+
+  it("成功路径：放闸 + onResyncSettled(true)，且放闸在收尾之前", async () => {
+    const { handler, order, setResyncActive, onResyncSettled } = harness();
+    handler();
+    await flush();
+
+    expect(setResyncActive).toHaveBeenNthCalledWith(1, true);
+    expect(setResyncActive).toHaveBeenNthCalledWith(2, false);
+    expect(onResyncSettled).toHaveBeenCalledWith(true);
+    expect(order.indexOf("gate:false")).toBeLessThan(order.indexOf("settled:true"));
+  });
+
+  it("快照返回 null 也放闸 + onResyncSettled(false)（否则闸门永不打开 = 终端永久静默）", async () => {
+    const { handler, setResyncActive, onResyncSettled } = harness({
+      getRecoverySnapshot: async () => null,
+    });
+    handler();
+    await flush();
+
+    expect(setResyncActive).toHaveBeenLastCalledWith(false);
+    expect(onResyncSettled).toHaveBeenCalledWith(false);
+  });
+
+  it("快照请求抛错也放闸 + onResyncSettled(false)", async () => {
+    const { handler, setResyncActive, onResyncSettled } = harness({
+      getRecoverySnapshot: async () => {
+        throw new Error("daemon unreachable");
+      },
+    });
+    handler();
+    await flush();
+
+    expect(setResyncActive).toHaveBeenLastCalledWith(false);
+    expect(onResyncSettled).toHaveBeenCalledWith(false);
+  });
+
+  it("写入阶段抛错（reject 不被 resync 内部吞）同样放闸", async () => {
+    const setResyncActive = vi.fn();
+    const onResyncSettled = vi.fn();
+    const handler = createTerminalDesyncHandler({
+      sessionId: "s-write-fail",
+      terminalRef: { current: createTerm() },
+      hiddenWriteBufferRef: { current: { reset: vi.fn() } },
+      getRecoverySnapshot: async () => recoverySnapshot({ delta: "D" }),
+      writeData: async () => {
+        throw new Error("write failed");
+      },
+      writeCheckpointData: async () => {},
+      syncTrackedBufferType: () => {},
+      setResyncActive,
+      onResyncSettled,
+      debugLog: () => {},
+    });
+
+    handler();
+    await flush();
+
+    expect(setResyncActive).toHaveBeenLastCalledWith(false);
+    expect(onResyncSettled).toHaveBeenCalledWith(false);
+  });
+
+  it("terminalRef 为 null 时早退：不落闸、不丢积压、不发请求（避免留下一个永不打开的闸门）", async () => {
+    const { handler, hiddenWriteBuffer, setResyncActive, onResyncSettled, getRecoverySnapshot } =
+      harness({ term: null });
+    handler();
+    await flush();
+
+    expect(setResyncActive).not.toHaveBeenCalled();
+    expect(hiddenWriteBuffer.reset).not.toHaveBeenCalled();
+    expect(getRecoverySnapshot).not.toHaveBeenCalled();
+    expect(onResyncSettled).not.toHaveBeenCalled();
+  });
+
+  it("hiddenWriteBufferRef 为 null 时不抛（可选链），流程照常走完", async () => {
+    const setResyncActive = vi.fn();
+    const onResyncSettled = vi.fn();
+    const handler = createTerminalDesyncHandler({
+      sessionId: "s-no-buffer",
+      terminalRef: { current: createTerm() },
+      hiddenWriteBufferRef: { current: null },
+      getRecoverySnapshot: async () => recoverySnapshot({ delta: "D" }),
+      writeData: async () => {},
+      writeCheckpointData: async () => {},
+      syncTrackedBufferType: () => {},
+      setResyncActive,
+      onResyncSettled,
+      debugLog: () => {},
+    });
+
+    expect(() => handler()).not.toThrow();
+    await flush();
+    expect(onResyncSettled).toHaveBeenCalledWith(true);
   });
 });

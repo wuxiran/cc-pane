@@ -222,10 +222,97 @@ describe("planTabDestroy（纯函数）", () => {
     }
   });
 
-  it("terminal 本轮不产出 agent-busy guard（B1-06 才打开）", () => {
+  // agent-busy guard 的正向锁。此前这条断言写的是「terminal 本轮不产出
+  // agent-busy guard」，而 registry 早已产出——只因 makeTab 的 fixture 不带
+  // cliTool（isAgentTab 判 false）才侥幸绿。假绿的代价是：真把守卫删了，
+  // 「忙碌 agent 被静默关掉」这条回归照样不会变红。
+  it("agent 忙碌时产出 agent-busy guard，且带上具体会话与状态", () => {
     const busyCtx: GuardContext = { statusOf: () => "toolRunning", isPoppedOut: () => false };
-    const plan = planTabDestroy([makeTerminalTab("s-busy")], "user-close", busyCtx);
-    expect(plan.guards).toEqual([]);
+    const tab = makeTerminalTab("s-busy", { cliTool: "claude", title: "重构中" });
+    const plan = planTabDestroy([tab], "user-close", busyCtx);
+    expect(plan.guards).toEqual([
+      {
+        kind: "agent-busy",
+        tabId: tab.id,
+        tabTitle: "重构中",
+        sessionId: "s-busy",
+        status: "toolRunning",
+      },
+    ]);
+  });
+
+  it("waitingInput 也挡（不在 BUSY_STATUSES 里，但「等你回答」损失一样大）", () => {
+    const ctx: GuardContext = { statusOf: () => "waitingInput", isPoppedOut: () => false };
+    const plan = planTabDestroy(
+      [makeTerminalTab("s-wait", { cliTool: "codex" })],
+      "user-close",
+      ctx,
+    );
+    expect(plan.guards.map((g) => g.kind)).toEqual(["agent-busy"]);
+  });
+
+  it("纯 shell（cliTool 缺省 / none）忙碌也不挡——关一个 shell 弹确认纯属骚扰", () => {
+    const busyCtx: GuardContext = { statusOf: () => "toolRunning", isPoppedOut: () => false };
+    expect(planTabDestroy([makeTerminalTab("s-shell")], "user-close", busyCtx).guards).toEqual([]);
+    expect(
+      planTabDestroy([makeTerminalTab("s-none", { cliTool: "none" })], "user-close", busyCtx).guards,
+    ).toEqual([]);
+  });
+
+  it("idle 的 agent 不挡", () => {
+    const idleCtx: GuardContext = { statusOf: () => "idle", isPoppedOut: () => false };
+    expect(
+      planTabDestroy([makeTerminalTab("s-idle", { cliTool: "claude" })], "user-close", idleCtx)
+        .guards,
+    ).toEqual([]);
+  });
+
+  it("分屏 tab 逐 leaf 判：只为忙碌的那些 leaf 各列一条，且带自己的 sessionId", () => {
+    const tab = makeTab({
+      cliTool: "claude",
+      title: "四格",
+      terminalRootPane: {
+        type: "split",
+        id: "split-1",
+        direction: "horizontal",
+        sizes: [50, 50],
+        children: [
+          { type: "leaf", id: "l-1", sessionId: "s-busy-1" },
+          { type: "leaf", id: "l-2", sessionId: "s-idle" },
+          { type: "leaf", id: "l-3", sessionId: null, savedSessionId: "s-busy-2" },
+        ],
+      },
+    });
+    const busySessions = new Set(["s-busy-1", "s-busy-2"]);
+    const ctx: GuardContext = {
+      statusOf: (sessionId) => (busySessions.has(sessionId) ? "thinking" : "idle"),
+      isPoppedOut: () => false,
+    };
+
+    const plan = planTabDestroy([tab], "user-close", ctx);
+
+    // savedSessionId（恢复中尚未 attach 的真实 PTY）同样要被守卫看见
+    expect(plan.guards).toEqual([
+      { kind: "agent-busy", tabId: tab.id, tabTitle: "四格", sessionId: "s-busy-1", status: "thinking" },
+      { kind: "agent-busy", tabId: tab.id, tabTitle: "四格", sessionId: "s-busy-2", status: "thinking" },
+    ]);
+  });
+
+  it("launchClaude 老快照字段同样算 agent", () => {
+    const busyCtx: GuardContext = { statusOf: () => "active", isPoppedOut: () => false };
+    expect(
+      planTabDestroy([makeTerminalTab("s-legacy", { launchClaude: true })], "user-close", busyCtx)
+        .guards.map((g) => g.kind),
+    ).toEqual(["agent-busy"]);
+  });
+
+  it("vetoable=false 的 reason 下忙碌 agent 也不产 guard（自动化路径不许被卡死）", () => {
+    const busyCtx: GuardContext = { statusOf: () => "toolRunning", isPoppedOut: () => false };
+    const tab = makeTerminalTab("s-busy", { cliTool: "claude" });
+    for (const reason of ALL_DESTROY_REASONS) {
+      if (DESTROY_POLICY[reason].vetoable) continue;
+      expect(planTabDestroy([tab], reason, busyCtx).guards, reason).toEqual([]);
+    }
   });
 
   it("不产生副作用（零 service 调用）", () => {
