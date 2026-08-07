@@ -394,6 +394,20 @@ language = "en-US"
     }
 
     #[test]
+    fn theme_shape_round_trips_through_persisted_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = temp_config_path(&dir);
+        let service = SettingsService::new_with_config_path(path.clone());
+
+        let mut settings = service.get_settings();
+        settings.theme.shape = "glass".to_string();
+        service.update_settings(settings).unwrap();
+
+        let reloaded = SettingsService::new_with_config_path(path);
+        assert_eq!(reloaded.get_settings().theme.shape, "glass");
+    }
+
+    #[test]
     fn stale_full_settings_update_cannot_overwrite_new_window_geometry() {
         let dir = tempfile::tempdir().unwrap();
         let service = SettingsService::new_with_config_path(temp_config_path(&dir));

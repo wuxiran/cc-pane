@@ -1,4 +1,7 @@
-use cc_panes_core::services::{resolve_terminal_path_link, TerminalLinkContext, TerminalPathKind};
+use cc_panes_core::services::{
+    resolve_terminal_path_link, resolve_terminal_path_link_for_desktop, TerminalLinkContext,
+    TerminalPathKind,
+};
 
 fn context(root: &std::path::Path, runtime_kind: &str) -> TerminalLinkContext {
     TerminalLinkContext {
@@ -54,6 +57,39 @@ fn terminal_path_link_rejects_absolute_and_parent_escapes() {
     );
     assert_error_code(
         resolve_terminal_path_link(&ctx, "../outside.md"),
+        "TERMINAL_PATH_OUTSIDE_ROOT",
+    );
+}
+
+#[test]
+fn desktop_terminal_path_link_confirms_explicit_external_directories_only() {
+    let parent = tempfile::tempdir().expect("parent");
+    let root = parent.path().join("project");
+    let outside_dir = parent.path().join("outside-dir");
+    let outside_file = parent.path().join("outside.md");
+    std::fs::create_dir_all(&root).expect("project root");
+    std::fs::create_dir_all(&outside_dir).expect("outside directory");
+    std::fs::write(&outside_file, "outside").expect("outside file");
+    let ctx = context(&root, "local");
+
+    let resolved = resolve_terminal_path_link_for_desktop(&ctx, &outside_dir.to_string_lossy())
+        .expect("desktop should resolve an explicit external directory for confirmation");
+    assert_eq!(resolved.kind, TerminalPathKind::Directory);
+    assert_eq!(
+        std::path::PathBuf::from(resolved.canonical_path),
+        dunce::canonicalize(&outside_dir).expect("canonical outside directory")
+    );
+
+    assert_error_code(
+        resolve_terminal_path_link(&ctx, &outside_dir.to_string_lossy()),
+        "TERMINAL_PATH_OUTSIDE_ROOT",
+    );
+    assert_error_code(
+        resolve_terminal_path_link_for_desktop(&ctx, "../outside-dir"),
+        "TERMINAL_PATH_OUTSIDE_ROOT",
+    );
+    assert_error_code(
+        resolve_terminal_path_link_for_desktop(&ctx, &outside_file.to_string_lossy()),
         "TERMINAL_PATH_OUTSIDE_ROOT",
     );
 }
@@ -147,6 +183,13 @@ fn terminal_path_link_rejects_symlink_escape() {
         resolve_terminal_path_link(&context(&root, "local"), "linked-dir"),
         "TERMINAL_PATH_OUTSIDE_ROOT",
     );
+    assert_error_code(
+        resolve_terminal_path_link_for_desktop(
+            &context(&root, "local"),
+            &root.join("linked-dir").to_string_lossy(),
+        ),
+        "TERMINAL_PATH_OUTSIDE_ROOT",
+    );
 }
 
 /// Windows 侧的逃逸面：junction（目录联结）。
@@ -189,6 +232,10 @@ fn terminal_path_link_rejects_junction_escape() {
     // 穿过 junction 的下级路径同样必须被拦——只挡链接本身等于没挡。
     assert_error_code(
         resolve_terminal_path_link(&context(&root, "local"), "linked-dir/secret.md"),
+        "TERMINAL_PATH_OUTSIDE_ROOT",
+    );
+    assert_error_code(
+        resolve_terminal_path_link_for_desktop(&context(&root, "local"), &link.to_string_lossy()),
         "TERMINAL_PATH_OUTSIDE_ROOT",
     );
 }

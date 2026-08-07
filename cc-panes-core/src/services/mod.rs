@@ -111,7 +111,8 @@ pub use terminal_backend::{
     TerminalAdoptionSnapshot, TerminalBackend,
 };
 pub use terminal_path_link_service::{
-    resolve_terminal_path_link, ResolvedTerminalPathLink, TerminalLinkContext, TerminalPathKind,
+    resolve_terminal_path_link, resolve_terminal_path_link_for_desktop, ResolvedTerminalPathLink,
+    TerminalLinkContext, TerminalPathKind,
 };
 pub use terminal_service::{
     codex_rollout_exists, KillReason, OrchestratorInfo, SessionStatusInfo, ShellInfo,

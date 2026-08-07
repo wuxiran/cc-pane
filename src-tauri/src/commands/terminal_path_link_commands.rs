@@ -5,8 +5,9 @@ use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::services::{
-    resolve_terminal_path_link as resolve_core_terminal_path_link, ResolvedTerminalPathLink,
-    TerminalBackend, TerminalBackendState, TerminalLinkContext, TerminalPathKind,
+    resolve_terminal_path_link_for_desktop as resolve_core_terminal_path_link,
+    ResolvedTerminalPathLink, TerminalBackend, TerminalBackendState, TerminalLinkContext,
+    TerminalPathKind,
 };
 use crate::utils::error::AppError;
 use crate::utils::AppResult;
@@ -158,6 +159,21 @@ mod tests {
             TerminalPathDesktopAction::Reveal,
         )
         .is_ok());
+    }
+
+    #[test]
+    fn terminal_path_link_commands_resolve_explicit_external_directories() {
+        let parent = tempfile::tempdir().expect("parent");
+        let root = parent.path().join("project");
+        let outside_dir = parent.path().join("outside-dir");
+        std::fs::create_dir_all(&root).expect("project root");
+        std::fs::create_dir_all(&outside_dir).expect("outside directory");
+
+        let resolved =
+            resolve_authorized_context(Some(context(&root)), &outside_dir.to_string_lossy())
+                .expect("desktop command should resolve the directory for confirmation");
+
+        assert_eq!(resolved.kind, TerminalPathKind::Directory);
     }
 
     #[test]
