@@ -388,6 +388,106 @@ mod tests {
         assert_eq!(second.skipped_dead, 1);
     }
 
+    /// 幂等加强：已有凭证行**绝不被覆盖**，且连续两轮报告逐字段相同。
+    ///
+    /// 覆盖是真实风险：daemon 重启后会给同一 session id 发**新世代**的凭证
+    /// （daemon_generation / birth_nonce 都变）。若回填不看「是否已有行」而
+    /// 一律写入，重启一次就把存量会话的出生凭证换成新世代的——身份核对随即
+    /// 全部通过，identity-mismatch 这道防线等于形同虚设，接管到错误的 PTY 也
+    /// 不会被拦。这条用「daemon 改口」的场景把不覆盖钉住。
+    #[test]
+    fn backfill_never_overwrites_existing_provenance_rows() {
+        let (service, _tmp) = make_service();
+        let mut alive =
+            crate::models::SavedSession::from_creation(&request(), &provenance("alive"))
+                .expect("saved");
+        alive.session_id = "alive".to_string();
+        service.save_sessions(&[alive]).expect("save");
+
+        let mut map = HashMap::new();
+        map.insert("alive".to_string(), provenance("alive"));
+        let mut backend = FakeBackend {
+            claims: true,
+            provenance: map,
+            ..Default::default()
+        };
+
+        let first = backfill_missing_provenance(&backend, &service).expect("backfill");
+        assert_eq!(first.backfilled, 1);
+
+        let stored = |service: &SessionRestoreService| {
+            let sessions = service.load_sessions().expect("load");
+            let row = sessions
+                .iter()
+                .find(|s| s.session_id == "alive")
+                .expect("row")
+                .clone();
+            (row.daemon_generation, row.birth_nonce)
+        };
+        let after_first = stored(&service);
+        assert_eq!(after_first, (Some(7), Some("nonce-alive".to_string())));
+
+        // daemon 重启：同一 session id 改口报新世代的凭证。
+        let mut rebirth = provenance("alive");
+        rebirth.daemon_generation = 99;
+        rebirth.birth_nonce = "nonce-rebirth".to_string();
+        backend.provenance.insert("alive".to_string(), rebirth);
+
+        let second = backfill_missing_provenance(&backend, &service).expect("second backfill");
+        let third = backfill_missing_provenance(&backend, &service).expect("third backfill");
+
+        assert_eq!(
+            second, third,
+            "连续两轮回填的报告必须逐字段相同（稳定不动点）"
+        );
+        assert_eq!(
+            second,
+            ProvenanceBackfillReport {
+                missing: 0,
+                backfilled: 0,
+                skipped_dead: 0,
+                failed: 0,
+            },
+            "已补齐的库上再跑必须整体 no-op"
+        );
+        assert_eq!(
+            stored(&service),
+            after_first,
+            "已有凭证行被 daemon 的新世代凭证覆盖了——identity-mismatch 防线会因此形同虚设"
+        );
+    }
+
+    /// 死会话不该被反复计成失败，且报告在多轮之间稳定（不动点）。
+    /// 回填跑在启动路径上，报告抖动会让「上次启动到底补没补上」无从判断。
+    #[test]
+    fn backfill_report_is_stable_across_consecutive_runs_with_dead_sessions() {
+        let (service, _tmp) = make_service();
+        let mut dead = crate::models::SavedSession::from_creation(&request(), &provenance("dead"))
+            .expect("saved");
+        dead.session_id = "dead".to_string();
+        service.save_sessions(&[dead]).expect("save");
+
+        let backend = FakeBackend {
+            claims: true,
+            ..Default::default()
+        };
+
+        let first = backfill_missing_provenance(&backend, &service).expect("first");
+        let second = backfill_missing_provenance(&backend, &service).expect("second");
+
+        assert_eq!(first, second, "死会话轮次之间报告必须一致");
+        assert_eq!(
+            first,
+            ProvenanceBackfillReport {
+                missing: 1,
+                backfilled: 0,
+                skipped_dead: 1,
+                failed: 0,
+            },
+            "daemon 查不到凭证 = 死会话（skipped_dead），不是失败（failed）"
+        );
+    }
+
     #[test]
     fn backfill_is_noop_without_claims_support() {
         let (service, _tmp) = make_service();
