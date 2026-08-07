@@ -24,6 +24,10 @@ pub struct ResolvedTerminalPathLink {
     pub canonical_path: String,
     pub kind: TerminalPathKind,
     pub runtime_kind: String,
+    /// 目标在项目根之外（仅桌面端「显式绝对路径 + 目录」放行路径会为 true）。
+    /// 前端确认框据此对越界目标出差异化警示——安全放行由后端判定，
+    /// 但「用户知情」这一环需要这个显式信号。
+    pub outside_project_root: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -239,7 +243,8 @@ fn resolve_terminal_path_link_with_scope(
     let explicitly_external_directory = scope == TerminalPathScope::ExplicitAbsoluteDirectory
         && kind == TerminalPathKind::Directory
         && raw_path_is_explicitly_external(raw_path, &root);
-    if !path_is_within(&target, &root) && !explicitly_external_directory {
+    let outside_project_root = !path_is_within(&target, &root);
+    if outside_project_root && !explicitly_external_directory {
         return Err(coded(
             "TERMINAL_PATH_OUTSIDE_ROOT",
             "The terminal path is outside the session project",
@@ -250,6 +255,7 @@ fn resolve_terminal_path_link_with_scope(
         canonical_path: simplify_path(target).to_string_lossy().to_string(),
         kind,
         runtime_kind: context.runtime_kind.clone(),
+        outside_project_root,
     })
 }
 

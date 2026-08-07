@@ -15,7 +15,11 @@ vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-function setReady(kind: "file" | "directory" = "file", canonicalPath = "C:/repo/src/App.tsx") {
+function setReady(
+  kind: "file" | "directory" = "file",
+  canonicalPath = "C:/repo/src/App.tsx",
+  outsideProjectRoot = false,
+) {
   useTerminalPathLinkStore.setState({
     dialog: {
       phase: "ready",
@@ -25,6 +29,7 @@ function setReady(kind: "file" | "directory" = "file", canonicalPath = "C:/repo/
       canonicalPath,
       kind,
       runtimeKind: "local",
+      outsideProjectRoot,
       line: 12,
       column: 8,
     },
@@ -80,6 +85,22 @@ describe("TerminalPathLinkDialog", () => {
     expect(screen.queryByRole("button", { name: /文件管理器|file manager/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /复制路径|Copy path/i })).toBeEnabled();
     expect(screen.queryByRole("button", { name: /在编辑器中打开|Open in editor/i })).not.toBeInTheDocument();
+  });
+
+  it("warns when the resolved directory is outside the project root", () => {
+    setReady("directory", "D:/elsewhere/dir", true);
+
+    render(<TerminalPathLinkDialog />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/项目之外|outside the current project/i);
+  });
+
+  it("does not warn for targets inside the project root", () => {
+    setReady("directory", "C:/repo/docs");
+
+    render(<TerminalPathLinkDialog />);
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("disables every action while one action is running", () => {

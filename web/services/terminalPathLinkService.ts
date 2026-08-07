@@ -9,6 +9,8 @@ export interface ResolvedTerminalPathLink {
   canonicalPath: string;
   kind: TerminalPathKind;
   runtimeKind: "local" | "wsl";
+  /** 目标在项目根之外（桌面端「显式绝对路径 + 目录」放行路径）——确认框据此出警示 */
+  outsideProjectRoot: boolean;
 }
 
 export interface ResolveTerminalPathLinkInput {

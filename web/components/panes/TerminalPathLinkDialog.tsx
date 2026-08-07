@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Code2, Copy, ExternalLink, FileText, FolderOpen, Loader2, Maximize2, Minimize2 } from "lucide-react";
+import { Code2, Copy, ExternalLink, FileText, FolderOpen, Loader2, Maximize2, Minimize2, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -136,6 +136,17 @@ export default function TerminalPathLinkDialog() {
         {dialog.phase !== "closed" && (
           <div className="shape-control min-w-0 select-text break-all rounded-md border bg-muted/50 px-3 py-2.5 font-mono text-xs leading-5">
             {displayPath(ready ? dialog.canonicalPath : dialog.rawPath, dialog.line, dialog.column)}
+          </div>
+        )}
+
+        {/* 后端只对「显式绝对路径 + 目录」放行项目外目标；用户知情这一环靠这条警示 */}
+        {ready && dialog.outsideProjectRoot && (
+          <div
+            role="alert"
+            className="flex items-center gap-2 rounded-md border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-3 py-2 text-xs leading-5 text-[var(--app-status-warning)]"
+          >
+            <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
+            {t("terminalPathLink.outsideProjectWarning")}
           </div>
         )}
 

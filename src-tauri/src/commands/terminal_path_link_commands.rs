@@ -4,10 +4,12 @@ use serde::Deserialize;
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
+// 显式用 `_for_desktop` 变体：它比 web 路由用的 resolve_terminal_path_link 多放行
+// 「显式绝对路径 + 目录」的项目外目标（core 侧 ExplicitAbsoluteDirectory scope）。
+// 不做别名——放宽了安全边界的选择必须在调用点可见。
 use crate::services::{
-    resolve_terminal_path_link_for_desktop as resolve_core_terminal_path_link,
-    ResolvedTerminalPathLink, TerminalBackend, TerminalBackendState, TerminalLinkContext,
-    TerminalPathKind,
+    resolve_terminal_path_link_for_desktop, ResolvedTerminalPathLink, TerminalBackend,
+    TerminalBackendState, TerminalLinkContext, TerminalPathKind,
 };
 use crate::utils::error::AppError;
 use crate::utils::AppResult;
@@ -37,7 +39,7 @@ fn resolve_authorized_context(
             "The terminal path context is unavailable",
         )
     })?;
-    resolve_core_terminal_path_link(&context, raw_path)
+    resolve_terminal_path_link_for_desktop(&context, raw_path)
 }
 
 fn validate_desktop_action(
@@ -174,6 +176,21 @@ mod tests {
                 .expect("desktop command should resolve the directory for confirmation");
 
         assert_eq!(resolved.kind, TerminalPathKind::Directory);
+        // 越界必须显式带信号——前端确认框据此出差异化警示
+        assert!(resolved.outside_project_root);
+    }
+
+    #[test]
+    fn terminal_path_link_commands_mark_inside_paths_as_not_outside() {
+        let root = tempfile::tempdir().expect("project root");
+        let inside = root.path().join("src");
+        std::fs::create_dir_all(&inside).expect("inside directory");
+
+        let resolved = resolve_authorized_context(Some(context(root.path())), "src")
+            .expect("inside directory resolves");
+
+        assert_eq!(resolved.kind, TerminalPathKind::Directory);
+        assert!(!resolved.outside_project_root);
     }
 
     #[test]

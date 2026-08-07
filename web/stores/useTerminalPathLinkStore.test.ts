@@ -11,6 +11,7 @@ const resolved: ResolvedTerminalPathLink = {
   canonicalPath: "C:/repo/src/App.tsx",
   kind: "file",
   runtimeKind: "local",
+  outsideProjectRoot: false,
 };
 
 function deferred<T>() {

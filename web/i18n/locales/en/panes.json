@@ -313,7 +313,8 @@
     "copied": "Path copied",
     "actionFailed": "Path action failed: {{error}}",
     "resolveFailed": "Could not open terminal path: {{error}}",
-    "sessionUnavailable": "The terminal session is no longer available"
+    "sessionUnavailable": "The terminal session is no longer available",
+    "outsideProjectWarning": "This directory is outside the current project"
   },
   "closeTabConfirmTitle": "Close tab?",
   "closeTabConfirmDescription": "The following will be lost if you continue.",
