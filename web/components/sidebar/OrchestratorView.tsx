@@ -1,6 +1,6 @@
 import { useEffect, useCallback } from "react";
-import { Workflow, RefreshCw, Maximize2, List, ListTree } from "lucide-react";
-import { useActivityBarStore, useOrchestratorStore } from "@/stores";
+import { Workflow, RefreshCw, List, ListTree } from "lucide-react";
+import { useOrchestratorStore } from "@/stores";
 import { useTranslation } from "react-i18next";
 import OrchestratorFilterBar from "./OrchestratorFilterBar";
 import OrchestratorTaskCard from "./OrchestratorTaskCard";
@@ -50,17 +50,8 @@ export default function OrchestratorView({
         <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--app-text-secondary)" }}>
           {t("rightDock.orchestration", { defaultValue: "Orchestration" })}
         </span>
-        {!compact && (
-          <button
-            className="ml-auto shrink-0 rounded p-1 transition-colors hover:bg-[var(--app-hover)]"
-            onClick={() => useActivityBarStore.getState().openOrchestrationOverlay()}
-            title="Open overlay"
-          >
-            <Maximize2 className="w-3.5 h-3.5" style={{ color: "var(--app-text-tertiary)" }} />
-          </button>
-        )}
         <button
-          className={`${compact ? "ml-auto" : ""} shrink-0 rounded p-1 transition-colors hover:bg-[var(--app-hover)]`}
+          className="ml-auto shrink-0 rounded p-1 transition-colors hover:bg-[var(--app-hover)]"
           onClick={handleRefresh}
           title={t("refresh")}
         >

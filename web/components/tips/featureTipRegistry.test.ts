@@ -65,11 +65,15 @@ describe("扩容的六条 tip", () => {
     }
   });
 
-  it("派工编排：试试看打开任务编排面板；模块关掉或没有项目时不候选", () => {
+  it("派工编排：试试看打开右侧坞任务编排；模块关掉或没有项目时不候选", () => {
     expect(tip("dispatch-orchestration").eligible?.()).toBe(true);
 
     tip("dispatch-orchestration").tryAction?.();
-    expect(useActivityBarStore.getState().orchestrationOverlayOpen).toBe(true);
+    expect(useActivityBarStore.getState().orchestrationOverlayOpen).toBe(false);
+    expect(useRightDockStore.getState()).toMatchObject({
+      visible: true,
+      activeView: "orchestration",
+    });
 
     useWorkspacesStore.setState({ workspaces: [{ ...workspace, projects: [] }] });
     expect(tip("dispatch-orchestration").eligible?.()).toBe(false);

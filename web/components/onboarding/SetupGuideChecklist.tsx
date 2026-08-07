@@ -9,6 +9,7 @@ import {
   useOrchestratorStore,
   useWorkspacesStore,
 } from "@/stores";
+import { MODULE_REGISTRY } from "@/modules/registry";
 import { cn } from "@/lib/utils";
 import {
   ONBOARDING_MULTI_LAUNCH_KEY,
@@ -56,7 +57,7 @@ function openOnboarding(): void {
 
 function openOrchestration(): void {
   useDialogStore.getState().closeSettings();
-  useActivityBarStore.getState().openOrchestrationOverlay();
+  MODULE_REGISTRY.find((module) => module.id === "orchestration")?.open("rightDock");
 }
 
 function openSkills(): void {

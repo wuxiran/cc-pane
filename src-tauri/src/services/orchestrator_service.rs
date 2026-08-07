@@ -13186,8 +13186,20 @@ mod tests {
 
         drop(first);
 
-        let second = bind_non_inheritable_listener(addr).expect("rebind fixed port");
-        assert_eq!(second.local_addr().expect("second listener addr"), addr);
+        for attempt in 0..=20 {
+            match bind_non_inheritable_listener(addr) {
+                Ok(second) => {
+                    assert_eq!(second.local_addr().expect("second listener addr"), addr);
+                    return;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AddrInUse && attempt < 20 => {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                Err(error) => panic!("rebind fixed port: {error}"),
+            }
+        }
+
+        unreachable!("bounded listener rebind loop must return or panic");
     }
 
     #[cfg(windows)]
