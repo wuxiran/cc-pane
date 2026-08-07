@@ -270,8 +270,9 @@ jobs:
         run: |
           APK_NAME="cc-panes-mobile_${{ steps.tag.outputs.version }}.apk"
           cp cc-panes-mobile/build/app/outputs/flutter-apk/app-release.apk "$APK_NAME"
-          # tauri-action 的 build job 负责创建 release；这里等它就绪后上传（最多等 10 分钟）
-          for i in $(seq 1 60); do
+          # tauri-action 的 build job 负责创建 release；这里等它就绪后上传。
+          # 上限 30 分钟：实测 windows 构建 16 分钟+ 才发布 release，10 分钟等不到（v0.12.0-beta.1 失败一次）
+          for i in $(seq 1 180); do
             if gh release view "v${{ steps.tag.outputs.version }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               break
             fi
