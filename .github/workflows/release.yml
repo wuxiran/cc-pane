@@ -72,20 +72,25 @@ jobs:
         include:
           - platform: windows-latest
             label: windows-latest
+            platform_key: windows-x86_64
             args: --bundles nsis
           - platform: windows-latest
             label: windows-arm64
+            platform_key: windows-aarch64
             args: --bundles nsis --target aarch64-pc-windows-msvc
             rust_target: aarch64-pc-windows-msvc
           - platform: macos-latest
             label: macos-arm64
+            platform_key: darwin-aarch64
             args: --bundles app,dmg
           - platform: macos-latest
             label: macos-x86_64
+            platform_key: darwin-x86_64
             args: --bundles app,dmg --target x86_64-apple-darwin
             rust_target: x86_64-apple-darwin
           - platform: ubuntu-24.04
             label: linux-amd64
+            platform_key: linux-x86_64
             args: --bundles deb appimage
     steps:
       - uses: actions/checkout@v4
@@ -122,6 +127,13 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # actions/cache 用 restore-keys 兜底会带回**旧版本**的 bundle 产物；
+      # 下面的 updater 工件收集按「有 .sig 伴生」扫描，不清掉会把陈旧工件
+      # 混进本次 latest.json。
+      - name: Clean stale bundle outputs from cache
+        shell: bash
+        run: rm -rf "${CARGO_TARGET_DIR}/release/bundle" "${CARGO_TARGET_DIR}"/*/release/bundle || true
 
       # macOS 代码签名 + 公证：secrets 配置后自动生效（codesign→notarize→staple）。
       # 必须"非空才导出"——GHA 里未配置的 secret 展开成**空字符串**而非未设置，
@@ -202,8 +214,69 @@ jobs:
           # 排除 prerelease，稳定版用户的 updater（指向 latest/download/latest.json）
           # 不会被推 beta——beta 只面向手动下载者。
           prerelease: ${{ contains(github.ref_name, '-') }}
-          includeUpdaterJson: true
+          # latest.json 绝不能由五个并行 job 各自生成上传：tauri-action 的
+          # merge 是无锁 read-modify-write，后完成者用旧快照覆盖先完成者
+          # （v0.12.1 实测线上清单只剩 linux + windows-arm64 两平台，
+          # v0.9.40 也曾丢 macOS 条目、靠 backfill-macos-updater.yml 手工补救）。
+          # 各 job 只产出元数据工件，由下面串行的 publish-updater-json 聚合。
+          includeUpdaterJson: false
           args: ${{ matrix.args }}
+
+      # 收集本平台 updater 工件（.sig 伴生文件判定），自行上传资产
+      # （macOS .app.tar.gz 无架构名会跨 job 同名互撞，脚本里按架构重命名），
+      # 元数据交给 publish-updater-json 聚合。
+      - name: Collect updater artifacts
+        shell: bash
+        env:
+          PLATFORM_KEY: ${{ matrix.platform_key }}
+          RUST_TARGET: ${{ matrix.rust_target }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          export VERSION="${GITHUB_REF#refs/tags/v}"
+          node .github/scripts/collect-updater-metadata.mjs
+          gh release upload "v${VERSION}" updater-upload/* --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Upload updater metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-${{ matrix.platform_key }}
+          path: updater-metadata/*.json
+
+  # latest.json 的唯一写者：等全部 build job 收尾后从元数据从零构建。
+  # 部分平台构建失败时仍发布残缺清单（已构建平台的用户不陪葬），
+  # 缺失平台打 ::warning:: 标注在 run 页面。
+  publish-updater-json:
+    name: Publish latest.json
+    runs-on: ubuntu-latest
+    needs: build
+    if: ${{ !cancelled() }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download updater metadata
+        uses: actions/download-artifact@v4
+        with:
+          pattern: updater-*
+          path: metadata
+
+      - name: Build and upload latest.json
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          export TAG REPO="$GITHUB_REPOSITORY" VERSION="${TAG#v}"
+          gh release view "$TAG" --repo "$REPO" --json body --jq .body > release-body.txt
+          gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' > release-assets.txt
+          node .github/scripts/merge-latest-json.mjs
+          gh release upload "$TAG" latest.json --clobber --repo "$REPO"
+          # tauri-action 可能把两个 mac job 未带架构名的 cc-panes.app.tar.gz
+          # 也传上来（内容取决于哪个 job 后完成，不可信）——清理掉
+          gh release delete-asset "$TAG" cc-panes.app.tar.gz --repo "$REPO" --yes 2>/dev/null || true
+          gh release delete-asset "$TAG" cc-panes.app.tar.gz.sig --repo "$REPO" --yes 2>/dev/null || true
 
   windows-portable:
     name: Package Windows Portable
