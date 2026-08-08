@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Bell, Check, Eye, EyeOff, LockKeyhole, Minimize2, MonitorCog,
+  Check, Eye, EyeOff, LockKeyhole, Minimize2, MonitorCog,
   Palette, Pin, Terminal, ArrowUpCircle, Music, Music2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -24,7 +24,7 @@ import { isBusyStatus } from "@/types";
 import { invokeIfTauri, isTauriRuntime } from "@/services/runtime";
 import SystemResourceSegment from "@/components/statusbar/SystemResourceSegment";
 import UsageStatsStatusButton from "@/components/statusbar/UsageStatsStatusButton";
-import { selectUnreadCount, useNotificationStore } from "@/stores/useNotificationStore";
+import NotificationBellButton from "@/components/statusbar/NotificationBellButton";
 import ContextUsageIndicator from "@/components/ContextUsageIndicator";
 import { PresetSwatches } from "@/components/theme/ThemeSwatches";
 import { THEME_PRESETS, type ThemePreference } from "@/theme/themePresets";
@@ -36,39 +36,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-
-/** 通知中心铃铛：未读 badge + 开关右下角历史面板 */
-function NotificationBellButton() {
-  const { t } = useTranslation("notifications");
-  const unreadCount = useNotificationStore(selectUnreadCount);
-  const historyOpen = useNotificationStore((s) => s.historyOpen);
-  const setHistoryOpen = useNotificationStore((s) => s.setHistoryOpen);
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          className="relative flex items-center px-1.5 py-0.5 rounded transition-colors hover:bg-[var(--app-hover)]"
-          style={historyOpen ? { color: "var(--app-accent)" } : undefined}
-          onClick={() => setHistoryOpen(!historyOpen)}
-        >
-          <Bell className="w-3 h-3" />
-          {unreadCount > 0 && (
-            <span
-              className="absolute -top-0.5 right-0 flex h-[13px] min-w-[13px] items-center justify-center rounded-full px-0.5 text-[9px] font-bold tabular-nums text-white"
-              style={{ background: "var(--app-status-danger)" }}
-            >
-              {unreadCount > 99 ? "99+" : unreadCount}
-            </span>
-          )}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top">
-        <p>{t("center.bellTooltip")}</p>
-      </TooltipContent>
-    </Tooltip>
-  );
-}
 
 export default function StatusBar() {
   const { t, i18n } = useTranslation();

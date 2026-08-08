@@ -38,6 +38,7 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
     <div className="flex flex-col gap-1">
       <Label>{t("voiceLanguage")}</Label>
       <select
+        aria-label={t("voiceLanguage")}
         value={value.language ?? ""}
         onChange={(event) => update("language", event.target.value || null)}
         className={selectClassName}
@@ -162,6 +163,7 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
             <div className="flex flex-col gap-1">
               <Label>{t("voiceRegion")}</Label>
               <select
+                aria-label={t("voiceRegion")}
                 value={value.region}
                 onChange={(event) => update("region", event.target.value as VoiceSettings["region"])}
                 className={selectClassName}
