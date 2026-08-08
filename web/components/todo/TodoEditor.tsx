@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { useWorkspacesStore, useTodoStore, BUILTIN_TODO_TYPES } from "@/stores";
 import TodoSubtaskList from "./TodoSubtaskList";
 import TodoActivityTimeline from "./TodoActivityTimeline";
+import { PropertyRow, SegmentedControl } from "./TodoEditorControls";
 import type {
   TodoStatus,
   TodoPriority,
@@ -58,42 +59,6 @@ interface TodoEditorProps {
   activitiesLoading?: boolean;
 }
 
-function SegmentedControl<T extends string>({
-  options,
-  value,
-  onChange,
-  colorMap,
-}: {
-  options: { value: T; label: string }[];
-  value: T;
-  onChange: (v: T) => void;
-  colorMap?: Record<string, string>;
-}) {
-  return (
-    <div className="flex rounded-md border border-border/40 bg-muted/30 p-0.5">
-      {options.map((opt) => {
-        const isActive = opt.value === value;
-        const activeColor = colorMap?.[opt.value];
-        return (
-          <button
-            key={opt.value}
-            type="button"
-            onClick={() => onChange(opt.value)}
-            className={`flex-1 rounded-sm px-2 py-1.5 text-xs font-medium transition-all duration-[var(--dur-fast)]
-              ${
-                isActive
-                  ? activeColor ?? "bg-primary/15 text-primary shadow-sm border border-primary/25"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-          >
-            {opt.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 const PRIORITY_COLOR_MAP: Record<string, string> = {
   high: "bg-[var(--app-status-danger-bg)] text-[var(--app-status-danger)] font-bold shadow-sm",
   medium: "bg-[var(--app-status-warning-bg)] text-[var(--app-status-warning)] shadow-sm",
@@ -107,28 +72,6 @@ const TYPE_I18N_MAP: Record<string, string> = {
   docs: "todoTypeDocs",
   chore: "todoTypeChore",
 };
-
-function PropertyRow({
-  icon,
-  label,
-  className = "",
-  children,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={`grid min-w-0 grid-cols-[96px_minmax(0,1fr)] items-center gap-3 ${className}`}>
-      <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center">{icon}</span>
-        <span className="truncate text-xs font-medium">{label}</span>
-      </div>
-      <div className="min-w-0">{children}</div>
-    </div>
-  );
-}
 
 export default function TodoEditor({
   form,

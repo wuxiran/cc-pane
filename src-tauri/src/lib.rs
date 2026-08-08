@@ -244,6 +244,7 @@ use commands::{
     list_specs,
     // SSH Machine 命令
     list_ssh_machines,
+    list_todo_activities,
     list_user_skills,
     list_wallpapers,
     list_workspace_snapshots,

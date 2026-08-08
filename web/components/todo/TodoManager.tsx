@@ -1,39 +1,12 @@
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import {
-  Plus,
-  ListTodo,
-  Loader2,
-  CheckSquare,
-  X,
-  Check,
-} from "lucide-react";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-  arrayMove,
-} from "@dnd-kit/sortable";
-import { Button } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/EmptyState";
 import { useTodoStore } from "@/stores";
 import { clampSidebarWidth, loadSidebarWidth, saveSidebarWidth } from "@/lib/sidebarWidth";
-import TodoViewSwitcher from "./TodoViewSwitcher";
-import TodoFilterBar, { type GroupMode } from "./TodoFilterBar";
-import { SortableTodoListItem } from "./TodoListItem";
-import TodoTagGroup from "./TodoTagGroup";
+import { type GroupMode } from "./TodoFilterBar";
 import TodoEditor from "./TodoEditor";
 import TodoOverview from "./TodoOverview";
-import TodoResizeHandle from "./TodoResizeHandle";
+import TodoTaskListPanel from "./TodoTaskListPanel";
 import type { TodoEditForm } from "./TodoEditor";
 import type {
   TodoItem,
@@ -196,57 +169,6 @@ export default function TodoManager({
   useEffect(() => {
     if (selectedTodo) void loadActivities(selectedTodo.id);
   }, [selectedTodo, loadActivities]);
-
-  // 通用分组计算
-  const groups = useMemo(() => {
-    if (groupMode === "none") return null;
-    const result = new Map<string, TodoItem[]>();
-    for (const todo of todos) {
-      const keys =
-        groupMode === "tag"
-          ? todo.tags.length > 0
-            ? todo.tags
-            : ["__untagged__"]
-          : groupMode === "status"
-            ? [todo.status]
-            : groupMode === "priority"
-              ? [todo.priority]
-              : [todo.scope]; // scope
-      for (const key of keys) {
-        const list = result.get(key) ?? [];
-        list.push(todo);
-        result.set(key, list);
-      }
-    }
-    return result;
-  }, [todos, groupMode]);
-
-  // 分组标签翻译映射
-  const groupLabelMap = useMemo((): Record<string, string> | null => {
-    if (groupMode === "none" || groupMode === "tag") return null;
-    if (groupMode === "status") {
-      return {
-        todo: t("todoTodo"),
-        in_progress: t("todoInProgress"),
-        done: t("todoDone"),
-      };
-    }
-    if (groupMode === "priority") {
-      return {
-        high: t("todoPriorityHigh"),
-        medium: t("todoPriorityMedium"),
-        low: t("todoPriorityLow"),
-      };
-    }
-    // scope
-    return {
-      global: t("todoScopeGlobal"),
-      workspace: t("todoScopeWorkspace"),
-      project: t("todoScopeProject"),
-      external: t("todoScopeExternal"),
-      temp_script: t("todoScopeScript"),
-    };
-  }, [groupMode, t]);
 
   const handleNew = useCallback(() => {
     if (isDirty && !window.confirm(t("todoUnsavedChanges"))) return;
@@ -418,29 +340,8 @@ export default function TodoManager({
     [deleteSubtask, tNotify]
   );
 
-  // dnd-kit sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor)
-  );
-
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      if (sortBy !== "manual") return;
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-      const oldIndex = todos.findIndex((t) => t.id === active.id);
-      const newIndex = todos.findIndex((t) => t.id === over.id);
-      if (oldIndex === -1 || newIndex === -1) return;
-      const reordered = arrayMove(todos, oldIndex, newIndex);
-      reorder(reordered.map((t) => t.id));
-    },
-    [sortBy, todos, reorder]
-  );
-
   const showEditor = isCreating || Boolean(selectedTodo);
   const showOverview = !showEditor;
-  const showListTools = todos.length > 0 || Boolean(searchText.trim() || filterStatus || filterPriority || filterType || sortBy !== "manual" || groupMode !== "none");
   const handleListResize = useCallback((deltaX: number) => {
     setListWidth((width) => {
       const nextWidth = clampSidebarWidth(width + deltaX);
@@ -450,181 +351,50 @@ export default function TodoManager({
   }, []);
 
   const sidebar = (
-    <div className="flex h-full shrink-0">
-      {/* 任务视图与列表 */}
-      <section
-        className="shape-surface flex min-w-0 shrink-0 flex-col"
-        style={{
-          width: listWidth,
-          background: "var(--app-sidebar-bg)",
-        }}
-      >
-        {/* 头部 */}
-        <header className="px-4 py-3 border-b border-border/50">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="flex shrink-0 items-center gap-1.5 text-sm font-semibold text-primary">
-                  <ListTodo size={15} />
-                  TodoList
-                </span>
-                <span className="text-muted-foreground/40">/</span>
-                <TodoViewSwitcher
-                  viewMode={viewMode}
-                  activeScope={filterScope}
-                  stats={stats}
-                  onViewModeChange={setViewMode}
-                  onScopeChange={setFilterScope}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {t("todoTaskCount", { count: total })}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8"
-                onClick={handleNew}
-                title={t("todoNewTask")}
-                aria-label={t("todoNewTask")}
-              >
-                <Plus size={16} />
-              </Button>
-              {todos.length > 0 && (
-                <Button
-                  size="icon"
-                  variant={selectionMode ? "secondary" : "ghost"}
-                  className="h-8 w-8"
-                  onClick={() => {
-                    setSelectionMode((value) => !value);
-                    clearSelection();
-                  }}
-                  title={t("todoMultiSelect")}
-                >
-                  <CheckSquare size={15} />
-                </Button>
-              )}
-            </div>
-          </div>
-        </header>
-
-        {selectionMode && (
-          <div className="flex items-center gap-2 border-b border-border/50 bg-muted/20 px-4 py-2 text-xs">
-            <span className="text-muted-foreground">{t("todoSelectedCount", { count: selectedIds.length })}</span>
-            <Button size="sm" variant="ghost" className="h-7 gap-1 px-2" disabled={!selectedIds.length} onClick={() => void handleBatchStatus("in_progress")}>
-              <Loader2 size={13} />
-              {t("todoInProgress")}
-            </Button>
-            <Button size="sm" variant="ghost" className="h-7 gap-1 px-2" disabled={!selectedIds.length} onClick={() => void handleBatchStatus("done")}>
-              <Check size={13} />
-              {t("todoDone")}
-            </Button>
-            <Button size="icon" variant="ghost" className="ml-auto h-7 w-7" onClick={() => { clearSelection(); setSelectionMode(false); }} title={t("todoCancelSelection")}>
-              <X size={14} />
-            </Button>
-          </div>
-        )}
-
-        {/* 筛选栏 */}
-        {showListTools && <TodoFilterBar
-          filterStatus={filterStatus}
-          filterPriority={filterPriority}
-          filterType={filterType}
-          customTypes={customTypes}
-          searchText={searchText}
-          groupMode={groupMode}
-          onStatusChange={setFilterStatus}
-          onPriorityChange={setFilterPriority}
-          onTypeChange={setFilterType}
-          onSearchChange={setSearchText}
-          onGroupModeChange={setGroupMode}
-          sortBy={sortBy}
-          onSortChange={setSortBy}
-          onClearFilters={clearFilters}
-          savedFilters={savedFilters}
-          onSaveFilter={saveCurrentFilter}
-          onApplySavedFilter={applySavedFilter}
-          onRemoveSavedFilter={removeSavedFilter}
-        />}
-
-        {/* 任务列表 */}
-        <div className="flex-1 overflow-y-auto py-2 px-3">
-          {loading && (
-            <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-              <Loader2 size={16} className="animate-spin" />
-              <span>{t("loading", { ns: "common" })}</span>
-            </div>
-          )}
-
-          {!loading && todos.length === 0 && (
-            <EmptyState
-              icon={ListTodo}
-              title={t("noTasks")}
-              className="py-24"
-            />
-          )}
-
-          {/* 分组模式 */}
-          {!loading && groups && (
-            <>
-              {[...groups.entries()].map(([key, groupTodos]) => (
-                <TodoTagGroup
-                  key={key}
-                  tag={key}
-                  label={groupLabelMap?.[key]}
-                  todos={groupTodos}
-                  selectedId={selectedTodo?.id}
-                  onSelect={handleSelectTodo}
-                  onToggleStatus={handleToggleStatus}
-                  onTogglePriority={handleTogglePriority}
-                  onDelete={handleDelete}
-                  selectionMode={selectionMode}
-                  selectedIds={selectedIds}
-                  onToggleSelect={toggleSelected}
-                />
-              ))}
-            </>
-          )}
-
-          {/* 平铺模式（可拖拽排序） */}
-          {!loading && !groups && (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext
-                items={todos.map((t) => t.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                {todos.map((todo) => (
-                  <SortableTodoListItem
-                    key={todo.id}
-                    todo={todo}
-                    isSelected={selectedTodo?.id === todo.id}
-                    onSelect={() => handleSelectTodo(todo)}
-                    onToggleStatus={() => handleToggleStatus(todo)}
-                    onTogglePriority={() => handleTogglePriority(todo)}
-                    onToggleMyDay={() => toggleMyDay(todo.id)}
-                    onDelete={handleDelete}
-                    selectionMode={selectionMode}
-                    isMultiSelected={selectedIds.includes(todo.id)}
-                    onToggleSelect={() => toggleSelected(todo.id)}
-                    dragDisabled={sortBy !== "manual"}
-                  />
-                ))}
-              </SortableContext>
-            </DndContext>
-          )}
-        </div>
-      </section>
-      <TodoResizeHandle
-        label={t("todoResizeTaskList")}
-        onResize={handleListResize}
-      />
-    </div>
+    <TodoTaskListPanel
+      width={listWidth}
+      todos={todos}
+      total={total}
+      loading={loading}
+      selectedTodo={selectedTodo}
+      filterStatus={filterStatus}
+      filterScope={filterScope}
+      filterPriority={filterPriority}
+      filterType={filterType}
+      sortBy={sortBy}
+      selectedIds={selectedIds}
+      stats={stats}
+      savedFilters={savedFilters}
+      searchText={searchText}
+      customTypes={customTypes}
+      viewMode={viewMode}
+      selectionMode={selectionMode}
+      groupMode={groupMode}
+      onResize={handleListResize}
+      onNew={handleNew}
+      onViewModeChange={setViewMode}
+      onScopeChange={setFilterScope}
+      onSelectionModeChange={setSelectionMode}
+      onClearSelection={clearSelection}
+      onBatchStatus={handleBatchStatus}
+      onStatusChange={setFilterStatus}
+      onPriorityChange={setFilterPriority}
+      onTypeChange={setFilterType}
+      onSearchChange={setSearchText}
+      onGroupModeChange={setGroupMode}
+      onSortChange={setSortBy}
+      onClearFilters={clearFilters}
+      onSaveFilter={saveCurrentFilter}
+      onApplySavedFilter={applySavedFilter}
+      onRemoveSavedFilter={removeSavedFilter}
+      onSelectTodo={handleSelectTodo}
+      onToggleStatus={handleToggleStatus}
+      onTogglePriority={handleTogglePriority}
+      onToggleMyDay={(todo) => toggleMyDay(todo.id)}
+      onDelete={handleDelete}
+      onToggleSelect={toggleSelected}
+      onReorder={(ids) => reorder(ids)}
+    />
   );
 
   const content = showEditor ? (
