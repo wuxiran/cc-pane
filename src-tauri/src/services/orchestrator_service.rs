@@ -14227,9 +14227,7 @@ mod tests {
     fn test_trigger_notification_schema_exposes_input_fields_as_optional() {
         let schema = serde_json::to_value(schemars::schema_for!(McpTriggerNotificationParams))
             .expect("serialize schema");
-        let props = schema["properties"]
-            .as_object()
-            .expect("schema properties");
+        let props = schema["properties"].as_object().expect("schema properties");
         for field in ["sessionId", "requiresInput", "inputPlaceholder"] {
             assert!(props.contains_key(field), "missing property {field}");
             if let Some(required) = schema["required"].as_array() {
