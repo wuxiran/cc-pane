@@ -1,12 +1,25 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+// 首启四步向导：环境与模式（preflight+模式双选并入一步）→ 建工作空间 → 并排启动 → 就绪。
+// 左栏顶部步骤导航（完成✓/当前实心/未来空心，可点击回退已到过的步）；
+// launchPair 成功后弹窗 aha-stand-back 退让 2.6s 让用户看到身后双终端（reduced-motion 直接跳就绪步）。
+// Esc/关闭/跳过全部收敛同一 complete()（docs/46 §6.1），ONBOARDING_MULTI_LAUNCH_KEY 写入点不变。
+// 步骤级子组件在 onboarding/onboardingSteps.tsx。
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, ArrowRight, Check, FolderSearch, MessageSquareText, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, MessageSquareText } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import GuidedDialog from "@/components/onboarding/GuidedDialog";
 import EnvironmentPreflightCard from "@/components/onboarding/EnvironmentPreflightCard";
 import OnboardingVisual from "@/components/onboarding/OnboardingVisual";
 import AgentConciergeEntry from "@/components/onboarding/AgentConciergeEntry";
+import {
+  FinishStep,
+  ParallelStep,
+  PresetChips,
+  scannedPaths,
+  StepNav,
+  WorkspaceStep,
+} from "@/components/onboarding/onboardingSteps";
+import type { LaunchTarget, Preset, StepIndex } from "@/components/onboarding/onboardingSteps";
 import {
   notifySetupGuideProgress,
   ONBOARDING_MULTI_LAUNCH_KEY,
@@ -32,18 +45,10 @@ import type {
 } from "@/types";
 import type { ScannedRepo } from "@/services/workspaceService";
 
-type StepIndex = 0 | 1 | 2 | 3 | 4;
-type Preset = "full" | "minimal";
-
 export { ONBOARDING_MULTI_LAUNCH_KEY } from "@/components/onboarding/setupGuideProgress";
 
 interface OnboardingGuideProps {
   onOpenTerminal: (options: OpenTerminalOptions) => void;
-}
-
-interface LaunchTarget {
-  workspace: Workspace;
-  project: WorkspaceProject;
 }
 
 function findLaunchTarget(
@@ -73,10 +78,6 @@ function selectCliPair(environment: EnvironmentInfo | null): [CliTool, CliTool] 
   return [ordered[0].id, (ordered[1] ?? ordered[0]).id];
 }
 
-function scannedPaths(repos: readonly ScannedRepo[]): string[] {
-  return repos.flatMap((repo) => [repo.mainPath, ...repo.worktrees.map((worktree) => worktree.path)]);
-}
-
 function AgentHint({
   environment,
   onOpenTerminal,
@@ -96,158 +97,9 @@ function AgentHint({
   );
 }
 
-function PresetStep({ value, onChange }: { value: Preset; onChange: (preset: Preset) => void }) {
-  const { t } = useTranslation("onboarding");
-  return (
-    <div role="radiogroup" aria-label={t("preset.groupLabel")} className="space-y-3">
-      {(["full", "minimal"] as const).map((preset) => {
-        const selected = value === preset;
-        return (
-          <button
-            key={preset}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            className="flex w-full items-start gap-3 rounded-lg border px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-            style={{
-              borderColor: selected ? "var(--app-accent)" : "var(--app-border)",
-              background: selected ? "var(--app-active-bg)" : "var(--app-panel-bg)",
-            }}
-            onClick={() => onChange(preset)}
-          >
-            <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-[var(--app-border)]">
-              {selected && <Check className="size-3.5 text-[var(--app-accent)]" aria-hidden="true" />}
-            </span>
-            <span>
-              <span className="block text-sm font-semibold text-[var(--app-text-primary)]">
-                {t(`preset.${preset}.title` as never)}
-              </span>
-              <span className="mt-1 block text-xs leading-5 text-[var(--app-text-secondary)]">
-                {t(`preset.${preset}.description` as never)}
-              </span>
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-interface WorkspaceStepProps {
-  target: LaunchTarget | null;
-  workspaceName: string;
-  rootPath: string;
-  repos: readonly ScannedRepo[];
-  busy: boolean;
-  error: string | null;
-  onWorkspaceNameChange: (value: string) => void;
-  onRootPathChange: (value: string) => void;
-  onScan: () => void;
-  onImport: () => void;
-}
-
-function WorkspaceStep(props: WorkspaceStepProps) {
-  const { t } = useTranslation("onboarding");
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2 text-xs leading-5 text-[var(--app-text-secondary)]">
-        <p>{t("workspace.principleGather")}</p>
-        <p>{t("workspace.principleMaterials")}</p>
-        <p>{t("workspace.principlePortable")}</p>
-      </div>
-      {props.target && (
-        <div className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 py-2 text-xs text-[var(--app-text-secondary)]">
-          {t("workspace.currentProject", {
-            workspace: props.target.workspace.alias || props.target.workspace.name,
-            project: props.target.project.alias || props.target.project.path,
-          })}
-        </div>
-      )}
-      <div className="space-y-3">
-        <Input
-          aria-label={t("workspace.nameLabel")}
-          placeholder={t("workspace.namePlaceholder")}
-          value={props.workspaceName}
-          onChange={(event) => props.onWorkspaceNameChange(event.target.value)}
-        />
-        <div className="flex gap-2">
-          <Input
-            aria-label={t("workspace.pathLabel")}
-            placeholder={t("workspace.pathPlaceholder")}
-            value={props.rootPath}
-            onChange={(event) => props.onRootPathChange(event.target.value)}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            className="shrink-0 gap-1.5"
-            disabled={props.busy || !props.rootPath.trim()}
-            onClick={props.onScan}
-          >
-            <FolderSearch className="size-4" aria-hidden="true" />
-            {t("workspace.scan")}
-          </Button>
-        </div>
-      </div>
-      {props.repos.length > 0 && (
-        <div className="flex items-center justify-between rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 py-2">
-          <span className="text-xs text-[var(--app-text-secondary)]">
-            {t("workspace.found", { count: scannedPaths(props.repos).length })}
-          </span>
-          <Button
-            type="button"
-            size="sm"
-            disabled={props.busy || !props.workspaceName.trim()}
-            onClick={props.onImport}
-          >
-            {t("workspace.createAndImport")}
-          </Button>
-        </div>
-      )}
-      {props.error && <p className="text-xs text-[var(--app-status-danger)]">{props.error}</p>}
-    </div>
-  );
-}
-
-function ParallelStep({ target, pair }: { target: LaunchTarget | null; pair: [CliTool, CliTool] | null }) {
-  const { t } = useTranslation("onboarding");
-  if (!pair) return <p className="text-sm text-[var(--app-status-warning)]">{t("parallel.noCli")}</p>;
-  if (!target) return <p className="text-sm text-[var(--app-status-warning)]">{t("parallel.noProject")}</p>;
-  return (
-    <div className="space-y-4">
-      <p className="text-sm leading-6 text-[var(--app-text-secondary)]">
-        {t("parallel.description", { project: target.project.alias || target.project.path })}
-      </p>
-      <div className="flex items-center gap-2">
-        {pair.map((tool, index) => (
-          <span key={`${tool}-${index}`} className="rounded-md border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 py-1.5 text-xs font-medium text-[var(--app-text-primary)]">
-            {tool}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function FinishStep() {
-  const { t } = useTranslation("onboarding");
-  return (
-    <div className="space-y-4">
-      <div className="flex items-start gap-3">
-        <Sparkles className="mt-0.5 size-5 shrink-0 text-[var(--app-accent)]" aria-hidden="true" />
-        <p className="text-sm leading-6 text-[var(--app-text-secondary)]">{t("finish.description")}</p>
-      </div>
-      <ul className="space-y-2 text-xs text-[var(--app-text-secondary)]">
-        <li>{t("finish.explorer")}</li>
-        <li>{t("finish.rightDock")}</li>
-        <li>{t("finish.skills")}</li>
-      </ul>
-    </div>
-  );
-}
-
 interface GuideFooterProps {
   step: StepIndex;
+  primaryLabel: string;
   primaryDisabled: boolean;
   busy: boolean;
   onBack: () => void;
@@ -258,7 +110,6 @@ interface GuideFooterProps {
 
 function GuideFooter(props: GuideFooterProps) {
   const { t } = useTranslation("onboarding");
-  const primaryKeys = ["choosePreset", "continue", "useCurrentProject", "launchPair", "finish"] as const;
   return (
     <div className="flex w-full flex-wrap items-center gap-2">
       <Button type="button" variant="ghost" size="sm" disabled={props.busy} onClick={props.onSkipAll}>
@@ -271,14 +122,14 @@ function GuideFooter(props: GuideFooterProps) {
           {t("actions.back")}
         </Button>
       )}
-      {props.step < 4 && (
+      {props.step < 3 && (
         <Button type="button" variant="outline" size="sm" disabled={props.busy} onClick={props.onSkipStep}>
           {t("actions.skipStep")}
         </Button>
       )}
       <Button type="button" size="sm" disabled={props.primaryDisabled || props.busy} onClick={props.onPrimary}>
-        {t(`actions.${primaryKeys[props.step]}` as never)}
-        {props.step < 4 && <ArrowRight className="size-4" aria-hidden="true" />}
+        {props.primaryLabel}
+        {props.step < 3 && <ArrowRight className="size-4" aria-hidden="true" />}
       </Button>
     </div>
   );
@@ -291,6 +142,7 @@ export default function OnboardingGuide({ onOpenTerminal }: OnboardingGuideProps
   const workspaceId = useWorkspacesStore((state) => state.expandedWorkspaceId);
   const projectId = useWorkspacesStore((state) => state.expandedProjectId);
   const [step, setStep] = useState<StepIndex>(0);
+  const [maxVisited, setMaxVisited] = useState<StepIndex>(0);
   const [preset, setPreset] = useState<Preset>("full");
   const [environment, setEnvironment] = useState<EnvironmentInfo | null>(null);
   const [checking, setChecking] = useState(false);
@@ -299,17 +151,25 @@ export default function OnboardingGuide({ onOpenTerminal }: OnboardingGuideProps
   const [rootPath, setRootPath] = useState("");
   const [repos, setRepos] = useState<ScannedRepo[]>([]);
   const [busy, setBusy] = useState(false);
+  const [ahaActive, setAhaActive] = useState(false);
   const [flowError, setFlowError] = useState<string | null>(null);
+  const ahaTimer = useRef<number | null>(null);
   const target = useMemo(
     () => findLaunchTarget(workspaces, workspaceId, projectId),
     [workspaces, workspaceId, projectId],
   );
   const cliPair = useMemo(() => selectCliPair(environment), [environment]);
 
+  const goTo = useCallback((next: StepIndex) => {
+    setStep(next);
+    setMaxVisited((prev) => (next > prev ? next : prev));
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setStep(0);
+    setMaxVisited(0);
     setFlowError(null);
     setEnvironmentError(null);
     setChecking(true);
@@ -319,6 +179,10 @@ export default function OnboardingGuide({ onOpenTerminal }: OnboardingGuideProps
       .finally(() => { if (!cancelled) setChecking(false); });
     return () => { cancelled = true; };
   }, [open, t]);
+
+  useEffect(() => () => {
+    if (ahaTimer.current != null) window.clearTimeout(ahaTimer.current);
+  }, []);
 
   const complete = useCallback(async () => {
     const settings = useSettingsStore.getState().settings;
@@ -366,13 +230,13 @@ export default function OnboardingGuide({ onOpenTerminal }: OnboardingGuideProps
       }
       useWorkspacesStore.getState().expandWorkspace(workspace.id);
       useWorkspacesStore.getState().expandProject(firstProject?.id ?? null);
-      setStep(3);
+      goTo(2);
     } catch {
       setFlowError(t("workspace.importFailed"));
     } finally {
       setBusy(false);
     }
-  }, [repos, rootPath, t, workspaceName]);
+  }, [goTo, repos, rootPath, t, workspaceName]);
 
   const launchPair = useCallback(() => {
     if (!target || !cliPair) return;
@@ -404,71 +268,105 @@ export default function OnboardingGuide({ onOpenTerminal }: OnboardingGuideProps
     onOpenTerminal(second.options);
     localStorage.setItem(ONBOARDING_MULTI_LAUNCH_KEY, "true");
     notifySetupGuideProgress();
-    setStep(4);
-  }, [cliPair, onOpenTerminal, t, target]);
+    // aha 退让：弹窗淡出 2.6s 让用户看到身后双终端；reduced-motion 直接进就绪步
+    const reduced = typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) {
+      goTo(3);
+      return;
+    }
+    setAhaActive(true);
+    ahaTimer.current = window.setTimeout(() => {
+      setAhaActive(false);
+      goTo(3);
+    }, 2600);
+  }, [cliPair, goTo, onOpenTerminal, t, target]);
 
   const primary = () => {
     setFlowError(null);
-    if (step === 0) setStep(1);
-    else if (step === 1) {
+    if (step === 0) {
       useModulePrefsStore.getState().applyPreset(preset);
-      setStep(2);
-    } else if (step === 2 && target) setStep(3);
-    else if (step === 3) launchPair();
-    else if (step === 4) void complete();
+      goTo(1);
+    } else if (step === 1) {
+      // 主按钮跟随输入态：有扫描结果→创建并导入；无结果但有路径→扫描；有项目→直接继续
+      if (repos.length > 0 && workspaceName.trim()) void createAndImport();
+      else if (!target && rootPath.trim()) void scan();
+      else if (target) goTo(2);
+    } else if (step === 2) {
+      launchPair();
+    } else {
+      void complete();
+    }
   };
 
+  // step 1 主按钮三态（消灭"主按钮常灰、前进键藏在结果条里"）
+  const workspacePrimaryLabel = step !== 1
+    ? t(`actions.${(["continueSetup", "", "launchPair", "finish"] as const)[step]}` as never)
+    : repos.length > 0
+      ? t("workspace.createAndImport")
+      : target
+        ? t("actions.useCurrentProject")
+        : t("workspace.scan");
   const primaryDisabled = checking
-    || (step === 2 && !target)
-    || (step === 3 && (!target || !cliPair));
-  const stepKeys = ["environment", "preset", "workspace", "parallel", "finish"] as const;
+    || (step === 1 && (
+      repos.length > 0
+        ? !workspaceName.trim() || busy
+        : target
+          ? false
+          : !rootPath.trim() || busy
+    ))
+    || (step === 2 && (!target || !cliPair));
+
+  const stepKeys = ["environment", "workspace", "parallel", "finish"] as const;
   const content = step === 0
-    ? <EnvironmentPreflightCard environment={environment} checking={checking} error={environmentError} />
+    ? (
+      <>
+        <EnvironmentPreflightCard environment={environment} checking={checking} error={environmentError} />
+        <PresetChips value={preset} onChange={setPreset} />
+      </>
+    )
     : step === 1
-      ? <PresetStep value={preset} onChange={setPreset} />
+      ? (
+        <WorkspaceStep
+          target={target}
+          workspaceName={workspaceName}
+          rootPath={rootPath}
+          repos={repos}
+          busy={busy}
+          error={flowError}
+          onWorkspaceNameChange={setWorkspaceName}
+          onRootPathChange={(value) => { setRootPath(value); setRepos([]); }}
+          onScan={() => void scan()}
+        />
+      )
       : step === 2
-        ? (
-          <WorkspaceStep
-            target={target}
-            workspaceName={workspaceName}
-            rootPath={rootPath}
-            repos={repos}
-            busy={busy}
-            error={flowError}
-            onWorkspaceNameChange={setWorkspaceName}
-            onRootPathChange={(value) => { setRootPath(value); setRepos([]); }}
-            onScan={() => void scan()}
-            onImport={() => void createAndImport()}
-          />
-        )
-        : step === 3
-          ? <ParallelStep target={target} pair={cliPair} />
-          : <FinishStep />;
+        ? <ParallelStep target={target} pair={cliPair} />
+        : <FinishStep />;
 
   return (
     <GuidedDialog
       open={open}
       onOpenChange={(nextOpen) => { if (!nextOpen && !busy) void complete(); }}
+      className={ahaActive ? "aha-stand-back" : undefined}
+      nav={<StepNav step={step} maxVisited={maxVisited} onNavigate={goTo} />}
       title={t(`steps.${stepKeys[step]}.title` as never)}
       description={t(`steps.${stepKeys[step]}.description` as never)}
       visual={<OnboardingVisual step={step} />}
       footer={(
         <GuideFooter
           step={step}
+          primaryLabel={workspacePrimaryLabel}
           primaryDisabled={primaryDisabled}
           busy={busy}
           onBack={() => setStep((step - 1) as StepIndex)}
-          onSkipStep={() => setStep((step + 1) as StepIndex)}
+          onSkipStep={() => goTo((step + 1) as StepIndex)}
           onSkipAll={() => void complete()}
           onPrimary={primary}
         />
       )}
     >
-      <p className="mb-4 text-[11px] font-semibold text-[var(--app-accent)]">
-        {t("progress", { current: step + 1, total: 5 })}
-      </p>
       {content}
-      {flowError && step !== 2 && (
+      {flowError && step !== 1 && (
         <p className="mt-4 text-xs text-[var(--app-status-danger)]">{flowError}</p>
       )}
       <AgentHint environment={environment} onOpenTerminal={onOpenTerminal} />

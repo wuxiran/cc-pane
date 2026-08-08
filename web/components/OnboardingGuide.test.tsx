@@ -61,16 +61,15 @@ const project: WorkspaceProject = {
   path: "/workspace/demo",
 };
 
-async function goToPresetStep(user: ReturnType<typeof userEvent.setup>) {
-  const next = await screen.findByRole("button", { name: "继续选择模式" });
+/** 第 1 步（环境与模式）主按钮 = 继续 */
+async function leaveEnvironmentStep(user: ReturnType<typeof userEvent.setup>) {
+  const next = await screen.findByRole("button", { name: "继续" });
   await waitFor(() => expect(next).toBeEnabled());
   await user.click(next);
 }
 
 async function goToParallelStep(user: ReturnType<typeof userEvent.setup>) {
-  await goToPresetStep(user);
-  await user.click(screen.getByRole("radio", { name: /全功能模式/ }));
-  await user.click(screen.getByRole("button", { name: "继续" }));
+  await leaveEnvironmentStep(user);
   await user.click(screen.getByRole("button", { name: "跳过此步" }));
 }
 
@@ -90,41 +89,48 @@ describe("OnboardingGuide", () => {
     });
   });
 
-  it("renders the five-step preflight with persistent repair actions", async () => {
+  it("renders the merged environment+mode step with step navigation", async () => {
     vi.mocked(terminalService.checkEnvironment).mockResolvedValue(makeEnv(false, true));
     render(<OnboardingGuide onOpenTerminal={vi.fn()} />);
 
-    expect(await screen.findByText("先确认运行环境")).toBeVisible();
-    expect(screen.getByText("第 1 / 5 步")).toBeVisible();
+    expect(await screen.findByText("先确认环境，选好工作台模式")).toBeVisible();
     const copyRegion = within(screen.getByTestId("guided-dialog-copy"));
     expect(copyRegion.getByText("Git")).toBeVisible();
     expect(copyRegion.getByText("WSL")).toBeVisible();
     expect(screen.getByRole("button", { name: "复制 Claude Code 修复命令" })).toBeVisible();
+    // 模式双选并入本步
+    expect(screen.getByRole("radio", { name: /全功能模式/ })).toBeVisible();
+    // 四步导航列出全程
+    const nav = screen.getByRole("navigation", { name: "引导步骤" });
+    expect(within(nav).getByText("环境与模式")).toBeVisible();
+    expect(within(nav).getByText("建工作空间")).toBeVisible();
+    expect(within(nav).getByText("并排启动")).toBeVisible();
+    expect(within(nav).getByText("就绪")).toBeVisible();
     expect(screen.getByText("也可以直接对 agent 说")).toBeVisible();
   });
 
-  it("supports next, back, per-step skip and applies the minimal preset", async () => {
+  it("applies the selected preset when leaving step one and allows nav back", async () => {
     const user = userEvent.setup();
     render(<OnboardingGuide onOpenTerminal={vi.fn()} />);
 
-    await goToPresetStep(user);
-    expect(screen.getByText("选择你的工作台模式")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "上一步" }));
-    expect(screen.getByText("先确认运行环境")).toBeVisible();
-
-    await goToPresetStep(user);
+    await screen.findByText("先确认环境，选好工作台模式");
     await user.click(screen.getByRole("radio", { name: /极简模式/ }));
-    await user.click(screen.getByRole("button", { name: "继续" }));
+    await leaveEnvironmentStep(user);
 
     expect(useModulePrefsStore.getState().preferences).toEqual(
       createModulePreferencesForPreset("minimal"),
     );
     expect(screen.getByText("创建第一个工作空间")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "跳过此步" }));
-    expect(screen.getByText("并排启动两个会话")).toBeVisible();
+
+    // 步骤导航可回退到已到过的步
+    const nav = screen.getByRole("navigation", { name: "引导步骤" });
+    await user.click(within(nav).getByRole("button", { name: /环境与模式/ }));
+    expect(screen.getByText("先确认环境，选好工作台模式")).toBeVisible();
+    // 未到过的步不可点
+    expect(within(nav).getByRole("button", { name: /就绪/ })).toBeDisabled();
   });
 
-  it("scans a directory, creates a workspace and imports discovered projects", async () => {
+  it("drives the workspace step through scan then create-and-import on the primary button", async () => {
     const user = userEvent.setup();
     vi.spyOn(workspaceService, "scanDirectory").mockResolvedValue([{
       mainPath: project.path,
@@ -135,15 +141,16 @@ describe("OnboardingGuide", () => {
     vi.spyOn(workspaceService, "addWorkspaceProject").mockResolvedValue(project);
     render(<OnboardingGuide onOpenTerminal={vi.fn()} />);
 
-    await goToPresetStep(user);
-    await user.click(screen.getByRole("radio", { name: /全功能模式/ }));
-    await user.click(screen.getByRole("button", { name: "继续" }));
+    await leaveEnvironmentStep(user);
     await user.type(screen.getByRole("textbox", { name: "工作空间名称" }), "demo");
     await user.type(screen.getByRole("textbox", { name: "项目目录" }), project.path);
-    await user.click(screen.getByRole("button", { name: "扫描目录" }));
+    // 无导入项目时主按钮 = 扫描目录（footer 内，与输入区的扫描按钮同功能）
+    const footer = within(screen.getByTestId("guided-dialog-footer"));
+    await user.click(footer.getByRole("button", { name: "扫描目录" }));
 
     expect(await screen.findByText("发现 1 个项目")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "创建并导入" }));
+    // 有扫描结果后主按钮变为创建并导入
+    await user.click(footer.getByRole("button", { name: "创建并导入" }));
 
     await waitFor(() => {
       expect(workspaceService.createWorkspace).toHaveBeenCalledWith("demo", project.path);
@@ -172,7 +179,14 @@ describe("OnboardingGuide", () => {
       "codex",
     ]);
     expect(splitRight).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("你的工作台已就绪")).toBeVisible();
+    expect(localStorage.getItem("cc-panes-onboarding-multi-launch")).toBe("true");
+    // jsdom 的 matchMedia mock 报 reduced-motion=false 时走 2.6s 退让；
+    // 无论哪条路径，最终都要进就绪步
+    await waitFor(
+      () => expect(screen.getByText("你的工作台已就绪")).toBeVisible(),
+      { timeout: 4000 },
+    );
+    expect(screen.getByText(/设置 → 上手清单/)).toBeVisible();
   });
 
   it("opens the concierge from the agent hint with its system prompt injected", async () => {

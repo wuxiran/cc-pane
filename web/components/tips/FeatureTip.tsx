@@ -1,4 +1,8 @@
-import { BookOpen, Check, Keyboard, Play } from "lucide-react";
+// tip 弹窗左栏结构（docs/46 §6.1）：TIP 徽标为标题上方 eyebrow；
+// 教程 / 改绑收进「了解更多」分组面板，passthrough 警示以琥珀底贴面板尾部——
+// 三类次要信息一处收纳，全部缺席时面板整个不渲染；
+// 「不再显示任何提示」在 footer 左下角与主按钮对角呼应。dismiss/disable 语义与计数不变。
+import { BookOpen, Check, Keyboard, Play, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import GuidedDialog from "@/components/onboarding/GuidedDialog";
 import { Button } from "@/components/ui/button";
@@ -35,6 +39,7 @@ export default function FeatureTip({
   const showPassthroughHint = Boolean(
     formattedBinding && definition.actionId && isTerminalPassthroughAction(definition.actionId),
   );
+  const hasMorePanel = Boolean(definition.guidePath || definition.actionId || showPassthroughHint);
 
   return (
     <GuidedDialog
@@ -42,6 +47,11 @@ export default function FeatureTip({
       onOpenChange={(open) => {
         if (!open) onDismiss();
       }}
+      nav={(
+        <span className="mb-3 inline-flex rounded-full border border-[var(--app-accent)] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--app-accent)]">
+          {t("featureTips.badge")}
+        </span>
+      )}
       title={(
         <span className="flex flex-wrap items-center gap-2 text-[18px]">
           <span>{t(definition.titleKey as never)}</span>
@@ -55,8 +65,16 @@ export default function FeatureTip({
       description={t(bodyKey as never)}
       visual={<Visual />}
       footer={(
-        <div className="flex w-full flex-wrap justify-end gap-2">
-          <Button variant="secondary" onClick={onDismiss}>
+        <div className="flex w-full flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="text-left text-[11px] text-[var(--app-text-tertiary)] hover:text-[var(--app-text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+            onClick={onDisable}
+          >
+            {t("featureTips.disable")}
+          </button>
+          <span className="min-w-2 flex-1" />
+          <Button variant="outline" onClick={onDismiss}>
             <Check aria-hidden="true" size={15} />
             {t("featureTips.gotIt")}
           </Button>
@@ -69,49 +87,42 @@ export default function FeatureTip({
         </div>
       )}
     >
-      <div className="space-y-4">
-        <span className="inline-flex rounded-md border border-[var(--app-accent)] px-2 py-1 text-[11px] font-semibold text-[var(--app-accent)]">
-          {t("featureTips.badge")}
-        </span>
-        {showPassthroughHint && (
-          <p
-            className="text-[12px] leading-relaxed text-[var(--app-text-secondary)]"
-            data-testid="feature-tip-passthrough-hint"
-          >
-            {t("featureTips.terminalPassthroughHint")}
-          </p>
-        )}
-        {definition.guidePath && (
-          <button
-            type="button"
-            data-testid="feature-tip-guide-link"
-            className="flex items-center gap-2 text-left text-[12px] text-[var(--app-text-secondary)] hover:text-[var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-            onClick={() => void openGuideDoc(definition.guidePath!)}
-          >
-            <BookOpen aria-hidden="true" size={15} />
-            <span className="text-[var(--app-accent)]">{t("featureTips.learnMore")}</span>
-          </button>
-        )}
-        {definition.actionId && (
-          <button
-            type="button"
-            className="flex items-center gap-2 text-left text-[12px] text-[var(--app-text-secondary)] hover:text-[var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-            onClick={onOpenShortcuts}
-          >
-            <Keyboard aria-hidden="true" size={15} />
-            <span>
-              {t("featureTips.rebind")} <span className="text-[var(--app-accent)]">{t("featureTips.shortcutSettings")}</span>
-            </span>
-          </button>
-        )}
-        <button
-          type="button"
-          className="text-left text-[11px] text-[var(--app-text-tertiary)] hover:text-[var(--app-text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-          onClick={onDisable}
-        >
-          {t("featureTips.disable")}
-        </button>
-      </div>
+      {hasMorePanel && (
+        <div className="overflow-hidden rounded-lg bg-[var(--app-panel-bg)]">
+          {definition.guidePath && (
+            <button
+              type="button"
+              data-testid="feature-tip-guide-link"
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[12px] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)]"
+              onClick={() => void openGuideDoc(definition.guidePath!)}
+            >
+              <BookOpen aria-hidden="true" size={15} />
+              <span className="text-[var(--app-accent)]">{t("featureTips.learnMore")}</span>
+            </button>
+          )}
+          {definition.actionId && (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[12px] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)]"
+              onClick={onOpenShortcuts}
+            >
+              <Keyboard aria-hidden="true" size={15} />
+              <span>
+                {t("featureTips.rebind")} <span className="text-[var(--app-accent)]">{t("featureTips.shortcutSettings")}</span>
+              </span>
+            </button>
+          )}
+          {showPassthroughHint && (
+            <p
+              className="flex items-start gap-2 bg-[var(--app-warning-bg)] px-3 py-2.5 text-[12px] leading-relaxed text-[var(--app-text-secondary)]"
+              data-testid="feature-tip-passthrough-hint"
+            >
+              <TriangleAlert aria-hidden="true" size={14} className="mt-0.5 shrink-0 text-[var(--app-status-warning)]" />
+              <span>{t("featureTips.terminalPassthroughHint")}</span>
+            </p>
+          )}
+        </div>
+      )}
     </GuidedDialog>
   );
 }

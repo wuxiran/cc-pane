@@ -48,12 +48,41 @@
 .onboarding-demo-module:nth-child(4) { animation-delay: calc(var(--dur-slow) + var(--dur-slow) + var(--dur-slow)); }
 .onboarding-demo-dock { animation-name: onboarding-demo-dock; }
 
+/* 旅程条当前节点呼吸环（SetupGuideChecklist） */
+@keyframes guide-node-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--app-active-bg); }
+  50% { box-shadow: 0 0 0 6px var(--app-active-bg); }
+}
+.guide-node-pulse { animation: guide-node-pulse 2400ms var(--ease-in-out) infinite; }
+
+/* 并排启动视觉：终端行逐行打入（OnboardingVisual） */
+@keyframes demo-type-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+.demo-type-in {
+  animation: demo-type-in var(--dur-slow) var(--ease-out) both;
+}
+
+/* aha 退让：launchPair 成功后弹窗淡出缩边 2.6s，让用户看到身后双终端启动
+   （OnboardingGuide，挂在 Dialog 根元素；reduced-motion 下跳过动画直接进就绪步） */
+@keyframes aha-stand-back {
+  0% { opacity: 1; transform: none; }
+  18% { opacity: 0.08; transform: scale(0.965); }
+  82% { opacity: 0.08; transform: scale(0.965); }
+  100% { opacity: 1; transform: none; }
+}
+.aha-stand-back { animation: aha-stand-back 2600ms var(--ease-in-out) both; }
+
 @media (prefers-reduced-motion: reduce) {
   .onboarding-demo-scan,
   .onboarding-demo-module,
   .onboarding-demo-tree,
   .onboarding-demo-terminal-line,
-  .onboarding-demo-dock {
+  .onboarding-demo-dock,
+  .guide-node-pulse,
+  .demo-type-in,
+  .aha-stand-back {
     animation: none;
   }
 }

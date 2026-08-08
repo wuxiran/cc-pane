@@ -2,35 +2,34 @@
   "progress": "Step {{current}} of {{total}}",
   "agentHint": "You can also tell the agent directly",
   "actions": {
-    "choosePreset": "Choose a mode",
-    "continue": "Continue",
     "useCurrentProject": "Continue with imported project",
     "launchPair": "Launch side by side",
     "finish": "Finish guide",
     "skipStep": "Skip this step",
     "skipAll": "Skip all",
-    "back": "Back"
+    "back": "Back",
+    "continueSetup": "Continue"
   },
   "steps": {
     "environment": {
-      "title": "Check your environment",
-      "description": "Check the CLIs and tools used by multi-session workflows, with copyable repair commands for missing items."
-    },
-    "preset": {
-      "title": "Choose your workbench mode",
-      "description": "The mode only sets initial module preferences. You can adjust every module later in Settings."
+      "title": "Check your environment, pick a workbench mode",
+      "description": "Verify the CLIs multi-session workflows need; copy a repair command for anything missing. The mode only sets module defaults - adjust anytime.",
+      "navTitle": "Environment & mode"
     },
     "workspace": {
       "title": "Create your first workspace",
-      "description": "Gather related projects and working materials into a portable work context."
+      "description": "Gather related projects and working materials into a portable work context.",
+      "navTitle": "Create workspace"
     },
     "parallel": {
       "title": "Launch two sessions side by side",
-      "description": "Run two available agents in the same project and see parallel work immediately."
+      "description": "Run two agents in the same project. After launch this window steps aside so you can watch them start.",
+      "navTitle": "Side-by-side launch"
     },
     "finish": {
       "title": "Your workbench is ready",
-      "description": "Move from observing the workspace to dispatching and collaboration."
+      "description": "Two agents are working in parallel behind you. The workspace gathers context - next, move from watching to dispatching.",
+      "navTitle": "Ready"
     }
   },
   "environment": {
@@ -48,7 +47,7 @@
     "groupLabel": "Workbench mode",
     "full": {
       "title": "Full mode",
-      "description": "Enable SSH, orchestration, and Todo for the complete collaboration surface."
+      "description": "Enable SSH, orchestration, resources, and Todo for the complete collaboration surface."
     },
     "minimal": {
       "title": "Minimal mode",
@@ -81,7 +80,8 @@
     "description": "The workspace gathers context while multiple agents work across the same projects in parallel.",
     "explorer": "Explorer: inspect projects, files, and Git state.",
     "rightDock": "Right Dock: keep tools visible without covering terminals.",
-    "skills": "Advanced: use orchestration skills to dispatch, track, and report work."
+    "skills": "Advanced: use orchestration skills to dispatch, track, and report work.",
+    "recoverHint": "You can reopen this guide and the checklist anytime from Settings > Getting started."
   },
   "concierge": {
     "action": "Tell the agent",
@@ -97,7 +97,7 @@
     "progressLabel": "Core workflow progress",
     "completed": "Complete",
     "pending": "To do",
-    "replay": "Replay the five-minute guide",
+    "replay": "Replay guide",
     "items": {
       "workspace": {
         "title": "Create a workspace",
@@ -120,17 +120,26 @@
         "action": "Open orchestration"
       },
       "skill": {
-        "title": "Install your first Skill",
-        "description": "Install a reusable advanced workflow from Settings → Tools → Skills.",
-        "checkFailed": "Installed Skills could not be read. You can still inspect them in Settings → Tools → Skills.",
+        "title": "Try a Skill",
+        "description": "Common workflows come pre-installed in the AI. Type / in a session, or just ask in plain words.",
+        "checkFailed": "Installed Skills could not be read. You can still inspect them in Resources.",
         "action": "Browse Skills"
       }
-    }
+    },
+    "startTutorial": "Start the tutorial",
+    "tutorial": "Tutorial",
+    "nextStep": "Next step",
+    "viewGuide": "View guide",
+    "conciergeHint": "Prefer not to click through?",
+    "doneTitle": "Core path complete",
+    "doneSummary": "Workspace, projects, multi-launch, dispatch, and Skills - all five steps done",
+    "browseSkills": "Browse advanced Skills"
   },
   "errors": {
     "settingsUnavailable": "Settings are not loaded, so onboarding state cannot be saved yet.",
     "saveFailed": "Could not save onboarding state. Try again."
   },
   "restartOnboarding": "Restart Onboarding Guide",
-  "restartOnboardingDesc": "Reopen the onboarding wizard"
+  "restartOnboardingDesc": "Reopen the onboarding wizard",
+  "navLabel": "Guide steps"
 }

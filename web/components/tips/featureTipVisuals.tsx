@@ -1,7 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { THEME_SHAPES } from "@/theme/themeShapes";
 import {
-  AppWindow,
   ArrowRight,
   Bot,
   Check,
@@ -11,7 +10,6 @@ import {
   Globe,
   LayoutGrid,
   Maximize2,
-  Minimize2,
   PanelRight,
   Plus,
   Search,
@@ -93,19 +91,37 @@ export function LayoutSwitcherVisual() {
 }
 
 export function MiniModeVisual() {
+  // 完整工作台半透明退后 + 虚线轨迹 + 迷你浮窗滑入；桌面用点阵纹理示意「浮在桌面上」
   return (
     <VisualStage>
-      <div className="flex items-center gap-4">
-        <div className={`relative h-36 w-48 p-2 shadow-md ${CARD}`}>
-          <div className="flex h-full gap-2">
-            <span className="w-8 rounded-md bg-[var(--app-active-bg)]" />
-            <span className="flex-1 rounded-md border border-[var(--app-border)] bg-[var(--app-terminal-bg)]" />
+      <div className="relative h-56 w-full max-w-[320px]">
+        <div
+          className="absolute inset-0 rounded-[10px] opacity-50"
+          style={{
+            backgroundImage: "radial-gradient(var(--app-border) 1px, transparent 1px)",
+            backgroundSize: "14px 14px",
+          }}
+        />
+        <div className={`absolute left-0 top-3 h-40 w-[64%] p-2 opacity-55 shadow-sm ${CARD}`}>
+          <div className="flex h-full gap-1.5">
+            <span className="w-5 rounded-[5px] bg-[var(--app-hover)]" />
+            <span className="flex-1 rounded-[5px] border border-[var(--app-border)] bg-[var(--app-terminal-bg)]" />
+            <span className="w-8 rounded-[5px] bg-[var(--app-hover)]" />
           </div>
-          <Minimize2 className="absolute right-3 top-3 text-[var(--app-accent)]" size={16} />
         </div>
-        <Maximize2 className="text-[var(--app-text-tertiary)] motion-safe:animate-pulse motion-reduce:animate-none" size={18} />
-        <div className="flex h-28 w-20 items-center justify-center rounded-lg border border-[var(--app-accent)] bg-[var(--app-terminal-bg)] shadow-md">
-          <Terminal className="text-[var(--app-accent)]" size={19} />
+        <svg className="absolute left-[56%] top-12" width="52" height="40" viewBox="0 0 52 40" fill="none">
+          <path d="M4 8 C 24 8, 34 16, 44 30" stroke="var(--app-accent)" strokeWidth="1.5" strokeDasharray="3 4" strokeLinecap="round" />
+          <path d="M38 28 l6 3 -1 -7" stroke="var(--app-accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        </svg>
+        <div className="tip-demo-slide-in absolute bottom-4 right-0 h-[104px] w-[150px] rounded-[10px] border border-[var(--app-accent)] bg-[var(--app-terminal-bg)] p-2.5 shadow-lg">
+          <div className="mb-2 flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-[var(--app-cli-claude)]" />
+            <span className={`h-[5px] w-[44%] ${SKELETON}`} />
+            <Maximize2 className="ml-auto text-[var(--app-accent)]" size={11} />
+          </div>
+          {["82%", "64%", "74%"].map((width, index) => (
+            <span key={index} className={`mt-[7px] block h-[5px] ${SKELETON}`} style={{ width }} />
+          ))}
         </div>
       </div>
     </VisualStage>
@@ -113,6 +129,7 @@ export function MiniModeVisual() {
 }
 
 export function LauncherVisual() {
+  // 一个入口配齐四样：项目 / CLI（身份色点）/ 运行环境 / 启动——按表单行语言重绘
   return (
     <VisualStage>
       <div className={`w-full max-w-[310px] p-3 shadow-md ${CARD}`}>
@@ -120,16 +137,23 @@ export function LauncherVisual() {
           <Plus size={16} />
           <span className="h-1.5 w-24 rounded-full bg-[var(--app-active-bg)]" />
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          {[Terminal, AppWindow, Command, LayoutGrid].map((Icon, index) => (
-            <div
-              key={index}
-              className={`flex h-16 items-center gap-2 rounded-md border px-3 ${index === 0 ? "border-[var(--app-accent)] bg-[var(--app-active-bg)] text-[var(--app-accent)]" : "border-[var(--app-border)]"}`}
-            >
-              <Icon size={16} />
-              <span className={`h-1.5 flex-1 ${SKELETON}`} />
-            </div>
-          ))}
+        <div className="space-y-2">
+          <div className="tip-demo-rise flex h-9 items-center gap-2 rounded-md border border-[var(--app-border)] px-3">
+            <Files size={14} className="text-[var(--app-text-tertiary)]" />
+            <span className={`h-1.5 w-2/5 ${SKELETON}`} />
+          </div>
+          <div className="tip-demo-rise flex h-9 items-center gap-2 rounded-md border border-[var(--app-accent)] bg-[var(--app-active-bg)] px-3" style={delay(1)}>
+            <span className="size-2.5 rounded-full bg-[var(--app-cli-claude)]" />
+            <span className={`h-1.5 w-1/3 ${SKELETON}`} />
+            <span className="ml-auto size-2.5 rounded-full bg-[var(--app-cli-codex)] opacity-40" />
+          </div>
+          <div className="tip-demo-rise flex h-9 items-center gap-2 rounded-md border border-[var(--app-border)] px-3" style={delay(2)}>
+            <Terminal size={14} className="text-[var(--app-text-tertiary)]" />
+            <span className={`h-1.5 w-1/4 ${SKELETON}`} />
+          </div>
+          <div className="tip-demo-rise mt-1 flex h-8 items-center justify-center rounded-md bg-[var(--app-accent)]" style={delay(3)}>
+            <ArrowRight size={14} className="text-white" />
+          </div>
         </div>
       </div>
     </VisualStage>

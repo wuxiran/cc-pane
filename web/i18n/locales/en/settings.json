@@ -519,27 +519,27 @@
     "shortcutSettings": "Settings → Shortcuts",
     "commandPalette": {
       "title": "Jump anywhere with the Command Palette",
-      "body": "Find commands, workspaces, and layouts without leaving the keyboard.",
+      "body": "Commands, workspaces, layouts - one input reaches them all. Hands on the keyboard, a few letters away.",
       "bodyUnbound": "Bind the Command Palette in Settings, then find commands, workspaces, and layouts quickly."
     },
     "layoutSwitcher": {
       "title": "Switch task layouts at any time",
-      "body": "Open the compact layout picker and move quickly between task views.",
+      "body": "One split layout per kind of task - switch without rearranging windows. Open the picker to swap the whole working surface.",
       "bodyUnbound": "Bind the layout picker in Settings to move quickly between task views."
     },
     "miniMode": {
       "title": "Collapse into a mini terminal",
-      "body": "Use Mini Mode when you only need to watch a focused stream of terminal output.",
+      "body": "Watching long output doesn't need the whole workbench. Collapse into a lightweight terminal floating on the desktop; press again to return.",
       "bodyUnbound": "Bind Mini Mode in Settings to collapse the window into a lightweight terminal."
     },
     "launcher": {
       "title": "Create tabs from one launcher",
-      "body": "Choose the project, CLI, runtime, and launch options from one place.",
+      "body": "Project, CLI, runtime, launch options - one entry point covers them all. New tabs start here.",
       "bodyUnbound": "Bind New Tab in Settings to open the unified project, CLI, and runtime launcher."
     },
     "interfaceShapes": {
       "title": "Try interface shapes",
-      "body": "Keep your current colors and change only the corners, dividers, and surface treatment.",
+      "body": "Colors stay, only corners, dividers, and surface treatment change - six personalities per theme. Take a lap through theme settings.",
       "action": "Open theme settings"
     },
     "dispatchOrchestration": {
@@ -556,11 +556,11 @@
     },
     "skills": {
       "title": "Common workflows are already baked into the AI",
-      "body": "Parallel dispatch, plan handoff, peer review, wrap-up checks — these are shipped as skills and installed into each CLI by CC-Panes. Plain language triggers them; for the full list type `/` in a session (Codex uses the `ccpanes-` prefix), or open Settings → Tools → Skills and read the \"built-in CC-Panes skills\" section."
+      "body": "Common workflows ship as skills pre-installed into each CLI - plain words trigger them. For the list: type / in a session (Codex uses the ccpanes- prefix), or Settings > Tools > Skills."
     },
     "rightDock": {
       "title": "The right dock: watch while it runs",
-      "body": "The panel button in the title bar, just left of the gear, opens the right dock: which files the AI touched, Git changes, AI panels, and session history all live there, and it can stay open alongside the left sidebar. It has no shortcut, and it starts collapsed on every launch."
+      "body": "What the AI changed, what Git saw - watch while it runs. The panel button at the far right of the title bar opens it; dock and sidebar can stay open together."
     },
     "browserTab": {
       "title": "The browser is the AI's hand, not yours",

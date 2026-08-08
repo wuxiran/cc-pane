@@ -2,35 +2,34 @@
   "progress": "第 {{current}} / {{total}} 步",
   "agentHint": "也可以直接对 agent 说",
   "actions": {
-    "choosePreset": "继续选择模式",
-    "continue": "继续",
     "useCurrentProject": "使用已导入项目继续",
     "launchPair": "一键并排启动",
     "finish": "完成引导",
     "skipStep": "跳过此步",
     "skipAll": "跳过全部",
-    "back": "上一步"
+    "back": "上一步",
+    "continueSetup": "继续"
   },
   "steps": {
     "environment": {
-      "title": "先确认运行环境",
-      "description": "检查多会话工作流需要的 CLI 与基础工具，缺项可直接复制修复命令。"
-    },
-    "preset": {
-      "title": "选择你的工作台模式",
-      "description": "模式只决定模块初值，之后可在设置中逐项调整。"
+      "title": "先确认环境，选好工作台模式",
+      "description": "检查多会话工作流需要的 CLI，缺项可直接复制修复命令；模式只决定模块初值，之后随时可调。",
+      "navTitle": "环境与模式"
     },
     "workspace": {
       "title": "创建第一个工作空间",
-      "description": "把相关项目与工作材料收束到可携带的工作上下文。"
+      "description": "把相关项目与工作材料收束到可携带的工作上下文。",
+      "navTitle": "建工作空间"
     },
     "parallel": {
       "title": "并排启动两个会话",
-      "description": "在同一项目中同时运行两个可用的 agent，看到多开协作的第一刻。"
+      "description": "在同一项目里同时运行两个 agent。启动后本窗口会先让开，让你看清它们各自跑起来的样子。",
+      "navTitle": "并排启动"
     },
     "finish": {
       "title": "你的工作台已就绪",
-      "description": "接下来从观察工作现场进入派工与协作。"
+      "description": "两个 agent 正在你身后并行工作。工作空间负责收束上下文，接下来从观察进入派工与协作。",
+      "navTitle": "就绪"
     }
   },
   "environment": {
@@ -48,7 +47,7 @@
     "groupLabel": "工作台模式",
     "full": {
       "title": "全功能模式",
-      "description": "启用 SSH、编排与 Todo，适合需要完整协作面的用户。"
+      "description": "启用 SSH、编排、资源中心与 Todo，适合需要完整协作面的用户。"
     },
     "minimal": {
       "title": "极简模式",
@@ -81,7 +80,8 @@
     "description": "工作空间负责收束上下文，多个 agent 可以围绕同一批项目并行工作。",
     "explorer": "资源管理器：查看项目、文件与 Git 状态。",
     "rightDock": "右坞：让常驻工具保持可见但不遮挡终端。",
-    "skills": "进阶：用编排 skill 派工、跟踪与汇报。"
+    "skills": "进阶：用编排 skill 派工、跟踪与汇报。",
+    "recoverHint": "本引导与上手清单随时可从 设置 → 上手清单 重新打开。"
   },
   "concierge": {
     "action": "对 agent 说",
@@ -97,7 +97,7 @@
     "progressLabel": "核心工作流完成度",
     "completed": "已完成",
     "pending": "待完成",
-    "replay": "重新查看五分钟引导",
+    "replay": "重看引导",
     "items": {
       "workspace": {
         "title": "创建工作空间",
@@ -120,17 +120,26 @@
         "action": "打开编排"
       },
       "skill": {
-        "title": "安装第一个 Skill",
-        "description": "在设置 → 工具 → Skills 中安装一个可复用的进阶工作流。",
-        "checkFailed": "暂时无法读取已安装 Skill，仍可前往设置 → 工具 → Skills 查看。",
+        "title": "试 Skill",
+        "description": "常用工作流已预装进 AI——会话里敲 / 或一句大白话即可触发。",
+        "checkFailed": "暂时无法读取已安装 Skill，仍可前往资源中心查看。",
         "action": "浏览 Skills"
       }
-    }
+    },
+    "startTutorial": "开始新手教程",
+    "tutorial": "新手教程",
+    "nextStep": "下一步",
+    "viewGuide": "查看教程",
+    "conciergeHint": "不想一步步点？",
+    "doneTitle": "核心路径已走通",
+    "doneSummary": "建空间 → 导项目 → 多开 → 派工 → 试 Skill，五步全部完成",
+    "browseSkills": "浏览进阶 Skills"
   },
   "errors": {
     "settingsUnavailable": "设置尚未加载，暂时无法保存引导状态。",
     "saveFailed": "引导状态保存失败，请重试。"
   },
   "restartOnboarding": "重新查看新手引导",
-  "restartOnboardingDesc": "重新打开新手引导向导"
+  "restartOnboardingDesc": "重新打开新手引导向导",
+  "navLabel": "引导步骤"
 }

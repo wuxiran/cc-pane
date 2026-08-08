@@ -18,6 +18,8 @@ interface GuidedDialogProps {
   footer: ReactNode;
   children: ReactNode;
   className?: string;
+  /** 可选步骤导航槽位，渲染在标题上方（OnboardingGuide 的垂直步骤列表用） */
+  nav?: ReactNode;
 }
 
 /** Standard two-column shell for onboarding and feature-introduction flows. */
@@ -30,6 +32,7 @@ export default function GuidedDialog({
   footer,
   children,
   className,
+  nav,
 }: GuidedDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -46,6 +49,7 @@ export default function GuidedDialog({
             data-testid="guided-dialog-copy"
           >
             <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-5 pt-6 sm:px-7 sm:pt-7">
+              {nav}
               <DialogHeader>
                 <DialogTitle>{title}</DialogTitle>
                 <DialogDescription>{description}</DialogDescription>
