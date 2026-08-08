@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+## 0.12.2 - 2026-08-09
+
+Feature release: IM outbound notifications (DingTalk / WeCom / Feishu), a unified bottom-right notification center, a reworked onboarding experience, custom OpenAI-compatible voice transcription, and a consolidated settings structure. Also hardens WSL script execution and the updater manifest pipeline.
+
+### Added
+
+- **IM notification bridge (batch 1, outbound)** — session events (turn end / waiting for input / error / exit) can now push to DingTalk, WeCom (Enterprise WeChat), and Feishu group bots. Configure channels under Settings → IM; each channel has a "send test" button. The `cc-notify` crate was reworked into a pure protocol layer with a WeCom channel added. Two-way interaction is on the roadmap (docs/88).
+- **Unified notification center** — session events, AI-initiated notifications (MCP `trigger_notification`), and update prompts now flow into one bottom-right card stack with a bell-icon history panel in the status bar. AI notifications can declare `requiresInput` + `sessionId`: the card grows an input box and the user's reply is submitted straight back to that terminal session. Notification ids/timestamps are now backend-generated (consistent across windows).
+- **Voice input: custom OpenAI-compatible provider** — standard `/v1/audio/transcriptions` multipart endpoint with configurable base URL and optional API key. Covers cloud scale-out (OpenAI Whisper / Groq / SiliconFlow) and local self-hosting (whisper.cpp server / faster-whisper) with zero app weight. Provider dispatch consolidated into a Rust enum + frontend capability table with a Rust↔TS whitelist mirror guard.
+- **Onboarding rework (all four cards)** — the setup checklist became a journey bar (progress ring + five-node rail + a single focused next-step CTA + a persistent Tutorial button; collapses to a success bar when complete); the first-run guide merged five steps into four (mode chips join the environment preflight), gained a step navigator, a state-following primary button on the workspace step, and an "aha stand-back": after the side-by-side launch the dialog fades for 2.6s so you can watch both terminals start. Home value cards now lead with multi-agent orchestration and carry small illustrative graphics; feature-tip dialogs regrouped their secondary links with an amber passthrough warning.
+- **User guide expansion** — first-launch chapter now opens with "let the AI drive the exoskeleton" (right-click the auto-created `default` workspace → open Claude, and try MCP) and the "clean workspace" convention (keep the workspace container directory separate from Git repos; the AI can set the whole thing up via MCP). Starred-layout mirror wall documented for the first time.
+- Terminal path links can open explicit external directories with an amber out-of-project warning in the confirmation dialog (`outsideProjectRoot` made explicit at the command layer).
+
+### Changed
+
+- **Settings consolidated** (by Curl) — providers, Skills, and CC-chan entries moved into a unified settings structure; the duplicate Resource Hub page was removed. Cross-CLI usage statistics gained a status-bar preview, keeping standalone entries and the settings page in sync. Settings layout now aligns adaptively across detail pages.
+- **Todo workspace reworked** (by Curl) — unified list, overview, and editor experience with new creation entry points.
+- Voice transcription logic moved from the command layer into `voice_service.rs` (pure migration, command layer keeps only the enabled check).
+
+### Fixed
+
+- **WSL: codex trust pre-write silently produced corrupt data** — `wsl.exe`'s argv translation mangles `"$(cmd arg)"` quoting (exit 0 but broken output). Scripts now go through stdin (`bash -l -s`) with parameters passed via WSLENV `/u` (appending to, not overwriting, the user's WSLENV).
+- **Uninstall now reclaims WSL-side injections** — codex trust markers, codex skills, and claude command namespaces written inside WSL distros are enumerated and cleaned per-distro (infrastructure distros skipped, unreachable distros surfaced as failed, 30s timeout against wedged WSL).
+- **Updater manifest race fixed at the root** — five release jobs no longer race-write `latest.json`; each job produces a metadata artifact and a serial publish job aggregates from scratch (v0.12.1's live manifest had dropped to 2 platforms, cutting mac/Win-x64 users off from updates). Includes per-arch renaming of colliding mac `.app.tar.gz` names and a `::warning::` when a platform is missing.
+- Theme shape allow-list now has a Rust↔TS mirror guard test (previously dual-maintained by hand; a miss on either side silently fell back to Soft with zero errors).
+- CI command registration and line-count ratchet fixes; large components split (by Curl).
+
+### Docs
+
+- `docs/87-git-collaboration.md` — branch model (main / dev/v* / release/*), PR base rules, the seven-step release procedure, and multi-AI-instance parallel discipline.
+- `docs/88-im-bridge.md` — IM bridge research: three-platform findings, security model, and the two-way roadmap (DingTalk Stream / WeCom intelligent-bot protocols are public and self-implementable; Feishu's frame protocol is not, so it gets pseudo-two-way deep links).
+
 ## 0.12.1 - 2026-08-08
 
 Stabilization release on top of 0.12.0-beta.1: interface shapes land as stable, settings move into a modal, and a three-front macOS fix (CLI path resolution, startup crash on macOS ≤13, user CLI config hygiene) closes out the platform's worst gaps. macOS code is now compiled, linted, and tested in CI for the first time.
