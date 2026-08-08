@@ -152,11 +152,7 @@ export default function SshMachineDialog({
         prev === null || prev === undefined ? result : prev,
       );
       if (result.reachable) {
-        toast.success(
-          result.message.startsWith("SSH host reachable")
-            ? t("ssh.hostReachablePasswordRequired")
-            : t("ssh.connectedIn", { latency: result.latencyMs ?? 0 }),
-        );
+        toast.success(result.message.startsWith("SSH host reachable") ? t("ssh.hostReachablePasswordRequired") : t("ssh.connectedIn", { latency: result.latencyMs ?? 0 }));
       } else {
         toast.error(result.message);
       }
@@ -296,13 +292,7 @@ export default function SshMachineDialog({
         onOpenChange(v);
       }}
     >
-      <DialogContent
-        className="flex max-w-none flex-col gap-3 overflow-hidden p-4 sm:p-5"
-        style={{
-          width: "min(620px, calc(100vw - 2rem))",
-          maxHeight: "calc(100vh - 2rem)",
-        }}
-      >
+      <DialogContent className="flex max-w-none flex-col gap-3 overflow-hidden p-4 sm:p-5 w-[min(620px,calc(100vw-2rem))] max-h-[calc(100vh-2rem)]">
         <DialogHeader>
           <DialogTitle>
             {isEdit
@@ -310,8 +300,7 @@ export default function SshMachineDialog({
               : t("ssh.addMachine", { defaultValue: "Add SSH Machine" })}
           </DialogTitle>
         </DialogHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto py-1 pr-1">
-          <div className="flex flex-col gap-3">
+        <div className="min-h-0 flex-1 overflow-y-auto py-1 pr-1 flex flex-col gap-3">
           {!isEdit && (
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--app-text-secondary)]">
@@ -548,7 +537,6 @@ export default function SshMachineDialog({
                 defaultValue: "production, web (comma separated)",
               })}
             />
-          </div>
           </div>
         </div>
         <DialogFooter className="shrink-0 border-t border-[var(--app-border)] pt-3 flex items-center gap-2 sm:justify-between">

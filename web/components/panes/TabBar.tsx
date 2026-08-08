@@ -17,7 +17,6 @@ import TabContextMenu, {
   type LayoutMoveTarget,
   type PaneMoveTarget,
 } from "./TabContextMenu";
-
 interface TabBarProps {
   paneId: string;
   tabs: Tab[];
@@ -33,9 +32,8 @@ interface TabBarProps {
   /** 打开文件（走系统文件选择器，落在本 pane 的 editor tab） */
   onAddFile?: () => void;
   /** 打开目录树 tab（file-explorer，桌面端此前无入口） */
-  onAddFileExplorer?: () => void;
+  onAddFileExplorer?: () => void; onAddSsh?: () => void;
   /** 打开 SSH 机器管理面板 */
-  onAddSsh?: () => void;
   onSplitRight: () => void;
   onSplitDown: () => void;
   onFullscreen: (tabId: string) => void;
@@ -389,8 +387,7 @@ export default memo(function TabBar({
   onToggleStar,
   onAddBrowser,
   onAddFile,
-  onAddFileExplorer,
-  onAddSsh,
+  onAddFileExplorer, onAddSsh,
   onAdd,
   onSplitRight,
   onSplitDown,
@@ -608,8 +605,7 @@ export default memo(function TabBar({
               onAdd={onAdd}
               onAddBrowser={onAddBrowser}
               onAddFile={onAddFile}
-              onAddFileExplorer={onAddFileExplorer}
-              onAddSsh={onAddSsh}
+              onAddFileExplorer={onAddFileExplorer} onAddSsh={onAddSsh}
               t={t}
             />
           </div>

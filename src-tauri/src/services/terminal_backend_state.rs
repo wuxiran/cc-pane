@@ -192,7 +192,7 @@ impl TerminalBackendState {
                 }
             },
             |client| {
-                if let Err(error) = sync_ssh_password(&client, recovery_ssh_password.as_ref()) {
+                if let Err(error) = sync_ssh_password(client, recovery_ssh_password.as_ref()) {
                     warn!(error = %error, "failed to synchronize SSH password after daemon recovery");
                 }
                 if let Some(control_link) = app_handle.try_state::<Arc<TerminalDaemonControlLink>>()

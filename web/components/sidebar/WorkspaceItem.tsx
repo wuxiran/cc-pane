@@ -51,11 +51,7 @@ import type {
 } from "@/types";
 import AddSshProjectDialog from "./AddSshProjectDialog";
 import WorkspaceAppearanceMenu from "./WorkspaceAppearanceMenu";
-import {
-  sidebarEntityBadgeClass,
-  sidebarEntityCountClass,
-  sidebarEntityRowClass,
-} from "./sidebarStyles";
+import { sidebarEntityBadgeClass, sidebarEntityCountClass, sidebarEntityRowClass } from "./sidebarStyles";
 import WorkspaceColorDot from "./WorkspaceColorDot";
 import WorkspaceGroupDialog from "./WorkspaceGroupDialog";
 import { normalizeWorkspaceProjects } from "./workspaceProjects";
@@ -68,7 +64,6 @@ import {
   normalizeSidebarFavoriteLaunchActionIds,
   type SidebarCliLaunchItem,
 } from "./launchMenu";
-
 interface WorkspaceItemProps {
   ws: Workspace;
   expanded: boolean;
@@ -425,9 +420,7 @@ export default function WorkspaceItem({
                 >
                   <GripVertical className="h-3 w-3" />
                 </button>
-              ) : (
-                <span aria-hidden="true" className="h-4 w-3 -ml-1 shrink-0" />
-              )}
+              ) : <span aria-hidden="true" className="h-4 w-3 -ml-1 shrink-0" />}
               <ChevronRight
                 className={`w-3.5 h-3.5 shrink-0 transition-transform ${expanded ? "rotate-90 text-[var(--app-accent)]" : "text-[var(--app-text-tertiary)]"}`}
               />
