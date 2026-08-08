@@ -195,6 +195,8 @@ impl UninstallCleanupService {
 
 /// 基础设施发行版（Docker Desktop / Rancher / Podman 的后端）：CC-Panes 从不
 /// 往里注入，且它们通常没有 bash / 常规用户 home，探测只会产出误报。
+/// 仅 Windows 的 WSL 清理路径调用；测试跨平台跑，故 cfg 带 test。
+#[cfg(any(target_os = "windows", test))]
 fn is_infra_distro(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     lower.starts_with("docker-desktop")
@@ -205,6 +207,8 @@ fn is_infra_distro(name: &str) -> bool {
 /// 把发行版内 POSIX 绝对路径拼成宿主可达的 UNC 路径。
 /// `unc_root` 来自发行版内 `wslpath -w /`（如 `\\wsl.localhost\Ubuntu\`）——
 /// `wslpath -w` 对不存在的路径直接失败，所以只解析恒存在的根，其余宿主侧拼接。
+/// 仅 Windows 的 WSL 清理路径调用；测试跨平台跑，故 cfg 带 test。
+#[cfg(any(target_os = "windows", test))]
 fn wsl_windows_path(unc_root: &str, posix_path: &str) -> std::path::PathBuf {
     let mut joined = unc_root.trim_end_matches('\\').to_string();
     for segment in posix_path.split('/').filter(|segment| !segment.is_empty()) {
