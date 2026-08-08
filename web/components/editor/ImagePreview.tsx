@@ -16,6 +16,10 @@ import EditorBreadcrumb from "./EditorBreadcrumb";
 interface ImagePreviewProps {
   filePath: string;
   projectPath: string;
+  sourceUrl?: string;
+  sourceFileSize?: number;
+  sourceLabel?: string;
+  onNavigate?: (path: string) => void;
 }
 
 type ZoomMode = "fit" | "actual" | "custom";
@@ -35,7 +39,13 @@ function getExtensionLabel(filePath: string): string {
   return ext;
 }
 
-export default function ImagePreview({ filePath }: ImagePreviewProps) {
+export default function ImagePreview({
+  filePath,
+  sourceUrl,
+  sourceFileSize,
+  sourceLabel,
+  onNavigate,
+}: ImagePreviewProps) {
   const { t } = useTranslation("editor");
   const [zoomMode, setZoomMode] = useState<ZoomMode>("fit");
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -45,26 +55,34 @@ export default function ImagePreview({ filePath }: ImagePreviewProps) {
   const [webAssetUrl, setWebAssetUrl] = useState<string | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
 
-  const assetUrl = isTauriRuntime() ? convertFileSrc(filePath) : webAssetUrl;
+  const assetUrl = sourceUrl ?? (isTauriRuntime() ? convertFileSrc(filePath) : webAssetUrl);
   const extLabel = getExtensionLabel(filePath);
 
   // 获取文件大小
   useEffect(() => {
     let cancelled = false;
+    if (sourceFileSize !== undefined) {
+      setFileSize(sourceFileSize);
+      return () => { cancelled = true; };
+    }
     filesystemService.getEntryInfo(filePath).then((info) => {
       if (!cancelled) setFileSize(info.size);
     }).catch(() => { /* 忽略 */ });
     return () => { cancelled = true; };
-  }, [filePath]);
+  }, [filePath, sourceFileSize]);
 
   useEffect(() => {
     setImgError(false);
+    if (sourceUrl) {
+      setWebAssetUrl(null);
+      return;
+    }
     if (isTauriRuntime()) {
       setWebAssetUrl(null);
       return;
     }
     setWebAssetUrl(`/api/fs/raw?path=${encodeURIComponent(filePath)}`);
-  }, [filePath]);
+  }, [filePath, sourceUrl]);
 
   const handleImageLoad = useCallback(() => {
     const img = imgRef.current;
@@ -127,7 +145,7 @@ export default function ImagePreview({ filePath }: ImagePreviewProps) {
   if (imgError) {
     return (
       <div className="flex flex-col h-full overflow-hidden">
-        <EditorBreadcrumb filePath={filePath} />
+        <EditorBreadcrumb filePath={filePath} sourceLabel={sourceLabel} onNavigate={onNavigate} />
         <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
           Failed to load image
         </div>
@@ -238,7 +256,7 @@ export default function ImagePreview({ filePath }: ImagePreviewProps) {
       </TooltipProvider>
 
       {/* 面包屑 */}
-      <EditorBreadcrumb filePath={filePath} />
+      <EditorBreadcrumb filePath={filePath} sourceLabel={sourceLabel} onNavigate={onNavigate} />
 
       {/* 图片预览区域 - 棋盘格背景 */}
       <div

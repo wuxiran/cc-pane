@@ -1,5 +1,5 @@
-import "@/i18n";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import i18n from "@/i18n";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -17,7 +17,7 @@ vi.mock("sonner", () => ({
 vi.mock("@/services/sshMachineService", () => ({
   checkSshConnectivity: vi.fn(async () => ({
     reachable: true,
-    message: "reachable",
+    message: "Connected in 12ms",
     latencyMs: 12,
   })),
 }));
@@ -74,8 +74,9 @@ describe("SshMachineDialog", () => {
   let addMock: ReturnType<typeof vi.fn>;
   let updateMock: ReturnType<typeof vi.fn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    await i18n.changeLanguage("zh-CN");
     addMock = vi.fn(async () => ({}) as never);
     updateMock = vi.fn(async () => ({}) as never);
     useSshMachinesStore.setState({
@@ -84,7 +85,7 @@ describe("SshMachineDialog", () => {
     });
     mockCheck.mockResolvedValue({
       reachable: true,
-      message: "reachable",
+      message: "Connected in 12ms",
       latencyMs: 12,
     });
   });
@@ -111,6 +112,21 @@ describe("SshMachineDialog", () => {
     expect(
       screen.queryByPlaceholderText("user@host:port"),
     ).not.toBeInTheDocument();
+  });
+
+  it("switches default-path and connection-test labels with the app language", async () => {
+    renderDialog(createMachine());
+
+    expect(inputByLabel(/^默认路径$/)).toHaveValue("~/projects");
+    expect(screen.getByPlaceholderText("~/projects（默认：~）")).toBeVisible();
+    expect(screen.getByRole("button", { name: "测试" })).toBeVisible();
+
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+    expect(inputByLabel(/^Default Path$/)).toHaveValue("~/projects");
+    expect(screen.getByPlaceholderText("~/projects (default: ~)")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Test" })).toBeVisible();
   });
 
   it("rejects submit when the name is empty", async () => {
@@ -251,7 +267,23 @@ describe("SshMachineDialog", () => {
     await user.click(screen.getByRole("button", { name: /Test|测试/i }));
 
     await waitFor(() => expect(mockCheck).toHaveBeenCalledWith("m-1"));
-    expect(toast.success).toHaveBeenCalledWith("reachable");
+    expect(toast.success).toHaveBeenCalledWith("连接成功，用时 12 毫秒");
+  });
+
+  it("localizes the reachable host prompt when a password is still required", async () => {
+    const user = userEvent.setup();
+    mockCheck.mockResolvedValueOnce({
+      reachable: true,
+      message: "SSH host reachable; enter a password to validate authentication",
+      latencyMs: 12,
+    });
+    renderDialog(createMachine({ authMethod: "password" }));
+
+    await user.click(screen.getByRole("button", { name: "测试" }));
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(
+      "SSH 主机可访问；请输入密码以验证身份",
+    ));
   });
 
   it("disables the test button while the form is dirty", async () => {

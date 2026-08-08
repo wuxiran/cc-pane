@@ -51,7 +51,7 @@ interface SettingsPanelProps {
 const SETTINGS_WEBVIEW_BLOCKER_ID = "settings-panel";
 
 const SETTINGS_LAYOUT_STYLE = {
-  "--settings-sidebar-width": "clamp(10rem, 16cqw, 18rem)",
+  "--settings-sidebar-width": "clamp(10rem, 18cqw, 18rem)",
   "--settings-content-gutter": "clamp(1rem, 2cqw, 2rem)",
   "--settings-chrome-gutter": "clamp(0.75rem, 1cqw, 1rem)",
 } as CSSProperties;

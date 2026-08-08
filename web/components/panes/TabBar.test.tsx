@@ -67,6 +67,7 @@ function renderTabBar({
   onCloneTab,
   onToggleFullscreen,
   isPaneFullscreen,
+  onAddSsh,
 }: {
   tabs?: Tab[];
   activeId?: string;
@@ -79,6 +80,7 @@ function renderTabBar({
   onCloneTab?: (tab: Tab) => void;
   onToggleFullscreen?: (tabId: string) => void;
   isPaneFullscreen?: boolean;
+  onAddSsh?: () => void;
 } = {}) {
   return render(
     <DndContext>
@@ -91,6 +93,7 @@ function renderTabBar({
         onTogglePin={vi.fn()}
         onToggleStar={vi.fn()}
         onAdd={vi.fn()}
+        onAddSsh={onAddSsh}
         onSplitRight={vi.fn()}
         onSplitDown={vi.fn()}
         onFullscreen={onFullscreen}
@@ -127,6 +130,17 @@ describe("TabBar", () => {
   afterEach(() => {
     scrollIntoViewMock.mockReset();
     vi.restoreAllMocks();
+  });
+
+  it("opens the SSH manager from the new-tab menu", async () => {
+    const user = userEvent.setup();
+    const onAddSsh = vi.fn();
+    renderTabBar({ onAddSsh });
+
+    await user.click(screen.getByRole("button", { name: i18n.t("panes:newTabMenu") }));
+    await user.click(await screen.findByRole("menuitem", { name: i18n.t("panes:newSshTab") }));
+
+    expect(onAddSsh).toHaveBeenCalledOnce();
   });
 
   it("右键重命名后应进入编辑态并提交新标题", async () => {

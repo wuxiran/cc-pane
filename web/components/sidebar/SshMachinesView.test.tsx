@@ -1,11 +1,26 @@
-import "@/i18n";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import i18n from "@/i18n";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useSshMachinesStore } from "@/stores";
+import {
+  useRightDockStore,
+  useSshMachinePreferencesStore,
+  useSshMachineDialogStore,
+  useSshMachinesStore,
+  useSshRemoteFilesStore,
+} from "@/stores";
 import type { SshMachine } from "@/types";
 import SshMachinesView from "./SshMachinesView";
+
+const sshFileMocks = vi.hoisted(() => ({
+  configurePassword: vi.fn(async () => undefined),
+}));
+
+vi.mock("@/services", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/services")>(),
+  sshFileService: sshFileMocks,
+}));
 
 vi.mock("sonner", () => ({
   toast: {
@@ -82,9 +97,16 @@ function renderView(machines: SshMachine[] = []) {
 }
 
 describe("SshMachinesView", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    localStorage.clear();
+    await i18n.changeLanguage("zh-CN");
     useSshMachinesStore.setState({ machines: [] });
+    useSshMachineDialogStore.setState({ addDialogOpen: false });
+    useSshMachinePreferencesStore.setState({ favoriteMachineIds: [] });
+    useSshRemoteFilesStore.setState({ sessionPasswordMachineIds: [] });
+    useSshRemoteFilesStore.getState().clear();
+    useRightDockStore.setState({ visible: false, activeView: "git" });
     mockCheck.mockResolvedValue({
       reachable: true,
       message: "reachable",
@@ -105,6 +127,16 @@ describe("SshMachinesView", () => {
     await waitFor(() => expect(loadMock).toHaveBeenCalled());
   });
 
+  it("opens the add-machine dialog when requested externally", async () => {
+    renderView([]);
+
+    act(() => {
+      useSshMachineDialogStore.getState().openAddDialog();
+    });
+
+    expect(await screen.findByTestId("ssh-machine-dialog")).toBeVisible();
+  });
+
   it("shows the empty state when there are no machines", () => {
     renderView([]);
     expect(screen.getByText(/No SSH machines|没有|无/i)).toBeVisible();
@@ -114,8 +146,55 @@ describe("SshMachinesView", () => {
     renderView([createMachine()]);
     expect(screen.getByText("devbox")).toBeVisible();
     expect(screen.getByText("dev@devbox.local:2222")).toBeVisible();
-    expect(screen.getByText("prod")).toBeVisible();
+    expect(screen.getAllByText("prod")[0]).toBeVisible();
     expect(screen.getByText("prod box")).toBeVisible();
+  });
+
+  it("switches SSH machine actions between Chinese and English", async () => {
+    renderView([createMachine()]);
+
+    expect(screen.getByRole("button", { name: "检测全部连通性" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "更多操作" })).toBeVisible();
+
+    fireEvent.contextMenu(screen.getByText("devbox"));
+    expect(await screen.findByRole("menuitem", { name: "连接" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "检测连通性" })).toBeVisible();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+    expect(screen.getByRole("button", { name: "Check All Connectivity" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "More actions" })).toBeVisible();
+  });
+
+  it("opens the selected machine files in the right dock", async () => {
+    const user = userEvent.setup();
+    renderView([createMachine()]);
+
+    await user.click(screen.getByRole("button", {
+      name: /Open remote files for devbox|打开 devbox 的远程文件/,
+    }));
+
+    expect(useSshRemoteFilesStore.getState()).toMatchObject({
+      machineId: "m-1",
+      currentPath: "/srv/app",
+    });
+    expect(useRightDockStore.getState()).toMatchObject({
+      visible: true,
+      activeView: "sshFiles",
+    });
+  });
+
+  it("shows machine metrics and groups untagged machines", () => {
+    renderView([createMachine({ tags: [] })]);
+
+    expect(screen.queryByRole("textbox", { name: /Search machines|搜索机器/ })).toBeNull();
+    expect(screen.getAllByText(/Machines|机器/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Favorites|收藏/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("region", { name: /Ungrouped|未分组/ })).toBeVisible();
+    expect(screen.getByText(/Key|密钥/)).toBeVisible();
+    expect(screen.getByText(/Not checked|未检测/)).toBeVisible();
   });
 
   it("opens the add dialog from the header button", async () => {
@@ -164,6 +243,98 @@ describe("SshMachinesView", () => {
     );
   });
 
+  it("connects from the row quick action", async () => {
+    const user = userEvent.setup();
+    const { onOpenTerminal } = renderView([createMachine()]);
+
+    await user.click(
+      screen.getByRole("button", { name: /Connect to devbox|连接到 devbox/ }),
+    );
+
+    expect(onOpenTerminal).toHaveBeenCalledWith(
+      expect.objectContaining({ machineName: "devbox" }),
+    );
+    expect(useSshRemoteFilesStore.getState()).toMatchObject({
+      machineId: "m-1",
+      currentPath: "/srv/app",
+    });
+    expect(useRightDockStore.getState()).toMatchObject({
+      visible: true,
+      activeView: "sshFiles",
+    });
+  });
+
+  it("asks once before connecting a password machine and shares the credential", async () => {
+    const user = userEvent.setup();
+    const passwordMachine = createMachine({
+      authMethod: "password",
+      identityFile: undefined,
+      hasStoredPassword: false,
+    });
+    const { onOpenTerminal } = renderView([passwordMachine]);
+
+    await user.click(
+      screen.getByRole("button", { name: /Connect to devbox|连接到 devbox/ }),
+    );
+
+    expect(onOpenTerminal).not.toHaveBeenCalled();
+    await user.type(await screen.findByLabelText(/SSH password|SSH 密码/), "one-time-secret");
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: /Connect|连接/ }));
+
+    await waitFor(() => expect(sshFileMocks.configurePassword).toHaveBeenCalledWith(
+      "m-1",
+      "one-time-secret",
+      false,
+    ));
+    expect(onOpenTerminal).toHaveBeenCalledWith(
+      expect.objectContaining({ machineName: "devbox" }),
+    );
+    expect(useRightDockStore.getState()).toMatchObject({
+      visible: true,
+      activeView: "sshFiles",
+    });
+  });
+
+  it("filters machines by tags", async () => {
+    const user = userEvent.setup();
+    const otherMachine = createMachine({
+      id: "m-2",
+      name: "stagingbox",
+      host: "staging.local",
+      tags: ["staging"],
+    });
+    renderView([createMachine(), otherMachine]);
+
+    expect(screen.getByText("stagingbox")).toBeVisible();
+    expect(screen.getByText("devbox")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "staging" }));
+    expect(screen.getByText("stagingbox")).toBeVisible();
+    expect(screen.queryByText("devbox")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "prod" }));
+    expect(screen.getByText("devbox")).toBeVisible();
+    expect(screen.queryByText("stagingbox")).not.toBeInTheDocument();
+  });
+
+  it("favorites a machine and filters by favorites", async () => {
+    const user = userEvent.setup();
+    const otherMachine = createMachine({ id: "m-2", name: "stagingbox" });
+    renderView([createMachine(), otherMachine]);
+
+    await user.click(
+      screen.getAllByRole("button", { name: /Add to Favorites|添加到收藏/ })[0],
+    );
+    expect(useSshMachinePreferencesStore.getState().favoriteMachineIds).toEqual([
+      "m-1",
+    ]);
+
+    await user.click(screen.getByRole("button", { name: /^(Favorites|收藏)\s*1$/ }));
+    expect(screen.getByText("devbox")).toBeVisible();
+    expect(screen.queryByText("stagingbox")).not.toBeInTheDocument();
+  });
+
   it("copies connection info via the context menu", async () => {
     renderView([createMachine()]);
 
@@ -178,6 +349,23 @@ describe("SshMachinesView", () => {
       ),
     );
     expect(toast.success).toHaveBeenCalled();
+  });
+
+  it("localizes clipboard failures", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn(async () => Promise.reject(new Error("denied"))) },
+      configurable: true,
+    });
+    renderView([createMachine()]);
+
+    fireEvent.contextMenu(screen.getByText("devbox"));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "复制连接信息" }),
+    );
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "复制失败: 剪贴板 API 不可用",
+    ));
   });
 
   it("deletes a machine after confirmation", async () => {

@@ -3,7 +3,7 @@
 // 拆出来是因为它已经不是一个按钮了：浏览器 tab 此前**只能**靠 MCP open_browser_tab
 // 打开、桌面端完全没有入口，file-explorer 也只有移动端原型能开。现在 ＋ 左键仍是
 // 「新建终端」（保持老手感），右侧箭头展开其余类型。
-import { ChevronDown, FileText, FolderTree, Globe2, Plus, Terminal } from "lucide-react";
+import { ChevronDown, FileText, FolderTree, Globe2, Plus, Server, Terminal } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +19,7 @@ export default function NewTabMenu({
   onAddBrowser,
   onAddFile,
   onAddFileExplorer,
+  onAddSsh,
   t,
 }: {
   addBtnClass: string;
@@ -27,6 +28,7 @@ export default function NewTabMenu({
   onAddBrowser?: () => void;
   onAddFile?: () => void;
   onAddFileExplorer?: () => void;
+  onAddSsh?: () => void;
   t: TFunction<"panes">;
 }) {
   return (
@@ -66,6 +68,11 @@ export default function NewTabMenu({
           {onAddFileExplorer && (
             <DropdownMenuItem onSelect={onAddFileExplorer}>
               <FolderTree /> {t("newFileExplorerTab")}
+            </DropdownMenuItem>
+          )}
+          {onAddSsh && (
+            <DropdownMenuItem onSelect={onAddSsh}>
+              <Server /> {t("newSshTab")}
             </DropdownMenuItem>
           )}
         </DropdownMenuContent>

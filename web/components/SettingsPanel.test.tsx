@@ -143,7 +143,7 @@ describe("SettingsPanel", () => {
       maxWidth: "calc(100vw - 2rem)",
       maxHeight: "calc(100vh - 2rem)",
       containerType: "inline-size",
-      "--settings-sidebar-width": "clamp(10rem, 16cqw, 18rem)",
+      "--settings-sidebar-width": "clamp(10rem, 18cqw, 18rem)",
       "--settings-content-gutter": "clamp(1rem, 2cqw, 2rem)",
     });
     expect(dialog).toHaveClass("resize");

@@ -42,6 +42,11 @@ import WorkspaceItem from "./WorkspaceItem";
 import WorkspaceFilterBar from "./WorkspaceFilterBar";
 import WorkspaceGroupDropZone from "./WorkspaceGroupDropZone";
 import ProjectListView from "./ProjectListView";
+import {
+  sidebarSectionCountClass,
+  sidebarSectionHeaderClass,
+  sidebarSectionTitleClass,
+} from "./sidebarStyles";
 import type { Workspace, WorkspaceProject, OpenTerminalOptions } from "@/types";
 
 interface WorkspaceTreeProps {
@@ -290,13 +295,13 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
           onToggleFilter: () => setFilterOpen((open) => !open),
         })
       ) : (
-      <div className="flex items-center justify-between px-3 pt-2 pb-1.5 group/section">
+      <div className={sidebarSectionHeaderClass}>
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--app-text-secondary)] transition-colors">
+          <span className={sidebarSectionTitleClass}>
             {t("workspaces")}
           </span>
           <span
-            className="text-[11px] font-medium tabular-nums leading-none px-1.5 py-0.5 rounded text-[var(--app-text-tertiary)] transition-colors"
+            className={sidebarSectionCountClass}
             style={{ background: "color-mix(in srgb, var(--app-text-primary) 8%, transparent)" }}
           >
             {workspaces.length}

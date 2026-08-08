@@ -180,6 +180,13 @@ describe("TitleBar", () => {
     ).not.toBeNull();
   });
 
+  it("does not extend the right dock divider through the titlebar", () => {
+    mockRightDockVisible.mockReturnValue(true);
+    const { container } = renderTitleBar(<TitleBar />);
+
+    expect(container.querySelector("[data-right-dock-divider]")).toBeNull();
+  });
+
   it("shows an amber dot on the right dock entry for unread AI panels", () => {
     useAiPanelStore.setState({ unreadPanelIds: ["panel-1"] });
 

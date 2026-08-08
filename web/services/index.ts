@@ -63,6 +63,7 @@ export type {
 export type { WorktreeInfo } from "./worktreeService";
 export type { PlanEntry } from "./planService";
 export { filesystemService } from "./filesystemService";
+export { sshFileService } from "./sshFileService";
 export { selfChatService } from "./selfChatService";
 export { screenshotService } from "./screenshotService";
 export { voiceService } from "./voiceService";

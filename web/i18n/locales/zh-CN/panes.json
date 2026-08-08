@@ -294,6 +294,7 @@
   "newBrowserTab": "新建浏览器",
   "openFileTab": "打开文件…",
   "newFileExplorerTab": "打开目录树",
+  "newSshTab": "新建 SSH",
   "copyBrowserUrl": "复制链接",
   "copyFilePath": "复制文件路径",
   "terminalPathLink": {

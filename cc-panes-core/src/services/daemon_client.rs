@@ -241,6 +241,17 @@ impl TerminalDaemonClient {
         self.request_empty("POST", "/api/daemon/shutdown", true, None)
     }
 
+    pub fn set_temporary_ssh_password(&self, machine_id: &str, password: &str) -> AppResult<()> {
+        self.post_empty(
+            "/api/ssh-credentials/temporary",
+            true,
+            &serde_json::json!({
+                "machineId": machine_id,
+                "password": password,
+            }),
+        )
+    }
+
     pub fn create_session(&self, request: CreateSessionRequest) -> AppResult<String> {
         self.create_session_with_outcome(request)
             .map(|outcome| outcome.session_id)
@@ -993,6 +1004,24 @@ mod tests {
             client.websocket_url("session/1"),
             "ws://127.0.0.1:1234/ws/session%2F1?token=a%20b&instanceId=inst%20a"
         );
+    }
+
+    #[test]
+    fn sends_temporary_ssh_password_to_daemon() {
+        let response = http_json_response("204 No Content", "");
+        let (addr, rx) = spawn_response_server(response);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+
+        client
+            .set_temporary_ssh_password("machine-1", "temporary-secret")
+            .expect("temporary password accepted");
+
+        let request = rx.recv().expect("captured request");
+        assert!(request.starts_with("POST /api/ssh-credentials/temporary "));
+        assert!(request.contains("Authorization: Bearer secret"));
+        assert!(request.contains("\"machineId\":\"machine-1\""));
+        assert!(request.contains("\"password\":\"temporary-secret\""));
     }
 
     // ===== checkpoint 上传（M3b-2）=====

@@ -1,6 +1,6 @@
 import "@/i18n";
 import i18n from "i18next";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Panel as PanelType, Tab } from "@/types";
@@ -8,6 +8,7 @@ import {
   useDialogStore,
   useFullscreenStore,
   usePanesStore,
+  useSshMachineDialogStore,
   useWorkspacesStore,
 } from "@/stores";
 import { terminalService } from "@/services";
@@ -22,6 +23,7 @@ interface TabBarProps {
   onCloseOtherTabs: (tabId: string) => void;
   onEditWorkspaceEnvironment?: (tab: Tab) => void;
   canEditWorkspaceEnvironment?: (tab: Tab) => boolean;
+  onAddSsh?: () => void;
 }
 
 let tabBarProps: TabBarProps | null = null;
@@ -141,6 +143,7 @@ function tPanes(key: string, options?: Record<string, unknown>) {
 describe("Panel", () => {
   beforeEach(() => {
     useFullscreenStore.setState({ isFullscreen: false, fullscreenPaneId: null } as never);
+    useSshMachineDialogStore.setState({ addDialogOpen: false });
     useWorkspacesStore.setState({ workspaces: [] } as never);
   });
 
@@ -166,6 +169,18 @@ describe("Panel", () => {
       useTabViewStateStore.getState().getViewVisibility(owner, "primary");
     expect(viewOf("t1")).not.toBe("hidden");
     expect(viewOf("t2")).toBe("hidden");
+  });
+
+  it("requests the add-machine dialog from the new SSH action", () => {
+    const pane = makePane([makeTab("t1")]);
+    setPanesState(pane);
+    render(<Panel pane={pane} />);
+
+    act(() => {
+      tabBarProps?.onAddSsh?.();
+    });
+
+    expect(useSshMachineDialogStore.getState().addDialogOpen).toBe(true);
   });
 
   it("enables terminal status bars only when the layout has multiple panes", () => {

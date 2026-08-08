@@ -17,7 +17,9 @@ use cc_panes_core::models::{
     TerminalSessionProvenance, WslLaunchInfo,
 };
 use cc_panes_core::services::terminal_service::{KillReason, SessionOutput, SessionStatus};
-use cc_panes_core::services::{SessionStatusInfo, TerminalAdoptionSnapshot, TerminalBackend};
+use cc_panes_core::services::{
+    SessionStatusInfo, SshCredentialService, TerminalAdoptionSnapshot, TerminalBackend,
+};
 use cc_panes_core::utils::error::AppError;
 use cc_panes_core::utils::project_paths_equivalent;
 use cc_panes_core::utils::{atomic_file, normalize_session_request_for_current_host};
@@ -71,6 +73,7 @@ impl DaemonConfig {
         token: String,
         addr: SocketAddr,
         terminal_backend: Arc<dyn TerminalBackend>,
+        ssh_credential_service: Arc<SshCredentialService>,
         ws_emitter: Arc<WsEmitter>,
         default_cwd: String,
     ) -> Self {
@@ -83,6 +86,7 @@ impl DaemonConfig {
                 started_at,
                 shutdown_tx,
                 terminal_backend,
+                ssh_credential_service,
                 ws_emitter,
                 default_cwd,
                 last_activity: parking_lot::RwLock::new(HashMap::new()),
@@ -290,6 +294,7 @@ struct DaemonState {
     started_at: u64,
     shutdown_tx: watch::Sender<bool>,
     terminal_backend: Arc<dyn TerminalBackend>,
+    ssh_credential_service: Arc<SshCredentialService>,
     ws_emitter: Arc<WsEmitter>,
     default_cwd: String,
     /// 会话最后活跃时间（HTTP 访问 / WS 连接 / WS 入站输入均刷新），
@@ -474,6 +479,13 @@ pub struct SubmitRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TemporarySshPasswordRequest {
+    pub machine_id: String,
+    pub password: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OutputQuery {
     pub lines: Option<usize>,
 }
@@ -534,6 +546,10 @@ pub fn router(config: DaemonConfig) -> Router {
         .route("/api/health", get(health))
         .route("/api/daemon/status", get(status))
         .route("/api/daemon/shutdown", post(shutdown))
+        .route(
+            "/api/ssh-credentials/temporary",
+            post(set_temporary_ssh_password),
+        )
         .route("/api/sessions", post(create_session))
         .route("/api/launches/{launch_id}", delete(cancel_launch))
         .route("/api/sessions", get(list_sessions))
@@ -625,6 +641,34 @@ async fn shutdown(
     authorize(&headers, config.token())?;
     config.request_shutdown();
     Ok(Json(ShutdownResponse { accepted: true }))
+}
+
+async fn set_temporary_ssh_password(
+    State(config): State<DaemonConfig>,
+    headers: HeaderMap,
+    Json(req): Json<TemporarySshPasswordRequest>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&headers, config.token())?;
+    let machine_id = req.machine_id.trim();
+    if machine_id.is_empty() || machine_id.len() > 256 {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "INVALID_MACHINE_ID",
+            "machineId must contain between 1 and 256 bytes",
+        ));
+    }
+    if req.password.is_empty() || req.password.len() > 16 * 1024 {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "INVALID_SSH_PASSWORD",
+            "password must contain between 1 and 16384 bytes",
+        ));
+    }
+    config
+        .inner
+        .ssh_credential_service
+        .store_temporary_password(machine_id, &req.password);
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn normalized_resume_id(value: Option<&str>) -> Option<&str> {
@@ -1910,9 +1954,63 @@ mod tests {
             token.to_string(),
             addr.parse().expect("socket addr"),
             backend,
+            Arc::new(SshCredentialService::new_memory()),
             Arc::new(WsEmitter::new()),
             "/default/project".to_string(),
         )
+    }
+
+    #[tokio::test]
+    async fn temporary_ssh_password_route_requires_auth_and_updates_daemon_memory() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let credentials = Arc::new(SshCredentialService::new_memory());
+        let config = DaemonConfig::new(
+            "secret".to_string(),
+            "127.0.0.1:12345".parse().expect("socket addr"),
+            backend,
+            credentials.clone(),
+            Arc::new(WsEmitter::new()),
+            "/default/project".to_string(),
+        );
+        let body = serde_json::json!({
+            "machineId": "machine-1",
+            "password": "temporary-secret",
+        })
+        .to_string();
+
+        let unauthorized = router(config.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/ssh-credentials/temporary")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body.clone()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+        let accepted = router(config)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/ssh-credentials/temporary")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::AUTHORIZATION, "Bearer secret")
+                    .body(Body::from(body))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(accepted.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            credentials
+                .load_connection_password("machine-1")
+                .expect("load password")
+                .as_deref(),
+            Some("temporary-secret")
+        );
     }
 
     fn mark_session_live(backend: &MockTerminalBackend) {

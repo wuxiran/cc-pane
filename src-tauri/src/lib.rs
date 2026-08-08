@@ -353,6 +353,18 @@ use commands::{
     set_hidden_terminal_sessions,
     set_project_cli_hook_enabled,
     set_web_access_password,
+    ssh_fs_configure_password,
+    ssh_fs_create_directory,
+    ssh_fs_create_file,
+    ssh_fs_delete_entry,
+    ssh_fs_download_file,
+    ssh_fs_list_directory,
+    ssh_fs_read_file,
+    ssh_fs_read_image,
+    ssh_fs_rename_entry,
+    ssh_fs_set_permissions,
+    ssh_fs_upload_file,
+    ssh_fs_write_file,
     start_launch_history_backfill,
     start_shared_mcp_server,
     start_web_access,
@@ -413,10 +425,10 @@ use services::{
     ProcessMonitorService, ProjectCliHooksService, ProjectContextService, ProjectService,
     ProviderService, QuickCommandService, ScreenshotService, SessionIndexService,
     SessionRestoreService, SettingsService, SharedMcpService, SkillMarketService, SkillService,
-    SpecService, SshCredentialService, SshMachineService, StartLocks, SystemStatsService,
-    TaskBindingService, TerminalBackendKind, TerminalBackendState, TerminalDaemonControlLink,
-    TerminalDaemonEventBridge, TerminalDaemonLifecycle, TerminalService, TodoService,
-    UninstallCleanupService, UsageStatsService, WebAccessLifecycle, WorkspaceService,
+    SpecService, SshCredentialService, SshFileService, SshMachineService, StartLocks,
+    SystemStatsService, TaskBindingService, TerminalBackendKind, TerminalBackendState,
+    TerminalDaemonControlLink, TerminalDaemonEventBridge, TerminalDaemonLifecycle, TerminalService,
+    TodoService, UninstallCleanupService, UsageStatsService, WebAccessLifecycle, WorkspaceService,
     WorktreeService,
 };
 use std::sync::Arc;
@@ -1553,9 +1565,14 @@ pub fn run() {
         }),
     );
 
-    let ssh_machine_service = Arc::new(SshMachineService::new(
+    let ssh_machine_service = Arc::new(SshMachineService::with_connection_service(
         app_paths.data_dir().join("ssh-machines.json"),
         ssh_credential_service.clone(),
+        terminal_service.ssh_connection_service(),
+    ));
+    let ssh_file_service = Arc::new(SshFileService::new(
+        ssh_machine_service.clone(),
+        terminal_service.ssh_connection_service(),
     ));
 
     let process_monitor_service = Arc::new(ProcessMonitorService::new());
@@ -1680,6 +1697,7 @@ pub fn run() {
         .manage(filesystem_service)
         .manage(memory_service)
         .manage(ssh_machine_service)
+        .manage(ssh_file_service)
         .manage(process_monitor_service)
         .manage(system_stats_service)
         .manage(runner_service)
@@ -2747,6 +2765,18 @@ pub fn run() {
             update_ssh_machine,
             remove_ssh_machine,
             check_ssh_connectivity,
+            ssh_fs_list_directory,
+            ssh_fs_configure_password,
+            ssh_fs_read_file,
+            ssh_fs_read_image,
+            ssh_fs_write_file,
+            ssh_fs_create_file,
+            ssh_fs_create_directory,
+            ssh_fs_rename_entry,
+            ssh_fs_delete_entry,
+            ssh_fs_upload_file,
+            ssh_fs_download_file,
+            ssh_fs_set_permissions,
             // WSL 发现命令
             discover_wsl_distros,
             // Process Monitor 命令

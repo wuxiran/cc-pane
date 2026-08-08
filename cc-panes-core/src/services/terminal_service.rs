@@ -11,7 +11,7 @@ use crate::services::{
     managed_provider_conflict_env_keys, resolve_provider_plan, validate_provider_runtime,
     CreateSessionOutcome, LaunchProfileService, ProjectCliHooksService, ProviderMode,
     ProviderResolutionInput, ProviderService, ResolvedProviderPlan, SettingsService, SpecService,
-    SshCredentialService, TerminalLinkContext, WorkspaceService,
+    SshConnectionService, SshCredentialService, TerminalLinkContext, WorkspaceService,
 };
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::{orchestrator_manifest, validate_launch_cwd, AppPaths, LaunchRuntime};
@@ -37,6 +37,7 @@ mod wsl_codex;
 mod wsl_mcp_proxy;
 
 use self::wsl_codex::{strip_wsl_proxy_env_vars, windows_path_to_wsl, WSL_PROXY_ENV_KEYS};
+use super::ssh_terminal_service::{spawn_ssh_terminal, SshTerminalConfig};
 
 /// 供会话历史在恢复 Codex 前复用现有 rollout 预检，不改变捕获链行为。
 pub fn codex_rollout_exists(session_id: &str, distro: Option<&str>) -> Option<bool> {
@@ -1051,6 +1052,7 @@ pub struct TerminalService {
     /// 项目级 CLI hooks 服务
     project_cli_hooks_service: Arc<ProjectCliHooksService>,
     ssh_credential_service: Arc<SshCredentialService>,
+    ssh_connection_service: Arc<SshConnectionService>,
     /// 共享 MCP 服务引用（setup 阶段注入）
     shared_mcp_service: parking_lot::RwLock<Option<Arc<crate::services::SharedMcpService>>>,
     /// Tauri 打包资源目录。Linux 安装布局下它不一定与主程序同目录。
@@ -1392,6 +1394,10 @@ fn looks_like_ssh_password_prompt(prompt: &str) -> bool {
     !lower.contains("passphrase") && (lower.ends_with("password:") || lower.ends_with("password: "))
 }
 
+fn ssh_password_response(password: &str) -> Vec<u8> {
+    format!("{password}\r").into_bytes()
+}
+
 fn current_epoch_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1471,6 +1477,10 @@ impl TerminalService {
         project_cli_hooks_service: Arc<ProjectCliHooksService>,
         ssh_credential_service: Arc<SshCredentialService>,
     ) -> Self {
+        let ssh_connection_service = Arc::new(SshConnectionService::new(
+            ssh_credential_service.clone(),
+            app_paths.data_dir().join("ssh-known-hosts"),
+        ));
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             active_launches: Mutex::new(HashSet::new()),
@@ -1487,12 +1497,17 @@ impl TerminalService {
             cli_registry,
             project_cli_hooks_service,
             ssh_credential_service,
+            ssh_connection_service,
             shared_mcp_service: parking_lot::RwLock::new(None),
             sidecar_resource_dir: parking_lot::RwLock::new(None),
             launch_profile_service: parking_lot::RwLock::new(None),
             workspace_service: parking_lot::RwLock::new(None),
             input_mutexes: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub fn ssh_connection_service(&self) -> Arc<SshConnectionService> {
+        self.ssh_connection_service.clone()
     }
 
     /// Set event emitter (called during setup when AppHandle is available)
@@ -1548,7 +1563,10 @@ impl TerminalService {
             return Ok(None);
         }
 
-        match self.ssh_credential_service.load_password(machine_id) {
+        match self
+            .ssh_credential_service
+            .load_connection_password(machine_id)
+        {
             Ok(Some(saved_password)) => Ok(Some(Arc::new(Mutex::new(SshAuthRuntime {
                 prompt_buffer: String::new(),
                 saved_password,
@@ -2044,25 +2062,43 @@ impl TerminalService {
         let is_local_launch = ssh.is_none() && wsl.is_none();
 
         // SSH 模式 vs 本地模式分支
-        let (cwd, command, args, env_remove) = if let Some(ssh_info) = ssh {
-            // SSH 模式：cwd 用本机 home dir，命令通过 ssh 连接远程
+        let (cwd, command, args, env_remove, ssh_remote_command) = if let Some(ssh_info) = ssh {
+            // 新连接走应用内 SSH2 channel；旧配置缺少认证元数据时保留系统 ssh 回退。
             // 跳过 MCP 注入、Orchestrator 信息注入、--add-dir、--resume、--append-system-prompt
             let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-            let (cmd, cmd_args) = self.build_ssh_command(
+            let remote_command = Self::build_ssh_remote_command(
                 ssh_info,
                 cli_tool,
                 &provider_vars,
                 provider.as_ref(),
                 effective_yolo_mode,
-            )?;
+            );
+            let embedded = self
+                .ssh_connection_service
+                .can_use_embedded_terminal(ssh_info);
+            let (cmd, cmd_args) = if embedded {
+                (
+                    format!("ssh2://{}:{}", ssh_info.host, ssh_info.port),
+                    Vec::new(),
+                )
+            } else {
+                self.build_ssh_command(ssh_info, &remote_command)?
+            };
             info!(
                 session_id = %session_id,
                 host = %ssh_info.host,
                 remote_path = %ssh_info.remote_path,
                 cli_tool = ?cli_tool,
+                embedded,
                 "create_session: SSH mode"
             );
-            (home, cmd, cmd_args, vec![])
+            (
+                home,
+                cmd,
+                cmd_args,
+                vec![],
+                embedded.then_some(remote_command),
+            )
         } else if let Some(wsl_info) = wsl {
             let cwd = match workspace_path {
                 Some(ws_path) => PathBuf::from(ws_path),
@@ -2282,7 +2318,7 @@ impl TerminalService {
                 "create_session: WSL mode"
             );
 
-            (cwd, cmd, cmd_args, env_remove)
+            (cwd, cmd, cmd_args, env_remove, None)
         } else {
             // 本地模式：原有逻辑
             let cwd = match workspace_path {
@@ -2433,10 +2469,14 @@ impl TerminalService {
                 env_vars.extend(result.env_inject);
                 (result.command, result.args, result.env_remove)
             };
-            (cwd, cmd, cmd_args, cmd_env_remove)
+            (cwd, cmd, cmd_args, cmd_env_remove, None)
         };
         let launch_claude = cli_tool != CliTool::None;
-        let ssh_auth_runtime = self.prepare_ssh_auth_runtime(ssh)?;
+        let ssh_auth_runtime = if ssh_remote_command.is_some() {
+            None
+        } else {
+            self.prepare_ssh_auth_runtime(ssh)?
+        };
 
         // 创建 PTY
         debug!(
@@ -2538,13 +2578,25 @@ impl TerminalService {
             "launch.pty.begin",
             "started",
         );
-        let spawn_result = match spawn_pty(config) {
+        let spawn_attempt = match (ssh, ssh_remote_command.as_deref()) {
+            (Some(connection), Some(remote_command)) => spawn_ssh_terminal(
+                &self.ssh_connection_service,
+                SshTerminalConfig {
+                    connection,
+                    remote_command,
+                    cols,
+                    rows,
+                },
+            ),
+            _ => spawn_pty(config),
+        };
+        let spawn_result = match spawn_attempt {
             Ok(result) => {
                 info!(
                     session_id = %session_id,
                     command = %command_for_log,
                     launch_claude,
-                    "create_session: PTY spawned successfully"
+                    "create_session: terminal spawned successfully"
                 );
                 log_launch_stage(
                     launch_id,
@@ -3004,13 +3056,9 @@ impl TerminalService {
                                     if !runtime.auto_response_sent
                                         && looks_like_ssh_password_prompt(&last_line)
                                     {
-                                        let password = format!("{}\n", runtime.saved_password);
-                                        if write_via_writer_tx(
-                                            &read_writer_tx,
-                                            password.into_bytes(),
-                                        )
-                                        .is_ok()
-                                        {
+                                        let password =
+                                            ssh_password_response(&runtime.saved_password);
+                                        if write_via_writer_tx(&read_writer_tx, password).is_ok() {
                                             runtime.auto_response_sent = true;
                                             runtime.prompt_buffer.clear();
                                         }
@@ -3984,36 +4032,13 @@ impl TerminalService {
         }
     }
 
-    /// 构建 SSH 命令
-    ///
-    /// 生成 `ssh -tt [keepalive opts] [-p port] [-i identity_file] [user@]host 'export K=V && ... && cd path && cli_tool'`
-    fn build_ssh_command(
-        &self,
+    fn build_ssh_remote_command(
         ssh: &SshConnectionInfo,
         cli_tool: CliTool,
         provider_env: &HashMap<String, String>,
         provider: Option<&CliProvider>,
         yolo_mode: bool,
-    ) -> Result<(String, Vec<String>)> {
-        let ssh_path = cached_which("ssh").map_err(|_| anyhow!("ssh not found in PATH"))?;
-
-        let mut args = vec!["-tt".to_string()]; // 强制伪终端，避免远端 TUI 降级
-        append_ssh_session_options(&mut args);
-        if ssh.port != 22 {
-            args.extend(["-p".to_string(), ssh.port.to_string()]);
-        }
-        if let Some(ref id) = ssh.identity_file {
-            args.extend(["-i".to_string(), id.clone()]);
-        }
-
-        // user@host 或仅 host
-        let target = match &ssh.user {
-            Some(u) => format!("{}@{}", u, ssh.host),
-            None => ssh.host.clone(),
-        };
-        args.push(target);
-
-        // 构建远程命令
+    ) -> String {
         let mut remote_parts: Vec<String> = Vec::new();
         let mut provider_env = provider_env.clone();
         let mut codex_provider_args = Vec::new();
@@ -4047,7 +4072,32 @@ impl TerminalService {
             remote_cli.push_str(&Self::shell_escape(&arg));
         }
         remote_parts.push(remote_cli);
-        args.push(remote_parts.join(" && "));
+        remote_parts.join(" && ")
+    }
+
+    /// 兼容旧 SSH 配置的系统 OpenSSH 回退命令。
+    fn build_ssh_command(
+        &self,
+        ssh: &SshConnectionInfo,
+        remote_command: &str,
+    ) -> Result<(String, Vec<String>)> {
+        let ssh_path = cached_which("ssh").map_err(|_| anyhow!("ssh not found in PATH"))?;
+
+        let mut args = vec!["-tt".to_string()];
+        append_ssh_session_options(&mut args);
+        if ssh.port != 22 {
+            args.extend(["-p".to_string(), ssh.port.to_string()]);
+        }
+        if let Some(ref id) = ssh.identity_file {
+            args.extend(["-i".to_string(), id.clone()]);
+        }
+
+        let target = match &ssh.user {
+            Some(user) => format!("{}@{}", user, ssh.host),
+            None => ssh.host.clone(),
+        };
+        args.push(target);
+        args.push(remote_command.to_string());
 
         Ok((ssh_path.to_string_lossy().into_owned(), args))
     }
@@ -6221,6 +6271,33 @@ mod tests {
         assert!(!looks_like_ssh_password_prompt(
             "Enter passphrase for key '/tmp/id_ed25519': "
         ));
+        assert_eq!(ssh_password_response("secret"), b"secret\r");
+    }
+
+    #[test]
+    fn temporary_ssh_password_is_available_to_terminal_auto_response() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        service
+            .ssh_credential_service
+            .store_temporary_password("m1", "temporary-secret");
+        let ssh = SshConnectionInfo {
+            host: "example.com".to_string(),
+            port: 22,
+            user: Some("dev".to_string()),
+            remote_path: "/root".to_string(),
+            identity_file: None,
+            machine_id: Some("m1".to_string()),
+            auth_method: Some(crate::models::AuthMethod::Password),
+        };
+
+        let runtime = service
+            .prepare_ssh_auth_runtime(Some(&ssh))
+            .expect("prepare SSH auth")
+            .expect("password runtime");
+        assert_eq!(
+            runtime.lock().expect("SSH auth runtime").saved_password,
+            "temporary-secret"
+        );
     }
 
     #[test]

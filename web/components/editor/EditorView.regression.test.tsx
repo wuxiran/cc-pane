@@ -47,6 +47,14 @@ vi.mock("@/services/filesystemService", () => ({
   },
 }));
 
+vi.mock("@/services/sshFileService", () => ({
+  sshFileService: {
+    readFile: vi.fn(),
+    readImage: vi.fn(),
+    writeFile: vi.fn(),
+  },
+}));
+
 vi.mock("@/services/runtime", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   isTauriRuntime: () => false,
@@ -57,10 +65,14 @@ vi.mock("sonner", () => ({
 }));
 
 const { filesystemService } = await import("@/services/filesystemService");
+const { sshFileService } = await import("@/services/sshFileService");
 const { toast } = await import("sonner");
 const getEntryInfo = filesystemService.getEntryInfo as ReturnType<typeof vi.fn>;
 const readFile = filesystemService.readFile as ReturnType<typeof vi.fn>;
 const writeFile = filesystemService.writeFile as ReturnType<typeof vi.fn>;
+const readRemoteFile = sshFileService.readFile as ReturnType<typeof vi.fn>;
+const readRemoteImage = sshFileService.readImage as ReturnType<typeof vi.fn>;
+const writeRemoteFile = sshFileService.writeFile as ReturnType<typeof vi.fn>;
 
 beforeAll(() => {
   if (!("ResizeObserver" in globalThis)) {
@@ -73,6 +85,7 @@ beforeAll(() => {
 });
 
 const FILE = "/proj/src/main.ts";
+const SSH_SOURCE = { machineId: "m-1", machineName: "staging", size: 64 };
 
 function mockTextFile(content = "const x = 1;", encoding = "utf-8") {
   getEntryInfo.mockResolvedValue({ size: content.length, modified: "2026-01-01T00:00:00Z" });
@@ -184,5 +197,52 @@ describe("EditorView regressions", () => {
     expect(screen.getByRole("img")).toBeInTheDocument();
     await screen.findByText("100 B");
     expect(readFile).not.toHaveBeenCalled();
+  });
+
+  it("loads and saves SSH text through the remote file service", async () => {
+    const user = userEvent.setup();
+    readRemoteFile.mockResolvedValue({
+      path: "/srv/app/main.ts",
+      content: "remote",
+      encoding: "utf-8",
+      size: 6,
+      language: "typescript",
+    });
+    writeRemoteFile.mockResolvedValue(undefined);
+
+    await renderLoaded("/srv/app/main.ts", { ssh: SSH_SOURCE });
+    expect(screen.getByTestId("monaco-stub")).toHaveValue("remote");
+    expect(readRemoteFile).toHaveBeenCalledWith("m-1", "/srv/app/main.ts");
+    expect(getEntryInfo).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByTestId("monaco-stub"), { target: { value: "updated" } });
+    await user.click(screen.getAllByRole("button")[0]);
+    await waitFor(() => expect(writeRemoteFile).toHaveBeenCalledWith(
+      "m-1",
+      "/srv/app/main.ts",
+      "updated",
+    ));
+  });
+
+  it("loads an SSH image as a data URL for the shared image preview", async () => {
+    readRemoteImage.mockResolvedValue({
+      path: "/srv/app/logo.png",
+      dataBase64: "aW1hZ2U=",
+      mimeType: "image/png",
+      size: 5,
+    });
+
+    render(
+      <EditorView
+        filePath="/srv/app/logo.png"
+        projectPath="ssh://m-1"
+        ssh={{ ...SSH_SOURCE, size: 5 }}
+      />,
+    );
+
+    const image = await screen.findByRole("img");
+    expect(image).toHaveAttribute("src", "data:image/png;base64,aW1hZ2U=");
+    expect(readRemoteImage).toHaveBeenCalledWith("m-1", "/srv/app/logo.png");
+    expect(getEntryInfo).not.toHaveBeenCalled();
   });
 });

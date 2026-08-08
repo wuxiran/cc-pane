@@ -51,6 +51,11 @@ import type {
 } from "@/types";
 import AddSshProjectDialog from "./AddSshProjectDialog";
 import WorkspaceAppearanceMenu from "./WorkspaceAppearanceMenu";
+import {
+  sidebarEntityBadgeClass,
+  sidebarEntityCountClass,
+  sidebarEntityRowClass,
+} from "./sidebarStyles";
 import WorkspaceColorDot from "./WorkspaceColorDot";
 import WorkspaceGroupDialog from "./WorkspaceGroupDialog";
 import { normalizeWorkspaceProjects } from "./workspaceProjects";
@@ -385,7 +390,7 @@ export default function WorkspaceItem({
             role="button"
             tabIndex={0}
             aria-expanded={expanded}
-            className={`relative w-full group flex items-center justify-between gap-2 px-3 py-2 rounded-lg transition-colors duration-[var(--dur-fast)] ${
+            className={`${sidebarEntityRowClass} flex items-center justify-between gap-2 ${
               expanded
                 ? "bg-[var(--app-active-bg)] text-[var(--app-accent)]"
                 : isDefaultWorkspace
@@ -420,7 +425,9 @@ export default function WorkspaceItem({
                 >
                   <GripVertical className="h-3 w-3" />
                 </button>
-              ) : null}
+              ) : (
+                <span aria-hidden="true" className="h-4 w-3 -ml-1 shrink-0" />
+              )}
               <ChevronRight
                 className={`w-3.5 h-3.5 shrink-0 transition-transform ${expanded ? "rotate-90 text-[var(--app-accent)]" : "text-[var(--app-text-tertiary)]"}`}
               />
@@ -432,21 +439,21 @@ export default function WorkspaceItem({
                 <Folder className="w-4 h-4 shrink-0 text-[var(--app-text-tertiary)] group-hover:text-[var(--app-text-secondary)] transition-colors" />
               )}
               {workspace.color ? <WorkspaceColorDot color={workspace.color} /> : null}
-              <span className="truncate text-[14px] font-medium">{displayName}</span>
+              <span className="truncate text-[13px] font-medium">{displayName}</span>
               {isDefaultWorkspace ? (
-                <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-semibold tracking-wide bg-[color-mix(in_srgb,var(--app-accent)_16%,transparent)] text-[var(--app-accent)]">
+                <span className={`${sidebarEntityBadgeClass} font-semibold tracking-wide bg-[color-mix(in_srgb,var(--app-accent)_16%,transparent)] text-[var(--app-accent)]`}>
                   {t("defaultBadge", { defaultValue: "默认" })}
                 </span>
               ) : null}
               {showWslBadge ? (
-                <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-semibold tracking-wide bg-[color-mix(in_srgb,var(--app-accent)_16%,transparent)] text-[var(--app-accent)]">
+                <span className={`${sidebarEntityBadgeClass} font-semibold tracking-wide bg-[color-mix(in_srgb,var(--app-accent)_16%,transparent)] text-[var(--app-accent)]`}>
                   WSL
                 </span>
               ) : null}
               {boundProvider && defaultEnvironment !== "wsl" ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-[color-mix(in_srgb,var(--app-text-primary)_8%,transparent)] text-[var(--app-text-secondary)]">
+                    <span className={`${sidebarEntityBadgeClass} bg-[color-mix(in_srgb,var(--app-text-primary)_8%,transparent)] text-[var(--app-text-secondary)]`}>
                       {boundProvider.name}
                     </span>
                   </TooltipTrigger>
@@ -455,7 +462,7 @@ export default function WorkspaceItem({
               ) : null}
             </div>
             <span
-              className="shrink-0 text-[12px] font-medium tabular-nums leading-none min-w-[22px] text-center px-2 py-1 rounded-full text-[var(--app-text-tertiary)] group-hover:text-[var(--app-text-secondary)] transition-colors"
+              className={sidebarEntityCountClass}
               style={{ background: "color-mix(in srgb, var(--app-text-primary) 8%, transparent)" }}
             >
               {countOverride ?? projects.length}

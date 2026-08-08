@@ -5,6 +5,8 @@ import { useEditorTabsStore, type EditorTab } from "@/stores/useEditorTabsStore"
 import { useFileBrowserStore } from "@/stores/useFileBrowserStore";
 import { useFileTreeStore } from "@/stores/useFileTreeStore";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
+import { useRightDockStore } from "@/stores/useRightDockStore";
+import { useSshRemoteFilesStore } from "@/stores/useSshRemoteFilesStore";
 import { getFileIcon } from "@/components/filetree/FileTreeNode";
 import EditorView from "./EditorView";
 import {
@@ -322,6 +324,11 @@ export default function FileEditorPanel() {
   const handleRevealInExplorer = useCallback(
     (tab: EditorTab) => {
       const parentDir = getParentDir(tab.filePath);
+      if (tab.ssh) {
+        useSshRemoteFilesStore.getState().openMachine(tab.ssh.machineId, parentDir);
+        useRightDockStore.setState({ visible: true, activeView: "sshFiles" });
+        return;
+      }
       // 确保切换到 files 视图
       if (activeView !== "files" || appViewMode !== "files") {
         toggleView("files");
@@ -404,6 +411,7 @@ export default function FileEditorPanel() {
             filePath={activeTab.filePath}
             projectPath={activeTab.projectPath}
             onDirtyChange={handleDirtyChange(activeTab.id)}
+            ssh={activeTab.ssh}
           />
         )}
       </div>

@@ -9,6 +9,7 @@ export interface FsEntry {
   modified: string | null;
   extension: string | null;
   hidden: boolean;
+  permissions?: string | null;
 }
 
 /** 目录列表 */
@@ -24,6 +25,13 @@ export interface FileContent {
   encoding: string;
   size: number;
   language: string | null;
+}
+
+export interface ImageFileContent {
+  path: string;
+  dataBase64: string;
+  mimeType: string;
+  size: number;
 }
 
 /** 文件树节点（用于前端树结构） */

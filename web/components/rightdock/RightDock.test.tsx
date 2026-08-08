@@ -13,6 +13,7 @@ import {
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { useAiPanelStore } from "@/stores/useAiPanelStore";
 import { useOrchestratorStore } from "@/stores/useOrchestratorStore";
+import { useSshRemoteFilesStore } from "@/stores/useSshRemoteFilesStore";
 import type { OpenTerminalOptions, Workspace } from "@/types";
 import RightDock from "./RightDock";
 
@@ -55,6 +56,10 @@ vi.mock("@/components/sidebar/SshMachinesView", () => ({
       SSH
     </button>
   ),
+}));
+
+vi.mock("./SshRemoteFilesView", () => ({
+  default: () => <div data-testid="right-dock-ssh-files">Remote files</div>,
 }));
 
 vi.mock("@/components/aipanel/AiPanelView", () => ({
@@ -104,6 +109,7 @@ describe("RightDock", () => {
     useModulePrefsStore.setState({ preferences: createDefaultModulePreferences() });
     useAiPanelStore.setState({ panels: [], activePanelId: null, unreadPanelIds: [] });
     useOrchestratorStore.setState({ bindings: [] });
+    useSshRemoteFilesStore.getState().clear();
     useWorkspacesStore.setState({
       workspaces: [workspace],
       expandedWorkspaceId: workspace.id,
@@ -164,6 +170,19 @@ describe("RightDock", () => {
 
     expect(screen.getByTestId("right-dock-files")).toHaveTextContent("project-1");
     expect(screen.getByTestId("right-dock-git")).not.toBeVisible();
+  });
+
+  it("shows a remote files tab for the selected SSH machine", () => {
+    useSshRemoteFilesStore.getState().openMachine("m-1", "/srv/app");
+    useRightDockStore.setState({ activeView: "sshFiles" });
+
+    renderDock();
+
+    expect(screen.getByRole("tab", { name: /Remote Files|远程文件/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByTestId("right-dock-ssh-files")).toBeInTheDocument();
   });
 
   it("折叠时不再渲染面板或常驻图标条", () => {
@@ -283,5 +302,18 @@ describe("RightDock", () => {
 
     fireEvent.pointerUp(document);
     expect(useRightDockStore.getState().width).toBe(560);
+  });
+
+  it("提供可发现的鼠标拖拽热区且不会延伸进标题栏", () => {
+    renderDock();
+
+    const sash = screen.getByRole("separator", { name: "调整右侧面板宽度" });
+    expect(sash).toHaveStyle({
+      width: "14px",
+      left: "-7px",
+      cursor: "col-resize",
+      touchAction: "none",
+    });
+    expect(sash.querySelector("span")).toHaveClass("group-hover:bg-[var(--app-accent)]");
   });
 });

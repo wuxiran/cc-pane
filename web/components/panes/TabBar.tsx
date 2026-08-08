@@ -34,6 +34,8 @@ interface TabBarProps {
   onAddFile?: () => void;
   /** 打开目录树 tab（file-explorer，桌面端此前无入口） */
   onAddFileExplorer?: () => void;
+  /** 打开 SSH 机器管理面板 */
+  onAddSsh?: () => void;
   onSplitRight: () => void;
   onSplitDown: () => void;
   onFullscreen: (tabId: string) => void;
@@ -388,6 +390,7 @@ export default memo(function TabBar({
   onAddBrowser,
   onAddFile,
   onAddFileExplorer,
+  onAddSsh,
   onAdd,
   onSplitRight,
   onSplitDown,
@@ -606,6 +609,7 @@ export default memo(function TabBar({
               onAddBrowser={onAddBrowser}
               onAddFile={onAddFile}
               onAddFileExplorer={onAddFileExplorer}
+              onAddSsh={onAddSsh}
               t={t}
             />
           </div>

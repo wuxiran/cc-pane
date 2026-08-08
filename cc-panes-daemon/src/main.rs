@@ -239,12 +239,13 @@ async fn main() -> anyhow::Result<()> {
         },
     );
     let ws_emitter = Arc::new(WsEmitter::new());
-    let (terminal_backend, output_store, terminal_service) = create_terminal_backend(
-        args.data_dir.as_deref(),
-        daemon_paths,
-        ws_emitter.clone(),
-        settings_service.clone(),
-    );
+    let (terminal_backend, output_store, terminal_service, ssh_credential_service) =
+        create_terminal_backend(
+            args.data_dir.as_deref(),
+            daemon_paths,
+            ws_emitter.clone(),
+            settings_service.clone(),
+        );
     ws_emitter.set_output_store(output_store.clone());
     // 显式持到最终 flush：store 内部是 Weak（强引用会与 emitter 成环）。它现在
     // 之所以还能 upgrade，只是因为 session_reaper 线程恰好握着强引用——把最终
@@ -254,6 +255,7 @@ async fn main() -> anyhow::Result<()> {
         token,
         local_addr,
         terminal_backend,
+        ssh_credential_service,
         ws_emitter,
         cwd_str.clone(),
     );
@@ -294,6 +296,7 @@ fn create_terminal_backend(
     Arc<dyn TerminalBackend>,
     Arc<SessionOutputStore>,
     Arc<TerminalService>,
+    Arc<SshCredentialService>,
 ) {
     let settings_data_dir = settings_service.get_settings().general.data_dir;
     let data_dir = resolve_data_dir(explicit_data_dir, settings_data_dir, &daemon_paths);
@@ -321,7 +324,7 @@ fn create_terminal_backend(
         app_paths.clone(),
         cli_registry,
         project_cli_hooks_service,
-        ssh_credential_service,
+        ssh_credential_service.clone(),
     ));
     terminal_service.set_workspace_service(workspace_service);
     terminal_service.set_shared_mcp_service(shared_mcp_service);
@@ -335,6 +338,7 @@ fn create_terminal_backend(
         Arc::new(InProcessTerminalBackend::new(terminal_service.clone())),
         output_store,
         terminal_service,
+        ssh_credential_service,
     )
 }
 

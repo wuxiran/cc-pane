@@ -13,6 +13,8 @@ pub struct FsEntry {
     pub modified: Option<String>,
     pub extension: Option<String>,
     pub hidden: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<String>,
 }
 
 /// 目录列表
@@ -32,6 +34,15 @@ pub struct FileContent {
     pub encoding: String,
     pub size: u64,
     pub language: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageFileContent {
+    pub path: String,
+    pub data_base64: String,
+    pub mime_type: String,
+    pub size: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]

@@ -4,7 +4,17 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type { Panel as PanelType, Tab } from "@/types";
 import { useShallow } from "zustand/react/shallow";
-import { useDialogStore, usePanesStore, useFullscreenStore, useFileTreeStore, useWorkspacesStore } from "@/stores";
+import {
+  useActivityBarStore,
+  useDialogStore,
+  useFileTreeStore,
+  useFullscreenStore,
+  useModulePrefsStore,
+  usePanesStore,
+  useRightDockStore,
+  useSshMachineDialogStore,
+  useWorkspacesStore,
+} from "@/stores";
 import { terminalService, popOutTab } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
 import type { PopupTabData } from "@/services/popupWindowService";
@@ -175,6 +185,21 @@ export default memo(function Panel({ pane }: PanelProps) {
 
   const { handleAddBrowser, handleAddFile, handleAddFileExplorer } =
     useNewTabActions(pane.id, activeTab);
+
+  const handleAddSsh = useCallback(() => {
+    useSshMachineDialogStore.getState().openAddDialog();
+    const sshPreference = useModulePrefsStore.getState().preferences.ssh;
+    if (sshPreference.position === "rightDock" && sshPreference.enabled) {
+      useRightDockStore.setState({ visible: true, activeView: "ssh" });
+      return;
+    }
+    useActivityBarStore.setState({
+      activeView: "ssh",
+      sidebarVisible: true,
+      appViewMode: "panes",
+      orchestrationOverlayOpen: false,
+    });
+  }, []);
 
   const handleSplitRight = useCallback(
     () => splitRight(pane.id),
@@ -418,6 +443,7 @@ export default memo(function Panel({ pane }: PanelProps) {
             onAddBrowser={handleAddBrowser}
             onAddFile={handleAddFile}
             onAddFileExplorer={handleAddFileExplorer}
+            onAddSsh={handleAddSsh}
             onSplitRight={handleSplitRight}
             onSplitDown={handleSplitDown}
             onFullscreen={handleFullscreen}

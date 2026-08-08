@@ -65,6 +65,7 @@ export { useEditorTabsStore, type EditorTab } from "./useEditorTabsStore";
 export { useEditorRevealStore, type EditorRevealRequest } from "./useEditorRevealStore";
 export { useUpdateStore } from "./useUpdateStore";
 export { useSshMachinesStore } from "./useSshMachinesStore";
+export { useSshMachinePreferencesStore } from "./useSshMachinePreferencesStore";
 export { useEnvironmentStore } from "./useEnvironmentStore";
 export { useProcessMonitorStore } from "./useProcessMonitorStore";
 export { useResourceStatsStore } from "./useResourceStatsStore";
@@ -76,6 +77,14 @@ export { useOrchestratorStore } from "./useOrchestratorStore";
 export { useVoiceInputStore } from "./useVoiceInputStore";
 export { useWallpaperStore } from "./useWallpaperStore";
 export { useRightDockStore, type RightDockView } from "./useRightDockStore";
+export { useSshMachineDialogStore } from "./useSshMachineDialogStore";
+export { useSshRemoteFilesStore } from "./useSshRemoteFilesStore";
+export {
+  useSshRemoteFilePreferencesStore,
+  type SshFileSortDirection,
+  type SshFileSortKey,
+  type SshFileViewMode,
+} from "./useSshRemoteFilePreferencesStore";
 export {
   createDefaultModulePreferences,
   createModulePreferencesForPreset,

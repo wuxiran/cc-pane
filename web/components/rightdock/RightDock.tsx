@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Files, FolderOpen, GitBranch, type LucideIcon } from "lucide-react";
+import { Files, FolderOpen, FolderSync, GitBranch, type LucideIcon } from "lucide-react";
 import ExplorerFilesSection from "@/components/sidebar/ExplorerFilesSection";
 import ExplorerGitSection from "@/components/sidebar/ExplorerGitSection";
 import SshMachinesView from "@/components/sidebar/SshMachinesView";
 import OrchestratorView from "@/components/sidebar/OrchestratorView";
 import AiPanelView from "@/components/aipanel/AiPanelView";
 import SessionHistoryView from "./SessionHistoryView";
+import SshRemoteFilesView from "./SshRemoteFilesView";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { setDragging } from "@/stores/splitDragState";
@@ -28,6 +29,7 @@ import { MODULE_CONSUMERS } from "@/modules/registry";
 import { useModulePrefsStore } from "@/stores/useModulePrefsStore";
 import { useAiPanelStore } from "@/stores/useAiPanelStore";
 import { useOrchestratorStore } from "@/stores/useOrchestratorStore";
+import { useSshRemoteFilesStore } from "@/stores/useSshRemoteFilesStore";
 
 interface RightDockViewDefinition {
   id: RightDockView;
@@ -108,6 +110,7 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
   const modulePreferences = useModulePrefsStore((state) => state.preferences);
   const bindings = useOrchestratorStore((state) => state.bindings);
   const aiPanelUnreadCount = useAiPanelStore((state) => state.unreadPanelIds.length);
+  const remoteMachineId = useSshRemoteFilesStore((state) => state.machineId);
   const workspaces = useWorkspacesStore((state) => state.workspaces);
   const expandedWorkspaceId = useWorkspacesStore((state) => state.expandedWorkspaceId);
   const expandedProjectId = useWorkspacesStore((state) => state.expandedProjectId);
@@ -136,7 +139,8 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
   const orchestrationDocked = dockModules.some((module) => module.id === "orchestration");
   const activeDockModuleMissing = (activeView === "ssh" && !sshDocked)
     || (activeView === "aiPanel" && !aiPanelDocked)
-    || (activeView === "orchestration" && !orchestrationDocked);
+    || (activeView === "orchestration" && !orchestrationDocked)
+    || (activeView === "sshFiles" && !remoteMachineId);
   const resolvedActiveView = activeDockModuleMissing ? "git" : activeView;
 
   useEffect(() => {
@@ -203,8 +207,14 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
         aria-valuemax={MAX_RIGHT_DOCK_WIDTH}
         aria-valuenow={width}
         tabIndex={0}
-        className="splitview-sash vertical absolute inset-y-0 z-20"
-        style={{ width: 10, minWidth: 10, left: -5, cursor: "col-resize" }}
+        className="group absolute inset-y-0 z-30 outline-none"
+        style={{
+          width: 14,
+          minWidth: 14,
+          left: -7,
+          cursor: "col-resize",
+          touchAction: "none",
+        }}
         onPointerDown={handleResizePointerDown}
         onDoubleClick={() => setVisible(false)}
         onKeyDown={(event) => {
@@ -217,7 +227,12 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
             setWidth(width - 10);
           }
         }}
-      />
+      >
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-3 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors group-hover:bg-[var(--app-accent)] group-focus-visible:bg-[var(--app-accent)]"
+        />
+      </div>
 
       <div className="flex h-11 shrink-0 items-center gap-2 px-2 pl-2">
         <div
@@ -261,6 +276,31 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
               </Tooltip>
             );
           })}
+          {remoteMachineId && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={resolvedActiveView === "sshFiles"}
+                  aria-label={t("rightDock.remoteFiles")}
+                  onClick={() => setActiveView("sshFiles")}
+                  className="relative flex h-[36px] w-[38px] items-center justify-center transition-colors duration-[var(--dur-fast)]"
+                  style={{
+                    color: resolvedActiveView === "sshFiles"
+                      ? "var(--app-text-primary)"
+                      : "var(--app-text-tertiary)",
+                  }}
+                >
+                  <FolderSync className="h-[19px] w-[19px]" strokeWidth={1.6} />
+                  {resolvedActiveView === "sshFiles" && (
+                    <span aria-hidden className="absolute inset-x-2 bottom-0 h-[2px] rounded-full" style={{ background: "var(--app-text-primary)" }} />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t("rightDock.remoteFiles")}</TooltipContent>
+            </Tooltip>
+          )}
           {dockModules.map((module) => {
             const Icon = module.icon;
             const selected = module.id === resolvedActiveView;
@@ -314,7 +354,11 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
         </div>
       </div>
 
-      {resolvedActiveView === "orchestration" ? (
+      {resolvedActiveView === "sshFiles" ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <SshRemoteFilesView onOpenTerminal={onOpenTerminal} />
+        </div>
+      ) : resolvedActiveView === "orchestration" ? (
         <div className="min-h-0 flex-1 overflow-hidden">
           <OrchestratorView onOpenTerminal={onOpenTerminal} compact />
         </div>

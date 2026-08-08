@@ -81,6 +81,43 @@ describe("useEditorTabsStore", () => {
     });
   });
 
+  describe("openRemoteFile", () => {
+    it("stores the SSH source without adding a local recent file", () => {
+      useEditorTabsStore.getState().openRemoteFile(
+        "machine-1",
+        "staging",
+        "/srv/app/main.ts",
+        "main.ts",
+        128,
+      );
+
+      const state = useEditorTabsStore.getState();
+      expect(state.tabs[0]).toMatchObject({
+        filePath: "/srv/app/main.ts",
+        projectPath: "ssh://machine-1",
+        ssh: { machineId: "machine-1", machineName: "staging", size: 128 },
+      });
+      expect(state.recentFiles).toEqual([]);
+    });
+
+    it("deduplicates by machine and path while keeping other machines separate", () => {
+      const store = useEditorTabsStore.getState();
+      store.openRemoteFile("machine-1", "one", "/srv/app/main.ts", "main.ts", 1);
+      store.openRemoteFile("machine-1", "one", "/srv/app/main.ts", "main.ts", 1);
+      store.openRemoteFile("machine-2", "two", "/srv/app/main.ts", "main.ts", 1);
+
+      expect(useEditorTabsStore.getState().tabs).toHaveLength(2);
+    });
+
+    it("does not collide with a local tab using the same path", () => {
+      const store = useEditorTabsStore.getState();
+      store.openFile("/srv/app", "/srv/app/main.ts", "main.ts");
+      store.openRemoteFile("machine-1", "one", "/srv/app/main.ts", "main.ts", 1);
+
+      expect(useEditorTabsStore.getState().tabs).toHaveLength(2);
+    });
+  });
+
   describe("closeTab", () => {
     it("应移除指定标签", () => {
       const t1 = makeTab({ id: "t1" });

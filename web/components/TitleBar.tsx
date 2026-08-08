@@ -55,7 +55,6 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
   const sidebarVisible = useActivityBarStore((s) => s.sidebarVisible);
   const toggleSidebar = useActivityBarStore((s) => s.toggleSidebar);
   const rightDockVisible = useRightDockStore((s) => s.visible);
-  const rightDockWidth = useRightDockStore((s) => s.width);
   const toggleRightDock = useRightDockStore((s) => s.toggleVisible);
   const aiPanelUnreadCount = useAiPanelStore((s) => s.unreadPanelIds.length);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
@@ -86,7 +85,6 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
   return (
     <div
       className="shape-chrome relative flex items-center h-[44px] shrink-0 select-none z-10"
-      data-right-dock-divider={rightDockVisible ? "visible" : undefined}
       data-tauri-drag-region=""
       style={{
         paddingLeft: isMac ? 78 : 12,
@@ -106,15 +104,6 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
           background: "var(--app-titlebar-highlight)",
         }}
       />
-
-      {/* 右坞分隔线延伸：与面板左边框对齐，视觉上贯通顶栏 */}
-      {rightDockVisible && (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute top-0 bottom-0 w-px"
-          style={{ right: rightDockWidth, background: "var(--app-border)" }}
-        />
-      )}
 
       {/* 中间：居中应用名（纯装饰，点击穿透到拖拽区） */}
       <div

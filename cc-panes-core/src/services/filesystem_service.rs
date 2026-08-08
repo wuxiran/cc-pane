@@ -268,6 +268,7 @@ impl FileSystemService {
             modified,
             extension,
             hidden,
+            permissions: None,
         })
     }
 
@@ -313,6 +314,7 @@ impl FileSystemService {
             modified,
             extension,
             hidden,
+            permissions: None,
         })
     }
 

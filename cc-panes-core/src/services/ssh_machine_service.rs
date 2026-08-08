@@ -1,7 +1,7 @@
 use crate::models::ssh_machine::{
     AuthMethod, SshMachine, SshMachineConfig, SshMachineUpsertRequest,
 };
-use crate::services::SshCredentialService;
+use crate::services::{SshConnectionService, SshCredentialService};
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -22,15 +22,33 @@ pub struct SshMachineService {
     config_path: PathBuf,
     config: Mutex<SshMachineConfig>,
     credential_service: Arc<SshCredentialService>,
+    connection_service: Arc<SshConnectionService>,
 }
 
 impl SshMachineService {
     pub fn new(config_path: PathBuf, credential_service: Arc<SshCredentialService>) -> Self {
+        let known_hosts_path = config_path
+            .parent()
+            .map(|path| path.join("ssh-known-hosts"))
+            .unwrap_or_else(|| PathBuf::from("ssh-known-hosts"));
+        let connection_service = Arc::new(SshConnectionService::new(
+            credential_service.clone(),
+            known_hosts_path,
+        ));
+        Self::with_connection_service(config_path, credential_service, connection_service)
+    }
+
+    pub fn with_connection_service(
+        config_path: PathBuf,
+        credential_service: Arc<SshCredentialService>,
+        connection_service: Arc<SshConnectionService>,
+    ) -> Self {
         let config = Self::load_from_file(&config_path).unwrap_or_default();
         Self {
             config_path,
             config: Mutex::new(config),
             credential_service,
+            connection_service,
         }
     }
 
@@ -80,6 +98,46 @@ impl SshMachineService {
             .find(|m| m.id == id)
             .cloned()
             .map(|machine| self.hydrate_machine(machine))
+    }
+
+    pub fn load_password(&self, id: &str) -> Result<Option<String>> {
+        self.credential_service.load_password(id)
+    }
+
+    pub fn load_connection_password(&self, id: &str) -> Result<Option<String>> {
+        self.credential_service.load_connection_password(id)
+    }
+
+    pub fn store_password(&self, id: &str, password: &str) -> Result<()> {
+        let machine = self
+            .get(id)
+            .with_context(|| format!("SSH machine '{}' not found", id))?;
+        if machine.auth_method != AuthMethod::Password {
+            anyhow::bail!("SSH machine '{}' does not use password authentication", id);
+        }
+        if password.is_empty() {
+            anyhow::bail!("SSH password cannot be empty");
+        }
+        self.credential_service.store_password(id, password)
+    }
+
+    pub fn store_temporary_password(&self, id: &str, password: &str) -> Result<()> {
+        let machine = self
+            .get(id)
+            .with_context(|| format!("SSH machine '{}' not found", id))?;
+        if machine.auth_method != AuthMethod::Password {
+            anyhow::bail!("SSH machine '{}' does not use password authentication", id);
+        }
+        if password.is_empty() {
+            anyhow::bail!("SSH password cannot be empty");
+        }
+        self.credential_service
+            .store_temporary_password(id, password);
+        Ok(())
+    }
+
+    pub fn clear_temporary_password(&self, id: &str) {
+        self.credential_service.clear_temporary_password(id);
     }
 
     /// 添加 SSH 机器（name 去重校验，大小写不敏感）
@@ -286,84 +344,63 @@ impl SshMachineService {
             }
         }
 
-        let ssh_path = which::which("ssh").map_err(|_| anyhow::anyhow!("ssh not found in PATH"))?;
-        let null_path = if cfg!(windows) { "NUL" } else { "/dev/null" };
-
-        let mut args = Vec::new();
-        args.extend(["-o", "ConnectTimeout=5"]);
-        args.extend(["-o", "BatchMode=yes"]);
-
-        let known_hosts_opt = format!("UserKnownHostsFile={}", null_path);
-        args.extend(["-o", "StrictHostKeyChecking=no"]);
-        args.extend(["-o", &known_hosts_opt]);
-
-        let port_str = machine.port.to_string();
-        if machine.port != 22 {
-            args.extend(["-p", &port_str]);
-        }
-
-        if let Some(ref id_file) = machine.identity_file {
-            if machine.auth_method == AuthMethod::Key {
-                args.extend(["-i", id_file]);
-            }
-        }
-
-        args.push("--");
-        let target = match &machine.user {
-            Some(u) => format!("{}@{}", u, machine.host),
-            None => machine.host.clone(),
-        };
-        args.push(&target);
-        args.push("exit");
-
         debug!(machine_id = %id, machine_name = %machine.name, "Checking SSH connectivity");
 
         let start = std::time::Instant::now();
-        let output = tokio::process::Command::new(&ssh_path)
-            .args(&args)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .await
-            .with_context(|| "Failed to execute ssh command")?;
+        let has_password = if machine.auth_method == AuthMethod::Password {
+            self.credential_service
+                .load_connection_password(&machine.id)?
+                .is_some()
+        } else {
+            true
+        };
+        if machine.auth_method == AuthMethod::Password && !has_password {
+            let probe_service = self.connection_service.clone();
+            let probe_machine = machine.clone();
+            let probe_result =
+                tokio::task::spawn_blocking(move || probe_service.probe_machine(&probe_machine))
+                    .await
+                    .context("SSH reachability probe task failed")?;
+            let latency = start.elapsed().as_millis() as u64;
+            return Ok(match probe_result {
+                Ok(()) => SshConnectivityResult {
+                    reachable: true,
+                    message: "SSH host reachable; enter a password to validate authentication"
+                        .to_string(),
+                    latency_ms: Some(latency),
+                },
+                Err(error) => SshConnectivityResult {
+                    reachable: false,
+                    message: error.to_string(),
+                    latency_ms: None,
+                },
+            });
+        }
+
+        let connection_service = self.connection_service.clone();
+        let connection_machine = machine.clone();
+        let connection_result = tokio::task::spawn_blocking(move || {
+            connection_service.connect_machine(&connection_machine)
+        })
+        .await
+        .context("SSH connectivity check task failed")?;
         let latency = start.elapsed().as_millis() as u64;
 
-        if output.status.success() {
-            return Ok(SshConnectivityResult {
-                reachable: true,
-                message: format!("Connected in {}ms", latency),
-                latency_ms: Some(latency),
-            });
+        match connection_result {
+            Ok(session) => {
+                let _ = session.disconnect(None, "connectivity check complete", None);
+                Ok(SshConnectivityResult {
+                    reachable: true,
+                    message: format!("Connected in {}ms", latency),
+                    latency_ms: Some(latency),
+                })
+            }
+            Err(error) => Ok(SshConnectivityResult {
+                reachable: false,
+                message: error.to_string(),
+                latency_ms: None,
+            }),
         }
-
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if machine.auth_method == AuthMethod::Password && Self::looks_like_auth_challenge(&stderr) {
-            return Ok(SshConnectivityResult {
-                reachable: true,
-                message: "SSH host reachable; password/MFA were not validated in connectivity test"
-                    .to_string(),
-                latency_ms: Some(latency),
-            });
-        }
-
-        let msg = stderr
-            .lines()
-            .next()
-            .unwrap_or("Connection failed")
-            .to_string();
-        Ok(SshConnectivityResult {
-            reachable: false,
-            message: msg,
-            latency_ms: None,
-        })
-    }
-
-    fn looks_like_auth_challenge(stderr: &str) -> bool {
-        let lower = stderr.to_ascii_lowercase();
-        lower.contains("permission denied")
-            || lower.contains("password:")
-            || lower.contains("keyboard-interactive")
-            || lower.contains("verification code")
     }
 }
 

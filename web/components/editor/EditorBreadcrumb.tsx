@@ -5,6 +5,8 @@ import { useActivityBarStore } from "@/stores/useActivityBarStore";
 
 interface EditorBreadcrumbProps {
   filePath: string;
+  sourceLabel?: string;
+  onNavigate?: (path: string) => void;
 }
 
 /** 将文件路径拆分为可点击的面包屑段 */
@@ -24,7 +26,11 @@ function parseBreadcrumbs(filePath: string): Array<{ label: string; path: string
   return segments;
 }
 
-export default function EditorBreadcrumb({ filePath }: EditorBreadcrumbProps) {
+export default function EditorBreadcrumb({
+  filePath,
+  sourceLabel,
+  onNavigate,
+}: EditorBreadcrumbProps) {
   const navigateTo = useFileBrowserStore((s) => s.navigateTo);
   const toggleFilesMode = useActivityBarStore((s) => s.toggleFilesMode);
   const appViewMode = useActivityBarStore((s) => s.appViewMode);
@@ -33,13 +39,17 @@ export default function EditorBreadcrumb({ filePath }: EditorBreadcrumbProps) {
 
   const handleSegmentClick = useCallback(
     (path: string) => {
+      if (onNavigate) {
+        onNavigate(path);
+        return;
+      }
       navigateTo(path);
       // 如果不在 files 模式，切换过去
       if (appViewMode !== "files") {
         toggleFilesMode();
       }
     },
-    [navigateTo, appViewMode, toggleFilesMode]
+    [navigateTo, appViewMode, onNavigate, toggleFilesMode]
   );
 
   if (segments.length === 0) return null;
@@ -53,6 +63,15 @@ export default function EditorBreadcrumb({ filePath }: EditorBreadcrumbProps) {
       }}
     >
       <div className="flex items-center gap-0.5 overflow-hidden">
+        {sourceLabel && (
+          <span
+            className="mr-1 max-w-[140px] shrink-0 truncate font-medium"
+            style={{ color: "var(--app-accent)" }}
+            title={sourceLabel}
+          >
+            {sourceLabel}
+          </span>
+        )}
         {segments.map((seg, i) => (
           <span key={seg.path} className="flex items-center shrink-0">
             {i > 0 && (

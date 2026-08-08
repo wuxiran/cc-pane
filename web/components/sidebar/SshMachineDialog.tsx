@@ -152,7 +152,11 @@ export default function SshMachineDialog({
         prev === null || prev === undefined ? result : prev,
       );
       if (result.reachable) {
-        toast.success(result.message);
+        toast.success(
+          result.message.startsWith("SSH host reachable")
+            ? t("ssh.hostReachablePasswordRequired")
+            : t("ssh.connectedIn", { latency: result.latencyMs ?? 0 }),
+        );
       } else {
         toast.error(result.message);
       }
@@ -163,7 +167,7 @@ export default function SshMachineDialog({
     } finally {
       setTesting(false);
     }
-  }, [machine, open]);
+  }, [machine, open, t]);
 
   const handleSubmit = useCallback(async () => {
     if (!name.trim()) {
@@ -292,7 +296,13 @@ export default function SshMachineDialog({
         onOpenChange(v);
       }}
     >
-      <DialogContent className="sm:max-w-md">
+      <DialogContent
+        className="flex max-w-none flex-col gap-3 overflow-hidden p-4 sm:p-5"
+        style={{
+          width: "min(620px, calc(100vw - 2rem))",
+          maxHeight: "calc(100vh - 2rem)",
+        }}
+      >
         <DialogHeader>
           <DialogTitle>
             {isEdit
@@ -300,7 +310,8 @@ export default function SshMachineDialog({
               : t("ssh.addMachine", { defaultValue: "Add SSH Machine" })}
           </DialogTitle>
         </DialogHeader>
-        <div className="flex flex-col gap-3 py-2">
+        <div className="min-h-0 flex-1 overflow-y-auto py-1 pr-1">
+          <div className="flex flex-col gap-3">
           {!isEdit && (
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--app-text-secondary)]">
@@ -538,8 +549,9 @@ export default function SshMachineDialog({
               })}
             />
           </div>
+          </div>
         </div>
-        <DialogFooter className="flex items-center gap-2 sm:justify-between">
+        <DialogFooter className="shrink-0 border-t border-[var(--app-border)] pt-3 flex items-center gap-2 sm:justify-between">
           <div className="flex items-center gap-2">
             {isEdit && (
               <Tooltip>

@@ -1,9 +1,9 @@
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::models::CreateSessionRequest;
+use crate::models::{AuthMethod, CreateSessionRequest};
 use crate::services::{
-    DaemonTerminalBackend, InProcessTerminalBackend, TerminalBackend, TerminalDaemonClient,
-    TerminalDaemonControlLink, TerminalDaemonLifecycle, TerminalService,
+    DaemonTerminalBackend, InProcessTerminalBackend, SshMachineService, TerminalBackend,
+    TerminalDaemonClient, TerminalDaemonControlLink, TerminalDaemonLifecycle, TerminalService,
 };
 use crate::utils::{AppPaths, AppResult};
 use tauri::Manager;
@@ -163,6 +163,11 @@ impl TerminalBackendState {
         request: CreateSessionRequest,
     ) -> AppResult<CreatedTerminalSession> {
         self.recheck_daemon_upgrade_before_create(app_handle);
+        let ssh_password = load_ssh_connection_password(app_handle, &request)?;
+        if let Some(client) = self.daemon_client() {
+            sync_ssh_password(&client, ssh_password.as_ref())?;
+        }
+        let recovery_ssh_password = ssh_password.clone();
         self.create_session_recovering(
             request,
             |current_client| {
@@ -187,6 +192,9 @@ impl TerminalBackendState {
                 }
             },
             |client| {
+                if let Err(error) = sync_ssh_password(&client, recovery_ssh_password.as_ref()) {
+                    warn!(error = %error, "failed to synchronize SSH password after daemon recovery");
+                }
                 if let Some(control_link) = app_handle.try_state::<Arc<TerminalDaemonControlLink>>()
                 {
                     control_link.replace_client(client.clone());
@@ -254,6 +262,42 @@ impl TerminalBackendState {
             .daemon_client
             .clone()
     }
+}
+
+fn load_ssh_connection_password(
+    app_handle: &tauri::AppHandle,
+    request: &CreateSessionRequest,
+) -> AppResult<Option<(String, String)>> {
+    let Some(ssh) = request.ssh.as_ref() else {
+        return Ok(None);
+    };
+    if ssh.auth_method != Some(AuthMethod::Password) {
+        return Ok(None);
+    }
+    let Some(machine_id) = ssh
+        .machine_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    else {
+        return Ok(None);
+    };
+    let Some(machine_service) = app_handle.try_state::<Arc<SshMachineService>>() else {
+        return Ok(None);
+    };
+    Ok(machine_service
+        .load_connection_password(machine_id)?
+        .map(|password| (machine_id.to_string(), password)))
+}
+
+fn sync_ssh_password(
+    client: &TerminalDaemonClient,
+    credentials: Option<&(String, String)>,
+) -> AppResult<()> {
+    if let Some((machine_id, password)) = credentials {
+        client.set_temporary_ssh_password(machine_id, password)?;
+    }
+    Ok(())
 }
 
 fn daemon_client_from_env(app_paths: &AppPaths) -> Option<TerminalDaemonClient> {

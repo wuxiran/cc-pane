@@ -294,6 +294,7 @@
   "newBrowserTab": "New Browser",
   "openFileTab": "Open File…",
   "newFileExplorerTab": "Open File Tree",
+  "newSshTab": "New SSH",
   "copyBrowserUrl": "Copy URL",
   "copyFilePath": "Copy File Path",
   "terminalPathLink": {

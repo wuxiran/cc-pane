@@ -4,7 +4,9 @@ import type { editor as MonacoEditor } from "monaco-editor";
 import { toast } from "sonner";
 import { handleError, getErrorMessage } from "@/utils";
 import { filesystemService } from "@/services/filesystemService";
-import { usePanesStore } from "@/stores";
+import { sshFileService } from "@/services/sshFileService";
+import { usePanesStore, useRightDockStore, useSshRemoteFilesStore } from "@/stores";
+import type { EditorTab } from "@/stores/useEditorTabsStore";
 import { useEditorRevealStore } from "@/stores/useEditorRevealStore";
 import { reportTabViewState } from "@/lib/tabLifecycle/tabViewState";
 import { useThemeStore } from "@/stores/useThemeStore";
@@ -81,6 +83,7 @@ interface EditorViewProps {
   paneId?: string;
   /** 独立面板模式下的 dirty 状态回调（替代 paneId/tabId） */
   onDirtyChange?: (dirty: boolean) => void;
+  ssh?: NonNullable<EditorTab["ssh"]>;
 }
 
 export default function EditorView({
@@ -89,6 +92,7 @@ export default function EditorView({
   tabId,
   paneId,
   onDirtyChange,
+  ssh,
 }: EditorViewProps) {
   void _projectPath; // 保留 prop 供未来使用（如路径沙箱验证）
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
@@ -100,6 +104,8 @@ export default function EditorView({
   const [readOnly, setReadOnly] = useState(false);
   const [readOnlyReason, setReadOnlyReason] = useState<"path" | "encoding" | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("edit");
+  const [remoteImageUrl, setRemoteImageUrl] = useState<string | null>(null);
+  const [remoteImageSize, setRemoteImageSize] = useState<number | null>(null);
   const lastSavedMtime = useRef<string | null>(null);
   // 分栏滚动同步：previewModeRef 供 Monaco 事件闭包读最新值；syncLock 防两侧互相回声
   const previewRef = useRef<HTMLDivElement | null>(null);
@@ -138,24 +144,34 @@ export default function EditorView({
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setRemoteImageUrl(null);
+    setRemoteImageSize(null);
 
     (async () => {
       try {
-        // 图片文件由 ImagePreview 组件处理，跳过文本加载
         if (isImageFile(filePath)) {
+          if (ssh) {
+            const image = await sshFileService.readImage(ssh.machineId, filePath);
+            if (cancelled) return;
+            setRemoteImageUrl(`data:${image.mimeType};base64,${image.dataBase64}`);
+            setRemoteImageSize(image.size);
+          }
           setLoading(false);
           return;
         }
 
-        // 先检查文件大小
-        const info = await filesystemService.getEntryInfo(filePath);
-        if (info.size > MAX_FILE_SIZE) {
-          setError(`File too large (${(info.size / 1024 / 1024).toFixed(1)}MB). Maximum is 5MB.`);
-          setLoading(false);
-          return;
+        if (!ssh) {
+          const info = await filesystemService.getEntryInfo(filePath);
+          if (info.size > MAX_FILE_SIZE) {
+            setError(`File too large (${(info.size / 1024 / 1024).toFixed(1)}MB). Maximum is 5MB.`);
+            setLoading(false);
+            return;
+          }
         }
 
-        const result = await filesystemService.readFile(filePath);
+        const result = ssh
+          ? await sshFileService.readFile(ssh.machineId, filePath)
+          : await filesystemService.readFile(filePath);
         if (cancelled) return;
 
         if (result.encoding === "binary") {
@@ -166,14 +182,15 @@ export default function EditorView({
 
         setContent(result.content);
         setOriginalContent(result.content);
-        const pathReadOnly = isReadOnlyPath(filePath);
+        const pathReadOnly = !ssh && isReadOnlyPath(filePath);
         const encodingReadOnly = result.encoding !== "utf-8";
         setReadOnly(pathReadOnly || encodingReadOnly);
         setReadOnlyReason(pathReadOnly ? "path" : encodingReadOnly ? "encoding" : null);
 
-        // 记录 mtime 用于冲突检测
-        const entryInfo = await filesystemService.getEntryInfo(filePath);
-        lastSavedMtime.current = entryInfo.modified;
+        if (!ssh) {
+          const entryInfo = await filesystemService.getEntryInfo(filePath);
+          lastSavedMtime.current = entryInfo.modified;
+        }
       } catch (err) {
         if (!cancelled) {
           setError(`Failed to load file: ${getErrorMessage(err)}`);
@@ -186,7 +203,7 @@ export default function EditorView({
     return () => {
       cancelled = true;
     };
-  }, [filePath, isReadOnlyPath]);
+  }, [filePath, isReadOnlyPath, ssh]);
 
   // 保存
   const handleSave = useCallback(async () => {
@@ -194,7 +211,7 @@ export default function EditorView({
 
     try {
       // 冲突检测：比对 mtime
-      if (lastSavedMtime.current) {
+      if (!ssh && lastSavedMtime.current) {
         const current = await filesystemService.getEntryInfo(filePath);
         if (current.modified && current.modified !== lastSavedMtime.current) {
           const overwrite = window.confirm(
@@ -204,18 +221,26 @@ export default function EditorView({
         }
       }
 
-      await filesystemService.writeFile(filePath, content);
+      if (ssh) await sshFileService.writeFile(ssh.machineId, filePath, content);
+      else await filesystemService.writeFile(filePath, content);
       setOriginalContent(content);
 
-      // 更新 mtime
-      const info = await filesystemService.getEntryInfo(filePath);
-      lastSavedMtime.current = info.modified;
+      if (!ssh) {
+        const info = await filesystemService.getEntryInfo(filePath);
+        lastSavedMtime.current = info.modified;
+      }
 
       toast.success("File saved");
     } catch (err) {
       handleError(err, "save file");
     }
-  }, [filePath, content, readOnly, dirty]);
+  }, [filePath, content, readOnly, dirty, ssh]);
+
+  const handleRemoteBreadcrumbNavigate = useCallback((path: string) => {
+    if (!ssh) return;
+    useSshRemoteFilesStore.getState().openMachine(ssh.machineId, path);
+    useRightDockStore.setState({ visible: true, activeView: "sshFiles" });
+  }, [ssh]);
 
   useEffect(() => {
     previewModeRef.current = previewMode;
@@ -338,10 +363,6 @@ export default function EditorView({
   }, []);
 
   // 图片文件 → 渲染 ImagePreview 组件
-  if (isImageFile(filePath)) {
-    return <ImagePreview filePath={filePath} projectPath={_projectPath} />;
-  }
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
@@ -355,6 +376,19 @@ export default function EditorView({
       <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
         {error}
       </div>
+    );
+  }
+
+  if (isImageFile(filePath)) {
+    return (
+      <ImagePreview
+        filePath={filePath}
+        projectPath={_projectPath}
+        sourceUrl={ssh ? remoteImageUrl ?? undefined : undefined}
+        sourceFileSize={ssh ? remoteImageSize ?? ssh.size : undefined}
+        sourceLabel={ssh?.machineName}
+        onNavigate={ssh ? handleRemoteBreadcrumbNavigate : undefined}
+      />
     );
   }
 
@@ -381,7 +415,11 @@ export default function EditorView({
         onRedo={handleRedo}
         onPreviewModeChange={setPreviewMode}
       />
-      <EditorBreadcrumb filePath={filePath} />
+      <EditorBreadcrumb
+        filePath={filePath}
+        sourceLabel={ssh?.machineName}
+        onNavigate={ssh ? handleRemoteBreadcrumbNavigate : undefined}
+      />
 
       <div className="flex-1 flex overflow-hidden">
         {showEditor && (

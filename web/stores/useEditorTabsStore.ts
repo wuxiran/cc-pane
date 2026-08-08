@@ -9,6 +9,11 @@ export interface EditorTab {
   projectPath: string;
   dirty: boolean;
   pinned?: boolean;
+  ssh?: {
+    machineId: string;
+    machineName: string;
+    size: number;
+  };
 }
 
 export interface RecentFile {
@@ -26,6 +31,13 @@ interface EditorTabsState {
   recentFiles: RecentFile[];
 
   openFile: (projectPath: string, filePath: string, title: string) => void;
+  openRemoteFile: (
+    machineId: string,
+    machineName: string,
+    filePath: string,
+    title: string,
+    size: number,
+  ) => void;
   closeTab: (tabId: string) => void;
   closeOtherTabs: (tabId: string) => void;
   closeTabsToRight: (tabId: string) => void;
@@ -55,7 +67,7 @@ export const useEditorTabsStore = create<EditorTabsState>()(
         // 记录到最近文件历史
         get().addRecent({ filePath, projectPath, title, openedAt: Date.now() });
         // 去重：同一 filePath 不重复打开
-        const existing = state.tabs.find((t) => t.filePath === filePath);
+        const existing = state.tabs.find((t) => !t.ssh && t.filePath === filePath);
         if (existing) {
           set({ activeTabId: existing.id });
           return;
@@ -70,6 +82,30 @@ export const useEditorTabsStore = create<EditorTabsState>()(
         set((s) => {
           s.tabs.push(newTab);
           s.activeTabId = newTab.id;
+        });
+      },
+
+      openRemoteFile: (machineId, machineName, filePath, title, size) => {
+        const state = get();
+        const existing = state.tabs.find(
+          (tab) => tab.ssh?.machineId === machineId && tab.filePath === filePath,
+        );
+        if (existing) {
+          set({ activeTabId: existing.id });
+          return;
+        }
+
+        const newTab: EditorTab = {
+          id: generateId(),
+          title,
+          filePath,
+          projectPath: `ssh://${machineId}`,
+          dirty: false,
+          ssh: { machineId, machineName, size },
+        };
+        set((state) => {
+          state.tabs.push(newTab);
+          state.activeTabId = newTab.id;
         });
       },
 
@@ -174,15 +210,20 @@ export const useEditorTabsStore = create<EditorTabsState>()(
     })),
     {
       name: "cc-panes-editor-tabs",
-      partialize: (state) => ({
-        tabs: state.tabs.map((t) => ({
+      partialize: (state) => {
+        const tabs = state.tabs.filter((tab) => !tab.ssh).map((t) => ({
           ...t,
           dirty: false,
           pinned: t.pinned,
-        })),
-        activeTabId: state.activeTabId,
-        recentFiles: state.recentFiles,
-      }),
+        }));
+        return {
+          tabs,
+          activeTabId: tabs.some((tab) => tab.id === state.activeTabId)
+            ? state.activeTabId
+            : tabs[tabs.length - 1]?.id ?? null,
+          recentFiles: state.recentFiles,
+        };
+      },
     }
   )
 );
