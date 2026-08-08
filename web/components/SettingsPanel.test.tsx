@@ -133,16 +133,27 @@ describe("SettingsPanel", () => {
     expect(screen.queryByTestId("terminal-section")).not.toBeInTheDocument();
   });
 
-  it("uses the OpenCode-sized modal and independent navigation pages", () => {
+  it("uses a viewport-relative, resizable modal and independent navigation pages", () => {
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
     const dialog = screen.getByTestId("settings-dialog");
     expect(dialog).toHaveStyle({
-      width: "calc(100vw - 32px)",
-      height: "calc(100vh - 92px)",
-      maxWidth: "980px",
-      maxHeight: "600px",
+      width: "88vw",
+      height: "82vh",
+      maxWidth: "calc(100vw - 2rem)",
+      maxHeight: "calc(100vh - 2rem)",
+      containerType: "inline-size",
+      "--settings-sidebar-width": "clamp(10rem, 16cqw, 18rem)",
+      "--settings-content-gutter": "clamp(1rem, 2cqw, 2rem)",
     });
+    expect(dialog).toHaveClass("resize");
+    expect(screen.getByTestId("settings-dialog-header")).toHaveStyle({
+      gridTemplateColumns: "calc(var(--settings-sidebar-width) + var(--settings-content-gutter) - var(--settings-chrome-gutter)) minmax(0, 1fr) auto",
+    });
+    expect(screen.getByTestId("settings-content-container")).toHaveStyle({
+      paddingInline: "var(--settings-content-gutter)",
+    });
+    expect(screen.getByRole("navigation", { name: tSettings("navigation") })).toHaveClass("w-[var(--settings-sidebar-width)]");
     expect(dialog).not.toHaveClass("!h-screen", "!w-screen", "!rounded-none");
 
     for (const group of ["application", "services"] as const) {

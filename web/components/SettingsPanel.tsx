@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { emitTo } from "@tauri-apps/api/event";
 import { Settings, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -49,6 +49,12 @@ interface SettingsPanelProps {
 }
 
 const SETTINGS_WEBVIEW_BLOCKER_ID = "settings-panel";
+
+const SETTINGS_LAYOUT_STYLE = {
+  "--settings-sidebar-width": "clamp(10rem, 16cqw, 18rem)",
+  "--settings-content-gutter": "clamp(1rem, 2cqw, 2rem)",
+  "--settings-chrome-gutter": "clamp(0.75rem, 1cqw, 1rem)",
+} as CSSProperties;
 
 export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
   const { t } = useTranslation("settings");
@@ -244,16 +250,25 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
       <DialogContent
         data-testid="settings-dialog"
         showCloseButton={false}
+        resizable
         className="shape-panel !flex flex-col !gap-0 overflow-hidden !rounded-lg !p-0 shadow-2xl"
         style={{
-          width: "calc(100vw - 32px)",
-          height: "calc(100vh - 92px)",
-          maxWidth: 980,
-          maxHeight: 600,
+          ...SETTINGS_LAYOUT_STYLE,
+          width: "88vw",
+          height: "82vh",
+          maxWidth: "calc(100vw - 2rem)",
+          maxHeight: "calc(100vh - 2rem)",
           background: "var(--app-content)",
+          containerType: "inline-size",
         }}
       >
-        <DialogHeader className="shape-chrome grid h-12 shrink-0 grid-cols-[144px_minmax(0,1fr)_auto] items-center gap-2 space-y-0 border-b border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 sm:grid-cols-[220px_minmax(0,1fr)_auto] sm:px-4">
+        <DialogHeader
+          data-testid="settings-dialog-header"
+          className="shape-chrome grid h-12 shrink-0 items-center gap-0 space-y-0 border-b border-[var(--app-border)] bg-[var(--app-panel-bg)] px-[var(--settings-chrome-gutter)]"
+          style={{
+            gridTemplateColumns: "calc(var(--settings-sidebar-width) + var(--settings-content-gutter) - var(--settings-chrome-gutter)) minmax(0, 1fr) auto",
+          }}
+        >
           <div className="flex min-w-0 items-center gap-2.5">
             <span aria-hidden="true" className="hidden size-7 shrink-0 items-center justify-center rounded bg-[var(--app-active-bg)] text-[var(--app-accent)] sm:flex">
               <Settings size={16} />
@@ -261,7 +276,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
             <DialogTitle className="hidden truncate text-[14px] font-semibold sm:block">{t("title")}</DialogTitle>
             <DialogDescription className="sr-only">{t("panelDescription")}</DialogDescription>
           </div>
-          <div className="min-w-0 overflow-x-auto pl-4 sm:pl-[23px]">
+          <div className="min-w-0 overflow-x-auto">
             {activePagePanes.length > 1 && (
               <div className="flex min-w-max justify-start">
                 <SegmentedTabs<SettingsPaneId>
@@ -282,7 +297,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
             type="button"
             aria-label={t("close", { ns: "common" })}
             onClick={() => handleClose(false)}
-            className="shape-control flex size-8 items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+            className="shape-control ml-2 flex size-8 items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
           >
             <X aria-hidden="true" size={16} />
           </button>
@@ -304,7 +319,11 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
           />
           <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <div className={activePane.layout === "wide" ? "min-h-0 flex-1 overflow-hidden" : "min-h-0 flex-1 overflow-y-auto"}>
-              <div className={activePane.layout === "wide" ? "mx-auto h-full min-h-0 w-full max-w-[720px] px-4 sm:px-8" : "mx-auto w-full max-w-[720px] px-4 py-5 sm:px-8 sm:py-6"}>
+              <div
+                data-testid="settings-content-container"
+                className={activePane.layout === "wide" ? "h-full min-h-0 w-full" : "w-full py-5 sm:py-6"}
+                style={{ paddingInline: "var(--settings-content-gutter)" }}
+              >
                 <SettingsSearchProvider value={{
                   query: appliedQuery,
                   matchedSectionIds,

@@ -87,7 +87,7 @@ describe("ProvidersView", () => {
     setup([]);
     render(<ProvidersView />);
 
-    expect(screen.getByText(/Providers|服务商|供应商/i)).toBeVisible();
+    expect(screen.getByText(/^(Providers|服务商|供应商)$/i)).toBeVisible();
     const user = userEvent.setup();
     const selector = await screen.findByRole("combobox", { name: /选择 CLI|Select CLI/i });
     expect(selector).toBeVisible();

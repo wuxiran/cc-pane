@@ -12,13 +12,7 @@ import { settingsService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
 import { useSettingsStore } from "@/stores";
 import { useOrchestratorStatus } from "@/hooks/useOrchestratorStatus";
-import type {
-  OrchestratorBindMode,
-  OrchestratorSettings,
-  TailscaleStatus,
-  WebAccessSettings,
-  WebAccessStatus,
-} from "@/types";
+import type { OrchestratorBindMode, OrchestratorSettings, TailscaleStatus, WebAccessSettings, WebAccessStatus } from "@/types";
 
 interface WebAccessSectionProps {
   value: WebAccessSettings;
@@ -423,6 +417,7 @@ export default function WebAccessSection({
                 </code>
                 <Button
                   type="button"
+                  variant="secondary"
                   size="sm"
                   onClick={() =>
                     void copyText(
@@ -475,7 +470,7 @@ export default function WebAccessSection({
           </Button>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" size="sm" onClick={() => void handleAction("open")}>
+          <Button type="button" variant="secondary" size="sm" onClick={() => void handleAction("open")}>
             <ExternalLink className="w-3.5 h-3.5 mr-1" />
             {t("webAccessSection.openWeb")}
           </Button>

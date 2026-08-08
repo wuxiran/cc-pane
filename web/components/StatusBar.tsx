@@ -1,24 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Check,
-  Eye,
-  EyeOff,
-  LockKeyhole,
-  Minimize2,
-  MonitorCog,
-  Palette,
-  Pin,
-  Terminal,
-  ArrowUpCircle,
-  Music,
-  Music2,
+  Check, Eye, EyeOff, LockKeyhole, Minimize2, MonitorCog,
+  Palette, Pin, Terminal, ArrowUpCircle, Music, Music2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { handleErrorSilent } from "@/utils";
 import {
   useThemeStore,

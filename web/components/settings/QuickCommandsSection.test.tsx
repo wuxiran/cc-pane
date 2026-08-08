@@ -42,6 +42,13 @@ describe("QuickCommandsSection", () => {
     });
   });
 
+  it("uses the standard outlined add-action button", () => {
+    render(<QuickCommandsSection />);
+
+    expect(screen.getByTestId("quick-command-add")).toHaveAttribute("data-variant", "outline");
+    expect(screen.getByTestId("quick-command-add")).toHaveAttribute("data-size", "sm");
+  });
+
   it("creates, edits, and deletes quick commands", async () => {
     const user = userEvent.setup();
     const existing = command("global-1", "Build", "global");

@@ -481,7 +481,7 @@ export default function LaunchProfilesPanel({
         />
 
         <main className="min-h-0 flex-1 overflow-y-auto">
-          <div className={`mx-auto max-w-5xl space-y-2.5 ${compact ? "py-3" : "px-3 py-3"}`}>
+          <div className={`w-full space-y-2.5 ${compact ? "py-3" : "mx-auto max-w-5xl px-3 py-3"}`}>
             <LaunchProfileSummaryCard
               draft={draft}
               activeTool={activeTool}

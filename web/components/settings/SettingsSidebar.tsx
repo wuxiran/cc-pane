@@ -20,7 +20,7 @@ export default function SettingsSidebar({ pages, activePageId, onSelect, searchS
   return (
     <nav
       aria-label={t("navigation")}
-      className="flex w-[144px] shrink-0 flex-col overflow-hidden border-r border-[var(--app-border)] bg-[var(--app-panel-bg)] sm:w-[220px]"
+      className="flex w-[var(--settings-sidebar-width)] shrink-0 flex-col overflow-hidden border-r border-[var(--app-border)] bg-[var(--app-panel-bg)]"
     >
       {searchSlot && (
         <div className="relative z-20 shrink-0 px-2 pb-1.5 pt-2">

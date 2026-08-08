@@ -1,4 +1,4 @@
-import "@/i18n";
+import i18n from "@/i18n";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,8 +49,9 @@ vi.mock("@/services/settingsService", () => ({
 }));
 
 describe("AboutSection", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    await i18n.changeLanguage("zh-CN");
     vi.mocked(isTauriRuntime).mockReturnValue(true);
     useUpdateStore.setState({ available: false, version: null });
   });
@@ -101,6 +102,16 @@ describe("AboutSection", () => {
     await act(async () => {});
 
     expect(screen.getByText(/2\.0\.0/)).toBeInTheDocument();
+  });
+
+  it("uses a destructive confirmation button for cleanup", async () => {
+    const user = userEvent.setup();
+    await i18n.changeLanguage("en");
+    render(<AboutSection />);
+    await act(async () => {});
+
+    await user.click(screen.getByRole("button", { name: "Cleanup before uninstall" }));
+    expect(screen.getByRole("button", { name: "Clean up now" })).toHaveAttribute("data-variant", "destructive");
   });
 
   it("confirms cleanup and renders the cleanup report", async () => {

@@ -209,8 +209,8 @@ export default function HomeUsageStats() {
   const metricItems = [
     { key: "input", label: t("usage.freshInput"), value: totals?.tokenInput ?? 0, icon: ArrowDownToLine, color: "var(--chart-2)" },
     { key: "output", label: t("usage.totalOutputTokens"), value: totals?.tokenOutput ?? 0, icon: ArrowUpFromLine, color: "var(--chart-3)" },
-    { key: "creation", label: t("usage.cacheCreation"), value: totals?.tokenCacheCreation ?? 0, icon: Database, color: "#f59e0b" },
-    { key: "hit", label: t("usage.cacheRead"), value: totals?.tokenCacheRead ?? 0, icon: Layers3, color: "#a855f7" },
+    { key: "creation", label: t("usage.cacheCreation"), value: totals?.tokenCacheCreation ?? 0, icon: Database, color: "var(--chart-3)" },
+    { key: "hit", label: t("usage.cacheRead"), value: totals?.tokenCacheRead ?? 0, icon: Layers3, color: "var(--chart-4)" },
   ];
   const activeRangeOption = RANGE_OPTIONS.find((option) => option.key === rangeKey) ?? RANGE_OPTIONS[3];
   const activeRangeLabel = t(activeRangeOption.labelKey);
@@ -321,11 +321,11 @@ export default function HomeUsageStats() {
               })}
               <div className="min-w-0 px-4 py-3 sm:col-span-2 lg:col-span-2">
                 <div className="flex items-center justify-between gap-3 text-[12px] font-medium" style={{ color: "var(--app-text-secondary)" }}>
-                  <span className="flex items-center gap-2"><Gauge className="h-3.5 w-3.5" style={{ color: "#10b981" }} />{t("usage.cacheHitRate")}</span>
-                  <span className="tabular-nums" style={{ color: "#10b981" }}>{formatPercent(hitRate(totals))}</span>
+                  <span className="flex items-center gap-2"><Gauge className="h-3.5 w-3.5" style={{ color: "var(--chart-2)" }} />{t("usage.cacheHitRate")}</span>
+                  <span className="tabular-nums" style={{ color: "var(--chart-2)" }}>{formatPercent(hitRate(totals))}</span>
                 </div>
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: "var(--app-home-row-border)" }}>
-                  <div className="h-full rounded-full" style={{ width: `${Math.max(0, Math.min(1, hitRate(totals) ?? 0)) * 100}%`, background: "#10b981" }} />
+                  <div className="h-full rounded-full" style={{ width: `${Math.max(0, Math.min(1, hitRate(totals) ?? 0)) * 100}%`, background: "var(--chart-2)" }} />
                 </div>
               </div>
             </div>
@@ -344,8 +344,8 @@ export default function HomeUsageStats() {
                 <AreaChart data={chartData} margin={{ top: 12, right: 14, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="usage-cache-read" x1="0" x2="0" y1="0" y2="1">
-                      <stop offset="0%" stopColor="#a855f7" stopOpacity={0.28} />
-                      <stop offset="100%" stopColor="#a855f7" stopOpacity={0} />
+                      <stop offset="0%" stopColor="var(--chart-4)" stopOpacity={0.28} />
+                      <stop offset="100%" stopColor="var(--chart-4)" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid stroke="var(--app-home-row-border)" strokeDasharray="3 4" vertical={false} />
@@ -353,10 +353,10 @@ export default function HomeUsageStats() {
                   <YAxis tick={{ fill: "var(--app-text-tertiary)", fontSize: 11 }} tickFormatter={(value) => formatCompact(Number(value) || 0, language)} width={62} axisLine={false} tickLine={false} />
                   <Tooltip formatter={(value, name) => [formatNumber(Number(value) || 0, language), String(name ?? "")]} contentStyle={{ background: "var(--app-home-surface)", border: "1px solid var(--app-home-border)", borderRadius: 8, color: "var(--app-text-primary)", fontSize: 12 }} />
                   <Legend wrapperStyle={{ fontSize: 12, paddingTop: 14 }} />
-                  <Area type="monotone" dataKey="cacheRead" name={t("usage.cacheRead")} stroke="#a855f7" strokeWidth={2.25} fill="url(#usage-cache-read)" dot={chartData.length === 1} />
-                  <Line type="monotone" dataKey="cacheCreation" name={t("usage.cacheCreation")} stroke="#f59e0b" strokeWidth={2} dot={chartData.length === 1} />
+                  <Area type="monotone" dataKey="cacheRead" name={t("usage.cacheRead")} stroke="var(--chart-4)" strokeWidth={2.25} fill="url(#usage-cache-read)" dot={chartData.length === 1} />
+                  <Line type="monotone" dataKey="cacheCreation" name={t("usage.cacheCreation")} stroke="var(--chart-3)" strokeWidth={2} dot={chartData.length === 1} />
                   <Line type="monotone" dataKey="input" name={t("usage.freshInput")} stroke="var(--chart-2)" strokeWidth={2} dot={chartData.length === 1} />
-                  <Line type="monotone" dataKey="output" name={t("usage.totalOutputTokens")} stroke="#10b981" strokeWidth={2} dot={chartData.length === 1} />
+                  <Line type="monotone" dataKey="output" name={t("usage.totalOutputTokens")} stroke="var(--chart-2)" strokeWidth={2} dot={chartData.length === 1} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>

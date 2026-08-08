@@ -64,7 +64,7 @@ export default function QuickCommandsSection() {
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-settings-section="quick-commands-root">
-      <header className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--app-border)] px-7 py-6">
+      <header className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--app-border)] py-6">
         <div className="min-w-0">
           <h1 className="text-lg font-semibold text-[var(--app-text-primary)]">
             {t("quickCommands.title")}
@@ -73,13 +73,13 @@ export default function QuickCommandsSection() {
             {t("quickCommands.description")}
           </p>
         </div>
-        <Button size="sm" onClick={openCreate}>
+        <Button data-testid="quick-command-add" size="sm" variant="outline" onClick={openCreate}>
           <Plus />
           {t("quickCommands.add")}
         </Button>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-7 py-5">
+      <div className="min-h-0 flex-1 overflow-y-auto py-5">
         {loading && commands.length === 0 ? (
           <div className="py-12 text-center text-sm text-[var(--app-text-tertiary)]">
             {t("loading", { ns: "common" })}

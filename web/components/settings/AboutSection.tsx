@@ -209,7 +209,7 @@ export default function AboutSection() {
             <Button variant="outline" disabled={cleaning} onClick={() => setCleanupOpen(false)}>
               {t("cleanupCancel")}
             </Button>
-            <Button disabled={cleaning} onClick={handleCleanup}>
+            <Button variant="destructive" disabled={cleaning} onClick={handleCleanup}>
               <ShieldCheck className="w-4 h-4 mr-1.5" />
               {cleaning ? t("cleaning") : t("cleanupNow")}
             </Button>

@@ -97,6 +97,14 @@ describe("WebAccessSection", () => {
     expect(settingsService.getWebAccessStatus).toHaveBeenCalled();
   });
 
+  it("uses the secondary style for service actions", async () => {
+    await i18n.changeLanguage("en");
+    render(<WebAccessSection value={createValue()} onChange={vi.fn()} />);
+    await act(async () => {});
+
+    expect(screen.getByRole("button", { name: "Open Web" })).toHaveAttribute("data-variant", "secondary");
+  });
+
   it("switches Web access copy when the app language changes", async () => {
     render(<WebAccessSection value={createValue()} onChange={vi.fn()} />);
     await act(async () => {});
