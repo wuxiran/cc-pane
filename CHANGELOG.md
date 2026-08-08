@@ -34,6 +34,41 @@ Feature release: IM outbound notifications (DingTalk / WeCom / Feishu), a unifie
 - `docs/87-git-collaboration.md` — branch model (main / dev/v* / release/*), PR base rules, the seven-step release procedure, and multi-AI-instance parallel discipline.
 - `docs/88-im-bridge.md` — IM bridge research: three-platform findings, security model, and the two-way roadmap (DingTalk Stream / WeCom intelligent-bot protocols are public and self-implementable; Feishu's frame protocol is not, so it gets pseudo-two-way deep links).
 
+<details>
+<summary>中文版</summary>
+
+功能版本：IM 出站通知（钉钉/企微/飞书）、统一右下角通知中心、新手引导全面重做、自定义 OpenAI 兼容语音转写、设置结构整合。同时加固了 WSL 脚本执行链路与更新清单发布管线。
+
+#### 新增
+
+- **IM 通知桥（批次 1，出站）**——会话事件（任务完成 / 等待输入 / 出错 / 退出）现在可以推送到钉钉、企业微信、飞书的群机器人。在 设置 → IM 外推 配置渠道，每个渠道带「发送测试」按钮。`cc-notify` crate 重构为纯协议层并补齐企微渠道。双向交互在路线图上（docs/88）。
+- **统一通知中心**——会话事件、AI 主动通知（MCP `trigger_notification`）、更新提示汇入同一个右下角卡片栈，状态栏新增铃铛展开历史面板。AI 通知可声明 `requiresInput` + `sessionId`：卡片长出输入框，用户的回复直接提交回目标终端会话。通知 id/时间戳改由后端生成（跨窗口一致）。
+- **语音输入：自定义 OpenAI 兼容 provider**——标准 `/v1/audio/transcriptions` multipart 接口，baseUrl 可配、API Key 可空。一步覆盖云端扩容（OpenAI Whisper / Groq / SiliconFlow）与本地自托管（whisper.cpp server / faster-whisper），应用零增重。provider 分发收敛为 Rust enum + 前端能力表，带 Rust↔TS 白名单镜像守卫。
+- **新手引导全面重做（四块卡片）**——上手清单变身旅程条（进度环 + 五节点轨道 + 唯一聚焦的下一步 CTA + 常驻「新手教程」按钮，全部完成后收束成一条成功横条）；首启向导五步并四步（模式双选并入环境预检），新增步骤导航、建空间步主按钮跟随输入态，以及「aha 退让」：并排启动后弹窗淡出 2.6 秒，让你亲眼看到两个终端启动。主页价值卡以多 agent 编排打头并配微型图示；功能提示弹窗次要链接归组、passthrough 警示改琥珀底。
+- **使用手册扩容**——首启章节开篇改为「让 AI 指挥外骨骼」（右键自动创建的 `default` 工作空间 → 打开 Claude 试 MCP）和「干净的工作空间」约定（容器目录与 Git 仓库分开；整套可让 AI 经 MCP 代办）。星标布局监视墙首次成文。
+- 终端路径链接可打开显式的项目外目录，确认框带琥珀越界警示（`outsideProjectRoot` 在命令层显式化）。
+
+#### 变更
+
+- **设置整合**（Curl 贡献）——供应商、Skills、CC酱入口并入统一设置结构，移除重复的资源中心页面。跨 CLI 用量统计补齐状态栏预览，独立入口与设置页数据不再各说各话。设置布局跨详情页自适应对齐。
+- **Todo 工作区重构**（Curl 贡献）——列表、概览、编辑体验统一，新建入口重做。
+- 语音转写逻辑从命令层迁入 `voice_service.rs`（纯迁移，命令层只留开关校验）。
+
+#### 修复
+
+- **WSL：codex trust 预写静默产出坏数据**——`wsl.exe` 的 argv 转换会搅坏 `"$(cmd arg)"` 引号形态（exit 0 但输出损坏）。脚本改走 stdin（`bash -l -s`），参数经 WSLENV `/u` 透传（叠加而非覆盖用户已有 WSLENV）。
+- **卸载现在会回收 WSL 侧注入**——写进发行版内的 codex trust 标记、codex skills、claude commands 命名空间逐发行版枚举清理（基础设施发行版跳过、不可达发行版显式报 failed、30s 超时防 WSL 卡死拖累）。
+- **更新清单竞态根治**——五个发布 job 不再并行争写 `latest.json`；各 job 产出元数据工件，由串行发布 job 从零聚合（v0.12.1 线上清单一度掉到只剩 2 个平台，mac/Win-x64 用户收不到更新）。含 mac `.app.tar.gz` 同名互撞的按架构重命名，以及缺平台时的 `::warning::` 显式告警。
+- 主题形态允许列表新增 Rust↔TS 镜像守卫测试（此前双份手工维护，任一侧漏改都会零报错静默回落 Soft）。
+- CI 命令注册与行数门禁修复，大型组件拆分（Curl 贡献）。
+
+#### 文档
+
+- `docs/87-git-collaboration.md`——分支模型（main / dev/v* / release/*）、PR base 规则、发版七步流程、多 AI 实例并行纪律。
+- `docs/88-im-bridge.md`——IM 桥调研：三平台结论、安全模型、双向路线图（钉钉 Stream / 企微智能机器人协议公开可自实现；飞书帧协议不公开，走伪双向深链）。
+
+</details>
+
 ## 0.12.1 - 2026-08-08
 
 Stabilization release on top of 0.12.0-beta.1: interface shapes land as stable, settings move into a modal, and a three-front macOS fix (CLI path resolution, startup crash on macOS ≤13, user CLI config hygiene) closes out the platform's worst gaps. macOS code is now compiled, linted, and tested in CI for the first time.
