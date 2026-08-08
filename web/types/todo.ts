@@ -10,6 +10,12 @@ export type TodoStatus = "todo" | "in_progress" | "done";
 /** Todo 优先级 */
 export type TodoPriority = "high" | "medium" | "low";
 
+/** Todo 列表排序方式 */
+export type TodoSortBy = "manual" | "priority" | "due_date" | "updated_at" | "created_at";
+
+/** Todo 工作视图 */
+export type TodoWorkView = "all" | "inbox" | "my_day" | "overdue";
+
 /** Todo 作用域 */
 export type TodoScope =
   | "global"
@@ -47,6 +53,29 @@ export interface TodoSubtask {
   title: string;
   completed: boolean;
   sortOrder: number;
+  createdAt: string;
+}
+
+/** Todo 操作记录 */
+export interface TodoActivity {
+  id: string;
+  todoId: string;
+  action: string;
+  detail?: string;
+  createdAt: string;
+}
+
+/** 可保存的列表筛选 */
+export interface TodoSavedFilter {
+  id: string;
+  name: string;
+  workView: TodoWorkView;
+  status: TodoStatus | null;
+  scope: TodoScope | null;
+  priority: TodoPriority | null;
+  todoType: string | null;
+  search: string;
+  sortBy: TodoSortBy;
   createdAt: string;
 }
 
@@ -95,6 +124,8 @@ export interface TodoQuery {
   offset?: number;
   myDay?: boolean;
   todoType?: string;
+  inbox?: boolean;
+  overdue?: boolean;
 }
 
 /** Todo 查询结果 */
@@ -111,4 +142,6 @@ export interface TodoStats {
   byScope: Record<string, number>;
   byPriority: Record<string, number>;
   overdue: number;
+  inbox?: number;
+  myDay?: number;
 }

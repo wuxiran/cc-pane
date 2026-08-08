@@ -1,10 +1,13 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
   Plus,
   ListTodo,
   Loader2,
+  CheckSquare,
+  X,
+  Check,
 } from "lucide-react";
 import {
   DndContext,
@@ -23,15 +26,18 @@ import {
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useTodoStore } from "@/stores";
-import TodoSidebar from "./TodoSidebar";
+import { clampSidebarWidth, loadSidebarWidth, saveSidebarWidth } from "@/lib/sidebarWidth";
+import TodoViewSwitcher from "./TodoViewSwitcher";
 import TodoFilterBar, { type GroupMode } from "./TodoFilterBar";
 import { SortableTodoListItem } from "./TodoListItem";
 import TodoTagGroup from "./TodoTagGroup";
 import TodoEditor from "./TodoEditor";
 import TodoOverview from "./TodoOverview";
+import TodoResizeHandle from "./TodoResizeHandle";
 import type { TodoEditForm } from "./TodoEditor";
 import type {
   TodoItem,
+  TodoPriority,
   TodoStatus,
   TodoScope,
   CreateTodoRequest,
@@ -43,6 +49,15 @@ interface TodoManagerProps {
   scope: string;
   /** Tab 的 scopeRef 值（如工作空间名或项目路径） */
   scopeRef: string;
+  /** Defers Todo loading until the view has been visited. */
+  enabled?: boolean;
+  /** Lets the app shell place Todo's list in the shared sidebar transition. */
+  children?: (parts: TodoManagerParts) => ReactNode;
+}
+
+interface TodoManagerParts {
+  sidebar: ReactNode;
+  content: ReactNode;
 }
 
 /** 状态循环：todo → in_progress → done → todo */
@@ -52,7 +67,18 @@ function nextStatus(current: TodoStatus): TodoStatus {
   return cycle[(idx + 1) % cycle.length];
 }
 
-export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
+function nextPriority(current: TodoPriority): TodoPriority {
+  const cycle: TodoPriority[] = ["low", "medium", "high"];
+  const index = cycle.indexOf(current);
+  return cycle[(index + 1) % cycle.length];
+}
+
+export default function TodoManager({
+  scope,
+  scopeRef,
+  enabled = true,
+  children,
+}: TodoManagerProps) {
   const { t } = useTranslation("dialogs");
   const { t: tNotify } = useTranslation("notifications");
 
@@ -64,6 +90,12 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
   const filterScope = useTodoStore((s) => s.filterScope);
   const filterPriority = useTodoStore((s) => s.filterPriority);
   const filterType = useTodoStore((s) => s.filterType);
+  const sortBy = useTodoStore((s) => s.sortBy);
+  const selectedIds = useTodoStore((s) => s.selectedIds);
+  const stats = useTodoStore((s) => s.stats);
+  const activities = useTodoStore((s) => s.activities);
+  const activitiesLoading = useTodoStore((s) => s.activitiesLoading);
+  const savedFilters = useTodoStore((s) => s.savedFilters);
   const searchText = useTodoStore((s) => s.searchText);
   const loadList = useTodoStore((s) => s.loadList);
   const create = useTodoStore((s) => s.create);
@@ -74,6 +106,11 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
   const setFilterScope = useTodoStore((s) => s.setFilterScope);
   const setFilterPriority = useTodoStore((s) => s.setFilterPriority);
   const setFilterType = useTodoStore((s) => s.setFilterType);
+  const clearFilters = useTodoStore((s) => s.clearFilters);
+  const setSortBy = useTodoStore((s) => s.setSortBy);
+  const toggleSelected = useTodoStore((s) => s.toggleSelected);
+  const clearSelection = useTodoStore((s) => s.clearSelection);
+  const batchUpdateStatus = useTodoStore((s) => s.batchUpdateStatus);
   const customTypes = useTodoStore((s) => s.customTypes);
   const setSearchText = useTodoStore((s) => s.setSearchText);
   const setContext = useTodoStore((s) => s.setContext);
@@ -85,9 +122,16 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
   const addSubtask = useTodoStore((s) => s.addSubtask);
   const toggleSubtask = useTodoStore((s) => s.toggleSubtask);
   const deleteSubtask = useTodoStore((s) => s.deleteSubtask);
+  const loadActivities = useTodoStore((s) => s.loadActivities);
+  const saveCurrentFilter = useTodoStore((s) => s.saveCurrentFilter);
+  const applySavedFilter = useTodoStore((s) => s.applySavedFilter);
+  const removeSavedFilter = useTodoStore((s) => s.removeSavedFilter);
 
   const [isCreating, setIsCreating] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   const [groupMode, setGroupMode] = useState<GroupMode>("none");
+  const [listWidth, setListWidth] = useState(loadSidebarWidth);
   const [editForm, setEditForm] = useState<TodoEditForm>({
     title: "",
     description: "",
@@ -102,44 +146,25 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
     todoType: "",
   });
 
-  // 当前视图标题
-  const currentViewLabel = useMemo(() => {
-    if (viewMode === "my_day") return t("todoMyDay");
-    if (!filterScope) return t("todoAllTasks");
-    const scopeLabels: Record<string, string> = {
-      global: t("todoScopeGlobal"),
-      workspace: t("todoScopeWorkspace"),
-      project: t("todoScopeProject"),
-      external: t("todoScopeExternal"),
-      temp_script: t("todoScopeScript"),
-    };
-    return scopeLabels[filterScope] ?? t("todoAllTasks");
-  }, [viewMode, filterScope, t]);
-
   // 初始化：设置上下文并加载
   useEffect(() => {
+    if (!enabled) return;
     const validScope = scope as TodoScope | undefined;
     if (validScope && scopeRef) {
       setContext(validScope, scopeRef);
     }
     loadList();
     return () => reset();
-  }, [scope, scopeRef, setContext, loadList, reset]);
+  }, [enabled, scope, scopeRef, setContext, loadList, reset]);
 
   // 搜索去抖
   useEffect(() => {
+    if (!enabled) return;
     const timer = setTimeout(() => {
       loadList();
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchText, loadList]);
-
-  // 列表加载后自动选中第一条
-  useEffect(() => {
-    if (!loading && todos.length > 0 && !selectedTodo && !isCreating) {
-      select(todos[0]);
-    }
-  }, [loading, todos, selectedTodo, isCreating, select]);
+  }, [enabled, searchText, loadList]);
 
   // 选中时填充编辑表单
   useEffect(() => {
@@ -158,8 +183,19 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
         todoType: selectedTodo.todoType ?? "",
       });
       setIsCreating(false);
+      setIsDirty(false);
     }
   }, [selectedTodo]);
+
+  useEffect(() => {
+    if (selectedTodo && !todos.some((todo) => todo.id === selectedTodo.id)) {
+      select(null);
+    }
+  }, [selectedTodo, todos, select]);
+
+  useEffect(() => {
+    if (selectedTodo) void loadActivities(selectedTodo.id);
+  }, [selectedTodo, loadActivities]);
 
   // 通用分组计算
   const groups = useMemo(() => {
@@ -213,8 +249,10 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
   }, [groupMode, t]);
 
   const handleNew = useCallback(() => {
+    if (isDirty && !window.confirm(t("todoUnsavedChanges"))) return;
     select(null);
     setIsCreating(true);
+    setIsDirty(false);
     setEditForm({
       title: "",
       description: "",
@@ -228,7 +266,16 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
       recurrence: "",
       todoType: "",
     });
-  }, [select, scope, scopeRef]);
+  }, [isDirty, select, scope, scopeRef, t]);
+
+  const handleSelectTodo = useCallback(
+    (todo: TodoItem) => {
+      if (isDirty && !window.confirm(t("todoUnsavedChanges"))) return;
+      setIsDirty(false);
+      select(todo);
+    },
+    [isDirty, select, t],
+  );
 
   const handleSave = useCallback(async () => {
     if (!editForm.title.trim()) {
@@ -258,6 +305,7 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
         };
         await create(request);
         setIsCreating(false);
+        setIsDirty(false);
         toast.success(tNotify("todoCreated"));
       } else if (selectedTodo) {
         const request: UpdateTodoRequest = {
@@ -274,6 +322,7 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
           todoType: editForm.todoType || undefined,
         };
         await update(selectedTodo.id, request);
+        setIsDirty(false);
         toast.success(tNotify("todoUpdated"));
       }
     } catch (e) {
@@ -294,9 +343,24 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
   );
 
   const handleCancel = useCallback(() => {
+    if (isDirty && !window.confirm(t("todoUnsavedChanges"))) return;
     setIsCreating(false);
+    setIsDirty(false);
     select(null);
-  }, [select]);
+  }, [isDirty, select, t]);
+
+  const handleBatchStatus = useCallback(
+    async (status: TodoStatus) => {
+      try {
+        await batchUpdateStatus(selectedIds, status);
+        setSelectionMode(false);
+        toast.success(tNotify("todoUpdated"));
+      } catch (e) {
+        toast.error(tNotify("operationFailed", { error: String(e) }));
+      }
+    },
+    [batchUpdateStatus, selectedIds, tNotify],
+  );
 
   const handleToggleStatus = useCallback(
     async (todo: TodoItem) => {
@@ -307,6 +371,17 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
       }
     },
     [update, tNotify]
+  );
+
+  const handleTogglePriority = useCallback(
+    async (todo: TodoItem) => {
+      try {
+        await update(todo.id, { priority: nextPriority(todo.priority) });
+      } catch (e) {
+        toast.error(tNotify("operationFailed", { error: String(e) }));
+      }
+    },
+    [update, tNotify],
   );
 
   const handleAddSubtask = useCallback(
@@ -351,6 +426,7 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
+      if (sortBy !== "manual") return;
       const { active, over } = event;
       if (!over || active.id === over.id) return;
       const oldIndex = todos.findIndex((t) => t.id === active.id);
@@ -359,45 +435,100 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
       const reordered = arrayMove(todos, oldIndex, newIndex);
       reorder(reordered.map((t) => t.id));
     },
-    [todos, reorder]
+    [sortBy, todos, reorder]
   );
 
-  const showEditor = isCreating || selectedTodo;
+  const showEditor = isCreating || Boolean(selectedTodo);
+  const showOverview = !showEditor;
+  const showListTools = todos.length > 0 || Boolean(searchText.trim() || filterStatus || filterPriority || filterType || sortBy !== "manual" || groupMode !== "none");
+  const handleListResize = useCallback((deltaX: number) => {
+    setListWidth((width) => {
+      const nextWidth = clampSidebarWidth(width + deltaX);
+      saveSidebarWidth(nextWidth);
+      return nextWidth;
+    });
+  }, []);
 
-  return (
-    <div className="flex h-full">
-      {/* 左侧导航 */}
-      <TodoSidebar
-        viewMode={viewMode}
-        activeScope={filterScope}
-        onViewModeChange={setViewMode}
-        onScopeChange={setFilterScope}
-      />
-
-      {/* 中间列表 */}
-      <section className="flex-1 flex flex-col border-r border-border bg-background min-w-0">
+  const sidebar = (
+    <div className="flex h-full shrink-0">
+      {/* 任务视图与列表 */}
+      <section
+        className="shape-surface flex min-w-0 shrink-0 flex-col"
+        style={{
+          width: listWidth,
+          background: "var(--app-sidebar-bg)",
+        }}
+      >
         {/* 头部 */}
-        <header className="px-5 py-4 border-b border-border/50">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h1 className="text-xl font-bold">{currentViewLabel}</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">
+        <header className="px-4 py-3 border-b border-border/50">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="flex shrink-0 items-center gap-1.5 text-sm font-semibold text-primary">
+                  <ListTodo size={15} />
+                  TodoList
+                </span>
+                <span className="text-muted-foreground/40">/</span>
+                <TodoViewSwitcher
+                  viewMode={viewMode}
+                  activeScope={filterScope}
+                  stats={stats}
+                  onViewModeChange={setViewMode}
+                  onScopeChange={setFilterScope}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
                 {t("todoTaskCount", { count: total })}
               </p>
             </div>
-            <Button
-              onClick={handleNew}
-              className="gap-1.5 rounded-xl shadow-sm"
-              size="sm"
-            >
-              <Plus size={16} />
-              {t("todoNewTask")}
-            </Button>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8"
+                onClick={handleNew}
+                title={t("todoNewTask")}
+                aria-label={t("todoNewTask")}
+              >
+                <Plus size={16} />
+              </Button>
+              {todos.length > 0 && (
+                <Button
+                  size="icon"
+                  variant={selectionMode ? "secondary" : "ghost"}
+                  className="h-8 w-8"
+                  onClick={() => {
+                    setSelectionMode((value) => !value);
+                    clearSelection();
+                  }}
+                  title={t("todoMultiSelect")}
+                >
+                  <CheckSquare size={15} />
+                </Button>
+              )}
+            </div>
           </div>
         </header>
 
+        {selectionMode && (
+          <div className="flex items-center gap-2 border-b border-border/50 bg-muted/20 px-4 py-2 text-xs">
+            <span className="text-muted-foreground">{t("todoSelectedCount", { count: selectedIds.length })}</span>
+            <Button size="sm" variant="ghost" className="h-7 gap-1 px-2" disabled={!selectedIds.length} onClick={() => void handleBatchStatus("in_progress")}>
+              <Loader2 size={13} />
+              {t("todoInProgress")}
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7 gap-1 px-2" disabled={!selectedIds.length} onClick={() => void handleBatchStatus("done")}>
+              <Check size={13} />
+              {t("todoDone")}
+            </Button>
+            <Button size="icon" variant="ghost" className="ml-auto h-7 w-7" onClick={() => { clearSelection(); setSelectionMode(false); }} title={t("todoCancelSelection")}>
+              <X size={14} />
+            </Button>
+          </div>
+        )}
+
         {/* 筛选栏 */}
-        <TodoFilterBar
+        {showListTools && <TodoFilterBar
           filterStatus={filterStatus}
           filterPriority={filterPriority}
           filterType={filterType}
@@ -409,7 +540,14 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
           onTypeChange={setFilterType}
           onSearchChange={setSearchText}
           onGroupModeChange={setGroupMode}
-        />
+          sortBy={sortBy}
+          onSortChange={setSortBy}
+          onClearFilters={clearFilters}
+          savedFilters={savedFilters}
+          onSaveFilter={saveCurrentFilter}
+          onApplySavedFilter={applySavedFilter}
+          onRemoveSavedFilter={removeSavedFilter}
+        />}
 
         {/* 任务列表 */}
         <div className="flex-1 overflow-y-auto py-2 px-3">
@@ -424,8 +562,7 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
             <EmptyState
               icon={ListTodo}
               title={t("noTasks")}
-              action={{ label: t("clickToCreate"), onClick: handleNew }}
-              className="py-12"
+              className="py-24"
             />
           )}
 
@@ -439,9 +576,13 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
                   label={groupLabelMap?.[key]}
                   todos={groupTodos}
                   selectedId={selectedTodo?.id}
-                  onSelect={select}
+                  onSelect={handleSelectTodo}
                   onToggleStatus={handleToggleStatus}
+                  onTogglePriority={handleTogglePriority}
                   onDelete={handleDelete}
+                  selectionMode={selectionMode}
+                  selectedIds={selectedIds}
+                  onToggleSelect={toggleSelected}
                 />
               ))}
             </>
@@ -463,10 +604,15 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
                     key={todo.id}
                     todo={todo}
                     isSelected={selectedTodo?.id === todo.id}
-                    onSelect={() => select(todo)}
+                    onSelect={() => handleSelectTodo(todo)}
                     onToggleStatus={() => handleToggleStatus(todo)}
+                    onTogglePriority={() => handleTogglePriority(todo)}
                     onToggleMyDay={() => toggleMyDay(todo.id)}
                     onDelete={handleDelete}
+                    selectionMode={selectionMode}
+                    isMultiSelected={selectedIds.includes(todo.id)}
+                    onToggleSelect={() => toggleSelected(todo.id)}
+                    dragDisabled={sortBy !== "manual"}
                   />
                 ))}
               </SortableContext>
@@ -474,33 +620,49 @@ export default function TodoManager({ scope, scopeRef }: TodoManagerProps) {
           )}
         </div>
       </section>
+      <TodoResizeHandle
+        label={t("todoResizeTaskList")}
+        onResize={handleListResize}
+      />
+    </div>
+  );
 
-      {/* 右侧编辑器 */}
+  const content = showEditor ? (
+    <TodoEditor
+      form={editForm}
+      isNew={isCreating}
+      subtasks={selectedTodo?.subtasks ?? []}
+      activities={activities}
+      activitiesLoading={activitiesLoading}
+      onChange={(form) => {
+        setEditForm(form);
+        setIsDirty(true);
+      }}
+      onSave={handleSave}
+      onCancel={handleCancel}
+      onDelete={selectedTodo ? () => handleDelete(selectedTodo.id) : undefined}
+      onToggleSubtask={handleToggleSubtask}
+      onDeleteSubtask={handleDeleteSubtask}
+      onAddSubtask={handleAddSubtask}
+    />
+  ) : showOverview ? (
+    <TodoOverview
+      todos={todos}
+      onSelectTodo={select}
+      onToggleStatus={handleToggleStatus}
+    />
+  ) : null;
+
+  if (children) return children({ sidebar, content });
+
+  return (
+    <div className="flex h-full">
+      {sidebar}
       <aside
-        className={`shrink-0 bg-card transition-all duration-[var(--dur-fast)] ${
-          showEditor ? "w-[480px]" : "w-0 overflow-hidden"
-        }`}
+        className="h-full min-w-0 flex-1 overflow-hidden"
+        style={{ background: "var(--app-panel-bg)" }}
       >
-        {showEditor ? (
-          <TodoEditor
-            form={editForm}
-            isNew={isCreating}
-            subtasks={selectedTodo?.subtasks ?? []}
-            onChange={setEditForm}
-            onSave={handleSave}
-            onCancel={handleCancel}
-            onDelete={selectedTodo ? () => handleDelete(selectedTodo.id) : undefined}
-            onToggleSubtask={handleToggleSubtask}
-            onDeleteSubtask={handleDeleteSubtask}
-            onAddSubtask={handleAddSubtask}
-          />
-        ) : (
-          <TodoOverview
-            todos={todos}
-            onSelectTodo={select}
-            onCreateNew={handleNew}
-          />
-        )}
+        {content}
       </aside>
     </div>
   );

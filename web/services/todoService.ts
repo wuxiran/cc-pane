@@ -4,6 +4,7 @@
 import { apiDelete, apiGet, apiJson, invokeOrApi } from "./apiClient";
 import type {
   TodoItem,
+  TodoActivity,
   TodoSubtask,
   TodoStatus,
   TodoScope,
@@ -91,6 +92,13 @@ export const todoService = {
   async checkReminders(): Promise<TodoItem[]> {
     return invokeOrApi<TodoItem[]>("check_todo_reminders", undefined, () =>
       apiGet<TodoItem[]>("/api/todos/reminders"),
+    );
+  },
+
+  /** 获取任务活动记录 */
+  async listActivities(todoId: string): Promise<TodoActivity[]> {
+    return invokeOrApi<TodoActivity[]>("list_todo_activities", { todoId }, () =>
+      apiGet<TodoActivity[]>(`/api/todos/${encodeURIComponent(todoId)}/activities`),
     );
   },
 

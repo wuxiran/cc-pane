@@ -234,12 +234,18 @@ describe("useActivityBarStore", () => {
   });
 
   describe("模式切换 toggle*Mode", () => {
-    it("toggleTodoMode 应在 todo 与 panes 间切换", () => {
-      useActivityBarStore.setState({ appViewMode: "panes" });
+    it("toggleTodoMode 首次进入 todo，再次点击仅折叠共享侧栏", () => {
+      useActivityBarStore.setState({ appViewMode: "panes", sidebarVisible: false });
       useActivityBarStore.getState().toggleTodoMode();
       expect(useActivityBarStore.getState().appViewMode).toBe("todo");
+      expect(useActivityBarStore.getState().sidebarVisible).toBe(true);
+
       useActivityBarStore.getState().toggleTodoMode();
-      expect(useActivityBarStore.getState().appViewMode).toBe("panes");
+      expect(useActivityBarStore.getState().appViewMode).toBe("todo");
+      expect(useActivityBarStore.getState().sidebarVisible).toBe(false);
+
+      useActivityBarStore.getState().toggleTodoMode();
+      expect(useActivityBarStore.getState().sidebarVisible).toBe(true);
     });
 
     it("toggleSelfChatMode 应在 selfchat 与 panes 间切换", () => {

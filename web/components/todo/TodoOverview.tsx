@@ -1,72 +1,208 @@
-import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  ListTodo,
-  Clock,
-  PlayCircle,
+  CalendarDays,
   CheckCircle2,
-  AlertTriangle,
+  ChevronRight,
+  Circle,
+  CircleDashed,
   Flag,
-  Plus,
+  ListTodo,
+  Sun,
+  Target,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useTodoStore } from "@/stores";
-import type { TodoItem } from "@/types";
+import type { TodoItem, TodoPriority, TodoStatus } from "@/types";
 
 interface TodoOverviewProps {
   todos: TodoItem[];
   onSelectTodo: (todo: TodoItem) => void;
-  onCreateNew: () => void;
+  onToggleStatus?: (todo: TodoItem) => void;
 }
 
-/** 统计卡片 */
-function StatCard({
-  icon,
-  label,
-  count,
-  color,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  count: number;
-  color: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-2xl border border-border/30 bg-card shadow-sm p-4 hover:shadow-md hover:-translate-y-[1px] transition-all duration-[var(--dur)]">
-      <div className={`shrink-0 w-9 h-9 rounded-full bg-muted/50 border border-border/30 flex items-center justify-center ${color}`}>{icon}</div>
-      <div className="min-w-0">
-        <p className="text-lg font-semibold leading-none">{count}</p>
-        <p className="text-[11px] text-muted-foreground mt-0.5">{label}</p>
-      </div>
-    </div>
+const PRIORITY_ORDER: Record<TodoPriority, number> = {
+  high: 0,
+  medium: 1,
+  low: 2,
+};
+
+const PRIORITY_STYLES: Record<TodoPriority, string> = {
+  high: "text-[var(--app-status-danger)]",
+  medium: "text-[var(--app-status-warning)]",
+  low: "text-[var(--app-text-tertiary)]",
+};
+
+function isOverdue(todo: TodoItem) {
+  return Boolean(
+    todo.dueDate
+      && todo.status !== "done"
+      && new Date(todo.dueDate).getTime() < Date.now(),
   );
 }
 
-/** 优先级进度条 */
-function PriorityBar({
-  label,
-  count,
-  total,
-  color,
-}: {
-  label: string;
-  count: number;
-  total: number;
-  color: string;
-}) {
-  const pct = total > 0 ? (count / total) * 100 : 0;
+function focusRank(todo: TodoItem) {
+  if (todo.status === "in_progress") return 0;
+  if (isOverdue(todo)) return 1;
+  if (todo.myDay) return 2;
+  return 3;
+}
+
+function compareFocusTodos(a: TodoItem, b: TodoItem) {
+  const rankDifference = focusRank(a) - focusRank(b);
+  if (rankDifference !== 0) return rankDifference;
+
+  const priorityDifference = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+  if (priorityDifference !== 0) return priorityDifference;
+
+  const aDue = a.dueDate ? new Date(a.dueDate).getTime() : Number.POSITIVE_INFINITY;
+  const bDue = b.dueDate ? new Date(b.dueDate).getTime() : Number.POSITIVE_INFINITY;
+  if (aDue !== bDue) return aDue - bDue;
+
+  return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+}
+
+function formatDate(value: string, locale: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(locale, {
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+function StatusIcon({ status, size = 18 }: { status: TodoStatus; size?: number }) {
+  if (status === "in_progress") {
+    return <CircleDashed size={size} className="text-[var(--app-accent)]" />;
+  }
+  if (status === "done") {
+    return <CheckCircle2 size={size} className="text-[var(--app-status-success)]" />;
+  }
+  return <Circle size={size} className="text-muted-foreground" />;
+}
+
+function PriorityLabel({ priority }: { priority: TodoPriority }) {
+  const { t } = useTranslation("dialogs");
+  const labels: Record<TodoPriority, string> = {
+    high: t("todoPriorityHigh"),
+    medium: t("todoPriorityMedium"),
+    low: t("todoPriorityLow"),
+  };
+
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs text-muted-foreground w-8 text-right">
-        {label}
-      </span>
-      <div className="flex-1 h-2 rounded-full bg-muted/40 overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all duration-500 ${color}`}
-          style={{ width: `${pct}%` }}
-        />
+    <span className={`inline-flex items-center gap-1 ${PRIORITY_STYLES[priority]}`}>
+      <Flag size={11} />
+      {labels[priority]}
+    </span>
+  );
+}
+
+function FocusTask({
+  todo,
+  onSelect,
+  onToggleStatus,
+}: {
+  todo: TodoItem;
+  onSelect: () => void;
+  onToggleStatus?: () => void;
+}) {
+  const { t, i18n } = useTranslation("dialogs");
+  const completedSubtasks = todo.subtasks.filter((subtask) => subtask.completed).length;
+
+  return (
+    <article className="rounded-md border border-border/55 bg-card/25 transition-colors duration-[var(--dur-fast)] hover:border-border">
+      <div className="flex min-w-0 items-start gap-3.5 p-5">
+        <button
+          type="button"
+          className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-[var(--app-hover)]"
+          onClick={onToggleStatus}
+          disabled={!onToggleStatus}
+          aria-label={t("todoToggleStatus")}
+        >
+          <StatusIcon status={todo.status} size={20} />
+        </button>
+
+        <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
+          <span data-testid="todo-overview-focus-title" className="block truncate text-base font-semibold text-foreground">
+            {todo.title}
+          </span>
+          {todo.description && (
+            <span className="mt-1.5 block max-h-10 overflow-hidden text-[13px] leading-5 text-muted-foreground">
+              {todo.description}
+            </span>
+          )}
+          <span className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
+            <PriorityLabel priority={todo.priority} />
+            {todo.myDay && (
+              <span className="inline-flex items-center gap-1 text-[var(--app-status-warning)]">
+                <Sun size={11} />
+                {t("todoMyDay")}
+              </span>
+            )}
+            {todo.dueDate && (
+              <span className={`inline-flex items-center gap-1 ${isOverdue(todo) ? "text-[var(--app-status-danger)]" : ""}`}>
+                <CalendarDays size={11} />
+                {formatDate(todo.dueDate, i18n.language)}
+              </span>
+            )}
+            {todo.subtasks.length > 0 && (
+              <span>
+                {t("todoOverviewSubtaskProgress", {
+                  completed: completedSubtasks,
+                  total: todo.subtasks.length,
+                })}
+              </span>
+            )}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-[var(--app-hover)] hover:text-foreground"
+          onClick={onSelect}
+          aria-label={t("todoDetail")}
+        >
+          <ChevronRight size={16} />
+        </button>
       </div>
-      <span className="text-xs text-muted-foreground w-6">{count}</span>
+    </article>
+  );
+}
+
+function CompactTaskRow({
+  todo,
+  onSelect,
+  onToggleStatus,
+}: {
+  todo: TodoItem;
+  onSelect: () => void;
+  onToggleStatus?: () => void;
+}) {
+  const { t, i18n } = useTranslation("dialogs");
+
+  return (
+    <div className="group flex min-h-11 items-center border-b border-border/35 last:border-b-0">
+      <button
+        type="button"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-[var(--app-hover)]"
+        onClick={onToggleStatus}
+        disabled={!onToggleStatus}
+        aria-label={t("todoToggleStatus")}
+      >
+        <StatusIcon status={todo.status} size={16} />
+      </button>
+      <button type="button" className="flex min-w-0 flex-1 items-center gap-3 py-2 pr-1 text-left" onClick={onSelect}>
+        <span
+          data-testid="todo-overview-task-title"
+          className={`min-w-0 flex-1 truncate text-[13px] font-medium ${
+            todo.status === "done" ? "text-muted-foreground line-through" : "text-foreground"
+          }`}
+        >
+          {todo.title}
+        </span>
+        <span className="flex shrink-0 items-center gap-3 text-[11px] text-muted-foreground">
+          <PriorityLabel priority={todo.priority} />
+          {todo.dueDate && <span>{formatDate(todo.dueDate, i18n.language)}</span>}
+          <ChevronRight size={13} className="text-muted-foreground/45" />
+        </span>
+      </button>
     </div>
   );
 }
@@ -74,132 +210,115 @@ function PriorityBar({
 export default function TodoOverview({
   todos,
   onSelectTodo,
-  onCreateNew,
+  onToggleStatus,
 }: TodoOverviewProps) {
   const { t } = useTranslation("dialogs");
-  const stats = useTodoStore((s) => s.stats);
-  const loadStats = useTodoStore((s) => s.loadStats);
-
-  useEffect(() => {
-    loadStats();
-  }, [loadStats]);
-
-  const total = stats?.total ?? todos.length;
-  const todoCount = stats?.byStatus?.todo ?? 0;
-  const inProgressCount = stats?.byStatus?.in_progress ?? 0;
-  const doneCount = stats?.byStatus?.done ?? 0;
-  const overdueCount = stats?.overdue ?? 0;
-
-  const highCount = stats?.byPriority?.high ?? 0;
-  const mediumCount = stats?.byPriority?.medium ?? 0;
-  const lowCount = stats?.byPriority?.low ?? 0;
-
-  // 最近更新的 5 条
-  const recentTodos = [...todos]
-    .sort(
-      (a, b) =>
-        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-    )
-    .slice(0, 5);
+  const todoCount = todos.filter((todo) => todo.status === "todo").length;
+  const inProgressCount = todos.filter((todo) => todo.status === "in_progress").length;
+  const doneCount = todos.filter((todo) => todo.status === "done").length;
+  const openCount = todoCount + inProgressCount;
+  const completionRate = todos.length > 0 ? Math.round((doneCount / todos.length) * 100) : 0;
+  const openTodos = todos.filter((todo) => todo.status !== "done").sort(compareFocusTodos);
+  const focusTodo = openTodos[0] ?? [...todos]
+    .filter((todo) => todo.status === "done")
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
+  const otherTodos = [...todos]
+    .filter((todo) => todo.id !== focusTodo?.id)
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 6);
 
   return (
-    <div className="flex flex-col items-center justify-center h-full px-8 py-6 max-w-xl mx-auto">
-      <h3 className="text-sm font-semibold mb-4">{t("todoOverviewTitle")}</h3>
+    <div className="@container/overview flex h-full flex-col">
+      <header className="flex h-12 shrink-0 items-center border-b border-border/35 px-5">
+        <h2 className="text-[13px] font-semibold">{t("todoOverviewTitle")}</h2>
+        <span className="ml-3 border-l border-border/50 pl-3 text-xs text-muted-foreground">
+          {t("todoOverviewOpenCount", { count: openCount })}
+        </span>
+      </header>
 
-      {/* 数字卡片 */}
-      <div className="grid grid-cols-3 gap-2.5 w-full mb-5">
-        <StatCard
-          icon={<ListTodo size={18} />}
-          label={t("todoOverviewTotal")}
-          count={total}
-          color="text-foreground"
-        />
-        <StatCard
-          icon={<Clock size={18} />}
-          label={t("todoTodo")}
-          count={todoCount}
-          color="text-muted-foreground"
-        />
-        <StatCard
-          icon={<PlayCircle size={18} />}
-          label={t("todoInProgress")}
-          count={inProgressCount}
-          color="text-[var(--app-accent)]"
-        />
-        <StatCard
-          icon={<CheckCircle2 size={18} />}
-          label={t("todoDone")}
-          count={doneCount}
-          color="text-[var(--app-status-success)]"
-        />
-        <StatCard
-          icon={<AlertTriangle size={18} />}
-          label={t("todoOverviewOverdue")}
-          count={overdueCount}
-          color="text-[var(--app-status-danger)]"
-        />
-      </div>
-
-      {/* 优先级分布 */}
-      <div className="w-full mb-5">
-        <div className="flex items-center gap-1.5 mb-2">
-          <Flag size={12} className="text-muted-foreground" />
-          <span className="text-xs font-medium text-muted-foreground">
-            {t("todoOverviewPriority")}
-          </span>
+      {todos.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
+          <ListTodo size={24} strokeWidth={1.4} />
+          <p className="text-sm">{t("noTasks")}</p>
         </div>
-        <div className="space-y-1.5">
-          <PriorityBar
-            label={t("todoPriorityHigh")}
-            count={highCount}
-            total={total}
-            color="bg-[var(--app-status-danger)]"
-          />
-          <PriorityBar
-            label={t("todoPriorityMedium")}
-            count={mediumCount}
-            total={total}
-            color="bg-[var(--app-status-warning)]"
-          />
-          <PriorityBar
-            label={t("todoPriorityLow")}
-            count={lowCount}
-            total={total}
-            color="bg-[var(--app-text-tertiary)]"
-          />
-        </div>
-      </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto">
+          <div className="w-full max-w-[1120px] px-6 py-6">
+            <div className="grid gap-6 @min-[800px]/overview:grid-cols-[minmax(420px,1fr)_260px]">
+              {focusTodo && (
+                <section>
+                  <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                    <Target size={14} className="text-[var(--app-accent)]" />
+                    <h3>{openCount > 0 ? t("todoOverviewFocus") : t("todoOverviewCompleted")}</h3>
+                  </div>
+                  <FocusTask
+                    todo={focusTodo}
+                    onSelect={() => onSelectTodo(focusTodo)}
+                    onToggleStatus={onToggleStatus ? () => onToggleStatus(focusTodo) : undefined}
+                  />
+                </section>
+              )}
 
-      {/* 最近更新 */}
-      {recentTodos.length > 0 && (
-        <div className="w-full mb-4">
-          <span className="text-xs font-medium text-muted-foreground mb-2 block">
-            {t("todoOverviewRecent")}
-          </span>
-          <div className="space-y-1">
-            {recentTodos.map((todo) => (
-              <button
-                key={todo.id}
-                onClick={() => onSelectTodo(todo)}
-                className="w-full text-left px-2.5 py-1.5 text-xs rounded-xl border border-transparent hover:bg-accent/50 hover:shadow-sm transition-all duration-[var(--dur-fast)] truncate text-foreground/80"
-              >
-                {todo.title}
-              </button>
-            ))}
+              <section className="border-t border-border/40 pt-6 @min-[800px]/overview:border-l @min-[800px]/overview:border-t-0 @min-[800px]/overview:pl-6 @min-[800px]/overview:pt-0">
+                <div className="max-w-[220px]">
+                  <div className="flex h-7 items-center gap-2">
+                    <h3 className="text-xs font-medium text-muted-foreground">{t("todoOverviewProgress")}</h3>
+                    <span className="text-xs font-semibold tabular-nums text-foreground/80">{completionRate}%</span>
+                  </div>
+                  <div
+                    className="mt-3 flex h-1.5 overflow-hidden rounded-full bg-muted/60"
+                    role="progressbar"
+                    aria-label={t("todoOverviewCompletion")}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={completionRate}
+                  >
+                    <span className="bg-[var(--app-accent)]" style={{ width: `${(inProgressCount / todos.length) * 100}%` }} />
+                    <span className="bg-[var(--app-status-success)]" style={{ width: `${(doneCount / todos.length) * 100}%` }} />
+                  </div>
+                  <div className="mt-3 divide-y divide-border/35">
+                    <div className="grid h-9 grid-cols-[16px_72px_28px] items-center gap-2">
+                      <Circle size={13} className="text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">{t("todoTodo")}</span>
+                      <strong className="justify-self-end text-sm font-semibold tabular-nums">{todoCount}</strong>
+                    </div>
+                    <div className="grid h-9 grid-cols-[16px_72px_28px] items-center gap-2">
+                      <CircleDashed size={13} className="text-[var(--app-accent)]" />
+                      <span className="text-xs text-muted-foreground">{t("todoInProgress")}</span>
+                      <strong className="justify-self-end text-sm font-semibold tabular-nums">{inProgressCount}</strong>
+                    </div>
+                    <div className="grid h-9 grid-cols-[16px_72px_28px] items-center gap-2">
+                      <CheckCircle2 size={13} className="text-[var(--app-status-success)]" />
+                      <span className="text-xs text-muted-foreground">{t("todoDone")}</span>
+                      <strong className="justify-self-end text-sm font-semibold tabular-nums">{doneCount}</strong>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            {otherTodos.length > 0 && (
+              <section className="mt-8 border-t border-border/40 pt-6">
+                <div className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <ListTodo size={13} />
+                  <h3>{t("todoOverviewOther")}</h3>
+                  <span className="text-muted-foreground/60">{otherTodos.length}</span>
+                </div>
+                <div>
+                  {otherTodos.map((todo) => (
+                    <CompactTaskRow
+                      key={todo.id}
+                      todo={todo}
+                      onSelect={() => onSelectTodo(todo)}
+                      onToggleStatus={onToggleStatus ? () => onToggleStatus(todo) : undefined}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
         </div>
       )}
-
-      {/* 快速创建 */}
-      <Button
-        variant="outline"
-        size="sm"
-        className="gap-1.5 w-full"
-        onClick={onCreateNew}
-      >
-        <Plus size={14} />
-        {t("todoNewTask")}
-      </Button>
     </div>
   );
 }

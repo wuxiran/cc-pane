@@ -80,7 +80,11 @@ function openTodo(position: ModulePosition) {
     activity.toggleTodoMode();
     return;
   }
-  activity.setAppViewMode("todo");
+  useActivityBarStore.setState({
+    appViewMode: "todo",
+    sidebarVisible: true,
+    orchestrationOverlayOpen: false,
+  });
 }
 
 function openAiPanel(position: ModulePosition) {

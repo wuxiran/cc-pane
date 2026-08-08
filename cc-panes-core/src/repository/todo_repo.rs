@@ -228,6 +228,13 @@ impl TodoRepository {
                 let today = chrono::Local::now().format("%Y-%m-%d").to_string();
                 values.push(Box::new(today));
             }
+            if let Some(true) = query.inbox {
+                conditions.push("status != 'done' AND my_day = 0 AND due_date IS NULL");
+            }
+            if let Some(true) = query.overdue {
+                conditions.push("due_date IS NOT NULL AND due_date < ? AND status != 'done'");
+                values.push(Box::new(chrono::Utc::now().to_rfc3339()));
+            }
 
             let where_clause = if conditions.is_empty() {
                 String::new()
@@ -475,13 +482,98 @@ impl TodoRepository {
                 })?
         };
 
+        let mut inbox_conds = conditions.clone();
+        inbox_conds.push("status != 'done'");
+        inbox_conds.push("my_day = 0");
+        inbox_conds.push("due_date IS NULL");
+        let inbox_sql = format!(
+            "SELECT COUNT(*) FROM todos WHERE {}",
+            inbox_conds.join(" AND ")
+        );
+        let inbox: u32 = conn
+            .query_row(&inbox_sql, params_ref.as_slice(), |row| row.get(0))
+            .map_err(|e| {
+                error!(table = "todos", err = %e, "SQL stats inbox query failed");
+                e.to_string()
+            })?;
+
+        let mut my_day_conds = conditions.clone();
+        my_day_conds.push("my_day = 1 AND my_day_date = ?");
+        let my_day_sql = format!(
+            "SELECT COUNT(*) FROM todos WHERE {}",
+            my_day_conds.join(" AND ")
+        );
+        let mut my_day_values = values.clone();
+        my_day_values.push(chrono::Local::now().format("%Y-%m-%d").to_string());
+        let my_day_params: Vec<&dyn rusqlite::types::ToSql> = my_day_values
+            .iter()
+            .map(|value| value as &dyn rusqlite::types::ToSql)
+            .collect();
+        let my_day: u32 = conn
+            .query_row(&my_day_sql, my_day_params.as_slice(), |row| row.get(0))
+            .map_err(|e| {
+                error!(table = "todos", err = %e, "SQL stats my_day query failed");
+                e.to_string()
+            })?;
+
         Ok(TodoStats {
             total,
             by_status,
             by_scope,
             by_priority,
             overdue,
+            inbox,
+            my_day,
         })
+    }
+
+    /// 写入任务活动记录。
+    pub fn add_activity(
+        &self,
+        todo_id: &str,
+        action: &str,
+        detail: Option<&str>,
+    ) -> Result<(), String> {
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO todo_activities (id, todo_id, action, detail, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                uuid::Uuid::new_v4().to_string(),
+                todo_id,
+                action,
+                detail,
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )
+        .map_err(|e| {
+            error!(table = "todo_activities", todo_id = %todo_id, err = %e, "SQL add_activity failed");
+            e.to_string()
+        })?;
+        Ok(())
+    }
+
+    /// 列出一个任务的最近活动记录。
+    pub fn list_activities(&self, todo_id: &str, limit: u32) -> Result<Vec<TodoActivity>, String> {
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, todo_id, action, detail, created_at FROM todo_activities WHERE todo_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+        let activities = stmt
+            .query_map(params![todo_id, limit], |row| {
+                Ok(TodoActivity {
+                    id: row.get(0)?,
+                    todo_id: row.get(1)?,
+                    action: row.get(2)?,
+                    detail: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        Ok(activities)
     }
 
     /// 获取最大 sort_order
@@ -852,6 +944,72 @@ mod tests {
             .unwrap();
         assert_eq!(result.total, 1);
         assert_eq!(result.items[0].title, "修复登录 Bug");
+    }
+
+    #[test]
+    fn test_query_inbox_excludes_planned_and_completed_items() {
+        let repo = setup();
+        let inbox = make_todo("待整理");
+        repo.insert(&inbox).unwrap();
+
+        let mut scheduled = make_todo("今天处理");
+        scheduled.my_day = true;
+        scheduled.my_day_date = Some(chrono::Local::now().format("%Y-%m-%d").to_string());
+        repo.insert(&scheduled).unwrap();
+
+        let mut dated = make_todo("已安排日期");
+        dated.due_date = Some("2099-01-01T00:00:00Z".to_string());
+        repo.insert(&dated).unwrap();
+
+        let mut done = make_todo("已完成");
+        done.status = TodoStatus::Done;
+        repo.insert(&done).unwrap();
+
+        let result = repo
+            .query(&TodoQuery {
+                inbox: Some(true),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(result.items.len(), 1);
+        assert_eq!(result.items[0].id, inbox.id);
+    }
+
+    #[test]
+    fn test_query_overdue_excludes_completed_items() {
+        let repo = setup();
+        let mut overdue = make_todo("已逾期");
+        overdue.due_date = Some("2020-01-01T00:00:00Z".to_string());
+        repo.insert(&overdue).unwrap();
+
+        let mut completed = make_todo("已完成但过期");
+        completed.due_date = Some("2020-01-01T00:00:00Z".to_string());
+        completed.status = TodoStatus::Done;
+        repo.insert(&completed).unwrap();
+
+        let result = repo
+            .query(&TodoQuery {
+                overdue: Some(true),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(result.items.len(), 1);
+        assert_eq!(result.items[0].id, overdue.id);
+    }
+
+    #[test]
+    fn test_activity_records_are_listed_newest_first() {
+        let repo = setup();
+        let todo = make_todo("活动任务");
+        repo.insert(&todo).unwrap();
+        repo.add_activity(&todo.id, "created", None).unwrap();
+        repo.add_activity(&todo.id, "updated", Some("title"))
+            .unwrap();
+
+        let activities = repo.list_activities(&todo.id, 50).unwrap();
+        assert_eq!(activities.len(), 2);
+        assert_eq!(activities[0].action, "updated");
+        assert_eq!(activities[1].action, "created");
     }
 
     #[test]

@@ -64,6 +64,7 @@ impl TodoService {
         };
 
         self.repo.insert(&todo)?;
+        self.repo.add_activity(&todo.id, "created", None)?;
         Ok(todo)
     }
 
@@ -103,6 +104,23 @@ impl TodoService {
                 }
             }
         }
+
+        let (action, detail) = if let Some(status) = req.status.as_ref() {
+            if old_todo.status != status.clone() {
+                ("status_changed", Some(status.as_str()))
+            } else {
+                ("updated", None)
+            }
+        } else if let Some(my_day) = req.my_day {
+            if my_day {
+                ("added_to_my_day", None)
+            } else {
+                ("removed_from_my_day", None)
+            }
+        } else {
+            ("updated", None)
+        };
+        self.repo.add_activity(id, action, detail)?;
 
         self.repo.get(id)?.ok_or_else(|| todo_not_found(id))
     }
@@ -199,7 +217,12 @@ impl TodoService {
 
     /// 批量更新状态
     pub fn batch_update_status(&self, ids: Vec<String>, status: TodoStatus) -> AppResult<u32> {
-        Ok(self.repo.batch_update_status(&ids, &status)?)
+        let count = self.repo.batch_update_status(&ids, &status)?;
+        for id in ids {
+            self.repo
+                .add_activity(&id, "status_changed", Some(status.as_str()))?;
+        }
+        Ok(count)
     }
 
     /// 获取统计
@@ -235,6 +258,14 @@ impl TodoService {
             .get_due_reminders(&chrono::Utc::now().to_rfc3339())?)
     }
 
+    /// 获取任务详情中的最近活动记录。
+    pub fn list_activities(&self, todo_id: &str) -> AppResult<Vec<TodoActivity>> {
+        if self.repo.get(todo_id)?.is_none() {
+            return Err(todo_not_found(todo_id));
+        }
+        Ok(self.repo.list_activities(todo_id, 50)?)
+    }
+
     // ============ 子任务操作 ============
 
     /// 添加子任务
@@ -264,6 +295,8 @@ impl TodoService {
         };
 
         self.repo.insert_subtask(&subtask)?;
+        self.repo
+            .add_activity(todo_id, "subtask_added", Some(&subtask.title))?;
         Ok(subtask)
     }
 
@@ -302,6 +335,15 @@ impl TodoService {
 
         let new_completed = !subtask.completed;
         self.repo.update_subtask(id, None, Some(new_completed))?;
+        self.repo.add_activity(
+            &subtask.todo_id,
+            if new_completed {
+                "subtask_completed"
+            } else {
+                "subtask_reopened"
+            },
+            Some(&subtask.title),
+        )?;
         Ok(new_completed)
     }
 
@@ -392,6 +434,9 @@ mod tests {
 
         assert_eq!(updated.title, "新标题");
         assert_eq!(updated.status, TodoStatus::InProgress);
+        let activities = service.list_activities(&todo.id).unwrap();
+        assert_eq!(activities[0].action, "status_changed");
+        assert_eq!(activities[1].action, "created");
     }
 
     #[test]

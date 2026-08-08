@@ -25,51 +25,56 @@ function renderBar(overrides: Partial<Parameters<typeof TodoFilterBar>[0]> = {})
 }
 
 describe("TodoFilterBar", () => {
-  it("渲染状态、优先级与内置类型药丸", () => {
+  it("默认只显示搜索、筛选和更多操作", () => {
     renderBar();
 
-    expect(screen.getByText("待办")).toBeVisible();
-    expect(screen.getByText("进行中")).toBeVisible();
-    expect(screen.getByText("完成")).toBeVisible();
-    expect(screen.getByText("高")).toBeVisible();
-    expect(screen.getByText("中")).toBeVisible();
-    expect(screen.getByText("低")).toBeVisible();
-    expect(screen.getByText("功能")).toBeVisible();
-    expect(screen.getByText("缺陷")).toBeVisible();
-    expect(screen.getByText("文档")).toBeVisible();
-    expect(screen.getByText("杂务")).toBeVisible();
+    expect(screen.getByPlaceholderText("搜索任务...")).toBeVisible();
+    expect(screen.getByRole("button", { name: "筛选" })).toBeVisible();
+    expect(screen.getByTitle("更多操作")).toBeVisible();
+    expect(screen.queryByText("进行中")).not.toBeInTheDocument();
   });
 
-  it("点击状态药丸回调对应的状态值", () => {
+  it("从筛选菜单设置状态", async () => {
     const { onStatusChange } = renderBar();
+    const user = userEvent.setup();
 
-    fireEvent.click(screen.getByText("进行中"));
+    await user.click(screen.getByRole("button", { name: "筛选" }));
+    await user.hover(await screen.findByRole("menuitem", { name: "状态" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "进行中" }));
 
     expect(onStatusChange).toHaveBeenCalledWith("in_progress");
   });
 
-  it("点击优先级药丸回调对应的优先级值", () => {
+  it("从筛选菜单设置优先级", async () => {
     const { onPriorityChange } = renderBar();
+    const user = userEvent.setup();
 
-    fireEvent.click(screen.getByText("高"));
+    await user.click(screen.getByRole("button", { name: "筛选" }));
+    await user.hover(await screen.findByRole("menuitem", { name: "优先级" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "高" }));
 
     expect(onPriorityChange).toHaveBeenCalledWith("high");
   });
 
-  it("点击类型药丸回调原始类型值而非翻译文案", () => {
+  it("从筛选菜单设置类型", async () => {
     const { onTypeChange } = renderBar();
+    const user = userEvent.setup();
 
-    fireEvent.click(screen.getByText("缺陷"));
+    await user.click(screen.getByRole("button", { name: "筛选" }));
+    await user.hover(await screen.findByRole("menuitem", { name: "类型" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "缺陷" }));
 
     expect(onTypeChange).toHaveBeenCalledWith("bug");
   });
 
-  it("自定义类型追加在内置类型之后且不重复内置项", () => {
+  it("自定义类型追加在类型菜单且不重复内置项", async () => {
     const { onTypeChange } = renderBar({ customTypes: ["research", "bug"] });
+    const user = userEvent.setup();
 
-    // 内置 bug 只按翻译显示一次
-    expect(screen.getAllByText("缺陷")).toHaveLength(1);
-    fireEvent.click(screen.getByText("research"));
+    await user.click(screen.getByRole("button", { name: "筛选" }));
+    await user.hover(await screen.findByRole("menuitem", { name: "类型" }));
+    expect(await screen.findAllByRole("menuitem", { name: "缺陷" })).toHaveLength(1);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "research" }));
 
     expect(onTypeChange).toHaveBeenCalledWith("research");
   });
@@ -88,16 +93,17 @@ describe("TodoFilterBar", () => {
     const { onGroupModeChange } = renderBar();
 
     const user = userEvent.setup();
-    await user.click(screen.getByTitle("分组模式"));
-    await user.click(await screen.findByRole("menuitem", { name: "按标签分组" }));
+    await user.click(screen.getByTitle("更多操作"));
+    await user.hover(await screen.findByRole("menuitem", { name: "分组模式" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "按标签分组" }));
 
     expect(onGroupModeChange).toHaveBeenCalledWith("tag");
   });
 
-  it("当前激活的筛选药丸使用高亮样式", () => {
+  it("当前激活的筛选以简洁标签显示", () => {
     renderBar({ filterStatus: "done" });
 
-    expect(screen.getByText("完成")).toHaveClass("text-primary");
-    expect(screen.getByText("待办")).not.toHaveClass("text-primary");
+    expect(screen.getByText("完成")).toHaveClass("bg-primary/10");
+    expect(screen.getByRole("button", { name: /^筛选\s*1$/ })).toHaveTextContent("1");
   });
 });

@@ -45,11 +45,13 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
     (activeView === "orchestration" && sidebarVisible);
   // orchestration 是"panes + overlay"的兼容态，不是独立全屏视图
   const effectiveAppViewMode = appViewMode === "orchestration" ? "panes" : appViewMode;
-  // Sidebar 只属于 panes / files 两种模式
+  // Todo 与 panes/files 共用同一个侧栏过渡容器，切换模块时宽度保持稳定。
   const shouldShowSidebar =
     sidebarVisible &&
     activeView !== "orchestration" &&
-    (effectiveAppViewMode === "panes" || effectiveAppViewMode === "files");
+    (effectiveAppViewMode === "panes"
+      || effectiveAppViewMode === "files"
+      || effectiveAppViewMode === "todo");
 
   // keep-alive：记录访问过的模式；未访问过的不挂载（保持启动开销不变）
   const [visited, setVisited] = useState<ReadonlySet<AppViewMode>>(
@@ -71,13 +73,17 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
     isActive(mode) ? undefined : { display: "none" };
 
   return (
-    <>
-      {/* 侧边栏（panes/files 共用同一实例，activeView 驱动内容；过渡结束后卸载） */}
+    <TodoManager scope="" scopeRef="" enabled={isMounted("todo")}>
+      {({ sidebar: todoSidebar, content: todoContent }) => (
+        <>
+      {/* panes/files/todo 共用同一侧栏实例，模块切换不会触发不同的进出场动画。 */}
       <SidebarTransition visible={shouldShowSidebar}>
-        <Sidebar
-          activeView={activeView}
-          onOpenTerminal={onOpenTerminal}
-        />
+        {isActive("todo") ? todoSidebar : (
+          <Sidebar
+            activeView={activeView}
+            onOpenTerminal={onOpenTerminal}
+          />
+        )}
       </SidebarTransition>
 
       {/* 首页仪表盘 */}
@@ -86,10 +92,13 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           <HomeDashboard onOpenTerminal={onOpenTerminal} />
         </div>
       )}
-      {/* Todo 全屏模式 */}
+      {/* Todo 主内容；任务列表由上方共享侧栏承载。 */}
       {isMounted("todo") && (
-        <div className="flex-1 overflow-hidden" style={viewStyle("todo")}>
-          <TodoManager scope="" scopeRef="" />
+        <div
+          className="flex-1 overflow-hidden"
+          style={{ background: "var(--app-panel-bg)", ...viewStyle("todo") }}
+        >
+          {todoContent}
         </div>
       )}
       {/* Self-Chat 全屏模式 */}
@@ -171,6 +180,8 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
       {showOrchestrationOverlay && (
         <OrchestrationOverlay onClose={closeOrchestrationOverlay} />
       )}
-    </>
+        </>
+      )}
+    </TodoManager>
   );
 }

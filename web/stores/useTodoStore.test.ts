@@ -10,8 +10,10 @@ vi.mock("@/services", () => ({
     get: vi.fn(),
     delete: vi.fn(),
     reorder: vi.fn(),
+    batchUpdateStatus: vi.fn(),
     toggleMyDay: vi.fn(),
     stats: vi.fn(),
+    listActivities: vi.fn(),
     addSubtask: vi.fn(),
     toggleSubtask: vi.fn(),
     deleteSubtask: vi.fn(),
@@ -70,6 +72,9 @@ describe("useTodoStore", () => {
       contextScope: null,
       contextScopeRef: null,
       stats: null,
+      activities: [],
+      activitiesLoading: false,
+      savedFilters: [],
     });
   });
 
@@ -137,6 +142,16 @@ describe("useTodoStore", () => {
       expect(mockTodo.query).toHaveBeenCalledWith(
         expect.objectContaining({ myDay: true }),
       );
+    });
+
+    it("收件箱和逾期视图应传递对应查询条件", async () => {
+      useTodoStore.setState({ viewMode: "inbox" });
+      await useTodoStore.getState().loadList();
+      expect(mockTodo.query).toHaveBeenLastCalledWith(expect.objectContaining({ inbox: true }));
+
+      useTodoStore.setState({ viewMode: "overdue" });
+      await useTodoStore.getState().loadList();
+      expect(mockTodo.query).toHaveBeenLastCalledWith(expect.objectContaining({ overdue: true }));
     });
 
     it("加载失败时应重置 loading 并向上抛出", async () => {
@@ -335,6 +350,63 @@ describe("useTodoStore", () => {
       expect(useTodoStore.getState().viewMode).toBe("my_day");
       expect(mockTodo.query).toHaveBeenCalled();
     });
+
+    it("支持收件箱和逾期工作视图", () => {
+      useTodoStore.getState().setViewMode("inbox");
+      expect(useTodoStore.getState().viewMode).toBe("inbox");
+
+      useTodoStore.getState().setViewMode("overdue");
+      expect(useTodoStore.getState().viewMode).toBe("overdue");
+    });
+  });
+
+  describe("保存筛选", () => {
+    it("保存并恢复当前筛选条件", () => {
+      useTodoStore.setState({
+        viewMode: "inbox",
+        filterStatus: "todo",
+        filterPriority: "high",
+        filterType: "bug",
+        searchText: "登录",
+        sortBy: "priority",
+      });
+
+      useTodoStore.getState().saveCurrentFilter("待处理缺陷");
+      const filter = useTodoStore.getState().savedFilters[0];
+      expect(filter.name).toBe("待处理缺陷");
+      expect(filter.workView).toBe("inbox");
+
+      useTodoStore.setState({ viewMode: "all", filterStatus: null, filterPriority: null, filterType: null, sortBy: "manual" });
+      useTodoStore.getState().applySavedFilter(filter);
+      expect(useTodoStore.getState()).toMatchObject({
+        viewMode: "inbox",
+        filterStatus: "todo",
+        filterPriority: "high",
+        filterType: "bug",
+        searchText: "登录",
+        sortBy: "priority",
+      });
+    });
+
+    it("可删除已保存筛选", () => {
+      useTodoStore.getState().saveCurrentFilter("临时视图");
+      const id = useTodoStore.getState().savedFilters[0].id;
+      useTodoStore.getState().removeSavedFilter(id);
+      expect(useTodoStore.getState().savedFilters).toEqual([]);
+    });
+  });
+
+  describe("活动记录", () => {
+    it("加载指定任务的活动记录", async () => {
+      const activities = [{ id: "a1", todoId: "t1", action: "created", createdAt: "2024-01-01T00:00:00Z" }];
+      mockTodo.listActivities.mockResolvedValue(activities);
+
+      await useTodoStore.getState().loadActivities("t1");
+
+      expect(mockTodo.listActivities).toHaveBeenCalledWith("t1");
+      expect(useTodoStore.getState().activities).toEqual(activities);
+      expect(useTodoStore.getState().activitiesLoading).toBe(false);
+    });
   });
 
   describe("toggleMyDay", () => {
@@ -448,6 +520,45 @@ describe("useTodoStore", () => {
 
       expect(mockTodo.deleteSubtask).toHaveBeenCalledWith("s1");
       expect(useTodoStore.getState().selectedTodo).toEqual(updated);
+    });
+  });
+
+  describe("new list controls", () => {
+    it("user-selected all scope does not inherit the entry scope ref", async () => {
+      useTodoStore.setState({
+        contextScope: "workspace",
+        contextScopeRef: "ws-a",
+        filterScope: null,
+        scopeSelectionExplicit: true,
+      });
+
+      await useTodoStore.getState().loadList();
+
+      expect(mockTodo.query).toHaveBeenCalledWith(
+        expect.objectContaining({ scope: undefined, scopeRef: undefined }),
+      );
+    });
+
+    it("passes the selected sort and omits manual sort", async () => {
+      useTodoStore.setState({ sortBy: "priority" });
+      await useTodoStore.getState().loadList();
+      expect(mockTodo.query).toHaveBeenCalledWith(expect.objectContaining({ sortBy: "priority" }));
+
+      mockTodo.query.mockClear();
+      useTodoStore.setState({ sortBy: "manual" });
+      await useTodoStore.getState().loadList();
+      expect(mockTodo.query).toHaveBeenCalledWith(expect.objectContaining({ sortBy: undefined }));
+    });
+
+    it("batch updates status and clears the selection", async () => {
+      mockTodo.batchUpdateStatus.mockResolvedValue(2);
+      useTodoStore.setState({ selectedIds: ["a", "b"] });
+
+      await useTodoStore.getState().batchUpdateStatus(["a", "b"], "done");
+
+      expect(mockTodo.batchUpdateStatus).toHaveBeenCalledWith(["a", "b"], "done");
+      expect(useTodoStore.getState().selectedIds).toEqual([]);
+      expect(mockTodo.query).toHaveBeenCalled();
     });
   });
 

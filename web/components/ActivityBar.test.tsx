@@ -85,13 +85,18 @@ describe("ActivityBar", () => {
     expect(useActivityBarStore.getState().appViewMode).toBe("home");
   });
 
-  it("点击 Todo 图标切换到 todo 视图模式", async () => {
+  it("点击 Todo 图标进入视图，再次点击折叠任务侧栏", async () => {
     const user = userEvent.setup();
     const { container } = renderBar();
     const buttons = container.querySelectorAll("button");
     const todoBtn = buttons[buttons.length - 2];
     await user.click(todoBtn);
     expect(useActivityBarStore.getState().appViewMode).toBe("todo");
+    expect(useActivityBarStore.getState().sidebarVisible).toBe(true);
+
+    await user.click(todoBtn);
+    expect(useActivityBarStore.getState().appViewMode).toBe("todo");
+    expect(useActivityBarStore.getState().sidebarVisible).toBe(false);
   });
 
   it("点击底部设置按钮打开设置对话框", async () => {

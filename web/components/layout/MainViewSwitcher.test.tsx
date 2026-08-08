@@ -19,7 +19,17 @@ vi.mock("@/components/editor", () => ({
   FileEditorPanel: () => <div data-testid="file-editor" />,
 }));
 vi.mock("@/components/todo/TodoManager", () => ({
-  default: () => <div data-testid="todo-manager" />,
+  default: ({
+    children,
+  }: {
+    children?: (parts: { sidebar: React.ReactNode; content: React.ReactNode }) => React.ReactNode;
+  }) => {
+    if (!children) return <div data-testid="todo-manager" />;
+    return children({
+      sidebar: <div data-testid="todo-sidebar" />,
+      content: <div data-testid="todo-manager" />,
+    });
+  },
 }));
 vi.mock("@/components/selfchat", () => ({
   SelfChatManager: () => <div data-testid="selfchat-manager" />,
@@ -114,10 +124,26 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     expect(screen.getAllByTestId("home-dashboard")).toHaveLength(1);
   });
 
-  it("todo → TodoManager 全屏", () => {
+  it("todo → 共享侧栏中的任务列表 + Todo 主内容", () => {
     setMode("todo");
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    expect(screen.getByTestId("todo-sidebar")).toBeVisible();
     expect(screen.getByTestId("todo-manager")).toBeVisible();
+    expect(screen.queryByTestId("sidebar")).toBeNull();
+  });
+
+  it("panes 与 todo 切换时复用同一个展开状态的侧栏过渡容器", () => {
+    setMode("panes");
+    const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    const regularSidebar = screen.getByTestId("sidebar");
+    const transition = regularSidebar.parentElement?.parentElement;
+
+    setMode("todo");
+    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
+
+    const todoSidebar = screen.getByTestId("todo-sidebar");
+    expect(todoSidebar.parentElement?.parentElement).toBe(transition);
+    expect(transition).toHaveStyle({ gridTemplateColumns: "1fr" });
   });
 
   it("selfchat → SelfChatManager 全屏", () => {

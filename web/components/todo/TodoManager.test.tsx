@@ -21,10 +21,10 @@ const captured = vi.hoisted(() => ({
   onDragEnd: undefined as unknown,
 }));
 
-vi.mock("./TodoSidebar", () => ({
+vi.mock("./TodoViewSwitcher", () => ({
   default: (p: never) => {
     captured.sidebar.push(p);
-    return <div data-testid="todo-sidebar" />;
+    return <div data-testid="todo-view-switcher" />;
   },
 }));
 vi.mock("./TodoFilterBar", () => ({
@@ -136,6 +136,7 @@ function lastEditor() {
 
 describe("TodoManager", () => {
   beforeEach(() => {
+    localStorage.clear();
     vi.clearAllMocks();
     captured.sidebar.length = 0;
     captured.filterBar.length = 0;
@@ -198,20 +199,16 @@ describe("TodoManager", () => {
     expect(screen.getByText("加载中...")).toBeVisible();
   });
 
-  it("空列表显示空态，点击创建入口打开新建编辑器", () => {
+  it("空列表显示加号入口和右侧概览", () => {
     render(<TodoManager scope="workspace" scopeRef="ws-a" />);
 
     expect(screen.getByText("暂无任务")).toBeVisible();
     expect(screen.getByTestId("todo-overview")).toBeInTheDocument();
+    expect(screen.queryByTestId("todo-filter-bar")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("点击 + 创建"));
-
-    const editor = lastEditor();
-    expect(editor.isNew).toBe(true);
-    // 新建表单继承 Tab 上下文
-    expect(editor.form.scope).toBe("workspace");
-    expect(editor.form.scopeRef).toBe("ws-a");
-    expect(useTodoStore.getState().select).toHaveBeenCalledWith(null);
+    expect(screen.queryByPlaceholderText("添加任务...")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "新建任务" }));
+    expect(lastEditor().isNew).toBe(true);
   });
 
   it("列表加载后自动选中第一条", () => {
@@ -219,14 +216,14 @@ describe("TodoManager", () => {
     seedStore({ todos, total: 2 });
     render(<TodoManager scope="" scopeRef="" />);
 
-    expect(useTodoStore.getState().select).toHaveBeenCalledWith(todos[0]);
+    expect(useTodoStore.getState().select).not.toHaveBeenCalled();
   });
 
   it("头部显示当前视图标题与任务总数", () => {
     seedStore({ total: 3, viewMode: "my_day" });
     render(<TodoManager scope="" scopeRef="" />);
 
-    expect(screen.getByText("我的一天")).toBeVisible();
+    expect(captured.sidebar[captured.sidebar.length - 1]).toEqual(expect.objectContaining({ viewMode: "my_day" }));
     expect(screen.getByText("共 3 个任务")).toBeVisible();
   });
 
@@ -234,7 +231,40 @@ describe("TodoManager", () => {
     seedStore({ filterScope: "project" });
     render(<TodoManager scope="" scopeRef="" />);
 
-    expect(screen.getByText("项目")).toBeVisible();
+    expect(captured.sidebar[captured.sidebar.length - 1]).toEqual(expect.objectContaining({ activeScope: "project" }));
+  });
+
+  it("uses a two-column layout and resizes the task list", () => {
+    seedStore({ todos: [createTodo()], total: 1 });
+    render(<TodoManager scope="" scopeRef="" />);
+
+    const [layoutHandle] = screen.getAllByRole("separator");
+    const listPanel = layoutHandle.previousElementSibling as HTMLElement;
+    const detailsPanel = layoutHandle.parentElement?.nextElementSibling as HTMLElement;
+
+    expect(screen.getByTestId("todo-view-switcher")).toBeInTheDocument();
+    expect(listPanel).toHaveStyle({ width: "280px" });
+    expect(detailsPanel).toHaveClass("flex-1");
+
+    fireEvent.pointerDown(layoutHandle, { clientX: 280 });
+    fireEvent.pointerMove(window, { clientX: 320 });
+    fireEvent.pointerUp(window);
+    expect(listPanel).toHaveStyle({ width: "320px" });
+    expect(localStorage.getItem("cc-panes-sidebar-width")).toBe("320");
+
+    fireEvent.pointerDown(layoutHandle, { clientX: 320 });
+    fireEvent.pointerMove(window, { clientX: 280 });
+    fireEvent.pointerUp(window);
+    expect(listPanel).toHaveStyle({ width: "280px" });
+  });
+
+  it("uses the same persisted width as the other sidebar views", () => {
+    localStorage.setItem("cc-panes-sidebar-width", "333");
+    seedStore({ todos: [createTodo()], total: 1 });
+    render(<TodoManager scope="" scopeRef="" />);
+
+    const [layoutHandle] = screen.getAllByRole("separator");
+    expect(layoutHandle.previousElementSibling).toHaveStyle({ width: "333px" });
   });
 
   it("选中任务后编辑器回填表单（标签逗号连接）", () => {
@@ -252,21 +282,26 @@ describe("TodoManager", () => {
     expect(editor.form.tags).toBe("bug, 前端");
   });
 
-  it("保存：标题为空提示错误且不创建", async () => {
+  it("点击加号打开新建编辑器", async () => {
     render(<TodoManager scope="" scopeRef="" />);
-    fireEvent.click(screen.getByText("新建任务"));
 
+    const addButton = screen.getByRole("button", { name: "新建任务" });
+    expect(addButton).toBeEnabled();
+    fireEvent.click(addButton);
+
+    expect(lastEditor().isNew).toBe(true);
     await act(async () => {
       await lastEditor().onSave();
     });
-
     expect(toast.error).toHaveBeenCalled();
     expect(useTodoStore.getState().create).not.toHaveBeenCalled();
   });
 
   it("保存：新建时组装 CreateTodoRequest（解析标签、空值转 undefined）", async () => {
+    seedStore({ viewMode: "overdue" });
     render(<TodoManager scope="" scopeRef="" />);
-    fireEvent.click(screen.getByText("新建任务"));
+
+    fireEvent.click(screen.getByRole("button", { name: "新建任务" }));
 
     const editor = lastEditor();
     act(() => {
@@ -366,6 +401,30 @@ describe("TodoManager", () => {
     expect(useTodoStore.getState().update).toHaveBeenCalledWith("t2", {
       status: "todo",
     });
+  });
+
+  it("列表项优先级循环：中→高→低→中", async () => {
+    const todos = [
+      createTodo({ id: "medium", priority: "medium" }),
+      createTodo({ id: "high", title: "高优先级", priority: "high" }),
+      createTodo({ id: "low", title: "低优先级", priority: "low" }),
+    ];
+    seedStore({ todos, selectedTodo: todos[0], total: 3 });
+    render(<TodoManager scope="" scopeRef="" />);
+
+    const items = captured.listItems as unknown as {
+      todo: TodoItem;
+      onTogglePriority: () => void;
+    }[];
+    for (const todo of todos) {
+      await act(async () => {
+        items.find((item) => item.todo.id === todo.id)!.onTogglePriority();
+      });
+    }
+
+    expect(useTodoStore.getState().update).toHaveBeenCalledWith("medium", { priority: "high" });
+    expect(useTodoStore.getState().update).toHaveBeenCalledWith("high", { priority: "low" });
+    expect(useTodoStore.getState().update).toHaveBeenCalledWith("low", { priority: "medium" });
   });
 
   it("按状态分组渲染 TodoTagGroup 并翻译分组标签", () => {

@@ -210,7 +210,7 @@ export default function ActivityBar() {
 
   const isModuleActive = (id: ModuleId) => {
     if (id === "orchestration") return orchestrationOverlayOpen;
-    if (id === "todo") return appViewMode === id;
+    if (id === "todo") return appViewMode === id && sidebarVisible;
     return activeView === id && sidebarVisible && appViewMode === "panes";
   };
 

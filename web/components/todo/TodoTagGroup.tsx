@@ -17,7 +17,11 @@ interface TodoTagGroupProps {
   selectedId?: string;
   onSelect: (todo: TodoItem) => void;
   onToggleStatus: (todo: TodoItem) => void;
+  onTogglePriority: (todo: TodoItem) => void;
   onDelete: (id: string) => void;
+  selectionMode?: boolean;
+  selectedIds?: string[];
+  onToggleSelect?: (id: string) => void;
 }
 
 export default function TodoTagGroup({
@@ -28,7 +32,11 @@ export default function TodoTagGroup({
   selectedId,
   onSelect,
   onToggleStatus,
+  onTogglePriority,
   onDelete,
+  selectionMode = false,
+  selectedIds = [],
+  onToggleSelect,
 }: TodoTagGroupProps) {
   const { t } = useTranslation("dialogs");
   const [open, setOpen] = useState(defaultOpen);
@@ -66,6 +74,10 @@ export default function TodoTagGroup({
               isSelected={selectedId === todo.id}
               onSelect={() => onSelect(todo)}
               onToggleStatus={() => onToggleStatus(todo)}
+              onTogglePriority={() => onTogglePriority(todo)}
+              selectionMode={selectionMode}
+              isMultiSelected={selectedIds.includes(todo.id)}
+              onToggleSelect={onToggleSelect ? () => onToggleSelect(todo.id) : undefined}
             />
             <div className="absolute right-2 top-2 hidden group-hover/item:flex">
               <Button

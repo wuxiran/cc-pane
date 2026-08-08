@@ -710,6 +710,23 @@ const MIGRATIONS: &[Migration] = &[
             ALTER TABLE launch_history ADD COLUMN model_id TEXT;
         ",
     },
+    Migration {
+        version: 31,
+        description: "todos: add activity timeline",
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS todo_activities (
+                id TEXT PRIMARY KEY,
+                todo_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                detail TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_todo_activities_todo_created
+                ON todo_activities(todo_id, created_at DESC);
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -1366,6 +1383,7 @@ mod tests {
             "launch_history",
             "todos",
             "todo_subtasks",
+            "todo_activities",
             "specs",
             "terminal_sessions",
             "task_bindings",

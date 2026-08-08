@@ -117,10 +117,18 @@ export const useActivityBarStore = create<ActivityBarState>()(
         })),
 
       toggleTodoMode: () =>
-        set((s) => ({
-          appViewMode: s.appViewMode === "todo" ? "panes" : "todo",
-          orchestrationOverlayOpen: false,
-        })),
+        set((s) =>
+          s.appViewMode === "todo"
+            ? {
+                sidebarVisible: !s.sidebarVisible,
+                orchestrationOverlayOpen: false,
+              }
+            : {
+                appViewMode: "todo",
+                sidebarVisible: true,
+                orchestrationOverlayOpen: false,
+              },
+        ),
 
       toggleSelfChatMode: () =>
         set((s) => ({

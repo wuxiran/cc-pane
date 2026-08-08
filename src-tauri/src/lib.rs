@@ -2627,6 +2627,7 @@ pub fn run() {
             get_todo_stats,
             toggle_todo_my_day,
             check_todo_reminders,
+            list_todo_activities,
             add_todo_subtask,
             update_todo_subtask,
             delete_todo_subtask,

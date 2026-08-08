@@ -31,6 +31,7 @@ function renderGroup(overrides: Partial<Parameters<typeof TodoTagGroup>[0]> = {}
     ],
     onSelect: vi.fn(),
     onToggleStatus: vi.fn(),
+    onTogglePriority: vi.fn(),
     onDelete: vi.fn(),
     ...overrides,
   };

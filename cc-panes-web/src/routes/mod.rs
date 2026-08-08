@@ -636,6 +636,10 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/todos/stats", get(workflow::get_todo_stats))
         .route("/api/todos/reminders", get(workflow::check_todo_reminders))
+        .route(
+            "/api/todos/{id}/activities",
+            get(workflow::list_todo_activities),
+        )
         .route("/api/todos/{id}", get(workflow::get_todo))
         .route("/api/todos/{id}", patch(workflow::update_todo))
         .route("/api/todos/{id}", delete(workflow::delete_todo))

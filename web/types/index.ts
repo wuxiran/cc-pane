@@ -155,9 +155,13 @@ export { BUSY_STATUSES, isBusyStatus } from "./settings";
 export type {
   TodoStatus,
   TodoPriority,
+  TodoSortBy,
+  TodoWorkView,
   TodoScope,
   TodoItem,
   TodoSubtask,
+  TodoActivity,
+  TodoSavedFilter,
   CreateTodoRequest,
   UpdateTodoRequest,
   TodoQuery,

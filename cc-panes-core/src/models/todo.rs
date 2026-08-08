@@ -141,6 +141,18 @@ pub struct TodoSubtask {
     pub created_at: String,
 }
 
+/// Todo 的操作记录。记录保存在任务本身之外，供详情页展示时间线。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoActivity {
+    pub id: String,
+    pub todo_id: String,
+    pub action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    pub created_at: String,
+}
+
 // ============ 请求/查询类型 ============
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -225,6 +237,12 @@ pub struct TodoQuery {
     pub my_day: Option<bool>,
     #[serde(default)]
     pub todo_type: Option<String>,
+    /// 收件箱：未完成、未安排到今天且没有截止日期的待整理任务。
+    #[serde(default)]
+    pub inbox: Option<bool>,
+    /// 已逾期：存在截止日期、未完成且截止日期早于当前时间的任务。
+    #[serde(default)]
+    pub overdue: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -243,6 +261,8 @@ pub struct TodoStats {
     pub by_scope: HashMap<String, u32>,
     pub by_priority: HashMap<String, u32>,
     pub overdue: u32,
+    pub inbox: u32,
+    pub my_day: u32,
 }
 
 #[cfg(test)]

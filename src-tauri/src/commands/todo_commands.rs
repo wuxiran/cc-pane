@@ -81,6 +81,14 @@ pub fn check_todo_reminders(service: State<'_, Arc<TodoService>>) -> AppResult<V
     service.get_due_reminders()
 }
 
+#[tauri::command]
+pub fn list_todo_activities(
+    service: State<'_, Arc<TodoService>>,
+    todo_id: String,
+) -> AppResult<Vec<TodoActivity>> {
+    service.list_activities(&todo_id)
+}
+
 // ============ Subtask 命令 (5 个) ============
 
 #[tauri::command]

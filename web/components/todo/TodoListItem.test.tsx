@@ -45,7 +45,10 @@ function createTodo(overrides: Partial<TodoItem> = {}): TodoItem {
   };
 }
 
-function renderItem(todo: TodoItem, extra: { onToggleMyDay?: () => void } = {}) {
+function renderItem(
+  todo: TodoItem,
+  extra: { onToggleMyDay?: () => void; onTogglePriority?: () => void } = {},
+) {
   const onSelect = vi.fn();
   const onToggleStatus = vi.fn();
   render(
@@ -54,6 +57,7 @@ function renderItem(todo: TodoItem, extra: { onToggleMyDay?: () => void } = {}) 
       isSelected={false}
       onSelect={onSelect}
       onToggleStatus={onToggleStatus}
+      onTogglePriority={extra.onTogglePriority}
       onToggleMyDay={extra.onToggleMyDay}
     />,
   );
@@ -61,12 +65,12 @@ function renderItem(todo: TodoItem, extra: { onToggleMyDay?: () => void } = {}) 
 }
 
 describe("TodoListItem", () => {
-  it("渲染标题、类型 badge 与前 3 个标签，超出显示 +N", () => {
+  it("紧凑展示标题、类型与前 2 个非重复标签，超出显示 +N", () => {
     renderItem(
       createTodo({
         title: "整理文档",
         todoType: "docs",
-        tags: ["a", "b", "c", "d", "e"],
+        tags: ["整理文档", "a", "b", "c", "d", "e"],
       }),
     );
 
@@ -74,9 +78,10 @@ describe("TodoListItem", () => {
     expect(screen.getByText("docs")).toBeVisible();
     expect(screen.getByText("a")).toBeVisible();
     expect(screen.getByText("b")).toBeVisible();
-    expect(screen.getByText("c")).toBeVisible();
+    expect(screen.queryAllByText("整理文档")).toHaveLength(1);
+    expect(screen.queryByText("c")).not.toBeInTheDocument();
     expect(screen.queryByText("d")).not.toBeInTheDocument();
-    expect(screen.getByText("+2")).toBeVisible();
+    expect(screen.getByText("+3")).toBeVisible();
   });
 
   it("显示子任务完成进度", () => {
@@ -122,6 +127,16 @@ describe("TodoListItem", () => {
     fireEvent.click(screen.getByTitle("切换状态"));
 
     expect(onToggleStatus).toHaveBeenCalledTimes(1);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("点击优先级旗帜触发切换且不冒泡到 onSelect", () => {
+    const onTogglePriority = vi.fn();
+    const { onSelect } = renderItem(createTodo(), { onTogglePriority });
+
+    fireEvent.click(screen.getByTitle("切换优先级"));
+
+    expect(onTogglePriority).toHaveBeenCalledTimes(1);
     expect(onSelect).not.toHaveBeenCalled();
   });
 

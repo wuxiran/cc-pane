@@ -11,8 +11,8 @@ use cc_panes_core::models::{
         TaskBindingQueryResult, UpdateTaskBindingRequest,
     },
     todo::{
-        CreateTodoRequest, TodoItem, TodoQuery, TodoQueryResult, TodoScope, TodoStats, TodoStatus,
-        TodoSubtask, UpdateTodoRequest,
+        CreateTodoRequest, TodoActivity, TodoItem, TodoQuery, TodoQueryResult, TodoScope,
+        TodoStats, TodoStatus, TodoSubtask, UpdateTodoRequest,
     },
 };
 use serde::Deserialize;
@@ -214,6 +214,17 @@ pub async fn check_todo_reminders(
     state
         .todo_service
         .get_due_reminders()
+        .map(Json)
+        .map_err(service_error)
+}
+
+pub async fn list_todo_activities(
+    State(state): State<AppState>,
+    Path(todo_id): Path<String>,
+) -> Result<Json<Vec<TodoActivity>>, (StatusCode, String)> {
+    state
+        .todo_service
+        .list_activities(&todo_id)
         .map(Json)
         .map_err(service_error)
 }

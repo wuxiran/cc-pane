@@ -15,6 +15,10 @@ import type {
   TodoQuery,
   TodoQueryResult,
   TodoStats,
+  TodoSortBy,
+  TodoWorkView,
+  TodoActivity,
+  TodoSavedFilter,
   CreateTodoRequest,
   UpdateTodoRequest,
 } from "@/types";
@@ -43,14 +47,18 @@ interface TodoState {
   selectedTodo: TodoItem | null;
 
   // 视图模式
-  viewMode: "all" | "my_day";
+  viewMode: TodoWorkView;
 
   // 打开时的上下文
   contextScope: TodoScope | null;
   contextScopeRef: string | null;
+  scopeSelectionExplicit: boolean;
 
   // 统计
   stats: TodoStats | null;
+  activities: TodoActivity[];
+  activitiesLoading: boolean;
+  savedFilters: TodoSavedFilter[];
 
   // Actions
   loadList: (query?: TodoQuery) => Promise<void>;
@@ -62,14 +70,25 @@ interface TodoState {
   setFilterScope: (scope: TodoScope | null) => void;
   setFilterPriority: (priority: TodoPriority | null) => void;
   setFilterType: (type: string | null) => void;
+  clearFilters: () => void;
+  sortBy: TodoSortBy;
+  setSortBy: (sortBy: TodoSortBy) => void;
+  selectedIds: string[];
+  toggleSelected: (id: string) => void;
+  clearSelection: () => void;
+  batchUpdateStatus: (ids: string[], status: TodoStatus) => Promise<void>;
   addCustomType: (type: string) => void;
   removeCustomType: (type: string) => void;
   setSearchText: (text: string) => void;
   setContext: (scope: TodoScope | null, scopeRef: string | null) => void;
   reorder: (todoIds: string[]) => Promise<void>;
-  setViewMode: (mode: "all" | "my_day") => void;
+  setViewMode: (mode: TodoWorkView) => void;
   toggleMyDay: (id: string) => Promise<void>;
   loadStats: () => Promise<void>;
+  loadActivities: (todoId: string) => Promise<void>;
+  saveCurrentFilter: (name: string) => void;
+  applySavedFilter: (filter: TodoSavedFilter) => void;
+  removeSavedFilter: (id: string) => void;
   addSubtask: (todoId: string, title: string) => Promise<void>;
   toggleSubtask: (subtaskId: string) => Promise<void>;
   deleteSubtask: (subtaskId: string) => Promise<void>;
@@ -88,10 +107,16 @@ const INITIAL_STATE = {
   searchText: "",
   customTypes: JSON.parse(localStorage.getItem("cc-panes-todo-custom-types") || "[]") as string[],
   selectedTodo: null as TodoItem | null,
-  viewMode: "all" as "all" | "my_day",
+  viewMode: "all" as TodoWorkView,
   contextScope: null as TodoScope | null,
   contextScopeRef: null as string | null,
+  scopeSelectionExplicit: false,
+  sortBy: "manual" as TodoSortBy,
+  selectedIds: [] as string[],
   stats: null as TodoStats | null,
+  activities: [] as TodoActivity[],
+  activitiesLoading: false,
+  savedFilters: JSON.parse(localStorage.getItem("cc-panes-todo-saved-filters") || "[]") as TodoSavedFilter[],
 };
 
 export const useTodoStore = create<TodoState>()(
@@ -103,15 +128,35 @@ export const useTodoStore = create<TodoState>()(
         state.loading = true;
       });
       try {
-        const { filterStatus, filterScope, filterPriority, filterType, searchText, contextScope, contextScopeRef, viewMode } = get();
+        const {
+          filterStatus,
+          filterScope,
+          filterPriority,
+          filterType,
+          searchText,
+          contextScope,
+          contextScopeRef,
+          scopeSelectionExplicit,
+          sortBy,
+          viewMode,
+        } = get();
+        const activeScope = scopeSelectionExplicit ? filterScope : filterScope ?? contextScope;
+        const activeScopeRef = scopeSelectionExplicit
+          ? filterScope && filterScope === contextScope
+            ? contextScopeRef ?? undefined
+            : undefined
+          : contextScopeRef ?? undefined;
         const mergedQuery: TodoQuery = {
           status: query?.status ?? filterStatus ?? undefined,
           priority: query?.priority ?? filterPriority ?? undefined,
-          scope: query?.scope ?? filterScope ?? contextScope ?? undefined,
-          scopeRef: query?.scopeRef ?? contextScopeRef ?? undefined,
+          scope: query?.scope ?? activeScope ?? undefined,
+          scopeRef: query?.scopeRef ?? activeScopeRef,
           search: query?.search ?? (searchText.trim() || undefined),
           todoType: query?.todoType ?? filterType ?? undefined,
+          sortBy: query?.sortBy ?? (sortBy === "manual" ? undefined : sortBy),
           myDay: viewMode === "my_day" ? true : undefined,
+          inbox: viewMode === "inbox" ? true : undefined,
+          overdue: viewMode === "overdue" ? true : undefined,
           limit: query?.limit ?? 100,
           offset: query?.offset ?? 0,
           ...query,
@@ -123,7 +168,9 @@ export const useTodoStore = create<TodoState>()(
           state.total = result.total;
           state.hasMore = result.hasMore;
           state.loading = false;
+          state.selectedIds = state.selectedIds.filter((id) => result.items.some((todo) => todo.id === id));
         });
+        void get().loadStats();
       } catch (error) {
         set((state) => {
           state.loading = false;
@@ -160,6 +207,7 @@ export const useTodoStore = create<TodoState>()(
           state.selectedTodo = null;
         }
       });
+      void get().loadStats();
     },
 
     select: (todo) =>
@@ -177,6 +225,7 @@ export const useTodoStore = create<TodoState>()(
     setFilterScope: (scope) => {
       set((state) => {
         state.filterScope = scope;
+        state.scopeSelectionExplicit = true;
       });
       get().loadList();
     },
@@ -193,6 +242,51 @@ export const useTodoStore = create<TodoState>()(
         state.filterType = type;
       });
       get().loadList();
+    },
+
+    clearFilters: () => {
+      set((state) => {
+        state.filterStatus = null;
+        state.filterPriority = null;
+        state.filterType = null;
+        state.searchText = "";
+        state.filterScope = null;
+        state.scopeSelectionExplicit = true;
+      });
+      get().loadList();
+    },
+
+    sortBy: "manual",
+    setSortBy: (sortBy) => {
+      set((state) => {
+        state.sortBy = sortBy;
+      });
+      get().loadList();
+    },
+
+    selectedIds: [],
+    toggleSelected: (id) =>
+      set((state) => {
+        const index = state.selectedIds.indexOf(id);
+        if (index === -1) state.selectedIds.push(id);
+        else state.selectedIds.splice(index, 1);
+      }),
+
+    clearSelection: () =>
+      set((state) => {
+        state.selectedIds = [];
+      }),
+
+    batchUpdateStatus: async (ids, status) => {
+      if (ids.length === 0) return;
+      await todoService.batchUpdateStatus(ids, status);
+      set((state) => {
+        for (const todo of state.todos) {
+          if (ids.includes(todo.id)) todo.status = status;
+        }
+        state.selectedIds = [];
+      });
+      await get().loadList();
     },
 
     addCustomType: (type) => {
@@ -221,6 +315,7 @@ export const useTodoStore = create<TodoState>()(
       set((state) => {
         state.contextScope = scope;
         state.contextScopeRef = scopeRef;
+        state.scopeSelectionExplicit = false;
         // 同步设置筛选
         state.filterScope = scope;
       }),
@@ -254,8 +349,11 @@ export const useTodoStore = create<TodoState>()(
       try {
         const { contextScope, contextScopeRef } = get();
         const stats = await todoService.stats({
-          scope: contextScope ?? undefined,
-          scopeRef: contextScopeRef ?? undefined,
+          scope: get().scopeSelectionExplicit ? get().filterScope ?? undefined : contextScope ?? undefined,
+          scopeRef:
+            get().scopeSelectionExplicit && get().filterScope !== contextScope
+              ? undefined
+              : contextScopeRef ?? undefined,
         });
         set((state) => {
           state.stats = stats;
@@ -263,6 +361,67 @@ export const useTodoStore = create<TodoState>()(
       } catch {
         // 统计加载失败不影响主流程
       }
+    },
+
+    loadActivities: async (todoId) => {
+      set((state) => {
+        state.activitiesLoading = true;
+      });
+      try {
+        const activities = await todoService.listActivities(todoId);
+        set((state) => {
+          state.activities = activities;
+          state.activitiesLoading = false;
+        });
+      } catch {
+        set((state) => {
+          state.activities = [];
+          state.activitiesLoading = false;
+        });
+      }
+    },
+
+    saveCurrentFilter: (name) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      const state = get();
+      const filter: TodoSavedFilter = {
+        id: crypto.randomUUID(),
+        name: trimmed,
+        workView: state.viewMode,
+        status: state.filterStatus,
+        scope: state.filterScope,
+        priority: state.filterPriority,
+        todoType: state.filterType,
+        search: state.searchText,
+        sortBy: state.sortBy,
+        createdAt: new Date().toISOString(),
+      };
+      set((draft) => {
+        draft.savedFilters = [filter, ...draft.savedFilters.filter((item) => item.name !== filter.name)].slice(0, 12);
+      });
+      localStorage.setItem("cc-panes-todo-saved-filters", JSON.stringify(get().savedFilters));
+    },
+
+    applySavedFilter: (filter) => {
+      set((state) => {
+        state.viewMode = filter.workView;
+        state.filterStatus = filter.status;
+        state.filterScope = filter.scope;
+        state.filterPriority = filter.priority;
+        state.filterType = filter.todoType;
+        state.sortBy = filter.sortBy;
+        state.searchText = filter.search ?? "";
+        state.scopeSelectionExplicit = true;
+      });
+      get().loadList();
+    },
+
+    removeSavedFilter: (id) => {
+      set((state) => {
+        state.savedFilters = state.savedFilters.filter((filter) => filter.id !== id);
+      });
+      localStorage.setItem("cc-panes-todo-saved-filters", JSON.stringify(get().savedFilters));
     },
 
     addSubtask: async (todoId, title) => {

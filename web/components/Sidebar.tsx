@@ -10,25 +10,14 @@ import OrchestratorView from "@/components/sidebar/OrchestratorView";
 import FileBrowserView from "@/components/sidebar/FileBrowserView";
 import SshMachinesView from "@/components/sidebar/SshMachinesView";
 import { setDragging } from "@/stores/splitDragState";
-
-const SIDEBAR_WIDTH_KEY = "cc-panes-sidebar-width";
-const DEFAULT_WIDTH = 280;
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 500;
+import {
+  clampSidebarWidth,
+  loadSidebarWidth,
+  saveSidebarWidth,
+} from "@/lib/sidebarWidth";
 
 async function waitForRuntimeReady(): Promise<boolean> {
   return isTauriRuntime() ? waitForTauri() : true;
-}
-
-function loadSidebarWidth(): number {
-  try {
-    const raw = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    if (raw) {
-      const parsed = Number(raw);
-      if (parsed >= MIN_WIDTH && parsed <= MAX_WIDTH) return parsed;
-    }
-  } catch { /* ignore */ }
-  return DEFAULT_WIDTH;
 }
 
 import type { OpenTerminalOptions } from "@/types";
@@ -60,7 +49,7 @@ export default function Sidebar({
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
         const delta = ev.clientX - startX;
-        const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + delta));
+        const newWidth = clampSidebarWidth(startWidth + delta);
         widthRef.current = newWidth;
         if (sidebarRef.current) {
           sidebarRef.current.style.width = `${newWidth}px`;
@@ -77,7 +66,7 @@ export default function Sidebar({
       setDragging(false);
       const finalWidth = widthRef.current;
       setSidebarWidth(finalWidth);
-      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(finalWidth));
+      saveSidebarWidth(finalWidth);
     };
 
     setDragging(true);

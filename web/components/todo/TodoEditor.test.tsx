@@ -68,6 +68,11 @@ describe("TodoEditor", () => {
     expect(screen.getByText("创建")).toBeVisible();
     expect(screen.queryByTitle("删除")).not.toBeInTheDocument();
     expect(screen.queryByTestId("subtask-list")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("任务描述（支持 Markdown）...")).toBeVisible();
+    expect(screen.queryByText("功能")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("高级字段"));
+    expect(screen.getByText("功能")).toBeVisible();
   });
 
   it("编辑模式显示任务详情、保存、删除按钮与子任务清单", () => {
@@ -81,10 +86,22 @@ describe("TodoEditor", () => {
     expect(props.onDelete).toHaveBeenCalledTimes(1);
   });
 
-  it("标题为空时保存按钮禁用", () => {
-    renderEditor({ form: createForm({ title: "   " }) });
+  it("标题为空时创建按钮仍可点击并交给上层校验", () => {
+    const props = renderEditor({
+      form: createForm({ title: "   " }),
+      isNew: true,
+    });
 
-    expect(screen.getByText("保存").closest("button")).toBeDisabled();
+    fireEvent.click(screen.getByText("创建"));
+    expect(props.onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("新建模式自动聚焦必填标题", () => {
+    renderEditor({ form: createForm({ title: "" }), isNew: true });
+
+    const titleInput = screen.getByPlaceholderText("任务标题（必填）...");
+    expect(titleInput).toHaveFocus();
+    expect(titleInput).toBeRequired();
   });
 
   it("点击保存与关闭分别回调 onSave/onCancel", () => {
@@ -110,7 +127,7 @@ describe("TodoEditor", () => {
   it("编辑标题回调 onChange", () => {
     const props = renderEditor();
 
-    fireEvent.change(screen.getByPlaceholderText("输入任务标题..."), {
+    fireEvent.change(screen.getByPlaceholderText("任务标题（必填）..."), {
       target: { value: "新标题" },
     });
 
@@ -138,7 +155,9 @@ describe("TodoEditor", () => {
       form: createForm({ scope: "global", scopeRef: "leftover" }),
     });
 
-    fireEvent.click(screen.getByText("工作空间"));
+    fireEvent.change(screen.getByLabelText("作用域"), {
+      target: { value: "workspace" },
+    });
 
     expect(props.onChange).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "workspace", scopeRef: "" }),
