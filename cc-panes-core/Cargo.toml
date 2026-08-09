@@ -43,6 +43,12 @@ ssh2 = "0.9.6"
 [dev-dependencies]
 tempfile = "3"
 
+# macOS 发版的 x86_64 包从 arm64 runner 交叉编译,pkg-config 禁止跨架构探测系统
+# OpenSSL(CI backend-check 是本机构建能找到 Homebrew 的,所以 CI 绿、发版红)。
+# vendored 从源码编 OpenSSL,对交叉编译免疫;只限 macOS,不动 Windows/Linux 现行路径。
+[target.'cfg(target_os = "macos")'.dependencies]
+ssh2 = { version = "0.9.6", features = ["vendored-openssl"] }
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
     "Win32_Foundation",
