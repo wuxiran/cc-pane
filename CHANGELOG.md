@@ -2,6 +2,71 @@
 
 ## Unreleased
 
+## 0.12.3 - 2026-08-10
+
+Feature release: SSH remote file management, first-class human/AI todo separation with dispatch linkage, terminal garble root-cause fix (native alt-screen for codex/opencode + a buffer reset action), turn-end notification dedupe, and orchestration upgrades (reviewer reuse on the collaboration board, task-decomposition rules baked into dispatch skills, MCP tool-call statistics).
+
+### Added
+
+- **SSH remote file management** — browse, upload, download, and manage files on SSH machines from the right dock; connection workflow reworked with per-machine preferences, an SSH password dialog, and remote-terminal navigation helpers. Sidebar SSH machine cards rebuilt (item view, header actions, machine dialog).
+- **Human/AI todo separation** — AI-created work items now carry a first-class `todoType: "ai-work-item"`: they get their own "AI work items" view in the todo panel and are excluded from "All tasks" / "Inbox" by default, so your personal backlog stays clean. MCP todo tools gained `todoType` / `tags` / `tag` / `excludeTodoType` parameters (the underlying capability existed but was hidden from AI).
+- **Todo ↔ dispatch linkage** — dispatching a todo cluster now records the todo ids on the task binding (`metadata.todoIds`): todo rows show a "dispatched" badge that jumps to the running session, and the orchestration task detail panel lists its related todos with click-through. The mapping survives restarts (it used to live only inside the AI's conversation context).
+- **Reviewer reuse on the collaboration board** — plan workers can register as `workerKind: "reviewer"`; the planreview skill now auto-discovers a live idle reviewer and offers to reuse it (same-topic follow-up reviews amortize context instead of cold-starting a new WSL Codex every time). The "existing window" review path now registers the worker properly (it used to bypass the board entirely).
+- **Terminal buffer reset** — right-click → "Reset Terminal Buffer": clears screen + scrollback and asks the CLI to repaint. This is the correct fix for buffer-level garble (interleaved spinner frames) that "Refresh Terminal Display" cannot touch; destructive, so it asks first.
+- **MCP tool-call statistics** — every MCP tool call increments a local counter (tool name + count + last-called only; no arguments, no content, no network). Groundwork for evidence-based tool-surface reduction (docs/89).
+
+### Changed
+
+- **codex / opencode now keep their native alternate screen** — the alt-screen stripping that preserved scroll history is now claude-only. For full-screen TUIs the "history" was frame debris anyway, and stripping caused permanently garbled scrollback (interleaved `WWoorrkk` spinner frames) that no repaint could fix. Per-CLI override available via `terminal.cliBufferModes` (`"strip"` / `"native"`); applies to new sessions.
+- **Dispatch skills embed decomposition rules** — plantocodex / plantocc / plan2codexwsl / parallel / dispatch-todos now carry an executable splitting procedure (task-shape triage, 30min–3h cluster sizing, fan-out caps, per-unit acceptance gates, CLI routing incl. "reviews must cross models") plus a worker handshake (restate the task before starting) and evidence-pointer reporting. fanout-compare is narrowed to model-upgrade calibration only.
+- **Notification ownership** — dispatched workers no longer send desktop notifications; they report to their leader, which sends one aggregated notification for the whole fleet.
+
+### Fixed
+
+- **Duplicate turn-end notifications** — AI rich summaries (via `trigger_notification`) and the state-machine fallback ("✅ Completed") were unaware of each other, so one turn produced two notifications. The rich notification now marks the turn; the fallback sees the mark and stays silent (falls back normally when the AI doesn't send one). Fulfils the 0.12.2 "one card stack" promise.
+- Claude alt-screen behavior is now instrumented (`[alt-screen-probe]` console counter) to decide whether stripping is even a no-op for it — groundwork for docs/73's final fix.
+
+### Docs
+
+- `docs/89-mcp-tool-surface-reduction.md` — direction: shrink the MCP tool surface 90 → ~25 (CRUD merging + management-plane moving to `cc-panes-ctl`), with a privacy-hardlined usage-statistics prerequisite and the ctl/MCP capability boundary (identity / failure-domain / management-plane axes).
+- `docs/90-worker-decomposition-model.md` — direction: contract-freeze fan-out, wide/deep task triage, and an executable skill-level splitting procedure; final ruling "design carries the load, optimistic concurrency by default" (collision-detection machinery rejected until rework-rate data says otherwise).
+- `docs/73` — alt-screen re-audit with three rounds of cross-model review (SIGWINCH proven insufficient for scrollback pollution; semantics rulings recorded).
+- `docs/articles/article-worktree-headless-coding.md` — opinion piece: worktrees in headless coding are a special-case tool, not default infrastructure.
+
+<details>
+<summary>中文版</summary>
+
+功能版本：SSH 远程文件管理、人/AI 待办一等区分与派工联动、终端画面错乱根治（codex/opencode 回归原生备用屏 + 缓冲区重置入口）、回合通知去重，以及编排升级（协作板 reviewer 复用、拆分规则进派工 skill、MCP 工具调用统计）。
+
+#### 新增
+
+- **SSH 远程文件管理**——右侧 Dock 直接浏览/上传/下载/管理 SSH 机器上的文件；连接工作流重做（按机器偏好、SSH 密码弹窗、远程终端导航联动），侧栏 SSH 机器卡片全面重构。
+- **人/AI 待办分离**——AI 创建的工作项带一等身份 `todoType: "ai-work-item"`：todo 面板新增「AI 工作项」独立视图，「所有任务」「收件箱」默认排除,你的个人待办不再被 AI 的活淹没。MCP todo 工具补齐 `todoType`/`tags`/`tag`/`excludeTodoType` 参数（底层能力早已存在,此前对 AI 屏蔽）。
+- **待办 ↔ 派工联动**——派发一簇 todo 时把 todo id 记进任务绑定（`metadata.todoIds`）：todo 行显示「已派」徽章可跳转会话，编排任务详情面板列出关联 todo 可互跳。映射跨重启可查（此前只活在 AI 对话上下文里,会话一关就没了）。
+- **协作板 reviewer 复用**——plan worker 可登记为 `workerKind: "reviewer"`；planreview skill 自动发现活着的空闲 reviewer 并建议复用（同主题续审摊销上下文,不再每次冷启动新的 WSL Codex）。「已有窗口」评审分支补上了登记缺口（此前完全绕过协作板）。
+- **终端缓冲区重置**——右键 →「重置终端缓冲区」：清屏+清回滚历史+让 CLI 整屏重绘。这是 buffer 级错乱（spinner 残帧交错）的对症药——「刷新终端显示」治不了那类；破坏性操作,先确认再执行。
+- **MCP 工具调用统计**——每次 MCP 工具调用在本地计数（只记工具名+次数+最后时间；不记参数、不记内容、零联网）。为「用数据裁剪工具面」攒依据（docs/89）。
+
+#### 变更
+
+- **codex / opencode 回归原生备用屏**——为保滚动历史而剥 alt-screen 的做法现在仅对 claude 保留。全屏 TUI 的「历史」本就是残影,剥离反而造成回滚区永久污染（`WWoorrkk` 交错残帧）且无法修复。可按 CLI 覆盖：`terminal.cliBufferModes`（`"strip"`/`"native"`）,对新会话生效。
+- **派工 skill 内嵌拆分规则**——plantocodex / plantocc / plan2codexwsl / parallel 系 / dispatch-todos 带上可执行的拆分程序（任务形状判定、单簇 30 分钟~3 小时、扇出上限、逐单元验收门、CLI 路由含「评审必须换模型」），外加 worker 复述握手与证据指针报告。fanout-compare 收窄为「换模型版本时的能力标定」专用。
+- **通知归属**——被派发的 worker 不再各自发桌面通知；统一汇报给 leader,由 leader 替整个编队发一条汇总。
+
+#### 修复
+
+- **回合结束重复通知**——AI 富摘要（`trigger_notification`）与状态机兜底（"✅ Completed"）互不相识,同一轮活收两条。现在富通知打标、兜底见标即静默（AI 没发时兜底照常）,兑现 0.12.2「汇入同一卡片栈」的承诺。
+- claude 的 alt-screen 行为加了探针（`[alt-screen-probe]` 控制台计数）,用于判定剥离对它是否本就无效——docs/73 终局修复的前置。
+
+#### 文档
+
+- `docs/89`——MCP 工具面收编方向（90 → ~25）＋用量统计隐私红线＋ctl/MCP 能力分界。
+- `docs/90`——派工模型：契约冻结换扇形并行 / 宽深任务判别 / skill 可执行拆分规则；终局裁决「设计承重、乐观默认」。
+- `docs/73`——alt-screen 三轮交叉评审复审记录。
+- `docs/articles/`——新目录,首篇《Headless Coding 时代,worktree 是不是伪需求?》。
+
+</details>
+
 ## 0.12.2 - 2026-08-09
 
 Feature release: IM outbound notifications (DingTalk / WeCom / Feishu), a unified bottom-right notification center, a reworked onboarding experience, custom OpenAI-compatible voice transcription, and a consolidated settings structure. Also hardens WSL script execution and the updater manifest pipeline.
