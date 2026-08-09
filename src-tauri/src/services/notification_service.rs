@@ -1,4 +1,4 @@
-use crate::services::{SettingsService, TaskBindingService};
+use crate::services::{SettingsService, TaskBindingService, TurnNotifyRegistry};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -95,13 +95,16 @@ struct NotificationSentEvent<'a> {
 pub struct NotificationService {
     recent_notifications: Mutex<HashMap<String, Instant>>,
     dedupe_secs: u64,
+    /// 「本轮已富通知」标记注册表（与状态机 turn_end 兜底共享，见 turn_notify_registry.rs）
+    turn_notify: Arc<TurnNotifyRegistry>,
 }
 
 impl NotificationService {
-    pub fn new() -> Self {
+    pub fn new(turn_notify: Arc<TurnNotifyRegistry>) -> Self {
         Self {
             recent_notifications: Mutex::new(HashMap::new()),
             dedupe_secs: 10,
+            turn_notify,
         }
     }
 
@@ -156,7 +159,21 @@ impl NotificationService {
                 input_placeholder: request.input_placeholder.as_deref(),
             },
         );
+        self.mark_turn_notify_if_applicable(&request.kind, request.session_id.as_deref());
         Ok(NotificationTriggerResult::sent())
+    }
+
+    /// AI 富摘要通知（kind=turn_end + sessionId）实际送达后打「本轮已富通知」标记，
+    /// 状态机 Idle 跃迁的桌面兜底据此跳过（orchestrator_service.rs 的 sync listener）。
+    /// `im_forwarded` 本批恒 false：富通知尚未接 IM 转发（docs/88 批次2），
+    /// IM 兜底因此不受此标记影响。
+    fn mark_turn_notify_if_applicable(&self, kind: &str, session_id: Option<&str>) {
+        if kind != "turn_end" {
+            return;
+        }
+        if let Some(session_id) = session_id {
+            self.turn_notify.mark(session_id, false);
+        }
     }
 
     /// 会话退出通知
@@ -263,6 +280,8 @@ impl NotificationService {
             .unwrap_or_else(|e| e.into_inner());
         map.remove(&format!("session_exit:{session_id}"));
         map.remove(&format!("session_waiting_input:{session_id}"));
+        drop(map);
+        self.turn_notify.clear(session_id);
     }
 
     // ============ 阶段 2.6：hook 状态机驱动的新通知 ============
@@ -565,7 +584,7 @@ fn task_metadata_muted(metadata: &Option<serde_json::Value>) -> bool {
 
 impl Default for NotificationService {
     fn default() -> Self {
-        Self::new()
+        Self::new(Arc::new(TurnNotifyRegistry::new()))
     }
 }
 
@@ -664,10 +683,47 @@ mod tests {
 
     #[test]
     fn check_dedupe_blocks_repeated_key() {
-        let service = NotificationService::new();
+        let service = NotificationService::default();
         assert!(service.check_dedupe("session:1"));
         assert!(!service.check_dedupe("session:1"));
         assert!(service.check_dedupe("session:2"));
+    }
+
+    // 集成路径（trigger 打标 → 状态机 Idle 兜底查标 → 下一轮 clear 恢复）：
+    // trigger/notify_turn_end 需要 AppHandle，这里对同一共享 registry 走
+    // 与两个消费方完全相同的判定原语（mark_turn_notify_if_applicable / is_marked / clear）。
+    #[test]
+    fn turn_end_trigger_marks_registry_and_clear_restores_fallback() {
+        let registry = Arc::new(TurnNotifyRegistry::new());
+        let service = NotificationService::new(registry.clone());
+
+        // trigger(turn_end + sessionId) 打标 → 桌面兜底（is_marked 命中）跳过
+        service.mark_turn_notify_if_applicable("turn_end", Some("s1"));
+        let mark = registry.is_marked("s1").expect("marked after rich notify");
+        // 本批 IM 转发未接通，im_forwarded 恒 false → IM 兜底不跳过
+        assert!(!mark.im_forwarded);
+
+        // 未 trigger 的会话不受影响，兜底照发
+        assert!(registry.is_marked("s2").is_none());
+
+        // 下一轮（Idle→忙碌跃迁触发 clear）后兜底恢复
+        registry.clear("s1");
+        assert!(registry.is_marked("s1").is_none());
+
+        // 非 turn_end kind / 缺 sessionId 都不打标
+        service.mark_turn_notify_if_applicable("error", Some("s3"));
+        service.mark_turn_notify_if_applicable("turn_end", None);
+        assert!(registry.is_marked("s3").is_none());
+    }
+
+    #[test]
+    fn cleanup_session_clears_turn_notify_mark() {
+        let registry = Arc::new(TurnNotifyRegistry::new());
+        let service = NotificationService::new(registry.clone());
+        service.mark_turn_notify_if_applicable("turn_end", Some("s1"));
+        assert!(registry.is_marked("s1").is_some());
+        service.cleanup_session("s1");
+        assert!(registry.is_marked("s1").is_none());
     }
 
     #[test]

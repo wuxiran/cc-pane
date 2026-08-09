@@ -20,6 +20,7 @@ mod terminal_daemon_bridge_reliability;
 mod terminal_daemon_control_link;
 mod terminal_daemon_event_bridge;
 mod terminal_daemon_lifecycle;
+mod turn_notify_registry;
 pub mod voice_service;
 mod web_access_lifecycle;
 
@@ -43,6 +44,7 @@ pub use terminal_daemon_control_link::report_hidden_sessions;
 pub use terminal_daemon_control_link::TerminalDaemonControlLink;
 pub use terminal_daemon_event_bridge::TerminalDaemonEventBridge;
 pub use terminal_daemon_lifecycle::TerminalDaemonLifecycle;
+pub use turn_notify_registry::{TurnMark, TurnNotifyRegistry};
 pub use web_access_lifecycle::{
     local_url as web_access_local_url, WebAccessLifecycle, WebAccessStatus,
 };

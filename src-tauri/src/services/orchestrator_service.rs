@@ -1663,6 +1663,7 @@ impl OrchestratorService {
         runner_service: Arc<cc_panes_core::services::RunnerService>,
         ai_panel_repo: Arc<cc_panes_core::repository::AiPanelRepository>,
         mcp_tool_call_stats_repo: Arc<cc_panes_core::repository::McpToolCallStatsRepository>,
+        turn_notify_registry: Arc<crate::services::TurnNotifyRegistry>,
         start_locks: Arc<StartLocks>,
         app_handle: AppHandle,
         app_paths: Arc<AppPaths>,
@@ -1755,6 +1756,7 @@ impl OrchestratorService {
             let backend_for_status = state.terminal_backend.backend();
             let runner_svc_listener = state.runner_service.clone();
             let state_machine_for_timer = state.session_state_machine.clone();
+            let turn_notify_for_listener = turn_notify_registry.clone();
             state.session_state_machine.subscribe(Arc::new(
                 move |transition: &cc_panes_core::services::StateTransition| {
                     use cc_panes_core::services::terminal_service::SessionStatus;
@@ -1763,9 +1765,28 @@ impl OrchestratorService {
                     let _ = backend_for_status
                         .apply_hook_status(&transition.pty_session_id, transition.to);
 
+                    // turn_notify 标记失效：进入忙碌态 = 下一轮开始，上一轮的
+                    // 「已富通知」标记作废（覆盖计划口径的 Idle→忙碌，也覆盖
+                    // WaitingInput→忙碌等续跑路径；clear 不存在的标记是 no-op）。
+                    if transition.to.is_busy() {
+                        turn_notify_for_listener.clear(&transition.pty_session_id);
+                    }
+
                     // 第二步：按状态决定通知 / 启动 timer
                     match &transition.to {
                         SessionStatus::Idle => {
+                            // AI 本轮已通过 trigger_notification 发过富摘要 → 桌面兜底
+                            // "✅ Completed" 跳过（去重契约见 turn_notify_registry.rs）
+                            if turn_notify_for_listener
+                                .is_marked(&transition.pty_session_id)
+                                .is_some()
+                            {
+                                tracing::debug!(
+                                    session_id = %transition.pty_session_id,
+                                    "turn_end desktop fallback skipped: rich AI notification already sent this turn"
+                                );
+                                return;
+                            }
                             // TurnEnd → Idle："✅ 完成"
                             notif_svc.notify_turn_end(
                                 &app_handle_for_listener,

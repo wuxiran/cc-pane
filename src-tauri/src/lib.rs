@@ -1528,7 +1528,9 @@ pub fn run() {
         external_skill_registry.clone(),
     ));
     let quick_command_service = Arc::new(QuickCommandService::new(app_paths.quick_commands_path()));
-    let notification_service = Arc::new(NotificationService::new());
+    // 「本轮已富通知」标记注册表：trigger_notification 打标，状态机 turn_end 兜底查标去重
+    let turn_notify_registry = Arc::new(services::TurnNotifyRegistry::new());
+    let notification_service = Arc::new(NotificationService::new(turn_notify_registry.clone()));
     let ccchan_service = Arc::new(CCChanService::new(
         settings_service.clone(),
         app_paths.clone(),
@@ -1686,6 +1688,7 @@ pub fn run() {
         .manage(launch_profile_service)
         .manage(quick_command_service)
         .manage(notification_service)
+        .manage(turn_notify_registry)
         .manage(ccchan_service)
         .manage(todo_service)
         .manage(task_binding_service)
@@ -2142,6 +2145,7 @@ pub fn run() {
                     app.state::<Arc<cc_panes_core::repository::AiPanelRepository>>();
                 let mcp_tool_call_stats_repo_state =
                     app.state::<Arc<cc_panes_core::repository::McpToolCallStatsRepository>>();
+                let turn_notify_registry_state = app.state::<Arc<services::TurnNotifyRegistry>>();
                 let start_locks = app.state::<Arc<StartLocks>>();
                 let paths = app.state::<Arc<AppPaths>>();
                 if let Err(e) = orch_svc.start(
@@ -2170,6 +2174,7 @@ pub fn run() {
                     runner_svc.inner().clone(),
                     ai_panel_repo_state.inner().clone(),
                     mcp_tool_call_stats_repo_state.inner().clone(),
+                    turn_notify_registry_state.inner().clone(),
                     start_locks.inner().clone(),
                     app.handle().clone(),
                     paths.inner().clone(),
@@ -2193,6 +2198,7 @@ pub fn run() {
                 app.manage(im_bridge.clone());
                 services::im_bridge::spawn_im_transition_consumer(
                     im_bridge,
+                    turn_notify_registry_state.inner().clone(),
                     orch_svc.session_state_machine().subscribe_transitions(),
                 );
             }
