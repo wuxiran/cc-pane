@@ -66,6 +66,16 @@ cargo test --workspace
 - [ ] 错误在各边界正确处理？
 - [ ] 类型在各层一致？
 
+### 6. 未尽事项落 todo（回流）
+
+收尾前扫一遍本次会话：文档没更、测试缺口、发现但没修的坑。每项各建一条 todo（`create_todo`），别让临终发现随会话蒸发：
+
+- `tags` 带 `ai-work-item`（AI 工作项标记；可加 `family:<key>` / `skill:<name>` / `cli:<claude|codex>` 路由提示）
+- description 必含两行：`验收: <一句可执行的话>` 与 `来源: <planRef 或 sessionId 摘要>`
+- 收尾摘要里列出新建的 todo id
+
+无未尽事项则明说「无回流项」，不建空 todo。
+
 ---
 
 ## 核心原则
