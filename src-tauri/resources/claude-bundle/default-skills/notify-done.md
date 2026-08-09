@@ -19,8 +19,12 @@ CC-Panes 会在每轮回复结束时自动发一条硬编码的基础通知（"�
 
 ## 前置检查
 
-环境变量 `CC_PANES_PTY_SESSION_ID` 不存在 → 不在 {{app_name}} 管控下，
-跳过整个 skill，不要报错也不要提及。
+1. 环境变量 `CC_PANES_PTY_SESSION_ID` 不存在 → 不在 {{app_name}} 管控下，
+   跳过整个 skill，不要报错也不要提及。
+2. **你是被派发的 worker（派发 prompt 要求你调 `report_to_leader`）→ 不要调
+   `trigger_notification`**。通知的受众是人，而你的汇报对象是 leader：调
+   `report_to_leader` 交报告即可，由 leader 汇总整个编队后**替所有人发一条**。
+   worker 各自发通知 = N 个 worker 给用户轰 N 条噪音。
 
 ## 怎么调（作为回复的最后一个动作）
 

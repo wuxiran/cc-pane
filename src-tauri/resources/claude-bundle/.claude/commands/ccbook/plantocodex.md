@@ -313,6 +313,8 @@ git diff <worktree-or-main>
    )
 3. 如果 report_to_leader 返回 {sent: false, queued: true, skipReason: "leader busy"},
    不重试 — 引擎已排队,leader 空闲后会自动收到补投;TaskBinding 也已持久化兜底。
+4. **不要调 trigger_notification**——worker 的汇报对象是 leader 不是用户;
+   由 leader 汇总整个编队后统一发一条通知,worker 各自发 = 通知轰炸。
 ```
 
 ---
