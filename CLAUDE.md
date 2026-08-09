@@ -406,5 +406,7 @@ flutter pub get && flutter analyze && flutter test
 | `docs/87-git-collaboration.md` | **Git 协作规范**：分支模型（main / dev/v* / release/*）/ PR base 规则 / 发版七步 / 多 AI 实例并行纪律——所有 PR 与发版操作前对照 |
 | `docs/86-resume-chain-staleness.md` | **Resume 链路陈旧化**：三症状归因（对话旧/画面旧/空会话）+ 六条断链 + ResumeBindingStore 单源 / outbox ack / 失败可见化三批修复——排障判据速查在文末 |
 | `docs/88-im-bridge.md` | **IM 外推桥**：钉钉/企微/飞书通知集成（批次1 出站已落地）+ 双向长连接 roadmap（钉钉 Stream / 企微智能机器人协议公开可自实现，飞书不公开走伪双向）——三平台调研结论与安全模型在此 |
+| `docs/89-mcp-tool-surface-reduction.md` | **MCP 工具面收编方向文档**：90 工具盘点 + 两刀方案（CRUD 合并→55、管理面下沉 ctl→25）+ ctl/MCP 能力分界三轴（身份/故障域/管理面）——未排期，实施逐刀抽 plan |
+| `docs/90-worker-decomposition-model.md` | **派工模型方向文档**：契约冻结换扇形并行 / 宽深形状判别 / 简报摊销——§6 终局裁决「设计承重，乐观默认」（碰撞检测/claim 看板否决）；§7 skill 可执行拆分规则（形状三问→W/D 分支→硬阈值→派发三关→CLI 路由，批次A 落地文本） |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |

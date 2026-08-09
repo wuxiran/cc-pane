@@ -104,6 +104,30 @@ c 的已知难点，实施前必须回答：
 
 > 按项目惯例，c **实施前需单独出 plan 并交叉评审**（改动面大、触及数据完整性）；本节只是方向结论，不是实施规格。
 
+### 2.x 2026-08-09 复审：SIGWINCH 被证伪一半，b 的默认值按 CLI 分裂（已过 WSL Codex 交叉评审，判定「需修改」，修订见 2.x.1）
+
+活体证据（release 实例会话 `db01a58e`，claude spinner 场景）：错乱发生后**拖分隔条触发 SIGWINCH 无效**。定性：错帧已作为历史内容沉入 scrollback，SIGWINCH 只让 CLI 重绘当前视口，救不了已污染的历史；且 spinner 持续运行、锚点持续被钳，新错帧源源不断。结论修订：
+
+- **「检测锚点截断 + 自动 SIGWINCH」的缓解路径被证伪一半**——对增量错帧或有效，对已沉积污染无效。对症动作必须升级为 `xterm.reset()`（清屏+清 scrollback）+ SIGWINCH 连招；右键菜单现有的「刷新终端显示」（渲染层）旁边缺一个「重置终端缓冲区」（buffer 层）。
+- **收益按 CLI 重新定价**：codex/opencode 是全屏 TUI，滚动历史回滚看到的是一帧帧 TUI 残影，边际价值低——剥离对它们收益薄、代价照付；claude 是 Ink 内联输出，对话流真的在缓冲区里，历史有实价值。
+- **复审后的三步**：
+  1. **实证前置（必须先做，不做可能整个方向白干）**：确认 claude 是否真的发 `1049/1047/47`——`detectAlternateBufferTransitions` 现成，加计数日志跑一天。若 claude（Ink 内联）根本不用 alt-screen，则对 claude 剥离是 no-op，本次污染是 Ink 相对定位 + 主缓冲滚动的**原生行为**，方案 c 对 claude 无效，claude 只能走 reset+SIGWINCH 自动化；若确实发，翻回去直接根治。
+  2. **b 落地时默认值分裂**：`NORMAL_BUFFER_CLI_TOOLS` 硬编码 Set 改为按 CLI 可配置；codex/opencode 默认翻回原生 alt-screen（收益薄不必等实证），claude 默认维持剥离、等步骤 1 数据。
+  3. **c 维持终局定位但不阻塞 1/2**；其三个开放问题不变，另加第四个：休眠 SerializeAddon / checkpoint photo / desync snapshot 重放均假设「内容在主缓冲区」，翻默认前逐一过消费方。daemon `ReplayBuffer` 存 raw 流（剥离只在前端渲染层）、回放再过 `renderTerminalData` 的对称性是现在做对的地方，改动必须保住。
+
+#### 2.x.1 WSL Codex 交叉评审结论（gpt-5.5 xhigh，带行号核实，判定「需修改」）
+
+对上节三步的修订，实施以本节为准：
+
+1. **reset()+SIGWINCH 方向确认，但 reset 要按破坏性操作对待**：`xterm.reset()` 连 buffer/scrollback 一起重置（`@xterm/xterm/src/common/CoreTerminal.ts:244`），是重建前清屏而非轻量补丁——「重置终端缓冲区」按钮的文案与确认交互要按「会清空回滚历史」设计。DECSTBM 不是被漏掉的现成修法（需改渲染契约），不列为备选。
+2. **claude 1049 探针必须跨 chunk 状态化**：PTY 会把 `\x1b[?1049h` 切碎分包，逐 chunk 扫 raw 必漏计。计数要挂在 stripper 的 pending 重组之后（复用 `terminalBufferMode.ts:60` 的跨 chunk 机制），不能另起一个无状态扫描。
+3. **「翻默认威胁恢复/休眠链路」被评审推翻（上节第四个开放问题降级）**：`SerializeAddon.serialize()` 在 active buffer 为 alternate 时本就附带 `\x1b[?1049h\x1b[H` + alt buffer（`addon-serialize/src/SerializeAddon.ts:511`）；photo 直写 / delta 过渲染双管道（`terminalReplay.ts:71`、`terminalResync.ts:12`）兼容 alt-screen；daemon `replay_snapshot_delta()` 为字符串基线比对 + mismatch 重置（`terminal_daemon_event_bridge.rs:450/583`），幂等风险有限。**仍需逐一过的消费方收窄为**：`serializeTerminalBuffer`、导出、滚轮/滚动交互这几个偏主缓冲语义的点。
+4. **步骤 2 拆两拍**：先抽「按 CLI 的缓冲模式 policy + 用户开关」（行为不变的重构），验证后再翻 codex/opencode 默认值。**方案 c 独立成 spec**，不与止血批次绑定。
+5. 勘误：§2.1 的代码片段已落后，`NORMAL_BUFFER_CLI_TOOLS` 现为 claude/codex/opencode 三者（`terminalBufferMode.ts:139`）。
+5b. **实现落地后的第三轮评审裁决（2026-08-09，同 reviewer）**：整批「需修改→接受两条语义定义后可合并」，语义定义为规格：①`cliBufferModes` 与默认值分裂**只对新会话/新绑定生效**——已绑定会话不热重绑（TerminalView 绑定只在初始化/重连建立），strip↔native 活切换的探针漏计因此只是理论边界；②native 模式下 `serializeTerminalBuffer`/导出读 `buffer.active`，TUI 存活期导出的是**当前活动屏快照**而非滚动历史——判定为诚实语义（全屏 TUI 的"历史"本就是残影，§2.x 原判断）。另确认：wheel 逻辑无需改（本就只在 alternate 转箭头）；后端 `ReplayBuffer::update_buffer_mode()` 的单 chunk 扫描只影响元数据不影响回放幂等；reset 门控（drivesBackendPty && !readOnly）与显隐一致。
+6. 附带活体证据：本次评审的 codex 会话自身窗格即出现同型 spinner 交错残帧（`WWoorrkkiinngg`），证实 codex 被剥 alt-screen 后同样中招。
+7. **经验观察（弱信号，非判据——本条措辞已过 Codex 二审修订）：A 类错乱常随 spinner 停止「自愈」**。机制是「spinner 停止后最后一帧稳定下来」——没有新帧，错位的相对重绘链就停了；**不是** Ink 的收尾重绘（`unmount()/cleanup()` 仅在应用整体退出时发生）。scrollback 残帧仍在；复发条件是**每次重新满足**「长 spinner + 帧高变化 + 主缓冲滚动」，故「下一轮相似长思考高概率复发」，而非一次触发锁死全会话。注意渲染级花屏也可能恰好因下次稳定 repaint/resize/refresh 而看似消失，**turn/输出边界不能当分类标准**——区分 A 类与渲染级的硬判据仍是两个：错乱内容能否选中复制出正常文本、「刷新终端显示」是否有效。本条的实用价值：用户报障时恰好不闪 ≠ 误报，间歇性是 A 类的常态。
+
 ---
 
 ## 3. B 类：「刷新终端显示」修的是另一层
