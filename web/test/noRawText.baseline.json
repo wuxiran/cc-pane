@@ -7,7 +7,7 @@
   "layout/MobilePrototypeRoute.tsx": 1,
   "orchestration/OrchestrationFullView.tsx": 26,
   "orchestration/SessionOutputPreview.tsx": 4,
-  "orchestration/TaskDetailPanel.tsx": 23,
+  "orchestration/TaskDetailPanel.tsx": 26,
   "panes/Panel.tsx": 1,
   "resources/GlobalSkillsPanel.tsx": 16,
   "resources/ImportConfirmDialog.tsx": 16,
