@@ -63,7 +63,10 @@
     "metadata": "元数据",
     "noMetadata": "无元数据",
     "noTaskSelected": "未选择任务",
-    "noTaskSelectedDesc": "从编排列表中选择一个任务。"
+    "noTaskSelectedDesc": "从编排列表中选择一个任务。",
+    "relatedTodos": "关联 Todo",
+    "openTodo": "打开 Todo 详情",
+    "todosMissing": "{{count}} 条已删除或不可见"
   },
   "output": {
     "noSession": "无关联的终端会话",

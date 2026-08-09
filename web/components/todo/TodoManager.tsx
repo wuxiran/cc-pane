@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { useTodoStore } from "@/stores";
+import { usePanesStore, useTodoStore } from "@/stores";
+import { focusTab } from "@/hooks/useFocusTab";
+import { asTabId } from "@/types/ids";
 import { clampSidebarWidth, loadSidebarWidth, saveSidebarWidth } from "@/lib/sidebarWidth";
 import { type GroupMode } from "./TodoFilterBar";
 import TodoEditor from "./TodoEditor";
@@ -99,6 +101,26 @@ export default function TodoManager({
   const saveCurrentFilter = useTodoStore((s) => s.saveCurrentFilter);
   const applySavedFilter = useTodoStore((s) => s.applySavedFilter);
   const removeSavedFilter = useTodoStore((s) => s.removeSavedFilter);
+  const dispatchInfoByTodoId = useTodoStore((s) => s.dispatchInfoByTodoId);
+
+  // todoId → sessionId（仅有会话可跳的才给徽章数据）
+  const dispatchSessionByTodoId = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const [todoId, info] of Object.entries(dispatchInfoByTodoId)) {
+      if (info.sessionId) map[todoId] = info.sessionId;
+    }
+    return map;
+  }, [dispatchInfoByTodoId]);
+
+  const handleOpenDispatchSession = useCallback((sessionId: string) => {
+    window.requestAnimationFrame(() => {
+      const panes = usePanesStore.getState();
+      const location = panes.findTabBySessionAcrossLayouts(sessionId);
+      if (location) {
+        focusTab(asTabId(location.tab.id), { switchAppView: true });
+      }
+    });
+  }, []);
 
   const [isCreating, setIsCreating] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
@@ -394,6 +416,8 @@ export default function TodoManager({
       onDelete={handleDelete}
       onToggleSelect={toggleSelected}
       onReorder={(ids) => reorder(ids)}
+      dispatchSessionByTodoId={dispatchSessionByTodoId}
+      onOpenDispatchSession={handleOpenDispatchSession}
     />
   );
 

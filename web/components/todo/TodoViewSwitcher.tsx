@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import {
+  Bot,
   CalendarX2,
   Check,
   ChevronDown,
@@ -107,6 +108,13 @@ export default function TodoViewSwitcher({
       active: viewMode === "overdue",
       count: stats?.overdue,
       onSelect: () => selectMainView("overdue"),
+    },
+    {
+      key: "ai_work",
+      label: t("todoAiWorkItems"),
+      icon: <Bot />,
+      active: viewMode === "ai_work",
+      onSelect: () => selectMainView("ai_work"),
     },
   ];
   const scopeOptions: ViewOption[] = [

@@ -2370,6 +2370,14 @@ struct McpQueryTodosParams {
     scope_ref: Option<String>,
     /// 搜索关键词
     search: Option<String>,
+    /// 按标签精确筛选（tags 数组含该标签即命中）
+    tag: Option<String>,
+    /// 按任务类型精确筛选。AI 创建的派工工作项约定为 "ai-work-item"
+    #[serde(rename = "todoType")]
+    todo_type: Option<String>,
+    /// 排除指定任务类型。如 excludeTodoType="ai-work-item" 可过滤掉 AI 工作项、只看用户任务（type 为空的任务不受影响）
+    #[serde(rename = "excludeTodoType")]
+    exclude_todo_type: Option<String>,
     /// 返回数量上限
     limit: Option<u32>,
 }
@@ -2389,6 +2397,9 @@ struct McpCreateTodoParams {
     scope_ref: Option<String>,
     /// 标签列表
     tags: Option<Vec<String>>,
+    /// 任务类型。AI 代替用户创建的派工工作项必须传 "ai-work-item"，以便 UI 与查询区分人/AI 任务
+    #[serde(rename = "todoType")]
+    todo_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2403,6 +2414,11 @@ struct McpUpdateTodoParams {
     priority: Option<String>,
     /// 新描述
     description: Option<String>,
+    /// 新标签列表（整体替换）
+    tags: Option<Vec<String>>,
+    /// 新任务类型（如 "ai-work-item"）
+    #[serde(rename = "todoType")]
+    todo_type: Option<String>,
 }
 
 // ---- Memory MCP 参数 ----
@@ -5481,7 +5497,7 @@ impl McpToolHandler {
 
     // ============ Todo Tools ============
 
-    /// 查询待办任务列表，支持按状态、优先级、范围等条件筛选
+    /// 查询待办任务列表，支持按状态、优先级、范围、标签、任务类型（todoType/excludeTodoType）等条件筛选
     #[tool]
     async fn query_todos(&self, Parameters(params): Parameters<McpQueryTodosParams>) -> String {
         debug!("mcp::query_todos");
@@ -5491,6 +5507,9 @@ impl McpToolHandler {
             scope: params.scope.and_then(|s| s.parse::<TodoScope>().ok()),
             scope_ref: params.scope_ref,
             search: params.search,
+            tag: params.tag,
+            todo_type: params.todo_type,
+            exclude_todo_type: params.exclude_todo_type,
             limit: params.limit,
             ..Default::default()
         };
@@ -5501,7 +5520,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 创建新的待办任务
+    /// 创建新的待办任务。AI 代替用户创建的派工工作项必须带 todoType="ai-work-item"
     #[tool]
     async fn create_todo(&self, Parameters(params): Parameters<McpCreateTodoParams>) -> String {
         info!(title = %params.title, "mcp::create_todo");
@@ -5512,6 +5531,7 @@ impl McpToolHandler {
             scope: params.scope.and_then(|s| s.parse::<TodoScope>().ok()),
             scope_ref: params.scope_ref,
             tags: params.tags,
+            todo_type: params.todo_type,
             ..Default::default()
         };
         match self.state.todo_service.create_todo(req) {
@@ -5522,7 +5542,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 更新待办任务的标题、状态、优先级或描述
+    /// 更新待办任务的标题、状态、优先级、描述、标签或任务类型
     #[tool]
     async fn update_todo(&self, Parameters(params): Parameters<McpUpdateTodoParams>) -> String {
         info!(id = %params.id, "mcp::update_todo");
@@ -5531,6 +5551,8 @@ impl McpToolHandler {
             status: params.status.and_then(|s| s.parse::<TodoStatus>().ok()),
             priority: params.priority.and_then(|s| s.parse::<TodoPriority>().ok()),
             description: params.description,
+            tags: params.tags,
+            todo_type: params.todo_type,
             ..Default::default()
         };
         match self.state.todo_service.update_todo(&params.id, req) {

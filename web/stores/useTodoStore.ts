@@ -6,7 +6,8 @@
  */
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
-import { todoService } from "@/services";
+import { taskBindingService, todoService } from "@/services";
+import { AI_WORK_ITEM_TODO_TYPE } from "@/types/todo";
 import type {
   TodoItem,
   TodoStatus,
@@ -25,6 +26,21 @@ import type {
 
 /** 预定义类型常量（不可删除） */
 export const BUILTIN_TODO_TYPES = ["feature", "bug", "docs", "chore"] as const;
+
+/** 单条 todo 的派工关联信息（反查 task_bindings 的 metadata.todoIds 得到） */
+export interface TodoDispatchInfo {
+  bindingId: string;
+  sessionId?: string;
+  status: string;
+}
+
+/** 从 binding.metadata（unknown）里提取 todoIds 数组 */
+function extractTodoIds(metadata: unknown): string[] {
+  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) return [];
+  const ids = (metadata as Record<string, unknown>).todoIds;
+  if (!Array.isArray(ids)) return [];
+  return ids.filter((id): id is string => typeof id === "string" && id.length > 0);
+}
 
 interface TodoState {
   // 列表
@@ -60,6 +76,9 @@ interface TodoState {
   activitiesLoading: boolean;
   savedFilters: TodoSavedFilter[];
 
+  // 派工关联（todoId → binding 摘要），来源 = task_bindings.metadata.todoIds 反查
+  dispatchInfoByTodoId: Record<string, TodoDispatchInfo>;
+
   // Actions
   loadList: (query?: TodoQuery) => Promise<void>;
   create: (request: CreateTodoRequest) => Promise<TodoItem>;
@@ -85,6 +104,7 @@ interface TodoState {
   setViewMode: (mode: TodoWorkView) => void;
   toggleMyDay: (id: string) => Promise<void>;
   loadStats: () => Promise<void>;
+  loadDispatchInfo: () => Promise<void>;
   loadActivities: (todoId: string) => Promise<void>;
   saveCurrentFilter: (name: string) => void;
   applySavedFilter: (filter: TodoSavedFilter) => void;
@@ -117,6 +137,7 @@ const INITIAL_STATE = {
   activities: [] as TodoActivity[],
   activitiesLoading: false,
   savedFilters: JSON.parse(localStorage.getItem("cc-panes-todo-saved-filters") || "[]") as TodoSavedFilter[],
+  dispatchInfoByTodoId: {} as Record<string, TodoDispatchInfo>,
 };
 
 export const useTodoStore = create<TodoState>()(
@@ -152,7 +173,12 @@ export const useTodoStore = create<TodoState>()(
           scope: query?.scope ?? activeScope ?? undefined,
           scopeRef: query?.scopeRef ?? activeScopeRef,
           search: query?.search ?? (searchText.trim() || undefined),
-          todoType: query?.todoType ?? filterType ?? undefined,
+          // AI 工作项视图强制按 todoType 精确取数；「所有任务」「收件箱」默认排除。
+          // 旧数据（todoType 为空、仅带 ai-work-item tag）在 exclude 下仍返回，允许留在 all 视图（plan 裁决）。
+          todoType:
+            viewMode === "ai_work" ? AI_WORK_ITEM_TODO_TYPE : query?.todoType ?? filterType ?? undefined,
+          excludeTodoType:
+            viewMode === "all" || viewMode === "inbox" ? AI_WORK_ITEM_TODO_TYPE : undefined,
           sortBy: query?.sortBy ?? (sortBy === "manual" ? undefined : sortBy),
           myDay: viewMode === "my_day" ? true : undefined,
           inbox: viewMode === "inbox" ? true : undefined,
@@ -171,6 +197,7 @@ export const useTodoStore = create<TodoState>()(
           state.selectedIds = state.selectedIds.filter((id) => result.items.some((todo) => todo.id === id));
         });
         void get().loadStats();
+        if (viewMode === "ai_work") void get().loadDispatchInfo();
       } catch (error) {
         set((state) => {
           state.loading = false;
@@ -360,6 +387,28 @@ export const useTodoStore = create<TodoState>()(
         });
       } catch {
         // 统计加载失败不影响主流程
+      }
+    },
+
+    loadDispatchInfo: async () => {
+      // 反向查询（契约：不给 todo 加字段）：拉 task_bindings（百级规模）在客户端过滤 metadata.todoIds
+      try {
+        const result = await taskBindingService.query({ limit: 500 });
+        const map: Record<string, TodoDispatchInfo> = {};
+        for (const binding of result.items) {
+          for (const todoId of extractTodoIds(binding.metadata)) {
+            map[todoId] = {
+              bindingId: binding.id,
+              sessionId: binding.sessionId ?? undefined,
+              status: binding.status,
+            };
+          }
+        }
+        set((state) => {
+          state.dispatchInfoByTodoId = map;
+        });
+      } catch {
+        // 派工关联加载失败不影响 todo 主流程
       }
     },
 

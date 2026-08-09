@@ -237,6 +237,9 @@ pub struct TodoQuery {
     pub my_day: Option<bool>,
     #[serde(default)]
     pub todo_type: Option<String>,
+    /// 排除指定 todo_type（NULL/空串视为不等于任何非空值，仍会返回）。
+    #[serde(default)]
+    pub exclude_todo_type: Option<String>,
     /// 收件箱：未完成、未安排到今天且没有截止日期的待整理任务。
     #[serde(default)]
     pub inbox: Option<bool>,

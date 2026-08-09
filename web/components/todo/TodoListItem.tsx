@@ -27,6 +27,10 @@ interface TodoListItemProps {
   isMultiSelected?: boolean;
   onToggleSelect?: () => void;
   dragDisabled?: boolean;
+  /** 派工关联会话 ID（存在即显示「已派」徽章） */
+  dispatchSessionId?: string;
+  /** 点击「已派」徽章跳转关联会话 */
+  onOpenDispatchSession?: (sessionId: string) => void;
 }
 
 const PRIORITY_FLAG_STYLE = {
@@ -45,6 +49,8 @@ export default function TodoListItem({
   selectionMode = false,
   isMultiSelected = false,
   onToggleSelect,
+  dispatchSessionId,
+  onOpenDispatchSession,
 }: TodoListItemProps) {
   const { t } = useTranslation("dialogs");
   const completedSubtasks = todo.subtasks.filter((s) => s.completed).length;
@@ -125,6 +131,20 @@ export default function TodoListItem({
               className="text-xs px-1.5 py-0 h-4 font-medium border-primary/30 text-primary"
             >
               {todo.todoType}
+            </Badge>
+          )}
+          {/* 派工徽章：有关联 binding 时显示，点击跳会话 */}
+          {dispatchSessionId && (
+            <Badge
+              variant="secondary"
+              className="h-4 shrink-0 cursor-pointer px-1.5 py-0 text-xs font-medium text-[var(--app-accent)] hover:bg-accent"
+              title={t("todoDispatchedHint")}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenDispatchSession?.(dispatchSessionId);
+              }}
+            >
+              {t("todoDispatched", { code: dispatchSessionId.slice(-6) })}
             </Badge>
           )}
           {/* Tags */}
@@ -214,6 +234,8 @@ interface SortableTodoListItemProps {
   isMultiSelected?: boolean;
   onToggleSelect?: () => void;
   dragDisabled?: boolean;
+  dispatchSessionId?: string;
+  onOpenDispatchSession?: (sessionId: string) => void;
 }
 
 export function SortableTodoListItem({
@@ -228,6 +250,8 @@ export function SortableTodoListItem({
   isMultiSelected,
   onToggleSelect,
   dragDisabled = false,
+  dispatchSessionId,
+  onOpenDispatchSession,
 }: SortableTodoListItemProps) {
   const {
     attributes,
@@ -270,6 +294,8 @@ export function SortableTodoListItem({
           selectionMode={selectionMode}
           isMultiSelected={isMultiSelected}
           onToggleSelect={onToggleSelect}
+          dispatchSessionId={dispatchSessionId}
+          onOpenDispatchSession={onOpenDispatchSession}
         />
       </div>
 

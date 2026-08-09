@@ -63,7 +63,10 @@
     "metadata": "Metadata",
     "noMetadata": "No metadata",
     "noTaskSelected": "No task selected",
-    "noTaskSelectedDesc": "Select a task from the orchestration list."
+    "noTaskSelectedDesc": "Select a task from the orchestration list.",
+    "relatedTodos": "Related Todos",
+    "openTodo": "Open todo details",
+    "todosMissing": "{{count}} deleted or unavailable"
   },
   "output": {
     "noSession": "No linked PTY session.",

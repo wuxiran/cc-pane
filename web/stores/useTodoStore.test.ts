@@ -18,12 +18,19 @@ vi.mock("@/services", () => ({
     toggleSubtask: vi.fn(),
     deleteSubtask: vi.fn(),
   },
+  taskBindingService: {
+    query: vi.fn(),
+  },
 }));
 
-import { todoService } from "@/services";
+import { taskBindingService, todoService } from "@/services";
 import { useTodoStore } from "./useTodoStore";
 
 const mockTodo = todoService as unknown as Record<
+  string,
+  ReturnType<typeof vi.fn>
+>;
+const mockBinding = taskBindingService as unknown as Record<
   string,
   ReturnType<typeof vi.fn>
 >;
@@ -56,6 +63,7 @@ describe("useTodoStore", () => {
     localStorage.clear();
     // 默认 query 返回空结果，避免 fire-and-forget loadList 抛未处理拒绝
     mockTodo.query.mockResolvedValue(emptyResult());
+    mockBinding.query.mockResolvedValue({ items: [], total: 0, hasMore: false });
     useTodoStore.setState({
       todos: [],
       total: 0,
@@ -75,6 +83,7 @@ describe("useTodoStore", () => {
       activities: [],
       activitiesLoading: false,
       savedFilters: [],
+      dispatchInfoByTodoId: {},
     });
   });
 
@@ -152,6 +161,75 @@ describe("useTodoStore", () => {
       useTodoStore.setState({ viewMode: "overdue" });
       await useTodoStore.getState().loadList();
       expect(mockTodo.query).toHaveBeenLastCalledWith(expect.objectContaining({ overdue: true }));
+    });
+
+    it("ai_work 视图应强制按 todoType=ai-work-item 精确取数", async () => {
+      useTodoStore.setState({ viewMode: "ai_work", filterType: "bug" });
+
+      await useTodoStore.getState().loadList();
+
+      expect(mockTodo.query).toHaveBeenCalledWith(
+        expect.objectContaining({ todoType: "ai-work-item", excludeTodoType: undefined }),
+      );
+    });
+
+    it("所有任务与收件箱视图应默认排除 ai-work-item", async () => {
+      useTodoStore.setState({ viewMode: "all" });
+      await useTodoStore.getState().loadList();
+      expect(mockTodo.query).toHaveBeenLastCalledWith(
+        expect.objectContaining({ excludeTodoType: "ai-work-item" }),
+      );
+
+      useTodoStore.setState({ viewMode: "inbox" });
+      await useTodoStore.getState().loadList();
+      expect(mockTodo.query).toHaveBeenLastCalledWith(
+        expect.objectContaining({ inbox: true, excludeTodoType: "ai-work-item" }),
+      );
+    });
+
+    it("my_day / overdue 视图不应携带 excludeTodoType", async () => {
+      useTodoStore.setState({ viewMode: "my_day" });
+      await useTodoStore.getState().loadList();
+      expect(mockTodo.query).toHaveBeenLastCalledWith(
+        expect.objectContaining({ excludeTodoType: undefined }),
+      );
+    });
+
+    it("ai_work 视图加载后应反查 binding 构建派工映射", async () => {
+      useTodoStore.setState({ viewMode: "ai_work" });
+      mockBinding.query.mockResolvedValue({
+        items: [
+          {
+            id: "b1",
+            sessionId: "sess-abcdef",
+            status: "running",
+            metadata: { todoIds: ["td-1", "td-2"] },
+          },
+          { id: "b2", status: "pending", metadata: { todoIds: ["td-3"] } },
+          { id: "b3", status: "completed", metadata: { other: true } },
+          { id: "b4", status: "completed", metadata: null },
+        ],
+        total: 4,
+        hasMore: false,
+      });
+
+      await useTodoStore.getState().loadList();
+      await vi.waitFor(() => {
+        expect(Object.keys(useTodoStore.getState().dispatchInfoByTodoId)).toHaveLength(3);
+      });
+
+      const map = useTodoStore.getState().dispatchInfoByTodoId;
+      expect(map["td-1"]).toEqual({ bindingId: "b1", sessionId: "sess-abcdef", status: "running" });
+      expect(map["td-2"]).toEqual({ bindingId: "b1", sessionId: "sess-abcdef", status: "running" });
+      expect(map["td-3"]).toEqual({ bindingId: "b2", sessionId: undefined, status: "pending" });
+    });
+
+    it("非 ai_work 视图不应触发 binding 反查", async () => {
+      useTodoStore.setState({ viewMode: "all" });
+
+      await useTodoStore.getState().loadList();
+
+      expect(mockBinding.query).not.toHaveBeenCalled();
     });
 
     it("加载失败时应重置 loading 并向上抛出", async () => {

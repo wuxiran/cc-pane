@@ -29,6 +29,7 @@ describe("TodoViewSwitcher", () => {
     expect(await screen.findByRole("menuitem", { name: "收件箱" })).toBeVisible();
     expect(screen.getByRole("menuitem", { name: "我的一天" })).toBeVisible();
     expect(screen.getByRole("menuitem", { name: "已逾期" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "AI 工作项" })).toBeVisible();
     expect(screen.getByRole("menuitem", { name: "全局" })).toBeVisible();
     expect(screen.getByRole("menuitem", { name: "脚本" })).toBeVisible();
   });

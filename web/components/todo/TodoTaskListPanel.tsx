@@ -76,6 +76,9 @@ interface TodoTaskListPanelProps {
   onDelete: (id: string) => void;
   onToggleSelect: (id: string) => void;
   onReorder: (ids: string[]) => void;
+  /** todoId → 派工会话 ID（AI 工作项视图的「已派」徽章数据源） */
+  dispatchSessionByTodoId?: Record<string, string>;
+  onOpenDispatchSession?: (sessionId: string) => void;
 }
 
 export default function TodoTaskListPanel({
@@ -121,6 +124,8 @@ export default function TodoTaskListPanel({
   onDelete,
   onToggleSelect,
   onReorder,
+  dispatchSessionByTodoId,
+  onOpenDispatchSession,
 }: TodoTaskListPanelProps) {
   const { t } = useTranslation("dialogs");
   const groups = useMemo(() => {
@@ -231,7 +236,8 @@ export default function TodoTaskListPanel({
                 {todos.map((todo) => <SortableTodoListItem key={todo.id} todo={todo} isSelected={selectedTodo?.id === todo.id}
                   onSelect={() => onSelectTodo(todo)} onToggleStatus={() => onToggleStatus(todo)} onTogglePriority={() => onTogglePriority(todo)}
                   onToggleMyDay={() => onToggleMyDay(todo)} onDelete={onDelete} selectionMode={selectionMode}
-                  isMultiSelected={selectedIds.includes(todo.id)} onToggleSelect={() => onToggleSelect(todo.id)} dragDisabled={sortBy !== "manual"} />)}
+                  isMultiSelected={selectedIds.includes(todo.id)} onToggleSelect={() => onToggleSelect(todo.id)} dragDisabled={sortBy !== "manual"}
+                  dispatchSessionId={dispatchSessionByTodoId?.[todo.id]} onOpenDispatchSession={onOpenDispatchSession} />)}
               </SortableContext>
             </DndContext>
           )}

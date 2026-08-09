@@ -14,7 +14,13 @@ export type TodoPriority = "high" | "medium" | "low";
 export type TodoSortBy = "manual" | "priority" | "due_date" | "updated_at" | "created_at";
 
 /** Todo 工作视图 */
-export type TodoWorkView = "all" | "inbox" | "my_day" | "overdue";
+export type TodoWorkView = "all" | "inbox" | "my_day" | "overdue" | "ai_work";
+
+/**
+ * AI 工作项的一等身份（todo_type 字面量，前后端/skill 三方一致）。
+ * tag `ai-work-item` 保留为过渡兼容：旧数据识别按双口径（todoType 命中或 tags 含该值）。
+ */
+export const AI_WORK_ITEM_TODO_TYPE = "ai-work-item";
 
 /** Todo 作用域 */
 export type TodoScope =
@@ -124,6 +130,8 @@ export interface TodoQuery {
   offset?: number;
   myDay?: boolean;
   todoType?: string;
+  /** 排除指定 todo_type（NULL/空串视为不等，即旧数据仍返回） */
+  excludeTodoType?: string;
   inbox?: boolean;
   overdue?: boolean;
 }

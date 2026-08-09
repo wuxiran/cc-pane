@@ -1,12 +1,14 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, ChevronRight, Clipboard, ExternalLink, FileText } from "lucide-react";
+import { Check, ChevronRight, Circle, CircleDashed, CheckCircle2, Clipboard, ExternalLink, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { focusTab } from "@/hooks/useFocusTab";
-import { usePanesStore } from "@/stores";
+import { useActivityBarStore, usePanesStore, useTodoStore } from "@/stores";
+import { todoService } from "@/services";
 import { asTabId } from "@/types/ids";
-import type { TaskBinding } from "@/types";
+import { AI_WORK_ITEM_TODO_TYPE } from "@/types/todo";
+import type { TaskBinding, TodoItem } from "@/types";
 
 interface TaskDetailPanelProps {
   binding: TaskBinding | null;
@@ -20,6 +22,19 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+/** 契约：派工簇的 todo 关联存放在 binding 的 metadata.todoIds（string[]） */
+function extractTodoIds(metadata: Record<string, unknown> | null): string[] {
+  const ids = metadata?.todoIds;
+  if (!Array.isArray(ids)) return [];
+  return ids.filter((id): id is string => typeof id === "string" && id.length > 0);
+}
+
+function TodoStatusIcon({ status }: { status: TodoItem["status"] }) {
+  if (status === "done") return <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[var(--app-status-success)]" />;
+  if (status === "in_progress") return <CircleDashed className="h-3.5 w-3.5 shrink-0 text-[var(--app-accent)]" />;
+  return <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />;
 }
 
 function formatDate(value?: string | null): string {
@@ -95,6 +110,22 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
 
   const metadata = useMemo(() => asRecord(binding?.metadata), [binding?.metadata]);
   const uiMetadata = useMemo(() => asRecord(metadata?.ui), [metadata]);
+  const relatedTodoIds = useMemo(() => extractTodoIds(metadata), [metadata]);
+  const [relatedTodos, setRelatedTodos] = useState<TodoItem[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (relatedTodoIds.length === 0) {
+      setRelatedTodos([]);
+      return;
+    }
+    void Promise.all(relatedTodoIds.map((id) => todoService.get(id).catch(() => null))).then((items) => {
+      if (!cancelled) setRelatedTodos(items.filter((item): item is TodoItem => item !== null));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [relatedTodoIds]);
   const timeline = useMemo<{ key: string; label: string; value: string | undefined }[]>(
     () => [
       { key: "created", label: t("detail.created", { defaultValue: "创建" }), value: binding?.createdAt },
@@ -147,6 +178,19 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
         focusTab(asTabId(location.tab.id), { switchAppView: true });
       }
     });
+  };
+
+  const openTodo = async (todo: TodoItem) => {
+    const todoStore = useTodoStore.getState();
+    const isAiWorkItem =
+      todo.todoType === AI_WORK_ITEM_TODO_TYPE || todo.tags.includes(AI_WORK_ITEM_TODO_TYPE);
+    useActivityBarStore.getState().setAppViewMode("todo");
+    // AI 工作项在默认视图被排除，先切到 ai_work 视图再选中，否则选中项会因不在列表中被清掉
+    if (isAiWorkItem && todoStore.viewMode !== "ai_work") {
+      useTodoStore.setState({ viewMode: "ai_work" });
+    }
+    await todoStore.loadList();
+    useTodoStore.getState().select(todo);
   };
 
   return (
@@ -244,6 +288,38 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
             <InfoRow label={t("detail.project", { defaultValue: "项目" })} value={binding.projectPath} />
           </div>
         </DetailSection>
+
+        {relatedTodoIds.length > 0 && (
+          <DetailSection title={t("detail.relatedTodos", { defaultValue: "关联 Todo" })}>
+            <div className="flex flex-col gap-1 rounded-lg p-2" style={{ border: "1px solid var(--app-border)" }}>
+              {relatedTodos.map((todo) => (
+                <button
+                  key={todo.id}
+                  type="button"
+                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent/40"
+                  onClick={() => void openTodo(todo)}
+                  title={t("detail.openTodo", { defaultValue: "打开 Todo 详情" })}
+                >
+                  <TodoStatusIcon status={todo.status} />
+                  <span
+                    className={`min-w-0 flex-1 truncate ${todo.status === "done" ? "line-through" : ""}`}
+                    style={{ color: "var(--app-text-secondary)" }}
+                  >
+                    {todo.title}
+                  </span>
+                </button>
+              ))}
+              {relatedTodos.length < relatedTodoIds.length && (
+                <span className="px-2 py-1 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
+                  {t("detail.todosMissing", {
+                    defaultValue: "{{count}} 条已删除或不可见",
+                    count: relatedTodoIds.length - relatedTodos.length,
+                  })}
+                </span>
+              )}
+            </div>
+          </DetailSection>
+        )}
 
         <DetailSection title={t("detail.metadata", { defaultValue: "元数据" })}>
           <div

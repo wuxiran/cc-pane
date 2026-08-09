@@ -223,6 +223,11 @@ impl TodoRepository {
                 conditions.push("todo_type = ?");
                 values.push(Box::new(todo_type.clone()));
             }
+            if let Some(ref exclude) = query.exclude_todo_type {
+                // IFNULL 兜底：NULL != 'x' 在 SQL 里为 NULL（假），历史行若为 NULL 会被误排除
+                conditions.push("IFNULL(todo_type, '') != ?");
+                values.push(Box::new(exclude.clone()));
+            }
             if let Some(true) = query.my_day {
                 conditions.push("my_day = 1 AND my_day_date = ?");
                 let today = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -973,6 +978,83 @@ mod tests {
             .unwrap();
         assert_eq!(result.items.len(), 1);
         assert_eq!(result.items[0].id, inbox.id);
+    }
+
+    #[test]
+    fn test_query_exclude_todo_type_keeps_empty_and_null_types() {
+        let repo = setup();
+        // 空串 type（默认值）
+        let plain = make_todo("普通任务");
+        repo.insert(&plain).unwrap();
+        // ai-work-item type
+        let mut ai = make_todo("AI 工作项");
+        ai.todo_type = "ai-work-item".to_string();
+        repo.insert(&ai).unwrap();
+        // 其他非空 type
+        let mut spec = make_todo("Spec 任务");
+        spec.todo_type = "spec".to_string();
+        repo.insert(&spec).unwrap();
+        // NULL type（历史行可能出现，insert 路径写不出来，用 SQL 制造）
+        let nulled = make_todo("NULL 类型");
+        repo.insert(&nulled).unwrap();
+        {
+            let conn = repo.db.connection().unwrap();
+            conn.execute(
+                "UPDATE todos SET todo_type = NULL WHERE id = ?1",
+                params![nulled.id],
+            )
+            .unwrap();
+        }
+
+        let result = repo
+            .query(&TodoQuery {
+                exclude_todo_type: Some("ai-work-item".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(result.total, 3);
+        let ids: Vec<&str> = result.items.iter().map(|t| t.id.as_str()).collect();
+        assert!(ids.contains(&plain.id.as_str()));
+        assert!(ids.contains(&spec.id.as_str()));
+        assert!(ids.contains(&nulled.id.as_str()));
+        assert!(!ids.contains(&ai.id.as_str()));
+    }
+
+    #[test]
+    fn test_query_by_todo_type_exact_match() {
+        let repo = setup();
+        let plain = make_todo("普通任务");
+        repo.insert(&plain).unwrap();
+        let mut ai = make_todo("AI 工作项");
+        ai.todo_type = "ai-work-item".to_string();
+        repo.insert(&ai).unwrap();
+
+        let result = repo
+            .query(&TodoQuery {
+                todo_type: Some("ai-work-item".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(result.total, 1);
+        assert_eq!(result.items[0].id, ai.id);
+    }
+
+    #[test]
+    fn test_update_tags_and_todo_type() {
+        let repo = setup();
+        let todo = make_todo("改 tags 与类型");
+        repo.insert(&todo).unwrap();
+
+        let req = UpdateTodoRequest {
+            tags: Some(vec!["ai-work-item".to_string(), "cluster-1".to_string()]),
+            todo_type: Some("ai-work-item".to_string()),
+            ..Default::default()
+        };
+        assert!(repo.update(&todo.id, &req).unwrap());
+
+        let found = repo.get(&todo.id).unwrap().unwrap();
+        assert_eq!(found.tags, vec!["ai-work-item", "cluster-1"]);
+        assert_eq!(found.todo_type, "ai-work-item");
     }
 
     #[test]
