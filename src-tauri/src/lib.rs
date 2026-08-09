@@ -1460,6 +1460,9 @@ pub fn run() {
     let ai_panel_repo = Arc::new(cc_panes_core::repository::AiPanelRepository::new(
         db.clone(),
     ));
+    let mcp_tool_call_stats_repo = Arc::new(
+        cc_panes_core::repository::McpToolCallStatsRepository::new(db.clone()),
+    );
     let launch_history_service = Arc::new(LaunchHistoryService::new(history_repo));
     let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
     let todo_service = Arc::new(TodoService::new(todo_repo));
@@ -1687,6 +1690,7 @@ pub fn run() {
         .manage(todo_service)
         .manage(task_binding_service)
         .manage(ai_panel_repo)
+        .manage(mcp_tool_call_stats_repo)
         .manage(spec_service)
         .manage(mcp_config_service)
         .manage(skill_service)
@@ -2136,6 +2140,8 @@ pub fn run() {
                 let runner_svc = app.state::<Arc<cc_panes_core::services::RunnerService>>();
                 let ai_panel_repo_state =
                     app.state::<Arc<cc_panes_core::repository::AiPanelRepository>>();
+                let mcp_tool_call_stats_repo_state =
+                    app.state::<Arc<cc_panes_core::repository::McpToolCallStatsRepository>>();
                 let start_locks = app.state::<Arc<StartLocks>>();
                 let paths = app.state::<Arc<AppPaths>>();
                 if let Err(e) = orch_svc.start(
@@ -2163,6 +2169,7 @@ pub fn run() {
                     plan_archive_svc.inner().clone(),
                     runner_svc.inner().clone(),
                     ai_panel_repo_state.inner().clone(),
+                    mcp_tool_call_stats_repo_state.inner().clone(),
                     start_locks.inner().clone(),
                     app.handle().clone(),
                     paths.inner().clone(),

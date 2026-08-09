@@ -734,6 +734,17 @@ const MIGRATIONS: &[Migration] = &[
             ALTER TABLE task_bindings ADD COLUMN worker_kind TEXT;
         ",
     },
+    Migration {
+        version: 33,
+        description: "mcp_tool_call_stats: per-tool call counters (docs/89 §5, 只计数不记内容)",
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS mcp_tool_call_stats (
+                tool_name TEXT PRIMARY KEY,
+                call_count INTEGER NOT NULL,
+                last_called_at TEXT NOT NULL
+            );
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -1091,6 +1102,8 @@ mod tests {
                 applied_at TEXT NOT NULL DEFAULT (datetime('now'))
              );
              CREATE TABLE terminal_sessions (session_id TEXT PRIMARY KEY, tab_id TEXT);
+             -- v32 的 ALTER 需要 task_bindings 存在（真实库由更早迁移建出，fixture 补最小形态）
+             CREATE TABLE task_bindings (id TEXT PRIMARY KEY);
              CREATE TABLE terminal_session_provenance (
                 session_id TEXT PRIMARY KEY,
                 daemon_generation INTEGER NOT NULL,
@@ -1293,6 +1306,7 @@ mod tests {
                 project_id TEXT NOT NULL,
                 launched_at TEXT NOT NULL
              );
+             CREATE TABLE task_bindings (id TEXT PRIMARY KEY);
              INSERT INTO launch_history (project_id, launched_at) VALUES
                 ('duplicate', '2026-01-01T00:00:00Z'),
                 ('duplicate', '2026-01-02T00:00:00Z'),
@@ -1348,6 +1362,7 @@ mod tests {
                 launched_at TEXT NOT NULL,
                 provider_id TEXT
              );
+             CREATE TABLE task_bindings (id TEXT PRIMARY KEY);
              INSERT INTO launch_history (
                 project_id, project_name, project_path, launched_at, provider_id
              ) VALUES ('legacy-launch', 'Legacy', '/legacy', '2026-01-01', 'provider-a');",

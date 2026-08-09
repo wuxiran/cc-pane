@@ -62,7 +62,7 @@ use rmcp::{
     handler::server::router::tool::ToolRouter,
     handler::server::wrapper::Parameters,
     model::{Extensions, ServerCapabilities, ServerInfo},
-    tool, tool_handler, tool_router, ServerHandler,
+    tool, tool_router, ServerHandler,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -813,6 +813,8 @@ pub struct AppState {
     ai_panels: Arc<Mutex<AiPanelRegistry>>,
     /// 面板历史：跨重启持久化，按工作空间分组，只由用户显式删除。
     ai_panel_repo: Arc<cc_panes_core::repository::AiPanelRepository>,
+    /// MCP 工具调用计数（docs/89 §5）：只计数不记内容，fire-and-forget 落本机 data.db。
+    mcp_tool_call_stats_repo: Arc<cc_panes_core::repository::McpToolCallStatsRepository>,
 }
 
 async fn backend_call_for_state<T, F>(
@@ -1660,6 +1662,7 @@ impl OrchestratorService {
         plan_archive_service: Arc<crate::services::PlanArchiveService>,
         runner_service: Arc<cc_panes_core::services::RunnerService>,
         ai_panel_repo: Arc<cc_panes_core::repository::AiPanelRepository>,
+        mcp_tool_call_stats_repo: Arc<cc_panes_core::repository::McpToolCallStatsRepository>,
         start_locks: Arc<StartLocks>,
         app_handle: AppHandle,
         app_paths: Arc<AppPaths>,
@@ -1732,6 +1735,7 @@ impl OrchestratorService {
             pending_directives: self.pending_directives.clone(),
             ai_panels: self.ai_panels.clone(),
             ai_panel_repo,
+            mcp_tool_call_stats_repo,
         };
 
         // ============ 阶段 2.6：把 SessionStateMachine 的状态跃迁桥接到 NotificationService ============
@@ -7938,8 +7942,47 @@ fn apply_pane_locations(
     }
 }
 
-#[tool_handler]
+// 不用 `#[tool_handler]`：宏会无条件生成 call_tool/list_tools/get_tool 且不可拦截，
+// 这里手写三个方法（与 rmcp-macros 1.3 生成物逐字等价），唯一差异是 call_tool
+// 委托 tool_router 前先做单点调用计数（docs/89 §5 埋点）。90 个工具的分发仍走
+// tool_router，逐工具零改动。
 impl ServerHandler for McpToolHandler {
+    async fn call_tool(
+        &self,
+        request: rmcp::model::CallToolRequestParams,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> std::result::Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
+        // 单一拦截点：只记工具名，不碰参数/内容。fire-and-forget，
+        // 计数失败仅打日志，绝不影响工具调用本身。
+        {
+            let repo = self.state.mcp_tool_call_stats_repo.clone();
+            let tool_name = request.name.to_string();
+            tokio::task::spawn_blocking(move || {
+                if let Err(error) = repo.record_call(&tool_name) {
+                    warn!("[mcp-stats] record_call({}) failed: {}", tool_name, error);
+                }
+            });
+        }
+        let tcc = rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
+        self.tool_router.call(tcc).await
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> std::result::Result<rmcp::model::ListToolsResult, rmcp::ErrorData> {
+        Ok(rmcp::model::ListToolsResult {
+            tools: self.tool_router.list_all(),
+            meta: None,
+            next_cursor: None,
+        })
+    }
+
+    fn get_tool(&self, name: &str) -> Option<rmcp::model::Tool> {
+        self.tool_router.get(name).cloned()
+    }
+
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(concat!(

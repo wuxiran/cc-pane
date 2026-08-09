@@ -80,6 +80,14 @@ launch_task；query_sessions；write/submit/kill_session；get_session_status、
 
 **隐私红线（埋点 ≠ 遥测）**：①只计数不记内容——统计粒度为「工具名 → 次数 + 最后调用时间」，不记参数/prompt/会话内容，敏感信息从头不存在；②数据不出机器——落本机 `data.db`（`usage_stats_service.rs` 同模式），统计模块零网络调用（开源可 grep 验证）；③对用户透明且反哺——计数做成用户可见（设置页/ctl 命令「你的 AI 最常用哪些工具」）；④作者取数只走两条腿：自家 dogfooding（本机数据足够支撑砍伐决策）+ 显式自愿导出（`ctl stats export` 聚合计数，用户确认后自行提交，同 cli-gh-access 崩溃上报模式）。**禁止任何自动上传链路。**
 
+**埋点已落地（v0.12.3 分支，2026-08-10）**：migration v33 建表 `mcp_tool_call_stats`（`tool_name` PK / `call_count` / `last_called_at`），repo 层 `cc-panes-core/src/repository/mcp_tool_call_stats_repo.rs`，拦截点为 orchestrator 手写的 `ServerHandler::call_tool`（替换 `#[tool_handler]` 宏，委托 `tool_router` 前 fire-and-forget 计数，逐工具零改动）。本批只开钟；查看 UI / ctl 子命令 / 导出仍未做。查数方式：
+
+```bash
+sqlite3 ~/.cc-panes/data.db "SELECT tool_name, call_count, last_called_at FROM mcp_tool_call_stats ORDER BY call_count DESC"
+```
+
+（dev 实例换 `~/.cc-panes-dev/data.db`；Windows 下 sqlite3.exe 只读查询无 GBK 问题。）
+
 ## 6. 迁移与兼容注意
 
 - `register_plan_child` 等 leader/worker 链路工具被在途 skill（plantocodex/plantocc/planreview）引用，收编重命名必须同步改 skill 文案，否则旧 skill 指挥新工具面直接断链。
