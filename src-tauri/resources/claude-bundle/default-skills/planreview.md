@@ -95,6 +95,13 @@ mcp__ccpanes__register_plan_leader(
 
 ### Phase 2：确认 reviewer 目标
 
+**先自动发现可复用的活 reviewer**（`AskUserQuestion` 之前做，不要等用户报标签名）：
+
+1. `mcp__ccpanes__query_task_bindings(projectPath: <项目路径>, role: "worker")`
+2. 客户端过滤：`workerKind === "reviewer"`，且 `status` 非 `completed`/`failed`，且其 `sessionId` 出现在 `mcp__ccpanes__list_sessions` 的活会话里（= isLive）
+3. **命中** → 问题 1 的第一选项改为「复用 <该 binding 的 title>（推荐，同主题续审；新主题建议新开）」，并提示用户：旧 reviewer 若不复用，可顺手 `kill_session` 回收
+4. **未命中** → 保持下面的三选项原样
+
 用 `AskUserQuestion` 问：
 
 ```
@@ -134,15 +141,25 @@ mcp__ccpanes__register_plan_worker(
   sessionId: <workerSessionId>,
   projectPath: <同 launch_task>,
   cliTool: "codex",
-  title: "Reviewer worker"
+  title: "Reviewer: <主题>",     // title 契约：固定 "Reviewer: <主题>" 前缀
+  workerKind: "reviewer"         // 结构化身份，Phase 2 的自动发现靠它
 )
 ```
 
 返回的 `id` 是 `<workerId>`，**必须把它写进 prompt 模板的"收尾要求"那一段**，让 Codex 完成时调 `report_to_leader(workerId=...)`。
 
-**已有窗口**：
+**已有窗口（复用）**：复用的单元是**会话**，登记按 plan 各一条——**必须也调 `register_plan_worker`**（新 plan 就新登记一条，同样带 `workerKind: "reviewer"`），否则 reviewer 不上协作板、`report_to_leader` 也没地方回：
 
 ```
+mcp__ccpanes__register_plan_worker(
+  leaderId: <Phase 1.5 拿到的>,
+  sessionId: <匹配到的>,
+  projectPath: <同 leader>,
+  cliTool: "codex",
+  title: "Reviewer: <主题>",
+  workerKind: "reviewer"
+)
+
 mcp__ccpanes__submit_to_session(
   sessionId: <匹配到的>,
   text: <prompt 模板，不含换行符——submit_to_session 会自动处理回车时序>
@@ -225,6 +242,7 @@ mcp__ccpanes__get_session_output(<workerSessionId>, lines: 800)
 ### Phase 8：收尾
 
 - 简短告诉用户："reviewer 提了 N 条必修、M 条开放，已按你的拍板重写 plan"
+- **回收 reviewer**：plan 定稿后提示用户是否 `kill_session` 掉 reviewer 会话——留着可同主题续审（上下文摊销），不留就回收，别让 reviewer 尸体挂在协作板上
 - 路径 A：让用户看完最新 plan 再决定是否 `ExitPlanMode`
 - 路径 B：让用户决定要不要 `EnterPlanMode` 复审一遍
 - **不要主动 `ExitPlanMode`/`EnterPlanMode`**——切换由用户掌控
@@ -288,6 +306,7 @@ mcp__ccpanes__report_to_leader(
 | 查项目是否注册 | `mcp__ccpanes__list_projects` |
 | 注册项目 | `mcp__ccpanes__add_project_to_workspace(workspaceName, projectPath)` |
 | 注册 leader | `mcp__ccpanes__register_plan_leader` |
+| 发现可复用 reviewer | `mcp__ccpanes__query_task_bindings(projectPath, role: "worker")` → 过滤 `workerKind === "reviewer"` |
 | 找已有窗口 | `mcp__ccpanes__list_sessions` + `mcp__ccpanes__list_panes` |
 | 启动新 reviewer 窗口 | `mcp__ccpanes__launch_task` |
 | 注册 worker | `mcp__ccpanes__register_plan_worker` |

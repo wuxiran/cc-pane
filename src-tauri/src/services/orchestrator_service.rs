@@ -3199,6 +3199,9 @@ struct McpRegisterPlanWorkerParams {
     /// CLI 工具类型，默认 codex
     #[serde(rename = "cliTool")]
     cli_tool: Option<String>,
+    /// worker 类型：省略 = 实现 worker；"reviewer" = 评审员（可被 planreview 复用发现）
+    #[serde(rename = "workerKind")]
+    worker_kind: Option<String>,
     #[serde(default)]
     #[schemars(schema_with = "notification_metadata_schema")]
     metadata: Option<serde_json::Value>,
@@ -6439,6 +6442,7 @@ impl McpToolHandler {
             project_path: params.project_path,
             workspace_name: params.workspace_name,
             cli_tool: params.cli_tool,
+            worker_kind: None,
             metadata: params.metadata,
         };
 
@@ -6479,6 +6483,7 @@ impl McpToolHandler {
             completion_summary: params.completion_summary,
             exit_code: params.exit_code,
             sort_order: None,
+            worker_kind: None,
             metadata: params.metadata,
         };
 
@@ -6747,6 +6752,7 @@ impl McpToolHandler {
             tab_id: params.tab_id,
             workspace_name: params.workspace_name,
             cli_tool: params.cli_tool,
+            worker_kind: params.worker_kind,
             metadata: params.metadata,
         };
 
@@ -6778,6 +6784,7 @@ impl McpToolHandler {
             tab_id: params.tab_id,
             workspace_name: params.workspace_name,
             cli_tool: params.cli_tool,
+            worker_kind: params.worker_kind,
             metadata: params.metadata,
         };
 
@@ -12259,12 +12266,31 @@ mod tests {
                         tab_id: None,
                         workspace_name: None,
                         cli_tool: None,
+                        worker_kind: None,
                         metadata: None,
                     })
                     .expect("register worker")
             })
             .collect();
         (leader, workers)
+    }
+
+    #[test]
+    fn mcp_register_plan_worker_params_parses_optional_worker_kind() {
+        let params: McpRegisterPlanWorkerParams = serde_json::from_value(serde_json::json!({
+            "sessionId": "pty-1",
+            "projectPath": "D:/repo",
+            "workerKind": "reviewer"
+        }))
+        .expect("params with workerKind should parse");
+        assert_eq!(params.worker_kind.as_deref(), Some("reviewer"));
+
+        let params: McpRegisterPlanWorkerParams = serde_json::from_value(serde_json::json!({
+            "sessionId": "pty-1",
+            "projectPath": "D:/repo"
+        }))
+        .expect("params without workerKind should parse");
+        assert_eq!(params.worker_kind, None);
     }
 
     fn directive_test_runtime(
@@ -13293,6 +13319,7 @@ mod tests {
             completion_summary: Some(format!("summary-{id}")),
             exit_code: None,
             sort_order: 0,
+            worker_kind: None,
             metadata: None,
             created_at: "2026-07-04T00:00:00Z".to_string(),
             updated_at: "2026-07-04T00:00:00Z".to_string(),
@@ -13385,6 +13412,7 @@ mod tests {
                 project_path: "D:/repo".to_string(),
                 workspace_name: None,
                 cli_tool: Some("codex".to_string()),
+                worker_kind: None,
                 metadata: Some(serde_json::json!({ "kept": true })),
             })
             .expect("create worker binding");

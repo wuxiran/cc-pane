@@ -366,6 +366,7 @@ async fn task_binding_routes_match_core_service_operations() {
             todo_id: None,
             workspace_name: None,
             cli_tool: None,
+            worker_kind: None,
             metadata: None,
         }),
     )
@@ -446,6 +447,7 @@ async fn plan_collaboration_routes_match_core_service_operations() {
             tab_id: None,
             workspace_name: None,
             cli_tool: Some("codex".to_string()),
+            worker_kind: None,
             metadata: None,
         }),
     )

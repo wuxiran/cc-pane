@@ -727,6 +727,13 @@ const MIGRATIONS: &[Migration] = &[
                 ON todo_activities(todo_id, created_at DESC);
         ",
     },
+    Migration {
+        version: 32,
+        description: "task_bindings: add worker_kind",
+        up_sql: "
+            ALTER TABLE task_bindings ADD COLUMN worker_kind TEXT;
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -1431,6 +1438,7 @@ mod tests {
             "tab_id",
             "resume_id",
             "metadata",
+            "worker_kind",
         ] {
             assert!(
                 columns.iter().any(|column| column == expected),

@@ -116,6 +116,9 @@ pub struct TaskBinding {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
     pub sort_order: i32,
+    /// worker 类型：None = 普通实现 worker；"reviewer" = 评审员（可被 planreview 复用发现）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
     pub created_at: String,
@@ -152,6 +155,8 @@ pub struct CreateTaskBindingRequest {
     pub workspace_name: Option<String>,
     #[serde(default)]
     pub cli_tool: Option<String>,
+    #[serde(default)]
+    pub worker_kind: Option<String>,
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
 }
@@ -190,6 +195,8 @@ pub struct UpdateTaskBindingRequest {
     pub exit_code: Option<i32>,
     #[serde(default)]
     pub sort_order: Option<i32>,
+    #[serde(default)]
+    pub worker_kind: Option<String>,
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
 }
@@ -297,6 +304,9 @@ pub struct RegisterPlanWorkerRequest {
     pub workspace_name: Option<String>,
     #[serde(default)]
     pub cli_tool: Option<String>,
+    /// worker 类型：省略 = 实现 worker；"reviewer" = 评审员（可被 planreview 复用发现）
+    #[serde(default)]
+    pub worker_kind: Option<String>,
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
 }
@@ -320,6 +330,9 @@ pub struct PlanCollaborationEntry {
     pub cli_tool: String,
     pub status: TaskBindingStatus,
     pub progress: i32,
+    /// worker 类型（常驻投影，不随 verbose 折叠）：None = 实现 worker；"reviewer" = 评审员
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

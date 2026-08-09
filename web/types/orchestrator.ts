@@ -22,6 +22,8 @@ export interface TaskBinding {
   completionSummary?: string;
   exitCode?: number;
   sortOrder: number;
+  /** worker 类型：省略 = 实现 worker；"reviewer" = 评审员（可被 planreview 复用发现） */
+  workerKind?: string | null;
   metadata?: unknown;
   createdAt: string;
   updatedAt: string;
@@ -161,6 +163,8 @@ export interface PlanCollaborationEntry {
   cliTool: string;
   status: TaskBindingStatus;
   progress: number;
+  /** worker 类型（常驻投影，不随 verbose 折叠）：省略 = 实现 worker；"reviewer" = 评审员 */
+  workerKind?: string | null;
   sessionId?: string;
   resumeId?: string;
   paneId?: string;

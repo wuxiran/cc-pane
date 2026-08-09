@@ -7,7 +7,7 @@ use tracing::{error, warn};
 const SELECT_FIELDS: &str = "\
     id, title, role, parent_id, plan_path, normalized_plan_path, prompt, session_id, resume_id, \
     pane_id, tab_id, todo_id, project_path, workspace_name, cli_tool, status, progress, \
-    completion_summary, exit_code, sort_order, metadata, created_at, updated_at";
+    completion_summary, exit_code, sort_order, metadata, created_at, updated_at, worker_kind";
 
 /// TaskBinding 数据访问层
 pub struct TaskBindingRepository {
@@ -28,9 +28,9 @@ impl TaskBindingRepository {
                 id, title, role, parent_id, plan_path, normalized_plan_path, prompt, session_id,
                 resume_id, pane_id, tab_id, todo_id, project_path, workspace_name, cli_tool,
                 status, progress, completion_summary, exit_code, sort_order, metadata,
-                created_at, updated_at
+                created_at, updated_at, worker_kind
              )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             params![
                 binding.id,
                 binding.title,
@@ -55,6 +55,7 @@ impl TaskBindingRepository {
                 metadata,
                 binding.created_at,
                 binding.updated_at,
+                binding.worker_kind,
             ],
         )
         .map_err(|e| {
@@ -215,6 +216,7 @@ impl TaskBindingRepository {
         add_field!("completion_summary", req.completion_summary);
         add_field!("exit_code", req.exit_code);
         add_field!("sort_order", req.sort_order);
+        add_field!("worker_kind", req.worker_kind);
 
         if let Some(ref role) = req.role {
             sets.push(format!("role = ?{}", idx));
@@ -456,6 +458,7 @@ impl TaskBindingRepository {
             completion_summary: row.get(17)?,
             exit_code: row.get(18)?,
             sort_order: row.get(19)?,
+            worker_kind: row.get(23)?,
             metadata: Self::metadata_from_text(metadata_text),
             created_at: row.get(21)?,
             updated_at: row.get(22)?,
@@ -515,6 +518,7 @@ mod tests {
             completion_summary: None,
             exit_code: None,
             sort_order: 0,
+            worker_kind: None,
             metadata: Some(serde_json::json!({ "planHash": "hash" })),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),

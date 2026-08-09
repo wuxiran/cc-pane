@@ -73,6 +73,7 @@ impl TaskBindingService {
             completion_summary: None,
             exit_code: None,
             sort_order: 0,
+            worker_kind: clean_optional(req.worker_kind),
             metadata: req.metadata,
             created_at: now.clone(),
             updated_at: now,
@@ -316,6 +317,7 @@ impl TaskBindingService {
                 project_path,
                 workspace_name: req.workspace_name,
                 cli_tool: req.cli_tool.or_else(|| Some("claude".to_string())),
+                worker_kind: None,
                 metadata: req.metadata,
             },
             false,
@@ -349,6 +351,7 @@ impl TaskBindingService {
         let normalized_plan_path = normalize_plan_path(&plan_path);
         let cli_tool = clean_optional(req.cli_tool).unwrap_or_else(|| "codex".to_string());
         let title = req.title.unwrap_or_else(|| format!("Worker: {}", cli_tool));
+        let worker_kind = normalize_worker_kind(req.worker_kind);
 
         if let Some(existing) = self.repo.find_worker_for_registration(
             &leader.id,
@@ -369,6 +372,7 @@ impl TaskBindingService {
                     pane_id: req.pane_id,
                     tab_id: req.tab_id,
                     status: Some(TaskBindingStatus::Running),
+                    worker_kind: worker_kind.clone(),
                     metadata: req.metadata,
                     ..Default::default()
                 },
@@ -395,6 +399,7 @@ impl TaskBindingService {
                 project_path: req.project_path,
                 workspace_name: req.workspace_name,
                 cli_tool: Some(cli_tool),
+                worker_kind,
                 metadata: req.metadata,
             },
             false,
@@ -612,6 +617,7 @@ fn entry_from_binding(
         cli_tool: binding.cli_tool,
         status: binding.status,
         progress: binding.progress,
+        worker_kind: binding.worker_kind,
         session_id: binding.session_id,
         resume_id: binding.resume_id,
         pane_id: binding.pane_id,
@@ -632,6 +638,17 @@ fn clean_optional(value: Option<String>) -> Option<String> {
     value
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+/// worker_kind 值域校验：只接受 "reviewer"，其它非空值按 None 处理并记 warn（协议宽容，不 hard fail）。
+fn normalize_worker_kind(value: Option<String>) -> Option<String> {
+    let value = clean_optional(value)?;
+    if value == "reviewer" {
+        Some(value)
+    } else {
+        warn!(worker_kind = %value, "Unknown workerKind value, treating as unset");
+        None
+    }
 }
 
 fn task_binding_patch_to_update_request(
@@ -661,7 +678,7 @@ fn task_binding_patch_to_update_request(
                 request_object.insert(key.clone(), value.clone());
             }
             "role" | "parentId" | "planPath" | "normalizedPlanPath" | "resumeId" | "sessionId"
-            | "paneId" | "tabId" => {
+            | "paneId" | "tabId" | "workerKind" => {
                 warn!(field = %key, "Dropping protected TaskBinding patch field");
             }
             _ => {
@@ -872,6 +889,7 @@ mod tests {
             tab_id: None,
             workspace_name: None,
             cli_tool: None,
+            worker_kind: None,
             metadata: None,
         });
 
@@ -897,6 +915,7 @@ mod tests {
                 project_path: "D:/repo".into(),
                 workspace_name: None,
                 cli_tool: Some("codex".into()),
+                worker_kind: None,
                 metadata: Some(serde_json::json!({
                     "monitorMode": "worker_report",
                     "ui": {
@@ -946,6 +965,7 @@ mod tests {
                 project_path: "D:/repo".into(),
                 workspace_name: None,
                 cli_tool: Some("codex".into()),
+                worker_kind: None,
                 metadata: Some(serde_json::json!({ "ui": { "muted": false } })),
             })
             .expect("create");
@@ -1012,6 +1032,7 @@ mod tests {
                 project_path: "D:/repo".into(),
                 workspace_name: None,
                 cli_tool: Some("claude".into()),
+                worker_kind: None,
                 metadata: Some(serde_json::json!({ "kept": true })),
             })
             .expect("create");
@@ -1066,6 +1087,7 @@ mod tests {
                 tab_id: Some("tab-worker".into()),
                 workspace_name: None,
                 cli_tool: None,
+                worker_kind: None,
                 metadata: None,
             })
             .expect("worker");
@@ -1090,5 +1112,93 @@ mod tests {
         assert_eq!(reconciled_worker.status, TaskBindingStatus::Waiting);
         assert_eq!(reconciled_worker.pane_id.as_deref(), Some("pane-worker"));
         assert!(!reconciled_worker.is_live);
+    }
+
+    fn register_test_leader(service: &TaskBindingService) -> TaskBinding {
+        service
+            .register_plan_leader(RegisterPlanLeaderRequest {
+                plan_path: "D:/repo/.claude/plans/plan.md".into(),
+                project_path: "D:/repo".into(),
+                title: None,
+                prompt: None,
+                session_id: Some("pty-leader".into()),
+                resume_id: None,
+                pane_id: None,
+                tab_id: None,
+                workspace_name: None,
+                cli_tool: None,
+                metadata: None,
+            })
+            .expect("leader")
+    }
+
+    fn worker_request(
+        leader_id: &str,
+        session_id: &str,
+        worker_kind: Option<&str>,
+    ) -> RegisterPlanWorkerRequest {
+        RegisterPlanWorkerRequest {
+            leader_id: Some(leader_id.to_string()),
+            plan_path: None,
+            session_id: session_id.to_string(),
+            project_path: "D:/repo".into(),
+            title: None,
+            prompt: None,
+            resume_id: None,
+            pane_id: None,
+            tab_id: None,
+            workspace_name: None,
+            cli_tool: None,
+            worker_kind: worker_kind.map(str::to_string),
+            metadata: None,
+        }
+    }
+
+    #[test]
+    fn test_register_worker_kind_reviewer_visible_without_verbose() {
+        let service = service();
+        let leader = register_test_leader(&service);
+        let worker = service
+            .register_plan_worker(worker_request(&leader.id, "pty-reviewer", Some("reviewer")))
+            .expect("register reviewer");
+        assert_eq!(worker.worker_kind.as_deref(), Some("reviewer"));
+
+        let collaboration = service
+            .get_plan_collaboration(
+                PlanCollaborationKey {
+                    leader_id: Some(leader.id),
+                    plan_path: None,
+                    normalized_plan_path: None,
+                },
+                false,
+            )
+            .expect("collaboration");
+        let entry = collaboration
+            .workers
+            .iter()
+            .find(|item| item.id == worker.id)
+            .expect("worker entry");
+        // 常驻投影：verbose=false 也能看到 workerKind。
+        assert_eq!(entry.worker_kind.as_deref(), Some("reviewer"));
+    }
+
+    #[test]
+    fn test_register_worker_kind_defaults_to_none() {
+        let service = service();
+        let leader = register_test_leader(&service);
+        let worker = service
+            .register_plan_worker(worker_request(&leader.id, "pty-plain", None))
+            .expect("register worker");
+        assert_eq!(worker.worker_kind, None);
+    }
+
+    #[test]
+    fn test_register_worker_kind_unknown_value_falls_back_to_none() {
+        let service = service();
+        let leader = register_test_leader(&service);
+        let worker = service
+            .register_plan_worker(worker_request(&leader.id, "pty-odd", Some("auditor")))
+            .expect("register worker");
+        assert_eq!(worker.worker_kind, None);
     }
 }
