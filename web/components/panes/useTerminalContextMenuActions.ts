@@ -149,6 +149,35 @@ export function useTerminalContextMenuActions({
     terminalRef,
   ]);
 
+  /**
+   * 重置终端缓冲区：`xterm.reset()`（清屏 + 清 scrollback + 重置终端状态）后紧跟一次
+   * SIGWINCH 让 CLI 整屏重绘。这是 buffer 级错乱（docs/73 A 类）的对症药——错帧一旦
+   * 沉入 scrollback，「刷新终端显示」（渲染层）与单纯 SIGWINCH（只重画视口）都救不回来。
+   *
+   * reset() 是破坏性重同步（回滚历史清空、不可恢复），必须经 toast 确认后执行；
+   * 且只在本视图有权驱动 PTY 时提供——镜像/只读视图重置后无法触发 CLI 重绘，只会得到空屏。
+   */
+  const handleMenuResetBuffer = useCallback(() => {
+    if (!terminalRef.current) return;
+    toast.warning(t("terminalResetBufferConfirmTitle"), {
+      description: t("terminalResetBufferConfirmDesc"),
+      action: {
+        label: t("terminalResetBufferConfirmAction"),
+        onClick: () => {
+          const term = terminalRef.current;
+          if (!term) return;
+          debugLog("context-menu.reset-buffer", {
+            cols: term.cols,
+            rows: term.rows,
+          });
+          term.reset();
+          requestCliRedraw();
+          term.focus();
+        },
+      },
+    });
+  }, [debugLog, requestCliRedraw, t, terminalRef]);
+
   const handleMenuFitTerminal = useCallback(() => {
     refitAndRepaintTerminal("context-menu.fit", {
       force: true,
@@ -234,6 +263,7 @@ export function useTerminalContextMenuActions({
     handleMenuFitTerminal,
     handleMenuFitAllTerminals,
     handleMenuRefreshTerminal,
+    handleMenuResetBuffer,
     handleMenuCopySessionId,
     handleMenuClearBuffer,
     handleMenuCopyBuffer,

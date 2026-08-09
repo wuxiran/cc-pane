@@ -11,6 +11,7 @@ import {
   Maximize2,
   PanelsTopLeft,
   RefreshCw,
+  RotateCcw,
   TextSelect,
 } from "lucide-react";
 import {
@@ -39,6 +40,12 @@ interface TerminalContextMenuProps {
   onFitAllTerminals: () => void;
   /** 刷新显示：清字形图集 + 强制 refit + 重绘，修花屏/变形/未铺满。 */
   onRefreshTerminal: () => void;
+  /**
+   * 重置缓冲区：xterm.reset()（连 scrollback 一起清）+ SIGWINCH 让 CLI 整屏重绘，
+   * 修「刷新显示」救不了的 buffer 级错乱（docs/73 A 类）。破坏性操作，handler 内有确认。
+   * 未提供时（镜像/只读视图无权驱动 PTY，重置只会得到空屏）不渲染该菜单项。
+   */
+  onResetBuffer?: () => void;
   onClearBuffer: () => void;
   onCopyBuffer: () => void;
   onExportBuffer: () => void;
@@ -59,6 +66,7 @@ export default function TerminalContextMenu({
   onFitTerminal,
   onFitAllTerminals,
   onRefreshTerminal,
+  onResetBuffer,
   onClearBuffer,
   onCopyBuffer,
   onExportBuffer,
@@ -104,6 +112,11 @@ export default function TerminalContextMenu({
         <ContextMenuItem onSelect={onRefreshTerminal}>
           <RefreshCw /> {t("terminalRefresh")}
         </ContextMenuItem>
+        {onResetBuffer && (
+          <ContextMenuItem onSelect={onResetBuffer}>
+            <RotateCcw /> {t("terminalResetBuffer")}
+          </ContextMenuItem>
+        )}
         <ContextMenuItem onSelect={onClearBuffer}>
           <Eraser /> {t("terminalClearBuffer")}
         </ContextMenuItem>

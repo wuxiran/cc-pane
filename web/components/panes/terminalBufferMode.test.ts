@@ -1,9 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createAlternateBufferStripper,
   createTerminalDataRenderer,
   detectAlternateBufferTransitions,
-  shouldKeepCliOutputInNormalBuffer,
+  resolveTerminalBufferMode,
   stripAlternateBufferSequences,
 } from "./terminalBufferMode";
 
@@ -19,12 +19,26 @@ describe("terminalBufferMode", () => {
     expect(stripAlternateBufferSequences("a\x1b[?1049hb\x1b[?1049lc")).toBe("abc");
   });
 
-  it("keeps agent CLI output in the normal buffer", () => {
-    expect(shouldKeepCliOutputInNormalBuffer("codex")).toBe(true);
-    expect(shouldKeepCliOutputInNormalBuffer("claude")).toBe(true);
-    expect(shouldKeepCliOutputInNormalBuffer("opencode")).toBe(true);
-    expect(shouldKeepCliOutputInNormalBuffer("gemini")).toBe(false);
-    expect(shouldKeepCliOutputInNormalBuffer("none")).toBe(false);
+  // docs/73 §2.x：codex/opencode 默认翻回原生 alt-screen，仅 claude 维持剥离（等 1049 探针数据）。
+  describe("resolveTerminalBufferMode", () => {
+    it("keeps only claude on strip by default", () => {
+      expect(resolveTerminalBufferMode("claude")).toBe("strip");
+      expect(resolveTerminalBufferMode("codex")).toBe("native");
+      expect(resolveTerminalBufferMode("opencode")).toBe("native");
+      expect(resolveTerminalBufferMode("gemini")).toBe("native");
+      expect(resolveTerminalBufferMode("none")).toBe("native");
+    });
+
+    it("honors per-CLI overrides in either direction", () => {
+      expect(resolveTerminalBufferMode("claude", { claude: "native" })).toBe("native");
+      expect(resolveTerminalBufferMode("codex", { codex: "strip" })).toBe("strip");
+    });
+
+    it("ignores invalid override values and falls back to defaults", () => {
+      expect(resolveTerminalBufferMode("claude", { claude: "bogus" })).toBe("strip");
+      expect(resolveTerminalBufferMode("codex", { codex: "" })).toBe("native");
+      expect(resolveTerminalBufferMode("claude", null)).toBe("strip");
+    });
   });
 
   describe("组合参数形式", () => {
@@ -113,6 +127,41 @@ describe("terminalBufferMode", () => {
       const longTail = `\x1b[?${"1".repeat(64)}`;
       expect(stripper.push(longTail)).toBe(longTail);
       expect(stripper.flush()).toBe("");
+    });
+  });
+
+  // 1049 探针（docs/73 §2.x 步骤 1）：必须在跨 chunk 重组后计数，逐 chunk 扫 raw 会漏。
+  describe("剥离转换探针", () => {
+    it("reports a transition split across chunks exactly once", () => {
+      const onTransition = vi.fn();
+      const stripper = createAlternateBufferStripper(onTransition);
+      stripper.push("a\x1b[?10");
+      expect(onTransition).not.toHaveBeenCalled();
+      stripper.push("49hb");
+      expect(onTransition).toHaveBeenCalledTimes(1);
+      expect(onTransition).toHaveBeenCalledWith({ mode: "1049", action: "enter" });
+    });
+
+    it("reports enter and exit separately and never fires on plain output", () => {
+      const onTransition = vi.fn();
+      const stripper = createAlternateBufferStripper(onTransition);
+      stripper.push("plain\x1b[32mtext\x1b[0m");
+      expect(onTransition).not.toHaveBeenCalled();
+      stripper.push("\x1b[?1049h tui \x1b[?1049l");
+      expect(onTransition).toHaveBeenCalledTimes(2);
+      expect(onTransition).toHaveBeenNthCalledWith(1, { mode: "1049", action: "enter" });
+      expect(onTransition).toHaveBeenNthCalledWith(2, { mode: "1049", action: "exit" });
+    });
+
+    it("wires through createTerminalDataRenderer and stays silent in bypass mode", () => {
+      const onStrippedTransition = vi.fn();
+      const renderer = createTerminalDataRenderer({ onStrippedTransition });
+      renderer.render("\x1b[?1049h", { keepCliOutputInNormalBuffer: false, sessionId: "s1" });
+      expect(onStrippedTransition).not.toHaveBeenCalled();
+      renderer.render("\x1b[?10", { keepCliOutputInNormalBuffer: true, sessionId: "s1" });
+      renderer.render("49h", { keepCliOutputInNormalBuffer: true, sessionId: "s1" });
+      expect(onStrippedTransition).toHaveBeenCalledTimes(1);
+      expect(onStrippedTransition).toHaveBeenCalledWith({ mode: "1049", action: "enter" });
     });
   });
 

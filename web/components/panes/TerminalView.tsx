@@ -66,7 +66,7 @@ import {
 import { resolveOscColorQuery } from "./terminalOscColor";
 import {
   createTerminalDataRenderer,
-  shouldKeepCliOutputInNormalBuffer,
+  resolveTerminalBufferMode,
   type TerminalDataRenderer,
 } from "./terminalBufferMode";
 import {
@@ -370,7 +370,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       props.sessionId,
       props.tabId,
     ]);
-    const keepCliOutputInNormalBuffer = shouldKeepCliOutputInNormalBuffer(effectiveCliTool);
+    const cliBufferModeOverrides = useSettingsStore(
+      (s) => s.settings?.terminal.cliBufferModes ?? null,
+    );
+    const keepCliOutputInNormalBuffer =
+      resolveTerminalBufferMode(effectiveCliTool, cliBufferModeOverrides) === "strip";
     // renderer 是**有状态**的（可能扣留跨 chunk 的不完整转义序列尾部），必须按终端实例
     // 用 ref 持有——useMemo 可能被 React 丢弃重算，扣留的尾部会随之丢失。
     //
@@ -378,8 +382,23 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     // 且那时 xterm 正在 dispose，写入本就不安全。代价是会话结束时最多丢 32 字节的
     // 不完整转义序列尾部（MAX_PARTIAL_TAIL_LENGTH 上限）——远好于动渲染生命周期。
     const terminalDataRendererRef = useRef<TerminalDataRenderer | null>(null);
+    // 探针回调在 renderer 创建时被捕获（renderer 按实例 ref 持有、只建一次），
+    // cliTool 经 ref 间接读取，避免闭包陈旧。
+    const effectiveCliToolProbeRef = useRef(effectiveCliTool);
+    effectiveCliToolProbeRef.current = effectiveCliTool;
     const renderTerminalData = useCallback((data: string) => {
-      terminalDataRendererRef.current ??= createTerminalDataRenderer();
+      terminalDataRendererRef.current ??= createTerminalDataRenderer({
+        // 1049 探针（docs/73 §2.x 步骤 1）：剥离路径上跨 chunk 重组后的真实命中。
+        // 不走 debugLog（受 TERMINAL_DEBUG 门控）——探针要在常规运行里也可观测；
+        // 事件极低频（CLI 真切换 alt-screen 才触发），claude 长期零输出即证明剥离对它是 no-op。
+        onStrippedTransition: (transition) => {
+          console.info("[alt-screen-probe]", {
+            cliTool: effectiveCliToolProbeRef.current,
+            sessionId: currentSessionIdRef.current,
+            ...transition,
+          });
+        },
+      });
       return terminalDataRendererRef.current.render(data, {
         keepCliOutputInNormalBuffer,
         sessionId: currentSessionIdRef.current,
@@ -1466,9 +1485,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         });
         observer.observe(terminalRef.current);
 
-        // Convert wheel events into arrow keys for non-agent TUI apps while the
-        // alternate buffer is active. Agent CLIs keep output in the normal
-        // buffer so the wheel scrolls history instead of selecting old prompts.
+        // Convert wheel events into arrow keys while the alternate buffer is
+        // active (native-mode TUIs: vim, and since docs/73 §2.x also codex/opencode).
+        // Strip-mode CLIs (claude) keep output in the normal buffer so the wheel
+        // scrolls history instead of selecting old prompts.
         const wheelHandler = (e: WheelEvent) => {
           const bufferType = term.buffer.active.type;
           const decision = keepCliOutputInNormalBuffer
@@ -2168,6 +2188,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       handleMenuFitTerminal,
       handleMenuFitAllTerminals,
       handleMenuRefreshTerminal,
+      handleMenuResetBuffer,
       handleMenuCopySessionId,
       handleMenuClearBuffer,
       handleMenuCopyBuffer,
@@ -2207,6 +2228,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           onFitTerminal={handleMenuFitTerminal}
           onFitAllTerminals={handleMenuFitAllTerminals}
           onRefreshTerminal={handleMenuRefreshTerminal}
+          onResetBuffer={
+            // 只在本视图有权驱动 PTY 时提供：镜像/只读视图 reset 后无法触发 CLI 重绘，只会空屏。
+            drivesBackendPty && !readOnlyRef.current ? handleMenuResetBuffer : undefined
+          }
           onCopySessionId={handleMenuCopySessionId}
           onClearBuffer={handleMenuClearBuffer}
           onCopyBuffer={handleMenuCopyBuffer}

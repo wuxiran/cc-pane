@@ -168,6 +168,11 @@ export interface TerminalSettings {
   themeMode: TerminalThemeMode;
   /** 终端渲染器: auto 默认优先 WebGL, webgl 强制尝试, dom 诊断降级 */
   rendererMode: TerminalRendererMode;
+  /**
+   * 按 CLI 覆盖终端缓冲模式: cliToolId -> "strip"(剥 alt-screen 保滚动历史) | "native"(原样透传)。
+   * 缺省/无效值走内置默认(claude=strip, 其余=native), 见 terminalBufferMode.ts 与 docs/73 §2.x。
+   */
+  cliBufferModes?: Record<string, string> | null;
   /** Display the context usage indicator in terminal status surfaces. */
   showContextUsage: boolean;
   /** 终端底部状态栏(整条)的开关。关闭后状态栏整段不渲染,把空间让给终端区。 */

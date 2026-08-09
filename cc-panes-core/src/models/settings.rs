@@ -433,6 +433,10 @@ pub struct TerminalSettings {
     /// 终端渲染器: "auto" | "webgl" | "dom"
     #[serde(default = "default_terminal_renderer_mode")]
     pub renderer_mode: String,
+    /// 按 CLI 覆盖终端缓冲模式: cliToolId -> "strip"(剥 alt-screen 保滚动历史) | "native"(原样透传)。
+    /// None/缺省时前端按内置默认(claude=strip, 其余=native), 见 docs/73 §2.x。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli_buffer_modes: Option<std::collections::HashMap<String, String>>,
     /// Display context usage indicators in terminal status bars.
     #[serde(default = "default_true")]
     pub show_context_usage: bool,
@@ -510,6 +514,14 @@ impl TerminalSettings {
         }
         if !matches!(self.renderer_mode.as_str(), "auto" | "webgl" | "dom") {
             self.renderer_mode = default_terminal_renderer_mode();
+        }
+        // 缓冲模式覆盖只认 strip/native；无效值整项剔除（前端对未知值也会回退默认，
+        // 这里清掉是为了别让 config.toml 里积累脏值）。空表退化为 None。
+        if let Some(modes) = &mut self.cli_buffer_modes {
+            modes.retain(|_, mode| matches!(mode.as_str(), "strip" | "native"));
+            if modes.is_empty() {
+                self.cli_buffer_modes = None;
+            }
         }
         // 旧默认 0 =“永不过期”已废弃：无法区分显式 0 与旧默认落盘的 0，
         // 一律升为默认 TTL；确要禁用的用户改用 daemon_orphan_reaper_disabled。
@@ -1174,6 +1186,7 @@ impl Default for TerminalSettings {
             scrollback: crate::constants::terminal::DEFAULT_SCROLLBACK,
             theme_mode: default_terminal_theme_mode(),
             renderer_mode: default_terminal_renderer_mode(),
+            cli_buffer_modes: None,
             show_context_usage: true,
             show_status_bar: true,
             path_links_enabled: true,
@@ -1704,6 +1717,34 @@ mod tests {
         settings.merge_missing_defaults();
 
         assert_eq!(settings.renderer_mode, "auto");
+    }
+
+    #[test]
+    fn terminal_merge_missing_defaults_sanitizes_cli_buffer_modes() {
+        let mut settings = TerminalSettings::default();
+        let mut modes = std::collections::HashMap::new();
+        modes.insert("claude".to_string(), "native".to_string());
+        modes.insert("codex".to_string(), "bogus".to_string());
+        settings.cli_buffer_modes = Some(modes);
+
+        settings.merge_missing_defaults();
+
+        let kept = settings
+            .cli_buffer_modes
+            .expect("valid entries should survive");
+        assert_eq!(kept.get("claude").map(String::as_str), Some("native"));
+        assert!(
+            !kept.contains_key("codex"),
+            "invalid value should be dropped"
+        );
+
+        // 全部无效 → 退化为 None，不给 config.toml 留空表。
+        let mut settings = TerminalSettings::default();
+        let mut modes = std::collections::HashMap::new();
+        modes.insert("codex".to_string(), "bogus".to_string());
+        settings.cli_buffer_modes = Some(modes);
+        settings.merge_missing_defaults();
+        assert!(settings.cli_buffer_modes.is_none());
     }
 
     #[test]

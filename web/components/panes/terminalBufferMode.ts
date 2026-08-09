@@ -57,14 +57,34 @@ export interface AlternateBufferStripper {
 }
 
 /**
+ * 剥离时真实命中的 alt-screen 转换回调（docs/73 §2.x 的 1049 探针）。
+ *
+ * 与 `detectAlternateBufferTransitions(rawChunk)` 的关键差别：这里在跨 chunk
+ * 重组**之后**检测——PTY 把 `\x1b[?1049h` 切成两半时逐 chunk 检测必漏计，
+ * 而 stripper 的 pending 机制恰好完成了重组，是唯一无漏计的观测点。
+ */
+export type AlternateBufferTransitionListener = (transition: AlternateBufferTransition) => void;
+
+/**
  * 跨 chunk 安全的剥离器。
  *
  * PTY 会把 `\x1b[?1049h` 切成任意两段（例如 `\x1b[?10` + `49h`），逐 chunk 跑正则
  * 时两段都不匹配 → 序列漏网 → 目标 CLI 真的进了 alt screen。这里把可能构成不完整
  * 序列的尾部留到下一个 chunk 再判定。每个终端实例应各自持有一个 stripper。
  */
-export function createAlternateBufferStripper(): AlternateBufferStripper {
+export function createAlternateBufferStripper(
+  onTransition?: AlternateBufferTransitionListener,
+): AlternateBufferStripper {
   let pending = "";
+
+  const release = (data: string): string => {
+    if (onTransition && data) {
+      for (const transition of detectAlternateBufferTransitions(data)) {
+        onTransition(transition);
+      }
+    }
+    return stripAlternateBufferSequences(data);
+  };
 
   return {
     push(chunk: string): string {
@@ -73,16 +93,16 @@ export function createAlternateBufferStripper(): AlternateBufferStripper {
 
       if (tail && tail[0].length <= MAX_PARTIAL_TAIL_LENGTH) {
         pending = tail[0];
-        return stripAlternateBufferSequences(combined.slice(0, combined.length - pending.length));
+        return release(combined.slice(0, combined.length - pending.length));
       }
 
       pending = "";
-      return stripAlternateBufferSequences(combined);
+      return release(combined);
     },
     flush(): string {
       const remaining = pending;
       pending = "";
-      return stripAlternateBufferSequences(remaining);
+      return release(remaining);
     },
   };
 }
@@ -99,6 +119,11 @@ export interface TerminalDataRenderer {
   render(data: string, context: TerminalDataRenderContext): string;
 }
 
+export interface TerminalDataRendererOptions {
+  /** 剥离路径上（跨 chunk 重组后）命中的 alt-screen 转换。旁路模式不触发。 */
+  onStrippedTransition?: AlternateBufferTransitionListener;
+}
+
 /**
  * TerminalView 渲染前的数据变换，是 stripper 接进生产路径的那一层。
  *
@@ -111,7 +136,9 @@ export interface TerminalDataRenderer {
  *
  * 每个终端实例应各自持有一个 renderer（TerminalView 里用 `useRef`）。
  */
-export function createTerminalDataRenderer(): TerminalDataRenderer {
+export function createTerminalDataRenderer(
+  options?: TerminalDataRendererOptions,
+): TerminalDataRenderer {
   let stripper: AlternateBufferStripper | null = null;
   let activeSessionId: string | null = null;
 
@@ -129,15 +156,34 @@ export function createTerminalDataRenderer(): TerminalDataRenderer {
       }
       if (sessionId) activeSessionId = sessionId;
 
-      stripper ??= createAlternateBufferStripper();
+      stripper ??= createAlternateBufferStripper(options?.onStrippedTransition);
       return stripper.push(data);
     },
   };
 }
 
-// OpenCode 也是全屏 TUI；保留主缓冲输出才能让退出/恢复后的历史继续可见。
-const NORMAL_BUFFER_CLI_TOOLS = new Set(["claude", "codex", "opencode"]);
+/** 终端缓冲模式：strip = 剥掉 alt-screen 保滚动历史；native = 原样透传（TUI 用备用屏）。 */
+export type TerminalBufferMode = "strip" | "native";
 
-export function shouldKeepCliOutputInNormalBuffer(cliToolId: string): boolean {
-  return NORMAL_BUFFER_CLI_TOOLS.has(cliToolId);
+/**
+ * 各 CLI 的默认缓冲模式（docs/73 §2.x 复审 + §2.x.1 Codex 评审结论）：
+ * - claude：维持剥离——Ink 内联输出，对话流真的在主缓冲区里，滚动历史有实价值；
+ *   是否连 claude 也翻回 native，等 1049 探针数据（它可能根本不发 alt-screen 序列）。
+ * - codex / opencode：翻回原生 alt-screen——全屏 TUI 的"滚动历史"只是一帧帧残影，
+ *   收益薄；而剥离的代价（spinner 锚点被钳、scrollback 永久污染）已被两例活体证实。
+ * - 其它 CLI：从来就是透传，等价 native。
+ */
+const DEFAULT_STRIP_CLI_TOOLS = new Set(["claude"]);
+
+/**
+ * 解析某个 CLI 的缓冲模式。`overrides` 来自设置 `terminal.cliBufferModes`
+ * （用户级逃生阀：出问题的用户可按 CLI 翻转，无效值忽略走默认）。
+ */
+export function resolveTerminalBufferMode(
+  cliToolId: string,
+  overrides?: Record<string, string> | null,
+): TerminalBufferMode {
+  const override = overrides?.[cliToolId];
+  if (override === "strip" || override === "native") return override;
+  return DEFAULT_STRIP_CLI_TOOLS.has(cliToolId) ? "strip" : "native";
 }

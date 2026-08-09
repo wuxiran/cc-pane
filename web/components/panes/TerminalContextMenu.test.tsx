@@ -131,6 +131,27 @@ describe("TerminalContextMenu", () => {
     expect(props.onSelectAll).toHaveBeenCalledTimes(1);
   });
 
+  it("提供 onResetBuffer 时渲染重置缓冲区并触发回调，未提供时不渲染", async () => {
+    const user = userEvent.setup();
+    const props = renderMenu({ onResetBuffer: vi.fn() });
+
+    openMenu();
+    await user.click(
+      await screen.findByRole("menuitem", { name: /重置终端缓冲区|Reset Terminal Buffer/i }),
+    );
+    expect(props.onResetBuffer).toHaveBeenCalledTimes(1);
+  });
+
+  it("未提供 onResetBuffer 时（镜像/只读视图）不渲染重置缓冲区", async () => {
+    renderMenu();
+    openMenu();
+
+    await screen.findByRole("menuitem", { name: /全选|Select All/i });
+    expect(
+      screen.queryByRole("menuitem", { name: /重置终端缓冲区|Reset Terminal Buffer/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("未提供 onOpenProjectDir 时不渲染打开项目目录", async () => {
     renderMenu({ onOpenProjectDir: undefined });
     openMenu();
