@@ -23,6 +23,13 @@ trigger: |
 
 ## WSL 特有事项
 
+### 0. 派发前先过规格自足关
+
+派 WSL Codex 同样先走 plantocodex 的「拆分判定与 CLI 路由」节，其中两条在 WSL 场景加倍生效：
+
+- **规格自足才可派 Codex**：简报 + 文件所有权清单 + 契约必须写到「照做即可」——WSL 侧排障成本更高，规格不自足**禁派**。
+- **WSL Codex 守则**：prompt 未提交假死 → 发裸 CR，不要 kill 重发；启动前确认 WSL 内 codex 是原生 ELF（`type -a codex` 第一条不能是 `/mnt/` 下的 `.exe`）。
+
 ### 1. projectPath 必须用 cc-panes 已注册的路径原样
 
 先 `mcp__ccpanes__list_projects` 拿到实际登记的字符串（UNC `\\wsl.localhost\Ubuntu\...` 或 `/mnt/...` 都可能存在，挑已注册那条），**原样**传给 `launch_task`，再配 `runtimeKind: "wsl"`：

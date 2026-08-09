@@ -23,6 +23,16 @@ trigger: |
 
 ---
 
+## 先过拆分判定与路由
+
+派工前先走 [`/ccbook:plantocodex`](plantocodex.md) 的「拆分判定与 CLI 路由」节（形状三问 → 聚簇/扇出 → 派发门三关 → CLI 路由），本 skill 不重复规则。与派 Claude worker 直接相关的三条：
+
+- **默认 Claude 即本 skill 场景**（路由第 1 条）：同模型可传意图，规格不必写到 Codex 级自足；但简报 + 文件所有权清单 + 开工前复述握手仍必须进 prompt（模板沿用 plantocodex）。
+- **评审强制异模型**：评审类只读单元**不要**派 Claude worker——同模型是「我审我」盲区，走 [`/ccbook:planreview`](planreview.md)（Codex 审）。
+- **N=1 是合法答案**：判定算出不值得拆就单 agent 顺序做，不硬派。
+
+---
+
 ## 与派 Codex 的差异（必读）
 
 ### 1. 权限确认会卡死 worker —— 启动前必须解决 YOLO
