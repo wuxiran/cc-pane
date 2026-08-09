@@ -28,6 +28,7 @@
     { "name": "finish-work", "file": "finish-work.md" },
     { "name": "cross-layer-check", "file": "cross-layer-check.md" },
     { "name": "memory-dual-write", "file": "memory-dual-write.md" },
-    { "name": "recall", "file": "recall.md" }
+    { "name": "recall", "file": "recall.md" },
+    { "name": "notify-done", "file": "notify-done.md" }
   ]
 }
