@@ -5,7 +5,7 @@
 > 时刻、以错误的单位进行**——「一个 plan → 一个 worker」，plan 按功能切，功能内部是七步串行流水线，
 > 可并行单位退化成「恰好互不相干的整功能」，机会天然稀少。
 
-**状态**：方向文档，未排期。与 docs/74（task_binding 作为工作项骨干）、docs/89 §7（ctl/MCP 分界）互为衔接。
+**状态**：方向文档，未排期。与 docs/74（task_binding 作为工作项骨干）、docs/89 §7（ctl/MCP 分界）互为衔接。本文的通俗版/对外版见 [`docs/articles/article-worktree-headless-coding.md`](articles/article-worktree-headless-coding.md)（worktree 观点长文）。
 
 ## 1. 两个原理性动作
 
