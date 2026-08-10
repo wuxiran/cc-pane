@@ -302,10 +302,7 @@ fn candidate_executable_dirs() -> Vec<PathBuf> {
         {
             extend_unique_dirs(
                 &mut dirs,
-                [
-                    home.join("AppData").join("Roaming").join("npm"),
-                    home.join("scoop").join("shims"),
-                ],
+                windows_user_cli_dirs(&home, std::env::var_os("GROK_HOME").as_deref()),
             );
         }
     }
@@ -345,6 +342,23 @@ fn candidate_executable_dirs() -> Vec<PathBuf> {
     );
 
     dedupe_existing_dirs(dirs)
+}
+
+#[cfg(windows)]
+fn windows_user_cli_dirs(home: &Path, grok_home: Option<&std::ffi::OsStr>) -> Vec<PathBuf> {
+    let mut dirs = vec![
+        // npm and Scoop are the two common user-level Windows CLI locations.
+        home.join("AppData").join("Roaming").join("npm"),
+        home.join("scoop").join("shims"),
+        // Grok's official installer uses ~/.grok/bin and may not update the
+        // environment inherited by an already-running desktop app.
+        home.join(".grok").join("bin"),
+    ];
+    if let Some(grok_home) = grok_home {
+        let path = PathBuf::from(grok_home);
+        dirs.push(path.join("bin"));
+    }
+    dirs
 }
 
 /// 版本目录名比较（`v20.11.1` 风格），数字段按数值比。
@@ -1526,6 +1540,17 @@ mod path_resolution_tests {
         }
         assert_eq!(fallback_empty, fallback);
         assert_eq!(fallback_blank, fallback);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_user_cli_dirs_include_grok_default_and_override() {
+        let home = Path::new(r"C:\Users\tester");
+        let dirs = windows_user_cli_dirs(home, Some(std::ffi::OsStr::new(r"D:\Tools\grok")));
+
+        assert!(dirs.contains(&home.join(".grok").join("bin")));
+        assert!(dirs.contains(&PathBuf::from(r"D:\Tools\grok\bin")));
+        assert!(dirs.contains(&home.join("AppData").join("Roaming").join("npm")));
     }
 }
 
