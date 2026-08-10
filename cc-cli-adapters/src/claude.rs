@@ -112,7 +112,14 @@ const HOOK_DEFS: &[HookDef] = &[
         name: "state-waiting-input",
         subcommand: "waiting-input",
         event: "Notification",
-        matcher: "permission_prompt|elicitation_dialog|elicitation_complete|elicitation_response|idle_prompt",
+        // 只收「agent 真的被挡住、在等人拍板」的两类。三类历史误收已移除：
+        //   idle_prompt          —— 输入框闲置 60s 才发，是「人走开了」不是「agent 卡住了」；
+        //                           turn_end 已经通知过一次，这条纯属第二次打扰。
+        //   elicitation_complete —— 对话框**结束**事件，语义与 WaitingInput 相反；
+        //   elicitation_response —— 用户**已回答**事件，同上。
+        // 后两类会在人答完之后把会话重新标成 WaitingInput（状态卡住 + 再弹一条），
+        // 一次问答因此至少产出两条通知。清除靠后续正常事件（tool-before/turn-end）自然推进。
+        matcher: "permission_prompt|elicitation_dialog",
         timeout: 5,
         label: "State: waiting input",
     },
@@ -1232,16 +1239,16 @@ impl CliToolAdapter for ClaudeAdapter {
 
     fn map_cc_pane_event(&self, event: &CcPaneEvent) -> Option<NativeHookBinding> {
         match event {
-            CcPaneEvent::SessionInit => Some(NativeHookBinding::new("SessionStart", Some("startup"), 10)),
+            CcPaneEvent::SessionInit => {
+                Some(NativeHookBinding::new("SessionStart", Some("startup"), 10))
+            }
             CcPaneEvent::SessionResume => Some(NativeHookBinding::new(
                 "SessionStart",
                 Some("resume|compact"),
                 10,
             )),
             CcPaneEvent::SessionEnd => Some(NativeHookBinding::new("SessionEnd", None, 5)),
-            CcPaneEvent::PromptBefore => {
-                Some(NativeHookBinding::new("UserPromptSubmit", None, 10))
-            }
+            CcPaneEvent::PromptBefore => Some(NativeHookBinding::new("UserPromptSubmit", None, 10)),
             CcPaneEvent::ToolBefore(matcher) => Some(NativeHookBinding::new(
                 "PreToolUse",
                 self.render_cc_pane_tool_matcher(matcher).as_deref(),
@@ -1258,9 +1265,10 @@ impl CliToolAdapter for ClaudeAdapter {
                 Some("manual|auto"),
                 15,
             )),
+            // 与 HOOK_DEFS 的 state-waiting-input 保持同一口径（那里有为什么只留两类的说明）。
             CcPaneEvent::WaitingInput => Some(NativeHookBinding::new(
                 "Notification",
-                Some("permission_prompt|elicitation_dialog|elicitation_complete|elicitation_response|idle_prompt"),
+                Some("permission_prompt|elicitation_dialog"),
                 5,
             )),
             CcPaneEvent::Error => Some(NativeHookBinding::new("StopFailure", None, 5)),
@@ -2192,8 +2200,26 @@ mod tests {
 
         let b = a.map_cc_pane_event(&CcPaneEvent::WaitingInput).unwrap();
         assert_eq!(b.event, "Notification");
-        // WaitingInput 匹配多种通知类型
-        assert!(b.matcher.as_deref().unwrap().contains("permission_prompt"));
+        // WaitingInput 只收「agent 真被挡住」的两类；下面三类是历史误收，锁死不许回来：
+        // idle_prompt = 人走开（非 agent 阻塞），elicitation_complete/response = 已答完（语义相反）
+        let matcher = b.matcher.as_deref().unwrap();
+        assert_eq!(matcher, "permission_prompt|elicitation_dialog");
+        for noisy in [
+            "idle_prompt",
+            "elicitation_complete",
+            "elicitation_response",
+        ] {
+            assert!(
+                !matcher.contains(noisy),
+                "误报源 {noisy} 不得重新混入 WaitingInput"
+            );
+        }
+        // HOOK_DEFS 与 map_cc_pane_event 必须同口径，否则装出去的 hook 与运行期判定打架
+        let hook_def = HOOK_DEFS
+            .iter()
+            .find(|def| def.name == "state-waiting-input")
+            .expect("state-waiting-input hook def");
+        assert_eq!(hook_def.matcher, matcher);
     }
 
     #[test]
