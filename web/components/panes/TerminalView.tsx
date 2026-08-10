@@ -225,6 +225,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const wallpaperTerminalAlpha = useWallpaperStore((s) =>
       s.resolved !== null && s.assetUrl !== null ? s.resolved.terminalOpacity : 1,
     );
+    const wallpaperTransparencyRequired = wallpaperTerminalAlpha < 1;
+    const wallpaperTransparencyRequiredRef = useRef(wallpaperTransparencyRequired);
+    wallpaperTransparencyRequiredRef.current = wallpaperTransparencyRequired;
     const terminalTheme = useMemo(
       () => getTerminalTheme(isDark, terminalThemeMode, wallpaperTerminalAlpha),
       [isDark, terminalThemeMode, wallpaperTerminalAlpha],
@@ -404,9 +407,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       return terminalDataRendererRef.current.render(data, {
         keepCliOutputInNormalBuffer,
         sessionId: currentSessionIdRef.current,
+        stripBackgroundColors: wallpaperTransparencyRequiredRef.current,
       });
     }, [keepCliOutputInNormalBuffer]);
-
     const syncTrackedBufferType = useCallback((reason: string) => {
       const current = terminalInstanceRef.current?.buffer.active.type;
       const next =
@@ -635,11 +638,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     // 壁纸透明需求翻转时重估渲染器（decideTerminalRenderer 经 provider 读到新值，
     // configure 按 reason 变化自动 disposeWebgl 降 DOM / 恢复）。依赖是布尔翻转，
     // 只在用户改设置/切工作空间时变化——不进入 resize/visibility/focus 等高频路径。
-    const wallpaperTransparencyRequired = wallpaperTerminalAlpha < 1;
     const effectiveCliToolRef = useRef(effectiveCliTool);
-    const wallpaperTransparencyRequiredRef = useRef(wallpaperTransparencyRequired);
     effectiveCliToolRef.current = effectiveCliTool;
-    wallpaperTransparencyRequiredRef.current = wallpaperTransparencyRequired;
     useEffect(() => {
       rendererControllerRef.current?.configure(terminalRendererModeRef.current);
     }, [wallpaperTransparencyRequired]);

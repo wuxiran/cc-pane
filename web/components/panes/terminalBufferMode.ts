@@ -56,6 +56,81 @@ export interface AlternateBufferStripper {
   flush(): string;
 }
 
+export interface SgrBackgroundStripper {
+  push(chunk: string): string;
+  flush(): string;
+}
+
+const MAX_PENDING_SGR_LENGTH = 128;
+
+function stripSgrBackgroundSequence(sequence: string): string {
+  if (!sequence.endsWith("m")) return sequence;
+  const body = sequence.slice(2, -1);
+  if (body.includes(":")) return sequence;
+  const params = body === "" ? [""] : body.split(";");
+  const kept: string[] = [];
+  let changed = false;
+  for (let index = 0; index < params.length; index += 1) {
+    const value = Number(params[index]);
+    if (!Number.isInteger(value)) return sequence;
+    if (value === 48) {
+      changed = true;
+      const mode = params[index + 1];
+      index += mode === "5" ? 2 : mode === "2" ? 4 : 0;
+      continue;
+    }
+    if (value === 49 || (value >= 100 && value <= 107)) {
+      changed = true;
+      continue;
+    }
+    kept.push(params[index]);
+  }
+  if (!changed) return sequence;
+  return kept.length > 0 ? `\x1b[${kept.join(";")}m` : "";
+}
+
+export function createSgrBackgroundStripper(): SgrBackgroundStripper {
+  let pending = "";
+
+  return {
+    push(chunk: string): string {
+      const combined = pending + chunk;
+      pending = "";
+      let output = "";
+      let cursor = 0;
+      while (cursor < combined.length) {
+        const start = combined.indexOf("\x1b[", cursor);
+        if (start < 0) {
+          const danglingEscape = combined.endsWith("\x1b") ? "\x1b" : "";
+          output += combined.slice(cursor, combined.length - danglingEscape.length);
+          pending = danglingEscape;
+          break;
+        }
+        output += combined.slice(cursor, start);
+        let end = start + 2;
+        while (end < combined.length && !(combined.charCodeAt(end) >= 0x40 && combined.charCodeAt(end) <= 0x7e)) {
+          end += 1;
+        }
+        if (end >= combined.length) {
+          const tail = combined.slice(start);
+          if (tail.length <= MAX_PENDING_SGR_LENGTH) pending = tail;
+          else output += tail;
+          break;
+        }
+        const sequence = combined.slice(start, end + 1);
+        output += stripSgrBackgroundSequence(sequence);
+        cursor = end + 1;
+      }
+      return output;
+    },
+    flush(): string {
+      const remaining = pending;
+      pending = "";
+      return remaining;
+    },
+  };
+}
+
 /**
  * 剥离时真实命中的 alt-screen 转换回调（docs/73 §2.x 的 1049 探针）。
  *
@@ -112,6 +187,8 @@ export interface TerminalDataRenderContext {
   keepCliOutputInNormalBuffer: boolean;
   /** 当前会话 id；变化时丢弃上一会话的扣留残留，避免串台。 */
   sessionId: string | null;
+  /** 鏍规嵁澹佺焊閫忔槑妯″紡绉婚櫎 CLI 鏄惧紡 SGR 鑳屾櫙鑹层€? */
+  stripBackgroundColors?: boolean;
 }
 
 export interface TerminalDataRenderer {
@@ -140,24 +217,28 @@ export function createTerminalDataRenderer(
   options?: TerminalDataRendererOptions,
 ): TerminalDataRenderer {
   let stripper: AlternateBufferStripper | null = null;
+  let backgroundStripper: SgrBackgroundStripper | null = null;
   let activeSessionId: string | null = null;
 
   return {
     render(data: string, context: TerminalDataRenderContext): string {
-      if (!context.keepCliOutputInNormalBuffer) {
-        stripper = null;
-        activeSessionId = null;
-        return data;
-      }
-
       const { sessionId } = context;
       if (sessionId && activeSessionId && sessionId !== activeSessionId) {
         stripper = null;
+        backgroundStripper = null;
       }
       if (sessionId) activeSessionId = sessionId;
 
+      const rendered = context.stripBackgroundColors
+        ? (backgroundStripper ??= createSgrBackgroundStripper()).push(data)
+        : (backgroundStripper = null, data);
+      if (!context.keepCliOutputInNormalBuffer) {
+        stripper = null;
+        return rendered;
+      }
+
       stripper ??= createAlternateBufferStripper(options?.onStrippedTransition);
-      return stripper.push(data);
+      return stripper.push(rendered);
     },
   };
 }

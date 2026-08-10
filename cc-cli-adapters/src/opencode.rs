@@ -285,8 +285,16 @@ impl OpenCodeAdapter {
         }
     }
 
+    fn launch_root(ctx: &CliAdapterContext) -> &Path {
+        Path::new(
+            ctx.workspace_path
+                .as_deref()
+                .unwrap_or(ctx.project_path.as_str()),
+        )
+    }
+
     fn project_theme_path(ctx: &CliAdapterContext) -> PathBuf {
-        Path::new(&ctx.project_path)
+        Self::launch_root(ctx)
             .join(".opencode")
             .join("themes")
             .join(format!("{CCPANES_THEME_NAME}.json"))
@@ -295,7 +303,7 @@ impl OpenCodeAdapter {
     fn read_project_theme(
         ctx: &CliAdapterContext,
     ) -> std::result::Result<Option<serde_json::Value>, ()> {
-        let project = Path::new(&ctx.project_path);
+        let project = Self::launch_root(ctx);
         let project_config = project.join(".opencode");
         let candidates = [
             project.join("opencode.json"),
@@ -334,6 +342,31 @@ impl OpenCodeAdapter {
             .unwrap_or(false)
     }
 
+    fn project_theme_is_legacy_ccpanes(path: &Path) -> bool {
+        let Ok(content) = std::fs::read(path) else {
+            return false;
+        };
+        let Ok(actual) = serde_json::from_slice::<serde_json::Value>(&content) else {
+            return false;
+        };
+        let Ok(mut legacy) = serde_json::from_str::<serde_json::Value>(CCPANES_THEME_JSON) else {
+            return false;
+        };
+        let Some(theme) = legacy
+            .get_mut("theme")
+            .and_then(serde_json::Value::as_object_mut)
+        else {
+            return false;
+        };
+        for key in ["background", "backgroundPanel", "backgroundElement"] {
+            theme.insert(
+                key.to_string(),
+                serde_json::Value::String("none".to_string()),
+            );
+        }
+        actual == legacy
+    }
+
     fn ensure_project_theme(ctx: &CliAdapterContext, user_theme_path: Option<&Path>) -> bool {
         if let Some(path) = user_theme_path.filter(|path| path.exists()) {
             warn!(
@@ -346,6 +379,17 @@ impl OpenCodeAdapter {
         let path = Self::project_theme_path(ctx);
         if path.exists() {
             if Self::project_theme_matches(&path) {
+                return true;
+            }
+            if Self::project_theme_is_legacy_ccpanes(&path) {
+                if let Err(error) = write_atomic(&path, CCPANES_THEME_JSON.as_bytes()) {
+                    warn!(
+                        path = %path.display(),
+                        %error,
+                        "opencode: unable to migrate legacy ccpanes theme"
+                    );
+                    return false;
+                }
                 return true;
             }
             warn!(
@@ -572,6 +616,8 @@ impl OpenCodeAdapter {
             user_main_config,
             user_theme_path,
         )?;
+        // Wallpaper transparency is handled by the terminal renderer; keep
+        // OpenCode's native full TUI and alternate-screen behavior.
         let mut args = Vec::new();
 
         if let Some(model_id) = Self::qualified_model_id(ctx) {
@@ -804,7 +850,12 @@ mod tests {
     }
 
     fn project_theme_path(ctx: &CliAdapterContext) -> PathBuf {
-        Path::new(&ctx.project_path).join(".opencode/themes/ccpanes.json")
+        Path::new(
+            ctx.workspace_path
+                .as_deref()
+                .unwrap_or(ctx.project_path.as_str()),
+        )
+        .join(".opencode/themes/ccpanes.json")
     }
 
     #[test]
@@ -950,12 +1001,31 @@ mod tests {
         assert_eq!(read_config(tui_path)["theme"], "ccpanes");
         let theme = read_config(project_theme_path(&c).to_str().unwrap());
         assert_eq!(theme["$schema"], "https://opencode.ai/theme.json");
-        assert_eq!(theme["theme"]["background"], "none");
+        assert_eq!(theme["theme"]["background"], "transparent");
         assert_eq!(theme["theme"].as_object().unwrap().len(), 50);
         assert!(tui_path.ends_with("ccpanes-tui.json"));
         assert!(!std::path::Path::new(main_path)
             .with_file_name("tui.json")
             .exists());
+    }
+
+    #[test]
+    fn session_configs_write_theme_to_workspace_launch_root() {
+        let data_dir = fresh_data_dir("workspace_theme_root");
+        let mut c = ctx(data_dir.clone());
+        c.skip_mcp = true;
+        let workspace_path = data_dir.join("workspace");
+        std::fs::create_dir_all(&workspace_path).unwrap();
+        c.workspace_path = Some(workspace_path.to_string_lossy().into_owned());
+        let original_project_theme_path =
+            Path::new(&c.project_path).join(".opencode/themes/ccpanes.json");
+
+        OpenCodeAdapter::new()
+            .write_session_configs(&c, None, None, None, None)
+            .unwrap();
+
+        assert!(project_theme_path(&c).is_file());
+        assert!(!original_project_theme_path.exists());
     }
 
     #[test]
@@ -970,9 +1040,9 @@ mod tests {
                 "theme color {name} must not depend on dark/light mode: {value}"
             );
         }
-        assert_eq!(theme["background"], "none");
-        assert_eq!(theme["backgroundPanel"], "none");
-        assert_eq!(theme["backgroundElement"], "none");
+        assert_eq!(theme["background"], "transparent");
+        assert_eq!(theme["backgroundPanel"], "transparent");
+        assert_eq!(theme["backgroundElement"], "transparent");
         assert!(theme.get("backgroundMenu").is_none());
         assert_eq!(theme["diffAddedBg"], "#20303b");
         assert_eq!(theme["diffRemovedBg"], "#37222c");
@@ -1080,11 +1150,15 @@ mod tests {
     }
 
     #[test]
-    fn session_configs_respect_project_theme_without_writing_ccpanes_theme() {
-        let mut c = ctx(fresh_data_dir("project_theme"));
+    fn session_configs_respect_workspace_theme_without_writing_ccpanes_theme() {
+        let data_dir = fresh_data_dir("workspace_theme");
+        let mut c = ctx(data_dir.clone());
         c.skip_mcp = true;
+        let workspace_path = data_dir.join("workspace");
+        std::fs::create_dir_all(&workspace_path).unwrap();
+        c.workspace_path = Some(workspace_path.to_string_lossy().into_owned());
         write_config(
-            &Path::new(&c.project_path).join(".opencode/tui.json"),
+            &workspace_path.join(".opencode/tui.json"),
             serde_json::json!({ "theme": "dracula" }),
         );
 
@@ -1120,6 +1194,36 @@ mod tests {
         assert_eq!(
             read_config(env.get("OPENCODE_TUI_CONFIG").unwrap())["theme"],
             "gruvbox"
+        );
+    }
+
+    #[test]
+    fn session_configs_migrate_owned_none_background_theme() {
+        let data_dir = fresh_data_dir("legacy_none_background_theme");
+        let mut c = ctx(data_dir.clone());
+        c.skip_mcp = true;
+        let workspace_path = data_dir.join("workspace");
+        std::fs::create_dir_all(&workspace_path).unwrap();
+        c.workspace_path = Some(workspace_path.to_string_lossy().into_owned());
+        let theme_path = project_theme_path(&c);
+        let mut legacy: serde_json::Value = serde_json::from_str(CCPANES_THEME_JSON).unwrap();
+        let colors = legacy["theme"].as_object_mut().unwrap();
+        for key in ["background", "backgroundPanel", "backgroundElement"] {
+            colors.insert(key.to_string(), serde_json::json!("none"));
+        }
+        write_config(&theme_path, legacy);
+
+        let env = OpenCodeAdapter::new()
+            .write_session_configs(&c, None, None, None, None)
+            .unwrap();
+
+        let migrated = read_config(theme_path.to_str().unwrap());
+        assert_eq!(migrated["theme"]["background"], "transparent");
+        assert_eq!(migrated["theme"]["backgroundPanel"], "transparent");
+        assert_eq!(migrated["theme"]["backgroundElement"], "transparent");
+        assert_eq!(
+            read_config(env.get("OPENCODE_TUI_CONFIG").unwrap())["theme"],
+            "ccpanes"
         );
     }
 
@@ -1345,6 +1449,17 @@ mod tests {
             cmd.args,
             vec!["--prompt".to_string(), "fix the login bug".to_string()]
         );
+    }
+
+    #[test]
+    fn build_command_keeps_full_tui() {
+        let mut c = ctx(fresh_data_dir("transparent_terminal"));
+        c.executable_override = Some("/usr/bin/opencode".to_string());
+
+        let cmd = OpenCodeAdapter::new().build_command(&c).unwrap();
+
+        assert!(!cmd.args.iter().any(|arg| arg == "--mini"));
+        assert!(!cmd.args.iter().any(|arg| arg == "--minimal"));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createAlternateBufferStripper,
+  createSgrBackgroundStripper,
   createTerminalDataRenderer,
   detectAlternateBufferTransitions,
   resolveTerminalBufferMode,
@@ -216,6 +217,36 @@ describe("terminalBufferMode", () => {
       const output = [...input].map((char) => renderer.render(char, keep())).join("");
       // 末尾无残留，逐字节喂入也能完整剥离。
       expect(output).toBe("startmidend");
+    });
+  });
+
+  describe("transparent terminal SGR backgrounds", () => {
+    it("removes background colors while preserving foreground styles", () => {
+      const stripper = createSgrBackgroundStripper();
+      expect(stripper.push("\x1b[1;48;2;29;37;55mBUILD\x1b[49m")).toBe(
+        "\x1b[1mBUILD",
+      );
+      expect(stripper.flush()).toBe("");
+    });
+
+    it("handles background sequences split at every byte", () => {
+      const input = "a\x1b[38;5;14;48;5;23mBUILD\x1b[100mb";
+      const stripper = createSgrBackgroundStripper();
+      const output = [...input].map((char) => stripper.push(char)).join("") + stripper.flush();
+      expect(output).toBe("a\x1b[38;5;14mBUILDb");
+    });
+
+    it("applies the filter through the renderer without changing native output", () => {
+      const renderer = createTerminalDataRenderer();
+      const transparent = {
+        keepCliOutputInNormalBuffer: false,
+        sessionId: "s1",
+        stripBackgroundColors: true,
+      };
+      expect(renderer.render("\x1b[48;2;29;37;55mBUILD", transparent)).toBe("BUILD");
+      expect(
+        renderer.render("\x1b[48;5;23mopaque", { ...transparent, stripBackgroundColors: false }),
+      ).toBe("\x1b[48;5;23mopaque");
     });
   });
 });
