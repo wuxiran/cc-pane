@@ -990,7 +990,9 @@ impl UsageStatsService {
         // 仅对 claude 生效（codex 需要 `effective = window - 12_000`，没有真实
         // window 不能硬编，会走原 WINDOW_UNKNOWN 路径）。
         if request.cli == "claude" {
-            return Some(WindowResolution::DefaultFallback(DEFAULT_CLAUDE_CONTEXT_TOKENS));
+            return Some(WindowResolution::DefaultFallback(
+                DEFAULT_CLAUDE_CONTEXT_TOKENS,
+            ));
         }
         None
     }

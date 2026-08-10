@@ -115,7 +115,7 @@ describe("ContextUsageIndicator", () => {
     expect(screen.queryByText(/窗口来源/)).not.toBeInTheDocument();
   });
 
-  it("WINDOW_UNKNOWN 提示文案包含可点击的「去 Provider 设置」按钮，点击后跳到 providers pane", async () => {
+  it("WINDOW_UNKNOWN 提示文案包含可点击的「去 Provider 设置」按钮，点击后跳到 provider pane", async () => {
     const user = userEvent.setup();
     navigateToSettingsMock.mockClear();
     setSnapshot(snapshot());
@@ -125,7 +125,7 @@ describe("ContextUsageIndicator", () => {
     expect(link).toBeInTheDocument();
     await user.click(link);
 
-    expect(navigateToSettingsMock).toHaveBeenCalledWith({ paneId: "providers" });
+    expect(navigateToSettingsMock).toHaveBeenCalledWith({ paneId: "provider" });
   });
 
   it("renders a compact usage summary", () => {

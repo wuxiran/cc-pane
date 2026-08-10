@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { useContextUsageStore } from "@/stores/useContextUsageStore";
+import { useTaskQueueStore } from "@/stores/useTaskQueueStore";
 import { useTerminalInputActivityStore } from "@/stores/useTerminalInputActivityStore";
 import "@/stores/useTerminalRestoreLogStore";
 import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
@@ -18,6 +19,7 @@ const STORE_MODULES = import.meta.glob("../../stores/*.ts", {
 
 const REGISTERED_SESSION_MAP_STORES = {
   "useContextUsageStore.ts": "contextUsage",
+  "useTaskQueueStore.ts": "taskQueue",
   "useTerminalStatusStore.ts": "terminalStatus",
 } as const;
 
@@ -45,6 +47,13 @@ function statusInfo(sessionId: string): TerminalStatusInfo {
 }
 
 afterEach(() => {
+  useTaskQueueStore.getState().cleanup();
+  useTaskQueueStore.setState({
+    snapshots: new Map(),
+    loadingSessions: new Set(),
+    mutatingSessions: new Set(),
+    errors: new Map(),
+  });
   useContextUsageStore.setState({
     sessionId: null,
     snapshot: null,

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { UnlistenFn } from "@tauri-apps/api/event";
+import { registerSessionScopedResource } from "@/lib/tabLifecycle/sessionScopedResources";
 import { taskQueueService } from "@/services/taskQueueService";
 import type {
   StagedTaskQueueImage,
@@ -18,6 +19,7 @@ interface TaskQueueState {
   _unlisten: UnlistenFn | null;
   initialize: () => Promise<void>;
   cleanup: () => void;
+  dropSession: (sessionId: string) => void;
   load: (sessionId: string) => Promise<TaskQueueSnapshot | undefined>;
   applySnapshot: (snapshot: TaskQueueSnapshot) => void;
   stageClipboardImage: (sessionId: string) => Promise<StagedTaskQueueImage>;
@@ -65,6 +67,21 @@ export const useTaskQueueStore = create<TaskQueueState>((set, get) => ({
   cleanup: () => {
     get()._unlisten?.();
     set({ _initialized: false, _unlisten: null });
+  },
+
+  dropSession: (sessionId) => {
+    set((state) => {
+      const snapshots = new Map(state.snapshots);
+      snapshots.delete(sessionId);
+      const errors = new Map(state.errors);
+      errors.delete(sessionId);
+      return {
+        snapshots,
+        loadingSessions: replaceSet(state.loadingSessions, sessionId, false),
+        mutatingSessions: replaceSet(state.mutatingSessions, sessionId, false),
+        errors,
+      };
+    });
   },
 
   load: async (sessionId) => {
@@ -132,3 +149,8 @@ export const useTaskQueueStore = create<TaskQueueState>((set, get) => ({
     }
   },
 }));
+
+registerSessionScopedResource({
+  name: "taskQueue",
+  dispose: (sessionId) => useTaskQueueStore.getState().dropSession(sessionId),
+});

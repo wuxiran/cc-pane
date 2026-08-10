@@ -182,13 +182,8 @@ impl LaunchHistoryService {
         provider_id: Option<&str>,
     ) -> Result<Option<i64>, String> {
         validate_model_id(model_id)?;
-        self.repo.bind_pty_session(
-            launch_id,
-            pty_session_id,
-            cli_tool,
-            model_id,
-            provider_id,
-        )
+        self.repo
+            .bind_pty_session(launch_id, pty_session_id, cli_tool, model_id, provider_id)
     }
 
     pub fn bind_or_add_created_session(

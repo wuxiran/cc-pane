@@ -162,7 +162,7 @@ export default function ContextUsageIndicator({
             {displaySnapshot.diagnosticCode === "WINDOW_UNKNOWN" && (
               <button
                 type="button"
-                onClick={() => navigateToSettings({ paneId: "providers" })}
+                onClick={() => navigateToSettings({ paneId: "provider" })}
                 aria-label={t("contextUsage.windowUnknownAction")}
                 className="flex w-fit items-center gap-1 rounded text-left underline-offset-2 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
                 style={{ color: "var(--app-status-danger)" }}
