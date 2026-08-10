@@ -230,4 +230,6 @@ CC-Panes는 [GPL-3.0](https://github.com/wuxiran/cc-pane/blob/main/LICENSE) 라�
 
 ## 감사
 
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code) | [Tauri](https://tauri.app/) | [xterm.js](https://xtermjs.org/) | [portable-pty](https://github.com/wez/wezterm/tree/main/pty) | [Allotment](https://github.com/johnwalley/allotment) | [shadcn/ui](https://ui.shadcn.com/)
+커뮤니티 및 후원: [Linux.do](https://linux.do) | [Sponsor relay hub](https://hub.nocannobb.com)
+
+사용 기술: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | [Tauri](https://tauri.app/) | [xterm.js](https://xtermjs.org/) | [portable-pty](https://github.com/wez/wezterm/tree/main/pty) | [Allotment](https://github.com/johnwalley/allotment) | [shadcn/ui](https://ui.shadcn.com/)
