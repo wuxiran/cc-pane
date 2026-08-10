@@ -47,6 +47,16 @@ export function classifyNotification(
   return { severity: severityOf(record.kind), interruptClass };
 }
 
+/**
+ * 系统通知 = 后端状态机自动产生的会话生命周期事件（source 由后端硬编码:
+ * "terminal" = 状态机 sync listener,"hook" = CLI hook 通道）。
+ * 与 AI 主动通知（MCP trigger_notification,source 由调用方自定）分栏展示——
+ * 判据只看 source 确定性字段,不猜 title/kind 文本。
+ */
+export function isSystemNotification(record: Pick<NotificationRecord, "source">): boolean {
+  return record.source === "terminal" || record.source === "hook";
+}
+
 /** 自动消失时长（ms）；null = 不自动消失（error 与 askInput 要等人处理）。 */
 export function autoDismissMs(classification: NotificationClassification): number | null {
   if (classification.interruptClass === "askInput") return null;

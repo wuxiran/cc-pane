@@ -34,7 +34,6 @@
   "skillSaved": "Skill 已保存",
   "skillDeleted": "Skill 已删除",
   "operationFailed": "操作失败: {{error}}",
-
   "createFailed": "创建失败: {{error}}",
   "renameDone": "已重命名",
   "aliasSet": "别名已更新",
@@ -52,12 +51,10 @@
   "noGitRepoFound": "未在该目录下发现任何 Git 仓库",
   "scanImportDone": "导入完成: {{imported}} 个成功, {{skipped}} 个跳过（可能已存在）",
   "providerNameRequired": "请输入名称",
-
   "mcpServerUpdated": "MCP Server 已更新",
   "mcpServerAdded": "MCP Server 已添加",
   "mcpServerDeleted": "MCP Server 已删除",
   "mcpNameCommandRequired": "名称和命令不能为空",
-
   "center": {
     "title": "通知",
     "bellTooltip": "通知中心",
@@ -93,6 +90,7 @@
       "turn_end": "任务完成",
       "error": "会话报错",
       "slow_tool": "工具运行较慢"
-    }
+    },
+    "filterSystem": "系统"
   }
 }

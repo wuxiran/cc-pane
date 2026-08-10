@@ -34,7 +34,6 @@
   "skillSaved": "Skill saved",
   "skillDeleted": "Skill deleted",
   "operationFailed": "Operation failed: {{error}}",
-
   "createFailed": "Create failed: {{error}}",
   "renameDone": "Renamed",
   "aliasSet": "Alias updated",
@@ -52,12 +51,10 @@
   "noGitRepoFound": "No Git repositories found in this directory",
   "scanImportDone": "Import complete: {{imported}} succeeded, {{skipped}} skipped (may already exist)",
   "providerNameRequired": "Name is required",
-
   "mcpServerUpdated": "MCP Server updated",
   "mcpServerAdded": "MCP Server added",
   "mcpServerDeleted": "MCP Server deleted",
   "mcpNameCommandRequired": "Name and command are required",
-
   "center": {
     "title": "Notifications",
     "bellTooltip": "Notification center",
@@ -93,6 +90,7 @@
       "turn_end": "Task completed",
       "error": "Session error",
       "slow_tool": "Slow tool"
-    }
+    },
+    "filterSystem": "System"
   }
 }
