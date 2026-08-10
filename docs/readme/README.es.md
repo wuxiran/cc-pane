@@ -230,4 +230,6 @@ CC-Panes es software libre y de código abierto bajo la [licencia GPL-3.0](https
 
 ## Agradecimientos
 
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code) | [Tauri](https://tauri.app/) | [xterm.js](https://xtermjs.org/) | [portable-pty](https://github.com/wez/wezterm/tree/main/pty) | [Allotment](https://github.com/johnwalley/allotment) | [shadcn/ui](https://ui.shadcn.com/)
+Comunidad y apoyo: [Linux.do](https://linux.do) | [Sponsor relay hub](https://hub.nocannobb.com)
+
+Construido con: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | [Tauri](https://tauri.app/) | [xterm.js](https://xtermjs.org/) | [portable-pty](https://github.com/wez/wezterm/tree/main/pty) | [Allotment](https://github.com/johnwalley/allotment) | [shadcn/ui](https://ui.shadcn.com/)

@@ -230,4 +230,6 @@ CC-Panes 使用 [GPL-3.0](https://github.com/wuxiran/cc-pane/blob/main/LICENSE) 
 
 ## 致谢
 
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code) | [Tauri](https://tauri.app/) | [xterm.js](https://xtermjs.org/) | [portable-pty](https://github.com/wez/wezterm/tree/main/pty) | [Allotment](https://github.com/johnwalley/allotment) | [shadcn/ui](https://ui.shadcn.com/)
+社区与支持: [Linux.do](https://linux.do) | [Sponsor relay hub](https://hub.nocannobb.com)
+
+技术栈: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | [Tauri](https://tauri.app/) | [xterm.js](https://xtermjs.org/) | [portable-pty](https://github.com/wez/wezterm/tree/main/pty) | [Allotment](https://github.com/johnwalley/allotment) | [shadcn/ui](https://ui.shadcn.com/)
