@@ -214,8 +214,11 @@ For the full walkthrough, see the [user guide](docs/guide/README.md). For web an
 - **WeChat:** add `yemaofeng66` and mention `CC-Panes chat` or `CC-Panes bug feedback`.
 
 <p>
+  <img src="docs/assets/images/wechat-group-cc-pane.jpg" alt="CC-Panes WeChat chat group" width="160" />
   <img src="docs/assets/images/wechat-bug-feedback.png" alt="CC-Panes bug feedback WeChat group" width="160" />
 </p>
+
+<sub>Left: chat group · Right: bug feedback group. Group QR codes rotate periodically — if one has expired, add `yemaofeng66` instead.</sub>
 
 ---
 
@@ -249,4 +252,6 @@ CC-Panes is free and open source under the [GPL-3.0 license](LICENSE).
 
 ## Acknowledgements
 
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code) | [Tauri](https://tauri.app/) | [xterm.js](https://xtermjs.org/) | [portable-pty](https://github.com/wez/wezterm/tree/main/pty) | [Allotment](https://github.com/johnwalley/allotment) | [shadcn/ui](https://ui.shadcn.com/)
+Community & support: [Linux.do](https://linux.do) | [Sponsor relay hub](https://hub.nocannobb.com)
+
+Built with: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | [Tauri](https://tauri.app/) | [xterm.js](https://xtermjs.org/) | [portable-pty](https://github.com/wez/wezterm/tree/main/pty) | [Allotment](https://github.com/johnwalley/allotment) | [shadcn/ui](https://ui.shadcn.com/)
