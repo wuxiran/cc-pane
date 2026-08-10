@@ -214,8 +214,11 @@ For the full walkthrough, see the [user guide](docs/guide/README.md). For web an
 - **WeChat:** add `yemaofeng66` and mention `CC-Panes chat` or `CC-Panes bug feedback`.
 
 <p>
+  <img src="docs/assets/images/wechat-group-cc-pane.jpg" alt="CC-Panes WeChat chat group" width="160" />
   <img src="docs/assets/images/wechat-bug-feedback.png" alt="CC-Panes bug feedback WeChat group" width="160" />
 </p>
+
+<sub>Left: chat group · Right: bug feedback group. Group QR codes rotate periodically — if one has expired, add `yemaofeng66` instead.</sub>
 
 ---
 

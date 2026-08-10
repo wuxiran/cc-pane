@@ -195,8 +195,11 @@ CC-Panes 支持任意能在终端运行的 CLI Agent。一等适配器会在各 
 - **微信：** 添加 `yemaofeng66`，备注 `CC-Panes 交流群` 或 `CC-Panes Bug 反馈`
 
 <p>
+  <img src="../assets/images/wechat-group-cc-pane.jpg" alt="CC-Panes 交流群" width="160" />
   <img src="../assets/images/wechat-bug-feedback.png" alt="CC-Panes Bug 反馈微信群" width="160" />
 </p>
+
+<sub>左：交流群 · 右：Bug 反馈群。群二维码会定期更新，若已失效请添加 `yemaofeng66`。</sub>
 
 ---
 
