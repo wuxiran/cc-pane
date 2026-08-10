@@ -25,7 +25,6 @@ import { invokeIfTauri, isTauriRuntime } from "@/services/runtime";
 import SystemResourceSegment from "@/components/statusbar/SystemResourceSegment";
 import UsageStatsStatusButton from "@/components/statusbar/UsageStatsStatusButton";
 import NotificationBellButton from "@/components/statusbar/NotificationBellButton";
-import ContextUsageIndicator from "@/components/ContextUsageIndicator";
 import { PresetSwatches } from "@/components/theme/ThemeSwatches";
 import { THEME_PRESETS, type ThemePreference } from "@/theme/themePresets";
 import {
@@ -59,9 +58,6 @@ export default function StatusBar() {
   );
   const showSystemResources = useSettingsStore(
     (s) => s.settings?.general.showSystemResources ?? true,
-  );
-  const showContextUsage = useSettingsStore(
-    (s) => s.settings?.terminal.showContextUsage ?? true,
   );
   const { isPinned, togglePin } = useWindowControl();
 
@@ -197,8 +193,6 @@ export default function StatusBar() {
             <span>{activeCount}</span>
           </span>
         )}
-
-        {showContextUsage && <ContextUsageIndicator />}
 
         {/* 版本更新提示 */}
         {isTauriRuntime() && updateAvailable && updateVersion && (

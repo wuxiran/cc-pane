@@ -179,10 +179,16 @@ impl LaunchHistoryService {
         pty_session_id: &str,
         cli_tool: &str,
         model_id: Option<&str>,
+        provider_id: Option<&str>,
     ) -> Result<Option<i64>, String> {
         validate_model_id(model_id)?;
-        self.repo
-            .bind_pty_session(launch_id, pty_session_id, cli_tool, model_id)
+        self.repo.bind_pty_session(
+            launch_id,
+            pty_session_id,
+            cli_tool,
+            model_id,
+            provider_id,
+        )
     }
 
     pub fn bind_or_add_created_session(
@@ -194,6 +200,7 @@ impl LaunchHistoryService {
             record.pty_session_id,
             record.cli_tool,
             record.model_id,
+            record.provider_id,
         )? {
             return Ok(id);
         }
@@ -456,6 +463,40 @@ mod tests {
     }
 
     #[test]
+    fn bind_pty_session_persists_provider_id_on_existing_launch() {
+        let svc = service();
+
+        // 先 add 一条带默认值的 launch 行（provider_id 留空）
+        let launch_id = add_record(&svc, "p-bind-provider", "/tmp/proj");
+        let before = &svc.list(10).expect("list")[0];
+        assert_eq!(before.id, launch_id);
+        assert!(before.provider_id.is_none());
+        assert!(before.pty_session_id.is_none());
+
+        // PTY 出生后 bind 上来，**关键**：bind 路径必须把 provider_id 写进去
+        let bound = svc
+            .bind_pty_session(
+                "p-bind-provider",
+                "pty-123",
+                "claude",
+                Some("claude-sonnet-4-5"),
+                Some("provider-z"),
+            )
+            .expect("bind ok")
+            .expect("matched a launch row");
+        assert_eq!(bound, launch_id);
+
+        let after = &svc.list(10).expect("list")[0];
+        assert_eq!(after.pty_session_id.as_deref(), Some("pty-123"));
+        assert_eq!(
+            after.provider_id.as_deref(),
+            Some("provider-z"),
+            "bind_pty_session 路径必须把 provider_id 写进 launch_history，否则后端 usage 服务读不到 Provider contextWindowTokens"
+        );
+        assert_eq!(after.model_id.as_deref(), Some("claude-sonnet-4-5"));
+    }
+
+    #[test]
     fn list_by_project_normalizes_slashes_and_case() {
         let svc = service();
         add_record(&svc, "p1", "D:\\Work\\Proj");
@@ -529,7 +570,7 @@ mod tests {
         .expect("add codex record");
 
         assert!(svc
-            .bind_pty_session("launch-codex", "pty-codex", "claude", None)
+            .bind_pty_session("launch-codex", "pty-codex", "claude", None, None)
             .expect("mismatch is not an error")
             .is_none());
         assert!(svc
@@ -538,7 +579,7 @@ mod tests {
             .is_none());
 
         let id = svc
-            .bind_pty_session("launch-codex", "pty-codex", "codex", None)
+            .bind_pty_session("launch-codex", "pty-codex", "codex", None, None)
             .expect("bind")
             .expect("record id");
         let record = svc

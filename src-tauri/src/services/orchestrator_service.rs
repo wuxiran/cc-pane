@@ -24,8 +24,8 @@ use crate::services::{
     BrowserOpenTabEvent, BrowserTabManager, ExternalSkillRegistry, LaunchHistoryService,
     LaunchProfileService, MemoryService, NotificationRequest, NotificationService, ProjectService,
     ProviderService, ScreenshotService, SessionRestoreService, SettingsService, SharedMcpService,
-    SkillService, SpecService, SshMachineService, TerminalBackendKind, TerminalBackendState,
-    TerminalService, TodoService, WorkspaceService,
+    SkillService, SpecService, SshMachineService, TaskQueueService, TerminalBackendKind,
+    TerminalBackendState, TerminalService, TodoService, WorkspaceService,
 };
 use crate::utils::{validate_command, validate_mcp_name, validate_path, AppPaths};
 use anyhow::Result;
@@ -33,7 +33,7 @@ use axum::{
     extract::{DefaultBodyLimit, Json, Path as AxumPath, Query, Request, State},
     http::{self, HeaderMap, Method, StatusCode},
     middleware,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Router,
 };
@@ -783,6 +783,7 @@ pub struct AppState {
     pub todo_service: Arc<TodoService>,
     pub memory_service: Arc<MemoryService>,
     pub task_binding_service: Arc<crate::services::TaskBindingService>,
+    pub task_queue_service: Arc<TaskQueueService>,
     pub spec_service: Arc<SpecService>,
     pub skill_service: Arc<SkillService>,
     pub external_skill_registry: Arc<ExternalSkillRegistry>,
@@ -1651,6 +1652,7 @@ impl OrchestratorService {
         todo_service: Arc<TodoService>,
         memory_service: Arc<MemoryService>,
         task_binding_service: Arc<crate::services::TaskBindingService>,
+        task_queue_service: Arc<TaskQueueService>,
         spec_service: Arc<SpecService>,
         skill_service: Arc<SkillService>,
         external_skill_registry: Arc<ExternalSkillRegistry>,
@@ -1715,6 +1717,7 @@ impl OrchestratorService {
             todo_service,
             memory_service,
             task_binding_service,
+            task_queue_service,
             spec_service,
             skill_service,
             external_skill_registry,
@@ -2142,6 +2145,8 @@ impl OrchestratorService {
 
 // ============ 路由构建 ============
 
+const TASK_QUEUE_PERMISSION_REQUEST_PATH: &str = "/api/task-queue/permission-request";
+
 fn build_router(state: AppState) -> Router {
     use rmcp::transport::streamable_http_server::{
         session::local::LocalSessionManager, StreamableHttpService,
@@ -2191,6 +2196,10 @@ fn build_router(state: AppState) -> Router {
         )
         .route("/api/ccchan/say", post(handle_ccchan_say))
         .route("/api/hook-event", post(handle_hook_event))
+        .route(
+            TASK_QUEUE_PERMISSION_REQUEST_PATH,
+            post(handle_task_queue_permission_request),
+        )
         .route("/api/memory/recall", post(handle_memory_recall))
         .route("/api/plan/tag", post(handle_plan_tag))
         .route("/api/plan/recent", get(handle_plan_recent))
@@ -9475,6 +9484,106 @@ struct HookEventRequest {
     payload: serde_json::Value,
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskQueuePermissionRequest {
+    pty_session_id: String,
+    payload: serde_json::Value,
+}
+
+fn task_queue_permission_http_response<F>(
+    headers: &HeaderMap,
+    expected_token: &str,
+    responder: F,
+) -> Response
+where
+    F: FnOnce()
+        -> std::result::Result<cc_panes_core::services::UnattendedPermissionDecision, String>,
+{
+    use cc_panes_core::services::UnattendedPermissionDecision;
+
+    if !verify_token(headers, expected_token) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!(ApiError {
+                error: "Invalid or missing Bearer token".to_string()
+            })),
+        )
+            .into_response();
+    }
+    match responder() {
+        Ok(UnattendedPermissionDecision::AllowNew)
+        | Ok(UnattendedPermissionDecision::AllowExisting) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "hookSpecificOutput": {
+                    "decision": { "behavior": "allow" }
+                }
+            })),
+        )
+            .into_response(),
+        Ok(UnattendedPermissionDecision::NoDecision) | Err(_) => {
+            StatusCode::NO_CONTENT.into_response()
+        }
+    }
+}
+
+async fn handle_task_queue_permission_request(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(req): Json<TaskQueuePermissionRequest>,
+) -> Response {
+    if !verify_token(&headers, &state.token) {
+        return task_queue_permission_http_response(&headers, &state.token, || {
+            Ok(cc_panes_core::services::UnattendedPermissionDecision::NoDecision)
+        });
+    }
+
+    let cli_tool = match state
+        .launch_history_service
+        .find_by_pty_session_id(&req.pty_session_id)
+    {
+        Ok(Some(record)) => record.cli_tool,
+        Ok(None) => return StatusCode::NO_CONTENT.into_response(),
+        Err(error) => {
+            warn!(
+                session_id = %req.pty_session_id,
+                error = %error,
+                "permission request session lookup failed"
+            );
+            return StatusCode::NO_CONTENT.into_response();
+        }
+    };
+
+    let service = state.task_queue_service.clone();
+    let backend = state.terminal_backend.backend();
+    let session_id = req.pty_session_id;
+    let payload = req.payload;
+    let responder_session_id = session_id.clone();
+    let decision = tokio::task::spawn_blocking(move || {
+        service
+            .authorize_unattended_permission_request(
+                &responder_session_id,
+                &cli_tool,
+                &payload,
+                backend.as_ref(),
+                unix_time_millis() as i64,
+            )
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())
+    .and_then(|result| result);
+
+    let response = task_queue_permission_http_response(&headers, &state.token, || decision);
+    debug!(
+        session_id = %session_id,
+        status = response.status().as_u16(),
+        "permission request decision completed"
+    );
+    response
+}
+
 async fn handle_hook_event(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -13381,6 +13490,69 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "abc123".parse().unwrap());
         assert!(!verify_token(&headers, "abc123"));
+    }
+
+    #[test]
+    fn task_queue_permission_request_route_path_is_stable() {
+        assert_eq!(
+            TASK_QUEUE_PERMISSION_REQUEST_PATH,
+            "/api/task-queue/permission-request"
+        );
+    }
+
+    #[tokio::test]
+    async fn task_queue_permission_request_http_contract_requires_bearer_and_exact_allow() {
+        use cc_panes_core::services::UnattendedPermissionDecision;
+
+        let unauthorized = task_queue_permission_http_response(
+            &HeaderMap::new(),
+            "secret",
+            || -> std::result::Result<UnattendedPermissionDecision, String> {
+                panic!("unauthorized requests must not reach the responder")
+            },
+        );
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer secret".parse().unwrap());
+        for decision in [
+            UnattendedPermissionDecision::AllowNew,
+            UnattendedPermissionDecision::AllowExisting,
+        ] {
+            let response = task_queue_permission_http_response(&headers, "secret", || {
+                Ok::<_, String>(decision)
+            });
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = axum::body::to_bytes(response.into_body(), 1024)
+                .await
+                .expect("allow response body");
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+                serde_json::json!({
+                    "hookSpecificOutput": {
+                        "decision": { "behavior": "allow" }
+                    }
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn task_queue_permission_request_http_contract_maps_no_decision_and_errors_to_204() {
+        use cc_panes_core::services::UnattendedPermissionDecision;
+
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer secret".parse().unwrap());
+
+        let no_decision = task_queue_permission_http_response(&headers, "secret", || {
+            Ok::<_, String>(UnattendedPermissionDecision::NoDecision)
+        });
+        assert_eq!(no_decision.status(), StatusCode::NO_CONTENT);
+
+        let error = task_queue_permission_http_response(&headers, "secret", || {
+            Err::<UnattendedPermissionDecision, _>("repository unavailable".to_string())
+        });
+        assert_eq!(error.status(), StatusCode::NO_CONTENT);
     }
 
     fn test_pending_report_worker(id: &str) -> TaskBinding {

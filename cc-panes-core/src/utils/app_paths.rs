@@ -107,6 +107,10 @@ impl AppPaths {
         self.runtime_dir().join("sessions")
     }
 
+    pub fn task_queue_images_dir(&self) -> PathBuf {
+        self.data_dir.join("task-queue-images")
+    }
+
     /// 指定会话的输出文件路径
     pub fn session_output_path(&self, session_id: &str) -> PathBuf {
         self.sessions_dir().join(format!("{}.output", session_id))
@@ -209,6 +213,7 @@ impl AppPaths {
             self.user_skills_dir(),
             self.builtin_skills_dir(),
             self.runtime_sessions_dir(),
+            self.task_queue_images_dir(),
             self.wallpapers_dir(),
         ];
 
@@ -386,6 +391,10 @@ mod tests {
             base.join("runtime").join("sessions")
         );
         assert_eq!(
+            paths.task_queue_images_dir(),
+            base.join("task-queue-images")
+        );
+        assert_eq!(
             paths.session_output_path("abc"),
             base.join("sessions").join("abc.output")
         );
@@ -425,6 +434,7 @@ mod tests {
         assert!(paths.user_skills_dir().is_dir());
         assert!(paths.builtin_skills_dir().is_dir());
         assert!(paths.runtime_sessions_dir().is_dir());
+        assert!(paths.task_queue_images_dir().is_dir());
         assert!(paths.wallpapers_dir().is_dir());
     }
 

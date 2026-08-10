@@ -14,6 +14,11 @@ pub struct ApiEndpoint {
     pub token: String,
 }
 
+pub struct JsonHttpResponse {
+    pub status: u16,
+    pub body: String,
+}
+
 impl ApiEndpoint {
     /// 从环境变量构造。
     ///
@@ -68,6 +73,23 @@ pub fn post_json_with_timeout(
     body: &serde_json::Value,
     timeout: Duration,
 ) -> Result<String, String> {
+    post_json_response_with_timeout(endpoint, path, body, timeout).map(|response| response.body)
+}
+
+pub fn post_json_response(
+    endpoint: &ApiEndpoint,
+    path: &str,
+    body: &serde_json::Value,
+) -> Result<JsonHttpResponse, String> {
+    post_json_response_with_timeout(endpoint, path, body, Duration::from_millis(750))
+}
+
+fn post_json_response_with_timeout(
+    endpoint: &ApiEndpoint,
+    path: &str,
+    body: &serde_json::Value,
+    timeout: Duration,
+) -> Result<JsonHttpResponse, String> {
     let payload =
         serde_json::to_vec(body).map_err(|e| format!("encode body for {}: {}", path, e))?;
     let url = endpoint.url(path);
@@ -84,8 +106,10 @@ pub fn post_json_with_timeout(
         .send(payload.as_slice())
         .map_err(|e| format!("POST {} failed: {}", path, e))?;
 
-    response
+    let status = response.status().as_u16();
+    let body = response
         .into_body()
         .read_to_string()
-        .map_err(|e| format!("read response body for {}: {}", path, e))
+        .map_err(|e| format!("read response body for {}: {}", path, e))?;
+    Ok(JsonHttpResponse { status, body })
 }

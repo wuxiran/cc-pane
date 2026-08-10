@@ -116,5 +116,15 @@
   "DIR_ALREADY_EXISTS": "目标目录已存在",
 
   "SSH_IDENTITY_FILE_INVALID": "SSH 密钥文件路径无效",
-  "SSH_PORT_INVALID": "SSH 端口号必须大于 0"
+  "SSH_PORT_INVALID": "SSH 端口号必须大于 0",
+  "QUEUE_FULL": "此任务队列已达到 100 项上限",
+  "QUEUE_ITEM_INVALID": "排队任务为空或超过限制",
+  "QUEUE_ITEM_NOT_FOUND": "排队任务已不存在",
+  "IMAGE_REF_INVALID": "暂存图片已失效",
+  "IMAGE_STAGE_FAILED": "无法暂存剪贴板图片",
+  "SESSION_NOT_FOUND": "终端会话已不存在",
+  "SESSION_NOT_WRITABLE": "CC-Panes 当前没有终端写入权",
+  "UNATTENDED_UNSUPPORTED": "此 CLI 会话不支持无人值守审批",
+  "SUBMIT_FAILED": "任务发送失败，仍保留在队首",
+  "DELIVERY_UNKNOWN": "无法确认是否送达，请检查终端后再重试"
 }

@@ -17,6 +17,8 @@ interface RefValue<T> {
   current: T;
 }
 type BindingLogger = (event: string, payload?: Record<string, unknown>) => void;
+export type HiddenWriteFlushOutcome = "ready" | "resync";
+type TerminalResyncHandler = () => Promise<void>;
 
 export interface PendingSessionExit {
   sessionId: string;
@@ -102,9 +104,9 @@ export interface BindTerminalSessionCallbacksOptions {
    * 对外暴露重同步入口：隐藏积压溢出的可见性回归走同一条 snapshot 重放路
    * （语义与 daemon desync 完全一致——积压带缺口，flush 必花屏）。解绑时置空。
    */
-  overflowResyncRef: RefValue<(() => void) | null>;
+  overflowResyncRef: RefValue<TerminalResyncHandler | null>;
   /** 闸门收尾放行：flush 闸门期积压。 */
-  flushHiddenWrites: (reason: string) => void;
+  flushHiddenWrites: (reason: string) => Promise<HiddenWriteFlushOutcome>;
   /** resync 期间挂起的 exit，收尾时补执行（经 onSessionExit）。 */
   pendingExitRef: RefValue<PendingSessionExit | null>;
   debugLog: BindingLogger;
@@ -122,7 +124,7 @@ const RESYNC_FAILED_NOTICE =
 interface CreateHiddenWriteFlusherOptions {
   hiddenWriteBufferRef: RefValue<TerminalHiddenWriteBuffer | null>;
   resyncActiveRef: RefValue<boolean>;
-  overflowResyncRef: RefValue<(() => void) | null>;
+  overflowResyncRef: RefValue<TerminalResyncHandler | null>;
   writeTerminalData: (data: string, onWritten?: () => void) => Promise<void>;
   syncTrackedBufferType: (reason: string) => void;
   debugLog: BindingLogger;
@@ -136,28 +138,66 @@ export function createHiddenWriteFlusher({
   writeTerminalData,
   syncTrackedBufferType,
   debugLog,
-}: CreateHiddenWriteFlusherOptions): (reason: string) => void {
-  return (reason) => {
-    // 重同步在途时推迟，收尾（onResyncSettled）统一放行。
-    if (resyncActiveRef.current) return;
+}: CreateHiddenWriteFlusherOptions): (reason: string) => Promise<HiddenWriteFlushOutcome> {
+  let writeInFlight: Promise<void> | null = null;
+
+  return async (reason) => {
+    // 重同步在途时共享它的完成屏障；最终 flush/refit 由 onResyncSettled 负责。
+    if (resyncActiveRef.current) {
+      await overflowResyncRef.current?.();
+      return "resync";
+    }
     // 积压溢出（带缺口）：flush 必花屏，改走 snapshot 重放自动恢复画面。
     if (hiddenWriteBufferRef.current?.didOverflow() && overflowResyncRef.current) {
       debugLog("output.hidden.overflow-resync", { reason });
-      overflowResyncRef.current();
-      return;
+      await overflowResyncRef.current();
+      return "resync";
     }
     const pending = hiddenWriteBufferRef.current?.drain();
-    if (!pending) return;
+    if (!pending) {
+      await writeInFlight;
+      return "ready";
+    }
     debugLog("output.hidden.flush", { reason, length: pending.length });
-    void writeTerminalData(pending, () => {
-      syncTrackedBufferType("output.hidden.flush");
-    }).catch((error) => {
-      debugLog("output.hidden.flush.failed", {
-        reason,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
+    const previousWrite = writeInFlight;
+    const currentWrite = (async () => {
+      await previousWrite;
+      try {
+        await writeTerminalData(pending, () => {
+          syncTrackedBufferType("output.hidden.flush");
+        });
+      } catch (error) {
+        debugLog("output.hidden.flush.failed", {
+          reason,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })();
+    writeInFlight = currentWrite;
+    try {
+      await currentWrite;
+    } finally {
+      if (writeInFlight === currentWrite) writeInFlight = null;
+    }
+    return "ready";
   };
+}
+
+interface RestoreVisibleTerminalViewOptions {
+  flushHiddenWrites: (reason: string) => Promise<HiddenWriteFlushOutcome>;
+  isRenderVisible: () => boolean;
+  scheduleRefit: () => void;
+}
+
+/** Keep a visible-edge refit from racing xterm while it consumes hidden output. */
+export async function restoreVisibleTerminalView({
+  flushHiddenWrites,
+  isRenderVisible,
+  scheduleRefit,
+}: RestoreVisibleTerminalViewOptions): Promise<void> {
+  const outcome = await flushHiddenWrites("view.visible-edge");
+  if (outcome === "resync" || !isRenderVisible()) return;
+  scheduleRefit();
 }
 
 /** 输出/退出/desync 三路订阅的标准接线（从 TerminalView 抽出，行数棘轮）。 */
@@ -220,8 +260,9 @@ export async function bindTerminalSessionCallbacks(
       setResyncActive: (active) => {
         resyncActiveRef.current = active;
       },
-      onResyncSettled: (resynced) => {
-        flushHiddenWrites("resync.settled");
+      onResyncSettled: async (resynced) => {
+        const flushOutcome = await flushHiddenWrites("resync.settled");
+        if (flushOutcome === "resync") return;
         // resync 期间挂起的 exit 在快照落地后补执行（此刻积压已 flush，
         // 退出横幅落在最终画面之上，不会再被 reset 抹掉）。
         const pendingExit = pendingExitRef.current;

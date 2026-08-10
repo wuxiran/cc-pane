@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Zap, Wrench, ArrowLeft, ArrowRight, Keyboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import {
   useLaunchProfilesStore,
@@ -15,6 +16,7 @@ import ProviderCard, { type SystemProbeInfo } from "./ProviderCard";
 import ProviderFormPanel from "./ProviderFormPanel";
 import ProviderPagesHeader, { type ProviderTopView } from "./ProviderPagesHeader";
 import LaunchProfilesPanel from "./LaunchProfilesPanel";
+import UnsavedChangesDialog from "./UnsavedChangesDialog";
 import { countProfilesPerTool } from "./launchProfileHelpers";
 import type { Provider, ProviderPreset } from "@/types/provider";
 import { CLI_TOOL_TABS, createSystemProvider, SYSTEM_PROVIDER_ID } from "@/types/provider";
@@ -36,6 +38,7 @@ interface Props {
   compact?: boolean;
   /** Settings pages can pin one view and omit the in-panel view switcher. */
   view?: ProviderTopView;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 function inferLaunchRuntime(tab: Tab | null, workspace?: Workspace | null): LaunchProfileRuntime {
@@ -47,7 +50,7 @@ function inferLaunchRuntime(tab: Tab | null, workspace?: Workspace | null): Laun
   return workspace ? getWorkspaceDefaultEnvironment(workspace) : null;
 }
 
-export default function ProvidersPanel({ compact, view: fixedTopView }: Props = {}) {
+export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyChange }: Props = {}) {
   const { t } = useTranslation(["settings", "common"]);
   const providers = useProvidersStore((s) => s.providers);
   const { tools: cliTools } = useCliTools();
@@ -82,6 +85,17 @@ export default function ProvidersPanel({ compact, view: fixedTopView }: Props = 
   const [duplicateSeed, setDuplicateSeed] = useState<Provider | null>(null);
   const [selectedPreset, setSelectedPreset] = useState<ProviderPreset | null>(null);
   const [activeTab, setActiveTab] = useState<KnownCliTool>(() => launchDefaults.tool);
+  const [childDirty, setChildDirty] = useState(false);
+  const discardGuard = useUnsavedChangesGuard(childDirty, () => {
+    setChildDirty(false);
+    onDirtyChange?.(false);
+  });
+
+  useEffect(() => {
+    onDirtyChange?.(childDirty);
+  }, [childDirty, onDirtyChange]);
+
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
   useEffect(() => { loadProviders(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -227,18 +241,40 @@ export default function ProvidersPanel({ compact, view: fixedTopView }: Props = 
     setSelectedPreset(null);
   }, [formReturnView]);
 
+  const handleTopViewChange = useCallback((nextView: TopView) => {
+    if (nextView === activeTopView) return;
+    discardGuard.request(() => setTopView(nextView));
+  }, [activeTopView, discardGuard]);
+
+  const handleTabChange = useCallback((nextTab: KnownCliTool) => {
+    if (nextTab === activeTab) return;
+    discardGuard.request(() => setActiveTab(nextTab));
+  }, [activeTab, discardGuard]);
+
+  const unsavedDialog = (
+    <UnsavedChangesDialog
+      open={discardGuard.confirmOpen}
+      onCancel={discardGuard.cancel}
+      onDiscard={discardGuard.discard}
+    />
+  );
+
   // ── Form view ──
   if (view === "form") {
     return (
-      <ProviderFormPanel
-        editProvider={editingProvider}
-        duplicateSeed={duplicateSeed}
-        preset={selectedPreset}
-        activeTab={activeTab}
-        compact={compact}
-        onBack={handleReturnFromForm}
-        onSaved={handleReturnToList}
-      />
+      <>
+        <ProviderFormPanel
+          editProvider={editingProvider}
+          duplicateSeed={duplicateSeed}
+          preset={selectedPreset}
+          activeTab={activeTab}
+          compact={compact}
+          onBack={handleReturnFromForm}
+          onSaved={handleReturnToList}
+          onDirtyChange={setChildDirty}
+        />
+        {unsavedDialog}
+      </>
     );
   }
 
@@ -332,9 +368,9 @@ export default function ProvidersPanel({ compact, view: fixedTopView }: Props = 
   const header = (
     <ProviderPagesHeader
       topView={activeTopView}
-      onTopViewChange={setTopView}
+      onTopViewChange={handleTopViewChange}
       activeTab={activeTab}
-      onTabChange={setActiveTab}
+      onTabChange={handleTabChange}
       counts={activeTopView === "providers" ? providerCounts : profileCounts}
       compact={compact}
       showTopViewTabs={!fixedTopView}
@@ -343,21 +379,26 @@ export default function ProvidersPanel({ compact, view: fixedTopView }: Props = 
 
   if (activeTopView === "profiles") {
     return (
-      <div className="flex flex-col h-full overflow-hidden" data-settings-section="provider-root">
-        {header}
-        <div className="flex-1 min-h-0">
-          <LaunchProfilesPanel
-            compact={compact}
-            tool={activeTab}
-            initialRuntime={launchDefaults.runtime}
-            onActiveToolChange={setActiveTab}
-          />
+      <>
+        <div className="flex flex-col h-full overflow-hidden" data-settings-section="provider-root">
+          {header}
+          <div className="flex-1 min-h-0">
+            <LaunchProfilesPanel
+              compact={compact}
+              tool={activeTab}
+              initialRuntime={launchDefaults.runtime}
+              onActiveToolChange={handleTabChange}
+              onDirtyChange={setChildDirty}
+            />
+          </div>
         </div>
-      </div>
+        {unsavedDialog}
+      </>
     );
   }
 
   return (
+    <>
     <div className="flex flex-col h-full overflow-hidden" data-settings-section="provider-credentials-root">
       {header}
 
@@ -398,5 +439,7 @@ export default function ProvidersPanel({ compact, view: fixedTopView }: Props = 
         </div>
       </div>
     </div>
+    {unsavedDialog}
+    </>
   );
 }

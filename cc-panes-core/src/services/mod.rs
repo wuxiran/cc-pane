@@ -46,6 +46,8 @@ mod ssh_machine_service;
 mod ssh_terminal_service;
 mod system_stats_service;
 mod task_binding_service;
+mod task_queue_dispatcher;
+mod task_queue_service;
 mod terminal_backend;
 mod terminal_path_link_service;
 pub mod terminal_service;
@@ -112,9 +114,16 @@ pub use ssh_file_service::SshFileService;
 pub use ssh_machine_service::{SshConnectivityResult, SshMachineService};
 pub use system_stats_service::SystemStatsService;
 pub use task_binding_service::TaskBindingService;
+pub use task_queue_dispatcher::{
+    BackendTaskQueueDispatchGateway, TaskQueueDispatchGateway, TaskQueueDispatchOutcome,
+    TaskQueueDispatcher, TaskQueueReadiness, TaskQueueSubmitFailure,
+};
+pub use task_queue_service::{
+    TaskQueueService, UnattendedPermissionDecision, TASK_QUEUE_IMAGE_MAX_BYTES,
+};
 pub use terminal_backend::{
-    set_claim_lost_hook, CreateSessionOutcome, DaemonTerminalBackend, InProcessTerminalBackend,
-    TerminalAdoptionSnapshot, TerminalBackend,
+    set_claim_lost_hook, AutomaticWriteAuthority, CreateSessionOutcome, DaemonTerminalBackend,
+    InProcessTerminalBackend, TerminalAdoptionSnapshot, TerminalBackend,
 };
 pub use terminal_path_link_service::{
     resolve_terminal_path_link, resolve_terminal_path_link_for_desktop, ResolvedTerminalPathLink,

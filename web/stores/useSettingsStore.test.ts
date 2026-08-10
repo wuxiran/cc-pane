@@ -101,6 +101,28 @@ describe("useSettingsStore", () => {
       expect(useSettingsStore.getState().settings?.theme.shape).toBe("soft");
     });
 
+    it("defaults a missing task queue flag to enabled", async () => {
+      const legacySettings = createTestSettings();
+      delete (legacySettings.terminal as Partial<typeof legacySettings.terminal>).taskQueueEnabled;
+      vi.mocked(settingsService.getSettings).mockResolvedValue(legacySettings);
+
+      await useSettingsStore.getState().loadSettings();
+
+      expect(useSettingsStore.getState().settings?.terminal.taskQueueEnabled).toBe(true);
+    });
+
+    it("normalizes only an invalid task queue flag", async () => {
+      const settings = createTestSettings();
+      (settings.terminal as unknown as { taskQueueEnabled: unknown }).taskQueueEnabled = "yes";
+      settings.terminal.fontSize = 19;
+      vi.mocked(settingsService.getSettings).mockResolvedValue(settings);
+
+      await useSettingsStore.getState().loadSettings();
+
+      expect(useSettingsStore.getState().settings?.terminal.taskQueueEnabled).toBe(true);
+      expect(useSettingsStore.getState().settings?.terminal.fontSize).toBe(19);
+    });
+
     it("加载失败时不应抛异常且 loading 恢复 false", async () => {
       const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       vi.mocked(settingsService.getSettings).mockRejectedValue(
@@ -174,6 +196,7 @@ describe("useSettingsStore", () => {
       expect(defaults.terminal.rendererMode).toBe("auto");
       expect(defaults.terminal.showContextUsage).toBe(true);
       expect(defaults.terminal.showStatusBar).toBe(true);
+      expect(defaults.terminal.taskQueueEnabled).toBe(true);
       expect(defaults.terminal.pathLinksEnabled).toBe(true);
       expect(defaults.terminal.autoAdoptDaemonSessions).toBe(true);
       expect(defaults.proxy.enabled).toBe(false);

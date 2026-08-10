@@ -445,6 +445,12 @@ pub struct TerminalSettings {
     /// collapses and the tab gains the vertical space.
     #[serde(default = "default_true")]
     pub show_status_bar: bool,
+    /// Show the per-session task queue and allow backend automatic dispatch.
+    #[serde(
+        default = "default_true",
+        deserialize_with = "deserialize_bool_default_true"
+    )]
+    pub task_queue_enabled: bool,
     /// Show local file and directory paths in terminal output as clickable links.
     #[serde(default = "default_true")]
     pub path_links_enabled: bool,
@@ -1045,6 +1051,14 @@ fn default_true() -> bool {
     true
 }
 
+fn deserialize_bool_default_true<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value.as_bool().unwrap_or(true))
+}
+
 fn default_voice_provider() -> String {
     "dashscope".to_string()
 }
@@ -1189,6 +1203,7 @@ impl Default for TerminalSettings {
             cli_buffer_modes: None,
             show_context_usage: true,
             show_status_bar: true,
+            task_queue_enabled: true,
             path_links_enabled: true,
             shell: None,
             disable_conpty_sanitize: None,
@@ -1475,6 +1490,55 @@ mod tests {
         "#;
         let settings: TerminalSettings = toml::from_str(toml_str).expect("parse legacy config");
         assert!(settings.show_status_bar);
+    }
+
+    #[test]
+    fn terminal_settings_without_task_queue_enabled_defaults_to_true() {
+        let settings: TerminalSettings = toml::from_str(
+            r#"
+            fontSize = 15
+            fontFamily = "monospace"
+            cursorStyle = "block"
+            cursorBlink = false
+            scrollback = 20000
+        "#,
+        )
+        .expect("parse legacy terminal settings");
+
+        assert!(settings.task_queue_enabled);
+    }
+
+    #[test]
+    fn terminal_settings_task_queue_false_round_trips() {
+        let mut settings = TerminalSettings::default();
+        settings.task_queue_enabled = false;
+
+        let encoded = toml::to_string(&settings).expect("serialize terminal settings");
+        let decoded: TerminalSettings = toml::from_str(&encoded).expect("deserialize settings");
+
+        assert!(!decoded.task_queue_enabled);
+    }
+
+    #[test]
+    fn invalid_task_queue_enabled_only_normalizes_that_field() {
+        let settings: TerminalSettings = toml::from_str(
+            r#"
+            fontSize = 17
+            fontFamily = "preserved"
+            cursorStyle = "bar"
+            cursorBlink = true
+            scrollback = 32100
+            taskQueueEnabled = "yes"
+        "#,
+        )
+        .expect("invalid queue toggle should not reject terminal settings");
+
+        assert!(settings.task_queue_enabled);
+        assert_eq!(settings.font_size, 17);
+        assert_eq!(settings.font_family, "preserved");
+        assert_eq!(settings.cursor_style, "bar");
+        assert!(settings.cursor_blink);
+        assert_eq!(settings.scrollback, 32100);
     }
 
     #[test]

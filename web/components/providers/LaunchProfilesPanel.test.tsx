@@ -1,5 +1,5 @@
 import "@/i18n";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
@@ -270,6 +270,128 @@ describe("LaunchProfilesPanel external skills", () => {
     await waitFor(() => {
       expect(savedDraft?.yoloMode).toBe(true);
     });
+  });
+
+  it("preserves edits made before the default profile finishes loading", async () => {
+    const user = userEvent.setup();
+    const loadedDefault = { ...makeLaunchProfile("profile-default", "Loaded Default"), isDefault: true };
+    let resolveProfiles!: (profiles: LaunchProfile[]) => void;
+    const profilesPromise = new Promise<LaunchProfile[]>((resolve) => { resolveProfiles = resolve; });
+    mockTauriInvoke({
+      list_launch_profiles: () => profilesPromise,
+      list_providers: [],
+      list_workspaces: [],
+      get_shared_mcp_status: [],
+      list_skill_market_entries: [],
+      list_user_skills: [],
+      list_external_skills: [],
+      list_cli_tools: [],
+      preview_launch_profile_resolution: emptyResolution,
+    });
+
+    render(<LaunchProfilesPanel initialTool="claude" />);
+    const aliasInput = await screen.findByDisplayValue(tp("systemDefaultName", { tool: "Claude" }));
+    await user.clear(aliasInput);
+    await user.type(aliasInput, "Typed Before Load");
+    await act(async () => { resolveProfiles([loadedDefault]); });
+
+    await waitFor(() => expect(screen.getByDisplayValue("Typed Before Load")).toBeInTheDocument());
+    expect(screen.queryByDisplayValue("Loaded Default")).not.toBeInTheDocument();
+  });
+
+  it("asks before switching away from an unsaved launch profile", async () => {
+    const user = userEvent.setup();
+    const first = makeLaunchProfile("profile-first", "First Profile");
+    const second = makeLaunchProfile("profile-second", "Second Profile");
+    mockTauriInvoke({
+      list_launch_profiles: [first, second],
+      list_providers: [],
+      list_workspaces: [],
+      get_shared_mcp_status: [],
+      list_skill_market_entries: [],
+      list_user_skills: [],
+      list_external_skills: [],
+      list_cli_tools: [],
+      preview_launch_profile_resolution: emptyResolution,
+    });
+
+    render(<LaunchProfilesPanel initialTool="claude" />);
+    await user.click(await screen.findByRole("button", { name: /First Profile/ }));
+    const aliasInput = screen.getByDisplayValue("First Profile");
+    await user.clear(aliasInput);
+    await user.type(aliasInput, "Edited First Profile");
+    await user.click(screen.getByRole("button", { name: /Second Profile/ }));
+
+    expect(screen.getByDisplayValue("Edited First Profile")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: i18n.t("common:unsavedChangesTitle") })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: i18n.t("common:discardChanges") }));
+    expect(await screen.findByDisplayValue("Second Profile")).toBeInTheDocument();
+  });
+
+  it("asks before deleting a profile with unsaved edits", async () => {
+    const user = userEvent.setup();
+    const first = makeLaunchProfile("profile-first", "First Profile");
+    const deleteProfile = vi.fn();
+    mockTauriInvoke({
+      list_launch_profiles: [first],
+      list_providers: [],
+      list_workspaces: [],
+      get_shared_mcp_status: [],
+      list_skill_market_entries: [],
+      list_user_skills: [],
+      list_external_skills: [],
+      list_cli_tools: [],
+      preview_launch_profile_resolution: emptyResolution,
+      delete_launch_profile: (_cmd: string, args?: Record<string, unknown>) => {
+        deleteProfile(args?.id);
+      },
+    });
+
+    render(<LaunchProfilesPanel initialTool="claude" />);
+    await user.click(await screen.findByRole("button", { name: /First Profile/ }));
+    const aliasInput = screen.getByDisplayValue("First Profile");
+    await user.clear(aliasInput);
+    await user.type(aliasInput, "Edited First Profile");
+    await user.click(screen.getByRole("button", { name: i18n.t("common:delete") }));
+
+    expect(deleteProfile).not.toHaveBeenCalled();
+    expect(await screen.findByRole("dialog", { name: i18n.t("common:unsavedChangesTitle") })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: i18n.t("common:discardChanges") }));
+    await waitFor(() => expect(deleteProfile).toHaveBeenCalledWith("profile-first"));
+  });
+
+  it("asks before setting an edited profile as default", async () => {
+    const user = userEvent.setup();
+    const first = makeLaunchProfile("profile-first", "First Profile");
+    const setDefault = vi.fn();
+    mockTauriInvoke({
+      list_launch_profiles: [first],
+      list_providers: [],
+      list_workspaces: [],
+      get_shared_mcp_status: [],
+      list_skill_market_entries: [],
+      list_user_skills: [],
+      list_external_skills: [],
+      list_cli_tools: [],
+      preview_launch_profile_resolution: emptyResolution,
+      set_default_launch_profile: (_cmd: string, args?: Record<string, unknown>) => {
+        setDefault(args?.id);
+      },
+    });
+
+    render(<LaunchProfilesPanel initialTool="claude" />);
+    await user.click(await screen.findByRole("button", { name: /First Profile/ }));
+    const aliasInput = screen.getByDisplayValue("First Profile");
+    await user.clear(aliasInput);
+    await user.type(aliasInput, "Edited First Profile");
+    await user.click(screen.getByRole("button", { name: tp("setAsDefault") }));
+
+    expect(setDefault).not.toHaveBeenCalled();
+    expect(await screen.findByRole("dialog", { name: i18n.t("common:unsavedChangesTitle") })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: i18n.t("common:discardChanges") }));
+    await waitFor(() => expect(setDefault).toHaveBeenCalledWith("profile-first"));
   });
 
   it("saves a Kimi Provider through the unified profile field", async () => {

@@ -109,6 +109,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       rendererMode: "auto",
       showContextUsage: true,
       showStatusBar: true,
+      taskQueueEnabled: true,
       pathLinksEnabled: true,
       shell: null,
       disableConptySanitize: null,

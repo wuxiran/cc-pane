@@ -16,8 +16,11 @@ import ProvidersPanel from "./ProvidersPanel";
 
 // 运行配置面板与 Provider 表单都是重组件，桩掉并回显关键 props
 vi.mock("./LaunchProfilesPanel", () => ({
-  default: ({ tool }: { tool?: string }) => (
-    <div data-testid="launch-profiles">{tool}</div>
+  default: ({ tool, onDirtyChange }: { tool?: string; onDirtyChange?: (dirty: boolean) => void }) => (
+    <div data-testid="launch-profiles">
+      {tool}
+      <button type="button" onClick={() => onDirtyChange?.(true)}>mark-profile-dirty</button>
+    </div>
   ),
 }));
 
@@ -28,12 +31,14 @@ vi.mock("./ProviderFormPanel", () => ({
     preset,
     onBack,
     onSaved,
+    onDirtyChange,
   }: {
     editProvider?: Provider | null;
     duplicateSeed?: Provider | null;
     preset?: { id: string } | null;
     onBack?: () => void;
     onSaved?: () => void;
+    onDirtyChange?: (dirty: boolean) => void;
   }) => (
     <div data-testid="provider-form">
       {editProvider
@@ -45,6 +50,7 @@ vi.mock("./ProviderFormPanel", () => ({
             : "new"}
       <button type="button" onClick={onBack}>form-back</button>
       <button type="button" onClick={onSaved}>form-saved</button>
+      <button type="button" onClick={() => onDirtyChange?.(true)}>mark-provider-dirty</button>
     </div>
   ),
 }));
@@ -182,6 +188,21 @@ describe("ProvidersPanel", () => {
     // 展示 System 条目 + 空态引导文案。
     expect(screen.getByText(i18n.t("settings:systemProviderName"))).toBeInTheDocument();
     expect(screen.getByText(i18n.t("settings:emptyDesc"))).toBeInTheDocument();
+  });
+
+  it("asks before switching top views when a launch profile is dirty", async () => {
+    const user = userEvent.setup();
+    setupStores();
+    render(<ProvidersPanel />);
+
+    await user.click(screen.getByRole("button", { name: "mark-profile-dirty" }));
+    await switchToProvidersList(user);
+
+    expect(screen.getByTestId("launch-profiles")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: i18n.t("common:unsavedChangesTitle") })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: i18n.t("common:discardChanges") }));
+    expect(screen.getByText(i18n.t("settings:systemProviderName"))).toBeInTheDocument();
   });
 
   it("lists providers compatible with the active CLI tab", async () => {

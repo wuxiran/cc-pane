@@ -30,6 +30,12 @@ const USAGE_SCAN_ALGO_VERSION_KEY: &str = "_algo_version";
 const CONTEXT_USAGE_PARSER_VERSION: &str = "context-v1";
 const CODEX_CONTEXT_BASELINE: u64 = 12_000;
 const MAX_CONTEXT_SCAN_FILES: usize = 20_000;
+/// 兜底上下文窗口大小。Provider DB 三层 lookup 全 miss 时返回这个值，让状态栏
+/// `Ctx:` 段显示有效数字而非 `-%` / WINDOW_UNKNOWN。1M 贴近现代大模型上限
+/// （Sonnet-4 / Opus-4.5 都是 1M），避免错把真实 1M 模型显示成「200k 半满」。
+/// 仅对 claude 生效；codex 仍走 WINDOW_UNKNOWN 因为 `effective = window - 12_000`
+/// 没有真实 window 不能硬编。
+pub const DEFAULT_CLAUDE_CONTEXT_TOKENS: u64 = 1_000_000;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct UsageKey {
@@ -67,6 +73,37 @@ struct ContextObservation {
     window_tokens: Option<u64>,
     window_diagnostic: Option<String>,
     model: Option<String>,
+}
+
+/// `provider_window_for_request` 的解析结果。`ProviderModel` 命中 Provider DB
+/// 时返回，window_source 标 `"provider-model"`；`DefaultFallback` 表示三层全
+/// miss 走兜底常量，window_source 标 `"default-fallback:1m"`（或未来其他值）。
+/// 区分这两个来源让诊断/排障仍能看出「用户没配」与「配了命中」的差别。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowResolution {
+    ProviderModel(u64),
+    DefaultFallback(u64),
+}
+
+impl WindowResolution {
+    fn tokens(self) -> u64 {
+        match self {
+            WindowResolution::ProviderModel(value) | WindowResolution::DefaultFallback(value) => {
+                value
+            }
+        }
+    }
+
+    fn source_label(self) -> &'static str {
+        match self {
+            WindowResolution::ProviderModel(_) => "provider-model",
+            // 与 `DEFAULT_CLAUDE_CONTEXT_TOKENS` 保持一致；常量改值时这里同步。
+            WindowResolution::DefaultFallback(value) if value == DEFAULT_CLAUDE_CONTEXT_TOKENS => {
+                "default-fallback:1m"
+            }
+            WindowResolution::DefaultFallback(_) => "default-fallback",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -860,7 +897,14 @@ fn ready_codex_snapshot(
 }
 
 impl UsageStatsService {
-    fn provider_window_for_request(&self, request: &ContextRequest) -> Option<u64> {
+    /// Provider 解析结果。`DefaultFallback` 与 `ProviderModel` 区分开以便
+    /// `window_source` 字段精确标识走的是 Provider DB 还是兜底常量（前端诊断
+    /// 仍能区分「配了 1M」与「啥都没配默认 1M」）。
+    fn provider_window_for_request(
+        &self,
+        request: &ContextRequest,
+        observed_model: Option<&str>,
+    ) -> Option<WindowResolution> {
         let provider_service = self.provider_service.as_ref()?;
         let provider_id = request
             .record
@@ -868,28 +912,61 @@ impl UsageStatsService {
             .as_deref()
             .map(str::trim)
             .filter(|id| !id.is_empty());
-        let provider = match provider_id {
-            Some(provider_id) => provider_service.get_provider(provider_id)?,
-            None => provider_service.get_default_provider_for_cli(&request.cli)?,
-        };
-        let model_id = request
+        let requested_model_id = request
             .record
             .model_id
             .as_deref()
             .map(str::trim)
-            .filter(|id| !id.is_empty())
-            .or_else(|| {
+            .filter(|id| !id.is_empty());
+
+        if let Some(provider) = match provider_id {
+            Some(provider_id) => provider_service.get_provider(provider_id),
+            None => provider_service.get_default_provider_for_cli(&request.cli),
+        } {
+            let model_id = requested_model_id.map(str::to_owned).or_else(|| {
                 provider
                     .default_model_id
                     .as_deref()
                     .map(str::trim)
                     .filter(|id| !id.is_empty())
-            })?;
-        provider
-            .models
-            .into_iter()
-            .find(|model| model.id == model_id)
-            .and_then(|model| model.context_window_tokens)
+                    .map(str::to_owned)
+            });
+            if let Some(model_id) = model_id {
+                if let Some(window) = provider
+                    .models
+                    .into_iter()
+                    .find(|model| model.id.trim() == model_id)
+                    .and_then(|model| model.context_window_tokens)
+                {
+                    return Some(WindowResolution::ProviderModel(window));
+                }
+            }
+        }
+
+        // A restored launch can have stale or incomplete provider metadata in
+        // launch_history. The CLI's observed model is authoritative for the
+        // response, so use it to find the configured context window globally.
+        if let Some(observed_model) = observed_model.map(str::trim) {
+            if !observed_model.is_empty() {
+                if let Some(window) = provider_service
+                    .list_providers()
+                    .into_iter()
+                    .flat_map(|provider| provider.models)
+                    .find(|model| model.id.trim().eq_ignore_ascii_case(observed_model))
+                    .and_then(|model| model.context_window_tokens)
+                {
+                    return Some(WindowResolution::ProviderModel(window));
+                }
+            }
+        }
+
+        // 兜底：三层 lookup 全 miss 时给个保守值，让状态栏仍能显示百分比。
+        // 仅对 claude 生效（codex 需要 `effective = window - 12_000`，没有真实
+        // window 不能硬编，会走原 WINDOW_UNKNOWN 路径）。
+        if request.cli == "claude" {
+            return Some(WindowResolution::DefaultFallback(DEFAULT_CLAUDE_CONTEXT_TOKENS));
+        }
+        None
     }
 
     fn context_observation_snapshot(
@@ -916,18 +993,21 @@ impl UsageStatsService {
                         observed_at,
                     )
                 } else {
-                    match self.provider_window_for_request(request) {
-                        Some(window) => ready_snapshot(
-                            &request.resume_id,
-                            observation.used_tokens,
-                            observation.used_tokens,
-                            window,
-                            window,
-                            observation.model.clone(),
-                            "claude-jsonl",
-                            "provider-model",
-                            observed_at,
-                        ),
+                    match self.provider_window_for_request(request, observation.model.as_deref()) {
+                        Some(resolution) => {
+                            let window = resolution.tokens();
+                            ready_snapshot(
+                                &request.resume_id,
+                                observation.used_tokens,
+                                observation.used_tokens,
+                                window,
+                                window,
+                                observation.model.clone(),
+                                "claude-jsonl",
+                                resolution.source_label(),
+                                observed_at,
+                            )
+                        }
                         None => unknown_window_snapshot(
                             &request.resume_id,
                             observation.used_tokens,
@@ -942,7 +1022,12 @@ impl UsageStatsService {
             "codex" => {
                 let (window, window_source) = match observation.window_tokens {
                     Some(window) => (Some(window), "codex-jsonl"),
-                    None => (self.provider_window_for_request(request), "provider-model"),
+                    None => match self
+                        .provider_window_for_request(request, observation.model.as_deref())
+                    {
+                        Some(resolution) => (Some(resolution.tokens()), resolution.source_label()),
+                        None => (None, "unknown"),
+                    },
                 };
                 let effective_window = window.and_then(|window| {
                     window
@@ -1478,6 +1563,7 @@ mod tests {
         collect_codex_home_scan_roots, collect_scan_roots, count_input_chars,
         ready_claude_snapshot, ready_codex_snapshot, ready_snapshot, valid_context_session_id,
         wsl_home_from_cwd, ContextObservation, ContextRequest, ScanOrigin, UsageStatsService,
+        DEFAULT_CLAUDE_CONTEXT_TOKENS,
     };
     use crate::models::provider::{Provider, ProviderConfig, ProviderModel, ProviderType};
     use crate::models::{ContextUsageStatus, UsageEntry, WslDistro, WslDistroState};
@@ -1659,12 +1745,12 @@ mod tests {
             aws_profile: None,
             config_dir: None,
             models: vec![ProviderModel {
-                id: "other-model".to_string(),
+                id: "MiniMax-M3-highspeed".to_string(),
                 label: None,
                 default_effort: None,
-                context_window_tokens: Some(2_000_000),
+                context_window_tokens: Some(1_000_000),
             }],
-            default_model_id: Some("other-model".to_string()),
+            default_model_id: Some("MiniMax-M3-highspeed".to_string()),
             is_default: false,
         };
         let config = ProviderConfig {
@@ -1724,22 +1810,23 @@ mod tests {
     }
 
     #[test]
-    fn context_does_not_guess_a_model_from_another_provider() {
+    fn context_uses_observed_model_when_launch_provider_metadata_is_stale() {
         let service = provider_aware_service(None);
-        let request = context_request("claude", Some("other-model"));
+        let request = context_request("claude", Some("MiniMax-M3-highspeed"));
         let snapshot = service.context_observation_snapshot(
             &request,
             Some(&ContextObservation {
-                used_tokens: 80_000,
+                used_tokens: 56_000,
                 window_tokens: None,
                 window_diagnostic: None,
-                model: Some("other-model".to_string()),
+                model: Some("MiniMax-M3-highspeed".to_string()),
             }),
             1,
         );
 
-        assert_eq!(snapshot.window_tokens, None);
-        assert_eq!(snapshot.window_source.as_deref(), Some("unknown"));
+        assert_eq!(snapshot.window_tokens, Some(1_000_000));
+        assert_eq!(snapshot.used_percentage, Some(6));
+        assert_eq!(snapshot.window_source.as_deref(), Some("provider-model"));
     }
 
     #[test]
@@ -1779,6 +1866,139 @@ mod tests {
         assert_eq!(snapshot.window_tokens, Some(353_000));
         assert_eq!(snapshot.effective_window_tokens, Some(341_000));
         assert_eq!(snapshot.window_source.as_deref(), Some("codex-jsonl"));
+    }
+
+    #[test]
+    fn claude_context_falls_back_to_1m_when_no_provider_or_observed_model_match() {
+        // 配置里没有任何 model 能 hit（包括 observed_model 也不命中），但 launch
+        // 注入了 provider_service —— 此时 claude 必须走 1M 兜底而不是 WINDOW_UNKNOWN。
+        // 验证 status=Ready、window_tokens=1M、window_source=default-fallback:1m，
+        // 且 percentage 按 used/window 算出。
+        let db = Arc::new(Database::new_in_memory().expect("in-memory db"));
+        let history = Arc::new(LaunchHistoryService::new(Arc::new(HistoryRepository::new(
+            db.clone(),
+        ))));
+        let usage_repo = Arc::new(UsageStatsRepository::new(db));
+        let config_path = tempfile::tempdir().expect("provider temp dir");
+        // provider 存在但没有任何 model 能跟 observed_model 匹配
+        let provider = Provider {
+            id: "provider".to_string(),
+            name: "Provider".to_string(),
+            provider_type: ProviderType::Anthropic,
+            api_key: None,
+            base_url: None,
+            region: None,
+            project_id: None,
+            aws_profile: None,
+            config_dir: None,
+            models: vec![ProviderModel {
+                id: "other-model".to_string(),
+                label: None,
+                default_effort: None,
+                context_window_tokens: Some(100_000),
+            }],
+            default_model_id: Some("other-model".to_string()),
+            is_default: true,
+        };
+        let config = ProviderConfig {
+            providers: vec![provider],
+            default_provider_ids: HashMap::new(),
+            default_provider_ids_version: 2,
+            default_is_system: false,
+        };
+        let path = config_path.path().join("providers.json");
+        fs::write(
+            &path,
+            serde_json::to_string(&config).expect("provider json"),
+        )
+        .expect("write provider config");
+        let providers = Arc::new(ProviderService::new(path));
+        let service = UsageStatsService::new_with_provider(usage_repo, history, providers);
+
+        let request = context_request("claude", Some("totally-unknown-model"));
+        let snapshot = service.context_observation_snapshot(
+            &request,
+            Some(&ContextObservation {
+                used_tokens: 250_000,
+                window_tokens: None,
+                window_diagnostic: None,
+                model: Some("totally-unknown-model".to_string()),
+            }),
+            1,
+        );
+
+        assert_eq!(snapshot.status, ContextUsageStatus::Ready);
+        assert_eq!(
+            snapshot.window_tokens,
+            Some(DEFAULT_CLAUDE_CONTEXT_TOKENS),
+            "三层 lookup 全 miss 时 claude 必须走 1M 兜底而非 WINDOW_UNKNOWN"
+        );
+        assert_eq!(snapshot.effective_window_tokens, Some(1_000_000));
+        assert_eq!(
+            snapshot.window_source.as_deref(),
+            Some("default-fallback:1m")
+        );
+        assert_eq!(snapshot.diagnostic_code, None);
+        // 25% 占比
+        assert_eq!(snapshot.used_percentage, Some(25));
+    }
+
+    #[test]
+    fn codex_does_not_get_the_claude_default_fallback() {
+        // 同一个 miss 场景换成 codex —— codex 需要 `effective = window - 12_000`，
+        // 没有真实 window 不能硬编，必须仍走 WINDOW_UNKNOWN。
+        let db = Arc::new(Database::new_in_memory().expect("in-memory db"));
+        let history = Arc::new(LaunchHistoryService::new(Arc::new(HistoryRepository::new(
+            db.clone(),
+        ))));
+        let usage_repo = Arc::new(UsageStatsRepository::new(db));
+        let config_path = tempfile::tempdir().expect("provider temp dir");
+        let provider = Provider {
+            id: "provider".to_string(),
+            name: "Provider".to_string(),
+            provider_type: ProviderType::Anthropic,
+            api_key: None,
+            base_url: None,
+            region: None,
+            project_id: None,
+            aws_profile: None,
+            config_dir: None,
+            models: vec![],
+            default_model_id: None,
+            is_default: true,
+        };
+        let config = ProviderConfig {
+            providers: vec![provider],
+            default_provider_ids: HashMap::new(),
+            default_provider_ids_version: 2,
+            default_is_system: false,
+        };
+        let path = config_path.path().join("providers.json");
+        fs::write(
+            &path,
+            serde_json::to_string(&config).expect("provider json"),
+        )
+        .expect("write provider config");
+        let providers = Arc::new(ProviderService::new(path));
+        let service = UsageStatsService::new_with_provider(usage_repo, history, providers);
+
+        let request = context_request("codex", None);
+        let snapshot = service.context_observation_snapshot(
+            &request,
+            Some(&ContextObservation {
+                used_tokens: 50_000,
+                window_tokens: None,
+                window_diagnostic: None,
+                model: Some("totally-unknown-model".to_string()),
+            }),
+            1,
+        );
+
+        assert_eq!(
+            snapshot.window_tokens, None,
+            "codex 三层 miss 不能套用 claude 的 1M 兜底"
+        );
+        assert_eq!(snapshot.diagnostic_code.as_deref(), Some("WINDOW_UNKNOWN"));
     }
 
     #[test]

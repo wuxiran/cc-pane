@@ -68,6 +68,11 @@ pub struct SessionStateEntry {
     pub turn_seq: u64,
     /// task_binding_id（hook 上报时附带）
     pub task_binding_id: Option<String>,
+    /// At startup a queue worker registers a baseline before any fresh hook event arrives.
+    /// That baseline must not be mistaken for an observed idle transition.
+    automatic_submit_observed: bool,
+    /// Only sessions managed by the queue worker require the PTY quiet-window guard.
+    automatic_submit_pty_guard: bool,
 }
 
 impl SessionStateEntry {
@@ -82,6 +87,15 @@ impl SessionStateEntry {
             current_tool_use_id: None,
             turn_seq: 0,
             task_binding_id: None,
+            automatic_submit_observed: true,
+            automatic_submit_pty_guard: false,
+        }
+    }
+
+    fn new_automatic_submit_baseline() -> Self {
+        Self {
+            automatic_submit_observed: false,
+            ..Self::new()
         }
     }
 }
@@ -135,6 +149,39 @@ impl SessionStateMachine {
     /// 订阅真实状态跃迁。接收方落后时应重查当前状态，而不是依赖逐条回放。
     pub fn subscribe_transitions(&self) -> tokio::sync::broadcast::Receiver<StateTransition> {
         self.transition_tx.subscribe()
+    }
+
+    /// Establishes a post-startup observation baseline for an automatically managed queue.
+    /// Registration alone never authorizes a submit; a fresh hook event or the dual-stale
+    /// fallback must be observed first.
+    pub fn register_for_automatic_submit(&self, pty_session_id: &str) -> Instant {
+        let mut entries = match self.entries.lock() {
+            Ok(entries) => entries,
+            Err(error) => error.into_inner(),
+        };
+        entries
+            .entry(pty_session_id.to_string())
+            .or_insert_with(SessionStateEntry::new_automatic_submit_baseline);
+        let entry = entries
+            .get_mut(pty_session_id)
+            .expect("automatic submit entry was just inserted");
+        entry.automatic_submit_pty_guard = true;
+        entry.last_hook_event_at
+    }
+
+    /// Consumes the idle observation used for an automatic submit.
+    /// A later dispatch must wait for a fresh hook event or the dual-stale fallback.
+    pub fn mark_automatic_submit_started(&self, pty_session_id: &str) {
+        let mut entries = match self.entries.lock() {
+            Ok(entries) => entries,
+            Err(error) => error.into_inner(),
+        };
+        let entry = entries
+            .entry(pty_session_id.to_string())
+            .or_insert_with(SessionStateEntry::new_automatic_submit_baseline);
+        entry.automatic_submit_observed = false;
+        entry.last_hook_event_at = Instant::now();
+        entry.updated_at = current_epoch_millis();
     }
 
     /// 处理一个 hook 事件（HTTP 通道，保持原签名兼容）。
@@ -193,6 +240,7 @@ impl SessionStateMachine {
             );
             return (from, from);
         }
+        entry.automatic_submit_observed = true;
         if entry.last_applied_events.len() >= DEDUP_MEMORY {
             entry.last_applied_events.remove(0);
         }
@@ -400,7 +448,7 @@ impl SessionStateMachine {
         backend_status: SessionStatus,
         last_output_at: u64,
     ) -> SessionStatus {
-        let stale_output_ms = crate::constants::session_state::STALE_BUSY_TIMEOUT_SECS * 1_000;
+        let stale_output_ms = crate::constants::session_state::AUTOMATIC_SUBMIT_PTY_IDLE_MS;
         let pty_output_stale =
             current_epoch_millis().saturating_sub(last_output_at) > stale_output_ms;
         self.status_for_automatic_submit_at(
@@ -427,16 +475,35 @@ impl SessionStateMachine {
             Err(error) => error.into_inner(),
         };
         let Some(entry) = entries.get(pty_session_id) else {
-            return backend_status;
+            return SessionStatus::Initializing;
         };
 
+        if !entry.automatic_submit_observed {
+            let baseline_stale = now
+                .saturating_duration_since(entry.last_hook_event_at)
+                .as_millis()
+                >= crate::constants::session_state::AUTOMATIC_SUBMIT_FALLBACK_IDLE_MS as u128;
+            return if matches!(backend_status, SessionStatus::Idle)
+                && baseline_stale
+                && pty_output_stale
+            {
+                SessionStatus::Idle
+            } else {
+                SessionStatus::Initializing
+            };
+        }
+
         match entry.status {
-            SessionStatus::Idle | SessionStatus::WaitingInput => entry.status,
+            SessionStatus::Idle if !entry.automatic_submit_pty_guard || pty_output_stale => {
+                SessionStatus::Idle
+            }
+            SessionStatus::Idle => SessionStatus::Initializing,
+            SessionStatus::WaitingInput => SessionStatus::WaitingInput,
             status if status.is_busy() => {
                 let hook_stale = now
                     .saturating_duration_since(entry.last_hook_event_at)
-                    .as_secs()
-                    > crate::constants::session_state::STALE_BUSY_TIMEOUT_SECS;
+                    .as_millis()
+                    >= crate::constants::session_state::AUTOMATIC_SUBMIT_FALLBACK_IDLE_MS as u128;
                 if hook_stale && pty_output_stale {
                     SessionStatus::Idle
                 } else {
@@ -680,6 +747,109 @@ mod tests {
             sm.status_for_automatic_submit_at(sid, SessionStatus::Idle, true, query_time),
             SessionStatus::Idle,
             "stale hook plus stale PTY output may authorize submit"
+        );
+    }
+
+    #[test]
+    fn automatic_submit_without_state_entry_fails_closed() {
+        let sm = SessionStateMachine::new();
+
+        assert_eq!(
+            sm.status_for_automatic_submit_at(
+                "pty-unobserved",
+                SessionStatus::Idle,
+                true,
+                Instant::now(),
+            ),
+            SessionStatus::Initializing,
+        );
+    }
+
+    #[test]
+    fn registered_session_requires_fresh_idle_or_dual_stale_baseline() {
+        let sm = SessionStateMachine::new();
+        let sid = "pty-registered";
+        let registered_at = sm.register_for_automatic_submit(sid);
+
+        assert_eq!(
+            sm.status_for_automatic_submit_at(
+                sid,
+                SessionStatus::Idle,
+                true,
+                registered_at + std::time::Duration::from_secs(1),
+            ),
+            SessionStatus::Initializing,
+        );
+        assert_eq!(
+            sm.status_for_automatic_submit_at(
+                sid,
+                SessionStatus::Idle,
+                true,
+                registered_at
+                    + std::time::Duration::from_secs(
+                        crate::constants::session_state::STALE_BUSY_TIMEOUT_SECS + 1,
+                    ),
+            ),
+            SessionStatus::Idle,
+        );
+    }
+
+    #[test]
+    fn registered_idle_session_accepts_reference_short_settle_window() {
+        let sm = SessionStateMachine::new();
+        let sid = "pty-reference-fallback";
+        let registered_at = sm.register_for_automatic_submit(sid);
+
+        assert_eq!(
+            sm.status_for_automatic_submit_at(
+                sid,
+                SessionStatus::Idle,
+                true,
+                registered_at + std::time::Duration::from_secs(7),
+            ),
+            SessionStatus::Idle,
+            "a quiet idle session should use the short dual-silence fallback"
+        );
+    }
+
+    #[test]
+    fn fresh_turn_end_waits_for_the_reference_pty_quiet_window() {
+        let sm = SessionStateMachine::new();
+        let sid = "pty-registered-turn-end";
+        sm.register_for_automatic_submit(sid);
+        sm.on_event(sid, &CcPaneEvent::TurnEnd, None, &empty_payload());
+
+        assert_eq!(
+            sm.status_for_automatic_submit_at(sid, SessionStatus::Idle, false, Instant::now(),),
+            SessionStatus::Initializing,
+        );
+        assert_eq!(
+            sm.status_for_automatic_submit_at(sid, SessionStatus::Idle, true, Instant::now(),),
+            SessionStatus::Idle,
+        );
+    }
+
+    #[test]
+    fn automatic_submit_consumes_idle_until_a_fresh_observation() {
+        let sm = SessionStateMachine::new();
+        let sid = "pty-consume-idle";
+        sm.on_event(sid, &CcPaneEvent::TurnEnd, None, &empty_payload());
+        assert_eq!(
+            sm.status_for_automatic_submit_at(sid, SessionStatus::Idle, false, Instant::now(),),
+            SessionStatus::Idle
+        );
+
+        sm.mark_automatic_submit_started(sid);
+        assert_eq!(
+            sm.status_for_automatic_submit_at(sid, SessionStatus::Idle, false, Instant::now(),),
+            SessionStatus::Initializing
+        );
+
+        sm.on_event(sid, &CcPaneEvent::PromptBefore, None, &empty_payload());
+        sm.on_event(sid, &CcPaneEvent::TurnEnd, None, &empty_payload());
+        assert_eq!(
+            sm.status_for_automatic_submit_at(sid, SessionStatus::Idle, false, Instant::now(),),
+            SessionStatus::Idle
         );
     }
 

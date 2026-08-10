@@ -146,6 +146,12 @@ function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
       ...settings.theme,
       shape: canonicalThemeShape(maybeSettings.theme?.shape),
     },
+    terminal: {
+      ...settings.terminal,
+      taskQueueEnabled: typeof maybeSettings.terminal?.taskQueueEnabled === "boolean"
+        ? maybeSettings.terminal.taskQueueEnabled
+        : true,
+    },
     cliLaunchers: {
       ...DEFAULT_CLI_LAUNCHER_SETTINGS,
       ...maybeSettings.cliLaunchers,
@@ -280,6 +286,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       rendererMode: "auto",
       showContextUsage: true,
       showStatusBar: true,
+      taskQueueEnabled: true,
       pathLinksEnabled: true,
       shell: null,
       disableConptySanitize: null,

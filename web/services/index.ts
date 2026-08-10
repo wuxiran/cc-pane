@@ -94,3 +94,4 @@ export type {
 } from "./browserService";
 export { workspaceSnapshotService } from "./workspaceSnapshotService";
 export { taskBindingService } from "./taskBindingService";
+export { taskQueueService, TaskQueueUnavailableError } from "./taskQueueService";

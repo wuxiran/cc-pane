@@ -23,6 +23,7 @@ pub mod spec;
 pub mod ssh_machine;
 pub mod system_stats;
 pub mod task_binding;
+pub mod task_queue;
 mod terminal;
 pub mod todo;
 pub mod usage_stats;
@@ -84,6 +85,11 @@ pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig, SshMachineUpsert
 pub use system_stats::{
     KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionProcessInfo,
     SessionResourceUsage, SystemStats, TruncatedProcessSummary,
+};
+pub use task_queue::{
+    PermissionDecisionRecord, PermissionDecisionStatus, QueueItemState, StagedTaskQueueImage,
+    TaskQueueClaim, TaskQueueControlPatch, TaskQueueItem, TaskQueueItemDraft, TaskQueueReason,
+    TaskQueueRuntime, TaskQueueSnapshot, TaskQueueState,
 };
 pub use terminal::{
     CliTool, CreateSessionRequest, ResizeRequest, StoreCheckpointOutcome, TerminalBufferMode,

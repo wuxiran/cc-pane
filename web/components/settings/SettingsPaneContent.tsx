@@ -33,9 +33,10 @@ interface SettingsPaneContentProps {
   paneId: SettingsPaneId;
   draft: SettingsDraft;
   updateDraft: (next: SettingsDraft) => void;
+  onUnsavedChangesChange?: (dirty: boolean) => void;
 }
 
-function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
+function Pane({ paneId, draft, updateDraft, onUnsavedChangesChange }: SettingsPaneContentProps) {
   switch (paneId) {
     case "setup-guide":
       return <SetupGuideChecklist />;
@@ -80,9 +81,9 @@ function Pane({ paneId, draft, updateDraft }: SettingsPaneContentProps) {
         />
       );
     case "provider":
-      return <ProviderSection view="profiles" />;
+      return <ProviderSection view="profiles" onDirtyChange={onUnsavedChangesChange} />;
     case "provider-credentials":
-      return <ProviderSection view="providers" />;
+      return <ProviderSection view="providers" onDirtyChange={onUnsavedChangesChange} />;
     case "cli-launchers":
       return <CliLaunchersSection value={draft.cliLaunchers} onChange={(cliLaunchers) => updateDraft({ ...draft, cliLaunchers })} />;
     case "proxy":

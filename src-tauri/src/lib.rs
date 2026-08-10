@@ -28,6 +28,7 @@ use commands::{
     add_provider,
     add_ssh_machine,
     add_ssh_project,
+    add_terminal_task_queue_item,
     add_todo_subtask,
     add_workspace_project,
     add_worktree,
@@ -56,6 +57,7 @@ use commands::{
     clear_layout_snapshot,
     clear_session_output,
     clear_terminal_sessions,
+    clear_terminal_task_queue,
     close_layout_switcher_window,
     close_window,
     compress_history,
@@ -84,6 +86,7 @@ use commands::{
     delete_spec,
     delete_task_binding,
     delete_task_binding_cascade,
+    delete_terminal_task_queue_item,
     delete_todo,
     delete_todo_subtask,
     delete_workspace,
@@ -176,6 +179,7 @@ use commands::{
     get_terminal_recent_output,
     get_terminal_recovery_snapshot,
     get_terminal_replay_snapshot,
+    get_terminal_task_queue,
     get_todo,
     get_todo_stats,
     get_version_content,
@@ -310,6 +314,7 @@ use commands::{
     restart_web_access,
     restore_file_version,
     restore_to_label,
+    retry_terminal_task_queue_item,
     rollback_project_migration,
     rollback_workspace_migration,
     run_terminal_path_link_action,
@@ -365,6 +370,7 @@ use commands::{
     ssh_fs_set_permissions,
     ssh_fs_upload_file,
     ssh_fs_write_file,
+    stage_terminal_task_queue_clipboard_image,
     start_launch_history_backfill,
     start_shared_mcp_server,
     start_web_access,
@@ -401,6 +407,7 @@ use commands::{
     update_ssh_machine,
     update_task_binding,
     update_task_binding_patch,
+    update_terminal_task_queue,
     update_todo,
     update_todo_subtask,
     update_workspace,
@@ -415,7 +422,8 @@ use commands::{
 };
 use repository::{
     Database, HistoryRepository, PlanRepository, ProjectRepository, SessionIndexRepository,
-    SpecRepository, TaskBindingRepository, TodoRepository, UsageStatsRepository,
+    SpecRepository, TaskBindingRepository, TaskQueueRepository, TodoRepository,
+    UsageStatsRepository,
 };
 use services::BrowserTabManager;
 use services::{
@@ -426,10 +434,10 @@ use services::{
     ProviderService, QuickCommandService, ScreenshotService, SessionIndexService,
     SessionRestoreService, SettingsService, SharedMcpService, SkillMarketService, SkillService,
     SpecService, SshCredentialService, SshFileService, SshMachineService, StartLocks,
-    SystemStatsService, TaskBindingService, TerminalBackendKind, TerminalBackendState,
-    TerminalDaemonControlLink, TerminalDaemonEventBridge, TerminalDaemonLifecycle, TerminalService,
-    TodoService, UninstallCleanupService, UsageStatsService, WebAccessLifecycle, WorkspaceService,
-    WorktreeService,
+    SystemStatsService, TaskBindingService, TaskQueueService, TaskQueueWorker, TerminalBackendKind,
+    TerminalBackendState, TerminalDaemonControlLink, TerminalDaemonEventBridge,
+    TerminalDaemonLifecycle, TerminalService, TodoService, UninstallCleanupService,
+    UsageStatsService, WebAccessLifecycle, WorkspaceService, WorktreeService,
 };
 use std::sync::Arc;
 use utils::AppPaths;
@@ -1454,6 +1462,7 @@ pub fn run() {
     let todo_repo = Arc::new(TodoRepository::new(db.clone()));
     let spec_repo = Arc::new(SpecRepository::new(db.clone()));
     let task_binding_repo = Arc::new(TaskBindingRepository::new(db.clone()));
+    let task_queue_repo = Arc::new(TaskQueueRepository::new(db.clone()));
     let plan_repo = Arc::new(PlanRepository::new(db.clone()));
     let usage_stats_repo = Arc::new(UsageStatsRepository::new(db.clone()));
     let session_index_repo = Arc::new(SessionIndexRepository::new(db.clone()));
@@ -1467,6 +1476,20 @@ pub fn run() {
     let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
+    let task_queue_service = Arc::new(TaskQueueService::new(
+        task_queue_repo,
+        app_paths.task_queue_images_dir(),
+        ScreenshotService::screenshots_dir(),
+    ));
+    if let Err(error) = task_queue_service.set_global_enabled(
+        settings_service.get_settings().terminal.task_queue_enabled,
+        chrono::Utc::now().timestamp_millis(),
+    ) {
+        warn!(error = %error, "failed to initialize task queue runtime setting");
+    }
+    if let Err(error) = task_queue_service.prune_unreferenced_images() {
+        warn!(error = %error, "failed to prune unreferenced task queue images");
+    }
     let plan_archive_service = Arc::new(PlanArchiveService::new(plan_repo));
     let usage_stats_service = Arc::new(UsageStatsService::new_with_provider_and_settings(
         usage_stats_repo,
@@ -1692,6 +1715,7 @@ pub fn run() {
         .manage(ccchan_service)
         .manage(todo_service)
         .manage(task_binding_service)
+        .manage(task_queue_service)
         .manage(ai_panel_repo)
         .manage(mcp_tool_call_stats_repo)
         .manage(spec_service)
@@ -2162,6 +2186,7 @@ pub fn run() {
                     todo_svc.inner().clone(),
                     memory_svc.inner().clone(),
                     tb_svc.inner().clone(),
+                    app.state::<Arc<TaskQueueService>>().inner().clone(),
                     spec_svc.inner().clone(),
                     skill_svc.inner().clone(),
                     external_skill_registry.inner().clone(),
@@ -2187,6 +2212,18 @@ pub fn run() {
                 }
                 // 阶段 2.8：注入 SessionStateMachine 到 TerminalService（hook 主导时降级 PTY 推断）
                 term_svc.set_state_machine(orch_svc.session_state_machine());
+
+                let queue_worker = TaskQueueWorker::start(
+                    app.handle().clone(),
+                    app.state::<Arc<TaskQueueService>>().inner().clone(),
+                    terminal_backend_state.inner().clone(),
+                    orch_svc.session_state_machine(),
+                    lh_svc.inner().clone(),
+                    app.state::<Arc<cc_cli_adapters::CliToolRegistry>>()
+                        .inner()
+                        .clone(),
+                )?;
+                app.manage(queue_worker);
 
                 // IM 外推桥：订阅状态机 broadcast，把会话事件推送到钉钉/企微/飞书。
                 // 挂 app 进程侧（不进 daemon），不涉及 boundary_events 契约表。
@@ -2475,6 +2512,13 @@ pub fn run() {
             list_session_index,
             refresh_session_index,
             check_codex_rollout_exists,
+            get_terminal_task_queue,
+            stage_terminal_task_queue_clipboard_image,
+            add_terminal_task_queue_item,
+            delete_terminal_task_queue_item,
+            clear_terminal_task_queue,
+            update_terminal_task_queue,
+            retry_terminal_task_queue_item,
             // 窗口命令
             browser_create,
             browser_set_bounds,
@@ -2854,7 +2898,7 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(move |_app_handle, event| {
+        .run(move |app_handle, event| {
             // 注：macOS 的 RunEvent::Opened 已由 tauri-plugin-deep-link 转成 on_open_url（见 setup），
             // 这里不再手动处理，避免重复分发同一个导入链接。
             if let tauri::RunEvent::ExitRequested { api, .. } = &event {
@@ -2865,6 +2909,8 @@ pub fn run() {
             }
             if let tauri::RunEvent::Exit = event {
                 info!("[cleanup] Application exiting, cleaning up resources...");
+
+                app_handle.state::<Arc<TaskQueueWorker>>().stop();
 
                 // 在 cleanup_all() 前保存终端输出到文件
                 let outputs = terminal_cleanup.get_all_session_outputs();

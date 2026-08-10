@@ -745,6 +745,74 @@ const MIGRATIONS: &[Migration] = &[
             );
         ",
     },
+    Migration {
+        version: 34,
+        description: "persistent terminal task queues and dispatch claims",
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS task_queue_runtime (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+                dispatch_generation INTEGER NOT NULL DEFAULT 0 CHECK (dispatch_generation >= 0),
+                updated_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS terminal_task_queues (
+                session_id TEXT PRIMARY KEY NOT NULL,
+                paused INTEGER NOT NULL DEFAULT 0 CHECK (paused IN (0, 1)),
+                unattended INTEGER NOT NULL DEFAULT 0 CHECK (unattended IN (0, 1)),
+                runtime_state TEXT NOT NULL DEFAULT 'running'
+                    CHECK (runtime_state IN ('running', 'confirming_idle', 'dispatching', 'action_required', 'send_failed', 'session_ended')),
+                reason TEXT,
+                revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+                active_dispatch_token TEXT,
+                dispatch_started_at INTEGER,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                CHECK (
+                    (active_dispatch_token IS NULL AND dispatch_started_at IS NULL)
+                    OR (active_dispatch_token IS NOT NULL AND dispatch_started_at IS NOT NULL)
+                )
+            );
+
+            CREATE TABLE IF NOT EXISTS terminal_task_queue_items (
+                id TEXT PRIMARY KEY NOT NULL,
+                session_id TEXT NOT NULL,
+                position INTEGER NOT NULL CHECK (position >= 0),
+                text TEXT NOT NULL,
+                image_refs_json TEXT NOT NULL DEFAULT '[]',
+                state TEXT NOT NULL DEFAULT 'queued'
+                    CHECK (state IN ('queued', 'dispatching', 'failed', 'delivery_unknown')),
+                dispatch_token TEXT,
+                last_error_code TEXT,
+                last_error_message TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES terminal_task_queues(session_id) ON DELETE CASCADE,
+                UNIQUE (session_id, position),
+                UNIQUE (session_id, dispatch_token),
+                CHECK (
+                    (state = 'dispatching' AND dispatch_token IS NOT NULL)
+                    OR (state != 'dispatching' AND dispatch_token IS NULL)
+                )
+            );
+
+            CREATE TABLE IF NOT EXISTS terminal_task_queue_permission_decisions (
+                session_id TEXT NOT NULL,
+                tool_use_id TEXT NOT NULL,
+                request_fingerprint TEXT NOT NULL,
+                decision TEXT NOT NULL CHECK (decision IN ('allow')),
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (session_id, tool_use_id),
+                FOREIGN KEY (session_id) REFERENCES terminal_task_queues(session_id) ON DELETE CASCADE
+            );
+
+            INSERT OR IGNORE INTO task_queue_runtime(id, enabled, dispatch_generation, updated_at)
+            VALUES (1, 1, 0, CAST(strftime('%s','now') AS INTEGER) * 1000);
+
+            CREATE INDEX IF NOT EXISTS idx_terminal_task_queue_items_session_state_position
+                ON terminal_task_queue_items(session_id, state, position);
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -787,6 +855,8 @@ impl Database {
                 error!(err = %e, "Failed to set busy timeout");
                 AppError::from(format!("Failed to set busy timeout: {}", e))
             })?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| AppError::from(format!("Failed to enable foreign keys: {e}")))?;
 
         Self::run_migrations(&conn)?;
 
@@ -804,6 +874,8 @@ impl Database {
                 e
             ))
         })?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| AppError::from(format!("Failed to enable foreign keys: {e}")))?;
         Self::run_migrations(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
@@ -1418,6 +1490,10 @@ mod tests {
             "layout_snapshots",
             "session_index",
             "session_scan_state",
+            "task_queue_runtime",
+            "terminal_task_queues",
+            "terminal_task_queue_items",
+            "terminal_task_queue_permission_decisions",
         ];
         for table in &tables {
             let exists: bool = conn

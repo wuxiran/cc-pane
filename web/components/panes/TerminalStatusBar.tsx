@@ -9,8 +9,10 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import type { ActiveTerminalContext } from "@/hooks/useActiveTerminalSession";
+import { isTauriRuntime } from "@/services/runtime";
 import { useSettingsStore, useTerminalStatusStore } from "@/stores";
 import type { LaunchEffort } from "@/types";
+import TaskQueuePopover from "./TaskQueuePopover";
 
 interface TerminalStatusBarProps {
   terminalContext: ActiveTerminalContext;
@@ -42,6 +44,9 @@ export default function TerminalStatusBar({
   );
   const showStatusBar = useSettingsStore(
     (state) => state.settings?.terminal.showStatusBar ?? true,
+  );
+  const taskQueueEnabled = useSettingsStore(
+    (state) => state.settings?.terminal.taskQueueEnabled ?? true,
   );
   const saveSettings = useSettingsStore((state) => state.saveSettings);
   const handleToggleStatusBar = () => {
@@ -96,6 +101,9 @@ export default function TerminalStatusBar({
           {showContextUsage && (
             <ContextUsageIndicator terminalContext={terminalContext} enabled={enabled} />
           )}
+          {taskQueueEnabled && isTauriRuntime() && terminalContext.sessionId && cliLabel ? (
+            <TaskQueuePopover sessionId={terminalContext.sessionId} />
+          ) : null}
           <span className="min-w-0 flex-1" />
           <span
             className="flex min-w-0 max-w-[42%] items-center gap-1"

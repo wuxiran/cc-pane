@@ -1001,6 +1001,7 @@ dependencies = [
 name = "cc-panes-cli-hook"
 version = "0.94.0"
 dependencies = [
+ "cc-cli-adapters",
  "cc-panes-ctl",
  "chrono",
  "clap",

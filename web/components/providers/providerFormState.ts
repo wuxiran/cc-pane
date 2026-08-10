@@ -2,7 +2,7 @@
  * ProviderFormPanel 的纯表单数据层：表单形状、空值、Provider ⇄ 表单摊平/回填、
  * `{"env": {...}}` JSON 互转。无 React 依赖，便于单测与复用。
  */
-import type { Provider, ProviderModel, ProviderType } from "@/types/provider";
+import type { Provider, ProviderModel, ProviderPreset, ProviderType } from "@/types/provider";
 
 export interface FormState {
   name: string;
@@ -29,6 +29,27 @@ export const emptyForm: FormState = {
   models: [],
   defaultModelIndex: null,
 };
+
+export function createInitialForm(
+  seed: Provider | null | undefined,
+  preset: ProviderPreset | null | undefined,
+  fallbackType: ProviderType,
+  presetName: string,
+): FormState {
+  if (seed) return formFromProvider(seed);
+  if (preset) {
+    return {
+      ...emptyForm,
+      name: presetName,
+      providerType: preset.providerType,
+      baseUrl: preset.defaults.baseUrl || "",
+      region: preset.defaults.region || "",
+      projectId: preset.defaults.projectId || "",
+      awsProfile: preset.defaults.awsProfile || "",
+    };
+  }
+  return { ...emptyForm, providerType: fallbackType };
+}
 
 /**
  * 把一个既有 Provider 摊平成表单初值。编辑与「复制成新 Provider」共用：

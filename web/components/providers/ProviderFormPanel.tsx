@@ -14,6 +14,8 @@ import { isTauriRuntime } from "@/services/runtime";
 import { isJsonFile } from "@/utils/json";
 import { lazyWithRetry } from "@/lib/lazyRetry";
 import ProviderAvatar from "./ProviderAvatar";
+import UnsavedChangesDialog from "./UnsavedChangesDialog";
+import { useProviderFormUnsavedChanges } from "./useProviderFormUnsavedChanges";
 import {
   PROVIDER_TYPE_META, isValidProviderContextWindowTokens,
   type Provider,
@@ -25,15 +27,13 @@ import type { KnownCliTool } from "@/types/terminal";
 import ProviderTypeSelect from "./ProviderTypeSelect";
 import {
   buildConfigJson,
-  emptyForm,
-  formFromProvider,
+  createInitialForm,
   parseConfigJson,
   type FormState,
 } from "./providerFormState";
 import ProviderModelsEditor from "./ProviderModelsEditor";
 
 const JsonEditor = lazyWithRetry(() => import("@/components/editor/JsonEditor"), "JsonEditor");
-
 /** 根据当前 Tab 推导手动创建时的默认 ProviderType */
 function defaultProviderTypeForTab(tab?: KnownCliTool): ProviderType {
   switch (tab) {
@@ -47,7 +47,6 @@ function defaultProviderTypeForTab(tab?: KnownCliTool): ProviderType {
     default: return "anthropic";
   }
 }
-
 interface ProviderFormPanelProps {
   editProvider?: Provider | null;
   /**
@@ -61,9 +60,10 @@ interface ProviderFormPanelProps {
   compact?: boolean;
   onBack: () => void;
   onSaved?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
-export default function ProviderFormPanel({ editProvider, duplicateSeed, preset, activeTab, compact, onBack, onSaved }: ProviderFormPanelProps) {
+export default function ProviderFormPanel({ editProvider, duplicateSeed, preset, activeTab, compact, onBack, onSaved, onDirtyChange }: ProviderFormPanelProps) {
   const { t } = useTranslation(["settings", "common"]);
   const providers = useProvidersStore((s) => s.providers);
   const addProvider = useProvidersStore((s) => s.addProvider);
@@ -71,39 +71,35 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
 
   const isEditMode = !!editProvider;
   const isPresetMode = !!preset && !editProvider;
-
-  const [form, setForm] = useState<FormState>(() => {
-    const seed = editProvider ?? duplicateSeed;
-    if (seed) return formFromProvider(seed);
-    if (preset) {
-      return {
-        ...emptyForm,
-        name: t(preset.nameKey as any),
-        providerType: preset.providerType,
-        baseUrl: preset.defaults.baseUrl || "",
-        region: preset.defaults.region || "",
-        projectId: preset.defaults.projectId || "",
-        awsProfile: preset.defaults.awsProfile || "",
-      };
-    }
-    return { ...emptyForm, providerType: defaultProviderTypeForTab(activeTab) };
-  });
-
+  const initialFormRef = useRef<FormState>(createInitialForm(
+    editProvider ?? duplicateSeed,
+    preset,
+    defaultProviderTypeForTab(activeTab),
+    preset ? t(preset.nameKey as any) : "",
+  ));
+  const [form, setForm] = useState<FormState>(() => initialFormRef.current!);
   const [configDirInfo, setConfigDirInfo] = useState<ConfigDirInfo | null>(null);
   const currentMeta = useMemo(() => PROVIDER_TYPE_META[form.providerType], [form.providerType]);
-
   // config_profile JSON 编辑器状态
   const [configFileContent, setConfigFileContent] = useState("");
   const [configFileOriginal, setConfigFileOriginal] = useState("");
-  const configFileIsDirty = configFileContent !== configFileOriginal;
   const isConfigJsonFile = form.providerType === "config_profile" && isJsonFile(form.configDir);
-
   // 非 config_profile 的配置 JSON 编辑器状态
   const [configJson, setConfigJson] = useState(() =>
     form.providerType !== "config_profile" ? buildConfigJson(form) : "",
   );
   const [showSensitiveJson, setShowSensitiveJson] = useState(false);
   const isUpdatingRef = useRef(false);
+  const { configFileIsDirty, discardGuard, requestBack } = useProviderFormUnsavedChanges({
+    form,
+    initialForm: initialFormRef.current!,
+    providerType: form.providerType,
+    configJson,
+    configFileContent,
+    configFileOriginal,
+    onBack,
+    onDirtyChange,
+  });
 
   // 表单字段 → JSON 同步
   useEffect(() => {
@@ -280,7 +276,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
           type="button"
           aria-label={t("back", { ns: "common" })}
           className="flex size-8 items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
-          onClick={onBack}
+          onClick={requestBack}
         >
           <ArrowLeft size={18} />
         </button>
@@ -560,7 +556,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
 
           {/* Actions */}
           <div className="mt-6 flex justify-end gap-3 pt-4" style={{ borderTop: "1px solid var(--app-border)" }}>
-            <Button variant="secondary" size="default" onClick={onBack}>
+            <Button variant="secondary" size="default" onClick={requestBack}>
               {t("common:cancel")}
             </Button>
             <Button size="default" onClick={handleSave}>
@@ -569,6 +565,11 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
           </div>
         </div>
       </div>
+      <UnsavedChangesDialog
+        open={discardGuard.confirmOpen}
+        onCancel={discardGuard.cancel}
+        onDiscard={discardGuard.discard}
+      />
     </div>
   );
 }

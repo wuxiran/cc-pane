@@ -3,8 +3,9 @@
 use crate::{
     build_guarded_hook_command, is_guarded_hook_command, resolve_executable, CcPaneEvent,
     CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities, CliToolInfo,
-    HookCommandShell, NativeHookBinding, ProjectHookDefinition, ProjectHookStatus, ToolKind,
-    ToolMatcher,
+    HookCommandShell, NativeHookBinding, PermissionRequestCapability,
+    PermissionRequestValidationError, ProjectHookDefinition, ProjectHookStatus,
+    StructuredPermissionRequest, ToolKind, ToolMatcher,
 };
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
@@ -131,11 +132,28 @@ const HOOK_DEFS: &[HookDef] = &[
         timeout: 5,
         label: "State: session end",
     },
+    HookDef {
+        name: "task-queue-permission-request",
+        subcommand: "permission-request",
+        event: "PermissionRequest",
+        matcher: "",
+        timeout: 5,
+        label: "Task queue: permission request",
+    },
 ];
 
 pub struct ClaudeAdapter {
     info: CliToolInfo,
     caps: CliToolCapabilities,
+}
+
+fn validated_permission_string(payload: &serde_json::Value, key: &str) -> Option<String> {
+    let value = payload.get(key)?.as_str()?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed != value {
+        return None;
+    }
+    Some(value.to_string())
 }
 
 impl ClaudeAdapter {
@@ -862,6 +880,38 @@ impl CliToolAdapter for ClaudeAdapter {
         &self.caps
     }
 
+    fn permission_request_capability(&self) -> Option<PermissionRequestCapability> {
+        Some(PermissionRequestCapability::ClaudeSynchronousHook)
+    }
+
+    fn validate_permission_request(
+        &self,
+        payload: &serde_json::Value,
+    ) -> std::result::Result<StructuredPermissionRequest, PermissionRequestValidationError> {
+        let event = payload
+            .get("hook_event_name")
+            .and_then(serde_json::Value::as_str);
+        if event != Some("PermissionRequest") {
+            return Err(PermissionRequestValidationError::UnsupportedEvent);
+        }
+
+        let tool_use_id = validated_permission_string(payload, "tool_use_id")
+            .ok_or(PermissionRequestValidationError::MissingToolUseId)?;
+        let tool_name = validated_permission_string(payload, "tool_name")
+            .ok_or(PermissionRequestValidationError::MissingToolName)?;
+        let tool_input = payload
+            .get("tool_input")
+            .filter(|value| value.is_object())
+            .cloned()
+            .ok_or(PermissionRequestValidationError::InvalidToolInput)?;
+
+        Ok(StructuredPermissionRequest {
+            tool_use_id,
+            tool_name,
+            tool_input,
+        })
+    }
+
     fn detect(&self) -> CliToolInfo {
         let mut info = self.info().clone();
         match Self::resolve_claude_path() {
@@ -958,7 +1008,7 @@ impl CliToolAdapter for ClaudeAdapter {
                         "type": "command",
                         "command": command,
                         "timeout": def.timeout,
-                        "async": true
+                        "async": def.event != "PermissionRequest"
                     }]
                 });
                 Self::merge_ccpanes_hook_entry(hooks_obj, def, entry);
@@ -1310,7 +1360,7 @@ mod tests {
         // session-init / session-resume 子命令出现
         assert!(content.contains("session-init"));
         assert!(content.contains("session-resume"));
-        // 存在性守卫按宿主平台生成:Windows 是 cmd.exe if exist,Unix 是 if [ -x
+        // 存在性守卫按宿主平台生成:Windows 是 if exist,Unix 是 if [ -x
         if cfg!(windows) {
             assert!(content.contains("if exist"));
         } else {
@@ -1332,6 +1382,28 @@ mod tests {
         assert!(!plan.enabled);
         assert!(session.supported);
         assert!(plan.supported);
+    }
+
+    #[test]
+    fn unattended_permission_request_hook_is_registered_synchronously() {
+        let dir = tempdir().unwrap();
+        let project_path = dir.path();
+        let hook_binary = project_path.join("cc-panes-cli-hook");
+        fs::write(&hook_binary, b"hook").unwrap();
+
+        ClaudeAdapter::new()
+            .sync_project_hooks(project_path, Some(&hook_binary), &HashMap::new())
+            .unwrap();
+
+        let settings: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(project_path.join(".claude/settings.local.json")).unwrap(),
+        )
+        .unwrap();
+        let hook = &settings["hooks"]["PermissionRequest"][0]["hooks"][0];
+        assert_eq!(hook["async"], false);
+        assert!(hook["command"]
+            .as_str()
+            .is_some_and(|command| command.contains("permission-request")));
     }
 
     #[test]

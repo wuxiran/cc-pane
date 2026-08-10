@@ -115,6 +115,16 @@ impl OpenCodeAdapter {
             has_content = true;
         }
 
+        // OpenCode has no Claude-compatible CLI permission flag. Mirror the
+        // shared YOLO profile setting through its native session config.
+        if ctx.yolo_mode {
+            config.insert(
+                "permission".to_string(),
+                serde_json::Value::String("allow".to_string()),
+            );
+            has_content = true;
+        }
+
         // ---- MCP 注入（orchestrator + 共享 MCP）----
         if !ctx.skip_mcp {
             let mut mcp = serde_json::Map::new();
@@ -990,7 +1000,32 @@ mod tests {
             assert!(path.is_file(), "{key} must reference an existing file");
             assert!(path.starts_with(OpenCodeAdapter::adapter_root(&c)));
         }
+        assert!(read_config(cmd.env_inject.get("OPENCODE_CONFIG").unwrap())
+            .get("permission")
+            .is_none());
         assert!(project_theme_path(&c).is_file());
+    }
+
+    #[test]
+    fn yolo_mode_injects_allow_permission_into_session_config() {
+        let mut c = ctx(fresh_data_dir("yolo_permission"));
+        c.executable_override = Some("opencode-test-executable".to_string());
+        c.skip_mcp = true;
+        c.yolo_mode = true;
+
+        let cmd = OpenCodeAdapter::new()
+            .build_command_with_config_sources(&c, None, None, None, None)
+            .unwrap();
+
+        let config_path = cmd
+            .env_inject
+            .get("OPENCODE_CONFIG")
+            .expect("YOLO mode must inject a per-session OpenCode config");
+        let config = read_config(config_path);
+        assert_eq!(
+            config.get("permission").and_then(serde_json::Value::as_str),
+            Some("allow")
+        );
     }
 
     #[test]
