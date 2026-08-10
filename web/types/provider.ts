@@ -18,7 +18,15 @@ export interface ProviderModel {
   id: string;
   label?: string | null;
   defaultEffort?: LaunchEffort | null;
+  /** 已 token 数字形式存的窗口（用于显示 / context 解析）。 */
   contextWindowTokens?: number | null;
+  /**
+   * 上下文窗口大小，**字符串形式**，匹配 Claude Code 的 `ANTHROPIC_MODEL` 后缀约定
+   * （`[1m]` / `[200k]` / `[500k]` 等）。managed_settings 注入 `--settings` 时按此值
+   * 拼 `[<size>]` 后缀到 model id。空 / `"200k"`（默认）不拼，`"custom"` 表示用户自行管 env。
+   * 与 `contextWindowTokens` 互补：前者控制注入时形态，后者控制 context 解析。
+   */
+  contextSize?: string | null;
 }
 
 export const MIN_PROVIDER_CONTEXT_WINDOW_TOKENS = 1_000;
@@ -32,6 +40,45 @@ export function isValidProviderContextWindowTokens(
     && value >= MIN_PROVIDER_CONTEXT_WINDOW_TOKENS
     && value <= MAX_PROVIDER_CONTEXT_WINDOW_TOKENS
   );
+}
+
+/** `contextSize` 字符串反解为 token 数字。空 / "custom" / 不可解析 → 0 表示「未知」。 */
+export function contextSizeToTokens(size: string | null | undefined): number {
+  const s = (size ?? "").trim().toLowerCase();
+  if (s === "" || s === "custom") return 0;
+  if (s.endsWith("m")) {
+    const n = Number(s.slice(0, -1));
+    return Number.isFinite(n) ? Math.round(n * 1_000_000) : 0;
+  }
+  if (s.endsWith("k")) {
+    const n = Number(s.slice(0, -1));
+    return Number.isFinite(n) ? Math.round(n * 1_000) : 0;
+  }
+  const n = Number(s);
+  return Number.isFinite(n) ? Math.round(n) : 0;
+}
+
+/**
+ * 把 model id 拼上 `[<size>]` 后缀，匹配 Claude Code 的 ANTHROPIC_MODEL 约定。
+ * 空 / "200k" / "custom" / 已带相同后缀 → 不变。
+ */
+export function applyContextSizeSuffix(model: string, contextSize: string | null | undefined): string {
+  const cs = (contextSize ?? "").trim();
+  if (cs === "" || cs.toLowerCase() === "200k" || cs.toLowerCase() === "custom") {
+    return model;
+  }
+  const suffix = `[${cs}]`;
+  if (model.includes(suffix)) return model;
+  return `${model}${suffix}`;
+}
+
+/** 从带 `[...]` 后缀的 model 字符串反解 token 数。无后缀 / 不可解析 → 0。 */
+export function parseContextWindowFromModel(model: string): number {
+  const start = model.lastIndexOf("[");
+  if (start < 0) return 0;
+  const end = model.indexOf("]", start);
+  if (end < 0) return 0;
+  return contextSizeToTokens(model.slice(start + 1, end));
 }
 
 export interface Provider {

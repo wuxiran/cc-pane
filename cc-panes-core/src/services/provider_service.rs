@@ -771,6 +771,7 @@ mod tests {
             label: Some(format!("Label {id}")),
             default_effort: None,
             context_window_tokens: None,
+            context_size: None,
         }
     }
 
@@ -825,6 +826,7 @@ mod tests {
                 label: Some("  Model A  ".to_string()),
                 default_effort: Some(" HIGH ".to_string()),
                 context_window_tokens: None,
+                context_size: None,
             },
             provider_model("model-b"),
             ProviderModel {
@@ -832,6 +834,7 @@ mod tests {
                 label: Some("   ".to_string()),
                 default_effort: None,
                 context_window_tokens: None,
+                context_size: None,
             },
         ];
 
@@ -866,6 +869,7 @@ mod tests {
                 label: Some("Model A".to_string()),
                 default_effort: None,
                 context_window_tokens: Some(window),
+                context_size: None,
             }];
 
             service.add_provider(provider).unwrap();
@@ -882,6 +886,7 @@ mod tests {
             label: None,
             default_effort: None,
             context_window_tokens: Some(128_000),
+            context_size: None,
         }];
         service.add_provider(persisted).unwrap();
 
@@ -919,6 +924,7 @@ mod tests {
             label: Some("l".repeat(MAX_PROVIDER_MODEL_LABEL_CHARS)),
             default_effort: None,
             context_window_tokens: None,
+            context_size: None,
         }];
 
         service.add_provider(provider).unwrap();
@@ -1040,18 +1046,21 @@ mod tests {
                 label: None,
                 default_effort: None,
                 context_window_tokens: None,
+                context_size: None,
             },
             ProviderModel {
                 id: "i".repeat(MAX_PROVIDER_MODEL_ID_CHARS + 1),
                 label: None,
                 default_effort: None,
                 context_window_tokens: None,
+                context_size: None,
             },
             ProviderModel {
                 id: "valid-id".to_string(),
                 label: Some("l".repeat(MAX_PROVIDER_MODEL_LABEL_CHARS + 1)),
                 default_effort: None,
                 context_window_tokens: None,
+                context_size: None,
             },
         ];
 

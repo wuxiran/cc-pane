@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { EFFORT_LEVELS } from "@/constants/effortMapping";
 import type { LaunchProfileDraft, LaunchProfileRuntime, Provider } from "@/types";
 import type { KnownCliTool, LaunchEffort } from "@/types/terminal";
+import { contextSizeToTokens } from "@/types/provider";
 import { Field, Section } from "./launchProfileParts";
 import { SELECT_NONE, inputClass, toolLabel } from "./launchProfileHelpers";
 
@@ -42,12 +43,17 @@ export default function LaunchProfileBasicsCard({
 }: LaunchProfileBasicsCardProps) {
   const { t } = useTranslation(["providers", "common"]);
 
-  /** 模型下拉文案带上下文窗口标注：未配置窗口时显式标「未配置」而不是留白。 */
+  /** 模型下拉文案带上下文窗口标注：未配置窗口时显式标「未配置」而不是留白。
+   * 优先用 `contextSize` 字符串（`"1m"` / `"500k"` 等，会拼到 ANTHROPIC_MODEL 后缀），
+   * 兼容 `contextWindowTokens` 数字形式。 */
   const providerModelOptionLabel = (model: ProviderModel) => {
     const base = model.label ? `${model.label} (${model.id})` : model.id;
-    const window = model.contextWindowTokens == null
-      ? t("modelContextWindowUnknown")
-      : t("modelContextWindowTokens", { window: model.contextWindowTokens.toLocaleString("en-US") });
+    const sizeTokens = model.contextSize ? contextSizeToTokens(model.contextSize) : 0;
+    const window = sizeTokens > 0
+      ? t("modelContextWindowTokens", { window: sizeTokens.toLocaleString("en-US") })
+      : model.contextWindowTokens == null
+        ? t("modelContextWindowUnknown")
+        : t("modelContextWindowTokens", { window: model.contextWindowTokens.toLocaleString("en-US") });
     return `${base} - ${window}`;
   };
 

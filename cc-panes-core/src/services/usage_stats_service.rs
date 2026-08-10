@@ -932,13 +932,23 @@ impl UsageStatsService {
                     .map(str::to_owned)
             });
             if let Some(model_id) = model_id {
-                if let Some(window) = provider
+                if let Some(matched) = provider
                     .models
                     .into_iter()
                     .find(|model| model.id.trim() == model_id)
-                    .and_then(|model| model.context_window_tokens)
                 {
-                    return Some(WindowResolution::ProviderModel(window));
+                    // 优先 context_window_tokens（数字形式，已 token 计）；
+                    // fallback context_size（字符串形式，如 "1m"/"500k"）经 parse_context_size_tokens
+                    // 反解——与 ccpanel 行为对齐。
+                    if let Some(window) = matched.context_window_tokens {
+                        return Some(WindowResolution::ProviderModel(window));
+                    }
+                    if let Some(size) = matched.context_size.as_deref() {
+                        let tokens = crate::utils::parse_context_size_tokens(size);
+                        if tokens > 0 {
+                            return Some(WindowResolution::ProviderModel(tokens));
+                        }
+                    }
                 }
             }
         }
@@ -948,14 +958,30 @@ impl UsageStatsService {
         // response, so use it to find the configured context window globally.
         if let Some(observed_model) = observed_model.map(str::trim) {
             if !observed_model.is_empty() {
-                if let Some(window) = provider_service
+                // 第一层：observed model 自带 `[<size>]` 后缀时（注入 `ANTHROPIC_MODEL`
+                // 拼了 `[1m]` 就会这样），直接反解拿 token 数——这与 ccpanel
+                // `parse_context_window_from_model` 同源。
+                let from_suffix = crate::utils::parse_context_window_from_model(observed_model);
+                if from_suffix > 0 {
+                    return Some(WindowResolution::ProviderModel(from_suffix));
+                }
+                // 第二层：observed model 名在所有 Provider 的 model.id 里能命中
+                // （先看 context_window_tokens，再看 context_size）。
+                if let Some(matched) = provider_service
                     .list_providers()
                     .into_iter()
                     .flat_map(|provider| provider.models)
                     .find(|model| model.id.trim().eq_ignore_ascii_case(observed_model))
-                    .and_then(|model| model.context_window_tokens)
                 {
-                    return Some(WindowResolution::ProviderModel(window));
+                    if let Some(window) = matched.context_window_tokens {
+                        return Some(WindowResolution::ProviderModel(window));
+                    }
+                    if let Some(size) = matched.context_size.as_deref() {
+                        let tokens = crate::utils::parse_context_size_tokens(size);
+                        if tokens > 0 {
+                            return Some(WindowResolution::ProviderModel(tokens));
+                        }
+                    }
                 }
             }
         }
@@ -1728,6 +1754,7 @@ mod tests {
                 label: None,
                 default_effort: None,
                 context_window_tokens: Some(1_000_000),
+                context_size: None,
             }],
             default_model_id: default_model_id.map(str::to_string),
             is_default: true,
@@ -1749,6 +1776,7 @@ mod tests {
                 label: None,
                 default_effort: None,
                 context_window_tokens: Some(1_000_000),
+                context_size: None,
             }],
             default_model_id: Some("MiniMax-M3-highspeed".to_string()),
             is_default: false,
@@ -1896,6 +1924,7 @@ mod tests {
                 label: None,
                 default_effort: None,
                 context_window_tokens: Some(100_000),
+                context_size: None,
             }],
             default_model_id: Some("other-model".to_string()),
             is_default: true,
@@ -1999,6 +2028,36 @@ mod tests {
             "codex 三层 miss 不能套用 claude 的 1M 兜底"
         );
         assert_eq!(snapshot.diagnostic_code.as_deref(), Some("WINDOW_UNKNOWN"));
+    }
+
+    #[test]
+    fn context_uses_observed_model_suffix_when_no_provider_match() {
+        // Claude Code 启动后观察到的 model 字段是 `ANTHROPIC_MODEL` 拼后缀的形式——
+        // 例如 `MiniMax-M3-highspeed[1m]`。observed_model 命中后**第一层**就反解出
+        // token 数，不走 Provider DB lookup——与 ccpanel `parse_context_window_from_model`
+        // 对齐。
+        let service = provider_aware_service(None);
+        let request = context_request("claude", None);
+        let snapshot = service.context_observation_snapshot(
+            &request,
+            Some(&ContextObservation {
+                used_tokens: 200_000,
+                window_tokens: None,
+                window_diagnostic: None,
+                model: Some("MiniMax-M3-highspeed[1m]".to_string()),
+            }),
+            1,
+        );
+
+        assert_eq!(snapshot.window_tokens, Some(1_000_000));
+        assert_eq!(snapshot.effective_window_tokens, Some(1_000_000));
+        assert_eq!(snapshot.used_percentage, Some(20));
+        assert_eq!(
+            snapshot.window_source.as_deref(),
+            Some("provider-model"),
+            "observed suffix 反解命中归类为 provider-model（与 ccpanel 一致）"
+        );
+        assert_eq!(snapshot.diagnostic_code, None);
     }
 
     #[test]

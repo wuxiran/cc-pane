@@ -229,6 +229,17 @@ impl ClaudeAdapter {
             env.entry((*key).to_string()).or_default();
         }
         let model = ctx.model_id().unwrap_or_default().to_string();
+        // 如果 Provider 模型有 `contextSize`（如 `"1m"` / `"500k"`），按 ccpanel 规则
+        // 给 ANTHROPIC_MODEL 拼 `[<size>]` 后缀——Claude Code 看到后缀才会用真实窗口
+        // 而非 200k 默认；空 / `"200k"`（默认）/ `"custom"` 不拼（与 ccpanel
+        // `apply_context_size_suffix` 同源）。其他 CLI（codex/opencode/...）不解析
+        // 后缀，故只在 claude 注入。
+        let model = match (ctx.context_size(), model.is_empty()) {
+            (Some(cs), false) => {
+                crate::context_size::apply_context_size_suffix(&model, &cs)
+            }
+            _ => model,
+        };
         for key in MODEL_ENV_KEYS {
             env.insert((*key).to_string(), model.clone());
         }
@@ -1542,6 +1553,80 @@ mod tests {
             .expect("prompt separator present");
         assert!(model_pos < resume_pos);
         assert!(resume_pos < prompt_pos);
+    }
+
+    #[test]
+    fn managed_settings_appends_context_size_suffix_to_anthropic_model() {
+        // Provider 模型配 `contextSize: "1m"` 时，managed_settings 里 ANTHROPIC_MODEL 必须
+        // 变成 `"<model>[1m]"`——否则 Claude Code 不认这个 model 强制 200k + 报错。
+        let dir = tempdir().unwrap();
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = managed_provider_context(
+            dir.path(),
+            serde_json::json!({
+                "ANTHROPIC_API_KEY": "k",
+                "ANTHROPIC_BASE_URL": "https://p.test",
+            }),
+        );
+        ctx.adapter_options.insert(
+            "__ccpanesModelId".to_string(),
+            serde_json::json!("MiniMax-M3-highspeed"),
+        );
+        ctx.adapter_options.insert(
+            "__ccpanesContextSize".to_string(),
+            serde_json::json!("1m"),
+        );
+
+        let result = adapter.build_command(&ctx).unwrap();
+        let settings = managed_settings(&result);
+
+        // ANTHROPIC_MODEL 必须带 [1m] 后缀；CLAUDE_CODE_SUBAGENT_MODEL 同样
+        assert_eq!(
+            settings.pointer("/env/ANTHROPIC_MODEL"),
+            Some(&serde_json::json!("MiniMax-M3-highspeed[1m]"))
+        );
+        assert_eq!(
+            settings.pointer("/env/CLAUDE_CODE_SUBAGENT_MODEL"),
+            Some(&serde_json::json!("MiniMax-M3-highspeed[1m]"))
+        );
+    }
+
+    #[test]
+    fn managed_settings_skips_suffix_for_baseline_or_custom_context_size() {
+        // 200k / 空 / "custom" 都不拼后缀——和 ccpanel 行为对齐
+        for (size, label) in [
+            (Some("200k"), "baseline"),
+            (Some("custom"), "custom"),
+            (None, "missing"),
+        ] {
+            let dir = tempdir().unwrap();
+            let adapter = ClaudeAdapter::new();
+            let mut ctx = managed_provider_context(
+                dir.path(),
+                serde_json::json!({
+                    "ANTHROPIC_API_KEY": "k",
+                    "ANTHROPIC_BASE_URL": "https://p.test",
+                }),
+            );
+            ctx.adapter_options.insert(
+                "__ccpanesModelId".to_string(),
+                serde_json::json!("MiniMax-M3-highspeed"),
+            );
+            if let Some(s) = size {
+                ctx.adapter_options.insert(
+                    "__ccpanesContextSize".to_string(),
+                    serde_json::json!(s),
+                );
+            }
+
+            let result = adapter.build_command(&ctx).unwrap();
+            let settings = managed_settings(&result);
+            assert_eq!(
+                settings.pointer("/env/ANTHROPIC_MODEL"),
+                Some(&serde_json::json!("MiniMax-M3-highspeed")),
+                "case={label} size={size:?}: must NOT append suffix"
+            );
+        }
     }
 
     #[test]

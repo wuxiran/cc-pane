@@ -9,6 +9,7 @@
 mod atomic_file;
 mod claude;
 mod codex;
+pub mod context_size;
 mod cursor;
 mod fs_atomic;
 mod gemini;
@@ -829,6 +830,18 @@ impl CliAdapterContext {
             .and_then(serde_json::Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
+    }
+
+    /// Provider 模型配置的 `contextSize` 字符串（`"1m"` / `"200k"` / `"500k"` 等）。
+    /// 配合 `__ccpanesModelId` 一起用于 claude.rs managed_settings 拼 `[<size>]` 后缀。
+    /// 空 / `"200k"`（默认）/ `"custom"` 都不拼后缀——与 ccpanel `apply_context_size_suffix` 对齐。
+    pub fn context_size(&self) -> Option<String> {
+        self.adapter_options
+            .get("__ccpanesContextSize")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
     }
 
     pub fn command_override(&self) -> Option<&str> {
