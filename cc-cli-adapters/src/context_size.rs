@@ -26,21 +26,45 @@ mod tests {
 
     #[test]
     fn suffix_200k_and_empty_return_unchanged() {
-        assert_eq!(apply_context_size_suffix("claude-sonnet", "200k"), "claude-sonnet");
-        assert_eq!(apply_context_size_suffix("claude-sonnet", ""), "claude-sonnet");
-        assert_eq!(apply_context_size_suffix("claude-sonnet", "custom"), "claude-sonnet");
-        assert_eq!(apply_context_size_suffix("claude-sonnet", "  "), "claude-sonnet");
+        assert_eq!(
+            apply_context_size_suffix("claude-sonnet", "200k"),
+            "claude-sonnet"
+        );
+        assert_eq!(
+            apply_context_size_suffix("claude-sonnet", ""),
+            "claude-sonnet"
+        );
+        assert_eq!(
+            apply_context_size_suffix("claude-sonnet", "custom"),
+            "claude-sonnet"
+        );
+        assert_eq!(
+            apply_context_size_suffix("claude-sonnet", "  "),
+            "claude-sonnet"
+        );
     }
 
     #[test]
     fn suffix_appends_brackets_for_other_sizes() {
-        assert_eq!(apply_context_size_suffix("MiniMax-M3-highspeed", "1m"), "MiniMax-M3-highspeed[1m]");
-        assert_eq!(apply_context_size_suffix("claude-opus-4-7", "500k"), "claude-opus-4-7[500k]");
-        assert_eq!(apply_context_size_suffix("gpt-5.4", "100000"), "gpt-5.4[100000]");
+        assert_eq!(
+            apply_context_size_suffix("MiniMax-M3-highspeed", "1m"),
+            "MiniMax-M3-highspeed[1m]"
+        );
+        assert_eq!(
+            apply_context_size_suffix("claude-opus-4-7", "500k"),
+            "claude-opus-4-7[500k]"
+        );
+        assert_eq!(
+            apply_context_size_suffix("gpt-5.4", "100000"),
+            "gpt-5.4[100000]"
+        );
     }
 
     #[test]
     fn suffix_is_idempotent_when_already_present() {
-        assert_eq!(apply_context_size_suffix("claude-opus-4-7[1m]", "1m"), "claude-opus-4-7[1m]");
+        assert_eq!(
+            apply_context_size_suffix("claude-opus-4-7[1m]", "1m"),
+            "claude-opus-4-7[1m]"
+        );
     }
 }

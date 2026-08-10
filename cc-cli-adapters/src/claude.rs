@@ -242,9 +242,7 @@ impl ClaudeAdapter {
         // `apply_context_size_suffix` 同源）。其他 CLI（codex/opencode/...）不解析
         // 后缀，故只在 claude 注入。
         let model = match (ctx.context_size(), model.is_empty()) {
-            (Some(cs), false) => {
-                crate::context_size::apply_context_size_suffix(&model, &cs)
-            }
+            (Some(cs), false) => crate::context_size::apply_context_size_suffix(&model, &cs),
             _ => model,
         };
         for key in MODEL_ENV_KEYS {
@@ -1580,10 +1578,8 @@ mod tests {
             "__ccpanesModelId".to_string(),
             serde_json::json!("MiniMax-M3-highspeed"),
         );
-        ctx.adapter_options.insert(
-            "__ccpanesContextSize".to_string(),
-            serde_json::json!("1m"),
-        );
+        ctx.adapter_options
+            .insert("__ccpanesContextSize".to_string(), serde_json::json!("1m"));
 
         let result = adapter.build_command(&ctx).unwrap();
         let settings = managed_settings(&result);
@@ -1621,10 +1617,8 @@ mod tests {
                 serde_json::json!("MiniMax-M3-highspeed"),
             );
             if let Some(s) = size {
-                ctx.adapter_options.insert(
-                    "__ccpanesContextSize".to_string(),
-                    serde_json::json!(s),
-                );
+                ctx.adapter_options
+                    .insert("__ccpanesContextSize".to_string(), serde_json::json!(s));
             }
 
             let result = adapter.build_command(&ctx).unwrap();

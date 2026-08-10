@@ -38,10 +38,7 @@ pub fn parse_context_size_tokens(context_size: &str) -> u64 {
             .map(|n| n * 1_000_000)
             .unwrap_or(0)
     } else if let Some(rest) = s.strip_suffix('k') {
-        rest.parse::<u64>()
-            .ok()
-            .map(|n| n * 1_000)
-            .unwrap_or(0)
+        rest.parse::<u64>().ok().map(|n| n * 1_000).unwrap_or(0)
     } else {
         s.parse::<u64>().unwrap_or(0)
     }
@@ -67,22 +64,46 @@ mod tests {
     #[test]
     fn suffix_200k_and_empty_return_unchanged() {
         // 200k / 空 / "custom" 是「不拼」的语义；其它（包括 100k / 500k / 1m）都拼。
-        assert_eq!(apply_context_size_suffix("claude-sonnet", "200k"), "claude-sonnet");
-        assert_eq!(apply_context_size_suffix("claude-sonnet", ""), "claude-sonnet");
-        assert_eq!(apply_context_size_suffix("claude-sonnet", "custom"), "claude-sonnet");
-        assert_eq!(apply_context_size_suffix("claude-sonnet", "  "), "claude-sonnet");
+        assert_eq!(
+            apply_context_size_suffix("claude-sonnet", "200k"),
+            "claude-sonnet"
+        );
+        assert_eq!(
+            apply_context_size_suffix("claude-sonnet", ""),
+            "claude-sonnet"
+        );
+        assert_eq!(
+            apply_context_size_suffix("claude-sonnet", "custom"),
+            "claude-sonnet"
+        );
+        assert_eq!(
+            apply_context_size_suffix("claude-sonnet", "  "),
+            "claude-sonnet"
+        );
     }
 
     #[test]
     fn suffix_appends_brackets_for_other_sizes() {
-        assert_eq!(apply_context_size_suffix("MiniMax-M3-highspeed", "1m"), "MiniMax-M3-highspeed[1m]");
-        assert_eq!(apply_context_size_suffix("claude-opus-4-7", "500k"), "claude-opus-4-7[500k]");
-        assert_eq!(apply_context_size_suffix("gpt-5.4", "100000"), "gpt-5.4[100000]");
+        assert_eq!(
+            apply_context_size_suffix("MiniMax-M3-highspeed", "1m"),
+            "MiniMax-M3-highspeed[1m]"
+        );
+        assert_eq!(
+            apply_context_size_suffix("claude-opus-4-7", "500k"),
+            "claude-opus-4-7[500k]"
+        );
+        assert_eq!(
+            apply_context_size_suffix("gpt-5.4", "100000"),
+            "gpt-5.4[100000]"
+        );
     }
 
     #[test]
     fn suffix_is_idempotent_when_already_present() {
-        assert_eq!(apply_context_size_suffix("claude-opus-4-7[1m]", "1m"), "claude-opus-4-7[1m]");
+        assert_eq!(
+            apply_context_size_suffix("claude-opus-4-7[1m]", "1m"),
+            "claude-opus-4-7[1m]"
+        );
         // 已有不同后缀时仍会再拼（不防这种情况——保持简单，与 ccpanel 一致）
     }
 
@@ -110,8 +131,14 @@ mod tests {
 
     #[test]
     fn parse_from_model_extracts_suffix() {
-        assert_eq!(parse_context_window_from_model("claude-opus-4-7[1m]"), 1_000_000);
-        assert_eq!(parse_context_window_from_model("MiniMax-M3-highspeed[500k]"), 500_000);
+        assert_eq!(
+            parse_context_window_from_model("claude-opus-4-7[1m]"),
+            1_000_000
+        );
+        assert_eq!(
+            parse_context_window_from_model("MiniMax-M3-highspeed[500k]"),
+            500_000
+        );
         assert_eq!(parse_context_window_from_model("plain"), 0);
         assert_eq!(parse_context_window_from_model("trailing["), 0);
     }
