@@ -346,6 +346,54 @@ export async function updateWorkspaceHidden(
   await saveWorkspace(workspaceName, { ...ws, hidden });
 }
 
+// ============ Archive（逻辑删除） ============
+
+/**
+ * 归档 / 恢复工作空间。
+ *
+ * 刻意不走 updateWorkspacePinned/Hidden 那种 getWorkspace + saveWorkspace 全量覆写：
+ * 那条路会把读到的整份快照写回去，与并发写互相覆盖。归档有专用命令，直接调。
+ */
+export async function setWorkspaceArchived(
+  workspaceName: string,
+  archived: boolean
+): Promise<void> {
+  await invokeOrApi<void>(
+    "set_workspace_archived",
+    { workspaceName, archived },
+    () =>
+      apiNoContent(
+        `/api/workspaces/${encodeURIComponent(workspaceName)}/archived`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ archived }),
+        },
+      ),
+  );
+}
+
+/** 归档 / 恢复工作空间内的单个项目。 */
+export async function setWorkspaceProjectArchived(
+  workspaceName: string,
+  projectId: string,
+  archived: boolean
+): Promise<void> {
+  await invokeOrApi<void>(
+    "set_workspace_project_archived",
+    { workspaceName, projectId, archived },
+    () =>
+      apiNoContent(
+        `/api/workspaces/${encodeURIComponent(workspaceName)}/projects/${encodeURIComponent(projectId)}/archived`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ archived }),
+        },
+      ),
+  );
+}
+
 export async function reorderWorkspaces(
   orderedNames: string[]
 ): Promise<void> {

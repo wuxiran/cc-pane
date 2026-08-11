@@ -21,6 +21,8 @@ vi.mock("@/services/workspaceService", () => ({
   updateWorkspaceProvider: vi.fn(),
   updateWorkspacePinned: vi.fn(),
   updateWorkspaceHidden: vi.fn(),
+  setWorkspaceArchived: vi.fn(),
+  setWorkspaceProjectArchived: vi.fn(),
   reorderWorkspaces: vi.fn(),
 }));
 
@@ -41,6 +43,7 @@ describe("useWorkspacesStore", () => {
         query: "",
         colors: [],
         group: null,
+        includeArchived: false,
       },
     });
   });
@@ -321,6 +324,75 @@ describe("useWorkspacesStore", () => {
     });
   });
 
+  describe("归档（逻辑删除）", () => {
+    it("setArchived 应写入 archivedAt，恢复时清空", async () => {
+      const ws = createTestWorkspace({ name: "ws-1" });
+      useWorkspacesStore.setState({ workspaces: [ws] });
+      vi.mocked(workspaceService.setWorkspaceArchived).mockResolvedValue();
+
+      await useWorkspacesStore.getState().setArchived("ws-1", true);
+      expect(workspaceService.setWorkspaceArchived).toHaveBeenCalledWith(
+        "ws-1",
+        true,
+      );
+      expect(useWorkspacesStore.getState().workspaces[0].archivedAt).toBeTruthy();
+
+      await useWorkspacesStore.getState().setArchived("ws-1", false);
+      expect(useWorkspacesStore.getState().workspaces[0].archivedAt).toBeNull();
+    });
+
+    it("setProjectArchived 只影响目标项目", async () => {
+      const ws = createTestWorkspace({
+        name: "ws-1",
+        projects: [
+          { id: "p-1", path: "/a" },
+          { id: "p-2", path: "/b" },
+        ],
+      });
+      useWorkspacesStore.setState({ workspaces: [ws] });
+      vi.mocked(workspaceService.setWorkspaceProjectArchived).mockResolvedValue();
+
+      await useWorkspacesStore
+        .getState()
+        .setProjectArchived("ws-1", "p-2", true);
+
+      const projects = useWorkspacesStore.getState().workspaces[0].projects;
+      expect(projects[0].archivedAt).toBeFalsy();
+      expect(projects[1].archivedAt).toBeTruthy();
+    });
+
+    it("filteredWorkspaces 默认隐去已归档，开 includeArchived 后可见", () => {
+      const active = createTestWorkspace({ name: "active" });
+      const archived = createTestWorkspace({
+        name: "archived",
+        archivedAt: "2026-08-12T00:00:00Z",
+      });
+      useWorkspacesStore.setState({ workspaces: [active, archived] });
+
+      expect(
+        useWorkspacesStore.getState().filteredWorkspaces().map((ws) => ws.name),
+      ).toEqual(["active"]);
+
+      useWorkspacesStore.getState().setWorkspaceFilter({ includeArchived: true });
+      expect(
+        useWorkspacesStore.getState().filteredWorkspaces().map((ws) => ws.name),
+      ).toEqual(["active", "archived"]);
+    });
+
+    // isDefault 在 filterWorkspaces 里有短路 return true，归档判定必须排在它前面，
+    // 否则历史数据里带 archivedAt 的默认工作空间会绕过过滤永远露出来。
+    it("已归档的默认工作空间也应被隐去", () => {
+      const archivedDefault = createTestWorkspace({
+        name: "default",
+        isDefault: true,
+        archivedAt: "2026-08-12T00:00:00Z",
+      });
+      useWorkspacesStore.setState({ workspaces: [archivedDefault] });
+
+      expect(useWorkspacesStore.getState().filteredWorkspaces()).toHaveLength(0);
+    });
+  });
+
   describe("expandWorkspace", () => {
     it("应展开 workspace（toggle 行为）", () => {
       useWorkspacesStore.getState().expandWorkspace("ws-id-1");
@@ -513,6 +585,7 @@ describe("useWorkspacesStore", () => {
         query: "",
         colors: [],
         group: null,
+        includeArchived: false,
       });
     });
   });

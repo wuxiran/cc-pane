@@ -2,6 +2,8 @@ import { useCallback, useMemo, useState, type ButtonHTMLAttributes } from "react
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
+  Archive,
+  ArchiveRestore,
   ChevronRight,
   Files,
   Folder,
@@ -28,7 +30,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useLaunchProfilesStore, useProvidersStore, useSettingsStore, useSshMachinesStore } from "@/stores";
+import { useLaunchProfilesStore, useProvidersStore, useSettingsStore, useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import { projectCliHooksService } from "@/services";
 import { providerService } from "@/services/providerService";
 import { isTauriRuntime } from "@/services/runtime";
@@ -117,7 +119,9 @@ export default function WorkspaceItem({
   const [sshDialogOpen, setSshDialogOpen] = useState(false);
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
 
+  const setArchived = useWorkspacesStore((state) => state.setArchived);
   const isDefaultWorkspace = !!workspace.isDefault;
+  const isArchived = !!workspace.archivedAt;
   const displayName = workspace.alias
     || (isDefaultWorkspace ? t("defaultWorkspaceName", { defaultValue: "默认工作空间" }) : workspace.name);
   const rootProject = projects.find((project) => !project.ssh);
@@ -443,6 +447,12 @@ export default function WorkspaceItem({
                   WSL
                 </span>
               ) : null}
+              {/* 已归档条目只在打开「含已归档」时可见，必须一眼能与正常条目区分 */}
+              {isArchived ? (
+                <span className={`${sidebarEntityBadgeClass} bg-[color-mix(in_srgb,var(--app-text-primary)_8%,transparent)] text-[var(--app-text-tertiary)]`}>
+                  {t("archivedBadge")}
+                </span>
+              ) : null}
               {boundProvider && defaultEnvironment !== "wsl" ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -674,6 +684,22 @@ export default function WorkspaceItem({
                 onNewGroup={() => setGroupDialogOpen(true)}
               />
               <ContextMenuSeparator />
+              {/* 归档在删除之上：可逆操作应该比不可逆的更容易够到 */}
+              <ContextMenuItem
+                onClick={() =>
+                  void setArchived(workspace.name, !workspace.archivedAt)
+                }
+              >
+                {workspace.archivedAt ? (
+                  <>
+                    <ArchiveRestore /> {t("restoreWorkspace")}
+                  </>
+                ) : (
+                  <>
+                    <Archive /> {t("archiveWorkspace")}
+                  </>
+                )}
+              </ContextMenuItem>
               <ContextMenuItem variant="destructive" onClick={() => onDelete(workspace)}>
                 <Trash2 /> {t("deleteWorkspace")}
               </ContextMenuItem>
