@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useLaunchProfilesStore, usePanesStore, useProvidersStore, useSharedMcpStore, useWorkspacesStore } from "@/stores";
-import type { DiscoveredExternalSkill, LaunchProfile, LaunchProfileDraft, LaunchProfileResolution, LaunchProfileRuntime, SkillMarketEntry, Workspace } from "@/types";
+import type { DiscoveredExternalSkill, LaunchProfileDraft, LaunchProfileResolution, LaunchProfileRuntime, SkillMarketEntry } from "@/types";
 import { useCliTools } from "@/hooks/useCliTools";
 import { isProviderTypeCompatibleWithCli } from "@/utils/providerCompatibility";
 import type { KnownCliTool } from "@/types/terminal";
@@ -13,6 +13,10 @@ import LaunchProfileListAside, {
 import LaunchProfileMcpCard from "./LaunchProfileMcpCard";
 import LaunchProfileSkillCard from "./LaunchProfileSkillCard";
 import LaunchProfileSummaryCard from "./LaunchProfileSummaryCard";
+import UnsavedChangesDialog from "./UnsavedChangesDialog";
+import { useLaunchProfileUnsavedChanges } from "./useLaunchProfileUnsavedChanges";
+import { useLaunchProfileNavigation } from "./useLaunchProfileNavigation";
+import { useLaunchProfileDraft } from "./useLaunchProfileDraft";
 import { useSkillMarketData } from "./useSkillMarketData";
 import { useLaunchProfileSkillEditor } from "./useLaunchProfileSkillEditor";
 import {
@@ -47,6 +51,7 @@ interface LaunchProfilesPanelProps {
   tool?: KnownCliTool;
   initialRuntime?: LaunchProfileRuntime;
   onActiveToolChange?: (tool: KnownCliTool) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 export default function LaunchProfilesPanel({
@@ -55,6 +60,7 @@ export default function LaunchProfilesPanel({
   tool,
   initialRuntime = null,
   onActiveToolChange,
+  onDirtyChange,
 }: LaunchProfilesPanelProps) {
   const { tools: cliTools } = useCliTools();
   const { t } = useTranslation(["providers", "common"]);
@@ -78,7 +84,7 @@ export default function LaunchProfilesPanel({
   const resolvedInitialTool = tool ?? initialTool ?? "claude";
   const [activeTool, setActiveTool] = useState<KnownCliTool>(resolvedInitialTool);
   const [selectedId, setSelectedId] = useState<string | null>(SYSTEM_DEFAULT_PROFILE_ID);
-  const [draft, setDraft] = useState<LaunchProfileDraft>(() => systemDefaultLaunchProfileDraft(resolvedInitialTool, initialRuntime, t));
+  const { draft, setDraft, replaceDraft, userEditedRef } = useLaunchProfileDraft(() => systemDefaultLaunchProfileDraft(resolvedInitialTool, initialRuntime, t));
   const [preview, setPreview] = useState<LaunchProfileResolution | null>(null);
   const [mcpManagerOpen, setMcpManagerOpen] = useState(false);
   const [workspaceBindingOpen, setWorkspaceBindingOpen] = useState(false);
@@ -152,21 +158,21 @@ export default function LaunchProfilesPanel({
     const profile = profiles.find((item) => item.id === selectedId);
     if (!profile || !profileMatchesTool(profile, activeTool)) {
       setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-      setDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
+      replaceDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
     }
-  }, [activeTool, profiles, selectedId, toolDefaultProfile]);
+  }, [activeTool, profiles, replaceDraft, selectedId, toolDefaultProfile]);
 
   useEffect(() => {
-    if (selectedId === SYSTEM_DEFAULT_PROFILE_ID) {
-      setDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
+    if (selectedId === SYSTEM_DEFAULT_PROFILE_ID && !(toolDefaultProfile && userEditedRef.current)) {
+      replaceDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
     }
-  }, [activeTool, selectedId, toolDefaultProfile]);
+  }, [activeTool, replaceDraft, selectedId, toolDefaultProfile, userEditedRef]);
 
   useEffect(() => {
     if (selectedId === null || selectedId === SYSTEM_DEFAULT_PROFILE_ID) return;
     const profile = profiles.find((item) => item.id === selectedId);
-    if (profile) setDraft(toDraft(profile));
-  }, [profiles, selectedId]);
+    if (profile && !userEditedRef.current) replaceDraft(toDraft(profile));
+  }, [profiles, replaceDraft, selectedId, userEditedRef]);
 
   useEffect(() => {
     let cancelled = false;
@@ -219,6 +225,17 @@ export default function LaunchProfilesPanel({
       : profiles.find((profile) => profile.id === selectedId) ?? null,
     [profiles, selectedId, toolDefaultProfile],
   );
+  const { discardGuard, requestDiscard } = useLaunchProfileUnsavedChanges({
+    activeTool,
+    initialRuntime,
+    profiles,
+    selectedId,
+    toolDefaultProfile,
+    draft,
+    userEdited: userEditedRef.current,
+    translate: t,
+    onDirtyChange,
+  });
   const isSystemDefaultSelected = selectedId === SYSTEM_DEFAULT_PROFILE_ID;
   const isNewProfile = selectedId === null;
   const providerDisabled = isSystemDefaultSelected;
@@ -250,9 +267,9 @@ export default function LaunchProfilesPanel({
     if (selectedId === null || selectedId === SYSTEM_DEFAULT_PROFILE_ID) return;
     if (!filteredProfiles.some((profile) => profile.id === selectedId)) {
       setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-      setDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
+      replaceDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
     }
-  }, [activeTool, filteredProfiles, selectedId, toolDefaultProfile]);
+  }, [activeTool, filteredProfiles, replaceDraft, selectedId, toolDefaultProfile]);
 
   const resetTransientState = useCallback(() => {
     setPreview(null);
@@ -267,26 +284,14 @@ export default function LaunchProfilesPanel({
     setActiveTool(nextTool);
     onActiveToolChange?.(nextTool);
     setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-    setDraft(systemDefaultLaunchProfileDraft(nextTool, draft.targetRuntime ?? null, t));
+    replaceDraft(systemDefaultLaunchProfileDraft(nextTool, draft.targetRuntime ?? null, t));
     resetTransientState();
-  }, [activeTool, draft.targetRuntime, onActiveToolChange, resetTransientState]);
+  }, [activeTool, draft.targetRuntime, onActiveToolChange, replaceDraft, resetTransientState]);
 
   // chips 上移后 CLI 切换来自父级：受控 tool 变化时走同一条切换路径（选中/草稿/瞬态一并重置）
   useEffect(() => {
     if (tool && tool !== activeTool) handleToolChange(tool);
   }, [tool, activeTool, handleToolChange]);
-
-  const handleSelectSystemDefault = useCallback(() => {
-    setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-    setDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
-    resetTransientState();
-  }, [activeTool, resetTransientState, toolDefaultProfile]);
-
-  const handleSelect = useCallback((profile: LaunchProfile) => {
-    setSelectedId(profile.id);
-    setDraft(toDraft(profile));
-    resetTransientState();
-  }, [resetTransientState]);
 
   const handleListModeChange = useCallback((mode: LaunchProfileListMode) => {
     setListMode(mode);
@@ -295,45 +300,17 @@ export default function LaunchProfilesPanel({
     }
   }, []);
 
-  const handleSelectWorkspace = useCallback((workspace: Workspace) => {
-    setWorkspaceFilterName(workspace.name);
-    const boundProfile = workspace.launchProfileId
-      ? profiles.find(
-          (profile) => profile.id === workspace.launchProfileId
-            && profileMatchesTool(profile, activeTool),
-        ) ?? null
-      : null;
-
-    if (boundProfile) {
-      handleSelect(boundProfile);
-      return;
-    }
-
-    handleSelectSystemDefault();
-  }, [activeTool, handleSelect, handleSelectSystemDefault, profiles]);
-
-  const handleSelectWorkspaceProfile = useCallback((workspace: Workspace, profile: LaunchProfile) => {
-    setWorkspaceFilterName(workspace.name);
-    handleSelect(profile);
-  }, [handleSelect]);
-
-  const handleCopySystemDefault = useCallback(() => {
-    const base = selectedId === SYSTEM_DEFAULT_PROFILE_ID ? draft : systemDefaultLaunchProfileDraft(activeTool, draft.targetRuntime ?? null, t);
-    setSelectedId(null);
-    setDraft({
-      ...base,
-      name: t("profileDefaultName", { tool: toolLabel(activeTool, t) }),
-      alias: t("profileDefaultName", { tool: toolLabel(activeTool, t) }),
-      targetTools: [activeTool],
-      targetRuntime: draft.targetRuntime ?? null,
-      isDefault: false,
-    });
-    setPreview(null);
-    setMcpManagerOpen(false);
-    setWorkspaceBindingOpen(false);
-    setBindingWorkspaceName(null);
-    toast.success(t("toast.draftCreated", { tool: toolLabel(activeTool, t) }));
-  }, [activeTool, draft, selectedId, t]);
+  const {
+    handleCopySystemDefault,
+    handleSelect,
+    handleSelectSystemDefault,
+    handleSelectWorkspace,
+    handleSelectWorkspaceProfile,
+  } = useLaunchProfileNavigation({
+    activeTool, draft, profiles, selectedId, toolDefaultProfile, translate: t, requestDiscard,
+    resetTransientState, setSelectedId, setDraft: replaceDraft, setWorkspaceFilterName, setPreview,
+    setMcpManagerOpen, setWorkspaceBindingOpen, setBindingWorkspaceName,
+  });
 
   const handleSave = useCallback(async () => {
     try {
@@ -355,7 +332,7 @@ export default function LaunchProfilesPanel({
         : await createProfile(nextDraft);
       if (isSystemDefaultSelected) {
         setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-        setDraft(toDraft(saved));
+        replaceDraft(toDraft(saved));
         toast.success(t("toast.systemDefaultSaved"));
         return;
       }
@@ -364,16 +341,16 @@ export default function LaunchProfilesPanel({
         await updateWorkspaceLaunchProfile(workspaceContext.name, saved.id);
       }
       setSelectedId(saved.id);
-      setDraft(toDraft(saved));
+      replaceDraft(toDraft(saved));
       toast.success(workspaceContext && !selectedProfile
         ? t("toast.profileSavedBound", { name: workspaceContext.name })
         : t("toast.profileSaved"));
     } catch (error) {
       toast.error(t("common:saveFailed", { error: String(error) }));
     }
-  }, [activeTool, createProfile, draft, isSystemDefaultSelected, selectedProfile, t, toolDefaultProfile, updateProfile, updateWorkspaceLaunchProfile, workspaceContext]);
+  }, [activeTool, createProfile, draft, isSystemDefaultSelected, replaceDraft, selectedProfile, t, toolDefaultProfile, updateProfile, updateWorkspaceLaunchProfile, workspaceContext]);
 
-  const handleDelete = useCallback(async () => {
+  const deleteSelectedProfile = useCallback(async () => {
     if (!selectedProfile || isSystemDefaultSelected) return;
     try {
       for (const workspace of workspaces.filter((item) => item.launchProfileId === selectedProfile.id)) {
@@ -381,18 +358,29 @@ export default function LaunchProfilesPanel({
       }
       await removeProfile(selectedProfile.id);
       setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
-      setDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
+      replaceDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
       toast.success(t("toast.profileDeleted"));
     } catch (error) {
       toast.error(t("common:deleteFailed", { error: String(error) }));
     }
-  }, [activeTool, isSystemDefaultSelected, removeProfile, selectedProfile, t, toolDefaultProfile, updateWorkspaceLaunchProfile, workspaces]);
+  }, [activeTool, isSystemDefaultSelected, removeProfile, replaceDraft, selectedProfile, t, toolDefaultProfile, updateWorkspaceLaunchProfile, workspaces]);
 
-  const handleSetDefault = useCallback(async () => {
+  const handleDelete = useCallback(() => {
+    if (!selectedProfile || isSystemDefaultSelected) return;
+    requestDiscard(() => { void deleteSelectedProfile(); });
+  }, [deleteSelectedProfile, isSystemDefaultSelected, requestDiscard, selectedProfile]);
+
+  const setDefaultProfileAction = useCallback(async () => {
     if (!selectedProfile) return;
+    replaceDraft(toDraft(selectedProfile));
     await setDefaultProfile(selectedProfile.id);
     toast.success(t("toast.defaultProfileUpdated"));
-  }, [selectedProfile, setDefaultProfile, t]);
+  }, [replaceDraft, selectedProfile, setDefaultProfile, t]);
+
+  const handleSetDefault = useCallback(() => {
+    if (!selectedProfile) return;
+    requestDiscard(() => { void setDefaultProfileAction(); });
+  }, [requestDiscard, selectedProfile, setDefaultProfileAction]);
 
   const handleToggleWorkspaceBinding = useCallback(async (workspaceName: string, checked: boolean) => {
     if (!selectedProfileId) {
@@ -459,6 +447,7 @@ export default function LaunchProfilesPanel({
   const currentTitle = isSystemDefaultSelected ? t("systemDefaultName", { tool: toolLabel(activeTool, t) }) : isNewProfile ? draftDisplayName(draft, t) : draftDisplayName(draft, t);
 
   return (
+    <>
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className={`flex min-h-0 flex-1 overflow-hidden ${compact ? "flex-col" : "max-[760px]:flex-col"}`}>
         <LaunchProfileListAside
@@ -569,5 +558,11 @@ export default function LaunchProfilesPanel({
         </main>
       </div>
     </div>
+    <UnsavedChangesDialog
+      open={discardGuard.confirmOpen}
+      onCancel={discardGuard.cancel}
+      onDiscard={discardGuard.discard}
+    />
+    </>
   );
 }

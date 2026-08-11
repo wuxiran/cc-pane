@@ -29,6 +29,7 @@ function createValue(overrides: Partial<TerminalSettings> = {}): TerminalSetting
     rendererMode: "auto",
     showContextUsage: true,
     showStatusBar: true,
+    taskQueueEnabled: true,
     pathLinksEnabled: true,
     shell: null,
     disableConptySanitize: null,
@@ -144,6 +145,18 @@ describe("TerminalSection", () => {
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ showStatusBar: false }));
     // 不应误伤相邻开关
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ showContextUsage: true }));
+  });
+
+  it("emits task queue feature changes", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<TerminalSection value={createValue()} onChange={onChange} />);
+
+    const taskQueue = screen.getByRole("switch", { name: /任务队列|Task queue/i });
+    expect(taskQueue).toBeChecked();
+    await user.click(taskQueue);
+
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ taskQueueEnabled: false }));
   });
 
   it("emits null when the shell input is cleared", () => {

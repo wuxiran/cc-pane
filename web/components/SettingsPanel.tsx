@@ -16,6 +16,8 @@ import { isTauriRuntime } from "@/services/runtime";
 import { useSettingsStore } from "@/stores";
 import { useCCChanStore } from "@/stores/useCCChanStore";
 import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore";
+import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
+import UnsavedChangesDialog from "@/components/providers/UnsavedChangesDialog";
 import SettingsPaneContent from "./settings/SettingsPaneContent";
 import SettingsSearchBox from "./settings/SettingsSearchBox";
 import {
@@ -70,6 +72,9 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [resetArmed, setResetArmed] = useState(false);
   const dirtyRef = useRef(false);
+  const [providerDirty, setProviderDirty] = useState(false);
+  const providerDiscardGuard = useUnsavedChangesGuard(providerDirty, () => setProviderDirty(false));
+  const requestProviderNavigation = providerDiscardGuard.request;
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resetArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPaneByPageRef = useRef<Partial<Record<SettingsPageId, SettingsPaneId>>>({
@@ -108,8 +113,12 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
   }, [activePage.id, activePaneId]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setProviderDirty(false);
+      return;
+    }
     dirtyRef.current = false;
+    setProviderDirty(false);
     setLastSavedAt(null);
     setResetArmed(false);
   }, [open]);
@@ -132,25 +141,29 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     }
     const first = searchResults[0];
     if (!first) return;
-    setActivePaneId(first.paneId);
-    setHighlightedSectionId(first.targetSectionId);
-    scrollToSettingsSection(first.targetSectionId);
-  }, [appliedQuery, searchResults]);
+    requestProviderNavigation(() => {
+      setActivePaneId(first.paneId);
+      setHighlightedSectionId(first.targetSectionId);
+      scrollToSettingsSection(first.targetSectionId);
+    });
+  }, [appliedQuery, requestProviderNavigation, searchResults]);
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
       const target = (event as CustomEvent<SettingsNavigationTarget>).detail;
       if (!panes.some((pane) => pane.id === target.paneId)) return;
-      setActivePaneId(target.paneId);
-      setSearchQuery("");
-      setAppliedQuery("");
-      const sectionId = target.targetSectionId ?? `${target.paneId}-root`;
-      setHighlightedSectionId(sectionId);
-      scrollToSettingsSection(sectionId);
+      requestProviderNavigation(() => {
+        setActivePaneId(target.paneId);
+        setSearchQuery("");
+        setAppliedQuery("");
+        const sectionId = target.targetSectionId ?? `${target.paneId}-root`;
+        setHighlightedSectionId(sectionId);
+        scrollToSettingsSection(sectionId);
+      });
     };
     window.addEventListener(SETTINGS_NAVIGATE_EVENT, handleNavigate);
     return () => window.removeEventListener(SETTINGS_NAVIGATE_EVENT, handleNavigate);
-  }, [panes]);
+  }, [panes, requestProviderNavigation]);
 
   function updateDraft(next: SettingsDraft) {
     dirtyRef.current = true;
@@ -196,7 +209,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft, open]);
 
-  function handleClose(nextOpen: boolean) {
+  function closeNow(nextOpen: boolean) {
     if (!nextOpen && saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
@@ -205,12 +218,25 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     onOpenChange(nextOpen);
   }
 
-  function handleSelectPane(paneId: SettingsPaneId) {
+  function handleClose(nextOpen: boolean) {
+    if (!nextOpen) {
+      requestProviderNavigation(() => closeNow(false));
+      return;
+    }
+    closeNow(nextOpen);
+  }
+
+  function selectPaneNow(paneId: SettingsPaneId) {
     setActivePaneId(paneId);
     setSearchQuery("");
     setAppliedQuery("");
     setHighlightedSectionId(null);
     setResetArmed(false);
+  }
+
+  function handleSelectPane(paneId: SettingsPaneId) {
+    if (paneId === activePaneId) return;
+    requestProviderNavigation(() => selectPaneNow(paneId));
   }
 
   function handleSelectPage(pageId: SettingsPageId) {
@@ -221,9 +247,11 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
   }
 
   function handleSelectSearchResult(result: SettingsSearchResult) {
-    setActivePaneId(result.paneId);
-    setHighlightedSectionId(result.targetSectionId);
-    scrollToSettingsSection(result.targetSectionId);
+    requestProviderNavigation(() => {
+      setActivePaneId(result.paneId);
+      setHighlightedSectionId(result.targetSectionId);
+      scrollToSettingsSection(result.targetSectionId);
+    });
   }
 
   function handleResetSection() {
@@ -246,6 +274,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
         data-testid="settings-dialog"
@@ -329,7 +358,12 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
                   matchedSectionIds,
                   highlightedSectionId,
                 }}>
-                  <SettingsPaneContent paneId={activePaneId} draft={draft} updateDraft={updateDraft} />
+                  <SettingsPaneContent
+                    paneId={activePaneId}
+                    draft={draft}
+                    updateDraft={updateDraft}
+                    onUnsavedChangesChange={setProviderDirty}
+                  />
                 </SettingsSearchProvider>
               </div>
             </div>
@@ -358,5 +392,11 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
         </footer>
       </DialogContent>
     </Dialog>
+    <UnsavedChangesDialog
+      open={providerDiscardGuard.confirmOpen}
+      onCancel={providerDiscardGuard.cancel}
+      onDiscard={providerDiscardGuard.discard}
+    />
+    </>
   );
 }

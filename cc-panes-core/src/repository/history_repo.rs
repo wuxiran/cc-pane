@@ -379,25 +379,30 @@ impl HistoryRepository {
 
     /// 将创建完成的 PTY 精确归属到对应 launch 记录。CLI 必须匹配，避免并发启动或
     /// 错误事件把 Codex PTY 绑定到 Claude 记录。
+    ///
+    /// 同步把 `provider_id` / `model_id` 一起 UPDATE：这两列会被后端 usage 服务
+    /// 用于在 `provider_window_for_request` 里查 Provider 的 `contextWindowTokens`，
+    /// 漏写任何一列都会让状态栏 Ctx 段永远 `WINDOW_UNKNOWN`。
     pub fn bind_pty_session(
         &self,
         launch_id: &str,
         pty_session_id: &str,
         cli_tool: &str,
         model_id: Option<&str>,
+        provider_id: Option<&str>,
     ) -> Result<Option<i64>, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
         let affected = conn
             .execute(
                 "UPDATE launch_history
-                 SET pty_session_id = ?1, model_id = ?4
+                 SET pty_session_id = ?1, model_id = ?4, provider_id = ?5
                  WHERE id = (
                      SELECT id FROM launch_history
                      WHERE project_id = ?2 AND cli_tool = ?3
                        AND (pty_session_id IS NULL OR pty_session_id = ?1)
                      ORDER BY launched_at DESC LIMIT 1
                  )",
-                rusqlite::params![pty_session_id, launch_id, cli_tool, model_id],
+                rusqlite::params![pty_session_id, launch_id, cli_tool, model_id, provider_id],
             )
             .map_err(|e| {
                 error!(table = "launch_history", launch_id = %launch_id, pty_session_id = %pty_session_id, cli_tool = %cli_tool, err = %e, "SQL bind_pty_session failed");

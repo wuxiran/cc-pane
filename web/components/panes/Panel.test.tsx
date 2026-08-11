@@ -183,7 +183,7 @@ describe("Panel", () => {
     expect(useSshMachineDialogStore.getState().addDialogOpen).toBe(true);
   });
 
-  it("enables terminal status bars only when the layout has multiple panes", () => {
+  it("enables terminal status bars when the layout has multiple panes", () => {
     const pane = makePane([makeTab("t1")]);
     const otherPane: PanelType = {
       type: "panel",
@@ -200,6 +200,15 @@ describe("Panel", () => {
         children: [pane, otherPane],
       },
     });
+
+    render(<Panel pane={pane} />);
+
+    expect(tabContentPropsByTab.get("t1")?.showTerminalStatusBar).toBe(true);
+  });
+
+  it("also enables the terminal status bar in a single-pane layout", () => {
+    const pane = makePane([makeTab("t1")]);
+    setPanesState(pane);
 
     render(<Panel pane={pane} />);
 

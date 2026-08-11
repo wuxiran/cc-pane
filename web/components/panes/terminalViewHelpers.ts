@@ -86,3 +86,13 @@ export function applyTerminalElementTheme(
   term.element.style.backgroundColor = theme.background;
   term.element.style.color = theme.foreground;
 }
+
+export function repaintTerminalWhenVisible(
+  isRenderVisible: () => boolean,
+  repaint: (reason: string) => void,
+  reason: string,
+): boolean {
+  if (!isRenderVisible()) return false;
+  repaint(reason);
+  return true;
+}

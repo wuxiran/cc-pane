@@ -6,7 +6,11 @@ import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
-import { classifyNotification, type NotificationSeverity } from "@/lib/notificationTaxonomy";
+import {
+  classifyNotification,
+  isSystemNotification,
+  type NotificationSeverity,
+} from "@/lib/notificationTaxonomy";
 import {
   selectUnreadCount,
   useNotificationStore,
@@ -19,7 +23,7 @@ import {
   jumpToNotificationTask,
 } from "./notificationActions";
 
-type HistoryFilter = "all" | "errors" | "completed" | "askInput";
+type HistoryFilter = "all" | "errors" | "completed" | "askInput" | "system";
 
 const SEVERITY_DOT: Record<NotificationSeverity, string> = {
   error: "var(--app-status-danger)",
@@ -29,7 +33,8 @@ const SEVERITY_DOT: Record<NotificationSeverity, string> = {
 };
 
 function matchesFilter(record: NotificationRecord, filter: HistoryFilter): boolean {
-  if (filter === "all") return true;
+  if (filter === "all") return !isSystemNotification(record);
+  if (filter === "system") return isSystemNotification(record);
   const { severity, interruptClass } = classifyNotification(record);
   if (filter === "errors") return severity === "error";
   if (filter === "completed") return severity === "success";
@@ -71,6 +76,7 @@ export default function NotificationHistoryPanel() {
     { id: "errors", label: t("center.filterErrors") },
     { id: "completed", label: t("center.filterCompleted") },
     { id: "askInput", label: t("center.filterAskInput") },
+    { id: "system", label: t("center.filterSystem") },
   ];
 
   const openRecord = (record: NotificationRecord) => {

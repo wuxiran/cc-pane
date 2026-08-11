@@ -103,7 +103,7 @@ export default memo(function Panel({ pane }: PanelProps) {
 
   const isActivePane = activePaneId === pane.id;
   const isFullscreenPanel = isFullscreen && fullscreenPaneId === pane.id;
-  const showTerminalStatusBar = collectPanels(rootPane).length > 1 && !isFullscreenPanel;
+  const showTerminalStatusBar = true;
 
   const activeTab = useMemo(
     () => pane.tabs.find((t) => t.id === pane.activeTabId),

@@ -1,8 +1,12 @@
 mod common;
 mod events;
 mod notify;
+mod permission_request;
 mod plan_archive;
 mod session_start;
+
+#[cfg(test)]
+mod permission_request_tests;
 
 use clap::{Parser, Subcommand};
 use std::io::Read;
@@ -26,6 +30,8 @@ enum Commands {
     PlanArchive,
     /// Explicitly trigger a CC-Panes notification via the local orchestrator API
     Notify(notify::NotifyArgs),
+    /// Claude PermissionRequest hook - ask the local queue orchestrator for a decision
+    PermissionRequest,
 
     // ============ cc-pane 抽象事件子命令（阶段 1：alias，阶段 2 落地业务逻辑） ============
     //
@@ -63,6 +69,7 @@ fn main() {
         Commands::SessionStart => session_start::run(),
         Commands::PlanArchive => plan_archive::run(),
         Commands::Notify(args) => notify::run(args),
+        Commands::PermissionRequest => permission_request::run(),
 
         // cc-pane 事件子命令：先一次性读 stdin → 上报状态机 → 调旧业务逻辑（如需）
         Commands::SessionInit => dispatch_with_business("session-init", DispatchKind::SessionStart),

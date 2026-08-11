@@ -116,5 +116,15 @@
   "DIR_ALREADY_EXISTS": "Target directory already exists",
 
   "SSH_IDENTITY_FILE_INVALID": "SSH identity file path is invalid",
-  "SSH_PORT_INVALID": "SSH port must be greater than 0"
+  "SSH_PORT_INVALID": "SSH port must be greater than 0",
+  "QUEUE_FULL": "This task queue already contains 100 items",
+  "QUEUE_ITEM_INVALID": "The queued task is empty or exceeds its limits",
+  "QUEUE_ITEM_NOT_FOUND": "The queued task no longer exists",
+  "IMAGE_REF_INVALID": "This staged image is no longer valid",
+  "IMAGE_STAGE_FAILED": "The clipboard image could not be staged",
+  "SESSION_NOT_FOUND": "The terminal session no longer exists",
+  "SESSION_NOT_WRITABLE": "CC-Panes does not currently own terminal write access",
+  "UNATTENDED_UNSUPPORTED": "This CLI session does not support unattended approval",
+  "SUBMIT_FAILED": "The task could not be sent and remains at the front of the queue",
+  "DELIVERY_UNKNOWN": "Delivery could not be confirmed; check the terminal before retrying"
 }

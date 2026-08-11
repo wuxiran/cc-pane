@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   decideTerminalRenderer,
+  isMacDesktopWebKitTerminalRendererHost,
   isWebKitTerminalRendererHost,
   isWindowsTerminalRendererHost,
   normalizeTerminalRendererMode,
@@ -9,18 +10,52 @@ import {
 } from "./terminalRenderer";
 
 describe("terminal renderer selection", () => {
-  it("disables WebGL for Safari/WKWebView user agents", () => {
+  it("keeps WebGL enabled for macOS desktop WKWebView in auto mode", () => {
     const safari =
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15";
 
     expect(isWebKitTerminalRendererHost(safari)).toBe(true);
-    expect(shouldUseTerminalWebglRenderer(safari)).toBe(false);
+    expect(isMacDesktopWebKitTerminalRendererHost(safari)).toBe(true);
+    expect(shouldUseTerminalWebglRenderer(safari)).toBe(true);
     expect(decideTerminalRenderer("auto", {
       userAgent: safari,
       webgl2Supported: true,
     })).toMatchObject({
+      renderer: "webgl",
+      reason: "auto-webgl",
+    });
+  });
+
+  it("still falls back to DOM for mobile WebKit hosts in auto mode", () => {
+    const ios =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1";
+    // iPadOS 桌面模式会把自己报成 Macintosh，只有 Mobile 标记能区分。
+    const ipadDesktopMode =
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1";
+
+    for (const userAgent of [ios, ipadDesktopMode]) {
+      expect(isMacDesktopWebKitTerminalRendererHost(userAgent)).toBe(false);
+      expect(decideTerminalRenderer("auto", {
+        userAgent,
+        webgl2Supported: true,
+      })).toMatchObject({
+        renderer: "dom",
+        reason: "webkit-host",
+      });
+    }
+  });
+
+  it("wallpaper transparency still wins over macOS WebGL", () => {
+    const safari =
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15";
+
+    expect(decideTerminalRenderer("auto", {
+      userAgent: safari,
+      webgl2Supported: true,
+      transparencyRequired: true,
+    })).toMatchObject({
       renderer: "dom",
-      reason: "webkit-host",
+      reason: "wallpaper-transparency",
     });
   });
 

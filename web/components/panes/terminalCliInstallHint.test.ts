@@ -3,8 +3,10 @@ import { getCliInstallHint } from "./terminalCliInstallHint";
 
 describe("terminal CLI install hints", () => {
   it("uses the npm package name for OpenCode", () => {
-    expect(getCliInstallHint("opencode")).toBe("Install OpenCode with: npm install -g opencode-ai");
-    expect(getCliInstallHint("OpenCode")).toBe("Install OpenCode with: npm install -g opencode-ai");
+    const hint =
+      "Install OpenCode with: npm install -g opencode-ai --registry=https://registry.npmjs.org";
+    expect(getCliInstallHint("opencode")).toBe(hint);
+    expect(getCliInstallHint("OpenCode")).toBe(hint);
   });
 
   it("returns no hint for generic tools", () => {

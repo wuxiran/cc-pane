@@ -352,6 +352,8 @@ impl CliToolAdapter for GrokAdapter {
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
+        // Wallpaper transparency is handled by the terminal renderer; keep
+        // Grok's native full TUI behavior.
         let mut args = Vec::new();
 
         crate::push_model_arg(&mut args, ctx);
@@ -536,6 +538,17 @@ mod tests {
             .any(|pair| pair[0] == "--session-id"
                 && pair[1] == "11111111-2222-3333-4444-555555555555"));
         assert!(!result.args.iter().any(|arg| arg == "--resume"));
+    }
+
+    #[test]
+    fn build_command_keeps_full_tui() {
+        let adapter = GrokAdapter::new();
+        let ctx = test_context(Some("/opt/grok/bin/grok"));
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        assert!(!result.args.iter().any(|arg| arg == "--mini"));
+        assert!(!result.args.iter().any(|arg| arg == "--minimal"));
     }
 
     #[test]

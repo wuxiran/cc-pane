@@ -1,6 +1,7 @@
 import "@/i18n";
 import i18n from "@/i18n";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PropsWithChildren } from "react";
 import { useContextUsageStore } from "@/stores/useContextUsageStore";
@@ -25,6 +26,13 @@ vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: PropsWithChildren) => <>{children}</>,
   TooltipTrigger: ({ children }: PropsWithChildren) => <>{children}</>,
   TooltipContent: ({ children }: PropsWithChildren) => <div>{children}</div>,
+}));
+
+const { navigateToSettingsMock } = vi.hoisted(() => ({
+  navigateToSettingsMock: vi.fn(),
+}));
+vi.mock("@/components/settings/settingsNavigation", () => ({
+  navigateToSettings: navigateToSettingsMock,
 }));
 
 function snapshot(overrides: Partial<ContextUsageSnapshot> = {}): ContextUsageSnapshot {
@@ -105,6 +113,19 @@ describe("ContextUsageIndicator", () => {
     expect(screen.getAllByText("-%").length).toBeGreaterThan(0);
     expect(screen.getByText(/请在 Provider 模型设置中配置/)).toBeInTheDocument();
     expect(screen.queryByText(/窗口来源/)).not.toBeInTheDocument();
+  });
+
+  it("WINDOW_UNKNOWN 提示文案包含可点击的「去 Provider 设置」按钮，点击后跳到 provider pane", async () => {
+    const user = userEvent.setup();
+    navigateToSettingsMock.mockClear();
+    setSnapshot(snapshot());
+    render(<ContextUsageIndicator />);
+
+    const link = screen.getByRole("button", { name: /去 Provider 设置/ });
+    expect(link).toBeInTheDocument();
+    await user.click(link);
+
+    expect(navigateToSettingsMock).toHaveBeenCalledWith({ paneId: "provider" });
   });
 
   it("renders a compact usage summary", () => {

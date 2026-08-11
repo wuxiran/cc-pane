@@ -13,6 +13,12 @@ vi.mock("@/components/ContextUsageIndicator", () => ({
   ),
 }));
 
+vi.mock("./TaskQueuePopover", () => ({
+  default: ({ sessionId }: { sessionId: string }) => (
+    <button type="button" aria-label={`task-queue-${sessionId}`} />
+  ),
+}));
+
 vi.mock("@/services/settingsService", () => ({
   settingsService: {
     updateSettings: vi.fn().mockResolvedValue(undefined),
@@ -32,6 +38,7 @@ const terminalContext: ActiveTerminalContext = {
 
 describe("TerminalStatusBar", () => {
   beforeEach(() => {
+    window.__TAURI_INTERNALS__ = {};
     useSettingsStore.setState({ settings: createTestSettings() });
     useTerminalStatusStore.setState({ statusMap: new Map() });
   });
@@ -43,6 +50,37 @@ describe("TerminalStatusBar", () => {
 
     expect(screen.getByTestId("terminal-status-bar")).toBeInTheDocument();
     expect(screen.getByTestId("context-usage-indicator")).toHaveAttribute("data-enabled", "true");
+    expect(screen.getByRole("button", { name: "task-queue-session-1" })).toBeInTheDocument();
+  });
+
+  it("hides the queue entry when the global feature is disabled", () => {
+    const settings = createTestSettings();
+    useSettingsStore.setState({
+      settings: {
+        ...settings,
+        terminal: { ...settings.terminal, taskQueueEnabled: false },
+      },
+    });
+
+    render(<TerminalStatusBar terminalContext={terminalContext} projectPath="/tmp/project" />);
+    expect(screen.queryByRole("button", { name: "task-queue-session-1" })).not.toBeInTheDocument();
+  });
+
+  it("does not expose queue controls in a browser runtime", () => {
+    window.__TAURI_INTERNALS__ = undefined;
+
+    render(<TerminalStatusBar terminalContext={terminalContext} projectPath="/tmp/project" />);
+    expect(screen.queryByRole("button", { name: "task-queue-session-1" })).not.toBeInTheDocument();
+  });
+
+  it("does not expose queue controls without an eligible CLI session", () => {
+    render(
+      <TerminalStatusBar
+        terminalContext={{ ...terminalContext, cliTool: "none" }}
+        projectPath="/tmp/project"
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "task-queue-session-1" })).not.toBeInTheDocument();
   });
 
   it("hides only context usage when the terminal setting is disabled", () => {

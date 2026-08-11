@@ -353,6 +353,7 @@ pub async fn create_session(
                 &session_id,
                 cli_tool.as_id(),
                 resolved_model_id.as_deref(),
+                observation_request.provider_id.as_deref(),
             ) {
                 Ok(Some(_)) => {
                     bound = true;

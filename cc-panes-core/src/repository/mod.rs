@@ -11,6 +11,7 @@ mod session_index_repo;
 mod session_restore_repo;
 pub mod spec_repo;
 mod task_binding_repo;
+mod task_queue_repository;
 mod todo_repo;
 mod usage_stats_repo;
 
@@ -27,5 +28,6 @@ pub use session_index_repo::SessionIndexRepository;
 pub use session_restore_repo::SessionRestoreRepository;
 pub use spec_repo::SpecRepository;
 pub use task_binding_repo::TaskBindingRepository;
+pub use task_queue_repository::TaskQueueRepository;
 pub use todo_repo::TodoRepository;
 pub use usage_stats_repo::UsageStatsRepository;

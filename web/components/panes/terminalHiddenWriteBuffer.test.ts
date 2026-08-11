@@ -19,6 +19,18 @@ describe("terminalHiddenWriteBuffer", () => {
     expect(buffer.drain()).toBeNull();
   });
 
+  it("合并大量微小 chunk，避免隐藏缓冲保留无界字符串对象", () => {
+    const buffer = createTerminalHiddenWriteBuffer({ isVisible: () => false });
+
+    for (let index = 0; index < 10_000; index += 1) {
+      buffer.push("x");
+    }
+
+    expect(buffer.pendingLength()).toBe(10_000);
+    expect(buffer.pendingChunkCount()).toBeLessThanOrEqual(192);
+    expect(buffer.drain()).toBe("x".repeat(10_000));
+  });
+
   it("变可见后的第一个 chunk 会把积压拼在自己前面（不乱序）", () => {
     let visible = false;
     const buffer = createTerminalHiddenWriteBuffer({ isVisible: () => visible });

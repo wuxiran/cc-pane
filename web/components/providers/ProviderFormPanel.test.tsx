@@ -488,4 +488,23 @@ describe("ProviderFormPanel", () => {
     expect(onBack).toHaveBeenCalled();
     expect(actions.addProvider).not.toHaveBeenCalled();
   });
+
+  it("asks before discarding provider form changes", async () => {
+    const user = userEvent.setup();
+    const onBack = vi.fn();
+    setupStore();
+    render(<ProviderFormPanel activeTab="claude" onBack={onBack} />);
+
+    await user.type(
+      screen.getByPlaceholderText(i18n.t("settings:providerNamePlaceholder")),
+      "Unsaved Provider",
+    );
+    await user.click(screen.getByRole("button", { name: i18n.t("common:cancel") }));
+
+    expect(onBack).not.toHaveBeenCalled();
+    expect(await screen.findByRole("dialog", { name: i18n.t("common:unsavedChangesTitle") })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: i18n.t("common:discardChanges") }));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
 });

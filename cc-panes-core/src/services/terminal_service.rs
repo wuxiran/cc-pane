@@ -4451,6 +4451,7 @@ mod tests {
                 label: None,
                 default_effort: None,
                 context_window_tokens: Some(200_000),
+                context_size: None,
             }],
             default_model_id: Some("provider-default".to_string()),
             is_default: true,

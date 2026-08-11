@@ -177,6 +177,8 @@ export interface TerminalSettings {
   showContextUsage: boolean;
   /** 终端底部状态栏(整条)的开关。关闭后状态栏整段不渲染,把空间让给终端区。 */
   showStatusBar: boolean;
+  /** Enable backend-owned task queues and show their controls in CLI status bars. */
+  taskQueueEnabled: boolean;
   /** Show local file and directory paths in terminal output as clickable links. */
   pathLinksEnabled: boolean;
   /** 用户选择的 Shell ID（如 "pwsh", "cmd"），null 表示自动探测 */

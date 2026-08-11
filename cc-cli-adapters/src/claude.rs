@@ -3,8 +3,9 @@
 use crate::{
     build_guarded_hook_command, is_guarded_hook_command, resolve_executable, CcPaneEvent,
     CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities, CliToolInfo,
-    HookCommandShell, NativeHookBinding, ProjectHookDefinition, ProjectHookStatus, ToolKind,
-    ToolMatcher,
+    HookCommandShell, NativeHookBinding, PermissionRequestCapability,
+    PermissionRequestValidationError, ProjectHookDefinition, ProjectHookStatus,
+    StructuredPermissionRequest, ToolKind, ToolMatcher,
 };
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
@@ -111,7 +112,14 @@ const HOOK_DEFS: &[HookDef] = &[
         name: "state-waiting-input",
         subcommand: "waiting-input",
         event: "Notification",
-        matcher: "permission_prompt|elicitation_dialog|elicitation_complete|elicitation_response|idle_prompt",
+        // 只收「agent 真的被挡住、在等人拍板」的两类。三类历史误收已移除：
+        //   idle_prompt          —— 输入框闲置 60s 才发，是「人走开了」不是「agent 卡住了」；
+        //                           turn_end 已经通知过一次，这条纯属第二次打扰。
+        //   elicitation_complete —— 对话框**结束**事件，语义与 WaitingInput 相反；
+        //   elicitation_response —— 用户**已回答**事件，同上。
+        // 后两类会在人答完之后把会话重新标成 WaitingInput（状态卡住 + 再弹一条），
+        // 一次问答因此至少产出两条通知。清除靠后续正常事件（tool-before/turn-end）自然推进。
+        matcher: "permission_prompt|elicitation_dialog",
         timeout: 5,
         label: "State: waiting input",
     },
@@ -131,11 +139,28 @@ const HOOK_DEFS: &[HookDef] = &[
         timeout: 5,
         label: "State: session end",
     },
+    HookDef {
+        name: "task-queue-permission-request",
+        subcommand: "permission-request",
+        event: "PermissionRequest",
+        matcher: "",
+        timeout: 5,
+        label: "Task queue: permission request",
+    },
 ];
 
 pub struct ClaudeAdapter {
     info: CliToolInfo,
     caps: CliToolCapabilities,
+}
+
+fn validated_permission_string(payload: &serde_json::Value, key: &str) -> Option<String> {
+    let value = payload.get(key)?.as_str()?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed != value {
+        return None;
+    }
+    Some(value.to_string())
 }
 
 impl ClaudeAdapter {
@@ -211,6 +236,15 @@ impl ClaudeAdapter {
             env.entry((*key).to_string()).or_default();
         }
         let model = ctx.model_id().unwrap_or_default().to_string();
+        // 如果 Provider 模型有 `contextSize`（如 `"1m"` / `"500k"`），按 ccpanel 规则
+        // 给 ANTHROPIC_MODEL 拼 `[<size>]` 后缀——Claude Code 看到后缀才会用真实窗口
+        // 而非 200k 默认；空 / `"200k"`（默认）/ `"custom"` 不拼（与 ccpanel
+        // `apply_context_size_suffix` 同源）。其他 CLI（codex/opencode/...）不解析
+        // 后缀，故只在 claude 注入。
+        let model = match (ctx.context_size(), model.is_empty()) {
+            (Some(cs), false) => crate::context_size::apply_context_size_suffix(&model, &cs),
+            _ => model,
+        };
         for key in MODEL_ENV_KEYS {
             env.insert((*key).to_string(), model.clone());
         }
@@ -862,6 +896,38 @@ impl CliToolAdapter for ClaudeAdapter {
         &self.caps
     }
 
+    fn permission_request_capability(&self) -> Option<PermissionRequestCapability> {
+        Some(PermissionRequestCapability::ClaudeSynchronousHook)
+    }
+
+    fn validate_permission_request(
+        &self,
+        payload: &serde_json::Value,
+    ) -> std::result::Result<StructuredPermissionRequest, PermissionRequestValidationError> {
+        let event = payload
+            .get("hook_event_name")
+            .and_then(serde_json::Value::as_str);
+        if event != Some("PermissionRequest") {
+            return Err(PermissionRequestValidationError::UnsupportedEvent);
+        }
+
+        let tool_use_id = validated_permission_string(payload, "tool_use_id")
+            .ok_or(PermissionRequestValidationError::MissingToolUseId)?;
+        let tool_name = validated_permission_string(payload, "tool_name")
+            .ok_or(PermissionRequestValidationError::MissingToolName)?;
+        let tool_input = payload
+            .get("tool_input")
+            .filter(|value| value.is_object())
+            .cloned()
+            .ok_or(PermissionRequestValidationError::InvalidToolInput)?;
+
+        Ok(StructuredPermissionRequest {
+            tool_use_id,
+            tool_name,
+            tool_input,
+        })
+    }
+
     fn detect(&self) -> CliToolInfo {
         let mut info = self.info().clone();
         match Self::resolve_claude_path() {
@@ -958,7 +1024,7 @@ impl CliToolAdapter for ClaudeAdapter {
                         "type": "command",
                         "command": command,
                         "timeout": def.timeout,
-                        "async": true
+                        "async": def.event != "PermissionRequest"
                     }]
                 });
                 Self::merge_ccpanes_hook_entry(hooks_obj, def, entry);
@@ -1171,16 +1237,16 @@ impl CliToolAdapter for ClaudeAdapter {
 
     fn map_cc_pane_event(&self, event: &CcPaneEvent) -> Option<NativeHookBinding> {
         match event {
-            CcPaneEvent::SessionInit => Some(NativeHookBinding::new("SessionStart", Some("startup"), 10)),
+            CcPaneEvent::SessionInit => {
+                Some(NativeHookBinding::new("SessionStart", Some("startup"), 10))
+            }
             CcPaneEvent::SessionResume => Some(NativeHookBinding::new(
                 "SessionStart",
                 Some("resume|compact"),
                 10,
             )),
             CcPaneEvent::SessionEnd => Some(NativeHookBinding::new("SessionEnd", None, 5)),
-            CcPaneEvent::PromptBefore => {
-                Some(NativeHookBinding::new("UserPromptSubmit", None, 10))
-            }
+            CcPaneEvent::PromptBefore => Some(NativeHookBinding::new("UserPromptSubmit", None, 10)),
             CcPaneEvent::ToolBefore(matcher) => Some(NativeHookBinding::new(
                 "PreToolUse",
                 self.render_cc_pane_tool_matcher(matcher).as_deref(),
@@ -1197,9 +1263,10 @@ impl CliToolAdapter for ClaudeAdapter {
                 Some("manual|auto"),
                 15,
             )),
+            // 与 HOOK_DEFS 的 state-waiting-input 保持同一口径（那里有为什么只留两类的说明）。
             CcPaneEvent::WaitingInput => Some(NativeHookBinding::new(
                 "Notification",
-                Some("permission_prompt|elicitation_dialog|elicitation_complete|elicitation_response|idle_prompt"),
+                Some("permission_prompt|elicitation_dialog"),
                 5,
             )),
             CcPaneEvent::Error => Some(NativeHookBinding::new("StopFailure", None, 5)),
@@ -1310,7 +1377,7 @@ mod tests {
         // session-init / session-resume 子命令出现
         assert!(content.contains("session-init"));
         assert!(content.contains("session-resume"));
-        // 存在性守卫按宿主平台生成:Windows 是 cmd.exe if exist,Unix 是 if [ -x
+        // 存在性守卫按宿主平台生成:Windows 是 if exist,Unix 是 if [ -x
         if cfg!(windows) {
             assert!(content.contains("if exist"));
         } else {
@@ -1332,6 +1399,28 @@ mod tests {
         assert!(!plan.enabled);
         assert!(session.supported);
         assert!(plan.supported);
+    }
+
+    #[test]
+    fn unattended_permission_request_hook_is_registered_synchronously() {
+        let dir = tempdir().unwrap();
+        let project_path = dir.path();
+        let hook_binary = project_path.join("cc-panes-cli-hook");
+        fs::write(&hook_binary, b"hook").unwrap();
+
+        ClaudeAdapter::new()
+            .sync_project_hooks(project_path, Some(&hook_binary), &HashMap::new())
+            .unwrap();
+
+        let settings: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(project_path.join(".claude/settings.local.json")).unwrap(),
+        )
+        .unwrap();
+        let hook = &settings["hooks"]["PermissionRequest"][0]["hooks"][0];
+        assert_eq!(hook["async"], false);
+        assert!(hook["command"]
+            .as_str()
+            .is_some_and(|command| command.contains("permission-request")));
     }
 
     #[test]
@@ -1470,6 +1559,76 @@ mod tests {
             .expect("prompt separator present");
         assert!(model_pos < resume_pos);
         assert!(resume_pos < prompt_pos);
+    }
+
+    #[test]
+    fn managed_settings_appends_context_size_suffix_to_anthropic_model() {
+        // Provider 模型配 `contextSize: "1m"` 时，managed_settings 里 ANTHROPIC_MODEL 必须
+        // 变成 `"<model>[1m]"`——否则 Claude Code 不认这个 model 强制 200k + 报错。
+        let dir = tempdir().unwrap();
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = managed_provider_context(
+            dir.path(),
+            serde_json::json!({
+                "ANTHROPIC_API_KEY": "k",
+                "ANTHROPIC_BASE_URL": "https://p.test",
+            }),
+        );
+        ctx.adapter_options.insert(
+            "__ccpanesModelId".to_string(),
+            serde_json::json!("MiniMax-M3-highspeed"),
+        );
+        ctx.adapter_options
+            .insert("__ccpanesContextSize".to_string(), serde_json::json!("1m"));
+
+        let result = adapter.build_command(&ctx).unwrap();
+        let settings = managed_settings(&result);
+
+        // ANTHROPIC_MODEL 必须带 [1m] 后缀；CLAUDE_CODE_SUBAGENT_MODEL 同样
+        assert_eq!(
+            settings.pointer("/env/ANTHROPIC_MODEL"),
+            Some(&serde_json::json!("MiniMax-M3-highspeed[1m]"))
+        );
+        assert_eq!(
+            settings.pointer("/env/CLAUDE_CODE_SUBAGENT_MODEL"),
+            Some(&serde_json::json!("MiniMax-M3-highspeed[1m]"))
+        );
+    }
+
+    #[test]
+    fn managed_settings_skips_suffix_for_baseline_or_custom_context_size() {
+        // 200k / 空 / "custom" 都不拼后缀——和 ccpanel 行为对齐
+        for (size, label) in [
+            (Some("200k"), "baseline"),
+            (Some("custom"), "custom"),
+            (None, "missing"),
+        ] {
+            let dir = tempdir().unwrap();
+            let adapter = ClaudeAdapter::new();
+            let mut ctx = managed_provider_context(
+                dir.path(),
+                serde_json::json!({
+                    "ANTHROPIC_API_KEY": "k",
+                    "ANTHROPIC_BASE_URL": "https://p.test",
+                }),
+            );
+            ctx.adapter_options.insert(
+                "__ccpanesModelId".to_string(),
+                serde_json::json!("MiniMax-M3-highspeed"),
+            );
+            if let Some(s) = size {
+                ctx.adapter_options
+                    .insert("__ccpanesContextSize".to_string(), serde_json::json!(s));
+            }
+
+            let result = adapter.build_command(&ctx).unwrap();
+            let settings = managed_settings(&result);
+            assert_eq!(
+                settings.pointer("/env/ANTHROPIC_MODEL"),
+                Some(&serde_json::json!("MiniMax-M3-highspeed")),
+                "case={label} size={size:?}: must NOT append suffix"
+            );
+        }
     }
 
     #[test]
@@ -2035,8 +2194,26 @@ mod tests {
 
         let b = a.map_cc_pane_event(&CcPaneEvent::WaitingInput).unwrap();
         assert_eq!(b.event, "Notification");
-        // WaitingInput 匹配多种通知类型
-        assert!(b.matcher.as_deref().unwrap().contains("permission_prompt"));
+        // WaitingInput 只收「agent 真被挡住」的两类；下面三类是历史误收，锁死不许回来：
+        // idle_prompt = 人走开（非 agent 阻塞），elicitation_complete/response = 已答完（语义相反）
+        let matcher = b.matcher.as_deref().unwrap();
+        assert_eq!(matcher, "permission_prompt|elicitation_dialog");
+        for noisy in [
+            "idle_prompt",
+            "elicitation_complete",
+            "elicitation_response",
+        ] {
+            assert!(
+                !matcher.contains(noisy),
+                "误报源 {noisy} 不得重新混入 WaitingInput"
+            );
+        }
+        // HOOK_DEFS 与 map_cc_pane_event 必须同口径，否则装出去的 hook 与运行期判定打架
+        let hook_def = HOOK_DEFS
+            .iter()
+            .find(|def| def.name == "state-waiting-input")
+            .expect("state-waiting-input hook def");
+        assert_eq!(hook_def.matcher, matcher);
     }
 
     #[test]

@@ -99,6 +99,15 @@ describe("settings registry", () => {
     }));
   });
 
+  it("registers the terminal task queue setting for search", () => {
+    const terminal = SETTINGS_PANES.find((pane) => pane.id === "terminal");
+
+    expect(terminal?.searchEntries).toContainEqual(expect.objectContaining({
+      id: "task-queue",
+      targetSectionId: "terminal-task-queue",
+    }));
+  });
+
   it("registers independent color and shape search targets", () => {
     const theme = SETTINGS_PANES.find((pane) => pane.id === "theme");
     const shape = SETTINGS_PANES.find((pane) => pane.id === "theme-shape");

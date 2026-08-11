@@ -9,6 +9,7 @@
 mod atomic_file;
 mod claude;
 mod codex;
+pub mod context_size;
 mod cursor;
 mod fs_atomic;
 mod gemini;
@@ -51,14 +52,17 @@ pub(crate) fn build_guarded_hook_command(
             format!("if [ -x {quoted} ]; then {quoted} {subcommand}; fi")
         }
         HookCommandShell::Windows => {
-            format!(r#"cmd.exe /D /C if exist "{path}" "{path}" {subcommand}"#)
+            // The CLI already runs hook commands through the Windows host shell.
+            // Starting another cmd.exe here makes the hook consume Claude's JSON
+            // stdin as shell input instead of forwarding it to the executable.
+            format!(r#"if exist "{path}" "{path}" {subcommand}"#)
         }
     }
 }
 
 pub(crate) fn is_guarded_hook_command(command: &str) -> bool {
     let command = command.trim_start();
-    command.starts_with("if [ -x ") || command.starts_with("cmd.exe /D /C if exist ")
+    command.starts_with("if [ -x ") || command.starts_with("if exist ")
 }
 
 /// 创建不弹窗的 Command（Windows 自动设置 CREATE_NO_WINDOW）
@@ -298,10 +302,7 @@ fn candidate_executable_dirs() -> Vec<PathBuf> {
         {
             extend_unique_dirs(
                 &mut dirs,
-                [
-                    home.join("AppData").join("Roaming").join("npm"),
-                    home.join("scoop").join("shims"),
-                ],
+                windows_user_cli_dirs(&home, std::env::var_os("GROK_HOME").as_deref()),
             );
         }
     }
@@ -341,6 +342,23 @@ fn candidate_executable_dirs() -> Vec<PathBuf> {
     );
 
     dedupe_existing_dirs(dirs)
+}
+
+#[cfg(windows)]
+fn windows_user_cli_dirs(home: &Path, grok_home: Option<&std::ffi::OsStr>) -> Vec<PathBuf> {
+    let mut dirs = vec![
+        // npm and Scoop are the two common user-level Windows CLI locations.
+        home.join("AppData").join("Roaming").join("npm"),
+        home.join("scoop").join("shims"),
+        // Grok's official installer uses ~/.grok/bin and may not update the
+        // environment inherited by an already-running desktop app.
+        home.join(".grok").join("bin"),
+    ];
+    if let Some(grok_home) = grok_home {
+        let path = PathBuf::from(grok_home);
+        dirs.push(path.join("bin"));
+    }
+    dirs
 }
 
 /// 版本目录名比较（`v20.11.1` 风格），数字段按数值比。
@@ -562,6 +580,23 @@ pub trait CliToolAdapter: Send + Sync {
     /// 能力声明（前端据此决定 UI 展示）
     fn capabilities(&self) -> &CliToolCapabilities;
 
+    /// Structured permission-decision transport supported by this CLI.
+    ///
+    /// `None` is intentionally fail-closed: callers must never infer support
+    /// from a generic notification or pre-tool hook.
+    fn permission_request_capability(&self) -> Option<PermissionRequestCapability> {
+        None
+    }
+
+    /// Validate and normalize a native permission request before it reaches
+    /// privileged queue logic. Unsupported adapters reject every payload.
+    fn validate_permission_request(
+        &self,
+        _payload: &serde_json::Value,
+    ) -> std::result::Result<StructuredPermissionRequest, PermissionRequestValidationError> {
+        Err(PermissionRequestValidationError::UnsupportedCli)
+    }
+
     /// 构建启动命令（核心方法，含 MCP 注入逻辑）
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult>;
 
@@ -694,6 +729,46 @@ pub struct CliToolCapabilities {
     pub compatible_provider_types: Vec<String>,
 }
 
+/// Native synchronous permission-decision capability.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PermissionRequestCapability {
+    /// Claude Code's synchronous `PermissionRequest` hook.
+    ClaudeSynchronousHook,
+}
+
+/// Security-relevant subset of a validated native permission request.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StructuredPermissionRequest {
+    pub tool_use_id: String,
+    pub tool_name: String,
+    pub tool_input: serde_json::Value,
+}
+
+/// Fail-closed reasons returned at the adapter boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionRequestValidationError {
+    UnsupportedCli,
+    UnsupportedEvent,
+    MissingToolUseId,
+    MissingToolName,
+    InvalidToolInput,
+}
+
+impl std::fmt::Display for PermissionRequestValidationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::UnsupportedCli => "CLI does not support structured permission requests",
+            Self::UnsupportedEvent => "hook event is not PermissionRequest",
+            Self::MissingToolUseId => "tool_use_id is missing or invalid",
+            Self::MissingToolName => "tool_name is missing or invalid",
+            Self::InvalidToolInput => "tool_input must be a JSON object",
+        })
+    }
+}
+
+impl std::error::Error for PermissionRequestValidationError {}
+
 /// 项目级 hook 定义
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -769,6 +844,18 @@ impl CliAdapterContext {
             .and_then(serde_json::Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
+    }
+
+    /// Provider 模型配置的 `contextSize` 字符串（`"1m"` / `"200k"` / `"500k"` 等）。
+    /// 配合 `__ccpanesModelId` 一起用于 claude.rs managed_settings 拼 `[<size>]` 后缀。
+    /// 空 / `"200k"`（默认）/ `"custom"` 都不拼后缀——与 ccpanel `apply_context_size_suffix` 对齐。
+    pub fn context_size(&self) -> Option<String> {
+        self.adapter_options
+            .get("__ccpanesContextSize")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
     }
 
     pub fn command_override(&self) -> Option<&str> {
@@ -1454,6 +1541,17 @@ mod path_resolution_tests {
         assert_eq!(fallback_empty, fallback);
         assert_eq!(fallback_blank, fallback);
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_user_cli_dirs_include_grok_default_and_override() {
+        let home = Path::new(r"C:\Users\tester");
+        let dirs = windows_user_cli_dirs(home, Some(std::ffi::OsStr::new(r"D:\Tools\grok")));
+
+        assert!(dirs.contains(&home.join(".grok").join("bin")));
+        assert!(dirs.contains(&PathBuf::from(r"D:\Tools\grok\bin")));
+        assert!(dirs.contains(&home.join("AppData").join("Roaming").join("npm")));
+    }
 }
 
 // ============ Registry ============
@@ -1581,7 +1679,64 @@ mod registry_tests {
         );
         assert_eq!(
             windows,
+            r#"if exist "C:\Program Files\CC-Panes\cc-panes-cli-hook.exe" "C:\Program Files\CC-Panes\cc-panes-cli-hook.exe" session-end"#
+        );
+        assert!(is_guarded_hook_command(&windows));
+        assert!(!is_guarded_hook_command(
             r#"cmd.exe /D /C if exist "C:\Program Files\CC-Panes\cc-panes-cli-hook.exe" "C:\Program Files\CC-Panes\cc-panes-cli-hook.exe" session-end"#
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_hook_command_passes_json_stdin_without_nested_shell() {
+        use std::io::Write;
+        use std::os::windows::process::CommandExt;
+        use std::process::{Command, Stdio};
+
+        let probe = std::env::var_os("WINDIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
+            .join("System32")
+            .join("findstr.exe");
+        assert!(
+            probe.is_file(),
+            "test probe is missing: {}",
+            probe.display()
+        );
+
+        let command = build_guarded_hook_command(&probe, "session_id", HookCommandShell::Windows);
+        assert!(
+            !command.starts_with("cmd.exe "),
+            "hook must not add a nested shell"
+        );
+
+        let mut child = Command::new("cmd.exe")
+            .args(["/D", "/S", "/C"])
+            .raw_arg(&command)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"{\"session_id\":\"stdin-check\"}\r\n")
+            .unwrap();
+
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "hook command failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            r#"{"session_id":"stdin-check"}"#,
+            "command={command:?} stderr={}",
+            String::from_utf8_lossy(&output.stderr)
         );
     }
 
@@ -1999,6 +2154,94 @@ impl NativeHookBinding {
             timeout_secs,
             async_mode: false,
             extra: serde_json::Value::Null,
+        }
+    }
+}
+
+#[cfg(test)]
+mod unattended_tests {
+    use super::*;
+
+    fn valid_claude_permission_request() -> serde_json::Value {
+        serde_json::json!({
+            "hook_event_name": "PermissionRequest",
+            "session_id": "claude-session",
+            "tool_use_id": "toolu_01H",
+            "tool_name": "Bash",
+            "tool_input": { "command": "cargo test" },
+            "permission_suggestions": []
+        })
+    }
+
+    #[test]
+    fn unattended_claude_capability_accepts_only_structured_permission_requests() {
+        let adapter = ClaudeAdapter::new();
+
+        assert_eq!(
+            adapter.permission_request_capability(),
+            Some(PermissionRequestCapability::ClaudeSynchronousHook)
+        );
+        let request = adapter
+            .validate_permission_request(&valid_claude_permission_request())
+            .expect("valid PermissionRequest");
+        assert_eq!(request.tool_use_id, "toolu_01H");
+        assert_eq!(request.tool_name, "Bash");
+        assert_eq!(
+            request.tool_input,
+            serde_json::json!({ "command": "cargo test" })
+        );
+    }
+
+    #[test]
+    fn unattended_claude_rejects_missing_id_notification_and_elicitation() {
+        let adapter = ClaudeAdapter::new();
+
+        let mut missing_id = valid_claude_permission_request();
+        missing_id.as_object_mut().unwrap().remove("tool_use_id");
+        assert_eq!(
+            adapter.validate_permission_request(&missing_id),
+            Err(PermissionRequestValidationError::MissingToolUseId)
+        );
+
+        for event in ["Notification", "Elicitation"] {
+            let mut payload = valid_claude_permission_request();
+            payload["hook_event_name"] = serde_json::json!(event);
+            assert_eq!(
+                adapter.validate_permission_request(&payload),
+                Err(PermissionRequestValidationError::UnsupportedEvent)
+            );
+        }
+
+        let mut missing_name = valid_claude_permission_request();
+        missing_name.as_object_mut().unwrap().remove("tool_name");
+        assert_eq!(
+            adapter.validate_permission_request(&missing_name),
+            Err(PermissionRequestValidationError::MissingToolName)
+        );
+
+        let mut invalid_input = valid_claude_permission_request();
+        invalid_input["tool_input"] = serde_json::Value::Null;
+        assert_eq!(
+            adapter.validate_permission_request(&invalid_input),
+            Err(PermissionRequestValidationError::InvalidToolInput)
+        );
+    }
+
+    #[test]
+    fn unattended_non_claude_adapters_fail_closed() {
+        let payload = valid_claude_permission_request();
+        let adapters: Vec<Box<dyn CliToolAdapter>> = vec![
+            Box::new(CodexAdapter::new()),
+            Box::new(GrokAdapter::new()),
+            Box::new(OpenCodeAdapter::new()),
+        ];
+
+        for adapter in adapters {
+            assert_eq!(adapter.permission_request_capability(), None);
+            assert_eq!(
+                adapter.validate_permission_request(&payload),
+                Err(PermissionRequestValidationError::UnsupportedCli)
+            );
         }
     }
 }

@@ -1,8 +1,8 @@
 use crate::models::settings::AppSettings;
 use crate::models::Workspace;
 use crate::services::{
-    HistoryWatchManager, ProjectService, SettingsService, UninstallCleanupReport,
-    UninstallCleanupService,
+    HistoryWatchManager, ProjectService, SettingsService, TaskQueueService, TaskQueueWorker,
+    UninstallCleanupReport, UninstallCleanupService,
 };
 use crate::utils::AppPaths;
 use crate::utils::AppResult;
@@ -13,7 +13,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tauri::{Manager, State};
+use tauri::{AppHandle, Manager, State};
 use tracing::{debug, info};
 
 /// 获取设置
@@ -25,18 +25,35 @@ pub fn get_settings(service: State<'_, Arc<SettingsService>>) -> AppResult<AppSe
 /// 更新设置
 #[tauri::command]
 pub fn update_settings(
+    app: AppHandle,
     service: State<'_, Arc<SettingsService>>,
     history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
+    task_queue_service: State<'_, Arc<TaskQueueService>>,
     settings: AppSettings,
 ) -> AppResult<()> {
     debug!("cmd::update_settings");
-    let was_enabled = service.get_settings().local_history.enabled;
+    let previous_settings = service.get_settings();
+    let was_enabled = previous_settings.local_history.enabled;
+    let task_queue_was_enabled = previous_settings.terminal.task_queue_enabled;
     let is_enabled = settings.local_history.enabled;
+    let task_queue_enabled = settings.terminal.task_queue_enabled;
     service.update_settings(settings)?;
+    sync_task_queue_setting(
+        &task_queue_service,
+        task_queue_enabled,
+        chrono::Utc::now().timestamp_millis(),
+    )?;
+    if task_queue_enabled && !task_queue_was_enabled {
+        app.state::<Arc<TaskQueueWorker>>().schedule_all();
+    }
     if was_enabled != is_enabled {
         history_watch_manager.set_enabled(is_enabled);
     }
     Ok(())
+}
+
+fn sync_task_queue_setting(service: &TaskQueueService, enabled: bool, now: i64) -> AppResult<()> {
+    service.set_global_enabled(enabled, now)
 }
 
 /// 移除 CC-Panes 写入其他 CLI 和已注册项目的配置，供卸载前显式调用。
@@ -783,6 +800,7 @@ fn verify_copy(src: &Path, dst: &Path) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::repository::{Database, TaskQueueRepository};
 
     #[test]
     fn first_non_empty_skips_blank_values() {
@@ -790,6 +808,27 @@ mod tests {
             first_non_empty(["", "   ", "value", "later"]),
             Some("value".to_string())
         );
+    }
+
+    #[test]
+    fn task_queue_setting_syncs_sqlite_runtime_before_returning() {
+        let image_root = tempfile::tempdir().unwrap();
+        let trusted_root = tempfile::tempdir().unwrap();
+        let repository = Arc::new(TaskQueueRepository::new(Arc::new(
+            Database::new_fallback().unwrap(),
+        )));
+        let service = TaskQueueService::new(
+            repository.clone(),
+            image_root.path().to_path_buf(),
+            trusted_root.path().to_path_buf(),
+        );
+        let before = repository.runtime().unwrap();
+
+        sync_task_queue_setting(&service, false, 42).unwrap();
+
+        let after = repository.runtime().unwrap();
+        assert!(!after.enabled);
+        assert!(after.dispatch_generation > before.dispatch_generation);
     }
 
     #[test]

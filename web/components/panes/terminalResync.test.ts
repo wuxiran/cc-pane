@@ -272,6 +272,44 @@ describe("createTerminalDesyncHandler", () => {
     expect(order.indexOf("gate:false")).toBeLessThan(order.indexOf("settled:true"));
   });
 
+  it("returns one shared promise that includes asynchronous settled cleanup", async () => {
+    let finishSettled!: () => void;
+    const onResyncSettled = vi.fn(() => new Promise<void>((resolve) => {
+      finishSettled = resolve;
+    }));
+    const getRecoverySnapshot = vi.fn(async () => recoverySnapshot({ delta: "D" }));
+    const handler = createTerminalDesyncHandler({
+      sessionId: "s-shared-resync",
+      terminalRef: { current: createTerm() },
+      hiddenWriteBufferRef: { current: { reset: vi.fn() } },
+      getRecoverySnapshot,
+      writeData: async () => {},
+      writeCheckpointData: async () => {},
+      syncTrackedBufferType: () => {},
+      setResyncActive: vi.fn(),
+      onResyncSettled,
+      debugLog: vi.fn(),
+    });
+
+    const first = handler();
+    const second = handler();
+    let settled = false;
+    void first.then(() => {
+      settled = true;
+    });
+    await flush();
+
+    expect(second).toBe(first);
+    expect(getRecoverySnapshot).toHaveBeenCalledOnce();
+    expect(onResyncSettled).toHaveBeenCalledOnce();
+    expect(settled).toBe(false);
+
+    finishSettled();
+    await first;
+
+    expect(settled).toBe(true);
+  });
+
   it("快照返回 null 也放闸 + onResyncSettled(false)（否则闸门永不打开 = 终端永久静默）", async () => {
     const { handler, setResyncActive, onResyncSettled } = harness({
       getRecoverySnapshot: async () => null,

@@ -328,5 +328,62 @@
   "closeTabConfirmAction": "仍然关闭",
   "closeTabBusyAgents_one": "{{count}} 个 agent 会话仍在运行：",
   "closeTabDirtyEditors_one": "{{count}} 个编辑器有未保存的修改：",
-  "tabAttentionDot": "有新动态"
+  "tabAttentionDot": "有新动态",
+  "taskQueue": {
+    "title": "任务队列",
+    "description": "当前轮次结束后，按顺序发送后续任务。",
+    "triggerLabel": "任务队列，{{count}} 个任务，{{state}}",
+    "loading": "正在加载队列...",
+    "empty": "暂无排队任务",
+    "newTask": "新任务",
+    "placeholder": "输入下一个任务",
+    "add": "添加任务",
+    "pause": "暂停",
+    "resume": "继续",
+    "clear": "清空",
+    "delete": "删除任务",
+    "retry": "重试任务",
+    "unattended": "无人值守",
+    "unattendedConfirmTitle": "启用无人值守？",
+    "unattendedConfirmDescription": "无人值守会允许 Claude 在无需逐次确认的情况下使用工具。仅在你信任当前任务和工作区时开启。未知提示、错误或会话退出时仍会暂停并等待处理。",
+    "enableUnattended": "确认启用",
+    "clearConfirmTitle": "清空需要检查的任务？",
+    "clearConfirmDescription": "发送失败或结果不确定的任务可能已经部分送达。清空后会直接移除，不会重试。",
+    "clearConfirm": "清空队列",
+    "cancel": "取消",
+    "removeImage": "移除图片",
+    "imageStageFailed": "无法添加剪贴板图片。",
+    "imageLimitReached": "每个任务最多添加 10 张图片。",
+    "imageOnlyTask": "图片任务",
+    "operationFailed": "队列操作失败：{{error}}",
+    "states": {
+      "disabled": "已关闭",
+      "running": "运行中",
+      "paused": "已暂停",
+      "confirmingIdle": "等待空闲",
+      "dispatching": "正在发送",
+      "actionRequired": "等待处理",
+      "sendFailed": "发送失败",
+      "sessionEnded": "会话已结束"
+    },
+    "itemStates": {
+      "queued": "排队中",
+      "dispatching": "正在发送",
+      "failed": "发送失败",
+      "deliveryUnknown": "发送结果不确定"
+    },
+    "reasons": {
+      "globalDisabled": "全局任务队列已关闭。",
+      "userPaused": "此队列已暂停。",
+      "waitingInput": "当前会话正在等待输入。",
+      "unknownPrompt": "有不支持的提示需要你处理。",
+      "unattendedUnsupported": "此 CLI 不支持无人值守审批。",
+      "automaticWriteUnavailable": "自动写入终端当前不可用。",
+      "sessionClaimLost": "已失去终端写入权。",
+      "sessionError": "终端会话发生错误。",
+      "sessionExited": "终端会话已结束。",
+      "deliveryUnknown": "无法确认是否送达。请检查终端后再决定是否重试。",
+      "submitFailed": "任务发送失败，仍保留在队首。"
+    }
+  }
 }

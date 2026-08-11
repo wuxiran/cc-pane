@@ -32,6 +32,13 @@ pub struct TerminalAdoptionSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AutomaticWriteAuthority {
+    ExclusiveInProcess,
+    EnforcedLease { owner_instance_id: String },
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateSessionOutcome {
     pub session_id: String,
     pub reused_existing: bool,
@@ -152,6 +159,12 @@ pub trait TerminalBackend: Send + Sync {
     /// **默认 false（fail-closed）**：不确定就不要开自动接管（评审 #11）。
     fn claims_supported(&self) -> bool {
         false
+    }
+
+    /// Proves whether this backend may perform unattended terminal writes.
+    /// Unknown implementations fail closed by default.
+    fn automatic_write_authority(&self, _session_id: &str) -> AppResult<AutomaticWriteAuthority> {
+        Ok(AutomaticWriteAuthority::Unavailable)
     }
 
     /// Complete adoption snapshot. Non-daemon backends expose statuses but no ownership facts.
@@ -518,6 +531,10 @@ impl TerminalBackend for TerminalService {
     fn terminal_link_context(&self, session_id: &str) -> AppResult<Option<TerminalLinkContext>> {
         TerminalService::terminal_link_context(self, session_id)
     }
+
+    fn automatic_write_authority(&self, _session_id: &str) -> AppResult<AutomaticWriteAuthority> {
+        Ok(AutomaticWriteAuthority::ExclusiveInProcess)
+    }
 }
 
 impl TerminalBackend for InProcessTerminalBackend {
@@ -637,6 +654,10 @@ impl TerminalBackend for InProcessTerminalBackend {
     fn terminal_link_context(&self, session_id: &str) -> AppResult<Option<TerminalLinkContext>> {
         self.service.terminal_link_context(session_id)
     }
+
+    fn automatic_write_authority(&self, _session_id: &str) -> AppResult<AutomaticWriteAuthority> {
+        Ok(AutomaticWriteAuthority::ExclusiveInProcess)
+    }
 }
 
 impl TerminalBackend for DaemonTerminalBackend {
@@ -710,6 +731,35 @@ impl TerminalBackend for DaemonTerminalBackend {
 
     fn claims_supported(&self) -> bool {
         self.client.claims_supported()
+    }
+
+    fn automatic_write_authority(&self, session_id: &str) -> AppResult<AutomaticWriteAuthority> {
+        if !self.client.claims_supported() {
+            return Ok(AutomaticWriteAuthority::Unavailable);
+        }
+
+        let locally_owned = self
+            .owned_sessions
+            .lock()
+            .ok()
+            .is_some_and(|owned| owned.contains_key(session_id));
+        if !locally_owned {
+            return Ok(AutomaticWriteAuthority::Unavailable);
+        }
+
+        let live_session = self
+            .client
+            .get_session_status(session_id)
+            .ok()
+            .flatten()
+            .is_some_and(|status| !status.status.is_terminal());
+        if !live_session {
+            return Ok(AutomaticWriteAuthority::Unavailable);
+        }
+
+        Ok(AutomaticWriteAuthority::EnforcedLease {
+            owner_instance_id: self.client.instance_id().to_string(),
+        })
     }
 
     fn adoption_snapshot(&self) -> AppResult<TerminalAdoptionSnapshot> {
@@ -860,6 +910,84 @@ mod tests {
             TerminalDaemonClient::new(addr.to_string(), "secret")
                 .with_timeout(Duration::from_secs(1)),
         )
+    }
+
+    fn daemon_status_response(claims_supported: Option<bool>) -> String {
+        let claims_supported = claims_supported
+            .map(|value| format!(r#", "claimsSupported":{value}"#))
+            .unwrap_or_default();
+        http_json_response(
+            "200 OK",
+            &format!(
+                r#"{{"status":"ok","version":"test","pid":1,"addr":"127.0.0.1:0","startedAt":1,"sessionCount":1{claims_supported}}}"#
+            ),
+        )
+    }
+
+    #[test]
+    fn daemon_automatic_write_authority_fails_closed_for_legacy_daemon() {
+        let (addr, _) = spawn_response_server(daemon_status_response(None));
+        let backend = backend_for(addr);
+        backend.remember_owned("s1");
+
+        assert_eq!(
+            backend
+                .automatic_write_authority("s1")
+                .expect("authority query"),
+            AutomaticWriteAuthority::Unavailable
+        );
+    }
+
+    #[test]
+    fn daemon_automatic_write_authority_requires_local_owned_lease() {
+        let (addr, _) = spawn_response_server(daemon_status_response(Some(true)));
+        let backend = backend_for(addr);
+
+        assert_eq!(
+            backend
+                .automatic_write_authority("s1")
+                .expect("authority query"),
+            AutomaticWriteAuthority::Unavailable
+        );
+    }
+
+    #[test]
+    fn daemon_automatic_write_authority_reports_enforced_owned_lease() {
+        let live_session =
+            r#"{"sessionId":"s1","status":"idle","lastOutputAt":10,"pid":42,"updatedAt":20}"#;
+        let (addr, _) = spawn_response_sequence(vec![
+            daemon_status_response(Some(true)),
+            http_json_response("200 OK", live_session),
+        ]);
+        let backend = backend_for(addr);
+        backend.remember_owned("s1");
+
+        assert_eq!(
+            backend
+                .automatic_write_authority("s1")
+                .expect("authority query"),
+            AutomaticWriteAuthority::EnforcedLease {
+                owner_instance_id: backend.client.instance_id().to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn daemon_automatic_write_authority_rejects_exited_session() {
+        let exited_session = r#"{"sessionId":"s1","status":"exited","lastOutputAt":10,"pid":42,"exitCode":0,"updatedAt":20}"#;
+        let (addr, _) = spawn_response_sequence(vec![
+            daemon_status_response(Some(true)),
+            http_json_response("200 OK", exited_session),
+        ]);
+        let backend = backend_for(addr);
+        backend.remember_owned("s1");
+
+        assert_eq!(
+            backend
+                .automatic_write_authority("s1")
+                .expect("authority query"),
+            AutomaticWriteAuthority::Unavailable
+        );
     }
 
     fn create_request() -> CreateSessionRequest {

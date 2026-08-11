@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Clock3, Gauge } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Clock3, Gauge } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { navigateToSettings } from "@/components/settings/settingsNavigation";
 import {
   useActiveTerminalContext,
   type ActiveTerminalContext,
@@ -159,7 +160,17 @@ export default function ContextUsageIndicator({
               <span> · {rawSummary}</span>
             </p>
             {displaySnapshot.diagnosticCode === "WINDOW_UNKNOWN" && (
-              <p>{t("contextUsage.windowUnknown")}</p>
+              <button
+                type="button"
+                onClick={() => navigateToSettings({ paneId: "provider" })}
+                aria-label={t("contextUsage.windowUnknownAction")}
+                className="flex w-fit items-center gap-1 rounded text-left underline-offset-2 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
+                style={{ color: "var(--app-status-danger)" }}
+                data-testid="context-usage-window-unknown-link"
+              >
+                <span>{t("contextUsage.windowUnknown")}</span>
+                <ArrowUpRight className="h-3 w-3 shrink-0" aria-hidden="true" />
+              </button>
             )}
             {effectiveDiffers && (
               <p className="tabular-nums text-[var(--app-text-tertiary)]">

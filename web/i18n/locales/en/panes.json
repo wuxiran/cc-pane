@@ -328,5 +328,62 @@
   "closeTabDirtyEditors_one": "{{count}} editor with unsaved changes:",
   "closeTabDirtyEditors_other": "{{count}} editors with unsaved changes:",
   "closeTabConfirmAction": "Close anyway",
-  "tabAttentionDot": "Needs attention"
+  "tabAttentionDot": "Needs attention",
+  "taskQueue": {
+    "title": "Task queue",
+    "description": "Tasks are sent in order after the current turn finishes.",
+    "triggerLabel": "Task queue, {{count}} tasks, {{state}}",
+    "loading": "Loading queue...",
+    "empty": "No queued tasks",
+    "newTask": "New task",
+    "placeholder": "Queue the next task",
+    "add": "Add task",
+    "pause": "Pause",
+    "resume": "Resume",
+    "clear": "Clear",
+    "delete": "Delete task",
+    "retry": "Retry task",
+    "unattended": "Unattended",
+    "unattendedConfirmTitle": "Enable unattended mode?",
+    "unattendedConfirmDescription": "Unattended lets Claude use tools without per-request confirmation. Enable it only when you trust the current task and workspace. Unknown prompts, errors, and session exit still pause for review.",
+    "enableUnattended": "Enable unattended",
+    "clearConfirmTitle": "Clear tasks that need review?",
+    "clearConfirmDescription": "Failed or delivery-unknown tasks may already contain work that was partially sent. Clearing removes them without retrying.",
+    "clearConfirm": "Clear queue",
+    "cancel": "Cancel",
+    "removeImage": "Remove image",
+    "imageStageFailed": "The clipboard image could not be added.",
+    "imageLimitReached": "Each task can include up to 10 images.",
+    "imageOnlyTask": "Image task",
+    "operationFailed": "Queue operation failed: {{error}}",
+    "states": {
+      "disabled": "Disabled",
+      "running": "Running",
+      "paused": "Paused",
+      "confirmingIdle": "Waiting for idle",
+      "dispatching": "Sending",
+      "actionRequired": "Action required",
+      "sendFailed": "Send failed",
+      "sessionEnded": "Session ended"
+    },
+    "itemStates": {
+      "queued": "Queued",
+      "dispatching": "Sending",
+      "failed": "Failed",
+      "deliveryUnknown": "Delivery unknown"
+    },
+    "reasons": {
+      "globalDisabled": "The global task queue is disabled.",
+      "userPaused": "This queue is paused.",
+      "waitingInput": "The session is waiting for input.",
+      "unknownPrompt": "An unsupported prompt needs review.",
+      "unattendedUnsupported": "This CLI does not support unattended approval.",
+      "automaticWriteUnavailable": "Automatic terminal input is unavailable.",
+      "sessionClaimLost": "Terminal write ownership was lost.",
+      "sessionError": "The terminal session reported an error.",
+      "sessionExited": "The terminal session has ended.",
+      "deliveryUnknown": "Delivery could not be confirmed. Retry only after checking the terminal.",
+      "submitFailed": "The task could not be sent. It remains at the front of the queue."
+    }
+  }
 }

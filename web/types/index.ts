@@ -261,6 +261,16 @@ export type {
 } from "./wsl";
 export type { ContextUsageStatus, ContextUsageSnapshot } from "./contextUsage";
 export type {
+  StagedTaskQueueImage,
+  TaskQueueControlPatch,
+  TaskQueueItem,
+  TaskQueueItemDraft,
+  TaskQueueItemState,
+  TaskQueueReason,
+  TaskQueueSnapshot,
+  TaskQueueState,
+} from "./taskQueue";
+export type {
   TaskBindingStatus,
   TaskBindingRole,
   TaskBinding,

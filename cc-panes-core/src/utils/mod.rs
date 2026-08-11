@@ -2,6 +2,7 @@ mod app_paths;
 pub mod atomic_file;
 pub mod claude_path;
 pub mod command;
+pub mod context_size;
 pub mod error;
 pub mod error_codes;
 pub mod git_command;
@@ -16,6 +17,9 @@ pub mod text_encoding;
 pub use app_paths::{app_config_dir, AppPaths, APP_CONFIG_DIR_ENV, APP_DIR_NAME};
 pub use claude_path::{encode_claude_project_path, is_claude_project_match};
 pub use command::{no_window_command, no_window_tokio_command};
+pub use context_size::{
+    apply_context_size_suffix, parse_context_size_tokens, parse_context_window_from_model,
+};
 pub use error::AppResult;
 pub use git_command::{
     git_https_credential_env, output_with_timeout, output_with_timeout_limit,

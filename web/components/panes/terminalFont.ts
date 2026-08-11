@@ -42,6 +42,37 @@ const CJK_CAPABLE_HINTS = [
   "等线",
 ];
 
+// 打包的 CJK 等宽 webfont（web/assets/index.css 的 @font-face），默认字体链首项。
+const BUNDLED_CJK_WEBFONT = "maple mono nf cn";
+
+// macOS 原生等宽字体走系统字体渲染路径，比打包 webfont 锐利；webfont 仍留在
+// 链中继续兜 CJK 字形，中英混排的格宽对齐不受影响。
+const MACOS_PREFERRED_MONO_FONTS = '"SF Mono", Menlo';
+
+function stripFontQuotes(family: string): string {
+  return family.replace(/["']/g, "").trim().toLowerCase();
+}
+
+function detectPlatform(): string | undefined {
+  if (typeof document === "undefined") return undefined;
+  return document.documentElement.dataset.platform;
+}
+
+/// macOS 上把系统等宽字体提到打包 webfont 之前。仅在字体链首项仍是打包 webfont
+/// 时生效——那代表用户没主动挑字体；用户显式选定的首项一律保持不动。
+export function preferPlatformMonoFonts(
+  fontFamily: string,
+  platform: string | undefined = detectPlatform(),
+): string {
+  if (platform !== "macos") return fontFamily;
+
+  const families = fontFamily.split(",").map((f) => f.trim()).filter(Boolean);
+  if (families.length === 0) return fontFamily;
+  if (stripFontQuotes(families[0]) !== BUNDLED_CJK_WEBFONT) return fontFamily;
+
+  return [MACOS_PREFERRED_MONO_FONTS, ...families].join(", ");
+}
+
 export function fontFamilyHasCjkFallback(fontFamily: string): boolean {
   const lower = fontFamily.toLowerCase();
   return CJK_CAPABLE_HINTS.some((hint) => lower.includes(hint));
@@ -49,8 +80,8 @@ export function fontFamilyHasCjkFallback(fontFamily: string): boolean {
 
 export function normalizeTerminalFontFamily(value?: string | null): string {
   const trimmed = value?.trim();
-  if (!trimmed) return DEFAULT_TERMINAL_FONT_FAMILY;
-  if (fontFamilyHasCjkFallback(trimmed)) return trimmed;
+  if (!trimmed) return preferPlatformMonoFonts(DEFAULT_TERMINAL_FONT_FAMILY);
+  if (fontFamilyHasCjkFallback(trimmed)) return preferPlatformMonoFonts(trimmed);
 
   // 在末尾的 generic monospace 之前插入 CJK fallback，保持 generic 兜底在最后。
   const families = trimmed.split(",").map((f) => f.trim()).filter(Boolean);

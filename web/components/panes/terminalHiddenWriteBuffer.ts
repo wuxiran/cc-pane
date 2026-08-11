@@ -26,12 +26,17 @@ export interface TerminalHiddenWriteBuffer {
    */
   didOverflow(): boolean;
   pendingLength(): number;
+  /** 诊断当前常驻字符串槽数量，防止微小 chunk 退化为无界对象数组。 */
+  pendingChunkCount(): number;
 }
 
 /** 隐藏输出保留上限（字符数）。 */
 const DEFAULT_MAX_PENDING_CHARS = 512 * 1024;
 const HIDDEN_OUTPUT_TRUNCATED_NOTICE =
   "\x18\r\n\x1b[33m[CC-Panes] Hidden terminal output was truncated to protect memory.\x1b[0m\r\n";
+const MAX_OPEN_CHUNKS = 128;
+const TARGET_BLOCK_CHARS = 8 * 1024;
+const MAX_SEALED_BLOCKS = 64;
 
 interface CreateTerminalHiddenWriteBufferOptions {
   /** 当前终端是否可见。可见时数据直通，不进积压。 */
@@ -46,14 +51,31 @@ export function createTerminalHiddenWriteBuffer({
   maxPendingChars = DEFAULT_MAX_PENDING_CHARS,
   onOverflowDrop,
 }: CreateTerminalHiddenWriteBufferOptions): TerminalHiddenWriteBuffer {
-  let pending: string[] = [];
+  let sealedBlocks: string[] = [];
+  let openChunks: string[] = [];
+  let openLength = 0;
   let pendingLength = 0;
   let overflowed = false;
 
+  const sealOpenChunks = (): void => {
+    if (openChunks.length === 0) return;
+    sealedBlocks.push(openChunks.join(""));
+    openChunks = [];
+    openLength = 0;
+
+    if (sealedBlocks.length >= MAX_SEALED_BLOCKS) {
+      sealedBlocks = [sealedBlocks.join("")];
+    }
+  };
+
   const takeAll = (): string | null => {
     if (pendingLength === 0 && !overflowed) return null;
-    const merged = pending.join("") + (overflowed ? HIDDEN_OUTPUT_TRUNCATED_NOTICE : "");
-    pending = [];
+    const merged = sealedBlocks.join("")
+      + openChunks.join("")
+      + (overflowed ? HIDDEN_OUTPUT_TRUNCATED_NOTICE : "");
+    sealedBlocks = [];
+    openChunks = [];
+    openLength = 0;
     pendingLength = 0;
     overflowed = false;
     return merged;
@@ -77,15 +99,21 @@ export function createTerminalHiddenWriteBuffer({
         return null;
       }
 
-      pending.push(data);
+      openChunks.push(data);
+      openLength += data.length;
       pendingLength += data.length;
+      if (openChunks.length >= MAX_OPEN_CHUNKS || openLength >= TARGET_BLOCK_CHARS) {
+        sealOpenChunks();
+      }
       return null;
     },
 
     drain: takeAll,
 
     reset(): void {
-      pending = [];
+      sealedBlocks = [];
+      openChunks = [];
+      openLength = 0;
       pendingLength = 0;
       overflowed = false;
     },
@@ -93,5 +121,7 @@ export function createTerminalHiddenWriteBuffer({
     didOverflow: () => overflowed,
 
     pendingLength: () => pendingLength,
+
+    pendingChunkCount: () => sealedBlocks.length + openChunks.length,
   };
 }

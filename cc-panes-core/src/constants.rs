@@ -90,4 +90,9 @@ pub mod session_state {
     /// busy 状态超过该时长未收到新的 hook/OSC 事件时，查询侧回落为 Idle。
     /// 只修正查询结果，不改写状态机或终端会话中的原始状态。
     pub const STALE_BUSY_TIMEOUT_SECS: u64 = 10 * 60;
+
+    /// 自动派发的 PTY 静默窗口，参考 CCPanel 的双静默 guard。
+    pub const AUTOMATIC_SUBMIT_PTY_IDLE_MS: u64 = 800;
+    /// hook 丢失时，状态/基线持续空闲的自动派发兜底窗口。
+    pub const AUTOMATIC_SUBMIT_FALLBACK_IDLE_MS: u64 = 6_000;
 }

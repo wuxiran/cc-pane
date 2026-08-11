@@ -3,6 +3,7 @@ import {
   DEFAULT_TERMINAL_FONT_FAMILY,
   fontFamilyHasCjkFallback,
   normalizeTerminalFontFamily,
+  preferPlatformMonoFonts,
 } from "./terminalFont";
 
 describe("normalizeTerminalFontFamily", () => {
@@ -33,6 +34,37 @@ describe("normalizeTerminalFontFamily", () => {
     expect(result).toContain('"Cascadia Mono"');
     expect(result).toContain('"Sarasa Mono SC"');
     expect(result.trim().endsWith("monospace")).toBe(true);
+  });
+});
+
+describe("preferPlatformMonoFonts", () => {
+  it("puts macOS system mono fonts ahead of the bundled webfont", () => {
+    const result = preferPlatformMonoFonts(DEFAULT_TERMINAL_FONT_FAMILY, "macos");
+
+    expect(result.indexOf('"SF Mono"')).toBeLessThan(result.indexOf('"Maple Mono NF CN"'));
+    expect(result.indexOf("Menlo")).toBeLessThan(result.indexOf('"Maple Mono NF CN"'));
+    // webfont 仍留在链里继续兜 CJK 字形
+    expect(result).toContain('"Maple Mono NF CN"');
+    expect(result.trim().endsWith("monospace")).toBe(true);
+  });
+
+  it("leaves other platforms untouched", () => {
+    expect(preferPlatformMonoFonts(DEFAULT_TERMINAL_FONT_FAMILY, "windows")).toBe(
+      DEFAULT_TERMINAL_FONT_FAMILY,
+    );
+    expect(preferPlatformMonoFonts(DEFAULT_TERMINAL_FONT_FAMILY, undefined)).toBe(
+      DEFAULT_TERMINAL_FONT_FAMILY,
+    );
+  });
+
+  it("respects a font chain the user explicitly picked", () => {
+    const userChain = '"JetBrains Mono", "Sarasa Mono SC", monospace';
+    expect(preferPlatformMonoFonts(userChain, "macos")).toBe(userChain);
+  });
+
+  it("is idempotent once the system fonts are already in front", () => {
+    const once = preferPlatformMonoFonts(DEFAULT_TERMINAL_FONT_FAMILY, "macos");
+    expect(preferPlatformMonoFonts(once, "macos")).toBe(once);
   });
 });
 

@@ -32,7 +32,11 @@ vi.mock("./settings/NotificationSection", () => ({
   default: () => <div data-testid="notification-section" />,
 }));
 vi.mock("./settings/ProviderSection", () => ({
-  default: ({ view }: { view: string }) => <div data-testid="provider-section" data-view={view} />,
+  default: ({ view, onDirtyChange }: { view: string; onDirtyChange?: (dirty: boolean) => void }) => (
+    <div data-testid="provider-section" data-view={view}>
+      <button type="button" onClick={() => onDirtyChange?.(true)}>mark-provider-settings-dirty</button>
+    </div>
+  ),
 }));
 vi.mock("./settings/ProxySection", () => ({
   default: () => <div data-testid="proxy-section" />,
@@ -227,6 +231,53 @@ describe("SettingsPanel", () => {
 
     await user.click(screen.getByRole("tab", { name: tSettings("providerCredentialsTab") }));
     expect(await screen.findByTestId("provider-section")).toHaveAttribute("data-view", "providers");
+  });
+
+  it("asks before leaving a settings pane with unsaved provider changes", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
+    await user.click(await screen.findByRole("button", { name: "mark-provider-settings-dirty" }));
+    await user.click(screen.getByRole("button", { name: tSettings("pages.general.title") }));
+
+    expect(screen.getByTestId("provider-section")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: i18n.t("unsavedChangesTitle", { ns: "common" }) })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: i18n.t("discardChanges", { ns: "common" }) }));
+    expect(await screen.findByTestId("general-section")).toBeInTheDocument();
+  });
+
+  it("keeps settings open until unsaved provider changes are discarded", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    render(<SettingsPanel open onOpenChange={onOpenChange} />);
+
+    await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
+    await user.click(await screen.findByRole("button", { name: "mark-provider-settings-dirty" }));
+    await user.click(screen.getAllByRole("button", { name: i18n.t("close") }).slice(-1)[0]!);
+
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(await screen.findByRole("dialog", { name: i18n.t("unsavedChangesTitle", { ns: "common" }) })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: i18n.t("discardChanges", { ns: "common" }) }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("dismisses an unsaved provider prompt when settings closes externally", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const view = render(<SettingsPanel open onOpenChange={onOpenChange} />);
+
+    await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
+    await user.click(await screen.findByRole("button", { name: "mark-provider-settings-dirty" }));
+    await user.click(screen.getAllByRole("button", { name: i18n.t("close") }).slice(-1)[0]!);
+    expect(await screen.findByRole("dialog", { name: i18n.t("unsavedChangesTitle", { ns: "common" }) })).toBeVisible();
+
+    view.rerender(<SettingsPanel open={false} onOpenChange={onOpenChange} />);
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: i18n.t("unsavedChangesTitle", { ns: "common" }) })).not.toBeInTheDocument();
+    });
   });
 
   it("opens the registry-backed module settings pane", async () => {

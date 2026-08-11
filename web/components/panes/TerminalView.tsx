@@ -22,6 +22,7 @@ import {
   bindTerminalSessionCallbacks,
   createHiddenWriteFlusher,
   createTerminalExitHandler,
+  restoreVisibleTerminalView,
   type PendingSessionExit,
 } from "./terminalSessionBinding";
 import { devDebugLog } from "@/utils/devLogger";
@@ -120,6 +121,7 @@ import {
   findLiveSavedSessionId,
   IS_MAC,
   normalizeTerminalCursorStyle,
+  repaintTerminalWhenVisible,
   setMacosTerminalNativeFocus,
   waitForTerminalFont,
   writeTerminalReply,
@@ -223,6 +225,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const wallpaperTerminalAlpha = useWallpaperStore((s) =>
       s.resolved !== null && s.assetUrl !== null ? s.resolved.terminalOpacity : 1,
     );
+    const wallpaperTransparencyRequired = wallpaperTerminalAlpha < 1;
+    const wallpaperTransparencyRequiredRef = useRef(wallpaperTransparencyRequired);
+    wallpaperTransparencyRequiredRef.current = wallpaperTransparencyRequired;
     const terminalTheme = useMemo(
       () => getTerminalTheme(isDark, terminalThemeMode, wallpaperTerminalAlpha),
       [isDark, terminalThemeMode, wallpaperTerminalAlpha],
@@ -402,9 +407,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       return terminalDataRendererRef.current.render(data, {
         keepCliOutputInNormalBuffer,
         sessionId: currentSessionIdRef.current,
+        stripBackgroundColors: wallpaperTransparencyRequiredRef.current,
       });
     }, [keepCliOutputInNormalBuffer]);
-
     const syncTrackedBufferType = useCallback((reason: string) => {
       const current = terminalInstanceRef.current?.buffer.active.type;
       const next =
@@ -483,7 +488,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
     /** desync 重同步闸门：置真期间实时输出改走积压，防 reset 抹掉快照外的新输出。 */
     const resyncInProgressRef = useRef(false);
-    const overflowResyncRef = useRef<(() => void) | null>(null);
+    const overflowResyncRef = useRef<(() => Promise<void>) | null>(null);
 
     const flushHiddenWrites = useMemo(
       () =>
@@ -606,22 +611,20 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
     useAggregateVisibilitySubscription(props.visibilityOwnerId, notifyVisibility);
 
-    // 单视图边沿：本视图翻可见 → 补投积压 + 补一次 refit。聚合订阅（上一行）
-    // 管降档/休眠，盖不住「镜像常开时主视图切回」——聚合恒 true 无边沿。
+    // 单视图边沿补投积压并 refit；聚合边沿只负责降档/休眠。
     useViewVisibilityEdgeSubscription(
       props.visibilityOwnerId,
       props.viewRole,
       useCallback(
         (visible: boolean) => {
           if (!visible) return;
-          flushHiddenWrites("view.visible-edge");
-          layoutSchedulerRef.current?.schedule("view.visible-edge.refit", {
-            // 隐藏也允许：边沿本身就是「刚翻可见」，scheduler 焦点判据可能
-            // 还没跟上同一帧，不放行会漏掉这次 refit
-            allowInactive: true,
+          void restoreVisibleTerminalView({
+            flushHiddenWrites,
+            isRenderVisible,
+            scheduleRefit: () => layoutSchedulerRef.current?.schedule("view.visible-edge.refit", { allowInactive: true }),
           });
         },
-        [flushHiddenWrites],
+        [flushHiddenWrites, isRenderVisible],
       ),
     );
 
@@ -635,11 +638,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     // 壁纸透明需求翻转时重估渲染器（decideTerminalRenderer 经 provider 读到新值，
     // configure 按 reason 变化自动 disposeWebgl 降 DOM / 恢复）。依赖是布尔翻转，
     // 只在用户改设置/切工作空间时变化——不进入 resize/visibility/focus 等高频路径。
-    const wallpaperTransparencyRequired = wallpaperTerminalAlpha < 1;
     const effectiveCliToolRef = useRef(effectiveCliTool);
-    const wallpaperTransparencyRequiredRef = useRef(wallpaperTransparencyRequired);
     effectiveCliToolRef.current = effectiveCliTool;
-    wallpaperTransparencyRequiredRef.current = wallpaperTransparencyRequired;
     useEffect(() => {
       rendererControllerRef.current?.configure(terminalRendererModeRef.current);
     }, [wallpaperTransparencyRequired]);
@@ -1878,24 +1878,24 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       if (!IS_WINDOWS) return;
 
       lastWebglHeartbeatAtRef.current = Date.now();
-      // 普通 resize/focus/visible **不再 clearTextureAtlas**：atlas 是跨同配置终端共享的，
-      // 清一次会让其它共享 pane 残留错位（大片黑 + 碎片）。这些事件只做本 pane 的 fit/repaint；
-      // 真正需要重建 atlas 的只有 DPR 变化（字形按新 DPR 重光栅）和休眠恢复（heartbeat resume-gap）。
+      // 普通 resize/focus/visible 不清共享 atlas；只有 DPR 变化和休眠恢复才重建。
       // atlas 结构变化时的跨 pane 同步已由 controller 的 notifyAtlasStructureChanged 负责。
+      const repaintIfVisible = (reason: string) => repaintTerminalWhenVisible(isRenderVisible,
+        (visibleReason) => rendererControllerRef.current?.repaint(visibleReason), reason);
       const handleWindowResize = () => {
         layoutSchedulerRef.current?.schedule("window.resize");
-        rendererControllerRef.current?.repaint("window.resize");
+        repaintIfVisible("window.resize");
       };
       const handleWindowFocus = () => {
         if (window.devicePixelRatio !== lastDevicePixelRatioRef.current) {
           scheduleWebglRecovery("window.focus.dpr-change");
           return;
         }
-        rendererControllerRef.current?.repaint("window.focus");
+        repaintIfVisible("window.focus");
       };
       const handleVisibilityChange = () => {
         if (document.visibilityState === "visible") {
-          rendererControllerRef.current?.repaint("document.visible");
+          repaintIfVisible("document.visible");
         }
       };
 
@@ -1925,7 +1925,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           webglHeartbeatTimerRef.current = null;
         }
       };
-    }, [scheduleWebglRecovery, shouldRunWebglRecovery]);
+    }, [isRenderVisible, scheduleWebglRecovery, shouldRunWebglRecovery]);
 
     // Refit on activation and create deferred PTYs for restored tabs.
     useEffect(() => {

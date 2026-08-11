@@ -116,7 +116,7 @@ interface CreateTerminalDesyncHandlerOptions {
    */
   setResyncActive: (active: boolean) => void;
   /** 重同步结束（无论成败）后的收尾：flush 闸门期积压 + 补排版。 */
-  onResyncSettled: (resynced: boolean) => void;
+  onResyncSettled: (resynced: boolean) => unknown | Promise<unknown>;
   debugLog: ResyncLogger;
 }
 
@@ -140,30 +140,47 @@ export function createTerminalDesyncHandler({
   setResyncActive,
   onResyncSettled,
   debugLog,
-}: CreateTerminalDesyncHandlerOptions): () => void {
+}: CreateTerminalDesyncHandlerOptions): () => Promise<void> {
+  let activeResync: Promise<void> | null = null;
+  let coreResyncActive = false;
+
   return () => {
+    if (coreResyncActive && activeResync) return activeResync;
     const term = terminalRef.current;
-    if (!term) return;
-    setResyncActive(true);
-    // 丢弃 desync 前的不完整积压（缺口在它中间），闸门保证之后的新输出进积压。
-    hiddenWriteBufferRef.current?.reset();
-    void resyncFromReplaySnapshot({
-      term,
-      sessionId,
-      reason: "daemon-desync",
-      getRecoverySnapshot,
-      writeData,
-      writeCheckpointData,
-      syncTrackedBufferType,
-      debugLog,
-    })
-      .then(
-        (resynced) => resynced,
+    if (!term) return Promise.resolve();
+
+    const run = async (): Promise<void> => {
+      coreResyncActive = true;
+      setResyncActive(true);
+      // 丢弃 desync 前的不完整积压（缺口在它中间），闸门保证之后的新输出进积压。
+      hiddenWriteBufferRef.current?.reset();
+      const resynced = await resyncFromReplaySnapshot({
+        term,
+        sessionId,
+        reason: "daemon-desync",
+        getRecoverySnapshot,
+        writeData,
+        writeCheckpointData,
+        syncTrackedBufferType,
+        debugLog,
+      }).then(
+        (recovered) => recovered,
         () => false,
-      )
-      .then((resynced) => {
-        setResyncActive(false);
-        onResyncSettled(resynced);
+      );
+      setResyncActive(false);
+      coreResyncActive = false;
+      await onResyncSettled(resynced);
+    };
+    const completion = run()
+      .catch((error) => {
+        debugLog("terminal.resync.settled.failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        if (activeResync === completion) activeResync = null;
       });
+    activeResync = completion;
+    return completion;
   };
 }

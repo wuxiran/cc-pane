@@ -29,7 +29,7 @@ pub enum ProviderType {
     Grok,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderModel {
     pub id: String,
@@ -39,6 +39,12 @@ pub struct ProviderModel {
     pub default_effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window_tokens: Option<u64>,
+    /// 上下文窗口大小，**字符串形式**（`"1m"` / `"200k"` / `"500k"` 等），匹配
+    /// Claude Code 的 `ANTHROPIC_MODEL` 后缀约定。managed_settings 注入 `--settings` 时
+    /// 会按此值拼 `[<size>]` 后缀到 model id；空 / `"200k"`（默认）/ `"custom"` 不拼。
+    /// 与 `context_window_tokens` 互补：前者控制注入时形态，后者控制 context 解析。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_size: Option<String>,
 }
 
 /// Provider 配置

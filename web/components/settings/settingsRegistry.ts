@@ -260,6 +260,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
       { id: "path-links", titleKey: "pathLinksEnabled", descriptionKey: "pathLinksEnabledHint", targetSectionId: "terminal-path-links" },
       { id: "context-usage", titleKey: "showContextUsage", descriptionKey: "showContextUsageHint", targetSectionId: "terminal-context-usage" },
       { id: "status-bar", titleKey: "showStatusBar", descriptionKey: "showStatusBarHint", targetSectionId: "terminal-status-bar" },
+      { id: "task-queue", titleKey: "taskQueueEnabled", descriptionKey: "taskQueueEnabledHint", targetSectionId: "terminal-task-queue" },
       { id: "session-priority", titleKey: "lowerSessionPriority", descriptionKey: "lowerSessionPriorityHint", targetSectionId: "terminal-root" },
       { id: "daemon", titleKey: "terminalDaemon", descriptionKey: "terminalDaemonHint", targetSectionId: "terminal-root" },
     ],
