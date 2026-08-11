@@ -4,12 +4,12 @@ import { toast } from "sonner";
 import {
   Folder, FolderX, Trash2, Pencil, Clock, Globe,
   FolderOpen, Terminal, GitBranch, Copy, Files, FileText, MonitorSmartphone,
-  Archive, ArchiveRestore,
 } from "lucide-react";
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
   ContextMenuSeparator, ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent,
 } from "@/components/ui/context-menu";
+import ArchiveMenuItem from "./ArchiveMenuItem";
 import { useDialogStore, useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import { specService } from "@/services/specService";
 import { providerService } from "@/services/providerService";
@@ -381,26 +381,13 @@ export default function ProjectListItem({
           <Pencil /> {t("setAlias")}
         </ContextMenuItem>
         <ContextMenuSeparator />
-        {/* 归档在移除之上：可逆操作应该比不可逆的更容易够到 */}
-        <ContextMenuItem
-          onClick={() =>
-            void setProjectArchived(
-              workspace.name,
-              project.id,
-              !project.archivedAt,
-            )
+        <ArchiveMenuItem
+          target="project"
+          archivedAt={project.archivedAt}
+          onToggle={(next) =>
+            void setProjectArchived(workspace.name, project.id, next)
           }
-        >
-          {project.archivedAt ? (
-            <>
-              <ArchiveRestore /> {t("restoreProject")}
-            </>
-          ) : (
-            <>
-              <Archive /> {t("archiveProject")}
-            </>
-          )}
-        </ContextMenuItem>
+        />
         <ContextMenuItem variant="destructive" onClick={() => onRemoveProject(workspace, project)}>
           <Trash2 /> {t("removeProject")}
         </ContextMenuItem>
