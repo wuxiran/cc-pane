@@ -51,6 +51,12 @@ pub struct WorkspacePathRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkspaceArchivedRequest {
+    pub archived: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceProviderRequest {
     pub provider_id: Option<String>,
 }
@@ -264,6 +270,32 @@ pub async fn update_workspace_path(
     state
         .workspace_service
         .update_workspace_path(&name, req.path.as_deref())
+        .map_err(service_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// 归档 / 恢复工作空间（逻辑删除，可逆）。与 `delete_workspace` 不同，本路由不删任何东西。
+pub async fn set_workspace_archived(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Json(req): Json<WorkspaceArchivedRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    state
+        .workspace_service
+        .set_workspace_archived(&name, req.archived)
+        .map_err(service_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// 归档 / 恢复工作空间内的单个项目（逻辑删除，可逆）。
+pub async fn set_workspace_project_archived(
+    State(state): State<AppState>,
+    Path((name, project_id)): Path<(String, String)>,
+    Json(req): Json<WorkspaceArchivedRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    state
+        .workspace_service
+        .set_project_archived(&name, &project_id, req.archived)
         .map_err(service_error)?;
     Ok(StatusCode::NO_CONTENT)
 }

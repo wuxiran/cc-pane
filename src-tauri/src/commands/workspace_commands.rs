@@ -193,6 +193,37 @@ pub fn update_workspace_path(
     Ok(service.update_workspace_path(&workspace_name, path.as_deref())?)
 }
 
+/// 归档 / 恢复工作空间（逻辑删除）。
+///
+/// 与 `delete_workspace` 的区别：本命令只写一个时间戳，不删注册目录、不动磁盘内容，
+/// 可随时恢复。因为可逆，它同时也开放给了 MCP（硬删除没有）。
+#[tauri::command]
+pub fn set_workspace_archived(
+    workspace_name: String,
+    archived: bool,
+    service: State<'_, Arc<WorkspaceService>>,
+) -> AppResult<()> {
+    debug!(workspace_name = %workspace_name, archived, "cmd::set_workspace_archived");
+    Ok(service.set_workspace_archived(&workspace_name, archived)?)
+}
+
+/// 归档 / 恢复工作空间内的单个项目（逻辑删除）。
+#[tauri::command]
+pub fn set_workspace_project_archived(
+    workspace_name: String,
+    project_id: String,
+    archived: bool,
+    service: State<'_, Arc<WorkspaceService>>,
+) -> AppResult<()> {
+    debug!(
+        workspace_name = %workspace_name,
+        project_id = %project_id,
+        archived,
+        "cmd::set_workspace_project_archived"
+    );
+    Ok(service.set_project_archived(&workspace_name, &project_id, archived)?)
+}
+
 #[tauri::command]
 pub fn update_workspace(
     name: String,
