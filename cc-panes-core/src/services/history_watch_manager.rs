@@ -194,6 +194,29 @@ mod tests {
         (history, manager)
     }
 
+    /// 轮询等待条件成立，超时返回 false。
+    ///
+    /// `on_session_ended` 的停表是**异步**的：它同步摘掉 session，再 spawn 一个
+    /// 游离线程 sleep(grace) 之后才 stop_watching。所以"睡固定时长再断言"等于赌
+    /// 那个线程能在余量内被调度完——CI 上余量不够就是 flake（macOS runner 最慢，
+    /// 且 FSEvents 流拆除比 inotify 重，实测 v0.12.4 发版 CI 就挂在这里）。
+    /// 正向断言一律改用轮询，把"多久"这个变量从测试里去掉。
+    fn wait_until(mut predicate: impl FnMut() -> bool) -> bool {
+        const TIMEOUT: Duration = Duration::from_secs(5);
+        const POLL: Duration = Duration::from_millis(5);
+
+        let deadline = std::time::Instant::now() + TIMEOUT;
+        loop {
+            if predicate() {
+                return true;
+            }
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(POLL);
+        }
+    }
+
     #[test]
     fn project_state_keys_follow_windows_drive_equivalence() {
         let projects = HashMap::from([(PathBuf::from(r"D:\Code\Project"), ())]);
@@ -221,10 +244,13 @@ mod tests {
         manager.on_session_ended("s1");
         assert_eq!(history.watcher_count(), 1);
         manager.on_session_ended("s2");
-        std::thread::sleep(TEST_GRACE + Duration::from_millis(40));
 
+        // session 是同步摘掉的，停表是异步的——分开断言，别把两者混进一个 sleep。
         assert_eq!(manager.stats().session_count, 0);
-        assert_eq!(history.watcher_count(), 0);
+        assert!(
+            wait_until(|| history.watcher_count() == 0),
+            "watcher should stop after the grace period expires"
+        );
     }
 
     #[test]
@@ -236,7 +262,11 @@ mod tests {
         manager.on_session_ended("s1");
         std::thread::sleep(Duration::from_millis(10));
         manager.on_session_created("s2", dir.path()).unwrap();
-        std::thread::sleep(TEST_GRACE + Duration::from_millis(40));
+
+        // 这条是**否定断言**（watcher 不该被停），轮询救不了：条件一开始就成立。
+        // 只能等到 s1 那个 grace 线程确定已经跑完判定。给 4 倍 grace 的余量——
+        // 余量不足的失败方向是"假通过"（线程还没跑），不会像正向断言那样把 CI 弄红。
+        std::thread::sleep(TEST_GRACE * 4);
 
         assert_eq!(manager.stats().session_count, 1);
         assert_eq!(history.watcher_count(), 1);
