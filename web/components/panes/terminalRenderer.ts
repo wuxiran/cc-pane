@@ -43,6 +43,22 @@ export function isWebKitTerminalRendererHost(userAgent: string): boolean {
   );
 }
 
+/// macOS 桌面 WKWebView。移动端 WebKit（iOS/iPadOS，含桌面模式下把自己报成
+/// Macintosh 的 iPad）排除在外——WebGL 残影与显存压力在移动端更明显，仍走 DOM。
+export function isMacDesktopWebKitTerminalRendererHost(userAgent: string): boolean {
+  if (!isWebKitTerminalRendererHost(userAgent)) return false;
+
+  const normalized = userAgent.toLowerCase();
+  if (!normalized.includes("macintosh")) return false;
+
+  return !(
+    normalized.includes("mobile") ||
+    normalized.includes("iphone") ||
+    normalized.includes("ipad") ||
+    normalized.includes("ipod")
+  );
+}
+
 /// Windows/WebView2 上 WebglAddon 存在 CJK 字形图集花屏问题（auto 模式默认避开，
 /// 显式选 webgl 仍放行）。
 export function isWindowsTerminalRendererHost(userAgent: string): boolean {
@@ -154,7 +170,11 @@ export function decideTerminalRenderer(
     };
   }
 
-  if (isWebKitTerminalRendererHost(userAgent)) {
+  // macOS 桌面 WKWebView 放行 WebGL：DOM 渲染器在 Retina 上把打包的等宽 webfont
+  // 渲染得发虚。早期整体降级是为规避 WebKit 局部重绘后残留旧单元格背景，现在
+  // terminalRendererController 已有 context-loss / atlas 重建 / repaint 兜底；
+  // 万一复发，设置里显式选 dom 即可退回。移动端 WebKit 仍降级。
+  if (isWebKitTerminalRendererHost(userAgent) && !isMacDesktopWebKitTerminalRendererHost(userAgent)) {
     return {
       requestedMode: mode,
       renderer: "dom",

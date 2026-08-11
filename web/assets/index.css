@@ -1148,6 +1148,14 @@
   color: var(--cc-terminal-fg);
 }
 
+/* DOM 渲染器兜底：body 的 antialiased 适合 Inter 正文，继承到终端却把等宽
+   webfont 的细笔画磨得发虚。终端区改回 subpixel-antialiased 还原厚度。
+   WebGL 渲染器走 canvas，不受此影响（壁纸透明 / 无 WebGL2 时才会落到 DOM）。 */
+:root[data-platform="macos"] .cc-terminal-host .xterm {
+  -webkit-font-smoothing: subpixel-antialiased;
+  -moz-osx-font-smoothing: auto;
+}
+
 /* ============================================
    滚动条 — 浮动隐藏式（macOS / Linear 风格）
    默认完全透明 → 容器 hover 淡入 → slider hover 增强 → 拖拽最强
