@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+Maintenance release: notification false-positive root-cause fixes, non-standard model context windows, terminal legibility on macOS, and TUI fidelity over wallpapers.
+
+### Added
+
+- **`contextSize` on provider models** — Claude Code hard-validates `ANTHROPIC_MODEL` against a built-in 200k allowlist, so any model outside it (e.g. `MiniMax-M3-highspeed`) was silently forced to 200k with a stderr warning. Provider models now carry `contextSize` (`"1m"` / `"500k"` / `"200k"` / `"custom"`), injected as a `[size]` suffix when writing `ANTHROPIC_MODEL`; usage stats reverse-parse the suffix from the session jsonl. Set it in the Provider editor and the Ctx readout shows the real window. `context_window_tokens` is kept for backward compatibility.
+- **"System" tab in the notification history** — session-exit and waiting-input notifications no longer interleave with AI rich summaries. The split keys off the backend-hardcoded `source` field (`terminal` = state-machine listener, `hook` = CLI hook channel) rather than guessing from title/kind text; "All" now excludes system notifications by default.
+
+### Fixed
+
+- **"Waiting for input" false positives** — the root cause was matcher scope, not detection accuracy: `state-waiting-input` accepted 5 kinds of Claude Code Notification, and 3 of them do not mean "the agent is blocked". `idle_prompt` fires after 60s of input-box idling ("the human walked away"), and `turn_end` already notified once — that was the duplicate "just now / 4 minutes ago" pair, outside the 10s dedupe window. `elicitation_complete` / `elicitation_response` signal the dialog **ending** and the user having **answered** — semantically the opposite of WaitingInput, so they re-marked answered sessions as waiting and fired again. Only `permission_prompt` / `elicitation_dialog` remain. Tests lock all three regression sources and assert `HOOK_DEFS` and `map_cc_pane_event` stay in the same scope (they were hand-synced before, and drift means the installed hook disagrees with the runtime).
+- **Blurry terminal text on macOS** — three causes stacked. `decideTerminalRenderer` downgraded *every* WebKit host to the DOM renderer (a guard against WKWebView leaving stale WebGL cell backgrounds after partial repaints), so macOS desktop never got WebGL; the renderer controller now has context-loss / atlas-rebuild / repaint recovery, so macOS desktop is allowed through while mobile WebKit (including iPad reporting itself as Macintosh) stays on DOM. The `body`-level `-webkit-font-smoothing: antialiased` suits Inter body text but thinned the monospace webfont's already-fine strokes — the terminal now uses `subpixel-antialiased`. And the bundled `Maple Mono NF CN` held the head of the font chain; on macOS `"SF Mono", Menlo` now come first, with the webfont kept in the chain for CJK coverage. Explicit user font chains are untouched; wallpaper transparency still forces DOM.
+- **Full TUI preserved over wallpapers** — OpenCode and Grok stay in their native alternate-screen TUI; only explicit terminal background colors are stripped when wallpaper transparency is active. Adds streaming SGR coverage and transparent OpenCode configuration handling.
+- **User-installed Grok on Windows** — long-running desktop and daemon processes now search the official Grok user bin directory and `GROK_HOME`. The OpenCode recovery hint points at the official npm registry to avoid broken mirror installs.
+- Merged task queue checks repaired; `bind_pty_session` provider_id, the 1M fallback in `provider_window_for_request`, ContextUsageIndicator tests and a missing i18n key all landed with the dev/v0.12.3 working-tree merge.
+
+### Docs
+
+- `docs/87-git-collaboration.md` — active branch moved to `dev/v0.12.4`.
+- `CLAUDE.md` — records the macOS cross-compilation release trap (CI green but tag red) and the `-sys` crate diagnostic.
+- README — WeChat discussion group QR code added alongside the existing bug-report group; restored the two acknowledgements (Linux.do, sponsor relay hub) dropped when the 08-03 rewrite collapsed the list into a single pipe-separated line across all seven language versions.
+
+<details>
+<summary>中文版</summary>
+
+维护版本：通知误报根治、非常规 model 的上下文窗口、macOS 终端可读性、壁纸下的 TUI 保真。
+
+### 新增
+
+- **Provider 模型的 `contextSize`** — Claude Code 对 `ANTHROPIC_MODEL` 按内置 200k 白名单强校验，不在表里的 model（如 `MiniMax-M3-highspeed`）会被强制按 200k 算并发 stderr 警告。现在 Provider 模型可带 `contextSize`（`"1m"` / `"500k"` / `"200k"` / `"custom"`），写入 `ANTHROPIC_MODEL` 时拼 `[size]` 后缀；用量统计从会话 jsonl 反解该后缀。在 Provider 编辑页设置后，Ctx 段即显示真实窗口。`context_window_tokens` 保留向后兼容。
+- **通知历史的「系统」栏** — 会话退出、等待输入这类状态机通知不再与 AI 富摘要混排。判据用后端硬编码的 `source` 字段（`terminal` = 状态机 listener，`hook` = CLI hook 通道），不猜 title/kind 文本；「全部」默认排除系统通知。
+
+### 修复
+
+- **「等待输入」误报** — 根因在匹配器口径而非判定精度：`state-waiting-input` 收了 5 类 Claude Code Notification，其中 3 类根本不是「agent 被挡住」。`idle_prompt` 是输入框闲置 60s 触发（人走开了），而 `turn_end` 已经通知过一次——截图里「刚刚 / 4 分钟前」的重复条即此源，超出 10s dedupe 窗口。`elicitation_complete` / `elicitation_response` 是对话框**结束**与用户**已回答**事件，语义与 WaitingInput 相反，会把答完的会话重新标成等待并再弹一条。现在只留 `permission_prompt` / `elicitation_dialog`。测试锁死三个误报源，并断言 `HOOK_DEFS` 与 `map_cc_pane_event` 同口径（此前两处手工同步，漂了就是装出去的 hook 与运行期判定打架）。
+- **macOS 终端文字发虚** — 三个成因叠加。`decideTerminalRenderer` 把**所有** WebKit host 降级 DOM（原为规避 WKWebView 局部重绘残留旧单元格背景），macOS 桌面因此永远拿不到 WebGL；现渲染器控制器已有 context-loss / atlas 重建 / repaint 兜底，放行 macOS 桌面，移动端 WebKit（含报成 Macintosh 的 iPad）仍走 DOM。`body` 上的 `-webkit-font-smoothing: antialiased` 适合 Inter 正文，却把等宽 webfont 本就纤细的笔画磨得更细——终端区改用 `subpixel-antialiased`。打包的 `Maple Mono NF CN` 占住字体链首项，macOS 上改为 `"SF Mono", Menlo` 优先，webfont 留在链中继续兜 CJK。用户显式设定的字体链不动；壁纸透明仍强制 DOM。
+- **壁纸下保留完整 TUI** — OpenCode 与 Grok 保持原生备用屏 TUI，壁纸透明生效时只剥离显式的终端背景色。补充流式 SGR 覆盖与 OpenCode 透明配置处理。
+- **Windows 上用户自装的 Grok** — 常驻桌面与 daemon 进程现在会搜索官方 Grok 用户 bin 目录与 `GROK_HOME`。OpenCode 恢复提示改指官方 npm registry，避免镜像装坏。
+- 修复合并后的任务队列校验；`bind_pty_session` 的 provider_id、`provider_window_for_request` 的 1M 兜底、ContextUsageIndicator 测试与缺失的 i18n key 随 dev/v0.12.3 工作树合并一并落地。
+
+### 文档
+
+- `docs/87-git-collaboration.md` — 活跃分支切到 `dev/v0.12.4`。
+- `CLAUDE.md` — 记录 mac 交叉编译发版坑（CI 绿但 tag 红）与 `-sys` crate 判定法。
+- README — 加入微信交流群二维码，与既有 Bug 反馈群并列；补回 08-03 改版把致谢压成单行管道分隔时漏掉的两条（Linux.do、赞助中转），七个语言版同时中招。
+
+</details>
+
 ## 0.12.3 - 2026-08-10
 
 Feature release: SSH remote file management, first-class human/AI todo separation with dispatch linkage, terminal garble root-cause fix (native alt-screen for codex/opencode + a buffer reset action), turn-end notification dedupe, and orchestration upgrades (reviewer reuse on the collaboration board, task-decomposition rules baked into dispatch skills, MCP tool-call statistics).
