@@ -2338,6 +2338,9 @@ struct McpGetWorkspaceParams {
     /// 工作空间名称
     #[serde(rename = "workspaceName")]
     workspace_name: String,
+    /// 是否列出已归档的项目。默认 false。（工作空间本身即使已归档也照常返回）
+    #[serde(rename = "includeArchived")]
+    include_archived: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2356,6 +2359,43 @@ struct McpAddProjectToWorkspaceParams {
     /// 项目路径（必须是存在的目录）
     #[serde(rename = "projectPath")]
     project_path: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpListWorkspacesParams {
+    /// 是否包含已归档（逻辑删除）的工作空间。默认 false。
+    #[serde(rename = "includeArchived")]
+    include_archived: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpSetWorkspaceArchivedParams {
+    /// 工作空间名称
+    #[serde(rename = "workspaceName")]
+    workspace_name: String,
+    /// true = 归档，false = 恢复
+    archived: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpSetWorkspaceProjectArchivedParams {
+    /// 工作空间名称
+    #[serde(rename = "workspaceName")]
+    workspace_name: String,
+    /// 项目 ID（get_workspace 返回的 projects[].id）
+    #[serde(rename = "projectId")]
+    project_id: String,
+    /// true = 归档，false = 恢复
+    archived: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpUpdateWorkspacePathParams {
+    /// 工作空间名称
+    #[serde(rename = "workspaceName")]
+    workspace_name: String,
+    /// 新的根目录路径；传 null 清空
+    path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -4029,6 +4069,131 @@ fn launch_profile_bindings(profile_id: &str, workspaces: &[Workspace]) -> Vec<St
     bindings
 }
 
+/// 找出某工作空间下**尚未收尾**的派工记录，用于归档时的提示。
+///
+/// 数据源刻意选 task_binding（SQLite）而非 TerminalService：PTY 迁到 daemon 后
+/// app 进程内的 `TerminalService.sessions` 恒为空（见 CLAUDE.md 的 daemon 边界那条），
+/// 拿它做判断会恒返回"无会话"——一个静默永远为真的守卫比没有守卫更糟。
+fn unfinished_bindings_in_workspace(
+    task_binding_service: &crate::services::TaskBindingService,
+    workspace_name: &str,
+) -> Vec<String> {
+    use crate::models::task_binding::{TaskBindingQuery, TaskBindingStatus};
+
+    let mut found = Vec::new();
+    // status 是精确匹配，未收尾的三态各查一次
+    for status in [
+        TaskBindingStatus::Running,
+        TaskBindingStatus::Waiting,
+        TaskBindingStatus::Pending,
+    ] {
+        let query = TaskBindingQuery {
+            status: Some(status),
+            workspace_name: Some(workspace_name.to_string()),
+            ..Default::default()
+        };
+        let Ok(result) = task_binding_service.query(query) else {
+            continue;
+        };
+        for binding in result.items {
+            found.push(format!(
+                "{} ({}, session={})",
+                binding.title,
+                binding.status.as_str(),
+                binding.session_id.as_deref().unwrap_or("-")
+            ));
+        }
+    }
+    found
+}
+
+/// 归档 / 恢复工作空间。
+///
+/// **刻意不阻塞**在途派工，只在返回值里报告：
+/// - 归档是纯可见性标记，不杀 PTY、不删磁盘内容，误归档的代价是点一下恢复；
+///   而误阻塞的代价是整理任务直接做不下去。
+/// - 会话归属只有 task_binding 一条能跨 daemon 边界的通路，而**并非每个会话都有
+///   binding**（用户从 UI 直接开的终端就没有）。不完整的阻塞守卫会给出虚假保证，
+///   不完整的提示只是少报一条——后者的失败方向安全得多。
+fn set_workspace_archived_impl(
+    workspace_service: &WorkspaceService,
+    task_binding_service: &crate::services::TaskBindingService,
+    workspace_name: &str,
+    archived: bool,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_name = required_trimmed(workspace_name, "workspaceName")?;
+
+    workspace_service.set_workspace_archived(&workspace_name, archived)?;
+
+    let workspace = workspace_service.get_workspace(&workspace_name)?;
+    let mut payload = serde_json::json!({
+        "success": true,
+        "workspaceName": workspace.name,
+        "archivedAt": workspace.archived_at,
+    });
+
+    if archived {
+        let unfinished = unfinished_bindings_in_workspace(task_binding_service, &workspace_name);
+        if !unfinished.is_empty() {
+            payload["warning"] = serde_json::json!(format!(
+                "该工作空间仍有 {} 条未收尾的派工记录：{}。归档不会终止它们（会话照常运行），只是列表默认不再显示该工作空间；要真正停掉请用 kill_session。",
+                unfinished.len(),
+                unfinished.join("; ")
+            ));
+            payload["unfinishedBindings"] = serde_json::json!(unfinished);
+        }
+    }
+
+    Ok(payload)
+}
+
+/// 归档 / 恢复工作空间内的单个项目。
+fn set_workspace_project_archived_impl(
+    workspace_service: &WorkspaceService,
+    workspace_name: &str,
+    project_id: &str,
+    archived: bool,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_name = required_trimmed(workspace_name, "workspaceName")?;
+    let project_id = required_trimmed(project_id, "projectId")?;
+
+    workspace_service.set_project_archived(&workspace_name, &project_id, archived)?;
+
+    let workspace = workspace_service.get_workspace(&workspace_name)?;
+    let archived_at = workspace
+        .projects
+        .iter()
+        .find(|p| p.id == project_id)
+        .and_then(|p| p.archived_at.clone());
+
+    Ok(serde_json::json!({
+        "success": true,
+        "workspaceName": workspace.name,
+        "projectId": project_id,
+        "archivedAt": archived_at,
+    }))
+}
+
+/// 修改工作空间根目录路径（薄包装，非破坏性）。
+fn update_workspace_path_impl(
+    workspace_service: &WorkspaceService,
+    workspace_name: &str,
+    path: Option<&str>,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_name = required_trimmed(workspace_name, "workspaceName")?;
+    // 空白字符串按"清空"处理，避免把工作空间根设成一个空路径
+    let path = path.map(str::trim).filter(|value| !value.is_empty());
+
+    workspace_service.update_workspace_path(&workspace_name, path)?;
+
+    let workspace = workspace_service.get_workspace(&workspace_name)?;
+    Ok(serde_json::json!({
+        "success": true,
+        "workspaceName": workspace.name,
+        "path": workspace.path,
+    }))
+}
+
 fn delete_launch_profile_impl(
     launch_profile_service: &LaunchProfileService,
     workspace_service: &WorkspaceService,
@@ -5388,22 +5553,34 @@ impl McpToolHandler {
 
     // ============ Workspace Tools ============
 
-    /// 列出所有工作空间及其基本信息
+    /// 列出所有工作空间及其基本信息。默认不返回已归档的工作空间，
+    /// 传 includeArchived=true 才带上（返回项含 archivedAt）
     #[tool]
-    async fn list_workspaces(&self) -> String {
-        debug!("mcp::list_workspaces");
+    async fn list_workspaces(
+        &self,
+        Parameters(params): Parameters<McpListWorkspacesParams>,
+    ) -> String {
+        let include_archived = params.include_archived.unwrap_or(false);
+        debug!(include_archived, "mcp::list_workspaces");
         match self.state.workspace_service.list_workspaces() {
             Ok(workspaces) => {
                 let items: Vec<serde_json::Value> = workspaces
                     .iter()
+                    .filter(|ws| include_archived || ws.archived_at.is_none())
                     .map(|ws| {
                         serde_json::json!({
                             "name": ws.name,
                             "alias": ws.alias,
-                            "projectCount": ws.projects.len(),
+                            // 项目数只算活跃项，否则归档过的项目会让数字对不上列表
+                            "projectCount": ws
+                                .projects
+                                .iter()
+                                .filter(|p| p.archived_at.is_none())
+                                .count(),
                             "providerId": ws.provider_id,
                             "path": ws.path,
                             "pinned": ws.pinned,
+                            "archivedAt": ws.archived_at,
                         })
                     })
                     .collect();
@@ -5423,9 +5600,13 @@ impl McpToolHandler {
             .get_workspace(&params.workspace_name)
         {
             Ok(ws) => {
+                // 工作空间按名字取，即使已归档也照常返回（否则没法查看/恢复它）；
+                // 归档的**项目**则默认隐去，与 list_workspaces 的口径一致。
+                let include_archived = params.include_archived.unwrap_or(false);
                 let projects: Vec<serde_json::Value> = ws
                     .projects
                     .iter()
+                    .filter(|p| include_archived || p.archived_at.is_none())
                     .map(|p| {
                         serde_json::json!({
                             "id": p.id,
@@ -5433,6 +5614,7 @@ impl McpToolHandler {
                             "alias": p.alias,
                             "wslRemotePath": p.wsl_remote_path,
                             "ssh": p.ssh,
+                            "archivedAt": p.archived_at,
                         })
                     })
                     .collect();
@@ -5447,6 +5629,7 @@ impl McpToolHandler {
                     "wsl": ws.wsl,
                     "sshLaunch": ws.ssh_launch,
                     "pinned": ws.pinned,
+                    "archivedAt": ws.archived_at,
                 })
                 .to_string()
             }
@@ -5487,6 +5670,80 @@ impl McpToolHandler {
         {
             Ok(project) => serde_json::to_string(&project)
                 .unwrap_or_else(|e| format!("错误: 序列化失败: {}", e)),
+            Err(e) => format!("错误: {}", e),
+        }
+    }
+
+    /// 归档（逻辑删除）或恢复工作空间。归档后 list_workspaces 默认不再返回它，
+    /// 侧边栏也默认隐藏，但**不删除任何数据**：workspace.json、项目目录、正在跑的
+    /// 会话全都原样保留，随时可 archived=false 恢复。
+    ///
+    /// 想彻底删除请在 CC-Panes UI 里操作——硬删除不可撤回，故不开放给 MCP。
+    /// 默认工作空间不可归档。
+    #[tool]
+    async fn set_workspace_archived(
+        &self,
+        Parameters(params): Parameters<McpSetWorkspaceArchivedParams>,
+    ) -> String {
+        info!(
+            ws = %params.workspace_name,
+            archived = params.archived,
+            "mcp::set_workspace_archived"
+        );
+        match set_workspace_archived_impl(
+            &self.state.workspace_service,
+            &self.state.task_binding_service,
+            &params.workspace_name,
+            params.archived,
+        ) {
+            Ok(value) => value.to_string(),
+            Err(e) => format!("错误: {}", e),
+        }
+    }
+
+    /// 归档（逻辑删除）或恢复工作空间内的单个项目。语义同 set_workspace_archived：
+    /// 只改列表可见性，不动磁盘上的项目目录，可恢复。projectId 取自 get_workspace 的
+    /// projects[].id。
+    #[tool]
+    async fn set_workspace_project_archived(
+        &self,
+        Parameters(params): Parameters<McpSetWorkspaceProjectArchivedParams>,
+    ) -> String {
+        info!(
+            ws = %params.workspace_name,
+            project = %params.project_id,
+            archived = params.archived,
+            "mcp::set_workspace_project_archived"
+        );
+        match set_workspace_project_archived_impl(
+            &self.state.workspace_service,
+            &params.workspace_name,
+            &params.project_id,
+            params.archived,
+        ) {
+            Ok(value) => value.to_string(),
+            Err(e) => format!("错误: {}", e),
+        }
+    }
+
+    /// 修改工作空间的根目录路径。传 path=null 或空串则清空。
+    /// 只改注册信息，不搬运任何文件——要真正搬目录请用 CC-Panes UI 的「迁移工作空间」。
+    #[tool]
+    async fn update_workspace_path(
+        &self,
+        Parameters(params): Parameters<McpUpdateWorkspacePathParams>,
+    ) -> String {
+        info!(
+            ws = %params.workspace_name,
+            path = ?params.path,
+            "mcp::update_workspace_path"
+        );
+        match update_workspace_path_impl(
+            &self.state.workspace_service,
+            &params.workspace_name,
+            params.path.as_deref(),
+        ) {
+            Ok(value) => value.to_string(),
             Err(e) => format!("错误: {}", e),
         }
     }
@@ -14397,6 +14654,158 @@ mod tests {
         let error = ensure_mcp_yolo_profile_allowed(true, false).unwrap_err();
         assert!(error.contains("allowMcpYoloProfiles"));
         assert!(error.contains("设置"));
+    }
+
+    /// `Database::new_in_memory` 是 core 内部的 `#[cfg(test)]`，下游 crate 用不了，
+    /// 与本模块其他测试一致走 `new_fallback`（内存库）。
+    fn make_task_binding_service() -> Arc<cc_panes_core::services::TaskBindingService> {
+        let db =
+            Arc::new(cc_panes_core::repository::Database::new_fallback().expect("fallback db"));
+        Arc::new(cc_panes_core::services::TaskBindingService::new(Arc::new(
+            cc_panes_core::repository::TaskBindingRepository::new(db),
+        )))
+    }
+
+    #[test]
+    fn mcp_archive_workspace_round_trips_and_protects_default() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let workspace_service = WorkspaceService::new(dir.path().join("workspaces"));
+        let bindings = make_task_binding_service();
+        workspace_service
+            .create_workspace("ws-a", None)
+            .expect("create workspace");
+
+        let value = set_workspace_archived_impl(&workspace_service, &bindings, "ws-a", true)
+            .expect("archive");
+        assert_eq!(value["success"], true);
+        assert!(value["archivedAt"].is_string());
+        // 无在途派工时不该冒出 warning 字段
+        assert!(value.get("warning").is_none());
+
+        let value = set_workspace_archived_impl(&workspace_service, &bindings, "ws-a", false)
+            .expect("restore");
+        assert!(value["archivedAt"].is_null());
+
+        // 空名字要在进 service 之前就被拦下
+        let error = set_workspace_archived_impl(&workspace_service, &bindings, "   ", true)
+            .expect_err("blank name must be rejected");
+        assert!(error.contains("workspaceName"));
+
+        // 默认工作空间不可归档，错误文案要带可识别的错误码
+        workspace_service
+            .ensure_default_workspace()
+            .expect("ensure default");
+        let error = set_workspace_archived_impl(&workspace_service, &bindings, "default", true)
+            .expect_err("default workspace must be protected");
+        assert!(error.contains("DEFAULT_WORKSPACE_PROTECTED"));
+    }
+
+    #[test]
+    fn mcp_archive_project_round_trips_and_hides_from_get_workspace() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let workspace_service = WorkspaceService::new(dir.path().join("workspaces"));
+        let project_dir = dir.path().join("repo");
+        std::fs::create_dir_all(&project_dir).expect("create project dir");
+        workspace_service
+            .create_workspace("ws-a", None)
+            .expect("create workspace");
+        let project = workspace_service
+            .add_project("ws-a", &project_dir.to_string_lossy())
+            .expect("add project");
+
+        let value =
+            set_workspace_project_archived_impl(&workspace_service, "ws-a", &project.id, true)
+                .expect("archive project");
+        assert_eq!(value["success"], true);
+        assert!(value["archivedAt"].is_string());
+
+        // 归档只打标记，条目本身必须还在 workspace.json 里（否则就不是逻辑删除了）
+        let ws = workspace_service
+            .get_workspace("ws-a")
+            .expect("get workspace");
+        assert_eq!(ws.projects.len(), 1);
+        assert!(ws.projects[0].archived_at.is_some());
+
+        set_workspace_project_archived_impl(&workspace_service, "ws-a", &project.id, false)
+            .expect("restore project");
+        let ws = workspace_service
+            .get_workspace("ws-a")
+            .expect("get workspace");
+        assert!(ws.projects[0].archived_at.is_none());
+
+        let error =
+            set_workspace_project_archived_impl(&workspace_service, "ws-a", "missing-id", true)
+                .expect_err("unknown project id must be rejected");
+        assert!(error.contains("missing-id"));
+    }
+
+    #[test]
+    fn mcp_update_workspace_path_sets_and_clears() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let workspace_service = WorkspaceService::new(dir.path().join("workspaces"));
+        workspace_service
+            .create_workspace("ws-a", None)
+            .expect("create workspace");
+
+        let value = update_workspace_path_impl(&workspace_service, "ws-a", Some(r"D:\repos\app"))
+            .expect("set path");
+        assert_eq!(value["path"], r"D:\repos\app");
+
+        // 空白串按清空处理，不能把根目录设成一个空路径
+        let value = update_workspace_path_impl(&workspace_service, "ws-a", Some("   "))
+            .expect("blank path");
+        assert!(value["path"].is_null());
+
+        update_workspace_path_impl(&workspace_service, "ws-a", Some("/data/root")).expect("set");
+        let value = update_workspace_path_impl(&workspace_service, "ws-a", None).expect("clear");
+        assert!(value["path"].is_null());
+    }
+
+    /// 归档的工作空间仍然持有 launch profile 绑定，删除守卫不得因此漏判。
+    /// 这是"过滤只能落在消费点、不能落进 list_workspaces"那条不变式的端到端体现。
+    #[test]
+    fn archived_workspace_still_blocks_launch_profile_deletion() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let profile_service = LaunchProfileService::new(dir.path().join("launch-profiles.json"));
+        let workspace_service = WorkspaceService::new(dir.path().join("workspaces"));
+        let bindings = make_task_binding_service();
+        workspace_service
+            .create_workspace("ws-a", None)
+            .expect("create workspace");
+
+        let profile = profile_service
+            .create_profile(LaunchProfileDraft {
+                name: Some("Claude".into()),
+                alias: None,
+                description: None,
+                provider_id: None,
+                model_id: None,
+                adapter_options: HashMap::new(),
+                target_tools: vec!["claude".into()],
+                target_runtime: Some("local".into()),
+                yolo_mode: false,
+                mcp_policy: Default::default(),
+                skill_policy: Default::default(),
+                is_default: false,
+            })
+            .expect("create profile");
+
+        bind_workspace_launch_profile_impl(
+            &profile_service,
+            &workspace_service,
+            true,
+            McpBindWorkspaceLaunchProfileParams {
+                workspace_name: "ws-a".into(),
+                profile_id: Some(profile.id.clone()),
+            },
+        )
+        .expect("bind profile");
+
+        set_workspace_archived_impl(&workspace_service, &bindings, "ws-a", true).expect("archive");
+
+        let error = delete_launch_profile_impl(&profile_service, &workspace_service, &profile.id)
+            .expect_err("binding held by an archived workspace must still block deletion");
+        assert!(error.contains("ws-a"));
     }
 
     #[test]
