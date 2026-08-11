@@ -296,6 +296,7 @@ flutter pub get && flutter analyze && flutter test
 - [x] Git 提交时间线 + 提交/工作区 Diff 视图（NUL 协议解析、双端 parity）
 - [x] 项目身份统一（Windows//mnt//WSL UNC 跨形式等价 + 迁移去重）
 - [x] Local History watcher 惰性化（跟随活跃终端会话,45s 宽限,全局开关）
+- [x] 工作空间/项目归档（可逆逻辑删除,`archivedAt` 时间戳,MCP 可调；硬删除仍只在 UI）
 
 ## Known Gotchas
 
@@ -359,6 +360,8 @@ flutter pub get && flutter analyze && flutter test
 - **checkpoint 的配对身份是 `anchorSeq` + `checkpoint_epoch`，与 `daemon_generation` 是三个不同的东西**（M3b）：`daemon_generation` = daemon 进程 started_at（认领判定用）；`checkpoint_epoch` = ReplayBuffer 创建时生成（daemon 重启/会话重建必不同，旧照片自动拒收）；`anchorSeq` = daemon raw 字节流内锚点（**前端写进 xterm 的是渲染后字节，长度不同——锚点只能引用 daemon 随输出下发的 chunk endSeq，绝不能数前端写入字节**）。锚定裁剪由 `CHECKPOINT_ANCHORING_ENABLED` 常量守门，回退语义是诚实降级：翻回 false 只停新裁剪，已裁会话接受 scrollback 深度损失（画面完整性不受影响）。恢复读路径已归一到 `terminalRecovery.getRecoverySnapshot`（photo 直写 / delta 过 renderTerminalData 双管道，photo 是 SerializeAddon 成品 VT，二次渲染会坏）；上传链路的激活钥匙是恢复读返回的 epoch（epoch=0 = 旧 daemon 回落，保持 dormant）。新增 daemon REST 大 payload 路由必须显式 `DefaultBodyLimit`（axum 默认 2MB 静默 413）。
 - **版本目录挑"最新"不能用字符串/PathBuf 字典序**：`v9.x > v20.x`（'9' > '2'），nvm 版本目录曾因此挑错 node 版本、claude 装在 v20 却去 v9 找（macOS "not found" 的根因之一）。统一走 `cc_cli_adapters::compare_version_dir_names` / `nvm_node_bin_dirs`，别再手写 `sort()+reverse()` 或 `p > *l`。
 - **objc2 是运行时消息派发，没有编译期可用性门禁**：调 macOS 新 API 前必须查它的引入版本并用 `respondsToSelector:` 探测——`NSApplication.activate()`（macOS 14+）曾在声明支持 10.15 的前提下无守卫直调，老系统一启动就 unrecognized selector 崩进程。且 macOS 分支此前零 CI 覆盖（只在打 tag 时首次编译），现 ci.yml backend-check 已加 macos-latest，删掉它等于把 mac 回归全放到用户手里。
+- **`list_workspaces()` 必须返回全量（含已归档），归档过滤只能落在消费点**（0.12.5）：`archivedAt` 是逻辑删除标记，看着"过滤一次到位最省事"，但该函数有四处调用方在做**引用检查**——`delete_launch_profile` 的绑定检查（`orchestrator_service.rs` 与 `launch_profile_commands.rs` 各一处）、`ensure_default_workspace`、`force_stop_project` 的路径引用检查。在 service 层加过滤 = 被归档工作空间持有的 launch profile 被判成"无人引用"而误删，且**没有任何报错**。过滤点只有两个：MCP 工具的 `includeArchived` 参数、前端 `filterWorkspaces`。回归测试 `list_workspaces_still_returns_archived_workspaces` 与 `archived_workspace_still_blocks_launch_profile_deletion` 就是拦这一手的，别绕过。另：前端 `filterWorkspaces` 里归档判定必须排在 `isDefault` 短路**之前**，否则带 `archivedAt` 的默认工作空间会绕过过滤。
+- **给 MCP 开放"删除"前先问能不能换成可逆操作**：`remove_project_from_workspace` 的 MCP 工具在 docs/43:303 上挂了两个版本没做，卡点是"需要带确认语义"而确认机制不存在。0.12.5 的解法不是补确认，是把开放的操作换成归档（`set_workspace_archived`，打时间戳、不删数据、随时恢复）——**可逆就不需要确认语义，前置需求整个消失**。硬删除继续只留 UI。同类范式先例是 plan 的 `set_plan_archived`。代价对称性也支持这么选：误归档的代价是点一下恢复，误阻塞/误拒的代价是任务直接做不下去。
 - **终端「现在什么状态」用 `phaseOf()` 派生，别自己组合那 7 个字段**（0.12.0 批5）：restoring / savedSessionId / restoreBlockedReason / leaseReadOnly / launchError / launchAttempt / disconnected 的合法组合从未被声明过，各消费方脑补的结果是同一状态在不同地方判出不同结果。优先级顺序本身是规格：已退出压倒一切 → 启动失败压过恢复中 → **被挡住的恢复压过恢复中**（否则显示永远转圈的假恢复）→ 断连压过运行中。`isLivePhase` 把 restoring 算作活的（会话已建），这条直接决定销毁链路会不会漏杀。
 
 ## 文档引用

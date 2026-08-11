@@ -8253,7 +8253,7 @@ fn apply_pane_locations(
 
 // 不用 `#[tool_handler]`：宏会无条件生成 call_tool/list_tools/get_tool 且不可拦截，
 // 这里手写三个方法（与 rmcp-macros 1.3 生成物逐字等价），唯一差异是 call_tool
-// 委托 tool_router 前先做单点调用计数（docs/89 §5 埋点）。90 个工具的分发仍走
+// 委托 tool_router 前先做单点调用计数（docs/89 §5 埋点）。94 个工具的分发仍走
 // tool_router，逐工具零改动。
 impl ServerHandler for McpToolHandler {
     async fn call_tool(

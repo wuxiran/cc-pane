@@ -13,6 +13,13 @@
 
 统计口径：`src-tauri/src/services/orchestrator_service.rs` 中 `#[tool]` 标注的方法，2026-08-09 于 `dev/v0.12.3`（3ac97d2）数得 90 个。
 
+> **计数更新**：2026-08-12 于 `dev/v0.12.5` 复数为 **94**。期间 +1 未记录，+3 来自工作空间归档批次
+> （`set_workspace_archived` / `set_workspace_project_archived` / `update_workspace_path`，销 docs/43:303 的
+> 遗留 Rust 债）。这三个是本文第一刀「CRUD 合并同类项」的直接候选——三者都是
+> `workspace_*` 域的单字段写操作，与 `bind_workspace_launch_profile` 合并成一个
+> `update_workspace(field, value)` 是顺理成章的。**本文的收编目标不因新增而改变**：
+> 工具面是先长出来再收，收之前得先有东西可收。
+
 | 域 | 数量 | 工具 |
 |---|---|---|
 | 会话原语 | 10 | write_to_session、submit_to_session、kill_session、get_session_status、wait_for_session、list_sessions、get_session_output、list_launch_history、list_resume_sessions、list_claude_sessions |
