@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.12.4 - 2026-08-11
+
 Maintenance release: notification false-positive root-cause fixes, non-standard model context windows, terminal legibility on macOS, and TUI fidelity over wallpapers.
 
 ### Added
