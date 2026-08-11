@@ -65,6 +65,10 @@ pub struct WorkspaceProject {
     pub wsl_remote_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh: Option<SshConnectionInfo>,
+    /// 归档（逻辑删除）时间戳，RFC3339。`None` = 活跃。
+    /// 归档只影响列表默认可见性，不删除任何磁盘内容，可随时恢复。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
 }
 
 /// 工作空间
@@ -104,6 +108,13 @@ pub struct Workspace {
     /// 默认工作空间：启动时缺失自动创建，列表恒置顶，不可删除
     #[serde(default)]
     pub is_default: bool,
+    /// 归档（逻辑删除）时间戳，RFC3339。`None` = 活跃。
+    ///
+    /// 与 `hidden` 是两件事：`hidden` 只把工作空间从命令面板/标题栏快捷切换里摘掉，
+    /// 归档则是"删了但可撤回"——列表默认不返回，需显式 includeArchived 才可见。
+    /// 归档不删除 workspace.json、不动磁盘上的项目目录。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
     /// 工作空间壁纸覆盖：inherit 用全局 / custom 逐字段覆盖 / off 明确关闭全局壁纸。
     /// 放 workspace.json（壁纸属工作空间视觉身份，随迁移/分享走）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -280,6 +291,7 @@ impl Workspace {
             color: None,
             is_default: false,
             wallpaper_override: None,
+            archived_at: None,
         }
     }
 }
@@ -293,6 +305,7 @@ impl WorkspaceProject {
             launch_profile_id: None,
             wsl_remote_path: None,
             ssh: None,
+            archived_at: None,
         }
     }
 }
@@ -338,7 +351,9 @@ pub struct SshConnectionInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::{Workspace, WorkspaceCliEnvironmentDefaults, WorkspaceLaunchEnvironment};
+    use super::{
+        Workspace, WorkspaceCliEnvironmentDefaults, WorkspaceLaunchEnvironment, WorkspaceProject,
+    };
 
     #[test]
     fn deserialize_workspace_uses_local_environment_by_default() {
@@ -430,5 +445,68 @@ mod tests {
 
         assert!(value.get("group").is_none());
         assert!(value.get("color").is_none());
+    }
+
+    #[test]
+    fn workspace_archived_at_round_trips() {
+        let mut workspace = Workspace::new("workspace-1".to_string(), None);
+        workspace.archived_at = Some("2026-08-12T03:04:05+00:00".to_string());
+
+        let value = serde_json::to_value(&workspace).expect("serialize workspace");
+        assert_eq!(value["archivedAt"], "2026-08-12T03:04:05+00:00");
+
+        let restored: Workspace =
+            serde_json::from_value(value).expect("workspace should deserialize");
+        assert_eq!(
+            restored.archived_at.as_deref(),
+            Some("2026-08-12T03:04:05+00:00")
+        );
+    }
+
+    #[test]
+    fn workspace_project_archived_at_round_trips() {
+        let mut project = WorkspaceProject::new("D:/code/demo".to_string());
+        project.archived_at = Some("2026-08-12T03:04:05+00:00".to_string());
+
+        let value = serde_json::to_value(&project).expect("serialize project");
+        assert_eq!(value["archivedAt"], "2026-08-12T03:04:05+00:00");
+
+        let restored: WorkspaceProject =
+            serde_json::from_value(value).expect("project should deserialize");
+        assert_eq!(
+            restored.archived_at.as_deref(),
+            Some("2026-08-12T03:04:05+00:00")
+        );
+    }
+
+    /// 存量 workspace.json 不得被污染：未归档时 `archivedAt` 键根本不出现。
+    /// 漏掉 `skip_serializing_if` 会给所有历史文件写进 `"archivedAt": null`。
+    #[test]
+    fn serialize_skips_absent_archived_at() {
+        let workspace = Workspace::new("workspace-1".to_string(), None);
+        let value = serde_json::to_value(&workspace).expect("serialize workspace");
+        assert!(value.get("archivedAt").is_none());
+
+        let project = WorkspaceProject::new("D:/code/demo".to_string());
+        let value = serde_json::to_value(&project).expect("serialize project");
+        assert!(value.get("archivedAt").is_none());
+    }
+
+    /// 旧文件没有该键 → 反序列化成 None（活跃），不能报错。
+    #[test]
+    fn deserialize_legacy_json_without_archived_at() {
+        let json = r#"{
+            "id": "ws-1",
+            "name": "workspace-1",
+            "createdAt": "2026-04-02T00:00:00Z",
+            "projects": [
+                { "id": "p-1", "path": "D:/code/demo", "alias": null }
+            ]
+        }"#;
+
+        let workspace: Workspace =
+            serde_json::from_str(json).expect("workspace should deserialize");
+        assert!(workspace.archived_at.is_none());
+        assert!(workspace.projects[0].archived_at.is_none());
     }
 }
