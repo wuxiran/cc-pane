@@ -18,6 +18,11 @@ export interface TerminalLayoutRequestOptions {
   containerSize?: TerminalContainerSize;
   minContainerDelta?: number;
   force?: boolean;
+  /**
+   * Explicit user actions may need to repair a lost PTY resize even when xterm
+   * still reports the same dimensions. This bypasses the drag-resize debounce.
+   */
+  forceBackendSync?: boolean;
   allowInactive?: boolean;
   onAfterLayout?: (term: Terminal) => void;
 }
@@ -231,9 +236,16 @@ export function createTerminalLayoutScheduler({
     }
 
     const { cols, rows } = term;
-    if (lastSize?.cols !== cols || lastSize?.rows !== rows) {
+    const sizeChanged = lastSize?.cols !== cols || lastSize?.rows !== rows;
+    if (sizeChanged) {
       lastSize = { cols, rows };
-      if (getSessionId() && canResizeBackend()) {
+    }
+    if (getSessionId() && canResizeBackend() && (sizeChanged || options.forceBackendSync)) {
+      if (options.forceBackendSync) {
+        // A context-menu Fit is an explicit recovery action. Do not let the
+        // normal drag debounce delay or absorb the only resynchronization.
+        sendBackendResize(cols, rows);
+      } else {
         scheduleBackendResize(cols, rows);
       }
     }

@@ -588,6 +588,20 @@ describe("TerminalView", () => {
     );
     expect(onSessionCreated).toHaveBeenCalledWith("background-session");
     expect(createSession).not.toHaveBeenCalled();
+    expect(resize).toHaveBeenCalledWith({
+      sessionId: "background-session",
+      cols: 80,
+      rows: 24,
+    });
+
+    const schedulerResults = vi.mocked(createTerminalLayoutScheduler).mock.results;
+    const scheduler = schedulerResults[schedulerResults.length - 1]?.value as {
+      flush: ReturnType<typeof vi.fn>;
+    };
+    expect(scheduler.flush).toHaveBeenCalledWith("session.deferred-restore.attach.fit", {
+      force: true,
+      allowInactive: true,
+    });
   });
 
   it("creates a skipped background restore without waiting for a renderable tab", async () => {
@@ -1059,11 +1073,21 @@ describe("TerminalView", () => {
     const controllerResults = vi.mocked(createTerminalRendererController).mock.results;
     const controller = controllerResults[controllerResults.length - 1]
       .value as { clearTextureAtlas: ReturnType<typeof vi.fn> };
+    const schedulerResults = vi.mocked(createTerminalLayoutScheduler).mock.results;
+    const scheduler = schedulerResults[schedulerResults.length - 1]?.value as {
+      flush: ReturnType<typeof vi.fn>;
+    };
 
     resize.mockClear();
+    scheduler.flush.mockClear();
     fireEvent.contextMenu(host!);
     await user.click(await screen.findByRole("menuitem", { name: /刷新终端|Refresh Terminal/i }));
     expect(controller.clearTextureAtlas).toHaveBeenCalledWith("context-menu.refresh");
+    expect(scheduler.flush).toHaveBeenCalledWith("context-menu.refresh", {
+      force: true,
+      focusIfSafe: true,
+      allowInactive: true,
+    });
 
     // 渲染层重画救不了 buffer 级错乱（docs/73），必须同时向 CLI 抖一次 SIGWINCH：
     // 先缩一列，再抖回原宽度。
@@ -1077,6 +1101,30 @@ describe("TerminalView", () => {
     fireEvent.contextMenu(host!);
     await user.click(await screen.findByRole("menuitem", { name: /复制会话 ID|Copy Session ID/i }));
     await waitFor(() => expect(vi.mocked(writeText)).toHaveBeenCalledWith("new-session-1"));
+  });
+
+  it("refresh returns the actual geometry when a resize lands during the SIGWINCH nudge", async () => {
+    const user = userEvent.setup();
+    const view = renderTerminalView();
+    await waitFor(() => expect(createSession).toHaveBeenCalled());
+    const term = await lastTerm();
+    const host = view.container.querySelector(".cc-terminal-host");
+    expect(host).not.toBeNull();
+
+    resize.mockClear();
+    fireEvent.contextMenu(host!);
+    await user.click(await screen.findByRole("menuitem", { name: /刷新终端|Refresh Terminal/i }));
+    await waitFor(() =>
+      expect(resize).toHaveBeenCalledWith({ sessionId: "new-session-1", cols: 79, rows: 24 }),
+    );
+
+    // Simulate a real host resize that happens during the 80ms redraw nudge.
+    term.cols = 79;
+    term.rows = 23;
+
+    await waitFor(() =>
+      expect(resize).toHaveBeenLastCalledWith({ sessionId: "new-session-1", cols: 79, rows: 23 }),
+    );
   });
 
   it("mirror panes never send the refresh SIGWINCH to the shared PTY", async () => {
@@ -1122,6 +1170,7 @@ describe("TerminalView", () => {
     );
     expect(scheduler.flush).toHaveBeenCalledWith("context-menu.fit", {
       force: true,
+      forceBackendSync: true,
       focusIfSafe: true,
       allowInactive: true,
     });
@@ -1133,6 +1182,7 @@ describe("TerminalView", () => {
     expect(fitAllListener).toHaveBeenCalledTimes(1);
     expect(scheduler.schedule).toHaveBeenCalledWith("context-menu.fit-all", {
       force: true,
+      forceBackendSync: true,
       allowInactive: true,
     });
     window.removeEventListener(TERMINAL_FIT_ALL_EVENT, fitAllListener);

@@ -90,6 +90,7 @@ import {
   type TerminalLayoutRequestOptions,
   type TerminalLayoutScheduler,
 } from "./terminalLayoutScheduler";
+import { syncTerminalGeometry } from "./terminalSessionGeometry";
 import {
   createTerminalRendererController,
   type TerminalRendererController,
@@ -668,11 +669,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         if (!layoutActiveRef.current) return;
         layoutSchedulerRef.current?.schedule("context-menu.fit-all", {
           force: true,
+          forceBackendSync: true,
           // 隐藏也允许：用户显式要求全部重排，非焦点格一并处理
           allowInactive: true,
         });
       };
-
       window.addEventListener(TERMINAL_LAYOUT_CHANGED_EVENT, handleLayoutChanged);
       window.addEventListener(TERMINAL_FIT_ALL_EVENT, handleFitAll);
       return () => {
@@ -1785,12 +1786,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               return;
             }
 
-            // Keep PTY size aligned when attaching to an existing session.
-            if (attachSessionId && drivesBackendPty) {
-              void terminalService.resize({ sessionId, cols: term.cols, rows: term.rows }).catch(
-                (error) => console.warn("[TerminalView] Failed to resize attached terminal:", error),
-              );
-            }
+            syncTerminalGeometry(sessionId, term, layoutSchedulerRef, drivesBackendPty, readOnlyRef.current, attachSessionId ? "session.attach" : "session.create");
           } catch (error) {
             slot.release();
             if (!isMounted) return;
@@ -2008,7 +2004,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 await bindSessionCallbacks(liveSavedSessionId);
                 if (isUnmountedRef.current) {
                   unbindSessionCallbacks();
+                  return;
                 }
+                syncTerminalGeometry(liveSavedSessionId, term, layoutSchedulerRef, drivesBackendPty, readOnlyRef.current, "session.deferred-restore.attach");
                 return;
               }
 
@@ -2137,7 +2135,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               await bindSessionCallbacks(sessionId);
               if (isUnmountedRef.current) {
                 unbindSessionCallbacks();
+                return;
               }
+              syncTerminalGeometry(sessionId, term, layoutSchedulerRef, drivesBackendPty, readOnlyRef.current, "session.deferred-restore.create");
             } catch (err) {
               slot.release();
               if (isUnmountedRef.current) return;
@@ -2209,7 +2209,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
     return (
       <div
-        className="h-full w-full overflow-hidden flex flex-col"
+        className="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden"
         style={{
           "--cc-terminal-bg": terminalTheme.background,
           "--cc-terminal-fg": terminalTheme.foreground,
@@ -2238,7 +2238,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           onExportBuffer={handleMenuExportBuffer}
           onOpenProjectDir={props.projectPath ? handleMenuOpenProjectDir : undefined}
         >
-          <div className="relative flex-1 overflow-hidden">
+          <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
             <div
               ref={terminalRef}
               className="cc-terminal-host h-full w-full overflow-hidden [&_.xterm]:h-full"
