@@ -9,14 +9,14 @@ use crate::models::{
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess};
 use crate::services::{
     managed_provider_conflict_env_keys, resolve_provider_plan, validate_provider_runtime,
-    CreateSessionOutcome, LaunchProfileService, ProjectCliHooksService, ProviderMode,
-    ProviderResolutionInput, ProviderService, ResolvedProviderPlan, SettingsService, SpecService,
-    SshConnectionService, SshCredentialService, TerminalLinkContext, WorkspaceService,
+    CreateSessionOutcome, DefaultSkillService, LaunchProfileService, ProjectCliHooksService,
+    ProviderMode, ProviderResolutionInput, ProviderService, ResolvedProviderPlan, SettingsService,
+    SpecService, SshConnectionService, SshCredentialService, TerminalLinkContext, WorkspaceService,
 };
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::{orchestrator_manifest, validate_launch_cwd, AppPaths, LaunchRuntime};
 use anyhow::{anyhow, Result};
-use cc_cli_adapters::{CliAdapterContext, CliProvider, CliToolRegistry};
+use cc_cli_adapters::{CliAdapterContext, CliProvider, CliToolRegistry, SkillDeliveryMode};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -103,6 +103,26 @@ fn merge_session_prompts(parts: impl IntoIterator<Item = Option<String>>) -> Opt
     } else {
         Some(merged)
     }
+}
+
+/// Avoid loading a bundled Skill twice. Adapters with a native command or
+/// native Skill directory receive the bundle there; this fallback is only for
+/// adapters whose sole supported portable transport is a session prompt.
+fn uses_portable_skill_session_prompt_fallback(
+    registry: &CliToolRegistry,
+    cli_tool: CliTool,
+) -> bool {
+    let Some(adapter) = registry.get(cli_tool.as_id()) else {
+        return false;
+    };
+    let modes = adapter.skill_delivery_modes();
+    modes.contains(&SkillDeliveryMode::SessionPrompt)
+        && !modes.iter().any(|mode| {
+            matches!(
+                mode,
+                SkillDeliveryMode::NativeCommand | SkillDeliveryMode::NativeSkill
+            )
+        })
 }
 
 fn launch_cancelled_error(launch_id: Option<&str>, stage: &str) -> AppError {
@@ -1537,6 +1557,44 @@ impl TerminalService {
         *self.sidecar_resource_dir.write() = Some(resource_dir);
     }
 
+    fn portable_bundled_skill_prompt(
+        &self,
+        cli_tool: CliTool,
+        profile: Option<&LaunchProfile>,
+        ccpanes_mcp_available: bool,
+    ) -> Option<String> {
+        if !uses_portable_skill_session_prompt_fallback(&self.cli_registry, cli_tool) {
+            return None;
+        }
+        let skill_names = LaunchProfileService::bundled_skill_names_for_session_prompt(profile);
+        if skill_names.is_empty() {
+            return None;
+        }
+        let templates_dir = self
+            .sidecar_resource_dir
+            .read()
+            .as_ref()
+            .map(|resource_dir| {
+                resource_dir
+                    .join("resources")
+                    .join("claude-bundle")
+                    .join("default-skills")
+            })?;
+        if !templates_dir.join("manifest.json").is_file() {
+            debug!(
+                path = %templates_dir.display(),
+                "portable bundled Skill session fallback unavailable: manifest is missing"
+            );
+            return None;
+        }
+        let adapter_supports_mcp = self
+            .cli_registry
+            .get(cli_tool.as_id())
+            .is_some_and(|adapter| adapter.capabilities().supports_mcp);
+        DefaultSkillService::new(templates_dir)
+            .portable_session_prompt(&skill_names, ccpanes_mcp_available && adapter_supports_mcp)
+    }
+
     pub fn set_launch_profile_service(&self, service: Arc<LaunchProfileService>) {
         *self.launch_profile_service.write() = Some(service);
         info!("[terminal] LaunchProfileService injected");
@@ -1910,8 +1968,14 @@ impl TerminalService {
             .read()
             .as_ref()
             .and_then(|svc| svc.session_skill_prompt_for_profile(resolved_profile.as_ref()));
+        let portable_bundled_skill_prompt = self.portable_bundled_skill_prompt(
+            cli_tool,
+            resolved_profile.as_ref(),
+            !effective_skip_mcp,
+        );
         let launch_append_system_prompt = merge_session_prompts([
             append_system_prompt.map(str::to_string),
+            portable_bundled_skill_prompt,
             profile_skill_prompt.clone(),
         ]);
         if let Some(extra_env) = extra_env {
@@ -2042,6 +2106,12 @@ impl TerminalService {
             }
             if env_vars.contains_key("CC_PANES_LAUNCH_ID") {
                 wsl_keys.push("CC_PANES_LAUNCH_ID");
+            }
+            if env_vars.contains_key("CC_PANES_TASK_BINDING_ID") {
+                wsl_keys.push("CC_PANES_TASK_BINDING_ID");
+            }
+            if env_vars.contains_key("CC_PANES_DISPATCH_TASK_ID") {
+                wsl_keys.push("CC_PANES_DISPATCH_TASK_ID");
             }
             if env_vars.contains_key("CC_PANES_WORKSPACE_SNAPSHOT_ID") {
                 wsl_keys.push("CC_PANES_WORKSPACE_SNAPSHOT_ID");
@@ -4482,6 +4552,81 @@ mod tests {
     }
 
     #[test]
+    fn portable_bundled_skills_fall_back_to_session_prompt_only_without_native_delivery() {
+        let registry = CliToolRegistry::with_builtin_adapters();
+
+        assert!(uses_portable_skill_session_prompt_fallback(
+            &registry,
+            CliTool::Grok
+        ));
+        assert!(uses_portable_skill_session_prompt_fallback(
+            &registry,
+            CliTool::Opencode
+        ));
+        for cli_tool in [
+            CliTool::Claude,
+            CliTool::Codex,
+            CliTool::Gemini,
+            CliTool::Kimi,
+            CliTool::Glm,
+            CliTool::Cursor,
+            CliTool::None,
+        ] {
+            assert!(
+                !uses_portable_skill_session_prompt_fallback(&registry, cli_tool),
+                "{cli_tool:?} should not use the session-prompt fallback"
+            );
+        }
+    }
+
+    #[test]
+    fn session_only_adapter_receives_selected_portable_bundled_skills() {
+        let (service, temp_dir) = terminal_service_for_test_with_registry(Arc::new(
+            CliToolRegistry::with_builtin_adapters(),
+        ));
+        let resource_dir = temp_dir.path().join("resource");
+        let templates_dir = resource_dir
+            .join("resources")
+            .join("claude-bundle")
+            .join("default-skills");
+        std::fs::create_dir_all(&templates_dir).unwrap();
+        std::fs::write(
+            templates_dir.join("manifest.json"),
+            r#"{
+                "schemaVersion": 2,
+                "namespace": "ccpanes",
+                "skills": [{
+                    "name": "dispatch-task",
+                    "file": "dispatch-task.md",
+                    "delivery": {
+                        "portable": true,
+                        "modes": ["sessionPrompt"],
+                        "requiresCcpanesMcp": true
+                    }
+                }]
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            templates_dir.join("dispatch-task.md"),
+            "---\nname: ccpanes-dispatch-task\n---\n# Dispatch\nUse the shared protocol.",
+        )
+        .unwrap();
+        service.set_sidecar_resource_dir(resource_dir);
+
+        let prompt = service
+            .portable_bundled_skill_prompt(CliTool::Grok, None, true)
+            .expect("Grok should receive the session-prompt fallback");
+        assert!(prompt.contains("## ccpanes-dispatch-task\n# Dispatch"));
+        assert!(service
+            .portable_bundled_skill_prompt(CliTool::Grok, None, false)
+            .is_none());
+        assert!(service
+            .portable_bundled_skill_prompt(CliTool::Codex, None, true)
+            .is_none());
+    }
+
+    #[test]
     fn ssh_remote_cli_command_applies_yolo_and_codex_semantics() {
         // Claude：非 YOLO 不加标志；YOLO 加 skip-permissions。
         assert_eq!(
@@ -4594,11 +4739,16 @@ mod tests {
     }
 
     fn terminal_service_for_test() -> (Arc<TerminalService>, tempfile::TempDir) {
+        terminal_service_for_test_with_registry(Arc::new(CliToolRegistry::new()))
+    }
+
+    fn terminal_service_for_test_with_registry(
+        cli_registry: Arc<CliToolRegistry>,
+    ) -> (Arc<TerminalService>, tempfile::TempDir) {
         let temp_dir = tempfile::tempdir().expect("temp dir");
         let app_paths = Arc::new(AppPaths::new(Some(
             temp_dir.path().to_string_lossy().to_string(),
         )));
-        let cli_registry = Arc::new(CliToolRegistry::new());
         let service = Arc::new(TerminalService::new(
             Arc::new(SettingsService::new()),
             Arc::new(ProviderService::new(app_paths.providers_path())),

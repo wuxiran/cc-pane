@@ -24,7 +24,7 @@ description: Guide a spec-driven development workflow — requirements → desig
 | **1. Requirements** | `specs/<name>/requirements.md` | 讨论需求 → 提交审批 → 等用户确认 |
 | **2. Design** | `specs/<name>/design.md` | 基于需求设计 → 提交审批 |
 | **3. Tasks** | `specs/<name>/tasks.md` | 拆解任务 → 提交审批 |
-| **4. Implementation** | 代码 | 逐任务实现，每步 `spec-workflow.log-implementation` 记录；可选 `{{mcp_server_name}}.launch_task` 并行分派 |
+| **4. Implementation** | 代码 | 逐任务实现，每步 `spec-workflow.log-implementation` 记录；可选 `{{mcp_server_name}}.dispatch_task` 并行分派 |
 
 **每阶段需用户审批**才能进入下一步。
 

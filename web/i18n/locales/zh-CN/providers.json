@@ -118,6 +118,25 @@
   "previewCreateWorkspaceHint": "创建或选择工作空间后，可以预览项目 Skill。",
   "previewSelectWorkspaceHint": "在左侧选择工作空间后，可以按该工作空间解析项目 Skill。",
   "previewSystemProvider": "CLI / CC Switch / 用户环境",
+  "skillCompatibility": "跨 CLI Skill",
+  "skillDeliveryMode": {
+    "nativeCommand": "原生命令",
+    "nativeSkill": "原生 Skill",
+    "sessionPrompt": "会话提示词",
+    "none": "没有交付方式"
+  },
+  "portableSkillReady": "可移植 Skill 可用",
+  "portableSkillUnavailable": "无法交付可移植 Skill",
+  "orchestrationReady": "可参与编排",
+  "orchestrationUnavailable": "无法参与编排",
+  "resultReportingReady": "可回传结果",
+  "resultReportingUnavailable": "无法回传结果",
+  "skillCompatibilityReason": {
+    "cliNotRegistered": "此 CLI 未在 CC-Panes 中注册。",
+    "noSkillDelivery": "此 CLI 没有受支持的 Skill 交付方式。",
+    "mcpUnsupported": "此 CLI 不支持 MCP 编排。",
+    "ccpanesMcpDisabled": "启用 CC-Panes MCP 后才能参与编排并回传结果。"
+  },
   "sectionMcpDesc": "设置本运行配置启动时注入的 MCP 组合。",
   "collapseServerLib": "收起服务库",
   "manageSharedMcp": "管理共享 MCP",

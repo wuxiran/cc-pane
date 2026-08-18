@@ -23,6 +23,7 @@ export const SELECT_NONE = "__none__";
 
 export const BUILTIN_SKILLS = [
   "ccpanes-launch-task",
+  "ccpanes-dispatch-task",
   "ccpanes-dispatch-todos",
   "ccpanes-browse-sessions",
   "ccpanes-memory-dual-write",

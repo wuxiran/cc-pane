@@ -253,6 +253,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const onDataDisposableRef = useRef<IDisposable | null>(null);
     const resizeObserverRef = useRef<ResizeObserver | null>(null);
     const currentSessionIdRef = useRef<string | null>(null);
+    const geometryEpochRef = useRef(0); const markExplicitGeometryChange = useCallback(() => { geometryEpochRef.current += 1; }, []);
     // 本视图自己的订阅注销函数：同一会话可能被多个视图订阅（星标镜像），
     // 卸载时只能注销自己这份，绝不能按 sessionId 全量 detach（会灭掉其他视图）。
     const outputUnsubRef = useRef<(() => void) | null>(null);
@@ -889,7 +890,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         });
       }
 
-      let isMounted = true;
+      let isMounted = true; const initGeometryEpoch = geometryEpochRef.current;
       isUnmountedRef.current = false;
       debugLog("mount", {
         restoring: props.restoring ?? false,
@@ -1778,15 +1779,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 sessionRestoreService.clearOutput(props.savedSessionId).catch(console.error);
               }
             }
-
+            syncTerminalGeometry(sessionId, term, layoutSchedulerRef, drivesBackendPty, readOnlyRef.current, attachSessionId ? "session.attach" : "session.create", () => geometryEpochRef.current === initGeometryEpoch);
             // Register output and exit handlers.
             await bindSessionCallbacks(sessionId);
             if (!isMounted) {
               unbindSessionCallbacks();
               return;
             }
-
-            syncTerminalGeometry(sessionId, term, layoutSchedulerRef, drivesBackendPty, readOnlyRef.current, attachSessionId ? "session.attach" : "session.create");
           } catch (error) {
             slot.release();
             if (!isMounted) return;
@@ -1966,7 +1965,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         // Session recovery cannot depend on fit succeeding. Hidden tabs use
         // display:none, so layout scheduling may legitimately skip them.
         // 同 init 路径的创建槽位（docs/78 批4）；两条路径共用同一把 (tabId, paneId) 锁。
-        const slot = createTerminalSlotHolder();
+        const slot = createTerminalSlotHolder(); const initGeometryEpoch = geometryEpochRef.current;
         void (async () => {
             try {
               await ensureListeners();
@@ -2001,12 +2000,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                   usePanesStore.getState().clearRestoring(props.paneId ?? "", props.tabId, props.paneId);
                   sessionRestoreService.clearOutput(liveSavedSessionId).catch(console.error);
                 }
+                syncTerminalGeometry(liveSavedSessionId, term, layoutSchedulerRef, drivesBackendPty, readOnlyRef.current, "session.deferred-restore.attach", () => geometryEpochRef.current === initGeometryEpoch);
                 await bindSessionCallbacks(liveSavedSessionId);
                 if (isUnmountedRef.current) {
                   unbindSessionCallbacks();
                   return;
                 }
-                syncTerminalGeometry(liveSavedSessionId, term, layoutSchedulerRef, drivesBackendPty, readOnlyRef.current, "session.deferred-restore.attach");
                 return;
               }
 
@@ -2132,12 +2131,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                   sessionRestoreService.clearOutput(props.savedSessionId).catch(console.error);
                 }
               }
+              syncTerminalGeometry(sessionId, term, layoutSchedulerRef, drivesBackendPty, readOnlyRef.current, "session.deferred-restore.create", () => geometryEpochRef.current === initGeometryEpoch);
               await bindSessionCallbacks(sessionId);
               if (isUnmountedRef.current) {
                 unbindSessionCallbacks();
                 return;
               }
-              syncTerminalGeometry(sessionId, term, layoutSchedulerRef, drivesBackendPty, readOnlyRef.current, "session.deferred-restore.create");
             } catch (err) {
               slot.release();
               if (isUnmountedRef.current) return;
@@ -2205,6 +2204,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       refitAndRepaintTerminal,
       repaintTerminal,
       canResizeBackend: () => drivesBackendPty && !readOnlyRef.current,
+      onExplicitGeometryChange: markExplicitGeometryChange,
     });
 
     return (

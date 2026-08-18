@@ -46,6 +46,7 @@ mod ssh_machine_service;
 mod ssh_terminal_service;
 mod system_stats_service;
 mod task_binding_service;
+mod task_dispatch_service;
 mod task_queue_dispatcher;
 mod task_queue_service;
 mod terminal_backend;
@@ -114,6 +115,7 @@ pub use ssh_file_service::SshFileService;
 pub use ssh_machine_service::{SshConnectivityResult, SshMachineService};
 pub use system_stats_service::SystemStatsService;
 pub use task_binding_service::TaskBindingService;
+pub use task_dispatch_service::TaskDispatchService;
 pub use task_queue_dispatcher::{
     BackendTaskQueueDispatchGateway, TaskQueueDispatchGateway, TaskQueueDispatchOutcome,
     TaskQueueDispatcher, TaskQueueReadiness, TaskQueueSubmitFailure,

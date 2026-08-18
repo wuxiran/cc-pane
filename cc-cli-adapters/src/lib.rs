@@ -569,6 +569,18 @@ fn find_executable_in_dirs(
 
 // ============ Trait ============
 
+/// Ways a CLI can receive a CC-Panes Skill without coupling it to another CLI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SkillDeliveryMode {
+    /// A CLI-native command file, such as Claude's `.claude/commands` entries.
+    NativeCommand,
+    /// A CLI-native SKILL.md directory entry.
+    NativeSkill,
+    /// Instructions appended to the launch session's system prompt.
+    SessionPrompt,
+}
+
 /// CLI 工具适配器 trait
 ///
 /// 每个 CLI 工具（Claude Code、Codex、Kilo 等）实现此 trait，
@@ -608,6 +620,36 @@ pub trait CliToolAdapter: Send + Sync {
     /// 用户全局技能目录。None = 不支持技能注入
     fn global_skills_dir(&self) -> Option<std::path::PathBuf> {
         None
+    }
+
+    /// Supported ways to deliver a portable CC-Panes Skill to this CLI.
+    ///
+    /// Adapters inherit this conservative mapping from their existing directory
+    /// and prompt capabilities, while retaining the option to override it for
+    /// a CLI with a more specialized Skill format.
+    fn skill_delivery_modes(&self) -> Vec<SkillDeliveryMode> {
+        let mut modes = Vec::new();
+        if self.global_commands_dir().is_some() {
+            modes.push(SkillDeliveryMode::NativeCommand);
+        }
+        if self.global_skills_dir().is_some() {
+            modes.push(SkillDeliveryMode::NativeSkill);
+        }
+        if self.capabilities().supports_system_prompt {
+            modes.push(SkillDeliveryMode::SessionPrompt);
+        }
+        modes
+    }
+
+    /// Whether a session can persist a durable TaskBinding result.
+    ///
+    /// Hook-only lifecycle notifications (for example OpenCode's
+    /// `session.idle`) update live state but do not carry a completion summary;
+    /// durable result reporting still requires the ccpanes MCP surface. An
+    /// adapter with a different native result channel can override this method
+    /// without changing the dispatch protocol.
+    fn can_report_task_result(&self) -> bool {
+        self.capabilities().supports_mcp
     }
 
     /// 项目级 hooks 定义。默认不支持
@@ -1779,6 +1821,38 @@ mod registry_tests {
         );
         assert!(registry.get("claude").is_some());
         assert!(registry.get("codex").is_some());
+        assert!(registry.get("opencode").unwrap().can_report_task_result());
+        assert!(!registry.get("gemini").unwrap().can_report_task_result());
+    }
+
+    #[test]
+    fn builtin_adapters_derive_portable_skill_delivery_modes() {
+        let registry = CliToolRegistry::with_builtin_adapters();
+
+        assert_eq!(
+            registry.get("claude").unwrap().skill_delivery_modes(),
+            vec![
+                SkillDeliveryMode::NativeCommand,
+                SkillDeliveryMode::NativeSkill,
+                SkillDeliveryMode::SessionPrompt,
+            ]
+        );
+        assert_eq!(
+            registry.get("codex").unwrap().skill_delivery_modes(),
+            vec![
+                SkillDeliveryMode::NativeSkill,
+                SkillDeliveryMode::SessionPrompt
+            ]
+        );
+        assert_eq!(
+            registry.get("opencode").unwrap().skill_delivery_modes(),
+            vec![SkillDeliveryMode::SessionPrompt]
+        );
+        assert!(registry
+            .get("gemini")
+            .unwrap()
+            .skill_delivery_modes()
+            .is_empty());
     }
 
     #[test]

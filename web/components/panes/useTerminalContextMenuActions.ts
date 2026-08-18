@@ -35,6 +35,7 @@ interface UseTerminalContextMenuActionsOptions {
     },
   ) => void;
   repaintTerminal: (reason: string) => void;
+  onExplicitGeometryChange?: () => void;
   /**
    * 本视图是否有权改后端 PTY 尺寸。共享 PTY 的镜像面板与只读面板必须为 false，
    * 否则镜像里点一次刷新会改掉主视图的 PTY 尺寸。缺省保守取 false。
@@ -60,6 +61,7 @@ export function useTerminalContextMenuActions({
   refitAndRepaintTerminal,
   repaintTerminal,
   canResizeBackend = () => false,
+  onExplicitGeometryChange,
 }: UseTerminalContextMenuActionsOptions) {
   const { t } = useTranslation("panes");
 
@@ -109,6 +111,7 @@ export function useTerminalContextMenuActions({
    * 不用 Ctrl+L：那会清屏，是破坏性操作，不该藏在"刷新显示"后面。
    */
   const requestCliRedraw = useCallback(() => {
+    onExplicitGeometryChange?.();
     if (!canResizeBackend()) return;
     const term = terminalRef.current;
     const activeSessionId = currentSessionIdRef.current ?? sessionId;
@@ -140,7 +143,7 @@ export function useTerminalContextMenuActions({
       const current = terminalRef.current;
       send(current?.cols ?? cols, current?.rows ?? rows);
     }, REDRAW_NUDGE_INTERVAL_MS);
-  }, [canResizeBackend, currentSessionIdRef, debugLog, sessionId, terminalRef]);
+  }, [canResizeBackend, currentSessionIdRef, debugLog, onExplicitGeometryChange, sessionId, terminalRef]);
 
   const handleMenuRefreshTerminal = useCallback(() => {
     const term = terminalRef.current;
@@ -191,13 +194,14 @@ export function useTerminalContextMenuActions({
   }, [debugLog, requestCliRedraw, t, terminalRef]);
 
   const handleMenuFitTerminal = useCallback(() => {
+    onExplicitGeometryChange?.();
     refitAndRepaintTerminal("context-menu.fit", {
       force: true,
       forceBackendSync: true,
       focusIfSafe: true,
       allowInactive: true,
     });
-  }, [refitAndRepaintTerminal]);
+  }, [onExplicitGeometryChange, refitAndRepaintTerminal]);
 
   const handleMenuFitAllTerminals = useCallback(() => {
     requestTerminalFitAll();

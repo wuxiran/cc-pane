@@ -15,13 +15,14 @@ export function syncTerminalGeometry(
   drivesBackendPty: boolean,
   readOnly: boolean,
   reason: string,
+  shouldResizeBackend: () => boolean = () => true,
 ): void {
   layoutSchedulerRef.current?.flush(`${reason}.fit`, {
     force: true,
     allowInactive: true,
   });
 
-  if (!drivesBackendPty || readOnly || term.cols <= 1 || term.rows <= 0) return;
+  if (!shouldResizeBackend() || !drivesBackendPty || readOnly || term.cols <= 1 || term.rows <= 0) return;
 
   noteTerminalGeometry(sessionId, term.cols, term.rows);
   void terminalService.resize({ sessionId, cols: term.cols, rows: term.rows }).catch(

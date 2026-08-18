@@ -1,7 +1,7 @@
 use crate::models::launch_profile::{
     LaunchProfile, LaunchProfileConfig, LaunchProfileDraft, LaunchProfileMcpMode,
     LaunchProfilePreviewRequest, LaunchProfileResolution, LaunchProfileSkillMode,
-    ResolvedMcpServer, ResolvedSkill, SharedMcpUrls,
+    ResolvedMcpServer, ResolvedSkill, SharedMcpUrls, SkillCompatibility,
 };
 use crate::models::provider::Provider;
 use crate::models::shared_mcp::SharedMcpConfig;
@@ -130,15 +130,13 @@ impl LaunchProfileService {
     fn profile_matches_cli(profile: &LaunchProfile, cli_tool: Option<&str>) -> bool {
         let Some(cli_tool) = cli_tool
             .map(str::trim)
-            .filter(|tool| !tool.is_empty() && *tool != "none")
+            .filter(|tool| !tool.is_empty())
+            .map(str::to_ascii_lowercase)
+            .filter(|tool| tool != "none")
         else {
             return true;
         };
-        profile.target_tools.is_empty()
-            || profile
-                .target_tools
-                .iter()
-                .any(|tool| tool.as_str() == cli_tool)
+        profile.target_tools.is_empty() || profile.target_tools.iter().any(|tool| tool == &cli_tool)
     }
 
     fn profile_matches_runtime(profile: &LaunchProfile, runtime_kind: Option<&str>) -> bool {
@@ -500,6 +498,60 @@ impl LaunchProfileService {
             .unwrap_or(true)
     }
 
+    /// Resolve the portable bundled Skill names that should be embedded in a
+    /// session prompt when the selected CLI has no native command/Skill path.
+    /// The returned names use manifest form (`dispatch-task`), not UI ids
+    /// (`builtin:ccpanes-dispatch-task`).
+    pub fn bundled_skill_names_for_session_prompt(profile: Option<&LaunchProfile>) -> Vec<String> {
+        let selected_ids = match profile {
+            None => core_skill_ids().into_iter().map(|skill| skill.id).collect(),
+            Some(profile)
+                if profile.skill_policy.mode == LaunchProfileSkillMode::Disabled
+                    || profile.skill_policy.target != "session" =>
+            {
+                return Vec::new();
+            }
+            Some(profile) => match profile.skill_policy.mode {
+                LaunchProfileSkillMode::Disabled => Vec::new(),
+                LaunchProfileSkillMode::Core => {
+                    let disabled = profile
+                        .skill_policy
+                        .disabled_skill_ids
+                        .iter()
+                        .map(String::as_str)
+                        .collect::<HashSet<_>>();
+                    core_skill_ids()
+                        .into_iter()
+                        .filter(|skill| !disabled.contains(skill.id.as_str()))
+                        .map(|skill| skill.id)
+                        .collect()
+                }
+                LaunchProfileSkillMode::Custom => profile
+                    .skill_policy
+                    .enabled_skill_ids
+                    .iter()
+                    .filter(|id| id.starts_with("builtin:"))
+                    .cloned()
+                    .collect(),
+            },
+        };
+
+        let mut names = Vec::new();
+        let mut seen = HashSet::new();
+        for id in selected_ids {
+            let name = id
+                .strip_prefix("builtin:ccpanes-")
+                .or_else(|| id.strip_prefix("ccpanes-"));
+            if let Some(name) = name.filter(|name| !name.is_empty()) {
+                let name = name.to_string();
+                if seen.insert(name.clone()) {
+                    names.push(name);
+                }
+            }
+        }
+        names
+    }
+
     pub fn session_skill_prompt_for_profile(
         &self,
         profile: Option<&LaunchProfile>,
@@ -683,6 +735,7 @@ impl LaunchProfileService {
             model_source: None,
             mcp_servers,
             skills,
+            skill_compatibility: None,
             degraded: !warnings.is_empty(),
             warnings,
         }
@@ -744,6 +797,12 @@ impl LaunchProfileService {
         resolution.model_id = provider_plan.model_id.clone();
         resolution.model_label = provider_plan.model_label.clone();
         resolution.model_source = Some(provider_plan.model_source.as_str().to_string());
+        resolution.skill_compatibility = resolve_skill_compatibility(
+            cli_tool,
+            profile.as_ref(),
+            &resolution.mcp_servers,
+            registry,
+        );
         Ok(resolution)
     }
 
@@ -1246,7 +1305,9 @@ impl LaunchProfileService {
 fn preview_cli_tool(value: Option<&str>) -> AppResult<crate::models::CliTool> {
     use crate::models::CliTool;
 
-    let cli_tool = match value.unwrap_or("none") {
+    let raw_cli_tool = value.unwrap_or("none");
+    let normalized_cli_tool = raw_cli_tool.trim().to_ascii_lowercase();
+    let cli_tool = match normalized_cli_tool.as_str() {
         "none" => CliTool::None,
         "claude" => CliTool::Claude,
         "codex" => CliTool::Codex,
@@ -1256,11 +1317,11 @@ fn preview_cli_tool(value: Option<&str>) -> AppResult<crate::models::CliTool> {
         "opencode" => CliTool::Opencode,
         "cursor" => CliTool::Cursor,
         "grok" => CliTool::Grok,
-        other => {
+        _other => {
             return Err(AppError::coded_with_params(
                 "PROVIDER_UNSUPPORTED",
-                format!("Unknown CLI tool '{other}'"),
-                HashMap::from([("cliTool".to_string(), other.to_string())]),
+                format!("Unknown CLI tool '{}'", raw_cli_tool.trim()),
+                HashMap::from([("cliTool".to_string(), raw_cli_tool.trim().to_string())]),
             ));
         }
     };
@@ -1282,6 +1343,53 @@ fn preview_runtime(value: Option<&str>) -> AppResult<Option<LaunchRuntime>> {
         }
     };
     Ok(runtime)
+}
+
+fn resolve_skill_compatibility(
+    requested_cli_tool: crate::models::CliTool,
+    profile: Option<&LaunchProfile>,
+    mcp_servers: &[ResolvedMcpServer],
+    registry: &CliToolRegistry,
+) -> Option<SkillCompatibility> {
+    let cli_tool = match requested_cli_tool {
+        crate::models::CliTool::None => profile.and_then(|profile| {
+            (profile.target_tools.len() == 1).then(|| profile.target_tools[0].clone())
+        }),
+        _ => Some(requested_cli_tool.as_id().to_string()),
+    }?;
+
+    let Some(adapter) = registry.get(&cli_tool) else {
+        return Some(SkillCompatibility {
+            cli_tool,
+            reason: Some("cliNotRegistered".to_string()),
+            ..Default::default()
+        });
+    };
+
+    let delivery_modes = adapter.skill_delivery_modes();
+    let can_use_portable_skills = !delivery_modes.is_empty();
+    let ccpanes_mcp_enabled = mcp_servers
+        .iter()
+        .any(|server| server.id == "ccpanes" && server.enabled);
+    let can_control_orchestration = adapter.capabilities().supports_mcp && ccpanes_mcp_enabled;
+    let reason = if !can_use_portable_skills {
+        Some("noSkillDelivery".to_string())
+    } else if !adapter.capabilities().supports_mcp {
+        Some("mcpUnsupported".to_string())
+    } else if !ccpanes_mcp_enabled {
+        Some("ccpanesMcpDisabled".to_string())
+    } else {
+        None
+    };
+
+    Some(SkillCompatibility {
+        cli_tool,
+        delivery_modes,
+        can_use_portable_skills,
+        can_control_orchestration,
+        can_report_result: adapter.can_report_task_result() && ccpanes_mcp_enabled,
+        reason,
+    })
 }
 
 struct AllowedSkillEntry {
@@ -1311,10 +1419,11 @@ fn default_external_skill_registry() -> Arc<ExternalSkillRegistry> {
 }
 
 fn core_skill_ids() -> Vec<ResolvedSkill> {
-    // 默认 core 仅保留高频 4 个；其他 skill 仍会发布到磁盘，
+    // 默认 core 仅保留高频 5 个；其他 skill 仍会发布到磁盘，
     // 用户可在 UI 切到 `mode=custom` 手动启用。
     [
         "ccpanes-launch-task",
+        "ccpanes-dispatch-task",
         "ccpanes-dispatch-todos",
         "ccpanes-browse-sessions",
         "ccpanes-memory-dual-write",
@@ -1337,6 +1446,7 @@ mod tests {
     use crate::models::launch_profile::LaunchProviderSelection;
     use crate::models::provider::ProviderType;
     use crate::models::shared_mcp::SharedMcpConfig;
+    use crate::models::CliTool;
 
     fn provider(id: &str) -> Provider {
         Provider {
@@ -1472,6 +1582,133 @@ mod tests {
             projected.provider_name.as_deref(),
             Some("explicit-provider")
         );
+    }
+
+    #[test]
+    fn preview_reports_portable_skill_and_orchestration_support_for_ccpanes_mcp() {
+        let service = test_service();
+        let request = LaunchProfilePreviewRequest {
+            profile_id: None,
+            use_system_default: true,
+            workspace_name: None,
+            project_id: None,
+            provider_id: None,
+            model_id: None,
+            provider_selection: LaunchProviderSelection::Inherit,
+            cli_tool: Some("claude".into()),
+            runtime_kind: None,
+        };
+
+        let resolution = service
+            .resolve_profile_with_provider(
+                &request,
+                &[],
+                &[],
+                None,
+                &SharedMcpConfig::default(),
+                &HashMap::new(),
+                &CliToolRegistry::with_builtin_adapters(),
+            )
+            .unwrap();
+        let compatibility = resolution
+            .skill_compatibility
+            .expect("compatibility preview");
+
+        assert_eq!(compatibility.cli_tool, "claude");
+        assert!(compatibility.can_use_portable_skills);
+        assert!(compatibility.can_control_orchestration);
+        assert!(compatibility.can_report_result);
+        assert!(compatibility.reason.is_none());
+        assert_eq!(
+            compatibility.delivery_modes,
+            vec![
+                cc_cli_adapters::SkillDeliveryMode::NativeCommand,
+                cc_cli_adapters::SkillDeliveryMode::NativeSkill,
+                cc_cli_adapters::SkillDeliveryMode::SessionPrompt,
+            ]
+        );
+        assert!(!resolution.degraded);
+    }
+
+    #[test]
+    fn preview_cli_tool_normalizes_case_and_whitespace() {
+        assert_eq!(preview_cli_tool(Some("  CoDeX ")).unwrap(), CliTool::Codex);
+        assert_eq!(preview_cli_tool(Some(" NONE ")).unwrap(), CliTool::None);
+    }
+
+    #[test]
+    fn profile_matching_normalizes_cli_case_and_whitespace() {
+        let service = test_service();
+        let profile = mk_profile(&service, "Codex Default", &["codex"], None, false, true);
+        let (resolved, diagnostic) = service.resolve_launch_profile_with_diagnostic(
+            Some(&profile.id),
+            None,
+            None,
+            Some("  CoDeX "),
+            Some("local"),
+        );
+
+        assert_eq!(
+            resolved.as_ref().map(|profile| profile.id.as_str()),
+            Some(profile.id.as_str())
+        );
+        assert!(diagnostic.is_none());
+    }
+
+    #[test]
+    fn preview_keeps_portable_skill_delivery_when_ccpanes_mcp_is_disabled() {
+        let service = test_service();
+        let profile = service
+            .create_profile(LaunchProfileDraft {
+                name: Some("No CC-Panes MCP".into()),
+                alias: None,
+                description: None,
+                provider_id: None,
+                model_id: None,
+                adapter_options: Default::default(),
+                target_tools: vec!["claude".into()],
+                target_runtime: None,
+                yolo_mode: false,
+                mcp_policy: crate::models::launch_profile::LaunchProfileMcpPolicy {
+                    include_ccpanes_mcp: false,
+                    ..Default::default()
+                },
+                skill_policy: Default::default(),
+                is_default: false,
+            })
+            .unwrap();
+        let request = LaunchProfilePreviewRequest {
+            profile_id: Some(profile.id),
+            use_system_default: false,
+            workspace_name: None,
+            project_id: None,
+            provider_id: None,
+            model_id: None,
+            provider_selection: LaunchProviderSelection::Inherit,
+            cli_tool: Some("claude".into()),
+            runtime_kind: None,
+        };
+
+        let resolution = service
+            .resolve_profile_with_provider(
+                &request,
+                &[],
+                &[],
+                None,
+                &SharedMcpConfig::default(),
+                &HashMap::new(),
+                &CliToolRegistry::with_builtin_adapters(),
+            )
+            .unwrap();
+        let compatibility = resolution
+            .skill_compatibility
+            .expect("compatibility preview");
+
+        assert!(compatibility.can_use_portable_skills);
+        assert!(!compatibility.can_control_orchestration);
+        assert!(!compatibility.can_report_result);
+        assert_eq!(compatibility.reason.as_deref(), Some("ccpanesMcpDisabled"));
+        assert!(!resolution.degraded);
     }
 
     fn mk_profile(
@@ -1780,6 +2017,10 @@ mod tests {
         assert!(resolution
             .skills
             .iter()
+            .any(|skill| skill.id == "builtin:ccpanes-dispatch-task"));
+        assert!(resolution
+            .skills
+            .iter()
             .any(|skill| skill.id == "builtin:ccpanes-memory-dual-write"));
         // 默认 core 已瘦身，不再包含 workspace
         assert!(!resolution
@@ -1787,6 +2028,54 @@ mod tests {
             .iter()
             .any(|skill| skill.id == "builtin:ccpanes-workspace"));
         assert!(!resolution.skills.is_empty());
+    }
+
+    #[test]
+    fn bundled_session_prompt_names_follow_the_effective_skill_policy() {
+        assert_eq!(
+            LaunchProfileService::bundled_skill_names_for_session_prompt(None),
+            vec![
+                "launch-task",
+                "dispatch-task",
+                "dispatch-todos",
+                "browse-sessions",
+                "memory-dual-write",
+            ]
+        );
+
+        let service = test_service();
+        let mut profile = service
+            .create_profile(LaunchProfileDraft {
+                name: Some("Portable worker".into()),
+                alias: None,
+                description: None,
+                provider_id: None,
+                model_id: None,
+                adapter_options: Default::default(),
+                target_tools: vec!["grok".into()],
+                target_runtime: None,
+                yolo_mode: false,
+                mcp_policy: Default::default(),
+                skill_policy: crate::models::launch_profile::LaunchProfileSkillPolicy {
+                    mode: LaunchProfileSkillMode::Custom,
+                    enabled_skill_ids: vec![
+                        "builtin:ccpanes-dispatch-task".into(),
+                        "profile:review".into(),
+                    ],
+                    ..Default::default()
+                },
+                is_default: false,
+            })
+            .unwrap();
+
+        assert_eq!(
+            LaunchProfileService::bundled_skill_names_for_session_prompt(Some(&profile)),
+            vec!["dispatch-task"]
+        );
+        profile.skill_policy.target = "native".to_string();
+        assert!(
+            LaunchProfileService::bundled_skill_names_for_session_prompt(Some(&profile)).is_empty()
+        );
     }
 
     #[test]

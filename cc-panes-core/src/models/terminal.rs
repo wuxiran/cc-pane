@@ -35,6 +35,24 @@ impl CliTool {
             CliTool::Grok => "grok",
         }
     }
+
+    /// Parse a registered CLI adapter id into the terminal launch enum.
+    ///
+    /// `None` deliberately has no adapter id because it represents a plain
+    /// shell rather than a dispatchable CLI target.
+    pub fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "claude" => Some(Self::Claude),
+            "codex" => Some(Self::Codex),
+            "gemini" => Some(Self::Gemini),
+            "kimi" => Some(Self::Kimi),
+            "glm" => Some(Self::Glm),
+            "opencode" => Some(Self::Opencode),
+            "cursor" => Some(Self::Cursor),
+            "grok" => Some(Self::Grok),
+            _ => None,
+        }
+    }
 }
 
 /// WSL 启动信息

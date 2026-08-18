@@ -96,6 +96,61 @@ impl TaskBindingService {
         Ok(self.repo.find_by_session_id(session_id)?)
     }
 
+    /// Persist the terminal lifecycle outcome for the TaskBinding that owns a session.
+    ///
+    /// A worker that has already reported a completed result with a non-empty
+    /// summary keeps that result. Every other active or incomplete binding is
+    /// failed when its terminal disappears, without fabricating progress.
+    /// This runs in the backend so terminal state remains durable while the
+    /// WebView is reloading or unavailable.
+    pub fn record_terminal_exit(
+        &self,
+        session_id: &str,
+        exit_code: i32,
+    ) -> AppResult<Option<TaskBinding>> {
+        let session_id = session_id.trim();
+        if session_id.is_empty() {
+            return Ok(None);
+        }
+
+        let _guard = self.update_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(existing) = self.repo.find_by_session_id(session_id)? else {
+            return Ok(None);
+        };
+
+        let completed_by_worker = existing.status == TaskBindingStatus::Completed
+            && existing
+                .completion_summary
+                .as_deref()
+                .is_some_and(|summary| !summary.trim().is_empty());
+        let status = (!completed_by_worker && existing.status != TaskBindingStatus::Failed)
+            .then_some(TaskBindingStatus::Failed);
+        // `session-killed` has no process status and uses -1 as a sentinel.
+        // It may arrive after the real `terminal-exit`; never let that
+        // unknown value erase a code that was already observed.
+        let should_update_exit_code = match existing.exit_code {
+            Some(current) if exit_code == -1 && current != -1 => false,
+            Some(current) => current != exit_code,
+            None => true,
+        };
+        let exit_code = should_update_exit_code.then_some(exit_code);
+
+        if status.is_none() && exit_code.is_none() {
+            return Ok(Some(existing));
+        }
+
+        let binding = self.update_with_emit(
+            &existing.id,
+            UpdateTaskBindingRequest {
+                status,
+                exit_code,
+                ..Default::default()
+            },
+            true,
+        )?;
+        Ok(Some(binding))
+    }
+
     /// 更新 TaskBinding
     pub fn update(&self, id: &str, req: UpdateTaskBindingRequest) -> AppResult<TaskBinding> {
         self.update_with_emit(id, req, true)
@@ -794,6 +849,180 @@ mod tests {
     fn service() -> TaskBindingService {
         let db = Arc::new(Database::new_in_memory().expect("should create db"));
         TaskBindingService::new(Arc::new(TaskBindingRepository::new(db)))
+    }
+
+    fn session_binding(
+        service: &TaskBindingService,
+        session_id: &str,
+        status: TaskBindingStatus,
+        completion_summary: Option<&str>,
+        exit_code: Option<i32>,
+    ) -> TaskBinding {
+        let created = service
+            .create(CreateTaskBindingRequest {
+                title: "Session task".into(),
+                role: Some(TaskBindingRole::Task),
+                parent_id: None,
+                plan_path: None,
+                normalized_plan_path: None,
+                prompt: Some("implement".into()),
+                session_id: Some(session_id.into()),
+                resume_id: None,
+                pane_id: None,
+                tab_id: None,
+                todo_id: None,
+                project_path: "D:/repo".into(),
+                workspace_name: None,
+                cli_tool: Some("codex".into()),
+                worker_kind: None,
+                metadata: None,
+            })
+            .expect("create binding");
+        service
+            .update(
+                &created.id,
+                UpdateTaskBindingRequest {
+                    status: Some(status),
+                    completion_summary: completion_summary.map(str::to_string),
+                    exit_code,
+                    ..Default::default()
+                },
+            )
+            .expect("set binding state")
+    }
+
+    #[test]
+    fn record_terminal_exit_fails_an_unreported_task_without_changing_progress() {
+        let service = service();
+        let binding = session_binding(
+            &service,
+            "session-running",
+            TaskBindingStatus::Running,
+            None,
+            None,
+        );
+
+        let updated = service
+            .record_terminal_exit("session-running", 23)
+            .expect("record exit")
+            .expect("binding should exist");
+
+        assert_eq!(updated.id, binding.id);
+        assert_eq!(updated.status, TaskBindingStatus::Failed);
+        assert_eq!(updated.exit_code, Some(23));
+        assert_eq!(updated.progress, 0);
+        assert_eq!(updated.completion_summary, None);
+    }
+
+    #[test]
+    fn record_terminal_exit_preserves_a_reported_completion() {
+        let service = service();
+        let binding = session_binding(
+            &service,
+            "session-completed",
+            TaskBindingStatus::Completed,
+            Some("implementation and tests complete"),
+            None,
+        );
+
+        let updated = service
+            .record_terminal_exit("session-completed", 0)
+            .expect("record exit")
+            .expect("binding should exist");
+
+        assert_eq!(updated.id, binding.id);
+        assert_eq!(updated.status, TaskBindingStatus::Completed);
+        assert_eq!(
+            updated.completion_summary.as_deref(),
+            Some("implementation and tests complete")
+        );
+        assert_eq!(updated.exit_code, Some(0));
+    }
+
+    #[test]
+    fn record_terminal_exit_rejects_an_unreported_completed_state() {
+        let service = service();
+        session_binding(
+            &service,
+            "session-empty-completion",
+            TaskBindingStatus::Completed,
+            Some("   "),
+            None,
+        );
+
+        let updated = service
+            .record_terminal_exit("session-empty-completion", 0)
+            .expect("record exit")
+            .expect("binding should exist");
+
+        assert_eq!(updated.status, TaskBindingStatus::Failed);
+        assert_eq!(updated.exit_code, Some(0));
+    }
+
+    #[test]
+    fn record_terminal_exit_ignores_unknown_or_blank_sessions() {
+        let service = service();
+
+        assert!(service
+            .record_terminal_exit("missing-session", -1)
+            .expect("unknown session is valid")
+            .is_none());
+        assert!(service
+            .record_terminal_exit("   ", -1)
+            .expect("blank session is valid")
+            .is_none());
+    }
+
+    #[test]
+    fn record_terminal_exit_does_not_replace_known_code_with_unknown_sentinel() {
+        {
+            let service = service();
+            session_binding(
+                &service,
+                "session-exit-order",
+                TaskBindingStatus::Running,
+                None,
+                None,
+            );
+
+            let first = service
+                .record_terminal_exit("session-exit-order", 7)
+                .expect("record real exit")
+                .expect("binding should exist");
+            assert_eq!(first.exit_code, Some(7));
+
+            let second = service
+                .record_terminal_exit("session-exit-order", -1)
+                .expect("record late kill")
+                .expect("binding should exist");
+            assert_eq!(second.status, TaskBindingStatus::Failed);
+            assert_eq!(second.exit_code, Some(7));
+        }
+
+        let service2 = service();
+        session_binding(
+            &service2,
+            "session-kill-first",
+            TaskBindingStatus::Running,
+            None,
+            None,
+        );
+        assert_eq!(
+            service2
+                .record_terminal_exit("session-kill-first", -1)
+                .expect("record kill")
+                .expect("binding should exist")
+                .exit_code,
+            Some(-1)
+        );
+        assert_eq!(
+            service2
+                .record_terminal_exit("session-kill-first", 9)
+                .expect("record real exit")
+                .expect("binding should exist")
+                .exit_code,
+            Some(9)
+        );
     }
 
     #[test]

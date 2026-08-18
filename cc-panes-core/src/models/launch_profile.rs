@@ -238,6 +238,8 @@ pub struct LaunchProfileResolution {
     pub mcp_servers: Vec<ResolvedMcpServer>,
     #[serde(default)]
     pub skills: Vec<ResolvedSkill>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_compatibility: Option<SkillCompatibility>,
     #[serde(default)]
     pub warnings: Vec<String>,
     #[serde(default)]
@@ -266,6 +268,24 @@ pub struct ResolvedSkill {
     pub project_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_path: Option<String>,
+}
+
+/// Portable Skill and orchestration support for the CLI selected by a preview.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillCompatibility {
+    pub cli_tool: String,
+    #[serde(default)]
+    pub delivery_modes: Vec<cc_cli_adapters::SkillDeliveryMode>,
+    #[serde(default)]
+    pub can_use_portable_skills: bool,
+    #[serde(default)]
+    pub can_control_orchestration: bool,
+    #[serde(default)]
+    pub can_report_result: bool,
+    /// Stable reason code when a complete portable-Skill workflow is unavailable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 pub type SharedMcpUrls = HashMap<String, String>;
