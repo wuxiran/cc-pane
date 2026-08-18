@@ -1,6 +1,8 @@
-import { beforeEach, describe, it, expect } from "vitest";
-import { pickCreateSessionResumeId } from "./terminalResume";
+import { beforeEach, describe, it, expect, vi } from "vitest";
+import { pickCreateSessionResumeId, replayColdRestoreOutput } from "./terminalResume";
+import { stripSgrBackgroundColors } from "./terminalBufferMode";
 import { useResumeBindingStore } from "@/stores/useResumeBindingStore";
+import { sessionRestoreService } from "@/services/sessionRestoreService";
 
 beforeEach(() => {
   useResumeBindingStore.setState({ bindings: {} });
@@ -36,5 +38,41 @@ describe("pickCreateSessionResumeId", () => {
   it("ignores the store entirely without a savedSessionId (no directory hijack)", () => {
     useResumeBindingStore.getState().recordBinding("pty-other", "resume-other", "issued");
     expect(pickCreateSessionResumeId({ resumeId: undefined })).toBeUndefined();
+  });
+});
+
+// 冷恢复是第四个绕过 renderTerminalData 的写入口（photo / resync / deferred-restore
+// 之外）。`.output` 落盘的是带 ANSI 的原始行，直接 writeln 会把 CLI 的显式背景
+// 写回 cell——壁纸透明模式下与 photo 管道同一个洞。
+describe("replayColdRestoreOutput", () => {
+  const collectReplay = async (
+    lines: string[],
+    render?: (data: string) => string,
+  ): Promise<string[]> => {
+    vi.spyOn(sessionRestoreService, "loadOutput").mockResolvedValue(lines);
+    const written: string[] = [];
+    await replayColdRestoreOutput(
+      { writeln: (line) => written.push(line) },
+      "pty-cold",
+      () => {},
+      () => {},
+      render,
+    );
+    return written;
+  };
+
+  it("strips SGR backgrounds from replayed lines when a renderer is supplied", async () => {
+    const written = await collectReplay(
+      ["\x1b[41m FAIL \x1b[49m detail", "plain"],
+      stripSgrBackgroundColors,
+    );
+    expect(written).toContain(" FAIL  detail");
+    expect(written).toContain("plain");
+    expect(written.some((line) => line.includes("\x1b[41m"))).toBe(false);
+  });
+
+  it("defaults to identity so opaque mode replays lines untouched", async () => {
+    const written = await collectReplay(["\x1b[41m FAIL \x1b[49m detail"]);
+    expect(written).toContain("\x1b[41m FAIL \x1b[49m detail");
   });
 });

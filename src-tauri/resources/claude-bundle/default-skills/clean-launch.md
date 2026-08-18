@@ -1,6 +1,6 @@
 ---
 name: ccpanes-clean-launch
-description: Cleanly launch a project's dev / build process in {{app_name}}-managed workspaces. Use when the user says "启动前端"、"跑后端"、"重启 dev server"、"start the api server"、"restart the worker"、"run the build"、"开服务"、"再启动一次"。Handles port/PID conflicts via MCP+skill loop, remembers last launch (command, cwd, runtime, env) so the next run is one-step. Supports local / WSL / SSH runtimes.
+description: Launch or restart a project's dev/build process in CC-Panes, resolving port and PID conflicts first. 触发词：启动前端、跑后端、重启 dev server、开服务、run the build。支持 local/WSL/SSH 运行时。
 ---
 
 # 启动干净（Clean Launch）

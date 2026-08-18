@@ -16,6 +16,7 @@ const MemoryManager = lazyWithRetry(() => import("@/components/memory/MemoryMana
 const FileExplorerView = lazyWithRetry(() => import("@/components/explorer/FileExplorerView"), "FileExplorerView");
 const EditorView = lazyWithRetry(() => import("@/components/editor/EditorView"), "EditorView");
 const BrowserTabContent = lazyWithRetry(() => import("./BrowserTabContent"), "BrowserTabContent");
+const DshTabContent = lazyWithRetry(() => import("./DshTabContent"), "DshTabContent");
 
 interface TabContentRendererProps {
   tab: Tab;
@@ -129,6 +130,15 @@ export default memo(function TabContentRenderer({
       return (
         <LazyContent>
           <BrowserTabContent tab={tab} />
+        </LazyContent>
+      );
+
+    // 与 browser 不同：**没有 browserUrl 也要渲染**——URL 是实例起来后才知道的
+    // （端口由 OS 分配），窗格自己负责拉起进程并回填。
+    case "dsh":
+      return (
+        <LazyContent>
+          <DshTabContent tab={tab} />
         </LazyContent>
       );
 

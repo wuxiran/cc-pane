@@ -93,6 +93,21 @@ export function resolveOscColorQuery(
   theme: TerminalThemePalette,
   options: OscColorQueryOptions,
 ): OscColorQueryResult {
+  // 壁纸透明模式下吞掉 OSC 11 的**设置**形态（`OSC 11;<color>`，非 `?` 查询）。
+  //
+  // 放行的话会落到 xterm 内置处理器，把 theme.background 整个换成不透明色——
+  // 壁纸被一整块盖掉，且用户无从恢复：CLI 退出时并不保证发 OSC 111 复位，
+  // 主题热更（useTerminalAppearanceSync）也只在 xtermTheme 引用变化时才跑。
+  // 这里只拦背景（10 = 前景，改了不破坏透明），且只在壁纸激活时拦——
+  // 不透明模式下 CLI 自定背景是正当行为，不该被吞。
+  if (
+    options.wallpaperTransparencyRequired &&
+    ident === 11 &&
+    data.trim() !== "?"
+  ) {
+    return { handled: true, response: null };
+  }
+
   if (
     options.cliTool === "codex" &&
     options.wallpaperTransparencyRequired &&

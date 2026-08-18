@@ -184,6 +184,11 @@ impl ClaudeAdapter {
                 supports_workspace: true,
                 supports_project_hooks: true,
                 supports_issued_session_id: true,
+                supports_orchestrated_launch: true,
+                // effort 经 MAX_THINKING_TOKENS env 注入；verbose/maxTurns 有原生 flag
+                supports_effort_option: true,
+                supports_verbose_option: true,
+                supports_max_turns_option: true,
                 compatible_provider_types: vec![
                     "anthropic".into(),
                     "bedrock".into(),
@@ -1160,6 +1165,17 @@ impl CliToolAdapter for ClaudeAdapter {
             args.push(prompt.clone());
         }
 
+        // CC-Panes 内置 skill 按会话挂载：每个根目录本身是一个合法 Claude 插件
+        // （`<root>/.claude-plugin/plugin.json` + `<root>/skills/<name>/SKILL.md`），
+        // 因此不需要向 ~/.claude/skills 复制任何东西。
+        for plugin_dir in &ctx.skill_mount_paths {
+            let plugin_dir = plugin_dir.trim();
+            if !plugin_dir.is_empty() {
+                args.push("--plugin-dir".to_string());
+                args.push(plugin_dir.to_string());
+            }
+        }
+
         if ctx.yolo_mode {
             Self::push_yolo_mode_arg(&mut args);
         }
@@ -1298,6 +1314,41 @@ mod tests {
     use std::path::PathBuf;
     use tempfile::tempdir;
 
+    /// 内置 skill 以插件目录形式按会话挂载，不复制任何东西到 ~/.claude/skills。
+    #[test]
+    fn build_command_mounts_skills_as_plugin_dirs() {
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = test_context(None);
+        ctx.skill_mount_paths = vec![
+            "/ccpanes/builtin".to_string(),
+            "  ".to_string(),
+            "/ccpanes/extra".to_string(),
+        ];
+
+        let result = adapter.build_command(&ctx).expect("build command");
+        let mounts: Vec<&String> = result
+            .args
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index > 0 && result.args[index - 1] == "--plugin-dir")
+            .map(|(_, value)| value)
+            .collect();
+
+        assert_eq!(
+            mounts,
+            vec!["/ccpanes/builtin", "/ccpanes/extra"],
+            "blank entries must be skipped"
+        );
+    }
+
+    #[test]
+    fn build_command_without_skill_mounts_emits_no_plugin_dir() {
+        let adapter = ClaudeAdapter::new();
+        let ctx = test_context(None);
+        let result = adapter.build_command(&ctx).expect("build command");
+        assert!(!result.args.iter().any(|arg| arg == "--plugin-dir"));
+    }
+
     fn test_context(executable_override: Option<&str>) -> CliAdapterContext {
         CliAdapterContext {
             session_id: "test-session".to_string(),
@@ -1319,6 +1370,7 @@ mod tests {
             shared_mcp_urls: HashMap::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
+            skill_mount_paths: Vec::new(),
         }
     }
 

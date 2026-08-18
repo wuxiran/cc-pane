@@ -1,6 +1,6 @@
 ---
 name: ccpanes-parallel-run
-description: Split a larger task into independent subtasks, launch them as parallel Claude/Codex sessions, poll status, and aggregate results. Use when the user says "并行跑"、"同时在多个项目"、"分头执行"、"开 N 个实例并行"、"parallel"、"fan out"、"run these together"。Skip when subtasks share files or have ordering dependencies — use one sequential session instead.
+description: Split a task into independent subtasks, run them as parallel CLI sessions, then aggregate results. 触发词：并行跑、分头执行、开 N 个实例、fan out。子任务共享文件或存在顺序依赖时改用单会话顺序执行。
 ---
 
 # 监督并行

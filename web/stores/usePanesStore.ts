@@ -539,6 +539,13 @@ function cleanRehydratedPanes(node: PaneNode) {
       if (tab.contentType === "editor") {
         tab.dirty = false;
       }
+      if (tab.contentType === "dsh") {
+        // dsh 的 URL 是每次进程启动由 OS 现分配的端口，**跨重启必然失效**。
+        // 留着它会让窗格先拿死端口建一次 webview（`ERR_CONNECTION_REFUSED`
+        // 的错误页），要等新实例起来回填才换掉。清空则直接落到
+        // DshTabContent 的「正在启动」态，等真端口到位再渲染。
+        tab.browserUrl = undefined;
+      }
     }
   } else {
     node.children.forEach(cleanRehydratedPanes);

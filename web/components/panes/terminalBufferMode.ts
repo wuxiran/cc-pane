@@ -79,7 +79,19 @@ function stripSgrBackgroundSequence(sequence: string): string {
       index += mode === "5" ? 2 : mode === "2" ? 4 : 0;
       continue;
     }
-    if (value === 49 || (value >= 100 && value <= 107)) {
+    // 背景相关 SGR 的完整面：40-47 标准色、48 扩展色（上面单独处理，带子参数）、
+    // 49 重置、100-107 亮色。
+    //
+    // 40-47 曾漏在这张表外，后果比"少剥一类"严重得多：**放行「设置背景」却剥掉
+    // 「重置背景」**——一个本该只有几行的红底横幅（vitest FAIL 用的就是 `\x1b[41m`）
+    // 失去 `\x1b[49m` 收尾后，会一路染到会话结束，且 cell 属性已落 buffer，
+    // 重绘无效、只有清屏能去。剥离器的任何裁剪都必须对「设置/重置」对称，
+    // 单边剥离比不剥更糟。
+    if (
+      value === 49 ||
+      (value >= 40 && value <= 47) ||
+      (value >= 100 && value <= 107)
+    ) {
       changed = true;
       continue;
     }
@@ -129,6 +141,27 @@ export function createSgrBackgroundStripper(): SgrBackgroundStripper {
       return remaining;
     },
   };
+}
+
+/**
+ * 一次性剥离**完整字符串**里的 SGR 背景色（photo 管道用）。
+ *
+ * 与 `createSgrBackgroundStripper` 的分工：流式 stripper 服务于逐 chunk 到达的
+ * PTY 实时流（要跨 chunk 扣留半截序列）；这里的入参是 SerializeAddon 的成品 VT
+ * ——一次给全，不存在跨调用的续接，用完即弃。
+ *
+ * **为什么 photo 也必须剥**：photo 直写 xterm 的正当理由只有一条——alt-screen
+ * 剥离作用在成品 VT 上会坏画面（裁决 B）。但背景色剥离对成品 VT 是安全的：成品
+ * VT 里的 SGR 48 本就是 cell 属性编码，剥掉只是让那些 cell 回落默认背景。两个
+ * 变换此前捆在同一个 `renderTerminalData` 出口上，photo 为了躲开前者连带躲掉了
+ * 后者，于是壁纸透明模式下**一次恢复/resync 就把不透明背景带回画面且不可自愈**
+ * （cell 属性已落 buffer，重绘无效，只有清屏能去掉）。
+ */
+export function stripSgrBackgroundColors(data: string): string {
+  const stripper = createSgrBackgroundStripper();
+  // flush 吐出的是未构成完整序列的尾部残留——成品 VT 正常不该有，
+  // 但拼回去而不是丢弃：宁可漏剥一个残缺序列，也不能吞字节。
+  return stripper.push(data) + stripper.flush();
 }
 
 /**
@@ -187,7 +220,7 @@ export interface TerminalDataRenderContext {
   keepCliOutputInNormalBuffer: boolean;
   /** 当前会话 id；变化时丢弃上一会话的扣留残留，避免串台。 */
   sessionId: string | null;
-  /** 鏍规嵁澹佺焊閫忔槑妯″紡绉婚櫎 CLI 鏄惧紡 SGR 鑳屾櫙鑹层€? */
+  /** 根据壁纸透明模式移除 CLI 显式 SGR 背景色。 */
   stripBackgroundColors?: boolean;
 }
 

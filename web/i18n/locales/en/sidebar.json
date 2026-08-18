@@ -51,6 +51,12 @@
     "hidden": "Hide",
     "placementHint": "Moving a module only changes its entry. Hidden modules remain available from the Command Palette."
   },
+  "moduleAdd": {
+    "trigger": "Add module",
+    "title": "Show in Activity Bar",
+    "onBar": "On the Activity Bar",
+    "offBar": "Not on the Activity Bar"
+  },
   "fileHistory": "File History",
   "todoList": "TodoList",
   "importProject": "Import Project",

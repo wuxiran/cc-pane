@@ -30,7 +30,8 @@
   "skipMcp": "禁 MCP",
   "verbose": "详细日志",
   "effort": "思考力度",
-  "effortHint": "Claude 经思考预算（MAX_THINKING_TOKENS）注入；Codex 走 model_reasoning_effort",
+  "effortHint": "Claude 经思考预算（MAX_THINKING_TOKENS）注入；Codex 走 model_reasoning_effort；Grok 走 --reasoning-effort",
+  "optionUnsupported": "{{cli}} 不支持该参数，选了也不会生效",
   "effortDefault": "默认",
   "effortLevel": {
     "low": "低",

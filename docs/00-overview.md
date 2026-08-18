@@ -169,10 +169,18 @@ cc-panes/
 ├── screenshots/                     # 截图存储
 └── data.db                          # SQLite 数据库
 
+<workspace.path>/.ccpanes/           # 工作空间级（注意：与上面 workspaces/<name>/ 是不同的一级）
+├── projects.csv                     # 项目清单（给 LLM 的上下文文件）
+├── plans/                           # plan 归档
+└── prompts/                         # 外置长 prompt / Codex 派工文件
+
 <project-path>/.ccpanes/             # 项目级配置
-├── config.toml
-├── history/                         # 本地文件历史
-└── hooks/                           # 工作流定义
+├── config.toml                      # Local History 配置
+├── history/                         # 本地文件历史（history.db + blobs/）
+├── specs/                           # 内置 Spec
+├── quick-commands.json              # 项目级快捷命令
+├── cli-hooks.json                   # 项目级 CLI hooks
+└── workflow.md                      # 工作流说明
 ```
 
 ## 开发命令

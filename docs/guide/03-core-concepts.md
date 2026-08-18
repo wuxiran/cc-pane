@@ -99,11 +99,22 @@ D:\work\erp-workspace\        ← 工作空间目录（本身不是 Git 仓库�
 ├── screenshots/              # 截图
 └── data.db                   # SQLite：项目、启动历史、Todo 等
 
+<工作空间路径>/.ccpanes/      # 工作空间级数据（在你自己指定的工作空间目录下，
+├── projects.csv              #   与上面的 workspaces/<名字>/ 不是同一个地方）
+├── plans/                    # 归档的 plan
+└── prompts/                  # 派给 AI 的长任务描述文件
+
 <项目路径>/.ccpanes/          # 项目级数据（跟着仓库走）
 ├── config.toml               # 项目配置
 ├── history/                  # 本地文件历史
-└── hooks/                    # 工作流定义
+├── specs/                    # 内置 Spec
+├── quick-commands.json       # 该项目的快捷命令
+├── cli-hooks.json            # 该项目的 CLI hooks
+└── workflow.md               # 工作流说明（新会话启动时自动注入给 AI）
 ```
+
+> 备份提示：`history/` 下有 `history.db`。它是 SQLite，**同步盘（群晖 / OneDrive / Dropbox）
+> 直接同步 `.db-wal` / `.db-shm` 会损坏数据库**，做同步规则时要排除这两类文件。
 
 此外，Claude / Codex 各自的会话上下文存在它们自己的目录（如 `~/.claude/`、`~/.codex/`），CC-Panes 的"恢复会话"正是借助这些来续上下文。
 

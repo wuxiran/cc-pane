@@ -1,6 +1,6 @@
 ---
 name: ccpanes-dispatch-todos
-description: Query pending todos from {{app_name}}, cluster them by family, and dispatch each cluster to a fresh Claude/Codex session. Use when the user says "跑一下 todo"、"分派待办"、"清一下任务列表"、"todo 跑起来"、"看看有没有 todo"、"dispatch todos"、"run my backlog". Also handles single-todo CRUD (list / create / done).
+description: Query pending CC-Panes todos, cluster them, and dispatch each cluster to a fresh CLI session. 触发词：跑一下 todo、分派待办、清一下任务列表、看看有没有 todo。也支持单条 todo 的增删查改。
 ---
 
 # Todo 驱动

@@ -797,6 +797,8 @@ impl CCChanService {
             shared_mcp_urls: HashMap::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
+            // ccchan 是应用内置的助手会话，不是用户的 CLI 会话，不挂载内置 skill
+            skill_mount_paths: Vec::new(),
         };
         let result = adapter
             .build_command(&ctx)
@@ -844,6 +846,8 @@ impl CCChanService {
             shared_mcp_urls: HashMap::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
+            // ccchan 是应用内置的助手会话，不是用户的 CLI 会话，不挂载内置 skill
+            skill_mount_paths: Vec::new(),
         };
         let result = adapter
             .build_command(&ctx)

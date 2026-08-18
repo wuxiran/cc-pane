@@ -23,7 +23,8 @@ interface CliToolSelectProps {
   disabled?: boolean;
 }
 
-const CLI_COLOR_VAR: Record<string, string> = {
+/** 导出供穷举守卫测试核对：这是开放 Record，漏条目只会静默掉色。 */
+export const CLI_COLOR_VAR: Record<string, string> = {
   claude: "var(--app-cli-claude)",
   codex: "var(--app-cli-codex)",
   gemini: "var(--app-cli-gemini)",

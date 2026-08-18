@@ -56,8 +56,32 @@ describe("resolveOscColorQuery", () => {
     });
   });
 
-  it("does not suppress non-query background payloads", () => {
+  // 这条此前断言的是「设置形态一律放行」——把缺陷锁成了规格。放行意味着落到
+  // xterm 内置处理器改掉 theme.background，壁纸被整块盖掉且用户无从恢复。
+  it("swallows background *set* payloads for any CLI when wallpaper transparency is active", () => {
+    for (const cliTool of ["codex", "claude", "gemini"]) {
+      expect(resolveOscColorQuery(11, "#ffffff", DARK_TERMINAL_THEME, {
+        cliTool,
+        wallpaperTransparencyRequired: true,
+      })).toEqual({ handled: true, response: null });
+      expect(resolveOscColorQuery(11, "rgb:ffff/0000/0000", DARK_TERMINAL_THEME, {
+        cliTool,
+        wallpaperTransparencyRequired: true,
+      })).toEqual({ handled: true, response: null });
+    }
+  });
+
+  // 不透明模式下 CLI 自定背景是正当行为，拦截范围必须收窄到壁纸激活时。
+  it("lets background set payloads through when wallpaper transparency is off", () => {
     expect(resolveOscColorQuery(11, "#ffffff", DARK_TERMINAL_THEME, {
+      cliTool: "codex",
+      wallpaperTransparencyRequired: false,
+    })).toEqual({ handled: false, response: null });
+  });
+
+  // 只拦背景：前景不破坏透明，吞掉反而会让 CLI 的配色判定失真。
+  it("lets foreground set payloads through even with wallpaper transparency", () => {
+    expect(resolveOscColorQuery(10, "#ffffff", DARK_TERMINAL_THEME, {
       cliTool: "codex",
       wallpaperTransparencyRequired: true,
     })).toEqual({ handled: false, response: null });

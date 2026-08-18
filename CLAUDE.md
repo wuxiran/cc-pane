@@ -258,21 +258,44 @@ flutter pub get && flutter analyze && flutter test
 ~/.cc-panes/                         # Release 全局配置目录
 ~/.cc-panes-dev/                     # Dev 全局配置目录（结构相同）
 ├── config.toml                      # 全局配置
-├── workspaces/                      # 工作空间目录
+├── workspaces/                      # 工作空间元数据目录
 │   └── <workspace-name>/
 │       ├── workspace.json           # 工作空间配置
-│       └── .ccpanes/
-│           └── journal/             # 会话日志
+│       └── .ccpanes/                # 【一级】
+│           └── journal/             # 会话日志（JournalService 写入点）
 ├── providers/                       # Provider 配置
 │   └── providers.json
 ├── screenshots/                     # 截图存储
 └── data.db                          # SQLite 数据库
-
-<project-path>/.ccpanes/             # 项目级配置
-├── config.toml
-├── history/                         # 本地文件历史
-└── hooks/                           # 工作流定义
 ```
+
+**`.ccpanes/` 是三级目录，不是两级。** 三级各自承载不同内容，混淆会直接写出 bug：
+
+```
+<workspace.path>/.ccpanes/           # 【二级】工作空间实际路径下
+├── projects.csv                     # 项目清单（给 LLM 的上下文文件，代码无消费方）
+├── plans/                           # plan 归档（归档优先落这里）
+└── prompts/                         # 外置的长 prompt / Codex 派工文件
+
+<project.path>/.ccpanes/             # 【三级】项目仓库下
+├── config.toml                      # Local History 配置
+├── history/                         # 本地文件历史
+│   ├── history.db                   # SQLite（版本/标签元数据）
+│   └── blobs/<sha256>               # 内容寻址的文件快照
+├── specs/                           # 内置 Spec
+├── quick-commands.json              # 项目级快捷命令
+├── cli-hooks.json                   # 项目级 CLI hooks
+├── workflow.md                      # 工作流说明（SessionStart hook 注入）
+├── plans/                           # 无工作空间时的归档兜底
+└── session-state.json               # legacy，已被 launch_history 取代
+```
+
+注意：
+
+- **一级与二级可能重合** —— 工作空间未指定 `path` 时，`workspace.path` 默认就是 `~/.cc-panes/workspaces/<name>/`（`workspace_service.rs:374`）。写代码时不能假设两者必然不同。
+- **`plans/` 的归档级别由环境决定**：`CC_PANES_WORKSPACE_PATH` 存在时落二级，否则落三级（`plan_archive.rs:77-92`）。任何读 `plans/` 的代码都必须扫两级并集，只看三级会漏掉绝大多数归档。
+- **`journal/` 的写读级别当前不一致**：`JournalService` 写一级（`lib.rs:1508`），而 SessionStart hook 读三级（`session_start.rs:256`）。两边不通，这是已知缺陷不是设计。
+
 
 ## 已实现功能
 
@@ -309,7 +332,9 @@ flutter pub get && flutter analyze && flutter test
 - **根目录新增大目录必须同步 `vite.config.ts` 的 `server.watch.ignored`**：`.cargo/config.toml` 把 Rust 的 `target-dir` 指到了仓库根，实测 `target/` 达 22 万文件；chokidar 默认只跳过 `node_modules`/`.git`，漏掉的大目录会被递归监听，叠加 `tauri dev` 期间 cargo 持续写入形成事件风暴——实测 Vite 进程烧到 2.9GB 内存、2091 秒 CPU 后彻底停止响应，窗口永久停在 `Loading CC-Panes...`（看着像卡死，其实是 dev server 不返回任何模块）。判断方法：`curl 127.0.0.1:14200` 超时但端口在 Listen。
 - **`cargo` 的 `incremental/` 不会自动回收**：按构建会话堆积，本仓库实测积到 1164 个目录、176GB（其中超 7 天的占 155GB）。定期删除旧目录即可，增量缓存对 cargo 是可丢弃数据，缺了只是那次非增量重编。
 - **不要给全部注册项目起常驻监视/轮询**：0.10.20 曾给 129 个注册项目各起一个 2 秒轮询线程,28.6 核持续忙碌(docs/41)。watcher/扫描类资源必须跟随**活跃会话**惰性起停（`HistoryWatchManager`）,且剪枝规则要支持嵌套目录（根锚定的 `node_modules/**` 剪不到 monorepo 嵌套依赖）。
-- **portable-pty 对无效 cwd 会静默回退 HOME 而不是报错**（Unix 回退 `$HOME`,Windows 回退 `USERPROFILE`,见 docs/46 黑屏调查）：应用层必须在 `spawn_pty` 前校验 cwd 存在且为目录,否则会话"成功"启动在错误目录,agent 在错误的仓库里干活。
+- **portable-pty 对无效 cwd 会静默回退 HOME 而不是报错**（Unix 回退 `$HOME`,Windows 回退 `USERPROFILE`,见 docs/46 黑屏调查）：应用层必须在 `spawn_pty` 前校验 cwd 存在且为目录,否则会话"成功"启动在错误目录,agent 在错误的仓库里干活。**同一类坑还有「不设 cwd 就继承宿主的」**：`tauri dev` 从 `src-tauri/` 执行 `cargo run`，dev 下 app 进程的 cwd 就是 `src-tauri`——任何 spawn 子进程时不显式给 cwd 的代码，都会让子进程把 `src-tauri` 当工作目录。dsh 曾因此把它当工作区根去遍历，415 个文件事件激起 tauri watcher 全树重建，表现为「一打开标签 dev 就闪退重启」（docs/91 §8.1）。新增 spawn 路径一律显式给 cwd，兜底也要打 warn。
+- **`tauri dev` 日志里 `File X changed. Rebuilding` 点名的文件通常不是元凶**：watcher 收到一批事件后用 `paths.first()` 挑名字打日志（`interface/rust.rs:580`），全树风暴时那就是**目录遍历的第一个条目**（实测 415 个事件里点名 `build.rs`，而它 mtime 停在两周前从没被改过）。判定先看事件量：成百上千条 = 全树风暴，文件名毫无信息量，别去查那个文件。另：**排查「闪退」先读 `~/.cc-panes-dev/crash.log`**（panic hook 写的，`lib.rs:1377`）——它没有新记录就不是崩溃，是 watcher 主动 `child.kill()` 重建。Windows 事件日志/WER 是**操作系统的**日志，不能替代我们自己那份。
+- **别在用户实测 dev 时改被监视的源文件**：改 `src-tauri/` 或任何 workspace crate，每存一次盘就杀掉对方的 app 重建一次。实测用户正在对话时被这样打断 4 次，他看到的是「调用 MCP 后闪退」，与 MCP 毫无关系（docs/91 §8.4）。改 `web/` 只触发 HMR（轻，但仍会扰动 webview 型窗格）。开工前先确认对方不在测。
 - **Claude Code 的 SessionEnd hook 带 reason,`clear` 不是进程退出**：`/clear` 会触发 SessionEnd(reason="clear"),hook 层必须按 reason 过滤（HTTP 与 OSC 双通道）,否则活会话被状态机标 Exited、daemon 桥发合成 `terminal-exit(-1)` 并停流（docs/44）。看到 `-1` 退出码 = 合成码,非真实进程退出。
 - **Codex 的 resume id 依赖 OSC 标题捕获,Codex CLI 升版会静默打断**：v0.145 曾令捕获链全灭（launch_history 的 codex `resumeSessionId` 全 null,docs/45）,resume 静默变新会话。捕获链修改需配 rollout 目录扫描兜底,且降级必须对用户可见。
 - **`tauri dev` 不重建 external binaries（daemon/web/cli-hook）**：`build.rs` 只放占位符，`debug\binaries\` 里的 daemon 是手动构建的拷贝。改 `cc-cli-adapters`/`cc-panes-daemon` 后主程序会热重编，但**会话启动走的 daemon 还是旧二进制**——新代码"测试全绿却不生效"（0.11.1 opencode 透明修复曾因此白测三轮：binaries 里躺着 14 天前的 daemon）。修改后必须 `cargo build -p cc-panes-daemon` 并拷贝到 `<target-dir>\debug\binaries\`，再重启 dev。
@@ -363,6 +388,8 @@ flutter pub get && flutter analyze && flutter test
 - **`list_workspaces()` 必须返回全量（含已归档），归档过滤只能落在消费点**（0.12.5）：`archivedAt` 是逻辑删除标记，看着"过滤一次到位最省事"，但该函数有四处调用方在做**引用检查**——`delete_launch_profile` 的绑定检查（`orchestrator_service.rs` 与 `launch_profile_commands.rs` 各一处）、`ensure_default_workspace`、`force_stop_project` 的路径引用检查。在 service 层加过滤 = 被归档工作空间持有的 launch profile 被判成"无人引用"而误删，且**没有任何报错**。过滤点只有两个：MCP 工具的 `includeArchived` 参数、前端 `filterWorkspaces`。回归测试 `list_workspaces_still_returns_archived_workspaces` 与 `archived_workspace_still_blocks_launch_profile_deletion` 就是拦这一手的，别绕过。另：前端 `filterWorkspaces` 里归档判定必须排在 `isDefault` 短路**之前**，否则带 `archivedAt` 的默认工作空间会绕过过滤。
 - **给 MCP 开放"删除"前先问能不能换成可逆操作**：`remove_project_from_workspace` 的 MCP 工具在 docs/43:303 上挂了两个版本没做，卡点是"需要带确认语义"而确认机制不存在。0.12.5 的解法不是补确认，是把开放的操作换成归档（`set_workspace_archived`，打时间戳、不删数据、随时恢复）——**可逆就不需要确认语义，前置需求整个消失**。硬删除继续只留 UI。同类范式先例是 plan 的 `set_plan_archived`。代价对称性也支持这么选：误归档的代价是点一下恢复，误阻塞/误拒的代价是任务直接做不下去。
 - **终端「现在什么状态」用 `phaseOf()` 派生，别自己组合那 7 个字段**（0.12.0 批5）：restoring / savedSessionId / restoreBlockedReason / leaseReadOnly / launchError / launchAttempt / disconnected 的合法组合从未被声明过，各消费方脑补的结果是同一状态在不同地方判出不同结果。优先级顺序本身是规格：已退出压倒一切 → 启动失败压过恢复中 → **被挡住的恢复压过恢复中**（否则显示永远转圈的假恢复）→ 断连压过运行中。`isLivePhase` 把 restoring 算作活的（会话已建），这条直接决定销毁链路会不会漏杀。
+- **前端测试「全体起不来」先查 Node 小版本，不要去动 node_modules**：jsdom 28 要求 `^20.19.0 || ^22.12.0 || >=24.0.0`（20.19 是 20.x 线引入 `require(esm)` 的版本）。低于它时 `html-encoding-sniffer` 用 `require()` 加载 ESM-only 的 `@exodus/bytes` 直接炸，表现是 **435 个测试文件全部 `Failed to start forks worker`**、报错里只提两个没人听说过的包名——**看着完全像 node_modules 装坏了**，第一反应会是重装（实测本机 Node 20.17.0 命中）。CI 用 `node-version: "20"` 解析到最新 20.x，所以**CI 绿、本地红**，问题只在开发机暴露。判定：`node -v` 与 `package.json` 的 `engines` 对一下即可；不想动全局 node 可以直接用另一个版本的二进制跑（`<nvm-root>/v24.x/node.exe ./node_modules/vitest/vitest.mjs run`）验证。注意 `npm run test:run` 只跑 vitest，它**不**校验 engines。
+- **clippy 门禁是 `cargo clippy --workspace -- -D warnings`，别自己加 `--all-targets`**：加了会把测试代码的历史 lint 全部升级成 error（实测十几条），看着像"仓库本来就不绿"，实际是换了把尺子。改动验证请用文档里那条原命令。
 
 ## 文档引用
 
@@ -412,5 +439,6 @@ flutter pub get && flutter analyze && flutter test
 | `docs/88-im-bridge.md` | **IM 外推桥**：钉钉/企微/飞书通知集成（批次1 出站已落地）+ 双向长连接 roadmap（钉钉 Stream / 企微智能机器人协议公开可自实现，飞书不公开走伪双向）——三平台调研结论与安全模型在此 |
 | `docs/89-mcp-tool-surface-reduction.md` | **MCP 工具面收编方向文档**：90 工具盘点 + 两刀方案（CRUD 合并→55、管理面下沉 ctl→25）+ ctl/MCP 能力分界三轴（身份/故障域/管理面）——未排期，实施逐刀抽 plan |
 | `docs/90-worker-decomposition-model.md` | **派工模型方向文档**：契约冻结换扇形并行 / 宽深形状判别 / 简报摊销——§6 终局裁决「设计承重，乐观默认」（碰撞检测/claim 看板否决）；§7 skill 可执行拆分规则（形状三问→W/D 分支→硬阈值→派发三关→CLI 路由，批次A 落地文本） |
+| `docs/91-deepseek-harness-onboarding.md` | **DeepSeek Harness（dsh）接入**：它不是 CLI 而是 profile 启动器（TUI 他们做过、8-04 主动删了，含复活四条件）+ 全实测事实表 + `$DSH_HOME` 按工作空间隔离的硬约束 + 四项 `--patch` 注入 + 为何不嵌前端（`/api` trust fence）+ 插件生态入口与 `dsh.bundle.patch` 激活判据 |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |

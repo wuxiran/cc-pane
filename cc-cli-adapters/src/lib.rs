@@ -35,12 +35,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HookCommandShell {
+pub enum HookCommandShell {
     Posix,
     Windows,
 }
 
-pub(crate) fn build_guarded_hook_command(
+/// 生成带存在性守卫的 hook 命令行。
+///
+/// 对外开放是因为 dsh 也要这个形态：它的 `dsh-hooks-claude-code` 桥读的是
+/// Claude Code 形状的 `hooks.json`，命令串必须与我们写给 Claude 的一致
+/// （守卫写法、Windows 上不能再套一层 `cmd.exe` 这两条尤其不能各写一份）。
+pub fn build_guarded_hook_command(
     binary_path: &Path,
     subcommand: &str,
     shell: HookCommandShell,
@@ -724,6 +729,31 @@ pub struct CliToolCapabilities {
     /// 使 resume id 在启动前即确定，无需事后捕获
     #[serde(default)]
     pub supports_issued_session_id: bool,
+    /// 允许被 MCP `launch_task` 编排启动。
+    ///
+    /// **默认 false 是有意的**：编排启动链路（prompt 注入、leader/worker 反馈、
+    /// resume 绑定）需要逐个 CLI 实机验证过才放行。此前这份白名单硬编码在
+    /// `orchestrator_service::parse_launch_cli_tool` 里，新增 CLI 必须记得回去改；
+    /// 现在改为由 adapter 自己声明——验证过再置 true。
+    #[serde(default)]
+    pub supports_orchestrated_launch: bool,
+    /// 消费 `adapterOptions.effort`（映射到该 CLI 的思考预算/推理档位）
+    ///
+    /// 以下三个 per-launch 能力位存在的理由：启动器的 chips 是**通用 UI**，对所有 CLI
+    /// 一律可点。但每个 adapter 的 `build_command` 只消费自己支持的键——不支持的键被
+    /// **静默丢弃**，用户选了 effort=high 却毫无效果且无任何提示。声明出来让前端置灰，
+    /// 是把「这个 CLI 做不到」从隐性变成显性。
+    ///
+    /// **默认 false 是有意的**（同 `supports_orchestrated_launch` 的理由）：新接入的
+    /// adapter 若不显式声明，UI 宁可置灰也不要撒谎说能用。
+    #[serde(default)]
+    pub supports_effort_option: bool,
+    /// 消费 `adapterOptions.verbose`（映射到该 CLI 的详细输出 flag）
+    #[serde(default)]
+    pub supports_verbose_option: bool,
+    /// 消费 `adapterOptions.maxTurns`（映射到该 CLI 的最大轮数 flag）
+    #[serde(default)]
+    pub supports_max_turns_option: bool,
     /// 兼容的 Provider 类型列表
     #[serde(default)]
     pub compatible_provider_types: Vec<String>,
@@ -831,6 +861,14 @@ pub struct CliAdapterContext {
     /// 通过 per-launch override 显式 disabled，避免运行配置筛选后仍继承用户全局 MCP。
     #[allow(dead_code)]
     pub disable_unlisted_mcp_servers: bool,
+    /// 本次会话要挂载的 CC-Panes 内置 skill 根目录（通常是
+    /// `<data_dir>/skills/builtin`）。**按会话挂载，绝不写用户的 CLI Home**：
+    /// - Claude：每个路径转成一个 `--plugin-dir`
+    /// - Codex：合并进 `-c skills.config=[...]` 启动期覆盖
+    ///
+    /// 为空表示本次不挂载任何内置 skill（`LaunchProfileSkillMode::Disabled`），
+    /// 此时各 adapter 必须**完全不碰**用户的 skill 配置。
+    pub skill_mount_paths: Vec<String>,
 }
 
 /// Internal adapter option carrying the resolved managed Provider environment.
@@ -1761,6 +1799,7 @@ mod registry_tests {
             shared_mcp_urls: HashMap::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
+            skill_mount_paths: Vec::new(),
         }
     }
 

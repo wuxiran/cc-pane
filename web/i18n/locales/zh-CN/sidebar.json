@@ -51,6 +51,12 @@
     "hidden": "隐藏",
     "placementHint": "移动模块只会调整入口；隐藏后仍可从命令面板打开。"
   },
+  "moduleAdd": {
+    "trigger": "添加模块",
+    "title": "在左栏显示",
+    "onBar": "已在左栏",
+    "offBar": "未在左栏"
+  },
   "fileHistory": "文件历史",
   "todoList": "TodoList",
   "importProject": "导入项目",

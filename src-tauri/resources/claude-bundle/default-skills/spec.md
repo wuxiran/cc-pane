@@ -1,6 +1,6 @@
 ---
 name: ccpanes-spec
-description: Guide a spec-driven development workflow — requirements → design → tasks → implementation — using the `spec-workflow` MCP. Use when the user says "走 spec 流程"、"先写规格"、"requirements → design → tasks"、"spec workflow"、"start a new spec"、"按规范驱动开发". **Only useful if the `spec-workflow` MCP is installed**; skip otherwise and tell the user to install it first.
+description: Run a spec-driven workflow (requirements to design to tasks) using the external spec-workflow MCP. 触发词：走 spec 流程、先写规格、按规范驱动开发。仅在已安装 spec-workflow MCP 时可用；未安装请改用 built-in-spec。
 ---
 
 # Spec 工作流

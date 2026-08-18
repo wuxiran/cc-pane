@@ -116,3 +116,6 @@ docs/53-*.md
 docs/55-*.md
 dev.bat
 build.bat
+
+# dsh 接入实验目录（npm 装了 530 个包，仅本机探测用，不入库）
+.claude/dsh-spike/

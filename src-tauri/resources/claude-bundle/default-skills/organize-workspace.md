@@ -1,6 +1,6 @@
 ---
 name: ccpanes-organize-workspace
-description: Audit and organize {{app_name}} workspace folders without data loss. Use when the user says "整理工作空间"、"清理 workspace"、"workspace cleanup"、"把临时文件放垃圾箱"、"归档工作区"、"整理项目目录". The skill creates a reviewable plan first, skips single-project source repositories by default, and moves uncertain files only into `_trash/` instead of deleting them.
+description: Audit and tidy CC-Panes workspace folders without data loss, producing a reviewable plan first. 触发词：整理工作空间、归档工作区、整理项目目录、清理 workspace。不确定的文件只移入 _trash/，从不直接删除。
 ---
 
 # 整理工作空间
@@ -31,24 +31,32 @@ workspace-root/
 └── _trash/
 ```
 
-`.ccpanes/` 允许：
+`.ccpanes/` 允许（以下为**代码实际会创建**的全部条目，不在此列的一律按未知材料处理）：
 
 ```text
+# 工作空间根的 .ccpanes/
 .ccpanes/
-├── config.toml
-├── projects.csv
-├── layout.json
-├── prompts/
-├── plans/
-├── specs/
-├── tasks/
-├── snapshots/
-├── reports/
-├── history/
+├── projects.csv           # 项目清单
+├── plans/                 # plan 归档
+└── prompts/               # 外置长 prompt / Codex 派工文件
+
+# 项目仓库内的 .ccpanes/（整理 workspace 根时通常不涉及，列出以免误判）
+.ccpanes/
+├── config.toml            # Local History 配置
+├── history/               # history.db + blobs/
+├── specs/                 # 内置 Spec
+├── quick-commands.json
+├── cli-hooks.json
+├── workflow.md
 ├── journal/
-├── runtime/
-└── organize/
+├── plans/                 # 无工作空间时的归档兜底
+└── session-state.json     # legacy
 ```
+
+> 该清单于 2026-08 按代码核对过一次。此前版本曾列出 `layout.json`、`tasks/`、
+> `snapshots/`、`reports/`、`runtime/`、`organize/` —— 这 6 项**代码从未创建过**，
+> 属文档虚构，已移除；同时补回了此前遗漏的 `quick-commands.json`、`cli-hooks.json`、
+> `workflow.md`、`session-state.json`。修改本清单前请先 grep 确认该路径真有创建代码。
 
 ## 强制安全规则
 
@@ -56,7 +64,7 @@ workspace-root/
 - 禁止直接删除文件或目录；待删除材料只能移动到 `_trash/<timestamp>/items/`。
 - 单项目源码型 workspace 默认跳过整理。判断信号：projectCount <= 1，根目录包含 `.git/`，或包含明显源码文件如 `package.json`、`Cargo.toml`、`go.mod`、`pom.xml`。
 - 不要整理未挂载、路径不存在、metadata-only 的 workspace，只报告原因。
-- 不要移动这些路径：`.git/`、`.ccpanes/history/`、`.claude/`、`.codex/`、`.env`、`node_modules/`、`target/`、`dist/`、`.venv/`、`ops/secrets/`、`AGENTS.md`、`CLAUDE.md`。
+- 不要移动这些路径：`.git/`、`.ccpanes/history/`、`.ccpanes/plans/`、`.ccpanes/specs/`、`.claude/`、`.codex/`、`.env`、`node_modules/`、`target/`、`dist/`、`.venv/`、`ops/secrets/`、`AGENTS.md`、`CLAUDE.md`。
 - 对不确定文件只标记为 `review`，不要自动移动。
 
 ## 标准流程

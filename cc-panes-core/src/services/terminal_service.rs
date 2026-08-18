@@ -2,9 +2,9 @@ use crate::constants::events as EV;
 use crate::events::{EventEmitter, SessionNotifier};
 use crate::models::shared_mcp::SharedMcpConfig;
 use crate::models::{
-    CliTool, LaunchProfile, LaunchProfileMcpMode, LaunchProviderSelection, SshConnectionInfo,
-    StoreCheckpointOutcome, TerminalBufferMode, TerminalCheckpoint, TerminalExit, TerminalOutput,
-    TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
+    CliTool, LaunchProfile, LaunchProfileMcpMode, LaunchProfileSkillMode, LaunchProviderSelection,
+    SshConnectionInfo, StoreCheckpointOutcome, TerminalBufferMode, TerminalCheckpoint,
+    TerminalExit, TerminalOutput, TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
 };
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess};
 use crate::services::{
@@ -136,6 +136,28 @@ fn log_launch_stage(
         outcome,
         "terminal launch stage"
     );
+}
+
+/// 本次会话是否挂载 CC-Panes 内置 skill。
+///
+/// 内置 skill 物化在 `<data_dir>/skills/builtin`，按会话经 CLI 参数挂载
+/// （Claude `--plugin-dir` / Codex `-c skills.config=`），**不写用户的 CLI Home**。
+/// `LaunchProfileSkillMode::Disabled` 时返回空——此时 adapter 完全不碰 skill 配置。
+///
+/// 注：`Core` / `Custom` 的**逐条**筛选目前仍只作用于 prompt 侧
+/// （`LaunchProfileService::resolve_*`）；挂载是目录粒度的，两者粒度不同，
+/// 这里只判「挂不挂」。要做到逐条挂载需按 profile 物化子集目录，另行处理。
+fn skill_mount_paths_for_profile(
+    profile: Option<&LaunchProfile>,
+    builtin_skills_dir: &std::path::Path,
+) -> Vec<String> {
+    let disabled = profile
+        .map(|profile| profile.skill_policy.mode == LaunchProfileSkillMode::Disabled)
+        .unwrap_or(false);
+    if disabled || !builtin_skills_dir.is_dir() {
+        return Vec::new();
+    }
+    vec![builtin_skills_dir.to_string_lossy().into_owned()]
 }
 
 fn launch_profile_isolates_mcp(profile: Option<&LaunchProfile>) -> bool {
@@ -374,27 +396,39 @@ fn resolve_shell(shell_id: Option<&str>) -> (String, Vec<String>) {
 /// **工具名不放在枚举里**：序列化为对象会破坏前端协议。工具名由 `SessionStateMachine`
 /// 单独维护在 `SessionStateEntry::current_tool_name`，前端通过 SessionStatusInfo 的扩展字段
 /// （如果需要）单独获取。
+// 序列化恒为 camelCase；反序列化额外用 alias 容忍 PascalCase——MCP 侧
+// `waitFor` 参数的 schema 是 `Vec<String>`（枚举取值不进 schema），客户端只能
+// 从工具描述猜大小写，实测两个不同的 agent（Claude 与 dsh）第一次都猜成了
+// `"Idle"` 并吃了 unknown variant。alias 只影响输入端，输出照旧 camelCase。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SessionStatus {
     /// 启动中（hook 还没上报第一个事件）
+    #[serde(alias = "Initializing")]
     Initializing,
     /// 真·空闲（TurnEnd hook 上报；或 PTY 输出超时的兜底降级）
+    #[serde(alias = "Idle")]
     Idle,
     /// 思考中（PromptBefore 后、ToolBefore 前 / Stop 前）
+    #[serde(alias = "Thinking")]
     Thinking,
     /// 工具调用中（ToolBefore 上报；工具名见 SessionStateEntry）
+    #[serde(alias = "ToolRunning")]
     ToolRunning,
     /// 上下文压缩中（BeforeCompact 上报）
+    #[serde(alias = "Compacting")]
     Compacting,
     /// 等待用户输入（Notification permission_prompt / elicitation_*）
+    #[serde(alias = "WaitingInput")]
     WaitingInput,
     /// 出错（StopFailure 上报；error_type 由通知层附带）
+    #[serde(alias = "Error")]
     Error,
     /// 会话退出
+    #[serde(alias = "Exited")]
     Exited,
     /// **已弃用**：留作 PTY ANSI 推断的退化值，新代码应使用具体细分状态
-    #[serde(rename = "active")]
+    #[serde(rename = "active", alias = "Active")]
     Active,
 }
 
@@ -1811,11 +1845,14 @@ impl TerminalService {
         );
         let effective_skip_mcp =
             LaunchProfileService::should_skip_mcp_for_profile(resolved_profile.as_ref(), skip_mcp);
+        // 注意：daemon 模式下 create_session 跑在 daemon 进程里，而
+        // `set_sidecar_resource_dir` 只有 app 侧调用 —— 此处恒为 None，ctl 路径
+        // 实际由 `ctl_binary_candidates` 的 exe 同目录候选兜底（有测试钉着）。
+        let sidecar_resource_dir = self.sidecar_resource_dir.read().clone();
         if !is_ssh && !effective_skip_mcp && matches!(cli_tool, CliTool::Claude | CliTool::Codex) {
-            let resource_dir = self.sidecar_resource_dir.read().clone();
             if let Some(binary) = super::ctl_sidecar::inject_mcp_proxy_options(
                 &mut adapter_options,
-                resource_dir.as_deref(),
+                sidecar_resource_dir.as_deref(),
             )? {
                 info!(
                     cli_tool = cli_tool.as_id(),
@@ -1979,6 +2016,18 @@ impl TerminalService {
             }
         }
 
+        // 让会话内的人与 AI 直接够得到 cc-panes-ctl（orchestrator 死时仍可经 daemon
+        // 接管会话）。只写这一个绝对路径变量，**不碰 PATH**——原因见
+        // ctl_sidecar::session_ctl_env_value 的文档注释。
+        if let Some(ctl_path) =
+            super::ctl_sidecar::session_ctl_env_value(sidecar_resource_dir.as_deref(), is_ssh)
+        {
+            env_vars.insert(
+                super::ctl_sidecar::SESSION_CTL_ENV_KEY.to_string(),
+                ctl_path,
+            );
+        }
+
         // 解析 Shell 配置
         let shell_id = self.settings_service.get_settings().terminal.shell.clone();
 
@@ -2021,7 +2070,8 @@ impl TerminalService {
         }
 
         // WSL 透传：把 CC_PANES_* env 通过 WSLENV 暴露给 WSL 子进程
-        // （Windows env 默认不进 WSL，必须列出 key；纯字符串用裸 key 即可，无需 /p）
+        // （Windows env 默认不进 WSL，必须列出 key；纯字符串用裸 key 即可，无需 /p。
+        // 例外是 CC_PANES_CTL —— 它是**路径**，必须带 /p 才会被翻成 /mnt/... 形式）
         if wsl.is_some() {
             let mut wsl_keys: Vec<&str> = vec![
                 "CC_PANES_CLI_TOOL",
@@ -2045,6 +2095,11 @@ impl TerminalService {
             }
             if env_vars.contains_key("CC_PANES_WORKSPACE_SNAPSHOT_ID") {
                 wsl_keys.push("CC_PANES_WORKSPACE_SNAPSHOT_ID");
+            }
+            if env_vars.contains_key(super::ctl_sidecar::SESSION_CTL_ENV_KEY) {
+                // /p = 路径翻译。WSL 内敲 `"$CC_PANES_CTL" status` 即可（走 interop
+                // 跑 Windows 那份 exe，它的 127.0.0.1 正好是服务在听的那个）。
+                wsl_keys.push("CC_PANES_CTL/p");
             }
             let injected = wsl_keys.join(":");
             let merged = match env_vars.get("WSLENV") {
@@ -2274,26 +2329,20 @@ impl TerminalService {
                         &adapter_options,
                     )?
                 }
+                // 其余 CLI 走同一个 builder。**这里的三态（shell / codex 专线 /
+                // 其余）只是「启动方式」这一个轴**——per-CLI 的差异分布在另外两张
+                // 独立的表里，轴不同，不要合并：
+                //   - `wsl_codex.rs` 的可执行名表：CLI id → WSL 内命令名（含
+                //     glm→crush、cursor→cursor-agent 这类别名）
+                //   - `wsl_codex.rs` 的参数分支：按 argv 方言划分，各 CLI 各不相同
+                // 新增一个 CLI 通常要动的是那两张表，而不是这里。
                 CliTool::Claude
                 | CliTool::Gemini
                 | CliTool::Opencode
                 | CliTool::Cursor
-                | CliTool::Grok => self.build_wsl_supported_cli_command(
-                    &resolved_wsl,
-                    cli_tool,
-                    &session_id,
-                    &env_vars,
-                    &provider_vars,
-                    provider.as_ref(),
-                    resume_id,
-                    issued_session_id.as_deref(),
-                    launch_append_system_prompt.as_deref(),
-                    initial_prompt,
-                    effective_skip_mcp,
-                    effective_yolo_mode,
-                    &adapter_options,
-                )?,
-                CliTool::Kimi | CliTool::Glm => self.build_wsl_supported_cli_command(
+                | CliTool::Grok
+                | CliTool::Kimi
+                | CliTool::Glm => self.build_wsl_supported_cli_command(
                     &resolved_wsl,
                     cli_tool,
                     &session_id,
@@ -2429,6 +2478,10 @@ impl TerminalService {
                     shared_mcp_urls: effective_shared_mcp_urls,
                     allowed_mcp_server_ids,
                     disable_unlisted_mcp_servers,
+                    skill_mount_paths: skill_mount_paths_for_profile(
+                        resolved_profile.as_ref(),
+                        &self.app_paths.builtin_skills_dir(),
+                    ),
                 };
 
                 log_launch_stage(
@@ -4015,6 +4068,13 @@ impl TerminalService {
     ///   已蕴含 full-auto 行为，故有意不叠加 `--full-auto`）。
     ///
     /// Claude：非 YOLO 不加标志；YOLO 加 `--dangerously-skip-permissions`。
+    ///
+    /// **这张表刻意不下沉到 `CliToolAdapter`**（0.12.5 评估后否决）：adapter 承载的是
+    /// **本地**启动知识——`resolve_launch` 会做本地可执行解析、用户 `executable_override`、
+    /// Windows `.cmd` shim 改写、本地绝对路径。而这里跑的是**远端机器上**的命令，
+    /// 两者同名不同物。放进 adapter 后极易有人顺手返回本地解析出来的绝对路径，
+    /// 而那条路径在远端根本不存在；返回裸 `&str` 也会绕开调用方的统一转义。
+    /// 新增 CLI 在这里加一行即可，成本本来就低。
     fn ssh_remote_cli_command(cli_tool: CliTool, yolo_mode: bool) -> &'static str {
         match cli_tool {
             CliTool::None => "exec $SHELL -l",
@@ -4428,6 +4488,34 @@ pub fn get_windows_build_number() -> u32 {
 mod tests {
     use super::*;
     use crate::models::provider::{Provider, ProviderModel, ProviderType};
+
+    /// waitFor 参数的 schema 是 `Vec<String>`，客户端只能猜大小写——实测两个
+    /// 不同的 agent 第一次都发了 `"Idle"`。alias 让两种写法都过；序列化端
+    /// 必须保持 camelCase 不变（前端与 hook 通道都按它匹配）。
+    #[test]
+    fn session_status_accepts_both_cases_but_serializes_camel() {
+        for (input, expected) in [
+            ("\"idle\"", SessionStatus::Idle),
+            ("\"Idle\"", SessionStatus::Idle),
+            ("\"waitingInput\"", SessionStatus::WaitingInput),
+            ("\"WaitingInput\"", SessionStatus::WaitingInput),
+            ("\"toolRunning\"", SessionStatus::ToolRunning),
+            ("\"ToolRunning\"", SessionStatus::ToolRunning),
+            ("\"active\"", SessionStatus::Active),
+            ("\"Active\"", SessionStatus::Active),
+        ] {
+            let parsed: SessionStatus = serde_json::from_str(input).unwrap();
+            assert_eq!(parsed, expected, "input {input}");
+        }
+        assert_eq!(
+            serde_json::to_string(&SessionStatus::WaitingInput).unwrap(),
+            "\"waitingInput\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SessionStatus::Active).unwrap(),
+            "\"active\""
+        );
+    }
     use crate::models::shared_mcp::{BridgeMode, SharedMcpServerConfig};
     use crate::services::{ProjectCliHooksService, ProviderService, SettingsService};
     use crate::utils::orchestrator_manifest::ORCHESTRATOR_MANIFEST_FILE;

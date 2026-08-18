@@ -1,6 +1,6 @@
 ---
 name: ccpanes-recall
-description: 召回当前项目/工作空间的历史 plan。Use when the user asks "上次"/"之前"/"我们做过"/"how did we"/"what did we do"/"recall plan" 等触发词。Skip if `CC_PANES_PROJECT_PATH` env is missing — that means CLI is not under {{app_name}} control.
+description: Recall past plans for the current project or workspace from CC-Panes history. 触发词：上次、之前、我们做过、how did we、recall plan。缺少 CC_PANES_PROJECT_PATH 环境变量时跳过。
 ---
 
 # 召回

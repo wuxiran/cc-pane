@@ -1246,24 +1246,14 @@ impl LaunchProfileService {
 fn preview_cli_tool(value: Option<&str>) -> AppResult<crate::models::CliTool> {
     use crate::models::CliTool;
 
-    let cli_tool = match value.unwrap_or("none") {
-        "none" => CliTool::None,
-        "claude" => CliTool::Claude,
-        "codex" => CliTool::Codex,
-        "gemini" => CliTool::Gemini,
-        "kimi" => CliTool::Kimi,
-        "glm" => CliTool::Glm,
-        "opencode" => CliTool::Opencode,
-        "cursor" => CliTool::Cursor,
-        "grok" => CliTool::Grok,
-        other => {
-            return Err(AppError::coded_with_params(
-                "PROVIDER_UNSUPPORTED",
-                format!("Unknown CLI tool '{other}'"),
-                HashMap::from([("cliTool".to_string(), other.to_string())]),
-            ));
-        }
-    };
+    let raw = value.unwrap_or("none");
+    let cli_tool = CliTool::from_id(raw).ok_or_else(|| {
+        AppError::coded_with_params(
+            "PROVIDER_UNSUPPORTED",
+            format!("Unknown CLI tool '{raw}'"),
+            HashMap::from([("cliTool".to_string(), raw.to_string())]),
+        )
+    })?;
     Ok(cli_tool)
 }
 

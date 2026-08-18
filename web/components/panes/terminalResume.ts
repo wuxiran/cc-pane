@@ -40,6 +40,12 @@ export async function replayColdRestoreOutput(
   savedSessionId: string,
   logRestoreEvent: RestoreLogger,
   debugLog: RestoreLogger,
+  /**
+   * photo 同款渲染（只剥 SGR 背景色）。落盘的 `.output` 是带 ANSI 的原始行，
+   * 直接 writeln 会把 CLI 的显式背景写回 cell——壁纸透明模式下与 photo 管道
+   * 是同一个洞。默认恒等，便于既有调用方与测试不受影响。
+   */
+  renderCheckpointData: (data: string) => string = (data) => data,
 ): Promise<void> {
   try {
     logRestoreEvent("init.output-replay.begin", { savedSessionId });
@@ -49,7 +55,7 @@ export async function replayColdRestoreOutput(
       debugLog("session.restore.replay", { savedSessionId, lineCount: lines.length });
       term.writeln("\x1b[90m--- Session restored ---\x1b[0m");
       for (const line of lines) {
-        term.writeln(line);
+        term.writeln(renderCheckpointData(line));
       }
       term.writeln("");
     }

@@ -1,11 +1,6 @@
 ---
 name: ccpanes-launch-task
-description: "CC-Panes 启动 Claude/Codex 任务的高级流程（WSL、resume、PTY 交互、leader/worker 编排、REST fallback）。Use when basic launch is not enough: worktree routing, recovery, stuck PTY, or worker feedback diagnostics."
-trigger: |
-  - 用户说"启动 Claude/Codex"、"开个新窗口"、"在 X 项目跑个任务"
-  - 用户问"恢复昨天那个 Codex"、"resume 之前的会话"
-  - 启动后要做 PTY 交互（提交命令、读输出、终止）
-  - 想用 leader/worker 自动反馈机制
+description: Advanced CC-Panes session launch: WSL routing, resume, stuck PTY recovery, leader/worker orchestration. 触发词：启动任务、派工、恢复会话、worktree 路由、worker 卡住。基础启动不需要本 skill。
 ---
 
 # launch-task — CC-Panes 启动任务（高级流程）

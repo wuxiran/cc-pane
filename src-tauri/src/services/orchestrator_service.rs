@@ -37,7 +37,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use cc_cli_adapters::normalize_cli_command;
+use cc_cli_adapters::{normalize_cli_command, CliToolRegistry};
 use cc_memory::models::{
     MemoryCategory, MemoryQuery, MemoryScope, StoreMemoryRequest, UpdateMemoryRequest,
 };
@@ -211,17 +211,32 @@ pub struct OrchestratorOpenFileEvent {
     pub caller_session_id: Option<String>,
 }
 
-fn parse_launch_cli_tool(cli_tool: Option<&str>) -> std::result::Result<CliTool, String> {
-    match cli_tool.unwrap_or("claude") {
-        "claude" => Ok(CliTool::Claude),
-        "codex" => Ok(CliTool::Codex),
-        "opencode" => Ok(CliTool::Opencode),
-        "grok" => Ok(CliTool::Grok),
-        "kimi" | "glm" | "gemini" | "cursor" => Err(format!(
+/// 解析 `launch_task` 的 `cliTool` 参数。
+///
+/// 准入白名单不再硬编码在这里——改查 adapter 自己声明的
+/// `supports_orchestrated_launch`（`cc-cli-adapters`）。语义与此前一致：
+/// 已验证编排链路的 CLI 放行，已注册但未验证的报「暂不支持」，未注册的报「未知」。
+/// `none` 不是可编排的 CLI，与未注册同样拒绝。
+fn parse_launch_cli_tool(
+    registry: &CliToolRegistry,
+    cli_tool: Option<&str>,
+) -> std::result::Result<CliTool, String> {
+    let raw = cli_tool.unwrap_or("claude");
+    let parsed = CliTool::from_id(raw).filter(|tool| *tool != CliTool::None);
+    let Some(tool) = parsed else {
+        return Err(format!("Unknown cliTool '{}'", raw));
+    };
+    let orchestrated = registry
+        .get(tool.as_id())
+        .map(|adapter| adapter.capabilities().supports_orchestrated_launch)
+        .unwrap_or(false);
+    if orchestrated {
+        Ok(tool)
+    } else {
+        Err(format!(
             "CLI tool '{}' is not supported by launch_task yet; use direct terminal launch instead",
-            cli_tool.unwrap_or("claude")
-        )),
-        other => Err(format!("Unknown cliTool '{}'", other)),
+            raw
+        ))
     }
 }
 
@@ -795,6 +810,8 @@ pub struct AppState {
     pub plan_archive_service: Arc<crate::services::PlanArchiveService>,
     /// Runner Registry：项目运行实例 + 端口/PID 跟踪
     pub runner_service: Arc<cc_panes_core::services::RunnerService>,
+    /// dsh 实例注册表：dsh leader 的回执投递要按 workspaceKey 实时解析端口
+    pub dsh_service: Arc<cc_panes_core::services::DshService>,
     pub start_locks: Arc<StartLocks>,
     /// hook 驱动的会话状态机（阶段 2.2 引入）
     pub session_state_machine: Arc<cc_panes_core::services::SessionStateMachine>,
@@ -1663,6 +1680,7 @@ impl OrchestratorService {
         settings_service: Arc<SettingsService>,
         plan_archive_service: Arc<crate::services::PlanArchiveService>,
         runner_service: Arc<cc_panes_core::services::RunnerService>,
+        dsh_service: Arc<cc_panes_core::services::DshService>,
         ai_panel_repo: Arc<cc_panes_core::repository::AiPanelRepository>,
         mcp_tool_call_stats_repo: Arc<cc_panes_core::repository::McpToolCallStatsRepository>,
         turn_notify_registry: Arc<crate::services::TurnNotifyRegistry>,
@@ -1728,6 +1746,7 @@ impl OrchestratorService {
             settings_service,
             plan_archive_service,
             runner_service,
+            dsh_service,
             start_locks,
             session_state_machine: self.session_state_machine.clone(),
             app_handle,
@@ -3233,9 +3252,14 @@ struct McpRegisterPlanLeaderParams {
     title: Option<String>,
     /// 完整 prompt
     prompt: Option<String>,
-    /// leader 的 PTY session ID
+    /// leader 的 PTY session ID。leaderKind 为 "dsh" 时可传空串——服务端会
+    /// 自动识别当前正在跑轮次的 dsh 会话作为 leader。
     #[serde(rename = "sessionId")]
     session_id: String,
+    /// leader 类型："pty"（默认，终端会话）或 "dsh"（DeepSeek Harness 网页会话，
+    /// 从 dsh 里调用时必须传 "dsh"，worker 回执会以聊天消息形式送回该会话）。
+    #[serde(rename = "leaderKind")]
+    leader_kind: Option<String>,
     /// leader 的 Claude/Codex/OpenCode resume ID
     #[serde(rename = "resumeId")]
     resume_id: Option<String>,
@@ -4757,7 +4781,10 @@ impl McpToolHandler {
             .to_string();
 
         // 解析 CLI 工具类型
-        let cli_tool = match parse_launch_cli_tool(params.cli_tool.as_deref()) {
+        let cli_tool = match parse_launch_cli_tool(
+            self.state.local_terminal_service.cli_registry(),
+            params.cli_tool.as_deref(),
+        ) {
             Ok(tool) => tool,
             Err(error) => return format!("错误: {}", error),
         };
@@ -6365,7 +6392,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 阻塞到指定会话进入 waitFor 中任一状态或超时。事件驱动且无忙轮询；WaitingInput/Error 会立即以 blockedReason 返回。超时后重新调用即可续等。
+    /// 阻塞到指定会话进入 waitFor 中任一状态或超时。合法状态值（小写驼峰）：initializing/idle/thinking/toolRunning/compacting/waitingInput/error/exited。事件驱动且无忙轮询；waitingInput/error 会立即以 blockedReason 返回。超时后重新调用即可续等。
     #[tool]
     async fn wait_for_session(
         &self,
@@ -7023,12 +7050,25 @@ impl McpToolHandler {
         use crate::models::task_binding::RegisterPlanLeaderRequest;
         info!(plan_path = %params.plan_path, "mcp::register_plan_leader");
 
+        // dsh leader：MCP 调用不携带 dsh 会话身份（mcp-client 是实例级的），
+        // 但 agent 只有在跑轮次时才可能调工具——此刻 `running: true` 的会话
+        // 就是调用者。识别出来后以 `dsh:<workspaceKey>:<sessionId>` 存进
+        // leader 的 session_id（前缀避免与 PTY id 域冲突），投递侧按前缀分流。
+        let session_id = if params.leader_kind.as_deref() == Some("dsh") {
+            match resolve_dsh_leader_session(&self.state.dsh_service).await {
+                Ok(id) => id,
+                Err(e) => return format!("错误: 识别 dsh leader 会话失败: {}", e),
+            }
+        } else {
+            params.session_id
+        };
+
         let req = RegisterPlanLeaderRequest {
             plan_path: params.plan_path,
             project_path: params.project_path,
             title: params.title,
             prompt: params.prompt,
-            session_id: Some(params.session_id),
+            session_id: Some(session_id),
             resume_id: params.resume_id,
             pane_id: params.pane_id,
             tab_id: params.tab_id,
@@ -8887,7 +8927,10 @@ async fn handle_launch_task(
     let project_id = format!("orch-{}", uuid::Uuid::new_v4());
 
     // 解析 CLI 工具类型
-    let cli_tool = match parse_launch_cli_tool(req.cli_tool.as_deref()) {
+    let cli_tool = match parse_launch_cli_tool(
+        state.local_terminal_service.cli_registry(),
+        req.cli_tool.as_deref(),
+    ) {
         Ok(tool) => tool,
         Err(error) => {
             return (
@@ -11495,6 +11538,24 @@ fn take_pending_reports(
     PendingReportBatch { reports, expired }
 }
 
+/// 在 worker metadata 上记 `reportDropped`：回执确定送不出去时的可见标记，
+/// 与队列 TTL 过期（`record_expired_pending_reports`）同一口径。
+fn mark_report_dropped(
+    task_binding_service: &crate::services::TaskBindingService,
+    worker: &TaskBinding,
+) {
+    if let Err(error) = task_binding_service.update_patch(
+        &worker.id,
+        serde_json::json!({ "metadata": { "reportDropped": true } }),
+    ) {
+        warn!(
+            worker_id = %worker.id,
+            %error,
+            "failed to persist dropped worker report metadata"
+        );
+    }
+}
+
 fn record_expired_pending_reports(
     task_binding_service: &crate::services::TaskBindingService,
     expired: &[ExpiredPendingReport],
@@ -11753,6 +11814,124 @@ fn notify_leader_on_terminal_status(
     });
 }
 
+/// dsh leader 的 session_id 前缀：`dsh:<workspaceKey>:<dshSessionId>`。
+/// 与 PTY session id（UUID）从不冲突，投递侧按它分流。
+const DSH_LEADER_PREFIX: &str = "dsh:";
+
+/// 识别「当前正在跑轮次的 dsh 会话」并编成 leader session_id。
+///
+/// 见 `pick_running_session` 的说明：agent 调工具的那一刻它的会话必然
+/// `running: true`。多实例时逐个查，取第一个有 running 会话的实例。
+async fn resolve_dsh_leader_session(
+    dsh_service: &Arc<cc_panes_core::services::DshService>,
+) -> std::result::Result<String, String> {
+    let instances = dsh_service.list();
+    if instances.is_empty() {
+        return Err("没有正在运行的 dsh 实例".to_string());
+    }
+    let mut errors = Vec::new();
+    for instance in &instances {
+        match crate::commands::dsh_workspace_sync::list_sessions(instance.port).await {
+            Ok(sessions) => {
+                if let Some(session) =
+                    crate::commands::dsh_workspace_sync::pick_running_session(&sessions)
+                {
+                    return Ok(format!(
+                        "{DSH_LEADER_PREFIX}{}:{}",
+                        instance.workspace_key, session.session_id
+                    ));
+                }
+            }
+            Err(e) => errors.push(format!("{}: {e}", instance.workspace_key)),
+        }
+    }
+    if errors.is_empty() {
+        Err(
+            "没有任何 dsh 会话处于 running 状态（该调用必须由 dsh 会话内的 agent 发起）"
+                .to_string(),
+        )
+    } else {
+        Err(format!("查询 dsh 会话失败: {}", errors.join("; ")))
+    }
+}
+
+/// 把 worker 回执投递给 dsh leader：解析实例端口 → `session.prompt`。
+///
+/// 实例没在跑就诚实丢弃并在 worker metadata 记 `reportDropped`（与队列 TTL
+/// 过期同口径）——补投需要 dsh 生命周期事件源，超出当前批次。
+async fn send_worker_report_to_dsh_leader(
+    state: &AppState,
+    worker: &TaskBinding,
+    leader: &TaskBinding,
+    leader_session_id: &str,
+) -> LeaderReportResult {
+    // 前缀已校验；剩余形如 `<workspaceKey>:<dshSessionId>`，workspaceKey
+    // 本身不含冒号（目录名清洗过），从左切第一个冒号即可。
+    let rest = &leader_session_id[DSH_LEADER_PREFIX.len()..];
+    let Some((workspace_key, dsh_session_id)) = rest.split_once(':') else {
+        warn!(
+            worker_id = %worker.id,
+            leader_id = %leader.id,
+            session_id = %leader_session_id,
+            "worker report skipped: malformed dsh leader session id"
+        );
+        return LeaderReportResult::skipped("malformed dsh leader session id");
+    };
+
+    // 端口每次实例启动都变，投递时实时解析，绝不缓存。
+    let Some(instance) = state
+        .dsh_service
+        .list()
+        .into_iter()
+        .find(|i| i.workspace_key == workspace_key)
+    else {
+        warn!(
+            worker_id = %worker.id,
+            leader_id = %leader.id,
+            workspace_key = %workspace_key,
+            "worker report skipped: dsh instance not running"
+        );
+        mark_report_dropped(&state.task_binding_service, worker);
+        return LeaderReportResult::skipped("dsh instance not running");
+    };
+
+    let summary = worker
+        .completion_summary
+        .as_deref()
+        .filter(|summary| !summary.trim().is_empty())
+        .map(|summary| sanitize_pty_line(summary, 500))
+        .unwrap_or_else(|| "(no summary)".to_string());
+    let line = format!(
+        "[worker-report] id={} status={} summary={}",
+        worker.id, worker.status, summary
+    );
+
+    match crate::commands::dsh_workspace_sync::prompt_session(instance.port, dsh_session_id, &line)
+        .await
+    {
+        Ok(()) => {
+            info!(
+                worker_id = %worker.id,
+                leader_id = %leader.id,
+                session_id = %leader_session_id,
+                "worker report delivered to dsh leader session"
+            );
+            LeaderReportResult::sent()
+        }
+        Err(e) => {
+            warn!(
+                worker_id = %worker.id,
+                leader_id = %leader.id,
+                session_id = %leader_session_id,
+                err = %e,
+                "worker report skipped: dsh session.prompt failed"
+            );
+            mark_report_dropped(&state.task_binding_service, worker);
+            LeaderReportResult::skipped(format!("dsh session.prompt failed: {e}"))
+        }
+    }
+}
+
 async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> LeaderReportResult {
     let Some(parent_id) = worker.parent_id.clone() else {
         debug!(
@@ -11791,6 +11970,14 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
         );
         return LeaderReportResult::skipped("leader session missing");
     };
+
+    // dsh leader（`dsh:<workspaceKey>:<sessionId>`）不走 PTY 链路：它没有
+    // PTY 状态可查，也没有 SessionStateMachine 事件源可驱动排队补投。
+    // 投递改为调它的 `session.prompt`（mode=queue，它忙时在自己侧排队）。
+    if leader_session_id.starts_with(DSH_LEADER_PREFIX) {
+        return send_worker_report_to_dsh_leader(&state, &worker, &leader, &leader_session_id)
+            .await;
+    }
 
     let leader_status = match read_session_status_for_automatic_submit(&state, &leader_session_id) {
         Ok(status) => status,
@@ -14582,26 +14769,78 @@ mod tests {
 
     #[test]
     fn test_parse_launch_cli_tool_supported_values() {
-        assert_eq!(parse_launch_cli_tool(None).unwrap(), CliTool::Claude);
+        let registry = CliToolRegistry::with_builtin_adapters();
         assert_eq!(
-            parse_launch_cli_tool(Some("codex")).unwrap(),
+            parse_launch_cli_tool(&registry, None).unwrap(),
+            CliTool::Claude
+        );
+        assert_eq!(
+            parse_launch_cli_tool(&registry, Some("codex")).unwrap(),
             CliTool::Codex
         );
         assert_eq!(
-            parse_launch_cli_tool(Some("opencode")).unwrap(),
+            parse_launch_cli_tool(&registry, Some("opencode")).unwrap(),
             CliTool::Opencode
         );
-        assert_eq!(parse_launch_cli_tool(Some("grok")).unwrap(), CliTool::Grok);
+        assert_eq!(
+            parse_launch_cli_tool(&registry, Some("grok")).unwrap(),
+            CliTool::Grok
+        );
     }
 
     #[test]
     fn test_parse_launch_cli_tool_rejects_non_orchestrated_tools() {
-        let kimi = parse_launch_cli_tool(Some("kimi")).unwrap_err();
-        let glm = parse_launch_cli_tool(Some("glm")).unwrap_err();
+        let registry = CliToolRegistry::with_builtin_adapters();
+        let kimi = parse_launch_cli_tool(&registry, Some("kimi")).unwrap_err();
+        let glm = parse_launch_cli_tool(&registry, Some("glm")).unwrap_err();
         assert!(kimi.contains("not supported by launch_task yet"));
         assert!(glm.contains("not supported by launch_task yet"));
         // opencode 现已放行，不应再被拒绝
-        assert!(parse_launch_cli_tool(Some("opencode")).is_ok());
+        assert!(parse_launch_cli_tool(&registry, Some("opencode")).is_ok());
+    }
+
+    /// `none` 与未注册 id 都必须报「未知」，不能因为 `from_id("none")` 能解析
+    /// 就被当成一个可编排的 CLI 放进来。
+    #[test]
+    fn test_parse_launch_cli_tool_rejects_none_and_unknown() {
+        let registry = CliToolRegistry::with_builtin_adapters();
+        assert!(parse_launch_cli_tool(&registry, Some("none"))
+            .unwrap_err()
+            .contains("Unknown cliTool"));
+        assert!(
+            parse_launch_cli_tool(&registry, Some("definitely-not-a-cli"))
+                .unwrap_err()
+                .contains("Unknown cliTool")
+        );
+    }
+
+    /// 准入白名单从硬编码换成 registry 能力位后，四个历史拒绝项必须**逐个**
+    /// 保持被拒。此前只断言了 kimi/glm，gemini/cursor 静默放行也测不出来。
+    #[test]
+    fn test_parse_launch_cli_tool_keeps_all_four_legacy_rejections() {
+        let registry = CliToolRegistry::with_builtin_adapters();
+        for tool in ["kimi", "glm", "gemini", "cursor"] {
+            let error = parse_launch_cli_tool(&registry, Some(tool))
+                .expect_err(&format!("{tool} must stay rejected"));
+            assert!(
+                error.contains("not supported by launch_task yet"),
+                "{tool}: unexpected error {error}"
+            );
+        }
+    }
+
+    /// registry 是生产契约（`with_builtin_adapters` 全量注册）。但准入判定现在
+    /// 依赖它，所以要钉死残缺 registry 的方向：**fail-closed，一律拒绝**，
+    /// 绝不能因为查不到 adapter 就放行。
+    #[test]
+    fn test_parse_launch_cli_tool_is_fail_closed_on_empty_registry() {
+        let registry = CliToolRegistry::new();
+        for tool in [None, Some("claude"), Some("codex")] {
+            assert!(
+                parse_launch_cli_tool(&registry, tool).is_err(),
+                "empty registry must reject {tool:?}"
+            );
+        }
     }
 
     #[test]

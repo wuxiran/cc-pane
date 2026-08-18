@@ -1,6 +1,6 @@
 ---
 name: ccpanes-workspace-diagnostics
-description: Diagnose CC-Panes workspace storage, workspace.json, projects.csv, data directory routing, and legacy workspace file issues. Prefer MCP/UI for mutations; use this skill for read-only inspection and repair planning.
+description: Diagnose CC-Panes workspace storage: workspace.json, projects.csv, data dir routing, legacy files. 只读排查与修复规划；真正的变更走 MCP 或 UI，不在本 skill 里改。
 ---
 
 # CC-Panes Workspace Diagnostics

@@ -1,11 +1,6 @@
 ---
-name: planreview
-description: 在 plan mode 内启动另一个 CLI 实例（Codex，本地或 WSL）对 plan 做同行评审。leader/worker 自动反馈，软超时兜底，AskUserQuestion 让用户拍板，再整体重写 plan。专治"同一个 Claude 我审我"的盲区。
-trigger: |
-  - 用户在 plan mode 里写完初版 plan，想找另一个 CLI 做同行评审 / 交叉审 / peer review
-  - 用户明说"找 codex 评审 plan"、"审一下 plan"、"在另一个窗口审 plan"
-  - 用户提到 UI E2E 测试计划、数据迁移/回滚计划、上线变更计划这类高风险 plan 需要二审
-  不触发：trivial plan（< 30 行、纯代码 refactor）、用户已明说不要双 CLI、Codex CLI 未安装
+name: ccpanes-planreview
+description: Peer-review a plan by launching a second CLI instance (Codex, local or WSL) as an independent reviewer. 专治「我审我」的盲区：换一个实例读同一份 plan。leader/worker 自动反馈 + 软超时兜底，用户拍板后整体重写 plan。
 ---
 
 # planreview — 跨 CLI Plan 同行评审

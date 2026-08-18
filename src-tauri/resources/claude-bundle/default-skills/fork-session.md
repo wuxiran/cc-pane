@@ -1,6 +1,6 @@
 ---
 name: ccpanes-fork-session
-description: Summarize the current conversation context and spawn a new Claude/Codex session in the same project to continue down a branching direction. Use when the user says "分叉"、"开个新实例继续"、"fork 这个对话"、"另开个窗口试试"、"branch off"、"clone this context"、"split into parallel exploration". Inherits a compressed context summary, not the full transcript.
+description: Fork the current conversation into a new Claude/Codex session in the same project to explore a branch. 触发词：分叉、开个新实例继续、fork 这个对话、branch off。继承压缩摘要而非完整对话记录。
 ---
 
 # 分叉对话

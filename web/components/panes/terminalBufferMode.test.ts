@@ -6,6 +6,7 @@ import {
   detectAlternateBufferTransitions,
   resolveTerminalBufferMode,
   stripAlternateBufferSequences,
+  stripSgrBackgroundColors,
 } from "./terminalBufferMode";
 
 describe("terminalBufferMode", () => {
@@ -229,6 +230,30 @@ describe("terminalBufferMode", () => {
       expect(stripper.flush()).toBe("");
     });
 
+    // 回归：40-47 曾漏在剥离表外，而 49（重置）在表内——放行「设置」却剥掉
+    // 「重置」，红底横幅会一路染到会话结束（vitest FAIL 用的正是 \x1b[41m）。
+    it("strips the full background SGR surface: 40-47, 48, 49, 100-107", () => {
+      const stripper = createSgrBackgroundStripper();
+      expect(stripper.push("\x1b[41ma\x1b[47mb\x1b[48;5;23mc\x1b[101md\x1b[49me")).toBe(
+        "abcde",
+      );
+    });
+
+    it("keeps set/reset stripping symmetric so a banner cannot bleed onward", () => {
+      // 关键不变式：剥掉设置就必须剥掉重置，反之亦然。任一单边剥离都会让
+      // 背景状态失衡——单边放行「设置」尤其致命（无界染色，重绘不掉）。
+      const stripper = createSgrBackgroundStripper();
+      const banner = "\x1b[41m FAIL \x1b[49m\r\nnext line";
+      expect(stripper.push(banner)).toBe(" FAIL \r\nnext line");
+    });
+
+    it("leaves foreground codes in the 30-37/90-97 ranges alone", () => {
+      const stripper = createSgrBackgroundStripper();
+      expect(stripper.push("\x1b[31mred-fg\x1b[91mbright-fg\x1b[39m")).toBe(
+        "\x1b[31mred-fg\x1b[91mbright-fg\x1b[39m",
+      );
+    });
+
     it("handles background sequences split at every byte", () => {
       const input = "a\x1b[38;5;14;48;5;23mBUILD\x1b[100mb";
       const stripper = createSgrBackgroundStripper();
@@ -247,6 +272,40 @@ describe("terminalBufferMode", () => {
       expect(
         renderer.render("\x1b[48;5;23mopaque", { ...transparent, stripBackgroundColors: false }),
       ).toBe("\x1b[48;5;23mopaque");
+    });
+  });
+
+  // photo 管道（SerializeAddon 成品 VT）的专用变换。不变式是「剥背景、不碰
+  // alt-screen」——两者此前捆在 renderTerminalData 上，photo 为了躲 alt-screen
+  // 剥离连带躲掉了背景剥离，壁纸模式下恢复一次就把不透明背景写回 cell。
+  describe("stripSgrBackgroundColors", () => {
+    it("strips SGR background params from a complete VT string", () => {
+      expect(stripSgrBackgroundColors("\x1b[1;48;2;255;0;0mFAIL\x1b[49m tail")).toBe(
+        "\x1b[1mFAIL tail",
+      );
+      expect(stripSgrBackgroundColors("\x1b[41mred\x1b[101mbright")).toBe("redbright");
+    });
+
+    it("leaves alt-screen sequences untouched", () => {
+      // 关键不变式：成品 VT 二次跑 alt-screen 剥离会坏画面（裁决 B），
+      // 所以这里必须原样保留 1049/1047/47。
+      const photo = "\x1b[?1049h\x1b[48;5;23mbody\x1b[?1049l";
+      expect(stripSgrBackgroundColors(photo)).toBe("\x1b[?1049hbody\x1b[?1049l");
+    });
+
+    it("preserves foreground colors and non-SGR sequences", () => {
+      expect(stripSgrBackgroundColors("\x1b[38;5;14;48;5;23mx\x1b[2J\x1b[H")).toBe(
+        "\x1b[38;5;14mx\x1b[2J\x1b[H",
+      );
+    });
+
+    it("does not swallow bytes when the input ends mid-sequence", () => {
+      // 宁可漏剥一个残缺序列，也不能吞字节（成品 VT 正常不该出现，但不得静默丢数据）。
+      expect(stripSgrBackgroundColors("done\x1b[48;5")).toBe("done\x1b[48;5");
+    });
+
+    it("is a no-op for plain text", () => {
+      expect(stripSgrBackgroundColors("plain output\r\n")).toBe("plain output\r\n");
     });
   });
 });

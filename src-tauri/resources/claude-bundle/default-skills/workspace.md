@@ -1,6 +1,6 @@
 ---
 name: ccpanes-workspace
-description: Manage {{app_name}} workspaces via MCP — list / show / create workspace, add project, archive (reversible soft-delete), fix workspace path, scan a directory to bulk-import Git repos. Use when user says "工作空间"、"新建 workspace"、"扫一下这个目录"、"把项目加进来"、"归档工作空间"、"整理工作空间"、"workspace list"、"import projects"、"scan for repos"、"archive workspace"。Permanent deletion (delete workspace / remove project) must still be done in the {{app_name}} UI — MCP only offers the reversible archive.
+description: Manage CC-Panes workspaces via MCP: list, create, add project, archive, fix path, bulk-import repos. 触发词：工作空间、扫一下这个目录、把项目加进来、新建 workspace、归档工作空间。永久删除只能在 UI 里做，MCP 只提供可逆归档。
 ---
 
 # 工作空间管理

@@ -59,6 +59,7 @@ export function collectTabsByContentType(node: PaneNode): Record<TabContentType,
   const buckets = {
     terminal: [],
     browser: [],
+    dsh: [],
     editor: [],
     "file-explorer": [],
     "mcp-config": [],

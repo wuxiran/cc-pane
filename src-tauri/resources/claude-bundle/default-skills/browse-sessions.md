@@ -1,6 +1,6 @@
 ---
 name: ccpanes-browse-sessions
-description: Inspect live {{app_name}} terminal sessions — list active tabs, read recent output, look up launch history or past Claude sessions. Use when the user asks "看下其他实例"、"那个会话跑到哪了"、"另一个窗口的输出"、"上次启动了什么"、"列出会话"、"check the other tab"、"what did session X say"、"show launch history". For resuming a session, hand off to launch-task.
+description: Inspect live CC-Panes sessions: list tabs, read recent output, look up launch or past Claude history. 触发词：看下其他实例、那个会话跑到哪了、上次启动了什么、列出会话。要恢复会话请转 launch-task。
 ---
 
 # 会话浏览

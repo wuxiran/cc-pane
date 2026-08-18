@@ -37,6 +37,7 @@ const browserClose = vi.mocked(browserService.close);
 const ALL_CONTENT_TYPES: TabContentType[] = [
   "terminal",
   "browser",
+  "dsh",
   "editor",
   "file-explorer",
   "mcp-config",

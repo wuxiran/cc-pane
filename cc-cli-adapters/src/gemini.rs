@@ -33,6 +33,11 @@ impl GeminiAdapter {
                 supports_workspace: false,
                 supports_project_hooks: false,
                 supports_issued_session_id: false,
+                supports_orchestrated_launch: false,
+                // build_command 不消费任何 per-launch 参数键
+                supports_effort_option: false,
+                supports_verbose_option: false,
+                supports_max_turns_option: false,
                 compatible_provider_types: vec!["gemini".into()],
             },
         }

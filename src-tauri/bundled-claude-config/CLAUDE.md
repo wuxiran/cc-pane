@@ -233,21 +233,37 @@ npm run tauri build
 ~/.cc-panes/                         # Release 全局配置目录
 ~/.cc-panes-dev/                     # Dev 全局配置目录（结构相同）
 ├── config.toml                      # 全局配置
-├── workspaces/                      # 工作空间目录
+├── workspaces/                      # 工作空间元数据目录
 │   └── <workspace-name>/
 │       ├── workspace.json           # 工作空间配置
-│       └── .ccpanes/
+│       └── .ccpanes/                # 【一级】
 │           └── journal/             # 会话日志
 ├── providers/                       # Provider 配置
 │   └── providers.json
 ├── screenshots/                     # 截图存储
 └── data.db                          # SQLite 数据库
-
-<project-path>/.ccpanes/             # 项目级配置
-├── config.toml
-├── history/                         # 本地文件历史
-└── hooks/                           # 工作流定义
 ```
+
+**`.ccpanes/` 是三级目录，不是两级**：
+
+```
+<workspace.path>/.ccpanes/           # 【二级】工作空间实际路径下
+├── projects.csv                     # 项目清单（给 LLM 的上下文文件）
+├── plans/                           # plan 归档（优先落这里）
+└── prompts/                         # 外置长 prompt / Codex 派工文件
+
+<project.path>/.ccpanes/             # 【三级】项目仓库下
+├── config.toml                      # Local History 配置
+├── history/                         # history.db + blobs/<sha256>
+├── specs/                           # 内置 Spec
+├── quick-commands.json              # 项目级快捷命令
+├── cli-hooks.json                   # 项目级 CLI hooks
+├── workflow.md                      # 工作流说明（SessionStart hook 注入）
+├── plans/                           # 无工作空间时的归档兜底
+└── session-state.json               # legacy，已被 launch_history 取代
+```
+
+一级与二级在工作空间未指定 `path` 时会重合，写代码不能假设两者必然不同。
 
 ## 已实现功能
 

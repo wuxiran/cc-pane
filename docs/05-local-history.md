@@ -25,34 +25,53 @@
 ## 存储结构
 
 ```
-<project>/.ccpanes/history/<file_hash>/
-├── meta.json              # 元数据
-├── base.snapshot.gz       # 基准快照
-└── <timestamp>.diff.gz    # 增量差异
+<project>/.ccpanes/history/
+├── history.db             # SQLite：版本/标签/快照元数据（WAL 模式）
+└── blobs/<sha256>         # 内容寻址的文件内容，按 SHA256 去重
 ```
+
+> **注意**：早期版本曾使用 `history/<file_hash>/{meta.json, base.snapshot.gz, *.diff.gz}` 的
+> 每文件目录 + 增量差异布局，**该布局已淘汰**。`HistoryFileRepository::migrate_from_json()`
+> 保留了从旧 `versions.json` 的一次性迁移路径。写新代码请勿参照旧布局。
+
+三张表：`file_versions`（`(file_path, id)` 主键）、`labels`、`label_snapshots`。
+`file_path` 存**项目相对路径且统一用 `/` 分隔**，因此库本身跨机器可移植。
+
+blob 的压缩是**可选的后置维护动作**，不是写入时默认行为：`compress_blobs()` 会把
+gzip 后更小的 blob 就地替换，读取侧（`read_blob`）靠魔数嗅探自动解压。所以
+`blobs/` 下同时存在裸文件与 gzip 文件是正常状态。
 
 ## 实际文件位置
 
-**后端:**
+**后端**（领域逻辑在 `cc-panes-core`，`src-tauri` 只剩命令薄层）：
 
 - `src-tauri/src/commands/local_history_commands.rs` — Tauri 命令接口
-- `src-tauri/src/services/history_service.rs` — 历史业务逻辑
-- `src-tauri/src/repository/history_file_repo.rs` — 历史文件存储仓库
+- `cc-panes-core/src/services/history_service.rs` — 历史业务逻辑
+- `cc-panes-core/src/repository/history_file_repo.rs` — 存储仓库（SQLite + blobs）
+- `cc-panes-web/src/routes/history.rs` — Web/daemon 侧 REST 路由
 
-**前端:**
+**前端**（路径别名 `@/` → `web/`）：
 
-- `src/components/LocalHistoryPanel.tsx` — 历史浏览面板
-- `src/services/localHistoryService.ts` — 前端服务层
+- `web/components/LocalHistoryPanel.tsx` — 历史浏览面板
+- `web/services/localHistoryService.ts` — 前端服务层
 
 ## 依赖
 
 ```toml
-# src-tauri/Cargo.toml 相关依赖
-notify = "7"              # 文件监控（待集成）
-similar = "2"             # diff 计算（待集成）
-sha2 = "0.10"             # 文件哈希
-flate2 = "1"              # 压缩存储
+# cc-panes-core/Cargo.toml（src-tauri/Cargo.toml 同步持有）
+notify   = "7"            # 文件监控（已集成，见下节 watcher 生命周期）
+similar  = "2"            # diff 计算（已集成）
+sha2     = "0.10"         # 内容寻址哈希
+flate2   = "1"            # blob 可选压缩
+rusqlite = *              # history.db
 ```
+
+## Schema 迁移现状
+
+`history.db` **没有 `PRAGMA user_version`**，迁移靠 `migrate_add_branch()` 里捕获
+`"duplicate column"` / `"already exists"` 错误字符串实现幂等。这与全局 `data.db` 的
+`schema_migrations` + `user_version` 正规做法不一致，属已知技术债：SQLite/rusqlite
+若改动错误文案，该判断会静默退化成硬失败。改动本表结构前应先补上版本号机制。
 
 ## 下一步
 
