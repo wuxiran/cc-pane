@@ -22,6 +22,39 @@ type XtermWebglAddonInternals = {
   };
 };
 
+function releaseWebglContext(
+  addon: WebglAddon | null,
+  activationCanvases: readonly HTMLCanvasElement[] = [],
+): void {
+  const renderer = (addon as unknown as XtermWebglAddonInternals | null)?._renderer;
+  const rendererContext = renderer?._gl;
+  const rendererCanvas = renderer?._canvas;
+  const canvases = rendererCanvas ? [rendererCanvas] : activationCanvases;
+
+  for (const canvas of canvases) {
+    try {
+      // During a successful activation, use xterm's existing context directly. If
+      // WebglRenderer's constructor throws, addon._renderer was never assigned;
+      // only inspect canvases synchronously added by this activation attempt.
+      const context = rendererCanvas === canvas
+        ? rendererContext
+        : canvas.getContext("webgl2") as unknown as ReleasableWebglContext | null;
+      context?.getExtension("WEBGL_lose_context")?.loseContext();
+      canvas.width = 0;
+      canvas.height = 0;
+      if (!rendererCanvas) canvas.remove();
+    } catch {
+      // A context that is already lost needs no further cleanup.
+    }
+  }
+}
+
+function collectTerminalCanvases(term: Terminal): HTMLCanvasElement[] {
+  return Array.from(
+    term.element?.querySelectorAll<HTMLCanvasElement>(".xterm-screen canvas") ?? [],
+  );
+}
+
 // 跨终端共享 atlas 协调。
 // xterm 让**同配置**的终端共用同一张字形图集（CharAtlasCache）。当某个 pane 因输出新字形
 // 导致 atlas 扩容 / 加页 / 合并页时，共享纹理里字形的位置会变，但**每个 pane 各自保存 WebGL
@@ -140,19 +173,7 @@ export function createTerminalRendererController({
     // WEBGL_lose_context.loseContext()，被弃的 context 要等 GC 才退出 Chromium 活动集合。
     // 每次 recreate/切换/卸载都漏一个 → 多终端很快撞 ~16 个 live context 上限（花屏/黑屏根因）。
     // 直接读 addon 已有 renderer，避免 canvas.getContext() 在未绑定 canvas 上反向创建新 context。
-    const renderer = (webglAddon as unknown as XtermWebglAddonInternals | null)?._renderer;
-    const releasableContext = renderer?._gl;
-    const rendererCanvas = renderer?._canvas;
-
-    try {
-      releasableContext?.getExtension("WEBGL_lose_context")?.loseContext();
-      if (rendererCanvas) {
-        rendererCanvas.width = 0;
-        rendererCanvas.height = 0;
-      }
-    } catch {
-      /* 已丢失 context 的清理可忽略 */
-    }
+    releaseWebglContext(webglAddon);
 
     if (webglAddon) {
       try {
@@ -238,6 +259,7 @@ export function createTerminalRendererController({
     if (disposed || webglAddon) return;
 
     const addon = new WebglAddon();
+    const canvasesBeforeActivation = new Set(collectTerminalCanvases(term));
     webglDisposables = [
       addon.onContextLoss(() => {
         contextLossCount += 1;
@@ -289,7 +311,12 @@ export function createTerminalRendererController({
       term.loadAddon(addon);
     } catch (error) {
       // loadAddon 会同步 activate()；若 shader/renderer 初始化抛错，此时 webglAddon 尚未保存，
-      // 上层 catch 看不到这个 addon 也就无法 dispose → context 泄漏。这里显式 dispose 兜底。
+      // addon._renderer 也可能尚未赋值。只检查本次同步激活新增的 canvas，显式释放其中
+      // 已创建的 WebGL context 并移除无 owner 的节点，再 dispose 监听器和 addon。
+      const activationCanvases = collectTerminalCanvases(term).filter(
+        (canvas) => !canvasesBeforeActivation.has(canvas),
+      );
+      releaseWebglContext(addon, activationCanvases);
       try {
         addon.dispose();
       } catch {
@@ -411,10 +438,10 @@ export function createTerminalRendererController({
   const resumeWebgl = (reason: string) => {
     if (disposed || !suspended) return;
     suspended = false;
-    webglDisabledAfterContextLoss = false;
     resetTerminalWebglProbe();
     logger("renderer.webgl.resumed", { reason, ...getDiagnostics() });
-    // 按挂起期间可能已更新的最新决策重建（configure 内部处理 webgl/dom 分支与失败降级）。
+    // 按挂起期间可能已更新的最新决策重建。Context loss 的锁存必须跨
+    // suspend/resume 保留；只有用户显式切换 renderer mode 才允许再次尝试 WebGL。
     configured = false;
     configure(requestedMode);
   };

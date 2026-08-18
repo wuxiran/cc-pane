@@ -9,7 +9,10 @@ const webglMock = vi.hoisted(() => {
     public readonly dispose = vi.fn();
     public readonly loseContext = vi.fn();
     public readonly canvas = document.createElement("canvas");
-    public readonly _renderer = {
+    public _renderer: {
+      _gl: { getExtension: (name: string) => { loseContext(): void } | null };
+      _canvas: HTMLCanvasElement;
+    } | undefined = {
       _gl: {
         getExtension: (name: string) => name === "WEBGL_lose_context"
           ? { loseContext: this.loseContext }
@@ -63,7 +66,12 @@ vi.mock("./terminalRenderer", async (importOriginal) => {
 class MockWebGL2RenderingContext {}
 
 function createMockTerminal(): Terminal {
+  const element = document.createElement("div");
+  const screen = document.createElement("div");
+  screen.className = "xterm-screen";
+  element.appendChild(screen);
   return {
+    element,
     rows: 24,
     refresh: vi.fn(),
     clearTextureAtlas: vi.fn(),
@@ -175,7 +183,44 @@ describe("terminal renderer controller", () => {
     expect(controller.getDiagnostics().webglRecreateCount).toBe(0);
   });
 
-  it("falls back to DOM and repaints after WebGL context loss", () => {
+  it("releases a WebGL context when addon activation fails", () => {
+    const term = createMockTerminal();
+    vi.mocked(term.loadAddon).mockImplementationOnce(() => {
+      const addon = webglMock.instances[0];
+      const screen = term.element?.querySelector(".xterm-screen");
+      addon._renderer = undefined;
+      vi.spyOn(addon.canvas, "getContext").mockImplementation((contextId: string) => {
+        if (contextId !== "webgl2") return null;
+        return {
+          getExtension: (name: string) => name === "WEBGL_lose_context"
+            ? { loseContext: addon.loseContext }
+            : null,
+        } as unknown as RenderingContext;
+      });
+      screen?.appendChild(addon.canvas);
+      throw new Error("shader init failed");
+    });
+    const controller = createTerminalRendererController({
+      term,
+      logger: vi.fn(),
+      onRendererChanged: vi.fn(),
+    });
+
+    controller.configure("webgl");
+
+    expect(webglMock.instances).toHaveLength(1);
+    expect(webglMock.instances[0].loseContext).toHaveBeenCalledOnce();
+    expect(webglMock.instances[0].canvas.width).toBe(0);
+    expect(webglMock.instances[0].canvas.height).toBe(0);
+    expect(webglMock.instances[0].canvas.isConnected).toBe(false);
+    expect(webglMock.instances[0].dispose).toHaveBeenCalledOnce();
+    expect(controller.getDiagnostics()).toMatchObject({
+      activeRenderer: "dom",
+      lastError: "shader init failed",
+    });
+  });
+
+  it("falls back to DOM and keeps the context-loss latch across suspend/resume", () => {
     const term = createMockTerminal();
     const onRendererChanged = vi.fn();
     const controller = createTerminalRendererController({
@@ -210,6 +255,14 @@ describe("terminal renderer controller", () => {
     controller.suspendWebgl("background");
     controller.resumeWebgl("foreground");
     expect(rendererProbeMock.reset).toHaveBeenCalledTimes(2);
+    expect(webglMock.instances).toHaveLength(1);
+    expect(controller.getDiagnostics()).toMatchObject({
+      activeRenderer: "dom",
+      webglDisabledAfterContextLoss: true,
+    });
+
+    controller.configure("dom");
+    controller.configure("webgl");
     expect(webglMock.instances).toHaveLength(2);
     expect(controller.getDiagnostics()).toMatchObject({
       activeRenderer: "webgl",
