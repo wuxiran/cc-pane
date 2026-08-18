@@ -71,7 +71,7 @@ fn stdout_closed_long_running_command() -> (String, Vec<String>) {
         "/bin/sh".to_string(),
         vec![
             "-c".to_string(),
-            "exec 1>&-; while :; do sleep 1".to_string(),
+            "exec 1>&-; while :; do sleep 1; done".to_string(),
         ],
     )
 }
