@@ -3747,7 +3747,8 @@ impl TerminalService {
             .clone())
     }
 
-    /// 原子提交一条用户消息：bracketed-paste 写入完整文本，短延迟，再单独发送 Enter。
+    /// 原子提交一条用户消息：终端声明支持时使用 bracketed paste，否则发送原始文本；
+    /// 持有输入锁等待适配延迟后，再单独发送 Enter。
     pub fn submit_text_to_session(&self, session_id: &str, text: &str) -> AppResult<()> {
         if text.len() > SUBMIT_TEXT_MAX_BYTES {
             // fix(H1) review: submit 文本后端限制 256KB。
@@ -3758,14 +3759,15 @@ impl TerminalService {
         }
 
         let paste_ready = self.is_paste_ready(session_id)?;
-        let wrapped_text = wrap_bracketed_paste(text);
+        let wrapped_text = paste_ready.then(|| wrap_bracketed_paste(text));
+        let submitted_text = wrapped_text.as_deref().unwrap_or(text);
         let mutex = self.input_mutex_for_session(session_id)?;
         let _guard = mutex
             .lock()
             .map_err(|_| AppError::from("terminal input lock poisoned"))?;
 
         // fix(C2) review: 持有 per-session 锁覆盖“写文本 + sleep + 写 Enter”的完整序列。
-        self.write_unlocked(session_id, &wrapped_text)
+        self.write_unlocked(session_id, submitted_text)
             .map_err(AppError::from)?;
         let delay_ms = submit_delay_ms(text.len(), paste_ready);
         std::thread::sleep(std::time::Duration::from_millis(delay_ms));
@@ -5188,6 +5190,18 @@ mod tests {
         install_recording_session_with_launch_id(service, session_id, writes, None);
     }
 
+    fn set_recording_session_paste_ready(service: &TerminalService, session_id: &str) {
+        let sessions = service
+            .sessions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        sessions
+            .get(session_id)
+            .expect("recording session")
+            .paste_ready
+            .store(true, Ordering::Release);
+    }
+
     fn install_recording_session_with_launch_id(
         service: &TerminalService,
         session_id: &str,
@@ -5401,20 +5415,8 @@ mod tests {
             .clone();
         // fix(C2) review: 并发 submit 不能交错成 text/text/Enter/Enter。
         assert!(
-            writes
-                == vec![
-                    "\x1b[200~alpha\x1b[201~",
-                    "\r",
-                    "\x1b[200~beta\x1b[201~",
-                    "\r"
-                ]
-                || writes
-                    == vec![
-                        "\x1b[200~beta\x1b[201~",
-                        "\r",
-                        "\x1b[200~alpha\x1b[201~",
-                        "\r"
-                    ],
+            writes == vec!["alpha", "\r", "beta", "\r"]
+                || writes == vec!["beta", "\r", "alpha", "\r"],
             "unexpected submit write order: {writes:?}"
         );
     }
@@ -5450,6 +5452,7 @@ mod tests {
         let (service, _temp_dir) = terminal_service_for_test();
         let writes = Arc::new(Mutex::new(Vec::new()));
         install_recording_session(&service, "session-multiline", writes.clone());
+        set_recording_session_paste_ready(&service, "session-multiline");
 
         service
             .submit_text_to_session("session-multiline", "first\nsecond\nthird")
@@ -5469,6 +5472,7 @@ mod tests {
         let (service, _temp_dir) = terminal_service_for_test();
         let writes = Arc::new(Mutex::new(Vec::new()));
         install_recording_session(&service, "session-slash", writes.clone());
+        set_recording_session_paste_ready(&service, "session-slash");
 
         service
             .submit_text_to_session("session-slash", "/clear")
@@ -5488,6 +5492,7 @@ mod tests {
         let (service, _temp_dir) = terminal_service_for_test();
         let writes = Arc::new(Mutex::new(Vec::new()));
         install_recording_session(&service, "session-1", writes.clone());
+        set_recording_session_paste_ready(&service, "session-1");
 
         let submit = {
             let service = service.clone();
