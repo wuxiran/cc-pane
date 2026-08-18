@@ -27,12 +27,12 @@ fn detect_display_server(
 pub fn get_display_server() -> Option<String> {
     #[cfg(target_os = "linux")]
     {
-        return detect_display_server(
+        detect_display_server(
             std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
             std::env::var("WAYLAND_DISPLAY").ok().as_deref(),
             std::env::var("DISPLAY").ok().as_deref(),
         )
-        .map(str::to_owned);
+        .map(str::to_owned)
     }
 
     #[cfg(not(target_os = "linux"))]
