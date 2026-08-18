@@ -78,8 +78,7 @@ export function buildOscColorReply(
 }
 
 export interface OscColorQueryOptions {
-  cliTool: string;
-  wallpaperTransparencyRequired: boolean;
+  preserveTransparentBackground: boolean;
 }
 
 export interface OscColorQueryResult {
@@ -94,11 +93,12 @@ export function resolveOscColorQuery(
   options: OscColorQueryOptions,
 ): OscColorQueryResult {
   if (
-    options.cliTool === "codex" &&
-    options.wallpaperTransparencyRequired &&
+    options.preserveTransparentBackground &&
     ident === 11 &&
-    data.trim() === "?"
+    data.trim() !== "?"
   ) {
+    // Managed CLIs may query the logical terminal background to select readable
+    // colors, but they cannot replace the shared transparent surface itself.
     return { handled: true, response: null };
   }
 

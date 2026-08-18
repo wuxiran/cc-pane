@@ -29,44 +29,33 @@ describe("buildOscColorReply", () => {
 });
 
 describe("resolveOscColorQuery", () => {
-  it("suppresses Codex background queries when wallpaper transparency is active", () => {
+  it("answers logical background queries for transparent CLI surfaces", () => {
     expect(resolveOscColorQuery(11, "?", DARK_TERMINAL_THEME, {
-      cliTool: "codex",
-      wallpaperTransparencyRequired: true,
-    })).toEqual({ handled: true, response: null });
-  });
-
-  it("replies to Codex background queries without wallpaper transparency", () => {
-    expect(resolveOscColorQuery(11, "?", DARK_TERMINAL_THEME, {
-      cliTool: "codex",
-      wallpaperTransparencyRequired: false,
+      preserveTransparentBackground: true,
     })).toEqual({
       handled: true,
       response: "\x1b]11;rgb:1717/1919/1e1e\x1b\\",
     });
   });
 
-  it("replies to other CLIs even when wallpaper transparency is active", () => {
-    expect(resolveOscColorQuery(11, "?", DARK_TERMINAL_THEME, {
-      cliTool: "claude",
-      wallpaperTransparencyRequired: true,
+  it("blocks opaque background changes on transparent CLI surfaces", () => {
+    expect(resolveOscColorQuery(11, "#141414", DARK_TERMINAL_THEME, {
+      preserveTransparentBackground: true,
     })).toEqual({
       handled: true,
-      response: "\x1b]11;rgb:1717/1919/1e1e\x1b\\",
+      response: null,
     });
   });
 
-  it("does not suppress non-query background payloads", () => {
+  it("leaves background changes available to plain terminals", () => {
     expect(resolveOscColorQuery(11, "#ffffff", DARK_TERMINAL_THEME, {
-      cliTool: "codex",
-      wallpaperTransparencyRequired: true,
+      preserveTransparentBackground: false,
     })).toEqual({ handled: false, response: null });
   });
 
   it("keeps foreground and palette query behavior unchanged", () => {
     const options = {
-      cliTool: "codex",
-      wallpaperTransparencyRequired: true,
+      preserveTransparentBackground: true,
     };
 
     expect(resolveOscColorQuery(10, "?", LIGHT_TERMINAL_THEME, options)).toEqual({

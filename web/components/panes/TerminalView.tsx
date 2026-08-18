@@ -68,6 +68,7 @@ import { resolveOscColorQuery } from "./terminalOscColor";
 import {
   createTerminalDataRenderer,
   resolveTerminalBufferMode,
+  stripSgrBackgroundColors,
   type TerminalDataRenderer,
 } from "./terminalBufferMode";
 import {
@@ -216,7 +217,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const readOnlyRef = useRef(Boolean(props.readOnly));
     const isDark = useThemeStore((s) => s.isDark);
     const terminalThemeMode = useSettingsStore((s): TerminalThemeMode => s.settings?.terminal.themeMode ?? "followApp");
-    const terminalFontSize = useSettingsStore((s) => normalizeTerminalFontSize(s.settings?.terminal.fontSize));
+    const configuredTerminalFontSize = useSettingsStore((s) => normalizeTerminalFontSize(s.settings?.terminal.fontSize));
     const terminalFontFamily = useSettingsStore((s) => normalizeTerminalFontFamily(s.settings?.terminal.fontFamily));
     const terminalCursorStyle = useSettingsStore((s) => normalizeTerminalCursorStyle(s.settings?.terminal.cursorStyle));
     const terminalCursorBlink = useSettingsStore((s) => s.settings?.terminal.cursorBlink ?? false);
@@ -227,8 +228,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       s.resolved !== null && s.assetUrl !== null ? s.resolved.terminalOpacity : 1,
     );
     const wallpaperTransparencyRequired = wallpaperTerminalAlpha < 1;
-    const wallpaperTransparencyRequiredRef = useRef(wallpaperTransparencyRequired);
-    wallpaperTransparencyRequiredRef.current = wallpaperTransparencyRequired;
     const terminalTheme = useMemo(
       () => getTerminalTheme(isDark, terminalThemeMode, wallpaperTerminalAlpha),
       [isDark, terminalThemeMode, wallpaperTerminalAlpha],
@@ -240,6 +239,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       [terminalTheme, wallpaperTerminalAlpha],
     );
     const terminalRef = useRef<HTMLDivElement>(null);
+    const terminalFontSize = useTerminalWheelZoom(terminalRef, configuredTerminalFontSize);
+    const terminalFontSizeRef = useRef(terminalFontSize);
+    terminalFontSizeRef.current = terminalFontSize;
     const terminalInstanceRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
     const [terminalReady, setTerminalReady] = useState(false);
@@ -341,6 +343,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const hiddenWriteBufferRef = useRef<TerminalHiddenWriteBuffer | null>(null);
     const terminalRendererMode = useSettingsStore((s) => s.settings?.terminal.rendererMode ?? "auto");
     const effectiveCliTool = resolveCliTool(props.cliTool, props.launchClaude);
+    // 托管 CLI 共用透明表面；普通 shell 保留原生 ANSI 背景（如 vim）。
+    const transparentCliSurface = effectiveCliTool !== "none";
+    const transparentCliSurfaceRef = useRef(transparentCliSurface);
+    transparentCliSurfaceRef.current = transparentCliSurface;
     const resolveRendererMode = useCallback((mode: TerminalRendererMode) => {
       return resolveTerminalRendererModeForSession(mode, {
         cliToolId: effectiveCliTool,
@@ -409,7 +415,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       return terminalDataRendererRef.current.render(data, {
         keepCliOutputInNormalBuffer,
         sessionId: currentSessionIdRef.current,
-        stripBackgroundColors: wallpaperTransparencyRequiredRef.current,
+        stripBackgroundColors: transparentCliSurfaceRef.current,
       });
     }, [keepCliOutputInNormalBuffer]);
     const syncTrackedBufferType = useCallback((reason: string) => {
@@ -459,17 +465,15 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       return layoutSchedulerRef.current?.flush(reason, options) ?? null;
     }, []);
 
-    const writeTerminalData = useCallback(async (
-      data: string,
-      onWritten?: () => void,
-    ) => {
+    const writeTerminalData = useCallback(async (data: string, onWritten?: () => void) => {
       const flowControl = writeFlowControlRef.current;
       if (!flowControl) {
         throw new Error("Terminal write flow control is not initialized");
       }
+      const terminalData = transparentCliSurfaceRef.current ? stripSgrBackgroundColors(data) : data;
       // WebGL 花屏诊断台录制钩子（未 arm 时为 no-op，见 utils/terminalCast）。
-      captureTerminalWrite(currentSessionIdRef.current ?? props.sessionId ?? "unknown", data);
-      await flowControl.write(data, onWritten);
+      captureTerminalWrite(currentSessionIdRef.current ?? props.sessionId ?? "unknown", terminalData);
+      await flowControl.write(terminalData, onWritten);
     }, [props.sessionId]);
 
     // 本终端是否值得渲染 / tab 级焦点——单视图读侧（useViewVisibilityReaders）。
@@ -926,7 +930,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         const termSettings = useSettingsStore.getState().settings?.terminal;
         const scrollback = normalizeTerminalScrollback(termSettings?.scrollback);
-        const fontSize = normalizeTerminalFontSize(termSettings?.fontSize);
+        const fontSize = terminalFontSizeRef.current;
         const fontFamily = normalizeTerminalFontFamily(termSettings?.fontFamily);
         const cursorStyle = normalizeTerminalCursorStyle(termSettings?.cursorStyle);
         const cursorBlink = termSettings?.cursorBlink ?? false;
@@ -1038,8 +1042,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               useSettingsStore.getState().settings?.terminal.themeMode,
             ),
             {
-              cliTool: effectiveCliToolRef.current,
-              wallpaperTransparencyRequired: wallpaperTransparencyRequiredRef.current,
+              preserveTransparentBackground: transparentCliSurfaceRef.current,
             },
           );
           debugLog("terminal.osc.query", {
@@ -1848,9 +1851,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       cursorBlink: terminalCursorBlink,
       scrollback: terminalScrollback,
     });
-
-    useTerminalWheelZoom(terminalRef);
-
     // 启动期字体晚就绪兜底：waitForTerminalFont 有 1.5s 超时，超时后终端会用
     // fallback 字体度量 cell 并 fit；主字体随后加载完成时没有任何触发点，
     // cols/rows 误差会被放大成好几列空白。首次 loadingdone 时清图集并强制重排。
@@ -1992,7 +1992,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                     const renderedData = renderTerminalData(data);
                     return renderedData ? writeTerminalData(renderedData) : Promise.resolve();
                   },
-                  writeCheckpointData: (data) => writeTerminalData(data),
+                  writeCheckpointData: writeTerminalData,
                   syncTrackedBufferType,
                   debugLog,
                 });

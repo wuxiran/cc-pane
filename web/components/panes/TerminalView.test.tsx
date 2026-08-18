@@ -4,11 +4,13 @@ import userEvent from "@testing-library/user-event";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  TERMINAL_FONT_SIZE_DEFAULT,
   TERMINAL_LAYOUT_CHANGED_EVENT,
   usePanesStore,
   useSettingsStore,
   useTerminalStatusStore,
   useTerminalPathLinkStore,
+  useThemeStore,
   useWallpaperStore,
 } from "@/stores";
 import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
@@ -480,6 +482,66 @@ describe("TerminalView", () => {
     // attach 路径要对齐后端 PTY 尺寸，且不再回报 onSessionCreated
     expect(resize).toHaveBeenCalledWith({ sessionId: "existing-1", cols: 80, rows: 24 });
     expect(onSessionCreated).not.toHaveBeenCalled();
+  });
+
+  it("removes serialized Codex composer backgrounds without requiring a wallpaper", async () => {
+    getRecoverySnapshot.mockResolvedValue({
+      checkpoint: {
+        checkpointEpoch: 1,
+        anchorSeq: 0,
+        snapshotAnsi: "\x1b[7;48;2;41;41;41mcomposer",
+        bufferMode: "normal",
+        cols: 80,
+        rows: 24,
+        checkpointedAtMs: 0,
+      },
+      delta: "",
+      bufferMode: "normal",
+      endSeq: 0,
+      checkpointEpoch: 1,
+    });
+    renderTerminalView({ sessionId: "existing-1", cliTool: "codex" });
+    const term = await lastTerm();
+
+    await waitFor(() => expect(term.writtenData).toContain("\x1b[49mcomposer"));
+    expect(term.writtenData).not.toContain("\x1b[7;48;2;41;41;41mcomposer");
+  });
+
+  it("removes Grok's fullscreen background through the shared CLI surface", async () => {
+    renderTerminalView({ cliTool: "grok" });
+    const term = await lastTerm();
+    await waitFor(() => expect(registerOutput).toHaveBeenCalledWith(
+      "new-session-1",
+      expect.any(Function),
+    ));
+    const outputHandler = registerOutput.mock.calls.find(
+      ([sessionId]) => sessionId === "new-session-1",
+    )?.[1] as ((data: string) => Promise<void>) | undefined;
+
+    await act(async () => {
+      await outputHandler?.("\x1b[48;2;20;20;20mGrok Build");
+    });
+
+    expect(term.writtenData).toContain("\x1b[49mGrok Build");
+    expect(term.writtenData).not.toContain("\x1b[48;2;20;20;20mGrok Build");
+  });
+
+  it("keeps ANSI backgrounds intact for plain shell sessions", async () => {
+    renderTerminalView({ cliTool: "none" });
+    const term = await lastTerm();
+    await waitFor(() => expect(registerOutput).toHaveBeenCalledWith(
+      "new-session-1",
+      expect.any(Function),
+    ));
+    const outputHandler = registerOutput.mock.calls.find(
+      ([sessionId]) => sessionId === "new-session-1",
+    )?.[1] as ((data: string) => Promise<void>) | undefined;
+
+    await act(async () => {
+      await outputHandler?.("\x1b[48;2;20;20;20mvim");
+    });
+
+    expect(term.writtenData).toContain("\x1b[48;2;20;20;20mvim");
   });
 
   it("mirror attach and fit never resize the shared PTY", async () => {
@@ -986,6 +1048,32 @@ describe("TerminalView", () => {
     expect(term.options.scrollback).toBe(5000);
   });
 
+  it("keeps pane-local wheel zoom while xterm is still initializing", async () => {
+    const fontLoad = deferred<FontFace[]>();
+    const originalFonts = Object.getOwnPropertyDescriptor(document, "fonts");
+    const load = vi.fn(() => fontLoad.promise);
+    Object.defineProperty(document, "fonts", {
+      configurable: true,
+      value: { load, ready: Promise.resolve() } as unknown as FontFaceSet,
+    });
+
+    try {
+      const view = renderTerminalView();
+      await waitFor(() => expect(load).toHaveBeenCalled());
+      const host = view.container.querySelector<HTMLElement>(".cc-terminal-host");
+      expect(host).not.toBeNull();
+
+      fireEvent.wheel(host!, { ctrlKey: true, deltaY: -1 });
+      fontLoad.resolve([]);
+
+      const term = await lastTerm();
+      expect(term.options.fontSize).toBe(TERMINAL_FONT_SIZE_DEFAULT + 1);
+    } finally {
+      if (originalFonts) Object.defineProperty(document, "fonts", originalFonts);
+      else Reflect.deleteProperty(document, "fonts");
+    }
+  });
+
   it("keeps terminal text readable on contrasting TUI backgrounds", async () => {
     renderTerminalView();
 
@@ -1014,7 +1102,8 @@ describe("TerminalView", () => {
     await waitFor(() => expect(term.options.scrollback).toBe(100_000));
   });
 
-  it("swallows Codex background color queries after wallpaper transparency is enabled", async () => {
+  it("answers background queries while keeping managed CLI surfaces transparent", async () => {
+    useThemeStore.setState({ isDark: false });
     renderTerminalView({ cliTool: "codex" });
     const term = await lastTerm();
     await waitFor(() => expect(term.parser.registerOscHandler).toHaveBeenCalledTimes(3));
@@ -1023,19 +1112,28 @@ describe("TerminalView", () => {
     )?.[1] as ((data: string) => boolean) | undefined;
     expect(backgroundHandler).toBeDefined();
 
-    act(() => {
-      useWallpaperStore.setState({
-        resolved: { terminalOpacity: 0.5 } as never,
-        assetUrl: "asset://wallpaper",
-      });
-    });
-    await waitFor(() => expect(registerOutput).toHaveBeenCalledWith(
-      "new-session-1",
-      expect.any(Function),
-    ));
     writeToSession.mockClear();
 
     expect(backgroundHandler?.("?")).toBe(true);
+    expect(writeToSession).toHaveBeenCalledWith(
+      "new-session-1",
+      "\x1b]11;rgb:ffff/ffff/ffff\x1b\\",
+      { source: "system" },
+    );
+  });
+
+  it("blocks managed CLI attempts to replace the transparent background", async () => {
+    renderTerminalView({ cliTool: "grok" });
+    const term = await lastTerm();
+    await waitFor(() => expect(term.parser.registerOscHandler).toHaveBeenCalledTimes(3));
+    const backgroundHandler = term.parser.registerOscHandler.mock.calls.find(
+      ([ident]) => ident === 11,
+    )?.[1] as ((data: string) => boolean) | undefined;
+    expect(backgroundHandler).toBeDefined();
+
+    writeToSession.mockClear();
+
+    expect(backgroundHandler?.("#141414")).toBe(true);
     expect(writeToSession).not.toHaveBeenCalled();
   });
 

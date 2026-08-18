@@ -255,7 +255,7 @@ export async function bindTerminalSessionCallbacks(
       getRecoverySnapshot: (id) => getRecoverySnapshot(id),
       // 双管道（裁决 B）：delta 过 renderTerminalData；photo 是成品 VT 直写。
       writeData: (data) => writeTerminalData(renderTerminalData(data)),
-      writeCheckpointData: (data) => writeTerminalData(data),
+      writeCheckpointData: writeTerminalData,
       syncTrackedBufferType,
       setResyncActive: (active) => {
         resyncActiveRef.current = active;

@@ -63,27 +63,64 @@ export interface SgrBackgroundStripper {
 
 const MAX_PENDING_SGR_LENGTH = 128;
 
+function parseSgrCode(value: string): number | null {
+  if (!/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 function stripSgrBackgroundSequence(sequence: string): string {
   if (!sequence.endsWith("m")) return sequence;
   const body = sequence.slice(2, -1);
-  if (body.includes(":")) return sequence;
   const params = body === "" ? [""] : body.split(";");
   const kept: string[] = [];
   let changed = false;
+  let hasBackgroundReset = false;
+  const resetBackground = () => {
+    changed = true;
+    if (!hasBackgroundReset) {
+      kept.push("49");
+      hasBackgroundReset = true;
+    }
+  };
   for (let index = 0; index < params.length; index += 1) {
-    const value = Number(params[index]);
-    if (!Number.isInteger(value)) return sequence;
+    const group = params[index];
+    const colonParams = group.split(":");
+    const value = parseSgrCode(colonParams[0]);
+    if (value === null) {
+      kept.push(group);
+      continue;
+    }
     if (value === 48) {
-      changed = true;
-      const mode = params[index + 1];
-      index += mode === "5" ? 2 : mode === "2" ? 4 : 0;
+      resetBackground();
+      // Colon notation (`48:2::r:g:b`, `48:5:n`) keeps the complete color
+      // in one semicolon group. Mixed notation is accepted defensively by
+      // consuming the same number of following semicolon parameters.
+      if (colonParams.length > 1) {
+        const mode = colonParams[1];
+        if (mode === "2") {
+          const expectedParts = colonParams[2] === "" ? 6 : 5;
+          index += Math.max(0, expectedParts - colonParams.length);
+        }
+        if (mode === "5" && colonParams.length < 3) index += 1;
+      } else {
+        const mode = params[index + 1];
+        index += mode === "5" ? 2 : mode === "2" ? 4 : 0;
+      }
       continue;
     }
-    if (value === 49 || (value >= 100 && value <= 107)) {
+    // Reverse video swaps the foreground into an opaque cell background. A
+    // transparent CLI surface drops the enable but retains a later `27` so
+    // state that predates the filter can still be cleared.
+    if (value === 7) {
       changed = true;
       continue;
     }
-    kept.push(params[index]);
+    if (value === 49 || (value >= 40 && value <= 47) || (value >= 100 && value <= 107)) {
+      resetBackground();
+      continue;
+    }
+    kept.push(group);
   }
   if (!changed) return sequence;
   return kept.length > 0 ? `\x1b[${kept.join(";")}m` : "";
@@ -129,6 +166,17 @@ export function createSgrBackgroundStripper(): SgrBackgroundStripper {
       return remaining;
     },
   };
+}
+
+/**
+ * Removes SGR styles that would paint opaque cells in a transparent terminal:
+ * explicit background colors and reverse-video enables.
+ * Checkpoint/SerializeAddon data is already a rendered VT stream, so it must
+ * not pass through the stateful alt-screen renderer; this helper is stateless.
+ */
+export function stripSgrBackgroundColors(data: string): string {
+  const stripper = createSgrBackgroundStripper();
+  return stripper.push(data) + stripper.flush();
 }
 
 /**
@@ -187,7 +235,7 @@ export interface TerminalDataRenderContext {
   keepCliOutputInNormalBuffer: boolean;
   /** 当前会话 id；变化时丢弃上一会话的扣留残留，避免串台。 */
   sessionId: string | null;
-  /** 鏍规嵁澹佺焊閫忔槑妯″紡绉婚櫎 CLI 鏄惧紡 SGR 鑳屾櫙鑹层€? */
+  /** 托管 CLI 使用透明表面时，移除会绘制不透明单元格的 SGR 样式。 */
   stripBackgroundColors?: boolean;
 }
 

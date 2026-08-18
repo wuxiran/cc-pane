@@ -31,7 +31,7 @@ describe("setTerminalFontSize", () => {
     seed(TERMINAL_FONT_SIZE_DEFAULT);
   });
 
-  it("updates memory immediately so the terminal tracks the wheel", () => {
+  it("updates memory immediately so global zoom controls stay responsive", () => {
     useSettingsStore.getState().setTerminalFontSize(TERMINAL_FONT_SIZE_DEFAULT + 2);
     expect(size()).toBe(TERMINAL_FONT_SIZE_DEFAULT + 2);
   });
@@ -43,7 +43,7 @@ describe("setTerminalFontSize", () => {
     expect(size()).toBe(TERMINAL_FONT_SIZE_MIN);
   });
 
-  it("does not hit disk on every wheel tick, and persists once after settling", async () => {
+  it("does not hit disk on every repeated zoom step, and persists once after settling", async () => {
     for (let i = 1; i <= 12; i += 1) {
       useSettingsStore.getState().setTerminalFontSize(TERMINAL_FONT_SIZE_DEFAULT + i);
     }
@@ -58,7 +58,7 @@ describe("setTerminalFontSize", () => {
     );
   });
 
-  it("ignores no-op writes so an at-limit wheel does not schedule persistence", async () => {
+  it("ignores no-op writes so an at-limit zoom does not schedule persistence", async () => {
     useSettingsStore.getState().setTerminalFontSize(TERMINAL_FONT_SIZE_MAX);
     await vi.advanceTimersByTimeAsync(500);
     updateSettings.mockClear();

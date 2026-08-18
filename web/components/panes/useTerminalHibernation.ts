@@ -339,7 +339,7 @@ export async function replayAttachOrWake({
         const renderedData = renderTerminalData(data);
         return renderedData ? writeTerminalData(renderedData) : Promise.resolve();
       },
-      writeCheckpointData: (data) => writeTerminalData(data),
+      writeCheckpointData: writeTerminalData,
       syncTrackedBufferType,
       debugLog,
     });
