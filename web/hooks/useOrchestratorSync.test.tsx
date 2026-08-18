@@ -3,8 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import useOrchestratorSync from "./useOrchestratorSync";
 import { useOrchestratorStore, useWorkspacesStore } from "@/stores";
-import { taskBindingService } from "@/services/taskBindingService";
-import type { TaskBinding } from "@/types";
 
 type WebviewListener = (event: { payload: unknown }) => void | Promise<void>;
 
@@ -18,43 +16,23 @@ function mockWebviewListeners() {
 }
 
 describe("useOrchestratorSync", () => {
-  const updatePatch = vi.fn();
   const loadBindings = vi.fn();
   const applyChangedEvent = vi.fn();
-  const findBySession = vi.spyOn(taskBindingService, "findBySession");
-
-  const binding = (overrides: Partial<TaskBinding> = {}): TaskBinding => ({
-    id: "tb-1",
-    title: "worker",
-    role: "worker",
-    sessionId: "s-1",
-    projectPath: "/tmp/project",
-    cliTool: "codex",
-    status: "running",
-    progress: 35,
-    sortOrder: 0,
-    createdAt: "2026-07-24T00:00:00Z",
-    updatedAt: "2026-07-24T00:00:00Z",
-    ...overrides,
-  });
 
   beforeEach(() => {
-    updatePatch.mockReset().mockResolvedValue(binding());
-    findBySession.mockReset().mockResolvedValue(binding());
     loadBindings.mockReset().mockResolvedValue(undefined);
     applyChangedEvent.mockReset();
     vi.mocked(getCurrentWebview().listen).mockReset();
-    useOrchestratorStore.setState({ updatePatch, loadBindings, applyChangedEvent });
+    useOrchestratorStore.setState({ loadBindings, applyChangedEvent });
     useWorkspacesStore.setState({ expandedWorkspaceId: null });
   });
 
-  it("挂载时注册两个事件监听并加载一次 bindings", async () => {
+  it("挂载时注册 TaskBinding 事件监听并加载一次 bindings", async () => {
     const listeners = mockWebviewListeners();
     renderHook(() => useOrchestratorSync());
 
     await waitFor(() => {
       expect(listeners.has("task-binding-changed")).toBe(true);
-      expect(listeners.has("terminal-exit")).toBe(true);
     });
     expect(loadBindings).toHaveBeenCalledTimes(1);
   });
@@ -70,84 +48,6 @@ describe("useOrchestratorSync", () => {
     });
 
     expect(applyChangedEvent).toHaveBeenCalledWith(payload);
-  });
-
-  it("terminal-exit 退出码 0 但无 completionSummary → failed 且不伪造 progress", async () => {
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorSync());
-    await waitFor(() => expect(listeners.has("terminal-exit")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("terminal-exit")?.({ payload: { sessionId: "s-1", exitCode: 0 } });
-    });
-
-    expect(findBySession).toHaveBeenCalledWith("s-1");
-    expect(updatePatch).toHaveBeenCalledWith("tb-1", {
-      status: "failed",
-      exitCode: 0,
-    });
-  });
-
-  it("worker 已主动写 completed + completionSummary 时退出仍保留 completed", async () => {
-    const listeners = mockWebviewListeners();
-    findBySession.mockResolvedValue(binding({
-      status: "completed",
-      progress: 100,
-      completionSummary: "实现与测试均完成",
-    }));
-    renderHook(() => useOrchestratorSync());
-    await waitFor(() => expect(listeners.has("terminal-exit")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("terminal-exit")?.({ payload: { sessionId: "s-1", exitCode: 0 } });
-    });
-
-    expect(updatePatch).toHaveBeenCalledWith("tb-1", {
-      exitCode: 0,
-    });
-  });
-
-  it("terminal-exit 缺省退出码按未知 -1 记录并标 failed", async () => {
-    const listeners = mockWebviewListeners();
-    findBySession.mockResolvedValue(binding({ sessionId: "s-2" }));
-    renderHook(() => useOrchestratorSync());
-    await waitFor(() => expect(listeners.has("terminal-exit")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("terminal-exit")?.({ payload: { sessionId: "s-2" } });
-    });
-
-    expect(updatePatch).toHaveBeenCalledWith("tb-1", {
-      status: "failed",
-      exitCode: -1,
-    });
-  });
-
-  it("terminal-exit 非零退出码 → failed，不带 progress", async () => {
-    const listeners = mockWebviewListeners();
-    renderHook(() => useOrchestratorSync());
-    await waitFor(() => expect(listeners.has("terminal-exit")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("terminal-exit")?.({ payload: { sessionId: "s-3", exitCode: 137 } });
-    });
-
-    expect(updatePatch).toHaveBeenCalledWith("tb-1", {
-      status: "failed",
-      exitCode: 137,
-    });
-  });
-
-  it("session 未绑定 TaskBinding 时不更新", async () => {
-    const listeners = mockWebviewListeners();
-    findBySession.mockResolvedValue(null);
-    renderHook(() => useOrchestratorSync());
-    await waitFor(() => expect(listeners.has("terminal-exit")).toBe(true));
-
-    await act(async () => {
-      await listeners.get("terminal-exit")?.({ payload: { sessionId: "s-x", exitCode: 0 } });
-    });
-    expect(updatePatch).not.toHaveBeenCalled();
   });
 
   it("每 10 秒轮询兜底 loadBindings", async () => {
@@ -190,7 +90,7 @@ describe("useOrchestratorSync", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
-      expect(listeners.size).toBe(2);
+      expect(listeners.size).toBe(1);
       const callsBeforeUnmount = loadBindings.mock.calls.length;
 
       unmount();

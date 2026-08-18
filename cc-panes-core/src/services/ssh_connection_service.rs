@@ -6,6 +6,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tracing::warn;
 
 use super::SshCredentialService;
 
@@ -130,7 +131,12 @@ impl SshConnectionService {
         if self.known_hosts_path.exists() {
             known_hosts
                 .read_file(&self.known_hosts_path, KnownHostFileKind::OpenSSH)
-                .context("Failed to read application SSH known-hosts file")?;
+                .with_context(|| {
+                    format!(
+                        "Failed to read application SSH known-hosts file {} (delete it to reset trusted hosts)",
+                        self.known_hosts_path.display()
+                    )
+                })?;
         }
 
         match known_hosts.check_port(host, port, key) {
@@ -155,11 +161,24 @@ impl SshConnectionService {
                 known_hosts
                     .add(&known_host, key, "cc-panes", key_type.into())
                     .context("Failed to trust SSH host key")?;
-                known_hosts
-                    .write_file(&self.known_hosts_path, KnownHostFileKind::OpenSSH)
-                    .context("Failed to save application SSH known-hosts file")?;
+                self.persist_known_hosts(&known_hosts);
                 Ok(())
             }
+        }
+    }
+
+    /// 持久化首次信任（TOFU）的主机密钥。写入失败不阻断连接：
+    /// 密钥已在内存中通过校验，下次连接会重试写入——与 OpenSSH 在
+    /// known_hosts 不可写时的行为一致（告警并放行）。
+    fn persist_known_hosts(&self, known_hosts: &ssh2::KnownHosts) {
+        if let Err(error) =
+            known_hosts.write_file(&self.known_hosts_path, KnownHostFileKind::OpenSSH)
+        {
+            warn!(
+                path = %self.known_hosts_path.display(),
+                %error,
+                "Failed to save application SSH known-hosts file; host key trusted for this connection only"
+            );
         }
     }
 
@@ -306,5 +325,21 @@ mod tests {
 
         credentials.store_temporary_password("machine-1", "secret");
         assert!(service.can_use_embedded_terminal(&password));
+    }
+
+    #[test]
+    fn known_hosts_persist_failure_does_not_propagate() {
+        // 目标路径是一个已存在的目录时 write_file 必然失败；
+        // persist_known_hosts 只允许告警，不允许把失败抛回连接流程。
+        let dir = std::env::temp_dir().join(format!("cc-panes-kh-dir-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let credentials = Arc::new(SshCredentialService::new_memory());
+        let service = SshConnectionService::new(credentials, dir.clone());
+
+        let session = Session::new().expect("create ssh session");
+        let known_hosts = session.known_hosts().expect("create known-hosts store");
+        service.persist_known_hosts(&known_hosts);
+
+        fs::remove_dir(&dir).expect("cleanup temp dir");
     }
 }

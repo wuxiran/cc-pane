@@ -67,6 +67,24 @@ export default function LaunchProfileSummaryCard({
   onDelete,
 }: LaunchProfileSummaryCardProps) {
   const { t } = useTranslation(["providers", "common"]);
+  const skillCompatibility = preview?.skillCompatibility ?? null;
+  const deliveryModeLabels = {
+    nativeCommand: t("skillDeliveryMode.nativeCommand"),
+    nativeSkill: t("skillDeliveryMode.nativeSkill"),
+    sessionPrompt: t("skillDeliveryMode.sessionPrompt"),
+  } as const;
+  const compatibilityReasonLabels = {
+    cliNotRegistered: t("skillCompatibilityReason.cliNotRegistered"),
+    noSkillDelivery: t("skillCompatibilityReason.noSkillDelivery"),
+    mcpUnsupported: t("skillCompatibilityReason.mcpUnsupported"),
+    ccpanesMcpDisabled: t("skillCompatibilityReason.ccpanesMcpDisabled"),
+  } as const;
+  const deliveryModesLabel = skillCompatibility?.deliveryModes
+    .map((mode) => deliveryModeLabels[mode])
+    .join(" · ");
+  const compatibilityReason = skillCompatibility?.reason
+    ? compatibilityReasonLabels[skillCompatibility.reason]
+    : null;
 
   return (
     <Card className="overflow-hidden">
@@ -142,6 +160,30 @@ export default function LaunchProfileSummaryCard({
           meta={workspaceContext ? workspaceContext.name : undefined}
         />
       </div>
+
+      {skillCompatibility && (
+        <div
+          data-testid="skill-compatibility"
+          className="mx-4 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-[var(--app-border)]/60 py-2 text-xs"
+        >
+          <span className="font-medium" style={{ color: "var(--app-text-secondary)" }}>{t("skillCompatibility")}</span>
+          <span style={{ color: "var(--app-text-primary)" }}>
+            {deliveryModesLabel || t("skillDeliveryMode.none")}
+          </span>
+          <Badge variant={skillCompatibility.canUsePortableSkills ? "secondary" : "outline"} className="text-[10px]">
+            {skillCompatibility.canUsePortableSkills ? t("portableSkillReady") : t("portableSkillUnavailable")}
+          </Badge>
+          <Badge variant={skillCompatibility.canControlOrchestration ? "secondary" : "outline"} className="text-[10px]">
+            {skillCompatibility.canControlOrchestration ? t("orchestrationReady") : t("orchestrationUnavailable")}
+          </Badge>
+          <Badge variant={skillCompatibility.canReportResult ? "secondary" : "outline"} className="text-[10px]">
+            {skillCompatibility.canReportResult ? t("resultReportingReady") : t("resultReportingUnavailable")}
+          </Badge>
+          {compatibilityReason && (
+            <span style={{ color: "var(--app-text-tertiary)" }}>{compatibilityReason}</span>
+          )}
+        </div>
+      )}
 
       {/* 原「生效预览」卡并入：上下文提示 + 解析 warnings（色+形冗余） */}
       {!isNewProfile && (

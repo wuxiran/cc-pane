@@ -212,6 +212,40 @@ describe("LaunchProfilesPanel external skills", () => {
     useWorkspacesStore.setState({ workspaces: [], loading: false });
   });
 
+  it("shows portable Skill compatibility from the launch profile preview", async () => {
+    const resolution: LaunchProfileResolution = {
+      ...emptyResolution,
+      skillCompatibility: {
+        cliTool: "claude",
+        deliveryModes: ["nativeCommand", "nativeSkill", "sessionPrompt"],
+        canUsePortableSkills: true,
+        canControlOrchestration: false,
+        canReportResult: false,
+        reason: "ccpanesMcpDisabled",
+      },
+    };
+    mockTauriInvoke({
+      list_launch_profiles: [],
+      list_providers: [],
+      list_workspaces: [],
+      get_shared_mcp_status: [],
+      list_skill_market_entries: [],
+      list_user_skills: [],
+      list_external_skills: [],
+      list_cli_tools: [],
+      preview_launch_profile_resolution: resolution,
+    });
+
+    render(<LaunchProfilesPanel initialTool="claude" />);
+
+    const compatibility = await screen.findByTestId("skill-compatibility");
+    expect(compatibility).toHaveTextContent(tp("skillCompatibility"));
+    expect(compatibility).toHaveTextContent(tp("skillDeliveryMode.nativeCommand"));
+    expect(compatibility).toHaveTextContent(tp("portableSkillReady"));
+    expect(compatibility).toHaveTextContent(tp("orchestrationUnavailable"));
+    expect(compatibility).toHaveTextContent(tp("skillCompatibilityReason.ccpanesMcpDisabled"));
+  });
+
   it("saves external source include toggles into the skill policy", async () => {
     const user = userEvent.setup();
     let savedDraft: LaunchProfileDraft | null = null;

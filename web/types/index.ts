@@ -104,6 +104,8 @@ export type {
   LaunchProfilePreviewRequest,
   LaunchProfileResolution,
   LaunchProfileRuntime,
+  SkillCompatibility,
+  SkillCompatibilityReason,
   LaunchProfileSkillMode,
   LaunchProfileSkillPolicy,
   LaunchProviderSelection,
@@ -193,10 +195,12 @@ export type {
 export type { McpServerConfig } from "./mcp";
 export type {
   BundledSkill,
+  BundledSkillDelivery,
   DiscoveredExternalSkill,
   ExternalSkillSource,
   InstalledUserSkill,
   SkillInfo,
+  SkillDeliveryMode,
   SkillMarketEntry,
   SkillSummary,
 } from "./skill";

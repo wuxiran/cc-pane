@@ -1508,11 +1508,12 @@ mod tests {
 
     #[test]
     fn write_submit_resize_and_kill_use_rest_paths() {
-        let cases: Vec<(
+        type RestCase = (
             Box<dyn FnOnce(TerminalDaemonClient) -> AppResult<()>>,
-            &str,
-            &str,
-        )> = vec![
+            &'static str,
+            &'static str,
+        );
+        let cases: Vec<RestCase> = vec![
             (
                 Box::new(|client| client.write_session("session A", "abc")),
                 "POST /api/sessions/session%20A/write HTTP/1.1",

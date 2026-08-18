@@ -22,10 +22,10 @@ description: Run a plan with Codex inside WSL: registered paths, runtimeKind, an
 
 ### 1. projectPath 必须用 cc-panes 已注册的路径原样
 
-先 `mcp__ccpanes__list_projects` 拿到实际登记的字符串（UNC `\\wsl.localhost\Ubuntu\...` 或 `/mnt/...` 都可能存在，挑已注册那条），**原样**传给 `launch_task`，再配 `runtimeKind: "wsl"`：
+先 `mcp__ccpanes__list_projects` 拿到实际登记的字符串（UNC `\\wsl.localhost\Ubuntu\...` 或 `/mnt/...` 都可能存在，挑已注册那条），**原样**传给 `dispatch_task`，再配 `runtimeKind: "wsl"`：
 
 ```
-mcp__ccpanes__launch_task(
+mcp__ccpanes__dispatch_task(
   projectPath: <list_projects 中已注册的路径原样>,
   cliTool: "codex",
   runtimeKind: "wsl",
@@ -66,4 +66,4 @@ WSL 内 Codex 的 `ccpanes` MCP 工具（`update_task_binding` / `report_to_lead
 |-----------|------|
 | leader/worker 注册、Codex prompt 模板、软超时监控、收尾 | [`/ccpanes:plantocodex`](plantocodex.md)（launch 参数按本文第 1 节替换） |
 | plan 同行评审（reviewer 可跑 WSL） | [`/ccpanes:planreview`](planreview.md) |
-| launch_task 通用排障（卡住、恢复、PTY 交互） | [`/ccpanes:launch-task`](launch-task.md) |
+| dispatch_task 通用排障（卡住、恢复、PTY 交互） | [`/ccpanes:launch-task`](launch-task.md) |

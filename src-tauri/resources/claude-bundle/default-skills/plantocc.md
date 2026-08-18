@@ -5,7 +5,7 @@ description: Hand a finished plan to another Claude Code instance to implement, 
 
 # plantocc — Plan → Claude Code worker 执行交接
 
-把 plan 派给**另一个 Claude Code 实例**执行。编排骨架（Phase 1-7：写 plan → 注册 leader → launch worker → 注册 worker → 监控 → 读输出验证 → 汇报）**完全复用 [`/ccpanes:plantocodex`](plantocodex.md)**，只需把 `cliTool` 换成 `"claude"` 并注意下面的 Claude 特有差异。
+把 plan 派给**另一个 Claude Code 实例**执行。编排骨架（Phase 1-7：写 plan → 注册 leader → dispatch worker → 监控 → 读输出验证 → 汇报）**完全复用 [`/ccpanes:plantocodex`](plantocodex.md)**，只需把 `cliTool` 换成 `"claude"` 并注意下面的 Claude 特有差异。
 
 > **主 Agent（leader）不写代码**——代码由 Claude worker 完成。
 
@@ -25,7 +25,7 @@ description: Hand a finished plan to another Claude Code instance to implement, 
 
 ### 1. 权限确认会卡死 worker —— 启动前必须解决 YOLO
 
-Codex worker 默认能在沙箱里干活；**Claude worker 默认每个写操作都弹权限确认**，无人值守时会永远停在 `waitingInput`。`launch_task` 没有 launchProfileId 参数，YOLO 只能来自**工作空间/项目绑定的启动配置**：
+Codex worker 默认能在沙箱里干活；**Claude worker 默认每个写操作都弹权限确认**，无人值守时会永远停在 `waitingInput`。`dispatch_task` 支持 `profileId`，但 YOLO 仍受工作空间/项目绑定或显式启动配置控制：
 
 - 启动前检查：目标项目所在 workspace（或项目本身）是否绑定了 `targetTools` 含 `claude` 且开了 YOLO 的启动配置（YOLO 对 Claude 映射为 `--dangerously-skip-permissions`）
 - 没绑定 → `AskUserQuestion` 让用户选：去 UI 绑一个 claude YOLO 配置再来 / 接受 worker 会频繁 `waitingInput`、由用户在窗口里手动放行
@@ -56,11 +56,12 @@ worker prompt 的收尾段照抄 plantocodex：先 `update_task_binding(status:"
 ### 5. launch 参数
 
 ```
-mcp__ccpanes__launch_task(
+mcp__ccpanes__dispatch_task(
   projectPath: <list_projects 已注册路径原样>,
   cliTool: "claude",
   runtimeKind: "wsl",        // 本地省略；WSL 路径细节见 /ccpanes:plan2codexwsl
   title: "CC executor: <plan 简短描述>",
+  parentBindingId: <leaderId>,
   prompt: <plantocodex 模板 + 上面第 2 节的禁入 plan mode 行>
 )
 ```

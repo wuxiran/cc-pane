@@ -73,6 +73,36 @@ describe("terminal layout scheduler", () => {
     expect(term.focus).toHaveBeenCalledOnce();
   });
 
+  it("re-sends the current geometry for an explicit Fit even when xterm is unchanged", () => {
+    const host = createRenderableHost();
+    const term = { cols: 80, rows: 24 } as Terminal;
+    const fitAddon = { fit: vi.fn() } as unknown as FitAddon;
+    const resizeBackend = vi.fn();
+    const scheduler = createTerminalLayoutScheduler({
+      getTerminal: () => term,
+      getFitAddon: () => fitAddon,
+      getHost: () => host,
+      getSessionId: () => "session-1",
+      isActive: () => true,
+      repaint: vi.fn(),
+      resizeBackend,
+      logger: vi.fn(),
+    });
+
+    scheduler.flush("initial");
+    resizeBackend.mockClear();
+
+    scheduler.flush("context-menu.fit", {
+      force: true,
+      forceBackendSync: true,
+    });
+
+    expect(fitAddon.fit).toHaveBeenCalledTimes(2);
+    expect(resizeBackend).toHaveBeenCalledTimes(1);
+    expect(resizeBackend).toHaveBeenCalledWith(80, 24);
+    scheduler.dispose();
+  });
+
   it("defers layout when inactive", () => {
     const host = createRenderableHost();
     const fitAddon = { fit: vi.fn() } as unknown as FitAddon;

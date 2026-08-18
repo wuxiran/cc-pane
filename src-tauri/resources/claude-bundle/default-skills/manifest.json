@@ -1,11 +1,13 @@
 {
+  "schemaVersion": 2,
   "namespace": "ccpanes",
   "variables": {
     "app_name": "CC-Panes",
     "mcp_server_name": "ccpanes"
   },
   "skills": [
-    { "name": "launch-task", "file": "launch-task.md" },
+    { "name": "launch-task", "file": "launch-task.md", "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true } },
+    { "name": "dispatch-task", "file": "dispatch-task.md", "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true } },
     { "name": "clean-launch", "file": "clean-launch.md" },
     { "name": "fork-session", "file": "fork-session.md" },
     { "name": "parallel-run", "file": "parallel-run.md" },
@@ -15,8 +17,8 @@
     { "name": "workspace-diagnostics", "file": "workspace-diagnostics.md" },
     { "name": "organize-workspace", "file": "organize-workspace.md" },
     { "name": "workspace-migrate", "file": "workspace-migrate.md" },
-    { "name": "browse-sessions", "file": "browse-sessions.md" },
-    { "name": "dispatch-todos", "file": "dispatch-todos.md" },
+    { "name": "browse-sessions", "file": "browse-sessions.md", "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true } },
+    { "name": "dispatch-todos", "file": "dispatch-todos.md", "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true } },
     { "name": "spec", "file": "spec.md" },
     { "name": "built-in-spec", "file": "built-in-spec.md" },
     { "name": "openspec", "file": "openspec.md" },
@@ -28,7 +30,7 @@
     { "name": "cleanup-processes", "file": "cleanup-processes.md" },
     { "name": "finish-work", "file": "finish-work.md" },
     { "name": "cross-layer-check", "file": "cross-layer-check.md" },
-    { "name": "memory-dual-write", "file": "memory-dual-write.md" },
+    { "name": "memory-dual-write", "file": "memory-dual-write.md", "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true } },
     { "name": "recall", "file": "recall.md" },
     { "name": "notify-done", "file": "notify-done.md" }
   ]

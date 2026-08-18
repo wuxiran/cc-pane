@@ -9,6 +9,8 @@ description: Hand a finished plan to a Codex worker to implement, with leader/wo
 
 > **Claude 不写代码** —— 代码由 Codex 完成。
 
+> 这是 Codex 特化快捷入口。需要选择任意目标 CLI 时，改用 [`/ccpanes:dispatch-task`](dispatch-task.md)；两者都优先使用 `dispatch_task`，而不是旧的 `launch_task`。
+
 ---
 
 ## 何时用 / 何时不用
@@ -127,37 +129,24 @@ mcp__ccpanes__register_plan_leader(
 | 已是 `/home/...` 或 `/mnt/...` | 原样 |
 | Windows junction / symlink | 在 WSL 里 `wslpath -u "<windows>"` 自动转 |
 
-**`launch_task.projectPath` 必须用 `list_projects` 取到的原样字符串**（不要自己拼），再配 `runtimeKind: "wsl"`。
+**`dispatch_task.projectPath` 必须用 `list_projects` 取到的原样字符串**（不要自己拼），再配 `runtimeKind: "wsl"`。
 
 ### Phase 4：启动 Codex + 注册 worker
 
 **新建窗口**：
 
 ```
-mcp__ccpanes__launch_task(
+mcp__ccpanes__dispatch_task(
   projectPath: <list_projects 取到的已注册路径>,
   cliTool: "codex",
   runtimeKind: "wsl" | "local",      // 与项目路径一致
   title: "Codex: <简短描述>",
+  parentBindingId: <Phase 2 拿到的 leaderId>,
   prompt: <见下方 prompt 模板>
 )
 ```
 
-记录返回的 `sessionId` 为 `<workerSessionId>`。
-
-**立即注册 worker**（leader 来做）：
-
-```
-mcp__ccpanes__register_plan_worker(
-  leaderId: <Phase 2 拿到的>,
-  sessionId: <workerSessionId>,
-  projectPath: <同 launch_task>,
-  cliTool: "codex",
-  title: "Codex executor"
-)
-```
-
-返回的 `id` 是 `<workerId>` —— **必须**填进 prompt 模板的"收尾要求"段。
+记录返回的 `bindingId` 为 `<workerId>`、`sessionId` 为 `<workerSessionId>`。`dispatch_task` 已在启动前登记 binding，Codex 会话也会在环境中收到 `CC_PANES_TASK_BINDING_ID`；不要再注册第二个 worker binding。
 
 **复用已有窗口**：
 
@@ -259,16 +248,16 @@ git diff <worktree-or-main>
    - 报告 = 改动文件列表 + 每项验收的命令与退出码(证据指针) + 偏离说明
 
 ## 收尾(必须执行,不能跳)
-1. 先持久化状态(防 PTY 反馈丢失):
+1. 先持久化状态(防 PTY 反馈丢失；id 取环境变量 `CC_PANES_TASK_BINDING_ID`):
    mcp__ccpanes__update_task_binding(
-     id: "<填 Phase 4 拿到的 workerId>",
+     id: <CC_PANES_TASK_BINDING_ID>,
      status: "completed",
      progress: 100,
      completionSummary: "已完成 N 个 phase,改动 M 文件"
    )
 2. 再 PTY 上报 leader:
    mcp__ccpanes__report_to_leader(
-     workerId: "<同上 workerId>",
+     workerId: <CC_PANES_TASK_BINDING_ID>,
      status: "completed",
      summary: "Codex 执行完成,改动 M 文件,详见 PTY"
    )
@@ -298,9 +287,9 @@ git diff <worktree-or-main>
 ## 反模式
 
 - ❌ 用 `CronCreate` 每分钟轮询 → 烧 token，且 cc-panes 已内置 worker 自动反馈
-- ❌ 跳过 `register_plan_leader` / `register_plan_worker` → PTY 反馈无目标
+- ❌ 跳过 `register_plan_leader` / `dispatch_task(parentBindingId=leaderId)` → PTY 反馈没有持久化父关系
 - ❌ Codex prompt 不要求 `update_task_binding` → leader 崩溃/退出时补投队列被清，主 Agent 永远收不到通知
 - ❌ 把 `get_session_status` 返回的 `active/idle/exited` 当作完整枚举 → 漏掉 thinking/waitingInput/error
-- ❌ `launch_task.projectPath` 自己拼 `/mnt/...` → 不匹配 cc-panes 注册路径，启动失败
+- ❌ `dispatch_task.projectPath` 自己拼 `/mnt/...` → 不匹配 cc-panes 注册路径，启动失败
 - ❌ "超过 10 分钟提醒用户"作为唯一兜底 → 没有渐进性，体验差
 - ❌ Claude 自己改代码 → 和本 skill 角色冲突（评审也不改代码，见 planreview）

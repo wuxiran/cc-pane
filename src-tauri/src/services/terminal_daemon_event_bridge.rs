@@ -823,17 +823,17 @@ mod tests {
         }
     }
 
-    fn text_frame(payload: &str) -> Result<WsMessage, WsError> {
-        Ok(WsMessage::Text(payload.into()))
+    fn text_frame(payload: &str) -> WsMessage {
+        WsMessage::Text(payload.into())
     }
 
     /// 竞态回归：状态轮询判定会话消失时，队列里的 killed/reason 不能因 socket drop 丢失。
     #[tokio::test]
     async fn drain_delivers_queued_killed_before_bridge_exits() {
         let mut stream = futures_util::stream::iter(vec![
-            text_frame(r#"{"type":"output","data":"bye"}"#),
-            text_frame(r#"{"type":"killed","reason":"mcp"}"#),
-            text_frame(r#"{"type":"output","data":"never read"}"#),
+            Ok(text_frame(r#"{"type":"output","data":"bye"}"#)),
+            Ok(text_frame(r#"{"type":"killed","reason":"mcp"}"#)),
+            Ok(text_frame(r#"{"type":"output","data":"never read"}"#)),
         ]);
 
         let mut seen = Vec::new();
@@ -866,7 +866,7 @@ mod tests {
         );
 
         let mut stream =
-            futures_util::stream::iter(vec![text_frame(r#"{"type":"killed","reason":"mcp"}"#)]);
+            futures_util::stream::iter(vec![Ok(text_frame(r#"{"type":"killed","reason":"mcp"}"#))]);
         let mut forwarded = Vec::new();
         let terminated = drain_ready_messages_with(&mut stream, Duration::ZERO, |text| {
             let message = serde_json::from_str::<DaemonStreamMessage>(text)?;
@@ -898,7 +898,7 @@ mod tests {
     #[tokio::test]
     async fn drain_returns_false_when_no_terminal_message_is_queued() {
         let mut stream =
-            futures_util::stream::iter(vec![text_frame(r#"{"type":"output","data":"alive"}"#)]);
+            futures_util::stream::iter(vec![Ok(text_frame(r#"{"type":"output","data":"alive"}"#))]);
 
         let terminated = drain_ready_messages_with(&mut stream, Duration::ZERO, |_| Ok(false))
             .await
@@ -911,7 +911,7 @@ mod tests {
     async fn drain_stops_at_close_frame_without_consuming_rest() {
         let mut stream = futures_util::stream::iter(vec![
             Ok(WsMessage::Close(None)),
-            text_frame(r#"{"type":"killed","reason":"mcp"}"#),
+            Ok(text_frame(r#"{"type":"killed","reason":"mcp"}"#)),
         ]);
 
         let mut seen = 0usize;

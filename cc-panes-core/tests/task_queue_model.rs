@@ -29,6 +29,6 @@ fn task_queue_models_use_camel_case_and_defaults() {
 #[test]
 fn task_queue_draft_rejects_empty_and_oversized_text() {
     assert!(TaskQueueItemDraft::new("  ", vec![]).is_err());
-    assert!(TaskQueueItemDraft::new(&"x".repeat(65_537), vec![]).is_err());
+    assert!(TaskQueueItemDraft::new("x".repeat(65_537), vec![]).is_err());
     assert!(TaskQueueItemDraft::new("", vec!["img-1".into()]).is_ok());
 }

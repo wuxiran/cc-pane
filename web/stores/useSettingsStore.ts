@@ -249,7 +249,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const next = { ...current, terminal: { ...current.terminal, fontSize: clamped } };
     set({ settings: next });
 
-    // 再防抖落盘。停手 400ms 才写一次，滚轮过程中零 IPC。
+    // 再防抖落盘。停手 400ms 才写一次，快捷键连按过程中零 IPC。
     if (fontSizePersistTimer) clearTimeout(fontSizePersistTimer);
     fontSizePersistTimer = setTimeout(() => {
       fontSizePersistTimer = null;

@@ -225,7 +225,7 @@ describe("terminalBufferMode", () => {
     it("removes background colors while preserving foreground styles", () => {
       const stripper = createSgrBackgroundStripper();
       expect(stripper.push("\x1b[1;48;2;29;37;55mBUILD\x1b[49m")).toBe(
-        "\x1b[1mBUILD",
+        "\x1b[1;49mBUILD\x1b[49m",
       );
       expect(stripper.flush()).toBe("");
     });
@@ -235,7 +235,7 @@ describe("terminalBufferMode", () => {
     it("strips the full background SGR surface: 40-47, 48, 49, 100-107", () => {
       const stripper = createSgrBackgroundStripper();
       expect(stripper.push("\x1b[41ma\x1b[47mb\x1b[48;5;23mc\x1b[101md\x1b[49me")).toBe(
-        "abcde",
+        "\x1b[49ma\x1b[49mb\x1b[49mc\x1b[49md\x1b[49me",
       );
     });
 
@@ -244,7 +244,7 @@ describe("terminalBufferMode", () => {
       // 背景状态失衡——单边放行「设置」尤其致命（无界染色，重绘不掉）。
       const stripper = createSgrBackgroundStripper();
       const banner = "\x1b[41m FAIL \x1b[49m\r\nnext line";
-      expect(stripper.push(banner)).toBe(" FAIL \r\nnext line");
+      expect(stripper.push(banner)).toBe("\x1b[49m FAIL \x1b[49m\r\nnext line");
     });
 
     it("leaves foreground codes in the 30-37/90-97 ranges alone", () => {
@@ -254,11 +254,57 @@ describe("terminalBufferMode", () => {
       );
     });
 
-    it("handles background sequences split at every byte", () => {
-      const input = "a\x1b[38;5;14;48;5;23mBUILD\x1b[100mb";
+    it("removes basic ANSI backgrounds as well as extended colors", () => {
+      expect(stripSgrBackgroundColors("\x1b[1;40;31mDARK\x1b[104mBRIGHT")).toBe(
+        "\x1b[1;49;31mDARK\x1b[49mBRIGHT",
+      );
+    });
+
+    it("handles opaque style sequences split at every byte", () => {
+      const input = "a\x1b[7;38;5;14;48;5;23mBUILD\x1b[100mb";
       const stripper = createSgrBackgroundStripper();
       const output = [...input].map((char) => stripper.push(char)).join("") + stripper.flush();
-      expect(output).toBe("a\x1b[38;5;14mBUILDb");
+      expect(output).toBe("a\x1b[38;5;14;49mBUILD\x1b[49mb");
+    });
+
+    it("removes Codex reverse-video composer highlights", () => {
+      expect(stripSgrBackgroundColors("\x1b[7;38;5;250mRun /review\x1b[27m")).toBe(
+        "\x1b[38;5;250mRun /review\x1b[27m",
+      );
+    });
+
+    it("removes Codex's truecolor composer background", () => {
+      expect(stripSgrBackgroundColors("\x1b[48;2;41;41;41mImplement {feature}\x1b[0m")).toBe(
+        "\x1b[49mImplement {feature}\x1b[0m",
+      );
+    });
+
+    it("resets an explicit background even when reverse-video comes first", () => {
+      expect(stripSgrBackgroundColors("\x1b[7;48;5;236;38;5;255mRun")).toBe(
+        "\x1b[49;38;5;255mRun",
+      );
+    });
+
+    it("removes colon-form truecolor and palette backgrounds", () => {
+      const stripper = createSgrBackgroundStripper();
+      expect(stripper.push("\x1b[1;48:2::29:37:55mBUILD\x1b[49m")).toBe(
+        "\x1b[1;49mBUILD\x1b[49m",
+      );
+      expect(stripper.push("\x1b[48:5:23mPALETTE\x1b[104m")).toBe(
+        "\x1b[49mPALETTE\x1b[49m",
+      );
+    });
+
+    it("keeps foreground colon colors while removing a later background", () => {
+      expect(stripSgrBackgroundColors("\x1b[38:2::14:28:42;48:5:23mTEXT")).toBe(
+        "\x1b[38:2::14:28:42;49mTEXT",
+      );
+    });
+
+    it("handles a mixed colon/semicolon truecolor sequence", () => {
+      expect(stripSgrBackgroundColors("\x1b[1;48:2;29;37;55;31mTEXT")).toBe(
+        "\x1b[1;49;31mTEXT",
+      );
     });
 
     it("applies the filter through the renderer without changing native output", () => {
@@ -268,7 +314,7 @@ describe("terminalBufferMode", () => {
         sessionId: "s1",
         stripBackgroundColors: true,
       };
-      expect(renderer.render("\x1b[48;2;29;37;55mBUILD", transparent)).toBe("BUILD");
+      expect(renderer.render("\x1b[48;2;29;37;55mBUILD", transparent)).toBe("\x1b[49mBUILD");
       expect(
         renderer.render("\x1b[48;5;23mopaque", { ...transparent, stripBackgroundColors: false }),
       ).toBe("\x1b[48;5;23mopaque");
@@ -281,21 +327,23 @@ describe("terminalBufferMode", () => {
   describe("stripSgrBackgroundColors", () => {
     it("strips SGR background params from a complete VT string", () => {
       expect(stripSgrBackgroundColors("\x1b[1;48;2;255;0;0mFAIL\x1b[49m tail")).toBe(
-        "\x1b[1mFAIL tail",
+        "\x1b[1;49mFAIL\x1b[49m tail",
       );
-      expect(stripSgrBackgroundColors("\x1b[41mred\x1b[101mbright")).toBe("redbright");
+      expect(stripSgrBackgroundColors("\x1b[41mred\x1b[101mbright")).toBe(
+        "\x1b[49mred\x1b[49mbright",
+      );
     });
 
     it("leaves alt-screen sequences untouched", () => {
       // 关键不变式：成品 VT 二次跑 alt-screen 剥离会坏画面（裁决 B），
       // 所以这里必须原样保留 1049/1047/47。
       const photo = "\x1b[?1049h\x1b[48;5;23mbody\x1b[?1049l";
-      expect(stripSgrBackgroundColors(photo)).toBe("\x1b[?1049hbody\x1b[?1049l");
+      expect(stripSgrBackgroundColors(photo)).toBe("\x1b[?1049h\x1b[49mbody\x1b[?1049l");
     });
 
     it("preserves foreground colors and non-SGR sequences", () => {
       expect(stripSgrBackgroundColors("\x1b[38;5;14;48;5;23mx\x1b[2J\x1b[H")).toBe(
-        "\x1b[38;5;14mx\x1b[2J\x1b[H",
+        "\x1b[38;5;14;49mx\x1b[2J\x1b[H",
       );
     });
 

@@ -66,7 +66,7 @@ describe("replayColdRestoreOutput", () => {
       ["\x1b[41m FAIL \x1b[49m detail", "plain"],
       stripSgrBackgroundColors,
     );
-    expect(written).toContain(" FAIL  detail");
+    expect(written).toContain("\x1b[49m FAIL \x1b[49m detail");
     expect(written).toContain("plain");
     expect(written.some((line) => line.includes("\x1b[41m"))).toBe(false);
   });

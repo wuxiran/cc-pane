@@ -15,7 +15,7 @@
 //! **只删内容哈希能证明是我们历史发布物的文件**：用户手改过的、自建的一律保留。
 
 use crate::utils::atomic_file;
-use cc_cli_adapters::CliToolRegistry;
+use cc_cli_adapters::{CliToolRegistry, SkillDeliveryMode};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -25,6 +25,7 @@ use tracing::{info, warn};
 pub(crate) const BUNDLED_NAMESPACE: &str = "ccpanes";
 pub(crate) const VERSION_FILE_NAME: &str = ".ccpanes-default-skills-version";
 const CODEX_SKILL_FILE_NAME: &str = "SKILL.md";
+const CURRENT_MANIFEST_SCHEMA_VERSION: u32 = 2;
 
 /// 随包分发的历史发布物 SHA-256 清单（模板目录内）。缺失时退化为「只删空目录」，
 /// 绝不退化为按前缀批量删——那正是本次要修的缺陷。
@@ -42,7 +43,10 @@ const CLAUDE_PLUGIN_MANIFEST: &str = "plugin.json";
 
 /// Skill 清单文件
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SkillManifest {
+    #[serde(default = "default_manifest_schema_version")]
+    schema_version: u32,
     namespace: String,
     #[serde(default)]
     variables: HashMap<String, String>,
@@ -54,6 +58,32 @@ struct SkillManifest {
 struct SkillEntry {
     name: String,
     file: String,
+    #[serde(default)]
+    delivery: BundledSkillDelivery,
+}
+
+impl SkillEntry {
+    /// Legacy manifest entries predate delivery metadata and remain available
+    /// through every native format. Portable entries are emitted only when the
+    /// target CLI explicitly supports one of their declared transports.
+    fn supports_delivery_mode(&self, mode: SkillDeliveryMode) -> bool {
+        !self.delivery.portable || self.delivery.modes.contains(&mode)
+    }
+}
+
+/// Cross-CLI delivery metadata introduced by bundled Skill manifest v2.
+///
+/// Missing metadata deliberately means legacy behavior, preserving v1 manifests
+/// and CLI-specific Skills unchanged.
+#[derive(Debug, Clone, serde::Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BundledSkillDelivery {
+    #[serde(default)]
+    pub portable: bool,
+    #[serde(default)]
+    pub modes: Vec<SkillDeliveryMode>,
+    #[serde(default)]
+    pub requires_ccpanes_mcp: bool,
 }
 
 /// 历史发布物哈希清单
@@ -68,6 +98,7 @@ struct LegacySkillHashes {
 pub struct BundledSkillInfo {
     pub name: String,
     pub description: Option<String>,
+    pub delivery: BundledSkillDelivery,
 }
 
 #[derive(Debug, Default, serde::Serialize)]
@@ -141,9 +172,84 @@ impl DefaultSkillService {
                 BundledSkillInfo {
                     name: s.name.clone(),
                     description,
+                    delivery: s.delivery.clone(),
                 }
             })
             .collect()
+    }
+
+    /// Render selected portable bundled Skills for a CLI that accepts only a
+    /// session-level prompt. Native command/Skill delivery remains preferred
+    /// whenever an adapter supports it.
+    pub fn portable_session_prompt(
+        &self,
+        selected_skill_names: &[String],
+        ccpanes_mcp_available: bool,
+    ) -> Option<String> {
+        let manifest_path = self.templates_dir.join("manifest.json");
+        let manifest = Self::load_manifest(&manifest_path)?;
+        let mut rendered = Vec::new();
+        let mut seen = HashSet::new();
+
+        for name in selected_skill_names {
+            let name = name.trim();
+            if name.is_empty() || !seen.insert(name) {
+                continue;
+            }
+            let Some(skill) = manifest
+                .skills
+                .iter()
+                .find(|skill| skill.name.as_str() == name)
+            else {
+                continue;
+            };
+            if !skill.delivery.portable
+                || !skill
+                    .delivery
+                    .modes
+                    .contains(&SkillDeliveryMode::SessionPrompt)
+                || (skill.delivery.requires_ccpanes_mcp && !ccpanes_mcp_available)
+            {
+                continue;
+            }
+
+            let template_path = self.templates_dir.join(&skill.file);
+            let template = match std::fs::read_to_string(&template_path) {
+                Ok(content) => content,
+                Err(error) => {
+                    warn!(
+                        "[default_skill] Failed to read session-prompt template {}: {}",
+                        template_path.display(),
+                        error
+                    );
+                    continue;
+                }
+            };
+            let content = Self::replace_variables(&template, &manifest.variables);
+            let body = Self::strip_frontmatter(&content);
+            if !body.trim().is_empty() {
+                rendered.push((skill.name.as_str(), body));
+            }
+        }
+
+        if rendered.is_empty() {
+            return None;
+        }
+
+        let mut prompt = String::from(
+            "<ccpanes-portable-skills>\n\
+             The following CC-Panes portable Skills are selected for this session. \
+             Follow them when relevant to the user's request.\n",
+        );
+        for (name, body) in rendered {
+            prompt.push_str("\n## ccpanes-");
+            prompt.push_str(name);
+            prompt.push('\n');
+            prompt.push_str(body.trim());
+            prompt.push('\n');
+        }
+        prompt.push_str("</ccpanes-portable-skills>");
+        Some(prompt)
     }
 
     /// 从 markdown 顶部 `--- ... ---` frontmatter 里取 `description:` 值（CRLF 安全）。
@@ -168,6 +274,20 @@ impl DefaultSkillService {
         None
     }
 
+    fn strip_frontmatter(content: &str) -> String {
+        let trimmed = content.trim_start_matches('\u{feff}');
+        let mut lines = trimmed.lines();
+        if lines.next().map(|line| line.trim()) != Some("---") {
+            return trimmed.to_string();
+        }
+        for line in lines.by_ref() {
+            if line.trim() == "---" {
+                return lines.collect::<Vec<_>>().join("\n");
+            }
+        }
+        trimmed.to_string()
+    }
+
     // ---------------------------------------------------------------------
     // 物化：只写 CC-Panes 自己的目录
     // ---------------------------------------------------------------------
@@ -185,7 +305,7 @@ impl DefaultSkillService {
         let manifest = Self::load_manifest(&self.templates_dir.join("manifest.json"))
             .ok_or_else(|| "bundled skill manifest is unavailable".to_string())?;
         let rendered = self
-            .render_bundle(&manifest)
+            .render_bundle(&manifest, SkillDeliveryMode::NativeSkill)
             .ok_or_else(|| "bundled skills could not be rendered".to_string())?;
 
         let skills_root = target_root.join(MANAGED_SKILLS_SUBDIR);
@@ -630,8 +750,19 @@ impl DefaultSkillService {
                 return None;
             }
         };
-        match serde_json::from_str(&content) {
-            Ok(m) => Some(m),
+        match serde_json::from_str::<SkillManifest>(&content) {
+            Ok(manifest)
+                if (1..=CURRENT_MANIFEST_SCHEMA_VERSION).contains(&manifest.schema_version) =>
+            {
+                Some(manifest)
+            }
+            Ok(manifest) => {
+                warn!(
+                    "[default_skill] Unsupported manifest schema version {} (supported: 1..={})",
+                    manifest.schema_version, CURRENT_MANIFEST_SCHEMA_VERSION
+                );
+                None
+            }
             Err(e) => {
                 warn!("[default_skill] Invalid manifest JSON: {}", e);
                 None
@@ -639,7 +770,11 @@ impl DefaultSkillService {
         }
     }
 
-    fn render_bundle(&self, manifest: &SkillManifest) -> Option<RenderedBundle> {
+    fn render_bundle(
+        &self,
+        manifest: &SkillManifest,
+        delivery_mode: SkillDeliveryMode,
+    ) -> Option<RenderedBundle> {
         if manifest.namespace != BUNDLED_NAMESPACE {
             warn!(
                 "[default_skill] Unexpected bundled namespace '{}' in manifest, using '{}'",
@@ -650,6 +785,9 @@ impl DefaultSkillService {
         let mut skills = Vec::with_capacity(manifest.skills.len());
 
         for skill in &manifest.skills {
+            if !skill.supports_delivery_mode(delivery_mode) {
+                continue;
+            }
             let template_path = self.templates_dir.join(&skill.file);
             let template = match std::fs::read_to_string(&template_path) {
                 Ok(content) => content,
@@ -721,6 +859,10 @@ impl DefaultSkillService {
     }
 }
 
+fn default_manifest_schema_version() -> u32 {
+    1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -773,6 +915,160 @@ mod tests {
         let template = "Use {{app_name}} with MCP server {{mcp_server_name}}.";
         let result = DefaultSkillService::replace_variables(template, &vars);
         assert_eq!(result, "Use CC-Panes with MCP server ccpanes.");
+    }
+
+    #[test]
+    fn manifest_v1_and_v2_parse_with_compatible_delivery_metadata() {
+        let v1: SkillManifest = serde_json::from_str(
+            r#"{"namespace":"ccpanes","skills":[{"name":"legacy","file":"legacy.md"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(v1.schema_version, 1);
+        assert!(!v1.skills[0].delivery.portable);
+        assert!(v1.skills[0].delivery.modes.is_empty());
+
+        let v2: SkillManifest = serde_json::from_str(
+            r#"{"schemaVersion":2,"namespace":"ccpanes","skills":[{"name":"portable","file":"portable.md","delivery":{"portable":true,"modes":["nativeSkill","sessionPrompt"],"requiresCcpanesMcp":true}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(v2.schema_version, 2);
+        assert!(v2.skills[0].delivery.portable);
+        assert_eq!(
+            v2.skills[0].delivery.modes,
+            vec![
+                SkillDeliveryMode::NativeSkill,
+                SkillDeliveryMode::SessionPrompt
+            ]
+        );
+        assert!(v2.skills[0].delivery.requires_ccpanes_mcp);
+    }
+
+    #[test]
+    fn portable_entries_only_render_for_declared_native_delivery_modes() {
+        let root = unique_temp_dir("portable-delivery");
+        fs::write(root.join("command.md"), "# command").unwrap();
+        fs::write(root.join("skill.md"), "# skill").unwrap();
+        fs::write(root.join("legacy.md"), "# legacy").unwrap();
+        let manifest = SkillManifest {
+            schema_version: 2,
+            namespace: BUNDLED_NAMESPACE.to_string(),
+            variables: HashMap::new(),
+            skills: vec![
+                SkillEntry {
+                    name: "command".to_string(),
+                    file: "command.md".to_string(),
+                    delivery: BundledSkillDelivery {
+                        portable: true,
+                        modes: vec![SkillDeliveryMode::NativeCommand],
+                        requires_ccpanes_mcp: false,
+                    },
+                },
+                SkillEntry {
+                    name: "skill".to_string(),
+                    file: "skill.md".to_string(),
+                    delivery: BundledSkillDelivery {
+                        portable: true,
+                        modes: vec![SkillDeliveryMode::NativeSkill],
+                        requires_ccpanes_mcp: false,
+                    },
+                },
+                SkillEntry {
+                    name: "legacy".to_string(),
+                    file: "legacy.md".to_string(),
+                    delivery: BundledSkillDelivery::default(),
+                },
+            ],
+        };
+        let service = DefaultSkillService::new(root.clone());
+
+        let command_delivery = service
+            .render_bundle(&manifest, SkillDeliveryMode::NativeCommand)
+            .unwrap();
+        assert_eq!(
+            command_delivery
+                .skills
+                .iter()
+                .map(|entry| entry.dir_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ccpanes-command", "ccpanes-legacy"]
+        );
+
+        let skills = service
+            .render_bundle(&manifest, SkillDeliveryMode::NativeSkill)
+            .unwrap();
+        assert_eq!(
+            skills
+                .skills
+                .iter()
+                .map(|entry| entry.dir_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ccpanes-skill", "ccpanes-legacy"]
+        );
+        remove_dir(&root);
+    }
+
+    #[test]
+    fn portable_session_prompt_respects_selection_and_mcp_requirements() {
+        let root = unique_temp_dir("portable-session-prompt");
+        fs::write(
+            root.join("manifest.json"),
+            r#"{
+                "schemaVersion": 2,
+                "namespace": "ccpanes",
+                "skills": [
+                    {
+                        "name": "dispatch",
+                        "file": "dispatch.md",
+                        "delivery": {
+                            "portable": true,
+                            "modes": ["sessionPrompt"],
+                            "requiresCcpanesMcp": true
+                        }
+                    },
+                    {
+                        "name": "local-review",
+                        "file": "review.md",
+                        "delivery": {
+                            "portable": true,
+                            "modes": ["sessionPrompt"],
+                            "requiresCcpanesMcp": false
+                        }
+                    },
+                    { "name": "legacy", "file": "legacy.md" }
+                ]
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("dispatch.md"),
+            "---\nname: dispatch\n---\n# Dispatch\nUse MCP.",
+        )
+        .unwrap();
+        fs::write(root.join("review.md"), "# Review\nInspect the diff.").unwrap();
+        fs::write(root.join("legacy.md"), "# Legacy").unwrap();
+        let service = DefaultSkillService::new(root.clone());
+        let selected = vec![
+            "local-review".to_string(),
+            "dispatch".to_string(),
+            "dispatch".to_string(),
+            "legacy".to_string(),
+        ];
+
+        let prompt = service
+            .portable_session_prompt(&selected, true)
+            .expect("session prompt");
+        assert!(prompt.contains("## ccpanes-local-review\n# Review"));
+        assert!(prompt.contains("## ccpanes-dispatch\n# Dispatch"));
+        assert!(!prompt.contains("name: dispatch"));
+        assert_eq!(prompt.matches("## ccpanes-dispatch").count(), 1);
+        assert!(!prompt.contains("ccpanes-legacy"));
+
+        let without_mcp = service
+            .portable_session_prompt(&selected, false)
+            .expect("non-MCP session prompt");
+        assert!(without_mcp.contains("ccpanes-local-review"));
+        assert!(!without_mcp.contains("ccpanes-dispatch"));
+        remove_dir(&root);
     }
 
     #[test]

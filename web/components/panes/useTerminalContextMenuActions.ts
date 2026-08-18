@@ -27,9 +27,15 @@ interface UseTerminalContextMenuActionsOptions {
   debugLog: (event: string, payload?: Record<string, unknown>) => void;
   refitAndRepaintTerminal: (
     reason: string,
-    options?: { force?: boolean; focusIfSafe?: boolean; allowInactive?: boolean },
+    options?: {
+      force?: boolean;
+      forceBackendSync?: boolean;
+      focusIfSafe?: boolean;
+      allowInactive?: boolean;
+    },
   ) => void;
   repaintTerminal: (reason: string) => void;
+  onExplicitGeometryChange?: () => void;
   /**
    * 本视图是否有权改后端 PTY 尺寸。共享 PTY 的镜像面板与只读面板必须为 false，
    * 否则镜像里点一次刷新会改掉主视图的 PTY 尺寸。缺省保守取 false。
@@ -55,6 +61,7 @@ export function useTerminalContextMenuActions({
   refitAndRepaintTerminal,
   repaintTerminal,
   canResizeBackend = () => false,
+  onExplicitGeometryChange,
 }: UseTerminalContextMenuActionsOptions) {
   const { t } = useTranslation("panes");
 
@@ -104,6 +111,7 @@ export function useTerminalContextMenuActions({
    * 不用 Ctrl+L：那会清屏，是破坏性操作，不该藏在"刷新显示"后面。
    */
   const requestCliRedraw = useCallback(() => {
+    onExplicitGeometryChange?.();
     if (!canResizeBackend()) return;
     const term = terminalRef.current;
     const activeSessionId = currentSessionIdRef.current ?? sessionId;
@@ -112,33 +120,40 @@ export function useTerminalContextMenuActions({
     const { cols, rows } = term;
     if (cols <= 1 || rows <= 0) return;
 
-    const send = (nextCols: number) => {
-      noteTerminalGeometry(activeSessionId, nextCols, rows);
+    const send = (nextCols: number, nextRows: number) => {
+      noteTerminalGeometry(activeSessionId, nextCols, nextRows);
       void terminalService
-        .resize({ sessionId: activeSessionId, cols: nextCols, rows })
+        .resize({ sessionId: activeSessionId, cols: nextCols, rows: nextRows })
         .catch((error) => {
           debugLog("context-menu.refresh.resize.failed", {
             cols: nextCols,
-            rows,
+            rows: nextRows,
             error: getErrorMessage(error),
           });
         });
     };
 
     debugLog("context-menu.refresh.sigwinch", { cols, rows });
-    send(cols - 1);
+    send(cols - 1, rows);
     window.setTimeout(() => {
       // 抖回来时重新取当前尺寸：这 80ms 内可能发生了真实的布局变化。
+      // 后端 resize 不会修改 xterm 的 cols/rows，因此无需（也不能）把“少一列”
+      // 猜成临时抖动；直接使用当前几何，避免把刚完成的真实 resize 回写成旧尺寸。
+      if (currentSessionIdRef.current !== activeSessionId) return;
       const current = terminalRef.current;
-      send(current?.cols === cols - 1 ? cols : (current?.cols ?? cols));
+      send(current?.cols ?? cols, current?.rows ?? rows);
     }, REDRAW_NUDGE_INTERVAL_MS);
-  }, [canResizeBackend, currentSessionIdRef, debugLog, sessionId, terminalRef]);
+  }, [canResizeBackend, currentSessionIdRef, debugLog, onExplicitGeometryChange, sessionId, terminalRef]);
 
   const handleMenuRefreshTerminal = useCallback(() => {
     const term = terminalRef.current;
     if (!term) return;
     rendererControllerRef.current?.clearTextureAtlas("context-menu.refresh");
-    refitAndRepaintTerminal("context-menu.refresh", { focusIfSafe: true });
+    refitAndRepaintTerminal("context-menu.refresh", {
+      force: true,
+      focusIfSafe: true,
+      allowInactive: true,
+    });
     repaintTerminal("context-menu.refresh");
     requestCliRedraw();
   }, [
@@ -179,12 +194,14 @@ export function useTerminalContextMenuActions({
   }, [debugLog, requestCliRedraw, t, terminalRef]);
 
   const handleMenuFitTerminal = useCallback(() => {
+    onExplicitGeometryChange?.();
     refitAndRepaintTerminal("context-menu.fit", {
       force: true,
+      forceBackendSync: true,
       focusIfSafe: true,
       allowInactive: true,
     });
-  }, [refitAndRepaintTerminal]);
+  }, [onExplicitGeometryChange, refitAndRepaintTerminal]);
 
   const handleMenuFitAllTerminals = useCallback(() => {
     requestTerminalFitAll();

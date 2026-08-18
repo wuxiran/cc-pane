@@ -401,7 +401,7 @@ mod tests {
         let mut d = OscStateDetector::new();
         run(&mut d, &osc("133;C;claude"));
         let mut seq = vec![ESC, OSC_INTRO];
-        seq.extend(std::iter::repeat(b'x').take(OSC_MAX + 100));
+        seq.extend(std::iter::repeat_n(b'x', OSC_MAX + 100));
         seq.extend_from_slice(&[ESC, ST_FINAL]);
         assert!(run(&mut d, &seq).is_empty());
         // 后续序列不受影响

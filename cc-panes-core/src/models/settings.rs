@@ -1510,8 +1510,10 @@ mod tests {
 
     #[test]
     fn terminal_settings_task_queue_false_round_trips() {
-        let mut settings = TerminalSettings::default();
-        settings.task_queue_enabled = false;
+        let settings = TerminalSettings {
+            task_queue_enabled: false,
+            ..Default::default()
+        };
 
         let encoded = toml::to_string(&settings).expect("serialize terminal settings");
         let decoded: TerminalSettings = toml::from_str(&encoded).expect("deserialize settings");
@@ -1716,8 +1718,10 @@ mod tests {
 
     #[test]
     fn terminal_merge_missing_defaults_migrates_legacy_scrollback() {
-        let mut settings = TerminalSettings::default();
-        settings.scrollback = crate::constants::terminal::LEGACY_DEFAULT_SCROLLBACK;
+        let mut settings = TerminalSettings {
+            scrollback: crate::constants::terminal::LEGACY_DEFAULT_SCROLLBACK,
+            ..Default::default()
+        };
 
         settings.merge_missing_defaults();
 
@@ -1729,8 +1733,10 @@ mod tests {
 
     #[test]
     fn terminal_merge_missing_defaults_preserves_custom_scrollback() {
-        let mut settings = TerminalSettings::default();
-        settings.scrollback = 5_000;
+        let mut settings = TerminalSettings {
+            scrollback: 5_000,
+            ..Default::default()
+        };
 
         settings.merge_missing_defaults();
 
@@ -1775,8 +1781,10 @@ mod tests {
 
     #[test]
     fn terminal_merge_missing_defaults_resets_invalid_renderer_mode() {
-        let mut settings = TerminalSettings::default();
-        settings.renderer_mode = "unknown".to_string();
+        let mut settings = TerminalSettings {
+            renderer_mode: "unknown".to_string(),
+            ..Default::default()
+        };
 
         settings.merge_missing_defaults();
 
@@ -1813,9 +1821,11 @@ mod tests {
 
     #[test]
     fn terminal_merge_missing_defaults_normalizes_appearance_values() {
-        let mut settings = TerminalSettings::default();
-        settings.font_size = 5;
-        settings.theme_mode = "unknown".to_string();
+        let mut settings = TerminalSettings {
+            font_size: 5,
+            theme_mode: "unknown".to_string(),
+            ..Default::default()
+        };
 
         settings.merge_missing_defaults();
 

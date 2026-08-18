@@ -1,4 +1,5 @@
 import type { Provider } from "./provider";
+import type { SkillDeliveryMode } from "./skill";
 import type { LaunchEffort } from "./terminal";
 import type { WorkspaceLaunchEnvironment } from "./workspace";
 
@@ -97,6 +98,21 @@ export interface ResolvedSkill {
   projectPath?: string | null;
 }
 
+export type SkillCompatibilityReason =
+  | "cliNotRegistered"
+  | "noSkillDelivery"
+  | "mcpUnsupported"
+  | "ccpanesMcpDisabled";
+
+export interface SkillCompatibility {
+  cliTool: string;
+  deliveryModes: SkillDeliveryMode[];
+  canUsePortableSkills: boolean;
+  canControlOrchestration: boolean;
+  canReportResult: boolean;
+  reason?: SkillCompatibilityReason | null;
+}
+
 export interface LaunchProfileResolution {
   profileId?: string | null;
   profileName?: string | null;
@@ -108,6 +124,7 @@ export interface LaunchProfileResolution {
   modelSource?: "request" | "launchProfile" | "providerDefault" | "nativeDefault" | null;
   mcpServers: ResolvedMcpServer[];
   skills: ResolvedSkill[];
+  skillCompatibility?: SkillCompatibility | null;
   warnings: string[];
   degraded: boolean;
 }

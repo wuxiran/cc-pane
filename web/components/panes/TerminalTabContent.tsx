@@ -257,10 +257,10 @@ export default memo(function TerminalTabContent({
       return (
         <div
           key={leaf.id}
-          className="flex h-full w-full min-h-0 flex-col overflow-hidden"
+          className="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden"
           onMouseDown={() => setActiveTerminalPane(tab.id, leaf.id)}
         >
-          <div className="relative min-h-0 flex-1 overflow-hidden">
+          <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
           {restoreBlocked ? (
             <BlockedRestorePanel
               tabId={tab.id}

@@ -69,7 +69,13 @@ impl SshMachineService {
         if let Some(parent) = self.config_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let content = serde_json::to_string_pretty(config)
+        // has_stored_password 是 keyring 实时查询的运行时标志，请求里带回的
+        // 值可能是陈旧的，落盘前一律清零（序列化时 false 会被跳过）。
+        let mut sanitized = config.clone();
+        for machine in &mut sanitized.machines {
+            machine.has_stored_password = false;
+        }
+        let content = serde_json::to_string_pretty(&sanitized)
             .with_context(|| "Failed to serialize ssh-machines config")?;
         std::fs::write(&self.config_path, content)
             .with_context(|| "Failed to write ssh-machines config")?;
@@ -371,7 +377,7 @@ impl SshMachineService {
                 },
                 Err(error) => SshConnectivityResult {
                     reachable: false,
-                    message: error.to_string(),
+                    message: format!("{error:#}"),
                     latency_ms: None,
                 },
             });
@@ -397,7 +403,7 @@ impl SshMachineService {
             }
             Err(error) => Ok(SshConnectivityResult {
                 reachable: false,
-                message: error.to_string(),
+                message: format!("{error:#}"),
                 latency_ms: None,
             }),
         }
@@ -454,6 +460,27 @@ mod tests {
         assert!(content.contains("\"description\": \"notes\""));
         assert!(!content.contains("secret"));
         assert!(!content.contains("hasStoredPassword"));
+    }
+
+    #[test]
+    fn hydrated_flag_reaches_serialized_response() {
+        // 回归：has_stored_password 曾因 skip_serializing 从不进 JSON，
+        // 前端拿不到 hasStoredPassword，导致每次重启都弹密码框。
+        let dir = tempdir().expect("tempdir");
+        let service =
+            SshMachineService::new_with_memory_credentials(dir.path().join("ssh-machines.json"));
+
+        let mut request = fixture_request(fixture_machine("m1", AuthMethod::Password));
+        request.remember_password = true;
+        request.password_input = Some("secret".to_string());
+        let saved = service.add(request).expect("add machine");
+
+        let json = serde_json::to_string(&saved).expect("serialize response");
+        assert!(json.contains("\"hasStoredPassword\":true"));
+
+        let untrusted = fixture_machine("m2", AuthMethod::Key);
+        let missing = serde_json::to_string(&untrusted).expect("serialize key machine");
+        assert!(!missing.contains("hasStoredPassword"));
     }
 
     #[test]

@@ -459,6 +459,58 @@ use tauri::{
     Emitter, Manager, WindowEvent,
 };
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalLifecycleEventPayload {
+    session_id: String,
+    #[serde(default)]
+    exit_code: Option<i32>,
+}
+
+/// Keep TaskBinding terminal outcomes durable even while the frontend is not
+/// listening. `session-killed` intentionally uses -1 because that event has
+/// no process exit code; a later terminal-exit event can replace it.
+fn record_task_binding_terminal_exit(
+    service: Arc<TaskBindingService>,
+    payload: &str,
+    event_name: &'static str,
+) {
+    let payload = match serde_json::from_str::<TerminalLifecycleEventPayload>(payload) {
+        Ok(payload) if !payload.session_id.trim().is_empty() => payload,
+        Ok(_) => {
+            warn!(event_name, "terminal lifecycle event missing sessionId");
+            return;
+        }
+        Err(error) => {
+            warn!(event_name, error = %error, "invalid terminal lifecycle event payload");
+            return;
+        }
+    };
+    let session_id = payload.session_id;
+    let exit_code = payload.exit_code.unwrap_or(-1);
+
+    tauri::async_runtime::spawn_blocking(move || {
+        match service.record_terminal_exit(&session_id, exit_code) {
+            Ok(Some(binding)) => debug!(
+                event_name,
+                session_id,
+                binding_id = %binding.id,
+                status = %binding.status,
+                exit_code,
+                "persisted TaskBinding terminal outcome"
+            ),
+            Ok(None) => {}
+            Err(error) => warn!(
+                event_name,
+                session_id,
+                exit_code,
+                error = %error,
+                "failed to persist TaskBinding terminal outcome"
+            ),
+        }
+    });
+}
+
 #[cfg(target_os = "macos")]
 const APP_MENU_PASTE_ID: &str = "cc-panes-menu-paste";
 #[cfg(target_os = "macos")]
@@ -2051,6 +2103,34 @@ pub fn run() {
                 term_svc.set_emitter(tauri_emitter.clone());
                 let tb_svc = app.state::<Arc<TaskBindingService>>();
                 tb_svc.set_emitter(tauri_emitter.clone());
+                // TaskBinding 的终态不再依赖 WebView 的事件监听：窗口刷新、失焦或
+                // 自愈期间也能持久化已派发任务的退出结果。session-killed 覆盖本地
+                // kill 路径，terminal-exit 覆盖自然退出与 daemon 事件桥接路径。
+                {
+                    use tauri::Listener;
+                    let exit_service = tb_svc.inner().clone();
+                    app.listen(
+                        cc_panes_core::constants::events::TERMINAL_EXIT,
+                        move |event| {
+                            record_task_binding_terminal_exit(
+                                exit_service.clone(),
+                                event.payload(),
+                                cc_panes_core::constants::events::TERMINAL_EXIT,
+                            );
+                        },
+                    );
+                    let killed_service = tb_svc.inner().clone();
+                    app.listen(
+                        cc_panes_core::constants::events::SESSION_KILLED,
+                        move |event| {
+                            record_task_binding_terminal_exit(
+                                killed_service.clone(),
+                                event.payload(),
+                                cc_panes_core::constants::events::SESSION_KILLED,
+                            );
+                        },
+                    );
+                }
                 let notif_svc = app.state::<Arc<NotificationService>>();
                 let settings_svc = app.state::<Arc<SettingsService>>();
                 let launch_history_svc = app.state::<Arc<LaunchHistoryService>>();

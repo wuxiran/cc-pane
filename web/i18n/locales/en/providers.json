@@ -118,6 +118,25 @@
   "previewCreateWorkspaceHint": "Create or select a workspace to preview project Skills.",
   "previewSelectWorkspaceHint": "Select a workspace on the left to resolve project Skills for it.",
   "previewSystemProvider": "CLI / CC Switch / user environment",
+  "skillCompatibility": "Cross-CLI Skill",
+  "skillDeliveryMode": {
+    "nativeCommand": "Native command",
+    "nativeSkill": "Native Skill",
+    "sessionPrompt": "Session prompt",
+    "none": "No delivery path"
+  },
+  "portableSkillReady": "Portable Skill ready",
+  "portableSkillUnavailable": "No portable delivery",
+  "orchestrationReady": "Orchestration ready",
+  "orchestrationUnavailable": "Orchestration unavailable",
+  "resultReportingReady": "Result reporting ready",
+  "resultReportingUnavailable": "Result reporting unavailable",
+  "skillCompatibilityReason": {
+    "cliNotRegistered": "This CLI is not registered in CC-Panes.",
+    "noSkillDelivery": "This CLI has no supported Skill delivery path.",
+    "mcpUnsupported": "This CLI cannot use MCP orchestration.",
+    "ccpanesMcpDisabled": "Enable CC-Panes MCP to use orchestration and result reporting."
+  },
   "sectionMcpDesc": "Set the MCP combination injected when this profile launches.",
   "collapseServerLib": "Collapse library",
   "manageSharedMcp": "Manage shared MCP",

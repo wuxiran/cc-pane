@@ -308,6 +308,7 @@ fn env_remove_keys(mut env_remove: Vec<String>) -> Vec<String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{env_remove_keys, spawn_pty, PtyConfig};
     use std::collections::HashMap;

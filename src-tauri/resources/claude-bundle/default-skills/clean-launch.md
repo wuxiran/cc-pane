@@ -12,7 +12,7 @@ description: Launch or restart a project's dev/build process in CC-Panes, resolv
 让用户启动他们项目里的 dev server / 后端服务 / 编译进程时**不被旧 PID 和端口冲突拖累**——并且把"上次怎么启动的"记下来，下次一句话就能复现。
 
 与 `launch-task` 的区别：
-- `launch-task` 启动 **Claude / Codex CLI 本身**
+- `launch-task` / `dispatch-task` 启动 **任意已注册 CLI 本身**
 - `clean-launch` 启动 **项目代码**（npm / cargo / mvn / sh 脚本 / docker / …）
 
 ## SOP

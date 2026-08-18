@@ -144,8 +144,10 @@ mod tests {
             if cfg!(debug_assertions) { 47822 } else { 47821 }
         );
         // 必须在 Windows ephemeral 范围之外
-        assert!(ORCHESTRATOR_FIXED_PORT < 49152);
-        assert!(ORCHESTRATOR_FIXED_PORT >= 1024);
+        const {
+            assert!(ORCHESTRATOR_FIXED_PORT < 49152);
+            assert!(ORCHESTRATOR_FIXED_PORT >= 1024);
+        }
     }
 
     #[test]
