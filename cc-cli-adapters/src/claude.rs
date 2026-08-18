@@ -1318,7 +1318,7 @@ mod tests {
     #[test]
     fn build_command_mounts_skills_as_plugin_dirs() {
         let adapter = ClaudeAdapter::new();
-        let mut ctx = test_context(None);
+        let mut ctx = test_context(Some("/test-bin/claude"));
         ctx.skill_mount_paths = vec![
             "/ccpanes/builtin".to_string(),
             "  ".to_string(),
@@ -1344,7 +1344,7 @@ mod tests {
     #[test]
     fn build_command_without_skill_mounts_emits_no_plugin_dir() {
         let adapter = ClaudeAdapter::new();
-        let ctx = test_context(None);
+        let ctx = test_context(Some("/test-bin/claude"));
         let result = adapter.build_command(&ctx).expect("build command");
         assert!(!result.args.iter().any(|arg| arg == "--plugin-dir"));
     }
