@@ -20,6 +20,7 @@ function cliLabel(cli: string): string {
   const labels: Record<string, string> = {
     claude: "Claude",
     codex: "Codex",
+    pi: "Pi",
     gemini: "Gemini",
     opencode: "OpenCode",
     grokbuild: "Grok Build",

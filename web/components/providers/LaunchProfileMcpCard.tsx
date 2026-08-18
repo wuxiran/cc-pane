@@ -10,6 +10,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import SharedMcpSection from "@/components/settings/SharedMcpSection";
 import type { LaunchProfileDraft } from "@/types";
 import type { SharedMcpServerInfo } from "@/types/shared-mcp";
+import type { KnownCliTool } from "@/types/terminal";
 import { GroupSearchInput, Section } from "./launchProfileParts";
 import { isSharedMcpServerSelected, selectedSharedMcpCount } from "./launchProfileHelpers";
 
@@ -19,6 +20,7 @@ interface LaunchProfileMcpCardProps {
   servers: SharedMcpServerInfo[];
   mcpManagerOpen: boolean;
   setMcpManagerOpen: (open: boolean) => void;
+  activeTool: KnownCliTool;
   setMcpMode: (mode: LaunchProfileDraft["mcpPolicy"]["mode"]) => void;
   toggleServer: (name: string) => void;
 }
@@ -29,6 +31,7 @@ export default function LaunchProfileMcpCard({
   servers,
   mcpManagerOpen,
   setMcpManagerOpen,
+  activeTool,
   setMcpMode,
   toggleServer,
 }: LaunchProfileMcpCardProps) {
@@ -38,6 +41,7 @@ export default function LaunchProfileMcpCard({
   const sharedMcpNames = servers.map((server) => server.name);
   const sharedMcpSelectedCount = selectedSharedMcpCount(draft.mcpPolicy, sharedMcpNames);
   const normalizedQuery = query.trim().toLowerCase();
+  const mcpSupported = activeTool !== "pi";
   // 过滤只影响可见行；计数仍按全量，避免搜索时看着像「服务器变少了」
   const visibleServers = useMemo(
     () => normalizedQuery
@@ -45,6 +49,25 @@ export default function LaunchProfileMcpCard({
       : servers,
     [normalizedQuery, servers],
   );
+
+  if (!mcpSupported) {
+    return (
+      <Section
+        title="MCP"
+        description={t("sectionMcpDesc")}
+        icon={<Cable size={16} />}
+        headerActions={<Badge variant="outline" className="text-[10px]">{t("mcpUnsupported")}</Badge>}
+      >
+        <div
+          data-testid="mcp-unsupported"
+          className="rounded-md border border-dashed border-[var(--app-border)] px-3 py-3 text-xs"
+          style={{ color: "var(--app-text-tertiary)" }}
+        >
+          {t("mcpUnsupportedHint")}
+        </div>
+      </Section>
+    );
+  }
 
   return (
             <Section

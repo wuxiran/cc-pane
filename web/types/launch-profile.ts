@@ -1,6 +1,6 @@
 import type { Provider } from "./provider";
 import type { SkillDeliveryMode } from "./skill";
-import type { LaunchEffort } from "./terminal";
+import type { LaunchEffort, PiLaunchOptions } from "./terminal";
 import type { WorkspaceLaunchEnvironment } from "./workspace";
 
 export type LaunchProfileMcpMode = "default" | "custom" | "disabled";
@@ -9,7 +9,7 @@ export type LaunchProviderSelection = "inherit" | "explicit" | "none";
 export type LaunchProfileRuntime = WorkspaceLaunchEnvironment | null;
 export type KimiConfigMode = "managed" | "native";
 
-export interface LaunchProfileAdapterOptions {
+export interface LaunchProfileAdapterOptions extends PiLaunchOptions {
   kimiConfigMode?: KimiConfigMode;
   effort?: LaunchEffort;
   [key: string]: unknown;

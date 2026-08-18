@@ -18,7 +18,7 @@ export function useContextUsagePoller(
   const supported = Boolean(
     terminal?.sessionId
       && !terminal.ssh
-      && (cliTool === "claude" || cliTool === "codex"),
+      && (cliTool === "claude" || cliTool === "codex" || cliTool === "pi"),
   );
   const sessionId = supported ? terminal?.sessionId ?? null : null;
   const setSession = useContextUsageStore((state) => state.setSession);

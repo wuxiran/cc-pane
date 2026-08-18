@@ -53,6 +53,9 @@ impl OpenCodeAdapter {
                 supports_workspace: false,
                 supports_project_hooks: true,
                 supports_issued_session_id: false,
+                supports_rpc: false,
+                supports_structured_result: false,
+                supports_yolo: false,
                 compatible_provider_types: vec![
                     "open_ai".into(),
                     "opencode".into(),

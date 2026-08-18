@@ -50,6 +50,7 @@
   "workspaceBadge": "工作空间",
   "noProviderSpecified": "未指定供应商",
   "fieldProvider": "供应商",
+  "fieldManagedProvider": "CC-Panes 供应商",
   "fieldProviderModel": "供应商 / 模型",
   "fieldModel": "模型",
   "useProviderDefaultModel": "跟随供应商默认（{{model}}）",
@@ -102,6 +103,26 @@
   "fieldRuntime": "运行位置",
   "runtimeHint": "运行配置固定归属当前 CLI；运行位置用于区分本机、WSL 与 SSH 的 CLI 配置。",
   "fieldDescription": "说明",
+  "sectionPiTitle": "Pi",
+  "fieldPiTransport": "传输方式",
+  "piTransport": {
+    "pty": "交互终端 (PTY)",
+    "rpc": "RPC 后台"
+  },
+  "fieldPiProjectTrust": "项目资源信任",
+  "piProjectTrust": {
+    "inherit": "继承",
+    "approve": "信任项目资源",
+    "deny": "拒绝项目资源"
+  },
+  "fieldPiNativeProvider": "Pi 原生 Provider",
+  "fieldPiNativeModel": "Pi 原生模型",
+  "piNativeProviderPlaceholder": "Pi Provider ID（可选）",
+  "piNativeModelPlaceholder": "Pi 模型 ID（可选）",
+  "piNativeAuthHint": "原生字段使用 Pi 的 auth.json 与 settings；填写任一字段会改用 Pi 原生认证，不再注入 CC-Panes Provider。",
+  "piProjectTrustHint": "项目资源信任只控制项目资源，不会开启 YOLO 或绕过权限确认。",
+  "piRpcUnavailable": "当前 Pi 适配器未提供 RPC，请使用交互终端传输。",
+  "piSshRuntimeUnsupported": "Pi 启动配置仅支持本地和 WSL 运行环境。",
   "sectionPermTitle": "权限",
   "sectionPermDesc": "设置当前运行配置的 CLI 权限策略。",
   "yoloBypassed": "⚠ 已绕过权限确认",
@@ -122,6 +143,7 @@
   "skillDeliveryMode": {
     "nativeCommand": "原生命令",
     "nativeSkill": "原生 Skill",
+    "piSkill": "Pi Skill",
     "sessionPrompt": "会话提示词",
     "none": "没有交付方式"
   },
@@ -138,6 +160,8 @@
     "ccpanesMcpDisabled": "启用 CC-Panes MCP 后才能参与编排并回传结果。"
   },
   "sectionMcpDesc": "设置本运行配置启动时注入的 MCP 组合。",
+  "mcpUnsupported": "不支持",
+  "mcpUnsupportedHint": "此 CLI 无法接收 MCP 服务。已保存的 MCP 策略会保留，但启动时不会注入。",
   "collapseServerLib": "收起服务库",
   "manageSharedMcp": "管理共享 MCP",
   "mcpDisabledHint": "当前配置不会注入 CC-Panes MCP 或共享 MCP。",

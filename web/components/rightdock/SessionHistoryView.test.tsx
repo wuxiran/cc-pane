@@ -163,6 +163,12 @@ describe("SessionHistoryView", () => {
       query: "rollout",
       cliFilter: "codex",
     })));
+
+    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
+    await waitFor(() => expect(mocks.list).toHaveBeenLastCalledWith(expect.objectContaining({
+      query: "rollout",
+      cliFilter: "pi",
+    })));
   });
 
   it("以 100 条为一页追加加载更多结果", async () => {

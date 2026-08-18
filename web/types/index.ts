@@ -33,6 +33,9 @@ export type {
   WslLaunchInfo,
   LaunchEffort,
   LaunchAdapterOptions,
+  PiLaunchOptions,
+  PiProjectTrust,
+  PiTransport,
   LaunchExtras,
   TerminalLaunchError,
   TerminalRestoreBlockedReason,
@@ -53,6 +56,14 @@ export type {
   KillReason,
   SessionKilledPayload,
 } from "./terminal";
+export type {
+  PiRpcCommandResponse,
+  PiRpcEvent,
+  PiRpcLaunchRequest,
+  PiRpcSessionPhase,
+  PiRpcSessionSnapshot,
+  PiRpcStartRequest,
+} from "./piRpc";
 export type {
   ProjectCliHookStatus,
   ProjectCliHookGroupStatus,

@@ -75,10 +75,23 @@ describe("provider compatibility from adapter capabilities", () => {
     ).toEqual(["claude"]);
   });
 
+  it("keeps Pi's managed Provider fallback limited to verified translations", () => {
+    expect(isProviderTypeCompatibleWithCli("anthropic", "pi", [])).toBe(true);
+    expect(isProviderTypeCompatibleWithCli("open_ai", "pi", [])).toBe(true);
+    expect(isProviderTypeCompatibleWithCli("grok", "pi", [])).toBe(true);
+    expect(isProviderTypeCompatibleWithCli("kimi", "pi", [])).toBe(false);
+    expect(isProviderTypeCompatibleWithCli("glm", "pi", [])).toBe(false);
+    expect(isProviderTypeCompatibleWithCli("opencode", "pi", [])).toBe(false);
+    expect(isProviderTypeCompatibleWithCli("proxy", "pi", [])).toBe(false);
+    expect(isProviderTypeCompatibleWithCli("config_profile", "pi", [])).toBe(false);
+    expect(isProviderTypeCompatibleWithCli("cursor", "pi", [])).toBe(false);
+  });
+
   it("keeps the loading fallback aligned with every CLI adapter", () => {
     const candidates = [
       "claude",
       "codex",
+      "pi",
       "gemini",
       "kimi",
       "glm",
@@ -89,25 +102,25 @@ describe("provider compatibility from adapter capabilities", () => {
 
     expect(compatibleCliToolsForProviderType("anthropic", [], candidates)).toEqual([
       "claude",
+      "pi",
       "opencode",
     ]);
     expect(compatibleCliToolsForProviderType("open_ai", [], candidates)).toEqual([
       "codex",
+      "pi",
       "opencode",
     ]);
-    expect(compatibleCliToolsForProviderType("opencode", [], candidates)).toEqual([
-      "opencode",
-    ]);
-    expect(compatibleCliToolsForProviderType("bedrock", [], candidates)).toEqual(["claude"]);
-    expect(compatibleCliToolsForProviderType("vertex", [], candidates)).toEqual(["claude"]);
+    expect(compatibleCliToolsForProviderType("opencode", [], candidates)).toEqual(["opencode"]);
+    expect(compatibleCliToolsForProviderType("bedrock", [], candidates)).toEqual(["claude", "pi"]);
+    expect(compatibleCliToolsForProviderType("vertex", [], candidates)).toEqual(["claude", "pi"]);
     expect(compatibleCliToolsForProviderType("proxy", [], candidates)).toEqual(["claude"]);
     expect(compatibleCliToolsForProviderType("config_profile", [], candidates)).toEqual([
       "claude",
     ]);
-    expect(compatibleCliToolsForProviderType("gemini", [], candidates)).toEqual(["gemini"]);
+    expect(compatibleCliToolsForProviderType("gemini", [], candidates)).toEqual(["pi", "gemini"]);
     expect(compatibleCliToolsForProviderType("kimi", [], candidates)).toEqual(["kimi"]);
     expect(compatibleCliToolsForProviderType("glm", [], candidates)).toEqual(["glm"]);
     expect(compatibleCliToolsForProviderType("cursor", [], candidates)).toEqual(["cursor"]);
-    expect(compatibleCliToolsForProviderType("grok", [], candidates)).toEqual(["grok"]);
+    expect(compatibleCliToolsForProviderType("grok", [], candidates)).toEqual(["pi", "grok"]);
   });
 });

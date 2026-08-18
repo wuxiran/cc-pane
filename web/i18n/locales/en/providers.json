@@ -50,6 +50,7 @@
   "workspaceBadge": "Workspace",
   "noProviderSpecified": "No Provider specified",
   "fieldProvider": "Provider",
+  "fieldManagedProvider": "CC-Panes Provider",
   "fieldProviderModel": "Provider / Model",
   "fieldModel": "Model",
   "useProviderDefaultModel": "Use Provider default ({{model}})",
@@ -102,6 +103,26 @@
   "fieldRuntime": "Runtime location",
   "runtimeHint": "A launch profile belongs to the current CLI; the runtime location distinguishes Local, WSL, and SSH CLI configs.",
   "fieldDescription": "Description",
+  "sectionPiTitle": "Pi",
+  "fieldPiTransport": "Transport",
+  "piTransport": {
+    "pty": "Interactive terminal (PTY)",
+    "rpc": "RPC background"
+  },
+  "fieldPiProjectTrust": "Project trust",
+  "piProjectTrust": {
+    "inherit": "Inherit",
+    "approve": "Approve project resources",
+    "deny": "Deny project resources"
+  },
+  "fieldPiNativeProvider": "Pi native Provider",
+  "fieldPiNativeModel": "Pi native model",
+  "piNativeProviderPlaceholder": "Pi provider id (optional)",
+  "piNativeModelPlaceholder": "Pi model id (optional)",
+  "piNativeAuthHint": "Native values use Pi's auth.json and settings. Entering either uses Pi-native auth instead of a CC-Panes Provider.",
+  "piProjectTrustHint": "Project trust only controls project resources. It does not enable YOLO or bypass permission checks.",
+  "piRpcUnavailable": "This Pi adapter does not expose RPC. Use the interactive terminal transport.",
+  "piSshRuntimeUnsupported": "Pi launch profiles support local and WSL runtimes only.",
   "sectionPermTitle": "Permissions",
   "sectionPermDesc": "Set the CLI permission policy for this launch profile.",
   "yoloBypassed": "⚠ Permission checks bypassed",
@@ -122,6 +143,7 @@
   "skillDeliveryMode": {
     "nativeCommand": "Native command",
     "nativeSkill": "Native Skill",
+    "piSkill": "Pi Skill",
     "sessionPrompt": "Session prompt",
     "none": "No delivery path"
   },
@@ -138,6 +160,8 @@
     "ccpanesMcpDisabled": "Enable CC-Panes MCP to use orchestration and result reporting."
   },
   "sectionMcpDesc": "Set the MCP combination injected when this profile launches.",
+  "mcpUnsupported": "Unsupported",
+  "mcpUnsupportedHint": "This CLI cannot receive MCP servers. The saved MCP policy is kept but will not be injected.",
   "collapseServerLib": "Collapse library",
   "manageSharedMcp": "Manage shared MCP",
   "mcpDisabledHint": "This profile won't inject CC-Panes MCP or shared MCP.",

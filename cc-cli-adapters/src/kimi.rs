@@ -36,6 +36,9 @@ impl KimiAdapter {
                 supports_workspace: true,
                 supports_project_hooks: false,
                 supports_issued_session_id: false,
+                supports_rpc: false,
+                supports_structured_result: false,
+                supports_yolo: false,
                 compatible_provider_types: vec!["kimi".into()],
             },
         }

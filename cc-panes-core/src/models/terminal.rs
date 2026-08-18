@@ -18,6 +18,7 @@ pub enum CliTool {
     Opencode,
     Cursor,
     Grok,
+    Pi,
 }
 
 impl CliTool {
@@ -33,6 +34,7 @@ impl CliTool {
             CliTool::Opencode => "opencode",
             CliTool::Cursor => "cursor",
             CliTool::Grok => "grok",
+            CliTool::Pi => "pi",
         }
     }
 
@@ -50,6 +52,7 @@ impl CliTool {
             "opencode" => Some(Self::Opencode),
             "cursor" => Some(Self::Cursor),
             "grok" => Some(Self::Grok),
+            "pi" => Some(Self::Pi),
             _ => None,
         }
     }

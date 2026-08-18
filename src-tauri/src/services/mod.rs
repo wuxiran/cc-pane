@@ -7,6 +7,7 @@ pub mod im_bridge;
 mod launch_backfill_service;
 mod notification_service;
 pub mod orchestrator_service;
+mod pi_rpc_event_bridge;
 mod process_guard;
 pub mod rest_launch_history;
 mod resume_binding_service;
@@ -34,6 +35,7 @@ pub(crate) use launch_backfill_service::{derive_project_name, detect_resume_sess
 pub use notification_service::NotificationService;
 pub use notification_service::{NotificationRequest, NotificationTriggerResult};
 pub use orchestrator_service::{OrchestratorService, StartLocks};
+pub use pi_rpc_event_bridge::{PiRpcEventBridge, PI_RPC_EVENT};
 pub use resume_binding_service::{bind_resume_id, ResumeIdDetectedPayload};
 pub use screenshot_service::{CaptureResult, ScreenshotService};
 pub use session_prompt_service::extract_last_prompt;

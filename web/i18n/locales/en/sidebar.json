@@ -133,6 +133,7 @@
   "openCodexCli": "Open Codex CLI",
   "cliToolClaude": "Claude Code",
   "cliToolCodex": "Codex CLI",
+  "cliToolPi": "Pi",
   "cliToolGemini": "Gemini CLI",
   "cliToolKimi": "Kimi CLI",
   "cliToolGlm": "GLM CLI",
@@ -526,6 +527,11 @@
     "searchPlaceholder": "Search sessions",
     "clearSearch": "Clear search",
     "cliFilter": "Filter by CLI",
+    "cli": {
+      "claude": "Claude",
+      "codex": "Codex",
+      "pi": "Pi"
+    },
     "refresh": "Refresh session index",
     "loading": "Loading sessions...",
     "loadError": "Could not load session history",

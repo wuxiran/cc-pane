@@ -12,6 +12,7 @@ import {
   resolveDraftProjectPath,
   worktreeNameFromBranch,
 } from "./launcherModel";
+import { getLauncherEnvironmentOptions } from "./LauncherEnvRow";
 
 const workspace: Workspace = {
   id: "ws-1",
@@ -150,6 +151,54 @@ describe("buildPendingLaunch", () => {
       providerId: "",
       providerSelection: "none",
     });
+  });
+
+  it("Pi 启动不会透传 YOLO 或 MCP 覆盖", () => {
+    const draft = createDefaultDraft({
+      source: { kind: "workspace", workspaceId: "ws-1", projectId: "proj-1" },
+      cliTool: "pi",
+      yolo: true,
+      skipMcp: true,
+    });
+
+    const result = buildPendingLaunch(draft, { workspaces: [workspace], machines: [] });
+
+    expect(result.launch).toMatchObject({ cliTool: "pi" });
+    expect(result.launch?.yolo).toBeUndefined();
+    expect(result.launch?.skipMcp).toBeUndefined();
+    expect(result.launch?.adapterOptions).toEqual({ piTransport: "pty" });
+  });
+
+  it("Pi 不接受已解析为 SSH 的最近启动来源", () => {
+    const draft = createDefaultDraft({
+      source: {
+        kind: "recent",
+        label: "remote Pi",
+        options: {
+          path: "ssh://dev@example.test/workspace",
+          cliTool: "pi",
+          ssh: {
+            host: "example.test",
+            port: 22,
+            user: "dev",
+            remotePath: "/workspace",
+          },
+        },
+      },
+      cliTool: "pi",
+    });
+
+    const result = buildPendingLaunch(draft, { workspaces: [], machines: [] });
+
+    expect(result.launch).toBeNull();
+    expect(result.issue).toEqual({ code: "pi_ssh_unsupported" });
+  });
+});
+
+describe("Pi launcher environments", () => {
+  it("only exposes local and WSL for Pi", () => {
+    expect(getLauncherEnvironmentOptions("pi")).toEqual(["local", "wsl"]);
+    expect(getLauncherEnvironmentOptions("claude")).toEqual(["local", "wsl", "ssh"]);
   });
 });
 

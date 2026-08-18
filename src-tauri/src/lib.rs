@@ -21,6 +21,7 @@ use ccchan_commands::{
 };
 use ccchan_service::{CCChanService, CcChanSessionNotifier};
 use commands::{
+    abort_pi_rpc_session,
     // Journal 命令
     add_journal_session,
     add_launch_history,
@@ -153,6 +154,8 @@ use commands::{
     get_orchestrator_port,
     get_orchestrator_status,
     get_orchestrator_token,
+    get_pi_rpc_session,
+    get_pi_rpc_state,
     get_plan_collaboration,
     get_plan_content,
     get_popup_tab_data,
@@ -238,6 +241,7 @@ use commands::{
     list_mcp_servers,
     list_memories,
     list_opencode_sessions,
+    list_pi_rpc_sessions,
     // Plan 命令
     list_plans,
     list_project_quick_commands,
@@ -273,6 +277,7 @@ use commands::{
     preview_launch_profile_resolution,
     preview_project_migration,
     preview_workspace_migration,
+    prompt_pi_rpc_session,
     prune_stale_session_outputs,
     prune_terminal_sessions,
     // Local History - 标签
@@ -372,8 +377,10 @@ use commands::{
     ssh_fs_write_file,
     stage_terminal_task_queue_clipboard_image,
     start_launch_history_backfill,
+    start_pi_rpc_session,
     start_shared_mcp_server,
     start_web_access,
+    stop_pi_rpc_session,
     stop_project_history,
     stop_shared_mcp_server,
     stop_terminal_daemon,
@@ -429,15 +436,16 @@ use services::BrowserTabManager;
 use services::{
     ExternalSkillRegistry, FileSystemService, HistoryService, HistoryWatchManager, JournalService,
     LaunchHistoryService, LaunchProfileService, LayoutSnapshotService, McpConfigService,
-    MemoryService, NotificationService, OrchestratorService, PlanArchiveService, PlanService,
-    ProcessMonitorService, ProjectCliHooksService, ProjectContextService, ProjectService,
-    ProviderService, QuickCommandService, ScreenshotService, SessionIndexService,
-    SessionRestoreService, SettingsService, SharedMcpService, SkillMarketService, SkillService,
-    SpecService, SshCredentialService, SshFileService, SshMachineService, StartLocks,
-    SystemStatsService, TaskBindingService, TaskQueueService, TaskQueueWorker, TerminalBackendKind,
-    TerminalBackendState, TerminalDaemonControlLink, TerminalDaemonEventBridge,
-    TerminalDaemonLifecycle, TerminalService, TodoService, UninstallCleanupService,
-    UsageStatsService, WebAccessLifecycle, WorkspaceService, WorktreeService,
+    MemoryService, NotificationService, OrchestratorService, PiRpcEventBridge, PiRpcService,
+    PlanArchiveService, PlanService, ProcessMonitorService, ProjectCliHooksService,
+    ProjectContextService, ProjectService, ProviderService, QuickCommandService, ScreenshotService,
+    SessionIndexService, SessionRestoreService, SettingsService, SharedMcpService,
+    SkillMarketService, SkillService, SpecService, SshCredentialService, SshFileService,
+    SshMachineService, StartLocks, SystemStatsService, TaskBindingService, TaskQueueService,
+    TaskQueueWorker, TerminalBackendKind, TerminalBackendState, TerminalDaemonControlLink,
+    TerminalDaemonEventBridge, TerminalDaemonLifecycle, TerminalService, TodoService,
+    UninstallCleanupService, UsageStatsService, WebAccessLifecycle, WorkspaceService,
+    WorktreeService,
 };
 use std::sync::Arc;
 use utils::AppPaths;
@@ -1528,6 +1536,7 @@ pub fn run() {
     let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
+    let pi_rpc_service = Arc::new(PiRpcService::new());
     let task_queue_service = Arc::new(TaskQueueService::new(
         task_queue_repo,
         app_paths.task_queue_images_dir(),
@@ -1585,18 +1594,9 @@ pub fn run() {
         workspace_service.clone(),
         settings_service.clone(),
     ));
-    let cli_registry = {
-        let mut reg = cc_cli_adapters::CliToolRegistry::new();
-        reg.register(Arc::new(cc_cli_adapters::ClaudeAdapter::new()));
-        reg.register(Arc::new(cc_cli_adapters::CodexAdapter::new()));
-        reg.register(Arc::new(cc_cli_adapters::GeminiAdapter::new()));
-        reg.register(Arc::new(cc_cli_adapters::KimiAdapter::new()));
-        reg.register(Arc::new(cc_cli_adapters::GlmAdapter::new()));
-        reg.register(Arc::new(cc_cli_adapters::OpenCodeAdapter::new()));
-        reg.register(Arc::new(cc_cli_adapters::CursorAdapter::new()));
-        reg.register(Arc::new(cc_cli_adapters::GrokAdapter::new()));
-        Arc::new(reg)
-    };
+    // Keep the desktop surface aligned with the shared adapter registry. This
+    // also drives the CLI installation status rendered by the settings UI.
+    let cli_registry = Arc::new(cc_cli_adapters::CliToolRegistry::with_builtin_adapters());
     let external_skill_registry = Arc::new(ExternalSkillRegistry::new(cli_registry.clone()));
     let launch_profile_service = Arc::new(LaunchProfileService::new_with_external_skill_registry(
         app_paths.launch_profiles_path(),
@@ -1689,6 +1689,7 @@ pub fn run() {
     let usage_stats_cleanup = usage_stats_service.clone();
     let web_access_cleanup = web_access_lifecycle.clone();
     let orchestrator_cleanup = orchestrator_service.clone();
+    let pi_rpc_cleanup = pi_rpc_service.clone();
 
     boot_mark!("building tauri app...");
     with_macos_app_menu(tauri::Builder::default())
@@ -1746,6 +1747,7 @@ pub fn run() {
         .manage(app_paths)
         .manage(project_service)
         .manage(terminal_service)
+        .manage(pi_rpc_service)
         .manage(terminal_backend_state)
         .manage(launch_history_service)
         .manage(usage_stats_service)
@@ -2058,6 +2060,11 @@ pub fn run() {
                 term_svc.set_emitter(tauri_emitter.clone());
                 let tb_svc = app.state::<Arc<TaskBindingService>>();
                 tb_svc.set_emitter(tauri_emitter.clone());
+                app.manage(Arc::new(PiRpcEventBridge::new(
+                    app_handle.clone(),
+                    app.state::<Arc<PiRpcService>>().inner().clone(),
+                    tb_svc.inner().clone(),
+                )));
                 // TaskBinding 的终态不再依赖 WebView 的事件监听：窗口刷新、失焦或
                 // 自愈期间也能持久化已派发任务的退出结果。session-killed 覆盖本地
                 // kill 路径，terminal-exit 覆盖自然退出与 daemon 事件桥接路径。
@@ -2562,6 +2569,13 @@ pub fn run() {
             // 终端命令
             cancel_terminal_launch,
             create_terminal_session,
+            start_pi_rpc_session,
+            list_pi_rpc_sessions,
+            get_pi_rpc_session,
+            prompt_pi_rpc_session,
+            abort_pi_rpc_session,
+            get_pi_rpc_state,
+            stop_pi_rpc_session,
             adopt_terminal_session,
             release_terminal_session,
             write_terminal,
@@ -3014,6 +3028,7 @@ pub fn run() {
                 if let Err(e) = usage_stats_cleanup.flush_pending() {
                     error!("[cleanup] Failed to flush usage stats: {}", e);
                 }
+                tauri::async_runtime::block_on(pi_rpc_cleanup.cleanup_all());
                 terminal_cleanup.cleanup_all();
                 history_cleanup.stop_all_watching();
                 workspace_cleanup.stop_watcher();

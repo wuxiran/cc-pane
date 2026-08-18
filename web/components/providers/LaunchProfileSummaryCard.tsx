@@ -71,6 +71,7 @@ export default function LaunchProfileSummaryCard({
   const deliveryModeLabels = {
     nativeCommand: t("skillDeliveryMode.nativeCommand"),
     nativeSkill: t("skillDeliveryMode.nativeSkill"),
+    piSkill: t("skillDeliveryMode.piSkill"),
     sessionPrompt: t("skillDeliveryMode.sessionPrompt"),
   } as const;
   const compatibilityReasonLabels = {

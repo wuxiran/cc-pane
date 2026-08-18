@@ -262,7 +262,6 @@ export default function LaunchProfilesPanel({
   const providerOptions = selectedDraftProvider && !compatibleProviders.some((provider) => provider.id === selectedDraftProvider.id)
     ? [selectedDraftProvider, ...compatibleProviders]
     : compatibleProviders;
-
   useEffect(() => {
     if (selectedId === null || selectedId === SYSTEM_DEFAULT_PROFILE_ID) return;
     if (!filteredProfiles.some((profile) => profile.id === selectedId)) {
@@ -314,6 +313,10 @@ export default function LaunchProfilesPanel({
 
   const handleSave = useCallback(async () => {
     try {
+      if (activeTool === "pi" && draft.targetRuntime === "ssh") {
+        toast.error(t("piSshRuntimeUnsupported"));
+        return;
+      }
       const alias = draft.alias?.trim() || draft.name?.trim() || t("profileDefaultName", { tool: toolLabel(activeTool, t) });
       const nextDraft = {
         ...draft,
@@ -321,7 +324,10 @@ export default function LaunchProfilesPanel({
         alias,
         providerId: isSystemDefaultSelected ? null : draft.providerId,
         modelId: isSystemDefaultSelected || !draft.providerId ? null : draft.modelId,
-        adapterOptions: draft.adapterOptions ?? {},
+        adapterOptions: activeTool === "pi"
+          ? { ...(draft.adapterOptions ?? {}), piTransport: "pty" as const }
+          : draft.adapterOptions ?? {},
+        yoloMode: activeTool === "pi" ? false : draft.yoloMode,
         isDefault: isSystemDefaultSelected ? true : draft.isDefault,
         targetTools: [activeTool],
         targetRuntime: draft.targetRuntime ?? null,
@@ -519,6 +525,7 @@ export default function LaunchProfilesPanel({
               servers={servers}
               mcpManagerOpen={mcpManagerOpen}
               setMcpManagerOpen={setMcpManagerOpen}
+              activeTool={activeTool}
               setMcpMode={setMcpMode}
               toggleServer={toggleServer}
             />

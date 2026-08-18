@@ -17,6 +17,8 @@ mod layout_snapshot_service;
 pub mod mcp_config_service;
 mod memory_service;
 pub mod opencode_session_service;
+pub mod pi_rpc_service;
+pub(crate) mod pi_session_service;
 pub mod plan_archive_service;
 pub mod plan_service;
 mod port_scanner;
@@ -80,6 +82,10 @@ pub use launch_profile_service::LaunchProfileService;
 pub use layout_snapshot_service::LayoutSnapshotService;
 pub use mcp_config_service::McpConfigService;
 pub use memory_service::MemoryService;
+pub use pi_rpc_service::{
+    PiRpcCommandResponse, PiRpcEvent, PiRpcLaunchSpec, PiRpcService, PiRpcSessionPhase,
+    PiRpcSessionSnapshot,
+};
 pub use plan_archive_service::PlanArchiveService;
 pub use plan_service::PlanService;
 pub use port_scanner::{ListeningSocket, PortScanner};

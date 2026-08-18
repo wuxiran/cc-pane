@@ -57,7 +57,7 @@ export interface DiscoveredExternalSkill {
 }
 
 /** A CLI-native or session-level transport for portable CC-Panes Skills. */
-export type SkillDeliveryMode = "nativeCommand" | "nativeSkill" | "sessionPrompt";
+export type SkillDeliveryMode = "nativeCommand" | "nativeSkill" | "piSkill" | "sessionPrompt";
 
 export interface BundledSkillDelivery {
   portable: boolean;

@@ -46,6 +46,7 @@ export const TOOL_LABELS: Record<KnownCliTool, string> = {
   none: "",
   claude: "Claude",
   codex: "Codex",
+  pi: "Pi",
   gemini: "Gemini",
   kimi: "Kimi",
   glm: "GLM",

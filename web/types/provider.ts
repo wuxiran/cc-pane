@@ -234,6 +234,7 @@ export const PROVIDER_TYPE_META: Record<
 export const CLI_TOOL_TABS = [
   { id: "claude" as const, labelKey: "tabClaude", accentColor: "#E8590C" },
   { id: "codex" as const, labelKey: "tabCodex", accentColor: "#10A37F" },
+  { id: "pi" as const, labelKey: "tabPi", accentColor: "#F59E0B" },
   { id: "gemini" as const, labelKey: "tabGemini", accentColor: "#4285F4" },
   { id: "kimi" as const, labelKey: "tabKimi", accentColor: "#F97316" },
   { id: "glm" as const, labelKey: "tabGlm", accentColor: "#2563EB" },

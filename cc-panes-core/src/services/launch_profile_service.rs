@@ -1317,6 +1317,7 @@ fn preview_cli_tool(value: Option<&str>) -> AppResult<crate::models::CliTool> {
         "opencode" => CliTool::Opencode,
         "cursor" => CliTool::Cursor,
         "grok" => CliTool::Grok,
+        "pi" => CliTool::Pi,
         _other => {
             return Err(AppError::coded_with_params(
                 "PROVIDER_UNSUPPORTED",
@@ -1633,6 +1634,7 @@ mod tests {
     #[test]
     fn preview_cli_tool_normalizes_case_and_whitespace() {
         assert_eq!(preview_cli_tool(Some("  CoDeX ")).unwrap(), CliTool::Codex);
+        assert_eq!(preview_cli_tool(Some(" Pi ")).unwrap(), CliTool::Pi);
         assert_eq!(preview_cli_tool(Some(" NONE ")).unwrap(), CliTool::None);
     }
 

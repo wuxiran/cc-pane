@@ -59,6 +59,9 @@ impl GrokAdapter {
                 supports_workspace: false,
                 supports_project_hooks: false,
                 supports_issued_session_id: true,
+                supports_rpc: false,
+                supports_structured_result: false,
+                supports_yolo: true,
                 compatible_provider_types: vec!["grok".into()],
             },
         }

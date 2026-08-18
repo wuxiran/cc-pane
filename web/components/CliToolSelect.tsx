@@ -26,6 +26,7 @@ interface CliToolSelectProps {
 const CLI_COLOR_VAR: Record<string, string> = {
   claude: "var(--app-cli-claude)",
   codex: "var(--app-cli-codex)",
+  pi: "var(--app-cli-pi)",
   gemini: "var(--app-cli-gemini)",
   kimi: "var(--app-cli-kimi)",
   glm: "var(--app-cli-glm)",

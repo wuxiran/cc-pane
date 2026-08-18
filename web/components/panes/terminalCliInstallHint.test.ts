@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { getCliInstallHint } from "./terminalCliInstallHint";
 
 describe("terminal CLI install hints", () => {
+  it("uses Pi's published npm package and keeps postinstall scripts disabled", () => {
+    const hint =
+      "Install Pi with: npm install -g --ignore-scripts @earendil-works/pi-coding-agent";
+    expect(getCliInstallHint("pi")).toBe(hint);
+    expect(getCliInstallHint("Pi")).toBe(hint);
+  });
+
   it("uses the npm package name for OpenCode", () => {
     const hint =
       "Install OpenCode with: npm install -g opencode-ai --registry=https://registry.npmjs.org";

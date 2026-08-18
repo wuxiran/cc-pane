@@ -19,6 +19,7 @@ import type { LaunchRecord } from "@/services";
 
 const PAGE_SIZE = 100;
 const SEARCH_DEBOUNCE_MS = 300;
+const SESSION_CLI_FILTERS = ["claude", "codex", "pi"] as const;
 
 type RolloutStatus = "checking" | "valid" | "invalid" | "unknown";
 
@@ -300,7 +301,7 @@ export default function SessionHistoryView({
         </div>
 
         <div className="flex items-center gap-1.5" aria-label={t("sessionHistory.cliFilter")}>
-          {(["claude", "codex"] as const).map((cli) => (
+          {SESSION_CLI_FILTERS.map((cli) => (
             <button
               key={cli}
               type="button"
@@ -308,7 +309,7 @@ export default function SessionHistoryView({
               onClick={() => setCliFilter((current) => current === cli ? null : cli)}
               className="h-6 rounded-md border border-[var(--app-border)] px-2 text-[11px] font-medium capitalize text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] aria-pressed:border-[var(--app-accent)] aria-pressed:bg-[var(--app-active-bg)] aria-pressed:text-[var(--app-text-primary)]"
             >
-              {cli === "claude" ? "Claude" : "Codex"}
+              {t(`sessionHistory.cli.${cli}` as never)}
             </button>
           ))}
         </div>

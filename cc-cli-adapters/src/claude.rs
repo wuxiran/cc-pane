@@ -184,6 +184,9 @@ impl ClaudeAdapter {
                 supports_workspace: true,
                 supports_project_hooks: true,
                 supports_issued_session_id: true,
+                supports_rpc: false,
+                supports_structured_result: false,
+                supports_yolo: true,
                 compatible_provider_types: vec![
                     "anthropic".into(),
                     "bedrock".into(),

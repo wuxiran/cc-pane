@@ -133,6 +133,7 @@
   "openCodexCli": "打开 Codex CLI",
   "cliToolClaude": "Claude Code",
   "cliToolCodex": "Codex CLI",
+  "cliToolPi": "Pi",
   "cliToolGemini": "Gemini CLI",
   "cliToolKimi": "Kimi CLI",
   "cliToolGlm": "GLM CLI",
@@ -526,6 +527,11 @@
     "searchPlaceholder": "搜索会话",
     "clearSearch": "清空搜索",
     "cliFilter": "按 CLI 筛选",
+    "cli": {
+      "claude": "Claude",
+      "codex": "Codex",
+      "pi": "Pi"
+    },
     "refresh": "刷新会话索引",
     "loading": "正在加载会话...",
     "loadError": "无法加载会话历史",

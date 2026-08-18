@@ -37,11 +37,17 @@ struct SkillEntry {
 }
 
 impl SkillEntry {
-    /// Legacy manifest entries predate delivery metadata and remain available
-    /// through every native format. Portable entries are emitted only when the
-    /// target CLI explicitly supports one of their declared transports.
     fn supports_delivery_mode(&self, mode: SkillDeliveryMode) -> bool {
-        !self.delivery.portable || self.delivery.modes.contains(&mode)
+        match mode {
+            // Pi has no CC-Panes MCP transport. Legacy entries can assume one,
+            // so only an explicit, MCP-independent Pi delivery is permitted.
+            SkillDeliveryMode::PiSkill => {
+                self.delivery.portable
+                    && !self.delivery.requires_ccpanes_mcp
+                    && self.delivery.modes.contains(&SkillDeliveryMode::PiSkill)
+            }
+            _ => !self.delivery.portable || self.delivery.modes.contains(&mode),
+        }
     }
 }
 
@@ -266,17 +272,56 @@ impl DefaultSkillService {
         }
 
         let skill_dirs = registry.global_skills_dirs();
-        if skill_dirs.is_empty() {
+        let native_skill_dirs = skill_dirs
+            .iter()
+            .filter(|(tool_id, _)| {
+                registry_supports_skill_delivery(registry, tool_id, SkillDeliveryMode::NativeSkill)
+            })
+            .collect::<Vec<_>>();
+        if native_skill_dirs.is_empty() {
             info!("[default_skill] No CLI tools support global skills");
         } else {
             let rendered = match self.render_bundle(&manifest, SkillDeliveryMode::NativeSkill) {
                 Some(bundle) => bundle,
                 None => return,
             };
-            for (tool_id, skills_dir) in &skill_dirs {
+            for (tool_id, skills_dir) in native_skill_dirs {
                 self.inject_codex_skills_for_tool(tool_id, skills_dir, &rendered, app_version);
             }
         }
+
+        let pi_skill_dirs = skill_dirs
+            .iter()
+            .filter(|(tool_id, _)| {
+                registry_supports_skill_delivery(registry, tool_id, SkillDeliveryMode::PiSkill)
+            })
+            .collect::<Vec<_>>();
+        if pi_skill_dirs.is_empty() {
+            return;
+        }
+        let rendered = match self.render_explicit_pi_skill_bundle() {
+            Some(bundle) => bundle,
+            None => return,
+        };
+        for (tool_id, skills_dir) in pi_skill_dirs {
+            self.inject_pi_skills_for_tool(tool_id, skills_dir, &rendered, app_version);
+        }
+    }
+
+    /// Publish explicitly Pi-compatible bundled Skills into one Pi agent state
+    /// root, such as the directory supplied through `PI_CODING_AGENT_DIR`.
+    ///
+    /// The target is always `<agent_root>/skills`; callers must not pass a
+    /// user's shared `~/.pi/agent/skills` directory. Pi entries are rendered
+    /// directly from the bundled manifest/templates and deliberately retain
+    /// every existing directory in the target Skills root.
+    pub fn inject_pi_skills_to_agent_root(&self, agent_root: &Path, app_version: &str) {
+        let rendered = match self.render_explicit_pi_skill_bundle() {
+            Some(bundle) => bundle,
+            None => return,
+        };
+        let target_root = agent_root.join("skills");
+        self.inject_pi_skills_for_tool("pi-managed", &target_root, &rendered, app_version);
     }
 
     pub fn cleanup_injected(registry: &CliToolRegistry) -> DefaultSkillCleanupReport {
@@ -293,7 +338,13 @@ impl DefaultSkillService {
             }
         }
 
-        for (_, skills_root) in registry.global_skills_dirs() {
+        for (tool_id, skills_root) in registry.global_skills_dirs() {
+            if !should_cleanup_skill_root(registry, &tool_id) {
+                // Pi shares this root with user-owned Agent Skills. Unlike the
+                // native CLI roots, a ccpanes-* directory name alone is not an
+                // ownership proof, so uninstall must not recursively remove it.
+                continue;
+            }
             match Self::cleanup_injected_skill_dirs(&skills_root) {
                 Ok(paths) => report.removed.extend(paths),
                 Err(error) => report.failed.push((skills_root, error.to_string())),
@@ -416,6 +467,17 @@ impl DefaultSkillService {
         })
     }
 
+    fn render_explicit_pi_skill_bundle(&self) -> Option<RenderedBundle> {
+        let manifest_path = self.templates_dir.join("manifest.json");
+        let manifest = Self::load_manifest(&manifest_path)?;
+        let rendered = self.render_bundle(&manifest, SkillDeliveryMode::PiSkill)?;
+        if rendered.codex_skills.is_empty() {
+            info!("[default_skill] No explicitly Pi-compatible bundled skills to publish");
+            return None;
+        }
+        Some(rendered)
+    }
+
     fn inject_commands_for_tool(
         &self,
         tool_id: &str,
@@ -484,9 +546,32 @@ impl DefaultSkillService {
         rendered: &RenderedBundle,
         app_version: &str,
     ) {
+        self.inject_skills_for_tool(tool_id, target_root, rendered, app_version, true);
+    }
+
+    fn inject_pi_skills_for_tool(
+        &self,
+        tool_id: &str,
+        target_root: &Path,
+        rendered: &RenderedBundle,
+        app_version: &str,
+    ) {
+        // Pi's directory is shared with user Skills. Only upsert the rendered
+        // entries; do not infer ownership from a ccpanes-* prefix and delete it.
+        self.inject_skills_for_tool(tool_id, target_root, rendered, app_version, false);
+    }
+
+    fn inject_skills_for_tool(
+        &self,
+        tool_id: &str,
+        target_root: &Path,
+        rendered: &RenderedBundle,
+        app_version: &str,
+        cleanup_stale: bool,
+    ) {
         if Self::codex_target_up_to_date(target_root, rendered, app_version) {
             info!(
-                "[default_skill] {} codex skills already up to date (v{})",
+                "[default_skill] {} skills already up to date (v{})",
                 tool_id, app_version
             );
             return;
@@ -501,7 +586,9 @@ impl DefaultSkillService {
             return;
         }
 
-        Self::cleanup_stale_codex_dirs(target_root, rendered);
+        if cleanup_stale {
+            Self::cleanup_stale_codex_dirs(target_root, rendered);
+        }
 
         let mut success_count = 0usize;
         for skill in &rendered.codex_skills {
@@ -529,13 +616,13 @@ impl DefaultSkillService {
         if success_count == rendered.codex_skills.len() {
             if let Err(error) = std::fs::write(target_root.join(VERSION_FILE_NAME), app_version) {
                 warn!(
-                    "[default_skill] Failed to write codex version stamp: {}",
+                    "[default_skill] Failed to write skill version stamp: {}",
                     error
                 );
             }
         } else {
             warn!(
-                "[default_skill] Only {}/{} codex skills succeeded for {}",
+                "[default_skill] Only {}/{} skills succeeded for {}",
                 success_count,
                 rendered.codex_skills.len(),
                 tool_id
@@ -543,7 +630,7 @@ impl DefaultSkillService {
         }
 
         info!(
-            "[default_skill] Injected {}/{} codex skills for {} (v{})",
+            "[default_skill] Injected {}/{} skills for {} (v{})",
             success_count,
             rendered.codex_skills.len(),
             tool_id,
@@ -710,6 +797,20 @@ impl DefaultSkillService {
     }
 }
 
+fn registry_supports_skill_delivery(
+    registry: &CliToolRegistry,
+    tool_id: &str,
+    mode: SkillDeliveryMode,
+) -> bool {
+    registry
+        .get(tool_id)
+        .is_some_and(|adapter| adapter.skill_delivery_modes().contains(&mode))
+}
+
+fn should_cleanup_skill_root(registry: &CliToolRegistry, tool_id: &str) -> bool {
+    !registry_supports_skill_delivery(registry, tool_id, SkillDeliveryMode::PiSkill)
+}
+
 fn default_manifest_schema_version() -> u32 {
     1
 }
@@ -830,6 +931,68 @@ mod tests {
                 .map(|entry| entry.dir_name.as_str())
                 .collect::<Vec<_>>(),
             vec!["ccpanes-skill", "ccpanes-legacy"]
+        );
+        remove_dir(&root);
+    }
+
+    #[test]
+    fn pi_skills_require_explicit_non_mcp_pi_delivery() {
+        let root = unique_temp_dir("pi-delivery");
+        fs::write(root.join("native.md"), "# native").unwrap();
+        fs::write(root.join("pi.md"), "# pi").unwrap();
+        fs::write(root.join("pi-mcp.md"), "# pi mcp").unwrap();
+        fs::write(root.join("legacy.md"), "# legacy").unwrap();
+        let manifest = SkillManifest {
+            schema_version: 2,
+            namespace: BUNDLED_NAMESPACE.to_string(),
+            variables: HashMap::new(),
+            skills: vec![
+                SkillEntry {
+                    name: "native".to_string(),
+                    file: "native.md".to_string(),
+                    delivery: BundledSkillDelivery {
+                        portable: true,
+                        modes: vec![SkillDeliveryMode::NativeSkill],
+                        requires_ccpanes_mcp: false,
+                    },
+                },
+                SkillEntry {
+                    name: "pi".to_string(),
+                    file: "pi.md".to_string(),
+                    delivery: BundledSkillDelivery {
+                        portable: true,
+                        modes: vec![SkillDeliveryMode::PiSkill],
+                        requires_ccpanes_mcp: false,
+                    },
+                },
+                SkillEntry {
+                    name: "pi-mcp".to_string(),
+                    file: "pi-mcp.md".to_string(),
+                    delivery: BundledSkillDelivery {
+                        portable: true,
+                        modes: vec![SkillDeliveryMode::PiSkill],
+                        requires_ccpanes_mcp: true,
+                    },
+                },
+                SkillEntry {
+                    name: "legacy".to_string(),
+                    file: "legacy.md".to_string(),
+                    delivery: BundledSkillDelivery::default(),
+                },
+            ],
+        };
+        let service = DefaultSkillService::new(root.clone());
+
+        let pi = service
+            .render_bundle(&manifest, SkillDeliveryMode::PiSkill)
+            .unwrap();
+
+        assert_eq!(
+            pi.codex_skills
+                .iter()
+                .map(|entry| entry.dir_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ccpanes-pi"]
         );
         remove_dir(&root);
     }
@@ -986,6 +1149,131 @@ mod tests {
             "1.2.3"
         );
         remove_dir(&root);
+    }
+
+    #[test]
+    fn pi_skill_injection_preserves_unlisted_user_skill_dirs() {
+        let root = unique_temp_dir("inject-pi");
+        let preserved = root.join("ccpanes-user-skill");
+        fs::create_dir_all(&preserved).unwrap();
+        fs::write(preserved.join("SKILL.md"), "user content").unwrap();
+        let svc = DefaultSkillService::new(PathBuf::from("/nonexistent"));
+        let rendered = RenderedBundle {
+            namespace: "ccpanes".to_string(),
+            commands: vec![],
+            codex_skills: vec![RenderedCodexSkill {
+                dir_name: "ccpanes-pi-only".to_string(),
+                skill_md: "---\nname: ccpanes-pi-only\ndescription: Pi-only test skill.\n---\n"
+                    .to_string(),
+            }],
+        };
+
+        svc.inject_pi_skills_for_tool("pi", &root, &rendered, "1.2.3");
+
+        assert_eq!(
+            fs::read_to_string(preserved.join("SKILL.md")).unwrap(),
+            "user content"
+        );
+        assert!(root.join("ccpanes-pi-only").join("SKILL.md").is_file());
+        assert_eq!(
+            fs::read_to_string(root.join(VERSION_FILE_NAME)).unwrap(),
+            "1.2.3"
+        );
+        remove_dir(&root);
+    }
+
+    #[test]
+    fn managed_pi_skill_publish_renders_templates_into_agent_root_without_cleanup() {
+        let root = unique_temp_dir("managed-pi");
+        let templates = root.join("templates");
+        fs::create_dir_all(&templates).unwrap();
+        fs::write(
+            templates.join("manifest.json"),
+            r#"{
+                "schemaVersion": 2,
+                "namespace": "ccpanes",
+                "skills": [
+                    {
+                        "name": "pi-portable",
+                        "file": "pi-portable.md",
+                        "delivery": {
+                            "portable": true,
+                            "modes": ["piSkill"],
+                            "requiresCcpanesMcp": false
+                        }
+                    },
+                    {
+                        "name": "pi-needs-mcp",
+                        "file": "pi-needs-mcp.md",
+                        "delivery": {
+                            "portable": true,
+                            "modes": ["piSkill"],
+                            "requiresCcpanesMcp": true
+                        }
+                    },
+                    {
+                        "name": "native-only",
+                        "file": "native-only.md",
+                        "delivery": {
+                            "portable": true,
+                            "modes": ["nativeSkill"],
+                            "requiresCcpanesMcp": false
+                        }
+                    },
+                    { "name": "legacy", "file": "legacy.md" }
+                ]
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            templates.join("pi-portable.md"),
+            "# Pi portable\n\nRendered directly from bundled templates.",
+        )
+        .unwrap();
+        fs::write(templates.join("pi-needs-mcp.md"), "# Pi MCP").unwrap();
+        fs::write(templates.join("native-only.md"), "# Native").unwrap();
+        fs::write(templates.join("legacy.md"), "# Legacy").unwrap();
+
+        let agent_root = root.join("managed-agent");
+        let preserved = agent_root.join("skills").join("ccpanes-user-skill");
+        let untouched = agent_root.join("skills").join("user-skill");
+        fs::create_dir_all(&preserved).unwrap();
+        fs::create_dir_all(&untouched).unwrap();
+        fs::write(preserved.join("SKILL.md"), "user ccpanes content").unwrap();
+        fs::write(untouched.join("SKILL.md"), "user content").unwrap();
+
+        DefaultSkillService::new(templates).inject_pi_skills_to_agent_root(&agent_root, "1.2.3");
+
+        let skills_root = agent_root.join("skills");
+        let published = skills_root.join("ccpanes-pi-portable").join("SKILL.md");
+        assert!(published.is_file());
+        assert!(fs::read_to_string(published)
+            .unwrap()
+            .contains("Rendered directly from bundled templates."));
+        assert!(!skills_root.join("ccpanes-pi-needs-mcp").exists());
+        assert!(!skills_root.join("ccpanes-native-only").exists());
+        assert!(!skills_root.join("ccpanes-legacy").exists());
+        assert_eq!(
+            fs::read_to_string(preserved.join("SKILL.md")).unwrap(),
+            "user ccpanes content"
+        );
+        assert_eq!(
+            fs::read_to_string(untouched.join("SKILL.md")).unwrap(),
+            "user content"
+        );
+        assert_eq!(
+            fs::read_to_string(skills_root.join(VERSION_FILE_NAME)).unwrap(),
+            "1.2.3"
+        );
+        remove_dir(&root);
+    }
+
+    #[test]
+    fn pi_shared_skill_root_is_excluded_from_prefix_cleanup() {
+        let registry = CliToolRegistry::with_builtin_adapters();
+
+        assert!(!should_cleanup_skill_root(&registry, "pi"));
+        assert!(should_cleanup_skill_root(&registry, "codex"));
     }
 
     #[test]

@@ -77,7 +77,7 @@ impl SessionIndexListParams {
         };
         let cli_filter = trimmed(self.cli_filter);
         if let Some(cli) = cli_filter.as_deref() {
-            if !matches!(cli, "claude" | "codex") {
+            if !matches!(cli, "claude" | "codex" | "pi") {
                 return Err(format!("Unsupported session index CLI: {cli}"));
             }
         }
@@ -109,6 +109,11 @@ pub struct SessionScanState {
 pub struct ParsedSessionTranscript {
     pub session_id: String,
     pub cwd: String,
+    /// Creation timestamp from formats that persist it in the session header.
+    ///
+    /// Pi uses this only for a conservative launch-history backfill match; it
+    /// is not shown in the session index itself.
+    pub header_timestamp: Option<String>,
     pub first_prompt: String,
     pub last_summary: String,
     pub message_count: u64,
@@ -179,5 +184,13 @@ mod tests {
             invalid_cli.expect_err("cli is invalid"),
             "Unsupported session index CLI: gemini"
         );
+
+        let pi = SessionIndexListParams {
+            cli_filter: Some("pi".to_string()),
+            ..SessionIndexListParams::default()
+        }
+        .into_query()
+        .expect("Pi is a supported session index CLI");
+        assert_eq!(pi.cli_filter.as_deref(), Some("pi"));
     }
 }

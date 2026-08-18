@@ -132,6 +132,39 @@ pub fn managed_provider_conflict_env_keys(cli_tool: CliTool) -> &'static [&'stat
             "GROK_MODELS_BASE_URL",
             "GROK_CLI_CHAT_PROXY_BASE_URL",
         ],
+        // Pi resolves credentials from its documented provider environment
+        // variables. Remove inherited values before injecting the selected
+        // managed Provider (especially Anthropic auth-token precedence). Also
+        // clear generic CC-Panes Provider variables that Pi does not support,
+        // so a managed custom endpoint cannot bypass Pi adapter validation.
+        CliTool::Pi => &[
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_OAUTH_TOKEN",
+            "ANTHROPIC_BASE_URL",
+            "CODEX_API_KEY",
+            "OPENAI_API_KEY",
+            "OPENAI_BASE_URL",
+            "GEMINI_API_KEY",
+            "GEMINI_API_BASE",
+            "XAI_API_KEY",
+            "XAI_BASE_URL",
+            "GROK_MODELS_BASE_URL",
+            "GROK_CLI_CHAT_PROXY_BASE_URL",
+            "CLAUDE_CODE_USE_BEDROCK",
+            "CLAUDE_CODE_USE_VERTEX",
+            "AWS_REGION",
+            "AWS_PROFILE",
+            "AWS_BEARER_TOKEN_BEDROCK",
+            "CLOUD_ML_REGION",
+            "ANTHROPIC_VERTEX_PROJECT_ID",
+            "GOOGLE_CLOUD_API_KEY",
+            "GOOGLE_CLOUD_PROJECT",
+            "GCLOUD_PROJECT",
+            "GOOGLE_CLOUD_LOCATION",
+            "PI_CODING_AGENT_DIR",
+            "PI_CODING_AGENT_SESSION_DIR",
+        ],
         CliTool::None => &[],
     }
 }
@@ -327,7 +360,21 @@ fn effective_selection(input: &ProviderResolutionInput<'_>) -> LaunchProviderSel
             .and_then(|options| options.get("kimiConfigMode"))
             .and_then(serde_json::Value::as_str)
             == Some("native");
-    if legacy_native_kimi {
+    // Pi-native provider/model values mean the profile intentionally relies on
+    // Pi's own auth/configuration. Honor that intent before inherited workspace
+    // and default Provider fallback, while an explicit managed selection still
+    // remains authoritative.
+    let pi_native_configuration = input.cli_tool == CliTool::Pi
+        && input.selection == LaunchProviderSelection::Inherit
+        && input.adapter_options.is_some_and(|options| {
+            ["piNativeProvider", "piNativeModel"].iter().any(|key| {
+                options
+                    .get(*key)
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|value| !value.trim().is_empty())
+            })
+        });
+    if legacy_native_kimi || pi_native_configuration {
         LaunchProviderSelection::None
     } else {
         input.selection
@@ -339,6 +386,14 @@ pub fn validate_provider_runtime(
     runtime: LaunchRuntime,
     cli_tool: CliTool,
 ) -> AppResult<()> {
+    if runtime == LaunchRuntime::Ssh && cli_tool == CliTool::Pi {
+        return Err(provider_error(
+            "PI_SSH_UNSUPPORTED",
+            "Pi launch over SSH is disabled; use a local or WSL runtime so the native Pi installation and auth remain on the target host",
+            cli_tool,
+            plan.provider.as_ref().map(|provider| provider.id.as_str()),
+        ));
+    }
     if runtime == LaunchRuntime::Ssh && plan.mode == ProviderMode::Managed {
         return Err(provider_error(
             "PROVIDER_SSH_MANAGED_UNSAFE",
@@ -1112,6 +1167,11 @@ mod tests {
         assert!(!managed_provider_conflict_env_keys(CliTool::Codex)
             .contains(&"CLAUDE_CODE_USE_BEDROCK"));
         assert!(managed_provider_conflict_env_keys(CliTool::Codex).contains(&"OPENAI_BASE_URL"));
+        assert!(managed_provider_conflict_env_keys(CliTool::Pi).contains(&"OPENAI_API_KEY"));
+        assert!(managed_provider_conflict_env_keys(CliTool::Pi).contains(&"ANTHROPIC_AUTH_TOKEN"));
+        assert!(managed_provider_conflict_env_keys(CliTool::Pi).contains(&"PI_CODING_AGENT_DIR"));
+        assert!(managed_provider_conflict_env_keys(CliTool::Pi)
+            .contains(&"PI_CODING_AGENT_SESSION_DIR"));
         assert!(managed_provider_conflict_env_keys(CliTool::None).is_empty());
     }
 
@@ -1161,6 +1221,67 @@ mod tests {
     }
 
     #[test]
+    fn pi_native_options_override_inherited_provider_fallback_only() {
+        let mut managed = provider("pi-managed", ProviderType::OpenAI);
+        managed.is_default = true;
+        let providers = [managed];
+        let adapter_options = HashMap::from([
+            (
+                "piNativeProvider".to_string(),
+                serde_json::Value::String("anthropic".to_string()),
+            ),
+            (
+                "piNativeModel".to_string(),
+                serde_json::Value::String("claude-sonnet".to_string()),
+            ),
+        ]);
+
+        let inherited = resolve_provider_plan(
+            ProviderResolutionInput {
+                cli_tool: CliTool::Pi,
+                selection: LaunchProviderSelection::Inherit,
+                requested_provider_id: Some("pi-managed"),
+                requested_model_id: None,
+                profile_provider_id: Some("pi-managed"),
+                profile_model_id: None,
+                workspace_provider_id: Some("pi-managed"),
+                default_provider_id: Some("pi-managed"),
+                adapter_options: Some(&adapter_options),
+            },
+            &providers,
+            &CliToolRegistry::with_builtin_adapters(),
+        )
+        .unwrap();
+        assert_eq!(inherited.mode, ProviderMode::Native);
+        assert_eq!(inherited.source, ProviderSource::Native);
+
+        let explicit = resolve_provider_plan(
+            ProviderResolutionInput {
+                cli_tool: CliTool::Pi,
+                selection: LaunchProviderSelection::Explicit,
+                requested_provider_id: Some("pi-managed"),
+                requested_model_id: None,
+                profile_provider_id: None,
+                profile_model_id: None,
+                workspace_provider_id: None,
+                default_provider_id: Some("pi-managed"),
+                adapter_options: Some(&adapter_options),
+            },
+            &providers,
+            &CliToolRegistry::with_builtin_adapters(),
+        )
+        .unwrap();
+        assert_eq!(explicit.mode, ProviderMode::Managed);
+        assert_eq!(
+            explicit
+                .provider
+                .as_ref()
+                .map(|provider| provider.id.as_str()),
+            Some("pi-managed")
+        );
+    }
+
+    #[test]
     fn all_builtin_adapters_resolve_paired_managed_and_native_modes() {
         let cases = [
             (CliTool::Claude, ProviderType::Anthropic),
@@ -1171,6 +1292,7 @@ mod tests {
             (CliTool::Opencode, ProviderType::OpenCode),
             (CliTool::Cursor, ProviderType::Cursor),
             (CliTool::Grok, ProviderType::Grok),
+            (CliTool::Pi, ProviderType::OpenAI),
         ];
         for (cli_tool, provider_type) in cases {
             let configured = provider(cli_tool.as_id(), provider_type);
@@ -1229,5 +1351,8 @@ mod tests {
         )
         .unwrap();
         assert!(validate_provider_runtime(&native, LaunchRuntime::Ssh, CliTool::Claude).is_ok());
+        let error =
+            validate_provider_runtime(&native, LaunchRuntime::Ssh, CliTool::Pi).unwrap_err();
+        assert_eq!(error.code(), Some("PI_SSH_UNSUPPORTED"));
     }
 }

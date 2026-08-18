@@ -17,6 +17,7 @@ mod glm;
 mod grok;
 mod kimi;
 mod opencode;
+mod pi;
 
 pub use claude::ClaudeAdapter;
 pub use codex::CodexAdapter;
@@ -26,6 +27,11 @@ pub use glm::GlmAdapter;
 pub use grok::GrokAdapter;
 pub use kimi::KimiAdapter;
 pub use opencode::OpenCodeAdapter;
+pub use pi::{
+    cleanup_pi_managed_state, pi_managed_sessions_dir, pi_managed_state_dir, pi_managed_state_key,
+    PiAdapter, PiAdapterOptions, PiProjectTrust, PiTransport, PI_CODING_AGENT_DIR_ENV,
+    PI_CODING_AGENT_SESSION_DIR_ENV,
+};
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -80,6 +86,51 @@ pub fn no_window_command(program: &str) -> std::process::Command {
     {
         std::process::Command::new(program)
     }
+}
+
+/// Run a script in a WSL distribution through bash stdin and optionally forward
+/// environment values with `WSLENV`.
+///
+/// WSL's Windows-to-Linux argv conversion can corrupt shell syntax. Keeping
+/// the script on stdin avoids that translation boundary; `/u` forwards the
+/// small set of required values without embedding them in an argv payload.
+#[cfg(windows)]
+pub fn run_wsl_script_via_stdin(
+    wsl_path: &Path,
+    distro: &str,
+    script: &str,
+    envs: &[(&str, &str)],
+) -> Option<std::process::Output> {
+    use std::io::Write as _;
+    use std::process::Stdio;
+
+    let mut command = no_window_command(&wsl_path.to_string_lossy());
+    command.args(["-d", distro, "bash", "-l", "-s"]);
+    if !envs.is_empty() {
+        let forwarded = envs
+            .iter()
+            .map(|(name, _)| format!("{name}/u"))
+            .collect::<Vec<_>>()
+            .join(":");
+        // Append rather than replace a user-provided forwarding map.
+        let wslenv = match std::env::var("WSLENV") {
+            Ok(existing) if !existing.is_empty() => format!("{existing}:{forwarded}"),
+            _ => forwarded,
+        };
+        for (name, value) in envs {
+            command.env(name, value);
+        }
+        command.env("WSLENV", wslenv);
+    }
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    child.stdin.take()?.write_all(script.as_bytes()).ok()?;
+    let output = child.wait_with_output().ok()?;
+    output.status.success().then_some(output)
 }
 
 /// 带超时执行子进程，返回 stdout（超时或失败返回 None）
@@ -577,6 +628,8 @@ pub enum SkillDeliveryMode {
     NativeCommand,
     /// A CLI-native SKILL.md directory entry.
     NativeSkill,
+    /// Pi's Agent Skills directory (`~/.pi/agent/skills`).
+    PiSkill,
     /// Instructions appended to the launch session's system prompt.
     SessionPrompt,
 }
@@ -766,6 +819,15 @@ pub struct CliToolCapabilities {
     /// 使 resume id 在启动前即确定，无需事后捕获
     #[serde(default)]
     pub supports_issued_session_id: bool,
+    /// Supports Pi-style JSONL RPC transport (`--mode rpc`).
+    #[serde(default)]
+    pub supports_rpc: bool,
+    /// Emits a structured result channel that can be persisted by CC-Panes.
+    #[serde(default)]
+    pub supports_structured_result: bool,
+    /// Supports the CLI's explicit approval/bypass switch for YOLO mode.
+    #[serde(default)]
+    pub supports_yolo: bool,
     /// 兼容的 Provider 类型列表
     #[serde(default)]
     pub compatible_provider_types: Vec<String>,
@@ -1622,6 +1684,7 @@ impl CliToolRegistry {
         registry.register(Arc::new(OpenCodeAdapter::new()));
         registry.register(Arc::new(CursorAdapter::new()));
         registry.register(Arc::new(GrokAdapter::new()));
+        registry.register(Arc::new(PiAdapter::new()));
         registry
     }
 
@@ -1817,12 +1880,13 @@ mod registry_tests {
 
         assert_eq!(
             ids,
-            vec!["claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor", "grok"]
+            vec!["claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor", "grok", "pi"]
         );
         assert!(registry.get("claude").is_some());
         assert!(registry.get("codex").is_some());
         assert!(registry.get("opencode").unwrap().can_report_task_result());
         assert!(!registry.get("gemini").unwrap().can_report_task_result());
+        assert!(registry.get("pi").unwrap().can_report_task_result());
     }
 
     #[test]

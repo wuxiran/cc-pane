@@ -14,7 +14,7 @@ function fakeT(key: string, options?: { defaultValue?: string }): string {
   return options?.defaultValue ?? key;
 }
 
-const CLI_TOOLS = ["claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor", "grok"];
+const CLI_TOOLS = ["claude", "codex", "pi", "gemini", "kimi", "glm", "opencode", "cursor", "grok"];
 
 describe("getDefaultSidebarFavoriteLaunchActionIds", () => {
   it("returns the terminal + claude + codex defaults", () => {
@@ -93,14 +93,18 @@ describe("buildSidebarLaunchActions", () => {
     const ids = buildSidebarLaunchActions(fakeT, false, true).map((a) => a.id);
     expect(ids).toContain("terminal-ssh");
     for (const tool of CLI_TOOLS) {
-      expect(ids).toContain(`${tool}-ssh`);
+      if (tool === "pi") {
+        expect(ids).not.toContain(`${tool}-ssh`);
+      } else {
+        expect(ids).toContain(`${tool}-ssh`);
+      }
     }
   });
 
   it("includes both WSL and SSH variants when both enabled", () => {
     const actions = buildSidebarLaunchActions(fakeT, true, true);
-    // 3 terminal (default/local/wsl/ssh = 4) + 4 per cli tool
-    expect(actions).toHaveLength(4 + CLI_TOOLS.length * 4);
+    // Pi is intentionally local/WSL only in this release.
+    expect(actions).toHaveLength(4 + (CLI_TOOLS.length - 1) * 4 + 3);
   });
 
   it("tags terminal actions kind=terminal and cli actions kind=cli with cliTool", () => {

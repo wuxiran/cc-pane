@@ -1,5 +1,19 @@
 export { projectService } from "./projectService";
 export { terminalService } from "./terminalService";
+export {
+  abortPiRpcSession,
+  getPiRpcSession,
+  getPiRpcState,
+  listPiRpcSessions,
+  listenPiRpcEvents,
+  PI_RPC_EVENT,
+  piRpcService,
+  PiRpcUnavailableError,
+  promptPiRpcSession,
+  startPiRpcSession,
+  stopPiRpcSession,
+} from "./piRpcService";
+export type { PiRpcEventHandler } from "./piRpcService";
 export { getRecoverySnapshot } from "./terminalRecovery";
 export { terminalPathLinkService } from "./terminalPathLinkService";
 export type {

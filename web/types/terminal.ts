@@ -9,6 +9,7 @@ export type KnownCliTool =
   | "none"
   | "claude"
   | "codex"
+  | "pi"
   | "gemini"
   | "kimi"
   | "glm"
@@ -38,17 +39,38 @@ export interface CliToolCapabilities {
   supportsWorkspace: boolean;
   supportsProjectHooks: boolean;
   supportsIssuedSessionId?: boolean;
+  /** Structured transports exposed by the CLI adapter (for example Pi RPC). */
+  supportsRpc?: boolean;
+  supportsStructuredResult?: boolean;
+  /** Whether the adapter has a safe, native permission-bypass mode. */
+  supportsYolo?: boolean;
   compatibleProviderTypes: string[];
 }
 
 /** effort 六档中的显式五档（undefined = default，不注入） */
 export type LaunchEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
+/** Pi transport selected by a launch profile. PTY remains the interactive default. */
+export type PiTransport = "pty" | "rpc";
+/** Pi project-resource trust; this is intentionally separate from CC-Panes YOLO. */
+export type PiProjectTrust = "inherit" | "approve" | "deny";
+
+/**
+ * Pi-specific adapter options. Native provider/model values refer to Pi's
+ * own auth/settings files and never carry credentials in the launch payload.
+ */
+export interface PiLaunchOptions {
+  piTransport?: PiTransport;
+  piNativeProvider?: string;
+  piNativeModel?: string;
+  piProjectTrust?: PiProjectTrust;
+}
+
 /**
  * per-launch adapter 选项（与 Rust CreateSessionRequest.adapterOptions 约定键对齐）：
  * claude 侧 effort 经 MAX_THINKING_TOKENS env 注入，codex 侧走 `-c model_reasoning_effort`。
  */
-export interface LaunchAdapterOptions {
+export interface LaunchAdapterOptions extends PiLaunchOptions {
   effort?: LaunchEffort;
   extraArgs?: string[];
   verbose?: boolean;

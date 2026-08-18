@@ -2,24 +2,29 @@ use crate::constants::events as EV;
 use crate::events::{EventEmitter, SessionNotifier};
 use crate::models::shared_mcp::SharedMcpConfig;
 use crate::models::{
-    CliTool, LaunchProfile, LaunchProfileMcpMode, LaunchProviderSelection, SshConnectionInfo,
-    StoreCheckpointOutcome, TerminalBufferMode, TerminalCheckpoint, TerminalExit, TerminalOutput,
-    TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
+    CliTool, CreateSessionRequest, LaunchProfile, LaunchProfileMcpMode, LaunchProviderSelection,
+    SshConnectionInfo, StoreCheckpointOutcome, TerminalBufferMode, TerminalCheckpoint,
+    TerminalExit, TerminalOutput, TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
 };
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess};
+use crate::services::pi_rpc_service::PiManagedStateCleanup;
 use crate::services::{
     managed_provider_conflict_env_keys, resolve_provider_plan, validate_provider_runtime,
-    CreateSessionOutcome, DefaultSkillService, LaunchProfileService, ProjectCliHooksService,
-    ProviderMode, ProviderResolutionInput, ProviderService, ResolvedProviderPlan, SettingsService,
-    SpecService, SshConnectionService, SshCredentialService, TerminalLinkContext, WorkspaceService,
+    CreateSessionOutcome, DefaultSkillService, LaunchProfileService, PiRpcLaunchSpec,
+    ProjectCliHooksService, ProviderMode, ProviderResolutionInput, ProviderService,
+    ResolvedProviderPlan, SettingsService, SpecService, SshConnectionService, SshCredentialService,
+    TerminalLinkContext, WorkspaceService,
 };
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::{orchestrator_manifest, validate_launch_cwd, AppPaths, LaunchRuntime};
 use anyhow::{anyhow, Result};
-use cc_cli_adapters::{CliAdapterContext, CliProvider, CliToolRegistry, SkillDeliveryMode};
+use cc_cli_adapters::{
+    CliAdapterContext, CliProvider, CliToolRegistry, PiAdapterOptions, PiTransport,
+    SkillDeliveryMode,
+};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -36,7 +41,9 @@ mod windows_codex;
 mod wsl_codex;
 mod wsl_mcp_proxy;
 
-use self::wsl_codex::{strip_wsl_proxy_env_vars, windows_path_to_wsl, WSL_PROXY_ENV_KEYS};
+use self::wsl_codex::{
+    strip_wsl_proxy_env_vars, windows_path_to_wsl, WslManagedPiStateCleanup, WSL_PROXY_ENV_KEYS,
+};
 use super::ssh_terminal_service::{spawn_ssh_terminal, SshTerminalConfig};
 
 /// 供会话历史在恢复 Codex 前复用现有 rollout 预检，不改变捕获链行为。
@@ -968,6 +975,62 @@ struct TerminalSession {
     replay_buffer: Arc<Mutex<ReplayBuffer>>,
     /// TUI 已通过 DECSET 2004 宣告可接收 bracketed paste。
     paste_ready: Arc<AtomicBool>,
+    /// Managed Pi launches own an isolated adapter state directory. Native Pi
+    /// has no descriptor and therefore never reaches this cleanup path.
+    managed_pi_state_cleanup: Option<PiManagedStateCleanup>,
+    /// WSL managed Pi state lives under the distribution user's home, so it
+    /// needs its own cleanup descriptor instead of the local adapter root.
+    managed_wsl_pi_state_cleanup: Option<WslManagedPiStateCleanup>,
+}
+
+/// Keeps adapter-created managed Pi state owned by the launch until the PTY
+/// session has been registered. Every early return after Pi builds its command
+/// then tears down the isolated directory automatically.
+struct PendingPiManagedStateCleanup {
+    cleanup: Option<PiManagedStateCleanup>,
+}
+
+impl PendingPiManagedStateCleanup {
+    fn new(cleanup: Option<PiManagedStateCleanup>) -> Self {
+        Self { cleanup }
+    }
+
+    fn disarm(&mut self) {
+        self.cleanup = None;
+    }
+}
+
+impl Drop for PendingPiManagedStateCleanup {
+    fn drop(&mut self) {
+        if let Some(cleanup) = self.cleanup.take() {
+            cleanup.cleanup();
+        }
+    }
+}
+
+/// The WSL Pi directory only exists after the PTY begins its WSL launch. Keep
+/// its cleanup descriptor armed until the terminal session owns it, including
+/// the narrow cancellation window after a PTY has been spawned.
+struct PendingWslManagedPiStateCleanup {
+    cleanup: Option<WslManagedPiStateCleanup>,
+}
+
+impl PendingWslManagedPiStateCleanup {
+    fn new(cleanup: Option<WslManagedPiStateCleanup>) -> Self {
+        Self { cleanup }
+    }
+
+    fn disarm(&mut self) {
+        self.cleanup = None;
+    }
+}
+
+impl Drop for PendingWslManagedPiStateCleanup {
+    fn drop(&mut self) {
+        if let Some(cleanup) = self.cleanup.take() {
+            cleanup.cleanup();
+        }
+    }
 }
 
 struct LaunchReservation<'a> {
@@ -1595,6 +1658,35 @@ impl TerminalService {
             .portable_session_prompt(&skill_names, ccpanes_mcp_available && adapter_supports_mcp)
     }
 
+    /// Publish only explicitly Pi-compatible bundled Skills into a managed
+    /// launch's isolated Pi state. Native Pi continues to use its own global
+    /// agent root and is handled by startup-wide skill publication instead.
+    fn inject_managed_pi_skills(&self, agent_root: &Path) {
+        let templates_dir = self
+            .sidecar_resource_dir
+            .read()
+            .as_ref()
+            .map(|resource_dir| {
+                resource_dir
+                    .join("resources")
+                    .join("claude-bundle")
+                    .join("default-skills")
+            });
+        let Some(templates_dir) = templates_dir else {
+            warn!("managed Pi skill injection skipped because bundled resources are unavailable");
+            return;
+        };
+        if !templates_dir.join("manifest.json").is_file() {
+            warn!(
+                path = %templates_dir.display(),
+                "managed Pi skill injection skipped because the bundled manifest is missing"
+            );
+            return;
+        }
+        DefaultSkillService::new(templates_dir)
+            .inject_pi_skills_to_agent_root(agent_root, env!("CARGO_PKG_VERSION"));
+    }
+
     pub fn set_launch_profile_service(&self, service: Arc<LaunchProfileService>) {
         *self.launch_profile_service.write() = Some(service);
         info!("[terminal] LaunchProfileService injected");
@@ -1603,6 +1695,282 @@ impl TerminalService {
     pub fn set_workspace_service(&self, service: Arc<WorkspaceService>) {
         *self.workspace_service.write() = Some(service);
         info!("[terminal] WorkspaceService injected");
+    }
+
+    /// Resolve a local Pi RPC launch through the same profile/provider path as
+    /// a terminal launch, without creating a PTY-backed terminal session.
+    ///
+    /// The caller starts the returned process through [`PiRpcService`]. An
+    /// initial prompt is deliberately not included in the command line: the
+    /// RPC owner must submit it after start via Pi's JSONL `prompt` command so
+    /// the response id and subsequent events remain observable.
+    pub fn build_pi_rpc_launch_spec(
+        &self,
+        request: &CreateSessionRequest,
+    ) -> AppResult<PiRpcLaunchSpec> {
+        let cli_tool = request.effective_cli_tool();
+        if cli_tool != CliTool::Pi {
+            return Err(AppError::coded(
+                "PI_RPC_TOOL_REQUIRED",
+                "Pi RPC launch requires cliTool 'pi'",
+            ));
+        }
+        if request.ssh.is_some() || request.wsl.is_some() {
+            return Err(AppError::coded(
+                "PI_RPC_LOCAL_ONLY",
+                "Pi RPC is currently available only for local launches",
+            ));
+        }
+
+        validate_launch_cwd(
+            &request.project_path,
+            request.workspace_path.as_deref(),
+            LaunchRuntime::Local,
+        )?;
+
+        let resolved_workspace = request.workspace_name.as_deref().and_then(|name| {
+            self.workspace_service
+                .read()
+                .as_ref()
+                .and_then(|service| service.get_workspace(name).ok())
+        });
+        let (resolved_profile, _) = self
+            .launch_profile_service
+            .read()
+            .as_ref()
+            .map(|service| {
+                service.resolve_launch_profile_with_diagnostic(
+                    request.launch_profile_id.as_deref(),
+                    resolved_workspace.as_ref(),
+                    None,
+                    Some(cli_tool.as_id()),
+                    Some("local"),
+                )
+            })
+            .unwrap_or((None, None));
+        let profile_provider_id = resolved_profile
+            .as_ref()
+            .and_then(|profile| profile.provider_id.as_deref());
+        let profile_model_id = resolved_profile
+            .as_ref()
+            .and_then(|profile| profile.model_id.as_deref());
+        let mut adapter_options = resolved_profile
+            .as_ref()
+            .map(|profile| profile.adapter_options.clone())
+            .unwrap_or_default();
+        if let Some(request_options) = request.adapter_options.as_ref() {
+            for (key, value) in request_options {
+                adapter_options.insert(key.clone(), value.clone());
+            }
+        }
+
+        let pi_options =
+            PiAdapterOptions::from_adapter_options(&adapter_options).map_err(|error| {
+                AppError::coded(
+                    "PI_OPTIONS_INVALID",
+                    format!("Invalid Pi launch options: {error}"),
+                )
+            })?;
+        if pi_options.transport != PiTransport::Rpc {
+            return Err(AppError::coded(
+                "PI_RPC_TRANSPORT_REQUIRED",
+                "Pi RPC launch requires adapter option piTransport='rpc'",
+            ));
+        }
+
+        let workspace_provider_id = resolved_workspace
+            .as_ref()
+            .and_then(|workspace| workspace.provider_id.as_deref());
+        let default_provider_id = self
+            .provider_service
+            .get_default_provider_id(cli_tool.as_id());
+        let providers = self.provider_service.list_providers();
+        let provider_plan = resolve_provider_plan(
+            ProviderResolutionInput {
+                cli_tool,
+                selection: request.provider_selection,
+                requested_provider_id: request.provider_id.as_deref(),
+                requested_model_id: request.model_id.as_deref(),
+                profile_provider_id,
+                profile_model_id,
+                workspace_provider_id,
+                default_provider_id: default_provider_id.as_deref(),
+                adapter_options: Some(&adapter_options),
+            },
+            &providers,
+            &self.cli_registry,
+        )?;
+        provider_plan.apply_model_adapter_defaults(&mut adapter_options);
+        if let Some(model_id) = provider_plan.model_id.as_ref() {
+            adapter_options.insert(
+                "__ccpanesModelId".to_string(),
+                serde_json::Value::String(model_id.clone()),
+            );
+        } else {
+            adapter_options.remove("__ccpanesModelId");
+        }
+        validate_provider_runtime(&provider_plan, LaunchRuntime::Local, cli_tool)?;
+
+        let adapter = self.cli_registry.get(cli_tool.as_id()).ok_or_else(|| {
+            AppError::coded(
+                "PI_RPC_ADAPTER_UNAVAILABLE",
+                "Pi RPC adapter is not registered",
+            )
+        })?;
+        if !adapter.capabilities().supports_rpc {
+            return Err(AppError::coded(
+                "PI_RPC_UNSUPPORTED",
+                "The registered Pi adapter does not support RPC mode",
+            ));
+        }
+
+        let mut env = self.settings_service.get_proxy_env_vars();
+        if let Some(extra_env) = request.extra_env.as_ref() {
+            for (key, value) in extra_env {
+                if Self::is_valid_env_key(key) {
+                    env.insert(key.clone(), value.clone());
+                } else {
+                    warn!("Skipping runner env var with invalid key: {}", key);
+                }
+            }
+        }
+        if provider_plan.mode == ProviderMode::Managed {
+            Self::clear_managed_pi_environment(&mut env);
+        }
+
+        // Pi's adapter owns the exact provider environment. The generic
+        // Provider map uses different variables for some providers (notably
+        // CODEX_API_KEY for OpenAI), so adding it here would retain unrelated
+        // credentials alongside Pi's documented environment variables.
+        env.insert(
+            "CC_PANES_CLI_TOOL".to_string(),
+            cli_tool.as_id().to_string(),
+        );
+        env.insert("CC_PANES_RUNTIME_KIND".to_string(), "local".to_string());
+        env.insert(
+            "CC_PANES_PROJECT_PATH".to_string(),
+            request.project_path.clone(),
+        );
+        if let Some(launch_id) = request
+            .launch_id
+            .as_deref()
+            .filter(|id| !id.trim().is_empty())
+        {
+            env.insert("CC_PANES_LAUNCH_ID".to_string(), launch_id.to_string());
+        }
+        if let Some(workspace_name) = resolved_workspace
+            .as_ref()
+            .map(|workspace| workspace.name.as_str())
+            .or(request.workspace_name.as_deref())
+            .filter(|name| !name.trim().is_empty())
+        {
+            env.insert(
+                "CC_PANES_WORKSPACE_NAME".to_string(),
+                workspace_name.to_string(),
+            );
+        }
+        if let Some(workspace_path) = resolved_workspace
+            .as_ref()
+            .and_then(|workspace| workspace.path.as_deref())
+            .filter(|path| !path.trim().is_empty())
+        {
+            env.insert(
+                "CC_PANES_WORKSPACE_PATH".to_string(),
+                workspace_path.to_string(),
+            );
+        }
+
+        let resume_id = request.resume_id.as_deref().filter(|id| {
+            let trimmed = id.trim();
+            !trimmed.is_empty() && trimmed != "new"
+        });
+        let profile_skill_prompt =
+            self.launch_profile_service
+                .read()
+                .as_ref()
+                .and_then(|service| {
+                    service.session_skill_prompt_for_profile(resolved_profile.as_ref())
+                });
+        let append_system_prompt =
+            merge_session_prompts([request.append_system_prompt.clone(), profile_skill_prompt]);
+        let rpc_launch_session_id = request
+            .launch_id
+            .clone()
+            .filter(|id| !id.trim().is_empty())
+            .unwrap_or_else(|| format!("pi-rpc-{}", Uuid::new_v4()));
+        let context = CliAdapterContext {
+            // Pi does not consume the CC-Panes session id as an argument. This
+            // id only keeps adapter diagnostics distinct before PiRpcService
+            // creates its own RPC-session id.
+            session_id: rpc_launch_session_id.clone(),
+            project_path: request.project_path.clone(),
+            workspace_path: request.workspace_path.clone(),
+            provider: provider_plan.provider.clone().map(to_cli_provider),
+            executable_override: self
+                .settings_service
+                .get_settings()
+                .cli_launchers
+                .command_for(cli_tool.as_id())
+                .map(str::to_string),
+            adapter_options,
+            resume_id: resume_id.map(str::to_string),
+            issued_session_id: None,
+            skip_mcp: true,
+            // Pi's project trust is controlled by piProjectTrust, not the
+            // generic terminal YOLO setting.
+            yolo_mode: false,
+            append_system_prompt,
+            initial_prompt: None,
+            orchestrator_port: None,
+            orchestrator_token: None,
+            launch_id: request.launch_id.clone(),
+            data_dir: self.app_paths.data_dir().to_path_buf(),
+            shared_mcp_urls: HashMap::new(),
+            allowed_mcp_server_ids: Vec::new(),
+            disable_unlisted_mcp_servers: true,
+        };
+        let mut result = adapter.build_command(&context).map_err(AppError::from)?;
+        if provider_plan.mode == ProviderMode::Managed {
+            if let Some(agent_root) = result
+                .env_inject
+                .get(cc_cli_adapters::PI_CODING_AGENT_DIR_ENV)
+            {
+                self.inject_managed_pi_skills(Path::new(agent_root));
+            } else {
+                warn!("managed Pi RPC launch did not provide an isolated agent root");
+            }
+        }
+        if provider_plan.mode == ProviderMode::Managed {
+            result.env_remove.extend(
+                managed_provider_conflict_env_keys(cli_tool)
+                    .iter()
+                    .map(|key| (*key).to_string()),
+            );
+            result.env_remove.sort();
+            result.env_remove.dedup();
+        }
+        // Adapter-injected values (the selected Pi Provider credentials) have
+        // the final precedence, just like the PTY launch path.
+        env.extend(result.env_inject);
+
+        let cwd = request
+            .workspace_path
+            .as_deref()
+            .unwrap_or(request.project_path.as_str())
+            .to_string();
+        Ok(PiRpcLaunchSpec {
+            command: result.command,
+            args: result.args,
+            cwd,
+            env,
+            env_remove: result.env_remove,
+            managed_state_cleanup: (provider_plan.mode == ProviderMode::Managed).then(|| {
+                PiManagedStateCleanup::new(
+                    self.app_paths.data_dir().to_path_buf(),
+                    rpc_launch_session_id.clone(),
+                )
+            }),
+        })
     }
 
     fn prepare_ssh_auth_runtime(
@@ -1798,6 +2166,17 @@ impl TerminalService {
                 adapter_options.insert(key.clone(), value.clone());
             }
         }
+        if cli_tool == CliTool::Pi
+            && PiAdapterOptions::from_adapter_options(&adapter_options)
+                .map_err(|error| anyhow!("Invalid Pi launch options: {error}"))?
+                .transport
+                == PiTransport::Rpc
+        {
+            return Err(anyhow::Error::new(AppError::coded(
+                "PI_RPC_PTY_UNSUPPORTED",
+                "Pi RPC transport cannot be created as a terminal PTY session; use the Pi RPC service",
+            )));
+        }
         let workspace_provider_id = resolved_workspace
             .as_ref()
             .and_then(|workspace| workspace.provider_id.as_deref());
@@ -1987,9 +2366,17 @@ impl TerminalService {
                 }
             }
         }
-        // Managed Provider is authoritative for this launch. Native has an empty map,
-        // so inherited shell/CLI configuration remains untouched.
-        env_vars.extend(provider_vars.clone());
+        if cli_tool == CliTool::Pi && provider_plan.mode == ProviderMode::Managed {
+            Self::clear_managed_pi_environment(&mut env_vars);
+        }
+        // Managed Provider is authoritative for this launch. Pi rebuilds its
+        // provider environment in its adapter because its documented variables
+        // differ from the generic Provider map (for example OPENAI_API_KEY vs
+        // CODEX_API_KEY); injecting both would leave unrelated credentials in
+        // the child process.
+        if cli_tool != CliTool::Pi {
+            env_vars.extend(provider_vars.clone());
+        }
         let emitter = self.emitter.read().clone().ok_or_else(|| {
             anyhow!("TerminalService not initialized: emitter not set (call set_emitter first)")
         })?;
@@ -1998,6 +2385,16 @@ impl TerminalService {
         })?;
         let settings_service = self.settings_service.clone();
         let session_id = Uuid::new_v4().to_string();
+        let managed_pi_state_cleanup = (cli_tool == CliTool::Pi
+            && provider_plan.mode == ProviderMode::Managed
+            && ssh.is_none()
+            && wsl.is_none())
+        .then(|| {
+            PiManagedStateCleanup::new(self.app_paths.data_dir().to_path_buf(), session_id.clone())
+        });
+        let mut pending_pi_managed_state_cleanup =
+            PendingPiManagedStateCleanup::new(managed_pi_state_cleanup.clone());
+        let mut managed_wsl_pi_state_cleanup: Option<WslManagedPiStateCleanup> = None;
         // 新会话由 CC-Panes 发号（如 claude/grok 的 --session-id），启动前即确定 resume id。
         // 是否支持发号由 adapter 能力声明决定；resume 场景复用原 id，无需发号；
         // 不支持发号的 CLI（如 codex）走各自的捕获通道。
@@ -2175,10 +2572,15 @@ impl TerminalService {
                 None => PathBuf::from(project_path),
             };
             let cli_tool_id = cli_tool.as_id();
-            let env_remove = WSL_PROXY_ENV_KEYS
+            let mut env_remove = WSL_PROXY_ENV_KEYS
                 .iter()
                 .map(|key| key.to_string())
                 .collect::<Vec<_>>();
+            if provider_plan.mode == ProviderMode::Managed {
+                env_remove.extend(provider_conflict_env_remove.iter().cloned());
+                env_remove.sort();
+                env_remove.dedup();
+            }
             strip_wsl_proxy_env_vars(&mut env_vars);
             let mut resolved_wsl = self.resolve_wsl_launch(wsl_info, &session_id)?;
             let wsl_mcp_proxy_enabled = !effective_skip_mcp
@@ -2348,11 +2750,12 @@ impl TerminalService {
                 | CliTool::Gemini
                 | CliTool::Opencode
                 | CliTool::Cursor
-                | CliTool::Grok => self.build_wsl_supported_cli_command(
+                | CliTool::Grok
+                | CliTool::Pi => self.build_wsl_supported_cli_command(
                     &resolved_wsl,
                     cli_tool,
                     &session_id,
-                    &env_vars,
+                    &mut env_vars,
                     &provider_vars,
                     provider.as_ref(),
                     resume_id,
@@ -2367,7 +2770,7 @@ impl TerminalService {
                     &resolved_wsl,
                     cli_tool,
                     &session_id,
-                    &env_vars,
+                    &mut env_vars,
                     &provider_vars,
                     provider.as_ref(),
                     resume_id,
@@ -2379,6 +2782,11 @@ impl TerminalService {
                     &adapter_options,
                 )?,
             };
+
+            if cli_tool == CliTool::Pi && provider_plan.mode == ProviderMode::Managed {
+                managed_wsl_pi_state_cleanup =
+                    Some(WslManagedPiStateCleanup::new(&resolved_wsl, &session_id));
+            }
 
             info!(
                 session_id = %session_id,
@@ -2520,6 +2928,16 @@ impl TerminalService {
                     "launch.config.end",
                     "ok",
                 );
+                if cli_tool == CliTool::Pi && provider_plan.mode == ProviderMode::Managed {
+                    if let Some(agent_root) = result
+                        .env_inject
+                        .get(cc_cli_adapters::PI_CODING_AGENT_DIR_ENV)
+                    {
+                        self.inject_managed_pi_skills(Path::new(agent_root));
+                    } else {
+                        warn!(session_id = %session_id, "managed Pi launch did not provide an isolated agent root");
+                    }
+                }
                 log_launch_stage(
                     launch_id,
                     Some(&session_id),
@@ -2700,6 +3118,8 @@ impl TerminalService {
                 return Err(e);
             }
         };
+        let mut pending_wsl_pi_state_cleanup =
+            PendingWslManagedPiStateCleanup::new(managed_wsl_pi_state_cleanup.clone());
         if let Err(error) = self.ensure_launch_active(launch_id, "launch.pty.spawned") {
             let _ = spawn_result.process.kill();
             wsl_codex::cleanup_session_mcp_configs(self.app_paths.data_dir(), &session_id);
@@ -2754,6 +3174,8 @@ impl TerminalService {
         let session_pid = process.pid();
         // 为等待线程 clone 一份 process 引用
         let process_for_wait = Arc::clone(&process);
+        let wait_pi_managed_state_cleanup = managed_pi_state_cleanup.clone();
+        let wait_wsl_pi_state_cleanup = managed_wsl_pi_state_cleanup.clone();
 
         // 保存会话
         {
@@ -2790,8 +3212,12 @@ impl TerminalService {
                     output_buffer: output_buffer.clone(),
                     replay_buffer: replay_buffer.clone(),
                     paste_ready: paste_ready.clone(),
+                    managed_pi_state_cleanup: managed_pi_state_cleanup.clone(),
+                    managed_wsl_pi_state_cleanup: managed_wsl_pi_state_cleanup.clone(),
                 },
             );
+            pending_pi_managed_state_cleanup.disarm();
+            pending_wsl_pi_state_cleanup.disarm();
         }
         log_launch_stage(
             launch_id,
@@ -3214,6 +3640,12 @@ impl TerminalService {
                 *stored_exit_code = Some(process_exit_code);
             }
             info!(session_id = %sid, exit_code = process_exit_code, "PTY process exited");
+            if let Some(cleanup) = wait_pi_managed_state_cleanup.as_ref() {
+                cleanup.cleanup();
+            }
+            if let Some(cleanup) = wait_wsl_pi_state_cleanup.as_ref() {
+                cleanup.cleanup();
+            }
 
             // resume 启动失败取证：resume 会话在 120s 内退出（ConPTY exit code 不可靠，
             // 时间窗 + 错误特征匹配是主信号）。tail 可能含用户 prompt/模型输出，
@@ -3811,6 +4243,12 @@ impl TerminalService {
                 state_machine.force_exited(session_id);
             }
             let _ = session.process.kill();
+            if let Some(cleanup) = session.managed_pi_state_cleanup.as_ref() {
+                cleanup.cleanup();
+            }
+            if let Some(cleanup) = session.managed_wsl_pi_state_cleanup.as_ref() {
+                cleanup.cleanup();
+            }
             // session-killed 已在 sessions.remove 后立即广播（见上），此处不再重复 emit
             // session 在此 drop，不再持有 sessions lock
             Ok(())
@@ -3870,6 +4308,12 @@ impl TerminalService {
                     *s = SessionStatus::Exited;
                 }
                 let _ = session.process.kill();
+                if let Some(cleanup) = session.managed_pi_state_cleanup.as_ref() {
+                    cleanup.cleanup();
+                }
+                if let Some(cleanup) = session.managed_wsl_pi_state_cleanup.as_ref() {
+                    cleanup.cleanup();
+                }
                 wsl_codex::cleanup_session_mcp_configs(self.app_paths.data_dir(), &session_id);
             }
             if count > 0 {
@@ -4063,6 +4507,16 @@ impl TerminalService {
         chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
     }
 
+    /// Pi managed Providers own the complete provider environment. Remove
+    /// request/shell values for every Pi credential or endpoint variable before
+    /// the adapter injects the selected value, so extra_env cannot bypass the
+    /// adapter's endpoint and authentication validation.
+    fn clear_managed_pi_environment(env_vars: &mut HashMap<String, String>) {
+        for key in managed_provider_conflict_env_keys(CliTool::Pi) {
+            env_vars.remove(*key);
+        }
+    }
+
     /// 新会话是否由 CC-Panes 预发确定性 session id：由 adapter 的
     /// `supports_issued_session_id` 能力决定（claude/grok = true），resume 场景不发号。
     fn should_issue_session_id(
@@ -4099,6 +4553,8 @@ impl TerminalService {
             CliTool::Cursor => "cursor-agent",
             CliTool::Grok if yolo_mode => "grok --always-approve",
             CliTool::Grok => "grok",
+            // create_session rejects Pi over SSH before this fallback is used.
+            CliTool::Pi => "pi",
         }
     }
 
@@ -4498,6 +4954,7 @@ pub fn get_windows_build_number() -> u32 {
 mod tests {
     use super::*;
     use crate::models::provider::{Provider, ProviderModel, ProviderType};
+    use crate::models::settings::CliLauncherOverride;
     use crate::models::shared_mcp::{BridgeMode, SharedMcpServerConfig};
     use crate::services::{ProjectCliHooksService, ProviderService, SettingsService};
     use crate::utils::orchestrator_manifest::ORCHESTRATOR_MANIFEST_FILE;
@@ -4549,6 +5006,300 @@ mod tests {
             outcome.resolved_model_id.as_deref(),
             Some("provider-default")
         );
+    }
+
+    fn pi_rpc_test_service() -> (Arc<TerminalService>, tempfile::TempDir) {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let app_paths = Arc::new(AppPaths::new(Some(
+            temp_dir.path().to_string_lossy().to_string(),
+        )));
+        let settings_service = Arc::new(SettingsService::new_with_config_path(
+            temp_dir.path().join("config.toml"),
+        ));
+        let mut settings = settings_service.get_settings();
+        settings.cli_launchers.overrides.insert(
+            "pi".to_string(),
+            CliLauncherOverride {
+                command: "pi-test".to_string(),
+            },
+        );
+        settings_service
+            .update_settings(settings)
+            .expect("configure Pi test launcher");
+        let registry = Arc::new(CliToolRegistry::with_builtin_adapters());
+        let service = Arc::new(TerminalService::new(
+            settings_service,
+            Arc::new(ProviderService::new(app_paths.providers_path())),
+            app_paths,
+            registry.clone(),
+            Arc::new(ProjectCliHooksService::new(registry)),
+            Arc::new(SshCredentialService::new_memory()),
+        ));
+        (service, temp_dir)
+    }
+
+    fn pi_rpc_request(project_path: &std::path::Path) -> CreateSessionRequest {
+        CreateSessionRequest {
+            launch_id: Some("launch-pi-rpc".to_string()),
+            project_path: project_path.to_string_lossy().to_string(),
+            cols: 120,
+            rows: 32,
+            workspace_name: None,
+            provider_id: None,
+            model_id: None,
+            provider_selection: LaunchProviderSelection::None,
+            launch_profile_id: None,
+            workspace_path: None,
+            workspace_snapshot_id: None,
+            origin_layout_id: None,
+            origin_tab_id: None,
+            origin_terminal_pane_id: None,
+            expected_saved_session_id: None,
+            launch_claude: false,
+            cli_tool: CliTool::Pi,
+            resume_id: None,
+            skip_mcp: false,
+            append_system_prompt: Some("Use the project conventions.".to_string()),
+            initial_prompt: Some("Do not put this in argv.".to_string()),
+            yolo_mode: Some(true),
+            adapter_options: Some(HashMap::from([
+                ("piTransport".to_string(), serde_json::json!("rpc")),
+                (
+                    "piNativeProvider".to_string(),
+                    serde_json::json!("anthropic"),
+                ),
+                (
+                    "piNativeModel".to_string(),
+                    serde_json::json!("claude-sonnet"),
+                ),
+                ("piProjectTrust".to_string(), serde_json::json!("approve")),
+                ("piSessionName".to_string(), serde_json::json!("RPC test")),
+            ])),
+            extra_env: None,
+            ssh: None,
+            wsl: None,
+        }
+    }
+
+    #[test]
+    fn pi_rpc_launch_spec_uses_adapter_resolution_without_prompt_in_argv() {
+        let (service, temp_dir) = pi_rpc_test_service();
+        let request = pi_rpc_request(temp_dir.path());
+
+        let spec = service
+            .build_pi_rpc_launch_spec(&request)
+            .expect("build local Pi RPC launch spec");
+
+        assert_eq!(spec.command, "pi-test");
+        assert_eq!(spec.cwd, temp_dir.path().to_string_lossy());
+        assert_eq!(
+            spec.args,
+            vec![
+                "--mode",
+                "rpc",
+                "--provider",
+                "anthropic",
+                "--model",
+                "claude-sonnet",
+                "--append-system-prompt",
+                "Use the project conventions.",
+                "--name",
+                "RPC test",
+                "--approve",
+            ]
+        );
+        assert!(!spec
+            .args
+            .iter()
+            .any(|arg| arg.contains("Do not put this in argv.")));
+        assert_eq!(
+            spec.env.get("CC_PANES_LAUNCH_ID").map(String::as_str),
+            Some("launch-pi-rpc")
+        );
+        assert!(!spec.args.iter().any(|arg| arg == "--api-key"));
+        assert!(spec.managed_state_cleanup.is_none());
+    }
+
+    #[test]
+    fn pi_rpc_launch_spec_injects_managed_credentials_only_into_environment() {
+        let (service, temp_dir) = pi_rpc_test_service();
+        service
+            .provider_service
+            .add_provider(Provider {
+                id: "openai-pi".to_string(),
+                name: "OpenAI for Pi".to_string(),
+                provider_type: ProviderType::OpenAI,
+                api_key: Some("test-managed-secret".to_string()),
+                base_url: None,
+                region: None,
+                project_id: None,
+                aws_profile: None,
+                config_dir: None,
+                models: vec![ProviderModel {
+                    id: "gpt-5-test".to_string(),
+                    label: None,
+                    default_effort: None,
+                    context_window_tokens: None,
+                    context_size: None,
+                }],
+                default_model_id: Some("gpt-5-test".to_string()),
+                is_default: false,
+            })
+            .expect("add managed provider");
+        let mut request = pi_rpc_request(temp_dir.path());
+        request.provider_selection = LaunchProviderSelection::Explicit;
+        request.provider_id = Some("openai-pi".to_string());
+        request.model_id = None;
+        request.adapter_options = Some(HashMap::from([(
+            "piTransport".to_string(),
+            serde_json::json!("rpc"),
+        )]));
+        request.extra_env = Some(HashMap::from([
+            ("CODEX_API_KEY".to_string(), "wrong-extra-key".to_string()),
+            (
+                "OPENAI_BASE_URL".to_string(),
+                "https://wrong-extra-endpoint.example/v1".to_string(),
+            ),
+            ("OPENAI_API_KEY".to_string(), "wrong-extra-key".to_string()),
+        ]));
+
+        let spec = service
+            .build_pi_rpc_launch_spec(&request)
+            .expect("build managed Pi RPC launch spec");
+
+        assert!(spec
+            .args
+            .windows(2)
+            .any(|pair| pair == ["--provider", "openai"]));
+        assert!(spec
+            .args
+            .windows(2)
+            .any(|pair| pair == ["--model", "gpt-5-test"]));
+        assert_eq!(
+            spec.env.get("OPENAI_API_KEY").map(String::as_str),
+            Some("test-managed-secret")
+        );
+        assert!(!spec.env.contains_key("CODEX_API_KEY"));
+        assert!(!spec.env.contains_key("OPENAI_BASE_URL"));
+        assert!(spec.env_remove.iter().any(|key| key == "OPENAI_API_KEY"));
+        assert!(!spec
+            .args
+            .iter()
+            .any(|arg| arg.contains("test-managed-secret")));
+        assert!(spec.managed_state_cleanup.is_some());
+    }
+
+    #[test]
+    fn pi_rpc_launch_publishes_explicit_skills_to_the_managed_agent_root() {
+        let (service, temp_dir) = pi_rpc_test_service();
+        let templates_dir = temp_dir
+            .path()
+            .join("resource")
+            .join("resources")
+            .join("claude-bundle")
+            .join("default-skills");
+        std::fs::create_dir_all(&templates_dir).expect("create Pi skill templates");
+        std::fs::write(
+            templates_dir.join("manifest.json"),
+            r#"{
+                "schemaVersion": 2,
+                "namespace": "ccpanes",
+                "skills": [{
+                    "name": "pi-check",
+                    "file": "pi-check.md",
+                    "delivery": {
+                        "portable": true,
+                        "modes": ["piSkill"],
+                        "requiresCcpanesMcp": false
+                    }
+                }]
+            }"#,
+        )
+        .expect("write Pi skill manifest");
+        std::fs::write(
+            templates_dir.join("pi-check.md"),
+            "---\nname: ccpanes-pi-check\ndescription: Verify managed Pi Skill publication.\n---\n# Pi check\n",
+        )
+        .expect("write Pi skill template");
+        service.set_sidecar_resource_dir(temp_dir.path().join("resource"));
+        service
+            .provider_service
+            .add_provider(Provider {
+                id: "openai-pi".to_string(),
+                name: "OpenAI for Pi".to_string(),
+                provider_type: ProviderType::OpenAI,
+                api_key: Some("test-managed-secret".to_string()),
+                base_url: None,
+                region: None,
+                project_id: None,
+                aws_profile: None,
+                config_dir: None,
+                models: vec![ProviderModel {
+                    id: "gpt-5-test".to_string(),
+                    label: None,
+                    default_effort: None,
+                    context_window_tokens: None,
+                    context_size: None,
+                }],
+                default_model_id: Some("gpt-5-test".to_string()),
+                is_default: false,
+            })
+            .expect("add managed provider");
+        let mut request = pi_rpc_request(temp_dir.path());
+        request.provider_selection = LaunchProviderSelection::Explicit;
+        request.provider_id = Some("openai-pi".to_string());
+        request.adapter_options = Some(HashMap::from([(
+            "piTransport".to_string(),
+            serde_json::json!("rpc"),
+        )]));
+
+        let spec = service
+            .build_pi_rpc_launch_spec(&request)
+            .expect("build managed Pi RPC launch spec");
+        let agent_root = spec
+            .env
+            .get(cc_cli_adapters::PI_CODING_AGENT_DIR_ENV)
+            .expect("managed Pi agent root");
+
+        assert_eq!(
+            std::path::PathBuf::from(agent_root),
+            cc_cli_adapters::pi_managed_state_dir(temp_dir.path(), "launch-pi-rpc")
+        );
+        assert!(std::path::Path::new(agent_root)
+            .join("skills")
+            .join("ccpanes-pi-check")
+            .join("SKILL.md")
+            .is_file());
+    }
+
+    #[test]
+    fn pi_rpc_rejects_non_local_and_pty_transports() {
+        let (service, temp_dir) = pi_rpc_test_service();
+        let mut wsl_request = pi_rpc_request(temp_dir.path());
+        wsl_request.wsl = Some(WslLaunchInfo {
+            remote_path: "/workspace/pi".to_string(),
+            workspace_remote_path: None,
+            distro: Some("Ubuntu".to_string()),
+        });
+        let error = service
+            .build_pi_rpc_launch_spec(&wsl_request)
+            .expect_err("WSL RPC must be rejected explicitly");
+        assert_eq!(error.code(), Some("PI_RPC_LOCAL_ONLY"));
+
+        let mut pty_request = pi_rpc_request(temp_dir.path());
+        pty_request.adapter_options = Some(HashMap::from([(
+            "piTransport".to_string(),
+            serde_json::json!("rpc"),
+        )]));
+        let error =
+            match <TerminalService as crate::services::TerminalBackend>::create_session_with_outcome(
+                service.as_ref(),
+                pty_request,
+            ) {
+                Ok(_) => panic!("Pi RPC transport must not start a PTY session"),
+                Err(error) => error,
+            };
+        assert_eq!(error.code(), Some("PI_RPC_PTY_UNSUPPORTED"));
     }
 
     #[test]
@@ -4974,6 +5725,70 @@ mod tests {
         );
     }
 
+    fn managed_pi_state_cleanup_for_test(
+        data_dir: &std::path::Path,
+        session_id: &str,
+    ) -> (PiManagedStateCleanup, PathBuf) {
+        let state_dir = cc_cli_adapters::pi_managed_state_dir(data_dir, session_id);
+        std::fs::create_dir_all(&state_dir).expect("create managed Pi state directory");
+        std::fs::write(state_dir.join("state.json"), "test").expect("write managed Pi state");
+        (
+            PiManagedStateCleanup::new(data_dir.to_path_buf(), session_id),
+            state_dir,
+        )
+    }
+
+    #[test]
+    fn pending_pi_managed_state_cleanup_removes_pre_registration_state() {
+        let (_service, temp_dir) = terminal_service_for_test();
+        let (cleanup, state_dir) =
+            managed_pi_state_cleanup_for_test(temp_dir.path(), "pending-pi-state");
+
+        {
+            let _pending = PendingPiManagedStateCleanup::new(Some(cleanup));
+            assert!(state_dir.is_dir());
+        }
+
+        assert!(!state_dir.exists());
+    }
+
+    #[test]
+    fn kill_with_reason_cleans_managed_pi_state() {
+        let (service, temp_dir) = terminal_service_for_test();
+        let (cleanup, state_dir) = managed_pi_state_cleanup_for_test(temp_dir.path(), "pi-kill");
+        install_recording_session_with_launch_id_and_cleanup(
+            &service,
+            "pi-kill",
+            Arc::new(Mutex::new(Vec::new())),
+            None,
+            Some(cleanup),
+        );
+
+        service
+            .kill_with_reason("pi-kill", KillReason::UserClose)
+            .expect("kill managed Pi session");
+
+        assert!(!state_dir.exists());
+    }
+
+    #[test]
+    fn cleanup_all_cleans_managed_pi_state() {
+        let (service, temp_dir) = terminal_service_for_test();
+        let (cleanup, state_dir) =
+            managed_pi_state_cleanup_for_test(temp_dir.path(), "pi-cleanup-all");
+        install_recording_session_with_launch_id_and_cleanup(
+            &service,
+            "pi-cleanup-all",
+            Arc::new(Mutex::new(Vec::new())),
+            None,
+            Some(cleanup),
+        );
+
+        service.cleanup_all();
+
+        assert!(!state_dir.exists());
+    }
+
     fn write_orchestrator_manifest(data_dir: &std::path::Path, port: u16, token: &str) {
         std::fs::write(
             data_dir.join(ORCHESTRATOR_MANIFEST_FILE),
@@ -5106,6 +5921,18 @@ mod tests {
         writes: Arc<Mutex<Vec<String>>>,
         launch_id: Option<&str>,
     ) {
+        install_recording_session_with_launch_id_and_cleanup(
+            service, session_id, writes, launch_id, None,
+        );
+    }
+
+    fn install_recording_session_with_launch_id_and_cleanup(
+        service: &TerminalService,
+        session_id: &str,
+        writes: Arc<Mutex<Vec<String>>>,
+        launch_id: Option<&str>,
+        managed_pi_state_cleanup: Option<PiManagedStateCleanup>,
+    ) {
         let writer_tx =
             spawn_terminal_writer(session_id.to_string(), Box::new(RecordingWriter { writes }));
         service
@@ -5127,6 +5954,8 @@ mod tests {
                     output_buffer: Arc::new(Mutex::new(OutputBuffer::new(10, 1024))),
                     replay_buffer: Arc::new(Mutex::new(ReplayBuffer::new(1024))),
                     paste_ready: Arc::new(AtomicBool::new(false)),
+                    managed_pi_state_cleanup,
+                    managed_wsl_pi_state_cleanup: None,
                 },
             );
     }

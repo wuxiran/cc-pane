@@ -63,6 +63,7 @@
   "customLaunch": "Custom launch…",
   "errorNoProject": "Select a project or directory first",
   "errorProviderRequired": "Select a CC-Panes Provider before launching",
+  "errorPiSshUnsupported": "Pi runs only in a local or WSL environment",
   "errorResolveFailed": "Failed to resolve launch options ({{code}}); check workspace environment settings",
   "scenario": {
     "default": "Default",

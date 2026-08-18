@@ -14836,6 +14836,7 @@ mod tests {
             ("opencode", CliTool::Opencode),
             ("cursor", CliTool::Cursor),
             ("grok", CliTool::Grok),
+            ("pi", CliTool::Pi),
         ] {
             assert_eq!(parse_launch_cli_tool(Some(id)).unwrap(), expected);
         }

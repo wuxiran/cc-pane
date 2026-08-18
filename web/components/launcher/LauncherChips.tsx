@@ -47,21 +47,26 @@ function ToggleChip({
 
 export default function LauncherChips({ draft, onChange }: LauncherChipsProps) {
   const { t } = useTranslation("launcher");
+  const piLaunch = draft.cliTool === "pi";
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-1.5">
-        <ToggleChip
-          active={draft.yolo === true}
-          label="YOLO"
-          title={t("yoloHint")}
-          onClick={() => onChange({ yolo: draft.yolo ? undefined : true })}
-        />
-        <ToggleChip
-          active={draft.skipMcp}
-          label={t("skipMcp")}
-          onClick={() => onChange({ skipMcp: !draft.skipMcp })}
-        />
+        {!piLaunch && (
+          <ToggleChip
+            active={draft.yolo === true}
+            label="YOLO"
+            title={t("yoloHint")}
+            onClick={() => onChange({ yolo: draft.yolo ? undefined : true })}
+          />
+        )}
+        {!piLaunch && (
+          <ToggleChip
+            active={draft.skipMcp}
+            label={t("skipMcp")}
+            onClick={() => onChange({ skipMcp: !draft.skipMcp })}
+          />
+        )}
         <ToggleChip
           active={draft.verbose}
           label={t("verbose")}

@@ -713,6 +713,7 @@
   "presetCategoryOpenAI": "OpenAI Compatible",
   "tabClaude": "Claude",
   "tabCodex": "Codex",
+  "tabPi": "Pi",
   "tabGemini": "Gemini",
   "tabKimi": "Kimi",
   "tabGlm": "GLM",

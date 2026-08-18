@@ -324,6 +324,7 @@
   /* CLI 工具身份色（品牌识别，仅用于 Provider/启动器等 CLI 选择场景） */
   --app-cli-claude: #E8590C;
   --app-cli-codex: #10A37F;
+  --app-cli-pi: #F59E0B;
   --app-cli-gemini: #4285F4;
   --app-cli-kimi: #F97316;
   --app-cli-glm: #2563EB;
@@ -518,6 +519,7 @@
   /* CLI 工具身份色（暗色亮化，cursor/grok 品牌色过暗改中性亮灰） */
   --app-cli-claude: #F97B4D;
   --app-cli-codex: #2FBF9B;
+  --app-cli-pi: #FBBF24;
   --app-cli-gemini: #6FA8FF;
   --app-cli-kimi: #FB923C;
   --app-cli-glm: #5B8DEF;
