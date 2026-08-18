@@ -528,6 +528,7 @@ mod tests {
             shared_mcp_urls: HashMap::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
+            skill_mount_paths: Vec::new(),
         }
     }
 

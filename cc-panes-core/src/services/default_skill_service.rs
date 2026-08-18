@@ -1155,7 +1155,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            pi.codex_skills
+            pi.skills
                 .iter()
                 .map(|entry| entry.dir_name.as_str())
                 .collect::<Vec<_>>(),
