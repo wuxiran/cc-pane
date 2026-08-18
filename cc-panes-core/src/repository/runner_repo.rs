@@ -652,7 +652,7 @@ mod tests {
             listen_addr: Some("0.0.0.0".to_string()),
             detected_at: "2026-05-24T00:00:00Z".to_string(),
         };
-        repo.replace_port_claims_for_instance("i1", &[claim.clone()])
+        repo.replace_port_claims_for_instance("i1", std::slice::from_ref(&claim))
             .unwrap();
         repo.replace_port_claims_for_instance("i1", &[claim])
             .unwrap();

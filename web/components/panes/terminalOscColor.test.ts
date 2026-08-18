@@ -47,6 +47,30 @@ describe("resolveOscColorQuery", () => {
     });
   });
 
+  it("swallows background set payloads on transparent CLI surfaces", () => {
+    const options = { preserveTransparentBackground: true };
+    expect(resolveOscColorQuery(11, "#ffffff", DARK_TERMINAL_THEME, options)).toEqual({
+      handled: true,
+      response: null,
+    });
+    expect(resolveOscColorQuery(11, "rgb:ffff/0000/0000", DARK_TERMINAL_THEME, options)).toEqual({
+      handled: true,
+      response: null,
+    });
+  });
+
+  it("lets background set payloads through on opaque terminal surfaces", () => {
+    expect(resolveOscColorQuery(11, "#ffffff", DARK_TERMINAL_THEME, {
+      preserveTransparentBackground: false,
+    })).toEqual({ handled: false, response: null });
+  });
+
+  it("lets foreground set payloads through on transparent terminal surfaces", () => {
+    expect(resolveOscColorQuery(10, "#ffffff", DARK_TERMINAL_THEME, {
+      preserveTransparentBackground: true,
+    })).toEqual({ handled: false, response: null });
+  });
+
   it("leaves background changes available to plain terminals", () => {
     expect(resolveOscColorQuery(11, "#ffffff", DARK_TERMINAL_THEME, {
       preserveTransparentBackground: false,

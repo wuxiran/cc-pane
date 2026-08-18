@@ -59,9 +59,9 @@ describe("ActivityBar", () => {
   it("渲染主视图图标集合（含 Home 与 设置）以及 LayoutBar 桩", () => {
     const { container } = renderBar();
     expect(screen.getByTestId("layout-bar-stub")).toBeInTheDocument();
-    // Home + explorer/ssh + todo + settings = 5 按钮
+    // Home + explorer/ssh + todo + 添加模块 + settings = 6 按钮
     //（files 与 sessions 图标已移除：Explorer 侧栏自带 文件 / 最近启动 tab）
-    expect(container.querySelectorAll("button")).toHaveLength(5);
+    expect(container.querySelectorAll("button")).toHaveLength(6);
   });
 
   it("不再有 sessions 竖排入口：explorer 之后紧跟 ssh（最近启动已迁至 Explorer 顶部 tab）", async () => {
@@ -89,7 +89,8 @@ describe("ActivityBar", () => {
     const user = userEvent.setup();
     const { container } = renderBar();
     const buttons = container.querySelectorAll("button");
-    const todoBtn = buttons[buttons.length - 2];
+    // 底部固定两枚：添加模块、设置；todo 是模块区最后一枚
+    const todoBtn = buttons[buttons.length - 3];
     await user.click(todoBtn);
     expect(useActivityBarStore.getState().appViewMode).toBe("todo");
     expect(useActivityBarStore.getState().sidebarVisible).toBe(true);
@@ -159,6 +160,18 @@ describe("ActivityBar", () => {
       enabled: true,
       position: "rightDock",
     });
+  });
+
+  it("经底部「添加模块」把会话历史放上左栏后即渲染出该图标", async () => {
+    const user = userEvent.setup();
+    const { container } = renderBar();
+
+    expect(container.querySelector('[data-module-id="sessionHistory"]')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("module-add-trigger"));
+    await user.click(await screen.findByTestId("module-add-sessionHistory"));
+
+    expect(container.querySelector('[data-module-id="sessionHistory"]')).toBeInTheDocument();
   });
 
   it("Home 处于激活态时按钮带激活背景样式与左缘 accent 竖条", () => {

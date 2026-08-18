@@ -1,13 +1,6 @@
 ---
 name: ccpanes-plantocodex
-description: Plan → Codex 执行交接 — Claude 规划完写到 plan 文件，注册 leader/worker，把 plan 派给 Codex 实现，靠 worker 自动反馈 + 软超时监控完成。Claude 不写代码，Codex 写。
-trigger: |
-  - 用户说"plan-to-codex"、"先规划再交给 Codex"、"派给 Codex 实现"、"hand off this plan"
-  - 已经有 plan（写了或刚写），准备让 Codex 按 plan 改代码
-  不触发：
-  - 用户想让 Claude 自己改代码 → 不走本 skill
-  - 想派给另一个 Claude Code worker → /ccpanes:plantocc
-  - plan 还没做评审且涉及高风险 → 先走 /ccpanes:planreview 评审
+description: Hand a finished plan to a Codex worker to implement, with leader/worker registration and auto-feedback. Claude 只规划不写代码，Codex 写。含软超时监控兜底。WSL 特化入口见 plan2codexwsl。
 ---
 
 # plantocodex — Plan → Codex 执行交接
@@ -77,8 +70,9 @@ trigger: |
 2. **规格自足才可派 Codex**：该单元的简报 + 文件所有权清单 + 契约已写到「不需要知道本仓库怎么做事、照做即可」？是 → 可派 Codex；否 → 补写到自足（然后可派），或留 Claude。**禁止把规格不自足的单元派给 Codex**——跨模型只能传规格，不能传意图。
 3. **机械簇 Codex 优先**：宽任务簇同时满足「规格自足 + 验收机器判」→ Codex 优先（省 Claude 配额，机械重复对先验依赖最低）。
 4. **评审强制异模型**：交叉评审 / plan review 类只读单元必须派非 leader 同模型（Codex 审 Claude，专治「我审我」盲区）。这是唯一强制改派的类别。
-5. **契约设计与集成收尾不外派**：深任务这两段语义密度最高，leader 自己做。
-6. **WSL Codex 守则**：prompt 未提交假死 → 发裸 CR，不要 kill 重发；启动前确认 WSL 内 CLI 是原生 ELF（`type -a codex` 第一条不能是 `/mnt/` 下的 `.exe`）。
+5. **Grok 可作第三方视角，但规格自足要求最高**：leader 是 Claude、Codex 已占用时可派 Grok（[`/ccpanes:plantogrok`](plantogrok.md)）。注意它**读不到任何内置 skill**（挂载通道只覆盖 Claude/Codex），一切约定必须写进 prompt 正文；且其 MCP URL 无 `launchId`，多 worker 并发时身份不可辨，`workerId` 必须写死传对。
+6. **契约设计与集成收尾不外派**：深任务这两段语义密度最高，leader 自己做。
+7. **WSL Codex 守则**：prompt 未提交假死 → 发裸 CR，不要 kill 重发；启动前确认 WSL 内 CLI 是原生 ELF（`type -a codex` 第一条不能是 `/mnt/` 下的 `.exe`）。
 
 ### 派工通信四原则
 

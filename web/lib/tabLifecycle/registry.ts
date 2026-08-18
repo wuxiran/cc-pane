@@ -19,6 +19,9 @@ import { collectTerminalSessionIdsWithSaved } from "@/lib/paneSessions";
 import type { TabContentType } from "@/lib/tabContentType";
 import { isBusyStatus } from "@/types/settings";
 import { browserService } from "@/services/browserService";
+// 直接 import 具体模块而非桶文件：destroyPipeline 的测试 mock 的是具体模块，
+// 走桶文件会绕过 mock，表现成「回收没发生」（CLAUDE.md 已记这条坑）。
+import { dshService } from "@/services/dshService";
 import { isTauriRuntime } from "@/services/runtime";
 import { terminalService } from "@/services/terminalService";
 import { useContextUsageStore } from "@/stores/useContextUsageStore";
@@ -247,6 +250,41 @@ const browserEntry: TabLifecycleEntry = {
   },
 };
 
+const dshEntry: TabLifecycleEntry = {
+  createDefaults: (input) => ({
+    title: input.title?.trim() || "DeepSeek Harness",
+    // browserUrl 由窗格在实例起来后回填（端口是 OS 分配的，创建标签时还不知道）。
+    browserUrl: input.browserUrl,
+    // 决定复用哪个 dsh 实例。丢了它，每个标签都会落到共享的 "default" 实例，
+    // 工作空间级隔离就退化成「全都挤在一起」。
+    workspacePath: input.workspacePath,
+  }),
+  collectResources: (tab, ctx) => ({
+    // dsh 会话活在它自己的进程里，不占 CC-Panes 的 PTY——sessionIds 恒空。
+    sessionIds: [],
+    poppedOutTabIds: collectPoppedOut(tab, ctx),
+  }),
+  closeGuards: () => [],
+  // 不做撤销恢复：撤销会拿旧 URL 重开，而那个端口属于已经停掉的进程，
+  // 恢复出来必然是一个连不上的页面。宁可不给撤销，也不给一个坏掉的标签。
+  persistForUndo: () => null,
+  onClosed: (tab) => {
+    if (!isTauriRuntime()) return;
+    // 两件事都要做，且都必须能在「组件从未挂载」的销毁路径上跑通
+    // （快照覆盖 / 后台布局删除时窗格没渲染过）：
+    //   1. 停 dsh 进程——不停就是每关一个标签泄漏一个 ~119MB 的 node 进程；
+    //   2. 关 webview——与 browser 标签同理。
+    // 后端对不存在的实例/webview 都幂等。
+    void Promise.resolve(dshService.stop(tab.id)).catch((error) => {
+      handleErrorSilent(error, "stop dsh instance");
+    });
+    void Promise.resolve(browserService.close(tab.id)).catch((error) => {
+      handleErrorSilent(error, "close dsh webview");
+    });
+    clearTabViewState(tab.id);
+  },
+};
+
 const editorEntry: TabLifecycleEntry = {
   createDefaults: (input) => ({ filePath: input.filePath }),
   collectResources: (tab, ctx) => ({
@@ -303,6 +341,7 @@ function inertEntry(): TabLifecycleEntry {
 export const TAB_LIFECYCLE: Record<TabContentType, TabLifecycleEntry> = {
   terminal: terminalEntry,
   browser: browserEntry,
+  dsh: dshEntry,
   editor: editorEntry,
   "file-explorer": inertEntry(),
   "mcp-config": inertEntry(),

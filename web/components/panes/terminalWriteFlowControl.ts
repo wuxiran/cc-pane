@@ -9,90 +9,105 @@ interface TerminalWriteFlowControlOptions {
   lowWatermark?: number;
 }
 
-const DEFAULT_BYTES_THRESHOLD = 1024 * 128;
-const DEFAULT_HIGH_WATERMARK = 10;
-const DEFAULT_LOW_WATERMARK = 5;
+// Keep the xterm write queue shallow during TUI redraw bursts. Orca applies a
+// credit window at the stream layer; this is the equivalent renderer-side
+// window for the desktop xterm instance.
+const DEFAULT_BYTES_THRESHOLD = 16 * 1024;
+const DEFAULT_HIGH_WATERMARK = 4;
+const DEFAULT_LOW_WATERMARK = 2;
 
 export function createTerminalWriteFlowControl(
   target: TerminalWriteTarget,
   options: TerminalWriteFlowControlOptions = {}
 ) {
   const enabled = options.enabled ?? true;
-  const bytesThreshold = options.bytesThreshold ?? DEFAULT_BYTES_THRESHOLD;
-  const highWatermark = options.highWatermark ?? DEFAULT_HIGH_WATERMARK;
-  const lowWatermark = options.lowWatermark ?? DEFAULT_LOW_WATERMARK;
+  const bytesThreshold = Math.max(1, options.bytesThreshold ?? DEFAULT_BYTES_THRESHOLD);
+  const highWatermark = Math.max(1, options.highWatermark ?? DEFAULT_HIGH_WATERMARK);
+  const lowWatermark = Math.min(
+    highWatermark - 1,
+    Math.max(0, options.lowWatermark ?? DEFAULT_LOW_WATERMARK),
+  );
 
+  interface PendingWrite {
+    data: string;
+    onWritten?: () => void;
+    resolve: () => void;
+    reject: (error: unknown) => void;
+  }
+
+  const queue: PendingWrite[] = [];
   let blocked = false;
-  let blockedPromise: Promise<void> | null = null;
-  let unblockBlocked: (() => void) | null = null;
+  let pumping = false;
   let pendingCallbacks = 0;
   let bytesWritten = 0;
 
-  function setBlocked(nextBlocked: boolean): void {
-    if (blocked === nextBlocked) return;
-    blocked = nextBlocked;
-    if (nextBlocked) {
-      blockedPromise = new Promise<void>((resolve) => {
-        unblockBlocked = resolve;
-      });
-      return;
+  function pump(): void {
+    if (pumping || blocked) return;
+    pumping = true;
+    try {
+      while (queue.length > 0 && !blocked) {
+        const entry = queue.shift()!;
+        bytesWritten += entry.data.length;
+        const shouldTrackCallback = enabled && bytesWritten >= bytesThreshold;
+        if (shouldTrackCallback) {
+          bytesWritten = 0;
+          pendingCallbacks += 1;
+          if (pendingCallbacks >= highWatermark) blocked = true;
+        }
+
+        let callbackCompleted = false;
+        const complete = () => {
+          if (callbackCompleted) return;
+          callbackCompleted = true;
+          if (shouldTrackCallback) {
+            pendingCallbacks = Math.max(0, pendingCallbacks - 1);
+            if (blocked && pendingCallbacks <= lowWatermark) blocked = false;
+          }
+          try {
+            entry.onWritten?.();
+            entry.resolve();
+          } catch (error) {
+            entry.reject(error);
+          } finally {
+            pump();
+          }
+        };
+
+        try {
+          target.write(entry.data, complete);
+        } catch (error) {
+          if (!callbackCompleted && shouldTrackCallback) {
+            pendingCallbacks = Math.max(0, pendingCallbacks - 1);
+            if (blocked && pendingCallbacks <= lowWatermark) blocked = false;
+          }
+          entry.reject(error);
+        }
+      }
+    } finally {
+      pumping = false;
     }
 
-    blockedPromise = null;
-    const resolve = unblockBlocked;
-    unblockBlocked = null;
-    resolve?.();
+    // Synchronous xterm mocks can complete while the pump is active. Run one
+    // more pass after dropping the re-entrancy guard so queued writes progress.
+    if (!blocked && queue.length > 0) pump();
   }
 
-  function waitUntilUnblocked(): Promise<void> {
-    return blockedPromise ?? Promise.resolve();
-  }
-
-  function writeWithCallback(data: string, onWritten?: () => void): Promise<void> {
-    return new Promise((resolve, reject) => {
+  function write(data: string, onWritten?: () => void): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      queue.push({ data, onWritten, resolve, reject });
       try {
-        target.write(data, () => {
-          onWritten?.();
-          resolve();
-        });
+        pump();
       } catch (error) {
         reject(error);
       }
     });
   }
 
-  async function write(data: string, onWritten?: () => void): Promise<void> {
-    if (blocked) {
-      await waitUntilUnblocked();
-    }
-
-    bytesWritten += data.length;
-    const shouldTrackCallback = enabled && bytesWritten > bytesThreshold;
-
-    if (!shouldTrackCallback) {
-      await writeWithCallback(data, onWritten);
-      return;
-    }
-
-    bytesWritten = 0;
-    pendingCallbacks++;
-    if (!blocked && pendingCallbacks > highWatermark) {
-      setBlocked(true);
-    }
-
-    await writeWithCallback(data, () => {
-      pendingCallbacks = Math.max(0, pendingCallbacks - 1);
-      if (blocked && pendingCallbacks < lowWatermark) {
-        setBlocked(false);
-      }
-      onWritten?.();
-    });
-  }
-
   function reset(): void {
     bytesWritten = 0;
     pendingCallbacks = 0;
-    setBlocked(false);
+    blocked = false;
+    pump();
   }
 
   return {

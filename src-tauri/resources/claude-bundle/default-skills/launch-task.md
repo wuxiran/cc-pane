@@ -1,11 +1,6 @@
 ---
 name: ccpanes-launch-task
-description: "CC-Panes 启动和派发任意已注册 CLI 的高级流程（WSL、resume、PTY 交互、TaskBinding、REST fallback）。Use when basic launch is not enough: cross-CLI routing, recovery, stuck PTY, or worker feedback diagnostics."
-trigger: |
-  - 用户说"启动另一个 CLI"、"开个新窗口"、"在 X 项目跑个任务"
-  - 用户问"恢复昨天那个会话"、"resume 之前的会话"
-  - 启动后要做 PTY 交互（提交命令、读输出、终止）
-  - 想用 leader/worker 自动反馈机制
+description: "CC-Panes 高级 CLI 启动与派发：用于 WSL、resume、PTY 恢复、TaskBinding、REST fallback 及跨 CLI worker 诊断。"
 ---
 
 # launch-task — CC-Panes 启动与派发任务（高级流程）

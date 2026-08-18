@@ -37,6 +37,11 @@ impl GlmAdapter {
                 supports_rpc: false,
                 supports_structured_result: false,
                 supports_yolo: false,
+                supports_orchestrated_launch: false,
+                // build_command 不消费任何 per-launch 参数键
+                supports_effort_option: false,
+                supports_verbose_option: false,
+                supports_max_turns_option: false,
                 compatible_provider_types: vec!["glm".into()],
             },
         }
@@ -163,6 +168,7 @@ mod tests {
             shared_mcp_urls: HashMap::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
+            skill_mount_paths: Vec::new(),
         }
     }
 

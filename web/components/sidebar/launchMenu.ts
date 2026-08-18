@@ -27,7 +27,7 @@ export interface SidebarCliLaunchItem {
   label: string;
 }
 
-const SIDEBAR_LAUNCH_CLI_TOOLS: ReadonlyArray<{
+export const SIDEBAR_LAUNCH_CLI_TOOLS: ReadonlyArray<{
   id: SidebarLaunchCliTool;
   labelKey: string;
   supportsSsh?: boolean;

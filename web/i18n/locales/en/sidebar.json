@@ -51,6 +51,12 @@
     "hidden": "Hide",
     "placementHint": "Moving a module only changes its entry. Hidden modules remain available from the Command Palette."
   },
+  "moduleAdd": {
+    "trigger": "Add module",
+    "title": "Show in Activity Bar",
+    "onBar": "On the Activity Bar",
+    "offBar": "Not on the Activity Bar"
+  },
   "fileHistory": "File History",
   "todoList": "TodoList",
   "importProject": "Import Project",
@@ -72,6 +78,12 @@
   "setAlias": "Set Alias",
   "deleteWorkspace": "Delete",
   "removeProject": "Remove Project",
+  "archiveWorkspace": "Archive",
+  "restoreWorkspace": "Restore",
+  "archiveProject": "Archive Project",
+  "restoreProject": "Restore Project",
+  "archivedBadge": "Archived",
+  "showArchivedWorkspaces": "Show archived ({{count}})",
   "configureMcp": "Configure MCP",
   "manageSkill": "Manage Skill",
   "memoryManager": "Memory Manager",

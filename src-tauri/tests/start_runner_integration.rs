@@ -91,21 +91,9 @@ async fn wait_for_session_exit(terminal: &TerminalService, session_id: &str) {
 }
 
 async fn submit_shell_command(terminal: &TerminalService, session_id: &str, command: &str) {
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    terminal.write(session_id, command).expect("write command");
-    // 固定 sleep 后盲发 CR 在慢 runner 上会撞上 PSReadLine 初始化/重绘窗口
-    // （回显交错成 `ppowershell ...`、CR 丢失）。等到完整回显出现再回车。
-    for _ in 0..40 {
-        let echoed = terminal
-            .get_session_output(session_id, 80)
-            .map(|output| output.lines.join("\n"))
-            .unwrap_or_default();
-        if echoed.contains(command) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(250)).await;
-    }
-    terminal.write(session_id, "\r").expect("enter");
+    terminal
+        .submit_text_to_session(session_id, command)
+        .expect("submit shell command");
 }
 
 #[tokio::test]

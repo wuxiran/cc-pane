@@ -534,6 +534,14 @@ pub fn build_router(state: AppState) -> Router {
             patch(resources::update_workspace_path),
         )
         .route(
+            "/api/workspaces/{name}/archived",
+            patch(resources::set_workspace_archived),
+        )
+        .route(
+            "/api/workspaces/{name}/projects/{projectId}/archived",
+            patch(resources::set_workspace_project_archived),
+        )
+        .route(
             "/api/workspaces/{name}/provider",
             patch(resources::update_workspace_provider),
         )

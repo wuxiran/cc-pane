@@ -1,6 +1,6 @@
 ---
 name: ccpanes-workspace-migrate
-description: Guide the user through {{app_name}}'s built-in "Migrate Workspace" UI flow — moving a workspace from one local directory to another, or from local to WSL. Use when the user says "迁移工作空间"、"换到 WSL"、"搬目录"、"move my workspace"、"migrate to WSL"、"换位置". This skill does NOT execute migration directly (it's a UI-driven feature); it tells the user where to click and what to verify.
+description: Guide the user through CC-Panes's built-in Migrate Workspace UI flow (local to local, or local to WSL). 触发词：迁移工作空间、换到 WSL、搬目录。本 skill 只给操作指引，不直接执行迁移。
 ---
 
 # 工作空间迁移

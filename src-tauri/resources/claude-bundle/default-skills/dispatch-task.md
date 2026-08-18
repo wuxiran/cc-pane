@@ -1,10 +1,6 @@
 ---
 name: ccpanes-dispatch-task
-description: "Dispatch a durable task to any registered CC-Panes CLI without assuming a Claude-to-Codex or Codex-to-Claude direction. Use for cross-CLI handoff, implementation, review, research, or resume workflows."
-trigger: |
-  - 用户说"派给另一个 CLI"、"交给 Gemini/Codex/Claude/其他实例"、"跨 CLI 协作"
-  - 当前任务需要新建或恢复一个可追踪的 worker
-  - 需要让不同 CLI 之间按同一套 TaskBinding 和状态协议协作
+description: "Dispatch a durable task to any registered CC-Panes CLI. Use for cross-CLI handoff, implementation, review, research, or resume workflows."
 ---
 
 # dispatch-task - 跨 CLI 通用派发

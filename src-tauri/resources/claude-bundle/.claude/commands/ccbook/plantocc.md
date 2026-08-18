@@ -98,4 +98,5 @@ mcp__ccpanes__launch_task(
 | Phase 1-7 全流程、prompt 模板、软超时表、反模式 | [`/ccbook:plantocodex`](plantocodex.md)（cliTool 换 "claude"） |
 | WSL 路径转换 / 已注册路径 | [`/ccbook:plan2codexwsl`](plan2codexwsl.md) |
 | 先评审再派活 | [`/ccbook:planreview`](planreview.md) |
+| 派给 Grok 而非 Claude | [`/ccbook:plantogrok`](plantogrok.md) |
 | 多 worker 并行 + worktree | [`/ccbook:parallel`](parallel.md) |

@@ -1,11 +1,6 @@
 ---
-name: planreview
-description: 在 plan mode 内启动另一个兼容 CLI 实例（本地或 WSL）对 plan 做同行评审。按能力选择目标、持久化派发和收尾状态，避免固定 Claude-to-Codex 方向。
-trigger: |
-  - 用户在 plan mode 里写完初版 plan，想找另一个 CLI 做同行评审 / 交叉审 / peer review
-  - 用户明说"找另一个 CLI/codex/claude 评审 plan"、"审一下 plan"、"在另一个窗口审 plan"
-  - 用户提到 UI E2E 测试计划、数据迁移/回滚计划、上线变更计划这类高风险 plan 需要二审
-  不触发：trivial plan（< 30 行、纯代码 refactor）、用户已明说不要双 CLI、没有兼容 CLI 可启动
+name: ccpanes-planreview
+description: 在 plan mode 内启动另一个兼容 CLI（本地或 WSL）做同行评审。用于高风险 plan 二审或用户要求跨 CLI peer review。
 ---
 
 # planreview — 跨 CLI Plan 同行评审

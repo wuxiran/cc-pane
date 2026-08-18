@@ -56,8 +56,16 @@ describe("module registry", () => {
       ["orchestration", ["rightDock", "overlay"]],
       ["todo", ["activityBar", "rightDock", "fullscreen"]],
       ["aiPanel", ["rightDock", "dialog"]],
-      ["sessionHistory", ["rightDock", "commandPalette", "settings"]],
+      ["sessionHistory", ["activityBar", "rightDock", "commandPalette", "settings"]],
     ]);
+  });
+
+  it("lets session history reach the activity bar without moving it there by default", () => {
+    const history = MODULE_REGISTRY.find((module) => module.id === "sessionHistory");
+
+    expect(history?.surfaces).toContain("activityBar");
+    // 默认位置刻意不动：入口由用户经活动栏的 `+` 自行添加，不擅自改已有布局。
+    expect(history?.defaultPosition).toBe("rightDock");
   });
 
   it("shares one registry instance across every entry consumer", () => {

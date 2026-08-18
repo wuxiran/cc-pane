@@ -4,6 +4,7 @@ pub mod codex_session_service;
 mod ctl_sidecar;
 mod daemon_client;
 pub mod default_skill_service;
+pub mod dsh_service;
 mod external_skill_registry;
 pub mod external_usage_session_service;
 mod filesystem_service;
@@ -70,7 +71,11 @@ pub mod wsl_discovery_service;
 pub use daemon_client::{
     app_instance_id, TerminalDaemonClient, TerminalDaemonManifest, TerminalDaemonStatus,
 };
-pub use default_skill_service::{BundledSkillInfo, DefaultSkillService};
+pub use default_skill_service::{
+    BundledSkillInfo, DefaultSkillCleanupReport, DefaultSkillService,
+    LEGACY_CLEANUP_REPORT_FILE_NAME, MANAGED_SKILLS_SUBDIR,
+};
+pub use dsh_service::DshService;
 pub use external_skill_registry::ExternalSkillRegistry;
 pub use filesystem_service::{ContentSearchLimits, FileSystemService};
 pub use git_service::GitService;
@@ -146,6 +151,6 @@ pub use uninstall_cleanup_service::{UninstallCleanupReport, UninstallCleanupServ
 pub use usage_stats_service::UsageStatsService;
 pub use user_skill_service::{InstalledUserSkill, UserSkillContent, UserSkillService};
 pub use wallpaper_service::{WallpaperFileInfo, WallpaperService};
-pub use workspace_health::{check_project_paths, PathStatusKind, ProjectPathStatus};
+pub use workspace_health::{check_project_paths, classify_path, PathStatusKind, ProjectPathStatus};
 pub use workspace_service::{WorkspaceProjectIdentityMigrationReport, WorkspaceService};
 pub use worktree_service::{WorktreeInfo, WorktreeService};

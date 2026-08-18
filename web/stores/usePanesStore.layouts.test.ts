@@ -699,6 +699,51 @@ describe("usePanesStore layouts", () => {
     expect(leaf.restoring).toBe(true);
   });
 
+  // dsh 的 URL 是每次进程启动由 OS 现分配的端口，跨重启必然失效。留着它会让
+  // 窗格先拿死端口建一次 webview（ERR_CONNECTION_REFUSED 的错误页），要等新
+  // 实例起来回填才换掉；清空则直接落到「正在启动」态。
+  it("applyLayoutSnapshotPayload 清掉 dsh 标签的陈旧 URL，但保留普通 browser 的", () => {
+    // 直接构造字面量：createTab 是**终端专用**构造器（内部写死
+    // createTabOfType("terminal", ...)），传 contentType 不会生效。
+    const dshTab = {
+      id: "dsh-tab",
+      title: "DeepSeek Harness",
+      contentType: "dsh",
+      projectId: "",
+      projectPath: "",
+      sessionId: null,
+      browserUrl: "http://127.0.0.1:53157/",
+    } as Tab;
+    const browserTab = {
+      id: "browser-tab",
+      title: "Docs",
+      contentType: "browser",
+      projectId: "",
+      projectPath: "",
+      sessionId: null,
+      browserUrl: "https://example.com/docs",
+    } as Tab;
+    const rootPane = createPanel(dshTab);
+    (rootPane as Panel).tabs.push(browserTab);
+
+    usePanesStore.getState().applyLayoutSnapshotPayload({
+      schemaVersion: 2,
+      layouts: [{
+        id: "dsh-layout",
+        name: "dsh 布局",
+        kind: "normal",
+        rootPane,
+        activePaneId: rootPane.id,
+      }],
+      currentLayoutId: "dsh-layout",
+    });
+
+    const tabs = panel(usePanesStore.getState().rootPane).tabs;
+    expect(tabs.find((t) => t.id === "dsh-tab")?.browserUrl).toBeUndefined();
+    // 普通 browser 标签的 URL 是用户的真实目标，绝不能一起清掉
+    expect(tabs.find((t) => t.id === "browser-tab")?.browserUrl).toBe("https://example.com/docs");
+  });
+
   it("applyLayoutSnapshotPayload 接受 v1/v2，拒绝未知的更高版本", () => {
     const buildPayload = (schemaVersion: number) => {
       const rootPane = createPanel(makeTerminalTab(`tab-v${schemaVersion}`));

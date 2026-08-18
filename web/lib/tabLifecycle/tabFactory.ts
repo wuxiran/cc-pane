@@ -31,6 +31,8 @@ export interface TabCreateInput {
   browserUrl?: string;
   /** editor：文件绝对路径。 */
   filePath?: string;
+  /** dsh：所属工作空间路径——决定复用哪个 dsh 实例。 */
+  workspacePath?: string;
   /** terminal：启动身份全集（原 createTab 的入参）。 */
   terminal?: CreateTabOptions;
 }

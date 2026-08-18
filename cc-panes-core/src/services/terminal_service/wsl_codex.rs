@@ -190,6 +190,35 @@ pub(super) fn strip_wsl_proxy_env_vars(env_vars: &mut HashMap<String, String>) {
     env_vars.retain(|key, _| !is_wsl_proxy_env_key(key));
 }
 
+/// WSL 内注册 ccpanes MCP 的前置命令（`grok mcp add`）。
+///
+/// 用 CLI 自己的子命令而不是宿主侧写 `~/.grok/config.toml`：后者要 wslpath + UNC
+/// 跨系统写文件，而 `grok mcp add -t http -s user` 让 grok 自己写自己的配置。
+///
+/// **`--` 分隔符是必须的**：`grok mcp add` 的 `[ARGS]...` 会吞掉后续 flag
+/// （`--help` 明写「Place them after `--`」），不加会让 URL 后的内容落进 server 参数。
+///
+/// URL 过 `shell_escape`，**整条命令不含任何 `$(...)` 命令替换**——经 wsl.exe argv
+/// 传递的脚本一旦含 `"$(cmd arg)"` 会被静默搅坏（见 CLAUDE.md 的 argv 引号坑）。
+///
+/// 返回的命令引用 `$CCPANES_CLI_BIN`，**必须在 native CLI 解析前置块之后**下发，
+/// 否则变量还没赋值、展开成空字符串。
+///
+/// 注册失败不阻断启动（`|| true`）：降级为无 MCP 的会话，比启动直接失败要好。
+pub(super) fn wsl_grok_mcp_register_command(
+    windows_host: Option<&str>,
+    env_vars: &HashMap<String, String>,
+) -> Option<String> {
+    let port = env_vars.get("CC_PANES_API_PORT")?;
+    let token = env_vars.get("CC_PANES_API_TOKEN")?;
+    let url = build_wsl_mcp_url(windows_host?, port, token);
+
+    Some(format!(
+        "\"$CCPANES_CLI_BIN\" mcp add ccpanes -t http -s user -- {} >/dev/null 2>&1 || true",
+        super::TerminalService::shell_escape(&url)
+    ))
+}
+
 pub(super) fn build_wsl_mcp_url(windows_host: &str, port: &str, token: &str) -> String {
     format!("http://{}:{}/mcp?token={}", windows_host, port, token)
 }
@@ -450,38 +479,6 @@ fn push_wsl_ccpanes_env_exports(
 }
 
 #[cfg(windows)]
-fn collect_wsl_claude_source_files(source_dir: &Path) -> Result<Vec<String>> {
-    let version_path = source_dir.join(VERSION_FILE_NAME);
-    if !version_path.is_file() {
-        return Err(anyhow!(
-            "Bundled Claude command source is missing version stamp: {}",
-            version_path.display()
-        ));
-    }
-
-    let mut files = Vec::new();
-    for entry in std::fs::read_dir(source_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("md") {
-            if let Some(file_name) = path.file_name().and_then(|name| name.to_str()) {
-                files.push(file_name.to_string());
-            }
-        }
-    }
-
-    files.sort();
-    if files.is_empty() {
-        return Err(anyhow!(
-            "Bundled Claude command source is empty: {}",
-            source_dir.display()
-        ));
-    }
-
-    Ok(files)
-}
-
-#[cfg(windows)]
 fn collect_wsl_codex_source_dirs(source_root: &Path) -> Result<Vec<String>> {
     let version_path = source_root.join(VERSION_FILE_NAME);
     if !version_path.is_file() {
@@ -557,52 +554,6 @@ fn collect_wsl_pi_source_dirs(source_root: &Path) -> Result<Vec<String>> {
     }
 
     Ok(dirs)
-}
-
-#[cfg(windows)]
-fn build_wsl_claude_skill_sync_prelude(
-    source_wsl_path: &str,
-    file_names: &[String],
-) -> Vec<String> {
-    let mut commands = vec![
-        format!(
-            "CCPANES_WSL_CLAUDE_SRC={}",
-            shell_escape_posix(source_wsl_path)
-        ),
-        format!(
-            "CCPANES_WSL_CLAUDE_DST=\"$HOME/.claude/commands/{}\"",
-            BUNDLED_NAMESPACE
-        ),
-        format!(
-            "CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE={}",
-            shell_escape_posix(VERSION_FILE_NAME)
-        ),
-        "CCPANES_WSL_NEEDS_SYNC=0".to_string(),
-        "if [ ! -f \"$CCPANES_WSL_CLAUDE_DST/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\" ]; then CCPANES_WSL_NEEDS_SYNC=1; fi".to_string(),
-        "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 0 ] && [ \"$(cat \"$CCPANES_WSL_CLAUDE_SRC/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\")\" != \"$(cat \"$CCPANES_WSL_CLAUDE_DST/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\")\" ]; then CCPANES_WSL_NEEDS_SYNC=1; fi".to_string(),
-    ];
-
-    for file_name in file_names {
-        commands.push(format!(
-            "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 0 ] && [ ! -f \"$CCPANES_WSL_CLAUDE_DST/{}\" ]; then CCPANES_WSL_NEEDS_SYNC=1; fi",
-            file_name
-        ));
-    }
-
-    commands.push(
-        "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then mkdir -p \"$CCPANES_WSL_CLAUDE_DST\"; fi"
-            .to_string(),
-    );
-    commands.push("if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then find \"$CCPANES_WSL_CLAUDE_DST\" -maxdepth 1 -type f -name '*.md' -delete; fi".to_string());
-    for file_name in file_names {
-        commands.push(format!(
-            "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then cp \"$CCPANES_WSL_CLAUDE_SRC/{}\" \"$CCPANES_WSL_CLAUDE_DST/{}\"; fi",
-            file_name, file_name
-        ));
-    }
-    commands.push("if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then cp \"$CCPANES_WSL_CLAUDE_SRC/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\" \"$CCPANES_WSL_CLAUDE_DST/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\"; fi".to_string());
-
-    commands
 }
 
 #[cfg(windows)]
@@ -1183,31 +1134,18 @@ impl TerminalService {
     }
 
     #[cfg(windows)]
-    fn build_wsl_claude_skill_sync_commands(&self) -> Result<Vec<String>> {
-        let source_dir = dirs::home_dir()
-            .ok_or_else(|| anyhow!("Failed to resolve Windows home directory"))?
-            .join(".claude")
-            .join("commands")
-            .join(BUNDLED_NAMESPACE);
-        let source_wsl_path = windows_path_to_wsl(&source_dir).ok_or_else(|| {
-            anyhow!(
-                "Failed to translate Claude bundled skill path to WSL path: {}",
-                source_dir.display()
-            )
-        })?;
-        let file_names = collect_wsl_claude_source_files(&source_dir)?;
-        Ok(build_wsl_claude_skill_sync_prelude(
-            &source_wsl_path,
-            &file_names,
-        ))
-    }
-
-    #[cfg(windows)]
     fn build_wsl_codex_skill_sync_commands(&self) -> Result<Vec<String>> {
-        let source_root = dirs::home_dir()
-            .ok_or_else(|| anyhow!("Failed to resolve Windows home directory"))?
-            .join(".codex")
-            .join("skills");
+        // 源已从「宿主 ~/.codex/skills」改为 CC-Panes 自己的 managed 目录——
+        // 宿主侧不再写用户的 CLI Home，旧源在迁移清理后就不存在了。
+        // 两者布局相同（`<root>/ccpanes-*/SKILL.md` + 版本戳），故同步逻辑无需改动。
+        //
+        // 注意：这里仍然是「拷进 WSL 内的 ~/.codex/skills」，即 WSL 侧的污染尚未消除。
+        // 彻底做法是像宿主侧一样按会话挂载（`/mnt/...` 路径对 WSL 直接可读，无需拷贝），
+        // 属 WSL 批次的工作，本批只保证不回归。
+        let source_root = self
+            .app_paths
+            .builtin_skills_dir()
+            .join(crate::services::MANAGED_SKILLS_SUBDIR);
         let source_wsl_path = windows_path_to_wsl(&source_root).ok_or_else(|| {
             anyhow!(
                 "Failed to translate Codex bundled skill path to WSL path: {}",
@@ -1446,6 +1384,17 @@ impl TerminalService {
 
     #[cfg(windows)]
     #[allow(clippy::too_many_arguments)]
+    /// WSL 内注册 ccpanes MCP 的前置命令（`grok mcp add`）。
+    ///
+    /// 用 CLI 自己的子命令而不是宿主侧写 `~/.grok/config.toml`：后者要 wslpath + UNC
+    /// 跨系统写文件，而 `grok mcp add -t http -s user` 让 grok 自己写自己的配置。
+    ///
+    /// **`--` 分隔符是必须的**：`grok mcp add` 的 `[ARGS]...` 会吞掉后续 flag
+    /// （--help 明写「Place them after `--`」），不加会让 `-t`/`-s` 落到 server 参数里。
+    ///
+    /// 所有取值都过 `shell_escape`，**不含任何 `$(...)` 命令替换**——经 wsl.exe argv
+    /// 传递的脚本一旦含 `"$(cmd arg)"` 会被静默搅坏（见 CLAUDE.md 的 argv 引号坑）。
+    ///
     pub(super) fn build_wsl_supported_cli_command(
         &self,
         wsl: &ResolvedWslLaunch,
@@ -1540,6 +1489,8 @@ impl TerminalService {
                 shared_mcp_urls: HashMap::new(),
                 allowed_mcp_server_ids: Vec::new(),
                 disable_unlisted_mcp_servers: false,
+                // 该 context 只用于解析 provider 环境变量，不产出启动参数
+                skill_mount_paths: Vec::new(),
             };
 
             let (args, mut env) = build_wsl_managed_adapter_plan(cli_tool, &provider_context)?;
@@ -1591,14 +1542,13 @@ impl TerminalService {
             {
                 remote_parts.push(format!("export MAX_THINKING_TOKENS={tokens}"));
             }
-            match self.build_wsl_claude_skill_sync_commands() {
-                Ok(mut commands) => remote_parts.append(&mut commands),
-                Err(error) => warn!(
-                    distro = %wsl.distro,
-                    error = %error,
-                    "build_wsl_supported_cli_command: failed to prepare bundled Claude skill sync; continuing without sync"
-                ),
-            }
+            // 旧版本会把 ~/.claude/commands/ccpanes 的 .md 拷进发行版内。宿主侧已停止
+            // 生成该目录（内置能力改为 skill + 按会话挂载），源不复存在，故同步取消。
+            //
+            // 已知缺口：WSL 内的 Claude 会话本批**拿不到内置 skill**——宿主侧走
+            // `--plugin-dir`，而 WSL 分支的命令是另行拼装的，接线属 WSL 批次。
+            // 这里不做「拷贝到发行版内」的临时替代：那等于把刚从宿主移除的污染
+            // 原样搬进 WSL，与本次改动的目的直接冲突。
         }
         if cli_tool == CliTool::Pi {
             match self.build_wsl_pi_skill_sync_commands() {
@@ -1614,6 +1564,8 @@ impl TerminalService {
             remote_parts.push(format!("cd {}", Self::shell_escape(launch_cwd)));
         }
 
+        // 需要 `$CCPANES_CLI_BIN` 的前置命令：登记在此，待解析前置块下发后再 push。
+        let mut mcp_register_command: Option<String> = None;
         let mut cli_args = adapter_args.unwrap_or_default();
         if !cli_args.iter().any(|arg| arg == "--model") {
             if let Some(model_id) = wsl_model_id(cli_tool, provider, adapter_options) {
@@ -1710,9 +1662,24 @@ impl TerminalService {
                 cli_args.push(prompt.to_string());
             }
         } else if cli_tool == CliTool::Grok {
-            // MCP：Grok 的注入面是 WSL 内 ~/.grok/config.toml，需 wslpath + UNC 写
-            // （参考 codex 的 resolve_wsl_codex_config_windows_path）。本期 WSL grok
-            // 不注入 MCP，TODO 后续增量。
+            // MCP：Grok 无 per-launch override 通道，注入面只有 config.toml。
+            // 但它自带 `grok mcp add`（实机 0.2.101 确认），由 CLI 自己写 WSL 内的
+            // ~/.grok/config.toml——比宿主侧 wslpath + UNC 写文件干净得多，
+            // 且避开了跨系统路径转换与文件锁。作为启动前置命令下发。
+            if !skip_mcp {
+                // 注意：这条命令引用 `$CCPANES_CLI_BIN`，而该变量由后面的
+                // push_wsl_native_cli_resolution_prelude 才定义——必须**延后**到
+                // 解析前置块之后再下发，此处只登记。
+                mcp_register_command =
+                    wsl_grok_mcp_register_command(wsl.windows_host.as_deref(), env_vars);
+                if mcp_register_command.is_none() {
+                    warn!(
+                        session_id = %session_id,
+                        distro = %wsl.distro,
+                        "wsl grok: incomplete MCP context, session starts without ccpanes MCP"
+                    );
+                }
+            }
             if let Some(resume_id) = resume_id {
                 cli_args.push("--resume".to_string());
                 cli_args.push(resume_id.to_string());
@@ -1728,6 +1695,18 @@ impl TerminalService {
             if yolo_mode {
                 cli_args.push("--always-approve".to_string());
             }
+            // per-launch 参数：与本地 grok.rs build_command 同口径
+            // （effort/maxTurns 有原生 flag，verbose 无对应项故不映射）
+            if let Some(effort) = cc_cli_adapters::effort_from_options(adapter_options) {
+                cli_args.push("--reasoning-effort".to_string());
+                cli_args.push(effort);
+            }
+            if let Some(max_turns) = cc_cli_adapters::max_turns_from_options(adapter_options) {
+                cli_args.push("--max-turns".to_string());
+                cli_args.push(max_turns.to_string());
+            }
+            cli_args.extend(cc_cli_adapters::extra_args_from_options(adapter_options));
+            // [PROMPT] 位置参数必须排在所有 option 之后
             if let Some(prompt) = initial_prompt {
                 cli_args.push(prompt.to_string());
             }
@@ -1741,6 +1720,10 @@ impl TerminalService {
             .collect::<Vec<_>>()
             .join(" ");
         push_wsl_native_cli_resolution_prelude(&mut remote_parts, command);
+        // `$CCPANES_CLI_BIN` 到这里才有值，登记的前置命令现在才能下发。
+        if let Some(register) = mcp_register_command {
+            remote_parts.push(register);
+        }
         remote_parts.push(if escaped_cli_args.is_empty() {
             if managed_pi {
                 "\"$CCPANES_CLI_BIN\"".to_string()
@@ -2137,13 +2120,13 @@ mod tests {
     use super::{
         append_codex_resume_args, push_codex_developer_instructions_arg, push_codex_yolo_mode_arg,
         push_wsl_codex_mcp_isolation_prelude, push_wsl_native_cli_resolution_prelude,
-        render_wsl_launch_script, wsl_host_probe_script, wsl_model_id,
+        render_wsl_launch_script, wsl_grok_mcp_register_command, wsl_host_probe_script,
+        wsl_model_id,
     };
     #[cfg(windows)]
     use super::{
-        build_wsl_claude_skill_sync_prelude, build_wsl_codex_skill_sync_prelude,
-        build_wsl_managed_pi_cleanup_prelude, build_wsl_managed_pi_cleanup_script,
-        build_wsl_pi_skill_sync_prelude, collect_wsl_claude_source_files,
+        build_wsl_codex_skill_sync_prelude, build_wsl_managed_pi_cleanup_prelude,
+        build_wsl_managed_pi_cleanup_script, build_wsl_pi_skill_sync_prelude,
         collect_wsl_codex_source_dirs, collect_wsl_pi_source_dirs, configure_managed_pi_wsl_state,
         forward_wsl_env_vars, push_wsl_provider_env_unsets, push_wsl_provider_env_unsets_except,
         remove_wsl_env_forwarding, ResolvedWslLaunch, WslManagedPiStateCleanup, VERSION_FILE_NAME,
@@ -2168,6 +2151,68 @@ mod tests {
 
     fn remove_dir(path: &Path) {
         let _ = fs::remove_dir_all(path);
+    }
+
+    fn grok_mcp_env() -> HashMap<String, String> {
+        HashMap::from([
+            ("CC_PANES_API_PORT".to_string(), "14300".to_string()),
+            ("CC_PANES_API_TOKEN".to_string(), "tok-123".to_string()),
+        ])
+    }
+
+    #[test]
+    fn wsl_grok_mcp_register_uses_cli_subcommand_with_double_dash() {
+        let command = wsl_grok_mcp_register_command(Some("172.20.0.1"), &grok_mcp_env()).unwrap();
+
+        assert!(command.contains("mcp add ccpanes"));
+        assert!(command.contains("-t http"));
+        assert!(command.contains("-s user"));
+        // `--` 不可省：grok mcp add 的 [ARGS]... 会吞掉后续内容（--help 明写）
+        assert!(command.contains(" -- "));
+        assert!(command.contains("http://172.20.0.1:14300/mcp?token=tok-123"));
+        // 注册失败不得阻断会话启动
+        assert!(command.ends_with("|| true"));
+    }
+
+    /// 经 wsl.exe argv 传递的脚本含 `$(...)` 会被静默搅坏（CLAUDE.md 的 argv 引号坑），
+    /// 且最险的形态是 exit 0 但输出坏数据——这条把「不含命令替换」钉成断言。
+    #[test]
+    fn wsl_grok_mcp_register_has_no_command_substitution() {
+        let command = wsl_grok_mcp_register_command(Some("172.20.0.1"), &grok_mcp_env()).unwrap();
+
+        assert!(!command.contains("$("));
+        assert!(!command.contains('`'));
+    }
+
+    #[test]
+    fn wsl_grok_mcp_register_needs_complete_context() {
+        // 缺 host / port / token 任一项都不能拼出半个 URL 去注册
+        assert!(wsl_grok_mcp_register_command(None, &grok_mcp_env()).is_none());
+        assert!(wsl_grok_mcp_register_command(Some("172.20.0.1"), &HashMap::new()).is_none());
+        assert!(wsl_grok_mcp_register_command(
+            Some("172.20.0.1"),
+            &HashMap::from([("CC_PANES_API_PORT".to_string(), "14300".to_string())]),
+        )
+        .is_none());
+    }
+
+    /// 该命令引用 `$CCPANES_CLI_BIN`，必须排在 native CLI 解析前置块**之后**，
+    /// 否则变量未赋值、展开成空串——实现时踩过一次，用断言钉住顺序。
+    #[test]
+    fn wsl_grok_mcp_register_runs_after_cli_resolution() {
+        let mut parts = Vec::new();
+        push_wsl_native_cli_resolution_prelude(&mut parts, "grok");
+        let resolution_end = parts.len();
+        parts.push(wsl_grok_mcp_register_command(Some("172.20.0.1"), &grok_mcp_env()).unwrap());
+
+        let script = parts.join("\n");
+        let assign = script.find("CCPANES_CLI_BIN=").unwrap();
+        let usage = script.find("mcp add ccpanes").unwrap();
+        assert!(
+            assign < usage,
+            "register command must follow the resolution prelude"
+        );
+        assert!(resolution_end > 0);
     }
 
     #[test]
@@ -2296,6 +2341,7 @@ mod tests {
             shared_mcp_urls: HashMap::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
+            skill_mount_paths: Vec::new(),
         }
     }
 
@@ -2732,19 +2778,6 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
-    fn collect_wsl_claude_source_files_requires_version_and_md_files() {
-        let root = unique_temp_dir("claude-source");
-        fs::write(root.join(VERSION_FILE_NAME), "1.0.0").unwrap();
-        fs::write(root.join("launch-task.md"), "body").unwrap();
-        fs::write(root.join("workspace.md"), "body").unwrap();
-
-        let files = collect_wsl_claude_source_files(&root).unwrap();
-        assert_eq!(files, vec!["launch-task.md", "workspace.md"]);
-        remove_dir(&root);
-    }
-
-    #[test]
-    #[cfg(windows)]
     fn collect_wsl_codex_source_dirs_filters_to_bundled_dirs() {
         let root = unique_temp_dir("codex-source");
         fs::write(root.join(VERSION_FILE_NAME), "1.0.0").unwrap();
@@ -2771,22 +2804,6 @@ mod tests {
         let dirs = collect_wsl_pi_source_dirs(&root).unwrap();
         assert_eq!(dirs, vec!["ccpanes-launch-task"]);
         remove_dir(&root);
-    }
-
-    #[test]
-    #[cfg(windows)]
-    fn build_wsl_claude_skill_sync_prelude_mentions_expected_targets() {
-        let commands = build_wsl_claude_skill_sync_prelude(
-            "/mnt/c/Users/test/.claude/commands/ccpanes",
-            &[String::from("launch-task.md")],
-        );
-
-        assert!(commands
-            .iter()
-            .any(|line: &String| line.contains("$HOME/.claude/commands/ccpanes")));
-        assert!(commands
-            .iter()
-            .any(|line: &String| line.contains("cp \"$CCPANES_WSL_CLAUDE_SRC/launch-task.md\"")));
     }
 
     #[test]

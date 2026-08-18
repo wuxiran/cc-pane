@@ -1,12 +1,6 @@
 ---
-name: plantocc
-description: Plan → Claude Code worker 执行交接 — 把 plan 派给另一个 Claude Code 实例实现。流程同 plantocodex（leader/worker 注册 + 自动反馈 + 软超时），本文只写 Claude worker 的差异：权限确认/YOLO、plan mode 禁入、waitingInput 判读。
-trigger: |
-  - 用户说"派给另一个 claude"、"plan 给 cc worker"、"开个 Claude 实例实现这个 plan"、"plantocc"
-  - 已有 plan，希望由 Claude Code（而非 Codex）执行——需要 Claude 的工具生态（skills/MCP/subagent）或统一模型行为
-  不触发：
-  - 派给 Codex 执行 → /ccpanes:plantocodex（WSL 细节 → /ccpanes:plan2codexwsl）
-  - plan 评审 → /ccpanes:planreview
+name: ccpanes-plantocc
+description: Hand a finished plan to another Claude Code instance to implement, with leader/worker auto-feedback. 与 plantocodex 流程相同；本文只写 Claude worker 的差异：权限确认/YOLO、禁入 plan mode、waitingInput 判读。
 ---
 
 # plantocc — Plan → Claude Code worker 执行交接
@@ -93,4 +87,5 @@ mcp__ccpanes__dispatch_task(
 | Phase 1-7 全流程、prompt 模板、软超时表、反模式 | [`/ccpanes:plantocodex`](plantocodex.md)（cliTool 换 "claude"） |
 | WSL 路径转换 / 已注册路径 | [`/ccpanes:plan2codexwsl`](plan2codexwsl.md) |
 | 先评审再派活 | [`/ccpanes:planreview`](planreview.md) |
+| 派给 Grok 而非 Claude | [`/ccpanes:plantogrok`](plantogrok.md) |
 | 多 worker 并行 + worktree | [`/ccpanes:parallel-advanced`](parallel-advanced.md) |

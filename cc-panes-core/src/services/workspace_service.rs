@@ -250,7 +250,19 @@ impl WorkspaceService {
         self.workspace_dir(name).join("workspace.json")
     }
 
-    /// 列出所有工作空间
+    /// 列出所有工作空间。
+    ///
+    /// **不变式：必须返回全量，包含已归档（`archived_at.is_some()`）的条目。**
+    /// 归档的可见性过滤属于展示层，只能落在消费点（MCP 工具、前端 store）。
+    ///
+    /// 原因是本函数有四处调用方在做**引用检查**，看不到已归档项就会误判：
+    /// - `orchestrator_service::delete_launch_profile_impl` 与
+    ///   `launch_profile_commands` 的绑定检查——漏了会把仍被归档工作空间绑着的
+    ///   launch profile 删掉；
+    /// - [`Self::ensure_default_workspace`]——漏了会重复创建默认工作空间；
+    /// - `workspace_commands` 的 `force_stop_project` 路径引用检查。
+    ///
+    /// 见 `list_workspaces_still_returns_archived_workspaces` 回归测试。
     pub fn list_workspaces(&self) -> Result<Vec<Workspace>, String> {
         let mut workspaces = Vec::new();
 
@@ -539,6 +551,7 @@ impl WorkspaceService {
             launch_profile_id: None,
             wsl_remote_path: None,
             ssh: Some(ssh_info),
+            archived_at: None,
         };
 
         workspace.projects.push(project.clone());
@@ -638,6 +651,57 @@ impl WorkspaceService {
         let mut ws = self.get_workspace(name)?;
         ws.hidden = hidden;
         self.write_workspace_json(name, &ws)?;
+        Ok(())
+    }
+
+    /// 归档 / 恢复工作空间（逻辑删除）。
+    ///
+    /// 归档只写一个时间戳，不删 workspace.json、不动磁盘上的项目目录，随时可恢复。
+    /// 这正是它敢暴露给 MCP 而硬删除不敢的原因（硬删除见 `delete_workspace`）。
+    ///
+    /// 注意：归档**不影响** [`Self::list_workspaces`] 的返回内容——过滤是消费方的事，
+    /// 详见该函数的文档注释。
+    pub fn set_workspace_archived(&self, name: &str, archived: bool) -> Result<(), String> {
+        let mut ws = self.get_workspace(name)?;
+
+        // 默认工作空间不可归档：启动时会自动重建，归档只会造成"删了又回来"的困惑。
+        // 复用与 delete_workspace 相同的错误码前缀，调用方可统一识别。
+        if ws.is_default && archived {
+            return Err(format!(
+                "DEFAULT_WORKSPACE_PROTECTED: Workspace '{}' is the default workspace and cannot be archived",
+                name
+            ));
+        }
+
+        ws.archived_at = archived.then(|| chrono::Utc::now().to_rfc3339());
+        self.write_workspace_json(name, &ws)?;
+        Ok(())
+    }
+
+    /// 归档 / 恢复工作空间内的单个项目（逻辑删除）。
+    ///
+    /// 与 `remove_project` 的区别：后者把条目从数组里抹掉不可撤回，本方法只打时间戳。
+    pub fn set_project_archived(
+        &self,
+        workspace_name: &str,
+        project_id: &str,
+        archived: bool,
+    ) -> Result<(), String> {
+        let mut workspace = self.get_workspace(workspace_name)?;
+
+        let project = workspace
+            .projects
+            .iter_mut()
+            .find(|p| p.id == project_id)
+            .ok_or_else(|| format!("Project '{}' does not exist", project_id))?;
+
+        project.archived_at = archived.then(|| chrono::Utc::now().to_rfc3339());
+
+        self.write_workspace_json(workspace_name, &workspace)?;
+
+        // 与 remove_project 同口径：项目集合变动后同步 CSV
+        self.sync_projects_csv(&workspace);
+
         Ok(())
     }
 
@@ -2396,6 +2460,7 @@ mod tests {
             launch_profile_id: None,
             wsl_remote_path: None,
             ssh: None,
+            archived_at: None,
         };
         let mut workspace = service.get_workspace("ws").unwrap();
         let mut first = project("first", "/mnt/d/Repos/App");
@@ -2546,6 +2611,86 @@ mod tests {
         assert_eq!(ws.alias.as_deref(), Some("别名"));
         assert_eq!(ws.provider_id.as_deref(), Some("prov-1"));
         assert!(ws.hidden);
+    }
+
+    #[test]
+    fn archive_workspace_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("ws", None).unwrap();
+        assert!(service.get_workspace("ws").unwrap().archived_at.is_none());
+
+        service.set_workspace_archived("ws", true).unwrap();
+        assert!(service.get_workspace("ws").unwrap().archived_at.is_some());
+
+        service.set_workspace_archived("ws", false).unwrap();
+        assert!(service.get_workspace("ws").unwrap().archived_at.is_none());
+    }
+
+    #[test]
+    fn archive_project_round_trips_and_reports_unknown_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        let root = dir.path().join("proj");
+        std::fs::create_dir_all(&root).unwrap();
+        service.create_workspace("ws", None).unwrap();
+        let project = service.add_project("ws", &path_str(&root)).unwrap();
+
+        service
+            .set_project_archived("ws", &project.id, true)
+            .unwrap();
+        let ws = service.get_workspace("ws").unwrap();
+        assert!(ws.projects[0].archived_at.is_some());
+
+        service
+            .set_project_archived("ws", &project.id, false)
+            .unwrap();
+        let ws = service.get_workspace("ws").unwrap();
+        assert!(ws.projects[0].archived_at.is_none());
+
+        assert!(service.set_project_archived("ws", "nope", true).is_err());
+    }
+
+    #[test]
+    fn default_workspace_cannot_be_archived() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.ensure_default_workspace().unwrap();
+
+        let error = service
+            .set_workspace_archived("default", true)
+            .expect_err("default workspace must reject archiving");
+        assert!(error.contains("DEFAULT_WORKSPACE_PROTECTED"));
+
+        // 恢复方向不受保护，否则默认工作空间一旦被旧版本置为归档就永远解不开
+        assert!(service.set_workspace_archived("default", false).is_ok());
+    }
+
+    /// 归档只改可见性语义，不得改变 `list_workspaces` 的返回集合。
+    ///
+    /// 一旦有人"顺手"在 service 层加了过滤，delete_launch_profile 的绑定检查、
+    /// ensure_default_workspace、force_stop_project 的路径引用检查会同时失准
+    /// （被归档工作空间仍持有的绑定会被判成无人引用）。这个测试就是拦那一手的。
+    #[test]
+    fn list_workspaces_still_returns_archived_workspaces() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.create_workspace("kept", None).unwrap();
+        service.create_workspace("gone", None).unwrap();
+
+        service.set_workspace_archived("gone", true).unwrap();
+
+        let names: Vec<String> = service
+            .list_workspaces()
+            .unwrap()
+            .into_iter()
+            .map(|ws| ws.name)
+            .collect();
+        assert!(
+            names.iter().any(|name| name == "gone"),
+            "archived workspace must remain visible to list_workspaces, got {names:?}"
+        );
+        assert!(names.iter().any(|name| name == "kept"));
     }
 
     #[test]

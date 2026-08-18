@@ -362,6 +362,10 @@ impl PiAdapter {
                 supports_rpc: true,
                 supports_structured_result: true,
                 supports_yolo: false,
+                supports_orchestrated_launch: true,
+                supports_effort_option: false,
+                supports_verbose_option: false,
+                supports_max_turns_option: false,
                 compatible_provider_types: vec![
                     "anthropic".into(),
                     "bedrock".into(),
@@ -759,6 +763,10 @@ mod tests {
         assert!(!caps.supports_project_hooks);
         assert!(!caps.supports_issued_session_id);
         assert!(!caps.supports_yolo);
+        assert!(caps.supports_orchestrated_launch);
+        assert!(!caps.supports_effort_option);
+        assert!(!caps.supports_verbose_option);
+        assert!(!caps.supports_max_turns_option);
         assert_eq!(
             adapter.skill_delivery_modes(),
             vec![SkillDeliveryMode::PiSkill]

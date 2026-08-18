@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { FolderTree, Search, X } from "lucide-react";
+import { Archive, FolderTree, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { Input } from "@/components/ui/input";
@@ -42,10 +42,15 @@ export default function WorkspaceFilterBar() {
     }
     return [...values];
   }, [workspaces]);
+  const archivedCount = useMemo(
+    () => workspaces.filter((workspace) => workspace.archivedAt).length,
+    [workspaces],
+  );
   const active =
     filter.query.trim() !== "" ||
     filter.colors.length > 0 ||
-    filter.group != null;
+    filter.group != null ||
+    filter.includeArchived;
   const selectedGroupLabel =
     filter.group === UNGROUPED_WORKSPACE_FILTER
       ? t("ungrouped")
@@ -137,6 +142,18 @@ export default function WorkspaceFilterBar() {
           );
         })}
       </div>
+
+      {/* 只在真的有归档项时才出现——没归档过的用户不该看到一个永远无效的开关 */}
+      {archivedCount > 0 ? (
+        <IconTooltipButton
+          label={t("showArchivedWorkspaces", { count: archivedCount })}
+          aria-pressed={filter.includeArchived}
+          onClick={() => setFilter({ includeArchived: !filter.includeArchived })}
+          className={`size-6 shrink-0 p-0 ${filter.includeArchived ? "text-[var(--app-accent)]" : "text-[var(--app-text-tertiary)]"}`}
+        >
+          <Archive className="size-3.5" />
+        </IconTooltipButton>
+      ) : null}
 
       {active ? (
         <IconTooltipButton

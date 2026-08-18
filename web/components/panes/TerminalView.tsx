@@ -388,22 +388,16 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     );
     const keepCliOutputInNormalBuffer =
       resolveTerminalBufferMode(effectiveCliTool, cliBufferModeOverrides) === "strip";
-    // renderer 是**有状态**的（可能扣留跨 chunk 的不完整转义序列尾部），必须按终端实例
-    // 用 ref 持有——useMemo 可能被 React 丢弃重算，扣留的尾部会随之丢失。
-    //
-    // 销毁时不 flush 残留：写入残留得挂进 init 闭包的 cleanup（终端销毁时序红线），
-    // 且那时 xterm 正在 dispose，写入本就不安全。代价是会话结束时最多丢 32 字节的
-    // 不完整转义序列尾部（MAX_PARTIAL_TAIL_LENGTH 上限）——远好于动渲染生命周期。
+    // renderer 会扣留跨 chunk 的不完整序列尾部，必须按终端实例持有；销毁时
+    // xterm 正在 dispose，不再 flush 最多 32 字节的残留。
     const terminalDataRendererRef = useRef<TerminalDataRenderer | null>(null);
-    // 探针回调在 renderer 创建时被捕获（renderer 按实例 ref 持有、只建一次），
-    // cliTool 经 ref 间接读取，避免闭包陈旧。
+    // renderer 只建一次，探针通过 ref 读取最新 cliTool。
     const effectiveCliToolProbeRef = useRef(effectiveCliTool);
     effectiveCliToolProbeRef.current = effectiveCliTool;
     const renderTerminalData = useCallback((data: string) => {
       terminalDataRendererRef.current ??= createTerminalDataRenderer({
-        // 1049 探针（docs/73 §2.x 步骤 1）：剥离路径上跨 chunk 重组后的真实命中。
-        // 不走 debugLog（受 TERMINAL_DEBUG 门控）——探针要在常规运行里也可观测；
-        // 事件极低频（CLI 真切换 alt-screen 才触发），claude 长期零输出即证明剥离对它是 no-op。
+        // 常规运行中观测跨 chunk 重组后的真实 1049 命中；事件仅在切换时产生。
+        // 不走受 TERMINAL_DEBUG 门控的 debugLog。
         onStrippedTransition: (transition) => {
           console.info("[alt-screen-probe]", {
             cliTool: effectiveCliToolProbeRef.current,
@@ -418,6 +412,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         stripBackgroundColors: transparentCliSurfaceRef.current,
       });
     }, [keepCliOutputInNormalBuffer]);
+    // photo 成品 VT 只剥 SGR 背景色；二次剥 alt-screen 会破坏画面。
+    const renderCheckpointData = useCallback((data: string) =>
+      transparentCliSurfaceRef.current ? stripSgrBackgroundColors(data) : data, []);
     const syncTrackedBufferType = useCallback((reason: string) => {
       const current = terminalInstanceRef.current?.buffer.active.type;
       const next =
@@ -838,6 +835,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         isRenderVisible,
         keepCliOutputInNormalBuffer,
         renderTerminalData,
+        renderCheckpointData,
         writeTerminalData,
         syncTrackedBufferType,
         unbindSessionCallbacks,
@@ -854,6 +852,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       handleSessionExit,
       isRenderVisible,
       keepCliOutputInNormalBuffer,
+      renderCheckpointData,
       renderTerminalData,
       syncTrackedBufferType,
       unbindSessionCallbacks,
@@ -1556,7 +1555,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             // (Restored tabs still start their live PTY on first app restore even when
             // hidden, otherwise background tabs can remain stuck on the restore overlay.)
             if (props.restoring && props.savedSessionId && !liveSavedSessionId) {
-              await replayColdRestoreOutput(term, props.savedSessionId, logRestoreEvent, debugLog);
+              await replayColdRestoreOutput(term, props.savedSessionId, logRestoreEvent, debugLog, renderCheckpointData);
             }
 
             let sessionId: string;
@@ -1584,6 +1583,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                   wake,
                   getRecoverySnapshot: (id) => getRecoverySnapshot(id),
                   renderTerminalData,
+                  renderCheckpointData,
                   writeTerminalData,
                   syncTrackedBufferType,
                   showReconnectHint: Boolean(isSshRef.current && onReconnectRef.current),
@@ -1992,7 +1992,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                     const renderedData = renderTerminalData(data);
                     return renderedData ? writeTerminalData(renderedData) : Promise.resolve();
                   },
-                  writeCheckpointData: writeTerminalData,
+                  writeCheckpointData: (data) => writeTerminalData(renderCheckpointData(data)),
                   syncTrackedBufferType,
                   debugLog,
                 });

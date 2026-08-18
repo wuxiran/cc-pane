@@ -1,5 +1,6 @@
 pub mod ai_panel;
 pub mod context_usage;
+pub mod dsh;
 pub mod external_skill;
 pub mod filesystem;
 pub mod git;

@@ -26,6 +26,7 @@
     { "name": "plantocc", "file": "plantocc.md" },
     { "name": "planreview", "file": "planreview.md" },
     { "name": "plan2codexwsl", "file": "plan2codexwsl.md" },
+    { "name": "plantogrok", "file": "plantogrok.md" },
     { "name": "cleanup-processes", "file": "cleanup-processes.md" },
     { "name": "finish-work", "file": "finish-work.md" },
     { "name": "cross-layer-check", "file": "cross-layer-check.md", "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "piSkill"], "requiresCcpanesMcp": false } },

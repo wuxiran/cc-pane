@@ -36,6 +36,12 @@ impl CursorAdapter {
                 supports_rpc: false,
                 supports_structured_result: false,
                 supports_yolo: false,
+                supports_orchestrated_launch: false,
+                // build_command 不消费任何 per-launch 参数键（显式声明而非依赖默认值，
+                // 让「不支持」是一个判断结果而不是漏写）
+                supports_effort_option: false,
+                supports_verbose_option: false,
+                supports_max_turns_option: false,
                 compatible_provider_types: vec!["cursor".into()],
             },
         }

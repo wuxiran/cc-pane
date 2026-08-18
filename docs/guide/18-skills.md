@@ -31,7 +31,7 @@
 
 ## CC-Panes 内置了哪些
 
-当前版本内置 24 个，按用途分大致是这几组：
+当前版本内置 26 个，按用途分大致是这几组：
 
 **启动与会话**
 - `launch-task` — 启动 Claude/Codex 任务的完整流程（WSL、resume、worktree 路由、卡住时怎么救）
@@ -48,6 +48,7 @@
 **Plan 交接与评审**
 - `plantocodex` — Claude 规划、Codex 实现的交接流程
 - `plantocc` — 同上，但把活派给另一个 Claude Code 实例
+- `plantogrok` — 同上，但派给 Grok CLI（第三方模型视角、原生 worktree）
 - `planreview` — 另开一个 CLI 对你的 plan 做同行评审，专治"自己审自己"
 - `plan2codexwsl` — plantocodex 的 WSL 特化版（路径转换、runtimeKind）
 

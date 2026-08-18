@@ -1,12 +1,6 @@
 ---
 name: ccpanes-built-in-spec
-description: CC-Panes 内置 Spec + Todo 双向绑定 — 说明 Spec 文件结构、specService 前端 API、Tauri 命令边界。**不是** MCP 工作流（cc-panes 没暴露 MCP create_spec），AI 主要走 Tauri 前端 service 或让用户在 UI 操作。
-trigger: |
-  - 用户问 CC-Panes 的 Spec/Todo 怎么用、文件结构、如何创建/激活/归档
-  - 用户问 sync_spec_tasks、handle_terminal_exit_spec 这些机制是什么
-  不触发：
-  - 想走通用 spec-workflow MCP（需求/设计/任务/实现四段式） → 用 ccpanes:spec
-  - 想引导写一份独立 spec 文档 → 用 /ccpanes:openspec（方法论）
+description: CC-Panes built-in Spec plus Todo two-way binding: file layout, specService API, Tauri command boundary. 不是 MCP 工作流（未暴露 create_spec 工具）；AI 走 Tauri 前端 service，或让用户在 UI 操作。
 ---
 
 # spec — CC-Panes 内置 Spec + Todo 工作流（说明型）

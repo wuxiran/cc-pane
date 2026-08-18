@@ -1,10 +1,6 @@
 ---
-name: plan2codexwsl
-description: 在 WSL 中运行 Codex 执行 plan —— plantocodex 的 WSL 特化入口：已注册路径、runtimeKind、WSL 路径转换。要做 plan 同行评审请用 planreview。
-trigger: |
-  - 用户要把 plan 派给 WSL 里的 Codex 执行："在 WSL 跑 codex"、"WSL Codex 实现这个 plan"
-  - plantocodex 流程中目标环境是 WSL，需要路径转换 / 项目注册细节
-  不触发：plan 评审（→ /ccpanes:planreview）、本地 Codex 执行（直接 /ccpanes:plantocodex）
+name: ccpanes-plan2codexwsl
+description: Run a plan with Codex inside WSL: registered paths, runtimeKind, and WSL path translation. plantocodex 的 WSL 特化入口。要做 plan 同行评审请改用 planreview。
 ---
 
 # plan2codexwsl — 在 WSL 运行 Codex 执行 plan

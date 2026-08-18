@@ -1305,27 +1305,15 @@ impl LaunchProfileService {
 fn preview_cli_tool(value: Option<&str>) -> AppResult<crate::models::CliTool> {
     use crate::models::CliTool;
 
-    let raw_cli_tool = value.unwrap_or("none");
-    let normalized_cli_tool = raw_cli_tool.trim().to_ascii_lowercase();
-    let cli_tool = match normalized_cli_tool.as_str() {
-        "none" => CliTool::None,
-        "claude" => CliTool::Claude,
-        "codex" => CliTool::Codex,
-        "gemini" => CliTool::Gemini,
-        "kimi" => CliTool::Kimi,
-        "glm" => CliTool::Glm,
-        "opencode" => CliTool::Opencode,
-        "cursor" => CliTool::Cursor,
-        "grok" => CliTool::Grok,
-        "pi" => CliTool::Pi,
-        _other => {
-            return Err(AppError::coded_with_params(
-                "PROVIDER_UNSUPPORTED",
-                format!("Unknown CLI tool '{}'", raw_cli_tool.trim()),
-                HashMap::from([("cliTool".to_string(), raw_cli_tool.trim().to_string())]),
-            ));
-        }
-    };
+    let raw = value.unwrap_or("none").trim();
+    let normalized = raw.to_ascii_lowercase();
+    let cli_tool = CliTool::from_id(&normalized).ok_or_else(|| {
+        AppError::coded_with_params(
+            "PROVIDER_UNSUPPORTED",
+            format!("Unknown CLI tool '{raw}'"),
+            HashMap::from([("cliTool".to_string(), raw.to_string())]),
+        )
+    })?;
     Ok(cli_tool)
 }
 

@@ -23,7 +23,8 @@ interface TabBarProps {
   onCloseOtherTabs: (tabId: string) => void;
   onEditWorkspaceEnvironment?: (tab: Tab) => void;
   canEditWorkspaceEnvironment?: (tab: Tab) => boolean;
-  onAddSsh?: () => void;
+  /** ＋ 入口整组下发（TabBar 只是转发，故收成一个对象） */
+  newTab?: { onAdd: () => void; onAddSsh?: () => void };
 }
 
 let tabBarProps: TabBarProps | null = null;
@@ -177,7 +178,7 @@ describe("Panel", () => {
     render(<Panel pane={pane} />);
 
     act(() => {
-      tabBarProps?.onAddSsh?.();
+      tabBarProps?.newTab?.onAddSsh?.();
     });
 
     expect(useSshMachineDialogStore.getState().addDialogOpen).toBe(true);

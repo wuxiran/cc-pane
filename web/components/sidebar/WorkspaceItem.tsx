@@ -27,8 +27,7 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useLaunchProfilesStore, useProvidersStore, useSettingsStore, useSshMachinesStore } from "@/stores";
+import { useLaunchProfilesStore, useProvidersStore, useSettingsStore, useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import { projectCliHooksService } from "@/services";
 import { providerService } from "@/services/providerService";
 import { isTauriRuntime } from "@/services/runtime";
@@ -50,8 +49,10 @@ import type {
   Workspace, WorkspaceLaunchEnvironment,
 } from "@/types";
 import AddSshProjectDialog from "./AddSshProjectDialog";
+import ArchiveMenuItem from "./ArchiveMenuItem";
+import WorkspaceBadges from "./WorkspaceBadges";
 import WorkspaceAppearanceMenu from "./WorkspaceAppearanceMenu";
-import { sidebarEntityBadgeClass, sidebarEntityCountClass, sidebarEntityRowClass } from "./sidebarStyles";
+import { sidebarEntityCountClass, sidebarEntityRowClass } from "./sidebarStyles";
 import WorkspaceColorDot from "./WorkspaceColorDot";
 import WorkspaceGroupDialog from "./WorkspaceGroupDialog";
 import { normalizeWorkspaceProjects } from "./workspaceProjects";
@@ -117,7 +118,9 @@ export default function WorkspaceItem({
   const [sshDialogOpen, setSshDialogOpen] = useState(false);
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
 
+  const setArchived = useWorkspacesStore((state) => state.setArchived);
   const isDefaultWorkspace = !!workspace.isDefault;
+  const isArchived = !!workspace.archivedAt;
   const displayName = workspace.alias
     || (isDefaultWorkspace ? t("defaultWorkspaceName", { defaultValue: "默认工作空间" }) : workspace.name);
   const rootProject = projects.find((project) => !project.ssh);
@@ -433,26 +436,16 @@ export default function WorkspaceItem({
               )}
               {workspace.color ? <WorkspaceColorDot color={workspace.color} /> : null}
               <span className="truncate text-[13px] font-medium">{displayName}</span>
-              {isDefaultWorkspace ? (
-                <span className={`${sidebarEntityBadgeClass} font-semibold tracking-wide bg-[color-mix(in_srgb,var(--app-accent)_16%,transparent)] text-[var(--app-accent)]`}>
-                  {t("defaultBadge", { defaultValue: "默认" })}
-                </span>
-              ) : null}
-              {showWslBadge ? (
-                <span className={`${sidebarEntityBadgeClass} font-semibold tracking-wide bg-[color-mix(in_srgb,var(--app-accent)_16%,transparent)] text-[var(--app-accent)]`}>
-                  WSL
-                </span>
-              ) : null}
-              {boundProvider && defaultEnvironment !== "wsl" ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className={`${sidebarEntityBadgeClass} bg-[color-mix(in_srgb,var(--app-text-primary)_8%,transparent)] text-[var(--app-text-secondary)]`}>
-                      {boundProvider.name}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Provider: {boundProvider.name}</TooltipContent>
-                </Tooltip>
-              ) : null}
+              <WorkspaceBadges
+                isDefault={isDefaultWorkspace}
+                showWsl={showWslBadge}
+                isArchived={isArchived}
+                providerName={
+                  boundProvider && defaultEnvironment !== "wsl"
+                    ? boundProvider.name
+                    : undefined
+                }
+              />
             </div>
             <span
               className={sidebarEntityCountClass}
@@ -674,6 +667,11 @@ export default function WorkspaceItem({
                 onNewGroup={() => setGroupDialogOpen(true)}
               />
               <ContextMenuSeparator />
+              <ArchiveMenuItem
+                target="workspace"
+                archivedAt={workspace.archivedAt}
+                onToggle={(next) => void setArchived(workspace.name, next)}
+              />
               <ContextMenuItem variant="destructive" onClick={() => onDelete(workspace)}>
                 <Trash2 /> {t("deleteWorkspace")}
               </ContextMenuItem>

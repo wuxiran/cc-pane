@@ -93,6 +93,8 @@ export interface BindTerminalSessionCallbacksOptions {
   isRenderVisible: () => boolean;
   keepCliOutputInNormalBuffer: boolean;
   renderTerminalData: (data: string) => string;
+  /** photo 管道渲染：只剥 SGR 背景色，不做 alt-screen 剥离（见 stripSgrBackgroundColors）。 */
+  renderCheckpointData: (data: string) => string;
   writeTerminalData: (data: string, onWritten?: () => void) => Promise<void>;
   syncTrackedBufferType: (reason: string) => void;
   /** 换绑前注销旧订阅（重连等场景），避免旧回调残留。 */
@@ -215,6 +217,7 @@ export async function bindTerminalSessionCallbacks(
     isRenderVisible,
     keepCliOutputInNormalBuffer,
     renderTerminalData,
+    renderCheckpointData,
     writeTerminalData,
     syncTrackedBufferType,
     unbindSessionCallbacks,
@@ -253,9 +256,10 @@ export async function bindTerminalSessionCallbacks(
       terminalRef: terminalInstanceRef,
       hiddenWriteBufferRef,
       getRecoverySnapshot: (id) => getRecoverySnapshot(id),
-      // 双管道（裁决 B）：delta 过 renderTerminalData；photo 是成品 VT 直写。
+      // 双管道（裁决 B）：delta 过 renderTerminalData；photo 是成品 VT，
+      // 只过 renderCheckpointData（剥背景色，不剥 alt-screen）。
       writeData: (data) => writeTerminalData(renderTerminalData(data)),
-      writeCheckpointData: writeTerminalData,
+      writeCheckpointData: (data) => writeTerminalData(renderCheckpointData(data)),
       syncTrackedBufferType,
       setResyncActive: (active) => {
         resyncActiveRef.current = active;

@@ -1,6 +1,6 @@
 ---
 name: ccpanes-finish-work
-description: "Finalize a coding task before handoff: inspect git diff, run project-appropriate checks, verify docs/tests, summarize changes, and complete CC-Panes worker reporting when applicable. Use when the user says finish, close out, final check, or prepare handoff."
+description: Finalize a task before handoff: inspect diff, run checks, verify docs and tests, summarize changes. 触发词：收尾、最终检查、准备交接。作为 worker 时一并完成 CC-Panes 上报。
 ---
 
 # 完成工作 - 提交前检查清单

@@ -1,12 +1,6 @@
 ---
 name: ccpanes-parallel-advanced
-description: Advanced same-project parallel orchestration — use native sub-agents where available for read-only work and CC-Panes dispatch_task workers for code changes with worktree isolation. Use when a large task can be safely split inside one project.
-trigger: |
-  - 用户要求"并行跑"、"分头执行"、"开 N 个 worker"、"parallel"、"fan out"
-  - 任务可拆成 ≥2 个相互独立的子任务（不共享文件、无强依赖）
-  不触发：
-  - 子任务共享同一文件 / 有依赖链 / 是单点小修复 → 直接单 agent 顺序做
-  - 纯跨项目 fan-out → 改用 ccpanes:parallel-run skill
+description: Advanced same-project parallel orchestration with native sub-agents and isolated CC-Panes workers. Use when work can split into independent subtasks.
 ---
 
 # parallel — 多 worker 并行编排（Claude Task + CC-Panes 双层）

@@ -821,7 +821,41 @@ where
     serde_json::from_str(body).map_err(|error| AppError::from(error.to_string()))
 }
 
+/// daemon 因反序列化失败拒收请求（枚举新增变体但 daemon 二进制没重建）。
+///
+/// axum 对 body 反序列化失败返回 422，serde 的错误文本里带 `unknown variant`。
+/// 这条在 CLI 工具（`CliTool`）新增变体时必踩：`tauri dev` **不重建** daemon，
+/// `binaries/` 里躺着的是历史构建，新变体在 daemon 侧是未知枚举值。
+/// 原始报错只有一句 `HTTP 422: ...unknown variant`，看不出该去重建什么。
+///
+/// **有意不收窄到 `cliTool`**：本函数服务所有 daemon 请求，评审曾建议加上
+/// "错误文本必须同时提到 cliTool" 以免误报。但 unknown variant 型 422 的成因
+/// 只有一个——app 发出了 daemon 的 serde 枚举不认识的值，即 daemon 比 app 旧。
+/// 这对 `LaunchRuntime`、`TerminalBufferMode` 等任何枚举都成立，给出的修复动作
+/// 也完全相同。收窄到 cliTool 反而会让这个守卫在下一个新增枚举上失效，
+/// 而那正是它存在的意义。故提示语只说"枚举值"，不指名 CLI。
+fn stale_daemon_hint(status: u16, body: &str) -> Option<String> {
+    if status != 422 || !body.contains("unknown variant") {
+        return None;
+    }
+    // 修复指引按构建环境区分：dev 下 daemon 是手工拷进 binaries/ 的，重建即可；
+    // 安装版的 daemon 随安装包分发，用户侧的正解是升级应用而不是自己编译。
+    let remedy = if cfg!(debug_assertions) {
+        "需 `cargo build -p cc-panes-daemon` 并把新 exe 拷到 <target-dir>/debug/binaries/，\
+         再杀掉旧 daemon 重启。注意 `tauri dev` 不会重建 external binaries。"
+    } else {
+        "请退出应用（含托盘）让 daemon 一并退出后重新启动；若仍复现，说明安装包内的 \
+         daemon 与主程序版本不一致，需要重新安装/升级。"
+    };
+    Some(format!(
+        "daemon 二进制过旧，无法识别本次请求中的枚举值（{body}）。{remedy}"
+    ))
+}
+
 fn daemon_http_error(status: u16, body: &str) -> AppError {
+    if let Some(hint) = stale_daemon_hint(status, body) {
+        return AppError::coded("DAEMON_BINARY_STALE", hint);
+    }
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(body) {
         let code = value.get("code").and_then(serde_json::Value::as_str);
         let message = value.get("message").and_then(serde_json::Value::as_str);
@@ -1336,6 +1370,38 @@ mod tests {
     }
 
     #[test]
+    fn stale_daemon_hint_only_fires_on_unknown_variant_422() {
+        let body = r#"{"error":"Failed to deserialize the JSON body into the target type: cliTool: unknown variant `deepseek`"}"#;
+        let hint = stale_daemon_hint(422, body).expect("422 + unknown variant should hint");
+        assert!(hint.contains("daemon 二进制过旧"));
+        // 修复指引按构建环境分叉；测试跑在 debug 下走重建分支
+        #[cfg(debug_assertions)]
+        assert!(hint.contains("cargo build -p cc-panes-daemon"));
+        #[cfg(not(debug_assertions))]
+        assert!(hint.contains("重新安装"));
+
+        // 非 CLI 的枚举同样命中——这是有意的，成因与修复动作完全一致
+        assert!(
+            stale_daemon_hint(422, r#"{"error":"runtimeKind: unknown variant `podman`"}"#)
+                .is_some()
+        );
+
+        // 其它 422（字段缺失等）不该被误报成二进制过旧
+        assert!(stale_daemon_hint(422, r#"{"error":"missing field `cols`"}"#).is_none());
+        // 其它状态码即使含同样文本也不命中
+        assert!(stale_daemon_hint(400, body).is_none());
+    }
+
+    #[test]
+    fn daemon_http_error_surfaces_stale_binary_code() {
+        let error = daemon_http_error(
+            422,
+            r#"{"error":"cliTool: unknown variant `deepseek`, expected one of ..."#,
+        );
+        assert!(error.to_string().contains("daemon 二进制过旧"));
+    }
+
+    #[test]
     fn create_session_posts_json_body_and_parses_session_id() {
         let response = http_json_response("201 Created", r#"{"sessionId":"session-1"}"#);
         let (addr, rx) = spawn_response_server(response);
@@ -1442,11 +1508,12 @@ mod tests {
 
     #[test]
     fn write_submit_resize_and_kill_use_rest_paths() {
-        let cases: Vec<(
+        type RestCase = (
             Box<dyn FnOnce(TerminalDaemonClient) -> AppResult<()>>,
-            &str,
-            &str,
-        )> = vec![
+            &'static str,
+            &'static str,
+        );
+        let cases: Vec<RestCase> = vec![
             (
                 Box::new(|client| client.write_session("session A", "abc")),
                 "POST /api/sessions/session%20A/write HTTP/1.1",

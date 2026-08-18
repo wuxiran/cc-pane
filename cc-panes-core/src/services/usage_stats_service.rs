@@ -135,11 +135,22 @@ pub struct UsageStatsService {
     context_reads: Mutex<HashSet<String>>,
     /// 供 WSL 扫描开关读取；None（测试等场景）视为未禁用
     settings: Option<Arc<crate::services::SettingsService>>,
+    native_scan_home: Option<PathBuf>,
+    allow_wsl_scan: bool,
+    use_scan_environment_overrides: bool,
 }
 
 impl UsageStatsService {
     pub fn new(repo: Arc<UsageStatsRepository>, launch_history: Arc<LaunchHistoryService>) -> Self {
-        Self::new_internal(repo, launch_history, None, None)
+        Self::new_internal(
+            repo,
+            launch_history,
+            None,
+            None,
+            dirs::home_dir(),
+            true,
+            true,
+        )
     }
 
     pub fn new_with_provider(
@@ -147,7 +158,15 @@ impl UsageStatsService {
         launch_history: Arc<LaunchHistoryService>,
         provider_service: Arc<ProviderService>,
     ) -> Self {
-        Self::new_internal(repo, launch_history, Some(provider_service), None)
+        Self::new_internal(
+            repo,
+            launch_history,
+            Some(provider_service),
+            None,
+            dirs::home_dir(),
+            true,
+            true,
+        )
     }
 
     fn new_internal(
@@ -155,6 +174,9 @@ impl UsageStatsService {
         launch_history: Arc<LaunchHistoryService>,
         provider_service: Option<Arc<ProviderService>>,
         settings: Option<Arc<crate::services::SettingsService>>,
+        native_scan_home: Option<PathBuf>,
+        allow_wsl_scan: bool,
+        use_scan_environment_overrides: bool,
     ) -> Self {
         Self {
             repo,
@@ -167,6 +189,9 @@ impl UsageStatsService {
             context_file_cache: Mutex::new(HashMap::new()),
             context_reads: Mutex::new(HashSet::new()),
             settings,
+            native_scan_home,
+            allow_wsl_scan,
+            use_scan_environment_overrides,
         }
     }
 
@@ -175,7 +200,15 @@ impl UsageStatsService {
         launch_history: Arc<LaunchHistoryService>,
         settings: Arc<crate::services::SettingsService>,
     ) -> Self {
-        Self::new_internal(repo, launch_history, None, Some(settings))
+        Self::new_internal(
+            repo,
+            launch_history,
+            None,
+            Some(settings),
+            dirs::home_dir(),
+            true,
+            true,
+        )
     }
 
     pub fn new_with_provider_and_settings(
@@ -184,7 +217,33 @@ impl UsageStatsService {
         provider_service: Arc<ProviderService>,
         settings: Arc<crate::services::SettingsService>,
     ) -> Self {
-        Self::new_internal(repo, launch_history, Some(provider_service), Some(settings))
+        Self::new_internal(
+            repo,
+            launch_history,
+            Some(provider_service),
+            Some(settings),
+            dirs::home_dir(),
+            true,
+            true,
+        )
+    }
+
+    /// Build a deterministic scanner that never reads the process user's real
+    /// CLI caches or discovers WSL distributions.
+    pub fn new_with_isolated_scan_home(
+        repo: Arc<UsageStatsRepository>,
+        launch_history: Arc<LaunchHistoryService>,
+        native_scan_home: PathBuf,
+    ) -> Self {
+        Self::new_internal(
+            repo,
+            launch_history,
+            None,
+            None,
+            Some(native_scan_home),
+            false,
+            false,
+        )
     }
 
     /// WSL 扫描是否被设置禁用
@@ -197,7 +256,9 @@ impl UsageStatsService {
     /// WSL 扫描门控：设置未禁用 且 WSL VM 本来就在运行。
     /// 探测零副作用（只查 vmmem 进程），保证"单纯启动 app 绝不唤醒 WSL"。
     fn wsl_scan_allowed(&self) -> bool {
-        !self.wsl_scan_disabled() && crate::services::wsl_discovery_service::is_wsl_vm_running()
+        self.allow_wsl_scan
+            && !self.wsl_scan_disabled()
+            && crate::services::wsl_discovery_service::is_wsl_vm_running()
     }
 
     pub fn start_background_tasks(self: &Arc<Self>) {
@@ -699,7 +760,12 @@ impl UsageStatsService {
         // 扫描前实时复核：discovery 缓存最长 50 分钟，期间 WSL 可能已被用户关掉；
         // 若仍按缓存访问 \\wsl$ 会把已停止的 distro 重新唤醒（issue #37 的冷唤醒源）。
         let wsl_vm_running = self.wsl_scan_allowed();
-        for root in collect_scan_roots(&wsl_distros, wsl_vm_running) {
+        for root in collect_scan_roots_from_home(
+            self.native_scan_home.as_deref(),
+            &wsl_distros,
+            wsl_vm_running,
+            self.use_scan_environment_overrides,
+        ) {
             self.scan_root(&root);
         }
         Ok(())
@@ -1425,10 +1491,30 @@ fn aggregate_entries(
     by_date.into_values().collect()
 }
 
+#[cfg(test)]
 fn collect_scan_roots(wsl_distros: &[WslDistro], wsl_vm_running: bool) -> Vec<ScanRoot> {
+    collect_scan_roots_from_home(
+        dirs::home_dir().as_deref(),
+        wsl_distros,
+        wsl_vm_running,
+        true,
+    )
+}
+
+fn collect_scan_roots_from_home(
+    native_home: Option<&Path>,
+    wsl_distros: &[WslDistro],
+    wsl_vm_running: bool,
+    use_native_environment_overrides: bool,
+) -> Vec<ScanRoot> {
     let mut roots = Vec::new();
-    if let Some(home) = dirs::home_dir() {
-        collect_home_scan_roots(&home, ScanOrigin::Native, &mut roots);
+    if let Some(home) = native_home {
+        collect_home_scan_roots(
+            home,
+            ScanOrigin::Native,
+            use_native_environment_overrides,
+            &mut roots,
+        );
     }
 
     // VM 已不在跑时忽略缓存里的 Running 条目：访问 \\wsl$ 会重新唤醒 distro
@@ -1460,6 +1546,7 @@ fn collect_scan_roots(wsl_distros: &[WslDistro], wsl_vm_running: bool) -> Vec<Sc
             ScanOrigin::Wsl {
                 distro: distro_name.to_string(),
             },
+            false,
             &mut roots,
         );
     }
@@ -1467,7 +1554,12 @@ fn collect_scan_roots(wsl_distros: &[WslDistro], wsl_vm_running: bool) -> Vec<Sc
     roots
 }
 
-fn collect_home_scan_roots(home: &Path, origin: ScanOrigin, roots: &mut Vec<ScanRoot>) {
+fn collect_home_scan_roots(
+    home: &Path,
+    origin: ScanOrigin,
+    use_environment_overrides: bool,
+    roots: &mut Vec<ScanRoot>,
+) {
     roots.push(ScanRoot {
         cli: "claude",
         path: home.join(".claude").join("projects"),
@@ -1494,10 +1586,7 @@ fn collect_home_scan_roots(home: &Path, origin: ScanOrigin, roots: &mut Vec<Scan
     });
     roots.push(ScanRoot {
         cli: "opencode",
-        path: external_usage_session_service::opencode_db_path(
-            home,
-            matches!(origin, ScanOrigin::Native),
-        ),
+        path: external_usage_session_service::opencode_db_path(home, use_environment_overrides),
         origin: origin.clone(),
         source: UsageScanSource::OpenCode,
     });

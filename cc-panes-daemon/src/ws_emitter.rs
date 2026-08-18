@@ -525,16 +525,18 @@ mod tests {
             let mut session_rx = emitter.subscribe("guard-session");
             let mut control_rx = emitter.subscribe_control();
 
-            emitter.emit(
-                event.name,
-                serde_json::json!({
-                    "sessionId": "guard-session",
-                    "data": "x",
-                    "exitCode": 0,
-                    "resumeId": "r-1",
-                    "message": "m",
-                }),
-            );
+            emitter
+                .emit(
+                    event.name,
+                    serde_json::json!({
+                        "sessionId": "guard-session",
+                        "data": "x",
+                        "exitCode": 0,
+                        "resumeId": "r-1",
+                        "message": "m",
+                    }),
+                )
+                .expect("boundary event should be accepted");
 
             let delivered_session = session_rx.try_recv().is_ok();
             let delivered_control = control_rx.try_recv().is_ok();
@@ -581,10 +583,12 @@ mod tests {
 
         // 桌面把这个标签切到后台
         emitter.set_hidden_sessions("ctl-desktop", &["s1".to_string()]);
-        emitter.emit(
-            EV::TERMINAL_OUTPUT,
-            serde_json::json!({ "sessionId": "s1", "data": "hello" }),
-        );
+        emitter
+            .emit(
+                EV::TERMINAL_OUTPUT,
+                serde_json::json!({ "sessionId": "s1", "data": "hello" }),
+            )
+            .expect("terminal output should be accepted");
 
         assert!(
             desktop.try_recv().is_err(),
@@ -602,10 +606,12 @@ mod tests {
         let mut rx = emitter.subscribe_with_connection("s1", Some("ctl-1".into()));
 
         emitter.set_hidden_sessions("ctl-1", &["s1".to_string()]);
-        emitter.emit(
-            EV::TERMINAL_OUTPUT,
-            serde_json::json!({ "sessionId": "s1", "data": "missed" }),
-        );
+        emitter
+            .emit(
+                EV::TERMINAL_OUTPUT,
+                serde_json::json!({ "sessionId": "s1", "data": "missed" }),
+            )
+            .expect("hidden terminal output should be accepted");
         emitter.set_hidden_sessions("ctl-1", &[]);
 
         let msg = rx.try_recv().expect("unhide 后应收到 desync");
@@ -630,10 +636,12 @@ mod tests {
         let mut rx = emitter.subscribe_with_connection("s1", Some("ctl-1".into()));
 
         emitter.set_hidden_sessions("ctl-1", &["s1".to_string()]);
-        emitter.emit(
-            EV::TERMINAL_OUTPUT,
-            serde_json::json!({ "sessionId": "s1", "data": "missed" }),
-        );
+        emitter
+            .emit(
+                EV::TERMINAL_OUTPUT,
+                serde_json::json!({ "sessionId": "s1", "data": "missed" }),
+            )
+            .expect("repeated hidden terminal output should be accepted");
         // 隐藏 → 再次声明隐藏（前端重复上报）：待补的 desync 不能被抹掉
         emitter.set_hidden_sessions("ctl-1", &["s1".to_string()]);
         emitter.set_hidden_sessions("ctl-1", &[]);
@@ -648,10 +656,12 @@ mod tests {
         let mut rx = emitter.subscribe_with_connection("s1", Some("ctl-1".into()));
 
         emitter.set_hidden_sessions("ctl-1", &["s1".to_string()]);
-        emitter.emit(
-            EV::TERMINAL_EXIT,
-            serde_json::json!({ "sessionId": "s1", "exitCode": 0 }),
-        );
+        emitter
+            .emit(
+                EV::TERMINAL_EXIT,
+                serde_json::json!({ "sessionId": "s1", "exitCode": 0 }),
+            )
+            .expect("terminal exit should be accepted");
 
         // 闸门只掐可丢的输出。exit 决定标签生死，丢了会让前端永远显示
         // 一个已经死掉的「运行中」会话。
@@ -667,10 +677,12 @@ mod tests {
         emitter.set_hidden_sessions("ctl-1", &["s1".to_string()]);
         emitter.clear_connection_hidden("ctl-1");
 
-        emitter.emit(
-            EV::TERMINAL_OUTPUT,
-            serde_json::json!({ "sessionId": "s1", "data": "after-reconnect" }),
-        );
+        emitter
+            .emit(
+                EV::TERMINAL_OUTPUT,
+                serde_json::json!({ "sessionId": "s1", "data": "after-reconnect" }),
+            )
+            .expect("terminal output after reconnect should be accepted");
 
         // 不清的话重连后的新订阅会被旧标记压住 → 永久收不到输出且零报错
         assert!(rx.try_recv().is_ok(), "连接清理后应恢复投递");
@@ -686,10 +698,12 @@ mod tests {
         // 同一连接只隐藏 s1
         emitter.set_hidden_sessions("ctl-a", &["s1".to_string()]);
         for sid in ["s1", "s2"] {
-            emitter.emit(
-                EV::TERMINAL_OUTPUT,
-                serde_json::json!({ "sessionId": sid, "data": "x" }),
-            );
+            emitter
+                .emit(
+                    EV::TERMINAL_OUTPUT,
+                    serde_json::json!({ "sessionId": sid, "data": "x" }),
+                )
+                .expect("per-connection terminal output should be accepted");
         }
 
         assert!(a.try_recv().is_err(), "ctl-a 的 s1 应断流");

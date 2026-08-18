@@ -30,7 +30,8 @@
   "skipMcp": "No MCP",
   "verbose": "Verbose",
   "effort": "Effort",
-  "effortHint": "Claude injects a thinking budget (MAX_THINKING_TOKENS); Codex uses model_reasoning_effort",
+  "effortHint": "Claude injects a thinking budget (MAX_THINKING_TOKENS); Codex uses model_reasoning_effort; Grok uses --reasoning-effort",
+  "optionUnsupported": "{{cli}} does not support this option — setting it has no effect",
   "effortDefault": "Default",
   "effortLevel": {
     "low": "Low",

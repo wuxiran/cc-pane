@@ -1,10 +1,6 @@
 ---
 name: ccpanes-guided-team
-description: "Run or design a CC-Panes Team MVP using current MCP tools. Use when the user wants guided team creation, Commander/Leader/Worker collaboration, role selection, or multi-agent task execution in CC-Panes. Always ask the user before deciding, adding, removing, or changing team roles."
-trigger: |
-  - 用户说"引导式团队"、"Mode C"、"团队模式"、"自动建团队"、"Commander/Leader/Worker"
-  - 用户要把一个目标拆成 CC-Panes team / 多实例协作
-  - 用户要求决定团队角色、启动 worker、评审团队方案、适配外部 team 架构到 CC-Panes
+description: Design and run a CC-Panes Commander/Leader/Worker team for multi-agent task execution. 触发词：组队、多 agent 协作、team。增删改角色前必须先问用户，不要自行决定。
 ---
 
 # guided-team — CC-Panes Team MVP

@@ -311,6 +311,8 @@ interface ReplayAttachOrWakeOptions {
   wake: HibernatedTerminalState | null;
   getRecoverySnapshot: (sessionId: string) => Promise<TerminalRecoverySnapshot | null>;
   renderTerminalData: (data: string) => string;
+  /** photo 管道渲染：只剥 SGR 背景色，不做 alt-screen 剥离（见 stripSgrBackgroundColors）。 */
+  renderCheckpointData: (data: string) => string;
   writeTerminalData: (data: string) => Promise<void>;
   syncTrackedBufferType: (reason: string) => void;
   showReconnectHint: boolean;
@@ -324,6 +326,7 @@ export async function replayAttachOrWake({
   wake,
   getRecoverySnapshot,
   renderTerminalData,
+  renderCheckpointData,
   writeTerminalData,
   syncTrackedBufferType,
   showReconnectHint,
@@ -334,12 +337,13 @@ export async function replayAttachOrWake({
       term,
       sessionId,
       getRecoverySnapshot,
-      // 双管道（裁决 B）：delta 过 renderTerminalData；photo 是成品 VT 直写。
+      // 双管道（裁决 B）：delta 过 renderTerminalData；photo 是成品 VT，
+      // 只过 renderCheckpointData（剥背景色，不剥 alt-screen）。
       writeData: (data) => {
         const renderedData = renderTerminalData(data);
         return renderedData ? writeTerminalData(renderedData) : Promise.resolve();
       },
-      writeCheckpointData: writeTerminalData,
+      writeCheckpointData: (data) => writeTerminalData(renderCheckpointData(data)),
       syncTrackedBufferType,
       debugLog,
     });

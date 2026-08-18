@@ -2,7 +2,7 @@
  * 后台标签的分层降档定时器（docs/71 §3 低配机防护）。
  *
  * 可见 → 隐藏后：
- *   T+tier1Delay：Tier1（挂起 WebGL renderer；Windows 恒 DOM 时为 no-op）
+ *   T+tier1Delay：Tier1（挂起 WebGL renderer；无 WebGL/透明模式时为 no-op）
  *   T+tier2Delay：Tier2（休眠：序列化整个终端并释放 xterm 实例）
  * 隐藏 → 可见时按已触发的最高档回滚（Tier2 优先——实例已不存在，Tier1 无意义）。
  *

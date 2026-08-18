@@ -130,9 +130,10 @@ fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
             )),
         ),
     );
-    let usage_stats_service = Arc::new(UsageStatsService::new(
+    let usage_stats_service = Arc::new(UsageStatsService::new_with_isolated_scan_home(
         usage_stats_repo,
         launch_history_service.clone(),
+        root.join("scan-home"),
     ));
     let memory_service =
         Arc::new(cc_panes_core::services::MemoryService::new_memory().expect("memory"));

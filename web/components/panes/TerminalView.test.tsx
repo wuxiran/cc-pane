@@ -358,6 +358,31 @@ describe("TerminalView", () => {
     expect(getRecoverySnapshot).not.toHaveBeenCalled();
   });
 
+  it("activates Unicode 11 before configuring the renderer", async () => {
+    let unicodeVersionAtRendererCreation: string | null = null;
+    vi.mocked(createTerminalRendererController).mockImplementationOnce(({ term }) => {
+      unicodeVersionAtRendererCreation = term.unicode.activeVersion;
+      return {
+        configure: vi.fn(),
+        dispose: vi.fn(),
+        getActiveRenderer: vi.fn(() => "dom"),
+        clearTextureAtlas: vi.fn(),
+        repaint: vi.fn(),
+        suspendWebgl: vi.fn(),
+        resumeWebgl: vi.fn(),
+        recreateWebgl: vi.fn(),
+        getDiagnostics: vi.fn(),
+      } as never;
+    });
+
+    renderTerminalView();
+    const term = await lastTerm();
+
+    await waitFor(() => expect(createTerminalRendererController).toHaveBeenCalled());
+    expect(term.unicode.activeVersion).toBe("11");
+    expect(unicodeVersionAtRendererCreation).toBe("11");
+  });
+
   it("registers one local path provider and disposes it on unmount", async () => {
     const view = renderTerminalView();
     const term = await lastTerm();

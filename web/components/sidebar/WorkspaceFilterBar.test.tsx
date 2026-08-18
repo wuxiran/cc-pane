@@ -28,7 +28,12 @@ describe("WorkspaceFilterBar", () => {
         createTestWorkspace({ name: "api", group: "Backend", color: "green" }),
         createTestWorkspace({ name: "web", group: "Frontend", color: "blue" }),
       ],
-      workspaceFilter: { query: "", colors: [], group: null },
+      workspaceFilter: {
+        query: "",
+        colors: [],
+        group: null,
+        includeArchived: false,
+      },
     });
   });
 

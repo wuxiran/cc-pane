@@ -476,7 +476,9 @@ mod tests {
         };
         let memory = service.store(req).unwrap();
 
-        let md = service.format_for_injection(&[memory.id.clone()]).unwrap();
+        let md = service
+            .format_for_injection(std::slice::from_ref(&memory.id))
+            .unwrap();
         assert!(md.contains("Inject Me"));
         assert!(md.contains("Important context"));
     }

@@ -4,6 +4,13 @@
 //! - resume：`--resume <id>`；新会话可用 `--session-id <uuid>` 预发确定性 id（同 Claude 模式，
 //!   无需 Codex 那套 OSC 标题捕获）。`--session-id` 只用于新会话，与 `--resume` 互斥。
 //! - YOLO：`--always-approve`；系统提示词追加：`--rules <RULES>`；初始 prompt 为位置参数。
+//! - 模型：`-m, --model <MODEL>`。
+//! - per-launch 参数：`--reasoning-effort <EFFORT>`（别名 `--effort`）、`--max-turns <N>`。
+//!   **effort 取值枚举未知**：`--help` 未列 possible values，实测传非法值不被 clap 拒绝，
+//!   故按自由字符串透传档位名；若日后发现 Grok 只认某个子集，在此收窄。
+//!   verbose **无对应 flag**（`--debug`/`--debug-file` 是写日志，语义不同），不映射。
+//! - 未映射但存在的能力（按需再接）：`--permission-mode`（六档，比 YOLO 二元更细）、
+//!   `--no-plan`（禁用 plan mode）、`-w/--worktree`（原生 worktree）、`--fork-session`。
 //! - MCP：无 `--mcp-config` / `-c key=val` 之类 per-launch override（`-c` 是 `--continue`），
 //!   唯一注入面是 config.toml 的 `[mcp_servers.<name>]`（`url` + `enabled`，HTTP/SSE/stdio）。
 //!   本 adapter 写用户级 `~/.grok/config.toml`（尊重 `$GROK_HOME`）：
@@ -62,6 +69,12 @@ impl GrokAdapter {
                 supports_rpc: false,
                 supports_structured_result: false,
                 supports_yolo: true,
+                supports_orchestrated_launch: true,
+                // `--reasoning-effort` / `--max-turns` 实机确认存在；
+                // verbose 无对应 flag（`--debug` 是写日志，语义不同）
+                supports_effort_option: true,
+                supports_verbose_option: false,
+                supports_max_turns_option: true,
                 compatible_provider_types: vec!["grok".into()],
             },
         }
@@ -399,6 +412,26 @@ impl CliToolAdapter for GrokAdapter {
             args.push(prompt.to_string());
         }
 
+        // effort → `--reasoning-effort <v>`（实机 --help 确认该 flag 存在，别名 --effort）。
+        // 与 codex 不同：Grok 未在 --help 里声明取值枚举，实测传非法值也不被 clap 拒绝
+        // （先撞的是未登录错误），故按自由字符串透传 CC-Panes 的档位名，不做映射收窄。
+        if let Some(effort) = crate::effort_from_options(&ctx.adapter_options) {
+            args.push("--reasoning-effort".to_string());
+            args.push(effort);
+        }
+
+        // maxTurns → `--max-turns <N>`（实机 --help 确认）
+        if let Some(max_turns) = crate::max_turns_from_options(&ctx.adapter_options) {
+            args.push("--max-turns".to_string());
+            args.push(max_turns.to_string());
+        }
+
+        // verbose 无对应 flag（Grok 只有 --debug / --debug-file，语义是写调试日志而非
+        // 终端详细输出），故不映射；能力位 supports_verbose_flag=false 让前端置灰。
+
+        // extraArgs 追加在位置参数 prompt 之前（逃生阀：用户可自行补任何 flag）
+        args.extend(crate::extra_args_from_options(&ctx.adapter_options));
+
         // [PROMPT] 位置参数（必须在所有 --option 之后）
         if let Some(ref prompt) = ctx.initial_prompt {
             args.push(prompt.clone());
@@ -505,6 +538,7 @@ mod tests {
             shared_mcp_urls: HashMap::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
+            skill_mount_paths: Vec::new(),
         }
     }
 
@@ -525,6 +559,51 @@ mod tests {
             .any(|pair| pair[0] == "--resume" && pair[1] == "session-abc"));
         assert!(!result.args.iter().any(|arg| arg == "--session-id"));
         assert_eq!(result.args.last().map(String::as_str), Some("hello"));
+    }
+
+    #[test]
+    fn build_command_maps_per_launch_effort_and_max_turns() {
+        let adapter = GrokAdapter::new();
+        let mut ctx = test_context(Some("/opt/grok/bin/grok"));
+        ctx.adapter_options.insert("effort".into(), "high".into());
+        ctx.adapter_options
+            .insert("maxTurns".into(), serde_json::json!(12));
+        ctx.adapter_options
+            .insert("extraArgs".into(), serde_json::json!(["--no-memory"]));
+        ctx.initial_prompt = Some("do the thing".to_string());
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        assert!(result
+            .args
+            .windows(2)
+            .any(|pair| pair[0] == "--reasoning-effort" && pair[1] == "high"));
+        assert!(result
+            .args
+            .windows(2)
+            .any(|pair| pair[0] == "--max-turns" && pair[1] == "12"));
+        assert!(result.args.iter().any(|arg| arg == "--no-memory"));
+        // 位置参数 prompt 必须排在所有 option 之后，否则 Grok 会把后续 flag 当 prompt 的一部分。
+        assert_eq!(result.args.last().map(String::as_str), Some("do the thing"));
+    }
+
+    #[test]
+    fn build_command_skips_unset_and_invalid_per_launch_options() {
+        let adapter = GrokAdapter::new();
+        let mut ctx = test_context(Some("/opt/grok/bin/grok"));
+        // "default"/未知档不是合法 effort，不得注入空 flag。
+        ctx.adapter_options
+            .insert("effort".into(), "default".into());
+        // verbose 在 Grok 上无对应 flag，即使传了也不能凭空造一个。
+        ctx.adapter_options
+            .insert("verbose".into(), serde_json::json!(true));
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        assert!(!result.args.iter().any(|arg| arg == "--reasoning-effort"));
+        assert!(!result.args.iter().any(|arg| arg == "--max-turns"));
+        assert!(!result.args.iter().any(|arg| arg == "--verbose"));
+        assert!(!result.args.iter().any(|arg| arg == "--debug"));
     }
 
     #[test]

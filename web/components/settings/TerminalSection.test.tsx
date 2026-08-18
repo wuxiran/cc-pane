@@ -104,7 +104,7 @@ describe("TerminalSection", () => {
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ cursorStyle: "bar" }));
 
     await user.click(screen.getByRole("combobox", { name: /渲染器|Renderer/i }));
-    await user.click(screen.getByRole("option", { name: /WebGL/i }));
+    await user.click(screen.getByRole("option", { name: /^(尝试|Try) WebGL$/i }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ rendererMode: "webgl" }));
   });
 

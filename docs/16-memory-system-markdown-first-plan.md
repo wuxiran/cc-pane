@@ -1,5 +1,10 @@
 # CC-Panes Markdown-First Memory 方案
 
+> ⚠️ **本文是未实施的设计方案，不是现状描述。**
+> 文中的 `<workspace_path>/.ccpanes/memory/` 目录**代码从未创建过**，全仓无任何读写它的实现。
+> 当前 Memory 仍是 DB-first 形态（MCP `memory_*` 工具族 + `memory.db`）。
+> 引用本文时请勿把其中的路径与结构当作已存在的事实。
+
 状态：Draft（rev.2）
 日期：2026-05-02（2026-07-24 修订索引层设计，未实施）
 目标：把 CC-Panes Memory 从当前 DB-first、手工管理、独立 MCP 的形态，升级为工作空间优先、Markdown 可读可审计、~~JSON 索引加速~~ **SQLite 索引加速**、Hooks 自动捕获与注入的自有记忆系统。

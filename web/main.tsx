@@ -55,6 +55,15 @@ window.addEventListener("unhandledrejection", (e) => {
 
 async function renderRoot() {
   const mode = new URLSearchParams(window.location.search).get("mode");
+  if (appPlatform === "linux") {
+    try {
+      const { getDisplayServer } = await import("@/services/platformService");
+      const displayServer = await getDisplayServer();
+      if (displayServer) document.documentElement.dataset.displayServer = displayServer;
+    } catch {
+      // Web mode and older hosts may not expose this optional diagnostics command.
+    }
+  }
   if (mode === "ccchan" || mode === "popup" || mode === "webgl-lab") {
     isolateSpecialWindowShape();
   }
