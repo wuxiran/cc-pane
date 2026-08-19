@@ -43,11 +43,12 @@ export default function LaunchProfileBasicsCard({
   setYoloConfirmOpen,
 }: LaunchProfileBasicsCardProps) {
   const { t } = useTranslation(["providers", "common"]);
-  const runtimeOptions: Exclude<LaunchProfileRuntime, null>[] = activeTool === "pi"
+  const piFamilyTool = activeTool === "pi" || activeTool === "omp";
+  const runtimeOptions: Exclude<LaunchProfileRuntime, null>[] = piFamilyTool
     ? ["local", "wsl"]
     : ["local", "wsl", "ssh"];
-  const legacyPiSshRuntime = activeTool === "pi" && draft.targetRuntime === "ssh";
-  const yoloSupported = activeTool !== "pi";
+  const legacyPiSshRuntime = piFamilyTool && draft.targetRuntime === "ssh";
+  const yoloSupported = !piFamilyTool;
 
   /** 模型下拉文案带上下文窗口标注：未配置窗口时显式标「未配置」而不是留白。
    * 优先用 `contextSize` 字符串（`"1m"` / `"500k"` 等，会拼到 ANTHROPIC_MODEL 后缀），
@@ -99,7 +100,7 @@ export default function LaunchProfileBasicsCard({
             </Select>
           </Field>
         ) : (
-          <Field label={t(activeTool === "pi" ? "fieldManagedProvider" : "fieldProvider")}>
+          <Field label={t(piFamilyTool ? "fieldManagedProvider" : "fieldProvider")}>
             <Select
               value={draft.providerId ?? SELECT_NONE}
               onValueChange={(value) => setDraft((current) => {
@@ -117,7 +118,7 @@ export default function LaunchProfileBasicsCard({
                 };
               })}
             >
-              <SelectTrigger aria-label={t(activeTool === "pi" ? "fieldManagedProvider" : "fieldProvider")}>
+              <SelectTrigger aria-label={t(piFamilyTool ? "fieldManagedProvider" : "fieldProvider")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

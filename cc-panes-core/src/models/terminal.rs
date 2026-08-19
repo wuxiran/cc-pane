@@ -57,6 +57,7 @@ define_cli_tools! {
     Cursor => "cursor",
     Grok => "grok",
     Pi => "pi",
+    Omp => "omp",
 }
 
 #[cfg(test)]

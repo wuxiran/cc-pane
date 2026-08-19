@@ -19,7 +19,7 @@ import type { LaunchRecord } from "@/services";
 
 const PAGE_SIZE = 100;
 const SEARCH_DEBOUNCE_MS = 300;
-const SESSION_CLI_FILTERS = ["claude", "codex", "pi"] as const;
+const SESSION_CLI_FILTERS = ["claude", "codex", "pi", "omp"] as const;
 
 type RolloutStatus = "checking" | "valid" | "invalid" | "unknown";
 

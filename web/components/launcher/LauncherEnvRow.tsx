@@ -4,11 +4,13 @@ import type { CliTool, WorkspaceLaunchEnvironment } from "@/types";
 
 const ENVIRONMENTS: WorkspaceLaunchEnvironment[] = ["local", "wsl", "ssh"];
 
-/** Pi keeps its installation and native auth on the local/WSL host. */
+/** The Pi family keeps its installation and native auth on the local/WSL host. */
 export function getLauncherEnvironmentOptions(
   cliTool: CliTool | undefined,
 ): WorkspaceLaunchEnvironment[] {
-  return cliTool === "pi" ? ENVIRONMENTS.filter((environment) => environment !== "ssh") : ENVIRONMENTS;
+  return cliTool === "pi" || cliTool === "omp"
+    ? ENVIRONMENTS.filter((environment) => environment !== "ssh")
+    : ENVIRONMENTS;
 }
 
 interface LauncherEnvRowProps {

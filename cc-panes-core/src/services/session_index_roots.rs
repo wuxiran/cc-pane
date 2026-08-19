@@ -46,6 +46,12 @@ pub(super) fn collect_scan_roots(wsl_distros: &[WslDistro], wsl_allowed: bool) -
             source: "local",
             wsl_distro: None,
         });
+        roots.push(ScanRoot {
+            cli_tool: "omp",
+            path: home.join(".omp").join("agent").join("sessions"),
+            source: "local",
+            wsl_distro: None,
+        });
     }
     if !wsl_allowed {
         return roots;
@@ -76,6 +82,16 @@ pub(super) fn collect_scan_roots(wsl_distros: &[WslDistro], wsl_allowed: bool) -
             cli_tool: "pi",
             path: PathBuf::from(format!(
                 r"\\wsl$\{}\home\{}\.pi\agent\sessions",
+                distro.name.trim(),
+                user
+            )),
+            source: "wsl",
+            wsl_distro: Some(distro.name.trim().to_string()),
+        });
+        roots.push(ScanRoot {
+            cli_tool: "omp",
+            path: PathBuf::from(format!(
+                r"\\wsl$\{}\home\{}\.omp\agent\sessions",
                 distro.name.trim(),
                 user
             )),
@@ -207,8 +223,18 @@ mod tests {
             .iter()
             .find(|root| root.source == "wsl" && root.cli_tool == "pi")
             .expect("WSL Pi root");
+        let omp = roots
+            .iter()
+            .find(|root| root.source == "wsl" && root.cli_tool == "omp")
+            .expect("WSL Oh My Pi root");
         assert_eq!(codex.wsl_distro.as_deref(), Some("Ubuntu"));
         assert_eq!(pi.wsl_distro.as_deref(), Some("Ubuntu"));
+        assert_eq!(omp.wsl_distro.as_deref(), Some("Ubuntu"));
+        assert!(omp
+            .path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .ends_with(".omp/agent/sessions"));
     }
 
     #[test]
@@ -219,5 +245,10 @@ mod tests {
             .find(|root| root.source == "local" && root.cli_tool == "pi")
             .expect("local Pi root");
         assert!(pi.path.ends_with(".pi/agent/sessions"));
+        let omp = roots
+            .iter()
+            .find(|root| root.source == "local" && root.cli_tool == "omp")
+            .expect("local Oh My Pi root");
+        assert!(omp.path.ends_with(".omp/agent/sessions"));
     }
 }

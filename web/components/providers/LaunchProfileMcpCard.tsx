@@ -41,7 +41,7 @@ export default function LaunchProfileMcpCard({
   const sharedMcpNames = servers.map((server) => server.name);
   const sharedMcpSelectedCount = selectedSharedMcpCount(draft.mcpPolicy, sharedMcpNames);
   const normalizedQuery = query.trim().toLowerCase();
-  const mcpSupported = activeTool !== "pi";
+  const mcpSupported = activeTool !== "pi" && activeTool !== "omp";
   // 过滤只影响可见行；计数仍按全量，避免搜索时看着像「服务器变少了」
   const visibleServers = useMemo(
     () => normalizedQuery

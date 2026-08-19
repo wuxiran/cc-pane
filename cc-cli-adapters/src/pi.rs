@@ -1,9 +1,15 @@
-//! Pi Coding Agent CLI adapter.
+//! Pi-family coding agent CLI adapters.
 //!
 //! Pi keeps authentication and custom-provider configuration under `~/.pi`.
 //! Managed CC-Panes providers isolate that state per launch so a native
 //! `auth.json` cannot override the Provider selected by CC-Panes. Native mode
 //! intentionally does not redirect or mutate user-owned Pi state.
+//!
+//! Oh My Pi (`omp`) is a fork of Pi: identical CLI surface, environment
+//! variables (`PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`), provider
+//! names, and JSONL session format, but its state lives under `~/.omp` and it
+//! has no `--name` or project-trust flags. Both adapters share the launch
+//! core below; per-tool differences are declared in `PiFamilyConfig`.
 
 use crate::{
     CliAdapterContext, CliCommandResult, CliProvider, CliToolAdapter, CliToolCapabilities,
@@ -24,9 +30,57 @@ pub const PI_SESSION_NAME_OPTION: &str = "piSessionName";
 pub const PI_CODING_AGENT_DIR_ENV: &str = "PI_CODING_AGENT_DIR";
 pub const PI_CODING_AGENT_SESSION_DIR_ENV: &str = "PI_CODING_AGENT_SESSION_DIR";
 
-const MANAGED_PI_DIR_NAME: &str = "pi-managed";
 const MANAGED_PI_RUNS_DIR_NAME: &str = "runs";
 const MANAGED_PI_SESSIONS_DIR_NAME: &str = "ccpanes-managed";
+
+/// Managed-state directory names under the CC-Panes data root. Exported so
+/// cleanup descriptors in cc-panes-core can address the same per-launch state.
+pub const PI_MANAGED_STATE_DIR_NAME: &str = "pi-managed";
+pub const OMP_MANAGED_STATE_DIR_NAME: &str = "omp-managed";
+/// Home-relative agent roots for the Pi family, shared with the WSL prelude
+/// builders in cc-panes-core.
+pub const PI_AGENT_HOME_DIR: &str = ".pi";
+pub const OMP_AGENT_HOME_DIR: &str = ".omp";
+
+/// Static launch-surface differences between the Pi-family CLIs. Everything
+/// not listed here (flags, env contract, provider mapping) is shared.
+pub(crate) struct PiFamilyConfig {
+    pub(crate) id: &'static str,
+    pub(crate) display_name: &'static str,
+    pub(crate) executable: &'static str,
+    /// Home-relative agent directory (`.pi` / `.omp`).
+    pub(crate) agent_home_dir: &'static str,
+    /// Data-root child isolating managed state (`pi-managed` / `omp-managed`).
+    pub(crate) managed_state_dir_name: &'static str,
+    pub(crate) supports_transport_option: bool,
+    pub(crate) supports_native_provider_options: bool,
+    pub(crate) supports_session_name: bool,
+    pub(crate) supports_project_trust: bool,
+}
+
+pub(crate) const PI_FAMILY_CONFIG: PiFamilyConfig = PiFamilyConfig {
+    id: "pi",
+    display_name: "Pi Coding Agent",
+    executable: "pi",
+    agent_home_dir: ".pi",
+    managed_state_dir_name: PI_MANAGED_STATE_DIR_NAME,
+    supports_transport_option: true,
+    supports_native_provider_options: true,
+    supports_session_name: true,
+    supports_project_trust: true,
+};
+
+pub(crate) const OMP_FAMILY_CONFIG: PiFamilyConfig = PiFamilyConfig {
+    id: "omp",
+    display_name: "Oh My Pi",
+    executable: "omp",
+    agent_home_dir: ".omp",
+    managed_state_dir_name: OMP_MANAGED_STATE_DIR_NAME,
+    supports_transport_option: false,
+    supports_native_provider_options: false,
+    supports_session_name: false,
+    supports_project_trust: false,
+};
 
 /// Produce a path-safe, deterministic component for a CC-Panes launch id.
 /// The full id contributes to the suffix, while the bounded hex prefix keeps
@@ -45,32 +99,48 @@ pub fn pi_managed_state_key(session_id: &str) -> String {
     format!("session-{prefix}-{hash:016x}")
 }
 
-/// Per-launch Pi state for a managed Provider. It deliberately excludes the
-/// native Pi config directory, whose `auth.json` has higher precedence than
-/// environment credentials.
-pub fn pi_managed_state_dir(data_dir: &Path, session_id: &str) -> PathBuf {
+fn pi_family_managed_state_dir(
+    data_dir: &Path,
+    session_id: &str,
+    managed_dir_name: &str,
+) -> PathBuf {
     data_dir
-        .join(MANAGED_PI_DIR_NAME)
+        .join(managed_dir_name)
         .join(MANAGED_PI_RUNS_DIR_NAME)
         .join(pi_managed_state_key(session_id))
 }
 
-/// Keep managed launches below Pi's ordinary session tree so CC-Panes can
-/// index and restore their JSONL conversations without mixing them with native
-/// Pi launches.
-pub fn pi_managed_sessions_dir() -> Option<PathBuf> {
+/// Per-launch Pi state for a managed Provider. It deliberately excludes the
+/// native Pi config directory, whose `auth.json` has higher precedence than
+/// environment credentials.
+pub fn pi_managed_state_dir(data_dir: &Path, session_id: &str) -> PathBuf {
+    pi_family_managed_state_dir(data_dir, session_id, PI_MANAGED_STATE_DIR_NAME)
+}
+
+fn pi_family_managed_sessions_dir(agent_home_dir: &str) -> Option<PathBuf> {
     dirs::home_dir().map(|home| {
-        home.join(".pi")
+        home.join(agent_home_dir)
             .join("agent")
             .join("sessions")
             .join(MANAGED_PI_SESSIONS_DIR_NAME)
     })
 }
 
+/// Keep managed launches below Pi's ordinary session tree so CC-Panes can
+/// index and restore their JSONL conversations without mixing them with native
+/// Pi launches.
+pub fn pi_managed_sessions_dir() -> Option<PathBuf> {
+    pi_family_managed_sessions_dir(PI_FAMILY_CONFIG.agent_home_dir)
+}
+
 /// Remove an isolated managed state directory after its process exits. The
 /// component is derived internally and cannot escape the supplied data root.
-pub fn cleanup_pi_managed_state(data_dir: &Path, session_id: &str) -> std::io::Result<()> {
-    let state_dir = pi_managed_state_dir(data_dir, session_id);
+pub fn cleanup_pi_family_managed_state(
+    data_dir: &Path,
+    session_id: &str,
+    managed_dir_name: &str,
+) -> std::io::Result<()> {
+    let state_dir = pi_family_managed_state_dir(data_dir, session_id, managed_dir_name);
     let metadata = match std::fs::symlink_metadata(&state_dir) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -82,6 +152,14 @@ pub fn cleanup_pi_managed_state(data_dir: &Path, session_id: &str) -> std::io::R
         return Ok(());
     }
     std::fs::remove_dir_all(state_dir)
+}
+
+pub fn cleanup_pi_managed_state(data_dir: &Path, session_id: &str) -> std::io::Result<()> {
+    cleanup_pi_family_managed_state(data_dir, session_id, PI_MANAGED_STATE_DIR_NAME)
+}
+
+pub fn cleanup_omp_managed_state(data_dir: &Path, session_id: &str) -> std::io::Result<()> {
+    cleanup_pi_family_managed_state(data_dir, session_id, OMP_MANAGED_STATE_DIR_NAME)
 }
 
 /// Pi's launch transport. PTY remains the default user-facing experience;
@@ -179,13 +257,16 @@ fn parse_project_trust(value: Option<&Value>) -> Result<PiProjectTrust> {
     }
 }
 
-fn pi_thinking_from_options(options: &HashMap<String, Value>) -> Result<Option<String>> {
+fn pi_thinking_from_options(
+    options: &HashMap<String, Value>,
+    display_name: &str,
+) -> Result<Option<String>> {
     let Some(value) = options.get("effort") else {
         return Ok(None);
     };
     let value = value
         .as_str()
-        .ok_or_else(|| anyhow!("Pi thinking level must be a string"))?
+        .ok_or_else(|| anyhow!("{display_name} thinking level must be a string"))?
         .trim()
         .to_ascii_lowercase();
     if value.is_empty() || value == "default" {
@@ -198,7 +279,7 @@ fn pi_thinking_from_options(options: &HashMap<String, Value>) -> Result<Option<S
         return Ok(Some(value));
     }
     Err(anyhow!(
-        "Pi thinking level must be one of off, minimal, low, medium, high, xhigh, or max"
+        "{display_name} thinking level must be one of off, minimal, low, medium, high, xhigh, or max"
     ))
 }
 
@@ -206,7 +287,11 @@ fn nonempty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
-fn ensure_supported_base_url(provider: &CliProvider, expected: &str) -> Result<()> {
+fn ensure_supported_base_url(
+    provider: &CliProvider,
+    expected: &str,
+    display_name: &str,
+) -> Result<()> {
     let Some(base_url) = nonempty(provider.base_url.as_deref()) else {
         return Ok(());
     };
@@ -214,16 +299,18 @@ fn ensure_supported_base_url(provider: &CliProvider, expected: &str) -> Result<(
         return Ok(());
     }
     Err(anyhow!(
-        "Pi cannot apply the managed base URL for provider '{}'; select Pi native auth/configuration for custom endpoints",
-        provider.name
+        "{display_name} cannot apply the managed base URL for provider '{}'; select {} native auth/configuration for custom endpoints",
+        provider.name,
+        display_name
     ))
 }
 
-fn require_api_key(provider: &CliProvider) -> Result<&str> {
+fn require_api_key<'a>(provider: &'a CliProvider, display_name: &str) -> Result<&'a str> {
     nonempty(provider.api_key.as_deref()).ok_or_else(|| {
         anyhow!(
-            "Pi managed provider '{}' requires an API key; select Pi native auth for subscription credentials",
-            provider.name
+            "{display_name} managed provider '{}' requires an API key; select {} native auth for subscription credentials",
+            provider.name,
+            display_name
         )
     })
 }
@@ -238,22 +325,23 @@ fn push_env_if_nonempty(env: &mut HashMap<String, String>, key: &str, value: Opt
 /// CC-Panes Provider. No API key is ever put in the command line.
 fn managed_provider_plan(
     provider: &CliProvider,
+    display_name: &str,
 ) -> Result<(&'static str, HashMap<String, String>)> {
     let mut env = HashMap::new();
     let pi_provider = match provider.provider_type.as_str() {
         "anthropic" => {
-            ensure_supported_base_url(provider, "https://api.anthropic.com")?;
+            ensure_supported_base_url(provider, "https://api.anthropic.com", display_name)?;
             env.insert(
                 "ANTHROPIC_API_KEY".to_string(),
-                require_api_key(provider)?.to_string(),
+                require_api_key(provider, display_name)?.to_string(),
             );
             "anthropic"
         }
         "open_ai" => {
-            ensure_supported_base_url(provider, "https://api.openai.com/v1")?;
+            ensure_supported_base_url(provider, "https://api.openai.com/v1", display_name)?;
             env.insert(
                 "OPENAI_API_KEY".to_string(),
-                require_api_key(provider)?.to_string(),
+                require_api_key(provider, display_name)?.to_string(),
             );
             "openai"
         }
@@ -261,18 +349,19 @@ fn managed_provider_plan(
             ensure_supported_base_url(
                 provider,
                 "https://generativelanguage.googleapis.com/v1beta",
+                display_name,
             )?;
             env.insert(
                 "GEMINI_API_KEY".to_string(),
-                require_api_key(provider)?.to_string(),
+                require_api_key(provider, display_name)?.to_string(),
             );
             "google"
         }
         "grok" => {
-            ensure_supported_base_url(provider, "https://api.x.ai/v1")?;
+            ensure_supported_base_url(provider, "https://api.x.ai/v1", display_name)?;
             env.insert(
                 "XAI_API_KEY".to_string(),
-                require_api_key(provider)?.to_string(),
+                require_api_key(provider, display_name)?.to_string(),
             );
             "xai"
         }
@@ -301,7 +390,7 @@ fn managed_provider_plan(
         }
         unsupported => {
             return Err(anyhow!(
-                "CC-Panes Provider type '{unsupported}' is not mapped to a Pi built-in provider; select Pi native auth/configuration instead"
+                "CC-Panes Provider type '{unsupported}' is not mapped to a {display_name} built-in provider; select {display_name} native auth/configuration instead"
             ));
         }
     };
@@ -311,6 +400,7 @@ fn managed_provider_plan(
 fn validate_extra_args(
     options: &HashMap<String, Value>,
     managed_provider: bool,
+    display_name: &str,
 ) -> Result<Vec<String>> {
     let args = crate::extra_args_from_options(options);
     if args
@@ -318,7 +408,7 @@ fn validate_extra_args(
         .any(|arg| arg == "--api-key" || arg.starts_with("--api-key="))
     {
         return Err(anyhow!(
-            "Pi API keys must be supplied through the process environment, not extraArgs"
+            "{display_name} API keys must be supplied through the process environment, not extraArgs"
         ));
     }
     if managed_provider
@@ -327,107 +417,88 @@ fn validate_extra_args(
         })
     {
         return Err(anyhow!(
-            "Managed Pi launches keep sessions in CC-Panes storage; --session-dir and --no-session are not allowed in extraArgs"
+            "Managed {display_name} launches keep sessions in CC-Panes storage; --session-dir and --no-session are not allowed in extraArgs"
         ));
     }
     Ok(args)
 }
 
-pub struct PiAdapter {
+/// Shared launch core for the Pi family. `PiAdapter` and `OmpAdapter` are thin
+/// wrappers that only differ in `PiFamilyConfig` and capability flags.
+pub(crate) struct PiFamilyAdapter {
+    config: PiFamilyConfig,
     info: CliToolInfo,
     caps: CliToolCapabilities,
 }
 
-impl PiAdapter {
-    pub fn new() -> Self {
-        Self {
-            info: CliToolInfo {
-                id: "pi".into(),
-                display_name: "Pi Coding Agent".into(),
-                executable: "pi".into(),
-                version_args: vec!["--version".into()],
-                installed: false,
-                version: None,
-                path: None,
-                capabilities: None,
-            },
-            caps: CliToolCapabilities {
-                supports_provider: true,
-                supports_resume: true,
-                supports_mcp: false,
-                supports_system_prompt: true,
-                supports_workspace: false,
-                supports_project_hooks: false,
-                supports_issued_session_id: false,
-                supports_rpc: true,
-                supports_structured_result: true,
-                supports_yolo: false,
-                supports_orchestrated_launch: true,
-                supports_effort_option: false,
-                supports_verbose_option: false,
-                supports_max_turns_option: false,
-                compatible_provider_types: vec![
-                    "anthropic".into(),
-                    "bedrock".into(),
-                    "vertex".into(),
-                    "open_ai".into(),
-                    "gemini".into(),
-                    "grok".into(),
-                ],
-            },
-        }
+impl PiFamilyAdapter {
+    pub(crate) fn new(config: PiFamilyConfig, caps: CliToolCapabilities) -> Self {
+        let info = CliToolInfo {
+            id: config.id.into(),
+            display_name: config.display_name.into(),
+            executable: config.executable.into(),
+            version_args: vec!["--version".into()],
+            installed: false,
+            version: None,
+            path: None,
+            capabilities: None,
+        };
+        Self { config, info, caps }
     }
-}
 
-impl Default for PiAdapter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl CliToolAdapter for PiAdapter {
-    fn info(&self) -> &CliToolInfo {
+    pub(crate) fn info(&self) -> &CliToolInfo {
         &self.info
     }
 
-    fn capabilities(&self) -> &CliToolCapabilities {
+    pub(crate) fn capabilities(&self) -> &CliToolCapabilities {
         &self.caps
     }
 
-    fn global_skills_dir(&self) -> Option<PathBuf> {
-        dirs::home_dir().map(|home| home.join(".pi").join("agent").join("skills"))
+    pub(crate) fn global_skills_dir(&self) -> Option<PathBuf> {
+        dirs::home_dir().map(|home| {
+            home.join(self.config.agent_home_dir)
+                .join("agent")
+                .join("skills")
+        })
     }
 
-    fn skill_delivery_modes(&self) -> Vec<SkillDeliveryMode> {
-        vec![SkillDeliveryMode::PiSkill]
-    }
+    pub(crate) fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
+        let config = &self.config;
+        let uses_pi_options = config.supports_transport_option
+            || config.supports_native_provider_options
+            || config.supports_session_name
+            || config.supports_project_trust;
+        let options = uses_pi_options
+            .then(|| PiAdapterOptions::from_context(ctx))
+            .transpose()?;
 
-    fn can_report_task_result(&self) -> bool {
-        self.caps.supports_structured_result
-    }
-
-    fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
-        let options = PiAdapterOptions::from_context(ctx)?;
         let mut args = Vec::new();
         let mut env_inject = HashMap::new();
         let mut env_remove = Vec::new();
 
-        if options.transport == PiTransport::Rpc {
+        if options
+            .as_ref()
+            .is_some_and(|options| options.transport == PiTransport::Rpc)
+        {
             args.push("--mode".to_string());
             args.push("rpc".to_string());
         }
 
         if let Some(provider) = ctx.provider.as_ref() {
-            let (pi_provider, provider_env) = managed_provider_plan(provider)?;
+            let (pi_provider, provider_env) = managed_provider_plan(provider, config.display_name)?;
             args.push("--provider".to_string());
             args.push(pi_provider.to_string());
             env_inject.extend(provider_env);
-            let state_dir = pi_managed_state_dir(&ctx.data_dir, &ctx.session_id);
+            let state_dir = pi_family_managed_state_dir(
+                &ctx.data_dir,
+                &ctx.session_id,
+                config.managed_state_dir_name,
+            );
             env_inject.insert(
                 PI_CODING_AGENT_DIR_ENV.to_string(),
                 state_dir.to_string_lossy().into_owned(),
             );
-            if let Some(session_dir) = pi_managed_sessions_dir() {
+            if let Some(session_dir) = pi_family_managed_sessions_dir(config.agent_home_dir) {
                 env_inject.insert(
                     PI_CODING_AGENT_SESSION_DIR_ENV.to_string(),
                     session_dir.to_string_lossy().into_owned(),
@@ -439,18 +510,21 @@ impl CliToolAdapter for PiAdapter {
                 args.push("--model".to_string());
                 args.push(model_id.to_string());
             }
-        } else {
-            if let Some(provider) = options.native_provider.as_ref() {
-                args.push("--provider".to_string());
-                args.push(provider.clone());
-            }
-            if let Some(model) = options.native_model.as_ref() {
-                args.push("--model".to_string());
-                args.push(model.clone());
+        } else if config.supports_native_provider_options {
+            if let Some(options) = options.as_ref() {
+                if let Some(provider) = options.native_provider.as_ref() {
+                    args.push("--provider".to_string());
+                    args.push(provider.clone());
+                }
+                if let Some(model) = options.native_model.as_ref() {
+                    args.push("--model".to_string());
+                    args.push(model.clone());
+                }
             }
         }
 
-        if let Some(thinking) = pi_thinking_from_options(&ctx.adapter_options)? {
+        if let Some(thinking) = pi_thinking_from_options(&ctx.adapter_options, config.display_name)?
+        {
             args.push("--thinking".to_string());
             args.push(thinking);
         }
@@ -462,19 +536,31 @@ impl CliToolAdapter for PiAdapter {
             args.push("--session".to_string());
             args.push(resume_id.clone());
         }
-        if let Some(session_name) = options.session_name.as_ref() {
-            args.push("--name".to_string());
-            args.push(session_name.clone());
+        if config.supports_session_name {
+            if let Some(session_name) = options
+                .as_ref()
+                .and_then(|options| options.session_name.clone())
+            {
+                args.push("--name".to_string());
+                args.push(session_name);
+            }
         }
-        match options.project_trust {
-            PiProjectTrust::Inherit => {}
-            PiProjectTrust::Approve => args.push("--approve".to_string()),
-            PiProjectTrust::Deny => args.push("--no-approve".to_string()),
+        if config.supports_project_trust {
+            match options
+                .as_ref()
+                .map(|options| options.project_trust)
+                .unwrap_or_default()
+            {
+                PiProjectTrust::Inherit => {}
+                PiProjectTrust::Approve => args.push("--approve".to_string()),
+                PiProjectTrust::Deny => args.push("--no-approve".to_string()),
+            }
         }
 
         args.extend(validate_extra_args(
             &ctx.adapter_options,
             ctx.provider.is_some(),
+            config.display_name,
         )?);
 
         // Pi 0.84 does not support a `--` end-of-options delimiter. Its parser
@@ -484,14 +570,14 @@ impl CliToolAdapter for PiAdapter {
             args.push(initial_prompt.clone());
         }
 
-        let (command, args) = ctx.resolve_launch("pi", args)?;
+        let (command, args) = ctx.resolve_launch(config.executable, args)?;
         info!(
             session_id = %ctx.session_id,
             command = %command,
             resume_id = ?ctx.resume_id,
-            transport = ?options.transport,
             args = ?crate::redact_args_for_log(&args),
-            "pi: build_command result"
+            "pi-family {}: build_command result",
+            config.id
         );
         Ok(CliCommandResult {
             command,
@@ -499,6 +585,81 @@ impl CliToolAdapter for PiAdapter {
             env_remove,
             env_inject,
         })
+    }
+}
+
+pub struct PiAdapter {
+    family: PiFamilyAdapter,
+}
+
+impl PiAdapter {
+    pub fn new() -> Self {
+        Self {
+            family: PiFamilyAdapter::new(PI_FAMILY_CONFIG, pi_capabilities()),
+        }
+    }
+}
+
+impl Default for PiAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn pi_capabilities() -> CliToolCapabilities {
+    CliToolCapabilities {
+        supports_provider: true,
+        supports_resume: true,
+        supports_mcp: false,
+        supports_system_prompt: true,
+        supports_workspace: false,
+        supports_project_hooks: false,
+        supports_issued_session_id: false,
+        supports_rpc: true,
+        supports_structured_result: true,
+        supports_yolo: false,
+        supports_orchestrated_launch: true,
+        supports_effort_option: false,
+        supports_verbose_option: false,
+        supports_max_turns_option: false,
+        compatible_provider_types: pi_family_compatible_provider_types(),
+    }
+}
+
+pub(crate) fn pi_family_compatible_provider_types() -> Vec<String> {
+    vec![
+        "anthropic".into(),
+        "bedrock".into(),
+        "vertex".into(),
+        "open_ai".into(),
+        "gemini".into(),
+        "grok".into(),
+    ]
+}
+
+impl CliToolAdapter for PiAdapter {
+    fn info(&self) -> &CliToolInfo {
+        self.family.info()
+    }
+
+    fn capabilities(&self) -> &CliToolCapabilities {
+        self.family.capabilities()
+    }
+
+    fn global_skills_dir(&self) -> Option<PathBuf> {
+        self.family.global_skills_dir()
+    }
+
+    fn skill_delivery_modes(&self) -> Vec<SkillDeliveryMode> {
+        vec![SkillDeliveryMode::PiSkill]
+    }
+
+    fn can_report_task_result(&self) -> bool {
+        self.family.capabilities().supports_structured_result
+    }
+
+    fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
+        self.family.build_command(ctx)
     }
 }
 

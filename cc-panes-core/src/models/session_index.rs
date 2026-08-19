@@ -77,7 +77,7 @@ impl SessionIndexListParams {
         };
         let cli_filter = trimmed(self.cli_filter);
         if let Some(cli) = cli_filter.as_deref() {
-            if !matches!(cli, "claude" | "codex" | "pi") {
+            if !matches!(cli, "claude" | "codex" | "pi" | "omp") {
                 return Err(format!("Unsupported session index CLI: {cli}"));
             }
         }

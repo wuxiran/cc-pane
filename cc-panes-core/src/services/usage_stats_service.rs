@@ -520,7 +520,7 @@ impl UsageStatsService {
             }
         };
         let cli = record.cli_tool.trim().to_ascii_lowercase();
-        if !matches!(cli.as_str(), "claude" | "codex" | "pi")
+        if !matches!(cli.as_str(), "claude" | "codex" | "pi" | "omp")
             || record.runtime_kind.eq_ignore_ascii_case("ssh")
         {
             return Err(Box::new(ContextUsageSnapshot::error(
@@ -613,58 +613,58 @@ impl UsageStatsService {
             })
             .map(|entry| entry.byte_offset)
             .unwrap_or(0);
-        let parsed = match request.cli.as_str() {
-            "claude" => claude_session_service::read_latest_context_usage(path, from_offset).map(
-                |(latest, offset)| {
-                    (
-                        latest.map(|value| ContextObservation {
-                            used_tokens: value
-                                .usage
-                                .token_input
-                                .saturating_add(value.usage.token_cache_read)
-                                .saturating_add(value.usage.token_cache_creation),
-                            window_tokens: value.window_tokens,
-                            window_diagnostic: value.window_diagnostic,
-                            model: value.model,
-                        }),
-                        offset,
-                    )
-                },
-            ),
-            "codex" => codex_session_service::read_latest_context_usage(path, from_offset).map(
-                |(latest, offset)| {
-                    (
-                        latest.and_then(|value| {
-                            value.total_tokens.map(|used_tokens| ContextObservation {
-                                used_tokens,
+        let parsed =
+            match request.cli.as_str() {
+                "claude" => claude_session_service::read_latest_context_usage(path, from_offset)
+                    .map(|(latest, offset)| {
+                        (
+                            latest.map(|value| ContextObservation {
+                                used_tokens: value
+                                    .usage
+                                    .token_input
+                                    .saturating_add(value.usage.token_cache_read)
+                                    .saturating_add(value.usage.token_cache_creation),
                                 window_tokens: value.window_tokens,
                                 window_diagnostic: value.window_diagnostic,
                                 model: value.model,
-                            })
-                        }),
-                        offset,
-                    )
-                },
-            ),
-            "pi" => pi_session_service::read_latest_context_usage(path, from_offset).map(
-                |(latest, offset)| {
-                    (
-                        latest.map(|value| ContextObservation {
-                            used_tokens: value
-                                .usage
-                                .token_input
-                                .saturating_add(value.usage.token_cache_read)
-                                .saturating_add(value.usage.token_cache_creation),
-                            window_tokens: None,
-                            window_diagnostic: None,
-                            model: value.model,
-                        }),
-                        offset,
-                    )
-                },
-            ),
-            _ => Err("unsupported CLI".to_string()),
-        };
+                            }),
+                            offset,
+                        )
+                    }),
+                "codex" => codex_session_service::read_latest_context_usage(path, from_offset).map(
+                    |(latest, offset)| {
+                        (
+                            latest.and_then(|value| {
+                                value.total_tokens.map(|used_tokens| ContextObservation {
+                                    used_tokens,
+                                    window_tokens: value.window_tokens,
+                                    window_diagnostic: value.window_diagnostic,
+                                    model: value.model,
+                                })
+                            }),
+                            offset,
+                        )
+                    },
+                ),
+                // Oh My Pi shares Pi's session JSONL format.
+                "pi" | "omp" => pi_session_service::read_latest_context_usage(path, from_offset)
+                    .map(|(latest, offset)| {
+                        (
+                            latest.map(|value| ContextObservation {
+                                used_tokens: value
+                                    .usage
+                                    .token_input
+                                    .saturating_add(value.usage.token_cache_read)
+                                    .saturating_add(value.usage.token_cache_creation),
+                                window_tokens: None,
+                                window_diagnostic: None,
+                                model: value.model,
+                            }),
+                            offset,
+                        )
+                    }),
+                _ => Err("unsupported CLI".to_string()),
+            };
         let (new_observation, byte_offset) = match parsed {
             Ok(value) => value,
             Err(error) => {
@@ -826,29 +826,30 @@ impl UsageStatsService {
 
         // 全文件重读 + REPLACE 该文件该 date 的累计行（幂等）。
         // 不再用增量 byte_offset，因为 REPLACE 语义要求 deltas 是"文件当前完整状态的聚合"。
-        let entries = match source {
-            UsageScanSource::Jsonl => match cli_tool {
-                "claude" => {
-                    claude_session_service::read_session_usage(path, 0).map(|(entries, _)| entries)
+        let entries =
+            match source {
+                UsageScanSource::Jsonl => match cli_tool {
+                    "claude" => claude_session_service::read_session_usage(path, 0)
+                        .map(|(entries, _)| entries),
+                    "codex" => codex_session_service::read_session_usage(path, 0)
+                        .map(|(entries, _)| entries),
+                    "pi" | "omp" => {
+                        pi_session_service::read_session_usage(path, 0).map(|(entries, _)| entries)
+                    }
+                    _ => Ok(Vec::new()),
+                },
+                UsageScanSource::Gemini => {
+                    external_usage_session_service::read_gemini_session_usage(path)
                 }
-                "codex" => {
-                    codex_session_service::read_session_usage(path, 0).map(|(entries, _)| entries)
+                UsageScanSource::OpenCode => {
+                    external_usage_session_service::read_opencode_session_usage(path)
                 }
-                "pi" => pi_session_service::read_session_usage(path, 0).map(|(entries, _)| entries),
-                _ => Ok(Vec::new()),
-            },
-            UsageScanSource::Gemini => {
-                external_usage_session_service::read_gemini_session_usage(path)
+                UsageScanSource::GrokBuild => {
+                    external_usage_session_service::read_grok_session_usage(path)
+                }
             }
-            UsageScanSource::OpenCode => {
-                external_usage_session_service::read_opencode_session_usage(path)
-            }
-            UsageScanSource::GrokBuild => {
-                external_usage_session_service::read_grok_session_usage(path)
-            }
-        }
-        .map_err(|e| anyhow!(e))
-        .with_context(|| format!("Failed to parse usage jsonl: {}", path.display()))?;
+            .map_err(|e| anyhow!(e))
+            .with_context(|| format!("Failed to parse usage jsonl: {}", path.display()))?;
 
         // 先删该文件所有 date 行，再插新的 → 防止文件被截断/某 date 被删后 stale 数据残留
         self.repo
@@ -1175,29 +1176,37 @@ impl UsageStatsService {
                     observation.window_diagnostic.as_deref(),
                 )
             }
-            "pi" => match self.provider_window_for_request(request, observation.model.as_deref()) {
-                Some(resolution) => {
-                    let window = resolution.tokens();
-                    ready_snapshot(
+            // Oh My Pi shares Pi's session JSONL format; only the source tag differs.
+            "pi" | "omp" => {
+                let source_tag = if request.cli == "omp" {
+                    "omp-jsonl"
+                } else {
+                    "pi-jsonl"
+                };
+                match self.provider_window_for_request(request, observation.model.as_deref()) {
+                    Some(resolution) => {
+                        let window = resolution.tokens();
+                        ready_snapshot(
+                            &request.resume_id,
+                            observation.used_tokens,
+                            observation.used_tokens,
+                            window,
+                            window,
+                            observation.model.clone(),
+                            source_tag,
+                            resolution.source_label(),
+                            observed_at,
+                        )
+                    }
+                    None => unknown_window_snapshot(
                         &request.resume_id,
                         observation.used_tokens,
-                        observation.used_tokens,
-                        window,
-                        window,
                         observation.model.clone(),
-                        "pi-jsonl",
-                        resolution.source_label(),
+                        source_tag,
                         observed_at,
-                    )
+                    ),
                 }
-                None => unknown_window_snapshot(
-                    &request.resume_id,
-                    observation.used_tokens,
-                    observation.model.clone(),
-                    "pi-jsonl",
-                    observed_at,
-                ),
-            },
+            }
             _ => ContextUsageSnapshot::error("RUNTIME_UNSUPPORTED", observed_at),
         }
     }
@@ -1298,7 +1307,7 @@ fn find_context_session_file(
                     return Some(path);
                 }
             }
-            if cli == "pi"
+            if matches!(cli, "pi" | "omp")
                 && pi_session_service::read_session_metadata(&path)
                     .is_some_and(|metadata| metadata.session_id == resume_id)
             {
@@ -1337,6 +1346,7 @@ fn context_session_roots(
                 "claude" => wsl_home.join(".claude").join("projects"),
                 "codex" => wsl_home.join(".codex").join("sessions"),
                 "pi" => wsl_home.join(".pi").join("agent").join("sessions"),
+                "omp" => wsl_home.join(".omp").join("agent").join("sessions"),
                 _ => return Vec::new(),
             }];
         }
@@ -1349,6 +1359,7 @@ fn context_session_roots(
             .unwrap_or_else(|| home.join(".codex"))
             .join("sessions"),
         "pi" => home.join(".pi").join("agent").join("sessions"),
+        "omp" => home.join(".omp").join("agent").join("sessions"),
         _ => return Vec::new(),
     }]
 }
@@ -1579,6 +1590,12 @@ fn collect_home_scan_roots(
         source: UsageScanSource::Jsonl,
     });
     roots.push(ScanRoot {
+        cli: "omp",
+        path: home.join(".omp").join("agent").join("sessions"),
+        origin: origin.clone(),
+        source: UsageScanSource::Jsonl,
+    });
+    roots.push(ScanRoot {
         cli: "gemini",
         path: home.join(".gemini"),
         origin: origin.clone(),
@@ -1658,7 +1675,9 @@ fn session_id_for_path(cli_tool: &str, path: &Path) -> Option<String> {
             .map(|(session_id, _)| session_id)
             .or_else(|| file_stem(path)),
         "claude" => file_stem(path),
-        "pi" => pi_session_service::read_session_metadata(path).map(|metadata| metadata.session_id),
+        "pi" | "omp" => {
+            pi_session_service::read_session_metadata(path).map(|metadata| metadata.session_id)
+        }
         _ => None,
     }
 }
@@ -2317,7 +2336,7 @@ mod tests {
             .iter()
             .filter(|root| matches!(root.origin, ScanOrigin::Wsl { .. }))
             .collect::<Vec<_>>();
-        assert_eq!(wsl_roots.len(), 7);
+        assert_eq!(wsl_roots.len(), 8);
         assert!(wsl_roots.iter().any(|root| {
             let path = root.path.to_string_lossy().replace('\\', "/");
             root.cli == "claude"
@@ -2335,6 +2354,12 @@ mod tests {
             root.cli == "pi"
                 && path.contains("//wsl$/Ubuntu/home/alice")
                 && path.contains(".pi/agent/sessions")
+        }));
+        assert!(wsl_roots.iter().any(|root| {
+            let path = root.path.to_string_lossy().replace('\\', "/");
+            root.cli == "omp"
+                && path.contains("//wsl$/Ubuntu/home/alice")
+                && path.contains(".omp/agent/sessions")
         }));
     }
 

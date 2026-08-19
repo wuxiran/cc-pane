@@ -1,5 +1,5 @@
 export type SessionIndexScope = "all" | "workspace" | "project";
-export type SessionIndexCliTool = "claude" | "codex" | "pi";
+export type SessionIndexCliTool = "claude" | "codex" | "pi" | "omp";
 export type SessionIndexSource = "local" | "wsl";
 
 export interface SessionIndexEntry {

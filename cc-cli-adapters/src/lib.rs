@@ -16,6 +16,7 @@ mod gemini;
 mod glm;
 mod grok;
 mod kimi;
+mod omp;
 mod opencode;
 mod pi;
 
@@ -26,11 +27,14 @@ pub use gemini::GeminiAdapter;
 pub use glm::GlmAdapter;
 pub use grok::GrokAdapter;
 pub use kimi::KimiAdapter;
+pub use omp::OmpAdapter;
 pub use opencode::OpenCodeAdapter;
 pub use pi::{
-    cleanup_pi_managed_state, pi_managed_sessions_dir, pi_managed_state_dir, pi_managed_state_key,
-    PiAdapter, PiAdapterOptions, PiProjectTrust, PiTransport, PI_CODING_AGENT_DIR_ENV,
-    PI_CODING_AGENT_SESSION_DIR_ENV,
+    cleanup_omp_managed_state, cleanup_pi_family_managed_state, cleanup_pi_managed_state,
+    pi_managed_sessions_dir, pi_managed_state_dir, pi_managed_state_key, PiAdapter,
+    PiAdapterOptions, PiProjectTrust, PiTransport, OMP_AGENT_HOME_DIR, OMP_MANAGED_STATE_DIR_NAME,
+    PI_AGENT_HOME_DIR, PI_CODING_AGENT_DIR_ENV, PI_CODING_AGENT_SESSION_DIR_ENV,
+    PI_MANAGED_STATE_DIR_NAME,
 };
 
 use anyhow::{anyhow, Result};
@@ -331,6 +335,10 @@ fn candidate_executable_dirs() -> Vec<PathBuf> {
             [
                 home.join(".cargo").join("bin"),
                 home.join(".local").join("bin"),
+                // Bun's global bin dir (`bun install -g`, omp's documented
+                // install path). The installer appends it to the user PATH,
+                // but an already-running desktop app never sees that update.
+                home.join(".bun").join("bin"),
             ],
         );
 
@@ -409,6 +417,9 @@ fn windows_user_cli_dirs(home: &Path, grok_home: Option<&std::ffi::OsStr>) -> Ve
         // Grok's official installer uses ~/.grok/bin and may not update the
         // environment inherited by an already-running desktop app.
         home.join(".grok").join("bin"),
+        // omp.sh's PowerShell installer drops the standalone omp.exe here and
+        // only appends the directory to the persisted user PATH.
+        home.join("AppData").join("Local").join("omp"),
     ];
     if let Some(grok_home) = grok_home {
         let path = PathBuf::from(grok_home);
@@ -1693,6 +1704,17 @@ mod path_resolution_tests {
         assert!(dirs.contains(&home.join(".grok").join("bin")));
         assert!(dirs.contains(&PathBuf::from(r"D:\Tools\grok\bin")));
         assert!(dirs.contains(&home.join("AppData").join("Roaming").join("npm")));
+        // omp 的两个官方安装落点都要能被运行中的应用探测到。
+        assert!(dirs.contains(&home.join("AppData").join("Local").join("omp")));
+    }
+
+    #[test]
+    fn candidate_dirs_probe_bun_global_bin_without_path() {
+        // bun 安装器只写用户 PATH；已经启动的桌面应用看不到更新，
+        // 所以 ~/.bun/bin 必须独立于 PATH 兜底探测。
+        let dirs = candidate_executable_dirs();
+        let home = dirs::home_dir().expect("home directory");
+        assert!(dirs.contains(&home.join(".bun").join("bin")));
     }
 }
 
@@ -1723,6 +1745,7 @@ impl CliToolRegistry {
         registry.register(Arc::new(CursorAdapter::new()));
         registry.register(Arc::new(GrokAdapter::new()));
         registry.register(Arc::new(PiAdapter::new()));
+        registry.register(Arc::new(OmpAdapter::new()));
         registry
     }
 
@@ -1919,13 +1942,18 @@ mod registry_tests {
 
         assert_eq!(
             ids,
-            vec!["claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor", "grok", "pi"]
+            vec![
+                "claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor", "grok", "pi",
+                "omp"
+            ]
         );
         assert!(registry.get("claude").is_some());
         assert!(registry.get("codex").is_some());
         assert!(registry.get("opencode").unwrap().can_report_task_result());
         assert!(!registry.get("gemini").unwrap().can_report_task_result());
         assert!(registry.get("pi").unwrap().can_report_task_result());
+        // omp shares Pi's CLI surface but not its structured RPC wiring yet.
+        assert!(!registry.get("omp").unwrap().can_report_task_result());
     }
 
     #[test]

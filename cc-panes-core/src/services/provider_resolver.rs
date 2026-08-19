@@ -132,12 +132,13 @@ pub fn managed_provider_conflict_env_keys(cli_tool: CliTool) -> &'static [&'stat
             "GROK_MODELS_BASE_URL",
             "GROK_CLI_CHAT_PROXY_BASE_URL",
         ],
-        // Pi resolves credentials from its documented provider environment
-        // variables. Remove inherited values before injecting the selected
-        // managed Provider (especially Anthropic auth-token precedence). Also
-        // clear generic CC-Panes Provider variables that Pi does not support,
-        // so a managed custom endpoint cannot bypass Pi adapter validation.
-        CliTool::Pi => &[
+        // The Pi family (Pi and Oh My Pi) resolves credentials from documented
+        // provider environment variables. Remove inherited values before
+        // injecting the selected managed Provider (especially Anthropic
+        // auth-token precedence). Also clear generic CC-Panes Provider
+        // variables that the adapters do not support, so a managed custom
+        // endpoint cannot bypass adapter validation.
+        CliTool::Pi | CliTool::Omp => &[
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_AUTH_TOKEN",
             "ANTHROPIC_OAUTH_TOKEN",
@@ -386,10 +387,16 @@ pub fn validate_provider_runtime(
     runtime: LaunchRuntime,
     cli_tool: CliTool,
 ) -> AppResult<()> {
-    if runtime == LaunchRuntime::Ssh && cli_tool == CliTool::Pi {
+    if runtime == LaunchRuntime::Ssh && matches!(cli_tool, CliTool::Pi | CliTool::Omp) {
+        let display = match cli_tool {
+            CliTool::Omp => "Oh My Pi",
+            _ => "Pi",
+        };
         return Err(provider_error(
             "PI_SSH_UNSUPPORTED",
-            "Pi launch over SSH is disabled; use a local or WSL runtime so the native Pi installation and auth remain on the target host",
+            format!(
+                "{display} launch over SSH is disabled; use a local or WSL runtime so the native {display} installation and auth remain on the target host"
+            ),
             cli_tool,
             plan.provider.as_ref().map(|provider| provider.id.as_str()),
         ));

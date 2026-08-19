@@ -46,7 +46,8 @@ pub fn parse_session_transcript(
     cli_tool: &str,
     path: &Path,
 ) -> Result<ParsedSessionTranscript, String> {
-    if cli_tool == "pi" {
+    // Oh My Pi is a Pi fork and shares Pi's append-only session JSONL format.
+    if matches!(cli_tool, "pi" | "omp") {
         return parse_pi_session_transcript(path);
     }
 

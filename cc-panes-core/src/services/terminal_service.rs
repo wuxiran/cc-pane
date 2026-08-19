@@ -1870,7 +1870,7 @@ impl TerminalService {
             }
         }
         if provider_plan.mode == ProviderMode::Managed {
-            Self::clear_managed_pi_environment(&mut env);
+            Self::clear_managed_pi_environment(&mut env, CliTool::Pi);
         }
 
         // Pi's adapter owns the exact provider environment. The generic
@@ -2405,15 +2405,17 @@ impl TerminalService {
                 }
             }
         }
-        if cli_tool == CliTool::Pi && provider_plan.mode == ProviderMode::Managed {
-            Self::clear_managed_pi_environment(&mut env_vars);
+        if matches!(cli_tool, CliTool::Pi | CliTool::Omp)
+            && provider_plan.mode == ProviderMode::Managed
+        {
+            Self::clear_managed_pi_environment(&mut env_vars, cli_tool);
         }
-        // Managed Provider is authoritative for this launch. Pi rebuilds its
-        // provider environment in its adapter because its documented variables
-        // differ from the generic Provider map (for example OPENAI_API_KEY vs
-        // CODEX_API_KEY); injecting both would leave unrelated credentials in
-        // the child process.
-        if cli_tool != CliTool::Pi {
+        // Managed Provider is authoritative for this launch. The Pi family
+        // rebuilds its provider environment in the adapter because its
+        // documented variables differ from the generic Provider map (for
+        // example OPENAI_API_KEY vs CODEX_API_KEY); injecting both would leave
+        // unrelated credentials in the child process.
+        if !matches!(cli_tool, CliTool::Pi | CliTool::Omp) {
             env_vars.extend(provider_vars.clone());
         }
         let emitter = self.emitter.read().clone().ok_or_else(|| {
@@ -2424,12 +2426,17 @@ impl TerminalService {
         })?;
         let settings_service = self.settings_service.clone();
         let session_id = Uuid::new_v4().to_string();
-        let managed_pi_state_cleanup = (cli_tool == CliTool::Pi
+        let managed_pi_state_cleanup = (matches!(cli_tool, CliTool::Pi | CliTool::Omp)
             && provider_plan.mode == ProviderMode::Managed
             && ssh.is_none()
             && wsl.is_none())
         .then(|| {
-            PiManagedStateCleanup::new(self.app_paths.data_dir().to_path_buf(), session_id.clone())
+            PiManagedStateCleanup::for_managed_dir(
+                self.app_paths.data_dir().to_path_buf(),
+                session_id.clone(),
+                Self::pi_family_managed_state_dir_name(cli_tool)
+                    .expect("pi-family gate checked above"),
+            )
         });
         let mut pending_pi_managed_state_cleanup =
             PendingPiManagedStateCleanup::new(managed_pi_state_cleanup.clone());
@@ -2816,6 +2823,7 @@ impl TerminalService {
                 | CliTool::Cursor
                 | CliTool::Grok
                 | CliTool::Pi
+                | CliTool::Omp
                 | CliTool::Kimi
                 | CliTool::Glm => self.build_wsl_supported_cli_command(
                     &resolved_wsl,
@@ -2834,9 +2842,15 @@ impl TerminalService {
                 )?,
             };
 
-            if cli_tool == CliTool::Pi && provider_plan.mode == ProviderMode::Managed {
-                managed_wsl_pi_state_cleanup =
-                    Some(WslManagedPiStateCleanup::new(&resolved_wsl, &session_id));
+            if matches!(cli_tool, CliTool::Pi | CliTool::Omp)
+                && provider_plan.mode == ProviderMode::Managed
+            {
+                managed_wsl_pi_state_cleanup = Some(WslManagedPiStateCleanup::new(
+                    &resolved_wsl,
+                    &session_id,
+                    Self::pi_family_managed_state_dir_name(cli_tool)
+                        .expect("pi-family gate checked above"),
+                ));
             }
 
             info!(
@@ -2983,14 +2997,16 @@ impl TerminalService {
                     "launch.config.end",
                     "ok",
                 );
-                if cli_tool == CliTool::Pi && provider_plan.mode == ProviderMode::Managed {
+                if matches!(cli_tool, CliTool::Pi | CliTool::Omp)
+                    && provider_plan.mode == ProviderMode::Managed
+                {
                     if let Some(agent_root) = result
                         .env_inject
                         .get(cc_cli_adapters::PI_CODING_AGENT_DIR_ENV)
                     {
                         self.inject_managed_pi_skills(Path::new(agent_root));
                     } else {
-                        warn!(session_id = %session_id, "managed Pi launch did not provide an isolated agent root");
+                        warn!(session_id = %session_id, "managed Pi-family launch did not provide an isolated agent root");
                     }
                 }
                 log_launch_stage(
@@ -4564,12 +4580,24 @@ impl TerminalService {
         chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
     }
 
-    /// Pi managed Providers own the complete provider environment. Remove
-    /// request/shell values for every Pi credential or endpoint variable before
-    /// the adapter injects the selected value, so extra_env cannot bypass the
-    /// adapter's endpoint and authentication validation.
-    fn clear_managed_pi_environment(env_vars: &mut HashMap<String, String>) {
-        for key in managed_provider_conflict_env_keys(CliTool::Pi) {
+    /// Managed-state directory name for the Pi family; `None` for every
+    /// other CLI. The name is adapter-owned, so cleanup paths can never be
+    /// pointed at a caller-supplied directory.
+    fn pi_family_managed_state_dir_name(cli_tool: CliTool) -> Option<&'static str> {
+        match cli_tool {
+            CliTool::Pi => Some(cc_cli_adapters::PI_MANAGED_STATE_DIR_NAME),
+            CliTool::Omp => Some(cc_cli_adapters::OMP_MANAGED_STATE_DIR_NAME),
+            _ => None,
+        }
+    }
+
+    /// Pi-family managed Providers own the complete provider environment.
+    /// Remove request/shell values for every credential or endpoint variable
+    /// the CLI owns before the adapter injects the selected value, so
+    /// extra_env cannot bypass the adapter's endpoint and authentication
+    /// validation.
+    fn clear_managed_pi_environment(env_vars: &mut HashMap<String, String>, cli_tool: CliTool) {
+        for key in managed_provider_conflict_env_keys(cli_tool) {
             env_vars.remove(*key);
         }
     }
@@ -4617,8 +4645,9 @@ impl TerminalService {
             CliTool::Cursor => "cursor-agent",
             CliTool::Grok if yolo_mode => "grok --always-approve",
             CliTool::Grok => "grok",
-            // create_session rejects Pi over SSH before this fallback is used.
+            // create_session rejects the Pi family over SSH before this fallback is used.
             CliTool::Pi => "pi",
+            CliTool::Omp => "omp",
         }
     }
 

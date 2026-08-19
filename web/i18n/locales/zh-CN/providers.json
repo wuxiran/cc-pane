@@ -123,6 +123,7 @@
   "piProjectTrustHint": "项目资源信任只控制项目资源，不会开启 YOLO 或绕过权限确认。",
   "piRpcUnavailable": "当前 Pi 适配器未提供 RPC，请使用交互终端传输。",
   "piSshRuntimeUnsupported": "Pi 启动配置仅支持本地和 WSL 运行环境。",
+  "ompSshRuntimeUnsupported": "Oh My Pi 启动配置仅支持本地和 WSL 运行环境。",
   "sectionPermTitle": "权限",
   "sectionPermDesc": "设置当前运行配置的 CLI 权限策略。",
   "yoloBypassed": "⚠ 已绕过权限确认",

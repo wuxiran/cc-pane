@@ -28,6 +28,7 @@ export const CLI_COLOR_VAR: Record<string, string> = {
   claude: "var(--app-cli-claude)",
   codex: "var(--app-cli-codex)",
   pi: "var(--app-cli-pi)",
+  omp: "var(--app-cli-omp)",
   gemini: "var(--app-cli-gemini)",
   kimi: "var(--app-cli-kimi)",
   glm: "var(--app-cli-glm)",

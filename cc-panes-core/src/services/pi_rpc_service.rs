@@ -30,31 +30,50 @@ const STDERR_TAIL_LINES: usize = 80;
 
 mod transport;
 
-/// Identifies the isolated Pi configuration created for one managed launch.
-/// Native Pi launches never create this value, so their user-owned state is
-/// never eligible for cleanup.
+/// Identifies the isolated Pi-family configuration created for one managed
+/// launch. Native launches never create this value, so their user-owned state
+/// is never eligible for cleanup.
 #[derive(Debug, Clone)]
 pub struct PiManagedStateCleanup {
     data_dir: PathBuf,
     session_id: String,
+    managed_state_dir_name: &'static str,
 }
 
 impl PiManagedStateCleanup {
     pub fn new(data_dir: PathBuf, session_id: impl Into<String>) -> Self {
+        Self::for_managed_dir(
+            data_dir,
+            session_id,
+            cc_cli_adapters::PI_MANAGED_STATE_DIR_NAME,
+        )
+    }
+
+    /// Address the omp-managed tree for an Oh My Pi launch. The directory name
+    /// is one of the adapter-owned constants, never a caller-supplied path.
+    pub fn for_managed_dir(
+        data_dir: PathBuf,
+        session_id: impl Into<String>,
+        managed_state_dir_name: &'static str,
+    ) -> Self {
         Self {
             data_dir,
             session_id: session_id.into(),
+            managed_state_dir_name,
         }
     }
 
     pub fn cleanup(&self) {
-        if let Err(error) =
-            cc_cli_adapters::cleanup_pi_managed_state(&self.data_dir, &self.session_id)
-        {
+        if let Err(error) = cc_cli_adapters::cleanup_pi_family_managed_state(
+            &self.data_dir,
+            &self.session_id,
+            self.managed_state_dir_name,
+        ) {
             warn!(
                 session_id = %self.session_id,
+                managed_state_dir = self.managed_state_dir_name,
                 error = %error,
-                "failed to clean managed Pi state"
+                "failed to clean managed Pi-family state"
             );
         }
     }

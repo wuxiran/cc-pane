@@ -35,6 +35,7 @@ export const SIDEBAR_LAUNCH_CLI_TOOLS: ReadonlyArray<{
   { id: "claude", labelKey: "cliToolClaude" },
   { id: "codex", labelKey: "cliToolCodex" },
   { id: "pi", labelKey: "cliToolPi", supportsSsh: false },
+  { id: "omp", labelKey: "cliToolOmp", supportsSsh: false },
   { id: "gemini", labelKey: "cliToolGemini" },
   { id: "kimi", labelKey: "cliToolKimi" },
   { id: "glm", labelKey: "cliToolGlm" },

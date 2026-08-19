@@ -83,7 +83,7 @@ export function createDefaultDraft(partial?: Partial<LauncherDraft>): LauncherDr
 export function cliToolDraftPatch(cliTool: CliTool): Partial<LauncherDraft> {
   return cliTool === "none"
     ? { cliTool, providerSelection: "none", providerId: undefined }
-    : cliTool === "pi"
+    : cliTool === "pi" || cliTool === "omp"
       ? { cliTool, yolo: undefined, skipMcp: false }
     : { cliTool };
 }
@@ -102,7 +102,8 @@ export type BuildPendingLaunchResult =
   | { launch: PendingLaunch; issue: null }
   | {
       launch: null;
-      issue: WorkspaceLaunchIssue | { code: "no_project" | "provider_required" | "pi_ssh_unsupported" };
+      issue: WorkspaceLaunchIssue
+        | { code: "no_project" | "provider_required" | "pi_ssh_unsupported" | "omp_ssh_unsupported" };
     };
 
 interface BuildDeps {
@@ -117,7 +118,7 @@ export function buildPendingLaunch(
 ): BuildPendingLaunchResult {
   const effectiveDraft = draft.cliTool === "none"
     ? { ...draft, providerSelection: "none" as const, providerId: undefined }
-    : draft.cliTool === "pi"
+    : draft.cliTool === "pi" || draft.cliTool === "omp"
       ? { ...draft, yolo: undefined, skipMcp: false }
     : draft;
   const base = resolveBaseOptions(effectiveDraft, deps);
@@ -129,6 +130,9 @@ export function buildPendingLaunch(
   const options = base.options;
   if (effectiveDraft.cliTool === "pi" && options.ssh) {
     return { launch: null, issue: { code: "pi_ssh_unsupported" } };
+  }
+  if (effectiveDraft.cliTool === "omp" && options.ssh) {
+    return { launch: null, issue: { code: "omp_ssh_unsupported" } };
   }
   const appendSystemPrompt = effectiveDraft.appendSystemPrompt.trim() || undefined;
   const initialPrompt = effectiveDraft.initialPrompt.trim() || undefined;

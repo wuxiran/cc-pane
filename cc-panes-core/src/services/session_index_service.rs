@@ -319,7 +319,7 @@ impl SessionIndexService {
         parsed: &ParsedSessionTranscript,
         launch_records: &mut [LaunchRecord],
     ) {
-        if root.cli_tool != "pi" {
+        if !matches!(root.cli_tool, "pi" | "omp") {
             return;
         }
         let Some(header_timestamp) = parsed.header_timestamp.as_deref() else {
@@ -338,7 +338,10 @@ impl SessionIndexService {
             .enumerate()
             .filter(|record| {
                 let record = record.1;
-                record.cli_tool == "pi"
+                // Bind only within the same CLI: a pi session file must never
+                // attach to an omp launch record even though they share a
+                // transcript format.
+                record.cli_tool == root.cli_tool
                     && record.resume_session_id.is_none()
                     && record.pty_session_id.is_some()
                     && record.runtime_kind.eq_ignore_ascii_case(runtime_kind)

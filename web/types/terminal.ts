@@ -22,6 +22,7 @@ export const KNOWN_CLI_TOOLS = [
   "cursor",
   "grok",
   "pi",
+  "omp",
 ] as const;
 
 /** CLI 工具类型（已知值自动补全 + 允许任意字符串） */

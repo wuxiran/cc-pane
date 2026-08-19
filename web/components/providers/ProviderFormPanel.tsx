@@ -37,8 +37,8 @@ const JsonEditor = lazyWithRetry(() => import("@/components/editor/JsonEditor"),
 /** 根据当前 Tab 推导手动创建时的默认 ProviderType */
 function defaultProviderTypeForTab(tab?: KnownCliTool): ProviderType {
   switch (tab) {
-    case "codex":
-    case "pi": return tab === "pi" ? "anthropic" : "open_ai";
+    case "codex": return "open_ai";
+    case "pi": case "omp": return "anthropic";
     case "gemini": return "gemini";
     case "kimi": return "kimi";
     case "glm": return "glm";

@@ -313,8 +313,8 @@ export default function LaunchProfilesPanel({
 
   const handleSave = useCallback(async () => {
     try {
-      if (activeTool === "pi" && draft.targetRuntime === "ssh") {
-        toast.error(t("piSshRuntimeUnsupported"));
+      if ((activeTool === "pi" || activeTool === "omp") && draft.targetRuntime === "ssh") {
+        toast.error(t(activeTool === "pi" ? "piSshRuntimeUnsupported" : "ompSshRuntimeUnsupported"));
         return;
       }
       const alias = draft.alias?.trim() || draft.name?.trim() || t("profileDefaultName", { tool: toolLabel(activeTool, t) });
@@ -327,7 +327,7 @@ export default function LaunchProfilesPanel({
         adapterOptions: activeTool === "pi"
           ? { ...(draft.adapterOptions ?? {}), piTransport: "pty" as const }
           : draft.adapterOptions ?? {},
-        yoloMode: activeTool === "pi" ? false : draft.yoloMode,
+        yoloMode: activeTool === "pi" || activeTool === "omp" ? false : draft.yoloMode,
         isDefault: isSystemDefaultSelected ? true : draft.isDefault,
         targetTools: [activeTool],
         targetRuntime: draft.targetRuntime ?? null,

@@ -151,6 +151,8 @@ export default function LauncherDialog() {
             ? t("errorProviderRequired")
             : issue?.code === "pi_ssh_unsupported"
               ? t("errorPiSshUnsupported")
+            : issue?.code === "omp_ssh_unsupported"
+              ? t("errorOmpSshUnsupported")
             : t("errorResolveFailed", { code: issue?.code }),
       );
       return;
@@ -265,7 +267,7 @@ export default function LauncherDialog() {
               skipMcp: draft.skipMcp,
               appendSystemPrompt: draft.appendSystemPrompt,
               initialPrompt: draft.initialPrompt,
-              yolo: draft.cliTool === "pi" ? undefined : draft.yolo,
+              yolo: draft.cliTool === "pi" || draft.cliTool === "omp" ? undefined : draft.yolo,
               adapterOptions: buildAdapterOptions(draft),
             }}
           />

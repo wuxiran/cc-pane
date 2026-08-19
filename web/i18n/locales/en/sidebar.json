@@ -146,6 +146,7 @@
   "cliToolClaude": "Claude Code",
   "cliToolCodex": "Codex CLI",
   "cliToolPi": "Pi",
+  "cliToolOmp": "Oh My Pi",
   "cliToolGemini": "Gemini CLI",
   "cliToolKimi": "Kimi CLI",
   "cliToolGlm": "GLM CLI",
@@ -542,7 +543,8 @@
     "cli": {
       "claude": "Claude",
       "codex": "Codex",
-      "pi": "Pi"
+      "pi": "Pi",
+      "omp": "Oh My Pi"
     },
     "refresh": "Refresh session index",
     "loading": "Loading sessions...",
