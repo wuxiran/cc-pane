@@ -322,6 +322,21 @@ fn is_directly_executable(path: &Path) -> bool {
     }
 }
 
+/// Home-relative install roots probed beyond PATH. Returned before the
+/// existence filter in `dedupe_existing_dirs`, so tests assert on this list
+/// instead of `candidate_executable_dirs()` (machines without the tool would
+/// otherwise drop the dir and flip the assertion).
+fn home_fallback_cli_dirs(home: &Path) -> Vec<PathBuf> {
+    vec![
+        home.join(".cargo").join("bin"),
+        home.join(".local").join("bin"),
+        // Bun's global bin dir (`bun install -g`, omp's documented install
+        // path). The installer appends it to the user PATH, but an
+        // already-running desktop app never sees that update.
+        home.join(".bun").join("bin"),
+    ]
+}
+
 fn candidate_executable_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 
@@ -330,17 +345,7 @@ fn candidate_executable_dirs() -> Vec<PathBuf> {
     }
 
     if let Some(home) = dirs::home_dir() {
-        extend_unique_dirs(
-            &mut dirs,
-            [
-                home.join(".cargo").join("bin"),
-                home.join(".local").join("bin"),
-                // Bun's global bin dir (`bun install -g`, omp's documented
-                // install path). The installer appends it to the user PATH,
-                // but an already-running desktop app never sees that update.
-                home.join(".bun").join("bin"),
-            ],
-        );
+        extend_unique_dirs(&mut dirs, home_fallback_cli_dirs(&home));
 
         #[cfg(not(windows))]
         {
@@ -1711,10 +1716,10 @@ mod path_resolution_tests {
     #[test]
     fn candidate_dirs_probe_bun_global_bin_without_path() {
         // bun 安装器只写用户 PATH；已经启动的桌面应用看不到更新，
-        // 所以 ~/.bun/bin 必须独立于 PATH 兜底探测。
-        let dirs = candidate_executable_dirs();
+        // 所以 ~/.bun/bin 必须独立于 PATH 兜底探测。断言用 existence
+        // 过滤前的清单：CI 机器没装 bun，目录不存在属正常。
         let home = dirs::home_dir().expect("home directory");
-        assert!(dirs.contains(&home.join(".bun").join("bin")));
+        assert!(home_fallback_cli_dirs(&home).contains(&home.join(".bun").join("bin")));
     }
 }
 
