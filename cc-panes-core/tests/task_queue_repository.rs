@@ -78,7 +78,10 @@ fn migration_v34_upgrades_a_v33_database() {
             row.get(0)
         })
         .unwrap();
-    assert_eq!(version, 34);
+    // 只断言 v34 确实应用过，不锁死"最新版本恰好是几"：后者每加一条迁移就要改一次
+    // （v35 落地时就是这样挂的），而"迁移跑到了最后一条"已由 db.rs 内部单测用
+    // MIGRATIONS.last() 覆盖——MIGRATIONS 是私有常量，集成测试拿不到，只能取下界。
+    assert!(version >= 34, "v33 库应至少升到 v34，实际 {version}");
     let enabled: i64 = conn
         .query_row(
             "SELECT enabled FROM task_queue_runtime WHERE id=1",
