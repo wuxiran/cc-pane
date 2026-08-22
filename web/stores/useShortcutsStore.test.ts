@@ -7,6 +7,7 @@ import {
   findConflict,
   handleKeydown,
   shouldTerminalHandleKey,
+  isTerminalPassthroughAction,
 } from "./useShortcutsStore";
 import { useSettingsStore } from "./useSettingsStore";
 
@@ -28,10 +29,13 @@ function createKeyEvent(
     shiftKey?: boolean;
     altKey?: boolean;
     metaKey?: boolean;
+    /** 物理键位。mac 上按住 Option 时 key 会变成组字符（⌥L→"¬"），只能靠它还原 */
+    code?: string;
   } = {}
 ): KeyboardEvent {
   return new KeyboardEvent("keydown", {
     key,
+    code: options.code ?? "",
     ctrlKey: options.ctrlKey ?? false,
     shiftKey: options.shiftKey ?? false,
     altKey: options.altKey ?? false,
@@ -579,6 +583,100 @@ describe("useShortcutsStore", () => {
       });
 
       expect(shouldTerminalHandleKey(createKeyEvent("-", { ctrlKey: true }))).toBe(false);
+    });
+  });
+
+  // ===========================================================================
+  // macOS 适配
+  //
+  // 全部显式传 isMac：jsdom 的 navigator.platform 恒为非 mac，靠环境根本跑不到这条分支，
+  // 而"mac 快捷键全都不能用"正出在这里。
+  // ===========================================================================
+  describe("macOS 适配", () => {
+    const MAC = true;
+
+    /** close-tab (Ctrl+W) 是 passthrough 名单成员，拿它验最典型的那条冲突 */
+    function setupCloseTab() {
+      const handler = vi.fn();
+      useShortcutsStore.getState().registerAction({
+        id: "close-tab",
+        label: "Close Tab",
+        handler,
+      });
+      useSettingsStore.setState({
+        settings: { shortcuts: { bindings: { "close-tab": "Ctrl+W" } } } as never,
+      });
+      return handler;
+    }
+
+    it("⌘W 在终端聚焦时应关闭标签——passthrough 名单只该拦 ⌃", () => {
+      const handler = setupCloseTab();
+      useShortcutsStore.setState({ terminalFocused: true });
+
+      handleKeydown(createKeyEvent("w", { metaKey: true }), MAC);
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("⌃W 在终端聚焦时应让给 readline 的 delete-word", () => {
+      const handler = setupCloseTab();
+      useShortcutsStore.setState({ terminalFocused: true });
+      const e = createKeyEvent("w", { ctrlKey: true });
+      const preventSpy = vi.spyOn(e, "preventDefault");
+
+      handleKeydown(e, MAC);
+
+      expect(handler).not.toHaveBeenCalled();
+      expect(preventSpy).not.toHaveBeenCalled();
+    });
+
+    it("⌃W 在终端未聚焦时照常触发绑定", () => {
+      const handler = setupCloseTab();
+      useShortcutsStore.setState({ terminalFocused: false });
+
+      handleKeydown(createKeyEvent("w", { ctrlKey: true }), MAC);
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("shouldTerminalHandleKey：⌘W 归应用、⌃W 归终端", () => {
+      setupCloseTab();
+      useShortcutsStore.setState({ terminalFocused: true });
+
+      expect(shouldTerminalHandleKey(createKeyEvent("w", { metaKey: true }), MAC)).toBe(false);
+      expect(shouldTerminalHandleKey(createKeyEvent("w", { ctrlKey: true }), MAC)).toBe(true);
+    });
+
+    it("⌥ 的组字符应回退到物理键位", () => {
+      // mac 上 ⌥L 的 key 是 "¬"、⌥1 是 "¡"，按 key 匹配只会得到 "Ctrl+Alt+¬"
+      expect(
+        parseKeyEvent(createKeyEvent("¬", { metaKey: true, altKey: true, code: "KeyL" })),
+      ).toBe("Ctrl+Alt+L");
+      expect(parseKeyEvent(createKeyEvent("¡", { altKey: true, code: "Digit1" }))).toBe("Alt+1");
+    });
+
+    it("不带 Alt 时仍按键盘标签匹配，不看物理键位", () => {
+      // AZERTY 上 code=KeyQ 的键面印着 A，用户按它期望的就是 A
+      expect(parseKeyEvent(createKeyEvent("a", { ctrlKey: true, code: "KeyQ" }))).toBe("Ctrl+A");
+    });
+
+    it("Alt+方向键不受物理键位回退影响", () => {
+      expect(
+        parseKeyEvent(createKeyEvent("ArrowLeft", { altKey: true, code: "ArrowLeft" })),
+      ).toBe("Alt+Left");
+    });
+
+    it("formatKeyCombo 应按 ⌥⇧⌘ 次序排列，⌘ 紧挨键名", () => {
+      expect(formatKeyCombo("Ctrl+B", MAC)).toBe("⌘B");
+      expect(formatKeyCombo("Ctrl+Shift+T", MAC)).toBe("⇧⌘T");
+      expect(formatKeyCombo("Ctrl+Alt+L", MAC)).toBe("⌥⌘L");
+      expect(formatKeyCombo("Ctrl+\\", MAC)).toBe("⌘\\");
+      expect(formatKeyCombo("F11", MAC)).toBe("F11");
+    });
+
+    it("isTerminalPassthroughAction 在 mac 上恒为 false", () => {
+      expect(isTerminalPassthroughAction("close-tab", false)).toBe(true);
+      expect(isTerminalPassthroughAction("close-tab", MAC)).toBe(false);
     });
   });
 });

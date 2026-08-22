@@ -33,7 +33,11 @@ const SEVERITY_DOT: Record<NotificationSeverity, string> = {
 };
 
 function matchesFilter(record: NotificationRecord, filter: HistoryFilter): boolean {
-  if (filter === "all") return !isSystemNotification(record);
+  // 「全部」必须真的是全部。铃铛徽章与折叠条数的是 selectUnreadCount（全量未读，含系统），
+  // 这里再减掉系统通知，未读全是系统事件时就会出现"徽章 7 条、默认视图暂无通知"——
+  // 人看得见计数却找不到内容，也就无从判断该不该清。降噪交给「系统」这个子集筛选表达，
+  // 不靠让「全部」名不副实。
+  if (filter === "all") return true;
   if (filter === "system") return isSystemNotification(record);
   const { severity, interruptClass } = classifyNotification(record);
   if (filter === "errors") return severity === "error";

@@ -1147,6 +1147,15 @@
   color: var(--cc-terminal-fg);
 }
 
+/* xterm 从容器原点开始画，不留边距时首列字形直接顶着面板边框。padding 挂在 host 上而不是
+   .xterm 上：FitAddon 靠 getComputedStyle(element.parentElement).width 反推列数，取到的是
+   content box（padding 已扣），行列数自动跟着收；挂到 .xterm 上则 .xterm-viewport 连同滚动条
+   一起内缩，贴边的从文字变成滚动条。纵向留得比横向窄——上下每多 8px 就可能被 FitAddon 的
+   向下取整吃掉一整行可见内容，而横向 10px 还不到一个字符宽。 */
+.cc-terminal-host {
+  padding: 4px 10px;
+}
+
 .cc-terminal-host .xterm .composition-view {
   background: var(--cc-terminal-bg);
   color: var(--cc-terminal-fg);
