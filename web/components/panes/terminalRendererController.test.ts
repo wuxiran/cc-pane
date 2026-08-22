@@ -65,6 +65,9 @@ vi.mock("./terminalRenderer", async (importOriginal) => {
 
 class MockWebGL2RenderingContext {}
 
+/** 每个 mock terminal 的 onRender 回调，供用例手动触发一帧。 */
+const renderHandlers = new WeakMap<HTMLElement, () => void>();
+
 function createMockTerminal(): Terminal {
   const element = document.createElement("div");
   const screen = document.createElement("div");
@@ -78,7 +81,10 @@ function createMockTerminal(): Terminal {
     refresh: vi.fn(),
     clearTextureAtlas: vi.fn(),
     loadAddon: vi.fn(),
-    onRender: vi.fn(() => ({ dispose: vi.fn() })),
+    onRender: vi.fn((handler: () => void) => {
+      renderHandlers.set(element, handler);
+      return { dispose: vi.fn() };
+    }),
   } as unknown as Terminal;
 }
 
@@ -324,6 +330,55 @@ describe("terminal renderer controller", () => {
 
     expect(term.refresh).toHaveBeenCalledWith(0, 23);
     controller.dispose();
+  });
+
+  // `display:none` 的元素交叉比恒为 0；它恢复显示时若仍在视口外，IntersectionObserver
+  // 不会回调（没有跨越阈值）。xterm 画出一帧就是它确实可见的证据，作为第三个补刷时机。
+  it("replays a deferred repaint on the next rendered frame", () => {
+    const term = createMockTerminal();
+    const controller = createTerminalRendererController({
+      term,
+      logger: vi.fn(),
+      onRendererChanged: vi.fn(),
+    });
+    controller.configure("webgl");
+    let visible = false;
+    Object.defineProperty(term.element as HTMLElement, "checkVisibility", {
+      configurable: true,
+      value: () => visible,
+    });
+
+    webglMock.instances[0].atlasChangeHandler?.(document.createElement("canvas"));
+    expect(term.refresh).not.toHaveBeenCalled();
+
+    visible = true;
+    renderHandlers.get(term.element as HTMLElement)?.();
+
+    expect(term.refresh).toHaveBeenCalledWith(0, 23);
+  });
+
+  // 重绘失败还把待刷标记清掉，等于把这次补刷永久丢了——GL context 已死但
+  // context-loss 事件还没到时会走到这里。
+  it("keeps the deferred repaint pending when the repaint itself fails", () => {
+    const term = createMockTerminal();
+    const controller = createTerminalRendererController({
+      term,
+      logger: vi.fn(),
+      onRendererChanged: vi.fn(),
+    });
+    controller.configure("webgl");
+    vi.mocked(term.refresh).mockImplementationOnce(() => {
+      throw new Error("context lost");
+    });
+
+    webglMock.instances[0].atlasChangeHandler?.(document.createElement("canvas"));
+
+    expect(term.refresh).toHaveBeenCalledTimes(1);
+    expect(controller.getDiagnostics().atlasRefreshDeferredCount).toBe(1);
+
+    // 下一次时机应当重试，而不是当作已经画过。
+    renderHandlers.get(term.element as HTMLElement)?.();
+    expect(term.refresh).toHaveBeenCalledTimes(2);
   });
 
   it("stops replaying a deferred repaint after WebGL is torn down", () => {

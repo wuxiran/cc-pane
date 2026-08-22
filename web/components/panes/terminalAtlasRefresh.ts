@@ -41,8 +41,14 @@ export interface AtlasRefreshCoordinatorOptions {
   term: Terminal;
   /** WebGL 仍活跃且控制器未销毁时为 true。 */
   isLive: () => boolean;
-  /** 真正执行重绘；由控制器提供，便于它记录 lastError。 */
-  refresh: () => void;
+  /**
+   * 真正执行重绘；由控制器提供，便于它记录 lastError。
+   *
+   * **返回是否真的画成了。** 返回 false（例如 GL context 已死但 addon 还没收到
+   * context-loss 事件）时待刷标记会被保留，等下一次可见/渲染时机再试——重绘失败还把
+   * 标记清掉，等于把这次补刷永久丢了。
+   */
+  refresh: () => boolean;
 }
 
 /**
@@ -78,8 +84,8 @@ export function createAtlasRefreshCoordinator({
 
   const drain = () => {
     if (!pending || !isLive() || isDefinitelyHidden()) return;
-    pending = false;
-    refresh();
+    // 先画再清标记：画失败就留着，等下一次时机重试。
+    if (refresh()) pending = false;
   };
 
   const onBroadcast = () => {
@@ -110,6 +116,17 @@ export function createAtlasRefreshCoordinator({
         observer.observe(element);
         watchers.push(() => observer.disconnect());
       }
+
+      // 第三个时机：xterm 自己画了一帧。
+      //
+      // 前两个都可能漏：`display:none` 的元素交叉比恒为 0，若它恢复显示时正好还在
+      // 视口外（比例仍是 0），IntersectionObserver **不会**回调——没有跨越阈值。
+      // 而只要 xterm 画得出一帧，就说明它此刻确实可见，正是补刷的时机。
+      //
+      // 回调很热，但 `drain` 首行就是 `!pending` 早退，常态零成本；补刷本身会把
+      // 标记清掉，所以不会因为 refresh 触发 onRender 而自激。
+      const renderWatcher = term.onRender(() => drain());
+      watchers.push(() => renderWatcher.dispose());
     },
     detach: () => {
       atlasRefreshRegistry.delete(onBroadcast);

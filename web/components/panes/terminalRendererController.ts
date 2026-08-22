@@ -133,8 +133,12 @@ export function createTerminalRendererController({
     refresh: () => {
       try {
         term.refresh(0, Math.max(0, term.rows - 1));
+        return true;
       } catch (error) {
+        // 画失败就如实说，让协调器保留待刷标记等下一次时机——GL context 已死但
+        // context-loss 事件还没到时会走到这里。
         lastError = error instanceof Error ? error.message : String(error);
+        return false;
       }
     },
   });
