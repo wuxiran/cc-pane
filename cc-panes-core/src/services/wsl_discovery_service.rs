@@ -130,9 +130,11 @@ mod inner {
             0
         };
 
-        let u16_iter = bytes[start..]
-            .chunks_exact(2)
-            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]));
+        // as_chunks 而非 chunks_exact：块长是常量，clippy::chunks_exact_to_as_chunks
+        // 从 rust 1.98 起会在 -D warnings 下拦下来。语义不变——尾部落单的奇数字节
+        // 两种写法都丢弃（余数落在 .1，这里不取）。
+        let (pairs, _odd_tail) = bytes[start..].as_chunks::<2>();
+        let u16_iter = pairs.iter().map(|chunk| u16::from_le_bytes(*chunk));
 
         String::from_utf16_lossy(&u16_iter.collect::<Vec<u16>>())
     }
