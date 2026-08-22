@@ -243,8 +243,13 @@ impl GitService {
                 "Malformed git log output: expected {LOG_FIELD_COUNT} fields per record"
             ));
         }
+        // as_chunks 而非 chunks_exact：块长是常量，定长数组让索引在编译期就有界，
+        // 也满足 clippy::chunks_exact_to_as_chunks（rust 1.98 起 -D warnings 会拦）。
+        // 余数 .1 必为空——上面刚校验过 fields.len() 是 LOG_FIELD_COUNT 的整数倍。
         fields
-            .chunks_exact(LOG_FIELD_COUNT)
+            .as_chunks::<LOG_FIELD_COUNT>()
+            .0
+            .iter()
             .map(|record| {
                 let text = |index| decode_text_lossy_gbk(record[index]);
                 let hash = text(0);
