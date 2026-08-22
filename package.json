@@ -1,6 +1,6 @@
 {
   "name": "cc-panes",
-  "version": "0.12.6",
+  "version": "0.12.7",
   "description": "The desktop command center for parallel AI coding",
   "type": "module",
   "license": "GPL-3.0",
