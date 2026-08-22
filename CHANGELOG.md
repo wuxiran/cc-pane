@@ -1,5 +1,9 @@
 # Changelog
 
+> GitHub Release notes are injected from [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md), not from this
+> file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
+> starts.
+
 ## 0.12.6 - 2026-08-22
 
 Maintenance release. Most of it is one thread pulled end to end: a report of "garbled text in a pane" turned into an audit of the local PTY path, which surfaced five independent correctness bugs — none of which the previous three competitor-gap scans had caught, because those scanned for *missing features* and these all sit underneath features already marked done. Plus Pi / Oh My Pi CLI support.
