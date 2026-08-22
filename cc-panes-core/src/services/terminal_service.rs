@@ -4211,6 +4211,31 @@ impl TerminalService {
     ///
     /// 写入由每个 session 独立 writer 线程执行，避免一个假死 SSH 写入
     /// 阻塞全局 sessions 锁并拖住其他窗口。
+    /// 写入前端**代答**的终端查询回复（CPR / DA / kitty keyboard / OSC 颜色）。
+    ///
+    /// 与用户按键的区别只有一条，但很关键：回显开着时，按键**应该**被回显，代答回复
+    /// 则必须抑制——它会变成屏幕上的可见垃圾，还会进入 slave 的输入队列，污染下一个
+    /// 读 stdin 的程序。所以这条路径先同步查一次 ECHO。
+    ///
+    /// 查不到就照写（`echo_enabled` 返回 `None`）：不拿"不知道"当"是"，宁可维持既有
+    /// 行为，也不要因为判不出来就把子进程等着的 CPR 吞掉、让它永久阻塞。
+    pub fn write_reply(&self, session_id: &str, data: &str) -> Result<()> {
+        if self.tty_echo_enabled(session_id) == Some(true) {
+            debug!(
+                session_id = %session_id,
+                input = %summarize_input_bytes(data.as_bytes()),
+                "terminal-input.trace service.write_reply suppressed (tty echo on)"
+            );
+            return Ok(());
+        }
+        self.write(session_id, data)
+    }
+
+    fn tty_echo_enabled(&self, session_id: &str) -> Option<bool> {
+        let sessions = self.sessions.lock().ok()?;
+        sessions.get(session_id)?.process.echo_enabled()
+    }
+
     pub fn write(&self, session_id: &str, data: &str) -> Result<()> {
         let mutex = self
             .input_mutex_for_session(session_id)
@@ -5171,6 +5196,59 @@ mod tests {
         assert_eq!(split_trailing_incomplete_escape("中文测试"), ("中文测试", ""));
     }
 
+    /// 前端会代答终端查询（CPR / DA / OSC 颜色）。回显开着时把回复写下去，它会变成
+    /// 屏幕上的可见垃圾（`^[[1;1R` 这类），**并且**进入 slave 的输入队列污染下一个读
+    /// stdin 的程序——Orca 那边的症状是 `gh auth login` 直接报 escape-sequence error 死掉。
+    #[test]
+    fn suppresses_a_query_reply_while_the_tty_echoes() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        install_recording_session_with_echo(
+            &service,
+            "echo-on",
+            writes.clone(),
+            None,
+            None,
+            Some(true),
+        );
+
+        service.write_reply("echo-on", "\u{1b}[1;1R").expect("write_reply");
+
+        assert!(
+            writes.lock().expect("writes").is_empty(),
+            "回显开着时代答回复必须被抑制"
+        );
+    }
+
+    #[test]
+    fn still_writes_query_replies_when_echo_is_off_or_unknown() {
+        for (label, echo) in [("echo-off", Some(false)), ("echo-unknown", None)] {
+            let (service, _temp_dir) = terminal_service_for_test();
+            let writes = Arc::new(Mutex::new(Vec::new()));
+            install_recording_session_with_echo(&service, label, writes.clone(), None, None, echo);
+
+            service.write_reply(label, "\u{1b}[1;1R").expect("write_reply");
+
+            // 判不出来就照写：拿"不知道"当"是"会把子进程等着的 CPR 吞掉、令其永久阻塞。
+            assert!(
+                !writes.lock().expect("writes").is_empty(),
+                "{label}: 回复不该被抑制"
+            );
+        }
+    }
+
+    /// 用户按键**不受**回显判定影响——cooked 提示符下打字本来就该被回显。
+    #[test]
+    fn user_input_is_never_suppressed_by_echo() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        install_recording_session_with_echo(&service, "typing", writes.clone(), None, None, Some(true));
+
+        service.write("typing", "ls\r").expect("write");
+
+        assert!(!writes.lock().expect("writes").is_empty());
+    }
+
     /// spinner 帧靠光标控制原地刷新，ANSI 剥离后光标控制没了、帧首尾相接堆成巨行，
     /// 直到 partial 超 4KB 才 flush——漏一个词的后果是「要 200 行拿回上百万字符」。
     #[test]
@@ -5705,7 +5783,13 @@ mod tests {
         ));
     }
 
-    struct FakePtyProcess;
+    /// `echo` 为 `None` 表示"无从判断"——非 Unix / SSH 通道就是这种，
+    /// 抑制逻辑此时必须放行，不能拿"不知道"当"回显开着"。
+    #[derive(Default)]
+    struct FakePtyProcess {
+        echo: Option<bool>,
+    }
+
 
     impl PtyProcess for FakePtyProcess {
         fn resize(&self, _cols: u16, _rows: u16) -> Result<()> {
@@ -5722,6 +5806,10 @@ mod tests {
 
         fn kill(&self) -> Result<()> {
             Ok(())
+        }
+
+        fn echo_enabled(&self) -> Option<bool> {
+            self.echo
         }
     }
 
@@ -6199,6 +6287,25 @@ mod tests {
         launch_id: Option<&str>,
         managed_pi_state_cleanup: Option<PiManagedStateCleanup>,
     ) {
+        install_recording_session_with_echo(
+            service,
+            session_id,
+            writes,
+            launch_id,
+            managed_pi_state_cleanup,
+            None,
+        );
+    }
+
+    fn install_recording_session_with_echo(
+        service: &TerminalService,
+        session_id: &str,
+        writes: Arc<Mutex<Vec<String>>>,
+        launch_id: Option<&str>,
+        managed_pi_state_cleanup: Option<PiManagedStateCleanup>,
+        pty_echo: Option<bool>,
+    ) {
+
         let writer_tx =
             spawn_terminal_writer(session_id.to_string(), Box::new(RecordingWriter { writes }));
         service
@@ -6211,7 +6318,7 @@ mod tests {
                     launch_id: launch_id.map(str::to_string),
                     project_path: "/repo".to_string(),
                     runtime_kind: "local".to_string(),
-                    process: Arc::new(FakePtyProcess),
+                    process: Arc::new(FakePtyProcess { echo: pty_echo }),
                     writer_tx,
                     status: Arc::new(Mutex::new(SessionStatus::Idle)),
                     exit_code: Arc::new(Mutex::new(None)),

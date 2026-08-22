@@ -58,6 +58,22 @@ pub trait PtyProcess: Send + Sync {
     fn set_resource_policy(&self, _policy: &SessionResourcePolicy) -> Result<PolicyOutcome> {
         Ok(PolicyOutcome::Unsupported)
     }
+
+    /// tty 当前是否开着 ECHO。
+    ///
+    /// 前端会代答终端查询（CPR / DA / kitty keyboard / OSC 颜色）。这些回复写进 PTY
+    /// master 后，如果 slave 正处在 cooked 模式（ECHO 开着，典型是 shell 提示符），
+    /// 就会被原样回显成屏幕上的可见垃圾（`^[[1;1R` 这类），**并且**进入 slave 的输入
+    /// 队列，成为下一个读 stdin 的程序拿到的内容。
+    ///
+    /// 满屏 TUI 通常已把 ECHO 关掉，所以平时不发作；真正的触发路径是 desync 恢复
+    /// 重放查询——那可能发生在 TUI 已退出、tty 回到 cooked 的任意时刻。
+    ///
+    /// `None` = 无从判断（非 Unix、SSH 通道、测试桩）。调用方此时**不应**抑制，
+    /// 维持既有行为，不拿"不知道"当"是"。
+    fn echo_enabled(&self) -> Option<bool> {
+        None
+    }
 }
 
 /// portable-pty 包装的 PTY 进程（全平台通用）
@@ -76,6 +92,28 @@ struct PortablePtyProcess {
 }
 
 impl PtyProcess for PortablePtyProcess {
+    /// 同步读一次 master 的 termios。
+    ///
+    /// **刻意不做异步探测。** Orca 在这条路上栽过一次（#15559）：改成异步 fork `stty`
+    /// 后，同一轮里更晚写出的回复会超车更早的，探测器因此放弃、tty 里残留 ESC，
+    /// 下一个程序（gh auth login）直接报 escape-sequence error 死掉。`tcgetattr` 本身
+    /// 是亚微秒级的 ioctl，没有任何理由把它推迟。
+    #[cfg(unix)]
+    fn echo_enabled(&self) -> Option<bool> {
+        use std::os::fd::RawFd;
+
+        let master = self.master.lock().ok()?;
+        let fd: RawFd = master.as_raw_fd()?;
+        let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
+        // SAFETY: fd 由 master 持有、在本次调用期间有效；tcgetattr 只读不改。
+        if unsafe { libc::tcgetattr(fd, termios.as_mut_ptr()) } != 0 {
+            return None;
+        }
+        // SAFETY: tcgetattr 返回 0 即已完成初始化。
+        let termios = unsafe { termios.assume_init() };
+        Some(termios.c_lflag & libc::ECHO != 0)
+    }
+
     fn resize(&self, cols: u16, rows: u16) -> Result<()> {
         let master = self
             .master

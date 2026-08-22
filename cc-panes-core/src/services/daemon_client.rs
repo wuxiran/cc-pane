@@ -113,6 +113,9 @@ struct CreateSessionResponse {
 #[serde(rename_all = "camelCase")]
 struct WriteSessionRequest<'a> {
     data: &'a str,
+    /// 缺省 = 用户输入。旧 daemon 不认这个字段，serde 会忽略，降级为原行为。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -463,10 +466,21 @@ impl TerminalDaemonClient {
     }
 
     pub fn write_session(&self, session_id: &str, data: &str) -> AppResult<()> {
+        self.write_session_with_source(session_id, data, None)
+    }
+
+    /// `source = Some("system")` 表示这是前端代答的查询回复：会话活在 daemon 进程，
+    /// ECHO 判定必须由持有 PTY 的那一侧做，所以来源要随请求过去。
+    pub fn write_session_with_source(
+        &self,
+        session_id: &str,
+        data: &str,
+        source: Option<&str>,
+    ) -> AppResult<()> {
         self.post_empty(
             &session_path(session_id, "/write"),
             true,
-            &WriteSessionRequest { data },
+            &WriteSessionRequest { data, source },
         )
     }
 

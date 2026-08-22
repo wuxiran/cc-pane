@@ -73,6 +73,12 @@ pub trait TerminalBackend: Send + Sync {
         })
     }
     fn write(&self, session_id: &str, data: &str) -> AppResult<()>;
+
+    /// 写入前端代答的终端查询回复。默认等同 `write`；持有 PTY 的实现覆盖它，
+    /// 以便在 tty 回显开着时抑制——那种情况下回复会变成可见垃圾并污染输入队列。
+    fn write_reply(&self, session_id: &str, data: &str) -> AppResult<()> {
+        self.write(session_id, data)
+    }
     fn submit_text_to_session(&self, session_id: &str, text: &str) -> AppResult<()>;
     /// Returns whether the terminal has enabled DEC private mode 2004.
     /// Backends without a readiness bridge return false.
@@ -459,6 +465,10 @@ impl TerminalBackend for TerminalService {
         TerminalService::write(self, session_id, data).map_err(AppError::from)
     }
 
+    fn write_reply(&self, session_id: &str, data: &str) -> AppResult<()> {
+        TerminalService::write_reply(self, session_id, data).map_err(AppError::from)
+    }
+
     fn submit_text_to_session(&self, session_id: &str, text: &str) -> AppResult<()> {
         TerminalService::submit_text_to_session(self, session_id, text)
     }
@@ -554,6 +564,10 @@ impl TerminalBackend for InProcessTerminalBackend {
 
     fn write(&self, session_id: &str, data: &str) -> AppResult<()> {
         <TerminalService as TerminalBackend>::write(self.service.as_ref(), session_id, data)
+    }
+
+    fn write_reply(&self, session_id: &str, data: &str) -> AppResult<()> {
+        <TerminalService as TerminalBackend>::write_reply(self.service.as_ref(), session_id, data)
     }
 
     fn submit_text_to_session(&self, session_id: &str, text: &str) -> AppResult<()> {
@@ -693,6 +707,12 @@ impl TerminalBackend for DaemonTerminalBackend {
 
     fn write(&self, session_id: &str, data: &str) -> AppResult<()> {
         self.client.write_session(session_id, data)
+    }
+
+    fn write_reply(&self, session_id: &str, data: &str) -> AppResult<()> {
+        // 会话在 daemon 进程，ECHO 只能由持有 PTY 的那一侧判定，这里只负责把来源带过去。
+        self.client
+            .write_session_with_source(session_id, data, Some("system"))
     }
 
     fn submit_text_to_session(&self, session_id: &str, text: &str) -> AppResult<()> {

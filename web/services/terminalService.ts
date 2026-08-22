@@ -31,11 +31,13 @@ import {
   isSessionClaimedError, isWebSocketDesyncMessage, parseWebSocketOutput,
   removeSubscriber, summarizeTerminalInput,
 } from "./terminalServiceShared";
-export { isSessionClaimedError };import type {
+export { isSessionClaimedError };import { splitInputRunsBySource } from "./terminalServiceShared";
+import type {
   TerminalBackendClientInfo,
   TerminalInputQueue,
   TerminalReplaySnapshot,
   TerminalWriteOptions,
+  TerminalWriteSource,
 } from "./terminalServiceShared";
 export type {
   TerminalBackendClientInfo,
@@ -98,7 +100,7 @@ let unlistenClaimLost: UnlistenFn | null = null;
 let unlistenDesync: UnlistenFn | null = null;
 let cachedBackendClientInfo: TerminalBackendClientInfo | null = null;
 
-function enqueueTerminalInput(sessionId: string, data: string, traceId?: number): Promise<void> {
+function enqueueTerminalInput(sessionId: string, data: string, source: TerminalWriteSource, traceId?: number): Promise<void> {
   if (data.length === 0) return Promise.resolve();
 
   let queue = inputQueues.get(sessionId);
@@ -113,7 +115,7 @@ function enqueueTerminalInput(sessionId: string, data: string, traceId?: number)
   }
 
   const result = new Promise<void>((resolve, reject) => {
-    queue.pending.push({ data, traceId, resolve, reject });
+    queue.pending.push({ data, source, traceId, resolve, reject });
     debugTerminalService("input.queue.enqueue", {
       sessionId,
       traceId: traceId ?? null,
@@ -148,7 +150,7 @@ async function flushTerminalInputQueue(sessionId: string): Promise<void> {
     data: summarizeTerminalInput(data),
   });
   try {
-    await writeTerminalInputNow(sessionId, data);
+    for (const run of splitInputRunsBySource(batch)) await writeTerminalInputNow(sessionId, run.items.map((i) => i.data).join(""), run.source);
     debugTerminalService("input.queue.flush.ok", {
       sessionId,
       traceIds,
@@ -221,14 +223,14 @@ function notifySessionClaimLost(sessionId: string): void {
   });
 }
 
-async function writeTerminalInputNow(sessionId: string, data: string): Promise<void> {
+async function writeTerminalInputNow(sessionId: string, data: string, source: TerminalWriteSource): Promise<void> {
   debugTerminalService("input.ipc.write.begin", {
     sessionId,
     data: summarizeTerminalInput(data),
   });
   try {
-    await invokeOrApi<void>("write_terminal", { sessionId, data }, () =>
-      apiJson<void>(`/api/sessions/${encodeURIComponent(sessionId)}/write`, "POST", { data }),
+    await invokeOrApi<void>("write_terminal", { sessionId, data, source }, () =>
+      apiJson<void>(`/api/sessions/${encodeURIComponent(sessionId)}/write`, "POST", { data, source }),
     );
   } catch (error) {
     if (isSessionClaimedError(error)) notifySessionClaimLost(sessionId);
@@ -504,7 +506,7 @@ export const terminalService = {
     options: TerminalWriteOptions = { source: "user-keyboard" },
   ): Promise<void> {
     const source = options.source ?? "user-keyboard";
-    await enqueueTerminalInput(sessionId, data, options.traceId);
+    await enqueueTerminalInput(sessionId, data, source, options.traceId);
     if (source === "user-keyboard") {
       const charCount = countTerminalInputChars(data);
       void usageStatsService.recordInputChars(sessionId, charCount).catch((error) => {
