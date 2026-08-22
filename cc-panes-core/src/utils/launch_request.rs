@@ -348,9 +348,8 @@ mod tests {
     #[test]
     fn leaves_an_existing_utf8_locale_alone() {
         for existing in ["en_US.UTF-8", "zh_CN.utf8", "C.UTF-8"] {
-            let mut env = std::collections::HashMap::from([
-                ("LANG".to_string(), existing.to_string()),
-            ]);
+            let mut env =
+                std::collections::HashMap::from([("LANG".to_string(), existing.to_string())]);
 
             ensure_utf8_locale(&mut env);
 
@@ -385,7 +384,10 @@ mod tests {
 
         assert_eq!(env.get("LANG").map(String::as_str), Some("C.UTF-8"));
         assert_eq!(env.get("LC_TIME").map(String::as_str), Some("zh_CN.UTF-8"));
-        assert_eq!(env.get("LC_COLLATE").map(String::as_str), Some("zh_CN.UTF-8"));
+        assert_eq!(
+            env.get("LC_COLLATE").map(String::as_str),
+            Some("zh_CN.UTF-8")
+        );
         assert_eq!(env.get("LC_ALL"), None);
     }
 

@@ -5246,13 +5246,20 @@ mod tests {
 
         let output = buffer.get_recent(0).join("\n");
         assert!(output.contains("beforelink"), "{output:?}");
-        assert!(!output.contains("example.com"), "OSC 载荷漏成正文：{output:?}");
+        assert!(
+            !output.contains("example.com"),
+            "OSC 载荷漏成正文：{output:?}"
+        );
     }
 
     #[test]
     fn still_bounds_the_carry_for_oversized_string_escapes() {
         let huge = format!("\u{1b}]52;c;{}", "A".repeat(MAX_STRING_ESCAPE_CARRY));
-        assert_eq!(split_trailing_incomplete_escape(&huge).1, "", "超档应放行而非无限扣留");
+        assert_eq!(
+            split_trailing_incomplete_escape(&huge).1,
+            "",
+            "超档应放行而非无限扣留"
+        );
     }
 
     #[test]
@@ -5277,7 +5284,10 @@ mod tests {
             ("a\u{1b}]0;title\u{7}b", "")
         );
         // 多字节字符不能被误切（ESC 是 ASCII，不会落在字符内部）。
-        assert_eq!(split_trailing_incomplete_escape("中文测试"), ("中文测试", ""));
+        assert_eq!(
+            split_trailing_incomplete_escape("中文测试"),
+            ("中文测试", "")
+        );
     }
 
     /// 前端会代答终端查询（CPR / DA / OSC 颜色）。回显开着时把回复写下去，它会变成
@@ -5296,7 +5306,9 @@ mod tests {
             Some(true),
         );
 
-        service.write_reply("echo-on", "\u{1b}[1;1R").expect("write_reply");
+        service
+            .write_reply("echo-on", "\u{1b}[1;1R")
+            .expect("write_reply");
 
         assert!(
             writes.lock().expect("writes").is_empty(),
@@ -5314,7 +5326,9 @@ mod tests {
             let writes = Arc::new(Mutex::new(Vec::new()));
             install_recording_session_with_echo(&service, label, writes.clone(), None, None, echo);
 
-            service.write_reply(label, "\u{1b}[1;1R").expect("write_reply");
+            service
+                .write_reply(label, "\u{1b}[1;1R")
+                .expect("write_reply");
 
             // 判不出来就照写：拿"不知道"当"是"会把子进程等着的 CPR 吞掉、令其永久阻塞。
             assert!(
@@ -5329,7 +5343,14 @@ mod tests {
     fn user_input_is_never_suppressed_by_echo() {
         let (service, _temp_dir) = terminal_service_for_test();
         let writes = Arc::new(Mutex::new(Vec::new()));
-        install_recording_session_with_echo(&service, "typing", writes.clone(), None, None, Some(true));
+        install_recording_session_with_echo(
+            &service,
+            "typing",
+            writes.clone(),
+            None,
+            None,
+            Some(true),
+        );
 
         service.write("typing", "ls\r").expect("write");
 
@@ -5368,14 +5389,25 @@ mod tests {
     fn leaves_multiline_submit_raw_for_a_plain_shell() {
         let (service, _temp_dir) = terminal_service_for_test();
         let writes = Arc::new(Mutex::new(Vec::new()));
-        install_recording_session_full(&service, "shell", writes.clone(), None, None, None, CliTool::None);
+        install_recording_session_full(
+            &service,
+            "shell",
+            writes.clone(),
+            None,
+            None,
+            None,
+            CliTool::None,
+        );
 
         service
             .submit_text_to_session("shell", "echo a\necho b")
             .expect("submit");
 
         let joined = writes.lock().expect("writes").join("");
-        assert!(!joined.contains("\u{1b}[200~"), "纯 shell 不该被包裹：{joined:?}");
+        assert!(
+            !joined.contains("\u{1b}[200~"),
+            "纯 shell 不该被包裹：{joined:?}"
+        );
     }
 
     /// 单行没有这个问题——没有内嵌换行就不会提前提交，保持原行为避免多余标记。
@@ -5383,19 +5415,34 @@ mod tests {
     fn leaves_single_line_submit_raw_without_paste_ready() {
         let (service, _temp_dir) = terminal_service_for_test();
         let writes = Arc::new(Mutex::new(Vec::new()));
-        install_recording_session_full(&service, "agent", writes.clone(), None, None, None, CliTool::Claude);
+        install_recording_session_full(
+            &service,
+            "agent",
+            writes.clone(),
+            None,
+            None,
+            None,
+            CliTool::Claude,
+        );
 
-        service.submit_text_to_session("agent", "just one line").expect("submit");
+        service
+            .submit_text_to_session("agent", "just one line")
+            .expect("submit");
 
         let joined = writes.lock().expect("writes").join("");
-        assert!(!joined.contains("\u{1b}[200~"), "单行不该被包裹：{joined:?}");
+        assert!(
+            !joined.contains("\u{1b}[200~"),
+            "单行不该被包裹：{joined:?}"
+        );
     }
 
     /// spinner 帧靠光标控制原地刷新，ANSI 剥离后光标控制没了、帧首尾相接堆成巨行，
     /// 直到 partial 超 4KB 才 flush——漏一个词的后果是「要 200 行拿回上百万字符」。
     #[test]
     fn filters_the_simmering_spinner_frame() {
-        assert!(is_spinner_line("✻ Simmering… (12s · ↑ 1.2k tokens · esc to interrupt)"));
+        assert!(is_spinner_line(
+            "✻ Simmering… (12s · ↑ 1.2k tokens · esc to interrupt)"
+        ));
         assert!(is_spinner_line("✽ Simmering…"));
         // 归一化后是 simering；词表里写原词 simmering 会永远匹配不上。
         // 词表比对走 starts_with；省略号不算装饰字符会被保留，故不是全等。
@@ -5932,7 +5979,6 @@ mod tests {
     struct FakePtyProcess {
         echo: Option<bool>,
     }
-
 
     impl PtyProcess for FakePtyProcess {
         fn resize(&self, _cols: u16, _rows: u16) -> Result<()> {
