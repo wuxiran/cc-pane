@@ -826,10 +826,14 @@ const MIGRATIONS: &[Migration] = &[
         // 新版本已在创建时预分配锚点（daemon 侧还有一层兜底），这里把存量补上。
         // 只在观测行确实存在时回填，绝不凭空造值；`WHERE ... IS NULL` 自限，幂等。
         //
-        // 前两段 DDL 不是新功能，是**前置补齐**：残缺库（schema_migrations 记到某个
-        // 版本、DDL 却没真跑，v28 正是为治这个而加）里这两张表可能根本不存在，而
-        // 迁移器只对 "duplicate column name" 容错，缺表会直接中断整个应用启动。
-        // 语句全部幂等，schema 完好的库上是无害空转——与 v28/v29 同一套路。
+        // 前置 DDL 不是新功能，是**补齐**：残缺库（schema_migrations 记到某个版本、
+        // DDL 却没真跑，v28 正是为治这个而加）里这两张表可能根本不存在，而迁移器只对
+        // "duplicate column name" 容错，缺表会直接中断整个应用启动。
+        //
+        // 必须把 v7 之后加过的列与索引**全部**声明一遍，不能只补本迁移自己要读的那
+        // 一列：缺表时建出个残缺表，而 v26/v28 已被标记跑过、不会再补，等于把「迁移
+        // 中断」换成后续读写时的 "no such column"，更难诊断。语句全部幂等，schema
+        // 完好的库上是无害空转——与 v28/v29 同一套路。
         up_sql: "
             CREATE TABLE IF NOT EXISTS terminal_sessions (
                 session_id TEXT PRIMARY KEY,
@@ -848,7 +852,25 @@ const MIGRATIONS: &[Migration] = &[
                 saved_at TEXT NOT NULL
             );
 
+            ALTER TABLE terminal_sessions ADD COLUMN runtime_kind TEXT NOT NULL DEFAULT 'local';
+            ALTER TABLE terminal_sessions ADD COLUMN workspace_session_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN workspace_snapshot_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN launch_profile_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN provider_selection TEXT;
             ALTER TABLE terminal_sessions ADD COLUMN terminal_pane_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN layout_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN wsl_config TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN machine_name TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN observer_instance_id TEXT;
+
+            CREATE INDEX IF NOT EXISTS idx_terminal_sessions_workspace_session
+                ON terminal_sessions(workspace_session_id);
+            CREATE INDEX IF NOT EXISTS idx_terminal_sessions_workspace_snapshot
+                ON terminal_sessions(workspace_snapshot_id);
+            CREATE INDEX IF NOT EXISTS idx_terminal_sessions_launch_profile
+                ON terminal_sessions(launch_profile_id);
+            CREATE INDEX IF NOT EXISTS idx_terminal_sessions_anchor
+                ON terminal_sessions(layout_id, tab_id, terminal_pane_id);
 
             CREATE TABLE IF NOT EXISTS terminal_session_provenance (
                 session_id TEXT PRIMARY KEY,
@@ -864,6 +886,9 @@ const MIGRATIONS: &[Migration] = &[
                 resume_id TEXT,
                 created_at_ms INTEGER NOT NULL
             );
+
+            CREATE INDEX IF NOT EXISTS idx_terminal_session_provenance_generation
+                ON terminal_session_provenance(daemon_generation, created_at_ms);
 
             UPDATE terminal_session_provenance AS p
                SET origin_tab_id = COALESCE(
