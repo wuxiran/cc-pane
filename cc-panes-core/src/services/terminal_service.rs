@@ -6469,14 +6469,6 @@ mod tests {
         pty_echo: Option<bool>,
         session_cli_tool: CliTool,
     ) {
-
-        session_id: &str,
-        writes: Arc<Mutex<Vec<String>>>,
-        launch_id: Option<&str>,
-        managed_pi_state_cleanup: Option<PiManagedStateCleanup>,
-        pty_echo: Option<bool>,
-    ) {
-
         let writer_tx =
             spawn_terminal_writer(session_id.to_string(), Box::new(RecordingWriter { writes }));
         service
