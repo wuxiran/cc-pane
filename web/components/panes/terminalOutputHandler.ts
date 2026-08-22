@@ -8,6 +8,12 @@ import {
   type TerminalHiddenWriteBuffer,
 } from "./terminalHiddenWriteBuffer";
 import { invalidateSeq, noteWritten } from "./terminalOutputSeqTracker";
+import { takeCurrentTerminalDeliveryCredit } from "./terminalDeliveryCredit";
+import {
+  hiddenBacklogQuotaChars,
+  registerHiddenTerminal,
+  unregisterHiddenTerminal,
+} from "./terminalHiddenBudget";
 
 interface RefValue<T> {
   current: T;
@@ -97,6 +103,12 @@ export function createTerminalOutputHandler({
   debugLog,
 }: CreateTerminalOutputHandlerOptions): (data: string, endSeq?: number) => void {
   return (data: string, endSeq?: number) => {
+    // 流控信用（B-5）：本视图消化完这一 chunk 才归还；多视图时上游要等最慢的那个。
+    // **必须在下面每一条终止路径上都归还**——解析完算，被丢弃同样算。漏掉任何一条
+    // 都会永久缩小上游窗口，最终把生产者卡死在暂停态。归还函数幂等，宁可多调。
+    // 注意这本账与 noteWritten/invalidateSeq 的 checkpoint 锚点账**语义相反**：
+    // 那本为了拍照正确而在丢弃时禁拍，这本为了不卡死而在丢弃时照样放行。
+    const releaseCredit = takeCurrentTerminalDeliveryCredit() ?? (() => {});
     const term = terminalRef.current;
     const focusReportMode = detectFocusReportMode(data, focusReportModeRef.current);
     if (focusReportMode !== focusReportModeRef.current) {
@@ -127,6 +139,7 @@ export function createTerminalOutputHandler({
       });
       // 数据被丢弃（xterm 不在）：锚点连续性破坏，禁拍直到统一恢复 reanchor。
       if (endSeq !== undefined) invalidateSeq(sessionId);
+      releaseCredit();
       return;
     }
 
@@ -134,6 +147,7 @@ export function createTerminalOutputHandler({
       // 整段被剥掉（如 alt-screen 序列）：该 chunk 的渲染效果就是"空"，
       // 视同写完——否则最后一个 chunk 恰好为空时 in-flight 永不闭合、恒禁拍。
       if (endSeq !== undefined) noteWritten(sessionId, endSeq);
+      releaseCredit();
       syncTrackedBufferType(
         transitions.length > 0 ? "output.alternate-sequence.stripped" : "output.empty",
       );
@@ -142,21 +156,38 @@ export function createTerminalOutputHandler({
 
     hiddenWriteBufferRef.current ??= createTerminalHiddenWriteBuffer({
       isVisible: isRenderVisible,
+      // 传函数而非定值：配额随后台终端数量动态变化（全局共享预算）。
+      maxPendingChars: hiddenBacklogQuotaChars,
       onOverflowDrop: (length) => {
         debugLog("output.hidden.truncated", { bindSessionId: sessionId, length });
       },
+      onReset: () => {
+        if (hiddenWriteBufferRef.current) unregisterHiddenTerminal(hiddenWriteBufferRef.current);
+      },
     });
+    // 按实际去向登记进/移出预算分母——比听可见性事件可靠：这里知道本次 push
+    // 究竟走了直通还是积压，不会因为可见性翻转与数据到达的竞态而记错账。
+    if (isRenderVisible()) {
+      unregisterHiddenTerminal(hiddenWriteBufferRef.current);
+    } else {
+      registerHiddenTerminal(hiddenWriteBufferRef.current);
+    }
     const writableData = hiddenWriteBufferRef.current.push(renderedData);
     if (writableData === null) {
       // 保守禁拍（M3b-2 设计裁决）：chunk 进了隐藏积压后，flush 是拼接整段
       // 补投（drain 合并），无法把 onWritten 逐 chunk 归属回 endSeq；溢出更是
       // 整段缺口。进入积压即 invalidate，直到统一恢复路径 reanchor（M3b-3）。
       invalidateSeq(sessionId);
+      // 但流控信用照常归还：字节已交给前端自有的有界积压（或被其溢出策略丢弃），
+      // 运输层的责任已尽。这里若跟着 invalidate 一起扣住不还，后台标签的**每个**
+      // chunk 都会扣住一份，ACK 永不推进，上游窗口关死、生产者永久暂停。
+      releaseCredit();
       return;
     }
 
     void writeTerminalData(writableData, () => {
       if (endSeq !== undefined) noteWritten(sessionId, endSeq);
+      releaseCredit();
       if (transitions.length > 0) {
         debugLog("output.alternate-sequence.applied", {
           bindSessionId: sessionId,
@@ -171,6 +202,9 @@ export function createTerminalOutputHandler({
     }).catch((error) => {
       // 写入失败 = 该 chunk 未必落屏：锚点连续性存疑，禁拍。
       if (endSeq !== undefined) invalidateSeq(sessionId);
+      // 同上：写失败也要还信用。写队列被 reset 时未完成的 Promise 会走到这里
+      // （TerminalView.tsx cleanup 先 reset 后置 null），不还就是永久债务。
+      releaseCredit();
       debugLog("output.write.failed", {
         bindSessionId: sessionId,
         dataLength: data.length,

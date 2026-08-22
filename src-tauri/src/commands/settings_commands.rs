@@ -2,7 +2,7 @@ use crate::models::settings::AppSettings;
 use crate::models::Workspace;
 use crate::services::{
     HistoryWatchManager, ProjectService, SettingsService, TaskQueueService, TaskQueueWorker,
-    UninstallCleanupReport, UninstallCleanupService,
+    TerminalBackendState, UninstallCleanupReport, UninstallCleanupService,
 };
 use crate::utils::AppPaths;
 use crate::utils::AppResult;
@@ -29,6 +29,7 @@ pub fn update_settings(
     service: State<'_, Arc<SettingsService>>,
     history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
     task_queue_service: State<'_, Arc<TaskQueueService>>,
+    terminal_backend: State<'_, Arc<TerminalBackendState>>,
     settings: AppSettings,
 ) -> AppResult<()> {
     debug!("cmd::update_settings");
@@ -37,7 +38,17 @@ pub fn update_settings(
     let task_queue_was_enabled = previous_settings.terminal.task_queue_enabled;
     let is_enabled = settings.local_history.enabled;
     let task_queue_enabled = settings.terminal.task_queue_enabled;
+    let previous_scrollback = previous_settings.terminal.scrollback;
+    let scrollback = settings.terminal.scrollback;
     service.update_settings(settings)?;
+    // replay 上限跟随 scrollback（docs/71 §9.2）：调小立刻 front-drop 到新上限，
+    // 调大只抬上限。仅在真变了时才扫全表——它要逐个上 replay 锁，而那把锁正被
+    // reader 线程高频争用。
+    if scrollback != previous_scrollback {
+        terminal_backend
+            .backend()
+            .apply_scrollback_setting(scrollback);
+    }
     sync_task_queue_setting(
         &task_queue_service,
         task_queue_enabled,

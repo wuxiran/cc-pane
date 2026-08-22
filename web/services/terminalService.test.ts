@@ -27,7 +27,9 @@ describe("terminalService", () => {
   });
 
   describe("多订阅分发（星标镜像：同一会话多视图）", () => {
-    type OutputHandler = (event: { payload: { sessionId: string; data: string } }) => void;
+    type OutputHandler = (
+      event: { payload: { sessionId: string; data: string; endSeq?: number } },
+    ) => void;
 
     async function getOutputHandler(): Promise<OutputHandler> {
       const { getCurrentWebview } = await import("@tauri-apps/api/webview");
@@ -77,12 +79,28 @@ describe("terminalService", () => {
 
       const first = vi.fn();
       await terminalService.registerOutput("s-flush", first);
-      expect(first).toHaveBeenCalledWith("early");
+      expect(first).toHaveBeenCalledWith("early", undefined);
 
       const second = vi.fn();
       await terminalService.registerOutput("s-flush", second);
       // 第二订阅者不吃缓冲（缓冲已清），走 replay 快照铺底
       expect(second).not.toHaveBeenCalled();
+    });
+
+    it("flush 透传 endSeq（不透传会让该会话永久拍不出 checkpoint）", async () => {
+      mockTauriInvoke({});
+      const warmup = vi.fn();
+      const unsubWarmup = await terminalService.registerOutput("s-flush-seq-init", warmup);
+      unsubWarmup();
+      const handler = await getOutputHandler();
+      handler({ payload: { sessionId: "s-flush-seq", data: "early", endSeq: 42 } });
+
+      const first = vi.fn();
+      await terminalService.registerOutput("s-flush-seq", first);
+      // 旧实现在 flush 时调的是 callback(data)，丢掉了 endSeq —— 这批 chunk 的
+      // received 记了、written 永远记不上，anchorCandidate 恒 null
+      // （terminalOutputSeqTracker.ts:109），该会话此后再也拍不出 checkpoint。
+      expect(first).toHaveBeenCalledWith("early", 42);
     });
 
     it("detachOutput clears all subscribers (kill-path semantics)", async () => {

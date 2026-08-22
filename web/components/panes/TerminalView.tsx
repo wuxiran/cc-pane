@@ -124,6 +124,7 @@ import {
   IS_MAC,
   normalizeTerminalCursorStyle,
   repaintTerminalWhenVisible,
+  resolveNativeMenuBlock,
   setMacosTerminalNativeFocus,
   waitForTerminalFont,
   writeTerminalReply,
@@ -693,7 +694,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       desyncUnsubRef.current?.();
       desyncUnsubRef.current = null;
       // 换绑/重连时丢弃积压：上一会话的输出串进新会话会直接写坏画面。
-      hiddenWriteBufferRef.current?.reset();
+      hiddenWriteBufferRef.current?.reset(); // reset 内部一并退出全局预算分母
       // 同理丢弃上一会话挂起的 exit、重同步闸门与溢出恢复入口，防串到新会话。
       pendingExitDuringResyncRef.current = null;
       resyncInProgressRef.current = false;
@@ -779,7 +780,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       rendererControllerRef.current = null;
       fitAddonRef.current = null;
       serializeAddonRef.current = null;
-      writeFlowControlRef.current?.reset();
+      writeFlowControlRef.current?.dispose("unmounted"); // 非 reset：后者不清队列 → 信用还不回去
       writeFlowControlRef.current = null;
       trackedBufferTypeRef.current = "unknown";
       focusReportModeRef.current = false;
@@ -1185,24 +1186,26 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         // Track terminal focus so global shortcuts can defer to xterm.
         const textarea = term.textarea;
         const cleanupNativeMenuBlockers: Array<() => void> = [];
-        const isNativeMenuTrigger = (event: Event) => {
-          if (!IS_MAC) return false;
-          if (event.type === "contextmenu" || event.type === "auxclick") return true;
-          if ("button" in event && typeof event.button === "number") {
-            const ctrlKey = "ctrlKey" in event && event.ctrlKey === true;
-            return event.button === 2 || (IS_MAC && ctrlKey && event.button === 0);
-          }
-          return false;
-        };
         const blockNativeTerminalMenu = (event: Event) => {
-          if (!isNativeMenuTrigger(event)) return;
+          // 决策逻辑在 resolveNativeMenuBlock（terminalViewHelpers）里，带单测。
+          // 要点：contextmenu 只 preventDefault、**放行传播**，交给外层 TerminalContextMenu。
+          const { blocked, stopPropagation } = resolveNativeMenuBlock({
+            eventType: event.type,
+            button: "button" in event && typeof event.button === "number" ? event.button : undefined,
+            ctrlKey: "ctrlKey" in event && event.ctrlKey === true,
+            isMac: IS_MAC,
+          });
+          if (!blocked) return;
           event.preventDefault();
-          event.stopPropagation();
-          event.stopImmediatePropagation();
+          if (stopPropagation) {
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+          }
           term.focus();
           debugLog("native-menu.blocked", {
             eventType: event.type,
             target: event.target instanceof HTMLElement ? event.target.tagName : null,
+            propagated: !stopPropagation,
           });
         };
         const addNativeMenuBlocker = (target: EventTarget | null | undefined) => {
@@ -2219,7 +2222,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         } as CSSProperties}
       >
         <TerminalContextMenu
-          enabled={!IS_MAC}
           getSelection={getTerminalSelection}
           getSessionId={getMenuSessionId}
           onCopySelection={handleMenuCopySelection}
@@ -2239,15 +2241,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           onOpenProjectDir={props.projectPath ? handleMenuOpenProjectDir : undefined}
         >
           <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+            {/* 这里不要再挂 onContextMenu：原生菜单已由 blockNativeTerminalMenu 在捕获阶段
+                preventDefault 压制，而冒泡阶段 stopPropagation 会挡住外层 TerminalContextMenu
+                （Radix 靠冒泡的 onContextMenu 打开）。 */}
             <div
               ref={terminalRef}
               className="cc-terminal-host h-full w-full overflow-hidden [&_.xterm]:h-full"
-              onContextMenu={(event) => {
-                if (!IS_MAC) return;
-                event.preventDefault();
-                event.stopPropagation();
-                terminalInstanceRef.current?.focus();
-              }}
             />
             <TerminalZoomHud fontSize={terminalFontSize} />
           </div>

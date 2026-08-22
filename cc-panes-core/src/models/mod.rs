@@ -99,8 +99,8 @@ pub use task_queue::{
 };
 pub use terminal::{
     CliTool, CreateSessionRequest, ResizeRequest, StoreCheckpointOutcome, TerminalBufferMode,
-    TerminalCheckpoint, TerminalExit, TerminalOutput, TerminalRecoverySnapshot,
-    TerminalReplaySnapshot, WslLaunchInfo,
+    TerminalCheckpoint, TerminalExit, TerminalOutput, TerminalOutputFlowStat,
+    TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
 };
 pub use usage_stats::{
     UsageDayPoint, UsageEntry, UsageQueryResult, UsageScanState, UsageStatsDelta, UsageStatsRow,

@@ -1473,11 +1473,23 @@ struct IdentityAckEntry {
     resume_id: String,
 }
 
+/// 一个会话的输出投递回执（累计 endSeq，B-5）。
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OutputAckEntry {
+    session_id: String,
+    processed_end_seq: u64,
+}
+
 #[derive(Debug, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum ControlInboundMessage {
     /// 声明该连接当前看不见哪些会话（全量覆盖，不是增量）。
     HiddenSessions { sessions: Vec<String> },
+    /// 前端已消化到的累计 endSeq（docs/71 §9.2 B-5）。语义是"解析完**或**被
+    /// 任何丢弃路径丢弃"，累计值故重复/乱序/丢失都能自愈。旧 app 不发本消息——
+    /// daemon 侧 `ever_acked` 保持 false，闸门据此降级放行，行为等同回执机制之前。
+    OutputAck { sessions: Vec<OutputAckEntry> },
     /// 桌面端确认已消费这些身份事件（outbox ack，docs/86 3.1）。留存条目
     /// 据此移除，app 重启后不再全量重放历史事件。旧 app 不发本消息——
     /// 留存照旧累积，行为等同 ack 机制之前。
@@ -1544,6 +1556,14 @@ async fn handle_control_ws(
                                     .map(|entry| (entry.session_id, entry.resume_id))
                                     .collect();
                                 config.ws_emitter().ack_identity_events(&keys);
+                            }
+                            Ok(ControlInboundMessage::OutputAck { sessions }) => {
+                                for entry in sessions {
+                                    config.terminal_backend().ack_terminal_output(
+                                        &entry.session_id,
+                                        entry.processed_end_seq,
+                                    );
+                                }
                             }
                             // 未知消息静默忽略：新版 app 对旧 daemon 发新消息时
                             // 不应把连接搞崩。

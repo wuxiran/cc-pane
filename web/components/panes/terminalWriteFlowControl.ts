@@ -110,8 +110,31 @@ export function createTerminalWriteFlowControl(
     pump();
   }
 
+  /**
+   * 拆除：拒绝所有未完成的写入并清空队列。
+   *
+   * TerminalView 卸载时先 reset() 再把引用置 null，队列里的 Promise 就此**永不
+   * settle**——它们的 await 方（terminalOutputHandler 的 writeTerminalData）会永远
+   * 挂着，连带扣住的流控信用也永远还不回去（= 上游窗口被永久缩小一截）。
+   * 这里显式 reject 让 catch 分支跑起来：那里会 invalidateSeq 并归还信用。
+   */
+  function dispose(reason = "terminal write flow control disposed"): void {
+    const pending = queue.splice(0);
+    bytesWritten = 0;
+    pendingCallbacks = 0;
+    blocked = false;
+    for (const entry of pending) entry.reject(new Error(reason));
+  }
+
+  /** 队列深度。看门狗与诊断用——此前完全不可观测。 */
+  function queueLength(): number {
+    return queue.length;
+  }
+
   return {
     write,
     reset,
+    dispose,
+    queueLength,
   };
 }

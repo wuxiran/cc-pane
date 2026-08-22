@@ -53,6 +53,7 @@ mod task_dispatch_service;
 mod task_queue_dispatcher;
 mod task_queue_service;
 mod terminal_backend;
+pub mod terminal_output_flow;
 mod terminal_path_link_service;
 pub mod terminal_service;
 mod todo_service;

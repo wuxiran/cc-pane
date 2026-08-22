@@ -20,6 +20,12 @@ import type {
   TerminalAdoptionSnapshot,
 } from "@/types";
 import { invalidateSeq, noteReceived } from "@/components/panes/terminalOutputSeqTracker";
+import { deliverTerminalDataWithDeferredCredit } from "@/components/panes/terminalDeliveryCredit";
+import { noteOutputConsumed } from "./terminalOutputAck";
+import {
+  appendPendingOutput, clearAllPendingOutput, clearPendingOutput,
+  consumeLatchedDesync, pendingChunkCount, takePendingOutput,
+} from "./terminalPendingBufferPolicy";
 import { checkEnvironment } from "./environmentService";
 import { usageStatsService } from "./usageStatsService";
 import { apiDelete, apiGet, apiJson, invokeOrApi, isTauriRuntime } from "./apiClient";
@@ -49,7 +55,14 @@ function dispatchOutput(sessionId: string, data: string, endSeq?: number): boole
   if (typeof endSeq === "number") noteReceived(sessionId, endSeq);
   const set = outputCallbacks.get(sessionId);
   if (!set || set.size === 0) return false;
-  for (const callback of set) (endSeq === undefined ? callback(data) : callback(data, endSeq));
+  // 信用等**全部**视图消化完才归还（星标镜像 = 同一 PTY 的第二个 xterm，完成顺序
+  // 不定）。只按最快的那个回执会低报背压，慢视图的积压对上游隐形。
+  deliverTerminalDataWithDeferredCredit(
+    () => noteOutputConsumed(sessionId, endSeq, data.length),
+    () => {
+      for (const callback of set) (endSeq === undefined ? callback(data) : callback(data, endSeq));
+    },
+  );
   return true;
 }
 
@@ -83,12 +96,10 @@ function maybeCloseWebSocket(sessionId: string): void {
 const outputCallbacks = new Map<string, Set<(data: string, endSeq?: number) => void>>();
 const exitCallbacks = new Map<string, Set<(exitCode: number) => void>>();
 const desyncCallbacks = new Map<string, Set<() => void>>();
-const pendingBuffers = new Map<string, string[]>();
 const webSockets = new Map<string, WebSocket>();
 const inputQueues = new Map<string, TerminalInputQueue>();
 /** 已 kill 的 session ID 集合，用于事件监听器跳过已死 session */
 export const killedSessions = new Set<string>();
-const MAX_PENDING_CHUNKS = 1000;
 const INPUT_BATCH_DELAY_MS = 8;
 let listenersInitialized = false;
 let unlistenOutput: UnlistenFn | null = null;
@@ -255,20 +266,14 @@ export async function ensureListeners(): Promise<void> {
       const { sessionId, data, endSeq } = event.payload;
       if (killedSessions.has(sessionId)) return;
       if (!dispatchOutput(sessionId, data, endSeq)) {
-        // 回调未注册 — 缓冲等待 flush
+        // 回调未注册 — 缓冲等待 flush；溢出走 desync 而非切断 VT 流（B-2）
         debugTerminalService("output.buffered", {
           sessionId,
           dataLength: data.length,
-          pendingChunks: pendingBuffers.get(sessionId)?.length ?? 0,
+          pendingChunks: pendingChunkCount(sessionId),
         });
-        const buf = pendingBuffers.get(sessionId);
-        if (buf) {
-          if (buf.length >= MAX_PENDING_CHUNKS) {
-            buf.splice(0, buf.length - MAX_PENDING_CHUNKS / 2);
-          }
-          buf.push(data);
-        } else {
-          pendingBuffers.set(sessionId, [data]);
+        if (appendPendingOutput(sessionId, data, endSeq) === "overflowed") {
+          dispatchDesync(sessionId);
         }
       }
     }
@@ -340,7 +345,7 @@ if (import.meta.hot) {
     outputCallbacks.clear();
     exitCallbacks.clear();
     desyncCallbacks.clear();
-    pendingBuffers.clear();
+    clearAllPendingOutput();
     for (const sessionId of Array.from(inputQueues.keys())) clearTerminalInputQueue(sessionId);
     killedSessions.clear();
     for (const socket of webSockets.values()) socket.close();
@@ -355,7 +360,7 @@ export function _resetListenersForTest(): void {
   outputCallbacks.clear();
   exitCallbacks.clear();
   desyncCallbacks.clear();
-  pendingBuffers.clear();
+  clearAllPendingOutput();
   for (const sessionId of Array.from(inputQueues.keys())) clearTerminalInputQueue(sessionId);
   killedSessions.clear();
   listenersInitialized = false;
@@ -393,14 +398,8 @@ function ensureWebSocket(sessionId: string): void {
     const { data, endSeq } = parseWebSocketOutput(event.data);
     if (!data) return;
     if (dispatchOutput(sessionId, data, endSeq)) return;
-    const buf = pendingBuffers.get(sessionId);
-    if (buf) {
-      if (buf.length >= MAX_PENDING_CHUNKS) {
-        buf.splice(0, buf.length - MAX_PENDING_CHUNKS / 2);
-      }
-      buf.push(data);
-    } else {
-      pendingBuffers.set(sessionId, [data]);
+    if (appendPendingOutput(sessionId, data, endSeq) === "overflowed") {
+      dispatchDesync(sessionId);
     }
   };
 
@@ -593,10 +592,10 @@ export const terminalService = {
     debugTerminalService("callback.detach.output", {
       sessionId,
       subscriberCount: outputCallbacks.get(sessionId)?.size ?? 0,
-      pendingChunks: pendingBuffers.get(sessionId)?.length ?? 0,
+      pendingChunks: pendingChunkCount(sessionId),
     });
     outputCallbacks.delete(sessionId);
-    pendingBuffers.delete(sessionId);
+    clearPendingOutput(sessionId);
     closeWebSocket(sessionId);
   },
 
@@ -616,12 +615,12 @@ export const terminalService = {
       reason: reason ?? "user-close",
       outputSubscribers: outputCallbacks.get(sessionId)?.size ?? 0,
       exitSubscribers: exitCallbacks.get(sessionId)?.size ?? 0,
-      pendingChunks: pendingBuffers.get(sessionId)?.length ?? 0,
+      pendingChunks: pendingChunkCount(sessionId),
     });
     killedSessions.add(sessionId);
     outputCallbacks.delete(sessionId);
     exitCallbacks.delete(sessionId);
-    pendingBuffers.delete(sessionId);
+    clearPendingOutput(sessionId);
     clearTerminalInputQueue(sessionId);
     disposeTerminalSessionResources(sessionId);
     // 幂等关闭：reload cleanup 常杀已退/不存在的 session，用 idempotent 命令把
@@ -651,21 +650,17 @@ export const terminalService = {
     debugTerminalService("callback.register.output", {
       sessionId,
       subscriberCount: (outputCallbacks.get(sessionId)?.size ?? 0) + 1,
-      pendingChunks: pendingBuffers.get(sessionId)?.length ?? 0,
+      pendingChunks: pendingChunkCount(sessionId),
     });
     addSubscriber(outputCallbacks, sessionId, callback);
-    // Flush 缓冲的早期输出（仅首个订阅者）
+    // Flush 缓冲的早期输出（仅首个订阅者）。endSeq 必须透传：不带的话这批
+    // chunk 在 seq 账本里 received 永远大于 written，anchorCandidate 恒 null，
+    // 该会话此后再也拍不出 checkpoint（terminalOutputSeqTracker.ts:109）。
     if (isFirstSubscriber) {
-      const buf = pendingBuffers.get(sessionId);
-      if (buf) {
-        debugTerminalService("callback.flush.output", {
-          sessionId,
-          chunkCount: buf.length,
-        });
-        pendingBuffers.delete(sessionId);
-        for (const data of buf) {
-          callback(data);
-        }
+      const buffered = takePendingOutput(sessionId);
+      if (buffered.length > 0) {
+        debugTerminalService("callback.flush.output", { sessionId, chunkCount: buffered.length });
+        for (const chunk of buffered) callback(chunk.data, chunk.endSeq);
       }
     }
     return () => {
@@ -679,10 +674,10 @@ export const terminalService = {
     debugTerminalService("callback.unregister.output", {
       sessionId,
       subscriberCount: outputCallbacks.get(sessionId)?.size ?? 0,
-      pendingChunks: pendingBuffers.get(sessionId)?.length ?? 0,
+      pendingChunks: pendingChunkCount(sessionId),
     });
     outputCallbacks.delete(sessionId);
-    pendingBuffers.delete(sessionId);
+    clearPendingOutput(sessionId);
   },
 
   /** 注册终端退出回调（可多订阅）。返回 unsubscribe，语义同 registerOutput。 */
@@ -711,6 +706,9 @@ export const terminalService = {
   async registerDesync(sessionId: string, callback: () => void): Promise<() => void> {
     await ensureListeners();
     addSubscriber(desyncCallbacks, sessionId, callback);
+    // 补投闩锁：暂存溢出发生在无订阅者期间，当时广播必然落空（binding 里
+    // registerOutput 先于 registerDesync）。不补投的话前端会带着缺口画面继续跑。
+    if (consumeLatchedDesync(sessionId)) callback();
     return () => {
       removeSubscriber(desyncCallbacks, sessionId, callback);
     };

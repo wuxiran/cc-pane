@@ -41,16 +41,25 @@ const MAX_SEALED_BLOCKS = 64;
 interface CreateTerminalHiddenWriteBufferOptions {
   /** 当前终端是否可见。可见时数据直通，不进积压。 */
   isVisible: () => boolean;
-  maxPendingChars?: number;
+  /**
+   * 保留上限（字符数）。传函数则每次 push 时求值——全局共享预算会随后台终端
+   * 数量增减而变化（terminalHiddenBudget.ts），固定值取不到这种动态性。
+   */
+  maxPendingChars?: number | (() => number);
   /** 首次超过上限时调用；参数是触发截断的 chunk 长度。 */
   onOverflowDrop?: (droppedChunkLength: number) => void;
+  /** reset（换绑/解绑）时调用，用于退出全局预算分母。 */
+  onReset?: () => void;
 }
 
 export function createTerminalHiddenWriteBuffer({
   isVisible,
   maxPendingChars = DEFAULT_MAX_PENDING_CHARS,
   onOverflowDrop,
+  onReset,
 }: CreateTerminalHiddenWriteBufferOptions): TerminalHiddenWriteBuffer {
+  const currentMaxPendingChars = (): number =>
+    typeof maxPendingChars === "function" ? maxPendingChars() : maxPendingChars;
   let sealedBlocks: string[] = [];
   let openChunks: string[] = [];
   let openLength = 0;
@@ -93,7 +102,7 @@ export function createTerminalHiddenWriteBuffer({
       }
 
       if (overflowed) return null;
-      if (pendingLength + data.length > maxPendingChars) {
+      if (pendingLength + data.length > currentMaxPendingChars()) {
         overflowed = true;
         onOverflowDrop?.(data.length);
         return null;
@@ -116,6 +125,10 @@ export function createTerminalHiddenWriteBuffer({
       openLength = 0;
       pendingLength = 0;
       overflowed = false;
+      // 退出全局预算分母：reset 发生在换绑/解绑，此后本缓冲不再积压。分母只增
+      // 不减的话，解绑过的缓冲会永久占着一份配额，把其余后台终端的额度压小。
+      // 下一次 push 若仍处于隐藏态会重新登记（幂等）。
+      onReset?.();
     },
 
     didOverflow: () => overflowed,

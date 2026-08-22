@@ -193,6 +193,27 @@ pub struct TerminalOutput {
     pub end_seq: Option<u64>,
 }
 
+/// 单会话的输出投递水位（B-5 诊断）。
+///
+/// 这几个数是后续调参与线上排障的唯一依据：`in_flight_bytes` 是 Stage 3 暂停闸门
+/// 的输入，`ever_acked` 决定闸门是否要对不支持回执的客户端降级放行，
+/// `ack_silence_ms` 是 Stage 4 卡死看门狗的判据。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalOutputFlowStat {
+    pub session_id: String,
+    /// 已 emit 的累计字节（= 最后一批的 endSeq）。
+    pub sent_seq: u64,
+    /// 前端确认已消化的累计字节。
+    pub acked_seq: u64,
+    /// 已发出但未确认，即当前背压水位。
+    pub in_flight_bytes: u64,
+    /// 是否收到过任何回执。false = 对端无回执能力，闸门必须放行。
+    pub ever_acked: bool,
+    /// 距上次回执的毫秒数；从未收到过时为 None。
+    pub ack_silence_ms: Option<u64>,
+}
+
 /// 终端重放快照的屏幕模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

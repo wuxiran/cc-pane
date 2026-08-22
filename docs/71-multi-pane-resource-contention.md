@@ -1,8 +1,15 @@
 # 71 · 多窗格资源争抢：一个窗格能拖垮整机
 
-> 状态：**调查完成，待修**
+> 状态（2026-08-21 复核，基线 `dev/v0.12.5@0d662d1`）：
+> - **A 类（资源争抢）：阶段一部分落地** —— 降优先级 + CPU 软配额已全平台接线，内存/进程数上限与 WSL cgroup 配额未做。详见 §2.1。
+> - **B 类（输出洪水）：链路闭环** —— 三个原始风险点均已修复，v0.12.5 又收紧了渲染层信用窗口。剩余两处已知缺口见 §3.2。
+>
+> **缺口总表见 §9**（含优先级排序与"为什么不能简单修"的理由）。
+>
 > 触发场景：任一窗格里跑 `cargo build` / `rg` 扫大目录 / `npm run build`，整机 CPU 与内存被吃满，所有窗格连带整台机器一起卡。
 > 关联：`docs/41-wallpaper-perf-investigation.md`（轮询扫描器把 28.6 核打满的先例）、`docs/46-frontend-styleguide.md`（琥珀约定）、`docs/17-persistent-terminal-daemon.md`
+>
+> ⚠️ **读本文注意**：§2.1 与 §3 的表格原先记录的是 2026-08-02 的代码现状，此后被多批提交改写。凡带"已改写"标注的段落，请以标注为准，不要照着旧描述去改代码。
 
 ---
 
@@ -22,25 +29,35 @@
 
 ## 2. 现状（A 类：资源争抢）
 
-### 2.1 PTY 子进程资源限制：完全没有
+### 2.1 PTY 子进程资源限制：已从"完全没有"变成"只做优先级与 CPU 权重"
 
-`cc-panes-core/src/pty/job.rs:40-47`：
+> **已改写**（原文写于 2026-08-02，描述的是零限制状态；`16377e6` 起陆续接线）。下表是 `dev/v0.12.5@0d662d1` 的实际现状。
+
+统一抽象已建立：`SessionResourcePolicy`（`cc-panes-core/src/models/resource_policy.rs:30`），正是 §7.3 要点 4 建议的那层——**用户不必理解两套机制，平台差异收在实现里**：
 
 ```rust
-let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+pub struct SessionResourcePolicy {
+    pub lower_priority: bool,      // Windows → Job 的 BELOW_NORMAL_PRIORITY_CLASS；WSL/Unix → nice
+    pub cpu_weight: Option<u8>,    // None = 不设（省一次系统调用）
+}
+// Default: lower_priority = true, cpu_weight = None —— 只降优先级，不影响吞吐
 ```
 
-`JOBOBJECT_EXTENDED_LIMIT_INFORMATION` 其余字段全部 `::default()`（零值 = 不生效），所以：
+| 机制 | 状态 | 位置 |
+|---|---|---|
+| `JOB_OBJECT_LIMIT_PRIORITY_CLASS`（BELOW_NORMAL） | ✅ | `pty/job.rs:118-122` |
+| `JobObjectCpuRateControlInformation` | ✅ **WEIGHT_BASED 软配额**，非 HARD_CAP（照 §6 的要求做的） | `pty/job.rs:140-155` |
+| Unix / WSL `setpriority` | ✅ 失败非致命，会话照常启动 | `pty/mod.rs:284-293` |
+| 降级可见性 | ✅ `PolicyOutcome::Applied / degraded(reason)`，不静默失败 | `pty/job.rs:108` |
+| `JOB_OBJECT_LIMIT_JOB_MEMORY` / `PROCESS_MEMORY` | ❌ 未做 | — |
+| `JOB_OBJECT_LIMIT_ACTIVE_PROCESS` | ❌ 未做 | — |
+| WSL cgroup 配额（`systemd-run --user --scope`） | ❌ 未做，全仓 `systemd-run` 零命中 | §7.2 仍是待办 |
 
-- ❌ 无 `JOB_OBJECT_LIMIT_JOB_MEMORY` / `PROCESS_MEMORY`
-- ❌ 无 `JOB_OBJECT_LIMIT_ACTIVE_PROCESS`
-- ❌ 无 `JOB_OBJECT_LIMIT_PRIORITY_CLASS` / `AFFINITY`
-- ❌ 无 `JobObjectCpuRateControlInformation`（需另一次 `SetInformationJobObject` 调用，全仓零命中）
+`apply_policy` **始终整体重写 `LimitFlags`，不做 is_noop 早退**（`job.rs:111`）——早退会让"把优先级调回正常"这个操作失效。
 
-`spawn_pty`（`cc-panes-core/src/pty/mod.rs:133-195`）只做 cwd 净化 + env 增删，assign Job 在 `:170-181`，之后**没有**任何 `SetPriorityClass` / `SetProcessAffinityMask` / Unix `nice` / `setrlimit` / cgroup。全仓 grep `SetPriorityClass|SetProcessAffinityMask|nice` 零命中。
-
-> **Job Object 现在的唯一职责是"宿主暴毙时清树"，它不是资源闸门。** 看到 `job.rs` 里有 Job Object 就以为进程被限住了，是本仓库最容易踩的误读之一。
+> **旧的误读警告已经反过来了。** 原文说"Job Object 的唯一职责是宿主暴毙时清树，它不是资源闸门"——现在它**是**闸门，但只管两件事：优先级和 CPU 权重。**内存仍然完全不设限**：一个 `cargo build` 吃到 OOM，Job Object 拦不住。别看到 `SessionResourcePolicy` 就以为内存也被管了。
+>
+> WSL 会话只吃到 `nice`（即 §7.2 里定位为"L3 降级兜底"的那一档），**L2 主方案未落地**。本机 22 个会话里 4 个是 WSL、占 10.7 GB（§2.8），这部分仍然裸奔。
 
 ### 2.2 并发闸门：没有全局的
 
@@ -195,23 +212,25 @@ build_resource_tree_from_snapshot(&roots)
 
 虽然本文主题是 A，但探索中把 B 的链路也摸清了，一并记录，避免下次重查。
 
+> **已改写**（表格行号与 flow control 参数按 `dev/v0.12.5@0d662d1` 复核；原文写于 2026-08-02，`terminal_service.rs` 的行号此后整体下移约 1160 行）。
+
 ```
 PTY reader (4KB read)
   → ReplayBuffer(8MB) + OutputBuffer(20k行/20MB)
-  → batch_tx (std mpsc, 无界)
+  → batch_tx (std mpsc, 无界)                      ← 仍是唯一未收口的一段，见 §3.2
   → 合批线程 (16KB 或 16ms)
   → EventEmitter.emit("terminal-output")
       ├─ Tauri 直连: emit_to_webview
-      └─ daemon: WsEmitter.publish → tokio unbounded → WS → 桥 → emit_to_webview
+      └─ daemon: WsEmitter.publish → 有界 256 → WS → 桥 → emit_to_webview
   → terminalService dispatchOutput (无订阅者时 pendingBuffers 上限 1000)
-  → TerminalView → createTerminalWriteFlowControl (仅 Windows) → term.write()
+  → TerminalView → createTerminalWriteFlowControl (全平台) → term.write()
 ```
 
 | 机制 | 后端 | 前端 |
 |---|---|---|
-| chunk 大小限制 | ✅ 4KB read / 16KB batch（`terminal_service.rs:2145`） | ❌ |
-| 时间窗合批 | ✅ 16ms（`terminal_service.rs:2146`，注释写明防 WKWebView 主线程死锁） | ❌ 无 rAF 合批 |
-| 背压（反压上游） | ✅ WS 广播改有界 256 + desync 契约（见 §3.1）；`terminal_service.rs:2141` 的 std mpsc 仍无界（Tauri 直连路径，待观察） | ✅ `terminalWriteFlowControl.ts`（128KB/水位 10↔5）**全平台启用** |
+| chunk 大小限制 | ✅ 4KB read / 16KB batch（`terminal_service.rs:3312`） | ❌ |
+| 时间窗合批 | ✅ 16ms（`terminal_service.rs:3313`，注释写明防 WKWebView 主线程死锁） | ❌ 无 rAF 合批 |
+| 背压（反压上游） | ✅ WS 广播有界 256 + desync 契约（见 §3.1）；⚠️ `terminal_service.rs:3308` 的 std mpsc **仍无界**（Tauri 直连路径） | ✅ `terminalWriteFlowControl.ts` 信用窗口 **16KB / 水位 4↔2**，全平台启用 |
 | 丢弃策略 | ✅ ring buffer FIFO + spinner 行过滤 + 连续空行压缩（`terminal_service.rs:592-617`）；WS 溢出整段跳过 + desync 重放 | ⚠️ 仅无订阅者时丢最旧一半（`terminalService.ts:79`） |
 | ring buffer 上限 | ✅ 20k行/20MB/8MB replay（`terminal_service.rs:849-854`） | ✅ scrollback 默认 20k，钳 200–100000，运行时热更 |
 | **后台 tab 暂停** | — | ✅ 512KB 隐藏积压 + 边沿 flush（0.11.8）；溢出时可见性回归自动 snapshot 重放（0.11.9 后续，复用 desync 链路），截断提示仅剩退出兜底 |
@@ -222,7 +241,12 @@ PTY reader (4KB read)
 
 1. **后台标签页不暂停** — 0.11.8 修复（commit 20d0603 + 16377e6）：`terminalHiddenWriteBuffer.ts` 512KB 积压、hidden→visible 边沿 flush、溢出截断提示。
 2. **daemon 侧无界广播** — 已改有界 256 + desync 契约（`cc-panes-daemon/src/ws_emitter.rs`、`cc-panes-web/src/ws_emitter.rs` 同形）。
-3. **flow control 只在 Windows 开** — 已全平台启用（`TerminalView.tsx` 调用点删掉 `enabled: IS_WINDOWS`）。
+3. **flow control 只在 Windows 开** — 已全平台启用（`TerminalView.tsx:976` 调用点删掉 `enabled: IS_WINDOWS`）。
+
+**v0.12.5 追加收紧**（commit `e0e8169`）：渲染层信用窗口从 **128KB / 水位 10↔5 收紧到 16KB / 水位 4↔2**（窗口小 8 倍，背压触发早 8 倍），目标是"TUI 重绘突发期间保持 xterm 写队列足够浅"。同时两处实现级修正：
+
+- 阻塞机制从 `blockedPromise` 挂起改为**显式队列 + pump 泵**。旧实现在 await 上串行化，新实现把待写块排进队列由泵驱动，回调完成即续泵——不再靠 Promise 链维持顺序。
+- 水位加了钳位：`lowWatermark` 强制 `< highWatermark`，`bytesThreshold`/`highWatermark` 强制 `>= 1`。此前传入 `low >= high` 会让 `blocked` 永远解不开（一旦阻塞就再不放行），配置错误直接表现为终端假死。
 
 ### 3.1 后台休眠与 desync 契约（低配机防护收尾批次）
 
@@ -243,7 +267,100 @@ PTY reader (4KB read)
 
 **desync 契约**（daemon/web WS 广播）：会话镜像通道 `mpsc::channel(256)`（≈4MB/慢客户端上限）；溢出后**绝不掐 VT 流中段**——整段跳过 + 置 desynced，排空后插入 `{"type":"desync"}`；客户端（桥 `DaemonStreamMessage::Desync` → `terminal-desync` 事件 → `terminalResync.ts`）reset + snapshot 重放。exit/killed 是终止性消息，队列满时走 control 兜底（notifier/sessionExited）不丢。旧客户端不认识 desync 会静默忽略（`Unknown` 兜底），行为不劣于改造前。
 
-> 仓库里"有界通道 + shed"的既有范式（文件监听：有界 30k channel + shed，`CHANGELOG.md:147`）至此也覆盖了 PTY 输出的 WS 段。仍未覆盖：`terminal_service.rs:2141` 的进程内 std mpsc（Tauri 直连模式，合批线程消费快，暂无实测积压证据）。
+> 仓库里"有界通道 + shed"的既有范式（文件监听：有界 30k channel + shed，`CHANGELOG.md:147`）至此也覆盖了 PTY 输出的 WS 段。仍未覆盖：`terminal_service.rs:3308` 的进程内 std mpsc（Tauri 直连模式，合批线程消费快，暂无实测积压证据）。
+
+### 3.2 B 类剩余缺口（2026-08-21 复核）
+
+链路已闭环，但有两处**已知未收口**，都不是"忘了做"，是当时判定优先级不够。
+
+> ✅ **两条均已于 2026-08-22 落地**，本节保留原始问题描述作为设计依据；实现落点见 §9.1。
+
+| # | 缺口 | 位置 | 现状判断 | 风险形状 |
+|---|---|---|---|---|
+| ~~**B-1**~~ ✅ | 进程内 `std::sync::mpsc::channel` 无界 | `terminal_service.rs:3308` | Tauri 直连路径（非 daemon）。当年结论是"合批线程消费快，暂无实测积压证据" | 生产者是 PTY reader、消费者是合批线程。**只要消费端被拖住（主线程卡、WebView 死锁、emit 阻塞），这段就是无界内存增长**，且没有任何计数或告警能看出来。daemon 路径已用有界 256 + desync 解决同一问题，**Tauri 直连是同形缺口的唯一漏网段** |
+| ~~**B-2**~~ ✅ | 无订阅者时只"丢最旧一半" | `web/services/terminalService.ts:79` | `pendingBuffers` 上限 1000 | 丢最旧一半会**从中间切断 VT 转义序列**——这正是 §3.1 desync 契约明令不许做的事（"绝不掐 VT 流中段"）。同一个仓库里两条路径对同一风险采取了相反的策略 |
+
+> **B-1 的正确修法不是简单换成有界 channel。** 换成有界后生产者会阻塞在 PTY reader 线程上，反压会传导到 PTY 读取。daemon 侧之所以能用有界，是因为它配了"整段跳过 + desync 重放"作为溢出出口。**Tauri 直连要收口，得连出口一起设计。**
+>
+> ⚠️ **但"反压传导到 PTY"本身不是坏事——这一点本文原先判断错了。**（2026-08-21 对照 Orca 源码后修正，见 §3.3）原文认为让子进程 write 阻塞"等于挂起用户的程序"因而是要避免的失败模式；Orca 恰恰把它当作**正解并主动使用**：`node-pty pause()` → 内核背压 → 刷屏的 shell 阻塞在 write 上。逻辑是——刷屏的程序被自己的输出限速，正是想要的结果；不这么做就只剩"无界内存"或"丢数据"两条路，都更差。**所以 B-1 的难点不在"要不要让 PTY 阻塞"，而在配套设计**（滞回、失效重断言、拆除释放），三者缺一会变成永久卡死。详见 §3.3。
+>
+> **B-2 修起来便宜**：既然 desync 链路已经建好，无订阅者溢出时直接复用"置 desynced + snapshot 重放"即可，不需要新机制。**优先级应高于 B-1**（改动小、消除策略矛盾、且现在的行为是确定性花屏而非概率性内存增长）。
+
+### 3.3 Orca 对照：三层 vs 两层（2026-08-21）
+
+> 对照基线：Orca `59892a2f13`（2026-08-21，较 docs/83 用的 `f713739` 领先 904 提交）。本节每条均**在本会话内亲自核实过源码**，非二手转述。
+
+**Orca 的输出链路有三道闸，CC-Panes 只有后两道。**
+
+| 层 | Orca | 位置 | CC-Panes 对应 |
+|---|---|---|---|
+| **① Producer 暂停** | per-PTY pending 超 **HIGH 256KB** 就 `pauseProducer()` → `node-pty pause()` → 内核背压 → **刷屏的 shell 阻塞在 write 上**；跌破 **LOW 32KB** 才 resume | `src/main/ipc/pty-producer-flow-control.ts:8-13` | ❌ **完全没有**（= 缺口 B-1） |
+| **② 合批切片** | 16KB chunk，**单次 flush 最多 2 writes**；`transformed` 数据标记 `indivisible` 整块发不切片 | `src/main/ipc/pty.ts:2663-2664, 3565-3566` | ✅ 16KB/16ms，排空循环在 16KB 处 break、每轮至多一次 emit（`terminal_service.rs:3326-3331`），等效 `MAX_WRITES = 1`，**比 Orca 更严** |
+| **③ 传输信用窗口** | **字节**信用，两级：per-stream 512KB→2MB、**total 2MB→8MB**（跨 stream 共享预算）；ACK 批 192KB / 4ms flush；pending cap 256KB；每连接上限 128 streams | `src/shared/terminal-multiplex-flow-control.ts:1-13` | ⚠️ WS 有界 **256 条消息**（非字节）+ 渲染层 16KB/水位 4↔2（**callback 计数**，非字节） |
+
+**三个结构性差异**（不是参数差，是模型差）：
+
+1. **量纲**：Orca 全程用**字节**记账，CC-Panes 用**消息条数 + callback 计数**。条数不能预测内存——256 条可能是 256B 也可能是 4MB，所以我们那句"≈4MB/慢客户端上限"是按最坏情况倒推的，不是设计出来的界。
+2. **全局预算**：Orca 的 total window（2→8MB）**跨所有 stream 共享**，单会话再刷也吃不满整体；CC-Panes 每个终端各算各的，**N 个会话 = N 份独立上限**，正是 §1 B 类症状（"N 个后台会话刷屏 = N 份渲染压主线程"）的根因形状。
+3. **自适应**：Orca 窗口从 initial 涨到 max（512KB→2MB / 2→8MB）；CC-Panes 全是固定值。
+
+> **Orca 的总纲：全链路不存在任何一个无界队列。** 每一段要么有 cap + 丢弃策略，要么有生产者暂停——没有第三种。对照之下 `terminal_service.rs:3308` 是我们链路上唯一的例外。
+>
+> 另注意 Orca 在对应位置**根本没有通道**：`node-pty` 的 `onData` 是同步回调直接进 batcher（`src/main/pty-subprocess.ts:983`），batcher 内部的数组就是队列，其上限由上游 producer pause + 下游 keep-tail 丢弃两头夹住。
+
+**该抄的**：① producer 暂停。这是 B-1 唯一干净的解法，也是我们**当年判断错了方向**的地方（详见 §3.2 的修正）。三个配套细节必须一起抄，缺一个就是新 bug：
+
+- **宽滞回**：HIGH/LOW 差 8 倍（256KB/32KB）。源码注释写明是 deliberate hysteresis，防止排空中的队列每个 flush 切片都 flap 一次 pause/resume。
+- **失效重断言**：daemon 有 5s lost-resume failsafe 会自动 resume，所以 pending 仍高于 HIGH 时必须重新 pause（`PRODUCER_PAUSE_REASSERT_INTERVAL_MS = 5_000`），否则**持续洪流在第一次 failsafe 触发后就跑脱缰了**。
+- **拆除释放**：exit/kill 走 `release()`、窗口销毁走 `releaseAll()`。注释说得很直白——留在 paused 的本地 PTY 会**永远卡住**。
+- 另外它把 pause/resume 的异常全部吞掉（`safePause`/`safeResume`），理由是"这是骑在数据路径上的优化，provider 抛异常绝不能破坏投递或退出处理"。
+
+**该抄的第二条：ACK 记在"解析完"而不是"收到时"。** 这条比 ① 更隐蔽，且直指我们现在这套流控的**结构性局限**——
+
+`terminalWriteFlowControl.ts` 的窗口只在 renderer 内部生效：它压住了 xterm 写队列，但 **Rust 侧完全看不见**。结果是队列压力只是从 xterm **前移**到了 WS / mpsc，并没有消失。Orca 在 `src/main/ipc/terminal-pty-ack-gate.ts:87-94` 留了一段几乎像是给我们写的注释，记录他们踩过的同一个坑：
+
+> ACKing at dispatcher enqueue made main's 512KB in-flight window mean "bytes **RECEIVED**", not "bytes **PARSED**" — under flood the renderer's write queue grew unbounded behind instant ACKs, main saw no backpressure, crossed its pending cap, and dropped output.
+
+即：**在入队时就 ACK，等于告诉上游"我消化完了"，而实际只是"我收到了"**。上游看不到背压，继续灌，renderer 的写队列在瞬时 ACK 背后无界增长，最终撞上 pending cap 开始丢数据——一个本来为了防丢数据而建的窗口，因为记账点错了，反而导致丢数据。
+
+抄法（按可移植性排序）：
+
+- **信用原语可直接移植**：`src/shared/terminal-delivery-credit.ts` 共 57 行，纯逻辑无依赖。
+- **ACK 用累计计数而非增量**（`src/main/ipc/pty.ts:3044-3074`）：max-merge + clamp 到 `sentChars`。天然幂等、容忍乱序、丢包自愈——比增量 ACK 省掉一整类 bug。
+- **ACK 要合批**：192KB 或 4ms（`terminal-multiplex-flow-control.ts:8-9`），否则 ACK 风暴本身成为负担。
+- **窗口大小不要照抄 512KB**：那是为跨主机链路配的，我们现在的 16KB 更适合本机进程内。**抄记账点，不抄参数。**
+
+**该抄的第三条（正确性，不是性能）：丢弃时要把查询序列打捞出来。** Orca 在**每一条**丢弃路径上都做同一件事——把 `DSR` / `DA` / `DECRQM` / `OSC` 探测序列从被丢弃的数据里抠出来单独送达，上限 4096 字符（`src/main/ipc/pty.ts:3291,3351`；`daemon-stream-keep-tail-drop.ts:77,98-103,174-186`）。源码里的理由只有一句：**"the writing program is blocked on their replies"**。
+
+⚠️ **CC-Panes 的"整段跳过"会连查询序列一起跳过**，且全仓 grep `DSR|DECRQM|device_status|\[6n` 在后端**零命中**——没有任何打捞。后果不是花屏而是**挂起**：程序发了 DSR 等回复，回复请求被我们丢了，它就一直等下去。
+
+> ✅ **已验证（2026-08-21），且初稿的倾向判断是错的**。原文猜测"snapshot 重放救不回来，因为重放的是显示状态而非主动回复"——错在把 recovery 快照当成了纯画面。实际链路：
+>
+> 1. reader 线程先 `replay.push()`（`terminal_service.rs:3588`）再 `batch_tx.send()`（`:3600`），**ReplayBuffer 完全不经过 emitter** —— WS 整段跳过 / pendingBuffers 溢出丢掉的字节仍原样躺在缓冲里。
+> 2. `recovery_snapshot()`（`:901`）的 delta 是 `concat_chunks_from(anchor_seq)`，即**原始 VT 字节**，不是画面。
+> 3. delta 走 `writeData` → `renderTerminalData`（`TerminalView.tsx:398-415`，只剥 alt-screen 与 SGR 背景色，**不动 CSI n/c**）→ 写进 xterm。
+> 4. `term.parser.registerCsiHandler({ final: "n" })`（`TerminalView.tsx:1110`）随即触发，`terminalService.write(..., { source: "system" })`（`:1030`）把 CPR 送回 PTY，阻塞的子进程解除。
+>
+> 锚定裁剪（M3b-4）也不会丢未回答的查询：拍照要求 `anchorCandidate()` 非 null 即 `received === written`（`terminalOutputSeqTracker.ts:109`），anchor 之前每个字节都已写进 xterm、查询早已回过。
+>
+> **唯一真正的永久丢失点是 `evict_front`（`:814`）**：查询字节之后再产出 >8MB 才会被挤出窗口——而发查询的程序此时正阻塞、产不出这些字节，需要第二个生产者。概率低但不为零。因此 Orca 那套"每条丢弃路径都打捞"对我们是过度设计：**若要加固，只需在 `evict_front` 一处打捞**。三条不变式已由 `terminal_service.rs` 的 `recovery_delta_retains_query_sequences_the_emitter_dropped` 等 3 个测试钉住，行为若变化会立刻红。
+
+---
+
+**不该抄的**（逐条给了理由，避免下次重新纠结）：
+
+| # | Orca 的东西 | 位置 | 为什么不抄 |
+|---|---|---|---|
+| ① | 完整 ACK **多路复用协议** | `shared/terminal-multiplex-flow-control.ts` | 那套是为**远程 runtime**（renderer ↔ 跨主机 daemon）设计的，ACK 往返成本淹没在网络延迟里。Tauri 直连是**进程内**，引入 ACK 往返是纯开销。抄它的**记账量纲与记账点**，不抄协议。daemon 路径另说，但已有 desync 契约，收益递减 |
+| ② | `HELD_WRITE_THROUGH_TOTAL_CHARS` 32MB 安全阀 + 浅 socket 闸门 + 小户旁路 | `daemon-stream-data-batcher.ts:24-33,173-189` | 这一整套（HOLD 大户 / 放行小户 / 32MB 写穿）是在补偿一个**我们没有的缺陷**：Orca 所有会话共享一条 NDJSON socket 的 FIFO，一个刷屏会话会把另一个会话的回显埋在后面（head-of-line blocking）。**CC-Panes 是每会话独立通道，结构上就没有这个问题。**抄过来是纯复杂度 |
+| ③ | 把 backlog 警告写进终端缓冲 | `pane-terminal-output-scheduler.ts:124-128` | Orca 直接 `write()` 一行 `[Orca skipped hidden terminal output...]` 进 xterm。这会**污染任何程序化读取终端内容的功能**——我们的 `get_session_output` MCP 工具就是典型受害者。CC-Panes 的带外 `{"type":"desync"}` 更干净，**保持现状** |
+| ④ | source-range ledger / `ackOutputSourceRanges` | `terminal.ts:1812-1825`、`terminal-source-range-registry.ts` | 为**移动端文本选择**的字节溯源服务，与流控只是共用了 admission 路径。我们没有对应需求 |
+
+> ⚠️ **别为了抄"全局预算"把独立通道改成共享 socket。** 上表 ② 说明 Orca 的一大堆闸门是共享 socket 逼出来的。我们的每会话独立通道在 head-of-line blocking 这一维**优于**它。要补的是跨会话的**内存预算**（一个数字），不是它的传输结构。
+
+> ⚠️ **本节初稿在 ② 上误读了自己的代码**（2026-08-21 修正）：曾称"CC-Panes 合批线程一次 flush 可以无限写下去"，据此提出照抄 `PTY_BATCH_FLUSH_MAX_WRITES = 2`。复核 `terminal_service.rs:3317-3345` 后确认不成立——`try_recv` 排空循环在 16KB 处 `break`，每轮循环至多一次 `emit()`，单批 ≤ 16KB + 一个 read chunk（4KB）≈ 20KB。**该条已从 §9.2 撤销**（原 B-3）。真正缺的不是写次数上限，而是 emit 之前的信用闸门——那是 B-5。
+
+**另可一并抄的**：Orca 给 producer 流控留了 killswitch（`PRODUCER_FLOW_CONTROL_ENABLED = true`）。线上出问题时不必回滚整块代码，翻个常量即可——我们做 B-1 时应照做。
 
 ---
 
@@ -253,9 +370,9 @@ PTY reader (4KB read)
 
 三件事叠加：
 
-1. **无约束** — 每个 PTY 子进程都以 `NORMAL_PRIORITY_CLASS` 起、无内存上限、无 CPU 配额，跟 CC-Panes 自己的 UI 线程平起平坐抢资源
-2. **无闸门** — 没有任何机制阻止十个窗格同时启动重负载
-3. **归因数据存在但不主动呈现** — 系统知道是谁在吃资源，却要求用户在最卡的时候主动去点 popover 才肯说
+1. **无约束** — ⚠️ **已部分改善**（2026-08-21）：现在会话以 `BELOW_NORMAL_PRIORITY_CLASS` 起、带 CPU 权重软配额（§2.1）。但**内存仍无上限**，WSL 侧仍只有 `nice`。原文"跟 UI 线程平起平坐抢资源"在 CPU 维度已不成立，在内存维度仍然成立
+2. **无闸门** — 没有任何机制阻止十个窗格同时启动重负载（**未变**）
+3. **归因数据存在但不主动呈现** — 系统知道是谁在吃资源，却要求用户在最卡的时候主动去点 popover 才肯说（**未变**）
 
 值得强调的是第 3 点：**这不是数据缺失问题，是产品形态问题**。`ResourceTree` 已经能回答"谁在吃 CPU"，只是没人在正确的时机问它。
 
@@ -506,10 +623,49 @@ WSL 的配置面比"改几个资源参数"大得多：
 
 ## 8. 新增 Known Gotcha 候选
 
-> **`pty/job.rs` 的 Job Object 只做 `KILL_ON_JOB_CLOSE`，它不限任何资源**：`JOBOBJECT_EXTENDED_LIMIT_INFORMATION` 除 `LimitFlags` 外全是零值默认，看到代码里有 Job Object 就以为子进程被限住了是误读。PTY 子进程当前以 `NORMAL_PRIORITY_CLASS` 起、无内存/CPU 上限，与 CC-Panes 自己的 UI 线程平等竞争——**任一窗格的 `cargo build` 都能把整机吃满**，且没有低于"杀进程"的干预档位。`OpenProcess` 已带 `PROCESS_SET_QUOTA`，加限制不需要提权（docs/71）。
+> **`SessionResourcePolicy` 只管优先级和 CPU 权重，不管内存**（2026-08-21 修订，此条原文已反转）：Job Object 现在确实是资源闸门了——`JOB_OBJECT_LIMIT_PRIORITY_CLASS`（BELOW_NORMAL）+ `JobObjectCpuRateControlInformation`（WEIGHT_BASED 软配额）已接线，Unix/WSL 侧走 `setpriority`。**但内存完全不设限**：无 `JOB_OBJECT_LIMIT_JOB_MEMORY`、无 `ACTIVE_PROCESS`，一个 `cargo build` 吃到 OOM 拦不住。看到 `SessionResourcePolicy` 就以为内存也被管了，是这一版的新误读。另注意 `apply_policy` 始终整体重写 `LimitFlags`、**不做 is_noop 早退**——早退会让"调回正常优先级"失效（docs/71 §2.1）。
 
-> **判断"卡"属于哪一类，先看整机 CPU**：整机高 = 子进程资源争抢（docs/71 第 2 节）；整机不高但 UI 掉帧 = xterm 输出洪水（docs/71 第 3 节，后台标签页**不暂停**输出，N 个后台会话刷屏 = N 份渲染压主线程）。两者症状同形、治法完全不同。
+> **判断"卡"属于哪一类，先看整机 CPU**：整机高 = 子进程资源争抢（docs/71 第 2 节）；整机不高但 UI 掉帧 = xterm 输出洪水（docs/71 第 3 节）。两者症状同形、治法完全不同。B 类链路现已闭环（后台积压、休眠降档、全平台信用窗口都在），所以**现在遇到 UI 掉帧，先怀疑 A 类或渲染器选择，别再默认是后台标签刷屏**——那个洞 0.11.8 就补上了。
 
 > **WSL 会话在资源视图里恒显示 ~8 MB / 0% CPU，那是假的**：`wsl.exe` 只是瘦客户端，真实负载在 `vmmemWSL`（实测 4 个 WSL 会话对应 10.7 GB，未归属任何会话）。所以 ①`get_resource_tree` 与状态栏 popover 对 WSL 会话的读数**接近于零且不可信**，②Job Object 对 WSL 会话**完全无效**。WSL 侧要用 `systemd-run --user --scope` + cgroup v2（实测 `user@1000` 已委派 `cpu memory pids`，无需 root）。注意 CC-Panes 起的 WSL 会话落在 `/init.scope` 而非 `user.slice`，不显式包 scope 就没有任何约束（docs/71 第 7 节）。
 
 > **别用 MSIX 打包的进程去验证 Windows Job 限制**：MSIX 容器自带一层 job，嵌套 job 下 `QueryInformationJobObject(NULL)` 只报**最内层**，会把真实的 PTY 会话 job 完全遮住——实测用 MSIX 的 pwsh 探到 `LimitFlags=0x800`(BREAKAWAY_OK)，换 System32 的 `powershell.exe` 才看到真值 `0x2000`。
+
+---
+
+## 9. 缺口总表（2026-08-21 复核，基线 `dev/v0.12.5@0d662d1`）
+
+本节是**复核结论**，不是原始调查。§6 的分期方案写于零落地状态，下表是它执行到今天的实际进度与剩余项。
+
+### 9.1 已落地
+
+| 项 | §6 里的位置 | 落点 |
+|---|---|---|
+| 默认降优先级 | 阶段一首项（"收益/风险比最高"） | `pty/job.rs:118-122`（Win）、`pty/mod.rs:284-293`（Unix/WSL） |
+| CPU 软配额 | 阶段一 | `pty/job.rs:140-155`，WEIGHT_BASED 而非 HARD_CAP，符合原设计要求 |
+| 统一策略抽象 | §7.3 要点 4 | `models/resource_policy.rs:30` `SessionResourcePolicy` |
+| 降级可见 | §7.3 要点 2 | `PolicyOutcome::degraded(reason)`，不静默失败 |
+| B 类后台 tab 暂停 / 降档 / 休眠 | 阶段一末项 + §3.1 | 见 §3 表格 |
+| B 类全平台信用窗口 | §3 风险点 3 | v0.12.5 收紧至 16KB / 4↔2 |
+| **B-2** 前端暂存溢出对齐 desync 契约 | §3.2 | `terminalPendingBufferPolicy.ts`（新模块）。溢出改走"整段作废 + desync 重放"而非 splice 切断 VT；上限从 chunk 数改**字节**数（条数不能预测内存，§3.3 差异 1）；闩锁补投给迟到的订阅者。顺带修 flush 丢 `endSeq` 导致该会话永久拍不出 checkpoint 的 bug |
+| **B-5** 解析后 ACK 记账 | §3.3 该抄第二条 | 信用原语 `terminalDeliveryCredit.ts`（移植 Orca 59 行）+ 上报 `terminalOutputAck.ts` + Rust `terminal_output_flow.rs` + `ack_terminal_output` 命令 + daemon control WS `outputAck`。**独立于 checkpoint 锚点账**——后者在丢弃时禁拍，前者在丢弃时必须归还，语义相反 |
+| **B-1** 生产者暂停 + 有界通道 | §3.3 该抄第一条 | `OutputFlowGate::park_if_paused`（HIGH 256KB / LOW 32KB 滞回、5s 失效重断言、拆除释放三件套齐全）+ `sync_channel(256)` 兜底（`try_send`，满则整段丢弃发 desync）。SSH 走 `disabled()` 只记账不 park |
+| **投递卡死看门狗** | 新增（B-5 的必要配套） | 连续 2 次失效超时（≈10s 无 ACK）判定链路死亡 → 发 desync 整屏重建。前端 `terminalWriteFlowControl.dispose()` 拒绝悬挂 Promise，修掉卸载后信用永久还不回去的泄漏 |
+| **后台标签全局共享预算** | §3.3 差异 2 | `terminalHiddenBudget.ts`：`clamp(2MB / 后台数, 64KB, 512KB)`。此前每标签独占 512KB，18 标签 = 9MB 上限 |
+| **交互快路** | §3.3 "可直接借用的小改进" | 距上次按键 100ms 内且 ≤1KB 的批直接刷出，绕过 16ms 窗口。**不动全局 16ms**——那是防 WKWebView 主线程死锁的 |
+| **replay 上限随 scrollback 缩放** | 新增 | `max(8MB, rows × 120)`，设置变更时调 `ReplayBuffer::shrink`（此前零调用方）。消除硬编码 8MB 对 50k 行用户的白白截史 |
+
+### 9.2 未落地
+
+按"性价比 × 风险"排序。**B 类输出链路已全部收口**（B-1/B-2/B-5 + 看门狗，见 §9.1）；剩余项以 A 类资源约束为主，**A-1 是最该先做的**——它堵的是唯一能吃到 OOM 的路径。
+
+| # | 缺口 | 类 | 位置 | 为什么还没做 / 该怎么做 |
+|---|---|---|---|---|
+| **B-4** | 丢弃路径**不打捞查询序列** | B | `evict_front`（`terminal_service.rs:814`） | ✅ **已验证（2026-08-21），优先级下调**。原判"每条丢弃路径都要打捞"不成立：reader 先 `replay.push()`（`:3588`）再 `batch_tx.send()`（`:3600`），**ReplayBuffer 完全不经过 emitter**——WS 整段跳过 / pendingBuffers 溢出丢掉的字节仍在缓冲里，desync 后 recovery delta 原样重放，xterm 的 `registerCsiHandler({final:"n"})`（`TerminalView.tsx:1110`）补发 CPR 解除阻塞。锚定裁剪也不会丢未回答的查询（拍照要求 received===written，即 anchor 前每字节都已解析回过）。**唯一真正的永久丢失点是 `evict_front`**：查询之后再产出 >8MB 才会被挤出窗口，而发查询的程序此时正阻塞、产不出这些字节，需要第二个生产者——概率低但不为零。若加固，打捞挂在 `evict_front` 一处即可，不需要 Orca 那套逐路径打捞。三条不变式已由 `recovery_delta_retains_query_sequences_the_emitter_dropped` 等 3 个测试钉住 |
+| **A-1** | Job 内存上限 | A | `pty/job.rs` | 唯一**能把机器吃到 OOM** 的敞口。CPU 限住了但内存没有，`cargo build --workspace` 的链接期照样能吞十几 GB。按 §6 要求"可配置且默认宽松，目标是防失控不是设天花板"，且注意 §7.3 要点 1 的教训：**用软限**，硬限 OOM kill 会让用户看到莫名其妙的 build 失败 |
+| **A-2** | WSL cgroup 配额（L2 主方案） | A | §7.2，`wsl_codex.rs` | 实测方案已验证可用（`systemd-run --user --scope`，无需 root），但一行未写。WSL 会话目前只吃到 `nice`（§7.2 定位为 L3 兜底）。本机 4 个 WSL 会话占 10.7 GB，这部分完全裸奔 |
+| **A-3** | 通用启动闸门 | A | `terminalRestoreQueue.ts` 上提 | 现在只管崩溃恢复；`launch_task` 与手动开标签都绕过。**十个窗格同时 `cargo build` 仍然被允许** |
+| ~~**B-3**~~ | ~~合批单轮无写次数上限~~ | B | `terminal_service.rs:3317-3345` | ❌ **已核实无此缺口（2026-08-21），撤销**。§3.3 原文误读了自己的代码：排空循环在 16KB 处 `break`（`:3326-3328`），每轮循环**至多一次 `emit()`**，单批 ≤ 16KB + 一个 read chunk（4KB）≈ 20KB。**我们等效于 `MAX_WRITES = 1`，比 Orca 的 2 更严。** 真正缺的不是写次数上限，而是 emit 前的信用闸门 = B-5 |
+| **A-4** | 进程数上限 | A | `pty/job.rs` | `JOB_OBJECT_LIMIT_ACTIVE_PROCESS`。优先级最低：fork 炸弹不是本仓库的真实负载形状 |
+| **A-5** | 阶段二整体（资源可见性） | A | §6 阶段二 | 边沿触发采集、标签页琥珀徽标、低于杀进程的干预档位——全部未做。⚠️ 做的时候必须遵守 §6 的边沿触发硬要求（docs/41 的教训：**用一个监控资源的功能把资源吃掉**） |
+| **A-6** | WSL 读数说谎 | A | §2.8 / §7.3 要点 5 | 资源视图对 WSL 会话恒显示 ~8MB / 0%。与 A-2 同期做边际成本最低（都要读 cgroup） |

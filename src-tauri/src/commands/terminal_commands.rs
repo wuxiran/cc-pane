@@ -980,6 +980,33 @@ pub fn set_hidden_terminal_sessions(sessions: Vec<String>) {
     crate::services::report_hidden_sessions(sessions);
 }
 
+/// 前端报告某会话的输出已消化到哪个累计 endSeq（投递回执，docs/71 §9.2 B-5）。
+///
+/// 语义是"解析完**或**被任何丢弃路径丢弃"——后台标签把 chunk 收进隐藏积压同样
+/// 算消化完。若跟着 checkpoint 锚点账一起在丢弃时扣住不报，后台标签会让回执永不
+/// 推进，上游窗口关死、生产者永久暂停。
+///
+/// 累计值 + max-merge：重复投递不重复计费、乱序不倒退、丢一条下次自愈。
+/// 两条后端形态都要覆盖——in-process 直接记到本进程的 TerminalService，daemon
+/// 模式经 control WS 转给 daemon 进程。送不到不报错：daemon 侧 `ever_acked` 保持
+/// false，闸门据此降级放行，退回今天的行为。
+#[tauri::command]
+pub fn ack_terminal_output(
+    service: State<'_, Arc<TerminalBackendState>>,
+    session_id: String,
+    processed_end_seq: u64,
+) {
+    service
+        .backend()
+        .ack_terminal_output(&session_id, processed_end_seq);
+    // 只在 daemon 模式转发：in-process 模式没有 control link 消费待发队列，
+    // 无条件投进去会让那张 map 一直留着每个会话的最后一笔（不会无限涨，但也
+    // 永远排不空——在一个专治积压的改动里留这种东西说不过去）。
+    if service.kind() == TerminalBackendKind::Daemon {
+        crate::services::report_output_ack(session_id, processed_end_seq);
+    }
+}
+
 /// checkpoint+delta 结构化恢复快照（M3b-3）。
 ///
 /// **照抄旧 get_terminal_replay_snapshot 的两件副作用**（M3b 设计红线）：

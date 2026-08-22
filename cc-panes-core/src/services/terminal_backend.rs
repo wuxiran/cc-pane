@@ -127,6 +127,19 @@ pub trait TerminalBackend: Send + Sync {
     ) -> AppResult<Option<TerminalRecoverySnapshot>> {
         Err(AppError::from("checkpoint not supported by this backend"))
     }
+    /// 记录前端的输出投递回执（B-5）。
+    ///
+    /// 默认 no-op：daemon 客户端后端的会话活在 daemon 进程，回执经 control WS
+    /// 直达那边，本地这层没有账可记；mock 后端同理。in-process 后端覆盖之。
+    ///
+    /// 不返回 Result——回执是骑在数据路径上的优化，会话销毁与在途回执天生会赛跑，
+    /// 为此报错只会在日志里刷噪音。
+    fn ack_terminal_output(&self, _session_id: &str, _processed_end_seq: u64) {}
+    /// scrollback 设置变更后重算活跃会话的 replay 上限。
+    ///
+    /// 默认 no-op：daemon 客户端后端的会话在 daemon 进程，那边有自己的
+    /// SettingsService 与会话表；mock 后端同理。in-process 后端覆盖之。
+    fn apply_scrollback_setting(&self, _scrollback_rows: u32) {}
     /// 按 launch_id 反查会话 id（launch_task 推导 parent_session_id 用）。
     /// daemon 模式下会话建在 daemon 进程，必须走 backend 而非 app 本地 service。
     /// 默认返回 `None`（不支持反查的后端，如测试 mock）；真实后端覆盖之。
@@ -525,6 +538,14 @@ impl TerminalBackend for TerminalService {
         session_id: &str,
     ) -> AppResult<Option<TerminalRecoverySnapshot>> {
         TerminalService::get_session_recovery_snapshot(self, session_id)
+    }
+
+    fn ack_terminal_output(&self, session_id: &str, processed_end_seq: u64) {
+        let _ = TerminalService::ack_terminal_output(self, session_id, processed_end_seq);
+    }
+
+    fn apply_scrollback_setting(&self, scrollback_rows: u32) {
+        let _ = TerminalService::apply_scrollback_setting(self, scrollback_rows);
     }
 
     fn find_session_id_by_launch_id(&self, launch_id: &str) -> AppResult<Option<String>> {

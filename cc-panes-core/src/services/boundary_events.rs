@@ -200,6 +200,20 @@ pub const INBOUND_CONTROL_MESSAGES: &[InboundControlMessage] = &[
                     静默忽略——留存照旧累积，行为不劣化。",
     },
     InboundControlMessage {
+        name: "outputAck",
+        channel: "control-ws",
+        daemon_handler:
+            "server.rs ControlInboundMessage::OutputAck → terminal_backend.ack_terminal_output",
+        app_sender: "terminal_daemon_control_link（watch 待发队列，链路空闲时排空推送）",
+        rationale: "输出投递回执（docs/71 §9.2 B-5）：把「前端已消化到哪个累计 endSeq」报回\
+                    产出侧，让上游第一次看得见下游的消费速度，作为生产者暂停的水位输入。\
+                    语义是「解析完**或**被任何丢弃路径丢弃」——后台标签收进隐藏积压同样算，\
+                    否则回执永不推进、窗口关死、生产者永久暂停。累计值 + max-merge：重复\
+                    投递不重复计费、乱序不倒退、丢一条下次自愈，故 best-effort 即可，不补发。\
+                    旧 daemon 静默忽略——`ever_acked` 保持 false，闸门据此降级放行，\
+                    行为等同回执机制之前，不劣化。",
+    },
+    InboundControlMessage {
         name: "checkpointUpload",
         channel: "rest",
         daemon_handler: "server.rs upload_session_checkpoint（POST /api/sessions/{id}/checkpoint）",

@@ -143,6 +143,15 @@ export const INBOUND_CONTROL_MESSAGES: readonly InboundControlContract[] = [
       "身份事件留存的 outbox ack（docs/86 3.1）：消费方确认后移除，消解 app 重启全量重放风暴。只删 resumeId 一致的条目；ack 丢失由重连补拉的「已应用」路径补发。旧 daemon 静默忽略，不劣化。",
   },
   {
+    name: "outputAck",
+    channel: "control-ws",
+    daemonHandler:
+      "server.rs ControlInboundMessage::OutputAck → terminal_backend.ack_terminal_output",
+    appSender: "terminal_daemon_control_link（watch 待发队列，链路空闲时排空推送）",
+    rationale:
+      "输出投递回执（docs/71 §9.2 B-5）：把「前端已消化到哪个累计 endSeq」报回产出侧，作为生产者暂停的水位输入。语义是「解析完**或**被任何丢弃路径丢弃」——后台标签收进隐藏积压同样算，否则回执永不推进、窗口关死、生产者永久暂停。累计值 + max-merge，重复/乱序/丢失都自愈，故 best-effort 不补发。旧 daemon 静默忽略（ever_acked 保持 false，闸门降级放行），不劣化。",
+  },
+  {
     name: "checkpointUpload",
     channel: "rest",
     daemonHandler: "server.rs upload_session_checkpoint（POST /api/sessions/{id}/checkpoint）",

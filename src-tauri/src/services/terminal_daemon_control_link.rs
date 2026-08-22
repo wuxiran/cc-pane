@@ -96,6 +96,62 @@ fn hidden_sessions_message(sessions: &[String]) -> String {
     serde_json::json!({ "type": "hiddenSessions", "sessions": sessions }).to_string()
 }
 
+/// 输出投递回执的待发队列（B-5）。
+///
+/// 用 watch + 排空而非 mpsc：回执是**累计值**，中间态没有价值——同一会话连报
+/// 3 次只需发最后一次，跳过的那些什么也不丢。链路一断就自然合并，稳态下 map
+/// 被排空为空，不会像无界队列那样堆积（在一个专治无界队列的改动里留一个无界
+/// 队列实在说不过去）。
+///
+/// 不做断线重发：daemon 侧的 `acked_seq` 活在 daemon 进程里，重连后账还在；
+/// daemon 真重启了则会话本身也没了，重发反而会给新会话灌旧账。
+type OutputAckChannel = (
+    tokio::sync::watch::Sender<HashMap<String, u64>>,
+    tokio::sync::watch::Receiver<HashMap<String, u64>>,
+);
+
+fn output_ack_channel() -> &'static OutputAckChannel {
+    static CHANNEL: std::sync::OnceLock<OutputAckChannel> = std::sync::OnceLock::new();
+    CHANNEL.get_or_init(|| tokio::sync::watch::channel(HashMap::new()))
+}
+
+/// 前端经 Tauri command 调用：报告某会话已消化到的累计 endSeq。
+///
+/// **不保证送达**（daemon 可能是旧版或断线）。送不到的后果是 daemon 侧
+/// `ever_acked` 保持 false，闸门据此降级放行——退回今天的行为，不会更差。
+pub fn report_output_ack(session_id: String, processed_end_seq: u64) {
+    output_ack_channel().0.send_modify(|pending| {
+        let slot = pending.entry(session_id).or_insert(0);
+        // max-merge：乱序到达的小值不能把游标拽回去。
+        if processed_end_seq > *slot {
+            *slot = processed_end_seq;
+        }
+    });
+}
+
+/// 取走待发回执并清空。
+fn drain_output_acks() -> HashMap<String, u64> {
+    let mut taken = HashMap::new();
+    output_ack_channel()
+        .0
+        .send_modify(|pending| taken = std::mem::take(pending));
+    taken
+}
+
+fn output_ack_message(acks: &HashMap<String, u64>) -> String {
+    serde_json::json!({
+        "type": "outputAck",
+        "sessions": acks
+            .iter()
+            .map(|(session_id, processed_end_seq)| serde_json::json!({
+                "sessionId": session_id,
+                "processedEndSeq": processed_end_seq,
+            }))
+            .collect::<Vec<_>>(),
+    })
+    .to_string()
+}
+
 /// outbox ack（docs/86 3.1）：告知 daemon 这些身份事件已被本桌面端消费，
 /// 可从留存中移除。旧 daemon 收到未知消息静默忽略（设计内降级：留存照旧、
 /// 重放靠 `applied` 去重，行为等同 ack 之前）。
@@ -155,6 +211,8 @@ async fn run_control_link(
                     // 重连补发：daemon 侧 hidden 标记随旧连接清零（防旧标记压住
                     // 新订阅），所以新连接必须把当前全集重新声明一次。
                     let mut hidden_rx = hidden_sessions_channel().1.clone();
+                    let mut output_ack_rx = output_ack_channel().1.clone();
+                    output_ack_rx.mark_unchanged();
                     // 先克隆出值再 await：watch::Ref 跨 await 会让 future 失去 Send
                     let latest_hidden = hidden_rx.borrow_and_update().clone();
                     if let Some(sessions) = latest_hidden {
@@ -202,6 +260,30 @@ async fn run_control_link(
                                             break;
                                         }
                                         debug!(count = sessions.len(), "hidden sessions pushed");
+                                    }
+                                }
+                                continue;
+                            }
+                            changed = output_ack_rx.changed() => {
+                                if changed.is_ok() {
+                                    output_ack_rx.mark_unchanged();
+                                    let pending = drain_output_acks();
+                                    // 排空本身会再置一次 changed；下一轮 map 为空直接跳过。
+                                    if !pending.is_empty() {
+                                        use futures_util::SinkExt;
+                                        if ws
+                                            .send(tokio_tungstenite::tungstenite::Message::Text(
+                                                output_ack_message(&pending).into(),
+                                            ))
+                                            .await
+                                            .is_err()
+                                        {
+                                            // 丢了不补发：回执是累计值，前端下一次
+                                            // 上报就把账补齐（自愈）。
+                                            debug!("output ack push failed; reconnecting");
+                                            break;
+                                        }
+                                        debug!(count = pending.len(), "output acks pushed");
                                     }
                                 }
                                 continue;

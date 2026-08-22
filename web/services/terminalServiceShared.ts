@@ -1,5 +1,6 @@
 import type { CreateSessionRequest } from "@/types";
 import { clearSeqTracker } from "@/components/panes/terminalOutputSeqTracker";
+import { clearOutputAck } from "./terminalOutputAck";
 import { disposeSessionScopedResources } from "@/lib/tabLifecycle/sessionScopedResources";
 import { asPtySessionId } from "@/types/ids";
 import { devDebugLog } from "@/utils/devLogger";
@@ -187,5 +188,8 @@ export function disposeTerminalSessionResources(sessionId: string): void {
   // seq 记账是会话键卫星态（M3b-2）：会话死了锚点必须一并清，否则重建同名
   // 会话会带着旧 seq 记账拍出错配照片。
   clearSeqTracker(sessionId);
+  // 流控回执同理，且必须**先补发最后一次 ACK 再清**（clearOutputAck 内部已如此）：
+  // 直接丢账会让上游把这批字节永远算作在途，同名会话重建后带着旧债起步。
+  clearOutputAck(sessionId);
   disposeSessionScopedResources(asPtySessionId(sessionId));
 }

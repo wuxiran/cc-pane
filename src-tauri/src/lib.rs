@@ -22,6 +22,7 @@ use ccchan_commands::{
 use ccchan_service::{CCChanService, CcChanSessionNotifier};
 use commands::{
     abort_pi_rpc_session,
+    ack_terminal_output,
     // Journal 命令
     add_journal_session,
     add_launch_history,
@@ -2644,6 +2645,7 @@ pub fn run() {
             resolve_terminal_path_link,
             run_terminal_path_link_action,
             set_hidden_terminal_sessions,
+            ack_terminal_output,
             get_terminal_recovery_snapshot,
             upload_terminal_checkpoint,
             record_terminal_input,

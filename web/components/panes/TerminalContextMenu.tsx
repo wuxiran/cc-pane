@@ -26,8 +26,11 @@ interface TerminalContextMenuProps {
   children: ReactNode;
   /**
    * false 时直接渲染 children 不挂菜单。
-   * macOS 上终端区域有原生菜单拦截器（TerminalView 的 native-menu blockers），
-   * 右键事件在捕获阶段就被吃掉，挂了菜单也弹不出来，索性不挂。
+   *
+   * 历史：macOS 上曾因 TerminalView 的 native-menu blocker 在捕获阶段
+   * stopImmediatePropagation 掉 contextmenu，挂了菜单也弹不出来，故当时传 `!IS_MAC`
+   * 直接不挂——副作用是 mac 右键完全没有菜单。blocker 现已对 contextmenu 放行
+   * （只保留 preventDefault 压制原生菜单），**全平台都应启用**，调用方无需再传此项。
    */
   enabled?: boolean;
   getSelection: () => string;
