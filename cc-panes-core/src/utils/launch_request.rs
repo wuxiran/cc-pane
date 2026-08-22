@@ -166,6 +166,20 @@ fn running_under_wsl() -> bool {
 /// 万一目标系统没有该 locale，setlocale 会退回 C —— 与不打这个补丁的现状相同，
 /// 不会更糟。
 pub fn ensure_utf8_locale(env: &mut std::collections::HashMap<String, String>) {
+    ensure_utf8_locale_from(env, |key| std::env::var(key).ok());
+}
+
+/// `ensure_utf8_locale` 的实现，继承来源可注入。
+///
+/// 分这一层纯粹是为了可测：真实调用必须读进程环境（会话确实从那里继承 locale），
+/// 而单测必须与宿主环境无关。这两件事在 CI 上直接冲突过——GitHub 的 macOS runner
+/// 带着 UTF-8 的 `LC_CTYPE`，Linux / Windows runner 不带，于是同一份用例传入
+/// `LANG=C` 后，macOS 上函数从进程环境读到 UTF-8 的 `LC_CTYPE` 就提前返回、
+/// `LANG` 没被改写，三个平台结论不一致（v0.12.6 发版时 macOS 单独挂在这里）。
+fn ensure_utf8_locale_from(
+    env: &mut std::collections::HashMap<String, String>,
+    inherited: impl Fn(&str) -> Option<String>,
+) {
     const UTF8_LOCALE: &str = "C.UTF-8";
 
     // 判定顺序对齐 shell 的 ${LC_ALL:-${LC_CTYPE:-${LANG:-}}}：字符集由 LC_CTYPE 管，
@@ -175,7 +189,7 @@ pub fn ensure_utf8_locale(env: &mut std::collections::HashMap<String, String>) {
         .find_map(|key| {
             env.get(key)
                 .cloned()
-                .or_else(|| std::env::var(key).ok())
+                .or_else(|| inherited(key))
                 .filter(|value| !value.is_empty())
         })
         .unwrap_or_default();
@@ -195,7 +209,7 @@ pub fn ensure_utf8_locale(env: &mut std::collections::HashMap<String, String>) {
     if let Some((key, value)) = ["LC_ALL", "LC_CTYPE"].into_iter().find_map(|key| {
         env.get(key)
             .cloned()
-            .or_else(|| std::env::var(key).ok())
+            .or_else(|| inherited(key))
             .filter(|value| !value.is_empty())
             .map(|value| (key, value))
     }) {
@@ -351,7 +365,7 @@ mod tests {
             let mut env =
                 std::collections::HashMap::from([("LANG".to_string(), existing.to_string())]);
 
-            ensure_utf8_locale(&mut env);
+            ensure_utf8_locale_from(&mut env, |_| None);
 
             // 用户特意设的区域不能被覆盖：只有非 UTF-8 才补。
             assert_eq!(env.get("LANG").map(String::as_str), Some(existing));
@@ -365,7 +379,7 @@ mod tests {
         // LC_CTYPE=C 正是 macOS GUI 应用（Finder/Dock 启动）拉起会话时的实际形态。
         let mut env = std::collections::HashMap::from([("LANG".to_string(), "C".to_string())]);
 
-        ensure_utf8_locale(&mut env);
+        ensure_utf8_locale_from(&mut env, |_| None);
 
         assert_eq!(env.get("LANG").map(String::as_str), Some("C.UTF-8"));
         // LC_ALL 会碾平用户每一个 LC_* 细分设置，兜底绝不能用它。
@@ -380,7 +394,7 @@ mod tests {
             ("LC_COLLATE".to_string(), "zh_CN.UTF-8".to_string()),
         ]);
 
-        ensure_utf8_locale(&mut env);
+        ensure_utf8_locale_from(&mut env, |_| None);
 
         assert_eq!(env.get("LANG").map(String::as_str), Some("C.UTF-8"));
         assert_eq!(env.get("LC_TIME").map(String::as_str), Some("zh_CN.UTF-8"));
@@ -399,7 +413,7 @@ mod tests {
             ("LANG".to_string(), "C".to_string()),
         ]);
 
-        ensure_utf8_locale(&mut env);
+        ensure_utf8_locale_from(&mut env, |_| None);
 
         assert_eq!(env.get("LANG").map(String::as_str), Some("C"));
     }
@@ -412,10 +426,27 @@ mod tests {
             ("LANG".to_string(), "C".to_string()),
         ]);
 
-        ensure_utf8_locale(&mut env);
+        ensure_utf8_locale_from(&mut env, |_| None);
 
         assert_eq!(env.get("LANG").map(String::as_str), Some("C"));
         assert_eq!(env.get("LC_ALL").map(String::as_str), Some("en_US.UTF-8"));
+    }
+
+    #[test]
+    fn falls_back_to_the_inherited_environment_only_when_the_map_is_silent() {
+        // 请求自己没提 locale 时才看继承。map 空 + 继承也空 = macOS GUI 启动的实际
+        // 形态（Finder/Dock 不传 LANG/LC_*），该补。
+        let mut env = std::collections::HashMap::new();
+        ensure_utf8_locale_from(&mut env, |_| None);
+        assert_eq!(env.get("LANG").map(String::as_str), Some("C.UTF-8"));
+
+        // 继承里已经是 UTF-8 → 不补。这条正是三平台结论分歧的来源：CI 的 macOS
+        // runner 恰好带着这样的 LC_CTYPE，而它以前是从真实进程环境读的。
+        let mut env = std::collections::HashMap::new();
+        ensure_utf8_locale_from(&mut env, |key| {
+            (key == "LC_CTYPE").then(|| "en_US.UTF-8".to_string())
+        });
+        assert_eq!(env.get("LANG"), None);
     }
 
     /// 前缀必须与前端 `paneTree.ts` 的 `generateId` 约定一致：前端会把这两个 id
