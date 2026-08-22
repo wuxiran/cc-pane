@@ -72,7 +72,19 @@ export function getRelativePath(projectPath: string, wsPath?: string | null): st
   return parts.pop() || projectPath;
 }
 
-const PROJECT_BADGE_BASE = "text-[9px] px-1.5 py-0.5 rounded-full font-medium border";
+// 形状与 sidebarEntityBadgeClass 对齐（10px / rounded-full），侧栏三套徽章统一。
+// shrink 语义单独挂在 BASE 上：分支徽章需要 shrink，而 flex-shrink 的胜负由生成的
+// 样式表顺序决定、不看 class 串顺序，这里又是纯字符串拼接（不过 tailwind-merge），
+// 所以只能拆开写，不能靠后缀覆盖。
+const PROJECT_BADGE_SHAPE =
+  "rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none border";
+const PROJECT_BADGE_BASE = `shrink-0 ${PROJECT_BADGE_SHAPE}`;
+
+// 分支徽章是行内唯一可收缩项：宽度不够时它先截断，把空间让给项目名。
+const BRANCH_BADGE_CLASS = `min-w-0 shrink truncate ${PROJECT_BADGE_SHAPE} `
+  + "bg-[color-mix(in_srgb,var(--app-accent)_12%,transparent)] "
+  + "text-[var(--app-accent)] "
+  + "border-[color-mix(in_srgb,var(--app-accent)_25%,transparent)]";
 
 // 身份色徽章（local 中性 / wsl / ssh），亮暗随 token 自动切换
 export function projectBadgeClassName(kind: "local" | "wsl" | "ssh"): string {
@@ -220,7 +232,7 @@ export default function ProjectListItem({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
-          className="rounded-xl border border-transparent px-3 py-2 transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:border-[var(--app-border)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+          className="rounded-xl border border-transparent px-2 py-1.5 transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:border-[var(--app-border)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
         >
           <div
             className="flex cursor-pointer items-center gap-2"
@@ -228,13 +240,14 @@ export default function ProjectListItem({
           >
             {leading}
             {isMissing
-              ? <FolderX size={15} className="shrink-0" style={{ color: "var(--app-status-danger)" }} />
+              ? <FolderX size={14} className="shrink-0" style={{ color: "var(--app-status-danger)" }} />
               : isSsh
-                ? <Globe size={15} className="shrink-0" style={{ color: "var(--app-accent)" }} />
-                : <Folder size={15} className="shrink-0" style={{ color: "var(--app-accent)" }} />
+                ? <Globe size={14} className="shrink-0" style={{ color: "var(--app-accent)" }} />
+                : <Folder size={14} className="shrink-0" style={{ color: "var(--app-accent)" }} />
             }
+            {/* min-w 保底：窄侧栏下名称不再被徽章挤成 "cc…" */}
             <span
-              className={`flex-1 text-[13px] truncate ${isMissing ? "line-through text-[var(--app-text-tertiary)]" : ""}`}
+              className={`flex-1 min-w-[4rem] text-[13px] truncate ${isMissing ? "line-through text-[var(--app-text-tertiary)]" : ""}`}
               title={isMissing ? project.path : undefined}
             >
               {displayName}
@@ -244,9 +257,7 @@ export default function ProjectListItem({
             ) : (
               <>
                 {!isSsh && branchLabel && (
-                  <span className="text-[11px] px-1 rounded shrink-0" style={{ color: "var(--app-accent)", background: "var(--app-active-bg)" }}>
-                    {branchLabel}
-                  </span>
+                  <span className={BRANCH_BADGE_CLASS}>{branchLabel}</span>
                 )}
                 <span className={projectBadgeClassName(projectKind)}>
                   {projectKind.toUpperCase()}

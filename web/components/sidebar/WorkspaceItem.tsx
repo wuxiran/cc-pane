@@ -407,7 +407,7 @@ export default function WorkspaceItem({
             {expanded ? (
               <span
                 aria-hidden="true"
-                className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-[var(--app-accent)]"
+                className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-[var(--app-accent)]"
               />
             ) : null}
             <div className="flex min-w-0 items-center gap-1.5">
@@ -681,7 +681,7 @@ export default function WorkspaceItem({
       </ContextMenu>
 
       {expanded ? (
-        <div className="mx-3 mb-2 overflow-hidden rounded-2xl border border-[var(--app-border)] bg-[var(--app-glass-bg)]">
+        <div className="mb-1 ml-[22px] border-l border-[var(--app-border)] pl-3">
           {children}
         </div>
       ) : null}

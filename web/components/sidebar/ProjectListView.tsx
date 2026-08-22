@@ -8,6 +8,7 @@ import type {
 } from "@/types";
 import { normalizeWorkspaceProjects } from "./workspaceProjects";
 import { buildProjectTree, type WorktreeGroup } from "./worktreeGrouping";
+import { sidebarEntityBadgeClass } from "./sidebarStyles";
 import ProjectListItem from "./ProjectListItem";
 
 interface ProjectListViewProps {
@@ -107,9 +108,8 @@ export default function ProjectListView({
     );
     const count = (
       <span
-        className="shrink-0 text-[10px] font-medium tabular-nums leading-none px-1.5 py-0.5 rounded text-[var(--app-text-tertiary)]"
-        style={{ background: "color-mix(in srgb, var(--app-text-primary) 8%, transparent)" }}
-        title={t("worktreeGroupCount", { count: group.children.length })}
+        className={`${sidebarEntityBadgeClass} tabular-nums text-[var(--app-text-tertiary)] bg-[color-mix(in_srgb,var(--app-text-primary)_8%,transparent)]`}
+        aria-label={t("worktreeGroupCount", { count: group.children.length })}
       >
         {group.children.length}
       </span>
@@ -134,9 +134,9 @@ export default function ProjectListView({
   };
 
   return (
-    <div className="flex flex-col gap-1 px-3 pb-3 pt-2">
+    <div className="flex flex-col gap-0.5 px-0 pb-2 pt-1">
       {invalidProjectCount > 0 ? (
-        <div className="rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-3 py-2 text-[11px] text-[var(--app-status-warning)]">
+        <div className="rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-2 py-1.5 text-[11px] text-[var(--app-status-warning)]">
           {t("invalidProjectsSkipped", {
             count: invalidProjectCount,
             defaultValue: `已隐藏 ${invalidProjectCount} 个异常项目`,
@@ -144,7 +144,7 @@ export default function ProjectListView({
         </div>
       ) : null}
       {missingCount > 0 && onCleanupMissingProjects ? (
-        <div className="flex items-center gap-2 rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-3 py-2 text-[11px] text-[var(--app-status-warning)]">
+        <div className="flex items-center gap-2 rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-2 py-1.5 text-[11px] text-[var(--app-status-warning)]">
           <span className="flex-1">
             {t("missingProjectsBanner", { count: missingCount })}
           </span>
