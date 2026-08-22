@@ -59,19 +59,25 @@ pub trait PtyProcess: Send + Sync {
         Ok(PolicyOutcome::Unsupported)
     }
 
-    /// tty 当前是否开着 ECHO。
+    /// tty 是否处在**真 cooked 模式**（`ECHO` 且 `ICANON` 同时开着）。
     ///
     /// 前端会代答终端查询（CPR / DA / kitty keyboard / OSC 颜色）。这些回复写进 PTY
-    /// master 后，如果 slave 正处在 cooked 模式（ECHO 开着，典型是 shell 提示符），
-    /// 就会被原样回显成屏幕上的可见垃圾（`^[[1;1R` 这类），**并且**进入 slave 的输入
-    /// 队列，成为下一个读 stdin 的程序拿到的内容。
+    /// master 后，回显与可读性由两个位共同决定——实测四种组合：
     ///
-    /// 满屏 TUI 通常已把 ECHO 关掉，所以平时不发作；真正的触发路径是 desync 恢复
-    /// 重放查询——那可能发生在 TUI 已退出、tty 回到 cooked 的任意时刻。
+    /// | ECHO | ICANON | 被回显 | slave 读得到 |
+    /// |------|--------|--------|--------------|
+    /// | on   | on     | 是     | **否**（行缓冲在等换行，回复里没有） |
+    /// | on   | off    | 是     | 是 |
+    /// | off  | 任意   | 否     | 是 |
+    ///
+    /// 只有第一行该抑制：回复既变成屏幕垃圾、程序又根本读不到，写下去纯属有害。
+    /// **`ECHO` 单独为真不够**——第二行同样会回显，但程序确实收得到；那里抑制就是
+    /// 把它正等着的回复吞掉，等于制造永久阻塞，比一串可见垃圾严重得多。程序分两次
+    /// `tcsetattr` 切模式（先关 ICANON 再关 ECHO）时中间那一瞬正是这个组合。
     ///
     /// `None` = 无从判断（非 Unix、SSH 通道、测试桩）。调用方此时**不应**抑制，
     /// 维持既有行为，不拿"不知道"当"是"。
-    fn echo_enabled(&self) -> Option<bool> {
+    fn cooked_echo_enabled(&self) -> Option<bool> {
         None
     }
 }
@@ -99,7 +105,7 @@ impl PtyProcess for PortablePtyProcess {
     /// 下一个程序（gh auth login）直接报 escape-sequence error 死掉。`tcgetattr` 本身
     /// 是亚微秒级的 ioctl，没有任何理由把它推迟。
     #[cfg(unix)]
-    fn echo_enabled(&self) -> Option<bool> {
+    fn cooked_echo_enabled(&self) -> Option<bool> {
         use std::os::fd::RawFd;
 
         let master = self.master.lock().ok()?;
@@ -111,7 +117,8 @@ impl PtyProcess for PortablePtyProcess {
         }
         // SAFETY: tcgetattr 返回 0 即已完成初始化。
         let termios = unsafe { termios.assume_init() };
-        Some(termios.c_lflag & libc::ECHO != 0)
+        let cooked_echo = libc::ECHO | libc::ICANON;
+        Some(termios.c_lflag & cooked_echo == cooked_echo)
     }
 
     fn resize(&self, cols: u16, rows: u16) -> Result<()> {

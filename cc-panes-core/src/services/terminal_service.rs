@@ -4232,23 +4232,26 @@ impl TerminalService {
     /// 则必须抑制——它会变成屏幕上的可见垃圾，还会进入 slave 的输入队列，污染下一个
     /// 读 stdin 的程序。所以这条路径先同步查一次 ECHO。
     ///
-    /// 查不到就照写（`echo_enabled` 返回 `None`）：不拿"不知道"当"是"，宁可维持既有
-    /// 行为，也不要因为判不出来就把子进程等着的 CPR 吞掉、让它永久阻塞。
+    /// 抑制条件是**真 cooked**（ECHO 且 ICANON）：那种模式下回复既变成屏幕垃圾、
+    /// 程序又读不到（行缓冲在等换行）。只看 ECHO 不够——ECHO 开而 ICANON 关时程序
+    /// 确实收得到，那里抑制就是把它正等着的回复吞掉，等于制造永久阻塞。
+    ///
+    /// 查不到就照写（`cooked_echo_enabled` 返回 `None`）：不拿"不知道"当"是"。
     pub fn write_reply(&self, session_id: &str, data: &str) -> Result<()> {
-        if self.tty_echo_enabled(session_id) == Some(true) {
+        if self.tty_cooked_echo(session_id) == Some(true) {
             debug!(
                 session_id = %session_id,
                 input = %summarize_input_bytes(data.as_bytes()),
-                "terminal-input.trace service.write_reply suppressed (tty echo on)"
+                "terminal-input.trace service.write_reply suppressed (tty in cooked echo)"
             );
             return Ok(());
         }
         self.write(session_id, data)
     }
 
-    fn tty_echo_enabled(&self, session_id: &str) -> Option<bool> {
+    fn tty_cooked_echo(&self, session_id: &str) -> Option<bool> {
         let sessions = self.sessions.lock().ok()?;
-        sessions.get(session_id)?.process.echo_enabled()
+        sessions.get(session_id)?.process.cooked_echo_enabled()
     }
 
     pub fn write(&self, session_id: &str, data: &str) -> Result<()> {
@@ -5263,6 +5266,9 @@ mod tests {
         );
     }
 
+    /// ECHO 开而 ICANON 关时程序**读得到**回复（实测 slave 侧拿到完整 `\x1b[1;1R`），
+    /// 那里抑制就是把它正等着的东西吞掉 —— 制造永久阻塞，比一串可见垃圾严重得多。
+    /// 判据因此是 ECHO && ICANON，由 `cooked_echo_enabled` 一并判定。
     #[test]
     fn still_writes_query_replies_when_echo_is_off_or_unknown() {
         for (label, echo) in [("echo-off", Some(false)), ("echo-unknown", None)] {
@@ -5826,7 +5832,8 @@ mod tests {
         ));
     }
 
-    /// `echo` 为 `None` 表示"无从判断"——非 Unix / SSH 通道就是这种，
+    /// `echo` = 「真 cooked（ECHO && ICANON）」。`None` 表示无从判断——非 Unix /
+    /// SSH 通道就是这种，
     /// 抑制逻辑此时必须放行，不能拿"不知道"当"回显开着"。
     #[derive(Default)]
     struct FakePtyProcess {
@@ -5851,7 +5858,7 @@ mod tests {
             Ok(())
         }
 
-        fn echo_enabled(&self) -> Option<bool> {
+        fn cooked_echo_enabled(&self) -> Option<bool> {
             self.echo
         }
     }
