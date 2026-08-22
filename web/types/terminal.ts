@@ -126,6 +126,20 @@ export type TerminalRestoreBlockedReason =
   | "reconciliation-failed"
   | "missing-provenance"
   | "identity-mismatch"
+  /**
+   * 会话的出生凭证里没有 tab / terminal-pane 锚点，按策略只能人工接管。
+   *
+   * 这是**策略**不是身份不符——与 identity-mismatch 分开，才不会把排查指向
+   * CLI / 运行环境 / 项目路径这些实际完全正确的字段。典型来源是旧版本创建的
+   * 会话（新版本已在创建时预分配锚点）。
+   */
+  | "anchorless-session"
+  /**
+   * 身份核对**已通过**、写权限也拿到了，但 `attachSessionToAnchor` 拒绝挂载
+   * （布局对不上 / 目标格子已被占 / 该 PTY 已挂在别处）。旧实现把它也报成
+   * identity-mismatch，同样会把排查引向身份字段——那些字段此时全是对的。
+   */
+  | "attach-rejected"
   | "ambiguous-candidates"
   | "claim-conflict"
   | "auto-adopt-disabled";
@@ -168,6 +182,13 @@ export interface TerminalPaneLeaf {
   savedSessionId?: string;
   /** Startup reconciliation refused to create or attach this leaf until the user intervenes. */
   restoreBlockedReason?: TerminalRestoreBlockedReason;
+  /**
+   * 被拦下的那条候选会话 id——阻断面板据此提供「手动接管」出口。
+   *
+   * 不能拿 `savedSessionId` 顶替：候选是按锚点从共享的会话档案里反查出来的，
+   * 未必等于本 webview 自己记的那一条。
+   */
+  restoreBlockedSessionId?: string;
   /** The PTY remains observable, but another app instance owns its daemon write lease. */
   leaseReadOnly?: boolean;
   launchExtras?: LaunchExtras;

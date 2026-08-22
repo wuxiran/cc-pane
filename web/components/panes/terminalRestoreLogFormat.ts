@@ -115,8 +115,25 @@ function buildParams(
     ?? shortSessionId(details.savedSessionId)
     ?? shortSessionId(details.liveSavedSessionId)
     ?? shortSessionId(details.expectedSavedSessionId);
+  // 身份核对的结构化结论：哪一关、哪个字段、三方各是什么值。没有这些，任何一条
+  // 校验失败对外都只剩同一句话，只能去翻库——这正是恢复日志被扩充的原因。
+  const gateKey = asString(details.gate);
+  const gate = gateKey
+    ? tryTranslate(t, `restoreLog.gate.${gateKey}`, {}) ?? gateKey
+    : null;
+  const values =
+    details.values && typeof details.values === "object"
+      ? Object.entries(details.values as Record<string, unknown>)
+          .filter(([, value]) => asString(value) !== null)
+          .map(([side, value]) => `${side}=${String(value)}`)
+          .join(" / ")
+      : "";
   return {
     ...details,
+    gate: gate ?? "",
+    field: asString(details.field) ?? "",
+    // 覆盖 spread 进来的原始对象：直接插值会渲染成 [object Object]
+    values,
     count: firstNumber(details.count, details.sessionCount, details.lineCount) ?? 0,
     pending: firstNumber(details.pending) ?? 0,
     active: firstNumber(details.active) ?? 0,

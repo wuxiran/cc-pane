@@ -62,7 +62,7 @@ use cc_panes_core::services::TerminalBackend;
 #[cfg(target_os = "windows")]
 use cc_panes_core::utils::canonical_project_path;
 use cc_panes_core::utils::orchestrator_manifest;
-use cc_panes_core::utils::{project_identity_key, simplify_path_str};
+use cc_panes_core::utils::{mint_birth_anchors, project_identity_key, simplify_path_str};
 use rmcp::{
     handler::server::router::tool::ToolRouter,
     handler::server::wrapper::Parameters,
@@ -178,6 +178,13 @@ pub struct OrchestratorLaunchEvent {
     pub pane_id: Option<String>,
     pub layout_id: Option<String>,
     pub layout_name: Option<String>,
+    /// 出生锚点：本次派发**预先分配**的 tab / terminal-pane id，前端必须原样采用
+    /// （不要自己 `generateId`）。它们已写进 daemon 的不可变出生凭证，两侧一致
+    /// 才能让会话在 app 重启后被自动接管；前端另起 id 会让凭证锚点对不上真实窗格。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal_pane_id: Option<String>,
     pub cli_tool: Option<String>,
     pub runtime_kind: String,
     pub runtime_source: String,
@@ -5249,6 +5256,10 @@ impl McpToolHandler {
         // 把 child_launch_id 传进去，TerminalService 会写入 CC_PANES_LAUNCH_ID
         // 环境变量并把它附在 ccpanes MCP URL 的 `?launchId=` 上，让子 Claude
         // 之后再调 launch_task 时能被识别为本会话的 caller。
+        //
+        // 出生锚点同理必须在此预分配：PTY 建在前端决定落点之前，缺锚点的会话
+        // 重启后无法被自动接管，且凭证不可改写、永远补不回来。
+        let birth_anchors = mint_birth_anchors();
         let mut create_request = CoreCreateSessionRequest {
             launch_id: Some(child_launch_id.clone()),
             project_path: params.project_path.clone(),
@@ -5261,9 +5272,10 @@ impl McpToolHandler {
             launch_profile_id: None,
             workspace_path: None,
             workspace_snapshot_id: None,
+            // layout 由前端解析，后端此刻不可知；见 handle_launch_task 同处注释。
             origin_layout_id: None,
-            origin_tab_id: None,
-            origin_terminal_pane_id: None,
+            origin_tab_id: Some(birth_anchors.tab_id.clone()),
+            origin_terminal_pane_id: Some(birth_anchors.terminal_pane_id.clone()),
             expected_saved_session_id: None,
             launch_claude: cli_tool != CliTool::None,
             cli_tool,
@@ -5467,6 +5479,8 @@ impl McpToolHandler {
             pane_id: params.pane_id.clone(),
             layout_id: params.layout_id.clone(),
             layout_name: params.layout_name.clone(),
+            tab_id: Some(birth_anchors.tab_id),
+            terminal_pane_id: Some(birth_anchors.terminal_pane_id),
             cli_tool: requested_cli_tool,
             runtime_kind: runtime.kind.as_str().to_string(),
             runtime_source: runtime.source.to_string(),
@@ -9510,6 +9524,10 @@ async fn handle_launch_task(
         }
     };
 
+    // 预分配出生锚点：PTY 建在前端决定落点**之前**，若不在此处指定，凭证里的
+    // 锚点就会是 NULL，该会话此后永远无法被自动接管（凭证不可改写）。这两个 id
+    // 随下方 launch 事件下发，前端原样采用，因此是可核对的真实数据。
+    let birth_anchors = mint_birth_anchors();
     let mut create_request = CoreCreateSessionRequest {
         // 必须带 launch_id：TerminalService 用它写 `CC_PANES_LAUNCH_ID` 并附在
         // resume 事件的 launchId 上。留 None 会让 bind_resume_id 拿到 launch_id=None、
@@ -9526,9 +9544,12 @@ async fn handle_launch_task(
         launch_profile_id: None,
         workspace_path: req.workspace_path.clone(),
         workspace_snapshot_id: None,
+        // layout 由前端按「显式 layoutId > layoutName > 父会话所在布局 > 工作空间
+        // 绑定 > 当前布局」解析，后端此刻无从得知；它也是唯一会合法移动的一维，
+        // 本就不属于出生事实，故留空。
         origin_layout_id: None,
-        origin_tab_id: None,
-        origin_terminal_pane_id: None,
+        origin_tab_id: Some(birth_anchors.tab_id.clone()),
+        origin_terminal_pane_id: Some(birth_anchors.terminal_pane_id.clone()),
         expected_saved_session_id: None,
         launch_claude: cli_tool != CliTool::None,
         cli_tool,
@@ -9631,6 +9652,8 @@ async fn handle_launch_task(
         pane_id: req.pane_id.clone(),
         layout_id: req.layout_id.clone(),
         layout_name: req.layout_name.clone(),
+        tab_id: Some(birth_anchors.tab_id),
+        terminal_pane_id: Some(birth_anchors.terminal_pane_id),
         cli_tool: requested_cli_tool,
         runtime_kind: runtime.kind.as_str().to_string(),
         runtime_source: runtime.source.to_string(),

@@ -22,7 +22,9 @@ use cc_panes_core::services::{
 };
 use cc_panes_core::utils::error::AppError;
 use cc_panes_core::utils::project_paths_equivalent;
-use cc_panes_core::utils::{atomic_file, normalize_session_request_for_current_host};
+use cc_panes_core::utils::{
+    atomic_file, mint_birth_anchors, normalize_session_request_for_current_host,
+};
 use futures_util::{SinkExt, StreamExt};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -808,8 +810,24 @@ async fn create_session(
     let provenance_cli_tool = req.core.cli_tool.as_id().to_string();
     let provenance_resume_id = req.core.resume_id.clone();
     let provenance_origin_layout_id = req.core.origin_layout_id.clone();
-    let provenance_origin_tab_id = req.core.origin_tab_id.clone();
-    let provenance_origin_terminal_pane_id = req.core.origin_terminal_pane_id.clone();
+    // 兜底收口：任何创建路径都不能让会话生下来就没有出生锚点。缺锚点的会话在恢复期
+    // 被身份核对拦下且**永远补不回来**——`save_provenance` 是 ON CONFLICT DO NOTHING，
+    // 而 `list_sessions_missing_provenance` 只找整行缺失，NULL 锚点行不算「缺失」。
+    // 调用方传了就用调用方的（那是前端会真正采用的 id），没传就在这里补一组。
+    // 这里是唯一必经之路，新增创建路径不可能再漏。
+    let fallback_anchors = mint_birth_anchors();
+    let origin_tab_id = req
+        .core
+        .origin_tab_id
+        .clone()
+        .or(Some(fallback_anchors.tab_id));
+    let origin_terminal_pane_id = req
+        .core
+        .origin_terminal_pane_id
+        .clone()
+        .or(Some(fallback_anchors.terminal_pane_id));
+    let provenance_origin_tab_id = origin_tab_id.clone();
+    let provenance_origin_terminal_pane_id = origin_terminal_pane_id.clone();
     let owner = caller_instance(&headers);
     let core_request = normalize_session_request_for_current_host(CoreCreateSessionRequest {
         launch_id: req.core.launch_id,
@@ -824,8 +842,8 @@ async fn create_session(
         workspace_path: req.core.workspace_path,
         workspace_snapshot_id: req.core.workspace_snapshot_id,
         origin_layout_id: req.core.origin_layout_id,
-        origin_tab_id: req.core.origin_tab_id,
-        origin_terminal_pane_id: req.core.origin_terminal_pane_id,
+        origin_tab_id,
+        origin_terminal_pane_id,
         expected_saved_session_id: req.core.expected_saved_session_id,
         launch_claude: req.core.launch_claude,
         cli_tool: req.core.cli_tool,

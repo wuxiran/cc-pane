@@ -99,6 +99,9 @@ export { TERMINAL_LAYOUT_CHANGED_EVENT } from "@/lib/paneTree";
  */
 export function createTab(opts: CreateTabOptions): Tab {
   return createTabOfType("terminal", {
+    // 调用方预分配的出生锚点优先（后端派发的会话已把它写进不可变凭证）；
+    // 不传时由 baseTab 生成，行为与以前一致。
+    id: opts.tabId,
     projectId: opts.projectId,
     projectPath: opts.projectPath,
     terminal: opts,
@@ -2166,7 +2169,7 @@ export const usePanesStore = create<PanesState>()(
 
     ...createTerminalColdRestoreActions({ set, findTab: findTabAcrossLayouts, syncTab: syncTabTerminalState, notifyLayoutChanged: notifyTerminalLayoutChanged }),
 
-    setTerminalRestoreBlocked: (tabId, terminalPaneId, reason) => {
+    setTerminalRestoreBlocked: (tabId, terminalPaneId, reason, sessionId) => {
       set((state) => {
         const location = findTabAcrossLayouts(state, tabId);
         const tab = location?.tab;
@@ -2174,6 +2177,8 @@ export const usePanesStore = create<PanesState>()(
         const leaf = findTerminalPane(tab.terminalRootPane, terminalPaneId);
         if (leaf?.type !== "leaf") return;
         leaf.restoreBlockedReason = reason;
+        // 解除阻断时一并清掉候选，避免下一次阻断沿用上一轮的会话 id。
+        leaf.restoreBlockedSessionId = reason ? sessionId : undefined;
         syncTabTerminalState(tab);
       });
     },

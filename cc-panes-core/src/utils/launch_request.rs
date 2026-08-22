@@ -146,6 +146,29 @@ fn running_under_wsl() -> bool {
         .unwrap_or(false)
 }
 
+/// 出生锚点：会话在**创建时刻**就被指定的 tab / terminal-pane id。
+///
+/// 这两个 id 由创建方预先分配、随 launch 事件下发，前端**原样采用**（不再自己
+/// `generateId`），因此它们是可核对的真实数据，而不是为了凑满校验而造的占位值。
+///
+/// 不含 `layout_id`：会话落在哪个布局由前端按「显式 layoutId > layoutName >
+/// 父会话所在布局 > 工作空间绑定 > 当前布局」解析，创建方无从得知；而 layout
+/// 恰恰是会合法移动的那一维，本就不属于出生事实。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BirthAnchors {
+    pub tab_id: String,
+    pub terminal_pane_id: String,
+}
+
+/// 分配一组出生锚点。前缀与前端 `paneTree.ts` 的 `generateId` 约定一致，
+/// 保证两侧 id 形态同源。
+pub fn mint_birth_anchors() -> BirthAnchors {
+    BirthAnchors {
+        tab_id: format!("tab-{}", uuid::Uuid::new_v4()),
+        terminal_pane_id: format!("terminal-pane-{}", uuid::Uuid::new_v4()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::models::{CliTool, LaunchProviderSelection};
@@ -257,5 +280,36 @@ mod tests {
             normalize_path_for_wsl(r#"\\wsl.localhost\Ubuntu\home\dev\repo"#).as_deref(),
             Some("/home/dev/repo")
         );
+    }
+
+
+
+
+
+
+    /// 前缀必须与前端 `paneTree.ts` 的 `generateId` 约定一致：前端会把这两个 id
+    /// 原样用作 tab / leaf 的 id，形态不同源会让日志和排查凭空多一层歧义。
+    #[test]
+    fn mints_anchors_with_frontend_id_prefixes() {
+        let anchors = mint_birth_anchors();
+
+        assert!(anchors.tab_id.starts_with("tab-"), "{}", anchors.tab_id);
+        assert!(
+            anchors.terminal_pane_id.starts_with("terminal-pane-"),
+            "{}",
+            anchors.terminal_pane_id
+        );
+    }
+
+    /// 每次调用都必须是新的一组：复用会让两条会话的出生凭证撞在一起，
+    /// 恢复期就分不出谁是谁。
+    #[test]
+    fn mints_unique_anchors_per_call() {
+        let first = mint_birth_anchors();
+        let second = mint_birth_anchors();
+
+        assert_ne!(first.tab_id, second.tab_id);
+        assert_ne!(first.terminal_pane_id, second.terminal_pane_id);
+        assert_ne!(first.tab_id, first.terminal_pane_id);
     }
 }

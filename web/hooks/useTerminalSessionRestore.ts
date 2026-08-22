@@ -10,12 +10,11 @@ import type {
   TerminalAdoptionSnapshot,
   TerminalPaneLeaf,
   TerminalRestoreBlockedReason,
-  TerminalSessionProvenance,
 } from "@/types";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
 import { resolveRuntimeKind } from "@/utils/desktopRuntime";
-import { projectPathsEquivalent } from "@/utils/projectIdentity";
 import { writeTerminalRestoreLog as writeRestoreLog } from "@/stores/useTerminalRestoreLogStore";
+import { verifyIdentity, type IdentityLeafFacts } from "./terminalIdentityVerification";
 export { runBackgroundLayoutRestore } from "./backgroundLayoutRestore";
 
 export async function restoreLiveDaemonSessionsFromBackend(): Promise<number> {
@@ -39,32 +38,42 @@ export interface ReconcileTerminalSessionsOptions {
   autoAdopt: boolean;
 }
 
-interface RestorableLeaf {
+/** 判据所需事实（见 IdentityLeafFacts）+ 恢复流程自己要用的锚点与原始 leaf。 */
+interface RestorableLeaf extends IdentityLeafFacts {
   layoutId: string;
   tabId: string;
-  projectPath: string;
-  cliTool: string;
-  runtimeKind: string;
   resumeId?: string;
   leaf: TerminalPaneLeaf;
 }
 
 function restorableLeaves(): RestorableLeaf[] {
   return usePanesStore.getState().getRestorableTabs().flatMap(({ tab, layoutId }) =>
-    collectTerminalLeaves(tab.terminalRootPane).map((leaf) => ({
-      layoutId,
-      tabId: tab.id,
-      projectPath: tab.projectPath,
-      cliTool: leaf.cliTool ?? tab.cliTool ?? (leaf.launchClaude || tab.launchClaude ? "claude" : "none"),
-      runtimeKind: resolveRuntimeKind({ ssh: leaf.ssh ?? tab.ssh, wsl: leaf.wsl ?? tab.wsl }),
-      resumeId: leaf.resumeId ?? tab.resumeId,
-      leaf,
-    })),
+    collectTerminalLeaves(tab.terminalRootPane).map((leaf) => {
+      const runtimeKind = resolveRuntimeKind({
+        ssh: leaf.ssh ?? tab.ssh,
+        wsl: leaf.wsl ?? tab.wsl,
+      });
+      return {
+        layoutId,
+        tabId: tab.id,
+        projectPath: tab.projectPath,
+        cliToolEvidence:
+          leaf.cliTool ?? tab.cliTool ?? (leaf.launchClaude || tab.launchClaude ? "claude" : undefined),
+        runtimeEvidence: runtimeKind === "ssh" || runtimeKind === "wsl" ? runtimeKind : undefined,
+        resumeId: leaf.resumeId ?? tab.resumeId,
+        leaf,
+      };
+    }),
   );
 }
 
-function setBlocked(leaf: RestorableLeaf, reason: TerminalRestoreBlockedReason): void {
-  usePanesStore.getState().setTerminalRestoreBlocked(leaf.tabId, leaf.leaf.id, reason);
+function setBlocked(
+  leaf: RestorableLeaf,
+  reason: TerminalRestoreBlockedReason,
+  /** 已定位到具体候选时一并记下，阻断面板据此提供手动接管出口 */
+  sessionId?: string,
+): void {
+  usePanesStore.getState().setTerminalRestoreBlocked(leaf.tabId, leaf.leaf.id, reason, sessionId);
 }
 
 function blockPendingLeaves(reason: TerminalRestoreBlockedReason): number {
@@ -87,60 +96,6 @@ function anchorMatches(record: SavedSession, leaf: RestorableLeaf): boolean {
   );
 }
 
-function nonEmpty(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
-}
-
-function identityMatches(
-  record: SavedSession,
-  provenance: TerminalSessionProvenance,
-  leaf: RestorableLeaf,
-  snapshot: TerminalAdoptionSnapshot,
-): boolean {
-  if (
-    snapshot.daemonGeneration === undefined
-    || record.daemonGeneration !== snapshot.daemonGeneration
-    || provenance.daemonGeneration !== snapshot.daemonGeneration
-    || !record.birthNonce
-    || record.birthNonce !== provenance.birthNonce
-    || provenance.sessionId !== record.sessionId
-  ) return false;
-
-  // The saved anchor is mutable when a tab moves; daemon provenance is immutable birth data.
-  // Both must be complete, but requiring equality would reject legitimate cross-layout moves.
-  if (
-    !record.layoutId
-    || !record.tabId
-    || !record.terminalPaneId
-    || !nonEmpty(provenance.originLayoutId)
-    || !nonEmpty(provenance.originTabId)
-    || !nonEmpty(provenance.originTerminalPaneId)
-  ) return false;
-
-  if (
-    !record.projectPath
-    || !provenance.projectPath
-    || !leaf.projectPath
-    || !projectPathsEquivalent(record.projectPath, provenance.projectPath)
-    || !projectPathsEquivalent(record.projectPath, leaf.projectPath)
-  ) return false;
-
-  if (
-    !record.runtimeKind
-    || record.runtimeKind !== provenance.runtimeKind
-    || record.runtimeKind !== leaf.runtimeKind
-    || record.cliTool !== provenance.cliTool
-    || record.cliTool !== leaf.cliTool
-  ) return false;
-
-  const resumeIds = new Set(
-    [record.resumeId, provenance.resumeId, leaf.resumeId]
-      .map(nonEmpty)
-      .filter((value): value is string => Boolean(value)),
-  );
-  return resumeIds.size <= 1;
-}
 
 /**
  * 启动认领轮（docs/61 阶段 3）——本项修复的正主。
@@ -291,7 +246,7 @@ export async function reconcileTerminalSessions(
         writeRestoreLog(leaf.tabId, leaf.leaf.id, "candidate.blocked", {
           reason: "missing-provenance",
         });
-        setBlocked(leaf, "missing-provenance");
+        setBlocked(leaf, "missing-provenance", leaf.leaf.savedSessionId);
         report.blocked += 1;
       } else {
         usePanesStore.getState().setTerminalRestoreBlocked(leaf.tabId, leaf.leaf.id, undefined);
@@ -329,16 +284,25 @@ export async function reconcileTerminalSessions(
         reason: "missing-provenance",
         sessionId: record.sessionId,
       });
-      setBlocked(leaf, "missing-provenance");
+      setBlocked(leaf, "missing-provenance", record.sessionId);
       report.blocked += 1;
       continue;
     }
-    if (!identityMatches(record, provenance, leaf, snapshot)) {
+    const verdict = verifyIdentity(record, provenance, leaf, snapshot);
+    if (!verdict.ok) {
+      // 出生锚点缺失是**策略**（该会话按设计只能人工接管），不是身份对不上。
+      // 混报成 identity-mismatch 会让日志指向 CLI/运行环境/项目路径这些实际
+      // 完全正确的字段，把排查引向死路。
+      const reason: TerminalRestoreBlockedReason =
+        verdict.gate === "birth-anchor" ? "anchorless-session" : "identity-mismatch";
       writeRestoreLog(leaf.tabId, leaf.leaf.id, "identity.blocked", {
-        reason: "identity-mismatch",
+        reason,
         sessionId: record.sessionId,
+        gate: verdict.gate,
+        field: verdict.field,
+        values: verdict.values,
       });
-      setBlocked(leaf, "identity-mismatch");
+      setBlocked(leaf, reason, record.sessionId);
       report.blocked += 1;
       continue;
     }
@@ -352,7 +316,7 @@ export async function reconcileTerminalSessions(
         reason: "claim-conflict",
         owner,
       });
-      setBlocked(leaf, "claim-conflict");
+      setBlocked(leaf, "claim-conflict", record.sessionId);
       report.blocked += 1;
       continue;
     }
@@ -360,7 +324,7 @@ export async function reconcileTerminalSessions(
       writeRestoreLog(leaf.tabId, leaf.leaf.id, "claim.blocked", {
         reason: "auto-adopt-disabled",
       });
-      setBlocked(leaf, "auto-adopt-disabled");
+      setBlocked(leaf, "auto-adopt-disabled", record.sessionId);
       report.blocked += 1;
       continue;
     }
@@ -385,7 +349,7 @@ export async function reconcileTerminalSessions(
         reason: "claim-conflict",
         sessionId: record.sessionId,
       });
-      setBlocked(leaf, "claim-conflict");
+      setBlocked(leaf, "claim-conflict", record.sessionId);
       report.blocked += 1;
       continue;
     }
@@ -411,7 +375,9 @@ export async function reconcileTerminalSessions(
       await terminalService.releaseSession(record.sessionId).catch((error) => {
         console.warn(`[SessionAdopt] failed to release unattached ${record.sessionId}:`, error);
       });
-      setBlocked(leaf, "identity-mismatch");
+      // 身份此刻是**通过**的，失败在挂载。报 identity-mismatch 会指向一组完全
+      // 正确的字段，和出生锚点那处是同一类误标。
+      setBlocked(leaf, "attach-rejected", record.sessionId);
       report.blocked += 1;
       continue;
     }

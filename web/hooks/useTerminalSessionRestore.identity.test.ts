@@ -136,19 +136,29 @@ async function run(options: RunOptions = {}) {
   return reconcileTerminalSessions({ autoAdopt: true });
 }
 
-function expectMismatch(report: { attached: number; blocked: number }): void {
-  expect(setTerminalRestoreBlocked).toHaveBeenCalledWith("tab-1", "leaf-1", "identity-mismatch");
-  expect(terminalService.adoptSession).not.toHaveBeenCalled();
+/** 阻断时会连候选会话 id 一起记下，阻断面板据此提供手动接管出口。 */
+function expectBlockedAs(
+  report: { attached: number; blocked: number },
+  reason: string,
+  sessionId: string | undefined = "session-1",
+): void {
+  expect(setTerminalRestoreBlocked).toHaveBeenCalledWith("tab-1", "leaf-1", reason, sessionId);
   expect(report.attached).toBe(0);
   expect(report.blocked).toBe(1);
 }
 
+function expectMismatch(report: { attached: number; blocked: number }): void {
+  expectBlockedAs(report, "identity-mismatch");
+  expect(terminalService.adoptSession).not.toHaveBeenCalled();
+}
+
 function expectAccepted(report: { attached: number; blocked: number }): void {
-  expect(setTerminalRestoreBlocked).not.toHaveBeenCalledWith(
-    "tab-1",
-    "leaf-1",
-    "identity-mismatch",
+  // 断言「没有任何阻断」而不是「没有某一种阻断」：前者才能挡住「换了个原因码
+  // 继续误杀」这类回归。
+  const blockingCalls = setTerminalRestoreBlocked.mock.calls.filter(
+    (call) => call[2] !== undefined,
   );
+  expect(blockingCalls).toEqual([]);
   expect(terminalService.adoptSession).toHaveBeenCalledWith("session-1");
   expect(report.attached).toBe(1);
   expect(report.blocked).toBe(0);
@@ -208,10 +218,12 @@ describe("identityMatches：daemonGeneration 三方一致", () => {
 
     const report = await reconcileTerminalSessions({ autoAdopt: true });
 
+    // 这条路径连候选都还没选出来，没有可供手动接管的会话 id。
     expect(setTerminalRestoreBlocked).toHaveBeenCalledWith(
       "tab-1",
       "leaf-1",
       "reconciliation-failed",
+      undefined,
     );
     expect(report.blocked).toBe(1);
   });
@@ -237,26 +249,43 @@ describe("identityMatches：provenance.sessionId 自洽", () => {
   });
 });
 
-describe("identityMatches：出生锚点三字段必须完整（nonEmpty 走 trim）", () => {
-  const anchorFields = [
-    "originLayoutId",
-    "originTabId",
-    "originTerminalPaneId",
-  ] as const;
+describe("出生锚点：tab + terminalPane 必须有，layout 不作要求", () => {
+  // 缺出生锚点是**策略**（该会话按设计只能人工接管），不是身份对不上。混报成
+  // identity-mismatch 会让日志指向 CLI / 运行环境 / 项目路径这些实际完全正确的
+  // 字段，把排查引向死路——这正是本轮返工的起因。
+  const requiredFields = ["originTabId", "originTerminalPaneId"] as const;
 
-  for (const field of anchorFields) {
-    it(`provenance.${field} 缺失 → 失配`, async () => {
-      expectMismatch(await run({ provenance: { [field]: undefined } }));
+  for (const field of requiredFields) {
+    it(`provenance.${field} 缺失 → anchorless-session（非 identity-mismatch）`, async () => {
+      expectBlockedAs(await run({ provenance: { [field]: undefined } }), "anchorless-session");
     });
 
-    it(`provenance.${field} 为空串 → 失配`, async () => {
-      expectMismatch(await run({ provenance: { [field]: "" } }));
+    it(`provenance.${field} 为空串 → anchorless-session`, async () => {
+      expectBlockedAs(await run({ provenance: { [field]: "" } }), "anchorless-session");
     });
 
-    it(`provenance.${field} 为纯空白 → 失配（trim 后为空，不得当作有值）`, async () => {
-      expectMismatch(await run({ provenance: { [field]: "   " } }));
+    it(`provenance.${field} 为纯空白 → anchorless-session（trim 后为空，不得当作有值）`, async () => {
+      expectBlockedAs(await run({ provenance: { [field]: "   " } }), "anchorless-session");
     });
   }
+
+  // layout 是唯一会合法移动的一维（跨布局拖标签），它从不参与比对，查非空换不来
+  // 任何身份保证；而后端派发会话时确实拿不到它（落点由前端五级链解析）。
+  for (const empty of [undefined, "", "   "] as const) {
+    it(`provenance.originLayoutId 为 ${JSON.stringify(empty)} → 放行`, async () => {
+      expectAccepted(await run({ provenance: { originLayoutId: empty } }));
+    });
+  }
+
+  it("MCP 派发的会话（有 tab/pane 锚点、无 layout）可自动接管", async () => {
+    expectAccepted(await run({
+      provenance: {
+        originLayoutId: undefined,
+        originTabId: "tab-minted-by-backend",
+        originTerminalPaneId: "terminal-pane-minted-by-backend",
+      },
+    }));
+  });
 
   it("出生锚点与当前锚点不同不算失配（跨布局移动合法）", async () => {
     expectAccepted(await run({
@@ -281,6 +310,7 @@ describe("identityMatches：出生锚点三字段必须完整（nonEmpty 走 tri
       "tab-1",
       "leaf-1",
       "missing-provenance",
+      "session-1",
     );
     expect(report.attached).toBe(0);
   });
@@ -312,7 +342,8 @@ describe("identityMatches：projectPath 三方等价", () => {
   });
 });
 
-describe("identityMatches：runtimeKind 与 cliTool 三方一致", () => {
+describe("runtimeKind / cliTool：record↔provenance 严格，leaf 只认正面反证", () => {
+  // record 与 provenance 都是持久化事实，严格相等。
   it("record 缺 runtimeKind → 失配", async () => {
     expectMismatch(await run({ record: { runtimeKind: undefined } }));
   });
@@ -321,21 +352,45 @@ describe("identityMatches：runtimeKind 与 cliTool 三方一致", () => {
     expectMismatch(await run({ provenance: { runtimeKind: "wsl" } }));
   });
 
-  it("record.runtimeKind 与 leaf 解析结果不等 → 失配（leaf 带 wsl 配置）", async () => {
-    expectMismatch(await run({ leaf: { wsl: { distro: "Ubuntu", remotePath: "/mnt/d" } } }));
-  });
-
   it("record.cliTool 与 provenance 不等 → 失配", async () => {
     expectMismatch(await run({ provenance: { cliTool: "codex" } }));
   });
 
-  it("record.cliTool 与 leaf 不等 → 失配", async () => {
-    expectMismatch(await run({ leaf: { cliTool: "codex" } }));
+  // leaf 带着明确的 ssh/wsl 配置去接一条别的运行环境的会话——这是真正危险的方向
+  // （docs/61:63 记过一次事故：接管 WSL 会话后重建跑到本地错误目录），必须拦。
+  it("leaf 明确带 wsl 配置而会话是 local → 失配", async () => {
+    expectMismatch(await run({ leaf: { wsl: { distro: "Ubuntu", remotePath: "/mnt/d" } } }));
+  });
+
+  it("leaf 明确指定了另一个 cliTool → 失配", async () => {
+    expectMismatch(await run({ leaf: { cliTool: "codex" }, tab: { cliTool: "codex" } }));
+  });
+
+  // 反方向不成立：leaf **没有**运行环境信息不等于「它是 local」。
+  // resolveRuntimeKind 缺 ssh/wsl 时一律返回 "local"，旧实现拿这个兜底值做严格
+  // 相等，于是「布局快照把 wsl 配置弄丢了」会被误判成身份不符——这是旧实现最
+  // 主要的误杀来源。
+  it("leaf 丢了 wsl 配置（会话本身是 wsl）→ 放行，不再误杀", async () => {
+    expectAccepted(await run({
+      record: { runtimeKind: "wsl" },
+      provenance: { runtimeKind: "wsl" },
+      leaf: { wsl: undefined },
+      tab: { wsl: undefined },
+    }));
+  });
+
+  it("leaf 丢了 cliTool（会话本身是 codex）→ 放行，不再误杀", async () => {
+    expectAccepted(await run({
+      record: { cliTool: "codex" },
+      provenance: { cliTool: "codex" },
+      leaf: { cliTool: undefined, launchClaude: undefined },
+      tab: { cliTool: undefined },
+    }));
   });
 });
 
-describe("identityMatches：resumeId 集合语义（size <= 1）", () => {
-  it("三方各不相同（size=3）→ 失配", async () => {
+describe("resumeId：只比 record↔provenance（leaf 侧会合法漂移）", () => {
+  it("record 与 provenance 不同 → 失配", async () => {
     expectMismatch(await run({
       record: { resumeId: "r-a" },
       provenance: { resumeId: "r-b" },
@@ -343,7 +398,7 @@ describe("identityMatches：resumeId 集合语义（size <= 1）", () => {
     }));
   });
 
-  it("两方不同（第三方缺失，size=2）→ 失配", async () => {
+  it("record 与 provenance 不同（leaf 缺失）→ 失配", async () => {
     expectMismatch(await run({
       record: { resumeId: "r-a" },
       provenance: { resumeId: "r-b" },
@@ -351,7 +406,17 @@ describe("identityMatches：resumeId 集合语义（size <= 1）", () => {
     }));
   });
 
-  it("只有一方有值（size=1）→ 放行（另两方尚未回写 resumeId）", async () => {
+  // CLI 会在 compaction 时轮换 session id，leaf 上的值因此可能与档案里的不同。
+  // 旧实现把 leaf 也算作一票，于是正常轮换会被判成身份不符。
+  it("leaf 的 resumeId 已轮换成另一个值 → 放行，不再误杀", async () => {
+    expectAccepted(await run({
+      record: { resumeId: "r-a" },
+      provenance: { resumeId: "r-a" },
+      leaf: { resumeId: "r-rotated" },
+    }));
+  });
+
+  it("只有一方有值（size=1）→ 放行（另一方尚未回写 resumeId）", async () => {
     expectAccepted(await run({
       record: { resumeId: "r-a" },
       provenance: { resumeId: undefined },
@@ -373,6 +438,16 @@ describe("identityMatches：resumeId 集合语义（size <= 1）", () => {
       provenance: { resumeId: "resume-1" },
       leaf: { resumeId: "\t" },
     }));
+  });
+
+  it("身份通过但挂载被拒 → attach-rejected（不是身份问题，别再报成 identity-mismatch）", async () => {
+    attachSessionToAnchor.mockReturnValue(false);
+
+    const report = await run();
+
+    expectBlockedAs(report, "attach-rejected");
+    // 挂不上的会话必须把写权限还回去，否则它既没挂上又被本实例占着。
+    expect(terminalService.releaseSession).toHaveBeenCalledWith("session-1");
   });
 
   it("同一 resumeId 带前后空白视为同值 → 放行", async () => {

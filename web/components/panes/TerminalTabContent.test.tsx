@@ -217,6 +217,9 @@ describe("TerminalTabContent", () => {
     useTerminalRestoreLogStore.getState().append("tab-1", "leaf-1", "identity.blocked", {
       reason: "identity-mismatch",
       sessionId: "sess-abcdef123456",
+      gate: "project",
+      field: "projectPath",
+      values: { record: "D:\\work\\a", leaf: "D:\\work\\b" },
     });
     renderTerminalTabContent(
       createTerminalTab({
@@ -234,8 +237,15 @@ describe("TerminalTabContent", () => {
     expect(screen.getByRole("log")).toHaveTextContent(
       i18n.t("panes:restoreLog.events.identity_blocked__identity-mismatch", {
         sessionId: "sess-abc",
+        gate: i18n.t("panes:restoreLog.gate.project"),
+        field: "projectPath",
+        values: "record=D:\\work\\a / leaf=D:\\work\\b",
       }),
     );
+    // 日志必须点名是哪一关、哪个字段、三方各是什么值——本轮返工的直接起因就是
+    // 旧文案写死「CLI、运行环境或项目路径对不上」，而那三样当时全是对的。
+    expect(screen.getByRole("log")).toHaveTextContent("projectPath");
+    expect(screen.getByRole("log")).toHaveTextContent("record=D:\\work\\a");
     // 原始事件名默认收起，展开「原始详情」后才出现。
     expect(screen.getByRole("log")).not.toHaveTextContent("identity.blocked");
     fireEvent.click(screen.getByText(i18n.t("panes:restoreLogDetails")));
