@@ -1074,6 +1074,10 @@ struct TerminalSession {
     launch_id: Option<String>,
     project_path: String,
     runtime_kind: String,
+    /// 这条会话跑的是哪个 CLI。submit 时据此判断目标是不是带 composer 的 TUI——
+    /// 纯 shell 与 TUI agent 对「多行文本里的换行」期待相反。
+    cli_tool: CliTool,
+
     process: Arc<dyn PtyProcess>,
     writer_tx: mpsc::Sender<WriterCommand>,
     status: Arc<Mutex<SessionStatus>>,
@@ -3355,6 +3359,7 @@ impl TerminalService {
                     launch_id: launch_id.map(str::to_string),
                     project_path: project_path.to_string(),
                     runtime_kind: runtime_kind.to_string(),
+                    cli_tool,
                     process,
                     writer_tx,
                     status: status.clone(),
@@ -4058,6 +4063,17 @@ impl TerminalService {
         })
     }
 
+    /// 目标是否是跑 TUI composer 的 CLI agent（而非纯 shell）。
+    ///
+    /// 会话查不到时返回 `false`：宁可退回原行为，也不要凭空给未知目标加括号粘贴。
+    fn session_runs_tui_composer(&self, session_id: &str) -> bool {
+        self.sessions
+            .lock()
+            .ok()
+            .and_then(|sessions| sessions.get(session_id).map(|s| s.cli_tool))
+            .is_some_and(|cli_tool| cli_tool != CliTool::None)
+    }
+
     pub fn is_paste_ready(&self, session_id: &str) -> AppResult<bool> {
         let sessions = self
             .sessions
@@ -4318,8 +4334,30 @@ impl TerminalService {
         }
 
         let paste_ready = self.is_paste_ready(session_id)?;
-        let wrapped_text = paste_ready.then(|| wrap_bracketed_paste(text));
+        // `paste_ready` 的含义只是「我们**观察到**了 DECSET 2004」，观察不到不等于对面
+        // 不支持：Windows ConPTY 从不转发这个序列，而 dispatch_task 注入 prompt 常常
+        // 发生在 TUI 刚起、还没来得及宣告之前（启动期没有任何等待 paste_ready 的逻辑，
+        // 它只在进程退出时被置回 false）。
+        //
+        // 此时把带换行的多行文本原样写下去，每个 `\n` 到 TUI 就是一次 Enter——消息被
+        // 拆成几条是轻的，**composer 里停着的用户草稿会被第一个换行直接提交出去**。
+        // `submit_delay_ms` 在这条路径上只是等更久，解决的是时序，解决不了语义。
+        //
+        // 故判据不看「有没有观察到」，而看**目标是不是带 composer 的 TUI**：是且文本
+        // 跨行，就照样包括号粘贴。纯 shell 不适用——它本就该逐行执行，包上反而会让它
+        // 把 `[200~` 当字面输入。万一某个 TUI 确实不支持，最坏是屏幕上多出字面标记，
+        // 比丢掉用户草稿轻得多。
+        let needs_paste_guard =
+            !paste_ready && text.contains('\n') && self.session_runs_tui_composer(session_id);
+        let wrapped_text = (paste_ready || needs_paste_guard).then(|| wrap_bracketed_paste(text));
         let submitted_text = wrapped_text.as_deref().unwrap_or(text);
+        if needs_paste_guard {
+            debug!(
+                session_id = %session_id,
+                "terminal-input.trace submit wrapped without observed DECSET 2004 (multiline to TUI)"
+            );
+        }
+
         let mutex = self.input_mutex_for_session(session_id)?;
         let _guard = mutex
             .lock()
@@ -5296,6 +5334,61 @@ mod tests {
         service.write("typing", "ls\r").expect("write");
 
         assert!(!writes.lock().expect("writes").is_empty());
+    }
+
+    /// `paste_ready` 只代表「观察到了 DECSET 2004」。Windows ConPTY 从不转发它，
+    /// TUI 启动早期也来不及宣告——而 dispatch_task 注入 prompt 正是最常见路径。
+    /// 那时把多行文本原样写下去，第一个换行就会把 composer 里停着的用户草稿提交出去。
+    #[test]
+    fn wraps_multiline_submit_for_a_tui_even_without_observed_paste_ready() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        install_recording_session_full(
+            &service,
+            "agent",
+            writes.clone(),
+            None,
+            None,
+            None,
+            CliTool::Claude,
+        );
+
+        service
+            .submit_text_to_session("agent", "first line\nsecond line")
+            .expect("submit");
+
+        let joined = writes.lock().expect("writes").join("");
+        assert!(joined.contains("\u{1b}[200~"), "未包括号粘贴：{joined:?}");
+        assert!(joined.contains("\u{1b}[201~"), "缺结束标记：{joined:?}");
+    }
+
+    /// 纯 shell 期待的恰恰相反：多行就是多条命令，逐行执行才对。包上括号粘贴
+    /// 只会让它把 `[200~` 当字面输入。
+    #[test]
+    fn leaves_multiline_submit_raw_for_a_plain_shell() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        install_recording_session_full(&service, "shell", writes.clone(), None, None, None, CliTool::None);
+
+        service
+            .submit_text_to_session("shell", "echo a\necho b")
+            .expect("submit");
+
+        let joined = writes.lock().expect("writes").join("");
+        assert!(!joined.contains("\u{1b}[200~"), "纯 shell 不该被包裹：{joined:?}");
+    }
+
+    /// 单行没有这个问题——没有内嵌换行就不会提前提交，保持原行为避免多余标记。
+    #[test]
+    fn leaves_single_line_submit_raw_without_paste_ready() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        install_recording_session_full(&service, "agent", writes.clone(), None, None, None, CliTool::Claude);
+
+        service.submit_text_to_session("agent", "just one line").expect("submit");
+
+        let joined = writes.lock().expect("writes").join("");
+        assert!(!joined.contains("\u{1b}[200~"), "单行不该被包裹：{joined:?}");
     }
 
     /// spinner 帧靠光标控制原地刷新，ANSI 剥离后光标控制没了、帧首尾相接堆成巨行，
@@ -6355,6 +6448,34 @@ mod tests {
         managed_pi_state_cleanup: Option<PiManagedStateCleanup>,
         pty_echo: Option<bool>,
     ) {
+        install_recording_session_full(
+            service,
+            session_id,
+            writes,
+            launch_id,
+            managed_pi_state_cleanup,
+            pty_echo,
+            CliTool::None,
+        );
+    }
+
+    /// `session_cli_tool` 决定 submit 时是否把目标当作带 composer 的 TUI。
+    fn install_recording_session_full(
+        service: &TerminalService,
+        session_id: &str,
+        writes: Arc<Mutex<Vec<String>>>,
+        launch_id: Option<&str>,
+        managed_pi_state_cleanup: Option<PiManagedStateCleanup>,
+        pty_echo: Option<bool>,
+        session_cli_tool: CliTool,
+    ) {
+
+        session_id: &str,
+        writes: Arc<Mutex<Vec<String>>>,
+        launch_id: Option<&str>,
+        managed_pi_state_cleanup: Option<PiManagedStateCleanup>,
+        pty_echo: Option<bool>,
+    ) {
 
         let writer_tx =
             spawn_terminal_writer(session_id.to_string(), Box::new(RecordingWriter { writes }));
@@ -6368,6 +6489,7 @@ mod tests {
                     launch_id: launch_id.map(str::to_string),
                     project_path: "/repo".to_string(),
                     runtime_kind: "local".to_string(),
+                    cli_tool: session_cli_tool,
                     process: Arc::new(FakePtyProcess { echo: pty_echo }),
                     writer_tx,
                     status: Arc::new(Mutex::new(SessionStatus::Idle)),
