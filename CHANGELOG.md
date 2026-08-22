@@ -20,6 +20,19 @@ Maintenance release. Most of it is one thread pulled end to end: a report of "ga
 
 ## 0.12.5 - 2026-08-18
 
+Shipped without changelog entries: the dev line had 0.12.4's text sitting under a `0.12.5` heading, and the correction made on `release/0.12.4` never flowed back, so the mistake stayed invisible until 0.12.6 merged into main. Reconstructed below from the 19 commits between the two tags — commit subjects, not a written-at-the-time account.
+
+### Added
+
+- Cross-CLI task dispatch skills wired through the orchestrator.
+
+### Fixed
+
+- Bracketed paste readiness is respected when submitting text to a session.
+- Pane zoom and surface transparency are isolated per pane instead of leaking across them.
+- SSH: a failed persist of a newly trusted host key no longer drops the connection, and the machine list carries `hasStoredPassword` so a restart stops re-prompting for a password already saved.
+- Terminal layout and the close dialog: assorted stability fixes.
+
 ## 0.12.4 - 2026-08-11
 
 Maintenance release: notification false-positive root-cause fixes, non-standard model context windows, terminal legibility on macOS, and TUI fidelity over wallpapers.
