@@ -70,6 +70,8 @@ function createMockTerminal(): Terminal {
   const screen = document.createElement("div");
   screen.className = "xterm-screen";
   element.appendChild(screen);
+  // 必须挂进文档：游离节点画不出来，控制器会（正确地）把 atlas 重绘推迟到可见之后。
+  document.body.appendChild(element);
   return {
     element,
     rows: 24,
@@ -292,5 +294,58 @@ describe("terminal renderer controller", () => {
     expect(second.refresh).toHaveBeenCalledWith(0, 23);
     firstController.dispose();
     secondController.dispose();
+  });
+
+  // 花屏的成因：atlas 重排时隐藏的 pane 画不出来，旧实现直接丢弃这次刷新且无补偿，
+  // 切回去时它仍用着失效的字形坐标 → 采样到别的字形碎片（连 ASCII 都会坏）。
+  it("defers the atlas repaint while hidden and replays it once visible again", () => {
+    const term = createMockTerminal();
+    const controller = createTerminalRendererController({
+      term,
+      logger: vi.fn(),
+      onRendererChanged: vi.fn(),
+    });
+    controller.configure("webgl");
+
+    // 隐藏态：祖先 display:none 的 tab / 非活动布局就是这个形态。
+    let visible = false;
+    Object.defineProperty(term.element as HTMLElement, "checkVisibility", {
+      configurable: true,
+      value: () => visible,
+    });
+
+    webglMock.instances[0].atlasChangeHandler?.(document.createElement("canvas"));
+
+    expect(term.refresh).not.toHaveBeenCalled();
+    expect(controller.getDiagnostics().atlasRefreshDeferredCount).toBe(1);
+
+    visible = true;
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(term.refresh).toHaveBeenCalledWith(0, 23);
+    controller.dispose();
+  });
+
+  it("stops replaying a deferred repaint after WebGL is torn down", () => {
+    const term = createMockTerminal();
+    const controller = createTerminalRendererController({
+      term,
+      logger: vi.fn(),
+      onRendererChanged: vi.fn(),
+    });
+    controller.configure("webgl");
+    Object.defineProperty(term.element as HTMLElement, "checkVisibility", {
+      configurable: true,
+      value: () => false,
+    });
+    webglMock.instances[0].atlasChangeHandler?.(document.createElement("canvas"));
+    expect(term.refresh).not.toHaveBeenCalled();
+
+    // 降级/卸载后模型已作废，重新 enable 会是全新模型——旧的待刷标记不该再触发白刷一帧。
+    controller.configure("dom");
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(term.refresh).not.toHaveBeenCalledWith(0, 23);
+    controller.dispose();
   });
 });

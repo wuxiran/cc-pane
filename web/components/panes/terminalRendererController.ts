@@ -8,6 +8,11 @@ import {
   type ActiveTerminalRenderer,
   type TerminalRendererDecision,
 } from "./terminalRenderer";
+import {
+  createAtlasRefreshCoordinator,
+  notifyAtlasStructureChanged,
+  type AtlasRefreshCoordinator,
+} from "./terminalAtlasRefresh";
 
 type RendererLogger = (event: string, payload?: Record<string, unknown>) => void;
 
@@ -55,29 +60,6 @@ function collectTerminalCanvases(term: Terminal): HTMLCanvasElement[] {
   );
 }
 
-// 跨终端共享 atlas 协调。
-// xterm 让**同配置**的终端共用同一张字形图集（CharAtlasCache）。当某个 pane 因输出新字形
-// 导致 atlas 扩容 / 加页 / 合并页时，共享纹理里字形的位置会变，但**每个 pane 各自保存 WebGL
-// 顶点模型**；没有同步重建模型的 pane 会采样到错误位置 → 表现为「大片黑 + 稀疏彩色碎片」，
-// 点击/滚动触发全量刷新才恢复。所以任一 pane 的 atlas 结构变化时，必须让**所有活跃 WebGL
-// 终端**各补一次 refresh。用模块级注册表 + rAF 合并，避免每个事件都全量重画所有 pane。
-const atlasRefreshRegistry = new Set<() => void>();
-let atlasRefreshScheduled = false;
-function notifyAtlasStructureChanged(): void {
-  if (atlasRefreshScheduled) return;
-  atlasRefreshScheduled = true;
-  requestAnimationFrame(() => {
-    atlasRefreshScheduled = false;
-    for (const refresh of atlasRefreshRegistry) {
-      try {
-        refresh();
-      } catch {
-        // 单个 pane 刷新失败不影响其它 pane。
-      }
-    }
-  });
-}
-
 export interface TerminalRendererDiagnostics {
   activeRenderer: ActiveTerminalRenderer;
   requestedMode: TerminalRendererMode;
@@ -86,6 +68,8 @@ export interface TerminalRendererDiagnostics {
   atlasClearCount: number;
   atlasChangeCount: number;
   atlasCanvasCount: number;
+  /** 因当时画不出来而被推迟、尚未补上的 atlas 重绘次数（>0 说明存在花屏风险窗口）。 */
+  atlasRefreshDeferredCount: number;
   webglRecreateCount: number;
   lastError: string | null;
   lastDevicePixelRatio: number;
@@ -142,6 +126,19 @@ export function createTerminalRendererController({
   let lastError: string | null = null;
   let lastDevicePixelRatio = getDevicePixelRatio();
 
+  // 共享字形图集的重绘协调（含「隐藏时推迟、可见时补刷」）。
+  const atlasRefresh: AtlasRefreshCoordinator = createAtlasRefreshCoordinator({
+    term,
+    isLive: () => !disposed && webglAddon !== null,
+    refresh: () => {
+      try {
+        term.refresh(0, Math.max(0, term.rows - 1));
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+      }
+    },
+  });
+
   const getDiagnostics = (): TerminalRendererDiagnostics => ({
     activeRenderer,
     requestedMode,
@@ -150,6 +147,7 @@ export function createTerminalRendererController({
     atlasClearCount,
     atlasChangeCount,
     atlasCanvasCount,
+    atlasRefreshDeferredCount: atlasRefresh.deferredCount(),
     webglRecreateCount,
     lastError,
     lastDevicePixelRatio,
@@ -159,7 +157,8 @@ export function createTerminalRendererController({
   });
 
   const disposeWebgl = (reason: string) => {
-    atlasRefreshRegistry.delete(refreshForSharedAtlas);
+    // 退出广播名单并丢弃待刷标记：重新 enable 时是全新模型，补刷只会白画一帧。
+    atlasRefresh.detach();
     for (const disposable of webglDisposables) {
       try {
         disposable.dispose();
@@ -244,17 +243,6 @@ export function createTerminalRendererController({
     }
   };
 
-  // 本终端在「共享 atlas 结构变化」时要执行的有界重绘（注册进 atlasRefreshRegistry）。
-  // 仅重绘一次、且只在 WebGL 活跃时——普通刷新不新增字形，不会再触发 atlas 变化，故不会级联。
-  const refreshForSharedAtlas = () => {
-    if (disposed || !webglAddon) return;
-    try {
-      term.refresh(0, Math.max(0, term.rows - 1));
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
-  };
-
   const enableWebgl = () => {
     if (disposed || webglAddon) return;
 
@@ -336,7 +324,7 @@ export function createTerminalRendererController({
     activeRenderer = "webgl";
     lastError = null;
     lastDevicePixelRatio = getDevicePixelRatio();
-    atlasRefreshRegistry.add(refreshForSharedAtlas);
+    atlasRefresh.attach();
     logger("renderer.webgl.enabled", { ...getDiagnostics() });
   };
 
