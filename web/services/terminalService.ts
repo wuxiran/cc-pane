@@ -29,15 +29,13 @@ import {
   addSubscriber, assertCreateSessionRequest, compactCreateSessionRequest,
   countTerminalInputChars, debugTerminalService, disposeTerminalSessionResources,
   isSessionClaimedError, isWebSocketDesyncMessage, parseWebSocketOutput,
-  removeSubscriber, summarizeTerminalInput,
+  removeSubscriber, splitInputRunsBySource, summarizeTerminalInput,
 } from "./terminalServiceShared";
-export { isSessionClaimedError };import { splitInputRunsBySource } from "./terminalServiceShared";
-import type {
+export { isSessionClaimedError };import type {
   TerminalBackendClientInfo,
   TerminalInputQueue,
   TerminalReplaySnapshot,
-  TerminalWriteOptions,
-  TerminalWriteSource,
+  TerminalWriteOptions, TerminalWriteSource,
 } from "./terminalServiceShared";
 export type {
   TerminalBackendClientInfo,
