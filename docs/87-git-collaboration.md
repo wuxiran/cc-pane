@@ -46,10 +46,11 @@ PR 显示 MERGED 但目标是 `release/*` 或 `dev/*` 时，改动要等发版�
 ```
 1. 从 dev/v* 切 release/X.Y.Z（或直接改名，无并行需求时）
 2. 收尾修复全进 release 分支，CI 必须全绿（含 macos）
-3. bump：恰好 7 个文件一次提交，message 固定 `release: vX.Y.Z`
-   CHANGELOG.md / package.json / package-lock.json /
+3. bump：恰好 8 个文件一次提交，message 固定 `release: vX.Y.Z`
+   CHANGELOG.md / CHANGELOG.zh-CN.md / package.json / package-lock.json /
    src-tauri/Cargo.toml / Cargo.lock / src-tauri/tauri.conf.json /
    cc-panes-mobile/pubspec.yaml（恒 +1 后缀）
+   ⚠ 中文条目缺失会在 validate-version 硬失败，构建根本不启动
    ⚠ lock 必须 `npx -y npm@10 install --package-lock-only` 生成
      并 `npx -y npm@10 ci --dry-run` 验证（本地 npm 11 的 lock 会挂 CI）
    ⚠ 提交用精确文件清单 add，禁 `git add -A`——并行会话可能有半成品在工作树
