@@ -1,4 +1,5 @@
 use crate::models::{CreateSessionRequest, WslLaunchInfo};
+use tracing::warn;
 
 pub fn normalize_session_request_for_current_host(
     request: CreateSessionRequest,
@@ -182,6 +183,27 @@ pub fn ensure_utf8_locale(env: &mut std::collections::HashMap<String, String>) {
     let normalized = effective.to_ascii_lowercase();
     if normalized.ends_with("utf-8") || normalized.ends_with("utf8") {
         return;
+    }
+
+    // 读的时候按 POSIX 优先级取，写的时候只写最低优先级的 LANG——当"非 UTF-8"的来源
+    // 正是 LC_ALL / LC_CTYPE 本身时，注入会被它们压制、本次修复**静默失效**（实测
+    // `env LC_ALL=C LANG=C.UTF-8 wc -m` 仍按字节计数）。
+    //
+    // 仍然不强写 LC_ALL：那会碾平用户每一个 LC_* 细分设置，代价大于收益。但静默失效
+    // 更糟——用户会以为修好了。故留一条日志让它可诊断。有人会在 profile 里
+    // `export LC_ALL=C` 求脚本输出稳定，正是这类人会撞上。
+    if let Some((key, value)) = ["LC_ALL", "LC_CTYPE"].into_iter().find_map(|key| {
+        env.get(key)
+            .cloned()
+            .or_else(|| std::env::var(key).ok())
+            .filter(|value| !value.is_empty())
+            .map(|value| (key, value))
+    }) {
+        warn!(
+            blocked_by = key,
+            value = %value,
+            "UTF-8 locale 注入被更高优先级的 {key} 压制，本会话仍按非 UTF-8 处理多字节文本"
+        );
     }
 
     env.insert("LANG".to_string(), UTF8_LOCALE.to_string());
