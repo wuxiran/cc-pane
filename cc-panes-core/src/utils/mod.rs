@@ -31,7 +31,7 @@ pub use host_path::{
     LaunchRuntime,
 };
 pub use launch_request::{
-    mint_birth_anchors, normalize_session_request_for_current_host,
+    ensure_utf8_locale, mint_birth_anchors, normalize_session_request_for_current_host,
     normalize_session_request_for_host, BirthAnchors,
 };
 pub use path_normalize::{

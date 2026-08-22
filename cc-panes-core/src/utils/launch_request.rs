@@ -146,6 +146,47 @@ fn running_under_wsl() -> bool {
         .unwrap_or(false)
 }
 
+/// 继承来的 locale 不是 UTF-8 时，给会话补一组 UTF-8 locale。
+///
+/// macOS 从 Finder/Dock 启动的 GUI 应用**不继承** shell 的 locale（Terminal.app 是靠
+/// 「启动时设置 locale 环境变量」那个选项才有的）。于是 app 自身与它拉起的每个本地
+/// PTY 都跑在 `LC_CTYPE=C` 下，依赖 locale 判断字符边界/显示宽度的程序会把多字节文本
+/// 算错——实测该 locale 下 `wc -m "中文测试"` 返回 12（字节）而非 4（字符）。
+///
+/// 判据与 WSL Codex 那条路径（`wsl_codex.rs` 注入的 shell 片段）一致：已经是 UTF-8
+/// 就一律不动。
+///
+/// **只补 `LANG`，绝不设 `LC_ALL`。** `LC_ALL` 是 POSIX 里优先级最高的总覆盖，会碾平
+/// 用户自己设的每一个 `LC_*` 细分类别（`LC_TIME` / `LC_COLLATE` / `LC_NUMERIC`…）。
+/// WSL 那段是一次性 bootstrap 脚本，强制无妨；搬到常驻 PTY 环境就成了误伤。`LANG`
+/// 是**最低优先级的兜底**，只填补没被显式设置的类别，正是这里需要的层级。
+///
+/// 值取 `C.UTF-8` 而非某个具体语言：只改字符集、不引入某个地区的排序与格式约定。
+/// 万一目标系统没有该 locale，setlocale 会退回 C —— 与不打这个补丁的现状相同，
+/// 不会更糟。
+pub fn ensure_utf8_locale(env: &mut std::collections::HashMap<String, String>) {
+    const UTF8_LOCALE: &str = "C.UTF-8";
+
+    // 判定顺序对齐 shell 的 ${LC_ALL:-${LC_CTYPE:-${LANG:-}}}：字符集由 LC_CTYPE 管，
+    // 它被显式设过就说明用户有主张，不该被 LANG 兜底覆盖掉。
+    let effective = ["LC_ALL", "LC_CTYPE", "LANG"]
+        .into_iter()
+        .find_map(|key| {
+            env.get(key)
+                .cloned()
+                .or_else(|| std::env::var(key).ok())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_default();
+
+    let normalized = effective.to_ascii_lowercase();
+    if normalized.ends_with("utf-8") || normalized.ends_with("utf8") {
+        return;
+    }
+
+    env.insert("LANG".to_string(), UTF8_LOCALE.to_string());
+}
+
 /// 出生锚点：会话在**创建时刻**就被指定的 tab / terminal-pane id。
 ///
 /// 这两个 id 由创建方预先分配、随 launch 事件下发，前端**原样采用**（不再自己
@@ -282,10 +323,76 @@ mod tests {
         );
     }
 
+    #[test]
+    fn leaves_an_existing_utf8_locale_alone() {
+        for existing in ["en_US.UTF-8", "zh_CN.utf8", "C.UTF-8"] {
+            let mut env = std::collections::HashMap::from([
+                ("LANG".to_string(), existing.to_string()),
+            ]);
 
+            ensure_utf8_locale(&mut env);
 
+            // 用户特意设的区域不能被覆盖：只有非 UTF-8 才补。
+            assert_eq!(env.get("LANG").map(String::as_str), Some(existing));
+            assert_eq!(env.get("LC_ALL"), None);
+            assert_eq!(env.get("LC_CTYPE"), None);
+        }
+    }
 
+    #[test]
+    fn fills_in_utf8_when_the_inherited_locale_is_not() {
+        // LC_CTYPE=C 正是 macOS GUI 应用（Finder/Dock 启动）拉起会话时的实际形态。
+        let mut env = std::collections::HashMap::from([("LANG".to_string(), "C".to_string())]);
 
+        ensure_utf8_locale(&mut env);
+
+        assert_eq!(env.get("LANG").map(String::as_str), Some("C.UTF-8"));
+        // LC_ALL 会碾平用户每一个 LC_* 细分设置，兜底绝不能用它。
+        assert_eq!(env.get("LC_ALL"), None);
+    }
+
+    #[test]
+    fn never_overrides_user_lc_categories() {
+        let mut env = std::collections::HashMap::from([
+            ("LANG".to_string(), "C".to_string()),
+            ("LC_TIME".to_string(), "zh_CN.UTF-8".to_string()),
+            ("LC_COLLATE".to_string(), "zh_CN.UTF-8".to_string()),
+        ]);
+
+        ensure_utf8_locale(&mut env);
+
+        assert_eq!(env.get("LANG").map(String::as_str), Some("C.UTF-8"));
+        assert_eq!(env.get("LC_TIME").map(String::as_str), Some("zh_CN.UTF-8"));
+        assert_eq!(env.get("LC_COLLATE").map(String::as_str), Some("zh_CN.UTF-8"));
+        assert_eq!(env.get("LC_ALL"), None);
+    }
+
+    #[test]
+    fn respects_an_explicit_lc_ctype() {
+        // 字符集归 LC_CTYPE 管；用户显式设了就是有主张，不该被 LANG 兜底盖过去。
+        let mut env = std::collections::HashMap::from([
+            ("LC_CTYPE".to_string(), "en_US.UTF-8".to_string()),
+            ("LANG".to_string(), "C".to_string()),
+        ]);
+
+        ensure_utf8_locale(&mut env);
+
+        assert_eq!(env.get("LANG").map(String::as_str), Some("C"));
+    }
+
+    #[test]
+    fn lc_all_wins_over_lang_when_deciding() {
+        // 与 shell 的 ${LC_ALL:-${LANG:-}} 同序：LC_ALL 已是 UTF-8 就不该因 LANG 而改写。
+        let mut env = std::collections::HashMap::from([
+            ("LC_ALL".to_string(), "en_US.UTF-8".to_string()),
+            ("LANG".to_string(), "C".to_string()),
+        ]);
+
+        ensure_utf8_locale(&mut env);
+
+        assert_eq!(env.get("LANG").map(String::as_str), Some("C"));
+        assert_eq!(env.get("LC_ALL").map(String::as_str), Some("en_US.UTF-8"));
+    }
 
     /// 前缀必须与前端 `paneTree.ts` 的 `generateId` 约定一致：前端会把这两个 id
     /// 原样用作 tab / leaf 的 id，形态不同源会让日志和排查凭空多一层歧义。

@@ -2455,6 +2455,10 @@ impl TerminalService {
         env_vars
             .entry("COLORTERM".to_string())
             .or_insert_with(|| "truecolor".to_string());
+        // GUI 应用不继承 shell locale（macOS 从 Finder/Dock 启动即如此），不补的话
+        // 整条会话跑在 LC_CTYPE=C 下，多字节文本的字符数与显示宽度都会算错。
+        // 已经是 UTF-8 则不动——判据与 WSL Codex 那条路径一致。
+        crate::utils::ensure_utf8_locale(&mut env_vars);
         env_vars.insert("CC_PANES_PTY_SESSION_ID".to_string(), session_id.clone());
         if let Some(workspace_snapshot_id) = workspace_snapshot_id {
             env_vars.insert(
