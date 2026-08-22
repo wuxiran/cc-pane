@@ -545,11 +545,58 @@ fn strip_ansi(data: &str) -> String {
     String::from_utf8_lossy(&bytes).to_string()
 }
 
+/// 一个未完成转义序列最多可以攒多少字节。超过就当普通文本放行——真实的 CSI/OSC 都
+/// 远短于此，攒不满只说明流里有个孤立的 ESC，不该让它无限扣着后续输出不放。
+const MAX_ESCAPE_CARRY: usize = 128;
+
+/// 把结尾那段**未完成的转义序列**从文本里切出来。返回 `(可安全剥离的部分, 待续尾巴)`。
+///
+/// PTY 是字节流，转义序列会被随机切在任意位置。`strip_ansi_escapes` 遇到未终止的
+/// 序列是**整段吞掉**（实测 `"A\x1b[38;2;24"` → `"A"`，连 ESC 一起没了），于是下一个
+/// chunk 开头的 `8;248;242m` 因为丢了 ESC 前缀，就被当成普通文本留在纯文本缓冲里。
+///
+/// `utf8_safe_process` 已经 carry 了未完成的 UTF-8 字符，`OutputBuffer` 也 carry 了
+/// 未完成的行——唯独转义序列没人 carry，这里补上。
+fn split_trailing_incomplete_escape(text: &str) -> (&str, &str) {
+    let Some(esc_at) = text.rfind('\u{1b}') else {
+        return (text, "");
+    };
+    // ESC 是 ASCII，不可能落在多字节字符内部，按字节切是安全的。
+    let candidate = &text[esc_at..];
+    if candidate.len() > MAX_ESCAPE_CARRY || is_complete_escape(candidate) {
+        return (text, "");
+    }
+    (&text[..esc_at], candidate)
+}
+
+/// `candidate` 以 ESC 开头；判断它是否已经完整。
+fn is_complete_escape(candidate: &str) -> bool {
+    let bytes = candidate.as_bytes();
+    debug_assert_eq!(bytes.first(), Some(&0x1b));
+    let Some(&kind) = bytes.get(1) else {
+        return false; // 光一个 ESC，后面还没来
+    };
+
+    match kind {
+        // CSI：参数字节 0x30–0x3F、中间字节 0x20–0x2F，终止于 0x40–0x7E。
+        b'[' => bytes[2..].iter().any(|&b| (0x40..=0x7e).contains(&b)),
+        // OSC / DCS / SOS / PM / APC：终止于 BEL 或 ST（ESC \）。
+        b']' | b'P' | b'X' | b'^' | b'_' => {
+            bytes[2..].contains(&0x07) || candidate[2..].contains("\u{1b}\\")
+        }
+        // 其余是两字节转义（ESC + 单个终止符），有第二个字节就算完整。
+        _ => true,
+    }
+}
+
 /// 终端会话的输出环形缓冲区（存储 ANSI 已剥离的纯文本行）
 struct OutputBuffer {
     lines: VecDeque<String>,
     /// 当前未完成行（未遇到换行符的尾部数据）
     partial: String,
+    /// 被 chunk 边界切断的转义序列尾巴，等下一个 chunk 拼回去再剥离。
+    /// 不 carry 的话前半会被 strip 整个吞掉，后半丢了 ESC 前缀就当正文留下。
+    escape_carry: String,
     max_lines: usize,
     /// 当前 lines 中所有行的总字节数
     total_bytes: usize,
@@ -646,6 +693,9 @@ fn is_spinner_line(line: &str) -> bool {
 
     const SPINNER_WORDS: &[&str] = &[
         "reticulating",
+        // 归一化会折叠连续相同字母，故存 simering 而非 simmering——与 bondogling
+        // （来自 Boondoggling）同理。写原词会永远匹配不上。
+        "simering",
         "swirling",
         "whirlpooling",
         "quantumizing",
@@ -681,6 +731,7 @@ impl OutputBuffer {
         Self {
             lines: VecDeque::new(),
             partial: String::new(),
+            escape_carry: String::new(),
             max_lines,
             total_bytes: 0,
             max_bytes,
@@ -689,8 +740,19 @@ impl OutputBuffer {
 
     /// 追加终端输出文本到缓冲区
     fn push(&mut self, text: &str) {
-        // 1. 剥离 ANSI 转义
-        let clean = strip_ansi(text);
+        // 1. 先接回上个 chunk 被切断的转义序列，再切出本 chunk 的新尾巴，然后才剥离。
+        //    顺序不能反：剥离是无状态的，未终止序列会被整段吞掉且不可恢复。
+        let joined = if self.escape_carry.is_empty() {
+            std::borrow::Cow::Borrowed(text)
+        } else {
+            let mut merged = std::mem::take(&mut self.escape_carry);
+            merged.push_str(text);
+            std::borrow::Cow::Owned(merged)
+        };
+        let (strippable, carry) = split_trailing_incomplete_escape(&joined);
+        self.escape_carry = carry.to_string();
+
+        let clean = strip_ansi(strippable);
         if clean.is_empty() {
             return;
         }
@@ -5052,6 +5114,73 @@ mod tests {
     use super::*;
     use crate::models::provider::{Provider, ProviderModel, ProviderType};
     use crate::models::settings::CliLauncherOverride;
+
+    /// PTY 是字节流，转义序列会被切在任意位置。`strip_ansi_escapes` 对未终止的序列是
+    /// **整段吞掉**（连 ESC 一起），所以前半不可恢复、后半丢了前缀就当正文留下——
+    /// 实测残渣形如 `8;248;242m`。必须在剥离**之前**把尾巴切出来 carry 到下个 chunk。
+    #[test]
+    fn carries_an_escape_sequence_split_across_chunks() {
+        let mut buffer = OutputBuffer::new(64, 65536);
+
+        // 同一个 \x1b[38;2;248;248;242m 被切成两半分别到达。
+        buffer.push("hello\u{1b}[38;2;24");
+        buffer.push("8;248;242mworld\n");
+
+        let output = buffer.get_recent(0).join("\n");
+        assert_eq!(output.trim_end(), "helloworld");
+        assert!(
+            !output.contains("8;248;242m"),
+            "转义序列的后半被当成正文留下了：{output:?}"
+        );
+    }
+
+    #[test]
+    fn does_not_hold_output_hostage_for_a_stray_escape() {
+        let mut buffer = OutputBuffer::new(64, 65536);
+
+        // 孤立 ESC 后面跟着大量正文：攒满上限就该放行，不能无限扣着不吐。
+        buffer.push("\u{1b}");
+        buffer.push(&"x".repeat(MAX_ESCAPE_CARRY * 2));
+        buffer.push("\n");
+
+        assert!(buffer.get_recent(0).join("\n").contains(&"x".repeat(64)));
+    }
+
+    #[test]
+    fn splits_only_genuinely_incomplete_escapes() {
+        // 完整序列不该被切走——切了就会平白延迟一个 chunk 才输出。
+        assert_eq!(
+            split_trailing_incomplete_escape("a\u{1b}[0mb"),
+            ("a\u{1b}[0mb", "")
+        );
+        assert_eq!(
+            split_trailing_incomplete_escape("a\u{1b}[38;2;24"),
+            ("a", "\u{1b}[38;2;24")
+        );
+        assert_eq!(split_trailing_incomplete_escape("a\u{1b}"), ("a", "\u{1b}"));
+        // OSC 终止于 BEL 或 ST，没等到就是未完成。
+        assert_eq!(
+            split_trailing_incomplete_escape("a\u{1b}]0;title"),
+            ("a", "\u{1b}]0;title")
+        );
+        assert_eq!(
+            split_trailing_incomplete_escape("a\u{1b}]0;title\u{7}b"),
+            ("a\u{1b}]0;title\u{7}b", "")
+        );
+        // 多字节字符不能被误切（ESC 是 ASCII，不会落在字符内部）。
+        assert_eq!(split_trailing_incomplete_escape("中文测试"), ("中文测试", ""));
+    }
+
+    /// spinner 帧靠光标控制原地刷新，ANSI 剥离后光标控制没了、帧首尾相接堆成巨行，
+    /// 直到 partial 超 4KB 才 flush——漏一个词的后果是「要 200 行拿回上百万字符」。
+    #[test]
+    fn filters_the_simmering_spinner_frame() {
+        assert!(is_spinner_line("✻ Simmering… (12s · ↑ 1.2k tokens · esc to interrupt)"));
+        assert!(is_spinner_line("✽ Simmering…"));
+        // 归一化后是 simering；词表里写原词 simmering 会永远匹配不上。
+        // 词表比对走 starts_with；省略号不算装饰字符会被保留，故不是全等。
+        assert_eq!(normalize_spinner_line("✻ Simmering…"), "simering…");
+    }
 
     /// waitFor 参数的 schema 是 `Vec<String>`，客户端只能猜大小写——实测两个
     /// 不同的 agent 第一次都发了 `"Idle"`。alias 让两种写法都过；序列化端
