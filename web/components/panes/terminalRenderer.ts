@@ -8,6 +8,8 @@ export interface TerminalRendererDecision {
   reason: string;
   webglAllowed: boolean;
   webgl2Supported: boolean;
+  webglRenderer: string | null;
+  webglVendor: string | null;
 }
 
 export interface TerminalRendererEnvironment {
@@ -17,6 +19,10 @@ export interface TerminalRendererEnvironment {
   window?: Window & typeof globalThis;
   /** 壁纸终端透明需求（测试注入用；缺省走注册的 provider） */
   transparencyRequired?: boolean;
+  /** Optional GPU identity injected by tests or a host diagnostics bridge. */
+  webglRenderer?: string | null;
+  webglVendor?: string | null;
+  displayServer?: "wayland" | "x11" | null;
 }
 
 // 壁纸透明需求 provider：由 useWallpaperStore 模块注册，本文件保持纯函数、不 import store。
@@ -59,8 +65,8 @@ export function isMacDesktopWebKitTerminalRendererHost(userAgent: string): boole
   );
 }
 
-/// Windows/WebView2 上 WebglAddon 存在 CJK 字形图集花屏问题（auto 模式默认避开，
-/// 显式选 webgl 仍放行）。
+/// Windows/WebView2 host 判定。Orca 的策略是在支持 WebGL2 时让 auto 先走 GPU，
+/// 运行时 context-loss / addon 初始化失败再由 controller 回退到 DOM。
 export function isWindowsTerminalRendererHost(userAgent: string): boolean {
   return userAgent.toLowerCase().includes("windows nt");
 }
@@ -71,53 +77,95 @@ export function normalizeTerminalRendererMode(
   return mode === "webgl" || mode === "dom" ? mode : "auto";
 }
 
-// WebGL2 是否支持在一个渲染进程内不会变——按进程缓存探测结果。
-// 否则每次 decideTerminalRenderer() 都会 getContext('webgl2') 新建一个探测 context 且从不释放，
-// 每个终端构造 + 每次 configure 都漏 1 个，很快撑爆 Chromium 每进程 ~16 个 live WebGL context 上限。
-let cachedWebgl2Support: boolean | undefined;
+const SOFTWARE_RENDERER_PATTERN =
+  /\b(swiftshader|llvmpipe|softpipe|software rasterizer|software adapter|basic render|virgl|svga3d)\b/i;
 
-export function isTerminalWebgl2Supported(
-  env: TerminalRendererEnvironment = {},
-): boolean {
+interface TerminalWebglProbe {
+  supported: boolean;
+  renderer: string | null;
+  vendor: string | null;
+  hasRendererIdentity: boolean;
+}
+
+// WebGL2 capability and GPU identity are stable for one renderer process.
+// Cache the complete probe so Linux policy does not lose renderer identity on
+// the second terminal. Failed probes remain retryable after transient context pressure.
+let cachedWebglProbe: TerminalWebglProbe | undefined;
+
+export function resetTerminalWebglProbe(): void {
+  cachedWebglProbe = undefined;
+}
+
+function isLinuxTerminalRendererHost(userAgent: string): boolean {
+  return userAgent.toLowerCase().includes("linux");
+}
+
+function probeTerminalWebgl(
+  env: TerminalRendererEnvironment,
+): TerminalWebglProbe {
   if (typeof env.webgl2Supported === "boolean") {
-    return env.webgl2Supported;
+    const renderer = env.webglRenderer ?? null;
+    const vendor = env.webglVendor ?? null;
+    return {
+      supported: env.webgl2Supported,
+      renderer,
+      vendor,
+      hasRendererIdentity: renderer !== null || vendor !== null,
+    };
   }
 
-  // 仅默认环境（无注入 window/document，即真实运行时）走进程级缓存；测试注入自定义环境时不缓存。
   const isDefaultEnv = !env.window && !env.document;
-  if (isDefaultEnv && cachedWebgl2Support !== undefined) {
-    return cachedWebgl2Support;
+  if (isDefaultEnv && cachedWebglProbe) {
+    return cachedWebglProbe;
   }
 
   const targetWindow = env.window ?? (typeof window === "undefined" ? undefined : window);
   const targetDocument = env.document ?? (typeof document === "undefined" ? undefined : document);
-  if (!targetWindow?.WebGL2RenderingContext || !targetDocument) return false;
+  if (!targetWindow?.WebGL2RenderingContext || !targetDocument) {
+    return { supported: false, renderer: null, vendor: null, hasRendererIdentity: false };
+  }
 
-  let supported = false;
   try {
     const canvas = targetDocument.createElement("canvas");
-    const gl = canvas.getContext("webgl2", {
-      antialias: false,
-      depth: false,
-    });
-    supported = gl instanceof targetWindow.WebGL2RenderingContext;
-    // 立刻释放探测 context，别占用 live context 预算（这是花屏/黑屏的根因之一）。
-    // 释放放在独立 try 里：清理失败绝不能翻转 supported 判定。
-    try {
-      (gl?.getExtension?.("WEBGL_lose_context") as { loseContext(): void } | null)?.loseContext();
-    } catch {
-      /* 探测 context 清理失败可忽略 */
+    const gl = canvas.getContext("webgl2", { antialias: false, depth: false });
+    if (!gl) {
+      return { supported: false, renderer: null, vendor: null, hasRendererIdentity: false };
     }
-  } catch {
-    supported = false;
-  }
 
-  // 只缓存 true：WebGL2 一旦被证实支持就不会变；而 false 可能是 context 瞬时紧张导致
-  // getContext 返回 null，缓存它会让本进程之后永久错误降级 DOM，故对 false 下次重试。
-  if (isDefaultEnv && supported) {
-    cachedWebgl2Support = true;
+    let renderer: string | null = null;
+    let vendor: string | null = null;
+    try {
+      const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+      if (debugInfo) {
+        renderer = String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) ?? "") || null;
+        vendor = String(gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) ?? "") || null;
+      }
+    } catch {
+      // A supported WebGL context without debug identity is still usable on non-Linux hosts.
+    }
+
+    try {
+      (gl.getExtension("WEBGL_lose_context") as { loseContext(): void } | null)?.loseContext();
+    } catch {
+      /* probe cleanup is best effort */
+    }
+    const result = {
+      supported: true,
+      renderer,
+      vendor,
+      hasRendererIdentity: renderer !== null || vendor !== null,
+    };
+    if (isDefaultEnv) cachedWebglProbe = result;
+    return result;
+  } catch {
+    return { supported: false, renderer: null, vendor: null, hasRendererIdentity: false };
   }
-  return supported;
+}
+
+export function isTerminalWebgl2Supported(
+  env: TerminalRendererEnvironment = {},
+): boolean {
+  return probeTerminalWebgl(env).supported;
 }
 
 export function decideTerminalRenderer(
@@ -127,7 +175,21 @@ export function decideTerminalRenderer(
   const mode = normalizeTerminalRendererMode(requestedMode);
   const userAgent =
     env.userAgent ?? (typeof navigator === "undefined" ? "" : navigator.userAgent);
-  const webgl2Supported = isTerminalWebgl2Supported(env);
+  const displayServer = env.displayServer ?? (
+    typeof document === "undefined"
+      ? null
+      : document.documentElement.dataset.displayServer === "wayland"
+        ? "wayland"
+        : document.documentElement.dataset.displayServer === "x11"
+          ? "x11"
+          : null
+  );
+  const webglProbe = probeTerminalWebgl(env);
+  const webgl2Supported = webglProbe.supported;
+  const probeDiagnostics = {
+    webglRenderer: webglProbe.renderer,
+    webglVendor: webglProbe.vendor,
+  };
   const transparencyRequired = env.transparencyRequired ?? transparencyRequiredProvider();
 
   if (mode === "dom") {
@@ -137,6 +199,7 @@ export function decideTerminalRenderer(
       reason: "user-dom",
       webglAllowed: false,
       webgl2Supported,
+      ...probeDiagnostics,
     };
   }
 
@@ -147,6 +210,7 @@ export function decideTerminalRenderer(
       reason: "webgl2-unavailable",
       webglAllowed: mode === "webgl",
       webgl2Supported,
+      ...probeDiagnostics,
     };
   }
 
@@ -159,6 +223,7 @@ export function decideTerminalRenderer(
         reason: "wallpaper-transparency",
         webglAllowed: false,
         webgl2Supported,
+        ...probeDiagnostics,
       };
     }
     return {
@@ -167,6 +232,7 @@ export function decideTerminalRenderer(
       reason: "user-webgl",
       webglAllowed: true,
       webgl2Supported,
+      ...probeDiagnostics,
     };
   }
 
@@ -181,21 +247,10 @@ export function decideTerminalRenderer(
       reason: "webkit-host",
       webglAllowed: false,
       webgl2Supported,
+      ...probeDiagnostics,
     };
   }
 
-  if (isWindowsTerminalRendererHost(userAgent)) {
-    return {
-      requestedMode: mode,
-      renderer: "dom",
-      reason: "windows-cjk-guard",
-      webglAllowed: false,
-      webgl2Supported,
-    };
-  }
-
-  // ⚠️ 透明分支必须在 windows-cjk-guard 之后：Windows 的 reason 保持
-  // windows-cjk-guard 不变（现有测试断言 + 线上诊断基线都依赖它）。
   if (transparencyRequired) {
     return {
       requestedMode: mode,
@@ -203,7 +258,42 @@ export function decideTerminalRenderer(
       reason: "wallpaper-transparency",
       webglAllowed: false,
       webgl2Supported,
+      ...probeDiagnostics,
     };
+  }
+
+  if (isLinuxTerminalRendererHost(userAgent)) {
+    if (displayServer === "wayland") {
+      return {
+        requestedMode: mode,
+        renderer: "dom",
+        reason: "linux-wayland",
+        webglAllowed: false,
+        webgl2Supported,
+        ...probeDiagnostics,
+      };
+    }
+    if (!webglProbe.hasRendererIdentity) {
+      return {
+        requestedMode: mode,
+        renderer: "dom",
+        reason: "renderer-identity-unavailable",
+        webglAllowed: false,
+        webgl2Supported,
+        ...probeDiagnostics,
+      };
+    }
+    const identity = `${webglProbe.vendor ?? ""} ${webglProbe.renderer ?? ""}`;
+    if (SOFTWARE_RENDERER_PATTERN.test(identity)) {
+      return {
+        requestedMode: mode,
+        renderer: "dom",
+        reason: "software-renderer",
+        webglAllowed: false,
+        webgl2Supported,
+        ...probeDiagnostics,
+      };
+    }
   }
 
   return {
@@ -212,6 +302,7 @@ export function decideTerminalRenderer(
     reason: "auto-webgl",
     webglAllowed: true,
     webgl2Supported,
+    ...probeDiagnostics,
   };
 }
 

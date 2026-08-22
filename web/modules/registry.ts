@@ -160,7 +160,7 @@ export const MODULE_REGISTRY: readonly ModuleDef[] = [
     id: "sessionHistory",
     icon: History,
     titleKey: "moduleNames.sessionHistory",
-    surfaces: ["rightDock", "commandPalette", "settings"],
+    surfaces: ["activityBar", "rightDock", "commandPalette", "settings"],
     defaultPosition: "rightDock",
     open: openSessionHistory,
     minimal: false,

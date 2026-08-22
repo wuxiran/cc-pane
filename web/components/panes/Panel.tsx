@@ -183,7 +183,7 @@ export default memo(function Panel({ pane }: PanelProps) {
     [pane.id, addTab, activeTab?.workspaceName, activeTab?.providerId, activeTab?.modelId, activeTab?.providerSelection, activeTab?.launchProfileId, activeTab?.workspacePath]
   );
 
-  const { handleAddBrowser, handleAddFile, handleAddFileExplorer } =
+  const { handleAddBrowser, handleAddDsh, handleAddFile, handleAddFileExplorer } =
     useNewTabActions(pane.id, activeTab);
 
   const handleAddSsh = useCallback(() => {
@@ -439,11 +439,14 @@ export default memo(function Panel({ pane }: PanelProps) {
             onTogglePin={handleTogglePin}
             onToggleStar={handleToggleStar}
             onRename={handleRename}
-            onAdd={handleAddTab}
-            onAddBrowser={handleAddBrowser}
-            onAddFile={handleAddFile}
-            onAddFileExplorer={handleAddFileExplorer}
-            onAddSsh={handleAddSsh}
+            newTab={{
+              onAdd: handleAddTab,
+              onAddBrowser: handleAddBrowser,
+              onAddDsh: handleAddDsh,
+              onAddFile: handleAddFile,
+              onAddFileExplorer: handleAddFileExplorer,
+              onAddSsh: handleAddSsh,
+            }}
             onSplitRight={handleSplitRight}
             onSplitDown={handleSplitDown}
             onFullscreen={handleFullscreen}

@@ -2,7 +2,7 @@
  * GPU / WebView2 / xterm 环境采集——WebGL 花屏诊断台用。
  *
  * 花屏是「WebView2 + xterm-WebGL 字形图集」的底层问题（见 terminalRenderer.ts 的
- * windows-cjk-guard）。要判断它是否与特定 GPU/驱动/WebView2 版本相关，需要把这些
+ * auto WebGL / DOM fallback）。要判断它是否与特定 GPU/驱动/WebView2 版本相关，需要把这些
  * 环境指纹连同复现结果一起采下来做相关性分析。本模块只做**只读采集**，不改任何渲染行为。
  */
 

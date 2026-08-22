@@ -14,12 +14,15 @@ export interface WorkspaceFilter {
   query: string;
   colors: WorkspaceColor[];
   group: string | null;
+  /** 是否显示已归档（逻辑删除）的工作空间。默认 false —— 归档的语义就是"从列表里消失"。 */
+  includeArchived: boolean;
 }
 
 const EMPTY_WORKSPACE_FILTER: WorkspaceFilter = {
   query: "",
   colors: [],
   group: null,
+  includeArchived: false,
 };
 
 export function normalizedWorkspaceGroup(workspace: Workspace): string | null {
@@ -35,6 +38,10 @@ export function filterWorkspaces(
   const selectedColors = new Set(filter.colors);
 
   return workspaces.filter((workspace) => {
+    // 归档判定必须在 isDefault 短路之前：默认工作空间虽然禁止归档，但若历史数据
+    // 里已带 archivedAt，短路会让它绕过过滤永远露出来。
+    if (!filter.includeArchived && workspace.archivedAt) return false;
+
     if (workspace.isDefault) return true;
 
     const matchesQuery = !query
@@ -82,6 +89,12 @@ interface WorkspacesState {
   saveWorkspace: (workspace: Workspace) => Promise<void>;
   updatePinned: (name: string, pinned: boolean) => Promise<void>;
   updateHidden: (name: string, hidden: boolean) => Promise<void>;
+  setArchived: (name: string, archived: boolean) => Promise<void>;
+  setProjectArchived: (
+    workspaceName: string,
+    projectId: string,
+    archived: boolean
+  ) => Promise<void>;
   reorder: (orderedNames: string[]) => Promise<void>;
   expandWorkspace: (id: string | null) => void;
   expandProject: (id: string | null) => void;
@@ -362,6 +375,39 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
     set((state) => ({
       workspaces: state.workspaces.map((ws) =>
         ws.name === name ? { ...ws, hidden } : ws
+      ),
+    }));
+  },
+
+  setArchived: async (name, archived) => {
+    await workspaceService.setWorkspaceArchived(name, archived);
+    // 后端写的是服务端时间戳，本地只需要区分"有/无"，回填一个占位值即可；
+    // 下一次 load() 会取回真实值。
+    const archivedAt = archived ? new Date().toISOString() : null;
+    set((state) => ({
+      workspaces: state.workspaces.map((ws) =>
+        ws.name === name ? { ...ws, archivedAt } : ws
+      ),
+    }));
+  },
+
+  setProjectArchived: async (workspaceName, projectId, archived) => {
+    await workspaceService.setWorkspaceProjectArchived(
+      workspaceName,
+      projectId,
+      archived
+    );
+    const archivedAt = archived ? new Date().toISOString() : null;
+    set((state) => ({
+      workspaces: state.workspaces.map((ws) =>
+        ws.name === workspaceName
+          ? {
+              ...ws,
+              projects: ws.projects.map((project) =>
+                project.id === projectId ? { ...project, archivedAt } : project
+              ),
+            }
+          : ws
       ),
     }));
   },

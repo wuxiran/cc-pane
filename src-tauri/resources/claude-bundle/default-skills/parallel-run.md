@@ -1,6 +1,6 @@
 ---
 name: ccpanes-parallel-run
-description: Split a larger task into independent subtasks, launch them as parallel Claude/Codex sessions, poll status, and aggregate results. Use when the user says "并行跑"、"同时在多个项目"、"分头执行"、"开 N 个实例并行"、"parallel"、"fan out"、"run these together"。Skip when subtasks share files or have ordering dependencies — use one sequential session instead.
+description: Split a large task into independent subtasks and dispatch parallel CLI sessions. Use for safe cross-project fan-out.
 ---
 
 # 监督并行
@@ -21,13 +21,13 @@ description: Split a larger task into independent subtasks, launch them as paral
 
 ### 2. 启动
 
-对每条子任务调用 `{{mcp_server_name}}.launch_task`，记录所有 `sessionId`。
+对每条子任务调用 `{{mcp_server_name}}.dispatch_task`，记录每项的 `bindingId`、`dispatchTaskId`、`sessionId` 和目标 CLI。
 
 > Prompt > 200 字：写入 `.ccpanes/prompts/<task>.md`，prompt 改为 `Read task from '<path>' and execute it. Delete the file after reading.`
 
 ### 3. 轮询
 
-每 30 秒：对每个 sessionId 调 `get_session_status`；状态变化时报告。所有 Exited/Idle 收敛后跳出。
+每 30 秒：对每个 `bindingId` 调 `get_task_dispatch`，并对每个 `sessionId` 调 `get_session_status`；状态变化时报告。没有 MCP 的目标以 session 状态和输出为准。所有 Exited/Idle 收敛后跳出。
 
 ### 4. 汇总
 

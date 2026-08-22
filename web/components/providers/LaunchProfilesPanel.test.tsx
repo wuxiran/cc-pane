@@ -7,7 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useLaunchProfilesStore, useProvidersStore, useSharedMcpStore, useWorkspacesStore } from "@/stores";
 import { createTestWorkspace, createTestWorkspaceProject } from "@/test/utils/testData";
 import { mockTauriInvoke, resetTauriInvoke } from "@/test/utils/mockTauriInvoke";
-import type { DiscoveredExternalSkill, LaunchProfile, LaunchProfileDraft, LaunchProfileResolution, Provider } from "@/types";
+import type { CliToolInfo, DiscoveredExternalSkill, LaunchProfile, LaunchProfileDraft, LaunchProfileResolution, Provider } from "@/types";
 import { defaultLaunchProfileDraft } from "@/types/launch-profile";
 import type { SkillMarketEntry } from "@/types/skill";
 import LaunchProfilesPanel from "./LaunchProfilesPanel";
@@ -203,6 +203,49 @@ function renderCodexPanel(onSave: (draft: LaunchProfileDraft) => void) {
   render(<LaunchProfilesPanel initialTool="codex" />);
 }
 
+function renderPiPanel(onSave: (draft: LaunchProfileDraft) => void) {
+  const piTool: CliToolInfo = {
+    id: "pi",
+    displayName: "Pi",
+    executable: "pi",
+    versionArgs: ["--version"],
+    installed: true,
+    version: "0.47.0",
+    path: "/usr/local/bin/pi",
+    capabilities: {
+      supportsProvider: true,
+      supportsResume: true,
+      supportsMcp: false,
+      supportsSystemPrompt: true,
+      supportsWorkspace: true,
+      supportsProjectHooks: false,
+      supportsRpc: true,
+      supportsStructuredResult: true,
+      supportsYolo: false,
+      compatibleProviderTypes: ["anthropic", "open_ai"],
+    },
+  };
+
+  mockTauriInvoke({
+    list_launch_profiles: [],
+    list_providers: [],
+    list_workspaces: [],
+    get_shared_mcp_status: [],
+    list_skill_market_entries: [],
+    list_user_skills: [],
+    list_external_skills: [],
+    list_cli_tools: [piTool],
+    preview_launch_profile_resolution: emptyResolution,
+    create_launch_profile: (_cmd: string, args?: Record<string, unknown>) => {
+      const draft = args?.draft as LaunchProfileDraft;
+      onSave(draft);
+      return savedProfileFromDraft(draft);
+    },
+  });
+
+  render(<LaunchProfilesPanel initialTool="pi" />);
+}
+
 describe("LaunchProfilesPanel external skills", () => {
   beforeEach(() => {
     resetTauriInvoke();
@@ -210,6 +253,40 @@ describe("LaunchProfilesPanel external skills", () => {
     useProvidersStore.setState({ providers: [] });
     useSharedMcpStore.setState({ servers: [], config: null, loading: false });
     useWorkspacesStore.setState({ workspaces: [], loading: false });
+  });
+
+  it("shows portable Skill compatibility from the launch profile preview", async () => {
+    const resolution: LaunchProfileResolution = {
+      ...emptyResolution,
+      skillCompatibility: {
+        cliTool: "claude",
+        deliveryModes: ["nativeCommand", "nativeSkill", "sessionPrompt"],
+        canUsePortableSkills: true,
+        canControlOrchestration: false,
+        canReportResult: false,
+        reason: "ccpanesMcpDisabled",
+      },
+    };
+    mockTauriInvoke({
+      list_launch_profiles: [],
+      list_providers: [],
+      list_workspaces: [],
+      get_shared_mcp_status: [],
+      list_skill_market_entries: [],
+      list_user_skills: [],
+      list_external_skills: [],
+      list_cli_tools: [],
+      preview_launch_profile_resolution: resolution,
+    });
+
+    render(<LaunchProfilesPanel initialTool="claude" />);
+
+    const compatibility = await screen.findByTestId("skill-compatibility");
+    expect(compatibility).toHaveTextContent(tp("skillCompatibility"));
+    expect(compatibility).toHaveTextContent(tp("skillDeliveryMode.nativeCommand"));
+    expect(compatibility).toHaveTextContent(tp("portableSkillReady"));
+    expect(compatibility).toHaveTextContent(tp("orchestrationUnavailable"));
+    expect(compatibility).toHaveTextContent(tp("skillCompatibilityReason.ccpanesMcpDisabled"));
   });
 
   it("saves external source include toggles into the skill policy", async () => {
@@ -566,5 +643,54 @@ describe("LaunchProfilesPanel external skills", () => {
     await user.click(designWorkspaceRow as HTMLElement);
     expect(await screen.findByRole("heading", { name: "Design Profile" })).toBeInTheDocument();
     expect(designWorkspaceRow).toHaveTextContent(tp("currentWorkspace"));
+  });
+});
+
+describe("LaunchProfilesPanel Pi options", () => {
+  beforeEach(() => {
+    resetTauriInvoke();
+    useLaunchProfilesStore.setState({ profiles: [], loading: false });
+    useProvidersStore.setState({ providers: [] });
+    useSharedMcpStore.setState({ servers: [], config: null, loading: false });
+    useWorkspacesStore.setState({ workspaces: [], loading: false });
+  });
+
+  it("serializes Pi terminal settings, native auth selectors, and resource trust without YOLO", async () => {
+    const user = userEvent.setup();
+    let savedDraft: LaunchProfileDraft | null = null;
+    renderPiPanel((draft) => {
+      savedDraft = draft;
+    });
+
+    expect(await screen.findByTestId("mcp-unsupported")).toHaveTextContent(tp("mcpUnsupportedHint"));
+    expect(screen.queryByRole("checkbox", { name: "YOLO mode" })).not.toBeInTheDocument();
+
+    expect(screen.queryByRole("combobox", { name: tp("fieldPiTransport") })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: tp("fieldRuntime") }));
+    const runtimeOptions = await screen.findByRole("listbox");
+    expect(within(runtimeOptions).queryByRole("option", { name: tp("runtime.ssh") })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await selectOption(
+      user,
+      screen.getByRole("combobox", { name: tp("fieldPiProjectTrust") }),
+      tp("piProjectTrust.approve"),
+    );
+    await user.type(screen.getByRole("textbox", { name: tp("fieldPiNativeProvider") }), "anthropic");
+    await user.type(screen.getByRole("textbox", { name: tp("fieldPiNativeModel") }), "claude-sonnet-4-5");
+    await user.click(screen.getByRole("button", { name: tp("saveDefault") }));
+
+    await waitFor(() => expect(savedDraft).not.toBeNull());
+    expect(savedDraft).toMatchObject({
+      targetTools: ["pi"],
+      providerId: null,
+      modelId: null,
+      yoloMode: false,
+      adapterOptions: {
+        piTransport: "pty",
+        piNativeProvider: "anthropic",
+        piNativeModel: "claude-sonnet-4-5",
+        piProjectTrust: "approve",
+      },
+    });
   });
 });

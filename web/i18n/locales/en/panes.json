@@ -22,10 +22,19 @@
     "claims-unsupported": "This terminal backend cannot negotiate safe claims. Automatic recreation stopped; end the old terminal to restore it manually.",
     "reconciliation-failed": "Daemon session ownership could not be verified. Automatic recreation was stopped.",
     "missing-provenance": "This session lacks complete birth evidence and can only be adopted manually.",
-    "identity-mismatch": "The session identity or runtime does not match this terminal leaf.",
+    "identity-mismatch": "The session identity does not match this terminal leaf. See the restore log below for which check failed.",
+    "anchorless-session": "This session's birth evidence has no pane anchor (usually created by an older version), so it is not adopted automatically — you can adopt it below.",
+    "attach-rejected": "Identity checks passed, but the session could not be attached to this pane (layout mismatch, the leaf is occupied, or the terminal is already mounted elsewhere).",
     "ambiguous-candidates": "Multiple live sessions match this terminal leaf, so none was selected automatically.",
     "claim-conflict": "Another CC-Panes instance currently owns this session.",
     "auto-adopt-disabled": "Automatic adoption is disabled. The session can be adopted from the resource manager."
+  },
+  "manualAdopt": {
+    "action": "Adopt this session",
+    "running": "Adopting...",
+    "not-found": "No archive record for this session; it may have already ended.",
+    "claim-failed": "Another instance currently owns this session (its write lease expires in 30s — try again shortly).",
+    "attach-failed": "Could not attach to this pane: the project path does not match, the leaf is occupied, or the terminal is already mounted elsewhere."
   },
   "restoreLogDetails": "Raw details",
   "restoreLog": {
@@ -33,6 +42,14 @@
     "source": {
       "savedSessionId": "the session id recorded last time",
       "unique-anchor": "a unique anchor"
+    },
+    "gate": {
+      "generation": "generation & birth evidence",
+      "anchor": "current pane anchor",
+      "birth-anchor": "birth anchor",
+      "project": "project path",
+      "runtime": "runtime / CLI",
+      "resume": "resume id"
     },
     "events": {
       "daemon-snapshot_begin": "Reading the daemon snapshot...",
@@ -56,7 +73,8 @@
       "candidate_blocked": "No candidate passed the checks, adoption skipped",
       "identity_accepted": "Identity check passed (session {{sessionId}})",
       "identity_blocked__missing-provenance": "Session {{sessionId}} lacks birth evidence, adoption refused",
-      "identity_blocked__identity-mismatch": "Identity check failed, adoption refused (session {{sessionId}}) — the CLI, runtime or project path does not match this pane",
+      "identity_blocked__identity-mismatch": "Identity check failed, adoption refused (session {{sessionId}}) — stopped at \"{{gate}}\": {{field}} ({{values}})",
+      "identity_blocked__anchorless-session": "Session {{sessionId}} has no pane anchor in its birth evidence ({{values}}); not adopted automatically, manual adoption available",
       "identity_blocked": "Identity check failed, adoption refused (session {{sessionId}})",
       "claim_begin": "Claiming the session ({{sessionId}})...",
       "claim_end": "Session claimed ({{sessionId}})",
@@ -296,6 +314,10 @@
   "newTabMenu": "New…",
   "newTerminalTab": "New Terminal",
   "newBrowserTab": "New Browser",
+  "newDshTab": "New DeepSeek",
+  "dshStarting": "Starting DeepSeek Harness…",
+  "dshStartFailed": "DeepSeek Harness failed to start",
+  "dshRetry": "Retry",
   "openFileTab": "Open File…",
   "newFileExplorerTab": "Open File Tree",
   "newSshTab": "New SSH",

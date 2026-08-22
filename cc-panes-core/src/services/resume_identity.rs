@@ -8,13 +8,13 @@
 ///
 /// - `manual`：用户手动指定，最高
 /// - `issued` / `osc-title`：确定性捕获（发号 / CLI 自报标题）
-/// - `rollout-scan` / `backfill`：事后扫描反查，可能命中相邻会话
+/// - `rollout-scan` / `backfill` / `pi-session-file`：事后扫描反查，可能命中相邻会话
 /// - `rescue`：一次性补救，最弱
 pub fn source_priority(source: &str) -> u8 {
     match source {
         "manual" => 40,
         "issued" | "osc-title" => 30,
-        "rollout-scan" | "backfill" => 10,
+        "rollout-scan" | "backfill" | "pi-session-file" => 10,
         "rescue" => 5,
         _ => 0,
     }
@@ -96,5 +96,14 @@ mod tests {
     #[test]
     fn missing_existing_always_retains() {
         assert!(should_retain_incoming(None, None, "rescue", "resume-1"));
+    }
+
+    #[test]
+    fn pi_session_file_has_backfill_priority() {
+        assert_eq!(
+            source_priority("pi-session-file"),
+            source_priority("backfill")
+        );
+        assert!(!should_replace_source(Some("issued"), "pi-session-file"));
     }
 }

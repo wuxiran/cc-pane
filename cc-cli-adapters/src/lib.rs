@@ -16,7 +16,9 @@ mod gemini;
 mod glm;
 mod grok;
 mod kimi;
+mod omp;
 mod opencode;
+mod pi;
 
 pub use claude::ClaudeAdapter;
 pub use codex::CodexAdapter;
@@ -25,7 +27,15 @@ pub use gemini::GeminiAdapter;
 pub use glm::GlmAdapter;
 pub use grok::GrokAdapter;
 pub use kimi::KimiAdapter;
+pub use omp::OmpAdapter;
 pub use opencode::OpenCodeAdapter;
+pub use pi::{
+    cleanup_omp_managed_state, cleanup_pi_family_managed_state, cleanup_pi_managed_state,
+    pi_managed_sessions_dir, pi_managed_state_dir, pi_managed_state_key, PiAdapter,
+    PiAdapterOptions, PiProjectTrust, PiTransport, OMP_AGENT_HOME_DIR, OMP_MANAGED_STATE_DIR_NAME,
+    PI_AGENT_HOME_DIR, PI_CODING_AGENT_DIR_ENV, PI_CODING_AGENT_SESSION_DIR_ENV,
+    PI_MANAGED_STATE_DIR_NAME,
+};
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -35,12 +45,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HookCommandShell {
+pub enum HookCommandShell {
     Posix,
     Windows,
 }
 
-pub(crate) fn build_guarded_hook_command(
+/// 生成带存在性守卫的 hook 命令行。
+///
+/// 对外开放是因为 dsh 也要这个形态：它的 `dsh-hooks-claude-code` 桥读的是
+/// Claude Code 形状的 `hooks.json`，命令串必须与我们写给 Claude 的一致
+/// （守卫写法、Windows 上不能再套一层 `cmd.exe` 这两条尤其不能各写一份）。
+pub fn build_guarded_hook_command(
     binary_path: &Path,
     subcommand: &str,
     shell: HookCommandShell,
@@ -80,6 +95,51 @@ pub fn no_window_command(program: &str) -> std::process::Command {
     {
         std::process::Command::new(program)
     }
+}
+
+/// Run a script in a WSL distribution through bash stdin and optionally forward
+/// environment values with `WSLENV`.
+///
+/// WSL's Windows-to-Linux argv conversion can corrupt shell syntax. Keeping
+/// the script on stdin avoids that translation boundary; `/u` forwards the
+/// small set of required values without embedding them in an argv payload.
+#[cfg(windows)]
+pub fn run_wsl_script_via_stdin(
+    wsl_path: &Path,
+    distro: &str,
+    script: &str,
+    envs: &[(&str, &str)],
+) -> Option<std::process::Output> {
+    use std::io::Write as _;
+    use std::process::Stdio;
+
+    let mut command = no_window_command(&wsl_path.to_string_lossy());
+    command.args(["-d", distro, "bash", "-l", "-s"]);
+    if !envs.is_empty() {
+        let forwarded = envs
+            .iter()
+            .map(|(name, _)| format!("{name}/u"))
+            .collect::<Vec<_>>()
+            .join(":");
+        // Append rather than replace a user-provided forwarding map.
+        let wslenv = match std::env::var("WSLENV") {
+            Ok(existing) if !existing.is_empty() => format!("{existing}:{forwarded}"),
+            _ => forwarded,
+        };
+        for (name, value) in envs {
+            command.env(name, value);
+        }
+        command.env("WSLENV", wslenv);
+    }
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    child.stdin.take()?.write_all(script.as_bytes()).ok()?;
+    let output = child.wait_with_output().ok()?;
+    output.status.success().then_some(output)
 }
 
 /// 带超时执行子进程，返回 stdout（超时或失败返回 None）
@@ -262,6 +322,21 @@ fn is_directly_executable(path: &Path) -> bool {
     }
 }
 
+/// Home-relative install roots probed beyond PATH. Returned before the
+/// existence filter in `dedupe_existing_dirs`, so tests assert on this list
+/// instead of `candidate_executable_dirs()` (machines without the tool would
+/// otherwise drop the dir and flip the assertion).
+fn home_fallback_cli_dirs(home: &Path) -> Vec<PathBuf> {
+    vec![
+        home.join(".cargo").join("bin"),
+        home.join(".local").join("bin"),
+        // Bun's global bin dir (`bun install -g`, omp's documented install
+        // path). The installer appends it to the user PATH, but an
+        // already-running desktop app never sees that update.
+        home.join(".bun").join("bin"),
+    ]
+}
+
 fn candidate_executable_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 
@@ -270,13 +345,7 @@ fn candidate_executable_dirs() -> Vec<PathBuf> {
     }
 
     if let Some(home) = dirs::home_dir() {
-        extend_unique_dirs(
-            &mut dirs,
-            [
-                home.join(".cargo").join("bin"),
-                home.join(".local").join("bin"),
-            ],
-        );
+        extend_unique_dirs(&mut dirs, home_fallback_cli_dirs(&home));
 
         #[cfg(not(windows))]
         {
@@ -353,6 +422,9 @@ fn windows_user_cli_dirs(home: &Path, grok_home: Option<&std::ffi::OsStr>) -> Ve
         // Grok's official installer uses ~/.grok/bin and may not update the
         // environment inherited by an already-running desktop app.
         home.join(".grok").join("bin"),
+        // omp.sh's PowerShell installer drops the standalone omp.exe here and
+        // only appends the directory to the persisted user PATH.
+        home.join("AppData").join("Local").join("omp"),
     ];
     if let Some(grok_home) = grok_home {
         let path = PathBuf::from(grok_home);
@@ -569,6 +641,20 @@ fn find_executable_in_dirs(
 
 // ============ Trait ============
 
+/// Ways a CLI can receive a CC-Panes Skill without coupling it to another CLI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SkillDeliveryMode {
+    /// A CLI-native command file, such as Claude's `.claude/commands` entries.
+    NativeCommand,
+    /// A CLI-native SKILL.md directory entry.
+    NativeSkill,
+    /// Pi's Agent Skills directory (`~/.pi/agent/skills`).
+    PiSkill,
+    /// Instructions appended to the launch session's system prompt.
+    SessionPrompt,
+}
+
 /// CLI 工具适配器 trait
 ///
 /// 每个 CLI 工具（Claude Code、Codex、Kilo 等）实现此 trait，
@@ -608,6 +694,36 @@ pub trait CliToolAdapter: Send + Sync {
     /// 用户全局技能目录。None = 不支持技能注入
     fn global_skills_dir(&self) -> Option<std::path::PathBuf> {
         None
+    }
+
+    /// Supported ways to deliver a portable CC-Panes Skill to this CLI.
+    ///
+    /// Adapters inherit this conservative mapping from their existing directory
+    /// and prompt capabilities, while retaining the option to override it for
+    /// a CLI with a more specialized Skill format.
+    fn skill_delivery_modes(&self) -> Vec<SkillDeliveryMode> {
+        let mut modes = Vec::new();
+        if self.global_commands_dir().is_some() {
+            modes.push(SkillDeliveryMode::NativeCommand);
+        }
+        if self.global_skills_dir().is_some() {
+            modes.push(SkillDeliveryMode::NativeSkill);
+        }
+        if self.capabilities().supports_system_prompt {
+            modes.push(SkillDeliveryMode::SessionPrompt);
+        }
+        modes
+    }
+
+    /// Whether a session can persist a durable TaskBinding result.
+    ///
+    /// Hook-only lifecycle notifications (for example OpenCode's
+    /// `session.idle`) update live state but do not carry a completion summary;
+    /// durable result reporting still requires the ccpanes MCP surface. An
+    /// adapter with a different native result channel can override this method
+    /// without changing the dispatch protocol.
+    fn can_report_task_result(&self) -> bool {
+        self.capabilities().supports_mcp
     }
 
     /// 项目级 hooks 定义。默认不支持
@@ -724,6 +840,40 @@ pub struct CliToolCapabilities {
     /// 使 resume id 在启动前即确定，无需事后捕获
     #[serde(default)]
     pub supports_issued_session_id: bool,
+    /// Supports Pi-style JSONL RPC transport (`--mode rpc`).
+    #[serde(default)]
+    pub supports_rpc: bool,
+    /// Emits a structured result channel that can be persisted by CC-Panes.
+    #[serde(default)]
+    pub supports_structured_result: bool,
+    /// Supports the CLI's explicit approval/bypass switch for YOLO mode.
+    #[serde(default)]
+    pub supports_yolo: bool,
+    /// 允许被 MCP `launch_task` 编排启动。
+    ///
+    /// **默认 false 是有意的**：编排启动链路（prompt 注入、leader/worker 反馈、
+    /// resume 绑定）需要逐个 CLI 实机验证过才放行。此前这份白名单硬编码在
+    /// `orchestrator_service::parse_launch_cli_tool` 里，新增 CLI 必须记得回去改；
+    /// 现在改为由 adapter 自己声明——验证过再置 true。
+    #[serde(default)]
+    pub supports_orchestrated_launch: bool,
+    /// 消费 `adapterOptions.effort`（映射到该 CLI 的思考预算/推理档位）
+    ///
+    /// 以下三个 per-launch 能力位存在的理由：启动器的 chips 是**通用 UI**，对所有 CLI
+    /// 一律可点。但每个 adapter 的 `build_command` 只消费自己支持的键——不支持的键被
+    /// **静默丢弃**，用户选了 effort=high 却毫无效果且无任何提示。声明出来让前端置灰，
+    /// 是把「这个 CLI 做不到」从隐性变成显性。
+    ///
+    /// **默认 false 是有意的**（同 `supports_orchestrated_launch` 的理由）：新接入的
+    /// adapter 若不显式声明，UI 宁可置灰也不要撒谎说能用。
+    #[serde(default)]
+    pub supports_effort_option: bool,
+    /// 消费 `adapterOptions.verbose`（映射到该 CLI 的详细输出 flag）
+    #[serde(default)]
+    pub supports_verbose_option: bool,
+    /// 消费 `adapterOptions.maxTurns`（映射到该 CLI 的最大轮数 flag）
+    #[serde(default)]
+    pub supports_max_turns_option: bool,
     /// 兼容的 Provider 类型列表
     #[serde(default)]
     pub compatible_provider_types: Vec<String>,
@@ -831,6 +981,14 @@ pub struct CliAdapterContext {
     /// 通过 per-launch override 显式 disabled，避免运行配置筛选后仍继承用户全局 MCP。
     #[allow(dead_code)]
     pub disable_unlisted_mcp_servers: bool,
+    /// 本次会话要挂载的 CC-Panes 内置 skill 根目录（通常是
+    /// `<data_dir>/skills/builtin`）。**按会话挂载，绝不写用户的 CLI Home**：
+    /// - Claude：每个路径转成一个 `--plugin-dir`
+    /// - Codex：合并进 `-c skills.config=[...]` 启动期覆盖
+    ///
+    /// 为空表示本次不挂载任何内置 skill（`LaunchProfileSkillMode::Disabled`），
+    /// 此时各 adapter 必须**完全不碰**用户的 skill 配置。
+    pub skill_mount_paths: Vec<String>,
 }
 
 /// Internal adapter option carrying the resolved managed Provider environment.
@@ -1551,6 +1709,17 @@ mod path_resolution_tests {
         assert!(dirs.contains(&home.join(".grok").join("bin")));
         assert!(dirs.contains(&PathBuf::from(r"D:\Tools\grok\bin")));
         assert!(dirs.contains(&home.join("AppData").join("Roaming").join("npm")));
+        // omp 的两个官方安装落点都要能被运行中的应用探测到。
+        assert!(dirs.contains(&home.join("AppData").join("Local").join("omp")));
+    }
+
+    #[test]
+    fn candidate_dirs_probe_bun_global_bin_without_path() {
+        // bun 安装器只写用户 PATH；已经启动的桌面应用看不到更新，
+        // 所以 ~/.bun/bin 必须独立于 PATH 兜底探测。断言用 existence
+        // 过滤前的清单：CI 机器没装 bun，目录不存在属正常。
+        let home = dirs::home_dir().expect("home directory");
+        assert!(home_fallback_cli_dirs(&home).contains(&home.join(".bun").join("bin")));
     }
 }
 
@@ -1580,6 +1749,8 @@ impl CliToolRegistry {
         registry.register(Arc::new(OpenCodeAdapter::new()));
         registry.register(Arc::new(CursorAdapter::new()));
         registry.register(Arc::new(GrokAdapter::new()));
+        registry.register(Arc::new(PiAdapter::new()));
+        registry.register(Arc::new(OmpAdapter::new()));
         registry
     }
 
@@ -1761,6 +1932,7 @@ mod registry_tests {
             shared_mcp_urls: HashMap::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
+            skill_mount_paths: Vec::new(),
         }
     }
 
@@ -1775,10 +1947,48 @@ mod registry_tests {
 
         assert_eq!(
             ids,
-            vec!["claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor", "grok"]
+            vec![
+                "claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor", "grok", "pi",
+                "omp"
+            ]
         );
         assert!(registry.get("claude").is_some());
         assert!(registry.get("codex").is_some());
+        assert!(registry.get("opencode").unwrap().can_report_task_result());
+        assert!(!registry.get("gemini").unwrap().can_report_task_result());
+        assert!(registry.get("pi").unwrap().can_report_task_result());
+        // omp shares Pi's CLI surface but not its structured RPC wiring yet.
+        assert!(!registry.get("omp").unwrap().can_report_task_result());
+    }
+
+    #[test]
+    fn builtin_adapters_derive_portable_skill_delivery_modes() {
+        let registry = CliToolRegistry::with_builtin_adapters();
+
+        assert_eq!(
+            registry.get("claude").unwrap().skill_delivery_modes(),
+            vec![
+                SkillDeliveryMode::NativeCommand,
+                SkillDeliveryMode::NativeSkill,
+                SkillDeliveryMode::SessionPrompt,
+            ]
+        );
+        assert_eq!(
+            registry.get("codex").unwrap().skill_delivery_modes(),
+            vec![
+                SkillDeliveryMode::NativeSkill,
+                SkillDeliveryMode::SessionPrompt
+            ]
+        );
+        assert_eq!(
+            registry.get("opencode").unwrap().skill_delivery_modes(),
+            vec![SkillDeliveryMode::SessionPrompt]
+        );
+        assert!(registry
+            .get("gemini")
+            .unwrap()
+            .skill_delivery_modes()
+            .is_empty());
     }
 
     #[test]

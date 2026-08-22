@@ -27,6 +27,15 @@ export interface CreateTabOptions {
   /** One-shot identity already used when the caller created the PTY before opening the tab. */
   launchId?: string;
   sessionId?: string;
+  /**
+   * 调用方预分配的出生锚点（tab id + terminal-pane id）。
+   *
+   * 后端在创建 PTY 时就把这两个 id 写进了不可变出生凭证——前端必须原样采用，
+   * 自己 `generateId` 会让凭证锚点与真实窗格对不上，该会话重启后无法自动接管
+   * （凭证 `ON CONFLICT DO NOTHING`，事后补不回来）。
+   */
+  tabId?: string;
+  terminalPaneId?: string;
   resumeId?: string;
   workspaceName?: string;
   providerId?: string;
@@ -344,6 +353,8 @@ export interface PanesState extends BrowserTabActions {
     tabId: string,
     terminalPaneId: string,
     reason: TerminalRestoreBlockedReason | undefined,
+    /** 被拦下的候选会话 id，供阻断面板提供手动接管出口 */
+    sessionId?: string,
   ) => void;
   setSessionLeaseReadOnly: (sessionId: string, readOnly: boolean) => void;
   canCreateTerminalSession: (

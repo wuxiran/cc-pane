@@ -1,17 +1,19 @@
-import { useEffect, type RefObject } from "react";
+import { useEffect, useState, type RefObject } from "react";
 
-import { TERMINAL_FONT_SIZE_DEFAULT, useSettingsStore } from "@/stores";
+import { normalizeTerminalFontSize } from "@/stores";
 
-export function attachTerminalWheelZoom(host: HTMLElement): () => void {
+type TerminalWheelZoomHandler = (step: -1 | 1) => void;
+
+export function attachTerminalWheelZoom(
+  host: HTMLElement,
+  onZoom: TerminalWheelZoomHandler,
+): () => void {
   const onWheel = (event: WheelEvent) => {
     if (!event.ctrlKey || event.deltaY === 0) return;
 
     event.preventDefault();
     event.stopPropagation();
-
-    const settings = useSettingsStore.getState();
-    const current = settings.settings?.terminal.fontSize ?? TERMINAL_FONT_SIZE_DEFAULT;
-    settings.setTerminalFontSize(current + (event.deltaY < 0 ? 1 : -1));
+    onZoom(event.deltaY < 0 ? 1 : -1);
   };
 
   host.addEventListener("wheel", onWheel, { capture: true, passive: false });
@@ -19,10 +21,23 @@ export function attachTerminalWheelZoom(host: HTMLElement): () => void {
 }
 
 /** Capture Ctrl+wheel before xterm can translate the wheel into arrow keys. */
-export function useTerminalWheelZoom(hostRef: RefObject<HTMLElement | null>): void {
+export function useTerminalWheelZoom(
+  hostRef: RefObject<HTMLElement | null>,
+  configuredFontSize: number,
+): number {
+  const [fontSize, setFontSize] = useState(() => normalizeTerminalFontSize(configuredFontSize));
+
+  useEffect(() => {
+    setFontSize(normalizeTerminalFontSize(configuredFontSize));
+  }, [configuredFontSize]);
+
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    return attachTerminalWheelZoom(host);
+    return attachTerminalWheelZoom(host, (step) => {
+      setFontSize((current) => normalizeTerminalFontSize(current + step));
+    });
   }, [hostRef]);
+
+  return fontSize;
 }

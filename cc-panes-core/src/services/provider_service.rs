@@ -29,8 +29,8 @@ const MAX_PROVIDER_MODEL_LABEL_CHARS: usize = 128;
 const MIN_PROVIDER_CONTEXT_WINDOW_TOKENS: u64 = 1_000;
 const MAX_PROVIDER_CONTEXT_WINDOW_TOKENS: u64 = 10_000_000;
 const PROVIDER_MODEL_EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
-const PROVIDER_CLI_TOOLS: [&str; 8] = [
-    "claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor", "grok",
+const PROVIDER_CLI_TOOLS: [&str; 9] = [
+    "claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor", "grok", "pi",
 ];
 const DEFAULT_PROVIDER_IDS_VERSION: u8 = 2;
 

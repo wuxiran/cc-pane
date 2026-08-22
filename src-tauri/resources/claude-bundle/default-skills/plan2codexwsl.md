@@ -1,10 +1,6 @@
 ---
-name: plan2codexwsl
-description: 在 WSL 中运行 Codex 执行 plan —— plantocodex 的 WSL 特化入口：已注册路径、runtimeKind、WSL 路径转换。要做 plan 同行评审请用 planreview。
-trigger: |
-  - 用户要把 plan 派给 WSL 里的 Codex 执行："在 WSL 跑 codex"、"WSL Codex 实现这个 plan"
-  - plantocodex 流程中目标环境是 WSL，需要路径转换 / 项目注册细节
-  不触发：plan 评审（→ /ccpanes:planreview）、本地 Codex 执行（直接 /ccpanes:plantocodex）
+name: ccpanes-plan2codexwsl
+description: Run a plan with Codex inside WSL: registered paths, runtimeKind, and WSL path translation. plantocodex 的 WSL 特化入口。要做 plan 同行评审请改用 planreview。
 ---
 
 # plan2codexwsl — 在 WSL 运行 Codex 执行 plan
@@ -26,10 +22,10 @@ trigger: |
 
 ### 1. projectPath 必须用 cc-panes 已注册的路径原样
 
-先 `mcp__ccpanes__list_projects` 拿到实际登记的字符串（UNC `\\wsl.localhost\Ubuntu\...` 或 `/mnt/...` 都可能存在，挑已注册那条），**原样**传给 `launch_task`，再配 `runtimeKind: "wsl"`：
+先 `mcp__ccpanes__list_projects` 拿到实际登记的字符串（UNC `\\wsl.localhost\Ubuntu\...` 或 `/mnt/...` 都可能存在，挑已注册那条），**原样**传给 `dispatch_task`，再配 `runtimeKind: "wsl"`：
 
 ```
-mcp__ccpanes__launch_task(
+mcp__ccpanes__dispatch_task(
   projectPath: <list_projects 中已注册的路径原样>,
   cliTool: "codex",
   runtimeKind: "wsl",
@@ -70,4 +66,4 @@ WSL 内 Codex 的 `ccpanes` MCP 工具（`update_task_binding` / `report_to_lead
 |-----------|------|
 | leader/worker 注册、Codex prompt 模板、软超时监控、收尾 | [`/ccpanes:plantocodex`](plantocodex.md)（launch 参数按本文第 1 节替换） |
 | plan 同行评审（reviewer 可跑 WSL） | [`/ccpanes:planreview`](planreview.md) |
-| launch_task 通用排障（卡住、恢复、PTY 交互） | [`/ccpanes:launch-task`](launch-task.md) |
+| dispatch_task 通用排障（卡住、恢复、PTY 交互） | [`/ccpanes:launch-task`](launch-task.md) |

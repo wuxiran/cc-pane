@@ -1,16 +1,13 @@
 ---
 name: ccpanes-launch-task
-description: "CC-Panes 启动 Claude/Codex 任务的高级流程（WSL、resume、PTY 交互、leader/worker 编排、REST fallback）。Use when basic launch is not enough: worktree routing, recovery, stuck PTY, or worker feedback diagnostics."
-trigger: |
-  - 用户说"启动 Claude/Codex"、"开个新窗口"、"在 X 项目跑个任务"
-  - 用户问"恢复昨天那个 Codex"、"resume 之前的会话"
-  - 启动后要做 PTY 交互（提交命令、读输出、终止）
-  - 想用 leader/worker 自动反馈机制
+description: "CC-Panes 高级 CLI 启动与派发：用于 WSL、resume、PTY 恢复、TaskBinding、REST fallback 及跨 CLI worker 诊断。"
 ---
 
-# launch-task — CC-Panes 启动任务（高级流程）
+# launch-task — CC-Panes 启动与派发任务（高级流程）
 
-CC-Panes 通过 MCP 工具与本地/WSL/SSH 上的 Claude/Codex 实例交互。本 skill 是 **CC-Panes 高级启动手册**，覆盖：WSL 启动、resume、PTY 交互、leader/worker 编排、REST fallback。
+CC-Panes 通过 MCP 工具与本地/WSL/SSH 上已注册的 CLI 实例交互。本 skill 是 **CC-Panes 高级启动手册**，覆盖：跨 CLI 派发、WSL 启动、resume、PTY 交互、TaskBinding 编排、REST fallback。
+
+> 需要跨会话追踪时，优先 [`/ccpanes:dispatch-task`](dispatch-task.md) 的 `dispatch_task`。`launch_task` 保留为旧调用方兼容接口，启动成功后不会自动建立 durable TaskBinding。
 
 > 简单新开窗口走本 skill 的最短路径即可；遇到 worktree、恢复、卡住、leader/worker 编排或 REST 兜底时使用完整流程。
 
@@ -24,7 +21,8 @@ CC-Panes 通过 MCP 工具与本地/WSL/SSH 上的 Claude/Codex 实例交互。�
 
 | 工具 | 关键参数 | 备注 |
 |------|---------|------|
-| `mcp__ccpanes__launch_task` | `projectPath`（必填）, `prompt?`, `resumeId?`, `cliTool?`, `providerId?`, `providerSelection?`, `workspaceName?`, `runtimeKind?`, `title?`, `paneId?` | `prompt` 与 `resumeId` **互斥**。`cliTool` 只接 `claude` / `codex` |
+| `mcp__ccpanes__dispatch_task` | `projectPath`（必填）, `prompt?`, `resumeId?`, `cliTool?`, `parentBindingId?`, `parentSessionId?`, `profileId?`, `runtimeKind?`, `title?`, `paneId?` | **首选**。`prompt` 与 `resumeId` 互斥；支持所有已注册内置 CLI，并返回 `bindingId` / `dispatchEnvelope` |
+| `mcp__ccpanes__launch_task` | 与 `dispatch_task` 相同的启动字段 | 兼容旧流程；不自动建立 TaskBinding |
 | `mcp__ccpanes__list_projects` | — | 取已注册项目原样路径（WSL 启动必须用） |
 | `mcp__ccpanes__add_project_to_workspace` | `workspaceName`, `projectPath` | 注册新项目 |
 | `mcp__ccpanes__scan_directory` | `path` | 扫目录发现 Git 仓库 |
@@ -72,14 +70,14 @@ CC-Panes 通过 MCP 工具与本地/WSL/SSH 上的 Claude/Codex 实例交互。�
 | 工具 | 用途 |
 |------|------|
 | `mcp__ccpanes__list_launch_history` | 历史启动记录（含 `resumeSessionId/cliTool/runtimeKind/projectPath/lastPrompt`）|
-| `mcp__ccpanes__list_resume_sessions` | Claude/Codex 可恢复历史会话（按 cliTool 过滤）|
+| `mcp__ccpanes__list_resume_sessions` | 目标 CLI 可恢复历史会话（按 cliTool 过滤）|
 
 ### Leader / Worker 编排（异步任务核心）
 
 | 工具 | 用途 |
 |------|------|
-| `mcp__ccpanes__register_plan_leader` | 把当前 Claude 标记为 leader |
-| `mcp__ccpanes__register_plan_worker` | 把启动的 Codex/Claude 实例绑定为 worker |
+| `mcp__ccpanes__register_plan_leader` | 把当前会话标记为 leader |
+| `mcp__ccpanes__get_task_dispatch` | 通过 `bindingId` 获取解析后的派发信封和持久化状态 |
 | `mcp__ccpanes__report_to_leader` | worker 完成时 PTY 推送给 leader（leader busy 时引擎排队补投，见下方） |
 | `mcp__ccpanes__update_task_binding` | 持久化 worker 状态（**必做** —— PTY 反馈丢失时的兜底）|
 | `mcp__ccpanes__reconcile_plan_collaboration` | leader 端最终兜底，扫所有 worker binding 最终状态 |
@@ -105,10 +103,11 @@ CC-Panes 通过 MCP 工具与本地/WSL/SSH 上的 Claude/Codex 实例交互。�
 ### A. 启动新任务
 
 ```
-1. mcp__ccpanes__list_projects           # 取已注册项目路径（WSL 启动必须用其中字符串原样）
-2. mcp__ccpanes__launch_task(...)         # 启动，记录 sessionId / taskId
-3. mcp__ccpanes__get_session_status(...) # 看启动是否成功（status=active/thinking 即正常）
-4. mcp__ccpanes__get_session_output(...) # 读输出确认 prompt 已注入
+1. mcp__ccpanes__list_projects            # 取已注册项目路径（WSL 启动必须用其中字符串原样）
+2. mcp__ccpanes__dispatch_task(...)       # 启动，记录 bindingId / dispatchTaskId / sessionId
+3. mcp__ccpanes__get_task_dispatch(...)   # 读目标 CLI、能力和持久化状态
+4. mcp__ccpanes__get_session_status(...)  # 看启动是否成功（status=active/thinking 即正常）
+5. mcp__ccpanes__get_session_output(...)  # 读输出确认 prompt 已注入
 ```
 
 > **注意**：旧 skill 写的 `launch_task → get_task_status → 等完成` 是错的。`get_task_status` 只查启动事件；任务进度看 `get_session_status` + `get_session_output`。
@@ -129,13 +128,13 @@ mcp__ccpanes__get_session_output(sessionId, lines=200)
 mcp__ccpanes__kill_session(sessionId)
 ```
 
-### C. 恢复昨天那个 Codex / Claude
+### C. 恢复昨天那个 CLI 会话
 
 ```
 1. mcp__ccpanes__list_launch_history(projectPath=...)
    # 返回字段: resumeSessionId / cliTool / runtimeKind / lastPrompt / launchedAt
 2. 找匹配的 entry,记下 resumeSessionId / cliTool / runtimeKind
-3. mcp__ccpanes__launch_task(
+3. mcp__ccpanes__dispatch_task(
      projectPath: ...,
      resumeId: <resumeSessionId>,
      cliTool: <cliTool>,
@@ -156,19 +155,15 @@ mcp__ccpanes__kill_session(sessionId)
      title: "..."
    ) → <leaderId>
 
-3. mcp__ccpanes__launch_task(...) → <workerSessionId>
+3. mcp__ccpanes__dispatch_task(
+     projectPath, cliTool=<目标工具>, parentBindingId=<leaderId>, prompt=<完整任务>
+   ) → <bindingId, workerSessionId>
 
-4. mcp__ccpanes__register_plan_worker(
-     leaderId: <leaderId>,
-     sessionId: <workerSessionId>,
-     projectPath, cliTool="codex"
-   ) → <workerId>
+4. worker 从 `CC_PANES_TASK_BINDING_ID` 读取自己的 binding id，完成时：
+   先 update_task_binding(id=<环境变量>, status="completed", ...)
+   后 report_to_leader(workerId=<环境变量>, status, summary)
 
-5. 把 <workerId> 写进 worker 的 prompt,要求它完成时:
-   先 update_task_binding(id=workerId, status="completed", ...)
-   后 report_to_leader(workerId, status, summary)
-
-6. Leader 等 PTY [worker-report] 行;超时用 reconcile_plan_collaboration(leaderId) 兜底
+5. Leader 等 PTY [worker-report] 行；用 get_task_dispatch(bindingId) + get_session_status(workerSessionId) 兜底。
 ```
 
 **关键 gotcha**：`report_to_leader` 在 leader busy 时返回 `{sent: false, queued: true, skipReason: "leader busy"}`——report 进入引擎补投队列，leader 回到空闲（Idle/WaitingInput）时自动注入，**worker 无需重试**。但补投队列在 leader 崩溃/exited 时会被清空，所以 worker 仍必须配合 `update_task_binding` 持久化状态（纵深防御，也是 reconcile 的唯一依据）。多 worker 并发时这条特别重要。
@@ -180,7 +175,7 @@ mcp__ccpanes__get_session_status(...)    # 看 lastOutputAt 是否还在动
 mcp__ccpanes__get_session_output(..., lines=300)  # 抓尾部判断
 mcp__ccpanes__write_to_session(..., text="\u0003")  # 软中断
 mcp__ccpanes__kill_session(...)          # 硬终止
-# 然后重新 launch_task 或换 resumeId 续接
+# 然后重新 dispatch_task 或换 resumeId 续接
 ```
 
 ---
@@ -218,10 +213,10 @@ REST 是**应急通道**，优先用 MCP。
 
 ---
 
-## WSL 路径处理（与 launch_task 配合）
+## WSL 路径处理（与 dispatch_task 配合）
 
-- **`launch_task.projectPath`**：用 `list_projects` 返回的**原样字符串**（UNC `\\wsl.localhost\Ubuntu\...` 或 `/mnt/...` 都可能登记）。**别自己拼**。
-- **`launch_task.prompt` 里的文件路径**：按 `/mnt/<drive>/...` 转，盘符小写，空格/中文用代码块/独立行包，避免被 shell 解释。
+- **`dispatch_task.projectPath`**：用 `list_projects` 返回的**原样字符串**（UNC `\\wsl.localhost\Ubuntu\...` 或 `/mnt/...` 都可能登记）。**别自己拼**。
+- **`dispatch_task.prompt` 里的文件路径**：按 `/mnt/<drive>/...` 转，盘符小写，空格/中文用代码块/独立行包，避免被 shell 解释。
 - **`runtimeKind`**：UNC/WSL 项目路径会自动推断为 `wsl`，但**显式写**更稳，文档少歧义。
 
 详细转换表参考 `/ccpanes:plan2codexwsl` 或 `/ccpanes:plantocodex` skill 的"WSL 路径转换"段。
@@ -230,7 +225,7 @@ REST 是**应急通道**，优先用 MCP。
 
 ## 轻量路径与高级路径
 
-简单启动时只需要：确认 `projectPath` → 准备短 prompt → `launch_task` → `get_session_status`。遇到下面情况再展开后续章节：
+简单启动时只需要：确认 `projectPath` → 准备短 prompt → `dispatch_task` → `get_session_status`。遇到下面情况再展开后续章节：
 
 - 需要恢复历史会话或复用窗口
 - 需要 WSL/SSH/runtimeKind 明确路由
@@ -243,8 +238,9 @@ REST 是**应急通道**，优先用 MCP。
 ## 反模式
 
 - ❌ 用 `get_task_status` 轮询 worker 完成 → 它只看启动事件，看不到 worker 中途状态
+- ❌ 需要可追踪派发却仍调用 `launch_task` → 不会得到 `bindingId`、派发信封或环境中的任务上下文
 - ❌ 启动后只查 `get_session_status` 不读 `get_session_output` → 不知道 prompt 是否真注入
-- ❌ `launch_task.projectPath` 自己拼 `/mnt/...` → 不匹配 `list_projects` 登记的 UNC 路径，启动失败
+- ❌ `dispatch_task.projectPath` 自己拼 `/mnt/...` → 不匹配 `list_projects` 登记的 UNC 路径，启动失败
 - ❌ resume 时同时传 `prompt` 和 `resumeId` → 两者互斥，会被拒
 - ❌ 让 worker 只 `report_to_leader` 不 `update_task_binding` → leader 崩溃/退出时补投队列被清，反馈彻底丢失
 - ❌ 复用窗口用 `write_to_session` 发整段 prompt → 不会自动回车，prompt 卡在输入框；要用 `submit_to_session`

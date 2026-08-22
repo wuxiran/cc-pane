@@ -68,6 +68,7 @@ import { resolveOscColorQuery } from "./terminalOscColor";
 import {
   createTerminalDataRenderer,
   resolveTerminalBufferMode,
+  stripSgrBackgroundColors,
   type TerminalDataRenderer,
 } from "./terminalBufferMode";
 import {
@@ -90,6 +91,7 @@ import {
   type TerminalLayoutRequestOptions,
   type TerminalLayoutScheduler,
 } from "./terminalLayoutScheduler";
+import { syncTerminalGeometry } from "./terminalSessionGeometry";
 import {
   createTerminalRendererController,
   type TerminalRendererController,
@@ -215,7 +217,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const readOnlyRef = useRef(Boolean(props.readOnly));
     const isDark = useThemeStore((s) => s.isDark);
     const terminalThemeMode = useSettingsStore((s): TerminalThemeMode => s.settings?.terminal.themeMode ?? "followApp");
-    const terminalFontSize = useSettingsStore((s) => normalizeTerminalFontSize(s.settings?.terminal.fontSize));
+    const configuredTerminalFontSize = useSettingsStore((s) => normalizeTerminalFontSize(s.settings?.terminal.fontSize));
     const terminalFontFamily = useSettingsStore((s) => normalizeTerminalFontFamily(s.settings?.terminal.fontFamily));
     const terminalCursorStyle = useSettingsStore((s) => normalizeTerminalCursorStyle(s.settings?.terminal.cursorStyle));
     const terminalCursorBlink = useSettingsStore((s) => s.settings?.terminal.cursorBlink ?? false);
@@ -226,8 +228,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       s.resolved !== null && s.assetUrl !== null ? s.resolved.terminalOpacity : 1,
     );
     const wallpaperTransparencyRequired = wallpaperTerminalAlpha < 1;
-    const wallpaperTransparencyRequiredRef = useRef(wallpaperTransparencyRequired);
-    wallpaperTransparencyRequiredRef.current = wallpaperTransparencyRequired;
     const terminalTheme = useMemo(
       () => getTerminalTheme(isDark, terminalThemeMode, wallpaperTerminalAlpha),
       [isDark, terminalThemeMode, wallpaperTerminalAlpha],
@@ -239,6 +239,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       [terminalTheme, wallpaperTerminalAlpha],
     );
     const terminalRef = useRef<HTMLDivElement>(null);
+    const terminalFontSize = useTerminalWheelZoom(terminalRef, configuredTerminalFontSize);
+    const terminalFontSizeRef = useRef(terminalFontSize);
+    terminalFontSizeRef.current = terminalFontSize;
     const terminalInstanceRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
     const [terminalReady, setTerminalReady] = useState(false);
@@ -252,6 +255,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const onDataDisposableRef = useRef<IDisposable | null>(null);
     const resizeObserverRef = useRef<ResizeObserver | null>(null);
     const currentSessionIdRef = useRef<string | null>(null);
+    const geometryEpochRef = useRef(0); const markExplicitGeometryChange = useCallback(() => { geometryEpochRef.current += 1; }, []);
     // 本视图自己的订阅注销函数：同一会话可能被多个视图订阅（星标镜像），
     // 卸载时只能注销自己这份，绝不能按 sessionId 全量 detach（会灭掉其他视图）。
     const outputUnsubRef = useRef<(() => void) | null>(null);
@@ -339,6 +343,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const hiddenWriteBufferRef = useRef<TerminalHiddenWriteBuffer | null>(null);
     const terminalRendererMode = useSettingsStore((s) => s.settings?.terminal.rendererMode ?? "auto");
     const effectiveCliTool = resolveCliTool(props.cliTool, props.launchClaude);
+    // 托管 CLI 共用透明表面；普通 shell 保留原生 ANSI 背景（如 vim）。
+    const transparentCliSurface = effectiveCliTool !== "none";
+    const transparentCliSurfaceRef = useRef(transparentCliSurface);
+    transparentCliSurfaceRef.current = transparentCliSurface;
     const resolveRendererMode = useCallback((mode: TerminalRendererMode) => {
       return resolveTerminalRendererModeForSession(mode, {
         cliToolId: effectiveCliTool,
@@ -380,22 +388,16 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     );
     const keepCliOutputInNormalBuffer =
       resolveTerminalBufferMode(effectiveCliTool, cliBufferModeOverrides) === "strip";
-    // renderer 是**有状态**的（可能扣留跨 chunk 的不完整转义序列尾部），必须按终端实例
-    // 用 ref 持有——useMemo 可能被 React 丢弃重算，扣留的尾部会随之丢失。
-    //
-    // 销毁时不 flush 残留：写入残留得挂进 init 闭包的 cleanup（终端销毁时序红线），
-    // 且那时 xterm 正在 dispose，写入本就不安全。代价是会话结束时最多丢 32 字节的
-    // 不完整转义序列尾部（MAX_PARTIAL_TAIL_LENGTH 上限）——远好于动渲染生命周期。
+    // renderer 会扣留跨 chunk 的不完整序列尾部，必须按终端实例持有；销毁时
+    // xterm 正在 dispose，不再 flush 最多 32 字节的残留。
     const terminalDataRendererRef = useRef<TerminalDataRenderer | null>(null);
-    // 探针回调在 renderer 创建时被捕获（renderer 按实例 ref 持有、只建一次），
-    // cliTool 经 ref 间接读取，避免闭包陈旧。
+    // renderer 只建一次，探针通过 ref 读取最新 cliTool。
     const effectiveCliToolProbeRef = useRef(effectiveCliTool);
     effectiveCliToolProbeRef.current = effectiveCliTool;
     const renderTerminalData = useCallback((data: string) => {
       terminalDataRendererRef.current ??= createTerminalDataRenderer({
-        // 1049 探针（docs/73 §2.x 步骤 1）：剥离路径上跨 chunk 重组后的真实命中。
-        // 不走 debugLog（受 TERMINAL_DEBUG 门控）——探针要在常规运行里也可观测；
-        // 事件极低频（CLI 真切换 alt-screen 才触发），claude 长期零输出即证明剥离对它是 no-op。
+        // 常规运行中观测跨 chunk 重组后的真实 1049 命中；事件仅在切换时产生。
+        // 不走受 TERMINAL_DEBUG 门控的 debugLog。
         onStrippedTransition: (transition) => {
           console.info("[alt-screen-probe]", {
             cliTool: effectiveCliToolProbeRef.current,
@@ -407,9 +409,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       return terminalDataRendererRef.current.render(data, {
         keepCliOutputInNormalBuffer,
         sessionId: currentSessionIdRef.current,
-        stripBackgroundColors: wallpaperTransparencyRequiredRef.current,
+        stripBackgroundColors: transparentCliSurfaceRef.current,
       });
     }, [keepCliOutputInNormalBuffer]);
+    // photo 成品 VT 只剥 SGR 背景色；二次剥 alt-screen 会破坏画面。
+    const renderCheckpointData = useCallback((data: string) =>
+      transparentCliSurfaceRef.current ? stripSgrBackgroundColors(data) : data, []);
     const syncTrackedBufferType = useCallback((reason: string) => {
       const current = terminalInstanceRef.current?.buffer.active.type;
       const next =
@@ -457,17 +462,15 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       return layoutSchedulerRef.current?.flush(reason, options) ?? null;
     }, []);
 
-    const writeTerminalData = useCallback(async (
-      data: string,
-      onWritten?: () => void,
-    ) => {
+    const writeTerminalData = useCallback(async (data: string, onWritten?: () => void) => {
       const flowControl = writeFlowControlRef.current;
       if (!flowControl) {
         throw new Error("Terminal write flow control is not initialized");
       }
+      const terminalData = transparentCliSurfaceRef.current ? stripSgrBackgroundColors(data) : data;
       // WebGL 花屏诊断台录制钩子（未 arm 时为 no-op，见 utils/terminalCast）。
-      captureTerminalWrite(currentSessionIdRef.current ?? props.sessionId ?? "unknown", data);
-      await flowControl.write(data, onWritten);
+      captureTerminalWrite(currentSessionIdRef.current ?? props.sessionId ?? "unknown", terminalData);
+      await flowControl.write(terminalData, onWritten);
     }, [props.sessionId]);
 
     // 本终端是否值得渲染 / tab 级焦点——单视图读侧（useViewVisibilityReaders）。
@@ -668,11 +671,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         if (!layoutActiveRef.current) return;
         layoutSchedulerRef.current?.schedule("context-menu.fit-all", {
           force: true,
+          forceBackendSync: true,
           // 隐藏也允许：用户显式要求全部重排，非焦点格一并处理
           allowInactive: true,
         });
       };
-
       window.addEventListener(TERMINAL_LAYOUT_CHANGED_EVENT, handleLayoutChanged);
       window.addEventListener(TERMINAL_FIT_ALL_EVENT, handleFitAll);
       return () => {
@@ -832,6 +835,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         isRenderVisible,
         keepCliOutputInNormalBuffer,
         renderTerminalData,
+        renderCheckpointData,
         writeTerminalData,
         syncTrackedBufferType,
         unbindSessionCallbacks,
@@ -848,6 +852,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       handleSessionExit,
       isRenderVisible,
       keepCliOutputInNormalBuffer,
+      renderCheckpointData,
       renderTerminalData,
       syncTrackedBufferType,
       unbindSessionCallbacks,
@@ -888,7 +893,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         });
       }
 
-      let isMounted = true;
+      let isMounted = true; const initGeometryEpoch = geometryEpochRef.current;
       isUnmountedRef.current = false;
       debugLog("mount", {
         restoring: props.restoring ?? false,
@@ -924,7 +929,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         const termSettings = useSettingsStore.getState().settings?.terminal;
         const scrollback = normalizeTerminalScrollback(termSettings?.scrollback);
-        const fontSize = normalizeTerminalFontSize(termSettings?.fontSize);
+        const fontSize = terminalFontSizeRef.current;
         const fontFamily = normalizeTerminalFontFamily(termSettings?.fontFamily);
         const cursorStyle = normalizeTerminalCursorStyle(termSettings?.cursorStyle);
         const cursorBlink = termSettings?.cursorBlink ?? false;
@@ -1036,8 +1041,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               useSettingsStore.getState().settings?.terminal.themeMode,
             ),
             {
-              cliTool: effectiveCliToolRef.current,
-              wallpaperTransparencyRequired: wallpaperTransparencyRequiredRef.current,
+              preserveTransparentBackground: transparentCliSurfaceRef.current,
             },
           );
           debugLog("terminal.osc.query", {
@@ -1551,7 +1555,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             // (Restored tabs still start their live PTY on first app restore even when
             // hidden, otherwise background tabs can remain stuck on the restore overlay.)
             if (props.restoring && props.savedSessionId && !liveSavedSessionId) {
-              await replayColdRestoreOutput(term, props.savedSessionId, logRestoreEvent, debugLog);
+              await replayColdRestoreOutput(term, props.savedSessionId, logRestoreEvent, debugLog, renderCheckpointData);
             }
 
             let sessionId: string;
@@ -1579,6 +1583,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                   wake,
                   getRecoverySnapshot: (id) => getRecoverySnapshot(id),
                   renderTerminalData,
+                  renderCheckpointData,
                   writeTerminalData,
                   syncTrackedBufferType,
                   showReconnectHint: Boolean(isSshRef.current && onReconnectRef.current),
@@ -1777,19 +1782,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 sessionRestoreService.clearOutput(props.savedSessionId).catch(console.error);
               }
             }
-
+            syncTerminalGeometry(sessionId, term, layoutSchedulerRef, drivesBackendPty, readOnlyRef.current, attachSessionId ? "session.attach" : "session.create", () => geometryEpochRef.current === initGeometryEpoch);
             // Register output and exit handlers.
             await bindSessionCallbacks(sessionId);
             if (!isMounted) {
               unbindSessionCallbacks();
               return;
-            }
-
-            // Keep PTY size aligned when attaching to an existing session.
-            if (attachSessionId && drivesBackendPty) {
-              void terminalService.resize({ sessionId, cols: term.cols, rows: term.rows }).catch(
-                (error) => console.warn("[TerminalView] Failed to resize attached terminal:", error),
-              );
             }
           } catch (error) {
             slot.release();
@@ -1853,9 +1851,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       cursorBlink: terminalCursorBlink,
       scrollback: terminalScrollback,
     });
-
-    useTerminalWheelZoom(terminalRef);
-
     // 启动期字体晚就绪兜底：waitForTerminalFont 有 1.5s 超时，超时后终端会用
     // fallback 字体度量 cell 并 fit；主字体随后加载完成时没有任何触发点，
     // cols/rows 误差会被放大成好几列空白。首次 loadingdone 时清图集并强制重排。
@@ -1970,7 +1965,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         // Session recovery cannot depend on fit succeeding. Hidden tabs use
         // display:none, so layout scheduling may legitimately skip them.
         // 同 init 路径的创建槽位（docs/78 批4）；两条路径共用同一把 (tabId, paneId) 锁。
-        const slot = createTerminalSlotHolder();
+        const slot = createTerminalSlotHolder(); const initGeometryEpoch = geometryEpochRef.current;
         void (async () => {
             try {
               await ensureListeners();
@@ -1997,7 +1992,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                     const renderedData = renderTerminalData(data);
                     return renderedData ? writeTerminalData(renderedData) : Promise.resolve();
                   },
-                  writeCheckpointData: (data) => writeTerminalData(data),
+                  writeCheckpointData: (data) => writeTerminalData(renderCheckpointData(data)),
                   syncTrackedBufferType,
                   debugLog,
                 });
@@ -2005,9 +2000,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                   usePanesStore.getState().clearRestoring(props.paneId ?? "", props.tabId, props.paneId);
                   sessionRestoreService.clearOutput(liveSavedSessionId).catch(console.error);
                 }
+                syncTerminalGeometry(liveSavedSessionId, term, layoutSchedulerRef, drivesBackendPty, readOnlyRef.current, "session.deferred-restore.attach", () => geometryEpochRef.current === initGeometryEpoch);
                 await bindSessionCallbacks(liveSavedSessionId);
                 if (isUnmountedRef.current) {
                   unbindSessionCallbacks();
+                  return;
                 }
                 return;
               }
@@ -2134,9 +2131,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                   sessionRestoreService.clearOutput(props.savedSessionId).catch(console.error);
                 }
               }
+              syncTerminalGeometry(sessionId, term, layoutSchedulerRef, drivesBackendPty, readOnlyRef.current, "session.deferred-restore.create", () => geometryEpochRef.current === initGeometryEpoch);
               await bindSessionCallbacks(sessionId);
               if (isUnmountedRef.current) {
                 unbindSessionCallbacks();
+                return;
               }
             } catch (err) {
               slot.release();
@@ -2205,11 +2204,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       refitAndRepaintTerminal,
       repaintTerminal,
       canResizeBackend: () => drivesBackendPty && !readOnlyRef.current,
+      onExplicitGeometryChange: markExplicitGeometryChange,
     });
 
     return (
       <div
-        className="h-full w-full overflow-hidden flex flex-col"
+        className="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden"
         style={{
           "--cc-terminal-bg": terminalTheme.background,
           "--cc-terminal-fg": terminalTheme.foreground,
@@ -2238,7 +2238,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           onExportBuffer={handleMenuExportBuffer}
           onOpenProjectDir={props.projectPath ? handleMenuOpenProjectDir : undefined}
         >
-          <div className="relative flex-1 overflow-hidden">
+          <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
             <div
               ref={terminalRef}
               className="cc-terminal-host h-full w-full overflow-hidden [&_.xterm]:h-full"

@@ -135,9 +135,13 @@ mod tests {
             wrap_with_powershell("codex.exe".to_string(), vec![], &mut env).unwrap();
         let encoded = wrapped_args.last().unwrap();
         let bytes = STANDARD.decode(encoded).unwrap();
+        // as_chunks：块长是常量，rust 1.98 的 clippy::chunks_exact_to_as_chunks 会拦
+        // chunks_exact。语义不变——UTF-16LE 解码本就不该有落单字节。
         let units = bytes
-            .chunks_exact(2)
-            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|chunk| u16::from_le_bytes(*chunk))
             .collect::<Vec<_>>();
         let script = String::from_utf16(&units).unwrap();
 

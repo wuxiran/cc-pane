@@ -10,7 +10,10 @@
 //! - 请求频率限制
 
 use crate::ccchan_service::{CCChanService, CCChanWindowMode};
-use crate::models::task_binding::{TaskBinding, TaskBindingRole, TaskBindingStatus};
+use crate::models::task_binding::{
+    CreateTaskBindingRequest, TaskBinding, TaskBindingRole, TaskBindingStatus,
+    UpdateTaskBindingRequest,
+};
 use crate::models::todo::{
     CreateTodoRequest, TodoPriority, TodoQuery, TodoScope, TodoStatus, UpdateTodoRequest,
 };
@@ -37,7 +40,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use cc_cli_adapters::normalize_cli_command;
+use cc_cli_adapters::{normalize_cli_command, CliToolRegistry};
 use cc_memory::models::{
     MemoryCategory, MemoryQuery, MemoryScope, StoreMemoryRequest, UpdateMemoryRequest,
 };
@@ -48,16 +51,18 @@ use cc_panes_core::models::shared_mcp::{
 use cc_panes_core::models::{
     CreateSessionRequest as CoreCreateSessionRequest, PortReservation, RunnerInstance,
     RunnerInstanceStatus, RunnerProfile, RunnerStartResult, RunnerStartStatus,
+    TaskDispatchEnvelope, TaskDispatchPlan, TaskDispatchRequest,
 };
 use cc_panes_core::services::mcp_config_service::McpServerConfig;
 use cc_panes_core::services::terminal_service::{
     wrap_bracketed_paste, KillReason, SessionStatus, SessionStatusInfo,
 };
+use cc_panes_core::services::TaskDispatchService;
 use cc_panes_core::services::TerminalBackend;
 #[cfg(target_os = "windows")]
 use cc_panes_core::utils::canonical_project_path;
 use cc_panes_core::utils::orchestrator_manifest;
-use cc_panes_core::utils::{project_identity_key, simplify_path_str};
+use cc_panes_core::utils::{mint_birth_anchors, project_identity_key, simplify_path_str};
 use rmcp::{
     handler::server::router::tool::ToolRouter,
     handler::server::wrapper::Parameters,
@@ -101,15 +106,14 @@ pub struct LaunchTaskRequest {
     pub layout_id: Option<String>,
     /// 指定目标布局名称（可选；前端不存在时会自动创建）
     pub layout_name: Option<String>,
-    /// CLI 工具类型：`"claude"` | `"codex"` | `"opencode"`，默认 `"claude"`。
-    /// 其余已注册工具（gemini/kimi/glm/cursor）请通过直接终端启动。
+    /// CLI 工具类型。支持所有已注册的内置 CLI，默认 `"claude"`。
     pub cli_tool: Option<String>,
     /// 新会话落位方式：`"beside"`（默认，调用者 pane 旁边分屏）| `"tab"`（调用者 pane 标签页）。
     pub placement: Option<String>,
 }
 
 /// 启动任务响应
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchTaskResponse {
     pub task_id: String,
@@ -174,6 +178,13 @@ pub struct OrchestratorLaunchEvent {
     pub pane_id: Option<String>,
     pub layout_id: Option<String>,
     pub layout_name: Option<String>,
+    /// 出生锚点：本次派发**预先分配**的 tab / terminal-pane id，前端必须原样采用
+    /// （不要自己 `generateId`）。它们已写进 daemon 的不可变出生凭证，两侧一致
+    /// 才能让会话在 app 重启后被自动接管；前端另起 id 会让凭证锚点对不上真实窗格。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal_pane_id: Option<String>,
     pub cli_tool: Option<String>,
     pub runtime_kind: String,
     pub runtime_source: String,
@@ -211,17 +222,119 @@ pub struct OrchestratorOpenFileEvent {
     pub caller_session_id: Option<String>,
 }
 
-fn parse_launch_cli_tool(cli_tool: Option<&str>) -> std::result::Result<CliTool, String> {
-    match cli_tool.unwrap_or("claude") {
-        "claude" => Ok(CliTool::Claude),
-        "codex" => Ok(CliTool::Codex),
-        "opencode" => Ok(CliTool::Opencode),
-        "grok" => Ok(CliTool::Grok),
-        "kimi" | "glm" | "gemini" | "cursor" => Err(format!(
+/// 解析 `launch_task` 的 `cliTool` 参数。
+///
+/// 准入白名单不再硬编码在这里——改查 adapter 自己声明的
+/// `supports_orchestrated_launch`（`cc-cli-adapters`）。语义与此前一致：
+/// 已验证编排链路的 CLI 放行，已注册但未验证的报「暂不支持」，未注册的报「未知」。
+/// `none` 不是可编排的 CLI，与未注册同样拒绝。
+fn parse_launch_cli_tool(
+    registry: &CliToolRegistry,
+    cli_tool: Option<&str>,
+) -> std::result::Result<CliTool, String> {
+    let raw = cli_tool.unwrap_or("claude").trim();
+    let normalized = raw.to_ascii_lowercase();
+    let parsed = CliTool::from_id(&normalized).filter(|tool| *tool != CliTool::None);
+    let Some(tool) = parsed else {
+        return Err(format!("Unknown cliTool '{}'", raw));
+    };
+    let orchestrated = registry
+        .get(tool.as_id())
+        .map(|adapter| adapter.capabilities().supports_orchestrated_launch)
+        .unwrap_or(false);
+    if orchestrated {
+        Ok(tool)
+    } else {
+        Err(format!(
             "CLI tool '{}' is not supported by launch_task yet; use direct terminal launch instead",
-            cli_tool.unwrap_or("claude")
-        )),
-        other => Err(format!("Unknown cliTool '{}'", other)),
+            raw
+        ))
+    }
+}
+
+fn reconcile_parent_session_id(
+    parent_binding_id: &str,
+    requested_session_id: Option<&str>,
+    binding_session_id: Option<&str>,
+) -> std::result::Result<Option<String>, String> {
+    if let (Some(requested), Some(binding)) = (requested_session_id, binding_session_id) {
+        if requested != binding {
+            return Err(format!(
+                "parentSessionId '{}' 与父任务绑定 '{}' 的 sessionId '{}' 不一致",
+                requested, parent_binding_id, binding
+            ));
+        }
+    }
+
+    Ok(requested_session_id
+        .map(str::to_string)
+        .or_else(|| binding_session_id.map(str::to_string)))
+}
+
+fn dispatch_binding_metadata(envelope: &TaskDispatchEnvelope) -> serde_json::Value {
+    serde_json::json!({ "dispatchEnvelope": envelope })
+}
+
+fn dispatch_task_environment(
+    binding_id: Option<&str>,
+    dispatch_task_id: Option<&str>,
+) -> Option<HashMap<String, String>> {
+    let mut env = HashMap::new();
+    if let Some(binding_id) = binding_id.filter(|value| !value.trim().is_empty()) {
+        env.insert(
+            "CC_PANES_TASK_BINDING_ID".to_string(),
+            binding_id.to_string(),
+        );
+    }
+    if let Some(dispatch_task_id) = dispatch_task_id.filter(|value| !value.trim().is_empty()) {
+        env.insert(
+            "CC_PANES_DISPATCH_TASK_ID".to_string(),
+            dispatch_task_id.to_string(),
+        );
+    }
+    (!env.is_empty()).then_some(env)
+}
+
+fn dispatch_envelope_from_binding(
+    binding: &TaskBinding,
+) -> std::result::Result<TaskDispatchEnvelope, String> {
+    let value = binding
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("dispatchEnvelope"))
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "TaskBinding '{}' is not a dispatch_task binding",
+                binding.id
+            )
+        })?;
+    serde_json::from_value(value).map_err(|error| {
+        format!(
+            "TaskBinding '{}' has an invalid dispatch envelope: {}",
+            binding.id, error
+        )
+    })
+}
+
+fn default_dispatch_binding_title(project_path: &str, cli_tool: &str) -> String {
+    let project_name = std::path::Path::new(project_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(project_path);
+    format!("{} ({})", project_name, cli_tool)
+}
+
+fn bounded_dispatch_error(error: &str) -> String {
+    const MAX_CHARS: usize = 500;
+
+    let normalized = error.trim();
+    let clipped = normalized.chars().take(MAX_CHARS).collect::<String>();
+    if normalized.chars().count() > MAX_CHARS {
+        format!("{}...", clipped)
+    } else {
+        clipped
     }
 }
 
@@ -795,6 +908,8 @@ pub struct AppState {
     pub plan_archive_service: Arc<crate::services::PlanArchiveService>,
     /// Runner Registry：项目运行实例 + 端口/PID 跟踪
     pub runner_service: Arc<cc_panes_core::services::RunnerService>,
+    /// dsh 实例注册表：dsh leader 的回执投递要按 workspaceKey 实时解析端口
+    pub dsh_service: Arc<cc_panes_core::services::DshService>,
     pub start_locks: Arc<StartLocks>,
     /// hook 驱动的会话状态机（阶段 2.2 引入）
     pub session_state_machine: Arc<cc_panes_core::services::SessionStateMachine>,
@@ -1663,6 +1778,7 @@ impl OrchestratorService {
         settings_service: Arc<SettingsService>,
         plan_archive_service: Arc<crate::services::PlanArchiveService>,
         runner_service: Arc<cc_panes_core::services::RunnerService>,
+        dsh_service: Arc<cc_panes_core::services::DshService>,
         ai_panel_repo: Arc<cc_panes_core::repository::AiPanelRepository>,
         mcp_tool_call_stats_repo: Arc<cc_panes_core::repository::McpToolCallStatsRepository>,
         turn_notify_registry: Arc<crate::services::TurnNotifyRegistry>,
@@ -1728,6 +1844,7 @@ impl OrchestratorService {
             settings_service,
             plan_archive_service,
             runner_service,
+            dsh_service,
             start_locks,
             session_state_machine: self.session_state_machine.clone(),
             app_handle,
@@ -2312,8 +2429,7 @@ struct McpLaunchTaskParams {
     /// 指定目标布局名称（可选；前端不存在时会自动创建）
     #[serde(rename = "layoutName")]
     layout_name: Option<String>,
-    /// CLI 工具类型：`"claude"` | `"codex"` | `"opencode"`，默认 `"claude"`。
-    /// 其余已注册工具（gemini/kimi/glm/cursor）请通过直接终端启动。
+    /// CLI 工具类型。支持所有已注册的内置 CLI，默认 `"claude"`。
     #[serde(rename = "cliTool")]
     cli_tool: Option<String>,
     /// 新会话落位方式（可选，默认 `"beside"`）。仅在未显式指定 `paneId` 时生效，指定了 `paneId` 则按 `paneId` 落位。注意：默认前端**不会**为 agent 启动跳转布局（worker 照样建在目标布局，只弹一条可跳转提示）；仅当显式传了 `layoutId`/`layoutName`、或用户开了设置里的「跟随 agent 启动跳转布局」才切换，`"silent"` 连这两种也不切。
@@ -2322,6 +2438,31 @@ struct McpLaunchTaskParams {
     /// - `"silent"`：完全不打扰——不切布局、不切主视图、不弹提示；窗格仍正常建在目标布局。
     #[serde(rename = "placement")]
     placement: Option<String>,
+    /// Internal dispatch context. This is never accepted from MCP callers;
+    /// `dispatch_task` sets it after the durable TaskBinding exists.
+    #[serde(skip)]
+    #[schemars(skip)]
+    dispatch_binding_id: Option<String>,
+    #[serde(skip)]
+    #[schemars(skip)]
+    dispatch_task_id: Option<String>,
+}
+
+/// Generic, durable cross-CLI task dispatch parameters.
+///
+/// The launch fields intentionally match `launch_task`; the two parent fields
+/// describe an optional TaskBinding relationship without requiring the caller
+/// to be a particular CLI.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpDispatchTaskParams {
+    #[serde(flatten)]
+    launch: McpLaunchTaskParams,
+    /// Optional parent TaskBinding ID. The target becomes a child task of this binding.
+    #[serde(rename = "parentBindingId", alias = "parentTaskId")]
+    parent_binding_id: Option<String>,
+    /// Optional parent terminal session ID when the caller has no TaskBinding ID.
+    #[serde(rename = "parentSessionId")]
+    parent_session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2331,6 +2472,20 @@ struct McpGetTaskStatusParams {
     task_id: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpGetTaskDispatchParams {
+    /// TaskBinding ID returned by dispatch_task.
+    #[serde(rename = "bindingId")]
+    binding_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskDispatchStatusResponse {
+    binding: TaskBinding,
+    dispatch_envelope: TaskDispatchEnvelope,
+}
+
 // ---- Workspace MCP 参数 ----
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2338,6 +2493,9 @@ struct McpGetWorkspaceParams {
     /// 工作空间名称
     #[serde(rename = "workspaceName")]
     workspace_name: String,
+    /// 是否列出已归档的项目。默认 false。（工作空间本身即使已归档也照常返回）
+    #[serde(rename = "includeArchived")]
+    include_archived: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2356,6 +2514,43 @@ struct McpAddProjectToWorkspaceParams {
     /// 项目路径（必须是存在的目录）
     #[serde(rename = "projectPath")]
     project_path: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpListWorkspacesParams {
+    /// 是否包含已归档（逻辑删除）的工作空间。默认 false。
+    #[serde(rename = "includeArchived")]
+    include_archived: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpSetWorkspaceArchivedParams {
+    /// 工作空间名称
+    #[serde(rename = "workspaceName")]
+    workspace_name: String,
+    /// true = 归档，false = 恢复
+    archived: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpSetWorkspaceProjectArchivedParams {
+    /// 工作空间名称
+    #[serde(rename = "workspaceName")]
+    workspace_name: String,
+    /// 项目 ID（get_workspace 返回的 projects[].id）
+    #[serde(rename = "projectId")]
+    project_id: String,
+    /// true = 归档，false = 恢复
+    archived: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpUpdateWorkspacePathParams {
+    /// 工作空间名称
+    #[serde(rename = "workspaceName")]
+    workspace_name: String,
+    /// 新的根目录路径；传 null 清空
+    path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -3193,9 +3388,14 @@ struct McpRegisterPlanLeaderParams {
     title: Option<String>,
     /// 完整 prompt
     prompt: Option<String>,
-    /// leader 的 PTY session ID
+    /// leader 的 PTY session ID。leaderKind 为 "dsh" 时可传空串——服务端会
+    /// 自动识别当前正在跑轮次的 dsh 会话作为 leader。
     #[serde(rename = "sessionId")]
     session_id: String,
+    /// leader 类型："pty"（默认，终端会话）或 "dsh"（DeepSeek Harness 网页会话，
+    /// 从 dsh 里调用时必须传 "dsh"，worker 回执会以聊天消息形式送回该会话）。
+    #[serde(rename = "leaderKind")]
+    leader_kind: Option<String>,
     /// leader 的 Claude/Codex/OpenCode resume ID
     #[serde(rename = "resumeId")]
     resume_id: Option<String>,
@@ -4029,6 +4229,131 @@ fn launch_profile_bindings(profile_id: &str, workspaces: &[Workspace]) -> Vec<St
     bindings
 }
 
+/// 找出某工作空间下**尚未收尾**的派工记录，用于归档时的提示。
+///
+/// 数据源刻意选 task_binding（SQLite）而非 TerminalService：PTY 迁到 daemon 后
+/// app 进程内的 `TerminalService.sessions` 恒为空（见 CLAUDE.md 的 daemon 边界那条），
+/// 拿它做判断会恒返回"无会话"——一个静默永远为真的守卫比没有守卫更糟。
+fn unfinished_bindings_in_workspace(
+    task_binding_service: &crate::services::TaskBindingService,
+    workspace_name: &str,
+) -> Vec<String> {
+    use crate::models::task_binding::{TaskBindingQuery, TaskBindingStatus};
+
+    let mut found = Vec::new();
+    // status 是精确匹配，未收尾的三态各查一次
+    for status in [
+        TaskBindingStatus::Running,
+        TaskBindingStatus::Waiting,
+        TaskBindingStatus::Pending,
+    ] {
+        let query = TaskBindingQuery {
+            status: Some(status),
+            workspace_name: Some(workspace_name.to_string()),
+            ..Default::default()
+        };
+        let Ok(result) = task_binding_service.query(query) else {
+            continue;
+        };
+        for binding in result.items {
+            found.push(format!(
+                "{} ({}, session={})",
+                binding.title,
+                binding.status.as_str(),
+                binding.session_id.as_deref().unwrap_or("-")
+            ));
+        }
+    }
+    found
+}
+
+/// 归档 / 恢复工作空间。
+///
+/// **刻意不阻塞**在途派工，只在返回值里报告：
+/// - 归档是纯可见性标记，不杀 PTY、不删磁盘内容，误归档的代价是点一下恢复；
+///   而误阻塞的代价是整理任务直接做不下去。
+/// - 会话归属只有 task_binding 一条能跨 daemon 边界的通路，而**并非每个会话都有
+///   binding**（用户从 UI 直接开的终端就没有）。不完整的阻塞守卫会给出虚假保证，
+///   不完整的提示只是少报一条——后者的失败方向安全得多。
+fn set_workspace_archived_impl(
+    workspace_service: &WorkspaceService,
+    task_binding_service: &crate::services::TaskBindingService,
+    workspace_name: &str,
+    archived: bool,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_name = required_trimmed(workspace_name, "workspaceName")?;
+
+    workspace_service.set_workspace_archived(&workspace_name, archived)?;
+
+    let workspace = workspace_service.get_workspace(&workspace_name)?;
+    let mut payload = serde_json::json!({
+        "success": true,
+        "workspaceName": workspace.name,
+        "archivedAt": workspace.archived_at,
+    });
+
+    if archived {
+        let unfinished = unfinished_bindings_in_workspace(task_binding_service, &workspace_name);
+        if !unfinished.is_empty() {
+            payload["warning"] = serde_json::json!(format!(
+                "该工作空间仍有 {} 条未收尾的派工记录：{}。归档不会终止它们（会话照常运行），只是列表默认不再显示该工作空间；要真正停掉请用 kill_session。",
+                unfinished.len(),
+                unfinished.join("; ")
+            ));
+            payload["unfinishedBindings"] = serde_json::json!(unfinished);
+        }
+    }
+
+    Ok(payload)
+}
+
+/// 归档 / 恢复工作空间内的单个项目。
+fn set_workspace_project_archived_impl(
+    workspace_service: &WorkspaceService,
+    workspace_name: &str,
+    project_id: &str,
+    archived: bool,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_name = required_trimmed(workspace_name, "workspaceName")?;
+    let project_id = required_trimmed(project_id, "projectId")?;
+
+    workspace_service.set_project_archived(&workspace_name, &project_id, archived)?;
+
+    let workspace = workspace_service.get_workspace(&workspace_name)?;
+    let archived_at = workspace
+        .projects
+        .iter()
+        .find(|p| p.id == project_id)
+        .and_then(|p| p.archived_at.clone());
+
+    Ok(serde_json::json!({
+        "success": true,
+        "workspaceName": workspace.name,
+        "projectId": project_id,
+        "archivedAt": archived_at,
+    }))
+}
+
+/// 修改工作空间根目录路径（薄包装，非破坏性）。
+fn update_workspace_path_impl(
+    workspace_service: &WorkspaceService,
+    workspace_name: &str,
+    path: Option<&str>,
+) -> std::result::Result<serde_json::Value, String> {
+    let workspace_name = required_trimmed(workspace_name, "workspaceName")?;
+    // 空白字符串按"清空"处理，避免把工作空间根设成一个空路径
+    let path = path.map(str::trim).filter(|value| !value.is_empty());
+
+    workspace_service.update_workspace_path(&workspace_name, path)?;
+
+    let workspace = workspace_service.get_workspace(&workspace_name)?;
+    Ok(serde_json::json!({
+        "success": true,
+        "workspaceName": workspace.name,
+        "path": workspace.path,
+    }))
+}
+
 fn delete_launch_profile_impl(
     launch_profile_service: &LaunchProfileService,
     workspace_service: &WorkspaceService,
@@ -4512,19 +4837,302 @@ impl McpToolHandler {
             command: String::new(),
         })
     }
+
+    fn resolve_dispatch_plan(
+        &self,
+        launch: &McpLaunchTaskParams,
+        parent_binding_id: Option<String>,
+        parent_session_id: Option<String>,
+    ) -> std::result::Result<TaskDispatchPlan, String> {
+        let mut plan = TaskDispatchService::default().plan(TaskDispatchRequest {
+            cli_tool: launch.cli_tool.clone(),
+            project_path: launch.project_path.clone(),
+            workspace_name: launch.workspace_name.clone(),
+            profile_id: launch.profile_id.clone(),
+            runtime_kind: launch.runtime_kind.clone(),
+            prompt: launch.prompt.clone(),
+            resume_id: launch.resume_id.clone(),
+            parent_binding_id,
+            parent_session_id,
+        })?;
+
+        if !is_project_registered(&self.state, &launch.project_path) {
+            return Err(format!("项目路径 '{}' 未注册", launch.project_path));
+        }
+
+        let project_context = resolve_project_launch_context(
+            &launch.project_path,
+            launch.workspace_name.as_deref(),
+            launch.profile_id.as_deref(),
+            &self.state.workspace_service,
+        );
+        let launch_profile_id = project_context.launch_profile_id.clone();
+        validate_orchestrator_launch_profile(
+            &self.state.launch_profile_service,
+            launch_profile_id.as_deref(),
+            self.state
+                .settings_service
+                .get_settings()
+                .orchestrator
+                .allow_mcp_yolo_profiles,
+        )?;
+        parse_provider_selection(launch.provider_selection.as_deref())?;
+        let runtime = resolve_launch_runtime(
+            &launch.project_path,
+            project_context.workspace_name.as_deref(),
+            Some(&plan.envelope.resolved_cli_tool),
+            launch.runtime_kind.as_deref(),
+            launch.resume_id.as_deref(),
+            &self.state,
+        )?;
+        plan.envelope.workspace_name = project_context.workspace_name;
+        plan.envelope.profile_id = launch_profile_id;
+        plan.envelope.runtime_kind = Some(runtime.kind.as_str().to_string());
+
+        if let Some(parent_id) = plan.envelope.parent_binding_id.clone() {
+            let parent = self
+                .state
+                .task_binding_service
+                .get(&parent_id)
+                .map_err(|error| format!("查询父任务绑定失败: {}", error))?
+                .ok_or_else(|| format!("父任务绑定 '{}' 不存在", parent_id))?;
+            plan.envelope.parent_session_id = reconcile_parent_session_id(
+                &parent_id,
+                plan.envelope.parent_session_id.as_deref(),
+                parent.session_id.as_deref(),
+            )?;
+        }
+
+        Ok(plan)
+    }
+
+    fn create_dispatch_binding(
+        &self,
+        plan: &mut TaskDispatchPlan,
+        launch: &McpLaunchTaskParams,
+    ) -> std::result::Result<TaskBinding, String> {
+        let title = launch
+            .title
+            .as_deref()
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                default_dispatch_binding_title(
+                    &launch.project_path,
+                    &plan.envelope.resolved_cli_tool,
+                )
+            });
+        let binding = self
+            .state
+            .task_binding_service
+            .create(CreateTaskBindingRequest {
+                title,
+                role: Some(TaskBindingRole::Task),
+                parent_id: plan.envelope.parent_binding_id.clone(),
+                plan_path: None,
+                normalized_plan_path: None,
+                prompt: launch.prompt.clone(),
+                session_id: None,
+                resume_id: launch.resume_id.clone(),
+                pane_id: launch.pane_id.clone(),
+                tab_id: None,
+                todo_id: None,
+                project_path: launch.project_path.clone(),
+                workspace_name: plan.envelope.workspace_name.clone(),
+                cli_tool: Some(plan.envelope.resolved_cli_tool.clone()),
+                worker_kind: None,
+                metadata: None,
+            })
+            .map_err(|error| format!("创建任务绑定失败: {}", error))?;
+
+        plan.attach_binding_id(binding.id.clone());
+        self.state
+            .task_binding_service
+            .update(
+                &binding.id,
+                UpdateTaskBindingRequest {
+                    metadata: Some(dispatch_binding_metadata(&plan.envelope)),
+                    ..Default::default()
+                },
+            )
+            .map_err(|error| format!("持久化任务派发信封失败: {}", error))
+    }
+
+    fn mark_dispatch_binding_running(
+        &self,
+        binding_id: &str,
+        session_id: &str,
+        envelope: &TaskDispatchEnvelope,
+    ) -> std::result::Result<TaskBinding, String> {
+        let existing = self
+            .state
+            .task_binding_service
+            .get(binding_id)
+            .map_err(|error| format!("查询任务派发绑定失败: {}", error))?
+            .ok_or_else(|| format!("TaskBinding '{}' 不存在", binding_id))?;
+        let status = dispatch_running_status(existing.status);
+        self.state
+            .task_binding_service
+            .update(
+                binding_id,
+                UpdateTaskBindingRequest {
+                    session_id: Some(session_id.to_string()),
+                    status,
+                    metadata: Some(dispatch_binding_metadata(envelope)),
+                    ..Default::default()
+                },
+            )
+            .map_err(|error| format!("回填任务派发会话失败: {}", error))
+    }
+
+    /// Attach the PTY as soon as the launcher has created it.
+    ///
+    /// `dispatch_task` performs a second, metadata-complete update after
+    /// `launch_task` returns. This earlier update closes the window in which a
+    /// very short-lived worker could emit `terminal-exit` while its durable
+    /// binding still had no session id.
+    fn mark_dispatch_binding_started(
+        &self,
+        binding_id: &str,
+        session_id: &str,
+    ) -> std::result::Result<TaskBinding, String> {
+        let existing = self
+            .state
+            .task_binding_service
+            .get(binding_id)
+            .map_err(|error| format!("查询任务派发绑定失败: {}", error))?
+            .ok_or_else(|| format!("TaskBinding '{}' 不存在", binding_id))?;
+        self.state
+            .task_binding_service
+            .update(
+                binding_id,
+                UpdateTaskBindingRequest {
+                    session_id: Some(session_id.to_string()),
+                    status: dispatch_running_status(existing.status),
+                    ..Default::default()
+                },
+            )
+            .map_err(|error| format!("提前回填任务派发会话失败: {}", error))
+    }
+
+    fn mark_dispatch_binding_failed(&self, binding_id: &str, launch_error: &str) {
+        if let Err(error) = self.state.task_binding_service.update(
+            binding_id,
+            UpdateTaskBindingRequest {
+                status: Some(TaskBindingStatus::Failed),
+                completion_summary: Some(bounded_dispatch_error(launch_error)),
+                ..Default::default()
+            },
+        ) {
+            warn!(binding_id, err = %error, "mcp::dispatch_task failed to mark TaskBinding failed");
+        }
+    }
+}
+
+fn dispatch_running_status(status: TaskBindingStatus) -> Option<TaskBindingStatus> {
+    match status {
+        // A terminal lifecycle event may have won the race with the response
+        // path. Never resurrect a durable terminal outcome.
+        TaskBindingStatus::Completed | TaskBindingStatus::Failed => None,
+        TaskBindingStatus::Pending | TaskBindingStatus::Running | TaskBindingStatus::Waiting => {
+            Some(TaskBindingStatus::Running)
+        }
+    }
 }
 
 #[tool_router]
 impl McpToolHandler {
-    /// 启动一个新的 Claude Code 实例来执行指定任务，或恢复已有会话。
+    /// 将任务派发给任意已注册 CLI，并在启动前持久化版本化的派发信封。
+    ///
+    /// `cliTool` 缺省时仍使用 Claude。目标 CLI 不支持 MCP 时也可以接收首条任务
+    /// prompt；响应中的 dispatchEnvelope.mcp 会明确标识它无法自主编排或回报结果。
+    #[tool]
+    async fn dispatch_task(
+        &self,
+        Parameters(params): Parameters<McpDispatchTaskParams>,
+        extensions: Extensions,
+    ) -> String {
+        let McpDispatchTaskParams {
+            mut launch,
+            parent_binding_id,
+            parent_session_id,
+        } = params;
+        let prompt_len = launch
+            .prompt
+            .as_ref()
+            .map(|prompt| prompt.len())
+            .unwrap_or(0);
+        info!(
+            project = %launch.project_path,
+            cli_tool = ?launch.cli_tool,
+            prompt_len,
+            is_resume = launch.resume_id.is_some(),
+            "mcp::dispatch_task"
+        );
+
+        let mut plan =
+            match self.resolve_dispatch_plan(&launch, parent_binding_id, parent_session_id) {
+                Ok(plan) => plan,
+                Err(error) => return format!("错误: {}", error),
+            };
+        // TaskDispatchService normalizes resume IDs for the durable envelope. Keep the
+        // launcher input in lockstep so the PTY receives the same canonical session ID.
+        launch.resume_id = plan.envelope.resume_id.clone();
+        let binding = match self.create_dispatch_binding(&mut plan, &launch) {
+            Ok(binding) => binding,
+            Err(error) => return format!("错误: {}", error),
+        };
+        let binding_id = binding.id;
+        launch.cli_tool = Some(plan.envelope.resolved_cli_tool.clone());
+        launch.dispatch_binding_id = Some(binding_id.clone());
+        launch.dispatch_task_id = Some(plan.envelope.task_id.clone());
+
+        // Reuse the established launcher so session restoration, history backfill,
+        // frontend placement, and launch status remain identical to launch_task.
+        let launch_output = self.launch_task(Parameters(launch), extensions).await;
+        let launch_response = match serde_json::from_str::<LaunchTaskResponse>(&launch_output) {
+            Ok(response) => response,
+            Err(_) => {
+                self.mark_dispatch_binding_failed(&binding_id, &launch_output);
+                return launch_output;
+            }
+        };
+
+        let persistence_warning = self
+            .mark_dispatch_binding_running(&binding_id, &launch_response.session_id, &plan.envelope)
+            .err();
+        if let Some(error) = persistence_warning.as_deref() {
+            warn!(binding_id, err = %error, "mcp::dispatch_task session launched but TaskBinding finalization failed");
+        }
+
+        let mut response = serde_json::json!({
+            "taskId": launch_response.task_id,
+            "dispatchTaskId": plan.envelope.task_id,
+            "bindingId": binding_id,
+            "sessionId": launch_response.session_id,
+            "status": launch_response.status,
+            "runtimeKind": launch_response.runtime_kind,
+            "runtimeSource": launch_response.runtime_source,
+            "profileId": launch_response.launch_profile_id,
+            "notice": launch_response.notice,
+            "dispatchEnvelope": plan.envelope,
+        });
+        if let Some(error) = persistence_warning {
+            response["persistenceWarning"] = serde_json::Value::String(error);
+        }
+        response.to_string()
+    }
+
+    /// 启动一个新的 CLI 实例来执行指定任务，或恢复已有会话。
     /// 新任务：传 prompt（必需），会在 CC-Panes 中创建新标签页并注入 prompt。
-    /// 恢复会话：传 resumeId（必需），会以 `claude --resume <id>` 启动，不注入 prompt。
+    /// 恢复会话：传 resumeId（必需），会以目标 CLI 的恢复参数启动，不注入 prompt。
     /// profileId 显式指定启动配置并优先于工作空间绑定；若目标是 YOLO profile，必须先在
     /// 设置中开启 orchestrator.allowMcpYoloProfiles。
     #[tool]
     async fn launch_task(
         &self,
-        Parameters(params): Parameters<McpLaunchTaskParams>,
+        Parameters(mut params): Parameters<McpLaunchTaskParams>,
         extensions: Extensions,
     ) -> String {
         let is_resume = params.resume_id.is_some();
@@ -4542,6 +5150,23 @@ impl McpToolHandler {
         }
         if params.prompt.is_none() && params.resume_id.is_none() {
             return "错误: 必须提供 prompt 或 resumeId 其中之一".to_string();
+        }
+        if params
+            .prompt
+            .as_deref()
+            .is_some_and(|prompt| prompt.trim().is_empty())
+        {
+            return "错误: prompt 不能为空".to_string();
+        }
+        if params
+            .resume_id
+            .as_deref()
+            .is_some_and(|resume_id| resume_id.trim().is_empty())
+        {
+            return "错误: resumeId 不能为空".to_string();
+        }
+        if let Some(resume_id) = params.resume_id.as_mut() {
+            *resume_id = resume_id.trim().to_string();
         }
 
         // 白名单校验（DB 项目 + 工作空间项目）
@@ -4592,10 +5217,17 @@ impl McpToolHandler {
             .to_string();
 
         // 解析 CLI 工具类型
-        let cli_tool = match parse_launch_cli_tool(params.cli_tool.as_deref()) {
+        let cli_tool = match parse_launch_cli_tool(
+            self.state.local_terminal_service.cli_registry(),
+            params.cli_tool.as_deref(),
+        ) {
             Ok(tool) => tool,
             Err(error) => return format!("错误: {}", error),
         };
+        let requested_cli_tool = params
+            .cli_tool
+            .as_ref()
+            .map(|_| cli_tool.as_id().to_string());
 
         let prompt_delivery = prepare_launch_prompt(
             &params.project_path,
@@ -4606,7 +5238,7 @@ impl McpToolHandler {
         let runtime = match resolve_launch_runtime(
             &params.project_path,
             ws_name.as_deref(),
-            params.cli_tool.as_deref(),
+            Some(cli_tool.as_id()),
             params.runtime_kind.as_deref(),
             params.resume_id.as_deref(),
             &self.state,
@@ -4624,6 +5256,10 @@ impl McpToolHandler {
         // 把 child_launch_id 传进去，TerminalService 会写入 CC_PANES_LAUNCH_ID
         // 环境变量并把它附在 ccpanes MCP URL 的 `?launchId=` 上，让子 Claude
         // 之后再调 launch_task 时能被识别为本会话的 caller。
+        //
+        // 出生锚点同理必须在此预分配：PTY 建在前端决定落点之前，缺锚点的会话
+        // 重启后无法被自动接管，且凭证不可改写、永远补不回来。
+        let birth_anchors = mint_birth_anchors();
         let mut create_request = CoreCreateSessionRequest {
             launch_id: Some(child_launch_id.clone()),
             project_path: params.project_path.clone(),
@@ -4636,9 +5272,10 @@ impl McpToolHandler {
             launch_profile_id: None,
             workspace_path: None,
             workspace_snapshot_id: None,
+            // layout 由前端解析，后端此刻不可知；见 handle_launch_task 同处注释。
             origin_layout_id: None,
-            origin_tab_id: None,
-            origin_terminal_pane_id: None,
+            origin_tab_id: Some(birth_anchors.tab_id.clone()),
+            origin_terminal_pane_id: Some(birth_anchors.terminal_pane_id.clone()),
             expected_saved_session_id: None,
             launch_claude: cli_tool != CliTool::None,
             cli_tool,
@@ -4648,7 +5285,10 @@ impl McpToolHandler {
             initial_prompt: prompt_delivery.initial_prompt,
             yolo_mode: None,
             adapter_options: None,
-            extra_env: None,
+            extra_env: dispatch_task_environment(
+                params.dispatch_binding_id.as_deref(),
+                params.dispatch_task_id.as_deref(),
+            ),
             ssh: runtime.ssh.clone(),
             wsl: runtime.wsl.clone(),
         };
@@ -4674,6 +5314,20 @@ impl McpToolHandler {
                 return format!("错误: 创建会话失败: {}{}", runtime_notice, e);
             }
         };
+
+        // Persist the session association before the remaining launch-history
+        // and frontend work. The final dispatch_task update below still writes
+        // the complete envelope and is intentionally retained as a retry path.
+        if let Some(binding_id) = params.dispatch_binding_id.as_deref() {
+            if let Err(error) = self.mark_dispatch_binding_started(binding_id, &session_id) {
+                warn!(
+                    binding_id,
+                    session_id,
+                    err = %error,
+                    "mcp::launch_task could not persist early dispatch binding"
+                );
+            }
+        }
 
         if let Err(error) = self
             .state
@@ -4825,7 +5479,9 @@ impl McpToolHandler {
             pane_id: params.pane_id.clone(),
             layout_id: params.layout_id.clone(),
             layout_name: params.layout_name.clone(),
-            cli_tool: params.cli_tool.clone(),
+            tab_id: Some(birth_anchors.tab_id),
+            terminal_pane_id: Some(birth_anchors.terminal_pane_id),
+            cli_tool: requested_cli_tool,
             runtime_kind: runtime.kind.as_str().to_string(),
             runtime_source: runtime.source.to_string(),
             notice: runtime.notice.clone(),
@@ -5388,22 +6044,34 @@ impl McpToolHandler {
 
     // ============ Workspace Tools ============
 
-    /// 列出所有工作空间及其基本信息
+    /// 列出所有工作空间及其基本信息。默认不返回已归档的工作空间，
+    /// 传 includeArchived=true 才带上（返回项含 archivedAt）
     #[tool]
-    async fn list_workspaces(&self) -> String {
-        debug!("mcp::list_workspaces");
+    async fn list_workspaces(
+        &self,
+        Parameters(params): Parameters<McpListWorkspacesParams>,
+    ) -> String {
+        let include_archived = params.include_archived.unwrap_or(false);
+        debug!(include_archived, "mcp::list_workspaces");
         match self.state.workspace_service.list_workspaces() {
             Ok(workspaces) => {
                 let items: Vec<serde_json::Value> = workspaces
                     .iter()
+                    .filter(|ws| include_archived || ws.archived_at.is_none())
                     .map(|ws| {
                         serde_json::json!({
                             "name": ws.name,
                             "alias": ws.alias,
-                            "projectCount": ws.projects.len(),
+                            // 项目数只算活跃项，否则归档过的项目会让数字对不上列表
+                            "projectCount": ws
+                                .projects
+                                .iter()
+                                .filter(|p| p.archived_at.is_none())
+                                .count(),
                             "providerId": ws.provider_id,
                             "path": ws.path,
                             "pinned": ws.pinned,
+                            "archivedAt": ws.archived_at,
                         })
                     })
                     .collect();
@@ -5423,9 +6091,13 @@ impl McpToolHandler {
             .get_workspace(&params.workspace_name)
         {
             Ok(ws) => {
+                // 工作空间按名字取，即使已归档也照常返回（否则没法查看/恢复它）；
+                // 归档的**项目**则默认隐去，与 list_workspaces 的口径一致。
+                let include_archived = params.include_archived.unwrap_or(false);
                 let projects: Vec<serde_json::Value> = ws
                     .projects
                     .iter()
+                    .filter(|p| include_archived || p.archived_at.is_none())
                     .map(|p| {
                         serde_json::json!({
                             "id": p.id,
@@ -5433,6 +6105,7 @@ impl McpToolHandler {
                             "alias": p.alias,
                             "wslRemotePath": p.wsl_remote_path,
                             "ssh": p.ssh,
+                            "archivedAt": p.archived_at,
                         })
                     })
                     .collect();
@@ -5447,6 +6120,7 @@ impl McpToolHandler {
                     "wsl": ws.wsl,
                     "sshLaunch": ws.ssh_launch,
                     "pinned": ws.pinned,
+                    "archivedAt": ws.archived_at,
                 })
                 .to_string()
             }
@@ -5487,6 +6161,80 @@ impl McpToolHandler {
         {
             Ok(project) => serde_json::to_string(&project)
                 .unwrap_or_else(|e| format!("错误: 序列化失败: {}", e)),
+            Err(e) => format!("错误: {}", e),
+        }
+    }
+
+    /// 归档（逻辑删除）或恢复工作空间。归档后 list_workspaces 默认不再返回它，
+    /// 侧边栏也默认隐藏，但**不删除任何数据**：workspace.json、项目目录、正在跑的
+    /// 会话全都原样保留，随时可 archived=false 恢复。
+    ///
+    /// 想彻底删除请在 CC-Panes UI 里操作——硬删除不可撤回，故不开放给 MCP。
+    /// 默认工作空间不可归档。
+    #[tool]
+    async fn set_workspace_archived(
+        &self,
+        Parameters(params): Parameters<McpSetWorkspaceArchivedParams>,
+    ) -> String {
+        info!(
+            ws = %params.workspace_name,
+            archived = params.archived,
+            "mcp::set_workspace_archived"
+        );
+        match set_workspace_archived_impl(
+            &self.state.workspace_service,
+            &self.state.task_binding_service,
+            &params.workspace_name,
+            params.archived,
+        ) {
+            Ok(value) => value.to_string(),
+            Err(e) => format!("错误: {}", e),
+        }
+    }
+
+    /// 归档（逻辑删除）或恢复工作空间内的单个项目。语义同 set_workspace_archived：
+    /// 只改列表可见性，不动磁盘上的项目目录，可恢复。projectId 取自 get_workspace 的
+    /// projects[].id。
+    #[tool]
+    async fn set_workspace_project_archived(
+        &self,
+        Parameters(params): Parameters<McpSetWorkspaceProjectArchivedParams>,
+    ) -> String {
+        info!(
+            ws = %params.workspace_name,
+            project = %params.project_id,
+            archived = params.archived,
+            "mcp::set_workspace_project_archived"
+        );
+        match set_workspace_project_archived_impl(
+            &self.state.workspace_service,
+            &params.workspace_name,
+            &params.project_id,
+            params.archived,
+        ) {
+            Ok(value) => value.to_string(),
+            Err(e) => format!("错误: {}", e),
+        }
+    }
+
+    /// 修改工作空间的根目录路径。传 path=null 或空串则清空。
+    /// 只改注册信息，不搬运任何文件——要真正搬目录请用 CC-Panes UI 的「迁移工作空间」。
+    #[tool]
+    async fn update_workspace_path(
+        &self,
+        Parameters(params): Parameters<McpUpdateWorkspacePathParams>,
+    ) -> String {
+        info!(
+            ws = %params.workspace_name,
+            path = ?params.path,
+            "mcp::update_workspace_path"
+        );
+        match update_workspace_path_impl(
+            &self.state.workspace_service,
+            &params.workspace_name,
+            params.path.as_deref(),
+        ) {
+            Ok(value) => value.to_string(),
             Err(e) => format!("错误: {}", e),
         }
     }
@@ -6108,7 +6856,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 阻塞到指定会话进入 waitFor 中任一状态或超时。事件驱动且无忙轮询；WaitingInput/Error 会立即以 blockedReason 返回。超时后重新调用即可续等。
+    /// 阻塞到指定会话进入 waitFor 中任一状态或超时。合法状态值（小写驼峰）：initializing/idle/thinking/toolRunning/compacting/waitingInput/error/exited。事件驱动且无忙轮询；waitingInput/error 会立即以 blockedReason 返回。超时后重新调用即可续等。
     #[tool]
     async fn wait_for_session(
         &self,
@@ -6593,6 +7341,38 @@ impl McpToolHandler {
         }
     }
 
+    /// Read a dispatch_task binding with its parsed, versioned dispatch envelope.
+    ///
+    /// Use the bindingId returned by dispatch_task instead of manually parsing
+    /// TaskBinding.metadata.dispatchEnvelope.
+    #[tool]
+    async fn get_task_dispatch(
+        &self,
+        Parameters(params): Parameters<McpGetTaskDispatchParams>,
+    ) -> String {
+        debug!(binding_id = %params.binding_id, "mcp::get_task_dispatch");
+        let binding = match self.state.task_binding_service.get(&params.binding_id) {
+            Ok(Some(binding)) => binding,
+            Ok(None) => return format!("错误: TaskBinding '{}' 不存在", params.binding_id),
+            Err(error) => return format!("错误: 查询 TaskBinding 失败: {}", error),
+        };
+        let dispatch_envelope = match dispatch_envelope_from_binding(&binding) {
+            Ok(envelope) => envelope,
+            Err(error) => return format!("错误: {}", error),
+        };
+        if dispatch_envelope.binding_id.as_deref() != Some(binding.id.as_str()) {
+            return format!(
+                "错误: TaskBinding '{}' 的派发信封 bindingId 不匹配",
+                params.binding_id
+            );
+        }
+        serde_json::to_string(&TaskDispatchStatusResponse {
+            binding,
+            dispatch_envelope,
+        })
+        .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error))
+    }
+
     /// Manually report a worker's terminal status to its leader via PTY. Bypasses automatic dedup. Use when the auto-notify did not fire (e.g. worker.status was already completed before this call).
     #[tool]
     async fn report_to_leader(
@@ -6766,12 +7546,25 @@ impl McpToolHandler {
         use crate::models::task_binding::RegisterPlanLeaderRequest;
         info!(plan_path = %params.plan_path, "mcp::register_plan_leader");
 
+        // dsh leader：MCP 调用不携带 dsh 会话身份（mcp-client 是实例级的），
+        // 但 agent 只有在跑轮次时才可能调工具——此刻 `running: true` 的会话
+        // 就是调用者。识别出来后以 `dsh:<workspaceKey>:<sessionId>` 存进
+        // leader 的 session_id（前缀避免与 PTY id 域冲突），投递侧按前缀分流。
+        let session_id = if params.leader_kind.as_deref() == Some("dsh") {
+            match resolve_dsh_leader_session(&self.state.dsh_service).await {
+                Ok(id) => id,
+                Err(e) => return format!("错误: 识别 dsh leader 会话失败: {}", e),
+            }
+        } else {
+            params.session_id
+        };
+
         let req = RegisterPlanLeaderRequest {
             plan_path: params.plan_path,
             project_path: params.project_path,
             title: params.title,
             prompt: params.prompt,
-            session_id: Some(params.session_id),
+            session_id: Some(session_id),
             resume_id: params.resume_id,
             pane_id: params.pane_id,
             tab_id: params.tab_id,
@@ -7996,7 +8789,7 @@ fn apply_pane_locations(
 
 // 不用 `#[tool_handler]`：宏会无条件生成 call_tool/list_tools/get_tool 且不可拦截，
 // 这里手写三个方法（与 rmcp-macros 1.3 生成物逐字等价），唯一差异是 call_tool
-// 委托 tool_router 前先做单点调用计数（docs/89 §5 埋点）。90 个工具的分发仍走
+// 委托 tool_router 前先做单点调用计数（docs/89 §5 埋点）。94 个工具的分发仍走
 // tool_router，逐工具零改动。
 impl ServerHandler for McpToolHandler {
     async fn call_tool(
@@ -8038,13 +8831,13 @@ impl ServerHandler for McpToolHandler {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(concat!(
-                "CC-Panes Orchestrator: 多 CLI（Claude/Codex/OpenCode）多实例编排与工作空间管理。\n",
+                "CC-Panes Orchestrator: 所有已注册 CLI 的多实例编排与工作空间管理。\n",
                 "工具按需调用，完整列表见 tools/list。\n",
-                "典型流程: launch_task → wait_for_session → get_session_output。\n",
-                "Leader 下行: register_plan_leader/register_plan_worker → send_to_worker；目标 busy 时自动排队并在空闲边沿补投。\n",
-                "布局分流: list_panes 查看 layoutId/paneId，launch_task 可传 layoutId 或 layoutName；layoutName 不存在时前端会自动创建布局。\n",
-                "项目接入: scan_directory → create_workspace → add_project_to_workspace → launch_task。\n",
-                "Resume: list_launch_history(projectPath) → 取 resumeSessionId/cliTool/runtimeKind → launch_task(resumeId, cliTool, runtimeKind)。",
+                "典型流程: dispatch_task（跨 CLI 且持久化）→ get_task_dispatch → wait_for_session / get_session_output；launch_task 仅兼容旧调用方。\n",
+                "Leader 下行: register_plan_leader → dispatch_task(parentBindingId)；旧会话复用才用 register_plan_worker。目标 busy 时自动排队并在空闲边沿补投。\n",
+                "布局分流: list_panes 查看 layoutId/paneId，dispatch_task 可传 layoutId 或 layoutName；layoutName 不存在时前端会自动创建布局。\n",
+                "项目接入: scan_directory → create_workspace → add_project_to_workspace → dispatch_task。\n",
+                "Resume: list_launch_history(projectPath) → 取 resumeSessionId/cliTool/runtimeKind → dispatch_task(resumeId, cliTool, runtimeKind)。",
             ))
     }
 }
@@ -8572,7 +9365,7 @@ async fn handle_health(State(state): State<AppState>) -> impl IntoResponse {
 async fn handle_launch_task(
     headers: HeaderMap,
     State(state): State<AppState>,
-    Json(req): Json<LaunchTaskRequest>,
+    Json(mut req): Json<LaunchTaskRequest>,
 ) -> impl IntoResponse {
     let is_resume = req.resume_id.is_some();
     let prompt_len = req.prompt.as_ref().map(|p| p.len()).unwrap_or(0);
@@ -8615,6 +9408,33 @@ async fn handle_launch_task(
             })),
         );
     }
+    if req
+        .prompt
+        .as_deref()
+        .is_some_and(|prompt| prompt.trim().is_empty())
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!(ApiError {
+                error: "'prompt' cannot be empty".to_string()
+            })),
+        );
+    }
+    if let Some(resume_id) = req.resume_id.as_mut() {
+        *resume_id = resume_id.trim().to_string();
+    }
+    if req
+        .resume_id
+        .as_deref()
+        .is_some_and(|resume_id| resume_id.trim().is_empty())
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!(ApiError {
+                error: "'resumeId' cannot be empty".to_string()
+            })),
+        );
+    }
 
     // 白名单校验（DB 项目 + 工作空间项目）
     if !is_project_registered(&state, &req.project_path) {
@@ -8630,7 +9450,10 @@ async fn handle_launch_task(
     let project_id = format!("orch-{}", uuid::Uuid::new_v4());
 
     // 解析 CLI 工具类型
-    let cli_tool = match parse_launch_cli_tool(req.cli_tool.as_deref()) {
+    let cli_tool = match parse_launch_cli_tool(
+        state.local_terminal_service.cli_registry(),
+        req.cli_tool.as_deref(),
+    ) {
         Ok(tool) => tool,
         Err(error) => {
             return (
@@ -8639,6 +9462,7 @@ async fn handle_launch_task(
             );
         }
     };
+    let requested_cli_tool = req.cli_tool.as_ref().map(|_| cli_tool.as_id().to_string());
     let provider_selection = match parse_provider_selection(req.provider_selection.as_deref()) {
         Ok(selection) => selection,
         Err(error) => {
@@ -8686,7 +9510,7 @@ async fn handle_launch_task(
     let runtime = match resolve_launch_runtime(
         &req.project_path,
         workspace_name.as_deref(),
-        req.cli_tool.as_deref(),
+        Some(cli_tool.as_id()),
         req.runtime_kind.as_deref(),
         req.resume_id.as_deref(),
         &state,
@@ -8700,6 +9524,10 @@ async fn handle_launch_task(
         }
     };
 
+    // 预分配出生锚点：PTY 建在前端决定落点**之前**，若不在此处指定，凭证里的
+    // 锚点就会是 NULL，该会话此后永远无法被自动接管（凭证不可改写）。这两个 id
+    // 随下方 launch 事件下发，前端原样采用，因此是可核对的真实数据。
+    let birth_anchors = mint_birth_anchors();
     let mut create_request = CoreCreateSessionRequest {
         // 必须带 launch_id：TerminalService 用它写 `CC_PANES_LAUNCH_ID` 并附在
         // resume 事件的 launchId 上。留 None 会让 bind_resume_id 拿到 launch_id=None、
@@ -8716,9 +9544,12 @@ async fn handle_launch_task(
         launch_profile_id: None,
         workspace_path: req.workspace_path.clone(),
         workspace_snapshot_id: None,
+        // layout 由前端按「显式 layoutId > layoutName > 父会话所在布局 > 工作空间
+        // 绑定 > 当前布局」解析，后端此刻无从得知；它也是唯一会合法移动的一维，
+        // 本就不属于出生事实，故留空。
         origin_layout_id: None,
-        origin_tab_id: None,
-        origin_terminal_pane_id: None,
+        origin_tab_id: Some(birth_anchors.tab_id.clone()),
+        origin_terminal_pane_id: Some(birth_anchors.terminal_pane_id.clone()),
         expected_saved_session_id: None,
         launch_claude: cli_tool != CliTool::None,
         cli_tool,
@@ -8821,7 +9652,9 @@ async fn handle_launch_task(
         pane_id: req.pane_id.clone(),
         layout_id: req.layout_id.clone(),
         layout_name: req.layout_name.clone(),
-        cli_tool: req.cli_tool.clone(),
+        tab_id: Some(birth_anchors.tab_id),
+        terminal_pane_id: Some(birth_anchors.terminal_pane_id),
+        cli_tool: requested_cli_tool,
         runtime_kind: runtime.kind.as_str().to_string(),
         runtime_source: runtime.source.to_string(),
         notice: runtime.notice.clone(),
@@ -11238,6 +12071,24 @@ fn take_pending_reports(
     PendingReportBatch { reports, expired }
 }
 
+/// 在 worker metadata 上记 `reportDropped`：回执确定送不出去时的可见标记，
+/// 与队列 TTL 过期（`record_expired_pending_reports`）同一口径。
+fn mark_report_dropped(
+    task_binding_service: &crate::services::TaskBindingService,
+    worker: &TaskBinding,
+) {
+    if let Err(error) = task_binding_service.update_patch(
+        &worker.id,
+        serde_json::json!({ "metadata": { "reportDropped": true } }),
+    ) {
+        warn!(
+            worker_id = %worker.id,
+            %error,
+            "failed to persist dropped worker report metadata"
+        );
+    }
+}
+
 fn record_expired_pending_reports(
     task_binding_service: &crate::services::TaskBindingService,
     expired: &[ExpiredPendingReport],
@@ -11496,6 +12347,124 @@ fn notify_leader_on_terminal_status(
     });
 }
 
+/// dsh leader 的 session_id 前缀：`dsh:<workspaceKey>:<dshSessionId>`。
+/// 与 PTY session id（UUID）从不冲突，投递侧按它分流。
+const DSH_LEADER_PREFIX: &str = "dsh:";
+
+/// 识别「当前正在跑轮次的 dsh 会话」并编成 leader session_id。
+///
+/// 见 `pick_running_session` 的说明：agent 调工具的那一刻它的会话必然
+/// `running: true`。多实例时逐个查，取第一个有 running 会话的实例。
+async fn resolve_dsh_leader_session(
+    dsh_service: &Arc<cc_panes_core::services::DshService>,
+) -> std::result::Result<String, String> {
+    let instances = dsh_service.list();
+    if instances.is_empty() {
+        return Err("没有正在运行的 dsh 实例".to_string());
+    }
+    let mut errors = Vec::new();
+    for instance in &instances {
+        match crate::commands::dsh_workspace_sync::list_sessions(instance.port).await {
+            Ok(sessions) => {
+                if let Some(session) =
+                    crate::commands::dsh_workspace_sync::pick_running_session(&sessions)
+                {
+                    return Ok(format!(
+                        "{DSH_LEADER_PREFIX}{}:{}",
+                        instance.workspace_key, session.session_id
+                    ));
+                }
+            }
+            Err(e) => errors.push(format!("{}: {e}", instance.workspace_key)),
+        }
+    }
+    if errors.is_empty() {
+        Err(
+            "没有任何 dsh 会话处于 running 状态（该调用必须由 dsh 会话内的 agent 发起）"
+                .to_string(),
+        )
+    } else {
+        Err(format!("查询 dsh 会话失败: {}", errors.join("; ")))
+    }
+}
+
+/// 把 worker 回执投递给 dsh leader：解析实例端口 → `session.prompt`。
+///
+/// 实例没在跑就诚实丢弃并在 worker metadata 记 `reportDropped`（与队列 TTL
+/// 过期同口径）——补投需要 dsh 生命周期事件源，超出当前批次。
+async fn send_worker_report_to_dsh_leader(
+    state: &AppState,
+    worker: &TaskBinding,
+    leader: &TaskBinding,
+    leader_session_id: &str,
+) -> LeaderReportResult {
+    // 前缀已校验；剩余形如 `<workspaceKey>:<dshSessionId>`，workspaceKey
+    // 本身不含冒号（目录名清洗过），从左切第一个冒号即可。
+    let rest = &leader_session_id[DSH_LEADER_PREFIX.len()..];
+    let Some((workspace_key, dsh_session_id)) = rest.split_once(':') else {
+        warn!(
+            worker_id = %worker.id,
+            leader_id = %leader.id,
+            session_id = %leader_session_id,
+            "worker report skipped: malformed dsh leader session id"
+        );
+        return LeaderReportResult::skipped("malformed dsh leader session id");
+    };
+
+    // 端口每次实例启动都变，投递时实时解析，绝不缓存。
+    let Some(instance) = state
+        .dsh_service
+        .list()
+        .into_iter()
+        .find(|i| i.workspace_key == workspace_key)
+    else {
+        warn!(
+            worker_id = %worker.id,
+            leader_id = %leader.id,
+            workspace_key = %workspace_key,
+            "worker report skipped: dsh instance not running"
+        );
+        mark_report_dropped(&state.task_binding_service, worker);
+        return LeaderReportResult::skipped("dsh instance not running");
+    };
+
+    let summary = worker
+        .completion_summary
+        .as_deref()
+        .filter(|summary| !summary.trim().is_empty())
+        .map(|summary| sanitize_pty_line(summary, 500))
+        .unwrap_or_else(|| "(no summary)".to_string());
+    let line = format!(
+        "[worker-report] id={} status={} summary={}",
+        worker.id, worker.status, summary
+    );
+
+    match crate::commands::dsh_workspace_sync::prompt_session(instance.port, dsh_session_id, &line)
+        .await
+    {
+        Ok(()) => {
+            info!(
+                worker_id = %worker.id,
+                leader_id = %leader.id,
+                session_id = %leader_session_id,
+                "worker report delivered to dsh leader session"
+            );
+            LeaderReportResult::sent()
+        }
+        Err(e) => {
+            warn!(
+                worker_id = %worker.id,
+                leader_id = %leader.id,
+                session_id = %leader_session_id,
+                err = %e,
+                "worker report skipped: dsh session.prompt failed"
+            );
+            mark_report_dropped(&state.task_binding_service, worker);
+            LeaderReportResult::skipped(format!("dsh session.prompt failed: {e}"))
+        }
+    }
+}
+
 async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> LeaderReportResult {
     let Some(parent_id) = worker.parent_id.clone() else {
         debug!(
@@ -11534,6 +12503,14 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
         );
         return LeaderReportResult::skipped("leader session missing");
     };
+
+    // dsh leader（`dsh:<workspaceKey>:<sessionId>`）不走 PTY 链路：它没有
+    // PTY 状态可查，也没有 SessionStateMachine 事件源可驱动排队补投。
+    // 投递改为调它的 `session.prompt`（mode=queue，它忙时在自己侧排队）。
+    if leader_session_id.starts_with(DSH_LEADER_PREFIX) {
+        return send_worker_report_to_dsh_leader(&state, &worker, &leader, &leader_session_id)
+            .await;
+    }
 
     let leader_status = match read_session_status_for_automatic_submit(&state, &leader_session_id) {
         Ok(status) => status,
@@ -14325,26 +15302,199 @@ mod tests {
 
     #[test]
     fn test_parse_launch_cli_tool_supported_values() {
-        assert_eq!(parse_launch_cli_tool(None).unwrap(), CliTool::Claude);
+        let registry = CliToolRegistry::with_builtin_adapters();
         assert_eq!(
-            parse_launch_cli_tool(Some("codex")).unwrap(),
+            parse_launch_cli_tool(&registry, None).unwrap(),
+            CliTool::Claude
+        );
+        for (id, expected) in [
+            ("codex", CliTool::Codex),
+            ("opencode", CliTool::Opencode),
+            ("grok", CliTool::Grok),
+            ("pi", CliTool::Pi),
+        ] {
+            assert_eq!(
+                parse_launch_cli_tool(&registry, Some(id)).unwrap(),
+                expected
+            );
+        }
+        assert_eq!(
+            parse_launch_cli_tool(&registry, Some("  CoDeX ")).unwrap(),
             CliTool::Codex
         );
-        assert_eq!(
-            parse_launch_cli_tool(Some("opencode")).unwrap(),
-            CliTool::Opencode
-        );
-        assert_eq!(parse_launch_cli_tool(Some("grok")).unwrap(), CliTool::Grok);
     }
 
     #[test]
     fn test_parse_launch_cli_tool_rejects_non_orchestrated_tools() {
-        let kimi = parse_launch_cli_tool(Some("kimi")).unwrap_err();
-        let glm = parse_launch_cli_tool(Some("glm")).unwrap_err();
+        let registry = CliToolRegistry::with_builtin_adapters();
+        let kimi = parse_launch_cli_tool(&registry, Some("kimi")).unwrap_err();
+        let glm = parse_launch_cli_tool(&registry, Some("glm")).unwrap_err();
         assert!(kimi.contains("not supported by launch_task yet"));
         assert!(glm.contains("not supported by launch_task yet"));
         // opencode 现已放行，不应再被拒绝
-        assert!(parse_launch_cli_tool(Some("opencode")).is_ok());
+        assert!(parse_launch_cli_tool(&registry, Some("opencode")).is_ok());
+    }
+
+    /// `none` 与未注册 id 都必须报「未知」，不能因为 `from_id("none")` 能解析
+    /// 就被当成一个可编排的 CLI 放进来。
+    #[test]
+    fn test_parse_launch_cli_tool_rejects_none_and_unknown() {
+        let registry = CliToolRegistry::with_builtin_adapters();
+        assert!(parse_launch_cli_tool(&registry, Some("none"))
+            .unwrap_err()
+            .contains("Unknown cliTool"));
+        assert!(
+            parse_launch_cli_tool(&registry, Some("definitely-not-a-cli"))
+                .unwrap_err()
+                .contains("Unknown cliTool")
+        );
+    }
+
+    /// 准入白名单从硬编码换成 registry 能力位后，四个历史拒绝项必须**逐个**
+    /// 保持被拒。此前只断言了 kimi/glm，gemini/cursor 静默放行也测不出来。
+    #[test]
+    fn test_parse_launch_cli_tool_keeps_all_four_legacy_rejections() {
+        let registry = CliToolRegistry::with_builtin_adapters();
+        for tool in ["kimi", "glm", "gemini", "cursor"] {
+            let error = parse_launch_cli_tool(&registry, Some(tool))
+                .expect_err(&format!("{tool} must stay rejected"));
+            assert!(
+                error.contains("not supported by launch_task yet"),
+                "{tool}: unexpected error {error}"
+            );
+        }
+    }
+
+    /// registry 是生产契约（`with_builtin_adapters` 全量注册）。但准入判定现在
+    /// 依赖它，所以要钉死残缺 registry 的方向：**fail-closed，一律拒绝**，
+    /// 绝不能因为查不到 adapter 就放行。
+    #[test]
+    fn test_parse_launch_cli_tool_is_fail_closed_on_empty_registry() {
+        let registry = CliToolRegistry::new();
+        for tool in [None, Some("claude"), Some("codex")] {
+            assert!(
+                parse_launch_cli_tool(&registry, tool).is_err(),
+                "empty registry must reject {tool:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn parent_session_id_must_match_the_parent_binding_when_both_are_known() {
+        assert_eq!(
+            reconcile_parent_session_id("parent-a", None, Some("session-a")).unwrap(),
+            Some("session-a".to_string())
+        );
+        assert_eq!(
+            reconcile_parent_session_id("parent-a", Some("session-a"), Some("session-a")).unwrap(),
+            Some("session-a".to_string())
+        );
+
+        let error = reconcile_parent_session_id(
+            "parent-a",
+            Some("session-requested"),
+            Some("session-bound"),
+        )
+        .unwrap_err();
+        assert!(error.contains("不一致"));
+    }
+
+    #[test]
+    fn dispatch_envelope_persists_before_and_after_session_creation() {
+        let service = directive_test_service();
+        let mut plan = TaskDispatchService::default()
+            .plan(TaskDispatchRequest {
+                cli_tool: Some("gemini".to_string()),
+                project_path: "D:/repo".to_string(),
+                workspace_name: Some("workspace-a".to_string()),
+                profile_id: Some("profile-a".to_string()),
+                runtime_kind: Some("local".to_string()),
+                prompt: Some("implement the task".to_string()),
+                resume_id: None,
+                parent_binding_id: Some("leader-a".to_string()),
+                parent_session_id: Some("leader-session".to_string()),
+            })
+            .expect("plan dispatch");
+        let dispatch_task_id = plan.envelope.task_id.clone();
+        let binding = service
+            .create(CreateTaskBindingRequest {
+                title: "repo (gemini)".to_string(),
+                role: Some(TaskBindingRole::Task),
+                parent_id: Some("leader-a".to_string()),
+                plan_path: None,
+                normalized_plan_path: None,
+                prompt: Some("implement the task".to_string()),
+                session_id: None,
+                resume_id: None,
+                pane_id: None,
+                tab_id: None,
+                todo_id: None,
+                project_path: "D:/repo".to_string(),
+                workspace_name: Some("workspace-a".to_string()),
+                cli_tool: Some("gemini".to_string()),
+                worker_kind: None,
+                metadata: None,
+            })
+            .expect("create pending binding");
+
+        plan.attach_binding_id(binding.id.clone());
+        let running = service
+            .update(
+                &binding.id,
+                UpdateTaskBindingRequest {
+                    session_id: Some("pty-gemini".to_string()),
+                    status: Some(TaskBindingStatus::Running),
+                    metadata: Some(dispatch_binding_metadata(&plan.envelope)),
+                    ..Default::default()
+                },
+            )
+            .expect("backfill session");
+
+        let envelope = &running.metadata.as_ref().expect("metadata")["dispatchEnvelope"];
+        assert_eq!(running.session_id.as_deref(), Some("pty-gemini"));
+        assert_eq!(running.status, TaskBindingStatus::Running);
+        assert_eq!(envelope["taskId"], dispatch_task_id);
+        assert_eq!(envelope["bindingId"], binding.id);
+        assert_eq!(envelope["resolvedCliTool"], "gemini");
+        assert_eq!(envelope["mcp"]["supported"], false);
+
+        let parsed = dispatch_envelope_from_binding(&running).expect("parse dispatch envelope");
+        assert_eq!(parsed.task_id, dispatch_task_id);
+        assert_eq!(parsed.binding_id.as_deref(), Some(binding.id.as_str()));
+        assert_eq!(parsed.resolved_cli_tool, "gemini");
+    }
+
+    #[test]
+    fn dispatch_task_environment_exposes_only_valid_dispatch_context() {
+        let env = dispatch_task_environment(Some("binding-a"), Some("dispatch-a"))
+            .expect("dispatch environment");
+        assert_eq!(
+            env.get("CC_PANES_TASK_BINDING_ID"),
+            Some(&"binding-a".to_string())
+        );
+        assert_eq!(
+            env.get("CC_PANES_DISPATCH_TASK_ID"),
+            Some(&"dispatch-a".to_string())
+        );
+        assert!(dispatch_task_environment(Some("  "), None).is_none());
+    }
+
+    #[test]
+    fn dispatch_response_backfill_never_resurrects_terminal_binding() {
+        assert_eq!(
+            dispatch_running_status(TaskBindingStatus::Pending),
+            Some(TaskBindingStatus::Running)
+        );
+        assert_eq!(
+            dispatch_running_status(TaskBindingStatus::Running),
+            Some(TaskBindingStatus::Running)
+        );
+        assert_eq!(
+            dispatch_running_status(TaskBindingStatus::Waiting),
+            Some(TaskBindingStatus::Running)
+        );
+        assert_eq!(dispatch_running_status(TaskBindingStatus::Completed), None);
+        assert_eq!(dispatch_running_status(TaskBindingStatus::Failed), None);
     }
 
     #[test]
@@ -14369,6 +15519,8 @@ mod tests {
         let router = McpToolHandler::tool_router();
 
         for name in [
+            "dispatch_task",
+            "get_task_dispatch",
             "list_launch_profiles",
             "create_runtime_config",
             "delete_launch_profile",
@@ -14387,6 +15539,10 @@ mod tests {
 
         let launch = &router.map["launch_task"].attr;
         assert!(launch.input_schema["properties"]["profileId"].is_object());
+
+        let dispatch = &router.map["dispatch_task"].attr;
+        assert!(dispatch.input_schema["properties"]["cliTool"].is_object());
+        assert!(dispatch.input_schema["properties"]["parentBindingId"].is_object());
     }
 
     #[test]
@@ -14397,6 +15553,158 @@ mod tests {
         let error = ensure_mcp_yolo_profile_allowed(true, false).unwrap_err();
         assert!(error.contains("allowMcpYoloProfiles"));
         assert!(error.contains("设置"));
+    }
+
+    /// `Database::new_in_memory` 是 core 内部的 `#[cfg(test)]`，下游 crate 用不了，
+    /// 与本模块其他测试一致走 `new_fallback`（内存库）。
+    fn make_task_binding_service() -> Arc<cc_panes_core::services::TaskBindingService> {
+        let db =
+            Arc::new(cc_panes_core::repository::Database::new_fallback().expect("fallback db"));
+        Arc::new(cc_panes_core::services::TaskBindingService::new(Arc::new(
+            cc_panes_core::repository::TaskBindingRepository::new(db),
+        )))
+    }
+
+    #[test]
+    fn mcp_archive_workspace_round_trips_and_protects_default() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let workspace_service = WorkspaceService::new(dir.path().join("workspaces"));
+        let bindings = make_task_binding_service();
+        workspace_service
+            .create_workspace("ws-a", None)
+            .expect("create workspace");
+
+        let value = set_workspace_archived_impl(&workspace_service, &bindings, "ws-a", true)
+            .expect("archive");
+        assert_eq!(value["success"], true);
+        assert!(value["archivedAt"].is_string());
+        // 无在途派工时不该冒出 warning 字段
+        assert!(value.get("warning").is_none());
+
+        let value = set_workspace_archived_impl(&workspace_service, &bindings, "ws-a", false)
+            .expect("restore");
+        assert!(value["archivedAt"].is_null());
+
+        // 空名字要在进 service 之前就被拦下
+        let error = set_workspace_archived_impl(&workspace_service, &bindings, "   ", true)
+            .expect_err("blank name must be rejected");
+        assert!(error.contains("workspaceName"));
+
+        // 默认工作空间不可归档，错误文案要带可识别的错误码
+        workspace_service
+            .ensure_default_workspace()
+            .expect("ensure default");
+        let error = set_workspace_archived_impl(&workspace_service, &bindings, "default", true)
+            .expect_err("default workspace must be protected");
+        assert!(error.contains("DEFAULT_WORKSPACE_PROTECTED"));
+    }
+
+    #[test]
+    fn mcp_archive_project_round_trips_and_hides_from_get_workspace() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let workspace_service = WorkspaceService::new(dir.path().join("workspaces"));
+        let project_dir = dir.path().join("repo");
+        std::fs::create_dir_all(&project_dir).expect("create project dir");
+        workspace_service
+            .create_workspace("ws-a", None)
+            .expect("create workspace");
+        let project = workspace_service
+            .add_project("ws-a", &project_dir.to_string_lossy())
+            .expect("add project");
+
+        let value =
+            set_workspace_project_archived_impl(&workspace_service, "ws-a", &project.id, true)
+                .expect("archive project");
+        assert_eq!(value["success"], true);
+        assert!(value["archivedAt"].is_string());
+
+        // 归档只打标记，条目本身必须还在 workspace.json 里（否则就不是逻辑删除了）
+        let ws = workspace_service
+            .get_workspace("ws-a")
+            .expect("get workspace");
+        assert_eq!(ws.projects.len(), 1);
+        assert!(ws.projects[0].archived_at.is_some());
+
+        set_workspace_project_archived_impl(&workspace_service, "ws-a", &project.id, false)
+            .expect("restore project");
+        let ws = workspace_service
+            .get_workspace("ws-a")
+            .expect("get workspace");
+        assert!(ws.projects[0].archived_at.is_none());
+
+        let error =
+            set_workspace_project_archived_impl(&workspace_service, "ws-a", "missing-id", true)
+                .expect_err("unknown project id must be rejected");
+        assert!(error.contains("missing-id"));
+    }
+
+    #[test]
+    fn mcp_update_workspace_path_sets_and_clears() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let workspace_service = WorkspaceService::new(dir.path().join("workspaces"));
+        workspace_service
+            .create_workspace("ws-a", None)
+            .expect("create workspace");
+
+        let value = update_workspace_path_impl(&workspace_service, "ws-a", Some(r"D:\repos\app"))
+            .expect("set path");
+        assert_eq!(value["path"], r"D:\repos\app");
+
+        // 空白串按清空处理，不能把根目录设成一个空路径
+        let value = update_workspace_path_impl(&workspace_service, "ws-a", Some("   "))
+            .expect("blank path");
+        assert!(value["path"].is_null());
+
+        update_workspace_path_impl(&workspace_service, "ws-a", Some("/data/root")).expect("set");
+        let value = update_workspace_path_impl(&workspace_service, "ws-a", None).expect("clear");
+        assert!(value["path"].is_null());
+    }
+
+    /// 归档的工作空间仍然持有 launch profile 绑定，删除守卫不得因此漏判。
+    /// 这是"过滤只能落在消费点、不能落进 list_workspaces"那条不变式的端到端体现。
+    #[test]
+    fn archived_workspace_still_blocks_launch_profile_deletion() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let profile_service = LaunchProfileService::new(dir.path().join("launch-profiles.json"));
+        let workspace_service = WorkspaceService::new(dir.path().join("workspaces"));
+        let bindings = make_task_binding_service();
+        workspace_service
+            .create_workspace("ws-a", None)
+            .expect("create workspace");
+
+        let profile = profile_service
+            .create_profile(LaunchProfileDraft {
+                name: Some("Claude".into()),
+                alias: None,
+                description: None,
+                provider_id: None,
+                model_id: None,
+                adapter_options: HashMap::new(),
+                target_tools: vec!["claude".into()],
+                target_runtime: Some("local".into()),
+                yolo_mode: false,
+                mcp_policy: Default::default(),
+                skill_policy: Default::default(),
+                is_default: false,
+            })
+            .expect("create profile");
+
+        bind_workspace_launch_profile_impl(
+            &profile_service,
+            &workspace_service,
+            true,
+            McpBindWorkspaceLaunchProfileParams {
+                workspace_name: "ws-a".into(),
+                profile_id: Some(profile.id.clone()),
+            },
+        )
+        .expect("bind profile");
+
+        set_workspace_archived_impl(&workspace_service, &bindings, "ws-a", true).expect("archive");
+
+        let error = delete_launch_profile_impl(&profile_service, &workspace_service, &profile.id)
+            .expect_err("binding held by an archived workspace must still block deletion");
+        assert!(error.contains("ws-a"));
     }
 
     #[test]

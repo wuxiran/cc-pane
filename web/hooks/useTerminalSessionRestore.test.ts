@@ -347,6 +347,8 @@ describe("reconcileTerminalSessions", () => {
       "tab-1",
       "leaf-1",
       "ambiguous-candidates",
+      // 多候选时没法指定唯一一条，阻断面板也就无从提供手动接管
+      undefined,
     );
     expect(terminalService.adoptSession).not.toHaveBeenCalled();
   });
@@ -398,6 +400,7 @@ describe("reconcileTerminalSessions", () => {
       "tab-1",
       "leaf-1",
       "claims-unsupported",
+      undefined,
     );
     expect(sessionRestoreService.load).not.toHaveBeenCalled();
   });
@@ -446,6 +449,7 @@ describe("reconcileTerminalSessions", () => {
       "tab-1",
       "leaf-1",
       "auto-adopt-disabled",
+      "session-1",
     );
     expect(terminalService.adoptSession).not.toHaveBeenCalled();
   });

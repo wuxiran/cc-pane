@@ -22,10 +22,19 @@
     "claims-unsupported": "当前终端后端不支持安全认领，已停止自动重建；可结束旧终端后手动恢复。",
     "reconciliation-failed": "无法确认 daemon 会话归属，已停止自动重建。",
     "missing-provenance": "会话缺少完整出生证据，只能在资源管理器中人工接管。",
-    "identity-mismatch": "会话身份或运行环境与当前分屏不一致，已拒绝自动接管。",
+    "identity-mismatch": "会话身份与当前分屏对不上，已拒绝自动接管。具体是哪一关没过见下方恢复日志。",
+    "anchorless-session": "这个会话的出生凭证里没有分屏锚点（通常是旧版本创建的），按设计不自动接管——可以在下方直接接管。",
+    "attach-rejected": "身份核对已通过，但会话没能挂回这个分屏（布局对不上、格子被占，或该终端已挂在别处）。",
     "ambiguous-candidates": "同一分屏存在多个活会话候选，无法安全自动选择。",
     "claim-conflict": "会话正由另一个 CC-Panes 实例持有。",
     "auto-adopt-disabled": "自动认领当前处于关闭状态，可在资源管理器中人工接管。"
+  },
+  "manualAdopt": {
+    "action": "接管这个会话",
+    "running": "正在接管...",
+    "not-found": "找不到这条会话的档案记录，可能已经结束了。",
+    "claim-failed": "会话正被另一个实例占用（写租约 30 秒后过期，可稍后重试）。",
+    "attach-failed": "没能挂回这个分屏：项目路径对不上、格子已被占用，或该终端已挂在别处。"
   },
   "restoreLogDetails": "原始详情",
   "restoreLog": {
@@ -33,6 +42,14 @@
     "source": {
       "savedSessionId": "上次记录的会话 id",
       "unique-anchor": "唯一锚点"
+    },
+    "gate": {
+      "generation": "世代与出生凭证",
+      "anchor": "当前分屏锚点",
+      "birth-anchor": "出生锚点",
+      "project": "项目路径",
+      "runtime": "运行环境 / CLI",
+      "resume": "会话续接 id"
     },
     "events": {
       "daemon-snapshot_begin": "正在读取守护进程快照...",
@@ -56,7 +73,8 @@
       "candidate_blocked": "候选筛选未通过，已放弃自动接管",
       "identity_accepted": "身份核对通过（会话 {{sessionId}}）",
       "identity_blocked__missing-provenance": "会话 {{sessionId}} 缺少出生凭证，已拒绝接管",
-      "identity_blocked__identity-mismatch": "身份核对不通过，已拒绝接管（会话 {{sessionId}}）——CLI、运行环境或项目路径与当前分屏对不上",
+      "identity_blocked__identity-mismatch": "身份核对不通过，已拒绝接管（会话 {{sessionId}}）——卡在「{{gate}}」这一关：{{field}}（{{values}}）",
+      "identity_blocked__anchorless-session": "会话 {{sessionId}} 的出生凭证里没有分屏锚点（{{values}}），按设计不自动接管，可手动接管",
       "identity_blocked": "身份核对不通过，已拒绝接管（会话 {{sessionId}}）",
       "claim_begin": "正在申请会话使用权（{{sessionId}}）...",
       "claim_end": "已取得会话使用权（{{sessionId}}）",
@@ -296,6 +314,10 @@
   "newTabMenu": "新建…",
   "newTerminalTab": "新建终端",
   "newBrowserTab": "新建浏览器",
+  "newDshTab": "新建 DeepSeek",
+  "dshStarting": "正在启动 DeepSeek Harness…",
+  "dshStartFailed": "DeepSeek Harness 启动失败",
+  "dshRetry": "重试",
   "openFileTab": "打开文件…",
   "newFileExplorerTab": "打开目录树",
   "newSshTab": "新建 SSH",

@@ -30,7 +30,8 @@
   "skipMcp": "禁 MCP",
   "verbose": "详细日志",
   "effort": "思考力度",
-  "effortHint": "Claude 经思考预算（MAX_THINKING_TOKENS）注入；Codex 走 model_reasoning_effort",
+  "effortHint": "Claude 经思考预算（MAX_THINKING_TOKENS）注入；Codex 走 model_reasoning_effort；Grok 走 --reasoning-effort",
+  "optionUnsupported": "{{cli}} 不支持该参数，选了也不会生效",
   "effortDefault": "默认",
   "effortLevel": {
     "low": "低",
@@ -63,6 +64,8 @@
   "customLaunch": "自定义启动…",
   "errorNoProject": "请先选择项目或目录",
   "errorProviderRequired": "使用 CC-Panes Provider 时必须先选择 Provider",
+  "errorPiSshUnsupported": "Pi 仅支持本地或 WSL 运行环境",
+  "errorOmpSshUnsupported": "Oh My Pi 仅支持本地或 WSL 运行环境",
   "errorResolveFailed": "启动配置解析失败（{{code}}），请检查工作空间环境设置",
   "scenario": {
     "default": "默认",

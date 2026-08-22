@@ -12,6 +12,7 @@ import { useTabViewStateStore, viewKey } from "@/stores/useTabViewStateStore";
 import type { TerminalRestoreLogEntry } from "@/stores/useTerminalRestoreLogStore";
 import type { ActiveTerminalContext } from "@/hooks/useActiveTerminalSession";
 import { coldRestoreBlockedTerminal } from "@/hooks/coldTerminalRestore";
+import { useManualAdopt } from "@/hooks/manualSessionAdopt";
 import { Button } from "@/components/ui/button";
 import { classifyTerminalLaunchPath, translateError } from "@/utils";
 import SplitView from "./SplitView";
@@ -130,6 +131,8 @@ function BlockedRestorePanel({
   const [failed, setFailed] = useState(false);
   const canColdRestore = reason === "claims-unsupported"
     && Boolean(leaf.savedSessionId);
+  // 旧实现只有 claims-unsupported 有按钮，其余阻断原因一律是死面板。
+  const manualAdopt = useManualAdopt(reason, leaf.restoreBlockedSessionId, !canColdRestore);
 
   const handleColdRestore = async () => {
     if (!canColdRestore || running) return;
@@ -163,6 +166,19 @@ function BlockedRestorePanel({
             {failed ? (
               <p className="max-w-xl text-xs leading-5 text-destructive" role="alert">
                 {t("coldRestoreFailed")}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {manualAdopt.available ? (
+          <div className="mt-5 flex flex-col items-center gap-2">
+            <Button size="sm" onClick={() => void manualAdopt.adopt()} disabled={manualAdopt.running}>
+              <RotateCcw className="h-4 w-4" />
+              {manualAdopt.running ? t("manualAdopt.running") : t("manualAdopt.action")}
+            </Button>
+            {manualAdopt.error ? (
+              <p className="max-w-xl text-xs leading-5 text-destructive" role="alert">
+                {manualAdopt.error}
               </p>
             ) : null}
           </div>
@@ -257,10 +273,10 @@ export default memo(function TerminalTabContent({
       return (
         <div
           key={leaf.id}
-          className="flex h-full w-full min-h-0 flex-col overflow-hidden"
+          className="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden"
           onMouseDown={() => setActiveTerminalPane(tab.id, leaf.id)}
         >
-          <div className="relative min-h-0 flex-1 overflow-hidden">
+          <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
           {restoreBlocked ? (
             <BlockedRestorePanel
               tabId={tab.id}

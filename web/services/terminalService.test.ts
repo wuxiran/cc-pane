@@ -300,9 +300,12 @@ describe("terminalService", () => {
       await vi.advanceTimersByTimeAsync(8);
       await Promise.all([first, second, third]);
 
+      // 同源的三段仍合成一次写入；source 随请求过去，后端据此决定回显开着时
+      // 该不该抑制（用户按键不抑制，前端代答的查询回复才抑制）。
       expect(invoke).toHaveBeenCalledWith("write_terminal", {
         sessionId: "session-1",
         data: "abc",
+        source: "user-keyboard",
       });
       expect((invoke as ReturnType<typeof vi.fn>).mock.calls.filter(([cmd]) => cmd === "write_terminal")).toHaveLength(1);
     });

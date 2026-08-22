@@ -15,6 +15,19 @@ const MAX_WEBVIEW_LABEL_LEN: usize = 64;
 const SPIKE_RESULT_LIMIT_BYTES: usize = 4096;
 const EVALUATE_RESULT_LIMIT_BYTES: usize = 64 * 1024;
 
+/// 通用 CDP 超时：足够慢页面上的 `Runtime.evaluate` 跑完。
+const DEFAULT_CDP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// 截图超时。截图要么很快返回，要么是根本拿不到帧——等满 10 秒只是让调用方
+/// 多卡 6 秒，并不会提高成功率。
+const SCREENSHOT_CDP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
+/// 等首帧的超时。提为可见后正常是一两帧的事（十几毫秒）。
+const FIRST_FRAME_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// 等到下一次合成帧为止。rAF 触发即证明合成器在产帧；
+/// 双层 rAF 是为了确保等到的是**提为可见之后**真正绘制的那一帧。
+const FIRST_FRAME_PROBE: &str =
+    "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))";
+
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserBounds {
@@ -164,17 +177,70 @@ pub fn truncate_cdp_result(value: &str, max_bytes: usize) -> String {
     format!("{}{SUFFIX}", &value[..end])
 }
 
+#[derive(Debug, Clone)]
+struct BrowserTabEntry {
+    label: String,
+    /// 该标签的 webview 当前是否处于 `show()` 状态。
+    ///
+    /// 截图必须知道这件事：隐藏的 WebView2 合成器停止产帧，
+    /// `Page.captureScreenshot` 会一直等不到帧直到超时（见 `screenshot`）。
+    visible: bool,
+}
+
 #[derive(Default)]
 pub struct BrowserTabManager {
-    labels: Mutex<HashMap<String, String>>,
+    tabs: Mutex<HashMap<String, BrowserTabEntry>>,
+}
+
+/// 截图期间临时提帧的守卫：`Drop` 时把标签恢复成原先的隐藏状态。
+///
+/// 用守卫而非顺序代码，是因为截图路径中间有多个 `?` 早退点（CDP 超时、
+/// 非 PNG、写盘失败），任何一条早退都不能把用户的后台标签永久留在可见状态。
+struct TemporaryVisibilityGuard<'a> {
+    manager: &'a BrowserTabManager,
+    app: &'a AppHandle,
+    tab_id: String,
+}
+
+impl Drop for TemporaryVisibilityGuard<'_> {
+    fn drop(&mut self) {
+        if let Err(error) = self
+            .manager
+            .set_visible(self.app, &self.tab_id, false, false)
+        {
+            log::warn!(
+                "failed to restore hidden state for browser tab {}: {error}",
+                self.tab_id
+            );
+        }
+    }
 }
 
 impl BrowserTabManager {
     pub fn contains(&self, tab_id: &str) -> bool {
-        self.labels
+        self.tabs
             .lock()
-            .map(|labels| labels.contains_key(tab_id))
+            .map(|tabs| tabs.contains_key(tab_id))
             .unwrap_or(false)
+    }
+
+    /// 标签当前是否可见；未注册的标签视为不可见。
+    fn is_visible(&self, tab_id: &str) -> bool {
+        self.tabs
+            .lock()
+            .map(|tabs| tabs.get(tab_id).is_some_and(|entry| entry.visible))
+            .unwrap_or(false)
+    }
+
+    fn mark_visible(&self, tab_id: &str, visible: bool) -> AppResult<()> {
+        let mut tabs = self
+            .tabs
+            .lock()
+            .map_err(|_| "browser tab registry lock is poisoned".to_string())?;
+        if let Some(entry) = tabs.get_mut(tab_id) {
+            entry.visible = visible;
+        }
+        Ok(())
     }
 
     pub fn create(
@@ -233,10 +299,10 @@ impl BrowserTabManager {
                 .map_err(|error| format!("failed to hide browser webview: {error}"))?;
         }
 
-        self.labels
+        self.tabs
             .lock()
             .map_err(|_| "browser tab registry lock is poisoned".to_string())?
-            .insert(tab_id.to_string(), label);
+            .insert(tab_id.to_string(), BrowserTabEntry { label, visible });
         Ok(())
     }
 
@@ -279,7 +345,7 @@ impl BrowserTabManager {
                 .hide()
                 .map_err(|error| format!("failed to hide browser webview: {error}"))?;
         }
-        Ok(())
+        self.mark_visible(tab_id, visible)
     }
 
     pub fn navigate(&self, app: &AppHandle, tab_id: &str, url: &str) -> AppResult<()> {
@@ -308,12 +374,12 @@ impl BrowserTabManager {
     }
 
     pub fn close(&self, app: &AppHandle, tab_id: &str) -> AppResult<()> {
-        let label = self
-            .labels
+        let entry = self
+            .tabs
             .lock()
             .map_err(|_| "browser tab registry lock is poisoned".to_string())?
             .remove(tab_id);
-        let Some(label) = label else {
+        let Some(BrowserTabEntry { label, .. }) = entry else {
             return Ok(());
         };
         if let Some(webview) = app.get_webview(&label) {
@@ -331,7 +397,19 @@ impl BrowserTabManager {
         method: &str,
         params_json: &str,
     ) -> AppResult<String> {
-        call_devtools_protocol(self.webview(app, tab_id)?, method, params_json).await
+        self.call_cdp_with_timeout(app, tab_id, method, params_json, DEFAULT_CDP_TIMEOUT)
+            .await
+    }
+
+    async fn call_cdp_with_timeout(
+        &self,
+        app: &AppHandle,
+        tab_id: &str,
+        method: &str,
+        params_json: &str,
+        timeout: std::time::Duration,
+    ) -> AppResult<String> {
+        call_devtools_protocol(self.webview(app, tab_id)?, method, params_json, timeout).await
     }
 
     pub async fn evaluate(&self, app: &AppHandle, tab_id: &str, script: &str) -> AppResult<String> {
@@ -346,21 +424,64 @@ impl BrowserTabManager {
         Ok(truncate_cdp_result(&result, EVALUATE_RESULT_LIMIT_BYTES))
     }
 
+    /// 截取标签当前可视区域。
+    ///
+    /// 隐藏的 WebView2 合成器停止产帧（实测 `requestAnimationFrame` 完全不触发），
+    /// 此时 `Page.captureScreenshot` 会一直等不到帧、直到超时——对 agent 而言
+    /// "开个后台标签再截图"是最常见的用法，命中率接近 100%。
+    ///
+    /// 因此隐藏标签会被**临时提为可见**以驱动出一帧，截完由守卫立刻复原。
     pub async fn screenshot(
         &self,
         app: &AppHandle,
         tab_id: &str,
         screenshots_dir: &Path,
     ) -> AppResult<PathBuf> {
+        // 守卫在作用域内持有，任何早退路径都会复原隐藏状态。
+        let _restore = if self.is_visible(tab_id) {
+            None
+        } else {
+            self.set_visible(app, tab_id, true, false)?;
+            self.await_composited_frame(app, tab_id).await?;
+            Some(TemporaryVisibilityGuard {
+                manager: self,
+                app,
+                tab_id: tab_id.to_string(),
+            })
+        };
+
         let result = self
-            .call_cdp(
+            .call_cdp_with_timeout(
                 app,
                 tab_id,
                 "Page.captureScreenshot",
                 r#"{"format":"png","captureBeyondViewport":false}"#,
+                SCREENSHOT_CDP_TIMEOUT,
             )
-            .await?;
+            .await
+            .map_err(describe_screenshot_failure)?;
         save_browser_screenshot(&result, screenshots_dir, tab_id)
+    }
+
+    /// 等待刚提为可见的 webview 真正产出一帧。
+    ///
+    /// 用 `requestAnimationFrame` 而非固定 sleep：rAF 回调的触发本身就是
+    /// "合成器已恢复"的证据，而固定 sleep 在慢机器上会偏短、在快机器上又白等。
+    /// 拿不到帧不算致命——退回直接截图，由截图自己的超时兜底并给出可读错误。
+    async fn await_composited_frame(&self, app: &AppHandle, tab_id: &str) -> AppResult<()> {
+        let probe = self
+            .call_cdp_with_timeout(
+                app,
+                tab_id,
+                "Runtime.evaluate",
+                &browser_evaluate_params(FIRST_FRAME_PROBE),
+                FIRST_FRAME_TIMEOUT,
+            )
+            .await;
+        if let Err(error) = probe {
+            log::warn!("browser tab {tab_id} produced no frame after being shown: {error}");
+        }
+        Ok(())
     }
 
     pub async fn click(&self, app: &AppHandle, tab_id: &str, x: f64, y: f64) -> AppResult<()> {
@@ -410,13 +531,30 @@ impl BrowserTabManager {
     }
 
     fn registered_label(&self, tab_id: &str) -> AppResult<String> {
-        self.labels
+        self.tabs
             .lock()
             .map_err(|_| "browser tab registry lock is poisoned".to_string())?
             .get(tab_id)
-            .cloned()
+            .map(|entry| entry.label.clone())
             .ok_or_else(|| format!("unknown browser tab: {tab_id}").into())
     }
+}
+
+/// 把截图的超时翻译成可执行的诊断。
+///
+/// 走到这里意味着标签已被提为可见却仍拿不到帧，最常见的成因是整个主窗口
+/// 不可见（最小化/隐藏到托盘）——此时任何子 webview 都不产帧，与标签自身
+/// 的可见性无关。原文案只说"CDP method timed out"，无法区分。
+fn describe_screenshot_failure(error: crate::utils::AppError) -> crate::utils::AppError {
+    let message = error.to_string();
+    if !message.contains("timed out") {
+        return error;
+    }
+    "browser screenshot timed out: the page produced no frame. \
+This usually means the CC-Panes window is minimized or hidden — a webview only \
+composites while its host window is on screen. Restore the window and retry, or \
+use browser_evaluate to read the page without a screenshot."
+        .into()
 }
 
 fn browser_evaluate_params(script: &str) -> String {
@@ -493,6 +631,7 @@ async fn call_devtools_protocol(
     webview: Webview,
     method: &str,
     params_json: &str,
+    timeout: std::time::Duration,
 ) -> AppResult<String> {
     use std::sync::Arc;
     use webview2_com::{CallDevToolsProtocolMethodCompletedHandler, CoTaskMemPWSTR};
@@ -549,7 +688,7 @@ async fn call_devtools_protocol(
         })
         .map_err(|error| format!("failed to access native browser webview: {error}"))?;
 
-    tokio::time::timeout(std::time::Duration::from_secs(10), receiver)
+    tokio::time::timeout(timeout, receiver)
         .await
         .map_err(|_| "CDP method timed out".to_string())?
         .map_err(|_| "CDP response channel closed".to_string())?
@@ -560,6 +699,7 @@ async fn call_devtools_protocol(
     _webview: Webview,
     _method: &str,
     _params_json: &str,
+    _timeout: std::time::Duration,
 ) -> AppResult<String> {
     Err("native WebView2 CDP is only available on Windows".into())
 }
@@ -689,6 +829,55 @@ mod tests {
         let manager = BrowserTabManager::default();
 
         assert!(manager.registered_label("unknown-tab").is_err());
+        // 未注册的标签必须判为不可见，否则截图会跳过提帧、直接撞超时。
+        assert!(!manager.is_visible("unknown-tab"));
+    }
+
+    #[test]
+    fn visibility_is_tracked_so_screenshots_know_to_raise_a_frame() {
+        let manager = BrowserTabManager::default();
+        manager.tabs.lock().unwrap().insert(
+            "tab-1".to_string(),
+            super::BrowserTabEntry {
+                label: "browser-tab-1".to_string(),
+                visible: false,
+            },
+        );
+
+        assert!(!manager.is_visible("tab-1"));
+        manager.mark_visible("tab-1", true).unwrap();
+        assert!(manager.is_visible("tab-1"));
+        manager.mark_visible("tab-1", false).unwrap();
+        assert!(!manager.is_visible("tab-1"));
+    }
+
+    #[test]
+    fn screenshot_timeout_explains_the_no_frame_cause() {
+        let translated = super::describe_screenshot_failure("CDP method timed out".into());
+        let message = translated.to_string();
+
+        // 必须点明"没有帧"和可执行的下一步，而不是只说超时。
+        assert!(message.contains("no frame"));
+        assert!(message.contains("minimized"));
+        assert!(message.contains("browser_evaluate"));
+
+        // 非超时错误必须原样透传，不能被这条文案盖掉真实成因。
+        let other = super::describe_screenshot_failure("response is not a PNG".into());
+        assert_eq!(other.to_string(), "response is not a PNG");
+    }
+
+    #[test]
+    fn screenshot_timeout_is_shorter_than_the_generic_cdp_timeout() {
+        // 截图要么很快返回要么根本拿不到帧，等满通用超时只是让调用方多卡几秒。
+        assert!(super::SCREENSHOT_CDP_TIMEOUT < super::DEFAULT_CDP_TIMEOUT);
+        assert!(super::FIRST_FRAME_TIMEOUT < super::SCREENSHOT_CDP_TIMEOUT);
+    }
+
+    #[test]
+    fn first_frame_probe_waits_for_an_actual_composited_frame() {
+        // 探针必须靠 rAF 而非 sleep：rAF 触发本身就是合成器已恢复的证据。
+        assert!(super::FIRST_FRAME_PROBE.contains("requestAnimationFrame"));
+        assert!(super::FIRST_FRAME_PROBE.starts_with("new Promise"));
     }
 
     #[test]

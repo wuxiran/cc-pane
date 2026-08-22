@@ -1,6 +1,6 @@
 ---
 name: ccpanes-cleanup-processes
-description: Diagnose and safely clean zombie development processes such as stale node/cmd/npx serve processes while avoiding active CC-Panes, MCP, package-manager, and dev-server processes. Use when the user asks to clean processes, zombies, high process count, or whether something can be killed.
+description: Find and safely kill zombie dev processes while protecting active CC-Panes, MCP and dev servers. 触发词：清理进程、僵尸进程、进程数太多、这个能不能杀。
 ---
 
 # 清理僵尸进程

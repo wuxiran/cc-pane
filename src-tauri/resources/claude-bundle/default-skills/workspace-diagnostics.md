@@ -1,6 +1,6 @@
 ---
 name: ccpanes-workspace-diagnostics
-description: Diagnose CC-Panes workspace storage, workspace.json, projects.csv, data directory routing, and legacy workspace file issues. Prefer MCP/UI for mutations; use this skill for read-only inspection and repair planning.
+description: Diagnose CC-Panes workspace storage: workspace.json, projects.csv, data dir routing, legacy files. 只读排查与修复规划；真正的变更走 MCP 或 UI，不在本 skill 里改。
 ---
 
 # CC-Panes Workspace Diagnostics
@@ -109,7 +109,7 @@ find "$WS_ROOT" -maxdepth 2 -name workspace.json -print
 | 现象 | 可能原因 | 建议 |
 |---|---|---|
 | UI 里找不到工作空间 | data_dir 指向另一套目录 | 先确认 `config.toml` 和实际 `DATA_DIR` |
-| `launch_task` 找不到项目 | 项目未登记或 Windows/WSL 路径不一致 | 用 `list_projects` 取原样路径，必要时 `add_project_to_workspace` |
+| `dispatch_task` / `launch_task` 找不到项目 | 项目未登记或 Windows/WSL 路径不一致 | 用 `list_projects` 取原样路径，必要时 `add_project_to_workspace` |
 | workspace 看起来有项目但启动失败 | path 是旧盘符/旧 WSL UNC | 用 MCP 重新添加当前真实路径 |
 | `.ccpanes/projects.csv` 和 UI 不一致 | 文件缓存或旧迁移遗留 | 以 MCP/UI 结果为准，制定修复计划 |
 | 删除后又出现 | 仍在另一个 data_dir 或 session recovery | 查 data_dir、运行实例、启动历史 |

@@ -2,6 +2,31 @@ import { describe, expect, it, vi } from "vitest";
 import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
 
 describe("createTerminalWriteFlowControl", () => {
+  it("applies backpressure with the default watermarks after a bounded burst", async () => {
+    const callbacks: Array<() => void> = [];
+    let completeImmediately = false;
+    const target = {
+      write: vi.fn((_data: string, callback?: () => void) => {
+        if (!callback) return;
+        if (completeImmediately) callback();
+        else callbacks.push(callback);
+      }),
+    };
+
+    const flow = createTerminalWriteFlowControl(target);
+    const writes = Array.from(
+      { length: 10 },
+      (_, index) => flow.write(`${index}`.padEnd(16 * 1024, "x")),
+    );
+
+    expect(target.write.mock.calls.length).toBeLessThan(writes.length);
+    expect(target.write).toHaveBeenCalledTimes(4);
+    completeImmediately = true;
+    while (callbacks.length > 0) callbacks.shift()?.();
+    await Promise.all(writes);
+    expect(target.write).toHaveBeenCalledTimes(writes.length);
+  });
+
   it("writes immediately when flow control is disabled", async () => {
     const callbacks: Array<() => void> = [];
     const target = {
@@ -37,8 +62,8 @@ describe("createTerminalWriteFlowControl", () => {
     const flow = createTerminalWriteFlowControl(target, {
       enabled: true,
       bytesThreshold: 0,
-      highWatermark: 1,
-      lowWatermark: 1,
+      highWatermark: 2,
+      lowWatermark: 0,
     });
 
     const first = flow.write("first");
@@ -75,8 +100,8 @@ describe("createTerminalWriteFlowControl", () => {
     const flow = createTerminalWriteFlowControl(target, {
       enabled: true,
       bytesThreshold: 0,
-      highWatermark: 0,
-      lowWatermark: 1,
+      highWatermark: 1,
+      lowWatermark: 0,
     });
 
     const first = flow.write("first");

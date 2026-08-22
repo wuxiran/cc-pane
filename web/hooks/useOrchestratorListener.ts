@@ -32,43 +32,9 @@ import {
   resolveBrowserPlacement,
   resolveCallerPlacement,
 } from "./orchestratorOpenRouting";
+import type { CliTool } from "@/types";
+import type { OrchestratorLaunchPayload } from "./orchestratorLaunchPayload";
 
-import type { CliTool, LaunchProviderSelection, SshConnectionInfo, WslLaunchInfo } from "@/types";
-
-interface OrchestratorLaunchPayload {
-  taskId: string;
-  sessionId: string;
-  projectPath: string;
-  projectId: string;
-  workspaceName?: string;
-  providerId?: string;
-  modelId?: string;
-  providerSelection?: LaunchProviderSelection;
-  launchProfileId?: string;
-  workspacePath?: string;
-  title?: string;
-  resumeId?: string;  // 对应 Rust OrchestratorLaunchEvent.resume_id
-  paneId?: string;
-  layoutId?: string;
-  layoutName?: string;
-  cliTool?: string;
-  runtimeKind?: string;
-  runtimeSource?: string;
-  notice?: string;
-  wsl?: WslLaunchInfo;
-  ssh?: SshConnectionInfo;
-  /**
-   * 新会话落位方式（后端 launch_task 的 placement 参数）：
-   * `"beside"`（默认，调用者 pane 旁边分屏）| `"tab"` / `"background"`（调用者 pane 标签页）。
-   */
-  placement?: string;
-  /**
-   * Caller's pty_session_id when this launch was triggered by another
-   * cc-panes-managed Claude via MCP `launch_task`. Used by the frontend to
-   * resolve a `parentTabId` for hierarchical numbering (#N.M).
-   */
-  parentSessionId?: string;
-}
 
 export function useOrchestratorListener() {
   useEffect(() => {
@@ -206,6 +172,9 @@ export function useOrchestratorListener() {
             launchId: nextLaunchId(),
             projectPath,
             sessionId,           // 后端已创建的 PTY session，避免前端重复创建
+            // 后端预分配的出生锚点，原样采用（见 payload 类型注释）
+            tabId: event.payload.tabId,
+            terminalPaneId: event.payload.terminalPaneId,
             resumeId: event.payload.resumeId,
             workspaceName,
             providerId,

@@ -95,6 +95,116 @@ describe("resyncFromReplaySnapshot", () => {
     expect(term.reset).not.toHaveBeenCalled();
   });
 
+  it("快照缺失时接地：CAN 丢弃被截断的控制串 + 清 pen", async () => {
+    const term = createTerm();
+    const checkpointWrites: string[] = [];
+
+    const resynced = await resyncFromReplaySnapshot({
+      term,
+      sessionId: "s-1",
+      reason: "daemon-desync",
+      getRecoverySnapshot: async () => null,
+      writeData: async () => {},
+      writeCheckpointData: async (data) => {
+        checkpointWrites.push(data);
+      },
+      syncTrackedBufferType: () => {},
+      debugLog: () => {},
+    });
+
+    expect(resynced).toBe(false);
+    expect(term.reset).not.toHaveBeenCalled();
+    expect(checkpointWrites).toEqual(["\x18\x1b[0m"]);
+  });
+
+  it("接地必须用 CAN 而非 ESC——ESC 会提交被 gap 截断的 OSC（改窗口标题 / 写剪贴板）", async () => {
+    const checkpointWrites: string[] = [];
+
+    await resyncFromReplaySnapshot({
+      term: createTerm(),
+      sessionId: "s-1",
+      reason: "daemon-desync",
+      getRecoverySnapshot: async () => null,
+      writeData: async () => {},
+      writeCheckpointData: async (data) => {
+        checkpointWrites.push(data);
+      },
+      syncTrackedBufferType: () => {},
+      debugLog: () => {},
+    });
+
+    // xterm 派发 OSC/DCS/APC 的判据是 success = code !== 0x18 && code !== 0x1a，
+    // 用 ESC 接地只让解析器归位、却把 gap 截断的那半段**提交**出去。
+    expect(checkpointWrites[0]?.startsWith("\x18")).toBe(true);
+    expect(checkpointWrites[0]?.startsWith("\x1b")).toBe(false);
+  });
+
+  it("快照请求抛错时同样接地（gap 已经发生，与拿不到快照的原因无关）", async () => {
+    const checkpointWrites: string[] = [];
+
+    const resynced = await resyncFromReplaySnapshot({
+      term: createTerm(),
+      sessionId: "s-1",
+      reason: "hibernation-overflow",
+      getRecoverySnapshot: async () => {
+        throw new Error("network down");
+      },
+      writeData: async () => {},
+      writeCheckpointData: async (data) => {
+        checkpointWrites.push(data);
+      },
+      syncTrackedBufferType: () => {},
+      debugLog: () => {},
+    });
+
+    expect(resynced).toBe(false);
+    expect(checkpointWrites).toEqual(["\x18\x1b[0m"]);
+  });
+
+  it("成功路径不接地（reset + 快照重画已经把状态全部重建）", async () => {
+    const checkpointWrites: string[] = [];
+
+    const resynced = await resyncFromReplaySnapshot({
+      term: createTerm(),
+      sessionId: "s-1",
+      reason: "daemon-desync",
+      // checkpoint 为 null，所以 checkpoint 管道只可能被接地写入触碰
+      getRecoverySnapshot: async () => recoverySnapshot({ delta: "SNAPSHOT" }),
+      writeData: async () => {},
+      writeCheckpointData: async (data) => {
+        checkpointWrites.push(data);
+      },
+      syncTrackedBufferType: () => {},
+      debugLog: () => {},
+    });
+
+    expect(resynced).toBe(true);
+    expect(checkpointWrites).toEqual([]);
+  });
+
+  it("接地写入失败不改变返回值，也不把原本的失败原因盖掉", async () => {
+    const events: string[] = [];
+
+    const resynced = await resyncFromReplaySnapshot({
+      term: createTerm(),
+      sessionId: "s-1",
+      reason: "daemon-desync",
+      getRecoverySnapshot: async () => null,
+      writeData: async () => {},
+      writeCheckpointData: async () => {
+        throw new Error("xterm disposed");
+      },
+      syncTrackedBufferType: () => {},
+      debugLog: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(resynced).toBe(false);
+    expect(events).toContain("terminal.resync.skip");
+    expect(events).toContain("terminal.resync.ground-failed");
+  });
+
   it("空数据快照仍 reset（会话确实没有历史）", async () => {
     const term = createTerm();
     const writes: string[] = [];
@@ -207,6 +317,7 @@ describe("createTerminalDesyncHandler", () => {
     } = {},
   ) {
     const order: string[] = [];
+    const checkpointWrites: string[] = [];
     const term = overrides.term === undefined ? createTerm() : overrides.term;
     if (term) term.reset.mockImplementation(() => order.push("term.reset"));
     const hiddenWriteBuffer = { reset: vi.fn(() => order.push("buffer.reset")) };
@@ -226,14 +337,25 @@ describe("createTerminalDesyncHandler", () => {
       hiddenWriteBufferRef: { current: hiddenWriteBuffer },
       getRecoverySnapshot,
       writeData: async () => {},
-      writeCheckpointData: async () => {},
+      writeCheckpointData: async (data) => {
+        checkpointWrites.push(data);
+        order.push("checkpoint.write");
+      },
       syncTrackedBufferType: () => {},
       setResyncActive,
       onResyncSettled,
       debugLog: () => {},
     });
 
-    return { handler, order, hiddenWriteBuffer, setResyncActive, onResyncSettled, getRecoverySnapshot };
+    return {
+      handler,
+      order,
+      checkpointWrites,
+      hiddenWriteBuffer,
+      setResyncActive,
+      onResyncSettled,
+      getRecoverySnapshot,
+    };
   }
 
   /** handler 是同步返回的，内部 promise 链要多刷几轮微任务才结算。 */
@@ -319,6 +441,20 @@ describe("createTerminalDesyncHandler", () => {
 
     expect(setResyncActive).toHaveBeenLastCalledWith(false);
     expect(onResyncSettled).toHaveBeenCalledWith(false);
+  });
+
+  it("接地早于收尾：积压 flush 与失败提示都落在干净 pen 上", async () => {
+    const { handler, order, checkpointWrites } = harness({
+      getRecoverySnapshot: async () => null,
+    });
+    handler();
+    await flush();
+
+    // onResyncSettled 里会 flush 积压、再写失败提示——两者都必须晚于接地，
+    // 否则被 gap 卡住的 pen 会把它们一起染上（Orca #14241）。
+    expect(checkpointWrites).toEqual(["\x18\x1b[0m"]);
+    expect(order.indexOf("checkpoint.write")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("checkpoint.write")).toBeLessThan(order.indexOf("settled:false"));
   });
 
   it("快照请求抛错也放闸 + onResyncSettled(false)", async () => {

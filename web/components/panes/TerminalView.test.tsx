@@ -4,11 +4,13 @@ import userEvent from "@testing-library/user-event";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  TERMINAL_FONT_SIZE_DEFAULT,
   TERMINAL_LAYOUT_CHANGED_EVENT,
   usePanesStore,
   useSettingsStore,
   useTerminalStatusStore,
   useTerminalPathLinkStore,
+  useThemeStore,
   useWallpaperStore,
 } from "@/stores";
 import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
@@ -356,6 +358,31 @@ describe("TerminalView", () => {
     expect(getRecoverySnapshot).not.toHaveBeenCalled();
   });
 
+  it("activates Unicode 11 before configuring the renderer", async () => {
+    let unicodeVersionAtRendererCreation: string | null = null;
+    vi.mocked(createTerminalRendererController).mockImplementationOnce(({ term }) => {
+      unicodeVersionAtRendererCreation = term.unicode.activeVersion;
+      return {
+        configure: vi.fn(),
+        dispose: vi.fn(),
+        getActiveRenderer: vi.fn(() => "dom"),
+        clearTextureAtlas: vi.fn(),
+        repaint: vi.fn(),
+        suspendWebgl: vi.fn(),
+        resumeWebgl: vi.fn(),
+        recreateWebgl: vi.fn(),
+        getDiagnostics: vi.fn(),
+      } as never;
+    });
+
+    renderTerminalView();
+    const term = await lastTerm();
+
+    await waitFor(() => expect(createTerminalRendererController).toHaveBeenCalled());
+    expect(term.unicode.activeVersion).toBe("11");
+    expect(unicodeVersionAtRendererCreation).toBe("11");
+  });
+
   it("registers one local path provider and disposes it on unmount", async () => {
     const view = renderTerminalView();
     const term = await lastTerm();
@@ -482,6 +509,66 @@ describe("TerminalView", () => {
     expect(onSessionCreated).not.toHaveBeenCalled();
   });
 
+  it("removes serialized Codex composer backgrounds without requiring a wallpaper", async () => {
+    getRecoverySnapshot.mockResolvedValue({
+      checkpoint: {
+        checkpointEpoch: 1,
+        anchorSeq: 0,
+        snapshotAnsi: "\x1b[7;48;2;41;41;41mcomposer",
+        bufferMode: "normal",
+        cols: 80,
+        rows: 24,
+        checkpointedAtMs: 0,
+      },
+      delta: "",
+      bufferMode: "normal",
+      endSeq: 0,
+      checkpointEpoch: 1,
+    });
+    renderTerminalView({ sessionId: "existing-1", cliTool: "codex" });
+    const term = await lastTerm();
+
+    await waitFor(() => expect(term.writtenData).toContain("\x1b[49mcomposer"));
+    expect(term.writtenData).not.toContain("\x1b[7;48;2;41;41;41mcomposer");
+  });
+
+  it("removes Grok's fullscreen background through the shared CLI surface", async () => {
+    renderTerminalView({ cliTool: "grok" });
+    const term = await lastTerm();
+    await waitFor(() => expect(registerOutput).toHaveBeenCalledWith(
+      "new-session-1",
+      expect.any(Function),
+    ));
+    const outputHandler = registerOutput.mock.calls.find(
+      ([sessionId]) => sessionId === "new-session-1",
+    )?.[1] as ((data: string) => Promise<void>) | undefined;
+
+    await act(async () => {
+      await outputHandler?.("\x1b[48;2;20;20;20mGrok Build");
+    });
+
+    expect(term.writtenData).toContain("\x1b[49mGrok Build");
+    expect(term.writtenData).not.toContain("\x1b[48;2;20;20;20mGrok Build");
+  });
+
+  it("keeps ANSI backgrounds intact for plain shell sessions", async () => {
+    renderTerminalView({ cliTool: "none" });
+    const term = await lastTerm();
+    await waitFor(() => expect(registerOutput).toHaveBeenCalledWith(
+      "new-session-1",
+      expect.any(Function),
+    ));
+    const outputHandler = registerOutput.mock.calls.find(
+      ([sessionId]) => sessionId === "new-session-1",
+    )?.[1] as ((data: string) => Promise<void>) | undefined;
+
+    await act(async () => {
+      await outputHandler?.("\x1b[48;2;20;20;20mvim");
+    });
+
+    expect(term.writtenData).toContain("\x1b[48;2;20;20;20mvim");
+  });
+
   it("mirror attach and fit never resize the shared PTY", async () => {
     renderTerminalView({
       sessionId: "shared-session",
@@ -588,6 +675,20 @@ describe("TerminalView", () => {
     );
     expect(onSessionCreated).toHaveBeenCalledWith("background-session");
     expect(createSession).not.toHaveBeenCalled();
+    expect(resize).toHaveBeenCalledWith({
+      sessionId: "background-session",
+      cols: 80,
+      rows: 24,
+    });
+
+    const schedulerResults = vi.mocked(createTerminalLayoutScheduler).mock.results;
+    const scheduler = schedulerResults[schedulerResults.length - 1]?.value as {
+      flush: ReturnType<typeof vi.fn>;
+    };
+    expect(scheduler.flush).toHaveBeenCalledWith("session.deferred-restore.attach.fit", {
+      force: true,
+      allowInactive: true,
+    });
   });
 
   it("creates a skipped background restore without waiting for a renderable tab", async () => {
@@ -972,6 +1073,32 @@ describe("TerminalView", () => {
     expect(term.options.scrollback).toBe(5000);
   });
 
+  it("keeps pane-local wheel zoom while xterm is still initializing", async () => {
+    const fontLoad = deferred<FontFace[]>();
+    const originalFonts = Object.getOwnPropertyDescriptor(document, "fonts");
+    const load = vi.fn(() => fontLoad.promise);
+    Object.defineProperty(document, "fonts", {
+      configurable: true,
+      value: { load, ready: Promise.resolve() } as unknown as FontFaceSet,
+    });
+
+    try {
+      const view = renderTerminalView();
+      await waitFor(() => expect(load).toHaveBeenCalled());
+      const host = view.container.querySelector<HTMLElement>(".cc-terminal-host");
+      expect(host).not.toBeNull();
+
+      fireEvent.wheel(host!, { ctrlKey: true, deltaY: -1 });
+      fontLoad.resolve([]);
+
+      const term = await lastTerm();
+      expect(term.options.fontSize).toBe(TERMINAL_FONT_SIZE_DEFAULT + 1);
+    } finally {
+      if (originalFonts) Object.defineProperty(document, "fonts", originalFonts);
+      else Reflect.deleteProperty(document, "fonts");
+    }
+  });
+
   it("keeps terminal text readable on contrasting TUI backgrounds", async () => {
     renderTerminalView();
 
@@ -1000,7 +1127,8 @@ describe("TerminalView", () => {
     await waitFor(() => expect(term.options.scrollback).toBe(100_000));
   });
 
-  it("swallows Codex background color queries after wallpaper transparency is enabled", async () => {
+  it("answers background queries while keeping managed CLI surfaces transparent", async () => {
+    useThemeStore.setState({ isDark: false });
     renderTerminalView({ cliTool: "codex" });
     const term = await lastTerm();
     await waitFor(() => expect(term.parser.registerOscHandler).toHaveBeenCalledTimes(3));
@@ -1009,19 +1137,28 @@ describe("TerminalView", () => {
     )?.[1] as ((data: string) => boolean) | undefined;
     expect(backgroundHandler).toBeDefined();
 
-    act(() => {
-      useWallpaperStore.setState({
-        resolved: { terminalOpacity: 0.5 } as never,
-        assetUrl: "asset://wallpaper",
-      });
-    });
-    await waitFor(() => expect(registerOutput).toHaveBeenCalledWith(
-      "new-session-1",
-      expect.any(Function),
-    ));
     writeToSession.mockClear();
 
     expect(backgroundHandler?.("?")).toBe(true);
+    expect(writeToSession).toHaveBeenCalledWith(
+      "new-session-1",
+      "\x1b]11;rgb:ffff/ffff/ffff\x1b\\",
+      { source: "system" },
+    );
+  });
+
+  it("blocks managed CLI attempts to replace the transparent background", async () => {
+    renderTerminalView({ cliTool: "grok" });
+    const term = await lastTerm();
+    await waitFor(() => expect(term.parser.registerOscHandler).toHaveBeenCalledTimes(3));
+    const backgroundHandler = term.parser.registerOscHandler.mock.calls.find(
+      ([ident]) => ident === 11,
+    )?.[1] as ((data: string) => boolean) | undefined;
+    expect(backgroundHandler).toBeDefined();
+
+    writeToSession.mockClear();
+
+    expect(backgroundHandler?.("#141414")).toBe(true);
     expect(writeToSession).not.toHaveBeenCalled();
   });
 
@@ -1059,11 +1196,21 @@ describe("TerminalView", () => {
     const controllerResults = vi.mocked(createTerminalRendererController).mock.results;
     const controller = controllerResults[controllerResults.length - 1]
       .value as { clearTextureAtlas: ReturnType<typeof vi.fn> };
+    const schedulerResults = vi.mocked(createTerminalLayoutScheduler).mock.results;
+    const scheduler = schedulerResults[schedulerResults.length - 1]?.value as {
+      flush: ReturnType<typeof vi.fn>;
+    };
 
     resize.mockClear();
+    scheduler.flush.mockClear();
     fireEvent.contextMenu(host!);
     await user.click(await screen.findByRole("menuitem", { name: /刷新终端|Refresh Terminal/i }));
     expect(controller.clearTextureAtlas).toHaveBeenCalledWith("context-menu.refresh");
+    expect(scheduler.flush).toHaveBeenCalledWith("context-menu.refresh", {
+      force: true,
+      focusIfSafe: true,
+      allowInactive: true,
+    });
 
     // 渲染层重画救不了 buffer 级错乱（docs/73），必须同时向 CLI 抖一次 SIGWINCH：
     // 先缩一列，再抖回原宽度。
@@ -1077,6 +1224,30 @@ describe("TerminalView", () => {
     fireEvent.contextMenu(host!);
     await user.click(await screen.findByRole("menuitem", { name: /复制会话 ID|Copy Session ID/i }));
     await waitFor(() => expect(vi.mocked(writeText)).toHaveBeenCalledWith("new-session-1"));
+  });
+
+  it("refresh returns the actual geometry when a resize lands during the SIGWINCH nudge", async () => {
+    const user = userEvent.setup();
+    const view = renderTerminalView();
+    await waitFor(() => expect(createSession).toHaveBeenCalled());
+    const term = await lastTerm();
+    const host = view.container.querySelector(".cc-terminal-host");
+    expect(host).not.toBeNull();
+
+    resize.mockClear();
+    fireEvent.contextMenu(host!);
+    await user.click(await screen.findByRole("menuitem", { name: /刷新终端|Refresh Terminal/i }));
+    await waitFor(() =>
+      expect(resize).toHaveBeenCalledWith({ sessionId: "new-session-1", cols: 79, rows: 24 }),
+    );
+
+    // Simulate a real host resize that happens during the 80ms redraw nudge.
+    term.cols = 79;
+    term.rows = 23;
+
+    await waitFor(() =>
+      expect(resize).toHaveBeenLastCalledWith({ sessionId: "new-session-1", cols: 79, rows: 23 }),
+    );
   });
 
   it("mirror panes never send the refresh SIGWINCH to the shared PTY", async () => {
@@ -1122,6 +1293,7 @@ describe("TerminalView", () => {
     );
     expect(scheduler.flush).toHaveBeenCalledWith("context-menu.fit", {
       force: true,
+      forceBackendSync: true,
       focusIfSafe: true,
       allowInactive: true,
     });
@@ -1133,6 +1305,7 @@ describe("TerminalView", () => {
     expect(fitAllListener).toHaveBeenCalledTimes(1);
     expect(scheduler.schedule).toHaveBeenCalledWith("context-menu.fit-all", {
       force: true,
+      forceBackendSync: true,
       allowInactive: true,
     });
     window.removeEventListener(TERMINAL_FIT_ALL_EVENT, fitAllListener);

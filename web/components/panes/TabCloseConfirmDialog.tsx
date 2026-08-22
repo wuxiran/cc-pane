@@ -42,23 +42,23 @@ export function TabCloseConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onCancel()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="min-w-0 sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t("closeTabConfirmTitle")}</DialogTitle>
           <DialogDescription>{t("closeTabConfirmDescription")}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 text-sm" style={{ color: "var(--app-text-secondary)" }}>
+        <div className="min-w-0 space-y-3 text-sm" style={{ color: "var(--app-text-secondary)" }}>
           {busyGuards.length > 0 && (
-            <div>
+            <div className="min-w-0">
               <p className="mb-1">{t("closeTabBusyAgents", { count: busyGuards.length })}</p>
               <ul
-                className="space-y-1 rounded-md border p-3"
+                className="min-w-0 space-y-1 rounded-md border p-3"
                 style={{ borderColor: "var(--app-border)" }}
               >
                 {busyGuards.map((g) => (
-                  <li key={`${g.tabId}:${g.sessionId}`} className="flex justify-between gap-3">
-                    <span className="truncate">{g.tabTitle}</span>
+                  <li key={`${g.tabId}:${g.sessionId}`} className="flex min-w-0 justify-between gap-3">
+                    <span className="min-w-0 flex-1 truncate" title={g.tabTitle}>{g.tabTitle}</span>
                     <span
                       className="shrink-0 text-xs"
                       style={{ color: "var(--app-text-tertiary)" }}
@@ -72,14 +72,14 @@ export function TabCloseConfirmDialog({
           )}
 
           {dirtyGuards.length > 0 && (
-            <div>
+            <div className="min-w-0">
               <p className="mb-1">{t("closeTabDirtyEditors", { count: dirtyGuards.length })}</p>
               <ul
-                className="space-y-1 rounded-md border p-3"
+                className="min-w-0 space-y-1 rounded-md border p-3"
                 style={{ borderColor: "var(--app-border)" }}
               >
                 {dirtyGuards.map((g) => (
-                  <li key={g.tabId} className="truncate">{g.tabTitle}</li>
+                  <li key={g.tabId} className="min-w-0 truncate" title={g.tabTitle}>{g.tabTitle}</li>
                 ))}
               </ul>
             </div>

@@ -58,6 +58,28 @@ pub trait PtyProcess: Send + Sync {
     fn set_resource_policy(&self, _policy: &SessionResourcePolicy) -> Result<PolicyOutcome> {
         Ok(PolicyOutcome::Unsupported)
     }
+
+    /// tty 是否处在**真 cooked 模式**（`ECHO` 且 `ICANON` 同时开着）。
+    ///
+    /// 前端会代答终端查询（CPR / DA / kitty keyboard / OSC 颜色）。这些回复写进 PTY
+    /// master 后，回显与可读性由两个位共同决定——实测四种组合：
+    ///
+    /// | ECHO | ICANON | 被回显 | slave 读得到 |
+    /// |------|--------|--------|--------------|
+    /// | on   | on     | 是     | **否**（行缓冲在等换行，回复里没有） |
+    /// | on   | off    | 是     | 是 |
+    /// | off  | 任意   | 否     | 是 |
+    ///
+    /// 只有第一行该抑制：回复既变成屏幕垃圾、程序又根本读不到，写下去纯属有害。
+    /// **`ECHO` 单独为真不够**——第二行同样会回显，但程序确实收得到；那里抑制就是
+    /// 把它正等着的回复吞掉，等于制造永久阻塞，比一串可见垃圾严重得多。程序分两次
+    /// `tcsetattr` 切模式（先关 ICANON 再关 ECHO）时中间那一瞬正是这个组合。
+    ///
+    /// `None` = 无从判断（非 Unix、SSH 通道、测试桩）。调用方此时**不应**抑制，
+    /// 维持既有行为，不拿"不知道"当"是"。
+    fn cooked_echo_enabled(&self) -> Option<bool> {
+        None
+    }
 }
 
 /// portable-pty 包装的 PTY 进程（全平台通用）
@@ -76,6 +98,29 @@ struct PortablePtyProcess {
 }
 
 impl PtyProcess for PortablePtyProcess {
+    /// 同步读一次 master 的 termios。
+    ///
+    /// **刻意不做异步探测。** Orca 在这条路上栽过一次（#15559）：改成异步 fork `stty`
+    /// 后，同一轮里更晚写出的回复会超车更早的，探测器因此放弃、tty 里残留 ESC，
+    /// 下一个程序（gh auth login）直接报 escape-sequence error 死掉。`tcgetattr` 本身
+    /// 是亚微秒级的 ioctl，没有任何理由把它推迟。
+    #[cfg(unix)]
+    fn cooked_echo_enabled(&self) -> Option<bool> {
+        use std::os::fd::RawFd;
+
+        let master = self.master.lock().ok()?;
+        let fd: RawFd = master.as_raw_fd()?;
+        let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
+        // SAFETY: fd 由 master 持有、在本次调用期间有效；tcgetattr 只读不改。
+        if unsafe { libc::tcgetattr(fd, termios.as_mut_ptr()) } != 0 {
+            return None;
+        }
+        // SAFETY: tcgetattr 返回 0 即已完成初始化。
+        let termios = unsafe { termios.assume_init() };
+        let cooked_echo = libc::ECHO | libc::ICANON;
+        Some(termios.c_lflag & cooked_echo == cooked_echo)
+    }
+
     fn resize(&self, cols: u16, rows: u16) -> Result<()> {
         let master = self
             .master
@@ -308,6 +353,7 @@ fn env_remove_keys(mut env_remove: Vec<String>) -> Vec<String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{env_remove_keys, spawn_pty, PtyConfig};
     use std::collections::HashMap;

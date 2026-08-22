@@ -1,5 +1,6 @@
 pub mod ai_panel;
 pub mod context_usage;
+pub mod dsh;
 pub mod external_skill;
 pub mod filesystem;
 pub mod git;
@@ -23,6 +24,7 @@ pub mod spec;
 pub mod ssh_machine;
 pub mod system_stats;
 pub mod task_binding;
+pub mod task_dispatch;
 pub mod task_queue;
 mod terminal;
 pub mod todo;
@@ -61,7 +63,7 @@ pub use launch_profile::{
     LaunchProfile, LaunchProfileConfig, LaunchProfileDraft, LaunchProfileMcpMode,
     LaunchProfileMcpPolicy, LaunchProfilePreviewRequest, LaunchProfileResolution,
     LaunchProfileSkillMode, LaunchProfileSkillPolicy, LaunchProviderSelection, ResolvedMcpServer,
-    ResolvedSkill, SharedMcpUrls,
+    ResolvedSkill, SharedMcpUrls, SkillCompatibility,
 };
 pub use layout_snapshot::{LayoutSnapshot, SaveLayoutSnapshotRequest};
 pub use process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats};
@@ -85,6 +87,10 @@ pub use ssh_machine::{AuthMethod, SshMachine, SshMachineConfig, SshMachineUpsert
 pub use system_stats::{
     KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionProcessInfo,
     SessionResourceUsage, SystemStats, TruncatedProcessSummary,
+};
+pub use task_dispatch::{
+    TaskDispatchEnvelope, TaskDispatchMcpCapability, TaskDispatchMode, TaskDispatchPlan,
+    TaskDispatchRequest, TASK_DISPATCH_ENVELOPE_VERSION,
 };
 pub use task_queue::{
     PermissionDecisionRecord, PermissionDecisionStatus, QueueItemState, StagedTaskQueueImage,

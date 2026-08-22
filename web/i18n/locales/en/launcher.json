@@ -30,7 +30,8 @@
   "skipMcp": "No MCP",
   "verbose": "Verbose",
   "effort": "Effort",
-  "effortHint": "Claude injects a thinking budget (MAX_THINKING_TOKENS); Codex uses model_reasoning_effort",
+  "effortHint": "Claude injects a thinking budget (MAX_THINKING_TOKENS); Codex uses model_reasoning_effort; Grok uses --reasoning-effort",
+  "optionUnsupported": "{{cli}} does not support this option — setting it has no effect",
   "effortDefault": "Default",
   "effortLevel": {
     "low": "Low",
@@ -63,6 +64,8 @@
   "customLaunch": "Custom launch…",
   "errorNoProject": "Select a project or directory first",
   "errorProviderRequired": "Select a CC-Panes Provider before launching",
+  "errorPiSshUnsupported": "Pi runs only in a local or WSL environment",
+  "errorOmpSshUnsupported": "Oh My Pi runs only in a local or WSL environment",
   "errorResolveFailed": "Failed to resolve launch options ({{code}}); check workspace environment settings",
   "scenario": {
     "default": "Default",

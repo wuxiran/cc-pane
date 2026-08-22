@@ -1,6 +1,7 @@
 import { Command, FolderTree, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import LayoutBar from "@/components/LayoutBar";
+import ModuleAddMenu from "@/components/modules/ModuleAddMenu";
 import ModulePlacementHint from "@/components/modules/ModulePlacementHint";
 import {
   ContextMenu,
@@ -268,6 +269,7 @@ export default function ActivityBar() {
 
           <div className="mt-auto flex w-full flex-col items-center gap-1.5 pb-2">
             {layoutSwitcherMode === "corner" && <LayoutBar />}
+            <ModuleAddMenu />
             <ActivityBarIcon
               icon={<Settings className="h-[22px] w-[22px]" strokeWidth={1.5} />}
               label={t("settings", { ns: "common", defaultValue: "Settings" })}

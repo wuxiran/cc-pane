@@ -27,9 +27,32 @@ export interface TerminalWriteOptions {
 
 export interface QueuedTerminalInput {
   data: string;
+  /**
+   * 这段输入的来源。必须逐条记而不是整队记：合批会把同一窗口内的多条拼成一个字符串，
+   * 若把用户按键和前端代答的查询回复混进同一次写入，后端就无从分辨——而两者该受的
+   * 待遇相反（回显开着时按键**应该**回显，代答回复则必须抑制）。
+   */
+  source: TerminalWriteSource;
   traceId?: number;
   resolve: () => void;
   reject: (error: unknown) => void;
+}
+
+/**
+ * 把一批待写输入切成**连续同源段**。顺序一字不变，只是不把用户按键和前端代答的
+ * 查询回复揉进同一次写入——后端要靠来源决定回显开着时该不该抑制，混批等于把这个
+ * 信息抹掉。同源的连续多段仍然合并，批处理的收益不受影响。
+ */
+export function splitInputRunsBySource(
+  batch: QueuedTerminalInput[],
+): Array<{ source: TerminalWriteSource; items: QueuedTerminalInput[] }> {
+  const runs: Array<{ source: TerminalWriteSource; items: QueuedTerminalInput[] }> = [];
+  for (const item of batch) {
+    const tail = runs[runs.length - 1];
+    if (tail && tail.source === item.source) tail.items.push(item);
+    else runs.push({ source: item.source, items: [item] });
+  }
+  return runs;
 }
 
 export interface TerminalInputQueue {

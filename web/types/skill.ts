@@ -56,8 +56,18 @@ export interface DiscoveredExternalSkill {
   installedAt?: string | null;
 }
 
+/** A CLI-native or session-level transport for portable CC-Panes Skills. */
+export type SkillDeliveryMode = "nativeCommand" | "nativeSkill" | "piSkill" | "sessionPrompt";
+
+export interface BundledSkillDelivery {
+  portable: boolean;
+  modes: SkillDeliveryMode[];
+  requiresCcpanesMcp: boolean;
+}
+
 /** CC-Panes 自带、启动时注入到各 CLI 全局目录的内置 skill（只读展示） */
 export interface BundledSkill {
   name: string;
   description?: string | null;
+  delivery?: BundledSkillDelivery;
 }

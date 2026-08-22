@@ -38,11 +38,11 @@ impl ShellInfo {
 pub(super) fn resolve_default_shell() -> (String, Vec<String>) {
     #[cfg(windows)]
     {
-        if cached_which("pwsh").is_ok() {
-            return ("pwsh".to_string(), vec![]);
+        if let Ok(path) = cached_which("pwsh") {
+            return (path.to_string_lossy().into_owned(), vec![]);
         }
-        if cached_which("powershell").is_ok() {
-            return ("powershell".to_string(), vec![]);
+        if let Ok(path) = cached_which("powershell") {
+            return (path.to_string_lossy().into_owned(), vec![]);
         }
         let comspec = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string());
         (comspec, vec![])

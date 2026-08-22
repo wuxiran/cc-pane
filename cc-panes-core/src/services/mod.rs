@@ -4,6 +4,7 @@ pub mod codex_session_service;
 mod ctl_sidecar;
 mod daemon_client;
 pub mod default_skill_service;
+pub mod dsh_service;
 mod external_skill_registry;
 pub mod external_usage_session_service;
 mod filesystem_service;
@@ -17,6 +18,8 @@ mod layout_snapshot_service;
 pub mod mcp_config_service;
 mod memory_service;
 pub mod opencode_session_service;
+pub mod pi_rpc_service;
+pub(crate) mod pi_session_service;
 pub mod plan_archive_service;
 pub mod plan_service;
 mod port_scanner;
@@ -46,6 +49,7 @@ mod ssh_machine_service;
 mod ssh_terminal_service;
 mod system_stats_service;
 mod task_binding_service;
+mod task_dispatch_service;
 mod task_queue_dispatcher;
 mod task_queue_service;
 mod terminal_backend;
@@ -67,7 +71,11 @@ pub mod wsl_discovery_service;
 pub use daemon_client::{
     app_instance_id, TerminalDaemonClient, TerminalDaemonManifest, TerminalDaemonStatus,
 };
-pub use default_skill_service::{BundledSkillInfo, DefaultSkillService};
+pub use default_skill_service::{
+    BundledSkillInfo, DefaultSkillCleanupReport, DefaultSkillService,
+    LEGACY_CLEANUP_REPORT_FILE_NAME, MANAGED_SKILLS_SUBDIR,
+};
+pub use dsh_service::DshService;
 pub use external_skill_registry::ExternalSkillRegistry;
 pub use filesystem_service::{ContentSearchLimits, FileSystemService};
 pub use git_service::GitService;
@@ -79,6 +87,10 @@ pub use launch_profile_service::LaunchProfileService;
 pub use layout_snapshot_service::LayoutSnapshotService;
 pub use mcp_config_service::McpConfigService;
 pub use memory_service::MemoryService;
+pub use pi_rpc_service::{
+    PiRpcCommandResponse, PiRpcEvent, PiRpcLaunchSpec, PiRpcService, PiRpcSessionPhase,
+    PiRpcSessionSnapshot,
+};
 pub use plan_archive_service::PlanArchiveService;
 pub use plan_service::PlanService;
 pub use port_scanner::{ListeningSocket, PortScanner};
@@ -114,6 +126,7 @@ pub use ssh_file_service::SshFileService;
 pub use ssh_machine_service::{SshConnectivityResult, SshMachineService};
 pub use system_stats_service::SystemStatsService;
 pub use task_binding_service::TaskBindingService;
+pub use task_dispatch_service::TaskDispatchService;
 pub use task_queue_dispatcher::{
     BackendTaskQueueDispatchGateway, TaskQueueDispatchGateway, TaskQueueDispatchOutcome,
     TaskQueueDispatcher, TaskQueueReadiness, TaskQueueSubmitFailure,
@@ -138,6 +151,6 @@ pub use uninstall_cleanup_service::{UninstallCleanupReport, UninstallCleanupServ
 pub use usage_stats_service::UsageStatsService;
 pub use user_skill_service::{InstalledUserSkill, UserSkillContent, UserSkillService};
 pub use wallpaper_service::{WallpaperFileInfo, WallpaperService};
-pub use workspace_health::{check_project_paths, PathStatusKind, ProjectPathStatus};
+pub use workspace_health::{check_project_paths, classify_path, PathStatusKind, ProjectPathStatus};
 pub use workspace_service::{WorkspaceProjectIdentityMigrationReport, WorkspaceService};
 pub use worktree_service::{WorktreeInfo, WorktreeService};

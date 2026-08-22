@@ -32,7 +32,9 @@ pub struct SshMachine {
     pub default_path: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
-    #[serde(default, skip_serializing)]
+    /// 运行时标志（keyring 实时查询结果），不落盘；序列化时 false 跳过，
+    /// true 必须发给前端——机器列表靠它决定是否弹密码框。
+    #[serde(default, skip_serializing_if = "is_false")]
     pub has_stored_password: bool,
     pub created_at: String,
     pub updated_at: String,
@@ -52,6 +54,10 @@ pub struct SshMachineUpsertRequest {
 
 fn default_port() -> u16 {
     22
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// SSH 机器配置文件包装

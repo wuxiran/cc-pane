@@ -1,6 +1,6 @@
 ---
 name: ccpanes-clean-launch
-description: Cleanly launch a project's dev / build process in {{app_name}}-managed workspaces. Use when the user says "启动前端"、"跑后端"、"重启 dev server"、"start the api server"、"restart the worker"、"run the build"、"开服务"、"再启动一次"。Handles port/PID conflicts via MCP+skill loop, remembers last launch (command, cwd, runtime, env) so the next run is one-step. Supports local / WSL / SSH runtimes.
+description: Launch or restart a project's dev/build process in CC-Panes, resolving port and PID conflicts first. 触发词：启动前端、跑后端、重启 dev server、开服务、run the build。支持 local/WSL/SSH 运行时。
 ---
 
 # 启动干净（Clean Launch）
@@ -12,7 +12,7 @@ description: Cleanly launch a project's dev / build process in {{app_name}}-mana
 让用户启动他们项目里的 dev server / 后端服务 / 编译进程时**不被旧 PID 和端口冲突拖累**——并且把"上次怎么启动的"记下来，下次一句话就能复现。
 
 与 `launch-task` 的区别：
-- `launch-task` 启动 **Claude / Codex CLI 本身**
+- `launch-task` / `dispatch-task` 启动 **任意已注册 CLI 本身**
 - `clean-launch` 启动 **项目代码**（npm / cargo / mvn / sh 脚本 / docker / …）
 
 ## SOP

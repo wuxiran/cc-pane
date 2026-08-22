@@ -1,22 +1,17 @@
 ---
-name: planreview
-description: 在 plan mode 内启动另一个 CLI 实例（Codex，本地或 WSL）对 plan 做同行评审。leader/worker 自动反馈，软超时兜底，AskUserQuestion 让用户拍板，再整体重写 plan。专治"同一个 Claude 我审我"的盲区。
-trigger: |
-  - 用户在 plan mode 里写完初版 plan，想找另一个 CLI 做同行评审 / 交叉审 / peer review
-  - 用户明说"找 codex 评审 plan"、"审一下 plan"、"在另一个窗口审 plan"
-  - 用户提到 UI E2E 测试计划、数据迁移/回滚计划、上线变更计划这类高风险 plan 需要二审
-  不触发：trivial plan（< 30 行、纯代码 refactor）、用户已明说不要双 CLI、Codex CLI 未安装
+name: ccpanes-planreview
+description: 在 plan mode 内启动另一个兼容 CLI（本地或 WSL）做同行评审。用于高风险 plan 二审或用户要求跨 CLI peer review。
 ---
 
 # planreview — 跨 CLI Plan 同行评审
 
-你是 Plan 同行评审编排 Agent。Claude 自己写完 plan 后启动另一个 Codex 实例（本地或 WSL，由用户选）独立审 plan，**通过 cc-panes 的 leader/worker 机制让 worker 自动 PTY 反馈完成事件**，把结构化反馈拿回来，由用户分批拍板后整体重写 plan。
+你是 Plan 同行评审编排 Agent。当前实例写完 plan 后，按用户偏好和启动配置选择另一个兼容 CLI（本地或 WSL）独立审 plan，**通过 `dispatch_task` 持久化派发和可选 PTY 反馈**，把结构化反馈拿回来，由用户分批拍板后整体重写 plan。
 
-> 单一 Claude 审自己写的 plan 容易有"我审我"盲区。换一个 CLI 实例读同一份 plan + 同一份代码，能挖出操作错误假设、UI 不可达控件、数据耦合、回滚遗漏等盲点。
+> 单一实例审自己写的 plan 容易有"我审我"盲区。优先换一个不同 CLI 实例读同一份 plan + 同一份代码，能挖出操作错误假设、UI 不可达控件、数据耦合、回滚遗漏等盲点。
 
-> **当前只支持 Codex CLI**。`launch_task` 的 `cliTool` 只接受 `claude` / `codex`，Gemini/Cursor 暂不可用（要走"已有窗口"分支手工提交）。
+> `dispatch_task` 支持所有已注册的内置 CLI。目标没有 MCP 时仍可做只读评审，但完成状态以 PTY 输出、会话状态和实际评审文本为准；不要承诺自动 `report_to_leader`。
 
-> 本 skill 只管**评审**。要在 WSL 派 Codex **执行** plan → [`/ccpanes:plantocodex`](plantocodex.md)（WSL 特化入口见 [`/ccpanes:plan2codexwsl`](plan2codexwsl.md)）。
+> 本 skill 只管**评审**。要把 plan 派给任意 CLI **执行**，使用 [`/ccpanes:dispatch-task`](dispatch-task.md)；Codex WSL 的特殊排障仍见 [`/ccpanes:plan2codexwsl`](plan2codexwsl.md)。
 
 ---
 
@@ -26,14 +21,14 @@ trigger: |
 
 - Plan 涉及 **UI 端到端测试** / **数据迁移与回滚** / **跨服务时序** / **线上变更**
 - Plan 文件 ≥ 50 行，含多阶段步骤、SQL、回滚脚本、兜底逻辑
-- 用户提到"想找 codex 审一下"、"换个角度看"、"再 review 一遍"
+- 用户提到"想找另一个 CLI/codex/claude 审一下"、"换个角度看"、"再 review 一遍"
 - 风险高、改错代价大、用户希望留下可审计的 reviewer 对话窗口
 
 **不用**：
 
 - 纯代码 refactor、单文件改动、< 30 行 plan
 - 用户明说"我自己看就行 / 不要再叫 codex"
-- Codex CLI 未安装，且用户不愿换工具
+- 用户指定的目标 CLI 未安装，且不愿换兼容工具
 - 已经走完一轮评审、用户在二轮迭代（这种直接改 plan，不重复启 reviewer）
 
 ---
@@ -42,7 +37,7 @@ trigger: |
 
 1. **当前在 plan mode 吗？** 否则提醒用户先 `EnterPlanMode`，写完初版 plan 再回来
 2. **能写 plan 文件吗？** — 见下方"plan mode 与 Write 的单一路径策略"
-3. **目标 reviewer 走本地还是 WSL？** 直接 `AskUserQuestion` 问用户（不要靠 `list_launch_history` 猜——历史可能为空或含已废弃会话）
+3. **目标 reviewer 用哪个 CLI、走本地还是 WSL？** 直接 `AskUserQuestion` 问用户（不要靠 `list_launch_history` 猜——历史可能为空或含已废弃会话）。优先异 CLI；用户指定同 CLI 时照做。
 4. **ccpanes 已注册当前项目？** 调 `mcp__ccpanes__list_projects`，**WSL 启动必须用其中已注册的项目路径**（UNC `\\wsl.localhost\Ubuntu\...` 或 `/mnt/...` 都可能存在，挑已注册那条）。缺则提示用户先 `add_project_to_workspace(workspaceName, projectPath)`
 
 ### plan mode 与 Write 的单一路径策略
@@ -66,7 +61,7 @@ trigger: |
 | 已经是 `/home/...` 或 `/mnt/...` | 原样使用 |
 | Windows junction / 符号链接 | 在 WSL 里跑 `wslpath -u "<windows-path>"` 让系统帮你转，比手写靠谱 |
 
-**`launch_task.projectPath` 必须是已注册的路径原样**（不要自己拼 `/mnt/...`）：先 `list_projects` 拿到 cc-panes 实际登记的字符串，原样传入，再配 `runtimeKind: "wsl"`。**只有 prompt 文本里的路径**才需要按上表转。
+**`dispatch_task.projectPath` 必须是已注册的路径原样**（不要自己拼 `/mnt/...`）：先 `list_projects` 拿到 cc-panes 实际登记的字符串，原样传入，再配 `runtimeKind: "wsl"`。**只有 prompt 文本里的路径**才需要按上表转。
 
 ---
 
@@ -105,9 +100,9 @@ mcp__ccpanes__register_plan_leader(
 用 `AskUserQuestion` 问：
 
 ```
-问题 1: Codex reviewer 跑在哪？
-  - Codex (WSL)   ← 跨工具盲点最大，推荐
-  - Codex (本地)
+问题 1: reviewer 用哪个兼容 CLI、跑在哪？
+  - <与当前实例不同的可用 CLI> (WSL 或本地)   ← 跨工具盲点最大，推荐
+  - <用户指定的 CLI> (本地或 WSL)
   - 已有窗口（我告诉你标签名）
 
 问题 2: 评审维度有补充吗？
@@ -122,40 +117,26 @@ mcp__ccpanes__register_plan_leader(
 **新建窗口**：
 
 ```
-mcp__ccpanes__launch_task(
+mcp__ccpanes__dispatch_task(
   projectPath: <list_projects 取到的已注册路径，WSL 通常是 UNC 形式>,
-  cliTool: "codex",
+  cliTool: <用户确认的目标工具>,
   runtimeKind: "wsl",                 // 本地省略
   title: "Reviewer: <plan 简短描述>",
+  parentBindingId: <Phase 1.5 拿到的 leaderId>,
   prompt: <见下方 prompt 模板>
 )
 ```
 
-记录返回的 `sessionId` 作为 `<workerSessionId>`。
+记录返回的 `bindingId` 和 `sessionId`。`dispatch_task` 已在启动前建立 TaskBinding；不要再额外注册 worker。目标会话可以从 `CC_PANES_TASK_BINDING_ID` 读取自己的 binding id。
 
-**立即注册 worker**（leader 来做，比让 Codex 自己注册更稳）：
-
-```
-mcp__ccpanes__register_plan_worker(
-  leaderId: <Phase 1.5 拿到的>,
-  sessionId: <workerSessionId>,
-  projectPath: <同 launch_task>,
-  cliTool: "codex",
-  title: "Reviewer: <主题>",     // title 契约：固定 "Reviewer: <主题>" 前缀
-  workerKind: "reviewer"         // 结构化身份，Phase 2 的自动发现靠它
-)
-```
-
-返回的 `id` 是 `<workerId>`，**必须把它写进 prompt 模板的"收尾要求"那一段**，让 Codex 完成时调 `report_to_leader(workerId=...)`。
-
-**已有窗口（复用）**：复用的单元是**会话**，登记按 plan 各一条——**必须也调 `register_plan_worker`**（新 plan 就新登记一条，同样带 `workerKind: "reviewer"`），否则 reviewer 不上协作板、`report_to_leader` 也没地方回：
+**已有窗口（复用）**：复用的单元是**会话**，不能重新经过 `dispatch_task` 的启动前持久化；此时才使用 `register_plan_worker` 建兼容 binding（新 plan 就新登记一条，同样带 `workerKind: "reviewer"`）。记录其返回的 `<workerId>`，并在 prompt 中用它替代环境变量：
 
 ```
 mcp__ccpanes__register_plan_worker(
   leaderId: <Phase 1.5 拿到的>,
   sessionId: <匹配到的>,
   projectPath: <同 leader>,
-  cliTool: "codex",
+  cliTool: <复用会话的目标工具>,
   title: "Reviewer: <主题>",
   workerKind: "reviewer"
 )
@@ -251,7 +232,7 @@ mcp__ccpanes__get_session_output(<workerSessionId>, lines: 800)
 
 ## Reviewer Prompt 模板
 
-发给 Codex 的提示词骨架，**必须**包含 worker 注册参数和收尾上报指令：
+发给目标 reviewer 的提示词骨架，必须包含自包含的范围与收尾约定：
 
 ```
 你是独立同行评审者。请审阅以下 plan，不要执行，不要写代码。
@@ -283,17 +264,25 @@ mcp__ccpanes__get_session_output(<workerSessionId>, lines: 800)
 不要复述 plan 内容，不要泛泛而谈，只列具体可执行的修改点。
 
 ## 收尾要求（必须执行，测试目标）
-评审写完后立刻调用：
+若当前会话可使用 ccpanes MCP，评审写完后先调用：
+mcp__ccpanes__update_task_binding(
+  id: <新派发时为 CC_PANES_TASK_BINDING_ID；复用时为 workerId>,
+  status: "completed",
+  progress: 100,
+  completionSummary: "评审完成,必修 N 条/开放 M 条,详见 PTY 输出"
+)
+
+再调用：
 mcp__ccpanes__report_to_leader(
-  workerId: "<把 Phase 3 拿到的 workerId 原样填进来>",
+  workerId: <新派发时为 CC_PANES_TASK_BINDING_ID；复用时为 workerId>,
   status: "completed",
   summary: "评审完成,必修 N 条/开放 M 条,详见 PTY 输出"
 )
 如果返回 {sent: false, queued: true} 不用重试——引擎会在 leader 空闲后自动补投。
-如果调用失败，把错误信息打印到终端。
+如果没有 ccpanes MCP 或调用失败，把完整评审结论、验证范围和错误信息打印到终端。
 ```
 
-替换 `<plan_path>` 和文档路径时**记得 WSL 路径转换 + 独立行包路径**（reviewer 跑 WSL 时）。`<workerId>` 必须在发 prompt 前就解析好——Codex 不应该自己去猜。
+替换 `<plan_path>` 和文档路径时**记得 WSL 路径转换 + 独立行包路径**（reviewer 跑 WSL 时）。新派发的 worker 从环境读取 binding id；只有复用会话时才必须在发 prompt 前把 `<workerId>` 写死。
 
 ---
 
@@ -308,13 +297,13 @@ mcp__ccpanes__report_to_leader(
 | 注册 leader | `mcp__ccpanes__register_plan_leader` |
 | 发现可复用 reviewer | `mcp__ccpanes__query_task_bindings(projectPath, role: "worker")` → 过滤 `workerKind === "reviewer"` |
 | 找已有窗口 | `mcp__ccpanes__list_sessions` + `mcp__ccpanes__list_panes` |
-| 启动新 reviewer 窗口 | `mcp__ccpanes__launch_task` |
-| 注册 worker | `mcp__ccpanes__register_plan_worker` |
+| 启动新 reviewer 窗口 | `mcp__ccpanes__dispatch_task(parentBindingId=leaderId)` |
+| 读取派发状态 | `mcp__ccpanes__get_task_dispatch(bindingId)` |
 | 复用已有窗口提交 | `mcp__ccpanes__submit_to_session`（自动回车时序） |
 | 发原始字节 / Ctrl+C | `mcp__ccpanes__write_to_session`（`"\x03"`）|
 | 查状态 | `mcp__ccpanes__get_session_status` |
 | 读输出 | `mcp__ccpanes__get_session_output` |
-| worker 上报（在 reviewer prompt 里要求 Codex 自己调） | `mcp__ccpanes__report_to_leader` |
+| worker 上报（目标支持 MCP 时） | `mcp__ccpanes__update_task_binding` 后 `mcp__ccpanes__report_to_leader` |
 
 **Claude 内置工具**（编排/交互）：
 
@@ -330,16 +319,16 @@ mcp__ccpanes__report_to_leader(
 
 | 维度 | plantocodex | planreview |
 |------|-------------|------------|
-| 目的 | 把 plan 交给 Codex **执行** | 把 plan 交给 Codex **评审** |
-| Codex 角色 | 实现者 | 独立审查者 |
+| 目的 | 把 plan 交给 Codex **执行** | 把 plan 交给兼容 CLI **评审** |
+| 目标角色 | Codex 实现者 | 独立审查者 |
 | 是否改代码 | 改 | 不改 |
 | 绑定机制 | leader + worker | leader + worker |
 | 完成通知 | worker `report_to_leader` PTY 回推 | 同上 |
-| Plan 后续 | Codex 直接改代码 | Claude 自己重写 plan |
+| Plan 后续 | Codex 直接改代码 | 当前 leader 重写 plan |
 | 是否需要用户拍板 | 否（执行类） | 是（评审条目逐条拍板） |
 | 退出 plan mode | Codex 启动前 | 评审吸收完之后（或路径 B 时第一次写 plan 时） |
 
-**串联**：先 `planreview` 评审 → 用户拍板 → 重写 plan → 用户决定 `ExitPlanMode` → `plantocodex` 接同一个 `<plan_path>` 派 Codex 实现（WSL 环境细节见 `plan2codexwsl`）。
+**串联**：先 `planreview` 评审 → 用户拍板 → 重写 plan → 用户决定 `ExitPlanMode` → `dispatch-task` 或 `plantocodex` 接同一个 `<plan_path>` 派实现者执行（WSL Codex 细节见 `plan2codexwsl`）。
 
 ---
 
@@ -349,9 +338,9 @@ mcp__ccpanes__report_to_leader(
 - ❌ 在 plan 末尾追加而不是整体重写
 - ❌ reviewer 还没输出三段式就强行总结
 - ❌ 给 reviewer 喂 Windows 路径却让它跑在 WSL 里
-- ❌ 把 reviewer 当 Codex 用——让它去改代码（这是 plantocodex 的事）
-- ❌ 跳过 `register_plan_leader` / `register_plan_worker` —— 没这两步，`report_to_leader` 推不到你这边，等于没自动反馈
+- ❌ 把 reviewer 当实现者用——让它去改代码（这是 dispatch-task / plantocodex 的事）
+- ❌ 跳过 `register_plan_leader` / `dispatch_task(parentBindingId=leaderId)` —— 新派发任务没有持久化父关系，无法可靠追踪或回报
 - ❌ 跳过软超时 —— reviewer 卡死时用户体验为零
 - ❌ 把 10 条必修塞进一个 `AskUserQuestion` —— UI 选项数爆掉
 - ❌ 反复 `ExitPlanMode → EnterPlanMode` —— 单一路径走完
-- ❌ 让 Codex 自己猜 sessionId / workerId —— leader 在 prompt 里给死
+- ❌ 让复用会话自己猜 workerId —— 只有复用分支需要 leader 在 prompt 里给死；新派发会话使用环境变量

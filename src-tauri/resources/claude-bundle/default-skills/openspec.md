@@ -1,6 +1,6 @@
 ---
 name: ccpanes-openspec
-description: Explain and guide the CC-Panes built-in OpenSpec-style method for writing Proposal / Design / Tasks before implementation. Use when the user asks for OpenSpec, spec methodology, or how to structure a CC-Panes built-in spec without the external spec-workflow MCP.
+description: Guide the CC-Panes OpenSpec-style method: write Proposal, Design and Tasks before implementing. 触发词：OpenSpec、规格方法论、先写提案再动手。不依赖外部 spec-workflow MCP。
 ---
 
 # OpenSpec — Spec 驱动开发方法论

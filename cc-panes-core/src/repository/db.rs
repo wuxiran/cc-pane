@@ -813,6 +813,100 @@ const MIGRATIONS: &[Migration] = &[
                 ON terminal_task_queue_items(session_id, state, position);
         ",
     },
+    Migration {
+        version: 35,
+        description: "backfill birth anchors on provenance rows written without them",
+        // 修复被 bug 写坏的数据，不是新功能。
+        //
+        // orchestrator 的几条创建路径过去硬写 `origin_*: None`——PTY 建在前端决定
+        // 落点之前，当时确实拿不到锚点。后果是这些会话（清一色是 MCP 派发的 worker）
+        // 在恢复期被身份核对拦下，且**永远补不回来**：`save_provenance` 是
+        // ON CONFLICT DO NOTHING，而 backfill 只找整行缺失的，NULL 锚点行不算「缺失」。
+        //
+        // 新版本已在创建时预分配锚点（daemon 侧还有一层兜底），这里把存量补上。
+        // 只在观测行确实存在时回填，绝不凭空造值；`WHERE ... IS NULL` 自限，幂等。
+        //
+        // 前置 DDL 不是新功能，是**补齐**：残缺库（schema_migrations 记到某个版本、
+        // DDL 却没真跑，v28 正是为治这个而加）里这两张表可能根本不存在，而迁移器只对
+        // "duplicate column name" 容错，缺表会直接中断整个应用启动。
+        //
+        // 必须把 v7 之后加过的列与索引**全部**声明一遍，不能只补本迁移自己要读的那
+        // 一列：缺表时建出个残缺表，而 v26/v28 已被标记跑过、不会再补，等于把「迁移
+        // 中断」换成后续读写时的 "no such column"，更难诊断。语句全部幂等，schema
+        // 完好的库上是无害空转——与 v28/v29 同一套路。
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS terminal_sessions (
+                session_id TEXT PRIMARY KEY,
+                tab_id TEXT NOT NULL,
+                pane_id TEXT NOT NULL,
+                project_path TEXT NOT NULL,
+                workspace_name TEXT,
+                workspace_path TEXT,
+                provider_id TEXT,
+                cli_tool TEXT NOT NULL DEFAULT 'none',
+                resume_id TEXT,
+                claude_session_id TEXT,
+                ssh_config TEXT,
+                custom_title TEXT,
+                created_at TEXT NOT NULL,
+                saved_at TEXT NOT NULL
+            );
+
+            ALTER TABLE terminal_sessions ADD COLUMN runtime_kind TEXT NOT NULL DEFAULT 'local';
+            ALTER TABLE terminal_sessions ADD COLUMN workspace_session_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN workspace_snapshot_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN launch_profile_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN provider_selection TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN terminal_pane_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN layout_id TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN wsl_config TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN machine_name TEXT;
+            ALTER TABLE terminal_sessions ADD COLUMN observer_instance_id TEXT;
+
+            CREATE INDEX IF NOT EXISTS idx_terminal_sessions_workspace_session
+                ON terminal_sessions(workspace_session_id);
+            CREATE INDEX IF NOT EXISTS idx_terminal_sessions_workspace_snapshot
+                ON terminal_sessions(workspace_snapshot_id);
+            CREATE INDEX IF NOT EXISTS idx_terminal_sessions_launch_profile
+                ON terminal_sessions(launch_profile_id);
+            CREATE INDEX IF NOT EXISTS idx_terminal_sessions_anchor
+                ON terminal_sessions(layout_id, tab_id, terminal_pane_id);
+
+            CREATE TABLE IF NOT EXISTS terminal_session_provenance (
+                session_id TEXT PRIMARY KEY,
+                daemon_generation INTEGER NOT NULL,
+                birth_nonce TEXT NOT NULL,
+                origin_instance_id TEXT,
+                origin_layout_id TEXT,
+                origin_tab_id TEXT,
+                origin_terminal_pane_id TEXT,
+                project_path TEXT NOT NULL,
+                runtime_kind TEXT NOT NULL,
+                cli_tool TEXT NOT NULL,
+                resume_id TEXT,
+                created_at_ms INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_terminal_session_provenance_generation
+                ON terminal_session_provenance(daemon_generation, created_at_ms);
+
+            UPDATE terminal_session_provenance AS p
+               SET origin_tab_id = COALESCE(
+                     p.origin_tab_id,
+                     (SELECT ts.tab_id FROM terminal_sessions ts
+                       WHERE ts.session_id = p.session_id)),
+                   origin_terminal_pane_id = COALESCE(
+                     p.origin_terminal_pane_id,
+                     (SELECT ts.terminal_pane_id FROM terminal_sessions ts
+                       WHERE ts.session_id = p.session_id))
+             WHERE (p.origin_tab_id IS NULL OR p.origin_terminal_pane_id IS NULL)
+               AND EXISTS (
+                     SELECT 1 FROM terminal_sessions ts
+                      WHERE ts.session_id = p.session_id
+                        AND ts.tab_id IS NOT NULL
+                        AND ts.terminal_pane_id IS NOT NULL);
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -1453,6 +1547,66 @@ mod tests {
         assert_eq!(project_id, "legacy-launch");
         assert_eq!(model_id, None);
         Database::run_migrations(&conn).expect("v30 migration remains idempotent");
+    }
+
+    /// v35 治存量：orchestrator 过去硬写 `origin_*: None`，那些会话被身份核对拦下且
+    /// 永远补不回来（凭证 ON CONFLICT DO NOTHING，backfill 只找整行缺失）。
+    #[test]
+    fn migration_35_backfills_birth_anchors_from_the_observation_row() {
+        let db = Database::new_in_memory().expect("in-memory db");
+        let conn = db.connection().expect("connection");
+        conn.execute_batch(
+            "INSERT INTO terminal_sessions (
+                session_id, tab_id, pane_id, project_path, cli_tool,
+                created_at, saved_at, terminal_pane_id, layout_id
+             ) VALUES
+                ('dispatched', 'tab-1', 'pane-1', '/repo', 'claude', '', '', 'leaf-1', 'layout-1'),
+                ('observed-elsewhere', 'tab-2', 'pane-2', '/repo', 'claude', '', '', NULL, NULL);
+
+             INSERT INTO terminal_session_provenance (
+                session_id, daemon_generation, birth_nonce, project_path,
+                runtime_kind, cli_tool, created_at_ms
+             ) VALUES
+                ('dispatched', 1, 'nonce-1', '/repo', 'local', 'claude', 1),
+                ('observed-elsewhere', 1, 'nonce-2', '/repo', 'local', 'claude', 1),
+                ('no-observation', 1, 'nonce-3', '/repo', 'local', 'claude', 1);",
+        )
+        .expect("seed rows written before the fix");
+        // new_in_memory 已跑到最新版；把版本退回去让 v35 重跑这批种子数据。
+        conn.execute("DELETE FROM schema_migrations WHERE version >= 35", [])
+            .expect("rewind to pre-v35");
+
+        Database::run_migrations(&conn).expect("v35 migration");
+
+        let anchors = |session_id: &str| -> (Option<String>, Option<String>) {
+            conn.query_row(
+                "SELECT origin_tab_id, origin_terminal_pane_id
+                   FROM terminal_session_provenance WHERE session_id = ?1",
+                rusqlite::params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read provenance")
+        };
+
+        assert_eq!(
+            anchors("dispatched"),
+            (Some("tab-1".to_string()), Some("leaf-1".to_string())),
+            "观测行锚点齐全时应回填"
+        );
+        // 只在观测行确实带锚点时回填，绝不凭空造值——造出来的假锚点会让身份核对
+        // 形同虚设，比继续拦着更糟。
+        assert_eq!(
+            anchors("observed-elsewhere"),
+            (None, None),
+            "观测行没有 terminal_pane_id 时不得回填"
+        );
+        assert_eq!(
+            anchors("no-observation"),
+            (None, None),
+            "没有观测行时不得回填"
+        );
+
+        Database::run_migrations(&conn).expect("v35 remains idempotent");
     }
 
     #[test]

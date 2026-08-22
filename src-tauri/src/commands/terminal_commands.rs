@@ -378,13 +378,20 @@ pub fn write_terminal(
     service: State<'_, Arc<TerminalBackendState>>,
     session_id: String,
     data: String,
+    // `"system"` = 前端代答的终端查询回复；缺省视为用户输入。
+    source: Option<String>,
 ) -> AppResult<()> {
     debug!(
         session_id = %session_id,
         input = %summarize_terminal_input(&data),
         "terminal-input.trace tauri.write_terminal"
     );
-    service.backend().write(&session_id, &data)
+    let backend = service.backend();
+    if source.as_deref() == Some("system") {
+        backend.write_reply(&session_id, &data)
+    } else {
+        backend.write(&session_id, &data)
+    }
 }
 
 /// 调整终端大小

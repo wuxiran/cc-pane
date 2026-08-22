@@ -33,6 +33,9 @@ export type {
   WslLaunchInfo,
   LaunchEffort,
   LaunchAdapterOptions,
+  PiLaunchOptions,
+  PiProjectTrust,
+  PiTransport,
   LaunchExtras,
   TerminalLaunchError,
   TerminalRestoreBlockedReason,
@@ -53,6 +56,14 @@ export type {
   KillReason,
   SessionKilledPayload,
 } from "./terminal";
+export type {
+  PiRpcCommandResponse,
+  PiRpcEvent,
+  PiRpcLaunchRequest,
+  PiRpcSessionPhase,
+  PiRpcSessionSnapshot,
+  PiRpcStartRequest,
+} from "./piRpc";
 export type {
   ProjectCliHookStatus,
   ProjectCliHookGroupStatus,
@@ -104,6 +115,8 @@ export type {
   LaunchProfilePreviewRequest,
   LaunchProfileResolution,
   LaunchProfileRuntime,
+  SkillCompatibility,
+  SkillCompatibilityReason,
   LaunchProfileSkillMode,
   LaunchProfileSkillPolicy,
   LaunchProviderSelection,
@@ -193,10 +206,12 @@ export type {
 export type { McpServerConfig } from "./mcp";
 export type {
   BundledSkill,
+  BundledSkillDelivery,
   DiscoveredExternalSkill,
   ExternalSkillSource,
   InstalledUserSkill,
   SkillInfo,
+  SkillDeliveryMode,
   SkillMarketEntry,
   SkillSummary,
 } from "./skill";

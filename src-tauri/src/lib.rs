@@ -21,6 +21,7 @@ use ccchan_commands::{
 };
 use ccchan_service::{CCChanService, CcChanSessionNotifier};
 use commands::{
+    abort_pi_rpc_session,
     // Journal 命令
     add_journal_session,
     add_launch_history,
@@ -127,6 +128,9 @@ use commands::{
     get_current_branch,
     get_data_dir_info,
     get_default_provider,
+    get_display_server,
+    // DeepSeek Harness（dsh）命令
+    get_dsh_instance,
     get_file_branches,
     get_git_branch,
     get_git_changed_files,
@@ -153,6 +157,8 @@ use commands::{
     get_orchestrator_port,
     get_orchestrator_status,
     get_orchestrator_token,
+    get_pi_rpc_session,
+    get_pi_rpc_state,
     get_plan_collaboration,
     get_plan_content,
     get_popup_tab_data,
@@ -227,6 +233,7 @@ use commands::{
     list_deleted_files,
     // Local History - 目录级历史 + 最近更改
     list_directory_changes,
+    list_dsh_instances,
     list_external_skills,
     list_file_versions,
     list_file_versions_by_branch,
@@ -238,6 +245,7 @@ use commands::{
     list_mcp_servers,
     list_memories,
     list_opencode_sessions,
+    list_pi_rpc_sessions,
     // Plan 命令
     list_plans,
     list_project_quick_commands,
@@ -273,6 +281,7 @@ use commands::{
     preview_launch_profile_resolution,
     preview_project_migration,
     preview_workspace_migration,
+    prompt_pi_rpc_session,
     prune_stale_session_outputs,
     prune_terminal_sessions,
     // Local History - 标签
@@ -358,6 +367,8 @@ use commands::{
     set_hidden_terminal_sessions,
     set_project_cli_hook_enabled,
     set_web_access_password,
+    set_workspace_archived,
+    set_workspace_project_archived,
     ssh_fs_configure_password,
     ssh_fs_create_directory,
     ssh_fs_create_file,
@@ -371,9 +382,13 @@ use commands::{
     ssh_fs_upload_file,
     ssh_fs_write_file,
     stage_terminal_task_queue_clipboard_image,
+    start_dsh_instance,
     start_launch_history_backfill,
+    start_pi_rpc_session,
     start_shared_mcp_server,
     start_web_access,
+    stop_dsh_instance,
+    stop_pi_rpc_session,
     stop_project_history,
     stop_shared_mcp_server,
     stop_terminal_daemon,
@@ -427,17 +442,18 @@ use repository::{
 };
 use services::BrowserTabManager;
 use services::{
-    ExternalSkillRegistry, FileSystemService, HistoryService, HistoryWatchManager, JournalService,
-    LaunchHistoryService, LaunchProfileService, LayoutSnapshotService, McpConfigService,
-    MemoryService, NotificationService, OrchestratorService, PlanArchiveService, PlanService,
-    ProcessMonitorService, ProjectCliHooksService, ProjectContextService, ProjectService,
-    ProviderService, QuickCommandService, ScreenshotService, SessionIndexService,
-    SessionRestoreService, SettingsService, SharedMcpService, SkillMarketService, SkillService,
-    SpecService, SshCredentialService, SshFileService, SshMachineService, StartLocks,
-    SystemStatsService, TaskBindingService, TaskQueueService, TaskQueueWorker, TerminalBackendKind,
-    TerminalBackendState, TerminalDaemonControlLink, TerminalDaemonEventBridge,
-    TerminalDaemonLifecycle, TerminalService, TodoService, UninstallCleanupService,
-    UsageStatsService, WebAccessLifecycle, WorkspaceService, WorktreeService,
+    DshService, ExternalSkillRegistry, FileSystemService, HistoryService, HistoryWatchManager,
+    JournalService, LaunchHistoryService, LaunchProfileService, LayoutSnapshotService,
+    McpConfigService, MemoryService, NotificationService, OrchestratorService, PiRpcEventBridge,
+    PiRpcService, PlanArchiveService, PlanService, ProcessMonitorService, ProjectCliHooksService,
+    ProjectContextService, ProjectService, ProviderService, QuickCommandService, ScreenshotService,
+    SessionIndexService, SessionRestoreService, SettingsService, SharedMcpService,
+    SkillMarketService, SkillService, SpecService, SshCredentialService, SshFileService,
+    SshMachineService, StartLocks, SystemStatsService, TaskBindingService, TaskQueueService,
+    TaskQueueWorker, TerminalBackendKind, TerminalBackendState, TerminalDaemonControlLink,
+    TerminalDaemonEventBridge, TerminalDaemonLifecycle, TerminalService, TodoService,
+    UninstallCleanupService, UsageStatsService, WebAccessLifecycle, WorkspaceService,
+    WorktreeService,
 };
 use std::sync::Arc;
 use utils::AppPaths;
@@ -450,6 +466,58 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, WindowEvent,
 };
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalLifecycleEventPayload {
+    session_id: String,
+    #[serde(default)]
+    exit_code: Option<i32>,
+}
+
+/// Keep TaskBinding terminal outcomes durable even while the frontend is not
+/// listening. `session-killed` intentionally uses -1 because that event has
+/// no process exit code; a later terminal-exit event can replace it.
+fn record_task_binding_terminal_exit(
+    service: Arc<TaskBindingService>,
+    payload: &str,
+    event_name: &'static str,
+) {
+    let payload = match serde_json::from_str::<TerminalLifecycleEventPayload>(payload) {
+        Ok(payload) if !payload.session_id.trim().is_empty() => payload,
+        Ok(_) => {
+            warn!(event_name, "terminal lifecycle event missing sessionId");
+            return;
+        }
+        Err(error) => {
+            warn!(event_name, error = %error, "invalid terminal lifecycle event payload");
+            return;
+        }
+    };
+    let session_id = payload.session_id;
+    let exit_code = payload.exit_code.unwrap_or(-1);
+
+    tauri::async_runtime::spawn_blocking(move || {
+        match service.record_terminal_exit(&session_id, exit_code) {
+            Ok(Some(binding)) => debug!(
+                event_name,
+                session_id,
+                binding_id = %binding.id,
+                status = %binding.status,
+                exit_code,
+                "persisted TaskBinding terminal outcome"
+            ),
+            Ok(None) => {}
+            Err(error) => warn!(
+                event_name,
+                session_id,
+                exit_code,
+                error = %error,
+                "failed to persist TaskBinding terminal outcome"
+            ),
+        }
+    });
+}
 
 #[cfg(target_os = "macos")]
 const APP_MENU_PASTE_ID: &str = "cc-panes-menu-paste";
@@ -1476,6 +1544,7 @@ pub fn run() {
     let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
+    let pi_rpc_service = Arc::new(PiRpcService::new());
     let task_queue_service = Arc::new(TaskQueueService::new(
         task_queue_repo,
         app_paths.task_queue_images_dir(),
@@ -1533,18 +1602,9 @@ pub fn run() {
         workspace_service.clone(),
         settings_service.clone(),
     ));
-    let cli_registry = {
-        let mut reg = cc_cli_adapters::CliToolRegistry::new();
-        reg.register(Arc::new(cc_cli_adapters::ClaudeAdapter::new()));
-        reg.register(Arc::new(cc_cli_adapters::CodexAdapter::new()));
-        reg.register(Arc::new(cc_cli_adapters::GeminiAdapter::new()));
-        reg.register(Arc::new(cc_cli_adapters::KimiAdapter::new()));
-        reg.register(Arc::new(cc_cli_adapters::GlmAdapter::new()));
-        reg.register(Arc::new(cc_cli_adapters::OpenCodeAdapter::new()));
-        reg.register(Arc::new(cc_cli_adapters::CursorAdapter::new()));
-        reg.register(Arc::new(cc_cli_adapters::GrokAdapter::new()));
-        Arc::new(reg)
-    };
+    // Keep the desktop surface aligned with the shared adapter registry. This
+    // also drives the CLI installation status rendered by the settings UI.
+    let cli_registry = Arc::new(cc_cli_adapters::CliToolRegistry::with_builtin_adapters());
     let external_skill_registry = Arc::new(ExternalSkillRegistry::new(cli_registry.clone()));
     let launch_profile_service = Arc::new(LaunchProfileService::new_with_external_skill_registry(
         app_paths.launch_profiles_path(),
@@ -1613,6 +1673,7 @@ pub fn run() {
     ));
 
     let shared_mcp_service = Arc::new(SharedMcpService::new(&app_paths));
+    let dsh_service = Arc::new(DshService::new(&app_paths));
 
     let session_restore_service =
         Arc::new(SessionRestoreService::new(db.clone(), app_paths.clone()));
@@ -1637,6 +1698,7 @@ pub fn run() {
     let usage_stats_cleanup = usage_stats_service.clone();
     let web_access_cleanup = web_access_lifecycle.clone();
     let orchestrator_cleanup = orchestrator_service.clone();
+    let pi_rpc_cleanup = pi_rpc_service.clone();
 
     boot_mark!("building tauri app...");
     with_macos_app_menu(tauri::Builder::default())
@@ -1694,6 +1756,7 @@ pub fn run() {
         .manage(app_paths)
         .manage(project_service)
         .manage(terminal_service)
+        .manage(pi_rpc_service)
         .manage(terminal_backend_state)
         .manage(launch_history_service)
         .manage(usage_stats_service)
@@ -1735,6 +1798,7 @@ pub fn run() {
         .manage(start_locks)
         .manage(web_access_lifecycle.clone())
         .manage(shared_mcp_service.clone())
+        .manage(dsh_service.clone())
         .manage(session_restore_service)
         .manage(layout_snapshot_service)
         .manage(popup_data_store)
@@ -1827,7 +1891,10 @@ pub fn run() {
                             t_extract.elapsed().as_millis()
                         );
 
-                        // ---- 注入默认 Skill 到各 CLI 工具的全局命令目录 ----
+                        // ---- 物化内置 Skill 到 CC-Panes 自己的目录 ----
+                        // 只写 <data_dir>/skills/builtin，各 CLI 在启动时按会话挂载
+                        // （Claude `--plugin-dir` / Codex `-c skills.config=`），
+                        // 用户的 ~/.claude 与 ~/.codex 零写入。
                         let t_skill = std::time::Instant::now();
                         let registry = app.state::<Arc<cc_cli_adapters::CliToolRegistry>>();
                         let svc = cc_panes_core::services::DefaultSkillService::new(
@@ -1836,11 +1903,43 @@ pub fn run() {
                                 .join("claude-bundle")
                                 .join("default-skills"),
                         );
-                        svc.inject_all(registry.inner(), env!("CARGO_PKG_VERSION"));
-                        info!(
-                            "[boot] skill injection took {}ms",
-                            t_skill.elapsed().as_millis()
-                        );
+                        match svc.materialize_managed_bundle(
+                            &paths.builtin_skills_dir(),
+                            env!("CARGO_PKG_VERSION"),
+                        ) {
+                            Ok(written) => info!(
+                                "[boot] materialized {} bundled skills into {} ({}ms)",
+                                written.len(),
+                                paths.builtin_skills_dir().display(),
+                                t_skill.elapsed().as_millis()
+                            ),
+                            // 物化失败 = 本次启动的会话拿不到内置 skill。必须可见，
+                            // 不能静默——否则表现为「skill 悄悄全没了」且无任何线索。
+                            Err(error) => warn!(
+                                "[boot] failed to materialize bundled skills into {}: {}",
+                                paths.builtin_skills_dir().display(),
+                                error
+                            ),
+                        }
+
+                        // ---- 一次性回收旧版本写进用户 CLI Home 的残留 ----
+                        // 只删内容哈希能证明是我们历史发布物的文件；用户手改过的、
+                        // 自建的同前缀 skill 一律保留（见 default_skill_service 顶部说明）。
+                        let report_path = paths
+                            .skills_dir()
+                            .join(cc_panes_core::services::LEGACY_CLEANUP_REPORT_FILE_NAME);
+                        match svc.cleanup_legacy_injected_once(registry.inner(), &report_path) {
+                            Ok(Some(report)) => info!(
+                                "[boot] legacy skill cleanup: removed {}, preserved {}, failed {}",
+                                report.removed.len(),
+                                report.preserved.len(),
+                                report.failed.len()
+                            ),
+                            Ok(None) => {}
+                            Err(error) => {
+                                warn!("[boot] legacy skill cleanup failed: {}", error)
+                            }
+                        }
                     }
                     Err(e) => {
                         tracing::warn!(
@@ -2006,6 +2105,39 @@ pub fn run() {
                 term_svc.set_emitter(tauri_emitter.clone());
                 let tb_svc = app.state::<Arc<TaskBindingService>>();
                 tb_svc.set_emitter(tauri_emitter.clone());
+                app.manage(Arc::new(PiRpcEventBridge::new(
+                    app_handle.clone(),
+                    app.state::<Arc<PiRpcService>>().inner().clone(),
+                    tb_svc.inner().clone(),
+                )));
+                // TaskBinding 的终态不再依赖 WebView 的事件监听：窗口刷新、失焦或
+                // 自愈期间也能持久化已派发任务的退出结果。session-killed 覆盖本地
+                // kill 路径，terminal-exit 覆盖自然退出与 daemon 事件桥接路径。
+                {
+                    use tauri::Listener;
+                    let exit_service = tb_svc.inner().clone();
+                    app.listen(
+                        cc_panes_core::constants::events::TERMINAL_EXIT,
+                        move |event| {
+                            record_task_binding_terminal_exit(
+                                exit_service.clone(),
+                                event.payload(),
+                                cc_panes_core::constants::events::TERMINAL_EXIT,
+                            );
+                        },
+                    );
+                    let killed_service = tb_svc.inner().clone();
+                    app.listen(
+                        cc_panes_core::constants::events::SESSION_KILLED,
+                        move |event| {
+                            record_task_binding_terminal_exit(
+                                killed_service.clone(),
+                                event.payload(),
+                                cc_panes_core::constants::events::SESSION_KILLED,
+                            );
+                        },
+                    );
+                }
                 let notif_svc = app.state::<Arc<NotificationService>>();
                 let settings_svc = app.state::<Arc<SettingsService>>();
                 let launch_history_svc = app.state::<Arc<LaunchHistoryService>>();
@@ -2165,6 +2297,7 @@ pub fn run() {
                 let settings_svc = app.state::<Arc<SettingsService>>();
                 let plan_archive_svc = app.state::<Arc<PlanArchiveService>>();
                 let runner_svc = app.state::<Arc<cc_panes_core::services::RunnerService>>();
+                let dsh_svc = app.state::<Arc<DshService>>();
                 let ai_panel_repo_state =
                     app.state::<Arc<cc_panes_core::repository::AiPanelRepository>>();
                 let mcp_tool_call_stats_repo_state =
@@ -2197,6 +2330,7 @@ pub fn run() {
                     settings_svc.inner().clone(),
                     plan_archive_svc.inner().clone(),
                     runner_svc.inner().clone(),
+                    dsh_svc.inner().clone(),
                     ai_panel_repo_state.inner().clone(),
                     mcp_tool_call_stats_repo_state.inner().clone(),
                     turn_notify_registry_state.inner().clone(),
@@ -2482,6 +2616,13 @@ pub fn run() {
             // 终端命令
             cancel_terminal_launch,
             create_terminal_session,
+            start_pi_rpc_session,
+            list_pi_rpc_sessions,
+            get_pi_rpc_session,
+            prompt_pi_rpc_session,
+            abort_pi_rpc_session,
+            get_pi_rpc_state,
+            stop_pi_rpc_session,
             adopt_terminal_session,
             release_terminal_session,
             write_terminal,
@@ -2663,6 +2804,8 @@ pub fn run() {
             update_workspace_project_alias,
             update_workspace_provider,
             update_workspace_path,
+            set_workspace_archived,
+            set_workspace_project_archived,
             update_workspace,
             reorder_workspaces,
             scan_workspace_directory,
@@ -2711,6 +2854,7 @@ pub fn run() {
             detect_system_provider,
             read_config_dir_info,
             open_path_in_explorer,
+            get_display_server,
             // Todo 命令
             create_todo,
             get_todo,
@@ -2868,6 +3012,11 @@ pub fn run() {
             restart_shared_mcp_server,
             update_shared_mcp_global_config,
             import_shared_mcp_from_claude,
+            // DeepSeek Harness（dsh）实例命令
+            start_dsh_instance,
+            stop_dsh_instance,
+            list_dsh_instances,
+            get_dsh_instance,
             // Web access 命令
             get_web_access_status,
             start_web_access,
@@ -2934,6 +3083,7 @@ pub fn run() {
                 if let Err(e) = usage_stats_cleanup.flush_pending() {
                     error!("[cleanup] Failed to flush usage stats: {}", e);
                 }
+                tauri::async_runtime::block_on(pi_rpc_cleanup.cleanup_all());
                 terminal_cleanup.cleanup_all();
                 history_cleanup.stop_all_watching();
                 workspace_cleanup.stop_watcher();

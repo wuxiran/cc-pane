@@ -203,6 +203,18 @@ fn validate_relative_name(file: &str) -> AppResult<()> {
     Ok(())
 }
 
+fn kind_for_extension(extension: &str) -> Option<&'static str> {
+    if WALLPAPER_IMAGE_EXTENSIONS.contains(&extension) {
+        Some("image")
+    } else if WALLPAPER_VIDEO_EXTENSIONS.contains(&extension) {
+        Some("video")
+    } else if WALLPAPER_AUDIO_EXTENSIONS.contains(&extension) {
+        Some("audio")
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,7 +277,7 @@ mod tests {
         put_file(&dir, "big.png", 10);
         // 用截断写法伪造超大文件代价太高，改走 import 校验分支：直接断言大小判断逻辑
         assert!(svc.resolve_wallpaper_asset("big.png", "image").is_ok());
-        assert!(WALLPAPER_IMAGE_MAX_BYTES < WALLPAPER_VIDEO_MAX_BYTES);
+        const { assert!(WALLPAPER_IMAGE_MAX_BYTES < WALLPAPER_VIDEO_MAX_BYTES) };
     }
 
     #[cfg(unix)]
@@ -331,17 +343,5 @@ mod tests {
         svc.remove_wallpaper("a.png").unwrap();
         assert!(!dir.join("a.png").exists());
         assert!(svc.remove_wallpaper("../a.png").is_err());
-    }
-}
-
-fn kind_for_extension(extension: &str) -> Option<&'static str> {
-    if WALLPAPER_IMAGE_EXTENSIONS.contains(&extension) {
-        Some("image")
-    } else if WALLPAPER_VIDEO_EXTENSIONS.contains(&extension) {
-        Some("video")
-    } else if WALLPAPER_AUDIO_EXTENSIONS.contains(&extension) {
-        Some("audio")
-    } else {
-        None
     }
 }

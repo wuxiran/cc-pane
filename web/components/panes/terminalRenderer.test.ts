@@ -59,19 +59,19 @@ describe("terminal renderer selection", () => {
     });
   });
 
-  it("falls back to DOM for auto mode on Windows hosts (CJK atlas guard)", () => {
+  it("tries WebGL for auto mode on Windows hosts and keeps DOM as runtime fallback", () => {
     const webview2 =
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0";
 
     expect(isWebKitTerminalRendererHost(webview2)).toBe(false);
     expect(isWindowsTerminalRendererHost(webview2)).toBe(true);
-    expect(shouldUseTerminalWebglRenderer(webview2)).toBe(false);
+    expect(shouldUseTerminalWebglRenderer(webview2)).toBe(true);
     expect(decideTerminalRenderer("auto", {
       userAgent: webview2,
       webgl2Supported: true,
     })).toMatchObject({
-      renderer: "dom",
-      reason: "windows-cjk-guard",
+      renderer: "webgl",
+      reason: "auto-webgl",
     });
   });
 
@@ -88,18 +88,80 @@ describe("terminal renderer selection", () => {
     });
   });
 
-  it("keeps WebGL enabled for non-Windows Chromium hosts in auto mode", () => {
+  it("keeps WebGL enabled for Linux hardware renderers in auto mode", () => {
     const linuxChrome =
       "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
     expect(isWindowsTerminalRendererHost(linuxChrome)).toBe(false);
-    expect(shouldUseTerminalWebglRenderer(linuxChrome)).toBe(true);
+    expect(decideTerminalRenderer("auto", {
+      userAgent: linuxChrome,
+      webgl2Supported: true,
+      webglRenderer: "NVIDIA GeForce RTX 4060/PCIe/SSE2",
+      webglVendor: "NVIDIA Corporation",
+    })).toMatchObject({
+      renderer: "webgl",
+      reason: "auto-webgl",
+    });
+  });
+
+  it("falls back to DOM for software WebGL renderers in auto mode", () => {
+    const linuxChrome =
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+    expect(decideTerminalRenderer("auto", {
+      userAgent: linuxChrome,
+      webgl2Supported: true,
+      webglRenderer: "llvmpipe (LLVM 15.0.7, 256 bits)",
+      webglVendor: "Mesa",
+    })).toMatchObject({
+      renderer: "dom",
+      reason: "software-renderer",
+    });
+  });
+
+  it("falls back to DOM for unknown Linux renderer identity in auto mode", () => {
+    const linuxChrome =
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
     expect(decideTerminalRenderer("auto", {
       userAgent: linuxChrome,
       webgl2Supported: true,
     })).toMatchObject({
+      renderer: "dom",
+      reason: "renderer-identity-unavailable",
+    });
+  });
+
+  it("falls back to DOM on Linux Wayland in auto mode", () => {
+    const linuxChrome =
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+    expect(decideTerminalRenderer("auto", {
+      userAgent: linuxChrome,
+      webgl2Supported: true,
+      webglRenderer: "NVIDIA GeForce RTX 4060/PCIe/SSE2",
+      displayServer: "wayland",
+    })).toMatchObject({
+      renderer: "dom",
+      reason: "linux-wayland",
+    });
+  });
+
+  it("lets an explicit WebGL choice bypass Linux auto-policy GPU guards", () => {
+    const linuxChrome =
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+    expect(decideTerminalRenderer("webgl", {
+      userAgent: linuxChrome,
+      webgl2Supported: true,
+      webglRenderer: "llvmpipe (LLVM 15.0.7, 256 bits)",
+      webglVendor: "Mesa",
+      displayServer: "wayland",
+    })).toMatchObject({
       renderer: "webgl",
-      reason: "auto-webgl",
+      reason: "user-webgl",
+      webglRenderer: "llvmpipe (LLVM 15.0.7, 256 bits)",
+      webglVendor: "Mesa",
     });
   });
 
@@ -166,7 +228,7 @@ describe("terminal renderer selection", () => {
     });
   });
 
-  it("Windows 下 reason 保持 windows-cjk-guard（透明分支不得污染诊断基线）", () => {
+  it("Windows 下透明需求仍优先回退 DOM", () => {
     const webview2 =
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0";
 
@@ -176,7 +238,7 @@ describe("terminal renderer selection", () => {
       transparencyRequired: true,
     })).toMatchObject({
       renderer: "dom",
-      reason: "windows-cjk-guard",
+      reason: "wallpaper-transparency",
     });
   });
 

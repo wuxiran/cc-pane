@@ -1,6 +1,6 @@
 ---
 name: ccpanes-cross-layer-check
-description: Review cross-layer changes across UI, stores/services, IPC/API, backend services, repositories, and persistence. Use after multi-layer changes or when bugs may come from mismatched contracts between layers.
+description: Review changes spanning UI, stores, IPC/API, backend services, repositories and persistence. 多层改动之后，或怀疑 bug 来自层间契约不一致时使用。
 ---
 
 # 跨层检查

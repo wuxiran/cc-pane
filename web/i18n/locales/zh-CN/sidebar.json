@@ -51,6 +51,12 @@
     "hidden": "隐藏",
     "placementHint": "移动模块只会调整入口；隐藏后仍可从命令面板打开。"
   },
+  "moduleAdd": {
+    "trigger": "添加模块",
+    "title": "在左栏显示",
+    "onBar": "已在左栏",
+    "offBar": "未在左栏"
+  },
   "fileHistory": "文件历史",
   "todoList": "TodoList",
   "importProject": "导入项目",
@@ -72,6 +78,12 @@
   "setAlias": "设置别名",
   "deleteWorkspace": "删除",
   "removeProject": "移除项目",
+  "archiveWorkspace": "归档",
+  "restoreWorkspace": "恢复",
+  "archiveProject": "归档项目",
+  "restoreProject": "恢复项目",
+  "archivedBadge": "已归档",
+  "showArchivedWorkspaces": "显示已归档（{{count}}）",
   "configureMcp": "配置 MCP",
   "manageSkill": "管理 Skill",
   "memoryManager": "Memory 管理",
@@ -133,6 +145,8 @@
   "openCodexCli": "打开 Codex CLI",
   "cliToolClaude": "Claude Code",
   "cliToolCodex": "Codex CLI",
+  "cliToolPi": "Pi",
+  "cliToolOmp": "Oh My Pi",
   "cliToolGemini": "Gemini CLI",
   "cliToolKimi": "Kimi CLI",
   "cliToolGlm": "GLM CLI",
@@ -526,6 +540,12 @@
     "searchPlaceholder": "搜索会话",
     "clearSearch": "清空搜索",
     "cliFilter": "按 CLI 筛选",
+    "cli": {
+      "claude": "Claude",
+      "codex": "Codex",
+      "pi": "Pi",
+      "omp": "Oh My Pi"
+    },
     "refresh": "刷新会话索引",
     "loading": "正在加载会话...",
     "loadError": "无法加载会话历史",

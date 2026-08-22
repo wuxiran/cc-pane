@@ -479,7 +479,8 @@ mod tests {
             has_output: false,
         };
 
-        repo.save_sessions(&[session.clone()]).expect("first save");
+        repo.save_sessions(std::slice::from_ref(&session))
+            .expect("first save");
         repo.save_sessions(&[session]).expect("second save");
         let loaded = repo.load_sessions().expect("should load");
         assert_eq!(loaded.len(), 1);

@@ -38,6 +38,7 @@ const JsonEditor = lazyWithRetry(() => import("@/components/editor/JsonEditor"),
 function defaultProviderTypeForTab(tab?: KnownCliTool): ProviderType {
   switch (tab) {
     case "codex": return "open_ai";
+    case "pi": case "omp": return "anthropic";
     case "gemini": return "gemini";
     case "kimi": return "kimi";
     case "glm": return "glm";
@@ -62,7 +63,6 @@ interface ProviderFormPanelProps {
   onSaved?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
 }
-
 export default function ProviderFormPanel({ editProvider, duplicateSeed, preset, activeTab, compact, onBack, onSaved, onDirtyChange }: ProviderFormPanelProps) {
   const { t } = useTranslation(["settings", "common"]);
   const providers = useProvidersStore((s) => s.providers);

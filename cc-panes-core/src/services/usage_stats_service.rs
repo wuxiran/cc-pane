@@ -5,7 +5,7 @@ use crate::models::{
 use crate::repository::UsageStatsRepository;
 use crate::services::{
     claude_session_service, codex_session_service, external_usage_session_service,
-    LaunchHistoryService, ProviderService,
+    pi_session_service, LaunchHistoryService, ProviderService,
 };
 use crate::utils::{error::AppError, AppResult};
 use anyhow::{anyhow, Context, Result};
@@ -24,7 +24,7 @@ const USAGE_SCAN_INTERVAL_SECS: u64 = 300;
 const WSL_DISCOVERY_REFRESH_TICKS: u32 = 10;
 /// 统计算法版本。变更（如 Claude message.id 去重）时 +1：
 /// 启动检测到版本不一致会清空 scan_state 强制全量重扫，历史聚合行被 REPLACE 重算。
-const USAGE_SCAN_ALGO_VERSION: u64 = 3;
+const USAGE_SCAN_ALGO_VERSION: u64 = 4;
 /// 版本号伪装成一条 scan_state 记录存储（jsonl_path 用 sentinel，不会与真实路径冲突）
 const USAGE_SCAN_ALGO_VERSION_KEY: &str = "_algo_version";
 const CONTEXT_USAGE_PARSER_VERSION: &str = "context-v1";
@@ -135,11 +135,22 @@ pub struct UsageStatsService {
     context_reads: Mutex<HashSet<String>>,
     /// 供 WSL 扫描开关读取；None（测试等场景）视为未禁用
     settings: Option<Arc<crate::services::SettingsService>>,
+    native_scan_home: Option<PathBuf>,
+    allow_wsl_scan: bool,
+    use_scan_environment_overrides: bool,
 }
 
 impl UsageStatsService {
     pub fn new(repo: Arc<UsageStatsRepository>, launch_history: Arc<LaunchHistoryService>) -> Self {
-        Self::new_internal(repo, launch_history, None, None)
+        Self::new_internal(
+            repo,
+            launch_history,
+            None,
+            None,
+            dirs::home_dir(),
+            true,
+            true,
+        )
     }
 
     pub fn new_with_provider(
@@ -147,7 +158,15 @@ impl UsageStatsService {
         launch_history: Arc<LaunchHistoryService>,
         provider_service: Arc<ProviderService>,
     ) -> Self {
-        Self::new_internal(repo, launch_history, Some(provider_service), None)
+        Self::new_internal(
+            repo,
+            launch_history,
+            Some(provider_service),
+            None,
+            dirs::home_dir(),
+            true,
+            true,
+        )
     }
 
     fn new_internal(
@@ -155,6 +174,9 @@ impl UsageStatsService {
         launch_history: Arc<LaunchHistoryService>,
         provider_service: Option<Arc<ProviderService>>,
         settings: Option<Arc<crate::services::SettingsService>>,
+        native_scan_home: Option<PathBuf>,
+        allow_wsl_scan: bool,
+        use_scan_environment_overrides: bool,
     ) -> Self {
         Self {
             repo,
@@ -167,6 +189,9 @@ impl UsageStatsService {
             context_file_cache: Mutex::new(HashMap::new()),
             context_reads: Mutex::new(HashSet::new()),
             settings,
+            native_scan_home,
+            allow_wsl_scan,
+            use_scan_environment_overrides,
         }
     }
 
@@ -175,7 +200,15 @@ impl UsageStatsService {
         launch_history: Arc<LaunchHistoryService>,
         settings: Arc<crate::services::SettingsService>,
     ) -> Self {
-        Self::new_internal(repo, launch_history, None, Some(settings))
+        Self::new_internal(
+            repo,
+            launch_history,
+            None,
+            Some(settings),
+            dirs::home_dir(),
+            true,
+            true,
+        )
     }
 
     pub fn new_with_provider_and_settings(
@@ -184,7 +217,33 @@ impl UsageStatsService {
         provider_service: Arc<ProviderService>,
         settings: Arc<crate::services::SettingsService>,
     ) -> Self {
-        Self::new_internal(repo, launch_history, Some(provider_service), Some(settings))
+        Self::new_internal(
+            repo,
+            launch_history,
+            Some(provider_service),
+            Some(settings),
+            dirs::home_dir(),
+            true,
+            true,
+        )
+    }
+
+    /// Build a deterministic scanner that never reads the process user's real
+    /// CLI caches or discovers WSL distributions.
+    pub fn new_with_isolated_scan_home(
+        repo: Arc<UsageStatsRepository>,
+        launch_history: Arc<LaunchHistoryService>,
+        native_scan_home: PathBuf,
+    ) -> Self {
+        Self::new_internal(
+            repo,
+            launch_history,
+            None,
+            None,
+            Some(native_scan_home),
+            false,
+            false,
+        )
     }
 
     /// WSL 扫描是否被设置禁用
@@ -197,7 +256,9 @@ impl UsageStatsService {
     /// WSL 扫描门控：设置未禁用 且 WSL VM 本来就在运行。
     /// 探测零副作用（只查 vmmem 进程），保证"单纯启动 app 绝不唤醒 WSL"。
     fn wsl_scan_allowed(&self) -> bool {
-        !self.wsl_scan_disabled() && crate::services::wsl_discovery_service::is_wsl_vm_running()
+        self.allow_wsl_scan
+            && !self.wsl_scan_disabled()
+            && crate::services::wsl_discovery_service::is_wsl_vm_running()
     }
 
     pub fn start_background_tasks(self: &Arc<Self>) {
@@ -459,7 +520,7 @@ impl UsageStatsService {
             }
         };
         let cli = record.cli_tool.trim().to_ascii_lowercase();
-        if !matches!(cli.as_str(), "claude" | "codex")
+        if !matches!(cli.as_str(), "claude" | "codex" | "pi" | "omp")
             || record.runtime_kind.eq_ignore_ascii_case("ssh")
         {
             return Err(Box::new(ContextUsageSnapshot::error(
@@ -552,41 +613,58 @@ impl UsageStatsService {
             })
             .map(|entry| entry.byte_offset)
             .unwrap_or(0);
-        let parsed = match request.cli.as_str() {
-            "claude" => claude_session_service::read_latest_context_usage(path, from_offset).map(
-                |(latest, offset)| {
-                    (
-                        latest.map(|value| ContextObservation {
-                            used_tokens: value
-                                .usage
-                                .token_input
-                                .saturating_add(value.usage.token_cache_read)
-                                .saturating_add(value.usage.token_cache_creation),
-                            window_tokens: value.window_tokens,
-                            window_diagnostic: value.window_diagnostic,
-                            model: value.model,
-                        }),
-                        offset,
-                    )
-                },
-            ),
-            "codex" => codex_session_service::read_latest_context_usage(path, from_offset).map(
-                |(latest, offset)| {
-                    (
-                        latest.and_then(|value| {
-                            value.total_tokens.map(|used_tokens| ContextObservation {
-                                used_tokens,
+        let parsed =
+            match request.cli.as_str() {
+                "claude" => claude_session_service::read_latest_context_usage(path, from_offset)
+                    .map(|(latest, offset)| {
+                        (
+                            latest.map(|value| ContextObservation {
+                                used_tokens: value
+                                    .usage
+                                    .token_input
+                                    .saturating_add(value.usage.token_cache_read)
+                                    .saturating_add(value.usage.token_cache_creation),
                                 window_tokens: value.window_tokens,
                                 window_diagnostic: value.window_diagnostic,
                                 model: value.model,
-                            })
-                        }),
-                        offset,
-                    )
-                },
-            ),
-            _ => Err("unsupported CLI".to_string()),
-        };
+                            }),
+                            offset,
+                        )
+                    }),
+                "codex" => codex_session_service::read_latest_context_usage(path, from_offset).map(
+                    |(latest, offset)| {
+                        (
+                            latest.and_then(|value| {
+                                value.total_tokens.map(|used_tokens| ContextObservation {
+                                    used_tokens,
+                                    window_tokens: value.window_tokens,
+                                    window_diagnostic: value.window_diagnostic,
+                                    model: value.model,
+                                })
+                            }),
+                            offset,
+                        )
+                    },
+                ),
+                // Oh My Pi shares Pi's session JSONL format.
+                "pi" | "omp" => pi_session_service::read_latest_context_usage(path, from_offset)
+                    .map(|(latest, offset)| {
+                        (
+                            latest.map(|value| ContextObservation {
+                                used_tokens: value
+                                    .usage
+                                    .token_input
+                                    .saturating_add(value.usage.token_cache_read)
+                                    .saturating_add(value.usage.token_cache_creation),
+                                window_tokens: None,
+                                window_diagnostic: None,
+                                model: value.model,
+                            }),
+                            offset,
+                        )
+                    }),
+                _ => Err("unsupported CLI".to_string()),
+            };
         let (new_observation, byte_offset) = match parsed {
             Ok(value) => value,
             Err(error) => {
@@ -682,7 +760,12 @@ impl UsageStatsService {
         // 扫描前实时复核：discovery 缓存最长 50 分钟，期间 WSL 可能已被用户关掉；
         // 若仍按缓存访问 \\wsl$ 会把已停止的 distro 重新唤醒（issue #37 的冷唤醒源）。
         let wsl_vm_running = self.wsl_scan_allowed();
-        for root in collect_scan_roots(&wsl_distros, wsl_vm_running) {
+        for root in collect_scan_roots_from_home(
+            self.native_scan_home.as_deref(),
+            &wsl_distros,
+            wsl_vm_running,
+            self.use_scan_environment_overrides,
+        ) {
             self.scan_root(&root);
         }
         Ok(())
@@ -750,6 +833,9 @@ impl UsageStatsService {
                         .map(|(entries, _)| entries),
                     "codex" => codex_session_service::read_session_usage(path, 0)
                         .map(|(entries, _)| entries),
+                    "pi" | "omp" => {
+                        pi_session_service::read_session_usage(path, 0).map(|(entries, _)| entries)
+                    }
                     _ => Ok(Vec::new()),
                 },
                 UsageScanSource::Gemini => {
@@ -1090,6 +1176,37 @@ impl UsageStatsService {
                     observation.window_diagnostic.as_deref(),
                 )
             }
+            // Oh My Pi shares Pi's session JSONL format; only the source tag differs.
+            "pi" | "omp" => {
+                let source_tag = if request.cli == "omp" {
+                    "omp-jsonl"
+                } else {
+                    "pi-jsonl"
+                };
+                match self.provider_window_for_request(request, observation.model.as_deref()) {
+                    Some(resolution) => {
+                        let window = resolution.tokens();
+                        ready_snapshot(
+                            &request.resume_id,
+                            observation.used_tokens,
+                            observation.used_tokens,
+                            window,
+                            window,
+                            observation.model.clone(),
+                            source_tag,
+                            resolution.source_label(),
+                            observed_at,
+                        )
+                    }
+                    None => unknown_window_snapshot(
+                        &request.resume_id,
+                        observation.used_tokens,
+                        observation.model.clone(),
+                        source_tag,
+                        observed_at,
+                    ),
+                }
+            }
             _ => ContextUsageSnapshot::error("RUNTIME_UNSUPPORTED", observed_at),
         }
     }
@@ -1190,6 +1307,12 @@ fn find_context_session_file(
                     return Some(path);
                 }
             }
+            if matches!(cli, "pi" | "omp")
+                && pi_session_service::read_session_metadata(&path)
+                    .is_some_and(|metadata| metadata.session_id == resume_id)
+            {
+                return Some(path);
+            }
         }
     }
     None
@@ -1222,6 +1345,8 @@ fn context_session_roots(
             return vec![match cli {
                 "claude" => wsl_home.join(".claude").join("projects"),
                 "codex" => wsl_home.join(".codex").join("sessions"),
+                "pi" => wsl_home.join(".pi").join("agent").join("sessions"),
+                "omp" => wsl_home.join(".omp").join("agent").join("sessions"),
                 _ => return Vec::new(),
             }];
         }
@@ -1233,6 +1358,8 @@ fn context_session_roots(
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".codex"))
             .join("sessions"),
+        "pi" => home.join(".pi").join("agent").join("sessions"),
+        "omp" => home.join(".omp").join("agent").join("sessions"),
         _ => return Vec::new(),
     }]
 }
@@ -1375,10 +1502,30 @@ fn aggregate_entries(
     by_date.into_values().collect()
 }
 
+#[cfg(test)]
 fn collect_scan_roots(wsl_distros: &[WslDistro], wsl_vm_running: bool) -> Vec<ScanRoot> {
+    collect_scan_roots_from_home(
+        dirs::home_dir().as_deref(),
+        wsl_distros,
+        wsl_vm_running,
+        true,
+    )
+}
+
+fn collect_scan_roots_from_home(
+    native_home: Option<&Path>,
+    wsl_distros: &[WslDistro],
+    wsl_vm_running: bool,
+    use_native_environment_overrides: bool,
+) -> Vec<ScanRoot> {
     let mut roots = Vec::new();
-    if let Some(home) = dirs::home_dir() {
-        collect_home_scan_roots(&home, ScanOrigin::Native, &mut roots);
+    if let Some(home) = native_home {
+        collect_home_scan_roots(
+            home,
+            ScanOrigin::Native,
+            use_native_environment_overrides,
+            &mut roots,
+        );
     }
 
     // VM 已不在跑时忽略缓存里的 Running 条目：访问 \\wsl$ 会重新唤醒 distro
@@ -1410,6 +1557,7 @@ fn collect_scan_roots(wsl_distros: &[WslDistro], wsl_vm_running: bool) -> Vec<Sc
             ScanOrigin::Wsl {
                 distro: distro_name.to_string(),
             },
+            false,
             &mut roots,
         );
     }
@@ -1417,7 +1565,12 @@ fn collect_scan_roots(wsl_distros: &[WslDistro], wsl_vm_running: bool) -> Vec<Sc
     roots
 }
 
-fn collect_home_scan_roots(home: &Path, origin: ScanOrigin, roots: &mut Vec<ScanRoot>) {
+fn collect_home_scan_roots(
+    home: &Path,
+    origin: ScanOrigin,
+    use_environment_overrides: bool,
+    roots: &mut Vec<ScanRoot>,
+) {
     roots.push(ScanRoot {
         cli: "claude",
         path: home.join(".claude").join("projects"),
@@ -1431,6 +1584,18 @@ fn collect_home_scan_roots(home: &Path, origin: ScanOrigin, roots: &mut Vec<Scan
         source: UsageScanSource::Jsonl,
     });
     roots.push(ScanRoot {
+        cli: "pi",
+        path: home.join(".pi").join("agent").join("sessions"),
+        origin: origin.clone(),
+        source: UsageScanSource::Jsonl,
+    });
+    roots.push(ScanRoot {
+        cli: "omp",
+        path: home.join(".omp").join("agent").join("sessions"),
+        origin: origin.clone(),
+        source: UsageScanSource::Jsonl,
+    });
+    roots.push(ScanRoot {
         cli: "gemini",
         path: home.join(".gemini"),
         origin: origin.clone(),
@@ -1438,10 +1603,7 @@ fn collect_home_scan_roots(home: &Path, origin: ScanOrigin, roots: &mut Vec<Scan
     });
     roots.push(ScanRoot {
         cli: "opencode",
-        path: external_usage_session_service::opencode_db_path(
-            home,
-            matches!(origin, ScanOrigin::Native),
-        ),
+        path: external_usage_session_service::opencode_db_path(home, use_environment_overrides),
         origin: origin.clone(),
         source: UsageScanSource::OpenCode,
     });
@@ -1513,6 +1675,9 @@ fn session_id_for_path(cli_tool: &str, path: &Path) -> Option<String> {
             .map(|(session_id, _)| session_id)
             .or_else(|| file_stem(path)),
         "claude" => file_stem(path),
+        "pi" | "omp" => {
+            pi_session_service::read_session_metadata(path).map(|metadata| metadata.session_id)
+        }
         _ => None,
     }
 }
@@ -1899,6 +2064,51 @@ mod tests {
     }
 
     #[test]
+    fn pi_context_uses_provider_window_and_pi_usage_source() {
+        let service = provider_aware_service(None);
+        let request = context_request("pi", Some("claude-configured"));
+        let snapshot = service.context_observation_snapshot(
+            &request,
+            Some(&ContextObservation {
+                used_tokens: 80_000,
+                window_tokens: None,
+                window_diagnostic: None,
+                model: Some("claude-configured".to_string()),
+            }),
+            1,
+        );
+
+        assert_eq!(snapshot.status, ContextUsageStatus::Ready);
+        assert_eq!(snapshot.used_tokens, Some(80_000));
+        assert_eq!(snapshot.window_tokens, Some(1_000_000));
+        assert_eq!(snapshot.window_source.as_deref(), Some("provider-model"));
+        assert_eq!(snapshot.usage_source.as_deref(), Some("pi-jsonl"));
+    }
+
+    #[test]
+    fn pi_context_reports_unknown_window_without_provider_match() {
+        let service = provider_aware_service(None);
+        let request = context_request("pi", Some("missing-pi-model"));
+        let snapshot = service.context_observation_snapshot(
+            &request,
+            Some(&ContextObservation {
+                used_tokens: 42_000,
+                window_tokens: None,
+                window_diagnostic: None,
+                model: Some("missing-pi-model".to_string()),
+            }),
+            1,
+        );
+
+        assert_eq!(snapshot.status, ContextUsageStatus::Ready);
+        assert_eq!(snapshot.used_tokens, Some(42_000));
+        assert_eq!(snapshot.window_tokens, None);
+        assert_eq!(snapshot.window_source.as_deref(), Some("unknown"));
+        assert_eq!(snapshot.diagnostic_code.as_deref(), Some("WINDOW_UNKNOWN"));
+        assert_eq!(snapshot.usage_source.as_deref(), Some("pi-jsonl"));
+    }
+
+    #[test]
     fn claude_context_falls_back_to_1m_when_no_provider_or_observed_model_match() {
         // 配置里没有任何 model 能 hit（包括 observed_model 也不命中），但 launch
         // 注入了 provider_service —— 此时 claude 必须走 1M 兜底而不是 WINDOW_UNKNOWN。
@@ -2107,6 +2317,7 @@ mod tests {
         assert!(roots.len() >= 2);
         assert!(roots.iter().any(|root| root.cli == "claude"));
         assert!(roots.iter().any(|root| root.cli == "codex"));
+        assert!(roots.iter().any(|root| root.cli == "pi"));
         assert!(roots.iter().all(|root| root.origin == ScanOrigin::Native));
     }
 
@@ -2125,7 +2336,7 @@ mod tests {
             .iter()
             .filter(|root| matches!(root.origin, ScanOrigin::Wsl { .. }))
             .collect::<Vec<_>>();
-        assert_eq!(wsl_roots.len(), 6);
+        assert_eq!(wsl_roots.len(), 8);
         assert!(wsl_roots.iter().any(|root| {
             let path = root.path.to_string_lossy().replace('\\', "/");
             root.cli == "claude"
@@ -2137,6 +2348,18 @@ mod tests {
             root.cli == "codex"
                 && path.contains("//wsl$/Ubuntu/home/alice")
                 && path.contains(".codex/sessions")
+        }));
+        assert!(wsl_roots.iter().any(|root| {
+            let path = root.path.to_string_lossy().replace('\\', "/");
+            root.cli == "pi"
+                && path.contains("//wsl$/Ubuntu/home/alice")
+                && path.contains(".pi/agent/sessions")
+        }));
+        assert!(wsl_roots.iter().any(|root| {
+            let path = root.path.to_string_lossy().replace('\\', "/");
+            root.cli == "omp"
+                && path.contains("//wsl$/Ubuntu/home/alice")
+                && path.contains(".omp/agent/sessions")
         }));
     }
 

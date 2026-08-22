@@ -12,6 +12,11 @@ import type { ProviderType } from "@/types/provider";
 const FALLBACK_CLI_TO_PROVIDER_TYPES: Record<Exclude<KnownCliTool, "none">, ProviderType[]> = {
   claude: ["anthropic", "bedrock", "vertex", "proxy", "config_profile"],
   codex: ["open_ai"],
+  // The Pi family maps these CC-Panes Provider types to its built-in provider
+  // slugs. Proxy/config-profile/cursor stay native-only until the adapter can
+  // verify a stable translation for them.
+  pi: ["anthropic", "bedrock", "vertex", "open_ai", "gemini", "grok"],
+  omp: ["anthropic", "bedrock", "vertex", "open_ai", "gemini", "grok"],
   gemini: ["gemini"],
   kimi: ["kimi"],
   glm: ["glm"],

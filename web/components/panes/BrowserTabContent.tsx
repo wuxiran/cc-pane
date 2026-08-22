@@ -53,6 +53,11 @@ export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) 
   const isActive = primaryVisibility === "active";
   const viewportRef = useRef<HTMLDivElement>(null);
   const createdRef = useRef(false);
+  // webview 当前实际加载的 URL。与 `tab.browserUrl` 不同步时必须重新导航——
+  // dsh 标签的 URL 是进程重启后 OS 重新分配的端口，没有任何人会去调
+  // `navigate()`（那条路只有地址栏走），只认 createdRef 会让 webview 永远停在
+  // 上一次的死端口上（`ERR_CONNECTION_REFUSED`，看着像「恢复没生效」）。
+  const loadedUrlRef = useRef<string | null>(null);
   const webviewBlocked = useBrowserWebviewOverlayStore((state) => state.blockers.size > 0);
   const webviewBlockedRef = useRef(webviewBlocked);
   const previousWebviewBlockedRef = useRef(webviewBlocked);
@@ -85,24 +90,40 @@ export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) 
   }, [isVisible, reportError, tab.id]);
 
   useEffect(() => {
-    if (!isTauriRuntime() || !isVisible || createdRef.current) return;
+    if (!isTauriRuntime() || !isVisible) return;
+    // 已创建**且 URL 没变**才跳过。URL 变了要继续走下去：后端的 `browser_create`
+    // 对已存在的 webview 会转成 navigate + setBounds + setVisible
+    // （`browser_service.rs::create`），正是这里需要的语义。
+    if (createdRef.current && loadedUrlRef.current === tab.browserUrl) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
       const bounds = viewportBounds(viewportRef.current);
       if (!bounds || !tab.browserUrl) return;
+      const targetUrl = tab.browserUrl;
       const shouldShow = isVisible && !webviewBlockedRef.current;
-      void browserService.create(tab.id, tab.browserUrl, bounds, shouldShow)
+      // 先认领，别等 create 落地：`onPageLoad` 可能抢在 then 之前回填
+      // （它带尾斜杠，与这里的原始串不等），后到的 then 再写一次就会让
+      // 下一轮 effect 判成「又变了」而重复导航。
+      loadedUrlRef.current = targetUrl;
+      void browserService.create(tab.id, targetUrl, bounds, shouldShow)
         .then(() => {
           if (cancelled) {
             void browserService.close(tab.id);
             return;
           }
           createdRef.current = true;
+          // 地址栏跟着走：URL 由外部换掉时（dsh 重启换端口）用户看到的
+          // 应该是新地址，而不是那个已经连不上的旧端口。
+          setAddress(targetUrl);
           setError(null);
           const visible = isVisible && !webviewBlockedRef.current;
           void browserService.setVisible(tab.id, visible, visible && isActive).catch(reportError);
         })
-        .catch(reportError);
+        .catch((value) => {
+          // 认领要撤回，否则这个 URL 再也不会被重试（effect 会一直判「没变」）。
+          loadedUrlRef.current = null;
+          reportError(value);
+        });
     }, 0);
 
     return () => {
@@ -149,6 +170,10 @@ export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) 
       if (event.tabId !== tab.id) return;
       setAddress(event.url);
       setLoading(event.loading);
+      // 页面**自身**的导航（用户点链接、dsh 内部跳转）也会回填 browserUrl。
+      // 同步记进 loadedUrlRef，否则创建 effect 会把它当成「外部换了 URL」
+      // 而强制导航回去——用户点一下链接就被弹回原页。
+      loadedUrlRef.current = event.url;
       usePanesStore.getState().updateBrowserTab(tab.id, { browserUrl: event.url });
     }).then((unlisten) => unlisteners.push(unlisten));
     void browserService.onTitleChanged((event) => {
@@ -164,6 +189,8 @@ export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) 
       setAddress(url);
       setLoading(true);
       setError(null);
+      // 与 onPageLoad 同理：地址栏发起的导航不是「外部换 URL」。
+      loadedUrlRef.current = url;
       void browserService.navigate(tab.id, url).catch(reportError);
     } catch (value) {
       reportError(value);

@@ -23,6 +23,7 @@ export const SELECT_NONE = "__none__";
 
 export const BUILTIN_SKILLS = [
   "ccpanes-launch-task",
+  "ccpanes-dispatch-task",
   "ccpanes-dispatch-todos",
   "ccpanes-browse-sessions",
   "ccpanes-memory-dual-write",
@@ -45,6 +46,8 @@ export const TOOL_LABELS: Record<KnownCliTool, string> = {
   none: "",
   claude: "Claude",
   codex: "Codex",
+  pi: "Pi",
+  omp: "Oh My Pi",
   gemini: "Gemini",
   kimi: "Kimi",
   glm: "GLM",

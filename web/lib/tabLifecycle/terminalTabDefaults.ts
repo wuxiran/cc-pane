@@ -26,11 +26,16 @@ function deriveTerminalTitle(opts: CreateTabOptions): string {
   return name;
 }
 
-/** 新终端 leaf。sessionId 由调用方（已先建 PTY 的入口）可选带入。 */
+/**
+ * 新终端 leaf。sessionId 由调用方（已先建 PTY 的入口）可选带入。
+ *
+ * `terminalPaneId` 同理：后端派发的会话在建 PTY 时就把它写进了出生凭证，
+ * 这里必须原样采用，另起 id 会让凭证锚点对不上真实窗格、重启后无法自动接管。
+ */
 export function createTerminalLeaf(opts: CreateTabOptions): TerminalPaneLeaf {
   return {
     type: "leaf",
-    id: generateId("terminal-pane"),
+    id: opts.terminalPaneId ?? generateId("terminal-pane"),
     launchId: opts.launchId ?? generateId("launch"),
     restoreMode: resolveRestoreMode({
       cliTool: inferCliTool(opts.cliTool, opts.resumeId),

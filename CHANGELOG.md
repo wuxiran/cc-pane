@@ -1,6 +1,24 @@
 # Changelog
 
-## Unreleased
+## 0.12.6 - 2026-08-22
+
+Maintenance release. Most of it is one thread pulled end to end: a report of "garbled text in a pane" turned into an audit of the local PTY path, which surfaced five independent correctness bugs — none of which the previous three competitor-gap scans had caught, because those scanned for *missing features* and these all sit underneath features already marked done. Plus Pi / Oh My Pi CLI support.
+
+### Added
+
+- **Pi and Oh My Pi (omp) CLI support** — both register as first-class CLI adapters (launch, resume, session discovery, context probing), so they can be dispatched and orchestrated like Claude/Codex.
+
+### Fixed
+
+- **Local sessions ran without a UTF-8 locale** — macOS GUI apps launched from Finder/Dock do not inherit the shell's `LANG`/`LC_*`, so every local PTY ran under `LC_CTYPE=C` and any program sizing multibyte text by locale (notably `wcwidth` in TUI layout) miscounted CJK: `wc -m` on four Han characters returned 12. Only the WSL path had locale injection; local had none. Sessions now get `LANG=C.UTF-8` when the inherited locale is not UTF-8 — **`LANG` only, never `LC_ALL`**, which is the POSIX-wide override and would flatten a user's own `LC_TIME`/`LC_COLLATE`. When a non-UTF-8 `LC_ALL`/`LC_CTYPE` outranks the injection, a warning is logged rather than failing silently.
+- **Escape sequences split across PTY chunks lost their first half** — the plain-text output buffer stripped ANSI per chunk with a stateless stripper. It already carried an incomplete UTF-8 character and an incomplete *line* across chunks, but not an incomplete *escape sequence*: the leading `\x1b[38;2;24` was swallowed whole and the trailing `8;248;242m` surfaced as literal text. One session's buffer held 552 such fragments. Sequences are now carried across the boundary, with the carry cap tiered by type (128 B for CSI, 4 KiB for OSC/DCS — a 120-character OSC 8 hyperlink is already 127 B and an OSC 52 clipboard payload runs into the kilobytes).
+- **Query replies echoed as visible garbage, and polluted the next program's stdin** — the frontend answers terminal queries (CPR, device attributes, kitty keyboard, OSC 4/10/11) by writing to the PTY master. With the line discipline in cooked mode that write is echoed back literally (`^[[1;1R`) *and* queued as slave input for whatever reads stdin next. Replies are now suppressed when the TTY is in true cooked mode, decided by a synchronous `tcgetattr` on the master — deliberately not an async probe, since deferring a reply is what lets a later one overtake it. The predicate requires **both** `ECHO` and `ICANON`: with `ICANON` off the program genuinely can read the reply, so suppressing there would hang it. An indeterminate verdict never suppresses.
+- **Multi-line submits could be committed one line at a time** — `submit_to_session` only bracketed the paste when DECSET 2004 had been observed, and sent raw text otherwise, where every newline reaches a TUI as Enter. Windows ConPTY never forwards that mode, and there is no startup wait for it, so a prompt injected right after launch could race it. Worse than splitting the message: a draft parked in the agent's composer gets submitted by the first newline. Multi-line submits to a session running a TUI composer are now always bracketed.
+- **Terminal state stranded after a byte gap** — when desync recovery could not obtain a snapshot it returned without writing anything. Keeping the damaged screen is right, but the state is not kept along with it: the `CSI 22m` closing bold, or the `CSI ?1049l` leaving the alternate buffer, may have been inside the lost span, and everything after inherits it. Abandon paths now emit a narrow grounding — `CAN` plus an SGR reset. `CAN` rather than a bare `ESC`, because xterm dispatches OSC/DCS/APC unless the terminator is `0x18`/`0x1a`, so `ESC` would *commit* the truncated sequence: a half-read OSC 0 retitles the window and OSC 52 writes the clipboard.
+- **WebGL glyph-atlas corruption across panes** — xterm shares one glyph atlas between identically-configured terminals but each pane keeps its own vertex model, so an atlas rebuild in one pane left the others sampling stale coordinates (large black areas with sparse colored fragments, recovering only on a full repaint). CJK triggers it constantly, since every new Han character is a new glyph. All live WebGL terminals now refresh on an atlas structure change; a failed repaint keeps the pending flag instead of dropping it, and `onRender` acts as a third trigger for panes an IntersectionObserver cannot see.
+- **MCP-dispatched workers could not be re-adopted after a restart** — several orchestrator creation paths wrote provenance rows with null birth anchors (the PTY exists before the frontend picks a placement), and those rows could never be repaired, since the writer is `ON CONFLICT DO NOTHING` and backfill only looked for wholly missing rows. Anchors are now pre-assigned at creation with a daemon-side fallback, and migration v35 backfills the existing rows — only where an observation row actually supplies both anchors, never fabricating a value.
+
+## 0.12.5 - 2026-08-18
 
 ## 0.12.4 - 2026-08-11
 
@@ -8,10 +26,15 @@ Maintenance release: notification false-positive root-cause fixes, non-standard 
 
 ### Added
 
+- **Cross-CLI durable task dispatch** — `dispatch_task` now resolves registered CLI adapters, persists a versioned `TaskBinding` envelope, preserves parent/session relationships, and exposes `get_task_dispatch` for restart-safe status inspection.
+- **Launch profiles and skill delivery policy** — MCP launch configuration now carries provider, runtime, MCP, and skill compatibility decisions across the Rust, Tauri, and React layers.
+
 - **`contextSize` on provider models** — Claude Code hard-validates `ANTHROPIC_MODEL` against a built-in 200k allowlist, so any model outside it (e.g. `MiniMax-M3-highspeed`) was silently forced to 200k with a stderr warning. Provider models now carry `contextSize` (`"1m"` / `"500k"` / `"200k"` / `"custom"`), injected as a `[size]` suffix when writing `ANTHROPIC_MODEL`; usage stats reverse-parse the suffix from the session jsonl. Set it in the Provider editor and the Ctx readout shows the real window. `context_window_tokens` is kept for backward compatibility.
 - **"System" tab in the notification history** — session-exit and waiting-input notifications no longer interleave with AI rich summaries. The split keys off the backend-hardcoded `source` field (`terminal` = state-machine listener, `hook` = CLI hook channel) rather than guessing from title/kind text; "All" now excludes system notifications by default.
 
 ### Fixed
+
+- **Terminal output flooding and WebGL recovery** — PTY writes now use FIFO backpressure; WebGL context loss releases the underlying context, falls back to DOM, and remains latched until an explicit renderer-mode change. Failed addon activation also releases its context.
 
 - **"Waiting for input" false positives** — the root cause was matcher scope, not detection accuracy: `state-waiting-input` accepted 5 kinds of Claude Code Notification, and 3 of them do not mean "the agent is blocked". `idle_prompt` fires after 60s of input-box idling ("the human walked away"), and `turn_end` already notified once — that was the duplicate "just now / 4 minutes ago" pair, outside the 10s dedupe window. `elicitation_complete` / `elicitation_response` signal the dialog **ending** and the user having **answered** — semantically the opposite of WaitingInput, so they re-marked answered sessions as waiting and fired again. Only `permission_prompt` / `elicitation_dialog` remain. Tests lock all three regression sources and assert `HOOK_DEFS` and `map_cc_pane_event` stay in the same scope (they were hand-synced before, and drift means the installed hook disagrees with the runtime).
 - **Blurry terminal text on macOS** — three causes stacked. `decideTerminalRenderer` downgraded *every* WebKit host to the DOM renderer (a guard against WKWebView leaving stale WebGL cell backgrounds after partial repaints), so macOS desktop never got WebGL; the renderer controller now has context-loss / atlas-rebuild / repaint recovery, so macOS desktop is allowed through while mobile WebKit (including iPad reporting itself as Macintosh) stays on DOM. The `body`-level `-webkit-font-smoothing: antialiased` suits Inter body text but thinned the monospace webfont's already-fine strokes — the terminal now uses `subpixel-antialiased`. And the bundled `Maple Mono NF CN` held the head of the font chain; on macOS `"SF Mono", Menlo` now come first, with the webfont kept in the chain for CJK coverage. Explicit user font chains are untouched; wallpaper transparency still forces DOM.
@@ -32,10 +55,15 @@ Maintenance release: notification false-positive root-cause fixes, non-standard 
 
 ### 新增
 
+- **跨 CLI 持久派工** — `dispatch_task` 现在按已注册 CLI 适配器解析目标，持久化带版本的 `TaskBinding` 信封，保留父任务/会话关系，并提供 `get_task_dispatch` 供重启后查询状态。
+- **启动配置与 Skill 投递策略** — MCP 启动配置的 Provider、运行环境、MCP 与 Skill 兼容性决策已贯通 Rust、Tauri 和 React 各层。
+
 - **Provider 模型的 `contextSize`** — Claude Code 对 `ANTHROPIC_MODEL` 按内置 200k 白名单强校验，不在表里的 model（如 `MiniMax-M3-highspeed`）会被强制按 200k 算并发 stderr 警告。现在 Provider 模型可带 `contextSize`（`"1m"` / `"500k"` / `"200k"` / `"custom"`），写入 `ANTHROPIC_MODEL` 时拼 `[size]` 后缀；用量统计从会话 jsonl 反解该后缀。在 Provider 编辑页设置后，Ctx 段即显示真实窗口。`context_window_tokens` 保留向后兼容。
 - **通知历史的「系统」栏** — 会话退出、等待输入这类状态机通知不再与 AI 富摘要混排。判据用后端硬编码的 `source` 字段（`terminal` = 状态机 listener，`hook` = CLI hook 通道），不猜 title/kind 文本；「全部」默认排除系统通知。
 
 ### 修复
+
+- **终端输出洪泛与 WebGL 恢复** — PTY 写入加入 FIFO 背压；WebGL context loss 会释放底层 context、降级 DOM，并保持锁存直到用户显式切换渲染模式。Addon 初始化失败也会释放 context。
 
 - **「等待输入」误报** — 根因在匹配器口径而非判定精度：`state-waiting-input` 收了 5 类 Claude Code Notification，其中 3 类根本不是「agent 被挡住」。`idle_prompt` 是输入框闲置 60s 触发（人走开了），而 `turn_end` 已经通知过一次——截图里「刚刚 / 4 分钟前」的重复条即此源，超出 10s dedupe 窗口。`elicitation_complete` / `elicitation_response` 是对话框**结束**与用户**已回答**事件，语义与 WaitingInput 相反，会把答完的会话重新标成等待并再弹一条。现在只留 `permission_prompt` / `elicitation_dialog`。测试锁死三个误报源，并断言 `HOOK_DEFS` 与 `map_cc_pane_event` 同口径（此前两处手工同步，漂了就是装出去的 hook 与运行期判定打架）。
 - **macOS 终端文字发虚** — 三个成因叠加。`decideTerminalRenderer` 把**所有** WebKit host 降级 DOM（原为规避 WKWebView 局部重绘残留旧单元格背景），macOS 桌面因此永远拿不到 WebGL；现渲染器控制器已有 context-loss / atlas 重建 / repaint 兜底，放行 macOS 桌面，移动端 WebKit（含报成 Macintosh 的 iPad）仍走 DOM。`body` 上的 `-webkit-font-smoothing: antialiased` 适合 Inter 正文，却把等宽 webfont 本就纤细的笔画磨得更细——终端区改用 `subpixel-antialiased`。打包的 `Maple Mono NF CN` 占住字体链首项，macOS 上改为 `"SF Mono", Menlo` 优先，webfont 留在链中继续兜 CJK。用户显式设定的字体链不动；壁纸透明仍强制 DOM。

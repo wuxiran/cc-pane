@@ -261,6 +261,9 @@ export default function WebglReproLab() {
           <Section title="WebGL 图集实时诊断">
             <Kv k="活动渲染器" v={diag?.activeRenderer} />
             <Kv k="决策原因" v={diag?.decisionReason} />
+            <Kv k="Policy GPU Vendor" v={diag?.webglVendor} />
+            <Kv k="Policy GPU Renderer" v={diag?.webglRenderer} />
+            <Kv k="Context-loss latch" v={String(diag?.webglDisabledAfterContextLoss ?? false)} />
             <Kv k="atlas 变更次数" v={diag?.atlasChangeCount} />
             <Kv k="atlas 画布数" v={diag?.atlasCanvasCount} />
             <Kv k="context 丢失次数" v={diag?.contextLossCount} />

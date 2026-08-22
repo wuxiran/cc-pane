@@ -18,6 +18,22 @@ import { reanchorAfterRecovery } from "./terminalReplay";
  * （如休眠唤醒路径），应在 resync 完成后再放行积压。
  */
 
+/**
+ * 字节 gap 之后的接地序列（照 Orca 的 `RESET_AFTER_BYTE_GAP`）。
+ *
+ * 用 `\x18`(CAN) 而不是裸 ESC：xterm 派发 OSC/DCS/APC 的判据是
+ * `success = code !== 0x18 && code !== 0x1a`，ESC 只是让解析器归位、却会**提交**
+ * 被 gap 截断的那一段——半个 OSC 0 会改窗口标题，OSC 52 会直接写剪贴板。
+ * CAN 才是"丢弃"。
+ *
+ * 后半的 `\x1b[0m` 清 pen：关掉粗体/颜色的那条 SGR 可能正落在丢失的那一段里，
+ * 不清的话后续所有输出都会带着它（Orca 的原话是 the pen is left bold）。
+ *
+ * 只做 parser + pen，**不做更宽的重置**：会话还活着，charset、边距、鼠标模式
+ * 归它自己管；DECSTR 软重置还会抹掉 agent 只在启动时协商一次的 kitty flags。
+ */
+const GROUND_AFTER_BYTE_GAP = "\x18\x1b[0m";
+
 interface RefValue<T> {
   current: T;
 }
@@ -55,6 +71,25 @@ export async function resyncFromReplaySnapshot({
   syncTrackedBufferType,
   debugLog,
 }: ResyncFromReplaySnapshotOptions): Promise<boolean> {
+  // 放弃路径的接地：不重画，但必须消掉 gap 卡住的解析器状态与 pen。
+  // 走 checkpoint 管道（无状态，非透明模式下就是直写）——delta 管道那个 renderer
+  // 是**有状态**的，desync 时它自己可能正扣着半个序列，接地序列进去会被拼上。
+  // 时序要紧：这里写完才 return false，调用方的 onResyncSettled 随后才 flush 积压
+  // 与写失败提示，两者因此都落在干净的 pen 上（Orca #14241 的
+  // "clears the SGR pen before draining abandoned chunks"）。
+  const groundAfterGap = async () => {
+    try {
+      await writeCheckpointData(GROUND_AFTER_BYTE_GAP);
+    } catch (error) {
+      // 接地失败不改变返回值：调用方要看到的是原本的失败原因，不是这一条。
+      debugLog("terminal.resync.ground-failed", {
+        sessionId,
+        reason,
+        error: String(error),
+      });
+    }
+  };
+
   let snapshot: TerminalRecoverySnapshot | null = null;
   try {
     snapshot = await getRecoverySnapshot(sessionId);
@@ -64,13 +99,16 @@ export async function resyncFromReplaySnapshot({
       reason,
       error: String(error),
     });
+    await groundAfterGap();
     return false;
   }
 
   if (!snapshot) {
     // 拿不到快照时保持现有画面：残缺画面 + 后续输出至少还有信息量，
-    // reset 后没有内容可补反而更糟。
+    // reset 后没有内容可补反而更糟。但画面留着不等于状态也留着——gap 吃掉的
+    // 那段里可能有关粗体/复位颜色的 SGR，不接地的话后续输出全被它染上。
     debugLog("terminal.resync.skip", { sessionId, reason, cause: "missing-snapshot" });
+    await groundAfterGap();
     return false;
   }
 

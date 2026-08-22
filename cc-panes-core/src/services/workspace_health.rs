@@ -105,6 +105,7 @@ mod tests {
             launch_profile_id: None,
             wsl_remote_path: None,
             ssh: None,
+            archived_at: None,
         }
     }
 

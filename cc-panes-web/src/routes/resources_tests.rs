@@ -274,6 +274,44 @@ async fn workspace_routes_match_core_service_operations() {
         Some("profile-a")
     );
 
+    // 归档是逻辑删除：条目留在 workspace.json 里，只多一个时间戳，可恢复
+    set_workspace_project_archived(
+        State(state.clone()),
+        Path(("team-a".to_string(), project.id.clone())),
+        Json(WorkspaceArchivedRequest { archived: true }),
+    )
+    .await
+    .expect("archive workspace project");
+    let Json(archived_workspace) = get_workspace(State(state.clone()), Path("team-a".to_string()))
+        .await
+        .expect("get workspace after archiving project");
+    assert_eq!(archived_workspace.projects.len(), 1);
+    assert!(archived_workspace.projects[0].archived_at.is_some());
+
+    set_workspace_archived(
+        State(state.clone()),
+        Path("team-a".to_string()),
+        Json(WorkspaceArchivedRequest { archived: true }),
+    )
+    .await
+    .expect("archive workspace");
+    let Json(archived_workspace) = get_workspace(State(state.clone()), Path("team-a".to_string()))
+        .await
+        .expect("get archived workspace");
+    assert!(archived_workspace.archived_at.is_some());
+
+    set_workspace_archived(
+        State(state.clone()),
+        Path("team-a".to_string()),
+        Json(WorkspaceArchivedRequest { archived: false }),
+    )
+    .await
+    .expect("restore workspace");
+    let Json(restored_workspace) = get_workspace(State(state.clone()), Path("team-a".to_string()))
+        .await
+        .expect("get restored workspace");
+    assert!(restored_workspace.archived_at.is_none());
+
     remove_workspace_project(
         State(state.clone()),
         Path(("team-a".to_string(), project.id)),

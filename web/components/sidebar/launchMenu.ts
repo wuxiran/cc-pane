@@ -27,12 +27,15 @@ export interface SidebarCliLaunchItem {
   label: string;
 }
 
-const SIDEBAR_LAUNCH_CLI_TOOLS: ReadonlyArray<{
+export const SIDEBAR_LAUNCH_CLI_TOOLS: ReadonlyArray<{
   id: SidebarLaunchCliTool;
   labelKey: string;
+  supportsSsh?: boolean;
 }> = [
   { id: "claude", labelKey: "cliToolClaude" },
   { id: "codex", labelKey: "cliToolCodex" },
+  { id: "pi", labelKey: "cliToolPi", supportsSsh: false },
+  { id: "omp", labelKey: "cliToolOmp", supportsSsh: false },
   { id: "gemini", labelKey: "cliToolGemini" },
   { id: "kimi", labelKey: "cliToolKimi" },
   { id: "glm", labelKey: "cliToolGlm" },
@@ -138,7 +141,7 @@ export function buildSidebarLaunchActions(
         }),
       });
     }
-    if (includeSshVariant) {
+    if (includeSshVariant && tool.supportsSsh !== false) {
       actions.push({
         id: `${tool.id}-ssh`,
         kind: "cli",

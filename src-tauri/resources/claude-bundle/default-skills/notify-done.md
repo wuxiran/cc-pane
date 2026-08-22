@@ -1,6 +1,6 @@
 ---
 name: ccpanes-notify-done
-description: "在回复收尾时通过 trigger_notification 推送富摘要通知（桌面 + IM）。Use when finishing a substantial turn: a long task completed, an error needs the user, or a decision is required. Skip for trivial Q&A."
+description: Push a rich summary notification (desktop plus IM) when finishing a substantial turn. 触发词：长任务完成、需要用户决策、出错需人介入。琐碎问答不要用。
 ---
 
 # 收尾富摘要通知

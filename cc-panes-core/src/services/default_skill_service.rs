@@ -1,11 +1,23 @@
-//! 默认 Skill 全局发布服务
+//! CC-Panes 内置 Skill 的应用内物化 + 旧全局注入的一次性回收。
 //!
-//! 应用启动时将内置模板同时发布到：
-//! - Claude 命令目录（如 `~/.claude/commands/ccpanes/`）
-//! - Codex 技能目录（如 `~/.codex/skills/ccpanes-launch-task/SKILL.md`）
+//! **所有权边界**：内置 skill 只写 CC-Panes 自己的数据目录
+//! （`<data_dir>/skills/builtin`，见 `AppPaths::builtin_skills_dir`），
+//! 各 CLI 在**启动时按会话挂载**指过去：
+//! - Claude Code：`--plugin-dir <builtin_root>`（该目录本身是一个合法插件）
+//! - Codex：`-c skills.config=[{path=..,enabled=true}]`
+//!
+//! 用户的 `~/.claude` / `~/.codex` **零写入**。
+//!
+//! 0.12.5 之前的版本会把 25 个 skill 直接写进用户的 CLI Home（`~/.codex/skills/`、
+//! `~/.claude/skills/`、`~/.claude/commands/ccpanes/`，共 75 个文件），
+//! 并按 `ccpanes-` 前缀删除目录——这会误删用户自建的同前缀 skill。
+//! `cleanup_legacy_injected_once` 负责一次性回收这些残留，且
+//! **只删内容哈希能证明是我们历史发布物的文件**：用户手改过的、自建的一律保留。
 
-use cc_cli_adapters::CliToolRegistry;
+use crate::utils::atomic_file;
+use cc_cli_adapters::{CliToolRegistry, SkillDeliveryMode};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
@@ -13,10 +25,28 @@ use tracing::{info, warn};
 pub(crate) const BUNDLED_NAMESPACE: &str = "ccpanes";
 pub(crate) const VERSION_FILE_NAME: &str = ".ccpanes-default-skills-version";
 const CODEX_SKILL_FILE_NAME: &str = "SKILL.md";
+const CURRENT_MANIFEST_SCHEMA_VERSION: u32 = 2;
+
+/// 随包分发的历史发布物 SHA-256 清单（模板目录内）。缺失时退化为「只删空目录」，
+/// 绝不退化为按前缀批量删——那正是本次要修的缺陷。
+const LEGACY_HASH_FILE_NAME: &str = "legacy-skill-hashes.json";
+
+/// 迁移幂等标记，写在 `<data_dir>/skills/` 下。存在即表示回收已跑过。
+pub const LEGACY_CLEANUP_REPORT_FILE_NAME: &str = "legacy-global-skill-cleanup-v1.json";
+
+/// managed bundle 内存放各 skill 的子目录。
+/// Claude 插件约定为 `<plugin_root>/skills/<name>/SKILL.md`，Codex 的
+/// `skills.config` 直接指向 `<plugin_root>/skills/<name>`，两者共用同一份内容。
+pub const MANAGED_SKILLS_SUBDIR: &str = "skills";
+const CLAUDE_PLUGIN_DIR: &str = ".claude-plugin";
+const CLAUDE_PLUGIN_MANIFEST: &str = "plugin.json";
 
 /// Skill 清单文件
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SkillManifest {
+    #[serde(default = "default_manifest_schema_version")]
+    schema_version: u32,
     namespace: String,
     #[serde(default)]
     variables: HashMap<String, String>,
@@ -28,6 +58,45 @@ struct SkillManifest {
 struct SkillEntry {
     name: String,
     file: String,
+    #[serde(default)]
+    delivery: BundledSkillDelivery,
+}
+
+impl SkillEntry {
+    fn supports_delivery_mode(&self, mode: SkillDeliveryMode) -> bool {
+        match mode {
+            // Pi has no CC-Panes MCP transport. Legacy entries can assume one,
+            // so only an explicit, MCP-independent Pi delivery is permitted.
+            SkillDeliveryMode::PiSkill => {
+                self.delivery.portable
+                    && !self.delivery.requires_ccpanes_mcp
+                    && self.delivery.modes.contains(&SkillDeliveryMode::PiSkill)
+            }
+            _ => !self.delivery.portable || self.delivery.modes.contains(&mode),
+        }
+    }
+}
+
+/// Cross-CLI delivery metadata introduced by bundled Skill manifest v2.
+///
+/// Missing metadata deliberately means legacy behavior, preserving v1 manifests
+/// and CLI-specific Skills unchanged.
+#[derive(Debug, Clone, serde::Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BundledSkillDelivery {
+    #[serde(default)]
+    pub portable: bool,
+    #[serde(default)]
+    pub modes: Vec<SkillDeliveryMode>,
+    #[serde(default)]
+    pub requires_ccpanes_mcp: bool,
+}
+
+/// 历史发布物哈希清单
+#[derive(Debug, Default, Deserialize)]
+struct LegacySkillHashes {
+    #[serde(default)]
+    sha256: Vec<String>,
 }
 
 /// 内置 skill 的只读展示信息（供资源中心 / 命令返回）
@@ -35,22 +104,36 @@ struct SkillEntry {
 pub struct BundledSkillInfo {
     pub name: String,
     pub description: Option<String>,
+    pub delivery: BundledSkillDelivery,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DefaultSkillCleanupReport {
     pub removed: Vec<PathBuf>,
+    /// 命中「我们的命名空间」但**内容哈希对不上**的文件——用户手改过或自建，
+    /// 一律保留并记账，便于事后向用户解释「为什么这几个还在」。
+    pub preserved: Vec<PathBuf>,
     pub failed: Vec<(PathBuf, String)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RenderedCommand {
-    file_name: String,
-    content: String,
+impl DefaultSkillCleanupReport {
+    fn merge(&mut self, other: DefaultSkillCleanupReport) {
+        self.removed.extend(other.removed);
+        self.preserved.extend(other.preserved);
+        self.failed.extend(other.failed);
+    }
+
+    fn normalize(&mut self) {
+        self.removed.sort();
+        self.removed.dedup();
+        self.preserved.sort();
+        self.preserved.dedup();
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct RenderedCodexSkill {
+struct RenderedSkill {
     dir_name: String,
     skill_md: String,
 }
@@ -58,11 +141,10 @@ struct RenderedCodexSkill {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RenderedBundle {
     namespace: String,
-    commands: Vec<RenderedCommand>,
-    codex_skills: Vec<RenderedCodexSkill>,
+    skills: Vec<RenderedSkill>,
 }
 
-/// 默认 Skill 发布服务
+/// 默认 Skill 物化服务
 pub struct DefaultSkillService {
     /// 模板所在目录（来自 Tauri 资源目录）
     templates_dir: PathBuf,
@@ -96,9 +178,84 @@ impl DefaultSkillService {
                 BundledSkillInfo {
                     name: s.name.clone(),
                     description,
+                    delivery: s.delivery.clone(),
                 }
             })
             .collect()
+    }
+
+    /// Render selected portable bundled Skills for a CLI that accepts only a
+    /// session-level prompt. Native command/Skill delivery remains preferred
+    /// whenever an adapter supports it.
+    pub fn portable_session_prompt(
+        &self,
+        selected_skill_names: &[String],
+        ccpanes_mcp_available: bool,
+    ) -> Option<String> {
+        let manifest_path = self.templates_dir.join("manifest.json");
+        let manifest = Self::load_manifest(&manifest_path)?;
+        let mut rendered = Vec::new();
+        let mut seen = HashSet::new();
+
+        for name in selected_skill_names {
+            let name = name.trim();
+            if name.is_empty() || !seen.insert(name) {
+                continue;
+            }
+            let Some(skill) = manifest
+                .skills
+                .iter()
+                .find(|skill| skill.name.as_str() == name)
+            else {
+                continue;
+            };
+            if !skill.delivery.portable
+                || !skill
+                    .delivery
+                    .modes
+                    .contains(&SkillDeliveryMode::SessionPrompt)
+                || (skill.delivery.requires_ccpanes_mcp && !ccpanes_mcp_available)
+            {
+                continue;
+            }
+
+            let template_path = self.templates_dir.join(&skill.file);
+            let template = match std::fs::read_to_string(&template_path) {
+                Ok(content) => content,
+                Err(error) => {
+                    warn!(
+                        "[default_skill] Failed to read session-prompt template {}: {}",
+                        template_path.display(),
+                        error
+                    );
+                    continue;
+                }
+            };
+            let content = Self::replace_variables(&template, &manifest.variables);
+            let body = Self::strip_frontmatter(&content);
+            if !body.trim().is_empty() {
+                rendered.push((skill.name.as_str(), body));
+            }
+        }
+
+        if rendered.is_empty() {
+            return None;
+        }
+
+        let mut prompt = String::from(
+            "<ccpanes-portable-skills>\n\
+             The following CC-Panes portable Skills are selected for this session. \
+             Follow them when relevant to the user's request.\n",
+        );
+        for (name, body) in rendered {
+            prompt.push_str("\n## ccpanes-");
+            prompt.push_str(name);
+            prompt.push('\n');
+            prompt.push_str(body.trim());
+            prompt.push('\n');
+        }
+        prompt.push_str("</ccpanes-portable-skills>");
+        Some(prompt)
     }
 
     /// 从 markdown 顶部 `--- ... ---` frontmatter 里取 `description:` 值（CRLF 安全）。
@@ -123,37 +280,426 @@ impl DefaultSkillService {
         None
     }
 
-    /// 将所有默认 Skill 发布到支持的 CLI 用户目录
-    pub fn inject_all(&self, registry: &CliToolRegistry, app_version: &str) {
-        let manifest_path = self.templates_dir.join("manifest.json");
-        let manifest = match Self::load_manifest(&manifest_path) {
-            Some(m) => m,
-            None => return,
+    fn strip_frontmatter(content: &str) -> String {
+        let trimmed = content.trim_start_matches('\u{feff}');
+        let mut lines = trimmed.lines();
+        if lines.next().map(|line| line.trim()) != Some("---") {
+            return trimmed.to_string();
+        }
+        for line in lines.by_ref() {
+            if line.trim() == "---" {
+                return lines.collect::<Vec<_>>().join("\n");
+            }
+        }
+        trimmed.to_string()
+    }
+
+    // ---------------------------------------------------------------------
+    // 物化：只写 CC-Panes 自己的目录
+    // ---------------------------------------------------------------------
+
+    /// 把内置 skill 物化到 CC-Panes managed 根目录，并使该目录成为一个
+    /// **合法的 Claude 插件**（含 `.claude-plugin/plugin.json`），
+    /// 从而同时满足 Claude 的 `--plugin-dir` 与 Codex 的 `skills.config`。
+    ///
+    /// 返回写入的 SKILL.md 路径列表。
+    pub fn materialize_managed_bundle(
+        &self,
+        target_root: &Path,
+        app_version: &str,
+    ) -> Result<Vec<PathBuf>, String> {
+        let manifest = Self::load_manifest(&self.templates_dir.join("manifest.json"))
+            .ok_or_else(|| "bundled skill manifest is unavailable".to_string())?;
+        let rendered = self
+            .render_bundle(&manifest, SkillDeliveryMode::NativeSkill)
+            .ok_or_else(|| "bundled skills could not be rendered".to_string())?;
+
+        let skills_root = target_root.join(MANAGED_SKILLS_SUBDIR);
+        std::fs::create_dir_all(&skills_root).map_err(|error| {
+            format!(
+                "failed to create managed skill directory {}: {error}",
+                skills_root.display()
+            )
+        })?;
+
+        // 先清掉本版本已下架的 skill 目录。这里的删除依据是「managed 根目录归我们所有」，
+        // 与用户 CLI Home 的清理是两回事——那边必须走哈希白名单。
+        Self::cleanup_stale_managed_dirs(&skills_root, &rendered)?;
+
+        let mut written = Vec::with_capacity(rendered.skills.len());
+        for skill in &rendered.skills {
+            let skill_path = skills_root
+                .join(&skill.dir_name)
+                .join(CODEX_SKILL_FILE_NAME);
+            atomic_file::write_atomic(&skill_path, &skill.skill_md).map_err(|error| {
+                format!(
+                    "failed to write managed skill {}: {error}",
+                    skill_path.display()
+                )
+            })?;
+            written.push(skill_path);
+        }
+
+        Self::write_claude_plugin_manifest(target_root, &rendered.namespace, app_version)?;
+
+        // 版本戳写两处，两处各有消费方，值同源不会漂移：
+        // - 插件根：本 bundle 的规范标记
+        // - skills/ 子目录：WSL 同步的 `collect_wsl_codex_source_dirs` 以「源根必须有
+        //   版本戳」为前置校验，而它的源根就是这个 skills/ 目录
+        atomic_file::write_atomic(&target_root.join(VERSION_FILE_NAME), app_version)
+            .map_err(|error| format!("failed to write managed skill version stamp: {error}"))?;
+        atomic_file::write_atomic(&skills_root.join(VERSION_FILE_NAME), app_version)
+            .map_err(|error| format!("failed to write managed skills version stamp: {error}"))?;
+
+        info!(
+            root = %target_root.display(),
+            count = written.len(),
+            version = app_version,
+            "materialized CC-Panes managed skills"
+        );
+        Ok(written)
+    }
+
+    /// 写 Claude 插件清单。格式对齐官方插件（`name` / `description` / `author`），
+    /// skill 由 Claude 从 `<root>/skills/` 自动发现，无需在清单里逐条列出。
+    fn write_claude_plugin_manifest(
+        target_root: &Path,
+        namespace: &str,
+        app_version: &str,
+    ) -> Result<(), String> {
+        let manifest = serde_json::json!({
+            "name": namespace,
+            "version": app_version,
+            "description": "CC-Panes bundled skills for multi-instance CLI orchestration",
+            "author": { "name": "CC-Panes" },
+        });
+        let payload = serde_json::to_vec_pretty(&manifest)
+            .map_err(|error| format!("failed to serialize plugin manifest: {error}"))?;
+        let path = target_root
+            .join(CLAUDE_PLUGIN_DIR)
+            .join(CLAUDE_PLUGIN_MANIFEST);
+        atomic_file::write_atomic(&path, &payload)
+            .map_err(|error| format!("failed to write {}: {error}", path.display()))
+    }
+
+    /// 删除 managed skills 根目录下不在本版 manifest 中的 skill 目录。
+    ///
+    /// 该目录完全由 CC-Panes 拥有，用户不应在此放东西，故按「不在期望集即删」处理是安全的。
+    /// **注意这条判据只适用于 managed 根**——对用户 CLI Home 用同样判据正是历史缺陷。
+    fn cleanup_stale_managed_dirs(
+        skills_root: &Path,
+        rendered: &RenderedBundle,
+    ) -> Result<(), String> {
+        let expected: HashSet<&str> = rendered
+            .skills
+            .iter()
+            .map(|skill| skill.dir_name.as_str())
+            .collect();
+        let entries = match std::fs::read_dir(skills_root) {
+            Ok(entries) => entries,
+            Err(_) => return Ok(()),
         };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if expected.contains(name) {
+                continue;
+            }
+            if let Err(error) = std::fs::remove_dir_all(&path) {
+                warn!(
+                    "[default_skill] Failed to remove stale managed skill dir {}: {}",
+                    path.display(),
+                    error
+                );
+            } else {
+                info!("[default_skill] Removed stale managed skill dir: {}", name);
+            }
+        }
+        Ok(())
+    }
 
-        let rendered = match self.render_bundle(&manifest) {
-            Some(bundle) => bundle,
-            None => return,
+    // ---------------------------------------------------------------------
+    // 旧全局注入的一次性回收（哈希白名单）
+    // ---------------------------------------------------------------------
+
+    /// 首次迁移旧版全局注入，并把完整结果作为幂等标记写入 CC-Panes 数据目录。
+    /// 标记文件已存在则直接返回 `Ok(None)`，不再触碰磁盘。
+    pub fn cleanup_legacy_injected_once(
+        &self,
+        registry: &CliToolRegistry,
+        report_path: &Path,
+    ) -> Result<Option<DefaultSkillCleanupReport>, String> {
+        if report_path.is_file() {
+            return Ok(None);
+        }
+        let command_roots = registry
+            .global_commands_dirs()
+            .into_iter()
+            .map(|(_, path)| path)
+            .collect::<Vec<_>>();
+        let skill_roots = registry
+            .global_skills_dirs()
+            .into_iter()
+            .map(|(_, path)| path)
+            .collect::<Vec<_>>();
+        let report = self.cleanup_legacy_injected_roots(&command_roots, &skill_roots);
+        Self::write_cleanup_report(report_path, &report)?;
+        Ok(Some(report))
+    }
+
+    pub(crate) fn cleanup_legacy_injected_roots(
+        &self,
+        command_roots: &[PathBuf],
+        skill_roots: &[PathBuf],
+    ) -> DefaultSkillCleanupReport {
+        let known_hashes = self.known_published_hashes();
+        let mut report = DefaultSkillCleanupReport::default();
+        for root in command_roots {
+            report.merge(Self::cleanup_legacy_command_root(root, &known_hashes));
+        }
+        for root in skill_roots {
+            report.merge(Self::cleanup_legacy_skill_root(root, &known_hashes));
+        }
+        report.normalize();
+        report
+    }
+
+    fn write_cleanup_report(
+        report_path: &Path,
+        report: &DefaultSkillCleanupReport,
+    ) -> Result<(), String> {
+        let payload = serde_json::to_vec_pretty(report)
+            .map_err(|error| format!("failed to serialize legacy skill cleanup report: {error}"))?;
+        atomic_file::write_atomic(report_path, &payload).map_err(|error| {
+            format!(
+                "failed to write legacy skill cleanup report {}: {error}",
+                report_path.display()
+            )
+        })
+    }
+
+    /// 回收 `~/.claude/commands/ccpanes/`：逐个 `.md` 比对哈希，命中才删。
+    fn cleanup_legacy_command_root(
+        commands_root: &Path,
+        known_hashes: &HashSet<String>,
+    ) -> DefaultSkillCleanupReport {
+        let mut report = DefaultSkillCleanupReport::default();
+        let target = commands_root.join(BUNDLED_NAMESPACE);
+        if !target.is_dir() {
+            return report;
+        }
+        let entries = match std::fs::read_dir(&target) {
+            Ok(entries) => entries,
+            Err(error) => {
+                report.failed.push((target, error.to_string()));
+                return report;
+            }
         };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let is_version_stamp =
+                path.file_name().and_then(|name| name.to_str()) == Some(VERSION_FILE_NAME);
+            if is_version_stamp {
+                Self::remove_file(&path, &mut report);
+                continue;
+            }
+            if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("md") {
+                report.preserved.push(path);
+                continue;
+            }
+            if Self::path_has_known_hash(&path, known_hashes) {
+                Self::remove_file(&path, &mut report);
+            } else {
+                report.preserved.push(path);
+            }
+        }
+        // 只在目录被清空后才删目录本身；用户自己的文件还在就保留整个目录。
+        Self::remove_dir_if_empty(&target, &mut report);
+        report.normalize();
+        report
+    }
 
-        let command_dirs = registry.global_commands_dirs();
-        if command_dirs.is_empty() {
-            info!("[default_skill] No CLI tools support global commands");
+    /// 回收 `~/.codex/skills/` 与 `~/.claude/skills/` 下的 `ccpanes-*` 目录。
+    ///
+    /// 三重保护，缺一不可：
+    /// 1. 目录名必须是我们的命名空间前缀；
+    /// 2. 目录里除 `SKILL.md` 外不能有别的东西（用户加了 assets 就说明他在用）；
+    /// 3. `SKILL.md` 的内容哈希必须命中历史发布物清单。
+    fn cleanup_legacy_skill_root(
+        skills_root: &Path,
+        known_hashes: &HashSet<String>,
+    ) -> DefaultSkillCleanupReport {
+        let mut report = DefaultSkillCleanupReport::default();
+        if !skills_root.is_dir() {
+            return report;
         }
-        for (tool_id, commands_dir) in &command_dirs {
-            let target_dir = commands_dir.join(&rendered.namespace);
-            self.inject_commands_for_tool(tool_id, &target_dir, &rendered, app_version);
+        let prefix = format!("{BUNDLED_NAMESPACE}-");
+        let entries = match std::fs::read_dir(skills_root) {
+            Ok(entries) => entries,
+            Err(error) => {
+                report
+                    .failed
+                    .push((skills_root.to_path_buf(), error.to_string()));
+                return report;
+            }
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let owned_name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.starts_with(&prefix))
+                .unwrap_or(false);
+            if !owned_name || !path.is_dir() {
+                continue;
+            }
+            let skill_path = path.join(CODEX_SKILL_FILE_NAME);
+            if Self::dir_contains_only_skill_file(&path)
+                && Self::path_has_known_hash(&skill_path, known_hashes)
+            {
+                match std::fs::remove_dir_all(&path) {
+                    Ok(()) => report.removed.push(path),
+                    Err(error) => report.failed.push((path, error.to_string())),
+                }
+            } else {
+                report.preserved.push(path);
+            }
         }
+        let version_path = skills_root.join(VERSION_FILE_NAME);
+        if version_path.is_file() {
+            Self::remove_file(&version_path, &mut report);
+        }
+        report.normalize();
+        report
+    }
 
-        let skill_dirs = registry.global_skills_dirs();
-        if skill_dirs.is_empty() {
-            info!("[default_skill] No CLI tools support global skills");
-        }
-        for (tool_id, skills_dir) in &skill_dirs {
-            self.inject_codex_skills_for_tool(tool_id, skills_dir, &rendered, app_version);
+    /// 读取随包分发的历史发布物哈希清单。清单缺失时返回空集——
+    /// 结果是「什么都不删、全部 preserved」，这是安全的降级方向。
+    fn known_published_hashes(&self) -> HashSet<String> {
+        let path = self.templates_dir.join(LEGACY_HASH_FILE_NAME);
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            warn!(
+                "[default_skill] legacy hash manifest missing at {}; legacy cleanup will preserve everything",
+                path.display()
+            );
+            return HashSet::new();
+        };
+        match serde_json::from_str::<LegacySkillHashes>(&content) {
+            Ok(parsed) => parsed
+                .sha256
+                .into_iter()
+                .map(|hash| hash.trim().to_ascii_lowercase())
+                .filter(|hash| !hash.is_empty())
+                .collect(),
+            Err(error) => {
+                warn!("[default_skill] invalid legacy hash manifest: {}", error);
+                HashSet::new()
+            }
         }
     }
 
+    /// Publish explicitly Pi-compatible bundled Skills into one Pi agent state
+    /// root, such as the directory supplied through `PI_CODING_AGENT_DIR`.
+    ///
+    /// The target is always `<agent_root>/skills`; callers must not pass a
+    /// user's shared `~/.pi/agent/skills` directory. Pi entries are rendered
+    /// directly from the bundled manifest/templates and deliberately retain
+    /// every existing directory in the target Skills root.
+    pub fn inject_pi_skills_to_agent_root(&self, agent_root: &Path, app_version: &str) {
+        let rendered = match self.render_explicit_pi_skill_bundle() {
+            Some(bundle) => bundle,
+            None => return,
+        };
+        let target_root = agent_root.join("skills");
+        self.inject_pi_skills_for_tool("pi-managed", &target_root, &rendered, app_version);
+    }
+
+    fn path_has_known_hash(path: &Path, known_hashes: &HashSet<String>) -> bool {
+        if known_hashes.is_empty() {
+            return false;
+        }
+        let Ok(bytes) = std::fs::read(path) else {
+            return false;
+        };
+        // CRLF 归一后再比：Windows 上历史写入可能带 \r\n，内容其实一致。
+        let normalized = Self::normalize_newlines(&bytes);
+        known_hashes.contains(&Self::sha256_hex(&normalized))
+            || known_hashes.contains(&Self::sha256_hex(&bytes))
+    }
+
+    fn normalize_newlines(bytes: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut index = 0usize;
+        while index < bytes.len() {
+            if bytes[index] == b'\r' && bytes.get(index + 1) == Some(&b'\n') {
+                index += 1;
+                continue;
+            }
+            out.push(bytes[index]);
+            index += 1;
+        }
+        out
+    }
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        format!("{:x}", hasher.finalize())
+    }
+
+    fn dir_contains_only_skill_file(dir: &Path) -> bool {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return false;
+        };
+        let mut seen_skill = false;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file()
+                && path.file_name().and_then(|name| name.to_str()) == Some(CODEX_SKILL_FILE_NAME)
+            {
+                seen_skill = true;
+                continue;
+            }
+            return false;
+        }
+        seen_skill
+    }
+
+    fn remove_file(path: &Path, report: &mut DefaultSkillCleanupReport) {
+        match std::fs::remove_file(path) {
+            Ok(()) => report.removed.push(path.to_path_buf()),
+            Err(error) => report.failed.push((path.to_path_buf(), error.to_string())),
+        }
+    }
+
+    fn remove_dir_if_empty(dir: &Path, report: &mut DefaultSkillCleanupReport) {
+        let is_empty = std::fs::read_dir(dir)
+            .map(|mut entries| entries.next().is_none())
+            .unwrap_or(false);
+        if !is_empty {
+            report.preserved.push(dir.to_path_buf());
+            return;
+        }
+        match std::fs::remove_dir(dir) {
+            Ok(()) => report.removed.push(dir.to_path_buf()),
+            Err(error) => report.failed.push((dir.to_path_buf(), error.to_string())),
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // 卸载清理（用户显式发起，沿用命名空间口径）
+    // ---------------------------------------------------------------------
+
+    /// 卸载时回收旧版本写入用户 CLI Home 的残留。
+    ///
+    /// 与 `cleanup_legacy_injected_*` 的区别：卸载是**用户显式发起**的，
+    /// 目的是「把 CC-Panes 的东西全部拿走」，故按命名空间回收；
+    /// 迁移期的自动清理则必须走哈希白名单，不能碰用户改过的文件。
     pub fn cleanup_injected(registry: &CliToolRegistry) -> DefaultSkillCleanupReport {
         let mut report = DefaultSkillCleanupReport::default();
 
@@ -168,7 +714,13 @@ impl DefaultSkillService {
             }
         }
 
-        for (_, skills_root) in registry.global_skills_dirs() {
+        for (tool_id, skills_root) in registry.global_skills_dirs() {
+            if !should_cleanup_skill_root(registry, &tool_id) {
+                // Pi shares this root with user-owned Agent Skills. Unlike the
+                // native CLI roots, a ccpanes-* directory name alone is not an
+                // ownership proof, so uninstall must not recursively remove it.
+                continue;
+            }
             match Self::cleanup_injected_skill_dirs(&skills_root) {
                 Ok(paths) => report.removed.extend(paths),
                 Err(error) => report.failed.push((skills_root, error.to_string())),
@@ -209,6 +761,10 @@ impl DefaultSkillService {
         Ok(removed)
     }
 
+    // ---------------------------------------------------------------------
+    // 渲染
+    // ---------------------------------------------------------------------
+
     /// 加载 manifest.json
     fn load_manifest(path: &Path) -> Option<SkillManifest> {
         let content = match std::fs::read_to_string(path) {
@@ -222,8 +778,19 @@ impl DefaultSkillService {
                 return None;
             }
         };
-        match serde_json::from_str(&content) {
-            Ok(m) => Some(m),
+        match serde_json::from_str::<SkillManifest>(&content) {
+            Ok(manifest)
+                if (1..=CURRENT_MANIFEST_SCHEMA_VERSION).contains(&manifest.schema_version) =>
+            {
+                Some(manifest)
+            }
+            Ok(manifest) => {
+                warn!(
+                    "[default_skill] Unsupported manifest schema version {} (supported: 1..={})",
+                    manifest.schema_version, CURRENT_MANIFEST_SCHEMA_VERSION
+                );
+                None
+            }
             Err(e) => {
                 warn!("[default_skill] Invalid manifest JSON: {}", e);
                 None
@@ -231,7 +798,11 @@ impl DefaultSkillService {
         }
     }
 
-    fn render_bundle(&self, manifest: &SkillManifest) -> Option<RenderedBundle> {
+    fn render_bundle(
+        &self,
+        manifest: &SkillManifest,
+        delivery_mode: SkillDeliveryMode,
+    ) -> Option<RenderedBundle> {
         if manifest.namespace != BUNDLED_NAMESPACE {
             warn!(
                 "[default_skill] Unexpected bundled namespace '{}' in manifest, using '{}'",
@@ -239,10 +810,12 @@ impl DefaultSkillService {
             );
         }
         let namespace = BUNDLED_NAMESPACE.to_string();
-        let mut commands = Vec::with_capacity(manifest.skills.len());
-        let mut codex_skills = Vec::with_capacity(manifest.skills.len());
+        let mut skills = Vec::with_capacity(manifest.skills.len());
 
         for skill in &manifest.skills {
+            if !skill.supports_delivery_mode(delivery_mode) {
+                continue;
+            }
             let template_path = self.templates_dir.join(&skill.file);
             let template = match std::fs::read_to_string(&template_path) {
                 Ok(content) => content,
@@ -256,265 +829,65 @@ impl DefaultSkillService {
                 }
             };
             let content = Self::replace_variables(&template, &manifest.variables);
-            commands.push(RenderedCommand {
-                file_name: skill.file.clone(),
-                content: content.clone(),
-            });
-            codex_skills.push(RenderedCodexSkill {
+            skills.push(RenderedSkill {
                 dir_name: Self::build_codex_skill_dir_name(&namespace, &skill.name),
                 skill_md: Self::build_codex_skill_markdown(&namespace, &skill.name, &content),
             });
         }
 
-        Some(RenderedBundle {
-            namespace,
-            commands,
-            codex_skills,
-        })
+        Some(RenderedBundle { namespace, skills })
     }
 
-    fn inject_commands_for_tool(
-        &self,
-        tool_id: &str,
-        target_dir: &Path,
-        rendered: &RenderedBundle,
-        app_version: &str,
-    ) {
-        if Self::commands_target_up_to_date(target_dir, rendered, app_version) {
-            info!(
-                "[default_skill] {} commands already up to date (v{})",
-                tool_id, app_version
-            );
-            return;
+    fn render_explicit_pi_skill_bundle(&self) -> Option<RenderedBundle> {
+        let manifest = Self::load_manifest(&self.templates_dir.join("manifest.json"))?;
+        let rendered = self.render_bundle(&manifest, SkillDeliveryMode::PiSkill)?;
+        if rendered.skills.is_empty() {
+            info!("[default_skill] No explicitly Pi-compatible bundled skills to publish");
+            return None;
         }
-
-        if let Err(error) = std::fs::create_dir_all(target_dir) {
-            warn!(
-                "[default_skill] Failed to create {}: {}",
-                target_dir.display(),
-                error
-            );
-            return;
-        }
-
-        Self::cleanup_stale_command_files(target_dir, rendered);
-
-        let mut success_count = 0usize;
-        for command in &rendered.commands {
-            let target_path = target_dir.join(&command.file_name);
-            match std::fs::write(&target_path, &command.content) {
-                Ok(_) => success_count += 1,
-                Err(error) => warn!(
-                    "[default_skill] Failed to write {}: {}",
-                    target_path.display(),
-                    error
-                ),
-            }
-        }
-
-        if success_count == rendered.commands.len() {
-            if let Err(error) = std::fs::write(target_dir.join(VERSION_FILE_NAME), app_version) {
-                warn!("[default_skill] Failed to write version stamp: {}", error);
-            }
-        } else {
-            warn!(
-                "[default_skill] Only {}/{} command skills succeeded for {}",
-                success_count,
-                rendered.commands.len(),
-                tool_id
-            );
-        }
-
-        info!(
-            "[default_skill] Injected {}/{} command skills for {} (v{})",
-            success_count,
-            rendered.commands.len(),
-            tool_id,
-            app_version
-        );
+        Some(rendered)
     }
 
-    fn inject_codex_skills_for_tool(
+    fn inject_pi_skills_for_tool(
         &self,
         tool_id: &str,
         target_root: &Path,
         rendered: &RenderedBundle,
         app_version: &str,
     ) {
-        if Self::codex_target_up_to_date(target_root, rendered, app_version) {
-            info!(
-                "[default_skill] {} codex skills already up to date (v{})",
-                tool_id, app_version
-            );
-            return;
-        }
-
-        if let Err(error) = std::fs::create_dir_all(target_root) {
-            warn!(
-                "[default_skill] Failed to create {}: {}",
-                target_root.display(),
-                error
-            );
-            return;
-        }
-
-        Self::cleanup_stale_codex_dirs(target_root, rendered);
-
+        // Pi receives an isolated agent root for managed sessions. Upsert only
+        // the explicitly Pi-compatible entries so sibling user Skills survive.
         let mut success_count = 0usize;
-        for skill in &rendered.codex_skills {
-            let dir_path = target_root.join(&skill.dir_name);
-            if let Err(error) = std::fs::create_dir_all(&dir_path) {
-                warn!(
-                    "[default_skill] Failed to create {}: {}",
-                    dir_path.display(),
-                    error
-                );
-                continue;
-            }
-
-            let skill_path = dir_path.join(CODEX_SKILL_FILE_NAME);
-            match std::fs::write(&skill_path, &skill.skill_md) {
-                Ok(_) => success_count += 1,
+        for skill in &rendered.skills {
+            let skill_path = target_root
+                .join(&skill.dir_name)
+                .join(CODEX_SKILL_FILE_NAME);
+            match atomic_file::write_atomic(&skill_path, &skill.skill_md) {
+                Ok(()) => success_count += 1,
                 Err(error) => warn!(
-                    "[default_skill] Failed to write {}: {}",
+                    "[default_skill] Failed to write Pi skill {}: {}",
                     skill_path.display(),
                     error
                 ),
             }
         }
 
-        if success_count == rendered.codex_skills.len() {
-            if let Err(error) = std::fs::write(target_root.join(VERSION_FILE_NAME), app_version) {
+        if success_count == rendered.skills.len() {
+            if let Err(error) =
+                atomic_file::write_atomic(&target_root.join(VERSION_FILE_NAME), app_version)
+            {
                 warn!(
-                    "[default_skill] Failed to write codex version stamp: {}",
+                    "[default_skill] Failed to write Pi skill version stamp: {}",
                     error
                 );
             }
         } else {
             warn!(
-                "[default_skill] Only {}/{} codex skills succeeded for {}",
+                "[default_skill] Only {}/{} Pi skills succeeded for {}",
                 success_count,
-                rendered.codex_skills.len(),
+                rendered.skills.len(),
                 tool_id
             );
-        }
-
-        info!(
-            "[default_skill] Injected {}/{} codex skills for {} (v{})",
-            success_count,
-            rendered.codex_skills.len(),
-            tool_id,
-            app_version
-        );
-    }
-
-    fn commands_target_up_to_date(
-        target_dir: &Path,
-        rendered: &RenderedBundle,
-        app_version: &str,
-    ) -> bool {
-        let version_path = target_dir.join(VERSION_FILE_NAME);
-        let Ok(existing_version) = std::fs::read_to_string(version_path) else {
-            return false;
-        };
-        if existing_version.trim() != app_version {
-            return false;
-        }
-        rendered
-            .commands
-            .iter()
-            .all(|command| target_dir.join(&command.file_name).is_file())
-    }
-
-    fn codex_target_up_to_date(
-        target_root: &Path,
-        rendered: &RenderedBundle,
-        app_version: &str,
-    ) -> bool {
-        let version_path = target_root.join(VERSION_FILE_NAME);
-        let Ok(existing_version) = std::fs::read_to_string(version_path) else {
-            return false;
-        };
-        if existing_version.trim() != app_version {
-            return false;
-        }
-        rendered.codex_skills.iter().all(|skill| {
-            target_root
-                .join(&skill.dir_name)
-                .join(CODEX_SKILL_FILE_NAME)
-                .is_file()
-        })
-    }
-
-    /// 删除 target_dir 中不在 manifest 中的旧 .md 文件
-    fn cleanup_stale_command_files(target_dir: &Path, rendered: &RenderedBundle) {
-        let expected: HashSet<&str> = rendered
-            .commands
-            .iter()
-            .map(|skill| skill.file_name.as_str())
-            .collect();
-        let entries = match std::fs::read_dir(target_dir) {
-            Ok(entries) => entries,
-            Err(_) => return,
-        };
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
-                continue;
-            }
-
-            if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
-                if !expected.contains(name) {
-                    if let Err(error) = std::fs::remove_file(&path) {
-                        warn!(
-                            "[default_skill] Failed to remove stale file {}: {}",
-                            path.display(),
-                            error
-                        );
-                    } else {
-                        info!("[default_skill] Removed stale command file: {}", name);
-                    }
-                }
-            }
-        }
-    }
-
-    fn cleanup_stale_codex_dirs(target_root: &Path, rendered: &RenderedBundle) {
-        let prefix = format!("{}-", rendered.namespace);
-        let expected: HashSet<&str> = rendered
-            .codex_skills
-            .iter()
-            .map(|skill| skill.dir_name.as_str())
-            .collect();
-
-        let entries = match std::fs::read_dir(target_root) {
-            Ok(entries) => entries,
-            Err(_) => return,
-        };
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-
-            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-                continue;
-            };
-            if !name.starts_with(&prefix) || expected.contains(name) {
-                continue;
-            }
-
-            if let Err(error) = std::fs::remove_dir_all(&path) {
-                warn!(
-                    "[default_skill] Failed to remove stale codex skill dir {}: {}",
-                    path.display(),
-                    error
-                );
-            } else {
-                info!("[default_skill] Removed stale codex skill dir: {}", name);
-            }
         }
     }
 
@@ -567,6 +940,24 @@ impl DefaultSkillService {
     }
 }
 
+fn registry_supports_skill_delivery(
+    registry: &CliToolRegistry,
+    tool_id: &str,
+    mode: SkillDeliveryMode,
+) -> bool {
+    registry
+        .get(tool_id)
+        .is_some_and(|adapter| adapter.skill_delivery_modes().contains(&mode))
+}
+
+fn should_cleanup_skill_root(registry: &CliToolRegistry, tool_id: &str) -> bool {
+    !registry_supports_skill_delivery(registry, tool_id, SkillDeliveryMode::PiSkill)
+}
+
+fn default_manifest_schema_version() -> u32 {
+    1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -586,6 +977,30 @@ mod tests {
         let _ = fs::remove_dir_all(path);
     }
 
+    /// 造一个最小模板目录：manifest + 一个模板 + 哈希清单（含该模板渲染后的哈希）
+    fn templates_with_hashes(root: &Path, published: &[&str]) {
+        fs::create_dir_all(root).unwrap();
+        fs::write(
+            root.join("manifest.json"),
+            r#"{"namespace":"ccpanes","variables":{},"skills":[{"name":"launch-task","file":"launch-task.md"}]}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("launch-task.md"),
+            "---\nname: ccpanes-launch-task\ndescription: d\n---\n\nBody",
+        )
+        .unwrap();
+        let hashes: Vec<String> = published
+            .iter()
+            .map(|content| DefaultSkillService::sha256_hex(content.as_bytes()))
+            .collect();
+        fs::write(
+            root.join(LEGACY_HASH_FILE_NAME),
+            serde_json::json!({ "sha256": hashes }).to_string(),
+        )
+        .unwrap();
+    }
+
     #[test]
     fn test_replace_variables() {
         let mut vars = HashMap::new();
@@ -595,6 +1010,222 @@ mod tests {
         let template = "Use {{app_name}} with MCP server {{mcp_server_name}}.";
         let result = DefaultSkillService::replace_variables(template, &vars);
         assert_eq!(result, "Use CC-Panes with MCP server ccpanes.");
+    }
+
+    #[test]
+    fn manifest_v1_and_v2_parse_with_compatible_delivery_metadata() {
+        let v1: SkillManifest = serde_json::from_str(
+            r#"{"namespace":"ccpanes","skills":[{"name":"legacy","file":"legacy.md"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(v1.schema_version, 1);
+        assert!(!v1.skills[0].delivery.portable);
+        assert!(v1.skills[0].delivery.modes.is_empty());
+
+        let v2: SkillManifest = serde_json::from_str(
+            r#"{"schemaVersion":2,"namespace":"ccpanes","skills":[{"name":"portable","file":"portable.md","delivery":{"portable":true,"modes":["nativeSkill","sessionPrompt"],"requiresCcpanesMcp":true}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(v2.schema_version, 2);
+        assert!(v2.skills[0].delivery.portable);
+        assert_eq!(
+            v2.skills[0].delivery.modes,
+            vec![
+                SkillDeliveryMode::NativeSkill,
+                SkillDeliveryMode::SessionPrompt
+            ]
+        );
+        assert!(v2.skills[0].delivery.requires_ccpanes_mcp);
+    }
+
+    #[test]
+    fn portable_entries_only_render_for_declared_native_delivery_modes() {
+        let root = unique_temp_dir("portable-delivery");
+        fs::write(root.join("command.md"), "# command").unwrap();
+        fs::write(root.join("skill.md"), "# skill").unwrap();
+        fs::write(root.join("legacy.md"), "# legacy").unwrap();
+        let manifest = SkillManifest {
+            schema_version: 2,
+            namespace: BUNDLED_NAMESPACE.to_string(),
+            variables: HashMap::new(),
+            skills: vec![
+                SkillEntry {
+                    name: "command".to_string(),
+                    file: "command.md".to_string(),
+                    delivery: BundledSkillDelivery {
+                        portable: true,
+                        modes: vec![SkillDeliveryMode::NativeCommand],
+                        requires_ccpanes_mcp: false,
+                    },
+                },
+                SkillEntry {
+                    name: "skill".to_string(),
+                    file: "skill.md".to_string(),
+                    delivery: BundledSkillDelivery {
+                        portable: true,
+                        modes: vec![SkillDeliveryMode::NativeSkill],
+                        requires_ccpanes_mcp: false,
+                    },
+                },
+                SkillEntry {
+                    name: "legacy".to_string(),
+                    file: "legacy.md".to_string(),
+                    delivery: BundledSkillDelivery::default(),
+                },
+            ],
+        };
+        let service = DefaultSkillService::new(root.clone());
+
+        let command_delivery = service
+            .render_bundle(&manifest, SkillDeliveryMode::NativeCommand)
+            .unwrap();
+        assert_eq!(
+            command_delivery
+                .skills
+                .iter()
+                .map(|entry| entry.dir_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ccpanes-command", "ccpanes-legacy"]
+        );
+
+        let skills = service
+            .render_bundle(&manifest, SkillDeliveryMode::NativeSkill)
+            .unwrap();
+        assert_eq!(
+            skills
+                .skills
+                .iter()
+                .map(|entry| entry.dir_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ccpanes-skill", "ccpanes-legacy"]
+        );
+        remove_dir(&root);
+    }
+
+    #[test]
+    fn pi_skills_require_explicit_non_mcp_pi_delivery() {
+        let root = unique_temp_dir("pi-delivery");
+        fs::write(root.join("native.md"), "# native").unwrap();
+        fs::write(root.join("pi.md"), "# pi").unwrap();
+        fs::write(root.join("pi-mcp.md"), "# pi mcp").unwrap();
+        fs::write(root.join("legacy.md"), "# legacy").unwrap();
+        let manifest = SkillManifest {
+            schema_version: 2,
+            namespace: BUNDLED_NAMESPACE.to_string(),
+            variables: HashMap::new(),
+            skills: vec![
+                SkillEntry {
+                    name: "native".to_string(),
+                    file: "native.md".to_string(),
+                    delivery: BundledSkillDelivery {
+                        portable: true,
+                        modes: vec![SkillDeliveryMode::NativeSkill],
+                        requires_ccpanes_mcp: false,
+                    },
+                },
+                SkillEntry {
+                    name: "pi".to_string(),
+                    file: "pi.md".to_string(),
+                    delivery: BundledSkillDelivery {
+                        portable: true,
+                        modes: vec![SkillDeliveryMode::PiSkill],
+                        requires_ccpanes_mcp: false,
+                    },
+                },
+                SkillEntry {
+                    name: "pi-mcp".to_string(),
+                    file: "pi-mcp.md".to_string(),
+                    delivery: BundledSkillDelivery {
+                        portable: true,
+                        modes: vec![SkillDeliveryMode::PiSkill],
+                        requires_ccpanes_mcp: true,
+                    },
+                },
+                SkillEntry {
+                    name: "legacy".to_string(),
+                    file: "legacy.md".to_string(),
+                    delivery: BundledSkillDelivery::default(),
+                },
+            ],
+        };
+        let service = DefaultSkillService::new(root.clone());
+
+        let pi = service
+            .render_bundle(&manifest, SkillDeliveryMode::PiSkill)
+            .unwrap();
+
+        assert_eq!(
+            pi.skills
+                .iter()
+                .map(|entry| entry.dir_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ccpanes-pi"]
+        );
+        remove_dir(&root);
+    }
+
+    #[test]
+    fn portable_session_prompt_respects_selection_and_mcp_requirements() {
+        let root = unique_temp_dir("portable-session-prompt");
+        fs::write(
+            root.join("manifest.json"),
+            r#"{
+                "schemaVersion": 2,
+                "namespace": "ccpanes",
+                "skills": [
+                    {
+                        "name": "dispatch",
+                        "file": "dispatch.md",
+                        "delivery": {
+                            "portable": true,
+                            "modes": ["sessionPrompt"],
+                            "requiresCcpanesMcp": true
+                        }
+                    },
+                    {
+                        "name": "local-review",
+                        "file": "review.md",
+                        "delivery": {
+                            "portable": true,
+                            "modes": ["sessionPrompt"],
+                            "requiresCcpanesMcp": false
+                        }
+                    },
+                    { "name": "legacy", "file": "legacy.md" }
+                ]
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("dispatch.md"),
+            "---\nname: dispatch\n---\n# Dispatch\nUse MCP.",
+        )
+        .unwrap();
+        fs::write(root.join("review.md"), "# Review\nInspect the diff.").unwrap();
+        fs::write(root.join("legacy.md"), "# Legacy").unwrap();
+        let service = DefaultSkillService::new(root.clone());
+        let selected = vec![
+            "local-review".to_string(),
+            "dispatch".to_string(),
+            "dispatch".to_string(),
+            "legacy".to_string(),
+        ];
+
+        let prompt = service
+            .portable_session_prompt(&selected, true)
+            .expect("session prompt");
+        assert!(prompt.contains("## ccpanes-local-review\n# Review"));
+        assert!(prompt.contains("## ccpanes-dispatch\n# Dispatch"));
+        assert!(!prompt.contains("name: dispatch"));
+        assert_eq!(prompt.matches("## ccpanes-dispatch").count(), 1);
+        assert!(!prompt.contains("ccpanes-legacy"));
+
+        let without_mcp = service
+            .portable_session_prompt(&selected, false)
+            .expect("non-MCP session prompt");
+        assert!(without_mcp.contains("ccpanes-local-review"));
+        assert!(!without_mcp.contains("ccpanes-dispatch"));
+        remove_dir(&root);
     }
 
     #[test]
@@ -623,27 +1254,209 @@ mod tests {
     }
 
     #[test]
-    fn test_cleanup_stale_codex_dirs_only_removes_owned_prefix() {
-        let root = unique_temp_dir("cleanup-codex");
-        fs::create_dir_all(root.join("ccpanes-launch-task")).unwrap();
-        fs::create_dir_all(root.join("ccpanes-old-skill")).unwrap();
-        fs::create_dir_all(root.join("user-skill")).unwrap();
+    fn test_materialize_writes_plugin_manifest_and_skills() {
+        let templates = unique_temp_dir("materialize-templates");
+        templates_with_hashes(&templates, &[]);
+        let target = unique_temp_dir("materialize-target");
 
-        let rendered = RenderedBundle {
-            namespace: "ccpanes".to_string(),
-            commands: vec![],
-            codex_skills: vec![RenderedCodexSkill {
-                dir_name: "ccpanes-launch-task".to_string(),
-                skill_md: String::new(),
-            }],
-        };
+        let svc = DefaultSkillService::new(templates.clone());
+        let written = svc.materialize_managed_bundle(&target, "1.2.3").unwrap();
 
-        DefaultSkillService::cleanup_stale_codex_dirs(&root, &rendered);
+        assert_eq!(written.len(), 1);
+        let skill_md = target
+            .join(MANAGED_SKILLS_SUBDIR)
+            .join("ccpanes-launch-task")
+            .join("SKILL.md");
+        assert!(skill_md.is_file());
 
-        assert!(root.join("ccpanes-launch-task").is_dir());
-        assert!(!root.join("ccpanes-old-skill").exists());
-        assert!(root.join("user-skill").is_dir());
-        remove_dir(&root);
+        // Claude 插件清单必须存在且是合法 JSON，name 即命名空间（决定菜单里的 `ccpanes:` 前缀）
+        let manifest_path = target.join(".claude-plugin").join("plugin.json");
+        assert!(manifest_path.is_file());
+        let parsed: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        assert_eq!(parsed["name"], "ccpanes");
+        assert_eq!(parsed["version"], "1.2.3");
+
+        assert_eq!(
+            fs::read_to_string(target.join(VERSION_FILE_NAME)).unwrap(),
+            "1.2.3"
+        );
+
+        remove_dir(&templates);
+        remove_dir(&target);
+    }
+
+    #[test]
+    fn test_materialize_removes_stale_managed_skill_dirs() {
+        let templates = unique_temp_dir("materialize-stale-templates");
+        templates_with_hashes(&templates, &[]);
+        let target = unique_temp_dir("materialize-stale-target");
+        let stale = target
+            .join(MANAGED_SKILLS_SUBDIR)
+            .join("ccpanes-removed-skill");
+        fs::create_dir_all(&stale).unwrap();
+
+        let svc = DefaultSkillService::new(templates.clone());
+        svc.materialize_managed_bundle(&target, "1.0.0").unwrap();
+
+        assert!(!stale.exists());
+        remove_dir(&templates);
+        remove_dir(&target);
+    }
+
+    /// **核心回归锁**：迁移清理只删内容哈希命中的发布物。
+    /// 用户自建的、手改过的一律保留——这是本次改动要修的历史缺陷。
+    #[test]
+    fn test_legacy_cleanup_preserves_user_authored_and_modified_skills() {
+        let published = "---\nname: ccpanes-launch-task\n---\n\nPublished body\n";
+        let templates = unique_temp_dir("legacy-templates");
+        templates_with_hashes(&templates, &[published]);
+
+        let skills_root = unique_temp_dir("legacy-skills-root");
+
+        // ① 我们发布的原样文件 → 应被删
+        let pristine = skills_root.join("ccpanes-launch-task");
+        fs::create_dir_all(&pristine).unwrap();
+        fs::write(pristine.join("SKILL.md"), published).unwrap();
+
+        // ② 同前缀但用户自建 → 必须保留
+        let user_authored = skills_root.join("ccpanes-mine");
+        fs::create_dir_all(&user_authored).unwrap();
+        fs::write(user_authored.join("SKILL.md"), "my own skill").unwrap();
+
+        // ③ 我们发布过但用户改过 → 必须保留
+        let modified = skills_root.join("ccpanes-recall");
+        fs::create_dir_all(&modified).unwrap();
+        fs::write(modified.join("SKILL.md"), "---\nname: x\n---\nEDITED").unwrap();
+
+        // ④ 与我们无关的目录 → 不碰
+        let unrelated = skills_root.join("user-skill");
+        fs::create_dir_all(&unrelated).unwrap();
+
+        let svc = DefaultSkillService::new(templates.clone());
+        let report = svc.cleanup_legacy_injected_roots(&[], std::slice::from_ref(&skills_root));
+
+        assert!(!pristine.exists(), "published skill should be removed");
+        assert!(user_authored.is_dir(), "user-authored skill must survive");
+        assert!(modified.is_dir(), "user-modified skill must survive");
+        assert!(unrelated.is_dir(), "unrelated skill must survive");
+
+        assert!(report.removed.iter().any(|p| p == &pristine));
+        assert!(report.preserved.iter().any(|p| p == &user_authored));
+        assert!(report.preserved.iter().any(|p| p == &modified));
+
+        remove_dir(&templates);
+        remove_dir(&skills_root);
+    }
+
+    /// 哈希清单缺失时必须「什么都不删」，而不是退化成按前缀批量删。
+    #[test]
+    fn test_legacy_cleanup_without_hash_manifest_removes_nothing() {
+        let templates = unique_temp_dir("legacy-nohash-templates");
+        fs::create_dir_all(&templates).unwrap();
+        let skills_root = unique_temp_dir("legacy-nohash-skills");
+        let owned = skills_root.join("ccpanes-launch-task");
+        fs::create_dir_all(&owned).unwrap();
+        fs::write(owned.join("SKILL.md"), "anything").unwrap();
+
+        let svc = DefaultSkillService::new(templates.clone());
+        let report = svc.cleanup_legacy_injected_roots(&[], std::slice::from_ref(&skills_root));
+
+        assert!(owned.is_dir(), "must not delete without a hash manifest");
+        assert!(report.removed.is_empty());
+
+        remove_dir(&templates);
+        remove_dir(&skills_root);
+    }
+
+    /// 目录里除 SKILL.md 外还有别的文件 → 说明用户在用，即使哈希命中也保留。
+    #[test]
+    fn test_legacy_cleanup_preserves_dir_with_extra_files() {
+        let published = "---\nname: ccpanes-launch-task\n---\n\nPublished body\n";
+        let templates = unique_temp_dir("legacy-extra-templates");
+        templates_with_hashes(&templates, &[published]);
+        let skills_root = unique_temp_dir("legacy-extra-skills");
+        let owned = skills_root.join("ccpanes-launch-task");
+        fs::create_dir_all(&owned).unwrap();
+        fs::write(owned.join("SKILL.md"), published).unwrap();
+        fs::write(owned.join("notes.md"), "user notes").unwrap();
+
+        let svc = DefaultSkillService::new(templates.clone());
+        svc.cleanup_legacy_injected_roots(&[], std::slice::from_ref(&skills_root));
+
+        assert!(owned.is_dir(), "dir with user files must survive");
+
+        remove_dir(&templates);
+        remove_dir(&skills_root);
+    }
+
+    /// CRLF 归一：Windows 上历史写入带 \r\n，内容一致时仍应识别为发布物。
+    #[test]
+    fn test_legacy_cleanup_matches_crlf_variant() {
+        let published = "---\nname: ccpanes-launch-task\n---\n\nPublished body\n";
+        let templates = unique_temp_dir("legacy-crlf-templates");
+        templates_with_hashes(&templates, &[published]);
+        let skills_root = unique_temp_dir("legacy-crlf-skills");
+        let owned = skills_root.join("ccpanes-launch-task");
+        fs::create_dir_all(&owned).unwrap();
+        fs::write(owned.join("SKILL.md"), published.replace('\n', "\r\n")).unwrap();
+
+        let svc = DefaultSkillService::new(templates.clone());
+        svc.cleanup_legacy_injected_roots(&[], std::slice::from_ref(&skills_root));
+
+        assert!(!owned.exists(), "CRLF variant should still be recognized");
+
+        remove_dir(&templates);
+        remove_dir(&skills_root);
+    }
+
+    #[test]
+    fn test_legacy_cleanup_once_is_idempotent() {
+        let templates = unique_temp_dir("legacy-once-templates");
+        templates_with_hashes(&templates, &[]);
+        let data_dir = unique_temp_dir("legacy-once-data");
+        let report_path = data_dir.join(LEGACY_CLEANUP_REPORT_FILE_NAME);
+
+        let svc = DefaultSkillService::new(templates.clone());
+        let registry = CliToolRegistry::new();
+
+        // 第一次：跑了，写下标记
+        let first = svc
+            .cleanup_legacy_injected_once(&registry, &report_path)
+            .unwrap();
+        assert!(first.is_some());
+        assert!(report_path.is_file());
+
+        // 第二次：标记已在，直接跳过
+        let second = svc
+            .cleanup_legacy_injected_once(&registry, &report_path)
+            .unwrap();
+        assert!(second.is_none());
+
+        remove_dir(&templates);
+        remove_dir(&data_dir);
+    }
+
+    #[test]
+    fn test_command_root_cleanup_preserves_unknown_files() {
+        let published = "# published command\n";
+        let templates = unique_temp_dir("legacy-cmd-templates");
+        templates_with_hashes(&templates, &[published]);
+        let commands_root = unique_temp_dir("legacy-cmd-root");
+        let ns = commands_root.join(BUNDLED_NAMESPACE);
+        fs::create_dir_all(&ns).unwrap();
+        fs::write(ns.join("launch-task.md"), published).unwrap();
+        fs::write(ns.join("my-own.md"), "mine").unwrap();
+
+        let svc = DefaultSkillService::new(templates.clone());
+        svc.cleanup_legacy_injected_roots(std::slice::from_ref(&commands_root), &[]);
+
+        assert!(!ns.join("launch-task.md").exists());
+        assert!(ns.join("my-own.md").is_file());
+        assert!(ns.is_dir(), "namespace dir kept while user files remain");
+
+        remove_dir(&templates);
+        remove_dir(&commands_root);
     }
 
     #[test]
@@ -664,22 +1477,134 @@ mod tests {
         remove_dir(&root);
     }
 
+    // -----------------------------------------------------------------
+    // 随包模板的回归锁（直接读 src-tauri/resources 下的真实模板）
+    // -----------------------------------------------------------------
+
+    /// Codex 把 skill 索引行里的 description **硬截断到 116 字符**
+    /// （实测 codex 0.145 的 `<skills_instructions>` 块，大量条目精确等于该长度且词中截断）。
+    /// 超出部分 Codex 永远看不到，所以排除条款绝不能只写在 description 尾部。
+    ///
+    /// 该数字来自对二进制行为的实测，可能随 Codex 升版变化——改这里时
+    /// 一并复核 rollout 里的真实截断长度。
+    const CODEX_DESCRIPTION_BUDGET: usize = 116;
+
+    fn bundled_templates_dir() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("src-tauri")
+            .join("resources")
+            .join("claude-bundle")
+            .join("default-skills")
+    }
+
+    fn each_bundled_template(mut visit: impl FnMut(&str, &str, &str)) {
+        let root = bundled_templates_dir();
+        let manifest = DefaultSkillService::load_manifest(&root.join("manifest.json"))
+            .expect("bundled manifest must be readable");
+        assert!(!manifest.skills.is_empty());
+        for entry in &manifest.skills {
+            let raw = fs::read_to_string(root.join(&entry.file))
+                .unwrap_or_else(|error| panic!("read {}: {error}", entry.file));
+            let rendered = DefaultSkillService::replace_variables(&raw, &manifest.variables);
+            visit(&entry.name, &entry.file, &rendered);
+        }
+    }
+
+    fn frontmatter_field(content: &str, key: &str) -> Option<String> {
+        let trimmed = content.trim_start_matches('\u{feff}');
+        let mut lines = trimmed.lines();
+        if lines.next().map(str::trim) != Some("---") {
+            return None;
+        }
+        for line in lines {
+            if line.trim() == "---" {
+                break;
+            }
+            if let Some(rest) = line.strip_prefix(&format!("{key}:")) {
+                return Some(rest.trim().trim_matches('"').trim_matches('\'').to_string());
+            }
+        }
+        None
+    }
+
+    /// description 的**前 116 字符**必须自足：说清做什么 + 何时用，且不半词截断。
     #[test]
-    fn test_inject_codex_skills_for_tool_writes_skill_dirs_and_version() {
-        let root = unique_temp_dir("inject-codex");
+    fn bundled_descriptions_fit_codex_truncation_budget() {
+        each_bundled_template(|name, file, content| {
+            let description = frontmatter_field(content, "description")
+                .unwrap_or_else(|| panic!("{file} has no description"));
+            let visible: String = description.chars().take(CODEX_DESCRIPTION_BUDGET).collect();
+            assert!(
+                !visible.trim().is_empty(),
+                "{name}: empty visible description"
+            );
+            // 截断点落在词中间 = 前 116 字符不是一句完整的话
+            if description.chars().count() > CODEX_DESCRIPTION_BUDGET {
+                let next = description
+                    .chars()
+                    .nth(CODEX_DESCRIPTION_BUDGET)
+                    .unwrap_or(' ');
+                let last = visible.chars().last().unwrap_or(' ');
+                assert!(
+                    !(last.is_ascii_alphanumeric() && next.is_ascii_alphanumeric()),
+                    "{name}: description is cut mid-word at {CODEX_DESCRIPTION_BUDGET} chars; \
+                     keep the leading sentence self-contained and move the rest after it"
+                );
+            }
+        });
+    }
+
+    /// Codex 展示的是 frontmatter 的 `name:`（不是目录名），
+    /// 少了前缀就会与用户/第三方 skill 撞名。
+    #[test]
+    fn bundled_names_carry_namespace_prefix() {
+        each_bundled_template(|name, file, content| {
+            let declared =
+                frontmatter_field(content, "name").unwrap_or_else(|| panic!("{file} has no name"));
+            assert_eq!(
+                declared,
+                format!("{BUNDLED_NAMESPACE}-{name}"),
+                "{file}: frontmatter name must be namespaced"
+            );
+        });
+    }
+
+    /// `trigger:` 是自造字段，Claude 与 Codex 都不消费——留着只会误导维护者
+    /// 以为它参与匹配。触发词应写在 description 或正文里。
+    #[test]
+    fn bundled_templates_have_no_custom_trigger_field() {
+        each_bundled_template(|_, file, content| {
+            assert!(
+                frontmatter_field(content, "trigger").is_none(),
+                "{file}: `trigger:` is consumed by no harness; fold it into description/body"
+            );
+        });
+    }
+
+    #[test]
+    fn pi_skill_injection_preserves_unlisted_user_skill_dirs() {
+        let root = unique_temp_dir("inject-pi");
+        let preserved = root.join("ccpanes-user-skill");
+        fs::create_dir_all(&preserved).unwrap();
+        fs::write(preserved.join("SKILL.md"), "user content").unwrap();
         let svc = DefaultSkillService::new(PathBuf::from("/nonexistent"));
         let rendered = RenderedBundle {
             namespace: "ccpanes".to_string(),
-            commands: vec![],
-            codex_skills: vec![RenderedCodexSkill {
-                dir_name: "ccpanes-launch-task".to_string(),
-                skill_md: "---\nname: 'ccpanes-launch-task'\n---\n".to_string(),
+            skills: vec![RenderedSkill {
+                dir_name: "ccpanes-pi-only".to_string(),
+                skill_md: "---\nname: ccpanes-pi-only\ndescription: Pi-only test skill.\n---\n"
+                    .to_string(),
             }],
         };
 
-        svc.inject_codex_skills_for_tool("codex", &root, &rendered, "1.2.3");
+        svc.inject_pi_skills_for_tool("pi", &root, &rendered, "1.2.3");
 
-        assert!(root.join("ccpanes-launch-task").join("SKILL.md").is_file());
+        assert_eq!(
+            fs::read_to_string(preserved.join("SKILL.md")).unwrap(),
+            "user content"
+        );
+        assert!(root.join("ccpanes-pi-only").join("SKILL.md").is_file());
         assert_eq!(
             fs::read_to_string(root.join(VERSION_FILE_NAME)).unwrap(),
             "1.2.3"
@@ -688,35 +1613,105 @@ mod tests {
     }
 
     #[test]
-    fn test_commands_target_up_to_date_requires_all_expected_files() {
-        let root = unique_temp_dir("commands-uptodate");
-        fs::write(root.join(VERSION_FILE_NAME), "9.9.9").unwrap();
-        fs::write(root.join("launch-task.md"), "x").unwrap();
-        let rendered = RenderedBundle {
-            namespace: "ccpanes".to_string(),
-            commands: vec![
-                RenderedCommand {
-                    file_name: "launch-task.md".to_string(),
-                    content: "x".to_string(),
-                },
-                RenderedCommand {
-                    file_name: "workspace.md".to_string(),
-                    content: "y".to_string(),
-                },
-            ],
-            codex_skills: vec![],
-        };
+    fn managed_pi_skill_publish_renders_templates_into_agent_root_without_cleanup() {
+        let root = unique_temp_dir("managed-pi");
+        let templates = root.join("templates");
+        fs::create_dir_all(&templates).unwrap();
+        fs::write(
+            templates.join("manifest.json"),
+            r#"{
+                "schemaVersion": 2,
+                "namespace": "ccpanes",
+                "skills": [
+                    {
+                        "name": "pi-portable",
+                        "file": "pi-portable.md",
+                        "delivery": {
+                            "portable": true,
+                            "modes": ["piSkill"],
+                            "requiresCcpanesMcp": false
+                        }
+                    },
+                    {
+                        "name": "pi-needs-mcp",
+                        "file": "pi-needs-mcp.md",
+                        "delivery": {
+                            "portable": true,
+                            "modes": ["piSkill"],
+                            "requiresCcpanesMcp": true
+                        }
+                    },
+                    {
+                        "name": "native-only",
+                        "file": "native-only.md",
+                        "delivery": {
+                            "portable": true,
+                            "modes": ["nativeSkill"],
+                            "requiresCcpanesMcp": false
+                        }
+                    },
+                    { "name": "legacy", "file": "legacy.md" }
+                ]
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            templates.join("pi-portable.md"),
+            "# Pi portable\n\nRendered directly from bundled templates.",
+        )
+        .unwrap();
+        fs::write(templates.join("pi-needs-mcp.md"), "# Pi MCP").unwrap();
+        fs::write(templates.join("native-only.md"), "# Native").unwrap();
+        fs::write(templates.join("legacy.md"), "# Legacy").unwrap();
 
-        assert!(!DefaultSkillService::commands_target_up_to_date(
-            &root, &rendered, "9.9.9"
-        ));
+        let agent_root = root.join("managed-agent");
+        let preserved = agent_root.join("skills").join("ccpanes-user-skill");
+        let untouched = agent_root.join("skills").join("user-skill");
+        fs::create_dir_all(&preserved).unwrap();
+        fs::create_dir_all(&untouched).unwrap();
+        fs::write(preserved.join("SKILL.md"), "user ccpanes content").unwrap();
+        fs::write(untouched.join("SKILL.md"), "user content").unwrap();
+
+        DefaultSkillService::new(templates).inject_pi_skills_to_agent_root(&agent_root, "1.2.3");
+
+        let skills_root = agent_root.join("skills");
+        let published = skills_root.join("ccpanes-pi-portable").join("SKILL.md");
+        assert!(published.is_file());
+        assert!(fs::read_to_string(published)
+            .unwrap()
+            .contains("Rendered directly from bundled templates."));
+        assert!(!skills_root.join("ccpanes-pi-needs-mcp").exists());
+        assert!(!skills_root.join("ccpanes-native-only").exists());
+        assert!(!skills_root.join("ccpanes-legacy").exists());
+        assert_eq!(
+            fs::read_to_string(preserved.join("SKILL.md")).unwrap(),
+            "user ccpanes content"
+        );
+        assert_eq!(
+            fs::read_to_string(untouched.join("SKILL.md")).unwrap(),
+            "user content"
+        );
+        assert_eq!(
+            fs::read_to_string(skills_root.join(VERSION_FILE_NAME)).unwrap(),
+            "1.2.3"
+        );
         remove_dir(&root);
     }
 
     #[test]
-    fn test_inject_all_with_missing_manifest() {
+    fn pi_shared_skill_root_is_excluded_from_prefix_cleanup() {
+        let registry = CliToolRegistry::with_builtin_adapters();
+
+        assert!(!should_cleanup_skill_root(&registry, "pi"));
+        assert!(should_cleanup_skill_root(&registry, "codex"));
+    }
+
+    #[test]
+    fn test_materialize_with_missing_manifest_reports_error() {
         let svc = DefaultSkillService::new(PathBuf::from("/nonexistent/path"));
-        let registry = CliToolRegistry::new();
-        svc.inject_all(&registry, "0.0.0");
+        let target = unique_temp_dir("materialize-missing");
+        let result = svc.materialize_managed_bundle(&target, "0.0.0");
+        assert!(result.is_err());
+        remove_dir(&target);
     }
 }

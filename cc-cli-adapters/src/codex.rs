@@ -12,7 +12,7 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 use toml_edit::{DocumentMut, Item};
-use tracing::info;
+use tracing::{info, warn};
 
 const HOOK_BINARY_NAME: &str = "cc-panes-cli-hook";
 const LEGACY_HOOK_BINARY_NAME: &str = "cc-panes-hook";
@@ -88,6 +88,14 @@ impl CodexAdapter {
                 supports_workspace: true,
                 supports_project_hooks: true,
                 supports_issued_session_id: false,
+                supports_rpc: false,
+                supports_structured_result: false,
+                supports_yolo: true,
+                supports_orchestrated_launch: true,
+                // effort → `-c model_reasoning_effort`；codex 无 verbose/maxTurns 对应项
+                supports_effort_option: true,
+                supports_verbose_option: false,
+                supports_max_turns_option: false,
                 compatible_provider_types: vec!["open_ai".into()],
             },
         }
@@ -248,6 +256,87 @@ impl CodexAdapter {
 
     fn push_yolo_mode_arg(args: &mut Vec<String>) {
         args.push("--dangerously-bypass-approvals-and-sandbox".to_string());
+    }
+
+    /// 构造 `skills.config` 的启动期覆盖值。
+    ///
+    /// `-c` 是**整体覆盖**语义：直接写只含我们路径的数组会把用户自己配的 skill 全顶掉。
+    /// 所以这里先**读**用户 `config.toml` 的既有 `skills.config`，与我们的路径合并去重，
+    /// 再整体传回去——全程只读不回写，用户的配置文件一个字节都不动。
+    ///
+    /// 两条防御（缺一都会伤到用户）：
+    /// 1. `skill_paths` 全空时返回 `None`，**连读都不读**——本次不挂载就完全不碰这项配置；
+    /// 2. 既有 `skills.config` 不是数组时直接报错，而不是静默改写成我们认为对的形状。
+    fn skill_config_override_from_path(
+        config_path: Option<&Path>,
+        skill_paths: &[String],
+    ) -> Result<Option<String>> {
+        if skill_paths.iter().all(|path| path.trim().is_empty()) {
+            return Ok(None);
+        }
+        let mut entries = if let Some(path) = config_path.filter(|path| path.is_file()) {
+            let content = fs::read_to_string(path)
+                .with_context(|| format!("failed to read Codex config {}", path.display()))?;
+            let root = content
+                .parse::<toml::Value>()
+                .with_context(|| format!("failed to parse Codex config {}", path.display()))?;
+            match root.get("skills").and_then(|skills| skills.get("config")) {
+                Some(toml::Value::Array(existing)) => existing.clone(),
+                Some(_) => {
+                    return Err(anyhow!(
+                        "Codex config {} has non-array skills.config",
+                        path.display()
+                    ));
+                }
+                None => Vec::new(),
+            }
+        } else {
+            Vec::new()
+        };
+
+        let mut seen = entries
+            .iter()
+            .filter_map(|entry| entry.get("path"))
+            .filter_map(toml::Value::as_str)
+            .map(str::to_string)
+            .collect::<HashSet<_>>();
+        for path in skill_paths
+            .iter()
+            .map(|path| path.trim())
+            .filter(|path| !path.is_empty())
+        {
+            if !seen.insert(path.to_string()) {
+                continue;
+            }
+            entries.push(toml::Value::Table(toml::map::Map::from_iter([
+                ("path".to_string(), toml::Value::String(path.to_string())),
+                ("enabled".to_string(), toml::Value::Boolean(true)),
+            ])));
+        }
+
+        if entries.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(format!(
+            "skills.config={}",
+            toml::Value::Array(entries)
+        )))
+    }
+
+    /// 把内置 skill 根目录挂进本次 Codex 会话。失败不阻断启动，但必须留下告警——
+    /// 静默失败的表现是「skill 莫名其妙没了」，没有任何线索可查。
+    fn push_skill_config_override(args: &mut Vec<String>, skill_paths: &[String]) {
+        let config_path = Self::real_codex_home().map(|home| home.join("config.toml"));
+        match Self::skill_config_override_from_path(config_path.as_deref(), skill_paths) {
+            Ok(Some(override_value)) => {
+                args.push("-c".to_string());
+                args.push(override_value);
+            }
+            Ok(None) => {}
+            Err(error) => warn!(
+                "codex: failed to build skills.config override, bundled skills will be unavailable this session: {error:#}"
+            ),
+        }
     }
 
     /// 注入 `tui.terminal_title`：让 Codex 把会话 thread-id 写进终端标题（OSC 序列），
@@ -631,51 +720,6 @@ impl CodexAdapter {
         }
     }
 
-    /// 经 stdin 向发行版内 bash 送脚本、经 WSLENV 透传参数。
-    ///
-    /// **不能走 argv**：wsl.exe 的 Windows argv → Linux argv 转换会搅坏含
-    /// `"$(cmd arg)"` 形态的脚本（CreateProcess 正确转义后 bash 仍报
-    /// unexpected EOF；带位置参数时更险——exit 0 但输出是坏数据，wsl 2.7.11
-    /// 实测）。stdin 完全绕过 argv 转换；参数用 WSLENV `/u` 标志原样转发。
-    #[cfg(windows)]
-    fn run_wsl_script_via_stdin(
-        wsl_path: &Path,
-        distro: &str,
-        script: &str,
-        envs: &[(&str, &str)],
-    ) -> Option<std::process::Output> {
-        use std::io::Write as _;
-        use std::process::Stdio;
-
-        let mut command = crate::no_window_command(&wsl_path.to_string_lossy());
-        command.args(["-d", distro, "bash", "-l", "-s"]);
-        if !envs.is_empty() {
-            let forwarded = envs
-                .iter()
-                .map(|(name, _)| format!("{name}/u"))
-                .collect::<Vec<_>>()
-                .join(":");
-            // 叠加而非覆盖用户已有的 WSLENV 转发表
-            let wslenv = match std::env::var("WSLENV") {
-                Ok(existing) if !existing.is_empty() => format!("{existing}:{forwarded}"),
-                _ => forwarded,
-            };
-            for (name, value) in envs {
-                command.env(name, value);
-            }
-            command.env("WSLENV", wslenv);
-        }
-        let mut child = command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .ok()?;
-        child.stdin.take()?.write_all(script.as_bytes()).ok()?;
-        let output = child.wait_with_output().ok()?;
-        output.status.success().then_some(output)
-    }
-
     #[cfg(windows)]
     fn resolve_wsl_trust_paths(
         wsl_path: &Path,
@@ -692,7 +736,7 @@ esac
 cd -- "$target" || exit 1
 cwd="$(pwd -P)" || exit 1
 printf '%s\n%s\n%s\n' "$(wslpath -w "$cfg")" "$cwd" "$(wslpath -w "$cwd/.git")""#;
-        let output = Self::run_wsl_script_via_stdin(
+        let output = crate::run_wsl_script_via_stdin(
             wsl_path,
             distro,
             script,
@@ -883,7 +927,7 @@ printf '%s\n%s\n%s\n' "$(wslpath -w "$cfg")" "$cwd" "$(wslpath -w "$cwd/.git")""
     #[cfg(windows)]
     fn resolve_wsl_codex_config_windows_path(wsl_path: &Path, distro: &str) -> Option<PathBuf> {
         let script = r#"cfg="${CODEX_HOME:-$HOME/.codex}/config.toml"; [ -f "$cfg" ] || exit 0; wslpath -w "$cfg""#;
-        let output = Self::run_wsl_script_via_stdin(wsl_path, distro, script, &[])?;
+        let output = crate::run_wsl_script_via_stdin(wsl_path, distro, script, &[])?;
         let win = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if win.is_empty() {
             None
@@ -1546,6 +1590,9 @@ impl CliToolAdapter for CodexAdapter {
 
         Self::push_mcp_isolation_overrides(&mut args, ctx);
 
+        // CC-Panes 内置 skill 按会话挂载（与用户既有 skills.config 合并去重，不回写配置）
+        Self::push_skill_config_override(&mut args, &ctx.skill_mount_paths);
+
         // 标题带 thread-id：resume 与新会话都注入（resume 后活跃线程 id 同样经标题回报）
         Self::push_terminal_title_override(&mut args);
 
@@ -1680,6 +1727,7 @@ mod tests {
             shared_mcp_urls: HashMap::new(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
+            skill_mount_paths: Vec::new(),
         }
     }
 
@@ -2506,5 +2554,101 @@ bearer_token_env_var = "USER_TOKEN"
         // 不支持的事件 reason 应非空
         let reason = a.unsupported_cc_pane_event_reason(&CcPaneEvent::TurnEnd);
         assert!(reason.is_some() && !reason.unwrap().is_empty());
+    }
+
+    /// 唯一临时目录：cc-cli-adapters 没有 uuid 依赖，用 pid + 单调计数即可。
+    fn unique_test_dir(prefix: &str) -> PathBuf {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("{prefix}-{}-{n}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        dir
+    }
+
+    /// 本次不挂载时必须**连读都不读**用户配置，更不能产出覆盖值——
+    /// 否则「关闭内置 skill」反而会去改用户的 skills.config。
+    #[test]
+    fn empty_skill_mount_does_not_read_or_override_customer_config() {
+        let override_value =
+            CodexAdapter::skill_config_override_from_path(Some(Path::new("/nonexistent")), &[])
+                .expect("empty mount must not error");
+        assert!(override_value.is_none());
+
+        let blank = vec!["".to_string(), "   ".to_string()];
+        assert!(
+            CodexAdapter::skill_config_override_from_path(None, &blank)
+                .unwrap()
+                .is_none(),
+            "whitespace-only paths count as no mount"
+        );
+    }
+
+    #[test]
+    fn skill_config_override_merges_existing_user_entries() {
+        let dir = unique_test_dir("ccpanes-skillcfg");
+        fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("config.toml");
+        fs::write(
+            &config,
+            "[[skills.config]]\npath = \"/user/own/skills\"\nenabled = true\n",
+        )
+        .unwrap();
+
+        let value = CodexAdapter::skill_config_override_from_path(
+            Some(&config),
+            &["/ccpanes/builtin/skills".to_string()],
+        )
+        .unwrap()
+        .expect("expected an override");
+
+        let parsed: toml::Value = value
+            .strip_prefix("skills.config=")
+            .map(|raw| format!("config={raw}"))
+            .map(|doc| doc.parse().expect("parse merged skills.config"))
+            .unwrap();
+        let entries = parsed["config"].as_array().unwrap();
+        assert_eq!(entries.len(), 2, "user entry must survive the merge");
+        let paths: Vec<&str> = entries
+            .iter()
+            .filter_map(|entry| entry.get("path"))
+            .filter_map(toml::Value::as_str)
+            .collect();
+        assert!(paths.contains(&"/user/own/skills"));
+        assert!(paths.contains(&"/ccpanes/builtin/skills"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 重复挂载同一路径不应产生重复条目（幂等）。
+    #[test]
+    fn skill_config_override_dedupes_repeated_paths() {
+        let value = CodexAdapter::skill_config_override_from_path(
+            None,
+            &[
+                "/ccpanes/builtin/skills".to_string(),
+                "/ccpanes/builtin/skills".to_string(),
+            ],
+        )
+        .unwrap()
+        .expect("expected an override");
+        assert_eq!(value.matches("/ccpanes/builtin/skills").count(), 1);
+    }
+
+    /// 用户把 skills.config 写成了非数组 → 明确报错，不静默改写别人的配置。
+    #[test]
+    fn skill_config_override_rejects_non_array_config() {
+        let dir = unique_test_dir("ccpanes-skillbad");
+        fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("config.toml");
+        fs::write(&config, "[skills]\nconfig = \"oops\"\n").unwrap();
+
+        let result = CodexAdapter::skill_config_override_from_path(
+            Some(&config),
+            &["/ccpanes/builtin/skills".to_string()],
+        );
+        assert!(result.is_err());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

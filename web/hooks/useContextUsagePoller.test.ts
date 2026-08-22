@@ -92,4 +92,41 @@ describe("useContextUsagePoller", () => {
     expect(query).toHaveBeenCalledWith("pty-grid");
     unmount();
   });
+
+  it("polls Pi sessions when the backend exposes indexed usage", async () => {
+    const query = vi.spyOn(usageStatsService, "queryContextUsage").mockResolvedValue({
+      status: "ready",
+      usedTokens: 10,
+      effectiveUsedTokens: 10,
+      windowTokens: 100,
+      effectiveWindowTokens: 100,
+      usedPercentage: 10,
+      remainingPercentage: 90,
+      model: "claude-sonnet-4-5",
+      usageSource: "pi-session-file",
+      windowSource: "pi-session-file",
+      agentSessionId: "pi-agent-1",
+      parserVersion: "pi-v1",
+      observedAt: Date.now(),
+      diagnosticCode: null,
+    });
+    const context = {
+      sessionId: "pty-pi",
+      cliTool: "pi",
+      ssh: false,
+      providerId: null,
+      modelId: null,
+      providerSelection: null,
+      launchProfileId: null,
+    };
+
+    const { result, unmount } = renderHook(() => useContextUsagePoller(context));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current).toBe("pty-pi");
+    expect(query).toHaveBeenCalledWith("pty-pi");
+    unmount();
+  });
 });

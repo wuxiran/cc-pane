@@ -84,6 +84,8 @@ export interface WorkspaceProject {
   launchProfileId?: string;
   wslRemotePath?: string;
   ssh?: SshConnectionInfo;
+  /** 归档（逻辑删除）时间戳，RFC3339；缺省/null = 活跃。不删除磁盘目录，可恢复。 */
+  archivedAt?: string | null;
 }
 
 /**
@@ -122,6 +124,12 @@ export interface Workspace {
   isDefault?: boolean;
   /** 工作空间壁纸覆盖（inherit/custom/off），存 workspace.json */
   wallpaperOverride?: WorkspaceWallpaperOverride | null;
+  /**
+   * 归档（逻辑删除）时间戳，RFC3339；缺省/null = 活跃。
+   * 与 `hidden` 不同：`hidden` 只把工作空间从命令面板与标题栏快捷切换里摘掉，
+   * 归档是「删了但可撤回」——侧边栏默认不显示，需开「含已归档」才可见。
+   */
+  archivedAt?: string | null;
 }
 
 export interface WorkspaceMigrationRequest {

@@ -149,6 +149,10 @@ export default function LauncherDialog() {
           ? t("errorNoProject")
           : issue?.code === "provider_required"
             ? t("errorProviderRequired")
+            : issue?.code === "pi_ssh_unsupported"
+              ? t("errorPiSshUnsupported")
+            : issue?.code === "omp_ssh_unsupported"
+              ? t("errorOmpSshUnsupported")
             : t("errorResolveFailed", { code: issue?.code }),
       );
       return;
@@ -215,6 +219,7 @@ export default function LauncherDialog() {
             <LauncherEnvRow
               value={draft.source?.kind === "manual" ? "local" : draft.environment}
               onChange={(environment) => patch({ environment })}
+              cliTool={draft.cliTool}
               disabled={draft.source?.kind === "manual"}
             />
           </Section>
@@ -262,7 +267,7 @@ export default function LauncherDialog() {
               skipMcp: draft.skipMcp,
               appendSystemPrompt: draft.appendSystemPrompt,
               initialPrompt: draft.initialPrompt,
-              yolo: draft.yolo,
+              yolo: draft.cliTool === "pi" || draft.cliTool === "omp" ? undefined : draft.yolo,
               adapterOptions: buildAdapterOptions(draft),
             }}
           />

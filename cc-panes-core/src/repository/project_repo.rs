@@ -292,7 +292,7 @@ mod tests {
     fn make_project(path: &str) -> Project {
         Project {
             id: uuid::Uuid::new_v4().to_string(),
-            name: path.split('/').last().unwrap_or("test").to_string(),
+            name: path.split('/').next_back().unwrap_or("test").to_string(),
             path: path.to_string(),
             created_at: chrono::Utc::now().to_rfc3339(),
             alias: None,

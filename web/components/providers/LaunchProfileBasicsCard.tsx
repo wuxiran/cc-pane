@@ -10,6 +10,7 @@ import type { KnownCliTool, LaunchEffort } from "@/types/terminal";
 import { contextSizeToTokens } from "@/types/provider";
 import { Field, Section } from "./launchProfileParts";
 import { SELECT_NONE, inputClass, toolLabel } from "./launchProfileHelpers";
+import PiProfileOptions from "./PiProfileOptions";
 
 type ProviderModel = NonNullable<Provider["models"]>[number];
 
@@ -42,6 +43,12 @@ export default function LaunchProfileBasicsCard({
   setYoloConfirmOpen,
 }: LaunchProfileBasicsCardProps) {
   const { t } = useTranslation(["providers", "common"]);
+  const piFamilyTool = activeTool === "pi" || activeTool === "omp";
+  const runtimeOptions: Exclude<LaunchProfileRuntime, null>[] = piFamilyTool
+    ? ["local", "wsl"]
+    : ["local", "wsl", "ssh"];
+  const legacyPiSshRuntime = piFamilyTool && draft.targetRuntime === "ssh";
+  const yoloSupported = !piFamilyTool;
 
   /** 模型下拉文案带上下文窗口标注：未配置窗口时显式标「未配置」而不是留白。
    * 优先用 `contextSize` 字符串（`"1m"` / `"500k"` 等，会拼到 ANTHROPIC_MODEL 后缀），
@@ -85,19 +92,24 @@ export default function LaunchProfileBasicsCard({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={SELECT_NONE}>{t("runtimeAll")}</SelectItem>
-                <SelectItem value="local">{t("runtime.local")}</SelectItem>
-                <SelectItem value="wsl">{t("runtime.wsl")}</SelectItem>
-                <SelectItem value="ssh">{t("runtime.ssh")}</SelectItem>
+                {runtimeOptions.map((runtime) => (
+                  <SelectItem key={runtime} value={runtime}>{t(`runtime.${runtime}`)}</SelectItem>
+                ))}
+                {legacyPiSshRuntime && <SelectItem value="ssh" disabled>{t("runtime.ssh")}</SelectItem>}
               </SelectContent>
             </Select>
           </Field>
         ) : (
-          <Field label={t("fieldProvider")}>
+          <Field label={t(piFamilyTool ? "fieldManagedProvider" : "fieldProvider")}>
             <Select
               value={draft.providerId ?? SELECT_NONE}
               onValueChange={(value) => setDraft((current) => {
                 const adapterOptions = { ...(current.adapterOptions ?? {}) };
                 if (activeTool === "kimi") delete adapterOptions.kimiConfigMode;
+                if (activeTool === "pi") {
+                  delete adapterOptions.piNativeProvider;
+                  delete adapterOptions.piNativeModel;
+                }
                 return {
                   ...current,
                   providerId: value === SELECT_NONE ? null : value,
@@ -106,7 +118,7 @@ export default function LaunchProfileBasicsCard({
                 };
               })}
             >
-              <SelectTrigger aria-label={t("fieldProvider")}>
+              <SelectTrigger aria-label={t(piFamilyTool ? "fieldManagedProvider" : "fieldProvider")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -201,9 +213,10 @@ export default function LaunchProfileBasicsCard({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={SELECT_NONE}>{t("runtimeAll")}</SelectItem>
-              <SelectItem value="local">{t("runtime.local")}</SelectItem>
-              <SelectItem value="wsl">{t("runtime.wsl")}</SelectItem>
-              <SelectItem value="ssh">{t("runtime.ssh")}</SelectItem>
+              {runtimeOptions.map((runtime) => (
+                <SelectItem key={runtime} value={runtime}>{t(`runtime.${runtime}`)}</SelectItem>
+              ))}
+              {legacyPiSshRuntime && <SelectItem value="ssh" disabled>{t("runtime.ssh")}</SelectItem>}
             </SelectContent>
           </Select>
         </Field>
@@ -223,7 +236,15 @@ export default function LaunchProfileBasicsCard({
         </Field>
       </div>
 
+      {activeTool === "pi" && (
+        <PiProfileOptions
+          draft={draft}
+          setDraft={setDraft}
+        />
+      )}
+
       {/* 权限：原独立半空卡压缩为基础卡底部一条 Switch 行（危险态保留二次确认） */}
+      {yoloSupported && (
       <div className="mt-4 flex items-start gap-3 border-t border-[var(--app-border)]/60 pt-3.5">
         <Switch
           className="mt-0.5"
@@ -284,6 +305,7 @@ export default function LaunchProfileBasicsCard({
           ) : null}
         </div>
       </div>
+      )}
     </Section>
   );
 }

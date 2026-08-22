@@ -4,36 +4,96 @@ use serde::{Deserialize, Serialize};
 
 use crate::models::launch_profile::LaunchProviderSelection;
 
-/// CLI 工具类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum CliTool {
-    #[default]
-    None,
-    Claude,
-    Codex,
-    Gemini,
-    Kimi,
-    Glm,
-    Opencode,
-    Cursor,
-    Grok,
+/// 由**同一份清单**生成 `CliTool` 枚举、`as_id`、`from_id` 与 `ALL`。
+///
+/// 手写这四处时，新增变体漏掉其中任何一处都不会编译失败——`ALL` 尤其危险，
+/// 它漏项不会有任何信号，而下游穷举守卫（前端四张表的覆盖测试）正是靠它取全集，
+/// 于是「守卫本身漏掉新 CLI」而看不出来。清单化之后这四者不可能不同步。
+macro_rules! define_cli_tools {
+    ($( $(#[$meta:meta])* $variant:ident => $id:literal ),+ $(,)?) => {
+        /// CLI 工具类型
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+        #[serde(rename_all = "snake_case")]
+        pub enum CliTool {
+            $( $(#[$meta])* $variant, )+
+        }
+
+        impl CliTool {
+            /// 转换为 CLI 适配器注册表中的 id 字符串
+            pub fn as_id(&self) -> &str {
+                match self {
+                    $( CliTool::$variant => $id, )+
+                }
+            }
+
+            /// `as_id` 的逆：从适配器注册表 id 解析回枚举。
+            ///
+            /// 这是**唯一**的正向解析入口。此前 `preview_cli_tool`
+            /// （launch_profile_service）与 `parse_launch_cli_tool`
+            /// （orchestrator_service）各抄了一份。调用方各自保留自己的错误语义与
+            /// 准入白名单，但字符串到枚举的映射只在这里定义。
+            pub fn from_id(id: &str) -> Option<Self> {
+                Some(match id {
+                    $( $id => CliTool::$variant, )+
+                    _ => return None,
+                })
+            }
+
+            /// 全部变体，供穷举遍历使用（与枚举同源生成，不可能漏项）。
+            pub const ALL: &'static [CliTool] = &[ $( CliTool::$variant, )+ ];
+        }
+    };
 }
 
-impl CliTool {
-    /// 转换为 CLI 适配器注册表中的 id 字符串
-    pub fn as_id(&self) -> &str {
-        match self {
-            CliTool::None => "none",
-            CliTool::Claude => "claude",
-            CliTool::Codex => "codex",
-            CliTool::Gemini => "gemini",
-            CliTool::Kimi => "kimi",
-            CliTool::Glm => "glm",
-            CliTool::Opencode => "opencode",
-            CliTool::Cursor => "cursor",
-            CliTool::Grok => "grok",
+define_cli_tools! {
+    #[default]
+    None => "none",
+    Claude => "claude",
+    Codex => "codex",
+    Gemini => "gemini",
+    Kimi => "kimi",
+    Glm => "glm",
+    Opencode => "opencode",
+    Cursor => "cursor",
+    Grok => "grok",
+    Pi => "pi",
+    Omp => "omp",
+}
+
+#[cfg(test)]
+mod cli_tool_id_tests {
+    use super::CliTool;
+
+    #[test]
+    fn from_id_round_trips_every_variant() {
+        for tool in CliTool::ALL {
+            assert_eq!(
+                CliTool::from_id(tool.as_id()),
+                Some(*tool),
+                "round trip failed for {:?}",
+                tool
+            );
         }
+    }
+
+    /// id 必须两两不同——宏不会替我们查重，两个变体写同一个 id 时
+    /// `from_id` 会静默只认后者，而 `as_id` 两边都返回它。
+    #[test]
+    fn ids_are_unique() {
+        let mut ids: Vec<&str> = CliTool::ALL.iter().map(CliTool::as_id).collect();
+        let total = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), total, "duplicate CliTool id");
+    }
+
+    /// 未知 id 一律 None。**不要**拿将来打算支持的 CLI 名做断言——
+    /// 那样等真的接进来时，这条会以「回归」的面目失败。
+    #[test]
+    fn from_id_rejects_unknown() {
+        assert_eq!(CliTool::from_id("definitely-not-a-cli"), None);
+        assert_eq!(CliTool::from_id(""), None);
+        assert_eq!(CliTool::from_id("Claude"), None);
     }
 }
 

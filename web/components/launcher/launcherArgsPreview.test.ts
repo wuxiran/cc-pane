@@ -67,8 +67,46 @@ describe("buildArgsPreview (codex)", () => {
   });
 });
 
+describe("buildArgsPreview (grok)", () => {
+  it("flag 顺序对齐 grok.rs build_command：yolo → --rules → effort → max-turns → extraArgs → 位置 prompt", () => {
+    const lines = buildArgsPreview({
+      cliTool: "grok",
+      appendSystemPrompt: "focus",
+      yolo: true,
+      initialPrompt: "run tests",
+      adapterOptions: { effort: "high", maxTurns: 5, extraArgs: ["--no-memory"] },
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toBe(
+      'grok --always-approve --rules "focus" --reasoning-effort high --max-turns 5 --no-memory "run tests"',
+    );
+  });
+
+  it("effort 按自由字符串透传档位名（grok 未声明取值枚举，与 grok.rs 同口径）", () => {
+    const lines = buildArgsPreview({ cliTool: "grok", adapterOptions: { effort: "max" } });
+    // codex 会把 max 映射成 xhigh，grok 不做映射——两者刻意不同。
+    expect(lines[0]).toContain("--reasoning-effort max");
+  });
+
+  it("grok 不消费 verbose，且 MCP 走 config.toml 不出现在命令行", () => {
+    const lines = buildArgsPreview({
+      cliTool: "grok",
+      skipMcp: false,
+      adapterOptions: { verbose: true },
+    });
+    expect(lines[0]).not.toContain("--verbose");
+    expect(lines[0]).not.toContain("--debug");
+    expect(lines[0]).not.toContain("mcp");
+  });
+
+  it("位置参数 prompt 不加 -- 分隔符（与 claude 相反）", () => {
+    const lines = buildArgsPreview({ cliTool: "grok", initialPrompt: "hi" });
+    expect(lines[0]).toBe('grok "hi"');
+  });
+});
+
 describe("buildArgsPreview (none/unknown)", () => {
-  it("仅终端 / 未知 CLI 返回空（预览区隐藏）", () => {
+  it("仅终端 / 未接入的 CLI 返回空（预览区隐藏）", () => {
     expect(buildArgsPreview({ cliTool: "none" })).toEqual([]);
     expect(buildArgsPreview({ cliTool: "gemini" })).toEqual([]);
   });

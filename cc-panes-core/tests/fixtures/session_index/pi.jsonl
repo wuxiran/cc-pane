@@ -1,0 +1,9 @@
+{"type":"session","version":3,"id":"pi-session-2026-08-18","timestamp":"2026-08-18T00:00:00.000Z","cwd":"/workspace/pi"}
+{"type":"message","id":"u0000001","parentId":null,"timestamp":"2026-08-18T00:00:01.000Z","message":{"role":"user","content":"Build the Pi session index"}}
+{"type":"message","id":"a0000001","parentId":"u0000001","timestamp":"2026-08-18T00:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"I will inspect the tree"}]}}
+{"type":"message","id":"u0000002","parentId":"a0000001","timestamp":"2026-08-18T00:00:03.000Z","message":{"role":"user","content":"Old branch request"}}
+{"type":"message","id":"a0000002","parentId":"u0000002","timestamp":"2026-08-18T00:00:04.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Old branch response"}]}}
+{"type":"compaction","id":"c0000001","parentId":"a0000001","timestamp":"2026-08-18T00:00:05.000Z","summary":"Earlier context was compacted","tokensBefore":12000}
+{"type":"message","id":"u0000003","parentId":"c0000001","timestamp":"2026-08-18T00:00:06.000Z","message":{"role":"user","content":"Please continue on the current branch"}}
+{"type":"message","id":"a0000003","parentId":"u0000003","timestamp":"2026-08-18T00:00:07.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hidden"},{"type":"text","text":"Current branch work is complete"}]}}
+{"type":"branch_summary","id":"b0000001","parentId":"a0000003","timestamp":"2026-08-18T00:00:08.000Z","fromId":"a0000002","summary":"Current branch summary is ready"}

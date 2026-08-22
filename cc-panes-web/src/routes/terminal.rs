@@ -231,6 +231,10 @@ pub struct ResizeRequest {
 #[serde(rename_all = "camelCase")]
 pub struct WriteRequest {
     pub data: String,
+    /// `"system"` = 前端代答的终端查询回复（CPR / DA / OSC 颜色）。缺省视为用户输入。
+    /// 两者待遇相反：回显开着时按键**应该**回显，代答回复必须抑制。
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -566,10 +570,12 @@ pub async fn write_session(
         input = %summarize_terminal_input(&req.data),
         "terminal-input.trace web.write_session"
     );
-    state
-        .terminal_backend
-        .write(&id, &req.data)
-        .map_err(terminal_operation_error)?;
+    let write = if req.source.as_deref() == Some("system") {
+        state.terminal_backend.write_reply(&id, &req.data)
+    } else {
+        state.terminal_backend.write(&id, &req.data)
+    };
+    write.map_err(terminal_operation_error)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1257,6 +1263,8 @@ mod tests {
                 Path("session-1".to_string()),
                 Json(WriteRequest {
                     data: "abc".to_string(),
+                    // 缺省 = 用户输入，走普通 write 而非受回显判定的 write_reply。
+                    source: None,
                 }),
             )
             .await

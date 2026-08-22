@@ -27,12 +27,37 @@ export interface BrowserTabActions {
     options?: OpenBrowserOptions,
   ) => string | null;
   updateBrowserTab: (tabId: string, patch: { browserUrl?: string; title?: string }) => void;
+  /**
+   * 开一个 DeepSeek Harness 标签。
+   *
+   * 与 openBrowser 的两点不同：**不按 URL 去重**（URL 要等实例起来才知道，
+   * 端口由 OS 分配），且带 `projectPath`（dsh 用调用目录作默认工作空间根）
+   * 与 `workspacePath`（决定复用哪个 dsh 实例——同工作空间共享一个进程，
+   * API key 与会话历史因此跟着工作空间而不是标签）。
+   */
+  openDsh: (
+    projectPath?: string,
+    workspacePath?: string,
+    options?: OpenBrowserOptions,
+  ) => string | null;
 }
 
 
+/**
+ * 找一个由 webview 承载的标签。
+ *
+ * 认 `browser` 与 `dsh` 两种：dsh 标签内部也是 BrowserTabContent 在渲染，
+ * 导航回填走同一条 `updateBrowserTab`。只认 browser 会让 dsh 的 URL 回填
+ * 静默丢失（找不到就什么都不做），表现为窗格永远停在「正在启动」。
+ */
 function findBrowserTab(node: Draft<PaneNode>, tabId: string): Draft<Tab> | null {
   if (node.type === "panel") {
-    return node.tabs.find((tab) => tab.id === tabId && tab.contentType === "browser") ?? null;
+    return (
+      node.tabs.find(
+        (tab) =>
+          tab.id === tabId && (tab.contentType === "browser" || tab.contentType === "dsh"),
+      ) ?? null
+    );
   }
   for (const child of node.children) {
     const tab = findBrowserTab(child, tabId);
@@ -122,6 +147,30 @@ export function createBrowserTabActions(
           title,
           browserUrl: url,
         });
+        pane.tabs.push(newTab);
+        pane.activeTabId = newTab.id;
+        target.setActivePaneId(pane.id);
+        actualTabId = newTab.id;
+      });
+      return actualTabId;
+    },
+    openDsh: (projectPath, workspacePath, options) => {
+      let actualTabId: string | null = null;
+      set((state) => {
+        const target = resolveLayoutWriteTarget(state, options?.layoutId);
+        if (!target) return;
+        const tree = target.tree;
+
+        // 落位规则与 openBrowser 一致：显式 paneId 优先，无效则回落活动窗格。
+        const requested = options?.paneId ? findPane(tree, options.paneId) : null;
+        const fallbackPaneId = target.isCurrent ? state.activePaneId : "";
+        const found =
+          requested?.type === "panel" ? requested : findPane(tree, fallbackPaneId);
+        const pane = found?.type === "panel" ? found : collectPanels(tree)[0];
+        if (pane?.type !== "panel") return;
+
+        // 不带 browserUrl：端口由 OS 分配，窗格拉起实例后才回填。
+        const newTab = createTabOfType("dsh", { projectPath, workspacePath });
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
         target.setActivePaneId(pane.id);

@@ -1,13 +1,6 @@
 ---
 name: ccpanes-plantocodex
-description: Plan → Codex 执行交接 — Claude 规划完写到 plan 文件，注册 leader/worker，把 plan 派给 Codex 实现，靠 worker 自动反馈 + 软超时监控完成。Claude 不写代码，Codex 写。
-trigger: |
-  - 用户说"plan-to-codex"、"先规划再交给 Codex"、"派给 Codex 实现"、"hand off this plan"
-  - 已经有 plan（写了或刚写），准备让 Codex 按 plan 改代码
-  不触发：
-  - 用户想让 Claude 自己改代码 → 不走本 skill
-  - 想派给另一个 Claude Code worker → /ccpanes:plantocc
-  - plan 还没做评审且涉及高风险 → 先走 /ccpanes:planreview 评审
+description: Hand a finished plan to a Codex worker to implement, with leader/worker registration and auto-feedback. Claude 只规划不写代码，Codex 写。含软超时监控兜底。WSL 特化入口见 plan2codexwsl。
 ---
 
 # plantocodex — Plan → Codex 执行交接
@@ -15,6 +8,8 @@ trigger: |
 你是 Plan-to-Codex 编排 Agent。Claude 完成规划并把 plan 写到文件，**通过 cc-panes 的 leader/worker 机制**把 plan 交给 Codex 执行，monitor 完成事件（worker 自动 PTY 反馈 + TaskBinding 持久化 + 软超时兜底），最后汇报。
 
 > **Claude 不写代码** —— 代码由 Codex 完成。
+
+> 这是 Codex 特化快捷入口。需要选择任意目标 CLI 时，改用 [`/ccpanes:dispatch-task`](dispatch-task.md)；两者都优先使用 `dispatch_task`，而不是旧的 `launch_task`。
 
 ---
 
@@ -75,8 +70,9 @@ trigger: |
 2. **规格自足才可派 Codex**：该单元的简报 + 文件所有权清单 + 契约已写到「不需要知道本仓库怎么做事、照做即可」？是 → 可派 Codex；否 → 补写到自足（然后可派），或留 Claude。**禁止把规格不自足的单元派给 Codex**——跨模型只能传规格，不能传意图。
 3. **机械簇 Codex 优先**：宽任务簇同时满足「规格自足 + 验收机器判」→ Codex 优先（省 Claude 配额，机械重复对先验依赖最低）。
 4. **评审强制异模型**：交叉评审 / plan review 类只读单元必须派非 leader 同模型（Codex 审 Claude，专治「我审我」盲区）。这是唯一强制改派的类别。
-5. **契约设计与集成收尾不外派**：深任务这两段语义密度最高，leader 自己做。
-6. **WSL Codex 守则**：prompt 未提交假死 → 发裸 CR，不要 kill 重发；启动前确认 WSL 内 CLI 是原生 ELF（`type -a codex` 第一条不能是 `/mnt/` 下的 `.exe`）。
+5. **Grok 可作第三方视角，但规格自足要求最高**：leader 是 Claude、Codex 已占用时可派 Grok（[`/ccpanes:plantogrok`](plantogrok.md)）。注意它**读不到任何内置 skill**（挂载通道只覆盖 Claude/Codex），一切约定必须写进 prompt 正文；且其 MCP URL 无 `launchId`，多 worker 并发时身份不可辨，`workerId` 必须写死传对。
+6. **契约设计与集成收尾不外派**：深任务这两段语义密度最高，leader 自己做。
+7. **WSL Codex 守则**：prompt 未提交假死 → 发裸 CR，不要 kill 重发；启动前确认 WSL 内 CLI 是原生 ELF（`type -a codex` 第一条不能是 `/mnt/` 下的 `.exe`）。
 
 ### 派工通信四原则
 
@@ -133,37 +129,24 @@ mcp__ccpanes__register_plan_leader(
 | 已是 `/home/...` 或 `/mnt/...` | 原样 |
 | Windows junction / symlink | 在 WSL 里 `wslpath -u "<windows>"` 自动转 |
 
-**`launch_task.projectPath` 必须用 `list_projects` 取到的原样字符串**（不要自己拼），再配 `runtimeKind: "wsl"`。
+**`dispatch_task.projectPath` 必须用 `list_projects` 取到的原样字符串**（不要自己拼），再配 `runtimeKind: "wsl"`。
 
 ### Phase 4：启动 Codex + 注册 worker
 
 **新建窗口**：
 
 ```
-mcp__ccpanes__launch_task(
+mcp__ccpanes__dispatch_task(
   projectPath: <list_projects 取到的已注册路径>,
   cliTool: "codex",
   runtimeKind: "wsl" | "local",      // 与项目路径一致
   title: "Codex: <简短描述>",
+  parentBindingId: <Phase 2 拿到的 leaderId>,
   prompt: <见下方 prompt 模板>
 )
 ```
 
-记录返回的 `sessionId` 为 `<workerSessionId>`。
-
-**立即注册 worker**（leader 来做）：
-
-```
-mcp__ccpanes__register_plan_worker(
-  leaderId: <Phase 2 拿到的>,
-  sessionId: <workerSessionId>,
-  projectPath: <同 launch_task>,
-  cliTool: "codex",
-  title: "Codex executor"
-)
-```
-
-返回的 `id` 是 `<workerId>` —— **必须**填进 prompt 模板的"收尾要求"段。
+记录返回的 `bindingId` 为 `<workerId>`、`sessionId` 为 `<workerSessionId>`。`dispatch_task` 已在启动前登记 binding，Codex 会话也会在环境中收到 `CC_PANES_TASK_BINDING_ID`；不要再注册第二个 worker binding。
 
 **复用已有窗口**：
 
@@ -265,16 +248,16 @@ git diff <worktree-or-main>
    - 报告 = 改动文件列表 + 每项验收的命令与退出码(证据指针) + 偏离说明
 
 ## 收尾(必须执行,不能跳)
-1. 先持久化状态(防 PTY 反馈丢失):
+1. 先持久化状态(防 PTY 反馈丢失；id 取环境变量 `CC_PANES_TASK_BINDING_ID`):
    mcp__ccpanes__update_task_binding(
-     id: "<填 Phase 4 拿到的 workerId>",
+     id: <CC_PANES_TASK_BINDING_ID>,
      status: "completed",
      progress: 100,
      completionSummary: "已完成 N 个 phase,改动 M 文件"
    )
 2. 再 PTY 上报 leader:
    mcp__ccpanes__report_to_leader(
-     workerId: "<同上 workerId>",
+     workerId: <CC_PANES_TASK_BINDING_ID>,
      status: "completed",
      summary: "Codex 执行完成,改动 M 文件,详见 PTY"
    )
@@ -304,9 +287,9 @@ git diff <worktree-or-main>
 ## 反模式
 
 - ❌ 用 `CronCreate` 每分钟轮询 → 烧 token，且 cc-panes 已内置 worker 自动反馈
-- ❌ 跳过 `register_plan_leader` / `register_plan_worker` → PTY 反馈无目标
+- ❌ 跳过 `register_plan_leader` / `dispatch_task(parentBindingId=leaderId)` → PTY 反馈没有持久化父关系
 - ❌ Codex prompt 不要求 `update_task_binding` → leader 崩溃/退出时补投队列被清，主 Agent 永远收不到通知
 - ❌ 把 `get_session_status` 返回的 `active/idle/exited` 当作完整枚举 → 漏掉 thinking/waitingInput/error
-- ❌ `launch_task.projectPath` 自己拼 `/mnt/...` → 不匹配 cc-panes 注册路径，启动失败
+- ❌ `dispatch_task.projectPath` 自己拼 `/mnt/...` → 不匹配 cc-panes 注册路径，启动失败
 - ❌ "超过 10 分钟提醒用户"作为唯一兜底 → 没有渐进性，体验差
 - ❌ Claude 自己改代码 → 和本 skill 角色冲突（评审也不改代码，见 planreview）

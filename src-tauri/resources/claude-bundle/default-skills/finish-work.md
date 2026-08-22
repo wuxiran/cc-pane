@@ -1,6 +1,6 @@
 ---
 name: ccpanes-finish-work
-description: "Finalize a coding task before handoff: inspect git diff, run project-appropriate checks, verify docs/tests, summarize changes, and complete CC-Panes worker reporting when applicable. Use when the user says finish, close out, final check, or prepare handoff."
+description: Finalize a task before handoff: inspect diff, run checks, verify docs and tests, summarize changes. 触发词：收尾、最终检查、准备交接。作为 worker 时一并完成 CC-Panes 上报。
 ---
 
 # 完成工作 - 提交前检查清单
@@ -70,7 +70,7 @@ cargo test --workspace
 
 收尾前扫一遍本次会话：文档没更、测试缺口、发现但没修的坑。每项各建一条 todo（`create_todo`），别让临终发现随会话蒸发：
 
-- `todoType: "ai-work-item"`（AI 工作项一等身份参数；`tags` 可加 `family:<key>` / `skill:<name>` / `cli:<claude|codex>` 路由提示，不再靠 tag 承载身份）
+- `todoType: "ai-work-item"`（AI 工作项一等身份参数；`tags` 可加 `family:<key>` / `skill:<name>` / `cli:<tool-id>` 路由提示，不再靠 tag 承载身份）
 - description 必含两行：`验收: <一句可执行的话>` 与 `来源: <planRef 或 sessionId 摘要>`
 - 收尾摘要里列出新建的 todo id
 

@@ -11,7 +11,7 @@ import { computeTabNumbers } from "@/lib/tabNumbering";
 import type { Tab, TerminalStatusType } from "@/types";
 import type { TFunction } from "i18next";
 import { DENSITY, type Density } from "./tabBarDensity";
-import NewTabMenu from "./NewTabMenu";
+import NewTabMenu, { type NewTabActions } from "./NewTabMenu";
 import TabTypeIcon from "./TabTypeIcon";
 import TabContextMenu, {
   type LayoutMoveTarget,
@@ -26,14 +26,12 @@ interface TabBarProps {
   onClose: (tabId: string) => void;
   onTogglePin: (tabId: string) => void;
   onToggleStar: (tabId: string) => void;
-  onAdd: () => void;
-  /** 新建浏览器 tab（桌面端此前无入口，只能靠 MCP open_browser_tab） */
-  onAddBrowser?: () => void;
-  /** 打开文件（走系统文件选择器，落在本 pane 的 editor tab） */
-  onAddFile?: () => void;
-  /** 打开目录树 tab（file-explorer，桌面端此前无入口） */
-  onAddFileExplorer?: () => void; onAddSsh?: () => void;
-  /** 打开 SSH 机器管理面板 */
+  /**
+   * ＋ 入口的全部动作，整组原样透传给 NewTabMenu。
+   * 收成一个对象而非六个平铺 prop：TabBar 只是转发，逐个列出会让它的
+   * prop 面被「其实不属于它的东西」占掉一大截（曾因此把两个 prop 挤成一行）。
+   */
+  newTab: NewTabActions;
   onSplitRight: () => void;
   onSplitDown: () => void;
   onFullscreen: (tabId: string) => void;
@@ -385,10 +383,7 @@ export default memo(function TabBar({
   onClose,
   onTogglePin,
   onToggleStar,
-  onAddBrowser,
-  onAddFile,
-  onAddFileExplorer, onAddSsh,
-  onAdd,
+  newTab,
   onSplitRight,
   onSplitDown,
   onFullscreen,
@@ -602,10 +597,7 @@ export default memo(function TabBar({
             <NewTabMenu
               addBtnClass={d.addBtn}
               addIconClass={d.addIcon}
-              onAdd={onAdd}
-              onAddBrowser={onAddBrowser}
-              onAddFile={onAddFile}
-              onAddFileExplorer={onAddFileExplorer} onAddSsh={onAddSsh}
+              {...newTab}
               t={t}
             />
           </div>
