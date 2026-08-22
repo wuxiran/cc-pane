@@ -1263,6 +1263,8 @@ mod tests {
                 Path("session-1".to_string()),
                 Json(WriteRequest {
                     data: "abc".to_string(),
+                    // 缺省 = 用户输入，走普通 write 而非受回显判定的 write_reply。
+                    source: None,
                 }),
             )
             .await
