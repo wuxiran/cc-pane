@@ -545,9 +545,24 @@ fn strip_ansi(data: &str) -> String {
     String::from_utf8_lossy(&bytes).to_string()
 }
 
-/// 一个未完成转义序列最多可以攒多少字节。超过就当普通文本放行——真实的 CSI/OSC 都
-/// 远短于此，攒不满只说明流里有个孤立的 ESC，不该让它无限扣着后续输出不放。
-const MAX_ESCAPE_CARRY: usize = 128;
+/// 未完成转义序列的攒字节上限，按类型分档。超限就当普通文本放行——那等于退回
+/// 「前半被吞、后半裸奔」的旧行为，所以档位必须留足真实序列的长度。
+///
+/// CSI 短得多（SGR truecolor 也才 19 字节），128 绰绰有余。OSC 则可以很长：
+/// OSC 8 超链接带一条百余字符的 URL 就逼近 128（正好卡在临界，URL 再长一点就悄悄
+/// 退化），OSC 52 往剪贴板塞 1KB 文本更是 1300+ 字节。故 OSC/DCS 一档给到 4KB，
+/// 仍然有界——攒不满只说明流里有个孤立的 ESC，不该让它无限扣着后续输出不放。
+const MAX_CSI_CARRY: usize = 128;
+const MAX_STRING_ESCAPE_CARRY: usize = 4096;
+
+/// `candidate` 以 ESC 开头；返回它这一类允许攒多少字节。
+fn escape_carry_limit(candidate: &str) -> usize {
+    match candidate.as_bytes().get(1) {
+        // OSC / DCS / SOS / PM / APC 都是「字符串型」转义，长度无固定上限。
+        Some(b']') | Some(b'P') | Some(b'X') | Some(b'^') | Some(b'_') => MAX_STRING_ESCAPE_CARRY,
+        _ => MAX_CSI_CARRY,
+    }
+}
 
 /// 把结尾那段**未完成的转义序列**从文本里切出来。返回 `(可安全剥离的部分, 待续尾巴)`。
 ///
@@ -563,7 +578,7 @@ fn split_trailing_incomplete_escape(text: &str) -> (&str, &str) {
     };
     // ESC 是 ASCII，不可能落在多字节字符内部，按字节切是安全的。
     let candidate = &text[esc_at..];
-    if candidate.len() > MAX_ESCAPE_CARRY || is_complete_escape(candidate) {
+    if candidate.len() > escape_carry_limit(candidate) || is_complete_escape(candidate) {
         return (text, "");
     }
     (&text[..esc_at], candidate)
@@ -5165,10 +5180,38 @@ mod tests {
 
         // 孤立 ESC 后面跟着大量正文：攒满上限就该放行，不能无限扣着不吐。
         buffer.push("\u{1b}");
-        buffer.push(&"x".repeat(MAX_ESCAPE_CARRY * 2));
+        buffer.push(&"x".repeat(MAX_CSI_CARRY * 2));
         buffer.push("\n");
 
         assert!(buffer.get_recent(0).join("\n").contains(&"x".repeat(64)));
+    }
+
+    /// OSC 可以很长：OSC 8 超链接带一条百余字符的 URL 就逼近旧的 128 上限，
+    /// OSC 52 往剪贴板塞 1KB 更是 1300+ 字节。超限会退回「前半被吞、后半裸奔」，
+    /// 所以字符串型转义必须单独给一档。
+    #[test]
+    fn carries_long_osc_sequences_that_would_bust_the_csi_limit() {
+        let url = "x".repeat(600);
+        let head = format!("\u{1b}]8;;https://example.com/{url}");
+        assert_eq!(
+            split_trailing_incomplete_escape(&head),
+            ("", head.as_str()),
+            "长 OSC 未终止时应整段 carry"
+        );
+
+        let mut buffer = OutputBuffer::new(64, 1 << 20);
+        buffer.push(&format!("before{head}"));
+        buffer.push("\u{7}link\n");
+
+        let output = buffer.get_recent(0).join("\n");
+        assert!(output.contains("beforelink"), "{output:?}");
+        assert!(!output.contains("example.com"), "OSC 载荷漏成正文：{output:?}");
+    }
+
+    #[test]
+    fn still_bounds_the_carry_for_oversized_string_escapes() {
+        let huge = format!("\u{1b}]52;c;{}", "A".repeat(MAX_STRING_ESCAPE_CARRY));
+        assert_eq!(split_trailing_incomplete_escape(&huge).1, "", "超档应放行而非无限扣留");
     }
 
     #[test]
