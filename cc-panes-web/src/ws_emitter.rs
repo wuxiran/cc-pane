@@ -156,6 +156,21 @@ impl EventEmitter for WsEmitter {
                 self.publish(session_id, msg, false);
                 self.drop_session_subscribers(session_id);
             }
+            "terminal-desync" => {
+                // reader 线程经 emit 发的 desync（合批通道满整段丢弃；Stage 4
+                // 看门狗在 web 模式不会触发——无 ACK 通道则闸门永不 park，但
+                // 分支照样要有：契约表 origin=Emit，缺分支就是静默丢补救信号）。
+                // 复用 desynced 闩锁：插不进就闩住，deliver 排空后补插。
+                let mut subs = self.subscribers.write();
+                if let Some(senders) = subs.get_mut(session_id) {
+                    for sub in senders.iter_mut() {
+                        match sub.tx.try_send(DESYNC_MESSAGE.to_string()) {
+                            Ok(()) => sub.desynced = false,
+                            Err(_) => sub.desynced = true,
+                        }
+                    }
+                }
+            }
             _ => {}
         }
         Ok(())

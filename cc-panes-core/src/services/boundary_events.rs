@@ -57,7 +57,13 @@ pub enum EventOrigin {
     /// 经 `EventEmitter::emit` 进来——**这类必须在 emit 里有非默认分支**，
     /// 否则落进 `_ => {}` 静默丢失（docs/45 事故形态）。
     Emit,
-    /// emitter 自己生成的出站信号，不经 emit（如队列溢出时插入的 desync）。
+    /// emitter 自己生成的出站信号，不经 emit（如队列排空后插入的 desync 标记）。
+    ///
+    /// **给既有 EmitterGenerated 事件新增 emit 调用点时，必须把 origin 改成
+    /// Emit**——本分类会让穷举守卫跳过该事件，emit 侧缺分支就是静默丢失。
+    /// 0.12.7 的 terminal-desync 正是这么漏的：契约表登记时它确实只有 emitter
+    /// 自生成一种来源，后来 reader 线程加了两处 `emit(TERMINAL_DESYNC)`，
+    /// 分类没跟着改，两处全落 `_ => {}`，守卫全绿。
     EmitterGenerated,
     /// 独立入口（如 ControlSessionNotifier 的 publish_notifier_event）。
     DedicatedApi,
@@ -127,12 +133,17 @@ pub const BOUNDARY_EVENTS: &[BoundaryEvent] = &[
     },
     BoundaryEvent {
         name: crate::constants::events::TERMINAL_DESYNC,
-        origin: EventOrigin::EmitterGenerated,
+        origin: EventOrigin::Emit,
         channel: BoundaryChannel::SessionWs,
         loss: LossSemantics::MustDeliver,
         legacy_app_behavior: "旧 app 走 DaemonStreamMessage::Unknown 静默忽略（画面停在旧内容）",
-        rationale: "输出队列溢出后的唯一补救信号。丢了 = 前端不知道自己少了数据，\
-                    画面永久带缺口。它自己不能再走可丢路径。",
+        rationale: "输出丢失后的唯一补救信号。丢了 = 前端不知道自己少了数据，\
+                    画面永久带缺口。它自己不能再走可丢路径。来源有两类：reader \
+                    线程经 emit（Stage 4 ack 静默看门狗、合批通道溢出）——origin \
+                    按这类记 Emit，让穷举守卫盯住 emit 分支（0.12.7 曾因误标 \
+                    EmitterGenerated 被守卫跳过，两处 emit 全落 `_ => {}`）；\
+                    另有 emitter 自生成路径（WS 队列排空后插入、unhide 补发），\
+                    由 ws_emitter 自己的测试覆盖。",
     },
     BoundaryEvent {
         name: crate::constants::events::TERMINAL_CHECKPOINT_REQUEST,

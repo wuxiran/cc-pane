@@ -64,10 +64,14 @@ export const BOUNDARY_EVENTS: readonly BoundaryEventContract[] = [
   },
   {
     name: "terminal-desync",
-    origin: "emitter-generated",
+    origin: "emit",
     channel: "session-ws",
     appHandler: "terminalService.ensureListeners → createTerminalDesyncHandler",
-    rationale: "溢出后的唯一补救信号，不经 emit（emitter 排空队列后自行插入）。",
+    rationale:
+      "输出丢失后的唯一补救信号。双来源：reader 线程经 emit（Stage 4 ack 静默看门狗、" +
+      "合批通道溢出）——origin 按这类记 emit，让 Rust 穷举守卫盯住 emit 分支" +
+      "（0.12.7 曾因误标 emitter-generated 被守卫跳过，两处 emit 全落 `_ => {}`）；" +
+      "另有 emitter 自生成路径（WS 队列排空后插入、unhide 补发），由 ws_emitter 测试覆盖。",
   },
   {
     name: "notifier",
