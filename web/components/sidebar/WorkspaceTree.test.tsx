@@ -42,6 +42,21 @@ vi.mock("@dnd-kit/utilities", () => ({ CSS: { Transform: { toString: () => "" } 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
+// WorkspaceTree 只负责把可用 CLI 集合传给菜单子树；CLI 探测本身由 hook
+// 单测覆盖，这里避免每个渲染用例都触发真实的 /api/cli-tools 请求。
+vi.mock("@/hooks/useCliTools", () => ({
+  useCliTools: () => ({
+    tools: [],
+    loading: false,
+    refresh: vi.fn(),
+    getToolById: vi.fn(),
+    installedTools: [],
+  }),
+}));
+vi.mock("@/stores/useSettingsStore", () => ({
+  useSettingsStore: (selector: (state: { settings: null }) => unknown) => selector({ settings: null }),
+}));
+
 // --- 子组件全部 stub 成轻量占位 ---
 vi.mock("@/components/WorktreeManager", () => ({ default: () => null }));
 vi.mock("./WorkspaceDialogs", () => ({ default: () => null }));

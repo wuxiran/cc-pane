@@ -3,6 +3,7 @@ import {
   buildSidebarCliLaunchItems,
   buildSidebarLaunchActions,
   filterSidebarFavoriteLaunchActions,
+  getAvailableSidebarCliToolIds,
   getDefaultSidebarFavoriteLaunchActionIds,
   groupSidebarCliLaunchItems,
   normalizeSidebarFavoriteLaunchActionIds,
@@ -58,6 +59,28 @@ describe("normalizeSidebarFavoriteLaunchActionIds", () => {
   it("passes through empty list unchanged", () => {
     const empty: string[] = [];
     expect(normalizeSidebarFavoriteLaunchActionIds(empty)).toBe(empty);
+  });
+});
+
+describe("getAvailableSidebarCliToolIds", () => {
+  it("keeps the menu unfiltered until detection completes", () => {
+    expect(getAvailableSidebarCliToolIds(undefined)).toBeUndefined();
+  });
+
+  it("includes installed tools and non-empty launcher overrides only", () => {
+    const ids = getAvailableSidebarCliToolIds(
+      [
+        { id: "claude", installed: true },
+        { id: "codex", installed: false },
+        { id: "gemini", installed: false },
+      ],
+      {
+        codex: { command: "  C:/tools/codex.exe " },
+        gemini: { command: "   " },
+      },
+    );
+
+    expect([...ids!]).toEqual(["claude", "codex"]);
   });
 });
 
@@ -121,6 +144,18 @@ describe("buildSidebarLaunchActions", () => {
     const actions = buildSidebarLaunchActions(fakeT, false);
     expect(actions.find((a) => a.id === "claude-default")?.environment).toBeUndefined();
     expect(actions.find((a) => a.id === "claude-local")?.environment).toBe("local");
+  });
+
+  it("filters CLI actions by detected availability while retaining terminal actions", () => {
+    const actions = buildSidebarLaunchActions(fakeT, true, true, new Set(["claude", "opencode"]));
+    const ids = actions.map((action) => action.id);
+
+    expect(ids).toContain("terminal-default");
+    expect(ids).toContain("terminal-wsl");
+    expect(ids).toContain("claude-default");
+    expect(ids).toContain("opencode-ssh");
+    expect(ids).not.toContain("codex-default");
+    expect(ids).not.toContain("gemini-wsl");
   });
 });
 

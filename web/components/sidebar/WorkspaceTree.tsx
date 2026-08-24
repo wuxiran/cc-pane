@@ -31,7 +31,9 @@ import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
 import { deriveWorkspaceTerminals } from "./workspaceTerminals";
 import WorkspaceTerminalList from "./WorkspaceTerminalList";
 import { useFirstPromptIndex } from "@/hooks/useFirstPromptIndex";
+import { useCliTools } from "@/hooks/useCliTools";
 import { filterWorkspaces, UNGROUPED_WORKSPACE_FILTER } from "@/stores/useWorkspacesStore";
+import { useSettingsStore } from "@/stores/useSettingsStore";
 import { partitionWorkspaces } from "./workspaceDnd";
 import { useWorkspaceDragDrop } from "./useWorkspaceDragDrop";
 import { isTauriRuntime } from "@/services/runtime";
@@ -48,6 +50,7 @@ import {
   sidebarSectionTitleClass,
 } from "./sidebarStyles";
 import type { Workspace, WorkspaceProject, OpenTerminalOptions } from "@/types";
+import { getAvailableSidebarCliToolIds } from "./launchMenu";
 
 interface WorkspaceTreeProps {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
@@ -80,6 +83,8 @@ interface SortableWorkspaceItemProps {
   onOpenInFileBrowser?: (path: string) => void;
   /** 头部计数徽章覆盖值（终端模式显示终端数而非项目数） */
   countOverride?: number;
+  /** 已安装或显式配置的 CLI；undefined 表示环境探测尚未完成。 */
+  availableCliToolIds?: ReadonlySet<string>;
   children: ReactNode;
 }
 
@@ -123,6 +128,15 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
   const expandedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
   const expandWorkspace = useWorkspacesStore((s) => s.expandWorkspace);
   const updateWorkspacePath = useWorkspacesStore((s) => s.updateWorkspacePath);
+  const { tools: cliTools, loading: cliToolsLoading } = useCliTools();
+  const cliLauncherOverrides = useSettingsStore((s) => s.settings?.cliLaunchers.overrides);
+  const availableCliToolIds = useMemo(
+    () => getAvailableSidebarCliToolIds(
+      cliToolsLoading ? undefined : cliTools,
+      cliLauncherOverrides,
+    ),
+    [cliLauncherOverrides, cliTools, cliToolsLoading],
+  );
   const collapsedWorkspaceGroups = useLayoutUiStore((s) => s.collapsedWorkspaceGroups);
   const toggleWorkspaceGroup = useLayoutUiStore((s) => s.toggleWorkspaceGroup);
   const openWorkspaceEnvironment = useDialogStore((s) => s.openWorkspaceEnvironment);
@@ -248,6 +262,7 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
         onOpenEnvironment={(workspace) => openWorkspaceEnvironment(workspace.id)}
         onOpenInFileBrowser={handleOpenInFileBrowser}
         countOverride={treeMode === "terminals" ? terminalRows.length : undefined}
+        availableCliToolIds={availableCliToolIds}
       >
         {treeMode === "terminals" ? (
           <WorkspaceTerminalList workspaceName={ws.name} rows={terminalRows} />
@@ -266,6 +281,7 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
             onMigrateProject={actions.handleMigrateProject}
             onOpenWorktreeManager={handleOpenWorktreeManager}
             onOpenInFileBrowser={handleOpenInFileBrowser}
+            availableCliToolIds={availableCliToolIds}
           />
         )}
       </SortableWorkspaceItem>

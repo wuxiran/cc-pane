@@ -46,6 +46,8 @@ export interface ProjectListItemProps {
   leading?: ReactNode;
   /** 父行的计数徽章等后置元素 */
   trailing?: ReactNode;
+  /** 已安装或显式配置的 CLI；undefined 表示环境探测尚未完成。 */
+  availableCliToolIds?: ReadonlySet<string>;
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
   onRemoveProject: (ws: Workspace, project: WorkspaceProject) => void;
   onSetProjectAlias: (ws: Workspace, project: WorkspaceProject) => void;
@@ -104,6 +106,7 @@ export default function ProjectListItem({
   project, workspace, gitBranch, pathStatus, worktreeBranch, leading, trailing,
   onOpenTerminal, onRemoveProject, onSetProjectAlias,
   onMigrateProject, onOpenWorktreeManager, onOpenInFileBrowser,
+  availableCliToolIds,
 }: ProjectListItemProps) {
   const { t } = useTranslation(["sidebar", "common", "spec"]);
   const sshMachines = useSshMachinesStore((s) => s.machines);
@@ -200,7 +203,9 @@ export default function ProjectListItem({
   const canLaunchSsh = !resolveWorkspaceProjectLaunchOptions({
     workspace, project, machines: sshMachines, environment: "ssh",
   }).issue;
-  const cliLaunchItems = buildSidebarCliLaunchItems(t, canLaunchWsl, canLaunchSsh);
+  const cliLaunchItems = buildSidebarCliLaunchItems(
+    t, canLaunchWsl, canLaunchSsh, availableCliToolIds,
+  );
   // 常用项平铺，其余折叠进"更多启动方式"（issue #36：避免 20+ 项平铺）
   const groupedCliLaunchItems = groupSidebarCliLaunchItems(
     cliLaunchItems,
