@@ -43,6 +43,9 @@ vi.mock("@/components/providers", () => ({
 vi.mock("@/components/orchestration/OrchestrationOverlay", () => ({
   default: () => <div data-testid="orchestration-overlay" />,
 }));
+vi.mock("@/components/canvas/PaneFlowOverlay", () => ({
+  default: () => <div data-testid="pane-flow-overlay" />,
+}));
 vi.mock("@/components/layoutbar/LayoutTopBar", () => ({
   default: () => <div data-testid="layout-top-bar" />,
 }));
@@ -76,11 +79,16 @@ const wallpaperState = vi.hoisted(() => ({
   assetUrl: null as string | null,
 }));
 
+const canvasDisplayState = vi.hoisted(() => ({
+  mode: "panel" as "panel" | "canvas",
+}));
+
 vi.mock("@/stores", () => ({
   usePanesStore: (selector: (s: typeof panesState) => unknown) => selector(panesState),
   useActivityBarStore: (selector: (s: typeof activityState) => unknown) => selector(activityState),
   useLayoutUiStore: (selector: (s: typeof layoutUiState) => unknown) => selector(layoutUiState),
   useWallpaperStore: (selector: (s: typeof wallpaperState) => unknown) => selector(wallpaperState),
+  useCanvasDisplayStore: (selector: (s: typeof canvasDisplayState) => unknown) => selector(canvasDisplayState),
 }));
 
 function setMode(mode: AppViewMode, overrides: Partial<typeof activityState> = {}) {
@@ -89,6 +97,7 @@ function setMode(mode: AppViewMode, overrides: Partial<typeof activityState> = {
   activityState.activeView = "explorer";
   activityState.orchestrationOverlayOpen = false;
   Object.assign(activityState, overrides);
+  canvasDisplayState.mode = "panel";
 }
 
 describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
@@ -170,6 +179,7 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     const { unmount } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
     expect(screen.getByTestId("sidebar")).toBeInTheDocument();
     expect(screen.getByTestId("pane-container")).toBeInTheDocument();
+    expect(screen.getByTestId("pane-flow-overlay")).toBeInTheDocument();
     expect(screen.queryByTestId("orchestration-overlay")).toBeNull();
     unmount();
 
@@ -179,10 +189,21 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     expect(screen.getByTestId("pane-container")).toBeInTheDocument();
   });
 
+  it("Canvas 模式隐藏默认 pane 布局并让独立 Canvas 占满主内容区", () => {
+    setMode("panes");
+    canvasDisplayState.mode = "canvas";
+    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+
+    expect(screen.getByTestId("pane-flow-overlay")).toBeVisible();
+    expect(screen.getByTestId("pane-flow-overlay").closest("[data-terminal-canvas-view]")).toHaveStyle({ display: "block" });
+    expect(screen.getByTestId("pane-container").closest("[data-terminal-layout-view]")).toHaveStyle({ display: "none" });
+  });
+
   it("orchestration → panes 兼容态 + overlay，且不渲染 Sidebar", () => {
     setMode("orchestration", { activeView: "orchestration", sidebarVisible: false });
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
     expect(screen.getByTestId("pane-container")).toBeInTheDocument();
+    expect(screen.getByTestId("pane-flow-overlay")).toBeInTheDocument();
     expect(screen.getByTestId("orchestration-overlay")).toBeInTheDocument();
     expect(screen.queryByTestId("sidebar")).toBeNull();
   });

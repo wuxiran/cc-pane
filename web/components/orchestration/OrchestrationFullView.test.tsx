@@ -84,6 +84,7 @@ describe("OrchestrationFullView", () => {
     render(<OrchestrationFullView />);
 
     expect(screen.getByText("暂无编排任务")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "显示终端画布" })).not.toBeInTheDocument();
     await waitFor(() => expect(loadBindings).toHaveBeenCalledWith({ limit: 100 }));
   });
 

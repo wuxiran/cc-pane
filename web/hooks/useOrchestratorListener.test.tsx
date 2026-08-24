@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
@@ -106,6 +107,53 @@ describe("useOrchestratorListener layout placement", () => {
     expect(leaf?.launchId).toMatch(/^launch-/);
     expect(leaf?.launchId).not.toBe("project-a");
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
+  });
+
+  it("重复 launch-task 事件不会创建第二个相同会话标签", async () => {
+    const listeners = mockWebviewListeners();
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
+
+    const event = {
+      payload: {
+        taskId: "task-duplicate",
+        sessionId: "session-duplicate",
+        projectPath: "/tmp/project-a",
+        projectId: "project-a",
+        tabId: "tab-duplicate",
+        terminalPaneId: "terminal-pane-duplicate",
+        cliTool: "opencode",
+      },
+    };
+    const handler = listeners.get("orchestrator-launch-task");
+    await act(async () => {
+      await handler?.(event);
+      await handler?.(event);
+    });
+
+    const tabs = usePanesStore
+      .getState()
+      .allPanelsAcrossLayouts()
+      .flatMap((panel) => panel.tabs)
+      .filter((tab) => tab.sessionId === "session-duplicate");
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0]?.id).toBe("tab-duplicate");
+  });
+
+  it("listen 尚未返回卸载函数时 effect 清理仍会移除全部监听", async () => {
+    const pendingResolvers: Array<(unlisten: UnlistenFn) => void> = [];
+    const unlisten = vi.fn();
+    vi.mocked(getCurrentWebview().listen).mockImplementation(
+      () => new Promise<UnlistenFn>((resolve) => pendingResolvers.push(resolve)),
+    );
+
+    const { unmount } = renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(pendingResolvers).toHaveLength(7));
+
+    unmount();
+    pendingResolvers.forEach((resolve) => resolve(unlisten));
+
+    await waitFor(() => expect(unlisten).toHaveBeenCalledTimes(7));
   });
 
   it("launch-task 把显式 launchProfileId 和 modelId 保存在前端 tab 元数据", async () => {

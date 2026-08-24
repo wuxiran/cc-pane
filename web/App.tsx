@@ -26,6 +26,7 @@ import { useAppLifecycleLate } from "@/hooks/useAppLifecycleLate";
 import { useShortcutRegistrations } from "@/hooks/useShortcutRegistrations";
 import { useOpenTerminal } from "@/hooks/useOpenTerminal";
 import { useQuickCommandsSync } from "@/hooks/useQuickCommandsSync";
+import { usePipeEventListener } from "@/hooks/usePipeEventListener";
 import LauncherDialog from "@/components/launcher/LauncherDialog";
 
 export default function App() {
@@ -83,6 +84,9 @@ function MainApp() {
 
   // fix(M4) review: Orchestrator 同步提升到 App 顶层，全局只挂一次。
   useOrchestratorSync();
+
+  // 编排通信事件全局订阅，避免用户在 panel 模式时丢失一次性事件。
+  usePipeEventListener();
 
   // Layout switcher 浮窗与主窗布局状态同步。
   useLayoutSwitcherSync();

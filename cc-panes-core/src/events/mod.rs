@@ -1,5 +1,11 @@
 use serde_json::Value;
 
+mod pipe_event;
+
+pub use pipe_event::{
+    PipeEvent, PipeEventKind, PipeEventPhase, ORCHESTRATION_PIPE_EVENT, PIPE_EVENT_SCHEMA_VERSION,
+};
+
 /// Framework-independent event emitter trait.
 /// Tauri adapter implements this with `AppHandle.emit()`.
 /// Future HTTP adapter can implement this with WebSocket broadcast.

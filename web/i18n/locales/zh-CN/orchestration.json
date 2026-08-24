@@ -108,5 +108,29 @@
     "deleteCascadeTitle": "删除 leader 及全部 worker",
     "deleteCascadeDesc": "将同时删除 {{count}} 个 worker 任务。"
   },
-  "closeOverlay": "关闭编排浮层"
+  "closeOverlay": "关闭编排浮层",
+  "showTerminalCanvas": "显示终端画布",
+  "hideTerminalCanvas": "隐藏终端画布",
+  "canvasAnimationSettings": "画布动画强度",
+  "canvasAnimationFull": "完整动画",
+  "canvasAnimationReduced": "降低动态效果",
+  "canvasAnimationOff": "关闭动画",
+  "canvasReplayFlow": "演示管道传输",
+  "canvasNodeTask": "任务",
+  "canvasNodeTerminal": "终端",
+  "canvasNodeLeader": "主 CLI",
+  "canvasNodeWorker": "子 CLI",
+  "canvasMoveNode": "拖动调整终端位置",
+  "canvasResizeNode": "拉伸调整 {{name}} 的终端尺寸",
+  "canvasOpenTerminal": "打开 {{name}} 的终端",
+  "canvasEmpty": "暂无可视化终端",
+  "canvasStatus": {
+    "pending": "待执行",
+    "running": "运行中",
+    "waiting": "等待中",
+    "completed": "已完成",
+    "failed": "失败",
+    "idle": "空闲",
+    "offline": "离线"
+  }
 }

@@ -19,6 +19,7 @@ import { matchLayoutPreset } from "@/stores/usePanesStore";
 import type { LayoutEntry } from "@/types";
 import type { LayoutPresetId } from "@/types/pane";
 import LayoutDeleteDialog, { summarizeLayoutDelete, type DeleteSummary } from "./LayoutDeleteDialog";
+import CanvasDisplayToggle from "@/components/canvas/CanvasDisplayToggle";
 import SortableLayoutTab from "./SortableLayoutTab";
 import { deriveLayoutStatusSummary } from "./layoutStatusSummary";
 import { deriveLayoutTypeSummary } from "./layoutTypeSummary";
@@ -292,6 +293,13 @@ export default function LayoutTopBar() {
           })}
         </div>
       )}
+
+      <div
+        className="ml-1 flex flex-shrink-0 items-center border-l pl-1.5"
+        style={{ borderColor: "var(--app-border)" }}
+      >
+        <CanvasDisplayToggle />
+      </div>
 
       <div
         className={`flex flex-shrink-0 items-center border-l pl-1.5 ${
