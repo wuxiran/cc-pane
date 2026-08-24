@@ -108,5 +108,29 @@
     "deleteCascadeTitle": "Delete leader and workers",
     "deleteCascadeDesc": "This will also delete {{count}} worker task(s)."
   },
-  "closeOverlay": "Close orchestration overlay"
+  "closeOverlay": "Close orchestration overlay",
+  "showTerminalCanvas": "Show terminal canvas",
+  "hideTerminalCanvas": "Hide terminal canvas",
+  "canvasAnimationSettings": "Canvas animation intensity",
+  "canvasAnimationFull": "Full animation",
+  "canvasAnimationReduced": "Reduced motion",
+  "canvasAnimationOff": "Animations off",
+  "canvasReplayFlow": "Preview pipe transfer",
+  "canvasNodeTask": "Task",
+  "canvasNodeTerminal": "Terminal",
+  "canvasNodeLeader": "Leader CLI",
+  "canvasNodeWorker": "Worker CLI",
+  "canvasMoveNode": "Drag to move terminal",
+  "canvasResizeNode": "Resize {{name}} terminal",
+  "canvasOpenTerminal": "Open {{name}} terminal",
+  "canvasEmpty": "No terminals to visualize",
+  "canvasStatus": {
+    "pending": "Pending",
+    "running": "Running",
+    "waiting": "Waiting",
+    "completed": "Completed",
+    "failed": "Failed",
+    "idle": "Idle",
+    "offline": "Offline"
+  }
 }

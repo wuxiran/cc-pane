@@ -14,10 +14,11 @@ import { SelfChatManager } from "@/components/selfchat";
 import { HomeDashboard } from "@/components/home";
 import { ProvidersPanel } from "@/components/providers";
 import OrchestrationOverlay from "@/components/orchestration/OrchestrationOverlay";
+import PaneFlowOverlay from "@/components/canvas/PaneFlowOverlay";
 import { LayoutVisibilityContext } from "@/contexts/LayoutVisibilityContext";
 import LayoutTopBar from "@/components/layoutbar/LayoutTopBar";
 import MainWallpaperLayer from "@/components/layout/MainWallpaperLayer";
-import { usePanesStore, useActivityBarStore, useLayoutUiStore, useWallpaperStore, type AppViewMode } from "@/stores";
+import { useCanvasDisplayStore, usePanesStore, useActivityBarStore, useLayoutUiStore, useWallpaperStore, type AppViewMode } from "@/stores";
 import type { OpenTerminalOptions } from "@/types";
 
 interface MainViewSwitcherProps {
@@ -30,6 +31,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
   const currentLayoutId = usePanesStore((s) => s.currentLayoutId);
 
   const layoutSwitcherMode = useLayoutUiStore((s) => s.switcherMode);
+  const canvasDisplayMode = useCanvasDisplayStore((s) => s.mode);
   const sidebarVisible = useActivityBarStore((s) => s.sidebarVisible);
   const activeView = useActivityBarStore((s) => s.activeView);
   const appViewMode = useActivityBarStore((s) => s.appViewMode);
@@ -156,23 +158,36 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
               </div>
             )}
             <div className="relative z-[1] min-h-0 flex-1 overflow-hidden">
-              {layouts.map((layout) => {
-                const isCurrent = layout.id === currentLayoutId;
-                return (
-                  <LayoutVisibilityContext.Provider key={layout.id} value={isCurrent && isActive("panes")}>
-                    <div
-                      className="h-full w-full"
-                      style={{ display: isCurrent ? "block" : "none" }}
-                    >
-                      {layout.kind === "starred" ? (
-                        <StarredPanel />
-                      ) : (
-                        <PaneContainer pane={isCurrent ? rootPane : layout.rootPane} />
-                      )}
-                    </div>
-                  </LayoutVisibilityContext.Provider>
-                );
-              })}
+              <div
+                className="h-full w-full"
+                style={{ display: canvasDisplayMode === "panel" ? "block" : "none" }}
+                data-terminal-layout-view
+              >
+                {layouts.map((layout) => {
+                  const isCurrent = layout.id === currentLayoutId;
+                  return (
+                    <LayoutVisibilityContext.Provider key={layout.id} value={isCurrent && isActive("panes") && canvasDisplayMode === "panel"}>
+                      <div
+                        className="h-full w-full"
+                        style={{ display: isCurrent ? "block" : "none" }}
+                      >
+                        {layout.kind === "starred" ? (
+                          <StarredPanel />
+                        ) : (
+                          <PaneContainer pane={isCurrent ? rootPane : layout.rootPane} />
+                        )}
+                      </div>
+                    </LayoutVisibilityContext.Provider>
+                  );
+                })}
+              </div>
+              <div
+                className="h-full w-full"
+                style={{ display: canvasDisplayMode === "canvas" ? "block" : "none" }}
+                data-terminal-canvas-view
+              >
+                <PaneFlowOverlay />
+              </div>
             </div>
           </DndPaneProvider>
         </div>

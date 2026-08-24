@@ -318,6 +318,11 @@
   --app-status-warning-border: color-mix(in srgb, var(--app-status-warning) 30%, transparent);
   --app-status-danger-bg: color-mix(in srgb, var(--app-status-danger) 10%, transparent);
   --app-status-danger-border: color-mix(in srgb, var(--app-status-danger) 30%, transparent);
+  /* Canvas 管道语义色：管道、粒子和光晕统一从当前主题取色。 */
+  --app-canvas-pipe-primary: #2563EB;
+  --app-canvas-pipe-secondary: #60A5FA;
+  --app-canvas-pipe-highlight: #DBEAFE;
+  --app-canvas-pipe-channel: #FFFFFF;
   /* 身份色（运行环境等"是什么"而非"什么状态"）：WSL / SSH */
   --app-identity-wsl: #B45309;
   --app-identity-ssh: #0E7490;
@@ -514,6 +519,11 @@
   --app-status-warning-border: color-mix(in srgb, var(--app-status-warning) 30%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
   --app-status-danger-bg: color-mix(in srgb, var(--app-status-danger) 10%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
   --app-status-danger-border: color-mix(in srgb, var(--app-status-danger) 30%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
+  /* Canvas 管道语义色：深色主题使用同一套蓝色层级，避免混入固定白色。 */
+  --app-canvas-pipe-primary: #4C8DF5;
+  --app-canvas-pipe-secondary: #79C0FF;
+  --app-canvas-pipe-highlight: #DCEBFF;
+  --app-canvas-pipe-channel: #1E2024;
   /* 身份色（暗色亮化） */
   --app-identity-wsl: #FCD34D;
   --app-identity-ssh: #67E8F9;
@@ -640,6 +650,10 @@
   --app-warning: #d8aa45;
   --app-warning-bg: rgba(216, 170, 69, 0.12);
   --app-input-bg: rgba(255, 255, 255, 0.05);
+  --app-canvas-pipe-primary: #9b7cf6;
+  --app-canvas-pipe-secondary: #c4b5fd;
+  --app-canvas-pipe-highlight: #f0ebff;
+  --app-canvas-pipe-channel: #201d25;
   --app-activity-bar-bg: #19171d;
   --app-sidebar-bg: #242129;
   --app-panel-bg: #292630;
@@ -727,6 +741,10 @@
   --app-warning: #e9a916;
   --app-warning-bg: rgba(233, 169, 22, 0.12);
   --app-input-bg: rgba(255, 255, 255, 0.05);
+  --app-canvas-pipe-primary: #e9a916;
+  --app-canvas-pipe-secondary: #f6c453;
+  --app-canvas-pipe-highlight: #fff1c7;
+  --app-canvas-pipe-channel: #211f1b;
   --app-activity-bar-bg: #191714;
   --app-sidebar-bg: #25221d;
   --app-panel-bg: #2b2822;
@@ -814,6 +832,10 @@
   --app-warning: #9b5a10;
   --app-warning-bg: rgba(155, 90, 16, 0.09);
   --app-input-bg: #efedea;
+  --app-canvas-pipe-primary: #c95f18;
+  --app-canvas-pipe-secondary: #e58a4e;
+  --app-canvas-pipe-highlight: #fff0e5;
+  --app-canvas-pipe-channel: #fffefd;
   --app-activity-bar-bg: #efedea;
   --app-sidebar-bg: #f7f6f4;
   --app-panel-bg: #fffefd;
@@ -901,6 +923,10 @@
   --app-warning: #8d6700;
   --app-warning-bg: rgba(141, 103, 0, 0.08);
   --app-input-bg: #eaf2fb;
+  --app-canvas-pipe-primary: #2878d0;
+  --app-canvas-pipe-secondary: #5ba3e8;
+  --app-canvas-pipe-highlight: #e7f2ff;
+  --app-canvas-pipe-channel: #fbfdff;
   --app-activity-bar-bg: #eaf2fb;
   --app-sidebar-bg: #f3f7fb;
   --app-panel-bg: #fbfdff;
@@ -1294,6 +1320,173 @@
   50% {
     transform: scale(1.3);
     opacity: 0.15;
+  }
+}
+
+@keyframes canvas-pipe-signal-flow {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -64px; }
+}
+
+@keyframes canvas-pipe-energy-flow {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -136px; }
+}
+
+@keyframes canvas-pipe-spark-flow {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -208px; }
+}
+
+@keyframes canvas-pipe-active-breathe {
+  0%, 100% {
+    opacity: 0.2;
+    filter: drop-shadow(0 0 1px color-mix(in srgb, currentColor 34%, transparent));
+  }
+  48% {
+    opacity: 0.48;
+    filter: drop-shadow(0 0 2px color-mix(in srgb, currentColor 52%, transparent));
+  }
+}
+
+@keyframes canvas-pipe-port-throb {
+  0%, 100% { opacity: 0.28; stroke-width: 0.65px; }
+  48% { opacity: 0.72; stroke-width: 1.1px; }
+}
+
+@keyframes canvas-pipe-port-orbit {
+  from { stroke-dashoffset: 0; transform: rotate(0deg); }
+  to { stroke-dashoffset: -30px; transform: rotate(360deg); }
+}
+
+@keyframes canvas-pipe-core-flicker {
+  0%, 100% { opacity: 0.72; transform: scale(0.9); }
+  48% { opacity: 1; transform: scale(1.12); }
+}
+
+.canvas-pipe-casing {
+  filter: drop-shadow(0 0 1px color-mix(in srgb, currentColor 18%, transparent));
+}
+
+.canvas-pipe-aura {
+  animation: canvas-pipe-active-breathe 2.6s ease-in-out infinite;
+}
+
+.canvas-pipe-channel {
+  filter: drop-shadow(0 0 1px color-mix(in srgb, var(--app-canvas-pipe-channel) 80%, transparent));
+}
+
+.canvas-pipe-path {
+  filter: drop-shadow(0 0 1.5px color-mix(in srgb, currentColor 46%, transparent));
+}
+
+.canvas-pipe-signal {
+  filter: drop-shadow(0 0 1.5px color-mix(in srgb, currentColor 72%, transparent));
+  animation: canvas-pipe-signal-flow 1.1s linear infinite;
+}
+
+.canvas-pipe-energy-lane {
+  filter: drop-shadow(0 0 1.25px color-mix(in srgb, currentColor 52%, transparent));
+  animation: canvas-pipe-energy-flow 1.9s linear infinite;
+}
+
+.canvas-pipe-spark-lane {
+  filter: drop-shadow(0 0 1px color-mix(in srgb, var(--app-canvas-pipe-highlight) 38%, transparent));
+  animation: canvas-pipe-spark-flow 2.8s linear infinite;
+}
+
+.canvas-pipe-port {
+  filter: drop-shadow(0 0 2.5px color-mix(in srgb, currentColor 38%, transparent));
+}
+
+.canvas-pipe-port-ring {
+  filter: drop-shadow(0 0 1.5px currentColor);
+}
+
+.canvas-pipe-port-aura {
+  animation: canvas-pipe-port-throb 2.2s ease-in-out infinite;
+}
+
+.canvas-pipe-port-orbit {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: canvas-pipe-port-orbit 2.1s linear infinite;
+}
+
+.canvas-pipe-port-core {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: canvas-pipe-core-flicker 1.1s ease-in-out infinite;
+}
+
+.canvas-animation-reduced .canvas-pipe-aura,
+.canvas-animation-reduced .canvas-pipe-path,
+.canvas-animation-reduced .canvas-pipe-signal {
+  animation-duration: 3.2s;
+}
+
+.canvas-animation-reduced .canvas-pipe-energy-lane {
+  animation-duration: 3.2s;
+}
+
+.canvas-animation-reduced .canvas-pipe-spark-lane {
+  animation-duration: 4.8s;
+}
+
+.canvas-animation-reduced .canvas-pipe-port-orbit {
+  animation-duration: 3.4s;
+}
+
+.canvas-animation-off .canvas-pipe-aura,
+.canvas-animation-off .canvas-pipe-path,
+.canvas-animation-off .canvas-pipe-signal,
+.canvas-animation-off .canvas-pipe-energy-lane,
+.canvas-animation-off .canvas-pipe-spark-lane,
+.canvas-animation-off .canvas-pipe-port-aura,
+.canvas-animation-off .canvas-pipe-port-orbit,
+.canvas-animation-off .canvas-pipe-port-core {
+  animation: none;
+}
+
+@keyframes canvas-node-waiting-breathe {
+  0%, 100% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--app-status-warning) 22%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--app-status-warning) 12%, transparent);
+  }
+}
+
+@keyframes canvas-node-completed-flash {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--app-status-success) 45%, transparent);
+  }
+  38% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--app-status-success) 24%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--app-status-success) 0%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-pipe-aura,
+  .canvas-pipe-path,
+  .canvas-pipe-signal,
+  .canvas-pipe-energy-lane,
+  .canvas-pipe-spark-lane,
+  .canvas-pipe-port-aura,
+  .canvas-pipe-port-orbit,
+  .canvas-pipe-port-core {
+    animation: none;
+  }
+
+  [data-flow-status="waiting"] > .pointer-events-none {
+    animation: none;
+  }
+
+  .canvas-node-completed-flash {
+    animation: none;
   }
 }
 

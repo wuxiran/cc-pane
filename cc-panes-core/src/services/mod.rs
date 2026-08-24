@@ -20,6 +20,7 @@ mod memory_service;
 pub mod opencode_session_service;
 pub mod pi_rpc_service;
 pub(crate) mod pi_session_service;
+pub mod pipe_event_service;
 pub mod plan_archive_service;
 pub mod plan_service;
 mod port_scanner;
@@ -92,6 +93,7 @@ pub use pi_rpc_service::{
     PiRpcCommandResponse, PiRpcEvent, PiRpcLaunchSpec, PiRpcService, PiRpcSessionPhase,
     PiRpcSessionSnapshot,
 };
+pub use pipe_event_service::{PipeEventRequest, PipeEventService};
 pub use plan_archive_service::PlanArchiveService;
 pub use plan_service::PlanService;
 pub use port_scanner::{ListeningSocket, PortScanner};

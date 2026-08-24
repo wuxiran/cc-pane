@@ -152,6 +152,9 @@ interface TerminalViewProps {
   layoutActive?: boolean;
   /** False for read-only/shared PTY mirrors that must only fit their local xterm view. */
   drivesBackendPty?: boolean;
+  /** Canvas mirror geometry and local zoom controls. */
+  resizeBackendPty?: boolean; layoutFitKey?: string | number;
+  initialTerminalFontSize?: number; terminalZoomPersistenceKey?: string;
   workspaceName?: string;
   providerId?: string;
   modelId?: string;
@@ -215,7 +218,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
   function TerminalView(props, ref) {
     const { t } = useTranslation("panes");
     const drivesBackendPty = props.drivesBackendPty ?? true;
-    const readOnlyRef = useRef(Boolean(props.readOnly));
+    const readOnlyRef = useRef(Boolean(props.readOnly)); const resizeBackendPtyRef = useRef(Boolean(props.resizeBackendPty));
     const isDark = useThemeStore((s) => s.isDark);
     const terminalThemeMode = useSettingsStore((s): TerminalThemeMode => s.settings?.terminal.themeMode ?? "followApp");
     const configuredTerminalFontSize = useSettingsStore((s) => normalizeTerminalFontSize(s.settings?.terminal.fontSize));
@@ -240,7 +243,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       [terminalTheme, wallpaperTerminalAlpha],
     );
     const terminalRef = useRef<HTMLDivElement>(null);
-    const terminalFontSize = useTerminalWheelZoom(terminalRef, configuredTerminalFontSize);
+    const terminalFontSize = useTerminalWheelZoom(terminalRef, configuredTerminalFontSize, { initialFontSize: props.initialTerminalFontSize, persistenceKey: props.terminalZoomPersistenceKey });
     const terminalFontSizeRef = useRef(terminalFontSize);
     terminalFontSizeRef.current = terminalFontSize;
     const terminalInstanceRef = useRef<Terminal | null>(null);
@@ -603,14 +606,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       // 注意本处只覆盖「自身 render 触发」的路径；别的视图变化（如切到星标页）
       // 不会让本组件 render，那条边沿由下面的 store 订阅补上。
       notifyVisibility(resolveDowngradeVisibility());
-      readOnlyRef.current = Boolean(props.readOnly);
+      readOnlyRef.current = Boolean(props.readOnly); resizeBackendPtyRef.current = Boolean(props.resizeBackendPty);
       if (terminalInstanceRef.current) {
         terminalInstanceRef.current.options.disableStdin = Boolean(props.readOnly);
       }
       if (props.layoutActive === false) {
         everHiddenRef.current = true;
       }
-
     });
 
     useAggregateVisibilitySubscription(props.visibilityOwnerId, notifyVisibility);
@@ -982,13 +984,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           getFitAddon: () => fitAddonRef.current,
           getHost: () => terminalRef.current,
           getSessionId: () => currentSessionIdRef.current,
-          // 焦点判据读单源（不是降档的 anyVisible）：refit 只看本视图焦点
-          isActive: isViewActive,
-          canResizeBackend: () => drivesBackendPty && !readOnlyRef.current,
+          isActive: () => isViewActive() || (!drivesBackendPty && isRenderVisible()), // Mirrors fit locally; backend writes stay gated below.
+          canResizeBackend: () => (drivesBackendPty && !readOnlyRef.current) || resizeBackendPtyRef.current,
           repaint: repaintTerminal,
           resizeBackend: (cols, rows) => {
             const sessionId = currentSessionIdRef.current;
-            if (!sessionId || readOnlyRef.current) return;
+            if (!sessionId || (readOnlyRef.current && !resizeBackendPtyRef.current)) return;
             // WebGL 诊断台录制：记下几何，回放才能几何对齐（否则 TUI 光标定位错位出假花）。
             noteTerminalGeometry(sessionId, cols, rows);
             void terminalService.resize({ sessionId, cols, rows }).catch((error) => {
@@ -1785,7 +1786,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 sessionRestoreService.clearOutput(props.savedSessionId).catch(console.error);
               }
             }
-            syncTerminalGeometry(sessionId, term, layoutSchedulerRef, drivesBackendPty, readOnlyRef.current, attachSessionId ? "session.attach" : "session.create", () => geometryEpochRef.current === initGeometryEpoch);
+            syncTerminalGeometry(sessionId, term, layoutSchedulerRef, drivesBackendPty || resizeBackendPtyRef.current, readOnlyRef.current && !resizeBackendPtyRef.current, attachSessionId ? "session.attach" : "session.create", () => geometryEpochRef.current === initGeometryEpoch);
             // Register output and exit handlers.
             await bindSessionCallbacks(sessionId);
             if (!isMounted) {
@@ -1932,14 +1933,13 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         trackedBuffer: trackedBufferTypeRef.current,
       });
 
+      const explicitLayoutFit = props.layoutFitKey !== undefined && props.layoutActive !== false;
       const scheduleRefit = () => {
         layoutSchedulerRef.current?.schedule("active.refit", {
-          // 焦点抢占：tab 级 active（store）还要按 leaf 分焦点，
-          // 否则分屏多 leaf 同帧互抢 focus
-          focusIfSafe: isViewActive() && (props.leafFocused ?? true),
-          // 可见非焦点允许：分屏里的另一格可见时也要 refit；隐藏格子不放行
-          // （这是全部 allowInactive 里唯一按可见性算的一处，其余为常量 true）
-          allowInactive: isRenderVisible(),
+          // 焦点抢占：tab 级 active 还要按 leaf 分焦点，避免分屏多 leaf 同帧互抢。
+          focusIfSafe: !explicitLayoutFit && isViewActive() && (props.leafFocused ?? true),
+          // 可见非焦点允许：分屏另一格可见时 refit，隐藏格子不放行。
+          allowInactive: explicitLayoutFit || isRenderVisible(), force: explicitLayoutFit,
         });
       };
 
@@ -2003,7 +2003,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                   usePanesStore.getState().clearRestoring(props.paneId ?? "", props.tabId, props.paneId);
                   sessionRestoreService.clearOutput(liveSavedSessionId).catch(console.error);
                 }
-                syncTerminalGeometry(liveSavedSessionId, term, layoutSchedulerRef, drivesBackendPty, readOnlyRef.current, "session.deferred-restore.attach", () => geometryEpochRef.current === initGeometryEpoch);
+                syncTerminalGeometry(liveSavedSessionId, term, layoutSchedulerRef, drivesBackendPty || resizeBackendPtyRef.current, readOnlyRef.current && !resizeBackendPtyRef.current, "session.deferred-restore.attach", () => geometryEpochRef.current === initGeometryEpoch);
                 await bindSessionCallbacks(liveSavedSessionId);
                 if (isUnmountedRef.current) {
                   unbindSessionCallbacks();
@@ -2134,7 +2134,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                   sessionRestoreService.clearOutput(props.savedSessionId).catch(console.error);
                 }
               }
-              syncTerminalGeometry(sessionId, term, layoutSchedulerRef, drivesBackendPty, readOnlyRef.current, "session.deferred-restore.create", () => geometryEpochRef.current === initGeometryEpoch);
+              syncTerminalGeometry(sessionId, term, layoutSchedulerRef, drivesBackendPty || resizeBackendPtyRef.current, readOnlyRef.current && !resizeBackendPtyRef.current, "session.deferred-restore.create", () => geometryEpochRef.current === initGeometryEpoch);
               await bindSessionCallbacks(sessionId);
               if (isUnmountedRef.current) {
                 unbindSessionCallbacks();
@@ -2172,14 +2172,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         };
       }
 
-      if (isRenderVisible() && fitAddonRef.current) {
+      if ((isRenderVisible() || explicitLayoutFit) && fitAddonRef.current) {
         scheduleRefit();
         return () => layoutSchedulerRef.current?.cancel();
       }
       // 依赖是「本 tab 的 props 侧信号」；store 侧的可见性翻转由单视图边沿
       // 订阅补 refit，不需要（也无法）进依赖数组。
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [props.layoutActive, props.leafFocused, terminalReady]);
+    }, [props.layoutActive, props.layoutFitKey, props.leafFocused, terminalReady]);
 
     const {
       getTerminalSelection,
@@ -2206,7 +2206,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       debugLog,
       refitAndRepaintTerminal,
       repaintTerminal,
-      canResizeBackend: () => drivesBackendPty && !readOnlyRef.current,
+      canResizeBackend: () => (drivesBackendPty && !readOnlyRef.current) || resizeBackendPtyRef.current,
       onExplicitGeometryChange: markExplicitGeometryChange,
     });
 

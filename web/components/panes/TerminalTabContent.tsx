@@ -7,6 +7,7 @@ import {
   terminalRestoreLogKey,
   usePanesStore,
   useTerminalRestoreLogStore,
+  useOrchestratorStore,
 } from "@/stores";
 import { useTabViewStateStore, viewKey } from "@/stores/useTabViewStateStore";
 import type { TerminalRestoreLogEntry } from "@/stores/useTerminalRestoreLogStore";
@@ -246,6 +247,7 @@ export default memo(function TerminalTabContent({
   const retryTerminalLaunch = usePanesStore((s) => s.retryTerminalLaunch);
   const removeTerminalLaunch = usePanesStore((s) => s.removeTerminalLaunch);
   const restoreLogs = useTerminalRestoreLogStore((s) => s.logs);
+  const bindings = useOrchestratorStore((s) => s.bindings);
   // 状态栏门控读单视图（primary 写侧已把 tab/layout 两层可见性都编码进去）
   const primaryViewVisible = useTabViewStateStore((s) => {
     const v = s.views[viewKey(tab.id, "primary")]?.visibility;
@@ -276,7 +278,16 @@ export default memo(function TerminalTabContent({
           className="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden"
           onMouseDown={() => setActiveTerminalPane(tab.id, leaf.id)}
         >
-          <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div
+            data-flow-tab-id={tab.id}
+            data-flow-session-id={leaf.sessionId ?? undefined}
+            data-flow-leaf-id={leaf.id}
+            data-flow-binding-id={bindings.find((binding) =>
+              (leaf.sessionId && binding.sessionId === leaf.sessionId) ||
+              binding.tabId === tab.id,
+            )?.id}
+            className="relative min-h-0 min-w-0 flex-1 overflow-hidden"
+          >
           {restoreBlocked ? (
             <BlockedRestorePanel
               tabId={tab.id}
@@ -444,6 +455,7 @@ export default memo(function TerminalTabContent({
     setTerminalLaunchError,
     setActiveTerminalPane,
     restoreLogs,
+    bindings,
     showStatusBar,
     tab.activeTerminalPaneId,
     tab.id,

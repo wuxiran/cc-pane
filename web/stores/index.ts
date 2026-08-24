@@ -74,6 +74,8 @@ export { useUsageStatsStore } from "./useUsageStatsStore";
 export { useContextUsageStore } from "./useContextUsageStore";
 export { useSharedMcpStore } from "./useSharedMcpStore";
 export { useOrchestratorStore } from "./useOrchestratorStore";
+export { useCanvasDisplayStore, type CanvasAnimationIntensity } from "./useCanvasDisplayStore";
+export { useCanvasStore } from "./useCanvasStore";
 export { useVoiceInputStore } from "./useVoiceInputStore";
 export { useTaskQueueStore } from "./useTaskQueueStore";
 export { useWallpaperStore } from "./useWallpaperStore";

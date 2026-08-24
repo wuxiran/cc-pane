@@ -34,6 +34,7 @@ describe("attachTerminalWheelZoom", () => {
   beforeEach(() => {
     updateSettings.mockClear();
     seedFontSize();
+    window.localStorage.clear();
   });
 
   it("captures Ctrl+wheel before an inner terminal handler", () => {
@@ -98,5 +99,32 @@ describe("attachTerminalWheelZoom", () => {
     expect(view.result.current).toBe(TERMINAL_FONT_SIZE_MIN);
     act(() => dispatchWheel(host, { ctrlKey: true, deltaY: 1 }));
     expect(view.result.current).toBe(TERMINAL_FONT_SIZE_MIN);
+  });
+
+  it("supports a separate initial size and restores Canvas zoom without changing global settings", () => {
+    const host = document.createElement("div");
+    const options = {
+      initialFontSize: 10,
+      persistenceKey: "canvas-terminal:binding:leader",
+    };
+    const first = renderHook(
+      ({ configured }) => useTerminalWheelZoom({ current: host }, configured, options),
+      { initialProps: { configured: TERMINAL_FONT_SIZE_DEFAULT } },
+    );
+
+    expect(first.result.current).toBe(10);
+    act(() => dispatchWheel(host, { ctrlKey: true, deltaY: -1 }));
+    expect(first.result.current).toBe(11);
+    expect(useSettingsStore.getState().settings?.terminal.fontSize).toBe(TERMINAL_FONT_SIZE_DEFAULT);
+
+    first.unmount();
+    const restored = renderHook(
+      ({ configured }) => useTerminalWheelZoom({ current: host }, configured, options),
+      { initialProps: { configured: TERMINAL_FONT_SIZE_MAX } },
+    );
+
+    expect(restored.result.current).toBe(11);
+    restored.rerender({ configured: TERMINAL_FONT_SIZE_MIN });
+    expect(restored.result.current).toBe(11);
   });
 });

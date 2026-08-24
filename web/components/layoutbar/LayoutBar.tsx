@@ -6,6 +6,7 @@ import type { LayoutEntry } from "@/types";
 import { useLayoutSelectorState, LAYOUT_BAR_TOGGLE_EVENT } from "./useLayoutSelectorState";
 import { LayoutSelectorPanel } from "./LayoutSelectorPanel";
 import LayoutDeleteDialog, { summarizeLayoutDelete, type DeleteSummary } from "./LayoutDeleteDialog";
+import CanvasDisplayToggle from "@/components/canvas/CanvasDisplayToggle";
 
 export { LAYOUT_BAR_TOGGLE_EVENT };
 
@@ -119,6 +120,10 @@ export default function LayoutBar() {
           t={t}
         />
       ) : null}
+
+      <div className="mt-1 flex items-center justify-center">
+        <CanvasDisplayToggle />
+      </div>
 
       <LayoutDeleteDialog
         summary={deleteSummary}

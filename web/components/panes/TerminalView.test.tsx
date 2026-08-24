@@ -570,11 +570,14 @@ describe("TerminalView", () => {
   });
 
   it("mirror attach and fit never resize the shared PTY", async () => {
+    useTabViewStateStore.getState().reportView("tab-mirror", "mirror", "visible");
     renderTerminalView({
       sessionId: "shared-session",
       paneId: undefined,
       tabId: undefined,
       drivesBackendPty: false,
+      visibilityOwnerId: "tab-mirror",
+      viewRole: "mirror",
     });
 
     await waitFor(() =>
@@ -584,6 +587,109 @@ describe("TerminalView", () => {
     const schedulerCalls = vi.mocked(createTerminalLayoutScheduler).mock.calls;
     const schedulerOptions = schedulerCalls[schedulerCalls.length - 1]?.[0];
     expect(schedulerOptions?.canResizeBackend?.()).toBe(false);
+    expect(schedulerOptions?.isActive?.()).toBe(true);
+  });
+
+  it("allows an explicit read-only Canvas mirror to own shared PTY geometry", async () => {
+    useTabViewStateStore.getState().reportView("tab-canvas", "mirror", "visible");
+    renderTerminalView({
+      sessionId: "canvas-session",
+      paneId: undefined,
+      tabId: undefined,
+      drivesBackendPty: false,
+      resizeBackendPty: true,
+      readOnly: true,
+      visibilityOwnerId: "tab-canvas",
+      viewRole: "mirror",
+    });
+
+    await waitFor(() =>
+      expect(registerOutput).toHaveBeenCalledWith("canvas-session", expect.any(Function)),
+    );
+    expect(resize).toHaveBeenCalledWith({
+      sessionId: "canvas-session",
+      cols: 80,
+      rows: 24,
+    });
+    const schedulerCalls = vi.mocked(createTerminalLayoutScheduler).mock.calls;
+    const schedulerOptions = schedulerCalls[schedulerCalls.length - 1]?.[0];
+    expect(schedulerOptions?.canResizeBackend?.()).toBe(true);
+  });
+
+  it("forces a Canvas mirror fit when its post-commit surface key changes", async () => {
+    useTabViewStateStore.getState().reportView("tab-canvas-fit", "mirror", "hidden");
+    const view = renderTerminalView({
+      sessionId: "canvas-fit-session",
+      paneId: undefined,
+      tabId: undefined,
+      layoutActive: false,
+      layoutFitKey: "node:panel:320:220",
+      drivesBackendPty: false,
+      resizeBackendPty: true,
+      readOnly: true,
+      visibilityOwnerId: "tab-canvas-fit",
+      viewRole: "mirror",
+    });
+
+    await waitFor(() =>
+      expect(registerOutput).toHaveBeenCalledWith("canvas-fit-session", expect.any(Function)),
+    );
+    const schedulerResults = vi.mocked(createTerminalLayoutScheduler).mock.results;
+    const scheduler = schedulerResults[schedulerResults.length - 1]?.value as {
+      schedule: ReturnType<typeof vi.fn>;
+    };
+    scheduler.schedule.mockClear();
+
+    act(() => {
+      useTabViewStateStore.getState().reportView("tab-canvas-fit", "mirror", "visible");
+      view.rerender(
+        <TerminalView
+          sessionId="canvas-fit-session"
+          projectPath="/tmp/proj"
+          layoutActive
+          layoutFitKey="node:canvas:640:420"
+          drivesBackendPty={false}
+          resizeBackendPty
+          readOnly
+          visibilityOwnerId="tab-canvas-fit"
+          viewRole="mirror"
+          onSessionCreated={vi.fn()}
+        />,
+      );
+    });
+
+    await waitFor(() => expect(scheduler.schedule).toHaveBeenCalledWith("active.refit", {
+      focusIfSafe: false,
+      allowInactive: true,
+      force: true,
+    }));
+  });
+
+  it("forwards keyboard input from an interactive Canvas mirror to its shared PTY", async () => {
+    useTabViewStateStore.getState().reportView("tab-canvas-input", "mirror", "visible");
+    renderTerminalView({
+      sessionId: "canvas-input-session",
+      paneId: undefined,
+      tabId: undefined,
+      drivesBackendPty: false,
+      resizeBackendPty: true,
+      readOnly: false,
+      visibilityOwnerId: "tab-canvas-input",
+      viewRole: "mirror",
+    });
+
+    await waitFor(() =>
+      expect(registerOutput).toHaveBeenCalledWith("canvas-input-session", expect.any(Function)),
+    );
+    const term = await lastTerm();
+
+    act(() => term.dataHandler?.("canvas input\r"));
+
+    expect(writeToSession).toHaveBeenCalledWith(
+      "canvas-input-session",
+      "canvas input\r",
+      expect.objectContaining({ traceId: expect.any(Number) }),
+    );
   });
 
   it("standalone primary views still resize the backend PTY", async () => {

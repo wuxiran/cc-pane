@@ -44,6 +44,7 @@ use cc_cli_adapters::{normalize_cli_command, CliToolRegistry};
 use cc_memory::models::{
     MemoryCategory, MemoryQuery, MemoryScope, StoreMemoryRequest, UpdateMemoryRequest,
 };
+use cc_panes_core::events::{PipeEventKind, PipeEventPhase};
 use cc_panes_core::models::settings::CliLauncherOverride;
 use cc_panes_core::models::shared_mcp::{
     BridgeMode, SharedMcpConfig, SharedMcpServerConfig, SharedMcpServerStatus,
@@ -59,6 +60,7 @@ use cc_panes_core::services::terminal_service::{
 };
 use cc_panes_core::services::TaskDispatchService;
 use cc_panes_core::services::TerminalBackend;
+use cc_panes_core::services::{PipeEventRequest, PipeEventService};
 #[cfg(target_os = "windows")]
 use cc_panes_core::utils::canonical_project_path;
 use cc_panes_core::utils::orchestrator_manifest;
@@ -273,6 +275,99 @@ fn reconcile_parent_session_id(
 
 fn dispatch_binding_metadata(envelope: &TaskDispatchEnvelope) -> serde_json::Value {
     serde_json::json!({ "dispatchEnvelope": envelope })
+}
+
+fn pipe_workspace_id(workspace_name: Option<&str>, project_path: Option<&str>) -> String {
+    workspace_name
+        .filter(|value| !value.trim().is_empty())
+        .or(project_path)
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+#[derive(Debug, Clone)]
+struct PipeEventSpec {
+    correlation_id: String,
+    attempt: u32,
+    workspace_id: String,
+    kind: PipeEventKind,
+    phase: PipeEventPhase,
+    from_binding: Option<String>,
+    to_binding: Option<String>,
+    from_session: Option<String>,
+    to_session: Option<String>,
+    summary: String,
+    reason: Option<String>,
+}
+
+impl PipeEventSpec {
+    fn new(
+        correlation_id: impl Into<String>,
+        workspace_id: impl Into<String>,
+        kind: PipeEventKind,
+        phase: PipeEventPhase,
+    ) -> Self {
+        Self {
+            correlation_id: correlation_id.into(),
+            attempt: 0,
+            workspace_id: workspace_id.into(),
+            kind,
+            phase,
+            from_binding: None,
+            to_binding: None,
+            from_session: None,
+            to_session: None,
+            summary: String::new(),
+            reason: None,
+        }
+    }
+
+    fn attempt(mut self, attempt: u32) -> Self {
+        self.attempt = attempt;
+        self
+    }
+
+    fn bindings(mut self, from: Option<&str>, to: Option<&str>) -> Self {
+        self.from_binding = from.map(str::to_string);
+        self.to_binding = to.map(str::to_string);
+        self
+    }
+
+    fn sessions(mut self, from: Option<&str>, to: Option<&str>) -> Self {
+        self.from_session = from.map(str::to_string);
+        self.to_session = to.map(str::to_string);
+        self
+    }
+
+    fn summary(mut self, summary: impl Into<String>) -> Self {
+        self.summary = summary.into();
+        self
+    }
+
+    fn reason(mut self, reason: Option<&str>) -> Self {
+        self.reason = reason.map(str::to_string);
+        self
+    }
+
+    fn into_request(self) -> PipeEventRequest {
+        PipeEventRequest {
+            correlation_id: self.correlation_id,
+            attempt: self.attempt,
+            workspace_id: self.workspace_id,
+            kind: self.kind,
+            phase: self.phase,
+            from_binding: self.from_binding,
+            to_binding: self.to_binding,
+            from_session: self.from_session,
+            to_session: self.to_session,
+            summary: self.summary,
+            reason: self.reason,
+        }
+    }
+}
+
+fn emit_pipe_event(service: &PipeEventService, spec: PipeEventSpec) {
+    service.emit(spec.into_request());
 }
 
 fn dispatch_task_environment(
@@ -923,8 +1018,11 @@ pub struct AppState {
     /// leader busy 时排队的 worker report（key = leader 的 PTY session_id），
     /// leader 状态跃迁回 Idle/WaitingInput 时由状态机 listener 补投
     pub pending_worker_reports: Arc<Mutex<PendingReportMap>>,
+    /// 已发射的 report 失败键，避免 leader 清理与发送失败并发时重复发事件。
+    pub failed_report_events: Arc<Mutex<HashSet<(String, u32)>>>,
     /// 目标会话 busy 时排队的通用 directive（key = 目标 PTY session_id）。
     pub pending_directives: Arc<Mutex<PendingDirectiveMap>>,
+    pub pipe_event_service: Arc<PipeEventService>,
     /// 活跃面板集：持有事件环与当前持有者，进程内生命周期。
     ai_panels: Arc<Mutex<AiPanelRegistry>>,
     /// 面板历史：跨重启持久化，按工作空间分组，只由用户显式删除。
@@ -1614,6 +1712,7 @@ pub struct OrchestratorService {
     cancel_tx: Mutex<Option<tokio::sync::watch::Sender<bool>>>,
     pending_queries: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
     pending_worker_reports: Arc<Mutex<PendingReportMap>>,
+    failed_report_events: Arc<Mutex<HashSet<(String, u32)>>>,
     pending_directives: Arc<Mutex<PendingDirectiveMap>>,
     ai_panels: Arc<Mutex<AiPanelRegistry>>,
     /// hook 驱动状态机：进程级单例，所有 session 共享
@@ -1650,6 +1749,7 @@ impl OrchestratorService {
             cancel_tx: Mutex::new(None),
             pending_queries: Arc::new(Mutex::new(HashMap::new())),
             pending_worker_reports: Arc::new(Mutex::new(HashMap::new())),
+            failed_report_events: Arc::new(Mutex::new(HashSet::new())),
             pending_directives: Arc::new(Mutex::new(HashMap::new())),
             ai_panels: Arc::new(Mutex::new(AiPanelRegistry::default())),
             session_state_machine: Arc::new(cc_panes_core::services::SessionStateMachine::new()),
@@ -1847,13 +1947,17 @@ impl OrchestratorService {
             dsh_service,
             start_locks,
             session_state_machine: self.session_state_machine.clone(),
-            app_handle,
+            app_handle: app_handle.clone(),
             app_paths,
             tasks: Arc::new(Mutex::new(HashMap::new())),
             last_request_times: Arc::new(Mutex::new(Vec::new())),
             pending_queries: self.pending_queries.clone(),
             pending_worker_reports: self.pending_worker_reports.clone(),
+            failed_report_events: self.failed_report_events.clone(),
             pending_directives: self.pending_directives.clone(),
+            pipe_event_service: Arc::new(PipeEventService::new(Arc::new(
+                crate::emitter::TauriEmitter::new(app_handle.clone()),
+            ))),
             ai_panels: self.ai_panels.clone(),
             ai_panel_repo,
             mcp_tool_call_stats_repo,
@@ -2045,13 +2149,15 @@ impl OrchestratorService {
                             }
                         }
                         PendingFlushAction::Clear => {
-                            let dropped = {
-                                let mut map = state_for_flush
-                                    .pending_worker_reports
-                                    .lock()
-                                    .unwrap_or_else(|e| e.into_inner());
-                                clear_pending_reports(&mut map, &transition.pty_session_id)
-                            };
+                            let dropped = clear_pending_reports_and_emit(
+                                &state_for_flush,
+                                &transition.pty_session_id,
+                                match transition.to {
+                                    SessionStatus::Error => "leader-error",
+                                    SessionStatus::Exited => "leader-exited",
+                                    _ => "leader-unavailable",
+                                },
+                            );
                             if dropped > 0 {
                                 warn!(
                                     session_id = %transition.pty_session_id,
@@ -5084,9 +5190,48 @@ impl McpToolHandler {
             Err(error) => return format!("错误: {}", error),
         };
         let binding_id = binding.id;
+        let has_parent = plan.envelope.parent_binding_id.is_some();
+        let dispatch_correlation_id = plan.envelope.task_id.clone();
+        let parent_binding_id = plan.envelope.parent_binding_id.clone();
+        let parent_session_id = plan.envelope.parent_session_id.clone();
+        if has_parent {
+            emit_pipe_event(
+                &self.state.pipe_event_service,
+                PipeEventSpec::new(
+                    dispatch_correlation_id.clone(),
+                    pipe_workspace_id(
+                        plan.envelope.workspace_name.as_deref(),
+                        Some(&plan.envelope.project_path),
+                    ),
+                    PipeEventKind::Dispatch,
+                    PipeEventPhase::Queued,
+                )
+                .bindings(parent_binding_id.as_deref(), Some(&binding_id))
+                .sessions(parent_session_id.as_deref(), None)
+                .summary("task dispatch queued"),
+            );
+        }
         launch.cli_tool = Some(plan.envelope.resolved_cli_tool.clone());
         launch.dispatch_binding_id = Some(binding_id.clone());
         launch.dispatch_task_id = Some(plan.envelope.task_id.clone());
+
+        if has_parent {
+            emit_pipe_event(
+                &self.state.pipe_event_service,
+                PipeEventSpec::new(
+                    dispatch_correlation_id.clone(),
+                    pipe_workspace_id(
+                        plan.envelope.workspace_name.as_deref(),
+                        Some(&plan.envelope.project_path),
+                    ),
+                    PipeEventKind::Dispatch,
+                    PipeEventPhase::Flowing,
+                )
+                .bindings(parent_binding_id.as_deref(), Some(&binding_id))
+                .sessions(parent_session_id.as_deref(), None)
+                .summary("task dispatch flowing"),
+            );
+        }
 
         // Reuse the established launcher so session restoration, history backfill,
         // frontend placement, and launch status remain identical to launch_task.
@@ -5095,9 +5240,47 @@ impl McpToolHandler {
             Ok(response) => response,
             Err(_) => {
                 self.mark_dispatch_binding_failed(&binding_id, &launch_output);
+                if has_parent {
+                    emit_pipe_event(
+                        &self.state.pipe_event_service,
+                        PipeEventSpec::new(
+                            dispatch_correlation_id,
+                            pipe_workspace_id(
+                                plan.envelope.workspace_name.as_deref(),
+                                Some(&plan.envelope.project_path),
+                            ),
+                            PipeEventKind::Dispatch,
+                            PipeEventPhase::Failed,
+                        )
+                        .bindings(parent_binding_id.as_deref(), Some(&binding_id))
+                        .sessions(parent_session_id.as_deref(), None)
+                        .summary("task dispatch failed")
+                        .reason(Some(&bounded_dispatch_error(&launch_output))),
+                    );
+                }
                 return launch_output;
             }
         };
+        if has_parent {
+            emit_pipe_event(
+                &self.state.pipe_event_service,
+                PipeEventSpec::new(
+                    dispatch_correlation_id,
+                    pipe_workspace_id(
+                        plan.envelope.workspace_name.as_deref(),
+                        Some(&plan.envelope.project_path),
+                    ),
+                    PipeEventKind::Dispatch,
+                    PipeEventPhase::Delivered,
+                )
+                .bindings(parent_binding_id.as_deref(), Some(&binding_id))
+                .sessions(
+                    parent_session_id.as_deref(),
+                    Some(&launch_response.session_id),
+                )
+                .summary("task dispatch delivered"),
+            );
+        }
 
         let persistence_warning = self
             .mark_dispatch_binding_running(&binding_id, &launch_response.session_id, &plan.envelope)
@@ -7482,8 +7665,13 @@ impl McpToolHandler {
                 leader_binding_id: leader.id.clone(),
                 worker_binding_id: target.worker_binding_id.clone(),
                 worker_session_id: session_id.clone(),
+                workspace_id: pipe_workspace_id(
+                    leader.workspace_name.as_deref(),
+                    Some(&target.project_path),
+                ),
                 message,
                 submit,
+                attempt: 0,
                 queued_at: std::time::Instant::now(),
             };
             match dispatch_directive(runtime.clone(), directive, DirectiveDeliverySource::Initial)
@@ -11349,6 +11537,7 @@ struct DirectiveRuntime {
     session_state_machine: Arc<cc_panes_core::services::SessionStateMachine>,
     task_binding_service: Arc<crate::services::TaskBindingService>,
     pending_directives: Arc<Mutex<PendingDirectiveMap>>,
+    pipe_event_service: Arc<PipeEventService>,
 }
 
 impl DirectiveRuntime {
@@ -11358,6 +11547,7 @@ impl DirectiveRuntime {
             session_state_machine: state.session_state_machine.clone(),
             task_binding_service: state.task_binding_service.clone(),
             pending_directives: state.pending_directives.clone(),
+            pipe_event_service: state.pipe_event_service.clone(),
         }
     }
 }
@@ -11376,8 +11566,10 @@ pub struct PendingDirective {
     leader_binding_id: String,
     worker_binding_id: String,
     worker_session_id: String,
+    workspace_id: String,
     message: String,
     submit: bool,
+    attempt: u32,
     queued_at: std::time::Instant,
 }
 
@@ -11542,6 +11734,23 @@ fn record_directive_event(
 
 fn record_discarded_directives(runtime: &DirectiveRuntime, discarded: Vec<DiscardedDirective>) {
     for discarded in discarded {
+        emit_pipe_event(
+            &runtime.pipe_event_service,
+            PipeEventSpec::new(
+                discarded.directive.id.clone(),
+                discarded.directive.workspace_id.clone(),
+                PipeEventKind::Message,
+                PipeEventPhase::Failed,
+            )
+            .attempt(discarded.directive.attempt)
+            .bindings(
+                Some(&discarded.directive.leader_binding_id),
+                Some(&discarded.directive.worker_binding_id),
+            )
+            .sessions(None, Some(&discarded.directive.worker_session_id))
+            .summary("directive redelivery failed")
+            .reason(Some(discarded.reason)),
+        );
         record_directive_event(
             runtime,
             &discarded.directive,
@@ -11617,10 +11826,38 @@ async fn dispatch_directive(
     directive: PendingDirective,
     source: DirectiveDeliverySource,
 ) -> DirectiveAttempt {
+    let mut directive = directive;
+    if matches!(source, DirectiveDeliverySource::Redelivery) {
+        directive.attempt = directive.attempt.saturating_add(1);
+    }
+    let emit = |phase: PipeEventPhase, summary: &str, reason: Option<&str>| {
+        emit_pipe_event(
+            &runtime.pipe_event_service,
+            PipeEventSpec::new(
+                directive.id.clone(),
+                directive.workspace_id.clone(),
+                PipeEventKind::Message,
+                phase,
+            )
+            .attempt(directive.attempt)
+            .bindings(
+                Some(&directive.leader_binding_id),
+                Some(&directive.worker_binding_id),
+            )
+            .sessions(None, Some(&directive.worker_session_id))
+            .summary(summary)
+            .reason(reason),
+        );
+    };
     let status = match query_directive_session_status(&runtime, &directive.worker_session_id).await
     {
         Ok(status) => status,
         Err(error) => {
+            emit(
+                PipeEventPhase::Failed,
+                "directive status lookup failed",
+                Some(&error),
+            );
             record_directive_event(&runtime, &directive, "failed", Some(&error));
             return DirectiveAttempt::Failed(format!("读取 worker 状态失败: {}", error));
         }
@@ -11628,6 +11865,7 @@ async fn dispatch_directive(
 
     match status {
         Some(SessionStatus::Idle | SessionStatus::WaitingInput) => {
+            emit(PipeEventPhase::Flowing, "directive flowing", None);
             match deliver_directive_text(&runtime, &directive).await {
                 Ok(()) => {
                     record_directive_event(
@@ -11639,9 +11877,15 @@ async fn dispatch_directive(
                         },
                         None,
                     );
+                    emit(PipeEventPhase::Delivered, "directive delivered", None);
                     DirectiveAttempt::Delivered
                 }
                 Err(error) => {
+                    emit(
+                        PipeEventPhase::Failed,
+                        "directive delivery failed",
+                        Some(&error),
+                    );
                     record_directive_event(&runtime, &directive, "failed", Some(&error));
                     DirectiveAttempt::Failed(format!("投递失败: {}", error))
                 }
@@ -11667,6 +11911,7 @@ async fn dispatch_directive(
                 )
             };
             record_discarded_directives(&runtime, enqueue_result.discarded);
+            emit(PipeEventPhase::Queued, "directive queued", None);
             record_directive_event(&runtime, &directive, "queued", None);
             info!(
                 session_id = %directive.worker_session_id,
@@ -11697,6 +11942,11 @@ async fn dispatch_directive(
                 &directive.worker_session_id,
                 "worker session error",
             );
+            emit(
+                PipeEventPhase::Failed,
+                "worker session error",
+                Some("worker session error"),
+            );
             record_directive_event(&runtime, &directive, "failed", Some("worker session error"));
             DirectiveAttempt::Failed("worker session error".to_string())
         }
@@ -11705,6 +11955,11 @@ async fn dispatch_directive(
                 &runtime,
                 &directive.worker_session_id,
                 "worker session exited",
+            );
+            emit(
+                PipeEventPhase::Failed,
+                "worker session exited",
+                Some("worker session exited"),
             );
             record_directive_event(
                 &runtime,
@@ -11719,6 +11974,11 @@ async fn dispatch_directive(
                 &runtime,
                 &directive.worker_session_id,
                 "worker session not found",
+            );
+            emit(
+                PipeEventPhase::Failed,
+                "worker session not found",
+                Some("worker session not found"),
             );
             record_directive_event(
                 &runtime,
@@ -11742,10 +12002,12 @@ async fn flush_ready_pending_directives(runtime: DirectiveRuntime, target_sessio
     };
     record_discarded_directives(&runtime, batch.discarded);
     for directive in batch.directives {
-        match deliver_directive_text(&runtime, &directive).await {
-            Ok(()) => record_directive_event(&runtime, &directive, "redelivered", None),
-            Err(error) => record_directive_event(&runtime, &directive, "failed", Some(&error)),
-        }
+        let _ = dispatch_directive(
+            runtime.clone(),
+            directive,
+            DirectiveDeliverySource::Redelivery,
+        )
+        .await;
     }
 }
 
@@ -11982,97 +12244,169 @@ const PENDING_REPORT_SCAN_INTERVAL_SECS: u64 = 60;
 #[derive(Debug, Clone)]
 pub struct PendingWorkerReport {
     worker: TaskBinding,
+    correlation_id: String,
+    workspace_id: String,
+    attempt: u32,
     queued_at: std::time::Instant,
 }
 
 /// key = leader 的 PTY session_id（与 StateTransition.pty_session_id 同域）
 pub type PendingReportMap = HashMap<String, Vec<PendingWorkerReport>>;
 
-#[derive(Debug, PartialEq, Eq)]
-struct ExpiredPendingReport {
-    worker_id: String,
+#[derive(Debug, Clone)]
+struct DroppedPendingReport {
+    report: PendingWorkerReport,
+    leader_session_id: String,
+    reason: &'static str,
     age_secs: u64,
 }
 
 struct PendingEnqueueResult {
     queue_len: usize,
-    expired: Vec<ExpiredPendingReport>,
+    accepted: bool,
+    dropped: Vec<DroppedPendingReport>,
 }
 
 struct PendingReportBatch {
     reports: Vec<PendingWorkerReport>,
-    expired: Vec<ExpiredPendingReport>,
+    dropped: Vec<DroppedPendingReport>,
 }
 
 fn pending_report_expired(report: &PendingWorkerReport, now: std::time::Instant) -> bool {
     now.saturating_duration_since(report.queued_at).as_secs() > PENDING_REPORT_TTL_SECS
 }
 
-fn expired_pending_report(
+fn dropped_pending_report(
     report: &PendingWorkerReport,
+    leader_session_id: &str,
+    reason: &'static str,
     now: std::time::Instant,
-) -> ExpiredPendingReport {
-    ExpiredPendingReport {
-        worker_id: report.worker.id.clone(),
+) -> DroppedPendingReport {
+    DroppedPendingReport {
+        report: report.clone(),
+        leader_session_id: leader_session_id.to_string(),
+        reason,
         age_secs: now.saturating_duration_since(report.queued_at).as_secs(),
     }
 }
 
 /// 入队：TTL 剪枝 → 同 worker.id 去重（保留最新）→ push → 超上限丢最老。
+fn enqueue_pending_report_at_attempt(
+    map: &mut PendingReportMap,
+    leader_session_id: &str,
+    worker: TaskBinding,
+    attempt: u32,
+    now: std::time::Instant,
+) -> PendingEnqueueResult {
+    enqueue_pending_report_with_queued_at(map, leader_session_id, worker, attempt, now, now)
+}
+
+fn enqueue_pending_report_with_queued_at(
+    map: &mut PendingReportMap,
+    leader_session_id: &str,
+    worker: TaskBinding,
+    attempt: u32,
+    now: std::time::Instant,
+    queued_at: std::time::Instant,
+) -> PendingEnqueueResult {
+    let queue = map.entry(leader_session_id.to_string()).or_default();
+    let mut dropped = Vec::new();
+    queue.retain(|report| {
+        if pending_report_expired(report, now) {
+            dropped.push(dropped_pending_report(
+                report,
+                leader_session_id,
+                "expired",
+                now,
+            ));
+            false
+        } else if report.worker.id == worker.id {
+            if report.queued_at > queued_at {
+                return true;
+            }
+            dropped.push(dropped_pending_report(
+                report,
+                leader_session_id,
+                "superseded",
+                now,
+            ));
+            false
+        } else {
+            true
+        }
+    });
+
+    if queue
+        .iter()
+        .any(|report| report.worker.id == worker.id && report.queued_at > queued_at)
+    {
+        return PendingEnqueueResult {
+            queue_len: queue.len(),
+            accepted: false,
+            dropped,
+        };
+    }
+
+    queue.push(PendingWorkerReport {
+        correlation_id: report_correlation_id(&worker),
+        workspace_id: pipe_workspace_id(
+            worker.workspace_name.as_deref(),
+            Some(&worker.project_path),
+        ),
+        worker,
+        attempt,
+        queued_at,
+    });
+    if queue.len() > PENDING_REPORT_MAX_PER_LEADER {
+        let dropped_report = queue.remove(0);
+        dropped.push(dropped_pending_report(
+            &dropped_report,
+            leader_session_id,
+            "queue-overflow",
+            now,
+        ));
+    }
+    PendingEnqueueResult {
+        queue_len: queue.len(),
+        accepted: true,
+        dropped,
+    }
+}
+
+#[cfg(test)]
 fn enqueue_pending_report(
     map: &mut PendingReportMap,
     leader_session_id: &str,
     worker: TaskBinding,
     now: std::time::Instant,
 ) -> PendingEnqueueResult {
-    let queue = map.entry(leader_session_id.to_string()).or_default();
-    let mut expired = Vec::new();
-    queue.retain(|report| {
-        if pending_report_expired(report, now) {
-            expired.push(expired_pending_report(report, now));
-            false
-        } else {
-            report.worker.id != worker.id
-        }
-    });
-    queue.push(PendingWorkerReport {
-        worker,
-        queued_at: now,
-    });
-    if queue.len() > PENDING_REPORT_MAX_PER_LEADER {
-        let dropped = queue.remove(0);
-        warn!(
-            leader_session_id,
-            dropped_worker_id = %dropped.worker.id,
-            "pending worker report queue overflow; dropped oldest"
-        );
-    }
-    PendingEnqueueResult {
-        queue_len: queue.len(),
-        expired,
-    }
+    enqueue_pending_report_at_attempt(map, leader_session_id, worker, 0, now)
 }
 
-/// 取走并清空该 leader 的全部排队 report（TTL 过滤）
 fn take_pending_reports(
     map: &mut PendingReportMap,
     leader_session_id: &str,
     now: std::time::Instant,
 ) -> PendingReportBatch {
     let mut reports = Vec::new();
-    let mut expired = Vec::new();
+    let mut dropped = Vec::new();
     for report in map.remove(leader_session_id).unwrap_or_default() {
         if pending_report_expired(&report, now) {
-            expired.push(expired_pending_report(&report, now));
+            dropped.push(dropped_pending_report(
+                &report,
+                leader_session_id,
+                "expired",
+                now,
+            ));
         } else {
             reports.push(report);
         }
     }
-    PendingReportBatch { reports, expired }
+    PendingReportBatch { reports, dropped }
 }
 
 /// 在 worker metadata 上记 `reportDropped`：回执确定送不出去时的可见标记，
-/// 与队列 TTL 过期（`record_expired_pending_reports`）同一口径。
+/// 与队列丢弃（`record_dropped_pending_reports`）同一口径。
 fn mark_report_dropped(
     task_binding_service: &crate::services::TaskBindingService,
     worker: &TaskBinding,
@@ -12089,36 +12423,159 @@ fn mark_report_dropped(
     }
 }
 
-fn record_expired_pending_reports(
+fn report_correlation_id(worker: &TaskBinding) -> String {
+    worker
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("dispatchEnvelope"))
+        .and_then(|envelope| envelope.get("taskId"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("report:{}", worker.id))
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ReportPipeEvent<'a> {
+    leader: Option<&'a TaskBinding>,
+    leader_session_id: Option<&'a str>,
+    attempt: u32,
+    phase: PipeEventPhase,
+    summary: &'a str,
+    reason: Option<&'a str>,
+}
+
+fn emit_pipe_event_once(state: &AppState, spec: PipeEventSpec) {
+    if spec.phase == PipeEventPhase::Failed
+        && !claim_report_failure(
+            &state.failed_report_events,
+            &spec.correlation_id,
+            spec.attempt,
+        )
+    {
+        return;
+    }
+    emit_pipe_event(&state.pipe_event_service, spec);
+}
+
+fn claim_report_failure(
+    failed_report_events: &Mutex<HashSet<(String, u32)>>,
+    correlation_id: &str,
+    attempt: u32,
+) -> bool {
+    failed_report_events
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .insert((correlation_id.to_string(), attempt))
+}
+
+fn is_delivery_failure_reason(reason: &str) -> bool {
+    reason != "superseded"
+}
+
+fn emit_report_pipe_event(state: &AppState, worker: &TaskBinding, event: ReportPipeEvent<'_>) {
+    let spec = PipeEventSpec::new(
+        report_correlation_id(worker),
+        pipe_workspace_id(worker.workspace_name.as_deref(), Some(&worker.project_path)),
+        PipeEventKind::Report,
+        event.phase,
+    )
+    .attempt(event.attempt)
+    .bindings(
+        Some(&worker.id),
+        event.leader.map(|binding| binding.id.as_str()),
+    )
+    .sessions(worker.session_id.as_deref(), event.leader_session_id)
+    .summary(event.summary)
+    .reason(event.reason);
+    emit_pipe_event_once(state, spec);
+}
+
+fn record_dropped_pending_reports(
     task_binding_service: &crate::services::TaskBindingService,
-    expired: &[ExpiredPendingReport],
+    dropped: &[DroppedPendingReport],
 ) -> usize {
     let mut updated = 0;
-    for report in expired {
+    for dropped_report in dropped {
         warn!(
-            worker_id = %report.worker_id,
-            age_secs = report.age_secs,
-            "pending worker report expired before delivery"
+            worker_id = %dropped_report.report.worker.id,
+            reason = dropped_report.reason,
+            age_secs = dropped_report.age_secs,
+            "pending worker report dropped before delivery"
         );
+        if !is_delivery_failure_reason(dropped_report.reason) {
+            continue;
+        }
         match task_binding_service.update_patch(
-            &report.worker_id,
+            &dropped_report.report.worker.id,
             serde_json::json!({ "metadata": { "reportDropped": true } }),
         ) {
             Ok(_) => updated += 1,
             Err(error) => warn!(
-                worker_id = %report.worker_id,
-                age_secs = report.age_secs,
+                worker_id = %dropped_report.report.worker.id,
+                reason = dropped_report.reason,
+                age_secs = dropped_report.age_secs,
                 error = %error,
-                "failed to persist expired worker report metadata"
+                "failed to persist dropped worker report metadata"
             ),
         }
     }
     updated
 }
 
+fn emit_dropped_pending_report_events(state: &AppState, dropped: &[DroppedPendingReport]) {
+    for dropped_report in dropped {
+        if !is_delivery_failure_reason(dropped_report.reason) {
+            continue;
+        }
+        let report = &dropped_report.report;
+        emit_pipe_event_once(
+            state,
+            PipeEventSpec::new(
+                report.correlation_id.clone(),
+                report.workspace_id.clone(),
+                PipeEventKind::Report,
+                PipeEventPhase::Failed,
+            )
+            .attempt(report.attempt)
+            .bindings(Some(&report.worker.id), report.worker.parent_id.as_deref())
+            .sessions(
+                report.worker.session_id.as_deref(),
+                Some(&dropped_report.leader_session_id),
+            )
+            .summary("worker report delivery failed")
+            .reason(Some(dropped_report.reason)),
+        );
+    }
+}
+
 /// 丢弃该 leader 的全部排队 report，返回丢弃条数
-fn clear_pending_reports(map: &mut PendingReportMap, leader_session_id: &str) -> usize {
-    map.remove(leader_session_id).map_or(0, |queue| queue.len())
+fn clear_pending_reports(
+    map: &mut PendingReportMap,
+    leader_session_id: &str,
+) -> Vec<PendingWorkerReport> {
+    map.remove(leader_session_id).unwrap_or_default()
+}
+
+fn clear_pending_reports_and_emit(
+    state: &AppState,
+    leader_session_id: &str,
+    reason: &'static str,
+) -> usize {
+    let reports = {
+        let mut map = state
+            .pending_worker_reports
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        clear_pending_reports(&mut map, leader_session_id)
+    };
+    let now = std::time::Instant::now();
+    let dropped = reports
+        .iter()
+        .map(|report| dropped_pending_report(report, leader_session_id, reason, now))
+        .collect::<Vec<_>>();
+    record_dropped_pending_reports(&state.task_binding_service, &dropped);
+    emit_dropped_pending_report_events(state, &dropped);
+    dropped.len()
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -12156,7 +12613,8 @@ async fn flush_pending_reports(state: AppState, leader_session_id: String) {
             .unwrap_or_else(|e| e.into_inner());
         take_pending_reports(&mut map, &leader_session_id, std::time::Instant::now())
     };
-    record_expired_pending_reports(&state.task_binding_service, &batch.expired);
+    record_dropped_pending_reports(&state.task_binding_service, &batch.dropped);
+    emit_dropped_pending_report_events(&state, &batch.dropped);
     if batch.reports.is_empty() {
         return;
     }
@@ -12167,7 +12625,13 @@ async fn flush_pending_reports(state: AppState, leader_session_id: String) {
     );
     for report in batch.reports {
         let worker_id = report.worker.id.clone();
-        let result = send_worker_report_to_leader(state.clone(), report.worker).await;
+        let result = send_worker_report_to_leader_with_attempt_and_queued_at(
+            state.clone(),
+            report.worker,
+            report.attempt.saturating_add(1),
+            Some(report.queued_at),
+        )
+        .await;
         debug!(
             leader_session_id,
             worker_id,
@@ -12201,25 +12665,61 @@ fn read_session_status_for_automatic_submit(
         .map_err(|error| error.to_string())
 }
 
-fn enqueue_and_recheck(
+fn enqueue_and_recheck_with_queued_at(
     state: &AppState,
+    leader: &TaskBinding,
     leader_session_id: &str,
     worker: &TaskBinding,
+    attempt: u32,
     reason: &'static str,
+    queued_at: Option<std::time::Instant>,
 ) -> LeaderReportResult {
     let enqueue_result = {
         let mut map = state
             .pending_worker_reports
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        enqueue_pending_report(
-            &mut map,
-            leader_session_id,
-            worker.clone(),
-            std::time::Instant::now(),
-        )
+        match queued_at {
+            Some(queued_at) => enqueue_pending_report_with_queued_at(
+                &mut map,
+                leader_session_id,
+                worker.clone(),
+                attempt,
+                std::time::Instant::now(),
+                queued_at,
+            ),
+            None => enqueue_pending_report_at_attempt(
+                &mut map,
+                leader_session_id,
+                worker.clone(),
+                attempt,
+                std::time::Instant::now(),
+            ),
+        }
     };
-    record_expired_pending_reports(&state.task_binding_service, &enqueue_result.expired);
+    if !enqueue_result.accepted {
+        debug!(
+            worker_id = %worker.id,
+            leader_session_id,
+            attempt,
+            "stale pending worker report was superseded by a newer snapshot"
+        );
+        return LeaderReportResult::queued("superseded by newer report");
+    }
+    record_dropped_pending_reports(&state.task_binding_service, &enqueue_result.dropped);
+    emit_dropped_pending_report_events(state, &enqueue_result.dropped);
+    emit_report_pipe_event(
+        state,
+        worker,
+        ReportPipeEvent {
+            leader: Some(leader),
+            leader_session_id: Some(leader_session_id),
+            attempt,
+            phase: PipeEventPhase::Queued,
+            summary: "worker report queued",
+            reason: Some(reason),
+        },
+    );
     info!(
         worker_id = %worker.id,
         leader_session_id,
@@ -12272,13 +12772,16 @@ async fn scan_pending_reports_once(state: &AppState) {
                 flush_pending_reports(state.clone(), leader_session_id).await;
             }
             PendingFlushAction::Clear => {
-                let dropped = {
-                    let mut map = state
-                        .pending_worker_reports
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner());
-                    clear_pending_reports(&mut map, &leader_session_id)
-                };
+                let dropped = clear_pending_reports_and_emit(
+                    state,
+                    &leader_session_id,
+                    match status {
+                        None => "leader-unavailable",
+                        Some(SessionStatus::Error) => "leader-error",
+                        Some(SessionStatus::Exited) => "leader-exited",
+                        _ => "leader-unavailable",
+                    },
+                );
                 if dropped > 0 {
                     warn!(
                         session_id = %leader_session_id,
@@ -12397,7 +12900,23 @@ async fn send_worker_report_to_dsh_leader(
     worker: &TaskBinding,
     leader: &TaskBinding,
     leader_session_id: &str,
+    attempt: u32,
 ) -> LeaderReportResult {
+    let emit = |phase: PipeEventPhase, summary: &str, reason: Option<&str>| {
+        emit_report_pipe_event(
+            state,
+            worker,
+            ReportPipeEvent {
+                leader: Some(leader),
+                leader_session_id: Some(leader_session_id),
+                attempt,
+                phase,
+                summary,
+                reason,
+            },
+        );
+    };
+
     // 前缀已校验；剩余形如 `<workspaceKey>:<dshSessionId>`，workspaceKey
     // 本身不含冒号（目录名清洗过），从左切第一个冒号即可。
     let rest = &leader_session_id[DSH_LEADER_PREFIX.len()..];
@@ -12407,6 +12926,11 @@ async fn send_worker_report_to_dsh_leader(
             leader_id = %leader.id,
             session_id = %leader_session_id,
             "worker report skipped: malformed dsh leader session id"
+        );
+        emit(
+            PipeEventPhase::Failed,
+            "worker report delivery failed",
+            Some("malformed dsh leader session id"),
         );
         return LeaderReportResult::skipped("malformed dsh leader session id");
     };
@@ -12424,6 +12948,11 @@ async fn send_worker_report_to_dsh_leader(
             workspace_key = %workspace_key,
             "worker report skipped: dsh instance not running"
         );
+        emit(
+            PipeEventPhase::Failed,
+            "worker report delivery failed",
+            Some("dsh instance not running"),
+        );
         mark_report_dropped(&state.task_binding_service, worker);
         return LeaderReportResult::skipped("dsh instance not running");
     };
@@ -12439,6 +12968,7 @@ async fn send_worker_report_to_dsh_leader(
         worker.id, worker.status, summary
     );
 
+    emit(PipeEventPhase::Flowing, "worker report flowing", None);
     match crate::commands::dsh_workspace_sync::prompt_session(instance.port, dsh_session_id, &line)
         .await
     {
@@ -12449,6 +12979,7 @@ async fn send_worker_report_to_dsh_leader(
                 session_id = %leader_session_id,
                 "worker report delivered to dsh leader session"
             );
+            emit(PipeEventPhase::Delivered, "worker report delivered", None);
             LeaderReportResult::sent()
         }
         Err(e) => {
@@ -12459,6 +12990,11 @@ async fn send_worker_report_to_dsh_leader(
                 err = %e,
                 "worker report skipped: dsh session.prompt failed"
             );
+            emit(
+                PipeEventPhase::Failed,
+                "worker report delivery failed",
+                Some(&format!("dsh session.prompt failed: {e}")),
+            );
             mark_report_dropped(&state.task_binding_service, worker);
             LeaderReportResult::skipped(format!("dsh session.prompt failed: {e}"))
         }
@@ -12466,10 +13002,39 @@ async fn send_worker_report_to_dsh_leader(
 }
 
 async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> LeaderReportResult {
+    send_worker_report_to_leader_with_attempt(state, worker, 0).await
+}
+
+async fn send_worker_report_to_leader_with_attempt(
+    state: AppState,
+    worker: TaskBinding,
+    attempt: u32,
+) -> LeaderReportResult {
+    send_worker_report_to_leader_with_attempt_and_queued_at(state, worker, attempt, None).await
+}
+
+async fn send_worker_report_to_leader_with_attempt_and_queued_at(
+    state: AppState,
+    worker: TaskBinding,
+    attempt: u32,
+    queued_at: Option<std::time::Instant>,
+) -> LeaderReportResult {
     let Some(parent_id) = worker.parent_id.clone() else {
         debug!(
             worker_id = %worker.id,
             "worker report skipped: worker has no parent binding"
+        );
+        emit_report_pipe_event(
+            &state,
+            &worker,
+            ReportPipeEvent {
+                leader: None,
+                leader_session_id: None,
+                attempt,
+                phase: PipeEventPhase::Failed,
+                summary: "worker report delivery failed",
+                reason: Some("worker has no parent"),
+            },
         );
         return LeaderReportResult::skipped("worker has no parent");
     };
@@ -12482,6 +13047,18 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
                 leader_id = %parent_id,
                 "worker report skipped: leader binding not found"
             );
+            emit_report_pipe_event(
+                &state,
+                &worker,
+                ReportPipeEvent {
+                    leader: None,
+                    leader_session_id: None,
+                    attempt,
+                    phase: PipeEventPhase::Failed,
+                    summary: "worker report delivery failed",
+                    reason: Some("leader not found"),
+                },
+            );
             return LeaderReportResult::skipped("leader not found");
         }
         Err(e) => {
@@ -12491,7 +13068,20 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
                 err = %e,
                 "worker report skipped: failed to load leader binding"
             );
-            return LeaderReportResult::skipped(format!("failed to load leader: {}", e));
+            let reason = format!("failed to load leader: {e}");
+            emit_report_pipe_event(
+                &state,
+                &worker,
+                ReportPipeEvent {
+                    leader: None,
+                    leader_session_id: None,
+                    attempt,
+                    phase: PipeEventPhase::Failed,
+                    summary: "worker report delivery failed",
+                    reason: Some(&reason),
+                },
+            );
+            return LeaderReportResult::skipped(reason);
         }
     };
 
@@ -12501,6 +13091,18 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
             leader_id = %leader.id,
             "worker report skipped: leader has no session id"
         );
+        emit_report_pipe_event(
+            &state,
+            &worker,
+            ReportPipeEvent {
+                leader: Some(&leader),
+                leader_session_id: None,
+                attempt,
+                phase: PipeEventPhase::Failed,
+                summary: "worker report delivery failed",
+                reason: Some("leader session missing"),
+            },
+        );
         return LeaderReportResult::skipped("leader session missing");
     };
 
@@ -12508,8 +13110,14 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
     // PTY 状态可查，也没有 SessionStateMachine 事件源可驱动排队补投。
     // 投递改为调它的 `session.prompt`（mode=queue，它忙时在自己侧排队）。
     if leader_session_id.starts_with(DSH_LEADER_PREFIX) {
-        return send_worker_report_to_dsh_leader(&state, &worker, &leader, &leader_session_id)
-            .await;
+        return send_worker_report_to_dsh_leader(
+            &state,
+            &worker,
+            &leader,
+            &leader_session_id,
+            attempt,
+        )
+        .await;
     }
 
     let leader_status = match read_session_status_for_automatic_submit(&state, &leader_session_id) {
@@ -12522,6 +13130,18 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
                 err = %e,
                 "worker report skipped: failed to read leader session status"
             );
+            emit_report_pipe_event(
+                &state,
+                &worker,
+                ReportPipeEvent {
+                    leader: Some(&leader),
+                    leader_session_id: Some(&leader_session_id),
+                    attempt,
+                    phase: PipeEventPhase::Failed,
+                    summary: "worker report delivery failed",
+                    reason: Some(&format!("failed to read leader status: {e}")),
+                },
+            );
             return LeaderReportResult::skipped(format!("failed to read leader status: {}", e));
         }
     };
@@ -12532,6 +13152,18 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
             leader_id = %leader.id,
             session_id = %leader_session_id,
             "worker report skipped: leader session not found"
+        );
+        emit_report_pipe_event(
+            &state,
+            &worker,
+            ReportPipeEvent {
+                leader: Some(&leader),
+                leader_session_id: Some(&leader_session_id),
+                attempt,
+                phase: PipeEventPhase::Failed,
+                summary: "worker report delivery failed",
+                reason: Some("leader session not found"),
+            },
         );
         return LeaderReportResult::skipped("leader session not found");
     };
@@ -12550,7 +13182,15 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
                 status = ?status,
                 "worker report queued: leader is busy"
             );
-            return enqueue_and_recheck(&state, &leader_session_id, &worker, "leader busy");
+            return enqueue_and_recheck_with_queued_at(
+                &state,
+                &leader,
+                &leader_session_id,
+                &worker,
+                attempt,
+                "leader busy",
+                queued_at,
+            );
         }
         SessionStatus::Initializing => {
             debug!(
@@ -12559,21 +13199,19 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
                 session_id = %leader_session_id,
                 "worker report queued: leader session is initializing"
             );
-            return enqueue_and_recheck(
+            return enqueue_and_recheck_with_queued_at(
                 &state,
+                &leader,
                 &leader_session_id,
                 &worker,
+                attempt,
                 "leader session initializing",
+                queued_at,
             );
         }
         SessionStatus::Error => {
-            let dropped = {
-                let mut map = state
-                    .pending_worker_reports
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                clear_pending_reports(&mut map, &leader_session_id)
-            };
+            let dropped =
+                clear_pending_reports_and_emit(&state, &leader_session_id, "leader-error");
             warn!(
                 worker_id = %worker.id,
                 leader_id = %leader.id,
@@ -12581,22 +13219,41 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
                 dropped_pending = dropped,
                 "worker report skipped: leader session is in error state"
             );
+            emit_report_pipe_event(
+                &state,
+                &worker,
+                ReportPipeEvent {
+                    leader: Some(&leader),
+                    leader_session_id: Some(&leader_session_id),
+                    attempt,
+                    phase: PipeEventPhase::Failed,
+                    summary: "worker report delivery failed",
+                    reason: Some("leader session error"),
+                },
+            );
             return LeaderReportResult::skipped("leader session error");
         }
         SessionStatus::Exited => {
-            let dropped = {
-                let mut map = state
-                    .pending_worker_reports
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                clear_pending_reports(&mut map, &leader_session_id)
-            };
+            let dropped =
+                clear_pending_reports_and_emit(&state, &leader_session_id, "leader-exited");
             warn!(
                 worker_id = %worker.id,
                 leader_id = %leader.id,
                 session_id = %leader_session_id,
                 dropped_pending = dropped,
                 "worker report skipped: leader session exited"
+            );
+            emit_report_pipe_event(
+                &state,
+                &worker,
+                ReportPipeEvent {
+                    leader: Some(&leader),
+                    leader_session_id: Some(&leader_session_id),
+                    attempt,
+                    phase: PipeEventPhase::Failed,
+                    summary: "worker report delivery failed",
+                    reason: Some("leader session exited"),
+                },
             );
             return LeaderReportResult::skipped("leader session exited");
         }
@@ -12613,6 +13270,18 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
         worker.id, worker.status, summary
     );
 
+    emit_report_pipe_event(
+        &state,
+        &worker,
+        ReportPipeEvent {
+            leader: Some(&leader),
+            leader_session_id: Some(&leader_session_id),
+            attempt,
+            phase: PipeEventPhase::Flowing,
+            summary: "worker report flowing",
+            reason: None,
+        },
+    );
     match submit_text_to_session(state.terminal_backend.backend(), &leader_session_id, &line).await
     {
         Ok(()) => {
@@ -12621,6 +13290,18 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
                 leader_id = %leader.id,
                 session_id = %leader_session_id,
                 "worker report sent to leader"
+            );
+            emit_report_pipe_event(
+                &state,
+                &worker,
+                ReportPipeEvent {
+                    leader: Some(&leader),
+                    leader_session_id: Some(&leader_session_id),
+                    attempt,
+                    phase: PipeEventPhase::Delivered,
+                    summary: "worker report delivered",
+                    reason: None,
+                },
             );
             LeaderReportResult::sent()
         }
@@ -12632,7 +13313,20 @@ async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> L
                 err = %e,
                 "worker report failed to submit to leader"
             );
-            LeaderReportResult::skipped(format!("submit failed: {}", e))
+            let reason = format!("submit failed: {e}");
+            emit_report_pipe_event(
+                &state,
+                &worker,
+                ReportPipeEvent {
+                    leader: Some(&leader),
+                    leader_session_id: Some(&leader_session_id),
+                    attempt,
+                    phase: PipeEventPhase::Failed,
+                    summary: "worker report delivery failed",
+                    reason: Some(&reason),
+                },
+            );
+            LeaderReportResult::skipped(reason)
         }
     }
 }
@@ -13465,16 +14159,44 @@ mod tests {
         assert_eq!(params.worker_kind, None);
     }
 
-    fn directive_test_runtime(
+    #[derive(Clone, Default)]
+    struct RecordingPipeEmitter {
+        events: Arc<Mutex<Vec<serde_json::Value>>>,
+    }
+
+    impl cc_panes_core::events::EventEmitter for RecordingPipeEmitter {
+        fn emit(&self, _event: &str, payload: serde_json::Value) -> anyhow::Result<()> {
+            self.events
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push(payload);
+            Ok(())
+        }
+    }
+
+    fn directive_test_runtime_with_events(
         backend: Arc<DirectiveTestBackend>,
         service: Arc<crate::services::TaskBindingService>,
-    ) -> DirectiveRuntime {
-        DirectiveRuntime {
+    ) -> (DirectiveRuntime, Arc<Mutex<Vec<serde_json::Value>>>) {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let emitter = RecordingPipeEmitter {
+            events: events.clone(),
+        };
+        let runtime = DirectiveRuntime {
             terminal_backend: Arc::new(TerminalBackendState::new(backend)),
             session_state_machine: Arc::new(cc_panes_core::services::SessionStateMachine::new()),
             task_binding_service: service,
             pending_directives: Arc::new(Mutex::new(PendingDirectiveMap::new())),
-        }
+            pipe_event_service: Arc::new(PipeEventService::new(Arc::new(emitter))),
+        };
+        (runtime, events)
+    }
+
+    fn directive_test_runtime(
+        backend: Arc<DirectiveTestBackend>,
+        service: Arc<crate::services::TaskBindingService>,
+    ) -> DirectiveRuntime {
+        directive_test_runtime_with_events(backend, service).0
     }
 
     fn test_pending_directive(
@@ -13490,8 +14212,10 @@ mod tests {
             leader_binding_id: leader_id.to_string(),
             worker_binding_id: worker_id.to_string(),
             worker_session_id: session_id.to_string(),
+            workspace_id: "workspace-test".to_string(),
             message: format!("message-{logical_key}"),
             submit: true,
+            attempt: 0,
             queued_at,
         }
     }
@@ -14101,6 +14825,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn failed_directive_status_emits_a_failed_pipe_event() {
+        for (session_id, status) in [
+            ("worker-exited", Some(SessionStatus::Exited)),
+            ("worker-missing", None),
+        ] {
+            let service = directive_test_service();
+            let (leader, workers) = register_directive_plan(&service, &[session_id]);
+            let backend = Arc::new(DirectiveTestBackend::default());
+            if let Some(status) = status {
+                backend.set_status(session_id, status);
+            }
+            let (runtime, events) = directive_test_runtime_with_events(backend, service);
+            let directive = test_pending_directive(
+                &leader.id,
+                &workers[0].id,
+                session_id,
+                &leader.id,
+                std::time::Instant::now(),
+            );
+
+            assert!(matches!(
+                dispatch_directive(runtime, directive, DirectiveDeliverySource::Initial).await,
+                DirectiveAttempt::Failed(_)
+            ));
+            let events = events.lock().unwrap_or_else(|error| error.into_inner());
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0]["kind"], "message");
+            assert_eq!(events[0]["phase"], "failed");
+            assert_eq!(events[0]["fromBinding"], leader.id);
+            assert_eq!(events[0]["toBinding"], workers[0].id);
+        }
+    }
+
+    #[tokio::test]
     async fn draft_directive_uses_bracketed_paste_without_cr() {
         let service = directive_test_service();
         let (leader, workers) = register_directive_plan(&service, &["worker-draft"]);
@@ -14571,10 +15329,161 @@ mod tests {
         let result = enqueue_pending_report(&mut map, "leader-s", updated, now);
 
         assert_eq!(result.queue_len, 1);
-        assert!(result.expired.is_empty());
+        assert_eq!(result.dropped.len(), 1);
+        assert_eq!(result.dropped[0].reason, "superseded");
+        assert_eq!(result.dropped[0].report.worker.id, "w1");
         let queue = map.get("leader-s").expect("queue exists");
         assert_eq!(queue.len(), 1);
         assert_eq!(queue[0].worker.completion_summary.as_deref(), Some("newer"));
+    }
+
+    #[test]
+    fn stale_flush_requeue_does_not_replace_newer_worker_snapshot() {
+        let mut map = PendingReportMap::new();
+        let first_queued_at = std::time::Instant::now();
+        enqueue_pending_report_at_attempt(
+            &mut map,
+            "leader-s",
+            test_pending_report_worker("w1"),
+            1,
+            first_queued_at,
+        );
+        let batch = take_pending_reports(&mut map, "leader-s", first_queued_at);
+        let newer_queued_at = first_queued_at + std::time::Duration::from_secs(1);
+        let mut newer = test_pending_report_worker("w1");
+        newer.completion_summary = Some("newer".to_string());
+        let newer_result =
+            enqueue_pending_report_at_attempt(&mut map, "leader-s", newer, 2, newer_queued_at);
+        assert!(newer_result.accepted);
+
+        let stale_result = enqueue_pending_report_with_queued_at(
+            &mut map,
+            "leader-s",
+            batch.reports[0].worker.clone(),
+            2,
+            newer_queued_at,
+            batch.reports[0].queued_at,
+        );
+        assert!(!stale_result.accepted);
+        assert!(stale_result.dropped.is_empty());
+        let queue = map.get("leader-s").expect("newer queue remains");
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].worker.completion_summary.as_deref(), Some("newer"));
+        assert_eq!(queue[0].queued_at, newer_queued_at);
+    }
+
+    #[test]
+    fn superseded_pending_report_is_not_delivery_failure() {
+        assert!(!is_delivery_failure_reason("superseded"));
+        assert!(is_delivery_failure_reason("expired"));
+        assert!(is_delivery_failure_reason("leader-exited"));
+
+        let db = Arc::new(
+            cc_panes_core::repository::Database::new_fallback().expect("fallback database"),
+        );
+        let service = crate::services::TaskBindingService::new(Arc::new(
+            cc_panes_core::repository::TaskBindingRepository::new(db),
+        ));
+        let worker = service
+            .create(crate::models::task_binding::CreateTaskBindingRequest {
+                title: "worker".to_string(),
+                role: Some(crate::models::task_binding::TaskBindingRole::Worker),
+                parent_id: Some("leader-1".to_string()),
+                plan_path: None,
+                normalized_plan_path: None,
+                prompt: None,
+                session_id: Some("worker-session".to_string()),
+                resume_id: None,
+                pane_id: None,
+                tab_id: None,
+                todo_id: None,
+                project_path: "D:/repo".to_string(),
+                workspace_name: None,
+                cli_tool: Some("codex".to_string()),
+                worker_kind: None,
+                metadata: Some(serde_json::json!({ "kept": true })),
+            })
+            .expect("create worker binding");
+        let now = std::time::Instant::now();
+        let mut map = PendingReportMap::new();
+        enqueue_pending_report(&mut map, "leader-s", worker.clone(), now);
+        let mut updated = worker.clone();
+        updated.completion_summary = Some("newer".to_string());
+        let result = enqueue_pending_report(&mut map, "leader-s", updated, now);
+        assert_eq!(record_dropped_pending_reports(&service, &result.dropped), 0);
+        let persisted = service
+            .get(&worker.id)
+            .expect("load binding")
+            .expect("binding exists");
+        assert_eq!(persisted.metadata.expect("metadata")["kept"], true);
+        assert!(is_delivery_failure_reason("superseded") == false);
+    }
+
+    #[test]
+    fn report_failure_event_claim_is_idempotent_by_correlation_and_attempt() {
+        let failures = Mutex::new(HashSet::new());
+        assert!(claim_report_failure(&failures, "correlation-1", 3));
+        assert!(!claim_report_failure(&failures, "correlation-1", 3));
+        assert!(claim_report_failure(&failures, "correlation-1", 4));
+        assert!(claim_report_failure(&failures, "correlation-2", 3));
+    }
+
+    #[test]
+    fn pending_report_drop_reasons_preserve_report_identity() {
+        let mut map = PendingReportMap::new();
+        let now = std::time::Instant::now();
+        let mut first = test_pending_report_worker("w1");
+        first.workspace_name = Some("workspace-a".to_string());
+        first.metadata = Some(serde_json::json!({
+            "dispatchEnvelope": { "taskId": "correlation-1" }
+        }));
+        let first_result =
+            enqueue_pending_report_at_attempt(&mut map, "leader-s", first.clone(), 7, now);
+        assert!(first_result.dropped.is_empty());
+
+        let second_result = enqueue_pending_report_at_attempt(&mut map, "leader-s", first, 8, now);
+        assert_eq!(second_result.dropped.len(), 1);
+        let superseded = &second_result.dropped[0];
+        assert_eq!(superseded.reason, "superseded");
+        assert_eq!(superseded.report.correlation_id, "correlation-1");
+        assert_eq!(superseded.report.workspace_id, "workspace-a");
+        assert_eq!(superseded.report.attempt, 7);
+        assert_eq!(
+            superseded.report.worker.parent_id.as_deref(),
+            Some("leader-1")
+        );
+        assert_eq!(
+            superseded.report.worker.session_id.as_deref(),
+            Some("session-w1")
+        );
+
+        let mut overflow_map = PendingReportMap::new();
+        for index in 0..=PENDING_REPORT_MAX_PER_LEADER {
+            enqueue_pending_report_at_attempt(
+                &mut overflow_map,
+                "leader-s",
+                test_pending_report_worker(&format!("w{index}")),
+                index as u32,
+                now,
+            );
+        }
+        let overflow = overflow_map
+            .get("leader-s")
+            .expect("overflow queue")
+            .first()
+            .expect("queue remains");
+        assert_eq!(overflow.worker.id, "w1");
+        let dropped = enqueue_pending_report_at_attempt(
+            &mut overflow_map,
+            "leader-s",
+            test_pending_report_worker("w-final"),
+            99,
+            now,
+        );
+        assert_eq!(dropped.dropped.len(), 1);
+        assert_eq!(dropped.dropped[0].reason, "queue-overflow");
+        assert_eq!(dropped.dropped[0].report.worker.id, "w1");
+        assert_eq!(dropped.dropped[0].report.attempt, 1);
     }
 
     #[test]
@@ -14610,9 +15519,9 @@ mod tests {
         let batch = take_pending_reports(&mut map, "leader-s", later);
         assert_eq!(batch.reports.len(), 1);
         assert_eq!(batch.reports[0].worker.id, "w2");
-        assert_eq!(batch.expired.len(), 1);
-        assert_eq!(batch.expired[0].worker_id, "w1");
-        assert!(batch.expired[0].age_secs > PENDING_REPORT_TTL_SECS);
+        assert_eq!(batch.dropped.len(), 1);
+        assert_eq!(batch.dropped[0].report.worker.id, "w1");
+        assert!(batch.dropped[0].age_secs > PENDING_REPORT_TTL_SECS);
         assert!(!map.contains_key("leader-s"));
 
         // 空 map 再取
@@ -14657,7 +15566,7 @@ mod tests {
         let later = now + std::time::Duration::from_secs(PENDING_REPORT_TTL_SECS + 1);
 
         let result = enqueue_pending_report(&mut map, "leader-s", worker.clone(), later);
-        assert_eq!(record_expired_pending_reports(&service, &result.expired), 1);
+        assert_eq!(record_dropped_pending_reports(&service, &result.dropped), 1);
         assert_eq!(result.queue_len, 1);
 
         let persisted = service
@@ -14726,8 +15635,9 @@ mod tests {
         enqueue_pending_report(&mut map, "leader-s", test_pending_report_worker("w1"), now);
         enqueue_pending_report(&mut map, "leader-s", test_pending_report_worker("w2"), now);
 
-        assert_eq!(clear_pending_reports(&mut map, "leader-s"), 2);
-        assert_eq!(clear_pending_reports(&mut map, "leader-s"), 0);
+        let dropped = clear_pending_reports(&mut map, "leader-s");
+        assert_eq!(dropped.len(), 2);
+        assert_eq!(clear_pending_reports(&mut map, "leader-s").len(), 0);
     }
 
     #[test]

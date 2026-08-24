@@ -303,3 +303,18 @@ export type {
   PlanCollaborationEntry,
   PlanCollaboration,
 } from "./orchestrator";
+export type {
+  CanvasDisplayMode,
+  NodeVisualState,
+  PipeEventKind,
+  PipeEventPhase,
+  PipeEventWire,
+  CanvasPipeEvent,
+  CanvasNodePosition,
+  CanvasNodeProjection,
+  CanvasSnapshot,
+  CanvasSnapshotScope,
+  PipeEdge,
+  PipeEvent,
+  CanvasProjectionInput,
+} from "./canvas";
