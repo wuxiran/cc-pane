@@ -181,7 +181,7 @@ fn merge_output_ack(
 /// `changed()` 立刻 ready、再 drain 空 map、再通知，形成**永久自唤醒环**：
 /// 该 future 从此不再回到 Pending，把一整个 tokio worker 烧到 100% 单核。
 ///
-/// 实测（0.12.8 调查，docs/92）：一次前端 ACK 就足以让循环 3 秒跑 1900 万次。
+/// 实测（0.12.8 调查，docs/93）：一次前端 ACK 就足以让循环 3 秒跑 1900 万次。
 /// 活体采样表现为 `ZwRemoveIoCompletionEx` / `ZwWaitForAlertByThreadId` 反复
 /// park/unpark，而 I/O 计数只有约 92 次/秒——**没有真实 I/O，纯调度器空转**，
 /// 且不写任何日志，所以静默烧了很久没人发现。
@@ -960,7 +960,7 @@ mod tests {
             .is_none());
     }
 
-    /// 自唤醒环回归守卫（docs/92）。
+    /// 自唤醒环回归守卫（docs/93）。
     ///
     /// drain 用 `send_modify`（无条件通知）时，空 map 写回会把 `changed()` 重新置
     /// ready，而调用方在 drain 前就 `mark_unchanged()` 了——没人消费这次通知，
@@ -999,7 +999,7 @@ mod tests {
             tokio::time::timeout(std::time::Duration::from_millis(80), rx.changed()).await;
         assert!(
             rewoken.is_err(),
-            "排空已空队列不得产生 changed 通知，否则形成永久自唤醒环（docs/92）"
+            "排空已空队列不得产生 changed 通知，否则形成永久自唤醒环（docs/93）"
         );
     }
 

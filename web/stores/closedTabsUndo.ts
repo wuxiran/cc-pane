@@ -1,7 +1,7 @@
 // closedTabs 撤销栈的工具集（docs/68 §2.3 T1-c）：上限裁剪、快照映射、
 // 身份恢复、非终端重开分流。push 点在 removeTabsInternal（push 后裁剪，
 // 严格上限 20），reopenClosedTab 侧另有惰性裁剪兜底。
-import { current, isDraft } from "immer";
+import { current, isDraft, type Draft } from "immer";
 
 import { TAB_LIFECYCLE } from "@/lib/tabLifecycle/registry";
 
@@ -89,7 +89,13 @@ export function toClosedTabSnapshot(t: {
  */
 function detach<T>(value: T): T {
   if (value === undefined || value === null) return value;
-  return structuredClone(isDraft(value) ? (current(value) as T) : value);
+  // `current()` 的签名要求 `Draft<T>`，而 `isDraft` 只是运行时守卫、不把泛型 `T`
+  // 窄化成 draft 类型，所以这里必须显式过一次。断言只作用于「已经确认是 draft」
+  // 的那条分支，非 draft 分支原样走 structuredClone。
+  if (isDraft(value)) {
+    return structuredClone(current(value as Draft<T>) as T);
+  }
+  return structuredClone(value);
 }
 
 /**
