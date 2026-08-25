@@ -225,6 +225,20 @@ pub const INBOUND_CONTROL_MESSAGES: &[InboundControlMessage] = &[
                     行为等同回执机制之前，不劣化。",
     },
     InboundControlMessage {
+        name: "sharedMcpUrls",
+        channel: "control-ws",
+        daemon_handler:
+            "server.rs ControlInboundMessage::SharedMcpUrls → terminal_service.set_shared_mcp_url_override",
+        app_sender: "terminal_daemon_control_link（连接建立补发 + 状态变化推送）",
+        rationale: "共享 MCP running URL 表的跨界推送。server 子进程所有权在 app（start_all 只在\
+                    lib.rs 调用），而会话由 daemon 创建、mcp-<sessionId>.json 由 daemon 地址空间的\
+                    claude.rs 生成——daemon 侧 SharedMcpService 的 running map 恒空，\
+                    get_running_servers_urls() 恒返回空，共享 MCP 一个都注入不进去（无任何报错）。\
+                    全量覆盖语义。best-effort：旧 daemon 静默忽略、断线期间无投递——两种情况都\
+                    退化为「不注入共享 MCP」，等同修复前行为，不劣化。**连接断开必须清缓存**：\
+                    注入陈旧端点会让 CLI 每次工具调用卡在连接超时，比不注入更糟。",
+    },
+    InboundControlMessage {
         name: "checkpointUpload",
         channel: "rest",
         daemon_handler: "server.rs upload_session_checkpoint（POST /api/sessions/{id}/checkpoint）",

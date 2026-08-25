@@ -26,6 +26,8 @@ struct ServerRuntime {
     status: SharedMcpServerStatus,
 }
 
+type RunningChangedHook = Box<dyn Fn(HashMap<String, String>) + Send + Sync>;
+
 /// 共享 MCP Server 管理服务
 pub struct SharedMcpService {
     /// 配置文件路径
@@ -34,6 +36,9 @@ pub struct SharedMcpService {
     config: Mutex<SharedMcpConfig>,
     /// 运行中的 server（name → runtime）
     running: Mutex<HashMap<String, ServerRuntime>>,
+    /// running 集合变化时的通知钩子（daemon 模式下用于把新表推给 daemon）。
+    /// core 不依赖 tauri，所以只存闭包，由 app 侧注入。
+    on_running_changed: Mutex<Option<RunningChangedHook>>,
     /// 健康检查线程是否在运行
     health_check_running: AtomicBool,
     /// 健康检查停止信号
@@ -49,6 +54,7 @@ impl SharedMcpService {
             config_path,
             config: Mutex::new(config),
             running: Mutex::new(HashMap::new()),
+            on_running_changed: Mutex::new(None),
             health_check_running: AtomicBool::new(false),
             health_check_stop: Arc::new(AtomicBool::new(false)),
         }
@@ -169,6 +175,25 @@ impl SharedMcpService {
         self.config.lock().map(|g| g.clone()).unwrap_or_default()
     }
 
+    /// 设置 running 集合变化通知回调。
+    pub fn set_on_running_changed(
+        &self,
+        f: impl Fn(HashMap<String, String>) + Send + Sync + 'static,
+    ) {
+        if let Ok(mut callback) = self.on_running_changed.lock() {
+            *callback = Some(Box::new(f));
+        }
+    }
+
+    fn notify_running_changed(&self) {
+        let urls = self.get_running_servers_urls();
+        if let Ok(callback) = self.on_running_changed.lock() {
+            if let Some(callback) = callback.as_ref() {
+                callback(urls);
+            }
+        }
+    }
+
     /// 更新全局配置（端口范围、健康检查间隔等）
     pub fn update_global_config(
         &self,
@@ -259,18 +284,25 @@ impl SharedMcpService {
             );
         }
 
+        self.notify_running_changed();
+
         Ok(())
     }
 
     /// 停止单个 server
     pub fn stop_server(&self, name: &str) {
+        let mut stopped = false;
         if let Ok(mut running) = self.running.lock() {
             if let Some(mut runtime) = running.remove(name) {
+                stopped = true;
                 let pid = runtime.child.id();
                 let _ = runtime.child.kill();
                 let _ = runtime.child.wait();
                 info!("[shared-mcp] Stopped '{}' (pid={})", name, pid);
             }
+        }
+        if stopped {
+            self.notify_running_changed();
         }
     }
 
@@ -482,6 +514,8 @@ impl SharedMcpService {
                 }
             }
         }
+
+        self.notify_running_changed();
     }
 
     // ========== 导入 ==========
@@ -622,8 +656,8 @@ impl SharedMcpService {
         let (command, args) = match config.bridge_mode {
             BridgeMode::McpProxy => Self::build_mcp_proxy_invocation(config),
             BridgeMode::NativeHttp => {
-                // 直接启动，通过环境变量设置 HTTP 模式
-                (config.command.clone(), config.args.clone())
+                let args = config.args.clone();
+                (config.command.clone(), args)
             }
         };
 
@@ -638,15 +672,15 @@ impl SharedMcpService {
             cmd.env(key, value);
         }
 
-        // native-http 模式额外注入 MODE 和 PORT
+        // NativeHttp 模式：注入 PORT 环境变量
         if config.bridge_mode == BridgeMode::NativeHttp {
-            cmd.env("MODE", "http");
             cmd.env("PORT", config.port.to_string());
         }
 
         cmd.spawn()
             .map_err(|e| format!("Failed to spawn '{}': {}", name, e))
     }
+
 }
 
 impl Drop for SharedMcpService {
@@ -851,6 +885,62 @@ mod tests {
         let (_dir, paths) = test_paths();
         let svc = SharedMcpService::new(&paths);
         assert!(svc.get_running_servers_urls().is_empty());
+    }
+
+    #[test]
+    fn running_changed_callback_observes_start_and_stop_without_deadlock() {
+        let (_dir, paths) = test_paths();
+        let svc = Arc::new(SharedMcpService::new(&paths));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let callback_svc = svc.clone();
+        svc.set_on_running_changed(move |urls| {
+            // 真实读取必须发生在 SharedMcpService 的 running/config 锁之外。
+            let observed = callback_svc.get_running_servers_urls();
+            tx.send((urls, observed)).expect("callback receiver alive");
+        });
+
+        let (command, args) = if cfg!(windows) {
+            (
+                std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string()),
+                vec!["/C".to_string(), "ping -n 30 127.0.0.1 > NUL".to_string()],
+            )
+        } else {
+            (
+                "sh".to_string(),
+                vec!["-c".to_string(), "sleep 30".to_string()],
+            )
+        };
+        svc.upsert_server(
+            "callback-server",
+            SharedMcpServerConfig {
+                command,
+                args,
+                env: HashMap::new(),
+                shared: true,
+                port: 3199,
+                bridge_mode: BridgeMode::NativeHttp,
+            },
+        )
+        .expect("configure callback server");
+
+        svc.start_server("callback-server")
+            .expect("start callback server");
+        let (start_urls, start_observed) = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("start callback");
+        let expected = HashMap::from([(
+            "callback-server".to_string(),
+            "http://127.0.0.1:3199/mcp".to_string(),
+        )]);
+        assert_eq!(start_urls, expected);
+        assert_eq!(start_observed, expected);
+
+        svc.stop_server("callback-server");
+        let (stop_urls, stop_observed) = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("stop callback");
+        assert!(stop_urls.is_empty());
+        assert!(stop_observed.is_empty());
     }
 
     #[test]

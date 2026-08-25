@@ -51,6 +51,12 @@ impl TerminalDaemonControlLink {
     pub fn is_connected(&self) -> bool {
         self.connected.load(Ordering::SeqCst)
     }
+
+    /// 上报当前共享 MCP running URL 全量表；连接断开时由 watch 保留最新值，
+    /// 下一次 control 连接建立后补发。
+    pub fn report_shared_mcp_urls(urls: HashMap<String, String>) {
+        report_shared_mcp_urls(urls);
+    }
 }
 
 struct ControlConnectionGuard {
@@ -94,6 +100,33 @@ pub fn report_hidden_sessions(sessions: Vec<String>) {
 
 fn hidden_sessions_message(sessions: &[String]) -> String {
     serde_json::json!({ "type": "hiddenSessions", "sessions": sessions }).to_string()
+}
+
+type SharedMcpUrlsChannel = (
+    tokio::sync::watch::Sender<Option<HashMap<String, String>>>,
+    tokio::sync::watch::Receiver<Option<HashMap<String, String>>>,
+);
+
+fn shared_mcp_urls_channel() -> &'static SharedMcpUrlsChannel {
+    static CHANNEL: std::sync::OnceLock<SharedMcpUrlsChannel> = std::sync::OnceLock::new();
+    CHANNEL.get_or_init(|| tokio::sync::watch::channel(None))
+}
+
+/// 上报当前共享 MCP running URL 全量表；连接断开时由 watch 保留最新值，
+/// 下一次 control 连接建立后补发。
+pub fn report_shared_mcp_urls(urls: HashMap<String, String>) {
+    let _ = shared_mcp_urls_channel().0.send(Some(urls));
+}
+
+fn shared_mcp_urls_message(urls: &HashMap<String, String>) -> String {
+    serde_json::json!({
+        "type": "sharedMcpUrls",
+        "servers": urls.iter().map(|(name, url)| serde_json::json!({
+            "name": name,
+            "url": url,
+        })).collect::<Vec<_>>(),
+    })
+    .to_string()
 }
 
 /// 输出投递回执的待发队列（B-5）。
@@ -211,6 +244,7 @@ async fn run_control_link(
                     // 重连补发：daemon 侧 hidden 标记随旧连接清零（防旧标记压住
                     // 新订阅），所以新连接必须把当前全集重新声明一次。
                     let mut hidden_rx = hidden_sessions_channel().1.clone();
+                    let mut shared_mcp_urls_rx = shared_mcp_urls_channel().1.clone();
                     let mut output_ack_rx = output_ack_channel().1.clone();
                     output_ack_rx.mark_unchanged();
                     // 先克隆出值再 await：watch::Ref 跨 await 会让 future 失去 Send
@@ -233,6 +267,25 @@ async fn run_control_link(
                             Err(error) => debug!(
                                 %error,
                                 "hidden sessions resend failed; reconnect will retry"
+                            ),
+                        }
+                    }
+                    let latest_shared_mcp_urls = shared_mcp_urls_rx.borrow_and_update().clone();
+                    if let Some(urls) = latest_shared_mcp_urls {
+                        use futures_util::SinkExt;
+                        match ws
+                            .send(tokio_tungstenite::tungstenite::Message::Text(
+                                shared_mcp_urls_message(&urls).into(),
+                            ))
+                            .await
+                        {
+                            Ok(()) => debug!(
+                                count = urls.len(),
+                                "shared MCP URLs resent on control connect"
+                            ),
+                            Err(error) => debug!(
+                                %error,
+                                "shared MCP URLs resend failed; reconnect will retry"
                             ),
                         }
                     }
@@ -260,6 +313,26 @@ async fn run_control_link(
                                             break;
                                         }
                                         debug!(count = sessions.len(), "hidden sessions pushed");
+                                    }
+                                }
+                                continue;
+                            }
+                            changed = shared_mcp_urls_rx.changed() => {
+                                if changed.is_ok() {
+                                    let latest = shared_mcp_urls_rx.borrow_and_update().clone();
+                                    if let Some(urls) = latest {
+                                        use futures_util::SinkExt;
+                                        if ws
+                                            .send(tokio_tungstenite::tungstenite::Message::Text(
+                                                shared_mcp_urls_message(&urls).into(),
+                                            ))
+                                            .await
+                                            .is_err()
+                                        {
+                                            debug!("shared MCP URLs push failed; reconnecting");
+                                            break;
+                                        }
+                                        debug!(count = urls.len(), "shared MCP URLs pushed");
                                     }
                                 }
                                 continue;
@@ -851,4 +924,5 @@ mod tests {
             .expect("unknown message must still parse")
             .is_none());
     }
+
 }
