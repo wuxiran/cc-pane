@@ -156,6 +156,15 @@ export const INBOUND_CONTROL_MESSAGES: readonly InboundControlContract[] = [
       "输出投递回执（docs/71 §9.2 B-5）：把「前端已消化到哪个累计 endSeq」报回产出侧，作为生产者暂停的水位输入。语义是「解析完**或**被任何丢弃路径丢弃」——后台标签收进隐藏积压同样算，否则回执永不推进、窗口关死、生产者永久暂停。累计值 + max-merge，重复/乱序/丢失都自愈，故 best-effort 不补发。旧 daemon 静默忽略（ever_acked 保持 false，闸门降级放行），不劣化。",
   },
   {
+    name: "sharedMcpUrls",
+    channel: "control-ws",
+    daemonHandler:
+      "server.rs ControlInboundMessage::SharedMcpUrls → terminal_service.set_shared_mcp_url_override",
+    appSender: "terminal_daemon_control_link（连接建立补发 + 状态变化推送）",
+    rationale:
+      "共享 MCP running URL 表的跨界推送。server 子进程归 app（start_all 只在 lib.rs），而会话由 daemon 创建、mcp-<sessionId>.json 由 daemon 地址空间的 claude.rs 生成——daemon 侧 running map 恒空，共享 MCP 一个都注入不进去（无任何报错）。全量覆盖语义。best-effort：旧 daemon 静默忽略、断线期间无投递，两种情况都退化为「不注入共享 MCP」，等同修复前行为。连接断开必须清缓存：注入陈旧端点会让 CLI 每次工具调用卡在连接超时，比不注入更糟。",
+  },
+  {
     name: "checkpointUpload",
     channel: "rest",
     daemonHandler: "server.rs upload_session_checkpoint（POST /api/sessions/{id}/checkpoint）",
