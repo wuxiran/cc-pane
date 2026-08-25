@@ -390,6 +390,8 @@ flutter pub get && flutter analyze && flutter test
 - **终端「现在什么状态」用 `phaseOf()` 派生，别自己组合那 7 个字段**（0.12.0 批5）：restoring / savedSessionId / restoreBlockedReason / leaseReadOnly / launchError / launchAttempt / disconnected 的合法组合从未被声明过，各消费方脑补的结果是同一状态在不同地方判出不同结果。优先级顺序本身是规格：已退出压倒一切 → 启动失败压过恢复中 → **被挡住的恢复压过恢复中**（否则显示永远转圈的假恢复）→ 断连压过运行中。`isLivePhase` 把 restoring 算作活的（会话已建），这条直接决定销毁链路会不会漏杀。
 - **前端测试「全体起不来」先查 Node 小版本，不要去动 node_modules**：jsdom 28 要求 `^20.19.0 || ^22.12.0 || >=24.0.0`（20.19 是 20.x 线引入 `require(esm)` 的版本）。低于它时 `html-encoding-sniffer` 用 `require()` 加载 ESM-only 的 `@exodus/bytes` 直接炸，表现是 **435 个测试文件全部 `Failed to start forks worker`**、报错里只提两个没人听说过的包名——**看着完全像 node_modules 装坏了**，第一反应会是重装（实测本机 Node 20.17.0 命中）。CI 用 `node-version: "20"` 解析到最新 20.x，所以**CI 绿、本地红**，问题只在开发机暴露。判定：`node -v` 与 `package.json` 的 `engines` 对一下即可；不想动全局 node 可以直接用另一个版本的二进制跑（`<nvm-root>/v24.x/node.exe ./node_modules/vitest/vitest.mjs run`）验证。注意 `npm run test:run` 只跑 vitest，它**不**校验 engines。
 - **clippy 门禁是 `cargo clippy --workspace -- -D warnings`，别自己加 `--all-targets`**：加了会把测试代码的历史 lint 全部升级成 error（实测十几条），看着像"仓库本来就不绿"，实际是换了把尺子。改动验证请用文档里那条原命令。
+- **`watch::Sender::send_modify` 是无条件通知，消费/排空队列必须用 `send_if_modified`**：tokio 内部把它包成恒返回 `true` 的 `send_if_modified`，**写回一个空 map 也会把接收方的 `changed()` 重新置 ready**。配上「调用方在排空**之前**就 `mark_unchanged()`」这个常见写法，排空自己产生的通知没人消费 → 下一轮立刻 ready → 再排空空 map → 再通知，该 future 从此不回 `Pending`，**烧满一整个 tokio worker 且不写任何日志**（0.12.8 实测：一笔 ACK 就让循环 3 秒跑 1400 万次，改 `send_if_modified` 后 6 次）。判据：整机 CPU 不高但 app 发卡、日志零增长、主线程 `Wait/UserRequest` 正常——**别去查业务代码里的 `loop {}`**，它自己不自旋，病在运行时驱动层。定位手法（无需管理员、无需调试器）：PowerShell 用 `OpenThread(0x004A)`/`SuspendThread`/`GetThreadContext` 采 `CONTEXT_AMD64` 的 Rip（偏移 `0xF8`）与 Rsp（`0x98`），`ContextFlags`（`0x30`）设 `0x100001`，CONTEXT 需 16 字节对齐；线程名用 `GetThreadDescription` 读。RIP 集中在 `ZwRemoveIoCompletionEx`/`ZwWaitForAlertByThreadId` + Rsp 在几个值间跳变 = 命中。详见 docs/93。
+- **DOM 原生方法不能裸引用赋值给对象属性**：`{ request: requestAnimationFrame }` 这类写法会让方法脱离 `window`，WebView2 调用时直接抛 `TypeError: Illegal invocation`。要用箭头函数包一层（不是 `.bind(window)`——默认参数在模块加载期求值，无 `window` 的环境会直接崩，箭头函数把求值推迟到调用时）。0.12.8 实测：`terminalCompositionRecovery` 因此在**每次中文/日文输入结束**时抛一次，日志被 `[frontend-crash]` 刷屏。同类风险只在「把原生方法当值传递」时出现，直接调用（`requestAnimationFrame(fn)`）不受影响。
 
 ## 文档引用
 
@@ -440,5 +442,7 @@ flutter pub get && flutter analyze && flutter test
 | `docs/89-mcp-tool-surface-reduction.md` | **MCP 工具面收编方向文档**：90 工具盘点 + 两刀方案（CRUD 合并→55、管理面下沉 ctl→25）+ ctl/MCP 能力分界三轴（身份/故障域/管理面）——未排期，实施逐刀抽 plan |
 | `docs/90-worker-decomposition-model.md` | **派工模型方向文档**：契约冻结换扇形并行 / 宽深形状判别 / 简报摊销——§6 终局裁决「设计承重，乐观默认」（碰撞检测/claim 看板否决）；§7 skill 可执行拆分规则（形状三问→W/D 分支→硬阈值→派发三关→CLI 路由，批次A 落地文本） |
 | `docs/91-deepseek-harness-onboarding.md` | **DeepSeek Harness（dsh）接入**：它不是 CLI 而是 profile 启动器（TUI 他们做过、8-04 主动删了，含复活四条件）+ 全实测事实表 + `$DSH_HOME` 按工作空间隔离的硬约束 + 四项 `--patch` 注入 + 为何不嵌前端（`/api` trust fence）+ 插件生态入口与 `dsh.bundle.patch` 激活判据 |
+| `docs/92-canvas-mode-design.md` | **Canvas Mode 设计方案**：与 pane 布局并列的通信可视化布局（不是新终端类型、不替代编排页）——管道只反映真实 dispatch/message/report 事件，不从终端文本猜关系 |
+| `docs/93-tokio-worker-spin.md` | **tokio worker 满核空转调查**：`send_modify` 排空空队列引发的永久自唤醒环 + 活体采样定位手法（免调试器、免提权）+「卡但主线程正常」三步排障速查 |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |
