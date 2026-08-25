@@ -1370,7 +1370,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         // Intercept paste so file clipboard data can be resolved through the Tauri backend.
         term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+          // 先让平台特定的 guard 记录 Linux WebKit 的组合状态，再拦截后续处理。
           if (!imeGuardRef.current?.handleKeyEvent(e)) {
+            return false;
+          }
+
+          // Intel Mac 的旧版 WKWebView 仍会把组合期间的 keydown 传到 xterm，必须在
+          // 粘贴、复制和快捷键判断之前放行给隐藏 textarea，避免打断 IME。
+          if (e.isComposing || e.keyCode === 229) {
             return false;
           }
 
