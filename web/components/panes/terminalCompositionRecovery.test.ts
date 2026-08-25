@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { bindTerminalCompositionRecovery } from "./terminalCompositionRecovery";
+import {
+  bindTerminalCompositionRecovery,
+  defaultAnimationFrameScheduler,
+} from "./terminalCompositionRecovery";
 
 function createAnimationFrameScheduler() {
   let nextHandle = 1;
@@ -25,6 +28,14 @@ function createAnimationFrameScheduler() {
 }
 
 describe("terminal composition recovery", () => {
+  it("wraps the browser animation frame methods in the default scheduler", () => {
+    // A bare native method loses window as `this` in WebView2 and throws
+    // Illegal invocation. Identity checks catch that regression even though
+    // jsdom is permissive about the receiver.
+    expect(defaultAnimationFrameScheduler.request).not.toBe(requestAnimationFrame);
+    expect(defaultAnimationFrameScheduler.cancel).not.toBe(cancelAnimationFrame);
+  });
+
   it("recovers once after compositionend and two animation frames", () => {
     const textarea = document.createElement("textarea");
     const onCompositionChange = vi.fn();

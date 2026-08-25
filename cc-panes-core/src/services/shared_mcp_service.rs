@@ -20,6 +20,8 @@ use tracing::{debug, error, info, warn};
 struct ServerRuntime {
     /// 子进程句柄
     child: std::process::Child,
+    /// stdio bridge 的 stdin 保持打开，避免 MCP server 收到 EOF 后退出。
+    _stdin: Option<std::process::ChildStdin>,
     /// 重启计数
     restart_count: u32,
     /// 当前状态
@@ -265,7 +267,7 @@ impl SharedMcpService {
             .ok_or_else(|| format!("Server '{}' not found in config", name))?
             .clone();
 
-        let child = self.spawn_server_process(name, &server_config)?;
+        let (child, stdin) = self.spawn_server_process(name, &server_config)?;
         let pid = child.id();
 
         info!(
@@ -278,6 +280,7 @@ impl SharedMcpService {
                 name.to_string(),
                 ServerRuntime {
                     child,
+                    _stdin: stdin,
                     restart_count: 0,
                     status: SharedMcpServerStatus::Running,
                 },
@@ -652,35 +655,63 @@ impl SharedMcpService {
         &self,
         name: &str,
         config: &SharedMcpServerConfig,
-    ) -> Result<std::process::Child, String> {
+    ) -> Result<(std::process::Child, Option<std::process::ChildStdin>), String> {
         let (command, args) = match config.bridge_mode {
             BridgeMode::McpProxy => Self::build_mcp_proxy_invocation(config),
             BridgeMode::NativeHttp => {
-                let args = config.args.clone();
-                (config.command.clone(), args)
+                // 直接启动，通过环境变量设置 HTTP 模式
+                (config.command.clone(), config.args.clone())
             }
         };
 
-        let mut cmd = no_window_command(&command);
-        cmd.args(&args)
+        self.spawn_server_process_with_invocation(name, config, &command, &args)
+    }
+
+    fn spawn_server_process_with_invocation(
+        &self,
+        name: &str,
+        config: &SharedMcpServerConfig,
+        command: &str,
+        args: &[String],
+    ) -> Result<(std::process::Child, Option<std::process::ChildStdin>), String> {
+        let mut cmd = no_window_command(command);
+        let stdin = match config.bridge_mode {
+            BridgeMode::McpProxy => std::process::Stdio::piped(),
+            BridgeMode::NativeHttp => std::process::Stdio::null(),
+        };
+        cmd.args(args)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
-            .stdin(std::process::Stdio::null());
+            .stdin(stdin);
 
         // 注入原始环境变量
         for (key, value) in &config.env {
             cmd.env(key, value);
         }
 
-        // NativeHttp 模式：注入 PORT 环境变量
+        // native-http 模式额外注入 MODE 和 PORT
         if config.bridge_mode == BridgeMode::NativeHttp {
+            cmd.env("MODE", "http");
             cmd.env("PORT", config.port.to_string());
         }
 
-        cmd.spawn()
-            .map_err(|e| format!("Failed to spawn '{}': {}", name, e))
-    }
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn '{}': {}", name, e))?;
+        let stdin = match config.bridge_mode {
+            BridgeMode::McpProxy => match child.stdin.take() {
+                Some(stdin) => Some(stdin),
+                None => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!("Failed to capture stdin for '{}'", name));
+                }
+            },
+            BridgeMode::NativeHttp => None,
+        };
 
+        Ok((child, stdin))
+    }
 }
 
 impl Drop for SharedMcpService {
@@ -743,6 +774,7 @@ mod tests {
             "dead-server".to_string(),
             ServerRuntime {
                 child,
+                _stdin: None,
                 restart_count: max_restarts,
                 status: SharedMcpServerStatus::Failed {
                     message: sentinel.clone(),
@@ -784,6 +816,7 @@ mod tests {
             "dead-server".to_string(),
             ServerRuntime {
                 child,
+                _stdin: None,
                 restart_count: max_restarts,
                 status: SharedMcpServerStatus::Running,
             },
@@ -828,6 +861,46 @@ mod tests {
         }
         assert!(args.contains(&"--".to_string()));
         assert!(args.contains(&"tool".to_string()));
+    }
+
+    #[test]
+    fn mcp_proxy_spawn_keeps_stdin_in_server_runtime() {
+        let (_dir, paths) = test_paths();
+        let svc = SharedMcpService::new(&paths);
+        let config = SharedMcpServerConfig {
+            command: "unused".into(),
+            args: Vec::new(),
+            env: HashMap::new(),
+            shared: true,
+            port: 3100,
+            bridge_mode: BridgeMode::McpProxy,
+        };
+        let (command, args) = if cfg!(windows) {
+            (
+                std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string()),
+                vec!["/C".to_string(), "ping -n 30 -w 1000 127.0.0.1".to_string()],
+            )
+        } else {
+            (
+                "sh".to_string(),
+                vec!["-c".to_string(), "sleep 30".to_string()],
+            )
+        };
+
+        let (child, stdin) = svc
+            .spawn_server_process_with_invocation("stdio-test", &config, &command, &args)
+            .expect("spawn test process");
+        assert!(stdin.is_some(), "stdio bridge must receive a piped stdin");
+
+        let mut runtime = ServerRuntime {
+            child,
+            _stdin: stdin,
+            restart_count: 0,
+            status: SharedMcpServerStatus::Running,
+        };
+        assert!(runtime._stdin.is_some(), "runtime must hold stdin open");
+        let _ = runtime.child.kill();
+        let _ = runtime.child.wait();
     }
 
     #[test]
@@ -902,7 +975,7 @@ mod tests {
         let (command, args) = if cfg!(windows) {
             (
                 std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string()),
-                vec!["/C".to_string(), "ping -n 30 127.0.0.1 > NUL".to_string()],
+                vec!["/C".to_string(), "ping -n 30 -w 1000 127.0.0.1".to_string()],
             )
         } else {
             (
