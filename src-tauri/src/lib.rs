@@ -2431,8 +2431,10 @@ pub fn run() {
             {
                 let svc = app.state::<Arc<SharedMcpService>>().inner().clone();
                 let term_svc = app.state::<Arc<TerminalService>>().inner().clone();
+                svc.set_on_running_changed(TerminalDaemonControlLink::report_shared_mcp_urls);
                 svc.start_all();
                 svc.start_health_check();
+                TerminalDaemonControlLink::report_shared_mcp_urls(svc.get_running_servers_urls());
                 // 注入到 TerminalService
                 term_svc.set_shared_mcp_service(svc);
             }

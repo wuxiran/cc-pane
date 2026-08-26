@@ -147,8 +147,11 @@ describe("通道语义", () => {
     expect(isFrontendListenedEvent("terminal-output")).toBe(true);
   });
 
-  it("desync 是 emitter 自生成而非 emit 输入（决定了 emit 里不该有它的分支）", () => {
-    expect(findBoundaryEvent("terminal-desync")?.origin).toBe("emitter-generated");
+  it("desync 是 emit 输入（reader 看门狗/合批溢出经 emit 发，emit 里必须有它的分支）", () => {
+    // 0.12.7 教训：这条测试曾断言 origin 是 emitter-generated、「emit 里不该有
+    // 它的分支」——把 bug 写成了规格。reader 线程经 emit 发 desync 的两处调用
+    // 因此全落 `_ => {}`，daemon 模式下 Stage 4 看门狗与合批溢出补救全部静默失效。
+    expect(findBoundaryEvent("terminal-desync")?.origin).toBe("emit");
   });
 });
 

@@ -1481,6 +1481,14 @@ struct OutputAckEntry {
     processed_end_seq: u64,
 }
 
+/// 一个共享 MCP server 的运行中 HTTP 端点。
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SharedMcpUrlEntry {
+    name: String,
+    url: String,
+}
+
 #[derive(Debug, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum ControlInboundMessage {
@@ -1494,6 +1502,9 @@ enum ControlInboundMessage {
     /// 据此移除，app 重启后不再全量重放历史事件。旧 app 不发本消息——
     /// 留存照旧累积，行为等同 ack 机制之前。
     IdentityAck { events: Vec<IdentityAckEntry> },
+    /// 共享 MCP running URL 全量表（全量覆盖）。server 子进程归 app 所有，
+    /// daemon 侧 running map 恒空，只能靠推送拿到真值。
+    SharedMcpUrls { servers: Vec<SharedMcpUrlEntry> },
     #[serde(other)]
     Unknown,
 }
@@ -1565,6 +1576,17 @@ async fn handle_control_ws(
                                     );
                                 }
                             }
+                            Ok(ControlInboundMessage::SharedMcpUrls { servers }) => {
+                                if is_desktop {
+                                    let urls = servers
+                                        .into_iter()
+                                        .map(|entry| (entry.name, entry.url))
+                                        .collect::<HashMap<_, _>>();
+                                    config
+                                        .terminal_backend()
+                                        .set_shared_mcp_url_override(Some(urls));
+                                }
+                            }
                             // 未知消息静默忽略：新版 app 对旧 daemon 发新消息时
                             // 不应把连接搞崩。
                             Ok(ControlInboundMessage::Unknown) | Err(_) => {}
@@ -1578,6 +1600,11 @@ async fn handle_control_ws(
     // 连接结束：清掉它的 hidden 标记，否则重连后的新订阅会被旧标记压住，
     // 表现为「重连后永久收不到输出」且零报错。
     config.ws_emitter().clear_connection_hidden(&connection_id);
+
+    if is_desktop {
+        config.terminal_backend().set_shared_mcp_url_override(None);
+        info!("shared MCP URL cache cleared; new sessions will not inject shared MCP");
+    }
 
     if is_desktop {
         // guard 在函数返回时 drop，这里先打日志（-1 生效前的计数减一即最终值）
@@ -1765,6 +1792,22 @@ mod tests {
                 assert_eq!(sessions, vec!["s1".to_string(), "s2".to_string()]);
             }
             other => panic!("expected HiddenSessions, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn control_inbound_shared_mcp_urls_parses() {
+        let msg: ControlInboundMessage = serde_json::from_str(
+            r#"{"type":"sharedMcpUrls","servers":[{"name":"wechat","url":"http://127.0.0.1:3100/mcp"}]}"#,
+        )
+        .expect("parse");
+        match msg {
+            ControlInboundMessage::SharedMcpUrls { servers } => {
+                assert_eq!(servers.len(), 1);
+                assert_eq!(servers[0].name, "wechat");
+                assert_eq!(servers[0].url, "http://127.0.0.1:3100/mcp");
+            }
+            other => panic!("expected SharedMcpUrls, got {other:?}"),
         }
     }
 

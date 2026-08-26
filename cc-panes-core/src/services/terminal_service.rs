@@ -1258,6 +1258,10 @@ pub struct TerminalService {
     ssh_connection_service: Arc<SshConnectionService>,
     /// 共享 MCP 服务引用（setup 阶段注入）
     shared_mcp_service: parking_lot::RwLock<Option<Arc<crate::services::SharedMcpService>>>,
+    /// daemon 模式下由 control 通道推送的共享 MCP running URL 表。
+    /// None = 从未收到推送（旧 app / 尚未连接）；Some(空 map) = 明确告知当前没有 running server。
+    /// in-process 模式恒为 None，走 shared_mcp_service.get_running_servers_urls() 原路径。
+    shared_mcp_url_override: parking_lot::RwLock<Option<HashMap<String, String>>>,
     /// Tauri 打包资源目录。Linux 安装布局下它不一定与主程序同目录。
     sidecar_resource_dir: parking_lot::RwLock<Option<PathBuf>>,
     launch_profile_service: parking_lot::RwLock<Option<Arc<LaunchProfileService>>>,
@@ -1721,6 +1725,7 @@ impl TerminalService {
             ssh_credential_service,
             ssh_connection_service,
             shared_mcp_service: parking_lot::RwLock::new(None),
+            shared_mcp_url_override: parking_lot::RwLock::new(None),
             sidecar_resource_dir: parking_lot::RwLock::new(None),
             launch_profile_service: parking_lot::RwLock::new(None),
             workspace_service: parking_lot::RwLock::new(None),
@@ -1753,6 +1758,58 @@ impl TerminalService {
     pub fn set_shared_mcp_service(&self, service: Arc<crate::services::SharedMcpService>) {
         *self.shared_mcp_service.write() = Some(service);
         info!("[terminal] SharedMcpService injected");
+    }
+
+    /// 设置 daemon control 通道推送的共享 MCP running URL 覆盖表。
+    /// `None` 表示清除推送状态并回落到本进程 SharedMcpService 的运行时状态。
+    pub fn set_shared_mcp_url_override(&self, urls: Option<HashMap<String, String>>) {
+        let description = match urls.as_ref() {
+            Some(urls) => format!("{} running server(s)", urls.len()),
+            None => "no override".to_string(),
+        };
+        *self.shared_mcp_url_override.write() = urls;
+        info!("[terminal] Shared MCP URL override updated: {description}");
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shared_mcp_url_override_for_test(&self) -> Option<HashMap<String, String>> {
+        self.shared_mcp_url_override.read().clone()
+    }
+
+    fn resolve_effective_shared_mcp_urls(
+        &self,
+        shared_mcp_service: Option<&crate::services::SharedMcpService>,
+        launch_profile_id: Option<&str>,
+        resolved_workspace: Option<&crate::models::Workspace>,
+        cli_tool: CliTool,
+        runtime_kind: &str,
+        effective_skip_mcp: bool,
+    ) -> HashMap<String, String> {
+        if effective_skip_mcp {
+            return HashMap::new();
+        }
+
+        // daemon 模式下 running map 恒空（server 子进程归 app 所有），
+        // 真值由 control 通道推送。override 存在即优先；None 才回落原路径。
+        let shared_mcp_urls = match self.shared_mcp_url_override.read().clone() {
+            Some(pushed) => pushed,
+            None => shared_mcp_service
+                .map(|svc| svc.get_running_servers_urls())
+                .unwrap_or_default(),
+        };
+        self.launch_profile_service
+            .read()
+            .as_ref()
+            .map(|svc| {
+                svc.resolve_shared_mcp_urls_for_profile(
+                    launch_profile_id,
+                    resolved_workspace,
+                    Some(cli_tool.as_id()),
+                    Some(runtime_kind),
+                    shared_mcp_urls.clone(),
+                )
+            })
+            .unwrap_or(shared_mcp_urls)
     }
 
     pub fn set_sidecar_resource_dir(&self, resource_dir: PathBuf) {
@@ -2409,27 +2466,14 @@ impl TerminalService {
             .as_ref()
             .map(|svc| svc.get_config())
             .unwrap_or_default();
-        let effective_shared_mcp_urls = if effective_skip_mcp {
-            HashMap::new()
-        } else {
-            let shared_mcp_urls = shared_mcp_service
-                .as_ref()
-                .map(|svc| svc.get_running_servers_urls())
-                .unwrap_or_default();
-            self.launch_profile_service
-                .read()
-                .as_ref()
-                .map(|svc| {
-                    svc.resolve_shared_mcp_urls_for_profile(
-                        launch_profile_id,
-                        resolved_workspace.as_ref(),
-                        Some(cli_tool.as_id()),
-                        Some(runtime_kind),
-                        shared_mcp_urls.clone(),
-                    )
-                })
-                .unwrap_or(shared_mcp_urls)
-        };
+        let effective_shared_mcp_urls = self.resolve_effective_shared_mcp_urls(
+            shared_mcp_service.as_deref(),
+            launch_profile_id,
+            resolved_workspace.as_ref(),
+            cli_tool,
+            runtime_kind,
+            effective_skip_mcp,
+        );
         log_launch_stage(
             launch_id,
             None,
@@ -5398,6 +5442,7 @@ mod tests {
     use super::*;
     use crate::models::provider::{Provider, ProviderModel, ProviderType};
     use crate::models::settings::CliLauncherOverride;
+    use crate::services::SharedMcpService;
 
     /// PTY 是字节流，转义序列会被切在任意位置。`strip_ansi_escapes` 对未终止的序列是
     /// **整段吞掉**（连 ESC 一起），所以前半不可恢复、后半丢了前缀就当正文留下——
@@ -6246,6 +6291,117 @@ mod tests {
     }
 
     #[test]
+    fn effective_shared_mcp_urls_prefer_override_and_preserve_empty_state() {
+        let (service, temp_dir) = terminal_service_for_test();
+        let shared_paths = AppPaths::new(Some(temp_dir.path().to_string_lossy().to_string()));
+        let shared_service = Arc::new(SharedMcpService::new(&shared_paths));
+        service.set_shared_mcp_service(shared_service.clone());
+
+        let fallback = service.resolve_effective_shared_mcp_urls(
+            Some(shared_service.as_ref()),
+            None,
+            None,
+            CliTool::Claude,
+            "local",
+            false,
+        );
+        assert!(
+            fallback.is_empty(),
+            "empty running map should be the fallback"
+        );
+
+        let pushed = HashMap::from([
+            (
+                "wechat".to_string(),
+                "http://127.0.0.1:3100/mcp".to_string(),
+            ),
+            (
+                "chrome".to_string(),
+                "http://127.0.0.1:3106/mcp".to_string(),
+            ),
+        ]);
+        service.set_shared_mcp_url_override(Some(pushed.clone()));
+        assert_eq!(
+            service.resolve_effective_shared_mcp_urls(
+                Some(shared_service.as_ref()),
+                None,
+                None,
+                CliTool::Claude,
+                "local",
+                false,
+            ),
+            pushed
+        );
+
+        service.set_shared_mcp_url_override(Some(HashMap::new()));
+        assert!(service
+            .resolve_effective_shared_mcp_urls(
+                Some(shared_service.as_ref()),
+                None,
+                None,
+                CliTool::Claude,
+                "local",
+                false,
+            )
+            .is_empty());
+    }
+
+    #[test]
+    fn effective_shared_mcp_urls_keep_profile_filtering_for_override() {
+        let (service, temp_dir) = terminal_service_for_test();
+        let profile_service = Arc::new(LaunchProfileService::new(
+            temp_dir.path().join("launch-profiles.json"),
+        ));
+        let profile = profile_service
+            .create_profile(crate::models::launch_profile::LaunchProfileDraft {
+                name: Some("Disable one shared MCP".to_string()),
+                alias: None,
+                description: None,
+                provider_id: None,
+                model_id: None,
+                adapter_options: HashMap::new(),
+                target_tools: vec!["claude".to_string()],
+                target_runtime: None,
+                yolo_mode: false,
+                mcp_policy: crate::models::launch_profile::LaunchProfileMcpPolicy {
+                    disabled_server_ids: vec!["disabled".to_string()],
+                    ..Default::default()
+                },
+                skill_policy: Default::default(),
+                is_default: false,
+            })
+            .expect("create launch profile");
+        service.set_launch_profile_service(profile_service);
+        service.set_shared_mcp_url_override(Some(HashMap::from([
+            (
+                "enabled-a".to_string(),
+                "http://127.0.0.1:3100/mcp".to_string(),
+            ),
+            (
+                "disabled".to_string(),
+                "http://127.0.0.1:3101/mcp".to_string(),
+            ),
+            (
+                "enabled-b".to_string(),
+                "http://127.0.0.1:3102/mcp".to_string(),
+            ),
+        ])));
+
+        let resolved = service.resolve_effective_shared_mcp_urls(
+            None,
+            Some(&profile.id),
+            None,
+            CliTool::Claude,
+            "local",
+            false,
+        );
+        assert_eq!(resolved.len(), 2);
+        assert!(!resolved.contains_key("disabled"));
+        assert!(resolved.contains_key("enabled-a"));
+        assert!(resolved.contains_key("enabled-b"));
+    }
+
+    #[test]
     fn kill_reason_serde_roundtrip_and_unknown_fallback() {
         assert_eq!(
             serde_json::to_string(&KillReason::OrphanReclaim).unwrap(),
@@ -6338,8 +6494,12 @@ mod tests {
     #[test]
     fn all_three_batch_flush_paths_take_the_batch_end_seq() {
         let source = include_str!("terminal_service.rs");
+        // 切的是**测试模块**的起点，不是任意 `#[cfg(test)]`——production 段里
+        // 允许有 `#[cfg(test)]` 的测试辅助方法（如 `*_for_test` 读取器），
+        // 用裸属性切会在第一个辅助方法处提前截断，让本守卫报
+        // 「batching thread must exist」而看着像批处理线程被删了。
         let production = source
-            .split("#[cfg(test)]")
+            .split("#[cfg(test)]\nmod tests {")
             .next()
             .expect("production section");
         let batching = production

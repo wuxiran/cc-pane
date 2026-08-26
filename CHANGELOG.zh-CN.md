@@ -7,6 +7,29 @@
 两份是人工同步的，条目一一对应；改英文版时顺手改这里，逐条 diff 能看出漏了哪条。
 0.12.6 之前的版本只有英文版。
 
+## 0.12.8 - 2026-08-26
+
+Canvas Mode 上线——把 agent 之间实际在说什么变成看得见的空间关系。另外修了四个缺陷，形态完全一致：功能都在、UI 都显示正常、全程零报错，所以每一个都已经坏了很久没人发现。其中三个共享同一个成因：**进程拆分之后没人重新核对的边界**。共享 MCP server 由 app 启动、会话却由 daemon 创建，注入表因此恒为空；ACK 队列排空时用了无条件通知，一笔回执就把一整个 tokio worker 永久钉在 100%；而 stdio 类 MCP server 拿到的是 null 的 stdin——那正是通知它退出的信号。
+
+### 新增
+
+- **Canvas Mode** — 终端区域内与普通 pane 布局并列的第二种布局，不是替代品。终端卡片在独立空间里可拖拽、可调整尺寸，卡片之间的管道只反映真实的 `dispatch` / `message` / `report` 事件——不从终端文本猜测关系，也不会因为 worker 处于 `running` 就一直播放粒子。任务摘要和状态标签渲染在卡片边缘，不遮挡终端内容。执行模型完全不动：还是同一批 pane、tab、PTY 和 xterm 实例，显示状态存在独立的 store 里，切换视图不会打扰正在跑的会话。编排面板继续负责任务列表、详情和通知，Canvas Mode 只负责实时的空间关系与通信反馈。设计文档见 `docs/92-canvas-mode-design.md`。
+
+### 修复
+
+- **共享 MCP server 一个都进不了新会话** — 端口在监听、UI 显示健康，可生成出来的 `mcp-<sessionId>.json` 里只有 `ccpanes` 一个。server 子进程由 app 启动（`start_all` 全仓库只有 `lib.rs` 一个调用点），而会话——以及那份列出它 MCP server 的配置文件——是在 daemon 里创建的。daemon 自己那份 `SharedMcpService` 的 `running` map 因此恒空，而 `get_running_servers_urls()` 要求 `status == Running` 才注入，于是每次都返回空表，adapter 的注入循环一次都没执行过。现在 running URL 表经既有的 control 通道推给 daemon 缓存，形态照抄 `hiddenSessions`（全量覆盖、连接建立补发、best-effort）。下发走 `TerminalBackend` 的默认方法——与 `outputAck` 同一条既有路径——因为 `DaemonConfig` 只持有 trait 对象，够不着具体的 service。三条不变式撑住这个设计：control 断开即清缓存，因为注入一个已死的端点会让每次工具调用都卡在连接上（比不注入更糟）；handler 按 `is_desktop` 门控，手机端或 web 端断开不能抹掉桌面推来的表；启动配置的过滤规则对推送来的表同样生效。
+- **一笔回执就能把一个 tokio worker 永久钉在满核，且完全静默** — 表现是应用间歇性失去响应、`browser_evaluate` 报 `CDP method timed out`。活体采样显示一个 `tokio-runtime-worker` 在启动后 1.1 秒就烧到 99.5% 单核、重启必复现，30 次指令指针采样有 28 次落在 `ZwWaitForAlertByThreadId` 与 `ZwRemoveIoCompletionEx`，栈指针在四个值之间循环——是循环不是挂死。而 I/O 计数只有每秒约 92 次，排除了 syscall 风暴。`drain_output_acks` 用 `send_modify` 排空队列，而这个 API 是**无条件通知**：写回一个空 map 也会把接收方的 `changed()` 重新置位，加上调用方在排空**之前**就已经 `mark_unchanged()`，这次通知没有任何人消费——于是下一轮立刻就绪、再排空一个空 map、future 从此不再回到 `Pending`。最小复现三秒跑 1400 万次，换成 `send_if_modified` 后是 6 次。CDP 超时只是症状：它的定时器与 oneshot 唤醒都排在一个已被占满的运行时后面。
+- **共享 MCP server 在连接建立 40 毫秒后自杀** — `docs/70` 记录过、挂了两个版本的待修项。`spawn_server_process` 对所有 bridge 模式一律给 `Stdio::null()` 的 stdin，而 stdio 类 MCP server 把 stdin 的 EOF 当作退出信号；三次重启后熔断器把它们彻底停掉。用户看到的现象完全不像「MCP 挂了」——agent 只是看不见那套工具，然后静默改用别的。现在 `McpProxy` 类拿到的是 piped 的 stdin，句柄存在 `ServerRuntime` 里；句柄一旦 drop 本身就是 EOF，所以「持有它」才是修复本身。
+- **每次组合输入都抛 `TypeError: Illegal invocation`** — 终端的组合输入恢复调度器把 `requestAnimationFrame` 与 `cancelAnimationFrame` 的裸引用存成了对象属性，这会让它们脱离 `window`，WebView2 直接拒绝调用。而这个 handler 绑在 `compositionend` 上，于是每打一次中文或日文就触发一次，日志被 `[frontend-crash]` 刷屏。现在两个方法都用箭头函数包起来，顺带把全局查找推迟到调用时，模块在没有浏览器全局的环境里也能安全导入。
+- **生产构建破坏了 xterm 的 `requestMode`**，另有类型检查门禁在 `closedTabsUndo` 上一直是红的——`current()` 要求 `Draft<T>`，而 `isDraft` 只在运行时窄化。两处都补上了：构建新增 `verify-xterm-build` 步骤，类型断言只作用在「已确认是 draft」那条分支上。
+
+
+- **共享 MCP server 一个都进不了新会话** — 端口在监听、UI 显示健康，可生成出来的 `mcp-<sessionId>.json` 里只有 `ccpanes` 一个。server 子进程由 app 启动（`start_all` 全仓库只有 `lib.rs` 一个调用点），而会话——以及那份列出它 MCP server 的配置文件——是在 daemon 里创建的。daemon 自己那份 `SharedMcpService` 的 `running` map 因此恒空，而 `get_running_servers_urls()` 要求 `status == Running` 才注入，于是每次都返回空表，adapter 的注入循环一次都没执行过。现在 running URL 表经既有的 control 通道推给 daemon 缓存，形态照抄 `hiddenSessions`（全量覆盖、连接建立补发、best-effort）。下发走 `TerminalBackend` 的默认方法——与 `outputAck` 同一条既有路径——因为 `DaemonConfig` 只持有 trait 对象，够不着具体的 service。三条不变式撑住这个设计：control 断开即清缓存，因为注入一个已死的端点会让每次工具调用都卡在连接上（比不注入更糟）；handler 按 `is_desktop` 门控，手机端或 web 端断开不能抹掉桌面推来的表；启动配置的过滤规则对推送来的表同样生效。
+- **一笔回执就能把一个 tokio worker 永久钉在满核，且完全静默** — 表现是应用间歇性失去响应、`browser_evaluate` 报 `CDP method timed out`。活体采样显示一个 `tokio-runtime-worker` 在启动后 1.1 秒就烧到 99.5% 单核、重启必复现，30 次指令指针采样有 28 次落在 `ZwWaitForAlertByThreadId` 与 `ZwRemoveIoCompletionEx`，栈指针在四个值之间循环——是循环不是挂死。而 I/O 计数只有每秒约 92 次，排除了 syscall 风暴。`drain_output_acks` 用 `send_modify` 排空队列，而这个 API 是**无条件通知**：写回一个空 map 也会把接收方的 `changed()` 重新置位，加上调用方在排空**之前**就已经 `mark_unchanged()`，这次通知没有任何人消费——于是下一轮立刻就绪、再排空一个空 map、future 从此不再回到 `Pending`。最小复现三秒跑 1400 万次，换成 `send_if_modified` 后是 6 次。CDP 超时只是症状：它的定时器与 oneshot 唤醒都排在一个已被占满的运行时后面。
+- **共享 MCP server 在连接建立 40 毫秒后自杀** — `docs/70` 记录过、挂了两个版本的待修项。`spawn_server_process` 对所有 bridge 模式一律给 `Stdio::null()` 的 stdin，而 stdio 类 MCP server 把 stdin 的 EOF 当作退出信号；三次重启后熔断器把它们彻底停掉。用户看到的现象完全不像「MCP 挂了」——agent 只是看不见那套工具，然后静默改用别的。现在 `McpProxy` 类拿到的是 piped 的 stdin，句柄存在 `ServerRuntime` 里；句柄一旦 drop 本身就是 EOF，所以「持有它」才是修复本身。
+- **每次组合输入都抛 `TypeError: Illegal invocation`** — 终端的组合输入恢复调度器把 `requestAnimationFrame` 与 `cancelAnimationFrame` 的裸引用存成了对象属性，这会让它们脱离 `window`，WebView2 直接拒绝调用。而这个 handler 绑在 `compositionend` 上，于是每打一次中文或日文就触发一次，日志被 `[frontend-crash]` 刷屏。现在两个方法都用箭头函数包起来，顺带把全局查找推迟到调用时，模块在没有浏览器全局的环境里也能安全导入。
+
+
 ## 0.12.7 - 2026-08-23
 
 主要是 macOS 版本。两个各自独立的缺陷叠在一起，导致 mac 上应用快捷键基本全都不响应、终端完全没有右键菜单——两者都趴在早已标记为"做完"的功能底下，也都逃过了测试：jsdom 报告的平台不是 mac，出问题的那几条分支从来没被执行到。另外终端输出通路补上了端到端流控：渲染层的窗口 Rust 侧看不见，背压此前只是被挪了位置、从未被真正度量；现在刷屏的进程会被自己的输出限速，而不是由 IPC 队列碰巧能吞下多少决定。

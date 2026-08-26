@@ -45,6 +45,17 @@ function createKeyEvent(
   });
 }
 
+function createImeKeyEvent(options: { isComposing?: boolean; keyCode?: number } = {}): KeyboardEvent {
+  const event = createKeyEvent("b", { ctrlKey: true });
+  if (options.isComposing !== undefined) {
+    Object.defineProperty(event, "isComposing", { configurable: true, value: options.isComposing });
+  }
+  if (options.keyCode !== undefined) {
+    Object.defineProperty(event, "keyCode", { configurable: true, value: options.keyCode });
+  }
+  return event;
+}
+
 describe("useShortcutsStore", () => {
   beforeEach(() => {
     useShortcutsStore.setState({
@@ -311,6 +322,31 @@ describe("useShortcutsStore", () => {
   // handleKeydown
   // ===========================================================================
   describe("handleKeydown", () => {
+    it.each([
+      ["isComposing", { isComposing: true }],
+      ["legacy IME keyCode", { keyCode: 229 }],
+    ] as const)("%s 期间不应触发全局快捷键", (_label, options) => {
+      const handler = vi.fn();
+      useShortcutsStore.getState().registerAction({
+        id: "toggle-sidebar",
+        label: "Toggle Sidebar",
+        handler,
+      });
+      useSettingsStore.setState({
+        settings: {
+          shortcuts: { bindings: { "toggle-sidebar": "Ctrl+B" } },
+        } as never,
+      });
+
+      const e = createImeKeyEvent(options);
+      const preventSpy = vi.spyOn(e, "preventDefault");
+
+      handleKeydown(e);
+
+      expect(handler).not.toHaveBeenCalled();
+      expect(preventSpy).not.toHaveBeenCalled();
+    });
+
     it("settings 为 null 时应直接返回不处理", () => {
       useSettingsStore.setState({ settings: null });
       const e = createKeyEvent("b", { ctrlKey: true });
@@ -435,6 +471,15 @@ describe("useShortcutsStore", () => {
   // shouldTerminalHandleKey
   // ===========================================================================
   describe("shouldTerminalHandleKey", () => {
+    it.each([
+      ["isComposing", { isComposing: true }],
+      ["legacy IME keyCode", { keyCode: 229 }],
+    ] as const)("%s 期间应交给原生输入法而非 xterm", (_label, options) => {
+      const e = createImeKeyEvent(options);
+
+      expect(shouldTerminalHandleKey(e)).toBe(false);
+    });
+
     it("settings 为 null 时应返回 true（交给终端处理）", () => {
       useSettingsStore.setState({ settings: null });
       const e = createKeyEvent("b", { ctrlKey: true });

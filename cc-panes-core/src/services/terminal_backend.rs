@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -135,6 +136,13 @@ pub trait TerminalBackend: Send + Sync {
     /// 不返回 Result——回执是骑在数据路径上的优化，会话销毁与在途回执天生会赛跑，
     /// 为此报错只会在日志里刷噪音。
     fn ack_terminal_output(&self, _session_id: &str, _processed_end_seq: u64) {}
+    /// 设置共享 MCP running URL 覆盖表（control 通道推送而来）。
+    ///
+    /// 默认 no-op：daemon 客户端后端的会话活在 daemon 进程，推送经 control WS 直达
+    /// 那边，本地这层没有表可存；mock 后端同理。in-process 后端覆盖之。
+    ///
+    /// 不返回 Result——推送是 best-effort，为此报错只会刷噪音。
+    fn set_shared_mcp_url_override(&self, _urls: Option<HashMap<String, String>>) {}
     /// scrollback 设置变更后重算活跃会话的 replay 上限。
     ///
     /// 默认 no-op：daemon 客户端后端的会话在 daemon 进程，那边有自己的
@@ -587,6 +595,10 @@ impl TerminalBackend for InProcessTerminalBackend {
         <TerminalService as TerminalBackend>::write(self.service.as_ref(), session_id, data)
     }
 
+    fn set_shared_mcp_url_override(&self, urls: Option<HashMap<String, String>>) {
+        self.service.set_shared_mcp_url_override(urls);
+    }
+
     fn write_reply(&self, session_id: &str, data: &str) -> AppResult<()> {
         <TerminalService as TerminalBackend>::write_reply(self.service.as_ref(), session_id, data)
     }
@@ -894,14 +906,22 @@ impl TerminalBackend for DaemonTerminalBackend {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::io::{Read, Write};
     use std::net::{SocketAddr, TcpListener};
-    use std::sync::mpsc;
+    use std::sync::{mpsc, Arc};
     use std::thread;
     use std::time::Duration;
 
+    use cc_cli_adapters::CliToolRegistry;
+
     use crate::models::{CliTool, TerminalBufferMode};
     use crate::services::terminal_service::SessionStatus;
+    use crate::services::{
+        ProjectCliHooksService, ProviderService, SettingsService, SshCredentialService,
+        TerminalService,
+    };
+    use crate::utils::AppPaths;
 
     use super::*;
 
@@ -951,6 +971,49 @@ mod tests {
             TerminalDaemonClient::new(addr.to_string(), "secret")
                 .with_timeout(Duration::from_secs(1)),
         )
+    }
+
+    fn in_process_backend_for_test() -> (
+        InProcessTerminalBackend,
+        Arc<TerminalService>,
+        tempfile::TempDir,
+    ) {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let app_paths = Arc::new(AppPaths::new(Some(
+            temp_dir.path().to_string_lossy().to_string(),
+        )));
+        let cli_registry = Arc::new(CliToolRegistry::new());
+        let service = Arc::new(TerminalService::new(
+            Arc::new(SettingsService::new()),
+            Arc::new(ProviderService::new(app_paths.providers_path())),
+            app_paths,
+            cli_registry.clone(),
+            Arc::new(ProjectCliHooksService::new(cli_registry)),
+            Arc::new(SshCredentialService::new_memory()),
+        ));
+        (
+            InProcessTerminalBackend::new(service.clone()),
+            service,
+            temp_dir,
+        )
+    }
+
+    #[test]
+    fn in_process_backend_forwards_shared_mcp_url_override() {
+        let (backend, service, _temp_dir) = in_process_backend_for_test();
+        let urls = HashMap::from([(
+            "wechat".to_string(),
+            "http://127.0.0.1:3100/mcp".to_string(),
+        )]);
+
+        <InProcessTerminalBackend as TerminalBackend>::set_shared_mcp_url_override(
+            &backend,
+            Some(urls.clone()),
+        );
+        assert_eq!(service.shared_mcp_url_override_for_test(), Some(urls));
+
+        <InProcessTerminalBackend as TerminalBackend>::set_shared_mcp_url_override(&backend, None);
+        assert_eq!(service.shared_mcp_url_override_for_test(), None);
     }
 
     fn daemon_status_response(claims_supported: Option<bool>) -> String {

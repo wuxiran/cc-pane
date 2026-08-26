@@ -20,11 +20,15 @@ use tracing::{debug, error, info, warn};
 struct ServerRuntime {
     /// 子进程句柄
     child: std::process::Child,
+    /// stdio bridge 的 stdin 保持打开，避免 MCP server 收到 EOF 后退出。
+    _stdin: Option<std::process::ChildStdin>,
     /// 重启计数
     restart_count: u32,
     /// 当前状态
     status: SharedMcpServerStatus,
 }
+
+type RunningChangedHook = Box<dyn Fn(HashMap<String, String>) + Send + Sync>;
 
 /// 共享 MCP Server 管理服务
 pub struct SharedMcpService {
@@ -34,6 +38,9 @@ pub struct SharedMcpService {
     config: Mutex<SharedMcpConfig>,
     /// 运行中的 server（name → runtime）
     running: Mutex<HashMap<String, ServerRuntime>>,
+    /// running 集合变化时的通知钩子（daemon 模式下用于把新表推给 daemon）。
+    /// core 不依赖 tauri，所以只存闭包，由 app 侧注入。
+    on_running_changed: Mutex<Option<RunningChangedHook>>,
     /// 健康检查线程是否在运行
     health_check_running: AtomicBool,
     /// 健康检查停止信号
@@ -49,6 +56,7 @@ impl SharedMcpService {
             config_path,
             config: Mutex::new(config),
             running: Mutex::new(HashMap::new()),
+            on_running_changed: Mutex::new(None),
             health_check_running: AtomicBool::new(false),
             health_check_stop: Arc::new(AtomicBool::new(false)),
         }
@@ -169,6 +177,25 @@ impl SharedMcpService {
         self.config.lock().map(|g| g.clone()).unwrap_or_default()
     }
 
+    /// 设置 running 集合变化通知回调。
+    pub fn set_on_running_changed(
+        &self,
+        f: impl Fn(HashMap<String, String>) + Send + Sync + 'static,
+    ) {
+        if let Ok(mut callback) = self.on_running_changed.lock() {
+            *callback = Some(Box::new(f));
+        }
+    }
+
+    fn notify_running_changed(&self) {
+        let urls = self.get_running_servers_urls();
+        if let Ok(callback) = self.on_running_changed.lock() {
+            if let Some(callback) = callback.as_ref() {
+                callback(urls);
+            }
+        }
+    }
+
     /// 更新全局配置（端口范围、健康检查间隔等）
     pub fn update_global_config(
         &self,
@@ -240,7 +267,7 @@ impl SharedMcpService {
             .ok_or_else(|| format!("Server '{}' not found in config", name))?
             .clone();
 
-        let child = self.spawn_server_process(name, &server_config)?;
+        let (child, stdin) = self.spawn_server_process(name, &server_config)?;
         let pid = child.id();
 
         info!(
@@ -253,24 +280,32 @@ impl SharedMcpService {
                 name.to_string(),
                 ServerRuntime {
                     child,
+                    _stdin: stdin,
                     restart_count: 0,
                     status: SharedMcpServerStatus::Running,
                 },
             );
         }
 
+        self.notify_running_changed();
+
         Ok(())
     }
 
     /// 停止单个 server
     pub fn stop_server(&self, name: &str) {
+        let mut stopped = false;
         if let Ok(mut running) = self.running.lock() {
             if let Some(mut runtime) = running.remove(name) {
+                stopped = true;
                 let pid = runtime.child.id();
                 let _ = runtime.child.kill();
                 let _ = runtime.child.wait();
                 info!("[shared-mcp] Stopped '{}' (pid={})", name, pid);
             }
+        }
+        if stopped {
+            self.notify_running_changed();
         }
     }
 
@@ -482,6 +517,8 @@ impl SharedMcpService {
                 }
             }
         }
+
+        self.notify_running_changed();
     }
 
     // ========== 导入 ==========
@@ -618,7 +655,7 @@ impl SharedMcpService {
         &self,
         name: &str,
         config: &SharedMcpServerConfig,
-    ) -> Result<std::process::Child, String> {
+    ) -> Result<(std::process::Child, Option<std::process::ChildStdin>), String> {
         let (command, args) = match config.bridge_mode {
             BridgeMode::McpProxy => Self::build_mcp_proxy_invocation(config),
             BridgeMode::NativeHttp => {
@@ -627,11 +664,25 @@ impl SharedMcpService {
             }
         };
 
-        let mut cmd = no_window_command(&command);
-        cmd.args(&args)
+        self.spawn_server_process_with_invocation(name, config, &command, &args)
+    }
+
+    fn spawn_server_process_with_invocation(
+        &self,
+        name: &str,
+        config: &SharedMcpServerConfig,
+        command: &str,
+        args: &[String],
+    ) -> Result<(std::process::Child, Option<std::process::ChildStdin>), String> {
+        let mut cmd = no_window_command(command);
+        let stdin = match config.bridge_mode {
+            BridgeMode::McpProxy => std::process::Stdio::piped(),
+            BridgeMode::NativeHttp => std::process::Stdio::null(),
+        };
+        cmd.args(args)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
-            .stdin(std::process::Stdio::null());
+            .stdin(stdin);
 
         // 注入原始环境变量
         for (key, value) in &config.env {
@@ -644,8 +695,22 @@ impl SharedMcpService {
             cmd.env("PORT", config.port.to_string());
         }
 
-        cmd.spawn()
-            .map_err(|e| format!("Failed to spawn '{}': {}", name, e))
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn '{}': {}", name, e))?;
+        let stdin = match config.bridge_mode {
+            BridgeMode::McpProxy => match child.stdin.take() {
+                Some(stdin) => Some(stdin),
+                None => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!("Failed to capture stdin for '{}'", name));
+                }
+            },
+            BridgeMode::NativeHttp => None,
+        };
+
+        Ok((child, stdin))
     }
 }
 
@@ -709,6 +774,7 @@ mod tests {
             "dead-server".to_string(),
             ServerRuntime {
                 child,
+                _stdin: None,
                 restart_count: max_restarts,
                 status: SharedMcpServerStatus::Failed {
                     message: sentinel.clone(),
@@ -750,6 +816,7 @@ mod tests {
             "dead-server".to_string(),
             ServerRuntime {
                 child,
+                _stdin: None,
                 restart_count: max_restarts,
                 status: SharedMcpServerStatus::Running,
             },
@@ -794,6 +861,46 @@ mod tests {
         }
         assert!(args.contains(&"--".to_string()));
         assert!(args.contains(&"tool".to_string()));
+    }
+
+    #[test]
+    fn mcp_proxy_spawn_keeps_stdin_in_server_runtime() {
+        let (_dir, paths) = test_paths();
+        let svc = SharedMcpService::new(&paths);
+        let config = SharedMcpServerConfig {
+            command: "unused".into(),
+            args: Vec::new(),
+            env: HashMap::new(),
+            shared: true,
+            port: 3100,
+            bridge_mode: BridgeMode::McpProxy,
+        };
+        let (command, args) = if cfg!(windows) {
+            (
+                std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string()),
+                vec!["/C".to_string(), "ping -n 30 -w 1000 127.0.0.1".to_string()],
+            )
+        } else {
+            (
+                "sh".to_string(),
+                vec!["-c".to_string(), "sleep 30".to_string()],
+            )
+        };
+
+        let (child, stdin) = svc
+            .spawn_server_process_with_invocation("stdio-test", &config, &command, &args)
+            .expect("spawn test process");
+        assert!(stdin.is_some(), "stdio bridge must receive a piped stdin");
+
+        let mut runtime = ServerRuntime {
+            child,
+            _stdin: stdin,
+            restart_count: 0,
+            status: SharedMcpServerStatus::Running,
+        };
+        assert!(runtime._stdin.is_some(), "runtime must hold stdin open");
+        let _ = runtime.child.kill();
+        let _ = runtime.child.wait();
     }
 
     #[test]
@@ -851,6 +958,62 @@ mod tests {
         let (_dir, paths) = test_paths();
         let svc = SharedMcpService::new(&paths);
         assert!(svc.get_running_servers_urls().is_empty());
+    }
+
+    #[test]
+    fn running_changed_callback_observes_start_and_stop_without_deadlock() {
+        let (_dir, paths) = test_paths();
+        let svc = Arc::new(SharedMcpService::new(&paths));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let callback_svc = svc.clone();
+        svc.set_on_running_changed(move |urls| {
+            // 真实读取必须发生在 SharedMcpService 的 running/config 锁之外。
+            let observed = callback_svc.get_running_servers_urls();
+            tx.send((urls, observed)).expect("callback receiver alive");
+        });
+
+        let (command, args) = if cfg!(windows) {
+            (
+                std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string()),
+                vec!["/C".to_string(), "ping -n 30 -w 1000 127.0.0.1".to_string()],
+            )
+        } else {
+            (
+                "sh".to_string(),
+                vec!["-c".to_string(), "sleep 30".to_string()],
+            )
+        };
+        svc.upsert_server(
+            "callback-server",
+            SharedMcpServerConfig {
+                command,
+                args,
+                env: HashMap::new(),
+                shared: true,
+                port: 3199,
+                bridge_mode: BridgeMode::NativeHttp,
+            },
+        )
+        .expect("configure callback server");
+
+        svc.start_server("callback-server")
+            .expect("start callback server");
+        let (start_urls, start_observed) = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("start callback");
+        let expected = HashMap::from([(
+            "callback-server".to_string(),
+            "http://127.0.0.1:3199/mcp".to_string(),
+        )]);
+        assert_eq!(start_urls, expected);
+        assert_eq!(start_observed, expected);
+
+        svc.stop_server("callback-server");
+        let (stop_urls, stop_observed) = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("stop callback");
+        assert!(stop_urls.is_empty());
+        assert!(stop_observed.is_empty());
     }
 
     #[test]

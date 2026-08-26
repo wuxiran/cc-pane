@@ -3,6 +3,14 @@ export interface AnimationFrameScheduler {
   cancel: (handle: number) => void;
 }
 
+// Keep the browser methods' receiver intact. The wrappers also defer global
+// lookup until invocation, so importing this module remains safe without a
+// browser global (for example during SSR).
+export const defaultAnimationFrameScheduler: AnimationFrameScheduler = {
+  request: (callback) => requestAnimationFrame(callback),
+  cancel: (handle) => cancelAnimationFrame(handle),
+};
+
 /**
  * Wait for xterm and WebView2 to finish composition teardown before repairing
  * terminal layout. A new composition cancels any recovery that is still queued.
@@ -11,10 +19,7 @@ export function bindTerminalCompositionRecovery(
   textarea: HTMLTextAreaElement | null | undefined,
   onCompositionChange: (isComposing: boolean) => void,
   recover: () => void,
-  scheduler: AnimationFrameScheduler = {
-    request: requestAnimationFrame,
-    cancel: cancelAnimationFrame,
-  },
+  scheduler: AnimationFrameScheduler = defaultAnimationFrameScheduler,
 ): () => void {
   if (!textarea) return () => {};
 

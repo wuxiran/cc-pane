@@ -231,6 +231,9 @@ function actionContextsOverlap(firstActionId: string, secondActionId: string): b
  * 全局 keydown 处理器
  */
 export function handleKeydown(e: KeyboardEvent, isMac: boolean = detectMac()) {
+  // IME 组合输入期间放行，避免全局捕获阶段打断中文/日文等输入法。
+  if (e.isComposing || e.keyCode === 229) return;
+
   const combo = parseKeyEvent(e);
   if (!combo) return;
 
@@ -257,6 +260,9 @@ export function handleKeydown(e: KeyboardEvent, isMac: boolean = detectMac()) {
  * xterm 自定义按键处理器
  */
 export function shouldTerminalHandleKey(e: KeyboardEvent, isMac: boolean = detectMac()): boolean {
+  // 组合输入由 xterm 隐藏 textarea 和原生输入法协作完成，快捷键层不应介入。
+  if (e.isComposing || e.keyCode === 229) return false;
+
   const combo = parseKeyEvent(e);
   if (!combo) return true;
 

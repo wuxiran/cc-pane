@@ -1,6 +1,6 @@
 # 70 — shared MCP 启动即自杀：stdio 服务器在双层套壳下 stdin 立即 EOF
 
-> **状态：待修（2026-07-31 记录）。** 调查已完成、根因已复现，未动手修。
+> **状态：已修（2026-08-25）。** `McpProxy` 启动时保留 piped stdin，避免 stdio server 因 EOF 退出；`NativeHttp` 仍使用 null stdin。
 > 相关：[docs/57](./57-ccpanes-ctl-and-mcp-orphan.md)（自研 stdio↔HTTP 代理就是为这类问题造的）。
 
 ## 用户看到的现象
@@ -91,8 +91,21 @@ cmd /c npx -y mcp-proxy --port 3106 -- cmd /c npx -y chrome-devtools-mcp@latest 
 4. 开一个带 `--remote-debugging-port=9222` 的 Chrome，AI 调 chrome-devtools 工具能真正操作它
 5. 故意配一个必然失败的 shared MCP，确认达到重启上限后 UI 有可见告警
 
+## 本次修复（2026-08-25）
+
+`cc-panes-core/src/services/shared_mcp_service.rs` 现在按桥接模式配置 stdin：
+
+- `McpProxy` 使用 `Stdio::piped()`，并把 `ChildStdin` 移入 `ServerRuntime`，在 server
+  生命周期内保持句柄存活，因此不会因为 app 提前关闭 stdin 而收到 EOF。
+- `NativeHttp` 继续使用 `Stdio::null()`；它不依赖 stdio 输入，避免无意义地持有句柄。
+- Windows 的外层和内层 `cmd /c` 命令构造保持不变，修复只涉及 stdin 传递和句柄生命周期。
+
+这次修复覆盖的是 shared MCP 的 stdin 自杀根因。Chrome 9222 仍是外部运行前提：Windows
+宿主需要自行启动带 `--remote-debugging-port=9222` 的 Chrome；端口和真实工具调用仍需按
+上面的 Windows 验证步骤验收。
+
 ## 临时绕过
 
-在修好之前：手动重启该 shared MCP（`restart_shared_mcp_server`），并自己启动一个带
+在修复前：手动重启该 shared MCP（`restart_shared_mcp_server`），并自己启动一个带
 `--remote-debugging-port=9222` 的 Chrome。注意重启只是重置计数，stdin 问题仍在，
 它大概率会再次在 3 次内耗尽重启次数。

@@ -999,6 +999,28 @@ describe("TerminalView", () => {
     expect(guard?.clearNativeEditState).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["isComposing", { isComposing: true }],
+    ["legacy IME keyCode", { keyCode: 229 }],
+  ] as const)("%s keydown is not handled by xterm", async (_label, options) => {
+    renderTerminalView();
+    const term = await lastTerm();
+    const event = new KeyboardEvent("keydown", {
+      key: "b",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    if ("isComposing" in options) {
+      Object.defineProperty(event, "isComposing", { configurable: true, value: options.isComposing });
+    }
+    if ("keyCode" in options) {
+      Object.defineProperty(event, "keyCode", { configurable: true, value: options.keyCode });
+    }
+
+    expect(term.keyEventHandler?.(event)).toBe(false);
+  });
+
   it("drops input typed before the session exists", async () => {
     createSession.mockReturnValue(new Promise(() => {}) as never);
     renderTerminalView();

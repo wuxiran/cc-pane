@@ -51,6 +51,12 @@ impl TerminalDaemonControlLink {
     pub fn is_connected(&self) -> bool {
         self.connected.load(Ordering::SeqCst)
     }
+
+    /// 上报当前共享 MCP running URL 全量表；连接断开时由 watch 保留最新值，
+    /// 下一次 control 连接建立后补发。
+    pub fn report_shared_mcp_urls(urls: HashMap<String, String>) {
+        report_shared_mcp_urls(urls);
+    }
 }
 
 struct ControlConnectionGuard {
@@ -96,6 +102,33 @@ fn hidden_sessions_message(sessions: &[String]) -> String {
     serde_json::json!({ "type": "hiddenSessions", "sessions": sessions }).to_string()
 }
 
+type SharedMcpUrlsChannel = (
+    tokio::sync::watch::Sender<Option<HashMap<String, String>>>,
+    tokio::sync::watch::Receiver<Option<HashMap<String, String>>>,
+);
+
+fn shared_mcp_urls_channel() -> &'static SharedMcpUrlsChannel {
+    static CHANNEL: std::sync::OnceLock<SharedMcpUrlsChannel> = std::sync::OnceLock::new();
+    CHANNEL.get_or_init(|| tokio::sync::watch::channel(None))
+}
+
+/// 上报当前共享 MCP running URL 全量表；连接断开时由 watch 保留最新值，
+/// 下一次 control 连接建立后补发。
+pub fn report_shared_mcp_urls(urls: HashMap<String, String>) {
+    let _ = shared_mcp_urls_channel().0.send(Some(urls));
+}
+
+fn shared_mcp_urls_message(urls: &HashMap<String, String>) -> String {
+    serde_json::json!({
+        "type": "sharedMcpUrls",
+        "servers": urls.iter().map(|(name, url)| serde_json::json!({
+            "name": name,
+            "url": url,
+        })).collect::<Vec<_>>(),
+    })
+    .to_string()
+}
+
 /// 输出投递回执的待发队列（B-5）。
 ///
 /// 用 watch + 排空而非 mpsc：回执是**累计值**，中间态没有价值——同一会话连报
@@ -120,7 +153,17 @@ fn output_ack_channel() -> &'static OutputAckChannel {
 /// **不保证送达**（daemon 可能是旧版或断线）。送不到的后果是 daemon 侧
 /// `ever_acked` 保持 false，闸门据此降级放行——退回今天的行为，不会更差。
 pub fn report_output_ack(session_id: String, processed_end_seq: u64) {
-    output_ack_channel().0.send_modify(|pending| {
+    merge_output_ack(&output_ack_channel().0, session_id, processed_end_seq);
+}
+
+/// 合并一笔回执到给定通道。与 [`report_output_ack`] 同一段逻辑，
+/// 拆出 sender 参数只为让测试能用本地通道，不去抢进程内的静态单例。
+fn merge_output_ack(
+    sender: &tokio::sync::watch::Sender<HashMap<String, u64>>,
+    session_id: String,
+    processed_end_seq: u64,
+) {
+    sender.send_modify(|pending| {
         let slot = pending.entry(session_id).or_insert(0);
         // max-merge：乱序到达的小值不能把游标拽回去。
         if processed_end_seq > *slot {
@@ -130,11 +173,36 @@ pub fn report_output_ack(session_id: String, processed_end_seq: u64) {
 }
 
 /// 取走待发回执并清空。
+///
+/// **必须用 `send_if_modified` 而不是 `send_modify`**：后者是**无条件**通知
+/// （tokio 内部把闭包包成恒返回 `true` 的 `send_if_modified`），空 map 写回也会
+/// 把接收方的 `changed()` 重新置 ready。而调用方在 drain **之前**就
+/// `mark_unchanged()` 了，于是 drain 自己产生的这次通知没人消费——下一轮
+/// `changed()` 立刻 ready、再 drain 空 map、再通知，形成**永久自唤醒环**：
+/// 该 future 从此不再回到 Pending，把一整个 tokio worker 烧到 100% 单核。
+///
+/// 实测（0.12.8 调查，docs/93）：一次前端 ACK 就足以让循环 3 秒跑 1900 万次。
+/// 活体采样表现为 `ZwRemoveIoCompletionEx` / `ZwWaitForAlertByThreadId` 反复
+/// park/unpark，而 I/O 计数只有约 92 次/秒——**没有真实 I/O，纯调度器空转**，
+/// 且不写任何日志，所以静默烧了很久没人发现。
 fn drain_output_acks() -> HashMap<String, u64> {
+    drain_output_acks_from(&output_ack_channel().0)
+}
+
+/// 排空给定通道。与 [`drain_output_acks`] 同一段逻辑，拆出 sender 参数只为让
+/// 回归测试能用本地通道验证「空队列不通知」，不去抢进程内的静态单例。
+fn drain_output_acks_from(
+    sender: &tokio::sync::watch::Sender<HashMap<String, u64>>,
+) -> HashMap<String, u64> {
     let mut taken = HashMap::new();
-    output_ack_channel()
-        .0
-        .send_modify(|pending| taken = std::mem::take(pending));
+    sender.send_if_modified(|pending| {
+        if pending.is_empty() {
+            // 空队列不产生 changed 通知——这一行就是自唤醒环的闸门。
+            return false;
+        }
+        taken = std::mem::take(pending);
+        true
+    });
     taken
 }
 
@@ -211,6 +279,7 @@ async fn run_control_link(
                     // 重连补发：daemon 侧 hidden 标记随旧连接清零（防旧标记压住
                     // 新订阅），所以新连接必须把当前全集重新声明一次。
                     let mut hidden_rx = hidden_sessions_channel().1.clone();
+                    let mut shared_mcp_urls_rx = shared_mcp_urls_channel().1.clone();
                     let mut output_ack_rx = output_ack_channel().1.clone();
                     output_ack_rx.mark_unchanged();
                     // 先克隆出值再 await：watch::Ref 跨 await 会让 future 失去 Send
@@ -233,6 +302,25 @@ async fn run_control_link(
                             Err(error) => debug!(
                                 %error,
                                 "hidden sessions resend failed; reconnect will retry"
+                            ),
+                        }
+                    }
+                    let latest_shared_mcp_urls = shared_mcp_urls_rx.borrow_and_update().clone();
+                    if let Some(urls) = latest_shared_mcp_urls {
+                        use futures_util::SinkExt;
+                        match ws
+                            .send(tokio_tungstenite::tungstenite::Message::Text(
+                                shared_mcp_urls_message(&urls).into(),
+                            ))
+                            .await
+                        {
+                            Ok(()) => debug!(
+                                count = urls.len(),
+                                "shared MCP URLs resent on control connect"
+                            ),
+                            Err(error) => debug!(
+                                %error,
+                                "shared MCP URLs resend failed; reconnect will retry"
                             ),
                         }
                     }
@@ -260,6 +348,26 @@ async fn run_control_link(
                                             break;
                                         }
                                         debug!(count = sessions.len(), "hidden sessions pushed");
+                                    }
+                                }
+                                continue;
+                            }
+                            changed = shared_mcp_urls_rx.changed() => {
+                                if changed.is_ok() {
+                                    let latest = shared_mcp_urls_rx.borrow_and_update().clone();
+                                    if let Some(urls) = latest {
+                                        use futures_util::SinkExt;
+                                        if ws
+                                            .send(tokio_tungstenite::tungstenite::Message::Text(
+                                                shared_mcp_urls_message(&urls).into(),
+                                            ))
+                                            .await
+                                            .is_err()
+                                        {
+                                            debug!("shared MCP URLs push failed; reconnecting");
+                                            break;
+                                        }
+                                        debug!(count = urls.len(), "shared MCP URLs pushed");
                                     }
                                 }
                                 continue;
@@ -850,5 +958,59 @@ mod tests {
         assert!(parse_control_event(r#"{"type":"futureEvent"}"#)
             .expect("unknown message must still parse")
             .is_none());
+    }
+
+    /// 自唤醒环回归守卫（docs/93）。
+    ///
+    /// drain 用 `send_modify`（无条件通知）时，空 map 写回会把 `changed()` 重新置
+    /// ready，而调用方在 drain 前就 `mark_unchanged()` 了——没人消费这次通知，
+    /// 下一轮立刻 ready、再 drain 空 map、再通知，该 future 从此不回 Pending，
+    /// 烧满一整个 tokio worker（实测 3 秒 1900 万次，且不写任何日志）。
+    ///
+    /// 这条测的是「排空一个已空的队列**不得**产生 changed 通知」——把
+    /// `send_if_modified` 换回 `send_modify` 立刻失败。
+    ///
+    /// **不碰进程内的静态通道**：`output_ack_channel()` 是 `OnceLock` 单例，
+    /// 同一二进制里的测试并发跑会互相抢它（先写的值被别的测试 drain 掉，
+    /// 表现为莫名其妙的 `None`）。这里在本地建等价通道复刻同一形态，
+    /// 顺带让断言与真实实现共用 [`drain_output_acks_from`]。
+    #[tokio::test]
+    async fn draining_an_empty_queue_does_not_rewake_receivers() {
+        let (tx, mut rx) = tokio::sync::watch::channel(HashMap::<String, u64>::new());
+        rx.mark_unchanged();
+
+        tx.send_modify(|pending| {
+            pending.insert("spin-guard-session".to_string(), 42);
+        });
+        assert!(rx.changed().await.is_ok(), "真实上报必须唤醒接收方");
+        rx.mark_unchanged();
+
+        let taken = drain_output_acks_from(&tx);
+        assert_eq!(taken.get("spin-guard-session"), Some(&42));
+
+        // 第一次 drain 非空，会留下一次通知——消费掉它。
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(50), rx.changed()).await;
+        rx.mark_unchanged();
+
+        // 关键断言：队列已空，再 drain 不得再次唤醒。
+        let drained_again = drain_output_acks_from(&tx);
+        assert!(drained_again.is_empty());
+        let rewoken =
+            tokio::time::timeout(std::time::Duration::from_millis(80), rx.changed()).await;
+        assert!(
+            rewoken.is_err(),
+            "排空已空队列不得产生 changed 通知，否则形成永久自唤醒环（docs/93）"
+        );
+    }
+
+    /// max-merge 语义不能因为改了通知条件而丢：乱序到达的小值不得把游标拽回去。
+    #[test]
+    fn output_ack_keeps_max_merge_semantics() {
+        let (tx, _rx) = tokio::sync::watch::channel(HashMap::<String, u64>::new());
+        for seq in [100u64, 40, 250] {
+            merge_output_ack(&tx, "merge-session".to_string(), seq);
+        }
+        let taken = drain_output_acks_from(&tx);
+        assert_eq!(taken.get("merge-session"), Some(&250));
     }
 }

@@ -143,6 +143,30 @@ impl WsEmitter {
         }
     }
 
+    /// 让某会话的所有订阅连接走一次快照重建（emit 源的 desync：Stage 4 ack
+    /// 静默看门狗、合批通道溢出）。
+    ///
+    /// 复用 desynced 闩锁语义：立即插得进就插（并顺手清掉旧闩），插不进就闩住，
+    /// `deliver` 排空后补插——desync 契约上是 MustDeliver，绝不能因队列满而丢。
+    /// 隐藏连接不插实时消息（它本来就不收流），置 `dropped_while_hidden` 走
+    /// unhide 的既有补发路径。
+    fn signal_desync(&self, session_id: &str) {
+        let mut subscribers = self.subscribers.write();
+        let Some(list) = subscribers.get_mut(session_id) else {
+            return;
+        };
+        for sub in list.iter_mut() {
+            if sub.hidden {
+                sub.dropped_while_hidden = true;
+                continue;
+            }
+            match sub.tx.try_send(DESYNC_MESSAGE.to_string()) {
+                Ok(()) => sub.desynced = false,
+                Err(_) => sub.desynced = true,
+            }
+        }
+    }
+
     /// 连接断开：清掉它的全部 hidden 标记。
     ///
     /// 不清的话，重连后的新订阅会被上一条连接留下的标记压住——表现为
@@ -418,7 +442,20 @@ impl EventEmitter for WsEmitter {
                 if let Some(end_seq) = payload.get("endSeq").and_then(Value::as_u64) {
                     message["endSeq"] = end_seq.into();
                 }
-                self.publish(session_id, message.to_string());
+                let delivered = self.publish(session_id, message.to_string());
+                if !delivered {
+                    // B-5 记账契约（terminal_service.rs 合批线程注释）：emit 返回
+                    // Err = 字节没到前端，不计 in-flight。此前这里无条件 Ok——
+                    // 隐藏闸门丢弃、无订阅者、队列满整段跳过的字节照样被记成
+                    // 在途债，而这些字节的 ACK 永远不会来，生产者暂停闸门据此
+                    // 把 reader 限速成每个 failsafe 周期放一轮（后台标签里的
+                    // agent 被 PTY 内核缓冲写阻塞）。丢弃本身各有既定补救
+                    // （unhide 补发 desync / desynced 闩锁 → 快照重建），唯独
+                    // 记账必须诚实：没发出去就不能算 sent。
+                    anyhow::bail!(
+                        "terminal-output dropped before any subscriber (hidden/none/full)"
+                    );
+                }
             }
             "terminal-exit" => {
                 let exit_code = payload
@@ -477,6 +514,15 @@ impl EventEmitter for WsEmitter {
                     );
                 }
                 self.drop_session_subscribers(session_id);
+            }
+            EV::TERMINAL_DESYNC => {
+                // reader 线程有两处经 emit 发 desync：Stage 4 ack 静默看门狗
+                // （terminal_service.rs park_if_paused == Stalled 分支）与合批
+                // 通道满整段丢弃（同文件 try_send Full 分支）。0.12.7 落地时
+                // 没有本分支，两处都掉进 `_ => {}` 静默丢失——docs/45 形态的
+                // 边界断裂；契约表当时把本事件标成 EmitterGenerated，穷举守卫
+                // 因此跳过了它（现已改 Emit，守卫从此接管）。
+                self.signal_desync(session_id);
             }
             EV::TERMINAL_RESUME_ID_DETECTED => {
                 self.retain_identity_event(session_id, &payload);
@@ -606,12 +652,13 @@ mod tests {
         let mut rx = emitter.subscribe_with_connection("s1", Some("ctl-1".into()));
 
         emitter.set_hidden_sessions("ctl-1", &["s1".to_string()]);
+        // 唯一订阅者隐藏 → 没有任何投递 → emit 必须 Err（B-5：不计 in-flight）。
         emitter
             .emit(
                 EV::TERMINAL_OUTPUT,
                 serde_json::json!({ "sessionId": "s1", "data": "missed" }),
             )
-            .expect("hidden terminal output should be accepted");
+            .expect_err("hidden-only drop must report undelivered");
         emitter.set_hidden_sessions("ctl-1", &[]);
 
         let msg = rx.try_recv().expect("unhide 后应收到 desync");
@@ -641,7 +688,7 @@ mod tests {
                 EV::TERMINAL_OUTPUT,
                 serde_json::json!({ "sessionId": "s1", "data": "missed" }),
             )
-            .expect("repeated hidden terminal output should be accepted");
+            .expect_err("hidden-only drop must report undelivered");
         // 隐藏 → 再次声明隐藏（前端重复上报）：待补的 desync 不能被抹掉
         emitter.set_hidden_sessions("ctl-1", &["s1".to_string()]);
         emitter.set_hidden_sessions("ctl-1", &[]);
@@ -1054,13 +1101,130 @@ mod tests {
         );
     }
 
+    /// 不断言 emit 结果：B-5 记账诚实化后，未投出去的输出（隐藏/无订阅者/
+    /// 队列满）emit 返回 Err 是**正确行为**。各测试自行断言收到了什么。
     fn emit_output(emitter: &WsEmitter, session_id: &str, data: &str) {
+        let _ = emitter.emit(
+            EV::TERMINAL_OUTPUT,
+            serde_json::json!({ "sessionId": session_id, "data": data }),
+        );
+    }
+
+    /// **B-1 根因回归**：投递失败必须对上游可见。此前 emit 对 terminal-output
+    /// 无条件 Ok，合批线程照记 in-flight，而被丢字节的 ACK 永不会来——
+    /// 「看过一眼再隐藏」的会话水位单调涨过 HIGH，生产者暂停闸门把 reader
+    /// 限速成每个 failsafe 周期放一轮，后台 agent 被 PTY 内核缓冲写阻塞。
+    #[test]
+    fn undelivered_output_returns_err_so_flow_accounting_skips_it() {
+        // 无订阅者：Err。
+        let emitter = WsEmitter::new();
+        assert!(
+            emitter
+                .emit(
+                    EV::TERMINAL_OUTPUT,
+                    serde_json::json!({ "sessionId": "nobody", "data": "x" }),
+                )
+                .is_err(),
+            "无订阅者的输出没发出去，不能报成已发送"
+        );
+
+        // 唯一订阅者隐藏：Err（数据留在 ReplayBuffer，unhide 走 desync 重建）。
+        let mut hidden_rx = emitter.subscribe_with_connection("s1", Some("ctl-1".into()));
+        emitter.set_hidden_sessions("ctl-1", &["s1".to_string()]);
+        assert!(
+            emitter
+                .emit(
+                    EV::TERMINAL_OUTPUT,
+                    serde_json::json!({ "sessionId": "s1", "data": "x" }),
+                )
+                .is_err(),
+            "隐藏闸门丢弃的输出不能报成已发送"
+        );
+        assert!(hidden_rx.try_recv().is_err());
+
+        // 任一连接收下即 Ok（手机可见 + 桌面隐藏的多客户端场景）。
+        let mut visible_rx = emitter.subscribe_with_connection("s1", Some("ctl-2".into()));
+        assert!(
+            emitter
+                .emit(
+                    EV::TERMINAL_OUTPUT,
+                    serde_json::json!({ "sessionId": "s1", "data": "y" }),
+                )
+                .is_ok(),
+            "至少一个连接收下就算已发送（该连接会 ACK）"
+        );
+        assert!(visible_rx.try_recv().is_ok());
+    }
+
+    /// **B-1 伴生回归（docs/45 形态）**：reader 线程经 emit 发的 desync
+    /// （Stage 4 ack 静默看门狗、合批通道溢出）必须真的到达订阅者——
+    /// 0.12.7 时它落在 `_ => {}`，daemon 模式下两处补救全部静默失效。
+    #[test]
+    fn desync_emit_reaches_session_subscribers() {
+        let emitter = WsEmitter::new();
+        let mut rx = emitter.subscribe("s1");
+
         emitter
             .emit(
-                EV::TERMINAL_OUTPUT,
-                serde_json::json!({ "sessionId": session_id, "data": data }),
+                EV::TERMINAL_DESYNC,
+                serde_json::json!({ "sessionId": "s1" }),
             )
-            .expect("output emit");
+            .expect("desync emit");
+
+        let msg = rx.try_recv().expect("desync 必须送达");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&msg).expect("json"),
+            serde_json::json!({"type":"desync"})
+        );
+    }
+
+    /// desync 是 MustDeliver：队列满时不能丢，闩住 desynced 由排空机制补插。
+    #[test]
+    fn desync_emit_latches_when_queue_full_and_arrives_after_drain() {
+        let emitter = WsEmitter::new();
+        let mut rx = emitter.subscribe("s1");
+
+        for index in 0..SESSION_CHANNEL_CAPACITY {
+            emit_output(&emitter, "s1", &format!("chunk-{index}"));
+        }
+        emitter
+            .emit(
+                EV::TERMINAL_DESYNC,
+                serde_json::json!({ "sessionId": "s1" }),
+            )
+            .expect("desync emit");
+
+        // 排空积压后，下一条输出投递前必须先补插 desync。
+        let mut drained = 0;
+        while drained < SESSION_CHANNEL_CAPACITY && rx.try_recv().is_ok() {
+            drained += 1;
+        }
+        emit_output(&emitter, "s1", "after-drain");
+        let first = rx.try_recv().expect("marker");
+        assert!(first.contains("\"desync\""), "期望 desync，实得 {first}");
+        let second = rx.try_recv().expect("resumed output");
+        assert!(second.contains("after-drain"));
+    }
+
+    /// 隐藏连接收到 emit 源的 desync：不插实时消息（它不收流），
+    /// 走 unhide 的既有补发路径。
+    #[test]
+    fn desync_emit_marks_hidden_connection_for_unhide_replay() {
+        let emitter = WsEmitter::new();
+        let mut rx = emitter.subscribe_with_connection("s1", Some("ctl-1".into()));
+
+        emitter.set_hidden_sessions("ctl-1", &["s1".to_string()]);
+        emitter
+            .emit(
+                EV::TERMINAL_DESYNC,
+                serde_json::json!({ "sessionId": "s1" }),
+            )
+            .expect("desync emit");
+        assert!(rx.try_recv().is_err(), "隐藏期不该收到任何实时消息");
+
+        emitter.set_hidden_sessions("ctl-1", &[]);
+        let msg = rx.try_recv().expect("unhide 后必须补发 desync");
+        assert!(msg.contains("\"desync\""));
     }
 
     /// 队列溢出必须不阻塞、不无界堆积；排空后第一条新消息前插入 desync 标记，

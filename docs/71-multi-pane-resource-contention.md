@@ -655,6 +655,16 @@ WSL 的配置面比"改几个资源参数"大得多：
 | **交互快路** | §3.3 "可直接借用的小改进" | 距上次按键 100ms 内且 ≤1KB 的批直接刷出，绕过 16ms 窗口。**不动全局 16ms**——那是防 WKWebView 主线程死锁的 |
 | **replay 上限随 scrollback 缩放** | 新增 | `max(8MB, rows × 120)`，设置变更时调 `ReplayBuffer::shrink`（此前零调用方）。消除硬编码 8MB 对 50k 行用户的白白截史 |
 
+#### 9.1.1 B-1/B-5 首发版（0.12.7）的两处 daemon 边界断裂（0.12.8 修复）
+
+两个 bug 同一种病：机制在进程内自洽，**在 daemon 边界上没接通**（CLAUDE.md「出问题的全是边界」条目的又一实例）。独立复核（Fable 反驳式审查）确认，修复随 `fix/producer-flow-daemon-boundary` 落地。
+
+1. **投递失败对记账不可见 → 隐藏标签把生产者限速成每 failsafe 放一轮。**
+   `WsEmitter::emit` 对 `terminal-output` 无条件 `Ok(())`，丢弃 `publish` 的 bool；合批线程按 `emit(...).is_ok()` 记 in-flight。于是隐藏闸门丢弃 / 无订阅者 / 队列满整段跳过的字节全被记成在途债——这些字节的 ACK 永不会来（前端 ACK 唯一源头是数据到达回调），水位单调涨过 HIGH，reader 被 park 成每 5s 放一轮，**后台标签里的 agent 被 PTY 内核缓冲写阻塞**。触发要四个前置同时满足：daemon 模式 + control 链路健康 + 会话曾被可见观看过（`ever_acked` 只置不复位，从未看过的会话被降级闸豁免）+ 隐藏期产出 > 256KB；unhide 后经 desync 快照重建可自愈，伤害限于隐藏期间。B-5 注释本来就写了「emit 返回 Err 时不记账」，但该防线只对 TauriEmitter 生效。修复：`WsEmitter` 无任何连接收下 output 时返回 Err，记账诚实化。回归测试 `undelivered_output_returns_err_so_flow_accounting_skips_it`。
+
+2. **emit 源的 desync 落进 `_ => {}` → Stage 4 看门狗与合批溢出补救在 daemon 模式全是死代码。**
+   reader 线程两处 `emit(TERMINAL_DESYNC)`（Stalled 看门狗、合批通道满整段丢弃），`WsEmitter::emit` 没有该分支。穷举守卫没拦住的原因是契约表把它标成 `EmitterGenerated`（登记时确实只有 emitter 自生成一种来源，后来加了 emit 源没改分类），守卫据此跳过；**TS 侧镜像测试还把这个错误断言成了规格**（「emit 里不该有它的分支」）。修复：origin 改 `Emit`（守卫从此接管）+ emit 补 `signal_desync` 分支（复用 desynced 闩锁，隐藏连接走 `dropped_while_hidden` 补发路径）+ web 模式 emitter 同步补分支 + TS 契约表与测试翻转。教训入 `EventOrigin::EmitterGenerated` 的文档注释：**给既有 EmitterGenerated 事件新增 emit 调用点时必须把 origin 改成 Emit**。
+
 ### 9.2 未落地
 
 按"性价比 × 风险"排序。**B 类输出链路已全部收口**（B-1/B-2/B-5 + 看门狗，见 §9.1）；剩余项以 A 类资源约束为主，**A-1 是最该先做的**——它堵的是唯一能吃到 OOM 的路径。
