@@ -154,6 +154,9 @@ fn test_state(name: &str) -> crate::state::AppState {
         spec_service: Arc::new(SpecService::new(spec_repo, todo_service)),
         task_binding_service: Arc::new(TaskBindingService::new(task_binding_repo)),
         launch_history_service,
+        media_service: Arc::new(cc_panes_core::services::MediaService::new(Arc::new(
+            cc_panes_core::repository::MediaRepository::new(db.clone()),
+        ))),
         layout_snapshot_service: Arc::new(LayoutSnapshotService::new(db.clone())),
         launch_profile_service,
         quick_command_service: Arc::new(cc_panes_core::services::QuickCommandService::new(
@@ -293,6 +296,27 @@ async fn auth_enabled_api_requires_login_cookie() {
         .expect("authenticated response");
 
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn auth_enabled_media_websocket_requires_login_cookie() {
+    let state = test_state("media-ws-auth");
+    enable_auth(&state);
+    let app = super::build_router(state);
+
+    // Authentication middleware runs before WebSocket upgrade extraction, so
+    // an unauthenticated media stream is rejected instead of being upgraded.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/ws/media?workspaceId=workspace-a")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

@@ -1,17 +1,26 @@
 use axum::{
     extract::{
         ws::{Message, WebSocket},
-        Extension, Path, State, WebSocketUpgrade,
+        Extension, Path, Query, State, WebSocketUpgrade,
     },
     response::IntoResponse,
 };
 use futures_util::{SinkExt, StreamExt};
+use serde::Deserialize;
 use tokio::time::{self, Duration};
 use tokio_tungstenite::connect_async;
 use tracing::{debug, error, warn};
 
 use crate::state::{AppState, TerminalOutputMode};
 use crate::web_auth::{effective_read_only, RequestOrigin};
+
+/// Optional scope for the media event stream.  The Web Canvas normally passes
+/// its active workspace; omitting it is reserved for local/admin consumers.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaWsQuery {
+    pub workspace_id: Option<String>,
+}
 
 /// Upgrade HTTP to WebSocket for a terminal session.
 /// upgrade 是 GET，read_only_guard 放行；读写区分下沉到消息层：
@@ -26,6 +35,44 @@ pub async fn ws_upgrade(
     let read_only = effective_read_only(origin, &state.settings_service.get_settings().web_access);
     debug!(session_id, read_only, "WebSocket upgrade requested");
     ws.on_upgrade(move |socket| handle_ws(socket, session_id, state, read_only))
+}
+
+/// Upgrade HTTP to the authenticated Canvas media-job event stream.
+///
+/// This endpoint is deliberately separate from `/ws/{session_id}`: terminal
+/// output keeps its v1 framing while media changes use durable run snapshots.
+/// Clients should treat events as hints and refresh the REST run/node data.
+pub async fn media_ws_upgrade(
+    ws: WebSocketUpgrade,
+    Query(query): Query<MediaWsQuery>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_media_ws(socket, state, query.workspace_id))
+}
+
+async fn handle_media_ws(socket: WebSocket, state: AppState, workspace_id: Option<String>) {
+    let (mut ws_tx, mut ws_rx) = socket.split();
+    let mut event_rx = state.ws_emitter.subscribe_media(workspace_id.as_deref());
+
+    let send_task = tokio::spawn(async move {
+        while let Some(event) = event_rx.recv().await {
+            if ws_tx.send(Message::Text(event.into())).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // The media stream is server-to-client only.  Keep reading frames so a
+    // browser close promptly releases the subscriber; ping/pong handling is
+    // provided by axum's WebSocket implementation just like terminal WS.
+    while let Some(Ok(message)) = ws_rx.next().await {
+        if matches!(message, Message::Close(_)) {
+            break;
+        }
+    }
+    send_task.abort();
+    let _ = send_task.await;
+    state.ws_emitter.cleanup_media();
 }
 
 async fn handle_ws(socket: WebSocket, session_id: String, state: AppState, read_only: bool) {

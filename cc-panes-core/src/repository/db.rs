@@ -907,6 +907,151 @@ const MIGRATIONS: &[Migration] = &[
                         AND ts.terminal_pane_id IS NOT NULL);
         ",
     },
+    Migration {
+        version: 36,
+        description: "media canvas nodes, runs, assets and data edges",
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS media_nodes (
+                id TEXT PRIMARY KEY NOT NULL,
+                workspace_id TEXT NOT NULL,
+                layout_id TEXT NOT NULL,
+                kind TEXT NOT NULL CHECK (kind IN ('image', 'video')),
+                title TEXT NOT NULL,
+                default_operation TEXT NOT NULL,
+                provider_id TEXT,
+                model_id TEXT,
+                parameters_json TEXT NOT NULL DEFAULT '{}',
+                deleted_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_media_nodes_workspace_layout
+                ON media_nodes(workspace_id, layout_id, deleted_at, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS media_runs (
+                id TEXT PRIMARY KEY NOT NULL,
+                node_id TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued'
+                    CHECK (status IN ('queued', 'submitting', 'processing', 'downloading', 'canceling', 'succeeded', 'failed', 'canceled')),
+                attempt INTEGER NOT NULL DEFAULT 1 CHECK (attempt > 0),
+                client_request_id TEXT,
+                provider_id TEXT,
+                model_id TEXT,
+                request_json TEXT NOT NULL DEFAULT '{}',
+                remote_job_id TEXT,
+                progress INTEGER CHECK (progress IS NULL OR (progress >= 0 AND progress <= 100)),
+                error_code TEXT,
+                error_message TEXT,
+                lease_owner TEXT,
+                lease_expires_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (node_id) REFERENCES media_nodes(id) ON DELETE CASCADE,
+                UNIQUE (node_id, client_request_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_media_runs_node_created
+                ON media_runs(node_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_media_runs_status_updated
+                ON media_runs(status, updated_at);
+            CREATE INDEX IF NOT EXISTS idx_media_runs_provider_remote
+                ON media_runs(provider_id, remote_job_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_media_runs_client_request_id
+                ON media_runs(client_request_id)
+                WHERE client_request_id IS NOT NULL;
+
+            CREATE TABLE IF NOT EXISTS media_assets (
+                id TEXT PRIMARY KEY NOT NULL,
+                workspace_id TEXT NOT NULL,
+                run_id TEXT,
+                relative_path TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+                sha256 TEXT,
+                width INTEGER CHECK (width IS NULL OR width >= 0),
+                height INTEGER CHECK (height IS NULL OR height >= 0),
+                duration_ms INTEGER CHECK (duration_ms IS NULL OR duration_ms >= 0),
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (run_id) REFERENCES media_runs(id) ON DELETE SET NULL,
+                UNIQUE (workspace_id, relative_path)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_media_assets_workspace_created
+                ON media_assets(workspace_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_media_assets_run
+                ON media_assets(run_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS media_run_assets (
+                run_id TEXT NOT NULL,
+                asset_id TEXT NOT NULL,
+                role TEXT NOT NULL CHECK (role IN ('input', 'output')),
+                ordinal INTEGER NOT NULL DEFAULT 0 CHECK (ordinal >= 0),
+                PRIMARY KEY (run_id, asset_id, role),
+                FOREIGN KEY (run_id) REFERENCES media_runs(id) ON DELETE CASCADE,
+                FOREIGN KEY (asset_id) REFERENCES media_assets(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_media_run_assets_lookup
+                ON media_run_assets(run_id, role, ordinal);
+
+            CREATE TABLE IF NOT EXISTS media_edges (
+                id TEXT PRIMARY KEY NOT NULL,
+                workspace_id TEXT NOT NULL,
+                layout_id TEXT NOT NULL,
+                source_node_id TEXT NOT NULL,
+                source_port TEXT NOT NULL,
+                target_node_id TEXT NOT NULL,
+                target_port TEXT NOT NULL,
+                selector TEXT NOT NULL DEFAULT 'latest_succeeded'
+                    CHECK (selector IN ('latest_succeeded', 'specific_asset')),
+                asset_id TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (source_node_id) REFERENCES media_nodes(id) ON DELETE CASCADE,
+                FOREIGN KEY (target_node_id) REFERENCES media_nodes(id) ON DELETE CASCADE,
+                FOREIGN KEY (asset_id) REFERENCES media_assets(id) ON DELETE SET NULL,
+                UNIQUE (source_node_id, source_port, target_node_id, target_port)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_media_edges_workspace_layout
+                ON media_edges(workspace_id, layout_id, created_at);
+             CREATE INDEX IF NOT EXISTS idx_media_edges_target
+                ON media_edges(target_node_id, target_port);
+        ",
+    },
+    Migration {
+        version: 37,
+        description: "media execution fingerprints, cache index and queue priority",
+        up_sql: "
+            ALTER TABLE media_runs ADD COLUMN execution_fingerprint TEXT;
+            ALTER TABLE media_runs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE media_runs ADD COLUMN cache_hit INTEGER NOT NULL DEFAULT 0
+                CHECK (cache_hit IN (0, 1));
+            ALTER TABLE media_runs ADD COLUMN cache_policy TEXT NOT NULL DEFAULT 'read_write'
+                CHECK (cache_policy IN ('read_write', 'bypass', 'refresh'));
+
+            CREATE INDEX IF NOT EXISTS idx_media_runs_queue_priority
+                ON media_runs(status, priority DESC, created_at ASC, id ASC);
+            CREATE INDEX IF NOT EXISTS idx_media_runs_execution_fingerprint
+                ON media_runs(execution_fingerprint, status, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS media_cache_entries (
+                workspace_id TEXT NOT NULL,
+                execution_fingerprint TEXT NOT NULL,
+                source_run_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_hit_at TEXT,
+                hit_count INTEGER NOT NULL DEFAULT 0 CHECK (hit_count >= 0),
+                PRIMARY KEY (workspace_id, execution_fingerprint),
+                FOREIGN KEY (source_run_id) REFERENCES media_runs(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_media_cache_source_run
+                ON media_cache_entries(source_run_id);
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -1648,6 +1793,11 @@ mod tests {
             "terminal_task_queues",
             "terminal_task_queue_items",
             "terminal_task_queue_permission_decisions",
+            "media_nodes",
+            "media_runs",
+            "media_assets",
+            "media_run_assets",
+            "media_edges",
         ];
         for table in &tables {
             let exists: bool = conn
@@ -1659,6 +1809,46 @@ mod tests {
                 .unwrap_or(false);
             assert!(exists, "Table '{}' should exist", table);
         }
+    }
+
+    #[test]
+    fn migration_v37_media_schema_is_available_and_idempotent() {
+        let db = Database::new_in_memory().expect("should create db");
+        let conn = db.connection().expect("should get connection");
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
+            .expect("schema version");
+        assert_eq!(version, 37);
+
+        let run_columns = conn
+            .prepare("PRAGMA table_info(media_runs)")
+            .expect("run columns")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("query run columns")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect run columns");
+        for expected in [
+            "client_request_id",
+            "request_json",
+            "status",
+            "attempt",
+            "execution_fingerprint",
+            "priority",
+            "cache_policy",
+        ] {
+            assert!(run_columns.iter().any(|column| column == expected));
+        }
+
+        // A second migration pass must be a no-op and preserve the same version.
+        Database::run_migrations(&conn).expect("v37 should be idempotent");
+        let version_after: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
+            .expect("schema version after rerun");
+        assert_eq!(version_after, 37);
     }
 
     #[test]

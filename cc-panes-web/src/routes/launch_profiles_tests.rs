@@ -155,6 +155,9 @@ pub(crate) fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
         spec_service: Arc::new(SpecService::new(spec_repo, todo_service)),
         task_binding_service: Arc::new(TaskBindingService::new(task_binding_repo)),
         launch_history_service,
+        media_service: Arc::new(cc_panes_core::services::MediaService::new(Arc::new(
+            cc_panes_core::repository::MediaRepository::new(db.clone()),
+        ))),
         layout_snapshot_service: Arc::new(LayoutSnapshotService::new(db.clone())),
         launch_profile_service,
         quick_command_service: Arc::new(cc_panes_core::services::QuickCommandService::new(

@@ -24,11 +24,12 @@ use crate::models::{
     WorkspaceLaunchEnvironment, WslLaunchInfo,
 };
 use crate::services::{
-    BrowserOpenTabEvent, BrowserTabManager, ExternalSkillRegistry, LaunchHistoryService,
-    LaunchProfileService, MemoryService, NotificationRequest, NotificationService, ProjectService,
-    ProviderService, ScreenshotService, SessionRestoreService, SettingsService, SharedMcpService,
-    SkillService, SpecService, SshMachineService, TaskQueueService, TerminalBackendKind,
-    TerminalBackendState, TerminalService, TodoService, WorkspaceService,
+    apply_media_run_protocol, BrowserOpenTabEvent, BrowserTabManager, ExternalSkillRegistry,
+    LaunchHistoryService, LaunchProfileService, MediaProviderProfile, MediaService, MemoryService,
+    NotificationRequest, NotificationService, ProjectService, ProviderService, ScreenshotService,
+    SessionRestoreService, SettingsService, SharedMcpService, SkillService, SpecService,
+    SshMachineService, TaskQueueService, TerminalBackendKind, TerminalBackendState,
+    TerminalService, TodoService, WorkspaceService,
 };
 use crate::utils::{validate_command, validate_mcp_name, validate_path, AppPaths};
 use anyhow::Result;
@@ -50,9 +51,11 @@ use cc_panes_core::models::shared_mcp::{
     BridgeMode, SharedMcpConfig, SharedMcpServerConfig, SharedMcpServerStatus,
 };
 use cc_panes_core::models::{
-    CreateSessionRequest as CoreCreateSessionRequest, PortReservation, RunnerInstance,
-    RunnerInstanceStatus, RunnerProfile, RunnerStartResult, RunnerStartStatus,
-    TaskDispatchEnvelope, TaskDispatchPlan, TaskDispatchRequest,
+    CreateMediaNodeRequest, CreateMediaRunRequest,
+    CreateSessionRequest as CoreCreateSessionRequest, MediaKind, MediaOperation, MediaProviderRef,
+    MediaRun, PortReservation, RunnerInstance, RunnerInstanceStatus, RunnerProfile,
+    RunnerStartResult, RunnerStartStatus, TaskDispatchEnvelope, TaskDispatchPlan,
+    TaskDispatchRequest,
 };
 use cc_panes_core::services::mcp_config_service::McpServerConfig;
 use cc_panes_core::services::terminal_service::{
@@ -978,6 +981,7 @@ pub struct AppState {
     pub started_at: u64,
     pub local_terminal_service: Arc<TerminalService>,
     pub terminal_backend: Arc<TerminalBackendState>,
+    pub media_service: Arc<MediaService>,
     /// launch_task / runner 创建的会话也必须写出生凭证，否则 app 重启后被
     /// identity-mismatch 永久拦下（实测缺凭证会话里绝大多数是 launch_task 派发的 worker）。
     pub session_restore_service: Arc<SessionRestoreService>,
@@ -1856,6 +1860,7 @@ impl OrchestratorService {
         &self,
         local_terminal_service: Arc<TerminalService>,
         terminal_backend: Arc<TerminalBackendState>,
+        media_service: Arc<MediaService>,
         session_restore_service: Arc<SessionRestoreService>,
         provider_service: Arc<ProviderService>,
         launch_profile_service: Arc<LaunchProfileService>,
@@ -1922,6 +1927,7 @@ impl OrchestratorService {
             started_at: self.started_at,
             local_terminal_service,
             terminal_backend,
+            media_service,
             session_restore_service,
             provider_service,
             launch_profile_service,
@@ -2583,6 +2589,39 @@ struct McpGetTaskDispatchParams {
     /// TaskBinding ID returned by dispatch_task.
     #[serde(rename = "bindingId")]
     binding_id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpCreateMediaNodeParams {
+    /// Workspace identifier used by the active Canvas.
+    workspace_id: String,
+    /// Layout identifier where the media node should be projected.
+    layout_id: String,
+    /// `image` or `video`.
+    kind: String,
+    title: String,
+    /// Optional operation; defaults to the kind's text generation operation.
+    default_operation: Option<String>,
+    provider_id: Option<String>,
+    model_id: Option<String>,
+    parameters: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpCreateMediaRunParams {
+    node_id: String,
+    operation: String,
+    request: serde_json::Value,
+    client_request_id: Option<String>,
+    input_asset_ids: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct McpMediaRunIdParams {
+    run_id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -4538,6 +4577,66 @@ impl McpToolHandler {
     fn new(state: AppState) -> Self {
         let tool_router = Self::tool_router();
         Self { state, tool_router }
+    }
+
+    fn emit_media_job_changed(&self, run: &MediaRun) {
+        let workspace_id = self
+            .state
+            .media_service
+            .get_node(&run.node_id)
+            .ok()
+            .flatten()
+            .map(|node| node.workspace_id);
+        let _ = self.state.app_handle.emit(
+            "media-job-changed",
+            serde_json::json!({
+                "type": "media-job-changed",
+                "workspaceId": workspace_id,
+                "runId": run.id.clone(),
+                "nodeId": run.node_id.clone(),
+                "status": run.status,
+                "progress": run.progress,
+                "assetIds": run.output_asset_ids.clone(),
+                "errorCode": run.error_code.clone(),
+                "errorMessage": run.error_message.clone(),
+            }),
+        );
+    }
+
+    fn media_provider_config_fingerprint(
+        &self,
+        node_id: &str,
+        request: &serde_json::Value,
+    ) -> std::result::Result<Option<String>, String> {
+        let node = self
+            .state
+            .media_service
+            .get_node(node_id)
+            .map_err(|error| error.to_string())?;
+        let Some(node) = node else {
+            return Ok(None);
+        };
+        let Some(provider_ref) = node.provider_ref.as_ref() else {
+            return Ok(None);
+        };
+        let Some(provider) = self
+            .state
+            .provider_service
+            .get_provider(&provider_ref.provider_id)
+        else {
+            // Preserve support for adapters registered outside ProviderService.
+            return Ok(None);
+        };
+        let profile = apply_media_run_protocol(
+            MediaProviderProfile::from_provider(&provider).map_err(|error| error.to_string())?,
+            &node.parameters,
+            request,
+        )
+        .map_err(|error| error.to_string())?;
+        profile
+            .execution_config_fingerprint()
+            .map(Some)
+            .map_err(|error| error.to_string())
     }
 
     fn ccchan_say_impl(
@@ -8425,6 +8524,129 @@ impl McpToolHandler {
             .events(&owner_session_id, &params.panel_id, params.after_seq)
         {
             Ok(events) => serde_json::json!({ "events": events }).to_string(),
+            Err(error) => format!("错误: {}", error),
+        }
+    }
+
+    /// 在当前 Canvas 布局创建一个持久化媒体节点。
+    #[tool]
+    async fn create_media_node(
+        &self,
+        Parameters(params): Parameters<McpCreateMediaNodeParams>,
+    ) -> String {
+        let kind = match params.kind.parse::<MediaKind>() {
+            Ok(kind) => kind,
+            Err(error) => return format!("错误: {}", error),
+        };
+        let operation = match params
+            .default_operation
+            .as_deref()
+            .map(str::parse::<MediaOperation>)
+            .transpose()
+        {
+            Ok(operation) => operation,
+            Err(error) => return format!("错误: {}", error),
+        };
+        let provider_ref = match (params.provider_id, params.model_id) {
+            (Some(provider_id), Some(model_id)) => Some(MediaProviderRef {
+                provider_id,
+                model_id,
+            }),
+            (None, None) => None,
+            _ => return "错误: providerId 和 modelId 必须同时提供".to_string(),
+        };
+        let request = CreateMediaNodeRequest {
+            workspace_id: params.workspace_id,
+            layout_id: params.layout_id,
+            kind,
+            title: params.title,
+            default_operation: operation,
+            provider_ref,
+            parameters: params.parameters,
+        };
+        match self.state.media_service.create_node(request) {
+            Ok(node) => serde_json::to_string_pretty(&node)
+                .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error)),
+            Err(error) => format!("错误: {}", error),
+        }
+    }
+
+    /// 为媒体节点创建一次幂等生成运行。实际 Provider 工作由后台 worker 执行。
+    #[tool]
+    async fn create_media_run(
+        &self,
+        Parameters(params): Parameters<McpCreateMediaRunParams>,
+    ) -> String {
+        let operation = match params.operation.parse::<MediaOperation>() {
+            Ok(operation) => operation,
+            Err(error) => return format!("错误: {}", error),
+        };
+        let request = CreateMediaRunRequest {
+            node_id: params.node_id,
+            operation,
+            request: params.request,
+            client_request_id: params.client_request_id,
+            input_asset_ids: params.input_asset_ids.unwrap_or_default(),
+            priority: None,
+            cache_policy: None,
+        };
+        let provider_config_fingerprint =
+            match self.media_provider_config_fingerprint(&request.node_id, &request.request) {
+                Ok(fingerprint) => fingerprint,
+                Err(error) => return format!("错误: {}", error),
+            };
+        match self
+            .state
+            .media_service
+            .create_run_with_provider_config_fingerprint(
+                request,
+                provider_config_fingerprint.as_deref(),
+            ) {
+            Ok(run) => {
+                self.emit_media_job_changed(&run);
+                serde_json::to_string_pretty(&run)
+                    .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error))
+            }
+            Err(error) => format!("错误: {}", error),
+        }
+    }
+
+    /// 查询媒体运行的当前状态和输出资产。
+    #[tool]
+    async fn get_media_run(&self, Parameters(params): Parameters<McpMediaRunIdParams>) -> String {
+        match self.state.media_service.get_run(&params.run_id) {
+            Ok(Some(run)) => serde_json::to_string_pretty(&run)
+                .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error)),
+            Ok(None) => "错误: 媒体运行不存在".to_string(),
+            Err(error) => format!("错误: {}", error),
+        }
+    }
+
+    /// 请求取消媒体运行；Provider 支持取消时 worker 会同步转发取消请求。
+    #[tool]
+    async fn cancel_media_run(
+        &self,
+        Parameters(params): Parameters<McpMediaRunIdParams>,
+    ) -> String {
+        match self.state.media_service.cancel_run(&params.run_id) {
+            Ok(run) => {
+                self.emit_media_job_changed(&run);
+                serde_json::to_string_pretty(&run)
+                    .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error))
+            }
+            Err(error) => format!("错误: {}", error),
+        }
+    }
+
+    /// 对失败或取消的媒体运行创建下一次尝试。
+    #[tool]
+    async fn retry_media_run(&self, Parameters(params): Parameters<McpMediaRunIdParams>) -> String {
+        match self.state.media_service.retry_run(&params.run_id) {
+            Ok(run) => {
+                self.emit_media_job_changed(&run);
+                serde_json::to_string_pretty(&run)
+                    .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error))
+            }
             Err(error) => format!("错误: {}", error),
         }
     }

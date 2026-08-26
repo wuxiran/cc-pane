@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MainViewSwitcher from "./MainViewSwitcher";
 import type { AppViewMode, ActivityView } from "@/stores/useActivityBarStore";
@@ -52,6 +52,21 @@ vi.mock("@/components/layoutbar/LayoutTopBar", () => ({
 vi.mock("@/components/layout/MainWallpaperLayer", () => ({
   default: () => <div data-testid="main-wallpaper-layer" />,
 }));
+vi.mock("@/components/media/MediaStudio", () => ({
+  default: ({
+    kind,
+    onKindChange,
+  }: {
+    kind: "image" | "video";
+    onKindChange?: (kind: "image" | "video") => void;
+  }) => (
+    <div data-testid="media-studio-mock" data-media-kind={kind}>
+      <button type="button" onClick={() => onKindChange?.(kind === "image" ? "video" : "image")}>
+        Switch media kind
+      </button>
+    </div>
+  ),
+}));
 
 const activityState = vi.hoisted(() => ({
   sidebarVisible: true,
@@ -59,6 +74,9 @@ const activityState = vi.hoisted(() => ({
   appViewMode: "panes" as AppViewMode,
   orchestrationOverlayOpen: false,
   closeOrchestrationOverlay: () => {},
+  setAppViewMode: (mode: AppViewMode) => {
+    activityState.appViewMode = mode;
+  },
 }));
 
 const layoutUiState = vi.hoisted(() => ({
@@ -165,6 +183,22 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     setMode("providers");
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
     expect(screen.getByTestId("providers-panel")).toBeVisible();
+  });
+
+  it("imageGen 与 videoGen 共用一个媒体工作区并可在其中切换类型", async () => {
+    setMode("imageGen");
+    const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+
+    expect(screen.getByTestId("media-workspace-shell")).toBeVisible();
+    await waitFor(() => expect(screen.getAllByTestId("media-studio-mock")).toHaveLength(1));
+    expect(screen.getByTestId("media-studio-mock")).toHaveAttribute("data-media-kind", "image");
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch media kind" }));
+    expect(activityState.appViewMode).toBe("videoGen");
+
+    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    expect(screen.getAllByTestId("media-studio-mock")).toHaveLength(1);
+    expect(screen.getByTestId("media-studio-mock")).toHaveAttribute("data-media-kind", "video");
   });
 
   it("files → Sidebar + FileEditorPanel 组合", () => {

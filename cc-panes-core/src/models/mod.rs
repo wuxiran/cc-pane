@@ -7,6 +7,7 @@ pub mod git;
 mod history;
 pub mod launch_profile;
 pub mod layout_snapshot;
+pub mod media;
 pub mod orchestrator_settings;
 pub mod plan;
 pub mod process_info;
@@ -66,6 +67,14 @@ pub use launch_profile::{
     ResolvedSkill, SharedMcpUrls, SkillCompatibility,
 };
 pub use layout_snapshot::{LayoutSnapshot, SaveLayoutSnapshotRequest};
+pub use media::{
+    CreateMediaAssetRequest, CreateMediaEdgeRequest, CreateMediaNodeRequest, CreateMediaRunRequest,
+    MediaAsset, MediaCachePolicy, MediaEdge, MediaEdgeSelector, MediaJobRequest, MediaKind,
+    MediaNode, MediaOperation, MediaProviderError, MediaProviderOutput, MediaProviderPoll,
+    MediaProviderPollState, MediaProviderRef, MediaProviderRequest, MediaProviderSubmission,
+    MediaQueueSnapshot, MediaResourceSnapshot, MediaRun, MediaRunStatus, MediaSchedulerSnapshot,
+    ReplayMediaRunRequest, StageMediaInputRequest, UpdateMediaNodeRequest, UpdateMediaRunRequest,
+};
 pub use process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats};
 pub use project::Project;
 pub use quick_command::{

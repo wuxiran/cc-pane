@@ -28,13 +28,49 @@ export { isTauriRuntime, isWebRuntime } from "@/services/runtime";
  * Tauri IPC 返回的 AppError 结构为 `{ message: "..." }`，
  * 直接 `String(e)` 会得到 `[object Object]`。
  */
-export function getErrorMessage(e: unknown): string {
-  if (typeof e === "string") return e;
-  if (e instanceof Error) return e.message;
-  if (typeof e === "object" && e !== null && "message" in e) {
-    return String((e as { message: unknown }).message);
+function parseSerializedMessage(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{")) return null;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (typeof parsed === "object" && parsed !== null && "message" in parsed) {
+      const message = (parsed as { message: unknown }).message;
+      return typeof message === "string" ? message : null;
+    }
+  } catch {
+    // Keep the original response when it is not JSON.
   }
-  return String(e);
+  return null;
+}
+
+function formatUnknownError(value: unknown, seen: Set<object>): string {
+  if (typeof value === "string") return parseSerializedMessage(value) ?? value;
+  if (value instanceof Error) return parseSerializedMessage(value.message) ?? value.message;
+  if (typeof value === "object" && value !== null) {
+    if (seen.has(value)) return "Unknown error";
+    seen.add(value);
+    const record = value as Record<string, unknown>;
+    // Tauri and HTTP bridges use slightly different envelopes. Prefer a
+    // nested message/detail over rendering the object as "[object Object]".
+    for (const key of ["message", "error", "detail"]) {
+      if (!(key in record) || record[key] === value) continue;
+      const nested = formatUnknownError(record[key], seen);
+      if (nested && nested !== "Unknown error" && nested !== "[object Object]") return nested;
+    }
+    try {
+      const serialized = JSON.stringify(value);
+      if (serialized && serialized !== "{}") return serialized;
+    } catch {
+      // Circular error objects fall through to the stable fallback below.
+    }
+    return "Unknown error";
+  }
+  const fallback = String(value);
+  return fallback === "[object Object]" ? "Unknown error" : fallback;
+}
+
+export function getErrorMessage(e: unknown): string {
+  return formatUnknownError(e, new Set<object>());
 }
 
 /** Tauri IPC 桥接是否已注入（在 Tauri webview 内运行时为 true） */

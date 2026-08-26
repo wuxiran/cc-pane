@@ -419,6 +419,34 @@ impl WorkspaceService {
         self.read_workspace_json(&json_path)
     }
 
+    /// Resolve a workspace by its stable id. Media and other durable
+    /// subsystems use ids rather than display names so a rename cannot detach
+    /// persisted files from their owner.
+    pub fn find_workspace_by_id(&self, workspace_id: &str) -> Result<Option<Workspace>, String> {
+        Ok(self
+            .list_workspaces()?
+            .into_iter()
+            .find(|workspace| workspace.id == workspace_id))
+    }
+
+    /// Resolve a registered project by the stable workspace/project pair.
+    /// Remote projects are returned as metadata too; callers decide whether a
+    /// local filesystem operation is possible for that project.
+    pub fn find_project(
+        &self,
+        workspace_id: &str,
+        project_id: &str,
+    ) -> Result<Option<WorkspaceProject>, String> {
+        Ok(self
+            .find_workspace_by_id(workspace_id)?
+            .and_then(|workspace| {
+                workspace
+                    .projects
+                    .into_iter()
+                    .find(|project| project.id == project_id)
+            }))
+    }
+
     /// 重命名工作空间
     pub fn rename_workspace(&self, old_name: &str, new_name: &str) -> Result<(), String> {
         let old_dir = self.workspace_dir(old_name);

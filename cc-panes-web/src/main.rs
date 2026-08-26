@@ -14,19 +14,20 @@ use cc_panes_core::{
         SpecRepository, TaskBindingRepository, TodoRepository, UsageStatsRepository,
     },
     services::{
-        DaemonTerminalBackend, FileSystemService, HistoryService, InProcessTerminalBackend,
-        JournalService, LaunchHistoryService, LaunchProfileService, LayoutSnapshotService,
-        McpConfigService, MemoryService, PlanService, ProcessMonitorService,
-        ProjectCliHooksService, ProjectService, ProviderService, QuickCommandService,
-        RunnerService, SessionIndexService, SessionRestoreService, SettingsService,
-        SharedMcpService, SkillService, SpecService, SshCredentialService, SshMachineService,
-        TaskBindingService, TerminalBackend, TerminalDaemonClient, TerminalService, TodoService,
-        UsageStatsService, UserSkillService, WorkspaceService, WorktreeService,
+        registry_from_providers, ComfyEventStream, DaemonTerminalBackend, FileSystemService,
+        HistoryService, InProcessTerminalBackend, JournalService, LaunchHistoryService,
+        LaunchProfileService, LayoutSnapshotService, McpConfigService, MediaJobWorker,
+        MemoryService, PlanService, ProcessMonitorService, ProjectCliHooksService, ProjectService,
+        ProviderService, QuickCommandService, RunnerService, SessionIndexService,
+        SessionRestoreService, SettingsService, SharedMcpService, SkillService, SpecService,
+        SshCredentialService, SshMachineService, TaskBindingService, TerminalBackend,
+        TerminalDaemonClient, TerminalService, TodoService, UsageStatsService, UserSkillService,
+        WorkspaceService, WorktreeService,
     },
     utils::{simplify_path, AppPaths, APP_DIR_NAME},
 };
 use clap::Parser;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::state::{AppState, TerminalOutputMode};
 use crate::ws_emitter::WsEmitter;
@@ -266,6 +267,13 @@ async fn main() -> anyhow::Result<()> {
     let spec_service = Arc::new(SpecService::new(spec_repo, todo_service.clone()));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
     let launch_history_service = Arc::new(LaunchHistoryService::new(history_repo));
+    let media_service = Arc::new(cc_panes_core::services::MediaService::with_media_root(
+        Arc::new(cc_panes_core::repository::MediaRepository::new(
+            database.clone(),
+        )),
+        app_paths.media_dir(),
+    ));
+    media_service.set_workspace_service(workspace_service.clone());
     let layout_snapshot_service = Arc::new(LayoutSnapshotService::new(database.clone()));
     let session_restore_service = Arc::new(SessionRestoreService::new(
         database.clone(),
@@ -346,17 +354,28 @@ async fn main() -> anyhow::Result<()> {
     // 覆盖本进程来不及响应信号的异常路径。两者是互补而非重复。
     let shutdown_backend = backend_state.backend.clone();
 
+    let media_worker_service = media_service.clone();
+    let (media_worker_registry, skipped_media_providers) =
+        registry_from_providers(provider_service.list_providers());
+    for diagnostic in skipped_media_providers {
+        warn!(diagnostic, "[media] provider was not registered");
+    }
+
+    // Keep a handle for the media event stream after the state struct moves
+    // its own clone into the router.
+    let media_event_emitter = ws_emitter.clone();
     let state = AppState {
         terminal_backend: backend_state.backend,
         workspace_service,
         project_service,
-        provider_service,
+        provider_service: provider_service.clone(),
         settings_service,
         filesystem_service,
         todo_service,
         spec_service,
         task_binding_service,
         launch_history_service,
+        media_service,
         layout_snapshot_service,
         launch_profile_service,
         quick_command_service,
@@ -378,13 +397,125 @@ async fn main() -> anyhow::Result<()> {
         user_skill_service,
         usage_stats_service,
         session_index_service,
-        ws_emitter,
+        ws_emitter: ws_emitter.clone(),
         web_auth: Arc::new(web_auth::WebAuthStore::default()),
         default_cwd: cwd_str.clone(),
         output_mode: backend_state.output_mode,
     };
 
     let app = routes::build_router(state);
+
+    // Keep media execution alive independently of HTTP request handling. The
+    // Canvas polls the same durable run records, so a browser reconnect does
+    // not lose a queued or in-flight generation.
+    let media_event_service = media_worker_service.clone();
+    let media_worker = Arc::new(
+        MediaJobWorker::new(
+            media_worker_service,
+            media_worker_registry,
+            format!("web-{}", std::process::id()),
+        )
+        .with_provider_service(provider_service.clone()),
+    );
+    let media_event_emitter = media_event_emitter.clone();
+    tokio::spawn(async move {
+        let mut poll_ticker = tokio::time::interval(std::time::Duration::from_secs(2));
+        let mut event_ticker = tokio::time::interval(std::time::Duration::from_millis(100));
+        let mut comfy_streams: std::collections::HashMap<String, ComfyEventStream> =
+            std::collections::HashMap::new();
+        loop {
+            tokio::select! {
+                _ = event_ticker.tick() => {
+                    for (provider_id, adapter) in media_worker.comfy_adapters() {
+                        if !comfy_streams.contains_key(&provider_id) {
+                            match tokio::time::timeout(
+                                std::time::Duration::from_millis(500),
+                                adapter.connect_events(),
+                            )
+                            .await
+                            {
+                                Ok(Ok(stream)) => {
+                                    comfy_streams.insert(provider_id.clone(), stream);
+                                }
+                                Ok(Err(error)) => {
+                                    warn!(provider_id, error = %error, "[media] ComfyUI websocket unavailable; history polling remains active");
+                                }
+                                Err(_) => {}
+                            }
+                        }
+                        let Some(stream) = comfy_streams.get_mut(&provider_id) else {
+                            continue;
+                        };
+                        match tokio::time::timeout(
+                            std::time::Duration::from_millis(20),
+                            stream.next_event(),
+                        )
+                        .await
+                        {
+                            Ok(Ok(Some(event))) => {
+                                match media_worker.apply_comfy_event(&provider_id, &event) {
+                                    Ok(Some(run)) => {
+                                        let workspace_id = media_event_service
+                                            .get_node(&run.node_id)
+                                            .ok()
+                                            .flatten()
+                                            .map(|node| node.workspace_id);
+                                        media_event_emitter.publish_media_job_changed(serde_json::json!({
+                                            "type": "media-job-changed",
+                                            "workspaceId": workspace_id,
+                                            "runId": run.id.clone(),
+                                            "nodeId": run.node_id.clone(),
+                                            "status": run.status,
+                                            "progress": run.progress,
+                                            "assetIds": run.output_asset_ids.clone(),
+                                            "errorCode": run.error_code.clone(),
+                                            "errorMessage": run.error_message.clone(),
+                                        }));
+                                    }
+                                    Ok(None) => {}
+                                    Err(error) => warn!(provider_id, error = %error, "[media] failed to apply ComfyUI event"),
+                                }
+                            }
+                            Ok(Ok(None)) | Ok(Err(_)) => {
+                                comfy_streams.remove(&provider_id);
+                            }
+                            Err(_) => {}
+                        }
+                    }
+                }
+                _ = poll_ticker.tick() => {
+                    match media_worker.run_batch().await {
+                        Ok(runs) => {
+                            for run in runs {
+                            let workspace_id = media_event_service
+                                .get_node(&run.node_id)
+                                .ok()
+                                .flatten()
+                                .map(|node| node.workspace_id);
+                            media_event_emitter.publish_media_job_changed(serde_json::json!({
+                                "type": "media-job-changed",
+                                "workspaceId": workspace_id,
+                                "runId": run.id.clone(),
+                                "nodeId": run.node_id.clone(),
+                                "status": run.status,
+                                "progress": run.progress,
+                                "assetIds": run.output_asset_ids.clone(),
+                                "errorCode": run.error_code.clone(),
+                                "errorMessage": run.error_message.clone(),
+                            }));
+                            info!(
+                                run_id = %run.id,
+                                status = %run.status,
+                                "[media] worker completed an iteration"
+                            );
+                            }
+                        }
+                        Err(error) => warn!(error = %error, "[media] worker iteration failed"),
+                    }
+                }
+            }
+        }
+    });
 
     let host = resolve_bind_host(args.host, &loaded_settings.web_access)?;
     let addr: SocketAddr = format!("{host}:{}", args.port).parse()?;

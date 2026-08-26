@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultCanvasPositions, edgePath, rectToCanvasPosition, visibleEdges } from "./canvasGeometry";
+import { canvasNodeMinimumSize, defaultCanvasPositions, edgePath, rectToCanvasPosition, visibleEdges } from "./canvasGeometry";
 import type { CanvasNodeProjection } from "@/types/canvas";
 
 describe("canvasGeometry", () => {
@@ -64,5 +64,22 @@ describe("canvasGeometry", () => {
       positions["worker-2"].x !== positions["worker-1"].x
         || positions["worker-2"].y !== positions["worker-1"].y,
     ).toBe(true);
+  });
+
+  it("keeps media cards inside a narrow viewport while preserving a readable minimum", () => {
+    const media: CanvasNodeProjection = {
+      id: "media:narrow",
+      label: "Preview",
+      kind: "media",
+      status: "running",
+      media: { mediaKind: "video", runStatus: "processing" },
+    };
+    const positions = defaultCanvasPositions([media], 360, 240);
+    const minimum = canvasNodeMinimumSize(media, 360, 240, new Set([media.id]));
+
+    expect(positions[media.id].width).toBeLessThanOrEqual(328);
+    expect(positions[media.id].height).toBeLessThanOrEqual(208);
+    expect(minimum.width).toBeLessThanOrEqual(328);
+    expect(minimum.height).toBeLessThanOrEqual(208);
   });
 });

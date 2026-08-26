@@ -56,7 +56,7 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
               workspaceName={selectedWorkspace()?.alias || selectedWorkspace()?.name}
             />
             {/* 主区域：ActivityBar | Sidebar/Todo | 主内容区 */}
-            <div className="flex-1 flex overflow-hidden relative z-[1]">
+            <div className="min-w-0 flex-1 flex overflow-hidden relative z-[1]">
               <ActivityBar />
               <MainViewSwitcher onOpenTerminal={onOpenTerminal} />
               <RightDock onOpenTerminal={onOpenTerminal} />

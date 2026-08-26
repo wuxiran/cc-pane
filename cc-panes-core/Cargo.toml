@@ -32,7 +32,10 @@ strip-ansi-escapes = "0.2"
 trash = "5"
 portable-pty = "0.8"
 parking_lot = "0.12"
+reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "rustls"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "process", "io-util"] }
+futures-util = "0.3"
+tokio-tungstenite = "0.27"
 rand = "0.8"
 sysinfo = "0.33"
 netstat2 = "0.11"
