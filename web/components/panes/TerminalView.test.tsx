@@ -1227,6 +1227,30 @@ describe("TerminalView", () => {
     }
   });
 
+  // 回归守卫（docs：滚轮→方向键的自造转换已删除）。
+  //
+  // xterm 6.0 自己就实现了 alternate-scroll，且比我们当初那段做得对：它按
+  // `!n.wheel`（应用未请求滚轮鼠标事件）门控，并按 DECCKM 决定发 `ESC O A`
+  // 还是 `ESC [ A`。我们那段无条件转、恒发 `ESC [ A`，还和 xterm 的监听挂在
+  // 同一个 element 上（`stopPropagation` 挡不住同元素监听器），于是应用每次
+  // 滚轮都收到重复输入——开了鼠标上报的 TUI（grok/opencode）收到「真实鼠标
+  // 事件 + 多余箭头」，没开的（codex/vim）收到「xterm 的箭头 + 我们的箭头」。
+  //
+  // 这条锁住「alt-buffer 下滚轮不再由我们写入任何东西」，防止日后有人再补回来。
+  it("never writes synthetic arrow keys on wheel in the alternate buffer", async () => {
+    renderTerminalView({ cliTool: "codex" });
+
+    const term = await lastTerm();
+    await waitFor(() => expect(term.element).not.toBeNull());
+    term.buffer.active.type = "alternate";
+    writeToSession.mockClear();
+
+    fireEvent.wheel(term.element!, { deltaY: 120 });
+    fireEvent.wheel(term.element!, { deltaY: -120 });
+
+    expect(writeToSession).not.toHaveBeenCalled();
+  });
+
   it("keeps terminal text readable on contrasting TUI backgrounds", async () => {
     renderTerminalView();
 

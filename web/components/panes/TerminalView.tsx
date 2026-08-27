@@ -265,7 +265,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const outputUnsubRef = useRef<(() => void) | null>(null);
     const exitUnsubRef = useRef<(() => void) | null>(null);
     const desyncUnsubRef = useRef<(() => void) | null>(null);
-    const wheelHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
     const pasteHandlerRef = useRef<((e: ClipboardEvent) => void) | null>(null);
     // 右键菜单"粘贴"入口：init 闭包里把 pasteTerminalPayload 暴露到这里。
     const pasteRequestRef = useRef<(() => void) | null>(null);
@@ -341,7 +340,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const debugInstanceIdRef = useRef(`term-${Math.random().toString(36).slice(2, 8)}`);
     const trackedBufferTypeRef = useRef<"unknown" | "normal" | "alternate">("unknown");
     const focusReportModeRef = useRef(false);
-    const lastWheelDecisionRef = useRef<string | null>(null);
     const lastDragFitAtRef = useRef(0);
     const layoutActiveRef = useRef(props.layoutActive ?? true);
     const hiddenWriteBufferRef = useRef<TerminalHiddenWriteBuffer | null>(null);
@@ -428,7 +426,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       if (trackedBufferTypeRef.current === next) return;
       const previous = trackedBufferTypeRef.current;
       trackedBufferTypeRef.current = next;
-      lastWheelDecisionRef.current = null;
       debugLog("buffer.changed", {
         reason,
         previousBuffer: previous,
@@ -758,12 +755,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       domInputFallbackRef.current = null;
       imeGuardRef.current?.dispose();
       imeGuardRef.current = null;
-
-      // Remove the wheel handler before disposing xterm.
-      if (wheelHandlerRef.current && terminalInstanceRef.current?.element) {
-        terminalInstanceRef.current.element.removeEventListener('wheel', wheelHandlerRef.current);
-        wheelHandlerRef.current = null;
-      }
       if (pasteHandlerRef.current && terminalInstanceRef.current?.textarea) {
         terminalInstanceRef.current.textarea.removeEventListener('paste', pasteHandlerRef.current, true);
         pasteHandlerRef.current = null;
@@ -786,7 +777,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       writeFlowControlRef.current = null;
       trackedBufferTypeRef.current = "unknown";
       focusReportModeRef.current = false;
-      lastWheelDecisionRef.current = null;
 
       rendererToDispose?.dispose();
       if (fitToDispose) {
@@ -1499,40 +1489,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           });
         });
         observer.observe(terminalRef.current);
-
-        // Convert wheel events into arrow keys while the alternate buffer is
-        // active (native-mode TUIs: vim, and since docs/73 §2.x also codex/opencode).
-        // Strip-mode CLIs (claude) keep output in the normal buffer so the wheel
-        // scrolls history instead of selecting old prompts.
-        const wheelHandler = (e: WheelEvent) => {
-          const bufferType = term.buffer.active.type;
-          const decision = keepCliOutputInNormalBuffer
-            ? "agent-normal-scroll"
-            : bufferType === "alternate"
-              ? "alternate-handle"
-              : "normal-bypass";
-          if (lastWheelDecisionRef.current !== decision) {
-            lastWheelDecisionRef.current = decision;
-            debugLog("wheel.mode", {
-              bufferType,
-              decision,
-              deltaMode: e.deltaMode,
-            });
-          }
-          if (keepCliOutputInNormalBuffer) return;
-          if (bufferType !== 'alternate') return;
-          e.preventDefault();
-          e.stopPropagation();
-          const lines = Math.max(1, Math.round(Math.abs(e.deltaY) / 40));
-          const arrow = e.deltaY < 0 ? '\x1b[A' : '\x1b[B';
-          if (currentSessionIdRef.current && !readOnlyRef.current) {
-            void terminalService
-              .write(currentSessionIdRef.current, arrow.repeat(lines), { source: "system" })
-              .catch((error) => console.warn("[TerminalView] wheel input failed:", error));
-          }
-        };
-        term.element?.addEventListener('wheel', wheelHandler, { passive: false });
-        wheelHandlerRef.current = wheelHandler;
 
         resizeObserverRef.current = observer;
         syncTrackedBufferType("xterm.initialized");
