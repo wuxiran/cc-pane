@@ -45,6 +45,11 @@ const MockXterm = vi.hoisted(() => class MockXterm {
     },
   };
   unicode = { activeVersion: "6" };
+  modes = { mouseTrackingMode: "none" as "none" | "x10" | "vt200" | "drag" | "any" };
+  customWheelEventHandler: ((event: WheelEvent) => boolean) | null = null;
+  attachCustomWheelEventHandler = (handler: (event: WheelEvent) => boolean) => {
+    this.customWheelEventHandler = handler;
+  };
   parser = {
     registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })),
     registerOscHandler: vi.fn((

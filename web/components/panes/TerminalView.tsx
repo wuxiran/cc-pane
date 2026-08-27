@@ -83,6 +83,7 @@ import { attachTerminalDomInputFallback } from "./terminalDomInputFallback";
 import { attachTerminalImeGuard, isLinuxWebKitImeEnvironment } from "./terminalImeGuard";
 import { isTerminalCopyShortcut, isTerminalPasteShortcut } from "./terminalKeyboard";
 import { isXtermFocusReportInput } from "./terminalFocusReport";
+import { attachTerminalTuiWheelMultiplier } from "./terminalTuiWheelMultiplier";
 import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
 import { resolveCliTool, resolveLaunchId, resolveRuntimeKind } from "./terminalLaunchIdentity";
 import { notifySessionClaimed } from "./terminalSessionNotices";
@@ -964,6 +965,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         term.loadAddon(serialize);
         serializeAddonRef.current = serialize;
         term.open(terminalRef.current);
+        // 给开了鼠标上报的全屏 TUI 补足滚轮距离（xterm 会抑制小像素增量）。
+        // 走官方钩子而不是自己挂监听——理由见 terminalTuiWheelMultiplier.ts。
+        attachTerminalTuiWheelMultiplier(term);
         applyTerminalElementTheme(term, xtermTheme);
         focusReportModeRef.current = false;
         writeFlowControlRef.current = createTerminalWriteFlowControl(term);
