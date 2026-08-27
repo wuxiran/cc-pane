@@ -59,16 +59,33 @@ describe("ActivityBar", () => {
   it("渲染主视图图标集合（含 Home 与 设置）以及 LayoutBar 桩", () => {
     const { container } = renderBar();
     expect(screen.getByTestId("layout-bar-stub")).toBeInTheDocument();
-    // Home + explorer/ssh + todo + 添加模块 + settings = 6 按钮
+    // Home + explorer + media + ssh/todo + 添加模块 + settings = 7 按钮
     //（files 与 sessions 图标已移除：Explorer 侧栏自带 文件 / 最近启动 tab）
-    expect(container.querySelectorAll("button")).toHaveLength(6);
+    expect(container.querySelectorAll("button")).toHaveLength(7);
+  });
+
+  it("左栏只有一个媒体入口，点击后进入共用媒体工作区", async () => {
+    const user = userEvent.setup();
+    const { container } = renderBar();
+    const mediaButton = screen.getByRole("button", { name: "媒体生成" });
+
+    await user.click(mediaButton);
+    expect(useActivityBarStore.getState().appViewMode).toBe("imageGen");
+    expect(mediaButton).toHaveAttribute("aria-label", "媒体生成");
+
+    expect(screen.queryByRole("button", { name: "生图" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "生视频" })).not.toBeInTheDocument();
+    await user.click(mediaButton);
+    expect(useActivityBarStore.getState().appViewMode).toBe("panes");
+    expect(container.querySelectorAll("button")).toHaveLength(7);
   });
 
   it("不再有 sessions 竖排入口：explorer 之后紧跟 ssh（最近启动已迁至 Explorer 顶部 tab）", async () => {
     const user = userEvent.setup();
     const { container } = renderBar();
-    // 索引 2 原为 sessions，现应为 ssh
-    await user.click(container.querySelectorAll("button")[2]);
+    const sshButton = container.querySelector('[data-module-id="ssh"] button');
+    expect(sshButton).not.toBeNull();
+    await user.click(sshButton!);
     expect(useActivityBarStore.getState().activeView).toBe("ssh");
   });
 

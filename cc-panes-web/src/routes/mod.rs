@@ -5,6 +5,7 @@ pub mod journal;
 pub mod launch_profiles;
 pub mod local_history;
 pub mod mcp;
+pub mod media;
 pub mod memory;
 pub mod plans;
 pub mod process;
@@ -30,7 +31,7 @@ use axum::{
 use tower_http::cors::CorsLayer;
 
 use crate::state::AppState;
-use crate::ws_handler::ws_upgrade;
+use crate::ws_handler::{media_ws_upgrade, ws_upgrade};
 
 /// Build the axum router with all routes.
 pub fn build_router(state: AppState) -> Router {
@@ -67,6 +68,62 @@ pub fn build_router(state: AppState) -> Router {
             post(terminal::release_session),
         )
         .route("/api/sessions/{id}", delete(terminal::kill_session))
+        .route("/api/media/nodes", post(media::create_node))
+        .route("/api/media/nodes", get(media::list_nodes))
+        .route(
+            "/api/media/comfy/object-info",
+            get(media::get_comfy_object_info),
+        )
+        .route(
+            "/api/media/comfy/system-stats",
+            get(media::get_comfy_system_stats),
+        )
+        .route("/api/media/comfy/free", post(media::free_comfy_memory))
+        .route(
+            "/api/media/capabilities",
+            get(media::get_provider_capabilities),
+        )
+        .route("/api/media/nodes/{node_id}", get(media::get_node))
+        .route("/api/media/nodes/{node_id}", put(media::update_node))
+        .route("/api/media/nodes/{node_id}", delete(media::delete_node))
+        .route("/api/media/runs", post(media::create_run))
+        .route("/api/media/runs", get(media::list_runs))
+        .route(
+            "/api/media/runs/recoverable",
+            get(media::list_recoverable_runs),
+        )
+        .route("/api/media/queue", get(media::get_queue_snapshot))
+        .route("/api/media/runs/{run_id}", get(media::get_run))
+        .route("/api/media/runs/{run_id}/cancel", post(media::cancel_run))
+        .route("/api/media/runs/{run_id}/retry", post(media::retry_run))
+        .route("/api/media/runs/{run_id}/replay", post(media::replay_run))
+        .route(
+            "/api/media/runs/{run_id}/priority",
+            post(media::set_priority),
+        )
+        .route(
+            "/api/media/runs/{run_id}/transition",
+            post(media::transition_run),
+        )
+        .route("/api/media/assets", post(media::create_asset))
+        .route(
+            "/api/media/assets/stage",
+            post(media::stage_input)
+                // Base64 expands the selected file by roughly one third;
+                // leave room for a 64MB input while keeping the limit local to
+                // this endpoint rather than raising every API body's limit.
+                .layer(axum::extract::DefaultBodyLimit::max(96 * 1024 * 1024)),
+        )
+        .route("/api/media/assets", get(media::list_assets))
+        .route("/api/media/assets/{asset_id}", get(media::get_asset))
+        .route(
+            "/api/media/assets/{asset_id}/content",
+            get(media::asset_content),
+        )
+        .route("/api/media/edges", post(media::create_edge))
+        .route("/api/media/edges", get(media::list_edges))
+        .route("/api/media/edges/{edge_id}", get(media::get_edge))
+        .route("/api/media/edges/{edge_id}", delete(media::delete_edge))
         .route("/api/launch-history", get(history::list_launch_history))
         .route("/api/launch-history", post(history::add_launch_history))
         .route("/api/launch-history", delete(history::clear_launch_history))
@@ -735,7 +792,9 @@ pub fn build_router(state: AppState) -> Router {
             post(workflow::reconcile_plan_collaboration),
         );
 
-    let ws = Router::new().route("/ws/{session_id}", get(ws_upgrade));
+    let ws = Router::new()
+        .route("/ws/media", get(media_ws_upgrade))
+        .route("/ws/{session_id}", get(ws_upgrade));
     let auth = Router::new()
         .route("/api/auth/status", get(crate::web_auth::status))
         .route("/api/auth/login", post(crate::web_auth::login))

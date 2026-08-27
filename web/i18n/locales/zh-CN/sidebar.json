@@ -34,6 +34,9 @@
   },
   "home": "首页",
   "workspaces": "工作空间",
+  "imageGeneration": "生图",
+  "videoGeneration": "生视频",
+  "mediaGeneration": "媒体生成",
   "tools": "工具",
   "moduleNames": {
     "ssh": "SSH 机器",

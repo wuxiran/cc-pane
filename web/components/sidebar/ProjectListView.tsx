@@ -19,6 +19,8 @@ interface ProjectListViewProps {
   worktreeCache?: Record<string, WorktreeInfo[]>;
   /** 按 project.id 索引的路径存在性判定 */
   projectPathStatus?: Record<string, PathStatusKind>;
+  /** 已安装或显式配置的 CLI；undefined 表示环境探测尚未完成。 */
+  availableCliToolIds?: ReadonlySet<string>;
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
   onRemoveProject: (ws: Workspace, project: WorkspaceProject) => void;
   onSetProjectAlias: (ws: Workspace, project: WorkspaceProject) => void;
@@ -36,6 +38,7 @@ export default function ProjectListView({
   projects, ws, gitBranches,
   worktreeCache = EMPTY_WORKTREE_CACHE,
   projectPathStatus = EMPTY_PATH_STATUS,
+  availableCliToolIds,
   onOpenTerminal, onRemoveProject, onSetProjectAlias,
   onImportProject, onMigrateProject, onOpenWorktreeManager, onOpenInFileBrowser,
   onCleanupMissingProjects,
@@ -82,6 +85,7 @@ export default function ProjectListView({
       onMigrateProject={onMigrateProject}
       onOpenWorktreeManager={onOpenWorktreeManager}
       onOpenInFileBrowser={onOpenInFileBrowser}
+      availableCliToolIds={availableCliToolIds}
     />
   );
 

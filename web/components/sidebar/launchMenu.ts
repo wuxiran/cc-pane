@@ -1,4 +1,9 @@
-import type { KnownCliTool, WorkspaceLaunchEnvironment } from "@/types";
+import type {
+  CliLauncherOverride,
+  CliToolInfo,
+  KnownCliTool,
+  WorkspaceLaunchEnvironment,
+} from "@/types";
 
 export type SidebarLaunchCliTool = Exclude<KnownCliTool, "none">;
 export type SidebarLaunchActionEnvironment = WorkspaceLaunchEnvironment;
@@ -60,10 +65,33 @@ export function normalizeSidebarFavoriteLaunchActionIds(favoriteIds: string[]): 
   return favoriteIds;
 }
 
+/**
+ * 将环境探测结果和用户配置的 launcher override 合并成菜单可用的 CLI 集合。
+ *
+ * `tools` 为 undefined 表示探测尚未完成，调用方应暂时保留原有菜单；空数组
+ * 则表示探测已完成但没有可用 CLI。显式配置的命令可以覆盖 PATH 探测结果，
+ * 因为 launcher override 的用途正是支持 PATH 外的可执行文件。
+ */
+export function getAvailableSidebarCliToolIds(
+  tools: ReadonlyArray<Pick<CliToolInfo, "id" | "installed">> | undefined,
+  overrides?: Readonly<Record<string, CliLauncherOverride>>,
+): ReadonlySet<string> | undefined {
+  if (tools === undefined) return undefined;
+
+  const available = new Set(
+    tools.filter((tool) => tool.installed).map((tool) => tool.id),
+  );
+  for (const [cliToolId, override] of Object.entries(overrides ?? {})) {
+    if (override?.command?.trim()) available.add(cliToolId);
+  }
+  return available;
+}
+
 export function buildSidebarLaunchActions(
   t: any,
   includeWslVariant: boolean,
   includeSshVariant = false,
+  availableCliToolIds?: ReadonlySet<string>,
 ): SidebarLaunchAction[] {
   const terminalLabel = t("openTerminal", { ns: "sidebar" });
   const actions: SidebarLaunchAction[] = [
@@ -110,6 +138,7 @@ export function buildSidebarLaunchActions(
   }
 
   for (const tool of SIDEBAR_LAUNCH_CLI_TOOLS) {
+    if (availableCliToolIds && !availableCliToolIds.has(tool.id)) continue;
     const label = t(tool.labelKey, { ns: "sidebar" });
     actions.push({
       id: `${tool.id}-default`,
@@ -197,8 +226,9 @@ export function buildSidebarCliLaunchItems(
   t: any,
   includeWslVariant: boolean,
   includeSshVariant = false,
+  availableCliToolIds?: ReadonlySet<string>,
 ): SidebarCliLaunchItem[] {
-  return buildSidebarLaunchActions(t, includeWslVariant, includeSshVariant)
+  return buildSidebarLaunchActions(t, includeWslVariant, includeSshVariant, availableCliToolIds)
     .filter((action): action is SidebarLaunchAction & { cliTool: SidebarLaunchCliTool } =>
       action.kind === "cli" && !!action.cliTool,
     )

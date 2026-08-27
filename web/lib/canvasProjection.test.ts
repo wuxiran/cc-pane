@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveParentEdges, derivePipeEdges, projectCanvasNodes, resolveCanvasEventNodes } from "./canvasProjection";
+import { deriveParentEdges, derivePipeEdges, mergeCanvasMediaNodes, projectCanvasNodes, resolveCanvasEventNodes } from "./canvasProjection";
 import type { TaskBinding, PaneNode } from "@/types";
 
 const binding = (id: string, extra: Partial<TaskBinding> = {}): TaskBinding => ({
@@ -289,5 +289,98 @@ describe("canvasProjection", () => {
       targetId: "binding:worker",
       readOnly: true,
     }]);
+  });
+
+  it("projects media nodes for the selected layout without changing terminal projection", () => {
+    const mediaNode = {
+      id: "media:one",
+      label: "Storyboard",
+      kind: "media" as const,
+      layoutId: "layout-1",
+      status: "running" as const,
+      media: {
+        mediaKind: "image" as const,
+        operation: "textToImage" as const,
+        runStatus: "processing" as const,
+        progress: 42,
+        previewUrl: "asset://media/one.png",
+      },
+    };
+    const nodes = projectCanvasNodes({
+      bindings: [],
+      layouts: [{ id: "layout-1", rootPane: root }],
+      layoutId: "layout-1",
+      mediaNodes: [mediaNode, { ...mediaNode, id: "media:other", layoutId: "layout-2" }],
+    });
+
+    expect(nodes).toHaveLength(2);
+    expect(nodes.find((node) => node.id === "media:one")).toMatchObject({
+      kind: "media",
+      media: { mediaKind: "image", progress: 42 },
+    });
+    expect(nodes.find((node) => node.id === "media:other")).toBeUndefined();
+  });
+
+  it("deduplicates durable and live media projections while retaining omitted preview fields", () => {
+    const durable = {
+      id: "media:shared",
+      label: "Shared",
+      kind: "media" as const,
+      layoutId: "layout-1",
+      status: "completed" as const,
+      media: {
+        mediaKind: "image" as const,
+        runStatus: "succeeded" as const,
+        previewUrl: "asset://media/shared.png",
+        assetId: "asset-old",
+      },
+    };
+    const live = {
+      ...durable,
+      status: "running" as const,
+      media: {
+        mediaKind: "image" as const,
+        runStatus: "processing" as const,
+        progress: 37,
+        runId: "run-new",
+      },
+    };
+
+    expect(mergeCanvasMediaNodes([durable], [live])).toEqual([{
+      ...durable,
+      status: "running",
+      media: {
+        ...durable.media,
+        ...live.media,
+      },
+    }]);
+  });
+
+  it("projects persisted media edges into the read-only Canvas graph", () => {
+    const image = {
+      id: "media:image",
+      label: "Image",
+      kind: "media" as const,
+      layoutId: "layout-1",
+      status: "completed" as const,
+      media: { mediaKind: "image" as const },
+    };
+    const video = {
+      ...image,
+      id: "media:video",
+      label: "Video",
+      media: { mediaKind: "video" as const },
+    };
+
+    expect(derivePipeEdges([image, video], [], [{
+      id: "edge-1",
+      sourceNodeId: "image",
+      targetNodeId: "video",
+    }])).toContainEqual({
+      id: "media-edge:edge-1",
+      sourceId: "media:image",
+      targetId: "media:video",
+      readOnly: true,
+    });
   });
 });

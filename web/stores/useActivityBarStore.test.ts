@@ -272,6 +272,19 @@ describe("useActivityBarStore", () => {
       expect(useActivityBarStore.getState().appViewMode).toBe("panes");
     });
 
+    it("toggleMediaMode 应在统一媒体工作区与 panes 间切换", () => {
+      useActivityBarStore.setState({ appViewMode: "panes", sidebarVisible: true });
+      useActivityBarStore.getState().toggleMediaMode();
+      expect(useActivityBarStore.getState()).toMatchObject({ appViewMode: "imageGen", sidebarVisible: false });
+
+      useActivityBarStore.getState().toggleMediaMode();
+      expect(useActivityBarStore.getState()).toMatchObject({ appViewMode: "panes", sidebarVisible: true });
+
+      useActivityBarStore.setState({ appViewMode: "videoGen", sidebarVisible: false });
+      useActivityBarStore.getState().toggleMediaMode();
+      expect(useActivityBarStore.getState().appViewMode).toBe("panes");
+    });
+
     it("toggleFilesMode 进入 files 模式应设置 activeView 为 files", () => {
       useActivityBarStore.setState({ appViewMode: "panes", activeView: "explorer" });
 

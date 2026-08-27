@@ -83,6 +83,7 @@ interface WorkspaceItemProps {
   onOpenInFileBrowser?: (path: string) => void;
   dragHandleProps?: ButtonHTMLAttributes<HTMLButtonElement>;
   countOverride?: number; // 头部计数徽章覆盖值（终端模式=终端数）
+  availableCliToolIds?: ReadonlySet<string>;
 }
 
 export default function WorkspaceItem({
@@ -100,7 +101,7 @@ export default function WorkspaceItem({
   onSetPath,
   onClearPath,
   onOpenEnvironment, onOpenInFileBrowser,
-  dragHandleProps, countOverride,
+  dragHandleProps, countOverride, availableCliToolIds,
 }: WorkspaceItemProps) {
   const { t } = useTranslation(["sidebar", "common"]);
   const projects = normalizeWorkspaceProjects(ws.projects);
@@ -142,13 +143,13 @@ export default function WorkspaceItem({
     machines: sshMachines,
     environment: "ssh",
   }).issue;
-  const cliLaunchItems = buildSidebarCliLaunchItems(t, canLaunchWsl, canLaunchSsh);
+  const cliLaunchItems = buildSidebarCliLaunchItems(t, canLaunchWsl, canLaunchSsh, availableCliToolIds);
   const nonFavoriteCliLaunchItems = groupSidebarCliLaunchItems(cliLaunchItems, favoriteLaunchIds).more;
   const favoriteLaunchActions = filterSidebarFavoriteLaunchActions(
-    buildSidebarLaunchActions(t, canLaunchWsl, canLaunchSsh),
+    buildSidebarLaunchActions(t, canLaunchWsl, canLaunchSsh, availableCliToolIds),
     favoriteLaunchIds,
   );
-  const allLaunchActions = buildSidebarLaunchActions(t, canLaunchWsl, canLaunchSsh);
+  const allLaunchActions = buildSidebarLaunchActions(t, canLaunchWsl, canLaunchSsh, availableCliToolIds);
   const hideNonFavoriteLaunchActions = settings?.general.hideNonFavoriteLaunchActions ?? false;
   const shouldHideNonFavoriteLaunchActions = hideNonFavoriteLaunchActions && favoriteLaunchActions.length > 0;
   const formatLaunchIssue = useCallback((

@@ -45,6 +45,7 @@ use commands::{
     browser_reload,
     browser_set_bounds,
     browser_set_visible,
+    cancel_media_run,
     cancel_terminal_launch,
     check_codex_rollout_exists,
     check_environment,
@@ -66,6 +67,10 @@ use commands::{
     copy_skill,
     create_auto_label,
     create_launch_profile,
+    create_media_asset,
+    create_media_edge,
+    create_media_node,
+    create_media_run,
     create_popup_terminal_window,
     create_quick_command,
     // Spec 命令
@@ -81,6 +86,8 @@ use commands::{
     delete_label,
     delete_launch_history,
     delete_launch_profile,
+    delete_media_edge,
+    delete_media_node,
     delete_memory,
     delete_plan,
     delete_quick_command,
@@ -108,6 +115,7 @@ use commands::{
     extract_last_prompt,
     find_task_binding_by_session,
     format_memory_for_injection,
+    free_comfy_memory,
     fs_copy_entry,
     fs_create_directory,
     fs_create_file,
@@ -125,6 +133,9 @@ use commands::{
     get_app_cwd,
     get_available_shells,
     get_bridge_stats,
+    get_comfy_object_info,
+    get_comfy_runtime_status,
+    get_comfy_system_stats,
     // Local History - 分支感知 + Worktree
     get_current_branch,
     get_data_dir_info,
@@ -152,6 +163,13 @@ use commands::{
     // 日志命令
     get_log_dir,
     get_mcp_server,
+    get_media_asset,
+    get_media_edge,
+    get_media_node,
+    get_media_provider_capabilities,
+    get_media_queue_snapshot,
+    get_media_run,
+    get_media_scheduler_snapshot,
     get_memory,
     get_memory_stats,
     // Orchestrator 命令
@@ -244,6 +262,10 @@ use commands::{
     list_launch_profiles,
     // MCP 配置命令
     list_mcp_servers,
+    list_media_assets,
+    list_media_edges,
+    list_media_nodes,
+    list_media_runs,
     list_memories,
     list_opencode_sessions,
     list_pi_rpc_sessions,
@@ -253,6 +275,7 @@ use commands::{
     list_projects,
     list_providers,
     list_quick_commands,
+    list_recoverable_media_runs,
     list_session_index,
     list_skill_market_entries,
     list_skills,
@@ -316,14 +339,18 @@ use commands::{
     reorder_todo_subtasks,
     reorder_todos,
     reorder_workspaces,
+    replay_media_run,
     resize_terminal,
+    resolve_media_asset,
     resolve_terminal_path_link,
     resolve_wallpaper_asset,
     respond_orchestrator_query,
+    restart_comfy_runtime,
     restart_shared_mcp_server,
     restart_web_access,
     restore_file_version,
     restore_to_label,
+    retry_media_run,
     retry_terminal_task_queue_item,
     rollback_project_migration,
     rollback_workspace_migration,
@@ -366,6 +393,7 @@ use commands::{
     set_default_launch_profile,
     set_default_provider,
     set_hidden_terminal_sessions,
+    set_media_run_priority,
     set_project_cli_hook_enabled,
     set_web_access_password,
     set_workspace_archived,
@@ -382,12 +410,15 @@ use commands::{
     ssh_fs_set_permissions,
     ssh_fs_upload_file,
     ssh_fs_write_file,
+    stage_media_input,
     stage_terminal_task_queue_clipboard_image,
+    start_comfy_runtime,
     start_dsh_instance,
     start_launch_history_backfill,
     start_pi_rpc_session,
     start_shared_mcp_server,
     start_web_access,
+    stop_comfy_runtime,
     stop_dsh_instance,
     stop_pi_rpc_session,
     stop_project_history,
@@ -406,12 +437,14 @@ use commands::{
     toggle_todo_subtask,
     touch_launch_by_session,
     transcribe_voice_input,
+    transition_media_run,
     trigger_notification,
     update_history_config,
     update_launch_last_prompt,
     update_launch_profile,
     update_launch_resume_source,
     update_launch_session_id,
+    update_media_node,
     update_memory,
     update_project_alias,
     update_project_name,
@@ -437,24 +470,26 @@ use commands::{
     write_terminal,
 };
 use repository::{
-    Database, HistoryRepository, PlanRepository, ProjectRepository, SessionIndexRepository,
-    SpecRepository, TaskBindingRepository, TaskQueueRepository, TodoRepository,
-    UsageStatsRepository,
+    Database, HistoryRepository, MediaRepository, PlanRepository, ProjectRepository,
+    SessionIndexRepository, SpecRepository, TaskBindingRepository, TaskQueueRepository,
+    TodoRepository, UsageStatsRepository,
 };
 use services::BrowserTabManager;
 use services::{
-    DshService, ExternalSkillRegistry, FileSystemService, HistoryService, HistoryWatchManager,
-    JournalService, LaunchHistoryService, LaunchProfileService, LayoutSnapshotService,
-    McpConfigService, MemoryService, NotificationService, OrchestratorService, PiRpcEventBridge,
-    PiRpcService, PlanArchiveService, PlanService, ProcessMonitorService, ProjectCliHooksService,
-    ProjectContextService, ProjectService, ProviderService, QuickCommandService, ScreenshotService,
-    SessionIndexService, SessionRestoreService, SettingsService, SharedMcpService,
-    SkillMarketService, SkillService, SpecService, SshCredentialService, SshFileService,
-    SshMachineService, StartLocks, SystemStatsService, TaskBindingService, TaskQueueService,
-    TaskQueueWorker, TerminalBackendKind, TerminalBackendState, TerminalDaemonControlLink,
-    TerminalDaemonEventBridge, TerminalDaemonLifecycle, TerminalService, TodoService,
-    UninstallCleanupService, UsageStatsService, WebAccessLifecycle, WorkspaceService,
-    WorktreeService,
+    registry_from_providers, ComfyMediaAdapter, ComfyRuntimeService, DshService,
+    ExternalSkillRegistry, FileSystemService, HistoryService, HistoryWatchManager, JournalService,
+    LaunchHistoryService, LaunchProfileService, LayoutSnapshotService, McpConfigService,
+    MediaJobWorker, MediaService, MemoryService, NotificationService, OrchestratorService,
+    PiRpcEventBridge, PiRpcService, PlanArchiveService, PlanService, ProcessMonitorService,
+    ProjectCliHooksService, ProjectContextService, ProjectService, ProviderService,
+    QuickCommandService, ScreenshotService, SessionIndexService, SessionRestoreService,
+    SettingsService, SharedMcpService, SkillMarketService, SkillService, SpecService,
+    SshCredentialService, SshFileService, SshMachineService, StartLocks, SystemStatsService,
+    TaskBindingService, TaskQueueService, TaskQueueWorker, TerminalBackendKind,
+    TerminalBackendState, TerminalDaemonControlLink, TerminalDaemonEventBridge,
+    TerminalDaemonLifecycle, TerminalService, TodoService, UninstallCleanupService,
+    UsageStatsService, WebAccessLifecycle, WorkspaceService, WorktreeService,
+    COMFY_LOCAL_PROVIDER_ID,
 };
 use std::sync::Arc;
 use utils::AppPaths;
@@ -1515,6 +1550,12 @@ pub fn run() {
     };
     boot_mark!("database initialized");
     let project_repo = Arc::new(ProjectRepository::new(db.clone()));
+    let media_repository = Arc::new(MediaRepository::new(db.clone()));
+    let media_service = Arc::new(MediaService::with_media_root(
+        media_repository,
+        app_paths.media_dir(),
+    ));
+    let comfy_runtime_service = Arc::new(ComfyRuntimeService::new());
     match project_repo.migrate_project_identities() {
         Ok(report) if report.projects_updated > 0 || report.duplicates_removed > 0 => info!(
             updated = report.projects_updated,
@@ -1597,6 +1638,10 @@ pub fn run() {
         Ok(None) => {}
         Err(e) => warn!("[workspace] ensure default workspace failed: {}", e),
     }
+    // Media nodes and assets resolve their project root through the same
+    // workspace registry used by the terminal. IDs remain stable across
+    // workspace renames; the client-provided path is never trusted.
+    media_service.set_workspace_service(workspace_service.clone());
     let session_index_service = Arc::new(SessionIndexService::new_with_settings(
         session_index_repo,
         launch_history_service.clone(),
@@ -1756,6 +1801,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(app_paths)
         .manage(project_service)
+        .manage(media_service)
+        .manage(comfy_runtime_service)
         .manage(terminal_service)
         .manage(pi_rpc_service)
         .manage(terminal_backend_state)
@@ -2309,6 +2356,7 @@ pub fn run() {
                 if let Err(e) = orch_svc.start(
                     term_svc.inner().clone(),
                     terminal_backend_state.inner().clone(),
+                    app.state::<Arc<MediaService>>().inner().clone(),
                     session_restore_svc.inner().clone(),
                     prov_svc.inner().clone(),
                     launch_profile_svc.inner().clone(),
@@ -2465,8 +2513,225 @@ pub fn run() {
                     svc.start_background_tasks();
                 });
             }
+
+            // ---- Media generation worker ----
+            // Media runs share the same durable SQLite state as the Canvas.
+            // Keep the worker in the Tauri runtime so queued jobs continue
+            // after the frontend is refreshed or temporarily hidden.
+            {
+                let media_service = app.state::<Arc<MediaService>>().inner().clone();
+                let provider_service = app.state::<Arc<ProviderService>>().inner().clone();
+                let comfy_runtime = app.state::<Arc<ComfyRuntimeService>>().inner().clone();
+                // Media generation is cloud-first. Keep the local ComfyUI
+                // runtime available for explicit API/command use, but do not
+                // spawn a Python/GPU process during normal app startup.
+                let comfy_status = comfy_runtime.status();
+                let (registry, skipped) = registry_from_providers(provider_service.list_providers());
+                for diagnostic in skipped {
+                    warn!(diagnostic, "[media] provider was not registered");
+                }
+                let initial_comfy_adapter = if comfy_status.running && comfy_status.ready {
+                    match comfy_runtime
+                        .adapter_profile()
+                        .and_then(ComfyMediaAdapter::new)
+                    {
+                        Ok(adapter) => {
+                            let adapter = Arc::new(adapter);
+                            if let Err(error) = registry.upsert(adapter.clone()) {
+                                warn!(error = %error, "[media] local ComfyUI provider was not registered");
+                                None
+                            } else {
+                                Some(adapter)
+                            }
+                        }
+                        Err(error) => {
+                            warn!(error = %error, "[media] local ComfyUI adapter setup failed");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+                let runtime_registry = registry.clone();
+                let media_event_service = media_service.clone();
+                let worker = Arc::new(
+                    MediaJobWorker::new(
+                        media_service,
+                        registry.clone(),
+                        format!("desktop-{}", std::process::id()),
+                    )
+                        .with_provider_service(provider_service.clone()),
+                );
+                if let Some(adapter) = initial_comfy_adapter.as_ref() {
+                    worker.track_comfy_adapter(COMFY_LOCAL_PROVIDER_ID, adapter.clone());
+                }
+                app.manage(worker.clone());
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut poll_ticker = tokio::time::interval(std::time::Duration::from_secs(2));
+                    let mut event_ticker = tokio::time::interval(std::time::Duration::from_millis(100));
+                    let mut registered_comfy_port = if comfy_status.running && comfy_status.ready {
+                        comfy_status.port
+                    } else {
+                        0
+                    };
+                    let mut comfy_streams = std::collections::HashMap::new();
+                    let mut next_event_connect = std::collections::HashMap::new();
+                    loop {
+                        tokio::select! {
+                            _ = event_ticker.tick() => {
+                                for (provider_id, adapter) in worker.comfy_adapters() {
+                                    let now = tokio::time::Instant::now();
+                                    let can_connect = next_event_connect
+                                        .get(&provider_id)
+                                        .is_none_or(|deadline| *deadline <= now);
+                                    if !comfy_streams.contains_key(&provider_id) && can_connect {
+                                        match tokio::time::timeout(
+                                            std::time::Duration::from_millis(500),
+                                            adapter.connect_events(),
+                                        )
+                                        .await
+                                        {
+                                            Ok(Ok(stream)) => {
+                                                comfy_streams.insert(provider_id.clone(), stream);
+                                                next_event_connect.remove(&provider_id);
+                                            }
+                                            Ok(Err(error)) => {
+                                                warn!(provider_id, error = %error, "[media] ComfyUI websocket unavailable; history polling remains active");
+                                                next_event_connect.insert(
+                                                    provider_id.clone(),
+                                                    now + std::time::Duration::from_secs(2),
+                                                );
+                                            }
+                                            Err(_) => {
+                                                next_event_connect.insert(
+                                                    provider_id.clone(),
+                                                    now + std::time::Duration::from_secs(2),
+                                                );
+                                            }
+                                        }
+                                    }
+                                    let Some(stream) = comfy_streams.get_mut(&provider_id) else {
+                                        continue;
+                                    };
+                                    let result = tokio::time::timeout(
+                                        std::time::Duration::from_millis(20),
+                                        stream.next_event(),
+                                    )
+                                    .await;
+                                    match result {
+                                        Ok(Ok(Some(event))) => {
+                                            match worker.apply_comfy_event(&provider_id, &event) {
+                                                Ok(Some(run)) => {
+                                                    let workspace_id = media_event_service
+                                                        .get_node(&run.node_id)
+                                                        .ok()
+                                                        .flatten()
+                                                        .map(|node| node.workspace_id);
+                                                    let _ = app_handle.emit(
+                                                        "media-job-changed",
+                                                        serde_json::json!({
+                                                            "type": "media-job-changed",
+                                                            "workspaceId": workspace_id,
+                                                            "runId": run.id,
+                                                            "nodeId": run.node_id,
+                                                            "status": run.status,
+                                                            "progress": run.progress,
+                                                            "assetIds": run.output_asset_ids,
+                                                            "errorCode": run.error_code,
+                                                            "errorMessage": run.error_message,
+                                                        }),
+                                                    );
+                                                }
+                                                Ok(None) => {}
+                                                Err(error) => warn!(provider_id, error = %error, "[media] failed to apply ComfyUI event"),
+                                            }
+                                        }
+                                        Ok(Ok(None)) | Ok(Err(_)) => {
+                                            comfy_streams.remove(&provider_id);
+                                            next_event_connect.insert(
+                                                provider_id.clone(),
+                                                now + std::time::Duration::from_secs(1),
+                                            );
+                                        }
+                                        Err(_) => {}
+                                    }
+                                }
+                            }
+                            _ = poll_ticker.tick() => {
+                                // The runtime can be started or restarted from the
+                                // media UI. Refresh the adapter so queued work never
+                                // targets a stale ephemeral port.
+                                let runtime_status = comfy_runtime.status();
+                                if runtime_status.running
+                                    && runtime_status.ready
+                                    && (runtime_status.port != registered_comfy_port
+                                        || runtime_registry.get(COMFY_LOCAL_PROVIDER_ID).is_none())
+                                {
+                                    match comfy_runtime
+                                        .adapter_profile()
+                                        .and_then(ComfyMediaAdapter::new)
+                                    {
+                                        Ok(adapter) => {
+                                            let adapter = Arc::new(adapter);
+                                            if let Err(error) = runtime_registry.upsert(adapter.clone()) {
+                                                warn!(error = %error, "[media] failed to refresh local ComfyUI adapter");
+                                            } else {
+                                                registered_comfy_port = runtime_status.port;
+                                                worker.track_comfy_adapter(
+                                                    COMFY_LOCAL_PROVIDER_ID,
+                                                    adapter,
+                                                );
+                                                comfy_streams.remove(COMFY_LOCAL_PROVIDER_ID);
+                                                next_event_connect.remove(COMFY_LOCAL_PROVIDER_ID);
+                                            }
+                                        }
+                                        Err(error) => {
+                                            warn!(error = %error, "[media] failed to create local ComfyUI adapter");
+                                        }
+                                    }
+                                } else if (!runtime_status.running || !runtime_status.ready)
+                                    && registered_comfy_port != 0
+                                {
+                                    runtime_registry.remove(COMFY_LOCAL_PROVIDER_ID);
+                                    worker.forget_comfy_adapter(COMFY_LOCAL_PROVIDER_ID);
+                                    registered_comfy_port = 0;
+                                    comfy_streams.remove(COMFY_LOCAL_PROVIDER_ID);
+                                    next_event_connect.remove(COMFY_LOCAL_PROVIDER_ID);
+                                }
+                                match worker.run_batch().await {
+                                    Ok(runs) => {
+                                        for run in runs {
+                                        let workspace_id = media_event_service
+                                            .get_node(&run.node_id)
+                                            .ok()
+                                            .flatten()
+                                            .map(|node| node.workspace_id);
+                                        let _ = app_handle.emit(
+                                            "media-job-changed",
+                                            serde_json::json!({
+                                                "type": "media-job-changed",
+                                                "workspaceId": workspace_id,
+                                                "runId": run.id,
+                                                "nodeId": run.node_id,
+                                                "status": run.status,
+                                                "progress": run.progress,
+                                                "assetIds": run.output_asset_ids,
+                                                "errorCode": run.error_code,
+                                                "errorMessage": run.error_message,
+                                            }),
+                                        );
+                                        }
+                                    }
+                                    Err(error) => warn!(error = %error, "[media] worker iteration failed"),
+                                }
+                            }
+                        }
+                    }
+                });
+            }
             info!(
-                "[boot] +{}ms: usage stats and session index background jobs started",
+                "[boot] +{}ms: usage stats, session index, and media background jobs started",
                 boot_t0.elapsed().as_millis()
             );
 
@@ -3043,6 +3308,40 @@ pub fn run() {
             list_workspace_snapshots,
             get_workspace_snapshot,
             delete_workspace_snapshot,
+            // Media canvas commands
+            get_comfy_runtime_status,
+            get_comfy_system_stats,
+            start_comfy_runtime,
+            stop_comfy_runtime,
+             restart_comfy_runtime,
+             free_comfy_memory,
+             get_comfy_object_info,
+             get_media_provider_capabilities,
+             create_media_node,
+            get_media_node,
+            list_media_nodes,
+            update_media_node,
+            delete_media_node,
+            create_media_run,
+            get_media_run,
+            resolve_media_asset,
+             list_media_runs,
+             list_recoverable_media_runs,
+             get_media_queue_snapshot,
+             get_media_scheduler_snapshot,
+             cancel_media_run,
+             retry_media_run,
+             replay_media_run,
+             set_media_run_priority,
+             transition_media_run,
+            create_media_asset,
+            stage_media_input,
+            get_media_asset,
+            list_media_assets,
+            create_media_edge,
+            get_media_edge,
+            list_media_edges,
+            delete_media_edge,
             // Wallpaper 命令
             import_wallpaper,
             list_wallpapers,

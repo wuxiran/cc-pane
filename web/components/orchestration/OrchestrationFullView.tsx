@@ -30,7 +30,6 @@ import { useNotificationStore, type NotificationRecord } from "@/stores/useNotif
 import type { TaskBinding } from "@/types";
 import TaskDetailPanel from "./TaskDetailPanel";
 import SessionOutputPreview from "./SessionOutputPreview";
-
 type MainTab = "tasks" | "notifications";
 type NotificationFilter = "all" | "errors" | "completed";
 type OrchestrationFullViewProps = {
@@ -42,7 +41,6 @@ type TaskListProps = {
   selectedTaskId: string | null;
   onSelect: (id: string) => void;
 };
-
 const RIGHT_COLLAPSED_KEY = "cc-panes-orchestration-right-collapsed";
 const RIGHT_WIDTH_KEY = "cc-panes-orchestration-right-width";
 const DEFAULT_RIGHT_WIDTH = 400;
@@ -454,11 +452,9 @@ export default function OrchestrationFullView({
             </>
           )}
         </aside>
-
         <main className="min-w-0 flex-1">
           <TaskDetailPanel binding={selectedBinding} />
         </main>
-
         <aside
           className="group relative flex shrink-0 flex-col"
           style={{

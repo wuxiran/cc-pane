@@ -21,6 +21,7 @@ rust-embed = "8"
 clap = { version = "4", features = ["derive", "env"] }
 mime_guess = "2"
 futures-util = "0.3"
+tokio-util = { version = "0.7", features = ["io"] }
 parking_lot = "0.12"
 dirs = "6"
 anyhow = "1"

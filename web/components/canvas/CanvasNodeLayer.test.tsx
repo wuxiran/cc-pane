@@ -80,4 +80,32 @@ describe("CanvasNodeLayer", () => {
       height: 265,
     });
   });
+
+  it("renders media nodes with native DOM media controls instead of a terminal mirror", () => {
+    const mediaNode: CanvasNodeProjection = {
+      id: "media:image-1",
+      label: "Product frame",
+      kind: "media",
+      status: "completed",
+      media: {
+        mediaKind: "video",
+        operation: "textToVideo",
+        runStatus: "succeeded",
+        previewUrl: "asset://media/video-1.mp4",
+        progress: 100,
+      },
+    };
+    render(
+      <CanvasNodeLayer
+        nodes={[mediaNode]}
+        positions={{ [mediaNode.id]: { x: 10, y: 12, width: 360, height: 240 } }}
+        viewport={{ width: 1200, height: 760 }}
+        onPositionChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("canvas-media-video-media:image-1")).toHaveAttribute("src", "asset://media/video-1.mp4");
+    expect(screen.getByTestId("canvas-media-video-media:image-1")).toHaveAttribute("controls");
+    expect(screen.queryByTestId("canvas-terminal-mirror")).not.toBeInTheDocument();
+  });
 });

@@ -1,5 +1,12 @@
 import { create } from "zustand";
-import type { CanvasNodePosition, CanvasNodeProjection, CanvasSnapshot, CanvasSnapshotScope, PipeEvent } from "@/types/canvas";
+import type {
+  CanvasNodePosition,
+  CanvasNodeProjection,
+  CanvasSnapshot,
+  CanvasSnapshotPatch,
+  CanvasSnapshotScope,
+  PipeEvent,
+} from "@/types/canvas";
 import {
   isTerminalPipeEventPhase,
   PIPE_EVENT_TERMINAL_TTL_MS,
@@ -22,7 +29,7 @@ interface CanvasState {
   setNodes: (nodes: CanvasNodeProjection[]) => void;
   setNodePosition: (nodeId: string, position: CanvasNodePosition) => void;
   dispatchPipeEvent: (action: PipeEventAction) => void;
-  saveSnapshot: (scope: CanvasSnapshotScope, partial?: Partial<Omit<CanvasSnapshot, "workspaceId" | "layoutId">>) => CanvasSnapshot;
+  saveSnapshot: (scope: CanvasSnapshotScope, partial?: CanvasSnapshotPatch) => CanvasSnapshot;
   loadSnapshot: (scope: CanvasSnapshotScope) => CanvasSnapshot | null;
 }
 
@@ -117,28 +124,30 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
     saveSnapshot: (scope, partial = {}) => {
       const previous = get().snapshot;
       const sourceNodes = partial.nodes ?? get().nodes;
-      const sourceIds = new Set(sourceNodes.map((node) => node.id));
       const customizedNodeIds = [...new Set(
         partial.customizedNodeIds ?? Object.keys(get().manualNodeIds),
-      )].filter((id) => sourceIds.has(id));
+      )];
       const customized = new Set(customizedNodeIds);
-      const persistedNodes = sourceNodes.map((node) => {
-        if (customized.has(node.id)) return node;
-        const { position: _position, ...withoutAutomaticPosition } = node;
-        return withoutAutomaticPosition;
+      // v2 deliberately excludes labels, run state and URLs. Those values are
+      // durable media/runtime records and are re-projected from SQLite; only a
+      // user's explicit geometry belongs in the local Canvas snapshot.
+      const persistedNodes = sourceNodes.flatMap((node) => {
+        if (!customized.has(node.id) || !node.position) return [];
+        return [{ id: node.id, position: node.position }];
       });
+      const persistedNodeIds = persistedNodes.map((node) => node.id);
       const snapshot: CanvasSnapshot = {
-        version: 1,
         workspaceId: scope.workspaceId,
         layoutId: scope.layoutId,
         savedAt: new Date().toISOString(),
         displayMode: previous?.displayMode ?? DEFAULT_DISPLAY_MODE,
         ...partial,
+        version: 2,
         // Animation intensity is no longer user-selectable. Keep the field
         // for snapshot compatibility, but always migrate saved data to full.
         animationIntensity: DEFAULT_ANIMATION_INTENSITY,
         nodes: persistedNodes,
-        customizedNodeIds,
+        customizedNodeIds: persistedNodeIds,
       };
       canvasSnapshotService.save(scope, snapshot);
       set({
@@ -147,7 +156,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
         nodePositions: Object.fromEntries(
           snapshot.nodes.flatMap((node) => customized.has(node.id) && node.position ? [[node.id, node.position]] : []),
         ),
-        manualNodeIds: Object.fromEntries(customizedNodeIds.map((id) => [id, true])),
+        manualNodeIds: Object.fromEntries(persistedNodeIds.map((id) => [id, true])),
         pendingRestoreNodeIds: {},
       });
       return snapshot;
@@ -163,9 +172,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
       // Snapshots written before customizedNodeIds existed only contain
       // automatic coordinates. Do not re-import those as user positions: they
       // may have been measured while the normal pane surface was hidden.
-      const customized = new Set(
-        snapshot?.customizedNodeIds ?? [],
-      );
+      const customized = new Set(snapshot?.customizedNodeIds
+        ?? (snapshot?.version === 2 ? snapshot.nodes.map((node) => node.id) : []));
       const savedPositions = Object.fromEntries(
         snapshot?.nodes.flatMap((node) => customized.has(node.id) && node.position ? [[node.id, node.position]] : []) ?? [],
       );

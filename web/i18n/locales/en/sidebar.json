@@ -34,6 +34,9 @@
   },
   "home": "Home",
   "workspaces": "Workspaces",
+  "imageGeneration": "Image generation",
+  "videoGeneration": "Video generation",
+  "mediaGeneration": "Media generation",
   "tools": "Tools",
   "moduleNames": {
     "ssh": "SSH Machines",

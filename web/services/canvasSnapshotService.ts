@@ -16,7 +16,9 @@ export const canvasSnapshotService = {
       const raw = window.localStorage.getItem(storageKey(scope));
       if (!raw) return null;
       const value = JSON.parse(raw) as CanvasSnapshot;
-      return value?.version === 1
+      // v1 stored complete projections (including stale media metadata). v2
+      // stores only explicit geometry, but both are readable for migration.
+      return (value?.version === 1 || value?.version === 2)
         && value.workspaceId === scope.workspaceId
         && value.layoutId === scope.layoutId
         ? value

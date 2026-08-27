@@ -111,6 +111,48 @@ impl AppPaths {
         self.data_dir.join("task-queue-images")
     }
 
+    /// Root directory for generated and uploaded media assets.
+    pub fn media_dir(&self) -> PathBuf {
+        self.data_dir.join("media")
+    }
+
+    /// Input staging directory for media assets uploaded before a run starts.
+    pub fn media_inputs_dir(&self) -> PathBuf {
+        self.media_dir().join("inputs")
+    }
+
+    /// Workspace-scoped media directory. The caller must still validate the
+    /// workspace id when accepting user input; this method only composes paths.
+    pub fn media_workspace_dir(&self, workspace_id: &str) -> PathBuf {
+        self.media_dir().join(workspace_id)
+    }
+
+    /// Compose an asset path from validated path components.
+    ///
+    /// Asset ids, workspace ids and extensions are deliberately restricted to
+    /// a small ASCII subset so a caller cannot escape `media/` through `..`,
+    /// separators or a Windows device path. The path is not created here.
+    pub fn media_asset_path(
+        &self,
+        workspace_id: &str,
+        asset_id: &str,
+        extension: &str,
+    ) -> crate::utils::error::AppResult<PathBuf> {
+        if !is_safe_media_component(workspace_id)
+            || !is_safe_media_component(asset_id)
+            || !is_safe_media_extension(extension)
+        {
+            return Err(crate::utils::error::AppError::coded(
+                "MEDIA_PATH_INVALID",
+                "media path contains an invalid component",
+            ));
+        }
+        let extension = extension.trim_start_matches('.');
+        Ok(self
+            .media_workspace_dir(workspace_id)
+            .join(format!("{asset_id}.{extension}")))
+    }
+
     /// 指定会话的输出文件路径
     pub fn session_output_path(&self, session_id: &str) -> PathBuf {
         self.sessions_dir().join(format!("{}.output", session_id))
@@ -215,6 +257,8 @@ impl AppPaths {
             self.runtime_sessions_dir(),
             self.task_queue_images_dir(),
             self.wallpapers_dir(),
+            self.media_dir(),
+            self.media_inputs_dir(),
         ];
 
         for dir in dirs {
@@ -321,6 +365,19 @@ fn dir_size(path: &std::path::Path) -> u64 {
     total
 }
 
+fn is_safe_media_component(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+fn is_safe_media_extension(value: &str) -> bool {
+    let value = value.trim_start_matches('.');
+    !value.is_empty() && value.len() <= 16 && value.bytes().all(|byte| byte.is_ascii_alphanumeric())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -420,6 +477,12 @@ mod tests {
             base.join("skills").join("builtin")
         );
         assert_eq!(paths.wallpapers_dir(), base.join("wallpapers"));
+        assert_eq!(paths.media_dir(), base.join("media"));
+        assert_eq!(paths.media_inputs_dir(), base.join("media").join("inputs"));
+        assert_eq!(
+            paths.media_workspace_dir("ws"),
+            base.join("media").join("ws")
+        );
     }
 
     #[test]
@@ -436,6 +499,18 @@ mod tests {
         assert!(paths.runtime_sessions_dir().is_dir());
         assert!(paths.task_queue_images_dir().is_dir());
         assert!(paths.wallpapers_dir().is_dir());
+        assert!(paths.media_dir().is_dir());
+        assert!(paths.media_inputs_dir().is_dir());
+    }
+
+    #[test]
+    fn media_asset_path_rejects_traversal_components() {
+        let tmp = TempDir::new().unwrap();
+        let paths = make_paths(&tmp);
+        assert!(paths.media_asset_path("ws", "asset-1", "png").is_ok());
+        assert!(paths.media_asset_path("..", "asset-1", "png").is_err());
+        assert!(paths.media_asset_path("ws", "../asset", "png").is_err());
+        assert!(paths.media_asset_path("ws", "asset", "../png").is_err());
     }
 
     #[test]

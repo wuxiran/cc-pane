@@ -18,6 +18,10 @@ const MIN_PRIMARY_WIDTH = 540;
 const MIN_PRIMARY_HEIGHT = 370;
 const MAX_PRIMARY_WIDTH = 900;
 const MAX_PRIMARY_HEIGHT = 620;
+const MIN_MEDIA_WIDTH = 240;
+const MIN_MEDIA_HEIGHT = 180;
+const MAX_MEDIA_WIDTH = 760;
+const MAX_MEDIA_HEIGHT = 520;
 const CARD_SIZE_SCALE = 1.08;
 
 function clamp(value: number, minimum: number, maximum: number): number {
@@ -38,6 +42,18 @@ export function canvasNodeSize(
   const width = Math.max(1, viewportWidth);
   const height = Math.max(1, viewportHeight);
   const shortEdge = Math.min(width, height);
+  if (node.kind === "media") {
+    // Media previews should remain usable on narrow mobile WebViews instead
+    // of inheriting the terminal leader's 540px primary-card minimum.
+    const availableWidth = Math.max(1, width - 32);
+    const availableHeight = Math.max(1, height - 32);
+    const minimumWidth = Math.min(MIN_MEDIA_WIDTH, availableWidth);
+    const minimumHeight = Math.min(MIN_MEDIA_HEIGHT, availableHeight);
+    return {
+      width: Math.round(clamp(Math.max(width * 0.42, shortEdge * 0.72) * CARD_SIZE_SCALE, minimumWidth, Math.max(minimumWidth, Math.min(MAX_MEDIA_WIDTH, availableWidth)))),
+      height: Math.round(clamp(Math.max(height * 0.42, shortEdge * 0.58) * CARD_SIZE_SCALE, minimumHeight, Math.max(minimumHeight, Math.min(MAX_MEDIA_HEIGHT, availableHeight)))),
+    };
+  }
   // Use both viewport axes so a wide desktop canvas does not collapse into
   // two small cards just because its height is the shorter edge. Bounds are
   // readability guardrails; the normal size remains viewport-derived.
@@ -70,6 +86,14 @@ export function canvasNodeMinimumSize(
   rootIds: Set<string> = new Set(),
 ): CanvasNodeSize {
   const preferred = canvasNodeSize(node, viewportWidth, viewportHeight, rootIds);
+  if (node.kind === "media") {
+    const availableWidth = Math.max(1, viewportWidth - 32);
+    const availableHeight = Math.max(1, viewportHeight - 32);
+    return {
+      width: Math.round(Math.min(availableWidth, Math.max(Math.min(MIN_READABLE_WIDTH, availableWidth), preferred.width * 0.58))),
+      height: Math.round(Math.min(availableHeight, Math.max(Math.min(MIN_READABLE_HEIGHT, availableHeight), preferred.height * 0.58))),
+    };
+  }
   return {
     width: Math.round(Math.max(MIN_READABLE_WIDTH, preferred.width * 0.58)),
     height: Math.round(Math.max(MIN_READABLE_HEIGHT, preferred.height * 0.58)),

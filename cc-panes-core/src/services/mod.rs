@@ -1,6 +1,10 @@
 pub mod boundary_events;
 pub mod claude_session_service;
 pub mod codex_session_service;
+pub mod comfy;
+pub mod comfy_adapter;
+pub mod comfy_events;
+pub mod comfy_resources;
 mod ctl_sidecar;
 mod daemon_client;
 pub mod default_skill_service;
@@ -16,6 +20,10 @@ mod launch_history_service;
 mod launch_profile_service;
 mod layout_snapshot_service;
 pub mod mcp_config_service;
+pub mod media_probe;
+pub mod media_provider;
+pub mod media_runtime;
+pub mod media_service;
 mod memory_service;
 pub mod opencode_session_service;
 pub mod pi_rpc_service;
@@ -70,6 +78,20 @@ mod worktree_service;
 // 调用方（usage_stats_service::wsl_scan_allowed）编译失败。
 pub mod wsl_discovery_service;
 
+pub use comfy::{
+    canonical_json, json_fingerprint, ComfyEvent, ComfyHistoryResult, ComfyObjectInfoResponse,
+    ComfyOutputRef, ComfyPromptNode, ComfyPromptResponse, ComfyWorkflow,
+    COMFY_OBJECT_INFO_SCHEMA_VERSION, COMFY_WORKFLOW_SCHEMA_VERSION,
+};
+pub use comfy_adapter::{
+    shared_comfy_adapter_cache, ComfyAdapterCache, ComfyAdapterProfile, ComfyInputRef,
+    ComfyMediaAdapter,
+};
+pub use comfy_events::{comfy_websocket_url, ComfyEventStream};
+pub use comfy_resources::{
+    ComfyDeviceInfo, ComfyMemoryReleaseResult, ComfySystemInfo, ComfySystemStats,
+    COMFY_SYSTEM_STATS_SCHEMA_VERSION,
+};
 pub use daemon_client::{
     app_instance_id, TerminalDaemonClient, TerminalDaemonManifest, TerminalDaemonStatus,
 };
@@ -88,6 +110,21 @@ pub use launch_history_service::{CreatedLaunchHistory, LaunchHistoryService};
 pub use launch_profile_service::LaunchProfileService;
 pub use layout_snapshot_service::LayoutSnapshotService;
 pub use mcp_config_service::McpConfigService;
+pub use media_probe::{
+    parse_ffprobe_json, MediaProbe, MediaProbeConfig, MediaProbeReport, MediaProbeStatus,
+    MEDIA_PROBE_EXECUTABLE_ENV,
+};
+pub use media_provider::{
+    apply_media_run_protocol, parse_openai_status_response, parse_openai_submit_response,
+    parse_openai_submit_response_for_kind, parse_status_response, parse_status_response_for_kind,
+    parse_submit_response, parse_submit_response_for_kind, registry_from_providers,
+    DownloadedAsset, MediaHttpMethod, MediaInputAsset, MediaJobStatus, MediaProtocol,
+    MediaProviderAdapter, MediaProviderCapabilities, MediaProviderFuture, MediaProviderProfile,
+    MediaProviderRegistry, NormalizedMediaRequest, OpenAiCompatibleMediaAdapter, RemoteJob,
+    RemoteJobError, RemoteJobStatus, RemoteOutput,
+};
+pub use media_runtime::{DeterministicMockMediaProvider, MediaJobWorker};
+pub use media_service::MediaService;
 pub use memory_service::MemoryService;
 pub use pi_rpc_service::{
     PiRpcCommandResponse, PiRpcEvent, PiRpcLaunchSpec, PiRpcService, PiRpcSessionPhase,

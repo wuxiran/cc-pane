@@ -3,6 +3,7 @@ pub use cc_panes_core::services::*;
 
 // Tauri-specific services (kept in src-tauri)
 mod browser_service;
+mod comfy_runtime;
 pub mod im_bridge;
 mod launch_backfill_service;
 mod notification_service;
@@ -29,6 +30,7 @@ mod web_access_lifecycle;
 pub use browser_service::{
     BrowserBounds, BrowserOpenTabEvent, BrowserSpikeReport, BrowserTabManager,
 };
+pub use comfy_runtime::{ComfyRuntimeService, ComfyRuntimeStatus, COMFY_LOCAL_PROVIDER_ID};
 pub use launch_backfill_service::rescue_null_codex_records;
 pub use launch_backfill_service::run_launch_history_backfill;
 pub(crate) use launch_backfill_service::{derive_project_name, detect_resume_session};

@@ -2,7 +2,8 @@
 // keep-alive 语义：每个视图首次访问时挂载，之后用 display:none 隐藏——切换是纯
 // display 翻转，不重建视图树（尤其终端 xterm），与布局切换器对非当前布局的处理同模式。
 // 终端在隐藏期间保持挂载；重新显示时 TerminalView 的 ResizeObserver 负责 refit。
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import Sidebar from "@/components/Sidebar";
 import SidebarTransition from "@/components/layout/SidebarTransition";
 import { PaneContainer } from "@/components/panes";
@@ -20,12 +21,19 @@ import LayoutTopBar from "@/components/layoutbar/LayoutTopBar";
 import MainWallpaperLayer from "@/components/layout/MainWallpaperLayer";
 import { useCanvasDisplayStore, usePanesStore, useActivityBarStore, useLayoutUiStore, useWallpaperStore, type AppViewMode } from "@/stores";
 import type { OpenTerminalOptions } from "@/types";
+import type { MediaStudioKind } from "@/stores/useMediaStudioStore";
+
+// Keep the media workspace out of the initial terminal module graph. Besides
+// reducing startup work, this lets the existing terminal-only test doubles and
+// lightweight web deployments omit media-specific dependencies until opened.
+const MediaStudio = lazy(() => import("@/components/media/MediaStudio"));
 
 interface MainViewSwitcherProps {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
 }
 
 export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherProps) {
+  const { t: mediaT } = useTranslation("media");
   const rootPane = usePanesStore((s) => s.rootPane);
   const layouts = usePanesStore((s) => s.layouts);
   const currentLayoutId = usePanesStore((s) => s.currentLayoutId);
@@ -35,6 +43,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
   const sidebarVisible = useActivityBarStore((s) => s.sidebarVisible);
   const activeView = useActivityBarStore((s) => s.activeView);
   const appViewMode = useActivityBarStore((s) => s.appViewMode);
+  const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
   const orchestrationOverlayOpen = useActivityBarStore((s) => s.orchestrationOverlayOpen);
   const closeOrchestrationOverlay = useActivityBarStore((s) => s.closeOrchestrationOverlay);
   // 原子字段 selector（布尔），不在 selector 里做对象解析
@@ -47,6 +56,8 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
     (activeView === "orchestration" && sidebarVisible);
   // orchestration 是"panes + overlay"的兼容态，不是独立全屏视图
   const effectiveAppViewMode = appViewMode === "orchestration" ? "panes" : appViewMode;
+  const mediaActive = effectiveAppViewMode === "imageGen" || effectiveAppViewMode === "videoGen";
+  const mediaKind: MediaStudioKind = effectiveAppViewMode === "videoGen" ? "video" : "image";
   // Todo 与 panes/files 共用同一个侧栏过渡容器，切换模块时宽度保持稳定。
   const shouldShowSidebar =
     sidebarVisible &&
@@ -113,6 +124,17 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
       {isMounted("providers") && (
         <div className="flex-1 overflow-hidden" style={viewStyle("providers")}>
           <ProvidersPanel />
+        </div>
+      )}
+      {/* 生图与生视频共用一个媒体工作区；类型切换只替换工作区内部的表单。 */}
+      {mediaActive && (
+        <div className="flex h-full min-w-0 flex-1 overflow-hidden" data-testid="media-workspace-shell">
+          <Suspense fallback={<div className="flex h-full w-full items-center justify-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>{mediaT("loadingMediaWorkspace")}</div>}>
+            <MediaStudio
+              kind={mediaKind}
+              onKindChange={(nextKind) => setAppViewMode(nextKind === "image" ? "imageGen" : "videoGen")}
+            />
+          </Suspense>
         </div>
       )}
       {/* Files 模式：文件编辑面板（侧边栏文件浏览器在上方共用 Sidebar） */}

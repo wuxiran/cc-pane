@@ -1,4 +1,4 @@
-import { Command, FolderTree, Settings } from "lucide-react";
+import { Command, FolderTree, ImagePlus, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import LayoutBar from "@/components/LayoutBar";
 import ModuleAddMenu from "@/components/modules/ModuleAddMenu";
@@ -192,6 +192,7 @@ export default function ActivityBar() {
   const sidebarVisible = useActivityBarStore((state) => state.sidebarVisible);
   const activityBarVisible = useActivityBarStore((state) => state.activityBarVisible);
   const toggleView = useActivityBarStore((state) => state.toggleView);
+  const toggleMediaMode = useActivityBarStore((state) => state.toggleMediaMode);
   const appViewMode = useActivityBarStore((state) => state.appViewMode);
   const orchestrationOverlayOpen = useActivityBarStore((state) => state.orchestrationOverlayOpen);
   const openSettings = useDialogStore((state) => state.openSettings);
@@ -250,6 +251,12 @@ export default function ActivityBar() {
               label={t("workspaces")}
               active={activeView === "explorer" && sidebarVisible && appViewMode === "panes"}
               onClick={() => toggleView("explorer")}
+            />
+            <ActivityBarIcon
+              icon={<ImagePlus className="h-[22px] w-[22px]" strokeWidth={1.5} />}
+              label={t("mediaGeneration")}
+              active={appViewMode === "imageGen" || appViewMode === "videoGen"}
+              onClick={toggleMediaMode}
             />
             {visibleModules.map((module) => {
               const Icon = module.icon;

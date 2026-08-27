@@ -906,6 +906,9 @@ mod tests {
             spec_service: Arc::new(SpecService::new(spec_repo, todo_service)),
             task_binding_service: Arc::new(TaskBindingService::new(task_binding_repo)),
             launch_history_service,
+            media_service: Arc::new(cc_panes_core::services::MediaService::new(Arc::new(
+                cc_panes_core::repository::MediaRepository::new(database.clone()),
+            ))),
             layout_snapshot_service: Arc::new(LayoutSnapshotService::new(database.clone())),
             launch_profile_service,
             quick_command_service: Arc::new(cc_panes_core::services::QuickCommandService::new(

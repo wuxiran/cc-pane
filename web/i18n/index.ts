@@ -18,6 +18,7 @@ import zhEditor from "./locales/zh-CN/editor.json";
 import zhProviders from "./locales/zh-CN/providers.json";
 import zhLauncher from "./locales/zh-CN/launcher.json";
 import zhCcchan from "./locales/zh-CN/ccchan.json";
+import zhMedia from "./locales/zh-CN/media.json";
 
 // en
 import enCommon from "./locales/en/common.json";
@@ -36,6 +37,7 @@ import enEditor from "./locales/en/editor.json";
 import enProviders from "./locales/en/providers.json";
 import enLauncher from "./locales/en/launcher.json";
 import enCcchan from "./locales/en/ccchan.json";
+import enMedia from "./locales/en/media.json";
 
 export const defaultNS = "common";
 export const resources = {
@@ -56,6 +58,7 @@ export const resources = {
     providers: zhProviders,
     launcher: zhLauncher,
     ccchan: zhCcchan,
+    media: zhMedia,
   },
   en: {
     common: enCommon,
@@ -74,6 +77,7 @@ export const resources = {
     providers: enProviders,
     launcher: enLauncher,
     ccchan: enCcchan,
+    media: enMedia,
   },
 } as const;
 
