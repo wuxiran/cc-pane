@@ -8,6 +8,9 @@
 //! ```
 //! `chat-uuid` 即 `agent --resume <id>` 可用的 resume id。
 
+// 只有 WSL 采集用得到，而那段是 Windows 专属——不门控的话非 Windows 上就是
+// unused import，clippy 的 -D warnings 直接判错（CI 的 ubuntu/macos 各挂一次）。
+#[cfg(windows)]
 use crate::utils::command::no_window_command;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -286,6 +289,11 @@ PY
     parse_serialized_sessions(&String::from_utf8_lossy(&output.stdout))
 }
 
+// 解析本身与平台无关，但唯一的生产调用方是上面那个 Windows 专属的 WSL 采集。
+// 非 Windows 上不门控就是 dead code，clippy 的 -D warnings 判错；带上 `test`
+// 是为了让这条纯解析的用例在所有平台都跑（CI 的 clippy 不带 --all-targets，
+// 只有 cargo test 会编测试代码）。
+#[cfg(any(windows, test))]
 fn parse_serialized_sessions(stdout: &str) -> Result<Vec<CursorSession>, String> {
     let mut sessions = Vec::new();
     for line in stdout.lines() {
