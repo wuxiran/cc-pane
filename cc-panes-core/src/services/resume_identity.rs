@@ -8,13 +8,13 @@
 ///
 /// - `manual`：用户手动指定，最高
 /// - `issued` / `osc-title`：确定性捕获（发号 / CLI 自报标题）
-/// - `rollout-scan` / `backfill` / `pi-session-file`：事后扫描反查，可能命中相邻会话
+/// - `rollout-scan` / `backfill` / `pi-session-file` / `cursor-chat-scan`：事后扫描反查，可能命中相邻会话
 /// - `rescue`：一次性补救，最弱
 pub fn source_priority(source: &str) -> u8 {
     match source {
         "manual" => 40,
         "issued" | "osc-title" => 30,
-        "rollout-scan" | "backfill" | "pi-session-file" => 10,
+        "rollout-scan" | "backfill" | "pi-session-file" | "cursor-chat-scan" => 10,
         "rescue" => 5,
         _ => 0,
     }
@@ -105,5 +105,14 @@ mod tests {
             source_priority("backfill")
         );
         assert!(!should_replace_source(Some("issued"), "pi-session-file"));
+    }
+
+    #[test]
+    fn cursor_chat_scan_matches_rollout_scan_priority() {
+        assert_eq!(
+            source_priority("cursor-chat-scan"),
+            source_priority("rollout-scan")
+        );
+        assert!(!should_replace_source(Some("issued"), "cursor-chat-scan"));
     }
 }

@@ -198,6 +198,16 @@ mod tests {
     }
 
     #[test]
+    fn cursor_is_dispatchable_with_mcp_after_user_config_injection() {
+        let plan = TaskDispatchService::default()
+            .plan(request(Some("cursor")))
+            .unwrap();
+        assert_eq!(plan.cli_tool, CliTool::Cursor);
+        assert!(plan.envelope.mcp.supported);
+        assert!(plan.envelope.mcp.can_report_result);
+    }
+
+    #[test]
     fn envelope_keeps_parent_and_resume_relationships() {
         let plan = TaskDispatchService::default()
             .plan(TaskDispatchRequest {

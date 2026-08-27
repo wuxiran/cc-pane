@@ -32,6 +32,41 @@ command = "/Users/me/.nvm/versions/node/v22.14.0/bin/claude"
 
 校验：禁换行、≤1024 字符、拒 `;` `|` 反引号 `$(`（`path_validator::validate_command`）。
 
+### Cursor Agent（`cliTool: "cursor"`）
+
+`launch_task` / `dispatch_task` 已支持 `cliTool: "cursor"`（与 claude/codex 同级编排）。
+
+| 项 | 说明 |
+|---|---|
+| 默认可执行 | 解析顺序：**override → `cursor-agent` → `agent`**；Windows 会扫 `%LOCALAPPDATA%\cursor-agent\`（`.cmd` 经 `cmd.exe /c` 进 PTY） |
+| override 示例 | `[cliLaunchers.overrides.cursor]` → `command = "C:\\Users\\…\\AppData\\Local\\cursor-agent\\cursor-agent.cmd"` |
+| 自动 flag | 编排启动始终带 `--trust`（跳过 Workspace Trust）与 `--approve-mcps` |
+| YOLO | 全局/会话 YOLO 开时映射为 `--force`（= `--yolo`，Run Everything，跳过 shell 审批） |
+| 模型 | `modelId` → `--model <id>`（如 `claude-fable-5-high`） |
+| 首 prompt | 位置参数注入；resume 用 `--resume <chatId>` |
+| MCP | 启动时 upsert `~/.cursor/mcp.json` → `mcpServers.ccpanes.url`（loopback + token；可带 launchId）。多并发会话共享 entry，**最后一次启动覆盖**。`skip_mcp` 会移除托管 entry |
+| print worker | `adapterOptions.print` 或 `headless` = true → `-p --output-format text` |
+| WSL | launch flags 已对齐；`list_resume_sessions(runtimeKind=wsl)` 扫发行版内 `~/.cursor/chats` |
+
+手测：`dispatch_task(projectPath=…, cliTool="cursor", prompt="只回复 cursor-cli-ok，不改文件")` 应开新 pane 且不再报 `not supported by launch_task yet`。
+
+Resume：
+- `list_resume_sessions(cliTool="cursor", projectPath=…)` 扫 chats meta
+- 新 launch 后台 `cursor-chat-scan` 自动把 chat uuid 写入 `launch_history.resume_session_id`
+
+### 能力矩阵（相对 Claude/Codex）
+
+| 能力 | 状态 | 说明 |
+|------|------|------|
+| launch/dispatch local | ✅ | |
+| `--trust` / YOLO `--force` / `--model` | ✅ | |
+| waitingInput / thinking / toolRunning | ✅ 弱 | PTY 短语启发式，非 OSC/hook |
+| `list_resume_sessions` local + WSL | ✅ | |
+| resume id → launch_history | ✅ | `cursor-chat-scan`（mtime/cwd 匹配，并发可能串） |
+| ccpanes MCP / report_to_leader | ✅ 弱 | 用户级 mcp.json；无 per-launch 隔离 |
+| print 无交互 worker | ✅ | `adapterOptions.print` |
+| issued session id / OSC 标题 | ❌ | Cursor CLI 无对等通道 |
+
 ## macOS "claude CLI not found" 排查顺序
 
 1. `cat ~/.cc-panes/cached_path`——看缓存的 PATH 里有没有装 CLI 的目录；没有该文件说明 app 从未成功抓过 shell PATH。

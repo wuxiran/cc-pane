@@ -34,6 +34,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 mod csi_mode_detect;
+mod cursor_chat_capture;
 mod osc_resume_capture;
 mod osc_state_detect;
 mod shell_integration;
@@ -3606,6 +3607,26 @@ impl TerminalService {
             )
         });
 
+        // Cursor：无 OSC/issued id，后台扫 ~/.cursor/chats meta.json 落 resume id。
+        // resume 路径已有 id 时不扫（避免把同 cwd 新 chat 绑到旧会话）。
+        let _cursor_chat_capture = (cli_tool == CliTool::Cursor
+            && resume_id.is_none()
+            && ssh.is_none())
+        .then(|| {
+            cursor_chat_capture::CursorChatCapture::start(
+                cursor_chat_capture::CursorChatCaptureContext {
+                    session_id: session_id.clone(),
+                    runtime_kind: runtime_kind.to_string(),
+                    launch_id: launch_id.map(str::to_string),
+                    project_path: project_path.to_string(),
+                    workspace_path: workspace_path.map(str::to_string),
+                    wsl_distro: wsl.and_then(|w| w.distro.clone()),
+                    launch_started_at,
+                },
+                emitter.clone(),
+            )
+        });
+
         // 启动读取线程（含状态检测 + UTF-8 安全）
         let sid = session_id.clone();
         let read_emitter = emitter.clone();
@@ -5387,6 +5408,19 @@ fn infer_status(output: &str) -> SessionStatus {
     // 先剥离 ANSI 转义序列，得到纯文本
     let clean = strip_ansi_escapes(output);
     let trimmed = clean.trim();
+    let tail_lower = terminal_tail_lower(trimmed, 2048);
+
+    // 优先级：waitingInput > toolRunning > thinking > 通用 prompt
+    // Cursor chrome 只匹配稳定文案，不碰 spinner 单帧（会抖动）。
+    if cursor_agent_waiting_input(&tail_lower) {
+        return SessionStatus::WaitingInput;
+    }
+    if cursor_agent_tool_running(&tail_lower) {
+        return SessionStatus::ToolRunning;
+    }
+    if cursor_agent_thinking(&tail_lower) {
+        return SessionStatus::Thinking;
+    }
 
     if let Some(last_line) = trimmed.lines().last() {
         let line = last_line.trim();
@@ -5417,6 +5451,61 @@ fn infer_status(output: &str) -> SessionStatus {
 
     // 默认为活跃
     SessionStatus::Active
+}
+
+fn terminal_tail_lower(clean: &str, max_bytes: usize) -> String {
+    let bytes = clean.as_bytes();
+    let start = bytes.len().saturating_sub(max_bytes);
+    let mut i = start;
+    while i < bytes.len() && (bytes[i] & 0b1100_0000) == 0b1000_0000 {
+        i += 1;
+    }
+    clean.get(i..).unwrap_or(clean).to_ascii_lowercase()
+}
+
+/// Cursor Agent TUI 等人提示（Workspace Trust / shell 审批 / 输入框）。
+fn cursor_agent_waiting_input(tail_lower: &str) -> bool {
+    const MARKERS: &[&str] = &[
+        "workspace trust",
+        "trust this workspace",
+        "trust the workspace",
+        "run everything",
+        "add to allowlist",
+        "command approval",
+        "needs your approval",
+        "waiting for approval",
+        "press a to trust",
+        "waiting for input",
+        "type a message",
+    ];
+    MARKERS.iter().any(|m| tail_lower.contains(m))
+}
+
+/// Cursor 工具执行中：只认完整短语，不认单独 "running"。
+fn cursor_agent_tool_running(tail_lower: &str) -> bool {
+    const MARKERS: &[&str] = &[
+        "running tool",
+        "calling tool",
+        "tool call",
+        "executing command",
+        "running command",
+        "shell: ",
+        "running shell",
+    ];
+    MARKERS.iter().any(|m| tail_lower.contains(m))
+}
+
+/// Cursor 思考中：避免单字 "thinking" 帧动画；要成短语。
+fn cursor_agent_thinking(tail_lower: &str) -> bool {
+    const MARKERS: &[&str] = &[
+        "thinking…",
+        "thinking...",
+        "reasoning…",
+        "reasoning...",
+        "planning next",
+        "considering",
+    ];
+    MARKERS.iter().any(|m| tail_lower.contains(m))
 }
 
 /// 获取 Windows Build Number（用于 xterm.js windowsPty 配置）
@@ -7957,6 +8046,39 @@ mod tests {
         assert_eq!(
             infer_status("Do you want to continue?"),
             SessionStatus::WaitingInput
+        );
+    }
+
+    #[test]
+    fn test_infer_status_cursor_workspace_trust() {
+        let raw = "Workspace Trust\nTrust this workspace to enable agent tools?\n  [a] Trust";
+        assert_eq!(infer_status(raw), SessionStatus::WaitingInput);
+    }
+
+    #[test]
+    fn test_infer_status_cursor_run_everything() {
+        let raw = "Shell command needs approval\n  npm test\n  [y] Allow  [tab] allowlist  [shift+tab] Run Everything";
+        assert_eq!(infer_status(raw), SessionStatus::WaitingInput);
+    }
+
+    #[test]
+    fn test_infer_status_cursor_thinking_and_tool() {
+        assert_eq!(
+            infer_status("Still working\nThinking..."),
+            SessionStatus::Thinking
+        );
+        assert_eq!(
+            infer_status("Calling tool Shell\nrunning tool: Bash"),
+            SessionStatus::ToolRunning
+        );
+    }
+
+    #[test]
+    fn test_infer_status_cursor_markers_do_not_fire_on_unrelated() {
+        // 普通工作输出不应被 Cursor chrome 短语误判
+        assert_eq!(
+            infer_status("compiling cursor module...\nrunning tests"),
+            SessionStatus::Active
         );
     }
 

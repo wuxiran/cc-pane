@@ -5,6 +5,7 @@ pub mod comfy;
 pub mod comfy_adapter;
 pub mod comfy_events;
 pub mod comfy_resources;
+pub mod cursor_session_service;
 mod ctl_sidecar;
 mod daemon_client;
 pub mod default_skill_service;

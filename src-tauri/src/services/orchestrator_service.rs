@@ -3345,7 +3345,7 @@ struct McpListClaudeSessionsParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct McpListResumeSessionsParams {
-    /// CLI 工具类型：`"claude"` | `"codex"` | `"opencode"`，默认 `"claude"`
+    /// CLI 工具类型：`"claude"` | `"codex"` | `"opencode"` | `"cursor"`，默认 `"claude"`
     #[serde(rename = "cliTool")]
     cli_tool: Option<String>,
     /// 运行环境：`"local"` | `"wsl"`，默认 `"local"`
@@ -7352,7 +7352,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 查询指定 CLI 的历史会话列表（Claude/Codex/OpenCode）。
+    /// 查询指定 CLI 的历史会话列表（Claude/Codex/OpenCode/Cursor）。
     /// 返回 sessionId（可用作 launch_task 的 resumeId）、description、modifiedAt、projectPath、cliTool。
     #[tool]
     async fn list_resume_sessions(
@@ -7451,6 +7451,42 @@ impl McpToolHandler {
                                 "modifiedAt": session.modified_at,
                                 "description": session.description,
                                 "cliTool": "opencode",
+                                "runtimeKind": runtime_kind,
+                                "wslDistro": params.wsl_distro,
+                            })
+                        })
+                        .collect()
+                })
+            }
+            "cursor" => {
+                let sessions = if runtime_kind == "wsl" {
+                    if let Some(ref project_path) = params.project_path {
+                        crate::services::cursor_session_service::list_wsl_sessions(
+                            project_path,
+                            limit,
+                            params.wsl_distro.as_deref(),
+                        )
+                    } else {
+                        crate::services::cursor_session_service::list_all_wsl_sessions(
+                            limit,
+                            params.wsl_distro.as_deref(),
+                        )
+                    }
+                } else if let Some(ref project_path) = params.project_path {
+                    crate::services::cursor_session_service::list_sessions(project_path, limit)
+                } else {
+                    crate::services::cursor_session_service::list_all_sessions(limit)
+                };
+                sessions.map(|items| {
+                    items
+                        .into_iter()
+                        .map(|session| {
+                            serde_json::json!({
+                                "sessionId": session.id,
+                                "projectPath": session.project_path,
+                                "modifiedAt": session.modified_at,
+                                "description": session.description,
+                                "cliTool": "cursor",
                                 "runtimeKind": runtime_kind,
                                 "wslDistro": params.wsl_distro,
                             })
@@ -16444,6 +16480,7 @@ mod tests {
             ("opencode", CliTool::Opencode),
             ("grok", CliTool::Grok),
             ("pi", CliTool::Pi),
+            ("cursor", CliTool::Cursor),
         ] {
             assert_eq!(
                 parse_launch_cli_tool(&registry, Some(id)).unwrap(),
@@ -16454,6 +16491,10 @@ mod tests {
             parse_launch_cli_tool(&registry, Some("  CoDeX ")).unwrap(),
             CliTool::Codex
         );
+        assert_eq!(
+            parse_launch_cli_tool(&registry, Some("  CuRsOr ")).unwrap(),
+            CliTool::Cursor
+        );
     }
 
     #[test]
@@ -16463,8 +16504,9 @@ mod tests {
         let glm = parse_launch_cli_tool(&registry, Some("glm")).unwrap_err();
         assert!(kimi.contains("not supported by launch_task yet"));
         assert!(glm.contains("not supported by launch_task yet"));
-        // opencode 现已放行，不应再被拒绝
+        // opencode / cursor 现已放行，不应再被拒绝
         assert!(parse_launch_cli_tool(&registry, Some("opencode")).is_ok());
+        assert!(parse_launch_cli_tool(&registry, Some("cursor")).is_ok());
     }
 
     /// `none` 与未注册 id 都必须报「未知」，不能因为 `from_id("none")` 能解析
@@ -16482,12 +16524,12 @@ mod tests {
         );
     }
 
-    /// 准入白名单从硬编码换成 registry 能力位后，四个历史拒绝项必须**逐个**
-    /// 保持被拒。此前只断言了 kimi/glm，gemini/cursor 静默放行也测不出来。
+    /// 准入白名单从硬编码换成 registry 能力位后，仍未验证编排链路的 CLI 必须
+    /// **逐个**保持被拒。cursor 已在 0.12.x 放行，不再列入。
     #[test]
-    fn test_parse_launch_cli_tool_keeps_all_four_legacy_rejections() {
+    fn test_parse_launch_cli_tool_keeps_remaining_legacy_rejections() {
         let registry = CliToolRegistry::with_builtin_adapters();
-        for tool in ["kimi", "glm", "gemini", "cursor"] {
+        for tool in ["kimi", "glm", "gemini"] {
             let error = parse_launch_cli_tool(&registry, Some(tool))
                 .expect_err(&format!("{tool} must stay rejected"));
             assert!(

@@ -1724,10 +1724,26 @@ impl TerminalService {
                 cli_args.push(prompt.to_string());
             }
         } else if cli_tool == CliTool::Cursor {
+            // 与本地 cursor.rs 对齐：trust / workspace / yolo(--force) / extraArgs / prompt
+            if !cli_args.iter().any(|arg| arg == "--trust") {
+                cli_args.push("--trust".to_string());
+            }
+            if !cli_args.iter().any(|arg| arg == "--workspace") {
+                cli_args.push("--workspace".to_string());
+                cli_args.push(launch_cwd.to_string());
+            }
+            if !cli_args.iter().any(|arg| arg == "--approve-mcps") {
+                cli_args.push("--approve-mcps".to_string());
+            }
             if let Some(resume_id) = resume_id {
                 cli_args.push("--resume".to_string());
                 cli_args.push(resume_id.to_string());
             }
+            if yolo_mode && !cli_args.iter().any(|arg| arg == "--force" || arg == "--yolo")
+            {
+                cli_args.push("--force".to_string());
+            }
+            cli_args.extend(cc_cli_adapters::extra_args_from_options(adapter_options));
             if let Some(prompt) = initial_prompt {
                 cli_args.push(prompt.to_string());
             }

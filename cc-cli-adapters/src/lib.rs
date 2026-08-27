@@ -425,6 +425,9 @@ fn windows_user_cli_dirs(home: &Path, grok_home: Option<&std::ffi::OsStr>) -> Ve
         // omp.sh's PowerShell installer drops the standalone omp.exe here and
         // only appends the directory to the persisted user PATH.
         home.join("AppData").join("Local").join("omp"),
+        // Cursor Agent CLI installer: `%LOCALAPPDATA%\cursor-agent\cursor-agent.cmd`
+        // （同目录还有 `agent.cmd`）。安装器不一定把该目录写入桌面 app 继承的 PATH。
+        home.join("AppData").join("Local").join("cursor-agent"),
     ];
     if let Some(grok_home) = grok_home {
         let path = PathBuf::from(grok_home);
@@ -1076,6 +1079,37 @@ impl CliAdapterContext {
                 .into_owned()
         };
         Ok(rewrite_windows_npm_shim(command, args))
+    }
+
+    /// 按优先级解析可执行名：用户 override 永远优先；否则依次尝试
+    /// `executables`，第一个能解析的胜出。用于 `cursor-agent` → `agent` 这类
+    /// 同 CLI 多入口。
+    pub fn resolve_launch_first_of(
+        &self,
+        executables: &[&str],
+        args: Vec<String>,
+    ) -> Result<(String, Vec<String>)> {
+        if let Some(command) = self.resolved_override() {
+            return Ok(rewrite_windows_npm_shim(command, args));
+        }
+        let mut last_err: Option<anyhow::Error> = None;
+        for name in executables {
+            match resolve_executable(name) {
+                Ok(path) => {
+                    return Ok(rewrite_windows_npm_shim(
+                        path.to_string_lossy().into_owned(),
+                        args,
+                    ));
+                }
+                Err(err) => last_err = Some(err),
+            }
+        }
+        Err(last_err.unwrap_or_else(|| {
+            anyhow::anyhow!(
+                "CLI not found; tried: {}",
+                executables.join(", ")
+            )
+        }))
     }
 }
 
