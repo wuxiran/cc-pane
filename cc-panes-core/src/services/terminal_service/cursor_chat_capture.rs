@@ -38,7 +38,10 @@ impl CursorChatCapture {
         let done = Arc::new(AtomicBool::new(false));
         let done_flag = done.clone();
         std::thread::Builder::new()
-            .name(format!("cursor-chat-scan-{}", &ctx.session_id[..8.min(ctx.session_id.len())]))
+            .name(format!(
+                "cursor-chat-scan-{}",
+                &ctx.session_id[..8.min(ctx.session_id.len())]
+            ))
             .spawn(move || {
                 run_scan(ctx, emitter, done_flag);
             })
@@ -47,11 +50,7 @@ impl CursorChatCapture {
     }
 }
 
-fn run_scan(
-    ctx: CursorChatCaptureContext,
-    emitter: Arc<dyn EventEmitter>,
-    done: Arc<AtomicBool>,
-) {
+fn run_scan(ctx: CursorChatCaptureContext, emitter: Arc<dyn EventEmitter>, done: Arc<AtomicBool>) {
     for attempt in 1..=MAX_ATTEMPTS {
         if done.load(Ordering::Relaxed) {
             return;

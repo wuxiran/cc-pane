@@ -1317,9 +1317,11 @@ impl MediaService {
             .or_else(|| output.metadata.get("assetRole"))
             .and_then(|value| value.as_str())
             .is_some_and(|value| value.eq_ignore_ascii_case("poster"));
-        if !mime_type.starts_with(expected_prefix)
-            && !(node.kind == MediaKind::Video && is_poster && mime_type.starts_with("image/"))
-        {
+        // video 节点允许带 image 海报，这是唯一的跨类型例外。
+        let is_video_poster =
+            node.kind == MediaKind::Video && is_poster && mime_type.starts_with("image/");
+        let mime_accepted = mime_type.starts_with(expected_prefix) || is_video_poster;
+        if !mime_accepted {
             return Err(AppError::coded(
                 "MEDIA_MIME_INVALID",
                 "provider output MIME type does not match the media node",

@@ -74,7 +74,11 @@ impl CursorAdapter {
         let mut url = format!("http://127.0.0.1:{}/mcp?token={}", port, token);
         // 与 Claude 对齐：带 launchId 让 orchestrator 识别 caller。
         // 代价：用户级单 entry，多并发 cursor 会话最后一次启动覆盖（文档已说明）。
-        if let Some(launch_id) = ctx.launch_id.as_deref().map(str::trim).filter(|s| !s.is_empty())
+        if let Some(launch_id) = ctx
+            .launch_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
         {
             url.push_str("&launchId=");
             url.push_str(launch_id);
@@ -144,9 +148,8 @@ impl CursorAdapter {
         let mut root: serde_json::Value = if original.trim().is_empty() {
             serde_json::json!({})
         } else {
-            serde_json::from_str(&original).with_context(|| {
-                format!("failed to parse Cursor mcp.json {}", path.display())
-            })?
+            serde_json::from_str(&original)
+                .with_context(|| format!("failed to parse Cursor mcp.json {}", path.display()))?
         };
         let servers = root
             .as_object_mut()
@@ -217,10 +220,7 @@ impl CursorAdapter {
         }
         let original = fs::read_to_string(path)?;
         let mut root: serde_json::Value = serde_json::from_str(&original)?;
-        let Some(servers) = root
-            .get_mut("mcpServers")
-            .and_then(|v| v.as_object_mut())
-        else {
+        let Some(servers) = root.get_mut("mcpServers").and_then(|v| v.as_object_mut()) else {
             return Ok(false);
         };
         let managed = servers
@@ -392,8 +392,7 @@ impl CliToolAdapter for CursorAdapter {
             }
         }
 
-        let (command, args) =
-            ctx.resolve_launch_first_of(&["cursor-agent", "agent"], args)?;
+        let (command, args) = ctx.resolve_launch_first_of(&["cursor-agent", "agent"], args)?;
 
         info!(
             session_id = %ctx.session_id,
@@ -573,9 +572,7 @@ mod tests {
         )
         .unwrap();
         assert!(!changed);
-        assert!(fs::read_to_string(&path)
-            .unwrap()
-            .contains("example.com"));
+        assert!(fs::read_to_string(&path).unwrap().contains("example.com"));
     }
 
     #[test]
@@ -598,7 +595,9 @@ mod tests {
         assert!(CursorAdapter::is_ccpanes_mcp_url(
             "http://127.0.0.1:1/mcp?token=a"
         ));
-        assert!(!CursorAdapter::is_ccpanes_mcp_url("https://example.com/mcp"));
+        assert!(!CursorAdapter::is_ccpanes_mcp_url(
+            "https://example.com/mcp"
+        ));
     }
 
     #[test]

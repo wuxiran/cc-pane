@@ -3609,23 +3609,21 @@ impl TerminalService {
 
         // Cursor：无 OSC/issued id，后台扫 ~/.cursor/chats meta.json 落 resume id。
         // resume 路径已有 id 时不扫（避免把同 cwd 新 chat 绑到旧会话）。
-        let _cursor_chat_capture = (cli_tool == CliTool::Cursor
-            && resume_id.is_none()
-            && ssh.is_none())
-        .then(|| {
-            cursor_chat_capture::CursorChatCapture::start(
-                cursor_chat_capture::CursorChatCaptureContext {
-                    session_id: session_id.clone(),
-                    runtime_kind: runtime_kind.to_string(),
-                    launch_id: launch_id.map(str::to_string),
-                    project_path: project_path.to_string(),
-                    workspace_path: workspace_path.map(str::to_string),
-                    wsl_distro: wsl.and_then(|w| w.distro.clone()),
-                    launch_started_at,
-                },
-                emitter.clone(),
-            )
-        });
+        let _cursor_chat_capture =
+            (cli_tool == CliTool::Cursor && resume_id.is_none() && ssh.is_none()).then(|| {
+                cursor_chat_capture::CursorChatCapture::start(
+                    cursor_chat_capture::CursorChatCaptureContext {
+                        session_id: session_id.clone(),
+                        runtime_kind: runtime_kind.to_string(),
+                        launch_id: launch_id.map(str::to_string),
+                        project_path: project_path.to_string(),
+                        workspace_path: workspace_path.map(str::to_string),
+                        wsl_distro: wsl.and_then(|w| w.distro.clone()),
+                        launch_started_at,
+                    },
+                    emitter.clone(),
+                )
+            });
 
         // 启动读取线程（含状态检测 + UTF-8 安全）
         let sid = session_id.clone();

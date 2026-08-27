@@ -1739,7 +1739,10 @@ impl TerminalService {
                 cli_args.push("--resume".to_string());
                 cli_args.push(resume_id.to_string());
             }
-            if yolo_mode && !cli_args.iter().any(|arg| arg == "--force" || arg == "--yolo")
+            if yolo_mode
+                && !cli_args
+                    .iter()
+                    .any(|arg| arg == "--force" || arg == "--yolo")
             {
                 cli_args.push("--force".to_string());
             }

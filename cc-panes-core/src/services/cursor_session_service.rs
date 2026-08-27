@@ -281,10 +281,7 @@ PY
         .map_err(|e| format!("WSL cursor session scan failed: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "WSL cursor session scan failed: {}",
-            stderr.trim()
-        ));
+        return Err(format!("WSL cursor session scan failed: {}", stderr.trim()));
     }
     parse_serialized_sessions(&String::from_utf8_lossy(&output.stdout))
 }

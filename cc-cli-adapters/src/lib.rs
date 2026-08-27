@@ -1104,12 +1104,8 @@ impl CliAdapterContext {
                 Err(err) => last_err = Some(err),
             }
         }
-        Err(last_err.unwrap_or_else(|| {
-            anyhow::anyhow!(
-                "CLI not found; tried: {}",
-                executables.join(", ")
-            )
-        }))
+        Err(last_err
+            .unwrap_or_else(|| anyhow::anyhow!("CLI not found; tried: {}", executables.join(", "))))
     }
 }
 
