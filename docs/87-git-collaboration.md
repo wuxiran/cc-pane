@@ -20,7 +20,7 @@ main                    稳定线：永远指向最近一次正式发版（或�
 | `release/*` | 维护者 | 从 `dev/v*`（或 main）切出 | 发版后合回 main 即冻结 |
 | `feat/* fix/*` | 作者 | — | 合并后删除 |
 
-**当前活跃**：`dev/v0.12.4`（日常开发都往这提）。v0.12.3 已于 2026-08-10 发布并合入 main。
+**当前活跃**：`dev/v0.12.9`（日常开发都往这提）。v0.12.8 已于 2026-08-26 发布并合入 main。
 
 ## 核心规则
 
@@ -55,8 +55,14 @@ PR 显示 MERGED 但目标是 `release/*` 或 `dev/*` 时，改动要等发版�
      并 `npx -y npm@10 ci --dry-run` 验证（本地 npm 11 的 lock 会挂 CI）
    ⚠ 提交用精确文件清单 add，禁 `git add -A`——并行会话可能有半成品在工作树
 4. 等该提交的 CI 全绿 → 打 tag `vX.Y.Z` 推送 → Release workflow 起飞
-5. 产物核对：latest.json 的 darwin 条目是否齐全（并行写竞态未修，
-   缺了跑 backfill-macos-updater）
+5. 产物核对：下载 latest.json 看 platforms 五个键齐不齐（darwin-x86_64 /
+   darwin-aarch64 / linux-x86_64 / windows-x86_64 / windows-aarch64）
+   ⚠ 竞态本身已修：各 build job 设 includeUpdaterJson: false 只产元数据，
+     由串行的 publish-updater-json（needs: build）作为唯一写者从零构建
+   ⚠ 但仍要核对——该 job 带 if: !cancelled()，部分平台构建失败时会发布
+     **残缺清单**并只打 ::warning::，run 页面照样是绿的
+   ⚠ 别只看 job 绿不绿，要看 json 实际内容；缺 darwin 跑 backfill-macos-updater
+   （v0.12.8 实测基线：五个键齐全 + 6 个 bundle 别名，签名均在）
 6. `git checkout main && git merge --ff-only release/X.Y.Z && git push`
 7. 开下个 dev/v* 分支
 ```
