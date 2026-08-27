@@ -4,6 +4,24 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.12.9 - 2026-08-27
+
+Canvas grows a second kind of node: media. Alongside it, Cursor becomes a first-class CLI rather than one that merely launches, and the terminal stops fighting xterm over the mouse wheel.
+
+### Added
+
+- **Media generation on the canvas** — image and video nodes live in the existing terminal-area canvas next to terminal nodes, sharing drag, zoom, snapshot and event state. Node bodies are plain DOM `img` / `video` so browser-native decoding, pause, volume and accessibility all keep working, and no frame is ever copied through a canvas layer; SVG only draws the edges between nodes. A node and a run are separate records, so the same node can be regenerated repeatedly and keep its history, and providers declare their operations, input ports and output types through a capability registry instead of everyone assuming one API shape. Job state is owned by the service layer — leases, restart recovery, timeouts, retries and `clientRequestId` idempotency — and downstream nodes never auto-chain: a run happens because you asked for it. Canvas snapshots move to v2 (positions, sizes and view settings only; nodes, runs, assets and edges are SQLite-sourced) while still reading v1. Design notes in `docs/22-media-generation-canvas-plan.md`.
+- **Cursor is now orchestrable, not just launchable** — resume ids reach `launch_history` (a background scan of `~/.cursor/chats/**/meta.json`, since Cursor cannot be handed a session id up front the way Claude can), the `ccpanes` MCP server is registered into `~/.cursor/mcp.json` at launch with url/token/launchId, status inference reads only conservative phrases (never a spinner frame, which redraws every tick and changes between versions), WSL resume listing works, and `-p --output-format text` makes Cursor usable as a print worker. Until now every one of those was missing, which meant Cursor appeared in the launcher but could not participate in any of the dispatch flows.
+
+### Fixed
+
+- **The terminal was fighting xterm over the mouse wheel** — a hand-rolled handler converted wheel events into `ESC[A`/`ESC[B` in the alternate buffer, which xterm 6.0 already does, and does better: it gates on whether the application asked for wheel mouse reports, and it encodes for DECCKM (`ESC O A` when application cursor keys are on). Ours did neither, and it listened on the same element xterm binds to — `stopPropagation()` does not stop other listeners on the same node — so both ran on every wheel tick. Applications with mouse reporting on (grok, opencode) received a real SGR mouse report *plus* stray arrow keys; applications without it (codex, vim) received two arrows instead of one. In grok's plan-approval view the stray arrows landed on the prompt, where keyboard focus sits, and paged through input history instead of scrolling the plan. The handler is deleted; wheel handling is xterm's again.
+- **Unavailable CLIs were still offered in the sidebar launch menu.**
+
+### Changed
+
+- **Fullscreen TUIs get their full wheel distance back** — xterm damps small pixel deltas before emitting a mouse report, so a TUI that scrolls itself would only move a line per notch. Wheel distance is now resolved into a row count and replayed as that many line-mode wheel events, with the three input kinds handled separately because they mean different things physically: notched wheels get logarithmic compression plus a burst bonus, trackpad pixel streams map 1:1 with the sub-row remainder carried (compressing them would distort inertial scrolling; dropping the remainder would make slow drags scroll nothing at all), and line/page modes are already row counts. This runs through xterm's official `attachCustomWheelEventHandler` rather than a competing listener, and stands down for three cases: no mouse reporting, `Shift` held (the conventional bypass gesture), and its own replayed events.
+
 ## 0.12.8 - 2026-08-26
 
 Canvas Mode arrives — a spatial view of what the agents are actually saying to each other — alongside four defects that all share one shape: the feature was there, the UI said it was working, and nothing ever logged an error, so each had been running broken for a long time. Three of them share a single cause: **a boundary nobody re-checked after the process split.** Shared MCP servers are started by the app but sessions are created by the daemon, so the injection table was always empty; the ACK queue drained itself with an unconditional notify, so one acknowledgement pinned a whole tokio worker at 100% forever; and stdio MCP servers were handed a null stdin, which is how they are told to exit.
