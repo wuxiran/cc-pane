@@ -32,6 +32,15 @@
     { "name": "cross-layer-check", "file": "cross-layer-check.md", "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "piSkill"], "requiresCcpanesMcp": false } },
     { "name": "memory-dual-write", "file": "memory-dual-write.md", "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true } },
     { "name": "recall", "file": "recall.md" },
-    { "name": "notify-done", "file": "notify-done.md" }
+    { "name": "notify-done", "file": "notify-done.md" },
+    {
+      "name": "cursor-handoff",
+      "file": "cursor-handoff.md",
+      "delivery": {
+        "portable": true,
+        "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"],
+        "requiresCcpanesMcp": false
+      }
+    }
   ]
 }
