@@ -40,9 +40,12 @@ export function useNewTabActions(paneId: string, activeTab: Tab | undefined) {
     openDsh(projectPath || undefined, workspacePath || undefined, { paneId });
   }, [paneId, projectPath, openDsh]);
 
-  // Agent Chat 的 cwd 取当前标签的项目路径；没有也能开（引擎选择页会提示）。
+  // Agent Chat 的 cwd：当前标签项目路径 → 当前工作空间路径 → 空（引擎选择页
+  // 提供目录选择器兜底）。workspace 取法与 handleAddDsh 同一先例（getState()，
+  // 不进 selector——selectedWorkspace() 每次返回新对象会崩页）。
   const handleAddAgentChat = useCallback(() => {
-    openAgentChat(projectPath || undefined, { paneId });
+    const workspacePath = useWorkspacesStore.getState().selectedWorkspace()?.path;
+    openAgentChat(projectPath || workspacePath || undefined, { paneId });
   }, [paneId, projectPath, openAgentChat]);
 
   const handleAddFile = useCallback(async () => {

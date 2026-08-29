@@ -115,6 +115,46 @@ describe("useAgentChatStore", () => {
     );
   });
 
+  it("available_commands_update 整表替换命令目录", () => {
+    const store = useAgentChatStore.getState();
+    store.applySessionUpdate(CHAT, {
+      update: {
+        sessionUpdate: "available_commands_update",
+        availableCommands: [{ name: "compact", description: "压缩上下文" }],
+      },
+    });
+    store.applySessionUpdate(CHAT, {
+      update: {
+        sessionUpdate: "available_commands_update",
+        availableCommands: [{ name: "review" }],
+      },
+    });
+    const commands = useAgentChatStore.getState().chats[CHAT].availableCommands;
+    expect(commands).toHaveLength(1);
+    expect(commands[0].name).toBe("review");
+  });
+
+  it("回放期（非 generating）收下 user_message_chunk，活回合丢弃", () => {
+    const store = useAgentChatStore.getState();
+    // 回放：starting 相位（或无快照）→ 入列
+    store.applySessionUpdate(CHAT, {
+      update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: "历史消息" } },
+    });
+    expect(
+      useAgentChatStore.getState().chats[CHAT].items.filter((item) => item.type === "user"),
+    ).toHaveLength(1);
+    // 活回合：generating 相位 → 回显丢弃
+    store.setSnapshot(CHAT, snapshot({ phase: "generating" }));
+    store.applySessionUpdate(CHAT, {
+      update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: "回显" } },
+    });
+    const users = useAgentChatStore
+      .getState()
+      .chats[CHAT].items.filter((item) => item.type === "user");
+    expect(users).toHaveLength(1);
+    expect(users[0].type === "user" && users[0].text).toBe("历史消息");
+  });
+
   it("快照错误只在变化时进消息流一次", () => {
     const store = useAgentChatStore.getState();
     store.setSnapshot(CHAT, snapshot({ phase: "failed", error: "boom" }));

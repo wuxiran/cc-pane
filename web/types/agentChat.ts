@@ -7,6 +7,29 @@
 /** 会话进程相位（Rust AcpChatPhase 的镜像）。 */
 export type AcpChatPhase = "starting" | "ready" | "generating" | "exited" | "failed";
 
+/** ACP SessionMode（id 必有，name/description 尽力）。 */
+export interface AcpSessionMode {
+  id: string;
+  name?: string;
+  description?: string;
+}
+
+export interface AcpSessionModeState {
+  currentModeId?: string;
+  availableModes?: AcpSessionMode[];
+}
+
+export interface AcpSessionModel {
+  modelId: string;
+  name?: string;
+  description?: string;
+}
+
+export interface AcpSessionModelState {
+  currentModelId?: string;
+  availableModels?: AcpSessionModel[];
+}
+
 /** Rust AcpChatSnapshot 的镜像。 */
 export interface AcpChatSnapshot {
   chatId: string;
@@ -14,6 +37,12 @@ export interface AcpChatSnapshot {
   phase: AcpChatPhase;
   acpSessionId?: string;
   agentCapabilities?: unknown;
+  /** initialize 协商出的 ACP 协议版本（当前恒 1；v2 适配时的分叉依据）。 */
+  protocolVersion?: number;
+  /** 会话模式（审批行为/plan 等），引擎不广告时缺失。 */
+  modes?: AcpSessionModeState;
+  /** 模型选择，引擎不广告时缺失。 */
+  models?: AcpSessionModelState;
   exitCode?: number;
   error?: string;
 }
@@ -103,11 +132,36 @@ export interface AcpPermissionRequest {
   };
 }
 
+/** agent 广告的斜杠命令（available_commands_update）。 */
+export interface AcpAvailableCommand {
+  name: string;
+  description?: string;
+  input?: unknown;
+}
+
+/** 会话历史元数据（Rust list_chat_history 的条目镜像）。 */
+export interface AcpChatHistoryEntry {
+  acpSessionId: string;
+  engineId: string;
+  cwd: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 发送附件（图片粘贴）。data 为 base64（不带 dataURL 前缀）。 */
+export interface AgentChatAttachment {
+  name: string;
+  mimeType: string;
+  data: string;
+}
+
 /** 渲染层消息条目。tool_call 按 toolCallId 就地合并；plan 整表替换。 */
 export type AgentChatItem =
-  | { type: "user"; id: string; text: string }
+  | { type: "user"; id: string; text: string; attachmentLabels?: string[] }
   | { type: "assistant"; id: string; text: string }
   | { type: "thought"; id: string; text: string }
+  | { type: "image"; id: string; mimeType: string; data: string }
   | { type: "tool_call"; id: string; call: AcpToolCall }
   | { type: "plan"; id: string; entries: AcpPlanEntry[] }
   | { type: "notice"; id: string; text: string };

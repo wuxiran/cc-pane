@@ -1,5 +1,7 @@
-// ACP 工具调用卡片：折叠头（图标 + 标题 + 状态）+ 展开区（入参 / 产出 / diff）。
-import { useState } from "react";
+// ACP 工具调用卡片：折叠头（图标 + 标题 + 状态）+ 展开区（入参 / 产出 / diff /
+// 文件位置）。diff 展开后走 Local History 的 diff 引擎（compute_text_diff）
+// 渲染行级 DiffView；计算是惰性的——只有展开的卡片才发一次请求。
+import { useEffect, useState } from "react";
 import {
   Brain,
   Check,
@@ -8,6 +10,7 @@ import {
   FileText,
   Globe2,
   Loader2,
+  MapPin,
   MoveRight,
   Pencil,
   Search,
@@ -18,6 +21,10 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { AcpToolCall, AcpToolCallContent } from "@/types/agentChat";
+import { computeTextDiff } from "@/services/agentChatService";
+import type { DiffResult } from "@/services/localHistoryService";
+import { handleErrorSilent } from "@/utils/errorHandler";
+import DiffView from "@/components/DiffView";
 
 const KIND_ICON: Record<string, LucideIcon> = {
   read: FileText,
@@ -53,23 +60,73 @@ function stringifyCompact(value: unknown): string {
   }
 }
 
+/** diff 块：惰性计算行级 diff；引擎不可用时回落 old/new 两段叠色。 */
+function DiffBlockView({ block }: { block: AcpToolCallContent }) {
+  const [diff, setDiff] = useState<DiffResult | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const oldText = block.oldText ?? "";
+  const newText = block.newText ?? "";
+
+  useEffect(() => {
+    let cancelled = false;
+    setDiff(null);
+    setFailed(false);
+    computeTextDiff(oldText, newText)
+      .then((result) => {
+        if (!cancelled) setDiff(result);
+      })
+      .catch((error) => {
+        handleErrorSilent(error, "compute acp tool diff");
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [oldText, newText]);
+
+  return (
+    <div className="rounded border border-[var(--app-border)] overflow-hidden">
+      <div className="px-2 py-1 text-[11px] font-mono bg-[var(--app-hover)] text-[var(--app-icon-inactive)]">
+        diff · {block.path ?? ""}
+      </div>
+      {failed ? (
+        <>
+          {block.oldText ? (
+            <pre className="px-2 py-1 text-[11px] font-mono whitespace-pre-wrap break-all bg-[var(--app-status-danger-bg)] text-[var(--app-status-danger)] max-h-40 overflow-auto">
+              {block.oldText}
+            </pre>
+          ) : null}
+          <pre className="px-2 py-1 text-[11px] font-mono whitespace-pre-wrap break-all bg-[var(--app-status-success-bg)] text-[var(--app-status-success)] max-h-60 overflow-auto">
+            {newText}
+          </pre>
+        </>
+      ) : (
+        <div className="max-h-80 overflow-auto">
+          <DiffView diff={diff} loading={diff === null} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ContentBlockView({ block }: { block: AcpToolCallContent }) {
   if (block.type === "diff") {
-    return (
-      <div className="rounded border border-[var(--app-border)] overflow-hidden">
-        <div className="px-2 py-1 text-[11px] font-mono bg-[var(--app-hover)] text-[var(--app-icon-inactive)]">
-          diff · {block.path ?? ""}
-        </div>
-        {block.oldText ? (
-          <pre className="px-2 py-1 text-[11px] font-mono whitespace-pre-wrap break-all bg-[var(--app-status-danger-bg)] text-[var(--app-status-danger)] max-h-40 overflow-auto">
-            {block.oldText}
-          </pre>
-        ) : null}
-        <pre className="px-2 py-1 text-[11px] font-mono whitespace-pre-wrap break-all bg-[var(--app-status-success-bg)] text-[var(--app-status-success)] max-h-60 overflow-auto">
-          {block.newText ?? ""}
-        </pre>
-      </div>
-    );
+    return <DiffBlockView block={block} />;
+  }
+  // 工具产出里的图片块（截图类工具常见）真渲染。
+  if (block.type === "content" && block.content?.type === "image") {
+    const image = block.content as { data?: unknown; mimeType?: unknown };
+    if (typeof image.data === "string" && image.data) {
+      const mime = typeof image.mimeType === "string" ? image.mimeType : "image/png";
+      return (
+        <img
+          src={`data:${mime};base64,${image.data}`}
+          alt="tool output"
+          className="max-h-80 max-w-full rounded border border-[var(--app-border)]"
+        />
+      );
+    }
   }
   const text =
     block.type === "content"
@@ -83,11 +140,29 @@ function ContentBlockView({ block }: { block: AcpToolCallContent }) {
   );
 }
 
-export default function ToolCallCard({ call }: { call: AcpToolCall }) {
+interface ToolCallCardProps {
+  call: AcpToolCall;
+  /** 位置 chip 点击时打开文件（由标签内容组件注入项目上下文）。 */
+  onOpenLocation?: (path: string, line?: number) => void;
+  /** 全局展开/折叠信号：seq 变化时把本卡置为 expanded 值。 */
+  expandAllSignal?: { seq: number; expanded: boolean };
+}
+
+export default function ToolCallCard({ call, onOpenLocation, expandAllSignal }: ToolCallCardProps) {
   const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (expandAllSignal && expandAllSignal.seq > 0) {
+      setExpanded(expandAllSignal.expanded);
+    }
+  }, [expandAllSignal]);
   const Icon = KIND_ICON[call.kind ?? ""] ?? Wrench;
   const input = stringifyCompact(call.rawInput);
-  const hasBody = Boolean(input || (call.content && call.content.length > 0));
+  const output = stringifyCompact(call.rawOutput);
+  const locations = call.locations ?? [];
+  const hasBody = Boolean(
+    input || output || (call.content && call.content.length > 0) || locations.length > 0,
+  );
 
   return (
     <div className="rounded-md border border-[var(--app-border)] bg-[var(--app-panel-bg,transparent)] text-sm">
@@ -113,6 +188,26 @@ export default function ToolCallCard({ call }: { call: AcpToolCall }) {
       </button>
       {expanded && hasBody && (
         <div className="flex flex-col gap-1.5 px-2.5 pb-2">
+          {locations.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {locations.map((location, index) => (
+                <button
+                  key={`${location.path}-${index}`}
+                  type="button"
+                  className="flex items-center gap-1 rounded border border-[var(--app-border)] px-1.5 py-0.5 text-[11px] font-mono text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)] disabled:cursor-default"
+                  disabled={!onOpenLocation}
+                  onClick={() => onOpenLocation?.(location.path, location.line)}
+                  title={location.path}
+                >
+                  <MapPin className="h-3 w-3 shrink-0" />
+                  <span className="max-w-64 truncate">
+                    {location.path}
+                    {location.line !== undefined ? `:${location.line}` : ""}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
           {input ? (
             <pre className="px-2 py-1 text-[11px] font-mono whitespace-pre-wrap break-all max-h-40 overflow-auto rounded bg-[var(--app-hover)]">
               {input}
@@ -121,6 +216,11 @@ export default function ToolCallCard({ call }: { call: AcpToolCall }) {
           {(call.content ?? []).map((block, index) => (
             <ContentBlockView key={index} block={block} />
           ))}
+          {output ? (
+            <pre className="px-2 py-1 text-[11px] font-mono whitespace-pre-wrap break-all max-h-60 overflow-auto rounded bg-[var(--app-hover)]">
+              {output}
+            </pre>
+          ) : null}
         </div>
       )}
     </div>

@@ -10,11 +10,11 @@
 //! Prompt payloads are never logged; they may contain user code and secrets.
 
 use std::collections::{HashMap, VecDeque};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -59,6 +59,16 @@ pub struct AcpChatSnapshot {
     pub acp_session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_capabilities: Option<Value>,
+    /// initialize 协商出的协议版本。现在只记录不分叉——v2 stabilize 且适配器
+    /// 跟进后，双版本surface的选择依据就是它（v2 迁移指南要求按连接协商）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol_version: Option<u64>,
+    /// ACP SessionModeState（currentModeId + availableModes），引擎不支持时缺失。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modes: Option<Value>,
+    /// ACP SessionModelState（currentModelId + availableModels），引擎不支持时缺失。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub models: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -84,6 +94,13 @@ pub struct AcpLaunchSpec {
     pub command: String,
     pub args: Vec<String>,
     pub cwd: String,
+    /// ACP McpServer entries (http variants are filtered out when the agent
+    /// does not advertise `mcpCapabilities.http`). Built in Rust — the WebView
+    /// never supplies MCP endpoints or tokens.
+    pub mcp_servers: Vec<Value>,
+    /// Resume an existing ACP conversation via `session/load` when the agent
+    /// advertises `loadSession`. Falls back to a fresh session otherwise.
+    pub resume_acp_session_id: Option<String>,
 }
 
 type PendingResult = Result<Value, Value>;
@@ -289,14 +306,20 @@ impl AcpChatSession {
 }
 
 /// Manages independent ACP adapter subprocesses, one per chat tab.
-#[derive(Default)]
 pub struct AcpChatService {
     sessions: RwLock<HashMap<String, Arc<AcpChatSession>>>,
+    /// 会话历史元数据目录（`<data>/agent-chats/`）。按 **acpSessionId** 落
+    /// 一个 JSON——那才是稳定的对话身份；chatId 是 tab 的运行时身份，
+    /// 同一对话可以被不同 tab 先后续接（docs/69 的 id 语义教训）。
+    chats_dir: PathBuf,
 }
 
 impl AcpChatService {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(chats_dir: PathBuf) -> Self {
+        Self {
+            sessions: RwLock::new(HashMap::new()),
+            chats_dir,
+        }
     }
 
     /// Spawn the adapter, run the `initialize` + `session/new` handshake and
@@ -381,6 +404,9 @@ impl AcpChatService {
                 phase: AcpChatPhase::Starting,
                 acp_session_id: None,
                 agent_capabilities: None,
+                protocol_version: None,
+                modes: None,
+                models: None,
                 exit_code: None,
                 error: None,
             }),
@@ -401,7 +427,7 @@ impl AcpChatService {
         tokio::spawn(read_stderr(session.clone(), stderr));
         session.emit_state().await;
 
-        match self.handshake(&session, &spec.cwd).await {
+        match self.handshake(&session, &spec).await {
             Ok(snapshot) => Ok(snapshot),
             Err(error) => {
                 warn!(chat_id = %chat_id_trimmed, engine = %spec.engine_id, error = %error, "ACP handshake failed");
@@ -421,8 +447,9 @@ impl AcpChatService {
     async fn handshake(
         &self,
         session: &Arc<AcpChatSession>,
-        cwd: &str,
+        spec: &AcpLaunchSpec,
     ) -> AppResult<AcpChatSnapshot> {
+        let cwd = spec.cwd.as_str();
         let initialize = tokio::time::timeout(
             HANDSHAKE_TIMEOUT,
             session.request(
@@ -439,43 +466,134 @@ impl AcpChatService {
         .await
         .map_err(|_| AppError::coded("ACP_HANDSHAKE_TIMEOUT", "ACP initialize timed out"))??;
 
+        let capabilities = initialize.get("agentCapabilities").cloned();
         {
             let mut snapshot = session.snapshot.write().await;
-            snapshot.agent_capabilities = initialize.get("agentCapabilities").cloned();
+            snapshot.agent_capabilities = capabilities.clone();
+            snapshot.protocol_version = initialize.get("protocolVersion").and_then(Value::as_u64);
+        }
+        let capability = |path: &[&str]| -> bool {
+            let mut node = capabilities.as_ref();
+            for key in path {
+                node = node.and_then(|value| value.get(key));
+            }
+            node.and_then(Value::as_bool).unwrap_or(false)
+        };
+
+        // http 形态的 MCP 服务器要求 agent 广告 mcpCapabilities.http，
+        // 不支持的引擎直接过滤掉——传了会被拒或静默失败。
+        let mcp_servers: Vec<Value> = spec
+            .mcp_servers
+            .iter()
+            .filter(|server| {
+                match server.get("type").and_then(Value::as_str) {
+                    Some("http") => capability(&["mcpCapabilities", "http"]),
+                    Some("sse") => capability(&["mcpCapabilities", "sse"]),
+                    // stdio 是基线能力
+                    _ => true,
+                }
+            })
+            .cloned()
+            .collect();
+
+        // 优先续接：agent 广告 loadSession 且调用方带了会话 id。失败则降级
+        // 新会话（旧会话可能已被 agent 侧清理），降级必须对用户可见。
+        let mut resumed_session_id: Option<String> = None;
+        let mut session_response: Option<Value> = None;
+        if let Some(resume_id) = spec
+            .resume_acp_session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
+            if capability(&["loadSession"]) {
+                let load = tokio::time::timeout(
+                    HANDSHAKE_TIMEOUT,
+                    session.request(
+                        "session/load",
+                        json!({
+                            "sessionId": resume_id,
+                            "cwd": cwd,
+                            "mcpServers": mcp_servers,
+                        }),
+                    ),
+                )
+                .await
+                .map_err(|_| {
+                    AppError::coded("ACP_HANDSHAKE_TIMEOUT", "ACP session/load timed out")
+                })?;
+                match load {
+                    Ok(response) => {
+                        resumed_session_id = Some(resume_id.to_string());
+                        session_response = Some(response);
+                    }
+                    Err(error) => {
+                        warn!(chat_id = %session.chat_id, error = %error, "ACP session/load failed; starting a fresh session");
+                        session.emit(
+                            "notification",
+                            json!({
+                                "method": "ccpanes/load-failed",
+                                "params": {"error": error.to_string()},
+                            }),
+                        );
+                    }
+                }
+            } else {
+                session.emit(
+                    "notification",
+                    json!({
+                        "method": "ccpanes/load-unsupported",
+                        "params": {"engineId": spec.engine_id},
+                    }),
+                );
+            }
         }
 
-        let new_session = tokio::time::timeout(
-            HANDSHAKE_TIMEOUT,
-            session.request("session/new", json!({"cwd": cwd, "mcpServers": []})),
-        )
-        .await
-        .map_err(|_| AppError::coded("ACP_HANDSHAKE_TIMEOUT", "ACP session/new timed out"))??;
-
-        let acp_session_id = new_session
-            .get("sessionId")
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
-            .map(str::to_string)
-            .ok_or_else(|| {
-                AppError::coded(
-                    "ACP_HANDSHAKE_FAILED",
-                    "ACP session/new returned no sessionId",
-                )
-            })?;
+        let (acp_session_id, response) = if let (Some(id), Some(response)) =
+            (resumed_session_id, session_response)
+        {
+            (id, response)
+        } else {
+            let new_session = tokio::time::timeout(
+                HANDSHAKE_TIMEOUT,
+                session.request(
+                    "session/new",
+                    json!({"cwd": cwd, "mcpServers": mcp_servers}),
+                ),
+            )
+            .await
+            .map_err(|_| AppError::coded("ACP_HANDSHAKE_TIMEOUT", "ACP session/new timed out"))??;
+            let id = new_session
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .map(str::to_string)
+                .ok_or_else(|| {
+                    AppError::coded(
+                        "ACP_HANDSHAKE_FAILED",
+                        "ACP session/new returned no sessionId",
+                    )
+                })?;
+            (id, new_session)
+        };
 
         {
             let mut snapshot = session.snapshot.write().await;
-            snapshot.acp_session_id = Some(acp_session_id);
+            snapshot.acp_session_id = Some(acp_session_id.clone());
+            snapshot.modes = response.get("modes").filter(|v| !v.is_null()).cloned();
+            snapshot.models = response.get("models").filter(|v| !v.is_null()).cloned();
             snapshot.phase = AcpChatPhase::Ready;
         }
+        self.write_chat_meta(&acp_session_id, &spec.engine_id, cwd, None);
         session.emit_state().await;
         Ok(session.snapshot().await)
     }
 
-    /// Submit a prompt. Returns immediately; the turn streams through
-    /// `session/update` events and finishes with a `turn_ended` event.
-    pub async fn prompt(&self, chat_id: &str, message: String) -> AppResult<()> {
-        if message.trim().is_empty() {
+    /// Submit a prompt as ACP ContentBlock array (text / image / resource_link).
+    /// Returns immediately; the turn streams through `session/update` events
+    /// and finishes with a `turn_ended` event.
+    pub async fn prompt(&self, chat_id: &str, blocks: Vec<Value>) -> AppResult<()> {
+        if blocks.is_empty() {
             return Err(AppError::coded(
                 "ACP_PROMPT_REQUIRED",
                 "ACP prompt cannot be empty",
@@ -508,6 +626,15 @@ impl AcpChatService {
             }
         }
 
+        // 会话标题 = 第一条用户文本（截断），供历史列表显示。
+        if let Some(text) = blocks.iter().find_map(|block| {
+            (block.get("type").and_then(Value::as_str) == Some("text"))
+                .then(|| block.get("text").and_then(Value::as_str))
+                .flatten()
+        }) {
+            self.note_chat_title(&acp_session_id, text);
+        }
+
         session.set_phase(AcpChatPhase::Generating).await;
         session.emit_state().await;
 
@@ -518,7 +645,7 @@ impl AcpChatService {
                     "session/prompt",
                     json!({
                         "sessionId": acp_session_id,
-                        "prompt": [{"type": "text", "text": message}],
+                        "prompt": blocks,
                     }),
                 )
                 .await;
@@ -568,6 +695,69 @@ impl AcpChatService {
         session
             .notify("session/cancel", json!({"sessionId": acp_session_id}))
             .await
+    }
+
+    /// Switch the session mode (approval behavior / plan mode / …).
+    /// The mode id must come from `modes.availableModes` advertised by the agent.
+    pub async fn set_mode(&self, chat_id: &str, mode_id: String) -> AppResult<()> {
+        let session = self.session(chat_id).await?;
+        let acp_session_id = session
+            .snapshot
+            .read()
+            .await
+            .acp_session_id
+            .clone()
+            .ok_or_else(|| {
+                AppError::coded(
+                    "ACP_SESSION_NOT_READY",
+                    "ACP session has not finished starting",
+                )
+            })?;
+        session
+            .request(
+                "session/set_mode",
+                json!({"sessionId": acp_session_id, "modeId": mode_id}),
+            )
+            .await?;
+        {
+            let mut snapshot = session.snapshot.write().await;
+            if let Some(modes) = snapshot.modes.as_mut() {
+                modes["currentModeId"] = json!(mode_id);
+            }
+        }
+        session.emit_state().await;
+        Ok(())
+    }
+
+    /// Switch the model. Only available when the agent advertised `models`.
+    pub async fn set_model(&self, chat_id: &str, model_id: String) -> AppResult<()> {
+        let session = self.session(chat_id).await?;
+        let acp_session_id = session
+            .snapshot
+            .read()
+            .await
+            .acp_session_id
+            .clone()
+            .ok_or_else(|| {
+                AppError::coded(
+                    "ACP_SESSION_NOT_READY",
+                    "ACP session has not finished starting",
+                )
+            })?;
+        session
+            .request(
+                "session/set_model",
+                json!({"sessionId": acp_session_id, "modelId": model_id}),
+            )
+            .await?;
+        {
+            let mut snapshot = session.snapshot.write().await;
+            if let Some(models) = snapshot.models.as_mut() {
+                models["currentModelId"] = json!(model_id);
+            }
+        }
+        session.emit_state().await;
+        Ok(())
     }
 
     /// Relay the user's decision for a `session/request_permission` request.
@@ -665,6 +855,109 @@ impl AcpChatService {
                 warn!(chat_id = %chat_id, error = %error, "failed to stop ACP chat during cleanup");
             }
         }
+    }
+
+    // ---- 会话历史元数据（按 acpSessionId 落盘） ----
+
+    fn meta_path(&self, acp_session_id: &str) -> Option<PathBuf> {
+        let id = acp_session_id.trim();
+        let safe = !id.is_empty()
+            && id.len() <= 128
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        safe.then(|| self.chats_dir.join(format!("{id}.json")))
+    }
+
+    fn write_chat_meta(
+        &self,
+        acp_session_id: &str,
+        engine_id: &str,
+        cwd: &str,
+        title: Option<&str>,
+    ) {
+        let Some(path) = self.meta_path(acp_session_id) else {
+            return;
+        };
+        let now = unix_millis();
+        let existing = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
+        let created_at = existing
+            .as_ref()
+            .and_then(|meta| meta.get("createdAt"))
+            .and_then(Value::as_i64)
+            .unwrap_or(now);
+        let kept_title = title
+            .map(str::to_string)
+            .or_else(|| {
+                existing
+                    .as_ref()
+                    .and_then(|meta| meta.get("title"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .unwrap_or_default();
+        let meta = json!({
+            "acpSessionId": acp_session_id,
+            "engineId": engine_id,
+            "cwd": cwd,
+            "title": kept_title,
+            "createdAt": created_at,
+            "updatedAt": now,
+        });
+        if std::fs::create_dir_all(&self.chats_dir).is_ok() {
+            if let Err(error) = std::fs::write(&path, meta.to_string()) {
+                warn!(error = %error, "failed to write ACP chat meta");
+            }
+        }
+    }
+
+    fn note_chat_title(&self, acp_session_id: &str, text: &str) {
+        let Some(path) = self.meta_path(acp_session_id) else {
+            return;
+        };
+        let Some(mut meta) = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        else {
+            return;
+        };
+        let has_title = meta
+            .get("title")
+            .and_then(Value::as_str)
+            .is_some_and(|title| !title.trim().is_empty());
+        if !has_title {
+            let title: String = text.trim().chars().take(80).collect();
+            meta["title"] = json!(title);
+        }
+        meta["updatedAt"] = json!(unix_millis());
+        if let Err(error) = std::fs::write(&path, meta.to_string()) {
+            warn!(error = %error, "failed to update ACP chat meta");
+        }
+    }
+
+    /// 历史会话元数据（updatedAt 倒序，最多 100 条）。
+    pub fn list_chat_history(&self) -> Vec<Value> {
+        let Ok(entries) = std::fs::read_dir(&self.chats_dir) else {
+            return Vec::new();
+        };
+        let mut metas: Vec<Value> = entries
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "json")
+            })
+            .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
+            .filter_map(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .collect();
+        metas.sort_by_key(|meta| {
+            std::cmp::Reverse(meta.get("updatedAt").and_then(Value::as_i64).unwrap_or(0))
+        });
+        metas.truncate(100);
+        metas
     }
 
     async fn session(&self, chat_id: &str) -> AppResult<Arc<AcpChatSession>> {
@@ -780,6 +1073,9 @@ async fn route_message(session: &Arc<AcpChatSession>, message: Value) {
         (Some(method), None) => {
             let params = message.get("params").cloned().unwrap_or(Value::Null);
             if method == "session/update" {
+                // agent 可以自主换模式（例如 plan 模式跑完自动切回）；快照要跟上，
+                // 否则头部的模式选择器显示陈旧值。
+                sync_mode_update_into_snapshot(session, &params).await;
                 session.emit("update", params);
             } else {
                 // Unknown notifications stay visible for protocol drift.
@@ -807,6 +1103,37 @@ async fn route_message(session: &Arc<AcpChatSession>, message: Value) {
             );
         }
     }
+}
+
+async fn sync_mode_update_into_snapshot(session: &Arc<AcpChatSession>, params: &Value) {
+    let update = params.get("update");
+    let is_mode_update = update
+        .and_then(|u| u.get("sessionUpdate"))
+        .and_then(Value::as_str)
+        == Some("current_mode_update");
+    if !is_mode_update {
+        return;
+    }
+    let Some(mode_id) = update
+        .and_then(|u| u.get("currentModeId"))
+        .and_then(Value::as_str)
+    else {
+        return;
+    };
+    {
+        let mut snapshot = session.snapshot.write().await;
+        if let Some(modes) = snapshot.modes.as_mut() {
+            modes["currentModeId"] = json!(mode_id);
+        }
+    }
+    session.emit_state().await;
+}
+
+fn unix_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn permission_request_key(id: &Value) -> String {

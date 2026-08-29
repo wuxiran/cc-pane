@@ -12,6 +12,7 @@ import { immer } from "zustand/middleware/immer";
 import { agentChatService } from "@/services/agentChatService";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import type {
+  AcpAvailableCommand,
   AcpChatEvent,
   AcpChatSnapshot,
   AcpPermissionRequest,
@@ -31,13 +32,16 @@ export interface AgentChatSessionState {
   snapshot: AcpChatSnapshot | null;
   items: AgentChatItem[];
   pendingPermission: AcpPermissionRequest | null;
+  /** agent 广告的斜杠命令目录（available_commands_update 整表替换）。 */
+  availableCommands: AcpAvailableCommand[];
 }
 
 interface AgentChatStoreState {
   chats: Record<string, AgentChatSessionState>;
   setSnapshot: (chatId: string, snapshot: AcpChatSnapshot) => void;
-  addUserMessage: (chatId: string, text: string) => void;
+  addUserMessage: (chatId: string, text: string, attachmentLabels?: string[]) => void;
   appendStreamText: (chatId: string, kind: "assistant" | "thought", text: string) => void;
+  pushImage: (chatId: string, mimeType: string, data: string) => void;
   applySessionUpdate: (chatId: string, params: AcpSessionUpdate) => void;
   setPermission: (chatId: string, request: AcpPermissionRequest | null) => void;
   pushNotice: (chatId: string, text: string) => void;
@@ -46,7 +50,7 @@ interface AgentChatStoreState {
 }
 
 function emptySession(): AgentChatSessionState {
-  return { snapshot: null, items: [], pendingPermission: null };
+  return { snapshot: null, items: [], pendingPermission: null, availableCommands: [] };
 }
 
 function ensure(chats: Record<string, AgentChatSessionState>, chatId: string): AgentChatSessionState {
@@ -57,10 +61,11 @@ function ensure(chats: Record<string, AgentChatSessionState>, chatId: string): A
 }
 
 /** 从 ContentBlock 提取可显示文本；非 text 变体降级为类型占位。 */
-function contentText(content: { type?: string; text?: string } | undefined): string {
-  if (!content) return "";
-  if (typeof content.text === "string") return content.text;
-  return content.type ? `[${content.type}]` : "";
+function contentText(content: unknown): string {
+  if (!content || typeof content !== "object") return "";
+  const block = content as { type?: string; text?: string };
+  if (typeof block.text === "string") return block.text;
+  return block.type ? `[${block.type}]` : "";
 }
 
 type ToolCallPatch = NonNullable<AcpSessionUpdate["update"]>;
@@ -92,10 +97,15 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
         }
       }),
 
-    addUserMessage: (chatId, text) =>
+    addUserMessage: (chatId, text, attachmentLabels) =>
       set((state) => {
         const chat = ensure(state.chats, chatId);
-        chat.items.push({ type: "user", id: nextItemId(), text });
+        chat.items.push({
+          type: "user",
+          id: nextItemId(),
+          text,
+          ...(attachmentLabels && attachmentLabels.length > 0 ? { attachmentLabels } : {}),
+        });
       }),
 
     appendStreamText: (chatId, kind, text) =>
@@ -110,6 +120,12 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
         } else {
           chat.items.push({ type: itemType, id: nextItemId(), text });
         }
+      }),
+
+    pushImage: (chatId, mimeType, data) =>
+      set((state) => {
+        const chat = ensure(state.chats, chatId);
+        chat.items.push({ type: "image", id: nextItemId(), mimeType, data });
       }),
 
     applySessionUpdate: (chatId, params) =>
@@ -154,11 +170,29 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
             chat.items.push({ type: "plan", id: nextItemId(), entries });
             return;
           }
-          // 我们在发送时本地入列，回显丢弃即可。
-          case "user_message_chunk":
+          // session/load 回放会重放历史用户消息（发生在 starting 相位），必须
+          // 收下，否则恢复出的对话缺所有用户气泡；活回合（generating）里的
+          // 回显则丢弃——本地发送时已经入列过了。
+          case "user_message_chunk": {
+            if (chat.snapshot?.phase === "generating") return;
+            const text = contentText(update.content);
+            if (!text) return;
+            const last = chat.items[chat.items.length - 1];
+            if (last && last.type === "user") {
+              last.text += text;
+            } else {
+              chat.items.push({ type: "user", id: nextItemId(), text });
+            }
             return;
-          // 模式/命令目录暂无 UI 消费点。
-          case "available_commands_update":
+          }
+          case "available_commands_update": {
+            const commands = update.availableCommands;
+            chat.availableCommands = Array.isArray(commands)
+              ? (commands as AcpAvailableCommand[])
+              : [];
+            return;
+          }
+          // 模式变更由后端同步进快照并 emit state，前端这里无事可做。
           case "current_mode_update":
             return;
           default: {
@@ -263,9 +297,20 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
     if (updateKind === "agent_message_chunk" || updateKind === "agent_thought_chunk") {
       const chunkContent = params.update?.content;
       // chunk 变体的 content 是单块；数组形态属于 tool_call 变体，此处不该出现。
-      const text = Array.isArray(chunkContent) ? "" : contentText(chunkContent);
-      if (text) {
-        bufferChunk(chatId, updateKind === "agent_message_chunk" ? "assistant" : "thought", text);
+      if (!Array.isArray(chunkContent)) {
+        const block = chunkContent as
+          | { type?: string; text?: string; data?: string; mimeType?: string }
+          | undefined;
+        // 接收侧图片块：真渲染而不是 [image] 占位。保序：先排空文本缓冲。
+        if (block?.type === "image" && typeof block.data === "string") {
+          flushChat(chatId);
+          store.pushImage(chatId, block.mimeType ?? "image/png", block.data);
+          return;
+        }
+        const text = contentText(block);
+        if (text) {
+          bufferChunk(chatId, updateKind === "agent_message_chunk" ? "assistant" : "thought", text);
+        }
       }
       return;
     }
@@ -288,8 +333,19 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
       store.turnEnded(chatId, data.stopReason ?? "end_turn", data.error);
       return;
     }
-    // protocol_noise / notification：协议漂移与适配器杂音，开发期可从
-    // console 观察，不进消息流。
+    case "notification": {
+      const data = payload as { method?: string } | null;
+      // 续接降级必须对用户可见（resume 链路的老教训：静默降级 = 用户以为
+      // 上下文还在，实际是新会话）。
+      if (
+        data?.method === "ccpanes/load-failed"
+        || data?.method === "ccpanes/load-unsupported"
+      ) {
+        store.pushNotice(chatId, "未能续接原对话上下文，已开启全新会话");
+      }
+      return;
+    }
+    // protocol_noise：协议漂移与适配器杂音，开发期可从 console 观察，不进消息流。
     default:
       if (import.meta.env.DEV) {
         console.debug("[agent-chat] unhandled event", event);

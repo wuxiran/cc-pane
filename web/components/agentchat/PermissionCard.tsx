@@ -1,6 +1,8 @@
 // ACP 审批卡：agent 请求执行敏感操作时的 allow/reject 选项条。
 // 选项集合由 agent 给出（allow_once / allow_always / reject_*），不在前端造。
-import { ShieldQuestion } from "lucide-react";
+// 当选项集不含 allow/reject 语义时按「agent 提问」渲染（AskUserQuestion 类
+// 工具经适配器映射成 request_permission，多个中性选项就是问卷）。
+import { CircleHelp, ShieldQuestion } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AcpPermissionRequest } from "@/types/agentChat";
 
@@ -23,12 +25,34 @@ export default function PermissionCard({ request, onRespond }: PermissionCardPro
   const { t } = useTranslation("panes");
   const title = request.params.toolCall?.title;
   const options = request.params.options ?? [];
+  // 全部选项都不带 allow/reject 语义 = 提问而非审批，用中性样式。
+  const isQuestion =
+    options.length > 0
+    && options.every(
+      (option) => !option.kind.startsWith("allow") && !option.kind.startsWith("reject"),
+    );
 
   return (
-    <div className="mx-3 mb-2 rounded-md border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-3 py-2">
-      <div className="flex items-center gap-2 text-xs text-[var(--app-status-warning)]">
-        <ShieldQuestion className="h-4 w-4 shrink-0" />
-        <span className="font-medium">{t("agentChatPermissionTitle")}</span>
+    <div
+      className={`mx-3 mb-2 rounded-md border px-3 py-2 ${
+        isQuestion
+          ? "border-[var(--app-border)]"
+          : "border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)]"
+      }`}
+    >
+      <div
+        className={`flex items-center gap-2 text-xs ${
+          isQuestion ? "text-[var(--app-icon-inactive)]" : "text-[var(--app-status-warning)]"
+        }`}
+      >
+        {isQuestion ? (
+          <CircleHelp className="h-4 w-4 shrink-0" />
+        ) : (
+          <ShieldQuestion className="h-4 w-4 shrink-0" />
+        )}
+        <span className="font-medium">
+          {isQuestion ? t("agentChatQuestionTitle") : t("agentChatPermissionTitle")}
+        </span>
       </div>
       {title ? (
         <div className="mt-1 text-xs text-[var(--app-icon-active)] break-all">{title}</div>

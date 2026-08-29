@@ -65,6 +65,7 @@ use commands::{
     close_layout_switcher_window,
     close_window,
     compress_history,
+    compute_text_diff,
     copy_skill,
     create_auto_label,
     create_launch_profile,
@@ -242,6 +243,7 @@ use commands::{
     kill_orphan_processes,
     kill_terminal,
     kill_terminal_idempotent,
+    list_acp_chat_history,
     list_acp_engines,
     list_ai_panel_history,
     list_ai_panels,
@@ -318,6 +320,7 @@ use commands::{
     query_task_bindings,
     query_todos,
     query_usage_stats,
+    read_acp_image_attachment,
     read_agent_transcript_cmd,
     read_clipboard_file_paths,
     read_config_dir_info,
@@ -395,6 +398,8 @@ use commands::{
     search_memory,
     search_project_contents,
     search_project_files,
+    set_acp_chat_mode,
+    set_acp_chat_model,
     set_decorations,
     set_default_launch_profile,
     set_default_provider,
@@ -1595,7 +1600,9 @@ pub fn run() {
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
     let pi_rpc_service = Arc::new(PiRpcService::new());
-    let acp_chat_service = Arc::new(services::AcpChatService::new());
+    let acp_chat_service = Arc::new(services::AcpChatService::new(
+        app_paths.data_dir().join("agent-chats"),
+    ));
     let task_queue_service = Arc::new(TaskQueueService::new(
         task_queue_repo,
         app_paths.task_queue_images_dir(),
@@ -2898,9 +2905,14 @@ pub fn run() {
             start_pi_rpc_session,
             start_acp_chat,
             list_acp_engines,
+            list_acp_chat_history,
+            compute_text_diff,
+            read_acp_image_attachment,
             prompt_acp_chat,
             cancel_acp_chat,
             respond_acp_permission,
+            set_acp_chat_mode,
+            set_acp_chat_model,
             get_acp_chat,
             stop_acp_chat,
             list_pi_rpc_sessions,

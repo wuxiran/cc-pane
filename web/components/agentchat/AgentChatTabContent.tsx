@@ -3,196 +3,61 @@
 // 会话真身在 Rust 的 AcpChatService 里，消息流在 useAgentChatStore——本组件
 // 卸载（切标签/切布局）不影响会话，重挂载时从 store 恢复画面并向后端对账
 // 一次快照（进程可能在组件不在场时退出）。
+//
+// 拆分（行数棘轮）：条目渲染在 ChatItems，输入区在 ChatComposer，引擎选择页
+// 在 EnginePicker——本文件只管会话壳（头部/滚动/审批/生命周期动作）。
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, ListTodo, Loader2, RotateCcw, Send, Square } from "lucide-react";
+import {
+  ArrowDown,
+  Bot,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Copy,
+  GitFork,
+  Loader2,
+  MoreHorizontal,
+  RotateCcw,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { Tab } from "@/types";
-import type { AcpEngineInfo, AgentChatItem } from "@/types/agentChat";
+import type { AcpPlanEntry } from "@/types/agentChat";
 import { agentChatService } from "@/services/agentChatService";
+import { todoService } from "@/services/todoService";
 import {
   ensureAgentChatListener,
   useAgentChatStore,
 } from "@/stores/useAgentChatStore";
+import { usePanesStore } from "@/stores";
+import { useEditorRevealStore } from "@/stores/useEditorRevealStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
+import ChatComposer from "./ChatComposer";
+import { HeaderSelect, ItemView } from "./ChatItems";
+import EnginePicker from "./EnginePicker";
 import PermissionCard from "./PermissionCard";
-import ToolCallCard from "./ToolCallCard";
-
-function ItemView({ item }: { item: AgentChatItem }) {
-  const { t } = useTranslation("panes");
-  switch (item.type) {
-    case "user":
-      return (
-        <div className="flex justify-end">
-          <div className="max-w-[85%] rounded-lg bg-[var(--app-active-bg)] px-3 py-1.5 text-sm whitespace-pre-wrap break-words">
-            {item.text}
-          </div>
-        </div>
-      );
-    case "assistant":
-      return (
-        <div className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-          {item.text}
-        </div>
-      );
-    case "thought":
-      return (
-        <div className="border-l-2 border-[var(--app-border)] pl-2 text-xs italic text-[var(--app-icon-inactive)] whitespace-pre-wrap break-words">
-          {item.text}
-        </div>
-      );
-    case "tool_call":
-      return <ToolCallCard call={item.call} />;
-    case "plan":
-      return (
-        <div className="rounded-md border border-[var(--app-border)] px-2.5 py-1.5">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--app-icon-inactive)]">
-            <ListTodo className="h-3.5 w-3.5" /> {t("agentChatPlanTitle")}
-          </div>
-          <ul className="mt-1 flex flex-col gap-0.5">
-            {item.entries.map((entry, index) => (
-              <li key={index} className="flex items-start gap-1.5 text-xs">
-                <span
-                  className={
-                    entry.status === "completed"
-                      ? "text-[var(--app-status-success)]"
-                      : entry.status === "in_progress"
-                        ? "text-[var(--app-status-warning)]"
-                        : "text-[var(--app-icon-inactive)]"
-                  }
-                >
-                  {entry.status === "completed" ? "✓" : entry.status === "in_progress" ? "▸" : "○"}
-                </span>
-                <span
-                  className={
-                    entry.status === "completed"
-                      ? "line-through text-[var(--app-icon-inactive)]"
-                      : ""
-                  }
-                >
-                  {entry.content}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      );
-    case "notice":
-      return (
-        <div className="text-center text-[11px] text-[var(--app-icon-inactive)] break-all">
-          {item.text}
-        </div>
-      );
-    default:
-      return null;
-  }
-}
-
-function EnginePicker({
-  tab,
-  onStarted,
-}: {
-  tab: Tab;
-  onStarted: () => void;
-}) {
-  const { t } = useTranslation("panes");
-  const [engines, setEngines] = useState<AcpEngineInfo[] | null>(null);
-  const [startingEngine, setStartingEngine] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    agentChatService
-      .listEngines()
-      .then((list) => {
-        if (!cancelled) setEngines(list);
-      })
-      .catch((listError) => {
-        handleErrorSilent(listError, "list acp engines");
-        if (!cancelled) setEngines([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const start = useCallback(
-    async (engineId: string) => {
-      setError(null);
-      setStartingEngine(engineId);
-      try {
-        const snapshot = await agentChatService.start(tab.id, engineId, tab.projectPath);
-        useAgentChatStore.getState().setSnapshot(tab.id, snapshot);
-        onStarted();
-      } catch (startError) {
-        setError(startError instanceof Error ? startError.message : String(startError));
-      } finally {
-        setStartingEngine(null);
-      }
-    },
-    [tab.id, tab.projectPath, onStarted],
-  );
-
-  if (!tab.projectPath) {
-    return (
-      <div className="flex h-full items-center justify-center px-6 text-center text-sm text-[var(--app-icon-inactive)]">
-        {t("agentChatNoProject")}
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 px-6">
-      <Bot className="h-10 w-10 opacity-30" />
-      <div className="text-sm text-[var(--app-icon-inactive)]">{t("agentChatPickEngine")}</div>
-      <div className="flex w-full max-w-sm flex-col gap-2">
-        {engines === null ? (
-          <div className="flex justify-center">
-            <Loader2 className="h-5 w-5 animate-spin text-[var(--app-icon-inactive)]" />
-          </div>
-        ) : (
-          engines.map((engine) => (
-            <button
-              key={engine.id}
-              type="button"
-              disabled={startingEngine !== null}
-              className="flex items-center justify-between rounded-md border border-[var(--app-border)] px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--app-hover)] disabled:opacity-50"
-              onClick={() => void start(engine.id)}
-            >
-              <span>{engine.label}</span>
-              {startingEngine === engine.id ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : engine.available ? (
-                <span className="text-[11px] text-[var(--app-status-success)]">●</span>
-              ) : (
-                <span
-                  className="text-[11px] text-[var(--app-icon-inactive)]"
-                  title={engine.requirement}
-                >
-                  {t("agentChatUnavailableEngine")}
-                </span>
-              )}
-            </button>
-          ))
-        )}
-      </div>
-      {startingEngine ? (
-        <div className="text-xs text-[var(--app-icon-inactive)]">{t("agentChatStarting")}</div>
-      ) : null}
-      {error ? (
-        <div className="max-w-md whitespace-pre-wrap break-all text-center text-xs text-[var(--app-status-danger)]">
-          {t("agentChatStartFailed")}: {error}
-        </div>
-      ) : null}
-    </div>
-  );
-}
+import { isAbsolutePath, joinCwd } from "./chatPaths";
 
 export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   const { t } = useTranslation("panes");
   const chat = useAgentChatStore((state) => state.chats[tab.id]);
-  const [draft, setDraft] = useState("");
+  const [atBottom, setAtBottom] = useState(true);
+  // 空壳窗格开出来的标签没有项目路径：用户在引擎选择页现选目录，选择结果
+  // 只活在组件内（会话真身在后端，重挂载后从快照对账，不依赖这里持久化）。
+  const [cwdOverride, setCwdOverride] = useState<string | null>(null);
+  const effectiveCwd = tab.projectPath || cwdOverride || "";
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const stickToBottomRef = useRef(true);
+  // 长会话分页：只渲染最近 N 条，顶部按钮逐段放开（防几百条全量渲染掉帧）。
+  const [visibleCount, setVisibleCount] = useState(150);
+  // 工具卡全局展开/折叠信号（seq 递增触发，各卡自行响应）。
+  const [toolFold, setToolFold] = useState<{ seq: number; expanded: boolean }>({
+    seq: 0,
+    expanded: false,
+  });
 
   useEffect(() => {
     ensureAgentChatListener();
@@ -210,79 +75,245 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
 
   const items = chat?.items;
   useEffect(() => {
-    if (!stickToBottomRef.current) return;
+    if (!atBottom) return;
     const node = scrollRef.current;
     if (node) node.scrollTop = node.scrollHeight;
-  }, [items, chat?.pendingPermission]);
+  }, [items, chat?.pendingPermission, atBottom]);
 
   const handleScroll = useCallback(() => {
     const node = scrollRef.current;
     if (!node) return;
-    stickToBottomRef.current =
-      node.scrollHeight - node.scrollTop - node.clientHeight < 48;
+    setAtBottom(node.scrollHeight - node.scrollTop - node.clientHeight < 48);
+  }, []);
+
+  const jumpToLatest = useCallback(() => {
+    const node = scrollRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+    setAtBottom(true);
   }, []);
 
   const snapshot = chat?.snapshot ?? null;
   const phase = snapshot?.phase;
+  const availableCommands = chat?.availableCommands ?? [];
 
-  const send = useCallback(() => {
-    const text = draft.trim();
-    if (!text || phase !== "ready") return;
-    setDraft("");
-    stickToBottomRef.current = true;
-    useAgentChatStore.getState().addUserMessage(tab.id, text);
-    void agentChatService.prompt(tab.id, text).catch((error) => {
-      useAgentChatStore
+  const openLocation = useCallback(
+    (path: string, line?: number) => {
+      const absolute = isAbsolutePath(path) ? path : joinCwd(effectiveCwd || ".", path);
+      const title = absolute.split(/[\\/]/).pop() || absolute;
+      usePanesStore
         .getState()
-        .pushNotice(tab.id, error instanceof Error ? error.message : String(error));
-    });
-  }, [draft, phase, tab.id]);
+        .openEditor(tab.projectPath || effectiveCwd, absolute, title, undefined, {
+          forcePaneTab: true,
+        });
+      if (line !== undefined) {
+        useEditorRevealStore.getState().request(absolute, line, 1);
+      }
+    },
+    [effectiveCwd, tab.projectPath],
+  );
 
-  const cancel = useCallback(() => {
-    void agentChatService.cancel(tab.id).catch((error) => {
-      handleErrorSilent(error, "cancel acp chat turn");
-    });
+  const planToTodo = useCallback(
+    (entries: AcpPlanEntry[]) => {
+      const pending = entries.filter((entry) => entry.content.trim());
+      void Promise.all(
+        pending.map((entry) => todoService.create({ title: entry.content.trim() })),
+      )
+        .then(() => {
+          useAgentChatStore
+            .getState()
+            .pushNotice(tab.id, t("agentChatPlanTodoCreated", { count: pending.length }));
+        })
+        .catch((error) => {
+          useAgentChatStore
+            .getState()
+            .pushNotice(tab.id, error instanceof Error ? error.message : String(error));
+        });
+    },
+    [tab.id, t],
+  );
+
+  /** 分叉：新开一个 agent-chat 标签，用 session/load 续接当前对话上下文。
+   * claude 的 resume 语义天然分叉（原会话文件不动，续接产生新线），两个
+   * 标签各自往下走。 */
+  const forkToNewTab = useCallback(() => {
+    const current = useAgentChatStore.getState().chats[tab.id]?.snapshot;
+    if (!current?.acpSessionId || !effectiveCwd) return;
+    const newTabId = usePanesStore.getState().openAgentChat(effectiveCwd);
+    if (!newTabId) return;
+    void agentChatService
+      .start(newTabId, current.engineId, effectiveCwd, current.acpSessionId)
+      .then((snapshot) => useAgentChatStore.getState().setSnapshot(newTabId, snapshot))
+      .catch((error) => {
+        useAgentChatStore
+          .getState()
+          .pushNotice(newTabId, error instanceof Error ? error.message : String(error));
+      });
+  }, [tab.id, effectiveCwd]);
+
+  const copySessionId = useCallback(() => {
+    const sessionId = useAgentChatStore.getState().chats[tab.id]?.snapshot?.acpSessionId;
+    if (!sessionId) return;
+    void navigator.clipboard
+      .writeText(sessionId)
+      .catch((error) => handleErrorSilent(error, "copy acp session id"));
   }, [tab.id]);
 
   const restart = useCallback(() => {
-    const engineId = useAgentChatStore.getState().chats[tab.id]?.snapshot?.engineId;
-    if (!engineId || !tab.projectPath) return;
+    const current = useAgentChatStore.getState().chats[tab.id]?.snapshot;
+    if (!current?.engineId || !effectiveCwd) return;
     useAgentChatStore.getState().pushNotice(tab.id, `— ${t("agentChatRestart")} —`);
     void agentChatService
-      .start(tab.id, engineId, tab.projectPath)
+      .start(tab.id, current.engineId, effectiveCwd, current.acpSessionId)
       .then((snapshot) => useAgentChatStore.getState().setSnapshot(tab.id, snapshot))
       .catch((error) => {
         useAgentChatStore
           .getState()
           .pushNotice(tab.id, error instanceof Error ? error.message : String(error));
       });
-  }, [tab.id, tab.projectPath, t]);
+  }, [tab.id, effectiveCwd, t]);
 
   // 尚未启动过（没有快照也没有消息）→ 引擎选择页。
   if (!snapshot && (!items || items.length === 0)) {
-    return <EnginePicker tab={tab} onStarted={() => undefined} />;
+    return (
+      <EnginePicker
+        chatId={tab.id}
+        cwd={effectiveCwd}
+        onPickCwd={setCwdOverride}
+        onCwdAdopted={setCwdOverride}
+      />
+    );
   }
 
   const generating = phase === "generating";
   const ended = phase === "exited" || phase === "failed";
 
+  const modeItems = (snapshot?.modes?.availableModes ?? []).map((mode) => ({
+    id: mode.id,
+    label: mode.name || mode.id,
+    description: mode.description,
+  }));
+  const modelItems = (snapshot?.models?.availableModels ?? []).map((model) => ({
+    id: model.modelId,
+    label: model.name || model.modelId,
+    description: model.description,
+  }));
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-3 py-3"
-      >
-        <div className="mx-auto flex max-w-3xl flex-col gap-2.5">
-          {(items ?? []).map((item) => (
-            <ItemView key={item.id} item={item} />
-          ))}
-          {generating ? (
-            <div className="flex items-center gap-1.5 text-xs text-[var(--app-icon-inactive)]">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t("agentChatThinking")}
-            </div>
+      {snapshot ? (
+        <div className="flex h-8 shrink-0 items-center gap-2 border-b border-[var(--app-border)] px-3">
+          <Bot className="h-3.5 w-3.5 shrink-0 text-[var(--app-icon-inactive)]" />
+          <span className="text-[11px] font-medium text-[var(--app-icon-inactive)]">
+            {snapshot.engineId}
+          </span>
+          <span className="flex-1" />
+          <button
+            type="button"
+            aria-label={toolFold.expanded ? t("agentChatCollapseTools") : t("agentChatExpandTools")}
+            title={toolFold.expanded ? t("agentChatCollapseTools") : t("agentChatExpandTools")}
+            className="rounded p-0.5 text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]"
+            onClick={() =>
+              setToolFold((previous) => ({ seq: previous.seq + 1, expanded: !previous.expanded }))
+            }
+          >
+            {toolFold.expanded ? (
+              <ChevronsDownUp className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronsUpDown className="h-3.5 w-3.5" />
+            )}
+          </button>
+          {!ended && modelItems.length > 0 ? (
+            <HeaderSelect
+              items={modelItems}
+              currentId={snapshot.models?.currentModelId}
+              onSelect={(modelId) => {
+                void agentChatService.setModel(tab.id, modelId).catch((error) => {
+                  useAgentChatStore
+                    .getState()
+                    .pushNotice(tab.id, error instanceof Error ? error.message : String(error));
+                });
+              }}
+            />
           ) : null}
+          {!ended && modeItems.length > 0 ? (
+            <HeaderSelect
+              items={modeItems}
+              currentId={snapshot.modes?.currentModeId}
+              onSelect={(modeId) => {
+                void agentChatService.setMode(tab.id, modeId).catch((error) => {
+                  useAgentChatStore
+                    .getState()
+                    .pushNotice(tab.id, error instanceof Error ? error.message : String(error));
+                });
+              }}
+            />
+          ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("agentChatMore")}
+                className="rounded p-0.5 text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]"
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem
+                disabled={!snapshot.acpSessionId || !effectiveCwd}
+                onSelect={forkToNewTab}
+              >
+                <GitFork /> {t("agentChatContinueNewTab")}
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={!snapshot.acpSessionId} onSelect={copySessionId}>
+                <Copy /> {t("agentChatCopySessionId")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
+      ) : null}
+      <div className="relative flex-1 overflow-hidden">
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="h-full overflow-y-auto px-3 py-3"
+        >
+          <div className="mx-auto flex max-w-3xl flex-col gap-2.5">
+            {items && items.length > visibleCount ? (
+              <button
+                type="button"
+                className="mx-auto rounded border border-[var(--app-border)] px-2.5 py-1 text-[11px] text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)]"
+                onClick={() => setVisibleCount((previous) => previous + 200)}
+              >
+                {t("agentChatShowEarlier", { count: items.length - visibleCount })}
+              </button>
+            ) : null}
+            {(items ?? []).slice(-visibleCount).map((item) => (
+              <ItemView
+                key={item.id}
+                item={item}
+                onOpenLocation={openLocation}
+                onPlanToTodo={planToTodo}
+                expandAllSignal={toolFold}
+              />
+            ))}
+            {generating ? (
+              <div className="flex items-center gap-1.5 text-xs text-[var(--app-icon-inactive)]">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t("agentChatThinking")}
+              </div>
+            ) : null}
+          </div>
+        </div>
+        {!atBottom ? (
+          <button
+            type="button"
+            aria-label={t("agentChatJumpLatest")}
+            className="absolute bottom-3 right-4 flex h-7 w-7 items-center justify-center rounded-full border border-[var(--app-border)] bg-[var(--app-hover)] text-[var(--app-icon-inactive)] shadow transition-colors hover:text-[var(--app-icon-active)]"
+            onClick={jumpToLatest}
+          >
+            <ArrowDown className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
       </div>
 
       {chat?.pendingPermission ? (
@@ -302,7 +333,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       {ended ? (
         <div className="flex items-center justify-center gap-3 border-t border-[var(--app-border)] px-3 py-2.5 text-xs text-[var(--app-icon-inactive)]">
           <span>{t("agentChatEnded")}</span>
-          {tab.projectPath ? (
+          {effectiveCwd ? (
             <button
               type="button"
               className="flex items-center gap-1 rounded border border-[var(--app-border)] px-2 py-1 transition-colors hover:bg-[var(--app-hover)]"
@@ -313,43 +344,14 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
           ) : null}
         </div>
       ) : (
-        <div className="border-t border-[var(--app-border)] px-3 py-2">
-          <div className="mx-auto flex max-w-3xl items-end gap-2">
-            <textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                  event.preventDefault();
-                  send();
-                }
-              }}
-              placeholder={t("agentChatSendPlaceholder")}
-              rows={2}
-              className="max-h-40 min-h-[2.5rem] flex-1 resize-none rounded-md border border-[var(--app-border)] bg-transparent px-2.5 py-1.5 text-sm outline-none focus:border-[var(--app-icon-active)]"
-            />
-            {generating ? (
-              <button
-                type="button"
-                aria-label={t("agentChatStop")}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--app-border)] text-[var(--app-status-danger)] transition-colors hover:bg-[var(--app-hover)]"
-                onClick={cancel}
-              >
-                <Square className="h-3.5 w-3.5" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                aria-label={t("agentChatSend")}
-                disabled={phase !== "ready" || !draft.trim()}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--app-border)] transition-colors hover:bg-[var(--app-hover)] disabled:opacity-40"
-                onClick={send}
-              >
-                <Send className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-        </div>
+        <ChatComposer
+          chatId={tab.id}
+          cwd={effectiveCwd}
+          phase={phase}
+          generating={generating}
+          availableCommands={availableCommands}
+          onBeforeSend={() => setAtBottom(true)}
+        />
       )}
     </div>
   );

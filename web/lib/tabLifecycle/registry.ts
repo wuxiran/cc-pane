@@ -22,7 +22,7 @@ import { browserService } from "@/services/browserService";
 // 直接 import 具体模块而非桶文件：destroyPipeline 的测试 mock 的是具体模块，
 // 走桶文件会绕过 mock，表现成「回收没发生」（CLAUDE.md 已记这条坑）。
 import { agentChatService } from "@/services/agentChatService";
-import { dropAgentChatState } from "@/stores/useAgentChatStore";
+import { dropAgentChatState, useAgentChatStore } from "@/stores/useAgentChatStore";
 import { dshService } from "@/services/dshService";
 import { isTauriRuntime } from "@/services/runtime";
 import { terminalService } from "@/services/terminalService";
@@ -296,9 +296,22 @@ const agentChatEntry: TabLifecycleEntry = {
     sessionIds: [],
     poppedOutTabIds: collectPoppedOut(tab, ctx),
   }),
-  // v1 不拦：generating 状态活在 useAgentChatStore，GuardContext 目前只有
-  // PTY 会话口径。关闭确认属于批次 2（与会话持久化一起做）。
-  closeGuards: () => [],
+  // generating 中关标签要过确认：ACP 会话的忙碌态活在 useAgentChatStore
+  // （不是 PTY statusOf 口径），这里直读 store——组件未挂载的销毁路径
+  // （快照覆盖/后台布局删除）同样能判。
+  closeGuards: (tab) => {
+    const phase = useAgentChatStore.getState().chats[tab.id]?.snapshot?.phase;
+    if (phase !== "generating") return [];
+    return [
+      {
+        kind: "agent-busy",
+        tabId: tab.id,
+        tabTitle: tab.title,
+        sessionId: tab.id,
+        status: "thinking",
+      },
+    ];
+  },
   // 不做撤销恢复：会话进程已随关闭停掉，重开只会得到一个空对话。
   persistForUndo: () => null,
   onClosed: (tab) => {

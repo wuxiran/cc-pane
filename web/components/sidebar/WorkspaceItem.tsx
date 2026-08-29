@@ -28,6 +28,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { useLaunchProfilesStore, useProvidersStore, useSettingsStore, useSshMachinesStore, useWorkspacesStore } from "@/stores";
+import AgentChatMenuItem from "./AgentChatMenuItem";
 import { projectCliHooksService } from "@/services";
 import { providerService } from "@/services/providerService";
 import { isTauriRuntime } from "@/services/runtime";
@@ -516,7 +517,7 @@ export default function WorkspaceItem({
           </ContextMenuSub>
 
           <ContextMenuSeparator />
-
+          <AgentChatMenuItem path={rootPath} />
           {!shouldHideNonFavoriteLaunchActions ? (
             <>
               <ContextMenuItem onClick={() => openWorkspace()}>

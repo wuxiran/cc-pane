@@ -9,6 +9,7 @@ import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
   ContextMenuSeparator, ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent,
 } from "@/components/ui/context-menu";
+import AgentChatMenuItem from "./AgentChatMenuItem";
 import ArchiveMenuItem from "./ArchiveMenuItem";
 import { useDialogStore, useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import { specService } from "@/services/specService";
@@ -318,6 +319,8 @@ export default function ProjectListItem({
             </ContextMenuSubContent>
           </ContextMenuSub>
         )}
+        <ContextMenuSeparator />
+        <AgentChatMenuItem path={project.path} />
         <ContextMenuSeparator />
         {/* 本地项目专有菜单项 */}
         {!isSsh && (

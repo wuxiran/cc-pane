@@ -71,6 +71,7 @@
   "miniMode": "迷你模式",
   "borderlessMode": "无边框模式",
   "openTerminal": "打开终端",
+  "newAgentChat": "新建 Agent 对话",
   "sessionJournal": "会话日志",
   "sessionCleaner": "会话修复",
   "provider": "Provider",

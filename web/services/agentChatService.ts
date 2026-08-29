@@ -1,7 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { isTauriRuntime, listenIfTauri } from "./runtime";
-import type { AcpChatEvent, AcpChatSnapshot, AcpEngineInfo } from "@/types/agentChat";
+import type { DiffResult } from "./localHistoryService";
+import type {
+  AcpChatEvent,
+  AcpChatHistoryEntry,
+  AcpChatSnapshot,
+  AcpEngineInfo,
+} from "@/types/agentChat";
 
 export const ACP_CHAT_EVENT = "acp-chat-event";
 
@@ -30,16 +36,47 @@ export function startAcpChat(
   chatId: string,
   engineId: string,
   cwd: string,
+  resumeAcpSessionId?: string,
 ): Promise<AcpChatSnapshot> {
-  return call("start_acp_chat", { chatId, engineId, cwd });
+  return call("start_acp_chat", { chatId, engineId, cwd, resumeAcpSessionId });
 }
 
-export function promptAcpChat(chatId: string, message: string): Promise<void> {
-  return call("prompt_acp_chat", { chatId, message });
+/** blocks 为 ACP ContentBlock 数组（text / image / resource_link）。 */
+export function promptAcpChat(chatId: string, blocks: unknown[]): Promise<void> {
+  return call("prompt_acp_chat", { chatId, blocks });
+}
+
+export function listAcpChatHistory(): Promise<AcpChatHistoryEntry[]> {
+  return call("list_acp_chat_history");
+}
+
+/** 行级文本 diff（复用 Local History diff 引擎）。 */
+export function computeTextDiff(oldText: string, newText: string): Promise<DiffResult> {
+  return call("compute_text_diff", { oldText, newText });
+}
+
+export interface AcpImageAttachmentContent {
+  path: string;
+  dataBase64: string;
+  mimeType: string;
+  size: number;
+}
+
+/** 读本地图片为 base64（附件按钮用；扩展名白名单 + 10MB 上限在后端）。 */
+export function readAcpImageAttachment(path: string): Promise<AcpImageAttachmentContent> {
+  return call("read_acp_image_attachment", { path });
 }
 
 export function cancelAcpChat(chatId: string): Promise<void> {
   return call("cancel_acp_chat", { chatId });
+}
+
+export function setAcpChatMode(chatId: string, modeId: string): Promise<void> {
+  return call("set_acp_chat_mode", { chatId, modeId });
+}
+
+export function setAcpChatModel(chatId: string, modelId: string): Promise<void> {
+  return call("set_acp_chat_model", { chatId, modelId });
 }
 
 export function respondAcpPermission(
@@ -77,8 +114,13 @@ export const agentChatService = {
   start: startAcpChat,
   prompt: promptAcpChat,
   cancel: cancelAcpChat,
+  setMode: setAcpChatMode,
+  setModel: setAcpChatModel,
   respondPermission: respondAcpPermission,
   get: getAcpChat,
   stop: stopAcpChat,
+  listHistory: listAcpChatHistory,
+  computeTextDiff,
+  readImageAttachment: readAcpImageAttachment,
   listen: listenAgentChatEvents,
 };
