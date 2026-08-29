@@ -1,3 +1,4 @@
+pub mod agent_transcript;
 pub mod boundary_events;
 pub mod claude_session_service;
 pub mod codex_session_service;
@@ -79,6 +80,7 @@ mod worktree_service;
 // 调用方（usage_stats_service::wsl_scan_allowed）编译失败。
 pub mod wsl_discovery_service;
 
+pub use agent_transcript::read_agent_transcript;
 pub use comfy::{
     canonical_json, json_fingerprint, ComfyEvent, ComfyHistoryResult, ComfyObjectInfoResponse,
     ComfyOutputRef, ComfyPromptNode, ComfyPromptResponse, ComfyWorkflow,

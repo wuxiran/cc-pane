@@ -17,6 +17,10 @@ const FileExplorerView = lazyWithRetry(() => import("@/components/explorer/FileE
 const EditorView = lazyWithRetry(() => import("@/components/editor/EditorView"), "EditorView");
 const BrowserTabContent = lazyWithRetry(() => import("./BrowserTabContent"), "BrowserTabContent");
 const DshTabContent = lazyWithRetry(() => import("./DshTabContent"), "DshTabContent");
+const AgentChatTabContent = lazyWithRetry(
+  () => import("@/components/agentchat/AgentChatTabContent"),
+  "AgentChatTabContent",
+);
 
 interface TabContentRendererProps {
   tab: Tab;
@@ -139,6 +143,15 @@ export default memo(function TabContentRenderer({
       return (
         <LazyContent>
           <DshTabContent tab={tab} />
+        </LazyContent>
+      );
+
+    // 无 projectPath 也要渲染：引擎选择页负责提示（与 dsh 同一形态——
+    // 内容区自己管理启动流程，而不是渲染层静默 return null）。
+    case "agent-chat":
+      return (
+        <LazyContent>
+          <AgentChatTabContent tab={tab} />
         </LazyContent>
       );
 

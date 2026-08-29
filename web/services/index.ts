@@ -14,6 +14,20 @@ export {
   stopPiRpcSession,
 } from "./piRpcService";
 export type { PiRpcEventHandler } from "./piRpcService";
+export {
+  ACP_CHAT_EVENT,
+  agentChatService,
+  AgentChatUnavailableError,
+  cancelAcpChat,
+  getAcpChat,
+  listAcpEngines,
+  listenAgentChatEvents,
+  promptAcpChat,
+  respondAcpPermission,
+  startAcpChat,
+  stopAcpChat,
+} from "./agentChatService";
+export type { AgentChatEventHandler } from "./agentChatService";
 export { getRecoverySnapshot } from "./terminalRecovery";
 export { terminalPathLinkService } from "./terminalPathLinkService";
 export type {
@@ -99,6 +113,7 @@ export { logService } from "./logService";
 export { sharedMcpService } from "./sharedMcpService";
 export { sessionRestoreService } from "./sessionRestoreService";
 export { sessionIndexService } from "./sessionIndexService";
+export { agentTranscriptService } from "./agentTranscriptService";
 export { layoutSnapshotService } from "./layoutSnapshotService";
 export { browserService } from "./browserService";
 export type {

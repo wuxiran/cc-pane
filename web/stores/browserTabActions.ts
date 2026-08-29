@@ -40,6 +40,12 @@ export interface BrowserTabActions {
     workspacePath?: string,
     options?: OpenBrowserOptions,
   ) => string | null;
+  /**
+   * 开一个 Agent Chat 标签（ACP 结构化 agent 对话）。
+   * 不按任何键去重：一个标签就是一段独立对话，用户要几个开几个。
+   * 引擎在标签内选择（引擎选择页），不在创建时定死。
+   */
+  openAgentChat: (projectPath?: string, options?: OpenBrowserOptions) => string | null;
 }
 
 
@@ -171,6 +177,29 @@ export function createBrowserTabActions(
 
         // 不带 browserUrl：端口由 OS 分配，窗格拉起实例后才回填。
         const newTab = createTabOfType("dsh", { projectPath, workspacePath });
+        pane.tabs.push(newTab);
+        pane.activeTabId = newTab.id;
+        target.setActivePaneId(pane.id);
+        actualTabId = newTab.id;
+      });
+      return actualTabId;
+    },
+    openAgentChat: (projectPath, options) => {
+      let actualTabId: string | null = null;
+      set((state) => {
+        const target = resolveLayoutWriteTarget(state, options?.layoutId);
+        if (!target) return;
+        const tree = target.tree;
+
+        const requested = options?.paneId ? findPane(tree, options.paneId) : null;
+        const fallbackPaneId = target.isCurrent ? state.activePaneId : "";
+        const found =
+          requested?.type === "panel" ? requested : findPane(tree, fallbackPaneId);
+        const pane = found?.type === "panel" ? found : collectPanels(tree)[0];
+        if (pane?.type !== "panel") return;
+
+        // projectPath 是 agent 的 cwd；没有它标签也能开（引擎选择页会提示）。
+        const newTab = createTabOfType("agent-chat", { projectPath });
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
         target.setActivePaneId(pane.id);

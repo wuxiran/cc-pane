@@ -1,0 +1,50 @@
+// ACP 审批卡：agent 请求执行敏感操作时的 allow/reject 选项条。
+// 选项集合由 agent 给出（allow_once / allow_always / reject_*），不在前端造。
+import { ShieldQuestion } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import type { AcpPermissionRequest } from "@/types/agentChat";
+
+interface PermissionCardProps {
+  request: AcpPermissionRequest;
+  onRespond: (optionId: string) => void;
+}
+
+function optionClass(kind: string): string {
+  if (kind.startsWith("allow")) {
+    return "border-[var(--app-status-success-border)] text-[var(--app-status-success)] hover:bg-[var(--app-status-success-bg)]";
+  }
+  if (kind.startsWith("reject")) {
+    return "border-[var(--app-status-danger-border)] text-[var(--app-status-danger)] hover:bg-[var(--app-status-danger-bg)]";
+  }
+  return "border-[var(--app-border)] hover:bg-[var(--app-hover)]";
+}
+
+export default function PermissionCard({ request, onRespond }: PermissionCardProps) {
+  const { t } = useTranslation("panes");
+  const title = request.params.toolCall?.title;
+  const options = request.params.options ?? [];
+
+  return (
+    <div className="mx-3 mb-2 rounded-md border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-3 py-2">
+      <div className="flex items-center gap-2 text-xs text-[var(--app-status-warning)]">
+        <ShieldQuestion className="h-4 w-4 shrink-0" />
+        <span className="font-medium">{t("agentChatPermissionTitle")}</span>
+      </div>
+      {title ? (
+        <div className="mt-1 text-xs text-[var(--app-icon-active)] break-all">{title}</div>
+      ) : null}
+      <div className="mt-2 flex flex-wrap gap-2">
+        {options.map((option) => (
+          <button
+            key={option.optionId}
+            type="button"
+            className={`rounded border px-2.5 py-1 text-xs transition-colors ${optionClass(option.kind)}`}
+            onClick={() => onRespond(option.optionId)}
+          >
+            {option.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}

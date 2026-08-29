@@ -3,7 +3,7 @@
 // 拆出来是因为它已经不是一个按钮了：浏览器 tab 此前**只能**靠 MCP open_browser_tab
 // 打开、桌面端完全没有入口，file-explorer 也只有移动端原型能开。现在 ＋ 左键仍是
 // 「新建终端」（保持老手感），右侧箭头展开其余类型。
-import { Bot, ChevronDown, FileText, FolderTree, Globe2, Plus, Server, Terminal } from "lucide-react";
+import { Bot, ChevronDown, FileText, FolderTree, Globe2, MessagesSquare, Plus, Server, Terminal } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +23,8 @@ export interface NewTabActions {
   onAddBrowser?: () => void;
   /** 新建 DeepSeek Harness tab（托管 dsh web 进程 + 浏览器窗格渲染） */
   onAddDsh?: () => void;
+  /** 新建 Agent Chat tab（ACP 结构化 agent 对话） */
+  onAddAgentChat?: () => void;
   /** 打开文件（走系统文件选择器，落在本 pane 的 editor tab） */
   onAddFile?: () => void;
   /** 打开目录树 tab（file-explorer，桌面端此前无入口） */
@@ -37,6 +39,7 @@ export default function NewTabMenu({
   onAdd,
   onAddBrowser,
   onAddDsh,
+  onAddAgentChat,
   onAddFile,
   onAddFileExplorer,
   onAddSsh,
@@ -73,6 +76,11 @@ export default function NewTabMenu({
           {onAddBrowser && (
             <DropdownMenuItem onSelect={onAddBrowser}>
               <Globe2 /> {t("newBrowserTab")}
+            </DropdownMenuItem>
+          )}
+          {onAddAgentChat && (
+            <DropdownMenuItem onSelect={onAddAgentChat}>
+              <MessagesSquare /> {t("newAgentChatTab")}
             </DropdownMenuItem>
           )}
           {onAddDsh && (

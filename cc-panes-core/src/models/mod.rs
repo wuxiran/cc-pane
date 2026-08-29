@@ -1,3 +1,4 @@
+pub mod agent_transcript;
 pub mod ai_panel;
 pub mod context_usage;
 pub mod dsh;
@@ -34,6 +35,10 @@ mod workspace;
 pub mod workspace_snapshot;
 pub mod wsl;
 
+pub use agent_transcript::{
+    AgentTranscriptErrorCode, ReadAgentTranscriptParams, ReadAgentTranscriptResult,
+    TranscriptMessage, TranscriptRole, DEFAULT_TRANSCRIPT_LIMIT, MAX_TRANSCRIPT_LIMIT,
+};
 pub use context_usage::{ContextUsageSnapshot, ContextUsageStatus};
 pub use external_skill::{DiscoveredExternalSkill, ExternalSkillSource};
 pub use git::{

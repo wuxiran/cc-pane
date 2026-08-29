@@ -38,6 +38,7 @@ const ALL_CONTENT_TYPES: TabContentType[] = [
   "terminal",
   "browser",
   "dsh",
+  "agent-chat",
   "editor",
   "file-explorer",
   "mcp-config",

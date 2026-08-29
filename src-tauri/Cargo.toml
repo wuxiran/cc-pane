@@ -51,7 +51,15 @@ portable-pty = "0.8"
 parking_lot = "0.12"
 axum = "0.8"
 tower-http = { version = "0.6", features = ["cors"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "sync",
+    "time",
+    "process",
+    "io-util",
+] }
 tokio-tungstenite = "0.27"
 futures-util = "0.3"
 rand = "0.8"

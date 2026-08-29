@@ -26,6 +26,14 @@ export type {
   SaveLayoutSnapshotRequest,
 } from "./layout-snapshot";
 export type {
+  TranscriptRole,
+  AgentTranscriptErrorCode,
+  TranscriptMessage,
+  ReadAgentTranscriptParams,
+  ReadAgentTranscriptResult,
+} from "./agentTranscript";
+export { isTranscriptSupportedCliTool, TRANSCRIPT_SUPPORTED_CLI_TOOLS } from "./agentTranscript";
+export type {
   KnownCliTool,
   CliTool,
   CliToolInfo,
@@ -64,6 +72,21 @@ export type {
   PiRpcSessionSnapshot,
   PiRpcStartRequest,
 } from "./piRpc";
+export type {
+  AcpChatEvent,
+  AcpChatPhase,
+  AcpChatSnapshot,
+  AcpContentBlock,
+  AcpEngineInfo,
+  AcpPermissionOption,
+  AcpPermissionRequest,
+  AcpPlanEntry,
+  AcpSessionUpdate,
+  AcpToolCall,
+  AcpToolCallContent,
+  AcpToolCallStatus,
+  AgentChatItem,
+} from "./agentChat";
 export type {
   ProjectCliHookStatus,
   ProjectCliHookGroupStatus,

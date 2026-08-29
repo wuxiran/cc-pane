@@ -45,6 +45,7 @@ use commands::{
     browser_reload,
     browser_set_bounds,
     browser_set_visible,
+    cancel_acp_chat,
     cancel_media_run,
     cancel_terminal_launch,
     check_codex_rollout_exists,
@@ -128,6 +129,7 @@ use commands::{
     fs_rename_entry,
     fs_write_file,
     generate_claude_md,
+    get_acp_chat,
     get_ai_panel_content,
     get_all_terminal_status,
     get_app_cwd,
@@ -240,6 +242,7 @@ use commands::{
     kill_orphan_processes,
     kill_terminal,
     kill_terminal_idempotent,
+    list_acp_engines,
     list_ai_panel_history,
     list_ai_panels,
     list_all_claude_sessions,
@@ -305,6 +308,7 @@ use commands::{
     preview_launch_profile_resolution,
     preview_project_migration,
     preview_workspace_migration,
+    prompt_acp_chat,
     prompt_pi_rpc_session,
     prune_stale_session_outputs,
     prune_terminal_sessions,
@@ -314,6 +318,7 @@ use commands::{
     query_task_bindings,
     query_todos,
     query_usage_stats,
+    read_agent_transcript_cmd,
     read_clipboard_file_paths,
     read_config_dir_info,
     read_session_state,
@@ -344,6 +349,7 @@ use commands::{
     resolve_media_asset,
     resolve_terminal_path_link,
     resolve_wallpaper_asset,
+    respond_acp_permission,
     respond_orchestrator_query,
     restart_comfy_runtime,
     restart_shared_mcp_server,
@@ -412,12 +418,14 @@ use commands::{
     ssh_fs_write_file,
     stage_media_input,
     stage_terminal_task_queue_clipboard_image,
+    start_acp_chat,
     start_comfy_runtime,
     start_dsh_instance,
     start_launch_history_backfill,
     start_pi_rpc_session,
     start_shared_mcp_server,
     start_web_access,
+    stop_acp_chat,
     stop_comfy_runtime,
     stop_dsh_instance,
     stop_pi_rpc_session,
@@ -1587,6 +1595,7 @@ pub fn run() {
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
     let pi_rpc_service = Arc::new(PiRpcService::new());
+    let acp_chat_service = Arc::new(services::AcpChatService::new());
     let task_queue_service = Arc::new(TaskQueueService::new(
         task_queue_repo,
         app_paths.task_queue_images_dir(),
@@ -1745,6 +1754,7 @@ pub fn run() {
     let web_access_cleanup = web_access_lifecycle.clone();
     let orchestrator_cleanup = orchestrator_service.clone();
     let pi_rpc_cleanup = pi_rpc_service.clone();
+    let acp_chat_cleanup = acp_chat_service.clone();
 
     boot_mark!("building tauri app...");
     with_macos_app_menu(tauri::Builder::default())
@@ -1805,6 +1815,7 @@ pub fn run() {
         .manage(comfy_runtime_service)
         .manage(terminal_service)
         .manage(pi_rpc_service)
+        .manage(acp_chat_service)
         .manage(terminal_backend_state)
         .manage(launch_history_service)
         .manage(usage_stats_service)
@@ -2885,6 +2896,13 @@ pub fn run() {
             cancel_terminal_launch,
             create_terminal_session,
             start_pi_rpc_session,
+            start_acp_chat,
+            list_acp_engines,
+            prompt_acp_chat,
+            cancel_acp_chat,
+            respond_acp_permission,
+            get_acp_chat,
+            stop_acp_chat,
             list_pi_rpc_sessions,
             get_pi_rpc_session,
             prompt_pi_rpc_session,
@@ -2922,6 +2940,7 @@ pub fn run() {
             list_session_index,
             refresh_session_index,
             check_codex_rollout_exists,
+            read_agent_transcript_cmd,
             get_terminal_task_queue,
             stage_terminal_task_queue_clipboard_image,
             add_terminal_task_queue_item,
@@ -3387,6 +3406,7 @@ pub fn run() {
                     error!("[cleanup] Failed to flush usage stats: {}", e);
                 }
                 tauri::async_runtime::block_on(pi_rpc_cleanup.cleanup_all());
+                tauri::async_runtime::block_on(acp_chat_cleanup.cleanup_all());
                 terminal_cleanup.cleanup_all();
                 history_cleanup.stop_all_watching();
                 workspace_cleanup.stop_watcher();
