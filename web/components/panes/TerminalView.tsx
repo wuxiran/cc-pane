@@ -82,7 +82,7 @@ import { attachTerminalInputDebugLog } from "./terminalInputDebug";
 import { attachTerminalDomInputFallback } from "./terminalDomInputFallback";
 import { attachTerminalImeGuard, isLinuxWebKitImeEnvironment } from "./terminalImeGuard";
 import { isTerminalCopyShortcut, isTerminalPasteShortcut } from "./terminalKeyboard";
-import { isXtermFocusReportInput } from "./terminalFocusReport";
+import { detectFocusReportMode, isXtermFocusReportInput } from "./terminalFocusReport";
 import { attachTerminalTuiWheelMultiplier } from "./terminalTuiWheelMultiplier";
 import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
 import { resolveCliTool, resolveLaunchId, resolveRuntimeKind } from "./terminalLaunchIdentity";
@@ -470,6 +470,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         throw new Error("Terminal write flow control is not initialized");
       }
       const terminalData = transparentCliSurfaceRef.current ? stripSgrBackgroundColors(data) : data;
+      focusReportModeRef.current = detectFocusReportMode(terminalData, focusReportModeRef.current); // 1004 跟踪必须挂唯一写入出口：回放/重同步/唤醒同样携带，漏检=恢复会话丢光标（与 xterm 内部状态同源）
       // WebGL 花屏诊断台录制钩子（未 arm 时为 no-op，见 utils/terminalCast）。
       captureTerminalWrite(currentSessionIdRef.current ?? props.sessionId ?? "unknown", terminalData);
       await flowControl.write(terminalData, onWritten);
@@ -820,7 +821,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       await bindTerminalSessionCallbacks(sessionId, {
         terminalInstanceRef,
         serializeAddonRef,
-        focusReportModeRef,
         hiddenWriteBufferRef,
         layoutSchedulerRef,
         outputUnsubRef,

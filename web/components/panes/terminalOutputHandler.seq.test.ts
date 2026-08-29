@@ -22,7 +22,6 @@ function makeHandler(options: { visible: boolean; term?: Terminal | null }): {
   const handler = createTerminalOutputHandler({
     sessionId: "s1",
     terminalRef: { current: options.term === undefined ? fakeTerm : options.term },
-    focusReportModeRef: { current: false },
     hiddenWriteBufferRef,
     isRenderVisible: () => options.visible,
     keepCliOutputInNormalBuffer: false,

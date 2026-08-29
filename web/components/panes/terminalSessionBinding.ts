@@ -83,7 +83,6 @@ export interface BindTerminalSessionCallbacksOptions {
   terminalInstanceRef: RefValue<Terminal | null>;
   /** 拍照用 serialize addon（M3b-2 daemon 补拍触发点）；不传 = 本视图不响应补拍。 */
   serializeAddonRef?: RefValue<CheckpointSerializer | null>;
-  focusReportModeRef: RefValue<boolean>;
   hiddenWriteBufferRef: RefValue<TerminalHiddenWriteBuffer | null>;
   layoutSchedulerRef: RefValue<TerminalLayoutScheduler | null>;
   outputUnsubRef: RefValue<(() => void) | null>;
@@ -208,7 +207,6 @@ export async function bindTerminalSessionCallbacks(
   {
     terminalInstanceRef,
     serializeAddonRef,
-    focusReportModeRef,
     hiddenWriteBufferRef,
     layoutSchedulerRef,
     outputUnsubRef,
@@ -236,7 +234,6 @@ export async function bindTerminalSessionCallbacks(
     createTerminalOutputHandler({
       sessionId,
       terminalRef: terminalInstanceRef,
-      focusReportModeRef,
       hiddenWriteBufferRef,
       // 输出直写门槛 = 可见 且 无重同步在途：闸门期实时输出必须进积压，
       // 否则会赶在快照 reset 前落地随后被抹掉（真丢失）。
