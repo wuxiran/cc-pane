@@ -2,8 +2,11 @@
  * 全屏 TUI 的滚轮距离模型（把一次 wheel 事件解成「该发几个鼠标报告」）。
  *
  * 为什么需要它：xterm 的 `consumeWheelEvent` 会把小像素增量抑制掉，一次滚轮
- * 最多换来一个鼠标报告。对**自己处理滚动的全屏 TUI**（开了鼠标上报的 grok /
+ * 最多换来一个鼠标报告。对**自己处理滚动且开了鼠标上报的全屏 TUI**（如
  * opencode）来说，这意味着滚一下只动一行，手感远慢于普通缓冲区的 scrollback。
+ * 注意 grok **不在此列**：0.2.101 二进制取证只有鼠标上报的关闭序列（1000l/1002l/
+ * 1003l），从不开启——grok 会话不会命中本路径（它的滚动靠 inline scrollback
+ * 或 fullscreen 下的键盘/方向键）。
  *
  * 做法参考 Orca 的 `pane-terminal-tui-wheel-reports.ts`：按事件实际代表的
  * **行距**解出报告数，由调用方补发等量的 line-mode WheelEvent。

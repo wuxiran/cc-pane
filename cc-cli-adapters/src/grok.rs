@@ -39,6 +39,22 @@ const MCP_ISOLATION_UNSUPPORTED_LOG: &str =
     "grok: MCP isolation requested but Grok has no per-launch disable channel; \
      user-configured MCP servers are left untouched";
 
+/// Grok 屏幕模式覆盖环境变量（0.2.101 二进制取证：字符串紧邻
+/// "Reopening session in X mode"）。与 `--fullscreen`/`--minimal` flag 不同，
+/// env 逐进程生效、**不 sticky**——不会把 `screen_mode` 写回用户全局 config.toml。
+const GROK_SCREEN_MODE_ENV: &str = "GROK_SCREEN_MODE";
+
+/// `adapterOptions.screenMode` → 屏幕模式。缺省 / 非法值 → `fullscreen`；
+/// `inherit` = 不注入（尊重用户自己的环境变量与全局 `[ui] screen_mode` 配置）。
+fn screen_mode_from_options(options: &HashMap<String, serde_json::Value>) -> String {
+    options
+        .get("screenMode")
+        .and_then(serde_json::Value::as_str)
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| matches!(value.as_str(), "fullscreen" | "minimal" | "inherit"))
+        .unwrap_or_else(|| "fullscreen".to_string())
+}
+
 pub struct GrokAdapter {
     info: CliToolInfo,
     caps: CliToolCapabilities,
@@ -439,11 +455,24 @@ impl CliToolAdapter for GrokAdapter {
 
         let (command, args) = ctx.resolve_launch("grok", args)?;
 
+        // 屏幕模式默认 fullscreen：CC-Panes 的 PTY 无终端指纹（无 WT_SESSION /
+        // TERM_PROGRAM），Grok 的 auto-detection 会回落 inline——而 inline 依赖
+        // xterm scrollback，长会话后台积压溢出 → snapshot 重建（daemon 缓冲有界）
+        // 后历史被截断，表现为「滚不上去」。fullscreen 下历史在 Grok 自己手里
+        // （PgUp/Ctrl+U 全量可滚），不受重建影响。
+        // 若 Grok 升版不认该 env，仅回落 auto-detect（现状 inline），失败模式安全。
+        let mut env_inject = HashMap::new();
+        let screen_mode = screen_mode_from_options(&ctx.adapter_options);
+        if screen_mode != "inherit" {
+            env_inject.insert(GROK_SCREEN_MODE_ENV.to_string(), screen_mode);
+        }
+
         info!(
             session_id = %ctx.session_id,
             command = %command,
             resume_id = ?ctx.resume_id,
             issued_session_id = ?ctx.issued_session_id,
+            screen_mode_env = ?env_inject.get(GROK_SCREEN_MODE_ENV),
             args = ?crate::redact_args_for_log(&args),
             "grok: build_command result"
         );
@@ -452,7 +481,7 @@ impl CliToolAdapter for GrokAdapter {
             command,
             args,
             env_remove: vec![],
-            env_inject: HashMap::new(),
+            env_inject,
         })
     }
 
@@ -540,6 +569,70 @@ mod tests {
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),
         }
+    }
+
+    #[test]
+    fn build_command_injects_fullscreen_screen_mode_by_default() {
+        let adapter = GrokAdapter::new();
+        let ctx = test_context(Some("/opt/grok/bin/grok"));
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        assert_eq!(
+            result
+                .env_inject
+                .get(GROK_SCREEN_MODE_ENV)
+                .map(String::as_str),
+            Some("fullscreen"),
+        );
+    }
+
+    #[test]
+    fn build_command_screen_mode_option_overrides_default() {
+        let adapter = GrokAdapter::new();
+        let mut ctx = test_context(Some("/opt/grok/bin/grok"));
+        ctx.adapter_options
+            .insert("screenMode".into(), "minimal".into());
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        assert_eq!(
+            result
+                .env_inject
+                .get(GROK_SCREEN_MODE_ENV)
+                .map(String::as_str),
+            Some("minimal"),
+        );
+    }
+
+    #[test]
+    fn build_command_screen_mode_inherit_skips_injection() {
+        let adapter = GrokAdapter::new();
+        let mut ctx = test_context(Some("/opt/grok/bin/grok"));
+        ctx.adapter_options
+            .insert("screenMode".into(), "inherit".into());
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        assert!(!result.env_inject.contains_key(GROK_SCREEN_MODE_ENV));
+    }
+
+    #[test]
+    fn build_command_invalid_screen_mode_falls_back_to_fullscreen() {
+        let adapter = GrokAdapter::new();
+        let mut ctx = test_context(Some("/opt/grok/bin/grok"));
+        ctx.adapter_options
+            .insert("screenMode".into(), "bogus".into());
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        assert_eq!(
+            result
+                .env_inject
+                .get(GROK_SCREEN_MODE_ENV)
+                .map(String::as_str),
+            Some("fullscreen"),
+        );
     }
 
     #[test]
