@@ -318,6 +318,7 @@
   "newAgentChatTab": "New Agent Chat",
   "agentChatPickEngine": "Choose an engine",
   "agentChatBrowseDir": "Browse for a folder…",
+  "agentChatModelDefault": "Default model",
   "agentChatHistoryScopeProject": "This project",
   "agentChatHistoryScopeAll": "All",
   "agentChatHeroBefore": "What should we build in ",

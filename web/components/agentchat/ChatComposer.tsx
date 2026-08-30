@@ -14,6 +14,7 @@ import { agentChatService } from "@/services/agentChatService";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import { isAbsolutePath, joinCwd, toFileUri } from "./chatPaths";
+import ChatVoiceButton from "./ChatVoiceButton";
 
 // 草稿与发送历史按 tabId 缓存在模块级：组件卸载（切标签）不丢。
 const draftCache = new Map<string, string>();
@@ -340,6 +341,11 @@ export default function ChatComposer({
             placeholder={t("agentChatSendPlaceholder")}
             rows={2}
             className="max-h-40 min-h-[2.5rem] flex-1 resize-none rounded-md border border-[var(--app-border)] bg-transparent px-2.5 py-1.5 text-sm outline-none focus:border-[var(--app-icon-active)]"
+          />
+          <ChatVoiceButton
+            chatId={chatId}
+            sizeClass="h-8 w-8"
+            onText={(text) => setDraft(draft ? `${draft} ${text}` : text)}
           />
           {generating ? (
             <button

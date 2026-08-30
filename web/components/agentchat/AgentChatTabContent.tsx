@@ -41,6 +41,7 @@ import { HeaderSelect, ItemView } from "./ChatItems";
 import EnginePicker from "./EnginePicker";
 import PermissionCard from "./PermissionCard";
 import { isAbsolutePath, joinCwd } from "./chatPaths";
+import { saveEngineModels, savePreferredModel } from "./enginePrefs";
 
 export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   const { t } = useTranslation("panes");
@@ -227,6 +228,9 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
               items={modelItems}
               currentId={snapshot.models?.currentModelId}
               onSelect={(modelId) => {
+                // 记为该引擎的偏好模型，下次启动页直接可选并自动应用。
+                savePreferredModel(snapshot.engineId, modelId);
+                saveEngineModels(snapshot.engineId, snapshot.models?.availableModels ?? []);
                 void agentChatService.setModel(tab.id, modelId).catch((error) => {
                   useAgentChatStore
                     .getState()

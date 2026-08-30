@@ -5,10 +5,8 @@ import type { ReactNode } from "react";
 import {
   Bug,
   ChevronDown,
-  Copy,
   FolderOpen,
   Hammer,
-  History,
   Loader2,
   SearchCode,
   Send,
@@ -29,6 +27,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import ChatVoiceButton from "./ChatVoiceButton";
+import StartRecentSessions from "./StartRecentSessions";
+import { samePath } from "./chatPaths";
+import {
+  loadEnginePrefs,
+  saveEngineModels,
+  savePreferredModel,
+  type EngineModelPrefs,
+} from "./enginePrefs";
 
 const SUGGESTIONS = [
   { icon: Telescope, labelKey: "agentChatSuggestExplore", promptKey: "agentChatSuggestExplorePrompt" },
@@ -37,23 +44,8 @@ const SUGGESTIONS = [
   { icon: Bug, labelKey: "agentChatSuggestFix", promptKey: "agentChatSuggestFixPrompt" },
 ] as const;
 
-function formatHistoryTime(timestamp: number): string {
-  try {
-    return new Date(timestamp).toLocaleString();
-  } catch {
-    return "";
-  }
-}
-
 function projectNameOf(cwd: string): string {
   return cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd;
-}
-
-/** 路径宽松等价（Windows 大小写 + 分隔符差异），仅用于 UI 高亮/过滤。 */
-function samePath(left: string, right: string): boolean {
-  const normalize = (value: string) =>
-    value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-  return normalize(left) === normalize(right);
 }
 
 export interface EnginePickerProps {
@@ -70,12 +62,16 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
   const [selectedEngine, setSelectedEngine] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [history, setHistory] = useState<AcpChatHistoryEntry[]>([]);
-  const [historyFilter, setHistoryFilter] = useState("");
   const [startingEngine, setStartingEngine] = useState<string | null>(null);
-  const [historyScope, setHistoryScope] = useState<"project" | "all">("project");
   const [error, setError] = useState<string | null>(null);
+  const [modelPrefs, setModelPrefs] = useState<EngineModelPrefs | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const workspaces = useWorkspacesStore((state) => state.workspaces);
+
+  // 模型表来自该引擎上次会话的握手缓存；首次使用时为空（下拉不显示）。
+  useEffect(() => {
+    setModelPrefs(selectedEngine ? loadEnginePrefs(selectedEngine) : null);
+  }, [selectedEngine]);
 
   // 注册的工作空间→项目树（归档过滤在消费点，CLAUDE.md 约定）。
   const workspaceTree = useMemo(
@@ -90,21 +86,6 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
         .filter((workspace) => workspace.projects.length > 0),
     [workspaces],
   );
-
-  const filteredHistory = useMemo(() => {
-    const query = historyFilter.trim().toLowerCase();
-    let entries = history;
-    if (historyScope === "project" && cwd) {
-      entries = entries.filter((entry) => samePath(entry.cwd, cwd));
-    }
-    if (!query) return entries;
-    return entries.filter((entry) =>
-      [entry.title, entry.cwd, entry.engineId, entry.acpSessionId]
-        .join("\n")
-        .toLowerCase()
-        .includes(query),
-    );
-  }, [history, historyFilter, historyScope, cwd]);
 
   useEffect(() => {
     let cancelled = false;
@@ -159,6 +140,19 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
         );
         useAgentChatStore.getState().setSnapshot(chatId, snapshot);
         if (resumeAcpSessionId) onCwdAdopted(startCwd);
+        // 回填该引擎的模型表缓存；有偏好且与当前不同则自动应用。
+        const models = snapshot.models?.availableModels ?? [];
+        saveEngineModels(engineId, models);
+        const preferred = loadEnginePrefs(engineId)?.preferredModelId;
+        if (
+          preferred
+          && preferred !== snapshot.models?.currentModelId
+          && models.some((model) => model.modelId === preferred)
+        ) {
+          void agentChatService.setModel(chatId, preferred).catch((modelError) => {
+            handleErrorSilent(modelError, "apply preferred acp model");
+          });
+        }
         const text = firstPrompt?.trim();
         if (text) {
           useAgentChatStore.getState().addUserMessage(chatId, text, []);
@@ -304,6 +298,7 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
             className="max-h-40 w-full resize-none bg-transparent text-sm outline-none placeholder:text-[var(--app-icon-inactive)]"
           />
           <div className="flex items-center justify-between gap-2 pt-1">
+            <div className="flex min-w-0 items-center gap-1.5">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -351,6 +346,65 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+            {modelPrefs && modelPrefs.models.length > 0 ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex min-w-0 items-center gap-1 rounded-md border border-[var(--app-border)] px-2 py-1 text-xs text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)]"
+                  >
+                    <span className="max-w-40 truncate">
+                      {modelPrefs.models.find(
+                        (model) => model.modelId === modelPrefs.preferredModelId,
+                      )?.name
+                        ?? modelPrefs.preferredModelId
+                        ?? t("agentChatModelDefault")}
+                    </span>
+                    <ChevronDown className="h-3 w-3" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      if (selectedEngine) {
+                        savePreferredModel(selectedEngine, null);
+                        setModelPrefs(loadEnginePrefs(selectedEngine));
+                      }
+                    }}
+                  >
+                    {t("agentChatModelDefault")}
+                    {modelPrefs.preferredModelId === null ? (
+                      <span className="ml-auto pl-3 text-[var(--app-accent)]">✓</span>
+                    ) : null}
+                  </DropdownMenuItem>
+                  {modelPrefs.models.map((model) => (
+                    <DropdownMenuItem
+                      key={model.modelId}
+                      title={model.description}
+                      onSelect={() => {
+                        if (selectedEngine) {
+                          savePreferredModel(selectedEngine, model.modelId);
+                          setModelPrefs(loadEnginePrefs(selectedEngine));
+                        }
+                      }}
+                    >
+                      <span className="max-w-64 truncate">{model.name || model.modelId}</span>
+                      {model.modelId === modelPrefs.preferredModelId ? (
+                        <span className="ml-auto pl-3 text-[var(--app-accent)]">✓</span>
+                      ) : null}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+            </div>
+            <div className="flex items-center gap-1.5">
+            <ChatVoiceButton
+              chatId={chatId}
+              onText={(text) =>
+                setDraft((previous) => (previous ? `${previous} ${text}` : text))
+              }
+            />
             <button
               type="button"
               aria-label={t("agentChatSend")}
@@ -364,6 +418,7 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
                 <Send className="h-3.5 w-3.5" />
               )}
             </button>
+            </div>
           </div>
         </div>
 
@@ -375,84 +430,12 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
       </div>
 
       {/* 最近会话：紧凑列表，点击续接（session/load） */}
-      {history.length > 0 ? (
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-1.5 pb-6">
-          <div className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--app-icon-inactive)]">
-            <History className="h-3.5 w-3.5" /> {t("agentChatHistoryTitle")}
-            {cwd ? (
-              <div className="flex overflow-hidden rounded border border-[var(--app-border)] text-[10px]">
-                {(["project", "all"] as const).map((scope) => (
-                  <button
-                    key={scope}
-                    type="button"
-                    className={`px-1.5 py-px transition-colors ${
-                      historyScope === scope
-                        ? "bg-[var(--app-active-bg)] text-[var(--app-icon-active)]"
-                        : "hover:bg-[var(--app-hover)]"
-                    }`}
-                    onClick={() => setHistoryScope(scope)}
-                  >
-                    {scope === "project"
-                      ? t("agentChatHistoryScopeProject")
-                      : t("agentChatHistoryScopeAll")}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            <span className="flex-1" />
-            <input
-              value={historyFilter}
-              onChange={(event) => setHistoryFilter(event.target.value)}
-              placeholder={t("agentChatHistoryFilter")}
-              className="w-32 rounded border border-[var(--app-border)] bg-transparent px-1.5 py-0.5 text-[11px] outline-none focus:border-[var(--app-icon-active)]"
-            />
-          </div>
-          <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
-            {filteredHistory.slice(0, 30).map((entry) => (
-              <div
-                key={entry.acpSessionId}
-                className="group flex items-center gap-1 rounded-md border border-[var(--app-border)] px-2 py-1.5 transition-colors hover:bg-[var(--app-hover)]"
-              >
-                <button
-                  type="button"
-                  disabled={startingEngine !== null}
-                  className="flex min-w-0 flex-1 flex-col gap-0.5 text-left disabled:opacity-50"
-                  onClick={() => void start(entry.engineId, entry.cwd, entry.acpSessionId)}
-                >
-                  <span className="flex items-center gap-2">
-                    <span className="flex-1 truncate text-xs">
-                      {entry.title || entry.acpSessionId}
-                    </span>
-                    {startingEngine === entry.acpSessionId ? (
-                      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-                    ) : (
-                      <span className="shrink-0 text-[10px] text-[var(--app-icon-inactive)]">
-                        {entry.engineId}
-                      </span>
-                    )}
-                  </span>
-                  <span className="truncate text-[10px] text-[var(--app-icon-inactive)]">
-                    {formatHistoryTime(entry.updatedAt)} · {entry.cwd}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  aria-label={t("agentChatCopySessionId")}
-                  title={t("agentChatCopySessionId")}
-                  className="shrink-0 rounded p-1 text-[var(--app-icon-inactive)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--app-active-bg)] hover:text-[var(--app-icon-active)]"
-                  onClick={() => {
-                    void navigator.clipboard
-                      .writeText(entry.acpSessionId)
-                      .catch((copyError) => handleErrorSilent(copyError, "copy acp session id"));
-                  }}
-                >
-                  <Copy className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
+      <StartRecentSessions
+        entries={history}
+        cwd={cwd}
+        startingId={startingEngine}
+        onResume={(entry) => void start(entry.engineId, entry.cwd, entry.acpSessionId)}
+      />
     </div>
   );
 }

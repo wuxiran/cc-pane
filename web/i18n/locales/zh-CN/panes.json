@@ -318,6 +318,7 @@
   "newAgentChatTab": "新建 Agent 对话",
   "agentChatPickEngine": "选择对话引擎",
   "agentChatBrowseDir": "浏览选择目录…",
+  "agentChatModelDefault": "默认模型",
   "agentChatHistoryScopeProject": "本项目",
   "agentChatHistoryScopeAll": "全部",
   "agentChatHeroBefore": "你想在 ",
