@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use tracing::warn;
 
 /// 宿主环境中被视为「已配置 Anthropic 凭证」的环境变量。
@@ -182,14 +182,7 @@ impl ProviderService {
         }
     }
 
-    /// Refresh the in-memory snapshot before reads.
-    ///
-    /// The desktop process and the long-lived daemon each own a separate
-    /// `ProviderService`. Provider edits are written atomically by the desktop
-    /// process, so re-reading here makes the next daemon launch observe them
-    /// without requiring an application or daemon restart.
-    fn refresh_from_file(&self) {
-        let mut cached = self.config.lock().unwrap_or_else(|e| e.into_inner());
+    fn refresh_locked(&self, cached: &mut ProviderConfig) {
         if !self.config_path.is_file() {
             return;
         }
@@ -206,6 +199,25 @@ impl ProviderService {
                 );
             }
         }
+    }
+
+    /// Refresh the in-memory snapshot before reads.
+    ///
+    /// The desktop process and the long-lived daemon each own a separate
+    /// `ProviderService`. Provider edits are written atomically, so re-reading
+    /// here makes the next operation observe them without requiring an
+    /// application or daemon restart.
+    fn refresh_from_file(&self) {
+        let mut cached = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        self.refresh_locked(&mut cached);
+    }
+
+    /// Lock the local snapshot and reload the latest on-disk configuration
+    /// before applying a read-modify-write operation.
+    fn lock_latest_config(&self) -> MutexGuard<'_, ProviderConfig> {
+        let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        self.refresh_locked(&mut config);
+        config
     }
 
     /// 列出所有 Provider
@@ -317,7 +329,7 @@ impl ProviderService {
         Self::normalize_provider_models(&mut provider)?;
         Self::validate_provider(&provider)?;
 
-        let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        let mut config = self.lock_latest_config();
         if config.providers.iter().any(|item| item.id == provider.id) {
             anyhow::bail!("Provider id '{}' already exists", provider.id);
         }
@@ -345,7 +357,7 @@ impl ProviderService {
     pub fn add_provider_unique(&self, mut provider: Provider) -> Result<()> {
         Self::normalize_provider_models(&mut provider)?;
         Self::validate_provider(&provider)?;
-        let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        let mut config = self.lock_latest_config();
         if config.providers.iter().any(|item| item.id == provider.id) {
             anyhow::bail!("Provider id '{}' already exists", provider.id);
         }
@@ -379,7 +391,7 @@ impl ProviderService {
         Self::normalize_provider_models(&mut provider)?;
         Self::validate_provider(&provider)?;
 
-        let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        let mut config = self.lock_latest_config();
 
         let pos = config
             .providers
@@ -406,7 +418,7 @@ impl ProviderService {
 
     /// 删除 Provider；对应 CLI 回到原生配置，避免静默切换到另一个凭证。
     pub fn remove_provider(&self, id: &str) -> Result<()> {
-        let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        let mut config = self.lock_latest_config();
 
         let mut next = config.clone();
         next.providers.retain(|p| p.id != id);
@@ -417,7 +429,7 @@ impl ProviderService {
 
     /// 兼容旧调用：只设置 Provider 的原生 CLI，避免隐式影响其它 CLI。
     pub fn set_default(&self, id: &str) -> Result<()> {
-        let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        let mut config = self.lock_latest_config();
         let is_system = id == SYSTEM_PROVIDER_ID;
         if !is_system && !config.providers.iter().any(|provider| provider.id == id) {
             anyhow::bail!("Provider '{}' not found", id);
@@ -441,7 +453,7 @@ impl ProviderService {
     /// 只设置一个 CLI 工具的默认 Provider，不影响其他 CLI。
     pub fn set_default_for_cli(&self, cli_tool: &str, id: &str) -> Result<()> {
         Self::validate_cli_tool(cli_tool)?;
-        let mut config = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        let mut config = self.lock_latest_config();
         if id != SYSTEM_PROVIDER_ID && !config.providers.iter().any(|provider| provider.id == id) {
             anyhow::bail!("Provider '{}' not found", id);
         }
@@ -1213,6 +1225,46 @@ mod tests {
                 .get("ANTHROPIC_API_KEY")
                 .map(String::as_str),
             Some("sk-fresh-provider")
+        );
+    }
+
+    #[test]
+    fn separate_service_instances_preserve_updates_across_write_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("providers.json");
+        let writer_a = ProviderService::new(path.clone());
+        let writer_b = ProviderService::new(path.clone());
+
+        writer_a.add_provider(make_provider("a", false)).unwrap();
+        writer_b.add_provider(make_provider("b", false)).unwrap();
+        writer_a
+            .add_provider_unique(make_provider("c", false))
+            .unwrap();
+
+        let mut updated_c = make_provider("c", false);
+        updated_c.name = "updated-c".to_string();
+        writer_b.update_provider(updated_c).unwrap();
+        writer_a.set_default("c").unwrap();
+        writer_b.set_default_for_cli("codex", "c").unwrap();
+        writer_a.remove_provider("a").unwrap();
+
+        let reloaded = ProviderService::new(path);
+        assert_eq!(
+            reloaded
+                .list_providers()
+                .iter()
+                .map(|provider| provider.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["b", "c"]
+        );
+        assert_eq!(reloaded.get_provider("c").unwrap().name, "updated-c");
+        assert_eq!(
+            reloaded.get_default_provider_id("claude").as_deref(),
+            Some("c")
+        );
+        assert_eq!(
+            reloaded.get_default_provider_id("codex").as_deref(),
+            Some("c")
         );
     }
 
