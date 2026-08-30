@@ -325,6 +325,7 @@
   "agentChatOpenFile": "打开文件",
   "agentChatExportMarkdown": "复制为 Markdown",
   "agentChatExportCopied": "会话已复制为 Markdown",
+  "agentChatRetry": "重试上一轮",
   "agentChatRename": "重命名",
   "agentChatRenameSave": "保存名称",
   "agentChatRenameCancel": "取消",

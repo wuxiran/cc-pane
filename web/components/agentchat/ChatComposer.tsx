@@ -2,7 +2,7 @@
 // 从 AgentChatTabContent 拆出（行数棘轮）。发送块组装（text/image/resource_link）
 // 也在这里——父组件只提供会话身份与相位。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ImageIcon, Paperclip, Send, Square, X } from "lucide-react";
+import { FileText, ImageIcon, Paperclip, RotateCw, Send, Square, X } from "lucide-react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
 import type {
@@ -40,6 +40,16 @@ export default function ChatComposer({
   onBeforeSend,
 }: ChatComposerProps) {
   const { t } = useTranslation("panes");
+  // 最后一条用户消息（重试上一轮用；从 store 取，重挂载不丢）。
+  const lastUserText = useAgentChatStore((state) => {
+    const chatItems = state.chats[chatId]?.items;
+    if (!chatItems) return null;
+    for (let index = chatItems.length - 1; index >= 0; index -= 1) {
+      const item = chatItems[index];
+      if (item.type === "user" && item.text) return item.text;
+    }
+    return null;
+  });
   const [draft, setDraftState] = useState(() => draftCache.get(chatId) ?? "");
   const [attachments, setAttachments] = useState<AgentChatAttachment[]>([]);
   const [slashIndex, setSlashIndex] = useState(0);
@@ -96,23 +106,26 @@ export default function ChatComposer({
     reader.readAsDataURL(file);
   }, []);
 
-  const attachImageFromDialog = useCallback(async () => {
-    const picked = await openFileDialog({
-      multiple: true,
-      directory: false,
-      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp"] }],
-    }).catch(() => null);
+  /** 附件对话框：图片内嵌为 image 块，其余文件转 resource_link（引用不内嵌）。 */
+  const attachFromDialog = useCallback(async () => {
+    const picked = await openFileDialog({ multiple: true, directory: false }).catch(() => null);
     const paths = typeof picked === "string" ? [picked] : Array.isArray(picked) ? picked : [];
+    const imageExtensions = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
     for (const path of paths) {
+      const name = path.split(/[\\/]/).pop() || path;
+      const extension = name.split(".").pop()?.toLowerCase() ?? "";
+      if (!imageExtensions.has(extension)) {
+        setAttachments((previous) => [
+          ...previous,
+          { name, mimeType: "", data: "", kind: "file", path },
+        ]);
+        continue;
+      }
       try {
         const image = await agentChatService.readImageAttachment(path);
         setAttachments((previous) => [
           ...previous,
-          {
-            name: path.split(/[\\/]/).pop() || path,
-            mimeType: image.mimeType,
-            data: image.dataBase64,
-          },
+          { name, mimeType: image.mimeType, data: image.dataBase64, kind: "image" },
         ]);
       } catch (error) {
         useAgentChatStore
@@ -152,11 +165,11 @@ export default function ChatComposer({
     const text = draft.trim();
     if ((!text && attachments.length === 0) || phase !== "ready") return;
 
-    const blocks: unknown[] = attachments.map((attachment) => ({
-      type: "image",
-      mimeType: attachment.mimeType,
-      data: attachment.data,
-    }));
+    const blocks: unknown[] = attachments.map((attachment) =>
+      attachment.kind === "file" && attachment.path
+        ? { type: "resource_link", uri: toFileUri(attachment.path), name: attachment.name }
+        : { type: "image", mimeType: attachment.mimeType, data: attachment.data },
+    );
     // `@路径` → resource_link 块（ACP 基线能力，所有 agent 必须支持）。
     for (const match of text.matchAll(/(?:^|\s)@([^\s@]+)/g)) {
       const mention = match[1];
@@ -216,6 +229,18 @@ export default function ChatComposer({
     });
   }, [chatId]);
 
+  /** 重试上一轮：原样重发最后一条用户消息（附件/文件引用不重放）。 */
+  const retryLast = useCallback(() => {
+    if (!lastUserText || phase !== "ready") return;
+    onBeforeSend?.();
+    useAgentChatStore.getState().addUserMessage(chatId, lastUserText, []);
+    void agentChatService.prompt(chatId, [{ type: "text", text: lastUserText }]).catch((error) => {
+      useAgentChatStore
+        .getState()
+        .pushNotice(chatId, error instanceof Error ? error.message : String(error));
+    });
+  }, [chatId, lastUserText, phase, onBeforeSend]);
+
   return (
     <div className="border-t border-[var(--app-border)] px-3 py-2">
       <div className="mx-auto flex max-w-3xl flex-col gap-1.5">
@@ -253,7 +278,12 @@ export default function ChatComposer({
                 key={index}
                 className="flex items-center gap-1 rounded border border-[var(--app-border)] px-1.5 py-0.5 text-[11px] text-[var(--app-icon-inactive)]"
               >
-                <ImageIcon className="h-3 w-3" /> {attachment.name}
+                {attachment.kind === "file" ? (
+                  <FileText className="h-3 w-3" />
+                ) : (
+                  <ImageIcon className="h-3 w-3" />
+                )}{" "}
+                {attachment.name}
                 <button
                   type="button"
                   aria-label={t("agentChatRemoveAttachment")}
@@ -280,7 +310,7 @@ export default function ChatComposer({
             aria-label={t("agentChatAttach")}
             title={t("agentChatAttach")}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--app-border)] text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]"
-            onClick={() => void attachImageFromDialog()}
+            onClick={() => void attachFromDialog()}
           >
             <Paperclip className="h-3.5 w-3.5" />
           </button>
@@ -342,6 +372,18 @@ export default function ChatComposer({
             rows={2}
             className="max-h-40 min-h-[2.5rem] flex-1 resize-none rounded-md border border-[var(--app-border)] bg-transparent px-2.5 py-1.5 text-sm outline-none focus:border-[var(--app-icon-active)]"
           />
+          {lastUserText && !generating ? (
+            <button
+              type="button"
+              aria-label={t("agentChatRetry")}
+              title={t("agentChatRetry")}
+              disabled={phase !== "ready"}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--app-border)] text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)] disabled:opacity-40"
+              onClick={retryLast}
+            >
+              <RotateCw className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
           <ChatVoiceButton
             chatId={chatId}
             sizeClass="h-8 w-8"

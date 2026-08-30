@@ -149,11 +149,14 @@ export interface AcpChatHistoryEntry {
   updatedAt: number;
 }
 
-/** 发送附件（图片粘贴）。data 为 base64（不带 dataURL 前缀）。 */
+/** 发送附件。image：data 为 base64（不带 dataURL 前缀）；file：只带
+ * path，发送时转 resource_link（不内嵌内容）。kind 缺省 = image。 */
 export interface AgentChatAttachment {
   name: string;
   mimeType: string;
   data: string;
+  kind?: "image" | "file";
+  path?: string;
 }
 
 /** 渲染层消息条目。tool_call 按 toolCallId 就地合并；plan 整表替换。 */

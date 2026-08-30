@@ -126,6 +126,8 @@ struct AcpChatSession {
     stderr_tail: Mutex<VecDeque<String>>,
     /// 无人值守自动放行权限（Automations headless 会话）。
     auto_approve_permissions: bool,
+    /// 回合结束/失败的外部通知钩子（服务级共享，lib.rs 注入桌面通知）。
+    turn_notifier: Arc<std::sync::RwLock<Option<AcpTurnNotifier>>>,
 }
 
 impl AcpChatSession {
@@ -311,12 +313,23 @@ impl AcpChatSession {
 }
 
 /// Manages independent ACP adapter subprocesses, one per chat tab.
+/// 回合结束/失败通知钩子。`detail`：成功 = stopReason，失败 = 错误文本。
+pub struct AcpTurnNotice {
+    pub chat_id: String,
+    pub engine_id: String,
+    pub detail: String,
+    pub is_error: bool,
+}
+
+pub type AcpTurnNotifier = Box<dyn Fn(AcpTurnNotice) + Send + Sync>;
+
 pub struct AcpChatService {
     sessions: RwLock<HashMap<String, Arc<AcpChatSession>>>,
     /// 会话历史元数据目录（`<data>/agent-chats/`）。按 **acpSessionId** 落
     /// 一个 JSON——那才是稳定的对话身份；chatId 是 tab 的运行时身份，
     /// 同一对话可以被不同 tab 先后续接（docs/69 的 id 语义教训）。
     chats_dir: PathBuf,
+    turn_notifier: Arc<std::sync::RwLock<Option<AcpTurnNotifier>>>,
 }
 
 impl AcpChatService {
@@ -324,7 +337,17 @@ impl AcpChatService {
         Self {
             sessions: RwLock::new(HashMap::new()),
             chats_dir,
+            turn_notifier: Arc::new(std::sync::RwLock::new(None)),
         }
+    }
+
+    /// 注入桌面通知钩子（setup 阶段一次）。Automations 的 headless 会话
+    /// （chatId 以 `auto-` 开头）不打扰——结果进运行历史。
+    pub fn set_turn_notifier(&self, notifier: AcpTurnNotifier) {
+        *self
+            .turn_notifier
+            .write()
+            .unwrap_or_else(|p| p.into_inner()) = Some(notifier);
     }
 
     /// Spawn the adapter, run the `initialize` + `session/new` handshake and
@@ -423,6 +446,7 @@ impl AcpChatService {
             pending_permissions: Mutex::new(HashMap::new()),
             stderr_tail: Mutex::new(VecDeque::new()),
             auto_approve_permissions: spec.auto_approve_permissions,
+            turn_notifier: self.turn_notifier.clone(),
         });
         self.sessions
             .write()
@@ -935,7 +959,9 @@ impl AcpChatService {
             .and_then(Value::as_str)
             .is_some_and(|title| !title.trim().is_empty());
         if !has_title {
-            let title: String = text.trim().chars().take(80).collect();
+            // 压掉换行/连续空白再截断，避免多行 prompt 的首行断句难读。
+            let cleaned = text.split_whitespace().collect::<Vec<_>>().join(" ");
+            let title: String = cleaned.chars().take(60).collect();
             meta["title"] = json!(title);
         }
         meta["updatedAt"] = json!(unix_millis());
@@ -1190,6 +1216,26 @@ async fn run_turn(
             }),
         )
         .await;
+    let engine_id = session.snapshot.read().await.engine_id.clone();
+    let notify = |detail: String, is_error: bool| {
+        // Automations 的 headless 会话不打扰（结果进运行历史）。
+        if session.chat_id.starts_with("auto-") {
+            return;
+        }
+        if let Some(notifier) = session
+            .turn_notifier
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+        {
+            notifier(AcpTurnNotice {
+                chat_id: session.chat_id.clone(),
+                engine_id: engine_id.clone(),
+                detail,
+                is_error,
+            });
+        }
+    };
     match result {
         Ok(response) => {
             let stop_reason = response
@@ -1200,6 +1246,7 @@ async fn run_turn(
             session.set_phase(AcpChatPhase::Ready).await;
             session.emit("turn_ended", json!({"stopReason": stop_reason}));
             session.emit_state().await;
+            notify(stop_reason.clone(), false);
             Ok(stop_reason)
         }
         Err(error) => {
@@ -1211,6 +1258,7 @@ async fn run_turn(
                 json!({"stopReason": "error", "error": error.to_string()}),
             );
             session.emit_state().await;
+            notify(error.to_string(), true);
             Err(error)
         }
     }

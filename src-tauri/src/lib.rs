@@ -1615,6 +1615,7 @@ pub fn run() {
         acp_chat_service.clone(),
         app_paths.clone(),
     ));
+    let acp_chat_notify = acp_chat_service.clone();
     let task_queue_service = Arc::new(TaskQueueService::new(
         task_queue_repo,
         app_paths.task_queue_images_dir(),
@@ -1688,6 +1689,8 @@ pub fn run() {
     // 「本轮已富通知」标记注册表：trigger_notification 打标，状态机 turn_end 兜底查标去重
     let turn_notify_registry = Arc::new(services::TurnNotifyRegistry::new());
     let notification_service = Arc::new(NotificationService::new(turn_notify_registry.clone()));
+    let notification_for_acp = notification_service.clone();
+    let settings_for_acp = settings_service.clone();
     let ccchan_service = Arc::new(CCChanService::new(
         settings_service.clone(),
         app_paths.clone(),
@@ -1890,6 +1893,43 @@ pub fn run() {
         .setup(move |app| {
             // Automations 调度循环（30s tick，cron 到期派 headless ACP 会话）。
             automation_service.start_scheduler(app.handle().clone());
+
+            // ACP chat 回合结束/失败 → 桌面通知（走通用 trigger 闸门：
+            // enabled / only_when_unfocused / 10s dedupe）。
+            {
+                let notification = notification_for_acp.clone();
+                let settings = settings_for_acp.clone();
+                let handle = app.handle().clone();
+                acp_chat_notify.set_turn_notifier(Box::new(move |notice| {
+                    let (kind, title) = if notice.is_error {
+                        ("agent_chat_error", "❗ Agent Chat")
+                    } else {
+                        ("agent_chat_turn_end", "✅ Agent Chat")
+                    };
+                    let body: String = format!("{}: {}", notice.engine_id, notice.detail)
+                        .chars()
+                        .take(120)
+                        .collect();
+                    let _ = notification.trigger(
+                        &handle,
+                        &settings,
+                        services::NotificationRequest {
+                            kind: kind.to_string(),
+                            title: title.to_string(),
+                            body: Some(body),
+                            source: Some("agent-chat".to_string()),
+                            scope: Some("session".to_string()),
+                            dedupe_key: Some(format!("acp:{}:{kind}", notice.chat_id)),
+                            group_key: None,
+                            only_when_unfocused: None,
+                            metadata: None,
+                            session_id: None,
+                            requires_input: None,
+                            input_placeholder: None,
+                        },
+                    );
+                }));
+            }
 
             // ---- deep-link：运行时注册 scheme + 监听 macOS/Linux 的 on_open_url ----
             {

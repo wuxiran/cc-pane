@@ -325,6 +325,7 @@
   "agentChatOpenFile": "Open file",
   "agentChatExportMarkdown": "Copy as Markdown",
   "agentChatExportCopied": "Transcript copied as Markdown",
+  "agentChatRetry": "Retry last prompt",
   "agentChatRename": "Rename",
   "agentChatRenameSave": "Save name",
   "agentChatRenameCancel": "Cancel",

@@ -1,7 +1,6 @@
 // agent-chat 启动页：居中 hero 问候 + 建议卡 + composer 式启动栏（引擎下拉 +
 // 首条 prompt 随启动发送）+ 最近会话续接。风格对标 CodexHost 的多引擎首页。
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Bug,
   ChevronDown,
@@ -35,6 +34,7 @@ import ChatVoiceButton from "./ChatVoiceButton";
 import StartPrefDropdown from "./StartPrefDropdown";
 import StartRecentSessions from "./StartRecentSessions";
 import { samePath } from "./chatPaths";
+import { takePendingResume } from "./pendingResume";
 import {
   loadEnginePrefs,
   saveAutoApprove,
@@ -146,6 +146,13 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
+
+  // 侧栏「最近会话」开出来的标签：领取续接意图，跳过选择页直接 start。
+  useEffect(() => {
+    const entry = takePendingResume(chatId);
+    if (entry) void start(entry.engineId, entry.cwd, entry.acpSessionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId]);
 
   const pickCwd = useCallback(async () => {
     const picked = await openDirDialog({ multiple: false, directory: true }).catch(() => null);
