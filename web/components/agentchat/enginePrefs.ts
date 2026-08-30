@@ -4,7 +4,7 @@
 // 会话启动/模型切换时把该引擎的模型表与偏好落缓存，下次启动页就能直接选，
 // 启动成功后自动 set_model 应用。首次使用某引擎时下拉不显示（诚实降级）。
 
-import type { AcpSessionModel } from "@/types/agentChat";
+import type { AcpSessionMode, AcpSessionModel } from "@/types/agentChat";
 
 const STORAGE_KEY = "ccpanes.acpEngineModelPrefs";
 
@@ -12,6 +12,12 @@ export interface EngineModelPrefs {
   models: AcpSessionModel[];
   /** null = 跟随引擎默认，不主动 set_model。 */
   preferredModelId: string | null;
+  /** 会话模式（权限档等）表，同样来自握手缓存。旧缓存无此字段。 */
+  modes?: AcpSessionMode[];
+  /** null/undefined = 跟随引擎默认，不主动 set_mode。 */
+  preferredModeId?: string | null;
+  /** 启动时自动放行 session/request_permission（会话级 YOLO）。 */
+  autoApprove?: boolean;
 }
 
 type PrefsMap = Record<string, EngineModelPrefs>;
@@ -41,26 +47,42 @@ export function loadEnginePrefs(engineId: string): EngineModelPrefs | null {
   return prefs;
 }
 
-/** 会话握手后回填模型表；保留既有偏好（模型消失则清掉）。 */
-export function saveEngineModels(engineId: string, models: AcpSessionModel[]): void {
-  if (models.length === 0) return;
+function merge(engineId: string, patch: Partial<EngineModelPrefs>): void {
   const map = loadAll();
-  const previous = map[engineId];
-  const preferred = previous?.preferredModelId ?? null;
-  map[engineId] = {
-    models,
-    preferredModelId:
-      preferred && models.some((model) => model.modelId === preferred) ? preferred : null,
-  };
+  const previous = map[engineId] ?? { models: [], preferredModelId: null };
+  map[engineId] = { ...previous, ...patch };
   saveAll(map);
 }
 
+/** 会话握手后回填模型表；保留既有偏好（模型消失则清掉）。 */
+export function saveEngineModels(engineId: string, models: AcpSessionModel[]): void {
+  if (models.length === 0) return;
+  const preferred = loadAll()[engineId]?.preferredModelId ?? null;
+  merge(engineId, {
+    models,
+    preferredModelId:
+      preferred && models.some((model) => model.modelId === preferred) ? preferred : null,
+  });
+}
+
+/** 会话握手后回填模式表；保留既有偏好（模式消失则清掉）。 */
+export function saveEngineModes(engineId: string, modes: AcpSessionMode[]): void {
+  if (modes.length === 0) return;
+  const preferred = loadAll()[engineId]?.preferredModeId ?? null;
+  merge(engineId, {
+    modes,
+    preferredModeId: preferred && modes.some((mode) => mode.id === preferred) ? preferred : null,
+  });
+}
+
 export function savePreferredModel(engineId: string, modelId: string | null): void {
-  const map = loadAll();
-  const previous = map[engineId];
-  map[engineId] = {
-    models: previous?.models ?? [],
-    preferredModelId: modelId,
-  };
-  saveAll(map);
+  merge(engineId, { preferredModelId: modelId });
+}
+
+export function savePreferredMode(engineId: string, modeId: string | null): void {
+  merge(engineId, { preferredModeId: modeId });
+}
+
+export function saveAutoApprove(engineId: string, autoApprove: boolean): void {
+  merge(engineId, { autoApprove });
 }

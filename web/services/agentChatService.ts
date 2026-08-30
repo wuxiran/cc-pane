@@ -37,8 +37,9 @@ export function startAcpChat(
   engineId: string,
   cwd: string,
   resumeAcpSessionId?: string,
+  autoApprove?: boolean,
 ): Promise<AcpChatSnapshot> {
-  return call("start_acp_chat", { chatId, engineId, cwd, resumeAcpSessionId });
+  return call("start_acp_chat", { chatId, engineId, cwd, resumeAcpSessionId, autoApprove });
 }
 
 /** blocks 为 ACP ContentBlock 数组（text / image / resource_link）。 */

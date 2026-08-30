@@ -41,7 +41,12 @@ import { HeaderSelect, ItemView } from "./ChatItems";
 import EnginePicker from "./EnginePicker";
 import PermissionCard from "./PermissionCard";
 import { isAbsolutePath, joinCwd } from "./chatPaths";
-import { saveEngineModels, savePreferredModel } from "./enginePrefs";
+import {
+  saveEngineModels,
+  saveEngineModes,
+  savePreferredMode,
+  savePreferredModel,
+} from "./enginePrefs";
 
 export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   const { t } = useTranslation("panes");
@@ -244,6 +249,8 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
               items={modeItems}
               currentId={snapshot.modes?.currentModeId}
               onSelect={(modeId) => {
+                savePreferredMode(snapshot.engineId, modeId);
+                saveEngineModes(snapshot.engineId, snapshot.modes?.availableModes ?? []);
                 void agentChatService.setMode(tab.id, modeId).catch((error) => {
                   useAgentChatStore
                     .getState()

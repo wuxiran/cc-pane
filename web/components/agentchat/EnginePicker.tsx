@@ -10,6 +10,8 @@ import {
   Loader2,
   SearchCode,
   Send,
+  Shield,
+  ShieldCheck,
   Telescope,
 } from "lucide-react";
 import { open as openDirDialog } from "@tauri-apps/plugin-dialog";
@@ -28,11 +30,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import ChatVoiceButton from "./ChatVoiceButton";
+import StartPrefDropdown from "./StartPrefDropdown";
 import StartRecentSessions from "./StartRecentSessions";
 import { samePath } from "./chatPaths";
 import {
   loadEnginePrefs,
+  saveAutoApprove,
   saveEngineModels,
+  saveEngineModes,
+  savePreferredMode,
   savePreferredModel,
   type EngineModelPrefs,
 } from "./enginePrefs";
@@ -137,13 +143,17 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
           engineId,
           startCwd,
           resumeAcpSessionId,
+          loadEnginePrefs(engineId)?.autoApprove ?? false,
         );
         useAgentChatStore.getState().setSnapshot(chatId, snapshot);
         if (resumeAcpSessionId) onCwdAdopted(startCwd);
-        // 回填该引擎的模型表缓存；有偏好且与当前不同则自动应用。
+        // 回填该引擎的模型/模式表缓存；有偏好且与当前不同则自动应用。
         const models = snapshot.models?.availableModels ?? [];
+        const modes = snapshot.modes?.availableModes ?? [];
         saveEngineModels(engineId, models);
-        const preferred = loadEnginePrefs(engineId)?.preferredModelId;
+        saveEngineModes(engineId, modes);
+        const prefs = loadEnginePrefs(engineId);
+        const preferred = prefs?.preferredModelId;
         if (
           preferred
           && preferred !== snapshot.models?.currentModelId
@@ -151,6 +161,16 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
         ) {
           void agentChatService.setModel(chatId, preferred).catch((modelError) => {
             handleErrorSilent(modelError, "apply preferred acp model");
+          });
+        }
+        const preferredMode = prefs?.preferredModeId;
+        if (
+          preferredMode
+          && preferredMode !== snapshot.modes?.currentModeId
+          && modes.some((mode) => mode.id === preferredMode)
+        ) {
+          void agentChatService.setMode(chatId, preferredMode).catch((modeError) => {
+            handleErrorSilent(modeError, "apply preferred acp mode");
           });
         }
         const text = firstPrompt?.trim();
@@ -346,59 +366,57 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-            {modelPrefs && modelPrefs.models.length > 0 ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex min-w-0 items-center gap-1 rounded-md border border-[var(--app-border)] px-2 py-1 text-xs text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)]"
-                  >
-                    <span className="max-w-40 truncate">
-                      {modelPrefs.models.find(
-                        (model) => model.modelId === modelPrefs.preferredModelId,
-                      )?.name
-                        ?? modelPrefs.preferredModelId
-                        ?? t("agentChatModelDefault")}
-                    </span>
-                    <ChevronDown className="h-3 w-3" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      if (selectedEngine) {
-                        savePreferredModel(selectedEngine, null);
-                        setModelPrefs(loadEnginePrefs(selectedEngine));
-                      }
-                    }}
-                  >
-                    {t("agentChatModelDefault")}
-                    {modelPrefs.preferredModelId === null ? (
-                      <span className="ml-auto pl-3 text-[var(--app-accent)]">✓</span>
-                    ) : null}
-                  </DropdownMenuItem>
-                  {modelPrefs.models.map((model) => (
-                    <DropdownMenuItem
-                      key={model.modelId}
-                      title={model.description}
-                      onSelect={() => {
-                        if (selectedEngine) {
-                          savePreferredModel(selectedEngine, model.modelId);
-                          setModelPrefs(loadEnginePrefs(selectedEngine));
-                        }
-                      }}
-                    >
-                      <span className="max-w-64 truncate">{model.name || model.modelId}</span>
-                      {model.modelId === modelPrefs.preferredModelId ? (
-                        <span className="ml-auto pl-3 text-[var(--app-accent)]">✓</span>
-                      ) : null}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
+            <StartPrefDropdown
+              items={(modelPrefs?.models ?? []).map((model) => ({
+                id: model.modelId,
+                label: model.name || model.modelId,
+                description: model.description,
+              }))}
+              currentId={modelPrefs?.preferredModelId ?? null}
+              defaultLabel={t("agentChatModelDefault")}
+              onSelect={(modelId) => {
+                if (!selectedEngine) return;
+                savePreferredModel(selectedEngine, modelId);
+                setModelPrefs(loadEnginePrefs(selectedEngine));
+              }}
+            />
+            <StartPrefDropdown
+              items={(modelPrefs?.modes ?? []).map((mode) => ({
+                id: mode.id,
+                label: mode.name || mode.id,
+                description: mode.description,
+              }))}
+              currentId={modelPrefs?.preferredModeId ?? null}
+              defaultLabel={t("agentChatModeDefault")}
+              onSelect={(modeId) => {
+                if (!selectedEngine) return;
+                savePreferredMode(selectedEngine, modeId);
+                setModelPrefs(loadEnginePrefs(selectedEngine));
+              }}
+            />
             </div>
             <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              aria-label={t("agentChatAutoApprove")}
+              title={t("agentChatAutoApproveHint")}
+              className={`flex h-7 items-center gap-1 rounded-md border px-1.5 text-[11px] transition-colors ${
+                modelPrefs?.autoApprove
+                  ? "border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] text-[var(--app-status-warning)]"
+                  : "border-[var(--app-border)] text-[var(--app-icon-inactive)] hover:bg-[var(--app-hover)]"
+              }`}
+              onClick={() => {
+                if (!selectedEngine) return;
+                saveAutoApprove(selectedEngine, !(modelPrefs?.autoApprove ?? false));
+                setModelPrefs(loadEnginePrefs(selectedEngine));
+              }}
+            >
+              {modelPrefs?.autoApprove ? (
+                <ShieldCheck className="h-3.5 w-3.5" />
+              ) : (
+                <Shield className="h-3.5 w-3.5" />
+              )}
+            </button>
             <ChatVoiceButton
               chatId={chatId}
               onText={(text) =>

@@ -285,6 +285,7 @@ pub async fn start_acp_chat(
     engine_id: String,
     cwd: String,
     resume_acp_session_id: Option<String>,
+    auto_approve: Option<bool>,
 ) -> AppResult<AcpChatSnapshot> {
     let engine = engine_spec(&app_paths, &engine_id)?;
     let mcp_servers = ccpanes_mcp_servers(&app_paths);
@@ -296,6 +297,9 @@ pub async fn start_acp_chat(
     .map_err(|error| AppError::from(error.to_string()))??;
     spec.mcp_servers = mcp_servers;
     spec.resume_acp_session_id = resume_acp_session_id;
+    // 交互式 chat 的无人值守放行（用户在启动页显式打开；与 Automations 同一条
+    // 会话级通道，auto-approve 时权限卡不再弹出）。
+    spec.auto_approve_permissions = auto_approve.unwrap_or(false);
     service.start(app, chat_id, spec).await
 }
 
