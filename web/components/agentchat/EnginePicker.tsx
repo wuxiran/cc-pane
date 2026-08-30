@@ -1,6 +1,7 @@
 // agent-chat 启动页：居中 hero 问候 + 建议卡 + composer 式启动栏（引擎下拉 +
 // 首条 prompt 随启动发送）+ 最近会话续接。风格对标 CodexHost 的多引擎首页。
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Bug,
   ChevronDown,
@@ -18,11 +19,14 @@ import { useTranslation } from "react-i18next";
 import type { AcpChatHistoryEntry, AcpEngineInfo } from "@/types/agentChat";
 import { agentChatService } from "@/services/agentChatService";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
+import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -45,6 +49,13 @@ function projectNameOf(cwd: string): string {
   return cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd;
 }
 
+/** 路径宽松等价（Windows 大小写 + 分隔符差异），仅用于 UI 高亮/过滤。 */
+function samePath(left: string, right: string): boolean {
+  const normalize = (value: string) =>
+    value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return normalize(left) === normalize(right);
+}
+
 export interface EnginePickerProps {
   chatId: string;
   cwd: string;
@@ -61,19 +72,39 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
   const [history, setHistory] = useState<AcpChatHistoryEntry[]>([]);
   const [historyFilter, setHistoryFilter] = useState("");
   const [startingEngine, setStartingEngine] = useState<string | null>(null);
+  const [historyScope, setHistoryScope] = useState<"project" | "all">("project");
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const workspaces = useWorkspacesStore((state) => state.workspaces);
+
+  // 注册的工作空间→项目树（归档过滤在消费点，CLAUDE.md 约定）。
+  const workspaceTree = useMemo(
+    () =>
+      workspaces
+        .filter((workspace) => !workspace.archivedAt)
+        .map((workspace) => ({
+          id: workspace.id,
+          name: workspace.alias || workspace.name,
+          projects: workspace.projects.filter((project) => !project.archivedAt),
+        }))
+        .filter((workspace) => workspace.projects.length > 0),
+    [workspaces],
+  );
 
   const filteredHistory = useMemo(() => {
     const query = historyFilter.trim().toLowerCase();
-    if (!query) return history;
-    return history.filter((entry) =>
+    let entries = history;
+    if (historyScope === "project" && cwd) {
+      entries = entries.filter((entry) => samePath(entry.cwd, cwd));
+    }
+    if (!query) return entries;
+    return entries.filter((entry) =>
       [entry.title, entry.cwd, entry.engineId, entry.acpSessionId]
         .join("\n")
         .toLowerCase()
         .includes(query),
     );
-  }, [history, historyFilter]);
+  }, [history, historyFilter, historyScope, cwd]);
 
   useEffect(() => {
     let cancelled = false;
@@ -157,6 +188,42 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
   const selected = engines?.find((engine) => engine.id === selectedEngine) ?? null;
   const projectName = cwd ? projectNameOf(cwd) : null;
 
+  /** 工作空间→项目下拉（含浏览目录兜底），hero 无目录态与 chip 共用。 */
+  const projectMenu = (trigger: ReactNode) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-80 overflow-y-auto">
+        {workspaceTree.map((workspace) => (
+          <Fragment key={workspace.id}>
+            <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-[var(--app-icon-inactive)]">
+              {workspace.name}
+            </DropdownMenuLabel>
+            {workspace.projects.map((project) => (
+              <DropdownMenuItem
+                key={project.id}
+                title={project.path}
+                onSelect={() => onPickCwd(project.path)}
+              >
+                <FolderOpen className="mr-2 h-3.5 w-3.5 shrink-0 text-[var(--app-icon-inactive)]" />
+                <span className="max-w-56 truncate">
+                  {project.alias || projectNameOf(project.path)}
+                </span>
+                {cwd && samePath(project.path, cwd) ? (
+                  <span className="ml-auto pl-3 text-[var(--app-accent)]">✓</span>
+                ) : null}
+              </DropdownMenuItem>
+            ))}
+          </Fragment>
+        ))}
+        {workspaceTree.length > 0 ? <DropdownMenuSeparator /> : null}
+        <DropdownMenuItem onSelect={() => void pickCwd()}>
+          <FolderOpen className="mr-2 h-3.5 w-3.5 shrink-0" />
+          {t("agentChatBrowseDir")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   return (
     <div className="flex h-full flex-col overflow-y-auto px-6">
       <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-6 py-10">
@@ -176,13 +243,15 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
         </h2>
         {!cwd ? (
           <div className="flex justify-center">
-            <button
-              type="button"
-              className="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] px-3 py-1.5 text-sm transition-colors hover:bg-[var(--app-hover)]"
-              onClick={() => void pickCwd()}
-            >
-              <FolderOpen className="h-4 w-4" /> {t("agentChatPickCwd")}
-            </button>
+            {projectMenu(
+              <button
+                type="button"
+                className="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] px-3 py-1.5 text-sm transition-colors hover:bg-[var(--app-hover)]"
+              >
+                <FolderOpen className="h-4 w-4" /> {t("agentChatPickCwd")}
+                <ChevronDown className="h-3.5 w-3.5 text-[var(--app-icon-inactive)]" />
+              </button>,
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -207,17 +276,17 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
         <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 py-2.5 shadow-sm focus-within:border-[var(--app-accent)]/60">
           {cwd ? (
             <div className="mb-1.5 flex items-center gap-1.5 text-[11px] text-[var(--app-icon-inactive)]">
-              <FolderOpen className="h-3 w-3 shrink-0" />
-              <span className="max-w-[50%] truncate font-mono" title={cwd}>
-                {projectName}
-              </span>
-              <button
-                type="button"
-                className="rounded border border-[var(--app-border)] px-1.5 py-px transition-colors hover:bg-[var(--app-hover)]"
-                onClick={() => void pickCwd()}
-              >
-                {t("agentChatChangeCwd")}
-              </button>
+              {projectMenu(
+                <button
+                  type="button"
+                  title={cwd}
+                  className="flex items-center gap-1 rounded border border-[var(--app-border)] px-1.5 py-px font-mono transition-colors hover:bg-[var(--app-hover)]"
+                >
+                  <FolderOpen className="h-3 w-3 shrink-0" />
+                  <span className="max-w-64 truncate">{projectName}</span>
+                  <ChevronDown className="h-2.5 w-2.5" />
+                </button>,
+              )}
             </div>
           ) : null}
           <textarea
@@ -310,6 +379,26 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-1.5 pb-6">
           <div className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--app-icon-inactive)]">
             <History className="h-3.5 w-3.5" /> {t("agentChatHistoryTitle")}
+            {cwd ? (
+              <div className="flex overflow-hidden rounded border border-[var(--app-border)] text-[10px]">
+                {(["project", "all"] as const).map((scope) => (
+                  <button
+                    key={scope}
+                    type="button"
+                    className={`px-1.5 py-px transition-colors ${
+                      historyScope === scope
+                        ? "bg-[var(--app-active-bg)] text-[var(--app-icon-active)]"
+                        : "hover:bg-[var(--app-hover)]"
+                    }`}
+                    onClick={() => setHistoryScope(scope)}
+                  >
+                    {scope === "project"
+                      ? t("agentChatHistoryScopeProject")
+                      : t("agentChatHistoryScopeAll")}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <span className="flex-1" />
             <input
               value={historyFilter}
