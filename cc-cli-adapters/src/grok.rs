@@ -512,8 +512,14 @@ impl CliToolAdapter for GrokAdapter {
                 5,
             )),
             CcPaneEvent::TurnEnd => Some(NativeHookBinding::new("Stop", None, 10)),
-            // Notification 的 matcher 取值未实机确认，保守不带 matcher
-            CcPaneEvent::WaitingInput => Some(NativeHookBinding::new("Notification", None, 5)),
+            // 与 Claude 同口径收窄到两类：grok 每个工具前都会发例行
+            // permission_prompt 通知（bypass 模式也发），无 matcher 会把
+            // 「正在跑工具」全判成 waiting——cli-hook 侧另有例行文案丢弃兜底。
+            CcPaneEvent::WaitingInput => Some(NativeHookBinding::new(
+                "Notification",
+                Some("permission_prompt|elicitation_dialog"),
+                5,
+            )),
             // Grok 有 PreCompact / StopFailure 事件的文档线索但未实机确认，先不映射
             CcPaneEvent::BeforeCompact | CcPaneEvent::Error => None,
         }

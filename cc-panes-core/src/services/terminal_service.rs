@@ -3810,6 +3810,9 @@ impl TerminalService {
 
                         // 检测状态变更并触发通知
                         // 阶段 2.8：hook 主导时不再由 PTY 触发 WaitingInput 通知（hook 自己上报更准）。
+                        // 弱判据（`?` 结尾/裸 `>`/shell 提示符）只改徽章不弹通知：grok 这类
+                        // TUI 底栏常驻 `>`，每次重绘都翻出一次伪边沿，曾造成 1-2 分钟一张的
+                        // 「需要你输入」通知洪水。
                         if !hook_active {
                             let mut prev = prev_status.lock().unwrap_or_else(|e| {
                                 warn!("prev_status lock poisoned, using fallback value");
@@ -3817,6 +3820,7 @@ impl TerminalService {
                             });
                             if *prev != SessionStatus::WaitingInput
                                 && new_status == SessionStatus::WaitingInput
+                                && inferred_waiting_is_strong(&data)
                             {
                                 read_notifier.notify_waiting_input(&sid);
                             }
@@ -5449,6 +5453,28 @@ fn infer_status(output: &str) -> SessionStatus {
 
     // 默认为活跃
     SessionStatus::Active
+}
+
+/// PTY 推断的 WaitingInput 是否值得打扰（弹桌面/IM 通知）。
+///
+/// 强判据 = 显式等待文案（Workspace Trust / needs your approval / [Y/n] 确认）；
+/// 弱判据 = `?` 结尾、裸 `>`、shell 提示符——那些只用于状态徽章。TUI 的
+/// spinner/底栏每帧重绘会让弱判据反复翻边沿，通知必须只认强判据
+///（对齐 Orca：waiting 不从输出猜，例行形态一律不打扰）。
+fn inferred_waiting_is_strong(output: &str) -> bool {
+    let clean = strip_ansi_escapes(output);
+    let trimmed = clean.trim();
+    let tail_lower = terminal_tail_lower(trimmed, 2048);
+    if cursor_agent_waiting_input(&tail_lower) {
+        return true;
+    }
+    if let Some(last_line) = trimmed.lines().last() {
+        let line = last_line.trim();
+        if line.ends_with("[Y/n]") || line.ends_with("[y/N]") {
+            return true;
+        }
+    }
+    false
 }
 
 fn terminal_tail_lower(clean: &str, max_bytes: usize) -> String {
@@ -7338,6 +7364,28 @@ mod tests {
     #[test]
     fn test_infer_status_waiting_prompt() {
         assert_eq!(infer_status("Continue? [Y/n]"), SessionStatus::WaitingInput);
+    }
+
+    // 强/弱分级：只有强判据（显式等待文案 / Y/n 确认）才弹通知；
+    // `?` 结尾、裸 `>`、shell 提示符是弱判据——grok TUI 底栏常驻 `>`，
+    // 每帧重绘翻边沿，弱判据弹通知就是通知洪水（2026-08 实测）。
+    #[test]
+    fn inferred_waiting_strength_strong_signals_notify() {
+        assert!(inferred_waiting_is_strong("Continue? [Y/n]"));
+        assert!(inferred_waiting_is_strong("Overwrite file? [y/N]"));
+        assert!(inferred_waiting_is_strong("Waiting for input..."));
+        assert!(inferred_waiting_is_strong(
+            "This command needs your approval"
+        ));
+    }
+
+    #[test]
+    fn inferred_waiting_strength_weak_signals_stay_silent() {
+        // 这些仍会把状态徽章翻成 WaitingInput（infer_status 不变），但不打扰。
+        assert!(!inferred_waiting_is_strong("需要补扫码吗?"));
+        assert!(!inferred_waiting_is_strong(">"));
+        assert!(!inferred_waiting_is_strong("PS>"));
+        assert!(!inferred_waiting_is_strong("user@host $ "));
     }
 
     #[test]
