@@ -6,6 +6,7 @@ import {
   Bug,
   ChevronDown,
   FolderOpen,
+  GitBranch,
   Hammer,
   Loader2,
   SearchCode,
@@ -18,6 +19,7 @@ import { open as openDirDialog } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
 import type { AcpChatHistoryEntry, AcpEngineInfo } from "@/types/agentChat";
 import { agentChatService } from "@/services/agentChatService";
+import { gitService } from "@/services/gitService";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
@@ -71,8 +73,27 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
   const [startingEngine, setStartingEngine] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [modelPrefs, setModelPrefs] = useState<EngineModelPrefs | null>(null);
+  const [branch, setBranch] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const workspaces = useWorkspacesStore((state) => state.workspaces);
+
+  // 分支 chip（只读展示；非 git 目录静默无 chip）。
+  useEffect(() => {
+    if (!cwd) {
+      setBranch(null);
+      return;
+    }
+    let cancelled = false;
+    gitService
+      .getRepoInfo(cwd)
+      .then((info) => {
+        if (!cancelled) setBranch(info.state === "ok" ? info.branch : null);
+      })
+      .catch(() => setBranch(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd]);
 
   // 模型表来自该引擎上次会话的握手缓存；首次使用时为空（下拉不显示）。
   useEffect(() => {
@@ -108,18 +129,23 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
         handleErrorSilent(listError, "list acp engines");
         if (!cancelled) setEngines([]);
       });
-    agentChatService
-      .listHistory()
-      .then((entries) => {
-        if (!cancelled) setHistory(entries.filter((entry) => entry.acpSessionId));
-      })
-      .catch((historyError) => {
-        handleErrorSilent(historyError, "list acp chat history");
-      });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const loadHistory = useCallback(() => {
+    agentChatService
+      .listHistory()
+      .then((entries) => setHistory(entries.filter((entry) => entry.acpSessionId)))
+      .catch((historyError) => {
+        handleErrorSilent(historyError, "list acp chat history");
+      });
+  }, []);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
 
   const pickCwd = useCallback(async () => {
     const picked = await openDirDialog({ multiple: false, directory: true }).catch(() => null);
@@ -301,6 +327,12 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
                   <ChevronDown className="h-2.5 w-2.5" />
                 </button>,
               )}
+              {branch ? (
+                <span className="flex items-center gap-1 rounded border border-[var(--app-border)] px-1.5 py-px font-mono">
+                  <GitBranch className="h-3 w-3 shrink-0" />
+                  <span className="max-w-40 truncate">{branch}</span>
+                </span>
+              ) : null}
             </div>
           ) : null}
           <textarea
@@ -453,6 +485,7 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
         cwd={cwd}
         startingId={startingEngine}
         onResume={(entry) => void start(entry.engineId, entry.cwd, entry.acpSessionId)}
+        onMutate={loadHistory}
       />
     </div>
   );

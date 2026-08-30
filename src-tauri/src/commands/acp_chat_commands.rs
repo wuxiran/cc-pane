@@ -304,6 +304,23 @@ pub async fn start_acp_chat(
 }
 
 #[tauri::command]
+pub async fn rename_acp_chat_history(
+    service: State<'_, Arc<AcpChatService>>,
+    acp_session_id: String,
+    title: String,
+) -> AppResult<()> {
+    service.rename_chat_history(&acp_session_id, &title)
+}
+
+#[tauri::command]
+pub async fn delete_acp_chat_history(
+    service: State<'_, Arc<AcpChatService>>,
+    acp_session_id: String,
+) -> AppResult<()> {
+    service.delete_chat_history(&acp_session_id)
+}
+
+#[tauri::command]
 pub async fn prompt_acp_chat(
     service: State<'_, Arc<AcpChatService>>,
     chat_id: String,

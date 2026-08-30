@@ -944,6 +944,34 @@ impl AcpChatService {
         }
     }
 
+    /// 重命名历史会话（写 meta 的 title；空标题恢复自动抓取行为）。
+    pub fn rename_chat_history(&self, acp_session_id: &str, title: &str) -> AppResult<()> {
+        let path = self
+            .meta_path(acp_session_id)
+            .ok_or_else(|| AppError::coded("ACP_BAD_SESSION_ID", "ACP session id is invalid"))?;
+        let raw = std::fs::read_to_string(&path)
+            .map_err(|error| AppError::from(format!("Unable to read ACP chat meta: {error}")))?;
+        let mut meta: Value = serde_json::from_str(&raw)
+            .map_err(|error| AppError::from(format!("Invalid ACP chat meta: {error}")))?;
+        meta["title"] = json!(title.trim().chars().take(120).collect::<String>());
+        meta["updatedAt"] = json!(unix_millis());
+        std::fs::write(&path, meta.to_string())
+            .map_err(|error| AppError::from(format!("Unable to write ACP chat meta: {error}")))
+    }
+
+    /// 删除历史会话记录（只删 meta；agent 侧对话数据不动，仍可凭 id 手动续接）。
+    pub fn delete_chat_history(&self, acp_session_id: &str) -> AppResult<()> {
+        let path = self
+            .meta_path(acp_session_id)
+            .ok_or_else(|| AppError::coded("ACP_BAD_SESSION_ID", "ACP session id is invalid"))?;
+        if path.exists() {
+            std::fs::remove_file(&path).map_err(|error| {
+                AppError::from(format!("Unable to delete ACP chat meta: {error}"))
+            })?;
+        }
+        Ok(())
+    }
+
     /// 历史会话元数据（updatedAt 倒序，最多 100 条）。
     pub fn list_chat_history(&self) -> Vec<Value> {
         let Ok(entries) = std::fs::read_dir(&self.chats_dir) else {

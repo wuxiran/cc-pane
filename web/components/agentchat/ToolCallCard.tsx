@@ -60,8 +60,9 @@ function stringifyCompact(value: unknown): string {
   }
 }
 
-/** diff 块：惰性计算行级 diff；引擎不可用时回落 old/new 两段叠色。 */
-function DiffBlockView({ block }: { block: AcpToolCallContent }) {
+/** diff 块：惰性计算行级 diff；引擎不可用时回落 old/new 两段叠色。
+ * export 给 ChatChangesPanel 复用（本轮改动聚合视图）。 */
+export function DiffBlockView({ block }: { block: AcpToolCallContent }) {
   const [diff, setDiff] = useState<DiffResult | null>(null);
   const [failed, setFailed] = useState(false);
 

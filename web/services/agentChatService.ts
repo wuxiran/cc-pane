@@ -51,6 +51,15 @@ export function listAcpChatHistory(): Promise<AcpChatHistoryEntry[]> {
   return call("list_acp_chat_history");
 }
 
+export function renameAcpChatHistory(acpSessionId: string, title: string): Promise<void> {
+  return call("rename_acp_chat_history", { acpSessionId, title });
+}
+
+/** 只删 CC-Panes 侧的历史记录；agent 侧对话数据不动，凭 id 仍可续接。 */
+export function deleteAcpChatHistory(acpSessionId: string): Promise<void> {
+  return call("delete_acp_chat_history", { acpSessionId });
+}
+
 /** 行级文本 diff（复用 Local History diff 引擎）。 */
 export function computeTextDiff(oldText: string, newText: string): Promise<DiffResult> {
   return call("compute_text_diff", { oldText, newText });
@@ -121,6 +130,8 @@ export const agentChatService = {
   get: getAcpChat,
   stop: stopAcpChat,
   listHistory: listAcpChatHistory,
+  renameHistory: renameAcpChatHistory,
+  deleteHistory: deleteAcpChatHistory,
   computeTextDiff,
   readImageAttachment: readAcpImageAttachment,
   listen: listenAgentChatEvents,

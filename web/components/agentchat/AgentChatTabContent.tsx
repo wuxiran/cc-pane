@@ -6,13 +6,15 @@
 //
 // 拆分（行数棘轮）：条目渲染在 ChatItems，输入区在 ChatComposer，引擎选择页
 // 在 EnginePicker——本文件只管会话壳（头部/滚动/审批/生命周期动作）。
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   Bot,
   ChevronsDownUp,
   ChevronsUpDown,
+  ClipboardCopy,
   Copy,
+  FileDiff,
   GitFork,
   Loader2,
   MoreHorizontal,
@@ -26,7 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { Tab } from "@/types";
-import type { AcpPlanEntry } from "@/types/agentChat";
+import type { AcpPlanEntry, AgentChatItem } from "@/types/agentChat";
 import { agentChatService } from "@/services/agentChatService";
 import { todoService } from "@/services/todoService";
 import {
@@ -36,6 +38,7 @@ import {
 import { usePanesStore } from "@/stores";
 import { useEditorRevealStore } from "@/stores/useEditorRevealStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
+import ChatChangesPanel, { collectNetChanges } from "./ChatChangesPanel";
 import ChatComposer from "./ChatComposer";
 import { HeaderSelect, ItemView } from "./ChatItems";
 import EnginePicker from "./EnginePicker";
@@ -47,6 +50,22 @@ import {
   savePreferredMode,
   savePreferredModel,
 } from "./enginePrefs";
+
+/** 会话转写 → Markdown（导出用；工具卡只留标题行，diff 太重不进转写）。 */
+function transcriptMarkdown(items: AgentChatItem[]): string {
+  const sections: string[] = [];
+  for (const item of items) {
+    if (item.type === "user") sections.push(`## User\n\n${item.text}`);
+    else if (item.type === "assistant") sections.push(`## Assistant\n\n${item.text}`);
+    else if (item.type === "thought") sections.push(`> ${item.text.replace(/\n/g, "\n> ")}`);
+    else if (item.type === "tool_call") {
+      sections.push(`- \`${item.call.kind ?? "tool"}\` ${item.call.title ?? item.call.toolCallId} (${item.call.status ?? "pending"})`);
+    } else if (item.type === "plan") {
+      sections.push(item.entries.map((entry) => `- [ ] ${entry.content}`).join("\n"));
+    }
+  }
+  return sections.join("\n\n");
+}
 
 export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   const { t } = useTranslation("panes");
@@ -64,6 +83,8 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
     seq: 0,
     expanded: false,
   });
+  // 本轮改动审查面板开关。
+  const [showChanges, setShowChanges] = useState(false);
 
   useEffect(() => {
     ensureAgentChatListener();
@@ -101,6 +122,16 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   const snapshot = chat?.snapshot ?? null;
   const phase = snapshot?.phase;
   const availableCommands = chat?.availableCommands ?? [];
+  const changesCount = useMemo(() => collectNetChanges(items ?? []).length, [items]);
+
+  const copyMarkdown = useCallback(() => {
+    void navigator.clipboard
+      .writeText(transcriptMarkdown(items ?? []))
+      .then(() => {
+        useAgentChatStore.getState().pushNotice(tab.id, t("agentChatExportCopied"));
+      })
+      .catch((error) => handleErrorSilent(error, "copy acp transcript markdown"));
+  }, [items, tab.id, t]);
 
   const openLocation = useCallback(
     (path: string, line?: number) => {
@@ -213,6 +244,22 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
             {snapshot.engineId}
           </span>
           <span className="flex-1" />
+          {changesCount > 0 ? (
+            <button
+              type="button"
+              aria-label={t("agentChatChanges")}
+              title={t("agentChatChanges")}
+              className={`flex items-center gap-1 rounded px-1 py-0.5 text-[11px] transition-colors hover:bg-[var(--app-hover)] ${
+                showChanges
+                  ? "text-[var(--app-accent)]"
+                  : "text-[var(--app-icon-inactive)] hover:text-[var(--app-icon-active)]"
+              }`}
+              onClick={() => setShowChanges((previous) => !previous)}
+            >
+              <FileDiff className="h-3.5 w-3.5" />
+              {changesCount}
+            </button>
+          ) : null}
           <button
             type="button"
             aria-label={toolFold.expanded ? t("agentChatCollapseTools") : t("agentChatExpandTools")}
@@ -279,6 +326,9 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
               <DropdownMenuItem disabled={!snapshot.acpSessionId} onSelect={copySessionId}>
                 <Copy /> {t("agentChatCopySessionId")}
               </DropdownMenuItem>
+              <DropdownMenuItem disabled={!items || items.length === 0} onSelect={copyMarkdown}>
+                <ClipboardCopy /> {t("agentChatExportMarkdown")}
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -326,6 +376,14 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
           </button>
         ) : null}
       </div>
+
+      {showChanges ? (
+        <ChatChangesPanel
+          items={items ?? []}
+          cwd={effectiveCwd}
+          onOpenFile={(path) => openLocation(path)}
+        />
+      ) : null}
 
       {chat?.pendingPermission ? (
         <PermissionCard
