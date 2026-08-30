@@ -88,6 +88,11 @@ export type {
   AgentChatItem,
 } from "./agentChat";
 export type {
+  AutomationDef,
+  AutomationRun,
+  AutomationRunStatus,
+} from "./automation";
+export type {
   ProjectCliHookStatus,
   ProjectCliHookGroupStatus,
 } from "./project-hooks";

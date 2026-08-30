@@ -44,14 +44,15 @@ struct CustomAcpEngine {
     requirement: Option<String>,
 }
 
-/// 内置 + 自定义合并后的统一形态。
+/// 内置 + 自定义合并后的统一形态。pub 是给 automation_service 复用引擎解析
+/// 链（同一份注册表、同一条 npm shim 改写路径）。
 #[derive(Debug, Clone)]
-struct ResolvedEngine {
-    id: String,
-    label: String,
-    executable: String,
-    args: Vec<String>,
-    requirement: String,
+pub struct ResolvedEngine {
+    pub id: String,
+    pub label: String,
+    pub executable: String,
+    pub args: Vec<String>,
+    pub requirement: String,
 }
 
 fn custom_engines_path(app_paths: &AppPaths) -> std::path::PathBuf {
@@ -199,7 +200,7 @@ pub struct AcpEngineInfo {
     pub requirement: String,
 }
 
-fn engine_spec(app_paths: &AppPaths, engine_id: &str) -> AppResult<ResolvedEngine> {
+pub fn engine_spec(app_paths: &AppPaths, engine_id: &str) -> AppResult<ResolvedEngine> {
     resolved_engines(app_paths)
         .into_iter()
         .find(|engine| engine.id == engine_id)
@@ -211,7 +212,7 @@ fn engine_spec(app_paths: &AppPaths, engine_id: &str) -> AppResult<ResolvedEngin
         })
 }
 
-fn resolve_engine_launch(engine: &ResolvedEngine, cwd: &str) -> AppResult<AcpLaunchSpec> {
+pub fn resolve_engine_launch(engine: &ResolvedEngine, cwd: &str) -> AppResult<AcpLaunchSpec> {
     let executable = resolve_executable(&engine.executable).map_err(|error| {
         AppError::coded(
             "ACP_ENGINE_UNAVAILABLE",
@@ -231,6 +232,7 @@ fn resolve_engine_launch(engine: &ResolvedEngine, cwd: &str) -> AppResult<AcpLau
         // 由 start 命令按 orchestrator 存活状态补充。
         mcp_servers: Vec::new(),
         resume_acp_session_id: None,
+        auto_approve_permissions: false,
     })
 }
 
@@ -262,7 +264,7 @@ pub async fn list_acp_engines(
 
 /// CC-Panes 自己的 orchestrator MCP（http 形态）。orchestrator 未运行时返回
 /// 空——chat 照常可用，只是 agent 拿不到 ccpanes 工具面。
-fn ccpanes_mcp_servers(app_paths: &AppPaths) -> Vec<Value> {
+pub fn ccpanes_mcp_servers(app_paths: &AppPaths) -> Vec<Value> {
     match orchestrator_manifest::read_endpoint(app_paths.data_dir()) {
         Some((port, token)) => vec![json!({
             "type": "http",

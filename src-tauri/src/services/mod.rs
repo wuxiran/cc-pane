@@ -3,6 +3,7 @@ pub use cc_panes_core::services::*;
 
 // Tauri-specific services (kept in src-tauri)
 mod acp_chat_service;
+mod automation_service;
 mod browser_service;
 mod comfy_runtime;
 pub mod im_bridge;
@@ -29,6 +30,7 @@ pub mod voice_service;
 mod web_access_lifecycle;
 
 pub use acp_chat_service::{AcpChatService, AcpChatSnapshot, AcpLaunchSpec};
+pub use automation_service::{AutomationDef, AutomationRun, AutomationService};
 pub use browser_service::{
     BrowserBounds, BrowserOpenTabEvent, BrowserSpikeReport, BrowserTabManager,
 };

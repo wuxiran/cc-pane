@@ -67,6 +67,7 @@ describe("settings registry", () => {
       "shared-mcp",
       "skills",
       "quick-commands",
+      "automations",
     ]);
   });
 

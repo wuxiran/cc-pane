@@ -101,6 +101,9 @@ pub struct AcpLaunchSpec {
     /// Resume an existing ACP conversation via `session/load` when the agent
     /// advertises `loadSession`. Falls back to a fresh session otherwise.
     pub resume_acp_session_id: Option<String>,
+    /// 无人值守：`session/request_permission` 自动选第一个 allow 选项，不再
+    /// 弹审批卡。Automations 的 headless 会话使用；交互式 chat 保持 false。
+    pub auto_approve_permissions: bool,
 }
 
 type PendingResult = Result<Value, Value>;
@@ -121,6 +124,8 @@ struct AcpChatSession {
     /// On cancel we MUST answer them all with the `cancelled` outcome.
     pending_permissions: Mutex<HashMap<String, Value>>,
     stderr_tail: Mutex<VecDeque<String>>,
+    /// 无人值守自动放行权限（Automations headless 会话）。
+    auto_approve_permissions: bool,
 }
 
 impl AcpChatSession {
@@ -417,6 +422,7 @@ impl AcpChatService {
             next_request_id: AtomicU64::new(1),
             pending_permissions: Mutex::new(HashMap::new()),
             stderr_tail: Mutex::new(VecDeque::new()),
+            auto_approve_permissions: spec.auto_approve_permissions,
         });
         self.sessions
             .write()
@@ -640,39 +646,40 @@ impl AcpChatService {
 
         let turn_session = session.clone();
         tokio::spawn(async move {
-            let result = turn_session
-                .request(
-                    "session/prompt",
-                    json!({
-                        "sessionId": acp_session_id,
-                        "prompt": blocks,
-                    }),
-                )
-                .await;
-            match result {
-                Ok(response) => {
-                    let stop_reason = response
-                        .get("stopReason")
-                        .and_then(Value::as_str)
-                        .unwrap_or("end_turn")
-                        .to_string();
-                    turn_session.set_phase(AcpChatPhase::Ready).await;
-                    turn_session.emit("turn_ended", json!({"stopReason": stop_reason}));
-                    turn_session.emit_state().await;
-                }
-                Err(error) => {
-                    // Process-exit already emitted a terminal state; only a
-                    // protocol-level rejection needs surfacing here.
-                    turn_session.set_phase(AcpChatPhase::Ready).await;
-                    turn_session.emit(
-                        "turn_ended",
-                        json!({"stopReason": "error", "error": error.to_string()}),
-                    );
-                    turn_session.emit_state().await;
-                }
-            }
+            let _ = run_turn(&turn_session, acp_session_id, blocks).await;
         });
         Ok(())
+    }
+
+    /// 同步版 prompt：等整个回合结束并返回 stopReason。Automations 的
+    /// headless 派发用（带超时由调用方包）。前置校验与 `prompt` 相同。
+    pub async fn prompt_and_wait(&self, chat_id: &str, blocks: Vec<Value>) -> AppResult<String> {
+        if blocks.is_empty() {
+            return Err(AppError::coded(
+                "ACP_PROMPT_REQUIRED",
+                "ACP prompt cannot be empty",
+            ));
+        }
+        let session = self.session(chat_id).await?;
+        let (phase, acp_session_id) = {
+            let snapshot = session.snapshot.read().await;
+            (snapshot.phase, snapshot.acp_session_id.clone())
+        };
+        let acp_session_id = acp_session_id.ok_or_else(|| {
+            AppError::coded(
+                "ACP_SESSION_NOT_READY",
+                "ACP session has not finished starting",
+            )
+        })?;
+        if phase != AcpChatPhase::Ready {
+            return Err(AppError::coded(
+                "ACP_SESSION_NOT_READY",
+                "ACP session is not ready for prompts",
+            ));
+        }
+        session.set_phase(AcpChatPhase::Generating).await;
+        session.emit_state().await;
+        run_turn(&session, acp_session_id, blocks).await
     }
 
     /// Cancel the in-flight turn. The agent responds to the outstanding
@@ -1047,6 +1054,40 @@ async fn route_message(session: &Arc<AcpChatSession>, message: Value) {
             let id = id.clone();
             let params = message.get("params").cloned().unwrap_or(Value::Null);
             if method == "session/request_permission" {
+                // 无人值守：自动选第一个 allow 选项（没有 allow 时取第一个，
+                // 全拒绝集也能推进）。不弹卡，但 emit 通知留痕。
+                if session.auto_approve_permissions {
+                    let option_id = params
+                        .get("options")
+                        .and_then(Value::as_array)
+                        .and_then(|options| {
+                            options
+                                .iter()
+                                .find(|option| {
+                                    option
+                                        .get("kind")
+                                        .and_then(Value::as_str)
+                                        .is_some_and(|kind| kind.starts_with("allow"))
+                                })
+                                .or_else(|| options.first())
+                        })
+                        .and_then(|option| option.get("optionId"))
+                        .cloned();
+                    let outcome = match option_id {
+                        Some(option_id) => {
+                            json!({"outcome": {"outcome": "selected", "optionId": option_id}})
+                        }
+                        None => json!({"outcome": {"outcome": "cancelled"}}),
+                    };
+                    if let Err(error) = session.respond(&id, Ok(outcome)).await {
+                        debug!(chat_id = %session.chat_id, error = %error, "failed to auto-approve ACP permission");
+                    }
+                    session.emit(
+                        "notification",
+                        json!({"method": "ccpanes/auto-approved", "params": params}),
+                    );
+                    return;
+                }
                 let request_key = permission_request_key(&id);
                 session
                     .pending_permissions
@@ -1101,6 +1142,48 @@ async fn route_message(session: &Arc<AcpChatSession>, message: Value) {
                 "protocol_noise",
                 json!({"error": "ACP message had neither method nor id"}),
             );
+        }
+    }
+}
+
+/// 跑一个完整回合：request → 相位复位 → turn_ended 事件。返回 stopReason，
+/// 协议层拒绝时返回 Err（进程退出的终态由 read loop 负责）。
+async fn run_turn(
+    session: &Arc<AcpChatSession>,
+    acp_session_id: String,
+    blocks: Vec<Value>,
+) -> AppResult<String> {
+    let result = session
+        .request(
+            "session/prompt",
+            json!({
+                "sessionId": acp_session_id,
+                "prompt": blocks,
+            }),
+        )
+        .await;
+    match result {
+        Ok(response) => {
+            let stop_reason = response
+                .get("stopReason")
+                .and_then(Value::as_str)
+                .unwrap_or("end_turn")
+                .to_string();
+            session.set_phase(AcpChatPhase::Ready).await;
+            session.emit("turn_ended", json!({"stopReason": stop_reason}));
+            session.emit_state().await;
+            Ok(stop_reason)
+        }
+        Err(error) => {
+            // Process-exit already emitted a terminal state; only a
+            // protocol-level rejection needs surfacing here.
+            session.set_phase(AcpChatPhase::Ready).await;
+            session.emit(
+                "turn_ended",
+                json!({"stopReason": "error", "error": error.to_string()}),
+            );
+            session.emit_state().await;
+            Err(error)
         }
     }
 }

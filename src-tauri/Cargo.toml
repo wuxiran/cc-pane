@@ -83,6 +83,7 @@ reqwest = { version = "0.13", default-features = false, features = ["system-prox
 tauri-plugin-process = "2"
 tracing = "0.1"
 log = "0.4"
+cron = "0.17.0"
 
 [dev-dependencies]
 tempfile = "3"

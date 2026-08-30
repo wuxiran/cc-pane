@@ -5,6 +5,7 @@ import {
   Bell,
   Bot,
   Cable,
+  CalendarClock,
   Camera,
   Cloud,
   FlaskConical,
@@ -42,6 +43,7 @@ export type SettingsPageId =
 
 export type SettingsPaneId =
   | "setup-guide"
+  | "automations"
   | "theme"
   | "theme-shape"
   | "general"
@@ -128,7 +130,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     icon: Bot,
     titleKey: "pages.aiTools.title",
     group: "application",
-    paneIds: ["provider", "provider-credentials", "cli-launchers", "shared-mcp", "skills", "quick-commands"],
+    paneIds: ["provider", "provider-credentials", "cli-launchers", "shared-mcp", "skills", "quick-commands", "automations"],
   },
   {
     id: "system",
@@ -339,6 +341,22 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
       descriptionKey: "quickCommands.description",
       keywordsKey: "searchKeywords.quickCommands",
       targetSectionId: "quick-commands-root",
+    }],
+  },
+  {
+    id: "automations",
+    icon: CalendarClock,
+    titleKey: "automations.title",
+    descriptionKey: "automations.description",
+    page: "ai-tools",
+    availability: "tauri",
+    layout: "wide",
+    searchEntries: [{
+      id: "schedules",
+      titleKey: "automations.title",
+      descriptionKey: "automations.description",
+      keywordsKey: "searchKeywords.automations",
+      targetSectionId: "automations-root",
     }],
   },
   { id: "notification", icon: Bell, titleKey: "notification", descriptionKey: "notificationDescription", page: "system", searchEntries: [

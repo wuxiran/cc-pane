@@ -85,6 +85,7 @@ use commands::{
     create_workspace,
     debug_encode_path,
     delete_ai_panel,
+    delete_automation,
     delete_label,
     delete_launch_history,
     delete_launch_profile,
@@ -248,6 +249,8 @@ use commands::{
     list_ai_panel_history,
     list_ai_panels,
     list_all_claude_sessions,
+    list_automation_runs,
+    list_automations,
     // Provider 命令
     list_bundled_skills,
     list_claude_sessions,
@@ -363,6 +366,7 @@ use commands::{
     retry_terminal_task_queue_item,
     rollback_project_migration,
     rollback_workspace_migration,
+    run_automation_now,
     run_terminal_path_link_action,
     // Runner Registry 命令
     runner_delete_profile,
@@ -378,6 +382,7 @@ use commands::{
     runner_register_for_session,
     runner_register_implicit_instance,
     runner_upsert_profile,
+    save_automation,
     save_layout_snapshot,
     save_layout_switcher_snapshot,
     save_layout_switcher_state,
@@ -1603,6 +1608,11 @@ pub fn run() {
     let acp_chat_service = Arc::new(services::AcpChatService::new(
         app_paths.data_dir().join("agent-chats"),
     ));
+    let automation_service = Arc::new(services::AutomationService::new(
+        app_paths.data_dir().join("automations"),
+        acp_chat_service.clone(),
+        app_paths.clone(),
+    ));
     let task_queue_service = Arc::new(TaskQueueService::new(
         task_queue_repo,
         app_paths.task_queue_images_dir(),
@@ -1823,6 +1833,7 @@ pub fn run() {
         .manage(terminal_service)
         .manage(pi_rpc_service)
         .manage(acp_chat_service)
+        .manage(automation_service.clone())
         .manage(terminal_backend_state)
         .manage(launch_history_service)
         .manage(usage_stats_service)
@@ -1875,6 +1886,9 @@ pub fn run() {
         .manage(cli_registry)
         .manage(crate::import::PendingImportStore::default())
         .setup(move |app| {
+            // Automations 调度循环（30s tick，cron 到期派 headless ACP 会话）。
+            automation_service.start_scheduler(app.handle().clone());
+
             // ---- deep-link：运行时注册 scheme + 监听 macOS/Linux 的 on_open_url ----
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
@@ -2904,6 +2918,11 @@ pub fn run() {
             create_terminal_session,
             start_pi_rpc_session,
             start_acp_chat,
+            list_automations,
+            save_automation,
+            delete_automation,
+            run_automation_now,
+            list_automation_runs,
             list_acp_engines,
             list_acp_chat_history,
             compute_text_diff,

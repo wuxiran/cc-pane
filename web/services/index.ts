@@ -28,6 +28,7 @@ export {
   stopAcpChat,
 } from "./agentChatService";
 export type { AgentChatEventHandler } from "./agentChatService";
+export { automationService } from "./automationService";
 export { getRecoverySnapshot } from "./terminalRecovery";
 export { terminalPathLinkService } from "./terminalPathLinkService";
 export type {

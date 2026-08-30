@@ -1,5 +1,6 @@
 mod acp_chat_commands;
 mod agent_transcript_commands;
+mod automation_commands;
 mod browser_commands;
 mod claude_commands;
 mod clipboard_commands;
@@ -57,6 +58,7 @@ mod wsl_commands;
 
 pub use acp_chat_commands::*;
 pub use agent_transcript_commands::*;
+pub use automation_commands::*;
 pub use browser_commands::*;
 pub use claude_commands::*;
 pub use clipboard_commands::*;
