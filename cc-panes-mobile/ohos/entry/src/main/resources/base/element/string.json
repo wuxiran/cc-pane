@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "CC-Panes OpenHarmony client"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "CC-Panes remote terminal"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "CC-Panes"
+    }
+  ]
+}

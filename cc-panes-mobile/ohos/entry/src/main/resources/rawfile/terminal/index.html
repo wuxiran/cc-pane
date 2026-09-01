@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>CC-Panes Terminal</title>
+  <link rel="stylesheet" href="xterm.css" />
+  <style>
+    /* 打包的 CJK 等宽字体：系统等宽字体普遍缺 CJK，回退字体非等宽会让中文与 cell 网格错位。 */
+    @font-face {
+      font-family: 'MapleMonoNFCN';
+      src: url('MapleMonoNFCN-Regular.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #1E1E1E;
+      overflow: hidden;
+    }
+
+    /* 全屏容器；触摸滚动交给 xterm 自带 viewport（不要阻止 touch-action）。 */
+    #terminal {
+      position: absolute;
+      left: 0;
+      top: 0;
+      right: 0;
+      bottom: 0;
+    }
+  </style>
+  <script src="xterm.js"></script>
+  <script src="fit.js"></script>
+</head>
+<body>
+  <div id="terminal"></div>
+  <script>
+    (function () {
+      'use strict';
+
+      if (typeof Terminal === 'undefined' || typeof FitAddon === 'undefined') {
+        document.getElementById('terminal').textContent = 'terminal resources failed to load';
+        return;
+      }
+
+      // 深色主题：背景 #1E1E1E、光标/前景浅色、selectionBackground 半透明。
+      var THEME = {
+        background: '#1E1E1E',
+        foreground: '#D4D4D4',
+        cursor: '#D4D4D4',
+        cursorAccent: '#1E1E1E',
+        selectionBackground: 'rgba(120, 170, 255, 0.35)'
+      };
+
+      var term = new Terminal({
+        fontSize: 12,
+        fontFamily: 'MapleMonoNFCN, monospace',
+        scrollback: 5000,
+        cursorBlink: true,
+        allowProposedApi: true,
+        theme: THEME
+      });
+      var fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(document.getElementById('terminal'));
+      term.focus();
+
+      // 流式 UTF-8 解码器：跨输出块的 CJK 多字节序列不截断。
+      var decoder = new TextDecoder('utf-8');
+      var lastCols = 0;
+      var lastRows = 0;
+
+      function bridge() {
+        return window.ccpBridge || null;
+      }
+
+      // 尺寸变化上报（仅在 cols/rows 真正变化时，避免 resize 动画期间刷屏）。
+      function reportGeometry() {
+        if (term.cols !== lastCols || term.rows !== lastRows) {
+          lastCols = term.cols;
+          lastRows = term.rows;
+          var b = bridge();
+          if (b !== null) {
+            try { b.onGeometry(term.cols, term.rows); } catch (e) { /* ArkTS 侧已销毁 */ }
+          }
+        }
+      }
+
+      function fitAndReport() {
+        try { fitAddon.fit(); } catch (e) { /* 容器不可见时 fit 可能抛错，忽略 */ }
+        reportGeometry();
+      }
+
+      // ---- ArkTS → JS 入口（window.ccpTerm）----
+      window.ccpTerm = {
+        write: function (b64) {
+          try {
+            var bin = window.atob(b64);
+            var bytes = new Uint8Array(bin.length);
+            for (var i = 0; i < bin.length; i++) {
+              bytes[i] = bin.charCodeAt(i);
+            }
+            term.write(decoder.decode(bytes, { stream: true }));
+          } catch (e) { /* 坏 base64：整块丢弃 */ }
+        },
+        fit: fitAndReport,
+        clear: function () { term.clear(); },
+        reset: function () {
+          decoder = new TextDecoder('utf-8');
+          term.reset();
+          lastCols = 0;
+          lastRows = 0;
+        }
+      };
+
+      // ---- JS → ArkTS：键盘输入（软键盘经 xterm 键盘层，Enter 天然 CR）----
+      term.onData(function (data) {
+        var b = bridge();
+        if (b !== null) {
+          try { b.onInput(data); } catch (e) { /* ArkTS 侧已销毁 */ }
+        }
+      });
+
+      window.addEventListener('resize', function () {
+        requestAnimationFrame(fitAndReport);
+      });
+
+      // 首帧先按回退字体 fit 一次；字体（20MB TTF）异步加载完成后重算，否则 cols/rows 偏小。
+      requestAnimationFrame(fitAndReport);
+      if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+        document.fonts.ready.then(function () {
+          requestAnimationFrame(fitAndReport);
+        });
+      }
+
+      // 就绪上报：ArkTS 收到后 attachBridge 并冲排缓冲的输出/snapshot。
+      // 脚本同步执行到此处时 ccpTerm 已就绪（属性注入的 ccpBridge 先于页面脚本生效），
+      // 同时保留 load 事件兜底（ArkTS 侧 onPageEnd 也会兜底 attach，均幂等）。
+      function notifyReady() {
+        var b = bridge();
+        if (b !== null) {
+          try { b.onReady(); } catch (e) { /* ArkTS 侧未就绪 */ }
+        }
+      }
+      notifyReady();
+      window.addEventListener('load', notifyReady);
+    })();
+  </script>
+</body>
+</html>

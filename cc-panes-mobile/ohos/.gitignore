@@ -1,0 +1,7 @@
+# OpenHarmony generated/local files
+/local.properties
+/.idea
+/.hvigor
+/oh_modules
+**/build
+/signature_*

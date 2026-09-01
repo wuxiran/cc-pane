@@ -1,0 +1,65 @@
+{
+  "app": {
+    //    "signingConfigs": [
+    //      {
+    //        "name": "default",
+    //        "material": {
+    //          "certpath": "signature_oh/default_cc_panes_sSC2b5ezM-OFGCDFi4H20xzPv0Xb4X7d8_2ocZlqRcI=.cer",
+    //          "keyAlias": "debugKey",
+    //          "keyPassword": "00000019B064AE9827CEDCDE05671B4CA43FD79ED12A4BA73E6D45FD952C41AA0A0BBDE3BE46400671",
+    //          "profile": "signature_oh/default_cc_panes_sSC2b5ezM-OFGCDFi4H20xzPv0Xb4X7d8_2ocZlqRcI=.p7b",
+    //          "signAlg": "SHA256withECDSA",
+    //          "storeFile": "signature_oh/default_cc_panes_sSC2b5ezM-OFGCDFi4H20xzPv0Xb4X7d8_2ocZlqRcI=.p12",
+    //          "storePassword": "0000001952AAB50C7FBC4CD13E17F96B2014EB890739074E58B309FBBCE613BDE9C8D93EB8BB365A08"
+    //        }
+    //      }
+    //    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "compileSdkVersion": "6.0.1(21)",
+        "compatibleSdkVersion": "6.0.1(21)",
+        "runtimeOS": "HarmonyOS",
+        "targetSdkVersion": "6.0.1(21)"
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "signature_OS\\default_cc_panes_sSC2b5ezM-OFGCDFi4H20xzPv0Xb4X7d8_2ocZlqRcI=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001B486DA3C8C3B0BD9F0FF680DF0C18831F47171BD74D0C36B15432D6402E78FE20502B09DBD6DCAC",
+          "profile": "signature_OS\\default_cc_panes_sSC2b5ezM-OFGCDFi4H20xzPv0Xb4X7d8_2ocZlqRcI=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "signature_OS\\default_cc_panes_sSC2b5ezM-OFGCDFi4H20xzPv0Xb4X7d8_2ocZlqRcI=.p12",
+          "storePassword": "0000001B9DD72F9C7B1FA297215170F0475341F4FEFD4EDA8F96FDC0A186343A6C832E4F8D7C547BB969D7"
+        }
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}
