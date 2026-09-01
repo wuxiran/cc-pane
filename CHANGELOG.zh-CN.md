@@ -7,6 +7,12 @@
 两份是人工同步的，条目一一对应；改英文版时顺手改这里，逐条 diff 能看出漏了哪条。
 0.12.6 之前的版本只有英文版。
 
+## 0.12.10 - 2026-09-01
+
+### 新增
+
+- **技能市场** — 独立全屏页（活动栏 `Store` 图标，设置 → 工具 → Skills 也有入口）：精选横排 + 分类页签 + 搜索 + 一键安装。内容聚合三源：自维护 `skill-market/index.json`（30+ 条，偏中文场景，现已 `include_str!` 进二进制做离线基线，远端 `main` 可热更新）、`anthropics/skills` 自动发现、`skills.sh` 联网搜索。安装模型升级为**目录型技能**（`SKILL.md` + `scripts/` + `references/`）：GitHub API 一次列出仓库树，失败自动回退 jsDelivr 镜像；先落 staging 再 rename 到 `~/.cc-panes/skills/user/<id>/`，硬限 300 文件 / 30 MB。session prompt 注入时追加 `Skill directory: <路径>`，agent 能找到随包脚本。设计见 `docs/97-skill-market.md`。
+
 ## 0.12.9 - 2026-08-27
 
 Canvas 多了第二类节点：媒体。另外 Cursor 从「只能启动」变成真正可编排的 CLI，终端也不再和 xterm 抢滚轮。

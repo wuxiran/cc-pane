@@ -11,6 +11,7 @@ export type AppViewMode =
   | "providers"
   | "imageGen"
   | "videoGen"
+  | "skillMarket"
   | "orchestration";
 
 interface ActivityBarState {
@@ -35,6 +36,7 @@ interface ActivityBarState {
   toggleMediaMode: () => void;
   toggleImageGenMode: () => void;
   toggleVideoGenMode: () => void;
+  toggleSkillMarketMode: () => void;
 }
 
 export const useActivityBarStore = create<ActivityBarState>()(
@@ -188,6 +190,13 @@ export const useActivityBarStore = create<ActivityBarState>()(
             orchestrationOverlayOpen: false,
           };
         }),
+
+      // 技能市场是全屏页；侧栏显隐由 MainViewSwitcher 按模式决定，这里不动 sidebarVisible。
+      toggleSkillMarketMode: () =>
+        set((s) => ({
+          appViewMode: s.appViewMode === "skillMarket" ? "panes" : "skillMarket",
+          orchestrationOverlayOpen: false,
+        })),
 
       toggleFilesMode: () =>
         set((s) => {

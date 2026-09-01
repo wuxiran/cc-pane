@@ -27,6 +27,7 @@ import type { MediaStudioKind } from "@/stores/useMediaStudioStore";
 // reducing startup work, this lets the existing terminal-only test doubles and
 // lightweight web deployments omit media-specific dependencies until opened.
 const MediaStudio = lazy(() => import("@/components/media/MediaStudio"));
+const SkillMarketPage = lazy(() => import("@/components/skillmarket/SkillMarketPage"));
 
 interface MainViewSwitcherProps {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
@@ -34,6 +35,7 @@ interface MainViewSwitcherProps {
 
 export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherProps) {
   const { t: mediaT } = useTranslation("media");
+  const { t: commonT } = useTranslation("common");
   const rootPane = usePanesStore((s) => s.rootPane);
   const layouts = usePanesStore((s) => s.layouts);
   const currentLayoutId = usePanesStore((s) => s.currentLayoutId);
@@ -134,6 +136,18 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
               kind={mediaKind}
               onKindChange={(nextKind) => setAppViewMode(nextKind === "image" ? "imageGen" : "videoGen")}
             />
+          </Suspense>
+        </div>
+      )}
+      {/* 技能市场：全屏浏览/安装 agent skills（keep-alive，保留搜索与分类状态） */}
+      {isMounted("skillMarket") && (
+        <div
+          className="flex-1 overflow-hidden"
+          style={{ background: "var(--app-panel-bg)", ...viewStyle("skillMarket") }}
+          data-testid="skill-market-shell"
+        >
+          <Suspense fallback={<div className="flex h-full w-full items-center justify-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>{commonT("loading")}</div>}>
+            <SkillMarketPage />
           </Suspense>
         </div>
       )}

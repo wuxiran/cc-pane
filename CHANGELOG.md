@@ -4,6 +4,12 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.12.10 - 2026-09-01
+
+### Added
+
+- **Skill market** — a full-screen store (activity bar `Store` icon, also reachable from Settings → Tools → Skills) with a featured strip, category tabs, search and one-click install. Content is aggregated from three sources: the curated `skill-market/index.json` (30+ entries, now embedded in the binary as an offline baseline and refreshed from `main`), auto-discovery of `anthropics/skills`, and live `skills.sh` search. Installs now support **directory skills** (`SKILL.md` + `scripts/` + `references/`): the repository tree is listed once via the GitHub API with automatic fallback to the jsDelivr mirror, files are staged then renamed into `~/.cc-panes/skills/user/<id>/`, with hard limits of 300 files / 30 MB. Session-prompt injection appends `Skill directory: <path>` so agents can find bundled scripts. Design notes in `docs/97-skill-market.md`.
+
 ## 0.12.9 - 2026-08-27
 
 Canvas grows a second kind of node: media. Alongside it, Cursor becomes a first-class CLI rather than one that merely launches, and the terminal stops fighting xterm over the mouse wheel.

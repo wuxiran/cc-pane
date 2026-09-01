@@ -1,0 +1,59 @@
+{
+  "title": "Skill market",
+  "subtitle": "Install SKILL.md skills for Claude Code, Codex, Cursor and other agents — aggregated from our curated list, Anthropic's official repo and the skills.sh community",
+  "searchPlaceholder": "Search skills (also queries skills.sh)",
+  "searching": "Searching…",
+  "remoteResultsHint": "Includes live skills.sh results; the full skill folder is downloaded on install",
+  "installedCount": "{{count}} installed",
+  "manageInstalled": "Manage installed",
+  "refresh": "Refresh catalog",
+  "refreshing": "Refreshing…",
+  "featured": "Featured",
+  "browse": "Browse",
+  "allCategories": "All",
+  "resultCount": "{{count}} skills",
+  "install": "Install",
+  "installing": "Installing…",
+  "installed": "Installed",
+  "reinstall": "Reinstall",
+  "remove": "Uninstall",
+  "openSource": "View source",
+  "installsCompact": "{{value}} installs",
+  "noDescription": "No description yet",
+  "loadingDescription": "Loading description…",
+  "licenseUnknown": "License unknown",
+  "categories": {
+    "dev": "Development",
+    "docs": "Documents",
+    "data": "Data analysis",
+    "learning": "Learning & notes",
+    "agent": "AI agents",
+    "productivity": "Productivity",
+    "content": "Content creation",
+    "work": "Work",
+    "search": "Web research",
+    "design": "Design & visuals",
+    "life": "Lifestyle",
+    "other": "Other"
+  },
+  "sources": {
+    "curated": "Curated",
+    "anthropics": "Anthropic official",
+    "skills-sh": "skills.sh"
+  },
+  "empty": {
+    "title": "No matching skills",
+    "hint": "Try another keyword or clear the category filter"
+  },
+  "offline": {
+    "title": "Catalog unavailable",
+    "hint": "Could not reach any skill source. Try “Refresh catalog” later"
+  },
+  "toast": {
+    "installed": "Installed {{name}} — enable it in a launch profile's skill policy",
+    "installFailed": "Install failed: {{error}}",
+    "removed": "Uninstalled {{name}}",
+    "removeFailed": "Uninstall failed: {{error}}",
+    "loadFailed": "Failed to load the skill catalog: {{error}}"
+  }
+}

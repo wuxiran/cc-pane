@@ -103,7 +103,9 @@ pub use default_skill_service::{
     LEGACY_CLEANUP_REPORT_FILE_NAME, MANAGED_SKILLS_SUBDIR,
 };
 pub use dsh_service::DshService;
-pub use external_skill_registry::ExternalSkillRegistry;
+pub use external_skill_registry::{
+    parse_skill_metadata, skill_frontmatter_field, ExternalSkillRegistry,
+};
 pub use filesystem_service::{ContentSearchLimits, FileSystemService};
 pub use git_service::GitService;
 pub use history_service::HistoryService;

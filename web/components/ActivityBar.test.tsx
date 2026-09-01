@@ -59,9 +59,19 @@ describe("ActivityBar", () => {
   it("渲染主视图图标集合（含 Home 与 设置）以及 LayoutBar 桩", () => {
     const { container } = renderBar();
     expect(screen.getByTestId("layout-bar-stub")).toBeInTheDocument();
-    // Home + explorer + media + ssh/todo + 添加模块 + settings = 7 按钮
+    // Home + explorer + media + 技能市场 + ssh/todo + 添加模块 + settings = 8 按钮
     //（files 与 sessions 图标已移除：Explorer 侧栏自带 文件 / 最近启动 tab）
-    expect(container.querySelectorAll("button")).toHaveLength(7);
+    expect(container.querySelectorAll("button")).toHaveLength(8);
+  });
+
+  it("技能市场入口切换全屏市场页，再点一次回到 panes", async () => {
+    const user = userEvent.setup();
+    renderBar();
+    const marketButton = screen.getByRole("button", { name: "技能市场" });
+    await user.click(marketButton);
+    expect(useActivityBarStore.getState().appViewMode).toBe("skillMarket");
+    await user.click(marketButton);
+    expect(useActivityBarStore.getState().appViewMode).toBe("panes");
   });
 
   it("左栏只有一个媒体入口，点击后进入共用媒体工作区", async () => {
@@ -77,7 +87,7 @@ describe("ActivityBar", () => {
     expect(screen.queryByRole("button", { name: "生视频" })).not.toBeInTheDocument();
     await user.click(mediaButton);
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
-    expect(container.querySelectorAll("button")).toHaveLength(7);
+    expect(container.querySelectorAll("button")).toHaveLength(8);
   });
 
   it("不再有 sessions 竖排入口：explorer 之后紧跟 ssh（最近启动已迁至 Explorer 顶部 tab）", async () => {

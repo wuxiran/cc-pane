@@ -111,6 +111,8 @@ const marketEntries: SkillMarketEntry[] = Array.from({ length: 12 }, (_, i) => (
   tags: [],
   version: "1.0.0",
   recommended: false,
+  source: "curated",
+  featured: false,
 }));
 
 function renderPanelWithMarketSkills() {

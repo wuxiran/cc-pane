@@ -12,6 +12,9 @@ export interface SkillSummary {
   filePath: string;
 }
 
+/** 市场条目来源：自维护清单 / anthropics 官方仓库自动发现 / skills.sh 搜索 */
+export type SkillMarketSource = "curated" | "anthropics" | "skills-sh";
+
 export interface SkillMarketEntry {
   id: string;
   name: string;
@@ -21,9 +24,18 @@ export interface SkillMarketEntry {
   version: string;
   license?: string | null;
   homepageUrl?: string | null;
+  /** 单文件技能：SKILL.md 直链（需配 sha256） */
   contentUrl?: string | null;
   sha256?: string | null;
   recommended: boolean;
+  source: SkillMarketSource | string;
+  /** 目录型技能：GitHub owner/repo */
+  repo?: string | null;
+  /** 目录型技能：仓库内文件夹（搜索结果只带 leaf，安装时解析） */
+  path?: string | null;
+  gitRef?: string | null;
+  featured: boolean;
+  installs?: number | null;
 }
 
 export interface InstalledUserSkill {

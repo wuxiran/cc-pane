@@ -58,9 +58,31 @@ export const skillService = {
     );
   },
 
-  /** 列出官方 Skill 市场条目 */
-  async listSkillMarketEntries(): Promise<SkillMarketEntry[]> {
-    return invokeOrApi<SkillMarketEntry[]>("list_skill_market_entries", undefined, async () => []);
+  /** 列出市场目录（自维护清单 + 自动发现的上游仓库）；refresh 跳过一天期的发现缓存 */
+  async listSkillMarketEntries(refresh = false): Promise<SkillMarketEntry[]> {
+    return invokeOrApi<SkillMarketEntry[]>("list_skill_market_entries", { refresh }, async () => []);
+  },
+
+  /** 目录本地过滤 + skills.sh 联网搜索 */
+  async searchSkillMarket(query: string): Promise<SkillMarketEntry[]> {
+    return invokeOrApi<SkillMarketEntry[]>("search_skill_market", { query }, async () => []);
+  },
+
+  /** 为缺描述的条目（搜索结果）补全描述与仓库内路径 */
+  async describeSkillMarketEntry(entry: SkillMarketEntry): Promise<SkillMarketEntry> {
+    return invokeOrApi<SkillMarketEntry>("describe_skill_market_entry", { entry }, async () => entry);
+  },
+
+  /** 安装一条市场条目（含目录型技能：整目录下载到 ~/.cc-panes/skills/user/<id>） */
+  async installSkillMarketEntry(entry: SkillMarketEntry): Promise<InstalledUserSkill> {
+    return invokeOrApi<InstalledUserSkill>("install_skill_market_entry", { entry }, async () => {
+      throw new Error("Skill market installation is only available in the desktop app");
+    });
+  },
+
+  /** 市场分类 id 列表（与后端 CATEGORY_IDS 同步） */
+  async listSkillMarketCategories(): Promise<string[]> {
+    return invokeOrApi<string[]>("list_skill_market_categories", undefined, async () => []);
   },
 
   /** 列出已安装的用户级 Skill */

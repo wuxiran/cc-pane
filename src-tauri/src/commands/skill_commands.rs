@@ -86,11 +86,50 @@ pub fn list_external_skills(
     }
 }
 
+/// Full browsable catalog (curated index + auto-discovered upstream repos). `refresh` bypasses
+/// the day-old discovery cache.
 #[tauri::command]
 pub async fn list_skill_market_entries(
+    refresh: Option<bool>,
     service: State<'_, Arc<SkillMarketService>>,
 ) -> AppResult<Vec<SkillMarketEntry>> {
-    service.list_market_entries().await
+    service.list_catalog(refresh.unwrap_or(false)).await
+}
+
+/// Catalog filter + live skills.sh search for the query.
+#[tauri::command]
+pub async fn search_skill_market(
+    query: String,
+    service: State<'_, Arc<SkillMarketService>>,
+) -> AppResult<Vec<SkillMarketEntry>> {
+    service.search(&query).await
+}
+
+/// Lazily fill in description/path for an entry that arrived without them (search hits).
+#[tauri::command]
+pub async fn describe_skill_market_entry(
+    entry: SkillMarketEntry,
+    service: State<'_, Arc<SkillMarketService>>,
+) -> AppResult<SkillMarketEntry> {
+    service.describe(entry).await
+}
+
+/// Install an entry the UI already holds (search hits are not in the cached catalog).
+#[tauri::command]
+pub async fn install_skill_market_entry(
+    entry: SkillMarketEntry,
+    service: State<'_, Arc<SkillMarketService>>,
+) -> AppResult<InstalledUserSkill> {
+    debug!(skill_id = %entry.id, repo = ?entry.repo, "cmd::install_skill_market_entry");
+    service.install_entry(entry).await
+}
+
+#[tauri::command]
+pub fn list_skill_market_categories() -> Vec<String> {
+    crate::services::SKILL_MARKET_CATEGORY_IDS
+        .iter()
+        .map(|id| id.to_string())
+        .collect()
 }
 
 #[tauri::command]

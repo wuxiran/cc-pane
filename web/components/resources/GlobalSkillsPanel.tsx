@@ -14,6 +14,8 @@ import type {
 } from "@/types";
 import { handleErrorSilent } from "@/utils";
 import { notifySetupGuideProgress } from "@/components/onboarding/setupGuideProgress";
+import { useActivityBarStore } from "@/stores/useActivityBarStore";
+import { useDialogStore } from "@/stores/useDialogStore";
 
 function externalSourceLabel(s: ExternalSkillSource): string {
   if (s.kind === "plugin") return `plugin:${s.pluginId}`;
@@ -87,10 +89,22 @@ export default function GlobalSkillsPanel() {
         <div className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>
           {t("globalSkillsDesc", { defaultValue: "管理 CC-Panes 全局 Skills：市场安装、已装用户 skill、以及各 CLI 已有的 skill（只读）。" })}
         </div>
-        <Button variant="outline" size="sm" onClick={() => void reload()} disabled={loading}>
-          {loading ? <Loader2 size={14} className="mr-1.5 animate-spin" /> : <RefreshCw size={14} className="mr-1.5" />}
-          {t("refresh", { ns: "common", defaultValue: "刷新" })}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={() => {
+              useDialogStore.getState().closeSettings();
+              useActivityBarStore.getState().setAppViewMode("skillMarket");
+            }}
+          >
+            <Store size={14} className="mr-1.5" />
+            {t("openSkillMarket")}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => void reload()} disabled={loading}>
+            {loading ? <Loader2 size={14} className="mr-1.5 animate-spin" /> : <RefreshCw size={14} className="mr-1.5" />}
+            {t("refresh", { ns: "common", defaultValue: "刷新" })}
+          </Button>
+        </div>
       </div>
 
       {/* 1. 已安装用户 skills */}
