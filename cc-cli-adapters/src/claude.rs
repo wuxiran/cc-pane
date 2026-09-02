@@ -612,6 +612,13 @@ impl ClaudeAdapter {
     fn legacy_matchers_for_def(def: &HookDef) -> &'static [&'static str] {
         match def.name {
             "session-inject" => &["startup|resume"],
+            // 旧五类 matcher（含 idle_prompt）：不登记在这里的话，sync 认不出旧
+            // 条目是我们的，清不掉也升不了级——旧 entry 带着 idle_prompt 继续
+            // 误报「需要你输入」（输入框闲置 ≠ agent 卡住），且 grok 经 Claude
+            // 兼容层执行同一份 hooks 时同样中招。
+            "state-waiting-input" => {
+                &["permission_prompt|elicitation_dialog|elicitation_complete|elicitation_response|idle_prompt"]
+            }
             _ => &[],
         }
     }
@@ -1529,6 +1536,53 @@ mod tests {
         assert_eq!(
             settings["hooks"]["SessionStart"].as_array().unwrap().len(),
             2
+        );
+    }
+
+    // 旧五类 matcher（含 idle_prompt）的存量条目必须被 sync 识别为我们的并
+    // 升级替换成两类，而不是新旧并存——否则 idle_prompt 继续误报「需要你
+    // 输入」，grok 经 Claude 兼容层执行同一份 hooks 时同样中招。
+    #[test]
+    fn sync_project_hooks_upgrades_legacy_waiting_input_matcher() {
+        let dir = tempdir().unwrap();
+        let project_path = dir.path();
+        let hook_binary = dir.path().join("cc-panes-cli-hook");
+        fs::write(&hook_binary, "bin").unwrap();
+        let settings_path = project_path.join(".claude").join("settings.local.json");
+        fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+        fs::write(
+            &settings_path,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "hooks": {
+                    "Notification": [{
+                        "matcher": "permission_prompt|elicitation_dialog|elicitation_complete|elicitation_response|idle_prompt",
+                        "hooks": [{
+                            "type": "command",
+                            "command": format!("\"{}\" waiting-input", hook_binary.display())
+                        }]
+                    }]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let mut desired = HOOK_DEFS
+            .iter()
+            .map(|def| (def.name.to_string(), false))
+            .collect::<HashMap<_, _>>();
+        desired.insert("state-waiting-input".to_string(), true);
+        ClaudeAdapter::new()
+            .sync_project_hooks(project_path, Some(&hook_binary), &desired)
+            .unwrap();
+
+        let settings: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(settings_path).unwrap()).unwrap();
+        let notifications = settings["hooks"]["Notification"].as_array().unwrap();
+        assert_eq!(notifications.len(), 1, "旧条目应被替换而不是并存");
+        assert_eq!(
+            notifications[0]["matcher"].as_str().unwrap(),
+            "permission_prompt|elicitation_dialog"
         );
     }
 

@@ -283,6 +283,8 @@ export interface PanesState extends BrowserTabActions {
   reopenClosedTab: (paneId: string) => void;
   openMcpConfig: (projectPath: string, title: string) => void;
   openSkillManager: (projectPath: string, title: string) => void;
+  /** 工作空间级 Agent Skills 管理（复用 skill-manager tab，projectPath 为空 + workspaceName） */
+  openWorkspaceSkillManager: (workspaceName: string, title: string) => void;
   openMemoryManager: (projectPath: string, title: string) => void;
   openFileExplorer: (projectPath: string, title: string) => void;
   /**

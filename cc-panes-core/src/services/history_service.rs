@@ -129,6 +129,9 @@ pub struct HistoryService {
     branch_cache: Arc<Mutex<HashMap<PathBuf, String>>>,
     /// 静默窗口：project_path -> 静默截止时间
     silence_until: Arc<Mutex<HashMap<PathBuf, Instant>>>,
+    /// 不允许当作项目跑本地历史的根（CC-Panes 自己的数据目录）。默认工作空间的 path
+    /// 就是数据目录，之前会在 `~/.cc-panes/.ccpanes/history` 里给自己建库（docs/98）。
+    protected_roots: Arc<Mutex<Vec<PathBuf>>>,
 }
 
 impl Default for HistoryService {
@@ -160,7 +163,28 @@ impl HistoryService {
             event_overflow_warned: Arc::new(AtomicBool::new(false)),
             branch_cache: Arc::new(Mutex::new(HashMap::new())),
             silence_until: Arc::new(Mutex::new(HashMap::new())),
+            protected_roots: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    /// Register roots (the app data dir) that must never get a per-project history store.
+    pub fn set_protected_roots(&self, roots: Vec<PathBuf>) {
+        let normalized = roots
+            .into_iter()
+            .map(|root| normalize_project_path(&root))
+            .collect();
+        *self
+            .protected_roots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = normalized;
+    }
+
+    fn is_protected(&self, project_path: &Path) -> bool {
+        let roots = self
+            .protected_roots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        roots.iter().any(|root| project_path.starts_with(root))
     }
 
     /// 读取当前分支名（直接读 .git/HEAD 文件，~0.01ms）
@@ -491,6 +515,12 @@ impl HistoryService {
     /// 获取或创建项目的仓库实例
     fn get_or_create_repo(&self, project_path: &Path) -> Result<Arc<HistoryFileRepository>> {
         let project_path = normalize_project_path(project_path);
+        if self.is_protected(&project_path) {
+            anyhow::bail!(
+                "HISTORY_PROTECTED_PATH: {} is inside the CC-Panes data directory and cannot host a project history",
+                project_path.display()
+            );
+        }
         let mut repos = self.repos.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(key) = equivalent_path_key(&repos, &project_path) {
             let repo = repos.get(&key).expect("equivalent repo key must exist");

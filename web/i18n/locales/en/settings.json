@@ -6,6 +6,8 @@
   "searchLabel": "Search settings",
   "searchPlaceholder": "Search fonts, notifications, shortcuts…",
   "clearSearch": "Clear search",
+  "openSkillMarket": "Open skill market",
+  "noUserSkillsNoMarket": "No user skills installed yet.",
   "searchEmpty": "No matching settings",
   "searchCommandGroup": "Settings",
   "searchLayers": {
@@ -25,6 +27,7 @@
     "setupGuide": "getting started onboarding workspace project parallel dispatch skill progress",
     "modules": "module entry Activity Bar right dock hidden command palette",
     "quickCommands": "quick command library prompt terminal project global run",
+    "automations": "automation schedule cron timer recurring agent headless unattended",
     "skills": "skills marketplace install workflow",
     "provider": "provider API key model",
     "mcp": "MCP server tools shared",
@@ -73,7 +76,12 @@
     "title": "Experimental",
     "description": "Unstable features are managed here and retain their choices when they graduate.",
     "emptyTitle": "No experimental features",
-    "emptyDescription": "This release has no experimental options that require manual activation."
+    "emptyDescription": "This release has no experimental options that require manual activation.",
+    "notice": "These features are still being polished and are off by default. Turning one on reveals its activity-bar entry and related pages; you can turn it off again at any time without losing generated data.",
+    "mediaGeneration": "Media generation studio",
+    "mediaGenerationDesc": "The Media Generation activity-bar entry and the full-screen image / video studio (requires a configured media provider).",
+    "skillMarket": "Skill market",
+    "skillMarketDesc": "The Skill Market activity-bar entry, the full-screen market page, and the \"install from market\" blocks in launch profiles and the global skills panel."
   },
   "modules": {
     "title": "Modules",
@@ -846,6 +854,49 @@
     "escapeSuffix": "to another fixed port and restart the app.",
     "errorDetails": "Error details"
   },
+  "automations": {
+    "title": "Automations",
+    "description": "Run an agent prompt on a schedule. Sessions run headless with the ccpanes MCP injected; results land in the run history.",
+    "add": "New Automation",
+    "empty": "No automations yet",
+    "name": "Name",
+    "prompt": "Prompt",
+    "cwd": "Working directory",
+    "workspace": "Workspace",
+    "workspaceNone": "No workspace (enter a folder manually)",
+    "cwdCustom": "Custom folder…",
+    "engine": "Agent engine",
+    "schedule": "Schedule",
+    "time": "Time",
+    "weekday": "Weekday",
+    "cron": "Cron expression",
+    "timeoutMinutes": "Timeout (min)",
+    "autoApprove": "Auto-approve permission requests (unattended)",
+    "autoApproveHint": "Headless runs cannot answer permission prompts. When enabled, the first allow option is selected automatically.",
+    "browse": "Browse",
+    "save": "Save",
+    "cancel": "Cancel",
+    "edit": "Edit",
+    "delete": "Delete",
+    "runNow": "Run now",
+    "runStarted": "Run started",
+    "runs": "History",
+    "noRuns": "No runs yet",
+    "nextRun": "Next run",
+    "preset": {
+      "hourly": "Hourly",
+      "daily": "Daily",
+      "weekdays": "Weekdays",
+      "weekly": "Weekly",
+      "custom": "Custom (cron)"
+    },
+    "status": {
+      "completed": "Completed",
+      "failed": "Failed",
+      "skipped_missed": "Missed",
+      "skipped_overlap": "Skipped (still running)"
+    }
+  },
   "quickCommands": {
     "title": "Quick Commands",
     "description": "Save terminal commands and agent prompts, then run them from the Command Palette or a tab menu.",
@@ -867,6 +918,8 @@
     },
     "scope": {
       "global": "Global",
+      "workspace": "Workspace",
+      "workspaceNamed": "Workspace · {{name}}",
       "project": "Project"
     },
     "target": {

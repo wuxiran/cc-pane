@@ -8,10 +8,11 @@ import { useShallow } from "zustand/react/shallow";
 import type { Tab } from "@/types";
 
 export function useNewTabActions(paneId: string, activeTab: Tab | undefined) {
-  const { openBrowser, openDsh, openEditor, openFileExplorer } = usePanesStore(
+  const { openBrowser, openDsh, openAgentChat, openEditor, openFileExplorer } = usePanesStore(
     useShallow((s) => ({
       openBrowser: s.openBrowser,
       openDsh: s.openDsh,
+      openAgentChat: s.openAgentChat,
       openEditor: s.openEditor,
       openFileExplorer: s.openFileExplorer,
     })),
@@ -39,6 +40,14 @@ export function useNewTabActions(paneId: string, activeTab: Tab | undefined) {
     openDsh(projectPath || undefined, workspacePath || undefined, { paneId });
   }, [paneId, projectPath, openDsh]);
 
+  // Agent Chat 的 cwd：当前标签项目路径 → 当前工作空间路径 → 空（引擎选择页
+  // 提供目录选择器兜底）。workspace 取法与 handleAddDsh 同一先例（getState()，
+  // 不进 selector——selectedWorkspace() 每次返回新对象会崩页）。
+  const handleAddAgentChat = useCallback(() => {
+    const workspacePath = useWorkspacesStore.getState().selectedWorkspace()?.path;
+    openAgentChat(projectPath || workspacePath || undefined, { paneId });
+  }, [paneId, projectPath, openAgentChat]);
+
   const handleAddFile = useCallback(async () => {
     const picked = await openFileDialog({
       multiple: false,
@@ -62,6 +71,7 @@ export function useNewTabActions(paneId: string, activeTab: Tab | undefined) {
   return {
     handleAddBrowser,
     handleAddDsh,
+    handleAddAgentChat,
     handleAddFile,
     // 没有项目路径就没有目录树可开，交给调用方决定要不要显示该菜单项
     handleAddFileExplorer: projectPath ? handleAddFileExplorer : undefined,

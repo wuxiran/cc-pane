@@ -82,7 +82,7 @@ import { attachTerminalInputDebugLog } from "./terminalInputDebug";
 import { attachTerminalDomInputFallback } from "./terminalDomInputFallback";
 import { attachTerminalImeGuard, isLinuxWebKitImeEnvironment } from "./terminalImeGuard";
 import { isTerminalCopyShortcut, isTerminalPasteShortcut } from "./terminalKeyboard";
-import { isXtermFocusReportInput } from "./terminalFocusReport";
+import { detectFocusReportMode, isXtermFocusReportInput } from "./terminalFocusReport";
 import { attachTerminalTuiWheelMultiplier } from "./terminalTuiWheelMultiplier";
 import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
 import { resolveCliTool, resolveLaunchId, resolveRuntimeKind } from "./terminalLaunchIdentity";
@@ -470,6 +470,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         throw new Error("Terminal write flow control is not initialized");
       }
       const terminalData = transparentCliSurfaceRef.current ? stripSgrBackgroundColors(data) : data;
+      focusReportModeRef.current = detectFocusReportMode(terminalData, focusReportModeRef.current); // 1004 跟踪必须挂唯一写入出口：回放/重同步/唤醒同样携带，漏检=恢复会话丢光标（与 xterm 内部状态同源）
       // WebGL 花屏诊断台录制钩子（未 arm 时为 no-op，见 utils/terminalCast）。
       captureTerminalWrite(currentSessionIdRef.current ?? props.sessionId ?? "unknown", terminalData);
       await flowControl.write(terminalData, onWritten);
@@ -493,7 +494,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
     /** desync 重同步闸门：置真期间实时输出改走积压，防 reset 抹掉快照外的新输出。 */
     const resyncInProgressRef = useRef(false);
-    const overflowResyncRef = useRef<(() => Promise<void>) | null>(null);
+    const overflowResyncRef = useRef<(() => Promise<boolean>) | null>(null);
 
     const flushHiddenWrites = useMemo(
       () =>
@@ -695,8 +696,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       desyncUnsubRef.current = null;
       // 换绑/重连时丢弃积压：上一会话的输出串进新会话会直接写坏画面。
       hiddenWriteBufferRef.current?.reset(); // reset 内部一并退出全局预算分母
-      // 同理丢弃上一会话挂起的 exit、重同步闸门与溢出恢复入口，防串到新会话。
-      pendingExitDuringResyncRef.current = null;
+      pendingExitDuringResyncRef.current = null; // 挂起 exit/闸门/恢复入口同弃，防串新会话
       resyncInProgressRef.current = false;
       overflowResyncRef.current = null;
     }, []);
@@ -820,7 +820,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       await bindTerminalSessionCallbacks(sessionId, {
         terminalInstanceRef,
         serializeAddonRef,
-        focusReportModeRef,
         hiddenWriteBufferRef,
         layoutSchedulerRef,
         outputUnsubRef,
@@ -2175,6 +2174,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       repaintTerminal,
       canResizeBackend: () => (drivesBackendPty && !readOnlyRef.current) || resizeBackendPtyRef.current,
       onExplicitGeometryChange: markExplicitGeometryChange,
+      requestBufferResync: () => overflowResyncRef.current?.() ?? Promise.resolve(false),
     });
 
     return (

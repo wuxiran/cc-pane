@@ -10,8 +10,9 @@ import {
   useModulePrefsStore,
 } from "@/stores/useModulePrefsStore";
 import { useDialogStore, useOrchestratorStore } from "@/stores";
-import type { TaskBinding } from "@/types";
+import type { ExperimentalSettings, TaskBinding } from "@/types";
 import { useAiPanelStore } from "@/stores/useAiPanelStore";
+import { useSettingsStore } from "@/stores/useSettingsStore";
 
 // jsdom 缺少 ResizeObserver，Radix Tooltip 依赖它（否则 hover 交互抛错中断 userEvent）
 class ResizeObserverStub {
@@ -38,6 +39,18 @@ function renderBar() {
   );
 }
 
+/** 实验功能开关：媒体生成 / Skill 市场都是实验项。Release 默认全关、入口不出现；
+ * vitest 下 import.meta.env.DEV 为 true（同 dev 实例默认全开），所以这里显式给基线。 */
+function setExperimental(flags: Partial<ExperimentalSettings>) {
+  const defaults = useSettingsStore.getState().getDefaults();
+  useSettingsStore.setState({
+    settings: {
+      ...defaults,
+      experimental: { mediaGeneration: false, skillMarket: false, ...flags },
+    },
+  });
+}
+
 function resetStores() {
   useActivityBarStore.setState({
     activeView: "explorer",
@@ -49,6 +62,7 @@ function resetStores() {
   useOrchestratorStore.setState({ bindings: [] });
   useModulePrefsStore.setState({ preferences: createDefaultModulePreferences() });
   useAiPanelStore.setState({ panels: [], activePanelId: null, unreadPanelIds: [] });
+  setExperimental({});
 }
 
 describe("ActivityBar", () => {
@@ -56,15 +70,49 @@ describe("ActivityBar", () => {
     resetStores();
   });
 
-  it("渲染主视图图标集合（含 Home 与 设置）以及 LayoutBar 桩", () => {
+  it("实验功能全关（release 默认）时不渲染媒体生成与技能市场入口", () => {
     const { container } = renderBar();
     expect(screen.getByTestId("layout-bar-stub")).toBeInTheDocument();
-    // Home + explorer + media + ssh/todo + 添加模块 + settings = 7 按钮
+    // Home + explorer + ssh/todo + 添加模块 + settings = 6 按钮
     //（files 与 sessions 图标已移除：Explorer 侧栏自带 文件 / 最近启动 tab）
-    expect(container.querySelectorAll("button")).toHaveLength(7);
+    expect(container.querySelectorAll("button")).toHaveLength(6);
+    expect(screen.queryByRole("button", { name: "媒体生成" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "技能市场" })).not.toBeInTheDocument();
+  });
+
+  it("实验功能未勾选时，store 动作也不能进入对应全屏页", () => {
+    useActivityBarStore.getState().toggleSkillMarketMode();
+    expect(useActivityBarStore.getState().appViewMode).toBe("home");
+    useActivityBarStore.getState().toggleMediaMode();
+    expect(useActivityBarStore.getState().appViewMode).toBe("home");
+    useActivityBarStore.getState().setAppViewMode("skillMarket");
+    expect(useActivityBarStore.getState().appViewMode).toBe("home");
+    // 非门禁模式照常
+    useActivityBarStore.getState().setAppViewMode("panes");
+    expect(useActivityBarStore.getState().appViewMode).toBe("panes");
+  });
+
+  it("勾选后两个入口出现，按钮总数回到 8", () => {
+    setExperimental({ mediaGeneration: true, skillMarket: true });
+    const { container } = renderBar();
+    expect(container.querySelectorAll("button")).toHaveLength(8);
+    expect(screen.getByRole("button", { name: "媒体生成" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "技能市场" })).toBeInTheDocument();
+  });
+
+  it("技能市场入口切换全屏市场页，再点一次回到 panes", async () => {
+    setExperimental({ skillMarket: true });
+    const user = userEvent.setup();
+    renderBar();
+    const marketButton = screen.getByRole("button", { name: "技能市场" });
+    await user.click(marketButton);
+    expect(useActivityBarStore.getState().appViewMode).toBe("skillMarket");
+    await user.click(marketButton);
+    expect(useActivityBarStore.getState().appViewMode).toBe("panes");
   });
 
   it("左栏只有一个媒体入口，点击后进入共用媒体工作区", async () => {
+    setExperimental({ mediaGeneration: true });
     const user = userEvent.setup();
     const { container } = renderBar();
     const mediaButton = screen.getByRole("button", { name: "媒体生成" });
@@ -77,6 +125,7 @@ describe("ActivityBar", () => {
     expect(screen.queryByRole("button", { name: "生视频" })).not.toBeInTheDocument();
     await user.click(mediaButton);
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
+    // 只开了媒体：Home + explorer + 媒体 + ssh/todo + 添加模块 + settings
     expect(container.querySelectorAll("button")).toHaveLength(7);
   });
 

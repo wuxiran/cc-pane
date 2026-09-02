@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { skillService } from "@/services/skillService";
 import type { DiscoveredExternalSkill, InstalledUserSkill, SkillMarketEntry } from "@/types";
+import { useExperimentalFeature } from "@/hooks/useExperimentalFeature";
 
 /**
  * Skill 市场 / 已安装 / 外部发现三份只读数据的加载与安装动作。
@@ -19,12 +20,14 @@ export function useSkillMarketData() {
   const [externalSkills, setExternalSkills] = useState<DiscoveredExternalSkill[]>([]);
   const [skillMarketLoading, setSkillMarketLoading] = useState(false);
   const [installingSkillId, setInstallingSkillId] = useState<string | null>(null);
+  // Skill 市场是实验功能：未勾选时市场清单恒为空（不发请求），已装/外部照常加载。
+  const skillMarketEnabled = useExperimentalFeature("skillMarket");
 
   const refreshSkillMarket = useCallback(async () => {
     setSkillMarketLoading(true);
     try {
       const [entries, installed, external] = await Promise.all([
-        skillService.listSkillMarketEntries(),
+        skillMarketEnabled ? skillService.listSkillMarketEntries() : Promise.resolve([]),
         skillService.listUserSkills(),
         skillService.listExternalSkills(),
       ]);
@@ -36,7 +39,7 @@ export function useSkillMarketData() {
     } finally {
       setSkillMarketLoading(false);
     }
-  }, [t]);
+  }, [skillMarketEnabled, t]);
 
   useEffect(() => {
     refreshSkillMarket();

@@ -12,6 +12,9 @@ export interface SkillSummary {
   filePath: string;
 }
 
+/** 市场条目来源：自维护清单 / anthropics 官方仓库自动发现 / skills.sh 搜索 */
+export type SkillMarketSource = "curated" | "anthropics" | "skills-sh";
+
 export interface SkillMarketEntry {
   id: string;
   name: string;
@@ -21,9 +24,18 @@ export interface SkillMarketEntry {
   version: string;
   license?: string | null;
   homepageUrl?: string | null;
+  /** 单文件技能：SKILL.md 直链（需配 sha256） */
   contentUrl?: string | null;
   sha256?: string | null;
   recommended: boolean;
+  source: SkillMarketSource | string;
+  /** 目录型技能：GitHub owner/repo */
+  repo?: string | null;
+  /** 目录型技能：仓库内文件夹（搜索结果只带 leaf，安装时解析） */
+  path?: string | null;
+  gitRef?: string | null;
+  featured: boolean;
+  installs?: number | null;
 }
 
 export interface InstalledUserSkill {
@@ -55,6 +67,55 @@ export interface DiscoveredExternalSkill {
   contentSha256: string;
   installedAt?: string | null;
 }
+
+/** 项目里各 CLI 扫描的技能根目录（相对项目，正斜杠） */
+export interface ProjectSkillRoot {
+  root: string;
+  /** 原生读取该根目录的 CLI id：claude / codex / cursor / gemini */
+  consumers: string[];
+  recommended: boolean;
+}
+
+/** 项目级 Agent Skill：`<root>/<relDir>/SKILL.md` 目录 */
+export interface ProjectSkill {
+  /** `<root>::<relDir>` */
+  id: string;
+  name: string;
+  description?: string | null;
+  root: string;
+  relDir: string;
+  dirPath: string;
+  skillMdPath: string;
+  fileCount: number;
+  hasScripts: boolean;
+  consumers: string[];
+}
+
+export interface ProjectSkillContent {
+  skill: ProjectSkill;
+  content: string;
+  /** 目录内文件（相对技能目录，SKILL.md 在首位） */
+  files: string[];
+}
+
+export type ProjectSkillImportSource =
+  | { kind: "user"; id: string }
+  | { kind: "external"; id: string }
+  | { kind: "project"; projectPath: string; root: string; relDir: string }
+  | { kind: "workspace"; workspaceName: string; relDir: string }
+  | { kind: "market"; entry: SkillMarketEntry };
+
+/** 技能面板作用域：项目（仓库里的多根目录）或工作空间（单一插件目录，按会话挂载） */
+export type SkillScope =
+  | { kind: "project"; projectPath: string }
+  | { kind: "workspace"; workspaceName: string };
+
+export type SkillImportTarget =
+  | { kind: "project"; projectPath: string; root: string }
+  | { kind: "workspace"; workspaceName: string };
+
+/** 工作空间技能在 ProjectSkill.root 里的逻辑根标签（与后端 WORKSPACE_SKILL_ROOT 一致） */
+export const WORKSPACE_SKILL_ROOT = "workspace";
 
 /** A CLI-native or session-level transport for portable CC-Panes Skills. */
 export type SkillDeliveryMode = "nativeCommand" | "nativeSkill" | "piSkill" | "sessionPrompt";

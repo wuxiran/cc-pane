@@ -17,8 +17,9 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
-import { Plus, FolderGit2, FolderTree, ListFilter, TerminalSquare } from "lucide-react";
+import { Plus, FolderGit2, FolderTree, ListFilter, TerminalSquare, CalendarClock } from "lucide-react";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
+import { navigateToSettings } from "@/components/settings/settingsNavigation";
 import WorkspaceCreateGroupDialog from "./WorkspaceCreateGroupDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -350,6 +351,9 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
             }
           >
             <TerminalSquare className="size-3.5" />
+          </IconTooltipButton>
+          <IconTooltipButton label={t("agentChatsAutomations")} onClick={() => navigateToSettings({ paneId: "automations" })} className="size-5 p-0 text-[var(--app-text-tertiary)] hover:text-[var(--app-accent)]">
+            <CalendarClock className="size-3.5" />
           </IconTooltipButton>
           <IconTooltipButton
             label={t("workspaceFilterToggle")}

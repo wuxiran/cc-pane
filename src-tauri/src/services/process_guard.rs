@@ -74,8 +74,16 @@ impl ProcessGuard {
     /// child could outlive the parent.
     #[cfg(windows)]
     pub fn attach(child: &Child) -> AppResult<Self> {
+        use std::os::windows::io::AsRawHandle;
+        Self::attach_raw_handle(child.as_raw_handle())
+    }
+
+    /// Attach by raw process handle. Needed for `tokio::process::Child`,
+    /// which exposes the handle but not a `std::process::Child`.
+    #[cfg(windows)]
+    pub fn attach_raw_handle(handle: std::os::windows::io::RawHandle) -> AppResult<Self> {
         Ok(Self {
-            job: attach_windows(child)?,
+            job: attach_windows_handle(handle)?,
         })
     }
 
@@ -86,6 +94,14 @@ impl ProcessGuard {
         Ok(Self {
             pgid: child.id() as i32,
         })
+    }
+
+    /// Attach by pid. Needed for `tokio::process::Child`; requires that the
+    /// caller ran [`configure_command`] before spawn so the child leads its
+    /// own process group.
+    #[cfg(unix)]
+    pub fn attach_pid(pid: i32) -> AppResult<Self> {
+        Ok(Self { pgid: pid })
     }
 
     #[cfg(not(any(unix, windows)))]
@@ -187,9 +203,7 @@ impl Drop for JobHandle {
 }
 
 #[cfg(windows)]
-fn attach_windows(child: &Child) -> AppResult<JobHandle> {
-    use std::os::windows::io::AsRawHandle;
-
+fn attach_windows_handle(raw_handle: std::os::windows::io::RawHandle) -> AppResult<JobHandle> {
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::System::JobObjects::{
@@ -200,7 +214,7 @@ fn attach_windows(child: &Child) -> AppResult<JobHandle> {
 
     // SAFETY: standard Win32 Job Object setup; every handle is checked and
     // cleaned up on the error paths. The child handle is valid for the duration
-    // of this call because we hold `&Child`.
+    // of this call because the caller holds the child alive.
     unsafe {
         let job = CreateJobObjectW(None, PCWSTR::null())
             .map_err(|e| AppError::from(format!("CreateJobObjectW failed: {e}")))?;
@@ -225,7 +239,7 @@ fn attach_windows(child: &Child) -> AppResult<JobHandle> {
             )));
         }
 
-        let child_handle = HANDLE(child.as_raw_handle());
+        let child_handle = HANDLE(raw_handle);
         if let Err(e) = AssignProcessToJobObject(job, child_handle) {
             let _ = CloseHandle(job);
             return Err(AppError::from(format!(

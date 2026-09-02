@@ -751,6 +751,24 @@ describe("usePanesStore", () => {
     });
   });
 
+  describe("openWorkspaceSkillManager", () => {
+    it("复用 skill-manager tab 类型，projectPath 为空并带 workspaceName；与项目 tab 互不复用", () => {
+      usePanesStore.getState().openWorkspaceSkillManager("alpha", "Alpha");
+      const pane = usePanesStore.getState().activePane()!;
+      const wsTab = pane.tabs.find((t) => t.contentType === "skill-manager" && t.workspaceName === "alpha");
+      expect(wsTab).toBeDefined();
+      expect(wsTab!.projectPath).toBe("");
+      expect(wsTab!.title).toBe("Skill - Alpha");
+
+      const before = pane.tabs.length;
+      usePanesStore.getState().openWorkspaceSkillManager("alpha", "Alpha");
+      expect(usePanesStore.getState().activePane()!.tabs.length).toBe(before);
+
+      usePanesStore.getState().openSkillManager("/tmp/project", "MyProject");
+      expect(usePanesStore.getState().activePane()!.tabs.length).toBe(before + 1);
+    });
+  });
+
   describe("openMemoryManager", () => {
     it("应创建 memory-manager 类型的 tab", () => {
       usePanesStore.getState().openMemoryManager("/tmp/project", "MyProject");

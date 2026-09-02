@@ -52,17 +52,18 @@ use cc_panes_core::models::shared_mcp::{
 };
 use cc_panes_core::models::{
     CreateMediaNodeRequest, CreateMediaRunRequest,
-    CreateSessionRequest as CoreCreateSessionRequest, MediaKind, MediaOperation, MediaProviderRef,
-    MediaRun, PortReservation, RunnerInstance, RunnerInstanceStatus, RunnerProfile,
-    RunnerStartResult, RunnerStartStatus, TaskDispatchEnvelope, TaskDispatchPlan,
-    TaskDispatchRequest,
+    CreateSessionRequest as CoreCreateSessionRequest, CursorBridgeAction, CursorBridgeModelPref,
+    CursorBridgeModelTarget, CursorBridgeSessionControl, CursorBridgeSessionMode, MediaKind,
+    MediaOperation, MediaProviderRef, MediaRun, PortReservation, RunnerInstance,
+    RunnerInstanceStatus, RunnerProfile, RunnerStartResult, RunnerStartStatus,
+    TaskDispatchEnvelope, TaskDispatchPlan, TaskDispatchRequest,
 };
 use cc_panes_core::services::mcp_config_service::McpServerConfig;
 use cc_panes_core::services::terminal_service::{
     wrap_bracketed_paste, KillReason, SessionStatus, SessionStatusInfo,
 };
-use cc_panes_core::services::TaskDispatchService;
 use cc_panes_core::services::TerminalBackend;
+use cc_panes_core::services::{CursorBridgeCreateSpec, CursorBridgeService, TaskDispatchService};
 use cc_panes_core::services::{PipeEventRequest, PipeEventService};
 #[cfg(target_os = "windows")]
 use cc_panes_core::utils::canonical_project_path;
@@ -1027,6 +1028,7 @@ pub struct AppState {
     /// 目标会话 busy 时排队的通用 directive（key = 目标 PTY session_id）。
     pub pending_directives: Arc<Mutex<PendingDirectiveMap>>,
     pub pipe_event_service: Arc<PipeEventService>,
+    pub cursor_bridge_service: Arc<CursorBridgeService>,
     /// 活跃面板集：持有事件环与当前持有者，进程内生命周期。
     ai_panels: Arc<Mutex<AiPanelRegistry>>,
     /// 面板历史：跨重启持久化，按工作空间分组，只由用户显式删除。
@@ -1922,6 +1924,12 @@ impl OrchestratorService {
             status.next_retry_at = None;
         });
         let bind_host = bind.host;
+        // 登记簿是文件级读-改-写，必须全进程共用一个实例（一把锁）。lib.rs 已 manage
+        // 了一份供 resume_binding_service 写回 resumeChatId；这里取同一份，拿不到才自建。
+        let cursor_bridge_service = app_handle
+            .try_state::<Arc<CursorBridgeService>>()
+            .map(|shared| shared.inner().clone())
+            .unwrap_or_else(|| Arc::new(CursorBridgeService::open(app_paths.cursor_bridge_dir())));
         let state = AppState {
             token: self.token.clone(),
             started_at: self.started_at,
@@ -1964,6 +1972,7 @@ impl OrchestratorService {
             pipe_event_service: Arc::new(PipeEventService::new(Arc::new(
                 crate::emitter::TauriEmitter::new(app_handle.clone()),
             ))),
+            cursor_bridge_service,
             ai_panels: self.ai_panels.clone(),
             ai_panel_repo,
             mcp_tool_call_stats_repo,
@@ -2558,6 +2567,14 @@ struct McpLaunchTaskParams {
     #[serde(skip)]
     #[schemars(skip)]
     dispatch_task_id: Option<String>,
+    /// Internal only. Filled by `cursor_bridge`; never accepted from MCP callers.
+    #[serde(skip)]
+    #[schemars(skip)]
+    adapter_options: Option<HashMap<String, serde_json::Value>>,
+    /// Internal only. Cursor Bridge continue may resume and send a new prompt.
+    #[serde(skip)]
+    #[schemars(skip)]
+    allow_resume_with_prompt: bool,
 }
 
 /// Generic, durable cross-CLI task dispatch parameters.
@@ -2575,6 +2592,52 @@ struct McpDispatchTaskParams {
     /// Optional parent terminal session ID when the caller has no TaskBinding ID.
     #[serde(rename = "parentSessionId")]
     parent_session_id: Option<String>,
+}
+
+/// Single-tool Cursor Bridge surface (docs/96). Action enum, not six MCP tools.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct McpCursorBridgeParams {
+    /// init | context | do | status | model | session
+    action: String,
+    #[serde(rename = "projectPath")]
+    project_path: Option<String>,
+    query: Option<String>,
+    task: Option<String>,
+    #[serde(rename = "sessionMode")]
+    session_mode: Option<String>,
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    #[serde(rename = "requestId")]
+    request_id: Option<String>,
+    #[serde(rename = "readOnly")]
+    read_only: Option<bool>,
+    #[serde(rename = "allowedPaths")]
+    allowed_paths: Option<Vec<String>>,
+    #[serde(rename = "modelId")]
+    model_id: Option<String>,
+    effort: Option<String>,
+    /// model action: context | do | both
+    target: Option<String>,
+    /// session action: close | forget | reconcile | abandon
+    #[serde(rename = "sessionAction")]
+    session_action: Option<String>,
+    confirm: Option<bool>,
+    #[serde(rename = "runtimeKind")]
+    runtime_kind: Option<String>,
+    title: Option<String>,
+    #[serde(rename = "paneId")]
+    pane_id: Option<String>,
+    #[serde(rename = "layoutId")]
+    layout_id: Option<String>,
+    #[serde(rename = "layoutName")]
+    layout_name: Option<String>,
+    placement: Option<String>,
+    /// context only. Default true: block until the print worker exits and return the
+    /// evidence text inline. false = return the launch receipt immediately.
+    wait: Option<bool>,
+    /// context only. Wait budget in ms (clamped like wait_for_session; default 180000).
+    #[serde(rename = "timeoutMs")]
+    timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -5233,6 +5296,558 @@ impl McpToolHandler {
             warn!(binding_id, err = %error, "mcp::dispatch_task failed to mark TaskBinding failed");
         }
     }
+
+    fn cursor_bridge_workspace(&self, explicit: Option<&str>) -> Result<String, String> {
+        if let Some(path) = explicit.map(str::trim).filter(|path| !path.is_empty()) {
+            if !is_project_registered(&self.state, path) {
+                return Err(format!("项目路径 '{path}' 未注册"));
+            }
+            return Ok(path.to_string());
+        }
+        match self.state.cursor_bridge_service.workspace_binding() {
+            Ok(Some(binding)) => Ok(binding.project_path),
+            Ok(None) => Err("先调用 cursor_bridge action=init 绑定项目路径".to_string()),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    fn cursor_bridge_adapter_options(
+        print: bool,
+        read_only: bool,
+        model_id: Option<&str>,
+        effort: Option<&str>,
+    ) -> HashMap<String, serde_json::Value> {
+        let mut options = HashMap::new();
+        if print {
+            options.insert("print".into(), serde_json::json!(true));
+        }
+        if read_only {
+            options.insert("readOnly".into(), serde_json::json!(true));
+        }
+        if let Some(model_id) = model_id.map(str::trim).filter(|value| !value.is_empty()) {
+            options.insert(
+                "__ccpanesModelId".into(),
+                serde_json::Value::String(model_id.to_string()),
+            );
+        }
+        if let Some(effort) = effort.map(str::trim).filter(|value| !value.is_empty()) {
+            options.insert(
+                "effort".into(),
+                serde_json::Value::String(effort.to_string()),
+            );
+        }
+        options
+    }
+
+    fn cursor_bridge_init(&self, params: &McpCursorBridgeParams) -> String {
+        let path = match params
+            .project_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+        {
+            Some(path) => path,
+            None => return "错误: init 必须提供 projectPath".to_string(),
+        };
+        if !is_project_registered(&self.state, path) {
+            return format!("错误: 项目路径 '{path}' 未注册");
+        }
+        match self.state.cursor_bridge_service.init_workspace(path) {
+            Ok(binding) => serde_json::json!({
+                "action": "init",
+                "projectPath": binding.project_path,
+            })
+            .to_string(),
+            Err(error) => format!("错误: {error}"),
+        }
+    }
+
+    fn cursor_bridge_status(&self, params: &McpCursorBridgeParams) -> String {
+        if let Some(session_id) = params
+            .session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return match self.state.cursor_bridge_service.get_session(session_id) {
+                Ok(session) => serde_json::to_string(&session)
+                    .unwrap_or_else(|error| format!("错误: 序列化失败: {error}")),
+                Err(error) => format!("错误: {error}"),
+            };
+        }
+        let binding = self
+            .state
+            .cursor_bridge_service
+            .workspace_binding()
+            .ok()
+            .flatten();
+        let sessions = self
+            .state
+            .cursor_bridge_service
+            .list_sessions()
+            .unwrap_or_default();
+        let models = self
+            .state
+            .cursor_bridge_service
+            .model_preferences()
+            .unwrap_or_default();
+        serde_json::json!({
+            "action": "status",
+            "projectPath": binding.map(|item| item.project_path),
+            "sessions": sessions,
+            "models": models,
+        })
+        .to_string()
+    }
+
+    fn cursor_bridge_model(&self, params: &McpCursorBridgeParams) -> String {
+        let target = parse_cursor_bridge_model_target(params.target.as_deref());
+        let has_set = params.model_id.is_some() || params.effort.is_some();
+        let result = if has_set {
+            self.state.cursor_bridge_service.set_model_preferences(
+                target,
+                CursorBridgeModelPref {
+                    model_id: nonempty_string(params.model_id.as_deref()),
+                    effort: nonempty_string(params.effort.as_deref()),
+                },
+            )
+        } else {
+            self.state.cursor_bridge_service.model_preferences()
+        };
+        match result {
+            Ok(prefs) => serde_json::json!({
+                "action": "model",
+                "target": params.target,
+                "models": prefs,
+            })
+            .to_string(),
+            Err(error) => format!("错误: {error}"),
+        }
+    }
+
+    fn cursor_bridge_session(&self, params: &McpCursorBridgeParams) -> String {
+        let session_id = match params
+            .session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(session_id) => session_id,
+            None => return "错误: session 必须提供 sessionId".to_string(),
+        };
+        let control = match parse_cursor_bridge_session_action(params.session_action.as_deref()) {
+            Ok(control) => control,
+            Err(error) => return format!("错误: {error}"),
+        };
+        match self.state.cursor_bridge_service.control_session(
+            session_id,
+            control,
+            params.confirm.unwrap_or(false),
+        ) {
+            Ok(session) => serde_json::json!({
+                "action": "session",
+                "sessionAction": params.session_action,
+                "session": session,
+            })
+            .to_string(),
+            Err(error) => format!("错误: {error}"),
+        }
+    }
+
+    async fn cursor_bridge_context(
+        &self,
+        params: &McpCursorBridgeParams,
+        extensions: Extensions,
+    ) -> String {
+        let workspace = match self.cursor_bridge_workspace(params.project_path.as_deref()) {
+            Ok(path) => path,
+            Err(error) => return format!("错误: {error}"),
+        };
+        let query = match params
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(query) => query,
+            None => return "错误: context 必须提供 query".to_string(),
+        };
+        let plan = match self
+            .state
+            .cursor_bridge_service
+            .plan_context(query, &workspace)
+        {
+            Ok(plan) => plan,
+            Err(error) => return format!("错误: {error}"),
+        };
+        let raw = self
+            .launch_cursor_bridge_plan(params, plan, false, extensions)
+            .await;
+        if !params.wait.unwrap_or(true) {
+            return raw;
+        }
+        self.cursor_bridge_collect_context(raw, params.timeout_ms)
+            .await
+    }
+
+    /// `context` is a print worker: the answer only exists in the PTY buffer once the
+    /// process exits. Wait for that, read the buffer, and put the evidence block in the
+    /// response so the caller does not have to chain wait_for_session + get_session_output.
+    async fn cursor_bridge_collect_context(&self, raw: String, timeout_ms: Option<u64>) -> String {
+        if raw.starts_with("错误") {
+            return raw;
+        }
+        let mut parsed: serde_json::Value = match serde_json::from_str(&raw) {
+            Ok(value) => value,
+            Err(_) => return raw,
+        };
+        let pty_session_id = parsed
+            .get("ptySessionId")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if pty_session_id.is_empty() {
+            return raw;
+        }
+        let timeout = std::time::Duration::from_millis(normalized_wait_timeout_ms(timeout_ms));
+        let query_state = self.state.clone();
+        let query_session_id = pty_session_id.clone();
+        let wait = wait_for_session_with_query(
+            self.state.session_state_machine.clone(),
+            pty_session_id.clone(),
+            vec![SessionStatus::Exited],
+            timeout,
+            move || {
+                let state = query_state.clone();
+                let session_id = query_session_id.clone();
+                async move { query_session_status(&state, &session_id).await }
+            },
+        )
+        .await;
+        let sid = pty_session_id.clone();
+        let output = backend_call(&self.state, move |backend| {
+            backend.get_session_output(&sid, 0)
+        })
+        .await
+        .map(|output| output.lines.join("\n"))
+        .map_err(|error| error.to_string());
+        merge_cursor_bridge_context_result(&mut parsed, wait, output);
+        parsed.to_string()
+    }
+
+    async fn cursor_bridge_do(
+        &self,
+        params: &McpCursorBridgeParams,
+        extensions: Extensions,
+    ) -> String {
+        let workspace = match self.cursor_bridge_workspace(params.project_path.as_deref()) {
+            Ok(path) => path,
+            Err(error) => return format!("错误: {error}"),
+        };
+        let mode = parse_cursor_bridge_session_mode(params.session_mode.as_deref());
+        let prefs = self
+            .state
+            .cursor_bridge_service
+            .model_preferences()
+            .unwrap_or_default();
+        let spec = CursorBridgeCreateSpec {
+            workspace,
+            runtime_kind: params.runtime_kind.clone(),
+            read_only: params.read_only.unwrap_or(false),
+            allowed_paths: params.allowed_paths.clone().unwrap_or_default(),
+            request_id: params.request_id.clone(),
+            model_id: nonempty_string(params.model_id.as_deref()).or(prefs.do_pref.model_id),
+            effort: nonempty_string(params.effort.as_deref()).or(prefs.do_pref.effort),
+            task: params.task.clone().unwrap_or_default(),
+            print: false,
+        };
+        let plan =
+            match self
+                .state
+                .cursor_bridge_service
+                .plan_do(mode, spec, params.session_id.as_deref())
+            {
+                Ok(plan) => plan,
+                Err(error) => return format!("错误: {error}"),
+            };
+        let pty_session_id = plan.session_id.as_deref().and_then(|session_id| {
+            self.state
+                .cursor_bridge_service
+                .get_session(session_id)
+                .ok()
+                .and_then(|session| session.pty_session_id)
+        });
+        let pty_live = pty_session_id
+            .as_deref()
+            .is_some_and(|pty| self.cursor_bridge_session_is_live(pty));
+        match route_cursor_bridge_do(mode, &plan, pty_session_id.as_deref(), pty_live) {
+            CursorBridgeDoRoute::Replay => serde_json::json!({
+                "action": "do",
+                "replay": true,
+                "sessionId": plan.session_id,
+                "taskId": plan.task_id,
+                "resumeChatId": plan.resume_chat_id,
+            })
+            .to_string(),
+            CursorBridgeDoRoute::NeedsAttention => {
+                if let Some(session_id) = plan.session_id.as_deref() {
+                    let _ = self
+                        .state
+                        .cursor_bridge_service
+                        .mark_needs_attention(session_id);
+                }
+                "错误: continue 时还没有 resumeChatId，且没有活着的 PTY。等 cursor_bridge action=status 显示 ready 后再 continue".to_string()
+            }
+            CursorBridgeDoRoute::SubmitToLivePty(pty) => {
+                self.cursor_bridge_submit_continue(&pty, plan).await
+            }
+            CursorBridgeDoRoute::Launch { allow_resume } => {
+                self.launch_cursor_bridge_plan(params, plan, allow_resume, extensions)
+                    .await
+            }
+        }
+    }
+
+    fn cursor_bridge_session_is_live(&self, pty_session_id: &str) -> bool {
+        self.state
+            .terminal_backend
+            .backend()
+            .get_session_status(pty_session_id)
+            .ok()
+            .flatten()
+            .is_some_and(|info| !info.status.is_terminal())
+    }
+
+    async fn cursor_bridge_submit_continue(
+        &self,
+        pty_session_id: &str,
+        plan: cc_panes_core::models::CursorBridgeTurnPlan,
+    ) -> String {
+        match submit_text_to_session(
+            self.state.terminal_backend.backend(),
+            pty_session_id,
+            &plan.prompt,
+        )
+        .await
+        {
+            Ok(()) => serde_json::json!({
+                "action": "do",
+                "sessionId": plan.session_id,
+                "taskId": plan.task_id,
+                "ptySessionId": pty_session_id,
+                "resumeChatId": plan.resume_chat_id,
+                "submitted": true,
+            })
+            .to_string(),
+            Err(error) => format!("错误: {error}"),
+        }
+    }
+
+    async fn launch_cursor_bridge_plan(
+        &self,
+        params: &McpCursorBridgeParams,
+        plan: cc_panes_core::models::CursorBridgeTurnPlan,
+        allow_resume_with_prompt: bool,
+        extensions: Extensions,
+    ) -> String {
+        let adapter_options = Self::cursor_bridge_adapter_options(
+            plan.print,
+            plan.read_only,
+            plan.model_id.as_deref(),
+            plan.effort.as_deref(),
+        );
+        let launch = McpLaunchTaskParams {
+            project_path: plan.workspace.clone(),
+            prompt: Some(plan.prompt.clone()),
+            provider_id: None,
+            model_id: plan.model_id.clone(),
+            provider_selection: None,
+            profile_id: None,
+            title: params
+                .title
+                .clone()
+                .or_else(|| Some("Cursor Bridge".to_string())),
+            workspace_name: None,
+            runtime_kind: plan.runtime_kind.clone().or(params.runtime_kind.clone()),
+            resume_id: plan.resume_chat_id.clone(),
+            pane_id: params.pane_id.clone(),
+            layout_id: params.layout_id.clone(),
+            layout_name: params.layout_name.clone(),
+            cli_tool: Some("cursor".to_string()),
+            placement: params.placement.clone(),
+            dispatch_binding_id: None,
+            dispatch_task_id: None,
+            adapter_options: Some(adapter_options),
+            allow_resume_with_prompt,
+        };
+        let raw = self.launch_task(Parameters(launch), extensions).await;
+        self.attach_cursor_bridge_launch(&plan, &raw)
+    }
+
+    fn attach_cursor_bridge_launch(
+        &self,
+        plan: &cc_panes_core::models::CursorBridgeTurnPlan,
+        raw: &str,
+    ) -> String {
+        if raw.starts_with("错误") {
+            if let Some(session_id) = plan.session_id.as_deref() {
+                let _ = self
+                    .state
+                    .cursor_bridge_service
+                    .mark_needs_attention(session_id);
+            }
+            return raw.to_string();
+        }
+        let parsed: serde_json::Value = serde_json::from_str(raw).unwrap_or(serde_json::json!({}));
+        let pty_session_id = parsed
+            .get("sessionId")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let launch_id = parsed
+            .get("launchId")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        if let Some(session_id) = plan.session_id.as_deref() {
+            if !pty_session_id.is_empty() && !launch_id.is_empty() {
+                let _ = self.state.cursor_bridge_service.attach_launch(
+                    session_id,
+                    launch_id,
+                    pty_session_id,
+                );
+            }
+        }
+        serde_json::json!({
+            "action": if plan.print { "context" } else { "do" },
+            "sessionId": plan.session_id,
+            "taskId": plan.task_id,
+            "ptySessionId": pty_session_id,
+            "launchId": launch_id,
+            "resumeChatId": plan.resume_chat_id,
+            "print": plan.print,
+            "readOnly": plan.read_only,
+            "launch": parsed,
+        })
+        .to_string()
+    }
+}
+
+/// Where a `do` turn goes once the registry has produced a plan. Pure so the branch
+/// matrix (replay / dead PTY without resume id / live PTY / relaunch) is testable
+/// without an AppState.
+#[derive(Debug, PartialEq, Eq)]
+enum CursorBridgeDoRoute {
+    Replay,
+    /// continue asked for, but there is neither a resumeChatId nor a live PTY to talk to.
+    NeedsAttention,
+    SubmitToLivePty(String),
+    Launch {
+        allow_resume: bool,
+    },
+}
+
+fn route_cursor_bridge_do(
+    mode: CursorBridgeSessionMode,
+    plan: &cc_panes_core::models::CursorBridgeTurnPlan,
+    pty_session_id: Option<&str>,
+    pty_live: bool,
+) -> CursorBridgeDoRoute {
+    if plan.replay {
+        return CursorBridgeDoRoute::Replay;
+    }
+    let live_pty = pty_session_id.filter(|_| pty_live);
+    if mode == CursorBridgeSessionMode::Continue
+        && plan.resume_chat_id.is_none()
+        && live_pty.is_none()
+    {
+        return CursorBridgeDoRoute::NeedsAttention;
+    }
+    if let Some(pty) = live_pty {
+        return CursorBridgeDoRoute::SubmitToLivePty(pty.to_string());
+    }
+    CursorBridgeDoRoute::Launch {
+        allow_resume: plan.resume_chat_id.is_some(),
+    }
+}
+
+/// Fold the wait outcome and the PTY buffer into the `context` launch receipt.
+/// `evidence.structured` tells the caller whether the CCE marker was honoured; when it
+/// was not, `evidence.text` is the raw buffer so nothing is silently dropped.
+fn merge_cursor_bridge_context_result(
+    receipt: &mut serde_json::Value,
+    wait: Result<WaitForSessionResult, String>,
+    output: Result<String, String>,
+) {
+    let (complete, wait_value) = match wait {
+        Ok(result) => (
+            result.satisfied,
+            serde_json::to_value(&result).unwrap_or(serde_json::Value::Null),
+        ),
+        Err(error) => (false, serde_json::json!({ "error": error })),
+    };
+    let evidence = match output {
+        Ok(text) => {
+            let normalized = cc_panes_core::services::normalize_cce_search_result(&text);
+            let structured = normalized.starts_with(cc_panes_core::services::CCE_RESULT_MARKER);
+            serde_json::json!({ "text": normalized, "structured": structured })
+        }
+        Err(error) => serde_json::json!({ "error": error }),
+    };
+    if let Some(object) = receipt.as_object_mut() {
+        object.insert("complete".into(), serde_json::Value::Bool(complete));
+        object.insert("wait".into(), wait_value);
+        object.insert("evidence".into(), evidence);
+    }
+}
+
+fn parse_cursor_bridge_action(raw: &str) -> Result<CursorBridgeAction, String> {
+    match raw.trim() {
+        "init" => Ok(CursorBridgeAction::Init),
+        "context" => Ok(CursorBridgeAction::Context),
+        "do" => Ok(CursorBridgeAction::Do),
+        "status" => Ok(CursorBridgeAction::Status),
+        "model" => Ok(CursorBridgeAction::Model),
+        "session" => Ok(CursorBridgeAction::Session),
+        other => Err(format!(
+            "unknown action '{other}' (init|context|do|status|model|session)"
+        )),
+    }
+}
+
+fn parse_cursor_bridge_session_mode(raw: Option<&str>) -> CursorBridgeSessionMode {
+    match raw.map(str::trim) {
+        Some("create") => CursorBridgeSessionMode::Create,
+        Some("continue") => CursorBridgeSessionMode::Continue,
+        _ => CursorBridgeSessionMode::Isolated,
+    }
+}
+
+fn parse_cursor_bridge_session_action(
+    raw: Option<&str>,
+) -> Result<CursorBridgeSessionControl, String> {
+    match raw.map(str::trim) {
+        Some("close") => Ok(CursorBridgeSessionControl::Close),
+        Some("forget") => Ok(CursorBridgeSessionControl::Forget),
+        Some("reconcile") => Ok(CursorBridgeSessionControl::Reconcile),
+        Some("abandon") => Ok(CursorBridgeSessionControl::Abandon),
+        other => Err(format!(
+            "session 必须提供 sessionAction=close|forget|reconcile|abandon，收到 {other:?}"
+        )),
+    }
+}
+
+fn parse_cursor_bridge_model_target(raw: Option<&str>) -> CursorBridgeModelTarget {
+    match raw.map(str::trim) {
+        Some("context") => CursorBridgeModelTarget::Context,
+        Some("do") => CursorBridgeModelTarget::Do,
+        _ => CursorBridgeModelTarget::Both,
+    }
+}
+
+fn nonempty_string(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn dispatch_running_status(status: TaskBindingStatus) -> Option<TaskBindingStatus> {
@@ -5427,7 +6042,8 @@ impl McpToolHandler {
         let caller_launch_id = caller_launch_id_from_extensions(&extensions);
 
         // 参数校验：prompt 和 resumeId 互斥，必须且只能提供其一
-        if params.prompt.is_some() && params.resume_id.is_some() {
+        if params.prompt.is_some() && params.resume_id.is_some() && !params.allow_resume_with_prompt
+        {
             return "错误: prompt 和 resumeId 互斥，不能同时提供".to_string();
         }
         if params.prompt.is_none() && params.resume_id.is_none() {
@@ -5514,7 +6130,11 @@ impl McpToolHandler {
         let prompt_delivery = prepare_launch_prompt(
             &params.project_path,
             &task_id,
-            if is_resume { None } else { params.prompt },
+            if is_resume && !params.allow_resume_with_prompt {
+                None
+            } else {
+                params.prompt
+            },
             self.state.terminal_backend.kind(),
         );
         let runtime = match resolve_launch_runtime(
@@ -5566,7 +6186,7 @@ impl McpToolHandler {
             append_system_prompt: None,
             initial_prompt: prompt_delivery.initial_prompt,
             yolo_mode: None,
-            adapter_options: None,
+            adapter_options: params.adapter_options.clone(),
             extra_env: dispatch_task_environment(
                 params.dispatch_binding_id.as_deref(),
                 params.dispatch_task_id.as_deref(),
@@ -5780,6 +6400,7 @@ impl McpToolHandler {
         serde_json::json!({
             "taskId": task_id,
             "sessionId": session_id,
+            "launchId": child_launch_id,
             "status": "launching",
             "runtimeKind": runtime.kind.as_str(),
             "runtimeSource": runtime.source,
@@ -7691,6 +8312,33 @@ impl McpToolHandler {
         .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error))
     }
 
+    /// Cursor Bridge: bind a workspace, run a read-only context query, or dispatch a bounded Cursor Agent CLI task.
+    ///
+    /// This is the CC-Panes-native counterpart of Vanyangyang/cursor-bridge. It uses `cursor-agent`
+    /// (official CLI), not CDP. Actions: init, context, do, status, model, session.
+    /// Persistent `do` sessions require readOnly=true or allowedPaths. Continue cannot expand scope.
+    /// Cursor is not an OS sandbox — verify the real diff.
+    #[tool]
+    async fn cursor_bridge(
+        &self,
+        Parameters(params): Parameters<McpCursorBridgeParams>,
+        extensions: Extensions,
+    ) -> String {
+        let action = match parse_cursor_bridge_action(&params.action) {
+            Ok(action) => action,
+            Err(error) => return format!("错误: {error}"),
+        };
+        info!(action = ?action, "mcp::cursor_bridge");
+        match action {
+            CursorBridgeAction::Init => self.cursor_bridge_init(&params),
+            CursorBridgeAction::Status => self.cursor_bridge_status(&params),
+            CursorBridgeAction::Model => self.cursor_bridge_model(&params),
+            CursorBridgeAction::Session => self.cursor_bridge_session(&params),
+            CursorBridgeAction::Context => self.cursor_bridge_context(&params, extensions).await,
+            CursorBridgeAction::Do => self.cursor_bridge_do(&params, extensions).await,
+        }
+    }
+
     /// Manually report a worker's terminal status to its leader via PTY. Bypasses automatic dedup. Use when the auto-notify did not fire (e.g. worker.status was already completed before this call).
     #[tool]
     async fn report_to_leader(
@@ -9283,7 +9931,8 @@ impl ServerHandler for McpToolHandler {
                 "Leader 下行: register_plan_leader → dispatch_task(parentBindingId)；旧会话复用才用 register_plan_worker。目标 busy 时自动排队并在空闲边沿补投。\n",
                 "布局分流: list_panes 查看 layoutId/paneId，dispatch_task 可传 layoutId 或 layoutName；layoutName 不存在时前端会自动创建布局。\n",
                 "项目接入: scan_directory → create_workspace → add_project_to_workspace → dispatch_task。\n",
-                "Resume: list_launch_history(projectPath) → 取 resumeSessionId/cliTool/runtimeKind → dispatch_task(resumeId, cliTool, runtimeKind)。",
+                "Resume: list_launch_history(projectPath) → 取 resumeSessionId/cliTool/runtimeKind → dispatch_task(resumeId, cliTool, runtimeKind)。\n",
+                "Cursor Bridge: cursor_bridge(action=init|context|do|status|model|session) 走官方 cursor-agent CLI，不走 CDP。",
             ))
     }
 }
@@ -11518,10 +12167,12 @@ fn prepare_launch_prompt(
     }
 }
 
-/// 将长 prompt 写入 `.ccpanes/prompts/<id>.md`，返回文件路径
+/// 将长 prompt 写入 `.ccpanes/.cache/prompts/<id>.md`（docs/98），返回文件路径
 fn write_prompt_file(project_path: &str, id: &str, prompt: &str) -> std::io::Result<PathBuf> {
-    let dir = PathBuf::from(project_path).join(".ccpanes").join("prompts");
-    std::fs::create_dir_all(&dir)?;
+    let dir = cc_panes_core::utils::project_dirs::ensure_cache_subdir(
+        std::path::Path::new(project_path),
+        "prompts",
+    )?;
     let file_path = dir.join(format!("{}.md", id));
     std::fs::write(&file_path, prompt)?;
     Ok(file_path)
@@ -14151,6 +14802,7 @@ mod tests {
         let prompt_file = project
             .path()
             .join(".ccpanes")
+            .join(".cache")
             .join("prompts")
             .join("long-task.md");
         assert_eq!(std::fs::read_to_string(prompt_file).unwrap(), prompt);
@@ -14415,6 +15067,200 @@ mod tests {
         }))
         .expect("params without workerKind should parse");
         assert_eq!(params.worker_kind, None);
+    }
+
+    #[test]
+    fn mcp_cursor_bridge_params_parse_and_reject_unknown_action() {
+        let params: McpCursorBridgeParams = serde_json::from_value(serde_json::json!({
+            "action": "do",
+            "projectPath": "D:/repo",
+            "task": "fix it",
+            "sessionMode": "continue",
+            "readOnly": true
+        }))
+        .expect("cursor_bridge params should parse");
+        assert_eq!(params.action, "do");
+        assert_eq!(params.session_mode.as_deref(), Some("continue"));
+        assert_eq!(
+            parse_cursor_bridge_action("context").unwrap(),
+            CursorBridgeAction::Context
+        );
+        assert!(parse_cursor_bridge_action("explode").is_err());
+        assert!(parse_cursor_bridge_session_action(None).is_err());
+        assert!(parse_cursor_bridge_session_action(Some("abandon")).is_ok());
+        // context 默认阻塞取证据；wait/timeoutMs 可选
+        let context: McpCursorBridgeParams = serde_json::from_value(serde_json::json!({
+            "action": "context",
+            "query": "who owns pane state",
+            "wait": false,
+            "timeoutMs": 5000
+        }))
+        .unwrap();
+        assert_eq!(context.wait, Some(false));
+        assert_eq!(context.timeout_ms, Some(5000));
+    }
+
+    fn cursor_bridge_plan(
+        resume_chat_id: Option<&str>,
+        replay: bool,
+    ) -> cc_panes_core::models::CursorBridgeTurnPlan {
+        cc_panes_core::models::CursorBridgeTurnPlan {
+            session_id: Some("cbrs-1".to_string()),
+            task_id: "cbrt-1".to_string(),
+            prompt: "do it".to_string(),
+            print: false,
+            read_only: true,
+            resume_chat_id: resume_chat_id.map(str::to_string),
+            model_id: None,
+            effort: None,
+            replay,
+            workspace: "D:/repo".to_string(),
+            runtime_kind: None,
+        }
+    }
+
+    #[test]
+    fn cursor_bridge_do_routes_replay_before_anything_else() {
+        let plan = cursor_bridge_plan(Some("chat-1"), true);
+        assert_eq!(
+            route_cursor_bridge_do(
+                CursorBridgeSessionMode::Continue,
+                &plan,
+                Some("pty-1"),
+                true
+            ),
+            CursorBridgeDoRoute::Replay
+        );
+    }
+
+    #[test]
+    fn cursor_bridge_do_continue_without_resume_id_needs_live_pty() {
+        let plan = cursor_bridge_plan(None, false);
+        // 既没 resumeChatId 也没活 PTY → 标 needsAttention，不盲目重启
+        assert_eq!(
+            route_cursor_bridge_do(CursorBridgeSessionMode::Continue, &plan, None, false),
+            CursorBridgeDoRoute::NeedsAttention
+        );
+        assert_eq!(
+            route_cursor_bridge_do(
+                CursorBridgeSessionMode::Continue,
+                &plan,
+                Some("pty-1"),
+                false
+            ),
+            CursorBridgeDoRoute::NeedsAttention
+        );
+        // 活 PTY 在，直接往里 submit
+        assert_eq!(
+            route_cursor_bridge_do(
+                CursorBridgeSessionMode::Continue,
+                &plan,
+                Some("pty-1"),
+                true
+            ),
+            CursorBridgeDoRoute::SubmitToLivePty("pty-1".to_string())
+        );
+    }
+
+    #[test]
+    fn cursor_bridge_do_continue_with_resume_id_relaunches_when_pty_dead() {
+        let plan = cursor_bridge_plan(Some("chat-1"), false);
+        assert_eq!(
+            route_cursor_bridge_do(
+                CursorBridgeSessionMode::Continue,
+                &plan,
+                Some("pty-1"),
+                false
+            ),
+            CursorBridgeDoRoute::Launch { allow_resume: true }
+        );
+        // PTY 还活着优先 submit，不开第二个进程
+        assert_eq!(
+            route_cursor_bridge_do(
+                CursorBridgeSessionMode::Continue,
+                &plan,
+                Some("pty-1"),
+                true
+            ),
+            CursorBridgeDoRoute::SubmitToLivePty("pty-1".to_string())
+        );
+    }
+
+    #[test]
+    fn cursor_bridge_do_create_and_isolated_launch_fresh() {
+        let plan = cursor_bridge_plan(None, false);
+        assert_eq!(
+            route_cursor_bridge_do(CursorBridgeSessionMode::Create, &plan, None, false),
+            CursorBridgeDoRoute::Launch {
+                allow_resume: false
+            }
+        );
+        assert_eq!(
+            route_cursor_bridge_do(CursorBridgeSessionMode::Isolated, &plan, None, false),
+            CursorBridgeDoRoute::Launch {
+                allow_resume: false
+            }
+        );
+    }
+
+    #[test]
+    fn cursor_bridge_context_merge_extracts_cce_block_and_flags_structure() {
+        let mut receipt = serde_json::json!({ "action": "context", "ptySessionId": "pty-1" });
+        let wait = Ok(WaitForSessionResult {
+            satisfied: true,
+            final_status: SessionStatus::Exited,
+            blocked_reason: None,
+            waited_ms: 1200,
+            turn_seq: 3,
+        });
+        let buffer = "$ cursor-agent -p ...\nSure, here is what I found.\n\nCCE_SEARCH_RESULT\nintent: pane state owner\nevidence:\n- web/stores/usePanesStore.ts:1-20 | usePanesStore | owner | source-read\ngaps: none\nconfidence: high\n".to_string();
+        merge_cursor_bridge_context_result(&mut receipt, wait, Ok(buffer));
+        assert_eq!(receipt["complete"], serde_json::json!(true));
+        assert_eq!(receipt["wait"]["satisfied"], serde_json::json!(true));
+        assert_eq!(receipt["evidence"]["structured"], serde_json::json!(true));
+        let text = receipt["evidence"]["text"].as_str().unwrap();
+        assert!(text.starts_with("CCE_SEARCH_RESULT"));
+        assert!(!text.contains("Sure, here is what I found"));
+        assert!(text.contains("usePanesStore.ts:1-20"));
+    }
+
+    #[test]
+    fn cursor_bridge_context_merge_keeps_raw_buffer_when_marker_missing_or_timed_out() {
+        let mut receipt = serde_json::json!({ "action": "context", "ptySessionId": "pty-1" });
+        let wait = Ok(WaitForSessionResult {
+            satisfied: false,
+            final_status: SessionStatus::Thinking,
+            blocked_reason: None,
+            waited_ms: 180_000,
+            turn_seq: 9,
+        });
+        merge_cursor_bridge_context_result(
+            &mut receipt,
+            wait,
+            Ok("still thinking about it".to_string()),
+        );
+        assert_eq!(receipt["complete"], serde_json::json!(false));
+        assert_eq!(receipt["evidence"]["structured"], serde_json::json!(false));
+        assert_eq!(
+            receipt["evidence"]["text"],
+            serde_json::json!("still thinking about it")
+        );
+
+        let mut failed = serde_json::json!({ "action": "context" });
+        merge_cursor_bridge_context_result(
+            &mut failed,
+            Err("broadcast closed".to_string()),
+            Err("session gone".to_string()),
+        );
+        assert_eq!(failed["complete"], serde_json::json!(false));
+        assert_eq!(
+            failed["wait"]["error"],
+            serde_json::json!("broadcast closed")
+        );
+        assert_eq!(
+            failed["evidence"]["error"],
+            serde_json::json!("session gone")
+        );
     }
 
     #[derive(Clone, Default)]

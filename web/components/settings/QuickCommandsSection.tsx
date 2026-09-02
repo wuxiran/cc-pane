@@ -11,6 +11,7 @@ export default function QuickCommandsSection() {
   const { t } = useTranslation(["settings", "common"]);
   const commands = useQuickCommandsStore((state) => state.commands);
   const activeProjectPath = useQuickCommandsStore((state) => state.activeProjectPath);
+  const activeWorkspaceName = useQuickCommandsStore((state) => state.activeWorkspaceName);
   const loading = useQuickCommandsStore((state) => state.loading);
   const load = useQuickCommandsStore((state) => state.load);
   const create = useQuickCommandsStore((state) => state.create);
@@ -20,10 +21,13 @@ export default function QuickCommandsSection() {
   const [editing, setEditing] = useState<ScopedQuickCommand | null>(null);
 
   useEffect(() => {
-    void load(activeProjectPath ?? undefined).catch((error) => {
+    void load({
+      projectPath: activeProjectPath ?? undefined,
+      workspaceName: activeWorkspaceName ?? undefined,
+    }).catch((error) => {
       toast.error(t("quickCommands.loadFailed", { error: String(error) }));
     });
-  }, [activeProjectPath, load, t]);
+  }, [activeProjectPath, activeWorkspaceName, load, t]);
 
   const openCreate = () => {
     setEditing(null);
@@ -151,6 +155,7 @@ export default function QuickCommandsSection() {
         open={dialogOpen}
         command={editing}
         activeProjectPath={activeProjectPath}
+        activeWorkspaceName={activeWorkspaceName}
         onOpenChange={setDialogOpen}
         onSave={save}
       />

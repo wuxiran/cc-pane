@@ -29,6 +29,8 @@ export interface LaunchProfileSkillPolicy {
   disabledSkillIds: string[];
   profileSkills: LaunchProfileSkill[];
   includeProjectSkills: boolean;
+  /** 挂载工作空间自己的技能目录（`<workspace>/skills`）；旧档缺省视为 true */
+  includeWorkspaceSkills?: boolean;
   includeExternalClaudeSkills: boolean;
   includeExternalCodexSkills: boolean;
   includeExternalPluginSkills: boolean;
@@ -153,6 +155,7 @@ export function defaultLaunchProfileDraft(provider?: Provider | null): LaunchPro
       disabledSkillIds: [],
       profileSkills: [],
       includeProjectSkills: true,
+      includeWorkspaceSkills: true,
       includeExternalClaudeSkills: true,
       includeExternalCodexSkills: true,
       includeExternalPluginSkills: true,

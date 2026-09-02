@@ -109,10 +109,12 @@ function stripSgrBackgroundSequence(sequence: string): string {
       }
       continue;
     }
-    // Reverse video swaps the foreground into an opaque cell background. A
-    // transparent CLI surface drops the enable but retains a later `27` so
-    // state that predates the filter can still be cleared.
-    if (value === 7) {
+    // Reverse video swaps the foreground into an opaque cell background.
+    // 只删多参数形态（Codex 的 `7;38;5;250` 整行高亮条，会在透明终端上挡住
+    // 壁纸）；裸 `ESC[7m` 保留——Claude 关掉真光标后用一个反显空格当软件
+    // 光标，删掉它等于删掉光标（就一格，不构成遮挡）。`27`（反显关）无条件
+    // 放行，先于过滤器建立的反显状态仍能被清除。
+    if (value === 7 && params.length > 1) {
       changed = true;
       continue;
     }

@@ -96,6 +96,8 @@ describe("QuickCommandsSection", () => {
 
     const projectOption = await screen.findByRole("option", { name: /项目|Project/i });
     expect(projectOption).toHaveAttribute("aria-disabled", "true");
-    await waitFor(() => expect(load).toHaveBeenCalledWith(undefined));
+    await waitFor(() =>
+      expect(load).toHaveBeenCalledWith({ projectPath: undefined, workspaceName: undefined }),
+    );
   });
 });

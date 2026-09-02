@@ -138,6 +138,9 @@ pub struct LaunchProfileSkillPolicy {
     pub profile_skills: Vec<LaunchProfileSkill>,
     #[serde(default = "default_true")]
     pub include_project_skills: bool,
+    /// Mount the workspace's own skill folder (`<workspace>/skills`) into the session.
+    #[serde(default = "default_true")]
+    pub include_workspace_skills: bool,
     #[serde(default = "default_true")]
     pub include_external_claude_skills: bool,
     #[serde(default = "default_true")]
@@ -156,6 +159,7 @@ impl Default for LaunchProfileSkillPolicy {
             disabled_skill_ids: Vec::new(),
             profile_skills: Vec::new(),
             include_project_skills: true,
+            include_workspace_skills: true,
             include_external_claude_skills: true,
             include_external_codex_skills: true,
             include_external_plugin_skills: true,

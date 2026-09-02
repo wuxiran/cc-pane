@@ -183,12 +183,14 @@ describe("skillService", () => {
         contentUrl: "https://example.com/SKILL.md",
         sha256: "abc",
         recommended: true,
+        source: "curated",
+        featured: false,
       }];
       mockTauriInvoke({ list_skill_market_entries: entries });
 
       const result = await skillService.listSkillMarketEntries();
 
-      expect(invoke).toHaveBeenCalledWith("list_skill_market_entries");
+      expect(invoke).toHaveBeenCalledWith("list_skill_market_entries", { refresh: false });
       expect(result).toEqual(entries);
     });
 

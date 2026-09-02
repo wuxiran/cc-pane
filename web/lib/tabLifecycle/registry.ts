@@ -21,6 +21,8 @@ import { isBusyStatus } from "@/types/settings";
 import { browserService } from "@/services/browserService";
 // 直接 import 具体模块而非桶文件：destroyPipeline 的测试 mock 的是具体模块，
 // 走桶文件会绕过 mock，表现成「回收没发生」（CLAUDE.md 已记这条坑）。
+import { agentChatService } from "@/services/agentChatService";
+import { dropAgentChatState, useAgentChatStore } from "@/stores/useAgentChatStore";
 import { dshService } from "@/services/dshService";
 import { isTauriRuntime } from "@/services/runtime";
 import { terminalService } from "@/services/terminalService";
@@ -285,6 +287,46 @@ const dshEntry: TabLifecycleEntry = {
   },
 };
 
+const agentChatEntry: TabLifecycleEntry = {
+  createDefaults: (input) => ({
+    title: input.title?.trim() || "Agent Chat",
+  }),
+  collectResources: (tab, ctx) => ({
+    // ACP 会话是独立子进程，不占 CC-Panes 的 PTY——sessionIds 恒空。
+    sessionIds: [],
+    poppedOutTabIds: collectPoppedOut(tab, ctx),
+  }),
+  // generating 中关标签要过确认：ACP 会话的忙碌态活在 useAgentChatStore
+  // （不是 PTY statusOf 口径），这里直读 store——组件未挂载的销毁路径
+  // （快照覆盖/后台布局删除）同样能判。
+  closeGuards: (tab) => {
+    const phase = useAgentChatStore.getState().chats[tab.id]?.snapshot?.phase;
+    if (phase !== "generating") return [];
+    return [
+      {
+        kind: "agent-busy",
+        tabId: tab.id,
+        tabTitle: tab.title,
+        sessionId: tab.id,
+        status: "thinking",
+      },
+    ];
+  },
+  // 不做撤销恢复：会话进程已随关闭停掉，重开只会得到一个空对话。
+  persistForUndo: () => null,
+  onClosed: (tab) => {
+    // 渲染态（消息流 + chunk 缓冲）无论运行时都要回收，否则关一个标签漏一份。
+    dropAgentChatState(tab.id);
+    clearTabViewState(tab.id);
+    if (!isTauriRuntime()) return;
+    // 必须能在「组件从未挂载」的销毁路径上跑通（快照覆盖/后台布局删除）：
+    // 不停进程就是每关一个标签泄漏一个 adapter+CLI 进程树。后端幂等。
+    void Promise.resolve(agentChatService.stop(tab.id)).catch((error) => {
+      handleErrorSilent(error, "stop acp chat session");
+    });
+  },
+};
+
 const editorEntry: TabLifecycleEntry = {
   createDefaults: (input) => ({ filePath: input.filePath }),
   collectResources: (tab, ctx) => ({
@@ -342,6 +384,7 @@ export const TAB_LIFECYCLE: Record<TabContentType, TabLifecycleEntry> = {
   terminal: terminalEntry,
   browser: browserEntry,
   dsh: dshEntry,
+  "agent-chat": agentChatEntry,
   editor: editorEntry,
   "file-explorer": inertEntry(),
   "mcp-config": inertEntry(),

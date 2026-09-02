@@ -607,6 +607,18 @@ impl LaunchProfileService {
                     prompt.push_str(description);
                     prompt.push_str("\n\n");
                 }
+                // Directory skills ship scripts/references next to SKILL.md; tell the agent
+                // where they live so relative paths in the instructions resolve.
+                if let Some(dir) = user_skill
+                    .skill
+                    .file_path
+                    .as_deref()
+                    .and_then(|path| Path::new(path).parent())
+                {
+                    prompt.push_str("Skill directory: ");
+                    prompt.push_str(&dir.to_string_lossy());
+                    prompt.push_str("\n\n");
+                }
                 prompt.push_str(user_skill.content.trim());
                 prompt.push('\n');
             }

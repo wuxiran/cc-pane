@@ -166,6 +166,10 @@ interface CreateTerminalDesyncHandlerOptions {
  * 时序契约：先落闸门再发快照请求，闸门期新输出全部积压；快照写入完成后由
  * `onResyncSettled` 统一放行。闸门期积压与快照尾部可能重叠（一次性视觉重复，
  * TUI 全屏重绘自愈），但绝不丢失。
+ *
+ * 返回值 = 本轮是否成功用快照重建了画面。desync 订阅方忽略它；手动「重置
+ * 终端缓冲区」路径靠它决定要不要回退成裸 reset——inline CLI（如 grok）收到
+ * 重绘信号只补画活动区，历史全靠快照，重建失败时才允许破坏性清空。
  */
 export function createTerminalDesyncHandler({
   sessionId,
@@ -178,16 +182,16 @@ export function createTerminalDesyncHandler({
   setResyncActive,
   onResyncSettled,
   debugLog,
-}: CreateTerminalDesyncHandlerOptions): () => Promise<void> {
-  let activeResync: Promise<void> | null = null;
+}: CreateTerminalDesyncHandlerOptions): () => Promise<boolean> {
+  let activeResync: Promise<boolean> | null = null;
   let coreResyncActive = false;
 
   return () => {
     if (coreResyncActive && activeResync) return activeResync;
     const term = terminalRef.current;
-    if (!term) return Promise.resolve();
+    if (!term) return Promise.resolve(false);
 
-    const run = async (): Promise<void> => {
+    const run = async (): Promise<boolean> => {
       coreResyncActive = true;
       setResyncActive(true);
       // 丢弃 desync 前的不完整积压（缺口在它中间），闸门保证之后的新输出进积压。
@@ -208,12 +212,14 @@ export function createTerminalDesyncHandler({
       setResyncActive(false);
       coreResyncActive = false;
       await onResyncSettled(resynced);
+      return resynced;
     };
     const completion = run()
       .catch((error) => {
         debugLog("terminal.resync.settled.failed", {
           error: error instanceof Error ? error.message : String(error),
         });
+        return false;
       })
       .finally(() => {
         if (activeResync === completion) activeResync = null;

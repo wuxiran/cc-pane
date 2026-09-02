@@ -153,34 +153,14 @@ fn run_inner(hook_input: Option<HookInput>) {
         return;
     }
 
-    let ccpanes_dir = project_dir.join(".ccpanes");
-
-    // Legacy compatibility: write directory-level session-state.json with the
-    // agent resume id from stdin. This remains for older diagnostics/import
-    // paths only; CC-Panes restore should prefer exact tab/snapshot/history
-    // state and must not treat this directory-scoped file as authoritative.
+    // The resume id goes to CC-Panes over the API only. The old directory-level
+    // `.ccpanes/session-state.json` is no longer written (docs/98): it was never
+    // authoritative and it put per-run state into the repository folder.
     match session_id {
         Some(ref id) => {
             eprintln!("[ccpanes-hook] session_id (stdin) = {}", id);
             let cli_tool = detect_cli_tool();
             let runtime_kind = detect_runtime_kind();
-            let state = serde_json::json!({
-                "resumeSessionId": id,
-                "cliTool": cli_tool,
-                "runtimeKind": runtime_kind,
-                "wslDistro": std::env::var("CC_PANES_WSL_DISTRO").ok(),
-                "startedAt": Local::now().to_rfc3339(),
-                "status": "active"
-            });
-            let state_path = ccpanes_dir.join("session-state.json");
-            let _ = fs::create_dir_all(&ccpanes_dir);
-            match fs::write(&state_path, state.to_string()) {
-                Ok(_) => eprintln!(
-                    "[ccpanes-hook] wrote session-state.json → {}",
-                    state_path.display()
-                ),
-                Err(e) => eprintln!("[ccpanes-hook] FAILED to write session-state.json: {}", e),
-            }
             if let Err(error) = send_session_started(
                 id,
                 cli_tool,
@@ -243,6 +223,7 @@ fn run_inner(hook_input: Option<HookInput>) {
     }
 
     // 7. Workflow guide
+    let ccpanes_dir = project_dir.join(".ccpanes");
     let workflow_path = ccpanes_dir.join("workflow.md");
     if workflow_path.exists() {
         if let Ok(content) = fs::read_to_string(&workflow_path) {
@@ -252,8 +233,15 @@ fn run_inner(hook_input: Option<HookInput>) {
         }
     }
 
-    // 8. Recent sessions
-    let journal_index = ccpanes_dir.join("journal").join("index.md");
+    // 8. Recent sessions — journal lives in .ccpanes/.cache/journal (docs/98); fall back to
+    // the pre-0.12.10 location for repos that have not been opened by the new app yet.
+    let journal_index = [
+        ccpanes_dir.join(".cache").join("journal").join("index.md"),
+        ccpanes_dir.join("journal").join("index.md"),
+    ]
+    .into_iter()
+    .find(|path| path.exists())
+    .unwrap_or_else(|| ccpanes_dir.join(".cache").join("journal").join("index.md"));
     if journal_index.exists() {
         if let Ok(content) = fs::read_to_string(&journal_index) {
             println!("<recent-sessions>");

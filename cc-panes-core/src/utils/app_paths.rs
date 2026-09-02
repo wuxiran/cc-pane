@@ -92,6 +92,11 @@ impl AppPaths {
         self.data_dir.join("quick-commands.json")
     }
 
+    /// Cursor Bridge 登记簿目录（配置目录，不进 versioned plugin cache）。
+    pub fn cursor_bridge_dir(&self) -> PathBuf {
+        self.config_dir.join("cursor-bridge")
+    }
+
     /// 终端输出文件目录
     pub fn sessions_dir(&self) -> PathBuf {
         self.data_dir.join("sessions")
@@ -209,6 +214,46 @@ impl AppPaths {
         self.workspaces_dir().join(name)
     }
 
+    /// One-time repair for the data directory having been treated as a project (docs/98):
+    /// older builds let the default workspace's path point at `data_dir`, so local history
+    /// and plan archives landed in `<data_dir>/.ccpanes/`. Only that exact folder is removed,
+    /// and only entries we know we wrote (`history`, `plans`, `config.toml`).
+    pub fn cleanup_self_ccpanes_pollution(&self) {
+        let dir = self.data_dir.join(".ccpanes");
+        if !dir.is_dir() {
+            return;
+        }
+        for name in ["history", "plans", "config.toml"] {
+            let path = dir.join(name);
+            if !path.exists() {
+                continue;
+            }
+            let result = if path.is_dir() {
+                std::fs::remove_dir_all(&path)
+            } else {
+                std::fs::remove_file(&path)
+            };
+            match result {
+                Ok(()) => info!("[app_paths] removed stray {}", path.display()),
+                Err(error) => warn!("[app_paths] could not remove {}: {}", path.display(), error),
+            }
+        }
+        // Drop the folder itself only when nothing else is left in it.
+        if std::fs::read_dir(&dir)
+            .map(|mut entries| entries.next().is_none())
+            .unwrap_or(false)
+        {
+            let _ = std::fs::remove_dir(&dir);
+        }
+    }
+
+    /// 工作空间技能的插件根（`<workspace>/skills`）。目录本身是一个合法 Claude 插件
+    /// （`.claude-plugin/plugin.json` + `skills/<name>/SKILL.md`），启动时经
+    /// `--plugin-dir` / Codex `skills.config` 按会话挂载，与 builtin 同机制。
+    pub fn workspace_skills_root(&self, name: &str) -> PathBuf {
+        self.workspace_dir(name).join("skills")
+    }
+
     /// Workspace snapshot metadata directory.
     pub fn workspace_snapshots_dir(&self, workspace_id: &str) -> PathBuf {
         self.workspace_dir(workspace_id).join("snapshots")
@@ -259,6 +304,7 @@ impl AppPaths {
             self.wallpapers_dir(),
             self.media_dir(),
             self.media_inputs_dir(),
+            self.cursor_bridge_dir(),
         ];
 
         for dir in dirs {

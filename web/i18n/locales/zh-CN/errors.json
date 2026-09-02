@@ -126,5 +126,17 @@
   "SESSION_NOT_WRITABLE": "CC-Panes 当前没有终端写入权",
   "UNATTENDED_UNSUPPORTED": "此 CLI 会话不支持无人值守审批",
   "SUBMIT_FAILED": "任务发送失败，仍保留在队首",
-  "DELIVERY_UNKNOWN": "无法确认是否送达，请检查终端后再重试"
+  "DELIVERY_UNKNOWN": "无法确认是否送达，请检查终端后再重试",
+
+  "CURSOR_BRIDGE_UNKNOWN_SCHEMA": "Cursor Bridge 登记簿 schema {{version}} 未知，文件未被覆盖",
+  "CURSOR_BRIDGE_SESSION_NOT_FOUND": "找不到 Cursor Bridge 会话",
+  "CURSOR_BRIDGE_SESSION_ID_REQUIRED": "sessionMode=continue 必须带 sessionId",
+  "CURSOR_BRIDGE_SESSION_CLOSED": "该 Cursor Bridge 会话已关闭",
+  "CURSOR_BRIDGE_SCOPE_EXPAND": "continue 不能扩大写入范围或取消只读",
+  "CURSOR_BRIDGE_SCOPE_REQUIRED": "持久 Cursor 会话必须带 readOnly 或 allowedPaths",
+  "CURSOR_BRIDGE_WORKSPACE_MISMATCH": "continue 不能换 workspace",
+  "CURSOR_BRIDGE_CONFIRM_REQUIRED": "forget/abandon 必须 confirm=true",
+  "CURSOR_BRIDGE_QUERY_REQUIRED": "context 必须带 query",
+  "CURSOR_BRIDGE_TASK_REQUIRED": "do 必须带 task",
+  "CURSOR_BRIDGE_IO": "Cursor Bridge 登记簿读写失败"
 }

@@ -23,6 +23,7 @@ import {
   useQuickCommandsStore,
 } from "@/stores";
 import { formatKeyCombo } from "@/stores/useShortcutsStore";
+import { workspaceNameForProject } from "@/hooks/useQuickCommandsSync";
 import { isTauriRuntime } from "@/services/runtime";
 import { getVisibleSettingsPanes } from "@/components/settings/settingsRegistry";
 import { navigateToSettings } from "@/components/settings/settingsNavigation";
@@ -57,6 +58,7 @@ export default function CommandPalette() {
   const closedTabsCount = usePanesStore((s) => s.closedTabs.length);
   const quickCommands = useQuickCommandsStore((s) => s.commands);
   const quickCommandsProjectPath = useQuickCommandsStore((s) => s.activeProjectPath);
+  const quickCommandsWorkspaceName = useQuickCommandsStore((s) => s.activeWorkspaceName);
   const activeContext = useMemo(() => {
     const pane = findPane(rootPane, activePaneId);
     if (pane?.type !== "panel") return null;
@@ -72,8 +74,10 @@ export default function CommandPalette() {
       quickCommands,
       quickCommandsProjectPath,
       activeContext?.tab.projectPath,
+      quickCommandsWorkspaceName,
+      workspaceNameForProject(workspaces, activeContext?.tab.projectPath),
     ),
-    [activeContext?.tab.projectPath, quickCommands, quickCommandsProjectPath],
+    [activeContext?.tab.projectPath, quickCommands, quickCommandsProjectPath, quickCommandsWorkspaceName, workspaces],
   );
 
   const runAndClose = useCallback((fn: () => void) => {

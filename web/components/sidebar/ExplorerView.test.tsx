@@ -40,6 +40,11 @@ vi.mock("@/components/sidebar/SessionsView", () => ({
   ),
 }));
 
+// --- AgentChatSessionsView stub：同为 keep-alive 常挂载，桩掉其历史加载 ---
+vi.mock("@/components/sidebar/AgentChatSessionsView", () => ({
+  default: () => <div>agent-chats-view-stub</div>,
+}));
+
 // --- FileTree stub ---
 vi.mock("@/components/filetree", () => ({
   FileTree: ({ rootPath }: { rootPath: string }) => (
@@ -106,7 +111,7 @@ describe("ExplorerView", () => {
     });
   });
 
-  it("renders the EXPLORER header and two segmented tabs, workspaces active by default", () => {
+  it("renders the EXPLORER header and three segmented tabs, workspaces active by default", () => {
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
     expect(screen.getByText("EXPLORER")).toBeVisible();
     expect(screen.queryByRole("button", { name: "openLauncher" })).not.toBeInTheDocument();
@@ -119,8 +124,8 @@ describe("ExplorerView", () => {
       "aria-selected",
       "false",
     );
-    // 文件 / Git 已迁往 RightDock，左侧不再有入口
-    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    // 文件 / Git 已迁往 RightDock，左侧不再有入口；第三个 tab 是 Agent 会话
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
     expect(screen.getByText("workspace-tree-stub")).toBeVisible();
   });
 

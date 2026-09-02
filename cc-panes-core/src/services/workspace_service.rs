@@ -365,7 +365,7 @@ impl WorkspaceService {
         let mut workspace = if json_path.exists() {
             self.read_workspace_json(&json_path)?
         } else {
-            fs::create_dir_all(ws_dir.join(".ccpanes"))
+            fs::create_dir_all(&ws_dir)
                 .map_err(|e| format!("Failed to create default workspace directory: {}", e))?;
             Workspace::new(DEFAULT_NAME.to_string(), None)
         };
@@ -387,14 +387,9 @@ impl WorkspaceService {
             return Err(format!("Workspace '{}' already exists", name));
         }
 
-        // 创建目录
+        // 创建目录（数据目录里的工作空间文件夹不再嵌 `.ccpanes/`：那是仓库层的概念，docs/98）
         fs::create_dir_all(&ws_dir)
             .map_err(|e| format!("Failed to create workspace directory: {}", e))?;
-
-        // 创建 .ccpanes 子目录
-        let ccpanes_dir = ws_dir.join(".ccpanes");
-        fs::create_dir_all(&ccpanes_dir)
-            .map_err(|e| format!("Failed to create .ccpanes directory: {}", e))?;
 
         // 创建 workspace.json
         let workspace = Workspace::new(name.to_string(), path.map(|s| s.to_string()));
@@ -2278,7 +2273,8 @@ mod tests {
             .workspace_dir("alpha")
             .join("workspace.json")
             .exists());
-        assert!(service.workspace_dir("alpha").join(".ccpanes").is_dir());
+        // 数据目录里的工作空间文件夹不再嵌 .ccpanes（docs/98）
+        assert!(!service.workspace_dir("alpha").join(".ccpanes").exists());
 
         let loaded = service.get_workspace("alpha").unwrap();
         assert_eq!(loaded.id, ws.id);

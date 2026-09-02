@@ -6,6 +6,8 @@
   "searchLabel": "搜索设置",
   "searchPlaceholder": "搜索字体、通知、快捷键…",
   "clearSearch": "清除搜索",
+  "openSkillMarket": "打开技能市场",
+  "noUserSkillsNoMarket": "还没有安装用户 Skill。",
   "searchEmpty": "没有匹配的设置",
   "searchCommandGroup": "设置",
   "searchLayers": {
@@ -25,6 +27,7 @@
     "setupGuide": "新手 入门 引导 工作空间 项目 多开 派工 skill 完成度",
     "modules": "模块 入口 左栏 右坞 隐藏 命令面板",
     "quickCommands": "快捷命令 命令库 prompt 终端 项目 全局 执行",
+    "automations": "自动化 定时 计划任务 cron 日程 无人值守 headless",
     "skills": "Skills 技能 市场 安装 工作流",
     "provider": "供应商 API Key 模型",
     "mcp": "MCP server 工具 共享",
@@ -73,7 +76,12 @@
     "title": "实验性功能",
     "description": "尚未稳定的功能会在这里集中管理，并在毕业时保留原有选择。",
     "emptyTitle": "暂无实验性功能",
-    "emptyDescription": "当前版本没有需要手动开启的实验项。"
+    "emptyDescription": "当前版本没有需要手动开启的实验项。",
+    "notice": "以下功能仍在打磨中，默认关闭。勾选后活动栏与相关页面才会出现入口；随时可以关回去，已生成的数据不会删除。",
+    "mediaGeneration": "媒体生成工作台",
+    "mediaGenerationDesc": "活动栏「媒体生成」入口与图片 / 视频生成全屏页（需配置对应的媒体 Provider）。",
+    "skillMarket": "Skill 市场",
+    "skillMarketDesc": "活动栏「Skill 市场」入口、全屏市场页，以及启动配置 / 全局 Skill 面板里的「从市场安装」区块。"
   },
   "modules": {
     "title": "模块",
@@ -846,6 +854,49 @@
     "escapeSuffix": "为另一个确定端口后重启应用。",
     "errorDetails": "错误详情"
   },
+  "automations": {
+    "title": "自动化",
+    "description": "按日程定时把 Prompt 派给 Agent。会话以无头方式运行并注入 ccpanes MCP，结果记录在运行历史中。",
+    "add": "新建自动化",
+    "empty": "还没有自动化任务",
+    "name": "名称",
+    "prompt": "Prompt",
+    "cwd": "工作目录",
+    "workspace": "所属工作空间",
+    "workspaceNone": "不归属工作空间（手填目录）",
+    "cwdCustom": "自定义目录…",
+    "engine": "Agent 引擎",
+    "schedule": "日程",
+    "time": "时间",
+    "weekday": "星期",
+    "cron": "Cron 表达式",
+    "timeoutMinutes": "超时（分钟）",
+    "autoApprove": "自动放行权限请求（无人值守）",
+    "autoApproveHint": "无头运行无法人工回答权限弹窗。开启后自动选择第一个允许选项。",
+    "browse": "浏览",
+    "save": "保存",
+    "cancel": "取消",
+    "edit": "编辑",
+    "delete": "删除",
+    "runNow": "立即运行",
+    "runStarted": "已开始运行",
+    "runs": "运行历史",
+    "noRuns": "暂无运行记录",
+    "nextRun": "下次运行",
+    "preset": {
+      "hourly": "每小时",
+      "daily": "每天",
+      "weekdays": "工作日",
+      "weekly": "每周",
+      "custom": "自定义（cron）"
+    },
+    "status": {
+      "completed": "已完成",
+      "failed": "失败",
+      "skipped_missed": "已错过",
+      "skipped_overlap": "已跳过（上次未结束）"
+    }
+  },
   "quickCommands": {
     "title": "快捷命令",
     "description": "保存常用终端命令和 Agent Prompt，并从命令面板或标签页菜单快速运行。",
@@ -867,6 +918,8 @@
     },
     "scope": {
       "global": "全局",
+      "workspace": "工作空间",
+      "workspaceNamed": "工作空间 · {{name}}",
       "project": "项目"
     },
     "target": {

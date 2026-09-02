@@ -176,22 +176,14 @@ fn default_plugins_root() -> PathBuf {
         .join("plugins")
 }
 
-fn parse_skill_metadata(content: &str, fallback_name: &str) -> (String, Option<String>) {
+/// Parse `name` / `description` from a SKILL.md (frontmatter first, body
+/// first line as fallback). Shared by external discovery and the skill market's
+/// repository installer, so both see the same metadata for the same file.
+pub fn parse_skill_metadata(content: &str, fallback_name: &str) -> (String, Option<String>) {
     let normalized = content.trim_start_matches('\u{feff}');
     if let Some((frontmatter, body)) = split_frontmatter(normalized) {
-        let mut name = None;
-        let mut description = None;
-        for line in frontmatter.lines() {
-            let Some((key, value)) = line.split_once(':') else {
-                continue;
-            };
-            let value = clean_frontmatter_value(value);
-            match key.trim() {
-                "name" if !value.is_empty() => name = Some(value),
-                "description" if !value.is_empty() => description = Some(value),
-                _ => {}
-            }
-        }
+        let name = frontmatter_scalar(frontmatter, "name");
+        let description = frontmatter_scalar(frontmatter, "description");
         let description = description.or_else(|| first_content_line(body));
         return (
             name.unwrap_or_else(|| fallback_name.to_string()),
@@ -200,6 +192,53 @@ fn parse_skill_metadata(content: &str, fallback_name: &str) -> (String, Option<S
     }
 
     (fallback_name.to_string(), first_content_line(normalized))
+}
+
+/// Read a single top-level frontmatter field from a full SKILL.md document.
+pub fn skill_frontmatter_field(content: &str, key: &str) -> Option<String> {
+    let normalized = content.trim_start_matches('\u{feff}');
+    let (frontmatter, _) = split_frontmatter(normalized)?;
+    frontmatter_scalar(frontmatter, key)
+}
+
+/// Read a top-level scalar from YAML-ish frontmatter. Supports inline values
+/// and block scalars (`key: >` / `key: |` followed by indented lines), which is
+/// how many published skills write multi-sentence descriptions.
+fn frontmatter_scalar(frontmatter: &str, key: &str) -> Option<String> {
+    let mut lines = frontmatter.lines().peekable();
+    while let Some(line) = lines.next() {
+        if line.starts_with([' ', '\t']) {
+            continue;
+        }
+        let Some((line_key, raw_value)) = line.split_once(':') else {
+            continue;
+        };
+        if line_key.trim() != key {
+            continue;
+        }
+        let inline = raw_value.trim();
+        let is_block = inline.is_empty() || matches!(inline, ">" | "|" | ">-" | "|-" | ">+" | "|+");
+        if !is_block {
+            let value = clean_frontmatter_value(inline);
+            return (!value.is_empty()).then_some(value);
+        }
+        let mut parts = Vec::new();
+        while let Some(next) = lines.peek() {
+            if next.trim().is_empty() {
+                lines.next();
+                continue;
+            }
+            if !next.starts_with([' ', '\t']) {
+                break;
+            }
+            parts.push(next.trim().to_string());
+            lines.next();
+        }
+        let joined = parts.join(" ");
+        let value = clean_frontmatter_value(&joined);
+        return (!value.is_empty()).then_some(value);
+    }
+    None
 }
 
 fn split_frontmatter(content: &str) -> Option<(&str, &str)> {
@@ -339,6 +378,17 @@ mod tests {
         assert_eq!(skill.source, ExternalSkillSource::Claude);
         assert_eq!(skill.content_sha256.len(), 64);
         assert!(skill.installed_at.is_some());
+    }
+
+    #[test]
+    fn parses_block_scalar_description_and_ignores_nested_keys() {
+        let content = "---\nname: pdf\ndescription: >\n  Extract text from PDFs.\n  Use when the user mentions PDF files.\nmetadata:\n  name: nested-should-not-win\nlicense: Apache-2.0\n---\nBody";
+        let (name, description) = parse_skill_metadata(content, "fallback");
+        assert_eq!(name, "pdf");
+        assert_eq!(
+            description.as_deref(),
+            Some("Extract text from PDFs. Use when the user mentions PDF files.")
+        );
     }
 
     #[test]

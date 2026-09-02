@@ -2,6 +2,8 @@
 pub use cc_panes_core::services::*;
 
 // Tauri-specific services (kept in src-tauri)
+mod acp_chat_service;
+mod automation_service;
 mod browser_service;
 mod comfy_runtime;
 pub mod im_bridge;
@@ -15,7 +17,9 @@ mod resume_binding_service;
 pub mod screenshot_overlay;
 mod screenshot_service;
 mod session_prompt_service;
+mod skill_market_catalog;
 mod skill_market_service;
+mod skill_repo_fetcher;
 mod tailscale_service;
 mod task_queue_worker;
 mod terminal_backend_state;
@@ -27,6 +31,8 @@ mod turn_notify_registry;
 pub mod voice_service;
 mod web_access_lifecycle;
 
+pub use acp_chat_service::{AcpChatService, AcpChatSnapshot, AcpLaunchSpec, AUTO_APPROVE_ALL};
+pub use automation_service::{AutomationDef, AutomationRun, AutomationService};
 pub use browser_service::{
     BrowserBounds, BrowserOpenTabEvent, BrowserSpikeReport, BrowserTabManager,
 };
@@ -41,6 +47,7 @@ pub use pi_rpc_event_bridge::{PiRpcEventBridge, PI_RPC_EVENT};
 pub use resume_binding_service::{bind_resume_id, ResumeIdDetectedPayload};
 pub use screenshot_service::{CaptureResult, ScreenshotService};
 pub use session_prompt_service::extract_last_prompt;
+pub use skill_market_catalog::CATEGORY_IDS as SKILL_MARKET_CATEGORY_IDS;
 pub use skill_market_service::{SkillMarketEntry, SkillMarketService};
 pub use tailscale_service::{detect_tailscale, TailscaleStatus};
 pub use task_queue_worker::TaskQueueWorker;

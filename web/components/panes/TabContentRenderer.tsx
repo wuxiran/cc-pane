@@ -11,12 +11,16 @@ import type { TerminalViewHandle } from "./TerminalView";
 
 // 懒加载非终端组件（lazyWithRetry：分片取回失败时自愈，见 lib/lazyRetry.ts）
 const McpConfigPanel = lazyWithRetry(() => import("@/components/settings/ProjectMcpSection"), "ProjectMcpSection");
-const SkillManager = lazyWithRetry(() => import("@/components/skill/SkillManager"), "SkillManager");
+const ProjectSkillsManager = lazyWithRetry(() => import("@/components/skill/ProjectSkillsManager"), "ProjectSkillsManager");
 const MemoryManager = lazyWithRetry(() => import("@/components/memory/MemoryManager"), "MemoryManager");
 const FileExplorerView = lazyWithRetry(() => import("@/components/explorer/FileExplorerView"), "FileExplorerView");
 const EditorView = lazyWithRetry(() => import("@/components/editor/EditorView"), "EditorView");
 const BrowserTabContent = lazyWithRetry(() => import("./BrowserTabContent"), "BrowserTabContent");
 const DshTabContent = lazyWithRetry(() => import("./DshTabContent"), "DshTabContent");
+const AgentChatTabContent = lazyWithRetry(
+  () => import("@/components/agentchat/AgentChatTabContent"),
+  "AgentChatTabContent",
+);
 
 interface TabContentRendererProps {
   tab: Tab;
@@ -143,6 +147,15 @@ export default memo(function TabContentRenderer({
         </LazyContent>
       );
 
+    // 无 projectPath 也要渲染：引擎选择页负责提示（与 dsh 同一形态——
+    // 内容区自己管理启动流程，而不是渲染层静默 return null）。
+    case "agent-chat":
+      return (
+        <LazyContent>
+          <AgentChatTabContent tab={tab} />
+        </LazyContent>
+      );
+
     case "editor":
       if (!tab.filePath || !tab.projectPath) return null;
       return (
@@ -166,7 +179,7 @@ export default memo(function TabContentRenderer({
     case "skill-manager":
       return (
         <LazyContent>
-          <SkillManager projectPath={tab.projectPath} />
+          <ProjectSkillsManager projectPath={tab.projectPath} workspaceName={tab.workspaceName} />
         </LazyContent>
       );
 

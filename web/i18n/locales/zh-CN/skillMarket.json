@@ -1,0 +1,65 @@
+{
+  "title": "技能市场",
+  "subtitle": "为 Claude Code / Codex / Cursor 等 agent 安装 SKILL.md 技能，聚合精选清单、Anthropic 官方仓库与 skills.sh 社区",
+  "searchPlaceholder": "搜索技能（同时检索 skills.sh）",
+  "searching": "搜索中…",
+  "remoteResultsHint": "含 skills.sh 联网结果，安装时按需下载整个技能目录",
+  "installedCount": "已安装 {{count}}",
+  "installTarget": {
+    "label": "安装到",
+    "workspace": "工作空间 · {{name}}",
+    "user": "用户级（所有工作空间）"
+  },
+  "manageInstalled": "管理已安装",
+  "refresh": "刷新目录",
+  "refreshing": "刷新中…",
+  "featured": "精选技能",
+  "browse": "浏览",
+  "allCategories": "全部",
+  "resultCount": "{{count}} 个技能",
+  "install": "安装",
+  "installing": "安装中…",
+  "installed": "已安装",
+  "reinstall": "重新安装",
+  "remove": "卸载",
+  "openSource": "查看来源",
+  "installsCompact": "{{value}} 次安装",
+  "noDescription": "暂无描述",
+  "loadingDescription": "读取描述…",
+  "licenseUnknown": "许可证未知",
+  "categories": {
+    "dev": "开发效率",
+    "docs": "文档编辑",
+    "data": "数据分析",
+    "learning": "学习 & 笔记",
+    "agent": "AI Agent",
+    "productivity": "效率提升",
+    "content": "内容创作",
+    "work": "工作助手",
+    "search": "网络搜索",
+    "design": "设计视觉",
+    "life": "生活娱乐",
+    "other": "其他"
+  },
+  "sources": {
+    "curated": "精选清单",
+    "anthropics": "Anthropic 官方",
+    "skills-sh": "skills.sh"
+  },
+  "empty": {
+    "title": "没有匹配的技能",
+    "hint": "换个关键词试试，或清除分类筛选"
+  },
+  "offline": {
+    "title": "目录暂不可用",
+    "hint": "无法连接技能源，稍后点击「刷新目录」重试"
+  },
+  "toast": {
+    "installed": "已安装 {{name}}，在启动档的技能策略里勾选即可启用",
+    "installedToWorkspace": "已装进工作空间 {{workspace}}：{{name}}，该工作空间下的新会话自动生效",
+    "installFailed": "安装失败：{{error}}",
+    "removed": "已卸载 {{name}}",
+    "removeFailed": "卸载失败：{{error}}",
+    "loadFailed": "加载技能目录失败：{{error}}"
+  }
+}

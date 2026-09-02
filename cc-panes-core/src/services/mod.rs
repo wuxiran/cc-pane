@@ -1,3 +1,4 @@
+pub mod agent_transcript;
 pub mod boundary_events;
 pub mod claude_session_service;
 pub mod codex_session_service;
@@ -6,6 +7,8 @@ pub mod comfy_adapter;
 pub mod comfy_events;
 pub mod comfy_resources;
 mod ctl_sidecar;
+pub mod cursor_bridge_prompts;
+pub mod cursor_bridge_service;
 pub mod cursor_session_service;
 mod daemon_client;
 pub mod default_skill_service;
@@ -37,6 +40,7 @@ mod process_monitor_service;
 mod project_cli_hooks_service;
 mod project_context_service;
 mod project_service;
+mod project_skill_service;
 mod provider_resolver;
 mod provider_service;
 mod quick_command_service;
@@ -73,12 +77,14 @@ mod user_skill_service;
 mod wallpaper_service;
 mod workspace_health;
 mod workspace_service;
+mod workspace_skill_service;
 mod worktree_service;
 // 模块内部自带平台门控：Windows 编译完整实现（inner mod），非 Windows 只暴露
 // is_wsl_vm_running 恒 false stub —— 这里不能再整体 cfg 掉，否则非 Windows
 // 调用方（usage_stats_service::wsl_scan_allowed）编译失败。
 pub mod wsl_discovery_service;
 
+pub use agent_transcript::read_agent_transcript;
 pub use comfy::{
     canonical_json, json_fingerprint, ComfyEvent, ComfyHistoryResult, ComfyObjectInfoResponse,
     ComfyOutputRef, ComfyPromptNode, ComfyPromptResponse, ComfyWorkflow,
@@ -93,6 +99,10 @@ pub use comfy_resources::{
     ComfyDeviceInfo, ComfyMemoryReleaseResult, ComfySystemInfo, ComfySystemStats,
     COMFY_SYSTEM_STATS_SCHEMA_VERSION,
 };
+pub use cursor_bridge_prompts::{
+    build_context_prompt, build_do_prompt, normalize_cce_search_result, CCE_RESULT_MARKER,
+};
+pub use cursor_bridge_service::{CursorBridgeCreateSpec, CursorBridgeService};
 pub use daemon_client::{
     app_instance_id, TerminalDaemonClient, TerminalDaemonManifest, TerminalDaemonStatus,
 };
@@ -101,7 +111,9 @@ pub use default_skill_service::{
     LEGACY_CLEANUP_REPORT_FILE_NAME, MANAGED_SKILLS_SUBDIR,
 };
 pub use dsh_service::DshService;
-pub use external_skill_registry::ExternalSkillRegistry;
+pub use external_skill_registry::{
+    parse_skill_metadata, skill_frontmatter_field, ExternalSkillRegistry,
+};
 pub use filesystem_service::{ContentSearchLimits, FileSystemService};
 pub use git_service::GitService;
 pub use history_service::HistoryService;
@@ -139,6 +151,9 @@ pub use process_monitor_service::ProcessMonitorService;
 pub use project_cli_hooks_service::{ProjectCliHookGroupStatus, ProjectCliHooksService};
 pub use project_context_service::ProjectContextService;
 pub use project_service::ProjectService;
+pub use project_skill_service::{
+    ProjectSkill, ProjectSkillContent, ProjectSkillRoot, ProjectSkillService, PROJECT_SKILL_ROOTS,
+};
 pub use provider_resolver::{
     managed_provider_conflict_env_keys, resolve_provider_plan, validate_provider_runtime,
     ProviderMode, ProviderResolutionInput, ProviderSource, ResolvedProviderPlan,
@@ -194,4 +209,7 @@ pub use user_skill_service::{InstalledUserSkill, UserSkillContent, UserSkillServ
 pub use wallpaper_service::{WallpaperFileInfo, WallpaperService};
 pub use workspace_health::{check_project_paths, classify_path, PathStatusKind, ProjectPathStatus};
 pub use workspace_service::{WorkspaceProjectIdentityMigrationReport, WorkspaceService};
+pub use workspace_skill_service::{
+    WorkspaceSkillService, WORKSPACE_SKILL_NATIVE_CONSUMERS, WORKSPACE_SKILL_ROOT,
+};
 pub use worktree_service::{WorktreeInfo, WorktreeService};

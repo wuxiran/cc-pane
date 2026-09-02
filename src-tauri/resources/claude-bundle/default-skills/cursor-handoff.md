@@ -2,10 +2,11 @@
 name: ccpanes-cursor-handoff
 description: >
   Hand off work from {{app_name}} to Cursor IDE (open project/worktree, write handoff
-  file, optional prompt deeplink) or dispatch Cursor Agent CLI as an orchestrated worker.
-  Use when the user says "打开 Cursor"、"丢给 Cursor"、"在 Cursor 里继续"、"Cursor 联动"、
-  "open in Cursor"、"handoff to Cursor"、"Cursor IDE"、"compose 预填". Not for patching
-  Cursor binaries or Sand client-mode scripts.
+  file, optional prompt deeplink), dispatch Cursor Agent CLI, or use cursor_bridge
+  (init/context/do/status) for bounded CLI sessions. Use when the user says
+  "打开 Cursor"、"丢给 Cursor"、"在 Cursor 里继续"、"Cursor 联动"、"CCE"、
+  "open in Cursor"、"handoff to Cursor"、"Cursor IDE"、"compose 预填". Not for
+  patching Cursor binaries, Sand scripts, or CDP/remote-debugging-port.
 ---
 
 # Cursor 联动（handoff）
@@ -20,6 +21,7 @@ description: >
 |------|--------|----------------|
 | **Cursor IDE** | 桌面编辑器 + Agents/Composer | 打开正确 path + handoff 文件 +（可选）deeplink 预填 |
 | **Cursor Agent CLI**（`cursor-agent` / `agent`） | 终端 agent，`x-cursor-client-type: cli` | `{{mcp_server_name}}.dispatch_task` / `launch_task`，`cliTool: "cursor"` |
+| **Cursor Bridge** | 同一 CLI 的有边界会话（init / context / do） | `{{mcp_server_name}}.cursor_bridge`；不是 CDP，不是 IDE 索引 |
 | **CC-Panes** | 多实例编排台 | 真源：项目 path、worktree、binding、plan |
 
 ```
@@ -31,13 +33,13 @@ description: >
  (编排)      (深编辑)
 ```
 
-**不要**：嵌 Cursor 窗口、rsync 两套目录、镜像 chat transcript、改 Cursor 安装目录伪装 Sand。
+**不要**：嵌 Cursor 窗口、rsync 两套目录、镜像 chat transcript、改 Cursor 安装目录伪装 Sand、给 Cursor.exe 开 `--remote-debugging-port` 去点 Agents 窗口。
 
 ---
 
 ## 触发后先问自己
 
-1. 用户要的是 **IDE 里人肉接着改**，还是 **再开一个可编排的 cursor CLI worker**？
+1. 用户要的是 **IDE 里人肉接着改**，**再开一个可编排的 cursor CLI worker**，还是 **只读理解项目 / 有边界的持续会话**？
 2. 目标 path 是 **当前 project** 还是某个 **worktree**？（handoff 必须对准 agent 实际在改的那棵树）
 3. 要不要 **预填一段 prompt**？（会 **新建** New Agent 标签，不会填进当前已打开的那条）
 
@@ -220,6 +222,30 @@ macOS：`open 'cursor://anysphere.cursor-deeplink/prompt?text=...'`（依赖已�
 
 ---
 
+## B2. Cursor Bridge MCP（有边界 CLI 会话）
+
+走官方 `cursor-agent`，**不是** Vanyangyang/cursor-bridge 的 CDP。需要 `ccpanes` MCP。
+
+先绑定一次（持久，可省略后续 projectPath）：
+
+```text
+{{mcp_server_name}}.cursor_bridge(action="init", projectPath=<登记绝对路径>)
+```
+
+| 意图 | 调用 |
+|------|------|
+| 陌生仓库语义问题（所有权 / 调用链 / 数据流） | `action="context", query="..."` — print + `--mode ask`；默认阻塞到 worker 退出，`evidence.text` 就是证据块（`evidence.structured=false` 表示模型没按格式答，给的是原始输出）；`complete=false` 是超时，可拿 `ptySessionId` 再 `wait_for_session`。传 `wait=false` 只要回执 |
+| 有边界的执行 | `action="do", task="...", readOnly=true` 或 `allowedPaths=[...]` |
+| 持续同一 Cursor 会话 | `sessionMode="create"` 记下 `sessionId`；下一回合 `sessionMode="continue", sessionId=...` 并**重申** readOnly 或 allowedPaths 子集 |
+| 查状态 / 改模型默认 | `action="status"` / `action="model"` |
+| 结束连续性（不杀 PTY） | `action="session", sessionAction="close"`；forget/abandon 必须 `confirm=true` |
+
+已知文件读取、测试、git、文档仍用本地工具。context 用的是 CLI 的代码理解，**不是** Cursor IDE 索引。allowedPaths 是 prompt 边界，不是 OS 沙箱；主 agent 必须自己核 diff。
+
+取消活任务用 `kill_session`，不要猜点 Stop。
+
+---
+
 ## C. 决策表
 
 | 用户意图 | 走哪条 |
@@ -227,7 +253,8 @@ macOS：`open 'cursor://anysphere.cursor-deeplink/prompt?text=...'`（依赖已�
 | 「在 Cursor 打开这个项目」 | A2 only |
 | 「把上下文给 Cursor 接着改」 | A1 + A2（默认） |
 | 「预填到输入框」 | A1 + A2 + A3（告知会新建 Agent） |
-| 「开个 Cursor agent 帮我跑任务」 | B（CLI） |
+| 「开个 Cursor agent 帮我跑任务」 | B（CLI）或 B2 `do` |
+| 「这仓库谁管这段状态 / 调用链」 | B2 `context` |
 | 「跟 Cursor 同步工作空间」 | **不同步文件**；A2 打开同一 path；多项目则打开当前 project 或生成 multi-root 由用户另说 |
 | 「填进我现在这条 Compose」 | **做不到**（公开 API）；改 A1 + 手动 @ |
 
@@ -243,6 +270,7 @@ macOS：`open 'cursor://anysphere.cursor-deeplink/prompt?text=...'`（依赖已�
 - ❌ handoff 写到错误 worktree  
 - ❌ WSL 路径未规范就丢给 Windows Cursor  
 - ❌ 在 {{app_name}} 里嵌 Cursor 或伪造 tabId  
+- ❌ CDP / `--remote-debugging-port` / 点 Agents DOM 当「CCE」  
 
 ---
 
@@ -267,4 +295,5 @@ macOS：`open 'cursor://anysphere.cursor-deeplink/prompt?text=...'`（依赖已�
 /ccpanes:cursor-handoff 把重构登录的上下文丢给 Cursor
 /ccpanes:cursor-handoff path=D:\work\foo worktree 预填：按 handoff 继续
 /ccpanes:cursor-handoff cli 派一个 cursor worker 跑测试
+/ccpanes:cursor-handoff 用 cursor_bridge context 查 pane 状态所有权
 ```

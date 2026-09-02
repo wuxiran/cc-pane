@@ -12,9 +12,10 @@ import {
  * 给**自己处理滚动的全屏 TUI** 补足滚轮距离。
  *
  * 背景：xterm 的 `consumeWheelEvent` 会抑制小像素增量，开了鼠标上报的 TUI
- * （grok / opencode）因此滚一下只动一行。这里按实际行距补发等量的
+ * （如 opencode）因此滚一下只动一行。这里按实际行距补发等量的
  * line-mode WheelEvent，让 TUI 每行收到一个鼠标报告。做法参考 Orca 的
- * `pane-terminal-mouse-wheel.ts`。
+ * `pane-terminal-mouse-wheel.ts`。注意 grok 从不开启鼠标上报（二进制取证
+ * 只有关闭序列），不命中本路径。
  *
  * **必须走 `attachCustomWheelEventHandler` 而不是自己 addEventListener**：
  * xterm 的滚轮监听挂在 `term.element` 上（`bindMouse(){ let i=this.element }`），

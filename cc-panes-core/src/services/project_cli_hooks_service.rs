@@ -34,12 +34,11 @@ impl ProjectCliHooksService {
         Self { cli_registry }
     }
 
-    fn get_ccpanes_dir(project_path: &Path) -> PathBuf {
-        project_path.join(".ccpanes")
-    }
+    const STATE_FILE: &'static str = "cli-hooks.json";
 
+    /// hooks 同步状态是机器本地的：`.ccpanes/.cache/cli-hooks.json`（docs/98）。
     fn get_state_path(project_path: &Path) -> PathBuf {
-        Self::get_ccpanes_dir(project_path).join("cli-hooks.json")
+        crate::utils::project_dirs::resolve_cache_entry(project_path, Self::STATE_FILE)
     }
 
     fn read_state(project_path: &Path) -> Result<StoredProjectCliHooks, String> {
@@ -54,13 +53,12 @@ impl ProjectCliHooksService {
     }
 
     fn write_state(project_path: &Path, state: &StoredProjectCliHooks) -> Result<(), String> {
-        let ccpanes_dir = Self::get_ccpanes_dir(project_path);
-        fs::create_dir_all(&ccpanes_dir)
-            .map_err(|e| format!("Failed to create .ccpanes directory: {}", e))?;
+        // ensure_cache_entry 顺带把旧位置的 cli-hooks.json 挪进 .cache/
+        let path = crate::utils::project_dirs::ensure_cache_entry(project_path, Self::STATE_FILE)
+            .map_err(|e| format!("Failed to create .ccpanes cache directory: {}", e))?;
         let content = serde_json::to_string_pretty(state)
             .map_err(|e| format!("Failed to serialize cli-hooks.json: {}", e))?;
-        fs::write(Self::get_state_path(project_path), content)
-            .map_err(|e| format!("Failed to write cli-hooks.json: {}", e))
+        fs::write(path, content).map_err(|e| format!("Failed to write cli-hooks.json: {}", e))
     }
 
     pub fn get_hook_binary_path() -> Result<PathBuf, String> {

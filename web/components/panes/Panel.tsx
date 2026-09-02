@@ -187,7 +187,7 @@ export default memo(function Panel({ pane }: PanelProps) {
     [pane.id, addTab, activeTab?.workspaceName, activeTab?.providerId, activeTab?.modelId, activeTab?.providerSelection, activeTab?.launchProfileId, activeTab?.workspacePath]
   );
 
-  const { handleAddBrowser, handleAddDsh, handleAddFile, handleAddFileExplorer } =
+  const { handleAddBrowser, handleAddDsh, handleAddAgentChat, handleAddFile, handleAddFileExplorer } =
     useNewTabActions(pane.id, activeTab);
 
   const handleAddSsh = useCallback(() => {
@@ -443,6 +443,7 @@ export default memo(function Panel({ pane }: PanelProps) {
               onAdd: handleAddTab,
               onAddBrowser: handleAddBrowser,
               onAddDsh: handleAddDsh,
+              onAddAgentChat: handleAddAgentChat,
               onAddFile: handleAddFile,
               onAddFileExplorer: handleAddFileExplorer,
               onAddSsh: handleAddSsh,

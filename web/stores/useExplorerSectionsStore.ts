@@ -3,10 +3,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type ExplorerSectionId = "workspaces" | "sessions";
+export type ExplorerSectionId = "workspaces" | "sessions" | "agentChats";
 export type WorkspaceTreeMode = "projects" | "terminals";
 
-const SECTION_IDS: readonly ExplorerSectionId[] = ["workspaces", "sessions"];
+const SECTION_IDS: readonly ExplorerSectionId[] = ["workspaces", "sessions", "agentChats"];
 const TREE_MODES: readonly WorkspaceTreeMode[] = ["projects", "terminals"];
 
 interface ExplorerSectionsState {

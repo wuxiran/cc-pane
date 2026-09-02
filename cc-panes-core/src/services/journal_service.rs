@@ -1,7 +1,7 @@
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::constants::journal::MAX_LINES;
 
@@ -64,9 +64,9 @@ impl JournalService {
         self.get_recent_journal(&ws_path)
     }
 
-    /// 获取 journal 目录路径
+    /// journal 目录：`.ccpanes/.cache/journal`（docs/98）；只读路径兼容旧位置 `.ccpanes/journal`。
     fn get_journal_dir(project_path: &str) -> PathBuf {
-        PathBuf::from(project_path).join(".ccpanes").join("journal")
+        crate::utils::project_dirs::resolve_cache_entry(Path::new(project_path), "journal")
     }
 
     /// 获取索引文件路径
@@ -295,10 +295,8 @@ impl JournalService {
 
     /// 添加会话摘要
     pub fn add_session(&self, project_path: &str, summary: SessionSummary) -> Result<u32, String> {
-        let journal_dir = Self::get_journal_dir(project_path);
-
-        // 确保目录存在
-        fs::create_dir_all(&journal_dir)
+        // 写入前先把旧位置的 journal 挪进 .cache/，之后 get_journal_dir 解析到新位置
+        crate::utils::project_dirs::ensure_cache_subdir(Path::new(project_path), "journal")
             .map_err(|e| format!("Failed to create journal directory: {}", e))?;
 
         // 获取当前 journal 信息
@@ -451,9 +449,14 @@ mod tests {
         assert_eq!(index.total_sessions, 1);
 
         // index.md 的 session-history 表新增一行，commits 以反引号展示
-        let index_md =
-            fs::read_to_string(dir.path().join(".ccpanes").join("journal").join("index.md"))
-                .expect("read index.md");
+        let index_md = fs::read_to_string(
+            dir.path()
+                .join(".ccpanes")
+                .join(".cache")
+                .join("journal")
+                .join("index.md"),
+        )
+        .expect("read index.md");
         assert!(index_md.contains("**Total Sessions**: 1"));
         assert!(index_md.contains("| 1 |"));
         assert!(index_md.contains("`abc1234`"));
@@ -479,7 +482,7 @@ mod tests {
     fn add_session_rotates_journal_file_when_max_lines_exceeded() {
         let dir = init_project();
         let project = dir.path().to_str().unwrap().to_string();
-        let journal_dir = dir.path().join(".ccpanes").join("journal");
+        let journal_dir = dir.path().join(".ccpanes").join(".cache").join("journal");
 
         // 把 journal-0.md 填到超过 MAX_LINES
         let big = "line\n".repeat(MAX_LINES + 1);
@@ -505,7 +508,7 @@ mod tests {
     fn get_latest_journal_picks_highest_numbered_file() {
         let dir = init_project();
         let project = dir.path().to_str().unwrap().to_string();
-        let journal_dir = dir.path().join(".ccpanes").join("journal");
+        let journal_dir = dir.path().join(".ccpanes").join(".cache").join("journal");
         fs::write(journal_dir.join("journal-3.md"), "part 3\n").expect("write journal-3");
 
         let svc = JournalService::default();

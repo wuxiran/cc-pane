@@ -280,6 +280,7 @@ async fn main() -> anyhow::Result<()> {
         app_paths.clone(),
     ));
     let history_service = Arc::new(HistoryService::new());
+    history_service.set_protected_roots(vec![app_paths.data_dir().to_path_buf()]);
     let worktree_service = Arc::new(WorktreeService::new());
     let process_monitor_service = Arc::new(ProcessMonitorService::new());
     let runner_service = Arc::new(RunnerService::new(

@@ -127,18 +127,56 @@ fn dispatch_with_business(event_name: &str, kind: DispatchKind) {
 }
 
 fn should_dispatch_event(event_name: &str, raw_stdin: &str) -> bool {
-    if event_name != "session-end" {
-        return true;
+    match event_name {
+        "session-end" => {
+            let Ok(payload) = serde_json::from_str::<serde_json::Value>(raw_stdin) else {
+                return true;
+            };
+            !matches!(
+                payload.get("reason").and_then(serde_json::Value::as_str),
+                Some("clear" | "prompt_input_exit")
+            )
+        }
+        "waiting-input" => should_dispatch_waiting_input(raw_stdin),
+        _ => true,
     }
+}
 
+/// Notification → waiting-input 的例行噪声过滤（对齐 Orca 的丢弃规则）。
+///
+/// 三类不上报：
+/// - grok 每个工具前都发的「Tool permission requested」（bypass 模式也发，
+///   进度已由 tool-before/after 覆盖）——grok 经 Claude 兼容层执行同一份
+///   hooks，这条不滤会把「正在跑工具」弹成「需要你输入」；
+/// - `idle_prompt` 类型（旧 matcher 装出去的存量条目）：输入框闲置 60s 是
+///   「人走开了」不是「agent 卡住了」；
+/// - TUI composer 空闲文案（type your message 等）。
+fn should_dispatch_waiting_input(raw_stdin: &str) -> bool {
     let Ok(payload) = serde_json::from_str::<serde_json::Value>(raw_stdin) else {
         return true;
     };
-
-    !matches!(
-        payload.get("reason").and_then(serde_json::Value::as_str),
-        Some("clear" | "prompt_input_exit")
-    )
+    let notification_type = payload
+        .get("notificationType")
+        .or_else(|| payload.get("notification_type"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    if notification_type == "idle_prompt" {
+        return false;
+    }
+    let message = payload
+        .get("message")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if message == "tool permission requested" {
+        return false;
+    }
+    const IDLE_COMPOSER_MARKERS: &[&str] = &["type your message", "ask a side question"];
+    if IDLE_COMPOSER_MARKERS.iter().any(|m| message.contains(m)) {
+        return false;
+    }
+    true
 }
 
 #[cfg(test)]
@@ -177,5 +215,44 @@ mod tests {
     #[test]
     fn reason_filter_does_not_affect_other_events() {
         assert!(should_dispatch_event("turn-end", r#"{"reason":"clear"}"#,));
+    }
+
+    // waiting-input 噪声过滤：例行/闲置类通知不得上报（grok 误报根因，2026-08）。
+    #[test]
+    fn waiting_input_drops_grok_routine_tool_permission_notice() {
+        assert!(!should_dispatch_event(
+            "waiting-input",
+            r#"{"message":"Tool permission requested"}"#,
+        ));
+        assert!(!should_dispatch_event(
+            "waiting-input",
+            r#"{"message":"  tool permission requested  "}"#,
+        ));
+    }
+
+    #[test]
+    fn waiting_input_drops_idle_prompt_and_composer_texts() {
+        assert!(!should_dispatch_event(
+            "waiting-input",
+            r#"{"notificationType":"idle_prompt","message":"Claude is waiting for your input"}"#,
+        ));
+        assert!(!should_dispatch_event(
+            "waiting-input",
+            r#"{"notification_type":"idle_prompt","message":"whatever"}"#,
+        ));
+        assert!(!should_dispatch_event(
+            "waiting-input",
+            r#"{"message":"Type your message or ask a side question"}"#,
+        ));
+    }
+
+    #[test]
+    fn waiting_input_real_permission_requests_remain_fail_open() {
+        assert!(should_dispatch_event(
+            "waiting-input",
+            r#"{"notificationType":"permission_prompt","message":"Claude needs your permission to use Bash"}"#,
+        ));
+        assert!(should_dispatch_event("waiting-input", "not-json"));
+        assert!(should_dispatch_event("waiting-input", r#"{}"#));
     }
 }

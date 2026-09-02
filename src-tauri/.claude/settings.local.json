@@ -10,7 +10,7 @@
             "type": "command"
           }
         ],
-        "matcher": "permission_prompt|elicitation_dialog|elicitation_complete|elicitation_response|idle_prompt"
+        "matcher": "permission_prompt|elicitation_dialog"
       }
     ],
     "PostToolUse": [

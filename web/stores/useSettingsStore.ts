@@ -5,8 +5,9 @@ import { handleErrorSilent } from "@/utils";
 import { getDefaultSidebarFavoriteLaunchActionIds } from "@/components/sidebar/launchMenu";
 import { DEFAULT_CCCHAN_SETTINGS } from "./useCCChanStore";
 import type { CCChanSettings } from "@/ccchan/types";
-import type { CliLauncherSettings, ImSettings, LayoutSwitcherSettings, OrchestratorSettings, WallpaperSettings, WebAccessSettings } from "@/types";
+import type { CliLauncherSettings, ExperimentalSettings, ImSettings, LayoutSwitcherSettings, OrchestratorSettings, WallpaperSettings, WebAccessSettings } from "@/types";
 import { canonicalThemeShape, DEFAULT_THEME_SHAPE } from "@/theme/themeShapes";
+import { registerExperimentalGate } from "@/lib/experimentalGate";
 
 const defaultCloseToTray = () => {
   if (typeof navigator === "undefined") {
@@ -110,6 +111,16 @@ export const DEFAULT_IM_SETTINGS: ImSettings = {
   channels: [],
 };
 
+/** 实验功能默认值与 Rust `default_experimental_flag` 同口径：Dev 全开、Release 全关
+ * （客户装上即看不到入口，要自己去「设置 → 实验功能」勾）。这里只兜 settings 尚未
+ * 从后端加载 / 老配置缺键的窄窗口，真源仍是后端合并后的 settings.experimental。 */
+export const EXPERIMENTAL_DEFAULT_ON = import.meta.env.DEV;
+
+export const DEFAULT_EXPERIMENTAL_SETTINGS: ExperimentalSettings = {
+  mediaGeneration: EXPERIMENTAL_DEFAULT_ON,
+  skillMarket: EXPERIMENTAL_DEFAULT_ON,
+};
+
 export const DEFAULT_WALLPAPER_SETTINGS: WallpaperSettings = {
   enabled: false,
   kind: "none",
@@ -206,6 +217,10 @@ function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
       ...DEFAULT_IM_SETTINGS,
       ...maybeSettings.im,
       channels: maybeSettings.im?.channels ?? [],
+    },
+    experimental: {
+      ...DEFAULT_EXPERIMENTAL_SETTINGS,
+      ...maybeSettings.experimental,
     },
     ccchan: {
       ...DEFAULT_CCCHAN_SETTINGS,
@@ -398,5 +413,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     orchestrator: DEFAULT_ORCHESTRATOR_SETTINGS,
     wallpaper: DEFAULT_WALLPAPER_SETTINGS,
     im: DEFAULT_IM_SETTINGS,
+    experimental: DEFAULT_EXPERIMENTAL_SETTINGS,
   }),
 }));
+
+// 实验功能门禁的真实判定：settings store 一加载就注册，供不能直接依赖本模块的
+// store（useActivityBarStore）在 action 里查询。settings 未加载 → 一律关。
+registerExperimentalGate(
+  (id) => useSettingsStore.getState().settings?.experimental?.[id] === true,
+);

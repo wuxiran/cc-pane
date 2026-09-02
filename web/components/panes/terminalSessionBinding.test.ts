@@ -132,8 +132,8 @@ describe("terminalSessionBinding hidden-output flush", () => {
     buffer.push("overflow");
 
     let finishResync!: () => void;
-    const overflowResync = vi.fn(() => new Promise<void>((resolve) => {
-      finishResync = resolve;
+    const overflowResync = vi.fn(() => new Promise<boolean>((resolve) => {
+      finishResync = () => resolve(true);
     }));
     const flushHiddenWrites = createHiddenWriteFlusher({
       hiddenWriteBufferRef: { current: buffer },

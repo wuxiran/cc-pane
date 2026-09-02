@@ -237,8 +237,9 @@ flutter pub get && flutter analyze && flutter test
 | 托盘 tooltip | CC-Panes [DEV] | CC-Panes |
 | 截图快捷键默认值 | `Ctrl+Alt+Shift+S` | `Ctrl+Shift+S` |
 | 截图窗口类名 | `CCPanesDevScreenshotOverlay` | `CCPanesScreenshotOverlay` |
+| 实验功能默认值（媒体生成 / Skill 市场） | 全开 | 全关（用户在设置 → 实验性功能 勾选） |
 
-核心常量定义在 `src-tauri/src/utils/app_paths.rs` 的 `APP_DIR_NAME`。
+核心常量定义在 `src-tauri/src/utils/app_paths.rs` 的 `APP_DIR_NAME`。实验功能默认值在 `cc-panes-core/src/models/settings.rs::default_experimental_flag`（Rust）与 `useSettingsStore.ts::EXPERIMENTAL_DEFAULT_ON`（前端 `import.meta.env.DEV`）两处，需保持同口径。
 
 `tauri:dev` 脚本通过 `--config src-tauri/tauri.dev.conf.json` 覆盖 identifier 和窗口标题。
 
@@ -261,40 +262,37 @@ flutter pub get && flutter analyze && flutter test
 ├── workspaces/                      # 工作空间元数据目录
 │   └── <workspace-name>/
 │       ├── workspace.json           # 工作空间配置
-│       └── .ccpanes/                # 【一级】
-│           └── journal/             # 会话日志（JournalService 写入点）
-├── providers/                       # Provider 配置
-│   └── providers.json
-├── screenshots/                     # 截图存储
+│       ├── skills/                  # 工作空间技能（插件形态，按会话挂载）
+│       └── snapshots/
+├── skills/{builtin,user}/           # 内置 / 用户级 skill
+├── providers.json  launch-profiles.json  shared-mcp.json
 └── data.db                          # SQLite 数据库
 ```
 
-**`.ccpanes/` 是三级目录，不是两级。** 三级各自承载不同内容，混淆会直接写出 bug：
+**`.ccpanes/` 的职责见 docs/98（已评审）**。判据：换台机器、换个人 clone，这个文件还有意义吗？没有就不进 `<project>/.ccpanes/`。所有路径必须经 `cc_panes_core::utils::project_dirs`，不要手拼 `.join(".ccpanes")`。
 
 ```
-<workspace.path>/.ccpanes/           # 【二级】工作空间实际路径下
+<workspace.path>/.ccpanes/           # 用户自选的工作空间根（可能不是 git 仓库）
 ├── projects.csv                     # 项目清单（给 LLM 的上下文文件，代码无消费方）
-├── plans/                           # plan 归档（归档优先落这里）
-└── prompts/                         # 外置的长 prompt / Codex 派工文件
+└── plans/                           # plan 归档（CC_PANES_WORKSPACE_PATH 存在时落这里；第三批将归拢到数据目录）
 
-<project.path>/.ccpanes/             # 【三级】项目仓库下
+<project.path>/.ccpanes/             # 仓库层：随代码提交给团队
+├── .gitignore                       # CC-Panes 自动写入，内容 `.cache/`；不覆盖用户改动
 ├── config.toml                      # Local History 配置
-├── history/                         # 本地文件历史
-│   ├── history.db                   # SQLite（版本/标签元数据）
-│   └── blobs/<sha256>               # 内容寻址的文件快照
-├── specs/                           # 内置 Spec
-├── quick-commands.json              # 项目级快捷命令
-├── cli-hooks.json                   # 项目级 CLI hooks
 ├── workflow.md                      # 工作流说明（SessionStart hook 注入）
-├── plans/                           # 无工作空间时的归档兜底
-└── session-state.json               # legacy，已被 launch_history 取代
+├── specs/                           # 内置 Spec
+├── quick-commands.json              # 项目级快捷命令覆盖
+└── .cache/                          # 机器本地，永不提交
+    ├── history/                     # 本地文件历史（history.db + blobs/<sha256>）；旧位置 .ccpanes/history 首次打开时 rename
+    ├── media/  journal/  prompts/   # 生成产物 / 会话日志 / 外置长 prompt
+    └── cli-hooks.json               # hooks 同步状态
 ```
 
 注意：
 
-- **一级与二级可能重合** —— 工作空间未指定 `path` 时，`workspace.path` 默认就是 `~/.cc-panes/workspaces/<name>/`（`workspace_service.rs:374`）。写代码时不能假设两者必然不同。
-- **`plans/` 的归档级别由环境决定**：`CC_PANES_WORKSPACE_PATH` 存在时落二级，否则落三级（`plan_archive.rs:77-92`）。任何读 `plans/` 的代码都必须扫两级并集，只看三级会漏掉绝大多数归档。
-- **`journal/` 的写读级别当前不一致**：`JournalService` 写一级（`lib.rs:1508`），而 SessionStart hook 读三级（`session_start.rs:256`）。两边不通，这是已知缺陷不是设计。
+- **数据目录不是项目**：默认工作空间的 `path` 就是 `~/.cc-panes/workspaces/<name>/`。`HistoryService::set_protected_roots(data_dir)` 拒绝在数据目录内建历史库，`CC_PANES_WORKSPACE_PATH` 指向数据目录时不下发给 hook。
+- **读旧路径要走 `project_dirs::resolve_cache_entry`**（先 `.cache/<x>` 再 `.ccpanes/<x>`），写走 `ensure_cache_entry` / `ensure_cache_subdir`（顺带把旧目录 rename 进 `.cache/`）。
+- `session-state.json` 已停写，读侧保留一个版本兼容。
 
 
 ## 已实现功能
@@ -320,13 +318,18 @@ flutter pub get && flutter analyze && flutter test
 - [x] 项目身份统一（Windows//mnt//WSL UNC 跨形式等价 + 迁移去重）
 - [x] Local History watcher 惰性化（跟随活跃终端会话,45s 宽限,全局开关）
 - [x] 工作空间/项目归档（可逆逻辑删除,`archivedAt` 时间戳,MCP 可调；硬删除仍只在 UI）
+- [x] ACP Agent Chat 标签（结构化 agent 对话：11 家引擎 + engines.json 自定义、session/load 续接、MCP 注入,docs/94）+ 终端 Terminal⇄Chat 只读回看视图（两条轨道,勿混淆）
+- [x] Automations 定时派工（设置 → 工具 → 自动化：cron + 宽限 + 运行历史,派 ACP headless 会话 + 无人值守 auto-approve,docs/95）
+- [x] 技能市场（活动栏 Store 图标：精选 + 分类 + 搜索,聚合精选清单/anthropics/skills.sh,目录型技能整目录安装,docs/97）
+- [x] 项目级 Agent Skills 管理（项目「Skill 管理」标签 → Agent Skills 段：按 .agents/.claude/.cursor/.codex/.gemini 五根分组 + CLI 可见性徽章,新建/编辑/删除/跨根移动/四源导入,docs/97）
+- [x] 工作空间技能 workspace-first（`~/.cc-panes/workspaces/<name>/skills` 插件目录按会话挂载：Claude --plugin-dir / Codex skills.config / 其余 CLI prompt 注入；工作空间右键入口 + 市场「安装到」默认当前工作空间 + 启动档 includeWorkspaceSkills,docs/97）
 
 ## Known Gotchas
 
 - **终端回车必须发 CR（`\r`）不是 LF**：Windows PowerShell 只认 CR。`write_to_session` 的提交路径已按此实现（`terminal_service.rs` 的 `write_unlocked(.., "\r")`），修改时勿回退成 `\n`。
 - **portable-pty 的 `kill()` 只杀直接子进程**：CC-Panes 显式关闭走 `taskkill /T /F`（`cc-panes-core/src/pty/mod.rs::kill_process_by_pid`）能杀整棵树，但宿主崩溃时靠 `pty/job.rs` 的 Job Object（`KILL_ON_JOB_CLOSE`）由内核清树——**没有替代方案前不要移除 Job**。
 - **React 19 严格模式 dev 下 useEffect 双挂载**：终端组件可能触发两次 spawn/清理，dev 日志里"创建即销毁"的 PTY 是正常现象，新终端类组件需容忍双挂载。
-- **会话状态只信 OSC/hook，不信输出文本**：状态跃迁来自 hook HTTP 通道与 OSC in-band 通道（`osc_state_detect.rs`，跨通道去重见 `session_state_machine.rs`）。不要往 `infer_status` 加文本模式匹配——TUI spinner 每帧重绘、随版本变化，文本猜测必然抖动。
+- **会话状态只信 OSC/hook，不信输出文本**：状态跃迁来自 hook HTTP 通道与 OSC in-band 通道（`osc_state_detect.rs`，跨通道去重见 `session_state_machine.rs`）。不要往 `infer_status` 加文本模式匹配——TUI spinner 每帧重绘、随版本变化，文本猜测必然抖动。**「需要你输入」通知另有两道闸**（0.12.10，grok 误报根治）：①PTY 推断的 waiting 只有强判据（显式等待文案/`[Y/n]`）才弹通知，弱判据（`?` 结尾/裸 `>`/shell 提示符）只改徽章（`inferred_waiting_is_strong`）；②grok 经 Claude 兼容层执行同一份 `.claude/` hooks，其**每个工具前都发**的例行「Tool permission requested」通知在 cli-hook 层丢弃（`should_dispatch_waiting_input`，对齐 Orca 的丢弃规则），旧五类 matcher（含 idle_prompt）经 `legacy_matchers_for_def` 在下次 sync 时自动升级替换。
 - **OSC 7 上报的 cwd 是正斜杠 URL 形式**（`file://host/C:/...`）：Windows 下消费方传给 fs 命令前必须剥前缀并规范化分隔符。
 - **不要在 tauri.conf.json 预创建隐藏 WebView 窗口**：长期隐藏的 WebView2 会被系统置为失效状态（0x8007139F），之后每条 `app.emit` 广播都失败并刷一条 wry ERROR；日志的 Webview target 还会把错误 emit 回失效 WebView，形成自放大洪水（实测 13 条/秒、烧满 CPU、前端假死）。ccchan 窗口已改为启用时按需创建（`ccchan_service.rs::ccchan_window` get-or-create），新增辅助窗口也必须按需创建；`lib.rs` 中对 `tauri_runtime_wry` 有日志限流兜底（`wry_log_allowed`）。
 - **根目录新增大目录必须同步 `vite.config.ts` 的 `server.watch.ignored`**：`.cargo/config.toml` 把 Rust 的 `target-dir` 指到了仓库根，实测 `target/` 达 22 万文件；chokidar 默认只跳过 `node_modules`/`.git`，漏掉的大目录会被递归监听，叠加 `tauri dev` 期间 cargo 持续写入形成事件风暴——实测 Vite 进程烧到 2.9GB 内存、2091 秒 CPU 后彻底停止响应，窗口永久停在 `Loading CC-Panes...`（看着像卡死，其实是 dev server 不返回任何模块）。判断方法：`curl 127.0.0.1:14200` 超时但端口在 Listen。
@@ -394,6 +397,8 @@ flutter pub get && flutter analyze && flutter test
 - **前端测试「全体起不来」先查 Node 小版本，不要去动 node_modules**：jsdom 28 要求 `^20.19.0 || ^22.12.0 || >=24.0.0`（20.19 是 20.x 线引入 `require(esm)` 的版本）。低于它时 `html-encoding-sniffer` 用 `require()` 加载 ESM-only 的 `@exodus/bytes` 直接炸，表现是 **435 个测试文件全部 `Failed to start forks worker`**、报错里只提两个没人听说过的包名——**看着完全像 node_modules 装坏了**，第一反应会是重装（实测本机 Node 20.17.0 命中）。CI 用 `node-version: "20"` 解析到最新 20.x，所以**CI 绿、本地红**，问题只在开发机暴露。判定：`node -v` 与 `package.json` 的 `engines` 对一下即可；不想动全局 node 可以直接用另一个版本的二进制跑（`<nvm-root>/v24.x/node.exe ./node_modules/vitest/vitest.mjs run`）验证。注意 `npm run test:run` 只跑 vitest，它**不**校验 engines。
 - **clippy 门禁是 `cargo clippy --workspace -- -D warnings`，别自己加 `--all-targets`**：加了会把测试代码的历史 lint 全部升级成 error（实测十几条），看着像"仓库本来就不绿"，实际是换了把尺子。改动验证请用文档里那条原命令。
 - **`watch::Sender::send_modify` 是无条件通知，消费/排空队列必须用 `send_if_modified`**：tokio 内部把它包成恒返回 `true` 的 `send_if_modified`，**写回一个空 map 也会把接收方的 `changed()` 重新置 ready**。配上「调用方在排空**之前**就 `mark_unchanged()`」这个常见写法，排空自己产生的通知没人消费 → 下一轮立刻 ready → 再排空空 map → 再通知，该 future 从此不回 `Pending`，**烧满一整个 tokio worker 且不写任何日志**（0.12.8 实测：一笔 ACK 就让循环 3 秒跑 1400 万次，改 `send_if_modified` 后 6 次）。判据：整机 CPU 不高但 app 发卡、日志零增长、主线程 `Wait/UserRequest` 正常——**别去查业务代码里的 `loop {}`**，它自己不自旋，病在运行时驱动层。定位手法（无需管理员、无需调试器）：PowerShell 用 `OpenThread(0x004A)`/`SuspendThread`/`GetThreadContext` 采 `CONTEXT_AMD64` 的 Rip（偏移 `0xF8`）与 Rsp（`0x98`），`ContextFlags`（`0x30`）设 `0x100001`，CONTEXT 需 16 字节对齐；线程名用 `GetThreadDescription` 读。RIP 集中在 `ZwRemoveIoCompletionEx`/`ZwWaitForAlertByThreadId` + Rsp 在几个值间跳变 = 命中。详见 docs/93。
+- **Windows 上重写源文件绝不能走 PowerShell `Get-Content | Set-Content` 管道**：Windows PowerShell 5.1 的默认编码不是 UTF-8，含中文注释的文件会被写成 GBK/带损（实测 `acp_chat_commands.rs` 中文注释全毁、rustc 报 invalid UTF-8），且中途一旦发生 `?` 替换即**不可逆**——GBK↔UTF-8 往返也救不回。改文件一律用编辑工具（StrReplace/Write）；已损时代码本体（ASCII）通常完好，按最后已知内容整文件重写即可。
+- **ACP 权限请求的 `toolCall.kind` 不是每家都给，且"永远不弹"多半是环境而非代码**（0.12.10 实测 11 家，矩阵见 docs/94 §6.1）：Kimi 的权限请求与 tool_call 全程无 kind（只有 `Shell: …` 这类标题），后端靠 `infer_tool_kind_from_title` 兜底；Codex 把联网归 `execute` 不是 `fetch`。Claude 在本机永远不弹权限是因为 `~/.claude/settings.json` 的 `defaultMode: bypassPermissions` + allow 全量，ACP `set_mode` 压不过它——验证权限链路要用干净的 `CLAUDE_CONFIG_DIR`。Grok ACP 模式从不弹权限。改这条链路前先跑 `tmp/acp-perm-probe.cjs`，别按 ACP 规范推断适配器行为。
 - **DOM 原生方法不能裸引用赋值给对象属性**：`{ request: requestAnimationFrame }` 这类写法会让方法脱离 `window`，WebView2 调用时直接抛 `TypeError: Illegal invocation`。要用箭头函数包一层（不是 `.bind(window)`——默认参数在模块加载期求值，无 `window` 的环境会直接崩，箭头函数把求值推迟到调用时）。0.12.8 实测：`terminalCompositionRecovery` 因此在**每次中文/日文输入结束**时抛一次，日志被 `[frontend-crash]` 刷屏。同类风险只在「把原生方法当值传递」时出现，直接调用（`requestAnimationFrame(fn)`）不受影响。
 
 ## 文档引用
@@ -439,6 +444,7 @@ flutter pub get && flutter analyze && flutter test
 | `docs/84-appearance-theme-shape-copy.md` | 界面形态系统（Soft/Slab/Sharp/Glass/Panel/Carbon）产品文案评审稿；PRD 与任务清单见 `docs/PRDs/appearance-theme-shape*.md`，验收记录见 `docs/shape-verification-record.md` |
 | `docs/STRATEGY.md` | 产品战略：外观层边界 / 设置本地保存与跨版本兼容 / 桌面 Web 同模型（0.12.1 自仓库根迁入） |
 | `docs/85-cli-launcher-overrides.md` | **CLI 路径解析链与 launcher override**：四层解析优先级 / override 三通道 / macOS "not found" 排查顺序（0.12.1 semver 修复与兜底记录） |
+| `docs/96-cursor-bridge.md` | **Cursor Bridge**：一个 MCP 工具走官方 cursor-agent CLI（init/context/do），借参考项目的会话契约，不搬 CDP |
 | `docs/87-git-collaboration.md` | **Git 协作规范**：分支模型（main / dev/v* / release/*）/ PR base 规则 / 发版七步 / 多 AI 实例并行纪律——所有 PR 与发版操作前对照 |
 | `docs/86-resume-chain-staleness.md` | **Resume 链路陈旧化**：三症状归因（对话旧/画面旧/空会话）+ 六条断链 + ResumeBindingStore 单源 / outbox ack / 失败可见化三批修复——排障判据速查在文末 |
 | `docs/88-im-bridge.md` | **IM 外推桥**：钉钉/企微/飞书通知集成（批次1 出站已落地）+ 双向长连接 roadmap（钉钉 Stream / 企微智能机器人协议公开可自实现，飞书不公开走伪双向）——三平台调研结论与安全模型在此 |
@@ -447,5 +453,9 @@ flutter pub get && flutter analyze && flutter test
 | `docs/91-deepseek-harness-onboarding.md` | **DeepSeek Harness（dsh）接入**：它不是 CLI 而是 profile 启动器（TUI 他们做过、8-04 主动删了，含复活四条件）+ 全实测事实表 + `$DSH_HOME` 按工作空间隔离的硬约束 + 四项 `--patch` 注入 + 为何不嵌前端（`/api` trust fence）+ 插件生态入口与 `dsh.bundle.patch` 激活判据 |
 | `docs/92-canvas-mode-design.md` | **Canvas Mode 设计方案**：与 pane 布局并列的通信可视化布局（不是新终端类型、不替代编排页）——管道只反映真实 dispatch/message/report 事件，不从终端文本猜关系 |
 | `docs/93-tokio-worker-spin.md` | **tokio worker 满核空转调查**：`send_modify` 排空空队列引发的永久自唤醒环 + 活体采样定位手法（免调试器、免提权）+「卡但主线程正常」三步排障速查 |
+| `docs/94-acp-agent-chat.md` | **ACP Agent Chat 设计**：为何重启 55-H3 判死的 chat（ACP 把协议/适配矩阵外部化）/ 架构与 id 语义 / 引擎注册表与 engines.json 逃生阀 / session-load 续接与降级可见 / 排障判据速查 |
+| `docs/95-automations.md` | **Automations 定时派工**（55-H1 最小版落地）：cron + 宽限 + 运行历史，派发目标是 ACP headless 会话（无需窗口在场）+ 无人值守 auto-approve——明确不做外部 cron 聚合与事件规则引擎 |
+| `docs/98-ccpanes-dir-plan.md` | **`.ccpanes` 三层职责规划**（已评审）：`~/.cc-panes` 机器层 / `workspaces/<name>` 工作空间默认层 / `<project>/.ccpanes` 只放值得提交的仓库意图，机器缓存全进 `.ccpanes/.cache/`（自带 `.gitignore`）；所有路径经 `utils::project_dirs`；第一批已落地，第二批 = MCP/快捷命令/Automations/Cursor Bridge 转 workspace-first |
+| `docs/97-skill-market.md` | **技能市场 + 项目/工作空间技能管理**：全屏市场页聚合三源（自维护精选清单 `include_str!` 基线 + anthropics/skills 自动发现 + skills.sh 联网搜索），目录型技能安装（GitHub tree → jsDelivr 镜像回退，staging 后 rename，300 文件/30MB 硬限）；项目「Skill 管理」按五个 CLI 根目录分组管 `SKILL.md`；**工作空间技能**是插件形态目录按会话挂载（与 builtin 同机制），市场默认装进当前工作空间——对项目与用户 CLI 主目录零写入 |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |

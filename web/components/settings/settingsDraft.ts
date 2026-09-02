@@ -1,5 +1,6 @@
 import type { CCChanSettings } from "@/ccchan/types";
 import { DEFAULT_CCCHAN_SETTINGS } from "@/stores/useCCChanStore";
+import { DEFAULT_EXPERIMENTAL_SETTINGS } from "@/stores/useSettingsStore";
 import type { AppSettings } from "@/types";
 import type { SettingsPaneId } from "./settingsRegistry";
 
@@ -21,6 +22,7 @@ export const SECTION_DRAFT_KEYS: Partial<
   shortcuts: ["shortcuts"],
   screenshot: ["screenshot"],
   wallpaper: ["wallpaper"],
+  experimental: ["experimental"],
 };
 
 export function createSettingsDraft(value: AppSettings): SettingsDraft {
@@ -45,6 +47,10 @@ export function createSettingsDraft(value: AppSettings): SettingsDraft {
       ...maybeWithCCChan.tips,
       seen: maybeWithCCChan.tips?.seen ?? [],
       tried: maybeWithCCChan.tips?.tried ?? [],
+    },
+    experimental: {
+      ...DEFAULT_EXPERIMENTAL_SETTINGS,
+      ...maybeWithCCChan.experimental,
     },
     ccchan: {
       ...DEFAULT_CCCHAN_SETTINGS,

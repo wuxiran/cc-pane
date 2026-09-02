@@ -51,7 +51,15 @@ portable-pty = "0.8"
 parking_lot = "0.12"
 axum = "0.8"
 tower-http = { version = "0.6", features = ["cors"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "sync",
+    "time",
+    "process",
+    "io-util",
+] }
 tokio-tungstenite = "0.27"
 futures-util = "0.3"
 rand = "0.8"
@@ -75,6 +83,7 @@ reqwest = { version = "0.13", default-features = false, features = ["system-prox
 tauri-plugin-process = "2"
 tracing = "0.1"
 log = "0.4"
+cron = "0.17.0"
 
 [dev-dependencies]
 tempfile = "3"

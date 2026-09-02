@@ -9,6 +9,7 @@ import { CollapsibleCheckGroup } from "@/components/ui/CollapsibleCheckGroup";
 import { SegmentedTabs } from "@/components/ui/segmented";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useExperimentalFeature } from "@/hooks/useExperimentalFeature";
 import type { DiscoveredExternalSkill, InstalledUserSkill, LaunchProfileDraft, SkillMarketEntry } from "@/types";
 import type { KnownCliTool } from "@/types/terminal";
 import type { Workspace } from "@/types/workspace";
@@ -93,6 +94,7 @@ export default function LaunchProfileSkillCard({
   deleteProfileSkill,
 }: LaunchProfileSkillCardProps) {
   const { t } = useTranslation(["providers", "common"]);
+  const skillMarketEnabled = useExperimentalFeature("skillMarket");
   const [query, setQuery] = useState("");
   const normalizedQuery = query.trim().toLowerCase();
   const matches = useMemo(() => {
@@ -277,8 +279,10 @@ export default function LaunchProfileSkillCard({
               )}
 
               <div className="mt-2">
+                {/* 市场是实验功能：关着时这一组只剩「用户库」——标题/提示/空态都换口径，
+                    不然会出现「推荐 Skill 市场：暂无可用推荐」这种误导。 */}
                 <CollapsibleCheckGroup
-                  title={t("skillMarket")}
+                  title={skillMarketEnabled ? t("skillMarket") : t("userSkillLibrary")}
                   total={Math.max(userSkills.length, marketEntries.length + standaloneUserSkills.length)}
                   enabledCount={userSkillSelectedCount}
                   enabledNames={userSkills.filter((skill) => isUserSkillSelected(draft.skillPolicy, skill.id)).map((skill) => skill.name)}
@@ -292,7 +296,7 @@ export default function LaunchProfileSkillCard({
                   }
                 >
                   <div className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-                    {t("skillMarketHint")}
+                    {skillMarketEnabled ? t("skillMarketHint") : t("userSkillLibraryHint")}
                   </div>
                   {skillMarketLoading && marketEntries.length === 0 && standaloneUserSkills.length === 0 ? (
                     <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>
@@ -300,7 +304,7 @@ export default function LaunchProfileSkillCard({
                     </div>
                   ) : marketEntries.length === 0 && standaloneUserSkills.length === 0 ? (
                     <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>
-                      {t("noMarketEntries")}
+                      {skillMarketEnabled ? t("noMarketEntries") : t("noUserSkillLibrary")}
                     </div>
                   ) : marketGroupEmpty ? (
                     <div className="px-1 py-3 text-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>
@@ -417,6 +421,13 @@ export default function LaunchProfileSkillCard({
                       onCheckedChange={(next) => setDraft((current) => ({ ...current, skillPolicy: { ...current.skillPolicy, includeProjectSkills: next === true } }))}
                     />
                     {t("enableProjectSkill")}
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2 text-xs" style={{ color: "var(--app-text-secondary)" }}>
+                    <Checkbox
+                      checked={draft.skillPolicy.includeWorkspaceSkills !== false}
+                      onCheckedChange={(next) => setDraft((current) => ({ ...current, skillPolicy: { ...current.skillPolicy, includeWorkspaceSkills: next === true } }))}
+                    />
+                    {t("enableWorkspaceSkill")}
                   </label>
                   <Button
                     size="xs"

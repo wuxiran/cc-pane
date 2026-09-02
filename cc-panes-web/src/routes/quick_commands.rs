@@ -22,6 +22,52 @@ pub struct SaveProjectQuickCommandsRequest {
     pub commands: Vec<QuickCommand>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceQuickCommandsQuery {
+    pub workspace_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveWorkspaceQuickCommandsRequest {
+    pub workspace_name: String,
+    pub commands: Vec<QuickCommand>,
+}
+
+fn workspace_dir(state: &AppState, name: &str) -> Result<PathBuf, (StatusCode, String)> {
+    let name = name.trim();
+    if name.is_empty() || name.contains(['/', '\\']) || name.contains("..") {
+        return Err(service_error(format!("Invalid workspace name '{}'", name)));
+    }
+    Ok(state.workspace_service.workspace_dir(name))
+}
+
+/// Workspace layer (docs/98): default place for quick commands shared by a set of projects.
+pub async fn list_workspace_quick_commands(
+    State(state): State<AppState>,
+    Query(query): Query<WorkspaceQuickCommandsQuery>,
+) -> Result<Json<Vec<QuickCommand>>, (StatusCode, String)> {
+    let dir = workspace_dir(&state, &query.workspace_name)?;
+    state
+        .quick_command_service
+        .list_workspace(&dir)
+        .map(Json)
+        .map_err(service_error)
+}
+
+pub async fn save_workspace_quick_commands(
+    State(state): State<AppState>,
+    Json(request): Json<SaveWorkspaceQuickCommandsRequest>,
+) -> Result<Json<Vec<QuickCommand>>, (StatusCode, String)> {
+    let dir = workspace_dir(&state, &request.workspace_name)?;
+    state
+        .quick_command_service
+        .save_workspace(&dir, request.commands)
+        .map(Json)
+        .map_err(service_error)
+}
+
 fn service_error(error: impl ToString) -> (StatusCode, String) {
     (StatusCode::BAD_REQUEST, error.to_string())
 }

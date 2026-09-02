@@ -44,8 +44,9 @@ interface TerminalContextMenuProps {
   /** 刷新显示：清字形图集 + 强制 refit + 重绘，修花屏/变形/未铺满。 */
   onRefreshTerminal: () => void;
   /**
-   * 重置缓冲区：xterm.reset()（连 scrollback 一起清）+ SIGWINCH 让 CLI 整屏重绘，
-   * 修「刷新显示」救不了的 buffer 级错乱（docs/73 A 类）。破坏性操作，handler 内有确认。
+   * 重置缓冲区：优先从后端快照重建画面（含可恢复的回滚历史），快照不可得才
+   * 回退成破坏性 xterm.reset()；随后 SIGWINCH 让 CLI 补画当前帧。修「刷新显示」
+   * 救不了的 buffer 级错乱（docs/73 A 类）。handler 内有确认。
    * 未提供时（镜像/只读视图无权驱动 PTY，重置只会得到空屏）不渲染该菜单项。
    */
   onResetBuffer?: () => void;

@@ -388,6 +388,14 @@ pub fn build_router(state: AppState) -> Router {
             put(quick_commands::save_project_quick_commands),
         )
         .route(
+            "/api/quick-commands/workspace",
+            get(quick_commands::list_workspace_quick_commands),
+        )
+        .route(
+            "/api/quick-commands/workspace",
+            put(quick_commands::save_workspace_quick_commands),
+        )
+        .route(
             "/api/quick-commands/{id}",
             put(quick_commands::update_quick_command),
         )

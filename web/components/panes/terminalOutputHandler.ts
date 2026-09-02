@@ -2,7 +2,6 @@ import type { Terminal } from "@xterm/xterm";
 
 import { getErrorMessage } from "@/utils";
 import { detectAlternateBufferTransitions } from "./terminalBufferMode";
-import { detectFocusReportMode } from "./terminalFocusReport";
 import {
   createTerminalHiddenWriteBuffer,
   type TerminalHiddenWriteBuffer,
@@ -23,7 +22,6 @@ export interface CreateTerminalOutputHandlerOptions {
   /** 事件源会话 id：日志归因 + seq 记账（noteWritten/invalidate）的键。 */
   sessionId: string;
   terminalRef: RefValue<Terminal | null>;
-  focusReportModeRef: RefValue<boolean>;
   hiddenWriteBufferRef: RefValue<TerminalHiddenWriteBuffer | null>;
   /** 本终端当前是否值得渲染（可见 且 所在布局是当前布局）。 */
   isRenderVisible: () => boolean;
@@ -93,7 +91,6 @@ export function flushHiddenOutputBeforeExit({
 export function createTerminalOutputHandler({
   sessionId,
   terminalRef,
-  focusReportModeRef,
   hiddenWriteBufferRef,
   isRenderVisible,
   keepCliOutputInNormalBuffer,
@@ -110,15 +107,9 @@ export function createTerminalOutputHandler({
     // 那本为了拍照正确而在丢弃时禁拍，这本为了不卡死而在丢弃时照样放行。
     const releaseCredit = takeCurrentTerminalDeliveryCredit() ?? (() => {});
     const term = terminalRef.current;
-    const focusReportMode = detectFocusReportMode(data, focusReportModeRef.current);
-    if (focusReportMode !== focusReportModeRef.current) {
-      debugLog("output.focus-report-mode.changed", {
-        bindSessionId: sessionId,
-        enabled: focusReportMode,
-      });
-      focusReportModeRef.current = focusReportMode;
-    }
-
+    // 焦点上报开关（1004）的跟踪不在这里：实时输出只是写入路径之一，恢复
+    // 回放/重同步/休眠唤醒同样携带 1004h。检测统一挂在 TerminalView 的
+    // writeTerminalData（所有路径的唯一写入出口），与 xterm 内部状态同源。
     const transitions = detectAlternateBufferTransitions(data);
     const renderedData = renderTerminalData(data);
     if (transitions.length > 0) {

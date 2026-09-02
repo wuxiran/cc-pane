@@ -41,6 +41,13 @@ interface UseTerminalContextMenuActionsOptions {
    * 否则镜像里点一次刷新会改掉主视图的 PTY 尺寸。缺省保守取 false。
    */
   canResizeBackend?: () => boolean;
+  /**
+   * 「重置终端缓冲区」的快照重建入口（复用 desync 恢复器，含闸门/积压时序）。
+   * 成功 = 画面已从后端 photo+delta 重建（含可恢复的回滚历史）；失败/缺省时
+   * 回退为破坏性 `xterm.reset()`。inline CLI（如 grok）收到重绘信号只补画活动
+   * 区，历史全靠这条快照路——没有它，重置就是把历史送进碎纸机。
+   */
+  requestBufferResync?: () => Promise<boolean>;
 }
 
 /**
@@ -62,6 +69,7 @@ export function useTerminalContextMenuActions({
   repaintTerminal,
   canResizeBackend = () => false,
   onExplicitGeometryChange,
+  requestBufferResync,
 }: UseTerminalContextMenuActionsOptions) {
   const { t } = useTranslation("panes");
 
@@ -165,12 +173,17 @@ export function useTerminalContextMenuActions({
   ]);
 
   /**
-   * 重置终端缓冲区：`xterm.reset()`（清屏 + 清 scrollback + 重置终端状态）后紧跟一次
-   * SIGWINCH 让 CLI 整屏重绘。这是 buffer 级错乱（docs/73 A 类）的对症药——错帧一旦
-   * 沉入 scrollback，「刷新终端显示」（渲染层）与单纯 SIGWINCH（只重画视口）都救不回来。
+   * 重置终端缓冲区：优先走快照重建（desync 恢复器：reset → photo 直写 → delta
+   * 渲染写，含可恢复的回滚历史），重建失败才回退成裸 `xterm.reset()`；两条路
+   * 都跟一次 SIGWINCH 让 CLI 补画当前帧。这是 buffer 级错乱（docs/73 A 类）的
+   * 对症药——错帧一旦沉入 scrollback，「刷新终端显示」（渲染层）与单纯
+   * SIGWINCH（只重画视口）都救不回来。
    *
-   * reset() 是破坏性重同步（回滚历史清空、不可恢复），必须经 toast 确认后执行；
-   * 且只在本视图有权驱动 PTY 时提供——镜像/只读视图重置后无法触发 CLI 重绘，只会得到空屏。
+   * 为什么不能只做裸 reset：inline CLI（如 grok）收到重绘信号只补画底部活动
+   * 区，上方历史它已交给终端保管、永远不会重画——裸 reset 对 inline 会话等于
+   * 把全部历史送进碎纸机（实测用户后台切回花屏 → 被迫重置 → 历史全灭）。
+   * 快照重建失败仍是破坏性路径，保留 toast 确认；且只在本视图有权驱动 PTY 时
+   * 提供——镜像/只读视图重置后无法触发 CLI 重绘，只会得到空屏。
    */
   const handleMenuResetBuffer = useCallback(() => {
     if (!terminalRef.current) return;
@@ -179,19 +192,29 @@ export function useTerminalContextMenuActions({
       action: {
         label: t("terminalResetBufferConfirmAction"),
         onClick: () => {
-          const term = terminalRef.current;
-          if (!term) return;
-          debugLog("context-menu.reset-buffer", {
-            cols: term.cols,
-            rows: term.rows,
-          });
-          term.reset();
-          requestCliRedraw();
-          term.focus();
+          void (async () => {
+            const term = terminalRef.current;
+            if (!term) return;
+            debugLog("context-menu.reset-buffer", {
+              cols: term.cols,
+              rows: term.rows,
+              hasResync: Boolean(requestBufferResync),
+            });
+            const resynced = requestBufferResync
+              ? await requestBufferResync().catch(() => false)
+              : false;
+            if (!resynced) {
+              // 快照不可得（会话已死/旧 daemon/web 降级）：按用户的明确意图清空。
+              terminalRef.current?.reset();
+            }
+            debugLog("context-menu.reset-buffer.done", { resynced });
+            requestCliRedraw();
+            terminalRef.current?.focus();
+          })();
         },
       },
     });
-  }, [debugLog, requestCliRedraw, t, terminalRef]);
+  }, [debugLog, requestBufferResync, requestCliRedraw, t, terminalRef]);
 
   const handleMenuFitTerminal = useCallback(() => {
     onExplicitGeometryChange?.();

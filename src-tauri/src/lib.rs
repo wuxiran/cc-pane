@@ -45,6 +45,7 @@ use commands::{
     browser_reload,
     browser_set_bounds,
     browser_set_visible,
+    cancel_acp_chat,
     cancel_media_run,
     cancel_terminal_launch,
     check_codex_rollout_exists,
@@ -64,6 +65,7 @@ use commands::{
     close_layout_switcher_window,
     close_window,
     compress_history,
+    compute_text_diff,
     copy_skill,
     create_auto_label,
     create_launch_profile,
@@ -82,7 +84,9 @@ use commands::{
     create_todo,
     create_workspace,
     debug_encode_path,
+    delete_acp_chat_history,
     delete_ai_panel,
+    delete_automation,
     delete_label,
     delete_launch_history,
     delete_launch_profile,
@@ -90,6 +94,7 @@ use commands::{
     delete_media_node,
     delete_memory,
     delete_plan,
+    delete_project_skill,
     delete_quick_command,
     delete_skill,
     delete_spec,
@@ -99,7 +104,9 @@ use commands::{
     delete_todo,
     delete_todo_subtask,
     delete_workspace,
+    delete_workspace_skill,
     delete_workspace_snapshot,
+    describe_skill_market_entry,
     detect_claude_session,
     detect_resume_session,
     detect_system_provider,
@@ -128,6 +135,7 @@ use commands::{
     fs_rename_entry,
     fs_write_file,
     generate_claude_md,
+    get_acp_chat,
     get_ai_panel_content,
     get_all_terminal_status,
     get_app_cwd,
@@ -224,7 +232,9 @@ use commands::{
     git_stash_pop,
     handle_terminal_exit_spec,
     handle_terminal_exit_spec_by_session,
+    import_project_skill,
     import_shared_mcp_from_claude,
+    import_skill,
     // Wallpaper 命令
     import_wallpaper,
     init_ccpanes,
@@ -232,6 +242,7 @@ use commands::{
     init_project_history,
     // Skill 命令
     install_market_skill,
+    install_skill_market_entry,
     is_fullscreen,
     // Worktree 命令
     is_git_repo,
@@ -240,9 +251,13 @@ use commands::{
     kill_orphan_processes,
     kill_terminal,
     kill_terminal_idempotent,
+    list_acp_chat_history,
+    list_acp_engines,
     list_ai_panel_history,
     list_ai_panels,
     list_all_claude_sessions,
+    list_automation_runs,
+    list_automations,
     // Provider 命令
     list_bundled_skills,
     list_claude_sessions,
@@ -272,11 +287,14 @@ use commands::{
     // Plan 命令
     list_plans,
     list_project_quick_commands,
+    list_project_skill_roots,
+    list_project_skills,
     list_projects,
     list_providers,
     list_quick_commands,
     list_recoverable_media_runs,
     list_session_index,
+    list_skill_market_categories,
     list_skill_market_entries,
     list_skills,
     list_specs,
@@ -285,6 +303,8 @@ use commands::{
     list_todo_activities,
     list_user_skills,
     list_wallpapers,
+    list_workspace_quick_commands,
+    list_workspace_skills,
     list_workspace_snapshots,
     // Workspace 命令
     list_workspaces,
@@ -296,6 +316,7 @@ use commands::{
     maximize_window,
     migrate_data_dir,
     minimize_window,
+    move_project_skill,
     open_browser_tab,
     open_layout_switcher_window,
     open_path_in_explorer,
@@ -305,6 +326,7 @@ use commands::{
     preview_launch_profile_resolution,
     preview_project_migration,
     preview_workspace_migration,
+    prompt_acp_chat,
     prompt_pi_rpc_session,
     prune_stale_session_outputs,
     prune_terminal_sessions,
@@ -314,9 +336,13 @@ use commands::{
     query_task_bindings,
     query_todos,
     query_usage_stats,
+    read_acp_image_attachment,
+    read_agent_transcript_cmd,
     read_clipboard_file_paths,
     read_config_dir_info,
+    read_project_skill,
     read_session_state,
+    read_workspace_skill,
     reconcile_plan_collaboration,
     record_ai_panel_event,
     record_terminal_input,
@@ -335,6 +361,7 @@ use commands::{
     remove_wallpaper,
     remove_workspace_project,
     remove_worktree,
+    rename_acp_chat_history,
     rename_workspace,
     reorder_todo_subtasks,
     reorder_todos,
@@ -344,6 +371,7 @@ use commands::{
     resolve_media_asset,
     resolve_terminal_path_link,
     resolve_wallpaper_asset,
+    respond_acp_permission,
     respond_orchestrator_query,
     restart_comfy_runtime,
     restart_shared_mcp_server,
@@ -354,6 +382,7 @@ use commands::{
     retry_terminal_task_queue_item,
     rollback_project_migration,
     rollback_workspace_migration,
+    run_automation_now,
     run_terminal_path_link_action,
     // Runner Registry 命令
     runner_delete_profile,
@@ -369,15 +398,19 @@ use commands::{
     runner_register_for_session,
     runner_register_implicit_instance,
     runner_upsert_profile,
+    save_automation,
     save_layout_snapshot,
     save_layout_switcher_snapshot,
     save_layout_switcher_state,
     save_project_quick_commands,
+    save_project_skill,
     save_skill,
     save_spec_content,
     // Session Restore 命令
     save_terminal_sessions,
     save_workflow,
+    save_workspace_quick_commands,
+    save_workspace_skill,
     scan_broken_sessions,
     // Process Monitor 命令
     scan_claude_processes,
@@ -389,6 +422,10 @@ use commands::{
     search_memory,
     search_project_contents,
     search_project_files,
+    search_skill_market,
+    set_acp_chat_auto_approve,
+    set_acp_chat_mode,
+    set_acp_chat_model,
     set_decorations,
     set_default_launch_profile,
     set_default_provider,
@@ -412,12 +449,14 @@ use commands::{
     ssh_fs_write_file,
     stage_media_input,
     stage_terminal_task_queue_clipboard_image,
+    start_acp_chat,
     start_comfy_runtime,
     start_dsh_instance,
     start_launch_history_backfill,
     start_pi_rpc_session,
     start_shared_mcp_server,
     start_web_access,
+    stop_acp_chat,
     stop_comfy_runtime,
     stop_dsh_instance,
     stop_pi_rpc_session,
@@ -1587,6 +1626,15 @@ pub fn run() {
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
     let pi_rpc_service = Arc::new(PiRpcService::new());
+    let acp_chat_service = Arc::new(services::AcpChatService::new(
+        app_paths.data_dir().join("agent-chats"),
+    ));
+    let automation_service = Arc::new(services::AutomationService::new(
+        app_paths.data_dir().join("automations"),
+        acp_chat_service.clone(),
+        app_paths.clone(),
+    ));
+    let acp_chat_notify = acp_chat_service.clone();
     let task_queue_service = Arc::new(TaskQueueService::new(
         task_queue_repo,
         app_paths.task_queue_images_dir(),
@@ -1611,6 +1659,9 @@ pub fn run() {
     let spec_service = Arc::new(SpecService::new(spec_repo, todo_service.clone()));
     let project_service = Arc::new(ProjectService::new(project_repo));
     let history_service = Arc::new(HistoryService::new());
+    // 数据目录不是项目：默认工作空间 path 指向这里，不能给自己建 .ccpanes/history（docs/98）
+    history_service.set_protected_roots(vec![app_paths.data_dir().to_path_buf()]);
+    app_paths.cleanup_self_ccpanes_pollution();
     let history_watch_manager = Arc::new(HistoryWatchManager::new(history_service.clone()));
     history_watch_manager.set_enabled(settings_service.get_settings().local_history.enabled);
     let project_context_service = Arc::new(ProjectContextService::new());
@@ -1660,12 +1711,18 @@ pub fn run() {
     // 「本轮已富通知」标记注册表：trigger_notification 打标，状态机 turn_end 兜底查标去重
     let turn_notify_registry = Arc::new(services::TurnNotifyRegistry::new());
     let notification_service = Arc::new(NotificationService::new(turn_notify_registry.clone()));
+    let notification_for_acp = notification_service.clone();
+    let settings_for_acp = settings_service.clone();
     let ccchan_service = Arc::new(CCChanService::new(
         settings_service.clone(),
         app_paths.clone(),
     ));
     let mcp_config_service = Arc::new(McpConfigService::new());
     let skill_service = Arc::new(SkillService::new());
+    let project_skill_service = Arc::new(cc_panes_core::services::ProjectSkillService::new());
+    let workspace_skill_service = Arc::new(cc_panes_core::services::WorkspaceSkillService::new(
+        app_paths.clone(),
+    ));
     let skill_market_service = Arc::new(SkillMarketService::new(
         app_paths.skills_dir(),
         app_paths.user_skills_dir(),
@@ -1728,6 +1785,10 @@ pub fn run() {
     let popup_data_store = commands::PopupDataStore::default();
     let layout_switcher_snapshot_store = commands::LayoutSwitcherSnapshotStore::default();
     let orchestrator_service = Arc::new(OrchestratorService::new(app_paths.as_ref()));
+    // 单实例：MCP cursor_bridge 与 resume_binding 都写同一份登记簿，必须共用一把锁
+    let cursor_bridge_service = Arc::new(cc_panes_core::services::CursorBridgeService::open(
+        app_paths.cursor_bridge_dir(),
+    ));
     let wallpaper_service = Arc::new(cc_panes_core::services::WallpaperService::new(
         app_paths.wallpapers_dir(),
     ));
@@ -1745,6 +1806,7 @@ pub fn run() {
     let web_access_cleanup = web_access_lifecycle.clone();
     let orchestrator_cleanup = orchestrator_service.clone();
     let pi_rpc_cleanup = pi_rpc_service.clone();
+    let acp_chat_cleanup = acp_chat_service.clone();
 
     boot_mark!("building tauri app...");
     with_macos_app_menu(tauri::Builder::default())
@@ -1805,6 +1867,8 @@ pub fn run() {
         .manage(comfy_runtime_service)
         .manage(terminal_service)
         .manage(pi_rpc_service)
+        .manage(acp_chat_service)
+        .manage(automation_service.clone())
         .manage(terminal_backend_state)
         .manage(launch_history_service)
         .manage(usage_stats_service)
@@ -1832,6 +1896,8 @@ pub fn run() {
         .manage(spec_service)
         .manage(mcp_config_service)
         .manage(skill_service)
+        .manage(project_skill_service)
+        .manage(workspace_skill_service)
         .manage(skill_market_service)
         .manage(external_skill_registry)
         .manage(plan_service)
@@ -1852,11 +1918,52 @@ pub fn run() {
         .manage(popup_data_store)
         .manage(layout_switcher_snapshot_store)
         .manage(orchestrator_service.clone())
+        .manage(cursor_bridge_service)
         .manage(wallpaper_service)
         .manage(Arc::new(BrowserTabManager::default()))
         .manage(cli_registry)
         .manage(crate::import::PendingImportStore::default())
         .setup(move |app| {
+            // Automations 调度循环（30s tick，cron 到期派 headless ACP 会话）。
+            automation_service.start_scheduler(app.handle().clone());
+
+            // ACP chat 回合结束/失败 → 桌面通知（走通用 trigger 闸门：
+            // enabled / only_when_unfocused / 10s dedupe）。
+            {
+                let notification = notification_for_acp.clone();
+                let settings = settings_for_acp.clone();
+                let handle = app.handle().clone();
+                acp_chat_notify.set_turn_notifier(Box::new(move |notice| {
+                    let (kind, title) = if notice.is_error {
+                        ("agent_chat_error", "❗ Agent Chat")
+                    } else {
+                        ("agent_chat_turn_end", "✅ Agent Chat")
+                    };
+                    let body: String = format!("{}: {}", notice.engine_id, notice.detail)
+                        .chars()
+                        .take(120)
+                        .collect();
+                    let _ = notification.trigger(
+                        &handle,
+                        &settings,
+                        services::NotificationRequest {
+                            kind: kind.to_string(),
+                            title: title.to_string(),
+                            body: Some(body),
+                            source: Some("agent-chat".to_string()),
+                            scope: Some("session".to_string()),
+                            dedupe_key: Some(format!("acp:{}:{kind}", notice.chat_id)),
+                            group_key: None,
+                            only_when_unfocused: None,
+                            metadata: None,
+                            session_id: None,
+                            requires_input: None,
+                            input_placeholder: None,
+                        },
+                    );
+                }));
+            }
+
             // ---- deep-link：运行时注册 scheme + 监听 macOS/Linux 的 on_open_url ----
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
@@ -2885,6 +2992,26 @@ pub fn run() {
             cancel_terminal_launch,
             create_terminal_session,
             start_pi_rpc_session,
+            start_acp_chat,
+            list_automations,
+            save_automation,
+            delete_automation,
+            run_automation_now,
+            list_automation_runs,
+            list_acp_engines,
+            list_acp_chat_history,
+            rename_acp_chat_history,
+            delete_acp_chat_history,
+            compute_text_diff,
+            read_acp_image_attachment,
+            prompt_acp_chat,
+            cancel_acp_chat,
+            respond_acp_permission,
+            set_acp_chat_auto_approve,
+            set_acp_chat_mode,
+            set_acp_chat_model,
+            get_acp_chat,
+            stop_acp_chat,
             list_pi_rpc_sessions,
             get_pi_rpc_session,
             prompt_pi_rpc_session,
@@ -2922,6 +3049,7 @@ pub fn run() {
             list_session_index,
             refresh_session_index,
             check_codex_rollout_exists,
+            read_agent_transcript_cmd,
             get_terminal_task_queue,
             stage_terminal_task_queue_clipboard_image,
             add_terminal_task_queue_item,
@@ -3113,6 +3241,8 @@ pub fn run() {
             delete_quick_command,
             list_project_quick_commands,
             save_project_quick_commands,
+            list_workspace_quick_commands,
+            save_workspace_quick_commands,
             list_providers,
             get_provider,
             get_default_provider,
@@ -3164,10 +3294,27 @@ pub fn run() {
             delete_skill,
             copy_skill,
             list_skill_market_entries,
+            search_skill_market,
+            describe_skill_market_entry,
+            install_skill_market_entry,
+            list_skill_market_categories,
             list_user_skills,
             install_market_skill,
             remove_user_skill,
             list_bundled_skills,
+            // Project Agent Skills（目录型，跨 CLI 根目录）
+            list_project_skill_roots,
+            list_project_skills,
+            read_project_skill,
+            save_project_skill,
+            delete_project_skill,
+            move_project_skill,
+            import_project_skill,
+            import_skill,
+            list_workspace_skills,
+            read_workspace_skill,
+            save_workspace_skill,
+            delete_workspace_skill,
             parse_import_url,
             execute_import,
             take_pending_import,
@@ -3387,6 +3534,7 @@ pub fn run() {
                     error!("[cleanup] Failed to flush usage stats: {}", e);
                 }
                 tauri::async_runtime::block_on(pi_rpc_cleanup.cleanup_all());
+                tauri::async_runtime::block_on(acp_chat_cleanup.cleanup_all());
                 terminal_cleanup.cleanup_all();
                 history_cleanup.stop_all_watching();
                 workspace_cleanup.stop_watcher();

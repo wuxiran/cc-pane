@@ -86,11 +86,81 @@ pub fn list_external_skills(
     }
 }
 
+/// Full browsable catalog (curated index + auto-discovered upstream repos). `refresh` bypasses
+/// the day-old discovery cache.
 #[tauri::command]
 pub async fn list_skill_market_entries(
+    refresh: Option<bool>,
     service: State<'_, Arc<SkillMarketService>>,
 ) -> AppResult<Vec<SkillMarketEntry>> {
-    service.list_market_entries().await
+    service.list_catalog(refresh.unwrap_or(false)).await
+}
+
+/// Catalog filter + live skills.sh search for the query.
+#[tauri::command]
+pub async fn search_skill_market(
+    query: String,
+    service: State<'_, Arc<SkillMarketService>>,
+) -> AppResult<Vec<SkillMarketEntry>> {
+    service.search(&query).await
+}
+
+/// Lazily fill in description/path for an entry that arrived without them (search hits).
+#[tauri::command]
+pub async fn describe_skill_market_entry(
+    entry: SkillMarketEntry,
+    service: State<'_, Arc<SkillMarketService>>,
+) -> AppResult<SkillMarketEntry> {
+    service.describe(entry).await
+}
+
+/// Install an entry the UI already holds (search hits are not in the cached catalog).
+/// `workspace_name` redirects the install into that workspace's skill folder (workspace-first);
+/// without it the skill lands in the user-level store.
+#[tauri::command]
+pub async fn install_skill_market_entry(
+    entry: SkillMarketEntry,
+    workspace_name: Option<String>,
+    service: State<'_, Arc<SkillMarketService>>,
+    workspace_skills: State<'_, Arc<cc_panes_core::services::WorkspaceSkillService>>,
+) -> AppResult<InstalledUserSkill> {
+    debug!(skill_id = %entry.id, repo = ?entry.repo, workspace = ?workspace_name, "cmd::install_skill_market_entry");
+    let Some(workspace) = workspace_name
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    else {
+        return service.install_entry(entry).await;
+    };
+    let name = entry.repo_skill_leaf();
+    let target = workspace_skills.target_dir(&workspace, &name)?;
+    service.install_entry_to_dir(&entry, &target).await?;
+    workspace_skills.finalize_external_write(&workspace)?;
+    let placed = workspace_skills.describe(&workspace, &name)?;
+    // Same response shape as a user install so the market page needs one code path.
+    Ok(InstalledUserSkill {
+        id: placed.id,
+        name: placed.name,
+        description: placed.description,
+        category: entry.category,
+        tags: entry.tags,
+        version: entry.version,
+        license: entry.license,
+        homepage_url: entry.homepage_url,
+        source_url: entry
+            .repo
+            .map(|repo| format!("https://github.com/{}", repo)),
+        content_sha256: String::new(),
+        installed_at: chrono::Utc::now().to_rfc3339(),
+        file_path: Some(placed.skill_md_path),
+    })
+}
+
+#[tauri::command]
+pub fn list_skill_market_categories() -> Vec<String> {
+    crate::services::SKILL_MARKET_CATEGORY_IDS
+        .iter()
+        .map(|id| id.to_string())
+        .collect()
 }
 
 #[tauri::command]

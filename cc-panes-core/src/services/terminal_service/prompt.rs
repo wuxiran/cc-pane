@@ -7,7 +7,7 @@ pub(super) fn codex_prompt_stem(session_id: &str) -> String {
 }
 
 pub(super) fn codex_prompt_relative_path(stem: &str) -> String {
-    format!(".ccpanes/prompts/{}.md", stem)
+    format!(".ccpanes/.cache/prompts/{}.md", stem)
 }
 
 pub(super) fn codex_prompt_reference(stem: &str) -> String {
@@ -22,13 +22,14 @@ pub(super) fn write_codex_prompt_file(
     stem: &str,
     prompt: &str,
 ) -> Result<PathBuf> {
-    let prompt_dir = launch_root.join(".ccpanes").join("prompts");
-    std::fs::create_dir_all(&prompt_dir).with_context(|| {
-        format!(
-            "Failed to create Codex prompt directory: {}",
-            prompt_dir.display()
-        )
-    })?;
+    // 外置的长 prompt 是派工中间产物，落 .ccpanes/.cache/prompts（docs/98）
+    let prompt_dir = crate::utils::project_dirs::ensure_cache_subdir(launch_root, "prompts")
+        .with_context(|| {
+            format!(
+                "Failed to create Codex prompt directory under {}",
+                launch_root.display()
+            )
+        })?;
 
     let prompt_path = prompt_dir.join(format!("{}.md", stem));
     std::fs::write(&prompt_path, prompt).with_context(|| {
@@ -69,7 +70,7 @@ mod tests {
         let reference = codex_prompt_reference("codex-session-1");
         assert_eq!(
             reference,
-            "Read task from '.ccpanes/prompts/codex-session-1.md' and execute it."
+            "Read task from '.ccpanes/.cache/prompts/codex-session-1.md' and execute it."
         );
     }
 
@@ -85,12 +86,13 @@ mod tests {
 
         assert_eq!(
             runtime_prompt.as_deref(),
-            Some("Read task from '.ccpanes/prompts/codex-session-123.md' and execute it.")
+            Some("Read task from '.ccpanes/.cache/prompts/codex-session-123.md' and execute it.")
         );
 
         let prompt_path = temp_dir
             .path()
             .join(".ccpanes")
+            .join(".cache")
             .join("prompts")
             .join("codex-session-123.md");
         assert_eq!(

@@ -21,11 +21,13 @@ import MainWallpaperLayer from "@/components/layout/MainWallpaperLayer";
 import { useCanvasDisplayStore, usePanesStore, useActivityBarStore, useLayoutUiStore, useWallpaperStore, useThemeStore, type AppViewMode } from "@/stores";
 import type { OpenTerminalOptions } from "@/types";
 import type { MediaStudioKind } from "@/stores/useMediaStudioStore";
+import { useExperimentalFeature } from "@/hooks/useExperimentalFeature";
 
 // Keep the media workspace out of the initial terminal module graph. Besides
 // reducing startup work, this lets the existing terminal-only test doubles and
 // lightweight web deployments omit media-specific dependencies until opened.
 const MediaStudio = lazy(() => import("@/components/media/MediaStudio"));
+const SkillMarketPage = lazy(() => import("@/components/skillmarket/SkillMarketPage"));
 
 interface MainViewSwitcherProps {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
@@ -43,6 +45,7 @@ const WALLPAPER_PANEL_BG_EFFECTIVE_LIGHT =
 
 export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherProps) {
   const { t: mediaT } = useTranslation("media");
+  const { t: commonT } = useTranslation("common");
   const rootPane = usePanesStore((s) => s.rootPane);
   const layouts = usePanesStore((s) => s.layouts);
   const currentLayoutId = usePanesStore((s) => s.currentLayoutId);
@@ -66,8 +69,19 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
     (activeView === "orchestration" && sidebarVisible);
   // orchestration 是"panes + overlay"的兼容态，不是独立全屏视图
   const effectiveAppViewMode = appViewMode === "orchestration" ? "panes" : appViewMode;
-  const mediaActive = effectiveAppViewMode === "imageGen" || effectiveAppViewMode === "videoGen";
+  const mediaGenerationEnabled = useExperimentalFeature("mediaGeneration");
+  const skillMarketEnabled = useExperimentalFeature("skillMarket");
+  const mediaRequested = effectiveAppViewMode === "imageGen" || effectiveAppViewMode === "videoGen";
+  const mediaActive = mediaRequested && mediaGenerationEnabled;
   const mediaKind: MediaStudioKind = effectiveAppViewMode === "videoGen" ? "video" : "image";
+  // 实验功能被关掉时（设置里取消勾选、或旧链路仍把模式设成了它）退回 panes，
+  // 不能停在一个既不渲染又没有出口的空视图上。
+  const gatedModeBlocked =
+    (mediaRequested && !mediaGenerationEnabled)
+    || (effectiveAppViewMode === "skillMarket" && !skillMarketEnabled);
+  useEffect(() => {
+    if (gatedModeBlocked) setAppViewMode("panes");
+  }, [gatedModeBlocked, setAppViewMode]);
   // Todo 与 panes/files 共用同一个侧栏过渡容器，切换模块时宽度保持稳定。
   const shouldShowSidebar =
     sidebarVisible &&
@@ -169,8 +183,9 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           <ProvidersPanel />
         </div>
       )}
-      {/* 生图与生视频共用一个媒体工作区；类型切换只替换工作区内部的表单。 */}
-      {mediaMounted && (
+      {/* 生图与生视频共用一个媒体工作区；类型切换只替换工作区内部的表单。
+          实验功能关掉时一律不挂载（门禁测试要求 shell 不存在于 DOM）。 */}
+      {mediaGenerationEnabled && mediaMounted && (
         <div
           className="main-view-layer absolute inset-0 flex min-w-0 overflow-hidden"
           data-main-view="media"
@@ -183,6 +198,18 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
               kind={mediaKind}
               onKindChange={(nextKind) => setAppViewMode(nextKind === "image" ? "imageGen" : "videoGen")}
             />
+          </Suspense>
+        </div>
+      )}
+      {/* 技能市场：全屏浏览/安装 agent skills（keep-alive，保留搜索与分类状态） */}
+      {skillMarketEnabled && isMounted("skillMarket") && (
+        <div
+          className="flex-1 overflow-hidden"
+          style={{ background: "var(--app-panel-bg)", ...viewStyle("skillMarket") }}
+          data-testid="skill-market-shell"
+        >
+          <Suspense fallback={<div className="flex h-full w-full items-center justify-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>{commonT("loading")}</div>}>
+            <SkillMarketPage />
           </Suspense>
         </div>
       )}

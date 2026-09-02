@@ -4,10 +4,11 @@
 // 底部常驻「启动终端」入口：只调 useDialogStore.openLauncher 唤起全局启动器（含 Provider 凭证选择），
 // 绝不在此挂 useOpenTerminal —— 全应用只有 App.tsx 一处挂载，重复挂会双消费 pendingLaunch。
 import { useTranslation } from "react-i18next";
-import { History, LayoutGrid, Rocket } from "lucide-react";
+import { History, LayoutGrid, MessagesSquare, Rocket } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import WorkspaceTree from "@/components/sidebar/WorkspaceTree";
 import SessionsView from "@/components/sidebar/SessionsView";
+import AgentChatSessionsView from "@/components/sidebar/AgentChatSessionsView";
 import {
   useDialogStore,
   useExplorerSectionsStore,
@@ -21,6 +22,7 @@ const SECTIONS = [
   { id: "workspaces", labelKey: "explorer.tabWorkspaces", Icon: LayoutGrid },
   // 「最近启动」原为 ActivityBar 竖排项，复用已有的 recentLaunches key（不新增 i18n）
   { id: "sessions", labelKey: "recentLaunches", Icon: History },
+  { id: "agentChats", labelKey: "agentChatsTitle", Icon: MessagesSquare },
 ] as const satisfies ReadonlyArray<{
   id: ExplorerSectionId;
   labelKey: string;
@@ -112,6 +114,14 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
         style={activeSection === "sessions" ? undefined : { display: "none" }}
       >
         <SessionsView onOpenTerminal={onOpenTerminal} />
+      </div>
+
+      {/* Agent 会话：跨项目最近 ACP 对话（点击自动续接） */}
+      <div
+        className="min-h-0 flex-1"
+        style={activeSection === "agentChats" ? undefined : { display: "none" }}
+      >
+        <AgentChatSessionsView />
       </div>
 
       {/* 底部常驻启动入口：shrink-0，永远不被上方列表挤出视口 */}

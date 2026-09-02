@@ -13,6 +13,7 @@ use crate::models::{
 };
 
 use crate::constants::history::{CONTEXT_LINES, MAX_DIFF_LINES};
+use crate::utils::project_dirs;
 
 const CCPANES_DIR: &str = ".ccpanes";
 const HISTORY_DIR: &str = "history";
@@ -28,8 +29,10 @@ pub struct HistoryFileRepository {
 impl HistoryFileRepository {
     /// 创建新的仓库实例（每个项目一个 SQLite 数据库）
     pub fn open(project_path: &Path) -> Result<Self> {
-        let ccpanes = project_path.join(CCPANES_DIR);
-        let history = ccpanes.join(HISTORY_DIR);
+        // `.ccpanes/.cache/history` (docs/98). A pre-0.12.10 `.ccpanes/history` is renamed into
+        // place on first open so existing blobs are kept without copying.
+        let history = project_dirs::ensure_cache_entry(project_path, HISTORY_DIR)
+            .context("Failed to prepare history cache directory")?;
         let blobs = history.join(CONTENT_DIR);
         fs::create_dir_all(&blobs).context("Failed to create blobs directory")?;
 
@@ -222,7 +225,7 @@ impl HistoryFileRepository {
     }
 
     fn history_path(&self) -> PathBuf {
-        self.ccpanes_path().join(HISTORY_DIR)
+        project_dirs::resolve_cache_entry(&self.project_path, HISTORY_DIR)
     }
 
     fn blobs_path(&self) -> PathBuf {
@@ -1298,8 +1301,7 @@ impl HistoryFileRepository {
 
     /// 以只读模式打开数据库（用于查询其他 worktree 的历史）
     pub fn open_readonly(project_path: &Path) -> Result<Self> {
-        let ccpanes = project_path.join(CCPANES_DIR);
-        let history = ccpanes.join(HISTORY_DIR);
+        let history = project_dirs::resolve_cache_entry(project_path, HISTORY_DIR);
         let db_path = history.join(DB_FILE);
 
         if !db_path.exists() {

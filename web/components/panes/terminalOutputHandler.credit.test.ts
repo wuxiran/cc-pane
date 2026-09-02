@@ -30,7 +30,6 @@ function makeHandler(options: HarnessOptions): {
   const handler = createTerminalOutputHandler({
     sessionId: "s1",
     terminalRef: { current: options.term === undefined ? fakeTerm : options.term },
-    focusReportModeRef: { current: false },
     hiddenWriteBufferRef,
     isRenderVisible: () => options.visible,
     keepCliOutputInNormalBuffer: false,
@@ -96,7 +95,6 @@ describe("createTerminalOutputHandler 的流控信用归还", () => {
     const handler = createTerminalOutputHandler({
       sessionId: "s1",
       terminalRef: { current: fakeTerm },
-      focusReportModeRef: { current: false },
       hiddenWriteBufferRef,
       isRenderVisible: () => true,
       keepCliOutputInNormalBuffer: true,

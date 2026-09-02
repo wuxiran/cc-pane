@@ -1,0 +1,2 @@
+# Written by CC-Panes: machine-local caches never belong in the repository.
+.cache/

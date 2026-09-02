@@ -273,6 +273,12 @@ describe("terminalBufferMode", () => {
       );
     });
 
+    it("keeps a bare reverse-video enable (Claude's software cursor cell)", () => {
+      // Claude 关掉真光标后用反显空格当光标（裸 `ESC[7m`，单参数）。
+      // 删掉它 = 透明终端上光标消失；只有多参数的整行高亮条才需要剥。
+      expect(stripSgrBackgroundColors("\x1b[7m \x1b[27m")).toBe("\x1b[7m \x1b[27m");
+    });
+
     it("removes Codex's truecolor composer background", () => {
       expect(stripSgrBackgroundColors("\x1b[48;2;41;41;41mImplement {feature}\x1b[0m")).toBe(
         "\x1b[49mImplement {feature}\x1b[0m",

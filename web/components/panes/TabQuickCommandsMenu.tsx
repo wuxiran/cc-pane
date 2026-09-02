@@ -9,7 +9,8 @@ import {
   ContextMenuSubContent,
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
-import { filterQuickCommandsForProject, useQuickCommandsStore } from "@/stores";
+import { filterQuickCommandsForProject, useQuickCommandsStore, useWorkspacesStore } from "@/stores";
+import { workspaceNameForProject } from "@/hooks/useQuickCommandsSync";
 import { executeQuickCommand, getQuickCommandSessionId } from "@/lib/quickCommandExecution";
 import type { ScopedQuickCommand, Tab } from "@/types";
 
@@ -17,10 +18,14 @@ export default function TabQuickCommandsMenu({ tab, paneId }: { tab: Tab; paneId
   const { t } = useTranslation("panes");
   const quickCommands = useQuickCommandsStore((state) => state.commands);
   const activeProjectPath = useQuickCommandsStore((state) => state.activeProjectPath);
+  const activeWorkspaceName = useQuickCommandsStore((state) => state.activeWorkspaceName);
+  const workspaces = useWorkspacesStore((state) => state.workspaces);
   const visibleQuickCommands = filterQuickCommandsForProject(
     quickCommands,
     activeProjectPath,
     tab.projectPath,
+    activeWorkspaceName,
+    workspaceNameForProject(workspaces, tab.projectPath),
   );
 
   const disabledReason = (command: ScopedQuickCommand): string | undefined => {

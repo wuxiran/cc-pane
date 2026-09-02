@@ -39,7 +39,7 @@ vi.mock("@/components/settings/ProjectMcpSection", () => ({
     <div data-testid="mcp-config" data-project-path={projectPath} />
   ),
 }));
-vi.mock("@/components/skill/SkillManager", () => ({
+vi.mock("@/components/skill/ProjectSkillsManager", () => ({
   default: () => <div data-testid="skill-manager" />,
 }));
 vi.mock("@/components/memory/MemoryManager", () => ({

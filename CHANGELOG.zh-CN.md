@@ -7,6 +7,20 @@
 两份是人工同步的，条目一一对应；改英文版时顺手改这里，逐条 diff 能看出漏了哪条。
 0.12.6 之前的版本只有英文版。
 
+## 0.12.10 - 2026-09-01
+
+### 变更
+
+- **`.ccpanes/` 改为默认可提交**（docs/98）。仓库里的这个目录只保留描述该仓库、值得交给团队的东西——`config.toml`、`workflow.md`、`specs/`、项目快捷命令；CC-Panes 自动写一个 `.ccpanes/.gitignore` 挡住新增的 `.ccpanes/.cache/`，所有机器本地产物都搬进去：本地历史（`history.db` + blobs，首次打开时原地改名）、媒体产物、会话日志、外置的长 prompt、hooks 同步状态。老的 `session-state.json` 不再写。应用也不再把自己的数据目录当项目：默认工作空间不会再在 `~/.cc-panes/.ccpanes/` 里长出历史库和 plan 归档，旧版本留下的那份启动时一次性清掉。仓库里仍整目录忽略 `.ccpanes/` 的照常工作；去掉那一行就能开始和团队共享 specs 与 workflow。
+- **快捷命令与 Automations 改为 workspace-first。** 快捷命令多了工作空间层（`~/.cc-panes/workspaces/<name>/quick-commands.json`），解析顺序 全局 → 工作空间 → 项目；标签右键菜单与命令面板按活跃标签所属工作空间显示，新建默认落工作空间层。Automations 归属工作空间：编辑器先选工作空间、再在其项目里选工作目录（仍允许手填目录），列表带工作空间徽章。
+
+### 新增
+
+- **Cursor Bridge** — 一个 MCP 工具 `cursor_bridge`，让当前 CLI 绑定工作区、跑只读的项目理解、以及保持有边界的 Cursor Agent CLI 会话（`init` / `context` / `do` / `status` / `model` / `session`）。产品契约借自 Vanyangyang/cursor-bridge（sessionId ≠ taskId、范围冻结、requestId 幂等、CCE 形状的证据）。实现走官方 `cursor-agent` CLI，不走 CDP。`context` 启动 print worker 并加 `--mode ask`。持久 `do` 会话必须带 `readOnly` 或 `allowedPaths`，`continue` 不能扩大范围。登记簿在 `~/.cc-panes[-dev]/cursor-bridge/`。设计见 `docs/96-cursor-bridge.md`。
+- **技能市场** — 独立全屏页（活动栏 `Store` 图标，设置 → 工具 → Skills 也有入口）：精选横排 + 分类页签 + 搜索 + 一键安装。内容聚合三源：自维护 `skill-market/index.json`（30+ 条，偏中文场景，现已 `include_str!` 进二进制做离线基线，远端 `main` 可热更新）、`anthropics/skills` 自动发现、`skills.sh` 联网搜索。安装模型升级为**目录型技能**（`SKILL.md` + `scripts/` + `references/`）：GitHub API 一次列出仓库树，失败自动回退 jsDelivr 镜像；先落 staging 再 rename 到 `~/.cc-panes/skills/user/<id>/`，硬限 300 文件 / 30 MB。session prompt 注入时追加 `Skill directory: <路径>`，agent 能找到随包脚本。设计见 `docs/97-skill-market.md`。
+- **项目技能管理** — 项目的「Skill 管理」标签分成两段。*Agent Skills* 管仓库里的 `SKILL.md` 技能目录，按各 CLI 扫描的根目录分组（`.agents/skills` 给 Codex/Cursor，`.claude/skills` 给 Claude Code，另有 `.cursor` / `.codex` / `.gemini`），每个技能带「哪些 CLI 能看见」的徽章。支持新建（自动补 frontmatter）、编辑、删除、跨根目录移动（让另一个 CLI 也能看到）、从已装用户技能 / CLI 本机已有技能 / 技能市场（直接下载进项目）/ 其他项目导入。*Slash 命令* 段保留原来的 `.claude/commands/*.md` 编辑器不变。
+- **工作空间技能（workspace-first）** — 技能可以属于一个工作空间、对其下所有项目生效。存放在 `~/.cc-panes/workspaces/<name>/skills/`，是一个插件形态的目录，启动会话时按会话挂载，机制与内置 skill 完全一样（Claude `--plugin-dir`、Codex `skills.config`；不能挂载的 CLI 走 session prompt 注入），对仓库和用户 CLI 主目录零写入。右键工作空间 →「工作空间技能」用与项目技能同一套面板管理；技能市场新增「安装到」选择器，默认当前工作空间；项目技能导入把「工作空间」放在第一个来源；启动档多了「启用工作空间 Skill」开关。
+
 ## 0.12.9 - 2026-08-27
 
 Canvas 多了第二类节点：媒体。另外 Cursor 从「只能启动」变成真正可编排的 CLI，终端也不再和 xterm 抢滚轮。
