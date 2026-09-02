@@ -83,10 +83,6 @@ pub fn build_router(state: AppState) -> Router {
             "/api/media/capabilities",
             get(media::get_provider_capabilities),
         )
-        .route(
-            "/api/media/provider-models",
-            post(media::list_provider_models),
-        )
         .route("/api/media/nodes/{node_id}", get(media::get_node))
         .route("/api/media/nodes/{node_id}", put(media::update_node))
         .route("/api/media/nodes/{node_id}", delete(media::delete_node))
