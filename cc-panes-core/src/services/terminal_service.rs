@@ -182,14 +182,72 @@ fn log_launch_stage(
 fn skill_mount_paths_for_profile(
     profile: Option<&LaunchProfile>,
     builtin_skills_dir: &std::path::Path,
+    workspace_skills_root: Option<&std::path::Path>,
 ) -> Vec<String> {
     let disabled = profile
         .map(|profile| profile.skill_policy.mode == LaunchProfileSkillMode::Disabled)
         .unwrap_or(false);
-    if disabled || !builtin_skills_dir.is_dir() {
+    if disabled {
         return Vec::new();
     }
-    vec![builtin_skills_dir.to_string_lossy().into_owned()]
+    let mut paths = Vec::new();
+    if builtin_skills_dir.is_dir() {
+        paths.push(builtin_skills_dir.to_string_lossy().into_owned());
+    }
+    // Workspace skills ride the same per-session mount; the profile can opt out.
+    let include_workspace = profile
+        .map(|profile| profile.skill_policy.include_workspace_skills)
+        .unwrap_or(true);
+    if include_workspace {
+        if let Some(root) = workspace_skills_root.filter(|root| root.is_dir()) {
+            paths.push(root.to_string_lossy().into_owned());
+        }
+    }
+    paths
+}
+
+/// Inline workspace skills for CLIs that cannot mount a plugin folder (Cursor, Gemini, …).
+/// Mount-capable CLIs must not get this — they would see every skill twice.
+fn workspace_skill_session_prompt(
+    profile: Option<&LaunchProfile>,
+    skills: &[crate::services::ProjectSkillContent],
+) -> Option<String> {
+    let disabled = profile
+        .map(|profile| profile.skill_policy.mode == LaunchProfileSkillMode::Disabled)
+        .unwrap_or(false);
+    let include_workspace = profile
+        .map(|profile| profile.skill_policy.include_workspace_skills)
+        .unwrap_or(true);
+    if disabled || !include_workspace || skills.is_empty() {
+        return None;
+    }
+    let mut prompt = String::from(
+        "<ccpanes-workspace-skills>\n\
+         These skills belong to the current CC-Panes workspace. Follow them when they are \
+         relevant to the user's request.\n",
+    );
+    for skill in skills {
+        prompt.push_str("\n## ");
+        prompt.push_str(&skill.skill.name);
+        prompt.push('\n');
+        if let Some(description) = skill
+            .skill
+            .description
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            prompt.push_str(description);
+            prompt.push_str("\n\n");
+        }
+        prompt.push_str("Skill directory: ");
+        prompt.push_str(&skill.skill.dir_path);
+        prompt.push_str("\n\n");
+        prompt.push_str(skill.content.trim());
+        prompt.push('\n');
+    }
+    prompt.push_str("</ccpanes-workspace-skills>");
+    Some(prompt)
 }
 
 fn launch_profile_isolates_mcp(profile: Option<&LaunchProfile>) -> bool {
@@ -2308,6 +2366,17 @@ impl TerminalService {
                 .as_ref()
                 .and_then(|svc| svc.get_workspace(name).ok())
         });
+        // Workspace skills live in this machine's data dir: mount root for Claude/Codex,
+        // inlined prompt for CLIs that cannot mount. Local runtime only.
+        let workspace_skill_service =
+            crate::services::WorkspaceSkillService::new(self.app_paths.clone());
+        let workspace_skill_name = resolved_workspace
+            .as_ref()
+            .map(|w| w.name.as_str())
+            .or(workspace_name)
+            .filter(|name| !name.trim().is_empty() && ssh.is_none() && wsl.is_none());
+        let workspace_skill_mount_root =
+            workspace_skill_name.and_then(|name| workspace_skill_service.mount_root(name));
         let runtime_kind = if ssh.is_some() {
             "ssh"
         } else if wsl.is_some() {
@@ -2540,9 +2609,19 @@ impl TerminalService {
             resolved_profile.as_ref(),
             !effective_skip_mcp,
         );
+        let workspace_skill_prompt = match workspace_skill_name {
+            Some(name)
+                if uses_portable_skill_session_prompt_fallback(&self.cli_registry, cli_tool) =>
+            {
+                let skills = workspace_skill_service.read_all(name).unwrap_or_default();
+                workspace_skill_session_prompt(resolved_profile.as_ref(), &skills)
+            }
+            _ => None,
+        };
         let launch_append_system_prompt = merge_session_prompts([
             append_system_prompt.map(str::to_string),
             portable_bundled_skill_prompt,
+            workspace_skill_prompt,
             profile_skill_prompt.clone(),
         ]);
         if let Some(extra_env) = extra_env {
@@ -3128,6 +3207,7 @@ impl TerminalService {
                     skill_mount_paths: skill_mount_paths_for_profile(
                         resolved_profile.as_ref(),
                         &self.app_paths.builtin_skills_dir(),
+                        workspace_skill_mount_root.as_deref(),
                     ),
                 };
 
@@ -6182,6 +6262,79 @@ mod tests {
                 Err(error) => error,
             };
         assert_eq!(error.code(), Some("PI_RPC_PTY_UNSUPPORTED"));
+    }
+
+    fn minimal_profile() -> LaunchProfile {
+        serde_json::from_value(serde_json::json!({
+            "id": "p1",
+            "name": "p1",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn skill_mount_paths_include_workspace_root_unless_profile_opts_out() {
+        let temp = tempfile::tempdir().unwrap();
+        let builtin = temp.path().join("builtin");
+        let workspace = temp.path().join("ws-skills");
+        std::fs::create_dir_all(&builtin).unwrap();
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let paths = skill_mount_paths_for_profile(None, &builtin, Some(&workspace));
+        assert_eq!(paths.len(), 2);
+        assert!(paths[1].ends_with("ws-skills"));
+
+        let mut profile = minimal_profile();
+        profile.skill_policy.include_workspace_skills = false;
+        let paths = skill_mount_paths_for_profile(Some(&profile), &builtin, Some(&workspace));
+        assert_eq!(paths.len(), 1);
+
+        profile.skill_policy.mode = LaunchProfileSkillMode::Disabled;
+        assert!(
+            skill_mount_paths_for_profile(Some(&profile), &builtin, Some(&workspace)).is_empty()
+        );
+
+        // 目录不存在不挂
+        let missing = temp.path().join("nope");
+        assert_eq!(
+            skill_mount_paths_for_profile(None, &builtin, Some(&missing)).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn workspace_skill_prompt_inlines_skills_and_respects_policy() {
+        let skill = crate::services::ProjectSkillContent {
+            skill: crate::services::ProjectSkill {
+                id: "workspace::review".into(),
+                name: "review".into(),
+                description: Some("Review PRs".into()),
+                root: "workspace".into(),
+                rel_dir: "review".into(),
+                dir_path: "D:/data/workspaces/alpha/skills/skills/review".into(),
+                skill_md_path: String::new(),
+                file_count: 1,
+                has_scripts: false,
+                consumers: vec![],
+            },
+            content: "---\nname: review\n---\nBe strict.".into(),
+            files: vec!["SKILL.md".into()],
+        };
+        let prompt = workspace_skill_session_prompt(None, std::slice::from_ref(&skill)).unwrap();
+        assert!(prompt.starts_with("<ccpanes-workspace-skills>"));
+        assert!(prompt.contains("## review"));
+        assert!(prompt.contains("Review PRs"));
+        assert!(prompt.contains("Skill directory: D:/data/workspaces/alpha/skills/skills/review"));
+        assert!(prompt.contains("Be strict."));
+
+        assert!(workspace_skill_session_prompt(None, &[]).is_none());
+        let mut profile = minimal_profile();
+        profile.skill_policy.include_workspace_skills = false;
+        assert!(
+            workspace_skill_session_prompt(Some(&profile), std::slice::from_ref(&skill)).is_none()
+        );
     }
 
     #[test]

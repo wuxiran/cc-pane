@@ -39,6 +39,7 @@ mod project_cli_hooks_service;
 mod project_context_service;
 mod project_service;
 mod project_skill_service;
+mod workspace_skill_service;
 mod provider_resolver;
 mod provider_service;
 mod quick_command_service;
@@ -168,6 +169,9 @@ pub use project_skill_service::{
     ProjectSkill, ProjectSkillContent, ProjectSkillRoot, ProjectSkillService, PROJECT_SKILL_ROOTS,
 };
 pub use skill_service::SkillService;
+pub use workspace_skill_service::{
+    WorkspaceSkillService, WORKSPACE_SKILL_NATIVE_CONSUMERS, WORKSPACE_SKILL_ROOT,
+};
 pub use spec_service::SpecService;
 pub use ssh_connection_service::SshConnectionService;
 pub use ssh_credential_service::SshCredentialService;

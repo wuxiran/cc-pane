@@ -327,7 +327,7 @@ pub fn validate_skill_name(name: &str) -> AppResult<&str> {
     Ok(trimmed)
 }
 
-fn safe_rel_dir(rel_dir: &str) -> AppResult<PathBuf> {
+pub(crate) fn safe_rel_dir(rel_dir: &str) -> AppResult<PathBuf> {
     let normalized = rel_dir.trim().trim_matches('/').replace('\\', "/");
     if normalized.is_empty() {
         return Err(AppError::from("Skill folder cannot be empty"));
@@ -345,7 +345,7 @@ fn safe_rel_dir(rel_dir: &str) -> AppResult<PathBuf> {
     Ok(out)
 }
 
-fn walk_for_skills(
+pub(crate) fn walk_for_skills(
     root_dir: &Path,
     dir: &Path,
     depth: usize,
@@ -386,6 +386,22 @@ fn describe_skill_dir(
     root_dir: &Path,
     dir: &Path,
 ) -> Option<ProjectSkill> {
+    describe_skill_folder(
+        root.root,
+        root_dir,
+        dir,
+        root.consumers.iter().map(|id| id.to_string()).collect(),
+    )
+}
+
+/// Describe any `<root_dir>/<rel>/SKILL.md` folder under a logical root label. Shared with
+/// the workspace skill store, which has a single root but the same on-disk shape.
+pub(crate) fn describe_skill_folder(
+    root_label: &str,
+    root_dir: &Path,
+    dir: &Path,
+    consumers: Vec<String>,
+) -> Option<ProjectSkill> {
     let skill_md = dir.join(PROJECT_SKILL_FILE);
     let content = std::fs::read_to_string(&skill_md).ok()?;
     let rel_dir = dir
@@ -400,20 +416,20 @@ fn describe_skill_dir(
         .iter()
         .any(|file| file.starts_with("scripts/") || file.ends_with(".py") || file.ends_with(".sh"));
     Some(ProjectSkill {
-        id: format!("{}::{}", root.root, rel_dir),
+        id: format!("{}::{}", root_label, rel_dir),
         name,
         description,
-        root: root.root.to_string(),
+        root: root_label.to_string(),
         rel_dir,
         dir_path: dir.to_string_lossy().to_string(),
         skill_md_path: skill_md.to_string_lossy().to_string(),
         file_count: files.len(),
         has_scripts,
-        consumers: root.consumers.iter().map(|id| id.to_string()).collect(),
+        consumers,
     })
 }
 
-fn list_files_relative(dir: &Path) -> Vec<String> {
+pub(crate) fn list_files_relative(dir: &Path) -> Vec<String> {
     let mut files = Vec::new();
     collect_files(dir, dir, &mut files);
     files.sort_by(|left, right| {
@@ -445,7 +461,7 @@ fn collect_files(base: &Path, dir: &Path, out: &mut Vec<String>) {
     }
 }
 
-fn copy_dir_filtered(source: &Path, target: &Path) -> AppResult<()> {
+pub(crate) fn copy_dir_filtered(source: &Path, target: &Path) -> AppResult<()> {
     std::fs::create_dir_all(target)
         .map_err(|e| AppError::from(format!("Failed to create skill folder: {}", e)))?;
     for entry in std::fs::read_dir(source)
@@ -469,14 +485,14 @@ fn copy_dir_filtered(source: &Path, target: &Path) -> AppResult<()> {
     Ok(())
 }
 
-fn has_frontmatter(content: &str) -> bool {
+pub(crate) fn has_frontmatter(content: &str) -> bool {
     content
         .trim_start_matches('\u{feff}')
         .trim_start()
         .starts_with("---")
 }
 
-fn scaffold_skill_md(name: &str, body: &str) -> String {
+pub(crate) fn scaffold_skill_md(name: &str, body: &str) -> String {
     let body = body.trim();
     let mut out = format!(
         "---\nname: {name}\ndescription: Describe when this skill should be used.\n---\n\n"

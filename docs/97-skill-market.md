@@ -69,6 +69,34 @@
 - 后端单测 36 项（fetcher 路径安全 / 定位 / 限额 / 合并去重 / 分类 / JSON-LD 提取 / 内置清单全量可装校验）
 - `live_install_anthropics_pdf_skill_end_to_end`（`#[ignore]`，`cargo test -p cc-panes --lib -- --ignored live_install`）：真网装 `anthropics/skills` 的 `pdf`，断言 `scripts/` 落盘、目录含 anthropics 发现、搜索含 skills.sh 结果、describe 有描述。本次实跑 8s 通过
 
+## 工作空间技能（workspace-first）
+
+三层里原本只有「项目」（仓库目录，CLI 原生扫）和「用户」（`~/.cc-panes/skills/user`，session prompt 注入）两层有 skill，工作空间是空的。本批补上中间这层，并把默认入口都指向它。
+
+**为什么不能靠 CLI 自己发现**：Claude / Codex / Cursor 只认当前目录和家目录，没有工作空间概念。所以工作空间 skill 必须由 CC-Panes 在启动会话时喂进去——和内置 skill 一模一样的机制：
+
+```text
+~/.cc-panes/workspaces/<name>/skills/        ← 一个合法 Claude 插件目录（AppPaths::workspace_skills_root）
+  .claude-plugin/plugin.json                 ← 首次保存/导入时自动生成
+  skills/<name>/SKILL.md (+ scripts/ …)
+```
+
+| CLI | 投递方式 |
+|-----|---------|
+| Claude Code | `--plugin-dir <root>`（`skill_mount_paths` 多推一个路径，与 builtin 并列） |
+| Codex | 合并进 `-c skills.config=[…]`（同一个数组，读用户 config.toml 合并去重、不回写） |
+| Cursor / Gemini / 其他只支持 session prompt 的 CLI | `<ccpanes-workspace-skills>` 块注入 append_system_prompt，含 `Skill directory:` 路径 |
+
+只在本机 runtime 挂载（SSH/WSL 会话不挂，目录在本机数据目录里）；`WorkspaceSkillService::mount_root` 在工作空间没有任何 skill 或缺 manifest 时返回 `None`，不会挂空目录。启动档技能策略新增 `includeWorkspaceSkills`（默认 true），`Disabled` 模式下与其他 skill 一起全关。**对项目目录和用户 CLI 主目录依旧零写入。**
+
+**入口**
+- 侧栏工作空间右键 →「工作空间技能」：复用 `skill-manager` tab（`projectPath` 空 + `workspaceName`），面板与项目版同一套组件（`SkillScope` 切换），单根不显示目录选择/移动
+- 技能市场页右上「安装到」：默认当前展开的工作空间，可切用户级；已安装计数随目标切换
+- 项目技能的导入对话框多了「工作空间」来源，且**默认先看所属工作空间**；工作空间面板可从用户 / CLI 本机 / 市场 / 项目导入
+- 启动档技能卡多了「启用工作空间 Skill」开关
+
+**后端**：`cc-panes-core::WorkspaceSkillService`（与 `ProjectSkillService` 共用 `describe_skill_folder / walk_for_skills / copy_dir_filtered` 等目录级函数），命令 `list/read/save/delete_workspace_skill`、`import_skill(target, source)`（target = project root | workspace，source 多了 `workspace` 变体），`install_skill_market_entry` 加 `workspaceName` 参数。
+
 ## 项目级技能管理（同批落地）
 
 右键项目 → 「Skill 管理」标签升级为两段：**Agent Skills**（新）与 **Slash 命令**（原 `.claude/commands/*.md` 管理，原样保留）。

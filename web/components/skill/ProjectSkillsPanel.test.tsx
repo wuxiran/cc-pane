@@ -17,6 +17,10 @@ const service = vi.hoisted(() => ({
   deleteProjectSkill: vi.fn(),
   moveProjectSkill: vi.fn(),
   importProjectSkill: vi.fn(),
+  importSkill: vi.fn(),
+  listWorkspaceSkills: vi.fn(),
+  readWorkspaceSkill: vi.fn(),
+  saveWorkspaceSkill: vi.fn(),
   listUserSkills: vi.fn(),
   listExternalSkills: vi.fn(),
   listSkillMarketEntries: vi.fn(),
@@ -76,7 +80,7 @@ describe("ProjectSkillsPanel", () => {
   });
 
   it("按根目录分组列出技能并显示 CLI 可见性", async () => {
-    render(<ProjectSkillsPanel projectPath={PROJECT} />);
+    render(<ProjectSkillsPanel scope={{ kind: "project", projectPath: PROJECT }} />);
     expect(await screen.findByText("pdf")).toBeInTheDocument();
     expect(screen.getByText("deploy")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: ".claude/skills" })).toBeInTheDocument();
@@ -87,7 +91,7 @@ describe("ProjectSkillsPanel", () => {
 
   it("点击技能读取 SKILL.md 并展示目录文件", async () => {
     const user = userEvent.setup();
-    render(<ProjectSkillsPanel projectPath={PROJECT} />);
+    render(<ProjectSkillsPanel scope={{ kind: "project", projectPath: PROJECT }} />);
     await user.click(await screen.findByText("pdf"));
     expect(service.readProjectSkill).toHaveBeenCalledWith(PROJECT, ".claude/skills", "pdf");
     await waitFor(() =>
@@ -98,7 +102,7 @@ describe("ProjectSkillsPanel", () => {
 
   it("新建技能：选目录、校验名字、保存后 toast", async () => {
     const user = userEvent.setup();
-    render(<ProjectSkillsPanel projectPath={PROJECT} />);
+    render(<ProjectSkillsPanel scope={{ kind: "project", projectPath: PROJECT }} />);
     await screen.findByText("pdf");
     await user.click(screen.getByRole("button", { name: i18n.t("projectSkills:newSkill") }));
 
@@ -122,7 +126,7 @@ describe("ProjectSkillsPanel", () => {
   it("删除需要确认，确认后调用后端并 toast", async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    render(<ProjectSkillsPanel projectPath={PROJECT} />);
+    render(<ProjectSkillsPanel scope={{ kind: "project", projectPath: PROJECT }} />);
     await user.click(await screen.findByText("pdf"));
     await waitFor(() =>
       expect((screen.getByLabelText("SKILL.md") as HTMLTextAreaElement).value).toBe(pdfContent.content),
@@ -134,15 +138,49 @@ describe("ProjectSkillsPanel", () => {
     confirmSpy.mockRestore();
   });
 
+  it("工作空间作用域：走 workspace 服务，单根不显示目录选择与移动", async () => {
+    const wsSkill: ProjectSkill = {
+      ...pdf,
+      id: "workspace::review",
+      name: "review",
+      root: "workspace",
+      relDir: "review",
+      consumers: ["claude", "codex"],
+    };
+    service.listWorkspaceSkills.mockResolvedValue([wsSkill]);
+    service.readWorkspaceSkill.mockResolvedValue({ skill: wsSkill, content: "Be strict", files: ["SKILL.md"] });
+    service.saveWorkspaceSkill.mockResolvedValue(wsSkill);
+    const user = userEvent.setup();
+    render(<ProjectSkillsPanel scope={{ kind: "workspace", workspaceName: "alpha" }} />);
+
+    expect(await screen.findByText("review")).toBeInTheDocument();
+    expect(service.listWorkspaceSkills).toHaveBeenCalledWith("alpha");
+    expect(service.listProjectSkills).not.toHaveBeenCalled();
+    expect(screen.getByText(i18n.t("projectSkills:workspaceRootLabel"))).toBeInTheDocument();
+
+    await user.click(screen.getByText("review"));
+    await waitFor(() => expect(service.readWorkspaceSkill).toHaveBeenCalledWith("alpha", "review"));
+    expect(screen.queryByRole("button", { name: new RegExp(i18n.t("projectSkills:editor.moveTo")) })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: i18n.t("projectSkills:newSkill") }));
+    expect(screen.queryByLabelText(i18n.t("projectSkills:root.label"))).not.toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText(i18n.t("projectSkills:editor.namePlaceholder")), "triage");
+    await user.click(screen.getByRole("button", { name: new RegExp(i18n.t("projectSkills:editor.save")) }));
+    await waitFor(() => expect(service.saveWorkspaceSkill).toHaveBeenCalledWith("alpha", "triage", ""));
+  });
+
   it("空项目显示空态并可打开导入对话框", async () => {
     service.listProjectSkills.mockResolvedValue([]);
     const user = userEvent.setup();
-    render(<ProjectSkillsPanel projectPath={PROJECT} />);
+    render(<ProjectSkillsPanel scope={{ kind: "project", projectPath: PROJECT }} />);
     expect(await screen.findByText(i18n.t("projectSkills:empty.title"))).toBeInTheDocument();
     // 头部图标按钮与空态 CTA 同名，点空态那个
     const importButtons = screen.getAllByRole("button", { name: i18n.t("projectSkills:import") });
     await user.click(importButtons[importButtons.length - 1]);
     expect(await screen.findByText(i18n.t("projectSkills:importDialog.title"))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t("projectSkills:importDialog.noUserSkills"))).toBeInTheDocument();
+    // 项目作用域默认先看「工作空间」来源（workspace-first），无所属工作空间时为空
+    expect(screen.getByText(i18n.t("projectSkills:importDialog.noWorkspaceSkills"))).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: i18n.t("projectSkills:importDialog.sourceUser") }));
+    expect(await screen.findByText(i18n.t("projectSkills:importDialog.noUserSkills"))).toBeInTheDocument();
   });
 });

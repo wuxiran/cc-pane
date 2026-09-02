@@ -11,9 +11,20 @@ import { needsDescription } from "./skillMarketModel";
 const SEARCH_DEBOUNCE_MS = 350;
 const DESCRIBE_CONCURRENCY = 3;
 
-export function useSkillMarket() {
+/** 安装目标：用户级（所有工作空间可用）或某个工作空间（workspace-first 默认） */
+export const USER_INSTALL_TARGET = "__user__";
+
+/** 目录型条目落盘时的文件夹名（与后端 repo_skill_leaf 一致） */
+export function entryLeaf(entry: SkillMarketEntry): string {
+  const path = entry.path?.replace(/\/+$/, "");
+  const leaf = path ? path.split("/").pop() : undefined;
+  return leaf || entry.name;
+}
+
+export function useSkillMarket(initialTarget: string = USER_INSTALL_TARGET) {
   const { t } = useTranslation("skillMarket");
   const [catalog, setCatalog] = useState<SkillMarketEntry[]>([]);
+  const [installTarget, setInstallTarget] = useState<string>(initialTarget);
   const [installedIds, setInstalledIds] = useState<ReadonlySet<string>>(() => new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -27,14 +38,24 @@ export function useSkillMarket() {
   const describeQueue = useRef<Set<string>>(new Set());
   const searchSeq = useRef(0);
 
+  // 已安装集合随安装目标切换：用户级看 user skills 的 id，工作空间看其技能目录名
   const reloadInstalled = useCallback(async () => {
     try {
-      const skills = await skillService.listUserSkills();
-      setInstalledIds(new Set(skills.map((skill) => skill.id)));
+      if (installTarget === USER_INSTALL_TARGET) {
+        const skills = await skillService.listUserSkills();
+        setInstalledIds(new Set(skills.map((skill) => skill.id)));
+      } else {
+        const skills = await skillService.listWorkspaceSkills(installTarget);
+        setInstalledIds(new Set(skills.map((skill) => skill.relDir)));
+      }
     } catch (error) {
-      handleErrorSilent(error, "list user skills");
+      handleErrorSilent(error, "list installed skills");
     }
-  }, []);
+  }, [installTarget]);
+
+  useEffect(() => {
+    void reloadInstalled();
+  }, [reloadInstalled]);
 
   const loadCatalog = useCallback(
     async (refresh: boolean) => {
@@ -117,30 +138,47 @@ export function useSkillMarket() {
     }
   }, []);
 
+  const toWorkspace = installTarget !== USER_INSTALL_TARGET;
+  const installedKey = useCallback(
+    (entry: SkillMarketEntry) => (toWorkspace ? entryLeaf(entry) : entry.id),
+    [toWorkspace],
+  );
+
   const install = useCallback(
     async (entry: SkillMarketEntry) => {
       setBusyId(entry.id);
       try {
-        const installed = await skillService.installSkillMarketEntry(entry);
-        setInstalledIds((current) => new Set([...current, installed.id]));
-        toast.success(t("toast.installed", { name: installed.name }));
+        const installed = await skillService.installSkillMarketEntry(
+          entry,
+          toWorkspace ? installTarget : null,
+        );
+        setInstalledIds((current) => new Set([...current, installedKey(entry)]));
+        toast.success(
+          toWorkspace
+            ? t("toast.installedToWorkspace", { name: installed.name, workspace: installTarget })
+            : t("toast.installed", { name: installed.name }),
+        );
       } catch (error) {
         toast.error(t("toast.installFailed", { error: String(error) }));
       } finally {
         setBusyId(null);
       }
     },
-    [t],
+    [t, toWorkspace, installTarget, installedKey],
   );
 
   const remove = useCallback(
     async (entry: SkillMarketEntry) => {
       setBusyId(entry.id);
       try {
-        await skillService.removeUserSkill(entry.id);
+        if (toWorkspace) {
+          await skillService.deleteWorkspaceSkill(installTarget, entryLeaf(entry));
+        } else {
+          await skillService.removeUserSkill(entry.id);
+        }
         setInstalledIds((current) => {
           const next = new Set(current);
-          next.delete(entry.id);
+          next.delete(installedKey(entry));
           return next;
         });
         toast.success(t("toast.removed", { name: entry.name }));
@@ -150,13 +188,16 @@ export function useSkillMarket() {
         setBusyId(null);
       }
     },
-    [t],
+    [t, toWorkspace, installTarget, installedKey],
   );
 
   return {
     entries,
     catalog,
+    installTarget,
+    setInstallTarget,
     installedIds,
+    isInstalled: (entry: SkillMarketEntry) => installedIds.has(installedKey(entry)),
     loading,
     refreshing,
     loadError,

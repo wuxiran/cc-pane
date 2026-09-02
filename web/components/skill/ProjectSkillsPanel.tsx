@@ -1,12 +1,12 @@
-// 项目 Agent Skills 面板：左侧按根目录分组的技能列表（带 CLI 可见性徽章），
-// 右侧编辑器；顶部新建 / 导入 / 刷新。
+// Agent Skills 面板（项目 / 工作空间两种作用域共用）：左侧按根目录分组的技能列表
+// （带 CLI 可见性徽章），右侧编辑器；顶部新建 / 导入 / 刷新。
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FolderGit2, Loader2, Plus, RefreshCw, Sparkles, Download } from "lucide-react";
+import { FolderGit2, Layers, Loader2, Plus, RefreshCw, Sparkles, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import type { ProjectSkill } from "@/types";
+import type { ProjectSkill, SkillScope } from "@/types";
 import ConsumerBadges from "./ConsumerBadges";
 import ProjectSkillEditor from "./ProjectSkillEditor";
 import ProjectSkillImportDialog from "./ProjectSkillImportDialog";
@@ -14,14 +14,15 @@ import { defaultRoot, groupByRoot } from "./projectSkillModel";
 import { useProjectSkills } from "./useProjectSkills";
 
 interface ProjectSkillsPanelProps {
-  projectPath: string;
+  scope: SkillScope;
 }
 
-export default function ProjectSkillsPanel({ projectPath }: ProjectSkillsPanelProps) {
+export default function ProjectSkillsPanel({ scope }: ProjectSkillsPanelProps) {
   const { t } = useTranslation("projectSkills");
-  const model = useProjectSkills(projectPath);
+  const model = useProjectSkills(scope);
   const [creating, setCreating] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const isWorkspace = scope.kind === "workspace";
 
   const groups = useMemo(() => groupByRoot(model.skills, model.roots), [model.skills, model.roots]);
   const preferredRoot = useMemo(() => defaultRoot(model.roots), [model.roots]);
@@ -36,14 +37,15 @@ export default function ProjectSkillsPanel({ projectPath }: ProjectSkillsPanelPr
     model.select(skill.id);
   };
   const showEditor = creating || model.selected !== null;
+  const TitleIcon = isWorkspace ? Layers : FolderGit2;
 
   return (
-    <div className="flex h-full" data-testid="project-skills-panel">
+    <div className="flex h-full" data-testid="project-skills-panel" data-scope={scope.kind}>
       <div className="flex w-72 shrink-0 flex-col border-r border-border">
         <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
           <div className="flex items-center gap-2">
-            <FolderGit2 size={16} className="text-muted-foreground" />
-            <span className="text-sm font-medium">{t("title")}</span>
+            <TitleIcon size={16} className="text-muted-foreground" />
+            <span className="text-sm font-medium">{isWorkspace ? t("workspaceTitle") : t("title")}</span>
             <Badge variant="secondary" className="text-xs">{model.skills.length}</Badge>
           </div>
           <div className="flex items-center gap-0.5">
@@ -69,8 +71,8 @@ export default function ProjectSkillsPanel({ projectPath }: ProjectSkillsPanelPr
           {!model.loading && model.skills.length === 0 && (
             <EmptyState
               icon={Sparkles}
-              title={t("empty.title")}
-              description={t("empty.hint")}
+              title={isWorkspace ? t("workspaceEmpty.title") : t("empty.title")}
+              description={isWorkspace ? t("workspaceEmpty.hint") : t("empty.hint")}
               action={{ label: t("import"), onClick: () => setImportOpen(true) }}
             />
           )}
@@ -78,7 +80,7 @@ export default function ProjectSkillsPanel({ projectPath }: ProjectSkillsPanelPr
             <section key={group.root.root} aria-label={group.root.root}>
               <div className="flex items-center justify-between px-3 pb-1 pt-3">
                 <span className="truncate font-mono text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-                  {group.root.root}
+                  {isWorkspace ? t("workspaceRootLabel") : group.root.root}
                 </span>
                 <ConsumerBadges consumers={group.root.consumers} compact />
               </div>
@@ -117,6 +119,7 @@ export default function ProjectSkillsPanel({ projectPath }: ProjectSkillsPanelPr
         {showEditor ? (
           <ProjectSkillEditor
             roots={model.roots}
+            singleRoot={isWorkspace}
             existing={creating ? null : model.selected}
             defaultRoot={preferredRoot}
             busy={model.busy}
@@ -137,7 +140,7 @@ export default function ProjectSkillsPanel({ projectPath }: ProjectSkillsPanelPr
             <div className="max-w-sm text-center">
               <Sparkles size={32} className="mx-auto mb-3 opacity-40" />
               <p className="text-sm">{t("selectHint")}</p>
-              <p className="mt-1 text-xs text-muted-foreground/60">{t("subtitle")}</p>
+              <p className="mt-1 text-xs text-muted-foreground/60">{isWorkspace ? t("workspaceSubtitle") : t("subtitle")}</p>
             </div>
           </div>
         )}
@@ -146,7 +149,7 @@ export default function ProjectSkillsPanel({ projectPath }: ProjectSkillsPanelPr
       <ProjectSkillImportDialog
         open={importOpen}
         onOpenChange={setImportOpen}
-        projectPath={projectPath}
+        scope={scope}
         roots={model.roots}
         defaultRoot={preferredRoot}
         existingNames={existingIds}

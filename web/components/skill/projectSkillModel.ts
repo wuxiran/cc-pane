@@ -1,6 +1,6 @@
 // 项目 Agent Skills 面板的纯函数：分组、根目录选择、名称校验、CLI 徽章。
 // 与后端 project_skill_service 的规则保持一致（名称字符集、根目录清单来自后端）。
-import type { ProjectSkill, ProjectSkillRoot } from "@/types";
+import { WORKSPACE_SKILL_ROOT, type ProjectSkill, type ProjectSkillRoot } from "@/types";
 
 /** 后端根目录列表不可用时的兜底（与 PROJECT_SKILL_ROOTS 同步） */
 export const FALLBACK_ROOTS: ProjectSkillRoot[] = [
@@ -10,6 +10,16 @@ export const FALLBACK_ROOTS: ProjectSkillRoot[] = [
   { root: ".codex/skills", consumers: ["cursor"], recommended: false },
   { root: ".gemini/skills", consumers: ["gemini"], recommended: false },
 ];
+
+/**
+ * 工作空间技能的虚拟根：单一目录 `<workspace>/skills`，Claude/Codex 原生挂载；
+ * 其他 CLI 通过 session prompt 注入（面板文案另行说明）。
+ */
+export const WORKSPACE_VIRTUAL_ROOT: ProjectSkillRoot = {
+  root: WORKSPACE_SKILL_ROOT,
+  consumers: ["claude", "codex"],
+  recommended: true,
+};
 
 /** CLI id → 身份色 token（复用 --app-cli-* 调色） */
 export const CONSUMER_TOKEN: Record<string, string> = {

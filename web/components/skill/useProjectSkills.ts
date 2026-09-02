@@ -1,6 +1,6 @@
-// 项目 Agent Skills 数据层：根目录清单 / 列表 / 选中内容 / 保存 / 删除 / 移动 / 导入。
-// 所有写操作成功后重新拉列表；选中项若被删除或移动则同步修正。
-import { useCallback, useEffect, useState } from "react";
+// Agent Skills 数据层，按作用域切换后端：项目（仓库多根）或工作空间（单一挂载目录）。
+// 列表 / 选中内容 / 保存 / 删除 / 移动（仅项目）/ 导入；写操作成功后重拉列表并修正选中。
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { skillService } from "@/services/skillService";
@@ -9,23 +9,42 @@ import type {
   ProjectSkillContent,
   ProjectSkillImportSource,
   ProjectSkillRoot,
+  SkillImportTarget,
+  SkillScope,
 } from "@/types";
 import { handleErrorSilent } from "@/utils/errorHandler";
-import { FALLBACK_ROOTS } from "./projectSkillModel";
+import { FALLBACK_ROOTS, WORKSPACE_VIRTUAL_ROOT } from "./projectSkillModel";
 
-export function useProjectSkills(projectPath: string) {
+export function useProjectSkills(scopeInput: SkillScope) {
   const { t } = useTranslation("projectSkills");
-  const [roots, setRoots] = useState<ProjectSkillRoot[]>(FALLBACK_ROOTS);
+  // 调用方常内联构造 scope 对象；按内容键固化引用，回调依赖才不会每次渲染都失效
+  const scopeKey = scopeInput.kind === "project" ? `p:${scopeInput.projectPath}` : `w:${scopeInput.workspaceName}`;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- scopeKey 就是 scopeInput 的内容指纹
+  const scope = useMemo(() => scopeInput, [scopeKey]);
+  const [projectRoots, setProjectRoots] = useState<ProjectSkillRoot[]>(FALLBACK_ROOTS);
   const [skills, setSkills] = useState<ProjectSkill[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<ProjectSkillContent | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const roots = useMemo<ProjectSkillRoot[]>(
+    () => (scope.kind === "workspace" ? [WORKSPACE_VIRTUAL_ROOT] : projectRoots),
+    [scope.kind, projectRoots],
+  );
+
+  const listSkills = useCallback(
+    () =>
+      scope.kind === "project"
+        ? skillService.listProjectSkills(scope.projectPath)
+        : skillService.listWorkspaceSkills(scope.workspaceName),
+    [scope],
+  );
+
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const list = await skillService.listProjectSkills(projectPath);
+      const list = await listSkills();
       setSkills(list);
       return list;
     } catch (error) {
@@ -34,16 +53,17 @@ export function useProjectSkills(projectPath: string) {
     } finally {
       setLoading(false);
     }
-  }, [projectPath, t]);
+  }, [listSkills, t]);
 
   useEffect(() => {
+    if (scope.kind !== "project") return;
     skillService
       .listProjectSkillRoots()
       .then((list) => {
-        if (list.length > 0) setRoots(list);
+        if (list.length > 0) setProjectRoots(list);
       })
       .catch((error) => handleErrorSilent(error, "list project skill roots"));
-  }, []);
+  }, [scope.kind]);
 
   useEffect(() => {
     setSelectedId(null);
@@ -51,7 +71,6 @@ export function useProjectSkills(projectPath: string) {
     void reload();
   }, [reload]);
 
-  // 选中项变化时读取 SKILL.md 与文件清单
   useEffect(() => {
     if (!selectedId) {
       setSelected(null);
@@ -63,23 +82,26 @@ export function useProjectSkills(projectPath: string) {
       return;
     }
     let cancelled = false;
-    skillService
-      .readProjectSkill(projectPath, target.root, target.relDir)
+    const request =
+      scope.kind === "project"
+        ? skillService.readProjectSkill(scope.projectPath, target.root, target.relDir)
+        : skillService.readWorkspaceSkill(scope.workspaceName, target.relDir);
+    request
       .then((content) => {
         if (!cancelled) setSelected(content);
       })
-      .catch((error) => handleErrorSilent(error, "read project skill"));
+      .catch((error) => handleErrorSilent(error, "read skill"));
     return () => {
       cancelled = true;
     };
-  }, [selectedId, skills, projectPath]);
+  }, [selectedId, skills, scope]);
 
   const run = useCallback(
-    async <T,>(action: () => Promise<T>, onOk?: (value: T) => void): Promise<T | null> => {
+    async <T,>(action: () => Promise<T>, onOk?: (value: T) => void | Promise<void>): Promise<T | null> => {
       setBusy(true);
       try {
         const value = await action();
-        onOk?.(value);
+        await onOk?.(value);
         return value;
       } catch (error) {
         toast.error(t("toast.failed", { error: String(error) }));
@@ -94,56 +116,70 @@ export function useProjectSkills(projectPath: string) {
   const save = useCallback(
     (root: string, name: string, content: string) =>
       run(
-        () => skillService.saveProjectSkill(projectPath, root, name, content),
+        () =>
+          scope.kind === "project"
+            ? skillService.saveProjectSkill(scope.projectPath, root, name, content)
+            : skillService.saveWorkspaceSkill(scope.workspaceName, name, content),
         async (saved) => {
           toast.success(t("toast.saved", { name: saved.name }));
           await reload();
           setSelectedId(saved.id);
         },
       ),
-    [projectPath, reload, run, t],
+    [scope, reload, run, t],
   );
 
   const remove = useCallback(
     (skill: ProjectSkill) =>
       run(
-        () => skillService.deleteProjectSkill(projectPath, skill.root, skill.relDir),
+        () =>
+          scope.kind === "project"
+            ? skillService.deleteProjectSkill(scope.projectPath, skill.root, skill.relDir)
+            : skillService.deleteWorkspaceSkill(scope.workspaceName, skill.relDir),
         async () => {
           toast.success(t("toast.deleted", { name: skill.name }));
           if (selectedId === skill.id) setSelectedId(null);
           await reload();
         },
       ),
-    [projectPath, reload, run, selectedId, t],
+    [scope, reload, run, selectedId, t],
   );
 
   const move = useCallback(
-    (skill: ProjectSkill, toRoot: string) =>
-      run(
-        () => skillService.moveProjectSkill(projectPath, skill.root, skill.relDir, toRoot),
+    (skill: ProjectSkill, toRoot: string) => {
+      if (scope.kind !== "project") return Promise.resolve(null);
+      return run(
+        () => skillService.moveProjectSkill(scope.projectPath, skill.root, skill.relDir, toRoot),
         async (moved) => {
           toast.success(t("toast.moved", { name: moved.name, root: toRoot }));
           await reload();
           setSelectedId(moved.id);
         },
-      ),
-    [projectPath, reload, run, t],
+      );
+    },
+    [scope, reload, run, t],
   );
 
   const importSkill = useCallback(
-    (root: string, source: ProjectSkillImportSource, options?: { name?: string; overwrite?: boolean }) =>
-      run(
-        () => skillService.importProjectSkill(projectPath, root, source, options),
+    (root: string, source: ProjectSkillImportSource, options?: { name?: string; overwrite?: boolean }) => {
+      const target: SkillImportTarget =
+        scope.kind === "project"
+          ? { kind: "project", projectPath: scope.projectPath, root }
+          : { kind: "workspace", workspaceName: scope.workspaceName };
+      return run(
+        () => skillService.importSkill(target, source, options),
         async (imported) => {
-          toast.success(t("toast.imported", { name: imported.name, root }));
+          toast.success(t("toast.imported", { name: imported.name, root: imported.root }));
           await reload();
           setSelectedId(imported.id);
         },
-      ),
-    [projectPath, reload, run, t],
+      );
+    },
+    [scope, reload, run, t],
   );
 
   return {
+    scope,
     roots,
     skills,
     loading,

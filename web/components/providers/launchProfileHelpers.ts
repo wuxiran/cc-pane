@@ -212,6 +212,7 @@ export function systemDefaultLaunchProfileDraft(
       disabledSkillIds: [],
       profileSkills: [],
       includeProjectSkills: true,
+      includeWorkspaceSkills: true,
       includeExternalClaudeSkills: true,
       includeExternalCodexSkills: true,
       includeExternalPluginSkills: true,

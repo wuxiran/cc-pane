@@ -5,6 +5,11 @@
   "searching": "Searching…",
   "remoteResultsHint": "Includes live skills.sh results; the full skill folder is downloaded on install",
   "installedCount": "{{count}} installed",
+  "installTarget": {
+    "label": "Install to",
+    "workspace": "Workspace · {{name}}",
+    "user": "User level (all workspaces)"
+  },
   "manageInstalled": "Manage installed",
   "refresh": "Refresh catalog",
   "refreshing": "Refreshing…",
@@ -51,6 +56,7 @@
   },
   "toast": {
     "installed": "Installed {{name}} — enable it in a launch profile's skill policy",
+    "installedToWorkspace": "Installed {{name}} into workspace {{workspace}} — new sessions there pick it up automatically",
     "installFailed": "Install failed: {{error}}",
     "removed": "Uninstalled {{name}}",
     "removeFailed": "Uninstall failed: {{error}}",

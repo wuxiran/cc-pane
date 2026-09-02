@@ -2,12 +2,20 @@
 // 数据全部来自 useSkillMarket；本文件只管布局与交互编排。
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, PackageSearch, RefreshCw, Search, Store, WifiOff } from "lucide-react";
+import { Layers, Loader2, PackageSearch, RefreshCw, Search, Store, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { navigateToSettings } from "@/components/settings/settingsNavigation";
+import { usePanesStore, useWorkspacesStore } from "@/stores";
 import SkillMarketCard from "./SkillMarketCard";
 import {
   filterByCategory,
@@ -15,15 +23,25 @@ import {
   presentCategories,
   type CategoryFilter,
 } from "./skillMarketModel";
-import { useSkillMarket } from "./useSkillMarket";
+import { USER_INSTALL_TARGET, useSkillMarket } from "./useSkillMarket";
 
 const FEATURED_MAX = 8;
 const DESCRIBE_WINDOW = 36;
 
 export default function SkillMarketPage() {
   const { t } = useTranslation("skillMarket");
-  const market = useSkillMarket();
+  const workspaces = useWorkspacesStore((s) => s.workspaces);
+  const expandedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
+  // workspace-first：默认装进当前展开的工作空间；没有展开的才落用户级
+  const initialTarget = useMemo(
+    () => workspaces.find((ws) => ws.id === expandedWorkspaceId)?.name ?? USER_INSTALL_TARGET,
+    // 只取首帧，之后由用户手动切换
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const market = useSkillMarket(initialTarget);
   const [category, setCategory] = useState<CategoryFilter>("all");
+  const targetIsWorkspace = market.installTarget !== USER_INSTALL_TARGET;
 
   const categories = useMemo(() => presentCategories(market.entries), [market.entries]);
   const visible = useMemo(
@@ -61,12 +79,32 @@ export default function SkillMarketPage() {
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <Select value={market.installTarget} onValueChange={market.setInstallTarget}>
+              <SelectTrigger className="h-8 max-w-[240px] text-xs" aria-label={t("installTarget.label")}>
+                <Layers className="mr-1 size-3.5 shrink-0" style={{ color: "var(--app-accent)" }} />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {workspaces.map((ws) => (
+                  <SelectItem key={ws.id} value={ws.name} className="text-xs">
+                    {t("installTarget.workspace", { name: ws.alias || ws.name })}
+                  </SelectItem>
+                ))}
+                <SelectItem value={USER_INSTALL_TARGET} className="text-xs">
+                  {t("installTarget.user")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
             <Button
               type="button"
               variant="outline"
               size="sm"
               className="h-8 text-xs"
-              onClick={() => navigateToSettings({ paneId: "skills" })}
+              onClick={() =>
+                targetIsWorkspace
+                  ? usePanesStore.getState().openWorkspaceSkillManager(market.installTarget, market.installTarget)
+                  : navigateToSettings({ paneId: "skills" })
+              }
             >
               {t("installedCount", { count: market.installedIds.size })}
               <span className="sr-only">{t("manageInstalled")}</span>
@@ -129,7 +167,7 @@ export default function SkillMarketPage() {
                       key={`featured-${entry.id}`}
                       entry={entry}
                       featured
-                      installed={market.installedIds.has(entry.id)}
+                      installed={market.isInstalled(entry)}
                       busy={market.busyId === entry.id}
                       onInstall={market.install}
                       onRemove={market.remove}
@@ -181,7 +219,7 @@ export default function SkillMarketPage() {
                     <SkillMarketCard
                       key={entry.id}
                       entry={entry}
-                      installed={market.installedIds.has(entry.id)}
+                      installed={market.isInstalled(entry)}
                       busy={market.busyId === entry.id}
                       onInstall={market.install}
                       onRemove={market.remove}

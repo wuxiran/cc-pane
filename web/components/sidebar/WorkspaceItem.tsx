@@ -2,19 +2,8 @@ import { useCallback, useMemo, useState, type ButtonHTMLAttributes } from "react
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
-  ChevronRight,
-  Files,
-  Folder,
-  FolderOpen,
-  FolderSearch,
-  GitBranch,
-  Globe,
-  GripVertical,
-  House,
-  Settings2,
-  Star,
-  Terminal,
-  Trash2,
+  ChevronRight, Files, Folder, FolderOpen, FolderSearch, GitBranch, Globe,
+  GripVertical, House, Settings2, Star, Terminal, Trash2,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -29,6 +18,7 @@ import {
 } from "@/components/ui/context-menu";
 import { useLaunchProfilesStore, useProvidersStore, useSettingsStore, useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import AgentChatMenuItem from "./AgentChatMenuItem";
+import WorkspaceSkillsMenuItem from "./WorkspaceSkillsMenuItem";
 import { projectCliHooksService } from "@/services";
 import { providerService } from "@/services/providerService";
 import { isTauriRuntime } from "@/services/runtime";
@@ -561,6 +551,7 @@ export default function WorkspaceItem({
           <ContextMenuItem onClick={() => onOpenEnvironment(workspace)}>
             <Settings2 /> {t("workspaceEnv.edit", { defaultValue: "编辑运行环境" })}
           </ContextMenuItem>
+          <WorkspaceSkillsMenuItem workspace={workspace} />
 
           <ContextMenuSeparator />
 

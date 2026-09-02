@@ -38,6 +38,7 @@
   "videoGeneration": "Video generation",
   "mediaGeneration": "Media generation",
   "skillMarket": "Skill market",
+  "workspaceSkills": "Workspace skills",
   "tools": "Tools",
   "moduleNames": {
     "ssh": "SSH Machines",

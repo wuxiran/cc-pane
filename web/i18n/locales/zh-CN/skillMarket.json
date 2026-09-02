@@ -5,6 +5,11 @@
   "searching": "搜索中…",
   "remoteResultsHint": "含 skills.sh 联网结果，安装时按需下载整个技能目录",
   "installedCount": "已安装 {{count}}",
+  "installTarget": {
+    "label": "安装到",
+    "workspace": "工作空间 · {{name}}",
+    "user": "用户级（所有工作空间）"
+  },
   "manageInstalled": "管理已安装",
   "refresh": "刷新目录",
   "refreshing": "刷新中…",
@@ -51,6 +56,7 @@
   },
   "toast": {
     "installed": "已安装 {{name}}，在启动档的技能策略里勾选即可启用",
+    "installedToWorkspace": "已装进工作空间 {{workspace}}：{{name}}，该工作空间下的新会话自动生效",
     "installFailed": "安装失败：{{error}}",
     "removed": "已卸载 {{name}}",
     "removeFailed": "卸载失败：{{error}}",

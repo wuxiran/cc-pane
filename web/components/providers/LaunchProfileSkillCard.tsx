@@ -418,6 +418,13 @@ export default function LaunchProfileSkillCard({
                     />
                     {t("enableProjectSkill")}
                   </label>
+                  <label className="flex cursor-pointer items-center gap-2 text-xs" style={{ color: "var(--app-text-secondary)" }}>
+                    <Checkbox
+                      checked={draft.skillPolicy.includeWorkspaceSkills !== false}
+                      onCheckedChange={(next) => setDraft((current) => ({ ...current, skillPolicy: { ...current.skillPolicy, includeWorkspaceSkills: next === true } }))}
+                    />
+                    {t("enableWorkspaceSkill")}
+                  </label>
                   <Button
                     size="xs"
                     variant="outline"

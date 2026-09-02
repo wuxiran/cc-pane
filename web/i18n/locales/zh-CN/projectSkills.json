@@ -3,6 +3,13 @@
   "tabSlashCommands": "Slash 命令",
   "title": "项目技能",
   "subtitle": "存放在仓库里的 SKILL.md 技能目录，随代码一起提交，团队共享。放在哪个目录决定哪些 CLI 能看到它。",
+  "workspaceTitle": "工作空间技能",
+  "workspaceSubtitle": "属于这个工作空间、对其下所有项目生效的技能。存在 CC-Panes 数据目录里，启动会话时按会话挂载（Claude / Codex 原生，其余 CLI 注入提示词），不写入任何仓库或 CLI 主目录。",
+  "workspaceRootLabel": "工作空间目录（按会话挂载）",
+  "workspaceEmpty": {
+    "title": "这个工作空间还没有技能",
+    "hint": "新建一个，或从技能市场 / 已安装 / 项目导入——对工作空间里所有项目生效"
+  },
   "count": "{{count}} 个",
   "newSkill": "新建技能",
   "import": "导入",
@@ -48,6 +55,8 @@
     "sourceExternal": "CLI 本机",
     "sourceMarket": "技能市场",
     "sourceProject": "其他项目",
+    "sourceWorkspace": "工作空间",
+    "noWorkspaceSkills": "该工作空间没有技能",
     "searchMarket": "搜索技能市场…",
     "searching": "搜索中…",
     "noUserSkills": "没有已安装的用户技能，先去技能市场装一个",

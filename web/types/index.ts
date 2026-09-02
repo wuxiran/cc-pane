@@ -246,7 +246,10 @@ export type {
   ProjectSkillContent,
   ProjectSkillImportSource,
   ProjectSkillRoot,
+  SkillImportTarget,
+  SkillScope,
 } from "./skill";
+export { WORKSPACE_SKILL_ROOT } from "./skill";
 export type {
   FsEntry,
   DirListing,

@@ -27,6 +27,8 @@ import { moveTargets, validateSkillName } from "./projectSkillModel";
 
 interface ProjectSkillEditorProps {
   roots: ProjectSkillRoot[];
+  /** 工作空间作用域：只有一个目录，不显示目录选择与「移动到」 */
+  singleRoot?: boolean;
   /** null = 新建 */
   existing: ProjectSkillContent | null;
   defaultRoot: string;
@@ -39,6 +41,7 @@ interface ProjectSkillEditorProps {
 
 export default function ProjectSkillEditor({
   roots,
+  singleRoot = false,
   existing,
   defaultRoot,
   busy,
@@ -98,6 +101,7 @@ export default function ProjectSkillEditor({
       <div className="flex items-start gap-3 border-b border-border px-4 py-2.5">
         {isNew ? (
           <div className="flex flex-1 flex-wrap items-end gap-3">
+            {!singleRoot && (
             <div className="min-w-[200px] space-y-1">
               <Label className="text-xs">{t("root.label")}</Label>
               <Select value={root} onValueChange={setRoot}>
@@ -116,6 +120,7 @@ export default function ProjectSkillEditor({
                 </SelectContent>
               </Select>
             </div>
+            )}
             <div className="min-w-[220px] flex-1 space-y-1">
               <Label className="text-xs">{t("editor.name")}</Label>
               <Input
@@ -138,14 +143,15 @@ export default function ProjectSkillEditor({
               <span className="truncate font-mono text-sm font-medium">{existing.skill.name}</span>
               <ConsumerBadges consumers={existing.skill.consumers} />
             </div>
-            <div className="mt-0.5 truncate font-mono text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-              {existing.skill.root}/{existing.skill.relDir}
+            <div className="mt-0.5 truncate font-mono text-[11px]" style={{ color: "var(--app-text-tertiary)" }} title={existing.skill.dirPath}>
+              {singleRoot ? existing.skill.dirPath : `${existing.skill.root}/${existing.skill.relDir}`}
             </div>
           </div>
         )}
         <div className="flex shrink-0 items-center gap-1">
           {!isNew && (
             <>
+              {!singleRoot && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button size="sm" variant="ghost" disabled={busy || targets.length === 0}>
@@ -161,6 +167,7 @@ export default function ProjectSkillEditor({
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+              )}
               <Button size="sm" variant="ghost" onClick={openFolder} title={t("editor.openFolder")} aria-label={t("editor.openFolder")}>
                 <FolderOpen size={14} />
               </Button>

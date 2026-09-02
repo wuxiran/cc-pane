@@ -38,6 +38,7 @@
   "videoGeneration": "生视频",
   "mediaGeneration": "媒体生成",
   "skillMarket": "技能市场",
+  "workspaceSkills": "工作空间技能",
   "tools": "工具",
   "moduleNames": {
     "ssh": "SSH 机器",

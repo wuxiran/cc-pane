@@ -3,6 +3,13 @@
   "tabSlashCommands": "Slash commands",
   "title": "Project skills",
   "subtitle": "SKILL.md folders that live in the repository, committed with the code and shared by the team. The folder they sit in decides which CLIs can see them.",
+  "workspaceTitle": "Workspace skills",
+  "workspaceSubtitle": "Skills owned by this workspace and available to every project in it. Stored in the CC-Panes data directory and mounted per session (natively for Claude / Codex, injected into the prompt for other CLIs) — nothing is written to any repo or CLI home.",
+  "workspaceRootLabel": "Workspace folder (mounted per session)",
+  "workspaceEmpty": {
+    "title": "No skills in this workspace yet",
+    "hint": "Create one, or import from the skill market / installed skills / a project — it applies to every project here"
+  },
   "count": "{{count}}",
   "newSkill": "New skill",
   "import": "Import",
@@ -48,6 +55,8 @@
     "sourceExternal": "CLI home",
     "sourceMarket": "Skill market",
     "sourceProject": "Other projects",
+    "sourceWorkspace": "Workspace",
+    "noWorkspaceSkills": "That workspace has no skills",
     "searchMarket": "Search the skill market…",
     "searching": "Searching…",
     "noUserSkills": "No installed user skills — grab one from the skill market first",

@@ -104,6 +104,7 @@ use commands::{
     delete_todo,
     delete_todo_subtask,
     delete_workspace,
+    delete_workspace_skill,
     delete_workspace_snapshot,
     describe_skill_market_entry,
     detect_claude_session,
@@ -233,6 +234,7 @@ use commands::{
     handle_terminal_exit_spec_by_session,
     import_project_skill,
     import_shared_mcp_from_claude,
+    import_skill,
     // Wallpaper 命令
     import_wallpaper,
     init_ccpanes,
@@ -301,6 +303,7 @@ use commands::{
     list_todo_activities,
     list_user_skills,
     list_wallpapers,
+    list_workspace_skills,
     list_workspace_snapshots,
     // Workspace 命令
     list_workspaces,
@@ -338,6 +341,7 @@ use commands::{
     read_config_dir_info,
     read_project_skill,
     read_session_state,
+    read_workspace_skill,
     reconcile_plan_collaboration,
     record_ai_panel_event,
     record_terminal_input,
@@ -404,6 +408,7 @@ use commands::{
     // Session Restore 命令
     save_terminal_sessions,
     save_workflow,
+    save_workspace_skill,
     scan_broken_sessions,
     // Process Monitor 命令
     scan_claude_processes,
@@ -1709,6 +1714,9 @@ pub fn run() {
     let mcp_config_service = Arc::new(McpConfigService::new());
     let skill_service = Arc::new(SkillService::new());
     let project_skill_service = Arc::new(cc_panes_core::services::ProjectSkillService::new());
+    let workspace_skill_service = Arc::new(cc_panes_core::services::WorkspaceSkillService::new(
+        app_paths.clone(),
+    ));
     let skill_market_service = Arc::new(SkillMarketService::new(
         app_paths.skills_dir(),
         app_paths.user_skills_dir(),
@@ -1879,6 +1887,7 @@ pub fn run() {
         .manage(mcp_config_service)
         .manage(skill_service)
         .manage(project_skill_service)
+        .manage(workspace_skill_service)
         .manage(skill_market_service)
         .manage(external_skill_registry)
         .manage(plan_service)
@@ -3287,6 +3296,11 @@ pub fn run() {
             delete_project_skill,
             move_project_skill,
             import_project_skill,
+            import_skill,
+            list_workspace_skills,
+            read_workspace_skill,
+            save_workspace_skill,
+            delete_workspace_skill,
             parse_import_url,
             execute_import,
             take_pending_import,

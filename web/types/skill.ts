@@ -102,7 +102,20 @@ export type ProjectSkillImportSource =
   | { kind: "user"; id: string }
   | { kind: "external"; id: string }
   | { kind: "project"; projectPath: string; root: string; relDir: string }
+  | { kind: "workspace"; workspaceName: string; relDir: string }
   | { kind: "market"; entry: SkillMarketEntry };
+
+/** 技能面板作用域：项目（仓库里的多根目录）或工作空间（单一插件目录，按会话挂载） */
+export type SkillScope =
+  | { kind: "project"; projectPath: string }
+  | { kind: "workspace"; workspaceName: string };
+
+export type SkillImportTarget =
+  | { kind: "project"; projectPath: string; root: string }
+  | { kind: "workspace"; workspaceName: string };
+
+/** 工作空间技能在 ProjectSkill.root 里的逻辑根标签（与后端 WORKSPACE_SKILL_ROOT 一致） */
+export const WORKSPACE_SKILL_ROOT = "workspace";
 
 /** A CLI-native or session-level transport for portable CC-Panes Skills. */
 export type SkillDeliveryMode = "nativeCommand" | "nativeSkill" | "piSkill" | "sessionPrompt";

@@ -209,6 +209,7 @@
   "projectSkillWorkspaceHint": "项目 Skill 会写入项目的 .claude/commands，并随当前工作空间参与预览。",
   "projectSkillSelectHint": "左侧选择工作空间后，可以在这里新增或编辑项目 Skill。",
   "enableProjectSkill": "启用项目 Skill",
+  "enableWorkspaceSkill": "启用工作空间 Skill",
   "addProjectSkill": "新增项目 Skill",
   "addOrEdit": "新增 / 编辑",
   "noProjects": "当前工作空间还没有项目。",

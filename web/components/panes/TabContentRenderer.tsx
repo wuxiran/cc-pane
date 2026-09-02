@@ -178,7 +178,7 @@ export default memo(function TabContentRenderer({
     case "skill-manager":
       return (
         <LazyContent>
-          <ProjectSkillsManager projectPath={tab.projectPath} />
+          <ProjectSkillsManager projectPath={tab.projectPath} workspaceName={tab.workspaceName} />
         </LazyContent>
       );
 

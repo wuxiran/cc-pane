@@ -31,16 +31,17 @@ import type {
   ProjectSkillImportSource,
   ProjectSkillRoot,
   SkillMarketEntry,
+  SkillScope,
 } from "@/types";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import { suggestSkillName, validateSkillName } from "./projectSkillModel";
 
-type SourceKind = "user" | "external" | "market" | "project";
+type SourceKind = "user" | "external" | "market" | "project" | "workspace";
 
 interface ProjectSkillImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  projectPath: string;
+  scope: SkillScope;
   roots: ProjectSkillRoot[];
   defaultRoot: string;
   existingNames: ReadonlySet<string>;
@@ -63,7 +64,7 @@ interface Candidate {
 export default function ProjectSkillImportDialog({
   open,
   onOpenChange,
-  projectPath,
+  scope,
   roots,
   defaultRoot,
   existingNames,
@@ -71,7 +72,12 @@ export default function ProjectSkillImportDialog({
   onImport,
 }: ProjectSkillImportDialogProps) {
   const { t } = useTranslation("projectSkills");
-  const [kind, setKind] = useState<SourceKind>("user");
+  const isWorkspaceScope = scope.kind === "workspace";
+  const projectPath = scope.kind === "project" ? scope.projectPath : "";
+  // 项目作用域默认先看工作空间技能（workspace-first）；工作空间作用域没有这个来源
+  const [kind, setKind] = useState<SourceKind>(isWorkspaceScope ? "user" : "workspace");
+  const [otherWorkspace, setOtherWorkspace] = useState<string>("");
+  const [workspaceSkills, setWorkspaceSkills] = useState<ProjectSkill[]>([]);
   const [root, setRoot] = useState(defaultRoot);
   const [nameOverride, setNameOverride] = useState("");
   const [overwrite, setOverwrite] = useState(false);
@@ -93,17 +99,41 @@ export default function ProjectSkillImportDialog({
         .filter((project) => project.path !== projectPath),
     [workspaces, projectPath],
   );
+  const workspaceOptions = useMemo(
+    () =>
+      workspaces.filter(
+        (workspace) => !(scope.kind === "workspace" && workspace.name === scope.workspaceName),
+      ),
+    [workspaces, scope],
+  );
+  // 项目作用域：默认选中包含该项目的工作空间
+  const owningWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.projects.some((project) => project.path === projectPath))?.name ?? "",
+    [workspaces, projectPath],
+  );
 
   useEffect(() => {
     if (!open) return;
     setRoot(defaultRoot);
     setNameOverride("");
+    setOtherWorkspace(owningWorkspace);
     skillService.listUserSkills().then(setUserSkills).catch((e) => handleErrorSilent(e, "list user skills"));
     skillService
       .listExternalSkills()
       .then((list) => setExternal(list.filter((skill) => skill.path.replace(/\\/g, "/").endsWith("/SKILL.md"))))
       .catch((e) => handleErrorSilent(e, "list external skills"));
-  }, [open, defaultRoot]);
+  }, [open, defaultRoot, owningWorkspace]);
+
+  useEffect(() => {
+    if (!open || kind !== "workspace" || !otherWorkspace) {
+      setWorkspaceSkills([]);
+      return;
+    }
+    skillService
+      .listWorkspaceSkills(otherWorkspace)
+      .then(setWorkspaceSkills)
+      .catch((e) => handleErrorSilent(e, "list workspace skills"));
+  }, [open, kind, otherWorkspace]);
 
   // 市场：空串取目录，否则防抖搜索
   useEffect(() => {
@@ -165,19 +195,35 @@ export default function ProjectSkillImportDialog({
           meta: `${skill.root}/${skill.relDir}`,
           source: { kind: "project", projectPath: otherProject, root: skill.root, relDir: skill.relDir },
         }));
+      case "workspace":
+        return workspaceSkills.map((skill) => ({
+          key: `workspace:${otherWorkspace}:${skill.id}`,
+          name: skill.name,
+          description: skill.description,
+          meta: otherWorkspace,
+          source: { kind: "workspace", workspaceName: otherWorkspace, relDir: skill.relDir },
+        }));
       default:
         return [];
     }
-  }, [kind, userSkills, external, market, otherSkills, otherProject]);
+  }, [kind, userSkills, external, market, otherSkills, otherProject, workspaceSkills, otherWorkspace]);
 
-  const emptyKey =
-    kind === "user"
-      ? "importDialog.noUserSkills"
-      : kind === "external"
-        ? "importDialog.noExternalSkills"
-        : kind === "market"
-          ? "importDialog.noMarketResults"
-          : "importDialog.noProjectSkills";
+  const EMPTY_KEYS: Record<SourceKind, string> = {
+    user: "importDialog.noUserSkills",
+    external: "importDialog.noExternalSkills",
+    market: "importDialog.noMarketResults",
+    project: "importDialog.noProjectSkills",
+    workspace: "importDialog.noWorkspaceSkills",
+  };
+  const emptyKey = EMPTY_KEYS[kind];
+
+  const sourceTabs = [
+    ...(isWorkspaceScope ? [] : [{ value: "workspace" as SourceKind, label: t("importDialog.sourceWorkspace") }]),
+    { value: "user" as SourceKind, label: t("importDialog.sourceUser") },
+    { value: "external" as SourceKind, label: t("importDialog.sourceExternal") },
+    { value: "market" as SourceKind, label: t("importDialog.sourceMarket") },
+    { value: "project" as SourceKind, label: t("importDialog.sourceProject") },
+  ];
 
   const overrideState = nameOverride.trim() ? validateSkillName(nameOverride) : "ok";
 
@@ -204,7 +250,8 @@ export default function ProjectSkillImportDialog({
           <DialogDescription>{t("importDialog.description")}</DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className={`grid gap-3 ${isWorkspaceScope ? "grid-cols-1" : "grid-cols-2"}`}>
+          {!isWorkspaceScope && (
           <div className="space-y-1">
             <Label className="text-xs">{t("importDialog.targetRoot")}</Label>
             <Select value={root} onValueChange={setRoot}>
@@ -223,6 +270,7 @@ export default function ProjectSkillImportDialog({
               </SelectContent>
             </Select>
           </div>
+          )}
           <div className="space-y-1">
             <Label className="text-xs">{t("importDialog.nameOverride")}</Label>
             <Input
@@ -236,18 +284,22 @@ export default function ProjectSkillImportDialog({
         </div>
         <CheckboxRow checked={overwrite} onCheckedChange={setOverwrite} label={t("importDialog.overwrite")} />
 
-        <SegmentedTabs<SourceKind>
-          size="sm"
-          value={kind}
-          onValueChange={setKind}
-          items={[
-            { value: "user", label: t("importDialog.sourceUser") },
-            { value: "external", label: t("importDialog.sourceExternal") },
-            { value: "market", label: t("importDialog.sourceMarket") },
-            { value: "project", label: t("importDialog.sourceProject") },
-          ]}
-        />
+        <SegmentedTabs<SourceKind> size="sm" value={kind} onValueChange={setKind} items={sourceTabs} />
 
+        {kind === "workspace" && (
+          <Select value={otherWorkspace} onValueChange={setOtherWorkspace}>
+            <SelectTrigger className="h-8 text-xs" aria-label={t("importDialog.sourceWorkspace")}>
+              <SelectValue placeholder={t("importDialog.sourceWorkspace")} />
+            </SelectTrigger>
+            <SelectContent>
+              {workspaceOptions.map((workspace) => (
+                <SelectItem key={workspace.id} value={workspace.name} className="text-xs">
+                  {workspace.alias || workspace.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         {kind === "market" && (
           <Input
             value={query}
@@ -284,7 +336,7 @@ export default function ProjectSkillImportDialog({
           ) : (
             candidates.map((candidate) => {
               const target = targetNameFor(candidate);
-              const exists = existingNames.has(`${root}::${target}`);
+              const exists = existingNames.has(`${isWorkspaceScope ? "workspace" : root}::${target}`);
               const importing = importingKey === candidate.key;
               return (
                 <div key={candidate.key} className="flex items-center gap-3 border-b border-border/50 px-3 py-2 last:border-b-0">
