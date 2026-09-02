@@ -82,18 +82,18 @@ describe("LayoutTypeCounts", () => {
     expect(onJump).toHaveBeenNthCalledWith(2, "pane-x", "b1");
   });
 
-  // 卡片本身是 role="tab" 的按钮，计数桁若不拦事件会连带触发切布局
+  // 卡片本身是 role="tab"，计数桁若不拦事件会连带触发切布局
   it("点击不冒泡到外层卡片", async () => {
     const user = userEvent.setup();
     const onCardClick = vi.fn();
     render(
-      <button type="button" onClick={onCardClick}>
+      <div role="tab" tabIndex={0} onClick={onCardClick}>
         <LayoutTypeCounts
           summary={summaryOf({ files: [ref("e1")] })}
           selected={false}
           onJump={vi.fn()}
         />
-      </button>,
+      </div>,
     );
 
     await user.click(screen.getByRole("button", { name: /1 (文件|files)/i }));

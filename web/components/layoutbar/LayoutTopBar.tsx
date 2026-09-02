@@ -3,11 +3,10 @@
 // layouts 状态（usePanesStore），只是展示位置不同。右端按钮可切回 corner 模式。
 // 布局预设收在 LayoutPresetPicker 的浮层里，不再常驻一排图标。
 import { useEffect, useRef, useState } from "react";
-import { ArrowDownLeft, Command, Plus, Rows2, Rows3 } from "lucide-react";
+import { Command, Plus } from "lucide-react";
 import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { focusTab } from "@/hooks/useFocusTab";
 import { asTabId } from "@/types/ids";
 import {
@@ -19,7 +18,7 @@ import {
 import { matchLayoutPreset } from "@/stores/usePanesStore";
 import type { LayoutEntry } from "@/types";
 import LayoutDeleteDialog, { summarizeLayoutDelete, type DeleteSummary } from "./LayoutDeleteDialog";
-import CanvasDisplayToggle from "@/components/canvas/CanvasDisplayToggle";
+import LayoutViewMenu from "./LayoutViewMenu";
 import LayoutPresetPicker from "./LayoutPresetPicker";
 import SortableLayoutTab from "./SortableLayoutTab";
 import { deriveLayoutStatusSummary } from "./layoutStatusSummary";
@@ -39,7 +38,6 @@ export default function LayoutTopBar() {
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
   const density = useLayoutUiStore((s) => s.layoutBarDensity);
   const setDensity = useLayoutUiStore((s) => s.setLayoutBarDensity);
-  const setSwitcherMode = useLayoutUiStore((s) => s.setSwitcherMode);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
@@ -55,10 +53,6 @@ export default function LayoutTopBar() {
   const currentLayoutStarred =
     layouts.find((layout) => layout.id === currentLayoutId)?.kind === "starred";
   const matchedPreset = currentLayoutStarred ? null : matchLayoutPreset(liveRootPane);
-  const nextDensity = density === "comfortable" ? "compact" : "comfortable";
-  const densityToggleLabel = t(
-    nextDensity === "compact" ? "layoutDensityCompact" : "layoutDensityComfortable",
-  );
 
   function selectLayout(layoutId: string) {
     setAppViewMode("panes");
@@ -167,13 +161,13 @@ export default function LayoutTopBar() {
                 statusSummary={statusSummary}
                 statusMap={statusMap}
                 idleLabel={t("layoutNoSessions")}
-                densityToggleLabel={densityToggleLabel}
+                densityToggleLabel={t(density === "comfortable" ? "layoutDensityCompact" : "layoutDensityComfortable")}
                 deletable={layout.kind !== "starred" && !deletingLastLayout}
                 deleteLabel={t("deleteLayout")}
                 onSelect={() => selectLayout(layout.id)}
                 onStartRename={() => startRename(layout)}
                 onRequestDelete={() => requestDelete(layout)}
-                onToggleDensity={() => setDensity(nextDensity)}
+                onToggleDensity={() => setDensity(density === "comfortable" ? "compact" : "comfortable")}
                 onJumpToTab={(paneId, tabId) => jumpToTab(layout.id, paneId, tabId)}
               />
             );
@@ -201,43 +195,10 @@ export default function LayoutTopBar() {
       {currentLayoutStarred ? null : <LayoutPresetPicker matchedPreset={matchedPreset} />}
 
       <div
-        className="ml-1 flex flex-shrink-0 items-center border-l pl-1.5"
+        className={`flex flex-shrink-0 items-center border-l pl-1.5 ${currentLayoutStarred ? "ml-auto" : "ml-1"}`}
         style={{ borderColor: "var(--app-border)" }}
       >
-        <CanvasDisplayToggle />
-      </div>
-
-      <div
-        className={`flex flex-shrink-0 items-center border-l pl-1.5 ${
-          currentLayoutStarred ? "ml-auto" : "ml-1"
-        }`}
-        style={{ borderColor: "var(--app-border)" }}
-      >
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={t("layoutModeCorner")}
-              className="flex h-[26px] w-[26px] items-center justify-center rounded-md transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
-              style={{ color: "var(--app-text-tertiary)" }}
-              onClick={() => setSwitcherMode("corner")}
-            >
-              <ArrowDownLeft className="h-3.5 w-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("layoutModeCorner")}</TooltipContent>
-        </Tooltip>
-        <IconTooltipButton
-          label={densityToggleLabel}
-          className="h-[26px] w-[26px] p-0 text-[var(--app-text-tertiary)]"
-          onClick={() => setDensity(nextDensity)}
-        >
-          {density === "comfortable" ? (
-            <Rows2 className="h-3.5 w-3.5" />
-          ) : (
-            <Rows3 className="h-3.5 w-3.5" />
-          )}
-        </IconTooltipButton>
+        <LayoutViewMenu />
       </div>
 
       <LayoutDeleteDialog

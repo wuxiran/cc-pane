@@ -1,10 +1,10 @@
 import type { RefObject, PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
-import { PanelTop, Pin, PinOff, Plus } from "lucide-react";
+import { LayoutPanelTop, Network, PanelTop, Pin, PinOff, Plus } from "lucide-react";
 import { DndContext, closestCenter, type DragEndEvent, type SensorDescriptor, type SensorOptions } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useLayoutUiStore, usePanesStore } from "@/stores";
+import { useActivityBarStore, useCanvasDisplayStore, useLayoutUiStore, usePanesStore } from "@/stores";
 import type { TFunction } from "i18next";
 import type { LayoutEntry, PaneNode, TerminalStatusInfo } from "@/types";
 import { SortableLayoutRow } from "./SortableLayoutRow";
@@ -70,6 +70,10 @@ export function LayoutSelectorPanel({
   const setSwitcherMode = useLayoutUiStore((s) => s.setSwitcherMode);
   const selectTab = usePanesStore((s) => s.selectTab);
   const setActivePane = usePanesStore((s) => s.setActivePane);
+  const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
+  const canvasMode = useCanvasDisplayStore((s) => s.mode);
+  const setCanvasMode = useCanvasDisplayStore((s) => s.setMode);
+  const canvasVisible = canvasMode === "canvas";
 
   // 类型计数桁的跳转：先切到目标布局（selectLayout 已含切视图），再挪 active 指针。
   // 只改指针不动挂载——keep-alive 靠 display:none，卸载会重建终端。
@@ -123,6 +127,31 @@ export function LayoutSelectorPanel({
             <TooltipTrigger asChild>
               <button
                 type="button"
+                aria-label={canvasVisible ? t("hideTerminalCanvas") : t("showTerminalCanvas")}
+                aria-pressed={canvasVisible}
+                data-testid="layout-selector-canvas"
+                className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--app-hover)] ${
+                  canvasVisible ? "text-[var(--app-accent)]" : ""
+                }`}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => {
+                  setAppViewMode("panes");
+                  setCanvasMode(canvasVisible ? "panel" : "canvas");
+                }}
+              >
+                {canvasVisible
+                  ? <LayoutPanelTop className="h-4 w-4" />
+                  : <Network className="h-4 w-4" />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {canvasVisible ? t("hideTerminalCanvas") : t("showTerminalCanvas")}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
                 aria-label={panelPinned ? t("unpinLayoutPanel") : t("pinLayoutPanel")}
                 aria-pressed={panelPinned}
                 className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--app-hover)] ${
@@ -161,7 +190,7 @@ export function LayoutSelectorPanel({
         onDragCancel={handleLayoutDragCancel}
       >
         <SortableContext items={layouts.map((layout) => layout.id)} strategy={verticalListSortingStrategy}>
-          <div className="flex max-h-[320px] flex-col gap-1 overflow-y-auto">
+          <div className="app-scrollbar flex max-h-[320px] flex-col gap-1 overflow-y-auto">
             {layouts.map((layout) => {
               const selected = layout.id === currentLayoutId;
               return (

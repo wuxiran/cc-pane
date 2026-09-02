@@ -133,6 +133,12 @@ describe("SortableLayoutTab", () => {
       expect(handlers.onJumpToTab).toHaveBeenCalledTimes(1);
       expect(handlers.onSelect).not.toHaveBeenCalled();
     });
+
+    it("类型计数按钮与布局 tab 保持兄弟结构，避免嵌套 button", () => {
+      renderTab();
+      expect(screen.getByRole("tab").querySelector("button")).toBeNull();
+      expect(screen.getByTestId("layout-type-counts").querySelector("button")).toBeTruthy();
+    });
   });
 
   describe("右键菜单（补齐后与 corner 行能力对等）", () => {

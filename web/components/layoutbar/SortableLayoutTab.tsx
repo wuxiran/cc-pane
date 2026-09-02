@@ -90,7 +90,7 @@ export default function SortableLayoutTab({
   onJumpToTab: (paneId: string, tabId: string) => void;
 }) {
   const { t } = useTranslation("panes");
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } =
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging, isOver } =
     useSortable({
       id: layout.id,
       data: { type: "layout", layoutId: layout.id, kind: layout.kind },
@@ -108,129 +108,142 @@ export default function SortableLayoutTab({
     ? null
     : <LayoutStatusRow rootPane={tree} statusMap={statusMap} />;
   const deleteButton = deletable ? (
-    <span
-      role="button"
+    <button
+      type="button"
       aria-label={deleteLabel}
-      className="hidden h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm group-hover:flex hover:bg-[var(--app-hover)]"
+      title={deleteLabel}
+      className="absolute right-2 top-2 hidden h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm group-hover:flex hover:bg-[var(--app-hover)] focus-visible:flex focus-visible:outline-none"
+      onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.stopPropagation();
         onRequestDelete();
       }}
     >
       <X className="h-3 w-3" />
-    </span>
+    </button>
   ) : null;
 
-  // ContextMenuTrigger asChild 通过 Radix Slot 合并 ref，与 dnd-kit 的 setNodeRef 共存。
+  // The card shell owns the sortable node while the tab button owns keyboard
+  // activation. Keeping the count and delete controls as siblings avoids
+  // invalid nested <button> markup in the comfortable card.
   const tabButton = (
-    <button
+    <div
       ref={setNodeRef}
-      type="button"
-      {...attributes}
-      {...listeners}
-      role="tab"
-      aria-selected={selected}
-      title={layout.name}
-      data-density={density}
-      data-drop-target={dropState}
-      className={`group flex flex-shrink-0 cursor-pointer select-none whitespace-nowrap rounded-md border px-3 text-[13px] transition-colors duration-[var(--dur-fast)] ${
-        density === "comfortable"
-          ? "h-[64px] min-w-[176px] max-w-[240px] flex-col justify-center gap-0.5 py-1.5 text-left"
-          : "h-[30px] items-center gap-1.5"
-      } ${
-        selected ? "" : "hover:bg-[var(--app-hover)]"
-      }`}
+      className="group relative flex-shrink-0"
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.6 : undefined,
         zIndex: isDragging ? 10 : undefined,
-        ...(selected
-          ? {
-              background: "color-mix(in srgb, var(--app-accent) 12%, transparent)",
-              borderColor: "var(--app-accent)",
-              color: "var(--app-accent)",
-              fontWeight: 600,
-            }
-          : {
-              borderColor: "transparent",
-              color: "var(--app-text-secondary)",
-            }),
-        // 落点态叠在选中态之后。悬停时用 accent 实线 + outline，让「可放置」与
-        // 「已选中」除颜色外还有形状差异；候选态只给虚线弱提示。
-        ...(dropState === "active"
-          ? {
-              background: "color-mix(in srgb, var(--app-accent) 12%, transparent)",
-              borderColor: "var(--app-accent)",
-              borderStyle: "solid",
-              outline: "1px solid var(--app-accent)",
-              outlineOffset: "1px",
-            }
-          : dropState === "candidate"
-            ? {
-                borderColor: "color-mix(in srgb, var(--app-accent) 40%, transparent)",
-                borderStyle: "dashed",
-              }
-            : null),
       }}
-      onClick={onSelect}
-      onDoubleClick={onStartRename}
     >
-      {density === "comfortable" ? (
-        // 三行：①名称 + 全类型总数 + 删除 ②绑定标签 + 状态桁 ③内容类型计数桁
-        <span className="flex w-full min-w-0 flex-col gap-1">
-          <span className="flex w-full min-w-0 items-center gap-1.5">
-            {layout.kind === "starred" && <Star className="h-3 w-3 shrink-0" aria-hidden />}
-            <span
-              className="min-w-0 flex-1 overflow-hidden text-ellipsis font-semibold"
-              style={selected ? undefined : { color: "var(--app-text-primary)" }}
-            >
-              {layout.name}
+      <button
+        ref={setActivatorNodeRef}
+        type="button"
+        {...attributes}
+        {...listeners}
+        role="tab"
+        aria-selected={selected}
+        title={layout.name}
+        data-density={density}
+        data-drop-target={dropState}
+        className={`group flex flex-shrink-0 cursor-pointer select-none whitespace-nowrap rounded-md border px-3 text-[13px] transition-colors duration-[var(--dur-fast)] ${
+          density === "comfortable"
+            ? "h-[64px] min-w-[176px] max-w-[240px] flex-col justify-center gap-0.5 py-1.5 text-left"
+            : "h-[30px] items-center gap-1.5 pr-5"
+        } ${
+          selected ? "" : "hover:bg-[var(--app-hover)]"
+        }`}
+        style={{
+          ...(selected
+            ? {
+                background: "color-mix(in srgb, var(--app-accent) 12%, transparent)",
+                borderColor: "var(--app-accent)",
+                color: "var(--app-accent)",
+                fontWeight: 600,
+              }
+            : {
+                borderColor: "transparent",
+                color: "var(--app-text-secondary)",
+              }),
+          // 落点态叠在选中态之后。悬停时用 accent 实线 + outline，让「可放置」与
+          // 「已选中」除颜色外还有形状差异；候选态只给虚线弱提示。
+          ...(dropState === "active"
+            ? {
+                background: "color-mix(in srgb, var(--app-accent) 12%, transparent)",
+                borderColor: "var(--app-accent)",
+                borderStyle: "solid",
+                outline: "1px solid var(--app-accent)",
+                outlineOffset: "1px",
+              }
+            : dropState === "candidate"
+              ? {
+                  borderColor: "color-mix(in srgb, var(--app-accent) 40%, transparent)",
+                  borderStyle: "dashed",
+                }
+              : null),
+        }}
+        onClick={onSelect}
+        onDoubleClick={onStartRename}
+      >
+        {density === "comfortable" ? (
+          // 三行：①名称 + 全类型总数 ②绑定标签 + 状态桁 ③为计数桁预留高度
+          <span className="flex w-full min-w-0 flex-col gap-1">
+            <span className="flex w-full min-w-0 items-center gap-1.5 pr-5">
+              {layout.kind === "starred" && <Star className="h-3 w-3 shrink-0" aria-hidden />}
+              <span
+                className="min-w-0 flex-1 overflow-hidden text-ellipsis font-semibold"
+                style={selected ? undefined : { color: "var(--app-text-primary)" }}
+              >
+                {layout.name}
+              </span>
+              {tabCount > 0 ? (
+                <span
+                  className="shrink-0 text-[11px] tabular-nums"
+                  style={{ color: selected ? "inherit" : "var(--app-text-tertiary)" }}
+                >
+                  {tabCount}
+                </span>
+              ) : null}
             </span>
+            <span
+              className="flex h-[13px] w-full min-w-0 items-center gap-1.5 overflow-hidden text-[12px] leading-none"
+              style={{ color: "var(--app-text-tertiary)" }}
+            >
+              <LayoutBindingLabel layout={layout} rootPane={tree} />
+              {statusSummary.total === 0 ? <span className="shrink-0">{idleLabel}</span> : null}
+              <span className="ml-auto shrink-0">
+                {layout.kind !== "starred" ? <LayoutStatusGrid summary={statusSummary} /> : null}
+              </span>
+            </span>
+            <span className="flex h-[13px] w-full min-w-0 overflow-hidden" aria-hidden="true" />
+          </span>
+        ) : (
+          <>
+            {layout.kind === "starred" && <Star className="h-3 w-3 shrink-0" aria-hidden />}
+            <span className="max-w-[140px] overflow-hidden text-ellipsis">{layout.name}</span>
+            {layout.kind !== "starred" && <LayoutWorkspaceBadge layout={layout} rootPane={tree} mini />}
             {tabCount > 0 ? (
               <span
-                className="shrink-0 text-[11px] tabular-nums"
+                className="text-[11px] tabular-nums"
                 style={{ color: selected ? "inherit" : "var(--app-text-tertiary)" }}
               >
                 {tabCount}
               </span>
             ) : null}
-            {deleteButton}
-          </span>
-          <span
-            className="flex h-[13px] w-full min-w-0 items-center gap-1.5 overflow-hidden text-[12px] leading-none"
-            style={{ color: "var(--app-text-tertiary)" }}
-          >
-            <LayoutBindingLabel layout={layout} rootPane={tree} />
-            {statusSummary.total === 0 ? <span className="shrink-0">{idleLabel}</span> : null}
-            <span className="ml-auto shrink-0">
-              {layout.kind !== "starred" ? <LayoutStatusGrid summary={statusSummary} /> : null}
-            </span>
-          </span>
-          <span className="flex h-[13px] w-full min-w-0 items-center overflow-hidden">
-            {layout.kind !== "starred" ? (
-              <LayoutTypeCounts summary={typeCounts} selected={selected} onJump={onJumpToTab} />
-            ) : null}
+            {statusDots}
+          </>
+        )}
+      </button>
+      {density === "comfortable" && layout.kind !== "starred" ? (
+        <span className="pointer-events-none absolute inset-x-3 bottom-1 z-10 flex h-[13px] min-w-0 items-center overflow-hidden">
+          <span className="pointer-events-auto min-w-0">
+            <LayoutTypeCounts summary={typeCounts} selected={selected} onJump={onJumpToTab} />
           </span>
         </span>
-      ) : (
-        <>
-          {layout.kind === "starred" && <Star className="h-3 w-3 shrink-0" aria-hidden />}
-          <span className="max-w-[140px] overflow-hidden text-ellipsis">{layout.name}</span>
-          {layout.kind !== "starred" && <LayoutWorkspaceBadge layout={layout} rootPane={tree} mini />}
-          {tabCount > 0 ? (
-            <span
-              className="text-[11px] tabular-nums"
-              style={{ color: selected ? "inherit" : "var(--app-text-tertiary)" }}
-            >
-              {tabCount}
-            </span>
-          ) : null}
-          {statusDots}
-          {deleteButton}
-        </>
-      )}
-    </button>
+      ) : null}
+      {deleteButton}
+    </div>
   );
 
   return (

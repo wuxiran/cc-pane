@@ -118,6 +118,15 @@ function presetDialog() {
   return screen.getByRole("dialog", { name: /布局预设|Layout presets/i });
 }
 
+function viewTrigger() {
+  return screen.getByTestId("layout-view-trigger");
+}
+
+async function openViewMenu(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(viewTrigger());
+  return screen.findByRole("menu", { name: /布局视图选项|Layout view options/i });
+}
+
 describe("LayoutTopBar 布局预设浮层", () => {
   beforeEach(() => {
     resetStores();
@@ -225,7 +234,8 @@ describe("LayoutTopBar 布局条密度", () => {
     expect(screen.getAllByText(/无会话|No sessions/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("tab", { name: /星标/ })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /切换到紧凑档|Switch to compact/i }));
+    const menu = await openViewMenu(user);
+    await user.click(within(menu).getByRole("menuitem", { name: /切换到紧凑档|Switch to compact/i }));
 
     expect(useLayoutUiStore.getState().layoutBarDensity).toBe("compact");
     expect(screen.getByRole("tablist")).toHaveAttribute("data-density", "compact");
@@ -306,7 +316,8 @@ describe("LayoutTopBar 布局条密度", () => {
     expect(screen.getByTitle(/^(运行中|Running)$/).textContent).toBe("1");
     expect(screen.getByTitle(/^(错误|Error)$/).textContent).toBe("1");
 
-    await user.click(screen.getByRole("button", { name: /切换到紧凑档|Switch to compact/i }));
+    const menu = await openViewMenu(user);
+    await user.click(within(menu).getByRole("menuitem", { name: /切换到紧凑档|Switch to compact/i }));
 
     // 紧凑档：同样的桶、同样的读数——不再退回 pane 级聚合
     expect(screen.queryAllByTitle(/工具运行|Running tool/i)).toHaveLength(0);

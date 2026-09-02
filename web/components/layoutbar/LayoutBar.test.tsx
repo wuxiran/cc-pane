@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import LayoutBar from "./LayoutBar";
-import { useActivityBarStore, usePanesStore } from "@/stores";
+import { useActivityBarStore, useCanvasDisplayStore, usePanesStore } from "@/stores";
 import { createPanel } from "@/lib/paneTree";
 
 // LayoutSelectorPanel 内部使用统一 Tooltip，需要 TooltipProvider 包裹
@@ -57,6 +57,7 @@ function resetStores() {
     appViewMode: "panes",
     orchestrationOverlayOpen: false,
   });
+  useCanvasDisplayStore.setState({ mode: "panel", animationIntensity: "full" });
 }
 
 function addSecondLayout() {
@@ -109,7 +110,29 @@ describe("LayoutBar", () => {
     const dialog = await screen.findByRole("dialog", { name: /布局|Layouts/i });
     expect(dialog).toBeInTheDocument();
     expect(container.contains(dialog)).toBe(false);
+    expect(screen.queryByRole("menu", { name: /布局视图选项|Layout view options/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("layout-view-trigger")).not.toBeInTheDocument();
     expect(useActivityBarStore.getState().appViewMode).toBe("home");
+  });
+
+  it("布局列表面板可切换终端画布显隐", async () => {
+    const user = userEvent.setup();
+    render(<LayoutBar />);
+
+    await user.hover(screen.getByRole("button", { name: /布局|Layout/i }));
+    const canvasButton = await screen.findByTestId("layout-selector-canvas");
+    expect(canvasButton).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(canvasButton);
+
+    expect(useCanvasDisplayStore.getState().mode).toBe("canvas");
+    expect(useActivityBarStore.getState().appViewMode).toBe("panes");
+    expect(canvasButton).toHaveAttribute("aria-pressed", "true");
+    expect(canvasButton).toHaveAttribute("aria-label", expect.stringMatching(/隐藏终端画布|Hide terminal canvas/));
+
+    await user.click(canvasButton);
+    expect(useCanvasDisplayStore.getState().mode).toBe("panel");
+    expect(canvasButton).toHaveAttribute("aria-pressed", "false");
   });
 
   it("布局选择器可用 pin 按钮固定在前方，并可拖动标题移动", async () => {
