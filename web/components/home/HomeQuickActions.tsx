@@ -48,23 +48,23 @@ export default function HomeQuickActions({ onNewTerminal, onOpenTerminal }: Home
     },
   ];
 
-  // 紧凑横排按钮组：图标+文字一行，避免宽屏下三个大空卡
+  // 紧凑横排按钮组：图标+文字一行，避免宽屏下三个大空卡；xl+ 整档放大但不改横排形态
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2 xl:gap-2.5">
       {actions.map((action) => (
         <button
           key={action.labelKey}
-          className="home-quick-action group inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--app-home-border)] bg-[var(--app-home-surface)] px-3.5 transition-all duration-[var(--dur-fast)] cursor-pointer hover:border-[var(--app-home-border-hover)] hover:bg-[var(--app-home-surface-hover)]"
+          className="home-quick-action group inline-flex h-9 xl:h-10 items-center gap-2 rounded-lg border border-[var(--app-home-border)] bg-[var(--app-home-surface)] px-3.5 xl:px-5 transition-all duration-[var(--dur-fast)] cursor-pointer hover:border-[var(--app-home-border-hover)] hover:bg-[var(--app-home-surface-hover)]"
           onClick={action.onClick}
         >
           <span
-            className="inline-flex items-center justify-center [&>svg]:w-4 [&>svg]:h-4"
+            className="inline-flex items-center justify-center [&>svg]:w-4 [&>svg]:h-4 xl:[&>svg]:w-5 xl:[&>svg]:h-5"
             style={{ color: action.color }}
           >
             {action.icon}
           </span>
           <span
-            className="text-xs font-medium"
+            className="text-xs xl:text-sm font-medium"
             style={{ color: "var(--app-text-primary)" }}
           >
             {t(action.labelKey as never)}

@@ -30,6 +30,9 @@ vi.mock("./HomeDesignHighlights", () => ({
     <div data-testid={compact ? "highlights-compact" : "highlights-card"} />
   ),
 }));
+vi.mock("./HomeActiveSessions", () => ({
+  default: () => <div data-testid="active-sessions" />,
+}));
 
 describe("HomeDashboard", () => {
   beforeEach(() => {
@@ -69,11 +72,12 @@ describe("HomeDashboard", () => {
     expect(useDialogStore.getState().launcherOpen).toBe(true);
   });
 
-  it("renders only the welcome actions and compact product overview", () => {
+  it("renders welcome, quick actions, active sessions and the compact product overview", () => {
     render(<HomeDashboard onOpenTerminal={vi.fn()} />);
 
     expect(screen.getByTestId("header")).toBeInTheDocument();
     expect(screen.getByTestId("quick-actions")).toBeInTheDocument();
+    expect(screen.getByTestId("active-sessions")).toBeInTheDocument();
     expect(screen.getByTestId("highlights-compact")).toBeInTheDocument();
     expect(screen.queryByTestId("highlights-card")).not.toBeInTheDocument();
   });

@@ -122,7 +122,7 @@ export default function HomeDesignHighlights({ compact = false }: HomeDesignHigh
       <div
         className={
           compact
-            ? "grid grid-cols-1 gap-2 rounded-xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] p-3 sm:grid-cols-2 xl:grid-cols-4"
+            ? "grid grid-cols-1 gap-2 xl:gap-3 rounded-xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] p-3 xl:p-4 sm:grid-cols-2 xl:grid-cols-4"
             : "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"
         }
       >
@@ -133,14 +133,14 @@ export default function HomeDesignHighlights({ compact = false }: HomeDesignHigh
               key={item.titleKey}
               className={
                 compact
-                  ? "flex min-w-0 items-start gap-2.5 rounded-lg p-2"
+                  ? "flex min-w-0 items-start gap-2.5 xl:gap-3 rounded-lg p-2 xl:p-3"
                   : "min-w-0 overflow-hidden rounded-xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)]"
               }
             >
               {compact ? (
                 <>
                   <span
-                    className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
+                    className="mt-0.5 inline-flex h-7 w-7 xl:h-8 xl:w-8 shrink-0 items-center justify-center rounded-md"
                     style={{
                       background: `color-mix(in srgb, ${accent} 12%, transparent)`,
                       color: accent,
@@ -150,13 +150,13 @@ export default function HomeDesignHighlights({ compact = false }: HomeDesignHigh
                   </span>
                   <div className="min-w-0">
                     <div
-                      className="text-xs font-semibold"
+                      className="text-xs xl:text-sm font-semibold"
                       style={{ color: "var(--app-text-primary)" }}
                     >
                       {t(item.titleKey as never)}
                     </div>
                     <p
-                      className="mt-0.5 text-[11px] leading-snug"
+                      className="mt-0.5 text-[11px] xl:text-xs leading-snug"
                       style={{ color: "var(--app-text-tertiary)" }}
                     >
                       {t(item.descKey as never)}

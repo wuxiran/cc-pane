@@ -24,12 +24,12 @@ export default function HomeHeader({ version }: HomeHeaderProps) {
 
   return (
     <div className="flex items-center justify-between gap-5 px-1">
-      <div className="flex items-center gap-5 min-w-0">
+      <div className="flex items-center gap-5 xl:gap-6 min-w-0">
         {/* Logo 图标 */}
         <img
           src={logoUrl}
           alt="CC-Panes"
-          className="w-16 h-16 rounded-2xl shrink-0 shadow-lg"
+          className="w-16 h-16 xl:w-[72px] xl:h-[72px] 2xl:w-20 2xl:h-20 rounded-2xl shrink-0 shadow-lg"
           style={{ boxShadow: "0 10px 28px color-mix(in srgb, var(--app-accent) 20%, transparent)" }}
           draggable={false}
         />
@@ -37,13 +37,13 @@ export default function HomeHeader({ version }: HomeHeaderProps) {
         {/* 文字区域 */}
         <div className="min-w-0">
           <h1
-            className="text-2xl font-bold tracking-wide"
+            className="text-2xl xl:text-[28px] 2xl:text-3xl font-bold tracking-wide"
             style={{ color: "var(--app-text-primary)" }}
           >
             {t(greetingKey)}
           </h1>
           <p
-            className="text-sm mt-0.5"
+            className="text-sm xl:text-base mt-0.5"
             style={{ color: "var(--app-text-secondary)" }}
           >
             {t("welcomeBack")} — CC-Panes

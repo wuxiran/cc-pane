@@ -38,7 +38,7 @@ export default function HomeActiveSessions() {
           {t("activeSessions")}
         </h3>
         <div
-          className="group relative flex h-[280px] flex-col items-center justify-center overflow-hidden rounded-2xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-home-surface-hover)]"
+          className="group relative flex h-[220px] xl:h-[280px] flex-col items-center justify-center overflow-hidden rounded-2xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-home-surface-hover)]"
         >
           <div
             className="absolute inset-0 bg-gradient-to-b from-transparent to-[color-mix(in_srgb,var(--primary-foreground)_1%,transparent)]"
