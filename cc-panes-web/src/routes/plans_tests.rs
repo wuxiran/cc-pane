@@ -13,7 +13,7 @@ use cc_panes_core::{
     services::{
         terminal_service::{SessionOutput, SessionStatus},
         FileSystemService, HistoryService, LaunchHistoryService, LaunchProfileService,
-        LayoutSnapshotService, McpConfigService, PlanService, ProcessMonitorService,
+        DramaService, LayoutSnapshotService, McpConfigService, PlanService, ProcessMonitorService,
         ProjectService, ProviderService, RunnerService, SessionRestoreService, SettingsService,
         SharedMcpService, SpecService, SshCredentialService, SshMachineService, TaskBindingService,
         TerminalBackend, TodoService, UsageStatsService, WorkspaceService, WorktreeService,
@@ -153,6 +153,7 @@ fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
             cc_panes_core::repository::MediaRepository::new(db.clone()),
         ))),
         layout_snapshot_service: Arc::new(LayoutSnapshotService::new(db.clone())),
+        drama_service: Arc::new(DramaService::new(db.clone())),
         launch_profile_service,
         quick_command_service: Arc::new(cc_panes_core::services::QuickCommandService::new(
             app_paths.quick_commands_path(),
@@ -177,7 +178,10 @@ fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
         mcp_config_service: Arc::new(McpConfigService::new()),
         shared_mcp_service: Arc::new(SharedMcpService::new(&app_paths)),
         skill_service: Arc::new(cc_panes_core::services::SkillService::new()),
-        plan_service: Arc::new(PlanService::new()),
+        plan_service: Arc::new(PlanService::new(
+            app_paths.clone(),
+            Arc::new(WorkspaceService::new(app_paths.workspaces_dir())),
+        )),
         external_skill_registry,
         user_skill_service: Arc::new(cc_panes_core::services::UserSkillService::new(
             app_paths.user_skills_dir(),
@@ -196,21 +200,41 @@ fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
 async fn plan_routes_list_read_and_delete_archived_plans() {
     let (state, root) = test_state("crud");
     let project = root.join("project");
-    let plans = project.join(".ccpanes").join("plans");
+    std::fs::create_dir_all(&project).expect("project dir");
+    let project_path = project.to_string_lossy().to_string();
+    // 项目属于工作空间 team：plan 归档在 ~/.cc-panes/workspaces/team/plans（docs/98 第三批）
+    state
+        .workspace_service
+        .create_workspace("team", None)
+        .expect("workspace");
+    state
+        .workspace_service
+        .add_project("team", &project_path)
+        .expect("add project");
+    let plans = root
+        .join("data")
+        .join("workspaces")
+        .join("team")
+        .join("plans");
     std::fs::create_dir_all(&plans).expect("plans dir");
     let file_name = "abcd1234_20260620_101112_web-plan.md";
     std::fs::write(plans.join(file_name), "# Web Plan\n\nContent").expect("write plan");
+    // 旧位置仍可读（只读兼容层）
+    let legacy = project.join(".ccpanes").join("plans");
+    std::fs::create_dir_all(&legacy).expect("legacy dir");
+    std::fs::write(legacy.join("abcd1234_20260101_000000_old.md"), "old").expect("write legacy");
 
     let query = PlansQuery {
-        project_path: project.to_string_lossy().to_string(),
+        project_path: project_path.clone(),
     };
     let Json(listed) = list_plans(State(state.clone()), Query(query))
         .await
         .expect("list plans");
-    assert_eq!(listed.len(), 1);
+    assert_eq!(listed.len(), 2);
     assert_eq!(listed[0].file_name, file_name);
     assert_eq!(listed[0].session_id, "abcd1234");
     assert_eq!(listed[0].archived_at, "2026-06-20T10:11:12");
+    assert_eq!(listed[1].original_name, "old.md");
 
     let Json(content) = get_plan_content(
         State(state.clone()),
@@ -242,7 +266,8 @@ async fn plan_routes_list_read_and_delete_archived_plans() {
     )
     .await
     .expect("list after delete");
-    assert!(listed.is_empty());
+    assert_eq!(listed.len(), 1, "only the legacy copy remains");
+    assert!(!plans.join(file_name).exists());
 }
 
 #[tokio::test]

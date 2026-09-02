@@ -41,6 +41,8 @@
   "workspaceSkills": "Workspace skills",
   "workspaceMemory": "Workspace memory",
   "workspaceMcp": "Workspace MCP",
+  "planLegacyLocation": "legacy in-repo",
+  "planLegacyLocationHint": "From .ccpanes/plans/ (pre-0.12.10 location, read-only). New archives go to the workspace folder.",
   "tools": "Tools",
   "moduleNames": {
     "ssh": "SSH Machines",

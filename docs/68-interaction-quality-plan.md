@@ -247,8 +247,9 @@ L0 顺带把 kill 失败从 `handleErrorSilent` 升为 `handleError`（toast + �
 
 > **进度（2026-09 核对）**：方案 A ✅ 已落地——`useShortcutsStore.ts` 的
 > `TERMINAL_PASSTHROUGH_ACTIONS` + `isTerminalPassthroughAction()` 供设置页与命令面板
-> 标记「终端内不生效」。方案 B ❌ 未做——`COMMAND_PALETTE_TOGGLE_EVENT` 的 dispatcher
-> 仍只有 `useShortcutRegistrations.ts:125` 那一个快捷键，没有按钮/菜单入口。方案 C 未评估。
+> 标记「终端内不生效」。方案 B ✅ 已落地（0.12.10）——状态栏右端新增
+> `statusbar/CommandPaletteButton.tsx`，点击派发 `COMMAND_PALETTE_TOGGLE_EVENT`，tooltip 带当前
+> 绑定；终端聚焦时 7 个被放行动作都能经它到达。方案 C 未评估。
 
 **影响面**：全部用户、全程。这是本文里唯一一条「默认状态下就是错的」。
 

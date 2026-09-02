@@ -21,7 +21,8 @@ struct ToolInput {
 }
 
 /// PostToolUse hook entry point.
-/// Reads hook JSON from stdin and archives plan files to `.ccpanes/plans/`.
+/// Reads hook JSON from stdin and archives plan files to the workspace plans dir
+/// (`$CC_PANES_PLANS_DIR`), falling back to `<project>/.ccpanes/.cache/plans/`.
 ///
 /// Archived file name format: `{session_prefix}_{timestamp}_{original_name}`
 /// Example: `a1b2c3d4_20260215_143052_structured-kindling-canyon.md`
@@ -72,19 +73,26 @@ pub fn run_with_stdin(input: &str) {
         return;
     }
 
-    // 分级归档：workspace 优先（跨仓共享 plan），单飞 project 时兜底。
-    // 按候选目录顺序尝试 create_dir_all；只有全部失败才放弃。
+    // 分级归档（docs/98 第三批）：工作空间层优先——CC-Panes 启动时下发
+    // `CC_PANES_PLANS_DIR`（`~/.cc-panes/workspaces/<name>/plans`，跨仓共享）；
+    // 不在任何工作空间里时落项目的机器本地缓存 `.ccpanes/.cache/plans`（被 `.ccpanes/.gitignore`
+    // 忽略，不会进仓库）。按候选目录顺序尝试 create_dir_all；只有全部失败才放弃。
     let workspace_path = std::env::var("CC_PANES_WORKSPACE_PATH")
+        .ok()
+        .filter(|s| !s.trim().is_empty());
+    let workspace_plans_dir = std::env::var("CC_PANES_PLANS_DIR")
         .ok()
         .filter(|s| !s.trim().is_empty());
     let project_path_env = std::env::var("CLAUDE_PROJECT_DIR")
         .ok()
-        .filter(|s| !s.trim().is_empty());
-    let candidates: Vec<PathBuf> = [workspace_path.as_deref(), project_path_env.as_deref()]
-        .into_iter()
-        .flatten()
-        .filter_map(archive_dir_candidate)
-        .collect();
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            std::env::var("CC_PANES_PROJECT_PATH")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+        });
+    let candidates: Vec<PathBuf> =
+        archive_dir_candidates(workspace_plans_dir.as_deref(), project_path_env.as_deref());
     if candidates.is_empty() {
         return; // 两个 env 都没有，弃权
     }
@@ -227,8 +235,9 @@ const TAG_SCAN_MAX_LINES: usize = 80;
 /// 防超长单行：读取头部时的总字节上限。
 const TAG_SCAN_MAX_BYTES: usize = 64 * 1024;
 
-fn archive_dir_candidate(base_path: &str) -> Option<PathBuf> {
-    let trimmed = base_path.trim();
+/// Only absolute paths for the current OS are usable as archive roots.
+fn absolute_dir(path: &str) -> Option<PathBuf> {
+    let trimmed = path.trim();
     if trimmed.is_empty() {
         return None;
     }
@@ -246,7 +255,23 @@ fn archive_dir_candidate(base_path: &str) -> Option<PathBuf> {
             return None;
         }
     }
-    Some(PathBuf::from(trimmed).join(".ccpanes").join("plans"))
+    Some(PathBuf::from(trimmed))
+}
+
+/// Ordered archive roots: workspace plans dir (verbatim), then the project's
+/// machine-local cache `<project>/.ccpanes/.cache/plans`.
+fn archive_dir_candidates(
+    workspace_plans_dir: Option<&str>,
+    project_path: Option<&str>,
+) -> Vec<PathBuf> {
+    let mut out = Vec::with_capacity(2);
+    if let Some(dir) = workspace_plans_dir.and_then(absolute_dir) {
+        out.push(dir);
+    }
+    if let Some(project) = project_path.and_then(absolute_dir) {
+        out.push(project.join(".ccpanes").join(".cache").join("plans"));
+    }
+    out
 }
 
 /// 用固定字节块读取 plan 文件头部，**双上限**：行数 + 总字节。
@@ -425,7 +450,8 @@ fn post_plan_tag(
     let project_path_owned = project_path
         .map(|s| s.to_string())
         .or_else(|| {
-            // 兜底：从 archived_path 上溯到 .ccpanes 父目录
+            // 兜底：项目缓存层归档时从 archived_path 上溯到 .ccpanes 父目录
+            // （工作空间层归档没有 .ccpanes 祖先，此时只能依赖 env）
             archived_path
                 .ancestors()
                 .find(|p| p.ends_with(".ccpanes"))
@@ -633,12 +659,35 @@ risk: extreme
 
     #[cfg(unix)]
     #[test]
-    fn archive_dir_candidate_rejects_windows_path_on_unix() {
-        assert!(archive_dir_candidate(r"C:\repo").is_none());
-        assert!(archive_dir_candidate("relative/repo").is_none());
+    fn archive_dir_candidates_reject_windows_path_on_unix() {
+        assert!(archive_dir_candidates(Some(r"C:\repo"), Some("relative/repo")).is_empty());
         assert_eq!(
-            archive_dir_candidate("/tmp/repo").unwrap(),
-            PathBuf::from("/tmp/repo").join(".ccpanes").join("plans")
+            archive_dir_candidates(None, Some("/tmp/repo")),
+            vec![PathBuf::from("/tmp/repo/.ccpanes/.cache/plans")]
         );
+    }
+
+    #[test]
+    fn archive_dir_candidates_prefer_workspace_dir_then_project_cache() {
+        #[cfg(windows)]
+        let (ws, project) = (r"C:\Users\me\.cc-panes\workspaces\team\plans", r"D:\repo");
+        #[cfg(not(windows))]
+        let (ws, project) = ("/home/me/.cc-panes/workspaces/team/plans", "/srv/repo");
+
+        let candidates = archive_dir_candidates(Some(ws), Some(project));
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0], PathBuf::from(ws));
+        assert_eq!(
+            candidates[1],
+            PathBuf::from(project)
+                .join(".ccpanes")
+                .join(".cache")
+                .join("plans")
+        );
+        // 旧位置 <project>/.ccpanes/plans 不再是写入候选
+        assert!(candidates
+            .iter()
+            .all(|c| !c.ends_with(Path::new(".ccpanes").join("plans"))));
+        assert!(archive_dir_candidates(None, None).is_empty());
     }
 }

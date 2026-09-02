@@ -6,6 +6,8 @@ export interface PlanEntry {
   sessionId: string;
   archivedAt: string;
   size: number;
+  /** 来源层（docs/98）：工作空间 / 项目本地缓存 / 旧的仓库内位置 */
+  layer?: "workspace" | "project-cache" | "project-legacy";
 }
 
 export const planService = {

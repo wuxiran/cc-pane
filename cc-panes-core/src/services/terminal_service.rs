@@ -2793,6 +2793,17 @@ impl TerminalService {
         if let Some(name) = canonical_workspace_name {
             if !name.trim().is_empty() {
                 env_vars.insert("CC_PANES_WORKSPACE_NAME".to_string(), name.to_string());
+                // plan 归档落工作空间层（docs/98 第三批）。SSH 远端看不到本机数据目录，不下发；
+                // WSL 经 WSLENV `/p` 翻成 /mnt/... 路径。
+                if !is_ssh {
+                    env_vars.insert(
+                        "CC_PANES_PLANS_DIR".to_string(),
+                        self.app_paths
+                            .workspace_plans_dir(name)
+                            .to_string_lossy()
+                            .into_owned(),
+                    );
+                }
             }
         }
         // workspace 根路径（用于 plan-as-memory 钩子的分级归档）。默认工作空间的 path 就是
@@ -2835,6 +2846,9 @@ impl TerminalService {
             ];
             if env_vars.contains_key("CC_PANES_WORKSPACE_PATH") {
                 wsl_keys.push("CC_PANES_WORKSPACE_PATH");
+            }
+            if env_vars.contains_key("CC_PANES_PLANS_DIR") {
+                wsl_keys.push("CC_PANES_PLANS_DIR/p");
             }
             if env_vars.contains_key("CC_PANES_API_TOKEN") {
                 wsl_keys.extend([

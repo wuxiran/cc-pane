@@ -134,7 +134,7 @@
 **验收**：启动 Claude 时生成的 `mcp-<session>.json` 含工作空间 server；Codex 参数含 `mcp_servers.<name>`；项目目录 `.claude/settings.local.json` 不再因 MCP 编辑而变化；旧项目的 mcpServers 能一键导入。
 
 **第三批**
-10. plans 归拢到工作空间层。
+10. ✅ plans 归拢到工作空间层。写侧：启动时下发 `CC_PANES_PLANS_DIR=~/.cc-panes/workspaces/<name>/plans`（SSH 不下发；WSL 经 WSLENV `/p` 翻译），`cc-panes-cli-hook` 的 plan 归档候选顺序改为 `$CC_PANES_PLANS_DIR` → `<project>/.ccpanes/.cache/plans`（孤儿项目的机器本地兜底）；**不再写 `<project>/.ccpanes/plans/`**——那个位置在 `.ccpanes/` 改可提交后会把 plan 提交进仓库。读侧：`PlanService::new(app_paths, workspace_service)` 按项目所属工作空间聚合三层（工作空间 → 项目缓存 → 旧位置只读），`PlanEntry.layer` 标来源，同名以高层为准；plan 面板给旧位置条目一个「仓库内旧位置」角标。已有的 `.ccpanes/plans/` 不自动搬家（可能已被提交，搬了会出 diff），用户自行处理。
 
 ## 待你拍板的三个点
 

@@ -1730,7 +1730,10 @@ pub fn run() {
         app_paths.skills_dir(),
         app_paths.user_skills_dir(),
     ));
-    let plan_service = Arc::new(PlanService::new());
+    let plan_service = Arc::new(PlanService::new(
+        app_paths.clone(),
+        workspace_service.clone(),
+    ));
     let filesystem_service = Arc::new(FileSystemService::new());
     let project_cli_hooks_service = Arc::new(ProjectCliHooksService::new(cli_registry.clone()));
     let uninstall_cleanup_service = Arc::new(UninstallCleanupService::new(cli_registry.clone()));

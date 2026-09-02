@@ -216,6 +216,13 @@ impl AppPaths {
         self.workspaces_dir().join(name)
     }
 
+    /// Archived plans for a workspace (docs/98 第三批): the hook writes here, the plan
+    /// browser reads here first. Projects outside any workspace fall back to
+    /// `<project>/.ccpanes/.cache/plans/`.
+    pub fn workspace_plans_dir(&self, name: &str) -> PathBuf {
+        self.workspace_dir(name).join("plans")
+    }
+
     /// One-time repair for the data directory having been treated as a project (docs/98):
     /// older builds let the default workspace's path point at `data_dir`, so local history
     /// and plan archives landed in `<data_dir>/.ccpanes/`. Only that exact folder is removed,

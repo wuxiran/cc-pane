@@ -14,7 +14,7 @@ use cc_panes_core::{
     },
     services::{
         terminal_service::{SessionOutput, SessionStatus},
-        FileSystemService, HistoryService, LaunchHistoryService, LayoutSnapshotService,
+        FileSystemService, HistoryService, LaunchHistoryService, DramaService, LayoutSnapshotService,
         McpConfigService, PlanService, ProcessMonitorService, ProjectService, ProviderService,
         RunnerService, SessionRestoreService, SettingsService, SharedMcpService, SpecService,
         SshCredentialService, SshMachineService, TaskBindingService, TerminalBackend, TodoService,
@@ -158,6 +158,7 @@ fn test_state(name: &str) -> crate::state::AppState {
             cc_panes_core::repository::MediaRepository::new(db.clone()),
         ))),
         layout_snapshot_service: Arc::new(LayoutSnapshotService::new(db.clone())),
+        drama_service: Arc::new(DramaService::new(db.clone())),
         launch_profile_service,
         quick_command_service: Arc::new(cc_panes_core::services::QuickCommandService::new(
             app_paths.quick_commands_path(),
@@ -182,7 +183,10 @@ fn test_state(name: &str) -> crate::state::AppState {
         mcp_config_service: Arc::new(McpConfigService::new()),
         shared_mcp_service: Arc::new(SharedMcpService::new(&app_paths)),
         skill_service: Arc::new(cc_panes_core::services::SkillService::new()),
-        plan_service: Arc::new(PlanService::new()),
+        plan_service: Arc::new(PlanService::new(
+            app_paths.clone(),
+            Arc::new(WorkspaceService::new(app_paths.workspaces_dir())),
+        )),
         external_skill_registry: Arc::new(cc_panes_core::services::ExternalSkillRegistry::new(
             Arc::new(cc_cli_adapters::CliToolRegistry::new()),
         )),

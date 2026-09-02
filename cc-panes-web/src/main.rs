@@ -292,7 +292,10 @@ async fn main() -> anyhow::Result<()> {
     let mcp_config_service = Arc::new(McpConfigService::with_paths(app_paths.clone()));
     let shared_mcp_service = Arc::new(SharedMcpService::new(&app_paths));
     let skill_service = Arc::new(SkillService::new());
-    let plan_service = Arc::new(PlanService::new());
+    let plan_service = Arc::new(PlanService::new(
+        app_paths.clone(),
+        workspace_service.clone(),
+    ));
     let cli_registry = Arc::new(CliToolRegistry::with_builtin_adapters());
     let project_cli_hooks_service = Arc::new(ProjectCliHooksService::new(cli_registry.clone()));
     let journal_service = Arc::new(JournalService::new(app_paths.workspaces_dir()));

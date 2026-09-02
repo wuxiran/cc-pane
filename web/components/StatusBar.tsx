@@ -24,6 +24,7 @@ import { invokeIfTauri, isTauriRuntime } from "@/services/runtime";
 import SystemResourceSegment from "@/components/statusbar/SystemResourceSegment";
 import UsageStatsStatusButton from "@/components/statusbar/UsageStatsStatusButton";
 import NotificationBellButton from "@/components/statusbar/NotificationBellButton";
+import CommandPaletteButton from "@/components/statusbar/CommandPaletteButton";
 import ThemeQuickMenu from "@/components/statusbar/ThemeQuickMenu";
 
 /** 右侧图标组的组间竖分隔符，与既有分隔线风格一致。 */
@@ -219,7 +220,8 @@ export default function StatusBar() {
 
       {/* 右侧工具：通知/资源/用量 | 壁纸音乐 | Web 锁定 | 置顶/迷你 | cc酱 | 语言/主题 */}
       <div className="flex items-center gap-0.5">
-        {/* 通知 + 系统资源 + 用量 */}
+        {/* 命令面板 + 通知 + 系统资源 + 用量 */}
+        <CommandPaletteButton />
         <NotificationBellButton />
         {isTauriRuntime() && showSystemResources && <SystemResourceSegment />}
         {isTauriRuntime() && <UsageStatsStatusButton />}

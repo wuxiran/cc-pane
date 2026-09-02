@@ -203,6 +203,11 @@ export default function PlansPanel({ open, onOpenChange, projectPath }: PlansPan
                       >
                         {plan.sessionId || "no-session"}
                       </span>
+                      {plan.layer === "project-legacy" && (
+                        <span className="text-[10px] px-1 rounded" style={{ color: "var(--app-text-tertiary)", background: "var(--app-hover)" }} title={t("planLegacyLocationHint")}>
+                          {t("planLegacyLocation")}
+                        </span>
+                      )}
                       <span
                         className="text-[10px]"
                         style={{ color: "var(--app-text-tertiary)" }}

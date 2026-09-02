@@ -939,7 +939,10 @@ mod tests {
             mcp_config_service: Arc::new(McpConfigService::new()),
             shared_mcp_service: Arc::new(SharedMcpService::new(&app_paths)),
             skill_service: Arc::new(cc_panes_core::services::SkillService::new()),
-            plan_service: Arc::new(PlanService::new()),
+            plan_service: Arc::new(PlanService::new(
+                app_paths.clone(),
+                Arc::new(WorkspaceService::new(app_paths.workspaces_dir())),
+            )),
             external_skill_registry: Arc::new(cc_panes_core::services::ExternalSkillRegistry::new(
                 Arc::new(cc_cli_adapters::CliToolRegistry::new()),
             )),

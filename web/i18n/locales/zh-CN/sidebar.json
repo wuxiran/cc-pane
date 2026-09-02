@@ -41,6 +41,8 @@
   "workspaceSkills": "工作空间技能",
   "workspaceMemory": "工作空间记忆",
   "workspaceMcp": "工作空间 MCP",
+  "planLegacyLocation": "仓库内旧位置",
+  "planLegacyLocationHint": "来自 .ccpanes/plans/（0.12.10 前的位置，只读）。新归档写入工作空间目录。",
   "tools": "工具",
   "moduleNames": {
     "ssh": "SSH 机器",
