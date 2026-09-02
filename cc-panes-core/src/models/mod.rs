@@ -1,6 +1,7 @@
 pub mod agent_transcript;
 pub mod ai_panel;
 pub mod context_usage;
+pub mod cursor_bridge;
 pub mod dsh;
 pub mod external_skill;
 pub mod filesystem;
@@ -40,6 +41,12 @@ pub use agent_transcript::{
     TranscriptMessage, TranscriptRole, DEFAULT_TRANSCRIPT_LIMIT, MAX_TRANSCRIPT_LIMIT,
 };
 pub use context_usage::{ContextUsageSnapshot, ContextUsageStatus};
+pub use cursor_bridge::{
+    CursorBridgeAction, CursorBridgeModelPref, CursorBridgeModelPreferences,
+    CursorBridgeModelTarget, CursorBridgeRegistry, CursorBridgeScope, CursorBridgeSession,
+    CursorBridgeSessionControl, CursorBridgeSessionMode, CursorBridgeSessionStatus,
+    CursorBridgeTurnPlan, CursorBridgeWorkspaceBinding, CURSOR_BRIDGE_SCHEMA_VERSION,
+};
 pub use external_skill::{DiscoveredExternalSkill, ExternalSkillSource};
 pub use git::{
     GitChangeStatus, GitChangedFile, GitCommit, GitDiffSpec, GitLogPage, GitLogQuery, GitRepoInfo,

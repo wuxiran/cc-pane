@@ -22,7 +22,17 @@ export interface AppSettings {
   orchestrator: OrchestratorSettings;
   wallpaper: WallpaperSettings;
   im: ImSettings;
+  experimental: ExperimentalSettings;
 }
+
+/** 实验功能开关（镜像 cc-panes-core ExperimentalSettings）。默认全关；
+ * 入口组件经 `useExperimentalFeature(id)` 读取，未勾选时不渲染入口。 */
+export interface ExperimentalSettings {
+  mediaGeneration: boolean;
+  skillMarket: boolean;
+}
+
+export type ExperimentalFeatureId = keyof ExperimentalSettings;
 
 /** IM 外推渠道类型（镜像 cc-notify ChannelType） */
 export type ImChannelType =

@@ -193,6 +193,8 @@ export type {
   WallpaperFileInfo,
   ImSettings,
   ImChannelConfig,
+  ExperimentalSettings,
+  ExperimentalFeatureId,
   ImChannelType,
   ImChannelStatus,
   ImEventKind,

@@ -34,7 +34,7 @@ export default function StartPrefDropdown({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex min-w-0 items-center gap-1 rounded-md border border-[var(--app-border)] px-2 py-1 text-xs text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)]"
+          className="flex h-7 min-w-0 items-center gap-1 rounded-md border border-transparent px-2 text-xs text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
         >
           <span className="max-w-40 truncate">{current?.label ?? defaultLabel}</span>
           <ChevronDown className="h-3 w-3" />

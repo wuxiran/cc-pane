@@ -289,6 +289,43 @@ impl CursorAdapter {
     }
 }
 
+fn read_only_from_options(options: &HashMap<String, serde_json::Value>) -> bool {
+    options
+        .get("readOnly")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+}
+
+/// `readOnly` 强制 `--mode ask`，并丢掉 extraArgs 里已有的 `--mode`，避免双 mode。
+/// 这不是沙箱：CLI 若不认该 flag，仍靠 prompt 契约。
+fn extra_args_with_read_only(options: &HashMap<String, serde_json::Value>) -> Vec<String> {
+    let extra = crate::extra_args_from_options(options);
+    if !read_only_from_options(options) {
+        return extra;
+    }
+    let mut stripped = Vec::new();
+    let mut skip_next = false;
+    for arg in extra {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if arg == "--mode" {
+            skip_next = true;
+            continue;
+        }
+        if let Some(rest) = arg.strip_prefix("--mode=") {
+            if !rest.is_empty() {
+                continue;
+            }
+        }
+        stripped.push(arg);
+    }
+    let mut args = vec!["--mode".to_string(), "ask".to_string()];
+    args.extend(stripped);
+    args
+}
+
 impl Default for CursorAdapter {
     fn default() -> Self {
         Self::new()
@@ -367,7 +404,7 @@ impl CliToolAdapter for CursorAdapter {
             args.push("text".to_string());
         }
 
-        args.extend(crate::extra_args_from_options(&ctx.adapter_options));
+        args.extend(extra_args_with_read_only(&ctx.adapter_options));
 
         if let Some(prompt) = ctx
             .initial_prompt
@@ -492,6 +529,25 @@ mod tests {
             .args
             .windows(2)
             .any(|pair| pair[0] == "--output-format" && pair[1] == "text"));
+    }
+
+    #[test]
+    fn build_command_readonly_forces_mode_ask_once() {
+        let adapter = CursorAdapter::new();
+        let mut ctx = test_context(Some(r"C:\tools\cursor-agent.cmd"));
+        ctx.adapter_options
+            .insert("readOnly".into(), serde_json::json!(true));
+        ctx.adapter_options
+            .insert("extraArgs".into(), serde_json::json!(["--mode", "agent"]));
+        let result = adapter.build_command(&ctx).unwrap();
+        let mode_flags = result
+            .args
+            .windows(2)
+            .filter(|pair| pair[0] == "--mode")
+            .collect::<Vec<_>>();
+        assert_eq!(mode_flags.len(), 1);
+        assert_eq!(mode_flags[0][1], "ask");
+        assert!(!result.args.iter().any(|arg| arg == "agent"));
     }
 
     #[test]

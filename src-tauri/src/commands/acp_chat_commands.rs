@@ -232,7 +232,7 @@ pub fn resolve_engine_launch(engine: &ResolvedEngine, cwd: &str) -> AppResult<Ac
         // 由 start 命令按 orchestrator 存活状态补充。
         mcp_servers: Vec::new(),
         resume_acp_session_id: None,
-        auto_approve_permissions: false,
+        auto_approve_kinds: Vec::new(),
     })
 }
 
@@ -277,6 +277,7 @@ pub fn ccpanes_mcp_servers(app_paths: &AppPaths) -> Vec<Value> {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn start_acp_chat(
     app: AppHandle,
     service: State<'_, Arc<AcpChatService>>,
@@ -285,7 +286,7 @@ pub async fn start_acp_chat(
     engine_id: String,
     cwd: String,
     resume_acp_session_id: Option<String>,
-    auto_approve: Option<bool>,
+    auto_approve_kinds: Option<Vec<String>>,
 ) -> AppResult<AcpChatSnapshot> {
     let engine = engine_spec(&app_paths, &engine_id)?;
     let mcp_servers = ccpanes_mcp_servers(&app_paths);
@@ -297,9 +298,9 @@ pub async fn start_acp_chat(
     .map_err(|error| AppError::from(error.to_string()))??;
     spec.mcp_servers = mcp_servers;
     spec.resume_acp_session_id = resume_acp_session_id;
-    // 交互式 chat 的无人值守放行（用户在启动页显式打开；与 Automations 同一条
-    // 会话级通道，auto-approve 时权限卡不再弹出）。
-    spec.auto_approve_permissions = auto_approve.unwrap_or(false);
+    // 交互式 chat 的按类自动放行（用户在权限下拉里勾选；与 Automations 同一条
+    // 会话级通道，命中的权限请求不再弹卡）。
+    spec.auto_approve_kinds = auto_approve_kinds.unwrap_or_default();
     service.start(app, chat_id, spec).await
 }
 
@@ -420,6 +421,15 @@ pub async fn set_acp_chat_model(
     model_id: String,
 ) -> AppResult<()> {
     service.set_model(&chat_id, model_id).await
+}
+
+#[tauri::command]
+pub async fn set_acp_chat_auto_approve(
+    service: State<'_, Arc<AcpChatService>>,
+    chat_id: String,
+    kinds: Vec<String>,
+) -> AppResult<()> {
+    service.set_auto_approve(&chat_id, kinds).await
 }
 
 #[tauri::command]

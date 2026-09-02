@@ -10,6 +10,7 @@ import { agentChatService } from "@/services/agentChatService";
 import { setPendingResume } from "@/components/agentchat/pendingResume";
 import { navigateToSettings } from "@/components/settings/settingsNavigation";
 import { useActivityBarStore, usePanesStore, useWorkspacesStore } from "@/stores";
+import { AGENT_CHAT_HISTORY_CHANGED_EVENT } from "@/stores/useAgentChatStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 
 function projectNameOf(cwd: string): string {
@@ -41,9 +42,13 @@ export default function AgentChatSessionsView() {
 
   useEffect(() => {
     reload();
-    // 列表在切回本视图时刷新即可（keep-alive 下靠 focus 兜底）。
+    // 切回本视图时靠 focus 兜底；agent 改标题（session_info_update）时即时重拉。
     window.addEventListener("focus", reload);
-    return () => window.removeEventListener("focus", reload);
+    window.addEventListener(AGENT_CHAT_HISTORY_CHANGED_EVENT, reload);
+    return () => {
+      window.removeEventListener("focus", reload);
+      window.removeEventListener(AGENT_CHAT_HISTORY_CHANGED_EVENT, reload);
+    };
   }, [reload]);
 
   const openNew = useCallback(() => {

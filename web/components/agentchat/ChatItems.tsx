@@ -1,6 +1,6 @@
 // agent-chat 消息条目渲染（气泡/图片/工具卡/plan/notice）与头部小选择器。
 // 从 AgentChatTabContent 拆出（行数棘轮），纯展示层：状态与动作全部经 props 注入。
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Check, ChevronDown, Copy, ImageIcon, ListTodo } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -63,7 +63,7 @@ export function ItemView({ item, onOpenLocation, onPlanToTodo, expandAllSignal }
             </div>
           ) : null}
           {item.text ? (
-            <div className="max-w-[85%] rounded-lg bg-[var(--app-active-bg)] px-3 py-1.5 text-sm whitespace-pre-wrap break-words">
+            <div className="max-w-[85%] rounded-2xl rounded-br-md bg-[var(--app-active-bg)] px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
               {item.text}
             </div>
           ) : null}
@@ -88,7 +88,7 @@ export function ItemView({ item, onOpenLocation, onPlanToTodo, expandAllSignal }
       );
     case "thought":
       return (
-        <div className="border-l-2 border-[var(--app-border)] pl-2 text-xs italic text-[var(--app-icon-inactive)] whitespace-pre-wrap break-words">
+        <div className="border-l-2 border-[var(--app-border)] pl-2.5 text-xs italic leading-relaxed text-[var(--app-text-tertiary)] whitespace-pre-wrap break-words">
           {item.text}
         </div>
       );
@@ -102,7 +102,7 @@ export function ItemView({ item, onOpenLocation, onPlanToTodo, expandAllSignal }
       );
     case "plan":
       return (
-        <div className="rounded-md border border-[var(--app-border)] px-2.5 py-1.5">
+        <div className="rounded-lg border border-[var(--app-border)] bg-[var(--app-overlay)] px-2.5 py-1.5 shadow-sm">
           <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--app-icon-inactive)]">
             <ListTodo className="h-3.5 w-3.5" /> {t("agentChatPlanTitle")}
             <span className="flex-1" />
@@ -153,15 +153,17 @@ export function ItemView({ item, onOpenLocation, onPlanToTodo, expandAllSignal }
   }
 }
 
-/** 头部的小型选择器（模式/模型共用）：显示当前项，下拉列出可选项。 */
+/** 会话级小型选择器（模式/模型共用，放 composer 底栏）：显示当前项，下拉列出可选项。 */
 export function HeaderSelect({
   items,
   currentId,
   onSelect,
+  icon,
 }: {
   items: { id: string; label: string; description?: string }[];
   currentId?: string;
   onSelect: (id: string) => void;
+  icon?: ReactNode;
 }) {
   const current = items.find((item) => item.id === currentId);
   return (
@@ -169,13 +171,14 @@ export function HeaderSelect({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex items-center gap-1 rounded border border-[var(--app-border)] px-1.5 py-0.5 text-[11px] text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]"
+          className="flex h-7 min-w-0 items-center gap-1 rounded-md border border-transparent px-2 text-xs text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
         >
+          {icon}
           <span className="max-w-40 truncate">{current?.label ?? currentId ?? "…"}</span>
-          <ChevronDown className="h-3 w-3 shrink-0" />
+          <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="start" className="w-56">
         {items.map((item) => (
           <DropdownMenuItem
             key={item.id}

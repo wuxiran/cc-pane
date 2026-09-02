@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useLaunchProfilesStore, useProvidersStore, useSharedMcpStore, useWorkspacesStore } from "@/stores";
+import { useSettingsStore } from "@/stores/useSettingsStore";
 import { createTestWorkspace, createTestWorkspaceProject } from "@/test/utils/testData";
 import { mockTauriInvoke, resetTauriInvoke } from "@/test/utils/mockTauriInvoke";
 import type { CliToolInfo, DiscoveredExternalSkill, LaunchProfile, LaunchProfileDraft, LaunchProfileResolution, Provider } from "@/types";
@@ -116,6 +117,11 @@ const marketEntries: SkillMarketEntry[] = Array.from({ length: 12 }, (_, i) => (
 }));
 
 function renderPanelWithMarketSkills() {
+  // Skill 市场是实验功能：市场组只有在设置里勾选后才会拉取/渲染。
+  const defaults = useSettingsStore.getState().getDefaults();
+  useSettingsStore.setState({
+    settings: { ...defaults, experimental: { ...defaults.experimental, skillMarket: true } },
+  });
   mockTauriInvoke({
     list_launch_profiles: [],
     list_providers: [],

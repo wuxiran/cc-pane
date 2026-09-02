@@ -57,6 +57,39 @@ pub struct AppSettings {
     pub wallpaper: WallpaperSettings,
     #[serde(default)]
     pub im: ImSettings,
+    #[serde(default)]
+    pub experimental: ExperimentalSettings,
+}
+
+/// 实验功能开关。Release 默认全关，用户在「设置 → 实验功能」显式勾选后入口才
+/// 出现；Dev 实例（debug build，与数据目录/identifier 同一套 `cfg!(debug_assertions)`
+/// 隔离）默认全开——开发者天天要用这些页面，不该每次清配置后再去勾。
+///
+/// 每个字段都走 `default_experimental_flag`（老 config.toml 无此节或缺键时）。
+/// 功能转正时把开关删掉即可——UI 侧 `useExperimentalFeature` 的调用点随之删除。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExperimentalSettings {
+    /// 媒体生成工作台（图片/视频，活动栏 ImagePlus 入口 + MediaStudio 全屏页）。
+    #[serde(default = "default_experimental_flag")]
+    pub media_generation: bool,
+    /// Skill 市场（活动栏 Store 入口 + 全屏页 + 各处「从市场安装」区块）。
+    #[serde(default = "default_experimental_flag")]
+    pub skill_market: bool,
+}
+
+/// Dev（debug）构建 = true，Release = false。
+pub fn default_experimental_flag() -> bool {
+    cfg!(debug_assertions)
+}
+
+impl Default for ExperimentalSettings {
+    fn default() -> Self {
+        Self {
+            media_generation: default_experimental_flag(),
+            skill_market: default_experimental_flag(),
+        }
+    }
 }
 
 /// IM 外推通知设置（钉钉/企业微信/飞书等群机器人）。
@@ -1420,6 +1453,24 @@ impl ProxySettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 实验功能默认值跟随 Dev/Release 隔离：debug 全开、release 全关；老配置缺
+    /// 整节或缺单键时都按此回落（字段级 default 与结构体 Default 同口径）。
+    #[test]
+    fn experimental_defaults_follow_debug_assertions() {
+        let expected = cfg!(debug_assertions);
+        let defaults = ExperimentalSettings::default();
+        assert_eq!(defaults.media_generation, expected);
+        assert_eq!(defaults.skill_market, expected);
+
+        let missing_section: AppSettings = toml::from_str("").expect("empty config parses");
+        assert_eq!(missing_section.experimental.media_generation, expected);
+
+        let partial: AppSettings =
+            toml::from_str("[experimental]\nskillMarket = false\n").expect("partial parses");
+        assert!(!partial.experimental.skill_market);
+        assert_eq!(partial.experimental.media_generation, expected);
+    }
 
     #[test]
     fn theme_shape_defaults_for_legacy_config() {

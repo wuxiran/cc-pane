@@ -64,7 +64,9 @@ Resume：
 | `list_resume_sessions` local + WSL | ✅ | |
 | resume id → launch_history | ✅ | `cursor-chat-scan`（mtime/cwd 匹配，并发可能串） |
 | ccpanes MCP / report_to_leader | ✅ 弱 | 用户级 mcp.json；无 per-launch 隔离 |
-| print 无交互 worker | ✅ | `adapterOptions.print` |
+| print 无交互 worker | ✅ | `adapterOptions.print`；`cursor_bridge action=context` 必开 |
+| `--mode ask` 只读 | ✅ | `adapterOptions.readOnly`（Cursor Bridge `context` / `readOnly`） |
+| Cursor Bridge 持续会话 | ✅ | `cursor_bridge sessionMode=create/continue`；登记簿在 `{app_config_dir}/cursor-bridge/` |
 | issued session id / OSC 标题 | ❌ | Cursor CLI 无对等通道 |
 
 ## macOS "claude CLI not found" 排查顺序

@@ -16,14 +16,17 @@ type VoiceStatus = "idle" | "recording" | "transcribing";
 export interface ChatVoiceButtonProps {
   chatId: string;
   onText: (text: string) => void;
-  /** 尺寸覆盖（默认 h-7 w-7，chat composer 用 h-8 w-8 对齐相邻按钮）。 */
+  /** 尺寸覆盖（默认 h-7 w-7）。 */
   sizeClass?: string;
+  /** outline = 描边按钮；ghost = 无边框图标（composer 工具栏用）。 */
+  variant?: "outline" | "ghost";
 }
 
 export default function ChatVoiceButton({
   chatId,
   onText,
   sizeClass = "h-7 w-7",
+  variant = "outline",
 }: ChatVoiceButtonProps) {
   const { t } = useTranslation("panes");
   const voice = useSettingsStore((state) => state.settings?.voice);
@@ -158,6 +161,11 @@ export default function ChatVoiceButton({
         ? t("voiceTranscribing")
         : t("voiceStartRecording");
 
+  const idleClass =
+    variant === "ghost"
+      ? "border-transparent text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+      : "border-[var(--app-border)] text-[var(--app-icon-inactive)] hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]";
+
   return (
     <button
       type="button"
@@ -167,7 +175,7 @@ export default function ChatVoiceButton({
       className={`flex ${sizeClass} shrink-0 items-center justify-center rounded-md border transition-colors ${
         status === "recording"
           ? "border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-bg)] text-[var(--app-status-danger)]"
-          : "border-[var(--app-border)] text-[var(--app-icon-inactive)] hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]"
+          : idleClass
       } disabled:opacity-50`}
       onClick={() => {
         if (status === "transcribing") return;

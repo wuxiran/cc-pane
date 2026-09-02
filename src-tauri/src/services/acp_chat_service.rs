@@ -69,10 +69,81 @@ pub struct AcpChatSnapshot {
     /// ACP SessionModelState（currentModelId + availableModels），引擎不支持时缺失。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub models: Option<Value>,
+    /// 当前自动放行的 ACP ToolKind 集合（`*` = 全部）。前端重挂载时据此
+    /// 还原权限下拉的勾选态。
+    #[serde(default)]
+    pub auto_approve_kinds: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+/// 通配：自动放行所有权限请求（Automations 无人值守 / 用户显式 YOLO）。
+pub const AUTO_APPROVE_ALL: &str = "*";
+
+/// 权限请求是否命中自动放行策略。`kinds` 是 ACP ToolKind 集合（read /
+/// edit / execute / fetch …）；请求未带 kind 时归入 `other`——适配器省略
+/// kind 的多半是自定义/MCP 工具，用户勾了「其他」才放。
+pub fn auto_approves(kinds: &[String], tool_kind: Option<&str>) -> bool {
+    if kinds.is_empty() {
+        return false;
+    }
+    if kinds.iter().any(|kind| kind == AUTO_APPROVE_ALL) {
+        return true;
+    }
+    let effective = tool_kind.filter(|kind| !kind.is_empty()).unwrap_or("other");
+    kinds.iter().any(|kind| kind == effective)
+}
+
+/// 权限请求未带 kind 时按标题前缀推断（实测 Kimi CLI 的 ACP 全程不发 kind，
+/// 标题形如 `Shell: echo hi` / `WriteFile: a.txt` / `StrReplaceFile: b.rs`）。
+/// 只认冒号前的首个词，白名单外返回 None（→ other），不做模糊猜测。
+pub fn infer_tool_kind_from_title(title: &str) -> Option<&'static str> {
+    let head = title
+        .split([':', ' ', '`'])
+        .next()?
+        .trim()
+        .to_ascii_lowercase();
+    match head.as_str() {
+        "shell" | "bash" | "terminal" | "powershell" | "run_terminal_command" => Some("execute"),
+        "writefile" | "write" | "strreplacefile" | "edit" | "search_replace" | "apply_patch"
+        | "patch" | "notebookedit" => Some("edit"),
+        "readfile" | "readmediafile" | "read" | "read_file" => Some("read"),
+        "grep" | "glob" | "list_dir" | "search" => Some("search"),
+        "fetchurl" | "webfetch" | "web_fetch" | "fetch" | "searchweb" | "websearch" => {
+            Some("fetch")
+        }
+        _ => None,
+    }
+}
+
+/// 自动放行时选哪个选项。`wildcard`（Automations / 全部放行）= 必须推进：第一
+/// 个 allow，没有 allow 就取第一个。按类放行则保守：只在恰好一个 `allow_once`
+/// 时选它——Cursor 的 AskQuestion、Codex 的沙箱权限档都是 N 个 allow_once 并列，
+/// 那是「让用户选」而不是「同意/拒绝」，自动挑第一个等于替用户乱答。
+pub fn pick_auto_approve_option(options: &[Value], wildcard: bool) -> Option<Value> {
+    fn kind_of(option: &Value) -> &str {
+        option.get("kind").and_then(Value::as_str).unwrap_or("")
+    }
+    let allow_once: Vec<&Value> = options
+        .iter()
+        .filter(|option| kind_of(option) == "allow_once")
+        .collect();
+    let any_allow: Vec<&Value> = options
+        .iter()
+        .filter(|option| kind_of(option).starts_with("allow"))
+        .collect();
+    let chosen = if wildcard {
+        any_allow.first().copied().or_else(|| options.first())
+    } else if allow_once.len() == 1 {
+        allow_once.first().copied()
+    } else if allow_once.is_empty() && any_allow.len() == 1 {
+        any_allow.first().copied()
+    } else {
+        None
+    };
+    chosen.and_then(|option| option.get("optionId")).cloned()
 }
 
 /// Event envelope emitted to the WebView. `payload` stays close to the wire:
@@ -101,9 +172,10 @@ pub struct AcpLaunchSpec {
     /// Resume an existing ACP conversation via `session/load` when the agent
     /// advertises `loadSession`. Falls back to a fresh session otherwise.
     pub resume_acp_session_id: Option<String>,
-    /// 无人值守：`session/request_permission` 自动选第一个 allow 选项，不再
-    /// 弹审批卡。Automations 的 headless 会话使用；交互式 chat 保持 false。
-    pub auto_approve_permissions: bool,
+    /// 自动放行的 ACP ToolKind 集合：命中的 `session/request_permission` 自动
+    /// 选第一个 allow 选项，不弹审批卡。`*` = 全部（Automations 的 headless
+    /// 会话）；交互式 chat 由用户在权限下拉里按类勾选，空 = 每次都问。
+    pub auto_approve_kinds: Vec<String>,
 }
 
 type PendingResult = Result<Value, Value>;
@@ -124,8 +196,14 @@ struct AcpChatSession {
     /// On cancel we MUST answer them all with the `cancelled` outcome.
     pending_permissions: Mutex<HashMap<String, Value>>,
     stderr_tail: Mutex<VecDeque<String>>,
-    /// 无人值守自动放行权限（Automations headless 会话）。
-    auto_approve_permissions: bool,
+    /// 自动放行策略（ToolKind 集合，`*` = 全部）。会话中可改，读写都在
+    /// 微秒级临界区里，用同步锁即可。
+    auto_approve_kinds: std::sync::RwLock<Vec<String>>,
+    /// toolCallId → kind，从 `tool_call` / `tool_call_update` 流里记下来，供
+    /// 权限请求自身不带 kind 时回查（有界，满了整体清空）。
+    tool_kinds: std::sync::Mutex<HashMap<String, String>>,
+    /// 历史 meta 目录（`session_info_update` 的 agent 标题要写回去）。
+    chats_dir: PathBuf,
     /// 回合结束/失败的外部通知钩子（服务级共享，lib.rs 注入桌面通知）。
     turn_notifier: Arc<std::sync::RwLock<Option<AcpTurnNotifier>>>,
 }
@@ -435,6 +513,7 @@ impl AcpChatService {
                 protocol_version: None,
                 modes: None,
                 models: None,
+                auto_approve_kinds: spec.auto_approve_kinds.clone(),
                 exit_code: None,
                 error: None,
             }),
@@ -445,7 +524,9 @@ impl AcpChatService {
             next_request_id: AtomicU64::new(1),
             pending_permissions: Mutex::new(HashMap::new()),
             stderr_tail: Mutex::new(VecDeque::new()),
-            auto_approve_permissions: spec.auto_approve_permissions,
+            auto_approve_kinds: std::sync::RwLock::new(spec.auto_approve_kinds.clone()),
+            tool_kinds: std::sync::Mutex::new(HashMap::new()),
+            chats_dir: self.chats_dir.clone(),
             turn_notifier: self.turn_notifier.clone(),
         });
         self.sessions
@@ -791,6 +872,24 @@ impl AcpChatService {
         Ok(())
     }
 
+    /// 会话中改自动放行策略（立即对后续 `session/request_permission` 生效；
+    /// 已弹出的审批卡不回收，仍由用户回答）。
+    pub async fn set_auto_approve(&self, chat_id: &str, kinds: Vec<String>) -> AppResult<()> {
+        let session = self.session(chat_id).await?;
+        let kinds: Vec<String> = kinds
+            .into_iter()
+            .map(|kind| kind.trim().to_string())
+            .filter(|kind| !kind.is_empty())
+            .collect();
+        *session
+            .auto_approve_kinds
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = kinds.clone();
+        session.snapshot.write().await.auto_approve_kinds = kinds;
+        session.emit_state().await;
+        Ok(())
+    }
+
     /// Relay the user's decision for a `session/request_permission` request.
     pub async fn respond_permission(
         &self,
@@ -891,13 +990,7 @@ impl AcpChatService {
     // ---- 会话历史元数据（按 acpSessionId 落盘） ----
 
     fn meta_path(&self, acp_session_id: &str) -> Option<PathBuf> {
-        let id = acp_session_id.trim();
-        let safe = !id.is_empty()
-            && id.len() <= 128
-            && id
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-        safe.then(|| self.chats_dir.join(format!("{id}.json")))
+        meta_path_in(&self.chats_dir, acp_session_id)
     }
 
     fn write_chat_meta(
@@ -948,10 +1041,7 @@ impl AcpChatService {
         let Some(path) = self.meta_path(acp_session_id) else {
             return;
         };
-        let Some(mut meta) = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-        else {
+        let Some(mut meta) = read_meta(&path) else {
             return;
         };
         let has_title = meta
@@ -963,6 +1053,7 @@ impl AcpChatService {
             let cleaned = text.split_whitespace().collect::<Vec<_>>().join(" ");
             let title: String = cleaned.chars().take(60).collect();
             meta["title"] = json!(title);
+            meta["titleSource"] = json!(TITLE_SOURCE_AUTO);
         }
         meta["updatedAt"] = json!(unix_millis());
         if let Err(error) = std::fs::write(&path, meta.to_string()) {
@@ -979,7 +1070,14 @@ impl AcpChatService {
             .map_err(|error| AppError::from(format!("Unable to read ACP chat meta: {error}")))?;
         let mut meta: Value = serde_json::from_str(&raw)
             .map_err(|error| AppError::from(format!("Invalid ACP chat meta: {error}")))?;
-        meta["title"] = json!(title.trim().chars().take(120).collect::<String>());
+        let trimmed: String = title.trim().chars().take(120).collect();
+        // 清空 = 放弃手改，回到自动/agent 标题；非空 = 用户手改，之后 agent 不再覆盖。
+        meta["titleSource"] = json!(if trimmed.is_empty() {
+            TITLE_SOURCE_AUTO
+        } else {
+            TITLE_SOURCE_USER
+        });
+        meta["title"] = json!(trimmed);
         meta["updatedAt"] = json!(unix_millis());
         std::fs::write(&path, meta.to_string())
             .map_err(|error| AppError::from(format!("Unable to write ACP chat meta: {error}")))
@@ -1108,25 +1206,58 @@ async fn route_message(session: &Arc<AcpChatSession>, message: Value) {
             let id = id.clone();
             let params = message.get("params").cloned().unwrap_or(Value::Null);
             if method == "session/request_permission" {
-                // 无人值守：自动选第一个 allow 选项（没有 allow 时取第一个，
-                // 全拒绝集也能推进）。不弹卡，但 emit 通知留痕。
-                if session.auto_approve_permissions {
-                    let option_id = params
-                        .get("options")
-                        .and_then(Value::as_array)
-                        .and_then(|options| {
-                            options
-                                .iter()
-                                .find(|option| {
-                                    option
-                                        .get("kind")
-                                        .and_then(Value::as_str)
-                                        .is_some_and(|kind| kind.starts_with("allow"))
-                                })
-                                .or_else(|| options.first())
-                        })
-                        .and_then(|option| option.get("optionId"))
-                        .cloned();
+                // 命中自动放行策略就代答，不弹卡，但 emit 通知留痕。kind 解析三级：
+                // 请求自带 → tool_call 流里同 id 报过的 → 标题前缀推断（Kimi）。
+                let tool_call = params.get("toolCall");
+                let tool_call_id = tool_call
+                    .and_then(|call| call.get("toolCallId"))
+                    .and_then(Value::as_str);
+                let cached_kind = tool_call_id.and_then(|call_id| {
+                    session
+                        .tool_kinds
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .get(call_id)
+                        .cloned()
+                });
+                let tool_kind: Option<String> = tool_call
+                    .and_then(|call| call.get("kind"))
+                    .and_then(Value::as_str)
+                    .filter(|kind| !kind.is_empty())
+                    .map(str::to_string)
+                    .or(cached_kind)
+                    .or_else(|| {
+                        tool_call
+                            .and_then(|call| call.get("title"))
+                            .and_then(Value::as_str)
+                            .and_then(infer_tool_kind_from_title)
+                            .map(str::to_string)
+                    });
+                let (approved, wildcard) = {
+                    let kinds = session
+                        .auto_approve_kinds
+                        .read()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    (
+                        auto_approves(&kinds, tool_kind.as_deref()),
+                        kinds.iter().any(|kind| kind == AUTO_APPROVE_ALL),
+                    )
+                };
+                let option_id = if approved {
+                    pick_auto_approve_option(
+                        params
+                            .get("options")
+                            .and_then(Value::as_array)
+                            .map(Vec::as_slice)
+                            .unwrap_or(&[]),
+                        wildcard,
+                    )
+                } else {
+                    None
+                };
+                // 通配下选不出选项也要推进（cancelled）；按类放行选不出（提问型
+                // 多选）就退回弹卡，让用户自己答。
+                if approved && (option_id.is_some() || wildcard) {
                     let outcome = match option_id {
                         Some(option_id) => {
                             json!({"outcome": {"outcome": "selected", "optionId": option_id}})
@@ -1138,7 +1269,11 @@ async fn route_message(session: &Arc<AcpChatSession>, message: Value) {
                     }
                     session.emit(
                         "notification",
-                        json!({"method": "ccpanes/auto-approved", "params": params}),
+                        json!({
+                            "method": "ccpanes/auto-approved",
+                            "params": params,
+                            "resolvedKind": tool_kind,
+                        }),
                     );
                     return;
                 }
@@ -1171,6 +1306,8 @@ async fn route_message(session: &Arc<AcpChatSession>, message: Value) {
                 // agent 可以自主换模式（例如 plan 模式跑完自动切回）；快照要跟上，
                 // 否则头部的模式选择器显示陈旧值。
                 sync_mode_update_into_snapshot(session, &params).await;
+                remember_tool_kind(session, &params);
+                sync_agent_title_into_meta(session, &params).await;
                 session.emit("update", params);
             } else {
                 // Unknown notifications stay visible for protocol drift.
@@ -1262,6 +1399,109 @@ async fn run_turn(
             Err(error)
         }
     }
+}
+
+/// 历史 meta 的 `titleSource`：auto = 首条 prompt 截取；agent = 引擎经
+/// `session_info_update` 给的标题；user = 用户手改（agent 不得覆盖）。
+const TITLE_SOURCE_AUTO: &str = "auto";
+const TITLE_SOURCE_AGENT: &str = "agent";
+const TITLE_SOURCE_USER: &str = "user";
+
+/// acpSessionId 只允许 `[A-Za-z0-9_-]`（≤128）——它直接拼进文件名。
+fn meta_path_in(chats_dir: &Path, acp_session_id: &str) -> Option<PathBuf> {
+    let id = acp_session_id.trim();
+    let safe = !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    safe.then(|| chats_dir.join(format!("{id}.json")))
+}
+
+fn read_meta(path: &Path) -> Option<Value> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+}
+
+/// agent 标题是否应写入 meta：用户手改的不动，其余（无 title / auto / agent）
+/// 都让 agent 的更好标题覆盖。旧 meta 没有 titleSource 视为 auto。
+pub fn agent_title_should_apply(meta: &Value) -> bool {
+    meta.get("titleSource").and_then(Value::as_str) != Some(TITLE_SOURCE_USER)
+}
+
+/// `session_info_update.title` → 历史 meta（Claude / Codex / Copilot / Cursor
+/// 实测都会在首轮后发一次 agent 生成的标题）。
+fn apply_agent_title(chats_dir: &Path, acp_session_id: &str, title: &str) {
+    let title: String = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    if title.is_empty() {
+        return;
+    }
+    let Some(path) = meta_path_in(chats_dir, acp_session_id) else {
+        return;
+    };
+    let Some(mut meta) = read_meta(&path) else {
+        return;
+    };
+    if !agent_title_should_apply(&meta) {
+        return;
+    }
+    meta["title"] = json!(title.chars().take(120).collect::<String>());
+    meta["titleSource"] = json!(TITLE_SOURCE_AGENT);
+    meta["updatedAt"] = json!(unix_millis());
+    if let Err(error) = std::fs::write(&path, meta.to_string()) {
+        warn!(error = %error, "failed to write agent title into ACP chat meta");
+    }
+}
+
+/// `session_info_update` → 把 agent 生成的标题写进历史 meta。文件 IO 极小
+/// （一个 JSON），且每会话只来一两次，直接在读线程做。
+async fn sync_agent_title_into_meta(session: &Arc<AcpChatSession>, params: &Value) {
+    let Some(update) = params.get("update") else {
+        return;
+    };
+    if update.get("sessionUpdate").and_then(Value::as_str) != Some("session_info_update") {
+        return;
+    }
+    let Some(title) = update.get("title").and_then(Value::as_str) else {
+        return;
+    };
+    let acp_session_id = session.snapshot.read().await.acp_session_id.clone();
+    if let Some(acp_session_id) = acp_session_id {
+        apply_agent_title(&session.chats_dir, &acp_session_id, title);
+    }
+}
+
+/// 记 toolCallId → kind（tool_call / tool_call_update 带 kind 时）。有界：超过
+/// 上限整体清空——一轮对话的工具调用远到不了这个数，清空只影响极端长会话里
+/// 早已结束的调用。
+const TOOL_KIND_CACHE_LIMIT: usize = 512;
+
+fn remember_tool_kind(session: &Arc<AcpChatSession>, params: &Value) {
+    let Some(update) = params.get("update") else {
+        return;
+    };
+    let variant = update.get("sessionUpdate").and_then(Value::as_str);
+    if !matches!(variant, Some("tool_call") | Some("tool_call_update")) {
+        return;
+    }
+    let (Some(call_id), Some(kind)) = (
+        update.get("toolCallId").and_then(Value::as_str),
+        update.get("kind").and_then(Value::as_str),
+    ) else {
+        return;
+    };
+    if kind.is_empty() {
+        return;
+    }
+    let mut cache = session
+        .tool_kinds
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if cache.len() >= TOOL_KIND_CACHE_LIMIT && !cache.contains_key(call_id) {
+        cache.clear();
+    }
+    cache.insert(call_id.to_string(), kind.to_string());
 }
 
 async fn sync_mode_update_into_snapshot(session: &Arc<AcpChatSession>, params: &Value) {
@@ -1379,6 +1619,163 @@ fn trim_record_ending(record: &[u8]) -> &[u8] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn kinds(list: &[&str]) -> Vec<String> {
+        list.iter().map(|kind| kind.to_string()).collect()
+    }
+
+    #[test]
+    fn auto_approve_empty_policy_always_asks() {
+        assert!(!auto_approves(&[], Some("read")));
+        assert!(!auto_approves(&[], None));
+    }
+
+    #[test]
+    fn auto_approve_wildcard_covers_everything() {
+        let policy = kinds(&["*"]);
+        assert!(auto_approves(&policy, Some("execute")));
+        assert!(auto_approves(&policy, None));
+    }
+
+    #[test]
+    fn auto_approve_matches_listed_kinds_only() {
+        let policy = kinds(&["read", "search"]);
+        assert!(auto_approves(&policy, Some("read")));
+        assert!(auto_approves(&policy, Some("search")));
+        assert!(!auto_approves(&policy, Some("edit")));
+        assert!(!auto_approves(&policy, Some("execute")));
+    }
+
+    #[test]
+    fn auto_approve_missing_kind_is_other() {
+        assert!(!auto_approves(&kinds(&["read"]), None));
+        assert!(auto_approves(&kinds(&["other"]), None));
+        assert!(auto_approves(&kinds(&["other"]), Some("")));
+    }
+
+    /// Kimi CLI 实测：权限请求与 tool_call 均不带 kind，标题为 `工具名: 参数`。
+    #[test]
+    fn infer_kind_from_kimi_style_titles() {
+        assert_eq!(
+            infer_tool_kind_from_title("Shell: echo acp-probe-ok"),
+            Some("execute")
+        );
+        assert_eq!(
+            infer_tool_kind_from_title("WriteFile: probe.txt"),
+            Some("edit")
+        );
+        assert_eq!(
+            infer_tool_kind_from_title("StrReplaceFile: existing.txt"),
+            Some("edit")
+        );
+        assert_eq!(
+            infer_tool_kind_from_title("ReadFile: existing.txt"),
+            Some("read")
+        );
+        assert_eq!(infer_tool_kind_from_title("Grep: hello"), Some("search"));
+        assert_eq!(
+            infer_tool_kind_from_title("FetchURL: https://x"),
+            Some("fetch")
+        );
+        assert_eq!(infer_tool_kind_from_title("TaskStop: 3"), None);
+        assert_eq!(
+            infer_tool_kind_from_title("Print the required shell marker"),
+            None
+        );
+        assert_eq!(infer_tool_kind_from_title(""), None);
+    }
+
+    fn options(kinds: &[&str]) -> Vec<Value> {
+        kinds
+            .iter()
+            .enumerate()
+            .map(|(index, kind)| json!({"optionId": format!("o{index}"), "kind": kind}))
+            .collect()
+    }
+
+    /// Claude / Kimi / OpenCode / Copilot 实测的标准三选项：恰好一个 allow_once。
+    #[test]
+    fn pick_option_standard_approval_selects_allow_once() {
+        let claude = options(&["reject_once", "allow_once", "allow_always"]);
+        assert_eq!(pick_auto_approve_option(&claude, false), Some(json!("o1")));
+        let copilot = options(&["allow_once", "allow_always", "reject_once"]);
+        assert_eq!(pick_auto_approve_option(&copilot, false), Some(json!("o0")));
+    }
+
+    /// Cursor AskQuestion / Codex 沙箱权限档：多个 allow_once 并列 = 提问，不代答。
+    #[test]
+    fn pick_option_refuses_multi_choice_questions_per_kind() {
+        let question = options(&["allow_once", "allow_once", "allow_once", "reject_once"]);
+        assert_eq!(pick_auto_approve_option(&question, false), None);
+        let codex_profile = options(&["allow_once", "allow_once", "allow_always", "reject_once"]);
+        assert_eq!(pick_auto_approve_option(&codex_profile, false), None);
+    }
+
+    /// 通配（Automations）必须推进：多选也取第一个 allow，全拒绝集取第一个。
+    #[test]
+    fn pick_option_wildcard_always_progresses() {
+        let question = options(&["allow_once", "allow_once", "reject_once"]);
+        assert_eq!(pick_auto_approve_option(&question, true), Some(json!("o0")));
+        let rejects = options(&["reject_once", "reject_always"]);
+        assert_eq!(pick_auto_approve_option(&rejects, true), Some(json!("o0")));
+        assert_eq!(pick_auto_approve_option(&rejects, false), None);
+        assert_eq!(pick_auto_approve_option(&[], true), None);
+    }
+
+    #[test]
+    fn agent_title_overrides_auto_but_not_user() {
+        assert!(agent_title_should_apply(&json!({"title": ""})));
+        assert!(agent_title_should_apply(&json!({"title": "first prompt…"})));
+        assert!(agent_title_should_apply(&json!({"titleSource": "auto"})));
+        assert!(agent_title_should_apply(&json!({"titleSource": "agent"})));
+        assert!(!agent_title_should_apply(&json!({"titleSource": "user"})));
+    }
+
+    #[test]
+    fn apply_agent_title_writes_meta_and_respects_user_rename() {
+        let dir = std::env::temp_dir().join(format!(
+            "acp-meta-test-{}-{}",
+            std::process::id(),
+            unix_millis()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("sess-1.json");
+        std::fs::write(
+            &path,
+            json!({"title": "帮我看看这个仓库…", "createdAt": 1}).to_string(),
+        )
+        .unwrap();
+
+        apply_agent_title(&dir, "sess-1", "  Repo walkthrough\n and data flow  ");
+        let meta = read_meta(&path).unwrap();
+        assert_eq!(meta["title"], json!("Repo walkthrough and data flow"));
+        assert_eq!(meta["titleSource"], json!("agent"));
+
+        // 用户手改后 agent 再发标题不得覆盖。
+        std::fs::write(
+            &path,
+            json!({"title": "我的命名", "titleSource": "user"}).to_string(),
+        )
+        .unwrap();
+        apply_agent_title(&dir, "sess-1", "Agent title");
+        assert_eq!(read_meta(&path).unwrap()["title"], json!("我的命名"));
+
+        // 非法 id / 空标题 / 不存在的 meta 都静默不写。
+        apply_agent_title(&dir, "../evil", "x");
+        apply_agent_title(&dir, "sess-1", "   ");
+        apply_agent_title(&dir, "missing", "x");
+        assert!(!dir.join("missing.json").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pick_option_single_allow_always_is_accepted() {
+        let only_always = options(&["allow_always", "reject_once"]);
+        assert_eq!(
+            pick_auto_approve_option(&only_always, false),
+            Some(json!("o0"))
+        );
+    }
 
     #[test]
     fn permission_request_keys_distinguish_id_types() {

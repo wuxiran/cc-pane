@@ -308,6 +308,8 @@
   --app-warning: #9A6700;
   --app-warning-bg: rgba(191, 135, 0, 0.08);
   --app-input-bg: #F1F3F6;
+  /* agent-chat 输入卡：相对主区「下沉」一档（亮色=灰输入底，暗色=更深的 content） */
+  --app-chat-composer-bg: var(--app-input-bg);
   --app-status-success: #1a7f37;
   --app-status-warning: #9A6700;
   --app-status-danger: #CF222E;
@@ -510,6 +512,7 @@
   --app-warning: #D6A625;
   --app-warning-bg: rgba(214, 166, 37, 0.12);
   --app-input-bg: rgba(255, 255, 255, 0.04);
+  --app-chat-composer-bg: var(--app-content);
   --app-status-success: #3FB950;
   --app-status-warning: #D6A625;
   --app-status-danger: #F85149;

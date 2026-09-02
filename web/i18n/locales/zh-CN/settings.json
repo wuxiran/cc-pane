@@ -7,6 +7,7 @@
   "searchPlaceholder": "搜索字体、通知、快捷键…",
   "clearSearch": "清除搜索",
   "openSkillMarket": "打开技能市场",
+  "noUserSkillsNoMarket": "还没有安装用户 Skill。",
   "searchEmpty": "没有匹配的设置",
   "searchCommandGroup": "设置",
   "searchLayers": {
@@ -75,7 +76,12 @@
     "title": "实验性功能",
     "description": "尚未稳定的功能会在这里集中管理，并在毕业时保留原有选择。",
     "emptyTitle": "暂无实验性功能",
-    "emptyDescription": "当前版本没有需要手动开启的实验项。"
+    "emptyDescription": "当前版本没有需要手动开启的实验项。",
+    "notice": "以下功能仍在打磨中，默认关闭。勾选后活动栏与相关页面才会出现入口；随时可以关回去，已生成的数据不会删除。",
+    "mediaGeneration": "媒体生成工作台",
+    "mediaGenerationDesc": "活动栏「媒体生成」入口与图片 / 视频生成全屏页（需配置对应的媒体 Provider）。",
+    "skillMarket": "Skill 市场",
+    "skillMarketDesc": "活动栏「Skill 市场」入口、全屏市场页，以及启动配置 / 全局 Skill 面板里的「从市场安装」区块。"
   },
   "modules": {
     "title": "模块",

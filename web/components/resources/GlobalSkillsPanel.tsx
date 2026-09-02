@@ -16,6 +16,7 @@ import { handleErrorSilent } from "@/utils";
 import { notifySetupGuideProgress } from "@/components/onboarding/setupGuideProgress";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useDialogStore } from "@/stores/useDialogStore";
+import { useExperimentalFeature } from "@/hooks/useExperimentalFeature";
 
 function externalSourceLabel(s: ExternalSkillSource): string {
   if (s.kind === "plugin") return `plugin:${s.pluginId}`;
@@ -38,6 +39,8 @@ export default function GlobalSkillsPanel() {
   const [bundled, setBundled] = useState<BundledSkill[]>([]);
   const [loading, setLoading] = useState(false);
   const [installing, setInstalling] = useState<string | null>(null);
+  // Skill 市场是实验功能：未勾选时不拉市场清单、不显示市场区块与入口按钮。
+  const skillMarketEnabled = useExperimentalFeature("skillMarket");
 
   const installedIds = useMemo(() => new Set(userSkills.map((s) => s.id)), [userSkills]);
 
@@ -45,7 +48,9 @@ export default function GlobalSkillsPanel() {
     setLoading(true);
     const [u, m, e, b] = await Promise.all([
       skillService.listUserSkills().catch((err) => (handleErrorSilent(err, "list user skills"), [] as InstalledUserSkill[])),
-      skillService.listSkillMarketEntries().catch((err) => (handleErrorSilent(err, "list market skills"), [] as SkillMarketEntry[])),
+      skillMarketEnabled
+        ? skillService.listSkillMarketEntries().catch((err) => (handleErrorSilent(err, "list market skills"), [] as SkillMarketEntry[]))
+        : Promise.resolve([] as SkillMarketEntry[]),
       skillService.listExternalSkills().catch((err) => (handleErrorSilent(err, "list external skills"), [] as DiscoveredExternalSkill[])),
       skillService.listBundledSkills().catch((err) => (handleErrorSilent(err, "list bundled skills"), [] as BundledSkill[])),
     ]);
@@ -54,7 +59,7 @@ export default function GlobalSkillsPanel() {
     setExternal(e);
     setBundled(b);
     setLoading(false);
-  }, []);
+  }, [skillMarketEnabled]);
 
   useEffect(() => { void reload(); }, [reload]);
 
@@ -90,16 +95,18 @@ export default function GlobalSkillsPanel() {
           {t("globalSkillsDesc", { defaultValue: "管理 CC-Panes 全局 Skills：市场安装、已装用户 skill、以及各 CLI 已有的 skill（只读）。" })}
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            onClick={() => {
-              useDialogStore.getState().closeSettings();
-              useActivityBarStore.getState().setAppViewMode("skillMarket");
-            }}
-          >
-            <Store size={14} className="mr-1.5" />
-            {t("openSkillMarket")}
-          </Button>
+          {skillMarketEnabled ? (
+            <Button
+              size="sm"
+              onClick={() => {
+                useDialogStore.getState().closeSettings();
+                useActivityBarStore.getState().setAppViewMode("skillMarket");
+              }}
+            >
+              <Store size={14} className="mr-1.5" />
+              {t("openSkillMarket")}
+            </Button>
+          ) : null}
           <Button variant="outline" size="sm" onClick={() => void reload()} disabled={loading}>
             {loading ? <Loader2 size={14} className="mr-1.5 animate-spin" /> : <RefreshCw size={14} className="mr-1.5" />}
             {t("refresh", { ns: "common", defaultValue: "刷新" })}
@@ -110,7 +117,13 @@ export default function GlobalSkillsPanel() {
       {/* 1. 已安装用户 skills */}
       <Section icon={<Package size={15} />} title={t("installedUserSkills", { defaultValue: "已安装 Skills" })} count={userSkills.length}>
         {userSkills.length === 0 ? (
-          <Empty text={t("noUserSkills", { defaultValue: "还没有安装用户 Skill，去下方市场装一个。" })} />
+          <Empty
+            text={
+              skillMarketEnabled
+                ? t("noUserSkills", { defaultValue: "还没有安装用户 Skill，去下方市场装一个。" })
+                : t("noUserSkillsNoMarket")
+            }
+          />
         ) : (
           <div className="flex flex-col gap-2">
             {userSkills.map((s) => (
@@ -130,7 +143,8 @@ export default function GlobalSkillsPanel() {
         )}
       </Section>
 
-      {/* 2. 市场 */}
+      {/* 2. 市场（实验功能，未勾选时整段不渲染） */}
+      {skillMarketEnabled ? (
       <Section icon={<Store size={15} />} title={t("skillMarket", { defaultValue: "Skill 市场" })} count={market.length}>
         {market.length === 0 ? (
           <Empty text={t("noMarketSkills", { defaultValue: "市场暂无条目（或未联网）。" })} />
@@ -165,6 +179,7 @@ export default function GlobalSkillsPanel() {
           </div>
         )}
       </Section>
+      ) : null}
 
       {/* 3. 外部发现（只读） */}
       <Section icon={<Globe size={15} />} title={t("externalSkills", { defaultValue: "外部发现（只读）" })} count={external.length}>

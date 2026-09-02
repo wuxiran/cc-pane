@@ -31,6 +31,7 @@ import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useModulePrefsStore } from "@/stores/useModulePrefsStore";
 import { useAiPanelStore } from "@/stores/useAiPanelStore";
 import { useDialogStore, useLayoutUiStore, useOrchestratorStore } from "@/stores";
+import { useExperimentalFeature } from "@/hooks/useExperimentalFeature";
 
 interface ActivityBarIconProps {
   icon: React.ReactNode;
@@ -200,6 +201,9 @@ export default function ActivityBar() {
   const bindings = useOrchestratorStore((state) => state.bindings);
   const aiPanelUnreadCount = useAiPanelStore((state) => state.unreadPanelIds.length);
   const preferences = useModulePrefsStore((state) => state.preferences);
+  // 实验功能入口：设置里勾选后才出现（默认关，客户装上看不到）。
+  const mediaGenerationEnabled = useExperimentalFeature("mediaGeneration");
+  const skillMarketEnabled = useExperimentalFeature("skillMarket");
 
   const visibleModules = MODULE_CONSUMERS.activityBar.filter((module) => {
     const preference = preferences[module.id];
@@ -253,18 +257,22 @@ export default function ActivityBar() {
               active={activeView === "explorer" && sidebarVisible && appViewMode === "panes"}
               onClick={() => toggleView("explorer")}
             />
-            <ActivityBarIcon
-              icon={<ImagePlus className="h-[22px] w-[22px]" strokeWidth={1.5} />}
-              label={t("mediaGeneration")}
-              active={appViewMode === "imageGen" || appViewMode === "videoGen"}
-              onClick={toggleMediaMode}
-            />
-            <ActivityBarIcon
-              icon={<Store className="h-[22px] w-[22px]" strokeWidth={1.5} />}
-              label={t("skillMarket")}
-              active={appViewMode === "skillMarket"}
-              onClick={toggleSkillMarketMode}
-            />
+            {mediaGenerationEnabled ? (
+              <ActivityBarIcon
+                icon={<ImagePlus className="h-[22px] w-[22px]" strokeWidth={1.5} />}
+                label={t("mediaGeneration")}
+                active={appViewMode === "imageGen" || appViewMode === "videoGen"}
+                onClick={toggleMediaMode}
+              />
+            ) : null}
+            {skillMarketEnabled ? (
+              <ActivityBarIcon
+                icon={<Store className="h-[22px] w-[22px]" strokeWidth={1.5} />}
+                label={t("skillMarket")}
+                active={appViewMode === "skillMarket"}
+                onClick={toggleSkillMarketMode}
+              />
+            ) : null}
             {visibleModules.map((module) => {
               const Icon = module.icon;
               return (

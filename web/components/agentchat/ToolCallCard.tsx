@@ -166,10 +166,10 @@ export default function ToolCallCard({ call, onOpenLocation, expandAllSignal }: 
   );
 
   return (
-    <div className="rounded-md border border-[var(--app-border)] bg-[var(--app-panel-bg,transparent)] text-sm">
+    <div className="rounded-lg border border-[var(--app-border)] bg-[var(--app-overlay)] text-sm shadow-sm">
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-[var(--app-hover)] rounded-md"
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-[var(--app-hover)] rounded-lg"
         onClick={() => setExpanded((value) => !value)}
       >
         {hasBody ? (

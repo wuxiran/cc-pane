@@ -43,8 +43,17 @@ export interface AcpChatSnapshot {
   modes?: AcpSessionModeState;
   /** 模型选择，引擎不广告时缺失。 */
   models?: AcpSessionModelState;
+  /** 自动放行的 ACP ToolKind 集合（`*` = 全部）；空/缺失 = 每次都问。 */
+  autoApproveKinds?: string[];
   exitCode?: number;
   error?: string;
+}
+
+/** `usage_update` 的上下文用量（ACP session-usage RFD）。size 必有且非零。 */
+export interface AcpUsage {
+  used: number;
+  size: number;
+  cost?: { amount: number; currency: string } | null;
 }
 
 /** 引擎注册表条目（Rust AcpEngineInfo 的镜像）。 */

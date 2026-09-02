@@ -1,20 +1,23 @@
 // agent-chat 输入区：草稿/发送历史/图片附件/斜杠命令/@引用 全部自持。
 // 从 AgentChatTabContent 拆出（行数棘轮）。发送块组装（text/image/resource_link）
 // 也在这里——父组件只提供会话身份与相位。
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, ImageIcon, Paperclip, RotateCw, Send, Square, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowUp, FileText, ImageIcon, Plus, RotateCw, Square, X } from "lucide-react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
 import type {
   AcpAvailableCommand,
   AcpChatPhase,
+  AcpUsage,
   AgentChatAttachment,
 } from "@/types/agentChat";
 import { agentChatService } from "@/services/agentChatService";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
+import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { isAbsolutePath, joinCwd, toFileUri } from "./chatPaths";
 import ChatVoiceButton from "./ChatVoiceButton";
+import ContextUsageRing from "./ContextUsageRing";
 
 // 草稿与发送历史按 tabId 缓存在模块级：组件卸载（切标签）不丢。
 const draftCache = new Map<string, string>();
@@ -29,6 +32,10 @@ export interface ChatComposerProps {
   availableCommands: AcpAvailableCommand[];
   /** 发送前回调（父组件借此恢复吸底滚动）。 */
   onBeforeSend?: () => void;
+  /** 底栏左侧的会话级选择器（模型/模式/权限），由父组件注入。 */
+  toolbar?: ReactNode;
+  /** 上下文用量（引擎不上报时为 null，不渲染环）。 */
+  usage?: AcpUsage | null;
 }
 
 export default function ChatComposer({
@@ -38,6 +45,8 @@ export default function ChatComposer({
   generating,
   availableCommands,
   onBeforeSend,
+  toolbar,
+  usage,
 }: ChatComposerProps) {
   const { t } = useTranslation("panes");
   // 最后一条用户消息（重试上一轮用；从 store 取，重挂载不丢）。
@@ -241,16 +250,18 @@ export default function ChatComposer({
     });
   }, [chatId, lastUserText, phase, onBeforeSend]);
 
+  const canSend = phase === "ready" && (Boolean(draft.trim()) || attachments.length > 0);
+
   return (
-    <div className="border-t border-[var(--app-border)] px-3 py-2">
+    <div className="px-3 pb-3 pt-1">
       <div className="mx-auto flex max-w-3xl flex-col gap-1.5">
         {slashMatches.length > 0 ? (
-          <div className="flex flex-col overflow-hidden rounded-md border border-[var(--app-border)]">
+          <div className="flex flex-col overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-overlay)] shadow-md">
             {slashMatches.map((command, index) => (
               <button
                 key={command.name}
                 type="button"
-                className={`flex items-baseline gap-2 px-2.5 py-1 text-left transition-colors hover:bg-[var(--app-hover)] ${
+                className={`flex items-baseline gap-2 px-3 py-1.5 text-left transition-colors hover:bg-[var(--app-hover)] ${
                   index === slashIndex ? "bg-[var(--app-active-bg)]" : ""
                 }`}
                 onMouseEnter={() => setSlashIndex(index)}
@@ -258,7 +269,7 @@ export default function ChatComposer({
               >
                 <span className="font-mono text-xs">/{command.name}</span>
                 {command.description ? (
-                  <span className="truncate text-[11px] text-[var(--app-icon-inactive)]">
+                  <span className="truncate text-[11px] text-[var(--app-text-tertiary)]">
                     {command.description}
                   </span>
                 ) : null}
@@ -267,53 +278,44 @@ export default function ChatComposer({
           </div>
         ) : null}
         {mentionQuery !== null ? (
-          <div className="px-1 text-[11px] text-[var(--app-icon-inactive)]">
+          <div className="px-1 text-[11px] text-[var(--app-text-tertiary)]">
             {t("agentChatMentionHint", { query: mentionQuery || "…" })}
           </div>
         ) : null}
-        {attachments.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {attachments.map((attachment, index) => (
-              <span
-                key={index}
-                className="flex items-center gap-1 rounded border border-[var(--app-border)] px-1.5 py-0.5 text-[11px] text-[var(--app-icon-inactive)]"
-              >
-                {attachment.kind === "file" ? (
-                  <FileText className="h-3 w-3" />
-                ) : (
-                  <ImageIcon className="h-3 w-3" />
-                )}{" "}
-                {attachment.name}
-                <button
-                  type="button"
-                  aria-label={t("agentChatRemoveAttachment")}
-                  className="rounded hover:text-[var(--app-status-danger)]"
-                  onClick={() =>
-                    setAttachments((previous) =>
-                      previous.filter((_, itemIndex) => itemIndex !== index),
-                    )
-                  }
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-        ) : null}
         <div
-          className="flex items-end gap-2"
+          className="rounded-xl border border-[var(--app-border)] bg-[var(--app-chat-composer-bg)] px-3 pb-2 pt-2.5 shadow-sm transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)] focus-within:border-[var(--app-accent)]/70 focus-within:shadow-[0_0_0_3px_var(--app-active-bg)]"
           onDrop={handleDrop}
           onDragOver={(event) => event.preventDefault()}
         >
-          <button
-            type="button"
-            aria-label={t("agentChatAttach")}
-            title={t("agentChatAttach")}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--app-border)] text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]"
-            onClick={() => void attachFromDialog()}
-          >
-            <Paperclip className="h-3.5 w-3.5" />
-          </button>
+          {attachments.length > 0 ? (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {attachments.map((attachment, index) => (
+                <span
+                  key={index}
+                  className="flex items-center gap-1 rounded-md border border-[var(--app-border)] bg-[var(--app-overlay)] px-1.5 py-0.5 text-[11px] text-[var(--app-text-secondary)]"
+                >
+                  {attachment.kind === "file" ? (
+                    <FileText className="h-3 w-3" />
+                  ) : (
+                    <ImageIcon className="h-3 w-3" />
+                  )}
+                  <span className="max-w-48 truncate">{attachment.name}</span>
+                  <button
+                    type="button"
+                    aria-label={t("agentChatRemoveAttachment")}
+                    className="rounded hover:text-[var(--app-status-danger)]"
+                    onClick={() =>
+                      setAttachments((previous) =>
+                        previous.filter((_, itemIndex) => itemIndex !== index),
+                      )
+                    }
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
           <textarea
             value={draft}
             onChange={(event) => {
@@ -370,45 +372,57 @@ export default function ChatComposer({
             }}
             placeholder={t("agentChatSendPlaceholder")}
             rows={2}
-            className="max-h-40 min-h-[2.5rem] flex-1 resize-none rounded-md border border-[var(--app-border)] bg-transparent px-2.5 py-1.5 text-sm outline-none focus:border-[var(--app-icon-active)]"
+            className="max-h-48 min-h-[2.75rem] w-full resize-none bg-transparent text-sm leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
           />
-          {lastUserText && !generating ? (
-            <button
-              type="button"
-              aria-label={t("agentChatRetry")}
-              title={t("agentChatRetry")}
-              disabled={phase !== "ready"}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--app-border)] text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)] disabled:opacity-40"
-              onClick={retryLast}
-            >
-              <RotateCw className="h-3.5 w-3.5" />
-            </button>
-          ) : null}
-          <ChatVoiceButton
-            chatId={chatId}
-            sizeClass="h-8 w-8"
-            onText={(text) => setDraft(draft ? `${draft} ${text}` : text)}
-          />
-          {generating ? (
-            <button
-              type="button"
-              aria-label={t("agentChatStop")}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--app-border)] text-[var(--app-status-danger)] transition-colors hover:bg-[var(--app-hover)]"
-              onClick={cancel}
-            >
-              <Square className="h-3.5 w-3.5" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              aria-label={t("agentChatSend")}
-              disabled={phase !== "ready" || (!draft.trim() && attachments.length === 0)}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--app-border)] transition-colors hover:bg-[var(--app-hover)] disabled:opacity-40"
-              onClick={send}
-            >
-              <Send className="h-3.5 w-3.5" />
-            </button>
-          )}
+          <div className="mt-1.5 flex items-end justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-1">
+              <IconTooltipButton
+                label={t("agentChatAttach")}
+                className="h-7 w-7 shrink-0"
+                onClick={() => void attachFromDialog()}
+              >
+                <Plus className="h-4 w-4" />
+              </IconTooltipButton>
+              {toolbar}
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              {usage ? <ContextUsageRing usage={usage} /> : null}
+              {lastUserText && !generating ? (
+                <IconTooltipButton
+                  label={t("agentChatRetry")}
+                  disabled={phase !== "ready"}
+                  className="h-7 w-7"
+                  onClick={retryLast}
+                >
+                  <RotateCw className="h-3.5 w-3.5" />
+                </IconTooltipButton>
+              ) : null}
+              <ChatVoiceButton
+                chatId={chatId}
+                variant="ghost"
+                onText={(text) => setDraft(draft ? `${draft} ${text}` : text)}
+              />
+              {generating ? (
+                <IconTooltipButton
+                  label={t("agentChatStop")}
+                  className="h-7 w-7 rounded-full bg-[var(--app-text-primary)] text-[var(--app-panel-bg)] hover:bg-[var(--app-text-primary)] hover:text-[var(--app-panel-bg)] hover:opacity-85"
+                  onClick={cancel}
+                >
+                  <Square className="h-3 w-3 fill-current" />
+                </IconTooltipButton>
+              ) : (
+                <IconTooltipButton
+                  label={t("agentChatSend")}
+                  kbd="Enter"
+                  disabled={!canSend}
+                  className="h-7 w-7 rounded-full bg-[var(--app-accent)] text-white hover:bg-[var(--app-accent)] hover:text-white hover:opacity-90 disabled:opacity-35"
+                  onClick={send}
+                >
+                  <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
+                </IconTooltipButton>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

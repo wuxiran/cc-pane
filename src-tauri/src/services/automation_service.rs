@@ -441,7 +441,9 @@ impl AutomationService {
         let engine = engine_spec(&self.app_paths, &def.engine_id)?;
         let mut spec = resolve_engine_launch(&engine, &def.cwd)?;
         spec.mcp_servers = ccpanes_mcp_servers(&self.app_paths);
-        spec.auto_approve_permissions = def.auto_approve;
+        if def.auto_approve {
+            spec.auto_approve_kinds = vec![crate::services::AUTO_APPROVE_ALL.to_string()];
+        }
         let chat_id = format!("auto-{}-{}", def.id, unix_millis());
 
         self.acp.start(app.clone(), chat_id.clone(), spec).await?;

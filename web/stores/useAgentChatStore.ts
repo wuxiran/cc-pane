@@ -19,6 +19,7 @@ import type {
   AcpPlanEntry,
   AcpSessionUpdate,
   AcpToolCall,
+  AcpUsage,
   AgentChatItem,
 } from "@/types/agentChat";
 
@@ -34,6 +35,8 @@ export interface AgentChatSessionState {
   pendingPermission: AcpPermissionRequest | null;
   /** agent 广告的斜杠命令目录（available_commands_update 整表替换）。 */
   availableCommands: AcpAvailableCommand[];
+  /** 上下文窗口用量（usage_update 整体替换）；引擎不上报时为 null，UI 不显示。 */
+  usage: AcpUsage | null;
 }
 
 interface AgentChatStoreState {
@@ -50,7 +53,13 @@ interface AgentChatStoreState {
 }
 
 function emptySession(): AgentChatSessionState {
-  return { snapshot: null, items: [], pendingPermission: null, availableCommands: [] };
+  return {
+    snapshot: null,
+    items: [],
+    pendingPermission: null,
+    availableCommands: [],
+    usage: null,
+  };
 }
 
 function ensure(chats: Record<string, AgentChatSessionState>, chatId: string): AgentChatSessionState {
@@ -90,6 +99,8 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
       set((state) => {
         const chat = ensure(state.chats, chatId);
         const previousError = chat.snapshot?.error;
+        // 新进程起来（starting）= 新的上下文窗口，旧用量作废。
+        if (snapshot.phase === "starting") chat.usage = null;
         chat.snapshot = snapshot;
         // 失败/异常退出要成为消息流的一部分，不然用户只看到输入框变灰。
         if (snapshot.error && snapshot.error !== previousError) {
@@ -195,6 +206,28 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
           // 模式变更由后端同步进快照并 emit state，前端这里无事可做。
           case "current_mode_update":
             return;
+          // agent 生成的会话标题由后端写进历史 meta（实测 claude/codex/copilot/
+          // cursor 都发）；配置项目录（copilot 发）暂无 UI 消费。两者都不是对话内容。
+          case "session_info_update":
+          case "config_option_update":
+            return;
+          // 上下文用量：size 为 0/缺失时按「未上报」处理（RFD 规定 size 必有）。
+          case "usage_update": {
+            const used = update.used;
+            const size = update.size;
+            if (typeof used !== "number" || typeof size !== "number" || size <= 0) return;
+            const cost = update.cost;
+            chat.usage = {
+              used: Math.max(0, used),
+              size,
+              cost:
+                cost && typeof cost === "object"
+                  && typeof (cost as { amount?: unknown }).amount === "number"
+                  ? (cost as AcpUsage["cost"])
+                  : null,
+            };
+            return;
+          }
           default: {
             // 未知变体保持可见（v1→v2 过渡期的协议漂移探针），但同类只提示一次。
             const text = `[ACP] 未渲染的更新类型: ${update.sessionUpdate}`;
@@ -288,6 +321,25 @@ function bufferChunk(chatId: string, kind: "assistant" | "thought", text: string
   }
 }
 
+/** 历史列表需要重拉时在 window 上派发的事件名（agent 改了会话标题等）。 */
+export const AGENT_CHAT_HISTORY_CHANGED_EVENT = "ccpanes:agent-chat-history-changed";
+
+/** `ccpanes/auto-approved` 通知 → 一行留痕文本；非该通知返回 null。
+ * 后端附带 `resolvedKind`（含标题推断的结果），比 toolCall.kind 更准。 */
+export function describeAutoApproved(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const notification = data as {
+    method?: string;
+    resolvedKind?: string | null;
+    params?: { toolCall?: { title?: string; kind?: string } };
+  };
+  if (notification.method !== "ccpanes/auto-approved") return null;
+  const toolCall = notification.params?.toolCall;
+  const kind = notification.resolvedKind ?? toolCall?.kind ?? "other";
+  const title = toolCall?.title?.trim();
+  return title ? `已自动放行 · ${title}（${kind}）` : `已自动放行（${kind}）`;
+}
+
 function dispatchAgentChatEvent(event: AcpChatEvent): void {
   const store = useAgentChatStore.getState();
   const { chatId, kind, payload } = event;
@@ -317,6 +369,11 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
     // 非 chunk 更新先排空该会话的缓冲，避免工具卡插到未 flush 的文本前面。
     flushChat(chatId);
     store.applySessionUpdate(chatId, params);
+    // agent 标题已由后端写进历史 meta；通知侧栏「最近会话」立刻重拉，
+    // 不用等下次窗口聚焦。
+    if (updateKind === "session_info_update" && typeof window !== "undefined") {
+      window.dispatchEvent(new Event(AGENT_CHAT_HISTORY_CHANGED_EVENT));
+    }
     return;
   }
 
@@ -342,7 +399,11 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
         || data?.method === "ccpanes/load-unsupported"
       ) {
         store.pushNotice(chatId, "未能续接原对话上下文，已开启全新会话");
+        return;
       }
+      // 自动放行也要留痕：用户勾了类别就看不到审批卡，得知道替他答了什么。
+      const autoApproved = describeAutoApproved(data);
+      if (autoApproved) store.pushNotice(chatId, autoApproved);
       return;
     }
     // protocol_noise：协议漂移与适配器杂音，开发期可从 console 观察，不进消息流。

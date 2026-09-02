@@ -385,13 +385,15 @@ describe("createTerminalDesyncHandler", () => {
 
   it("成功路径：放闸 + onResyncSettled(true)，且放闸在收尾之前", async () => {
     const { handler, order, setResyncActive, onResyncSettled } = harness();
-    handler();
+    const completion = handler();
     await flush();
 
     expect(setResyncActive).toHaveBeenNthCalledWith(1, true);
     expect(setResyncActive).toHaveBeenNthCalledWith(2, false);
     expect(onResyncSettled).toHaveBeenCalledWith(true);
     expect(order.indexOf("gate:false")).toBeLessThan(order.indexOf("settled:true"));
+    // 手动重置路径靠这个返回值决定要不要回退成裸 reset。
+    await expect(completion).resolves.toBe(true);
   });
 
   it("returns one shared promise that includes asynchronous settled cleanup", async () => {
@@ -436,11 +438,12 @@ describe("createTerminalDesyncHandler", () => {
     const { handler, setResyncActive, onResyncSettled } = harness({
       getRecoverySnapshot: async () => null,
     });
-    handler();
+    const completion = handler();
     await flush();
 
     expect(setResyncActive).toHaveBeenLastCalledWith(false);
     expect(onResyncSettled).toHaveBeenCalledWith(false);
+    await expect(completion).resolves.toBe(false);
   });
 
   it("接地早于收尾：积压 flush 与失败提示都落在干净 pen 上", async () => {

@@ -31,7 +31,7 @@ mod turn_notify_registry;
 pub mod voice_service;
 mod web_access_lifecycle;
 
-pub use acp_chat_service::{AcpChatService, AcpChatSnapshot, AcpLaunchSpec};
+pub use acp_chat_service::{AcpChatService, AcpChatSnapshot, AcpLaunchSpec, AUTO_APPROVE_ALL};
 pub use automation_service::{AutomationDef, AutomationRun, AutomationService};
 pub use browser_service::{
     BrowserBounds, BrowserOpenTabEvent, BrowserSpikeReport, BrowserTabManager,

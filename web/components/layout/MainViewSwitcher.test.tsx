@@ -101,6 +101,17 @@ const canvasDisplayState = vi.hoisted(() => ({
   mode: "panel" as "panel" | "canvas",
 }));
 
+// 实验功能门禁：默认按「已勾选」跑既有用例，单独的用例把它关掉验证兜底。
+const experimentalState = vi.hoisted(() => ({
+  mediaGeneration: true,
+  skillMarket: true,
+}));
+
+vi.mock("@/hooks/useExperimentalFeature", () => ({
+  useExperimentalFeature: (id: keyof typeof experimentalState) => experimentalState[id],
+  experimentalFeatureEnabled: (id: keyof typeof experimentalState) => experimentalState[id],
+}));
+
 vi.mock("@/stores", () => ({
   usePanesStore: (selector: (s: typeof panesState) => unknown) => selector(panesState),
   useActivityBarStore: (selector: (s: typeof activityState) => unknown) => selector(activityState),
@@ -121,6 +132,24 @@ function setMode(mode: AppViewMode, overrides: Partial<typeof activityState> = {
 describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
   beforeEach(() => {
     setMode("panes");
+    experimentalState.mediaGeneration = true;
+    experimentalState.skillMarket = true;
+  });
+
+  it("实验功能未勾选时，imageGen 不挂媒体工作区并退回 panes", async () => {
+    experimentalState.mediaGeneration = false;
+    setMode("imageGen");
+    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    expect(screen.queryByTestId("media-workspace-shell")).toBeNull();
+    await waitFor(() => expect(activityState.appViewMode).toBe("panes"));
+  });
+
+  it("实验功能未勾选时，skillMarket 不挂市场页并退回 panes", async () => {
+    experimentalState.skillMarket = false;
+    setMode("skillMarket");
+    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    expect(screen.queryByTestId("skill-market-shell")).toBeNull();
+    await waitFor(() => expect(activityState.appViewMode).toBe("panes"));
   });
 
   it("home → HomeDashboard 全屏", () => {

@@ -14,11 +14,13 @@ import {
   ChevronsUpDown,
   ClipboardCopy,
   Copy,
+  Cpu,
   FileDiff,
   GitFork,
   Loader2,
   MoreHorizontal,
   RotateCcw,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -38,13 +40,17 @@ import {
 import { usePanesStore } from "@/stores";
 import { useEditorRevealStore } from "@/stores/useEditorRevealStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
+import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import ChatChangesPanel, { collectNetChanges } from "./ChatChangesPanel";
 import ChatComposer from "./ChatComposer";
 import { HeaderSelect, ItemView } from "./ChatItems";
 import EnginePicker from "./EnginePicker";
 import PermissionCard from "./PermissionCard";
+import PermissionPolicyDropdown from "./PermissionPolicyDropdown";
 import { isAbsolutePath, joinCwd } from "./chatPaths";
 import {
+  loadAutoApproveKinds,
+  saveAutoApproveKinds,
   saveEngineModels,
   saveEngineModes,
   savePreferredMode,
@@ -178,7 +184,13 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
     const newTabId = usePanesStore.getState().openAgentChat(effectiveCwd);
     if (!newTabId) return;
     void agentChatService
-      .start(newTabId, current.engineId, effectiveCwd, current.acpSessionId)
+      .start(
+        newTabId,
+        current.engineId,
+        effectiveCwd,
+        current.acpSessionId,
+        current.autoApproveKinds ?? loadAutoApproveKinds(current.engineId),
+      )
       .then((snapshot) => useAgentChatStore.getState().setSnapshot(newTabId, snapshot))
       .catch((error) => {
         useAgentChatStore
@@ -200,7 +212,13 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
     if (!current?.engineId || !effectiveCwd) return;
     useAgentChatStore.getState().pushNotice(tab.id, `— ${t("agentChatRestart")} —`);
     void agentChatService
-      .start(tab.id, current.engineId, effectiveCwd, current.acpSessionId)
+      .start(
+        tab.id,
+        current.engineId,
+        effectiveCwd,
+        current.acpSessionId,
+        current.autoApproveKinds ?? loadAutoApproveKinds(current.engineId),
+      )
       .then((snapshot) => useAgentChatStore.getState().setSnapshot(tab.id, snapshot))
       .catch((error) => {
         useAgentChatStore
@@ -234,25 +252,77 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
     label: model.name || model.modelId,
     description: model.description,
   }));
+  const autoApproveKinds = snapshot?.autoApproveKinds ?? [];
+
+  const pushError = (error: unknown) => {
+    useAgentChatStore
+      .getState()
+      .pushNotice(tab.id, error instanceof Error ? error.message : String(error));
+  };
+
+  // composer 底栏：模型 / 模式 / 权限（会话结束后不再可改）。
+  const composerToolbar = snapshot && !ended ? (
+    <>
+      {modelItems.length > 0 ? (
+        <HeaderSelect
+          icon={<Cpu className="h-3.5 w-3.5 shrink-0 opacity-70" />}
+          items={modelItems}
+          currentId={snapshot.models?.currentModelId}
+          onSelect={(modelId) => {
+            // 记为该引擎的偏好模型，下次启动页直接可选并自动应用。
+            savePreferredModel(snapshot.engineId, modelId);
+            saveEngineModels(snapshot.engineId, snapshot.models?.availableModels ?? []);
+            void agentChatService.setModel(tab.id, modelId).catch(pushError);
+          }}
+        />
+      ) : null}
+      {modeItems.length > 0 ? (
+        <HeaderSelect
+          icon={<SlidersHorizontal className="h-3.5 w-3.5 shrink-0 opacity-70" />}
+          items={modeItems}
+          currentId={snapshot.modes?.currentModeId}
+          onSelect={(modeId) => {
+            savePreferredMode(snapshot.engineId, modeId);
+            saveEngineModes(snapshot.engineId, snapshot.modes?.availableModes ?? []);
+            void agentChatService.setMode(tab.id, modeId).catch(pushError);
+          }}
+        />
+      ) : null}
+      <PermissionPolicyDropdown
+        kinds={autoApproveKinds}
+        onChange={(kinds) => {
+          // 同时落为引擎偏好（下次启动沿用）并对当前会话立即生效。
+          saveAutoApproveKinds(snapshot.engineId, kinds);
+          void agentChatService.setAutoApprove(tab.id, kinds).catch(pushError);
+        }}
+      />
+    </>
+  ) : null;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {snapshot ? (
-        <div className="flex h-8 shrink-0 items-center gap-2 border-b border-[var(--app-border)] px-3">
-          <Bot className="h-3.5 w-3.5 shrink-0 text-[var(--app-icon-inactive)]" />
-          <span className="text-[11px] font-medium text-[var(--app-icon-inactive)]">
+        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-[var(--app-border)] px-3">
+          <span className="flex h-5 w-5 items-center justify-center rounded-md bg-[var(--app-active-bg)] text-[var(--app-accent)]">
+            <Bot className="h-3 w-3" />
+          </span>
+          <span className="text-xs font-medium text-[var(--app-text-primary)]">
             {snapshot.engineId}
           </span>
+          {generating ? (
+            <span className="flex items-center gap-1 text-[11px] text-[var(--app-text-tertiary)]">
+              <Loader2 className="h-3 w-3 animate-spin" /> {t("agentChatThinking")}
+            </span>
+          ) : null}
           <span className="flex-1" />
           {changesCount > 0 ? (
             <button
               type="button"
               aria-label={t("agentChatChanges")}
-              title={t("agentChatChanges")}
-              className={`flex items-center gap-1 rounded px-1 py-0.5 text-[11px] transition-colors hover:bg-[var(--app-hover)] ${
+              className={`flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] tabular-nums transition-colors hover:bg-[var(--app-hover)] ${
                 showChanges
-                  ? "text-[var(--app-accent)]"
-                  : "text-[var(--app-icon-inactive)] hover:text-[var(--app-icon-active)]"
+                  ? "bg-[var(--app-active-bg)] text-[var(--app-accent)]"
+                  : "text-[var(--app-text-secondary)] hover:text-[var(--app-text-primary)]"
               }`}
               onClick={() => setShowChanges((previous) => !previous)}
             >
@@ -260,11 +330,9 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
               {changesCount}
             </button>
           ) : null}
-          <button
-            type="button"
-            aria-label={toolFold.expanded ? t("agentChatCollapseTools") : t("agentChatExpandTools")}
-            title={toolFold.expanded ? t("agentChatCollapseTools") : t("agentChatExpandTools")}
-            className="rounded p-0.5 text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]"
+          <IconTooltipButton
+            label={toolFold.expanded ? t("agentChatCollapseTools") : t("agentChatExpandTools")}
+            className="h-6 w-6"
             onClick={() =>
               setToolFold((previous) => ({ seq: previous.seq + 1, expanded: !previous.expanded }))
             }
@@ -274,44 +342,13 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
             ) : (
               <ChevronsUpDown className="h-3.5 w-3.5" />
             )}
-          </button>
-          {!ended && modelItems.length > 0 ? (
-            <HeaderSelect
-              items={modelItems}
-              currentId={snapshot.models?.currentModelId}
-              onSelect={(modelId) => {
-                // 记为该引擎的偏好模型，下次启动页直接可选并自动应用。
-                savePreferredModel(snapshot.engineId, modelId);
-                saveEngineModels(snapshot.engineId, snapshot.models?.availableModels ?? []);
-                void agentChatService.setModel(tab.id, modelId).catch((error) => {
-                  useAgentChatStore
-                    .getState()
-                    .pushNotice(tab.id, error instanceof Error ? error.message : String(error));
-                });
-              }}
-            />
-          ) : null}
-          {!ended && modeItems.length > 0 ? (
-            <HeaderSelect
-              items={modeItems}
-              currentId={snapshot.modes?.currentModeId}
-              onSelect={(modeId) => {
-                savePreferredMode(snapshot.engineId, modeId);
-                saveEngineModes(snapshot.engineId, snapshot.modes?.availableModes ?? []);
-                void agentChatService.setMode(tab.id, modeId).catch((error) => {
-                  useAgentChatStore
-                    .getState()
-                    .pushNotice(tab.id, error instanceof Error ? error.message : String(error));
-                });
-              }}
-            />
-          ) : null}
+          </IconTooltipButton>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
                 aria-label={t("agentChatMore")}
-                className="rounded p-0.5 text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]"
+                className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
               >
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </button>
@@ -359,7 +396,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
               />
             ))}
             {generating ? (
-              <div className="flex items-center gap-1.5 text-xs text-[var(--app-icon-inactive)]">
+              <div className="flex items-center gap-1.5 text-xs text-[var(--app-text-tertiary)]">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t("agentChatThinking")}
               </div>
             ) : null}
@@ -369,7 +406,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
           <button
             type="button"
             aria-label={t("agentChatJumpLatest")}
-            className="absolute bottom-3 right-4 flex h-7 w-7 items-center justify-center rounded-full border border-[var(--app-border)] bg-[var(--app-hover)] text-[var(--app-icon-inactive)] shadow transition-colors hover:text-[var(--app-icon-active)]"
+            className="absolute bottom-3 right-4 flex h-7 w-7 items-center justify-center rounded-full border border-[var(--app-border)] bg-[var(--app-panel-bg)] text-[var(--app-text-secondary)] shadow-md transition-colors hover:text-[var(--app-text-primary)]"
             onClick={jumpToLatest}
           >
             <ArrowDown className="h-3.5 w-3.5" />
@@ -400,17 +437,19 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       ) : null}
 
       {ended ? (
-        <div className="flex items-center justify-center gap-3 border-t border-[var(--app-border)] px-3 py-2.5 text-xs text-[var(--app-icon-inactive)]">
-          <span>{t("agentChatEnded")}</span>
-          {effectiveCwd ? (
-            <button
-              type="button"
-              className="flex items-center gap-1 rounded border border-[var(--app-border)] px-2 py-1 transition-colors hover:bg-[var(--app-hover)]"
-              onClick={restart}
-            >
-              <RotateCcw className="h-3 w-3" /> {t("agentChatRestart")}
-            </button>
-          ) : null}
+        <div className="px-3 pb-3 pt-1">
+          <div className="mx-auto flex max-w-3xl items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--app-border)] bg-[var(--app-chat-composer-bg)] px-3 py-3 text-xs text-[var(--app-text-tertiary)]">
+            <span>{t("agentChatEnded")}</span>
+            {effectiveCwd ? (
+              <button
+                type="button"
+                className="flex items-center gap-1 rounded-md border border-[var(--app-border)] bg-[var(--app-overlay)] px-2.5 py-1 text-[var(--app-text-secondary)] shadow-sm transition-colors hover:text-[var(--app-text-primary)]"
+                onClick={restart}
+              >
+                <RotateCcw className="h-3 w-3" /> {t("agentChatRestart")}
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : (
         <ChatComposer
@@ -420,6 +459,8 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
           generating={generating}
           availableCommands={availableCommands}
           onBeforeSend={() => setAtBottom(true)}
+          toolbar={composerToolbar}
+          usage={chat?.usage ?? null}
         />
       )}
     </div>

@@ -114,7 +114,12 @@ function Pane({ paneId, draft, updateDraft, onUnsavedChangesChange }: SettingsPa
     case "about":
       return <AboutSection />;
     case "experimental":
-      return <ExperimentalSection />;
+      return (
+        <ExperimentalSection
+          value={draft.experimental}
+          onChange={(experimental) => updateDraft({ ...draft, experimental })}
+        />
+      );
   }
 }
 

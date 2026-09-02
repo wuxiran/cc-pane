@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { experimentalFeatureEnabled } from "@/lib/experimentalGate";
 
 export type ActivityView = "explorer" | "sessions" | "files" | "ssh" | "process" | "orchestration";
 export type AppViewMode =
@@ -13,6 +14,23 @@ export type AppViewMode =
   | "videoGen"
   | "skillMarket"
   | "orchestration";
+
+/** 受实验开关门禁的全屏模式 → 对应开关。 */
+const GATED_MODES = {
+  imageGen: "mediaGeneration",
+  videoGen: "mediaGeneration",
+  skillMarket: "skillMarket",
+} as const;
+
+type GatedMode = keyof typeof GATED_MODES;
+
+function isGatedMode(mode: AppViewMode): mode is GatedMode {
+  return mode in GATED_MODES;
+}
+
+function gatedModeEnabled(mode: GatedMode): boolean {
+  return experimentalFeatureEnabled(GATED_MODES[mode]);
+}
 
 interface ActivityBarState {
   activeView: ActivityView;
@@ -98,6 +116,9 @@ export const useActivityBarStore = create<ActivityBarState>()(
 
       setAppViewMode: (mode: AppViewMode) =>
         set((state) => {
+          // 实验功能未勾选时拒绝进入其全屏页（活动栏图标已隐藏，这里挡的是
+          // 其它调用点：全局技能面板按钮、旧链路、外部 emit 等）。
+          if (isGatedMode(mode) && !gatedModeEnabled(mode)) return {};
           if (mode === "orchestration") {
             return {
               appViewMode: state.appViewMode === "orchestration" ? "panes" : state.appViewMode,
@@ -163,15 +184,20 @@ export const useActivityBarStore = create<ActivityBarState>()(
         })),
 
       toggleMediaMode: () =>
-        set((s) => ({
-          appViewMode: s.appViewMode === "imageGen" || s.appViewMode === "videoGen" ? "panes" : "imageGen",
-          sidebarVisible: s.appViewMode === "imageGen" || s.appViewMode === "videoGen",
-          orchestrationOverlayOpen: false,
-        })),
+        set((s) => {
+          const leavingMedia = s.appViewMode === "imageGen" || s.appViewMode === "videoGen";
+          if (!leavingMedia && !gatedModeEnabled("imageGen")) return {};
+          return {
+            appViewMode: leavingMedia ? "panes" : "imageGen",
+            sidebarVisible: leavingMedia,
+            orchestrationOverlayOpen: false,
+          };
+        }),
 
       toggleImageGenMode: () =>
         set((s) => {
           const leavingMedia = s.appViewMode === "imageGen";
+          if (!leavingMedia && !gatedModeEnabled("imageGen")) return {};
           return {
             appViewMode: leavingMedia ? "panes" : "imageGen",
             // The media workspace owns its configuration sidebar. Restore the
@@ -184,6 +210,7 @@ export const useActivityBarStore = create<ActivityBarState>()(
       toggleVideoGenMode: () =>
         set((s) => {
           const leavingMedia = s.appViewMode === "videoGen";
+          if (!leavingMedia && !gatedModeEnabled("videoGen")) return {};
           return {
             appViewMode: leavingMedia ? "panes" : "videoGen",
             sidebarVisible: leavingMedia,
@@ -193,10 +220,14 @@ export const useActivityBarStore = create<ActivityBarState>()(
 
       // 技能市场是全屏页；侧栏显隐由 MainViewSwitcher 按模式决定，这里不动 sidebarVisible。
       toggleSkillMarketMode: () =>
-        set((s) => ({
-          appViewMode: s.appViewMode === "skillMarket" ? "panes" : "skillMarket",
-          orchestrationOverlayOpen: false,
-        })),
+        set((s) => {
+          const leaving = s.appViewMode === "skillMarket";
+          if (!leaving && !gatedModeEnabled("skillMarket")) return {};
+          return {
+            appViewMode: leaving ? "panes" : "skillMarket",
+            orchestrationOverlayOpen: false,
+          };
+        }),
 
       toggleFilesMode: () =>
         set((s) => {

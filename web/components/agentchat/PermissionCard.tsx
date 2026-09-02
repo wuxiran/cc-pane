@@ -33,41 +33,43 @@ export default function PermissionCard({ request, onRespond }: PermissionCardPro
     );
 
   return (
-    <div
-      className={`mx-3 mb-2 rounded-md border px-3 py-2 ${
-        isQuestion
-          ? "border-[var(--app-border)]"
-          : "border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)]"
-      }`}
-    >
+    <div className="px-3 pb-2">
       <div
-        className={`flex items-center gap-2 text-xs ${
-          isQuestion ? "text-[var(--app-icon-inactive)]" : "text-[var(--app-status-warning)]"
+        className={`mx-auto max-w-3xl rounded-xl border px-3.5 py-2.5 shadow-sm ${
+          isQuestion
+            ? "border-[var(--app-border)] bg-[var(--app-overlay)]"
+            : "border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)]"
         }`}
       >
-        {isQuestion ? (
-          <CircleHelp className="h-4 w-4 shrink-0" />
-        ) : (
-          <ShieldQuestion className="h-4 w-4 shrink-0" />
-        )}
-        <span className="font-medium">
-          {isQuestion ? t("agentChatQuestionTitle") : t("agentChatPermissionTitle")}
-        </span>
-      </div>
-      {title ? (
-        <div className="mt-1 text-xs text-[var(--app-icon-active)] break-all">{title}</div>
-      ) : null}
-      <div className="mt-2 flex flex-wrap gap-2">
-        {options.map((option) => (
-          <button
-            key={option.optionId}
-            type="button"
-            className={`rounded border px-2.5 py-1 text-xs transition-colors ${optionClass(option.kind)}`}
-            onClick={() => onRespond(option.optionId)}
-          >
-            {option.name}
-          </button>
-        ))}
+        <div
+          className={`flex items-center gap-2 text-xs ${
+            isQuestion ? "text-[var(--app-text-secondary)]" : "text-[var(--app-status-warning)]"
+          }`}
+        >
+          {isQuestion ? (
+            <CircleHelp className="h-4 w-4 shrink-0" />
+          ) : (
+            <ShieldQuestion className="h-4 w-4 shrink-0" />
+          )}
+          <span className="font-medium">
+            {isQuestion ? t("agentChatQuestionTitle") : t("agentChatPermissionTitle")}
+          </span>
+        </div>
+        {title ? (
+          <div className="mt-1 text-xs text-[var(--app-text-primary)] break-all">{title}</div>
+        ) : null}
+        <div className="mt-2 flex flex-wrap gap-2">
+          {options.map((option) => (
+            <button
+              key={option.optionId}
+              type="button"
+              className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${optionClass(option.kind)}`}
+              onClick={() => onRespond(option.optionId)}
+            >
+              {option.name}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

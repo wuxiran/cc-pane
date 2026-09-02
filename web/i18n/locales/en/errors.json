@@ -126,5 +126,17 @@
   "SESSION_NOT_WRITABLE": "CC-Panes does not currently own terminal write access",
   "UNATTENDED_UNSUPPORTED": "This CLI session does not support unattended approval",
   "SUBMIT_FAILED": "The task could not be sent and remains at the front of the queue",
-  "DELIVERY_UNKNOWN": "Delivery could not be confirmed; check the terminal before retrying"
+  "DELIVERY_UNKNOWN": "Delivery could not be confirmed; check the terminal before retrying",
+
+  "CURSOR_BRIDGE_UNKNOWN_SCHEMA": "Cursor Bridge registry schema {{version}} is unknown; file was not overwritten",
+  "CURSOR_BRIDGE_SESSION_NOT_FOUND": "Cursor Bridge session not found",
+  "CURSOR_BRIDGE_SESSION_ID_REQUIRED": "sessionMode=continue requires sessionId",
+  "CURSOR_BRIDGE_SESSION_CLOSED": "This Cursor Bridge session is closed",
+  "CURSOR_BRIDGE_SCOPE_EXPAND": "Continue cannot expand write scope or drop read-only",
+  "CURSOR_BRIDGE_SCOPE_REQUIRED": "Persistent Cursor sessions require readOnly or allowedPaths",
+  "CURSOR_BRIDGE_WORKSPACE_MISMATCH": "Continue cannot switch workspace",
+  "CURSOR_BRIDGE_CONFIRM_REQUIRED": "forget/abandon require confirm=true",
+  "CURSOR_BRIDGE_QUERY_REQUIRED": "context requires a query",
+  "CURSOR_BRIDGE_TASK_REQUIRED": "do requires a task",
+  "CURSOR_BRIDGE_IO": "Cursor Bridge registry I/O failed"
 }

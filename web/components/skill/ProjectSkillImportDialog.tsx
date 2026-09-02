@@ -34,6 +34,7 @@ import type {
   SkillScope,
 } from "@/types";
 import { handleErrorSilent } from "@/utils/errorHandler";
+import { useExperimentalFeature } from "@/hooks/useExperimentalFeature";
 import { suggestSkillName, validateSkillName } from "./projectSkillModel";
 
 type SourceKind = "user" | "external" | "market" | "project" | "workspace";
@@ -72,6 +73,7 @@ export default function ProjectSkillImportDialog({
   onImport,
 }: ProjectSkillImportDialogProps) {
   const { t } = useTranslation("projectSkills");
+  const skillMarketEnabled = useExperimentalFeature("skillMarket");
   const isWorkspaceScope = scope.kind === "workspace";
   const projectPath = scope.kind === "project" ? scope.projectPath : "";
   // 项目作用域默认先看工作空间技能（workspace-first）；工作空间作用域没有这个来源
@@ -135,9 +137,9 @@ export default function ProjectSkillImportDialog({
       .catch((e) => handleErrorSilent(e, "list workspace skills"));
   }, [open, kind, otherWorkspace]);
 
-  // 市场：空串取目录，否则防抖搜索
+  // 市场：空串取目录，否则防抖搜索（实验功能关着时不发请求）
   useEffect(() => {
-    if (!open || kind !== "market") return;
+    if (!open || kind !== "market" || !skillMarketEnabled) return;
     setSearching(true);
     const timer = window.setTimeout(() => {
       const request = query.trim()
@@ -149,7 +151,12 @@ export default function ProjectSkillImportDialog({
         .finally(() => setSearching(false));
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [open, kind, query]);
+  }, [open, kind, query, skillMarketEnabled]);
+
+  // 页签已隐藏但 kind 仍停在 market（功能被关掉时正好开着）→ 退回用户库。
+  useEffect(() => {
+    if (kind === "market" && !skillMarketEnabled) setKind("user");
+  }, [kind, skillMarketEnabled]);
 
   useEffect(() => {
     if (!open || kind !== "project" || !otherProject) {
@@ -221,7 +228,8 @@ export default function ProjectSkillImportDialog({
     ...(isWorkspaceScope ? [] : [{ value: "workspace" as SourceKind, label: t("importDialog.sourceWorkspace") }]),
     { value: "user" as SourceKind, label: t("importDialog.sourceUser") },
     { value: "external" as SourceKind, label: t("importDialog.sourceExternal") },
-    { value: "market" as SourceKind, label: t("importDialog.sourceMarket") },
+    // 市场来源是实验功能，未勾选时不提供该页签。
+    ...(skillMarketEnabled ? [{ value: "market" as SourceKind, label: t("importDialog.sourceMarket") }] : []),
     { value: "project" as SourceKind, label: t("importDialog.sourceProject") },
   ];
 

@@ -7,6 +7,7 @@
   "searchPlaceholder": "Search fonts, notifications, shortcuts…",
   "clearSearch": "Clear search",
   "openSkillMarket": "Open skill market",
+  "noUserSkillsNoMarket": "No user skills installed yet.",
   "searchEmpty": "No matching settings",
   "searchCommandGroup": "Settings",
   "searchLayers": {
@@ -75,7 +76,12 @@
     "title": "Experimental",
     "description": "Unstable features are managed here and retain their choices when they graduate.",
     "emptyTitle": "No experimental features",
-    "emptyDescription": "This release has no experimental options that require manual activation."
+    "emptyDescription": "This release has no experimental options that require manual activation.",
+    "notice": "These features are still being polished and are off by default. Turning one on reveals its activity-bar entry and related pages; you can turn it off again at any time without losing generated data.",
+    "mediaGeneration": "Media generation studio",
+    "mediaGenerationDesc": "The Media Generation activity-bar entry and the full-screen image / video studio (requires a configured media provider).",
+    "skillMarket": "Skill market",
+    "skillMarketDesc": "The Skill Market activity-bar entry, the full-screen market page, and the \"install from market\" blocks in launch profiles and the global skills panel."
   },
   "modules": {
     "title": "Modules",

@@ -239,6 +239,10 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       pushWhenFocused: true,
       channels: [],
     },
+    experimental: {
+      mediaGeneration: false,
+      skillMarket: false,
+    },
     ...overrides,
   };
 }

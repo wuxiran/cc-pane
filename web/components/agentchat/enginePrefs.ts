@@ -16,8 +16,10 @@ export interface EngineModelPrefs {
   modes?: AcpSessionMode[];
   /** null/undefined = 跟随引擎默认，不主动 set_mode。 */
   preferredModeId?: string | null;
-  /** 启动时自动放行 session/request_permission（会话级 YOLO）。 */
+  /** 旧字段：整体 YOLO 开关。读取时迁移为 `autoApproveKinds: ["*"]`。 */
   autoApprove?: boolean;
+  /** 自动放行的 ACP ToolKind 集合（`*` = 全部）；空/缺失 = 每次都问。 */
+  autoApproveKinds?: string[];
 }
 
 type PrefsMap = Record<string, EngineModelPrefs>;
@@ -44,7 +46,19 @@ function saveAll(map: PrefsMap): void {
 export function loadEnginePrefs(engineId: string): EngineModelPrefs | null {
   const prefs = loadAll()[engineId];
   if (!prefs || !Array.isArray(prefs.models)) return null;
+  // 旧版单开关 → 新版按类集合（一次性迁移，不回写）。
+  if (prefs.autoApproveKinds === undefined && prefs.autoApprove) {
+    return { ...prefs, autoApproveKinds: ["*"] };
+  }
   return prefs;
+}
+
+/** 该引擎的自动放行集合（含旧字段迁移）；无缓存时为空 = 每次都问。 */
+export function loadAutoApproveKinds(engineId: string): string[] {
+  const prefs = loadAll()[engineId];
+  if (!prefs) return [];
+  if (Array.isArray(prefs.autoApproveKinds)) return prefs.autoApproveKinds;
+  return prefs.autoApprove ? ["*"] : [];
 }
 
 function merge(engineId: string, patch: Partial<EngineModelPrefs>): void {
@@ -83,6 +97,7 @@ export function savePreferredMode(engineId: string, modeId: string | null): void
   merge(engineId, { preferredModeId: modeId });
 }
 
-export function saveAutoApprove(engineId: string, autoApprove: boolean): void {
-  merge(engineId, { autoApprove });
+export function saveAutoApproveKinds(engineId: string, autoApproveKinds: string[]): void {
+  // 同时清掉旧开关，避免迁移逻辑在下次读取时又把 `*` 加回来。
+  merge(engineId, { autoApproveKinds, autoApprove: undefined });
 }

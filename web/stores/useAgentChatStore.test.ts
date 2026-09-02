@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { useAgentChatStore } from "./useAgentChatStore";
+import { describeAutoApproved, useAgentChatStore } from "./useAgentChatStore";
 import type { AcpChatSnapshot } from "@/types/agentChat";
 
 const CHAT = "tab-acp-test";
@@ -93,6 +93,17 @@ describe("useAgentChatStore", () => {
     expect(plans[0].type === "plan" && plans[0].entries).toHaveLength(2);
   });
 
+  it("session_info_update / config_option_update 不进消息流（真机实测的常规更新）", () => {
+    const store = useAgentChatStore.getState();
+    store.applySessionUpdate(CHAT, {
+      update: { sessionUpdate: "session_info_update", title: "Repo walkthrough", updatedAt: 1 },
+    });
+    store.applySessionUpdate(CHAT, {
+      update: { sessionUpdate: "config_option_update", configOptions: [] },
+    });
+    expect(useAgentChatStore.getState().chats[CHAT].items).toEqual([]);
+  });
+
   it("未知 sessionUpdate 以 notice 可见且同类只提示一次", () => {
     const store = useAgentChatStore.getState();
     store.applySessionUpdate(CHAT, { update: { sessionUpdate: "future_variant" } });
@@ -134,6 +145,36 @@ describe("useAgentChatStore", () => {
     expect(commands[0].name).toBe("review");
   });
 
+  it("usage_update 整体替换用量，非法 size 忽略且不产生 notice", () => {
+    const store = useAgentChatStore.getState();
+    store.applySessionUpdate(CHAT, {
+      update: { sessionUpdate: "usage_update", used: 53000, size: 200000 },
+    });
+    expect(useAgentChatStore.getState().chats[CHAT].usage).toEqual({
+      used: 53000,
+      size: 200000,
+      cost: null,
+    });
+    store.applySessionUpdate(CHAT, {
+      update: {
+        sessionUpdate: "usage_update",
+        used: 60000,
+        size: 200000,
+        cost: { amount: 0.42, currency: "USD" },
+      },
+    });
+    expect(useAgentChatStore.getState().chats[CHAT].usage?.cost).toEqual({
+      amount: 0.42,
+      currency: "USD",
+    });
+    store.applySessionUpdate(CHAT, {
+      update: { sessionUpdate: "usage_update", used: 1, size: 0 },
+    });
+    const chat = useAgentChatStore.getState().chats[CHAT];
+    expect(chat.usage?.used).toBe(60000);
+    expect(chat.items.some((item) => item.type === "notice")).toBe(false);
+  });
+
   it("回放期（非 generating）收下 user_message_chunk，活回合丢弃", () => {
     const store = useAgentChatStore.getState();
     // 回放：starting 相位（或无快照）→ 入列
@@ -153,6 +194,30 @@ describe("useAgentChatStore", () => {
       .chats[CHAT].items.filter((item) => item.type === "user");
     expect(users).toHaveLength(1);
     expect(users[0].type === "user" && users[0].text).toBe("历史消息");
+  });
+
+  it("自动放行通知转成留痕文本，优先用后端解析出的 kind", () => {
+    // Claude 实测 payload：请求自带 kind。
+    expect(
+      describeAutoApproved({
+        method: "ccpanes/auto-approved",
+        resolvedKind: "edit",
+        params: { toolCall: { title: "Write probe.txt", kind: "edit" } },
+      }),
+    ).toBe("已自动放行 · Write probe.txt（edit）");
+    // Kimi 形态：请求无 kind，后端按标题推断出 execute。
+    expect(
+      describeAutoApproved({
+        method: "ccpanes/auto-approved",
+        resolvedKind: "execute",
+        params: { toolCall: { title: "Shell: echo hi" } },
+      }),
+    ).toBe("已自动放行 · Shell: echo hi（execute）");
+    expect(describeAutoApproved({ method: "ccpanes/auto-approved", params: {} })).toBe(
+      "已自动放行（other）",
+    );
+    expect(describeAutoApproved({ method: "ccpanes/load-failed" })).toBeNull();
+    expect(describeAutoApproved(null)).toBeNull();
   });
 
   it("快照错误只在变化时进消息流一次", () => {

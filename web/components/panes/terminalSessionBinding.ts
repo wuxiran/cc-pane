@@ -18,7 +18,7 @@ interface RefValue<T> {
 }
 type BindingLogger = (event: string, payload?: Record<string, unknown>) => void;
 export type HiddenWriteFlushOutcome = "ready" | "resync";
-type TerminalResyncHandler = () => Promise<void>;
+type TerminalResyncHandler = () => Promise<boolean>;
 
 export interface PendingSessionExit {
   sessionId: string;

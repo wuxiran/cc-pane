@@ -7,6 +7,8 @@ pub mod comfy_adapter;
 pub mod comfy_events;
 pub mod comfy_resources;
 mod ctl_sidecar;
+pub mod cursor_bridge_prompts;
+pub mod cursor_bridge_service;
 pub mod cursor_session_service;
 mod daemon_client;
 pub mod default_skill_service;
@@ -39,7 +41,6 @@ mod project_cli_hooks_service;
 mod project_context_service;
 mod project_service;
 mod project_skill_service;
-mod workspace_skill_service;
 mod provider_resolver;
 mod provider_service;
 mod quick_command_service;
@@ -76,6 +77,7 @@ mod user_skill_service;
 mod wallpaper_service;
 mod workspace_health;
 mod workspace_service;
+mod workspace_skill_service;
 mod worktree_service;
 // 模块内部自带平台门控：Windows 编译完整实现（inner mod），非 Windows 只暴露
 // is_wsl_vm_running 恒 false stub —— 这里不能再整体 cfg 掉，否则非 Windows
@@ -97,6 +99,10 @@ pub use comfy_resources::{
     ComfyDeviceInfo, ComfyMemoryReleaseResult, ComfySystemInfo, ComfySystemStats,
     COMFY_SYSTEM_STATS_SCHEMA_VERSION,
 };
+pub use cursor_bridge_prompts::{
+    build_context_prompt, build_do_prompt, normalize_cce_search_result, CCE_RESULT_MARKER,
+};
+pub use cursor_bridge_service::{CursorBridgeCreateSpec, CursorBridgeService};
 pub use daemon_client::{
     app_instance_id, TerminalDaemonClient, TerminalDaemonManifest, TerminalDaemonStatus,
 };
@@ -145,6 +151,9 @@ pub use process_monitor_service::ProcessMonitorService;
 pub use project_cli_hooks_service::{ProjectCliHookGroupStatus, ProjectCliHooksService};
 pub use project_context_service::ProjectContextService;
 pub use project_service::ProjectService;
+pub use project_skill_service::{
+    ProjectSkill, ProjectSkillContent, ProjectSkillRoot, ProjectSkillService, PROJECT_SKILL_ROOTS,
+};
 pub use provider_resolver::{
     managed_provider_conflict_env_keys, resolve_provider_plan, validate_provider_runtime,
     ProviderMode, ProviderResolutionInput, ProviderSource, ResolvedProviderPlan,
@@ -165,13 +174,7 @@ pub use session_restore_service::{
 pub use session_state_machine::{SessionStateMachine, StateTransition, TransitionListener};
 pub use settings_service::SettingsService;
 pub use shared_mcp_service::SharedMcpService;
-pub use project_skill_service::{
-    ProjectSkill, ProjectSkillContent, ProjectSkillRoot, ProjectSkillService, PROJECT_SKILL_ROOTS,
-};
 pub use skill_service::SkillService;
-pub use workspace_skill_service::{
-    WorkspaceSkillService, WORKSPACE_SKILL_NATIVE_CONSUMERS, WORKSPACE_SKILL_ROOT,
-};
 pub use spec_service::SpecService;
 pub use ssh_connection_service::SshConnectionService;
 pub use ssh_credential_service::SshCredentialService;
@@ -206,4 +209,7 @@ pub use user_skill_service::{InstalledUserSkill, UserSkillContent, UserSkillServ
 pub use wallpaper_service::{WallpaperFileInfo, WallpaperService};
 pub use workspace_health::{check_project_paths, classify_path, PathStatusKind, ProjectPathStatus};
 pub use workspace_service::{WorkspaceProjectIdentityMigrationReport, WorkspaceService};
+pub use workspace_skill_service::{
+    WorkspaceSkillService, WORKSPACE_SKILL_NATIVE_CONSUMERS, WORKSPACE_SKILL_ROOT,
+};
 pub use worktree_service::{WorktreeInfo, WorktreeService};

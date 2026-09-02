@@ -1,7 +1,9 @@
 // agent-chat 启动页：居中 hero 问候 + 建议卡 + composer 式启动栏（引擎下拉 +
 // 首条 prompt 随启动发送）+ 最近会话续接。风格对标 CodexHost 的多引擎首页。
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ArrowUp,
+  Bot,
   Bug,
   ChevronDown,
   FolderOpen,
@@ -9,35 +11,31 @@ import {
   Hammer,
   Loader2,
   SearchCode,
-  Send,
-  Shield,
-  ShieldCheck,
   Telescope,
 } from "lucide-react";
-import { open as openDirDialog } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
 import type { AcpChatHistoryEntry, AcpEngineInfo } from "@/types/agentChat";
 import { agentChatService } from "@/services/agentChatService";
 import { gitService } from "@/services/gitService";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
-import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import ChatVoiceButton from "./ChatVoiceButton";
+import PermissionPolicyDropdown from "./PermissionPolicyDropdown";
 import StartPrefDropdown from "./StartPrefDropdown";
+import StartProjectMenu, { projectNameOf } from "./StartProjectMenu";
 import StartRecentSessions from "./StartRecentSessions";
-import { samePath } from "./chatPaths";
 import { takePendingResume } from "./pendingResume";
 import {
+  loadAutoApproveKinds,
   loadEnginePrefs,
-  saveAutoApprove,
+  saveAutoApproveKinds,
   saveEngineModels,
   saveEngineModes,
   savePreferredMode,
@@ -51,10 +49,6 @@ const SUGGESTIONS = [
   { icon: SearchCode, labelKey: "agentChatSuggestReview", promptKey: "agentChatSuggestReviewPrompt" },
   { icon: Bug, labelKey: "agentChatSuggestFix", promptKey: "agentChatSuggestFixPrompt" },
 ] as const;
-
-function projectNameOf(cwd: string): string {
-  return cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd;
-}
 
 export interface EnginePickerProps {
   chatId: string;
@@ -73,9 +67,9 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
   const [startingEngine, setStartingEngine] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [modelPrefs, setModelPrefs] = useState<EngineModelPrefs | null>(null);
+  const [autoApproveKinds, setAutoApproveKinds] = useState<string[]>([]);
   const [branch, setBranch] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const workspaces = useWorkspacesStore((state) => state.workspaces);
 
   // 分支 chip（只读展示；非 git 目录静默无 chip）。
   useEffect(() => {
@@ -98,21 +92,8 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
   // 模型表来自该引擎上次会话的握手缓存；首次使用时为空（下拉不显示）。
   useEffect(() => {
     setModelPrefs(selectedEngine ? loadEnginePrefs(selectedEngine) : null);
+    setAutoApproveKinds(selectedEngine ? loadAutoApproveKinds(selectedEngine) : []);
   }, [selectedEngine]);
-
-  // 注册的工作空间→项目树（归档过滤在消费点，CLAUDE.md 约定）。
-  const workspaceTree = useMemo(
-    () =>
-      workspaces
-        .filter((workspace) => !workspace.archivedAt)
-        .map((workspace) => ({
-          id: workspace.id,
-          name: workspace.alias || workspace.name,
-          projects: workspace.projects.filter((project) => !project.archivedAt),
-        }))
-        .filter((workspace) => workspace.projects.length > 0),
-    [workspaces],
-  );
 
   useEffect(() => {
     let cancelled = false;
@@ -154,11 +135,6 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatId]);
 
-  const pickCwd = useCallback(async () => {
-    const picked = await openDirDialog({ multiple: false, directory: true }).catch(() => null);
-    if (typeof picked === "string" && picked) onPickCwd(picked);
-  }, [onPickCwd]);
-
   /** 启动会话；firstPrompt 非空时启动成功后立即作为首条消息发送。 */
   const start = useCallback(
     async (
@@ -176,7 +152,7 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
           engineId,
           startCwd,
           resumeAcpSessionId,
-          loadEnginePrefs(engineId)?.autoApprove ?? false,
+          loadAutoApproveKinds(engineId),
         );
         useAgentChatStore.getState().setSnapshot(chatId, snapshot);
         if (resumeAcpSessionId) onCwdAdopted(startCwd);
@@ -235,107 +211,91 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
   const selected = engines?.find((engine) => engine.id === selectedEngine) ?? null;
   const projectName = cwd ? projectNameOf(cwd) : null;
 
-  /** 工作空间→项目下拉（含浏览目录兜底），hero 无目录态与 chip 共用。 */
-  const projectMenu = (trigger: ReactNode) => (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-80 overflow-y-auto">
-        {workspaceTree.map((workspace) => (
-          <Fragment key={workspace.id}>
-            <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-[var(--app-icon-inactive)]">
-              {workspace.name}
-            </DropdownMenuLabel>
-            {workspace.projects.map((project) => (
-              <DropdownMenuItem
-                key={project.id}
-                title={project.path}
-                onSelect={() => onPickCwd(project.path)}
-              >
-                <FolderOpen className="mr-2 h-3.5 w-3.5 shrink-0 text-[var(--app-icon-inactive)]" />
-                <span className="max-w-56 truncate">
-                  {project.alias || projectNameOf(project.path)}
-                </span>
-                {cwd && samePath(project.path, cwd) ? (
-                  <span className="ml-auto pl-3 text-[var(--app-accent)]">✓</span>
-                ) : null}
-              </DropdownMenuItem>
-            ))}
-          </Fragment>
-        ))}
-        {workspaceTree.length > 0 ? <DropdownMenuSeparator /> : null}
-        <DropdownMenuItem onSelect={() => void pickCwd()}>
-          <FolderOpen className="mr-2 h-3.5 w-3.5 shrink-0" />
-          {t("agentChatBrowseDir")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+  const launching = startingEngine !== null && startingEngine === selectedEngine;
 
   return (
     <div className="flex h-full flex-col overflow-y-auto px-6">
-      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-6 py-10">
+      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-7 py-10">
         {/* Hero：问候语，项目名做强调下划线（无项目时引导选目录） */}
-        <h2 className="text-center text-xl font-medium leading-relaxed">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--app-active-bg)] text-[var(--app-accent)]">
+            <Bot className="h-6 w-6" />
+          </div>
+          <h2 className="text-2xl font-semibold leading-snug tracking-tight text-[var(--app-text-primary)]">
+            {projectName ? (
+              <>
+                {t("agentChatHeroBefore")}
+                <span className="text-[var(--app-accent)] underline decoration-[var(--app-accent)]/40 decoration-2 underline-offset-4">
+                  {projectName}
+                </span>
+                {t("agentChatHeroAfter")}
+              </>
+            ) : (
+              t("agentChatNoProject")
+            )}
+          </h2>
           {projectName ? (
-            <>
-              {t("agentChatHeroBefore")}
-              <span className="text-[var(--app-accent)] underline decoration-[var(--app-accent)]/40 decoration-2 underline-offset-4">
-                {projectName}
-              </span>
-              {t("agentChatHeroAfter")}
-            </>
-          ) : (
-            t("agentChatNoProject")
-          )}
-        </h2>
+            <p className="text-[13px] text-[var(--app-text-tertiary)]">{t("agentChatHeroSub")}</p>
+          ) : null}
+        </div>
         {!cwd ? (
           <div className="flex justify-center">
-            {projectMenu(
-              <button
-                type="button"
-                className="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] px-3 py-1.5 text-sm transition-colors hover:bg-[var(--app-hover)]"
-              >
-                <FolderOpen className="h-4 w-4" /> {t("agentChatPickCwd")}
-                <ChevronDown className="h-3.5 w-3.5 text-[var(--app-icon-inactive)]" />
-              </button>,
-            )}
+            <StartProjectMenu
+              cwd={cwd}
+              onPickCwd={onPickCwd}
+              trigger={
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-overlay)] px-3.5 py-2 text-sm shadow-sm transition-colors hover:bg-[var(--app-hover)]"
+                >
+                  <FolderOpen className="h-4 w-4" /> {t("agentChatPickCwd")}
+                  <ChevronDown className="h-3.5 w-3.5 text-[var(--app-text-tertiary)]" />
+                </button>
+              }
+            />
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
             {SUGGESTIONS.map(({ icon: Icon, labelKey, promptKey }) => (
               <button
                 key={labelKey}
                 type="button"
-                className="flex flex-col items-start gap-2 rounded-lg border border-[var(--app-border)] px-3 py-3 text-left text-xs leading-snug transition-colors hover:border-[var(--app-accent)]/50 hover:bg-[var(--app-hover)]"
+                className="group flex flex-col items-start gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-overlay)] px-3.5 py-3.5 text-left text-[13px] leading-snug text-[var(--app-text-secondary)] shadow-sm transition-[color,border-color,box-shadow,transform] duration-[var(--dur)] ease-[var(--ease-out)] hover:-translate-y-px hover:border-[var(--app-accent)]/50 hover:shadow-md hover:text-[var(--app-text-primary)]"
                 onClick={() => {
                   setDraft(t(promptKey));
                   textareaRef.current?.focus();
                 }}
               >
-                <Icon className="h-4 w-4 text-[var(--app-accent)]" />
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--app-active-bg)] text-[var(--app-accent)]">
+                  <Icon className="h-4 w-4" />
+                </span>
                 {t(labelKey)}
               </button>
             ))}
           </div>
         )}
 
-        {/* Composer 式启动栏：chips 行 + 输入 + 引擎下拉 + 发送 */}
-        <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 py-2.5 shadow-sm focus-within:border-[var(--app-accent)]/60">
+        {/* Composer 式启动栏：chips 行 + 输入 + 引擎/模型/模式/权限 + 发送 */}
+        <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-chat-composer-bg)] px-3 pb-2 pt-2.5 shadow-sm transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)] focus-within:border-[var(--app-accent)]/70 focus-within:shadow-[0_0_0_3px_var(--app-active-bg)]">
           {cwd ? (
-            <div className="mb-1.5 flex items-center gap-1.5 text-[11px] text-[var(--app-icon-inactive)]">
-              {projectMenu(
-                <button
-                  type="button"
-                  title={cwd}
-                  className="flex items-center gap-1 rounded border border-[var(--app-border)] px-1.5 py-px font-mono transition-colors hover:bg-[var(--app-hover)]"
-                >
-                  <FolderOpen className="h-3 w-3 shrink-0" />
-                  <span className="max-w-64 truncate">{projectName}</span>
-                  <ChevronDown className="h-2.5 w-2.5" />
-                </button>,
-              )}
+            <div className="mb-2 flex items-center gap-1.5 text-[11px] text-[var(--app-text-tertiary)]">
+              <StartProjectMenu
+                cwd={cwd}
+                onPickCwd={onPickCwd}
+                trigger={
+                  <button
+                    type="button"
+                    title={cwd}
+                    className="flex items-center gap-1 rounded-md border border-[var(--app-border)] bg-[var(--app-overlay)] px-1.5 py-0.5 font-mono text-[var(--app-text-secondary)] transition-colors hover:text-[var(--app-text-primary)]"
+                  >
+                    <FolderOpen className="h-3 w-3 shrink-0" />
+                    <span className="max-w-64 truncate">{projectName}</span>
+                    <ChevronDown className="h-2.5 w-2.5" />
+                  </button>
+                }
+              />
               {branch ? (
-                <span className="flex items-center gap-1 rounded border border-[var(--app-border)] px-1.5 py-px font-mono">
+                <span className="flex items-center gap-1 rounded-md border border-[var(--app-border)] bg-[var(--app-overlay)] px-1.5 py-0.5 font-mono">
                   <GitBranch className="h-3 w-3 shrink-0" />
                   <span className="max-w-40 truncate">{branch}</span>
                 </span>
@@ -353,134 +313,128 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
               }
             }}
             placeholder={t("agentChatHeroPlaceholder")}
-            rows={2}
-            className="max-h-40 w-full resize-none bg-transparent text-sm outline-none placeholder:text-[var(--app-icon-inactive)]"
+            rows={3}
+            className="max-h-48 w-full resize-none bg-transparent text-sm leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
           />
-          <div className="flex items-center justify-between gap-2 pt-1">
-            <div className="flex min-w-0 items-center gap-1.5">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  disabled={engines === null || engines.length === 0}
-                  className="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] px-2 py-1 text-xs transition-colors hover:bg-[var(--app-hover)] disabled:opacity-50"
-                >
-                  {engines === null ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <>
+          <div className="mt-1.5 flex items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-1">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    disabled={engines === null || engines.length === 0}
+                    className="flex h-7 items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--app-overlay)] px-2 text-xs font-medium text-[var(--app-text-primary)] shadow-sm transition-colors hover:border-[var(--app-accent)]/50 disabled:opacity-50"
+                  >
+                    {engines === null ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <>
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            selected?.available
+                              ? "bg-[var(--app-status-success)]"
+                              : "bg-[var(--app-text-tertiary)]"
+                          }`}
+                        />
+                        {selected?.label ?? t("agentChatPickEngine")}
+                      </>
+                    )}
+                    <ChevronDown className="h-3 w-3 text-[var(--app-text-tertiary)]" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {(engines ?? []).map((engine) => (
+                    <DropdownMenuItem
+                      key={engine.id}
+                      disabled={!engine.available}
+                      title={engine.available ? undefined : engine.requirement}
+                      onSelect={() => setSelectedEngine(engine.id)}
+                    >
                       <span
-                        className={`h-1.5 w-1.5 rounded-full ${
-                          selected?.available
+                        className={`mr-2 h-1.5 w-1.5 rounded-full ${
+                          engine.available
                             ? "bg-[var(--app-status-success)]"
-                            : "bg-[var(--app-icon-inactive)]"
+                            : "bg-[var(--app-text-tertiary)]"
                         }`}
                       />
-                      {selected?.label ?? t("agentChatPickEngine")}
-                    </>
-                  )}
-                  <ChevronDown className="h-3 w-3 text-[var(--app-icon-inactive)]" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                {(engines ?? []).map((engine) => (
-                  <DropdownMenuItem
-                    key={engine.id}
-                    disabled={!engine.available}
-                    title={engine.available ? undefined : engine.requirement}
-                    onSelect={() => setSelectedEngine(engine.id)}
-                  >
-                    <span
-                      className={`mr-2 h-1.5 w-1.5 rounded-full ${
-                        engine.available
-                          ? "bg-[var(--app-status-success)]"
-                          : "bg-[var(--app-icon-inactive)]"
-                      }`}
-                    />
-                    {engine.label}
-                    {engine.id === selectedEngine ? (
-                      <span className="ml-auto pl-3 text-[var(--app-accent)]">✓</span>
-                    ) : null}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <StartPrefDropdown
-              items={(modelPrefs?.models ?? []).map((model) => ({
-                id: model.modelId,
-                label: model.name || model.modelId,
-                description: model.description,
-              }))}
-              currentId={modelPrefs?.preferredModelId ?? null}
-              defaultLabel={t("agentChatModelDefault")}
-              onSelect={(modelId) => {
-                if (!selectedEngine) return;
-                savePreferredModel(selectedEngine, modelId);
-                setModelPrefs(loadEnginePrefs(selectedEngine));
-              }}
-            />
-            <StartPrefDropdown
-              items={(modelPrefs?.modes ?? []).map((mode) => ({
-                id: mode.id,
-                label: mode.name || mode.id,
-                description: mode.description,
-              }))}
-              currentId={modelPrefs?.preferredModeId ?? null}
-              defaultLabel={t("agentChatModeDefault")}
-              onSelect={(modeId) => {
-                if (!selectedEngine) return;
-                savePreferredMode(selectedEngine, modeId);
-                setModelPrefs(loadEnginePrefs(selectedEngine));
-              }}
-            />
+                      {engine.label}
+                      {!engine.available ? (
+                        <span className="ml-2 text-[10px] text-[var(--app-text-tertiary)]">
+                          {t("agentChatUnavailableEngine")}
+                        </span>
+                      ) : null}
+                      {engine.id === selectedEngine ? (
+                        <span className="ml-auto pl-3 text-[var(--app-accent)]">✓</span>
+                      ) : null}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <StartPrefDropdown
+                items={(modelPrefs?.models ?? []).map((model) => ({
+                  id: model.modelId,
+                  label: model.name || model.modelId,
+                  description: model.description,
+                }))}
+                currentId={modelPrefs?.preferredModelId ?? null}
+                defaultLabel={t("agentChatModelDefault")}
+                onSelect={(modelId) => {
+                  if (!selectedEngine) return;
+                  savePreferredModel(selectedEngine, modelId);
+                  setModelPrefs(loadEnginePrefs(selectedEngine));
+                }}
+              />
+              <StartPrefDropdown
+                items={(modelPrefs?.modes ?? []).map((mode) => ({
+                  id: mode.id,
+                  label: mode.name || mode.id,
+                  description: mode.description,
+                }))}
+                currentId={modelPrefs?.preferredModeId ?? null}
+                defaultLabel={t("agentChatModeDefault")}
+                onSelect={(modeId) => {
+                  if (!selectedEngine) return;
+                  savePreferredMode(selectedEngine, modeId);
+                  setModelPrefs(loadEnginePrefs(selectedEngine));
+                }}
+              />
+              <PermissionPolicyDropdown
+                kinds={autoApproveKinds}
+                disabled={!selectedEngine}
+                onChange={(kinds) => {
+                  if (!selectedEngine) return;
+                  saveAutoApproveKinds(selectedEngine, kinds);
+                  setAutoApproveKinds(kinds);
+                }}
+              />
             </div>
-            <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              aria-label={t("agentChatAutoApprove")}
-              title={t("agentChatAutoApproveHint")}
-              className={`flex h-7 items-center gap-1 rounded-md border px-1.5 text-[11px] transition-colors ${
-                modelPrefs?.autoApprove
-                  ? "border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] text-[var(--app-status-warning)]"
-                  : "border-[var(--app-border)] text-[var(--app-icon-inactive)] hover:bg-[var(--app-hover)]"
-              }`}
-              onClick={() => {
-                if (!selectedEngine) return;
-                saveAutoApprove(selectedEngine, !(modelPrefs?.autoApprove ?? false));
-                setModelPrefs(loadEnginePrefs(selectedEngine));
-              }}
-            >
-              {modelPrefs?.autoApprove ? (
-                <ShieldCheck className="h-3.5 w-3.5" />
-              ) : (
-                <Shield className="h-3.5 w-3.5" />
-              )}
-            </button>
-            <ChatVoiceButton
-              chatId={chatId}
-              onText={(text) =>
-                setDraft((previous) => (previous ? `${previous} ${text}` : text))
-              }
-            />
-            <button
-              type="button"
-              aria-label={t("agentChatSend")}
-              disabled={!cwd || !selectedEngine || startingEngine !== null}
-              className="flex h-7 w-7 items-center justify-center rounded-md bg-[var(--app-accent)] text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-              onClick={launch}
-            >
-              {startingEngine !== null && startingEngine === selectedEngine ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Send className="h-3.5 w-3.5" />
-              )}
-            </button>
+            <div className="flex shrink-0 items-center gap-1">
+              <ChatVoiceButton
+                chatId={chatId}
+                variant="ghost"
+                onText={(text) =>
+                  setDraft((previous) => (previous ? `${previous} ${text}` : text))
+                }
+              />
+              <IconTooltipButton
+                label={t("agentChatSend")}
+                kbd="Enter"
+                disabled={!cwd || !selectedEngine || startingEngine !== null}
+                className="h-7 w-7 rounded-full bg-[var(--app-accent)] text-white hover:bg-[var(--app-accent)] hover:text-white hover:opacity-90 disabled:opacity-35"
+                onClick={launch}
+              >
+                {launching ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
+                )}
+              </IconTooltipButton>
             </div>
           </div>
         </div>
 
         {error ? (
-          <div className="whitespace-pre-wrap break-all text-center text-xs text-[var(--app-status-danger)]">
+          <div className="whitespace-pre-wrap break-all rounded-lg border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-bg)] px-3 py-2 text-center text-xs text-[var(--app-status-danger)]">
             {t("agentChatStartFailed")}: {error}
           </div>
         ) : null}

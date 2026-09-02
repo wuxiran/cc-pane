@@ -22,16 +22,18 @@ Orca 到点必须有窗口（或 `orca serve`），否则 `skipped_unavailable`�
 - 到点 `start()` 一个 `auto-<defId>-<ts>` 会话（注入 ccpanes MCP），`prompt_and_wait()`
   等回合结束，记录 stopReason 后 `stop()` 回收——不留孤儿 adapter。
 - agent 想开终端、派 worker、写 todo，经注入的 ccpanes MCP 自己来，不需要 UI 在场。
-- 无人值守权限：`AcpLaunchSpec.auto_approve_permissions`，`session/request_permission`
-  自动选第一个 `allow*` 选项（无 allow 时取第一个），emit `ccpanes/auto-approved` 留痕。
-  交互式 chat 恒为 false，只有 automation 会话开启（UI 可关）。
+- 无人值守权限：`AcpLaunchSpec.auto_approve_kinds`（ACP ToolKind 集合，`*` = 全部），
+  命中的 `session/request_permission` 自动选第一个 `allow*` 选项（无 allow 时取第一个），
+  emit `ccpanes/auto-approved` 留痕。automation 会话开启时传 `["*"]`（UI 可关）；交互式
+  chat 由用户在 composer 的权限下拉里按类勾选（读取/编辑/执行/网络/其他），会话中可改
+  （`set_acp_chat_auto_approve`），空集 = 每次都问。
 
 ## 3. 结构
 
 | 层 | 文件 | 说明 |
 |---|---|---|
 | 服务 | `src-tauri/src/services/automation_service.rs` | 定义/运行历史存储 + 30s tick 调度 + 派发 |
-| ACP 扩展 | `acp_chat_service.rs` | `auto_approve_permissions` + `prompt_and_wait`（`run_turn` 抽出） |
+| ACP 扩展 | `acp_chat_service.rs` | `auto_approve_kinds` + `prompt_and_wait`（`run_turn` 抽出） |
 | 命令 | `src-tauri/src/commands/automation_commands.rs` | list/save/delete/run_now/list_runs |
 | 前端 | `web/components/settings/AutomationsSection.tsx` | 设置 → 工具 → 自动化（列表+编辑器+历史） |
 | cron 助手 | `web/components/settings/automationsCron.ts` | 预设（每小时/每天/工作日/每周）↔ 5 字段 cron |

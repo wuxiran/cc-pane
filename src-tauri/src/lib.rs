@@ -423,6 +423,7 @@ use commands::{
     search_project_contents,
     search_project_files,
     search_skill_market,
+    set_acp_chat_auto_approve,
     set_acp_chat_mode,
     set_acp_chat_model,
     set_decorations,
@@ -1784,6 +1785,10 @@ pub fn run() {
     let popup_data_store = commands::PopupDataStore::default();
     let layout_switcher_snapshot_store = commands::LayoutSwitcherSnapshotStore::default();
     let orchestrator_service = Arc::new(OrchestratorService::new(app_paths.as_ref()));
+    // 单实例：MCP cursor_bridge 与 resume_binding 都写同一份登记簿，必须共用一把锁
+    let cursor_bridge_service = Arc::new(cc_panes_core::services::CursorBridgeService::open(
+        app_paths.cursor_bridge_dir(),
+    ));
     let wallpaper_service = Arc::new(cc_panes_core::services::WallpaperService::new(
         app_paths.wallpapers_dir(),
     ));
@@ -1913,6 +1918,7 @@ pub fn run() {
         .manage(popup_data_store)
         .manage(layout_switcher_snapshot_store)
         .manage(orchestrator_service.clone())
+        .manage(cursor_bridge_service)
         .manage(wallpaper_service)
         .manage(Arc::new(BrowserTabManager::default()))
         .manage(cli_registry)
@@ -3001,6 +3007,7 @@ pub fn run() {
             prompt_acp_chat,
             cancel_acp_chat,
             respond_acp_permission,
+            set_acp_chat_auto_approve,
             set_acp_chat_mode,
             set_acp_chat_model,
             get_acp_chat,

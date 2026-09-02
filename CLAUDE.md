@@ -237,8 +237,9 @@ flutter pub get && flutter analyze && flutter test
 | 托盘 tooltip | CC-Panes [DEV] | CC-Panes |
 | 截图快捷键默认值 | `Ctrl+Alt+Shift+S` | `Ctrl+Shift+S` |
 | 截图窗口类名 | `CCPanesDevScreenshotOverlay` | `CCPanesScreenshotOverlay` |
+| 实验功能默认值（媒体生成 / Skill 市场） | 全开 | 全关（用户在设置 → 实验性功能 勾选） |
 
-核心常量定义在 `src-tauri/src/utils/app_paths.rs` 的 `APP_DIR_NAME`。
+核心常量定义在 `src-tauri/src/utils/app_paths.rs` 的 `APP_DIR_NAME`。实验功能默认值在 `cc-panes-core/src/models/settings.rs::default_experimental_flag`（Rust）与 `useSettingsStore.ts::EXPERIMENTAL_DEFAULT_ON`（前端 `import.meta.env.DEV`）两处，需保持同口径。
 
 `tauri:dev` 脚本通过 `--config src-tauri/tauri.dev.conf.json` 覆盖 identifier 和窗口标题。
 
@@ -397,6 +398,7 @@ flutter pub get && flutter analyze && flutter test
 - **clippy 门禁是 `cargo clippy --workspace -- -D warnings`，别自己加 `--all-targets`**：加了会把测试代码的历史 lint 全部升级成 error（实测十几条），看着像"仓库本来就不绿"，实际是换了把尺子。改动验证请用文档里那条原命令。
 - **`watch::Sender::send_modify` 是无条件通知，消费/排空队列必须用 `send_if_modified`**：tokio 内部把它包成恒返回 `true` 的 `send_if_modified`，**写回一个空 map 也会把接收方的 `changed()` 重新置 ready**。配上「调用方在排空**之前**就 `mark_unchanged()`」这个常见写法，排空自己产生的通知没人消费 → 下一轮立刻 ready → 再排空空 map → 再通知，该 future 从此不回 `Pending`，**烧满一整个 tokio worker 且不写任何日志**（0.12.8 实测：一笔 ACK 就让循环 3 秒跑 1400 万次，改 `send_if_modified` 后 6 次）。判据：整机 CPU 不高但 app 发卡、日志零增长、主线程 `Wait/UserRequest` 正常——**别去查业务代码里的 `loop {}`**，它自己不自旋，病在运行时驱动层。定位手法（无需管理员、无需调试器）：PowerShell 用 `OpenThread(0x004A)`/`SuspendThread`/`GetThreadContext` 采 `CONTEXT_AMD64` 的 Rip（偏移 `0xF8`）与 Rsp（`0x98`），`ContextFlags`（`0x30`）设 `0x100001`，CONTEXT 需 16 字节对齐；线程名用 `GetThreadDescription` 读。RIP 集中在 `ZwRemoveIoCompletionEx`/`ZwWaitForAlertByThreadId` + Rsp 在几个值间跳变 = 命中。详见 docs/93。
 - **Windows 上重写源文件绝不能走 PowerShell `Get-Content | Set-Content` 管道**：Windows PowerShell 5.1 的默认编码不是 UTF-8，含中文注释的文件会被写成 GBK/带损（实测 `acp_chat_commands.rs` 中文注释全毁、rustc 报 invalid UTF-8），且中途一旦发生 `?` 替换即**不可逆**——GBK↔UTF-8 往返也救不回。改文件一律用编辑工具（StrReplace/Write）；已损时代码本体（ASCII）通常完好，按最后已知内容整文件重写即可。
+- **ACP 权限请求的 `toolCall.kind` 不是每家都给，且"永远不弹"多半是环境而非代码**（0.12.10 实测 11 家，矩阵见 docs/94 §6.1）：Kimi 的权限请求与 tool_call 全程无 kind（只有 `Shell: …` 这类标题），后端靠 `infer_tool_kind_from_title` 兜底；Codex 把联网归 `execute` 不是 `fetch`。Claude 在本机永远不弹权限是因为 `~/.claude/settings.json` 的 `defaultMode: bypassPermissions` + allow 全量，ACP `set_mode` 压不过它——验证权限链路要用干净的 `CLAUDE_CONFIG_DIR`。Grok ACP 模式从不弹权限。改这条链路前先跑 `tmp/acp-perm-probe.cjs`，别按 ACP 规范推断适配器行为。
 - **DOM 原生方法不能裸引用赋值给对象属性**：`{ request: requestAnimationFrame }` 这类写法会让方法脱离 `window`，WebView2 调用时直接抛 `TypeError: Illegal invocation`。要用箭头函数包一层（不是 `.bind(window)`——默认参数在模块加载期求值，无 `window` 的环境会直接崩，箭头函数把求值推迟到调用时）。0.12.8 实测：`terminalCompositionRecovery` 因此在**每次中文/日文输入结束**时抛一次，日志被 `[frontend-crash]` 刷屏。同类风险只在「把原生方法当值传递」时出现，直接调用（`requestAnimationFrame(fn)`）不受影响。
 
 ## 文档引用
@@ -442,6 +444,7 @@ flutter pub get && flutter analyze && flutter test
 | `docs/84-appearance-theme-shape-copy.md` | 界面形态系统（Soft/Slab/Sharp/Glass/Panel/Carbon）产品文案评审稿；PRD 与任务清单见 `docs/PRDs/appearance-theme-shape*.md`，验收记录见 `docs/shape-verification-record.md` |
 | `docs/STRATEGY.md` | 产品战略：外观层边界 / 设置本地保存与跨版本兼容 / 桌面 Web 同模型（0.12.1 自仓库根迁入） |
 | `docs/85-cli-launcher-overrides.md` | **CLI 路径解析链与 launcher override**：四层解析优先级 / override 三通道 / macOS "not found" 排查顺序（0.12.1 semver 修复与兜底记录） |
+| `docs/96-cursor-bridge.md` | **Cursor Bridge**：一个 MCP 工具走官方 cursor-agent CLI（init/context/do），借参考项目的会话契约，不搬 CDP |
 | `docs/87-git-collaboration.md` | **Git 协作规范**：分支模型（main / dev/v* / release/*）/ PR base 规则 / 发版七步 / 多 AI 实例并行纪律——所有 PR 与发版操作前对照 |
 | `docs/86-resume-chain-staleness.md` | **Resume 链路陈旧化**：三症状归因（对话旧/画面旧/空会话）+ 六条断链 + ResumeBindingStore 单源 / outbox ack / 失败可见化三批修复——排障判据速查在文末 |
 | `docs/88-im-bridge.md` | **IM 外推桥**：钉钉/企微/飞书通知集成（批次1 出站已落地）+ 双向长连接 roadmap（钉钉 Stream / 企微智能机器人协议公开可自实现，飞书不公开走伪双向）——三平台调研结论与安全模型在此 |

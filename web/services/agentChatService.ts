@@ -32,14 +32,26 @@ export function listAcpEngines(): Promise<AcpEngineInfo[]> {
   return call("list_acp_engines");
 }
 
+/** autoApproveKinds：自动放行的 ACP ToolKind 集合（`*` = 全部），缺省每次都问。 */
 export function startAcpChat(
   chatId: string,
   engineId: string,
   cwd: string,
   resumeAcpSessionId?: string,
-  autoApprove?: boolean,
+  autoApproveKinds?: string[],
 ): Promise<AcpChatSnapshot> {
-  return call("start_acp_chat", { chatId, engineId, cwd, resumeAcpSessionId, autoApprove });
+  return call("start_acp_chat", {
+    chatId,
+    engineId,
+    cwd,
+    resumeAcpSessionId,
+    autoApproveKinds,
+  });
+}
+
+/** 会话中改自动放行策略，对后续权限请求立即生效。 */
+export function setAcpChatAutoApprove(chatId: string, kinds: string[]): Promise<void> {
+  return call("set_acp_chat_auto_approve", { chatId, kinds });
 }
 
 /** blocks 为 ACP ContentBlock 数组（text / image / resource_link）。 */
@@ -126,6 +138,7 @@ export const agentChatService = {
   cancel: cancelAcpChat,
   setMode: setAcpChatMode,
   setModel: setAcpChatModel,
+  setAutoApprove: setAcpChatAutoApprove,
   respondPermission: respondAcpPermission,
   get: getAcpChat,
   stop: stopAcpChat,
