@@ -286,6 +286,7 @@ export interface PanesState extends BrowserTabActions {
   /** 工作空间级 Agent Skills 管理（复用 skill-manager tab，projectPath 为空 + workspaceName） */
   openWorkspaceSkillManager: (workspaceName: string, title: string) => void;
   openMemoryManager: (projectPath: string, title: string) => void;
+  openWorkspaceMemoryManager: (workspaceName: string, title: string) => void;
   openFileExplorer: (projectPath: string, title: string) => void;
   /**
    * 打开编辑器标签。`layoutId` 缺省 = 当前布局；MCP 调用方所在布局由调用者传入，

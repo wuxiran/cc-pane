@@ -7,6 +7,7 @@ pub mod comfy_adapter;
 pub mod comfy_events;
 pub mod comfy_resources;
 mod ctl_sidecar;
+mod cursor_bridge_hub;
 pub mod cursor_bridge_prompts;
 pub mod cursor_bridge_service;
 pub mod cursor_session_service;
@@ -99,6 +100,7 @@ pub use comfy_resources::{
     ComfyDeviceInfo, ComfyMemoryReleaseResult, ComfySystemInfo, ComfySystemStats,
     COMFY_SYSTEM_STATS_SCHEMA_VERSION,
 };
+pub use cursor_bridge_hub::CursorBridgeHub;
 pub use cursor_bridge_prompts::{
     build_context_prompt, build_do_prompt, normalize_cce_search_result, CCE_RESULT_MARKER,
 };

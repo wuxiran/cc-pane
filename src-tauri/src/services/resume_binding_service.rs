@@ -191,10 +191,11 @@ pub async fn bind_resume_id(
     if payload.cli_tool.as_deref() == Some("cursor") {
         if let Some(launch_id) = payload.launch_id.as_deref() {
             use tauri::Manager;
-            // 与 orchestrator 共用 lib.rs manage 的同一实例：登记簿是文件级读-改-写，
-            // 各开一个 service 就是各持一把锁，会互相覆盖。
+            // 与 orchestrator 共用 lib.rs manage 的同一个 hub：登记簿是文件级读-改-写，
+            // 各开一个 service 就是各持一把锁，会互相覆盖。hub 会在所有工作空间的
+            // 登记簿里找持有该 launch 的会话。
             if let Some(bridge) =
-                app_handle.try_state::<Arc<cc_panes_core::services::CursorBridgeService>>()
+                app_handle.try_state::<Arc<cc_panes_core::services::CursorBridgeHub>>()
             {
                 if let Err(error) = bridge.bind_resume_chat_id(launch_id, &selected_resume_id) {
                     warn!(

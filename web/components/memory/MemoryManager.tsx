@@ -11,6 +11,8 @@ import type { MemoryScope, MemoryCategory, StoreMemoryRequest } from "@/types";
 
 interface MemoryManagerProps {
   projectPath: string;
+  /** Workspace-level view (docs/98 workspace-first): set with an empty projectPath. */
+  workspaceName?: string;
 }
 
 function ImportanceStars({ value, onChange }: { value: number; onChange?: (v: number) => void }) {
@@ -30,9 +32,13 @@ function ImportanceStars({ value, onChange }: { value: number; onChange?: (v: nu
   );
 }
 
-export default function MemoryManager({ projectPath }: MemoryManagerProps) {
+export default function MemoryManager({ projectPath, workspaceName }: MemoryManagerProps) {
   const { t } = useTranslation("dialogs");
   const { t: tNotify } = useTranslation("notifications");
+  const workspaceMode = !projectPath && !!workspaceName;
+  // 列表/搜索按同一维度过滤：工作空间视图按 workspace_name，项目视图按 project_path
+  const listFilter = workspaceMode ? { workspaceName } : { projectPath };
+  const searchFilter = workspaceMode ? { workspace_name: workspaceName } : { project_path: projectPath };
 
   const SCOPE_LABELS: Record<MemoryScope, string> = {
     global: t("memoryGlobal"),
@@ -77,21 +83,22 @@ export default function MemoryManager({ projectPath }: MemoryManagerProps) {
 
   // 初始化加载
   useEffect(() => {
-    loadList({ projectPath });
+    loadList(workspaceMode ? { workspaceName } : { projectPath });
     return () => reset();
-  }, [projectPath, loadList, reset]);
+  }, [projectPath, workspaceName, workspaceMode, loadList, reset]);
 
   // 搜索去抖
   useEffect(() => {
     const timer = setTimeout(() => {
       if (searchText.trim()) {
-        search({ search: searchText, project_path: projectPath, scope: selectedScope ?? undefined });
+        search({ search: searchText, ...searchFilter, scope: selectedScope ?? undefined });
       } else {
-        loadList({ projectPath, scope: selectedScope ?? undefined });
+        loadList({ ...listFilter, scope: selectedScope ?? undefined });
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchText, selectedScope, projectPath, search, loadList]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- filter objects are derived from projectPath/workspaceName
+  }, [searchText, selectedScope, projectPath, workspaceName, workspaceMode, search, loadList]);
 
   // 选中时填充编辑表单
   useEffect(() => {
@@ -128,10 +135,11 @@ export default function MemoryManager({ projectPath }: MemoryManagerProps) {
         const request: StoreMemoryRequest = {
           title: editForm.title.trim(),
           content: editForm.content,
-          scope: "project",
+          scope: workspaceMode ? "workspace" : "project",
           category: editForm.category,
           importance: editForm.importance,
-          project_path: projectPath,
+          workspace_name: workspaceMode ? workspaceName : undefined,
+          project_path: workspaceMode ? undefined : projectPath,
           tags,
           source: "user",
         };
@@ -151,7 +159,7 @@ export default function MemoryManager({ projectPath }: MemoryManagerProps) {
     } catch (e) {
       toast.error(tNotify("operationFailed", { error: String(e) }));
     }
-  }, [editForm, isCreating, selectedMemory, projectPath, store, update]);
+  }, [editForm, isCreating, selectedMemory, projectPath, workspaceName, workspaceMode, store, update, tNotify]);
 
   const handleDelete = useCallback(
     async (id: string) => {
@@ -182,6 +190,11 @@ export default function MemoryManager({ projectPath }: MemoryManagerProps) {
             <div className="flex items-center gap-2">
               <Database size={16} className="text-muted-foreground" />
               <span className="text-sm font-medium">{t("memoryTitle")}</span>
+              {workspaceMode && (
+                <Badge variant="outline" className="text-xs max-w-28 truncate" title={workspaceName}>
+                  {workspaceName}
+                </Badge>
+              )}
               <Badge variant="secondary" className="text-xs">
                 {total}
               </Badge>

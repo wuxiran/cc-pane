@@ -186,7 +186,7 @@ export default memo(function TabContentRenderer({
     case "memory-manager":
       return (
         <LazyContent>
-          <MemoryManager projectPath={tab.projectPath} />
+          <MemoryManager projectPath={tab.projectPath} workspaceName={tab.workspaceName} />
         </LazyContent>
       );
 

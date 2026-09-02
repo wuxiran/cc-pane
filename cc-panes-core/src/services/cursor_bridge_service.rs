@@ -50,11 +50,25 @@ impl CursorBridgeService {
     }
 
     pub fn init_workspace(&self, project_path: &str) -> AppResult<CursorBridgeWorkspaceBinding> {
+        self.init_workspace_named(project_path, None)
+    }
+
+    /// Record the default project for this registry. `workspace_name` is written for
+    /// readability; the registry folder itself already belongs to one workspace.
+    pub fn init_workspace_named(
+        &self,
+        project_path: &str,
+        workspace_name: Option<&str>,
+    ) -> AppResult<CursorBridgeWorkspaceBinding> {
         let _guard = self.lock.lock();
         let path = require_absolute_path(project_path)?;
         let binding = CursorBridgeWorkspaceBinding {
             schema_version: CURSOR_BRIDGE_SCHEMA_VERSION,
             project_path: path,
+            workspace_name: workspace_name
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(str::to_string),
         };
         self.write_json(&self.dir.join(WORKSPACE_FILE), &binding)?;
         Ok(binding)

@@ -135,7 +135,11 @@ impl Default for CursorBridgeModelPreferences {
 #[serde(rename_all = "camelCase")]
 pub struct CursorBridgeWorkspaceBinding {
     pub schema_version: u32,
+    /// Default project inside the workspace for `context` / `do` when the caller gives none.
     pub project_path: String,
+    /// Owning workspace (docs/98 workspace-first). `None` only in pre-0.12.10 global files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

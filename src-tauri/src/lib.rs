@@ -1785,9 +1785,10 @@ pub fn run() {
     let popup_data_store = commands::PopupDataStore::default();
     let layout_switcher_snapshot_store = commands::LayoutSwitcherSnapshotStore::default();
     let orchestrator_service = Arc::new(OrchestratorService::new(app_paths.as_ref()));
-    // 单实例：MCP cursor_bridge 与 resume_binding 都写同一份登记簿，必须共用一把锁
-    let cursor_bridge_service = Arc::new(cc_panes_core::services::CursorBridgeService::open(
-        app_paths.cursor_bridge_dir(),
+    // 登记簿按工作空间分目录，每个工作空间一个实例；MCP cursor_bridge 与 resume_binding
+    // 都经同一个 hub 取实例，才能共用一把锁
+    let cursor_bridge_hub = Arc::new(cc_panes_core::services::CursorBridgeHub::new(
+        app_paths.clone(),
     ));
     let wallpaper_service = Arc::new(cc_panes_core::services::WallpaperService::new(
         app_paths.wallpapers_dir(),
@@ -1918,7 +1919,7 @@ pub fn run() {
         .manage(popup_data_store)
         .manage(layout_switcher_snapshot_store)
         .manage(orchestrator_service.clone())
-        .manage(cursor_bridge_service)
+        .manage(cursor_bridge_hub)
         .manage(wallpaper_service)
         .manage(Arc::new(BrowserTabManager::default()))
         .manage(cli_registry)

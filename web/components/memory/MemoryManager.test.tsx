@@ -186,6 +186,40 @@ describe("MemoryManager", () => {
     expect(toast.success).toHaveBeenCalledWith(i18n.t("notifications:memoryCreated"));
   });
 
+  describe("workspace view (empty projectPath + workspaceName)", () => {
+    it("loads, searches and creates by workspace_name instead of project_path", async () => {
+      const user = userEvent.setup();
+      const actions = setupStore({ searchText: "immutable" });
+      render(<MemoryManager projectPath="" workspaceName="team-a" />);
+
+      expect(actions.loadList).toHaveBeenCalledWith({ workspaceName: "team-a" });
+      expect(screen.getByText("team-a")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(actions.search).toHaveBeenCalledWith({
+          search: "immutable",
+          workspace_name: "team-a",
+          scope: undefined,
+        });
+      });
+
+      const header = screen.getByText("Memory").closest("div")!.parentElement as HTMLElement;
+      await user.click(header.querySelector("button")!);
+      await user.type(screen.getByPlaceholderText(i18n.t("dialogs:memoryTitlePlaceholder")), "Team rule");
+      await user.click(screen.getByRole("button", { name: new RegExp(i18n.t("common:create")) }));
+
+      await waitFor(() => {
+        expect(actions.store).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: "Team rule",
+            scope: "workspace",
+            workspace_name: "team-a",
+            project_path: undefined,
+          }),
+        );
+      });
+    });
+  });
+
   it("updates the selected memory instead of creating", async () => {
     const user = userEvent.setup();
     const actions = setupStore({ selectedMemory: makeMemory() });

@@ -39,6 +39,7 @@
   "mediaGeneration": "媒体生成",
   "skillMarket": "技能市场",
   "workspaceSkills": "工作空间技能",
+  "workspaceMemory": "工作空间记忆",
   "tools": "工具",
   "moduleNames": {
     "ssh": "SSH 机器",

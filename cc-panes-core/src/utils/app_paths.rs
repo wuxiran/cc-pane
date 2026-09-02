@@ -92,9 +92,11 @@ impl AppPaths {
         self.data_dir.join("quick-commands.json")
     }
 
-    /// Cursor Bridge 登记簿目录（配置目录，不进 versioned plugin cache）。
+    /// Cursor Bridge 机器级目录：`current-v1.json`（上次 init 绑的工作空间）+ 0.12.10 前的
+    /// 全局登记簿（只读兜底）。按工作空间的登记簿在 `workspace_dir(name)/cursor-bridge/`。
+    /// 与 `workspaces_dir` 同在 data_dir 下，测试用 tempdir 构造 AppPaths 时才不会写到真实目录。
     pub fn cursor_bridge_dir(&self) -> PathBuf {
-        self.config_dir.join("cursor-bridge")
+        self.data_dir.join("cursor-bridge")
     }
 
     /// 终端输出文件目录

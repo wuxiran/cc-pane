@@ -769,6 +769,24 @@ describe("usePanesStore", () => {
     });
   });
 
+  describe("openWorkspaceMemoryManager", () => {
+    it("复用 memory-manager tab 类型，projectPath 为空并带 workspaceName；与项目 tab 互不复用", () => {
+      usePanesStore.getState().openWorkspaceMemoryManager("alpha", "Alpha");
+      const pane = usePanesStore.getState().activePane()!;
+      const wsTab = pane.tabs.find((t) => t.contentType === "memory-manager" && t.workspaceName === "alpha");
+      expect(wsTab).toBeDefined();
+      expect(wsTab!.projectPath).toBe("");
+      expect(wsTab!.title).toBe("Memory - Alpha");
+
+      const before = pane.tabs.length;
+      usePanesStore.getState().openWorkspaceMemoryManager("alpha", "Alpha");
+      expect(usePanesStore.getState().activePane()!.tabs.length).toBe(before);
+
+      usePanesStore.getState().openMemoryManager("/tmp/project", "MyProject");
+      expect(usePanesStore.getState().activePane()!.tabs.length).toBe(before + 1);
+    });
+  });
+
   describe("openMemoryManager", () => {
     it("应创建 memory-manager 类型的 tab", () => {
       usePanesStore.getState().openMemoryManager("/tmp/project", "MyProject");

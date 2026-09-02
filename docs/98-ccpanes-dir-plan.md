@@ -104,7 +104,7 @@
 **第二批（workspace-first 其余四项）**
 6. ✅ 快捷命令工作空间层：`~/.cc-panes/workspaces/<name>/quick-commands.json`，`QuickCommandService::list/save_workspace`，tauri `list/save_workspace_quick_commands` + web `/api/quick-commands/workspace`；前端三层合并 global → workspace → project，按活跃 tab 的项目反推所属工作空间加载，新建默认落工作空间层。项目层创建目录改经 `project_dirs`（顺带写 `.gitignore` 守卫）。
 7. ✅ Automations 归工作空间：`AutomationDef.workspaceName`（旧定义缺省 None，编辑时从 cwd 反推）；编辑器改为「所属工作空间 → 其下项目」两级选择，新建默认当前展开的工作空间及其首个项目；列表带工作空间徽章。**物理存储保持 `<data>/automations/` 单一目录**——调度器只需一处扫，按工作空间拆目录只增加复杂度不增加产品价值，与原表「存到 `workspaces/<name>/automations/`」的写法相比这是有意的简化。
-8. ⏸ Cursor Bridge 登记簿按工作空间：实现代码（另一实例）尚未进主线，不在别人未提交的实现上做迁移。进主线后改：`~/.cc-panes/workspaces/<name>/cursor-bridge/`，`init` 绑工作空间，`context`/`do` 按调用方所在项目取路径。
+8. ✅ Cursor Bridge 登记簿按工作空间：`CursorBridgeHub` 按工作空间名分发 `CursorBridgeService`（`~/.cc-panes/workspaces/<name>/cursor-bridge/`），`init` 绑工作空间（`workspaceName` 或由 `projectPath` 推出）并可设默认项目，六个 action 都接受 `workspaceName`/`projectPath` 覆盖；不带参数时工作空间与项目从调用方 launch 记录推断，所以 CC-Panes 内启动的 agent 不再需要 `init`。旧全局目录只读保留供 resume 回写搜索。解析顺序见 docs/96「作用域」。`handoff-latest.md` 路径同步改为 `.ccpanes/.cache/`（skill 文案）。
 9. ⏳ MCP 工作空间层 + 启动注入（见下节 plan，待确认后动手）。
 
 ### MCP workspace-first plan

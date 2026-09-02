@@ -65,10 +65,10 @@ Windows 上 Cursor IDE 优先给 **Windows 路径**（`D:\...`）。登记的是
 写入目标仓库（或 worktree）下：
 
 ```text
-<project>/.ccpanes/handoff-latest.md
+<project>/.ccpanes/.cache/handoff-latest.md
 ```
 
-若目录不存在就创建。内容模板：
+若目录不存在就创建。`.ccpanes/.cache/` 是机器本地缓存层（docs/98），已被 `.ccpanes/.gitignore` 忽略，不会进仓库。内容模板：
 
 ```md
 # CC-Panes → Cursor handoff
@@ -161,10 +161,10 @@ PowerShell 示例：
 ```powershell
 $exe = (Get-Command cursor -ErrorAction SilentlyContinue)?.Source
 # 若 cursor.cmd 只是 wrapper，协议仍走已注册的 Cursor.exe --open-url
-$text = Get-Content -Raw "<project>\.ccpanes\handoff-latest.md"
+$text = Get-Content -Raw "<project>\.ccpanes\.cache\handoff-latest.md"
 # deeplink 宜短：用引用，不要整文件
 $short = @"
-请阅读并执行：.ccpanes/handoff-latest.md
+请阅读并执行：.ccpanes/.cache/handoff-latest.md
 $($ARGUMENTS 里的一句话目标)
 "@
 $uri = "cursor://anysphere.cursor-deeplink/prompt?text=$([uri]::EscapeDataString($short))"
@@ -194,7 +194,7 @@ macOS：`open 'cursor://anysphere.cursor-deeplink/prompt?text=...'`（依赖已�
 - 已打开的 path  
 - handoff 文件路径  
 - 是否发了 deeplink（并警告：**会多一个 New Agent**，需确认框时请点 Create Chat）  
-- 建议在 Cursor 里 `@.ccpanes/handoff-latest.md` 继续  
+- 建议在 Cursor 里 `@.ccpanes/.cache/handoff-latest.md` 继续  
 
 ---
 
@@ -226,11 +226,16 @@ macOS：`open 'cursor://anysphere.cursor-deeplink/prompt?text=...'`（依赖已�
 
 走官方 `cursor-agent`，**不是** Vanyangyang/cursor-bridge 的 CDP。需要 `ccpanes` MCP。
 
-先绑定一次（持久，可省略后续 projectPath）：
+登记簿（会话 / 模型默认 / 默认项目）**按 CC-Panes 工作空间**存放。你在 {{app_name}} 管控会话里时，
+工作空间和项目会从调用方自动推断，**不需要 `init`**；直接 `context` / `do` 即可。
+只有在 {{app_name}} 之外调用、或想切到别的工作空间 / 项目时才绑定一次：
 
 ```text
-{{mcp_server_name}}.cursor_bridge(action="init", projectPath=<登记绝对路径>)
+{{mcp_server_name}}.cursor_bridge(action="init", workspaceName="<工作空间>")            # 只绑工作空间
+{{mcp_server_name}}.cursor_bridge(action="init", projectPath=<登记绝对路径>)            # 顺带设默认项目（工作空间由项目推出）
 ```
+
+每个 action 都接受 `workspaceName` / `projectPath` 做一次性覆盖。项目取值顺序：显式 `projectPath` → 调用方自己的项目 → `init` 设的默认 → 工作空间第一个项目。
 
 | 意图 | 调用 |
 |------|------|

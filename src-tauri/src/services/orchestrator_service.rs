@@ -63,7 +63,9 @@ use cc_panes_core::services::terminal_service::{
     wrap_bracketed_paste, KillReason, SessionStatus, SessionStatusInfo,
 };
 use cc_panes_core::services::TerminalBackend;
-use cc_panes_core::services::{CursorBridgeCreateSpec, CursorBridgeService, TaskDispatchService};
+use cc_panes_core::services::{
+    CursorBridgeCreateSpec, CursorBridgeHub, CursorBridgeService, TaskDispatchService,
+};
 use cc_panes_core::services::{PipeEventRequest, PipeEventService};
 #[cfg(target_os = "windows")]
 use cc_panes_core::utils::canonical_project_path;
@@ -1028,7 +1030,7 @@ pub struct AppState {
     /// 目标会话 busy 时排队的通用 directive（key = 目标 PTY session_id）。
     pub pending_directives: Arc<Mutex<PendingDirectiveMap>>,
     pub pipe_event_service: Arc<PipeEventService>,
-    pub cursor_bridge_service: Arc<CursorBridgeService>,
+    pub cursor_bridge_hub: Arc<CursorBridgeHub>,
     /// 活跃面板集：持有事件环与当前持有者，进程内生命周期。
     ai_panels: Arc<Mutex<AiPanelRegistry>>,
     /// 面板历史：跨重启持久化，按工作空间分组，只由用户显式删除。
@@ -1924,12 +1926,12 @@ impl OrchestratorService {
             status.next_retry_at = None;
         });
         let bind_host = bind.host;
-        // 登记簿是文件级读-改-写，必须全进程共用一个实例（一把锁）。lib.rs 已 manage
-        // 了一份供 resume_binding_service 写回 resumeChatId；这里取同一份，拿不到才自建。
-        let cursor_bridge_service = app_handle
-            .try_state::<Arc<CursorBridgeService>>()
+        // 登记簿按工作空间分目录（docs/98），每个工作空间一个共享实例（一把锁）。lib.rs 已
+        // manage 了 hub 供 resume_binding_service 写回 resumeChatId；这里取同一份，拿不到才自建。
+        let cursor_bridge_hub = app_handle
+            .try_state::<Arc<CursorBridgeHub>>()
             .map(|shared| shared.inner().clone())
-            .unwrap_or_else(|| Arc::new(CursorBridgeService::open(app_paths.cursor_bridge_dir())));
+            .unwrap_or_else(|| Arc::new(CursorBridgeHub::new(app_paths.clone())));
         let state = AppState {
             token: self.token.clone(),
             started_at: self.started_at,
@@ -1972,7 +1974,7 @@ impl OrchestratorService {
             pipe_event_service: Arc::new(PipeEventService::new(Arc::new(
                 crate::emitter::TauriEmitter::new(app_handle.clone()),
             ))),
-            cursor_bridge_service,
+            cursor_bridge_hub,
             ai_panels: self.ai_panels.clone(),
             ai_panel_repo,
             mcp_tool_call_stats_repo,
@@ -2599,6 +2601,12 @@ struct McpDispatchTaskParams {
 struct McpCursorBridgeParams {
     /// init | context | do | status | model | session
     action: String,
+    /// Workspace whose registry to use. Optional: derived from projectPath, then from the
+    /// caller's own launch, then from the last `init`.
+    #[serde(rename = "workspaceName")]
+    workspace_name: Option<String>,
+    /// Project inside the workspace. Optional: falls back to the caller's project, then the
+    /// registry default set by `init`, then the workspace's first project.
     #[serde(rename = "projectPath")]
     project_path: Option<String>,
     query: Option<String>,
@@ -5297,18 +5305,108 @@ impl McpToolHandler {
         }
     }
 
-    fn cursor_bridge_workspace(&self, explicit: Option<&str>) -> Result<String, String> {
-        if let Some(path) = explicit.map(str::trim).filter(|path| !path.is_empty()) {
+    /// Which workspace owns a registered project path.
+    fn workspace_of_project(&self, path: &str) -> Option<String> {
+        let workspaces = self.state.workspace_service.list_workspaces().ok()?;
+        workspaces
+            .into_iter()
+            .find(|ws| {
+                ws.projects
+                    .iter()
+                    .any(|p| registered_path_matches(&p.path, path))
+            })
+            .map(|ws| ws.name)
+    }
+
+    /// The caller's launch record (workspace + project it is running in), if the MCP call
+    /// carries a launchId.
+    fn caller_launch_record(
+        &self,
+        extensions: &Extensions,
+    ) -> Option<cc_panes_core::repository::LaunchRecord> {
+        let launch_id = caller_launch_id_from_extensions(extensions)?;
+        self.state
+            .launch_history_service
+            .find_by_launch_id(&launch_id)
+            .ok()
+            .flatten()
+    }
+
+    /// Resolve the workspace (and optionally the project) a cursor_bridge call operates on
+    /// (docs/98 workspace-first). Order: explicit `workspaceName` → owner of explicit
+    /// `projectPath` → the caller's own workspace → the workspace bound by the last `init`.
+    /// The project falls back from explicit → caller's project (if inside that workspace) →
+    /// the registry's default → the workspace's first project.
+    fn cursor_bridge_scope(
+        &self,
+        params: &McpCursorBridgeParams,
+        extensions: &Extensions,
+    ) -> Result<CursorBridgeScope, String> {
+        let explicit_project = params
+            .project_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty());
+        if let Some(path) = explicit_project {
             if !is_project_registered(&self.state, path) {
                 return Err(format!("项目路径 '{path}' 未注册"));
             }
-            return Ok(path.to_string());
         }
-        match self.state.cursor_bridge_service.workspace_binding() {
-            Ok(Some(binding)) => Ok(binding.project_path),
-            Ok(None) => Err("先调用 cursor_bridge action=init 绑定项目路径".to_string()),
-            Err(error) => Err(error.to_string()),
-        }
+        let caller = self.caller_launch_record(extensions);
+        let caller_workspace = caller.as_ref().and_then(|record| {
+            record
+                .workspace_name
+                .clone()
+                .filter(|name| !name.trim().is_empty())
+                .or_else(|| self.workspace_of_project(&record.project_path))
+        });
+        let workspace_name = params
+            .workspace_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .or_else(|| explicit_project.and_then(|path| self.workspace_of_project(path)))
+            .or(caller_workspace)
+            .or_else(|| self.state.cursor_bridge_hub.current_workspace())
+            .ok_or_else(|| {
+                "无法确定工作空间：先调用 cursor_bridge action=init（带 workspaceName 或 projectPath）"
+                    .to_string()
+            })?;
+        let service = self
+            .state
+            .cursor_bridge_hub
+            .for_workspace(&workspace_name)
+            .map_err(|error| error.to_string())?;
+
+        let caller_project = caller
+            .as_ref()
+            .map(|record| record.project_path.clone())
+            .filter(|path| {
+                self.workspace_of_project(path).as_deref() == Some(workspace_name.as_str())
+            });
+        let project_path = explicit_project
+            .map(str::to_string)
+            .or(caller_project)
+            .or_else(|| {
+                service
+                    .workspace_binding()
+                    .ok()
+                    .flatten()
+                    .map(|binding| binding.project_path)
+            })
+            .or_else(|| {
+                self.state
+                    .workspace_service
+                    .get_workspace(&workspace_name)
+                    .ok()
+                    .and_then(|ws| ws.projects.first().map(|p| p.path.clone()))
+            });
+        Ok(CursorBridgeScope {
+            workspace_name,
+            project_path,
+            service,
+        })
     }
 
     fn cursor_bridge_adapter_options(
@@ -5339,72 +5437,107 @@ impl McpToolHandler {
         options
     }
 
-    fn cursor_bridge_init(&self, params: &McpCursorBridgeParams) -> String {
-        let path = match params
+    /// `init` binds the calling side to a workspace (and optionally a default project in it).
+    /// Accepts `workspaceName`, `projectPath` (owner workspace is derived), or neither when the
+    /// caller itself runs inside a CC-Panes workspace.
+    fn cursor_bridge_init(
+        &self,
+        params: &McpCursorBridgeParams,
+        extensions: &Extensions,
+    ) -> String {
+        let scope = match self.cursor_bridge_scope(params, extensions) {
+            Ok(scope) => scope,
+            Err(_) => {
+                return "错误: init 需要 workspaceName 或 projectPath（调用方不在 CC-Panes 工作空间内时无法推断）"
+                    .to_string()
+            }
+        };
+        if let Err(error) = self
+            .state
+            .cursor_bridge_hub
+            .set_current_workspace(&scope.workspace_name)
+        {
+            return format!("错误: {error}");
+        }
+        let explicit_project = params
             .project_path
             .as_deref()
             .map(str::trim)
-            .filter(|path| !path.is_empty())
-        {
-            Some(path) => path,
-            None => return "错误: init 必须提供 projectPath".to_string(),
+            .filter(|path| !path.is_empty());
+        let bound_project = match explicit_project {
+            Some(path) => match scope
+                .service
+                .init_workspace_named(path, Some(&scope.workspace_name))
+            {
+                Ok(binding) => Some(binding.project_path),
+                Err(error) => return format!("错误: {error}"),
+            },
+            None => scope
+                .service
+                .workspace_binding()
+                .ok()
+                .flatten()
+                .map(|binding| binding.project_path)
+                .or(scope.project_path.clone()),
         };
-        if !is_project_registered(&self.state, path) {
-            return format!("错误: 项目路径 '{path}' 未注册");
-        }
-        match self.state.cursor_bridge_service.init_workspace(path) {
-            Ok(binding) => serde_json::json!({
-                "action": "init",
-                "projectPath": binding.project_path,
-            })
-            .to_string(),
-            Err(error) => format!("错误: {error}"),
-        }
+        serde_json::json!({
+            "action": "init",
+            "workspaceName": scope.workspace_name,
+            "projectPath": bound_project,
+            "registryDir": self.state.cursor_bridge_hub.registry_dir(&scope.workspace_name),
+        })
+        .to_string()
     }
 
-    fn cursor_bridge_status(&self, params: &McpCursorBridgeParams) -> String {
+    fn cursor_bridge_status(
+        &self,
+        params: &McpCursorBridgeParams,
+        extensions: &Extensions,
+    ) -> String {
+        let scope = match self.cursor_bridge_scope(params, extensions) {
+            Ok(scope) => scope,
+            Err(error) => return format!("错误: {error}"),
+        };
         if let Some(session_id) = params
             .session_id
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            return match self.state.cursor_bridge_service.get_session(session_id) {
+            return match scope.service.get_session(session_id) {
                 Ok(session) => serde_json::to_string(&session)
                     .unwrap_or_else(|error| format!("错误: 序列化失败: {error}")),
                 Err(error) => format!("错误: {error}"),
             };
         }
-        let binding = self
-            .state
-            .cursor_bridge_service
-            .workspace_binding()
-            .ok()
-            .flatten();
-        let sessions = self
-            .state
-            .cursor_bridge_service
-            .list_sessions()
-            .unwrap_or_default();
-        let models = self
-            .state
-            .cursor_bridge_service
-            .model_preferences()
-            .unwrap_or_default();
+        let binding = scope.service.workspace_binding().ok().flatten();
+        let sessions = scope.service.list_sessions().unwrap_or_default();
+        let models = scope.service.model_preferences().unwrap_or_default();
         serde_json::json!({
             "action": "status",
-            "projectPath": binding.map(|item| item.project_path),
+            "workspaceName": scope.workspace_name,
+            "projectPath": binding
+                .map(|item| item.project_path)
+                .or(scope.project_path),
             "sessions": sessions,
             "models": models,
         })
         .to_string()
     }
 
-    fn cursor_bridge_model(&self, params: &McpCursorBridgeParams) -> String {
+    fn cursor_bridge_model(
+        &self,
+        params: &McpCursorBridgeParams,
+        extensions: &Extensions,
+    ) -> String {
+        let scope = match self.cursor_bridge_scope(params, extensions) {
+            Ok(scope) => scope,
+            Err(error) => return format!("错误: {error}"),
+        };
         let target = parse_cursor_bridge_model_target(params.target.as_deref());
         let has_set = params.model_id.is_some() || params.effort.is_some();
         let result = if has_set {
-            self.state.cursor_bridge_service.set_model_preferences(
+            scope.service.set_model_preferences(
                 target,
                 CursorBridgeModelPref {
                     model_id: nonempty_string(params.model_id.as_deref()),
@@ -5412,11 +5545,12 @@ impl McpToolHandler {
                 },
             )
         } else {
-            self.state.cursor_bridge_service.model_preferences()
+            scope.service.model_preferences()
         };
         match result {
             Ok(prefs) => serde_json::json!({
                 "action": "model",
+                "workspaceName": scope.workspace_name,
                 "target": params.target,
                 "models": prefs,
             })
@@ -5425,7 +5559,15 @@ impl McpToolHandler {
         }
     }
 
-    fn cursor_bridge_session(&self, params: &McpCursorBridgeParams) -> String {
+    fn cursor_bridge_session(
+        &self,
+        params: &McpCursorBridgeParams,
+        extensions: &Extensions,
+    ) -> String {
+        let scope = match self.cursor_bridge_scope(params, extensions) {
+            Ok(scope) => scope,
+            Err(error) => return format!("错误: {error}"),
+        };
         let session_id = match params
             .session_id
             .as_deref()
@@ -5439,11 +5581,10 @@ impl McpToolHandler {
             Ok(control) => control,
             Err(error) => return format!("错误: {error}"),
         };
-        match self.state.cursor_bridge_service.control_session(
-            session_id,
-            control,
-            params.confirm.unwrap_or(false),
-        ) {
+        match scope
+            .service
+            .control_session(session_id, control, params.confirm.unwrap_or(false))
+        {
             Ok(session) => serde_json::json!({
                 "action": "session",
                 "sessionAction": params.session_action,
@@ -5459,7 +5600,11 @@ impl McpToolHandler {
         params: &McpCursorBridgeParams,
         extensions: Extensions,
     ) -> String {
-        let workspace = match self.cursor_bridge_workspace(params.project_path.as_deref()) {
+        let scope = match self.cursor_bridge_scope(params, &extensions) {
+            Ok(scope) => scope,
+            Err(error) => return format!("错误: {error}"),
+        };
+        let workspace = match scope.require_project() {
             Ok(path) => path,
             Err(error) => return format!("错误: {error}"),
         };
@@ -5472,16 +5617,12 @@ impl McpToolHandler {
             Some(query) => query,
             None => return "错误: context 必须提供 query".to_string(),
         };
-        let plan = match self
-            .state
-            .cursor_bridge_service
-            .plan_context(query, &workspace)
-        {
+        let plan = match scope.service.plan_context(query, &workspace) {
             Ok(plan) => plan,
             Err(error) => return format!("错误: {error}"),
         };
         let raw = self
-            .launch_cursor_bridge_plan(params, plan, false, extensions)
+            .launch_cursor_bridge_plan(&scope, params, plan, false, extensions)
             .await;
         if !params.wait.unwrap_or(true) {
             return raw;
@@ -5540,16 +5681,16 @@ impl McpToolHandler {
         params: &McpCursorBridgeParams,
         extensions: Extensions,
     ) -> String {
-        let workspace = match self.cursor_bridge_workspace(params.project_path.as_deref()) {
+        let scope = match self.cursor_bridge_scope(params, &extensions) {
+            Ok(scope) => scope,
+            Err(error) => return format!("错误: {error}"),
+        };
+        let workspace = match scope.require_project() {
             Ok(path) => path,
             Err(error) => return format!("错误: {error}"),
         };
         let mode = parse_cursor_bridge_session_mode(params.session_mode.as_deref());
-        let prefs = self
-            .state
-            .cursor_bridge_service
-            .model_preferences()
-            .unwrap_or_default();
+        let prefs = scope.service.model_preferences().unwrap_or_default();
         let spec = CursorBridgeCreateSpec {
             workspace,
             runtime_kind: params.runtime_kind.clone(),
@@ -5561,18 +5702,16 @@ impl McpToolHandler {
             task: params.task.clone().unwrap_or_default(),
             print: false,
         };
-        let plan =
-            match self
-                .state
-                .cursor_bridge_service
-                .plan_do(mode, spec, params.session_id.as_deref())
-            {
-                Ok(plan) => plan,
-                Err(error) => return format!("错误: {error}"),
-            };
+        let plan = match scope
+            .service
+            .plan_do(mode, spec, params.session_id.as_deref())
+        {
+            Ok(plan) => plan,
+            Err(error) => return format!("错误: {error}"),
+        };
         let pty_session_id = plan.session_id.as_deref().and_then(|session_id| {
-            self.state
-                .cursor_bridge_service
+            scope
+                .service
                 .get_session(session_id)
                 .ok()
                 .and_then(|session| session.pty_session_id)
@@ -5591,10 +5730,7 @@ impl McpToolHandler {
             .to_string(),
             CursorBridgeDoRoute::NeedsAttention => {
                 if let Some(session_id) = plan.session_id.as_deref() {
-                    let _ = self
-                        .state
-                        .cursor_bridge_service
-                        .mark_needs_attention(session_id);
+                    let _ = scope.service.mark_needs_attention(session_id);
                 }
                 "错误: continue 时还没有 resumeChatId，且没有活着的 PTY。等 cursor_bridge action=status 显示 ready 后再 continue".to_string()
             }
@@ -5602,7 +5738,7 @@ impl McpToolHandler {
                 self.cursor_bridge_submit_continue(&pty, plan).await
             }
             CursorBridgeDoRoute::Launch { allow_resume } => {
-                self.launch_cursor_bridge_plan(params, plan, allow_resume, extensions)
+                self.launch_cursor_bridge_plan(&scope, params, plan, allow_resume, extensions)
                     .await
             }
         }
@@ -5645,6 +5781,7 @@ impl McpToolHandler {
 
     async fn launch_cursor_bridge_plan(
         &self,
+        scope: &CursorBridgeScope,
         params: &McpCursorBridgeParams,
         plan: cc_panes_core::models::CursorBridgeTurnPlan,
         allow_resume_with_prompt: bool,
@@ -5667,7 +5804,7 @@ impl McpToolHandler {
                 .title
                 .clone()
                 .or_else(|| Some("Cursor Bridge".to_string())),
-            workspace_name: None,
+            workspace_name: Some(scope.workspace_name.clone()),
             runtime_kind: plan.runtime_kind.clone().or(params.runtime_kind.clone()),
             resume_id: plan.resume_chat_id.clone(),
             pane_id: params.pane_id.clone(),
@@ -5681,20 +5818,18 @@ impl McpToolHandler {
             allow_resume_with_prompt,
         };
         let raw = self.launch_task(Parameters(launch), extensions).await;
-        self.attach_cursor_bridge_launch(&plan, &raw)
+        self.attach_cursor_bridge_launch(&scope.service, &plan, &raw)
     }
 
     fn attach_cursor_bridge_launch(
         &self,
+        service: &CursorBridgeService,
         plan: &cc_panes_core::models::CursorBridgeTurnPlan,
         raw: &str,
     ) -> String {
         if raw.starts_with("错误") {
             if let Some(session_id) = plan.session_id.as_deref() {
-                let _ = self
-                    .state
-                    .cursor_bridge_service
-                    .mark_needs_attention(session_id);
+                let _ = service.mark_needs_attention(session_id);
             }
             return raw.to_string();
         }
@@ -5709,11 +5844,7 @@ impl McpToolHandler {
             .unwrap_or_default();
         if let Some(session_id) = plan.session_id.as_deref() {
             if !pty_session_id.is_empty() && !launch_id.is_empty() {
-                let _ = self.state.cursor_bridge_service.attach_launch(
-                    session_id,
-                    launch_id,
-                    pty_session_id,
-                );
+                let _ = service.attach_launch(session_id, launch_id, pty_session_id);
             }
         }
         serde_json::json!({
@@ -5728,6 +5859,25 @@ impl McpToolHandler {
             "launch": parsed,
         })
         .to_string()
+    }
+}
+
+/// The workspace registry a cursor_bridge call resolved to, plus the project it will act on
+/// (`None` when the workspace has no projects and neither the caller nor `init` named one).
+struct CursorBridgeScope {
+    workspace_name: String,
+    project_path: Option<String>,
+    service: Arc<CursorBridgeService>,
+}
+
+impl CursorBridgeScope {
+    fn require_project(&self) -> Result<String, String> {
+        self.project_path.clone().ok_or_else(|| {
+            format!(
+                "工作空间 '{}' 没有可用项目：传 projectPath，或先 cursor_bridge action=init 绑定默认项目",
+                self.workspace_name
+            )
+        })
     }
 }
 
@@ -8316,6 +8466,9 @@ impl McpToolHandler {
     ///
     /// This is the CC-Panes-native counterpart of Vanyangyang/cursor-bridge. It uses `cursor-agent`
     /// (official CLI), not CDP. Actions: init, context, do, status, model, session.
+    /// The registry (sessions / model prefs / default project) is per CC-Panes workspace. Callers
+    /// running inside a CC-Panes launch need no `init`: workspace and project come from the caller.
+    /// Otherwise `init` with workspaceName or projectPath once; every action also accepts them.
     /// Persistent `do` sessions require readOnly=true or allowedPaths. Continue cannot expand scope.
     /// Cursor is not an OS sandbox — verify the real diff.
     #[tool]
@@ -8330,10 +8483,10 @@ impl McpToolHandler {
         };
         info!(action = ?action, "mcp::cursor_bridge");
         match action {
-            CursorBridgeAction::Init => self.cursor_bridge_init(&params),
-            CursorBridgeAction::Status => self.cursor_bridge_status(&params),
-            CursorBridgeAction::Model => self.cursor_bridge_model(&params),
-            CursorBridgeAction::Session => self.cursor_bridge_session(&params),
+            CursorBridgeAction::Init => self.cursor_bridge_init(&params, &extensions),
+            CursorBridgeAction::Status => self.cursor_bridge_status(&params, &extensions),
+            CursorBridgeAction::Model => self.cursor_bridge_model(&params, &extensions),
+            CursorBridgeAction::Session => self.cursor_bridge_session(&params, &extensions),
             CursorBridgeAction::Context => self.cursor_bridge_context(&params, extensions).await,
             CursorBridgeAction::Do => self.cursor_bridge_do(&params, extensions).await,
         }
@@ -16520,7 +16673,7 @@ mod tests {
             .expect("load binding")
             .expect("binding exists");
         assert_eq!(persisted.metadata.expect("metadata")["kept"], true);
-        assert!(is_delivery_failure_reason("superseded") == false);
+        assert!(!is_delivery_failure_reason("superseded"));
     }
 
     #[test]

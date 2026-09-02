@@ -19,7 +19,7 @@ CC-Panes 借它的会话契约和证据形状，用已有 `dispatch` / `create_l
 
 | action | 作用 |
 |--------|------|
-| `init` | 绑定已注册项目的绝对路径。后续可省略 `projectPath`。 |
+| `init` | 绑定工作空间（`workspaceName`，或由 `projectPath` 推出其所属工作空间），可顺带设该工作空间的默认项目。**调用方本身跑在 CC-Panes 启动的会话里时不需要 init**——工作空间与项目从调用方 launchId 推断。 |
 | `context` | 只读项目理解。print worker + `--mode ask` + `CCE_SEARCH_RESULT` 契约。**默认阻塞**到 worker 退出（`timeoutMs`，上限同 `wait_for_session`），读 PTY 缓冲，从标记处切出证据放进 `evidence.text`；`evidence.structured` 标记模型是否遵守格式；`complete=false` 为超时，回执里的 `ptySessionId` 可继续等。`wait=false` 只要回执。 |
 | `do` | 有边界执行。`sessionMode=isolated\|create\|continue`。 |
 | `status` | 登记簿 + 模型默认。给 `sessionId` 则只返回该会话。 |
@@ -28,9 +28,21 @@ CC-Panes 借它的会话契约和证据形状，用已有 `dispatch` / `create_l
 
 公开 `dispatch_task` **不**暴露 `adapterOptions`。print / `--mode ask` 只从这条内部启动辅助注入。
 
+## 作用域（workspace-first，docs/98）
+
+每个 action 都接受可选的 `workspaceName` / `projectPath`。解析顺序：
+
+| 要什么 | 顺序 |
+|--------|------|
+| 工作空间 | 显式 `workspaceName` → 显式 `projectPath` 的所属工作空间 → 调用方 launch 记录里的工作空间 → 上次 `init` 绑的工作空间（`~/.cc-panes/cursor-bridge/current-v1.json`） |
+| 项目 | 显式 `projectPath` → 调用方自己的项目（须属于该工作空间） → 该工作空间登记簿里 `init` 设的默认项目 → 工作空间第一个项目 |
+
+`context` / `do` 拿不到项目时报错；`status` / `model` / `session` 只需要工作空间。
+
 ## 会话契约
 
-登记簿：`~/.cc-panes[-dev]/cursor-bridge/sessions-v1.json`。
+登记簿按工作空间分目录：`~/.cc-panes[-dev]/workspaces/<name>/cursor-bridge/{sessions,models,workspace}-v1.json`。
+旧的全局目录 `~/.cc-panes[-dev]/cursor-bridge/` 只读保留：`resume_binding_service` 回写 chat id 时会连它一起搜，新会话不再写进去。
 
 - `sessionId`（`cbrs-`）≠ `taskId`（`cbrt-`）≠ Cursor chat uuid
 - `create` 后等 `cursor-chat-scan` 把 resume id 按 `launchId` 写回才变 `ready`
@@ -47,7 +59,7 @@ CC-Panes 借它的会话契约和证据形状，用已有 `dispatch` / `create_l
 
 ## 单实例
 
-登记簿是文件级读-改-写。`CursorBridgeService` 在 `lib.rs` 里只 `open` 一次并 `manage`，orchestrator 与 `resume_binding_service`（把 `cursor-chat-scan` 扫到的 chat id 写回会话）都取这同一份——各开一个实例就是各持一把锁，会互相覆盖。
+登记簿是文件级读-改-写。`CursorBridgeHub`（`cc-panes-core/src/services/cursor_bridge_hub.rs`）在 `lib.rs` 里只建一次并 `manage`，按工作空间名缓存 `CursorBridgeService` 实例；orchestrator 与 `resume_binding_service`（把 `cursor-chat-scan` 扫到的 chat id 写回会话）都经它取实例——各开一个实例就是各持一把锁，会互相覆盖。`bind_resume_chat_id` 会遍历磁盘上所有工作空间的登记簿（含旧全局目录）找持有该 `launchId` 的会话。
 
 ## 取消
 
@@ -61,4 +73,4 @@ CC-Panes 借它的会话契约和证据形状，用已有 `dispatch` / `create_l
 | 六个 MCP 工具 | 一个 `cursor_bridge` |
 | `minimal` 藏窗口 | 不做 |
 | 只维护最新 Cursor | 跟官方 CLI |
-| 登记簿在 `%APPDATA%\cursor-bridge` | `{app_config_dir}/cursor-bridge` |
+| 登记簿在 `%APPDATA%\cursor-bridge`（全局一份） | `{app_config_dir}/workspaces/<name>/cursor-bridge`（每工作空间一份） |

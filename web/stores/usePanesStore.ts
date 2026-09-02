@@ -51,6 +51,7 @@ import {
   syncWorkingCopyToCurrentLayout,
 } from "./paneLayoutHelpers";
 import { createBrowserTabActions } from "./browserTabActions";
+import { createWorkspaceToolTabActions } from "./workspaceToolTabActions";
 import { inferCliTool, resolveRestoreMode } from "@/lib/terminalRestoreMode";
 import { migratePersistedPanes } from "./panesPersistMigrations";
 import { createEditorTabActions } from "./editorTabActions";
@@ -1794,31 +1795,6 @@ export const usePanesStore = create<PanesState>()(
       });
     },
 
-    openWorkspaceSkillManager: (workspaceName, title) => {
-      const active = get().activePane();
-      if (!active) return;
-
-      const existing = active.tabs.find(
-        (t) => t.contentType === "skill-manager" && !t.projectPath && t.workspaceName === workspaceName
-      );
-      if (existing) {
-        get().selectTab(active.id, existing.id);
-        return;
-      }
-
-      set((state) => {
-        const pane = findPane(state.rootPane, state.activePaneId);
-        if (pane?.type !== "panel") return;
-        const newTab = createTabOfType("skill-manager", {
-          title: `Skill - ${title}`,
-          projectPath: "",
-          workspaceName,
-        });
-        pane.tabs.push(newTab);
-        pane.activeTabId = newTab.id;
-      });
-    },
-
     openMemoryManager: (projectPath, title) => {
       const active = get().activePane();
       if (!active) return;
@@ -1842,6 +1818,7 @@ export const usePanesStore = create<PanesState>()(
         pane.activeTabId = newTab.id;
       });
     },
+    ...createWorkspaceToolTabActions({ set, get }),
     ...createBrowserTabActions(set),
     openFileExplorer: (projectPath, title) => {
       const active = get().activePane();
