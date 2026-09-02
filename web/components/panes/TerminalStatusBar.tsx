@@ -9,8 +9,14 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import type { ActiveTerminalContext } from "@/hooks/useActiveTerminalSession";
+import { collectPanels } from "@/lib/paneTree";
 import { isTauriRuntime } from "@/services/runtime";
-import { useSettingsStore, useTerminalStatusStore } from "@/stores";
+import {
+  useFullscreenStore,
+  usePanesStore,
+  useSettingsStore,
+  useTerminalStatusStore,
+} from "@/stores";
 import type { LaunchEffort } from "@/types";
 import TaskQueuePopover from "./TaskQueuePopover";
 
@@ -19,6 +25,8 @@ interface TerminalStatusBarProps {
   projectPath: string;
   effort?: LaunchEffort;
   enabled?: boolean;
+  /** 所属窗格（Panel）id：用于焦点渐进展示；缺省时始终全亮（独立渲染场景） */
+  paneId?: string;
 }
 
 function compactProjectPath(path: string): string {
@@ -32,6 +40,7 @@ export default function TerminalStatusBar({
   projectPath,
   effort,
   enabled = true,
+  paneId,
 }: TerminalStatusBarProps) {
   const { t } = useTranslation("panes");
   const statusInfo = useTerminalStatusStore((state) => (
@@ -49,6 +58,21 @@ export default function TerminalStatusBar({
     (state) => state.settings?.terminal.taskQueueEnabled ?? true,
   );
   const saveSettings = useSettingsStore((state) => state.saveSettings);
+
+  // 焦点渐进展示：非焦点窗格整条降为 opacity 0.55，hover/聚焦由 CSS 恢复到 1——
+  // 只动透明度不动高度，绝不产生布局跳动。门控与焦点环同款：多窗格才有
+  // 「哪格有焦点」的歧义（collectPanels(rootPane).length > 1）；单窗格永远全亮，
+  // 全屏中的那一格也永远全亮。状态条是应用 chrome，不是 xterm 内部渲染。
+  const dimmedByFocus = usePanesStore((state) =>
+    paneId !== undefined
+      && state.activePaneId !== paneId
+      && collectPanels(state.rootPane).length > 1,
+  );
+  const isFullscreenPane = useFullscreenStore(
+    (state) => state.isFullscreen && state.fullscreenPaneId === paneId,
+  );
+  const dimmed = dimmedByFocus && !isFullscreenPane;
+
   const handleToggleStatusBar = () => {
     const current = useSettingsStore.getState().settings;
     if (!current) return;
@@ -71,6 +95,7 @@ export default function TerminalStatusBar({
       <ContextMenuTrigger asChild>
         <div
           data-testid="terminal-status-bar"
+          data-pane-statusbar={dimmed ? "dimmed" : "full"}
           className="flex h-7 min-w-0 shrink-0 select-none items-center gap-2 border-t px-2 text-[10px]"
           style={{
             background: "var(--app-menubar)",

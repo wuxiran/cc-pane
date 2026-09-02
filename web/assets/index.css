@@ -2120,3 +2120,19 @@
 .markdown-preview .hljs-params {
   color: var(--code-attr);
 }
+
+/* ===== 窗格状态条渐进展示（web/components/panes/TerminalStatusBar.tsx） =====
+   非焦点窗格的状态条降为 0.55，hover / 键盘聚焦（focus-within）恢复 1。
+   只动 opacity，不动任何盒模型属性——高度恒定，绝不产生布局跳动；
+   过渡只用 --dur-fast + --ease-out。门控（单窗格/全屏全亮）在组件内完成，
+   这里只负责呈现。 */
+[data-pane-statusbar] {
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+[data-pane-statusbar="dimmed"] {
+  opacity: 0.55;
+}
+[data-pane-statusbar="dimmed"]:hover,
+[data-pane-statusbar="dimmed"]:focus-within {
+  opacity: 1;
+}

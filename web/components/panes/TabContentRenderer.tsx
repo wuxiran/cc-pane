@@ -110,6 +110,7 @@ export default memo(function TabContentRenderer({
           tab={tab}
           layoutActive={layoutActive}
           showStatusBar={showTerminalStatusBar}
+          paneId={paneId}
           onSessionCreated={onSessionCreated}
           onSessionExited={onSessionExited}
           onTerminalRef={onTerminalRef}

@@ -110,31 +110,43 @@ function status(sessionId: string, value: TerminalStatusInfo["status"]): Termina
   };
 }
 
-function presetButtons() {
-  const group = screen.getByRole("group");
-  return within(group).getAllByRole("button");
+function presetTrigger() {
+  return screen.getByRole("button", { name: /布局预设|Layout presets/i });
 }
 
-describe("LayoutTopBar 布局预设按钮", () => {
+function presetDialog() {
+  return screen.getByRole("dialog", { name: /布局预设|Layout presets/i });
+}
+
+describe("LayoutTopBar 布局预设浮层", () => {
   beforeEach(() => {
     resetStores();
   });
 
-  it("渲染 6 个预设按钮", () => {
+  it("常驻入口收敛为单按钮，点开浮层列出 6 个带文字标签的预设", () => {
     render(<DndContext><LayoutTopBar /></DndContext>);
-    expect(presetButtons()).toHaveLength(6);
+
+    // 初始单 panel 根命中 single，触发按钮显示当前预设名
+    expect(presetTrigger().getAttribute("aria-expanded")).toBe("false");
+    expect(within(presetTrigger()).getByText(/^(单格|Single)$/)).toBeInTheDocument();
+
+    fireEvent.click(presetTrigger());
+
+    expect(presetTrigger().getAttribute("aria-expanded")).toBe("true");
+    const options = within(presetDialog()).getAllByRole("button");
+    expect(options).toHaveLength(6);
+    // 当前命中的预设带 aria-pressed 高亮；每个选项都有文字标签（不再纯图标）
+    expect(options[0].getAttribute("aria-pressed")).toBe("true");
+    expect(options[1].getAttribute("aria-pressed")).toBe("false");
+    expect(within(options[1]).getByText(/^(左右分栏|Two columns)$/)).toBeInTheDocument();
   });
 
-  it("点击预设按钮重排当前布局并高亮命中预设", () => {
+  it("点选预设生效并关闭浮层", () => {
     render(<DndContext><LayoutTopBar /></DndContext>);
-    const buttons = presetButtons();
+    fireEvent.click(presetTrigger());
 
-    // 初始：单 panel 根 → 命中 single（第 1 个按钮）
-    expect(buttons[0].getAttribute("aria-pressed")).toBe("true");
-    expect(buttons[1].getAttribute("aria-pressed")).toBe("false");
-
-    // 点击 two-col（第 2 个按钮）
-    fireEvent.click(buttons[1]);
+    const options = within(presetDialog()).getAllByRole("button");
+    fireEvent.click(options[1]); // two-col
 
     const root = usePanesStore.getState().rootPane as SplitPane;
     expect(root.type).toBe("split");
@@ -142,26 +154,61 @@ describe("LayoutTopBar 布局预设按钮", () => {
     expect(root.children).toHaveLength(2);
     expect(root.children.every((child) => child.type === "panel")).toBe(true);
 
-    const after = presetButtons();
-    expect(after[0].getAttribute("aria-pressed")).toBe("false");
-    expect(after[1].getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(presetTrigger().getAttribute("aria-expanded")).toBe("false");
   });
 
   it("重排保留现有 Panel id", () => {
     const pane = createPanel();
     resetStores(pane);
     render(<DndContext><LayoutTopBar /></DndContext>);
+    fireEvent.click(presetTrigger());
 
-    fireEvent.click(presetButtons()[3]); // two-row
+    const options = within(presetDialog()).getAllByRole("button");
+    fireEvent.click(options[3]); // two-row
 
     const root = usePanesStore.getState().rootPane as SplitPane;
     expect((root.children[0] as Panel).id).toBe(pane.id);
   });
 
-  it("当前是星标布局时不渲染预设组", () => {
+  it("Escape 关闭浮层", () => {
+    render(<DndContext><LayoutTopBar /></DndContext>);
+    fireEvent.click(presetTrigger());
+    expect(presetDialog()).toBeInTheDocument();
+
+    fireEvent.keyDown(presetDialog(), { key: "Escape" });
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(presetTrigger().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("点击浮层外关闭", () => {
+    render(<DndContext><LayoutTopBar /></DndContext>);
+    fireEvent.click(presetTrigger());
+    expect(presetDialog()).toBeInTheDocument();
+
+    // 顶栏本体（触发按钮容器之外）也算浮层外
+    fireEvent.pointerDown(screen.getByRole("tablist"));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("再次点击触发按钮可收起浮层", () => {
+    render(<DndContext><LayoutTopBar /></DndContext>);
+    fireEvent.click(presetTrigger());
+    expect(presetDialog()).toBeInTheDocument();
+
+    fireEvent.click(presetTrigger());
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(presetTrigger().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("当前是星标布局时不渲染预设入口", () => {
     usePanesStore.setState({ currentLayoutId: "layout-starred" });
     render(<DndContext><LayoutTopBar /></DndContext>);
-    expect(screen.queryByRole("group")).toBeNull();
+    expect(screen.queryByRole("button", { name: /布局预设|Layout presets/i })).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 

@@ -1,6 +1,7 @@
 // 布局条（topbar 模式）：终端标签上方的一层，水平列出全部布局。
 // 点击切换、双击重命名、悬停删除、＋新建；与左下角 LayoutBar 共用同一份
 // layouts 状态（usePanesStore），只是展示位置不同。右端按钮可切回 corner 模式。
+// 布局预设收在 LayoutPresetPicker 的浮层里，不再常驻一排图标。
 import { useEffect, useRef, useState } from "react";
 import { ArrowDownLeft, Command, Plus, Rows2, Rows3 } from "lucide-react";
 import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
@@ -17,60 +18,12 @@ import {
 } from "@/stores";
 import { matchLayoutPreset } from "@/stores/usePanesStore";
 import type { LayoutEntry } from "@/types";
-import type { LayoutPresetId } from "@/types/pane";
 import LayoutDeleteDialog, { summarizeLayoutDelete, type DeleteSummary } from "./LayoutDeleteDialog";
 import CanvasDisplayToggle from "@/components/canvas/CanvasDisplayToggle";
+import LayoutPresetPicker from "./LayoutPresetPicker";
 import SortableLayoutTab from "./SortableLayoutTab";
 import { deriveLayoutStatusSummary } from "./layoutStatusSummary";
 import { deriveLayoutTypeSummary } from "./layoutTypeSummary";
-
-// 预设示意图标：16×16 小色块拼出目标分屏结构
-const PRESET_ICONS: Record<LayoutPresetId, React.ReactNode> = {
-  "single": <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />,
-  "two-col": (
-    <>
-      <rect x="1.5" y="2.5" width="6" height="11" rx="1" />
-      <rect x="8.5" y="2.5" width="6" height="11" rx="1" />
-    </>
-  ),
-  "three-col": (
-    <>
-      <rect x="1.5" y="2.5" width="3.6" height="11" rx="1" />
-      <rect x="6.2" y="2.5" width="3.6" height="11" rx="1" />
-      <rect x="10.9" y="2.5" width="3.6" height="11" rx="1" />
-    </>
-  ),
-  "two-row": (
-    <>
-      <rect x="1.5" y="2.5" width="13" height="5" rx="1" />
-      <rect x="1.5" y="8.5" width="13" height="5" rx="1" />
-    </>
-  ),
-  "grid-2x2": (
-    <>
-      <rect x="1.5" y="2.5" width="6" height="5" rx="1" />
-      <rect x="8.5" y="2.5" width="6" height="5" rx="1" />
-      <rect x="1.5" y="8.5" width="6" height="5" rx="1" />
-      <rect x="8.5" y="8.5" width="6" height="5" rx="1" />
-    </>
-  ),
-  "main-side": (
-    <>
-      <rect x="1.5" y="2.5" width="7.5" height="11" rx="1" />
-      <rect x="10" y="2.5" width="4.5" height="5" rx="1" />
-      <rect x="10" y="8.5" width="4.5" height="5" rx="1" />
-    </>
-  ),
-};
-
-const PRESET_ORDER = [
-  { id: "single", labelKey: "layoutPresetSingle" },
-  { id: "two-col", labelKey: "layoutPresetTwoCol" },
-  { id: "three-col", labelKey: "layoutPresetThreeCol" },
-  { id: "two-row", labelKey: "layoutPresetTwoRow" },
-  { id: "grid-2x2", labelKey: "layoutPresetGrid" },
-  { id: "main-side", labelKey: "layoutPresetMainSide" },
-] as const satisfies ReadonlyArray<{ id: LayoutPresetId; labelKey: string }>;
 
 export default function LayoutTopBar() {
   const { t } = useTranslation("panes");
@@ -80,7 +33,6 @@ export default function LayoutTopBar() {
   const switchLayout = usePanesStore((s) => s.switchLayout);
   const createLayout = usePanesStore((s) => s.createLayout);
   const renameLayout = usePanesStore((s) => s.renameLayout);
-  const applyLayoutPreset = usePanesStore((s) => s.applyLayoutPreset);
   const selectTab = usePanesStore((s) => s.selectTab);
   const setActivePane = usePanesStore((s) => s.setActivePane);
   const statusMap = useTerminalStatusStore((s) => s.statusMap);
@@ -246,53 +198,7 @@ export default function LayoutTopBar() {
         <TooltipContent>{t("newLayout")}</TooltipContent>
       </Tooltip>
 
-      {currentLayoutStarred ? null : (
-        <div
-          className="ml-auto flex flex-shrink-0 items-center gap-0.5 pl-1.5"
-          role="group"
-          aria-label={t("layoutPresets")}
-        >
-          {PRESET_ORDER.map(({ id, labelKey }) => {
-            const active = matchedPreset === id;
-            return (
-              <Tooltip key={id}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={t(labelKey)}
-                    aria-pressed={active}
-                    className={`flex h-[26px] w-[26px] items-center justify-center rounded-md transition-colors duration-[var(--dur-fast)] ${
-                      active ? "" : "hover:bg-[var(--app-hover)]"
-                    }`}
-                    style={
-                      active
-                        ? {
-                            background: "color-mix(in srgb, var(--app-accent) 12%, transparent)",
-                            color: "var(--app-accent)",
-                          }
-                        : { color: "var(--app-text-tertiary)" }
-                    }
-                    onClick={() => {
-                      setAppViewMode("panes");
-                      applyLayoutPreset(id);
-                    }}
-                  >
-                    <svg
-                      viewBox="0 0 16 16"
-                      className="h-3.5 w-3.5"
-                      fill="currentColor"
-                      aria-hidden
-                    >
-                      {PRESET_ICONS[id]}
-                    </svg>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t(labelKey)}</TooltipContent>
-              </Tooltip>
-            );
-          })}
-        </div>
-      )}
+      {currentLayoutStarred ? null : <LayoutPresetPicker matchedPreset={matchedPreset} />}
 
       <div
         className="ml-1 flex flex-shrink-0 items-center border-l pl-1.5"

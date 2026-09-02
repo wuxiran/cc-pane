@@ -27,6 +27,8 @@ interface TerminalTabContentProps {
   tab: Tab;
   layoutActive: boolean;
   showStatusBar?: boolean;
+  /** 所属窗格（Panel）id，透传给状态条做焦点渐进展示 */
+  paneId?: string;
   onSessionCreated: (sessionId: string, terminalPaneId?: string) => void;
   onSessionExited?: (exitCode: number, terminalPaneId?: string) => void;
   onTerminalRef: (terminalPaneId: string, ref: TerminalViewHandle | null) => void;
@@ -235,6 +237,7 @@ export default memo(function TerminalTabContent({
   tab,
   layoutActive,
   showStatusBar = false,
+  paneId,
   onSessionCreated,
   onSessionExited,
   onTerminalRef,
@@ -422,6 +425,7 @@ export default memo(function TerminalTabContent({
               projectPath={tab.projectPath}
               effort={leaf.launchExtras?.adapterOptions?.effort ?? tab.launchExtras?.adapterOptions?.effort}
               enabled={primaryViewVisible}
+              paneId={paneId}
             />
           ) : null}
         </div>
@@ -449,6 +453,7 @@ export default memo(function TerminalTabContent({
     onSessionCreated,
     onSessionExited,
     onTerminalRef,
+    paneId,
     resizeTerminalPanes,
     removeTerminalLaunch,
     retryTerminalLaunch,
