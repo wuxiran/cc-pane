@@ -121,6 +121,8 @@ function setMode(mode: AppViewMode, overrides: Partial<typeof activityState> = {
 describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
   beforeEach(() => {
     setMode("panes");
+    wallpaperState.resolved = null;
+    wallpaperState.assetUrl = null;
   });
 
   it("home → HomeDashboard 全屏", () => {
@@ -269,5 +271,28 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
     expect(screen.getByTestId("layout-top-bar")).not.toBeVisible();
     layoutUiState.switcherMode = "corner";
+  });
+
+  it("壁纸激活时面板底覆盖为半透明 color-mix 垫层而非全透明", () => {
+    setMode("panes");
+    wallpaperState.resolved = { kind: "image", glassBlur: 8, dim: 0.35, opacity: 1 };
+    wallpaperState.assetUrl = "asset://wallpaper.png";
+    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+
+    const style = screen.getByTestId("main-wallpaper-layer").parentElement?.getAttribute("style") ?? "";
+    // 半透明垫层：保留面板底色 62%，只透 38% 给壁纸（全透明会让亮壁纸压过终端文字）
+    expect(style).toMatch(/--app-panel-bg-effective:\s*color-mix\(/);
+    expect(style).toContain("var(--app-panel-bg) 62%, transparent");
+    expect(style).not.toMatch(/--app-panel-bg-effective:\s*transparent\b/);
+    // 玻璃模糊 token 仍由壁纸设置接管
+    expect(style).toMatch(/--app-glass-blur:\s*8px/);
+  });
+
+  it("壁纸未激活时不覆盖 effective token", () => {
+    setMode("panes");
+    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    const style = screen.getByTestId("main-wallpaper-layer").parentElement?.getAttribute("style") ?? "";
+    expect(style).not.toContain("--app-panel-bg-effective");
+    expect(style).not.toContain("--app-glass-blur");
   });
 });

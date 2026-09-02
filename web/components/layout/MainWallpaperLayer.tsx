@@ -1,7 +1,7 @@
 // 主区壁纸层：挂在 MainViewSwitcher 的 panes 容器内（不挂 AppShell，避免铺到
 // TitleBar/ActivityBar/StatusBar 底下）。遵循装饰层惯例（参考 DarkOrbsBackground）：
 // absolute inset-0 z-0 pointer-events-none + aria-hidden。
-// 内部自下而上：媒体层（img / video）→ blur/scale 容器 → dim 遮罩。
+// 内部自下而上：媒体层（img / video）→ blur/scale 容器 → dim 遮罩 → 顶部渐变 scrim。
 //
 // 视频禁区（docs/39）：禁止隐藏 WebView 窗口做壁纸（失效 WebView2 emit 洪水）、
 // 禁止 WebGL/canvas 渲染视频帧（争抢 live context 预算）。必须用原生 <video
@@ -143,6 +143,16 @@ export default function MainWallpaperLayer() {
           style={{ background: "#000", opacity: resolved.dim }}
         />
       )}
+      {/* 顶部渐变 scrim：dim 是均匀的，而标签栏/工具栏的文字密度最高，单独在顶部
+          再垫一层由深到透明的渐变。用 --app-bg-deep 配 color-mix 构造（随主题走，
+          不引入裸色值），h-36 渐隐 + 50% 浓度，克制为主，不影响壁纸主体辨识。 */}
+      <div
+        className="absolute inset-x-0 top-0 h-36"
+        style={{
+          background:
+            "linear-gradient(to bottom, color-mix(in srgb, var(--app-bg-deep) 50%, transparent), transparent)",
+        }}
+      />
     </div>
   );
 }

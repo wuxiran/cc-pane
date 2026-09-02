@@ -119,7 +119,9 @@ export const DEFAULT_WALLPAPER_SETTINGS: WallpaperSettings = {
   blur: 0,
   dim: 0.35,
   terminalOpacity: 0.85,
-  glassBlur: 0,
+  // 非 0：壁纸激活时面板底变半透明，配合面板已有的 backdropFilter 产生轻磨砂
+  // 垫层，改善亮色壁纸上的文字对比度（clamp 与滑杆范围均为 0–24，8 在域内）。
+  glassBlur: 8,
   video: {
     autoplay: true,
     playbackRate: 1,

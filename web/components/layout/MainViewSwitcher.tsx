@@ -32,6 +32,12 @@ interface MainViewSwitcherProps {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
 }
 
+// 壁纸激活时的面板底：不透明面板色保留 62%，只留 38% 透出壁纸。全透明会让亮色
+// 壁纸直接垫在终端文字下（对比度崩塌）；62% 既能恢复一层「面板深度」垫住文字，
+// 又不至于把壁纸遮得几乎看不见。同思路先例：空态磨砂垫底（emptyStateShared）。
+const WALLPAPER_PANEL_BG_EFFECTIVE =
+  "color-mix(in srgb, var(--app-panel-bg) 62%, transparent)";
+
 export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherProps) {
   const { t: mediaT } = useTranslation("media");
   const rootPane = usePanesStore((s) => s.rootPane);
@@ -156,10 +162,11 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
             background: "var(--app-panel-bg)",
             ...(wallpaperActive
               ? ({
-                  "--app-panel-bg-effective": "transparent",
-                  // 面板背景一透明，它自己的 backdrop-filter 就直接糊在壁纸上——
-                  // 壁纸的 blur 滑杆管不到这层，默认 12px 会把视频糊没。
-                  // 壁纸激活时由壁纸设置接管该 token（默认 0 = 不叠）。
+                  // 半透明垫层而非全透明：见 WALLPAPER_PANEL_BG_EFFECTIVE 注释。
+                  "--app-panel-bg-effective": WALLPAPER_PANEL_BG_EFFECTIVE,
+                  // 面板底一透，面板自己的 backdrop-filter 就直接糊在壁纸上——
+                  // 壁纸的 blur 滑杆管不到这层，暗色主题默认 12px 会把视频糊没。
+                  // 壁纸激活时由壁纸设置接管该 token（默认 8 = 轻磨砂垫层）。
                   "--app-glass-blur": `${wallpaperGlassBlur}px`,
                 } as React.CSSProperties)
               : null),
