@@ -12,6 +12,7 @@
 ### 新增
 
 - **技能市场** — 独立全屏页（活动栏 `Store` 图标，设置 → 工具 → Skills 也有入口）：精选横排 + 分类页签 + 搜索 + 一键安装。内容聚合三源：自维护 `skill-market/index.json`（30+ 条，偏中文场景，现已 `include_str!` 进二进制做离线基线，远端 `main` 可热更新）、`anthropics/skills` 自动发现、`skills.sh` 联网搜索。安装模型升级为**目录型技能**（`SKILL.md` + `scripts/` + `references/`）：GitHub API 一次列出仓库树，失败自动回退 jsDelivr 镜像；先落 staging 再 rename 到 `~/.cc-panes/skills/user/<id>/`，硬限 300 文件 / 30 MB。session prompt 注入时追加 `Skill directory: <路径>`，agent 能找到随包脚本。设计见 `docs/97-skill-market.md`。
+- **项目技能管理** — 项目的「Skill 管理」标签分成两段。*Agent Skills* 管仓库里的 `SKILL.md` 技能目录，按各 CLI 扫描的根目录分组（`.agents/skills` 给 Codex/Cursor，`.claude/skills` 给 Claude Code，另有 `.cursor` / `.codex` / `.gemini`），每个技能带「哪些 CLI 能看见」的徽章。支持新建（自动补 frontmatter）、编辑、删除、跨根目录移动（让另一个 CLI 也能看到）、从已装用户技能 / CLI 本机已有技能 / 技能市场（直接下载进项目）/ 其他项目导入。*Slash 命令* 段保留原来的 `.claude/commands/*.md` 编辑器不变。
 
 ## 0.12.9 - 2026-08-27
 

@@ -94,6 +94,7 @@ use commands::{
     delete_media_node,
     delete_memory,
     delete_plan,
+    delete_project_skill,
     delete_quick_command,
     delete_skill,
     delete_spec,
@@ -230,6 +231,7 @@ use commands::{
     git_stash_pop,
     handle_terminal_exit_spec,
     handle_terminal_exit_spec_by_session,
+    import_project_skill,
     import_shared_mcp_from_claude,
     // Wallpaper 命令
     import_wallpaper,
@@ -283,6 +285,8 @@ use commands::{
     // Plan 命令
     list_plans,
     list_project_quick_commands,
+    list_project_skill_roots,
+    list_project_skills,
     list_projects,
     list_providers,
     list_quick_commands,
@@ -308,6 +312,7 @@ use commands::{
     maximize_window,
     migrate_data_dir,
     minimize_window,
+    move_project_skill,
     open_browser_tab,
     open_layout_switcher_window,
     open_path_in_explorer,
@@ -331,6 +336,7 @@ use commands::{
     read_agent_transcript_cmd,
     read_clipboard_file_paths,
     read_config_dir_info,
+    read_project_skill,
     read_session_state,
     reconcile_plan_collaboration,
     record_ai_panel_event,
@@ -392,6 +398,7 @@ use commands::{
     save_layout_switcher_snapshot,
     save_layout_switcher_state,
     save_project_quick_commands,
+    save_project_skill,
     save_skill,
     save_spec_content,
     // Session Restore 命令
@@ -1701,6 +1708,7 @@ pub fn run() {
     ));
     let mcp_config_service = Arc::new(McpConfigService::new());
     let skill_service = Arc::new(SkillService::new());
+    let project_skill_service = Arc::new(cc_panes_core::services::ProjectSkillService::new());
     let skill_market_service = Arc::new(SkillMarketService::new(
         app_paths.skills_dir(),
         app_paths.user_skills_dir(),
@@ -1870,6 +1878,7 @@ pub fn run() {
         .manage(spec_service)
         .manage(mcp_config_service)
         .manage(skill_service)
+        .manage(project_skill_service)
         .manage(skill_market_service)
         .manage(external_skill_registry)
         .manage(plan_service)
@@ -3270,6 +3279,14 @@ pub fn run() {
             install_market_skill,
             remove_user_skill,
             list_bundled_skills,
+            // Project Agent Skills（目录型，跨 CLI 根目录）
+            list_project_skill_roots,
+            list_project_skills,
+            read_project_skill,
+            save_project_skill,
+            delete_project_skill,
+            move_project_skill,
+            import_project_skill,
             parse_import_url,
             execute_import,
             take_pending_import,

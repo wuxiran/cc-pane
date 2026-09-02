@@ -11,7 +11,7 @@ import type { TerminalViewHandle } from "./TerminalView";
 
 // 懒加载非终端组件（lazyWithRetry：分片取回失败时自愈，见 lib/lazyRetry.ts）
 const McpConfigPanel = lazyWithRetry(() => import("@/components/settings/ProjectMcpSection"), "ProjectMcpSection");
-const SkillManager = lazyWithRetry(() => import("@/components/skill/SkillManager"), "SkillManager");
+const ProjectSkillsManager = lazyWithRetry(() => import("@/components/skill/ProjectSkillsManager"), "ProjectSkillsManager");
 const MemoryManager = lazyWithRetry(() => import("@/components/memory/MemoryManager"), "MemoryManager");
 const FileExplorerView = lazyWithRetry(() => import("@/components/explorer/FileExplorerView"), "FileExplorerView");
 const EditorView = lazyWithRetry(() => import("@/components/editor/EditorView"), "EditorView");
@@ -178,7 +178,7 @@ export default memo(function TabContentRenderer({
     case "skill-manager":
       return (
         <LazyContent>
-          <SkillManager projectPath={tab.projectPath} />
+          <ProjectSkillsManager projectPath={tab.projectPath} />
         </LazyContent>
       );
 

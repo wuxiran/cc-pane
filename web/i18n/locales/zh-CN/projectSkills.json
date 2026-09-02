@@ -1,0 +1,70 @@
+{
+  "tabAgentSkills": "Agent Skills",
+  "tabSlashCommands": "Slash 命令",
+  "title": "项目技能",
+  "subtitle": "存放在仓库里的 SKILL.md 技能目录，随代码一起提交，团队共享。放在哪个目录决定哪些 CLI 能看到它。",
+  "count": "{{count}} 个",
+  "newSkill": "新建技能",
+  "import": "导入",
+  "refresh": "刷新",
+  "empty": {
+    "title": "这个项目还没有技能",
+    "hint": "新建一个，或从技能市场 / 已安装技能导入"
+  },
+  "selectHint": "选择左侧技能查看或编辑 SKILL.md",
+  "visibleTo": "可见于",
+  "files": "{{count}} 个文件",
+  "hasScripts": "含脚本",
+  "root": {
+    "label": "存放目录",
+    "recommended": "推荐",
+    "compatOnly": "仅兼容读取"
+  },
+  "consumer": {
+    "claude": "Claude Code",
+    "codex": "Codex",
+    "cursor": "Cursor",
+    "gemini": "Gemini"
+  },
+  "editor": {
+    "name": "技能名（目录名）",
+    "namePlaceholder": "例如 pdf-tools",
+    "nameInvalid": "只能用小写字母、数字、- 和 _，不能以 . 开头，最长 64 字符",
+    "contentPlaceholder": "---\nname: my-skill\ndescription: 什么时候该用这个技能\n---\n\n给 agent 的指令…",
+    "filesTitle": "目录文件",
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除技能",
+    "deleteConfirm": "删除「{{name}}」整个目录？此操作不可撤销。",
+    "moveTo": "移动到…",
+    "openFolder": "打开目录"
+  },
+  "importDialog": {
+    "title": "导入技能到项目",
+    "description": "把已有技能复制进项目目录。市场条目会直接下载整个技能目录。",
+    "targetRoot": "目标目录",
+    "nameOverride": "在项目里的名字（可选）",
+    "sourceUser": "已安装",
+    "sourceExternal": "CLI 本机",
+    "sourceMarket": "技能市场",
+    "sourceProject": "其他项目",
+    "searchMarket": "搜索技能市场…",
+    "searching": "搜索中…",
+    "noUserSkills": "没有已安装的用户技能，先去技能市场装一个",
+    "noExternalSkills": "没有在 ~/.claude、~/.codex 等目录发现技能",
+    "noMarketResults": "没有匹配的技能",
+    "noProjectSkills": "其他项目里没有技能",
+    "importBtn": "导入",
+    "importing": "导入中…",
+    "overwrite": "已存在同名技能时覆盖",
+    "exists": "已存在"
+  },
+  "toast": {
+    "saved": "已保存 {{name}}",
+    "deleted": "已删除 {{name}}",
+    "moved": "已移动 {{name}} 到 {{root}}",
+    "imported": "已导入 {{name}} 到 {{root}}",
+    "failed": "操作失败：{{error}}",
+    "loadFailed": "加载项目技能失败：{{error}}"
+  }
+}

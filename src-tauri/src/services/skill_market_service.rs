@@ -136,6 +136,15 @@ enum SkillMarketIndexPayload {
     Entries(Vec<SkillMarketEntry>),
 }
 
+/// Outcome of placing a repository skill folder on disk.
+struct RepoSkillPlacement {
+    repo: RepoRef,
+    listing: RepoListing,
+    skill_dir: String,
+    skill_md: String,
+    file_count: usize,
+}
+
 pub struct SkillMarketService {
     index_url: String,
     cache_path: PathBuf,
@@ -315,45 +324,17 @@ impl SkillMarketService {
         if entry.name.trim().is_empty() {
             return Err(AppError::from("Market skill name cannot be empty"));
         }
-        let repo = SkillRepoFetcher::parse_repo(entry.repo.as_deref().unwrap_or_default())?;
-        let listing = self
-            .fetcher
-            .list_files(&repo, entry.git_ref.as_deref())
-            .await?;
-        let leaf = entry.repo_skill_leaf();
-        let skill_dir = listing
-            .locate_skill_dir(entry.path.as_deref(), &leaf)
-            .or_else(|| listing.locate_skill_dir(None, &entry.id))
-            .ok_or_else(|| {
-                AppError::from(format!(
-                    "Could not find {}/SKILL.md in {}",
-                    leaf,
-                    repo.slug()
-                ))
-            })?;
-        let files = Self::select_repo_files(&listing, &skill_dir)?;
-
         let root = self.user_skill_service.user_skills_dir().to_path_buf();
-        let staging = root.join(format!(".staging-{}", entry.id));
-        let _ = std::fs::remove_dir_all(&staging);
-        std::fs::create_dir_all(&staging)?;
-
-        let download = self
-            .download_repo_files(&repo, &listing, &skill_dir, &files, &staging)
-            .await;
-        let skill_md = match download {
-            Ok(skill_md) => skill_md,
-            Err(error) => {
-                let _ = std::fs::remove_dir_all(&staging);
-                return Err(error);
-            }
-        };
-
         let target = UserSkillService::skill_dir_for(&root, &entry.id)?;
-        if target.exists() {
-            std::fs::remove_dir_all(&target)?;
-        }
-        std::fs::rename(&staging, &target)?;
+        let placed = self.download_repo_skill_to(&entry, &target).await?;
+        let RepoSkillPlacement {
+            repo,
+            listing,
+            skill_dir,
+            skill_md,
+            file_count,
+        } = placed;
+        let leaf = entry.repo_skill_leaf();
 
         let (parsed_name, parsed_description) = parse_skill_metadata(&skill_md, &leaf);
         let license = entry
@@ -394,12 +375,89 @@ impl SkillMarketService {
             entry.id,
             repo.slug(),
             skill_dir,
-            files.len()
+            file_count
         );
         self.user_skill_service
             .read_skill(&installed.id)?
             .map(|content| content.skill)
             .ok_or_else(|| AppError::from("Installed skill could not be read back"))
+    }
+
+    /// Download a repository skill folder into an arbitrary `target` directory (used for
+    /// installing straight into a project's `.claude/skills/<name>` etc.). Only the skill's
+    /// own files are written — no CC-Panes metadata — so the result is safe to commit.
+    pub async fn install_entry_to_dir(
+        &self,
+        entry: &SkillMarketEntry,
+        target: &Path,
+    ) -> AppResult<usize> {
+        if !entry.is_repo_skill() {
+            return Err(AppError::from(
+                "Only repository-backed market entries can be installed into a project",
+            ));
+        }
+        let placed = self.download_repo_skill_to(entry, target).await?;
+        Ok(placed.file_count)
+    }
+
+    /// Resolve, download and atomically place a repo skill folder at `target`. Files land in
+    /// a sibling staging folder first so a failed download never leaves a half-installed skill.
+    async fn download_repo_skill_to(
+        &self,
+        entry: &SkillMarketEntry,
+        target: &Path,
+    ) -> AppResult<RepoSkillPlacement> {
+        let repo = SkillRepoFetcher::parse_repo(entry.repo.as_deref().unwrap_or_default())?;
+        let listing = self
+            .fetcher
+            .list_files(&repo, entry.git_ref.as_deref())
+            .await?;
+        let leaf = entry.repo_skill_leaf();
+        let skill_dir = listing
+            .locate_skill_dir(entry.path.as_deref(), &leaf)
+            .or_else(|| listing.locate_skill_dir(None, &entry.id))
+            .ok_or_else(|| {
+                AppError::from(format!(
+                    "Could not find {}/SKILL.md in {}",
+                    leaf,
+                    repo.slug()
+                ))
+            })?;
+        let files = Self::select_repo_files(&listing, &skill_dir)?;
+
+        let parent = target
+            .parent()
+            .ok_or_else(|| AppError::from("Install target has no parent directory"))?;
+        std::fs::create_dir_all(parent)?;
+        let leaf_name = target
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| AppError::from("Install target has no folder name"))?;
+        let staging = parent.join(format!(".staging-{}", leaf_name));
+        let _ = std::fs::remove_dir_all(&staging);
+        std::fs::create_dir_all(&staging)?;
+
+        let download = self
+            .download_repo_files(&repo, &listing, &skill_dir, &files, &staging)
+            .await;
+        let skill_md = match download {
+            Ok(skill_md) => skill_md,
+            Err(error) => {
+                let _ = std::fs::remove_dir_all(&staging);
+                return Err(error);
+            }
+        };
+        if target.exists() {
+            std::fs::remove_dir_all(target)?;
+        }
+        std::fs::rename(&staging, target)?;
+        Ok(RepoSkillPlacement {
+            repo,
+            listing,
+            skill_dir,
+            skill_md,
+            file_count: files.len(),
+        })
     }
 
     /// Pick the files to download for a skill folder, enforcing size/count limits. Oversized

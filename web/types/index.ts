@@ -242,6 +242,10 @@ export type {
   SkillDeliveryMode,
   SkillMarketEntry,
   SkillSummary,
+  ProjectSkill,
+  ProjectSkillContent,
+  ProjectSkillImportSource,
+  ProjectSkillRoot,
 } from "./skill";
 export type {
   FsEntry,

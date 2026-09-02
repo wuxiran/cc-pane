@@ -68,6 +68,42 @@ export interface DiscoveredExternalSkill {
   installedAt?: string | null;
 }
 
+/** 项目里各 CLI 扫描的技能根目录（相对项目，正斜杠） */
+export interface ProjectSkillRoot {
+  root: string;
+  /** 原生读取该根目录的 CLI id：claude / codex / cursor / gemini */
+  consumers: string[];
+  recommended: boolean;
+}
+
+/** 项目级 Agent Skill：`<root>/<relDir>/SKILL.md` 目录 */
+export interface ProjectSkill {
+  /** `<root>::<relDir>` */
+  id: string;
+  name: string;
+  description?: string | null;
+  root: string;
+  relDir: string;
+  dirPath: string;
+  skillMdPath: string;
+  fileCount: number;
+  hasScripts: boolean;
+  consumers: string[];
+}
+
+export interface ProjectSkillContent {
+  skill: ProjectSkill;
+  content: string;
+  /** 目录内文件（相对技能目录，SKILL.md 在首位） */
+  files: string[];
+}
+
+export type ProjectSkillImportSource =
+  | { kind: "user"; id: string }
+  | { kind: "external"; id: string }
+  | { kind: "project"; projectPath: string; root: string; relDir: string }
+  | { kind: "market"; entry: SkillMarketEntry };
+
 /** A CLI-native or session-level transport for portable CC-Panes Skills. */
 export type SkillDeliveryMode = "nativeCommand" | "nativeSkill" | "piSkill" | "sessionPrompt";
 

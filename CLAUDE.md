@@ -323,6 +323,7 @@ flutter pub get && flutter analyze && flutter test
 - [x] ACP Agent Chat 标签（结构化 agent 对话：11 家引擎 + engines.json 自定义、session/load 续接、MCP 注入,docs/94）+ 终端 Terminal⇄Chat 只读回看视图（两条轨道,勿混淆）
 - [x] Automations 定时派工（设置 → 工具 → 自动化：cron + 宽限 + 运行历史,派 ACP headless 会话 + 无人值守 auto-approve,docs/95）
 - [x] 技能市场（活动栏 Store 图标：精选 + 分类 + 搜索,聚合精选清单/anthropics/skills.sh,目录型技能整目录安装,docs/97）
+- [x] 项目级 Agent Skills 管理（项目「Skill 管理」标签 → Agent Skills 段：按 .agents/.claude/.cursor/.codex/.gemini 五根分组 + CLI 可见性徽章,新建/编辑/删除/跨根移动/四源导入,docs/97）
 
 ## Known Gotchas
 
@@ -453,6 +454,6 @@ flutter pub get && flutter analyze && flutter test
 | `docs/93-tokio-worker-spin.md` | **tokio worker 满核空转调查**：`send_modify` 排空空队列引发的永久自唤醒环 + 活体采样定位手法（免调试器、免提权）+「卡但主线程正常」三步排障速查 |
 | `docs/94-acp-agent-chat.md` | **ACP Agent Chat 设计**：为何重启 55-H3 判死的 chat（ACP 把协议/适配矩阵外部化）/ 架构与 id 语义 / 引擎注册表与 engines.json 逃生阀 / session-load 续接与降级可见 / 排障判据速查 |
 | `docs/95-automations.md` | **Automations 定时派工**（55-H1 最小版落地）：cron + 宽限 + 运行历史，派发目标是 ACP headless 会话（无需窗口在场）+ 无人值守 auto-approve——明确不做外部 cron 聚合与事件规则引擎 |
-| `docs/97-skill-market.md` | **技能市场**：独立全屏页聚合三源（自维护精选清单 `include_str!` 基线 + anthropics/skills 自动发现 + skills.sh 联网搜索），目录型技能安装（GitHub tree → jsDelivr 镜像回退，staging 后 rename，300 文件/30MB 硬限）——不同步到 CLI 原生 skills 目录 |
+| `docs/97-skill-market.md` | **技能市场 + 项目级技能管理**：全屏市场页聚合三源（自维护精选清单 `include_str!` 基线 + anthropics/skills 自动发现 + skills.sh 联网搜索），目录型技能安装（GitHub tree → jsDelivr 镜像回退，staging 后 rename，300 文件/30MB 硬限）；项目「Skill 管理」按五个 CLI 根目录分组管 `SKILL.md`，支持跨根移动与四源导入——不同步到用户 CLI 原生 skills 目录 |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |

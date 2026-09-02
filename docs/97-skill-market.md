@@ -69,6 +69,26 @@
 - 后端单测 36 项（fetcher 路径安全 / 定位 / 限额 / 合并去重 / 分类 / JSON-LD 提取 / 内置清单全量可装校验）
 - `live_install_anthropics_pdf_skill_end_to_end`（`#[ignore]`，`cargo test -p cc-panes --lib -- --ignored live_install`）：真网装 `anthropics/skills` 的 `pdf`，断言 `scripts/` 落盘、目录含 anthropics 发现、搜索含 skills.sh 结果、describe 有描述。本次实跑 8s 通过
 
+## 项目级技能管理（同批落地）
+
+右键项目 → 「Skill 管理」标签升级为两段：**Agent Skills**（新）与 **Slash 命令**（原 `.claude/commands/*.md` 管理，原样保留）。
+
+Agent Skills 段管的是仓库里的 `SKILL.md` 目录，各 CLI 读的项目根目录不同，所以面板按根分组并给每个根标出「哪些 CLI 能看见」（`--app-cli-*` 身份色圆点）：
+
+| 根目录 | 原生读取者 | 备注 |
+|--------|-----------|------|
+| `.agents/skills` | Codex、Cursor | agentskills.io 的跨厂商位置，推荐 |
+| `.claude/skills` | Claude Code、Cursor | 新建默认落这里（CC-Panes 主 CLI） |
+| `.cursor/skills` | Cursor | |
+| `.codex/skills` | Cursor（兼容） | Codex 自己文档写的是 `.agents/skills` |
+| `.gemini/skills` | Gemini | |
+
+能力：新建（自动补 frontmatter 脚手架）/ 编辑 `SKILL.md`（右侧列目录文件）/ 删除整目录 / **移动到别的根目录**（让 Claude 写的技能对 Codex 可见）/ **导入**——四个来源：已装用户技能（`~/.cc-panes/skills/user`）、CLI 本机发现（`~/.claude/skills` 等）、技能市场（复用 `install_entry_to_dir` 直接下载进项目，不写 `skill.json`）、其他已注册项目。
+
+后端 `cc-panes-core::ProjectSkillService`：每根最多扫 3 层，遇到 `SKILL.md` 即停（浅层遮蔽深层，与 skills CLI 同规则），跳过 `.`* 目录；名称规则 `[a-z0-9][a-z0-9_-]*` ≤ 64 与前端 `validateSkillName` 一致；导入复制时剔除 `skill.json` 与 `.git`。命令：`list_project_skill_roots / list_project_skills / read_project_skill / save_project_skill / delete_project_skill / move_project_skill / import_project_skill`。
+
+边界：只管仓库里的文件，不做「启用/禁用」（文件系统层面没有这个概念，要禁用就移走或删除）；不自动 git add。
+
 ## 明确不做
 
 - 不同步到 `~/.claude/skills` / `~/.codex/skills`——用户技能仍由启动档策略经 session prompt 注入，避免和 CLI 原生目录打架；后续若要做「原生落地」应是独立开关

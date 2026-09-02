@@ -1,7 +1,18 @@
 /**
  * Skill 管理服务层 — 封装所有 Skill 相关的 Tauri invoke 调用
  */
-import type { BundledSkill, DiscoveredExternalSkill, InstalledUserSkill, SkillInfo, SkillMarketEntry, SkillSummary } from "@/types";
+import type {
+  BundledSkill,
+  DiscoveredExternalSkill,
+  InstalledUserSkill,
+  ProjectSkill,
+  ProjectSkillContent,
+  ProjectSkillImportSource,
+  ProjectSkillRoot,
+  SkillInfo,
+  SkillMarketEntry,
+  SkillSummary,
+} from "@/types";
 import { apiDeleteJson, apiGet, apiJson, invokeOrApi } from "./apiClient";
 
 export const skillService = {
@@ -109,5 +120,55 @@ export const skillService = {
   /** 列出 CC-Panes 内置注入的 skill（只读展示） */
   async listBundledSkills(): Promise<BundledSkill[]> {
     return invokeOrApi<BundledSkill[]>("list_bundled_skills", undefined, async () => []);
+  },
+
+  // ============ 项目级 Agent Skills（目录型，跨 CLI 根目录） ============
+
+  async listProjectSkillRoots(): Promise<ProjectSkillRoot[]> {
+    return invokeOrApi<ProjectSkillRoot[]>("list_project_skill_roots", undefined, async () => []);
+  },
+
+  async listProjectSkills(projectPath: string): Promise<ProjectSkill[]> {
+    return invokeOrApi<ProjectSkill[]>("list_project_skills", { projectPath }, async () => []);
+  },
+
+  async readProjectSkill(projectPath: string, root: string, relDir: string): Promise<ProjectSkillContent | null> {
+    return invokeOrApi<ProjectSkillContent | null>(
+      "read_project_skill",
+      { projectPath, root, relDir },
+      async () => null,
+    );
+  },
+
+  async saveProjectSkill(projectPath: string, root: string, name: string, content: string): Promise<ProjectSkill> {
+    return invokeOrApi<ProjectSkill>("save_project_skill", { projectPath, root, name, content }, async () => {
+      throw new Error("Project skills are only editable in the desktop app");
+    });
+  },
+
+  async deleteProjectSkill(projectPath: string, root: string, relDir: string): Promise<boolean> {
+    return invokeOrApi<boolean>("delete_project_skill", { projectPath, root, relDir }, async () => false);
+  },
+
+  async moveProjectSkill(projectPath: string, root: string, relDir: string, toRoot: string): Promise<ProjectSkill> {
+    return invokeOrApi<ProjectSkill>("move_project_skill", { projectPath, root, relDir, toRoot }, async () => {
+      throw new Error("Project skills are only editable in the desktop app");
+    });
+  },
+
+  /** 把已装用户技能 / 外部 CLI 技能 / 其他项目技能 / 市场条目导入到项目某个根目录 */
+  async importProjectSkill(
+    projectPath: string,
+    root: string,
+    source: ProjectSkillImportSource,
+    options?: { name?: string; overwrite?: boolean },
+  ): Promise<ProjectSkill> {
+    return invokeOrApi<ProjectSkill>(
+      "import_project_skill",
+      { projectPath, root, source, name: options?.name ?? null, overwrite: options?.overwrite ?? false },
+      async () => {
+        throw new Error("Project skills are only editable in the desktop app");
+      },
+    );
   },
 };

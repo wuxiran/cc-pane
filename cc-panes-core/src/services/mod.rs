@@ -38,6 +38,7 @@ mod process_monitor_service;
 mod project_cli_hooks_service;
 mod project_context_service;
 mod project_service;
+mod project_skill_service;
 mod provider_resolver;
 mod provider_service;
 mod quick_command_service;
@@ -163,6 +164,9 @@ pub use session_restore_service::{
 pub use session_state_machine::{SessionStateMachine, StateTransition, TransitionListener};
 pub use settings_service::SettingsService;
 pub use shared_mcp_service::SharedMcpService;
+pub use project_skill_service::{
+    ProjectSkill, ProjectSkillContent, ProjectSkillRoot, ProjectSkillService, PROJECT_SKILL_ROOTS,
+};
 pub use skill_service::SkillService;
 pub use spec_service::SpecService;
 pub use ssh_connection_service::SshConnectionService;

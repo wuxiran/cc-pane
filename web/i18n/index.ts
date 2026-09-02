@@ -20,6 +20,7 @@ import zhLauncher from "./locales/zh-CN/launcher.json";
 import zhCcchan from "./locales/zh-CN/ccchan.json";
 import zhMedia from "./locales/zh-CN/media.json";
 import zhSkillMarket from "./locales/zh-CN/skillMarket.json";
+import zhProjectSkills from "./locales/zh-CN/projectSkills.json";
 
 // en
 import enCommon from "./locales/en/common.json";
@@ -40,6 +41,7 @@ import enLauncher from "./locales/en/launcher.json";
 import enCcchan from "./locales/en/ccchan.json";
 import enMedia from "./locales/en/media.json";
 import enSkillMarket from "./locales/en/skillMarket.json";
+import enProjectSkills from "./locales/en/projectSkills.json";
 
 export const defaultNS = "common";
 export const resources = {
@@ -62,6 +64,7 @@ export const resources = {
     ccchan: zhCcchan,
     media: zhMedia,
     skillMarket: zhSkillMarket,
+    projectSkills: zhProjectSkills,
   },
   en: {
     common: enCommon,
@@ -82,6 +85,7 @@ export const resources = {
     ccchan: enCcchan,
     media: enMedia,
     skillMarket: enSkillMarket,
+    projectSkills: enProjectSkills,
   },
 } as const;
 

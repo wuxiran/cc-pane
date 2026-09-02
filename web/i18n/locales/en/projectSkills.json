@@ -1,0 +1,70 @@
+{
+  "tabAgentSkills": "Agent Skills",
+  "tabSlashCommands": "Slash commands",
+  "title": "Project skills",
+  "subtitle": "SKILL.md folders that live in the repository, committed with the code and shared by the team. The folder they sit in decides which CLIs can see them.",
+  "count": "{{count}}",
+  "newSkill": "New skill",
+  "import": "Import",
+  "refresh": "Refresh",
+  "empty": {
+    "title": "No skills in this project yet",
+    "hint": "Create one, or import from the skill market / installed skills"
+  },
+  "selectHint": "Pick a skill on the left to view or edit its SKILL.md",
+  "visibleTo": "Visible to",
+  "files": "{{count}} files",
+  "hasScripts": "has scripts",
+  "root": {
+    "label": "Folder",
+    "recommended": "recommended",
+    "compatOnly": "compatibility only"
+  },
+  "consumer": {
+    "claude": "Claude Code",
+    "codex": "Codex",
+    "cursor": "Cursor",
+    "gemini": "Gemini"
+  },
+  "editor": {
+    "name": "Skill name (folder)",
+    "namePlaceholder": "e.g. pdf-tools",
+    "nameInvalid": "Lowercase letters, digits, - and _ only; no leading dot; max 64 chars",
+    "contentPlaceholder": "---\nname: my-skill\ndescription: When this skill should be used\n---\n\nInstructions for the agent…",
+    "filesTitle": "Folder contents",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete skill",
+    "deleteConfirm": "Delete the whole “{{name}}” folder? This cannot be undone.",
+    "moveTo": "Move to…",
+    "openFolder": "Open folder"
+  },
+  "importDialog": {
+    "title": "Import a skill into the project",
+    "description": "Copies an existing skill into the project folder. Market entries download the whole skill folder.",
+    "targetRoot": "Target folder",
+    "nameOverride": "Name inside the project (optional)",
+    "sourceUser": "Installed",
+    "sourceExternal": "CLI home",
+    "sourceMarket": "Skill market",
+    "sourceProject": "Other projects",
+    "searchMarket": "Search the skill market…",
+    "searching": "Searching…",
+    "noUserSkills": "No installed user skills — grab one from the skill market first",
+    "noExternalSkills": "No skills found under ~/.claude, ~/.codex, etc.",
+    "noMarketResults": "No matching skills",
+    "noProjectSkills": "No skills in other projects",
+    "importBtn": "Import",
+    "importing": "Importing…",
+    "overwrite": "Overwrite if a skill with the same name exists",
+    "exists": "exists"
+  },
+  "toast": {
+    "saved": "Saved {{name}}",
+    "deleted": "Deleted {{name}}",
+    "moved": "Moved {{name}} to {{root}}",
+    "imported": "Imported {{name}} into {{root}}",
+    "failed": "Operation failed: {{error}}",
+    "loadFailed": "Failed to load project skills: {{error}}"
+  }
+}
