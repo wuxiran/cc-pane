@@ -23,16 +23,28 @@ export function PresetSwatches({ preset, size = "menu" }: PresetSwatchesProps) {
     );
   }
 
+  // 迷你应用窗口：标题带 → 活动栏 → 主区，隐喻应用的明暗骨架（chrome 一档、内容一档）。
+  // 明暗分层只用 swatches[0]/[1] 两档面色，文字条靠透明度混出中间调；accent 集中在
+  // 窗口钮、活动栏激活项和主按钮三处，六张卡并排时强调色与层级对比一眼可辨。
+  const [bg, surface, accent] = preset.swatches;
+
   return (
     <span
-      className="relative block h-12 w-full overflow-hidden rounded-md border"
-      style={{ background: preset.swatches[0], borderColor: preset.swatches[1] }}
+      className="relative block h-16 w-full overflow-hidden rounded-md border"
+      style={{ background: bg, borderColor: surface }}
       aria-hidden="true"
     >
-      <span className="absolute inset-y-0 left-0 w-3" style={{ background: preset.swatches[2] }} />
-      <span className="absolute inset-y-1.5 left-4 right-1.5 rounded-sm" style={{ background: preset.swatches[1] }}>
-        <span className="absolute left-2 top-2 h-0.5 w-6 rounded-full" style={{ background: preset.swatches[2] }} />
-        <span className="absolute left-2 top-4 h-0.5 w-4 rounded-full opacity-70" style={{ background: preset.swatches[2] }} />
+      <span className="flex h-2.5 items-center pl-1" style={{ background: surface }}>
+        <span className="size-1 rounded-full" style={{ background: accent }} />
+      </span>
+      <span className="absolute bottom-0 left-0 top-2.5 w-2.5" style={{ background: surface }}>
+        <span className="absolute left-1 top-1 h-2 w-0.5 rounded-full" style={{ background: accent }} />
+      </span>
+      <span className="absolute bottom-1.5 left-4 right-2 top-4 flex flex-col gap-1">
+        <span className="h-1 w-9 rounded-full" style={{ background: surface }} />
+        <span className="h-0.5 w-12 rounded-full opacity-60" style={{ background: surface }} />
+        <span className="h-0.5 w-7 rounded-full opacity-40" style={{ background: surface }} />
+        <span className="mt-auto h-1.5 w-5 rounded-sm" style={{ background: accent }} />
       </span>
     </span>
   );
@@ -47,7 +59,7 @@ export function SystemThemePreview({ selected = false, className }: SystemThemeP
   return (
     <span
       className={cn(
-        "relative flex h-12 w-full items-center justify-center overflow-hidden rounded-md border border-[var(--app-border)]",
+        "relative flex h-16 w-full items-center justify-center overflow-hidden rounded-md border border-[var(--app-border)]",
         className,
       )}
       style={{ background: "var(--app-content)" }}
