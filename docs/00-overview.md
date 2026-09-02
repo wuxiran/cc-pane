@@ -113,15 +113,15 @@ cc-panes/
 | 阶段 | 名称 | 说明 | 状态 |
 |------|------|------|------|
 | 01 | [项目基础](./01-project-foundation.md) | 项目搭建、数据模型、工作空间/项目管理 | ✅ 已完成 |
-| 02 | [跨平台兼容](./02-platform-adapter.md) | macOS 兼容性适配 | 📋 待实现 |
+| 02 | [跨平台兼容](./02-platform-adapter.md) | macOS 兼容性适配 | ✅ 已完成（三 crate 数十处 `target_os = "macos"` 分支；`release.yml` 出 macOS 包 + `backfill-macos-updater.yml`） |
 | 03 | [TUI 界面](./03-tui-interface.md) | TUI 命令行版本 | 🗄️ 已归档 |
 | 04 | [Provider 管理](./04-feature-enhancement.md) | 工作空间级 Provider 切换 | ✅ 已完成 |
-| 05 | [Local History](./05-local-history.md) | 文件版本历史管理 | ✅ 已完成 |
-| 06 | [Skill 系统](./06-skill-system.md) | 应用内执行 Claude 任务 | ✅ 已完成 |
-| 07 | [通知中心](./07-alert-system.md) | 集中通知转发（微信/邮件） | 📋 待实现 |
-| 08 | [文件浏览](./08-document-management.md) | 工作空间文件浏览 + Markdown 预览 | 📋 待实现 |
-| 09 | [远程访问](./09-remote-access.md) | 移动端远程连接 | 📋 待设计 |
-| 10 | [测试](./10-testing-release.md) | 单元测试、集成测试、CI/CD | 🔨 部分完成 |
+| 05 | [Local History](./05-local-history.md) | 文件版本历史管理 | ✅ 已完成（0.12.10 起落 `.ccpanes/.cache/history`，见 docs/98） |
+| 06 | [Skill 系统](./06-skill-system.md) | 应用内执行 Claude 任务 | ✅ 已完成（0.12.10 扩展为技能市场 + 项目/工作空间技能，见 docs/97） |
+| 07 | [通知中心](./07-alert-system.md) | 集中通知转发（微信/邮件） | ✅ 已完成（形态改为 IM 外推桥：钉钉/企微/飞书/Slack/Telegram/webhook 出站，见 docs/88；邮件与微信个人号未做） |
+| 08 | [文件浏览](./08-document-management.md) | 工作空间文件浏览 + Markdown 预览 | ✅ 已完成（`FileBrowserView` + 文件浏览标签 + `MarkdownPreview`） |
+| 09 | [远程访问](./09-remote-access.md) | 移动端远程连接 | ✅ 已完成（`cc-panes-web` REST/WS + `cc-panes-mobile` Flutter Android/iOS + OpenHarmony 客户端） |
+| 10 | [测试](./10-testing-release.md) | 单元测试、集成测试、CI/CD | ✅ 已完成（前端 4600+ 项、core 1400+ 项、`ci.yml` 全套；lineRatchet / noRawText / i18nParity / designTokens 纪律测试） |
 | 11 | [GUI 基础](./11-tauri-gui-basic.md) | Tauri GUI 框架搭建 | ✅ 已完成 |
 | 12 | [GUI 高级](./12-gui-advanced.md) | 高级 GUI 功能 | ✅ 已完成 |
 | 13 | [打包发布](./13-packaging.md) | 跨平台打包、自动更新 | ✅ 大部分完成 |

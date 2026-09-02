@@ -130,8 +130,11 @@ allow_once 并列 = 提问，不能替用户乱选）；通配 `*`（Automations
 ## 8. 已知未做
 
 多题问答向导（ACP v1 无对应形状，等 v2；usage 已由 `usage_update` RFD 落地，
-composer 右下用量环，仅 claude/codex/qwen/opencode 上报）；语音输入（
-VoiceInputButton 与 PTY 写入耦合，需先抽回调式管线）；@ 引用无文件
-picker（仅 hint + resource_link）；消息本地落盘兜底（非 loadSession 引擎
-恢复后画面为空）；N10 跨 CLI 会话索引与 N3b 额度展示是独立战场
+composer 右下用量环，仅 claude/codex/qwen/opencode 上报）；消息本地落盘兜底
+（`acp_chat_service` 只落会话元数据——重命名/删除/列表——不存消息正文，非
+loadSession 引擎恢复后画面为空）；N10 跨 CLI 会话索引与 N3b 额度展示是独立战场
 （docs/83）。
+
+> 2026-09 核对已划掉两条：语音输入已由 `ChatVoiceButton` 落地（与终端麦克风共用
+> `lib/voiceAudio`，经 `useVoiceInputStore` 互斥）；`@` 引用已有文件 picker
+> （`ChatComposer` 接 `openFileDialog`，图片/文件附件 + `resource_link` 组装）。

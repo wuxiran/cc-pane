@@ -115,6 +115,13 @@ i18n 里那句带计数的文案说明当初是打算做一个菜单项的，做
 >
 > **所以 T1-a 的落点变了**：活跃会话确认要加在 `useTabClosing.ts` 里，
 > 不再是 `Panel.tsx:154-182`。T1-c 的撤销入口同理。
+>
+> ✅ **T1-a / T1-c 已落地（docs/78 批 1 顺带，2026-09 核对）**：
+> `web/components/panes/TabCloseConfirmDialog.tsx` 按 `agent-busy` / `dirty` 两类
+> guard 列出条数与标题，`Panel.tsx` 经 `pendingGuards / confirmPendingClose` 接入；
+> `reopenClosedTab` 已有两个调用方（命令面板 `CommandPalette.tsx` + 快捷键
+> `useShortcutRegistrations.ts`），`closedTabsUndo.ts` 严格上限 20。§2.1–2.3 本节
+> 作为历史分析保留，**不再是待办**。
 
 ### 2.4 批量关闭时 kill 失败会连弹 toast
 
@@ -237,6 +244,11 @@ L0 顺带把 kill 失败从 `handleErrorSilent` 升为 `handleError`（toast + �
 
 **建议先做 A + B**：A 消除「教错用户」，B 恢复可达性，两者加起来不改任何放行语义，
 风险面最小。C 单开一份评估。
+
+> **进度（2026-09 核对）**：方案 A ✅ 已落地——`useShortcutsStore.ts` 的
+> `TERMINAL_PASSTHROUGH_ACTIONS` + `isTerminalPassthroughAction()` 供设置页与命令面板
+> 标记「终端内不生效」。方案 B ❌ 未做——`COMMAND_PALETTE_TOGGLE_EVENT` 的 dispatcher
+> 仍只有 `useShortcutRegistrations.ts:125` 那一个快捷键，没有按钮/菜单入口。方案 C 未评估。
 
 **影响面**：全部用户、全程。这是本文里唯一一条「默认状态下就是错的」。
 
