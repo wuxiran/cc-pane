@@ -128,7 +128,7 @@ export default function OrchestratorView({
       )}
 
       {/* 任务列表 */}
-      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 py-1">
+      <div className="app-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 py-1">
         {bindings.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center py-8 gap-2">
             <Workflow className="w-8 h-8" style={{ color: "var(--app-text-tertiary)", opacity: 0.5 }} />

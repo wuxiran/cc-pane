@@ -242,7 +242,7 @@ export default function TodoOverview({
           <p className="text-sm">{t("noTasks")}</p>
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto">
+          <div className="app-scrollbar flex-1 overflow-y-auto">
           <div className="w-full max-w-[1120px] px-6 py-6">
             <div className="grid gap-6 @min-[800px]/overview:grid-cols-[minmax(420px,1fr)_260px]">
               {focusTodo && (

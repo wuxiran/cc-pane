@@ -18,41 +18,42 @@ interface IconTooltipButtonProps extends React.ComponentProps<"button"> {
  * 图标按钮 + 统一 shadcn Tooltip（替代散落的原生 title=）。
  * 默认提供 hover 背景与过渡；外部样式经 className 叠加。
  */
-export function IconTooltipButton({
-  label,
-  kbd,
-  side = "top",
-  className,
-  children,
-  ...props
-}: IconTooltipButtonProps) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={label}
-          className={cn(
-            "inline-flex items-center justify-center rounded-md p-1 text-[var(--app-text-secondary)]",
-            "transition-[color,background-color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:scale-[0.96] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]",
-            "disabled:pointer-events-none disabled:opacity-50",
-            className,
-          )}
-          {...props}
-        >
-          {children}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side={side} sideOffset={6}>
-        <span className="flex items-center gap-1.5">
-          {label}
-          {kbd && (
-            <kbd className="rounded border border-[var(--app-border)] bg-[var(--app-hover)] px-1 py-px font-mono text-[10px] leading-none text-[var(--app-text-tertiary)]">
-              {kbd}
-            </kbd>
-          )}
-        </span>
-      </TooltipContent>
-    </Tooltip>
-  );
-}
+export const IconTooltipButton = React.forwardRef<HTMLButtonElement, IconTooltipButtonProps>(
+  function IconTooltipButton(
+    { label, kbd, side = "top", className, children, ...props },
+    ref,
+  ) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            ref={ref}
+            type="button"
+            aria-label={label}
+            className={cn(
+              "inline-flex items-center justify-center rounded-md p-1 text-[var(--app-text-secondary)]",
+              "transition-[color,background-color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:scale-[0.96] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]",
+              "disabled:pointer-events-none disabled:opacity-50",
+              className,
+            )}
+            {...props}
+          >
+            {children}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side={side} sideOffset={6}>
+          <span className="flex items-center gap-1.5">
+            {label}
+            {kbd && (
+              <kbd className="rounded border border-[var(--app-border)] bg-[var(--app-hover)] px-1 py-px font-mono text-[10px] leading-none text-[var(--app-text-tertiary)]">
+                {kbd}
+              </kbd>
+            )}
+          </span>
+        </TooltipContent>
+      </Tooltip>
+    );
+  },
+);
+
+IconTooltipButton.displayName = "IconTooltipButton";

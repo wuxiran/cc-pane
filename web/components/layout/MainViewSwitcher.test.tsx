@@ -140,7 +140,10 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
   it("keep-alive：切走隐藏不卸载，切回即显示；未访问过的模式不挂载", () => {
     setMode("home");
     const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.getByTestId("home-dashboard")).toBeVisible();
+    const homeLayer = screen.getByTestId("home-dashboard").closest("[data-main-view='home']") as HTMLElement;
+    expect(homeLayer).toBeVisible();
+    expect(homeLayer).toHaveStyle({ opacity: "1", pointerEvents: "auto" });
+    expect(homeLayer).toHaveClass("main-view-layer");
     // 未访问过 todo：不应挂载
     expect(screen.queryByTestId("todo-manager")).toBeNull();
 
@@ -149,6 +152,8 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
     expect(screen.getByTestId("pane-container")).toBeVisible();
     expect(screen.getByTestId("home-dashboard")).not.toBeVisible();
+    expect(homeLayer).toHaveAttribute("aria-hidden", "true");
+    expect(homeLayer).toHaveStyle({ opacity: "0", pointerEvents: "none" });
 
     // 切回 home：同一实例重新显示，panes（含终端）保持挂载
     setMode("home");
@@ -206,6 +211,13 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
     expect(screen.getAllByTestId("media-studio-mock")).toHaveLength(1);
     expect(screen.getByTestId("media-studio-mock")).toHaveAttribute("data-media-kind", "video");
+    expect(screen.getByTestId("media-workspace-shell")).toHaveStyle({ opacity: "1" });
+
+    // 离开媒体后保持 mounted，切回时不重新创建工作区。
+    setMode("panes");
+    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    expect(screen.getByTestId("media-workspace-shell")).toHaveStyle({ opacity: "0", pointerEvents: "none" });
+    expect(screen.getByTestId("media-studio-mock")).toBeInTheDocument();
   });
 
   it("files → Sidebar + FileEditorPanel 组合", () => {

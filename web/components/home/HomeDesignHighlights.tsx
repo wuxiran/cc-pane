@@ -3,11 +3,14 @@
 // 每卡顶部 64px 静态 SVG 图示条（主页不抢终端注意力，无动画），chart 四色做每卡 accent。
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Columns2, Folder, HardDrive, Workflow } from "lucide-react";
+import { Columns2, EyeOff, Folder, HardDrive, Workflow } from "lucide-react";
+import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 
 interface HomeDesignHighlightsProps {
   /** 紧凑横条模式（老用户页脚），默认卡片网格（新用户引导下方） */
   compact?: boolean;
+  /** 熟手态可将价值卡从首页隐藏；偏好由父级持久化。 */
+  onDismiss?: () => void;
 }
 
 interface Highlight {
@@ -106,18 +109,37 @@ const HIGHLIGHTS: Highlight[] = [
   },
 ];
 
-export default function HomeDesignHighlights({ compact = false }: HomeDesignHighlightsProps) {
+export default function HomeDesignHighlights({ compact = false, onDismiss }: HomeDesignHighlightsProps) {
   const { t } = useTranslation("home");
 
   return (
-    <section data-testid="design-highlights">
+    <section data-testid="design-highlights" className="relative">
       {!compact && (
-        <h3
-          className="mb-3 text-sm font-semibold"
-          style={{ color: "var(--app-text-primary)" }}
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold" style={{ color: "var(--app-text-primary)" }}>
+            {t("highlights.title")}
+          </h3>
+          {onDismiss && (
+            <IconTooltipButton
+              label={t("hideHighlights")}
+              data-testid="hide-design-highlights"
+              onClick={onDismiss}
+              className="size-7 text-[var(--app-text-tertiary)]"
+            >
+              <EyeOff aria-hidden="true" className="size-3.5" />
+            </IconTooltipButton>
+          )}
+        </div>
+      )}
+      {compact && onDismiss && (
+        <IconTooltipButton
+          label={t("hideHighlights")}
+          data-testid="hide-design-highlights"
+          onClick={onDismiss}
+          className="absolute right-1 top-1 z-10 size-7 text-[var(--app-text-tertiary)]"
         >
-          {t("highlights.title")}
-        </h3>
+          <EyeOff aria-hidden="true" className="size-3.5" />
+        </IconTooltipButton>
       )}
       <div
         className={

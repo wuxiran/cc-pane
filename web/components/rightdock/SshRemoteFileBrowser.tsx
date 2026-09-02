@@ -117,7 +117,7 @@ function RemoteTable({
   const language = i18n.resolvedLanguage ?? i18n.language;
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div className="app-scrollbar min-h-0 flex-1 overflow-auto">
       <div role="table" className="min-w-[490px] text-[11px]">
         <div
           role="row"
@@ -216,7 +216,7 @@ function RemoteTree(props: SshRemoteFileBrowserProps) {
   }, [children, expandedPaths, props]);
 
   return (
-    <div role="tree" className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-1">
+    <div role="tree" className="app-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-1">
       <div
         role="treeitem"
         aria-expanded="true"

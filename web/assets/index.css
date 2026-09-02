@@ -315,11 +315,11 @@
   --checkerboard-bg: #ffffff;
 
   /* Warning / Input 变量 */
-  --app-warning: #9A6700;
-  --app-warning-bg: rgba(191, 135, 0, 0.08);
+  --app-status-warning: #9A6700;
+  --app-warning: var(--app-status-warning);
+  --app-warning-bg: var(--app-status-warning-bg);
   --app-input-bg: #F1F3F6;
   --app-status-success: #1a7f37;
-  --app-status-warning: #9A6700;
   --app-status-danger: #CF222E;
   /* 状态色派生（bg/border 随主题自动跟随主值） */
   --app-status-success-bg: color-mix(in srgb, var(--app-status-success) 10%, transparent);
@@ -517,11 +517,11 @@
   --checkerboard-bg: #26282D;
 
   /* Warning / Input 变量 */
-  --app-warning: #D6A625;
-  --app-warning-bg: rgba(214, 166, 37, 0.12);
+  --app-status-warning: #D6A625;
+  --app-warning: var(--app-status-warning);
+  --app-warning-bg: var(--app-status-warning-bg);
   --app-input-bg: rgba(255, 255, 255, 0.04);
   --app-status-success: #3FB950;
-  --app-status-warning: #D6A625;
   --app-status-danger: #F85149;
   --app-status-success-bg: color-mix(in srgb, var(--app-status-success) 10%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
   --app-status-success-border: color-mix(in srgb, var(--app-status-success) 30%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
@@ -657,8 +657,11 @@
   --app-activity-item-active: rgba(155, 124, 246, 0.15);
   --app-active-gradient-from: rgba(155, 124, 246, 0.18);
   --app-active-gradient-to: rgba(155, 124, 246, 0.05);
-  --app-warning: #d8aa45;
-  --app-warning-bg: rgba(216, 170, 69, 0.12);
+  --app-status-warning: #d8aa45;
+  --app-status-warning-bg: color-mix(in srgb, var(--app-status-warning) 10%, transparent);
+  --app-status-warning-border: color-mix(in srgb, var(--app-status-warning) 30%, transparent);
+  --app-warning: var(--app-status-warning);
+  --app-warning-bg: var(--app-status-warning-bg);
   --app-input-bg: rgba(255, 255, 255, 0.05);
   --app-canvas-pipe-primary: #9b7cf6;
   --app-canvas-pipe-secondary: #c4b5fd;
@@ -748,8 +751,11 @@
   --app-activity-item-active: rgba(233, 169, 22, 0.14);
   --app-active-gradient-from: rgba(233, 169, 22, 0.17);
   --app-active-gradient-to: rgba(233, 169, 22, 0.04);
-  --app-warning: #e9a916;
-  --app-warning-bg: rgba(233, 169, 22, 0.12);
+  --app-status-warning: #e9a916;
+  --app-status-warning-bg: color-mix(in srgb, var(--app-status-warning) 10%, transparent);
+  --app-status-warning-border: color-mix(in srgb, var(--app-status-warning) 30%, transparent);
+  --app-warning: var(--app-status-warning);
+  --app-warning-bg: var(--app-status-warning-bg);
   --app-input-bg: rgba(255, 255, 255, 0.05);
   --app-canvas-pipe-primary: #e9a916;
   --app-canvas-pipe-secondary: #f6c453;
@@ -820,7 +826,7 @@
   --app-bg-deep: #efedea;
   --app-bg-sidebar-deep: #f2f0ed;
   --app-overlay: #fffefd;
-  --app-accent: #c95f18;
+  --app-accent: #b45309;
   --app-text-primary: #24221f;
   --app-text-secondary: #67615a;
   --app-text-tertiary: #928b83;
@@ -839,10 +845,13 @@
   --app-activity-item-active: rgba(201, 95, 24, 0.11);
   --app-active-gradient-from: rgba(201, 95, 24, 0.12);
   --app-active-gradient-to: rgba(201, 95, 24, 0.025);
-  --app-warning: #9b5a10;
-  --app-warning-bg: rgba(155, 90, 16, 0.09);
+  --app-status-warning: #9b5a10;
+  --app-status-warning-bg: color-mix(in srgb, var(--app-status-warning) 10%, transparent);
+  --app-status-warning-border: color-mix(in srgb, var(--app-status-warning) 30%, transparent);
+  --app-warning: var(--app-status-warning);
+  --app-warning-bg: var(--app-status-warning-bg);
   --app-input-bg: #efedea;
-  --app-canvas-pipe-primary: #c95f18;
+  --app-canvas-pipe-primary: #b45309;
   --app-canvas-pipe-secondary: #e58a4e;
   --app-canvas-pipe-highlight: #fff0e5;
   --app-canvas-pipe-channel: #fffefd;
@@ -852,10 +861,10 @@
   --app-icon-active: #24221f;
   --app-icon-inactive: #928b83;
   --app-icon-hover: #67615a;
-  --app-tab-active-border: #c95f18;
+  --app-tab-active-border: #b45309;
   --app-terminal-bg: #fffefd;
   --app-terminal-fg: #24221f;
-  --app-terminal-cursor: #c95f18;
+  --app-terminal-cursor: #b45309;
   --app-terminal-selection: rgba(201, 95, 24, 0.20);
   --editor-bg: #fffefd;
   --editor-tab-bar-bg: #efedea;
@@ -911,7 +920,7 @@
   --app-bg-deep: #eaf2fb;
   --app-bg-sidebar-deep: #edf4fb;
   --app-overlay: #fbfdff;
-  --app-accent: #2878d0;
+  --app-accent: #2167b2;
   --app-text-primary: #192838;
   --app-text-secondary: #586b7d;
   --app-text-tertiary: #8798a8;
@@ -930,10 +939,13 @@
   --app-activity-item-active: rgba(40, 120, 208, 0.11);
   --app-active-gradient-from: rgba(40, 120, 208, 0.12);
   --app-active-gradient-to: rgba(40, 120, 208, 0.025);
-  --app-warning: #8d6700;
-  --app-warning-bg: rgba(141, 103, 0, 0.08);
+  --app-status-warning: #8d6700;
+  --app-status-warning-bg: color-mix(in srgb, var(--app-status-warning) 10%, transparent);
+  --app-status-warning-border: color-mix(in srgb, var(--app-status-warning) 30%, transparent);
+  --app-warning: var(--app-status-warning);
+  --app-warning-bg: var(--app-status-warning-bg);
   --app-input-bg: #eaf2fb;
-  --app-canvas-pipe-primary: #2878d0;
+  --app-canvas-pipe-primary: #2167b2;
   --app-canvas-pipe-secondary: #5ba3e8;
   --app-canvas-pipe-highlight: #e7f2ff;
   --app-canvas-pipe-channel: #fbfdff;
@@ -943,10 +955,10 @@
   --app-icon-active: #192838;
   --app-icon-inactive: #8798a8;
   --app-icon-hover: #586b7d;
-  --app-tab-active-border: #2878d0;
+  --app-tab-active-border: #2167b2;
   --app-terminal-bg: #fbfdff;
   --app-terminal-fg: #192838;
-  --app-terminal-cursor: #2878d0;
+  --app-terminal-cursor: #2167b2;
   --app-terminal-selection: rgba(40, 120, 208, 0.20);
   --editor-bg: #fbfdff;
   --editor-tab-bar-bg: #eaf2fb;
@@ -1021,8 +1033,11 @@
   --app-activity-item-active: rgba(136, 192, 208, 0.14);
   --app-active-gradient-from: rgba(136, 192, 208, 0.17);
   --app-active-gradient-to: rgba(136, 192, 208, 0.04);
-  --app-warning: #EBCB8B;
-  --app-warning-bg: rgba(235, 203, 139, 0.12);
+  --app-status-warning: #EBCB8B;
+  --app-status-warning-bg: color-mix(in srgb, var(--app-status-warning) 10%, transparent);
+  --app-status-warning-border: color-mix(in srgb, var(--app-status-warning) 30%, transparent);
+  --app-warning: var(--app-status-warning);
+  --app-warning-bg: var(--app-status-warning-bg);
   --app-input-bg: rgba(255, 255, 255, 0.05);
   --app-canvas-pipe-primary: #88C0D0;
   --app-canvas-pipe-secondary: #B8E0EA;
@@ -1112,8 +1127,11 @@
   --app-activity-item-active: rgba(122, 162, 247, 0.15);
   --app-active-gradient-from: rgba(122, 162, 247, 0.18);
   --app-active-gradient-to: rgba(122, 162, 247, 0.05);
-  --app-warning: #E0AF68;
-  --app-warning-bg: rgba(224, 175, 104, 0.12);
+  --app-status-warning: #E0AF68;
+  --app-status-warning-bg: color-mix(in srgb, var(--app-status-warning) 10%, transparent);
+  --app-status-warning-border: color-mix(in srgb, var(--app-status-warning) 30%, transparent);
+  --app-warning: var(--app-status-warning);
+  --app-warning-bg: var(--app-status-warning-bg);
   --app-input-bg: rgba(255, 255, 255, 0.05);
   --app-canvas-pipe-primary: #7AA2F7;
   --app-canvas-pipe-secondary: #9EC3FF;
@@ -1203,8 +1221,11 @@
   --app-activity-item-active: rgba(76, 105, 168, 0.11);
   --app-active-gradient-from: rgba(76, 105, 168, 0.12);
   --app-active-gradient-to: rgba(76, 105, 168, 0.025);
-  --app-warning: #8F6B2E;
-  --app-warning-bg: rgba(143, 107, 46, 0.09);
+  --app-status-warning: #8F6B2E;
+  --app-status-warning-bg: color-mix(in srgb, var(--app-status-warning) 10%, transparent);
+  --app-status-warning-border: color-mix(in srgb, var(--app-status-warning) 30%, transparent);
+  --app-warning: var(--app-status-warning);
+  --app-warning-bg: var(--app-status-warning-bg);
   --app-input-bg: #F0EBE0;
   --app-canvas-pipe-primary: #4C69A8;
   --app-canvas-pipe-secondary: #7B90C4;
@@ -1275,7 +1296,7 @@
   --app-bg-deep: #EBF2EE;
   --app-bg-sidebar-deep: #EDF4F0;
   --app-overlay: #FFFFFF;
-  --app-accent: #178A5E;
+  --app-accent: #147a55;
   --app-text-primary: #212B26;
   --app-text-secondary: #5F7268;
   --app-text-tertiary: #86968D;
@@ -1294,10 +1315,13 @@
   --app-activity-item-active: rgba(23, 138, 94, 0.11);
   --app-active-gradient-from: rgba(23, 138, 94, 0.12);
   --app-active-gradient-to: rgba(23, 138, 94, 0.025);
-  --app-warning: #8A6D1F;
-  --app-warning-bg: rgba(138, 109, 31, 0.09);
+  --app-status-warning: #8A6D1F;
+  --app-status-warning-bg: color-mix(in srgb, var(--app-status-warning) 10%, transparent);
+  --app-status-warning-border: color-mix(in srgb, var(--app-status-warning) 30%, transparent);
+  --app-warning: var(--app-status-warning);
+  --app-warning-bg: var(--app-status-warning-bg);
   --app-input-bg: #E7F0EB;
-  --app-canvas-pipe-primary: #178A5E;
+  --app-canvas-pipe-primary: #147a55;
   --app-canvas-pipe-secondary: #5FB68F;
   --app-canvas-pipe-highlight: #D7EFE3;
   --app-canvas-pipe-channel: #FFFFFF;
@@ -1307,10 +1331,10 @@
   --app-icon-active: #212B26;
   --app-icon-inactive: #86968D;
   --app-icon-hover: #5F7268;
-  --app-tab-active-border: #178A5E;
+  --app-tab-active-border: #147a55;
   --app-terminal-bg: #FFFFFF;
   --app-terminal-fg: #242B27;
-  --app-terminal-cursor: #178A5E;
+  --app-terminal-cursor: #147a55;
   --app-terminal-selection: rgba(23, 138, 94, 0.22);
   --editor-bg: #FFFFFF;
   --editor-tab-bar-bg: #E7F0EB;
@@ -1899,6 +1923,19 @@
   opacity: 1;
 }
 
+/* 拖拽期间保持明确的预览锚点；两侧 pane 仍由 SplitView 直接改 flexBasis，
+   这里仅改变颜色/光晕，不改变 sash 尺寸，避免拖动时产生二次跳动。 */
+.splitview-sash[data-dragging="true"] {
+  background: color-mix(in srgb, var(--app-accent) 16%, transparent);
+}
+
+.splitview-sash[data-dragging="true"]::after {
+  background: var(--app-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-accent) 20%, transparent),
+    0 0 10px color-mix(in srgb, var(--app-accent) 45%, transparent);
+  opacity: 1;
+}
+
 .splitview-sash.vertical {
   width: 3px;
   min-width: 3px;
@@ -1942,6 +1979,19 @@
   transition: opacity 0.15s ease;
 }
 
+/* 主视图 keep-alive 舞台：层始终占满同一盒模型，只淡入淡出透明度。
+   pointer-events 与 aria-hidden 由 MainViewSwitcher 按活动层切换。 */
+.main-view-layer {
+  transition: opacity 140ms var(--ease-out);
+  will-change: opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .main-view-layer {
+    transition-duration: 60ms;
+  }
+}
+
 /* Activity Bar 与 Sidebar 视觉融合 — 无分隔线 */
 .activity-bar + .sidebar {
   border-left: none;
@@ -1962,6 +2012,50 @@
 /* no-scrollbar 隐藏滚动条 */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* 非终端面板/列表的统一细 overlay 滚动条。终端区域使用上方的 xterm
+   专用规则，不给 .cc-terminal-host 追加此类，避免覆盖其 slider 生命周期。 */
+.app-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  scrollbar-gutter: stable;
+}
+
+.app-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.app-scrollbar::-webkit-scrollbar-track,
+.app-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.app-scrollbar::-webkit-scrollbar-thumb {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  background-clip: padding-box;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+
+.app-scrollbar:hover {
+  scrollbar-color: color-mix(in srgb, var(--app-text-tertiary) 45%, transparent) transparent;
+}
+
+.app-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--app-text-tertiary) 45%, transparent);
+}
+
+.app-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--app-text-primary) 58%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-scrollbar::-webkit-scrollbar-thumb {
+    transition: none;
+  }
+}
 
 /* Pane tab strip: keep the horizontal overflow discoverable. */
 .cc-tabbar-scroll {

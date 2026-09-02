@@ -382,7 +382,7 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
       ) : workspace && selectedProject ? (
         <>
           <div
-            className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-2"
+            className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-2"
             style={resolvedActiveView === "git" ? undefined : { display: "none" }}
           >
             <ExplorerGitSection
@@ -391,7 +391,7 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
             />
           </div>
           {resolvedActiveView === "files" && (
-            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-2">
+            <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-2">
               <ExplorerFilesSection
                 workspace={workspace}
                 selectedProjectId={selectedProject.id}
@@ -400,7 +400,7 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
           )}
         </>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-2">
+        <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-2">
           <EmptyState
             icon={FolderOpen}
             title={t("rightDock.noProject")}

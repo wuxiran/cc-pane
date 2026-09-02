@@ -1,7 +1,6 @@
 // 主内容区视图切换：收拢 useActivityBarStore 的全部 appViewMode 分支。
-// keep-alive 语义：每个视图首次访问时挂载，之后用 display:none 隐藏——切换是纯
-// display 翻转，不重建视图树（尤其终端 xterm），与布局切换器对非当前布局的处理同模式。
-// 终端在隐藏期间保持挂载；重新显示时 TerminalView 的 ResizeObserver 负责 refit。
+// keep-alive 语义：每个视图首次访问时挂载，之后固定在同一舞台上，仅切换 opacity。
+// 视图树（尤其终端 xterm）不会重建；重新显示时 TerminalView 的 ResizeObserver 负责 refit。
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Sidebar from "@/components/Sidebar";
@@ -93,8 +92,23 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
   const isActive = (mode: AppViewMode) => effectiveAppViewMode === mode;
   // 首次切入时 visited 尚未含当前模式（effect 晚一拍），用 isActive 兜底立即挂载
   const isMounted = (mode: AppViewMode) => visited.has(mode) || isActive(mode);
-  const viewStyle = (mode: AppViewMode): React.CSSProperties | undefined =>
-    isActive(mode) ? undefined : { display: "none" };
+  // All visited views share one fixed stage. Inactive views stay mounted and
+  // are absolutely positioned, so switching modules only animates opacity and
+  // never changes the flex dimensions observed by xterm.
+  const viewStyle = (mode: AppViewMode): React.CSSProperties => {
+    const active = isActive(mode);
+    return {
+      opacity: active ? 1 : 0,
+      pointerEvents: active ? "auto" : "none",
+      zIndex: active ? 1 : 0,
+    };
+  };
+  const mediaMounted = isMounted("imageGen") || isMounted("videoGen");
+  const mediaStyle = (): React.CSSProperties => ({
+    opacity: mediaActive ? 1 : 0,
+    pointerEvents: mediaActive ? "auto" : "none",
+    zIndex: mediaActive ? 1 : 0,
+  });
 
   return (
     <TodoManager scope="" scopeRef="" enabled={isMounted("todo")}>
@@ -110,16 +124,24 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
         )}
       </SidebarTransition>
 
+      <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden" data-main-view-stage>
       {/* 首页仪表盘 */}
       {isMounted("home") && (
-        <div className="flex-1 overflow-hidden" style={viewStyle("home")}>
+        <div
+          className="main-view-layer absolute inset-0 overflow-hidden"
+          data-main-view="home"
+          aria-hidden={!isActive("home")}
+          style={viewStyle("home")}
+        >
           <HomeDashboard onOpenTerminal={onOpenTerminal} />
         </div>
       )}
       {/* Todo 主内容；任务列表由上方共享侧栏承载。 */}
       {isMounted("todo") && (
         <div
-          className="flex-1 overflow-hidden"
+          className="main-view-layer absolute inset-0 overflow-hidden"
+          data-main-view="todo"
+          aria-hidden={!isActive("todo")}
           style={{ background: "var(--app-panel-bg)", ...viewStyle("todo") }}
         >
           {todoContent}
@@ -127,19 +149,35 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
       )}
       {/* Self-Chat 全屏模式 */}
       {isMounted("selfchat") && (
-        <div className="flex-1 overflow-hidden" style={viewStyle("selfchat")}>
+        <div
+          className="main-view-layer absolute inset-0 overflow-hidden"
+          data-main-view="selfchat"
+          aria-hidden={!isActive("selfchat")}
+          style={viewStyle("selfchat")}
+        >
           <SelfChatManager />
         </div>
       )}
       {/* Providers 全屏模式（旧入口，保留兼容） */}
       {isMounted("providers") && (
-        <div className="flex-1 overflow-hidden" style={viewStyle("providers")}>
+        <div
+          className="main-view-layer absolute inset-0 overflow-hidden"
+          data-main-view="providers"
+          aria-hidden={!isActive("providers")}
+          style={viewStyle("providers")}
+        >
           <ProvidersPanel />
         </div>
       )}
       {/* 生图与生视频共用一个媒体工作区；类型切换只替换工作区内部的表单。 */}
-      {mediaActive && (
-        <div className="flex h-full min-w-0 flex-1 overflow-hidden" data-testid="media-workspace-shell">
+      {mediaMounted && (
+        <div
+          className="main-view-layer absolute inset-0 flex min-w-0 overflow-hidden"
+          data-main-view="media"
+          data-testid="media-workspace-shell"
+          aria-hidden={!mediaActive}
+          style={mediaStyle()}
+        >
           <Suspense fallback={<div className="flex h-full w-full items-center justify-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>{mediaT("loadingMediaWorkspace")}</div>}>
             <MediaStudio
               kind={mediaKind}
@@ -151,7 +189,9 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
       {/* Files 模式：文件编辑面板（侧边栏文件浏览器在上方共用 Sidebar） */}
       {isMounted("files") && (
         <div
-          className="flex-1 overflow-hidden"
+          className="main-view-layer absolute inset-0 overflow-hidden"
+          data-main-view="files"
+          aria-hidden={!isActive("files")}
           style={{ background: "var(--app-panel-bg)", ...viewStyle("files") }}
         >
           <FileEditorPanel />
@@ -162,7 +202,9 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           子树内画底的位置读 --app-panel-bg-effective 即透出壁纸层。 */}
       {isMounted("panes") && (
         <div
-          className="relative flex flex-1 flex-col overflow-hidden"
+          className="main-view-layer absolute inset-0 flex flex-col overflow-hidden"
+          data-main-view="panes"
+          aria-hidden={!isActive("panes")}
           style={{
             background: "var(--app-panel-bg)",
             ...(wallpaperActive
@@ -228,6 +270,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           </DndPaneProvider>
         </div>
       )}
+      </main>
       {showOrchestrationOverlay && (
         <OrchestrationOverlay onClose={closeOrchestrationOverlay} />
       )}

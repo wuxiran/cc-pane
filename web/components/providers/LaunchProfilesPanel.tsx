@@ -475,7 +475,7 @@ export default function LaunchProfilesPanel({
           onSelectWorkspace={handleSelectWorkspace}
         />
 
-        <main className="min-h-0 flex-1 overflow-y-auto">
+        <main className="app-scrollbar min-h-0 flex-1 overflow-y-auto">
           <div className={`w-full space-y-2.5 ${compact ? "py-3" : "mx-auto max-w-5xl px-3 py-3"}`}>
             <LaunchProfileSummaryCard
               draft={draft}

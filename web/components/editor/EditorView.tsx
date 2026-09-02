@@ -460,7 +460,7 @@ export default function EditorView({
       </div>
 
       {readOnly && (
-        <div className="px-2 py-0.5 text-[10px] border-t" style={{ color: "var(--app-warning)", background: "var(--app-warning-bg)" }}>
+        <div className="px-2 py-0.5 text-[10px] border-t" style={{ color: "var(--app-status-warning)", background: "var(--app-status-warning-bg)" }}>
           {readOnlyReason === "encoding"
             ? "Read-only (non UTF-8 encoding)"
             : "Read-only (protected path)"}

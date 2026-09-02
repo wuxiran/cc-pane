@@ -153,7 +153,7 @@ export default function FileTree({
       onOpenTerminal={onOpenTerminal}
     >
       <div className="flex flex-col h-full overflow-hidden">
-        <div className="flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="app-scrollbar flex-1 overflow-y-auto overflow-x-hidden">
           <FileTreeNode
             node={tree}
             depth={0}

@@ -100,7 +100,7 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
 
       {/* 工作空间视图：keep-alive，隐藏而不卸载（WorkspaceDialogs 挂在树内） */}
       <div
-        className="min-h-0 flex-1 overflow-y-auto px-3 pb-2"
+        className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-2"
         style={activeSection === "workspaces" ? undefined : { display: "none" }}
       >
         <WorkspaceTree onOpenTerminal={onOpenTerminal} />

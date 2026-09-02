@@ -221,7 +221,7 @@ export default function MemoryManager({ projectPath }: MemoryManagerProps) {
         </div>
 
         {/* 列表 */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="app-scrollbar flex-1 overflow-y-auto">
           {loading && (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
               <Loader2 size={16} className="animate-spin" />

@@ -185,7 +185,7 @@ export default function LaunchProfileListAside({
 
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto p-2">
         {listMode === "profiles" ? (
           <>
             <button

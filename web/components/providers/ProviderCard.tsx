@@ -144,7 +144,7 @@ export default function ProviderCard({
             {systemProbe && !systemProbe.runtimeApplicable && (
               <div
                 className="flex items-start gap-1 text-xs mt-1"
-                style={{ color: "var(--app-warning)" }}
+                style={{ color: "var(--app-status-warning)" }}
               >
                 <AlertTriangle size={12} className="mt-0.5 shrink-0" />
                 <span>

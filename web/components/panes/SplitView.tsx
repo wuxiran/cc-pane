@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { setDragging } from "@/stores/splitDragState";
 
 interface SplitViewProps {
@@ -26,6 +26,7 @@ export default function SplitView({
   const containerRef = useRef<HTMLDivElement>(null);
   const sizesRef = useRef(sizes);
   const cleanupRef = useRef<(() => void) | null>(null);
+  const [activeSash, setActiveSash] = useState<number | null>(null);
 
   // 同步 props → ref（store 更新时保持 ref 最新）
   useEffect(() => {
@@ -96,9 +97,12 @@ export default function SplitView({
         cancelAnimationFrame(rafId);
         document.removeEventListener("pointermove", onMove);
         document.removeEventListener("pointerup", onUp);
+        document.removeEventListener("pointercancel", onCancel);
+        window.removeEventListener("blur", onWindowBlur);
         document.body.style.userSelect = "";
         document.body.style.cursor = "";
         setDragging(false);
+        setActiveSash(null);
         cleanupRef.current = null;
       };
 
@@ -107,8 +111,17 @@ export default function SplitView({
         onDragEnd([...sizesRef.current]);
       };
 
-      // 存储 cleanup 函数，供组件卸载时调用
+      const onCancel = () => {
+        cleanup();
+      };
+
+      const onWindowBlur = () => {
+        cleanup();
+      };
+
+      // 存储 cleanup 函数，供组件卸载、pointercancel 和窗口失焦调用
       setDragging(true);
+      setActiveSash(index);
       cleanupRef.current = cleanup;
 
       // 防止拖拽时选中文本
@@ -116,6 +129,8 @@ export default function SplitView({
       document.body.style.cursor = vertical ? "row-resize" : "col-resize";
       document.addEventListener("pointermove", onMove);
       document.addEventListener("pointerup", onUp);
+      document.addEventListener("pointercancel", onCancel);
+      window.addEventListener("blur", onWindowBlur);
     },
     [vertical, minSize, onDragEnd]
   );
@@ -144,6 +159,10 @@ export default function SplitView({
           {i > 0 && (
             <div
               className={`splitview-sash ${vertical ? "horizontal" : "vertical"}`}
+              data-splitview-sash={i - 1}
+              data-dragging={activeSash === i - 1 ? "true" : undefined}
+              role="separator"
+              aria-orientation={vertical ? "horizontal" : "vertical"}
               onPointerDown={(e) => handleSashPointerDown(i - 1, e)}
             />
           )}

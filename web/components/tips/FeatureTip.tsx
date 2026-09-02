@@ -114,7 +114,7 @@ export default function FeatureTip({
           )}
           {showPassthroughHint && (
             <p
-              className="flex items-start gap-2 bg-[var(--app-warning-bg)] px-3 py-2.5 text-[12px] leading-relaxed text-[var(--app-text-secondary)]"
+              className="flex items-start gap-2 bg-[var(--app-status-warning-bg)] px-3 py-2.5 text-[12px] leading-relaxed text-[var(--app-text-secondary)]"
               data-testid="feature-tip-passthrough-hint"
             >
               <TriangleAlert aria-hidden="true" size={14} className="mt-0.5 shrink-0 text-[var(--app-status-warning)]" />

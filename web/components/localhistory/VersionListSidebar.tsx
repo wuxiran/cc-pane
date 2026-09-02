@@ -29,7 +29,7 @@ export default function VersionListSidebar({
   const { t } = useTranslation(["dialogs", "common"]);
 
   return (
-    <div className="w-[260px] shrink-0 overflow-y-auto rounded-lg p-2" style={{ border: "1px solid var(--app-border)" }}>
+    <div className="app-scrollbar w-[260px] shrink-0 overflow-y-auto rounded-lg p-2" style={{ border: "1px solid var(--app-border)" }}>
       {loading ? (
         <div className="space-y-1" aria-busy="true" aria-live="polite">
           {Array.from({ length: 4 }).map((_, i) => (

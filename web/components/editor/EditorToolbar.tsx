@@ -137,7 +137,7 @@ export default function EditorToolbar({
         <div className="flex-1" />
 
         {dirty && (
-          <span className="text-[11px] mr-1" style={{ color: "var(--app-warning)" }}>{t("modified")}</span>
+                  <span className="text-[11px] mr-1" style={{ color: "var(--app-status-warning)" }}>{t("modified")}</span>
         )}
         <span className="text-muted-foreground text-[11px]">{language}</span>
       </div>

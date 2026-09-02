@@ -315,7 +315,7 @@ export default function SessionHistoryView({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex h-full items-center justify-center gap-2 text-[12px] text-[var(--app-text-tertiary)]">
             <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />

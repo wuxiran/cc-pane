@@ -228,7 +228,7 @@ export default function PaneFlowOverlay({ mediaNodes = EMPTY_MEDIA_NODES }: Pane
           <CanvasDisplayToggle />
         </div>
       </header>
-      <div ref={rootRef} data-canvas-scroll-root className="relative min-h-0 flex-1 overflow-auto" style={{ background: "var(--app-panel-bg-effective)" }}>
+      <div ref={rootRef} data-canvas-scroll-root className="app-scrollbar relative min-h-0 flex-1 overflow-auto" style={{ background: "var(--app-panel-bg-effective)" }}>
         {nodes.length === 0 ? (
           <div className="flex h-full items-center justify-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>
             {t("canvasEmpty")}

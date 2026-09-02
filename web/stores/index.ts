@@ -58,6 +58,10 @@ export {
 export type { ShortcutAction } from "./useShortcutsStore";
 export { useFileTreeStore } from "./useFileTreeStore";
 export { useActivityBarStore, type ActivityView, type AppViewMode } from "./useActivityBarStore";
+export {
+  useHomePreferencesStore,
+  HOME_PREFERENCES_STORAGE_KEY,
+} from "./useHomePreferencesStore";
 export { useNotificationStore } from "./useNotificationStore";
 export { useSelfChatStore } from "./useSelfChatStore";
 export { useFileBrowserStore } from "./useFileBrowserStore";

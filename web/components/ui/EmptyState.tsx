@@ -1,3 +1,4 @@
+import { LoaderCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,11 @@ interface EmptyStateProps {
     label: string;
     onClick: () => void;
   };
+  className?: string;
+}
+
+interface LoadingStateProps {
+  message: string;
   className?: string;
 }
 
@@ -48,6 +54,24 @@ export function EmptyState({ icon: Icon, title, description, action, className }
           {action.label}
         </Button>
       )}
+    </div>
+  );
+}
+
+/** 统一加载状态：保留简洁文案，同时向辅助技术声明异步更新。 */
+export function LoadingState({ message, className }: LoadingStateProps) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      className={cn(
+        "flex items-center justify-center gap-2 text-[13px] text-[var(--app-text-tertiary)]",
+        className,
+      )}
+    >
+      <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
+      <span>{message}</span>
     </div>
   );
 }

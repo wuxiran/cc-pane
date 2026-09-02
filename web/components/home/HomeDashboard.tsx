@@ -2,15 +2,26 @@ import { useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
 import packageJson from "../../../package.json";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Eye } from "lucide-react";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
-import { useDialogStore } from "@/stores/useDialogStore";
+import {
+  useDialogStore,
+  useHomePreferencesStore,
+  useSettingsStore,
+  useWorkspacesStore,
+} from "@/stores";
+import { historyService, type LaunchRecord } from "@/services";
 import { waitForTauri } from "@/utils";
 import { isTauriRuntime } from "@/services/runtime";
+import { Skeleton } from "@/components/ui/skeleton";
+import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import HomeHeader from "./HomeHeader";
 import HomeQuickActions from "./HomeQuickActions";
 import HomeActiveSessions from "./HomeActiveSessions";
 import HomeDesignHighlights from "./HomeDesignHighlights";
+import HomeGettingStarted from "./HomeGettingStarted";
+import HomeRecentProjects from "./HomeRecentProjects";
+import HomePinnedWorkspaces from "./HomePinnedWorkspaces";
 import type { OpenTerminalOptions } from "@/types";
 
 interface HomeDashboardProps {
@@ -21,7 +32,38 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
   const { t } = useTranslation("home");
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
   const setSidebarVisible = useActivityBarStore((s) => s.setSidebarVisible);
+  const settings = useSettingsStore((s) => s.settings);
+  const workspaces = useWorkspacesStore((s) => s.workspaces);
+  const workspacesLoading = useWorkspacesStore((s) => s.loading);
+  const loadWorkspaces = useWorkspacesStore((s) => s.load);
+  const showDesignHighlights = useHomePreferencesStore((s) => s.showDesignHighlights);
+  const setShowDesignHighlights = useHomePreferencesStore((s) => s.setShowDesignHighlights);
   const [version, setVersion] = useState("...");
+  const [launchHistory, setLaunchHistory] = useState<LaunchRecord[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+
+  // 首页在 home 模式下没有挂载常规 Sidebar，因此主动补齐它通常负责的两份轻量数据。
+  const refreshLaunchHistory = useCallback(async () => {
+    try {
+      setLaunchHistory(await historyService.list(30));
+    } catch {
+      setLaunchHistory([]);
+    } finally {
+      setHistoryLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshLaunchHistory();
+    const handler = () => void refreshLaunchHistory();
+    window.addEventListener("cc-panes:history-updated", handler);
+    return () => window.removeEventListener("cc-panes:history-updated", handler);
+  }, [refreshLaunchHistory]);
+
+  useEffect(() => {
+    if (workspaces.length > 0 || workspacesLoading) return;
+    void loadWorkspaces().catch(() => undefined);
+  }, [loadWorkspaces, workspaces.length, workspacesLoading]);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,10 +93,31 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
     setSidebarVisible(true);
   }, [setAppViewMode, setSidebarVisible]);
 
+  // Settings is loaded before the shell is released. Treat an unavailable value as
+  // the established dashboard so a transient settings fetch cannot flash onboarding.
+  const isNovice = settings?.general?.onboardingCompleted === false;
+
+  const historySkeleton = (
+    <div className="min-w-0" data-testid="home-recent-projects-skeleton" aria-hidden="true">
+      <div className="mb-3 h-4 w-28 rounded bg-[var(--app-hover)] animate-pulse" />
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {[0, 1, 2, 3].map((item) => (
+          <div key={item} className="flex h-16 items-center gap-3 rounded-xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] p-3">
+            <Skeleton className="size-10 shrink-0 rounded-xl" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-3 w-3/5" />
+              <Skeleton className="h-2.5 w-2/5" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     // 竖向配重：滚动容器挂 flex 列 + 内容块 my-auto——大屏内容不足一屏时垂直居中呼吸，
     // 内容超出视口时 auto margin 归零，从顶部正常滚动，小窗口行为不变。
-    <div className="h-full overflow-y-auto relative flex flex-col" style={{ background: "var(--app-bg-deep)" }}>
+    <div className="app-scrollbar relative flex h-full flex-col overflow-y-auto" data-testid="home-dashboard" style={{ background: "var(--app-bg-deep)" }}>
       {/* 背景装饰 — 暗色模式渐变光球 */}
       <div
         className="pointer-events-none absolute inset-0 overflow-hidden opacity-30 dark:opacity-20"
@@ -95,13 +158,39 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
             {t("enterWorkspace")}
             <ArrowRight className="w-5 h-5 xl:w-6 xl:h-6" />
           </button>
+          {!showDesignHighlights && (
+            <IconTooltipButton
+              label={t("showHighlights")}
+              data-testid="show-design-highlights"
+              onClick={() => setShowDesignHighlights(true)}
+              className="size-8 shrink-0 text-[var(--app-text-tertiary)]"
+            >
+              <Eye aria-hidden="true" className="size-4" />
+            </IconTooltipButton>
+          )}
         </div>
         <HomeQuickActions onNewTerminal={handleNewTerminal} onOpenTerminal={onOpenTerminal} />
 
         {/* 活跃会话：真实信息密度，空态优雅降级 */}
         <HomeActiveSessions />
 
-        <HomeDesignHighlights compact />
+        {isNovice ? (
+          <HomeGettingStarted />
+        ) : (
+          <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
+            {historyLoaded ? (
+              <HomeRecentProjects records={launchHistory} onOpenTerminal={onOpenTerminal} />
+            ) : historySkeleton}
+            <HomePinnedWorkspaces workspaces={workspaces} onOpenTerminal={onOpenTerminal} />
+          </div>
+        )}
+
+        {showDesignHighlights && (
+          <HomeDesignHighlights
+            compact={!isNovice}
+            onDismiss={() => setShowDesignHighlights(false)}
+          />
+        )}
       </div>
     </div>
   );

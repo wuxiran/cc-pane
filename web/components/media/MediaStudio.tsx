@@ -292,7 +292,7 @@ export default function MediaStudio({ kind, onKindChange }: MediaStudioProps) {
         />
       </header>
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <aside className="flex w-full shrink-0 flex-col overflow-y-auto border-b border-[var(--app-border)] lg:w-[360px] lg:border-b-0 lg:border-r" style={{ background: "var(--app-sidebar-bg)" }}>
+        <aside className="app-scrollbar flex w-full shrink-0 flex-col overflow-y-auto border-b border-[var(--app-border)] lg:w-[360px] lg:border-b-0 lg:border-r" style={{ background: "var(--app-sidebar-bg)" }}>
           <MediaWorkspaceNavigator workspaceId={selection.workspaceId} projectId={selection.projectId} onWorkspaceChange={handleWorkspaceChange} onProjectChange={handleProjectChange} onCreateCanvas={handleCreateCanvas} />
           {mediaScope ? <div className="flex items-start gap-2 border-b border-[var(--app-border)] px-3 py-2" data-testid="media-generation-root">
             <FolderOpen className="mt-0.5 size-3.5 shrink-0" style={{ color: "var(--app-accent)" }} aria-hidden="true" />

@@ -87,7 +87,7 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
         </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="app-scrollbar flex-1 overflow-y-auto">
         {/* 活跃会话 */}
         {activeSessions.length > 0 && (
           <div className="px-3 mb-3">

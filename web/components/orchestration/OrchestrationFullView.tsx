@@ -359,7 +359,7 @@ export default function OrchestrationFullView({
                   ))}
                 </div>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-2">
+              <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto p-2">
                 {bindings.length === 0 && !loading ? (
                   <EmptyState
                     icon={Workflow}
@@ -394,7 +394,7 @@ export default function OrchestrationFullView({
                   </Button>
                 </div>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-2">
+              <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto p-2">
                 {notificationGroups.length === 0 ? (
                   <EmptyState
                     icon={Bell}

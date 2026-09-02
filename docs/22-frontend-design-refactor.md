@@ -12,10 +12,20 @@
 - **细描边图标**：lucide `strokeWidth={1.5}`。
 - **激活态**：accent 竖条（ActivityBar 左缘 3px `rounded-r-md`）或下划线（TabBar），配轻背景，不用整块高亮。
 - **交互隐藏化**：次要操作按钮 `group-hover` 才浮现。
-- **动效 token**：`--ease-out`（cubic-bezier 0.16,1,0.3,1）+ `--dur-fast/dur/dur-slow`（120/160/240ms）。
-- **字体**：Inter Variable（打包 woff2），`font-feature-settings: "cv02","cv03","cv04","ss01"`。
+- **动效 token**：`--ease-out`（`cubic-bezier(0.23,1,0.32,1)`）+ `--ease-in-out`（`cubic-bezier(0.77,0,0.175,1)`）+ `--dur-fast/dur/dur-slow`（120/160/240ms）；UI 不使用 ease-in。
+- **字体栈**：UI 使用打包的 Inter Variable，并按字符回落到 Inter、SF Pro/Segoe、MiSans、HarmonyOS Sans SC、Source Han Sans SC、Microsoft YaHei UI 等系统字体；终端首选 Maple Mono NF CN。Inter 使用 `font-feature-settings: "cv02","cv03","cv04","ss01"`。
 
-## 2. 布局分区与背景所有权
+## 2.1 表面垫层与壁纸边界
+
+- **表面所有权**：`--app-panel-bg` 仍是主区面板的语义基底；壁纸不直接改写它，而由主区 panes 根节点消费 `--app-panel-bg-effective` 作为间接垫层。
+- 未启用壁纸或处于浅色主题时，`--app-panel-bg-effective` 等于 `--app-panel-bg`，保证零行为变化；启用壁纸时只在主区覆盖为透明，让内容透出壁纸层。
+- 壁纸 dim、dots、orbs 使用独立不透明度 token；不得把壁纸层挂到 `AppShell` 外部导致侧栏、标题栏或状态栏串色。透明/模糊表面仍必须保留可读文字和边界。
+
+## 2.2 主题预设与形态预设
+
+- 配色与形态是两个独立维度。配色预设由 `web/theme/themePresets.ts` 维护（当前 10 个：`deep-ink`、`cyber-purple`、`amber-gold`、`classic-white`、`warm-gray`、`sky-blue`、`nord-frost`、`tokyo-night`、`rice-paper`、`mint-mist`；其中四个浅色主题由 `color-scheme: light` 标记）。
+- 形态预设由 `web/theme/themeShapes.ts` 维护，当前为 Soft、Slab、Sharp、Glass、Panel、Carbon 六值；`theme.mode` 与 `theme.shape` 可自由组合，旧配置缺少形态时回落 `soft`。
+- 预设只消费固定 CSS token，不开放用户 CSS 或任意数值。浅色主题的 app chrome 实际 token 由 `npm run check:theme-contrast` 门禁解析 `var()`、`rgba()`、hex、`transparent` 和 `color-mix(in srgb, ...)` 后检查。
 
 五区骨架（`web/components/layout/AppShell.tsx`）：
 
@@ -57,7 +67,7 @@ StatusBar       --app-menubar          （最深，外框）
 | bg-white 面板 / 浮层 | neutral | `--app-panel-bg` / `--app-overlay` |
 | border-gray-200 | neutral | `--app-border` |
 
-**允许保留（allowlist）**：文件扩展名内容色（FileTreeNode）、进程类型 categorical 4 色（ProcessMonitorSection）、装饰性标记（默认发行版金色星标）、实心色底上的 `text-white` on-color 前景。防回潮由 `web/components/designTokens.test.ts` 静态扫描守护（排除 `*.test.*`、`mobile/`、`ui/`；allowlist 文件+类名粒度，条目失效也报错）。豁免目录：`mobile/`（原型页）、`ui/`（shadcn 基件）。
+**允许保留（allowlist）**：文件扩展名内容色（FileTreeNode）、进程类型 categorical 4 色（ProcessMonitorSection）、装饰性标记（默认发行版金色星标）、实心色底上的 `text-white` on-color 前景。防回潮由 `web/components/designTokens.test.ts` 与 `web/test/colorGuard.test.ts` 静态扫描守护（排除 `*.test.*`、`mobile/`、`ui/`；allowlist 文件+类名粒度，条目失效也报错）。主题 token 的浅色对比度由 `npm run check:theme-contrast` 检查。豁免目录：`mobile/`（原型页）、`ui/`（shadcn 基件）。
 
 ## 4. 巨石拆分索引
 
@@ -99,7 +109,14 @@ Dialog 壳 + useLocalHistoryData（21 个 useState 收拢）+ VersionListSidebar
 - **只动画 transform/opacity**（性能）；`transition: all` 一律收窄到具体属性。
 - **prefers-reduced-motion**：keyframe 位移入场直接跳过、transition 收短到 60ms（减弱而非归零，index.css 全局规则）。
 
-## 6. 已评审决议（Codex 同行评审拍板记录）
+### 5.1 验证入口与路径
+
+- 主题/形态预设与 CSS 覆盖：`npm run test:run -- web/theme/themeShapes.test.ts web/theme/themeShapeCss.test.ts web/theme/themeShapeCoverage.test.ts web/components/settings/ThemeSection.test.tsx web/components/settings/settingsRegistry.test.ts`。
+- 主题 store 与持久化：`npm run test:run -- web/stores/useThemeStore.test.ts web/stores/useSettingsStore.test.ts web/services/settingsService.test.ts`。
+- 设计 token 与直接色值护栏：`npm run test:run -- web/components/designTokens.test.ts web/test/colorGuard.test.ts`；浅色实际 token 对比度：`npm run check:theme-contrast`。
+- 布局切换与生命周期：`npm run test:run -- web/components/layout/MainViewSwitcher.test.tsx web/hooks/useAppLifecycle.order.test.tsx`。
+- 文档构建：`npm run docs:build`。完整前端回归仍使用 `npm run test:run`，不得写成不存在的 `npx vitest run <你改动涉及的测试文件>` 占位路径。
+
 
 - Ctrl+K：终端聚焦放行；非终端焦点打开面板。
 - Sidebar 显隐动画：过渡 wrapper、过渡结束后卸载；终端尺寸适配依赖 TerminalView 现有 ResizeObserver 调度器，**不另发 resize 事件**；若实测抖动则放弃动画。
