@@ -25,6 +25,7 @@ import { computeTextDiff } from "@/services/agentChatService";
 import type { DiffResult } from "@/services/localHistoryService";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import DiffView from "@/components/DiffView";
+import { useAgentChatStore } from "@/stores/useAgentChatStore";
 
 const KIND_ICON: Record<string, LucideIcon> = {
   read: FileText,
@@ -111,9 +112,48 @@ export function DiffBlockView({ block }: { block: AcpToolCallContent }) {
   );
 }
 
-function ContentBlockView({ block }: { block: AcpToolCallContent }) {
+/** `{type:"terminal", terminalId}`：agent 经客户端 terminal 能力跑的命令，输出由
+ * `terminal_output` 事件实时推进 store；这里只订阅该 terminalId。 */
+function TerminalBlockView({ chatId, terminalId }: { chatId: string; terminalId: string }) {
+  const terminal = useAgentChatStore((s) => s.chats[chatId]?.terminals[terminalId]);
+  const exit = terminal?.exitStatus;
+  const status = !terminal
+    ? "…"
+    : exit
+      ? exit.exitCode !== undefined
+        ? `exit ${exit.exitCode}`
+        : exit.signal ?? "exited"
+      : "running";
+  return (
+    <div className="rounded border border-[var(--app-border)] overflow-hidden">
+      <div className="flex items-center justify-between px-2 py-1 text-[11px] font-mono bg-[var(--app-hover)] text-[var(--app-icon-inactive)]">
+        <span>terminal · {terminalId}</span>
+        <span
+          className={
+            exit && exit.exitCode !== undefined && exit.exitCode !== 0
+              ? "text-[var(--app-status-danger)]"
+              : undefined
+          }
+        >
+          {status}
+          {terminal?.truncated ? " · truncated" : ""}
+        </span>
+      </div>
+      {terminal?.output ? (
+        <pre className="px-2 py-1 text-[11px] font-mono whitespace-pre-wrap break-all max-h-60 overflow-auto">
+          {terminal.output}
+        </pre>
+      ) : null}
+    </div>
+  );
+}
+
+function ContentBlockView({ block, chatId }: { block: AcpToolCallContent; chatId?: string }) {
   if (block.type === "diff") {
     return <DiffBlockView block={block} />;
+  }
+  if (block.type === "terminal" && typeof block.terminalId === "string" && chatId) {
+    return <TerminalBlockView chatId={chatId} terminalId={block.terminalId} />;
   }
   // 工具产出里的图片块（截图类工具常见）真渲染。
   if (block.type === "content" && block.content?.type === "image") {
@@ -143,13 +183,15 @@ function ContentBlockView({ block }: { block: AcpToolCallContent }) {
 
 interface ToolCallCardProps {
   call: AcpToolCall;
+  /** 所属会话（terminal 内容块要按它订阅实时输出）。 */
+  chatId?: string;
   /** 位置 chip 点击时打开文件（由标签内容组件注入项目上下文）。 */
   onOpenLocation?: (path: string, line?: number) => void;
   /** 全局展开/折叠信号：seq 变化时把本卡置为 expanded 值。 */
   expandAllSignal?: { seq: number; expanded: boolean };
 }
 
-export default function ToolCallCard({ call, onOpenLocation, expandAllSignal }: ToolCallCardProps) {
+export default function ToolCallCard({ call, chatId, onOpenLocation, expandAllSignal }: ToolCallCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
@@ -215,7 +257,7 @@ export default function ToolCallCard({ call, onOpenLocation, expandAllSignal }: 
             </pre>
           ) : null}
           {(call.content ?? []).map((block, index) => (
-            <ContentBlockView key={index} block={block} />
+            <ContentBlockView key={index} block={block} chatId={chatId} />
           ))}
           {output ? (
             <pre className="px-2 py-1 text-[11px] font-mono whitespace-pre-wrap break-all max-h-60 overflow-auto rounded bg-[var(--app-hover)]">

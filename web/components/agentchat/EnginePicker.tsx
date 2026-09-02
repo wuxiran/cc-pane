@@ -35,6 +35,7 @@ import { takePendingResume } from "./pendingResume";
 import {
   loadAutoApproveKinds,
   loadEnginePrefs,
+  loadPreferredConfigOptions,
   saveAutoApproveKinds,
   saveEngineModels,
   saveEngineModes,
@@ -180,6 +181,23 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
         ) {
           void agentChatService.setMode(chatId, preferredMode).catch((modeError) => {
             handleErrorSilent(modeError, "apply preferred acp mode");
+          });
+        }
+        // 配置项偏好（思维深度等）：只对 agent 本次仍广告、且值仍在选项里的项应用。
+        const preferredOptions = loadPreferredConfigOptions(engineId);
+        for (const option of snapshot.configOptions ?? []) {
+          const wanted = preferredOptions[option.configId];
+          if (
+            wanted === undefined
+            || option.category === "mode"
+            || option.category === "model"
+            || option.currentValue === wanted
+            || !(option.options ?? []).some((choice) => choice.value === wanted)
+          ) {
+            continue;
+          }
+          void agentChatService.setConfigOption(chatId, option.configId, wanted).catch((optionError) => {
+            handleErrorSilent(optionError, "apply preferred acp config option");
           });
         }
         const text = firstPrompt?.trim();

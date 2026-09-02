@@ -42,9 +42,11 @@ export interface ItemViewProps {
   onOpenLocation: (path: string, line?: number) => void;
   onPlanToTodo: (entries: AcpPlanEntry[]) => void;
   expandAllSignal?: { seq: number; expanded: boolean };
+  /** 所属会话 id（tool_call 里的 terminal 块要按它订阅实时输出）。 */
+  chatId?: string;
 }
 
-export function ItemView({ item, onOpenLocation, onPlanToTodo, expandAllSignal }: ItemViewProps) {
+export function ItemView({ item, onOpenLocation, onPlanToTodo, expandAllSignal, chatId }: ItemViewProps) {
   const { t } = useTranslation("panes");
   switch (item.type) {
     case "user":
@@ -96,6 +98,7 @@ export function ItemView({ item, onOpenLocation, onPlanToTodo, expandAllSignal }
       return (
         <ToolCallCard
           call={item.call}
+          chatId={chatId}
           onOpenLocation={onOpenLocation}
           expandAllSignal={expandAllSignal}
         />

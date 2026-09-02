@@ -370,6 +370,8 @@
   "agentChatStartFailed": "启动失败",
   "agentChatUnavailableEngine": "未安装",
   "agentChatThinking": "工作中…",
+  "agentChatThoughtLevel": "思维深度",
+  "agentChatImageUnsupported": "当前引擎不支持图片输入（promptCapabilities.image），已忽略粘贴/拖入的图片。",
   "agentChatSendPlaceholder": "输入消息，Enter 发送，Shift+Enter 换行。",
   "agentChatSend": "发送",
   "agentChatStop": "停止",

@@ -59,6 +59,14 @@ export default function ChatComposer({
     }
     return null;
   });
+  // ACP promptCapabilities：image 缺省为 false（协议规定），不支持时图片不内嵌——有路径的转
+  // resource_link，粘贴/拖放的（无路径）提示并丢弃，避免 agent 直接拒绝整条 prompt。
+  const imageSupported = useAgentChatStore((state) => {
+    const caps = state.chats[chatId]?.snapshot?.agentCapabilities as
+      | { promptCapabilities?: { image?: boolean } }
+      | undefined;
+    return caps?.promptCapabilities?.image === true;
+  });
   const [draft, setDraftState] = useState(() => draftCache.get(chatId) ?? "");
   const [attachments, setAttachments] = useState<AgentChatAttachment[]>([]);
   const [slashIndex, setSlashIndex] = useState(0);
@@ -101,6 +109,10 @@ export default function ChatComposer({
   }, [draft]);
 
   const pushFileAttachment = useCallback((file: File, fallbackName: string) => {
+    if (!imageSupported) {
+      useAgentChatStore.getState().pushNotice(chatId, t("agentChatImageUnsupported"));
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result;
@@ -113,7 +125,7 @@ export default function ChatComposer({
       ]);
     };
     reader.readAsDataURL(file);
-  }, []);
+  }, [chatId, imageSupported, t]);
 
   /** 附件对话框：图片内嵌为 image 块，其余文件转 resource_link（引用不内嵌）。 */
   const attachFromDialog = useCallback(async () => {
@@ -123,7 +135,7 @@ export default function ChatComposer({
     for (const path of paths) {
       const name = path.split(/[\\/]/).pop() || path;
       const extension = name.split(".").pop()?.toLowerCase() ?? "";
-      if (!imageExtensions.has(extension)) {
+      if (!imageExtensions.has(extension) || !imageSupported) {
         setAttachments((previous) => [
           ...previous,
           { name, mimeType: "", data: "", kind: "file", path },
@@ -142,7 +154,7 @@ export default function ChatComposer({
           .pushNotice(chatId, error instanceof Error ? error.message : String(error));
       }
     }
-  }, [chatId]);
+  }, [chatId, imageSupported]);
 
   /** HTML5 拖放：Tauri 若拦截了 drop 事件则此路径静默不触发，附件按钮兜底。 */
   const handleDrop = useCallback(

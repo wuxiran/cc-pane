@@ -101,6 +101,11 @@ export function setAcpChatModel(chatId: string, modelId: string): Promise<void> 
   return call("set_acp_chat_model", { chatId, modelId });
 }
 
+/** `session/set_config_option`：configId 必须来自 agent 广告的 `configOptions`。 */
+export function setAcpChatConfigOption(chatId: string, configId: string, value: unknown): Promise<void> {
+  return call("set_acp_chat_config_option", { chatId, configId, value });
+}
+
 export function respondAcpPermission(
   chatId: string,
   requestKey: string,
@@ -138,6 +143,7 @@ export const agentChatService = {
   cancel: cancelAcpChat,
   setMode: setAcpChatMode,
   setModel: setAcpChatModel,
+  setConfigOption: setAcpChatConfigOption,
   setAutoApprove: setAcpChatAutoApprove,
   respondPermission: respondAcpPermission,
   get: getAcpChat,

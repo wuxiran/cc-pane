@@ -30,6 +30,26 @@ export interface AcpSessionModelState {
   availableModels?: AcpSessionModel[];
 }
 
+/** ACP Session Config Option 的类别（协议枚举；未知类别按普通选择器渲染）。 */
+export type AcpConfigOptionCategory = "mode" | "model" | "model_config" | "thought_level" | string;
+
+export interface AcpConfigOptionChoice {
+  value: string;
+  name?: string;
+  description?: string;
+}
+
+/** ACP `configOptions[]` 条目（当前只有 `select` 类型；其他类型原样保留不渲染）。 */
+export interface AcpConfigOption {
+  configId: string;
+  name?: string;
+  description?: string;
+  category?: AcpConfigOptionCategory;
+  type?: "select" | string;
+  currentValue?: unknown;
+  options?: AcpConfigOptionChoice[];
+}
+
 /** Rust AcpChatSnapshot 的镜像。 */
 export interface AcpChatSnapshot {
   chatId: string;
@@ -43,10 +63,20 @@ export interface AcpChatSnapshot {
   modes?: AcpSessionModeState;
   /** 模型选择，引擎不广告时缺失。 */
   models?: AcpSessionModelState;
+  /** 会话配置项（模式 / 模型 / 思维深度 …）的真源；新版适配器把 mode/model 也放这里。 */
+  configOptions?: AcpConfigOption[];
   /** 自动放行的 ACP ToolKind 集合（`*` = 全部）；空/缺失 = 每次都问。 */
   autoApproveKinds?: string[];
   exitCode?: number;
   error?: string;
+}
+
+/** 客户端 `terminal/*` 能力开的终端输出快照（后端 `terminal_output` 事件）。 */
+export interface AcpTerminalOutput {
+  terminalId: string;
+  output: string;
+  truncated: boolean;
+  exitStatus?: { exitCode?: number; signal?: string };
 }
 
 /** `usage_update` 的上下文用量（ACP session-usage RFD）。size 必有且非零。 */

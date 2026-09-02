@@ -370,6 +370,8 @@
   "agentChatStartFailed": "Failed to start",
   "agentChatUnavailableEngine": "Not installed",
   "agentChatThinking": "Working...",
+  "agentChatThoughtLevel": "Thinking depth",
+  "agentChatImageUnsupported": "This engine does not accept image input (promptCapabilities.image); the pasted/dropped image was ignored.",
   "agentChatSendPlaceholder": "Message the agent. Enter to send, Shift+Enter for a new line.",
   "agentChatSend": "Send",
   "agentChatStop": "Stop",

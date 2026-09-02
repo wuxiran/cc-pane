@@ -18,6 +18,7 @@ import type {
   AcpPermissionRequest,
   AcpPlanEntry,
   AcpSessionUpdate,
+  AcpTerminalOutput,
   AcpToolCall,
   AcpUsage,
   AgentChatItem,
@@ -37,6 +38,8 @@ export interface AgentChatSessionState {
   availableCommands: AcpAvailableCommand[];
   /** 上下文窗口用量（usage_update 整体替换）；引擎不上报时为 null，UI 不显示。 */
   usage: AcpUsage | null;
+  /** agent 经客户端 `terminal/*` 能力开的终端（terminalId → 最新输出快照）。 */
+  terminals: Record<string, AcpTerminalOutput>;
 }
 
 interface AgentChatStoreState {
@@ -49,6 +52,7 @@ interface AgentChatStoreState {
   setPermission: (chatId: string, request: AcpPermissionRequest | null) => void;
   pushNotice: (chatId: string, text: string) => void;
   turnEnded: (chatId: string, stopReason: string, error?: string) => void;
+  setTerminalOutput: (chatId: string, output: AcpTerminalOutput) => void;
   dropChat: (chatId: string) => void;
 }
 
@@ -59,6 +63,7 @@ function emptySession(): AgentChatSessionState {
     pendingPermission: null,
     availableCommands: [],
     usage: null,
+    terminals: {},
   };
 }
 
@@ -207,7 +212,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
           case "current_mode_update":
             return;
           // agent 生成的会话标题由后端写进历史 meta（实测 claude/codex/copilot/
-          // cursor 都发）；配置项目录（copilot 发）暂无 UI 消费。两者都不是对话内容。
+          // cursor 都发）；配置项变更由后端同步进快照并 emit state。两者都不是对话内容。
           case "session_info_update":
           case "config_option_update":
             return;
@@ -263,6 +268,12 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
           const text = error ? `${stopReason}: ${error}` : `[${stopReason}]`;
           chat.items.push({ type: "notice", id: nextItemId(), text });
         }
+      }),
+
+    setTerminalOutput: (chatId, output) =>
+      set((state) => {
+        const chat = ensure(state.chats, chatId);
+        chat.terminals[output.terminalId] = output;
       }),
 
     dropChat: (chatId) =>
@@ -388,6 +399,12 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
     case "turn_ended": {
       const data = payload as { stopReason?: string; error?: string };
       store.turnEnded(chatId, data.stopReason ?? "end_turn", data.error);
+      return;
+    }
+    // 客户端 terminal 能力的实时输出（后端已去抖），工具卡里的 terminal 块据此渲染。
+    case "terminal_output": {
+      const data = payload as AcpTerminalOutput;
+      if (typeof data?.terminalId === "string") store.setTerminalOutput(chatId, data);
       return;
     }
     case "notification": {

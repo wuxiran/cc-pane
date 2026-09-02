@@ -20,6 +20,11 @@ export interface EngineModelPrefs {
   autoApprove?: boolean;
   /** 自动放行的 ACP ToolKind 集合（`*` = 全部）；空/缺失 = 每次都问。 */
   autoApproveKinds?: string[];
+  /**
+   * ACP `configOptions` 的偏好值（configId → value）。只记 mode/model 以外的类别
+   * （思维深度等）——mode/model 已由上面两个字段管，避免双写打架。
+   */
+  preferredConfigOptions?: Record<string, string>;
 }
 
 type PrefsMap = Record<string, EngineModelPrefs>;
@@ -100,4 +105,18 @@ export function savePreferredMode(engineId: string, modeId: string | null): void
 export function saveAutoApproveKinds(engineId: string, autoApproveKinds: string[]): void {
   // 同时清掉旧开关，避免迁移逻辑在下次读取时又把 `*` 加回来。
   merge(engineId, { autoApproveKinds, autoApprove: undefined });
+}
+
+/** 该引擎的配置项偏好（configId → value）；无缓存时为空。 */
+export function loadPreferredConfigOptions(engineId: string): Record<string, string> {
+  const prefs = loadAll()[engineId]?.preferredConfigOptions;
+  return prefs && typeof prefs === "object" ? prefs : {};
+}
+
+/** 记一个配置项偏好；`value` 为 null 表示回到跟随引擎默认。 */
+export function savePreferredConfigOption(engineId: string, configId: string, value: string | null): void {
+  const next = { ...loadPreferredConfigOptions(engineId) };
+  if (value === null) delete next[configId];
+  else next[configId] = value;
+  merge(engineId, { preferredConfigOptions: next });
 }

@@ -37,6 +37,12 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(180);
 const STDERR_TAIL_LINES: usize = 80;
 /// JSON-RPC "method not found".
 const JSONRPC_METHOD_NOT_FOUND: i64 = -32601;
+/// ACP 保留：`session/new` / `session/prompt` 需要先 `authenticate`。
+const JSONRPC_AUTH_REQUIRED: i64 = -32000;
+
+fn is_auth_required(error: &AppError) -> bool {
+    error.code() == Some("ACP_AUTH_REQUIRED")
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,6 +75,12 @@ pub struct AcpChatSnapshot {
     /// ACP SessionModelState（currentModelId + availableModels），引擎不支持时缺失。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub models: Option<Value>,
+    /// ACP Session Config Options（`configOptions` 数组，原样透传）：模式 / 模型 /
+    /// 思维深度（`thought_level`）等选择器的**真源**。`session/new` 响应、
+    /// `session/set_config_option` 响应、`config_option_update` 通知三处都整表替换。
+    /// 新版适配器把 mode/model 也放在这里，`modes`/`models` 只是兼容旧客户端。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_options: Option<Value>,
     /// 当前自动放行的 ACP ToolKind 集合（`*` = 全部）。前端重挂载时据此
     /// 还原权限下拉的勾选态。
     #[serde(default)]
@@ -206,6 +218,10 @@ struct AcpChatSession {
     chats_dir: PathBuf,
     /// 回合结束/失败的外部通知钩子（服务级共享，lib.rs 注入桌面通知）。
     turn_notifier: Arc<std::sync::RwLock<Option<AcpTurnNotifier>>>,
+    /// agent 经 `terminal/*` 开的子进程（客户端能力），会话结束时全部回收。
+    terminals: Arc<super::acp_client_ops::AcpTerminalManager>,
+    /// 会话 cwd（`terminal/create` 不带 cwd 时的默认目录）。
+    cwd: PathBuf,
 }
 
 impl AcpChatSession {
@@ -265,16 +281,23 @@ impl AcpChatSession {
 
         match receiver.await {
             Ok(Ok(result)) => Ok(result),
-            Ok(Err(rpc_error)) => Err(AppError::coded(
-                "ACP_AGENT_ERROR",
-                format!(
-                    "ACP agent rejected '{method}': {}",
-                    rpc_error
-                        .get("message")
-                        .and_then(Value::as_str)
-                        .unwrap_or("unknown error")
-                ),
-            )),
+            Ok(Err(rpc_error)) => {
+                // ACP 保留错误码：-32000 = auth_required（handshake 据此走 authenticate）。
+                let code = match rpc_error.get("code").and_then(Value::as_i64) {
+                    Some(JSONRPC_AUTH_REQUIRED) => "ACP_AUTH_REQUIRED",
+                    _ => "ACP_AGENT_ERROR",
+                };
+                Err(AppError::coded(
+                    code,
+                    format!(
+                        "ACP agent rejected '{method}': {}",
+                        rpc_error
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .unwrap_or("unknown error")
+                    ),
+                ))
+            }
             Err(_) => Err(AppError::coded(
                 "ACP_PROCESS_EXITED",
                 format!("ACP agent exited before responding to '{method}'"),
@@ -513,6 +536,7 @@ impl AcpChatService {
                 protocol_version: None,
                 modes: None,
                 models: None,
+                config_options: None,
                 auto_approve_kinds: spec.auto_approve_kinds.clone(),
                 exit_code: None,
                 error: None,
@@ -528,6 +552,8 @@ impl AcpChatService {
             tool_kinds: std::sync::Mutex::new(HashMap::new()),
             chats_dir: self.chats_dir.clone(),
             turn_notifier: self.turn_notifier.clone(),
+            terminals: Arc::new(super::acp_client_ops::AcpTerminalManager::default()),
+            cwd: cwd.to_path_buf(),
         });
         self.sessions
             .write()
@@ -567,9 +593,11 @@ impl AcpChatService {
                 "initialize",
                 json!({
                     "protocolVersion": ACP_PROTOCOL_VERSION,
+                    // 客户端能力（acp_client_ops.rs 兑现）：agent 经我们读写文件、跑
+                    // 命令，工具卡才能拿到实时终端输出与 diff 前后文。
                     "clientCapabilities": {
-                        "fs": {"readTextFile": false, "writeTextFile": false},
-                        "terminal": false,
+                        "fs": {"readTextFile": true, "writeTextFile": true},
+                        "terminal": true,
                     },
                 }),
             ),
@@ -665,15 +693,88 @@ impl AcpChatService {
         {
             (id, response)
         } else {
-            let new_session = tokio::time::timeout(
+            let new_session_params = json!({"cwd": cwd, "mcpServers": mcp_servers});
+            let first_attempt = tokio::time::timeout(
                 HANDSHAKE_TIMEOUT,
-                session.request(
-                    "session/new",
-                    json!({"cwd": cwd, "mcpServers": mcp_servers}),
-                ),
+                session.request("session/new", new_session_params.clone()),
             )
             .await
-            .map_err(|_| AppError::coded("ACP_HANDSHAKE_TIMEOUT", "ACP session/new timed out"))??;
+            .map_err(|_| AppError::coded("ACP_HANDSHAKE_TIMEOUT", "ACP session/new timed out"))?;
+            let new_session = match first_attempt {
+                Ok(response) => response,
+                // `auth_required`（-32000）：按 initialize 广告的 authMethods 逐个
+                // `authenticate`，成功后重试一次 session/new。交互式（需要跳浏览器/
+                // 输入 key）的方法在这里不会成功，把方法列表连同错误一起抛给用户。
+                Err(error) if is_auth_required(&error) => {
+                    let auth_methods = initialize
+                        .get("authMethods")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    let mut authenticated = false;
+                    for method in &auth_methods {
+                        let Some(method_id) = method.get("id").and_then(Value::as_str) else {
+                            continue;
+                        };
+                        match tokio::time::timeout(
+                            HANDSHAKE_TIMEOUT,
+                            session.request("authenticate", json!({"methodId": method_id})),
+                        )
+                        .await
+                        {
+                            Ok(Ok(_)) => {
+                                authenticated = true;
+                                session.emit(
+                                    "notification",
+                                    json!({
+                                        "method": "ccpanes/authenticated",
+                                        "params": {"methodId": method_id},
+                                    }),
+                                );
+                                break;
+                            }
+                            Ok(Err(auth_error)) => {
+                                debug!(chat_id = %session.chat_id, method_id, error = %auth_error, "ACP authenticate rejected");
+                            }
+                            Err(_) => {
+                                debug!(chat_id = %session.chat_id, method_id, "ACP authenticate timed out");
+                            }
+                        }
+                    }
+                    if !authenticated {
+                        let names: Vec<String> = auth_methods
+                            .iter()
+                            .filter_map(|method| {
+                                method
+                                    .get("name")
+                                    .or_else(|| method.get("id"))
+                                    .and_then(Value::as_str)
+                                    .map(str::to_string)
+                            })
+                            .collect();
+                        return Err(AppError::coded(
+                            "ACP_AUTH_REQUIRED",
+                            if names.is_empty() {
+                                format!("{error}")
+                            } else {
+                                format!(
+                                    "{error}\n该引擎需要先登录，可用方式：{}。请在终端里完成登录后重试。",
+                                    names.join(" / ")
+                                )
+                            },
+                        ));
+                    }
+                    tokio::time::timeout(
+                        HANDSHAKE_TIMEOUT,
+                        session.request("session/new", new_session_params),
+                    )
+                    .await
+                    .map_err(|_| {
+                        AppError::coded("ACP_HANDSHAKE_TIMEOUT", "ACP session/new timed out")
+                    })??
+                }
+                Err(error) => return Err(error),
+            };
             let id = new_session
                 .get("sessionId")
                 .and_then(Value::as_str)
@@ -693,6 +794,10 @@ impl AcpChatService {
             snapshot.acp_session_id = Some(acp_session_id.clone());
             snapshot.modes = response.get("modes").filter(|v| !v.is_null()).cloned();
             snapshot.models = response.get("models").filter(|v| !v.is_null()).cloned();
+            snapshot.config_options = response
+                .get("configOptions")
+                .filter(|v| v.is_array())
+                .cloned();
             snapshot.phase = AcpChatPhase::Ready;
         }
         self.write_chat_meta(&acp_session_id, &spec.engine_id, cwd, None);
@@ -836,6 +941,7 @@ impl AcpChatService {
             if let Some(modes) = snapshot.modes.as_mut() {
                 modes["currentModeId"] = json!(mode_id);
             }
+            mirror_into_config_options(&mut snapshot, "mode", &json!(mode_id));
         }
         session.emit_state().await;
         Ok(())
@@ -866,6 +972,65 @@ impl AcpChatService {
             let mut snapshot = session.snapshot.write().await;
             if let Some(models) = snapshot.models.as_mut() {
                 models["currentModelId"] = json!(model_id);
+            }
+            mirror_into_config_options(&mut snapshot, "model", &json!(model_id));
+        }
+        session.emit_state().await;
+        Ok(())
+    }
+
+    /// Set one session config option (`session/set_config_option`). `config_id`
+    /// must come from `configOptions` advertised by the agent. The response carries
+    /// the full refreshed list, which becomes the new snapshot state — some
+    /// adapters (claude-agent-acp #714) do not follow up with a
+    /// `config_option_update`, so the response is the only reliable sync point.
+    pub async fn set_config_option(
+        &self,
+        chat_id: &str,
+        config_id: String,
+        value: Value,
+    ) -> AppResult<()> {
+        let session = self.session(chat_id).await?;
+        let acp_session_id = session
+            .snapshot
+            .read()
+            .await
+            .acp_session_id
+            .clone()
+            .ok_or_else(|| {
+                AppError::coded(
+                    "ACP_SESSION_NOT_READY",
+                    "ACP session has not finished starting",
+                )
+            })?;
+        let response = session
+            .request(
+                "session/set_config_option",
+                json!({
+                    "sessionId": acp_session_id,
+                    "configId": config_id,
+                    "value": value,
+                }),
+            )
+            .await?;
+        {
+            let mut snapshot = session.snapshot.write().await;
+            match response.get("configOptions").filter(|v| v.is_array()) {
+                Some(options) => {
+                    apply_config_options(&mut snapshot, options.clone());
+                }
+                None => {
+                    // 没回全表：至少把我们设的值写进去，保证选择器不回弹。
+                    if let Some(Value::Array(options)) = snapshot.config_options.as_mut() {
+                        for option in options.iter_mut() {
+                            if option.get("configId").and_then(Value::as_str)
+                                == Some(config_id.as_str())
+                            {
+                                option["currentValue"] = value.clone();
+                            }
+                        }
+                    }
+                }
             }
         }
         session.emit_state().await;
@@ -941,6 +1106,8 @@ impl AcpChatService {
         phase: AcpChatPhase,
         error: Option<String>,
     ) {
+        // agent 开的终端子进程不能比会话活得长。
+        session.terminals.release_all().await;
         let exit_code = {
             let mut child_guard = session.child.lock().await;
             match child_guard.as_mut() {
@@ -1135,7 +1302,7 @@ impl AcpChatService {
     }
 }
 
-fn attach_guard(child: &Child) -> AppResult<Option<ProcessGuard>> {
+pub(super) fn attach_guard(child: &Child) -> AppResult<Option<ProcessGuard>> {
     #[cfg(windows)]
     {
         let Some(handle) = child.raw_handle() else {
@@ -1287,9 +1454,18 @@ async fn route_message(session: &Arc<AcpChatSession>, message: Value) {
                     "permission_request",
                     json!({"requestKey": request_key, "params": params}),
                 );
+            } else if method.starts_with("fs/") || method.starts_with("terminal/") {
+                // 客户端能力（acp_client_ops）。`terminal/wait_for_exit` 会阻塞到进程退出，
+                // 必须离开读循环跑，否则 agent 后续的 session/update 全被卡住。
+                let session = session.clone();
+                let method = method.to_string();
+                tokio::spawn(async move {
+                    let result = handle_client_request(&session, &method, &params).await;
+                    if let Err(write_error) = session.respond(&id, result).await {
+                        debug!(chat_id = %session.chat_id, method = %method, error = %write_error, "failed to answer ACP client request");
+                    }
+                });
             } else {
-                // fs/* and terminal/* are disabled in our clientCapabilities;
-                // anything landing here is out of contract.
                 let error = json!({
                     "code": JSONRPC_METHOD_NOT_FOUND,
                     "message": format!("CC-Panes does not support '{method}'"),
@@ -1306,6 +1482,7 @@ async fn route_message(session: &Arc<AcpChatSession>, message: Value) {
                 // agent 可以自主换模式（例如 plan 模式跑完自动切回）；快照要跟上，
                 // 否则头部的模式选择器显示陈旧值。
                 sync_mode_update_into_snapshot(session, &params).await;
+                sync_config_options_into_snapshot(session, &params).await;
                 remember_tool_kind(session, &params);
                 sync_agent_title_into_meta(session, &params).await;
                 session.emit("update", params);
@@ -1334,6 +1511,38 @@ async fn route_message(session: &Arc<AcpChatSession>, message: Value) {
                 json!({"error": "ACP message had neither method nor id"}),
             );
         }
+    }
+}
+
+/// Dispatch one agent→client capability request. Every branch answers JSON-RPC
+/// errors in-band; only I/O to the agent itself surfaces as `Err` at the call site.
+async fn handle_client_request(
+    session: &Arc<AcpChatSession>,
+    method: &str,
+    params: &Value,
+) -> super::acp_client_ops::RpcResult {
+    use super::acp_client_ops as ops;
+    match method {
+        "fs/read_text_file" => ops::fs_read_text_file(params).await,
+        "fs/write_text_file" => ops::fs_write_text_file(params).await,
+        "terminal/create" => {
+            let emitter_session = session.clone();
+            let emitter: ops::TerminalEmitter = Arc::new(move |payload| {
+                emitter_session.emit("terminal_output", payload);
+            });
+            session
+                .terminals
+                .create(params, &session.cwd, emitter)
+                .await
+        }
+        "terminal/output" => session.terminals.output(params).await,
+        "terminal/wait_for_exit" => session.terminals.wait_for_exit(params).await,
+        "terminal/kill" => session.terminals.kill(params).await,
+        "terminal/release" => session.terminals.release(params).await,
+        other => Err(json!({
+            "code": JSONRPC_METHOD_NOT_FOUND,
+            "message": format!("CC-Panes does not support '{other}'"),
+        })),
     }
 }
 
@@ -1504,6 +1713,65 @@ fn remember_tool_kind(session: &Arc<AcpChatSession>, params: &Value) {
     cache.insert(call_id.to_string(), kind.to_string());
 }
 
+/// Replace `configOptions` wholesale and mirror the `mode` / `model` categories into
+/// the legacy `modes` / `models` fields so both surfaces agree on the current value.
+fn apply_config_options(snapshot: &mut AcpChatSnapshot, options: Value) {
+    if let Some(items) = options.as_array() {
+        for option in items {
+            let category = option.get("category").and_then(Value::as_str);
+            let Some(current) = option.get("currentValue") else {
+                continue;
+            };
+            match category {
+                Some("mode") => {
+                    if let Some(modes) = snapshot.modes.as_mut() {
+                        modes["currentModeId"] = current.clone();
+                    }
+                }
+                Some("model") => {
+                    if let Some(models) = snapshot.models.as_mut() {
+                        models["currentModelId"] = current.clone();
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    snapshot.config_options = Some(options);
+}
+
+/// Legacy `set_mode` / `set_model` / `current_mode_update` paths: keep the matching
+/// `configOptions` entry's `currentValue` in step so the two surfaces never disagree.
+fn mirror_into_config_options(snapshot: &mut AcpChatSnapshot, category: &str, value: &Value) {
+    if let Some(Value::Array(options)) = snapshot.config_options.as_mut() {
+        for option in options.iter_mut() {
+            if option.get("category").and_then(Value::as_str) == Some(category) {
+                option["currentValue"] = value.clone();
+            }
+        }
+    }
+}
+
+/// `config_option_update` carries the complete option list; the agent sends it when it
+/// changes something itself (plan mode finished, model fallback, thinking level bumped
+/// by a slash command, …).
+async fn sync_config_options_into_snapshot(session: &Arc<AcpChatSession>, params: &Value) {
+    let Some(update) = params.get("update") else {
+        return;
+    };
+    if update.get("sessionUpdate").and_then(Value::as_str) != Some("config_option_update") {
+        return;
+    }
+    let Some(options) = update.get("configOptions").filter(|v| v.is_array()) else {
+        return;
+    };
+    {
+        let mut snapshot = session.snapshot.write().await;
+        apply_config_options(&mut snapshot, options.clone());
+    }
+    session.emit_state().await;
+}
+
 async fn sync_mode_update_into_snapshot(session: &Arc<AcpChatSession>, params: &Value) {
     let update = params.get("update");
     let is_mode_update = update
@@ -1524,6 +1792,7 @@ async fn sync_mode_update_into_snapshot(session: &Arc<AcpChatSession>, params: &
         if let Some(modes) = snapshot.modes.as_mut() {
             modes["currentModeId"] = json!(mode_id);
         }
+        mirror_into_config_options(&mut snapshot, "mode", &json!(mode_id));
     }
     session.emit_state().await;
 }
@@ -1544,6 +1813,7 @@ fn permission_request_key(id: &Value) -> String {
 }
 
 async fn finish_after_stdout_closed(session: Arc<AcpChatSession>, stdout_error: Option<String>) {
+    session.terminals.release_all().await;
     let exit_code = {
         let mut child_guard = session.child.lock().await;
         match child_guard.as_mut() {

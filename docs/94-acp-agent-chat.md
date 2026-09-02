@@ -112,6 +112,17 @@ allow_once 并列 = 提问，不能替用户乱选）；通配 `*`（Automations
 | openclaw | 是（源码） | 只转发命令审批，恒 execute（需本机 gateway） | 否 |
 | pi | 是（源码） | 仅扩展 UI 提问走 request_permission，恒 other | 否 |
 
+## 6.2 协议覆盖面（0.12.10 补齐批次）
+
+| 面 | 状态 | 落点 |
+|---|---|---|
+| `configOptions` / `session/set_config_option` / `config_option_update` | ✅ | 快照 `configOptions` 整表透传（`session/new` 响应、set 响应、通知三处替换；mode/model 类别镜像进 legacy `modes`/`models`，反向亦然）。composer 经 `ConfigOptionSelectors` 渲染 select 类，legacy 选择器已占的类别去重；`thought_level` 显示为「思维深度」。偏好按 configId 记进 `enginePrefs.preferredConfigOptions`，启动后对仍广告的项自动应用。**注意** claude-agent-acp #714：set 成功后不发通知，所以以响应体为准。 |
+| 客户端 `fs/read_text_file` / `fs/write_text_file` | ✅ | `acp_client_ops.rs`；绝对路径、`line`/`limit` 窗口、写入走临时文件 + rename。`clientCapabilities.fs` 两项已广告 true。 |
+| 客户端 `terminal/create|output|wait_for_exit|kill|release` | ✅ | `acp_client_ops::AcpTerminalManager`：每 terminalId 一个子进程（Job/进程组守卫），stdout+stderr 合并进有界缓冲（`outputByteLimit`，上限 4MB，从前截断到 UTF-8 边界），退出码进 `exitStatus`；输出去抖 80ms 经 `terminal_output` 事件推前端，`ToolCallCard` 的 `{type:"terminal"}` 块按 terminalId 订阅实时渲染。会话结束 `release_all`。请求在读循环外 spawn 处理——`wait_for_exit` 会阻塞。 |
+| `authenticate` | ✅ | `session/new` 回 `-32000 auth_required` 时按 `initialize.authMethods` 逐个 `authenticate` 再重试一次；都不成功则 `ACP_AUTH_REQUIRED` 带方法名列表报给用户（交互式登录仍需在终端完成）。 |
+| `promptCapabilities.image` 门控 | ✅ | composer 只在 agent 广告 `image: true` 时内嵌图片；有路径的图片转 `resource_link`，粘贴/拖放的丢弃并 notice。 |
+| `session/list` / `session/fork` / `session/resume` / `session/close` | ⏳ | v2 / unstable，等适配器跟进（§7 v2 适配时机）。 |
+
 ## 7. 排障判据
 
 - **引擎绿点 ≠ 可用**：npx 型引擎的 available 只代表 npm 在；底层 CLI 未

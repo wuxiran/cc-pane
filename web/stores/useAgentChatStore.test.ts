@@ -18,6 +18,22 @@ beforeEach(() => {
 });
 
 describe("useAgentChatStore", () => {
+  it("terminal_output 按 terminalId 整体替换，不进消息流", () => {
+    const store = useAgentChatStore.getState();
+    store.setSnapshot(CHAT, snapshot());
+    store.setTerminalOutput(CHAT, { terminalId: "term-1", output: "hel", truncated: false });
+    store.setTerminalOutput(CHAT, {
+      terminalId: "term-1",
+      output: "hello\n",
+      truncated: false,
+      exitStatus: { exitCode: 0 },
+    });
+    const chat = useAgentChatStore.getState().chats[CHAT];
+    expect(chat.terminals["term-1"].output).toBe("hello\n");
+    expect(chat.terminals["term-1"].exitStatus?.exitCode).toBe(0);
+    expect(chat.items).toHaveLength(0);
+  });
+
   it("流式文本邻接合并、被工具卡打断后开新气泡", () => {
     const store = useAgentChatStore.getState();
     store.appendStreamText(CHAT, "assistant", "你好");

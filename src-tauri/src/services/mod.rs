@@ -3,6 +3,7 @@ pub use cc_panes_core::services::*;
 
 // Tauri-specific services (kept in src-tauri)
 mod acp_chat_service;
+mod acp_client_ops;
 mod automation_service;
 mod browser_service;
 mod comfy_runtime;

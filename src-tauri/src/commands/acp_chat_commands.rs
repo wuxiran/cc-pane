@@ -423,6 +423,18 @@ pub async fn set_acp_chat_model(
     service.set_model(&chat_id, model_id).await
 }
 
+/// `session/set_config_option`：`value` 原样透传（select 类是字符串，其他类型由
+/// agent 在 `configOptions` 里声明）。
+#[tauri::command]
+pub async fn set_acp_chat_config_option(
+    service: State<'_, Arc<AcpChatService>>,
+    chat_id: String,
+    config_id: String,
+    value: serde_json::Value,
+) -> AppResult<()> {
+    service.set_config_option(&chat_id, config_id, value).await
+}
+
 #[tauri::command]
 pub async fn set_acp_chat_auto_approve(
     service: State<'_, Arc<AcpChatService>>,

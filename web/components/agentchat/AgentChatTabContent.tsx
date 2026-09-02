@@ -43,6 +43,7 @@ import { handleErrorSilent } from "@/utils/errorHandler";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import ChatChangesPanel, { collectNetChanges } from "./ChatChangesPanel";
 import ChatComposer from "./ChatComposer";
+import ConfigOptionSelectors from "./ConfigOptionSelectors";
 import { HeaderSelect, ItemView } from "./ChatItems";
 import EnginePicker from "./EnginePicker";
 import PermissionCard from "./PermissionCard";
@@ -53,6 +54,7 @@ import {
   saveAutoApproveKinds,
   saveEngineModels,
   saveEngineModes,
+  savePreferredConfigOption,
   savePreferredMode,
   savePreferredModel,
 } from "./enginePrefs";
@@ -253,6 +255,11 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
     description: model.description,
   }));
   const autoApproveKinds = snapshot?.autoApproveKinds ?? [];
+  // legacy 选择器在渲染的类别，configOptions 里同类不再重复出一个。
+  const legacyCategories = new Set<string>([
+    ...(modelItems.length > 0 ? ["model"] : []),
+    ...(modeItems.length > 0 ? ["mode"] : []),
+  ]);
 
   const pushError = (error: unknown) => {
     useAgentChatStore
@@ -288,6 +295,17 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
           }}
         />
       ) : null}
+      <ConfigOptionSelectors
+        options={snapshot.configOptions}
+        hiddenCategories={legacyCategories}
+        onSelect={(option, value) => {
+          // mode/model 类别（legacy 缺席时才从这里出）沿用原偏好字段；其余记进配置项偏好。
+          if (option.category === "model") savePreferredModel(snapshot.engineId, value);
+          else if (option.category === "mode") savePreferredMode(snapshot.engineId, value);
+          else savePreferredConfigOption(snapshot.engineId, option.configId, value);
+          void agentChatService.setConfigOption(tab.id, option.configId, value).catch(pushError);
+        }}
+      />
       <PermissionPolicyDropdown
         kinds={autoApproveKinds}
         onChange={(kinds) => {
@@ -393,6 +411,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
                 onOpenLocation={openLocation}
                 onPlanToTodo={planToTodo}
                 expandAllSignal={toolFold}
+                chatId={tab.id}
               />
             ))}
             {generating ? (
