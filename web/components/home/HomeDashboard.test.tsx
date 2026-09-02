@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getVersion } from "@tauri-apps/api/app";
 import packageJson from "../../../package.json";
 import { isTauriRuntime } from "@/services/runtime";
+import { waitForTauri } from "@/utils";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useDialogStore } from "@/stores";
 import HomeDashboard from "./HomeDashboard";
@@ -15,6 +16,11 @@ vi.mock("@tauri-apps/api/app", () => ({
 vi.mock("@/services/runtime", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/services/runtime")>();
   return { ...actual, isTauriRuntime: vi.fn(() => false) };
+});
+
+vi.mock("@/utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/utils")>();
+  return { ...actual, waitForTauri: vi.fn(async () => true) };
 });
 
 vi.mock("./HomeHeader", () => ({
@@ -38,6 +44,7 @@ describe("HomeDashboard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(isTauriRuntime).mockReturnValue(false);
+    vi.mocked(waitForTauri).mockResolvedValue(true);
     useActivityBarStore.setState({ appViewMode: "home", sidebarVisible: false });
   });
 

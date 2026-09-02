@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
 import packageJson from "../../../package.json";
@@ -45,7 +45,8 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
   // 首页在 home 模式下没有挂载常规 Sidebar，因此主动补齐它通常负责的两份轻量数据。
   const refreshLaunchHistory = useCallback(async () => {
     try {
-      setLaunchHistory(await historyService.list(30));
+      const records = await historyService.list(30);
+      setLaunchHistory(Array.isArray(records) ? records : []);
     } catch {
       setLaunchHistory([]);
     } finally {
@@ -60,8 +61,10 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
     return () => window.removeEventListener("cc-panes:history-updated", handler);
   }, [refreshLaunchHistory]);
 
+  const requestedWorkspaces = useRef(workspaces.length > 0);
   useEffect(() => {
-    if (workspaces.length > 0 || workspacesLoading) return;
+    if (requestedWorkspaces.current || workspaces.length > 0 || workspacesLoading) return;
+    requestedWorkspaces.current = true;
     void loadWorkspaces().catch(() => undefined);
   }, [loadWorkspaces, workspaces.length, workspacesLoading]);
 

@@ -215,7 +215,9 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
     set({ loading: true });
     try {
       const workspaces = await workspaceService.listWorkspaces();
-      set({ workspaces });
+      // invoke 返回 undefined（测试 mock、后端异常）时绝不能把 store 置成
+      // undefined——消费方全是 .length/.filter，undefined 会在渲染层炸成循环。
+      set({ workspaces: Array.isArray(workspaces) ? workspaces : [] });
     } finally {
       set({ loading: false });
     }
