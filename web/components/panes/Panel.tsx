@@ -105,6 +105,10 @@ export default memo(function Panel({ pane }: PanelProps) {
   const isFullscreenPanel = isFullscreen && fullscreenPaneId === pane.id;
   const showTerminalStatusBar = true;
 
+  // 焦点环只在多窗格布局出现：单窗格/全屏只有一格可见，无歧义不加噪。
+  const paneCount = useMemo(() => collectPanels(rootPane).length, [rootPane]);
+  const showFocusRing = isActivePane && paneCount > 1 && !isFullscreenPanel;
+
   const activeTab = useMemo(
     () => pane.tabs.find((t) => t.id === pane.activeTabId),
     [pane.tabs, pane.activeTabId]
@@ -408,17 +412,13 @@ export default memo(function Panel({ pane }: PanelProps) {
   return (
     <div
       data-pane-id={pane.id}
-      className={`flex w-full min-w-0 min-h-0 flex-col h-full overflow-hidden transition-shadow duration-[var(--dur)] ${
+      className={`relative flex w-full min-w-0 min-h-0 flex-col h-full overflow-hidden ${
         isFullscreenPanel ? "fixed inset-0 z-[9999]" : ""
       }`}
       style={{
         background: "var(--app-panel-bg-effective)",
         backdropFilter: `blur(var(--app-glass-blur))`,
         WebkitBackdropFilter: `blur(var(--app-glass-blur))`,
-        // 激活 pane:subtle accent 内环,一眼分清焦点
-        boxShadow: isActivePane
-          ? "inset 0 0 0 1px color-mix(in srgb, var(--app-accent) 20%, transparent)"
-          : "inset 0 0 0 1px transparent",
       }}
       onClick={handlePanelClick}
     >
@@ -519,6 +519,22 @@ export default memo(function Panel({ pane }: PanelProps) {
           <span className="text-xs opacity-70">ESC</span>
         </div>
       )}
+
+      {/* 焦点窗格指示：多窗格时给当前 pane 一圈 2px accent 内描边。
+          用 overlay 而非容器 boxShadow——不圆角化 pane 背景本身，非焦点窗格
+          像素不变；实色 accent + shape 圆角 token 在壁纸半透明底与各主题下
+          都清晰，过渡只动 opacity（--dur-fast + --ease-out）。 */}
+      <div
+        aria-hidden="true"
+        data-pane-focus-ring
+        className="pointer-events-none absolute inset-0"
+        style={{
+          borderRadius: "var(--shape-radius-lg, var(--radius))",
+          border: "2px solid var(--app-accent)",
+          opacity: showFocusRing ? 1 : 0,
+          transition: `opacity var(--dur-fast) var(--ease-out)`,
+        }}
+      />
 
       {/* 关闭确认：agent 忙碌 / 编辑器未保存，条目由 planTabDestroy 聚合 */}
       <TabCloseConfirmDialog

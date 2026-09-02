@@ -424,6 +424,66 @@ describe("Panel", () => {
     expect(setActivePane).toHaveBeenCalledWith("pane-1");
   });
 
+  // 焦点环：多窗格 + 当前 pane 才显示；单窗格/非焦点/全屏一律隐藏。
+  // overlay 恒渲染，用 opacity 区分——断言打在 style 上。
+  describe("pane focus ring", () => {
+    function makeSplitRoot(pane: PanelType) {
+      const otherPane: PanelType = {
+        type: "panel",
+        id: "pane-2",
+        tabs: [makeTab("t2")],
+        activeTabId: "t2",
+      };
+      return {
+        type: "split",
+        id: "root-split",
+        direction: "horizontal",
+        sizes: [50, 50],
+        children: [pane, otherPane],
+      };
+    }
+
+    it("shows the accent ring on the focused pane in a multi-pane layout", () => {
+      const pane = makePane([makeTab("t1")]);
+      setPanesState(pane, { rootPane: makeSplitRoot(pane) });
+
+      const { container } = render(<Panel pane={pane} />);
+      const ring = container.querySelector<HTMLElement>("[data-pane-focus-ring]");
+      expect(ring).not.toBeNull();
+      expect(ring).toHaveStyle({ opacity: "1" });
+      expect(ring!.style.border).toContain("var(--app-accent)");
+      expect(ring!.style.borderRadius).toContain("var(--shape-radius-lg");
+    });
+
+    it("keeps the ring hidden in a single-pane layout even when focused", () => {
+      const pane = makePane([makeTab("t1")]);
+      setPanesState(pane);
+
+      const { container } = render(<Panel pane={pane} />);
+      expect(container.querySelector("[data-pane-focus-ring]")).toHaveStyle({ opacity: "0" });
+    });
+
+    it("keeps the ring hidden on unfocused panes in a multi-pane layout", () => {
+      const pane = makePane([makeTab("t1")]);
+      setPanesState(pane, { activePaneId: "pane-2", rootPane: makeSplitRoot(pane) });
+
+      const { container } = render(<Panel pane={pane} />);
+      expect(container.querySelector("[data-pane-focus-ring]")).toHaveStyle({ opacity: "0" });
+    });
+
+    it("keeps the ring hidden while the pane is fullscreen", () => {
+      const pane = makePane([makeTab("t1")]);
+      useFullscreenStore.setState({
+        isFullscreen: true,
+        fullscreenPaneId: "pane-1",
+      } as never);
+      setPanesState(pane, { rootPane: makeSplitRoot(pane) });
+
+      const { container } = render(<Panel pane={pane} />);
+      expect(container.querySelector("[data-pane-focus-ring]")).toHaveStyle({ opacity: "0" });
+    });
+  });
+
   it("marks only ssh tabs disconnected when their session exits", () => {
     const setTabDisconnected = vi.fn();
     const sshTab = makeTab("ssh-tab", { ssh: { host: "example" } as Tab["ssh"] });
