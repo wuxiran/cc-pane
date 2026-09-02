@@ -118,7 +118,8 @@ describe("StatusBar", () => {
     const user = userEvent.setup();
     renderSB();
 
-    await user.click(screen.getByRole("button", { name: "中" }));
+    // 语言按钮新增 aria-label 后 accessible name 来自 i18n（原为可见文本「中」），断言语义不变
+    await user.click(screen.getByRole("button", { name: "切换语言" }));
 
     await waitFor(() => expect(i18n.language).toBe("en"));
     await waitFor(() =>

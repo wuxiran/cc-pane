@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Check, Eye, EyeOff, LockKeyhole, Minimize2, MonitorCog,
-  Palette, Pin, Terminal, ArrowUpCircle, Music, Music2,
+  ArrowUpCircle, Eye, EyeOff, LockKeyhole, Minimize2, Music, Music2,
+  Pin, Terminal,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { handleErrorSilent } from "@/utils";
 import {
-  useThemeStore,
   useMiniModeStore,
   useWorkspacesStore,
   useSettingsStore,
@@ -25,21 +24,21 @@ import { invokeIfTauri, isTauriRuntime } from "@/services/runtime";
 import SystemResourceSegment from "@/components/statusbar/SystemResourceSegment";
 import UsageStatsStatusButton from "@/components/statusbar/UsageStatsStatusButton";
 import NotificationBellButton from "@/components/statusbar/NotificationBellButton";
-import { PresetSwatches } from "@/components/theme/ThemeSwatches";
-import { THEME_PRESETS, type ThemePreference } from "@/theme/themePresets";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import ThemeQuickMenu from "@/components/statusbar/ThemeQuickMenu";
+
+/** 右侧图标组的组间竖分隔符，与既有分隔线风格一致。 */
+function StatusDivider() {
+  return (
+    <div
+      className="w-px h-3 mx-1"
+      style={{ background: "var(--app-border)" }}
+    />
+  );
+}
 
 export default function StatusBar() {
   const { t, i18n } = useTranslation();
   const { t: settingsT } = useTranslation("settings");
-  const themePreference = useThemeStore((s) => s.preference);
   const enterMiniMode = useMiniModeStore((s) => s.enterMiniMode);
   const miniModeTransitioning = useMiniModeStore((s) => s.isTransitioning);
   const selectedWorkspace = useWorkspacesStore((s) => s.selectedWorkspace);
@@ -132,22 +131,6 @@ export default function StatusBar() {
     }
   }
 
-  async function handleSelectTheme(nextTheme: ThemePreference) {
-    useThemeStore.getState().setThemeMode(nextTheme);
-    const store = useSettingsStore.getState();
-    if (store.settings) {
-      const updated = {
-        ...store.settings,
-        theme: { ...store.settings.theme, mode: nextTheme },
-      };
-      try {
-        await store.saveSettings(updated);
-      } catch (e) {
-        handleErrorSilent(e, "save theme");
-      }
-    }
-  }
-
   async function handleLockWeb() {
     try {
       await webAuthService.lock();
@@ -163,6 +146,13 @@ export default function StatusBar() {
   const showWebLock = !isTauriRuntime() && webAuthStatus !== null;
   const canLockWeb =
     showWebLock && webAuthStatus.authRequired && webAuthStatus.authenticated;
+
+  const musicLabel = musicGestureNeeded
+    ? settingsT("wallpaperMusicGesture")
+    : settingsT(musicPlaying ? "wallpaperMusicPause" : "wallpaperMusicPlay");
+  const ccChanLabel = ccChanVisible
+    ? t("statusbar.ccchanHide")
+    : t("statusbar.ccchanShow");
 
   return (
     <div
@@ -227,16 +217,20 @@ export default function StatusBar() {
       {/* 弹性间隔 */}
       <div className="flex-1" />
 
-      {/* 右侧工具 */}
+      {/* 右侧工具：通知/资源/用量 | 壁纸音乐 | Web 锁定 | 置顶/迷你 | cc酱 | 语言/主题 */}
       <div className="flex items-center gap-0.5">
+        {/* 通知 + 系统资源 + 用量 */}
         <NotificationBellButton />
         {isTauriRuntime() && showSystemResources && <SystemResourceSegment />}
         {isTauriRuntime() && <UsageStatsStatusButton />}
+
         {/* 壁纸音乐：autoplay 被拒时这里是显式起播入口，平时是播放/暂停开关 */}
+        {isTauriRuntime() && musicAvailable && <StatusDivider />}
         {isTauriRuntime() && musicAvailable && (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                aria-label={musicLabel}
                 className="flex items-center px-1.5 py-0.5 rounded transition-colors hover:bg-[var(--app-hover)]"
                 style={
                   musicGestureNeeded
@@ -253,25 +247,13 @@ export default function StatusBar() {
               </button>
             </TooltipTrigger>
             <TooltipContent side="top">
-              <p>
-                {musicGestureNeeded
-                  ? t("wallpaperMusicGesture", {
-                      ns: "settings",
-                      defaultValue: "点击开始播放背景音乐",
-                    })
-                  : musicPlaying
-                    ? t("wallpaperMusicPause", {
-                        ns: "settings",
-                        defaultValue: "暂停背景音乐",
-                      })
-                    : t("wallpaperMusicPlay", {
-                        ns: "settings",
-                        defaultValue: "播放背景音乐",
-                      })}
-              </p>
+              <p>{musicLabel}</p>
             </TooltipContent>
           </Tooltip>
         )}
+
+        {/* Web 只读徽章 + 锁定入口（Web 端） */}
+        {showWebLock && <StatusDivider />}
         {showWebLock && webAuthStatus.readOnly && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -314,11 +296,13 @@ export default function StatusBar() {
           </Tooltip>
         )}
 
-        {/* 置顶 */}
+        {/* 置顶 + 迷你模式 */}
+        {isTauriRuntime() && <StatusDivider />}
         {isTauriRuntime() && (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                aria-label={t("alwaysOnTop", { ns: "sidebar" })}
                 className={`p-0.5 rounded transition-colors ${
                   isPinned ? "text-[var(--app-accent)]" : ""
                 } hover:bg-[var(--app-hover)]`}
@@ -335,11 +319,11 @@ export default function StatusBar() {
           </Tooltip>
         )}
 
-        {/* 迷你模式 */}
         {isTauriRuntime() && (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                aria-label={t("miniMode", { ns: "sidebar" })}
                 className="p-0.5 rounded transition-colors hover:bg-[var(--app-hover)]"
                 disabled={miniModeTransitioning}
                 onClick={() => enterMiniMode()}
@@ -353,19 +337,13 @@ export default function StatusBar() {
           </Tooltip>
         )}
 
-        {/* 分隔线 */}
-        {isTauriRuntime() && (
-          <div
-            className="w-px h-3 mx-1"
-            style={{ background: "var(--app-border)" }}
-          />
-        )}
-
         {/* cc酱 浮窗 */}
+        {isTauriRuntime() && <StatusDivider />}
         {isTauriRuntime() && (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                aria-label={ccChanLabel}
                 className={`p-0.5 rounded transition-colors hover:bg-[var(--app-hover)] ${
                   ccChanVisible ? "text-[var(--app-accent)]" : ""
                 }`}
@@ -379,15 +357,17 @@ export default function StatusBar() {
               </button>
             </TooltipTrigger>
             <TooltipContent side="top">
-              <p>{ccChanVisible ? "隐藏 cc酱" : "显示 cc酱"}</p>
+              <p>{ccChanLabel}</p>
             </TooltipContent>
           </Tooltip>
         )}
 
-        {/* 语言切换 */}
+        {/* 语言 + 主题 */}
+        {isTauriRuntime() && <StatusDivider />}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              aria-label={t("switchLanguage")}
               className="px-1 py-0.5 rounded transition-colors hover:bg-[var(--app-hover)] text-[10px] font-medium"
               onClick={handleToggleLanguage}
             >
@@ -402,91 +382,7 @@ export default function StatusBar() {
           </TooltipContent>
         </Tooltip>
 
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <button
-                  aria-label={settingsT("theme.openMenu")}
-                  className="rounded p-0.5 transition-colors hover:bg-[var(--app-hover)]"
-                >
-                  <Palette className="h-3.5 w-3.5 text-[var(--app-accent)]" />
-                </button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <p>{settingsT("theme.openMenu")}</p>
-            </TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" side="top" className="w-52 p-1.5">
-            <DropdownMenuLabel className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
-              {settingsT("theme.groups.dark")}
-            </DropdownMenuLabel>
-            {THEME_PRESETS.filter((preset) => preset.group === "dark").map(
-              (preset) => (
-                <DropdownMenuItem
-                  key={preset.id}
-                  onSelect={() => void handleSelectTheme(preset.id)}
-                  className={
-                    themePreference === preset.id
-                      ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]"
-                      : ""
-                  }
-                >
-                  <PresetSwatches preset={preset} />
-                  <span className="min-w-0 flex-1 truncate text-[12px]">
-                    {settingsT(preset.labelKey as never)}
-                  </span>
-                  {themePreference === preset.id && (
-                    <Check className="ml-auto size-3.5 text-[var(--app-accent)]" />
-                  )}
-                </DropdownMenuItem>
-              ),
-            )}
-            <DropdownMenuSeparator className="my-1" />
-            <DropdownMenuLabel className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
-              {settingsT("theme.groups.light")}
-            </DropdownMenuLabel>
-            {THEME_PRESETS.filter((preset) => preset.group === "light").map(
-              (preset) => (
-                <DropdownMenuItem
-                  key={preset.id}
-                  onSelect={() => void handleSelectTheme(preset.id)}
-                  className={
-                    themePreference === preset.id
-                      ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]"
-                      : ""
-                  }
-                >
-                  <PresetSwatches preset={preset} />
-                  <span className="min-w-0 flex-1 truncate text-[12px]">
-                    {settingsT(preset.labelKey as never)}
-                  </span>
-                  {themePreference === preset.id && (
-                    <Check className="ml-auto size-3.5 text-[var(--app-accent)]" />
-                  )}
-                </DropdownMenuItem>
-              ),
-            )}
-            <DropdownMenuSeparator className="my-1" />
-            <DropdownMenuItem
-              onSelect={() => void handleSelectTheme("system")}
-              className={
-                themePreference === "system"
-                  ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]"
-                  : ""
-              }
-            >
-              <MonitorCog className="size-4 text-[var(--app-text-secondary)]" />
-              <span className="min-w-0 flex-1 truncate text-[12px]">
-                {settingsT("theme.followSystem")}
-              </span>
-              {themePreference === "system" && (
-                <Check className="ml-auto size-3.5 text-[var(--app-accent)]" />
-              )}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <ThemeQuickMenu />
       </div>
     </div>
   );

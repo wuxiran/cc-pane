@@ -119,5 +119,7 @@
   "contextUsage.windowSources.codexJsonl": "Codex runtime",
   "contextUsage.windowSources.claudeJsonl": "Claude session",
   "contextUsage.windowSources.providerModel": "Provider model settings",
-  "contextUsage.windowSources.unknown": "Unknown"
+  "contextUsage.windowSources.unknown": "Unknown",
+  "statusbar.ccchanShow": "Show cc-chan",
+  "statusbar.ccchanHide": "Hide cc-chan"
 }

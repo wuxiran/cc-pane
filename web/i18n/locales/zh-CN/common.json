@@ -119,5 +119,7 @@
   "contextUsage.windowSources.codexJsonl": "Codex \u8fd0\u884c\u65f6",
   "contextUsage.windowSources.claudeJsonl": "Claude \u4f1a\u8bdd",
   "contextUsage.windowSources.providerModel": "Provider \u6a21\u578b\u914d\u7f6e",
-  "contextUsage.windowSources.unknown": "\u672a\u77e5"
+  "contextUsage.windowSources.unknown": "\u672a\u77e5",
+  "statusbar.ccchanShow": "\u663e\u793a cc\u9171",
+  "statusbar.ccchanHide": "\u9690\u85cf cc\u9171"
 }
