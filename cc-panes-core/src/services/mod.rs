@@ -135,13 +135,11 @@ pub use media_probe::{
 pub use media_provider::{
     apply_media_run_protocol, parse_openai_status_response, parse_openai_submit_response,
     parse_openai_submit_response_for_kind, parse_status_response, parse_status_response_for_kind,
-    fetch_provider_model_ids, parse_submit_response, parse_submit_response_for_kind,
-    registry_from_providers, sub2api_wire_body, DownloadedAsset, MediaHttpMethod,
-    MediaInputAsset, MediaJobStatus,
-    MediaProtocol, MediaProviderAdapter, MediaProviderCapabilities, MediaProviderFuture,
-    MediaProviderProfile, MediaProviderRegistry, NormalizedMediaRequest,
-    OpenAiCompatibleMediaAdapter, RemoteJob, RemoteJobError, RemoteJobStatus, RemoteOutput,
-    Sub2ApiMediaAdapter,
+    parse_submit_response, parse_submit_response_for_kind, registry_from_providers,
+    DownloadedAsset, MediaHttpMethod, MediaInputAsset, MediaJobStatus, MediaProtocol,
+    MediaProviderAdapter, MediaProviderCapabilities, MediaProviderFuture, MediaProviderProfile,
+    MediaProviderRegistry, NormalizedMediaRequest, OpenAiCompatibleMediaAdapter, RemoteJob,
+    RemoteJobError, RemoteJobStatus, RemoteOutput,
 };
 pub use media_runtime::{DeterministicMockMediaProvider, MediaJobWorker};
 pub use media_service::MediaService;
