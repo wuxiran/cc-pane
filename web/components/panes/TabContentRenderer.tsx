@@ -56,6 +56,22 @@ function LazyContent({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Notch 浮动标签条绝对定位盖在内容区顶部（Panel.tsx），内容页必须自己让出
+ * `--notch-bar-height`。终端 / 编辑器 / 浏览器（含 dsh）各自在内部处理（要和分屏线、
+ * 覆盖层对齐）；其余带自有头栏的页面统一在这里让位，否则头栏被标签条压住。
+ */
+function NotchOffset({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className="flex h-full min-h-0 flex-col"
+      style={{ paddingTop: "var(--notch-bar-height, 0px)" }}
+    >
+      {children}
+    </div>
+  );
+}
+
 export default memo(function TabContentRenderer({
   tab,
   layoutActive,
@@ -126,7 +142,9 @@ export default memo(function TabContentRenderer({
       if (!tab.projectPath) return null;
       return (
         <LazyContent>
-          <FileExplorerView projectPath={tab.projectPath} />
+          <NotchOffset>
+            <FileExplorerView projectPath={tab.projectPath} />
+          </NotchOffset>
         </LazyContent>
       );
 
@@ -152,7 +170,9 @@ export default memo(function TabContentRenderer({
     case "agent-chat":
       return (
         <LazyContent>
-          <AgentChatTabContent tab={tab} />
+          <NotchOffset>
+            <AgentChatTabContent tab={tab} />
+          </NotchOffset>
         </LazyContent>
       );
 
@@ -172,21 +192,27 @@ export default memo(function TabContentRenderer({
     case "mcp-config":
       return (
         <LazyContent>
-          <McpConfigPanel projectPath={tab.projectPath} workspaceName={tab.workspaceName} />
+          <NotchOffset>
+            <McpConfigPanel projectPath={tab.projectPath} workspaceName={tab.workspaceName} />
+          </NotchOffset>
         </LazyContent>
       );
 
     case "skill-manager":
       return (
         <LazyContent>
-          <ProjectSkillsManager projectPath={tab.projectPath} workspaceName={tab.workspaceName} />
+          <NotchOffset>
+            <ProjectSkillsManager projectPath={tab.projectPath} workspaceName={tab.workspaceName} />
+          </NotchOffset>
         </LazyContent>
       );
 
     case "memory-manager":
       return (
         <LazyContent>
-          <MemoryManager projectPath={tab.projectPath} workspaceName={tab.workspaceName} />
+          <NotchOffset>
+            <MemoryManager projectPath={tab.projectPath} workspaceName={tab.workspaceName} />
+          </NotchOffset>
         </LazyContent>
       );
 
