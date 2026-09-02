@@ -125,7 +125,11 @@
       "amberGold": "Molten gold",
       "classicWhite": "Snow white",
       "warmGray": "Warm mist",
-      "skyBlue": "Clear sky"
+      "skyBlue": "Clear sky",
+      "nordFrost": "Polar night",
+      "tokyoNight": "Tokyo night",
+      "ricePaper": "Rice paper",
+      "mintMist": "Mint jade"
     },
     "shapes": {
       "soft": {

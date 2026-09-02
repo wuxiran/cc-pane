@@ -4,7 +4,11 @@ export type ThemeId =
   | "amber-gold"
   | "classic-white"
   | "warm-gray"
-  | "sky-blue";
+  | "sky-blue"
+  | "nord-frost"
+  | "tokyo-night"
+  | "rice-paper"
+  | "mint-mist";
 
 export type ThemePreference = ThemeId | "system" | "dark" | "light";
 export type ThemeGroup = "dark" | "light";
@@ -55,6 +59,30 @@ export const THEME_PRESETS: readonly ThemePreset[] = [
     group: "light",
     labelKey: "theme.presets.skyBlue",
     swatches: ["#fbfdff", "#eaf2fb", "#2878d0"],
+  },
+  {
+    id: "nord-frost",
+    group: "dark",
+    labelKey: "theme.presets.nordFrost",
+    swatches: ["#242933", "#2A313D", "#88C0D0"],
+  },
+  {
+    id: "tokyo-night",
+    group: "dark",
+    labelKey: "theme.presets.tokyoNight",
+    swatches: ["#1A1B26", "#212336", "#7AA2F7"],
+  },
+  {
+    id: "rice-paper",
+    group: "light",
+    labelKey: "theme.presets.ricePaper",
+    swatches: ["#FAF8F2", "#EFEADF", "#4C69A8"],
+  },
+  {
+    id: "mint-mist",
+    group: "light",
+    labelKey: "theme.presets.mintMist",
+    swatches: ["#F6FAF8", "#E7F0EB", "#178A5E"],
   },
 ] as const;
 

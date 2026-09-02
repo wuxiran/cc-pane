@@ -125,7 +125,11 @@
       "amberGold": "熔金黑",
       "classicWhite": "雪原白",
       "warmGray": "暖雾灰",
-      "skyBlue": "晴空蓝"
+      "skyBlue": "晴空蓝",
+      "nordFrost": "极夜蓝",
+      "tokyoNight": "夜泊蓝",
+      "ricePaper": "宣纸白",
+      "mintMist": "薄荷青"
     },
     "shapes": {
       "soft": {
