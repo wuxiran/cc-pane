@@ -264,9 +264,13 @@ fn launch_profile_isolates_mcp(profile: Option<&LaunchProfile>) -> bool {
         .unwrap_or(false)
 }
 
+/// Server names this launch may keep. `workspace_mcp_server_names` (workspace layer +
+/// project overlay, docs/98) follow the same enabled/disabled id rules as shared servers:
+/// Default mode keeps all but `disabled_server_ids`, Custom keeps only `enabled_server_ids`.
 fn allowed_mcp_server_ids_for_profile(
     profile: Option<&LaunchProfile>,
     shared_mcp_config: &SharedMcpConfig,
+    workspace_mcp_server_names: &[String],
 ) -> Vec<String> {
     let Some(profile) = profile else {
         return Vec::new();
@@ -278,6 +282,31 @@ fn allowed_mcp_server_ids_for_profile(
     let mut allowed = HashSet::new();
     if profile.mcp_policy.include_ccpanes_mcp {
         allowed.insert("ccpanes".to_string());
+    }
+
+    if profile.mcp_policy.mode == LaunchProfileMcpMode::Default {
+        let disabled = profile
+            .mcp_policy
+            .disabled_server_ids
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>();
+        allowed.extend(
+            workspace_mcp_server_names
+                .iter()
+                .filter(|name| !disabled.contains(name.as_str()))
+                .cloned(),
+        );
+    } else {
+        // Custom: explicit opt-in by name, independent of the shared-MCP switch.
+        allowed.extend(
+            profile
+                .mcp_policy
+                .enabled_server_ids
+                .iter()
+                .filter(|id| workspace_mcp_server_names.contains(id))
+                .cloned(),
+        );
     }
 
     if profile.mcp_policy.include_shared_mcp {
@@ -2184,6 +2213,7 @@ impl TerminalService {
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: true,
             skill_mount_paths: Vec::new(),
+            workspace_mcp_servers: Default::default(),
         };
         let mut result = adapter.build_command(&context).map_err(AppError::from)?;
         if provider_plan.mode == ProviderMode::Managed {
@@ -2553,8 +2583,27 @@ impl TerminalService {
             "launch.mcp.resolved",
             "ok",
         );
-        let allowed_mcp_server_ids =
-            allowed_mcp_server_ids_for_profile(resolved_profile.as_ref(), &shared_mcp_config);
+        // Workspace + project-overlay MCP servers (docs/98). Same local-only rule as skills:
+        // stdio commands in mcp.json are written for this machine, not for an SSH/WSL guest.
+        let workspace_mcp_servers = if ssh.is_none() && wsl.is_none() && !effective_skip_mcp {
+            let mcp_layers = crate::services::McpConfigService::with_paths(self.app_paths.clone());
+            let effective = mcp_layers.effective_servers(
+                resolved_workspace
+                    .as_ref()
+                    .map(|w| w.name.as_str())
+                    .or(workspace_name),
+                project_path,
+            );
+            crate::services::effective_servers_to_json(&effective)
+        } else {
+            Default::default()
+        };
+        let workspace_mcp_server_names = workspace_mcp_servers.keys().cloned().collect::<Vec<_>>();
+        let allowed_mcp_server_ids = allowed_mcp_server_ids_for_profile(
+            resolved_profile.as_ref(),
+            &shared_mcp_config,
+            &workspace_mcp_server_names,
+        );
         let disable_unlisted_mcp_servers = launch_profile_isolates_mcp(resolved_profile.as_ref());
         let selected_mcp_config_toml =
             selected_shared_mcp_config_toml_for_codex(&allowed_mcp_server_ids, &shared_mcp_config);
@@ -3211,6 +3260,7 @@ impl TerminalService {
                         &self.app_paths.builtin_skills_dir(),
                         workspace_skill_mount_root.as_deref(),
                     ),
+                    workspace_mcp_servers: workspace_mcp_servers.clone(),
                 };
 
                 log_launch_stage(

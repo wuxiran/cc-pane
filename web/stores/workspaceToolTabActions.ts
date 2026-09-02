@@ -5,16 +5,18 @@ import type { PaneNode, Panel } from "@/types";
 import { findPane } from "@/lib/paneTree";
 import { createTabOfType } from "@/lib/tabLifecycle/tabFactory";
 
-type WorkspaceToolType = "skill-manager" | "memory-manager";
+type WorkspaceToolType = "skill-manager" | "memory-manager" | "mcp-config";
 
 const TITLE_PREFIX: Record<WorkspaceToolType, string> = {
   "skill-manager": "Skill",
   "memory-manager": "Memory",
+  "mcp-config": "MCP",
 };
 
 export interface WorkspaceToolTabActions {
   openWorkspaceSkillManager: (workspaceName: string, title: string) => void;
   openWorkspaceMemoryManager: (workspaceName: string, title: string) => void;
+  openWorkspaceMcpConfig: (workspaceName: string, title: string) => void;
 }
 
 interface StoreAccess {
@@ -53,5 +55,6 @@ export function createWorkspaceToolTabActions({ set, get }: StoreAccess): Worksp
   return {
     openWorkspaceSkillManager: (workspaceName, title) => open("skill-manager", workspaceName, title),
     openWorkspaceMemoryManager: (workspaceName, title) => open("memory-manager", workspaceName, title),
+    openWorkspaceMcpConfig: (workspaceName, title) => open("mcp-config", workspaceName, title),
   };
 }

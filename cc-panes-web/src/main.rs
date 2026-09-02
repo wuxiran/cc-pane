@@ -289,7 +289,7 @@ async fn main() -> anyhow::Result<()> {
     ));
     let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
     let filesystem_service = Arc::new(FileSystemService::new());
-    let mcp_config_service = Arc::new(McpConfigService::new());
+    let mcp_config_service = Arc::new(McpConfigService::with_paths(app_paths.clone()));
     let shared_mcp_service = Arc::new(SharedMcpService::new(&app_paths));
     let skill_service = Arc::new(SkillService::new());
     let plan_service = Arc::new(PlanService::new());

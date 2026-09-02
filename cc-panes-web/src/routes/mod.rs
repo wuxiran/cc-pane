@@ -83,6 +83,10 @@ pub fn build_router(state: AppState) -> Router {
             "/api/media/capabilities",
             get(media::get_provider_capabilities),
         )
+        .route(
+            "/api/media/provider-models",
+            post(media::list_provider_models),
+        )
         .route("/api/media/nodes/{node_id}", get(media::get_node))
         .route("/api/media/nodes/{node_id}", put(media::update_node))
         .route("/api/media/nodes/{node_id}", delete(media::delete_node))
@@ -450,6 +454,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/mcp/servers", put(mcp::upsert_mcp_server))
         .route("/api/mcp/servers", delete(mcp::remove_mcp_server))
         .route("/api/mcp/servers/{name}", get(mcp::get_mcp_server))
+        .route("/api/mcp/legacy-servers", get(mcp::list_legacy_mcp_servers))
+        .route(
+            "/api/mcp/legacy-servers/import",
+            post(mcp::import_legacy_mcp_servers),
+        )
         .route("/api/shared-mcp/config", get(mcp::get_shared_mcp_config))
         .route(
             "/api/shared-mcp/config",

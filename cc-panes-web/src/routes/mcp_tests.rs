@@ -178,7 +178,7 @@ fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
             app_paths.workspaces_dir(),
         )),
         cli_registry: Arc::new(cc_cli_adapters::CliToolRegistry::new()),
-        mcp_config_service: Arc::new(McpConfigService::new()),
+        mcp_config_service: Arc::new(McpConfigService::with_paths(app_paths.clone())),
         shared_mcp_service: Arc::new(SharedMcpService::new(&app_paths)),
         skill_service: Arc::new(cc_panes_core::services::SkillService::new()),
         plan_service: Arc::new(PlanService::new()),
@@ -204,17 +204,19 @@ async fn project_mcp_routes_match_tauri_mcp_commands() {
     let project = root.join("project");
     let claude_dir = project.join(".claude");
     std::fs::create_dir_all(&claude_dir).expect("claude dir");
-    std::fs::write(
-        claude_dir.join("settings.local.json"),
-        r#"{"mcpServers":{},"customField":"preserved"}"#,
-    )
-    .expect("settings");
+    let legacy_raw = r#"{"mcpServers":{"legacy":{"command":"old"}},"customField":"preserved"}"#;
+    std::fs::write(claude_dir.join("settings.local.json"), legacy_raw).expect("settings");
     let project_path = project.to_string_lossy().to_string();
+    let project_query = || ProjectMcpQuery {
+        project_path: Some(project_path.clone()),
+        workspace_name: None,
+    };
 
     upsert_mcp_server(
         State(state.clone()),
         Json(UpsertMcpServerRequest {
-            project_path: project_path.clone(),
+            project_path: Some(project_path.clone()),
+            workspace_name: None,
             name: "context7".to_string(),
             command: "npx".to_string(),
             args: vec!["-y".to_string(), "@upstash/context7-mcp".to_string()],
@@ -224,36 +226,67 @@ async fn project_mcp_routes_match_tauri_mcp_commands() {
     .await
     .expect("upsert mcp");
 
-    let Json(servers) = list_mcp_servers(
-        State(state.clone()),
-        Query(ProjectMcpQuery {
-            project_path: project_path.clone(),
-        }),
-    )
-    .await
-    .expect("list mcp");
-    assert_eq!(servers.len(), 1);
+    let Json(servers) = list_mcp_servers(State(state.clone()), Query(project_query()))
+        .await
+        .expect("list mcp");
+    assert_eq!(
+        servers.len(),
+        1,
+        "legacy entries are not part of the project overlay"
+    );
     assert_eq!(servers["context7"].command, "npx");
+    assert!(project.join(".ccpanes/mcp.json").is_file());
 
     let Json(server) = get_mcp_server(
         State(state.clone()),
         Path("context7".to_string()),
-        Query(ProjectMcpQuery {
-            project_path: project_path.clone(),
-        }),
+        Query(project_query()),
     )
     .await
     .expect("get mcp");
     assert_eq!(server.expect("server").args.len(), 2);
 
+    // 旧文件一个字节都不动
     let raw = std::fs::read_to_string(claude_dir.join("settings.local.json")).expect("read");
-    let parsed: serde_json::Value = serde_json::from_str(&raw).expect("json");
-    assert_eq!(parsed["customField"], "preserved");
+    assert_eq!(raw, legacy_raw);
+
+    // 旧配置可见并可导入到工作空间层
+    let Json(legacy) = list_legacy_mcp_servers(
+        State(state.clone()),
+        Query(LegacyMcpQuery {
+            project_path: project_path.clone(),
+        }),
+    )
+    .await
+    .expect("list legacy");
+    assert_eq!(legacy.len(), 1);
+    let Json(imported) = import_legacy_mcp_servers(
+        State(state.clone()),
+        Json(ImportLegacyMcpRequest {
+            project_path: project_path.clone(),
+            workspace_name: Some("team".to_string()),
+            overwrite: false,
+        }),
+    )
+    .await
+    .expect("import legacy");
+    assert_eq!(imported, vec!["legacy".to_string()]);
+    let Json(ws_servers) = list_mcp_servers(
+        State(state.clone()),
+        Query(ProjectMcpQuery {
+            project_path: None,
+            workspace_name: Some("team".to_string()),
+        }),
+    )
+    .await
+    .expect("list workspace");
+    assert_eq!(ws_servers["legacy"].command, "old");
 
     let Json(removed) = remove_mcp_server(
         State(state.clone()),
         Query(RemoveMcpServerQuery {
-            project_path: project_path.clone(),
+            project_path: Some(project_path.clone()),
+            workspace_name: None,
             name: "context7".to_string(),
         }),
     )
@@ -261,7 +294,7 @@ async fn project_mcp_routes_match_tauri_mcp_commands() {
     .expect("remove mcp");
     assert!(removed);
 
-    let Json(servers) = list_mcp_servers(State(state), Query(ProjectMcpQuery { project_path }))
+    let Json(servers) = list_mcp_servers(State(state), Query(project_query()))
         .await
         .expect("list after remove");
     assert!(servers.is_empty());

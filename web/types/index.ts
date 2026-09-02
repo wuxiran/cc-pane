@@ -233,7 +233,8 @@ export type {
   UpdateSpecRequest,
   SpecSummary,
 } from "./spec";
-export type { McpServerConfig } from "./mcp";
+export type { McpServerConfig, McpLayerTarget } from "./mcp";
+export { mcpTargetKey } from "./mcp";
 export type {
   BundledSkill,
   BundledSkillDelivery,

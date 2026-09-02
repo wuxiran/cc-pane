@@ -39,7 +39,7 @@ pub use pi::{
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -992,6 +992,23 @@ pub struct CliAdapterContext {
     /// 为空表示本次不挂载任何内置 skill（`LaunchProfileSkillMode::Disabled`），
     /// 此时各 adapter 必须**完全不碰**用户的 skill 配置。
     pub skill_mount_paths: Vec<String>,
+    /// 工作空间层 + 项目覆盖层合并后的 MCP server（docs/98 workspace-first），
+    /// Claude 原生 `mcpServers` 条目形状（stdio `{command,args,env}` 或 `{type:"http",url}`）。
+    /// **按会话注入**：Claude 合进 per-session `--mcp-config`，Codex 展开成
+    /// `-c mcp_servers.<name>.*`；不支持启动期注入的 CLI 忽略。
+    /// `disable_unlisted_mcp_servers` 为 true 时只注入 `allowed_mcp_server_ids` 里的名字。
+    pub workspace_mcp_servers: BTreeMap<String, serde_json::Value>,
+}
+
+impl CliAdapterContext {
+    /// Workspace-layer servers that pass this launch's MCP policy.
+    pub fn allowed_workspace_mcp_servers(
+        &self,
+    ) -> impl Iterator<Item = (&String, &serde_json::Value)> {
+        self.workspace_mcp_servers.iter().filter(move |(name, _)| {
+            !self.disable_unlisted_mcp_servers || self.allowed_mcp_server_ids.contains(name)
+        })
+    }
 }
 
 /// Internal adapter option carrying the resolved managed Provider environment.
@@ -1963,6 +1980,7 @@ mod registry_tests {
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),
+            workspace_mcp_servers: Default::default(),
         }
     }
 

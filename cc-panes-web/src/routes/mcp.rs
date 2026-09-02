@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use axum::{
     extract::{Path, Query, State},
@@ -7,23 +7,31 @@ use axum::{
 };
 use cc_panes_core::{
     models::shared_mcp::{SharedMcpConfig, SharedMcpServerConfig, SharedMcpServerInfo},
-    services::mcp_config_service::McpServerConfig,
+    services::mcp_config_service::{McpLayer, McpServerConfig},
     utils::{validate_command, validate_mcp_name, validate_path},
 };
 use serde::Deserialize;
 
 use crate::state::AppState;
 
+/// Layer selector shared by the project/workspace MCP routes (docs/98):
+/// `workspaceName` → workspace layer, else `projectPath` → project overlay.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectMcpQuery {
-    pub project_path: String,
+    #[serde(default)]
+    pub project_path: Option<String>,
+    #[serde(default)]
+    pub workspace_name: Option<String>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpsertMcpServerRequest {
-    pub project_path: String,
+    #[serde(default)]
+    pub project_path: Option<String>,
+    #[serde(default)]
+    pub workspace_name: Option<String>,
     pub name: String,
     pub command: String,
     #[serde(default)]
@@ -35,8 +43,37 @@ pub struct UpsertMcpServerRequest {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoveMcpServerQuery {
-    pub project_path: String,
+    #[serde(default)]
+    pub project_path: Option<String>,
+    #[serde(default)]
+    pub workspace_name: Option<String>,
     pub name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyMcpQuery {
+    pub project_path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportLegacyMcpRequest {
+    pub project_path: String,
+    #[serde(default)]
+    pub workspace_name: Option<String>,
+    #[serde(default)]
+    pub overwrite: bool,
+}
+
+fn resolve_layer(
+    workspace_name: Option<&str>,
+    project_path: Option<&str>,
+) -> Result<McpLayer, (StatusCode, String)> {
+    if let Some(path) = project_path.map(str::trim).filter(|p| !p.is_empty()) {
+        validate_path(path).map_err(service_error)?;
+    }
+    McpLayer::resolve(workspace_name, project_path).map_err(service_error)
 }
 
 #[derive(Deserialize)]
@@ -62,11 +99,14 @@ fn service_error(error: impl ToString) -> (StatusCode, String) {
 pub async fn list_mcp_servers(
     State(state): State<AppState>,
     Query(query): Query<ProjectMcpQuery>,
-) -> Result<Json<HashMap<String, McpServerConfig>>, (StatusCode, String)> {
-    validate_path(&query.project_path).map_err(service_error)?;
+) -> Result<Json<BTreeMap<String, McpServerConfig>>, (StatusCode, String)> {
+    let layer = resolve_layer(
+        query.workspace_name.as_deref(),
+        query.project_path.as_deref(),
+    )?;
     state
         .mcp_config_service
-        .list_mcp_servers(&query.project_path)
+        .list(&layer)
         .map(Json)
         .map_err(service_error)
 }
@@ -76,10 +116,13 @@ pub async fn get_mcp_server(
     Path(name): Path<String>,
     Query(query): Query<ProjectMcpQuery>,
 ) -> Result<Json<Option<McpServerConfig>>, (StatusCode, String)> {
-    validate_path(&query.project_path).map_err(service_error)?;
+    let layer = resolve_layer(
+        query.workspace_name.as_deref(),
+        query.project_path.as_deref(),
+    )?;
     state
         .mcp_config_service
-        .get_mcp_server(&query.project_path, &name)
+        .get(&layer, &name)
         .map(Json)
         .map_err(service_error)
 }
@@ -88,17 +131,24 @@ pub async fn upsert_mcp_server(
     State(state): State<AppState>,
     Json(req): Json<UpsertMcpServerRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    validate_path(&req.project_path).map_err(service_error)?;
+    let layer = resolve_layer(req.workspace_name.as_deref(), req.project_path.as_deref())?;
     validate_mcp_name(&req.name).map_err(service_error)?;
     validate_command(&req.command).map_err(service_error)?;
+    let extra = state
+        .mcp_config_service
+        .get(&layer, &req.name)
+        .map_err(service_error)?
+        .map(|existing| existing.extra)
+        .unwrap_or_default();
     let config = McpServerConfig {
         command: req.command,
         args: req.args,
         env: req.env,
+        extra,
     };
     state
         .mcp_config_service
-        .upsert_mcp_server(&req.project_path, &req.name, config)
+        .upsert(&layer, &req.name, config)
         .map_err(service_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -107,10 +157,42 @@ pub async fn remove_mcp_server(
     State(state): State<AppState>,
     Query(query): Query<RemoveMcpServerQuery>,
 ) -> Result<Json<bool>, (StatusCode, String)> {
+    let layer = resolve_layer(
+        query.workspace_name.as_deref(),
+        query.project_path.as_deref(),
+    )?;
+    state
+        .mcp_config_service
+        .remove(&layer, &query.name)
+        .map(Json)
+        .map_err(service_error)
+}
+
+pub async fn list_legacy_mcp_servers(
+    State(state): State<AppState>,
+    Query(query): Query<LegacyMcpQuery>,
+) -> Result<Json<BTreeMap<String, McpServerConfig>>, (StatusCode, String)> {
     validate_path(&query.project_path).map_err(service_error)?;
     state
         .mcp_config_service
-        .remove_mcp_server(&query.project_path, &query.name)
+        .list_legacy_project_servers(&query.project_path)
+        .map(Json)
+        .map_err(service_error)
+}
+
+pub async fn import_legacy_mcp_servers(
+    State(state): State<AppState>,
+    Json(req): Json<ImportLegacyMcpRequest>,
+) -> Result<Json<Vec<String>>, (StatusCode, String)> {
+    validate_path(&req.project_path).map_err(service_error)?;
+    let into = McpLayer::resolve(
+        req.workspace_name.as_deref(),
+        Some(req.project_path.as_str()),
+    )
+    .map_err(service_error)?;
+    state
+        .mcp_config_service
+        .import_legacy_project_servers(&req.project_path, &into, req.overwrite)
         .map(Json)
         .map_err(service_error)
 }

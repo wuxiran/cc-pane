@@ -6667,7 +6667,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 列出项目的所有 MCP Server 配置（读取 project/.claude/settings.local.json）。
+    /// 列出项目覆盖层的 MCP Server 配置（<project>/.ccpanes/mcp.json，docs/98）。
     #[tool]
     async fn list_mcp_servers(
         &self,
@@ -6715,7 +6715,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 添加或更新项目级 MCP Server 配置，写入 project/.claude/settings.local.json。
+    /// 添加或更新项目覆盖层的 MCP Server 配置，写入 <project>/.ccpanes/mcp.json（不再碰 .claude/settings.local.json）。
     #[tool]
     async fn upsert_mcp_server(
         &self,
@@ -6739,6 +6739,7 @@ impl McpToolHandler {
             command: params.command,
             args: params.args.unwrap_or_default(),
             env: params.env.unwrap_or_default(),
+            extra: Default::default(),
         };
         match self.state.mcp_config_service.upsert_mcp_server(
             &params.project_path,

@@ -54,6 +54,7 @@
   "mcpServerUpdated": "MCP Server updated",
   "mcpServerAdded": "MCP Server added",
   "mcpServerDeleted": "MCP Server deleted",
+  "mcpLegacyImported": "Imported {{count}} legacy MCP server(s)",
   "mcpNameCommandRequired": "Name and command are required",
   "center": {
     "title": "Notifications",

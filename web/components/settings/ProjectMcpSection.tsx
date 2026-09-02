@@ -1,13 +1,14 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Plug, Trash2, SquarePen, Server, ServerOff, Save, X, Loader2 } from "lucide-react";
+import { Plug, Trash2, SquarePen, Server, ServerOff, Save, X, Loader2, Import } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useMcpStore } from "@/stores";
-import type { McpServerConfig } from "@/types";
+import { useMcpStore, useWorkspacesStore } from "@/stores";
+import { workspaceNameForProject } from "@/hooks/useQuickCommandsSync";
+import type { McpLayerTarget, McpServerConfig } from "@/types";
 import { parseEnvLines, formatEnvLines } from "@/utils";
 
 interface FormState {
@@ -26,27 +27,65 @@ const emptyForm: FormState = {
 
 interface ProjectMcpSectionProps {
   projectPath: string;
+  /** 工作空间视图（docs/98 workspace-first）：projectPath 为空时生效 */
+  workspaceName?: string;
 }
 
 export default function ProjectMcpSection({
   projectPath,
+  workspaceName,
 }: ProjectMcpSectionProps) {
   const { t } = useTranslation("settings");
   const { t: tNotify } = useTranslation("notifications");
 
+  const workspaceMode = !projectPath && !!workspaceName;
+  const target = useMemo<McpLayerTarget>(
+    () => (workspaceMode ? { workspaceName: workspaceName! } : { projectPath }),
+    [workspaceMode, workspaceName, projectPath],
+  );
+  const workspaces = useWorkspacesStore((s) => s.workspaces);
+  // 项目视图里旧配置默认导入到项目所属工作空间；找不到所属工作空间则导入到项目覆盖层
+  const owningWorkspace = useMemo(
+    () => (workspaceMode ? undefined : workspaceNameForProject(workspaces, projectPath)),
+    [workspaceMode, workspaces, projectPath],
+  );
+
   const servers = useMcpStore((s) => s.servers);
+  const legacyServers = useMcpStore((s) => s.legacyServers);
   const loading = useMcpStore((s) => s.loading);
   const loadServers = useMcpStore((s) => s.loadServers);
+  const loadLegacyServers = useMcpStore((s) => s.loadLegacyServers);
+  const importLegacyServers = useMcpStore((s) => s.importLegacyServers);
   const upsertServer = useMcpStore((s) => s.upsertServer);
   const removeServer = useMcpStore((s) => s.removeServer);
 
   const [editing, setEditing] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>({ ...emptyForm });
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
-    loadServers(projectPath);
-  }, [projectPath, loadServers]);
+    loadServers(target);
+    if (!workspaceMode) loadLegacyServers(projectPath);
+  }, [target, workspaceMode, projectPath, loadServers, loadLegacyServers]);
+
+  const legacyPending = useMemo(
+    () => Object.keys(legacyServers).filter((name) => !(name in servers)),
+    [legacyServers, servers],
+  );
+
+  async function handleImportLegacy() {
+    setImporting(true);
+    try {
+      const imported = await importLegacyServers(projectPath, owningWorkspace);
+      toast.success(tNotify("mcpLegacyImported", { count: imported.length }));
+      await loadLegacyServers(projectPath);
+    } catch (e) {
+      toast.error(tNotify("operationFailed", { error: String(e) }));
+    } finally {
+      setImporting(false);
+    }
+  }
 
   const resetForm = useCallback(() => {
     setForm({ ...emptyForm });
@@ -83,10 +122,10 @@ export default function ProjectMcpSection({
 
       // 如果是重命名（编辑时名称改变），删除旧的
       if (editingName && editingName !== form.name.trim()) {
-        await removeServer(projectPath, editingName);
+        await removeServer(target, editingName);
       }
 
-      await upsertServer(projectPath, form.name.trim(), form.command.trim(), args, env);
+      await upsertServer(target, form.name.trim(), form.command.trim(), args, env);
       toast.success(tNotify(editingName ? "mcpServerUpdated" : "mcpServerAdded"));
       resetForm();
     } catch (e) {
@@ -96,7 +135,7 @@ export default function ProjectMcpSection({
 
   async function handleDelete(name: string) {
     try {
-      await removeServer(projectPath, name);
+      await removeServer(target, name);
       toast.success(tNotify("mcpServerDeleted"));
       if (editingName === name) resetForm();
     } catch (e) {
@@ -110,9 +149,12 @@ export default function ProjectMcpSection({
     <div className="flex flex-col h-full">
       {/* 标题栏 */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <Server size={16} className="text-muted-foreground" />
           <span className="text-sm font-medium">{t("mcpTitle")}</span>
+          <Badge variant="outline" className="text-xs max-w-40 truncate" title={workspaceMode ? workspaceName : projectPath}>
+            {workspaceMode ? t("mcpLayerWorkspace", { name: workspaceName }) : t("mcpLayerProject")}
+          </Badge>
           <Badge variant="secondary" className="text-xs">
             {entries.length}
           </Badge>
@@ -125,6 +167,26 @@ export default function ProjectMcpSection({
 
       {/* 内容区 */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <p className="text-xs text-muted-foreground">
+          {workspaceMode ? t("mcpLayerWorkspaceHint") : t("mcpLayerProjectHint")}
+        </p>
+
+        {!workspaceMode && legacyPending.length > 0 && (
+          <div className="flex items-start gap-3 p-3 rounded-lg border border-border bg-muted/40">
+            <Import size={16} className="mt-0.5 text-muted-foreground shrink-0" />
+            <div className="flex-1 min-w-0 space-y-1">
+              <p className="text-xs">{t("mcpLegacyFound", { count: legacyPending.length })}</p>
+              <p className="text-xs text-muted-foreground font-mono truncate">{legacyPending.join(", ")}</p>
+            </div>
+            <Button size="sm" variant="secondary" disabled={importing} onClick={handleImportLegacy}>
+              {importing ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Import size={14} className="mr-1" />}
+              {owningWorkspace
+                ? t("mcpLegacyImportToWorkspace", { name: owningWorkspace })
+                : t("mcpLegacyImportToProject")}
+            </Button>
+          </div>
+        )}
+
         {loading && (
           <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
             <Loader2 size={16} className="animate-spin" />

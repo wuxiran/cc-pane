@@ -105,9 +105,16 @@
 6. ✅ 快捷命令工作空间层：`~/.cc-panes/workspaces/<name>/quick-commands.json`，`QuickCommandService::list/save_workspace`，tauri `list/save_workspace_quick_commands` + web `/api/quick-commands/workspace`；前端三层合并 global → workspace → project，按活跃 tab 的项目反推所属工作空间加载，新建默认落工作空间层。项目层创建目录改经 `project_dirs`（顺带写 `.gitignore` 守卫）。
 7. ✅ Automations 归工作空间：`AutomationDef.workspaceName`（旧定义缺省 None，编辑时从 cwd 反推）；编辑器改为「所属工作空间 → 其下项目」两级选择，新建默认当前展开的工作空间及其首个项目；列表带工作空间徽章。**物理存储保持 `<data>/automations/` 单一目录**——调度器只需一处扫，按工作空间拆目录只增加复杂度不增加产品价值，与原表「存到 `workspaces/<name>/automations/`」的写法相比这是有意的简化。
 8. ✅ Cursor Bridge 登记簿按工作空间：`CursorBridgeHub` 按工作空间名分发 `CursorBridgeService`（`~/.cc-panes/workspaces/<name>/cursor-bridge/`），`init` 绑工作空间（`workspaceName` 或由 `projectPath` 推出）并可设默认项目，六个 action 都接受 `workspaceName`/`projectPath` 覆盖；不带参数时工作空间与项目从调用方 launch 记录推断，所以 CC-Panes 内启动的 agent 不再需要 `init`。旧全局目录只读保留供 resume 回写搜索。解析顺序见 docs/96「作用域」。`handoff-latest.md` 路径同步改为 `.ccpanes/.cache/`（skill 文案）。
-9. ⏳ MCP 工作空间层 + 启动注入（见下节 plan，待确认后动手）。
+9. ✅ MCP 工作空间层 + 启动注入（按下节 plan 落地，偏差见「实施记录」）。
 
 ### MCP workspace-first plan
+
+> **实施记录（0.12.10）**：目标 1–5 全部落地，6 做了一半。
+> - `McpConfigService` 改为分层：`McpLayer::Workspace` → `~/.cc-panes/workspaces/<name>/mcp.json`，`McpLayer::Project` → `<repo>/.ccpanes/mcp.json`（经 `project_dirs::ensure_ccpanes_dir`，顺带写 `.gitignore` 守卫）。条目 `McpServerConfig` 保留 `command/args/env` 供 UI 编辑，其余字段（`type`/`url`/`headers`）经 `#[serde(flatten)] extra` 无损透传，HTTP 条目能进能出。`.claude/settings.local.json` **只读**：`list_legacy_project_servers` + `import_legacy_project_servers(into, overwrite)`。
+> - 注入：`CliAdapterContext.workspace_mcp_servers`（Claude 原生 JSON 形状）。Claude 在用户全局之后、shared 之前合并；Codex 新增 `push_mcp_json_override` 展开 `command/args/env` 或 `url` 成 `-c mcp_servers.<name>.*`；同名 shared 优先、`ccpanes` 名字保留。`allowed_mcp_server_ids_for_profile` 多一个入参 `workspace_mcp_server_names`：Default 模式扣掉 `disabled_server_ids`，Custom 模式只放 `enabled_server_ids`；`CliAdapterContext::allowed_workspace_mcp_servers()` 统一过滤。**仅本机运行时注入**（SSH/WSL 不注入，同 skills 的理由：stdio 命令是给这台机器写的）。
+> - 命令/路由：`list/get/upsert/remove_mcp_servers` 改为 `workspaceName | projectPath` 选层；新增 `list_legacy_mcp_servers`、`import_legacy_mcp_servers`；web `GET /api/mcp/legacy-servers`、`POST /api/mcp/legacy-servers/import`。orchestrator 的同名 MCP tool 现在写项目覆盖层。
+> - UI：`ProjectMcpSection` 加 `workspaceName` 视图（工作空间右键 →「工作空间 MCP」，复用 `mcp-config` tab）；项目视图顶部对尚未导入的旧配置给一键导入，默认导入到项目所属工作空间，孤儿项目则导入到项目覆盖层。**未做**：设置 → 工具 里的独立「工作空间 MCP」节——右键入口够用，重复面板先不加。
+> - 未做的一件：`.claude/settings.local.json` 里的 hooks 部分仍由 `sync_project_hooks` 管，与 MCP 无关，不在本批。
 
 **现状**（已核实代码）：
 - Claude 每次启动已经生成 `<data>/mcp-<session>.json` 并传 `--mcp-config`，内容 = 用户全局 `~/.claude.json` 的 mcpServers（低优先级）+ shared MCP（HTTP 代理）+ `ccpanes`（最高）。Codex 走 `-c mcp_servers.<key>.*` 逐项覆盖。**注入通道已经存在**。

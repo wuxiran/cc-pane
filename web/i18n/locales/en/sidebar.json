@@ -40,6 +40,7 @@
   "skillMarket": "Skill market",
   "workspaceSkills": "Workspace skills",
   "workspaceMemory": "Workspace memory",
+  "workspaceMcp": "Workspace MCP",
   "tools": "Tools",
   "moduleNames": {
     "ssh": "SSH Machines",

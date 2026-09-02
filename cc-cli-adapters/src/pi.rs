@@ -690,6 +690,7 @@ mod tests {
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),
+            workspace_mcp_servers: Default::default(),
         }
     }
 

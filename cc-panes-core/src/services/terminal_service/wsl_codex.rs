@@ -1552,6 +1552,7 @@ impl TerminalService {
                 disable_unlisted_mcp_servers: false,
                 // 该 context 只用于解析 provider 环境变量，不产出启动参数
                 skill_mount_paths: Vec::new(),
+                workspace_mcp_servers: Default::default(),
             };
 
             let (args, mut env) = build_wsl_managed_adapter_plan(cli_tool, &provider_context)?;
@@ -2431,6 +2432,7 @@ mod tests {
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),
+            workspace_mcp_servers: Default::default(),
         }
     }
 

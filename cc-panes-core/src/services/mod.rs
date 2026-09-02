@@ -124,7 +124,10 @@ pub use journal_service::{JournalIndex, JournalService, SessionSummary};
 pub use launch_history_service::{CreatedLaunchHistory, LaunchHistoryService};
 pub use launch_profile_service::LaunchProfileService;
 pub use layout_snapshot_service::LayoutSnapshotService;
-pub use mcp_config_service::McpConfigService;
+pub use mcp_config_service::{
+    effective_servers_to_json, EffectiveMcpServer, McpConfigService, McpLayer, McpLayerKind,
+    McpServerConfig,
+};
 pub use media_probe::{
     parse_ffprobe_json, MediaProbe, MediaProbeConfig, MediaProbeReport, MediaProbeStatus,
     MEDIA_PROBE_EXECUTABLE_ENV,
@@ -132,11 +135,13 @@ pub use media_probe::{
 pub use media_provider::{
     apply_media_run_protocol, parse_openai_status_response, parse_openai_submit_response,
     parse_openai_submit_response_for_kind, parse_status_response, parse_status_response_for_kind,
-    parse_submit_response, parse_submit_response_for_kind, registry_from_providers,
-    DownloadedAsset, MediaHttpMethod, MediaInputAsset, MediaJobStatus, MediaProtocol,
-    MediaProviderAdapter, MediaProviderCapabilities, MediaProviderFuture, MediaProviderProfile,
-    MediaProviderRegistry, NormalizedMediaRequest, OpenAiCompatibleMediaAdapter, RemoteJob,
-    RemoteJobError, RemoteJobStatus, RemoteOutput,
+    fetch_provider_model_ids, parse_submit_response, parse_submit_response_for_kind,
+    registry_from_providers, sub2api_wire_body, DownloadedAsset, MediaHttpMethod,
+    MediaInputAsset, MediaJobStatus,
+    MediaProtocol, MediaProviderAdapter, MediaProviderCapabilities, MediaProviderFuture,
+    MediaProviderProfile, MediaProviderRegistry, NormalizedMediaRequest,
+    OpenAiCompatibleMediaAdapter, RemoteJob, RemoteJobError, RemoteJobStatus, RemoteOutput,
+    Sub2ApiMediaAdapter,
 };
 pub use media_runtime::{DeterministicMockMediaProvider, MediaJobWorker};
 pub use media_service::MediaService;

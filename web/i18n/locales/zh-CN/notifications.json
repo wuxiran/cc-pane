@@ -54,6 +54,7 @@
   "mcpServerUpdated": "MCP Server 已更新",
   "mcpServerAdded": "MCP Server 已添加",
   "mcpServerDeleted": "MCP Server 已删除",
+  "mcpLegacyImported": "已导入 {{count}} 个旧 MCP 配置",
   "mcpNameCommandRequired": "名称和命令不能为空",
   "center": {
     "title": "通知",

@@ -1,68 +1,89 @@
 /**
- * MCP 配置状态管理
+ * MCP 配置状态管理（分层：工作空间层 / 项目覆盖层，docs/98）
  */
 import { create } from "zustand";
 import { mcpService } from "@/services";
-import type { McpServerConfig } from "@/types";
+import { mcpTargetKey, type McpLayerTarget, type McpServerConfig } from "@/types";
 import { translateError } from "@/utils";
 
 interface McpState {
   // ============ 状态 ============
   servers: Record<string, McpServerConfig>;
-  projectPath: string | null;
+  /** 当前加载的层；`mcpTargetKey` 形式，用于判断写后是否需要刷新 */
+  targetKey: string | null;
+  /** 仅项目视图：旧 `.claude/settings.local.json` 里还没导入的条目 */
+  legacyServers: Record<string, McpServerConfig>;
   loading: boolean;
   error: string | null;
 
   // ============ 操作 ============
-  loadServers: (projectPath: string) => Promise<void>;
+  loadServers: (target: McpLayerTarget) => Promise<void>;
   upsertServer: (
-    projectPath: string,
+    target: McpLayerTarget,
     name: string,
     command: string,
     args: string[],
     env: Record<string, string>
   ) => Promise<void>;
-  removeServer: (projectPath: string, name: string) => Promise<boolean>;
+  removeServer: (target: McpLayerTarget, name: string) => Promise<boolean>;
+  loadLegacyServers: (projectPath: string) => Promise<void>;
+  importLegacyServers: (projectPath: string, workspaceName?: string) => Promise<string[]>;
   clear: () => void;
 }
 
-export const useMcpStore = create<McpState>((set, get) => ({
-  servers: {},
-  projectPath: null,
-  loading: false,
-  error: null,
+export const useMcpStore = create<McpState>((set, get) => {
+  const refreshIfCurrent = async (target: McpLayerTarget) => {
+    if (get().targetKey !== mcpTargetKey(target)) return;
+    const servers = await mcpService.listServers(target);
+    set({ servers });
+  };
 
-  loadServers: async (projectPath) => {
-    set({ loading: true, error: null, projectPath });
-    try {
-      const servers = await mcpService.listServers(projectPath);
-      set({ servers, loading: false });
-    } catch (e) {
-      set({ error: translateError(e), loading: false });
-    }
-  },
+  return {
+    servers: {},
+    targetKey: null,
+    legacyServers: {},
+    loading: false,
+    error: null,
 
-  upsertServer: async (projectPath, name, command, args, env) => {
-    await mcpService.upsertServer(projectPath, name, command, args, env);
-    // 重新加载以保持同步
-    const currentPath = get().projectPath;
-    if (currentPath === projectPath) {
-      const servers = await mcpService.listServers(projectPath);
-      set({ servers });
-    }
-  },
-
-  removeServer: async (projectPath, name) => {
-    const removed = await mcpService.removeServer(projectPath, name);
-    if (removed) {
-      const currentPath = get().projectPath;
-      if (currentPath === projectPath) {
-        const servers = await mcpService.listServers(projectPath);
-        set({ servers });
+    loadServers: async (target) => {
+      set({ loading: true, error: null, targetKey: mcpTargetKey(target) });
+      try {
+        const servers = await mcpService.listServers(target);
+        set({ servers, loading: false });
+      } catch (e) {
+        set({ error: translateError(e), loading: false });
       }
-    }
-    return removed;
-  },
+    },
 
-  clear: () => set({ servers: {}, projectPath: null, error: null }),
-}));
+    upsertServer: async (target, name, command, args, env) => {
+      await mcpService.upsertServer(target, name, command, args, env);
+      await refreshIfCurrent(target);
+    },
+
+    removeServer: async (target, name) => {
+      const removed = await mcpService.removeServer(target, name);
+      if (removed) await refreshIfCurrent(target);
+      return removed;
+    },
+
+    loadLegacyServers: async (projectPath) => {
+      try {
+        const legacyServers = await mcpService.listLegacyServers(projectPath);
+        set({ legacyServers });
+      } catch {
+        set({ legacyServers: {} });
+      }
+    },
+
+    importLegacyServers: async (projectPath, workspaceName) => {
+      const imported = await mcpService.importLegacyServers(projectPath, workspaceName);
+      if (imported.length > 0) {
+        const target: McpLayerTarget = workspaceName ? { workspaceName } : { projectPath };
+        await refreshIfCurrent(target);
+      }
+      return imported;
+    },
+
+    clear: () => set({ servers: {}, targetKey: null, legacyServers: {}, error: null }),
+  };
+});

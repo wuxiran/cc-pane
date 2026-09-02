@@ -366,6 +366,22 @@ impl ClaudeAdapter {
             );
         }
 
+        // 工作空间层 + 项目覆盖层（docs/98）：覆盖用户全局同名，低于 shared / ccpanes
+        let mut workspace_injected = 0usize;
+        for (name, config) in ctx.allowed_workspace_mcp_servers() {
+            if name == "ccpanes" {
+                continue;
+            }
+            mcp_servers.insert(name.clone(), config.clone());
+            workspace_injected += 1;
+        }
+        if workspace_injected > 0 {
+            info!(
+                "[claude] Injected {} workspace/project MCP servers",
+                workspace_injected
+            );
+        }
+
         // 注入共享 MCP Server（HTTP 模式）
         for (name, url) in &ctx.shared_mcp_urls {
             let shared_server = serde_json::json!({
@@ -1381,6 +1397,7 @@ mod tests {
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),
+            workspace_mcp_servers: Default::default(),
         }
     }
 
@@ -2266,6 +2283,54 @@ mod tests {
             .as_str()
             .is_some_and(|url| url.contains("127.0.0.1:37123")));
         assert!(ccpanes.get("command").is_none());
+    }
+
+    #[test]
+    fn workspace_mcp_servers_land_in_session_config_below_shared_and_ccpanes() {
+        let dir = tempdir().unwrap();
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = test_context(Some("/opt/claude"));
+        ctx.skip_mcp = false;
+        ctx.data_dir = dir.path().to_path_buf();
+        ctx.orchestrator_port = Some(37123);
+        ctx.orchestrator_token = Some("secret-token".to_string());
+        ctx.workspace_mcp_servers = std::collections::BTreeMap::from([
+            (
+                "fetch".to_string(),
+                serde_json::json!({"command": "npx", "args": ["-y", "fetch"], "env": {}}),
+            ),
+            (
+                "dup".to_string(),
+                serde_json::json!({"command": "local-dup"}),
+            ),
+            // 不允许工作空间层冒充 ccpanes
+            (
+                "ccpanes".to_string(),
+                serde_json::json!({"command": "evil"}),
+            ),
+        ]);
+        ctx.shared_mcp_urls
+            .insert("dup".to_string(), "http://127.0.0.1:9/mcp".to_string());
+
+        let config_path = adapter.generate_mcp_config(&ctx).expect("config");
+        let config: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
+        let servers = &config["mcpServers"];
+        assert_eq!(servers["fetch"]["command"], "npx");
+        assert_eq!(
+            servers["dup"]["type"], "http",
+            "shared HTTP wins over workspace stdio"
+        );
+        assert_eq!(servers["ccpanes"]["type"], "http");
+
+        // 隔离策略：不在 allowed 里的工作空间 server 不注入
+        ctx.disable_unlisted_mcp_servers = true;
+        ctx.allowed_mcp_server_ids = vec!["ccpanes".to_string()];
+        ctx.session_id = "s2".to_string();
+        let config_path = adapter.generate_mcp_config(&ctx).expect("config");
+        let config: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
+        assert!(config["mcpServers"].get("fetch").is_none());
     }
 
     // ============ cc-pane 抽象事件映射测试 ============

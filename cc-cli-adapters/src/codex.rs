@@ -370,6 +370,17 @@ impl CodexAdapter {
             Self::push_mcp_enabled_override(args, "ccpanes", true);
         }
 
+        // 工作空间层 + 项目覆盖层（docs/98）先于 shared 写入：同名时 shared 的 URL 后写覆盖。
+        let mut workspace_injected = 0usize;
+        for (name, config) in ctx.allowed_workspace_mcp_servers() {
+            if name == "ccpanes" || ctx.shared_mcp_urls.contains_key(name) {
+                continue;
+            }
+            if Self::push_mcp_json_override(args, name, config) {
+                workspace_injected += 1;
+            }
+        }
+
         for (name, url) in &ctx.shared_mcp_urls {
             Self::push_mcp_url_override(args, name, url);
         }
@@ -377,9 +388,75 @@ impl CodexAdapter {
         info!(
             session_id = %ctx.session_id,
             shared_mcp = ctx.shared_mcp_urls.len(),
+            workspace_mcp = workspace_injected,
             ccpanes_mode = if proxy.is_some() { "stdio-proxy" } else { "http" },
             "codex: MCP configured via per-launch CLI overrides"
         );
+    }
+
+    /// Expand one Claude-shaped `mcpServers` entry into `-c mcp_servers.<name>.*` overrides.
+    /// Returns false (and pushes nothing) when the entry has neither a command nor a url.
+    pub(crate) fn push_mcp_json_override(
+        args: &mut Vec<String>,
+        name: &str,
+        config: &serde_json::Value,
+    ) -> bool {
+        let key = Self::format_toml_key_segment_for_cli(name);
+        if let Some(url) = config.get("url").and_then(serde_json::Value::as_str) {
+            if !url.trim().is_empty() {
+                Self::push_mcp_url_override(args, name, url);
+                Self::push_mcp_enabled_override(args, name, true);
+                return true;
+            }
+        }
+        let Some(command) = config
+            .get("command")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return false;
+        };
+        args.push("-c".to_string());
+        args.push(format!(
+            "mcp_servers.{key}.command={}",
+            Self::format_toml_string_for_cli(command)
+        ));
+        let arg_values = config
+            .get("args")
+            .and_then(serde_json::Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(|s| toml::Value::String(s.to_string())))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        args.push("-c".to_string());
+        args.push(format!(
+            "mcp_servers.{key}.args={}",
+            toml::Value::Array(arg_values)
+        ));
+        if let Some(env) = config.get("env").and_then(serde_json::Value::as_object) {
+            let pairs = env
+                .iter()
+                .filter_map(|(k, v)| {
+                    v.as_str().map(|value| {
+                        format!(
+                            "{} = {}",
+                            Self::format_toml_key_segment_for_cli(k),
+                            Self::format_toml_string_for_cli(value)
+                        )
+                    })
+                })
+                .collect::<Vec<_>>();
+            if !pairs.is_empty() {
+                args.push("-c".to_string());
+                args.push(format!("mcp_servers.{key}.env={{{}}}", pairs.join(", ")));
+            }
+        }
+        Self::push_mcp_enabled_override(args, name, true);
+        true
     }
 
     fn configured_mcp_server_names_from_config_path(path: &Path) -> BTreeSet<String> {
@@ -1728,6 +1805,7 @@ mod tests {
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),
+            workspace_mcp_servers: Default::default(),
         }
     }
 
@@ -2016,6 +2094,51 @@ mod tests {
                 "mcp_servers.ccpanes.enabled=false",
             ]
         );
+    }
+
+    #[test]
+    fn workspace_mcp_servers_expand_to_dotted_overrides_and_respect_policy() {
+        let adapter = CodexAdapter::new();
+        let mut ctx = test_context(Some("/opt/codex"));
+        ctx.skip_mcp = false;
+        ctx.orchestrator_port = Some(37123);
+        ctx.orchestrator_token = Some("t".to_string());
+        ctx.workspace_mcp_servers = std::collections::BTreeMap::from([
+            (
+                "fetch".to_string(),
+                serde_json::json!({"command": "npx", "args": ["-y", "fetch"], "env": {"API_KEY": "k"}}),
+            ),
+            (
+                "remote".to_string(),
+                serde_json::json!({"type": "http", "url": "https://x/mcp"}),
+            ),
+            ("broken".to_string(), serde_json::json!({"env": {}})),
+            // 同名 shared 优先，工作空间条目不展开
+            ("dup".to_string(), serde_json::json!({"command": "local"})),
+        ]);
+        ctx.shared_mcp_urls
+            .insert("dup".to_string(), "http://127.0.0.1:1/mcp".to_string());
+
+        let mut args = Vec::new();
+        adapter.push_mcp_overrides(&mut args, &ctx);
+        let joined = args.join("\n");
+        assert!(joined.contains("mcp_servers.fetch.command=\"npx\""));
+        assert!(joined.contains("mcp_servers.fetch.args=[\"-y\", \"fetch\"]"));
+        assert!(joined.contains("mcp_servers.fetch.env={API_KEY = \"k\"}"));
+        assert!(joined.contains("mcp_servers.fetch.enabled=true"));
+        assert!(joined.contains("mcp_servers.remote.url=\"https://x/mcp\""));
+        assert!(!joined.contains("mcp_servers.broken"));
+        assert!(!joined.contains("mcp_servers.dup.command"));
+        assert!(joined.contains("mcp_servers.dup.url=\"http://127.0.0.1:1/mcp\""));
+
+        // 隔离模式：只放行 allowed 里的名字
+        ctx.disable_unlisted_mcp_servers = true;
+        ctx.allowed_mcp_server_ids = vec!["remote".to_string()];
+        let mut args = Vec::new();
+        adapter.push_mcp_overrides(&mut args, &ctx);
+        let joined = args.join("\n");
+        assert!(!joined.contains("mcp_servers.fetch."));
+        assert!(joined.contains("mcp_servers.remote.url="));
     }
 
     #[test]

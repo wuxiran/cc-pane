@@ -232,6 +232,7 @@ use commands::{
     git_stash_pop,
     handle_terminal_exit_spec,
     handle_terminal_exit_spec_by_session,
+    import_legacy_mcp_servers,
     import_project_skill,
     import_shared_mcp_from_claude,
     import_skill,
@@ -275,11 +276,13 @@ use commands::{
     list_labels,
     list_launch_history,
     list_launch_profiles,
+    list_legacy_mcp_servers,
     // MCP 配置命令
     list_mcp_servers,
     list_media_assets,
     list_media_edges,
     list_media_nodes,
+    list_media_provider_models,
     list_media_runs,
     list_memories,
     list_opencode_sessions,
@@ -1717,7 +1720,7 @@ pub fn run() {
         settings_service.clone(),
         app_paths.clone(),
     ));
-    let mcp_config_service = Arc::new(McpConfigService::new());
+    let mcp_config_service = Arc::new(McpConfigService::with_paths(app_paths.clone()));
     let skill_service = Arc::new(SkillService::new());
     let project_skill_service = Arc::new(cc_panes_core::services::ProjectSkillService::new());
     let workspace_skill_service = Arc::new(cc_panes_core::services::WorkspaceSkillService::new(
@@ -3286,7 +3289,7 @@ pub fn run() {
             list_mcp_servers,
             get_mcp_server,
             upsert_mcp_server,
-            remove_mcp_server,
+            remove_mcp_server, list_legacy_mcp_servers, import_legacy_mcp_servers,
             // Skill 命令
             list_skills,
             list_external_skills,
@@ -3465,6 +3468,7 @@ pub fn run() {
              free_comfy_memory,
              get_comfy_object_info,
              get_media_provider_capabilities,
+             list_media_provider_models,
              create_media_node,
             get_media_node,
             list_media_nodes,

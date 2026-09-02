@@ -15,16 +15,22 @@ vi.mock("sonner", () => ({
 }));
 
 const loadServersMock = vi.fn(async () => {});
+const loadLegacyServersMock = vi.fn(async () => {});
+const importLegacyServersMock = vi.fn(async () => ["legacy"]);
 const upsertServerMock = vi.fn(async () => {});
 const removeServerMock = vi.fn(async () => true);
 
 const PROJECT = "D:/repo/demo";
+const PROJECT_TARGET = { projectPath: PROJECT };
 
 function setServers(servers: Record<string, McpServerConfig>) {
   useMcpStore.setState({
     servers,
+    legacyServers: {},
     loading: false,
     loadServers: loadServersMock,
+    loadLegacyServers: loadLegacyServersMock,
+    importLegacyServers: importLegacyServersMock,
     upsertServer: upsertServerMock,
     removeServer: removeServerMock,
   });
@@ -39,7 +45,8 @@ describe("ProjectMcpSection", () => {
   it("loads servers for the project on mount", () => {
     render(<ProjectMcpSection projectPath={PROJECT} />);
 
-    expect(loadServersMock).toHaveBeenCalledWith(PROJECT);
+    expect(loadServersMock).toHaveBeenCalledWith(PROJECT_TARGET);
+    expect(loadLegacyServersMock).toHaveBeenCalledWith(PROJECT);
   });
 
   it("shows an empty state when there are no servers", () => {
@@ -105,7 +112,7 @@ describe("ProjectMcpSection", () => {
     await user.click(buttons[buttons.length - 1]);
 
     await waitFor(() =>
-      expect(upsertServerMock).toHaveBeenCalledWith(PROJECT, "my-server", "npx", ["-y", "some-pkg"], {
+      expect(upsertServerMock).toHaveBeenCalledWith(PROJECT_TARGET, "my-server", "npx", ["-y", "some-pkg"], {
         KEY: "VALUE",
         FOO: "BAR",
       }),
@@ -131,8 +138,8 @@ describe("ProjectMcpSection", () => {
     const buttons = screen.getAllByRole("button");
     await user.click(buttons[buttons.length - 1]);
 
-    await waitFor(() => expect(removeServerMock).toHaveBeenCalledWith(PROJECT, "old-name"));
-    expect(upsertServerMock).toHaveBeenCalledWith(PROJECT, "new-name", "npx", [], {});
+    await waitFor(() => expect(removeServerMock).toHaveBeenCalledWith(PROJECT_TARGET, "old-name"));
+    expect(upsertServerMock).toHaveBeenCalledWith(PROJECT_TARGET, "new-name", "npx", [], {});
   });
 
   it("deletes a server via its trash button", async () => {
@@ -144,8 +151,39 @@ describe("ProjectMcpSection", () => {
     // 行内按钮：编辑 → 删除；标题栏还有一个"新增"
     await user.click(buttons[2]);
 
-    await waitFor(() => expect(removeServerMock).toHaveBeenCalledWith(PROJECT, "doomed"));
+    await waitFor(() => expect(removeServerMock).toHaveBeenCalledWith(PROJECT_TARGET, "doomed"));
     expect(toast.success).toHaveBeenCalled();
+  });
+
+  it("workspace view loads the workspace layer and never touches legacy servers", () => {
+    render(<ProjectMcpSection projectPath="" workspaceName="team" />);
+
+    expect(loadServersMock).toHaveBeenCalledWith({ workspaceName: "team" });
+    expect(loadLegacyServersMock).not.toHaveBeenCalled();
+    expect(screen.getByText(/team/)).toBeInTheDocument();
+  });
+
+  it("offers a one-click import when legacy .claude servers are not in the overlay yet", async () => {
+    const user = userEvent.setup();
+    setServers({ kept: { command: "npx", args: [], env: {} } });
+    useMcpStore.setState({
+      legacyServers: {
+        kept: { command: "npx", args: [], env: {} },
+        legacy: { command: "old", args: [], env: {} },
+      },
+    });
+    render(<ProjectMcpSection projectPath={PROJECT} />);
+
+    // 只列出尚未导入的名字
+    expect(screen.getByText("legacy")).toBeInTheDocument();
+    expect(screen.queryByText("kept, legacy")).not.toBeInTheDocument();
+
+    // 项目不属于任何工作空间 → 导入到项目覆盖层（workspaceName 为 undefined）
+    const importButton = screen.getAllByRole("button")[1];
+    await user.click(importButton);
+    await waitFor(() => expect(importLegacyServersMock).toHaveBeenCalledWith(PROJECT, undefined));
+    expect(toast.success).toHaveBeenCalled();
+    expect(loadLegacyServersMock).toHaveBeenCalledTimes(2);
   });
 
   it("surfaces service failures through an error toast", async () => {

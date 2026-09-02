@@ -287,6 +287,7 @@ export interface PanesState extends BrowserTabActions {
   openWorkspaceSkillManager: (workspaceName: string, title: string) => void;
   openMemoryManager: (projectPath: string, title: string) => void;
   openWorkspaceMemoryManager: (workspaceName: string, title: string) => void;
+  openWorkspaceMcpConfig: (workspaceName: string, title: string) => void;
   openFileExplorer: (projectPath: string, title: string) => void;
   /**
    * 打开编辑器标签。`layoutId` 缺省 = 当前布局；MCP 调用方所在布局由调用者传入，

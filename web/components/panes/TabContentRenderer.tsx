@@ -172,7 +172,7 @@ export default memo(function TabContentRenderer({
     case "mcp-config":
       return (
         <LazyContent>
-          <McpConfigPanel projectPath={tab.projectPath} />
+          <McpConfigPanel projectPath={tab.projectPath} workspaceName={tab.workspaceName} />
         </LazyContent>
       );
 
