@@ -62,6 +62,27 @@ describe("useFollowActiveTerminalContext", () => {
     });
   });
 
+  it("SSH 终端 tab 不跟随工作空间选中", () => {
+    setActivePanel(makePanel([
+      {
+        ...makeTab("tab-ssh", "ssh://dev@example.com/home/dev"),
+        ssh: {
+          host: "example.com",
+          port: 22,
+          remotePath: "/home/dev",
+          machineId: "machine-1",
+        },
+      },
+    ], "tab-ssh"));
+
+    renderHook(() => useFollowActiveTerminalContext());
+
+    expect(useWorkspacesStore.getState()).toMatchObject({
+      expandedWorkspaceId: null,
+      expandedProjectId: null,
+    });
+  });
+
   it("激活终端 tab 时同步工作空间和项目", () => {
     setActivePanel(makePanel([
       makeTab("tab-a", "D:\\Repos\\Alpha", "alpha"),

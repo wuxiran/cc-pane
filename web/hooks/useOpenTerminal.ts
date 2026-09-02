@@ -1,10 +1,12 @@
 // 打开终端 + pendingLaunch 消费，统一处理布局落位、启动历史与 Local History 快照。
 // 含启动历史记录（resume 时 touch 已有记录、否则新建）与 Local History 自动快照。
 import { useCallback, useEffect } from "react";
-import { usePanesStore, useDialogStore, useSettingsStore } from "@/stores";
+import { usePanesStore, useDialogStore, useSettingsStore, useWorkspacesStore } from "@/stores";
 import { historyService, localHistoryService } from "@/services";
 import { resolveRuntimeKind } from "@/utils/desktopRuntime";
 import { resolveWorkspaceLaunchLayout } from "@/utils/layoutWorkspace";
+import { resolveLayoutScope, sshMachineLayoutScope } from "@/utils/layoutScope";
+import { switchLayoutScope } from "@/hooks/useLayoutScopeSync";
 import { classifyTerminalLaunchPath, translateError } from "@/utils";
 import { toast } from "sonner";
 import type { LaunchExtras, OpenTerminalOptions } from "@/types";
@@ -22,6 +24,17 @@ function buildLaunchExtras(opts: OpenTerminalOptions): LaunchExtras | undefined 
     return undefined;
   }
   return { skipMcp, appendSystemPrompt, initialPrompt, yolo, adapterOptions };
+}
+
+function resolveWorkspaceLaunchScope(workspaceName?: string) {
+  const store = useWorkspacesStore.getState();
+  const name = workspaceName?.trim();
+  const workspace = name
+    ? store.workspaces.find((item) => (
+      item.name === name || item.alias === name
+    ))
+    : store.selectedWorkspace();
+  return resolveLayoutScope({ workspaceId: workspace?.id });
 }
 
 export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
@@ -42,10 +55,18 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
       const defaultTool = useSettingsStore.getState().settings?.general.defaultCliTool ?? "claude";
       const effectiveCliTool = opts.cliTool ?? (resumeId ? defaultTool : undefined);
       const runtimeKind = resolveRuntimeKind({ ssh, wsl });
+      if (ssh && !ssh.machineId?.trim()) {
+        toast.error("SSH machine identity is unavailable");
+        return;
+      }
       const launchClaude = effectiveCliTool !== undefined && effectiveCliTool !== "none";
       const projectId = `proj-${crypto.randomUUID()}`;
       const launchId = `launch-${crypto.randomUUID()}`;
       const workspaceSnapshotId = opts.workspaceSnapshotId ?? `ws-snapshot-${crypto.randomUUID()}`;
+      const targetScope = ssh?.machineId
+        ? sshMachineLayoutScope(ssh.machineId)
+        : resolveWorkspaceLaunchScope(workspaceName);
+      switchLayoutScope(targetScope);
       // 显式目标优先。当前普通布局未绑定时，用户刚新建/选中它就是更强的落位意图；
       // 已绑定到其他工作空间（或当前为星标）时，才按 workspaceName 自动路由。
       let targetLayoutId = opts.targetLayoutId;

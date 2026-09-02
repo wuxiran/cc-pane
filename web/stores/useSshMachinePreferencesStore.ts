@@ -6,7 +6,9 @@ export const SSH_MACHINE_PREFERENCES_STORAGE_KEY =
 
 interface SshMachinePreferencesState {
   favoriteMachineIds: string[];
+  selectedMachineId: string | null;
   toggleFavorite: (machineId: string) => void;
+  selectMachine: (machineId: string | null) => void;
 }
 
 /** Connection and credential data remain in the SSH machine service. */
@@ -15,17 +17,20 @@ export const useSshMachinePreferencesStore =
     persist(
       (set) => ({
         favoriteMachineIds: [],
+        selectedMachineId: null,
         toggleFavorite: (machineId) =>
           set((state) => ({
             favoriteMachineIds: state.favoriteMachineIds.includes(machineId)
               ? state.favoriteMachineIds.filter((id) => id !== machineId)
               : [...state.favoriteMachineIds, machineId],
           })),
+        selectMachine: (selectedMachineId) => set({ selectedMachineId }),
       }),
       {
         name: SSH_MACHINE_PREFERENCES_STORAGE_KEY,
         partialize: (state) => ({
           favoriteMachineIds: state.favoriteMachineIds,
+          selectedMachineId: state.selectedMachineId,
         }),
       },
     ),

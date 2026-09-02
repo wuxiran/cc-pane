@@ -72,7 +72,9 @@ export default function SshMachinesView({
   const favoriteMachineIds = useSshMachinePreferencesStore(
     (s) => s.favoriteMachineIds,
   );
+  const selectedMachineId = useSshMachinePreferencesStore((s) => s.selectedMachineId);
   const toggleFavorite = useSshMachinePreferencesStore((s) => s.toggleFavorite);
+  const selectMachine = useSshMachinePreferencesStore((s) => s.selectMachine);
   const openRemoteFiles = useSshRemoteFilesStore((s) => s.openMachine);
   const markSessionPassword = useSshRemoteFilesStore((s) => s.markSessionPassword);
   const hasSessionPassword = useSshRemoteFilesStore((s) => s.hasSessionPassword);
@@ -105,6 +107,17 @@ export default function SshMachinesView({
     setEditMachine(null);
     setDialogOpen(true);
   }, [addDialogOpen]);
+
+  useEffect(() => {
+    if (machines.length === 0) {
+      if (selectedMachineId) selectMachine(null);
+      return;
+    }
+    if (selectedMachineId && machines.some((machine) => machine.id === selectedMachineId)) {
+      return;
+    }
+    selectMachine(machines[0]!.id);
+  }, [machines, selectMachine, selectedMachineId]);
 
   /** 检测单台机器连通性 */
   const checkOne = useCallback(async (machineId: string) => {
@@ -184,6 +197,7 @@ export default function SshMachinesView({
 
       try {
         await removeMachine(machine.id);
+        if (selectedMachineId === machine.id) selectMachine(null);
         toast.success(
           t("ssh.deleted", { defaultValue: "SSH machine deleted" }),
         );
@@ -191,7 +205,7 @@ export default function SshMachinesView({
         toast.error(getErrorMessage(e));
       }
     },
-    [removeMachine, t],
+    [removeMachine, selectMachine, selectedMachineId, t],
   );
 
   const handleCopyConnectionInfo = useCallback(
@@ -218,12 +232,17 @@ export default function SshMachinesView({
     }));
   }, [openRemoteFiles]);
 
+  const handleSelectMachine = useCallback((machine: SshMachine) => {
+    selectMachine(machine.id);
+  }, [selectMachine]);
+
   const completeConnection = useCallback(
     (machine: SshMachine) => {
+      selectMachine(machine.id);
       onOpenTerminal(buildTerminalOpts(machine));
       handleOpenRemoteFiles(machine);
     },
-    [handleOpenRemoteFiles, onOpenTerminal],
+    [handleOpenRemoteFiles, onOpenTerminal, selectMachine],
   );
 
   const handleConnect = useCallback((machine: SshMachine) => {
@@ -322,7 +341,7 @@ export default function SshMachinesView({
       />
 
       {/* 列表 */}
-      <div className="flex-1 overflow-y-auto px-2 pb-2">
+      <div className="app-scrollbar flex-1 overflow-y-auto px-2 pb-2">
         {machines.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
             <Server
@@ -420,6 +439,8 @@ export default function SshMachinesView({
                           machine={machine}
                           connectivity={connectivity[machine.id] ?? null}
                           favorite={favoriteMachineIdSet.has(machine.id)}
+                          selected={selectedMachineId === machine.id}
+                          onSelect={handleSelectMachine}
                           onConnect={handleConnect}
                           onOpenFiles={handleOpenRemoteFiles}
                           onEdit={handleEdit}

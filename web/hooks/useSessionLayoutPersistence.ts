@@ -16,6 +16,7 @@ import {
 import { sessionRestoreService, layoutSnapshotService, terminalService } from "@/services";
 import { getCurrentWindowIfTauri, isTauriRuntime } from "@/services/runtime";
 import { waitForDesktopRuntime, resolveRuntimeKind } from "@/utils/desktopRuntime";
+import { getActiveLayoutScope } from "@/stores/useLayoutScopeStore";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
 import {
   reconcileTerminalSessions,
@@ -35,7 +36,7 @@ let suppressLayoutSnapshotSaveUntil = 0;
 const STARTUP_ADOPTION_RETRY_MS = 31_000;
 
 function currentLayoutProfileId(): string {
-  return "default";
+  return `layout-scope:${getActiveLayoutScope()}`;
 }
 
 function layoutSnapshotSource(): string {

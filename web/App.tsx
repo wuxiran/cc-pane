@@ -14,6 +14,7 @@ import { useHiddenSessionReporter } from "@/hooks/useHiddenSessionReporter";
 import { useTabAttentionWiring } from "@/hooks/useTabAttentionWiring";
 import useOrchestratorSync from "@/hooks/useOrchestratorSync";
 import useLayoutSwitcherSync from "@/hooks/useLayoutSwitcherSync";
+import { useLayoutScopeSync } from "@/hooks/useLayoutScopeSync";
 import { useLaunchWarnings } from "@/hooks/useLaunchWarnings";
 import {
   useSessionLayoutPersistence,
@@ -58,6 +59,7 @@ export default function App() {
 }
 
 function MainApp() {
+  useLayoutScopeSync();
   useSessionLayoutPersistence();
   useSharedLayoutSnapshotSync();
   const terminalRestoreReady = useStartupTerminalRestoreBarrier();

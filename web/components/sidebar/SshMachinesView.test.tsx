@@ -103,7 +103,10 @@ describe("SshMachinesView", () => {
     await i18n.changeLanguage("zh-CN");
     useSshMachinesStore.setState({ machines: [] });
     useSshMachineDialogStore.setState({ addDialogOpen: false });
-    useSshMachinePreferencesStore.setState({ favoriteMachineIds: [] });
+    useSshMachinePreferencesStore.setState({
+      favoriteMachineIds: [],
+      selectedMachineId: null,
+    });
     useSshRemoteFilesStore.setState({ sessionPasswordMachineIds: [] });
     useSshRemoteFilesStore.getState().clear();
     useRightDockStore.setState({ visible: false, activeView: "git" });
@@ -220,6 +223,25 @@ describe("SshMachinesView", () => {
     );
 
     expect(screen.getByTestId("ssh-machine-dialog")).toBeInTheDocument();
+  });
+
+  it("selects a machine on click without opening a terminal", async () => {
+    const user = userEvent.setup();
+    const { onOpenTerminal } = renderView([createMachine()]);
+
+    await user.click(screen.getByText("devbox"));
+
+    expect(useSshMachinePreferencesStore.getState().selectedMachineId).toBe("m-1");
+    expect(onOpenTerminal).not.toHaveBeenCalled();
+    expect(screen.getByText("devbox").closest("[aria-selected='true']")).not.toBeNull();
+  });
+
+  it("auto-selects the only machine in the list", async () => {
+    renderView([createMachine()]);
+
+    await waitFor(() => {
+      expect(useSshMachinePreferencesStore.getState().selectedMachineId).toBe("m-1");
+    });
   });
 
   it("connects on double-click", () => {

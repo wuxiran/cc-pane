@@ -121,6 +121,8 @@ interface MachineItemProps {
   machine: SshMachine;
   connectivity: ConnectivityState;
   favorite: boolean;
+  selected: boolean;
+  onSelect: (machine: SshMachine) => void;
   onConnect: (machine: SshMachine) => void;
   onOpenFiles: (machine: SshMachine) => void;
   onEdit: (machine: SshMachine) => void;
@@ -148,7 +150,7 @@ function MachineMenuItems({
   onCheckConnectivity,
   onToggleFavorite,
   dropdown = false,
-}: Omit<MachineItemProps, "connectivity"> & { dropdown?: boolean }) {
+}: Omit<MachineItemProps, "connectivity" | "selected" | "onSelect"> & { dropdown?: boolean }) {
   const { t } = useTranslation("sidebar");
   const Item = dropdown ? DropdownMenuItem : ContextMenuItem;
   return (
@@ -224,7 +226,7 @@ function ActionButton({
 
 const MachineItem = memo(function MachineItem(props: MachineItemProps) {
   const { t } = useTranslation("sidebar");
-  const { machine, connectivity, favorite } = props;
+  const { machine, connectivity, favorite, selected } = props;
   const authLabel = t(
     machine.authMethod === "password"
       ? "ssh.authPassword"
@@ -257,7 +259,13 @@ const MachineItem = memo(function MachineItem(props: MachineItemProps) {
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
-          className={`${sidebarEntityRowClass} cursor-pointer hover:bg-[var(--app-hover)]`}
+          className={`${sidebarEntityRowClass} cursor-pointer ${
+            selected
+              ? "bg-[var(--app-active-bg)] text-[var(--app-accent)]"
+              : "hover:bg-[var(--app-hover)]"
+          }`}
+          aria-selected={selected}
+          onClick={() => props.onSelect(machine)}
           onDoubleClick={() => props.onConnect(machine)}
         >
           <div className={sidebarEntityContentClass}>

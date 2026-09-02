@@ -81,6 +81,8 @@ export function useFollowActiveTerminalContext(): void {
     if (handledKeyRef.current === activeTerminalKey || workspaces.length === 0) return;
 
     handledKeyRef.current = activeTerminalKey;
+    const active = getActiveTab(usePanesStore.getState());
+    if (active?.tab.ssh?.machineId) return;
     const context = getActiveTerminalContext(usePanesStore.getState());
     if (!context) return;
     const selection = resolveTerminalContextSelection(context, workspaces);
