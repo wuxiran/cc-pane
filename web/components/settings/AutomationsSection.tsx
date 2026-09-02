@@ -10,7 +10,9 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { automationService, listAcpEngines } from "@/services";
+import { useWorkspacesStore } from "@/stores";
 import type { AcpEngineInfo, AutomationDef, AutomationRun } from "@/types";
+import AutomationScopeFields, { inferWorkspaceName } from "./AutomationScopeFields";
 import {
   buildCron,
   parseCron,
@@ -24,6 +26,7 @@ interface EditorDraft {
   name: string;
   prompt: string;
   cwd: string;
+  workspaceName: string;
   engineId: string;
   schedule: ScheduleDraft;
   enabled: boolean;
@@ -34,12 +37,13 @@ interface EditorDraft {
 
 const PRESETS: SchedulePreset[] = ["hourly", "daily", "weekdays", "weekly", "custom"];
 
-function emptyDraft(defaultEngineId: string): EditorDraft {
+function emptyDraft(defaultEngineId: string, workspaceName = "", cwd = ""): EditorDraft {
   return {
     id: "",
     name: "",
     prompt: "",
-    cwd: "",
+    cwd,
+    workspaceName,
     engineId: defaultEngineId,
     schedule: { preset: "daily", time: "09:00", weekday: 1, cron: "0 9 * * *" },
     enabled: true,
@@ -49,12 +53,13 @@ function emptyDraft(defaultEngineId: string): EditorDraft {
   };
 }
 
-function toDraft(def: AutomationDef): EditorDraft {
+function toDraft(def: AutomationDef, inferredWorkspace: string): EditorDraft {
   return {
     id: def.id,
     name: def.name,
     prompt: def.prompt,
     cwd: def.cwd,
+    workspaceName: def.workspaceName ?? inferredWorkspace,
     engineId: def.engineId,
     schedule: parseCron(def.schedule),
     enabled: def.enabled,
@@ -77,6 +82,10 @@ export default function AutomationsSection() {
   const [runsFor, setRunsFor] = useState<string | null>(null);
   const [runs, setRuns] = useState<AutomationRun[]>([]);
   const [saving, setSaving] = useState(false);
+  const workspaces = useWorkspacesStore((state) => state.workspaces);
+  const expandedWorkspaceId = useWorkspacesStore((state) => state.expandedWorkspaceId);
+  // workspace-first：新建默认落当前展开的工作空间及其第一个项目
+  const currentWorkspace = workspaces.find((workspace) => workspace.id === expandedWorkspaceId);
 
   const reload = useCallback(async () => {
     try {
@@ -113,6 +122,7 @@ export default function AutomationsSection() {
         name: draft.name,
         prompt: draft.prompt,
         cwd: draft.cwd,
+        workspaceName: draft.workspaceName || null,
         engineId: draft.engineId,
         schedule: buildCron(draft.schedule),
         enabled: draft.enabled,
@@ -192,7 +202,15 @@ export default function AutomationsSection() {
           </div>
           <Button
             size="sm"
-            onClick={() => setDraft(emptyDraft(engines.find((engine) => engine.available)?.id ?? engines[0]?.id ?? ""))}
+            onClick={() =>
+              setDraft(
+                emptyDraft(
+                  engines.find((engine) => engine.available)?.id ?? engines[0]?.id ?? "",
+                  currentWorkspace?.name ?? "",
+                  currentWorkspace?.projects[0]?.path ?? "",
+                ),
+              )
+            }
           >
             <Plus className="mr-1 h-3.5 w-3.5" />
             {t("automations.add")}
@@ -233,19 +251,13 @@ export default function AutomationsSection() {
               onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
             />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-[12px]">{t("automations.cwd")}</Label>
-            <div className="flex gap-2">
-              <Input
-                className="flex-1"
-                value={draft.cwd}
-                onChange={(event) => setDraft({ ...draft, cwd: event.target.value })}
-              />
-              <Button variant="outline" size="sm" onClick={() => void browseCwd()}>
-                {t("automations.browse")}
-              </Button>
-            </div>
-          </div>
+          <AutomationScopeFields
+            workspaceName={draft.workspaceName}
+            cwd={draft.cwd}
+            selectClass={selectClass}
+            onChange={(next) => setDraft({ ...draft, ...next })}
+            onBrowse={() => void browseCwd()}
+          />
           <div className="flex flex-wrap items-end gap-3">
             <div className="flex flex-col gap-1.5">
               <Label className="text-[12px]">{t("automations.schedule")}</Label>
@@ -374,6 +386,11 @@ export default function AutomationsSection() {
                   <Badge variant="secondary" className="text-[10px]">
                     {engines.find((engine) => engine.id === def.engineId)?.label ?? def.engineId}
                   </Badge>
+                  {(def.workspaceName || inferWorkspaceName(workspaces, def.cwd)) && (
+                    <Badge variant="outline" className="text-[10px]" style={{ color: "var(--app-accent)" }}>
+                      {def.workspaceName || inferWorkspaceName(workspaces, def.cwd)}
+                    </Badge>
+                  )}
                 </div>
                 <p className="mt-0.5 truncate text-[11px] text-[var(--app-text-muted)]">
                   {t("automations.nextRun")}: {def.enabled ? formatMillis(def.nextRunAt) : "—"}
@@ -384,7 +401,7 @@ export default function AutomationsSection() {
               <Button variant="ghost" size="sm" title={t("automations.runNow")} onClick={() => void runNow(def.id)}>
                 <Play className="h-3.5 w-3.5" />
               </Button>
-              <Button variant="ghost" size="sm" title={t("automations.edit")} onClick={() => setDraft(toDraft(def))}>
+              <Button variant="ghost" size="sm" title={t("automations.edit")} onClick={() => setDraft(toDraft(def, inferWorkspaceName(workspaces, def.cwd)))}>
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
               <Button variant="ghost" size="sm" title={t("automations.delete")} onClick={() => void remove(def.id)}>

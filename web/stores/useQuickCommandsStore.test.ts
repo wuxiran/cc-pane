@@ -11,6 +11,8 @@ vi.mock("@/services/quickCommandService", () => ({
     deleteGlobal: vi.fn(),
     listProject: vi.fn(),
     saveProject: vi.fn(),
+    listWorkspace: vi.fn(),
+    saveWorkspace: vi.fn(),
   },
 }));
 
@@ -40,11 +42,14 @@ const draft: QuickCommandDraft = {
 describe("useQuickCommandsStore", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    service.listWorkspace.mockResolvedValue([]);
     useQuickCommandsStore.setState({
       globalCommands: [],
+      workspaceCommands: [],
       projectCommands: [],
       commands: [],
       activeProjectPath: null,
+      activeWorkspaceName: null,
       loading: false,
     });
   });
@@ -56,10 +61,57 @@ describe("useQuickCommandsStore", () => {
     await useQuickCommandsStore.getState().load("/repo/a");
 
     expect(service.listProject).toHaveBeenCalledWith("/repo/a");
+    expect(service.listWorkspace).not.toHaveBeenCalled();
     expect(useQuickCommandsStore.getState().commands).toEqual([
       { ...command("global"), scope: "global" },
       { ...command("project"), scope: "project" },
     ]);
+  });
+
+  it("带工作空间上下文时加载三层，顺序 global → workspace → project", async () => {
+    service.listGlobal.mockResolvedValue([command("global")]);
+    service.listWorkspace.mockResolvedValue([command("ws")]);
+    service.listProject.mockResolvedValue([command("project")]);
+
+    await useQuickCommandsStore.getState().load({ projectPath: "/repo/a", workspaceName: "alpha" });
+
+    expect(service.listWorkspace).toHaveBeenCalledWith("alpha");
+    const state = useQuickCommandsStore.getState();
+    expect(state.activeWorkspaceName).toBe("alpha");
+    expect(state.commands.map((c) => `${c.scope}:${c.id}`)).toEqual([
+      "global:global",
+      "workspace:ws",
+      "project:project",
+    ]);
+  });
+
+  it("workspace 层的增改删是整文件读改写", async () => {
+    service.listGlobal.mockResolvedValue([]);
+    service.listWorkspace.mockResolvedValue([command("ws-1")]);
+    service.saveWorkspace.mockImplementation(async (_name, commands) => commands);
+    await useQuickCommandsStore.getState().load({ workspaceName: "alpha" });
+
+    const created = await useQuickCommandsStore.getState().create(draft, "workspace");
+    expect(created.scope).toBe("workspace");
+    expect(service.saveWorkspace).toHaveBeenLastCalledWith(
+      "alpha",
+      expect.arrayContaining([expect.objectContaining({ id: "ws-1" }), expect.objectContaining({ name: "Run tests" })]),
+    );
+
+    const lastSaved = (): QuickCommand[] => {
+      const calls = service.saveWorkspace.mock.calls;
+      return calls[calls.length - 1][1];
+    };
+    await useQuickCommandsStore.getState().update("ws-1", { ...draft, name: "Renamed" }, "workspace");
+    expect(lastSaved().find((c) => c.id === "ws-1")?.name).toBe("Renamed");
+
+    await useQuickCommandsStore.getState().remove("ws-1", "workspace");
+    expect(lastSaved().some((c) => c.id === "ws-1")).toBe(false);
+    expect(useQuickCommandsStore.getState().commands.every((c) => c.id !== "ws-1")).toBe(true);
+  });
+
+  it("没有活跃工作空间时拒绝写 workspace 层", async () => {
+    await expect(useQuickCommandsStore.getState().create(draft, "workspace")).rejects.toThrow(/workspace/i);
   });
 
   it("无激活项目时只保留全局命令", async () => {

@@ -102,10 +102,29 @@
 5. ✅ `create_workspace` / `ensure_default_workspace` 不再在 `~/.cc-panes/workspaces/<name>/` 里建空 `.ccpanes/`。用户工作空间根的 `projects.csv` 保持不动（见上表更正）。
 
 **第二批（workspace-first 其余四项）**
-6. 快捷命令工作空间层（最小）。
-7. Automations 归工作空间。
-8. Cursor Bridge 登记簿按工作空间。
-9. MCP 工作空间层 + 启动注入替代项目文件写入（最大，独立 plan）。
+6. ✅ 快捷命令工作空间层：`~/.cc-panes/workspaces/<name>/quick-commands.json`，`QuickCommandService::list/save_workspace`，tauri `list/save_workspace_quick_commands` + web `/api/quick-commands/workspace`；前端三层合并 global → workspace → project，按活跃 tab 的项目反推所属工作空间加载，新建默认落工作空间层。项目层创建目录改经 `project_dirs`（顺带写 `.gitignore` 守卫）。
+7. ✅ Automations 归工作空间：`AutomationDef.workspaceName`（旧定义缺省 None，编辑时从 cwd 反推）；编辑器改为「所属工作空间 → 其下项目」两级选择，新建默认当前展开的工作空间及其首个项目；列表带工作空间徽章。**物理存储保持 `<data>/automations/` 单一目录**——调度器只需一处扫，按工作空间拆目录只增加复杂度不增加产品价值，与原表「存到 `workspaces/<name>/automations/`」的写法相比这是有意的简化。
+8. ⏸ Cursor Bridge 登记簿按工作空间：实现代码（另一实例）尚未进主线，不在别人未提交的实现上做迁移。进主线后改：`~/.cc-panes/workspaces/<name>/cursor-bridge/`，`init` 绑工作空间，`context`/`do` 按调用方所在项目取路径。
+9. ⏳ MCP 工作空间层 + 启动注入（见下节 plan，待确认后动手）。
+
+### MCP workspace-first plan
+
+**现状**（已核实代码）：
+- Claude 每次启动已经生成 `<data>/mcp-<session>.json` 并传 `--mcp-config`，内容 = 用户全局 `~/.claude.json` 的 mcpServers（低优先级）+ shared MCP（HTTP 代理）+ `ccpanes`（最高）。Codex 走 `-c mcp_servers.<key>.*` 逐项覆盖。**注入通道已经存在**。
+- 项目级 MCP 是 `McpConfigService` 直接读写 `<repo>/.claude/settings.local.json` 的 `mcpServers`，由 Claude 原生读取；Codex/Cursor 看不到。这是目前唯一还在往项目目录写配置的路径（hooks 除外）。
+- 启动档 `mcp_policy`（Default/Custom/Disabled，enabled/disabled ids，include_ccpanes/shared）在 `terminal_service` 里决定 `allowed_mcp_server_ids` 与 `disable_unlisted_mcp_servers`。
+
+**目标**：
+1. 新增 `~/.cc-panes/workspaces/<name>/mcp.json`：`{ "mcpServers": { name: {command,args,env} | {type:"http",url} } }`，与 Claude 原生格式同构，便于从 `settings.local.json` 一键导入。
+2. `CliAdapterContext` 加 `workspace_mcp_servers: Map<String, Value>`；Claude `generate_mcp_config` 在「用户全局」之后、「shared」之前合并（工作空间覆盖用户全局同名）；Codex 展开为 `-c mcp_servers.*`；其他 CLI 不支持则忽略并在启动诊断里标注。
+3. 项目层可选覆盖 `<repo>/.ccpanes/mcp.json`（可提交），同结构，在工作空间层之后合并。
+4. `McpConfigService` 改为读写这两份文件；**停写 `.claude/settings.local.json` 的 mcpServers**（hooks 那部分继续由 `sync_project_hooks` 管）。`ProjectMcpSection` 改成「项目覆盖层」编辑器，并提供「从 .claude/settings.local.json 导入到工作空间」的一次性按钮；旧文件只读不删。
+5. 启动档 `mcp_policy` 的 enabled/disabled ids 对三层统一按 server name 生效。
+6. 设置 → 工具 → 新增「工作空间 MCP」节（列表 + 增删改 + 导入），工作空间右键加入口。
+
+**代价（已确认接受）**：不经 CC-Panes 直接在项目里跑 `claude` 时看不到工作空间 MCP。
+
+**验收**：启动 Claude 时生成的 `mcp-<session>.json` 含工作空间 server；Codex 参数含 `mcp_servers.<name>`；项目目录 `.claude/settings.local.json` 不再因 MCP 编辑而变化；旧项目的 mcpServers 能一键导入。
 
 **第三批**
 10. plans 归拢到工作空间层。

@@ -9,6 +9,7 @@
 ### Changed
 
 - **`.ccpanes/` is now meant to be committed** (docs/98). The per-repo folder keeps only what describes the repository for the team — `config.toml`, `workflow.md`, `specs/`, project quick commands — and CC-Panes writes a `.ccpanes/.gitignore` that fences off a new `.ccpanes/.cache/` where every machine-local artifact now lives: local history (`history.db` + blobs, renamed into place on first open), media outputs, session journals, externalised long prompts and hook sync state. The legacy `session-state.json` is no longer written. The app also stops treating its own data directory as a project: the default workspace no longer grows a `~/.cc-panes/.ccpanes/` with history and plan archives, and the stray one from earlier builds is removed once at startup. Repos that still ignore `.ccpanes/` wholesale keep working; drop that line to start sharing specs and workflow with your team.
+- **Quick commands and Automations are workspace-first.** Quick commands gain a workspace layer (`~/.cc-panes/workspaces/<name>/quick-commands.json`) resolved global → workspace → project; the tab menu and command palette show the commands of the active tab's workspace, and the editor defaults new commands to the current workspace. Automations now belong to a workspace: the editor picks a workspace, then one of its projects as the working directory (manual folders still allowed), and the list badges each automation with its workspace.
 
 ### Added
 

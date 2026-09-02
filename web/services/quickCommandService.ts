@@ -30,6 +30,26 @@ export const quickCommandService = {
     );
   },
 
+  listWorkspace(workspaceName: string): Promise<QuickCommand[]> {
+    return invokeOrApi<QuickCommand[]>(
+      "list_workspace_quick_commands",
+      { workspaceName },
+      () => apiGet<QuickCommand[]>("/api/quick-commands/workspace", { workspaceName }),
+    );
+  },
+
+  saveWorkspace(workspaceName: string, commands: QuickCommand[]): Promise<QuickCommand[]> {
+    return invokeOrApi<QuickCommand[]>(
+      "save_workspace_quick_commands",
+      { workspaceName, commands },
+      () =>
+        apiJson<QuickCommand[]>("/api/quick-commands/workspace", "PUT", {
+          workspaceName,
+          commands,
+        }),
+    );
+  },
+
   listProject(projectPath: string): Promise<QuickCommand[]> {
     return invokeOrApi<QuickCommand[]>(
       "list_project_quick_commands",

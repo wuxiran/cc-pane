@@ -303,6 +303,7 @@ use commands::{
     list_todo_activities,
     list_user_skills,
     list_wallpapers,
+    list_workspace_quick_commands,
     list_workspace_skills,
     list_workspace_snapshots,
     // Workspace 命令
@@ -408,6 +409,7 @@ use commands::{
     // Session Restore 命令
     save_terminal_sessions,
     save_workflow,
+    save_workspace_quick_commands,
     save_workspace_skill,
     scan_broken_sessions,
     // Process Monitor 命令
@@ -3232,6 +3234,8 @@ pub fn run() {
             delete_quick_command,
             list_project_quick_commands,
             save_project_quick_commands,
+            list_workspace_quick_commands,
+            save_workspace_quick_commands,
             list_providers,
             get_provider,
             get_default_provider,

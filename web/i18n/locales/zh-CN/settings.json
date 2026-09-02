@@ -852,6 +852,9 @@
     "name": "名称",
     "prompt": "Prompt",
     "cwd": "工作目录",
+    "workspace": "所属工作空间",
+    "workspaceNone": "不归属工作空间（手填目录）",
+    "cwdCustom": "自定义目录…",
     "engine": "Agent 引擎",
     "schedule": "日程",
     "time": "时间",
@@ -905,6 +908,8 @@
     },
     "scope": {
       "global": "全局",
+      "workspace": "工作空间",
+      "workspaceNamed": "工作空间 · {{name}}",
       "project": "项目"
     },
     "target": {

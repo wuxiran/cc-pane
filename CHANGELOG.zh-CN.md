@@ -12,6 +12,7 @@
 ### 变更
 
 - **`.ccpanes/` 改为默认可提交**（docs/98）。仓库里的这个目录只保留描述该仓库、值得交给团队的东西——`config.toml`、`workflow.md`、`specs/`、项目快捷命令；CC-Panes 自动写一个 `.ccpanes/.gitignore` 挡住新增的 `.ccpanes/.cache/`，所有机器本地产物都搬进去：本地历史（`history.db` + blobs，首次打开时原地改名）、媒体产物、会话日志、外置的长 prompt、hooks 同步状态。老的 `session-state.json` 不再写。应用也不再把自己的数据目录当项目：默认工作空间不会再在 `~/.cc-panes/.ccpanes/` 里长出历史库和 plan 归档，旧版本留下的那份启动时一次性清掉。仓库里仍整目录忽略 `.ccpanes/` 的照常工作；去掉那一行就能开始和团队共享 specs 与 workflow。
+- **快捷命令与 Automations 改为 workspace-first。** 快捷命令多了工作空间层（`~/.cc-panes/workspaces/<name>/quick-commands.json`），解析顺序 全局 → 工作空间 → 项目；标签右键菜单与命令面板按活跃标签所属工作空间显示，新建默认落工作空间层。Automations 归属工作空间：编辑器先选工作空间、再在其项目里选工作目录（仍允许手填目录），列表带工作空间徽章。
 
 ### 新增
 

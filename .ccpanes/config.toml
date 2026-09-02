@@ -1,0 +1,23 @@
+[history]
+enabled = true
+ignorePatterns = [
+    ".git/**",
+    "node_modules/**",
+    "target/**",
+    "dist/**",
+    "build/**",
+    ".venv/**",
+    ".next/**",
+    ".turbo/**",
+    ".dart_tool/**",
+    "coverage/**",
+    "__pycache__/**",
+    ".ccpanes/**",
+    "*.log",
+    "*.lock",
+]
+maxVersionsPerFile = 50
+maxAgeDays = 30
+maxFileSize = 5242880
+maxTotalSize = 524288000
+minSaveIntervalSecs = 300

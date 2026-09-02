@@ -26,6 +26,7 @@ interface QuickCommandDialogProps {
   open: boolean;
   command: ScopedQuickCommand | null;
   activeProjectPath: string | null;
+  activeWorkspaceName?: string | null;
   onOpenChange: (open: boolean) => void;
   onSave: (draft: QuickCommandDraft, scope: QuickCommandScope) => Promise<void>;
 }
@@ -44,12 +45,15 @@ export default function QuickCommandDialog({
   open,
   command,
   activeProjectPath,
+  activeWorkspaceName = null,
   onOpenChange,
   onSave,
 }: QuickCommandDialogProps) {
   const { t } = useTranslation(["settings", "common"]);
   const [draft, setDraft] = useState<QuickCommandDraft>(defaultDraft);
-  const [scope, setScope] = useState<QuickCommandScope>("global");
+  // workspace-first：有活跃工作空间时新建默认落工作空间层
+  const defaultScope: QuickCommandScope = activeWorkspaceName ? "workspace" : "global";
+  const [scope, setScope] = useState<QuickCommandScope>(defaultScope);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -62,9 +66,9 @@ export default function QuickCommandDialog({
       target: command.target,
       cliTool: command.cliTool,
     } : defaultDraft());
-    setScope(command?.scope ?? "global");
+    setScope(command?.scope ?? defaultScope);
     setSaving(false);
-  }, [command, open]);
+  }, [command, open, defaultScope]);
 
   const valid = Boolean(
     draft.name.trim()
@@ -144,6 +148,15 @@ export default function QuickCommandDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem
+                    value="workspace"
+                    disabled={!activeWorkspaceName}
+                    aria-disabled={!activeWorkspaceName}
+                  >
+                    {activeWorkspaceName
+                      ? t("quickCommands.scope.workspaceNamed", { name: activeWorkspaceName })
+                      : t("quickCommands.scope.workspace")}
+                  </SelectItem>
                   <SelectItem value="global">{t("quickCommands.scope.global")}</SelectItem>
                   <SelectItem
                   value="project"

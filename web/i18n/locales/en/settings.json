@@ -852,6 +852,9 @@
     "name": "Name",
     "prompt": "Prompt",
     "cwd": "Working directory",
+    "workspace": "Workspace",
+    "workspaceNone": "No workspace (enter a folder manually)",
+    "cwdCustom": "Custom folder…",
     "engine": "Agent engine",
     "schedule": "Schedule",
     "time": "Time",
@@ -905,6 +908,8 @@
     },
     "scope": {
       "global": "Global",
+      "workspace": "Workspace",
+      "workspaceNamed": "Workspace · {{name}}",
       "project": "Project"
     },
     "target": {

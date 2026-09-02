@@ -47,6 +47,10 @@ pub struct AutomationDef {
     /// agent 的工作目录（必须存在，spawn 前校验——portable-pty HOME 回退
     /// 同族坑）。
     pub cwd: String,
+    /// 所属工作空间（docs/98 workspace-first）：UI 按它分组、在其项目里选 cwd。
+    /// 旧定义缺省为 None；物理存储仍是单一目录，调度器只需一处扫。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_name: Option<String>,
     /// ACP 引擎 id（内置或 engines.json 自定义）。
     pub engine_id: String,
     /// 5 字段 cron（分 时 日 月 周）。
@@ -477,6 +481,7 @@ mod tests {
             name: "n".into(),
             prompt: "p".into(),
             cwd: ".".into(),
+            workspace_name: None,
             engine_id: "claude".into(),
             schedule: "0 9 * * *".into(),
             enabled,

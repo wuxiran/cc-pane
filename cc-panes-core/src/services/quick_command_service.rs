@@ -89,6 +89,38 @@ impl QuickCommandService {
         Ok(())
     }
 
+    /// Workspace layer (docs/98): `<workspace_dir>/quick-commands.json`, where `workspace_dir`
+    /// is `AppPaths::workspace_dir(name)`. Resolution order for a session is
+    /// project → workspace → global; this layer is the workspace-first default.
+    pub fn list_workspace(&self, workspace_dir: &Path) -> Result<Vec<QuickCommand>> {
+        let _guard = self
+            .project_io_lock
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        Ok(Self::load_from_file(&workspace_dir.join(CONFIG_FILE_NAME))?.commands)
+    }
+
+    pub fn save_workspace(
+        &self,
+        workspace_dir: &Path,
+        commands: Vec<QuickCommand>,
+    ) -> Result<Vec<QuickCommand>> {
+        let _guard = self
+            .project_io_lock
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        Self::validate_commands(&commands)?;
+        std::fs::create_dir_all(workspace_dir)
+            .with_context(|| format!("Failed to create {}", workspace_dir.display()))?;
+        self.save_to_file(
+            &workspace_dir.join(CONFIG_FILE_NAME),
+            &QuickCommandConfig {
+                commands: commands.clone(),
+            },
+        )?;
+        Ok(commands)
+    }
+
     pub fn list_project(&self, project_path: &Path) -> Result<Vec<QuickCommand>> {
         let _guard = self
             .project_io_lock
@@ -219,7 +251,8 @@ impl QuickCommandService {
                 return Err(anyhow!("Project .ccpanes path is not a directory"));
             }
         } else if create {
-            std::fs::create_dir(&config_dir)
+            // 经 project_dirs 创建，顺带写 .ccpanes/.gitignore 守卫（docs/98）
+            crate::utils::project_dirs::ensure_ccpanes_dir(&project_path)
                 .with_context(|| format!("Failed to create {}", config_dir.display()))?;
         }
         let config_path = config_dir.join(CONFIG_FILE_NAME);
