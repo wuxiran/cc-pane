@@ -996,11 +996,19 @@ mod tests {
             "expected more than SKILL.md + skill.json"
         );
         let catalog = service.list_catalog(false).await.expect("catalog");
-        assert!(catalog.iter().any(|entry| entry.source == SKILL_SOURCE_ANTHROPICS));
+        assert!(catalog
+            .iter()
+            .any(|entry| entry.source == SKILL_SOURCE_ANTHROPICS));
         let hits = service.search("obsidian").await.expect("search");
-        assert!(hits.iter().any(|entry| entry.source == SKILL_SOURCE_SKILLS_SH));
+        assert!(hits
+            .iter()
+            .any(|entry| entry.source == SKILL_SOURCE_SKILLS_SH));
         let described = service
-            .describe(hits.into_iter().find(|e| e.source == SKILL_SOURCE_SKILLS_SH).unwrap())
+            .describe(
+                hits.into_iter()
+                    .find(|e| e.source == SKILL_SOURCE_SKILLS_SH)
+                    .unwrap(),
+            )
             .await
             .expect("describe");
         assert!(described.description.is_some());
