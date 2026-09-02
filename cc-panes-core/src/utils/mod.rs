@@ -11,6 +11,7 @@ pub mod launch_request;
 pub mod orchestrator_manifest;
 pub mod path_normalize;
 pub mod path_validator;
+pub mod project_dirs;
 pub mod project_identity;
 pub mod text_encoding;
 

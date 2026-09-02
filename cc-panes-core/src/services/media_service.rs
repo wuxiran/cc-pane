@@ -31,7 +31,7 @@ const MEDIA_PRIORITY_MAX: i32 = 100;
 const EXECUTION_FINGERPRINT_VERSION: &str = "media-execution-v3";
 const MEDIA_SCOPE_KEY: &str = "mediaScope";
 const MEDIA_STORAGE_KEY: &str = "mediaStorage";
-const PROJECT_MEDIA_DIRECTORY: &[&str] = &[".ccpanes", "media"];
+const PROJECT_MEDIA_DIRECTORY: &str = "media";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MediaScope {
@@ -194,12 +194,12 @@ impl MediaService {
         let project_root = dunce::canonicalize(project_path).map_err(|error| {
             AppError::coded("MEDIA_PROJECT_PATH_UNAVAILABLE", error.to_string())
         })?;
-        let storage = PROJECT_MEDIA_DIRECTORY
-            .iter()
-            .fold(project_root.clone(), |path, component| path.join(component));
-        std::fs::create_dir_all(&storage).map_err(|error| {
-            AppError::coded("MEDIA_PROJECT_PATH_UNAVAILABLE", error.to_string())
-        })?;
+        // `.ccpanes/.cache/media` (docs/98); a legacy `.ccpanes/media` is renamed into place.
+        let storage =
+            crate::utils::project_dirs::ensure_cache_subdir(&project_root, PROJECT_MEDIA_DIRECTORY)
+                .map_err(|error| {
+                    AppError::coded("MEDIA_PROJECT_PATH_UNAVAILABLE", error.to_string())
+                })?;
         let storage = dunce::canonicalize(&storage).map_err(|error| {
             AppError::coded("MEDIA_PROJECT_PATH_UNAVAILABLE", error.to_string())
         })?;
@@ -3115,8 +3115,8 @@ mod tests {
 
         let asset_a = stage(&project_a.id, &project_a_path, "reference-a.png");
         let asset_b = stage(&project_b.id, &project_b_path, "reference-b.png");
-        let project_media_root_a = project_a_path.join(".ccpanes").join("media");
-        let project_media_root_b = project_b_path.join(".ccpanes").join("media");
+        let project_media_root_a = project_a_path.join(".ccpanes").join(".cache").join("media");
+        let project_media_root_b = project_b_path.join(".ccpanes").join(".cache").join("media");
         let asset_path_a = project_media_root_a.join(&asset_a.relative_path);
         let asset_path_b = project_media_root_b.join(&asset_b.relative_path);
         assert!(asset_path_a.is_file());

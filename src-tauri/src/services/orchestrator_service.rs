@@ -11518,10 +11518,12 @@ fn prepare_launch_prompt(
     }
 }
 
-/// 将长 prompt 写入 `.ccpanes/prompts/<id>.md`，返回文件路径
+/// 将长 prompt 写入 `.ccpanes/.cache/prompts/<id>.md`（docs/98），返回文件路径
 fn write_prompt_file(project_path: &str, id: &str, prompt: &str) -> std::io::Result<PathBuf> {
-    let dir = PathBuf::from(project_path).join(".ccpanes").join("prompts");
-    std::fs::create_dir_all(&dir)?;
+    let dir = cc_panes_core::utils::project_dirs::ensure_cache_subdir(
+        std::path::Path::new(project_path),
+        "prompts",
+    )?;
     let file_path = dir.join(format!("{}.md", id));
     std::fs::write(&file_path, prompt)?;
     Ok(file_path)
@@ -14151,6 +14153,7 @@ mod tests {
         let prompt_file = project
             .path()
             .join(".ccpanes")
+            .join(".cache")
             .join("prompts")
             .join("long-task.md");
         assert_eq!(std::fs::read_to_string(prompt_file).unwrap(), prompt);

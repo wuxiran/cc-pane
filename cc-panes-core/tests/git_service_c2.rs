@@ -197,7 +197,7 @@ fn worktree_diff_handles_unborn_content_and_does_not_create_history_db() {
     assert_eq!(diff.stats.additions, 1);
     assert_eq!(diff.old_size, 0);
     assert_eq!(diff.new_size, 12);
-    assert!(!repo.join(".ccpanes/history/history.db").exists());
+    assert!(!repo.join(".ccpanes/.cache/history/history.db").exists());
 }
 
 #[test]
@@ -237,7 +237,7 @@ fn diff_reports_binary_file_size_and_line_limit_separately() {
         Some(DiffTruncationReason::FileSize)
     );
     assert_eq!(large.new_size, 5);
-    assert!(!repo.join(".ccpanes/history/history.db").exists());
+    assert!(!repo.join(".ccpanes/.cache/history/history.db").exists());
 
     let old = "old\n";
     let new = "line\n".repeat(10_001);

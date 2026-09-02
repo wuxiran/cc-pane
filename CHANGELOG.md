@@ -6,6 +6,10 @@
 
 ## 0.12.10 - 2026-09-01
 
+### Changed
+
+- **`.ccpanes/` is now meant to be committed** (docs/98). The per-repo folder keeps only what describes the repository for the team — `config.toml`, `workflow.md`, `specs/`, project quick commands — and CC-Panes writes a `.ccpanes/.gitignore` that fences off a new `.ccpanes/.cache/` where every machine-local artifact now lives: local history (`history.db` + blobs, renamed into place on first open), media outputs, session journals, externalised long prompts and hook sync state. The legacy `session-state.json` is no longer written. The app also stops treating its own data directory as a project: the default workspace no longer grows a `~/.cc-panes/.ccpanes/` with history and plan archives, and the stray one from earlier builds is removed once at startup. Repos that still ignore `.ccpanes/` wholesale keep working; drop that line to start sharing specs and workflow with your team.
+
 ### Added
 
 - **Skill market** — a full-screen store (activity bar `Store` icon, also reachable from Settings → Tools → Skills) with a featured strip, category tabs, search and one-click install. Content is aggregated from three sources: the curated `skill-market/index.json` (30+ entries, now embedded in the binary as an offline baseline and refreshed from `main`), auto-discovery of `anthropics/skills`, and live `skills.sh` search. Installs now support **directory skills** (`SKILL.md` + `scripts/` + `references/`): the repository tree is listed once via the GitHub API with automatic fallback to the jsDelivr mirror, files are staged then renamed into `~/.cc-panes/skills/user/<id>/`, with hard limits of 300 files / 30 MB. Session-prompt injection appends `Skill directory: <path>` so agents can find bundled scripts. Design notes in `docs/97-skill-market.md`.

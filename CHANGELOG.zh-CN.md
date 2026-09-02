@@ -9,6 +9,10 @@
 
 ## 0.12.10 - 2026-09-01
 
+### 变更
+
+- **`.ccpanes/` 改为默认可提交**（docs/98）。仓库里的这个目录只保留描述该仓库、值得交给团队的东西——`config.toml`、`workflow.md`、`specs/`、项目快捷命令；CC-Panes 自动写一个 `.ccpanes/.gitignore` 挡住新增的 `.ccpanes/.cache/`，所有机器本地产物都搬进去：本地历史（`history.db` + blobs，首次打开时原地改名）、媒体产物、会话日志、外置的长 prompt、hooks 同步状态。老的 `session-state.json` 不再写。应用也不再把自己的数据目录当项目：默认工作空间不会再在 `~/.cc-panes/.ccpanes/` 里长出历史库和 plan 归档，旧版本留下的那份启动时一次性清掉。仓库里仍整目录忽略 `.ccpanes/` 的照常工作；去掉那一行就能开始和团队共享 specs 与 workflow。
+
 ### 新增
 
 - **技能市场** — 独立全屏页（活动栏 `Store` 图标，设置 → 工具 → Skills 也有入口）：精选横排 + 分类页签 + 搜索 + 一键安装。内容聚合三源：自维护 `skill-market/index.json`（30+ 条，偏中文场景，现已 `include_str!` 进二进制做离线基线，远端 `main` 可热更新）、`anthropics/skills` 自动发现、`skills.sh` 联网搜索。安装模型升级为**目录型技能**（`SKILL.md` + `scripts/` + `references/`）：GitHub API 一次列出仓库树，失败自动回退 jsDelivr 镜像；先落 staging 再 rename 到 `~/.cc-panes/skills/user/<id>/`，硬限 300 文件 / 30 MB。session prompt 注入时追加 `Skill directory: <路径>`，agent 能找到随包脚本。设计见 `docs/97-skill-market.md`。

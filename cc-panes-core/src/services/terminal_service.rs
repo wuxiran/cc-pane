@@ -2746,11 +2746,13 @@ impl TerminalService {
                 env_vars.insert("CC_PANES_WORKSPACE_NAME".to_string(), name.to_string());
             }
         }
-        // workspace 根路径（用于 plan-as-memory 钩子的分级归档）
+        // workspace 根路径（用于 plan-as-memory 钩子的分级归档）。默认工作空间的 path 就是
+        // 数据目录——不暴露给 hook，否则 plan 归档会写进 ~/.cc-panes/.ccpanes/（docs/98）。
         if let Some(ws_path) = resolved_workspace
             .as_ref()
             .and_then(|w| w.path.as_deref())
             .filter(|p| !p.trim().is_empty())
+            .filter(|p| !Path::new(p).starts_with(self.app_paths.data_dir()))
         {
             env_vars.insert("CC_PANES_WORKSPACE_PATH".to_string(), ws_path.to_string());
         }

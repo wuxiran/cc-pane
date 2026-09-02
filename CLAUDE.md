@@ -261,40 +261,37 @@ flutter pub get && flutter analyze && flutter test
 ├── workspaces/                      # 工作空间元数据目录
 │   └── <workspace-name>/
 │       ├── workspace.json           # 工作空间配置
-│       └── .ccpanes/                # 【一级】
-│           └── journal/             # 会话日志（JournalService 写入点）
-├── providers/                       # Provider 配置
-│   └── providers.json
-├── screenshots/                     # 截图存储
+│       ├── skills/                  # 工作空间技能（插件形态，按会话挂载）
+│       └── snapshots/
+├── skills/{builtin,user}/           # 内置 / 用户级 skill
+├── providers.json  launch-profiles.json  shared-mcp.json
 └── data.db                          # SQLite 数据库
 ```
 
-**`.ccpanes/` 是三级目录，不是两级。** 三级各自承载不同内容，混淆会直接写出 bug：
+**`.ccpanes/` 的职责见 docs/98（已评审）**。判据：换台机器、换个人 clone，这个文件还有意义吗？没有就不进 `<project>/.ccpanes/`。所有路径必须经 `cc_panes_core::utils::project_dirs`，不要手拼 `.join(".ccpanes")`。
 
 ```
-<workspace.path>/.ccpanes/           # 【二级】工作空间实际路径下
+<workspace.path>/.ccpanes/           # 用户自选的工作空间根（可能不是 git 仓库）
 ├── projects.csv                     # 项目清单（给 LLM 的上下文文件，代码无消费方）
-├── plans/                           # plan 归档（归档优先落这里）
-└── prompts/                         # 外置的长 prompt / Codex 派工文件
+└── plans/                           # plan 归档（CC_PANES_WORKSPACE_PATH 存在时落这里；第三批将归拢到数据目录）
 
-<project.path>/.ccpanes/             # 【三级】项目仓库下
+<project.path>/.ccpanes/             # 仓库层：随代码提交给团队
+├── .gitignore                       # CC-Panes 自动写入，内容 `.cache/`；不覆盖用户改动
 ├── config.toml                      # Local History 配置
-├── history/                         # 本地文件历史
-│   ├── history.db                   # SQLite（版本/标签元数据）
-│   └── blobs/<sha256>               # 内容寻址的文件快照
-├── specs/                           # 内置 Spec
-├── quick-commands.json              # 项目级快捷命令
-├── cli-hooks.json                   # 项目级 CLI hooks
 ├── workflow.md                      # 工作流说明（SessionStart hook 注入）
-├── plans/                           # 无工作空间时的归档兜底
-└── session-state.json               # legacy，已被 launch_history 取代
+├── specs/                           # 内置 Spec
+├── quick-commands.json              # 项目级快捷命令覆盖
+└── .cache/                          # 机器本地，永不提交
+    ├── history/                     # 本地文件历史（history.db + blobs/<sha256>）；旧位置 .ccpanes/history 首次打开时 rename
+    ├── media/  journal/  prompts/   # 生成产物 / 会话日志 / 外置长 prompt
+    └── cli-hooks.json               # hooks 同步状态
 ```
 
 注意：
 
-- **一级与二级可能重合** —— 工作空间未指定 `path` 时，`workspace.path` 默认就是 `~/.cc-panes/workspaces/<name>/`（`workspace_service.rs:374`）。写代码时不能假设两者必然不同。
-- **`plans/` 的归档级别由环境决定**：`CC_PANES_WORKSPACE_PATH` 存在时落二级，否则落三级（`plan_archive.rs:77-92`）。任何读 `plans/` 的代码都必须扫两级并集，只看三级会漏掉绝大多数归档。
-- **`journal/` 的写读级别当前不一致**：`JournalService` 写一级（`lib.rs:1508`），而 SessionStart hook 读三级（`session_start.rs:256`）。两边不通，这是已知缺陷不是设计。
+- **数据目录不是项目**：默认工作空间的 `path` 就是 `~/.cc-panes/workspaces/<name>/`。`HistoryService::set_protected_roots(data_dir)` 拒绝在数据目录内建历史库，`CC_PANES_WORKSPACE_PATH` 指向数据目录时不下发给 hook。
+- **读旧路径要走 `project_dirs::resolve_cache_entry`**（先 `.cache/<x>` 再 `.ccpanes/<x>`），写走 `ensure_cache_entry` / `ensure_cache_subdir`（顺带把旧目录 rename 进 `.cache/`）。
+- `session-state.json` 已停写，读侧保留一个版本兼容。
 
 
 ## 已实现功能
@@ -455,6 +452,7 @@ flutter pub get && flutter analyze && flutter test
 | `docs/93-tokio-worker-spin.md` | **tokio worker 满核空转调查**：`send_modify` 排空空队列引发的永久自唤醒环 + 活体采样定位手法（免调试器、免提权）+「卡但主线程正常」三步排障速查 |
 | `docs/94-acp-agent-chat.md` | **ACP Agent Chat 设计**：为何重启 55-H3 判死的 chat（ACP 把协议/适配矩阵外部化）/ 架构与 id 语义 / 引擎注册表与 engines.json 逃生阀 / session-load 续接与降级可见 / 排障判据速查 |
 | `docs/95-automations.md` | **Automations 定时派工**（55-H1 最小版落地）：cron + 宽限 + 运行历史，派发目标是 ACP headless 会话（无需窗口在场）+ 无人值守 auto-approve——明确不做外部 cron 聚合与事件规则引擎 |
+| `docs/98-ccpanes-dir-plan.md` | **`.ccpanes` 三层职责规划**（已评审）：`~/.cc-panes` 机器层 / `workspaces/<name>` 工作空间默认层 / `<project>/.ccpanes` 只放值得提交的仓库意图，机器缓存全进 `.ccpanes/.cache/`（自带 `.gitignore`）；所有路径经 `utils::project_dirs`；第一批已落地，第二批 = MCP/快捷命令/Automations/Cursor Bridge 转 workspace-first |
 | `docs/97-skill-market.md` | **技能市场 + 项目/工作空间技能管理**：全屏市场页聚合三源（自维护精选清单 `include_str!` 基线 + anthropics/skills 自动发现 + skills.sh 联网搜索），目录型技能安装（GitHub tree → jsDelivr 镜像回退，staging 后 rename，300 文件/30MB 硬限）；项目「Skill 管理」按五个 CLI 根目录分组管 `SKILL.md`；**工作空间技能**是插件形态目录按会话挂载（与 builtin 同机制），市场默认装进当前工作空间——对项目与用户 CLI 主目录零写入 |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |

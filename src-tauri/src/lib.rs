@@ -1656,6 +1656,9 @@ pub fn run() {
     let spec_service = Arc::new(SpecService::new(spec_repo, todo_service.clone()));
     let project_service = Arc::new(ProjectService::new(project_repo));
     let history_service = Arc::new(HistoryService::new());
+    // 数据目录不是项目：默认工作空间 path 指向这里，不能给自己建 .ccpanes/history（docs/98）
+    history_service.set_protected_roots(vec![app_paths.data_dir().to_path_buf()]);
+    app_paths.cleanup_self_ccpanes_pollution();
     let history_watch_manager = Arc::new(HistoryWatchManager::new(history_service.clone()));
     history_watch_manager.set_enabled(settings_service.get_settings().local_history.enabled);
     let project_context_service = Arc::new(ProjectContextService::new());

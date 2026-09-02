@@ -1,5 +1,6 @@
+use crate::utils::project_dirs;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::debug;
 
 /// 项目上下文服务 - 管理 `.ccpanes` 下的 workflow 与 journal
@@ -26,9 +27,8 @@ impl ProjectContextService {
 
     pub fn save_workflow(&self, project_path: &str, content: &str) -> Result<(), String> {
         debug!("svc::save_workflow");
-        let ccpanes_dir = Self::get_ccpanes_dir(project_path);
-
-        fs::create_dir_all(&ccpanes_dir)
+        // workflow.md 是团队共享的仓库意图，留在 .ccpanes 顶层；ensure 顺带写 .gitignore 守卫
+        let ccpanes_dir = project_dirs::ensure_ccpanes_dir(Path::new(project_path))
             .map_err(|e| format!("Failed to create .ccpanes directory: {}", e))?;
 
         let workflow_path = ccpanes_dir.join("workflow.md");
@@ -38,10 +38,10 @@ impl ProjectContextService {
 
     pub fn init_ccpanes(&self, project_path: &str) -> Result<(), String> {
         debug!("svc::init_ccpanes");
-        let ccpanes_dir = Self::get_ccpanes_dir(project_path);
-        let journal_dir = ccpanes_dir.join("journal");
-
-        fs::create_dir_all(&journal_dir)
+        let ccpanes_dir = project_dirs::ensure_ccpanes_dir(Path::new(project_path))
+            .map_err(|e| format!("Failed to create directory: {}", e))?;
+        // journal 是机器本地产物，落 .ccpanes/.cache/journal（docs/98）
+        let journal_dir = project_dirs::ensure_cache_subdir(Path::new(project_path), "journal")
             .map_err(|e| format!("Failed to create directory: {}", e))?;
 
         let workflow_path = ccpanes_dir.join("workflow.md");
@@ -171,11 +171,16 @@ mod tests {
 
         let ccpanes = dir.path().join(".ccpanes");
         assert!(ccpanes.join("workflow.md").exists());
-        assert!(ccpanes.join("journal").join("journal-0.md").exists());
+        // journal 落 .cache/，且 .gitignore 守卫已写
+        let journal = ccpanes.join(".cache").join("journal");
+        assert!(journal.join("journal-0.md").exists());
+        assert!(!ccpanes.join("journal").exists());
+        assert!(fs::read_to_string(ccpanes.join(".gitignore"))
+            .unwrap()
+            .contains(".cache/"));
 
         // index.md 必须带 JournalService 依赖的自动区块标记
-        let index =
-            fs::read_to_string(ccpanes.join("journal").join("index.md")).expect("read index");
+        let index = fs::read_to_string(journal.join("index.md")).expect("read index");
         assert!(index.contains("@@@auto:current-status"));
         assert!(index.contains("@@@/auto:current-status"));
         assert!(index.contains("@@@auto:session-history"));
