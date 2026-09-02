@@ -117,12 +117,6 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
       zIndex: active ? 1 : 0,
     };
   };
-  const mediaMounted = isMounted("imageGen") || isMounted("videoGen");
-  const mediaStyle = (): React.CSSProperties => ({
-    opacity: mediaActive ? 1 : 0,
-    pointerEvents: mediaActive ? "auto" : "none",
-    zIndex: mediaActive ? 1 : 0,
-  });
 
   return (
     <TodoManager scope="" scopeRef="" enabled={isMounted("todo")}>
@@ -184,14 +178,12 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
         </div>
       )}
       {/* 生图与生视频共用一个媒体工作区；类型切换只替换工作区内部的表单。
-          实验功能关掉时一律不挂载（门禁测试要求 shell 不存在于 DOM）。 */}
-      {mediaGenerationEnabled && mediaMounted && (
+          按需挂载：仅激活时渲染，实验功能关掉时自然不存在于 DOM。 */}
+      {mediaActive && (
         <div
           className="main-view-layer absolute inset-0 flex min-w-0 overflow-hidden"
           data-main-view="media"
           data-testid="media-workspace-shell"
-          aria-hidden={!mediaActive}
-          style={mediaStyle()}
         >
           <Suspense fallback={<div className="flex h-full w-full items-center justify-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>{mediaT("loadingMediaWorkspace")}</div>}>
             <MediaStudio

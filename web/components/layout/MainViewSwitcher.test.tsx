@@ -240,13 +240,11 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
     expect(screen.getAllByTestId("media-studio-mock")).toHaveLength(1);
     expect(screen.getByTestId("media-studio-mock")).toHaveAttribute("data-media-kind", "video");
-    expect(screen.getByTestId("media-workspace-shell")).toHaveStyle({ opacity: "1" });
 
-    // 离开媒体后保持 mounted，切回时不重新创建工作区。
+    // 离开媒体即卸载（按需挂载语义）；媒体状态在 store 中保留，切回时重建工作区。
     setMode("panes");
     rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.getByTestId("media-workspace-shell")).toHaveStyle({ opacity: "0", pointerEvents: "none" });
-    expect(screen.getByTestId("media-studio-mock")).toBeInTheDocument();
+    expect(screen.queryByTestId("media-workspace-shell")).toBeNull();
   });
 
   it("files → Sidebar + FileEditorPanel 组合", () => {
