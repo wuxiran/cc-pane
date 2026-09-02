@@ -262,24 +262,26 @@ flutter pub get && flutter analyze && flutter test
 │   └── <workspace-name>/
 │       ├── workspace.json           # 工作空间配置
 │       └── .ccpanes/                # 【一级】
-│           └── journal/             # 会话日志
+│           └── journal/             # 会话日志（JournalService 写入点）
 ├── providers/                       # Provider 配置
 │   └── providers.json
 ├── screenshots/                     # 截图存储
 └── data.db                          # SQLite 数据库
 ```
 
-**`.ccpanes/` 是三级目录，不是两级**：
+**`.ccpanes/` 是三级目录，不是两级。** 三级各自承载不同内容，混淆会直接写出 bug：
 
 ```
 <workspace.path>/.ccpanes/           # 【二级】工作空间实际路径下
-├── projects.csv                     # 项目清单（给 LLM 的上下文文件）
-├── plans/                           # plan 归档（优先落这里）
-└── prompts/                         # 外置长 prompt / Codex 派工文件
+├── projects.csv                     # 项目清单（给 LLM 的上下文文件，代码无消费方）
+├── plans/                           # plan 归档（归档优先落这里）
+└── prompts/                         # 外置的长 prompt / Codex 派工文件
 
 <project.path>/.ccpanes/             # 【三级】项目仓库下
 ├── config.toml                      # Local History 配置
-├── history/                         # history.db + blobs/<sha256>
+├── history/                         # 本地文件历史
+│   ├── history.db                   # SQLite（版本/标签元数据）
+│   └── blobs/<sha256>               # 内容寻址的文件快照
 ├── specs/                           # 内置 Spec
 ├── quick-commands.json              # 项目级快捷命令
 ├── cli-hooks.json                   # 项目级 CLI hooks
@@ -288,7 +290,12 @@ flutter pub get && flutter analyze && flutter test
 └── session-state.json               # legacy，已被 launch_history 取代
 ```
 
-一级与二级在工作空间未指定 `path` 时会重合，写代码不能假设两者必然不同。
+注意：
+
+- **一级与二级可能重合** —— 工作空间未指定 `path` 时，`workspace.path` 默认就是 `~/.cc-panes/workspaces/<name>/`（`workspace_service.rs:374`）。写代码时不能假设两者必然不同。
+- **`plans/` 的归档级别由环境决定**：`CC_PANES_WORKSPACE_PATH` 存在时落二级，否则落三级（`plan_archive.rs:77-92`）。任何读 `plans/` 的代码都必须扫两级并集，只看三级会漏掉绝大多数归档。
+- **`journal/` 的写读级别当前不一致**：`JournalService` 写一级（`lib.rs:1508`），而 SessionStart hook 读三级（`session_start.rs:256`）。两边不通，这是已知缺陷不是设计。
+
 
 ## 已实现功能
 
@@ -312,6 +319,7 @@ flutter pub get && flutter analyze && flutter test
 - [x] Git 提交时间线 + 提交/工作区 Diff 视图（NUL 协议解析、双端 parity）
 - [x] 项目身份统一（Windows//mnt//WSL UNC 跨形式等价 + 迁移去重）
 - [x] Local History watcher 惰性化（跟随活跃终端会话,45s 宽限,全局开关）
+- [x] 工作空间/项目归档（可逆逻辑删除,`archivedAt` 时间戳,MCP 可调；硬删除仍只在 UI）
 
 ## Known Gotchas
 
@@ -324,10 +332,13 @@ flutter pub get && flutter analyze && flutter test
 - **根目录新增大目录必须同步 `vite.config.ts` 的 `server.watch.ignored`**：`.cargo/config.toml` 把 Rust 的 `target-dir` 指到了仓库根，实测 `target/` 达 22 万文件；chokidar 默认只跳过 `node_modules`/`.git`，漏掉的大目录会被递归监听，叠加 `tauri dev` 期间 cargo 持续写入形成事件风暴——实测 Vite 进程烧到 2.9GB 内存、2091 秒 CPU 后彻底停止响应，窗口永久停在 `Loading CC-Panes...`（看着像卡死，其实是 dev server 不返回任何模块）。判断方法：`curl 127.0.0.1:14200` 超时但端口在 Listen。
 - **`cargo` 的 `incremental/` 不会自动回收**：按构建会话堆积，本仓库实测积到 1164 个目录、176GB（其中超 7 天的占 155GB）。定期删除旧目录即可，增量缓存对 cargo 是可丢弃数据，缺了只是那次非增量重编。
 - **不要给全部注册项目起常驻监视/轮询**：0.10.20 曾给 129 个注册项目各起一个 2 秒轮询线程,28.6 核持续忙碌(docs/41)。watcher/扫描类资源必须跟随**活跃会话**惰性起停（`HistoryWatchManager`）,且剪枝规则要支持嵌套目录（根锚定的 `node_modules/**` 剪不到 monorepo 嵌套依赖）。
-- **portable-pty 对无效 cwd 会静默回退 HOME 而不是报错**（Unix 回退 `$HOME`,Windows 回退 `USERPROFILE`,见 docs/46 黑屏调查）：应用层必须在 `spawn_pty` 前校验 cwd 存在且为目录,否则会话"成功"启动在错误目录,agent 在错误的仓库里干活。
+- **portable-pty 对无效 cwd 会静默回退 HOME 而不是报错**（Unix 回退 `$HOME`,Windows 回退 `USERPROFILE`,见 docs/46 黑屏调查）：应用层必须在 `spawn_pty` 前校验 cwd 存在且为目录,否则会话"成功"启动在错误目录,agent 在错误的仓库里干活。**同一类坑还有「不设 cwd 就继承宿主的」**：`tauri dev` 从 `src-tauri/` 执行 `cargo run`，dev 下 app 进程的 cwd 就是 `src-tauri`——任何 spawn 子进程时不显式给 cwd 的代码，都会让子进程把 `src-tauri` 当工作目录。dsh 曾因此把它当工作区根去遍历，415 个文件事件激起 tauri watcher 全树重建，表现为「一打开标签 dev 就闪退重启」（docs/91 §8.1）。新增 spawn 路径一律显式给 cwd，兜底也要打 warn。
+- **`tauri dev` 日志里 `File X changed. Rebuilding` 点名的文件通常不是元凶**：watcher 收到一批事件后用 `paths.first()` 挑名字打日志（`interface/rust.rs:580`），全树风暴时那就是**目录遍历的第一个条目**（实测 415 个事件里点名 `build.rs`，而它 mtime 停在两周前从没被改过）。判定先看事件量：成百上千条 = 全树风暴，文件名毫无信息量，别去查那个文件。另：**排查「闪退」先读 `~/.cc-panes-dev/crash.log`**（panic hook 写的，`lib.rs:1377`）——它没有新记录就不是崩溃，是 watcher 主动 `child.kill()` 重建。Windows 事件日志/WER 是**操作系统的**日志，不能替代我们自己那份。
+- **别在用户实测 dev 时改被监视的源文件**：改 `src-tauri/` 或任何 workspace crate，每存一次盘就杀掉对方的 app 重建一次。实测用户正在对话时被这样打断 4 次，他看到的是「调用 MCP 后闪退」，与 MCP 毫无关系（docs/91 §8.4）。改 `web/` 只触发 HMR（轻，但仍会扰动 webview 型窗格）。开工前先确认对方不在测。
 - **Claude Code 的 SessionEnd hook 带 reason,`clear` 不是进程退出**：`/clear` 会触发 SessionEnd(reason="clear"),hook 层必须按 reason 过滤（HTTP 与 OSC 双通道）,否则活会话被状态机标 Exited、daemon 桥发合成 `terminal-exit(-1)` 并停流（docs/44）。看到 `-1` 退出码 = 合成码,非真实进程退出。
 - **Codex 的 resume id 依赖 OSC 标题捕获,Codex CLI 升版会静默打断**：v0.145 曾令捕获链全灭（launch_history 的 codex `resumeSessionId` 全 null,docs/45）,resume 静默变新会话。捕获链修改需配 rollout 目录扫描兜底,且降级必须对用户可见。
 - **`tauri dev` 不重建 external binaries（daemon/web/cli-hook）**：`build.rs` 只放占位符，`debug\binaries\` 里的 daemon 是手动构建的拷贝。改 `cc-cli-adapters`/`cc-panes-daemon` 后主程序会热重编，但**会话启动走的 daemon 还是旧二进制**——新代码"测试全绿却不生效"（0.11.1 opencode 透明修复曾因此白测三轮：binaries 里躺着 14 天前的 daemon）。修改后必须 `cargo build -p cc-panes-daemon` 并拷贝到 `<target-dir>\debug\binaries\`，再重启 dev。
+- **装了新版 release 也不等于 daemon 换代了**（上一条的发版版本，同一族坑）：`decide_daemon_upgrade`（`terminal_daemon_lifecycle.rs:160`）在**有任何活会话时主动推迟换代**——注释写得很清楚「不是错误：这是我们**选择**保住会话」，另有「其他桌面实例已连接」也会推迟。加上 `CCPANES_KEEP_DAEMON=1`，daemon 可以跨 app 重启存活很久（0.12.8 发版时实测在跑的那个已存活 23 小时、挂着 22 个会话）。于是升级后**app 是新的、daemon 还是旧的**，任何跑在 daemon 地址空间里的修复都不生效，且零报错——与「binaries 陈旧」表现完全一致。验证 daemon 侧修复前必须确认换代真的发生了：`runtime/daemon-manifest.json` 的 `startedAt` 要晚于安装时间，或干脆先清空会话再重启。跑在 app 进程里的修复不受影响。
 - **PTY 迁到 daemon 后，任何"从 app 进程内 TerminalService 取数据"的链路都会静默失效**：daemon 模式下 `TerminalService.sessions` 在 app 侧恒为空，emit 也只进 daemon 的 `WsEmitter`。已因此断掉两条：①`terminal-resume-id-detected`（claude 发号 / codex OSC 捕获）落进 `ws_emitter.rs` 的 `_ => {}`，`launch_history.resume_session_id` 从此全 null，恢复出来的会话没有历史对话；②app 退出时 `get_all_session_outputs()` 读空，`sessions/*.output` 停产，会话真死后重放全空白。两处都表现为"功能还在、就是没数据"，没有任何报错。新增跨进程数据链路时先问：daemon 模式下这份数据在谁的地址空间里？桥接口径：会话镜像走 per-session WS，低频身份/生命周期事件走 `/ws/control`（`terminal_daemon_control_link.rs`）。
 - **各 worktree 的 `.cargo/config.toml` 用相对 `target-dir = "../cc-book-target"`，所有 worktree 共享同一个 target 目录**：另一个 worktree 构建的 `cc-panes-core`/`cc-cli-adapters` 会被本 worktree 复用，报出**本地源码里根本不存在的**编译错误（实测：`missing field expected_saved_session_id`，而该字段只存在于 `cc-book-wt-restore-release`）。判定：报错提到的标识符 `grep` 不到就是命中。解法是 `touch` 相关 crate 的源文件强制重编，别去改代码迎合幻影错误。**同一个 target 目录还有第二种踩法：并发跑两个 cargo**（哪怕在同一个 worktree 里），同样会报出与实际源码对不上的编译错误——区别在于报错标识符**能**在本地 grep 到，串行重跑即消失。两种都别去改代码。
 - **判断分支能否删除不能用 `git branch -d`，本仓库是 squash-merge 工作流**：内容已进 main 的分支，提交对象仍不是 main 的祖先，`-d` 照样报 `not fully merged`。要用 `git cherry origin/main <branch>` 按**内容**比。但 `git cherry` 也只看提交、看不出「能力已被 main 上更好的实现取代」——实测 `pr-22` 被标 `+`，而 main 上那个能力的起点就是这个 PR，之后又迭代了 4 次，合并它等于回退。完整判据（三层）与四条老分支的判定结论见 docs/72。
@@ -346,16 +357,44 @@ flutter pub get && flutter analyze && flutter test
 - **resume id 出问题先分清是「捕获链」还是「落库链」，两者会互相伪装**：日志里**没有** `bind_resume_id` 行 = 事件根本没到 app（捕获/跨 daemon 传输断，docs/45、CLAUDE.md 的 daemon 边界那条）；**有**但报 `no launch_history row matched` = 拿到了 id 但没地方存（落库断，docs/69）。两种都表现为 `resume_session_id` 全 null、恢复出空会话，症状完全同形，但修的是完全不同的两段。
 - **`pty/job.rs` 的 Job Object 现在承载两件事：`KILL_ON_JOB_CLOSE` + 资源策略，两段式下发**：进程回收与资源限制是**分开的两次设置**，第二段（优先级/配额）失败**不得赔掉第一段**（回收兜底必须始终生效），改这里时别把两者合成一次 set。资源策略是 0.11.8 批次1 加的（Windows 降 `PRIORITY_CLASS` / Unix `nice`），此前 PTY 子进程与 UI 线程平等竞争，**任一窗格的 `cargo build` / `rg` 大目录都能把整机吃满**。注意仍未覆盖：WSL 会话（需 systemd cgroup scope）、内存/CPU 硬上限、全局并发闸门；runner 就是普通 PTY 会话（`orchestrator_service.rs`），走同一套策略。`OpenProcess` 已带 `PROCESS_SET_QUOTA`，加限制不需要提权。剩余批次与三类"卡"的判据见 docs/71。
 - **验证 `#[cfg]` 分支时，`cargo check` 通过可能是假绿**：cfg 没命中的代码根本不参与编译，也就不报错——只在 Windows 上编过就发版，等于把未编译代码发给 mac/Linux 用户。判定方法：往目标分支里**故意塞一个不存在的类型**，看是否报 `E0425`，报了才说明该分支真的在这个平台参与编译，之后再还原并核对 diffstat/hunk 数。另注意跨平台跑 cargo 必须设独立 `CARGO_TARGET_DIR`，否则 Linux 产物会覆盖共享 `target-dir` 里的 Windows 同名文件，污染所有 worktree。
-- **判断"卡"属于哪一类，先看整机 CPU**：整机 CPU 高（非 CC-Panes 程序也卡）= 子进程资源争抢（docs/71 第 2 节）；整机 CPU 不高但 UI 掉帧 = xterm 输出洪水（docs/71 第 3 节）。两者症状同形、治法完全不同，搞反了会去优化渲染而实际是编译器在吃满核。输出链路现状（0.11.8 后台暂停 + 0.11.9 批次收尾后）：后台标签有 512KB 隐藏积压 + 边沿 flush；后台分层降档（5min 挂 WebGL / 30min **休眠**——SerializeAddon 全量序列化后 dispose 实例，切回经 epoch 重建回放，`terminalHibernation.ts`）；写流控全平台启用；daemon/web 广播改有界 256 + **desync 契约**（溢出绝不掐 VT 中段，整段跳过、排空后发 `{"type":"desync"}`，前端 `terminalResync.ts` 走 snapshot 重放）。改这条链路时守住三条不变式：丢弃只能整段、回放数据必须过 `renderTerminalData`、休眠唤醒不得丢字。
+  **最常见的具体形态是「只被 `#[cfg(windows)]` 代码调用的 import / 函数」**：非 Windows 上就是 unused import 与 dead code，而 `cargo check` **不报**、只有 `clippy -D warnings` 判错——0.12.9 发版实测 ubuntu 与 macos 同时挂在 Clippy 步而 Cargo check 全绿。跨平台的纯逻辑函数别一刀切 `cfg(windows)`，用 `cfg(any(windows, test))` 才能保住它的用例在所有平台继续跑（CI 的 clippy 不带 `--all-targets`，只有 `cargo test` 会编测试代码）。
+  **在 Windows 本机真验 Linux 的可操作路径**（免 sudo、不动全局环境）：WSL 里 `apt-get download libssl-dev libssl3t64 zlib1g-dev` + `dpkg -x` 解到临时目录，导出 `OPENSSL_DIR`/`OPENSSL_LIB_DIR`/`OPENSSL_INCLUDE_DIR`/`PKG_CONFIG_PATH`/`CFLAGS` 后跑 `cargo clippy --workspace -- -D warnings`（`cc-panes-core` 经 ssh2→openssl-sys 依赖系统 OpenSSL，不解包会卡在 build script）。脚本走 `bash -l -s` 从 stdin 喂，别用 `bash -lc` 传含变量的长脚本（wsl argv 转换会吃掉 `$` 展开）。**别再靠读代码推断有没有第二处**——0.12.9 实测凭推断只找到两处中的一处，是拉 CI 日志才看全的。
+- **新增带 native 依赖的 crate，CI 全绿也可能在打 tag 时炸 mac 发版**：Release 的 macos-x86_64 包在 arm64 runner 上**交叉编译**，pkg-config 禁止跨架构探测系统库；而 CI backend-check 是本机构建、能找到 runner 自带的 Homebrew 库——**CI 绿、发版红，问题只在打 tag 时首次暴露**（v0.12.3 实测：ssh2→libssh2-sys→openssl-sys 找不到 OpenSSL 直接 101，7fad08d 用 macOS target 限定的 `vendored-openssl` 修复）。判定：新依赖树里 grep `-sys` crate（openssl/libgit2/sqlite 这类链系统库的），有则要么走 vendored feature，要么在发版前手动跑一次 `cargo check --target x86_64-apple-darwin`（arm64 mac 上）。
+- **判断"卡"属于哪一类，先看整机 CPU**：整机 CPU 高（非 CC-Panes 程序也卡）= 子进程资源争抢（docs/71 第 2 节）；整机 CPU 不高但 UI 掉帧 = xterm 输出洪水（docs/71 第 3 节）。两者症状同形、治法完全不同，搞反了会去优化渲染而实际是编译器在吃满核。输出链路现状（0.11.8 后台暂停 + 0.11.9 批次收尾后）：后台标签有 512KB 隐藏积压 + 边沿 flush（**溢出不再打截断提示**——可见性回归时自动走 snapshot 重放恢复画面，截断提示仅剩退出兜底路径）；后台分层降档（5min 挂 WebGL / 30min **休眠**——SerializeAddon 全量序列化后 dispose 实例，切回经 epoch 重建回放，`terminalHibernation.ts`）；写流控全平台启用；daemon/web 广播改有界 256 + **desync 契约**（溢出绝不掐 VT 中段，整段跳过、排空后发 `{"type":"desync"}`，前端 `terminalResync.ts` 走 snapshot 重放）。改这条链路时守住三条不变式：丢弃只能整段、回放数据必须过 `renderTerminalData`、休眠唤醒不得丢字。
 - **WSL 会话在资源视图里恒显示 ~8 MB / 0% CPU，那是假的**：`wsl.exe` 只是瘦客户端，真实负载在 `vmmemWSL`（实测 4 个 WSL 会话对应 10.7 GB，且未归属任何会话）。两个后果：①`get_resource_tree` 与状态栏 popover 对 WSL 会话的读数**接近于零且不可信**，"WSL 会话很闲"与"WSL 会话在狂吃内存"完全同形；②Job Object 对 WSL 会话**完全无效**（那些进程不是 Windows 进程）。WSL 侧要用 `systemd-run --user --scope` + cgroup v2（实测 `user@1000` 已委派 `cpu memory pids`，无需 root、无需 `wsl --shutdown`）。注意 CC-Panes 起的 WSL 会话落在 `/init.scope` 而非 `user.slice`，**不显式包 scope 就没有任何约束**；注入点 `wsl_codex.rs:748-755`。详见 docs/71 第 7 节。
 - **`wsl --shutdown` 的杀伤面远超"我的 WSL 会话"**：它终止**所有**发行版——实测本机除 `Ubuntu` 外还跑着 `docker-desktop`，一次 shutdown 等于拆掉用户整个 Docker 环境（容器全停、Docker Desktop 需重启），而用户点按钮时完全想不到这层。任何"改 `.wslconfig` 后引导生效"的流程必须先 `wsl.exe --list --running` 算出完整影响面并对基础设施发行版单独高亮，绝不能把重启做成写入的副作用。另注意 `/etc/wsl.conf` 是 per-distro 且**写入需 root**，只能只读+给命令，不能代写。
 - **读 `.wslconfig` 必须直读文件，且它是 INI 不是 TOML**：碰 `\\wsl$` 或调 `wsl.exe` 会拉起/保活 Vmmem VM（issue #37，`usage_stats_service.rs:131`）——一个"读 WSL 配置"的功能若把 VM 唤醒了，自己就成了新的资源问题；需判断 VM 状态时用 `wsl_discovery_service.rs:92` 的 `is_wsl_vm_running()`（只查 vmmemWSL 进程，零副作用）。解析上 `memory=80GB` 这种裸值会让 `toml` crate 直接失败，且写回时必须保留用户注释与键顺序（实测用户配置里带注释说明为何调高 memory）。另注意「文件不存在」≠「无配置」，而是全部取默认（`processors` 默认 = **全部逻辑核**），UI 必须展示 effective 值。详见 docs/71 第 7.4 节。
+- **经 `wsl.exe` argv 传给发行版内 shell 的脚本，含 `"$(cmd arg)"` 就会被搅坏**：wsl.exe 的 Windows argv → Linux argv 转换（wsl 2.7.11 实测）会破坏这类引号形态——宿主侧 CreateProcess 正确转义（Rust `Command` / Python list 同样中招），bash 侧仍报 `unexpected EOF while looking for matching "`；`--` 分隔符**救不了**；最险的形态是**带位置参数时 exit 0 但输出坏数据**（`resolve_wsl_trust_paths` 的 argv 版实测三行输出变成「空/空/`\.git`」，trust 预写静默失效多时无人察觉）。但 `"${VAR:-fallback}"`、`"A B"`、多行 heredoc（`python3 - <<'PY'`，codex/opencode session scan 那两处）实测**存活**——症状按内容选择性出现，极易误判成「偶发」。两条安全通道：①**脚本走 stdin**（`bash -l -s` + 管道写入，完全绕过 argv 转换），参数走 **WSLENV `/u` 透传**（叠加用户已有 WSLENV，勿覆盖），见 `codex.rs::run_wsl_script_via_stdin`；②脚本简单时用**零双引号**形态（`wslpath -w /; echo $HOME`——展开结果不做转义处理，UNC 反斜杠存活），见 `uninstall_cleanup_service.rs::resolve_targets`。
 - **别用 MSIX 打包的进程去验证 Windows Job 限制**：MSIX 容器自带一层 job，嵌套 job 下 `QueryInformationJobObject(NULL)` 只报**最内层**，会把真实的 PTY 会话 job 完全遮住——实测用 MSIX 的 pwsh（`WindowsApps\...\pwsh.exe`）探到 `LimitFlags=0x800`(BREAKAWAY_OK)，换 System32 的 `powershell.exe` 才看到真值 `0x2000`。同理适用于任何"从子进程反查父级 job 配置"的排障。
 - **终端"乱了"要先分清是 buffer 乱还是渲染乱，两者同形、治法完全不同**：错乱内容**能选中复制出来** = buffer 级——我们对 claude/codex 主动剥掉 alt-screen（`terminalBufferMode.ts:138`），TUI 的相对定位锚点会在主缓冲区滚动时被 xterm 的 `cursorUp` **静默截断**（`InputHandler.ts:902` 钳到 `scrollTop`），之后每帧都画错行；此时渲染层刷新永远无效，只有让 CLI 自己重绘（SIGWINCH）才修得掉。错乱是色块/字形碎片、复制出来却是正常文本 = 渲染级（WebGL atlas），那才是右键「刷新终端显示」的原始目标场景。用户报"刷新没用"时大概率是前一类。详见 docs/73。
 - **Windows 上终端渲染器恒为 DOM，一切 WebGL 补救路径都是死代码**：`windows-cjk-guard` 与 `wallpaper-transparency` 两条都把 auto 打到 DOM（`terminalRenderer.ts:167/179`）。任何写在 `if (webglAddon)` 里的修复在 Windows 主力场景下**从不执行**——`clearTextureAtlas` 首行就 `return false`。写完自测"没报错"不等于生效。
 - **`openEditor` 在 Files 视图下不建 pane tab 而是静默返回 `null`**（`editorTabActions.ts:70-75`）：`appViewMode === "files"` 时它改走 `useEditorTabsStore.openFile()`，落进 Files 视图自己的 tab 列表，**分屏区毫无反应**——从分屏区里的入口调用时看着完全像「点了没用」。分屏区内的调用方必须传 `{ forcePaneTab: true }`。同理，editor 是**两份数据**（Files 视图的 `useEditorTabsStore` + pane 树的 editor tab），MCP `list_open_files` 是两者并集，同一文件双开会出现两条。
 - **统计 pane 树里的 tab 不要用 `collectTerminalTabs`**：它第一步就把非终端全过滤掉了，拿它数「有多少标签」会漏掉 7 种 `contentType` 里的 6 种。通用遍历是 `collectTabs`（`lib/paneSessions.ts`，基于 `collectPanels`）。另有两条必须照抄的规避：**starred 布局是镜像**（`panes/starredMirrors.ts`），直接统计会把同一 tab 数两遍；**当前布局的活树在 store 工作副本 `rootPane` 上**，不在 `layouts[i].rootPane`，取错了当前布局的数字永远是旧的。详见 docs/75。
 - **Zustand selector 里不要调用返回新集合的 store 方法**：`usePanesStore((s) => s.listLayouts())` 这类写法，因 `listLayouts` 内部是 `filter().map()` 每次返回新数组，`useSyncExternalStore` 的快照永不相等 → `Maximum update depth exceeded` 崩页。正确做法是选稳定引用（如 `s.layouts`）后用 `useMemo` 本地派生；`.getState().listLayouts()` 在渲染外调用则不受影响。
+- **关标签/删布局/快照覆盖的会话回收只有一个入口：`destroyPipeline` + `removeTabsInternal`**（0.12.0 批1 落地，docs/78）。此前 5 份散落的 kill 实现已收编，新增任何销毁路径都必须走这两个出口并在 `DESTROY_POLICY` 矩阵补一行（7 个维度：可否决/记撤销/尊重 pinned/杀不杀/关不关弹窗/KillReason 映射），穷举测试会逼着同步。**`killSession` 的调用点有白名单扫描测试守着**，第 6 份实现在 CI 就会被拒。两条不变式：①回收先于树操作（树 splice 后 tab 数据就找不回来了）；②pinned 豁免在「资源收集」与「树操作」两处必须同口径判定，否则会出现「会话杀了但标签还在」或反之。
+- **树操作与销毁必须分开：搬空 pane 只能用 `removeEmptyPane`，绝不能借道任何带销毁语义的出口**。`moveTab` / `moveTabToLayoutPane` 把 tab 搬走后要收掉空壳，而销毁出口（`removeTabsInternal` 一族）会回收 pane 内 tab 的 PTY——借道它等于**用户拖一下标签就杀掉自己正在跑的 agent 会话**（历史上的 `closePane` 就因此被删）。`removeEmptyPane` 非空即拒 + dev 告警，是类型层面的隔离而非防御式冗余。
+- **`applyLayoutSnapshotPayload` 的差集真杀在 `terminal.snapshotApplyKillEnabled` 开关后面（默认关），观察期零误报前别翻开**：跨端同步每 5s 跑一轮 `apply → reconcileTerminalSessions → runBackgroundLayoutRestore`，整树替换后旧树会话虽然失去引用，但**常常马上被收养回来**（新树经 `savedSessionId` 引用同一个会话）。差集算错 = 杀光用户所有活会话。0.12.0 起观察链已修齐四缺陷：保护集与孤儿 GC 同源（`sessionReferenceCollector.ts`：树引用 ∪ SelfChat ∪ runner ∪ task binding ∪ 后端活会话）、任一保护集来源不可达即 `abandonSnapshotKillCandidates`（**绝不带残缺保护集 finalize**——少一路保护集只会放大杀集）、begin/finalize 带 `isTauriRuntime()` 门控、悬挂候选 60s TTL。开闸操作 = 打开设置开关（真杀走 `performSnapshotApplyKills`：orphan-reclaim + 单轮上限 10 + 多实例守卫）；开闸判据 = `[destroy] snapshot-apply would-kill (post-settle, re-verified)` 与 `[orphan-reconcile] sweep` 长期逐条一致。
+- **收集要杀的会话必须用 `collectTerminalSessionIdsWithSaved`（含 `savedSessionId`），不是 `collectTerminalSessionIds`**：`savedSessionId` 是「恢复中但尚未 attach」的会话，背后是**真实存在的 PTY**，漏掉就是孤儿。旧口径函数保持原样另有消费者，两者并存且有守护测试防「顺手合并」。
+- **从 Immer draft 里带出数据做异步处理必须深拷贝**：`{ ...tab }` 浅拷贝的 `terminalRootPane` 仍指向 draft，`set()` 结束后 proxy 被 revoke，异步回收再读就抛 `Cannot perform 'get' on a proxy that has been revoked`。用 `structuredClone(current(tab))`。**这条只在异步路径触发，测试断言照常通过、仅报未处理拒绝**，极易漏过去。
+- **改了销毁链路后测试挂了，先分清是「功能坏了」还是「测试观察点过时」**：0.12.0 批1 实测三轮失败里两轮是后者——`vi.mock("@/services")` 只 mock 了桶文件，而 `destroyPipeline` 从 `@/services/terminalService` **直接** import，绕过 mock，表现为「回收没发生」；另一类是测试注入假 `closeTab` 断言旧协作方式，而改道后 UI 只把 tabId 交给出口。直接改测试让它变绿的话，混在里面的**真**退化（当时是 dirty 守卫按 contentType 分派后终端标签的未保存确认静默消失）就被盖过去了。
+- **可见性的唯一事实源是 `useTabViewStateStore`，键是 `owner:role` 而不是 tabId**（0.12.0 批2）：**可见性属于「视图」，不属于「标签」**——同一个 PTY 可能被主标签、星标镜像、弹出窗口三个视图同时观看，而 SelfChat 跑着真实 Claude 会话却根本没有 tabId（它是全屏主视图，不在 pane 树里）。不要给无 tab 的视图伪造 tabId：`TerminalView` 的 `tabId` prop 被 `findTabAcrossLayouts`/`updateTerminalLaunchId` 当作真标签 id 用，塞假值会静默查不到（docs/69 同类坑）。降档/休眠判据是聚合的 `anyVisible`（**任一视图可见就不休眠**），渲染/WebGL 与 scheduler 焦点判据看单视图——两者不能混用。
+- **降档判据改了信号源就必须同时加 store 订阅**：其他视图（星标镜像、弹出窗口）的可见性翻转不会让本组件 render，每帧 effect 够不着。没有订阅的话「打开星标页」不会取消原 tab 已经启动的休眠计时——修完 bug 只修了一半。
+- **积压 flush 有两条防线，删任何一条都会丢字**：`terminalHiddenWriteBuffer` 的 drain-on-push 解决「可见性翻转与数据到达的**竞态**」（顺序不由 buffer 决定，漏拼会让积压排到新数据之后）；**store 单视图边沿订阅**（`useViewVisibilityEdgeSubscription`，P1 双写拆除后取代每帧 props 边沿）解决「**静默会话**本视图翻可见时的补投」——drain-on-push 只在有新数据时排空，切回已跑完的后台标签时 push 永远不会被调用。注意边沿必须听**单视图**而非聚合 anyVisible：镜像常开时主视图切回，聚合恒 true 没有边沿。
+- **组件里加 hook 必须在所有提前 return 之前**：0.12.0 批2 实测把可见性上报 hook 插在了 `if (!tabData) return` 之后，React 直接报「Hooks 调用顺序变化」并使组件崩溃——测试表现为「找不到 testid」，看着像渲染逻辑坏了，实际是 Hooks 规则违规。
+- **`useTerminalStatusStore.statusMap` 由后端事件整条覆盖，别往里塞前端侧字段**：塞进去的会被下一个 `terminal-status` 事件抹掉。轴1 输入活跃因此独立成 `useTerminalInputActivityStore`。
+- **新增跨 daemon 事件必须先改 `cc-panes-core/src/services/boundary_events.rs` 契约表**（0.12.0 批3）：daemon 架构本身没出过问题，出问题的全是边界——resume id 掉进 emitter 的 `_ => {}`（docs/45）、scrollback 停产、notifier 整族静默丢失，同一种病。emitter 有穷举守卫：对表中每个 `origin: Emit` 的事件真跑一次投递，没有任何投递就是落进了 `_ => {}`，CI 直接报错。注意表里的 `origin` 维度区分三类来源，且**分类会过期**：`terminal-desync` 最初只由 emitter 在队列排空后自行插入（EmitterGenerated），0.12.7 给它加了两处 emit 调用点（Stage 4 看门狗、合批溢出）却没改分类，守卫据此跳过、两处全落 `_ => {}`——daemon 模式下看门狗与溢出补救静默失效（0.12.8 修，origin 已改 Emit）。**给既有 EmitterGenerated 事件新增 emit 调用点时必须把 origin 改成 Emit**，本条 gotcha 之前的旧版本还写着「emit 里不该有 desync 分支」，TS 镜像测试也把这句错话断言成了规格——契约表、守卫、gotcha 三者都会把过期认知锁死成检查项。TS 侧 `daemonEventContract.ts` 是镜像表，测试**真去扫源码**验证三处分发（Rust per-session、Rust control、前端监听器）都有 handler。
+- **hidden 闸门按连接记账，不是按会话**（0.12.0 批3）：daemon 是多客户端共享的（桌面+web+手机），桌面把标签切后台**不得掐断手机端正在看的同一个会话**。闸门只掐可丢的输出（`drop_on_full=true`），exit/killed 这类必达事件即使隐藏期也要送达——丢了会让前端永远显示一个已经死掉的「运行中」会话。**连接断开必须清 hidden 标记**，否则重连后的新订阅被旧标记压住，表现为「重连后永久收不到输出」且零报错。接线已完成（0.12.0 收尾期）：关联协议复用 per-session WS 既有的 instanceId（control URL 带同一个，同源即关联），control link 双向化 + `set_hidden_terminal_sessions` command + 前端 `useHiddenSessionReporter`。**上报不保证生效**（旧 daemon 静默丢弃/断线/web 模式无 control 通道），前端 512KB 积压是永久兜底，不得因上报存在而放松；且要求 daemon 二进制已更新并重启（binaries 陈旧 gotcha 在这条链路上的表现是「一切正常但 WS 流量不归零」）。
+- **`launchId` 每次启动都要新生成，绝不能复用 `projectId`**（docs/69 活体暗雷，0.12.0 批4 修）：`launch_history.project_id` 存的其实是「每次启动唯一的 launch id」（列名极具误导性），而 `bind_pty_session` 要求那行的 `pty_session_id` 满足 `IS NULL OR = 本次`——拿一个已被上次 PTY 占用的 id 去绑必然落空，resume id 丢失且**不可自愈**（恢复出的会话不写行 → 下次重启又没 resumeId → 永久退化）。修的时候发现既有测试断言 `launchId === projectId`，**把错误行为写成了规格**——改这类 bug 要一并检查测试是不是在锁死错误。
+- **checkpoint 的配对身份是 `anchorSeq` + `checkpoint_epoch`，与 `daemon_generation` 是三个不同的东西**（M3b）：`daemon_generation` = daemon 进程 started_at（认领判定用）；`checkpoint_epoch` = ReplayBuffer 创建时生成（daemon 重启/会话重建必不同，旧照片自动拒收）；`anchorSeq` = daemon raw 字节流内锚点（**前端写进 xterm 的是渲染后字节，长度不同——锚点只能引用 daemon 随输出下发的 chunk endSeq，绝不能数前端写入字节**）。锚定裁剪由 `CHECKPOINT_ANCHORING_ENABLED` 常量守门，回退语义是诚实降级：翻回 false 只停新裁剪，已裁会话接受 scrollback 深度损失（画面完整性不受影响）。恢复读路径已归一到 `terminalRecovery.getRecoverySnapshot`（photo 直写 / delta 过 renderTerminalData 双管道，photo 是 SerializeAddon 成品 VT，二次渲染会坏）；上传链路的激活钥匙是恢复读返回的 epoch（epoch=0 = 旧 daemon 回落，保持 dormant）。新增 daemon REST 大 payload 路由必须显式 `DefaultBodyLimit`（axum 默认 2MB 静默 413）。
+- **版本目录挑"最新"不能用字符串/PathBuf 字典序**：`v9.x > v20.x`（'9' > '2'），nvm 版本目录曾因此挑错 node 版本、claude 装在 v20 却去 v9 找（macOS "not found" 的根因之一）。统一走 `cc_cli_adapters::compare_version_dir_names` / `nvm_node_bin_dirs`，别再手写 `sort()+reverse()` 或 `p > *l`。
+- **objc2 是运行时消息派发，没有编译期可用性门禁**：调 macOS 新 API 前必须查它的引入版本并用 `respondsToSelector:` 探测——`NSApplication.activate()`（macOS 14+）曾在声明支持 10.15 的前提下无守卫直调，老系统一启动就 unrecognized selector 崩进程。且 macOS 分支此前零 CI 覆盖（只在打 tag 时首次编译），现 ci.yml backend-check 已加 macos-latest，删掉它等于把 mac 回归全放到用户手里。
+- **`list_workspaces()` 必须返回全量（含已归档），归档过滤只能落在消费点**（0.12.5）：`archivedAt` 是逻辑删除标记，看着"过滤一次到位最省事"，但该函数有四处调用方在做**引用检查**——`delete_launch_profile` 的绑定检查（`orchestrator_service.rs` 与 `launch_profile_commands.rs` 各一处）、`ensure_default_workspace`、`force_stop_project` 的路径引用检查。在 service 层加过滤 = 被归档工作空间持有的 launch profile 被判成"无人引用"而误删，且**没有任何报错**。过滤点只有两个：MCP 工具的 `includeArchived` 参数、前端 `filterWorkspaces`。回归测试 `list_workspaces_still_returns_archived_workspaces` 与 `archived_workspace_still_blocks_launch_profile_deletion` 就是拦这一手的，别绕过。另：前端 `filterWorkspaces` 里归档判定必须排在 `isDefault` 短路**之前**，否则带 `archivedAt` 的默认工作空间会绕过过滤。
+- **给 MCP 开放"删除"前先问能不能换成可逆操作**：`remove_project_from_workspace` 的 MCP 工具在 docs/43:303 上挂了两个版本没做，卡点是"需要带确认语义"而确认机制不存在。0.12.5 的解法不是补确认，是把开放的操作换成归档（`set_workspace_archived`，打时间戳、不删数据、随时恢复）——**可逆就不需要确认语义，前置需求整个消失**。硬删除继续只留 UI。同类范式先例是 plan 的 `set_plan_archived`。代价对称性也支持这么选：误归档的代价是点一下恢复，误阻塞/误拒的代价是任务直接做不下去。
+- **终端「现在什么状态」用 `phaseOf()` 派生，别自己组合那 7 个字段**（0.12.0 批5）：restoring / savedSessionId / restoreBlockedReason / leaseReadOnly / launchError / launchAttempt / disconnected 的合法组合从未被声明过，各消费方脑补的结果是同一状态在不同地方判出不同结果。优先级顺序本身是规格：已退出压倒一切 → 启动失败压过恢复中 → **被挡住的恢复压过恢复中**（否则显示永远转圈的假恢复）→ 断连压过运行中。`isLivePhase` 把 restoring 算作活的（会话已建），这条直接决定销毁链路会不会漏杀。
+- **前端测试「全体起不来」先查 Node 小版本，不要去动 node_modules**：jsdom 28 要求 `^20.19.0 || ^22.12.0 || >=24.0.0`（20.19 是 20.x 线引入 `require(esm)` 的版本）。低于它时 `html-encoding-sniffer` 用 `require()` 加载 ESM-only 的 `@exodus/bytes` 直接炸，表现是 **435 个测试文件全部 `Failed to start forks worker`**、报错里只提两个没人听说过的包名——**看着完全像 node_modules 装坏了**，第一反应会是重装（实测本机 Node 20.17.0 命中）。CI 用 `node-version: "20"` 解析到最新 20.x，所以**CI 绿、本地红**，问题只在开发机暴露。判定：`node -v` 与 `package.json` 的 `engines` 对一下即可；不想动全局 node 可以直接用另一个版本的二进制跑（`<nvm-root>/v24.x/node.exe ./node_modules/vitest/vitest.mjs run`）验证。注意 `npm run test:run` 只跑 vitest，它**不**校验 engines。
+- **clippy 门禁是 `cargo clippy --workspace -- -D warnings`，别自己加 `--all-targets`**：加了会把测试代码的历史 lint 全部升级成 error（实测十几条），看着像"仓库本来就不绿"，实际是换了把尺子。改动验证请用文档里那条原命令。
+- **`watch::Sender::send_modify` 是无条件通知，消费/排空队列必须用 `send_if_modified`**：tokio 内部把它包成恒返回 `true` 的 `send_if_modified`，**写回一个空 map 也会把接收方的 `changed()` 重新置 ready**。配上「调用方在排空**之前**就 `mark_unchanged()`」这个常见写法，排空自己产生的通知没人消费 → 下一轮立刻 ready → 再排空空 map → 再通知，该 future 从此不回 `Pending`，**烧满一整个 tokio worker 且不写任何日志**（0.12.8 实测：一笔 ACK 就让循环 3 秒跑 1400 万次，改 `send_if_modified` 后 6 次）。判据：整机 CPU 不高但 app 发卡、日志零增长、主线程 `Wait/UserRequest` 正常——**别去查业务代码里的 `loop {}`**，它自己不自旋，病在运行时驱动层。定位手法（无需管理员、无需调试器）：PowerShell 用 `OpenThread(0x004A)`/`SuspendThread`/`GetThreadContext` 采 `CONTEXT_AMD64` 的 Rip（偏移 `0xF8`）与 Rsp（`0x98`），`ContextFlags`（`0x30`）设 `0x100001`，CONTEXT 需 16 字节对齐；线程名用 `GetThreadDescription` 读。RIP 集中在 `ZwRemoveIoCompletionEx`/`ZwWaitForAlertByThreadId` + Rsp 在几个值间跳变 = 命中。详见 docs/93。
+- **DOM 原生方法不能裸引用赋值给对象属性**：`{ request: requestAnimationFrame }` 这类写法会让方法脱离 `window`，WebView2 调用时直接抛 `TypeError: Illegal invocation`。要用箭头函数包一层（不是 `.bind(window)`——默认参数在模块加载期求值，无 `window` 的环境会直接崩，箭头函数把求值推迟到调用时）。0.12.8 实测：`terminalCompositionRecovery` 因此在**每次中文/日文输入结束**时抛一次，日志被 `[frontend-crash]` 刷屏。同类风险只在「把原生方法当值传递」时出现，直接调用（`requestAnimationFrame(fn)`）不受影响。
 
 ## 文档引用
 
@@ -393,5 +432,20 @@ flutter pub get && flutter analyze && flutter test
 | `docs/72-legacy-branch-triage.md` | **老分支收编判定**：`git cherry` 说「未合并」≠「还有价值」——四条分支的判定结论与三层判据 |
 | `docs/74-dev-ledger.md` | **开发台账方向文档**：编排面板重定位为进行中/台账两模式，工作项骨干 = task_binding，worktree/todo/plan 为切面——四批 roadmap，实施逐批抽 plan |
 | `docs/75-layout-card-rework.md` | **布局卡片改造**：状态三重编码（形状+色+数）/ 七类 contentType 归四桁计数 / 点击跳转轮换 / 补齐浏览器·文件新建入口——新增 contentType 必须同步 `lib/tabContentType.ts` 两张表 |
+| `docs/78-tab-lifecycle-and-recovery-rework.md` | **Tab 生命周期与恢复统一重构总纲**：useTabLifecycle 钩子 + 三轴模型 + 登记表/销毁管线 + 可见性单源 (tabId,role) + checkpoint+delta 恢复归一 + daemon 边界契约——五批 roadmap（0.11.11+ 逐批抽 plan + codex 评审），含 Orca 源码对照判决 |
+| `docs/81-abnormal-exit-session-recovery.md` | **异常退出会话的冷恢复**：旧 daemon 不支持安全认领时的「杀旧建新」人工入口——决策表 / 文案 / 验收标准（fail-closed 未破，只对 `claims-unsupported` 开放） |
+| `docs/82-provider-context-window.md` | **Provider 上下文窗口与用量修复**：模型行 `contextWindowTokens` + migration v30 + 窗口解析优先级（jsonl > provider 配置 > `WINDOW_UNKNOWN` 降级）；含 `--settings` 注入的两条待真机验证项 |
+| `docs/83-orca-gap-rescan-3.md` | **Orca 差距重扫第三轮**（0.11.13 基线）：六域约 70 项四态重判 + 55 号文档七大翻案（耐久层高估/休眠反转/gate 降压/Provider 反超）+ Top 5 抓手 + 早期时间线附录 |
+| `docs/84-appearance-theme-shape-copy.md` | 界面形态系统（Soft/Slab/Sharp/Glass/Panel/Carbon）产品文案评审稿；PRD 与任务清单见 `docs/PRDs/appearance-theme-shape*.md`，验收记录见 `docs/shape-verification-record.md` |
+| `docs/STRATEGY.md` | 产品战略：外观层边界 / 设置本地保存与跨版本兼容 / 桌面 Web 同模型（0.12.1 自仓库根迁入） |
+| `docs/85-cli-launcher-overrides.md` | **CLI 路径解析链与 launcher override**：四层解析优先级 / override 三通道 / macOS "not found" 排查顺序（0.12.1 semver 修复与兜底记录） |
+| `docs/87-git-collaboration.md` | **Git 协作规范**：分支模型（main / dev/v* / release/*）/ PR base 规则 / 发版七步 / 多 AI 实例并行纪律——所有 PR 与发版操作前对照 |
+| `docs/86-resume-chain-staleness.md` | **Resume 链路陈旧化**：三症状归因（对话旧/画面旧/空会话）+ 六条断链 + ResumeBindingStore 单源 / outbox ack / 失败可见化三批修复——排障判据速查在文末 |
+| `docs/88-im-bridge.md` | **IM 外推桥**：钉钉/企微/飞书通知集成（批次1 出站已落地）+ 双向长连接 roadmap（钉钉 Stream / 企微智能机器人协议公开可自实现，飞书不公开走伪双向）——三平台调研结论与安全模型在此 |
+| `docs/89-mcp-tool-surface-reduction.md` | **MCP 工具面收编方向文档**：90 工具盘点 + 两刀方案（CRUD 合并→55、管理面下沉 ctl→25）+ ctl/MCP 能力分界三轴（身份/故障域/管理面）——未排期，实施逐刀抽 plan |
+| `docs/90-worker-decomposition-model.md` | **派工模型方向文档**：契约冻结换扇形并行 / 宽深形状判别 / 简报摊销——§6 终局裁决「设计承重，乐观默认」（碰撞检测/claim 看板否决）；§7 skill 可执行拆分规则（形状三问→W/D 分支→硬阈值→派发三关→CLI 路由，批次A 落地文本） |
+| `docs/91-deepseek-harness-onboarding.md` | **DeepSeek Harness（dsh）接入**：它不是 CLI 而是 profile 启动器（TUI 他们做过、8-04 主动删了，含复活四条件）+ 全实测事实表 + `$DSH_HOME` 按工作空间隔离的硬约束 + 四项 `--patch` 注入 + 为何不嵌前端（`/api` trust fence）+ 插件生态入口与 `dsh.bundle.patch` 激活判据 |
+| `docs/92-canvas-mode-design.md` | **Canvas Mode 设计方案**：与 pane 布局并列的通信可视化布局（不是新终端类型、不替代编排页）——管道只反映真实 dispatch/message/report 事件，不从终端文本猜关系 |
+| `docs/93-tokio-worker-spin.md` | **tokio worker 满核空转调查**：`send_modify` 排空空队列引发的永久自唤醒环 + 活体采样定位手法（免调试器、免提权）+「卡但主线程正常」三步排障速查 |
 | `docs/references.md` | 外部参考项目索引 |
 | `docs/archive-v1.md` | 旧版本归档说明 |
