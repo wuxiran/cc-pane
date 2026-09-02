@@ -19,7 +19,7 @@ import PaneFlowOverlay from "@/components/canvas/PaneFlowOverlay";
 import { LayoutVisibilityContext } from "@/contexts/LayoutVisibilityContext";
 import LayoutTopBar from "@/components/layoutbar/LayoutTopBar";
 import MainWallpaperLayer from "@/components/layout/MainWallpaperLayer";
-import { useCanvasDisplayStore, usePanesStore, useActivityBarStore, useLayoutUiStore, useWallpaperStore, type AppViewMode } from "@/stores";
+import { useCanvasDisplayStore, usePanesStore, useActivityBarStore, useLayoutUiStore, useWallpaperStore, useThemeStore, type AppViewMode } from "@/stores";
 import type { OpenTerminalOptions } from "@/types";
 import type { MediaStudioKind } from "@/stores/useMediaStudioStore";
 
@@ -35,8 +35,12 @@ interface MainViewSwitcherProps {
 // 壁纸激活时的面板底：不透明面板色保留 62%，只留 38% 透出壁纸。全透明会让亮色
 // 壁纸直接垫在终端文字下（对比度崩塌）；62% 既能恢复一层「面板深度」垫住文字，
 // 又不至于把壁纸遮得几乎看不见。同思路先例：空态磨砂垫底（emptyStateShared）。
-const WALLPAPER_PANEL_BG_EFFECTIVE =
+const WALLPAPER_PANEL_BG_EFFECTIVE_DARK =
   "color-mix(in srgb, var(--app-panel-bg) 62%, transparent)";
+// 浅色主题面板底是近白，同一浓度会把高对比壁纸洗成一层米色残影（实机走查结论），
+// 提浓到 80% 让壁纸退成隐约纹理、维持浅色应有的干净表面。
+const WALLPAPER_PANEL_BG_EFFECTIVE_LIGHT =
+  "color-mix(in srgb, var(--app-panel-bg) 80%, transparent)";
 
 export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherProps) {
   const { t: mediaT } = useTranslation("media");
@@ -47,6 +51,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
   const layoutSwitcherMode = useLayoutUiStore((s) => s.switcherMode);
   const canvasDisplayMode = useCanvasDisplayStore((s) => s.mode);
   const sidebarVisible = useActivityBarStore((s) => s.sidebarVisible);
+  const isDark = useThemeStore((s) => s.isDark);
   const activeView = useActivityBarStore((s) => s.activeView);
   const appViewMode = useActivityBarStore((s) => s.appViewMode);
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
@@ -162,8 +167,10 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
             background: "var(--app-panel-bg)",
             ...(wallpaperActive
               ? ({
-                  // 半透明垫层而非全透明：见 WALLPAPER_PANEL_BG_EFFECTIVE 注释。
-                  "--app-panel-bg-effective": WALLPAPER_PANEL_BG_EFFECTIVE,
+                  // 半透明垫层而非全透明：见 WALLPAPER_PANEL_BG_EFFECTIVE_* 注释。
+                  "--app-panel-bg-effective": isDark
+                    ? WALLPAPER_PANEL_BG_EFFECTIVE_DARK
+                    : WALLPAPER_PANEL_BG_EFFECTIVE_LIGHT,
                   // 面板底一透，面板自己的 backdrop-filter 就直接糊在壁纸上——
                   // 壁纸的 blur 滑杆管不到这层，暗色主题默认 12px 会把视频糊没。
                   // 壁纸激活时由壁纸设置接管该 token（默认 8 = 轻磨砂垫层）。

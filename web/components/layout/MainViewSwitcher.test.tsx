@@ -101,12 +101,17 @@ const canvasDisplayState = vi.hoisted(() => ({
   mode: "panel" as "panel" | "canvas",
 }));
 
+const themeState = vi.hoisted(() => ({
+  isDark: true,
+}));
+
 vi.mock("@/stores", () => ({
   usePanesStore: (selector: (s: typeof panesState) => unknown) => selector(panesState),
   useActivityBarStore: (selector: (s: typeof activityState) => unknown) => selector(activityState),
   useLayoutUiStore: (selector: (s: typeof layoutUiState) => unknown) => selector(layoutUiState),
   useWallpaperStore: (selector: (s: typeof wallpaperState) => unknown) => selector(wallpaperState),
   useCanvasDisplayStore: (selector: (s: typeof canvasDisplayState) => unknown) => selector(canvasDisplayState),
+  useThemeStore: (selector: (s: typeof themeState) => unknown) => selector(themeState),
 }));
 
 function setMode(mode: AppViewMode, overrides: Partial<typeof activityState> = {}) {
@@ -273,10 +278,11 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     layoutUiState.switcherMode = "corner";
   });
 
-  it("壁纸激活时面板底覆盖为半透明 color-mix 垫层而非全透明", () => {
+  it("壁纸激活时面板底覆盖为半透明 color-mix 垫层而非全透明（暗色 62%）", () => {
     setMode("panes");
     wallpaperState.resolved = { kind: "image", glassBlur: 8, dim: 0.35, opacity: 1 };
     wallpaperState.assetUrl = "asset://wallpaper.png";
+    themeState.isDark = true;
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
 
     const style = screen.getByTestId("main-wallpaper-layer").parentElement?.getAttribute("style") ?? "";
@@ -286,6 +292,18 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     expect(style).not.toMatch(/--app-panel-bg-effective:\s*transparent\b/);
     // 玻璃模糊 token 仍由壁纸设置接管
     expect(style).toMatch(/--app-glass-blur:\s*8px/);
+  });
+
+  it("浅色主题下垫层提浓到 80%，避免壁纸被洗成残影", () => {
+    setMode("panes");
+    wallpaperState.resolved = { kind: "image", glassBlur: 8, dim: 0.35, opacity: 1 };
+    wallpaperState.assetUrl = "asset://wallpaper.png";
+    themeState.isDark = false;
+    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+
+    const style = screen.getByTestId("main-wallpaper-layer").parentElement?.getAttribute("style") ?? "";
+    expect(style).toContain("var(--app-panel-bg) 80%, transparent");
+    expect(style).not.toContain("var(--app-panel-bg) 62%, transparent");
   });
 
   it("壁纸未激活时不覆盖 effective token", () => {
