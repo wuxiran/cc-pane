@@ -322,6 +322,7 @@
   "newAgentChatTab": "New Agent Chat",
   "agentChatPickEngine": "Choose an engine",
   "agentChatBrowseDir": "Browse for a folder…",
+  "agentChatWorkspaceRoot": "workspace root",
   "agentChatModelDefault": "Default model",
   "agentChatChanges": "Changes",
   "agentChatChangesTitle": "Files changed this session ({{count}})",

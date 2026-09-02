@@ -322,6 +322,7 @@
   "newAgentChatTab": "新建 Agent 对话",
   "agentChatPickEngine": "选择对话引擎",
   "agentChatBrowseDir": "浏览选择目录…",
+  "agentChatWorkspaceRoot": "工作空间根目录",
   "agentChatModelDefault": "默认模型",
   "agentChatChanges": "改动",
   "agentChatChangesTitle": "本轮改动的文件（{{count}}）",
