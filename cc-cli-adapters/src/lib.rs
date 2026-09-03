@@ -1992,9 +1992,7 @@ mod registry_tests {
 
         assert_eq!(
             ids,
-            vec![
-                "claude", "codex", "gemini", "kimi", "opencode", "cursor", "grok", "pi", "omp"
-            ]
+            vec!["claude", "codex", "gemini", "kimi", "opencode", "cursor", "grok", "pi", "omp"]
         );
         assert!(registry.get("claude").is_some());
         assert!(registry.get("codex").is_some());

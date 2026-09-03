@@ -6413,7 +6413,14 @@ mod tests {
             &registry,
             CliTool::Opencode
         ));
-        for cli_tool in [CliTool::Claude, CliTool::Codex, CliTool::Gemini, CliTool::Kimi, CliTool::Cursor, CliTool::None] {
+        for cli_tool in [
+            CliTool::Claude,
+            CliTool::Codex,
+            CliTool::Gemini,
+            CliTool::Kimi,
+            CliTool::Cursor,
+            CliTool::None,
+        ] {
             assert!(
                 !uses_portable_skill_session_prompt_fallback(&registry, cli_tool),
                 "{cli_tool:?} should not use the session-prompt fallback"
