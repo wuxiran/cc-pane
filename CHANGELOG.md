@@ -4,7 +4,7 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
-## 0.12.10 - 2026-09-01
+## 0.12.10 - 2026-09-03
 
 ### Changed
 
