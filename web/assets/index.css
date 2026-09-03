@@ -1,11 +1,5 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-/* 打包中文 UI 字体 MiSans（unicode-range 切片 woff2，浏览器按用到的字符区间按需加载）：
-   未装现代中文字体的机器上，--font-sans 的中文回落不再落到雅黑（小字号发虚、
-   与 Inter 混排灰度打架），而是命中打包的 MiSans。font-display: swap 不阻塞首屏。
-   切片文件与 @font-face 定义见 fonts/misans/（来源与许可见该目录 css 文件头）。 */
-@import "./fonts/misans/misans-regular.css";
-@import "./fonts/misans/misans-medium.css";
 
 /* 打包等宽 CJK 字体：终端字体链首项 "Maple Mono NF CN" 若靠 OS 自带字体，
    macOS 上会 fallback 到比例字体 PingFang SC 导致间距/对齐乱。打包 webfont
@@ -186,7 +180,7 @@
      思源黑体等现代字体时优先用它们；否则 Windows 落到 "Microsoft YaHei UI"
      （雅黑 UI 变体，小字号横排度量优于标准版），故须在 "Microsoft YaHei" 之前。
      -apple-system 放 CJK 之后，避免在 macOS 抢走中文回落。 */
-  --font-sans: "Inter Variable", "Inter", "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", "MiSans", "HarmonyOS Sans SC", "Source Han Sans SC", "Microsoft YaHei UI", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  --font-sans: "Inter Variable", "Inter", "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 /* ===== Light 主题（默认）— Refined Developer Tool（冷调 off-white / 发丝边框 / 柔和 elevation）===== */
