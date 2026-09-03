@@ -18,8 +18,8 @@
 
 ## 现象
 
-CC-Panes 支持 8 个 CLI（`web/types/provider.ts:223-232` `CLI_TOOL_TABS`：
-Claude / Codex / Gemini / Kimi / GLM / OpenCode / Cursor / Grok），
+CC-Panes 支持 7 个 CLI（`web/types/provider.ts` `CLI_TOOL_TABS`：
+Claude / Codex / Gemini / Kimi / OpenCode / Cursor / Grok），
 设置里也有「默认 CLI 工具」下拉（`web/components/settings/GeneralSection.tsx:157-163`），
 Onboarding 还专门问过用户一次（`web/components/OnboardingGuide.tsx:67`）。
 

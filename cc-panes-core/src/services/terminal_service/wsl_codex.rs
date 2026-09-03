@@ -988,10 +988,6 @@ fn build_wsl_managed_adapter_plan(
             &cc_cli_adapters::KimiAdapter::new(),
             context,
         )?),
-        CliTool::Glm => Some(cc_cli_adapters::CliToolAdapter::build_command(
-            &cc_cli_adapters::GlmAdapter::new(),
-            context,
-        )?),
         CliTool::Opencode => {
             let config_path =
                 cc_cli_adapters::OpenCodeAdapter::new().write_managed_provider_config(context)?;
@@ -1462,7 +1458,6 @@ impl TerminalService {
             CliTool::Claude => "claude",
             CliTool::Gemini => "gemini",
             CliTool::Kimi => "kimi",
-            CliTool::Glm => "crush",
             CliTool::Opencode => "opencode",
             CliTool::Cursor => "cursor-agent",
             CliTool::Grok => "grok",
@@ -1699,17 +1694,6 @@ impl TerminalService {
                 cli_args.push(wsl.remote_path.clone());
             }
             if let Some(prompt) = initial_prompt {
-                cli_args.push(prompt.to_string());
-            }
-        } else if cli_tool == CliTool::Glm && provider.is_none() {
-            cli_args.push("--cwd".to_string());
-            cli_args.push(launch_cwd.to_string());
-            if let Some(resume_id) = resume_id {
-                cli_args.push("--session".to_string());
-                cli_args.push(resume_id.to_string());
-            }
-            if let Some(prompt) = initial_prompt {
-                cli_args.push("run".to_string());
                 cli_args.push(prompt.to_string());
             }
         } else if cli_tool == CliTool::Opencode {
@@ -2450,28 +2434,6 @@ mod tests {
         assert!(env
             .get("KIMI_SHARE_DIR")
             .is_some_and(|path| path.starts_with("/mnt/")));
-        assert!(!args.iter().any(|arg| arg.contains("wsl-test-secret")));
-        remove_dir(&dir);
-    }
-
-    #[test]
-    #[cfg(windows)]
-    fn wsl_glm_managed_plan_redirects_config_and_data_to_linux_paths() {
-        let dir = unique_temp_dir("glm-managed-plan");
-        let context = managed_adapter_context(dir.clone(), "glm");
-
-        let (args, env) = build_wsl_managed_adapter_plan(CliTool::Glm, &context).unwrap();
-        let args = args.unwrap();
-
-        assert!(args.iter().any(|arg| arg == "--data-dir"));
-        assert!(args.iter().any(|arg| arg.starts_with("/mnt/")));
-        for key in ["CRUSH_GLOBAL_CONFIG", "CRUSH_GLOBAL_DATA"] {
-            assert!(env.get(key).is_some_and(|path| path.starts_with("/mnt/")));
-        }
-        assert_eq!(
-            env.get("ZAI_API_KEY").map(String::as_str),
-            Some("wsl-test-secret")
-        );
         assert!(!args.iter().any(|arg| arg.contains("wsl-test-secret")));
         remove_dir(&dir);
     }

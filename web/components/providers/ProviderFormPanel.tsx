@@ -41,7 +41,6 @@ function defaultProviderTypeForTab(tab?: KnownCliTool): ProviderType {
     case "pi": case "omp": return "anthropic";
     case "gemini": return "gemini";
     case "kimi": return "kimi";
-    case "glm": return "glm";
     case "opencode": return "opencode";
     case "cursor": return "cursor";
     case "grok": return "grok";

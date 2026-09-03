@@ -120,7 +120,7 @@ flowchart TB
         CLAUDE[ClaudeAdapter]
         CODEX[CodexAdapter]
         OPEN[OpenCodeAdapter]
-        OTHER[Gemini/Kimi/GLM/Cursor/Grok]
+        OTHER[Gemini/Kimi/Cursor/Grok]
     end
 
     subgraph Storage[持久化与运行产物]
@@ -355,7 +355,6 @@ classDiagram
 | Codex | `open_ai` | `open_ai -> codex` | `-c model_provider` + 专用 env |
 | Gemini | `gemini` | `gemini -> gemini` | 环境变量 + `--model` |
 | Kimi | `kimi` | `kimi -> kimi` | 每会话 JSON + `--config-file` |
-| GLM/Crush | `glm` | `glm -> glm` | 隔离 config/data + ZAI env |
 | OpenCode | `open_ai`, `opencode`, `anthropic` | 仅 `opencode -> opencode` | `OPENCODE_CONFIG` + `--model` |
 | Cursor | `cursor` | `cursor -> cursor` | `CURSOR_API_KEY` + `--model` |
 | Grok | `grok` | `grok -> grok` | XAI/Grok env + `--model` |
@@ -554,7 +553,7 @@ stateDiagram-v2
 迁移前：
 claude -> anthropic-A
 codex -> openai-B
-gemini/kimi/glm/opencode/cursor/grok -> anthropic-A
+gemini/kimi/opencode/cursor/grok -> anthropic-A
 
 迁移后：
 claude -> anthropic-A
@@ -1170,7 +1169,7 @@ WSL 不是把 Windows 环境整包透传给 Linux。`wsl_codex.rs` 会：
 - 移除 Windows 代理变量并按需要重建可达地址；
 - 只导出允许的 Provider 和 `CC_PANES_*` 环境；
 - 把 Windows dataDir 临时路径翻译为 `/mnt/...`；
-- 对 Kimi、GLM、OpenCode 调用 Adapter 生成托管配置，再把路径传给 WSL CLI；
+- 对 Kimi、OpenCode 调用 Adapter 生成托管配置，再把路径传给 WSL CLI；
 - Claude/Codex 的 model 和 effort 使用与 Local 相同 helper；
 - 为 OpenCode 模型补 `openai/`、`anthropic/` 或 `opencode/` 前缀一次。
 
@@ -1236,7 +1235,6 @@ env_remove: 本次从继承环境删除的键
 | Codex | `-c model_provider=...`、base_url、env_key + `CCPANES_CODEX_API_KEY` | `--model id` | `-c model_reasoning_effort` | per-launch `-c mcp...` | `resume id` |
 | Gemini | Gemini env | `--model id` | 无统一映射 | Adapter 原生能力 | Adapter 参数 |
 | Kimi | `<dataDir>/cli-adapters/kimi/configs/<session>.json` | `--model id` | 无统一映射 | Adapter 原生能力 | Adapter 参数 |
-| GLM/Crush | ZAI env + 隔离 `CRUSH_GLOBAL_CONFIG/DATA` | `--model id` | 无统一映射 | Adapter 原生能力 | `--session id` |
 | OpenCode | 每会话 `opencode.json` 的 provider options | `--model provider/id` | 无统一映射 | 同一 JSON 中 remote MCP | `--session id` |
 | Cursor | `CURSOR_API_KEY` | `--model id` | 无统一映射 | capability 定义 | Adapter 参数 |
 | Grok | XAI/Grok endpoint env | `--model id` | 无统一映射 | 会话配置/Adapter 逻辑 | resume/issued id |
@@ -1271,11 +1269,9 @@ verbose/maxTurns/extraArgs
 
 这种设计保留真实 `~/.codex/sessions`，让 resume 和 CC Switch live config 不因复制 Home 丢失。
 
-### 16.5 Kimi 与 GLM
+### 16.5 Kimi
 
 Kimi 的 API Key 写入每会话 JSON，通过 `--config-file` 传入，并为受控会话设置 `KIMI_SHARE_DIR`。实现见 [`kimi.rs:44`](../cc-cli-adapters/src/kimi.rs#L44)。
-
-GLM/Crush 为托管会话准备独立 config/data 路径，注入 `ZAI_API_KEY/ZAI_BASE_URL`，避免污染用户全局 Crush 数据。实现见 [`glm.rs:58`](../cc-cli-adapters/src/glm.rs#L58)。
 
 **本节检查**
 
@@ -1828,7 +1824,6 @@ Provider/model 优先级属于跨入口契约。修改时必须同步：
 | [`cc-cli-adapters/src/codex.rs`](../cc-cli-adapters/src/codex.rs) | Codex |
 | [`cc-cli-adapters/src/gemini.rs`](../cc-cli-adapters/src/gemini.rs) | Gemini CLI |
 | [`cc-cli-adapters/src/kimi.rs`](../cc-cli-adapters/src/kimi.rs) | Kimi CLI |
-| [`cc-cli-adapters/src/glm.rs`](../cc-cli-adapters/src/glm.rs) | GLM/Crush |
 | [`cc-cli-adapters/src/opencode.rs`](../cc-cli-adapters/src/opencode.rs) | OpenCode |
 | [`cc-cli-adapters/src/cursor.rs`](../cc-cli-adapters/src/cursor.rs) | Cursor Agent |
 | [`cc-cli-adapters/src/grok.rs`](../cc-cli-adapters/src/grok.rs) | Grok CLI |

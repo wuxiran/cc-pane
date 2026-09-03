@@ -15,7 +15,6 @@ export const PROVIDER_TYPE_COLORS: Record<ProviderType, string> = {
   open_ai: "var(--app-identity-provider-open-ai)",
   gemini: "var(--app-identity-provider-gemini)",
   kimi: "var(--app-identity-provider-kimi)",
-  glm: "var(--app-identity-provider-glm)",
   opencode: "var(--app-identity-provider-opencode)",
   cursor: "var(--app-identity-provider-cursor)",
   grok: "var(--app-identity-provider-grok)",

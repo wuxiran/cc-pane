@@ -160,7 +160,6 @@ CC-Panes 支持任意能在终端运行的 CLI Agent。一等适配器会在各 
   <kbd>Codex</kbd> &nbsp;
   <kbd>Gemini CLI</kbd> &nbsp;
   <kbd>Kimi</kbd> &nbsp;
-  <kbd>GLM</kbd> &nbsp;
   <kbd>Grok</kbd> &nbsp;
   <kbd>OpenCode</kbd> &nbsp;
   <kbd>Cursor</kbd> &nbsp;

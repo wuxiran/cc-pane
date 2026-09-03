@@ -9,7 +9,6 @@ export type ProviderType =
   | "open_ai"
   | "gemini"
   | "kimi"
-  | "glm"
   | "opencode"
   | "cursor"
   | "grok"
@@ -154,7 +153,6 @@ export type ProviderTypeLabelKey =
   | "providerTypeOpenAILabel"
   | "providerTypeGeminiLabel"
   | "providerTypeKimiLabel"
-  | "providerTypeGlmLabel"
   | "providerTypeOpenCodeLabel"
   | "providerTypeCursorLabel"
   | "providerTypeGrokLabel"
@@ -169,7 +167,6 @@ export type ProviderTypeDescKey =
   | "providerTypeOpenAIDesc"
   | "providerTypeGeminiDesc"
   | "providerTypeKimiDesc"
-  | "providerTypeGlmDesc"
   | "providerTypeOpenCodeDesc"
   | "providerTypeCursorDesc"
   | "providerTypeGrokDesc"
@@ -219,11 +216,6 @@ export const PROVIDER_TYPE_META: Record<
     descriptionKey: "providerTypeKimiDesc",
     fields: ["apiKey", "baseUrl"],
   },
-  glm: {
-    labelKey: "providerTypeGlmLabel",
-    descriptionKey: "providerTypeGlmDesc",
-    fields: ["apiKey", "baseUrl"],
-  },
   opencode: {
     labelKey: "providerTypeOpenCodeLabel",
     descriptionKey: "providerTypeOpenCodeDesc",
@@ -254,7 +246,6 @@ export const CLI_TOOL_TABS = [
   { id: "omp" as const, labelKey: "tabOmp", accentColor: "#EC4899" },
   { id: "gemini" as const, labelKey: "tabGemini", accentColor: "#4285F4" },
   { id: "kimi" as const, labelKey: "tabKimi", accentColor: "#F97316" },
-  { id: "glm" as const, labelKey: "tabGlm", accentColor: "#2563EB" },
   { id: "opencode" as const, labelKey: "tabOpenCode", accentColor: "#8B5CF6" },
   { id: "cursor" as const, labelKey: "tabCursor", accentColor: "#111827" },
   { id: "grok" as const, labelKey: "tabGrok", accentColor: "#71767B" },

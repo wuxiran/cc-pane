@@ -80,7 +80,6 @@ describe("provider compatibility from adapter capabilities", () => {
     expect(isProviderTypeCompatibleWithCli("open_ai", "pi", [])).toBe(true);
     expect(isProviderTypeCompatibleWithCli("grok", "pi", [])).toBe(true);
     expect(isProviderTypeCompatibleWithCli("kimi", "pi", [])).toBe(false);
-    expect(isProviderTypeCompatibleWithCli("glm", "pi", [])).toBe(false);
     expect(isProviderTypeCompatibleWithCli("opencode", "pi", [])).toBe(false);
     expect(isProviderTypeCompatibleWithCli("proxy", "pi", [])).toBe(false);
     expect(isProviderTypeCompatibleWithCli("config_profile", "pi", [])).toBe(false);
@@ -94,7 +93,6 @@ describe("provider compatibility from adapter capabilities", () => {
       "pi",
       "gemini",
       "kimi",
-      "glm",
       "opencode",
       "cursor",
       "grok",
@@ -119,7 +117,6 @@ describe("provider compatibility from adapter capabilities", () => {
     ]);
     expect(compatibleCliToolsForProviderType("gemini", [], candidates)).toEqual(["pi", "gemini"]);
     expect(compatibleCliToolsForProviderType("kimi", [], candidates)).toEqual(["kimi"]);
-    expect(compatibleCliToolsForProviderType("glm", [], candidates)).toEqual(["glm"]);
     expect(compatibleCliToolsForProviderType("cursor", [], candidates)).toEqual(["cursor"]);
     expect(compatibleCliToolsForProviderType("grok", [], candidates)).toEqual(["pi", "grok"]);
   });

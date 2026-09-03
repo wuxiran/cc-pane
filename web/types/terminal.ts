@@ -17,7 +17,6 @@ export const KNOWN_CLI_TOOLS = [
   "codex",
   "gemini",
   "kimi",
-  "glm",
   "opencode",
   "cursor",
   "grok",

@@ -43,7 +43,6 @@ export const SIDEBAR_LAUNCH_CLI_TOOLS: ReadonlyArray<{
   { id: "omp", labelKey: "cliToolOmp", supportsSsh: false },
   { id: "gemini", labelKey: "cliToolGemini" },
   { id: "kimi", labelKey: "cliToolKimi" },
-  { id: "glm", labelKey: "cliToolGlm" },
   { id: "opencode", labelKey: "cliToolOpenCode" },
   { id: "cursor", labelKey: "cliToolCursor" },
   { id: "grok", labelKey: "cliToolGrok" },

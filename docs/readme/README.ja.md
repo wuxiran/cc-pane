@@ -160,7 +160,6 @@ CC-Panes はターミナルで動く任意の CLI エージェントに対応し
   <kbd>Codex</kbd> &nbsp;
   <kbd>Gemini CLI</kbd> &nbsp;
   <kbd>Kimi</kbd> &nbsp;
-  <kbd>GLM</kbd> &nbsp;
   <kbd>Grok</kbd> &nbsp;
   <kbd>OpenCode</kbd> &nbsp;
   <kbd>Cursor</kbd> &nbsp;

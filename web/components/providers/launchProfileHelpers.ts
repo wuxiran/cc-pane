@@ -50,7 +50,6 @@ export const TOOL_LABELS: Record<KnownCliTool, string> = {
   omp: "Oh My Pi",
   gemini: "Gemini",
   kimi: "Kimi",
-  glm: "GLM",
   opencode: "OpenCode",
   cursor: "Cursor",
   grok: "Grok",

@@ -160,7 +160,6 @@ O CC-Panes funciona com qualquer agente CLI que rode em um terminal. Adaptadores
   <kbd>Codex</kbd> &nbsp;
   <kbd>Gemini CLI</kbd> &nbsp;
   <kbd>Kimi</kbd> &nbsp;
-  <kbd>GLM</kbd> &nbsp;
   <kbd>Grok</kbd> &nbsp;
   <kbd>OpenCode</kbd> &nbsp;
   <kbd>Cursor</kbd> &nbsp;

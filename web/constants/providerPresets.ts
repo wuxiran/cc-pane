@@ -171,18 +171,6 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     accentColor: "#F97316",
     order: 52,
   },
-  {
-    id: "glm_official",
-    nameKey: "presetGlmName",
-    descKey: "presetGlmDesc",
-    category: "official",
-    providerType: "glm",
-    defaults: { baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
-    userFields: ["apiKey"],
-    website: "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys",
-    accentColor: "#2563EB",
-    order: 53,
-  },
 
   // --- proxy_intl ---
   {

@@ -76,7 +76,6 @@ fn wire_protocol(provider_type: ProviderType) -> Option<&'static str> {
         ProviderType::OpenAI
         | ProviderType::OpenCode
         | ProviderType::Kimi
-        | ProviderType::Glm
         | ProviderType::Grok => Some("openai-completions"),
         // 原生鉴权 / 无端点 / 非 LLM：不生成路由
         ProviderType::Bedrock

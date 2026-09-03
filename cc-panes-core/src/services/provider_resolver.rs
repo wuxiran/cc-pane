@@ -112,12 +112,6 @@ pub fn managed_provider_conflict_env_keys(cli_tool: CliTool) -> &'static [&'stat
         ],
         CliTool::Gemini => &["GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_BASE"],
         CliTool::Kimi => &["KIMI_API_KEY", "KIMI_BASE_URL", "KIMI_SHARE_DIR"],
-        CliTool::Glm => &[
-            "ZAI_API_KEY",
-            "ZAI_BASE_URL",
-            "CRUSH_GLOBAL_CONFIG",
-            "CRUSH_GLOBAL_DATA",
-        ],
         CliTool::Opencode => &[
             "OPENAI_API_KEY",
             "OPENAI_BASE_URL",
@@ -1295,7 +1289,6 @@ mod tests {
             (CliTool::Codex, ProviderType::OpenAI),
             (CliTool::Gemini, ProviderType::Gemini),
             (CliTool::Kimi, ProviderType::Kimi),
-            (CliTool::Glm, ProviderType::Glm),
             (CliTool::Opencode, ProviderType::OpenCode),
             (CliTool::Cursor, ProviderType::Cursor),
             (CliTool::Grok, ProviderType::Grok),

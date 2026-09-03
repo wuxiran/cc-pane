@@ -167,7 +167,7 @@ mod tests {
         let service = TaskDispatchService::default();
 
         for cli_tool in [
-            "claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor", "grok", "pi",
+            "claude", "codex", "gemini", "kimi", "opencode", "cursor", "grok", "pi",
         ] {
             let plan = service.plan(request(Some(cli_tool))).unwrap();
             assert_eq!(plan.envelope.resolved_cli_tool, cli_tool);

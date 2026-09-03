@@ -49,7 +49,6 @@ fn import_provider(service: &ProviderService, p: ProviderImport) -> AppResult<St
         "codex" => ProviderType::OpenAI,
         "gemini" => ProviderType::Gemini,
         "kimi" => ProviderType::Kimi,
-        "glm" => ProviderType::Glm,
         "cursor" => ProviderType::Cursor,
         "opencode" => ProviderType::OpenCode,
         _ => ProviderType::Anthropic, // claude 及默认

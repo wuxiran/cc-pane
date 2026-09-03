@@ -31,7 +31,6 @@ export const CLI_COLOR_VAR: Record<string, string> = {
   omp: "var(--app-cli-omp)",
   gemini: "var(--app-cli-gemini)",
   kimi: "var(--app-cli-kimi)",
-  glm: "var(--app-cli-glm)",
   opencode: "var(--app-cli-opencode)",
   cursor: "var(--app-cli-cursor)",
   grok: "var(--app-cli-grok)",

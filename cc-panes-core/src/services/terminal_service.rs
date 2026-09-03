@@ -3111,7 +3111,7 @@ impl TerminalService {
                 // 其余）只是「启动方式」这一个轴**——per-CLI 的差异分布在另外两张
                 // 独立的表里，轴不同，不要合并：
                 //   - `wsl_codex.rs` 的可执行名表：CLI id → WSL 内命令名（含
-                //     glm→crush、cursor→cursor-agent 这类别名）
+                //     cursor→cursor-agent 这类别名）
                 //   - `wsl_codex.rs` 的参数分支：按 argv 方言划分，各 CLI 各不相同
                 // 新增一个 CLI 通常要动的是那两张表，而不是这里。
                 CliTool::Claude
@@ -3121,8 +3121,7 @@ impl TerminalService {
                 | CliTool::Grok
                 | CliTool::Pi
                 | CliTool::Omp
-                | CliTool::Kimi
-                | CliTool::Glm => self.build_wsl_supported_cli_command(
+                | CliTool::Kimi => self.build_wsl_supported_cli_command(
                     &resolved_wsl,
                     cli_tool,
                     &session_id,
@@ -5203,7 +5202,6 @@ impl TerminalService {
             CliTool::Codex => "codex --full-auto",
             CliTool::Gemini => "gemini",
             CliTool::Kimi => "kimi",
-            CliTool::Glm => "crush",
             CliTool::Opencode => "opencode",
             CliTool::Cursor => "cursor-agent",
             CliTool::Grok if yolo_mode => "grok --always-approve",
@@ -6415,15 +6413,7 @@ mod tests {
             &registry,
             CliTool::Opencode
         ));
-        for cli_tool in [
-            CliTool::Claude,
-            CliTool::Codex,
-            CliTool::Gemini,
-            CliTool::Kimi,
-            CliTool::Glm,
-            CliTool::Cursor,
-            CliTool::None,
-        ] {
+        for cli_tool in [CliTool::Claude, CliTool::Codex, CliTool::Gemini, CliTool::Kimi, CliTool::Cursor, CliTool::None] {
             assert!(
                 !uses_portable_skill_session_prompt_fallback(&registry, cli_tool),
                 "{cli_tool:?} should not use the session-prompt fallback"

@@ -29,7 +29,7 @@
 
 ## 3. 新 CLI 接入预检清单（壁纸兼容五问）
 
-接入任何新 CLI（grok/kimi/glm/cursor…）时按此预检：
+接入任何新 CLI（grok/kimi/cursor…）时按此预检：
 
 1. **全屏还是 inline？** 进不进 alt-screen、有没有关闭开关（决定剥离器策略）。
 2. **有没有根容器全屏铺 bg？** PTY 抓包 grep `\x1b[48;`，看是局部还是铺满。

@@ -13,7 +13,6 @@ pub mod context_size;
 mod cursor;
 mod fs_atomic;
 mod gemini;
-mod glm;
 mod grok;
 mod kimi;
 mod omp;
@@ -24,7 +23,6 @@ pub use claude::ClaudeAdapter;
 pub use codex::CodexAdapter;
 pub use cursor::CursorAdapter;
 pub use gemini::GeminiAdapter;
-pub use glm::GlmAdapter;
 pub use grok::GrokAdapter;
 pub use kimi::KimiAdapter;
 pub use omp::OmpAdapter;
@@ -1792,7 +1790,6 @@ impl CliToolRegistry {
         registry.register(Arc::new(CodexAdapter::new()));
         registry.register(Arc::new(GeminiAdapter::new()));
         registry.register(Arc::new(KimiAdapter::new()));
-        registry.register(Arc::new(GlmAdapter::new()));
         registry.register(Arc::new(OpenCodeAdapter::new()));
         registry.register(Arc::new(CursorAdapter::new()));
         registry.register(Arc::new(GrokAdapter::new()));
@@ -1996,8 +1993,7 @@ mod registry_tests {
         assert_eq!(
             ids,
             vec![
-                "claude", "codex", "gemini", "kimi", "glm", "opencode", "cursor", "grok", "pi",
-                "omp"
+                "claude", "codex", "gemini", "kimi", "opencode", "cursor", "grok", "pi", "omp"
             ]
         );
         assert!(registry.get("claude").is_some());

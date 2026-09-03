@@ -293,7 +293,6 @@ Workspace 的稳定配置应重点表达 Skill/MCP 组合，同时保留一个�
    - Codex: `open_ai`
    - Gemini: `gemini`
    - Kimi: `kimi`
-   - GLM: `glm`
    - OpenCode: `opencode`，仅在确认支持后再加入 `open_ai` 或 `anthropic`
 
 ## 开始实现前必须补齐的决策

@@ -15,7 +15,7 @@ function fakeT(key: string, options?: { defaultValue?: string }): string {
   return options?.defaultValue ?? key;
 }
 
-const CLI_TOOLS = ["claude", "codex", "pi", "omp", "gemini", "kimi", "glm", "opencode", "cursor", "grok"];
+const CLI_TOOLS = ["claude", "codex", "pi", "omp", "gemini", "kimi", "opencode", "cursor", "grok"];
 
 describe("getDefaultSidebarFavoriteLaunchActionIds", () => {
   it("returns the terminal + claude + codex defaults", () => {

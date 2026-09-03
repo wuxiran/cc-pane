@@ -12,7 +12,11 @@ use crate::models::launch_profile::LaunchProviderSelection;
 macro_rules! define_cli_tools {
     ($( $(#[$meta:meta])* $variant:ident => $id:literal ),+ $(,)?) => {
         /// CLI 工具类型
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+        ///
+        /// `Deserialize` 为手写实现（见下方 `impl Deserialize for CliTool`）：
+        /// 历史数据里可能存着已移除的 CLI id（如 "glm"），反序列化时回退到
+        /// 默认值 `None`，而不是让整条记录加载失败。
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
         #[serde(rename_all = "snake_case")]
         pub enum CliTool {
             $( $(#[$meta])* $variant, )+
@@ -52,12 +56,18 @@ define_cli_tools! {
     Codex => "codex",
     Gemini => "gemini",
     Kimi => "kimi",
-    Glm => "glm",
     Opencode => "opencode",
     Cursor => "cursor",
     Grok => "grok",
     Pi => "pi",
     Omp => "omp",
+}
+
+impl<'de> Deserialize<'de> for CliTool {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let id = String::deserialize(deserializer)?;
+        Ok(CliTool::from_id(&id).unwrap_or(CliTool::None))
+    }
 }
 
 #[cfg(test)]
@@ -94,6 +104,16 @@ mod cli_tool_id_tests {
         assert_eq!(CliTool::from_id("definitely-not-a-cli"), None);
         assert_eq!(CliTool::from_id(""), None);
         assert_eq!(CliTool::from_id("Claude"), None);
+    }
+
+    /// 已移除的 CLI id（如 glm）反序列化时必须回退到默认值 None，
+    /// 不能让老会话 / 老启动配置整条记录加载失败。
+    #[test]
+    fn deserialization_falls_back_to_none_for_removed_cli_ids() {
+        assert_eq!(
+            serde_json::from_str::<CliTool>("\"glm\"").ok(),
+            Some(CliTool::None)
+        );
     }
 }
 

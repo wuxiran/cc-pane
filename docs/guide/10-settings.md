@@ -16,7 +16,7 @@
 
 ## Provider
 
-管理 AI Provider（连哪条模型通道）。可从预设创建或手动配：Anthropic、Bedrock、Vertex、OpenAI、Gemini、Kimi、GLM、OpenCode、Cursor、自定义代理、配置文件 等类型，填 API Key / Base URL。给工作空间绑定后，启动终端时会自动注入对应环境变量。（概念见 [03. 核心概念](03-core-concepts.md)）
+管理 AI Provider（连哪条模型通道）。可从预设创建或手动配：Anthropic、Bedrock、Vertex、OpenAI、Gemini、Kimi、OpenCode、Cursor、自定义代理、配置文件 等类型，填 API Key / Base URL。给工作空间绑定后，启动终端时会自动注入对应环境变量。（概念见 [03. 核心概念](03-core-concepts.md)）
 
 ## 代理
 

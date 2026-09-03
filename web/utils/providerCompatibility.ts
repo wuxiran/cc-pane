@@ -19,7 +19,6 @@ const FALLBACK_CLI_TO_PROVIDER_TYPES: Record<Exclude<KnownCliTool, "none">, Prov
   omp: ["anthropic", "bedrock", "vertex", "open_ai", "gemini", "grok"],
   gemini: ["gemini"],
   kimi: ["kimi"],
-  glm: ["glm"],
   // OpenCode supports its native config plus OpenAI and Anthropic-compatible
   // providers; keep this aligned with cc-cli-adapters/src/opencode.rs.
   opencode: ["open_ai", "opencode", "anthropic"],

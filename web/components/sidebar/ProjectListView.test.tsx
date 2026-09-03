@@ -178,7 +178,6 @@ describe("ProjectListView", () => {
     const user = userEvent.setup();
     await user.hover(screen.getByRole("menuitem", { name: /更多启动方式|More launch options/ }));
     expect(await screen.findByRole("menuitem", { name: "Kimi CLI" })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: "GLM CLI" })).toBeVisible();
   });
 
   it("默认环境为 wsl 时项目右键 Codex 普通项跟随默认环境", async () => {

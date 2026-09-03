@@ -106,10 +106,6 @@ export function buildConfigJson(form: FormState): string {
       if (form.apiKey) env["KIMI_API_KEY"] = form.apiKey;
       if (form.baseUrl) env["KIMI_BASE_URL"] = form.baseUrl;
       break;
-    case "glm":
-      if (form.apiKey) env["ZAI_API_KEY"] = form.apiKey;
-      if (form.baseUrl) env["ZAI_BASE_URL"] = form.baseUrl;
-      break;
     case "opencode":
       if (form.apiKey) env["OPENAI_API_KEY"] = form.apiKey;
       if (form.baseUrl) env["OPENAI_BASE_URL"] = form.baseUrl;
@@ -150,8 +146,6 @@ export function parseConfigJson(jsonStr: string, providerType: ProviderType): Pa
         return { apiKey: env["GEMINI_API_KEY"] || "", baseUrl: env["GEMINI_API_BASE"] || "" };
       case "kimi":
         return { apiKey: env["KIMI_API_KEY"] || "", baseUrl: env["KIMI_BASE_URL"] || "" };
-      case "glm":
-        return { apiKey: env["ZAI_API_KEY"] || "", baseUrl: env["ZAI_BASE_URL"] || "" };
       case "opencode":
         return { apiKey: env["OPENAI_API_KEY"] || "", baseUrl: env["OPENAI_BASE_URL"] || "" };
       case "cursor":

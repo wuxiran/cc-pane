@@ -2,7 +2,7 @@
 
 > 一句话：**CC-Panes 是一个桌面端 AI 编程控制台**，把项目、终端、启动配置、Provider、Todo、文件浏览、Git、本地历史、会话恢复放进同一个工作台，方便你同时推进多个 AI Coding 任务。
 
-它以 Claude Code 为核心，同时支持 Codex、Gemini、Kimi、GLM、OpenCode、Cursor 等 CLI。它不是单纯的"终端壳子"，而是给这些 CLI 工作流补上**项目组织、并行编排、上下文恢复和桌面工具链**。
+它以 Claude Code 为核心，同时支持 Codex、Gemini、Kimi、OpenCode、Cursor 等 CLI。它不是单纯的"终端壳子"，而是给这些 CLI 工作流补上**项目组织、并行编排、上下文恢复和桌面工具链**。
 
 更关键的是：CC-Panes 把这些能力都做成了 **MCP 工具**——你可以把它理解成 **AI 的外骨骼**：终端、分屏、工作空间、浏览器、文件、通知这些"肢体"，AI 都能自己指挥。跑在里面的 Claude / Codex 可以自己开实例、调度任务、读别的会话的输出、读写工作空间。你说"再开三个实例并行跑"，它自己开、自己盯、自己汇总。这是它的灵魂，详见 [用 MCP 让 AI 自己操控 CC-Panes](mcp-orchestration.md)。
 
@@ -34,7 +34,7 @@
 
 **🖥️ 多实例终端**
 - 基于 xterm.js + portable-pty 的真实 PTY 终端，支持分屏、标签、多面板布局
-- 可启动 Claude Code、Codex、Gemini、Kimi、GLM、OpenCode、Cursor
+- 可启动 Claude Code、Codex、Gemini、Kimi、OpenCode、Cursor
 - 记录启动历史，支持按项目恢复历史会话
 
 **📁 工作空间与项目**

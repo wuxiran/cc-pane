@@ -3,7 +3,7 @@
 > 这是 CC-Panes 面向**使用者**的操作手册——讲"这软件怎么用"。
 > 如果你想了解"这软件怎么设计、怎么实现"（架构、各阶段设计、技术决策），请看上一级 [`docs/`](../) 里的设计文档。
 
-CC-Panes 是一个面向 AI Coding 重度用户的多实例分屏工作台，以 Claude Code 为核心，同时支持 Codex、Gemini、Kimi、GLM、OpenCode、Cursor 等 CLI。这本手册帮你从零上手，并逐步掌握它的进阶玩法。
+CC-Panes 是一个面向 AI Coding 重度用户的多实例分屏工作台，以 Claude Code 为核心，同时支持 Codex、Gemini、Kimi、OpenCode、Cursor 等 CLI。这本手册帮你从零上手，并逐步掌握它的进阶玩法。
 
 **图例**：✅ 已完成可阅读
 

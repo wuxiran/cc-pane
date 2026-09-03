@@ -211,7 +211,7 @@ usedPercentage  = round(effectiveUsed / effectiveWindow * 100)
 - 不做自动 `/compact`、阈值通知或设置项。
 - 不做费用统计、历史趋势或把现有 Home Usage Stats 搬到状态栏。
 - 不解析 xterm 文本，不修改 Claude/Codex 自带 statusline，不覆盖用户配置。
-- 不为 Gemini、Kimi、GLM、Grok、Cursor、OpenCode 猜 token 口径。
+- 不为 Gemini、Kimi、Grok、Cursor、OpenCode 猜 token 口径。
 - 不因为实现实时用量而改变现有 5 分钟历史 usage scan 周期。
 
 ## 验收标准

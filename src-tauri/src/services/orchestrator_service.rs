@@ -3789,7 +3789,7 @@ struct McpSharedMcpServerNameParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct McpCliLauncherToolParams {
-    /// CLI 工具 ID，例如 claude、codex、gemini、kimi、glm、opencode、cursor。
+    /// CLI 工具 ID，例如 claude、codex、gemini、kimi、opencode、cursor。
     #[serde(alias = "cli_tool_id", alias = "cliTool")]
     cli_tool_id: String,
 }
@@ -3797,7 +3797,7 @@ struct McpCliLauncherToolParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct McpSetCliLauncherOverrideParams {
-    /// CLI 工具 ID，例如 claude、codex、gemini、kimi、glm、opencode、cursor。
+    /// CLI 工具 ID，例如 claude、codex、gemini、kimi、opencode、cursor。
     #[serde(alias = "cli_tool_id", alias = "cliTool")]
     cli_tool_id: String,
     /// 要用于新本地会话的可执行程序路径或命令名，例如 reclaude 或 C:\...\reclaude.exe。
@@ -17501,9 +17501,7 @@ mod tests {
     fn test_parse_launch_cli_tool_rejects_non_orchestrated_tools() {
         let registry = CliToolRegistry::with_builtin_adapters();
         let kimi = parse_launch_cli_tool(&registry, Some("kimi")).unwrap_err();
-        let glm = parse_launch_cli_tool(&registry, Some("glm")).unwrap_err();
         assert!(kimi.contains("not supported by launch_task yet"));
-        assert!(glm.contains("not supported by launch_task yet"));
         // opencode / cursor 现已放行，不应再被拒绝
         assert!(parse_launch_cli_tool(&registry, Some("opencode")).is_ok());
         assert!(parse_launch_cli_tool(&registry, Some("cursor")).is_ok());
@@ -17529,7 +17527,7 @@ mod tests {
     #[test]
     fn test_parse_launch_cli_tool_keeps_remaining_legacy_rejections() {
         let registry = CliToolRegistry::with_builtin_adapters();
-        for tool in ["kimi", "glm", "gemini"] {
+        for tool in ["kimi", "gemini"] {
             let error = parse_launch_cli_tool(&registry, Some(tool))
                 .expect_err(&format!("{tool} must stay rejected"));
             assert!(

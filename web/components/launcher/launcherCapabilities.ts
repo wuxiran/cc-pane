@@ -2,7 +2,7 @@
 //
 // 背景：chips 是通用 UI，对所有 CLI 一律可点；但 adapter 的 build_command 只消费自己
 // 支持的键，不支持的被**静默丢弃**——用户选了 effort=high 却毫无效果且无任何提示。
-// 实测 8 个 adapter 里有 5 个（cursor/gemini/glm/kimi/opencode）三个键一个都不消费。
+// 实测 cursor/gemini/kimi/opencode 三个键一个都不消费。
 //
 // 判定口径见 `resolveLaunchOptionSupport`：**字段缺失 = 支持**，这与直觉相反但必须如此。
 import type { CliTool, CliToolCapabilities, CliToolInfo } from "@/types";

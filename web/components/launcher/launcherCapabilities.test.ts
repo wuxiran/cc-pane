@@ -44,7 +44,7 @@ describe("resolveLaunchOptionSupport", () => {
     });
   });
 
-  it("三键全 false 的 CLI（cursor/gemini/glm/kimi/opencode 实测如此）全部置灰", () => {
+  it("三键全 false 的 CLI（cursor/gemini/kimi/opencode 实测如此）全部置灰", () => {
     const tools = [
       tool("gemini", {
         ...FULL,

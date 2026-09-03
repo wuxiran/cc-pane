@@ -36,12 +36,12 @@ ccpanes://v1/import?resource=<type>&<params...>
 | 参数 | 必填 | 说明 |
 |------|:---:|------|
 | `name` | ✅ | 供应商显示名 |
-| `app` | ✅ | 目标 CLI：`claude` \| `codex` \| `gemini` \| `kimi` \| `glm` \| `cursor` \| `opencode` |
+| `app` | ✅ | 目标 CLI：`claude` \| `codex` \| `gemini` \| `kimi` \| `cursor` \| `opencode` |
 | `endpoint` | ⬜ | Base URL；可逗号分隔多个，**第一个**作为主 `base_url` |
 | `apiKey` | ⬜ | API 密钥（确认框中掩码显示） |
 
 `app` → CC-Panes ProviderType 映射：`codex→OpenAI`、`gemini→Gemini`、`kimi→Kimi`、
-`glm→Glm`、`cursor→Cursor`、`opencode→OpenCode`、其余（含 `claude`）→ `Anthropic`。
+`cursor→Cursor`、`opencode→OpenCode`、其余（含 `claude`）→ `Anthropic`。
 
 **示例**
 ```

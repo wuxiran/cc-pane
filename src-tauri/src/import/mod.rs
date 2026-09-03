@@ -22,7 +22,7 @@ pub enum ImportRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ProviderImport {
     pub name: String,
-    /// claude | codex | gemini | kimi | glm | cursor | opencode
+    /// claude | codex | gemini | kimi | cursor | opencode
     pub app: String,
     /// 逗号分隔的多 endpoint，首个为主 base_url
     #[serde(default)]
@@ -118,7 +118,7 @@ fn parse_provider(p: &HashMap<String, String>) -> Result<ProviderImport, String>
     let app = req(p, "app")?;
     if !matches!(
         app.as_str(),
-        "claude" | "codex" | "gemini" | "kimi" | "glm" | "cursor" | "opencode"
+        "claude" | "codex" | "gemini" | "kimi" | "cursor" | "opencode"
     ) {
         return Err(format!("不支持的 app 类型: {app}"));
     }

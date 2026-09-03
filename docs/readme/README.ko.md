@@ -160,7 +160,6 @@ CC-Panes는 터미널에서 실행되는 모든 CLI 에이전트와 함께 동�
   <kbd>Codex</kbd> &nbsp;
   <kbd>Gemini CLI</kbd> &nbsp;
   <kbd>Kimi</kbd> &nbsp;
-  <kbd>GLM</kbd> &nbsp;
   <kbd>Grok</kbd> &nbsp;
   <kbd>OpenCode</kbd> &nbsp;
   <kbd>Cursor</kbd> &nbsp;

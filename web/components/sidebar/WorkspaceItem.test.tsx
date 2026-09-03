@@ -225,7 +225,6 @@ describe("WorkspaceItem", () => {
     await user.hover(screen.getByRole("menuitem", { name: /更多启动方式|More launch options/ }));
     expect(await screen.findByRole("menuitem", { name: "Gemini CLI" })).toBeVisible();
     expect(screen.getAllByRole("menuitem", { name: "Kimi CLI" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("menuitem", { name: "GLM CLI" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("menuitem", { name: "OpenCode" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("menuitem", { name: "Cursor CLI" }).length).toBeGreaterThan(0);
     expect(screen.queryByText("Claude Provider")).not.toBeInTheDocument();

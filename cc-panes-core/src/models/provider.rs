@@ -9,7 +9,11 @@ use std::collections::HashMap;
 pub const SYSTEM_PROVIDER_ID: &str = "__system__";
 
 /// Provider 类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+///
+/// `Deserialize` 为手写实现（见下方 `impl Deserialize for ProviderType`）：
+/// 历史数据里可能存着已移除的类型（如 "glm"），反序列化时回退到默认值
+/// `Anthropic`，而不是让整个 Provider 配置加载失败。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderType {
     #[default]
@@ -22,7 +26,6 @@ pub enum ProviderType {
     OpenAI,
     Gemini,
     Kimi,
-    Glm,
     Cursor,
     #[serde(rename = "opencode", alias = "open_code")]
     OpenCode,
@@ -30,6 +33,34 @@ pub enum ProviderType {
     /// 媒体生成 Provider（图片/视频 API）。只被媒体工作台使用：不注入任何
     /// CLI 环境变量，也不出现在 LLM/终端相关的 Provider 选择里。
     Media,
+}
+
+impl ProviderType {
+    /// 序列化 id 的逆解析（含历史别名）。未知 id 返回 None。
+    pub fn from_id(id: &str) -> Option<Self> {
+        Some(match id {
+            "anthropic" => ProviderType::Anthropic,
+            "bedrock" => ProviderType::Bedrock,
+            "vertex" => ProviderType::Vertex,
+            "proxy" => ProviderType::Proxy,
+            "config_profile" => ProviderType::ConfigProfile,
+            "open_ai" | "open_a_i" => ProviderType::OpenAI,
+            "gemini" => ProviderType::Gemini,
+            "kimi" => ProviderType::Kimi,
+            "cursor" => ProviderType::Cursor,
+            "opencode" | "open_code" => ProviderType::OpenCode,
+            "grok" => ProviderType::Grok,
+            "media" => ProviderType::Media,
+            _ => return None,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for ProviderType {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let id = String::deserialize(deserializer)?;
+        Ok(ProviderType::from_id(&id).unwrap_or(ProviderType::Anthropic))
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -146,14 +177,6 @@ impl Provider {
                     vars.insert("KIMI_BASE_URL".to_string(), url.clone());
                 }
             }
-            ProviderType::Glm => {
-                if let Some(ref key) = self.api_key {
-                    vars.insert("ZAI_API_KEY".to_string(), key.clone());
-                }
-                if let Some(ref url) = self.base_url {
-                    vars.insert("ZAI_BASE_URL".to_string(), url.clone());
-                }
-            }
             ProviderType::Cursor => {
                 if let Some(ref key) = self.api_key {
                     vars.insert("CURSOR_API_KEY".to_string(), key.clone());
@@ -233,6 +256,16 @@ pub struct SystemProviderInfo {
 mod tests {
     use super::{Provider, ProviderType};
     use serde_json::json;
+
+    /// 已移除的 Provider 类型（如 glm）反序列化时必须回退默认值，
+    /// 不能让老 Provider 配置整条加载失败。
+    #[test]
+    fn deserialization_falls_back_to_anthropic_for_removed_types() {
+        assert_eq!(
+            serde_json::from_str::<ProviderType>("\"glm\"").ok(),
+            Some(ProviderType::Anthropic)
+        );
+    }
 
     #[test]
     fn provider_models_round_trip_and_preserve_default() {
