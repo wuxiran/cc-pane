@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
+import MediaSubtypeNodeCard from "./MediaSubtypeNodeCard";
 import type { CanvasMediaProjection, CanvasNodeProjection } from "@/types/canvas";
 
 interface MediaNodeCardProps {
@@ -48,6 +49,7 @@ function videoMetadataLabel(
 export default function MediaNodeCard({ node }: MediaNodeCardProps) {
   const { t } = useTranslation("orchestration");
   const media = node.media;
+  const subtype = media?.subtype;
   const [failed, setFailed] = useState(false);
   const [visible, setVisible] = useState(true);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -92,6 +94,8 @@ export default function MediaNodeCard({ node }: MediaNodeCardProps) {
       }
     };
   }, [mediaKind, previewUrl]);
+
+  if (subtype) return <MediaSubtypeNodeCard node={node} />;
 
   if (!media) {
     return (

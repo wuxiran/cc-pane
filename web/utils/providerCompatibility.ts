@@ -46,6 +46,9 @@ export function isProviderTypeCompatibleWithCli(
   cliTool: string,
   tools: CliToolInfo[],
 ): boolean {
+  // 媒体生成 Provider 永远不进入任何 CLI/LLM 的选择范围，
+  // 即使某个适配器的 capability 列表缺失也不放行。
+  if (providerType === "media") return false;
   const compatibleTypes = compatibleProviderTypesForCli(cliTool, tools);
   if (compatibleTypes !== null) return compatibleTypes.includes(providerType);
 

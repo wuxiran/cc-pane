@@ -241,6 +241,341 @@ fn normalized_request_exposes_role_bearing_mask_as_standard_field() {
     assert_eq!(body["mask"]["data"], "mask-bytes");
 }
 
+#[test]
+fn sub2api_image_body_whitelists_parameters_and_splits_mask() {
+    let mut value = request("gpt-image-2");
+    value.operation = MediaOperation::Edit;
+    value.parameters = json!({
+        "size": "1024x1536",
+        "n": 2,
+        "quality": "high",
+        // UI-only fields that must never reach the wire.
+        "steps": 28,
+        "cfgScale": 7,
+        "sampler": "euler",
+        "seedMode": "random",
+        "negativePrompt": "blurry",
+        "aspectRatio": "1:1",
+    });
+    value.input_assets = vec![
+        MediaInputAsset {
+            url: Some("https://cdn.example.test/source.png".to_string()),
+            data: None,
+            mime_type: Some("image/png".to_string()),
+            metadata: json!({"role": "reference"}),
+        },
+        MediaInputAsset {
+            url: None,
+            data: Some("bWFzaw==".to_string()),
+            mime_type: Some("image/png".to_string()),
+            metadata: json!({"role": "mask"}),
+        },
+    ];
+    let body = super::sub2api_wire_body(&value).expect("wire body");
+    assert_eq!(body["model"], "gpt-image-2");
+    assert_eq!(body["prompt"], "a quiet lake");
+    assert_eq!(body["size"], "1024x1536");
+    assert_eq!(body["n"], 2);
+    assert_eq!(body["quality"], "high");
+    assert_eq!(body["response_format"], "url");
+    assert_eq!(body["image"], "https://cdn.example.test/source.png");
+    assert_eq!(body["mask"], "data:image/png;base64,bWFzaw==");
+    for rejected in [
+        "steps",
+        "cfgScale",
+        "sampler",
+        "seedMode",
+        "negativePrompt",
+        "aspectRatio",
+        "input",
+    ] {
+        assert!(
+            body.get(rejected).is_none(),
+            "field {rejected} leaked to the wire"
+        );
+    }
+}
+
+#[test]
+fn sub2api_video_body_maps_frames_references_and_whitelisted_fields() {
+    let image = |name: &str| MediaInputAsset {
+        url: Some(format!("https://cdn.example.test/{name}.png")),
+        data: None,
+        mime_type: Some("image/png".to_string()),
+        metadata: json!({"role": "reference"}),
+    };
+    let value = NormalizedMediaRequest {
+        operation: MediaOperation::ImageToVideo,
+        kind: MediaKind::Video,
+        model: "seedance-2.0-z".to_string(),
+        prompt: Some("camera push in".to_string()),
+        input_assets: vec![
+            image("first"),
+            image("tail"),
+            image("reference"),
+            MediaInputAsset {
+                url: Some("https://cdn.example.test/clip.mp4".to_string()),
+                data: None,
+                mime_type: Some("video/mp4".to_string()),
+                metadata: Value::Null,
+            },
+        ],
+        parameters: json!({
+            "frameMode": "firstLast",
+            "duration": 6,
+            "resolution": "720P",
+            "aspectRatio": "9:16",
+            // UI-only fields.
+            "fps": 24,
+            "codec": "h264",
+            "colorSpace": "bt709",
+            "frameCount": 144,
+            "audio": true,
+            "n": 1,
+        }),
+        client_request_id: Some("request-video".to_string()),
+    };
+    let body = super::sub2api_wire_body(&value).expect("wire body");
+    assert_eq!(body["model"], "seedance-2.0-z");
+    assert_eq!(body["duration"], 6);
+    assert_eq!(body["resolution"], "720p");
+    assert_eq!(body["aspect_ratio"], "9:16");
+    assert_eq!(body["image"], "https://cdn.example.test/first.png");
+    assert_eq!(body["image_tail"], "https://cdn.example.test/tail.png");
+    assert_eq!(
+        body["images"],
+        json!(["https://cdn.example.test/reference.png"])
+    );
+    assert_eq!(body["video"], "https://cdn.example.test/clip.mp4");
+    for rejected in [
+        "fps",
+        "codec",
+        "colorSpace",
+        "frameCount",
+        "audio",
+        "n",
+        "response_format",
+        "size",
+    ] {
+        assert!(
+            body.get(rejected).is_none(),
+            "field {rejected} leaked to the wire"
+        );
+    }
+}
+
+#[test]
+fn sub2api_text_to_video_keeps_all_images_as_references() {
+    let value = NormalizedMediaRequest {
+        operation: MediaOperation::TextToVideo,
+        kind: MediaKind::Video,
+        model: "grok-video-3-y".to_string(),
+        prompt: Some("@image1 rolls toward @image2".to_string()),
+        input_assets: vec![
+            MediaInputAsset {
+                url: Some("https://cdn.example.test/a.png".to_string()),
+                data: None,
+                mime_type: Some("image/png".to_string()),
+                metadata: Value::Null,
+            },
+            MediaInputAsset {
+                url: Some("https://cdn.example.test/b.png".to_string()),
+                data: None,
+                mime_type: Some("image/png".to_string()),
+                metadata: Value::Null,
+            },
+        ],
+        parameters: json!({"duration": 10}),
+        client_request_id: None,
+    };
+    let body = super::sub2api_wire_body(&value).expect("wire body");
+    assert!(body.get("image").is_none());
+    assert_eq!(
+        body["images"],
+        json!([
+            "https://cdn.example.test/a.png",
+            "https://cdn.example.test/b.png"
+        ])
+    );
+}
+
+#[test]
+fn sub2api_statuses_map_to_durable_states() {
+    assert_eq!(
+        super::parse_sub2api_status(Some("queued")).0,
+        MediaRunStatus::Queued
+    );
+    assert_eq!(
+        super::parse_sub2api_status(Some("running")).0,
+        MediaRunStatus::Processing
+    );
+    assert_eq!(
+        super::parse_sub2api_status(Some("succeeded")).0,
+        MediaRunStatus::Succeeded
+    );
+    assert_eq!(
+        super::parse_sub2api_status(Some("failed")).0,
+        MediaRunStatus::Failed
+    );
+    let (expired, message) = super::parse_sub2api_status(Some("expired"));
+    assert_eq!(expired, MediaRunStatus::Failed);
+    assert!(message.is_some());
+    let (storage_failed, message) = super::parse_sub2api_status(Some("succeeded_storage_failed"));
+    assert_eq!(storage_failed, MediaRunStatus::Failed);
+    assert!(message.is_some());
+    // Unknown states must not kill the poll loop.
+    assert_eq!(
+        super::parse_sub2api_status(Some("verifying")).0,
+        MediaRunStatus::Processing
+    );
+}
+
+#[tokio::test]
+async fn sub2api_adapter_submits_polls_and_downloads_with_auth() {
+    let (base_url, server) = spawn_sub2api_server().await;
+    let profile = MediaProviderProfile::new(
+        "sub2api",
+        base_url.clone(),
+        Some("sk-test-secret".to_string()),
+    )
+    .expect("profile")
+    .with_timeout(Duration::from_secs(10));
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("client");
+    let adapter = Sub2ApiMediaAdapter::with_client(client, profile).expect("adapter");
+    assert_eq!(adapter.protocol(), MediaProtocol::Sub2Api);
+    let capabilities = adapter.capabilities();
+    assert!(!capabilities.supports_cancel);
+    assert!(capabilities.kinds.contains(&MediaKind::Video));
+
+    let job = adapter
+        .submit(request("gpt-image-2"))
+        .await
+        .expect("submit");
+    assert_eq!(job.id, "imgtask_1");
+    assert_eq!(job.status, MediaRunStatus::Queued);
+
+    let status = adapter
+        .poll_for_kind(&job, MediaKind::Image)
+        .await
+        .expect("poll");
+    assert_eq!(status.status, MediaRunStatus::Succeeded);
+    let output = status.outputs.first().expect("output");
+    assert_eq!(output.kind, Some(MediaKind::Image));
+
+    let downloaded = adapter.download(output).await.expect("download");
+    assert_eq!(downloaded.mime_type, "image/png");
+    assert_eq!(downloaded.bytes, b"png-bytes");
+    server.await.expect("server");
+}
+
+#[tokio::test]
+async fn fetch_provider_model_ids_lists_sorted_unique_ids() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+    let address = listener.local_addr().expect("address");
+    let base_url = format!("http://{address}");
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept");
+        let mut buffer = [0_u8; 8 * 1024];
+        let length = socket.read(&mut buffer).await.expect("read");
+        let request = String::from_utf8_lossy(&buffer[..length]).to_string();
+        assert!(
+            request.starts_with("GET /v1/models"),
+            "unexpected request: {request}"
+        );
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer sk-models"),
+            "missing bearer auth"
+        );
+        let body = br#"{"object":"list","data":[{"id":"seedance-2.0"},{"id":"gpt-image-2"},{"id":"gpt-image-2"},{"id":"wan3.0-video"}]}"#;
+        let headers = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        socket.write_all(headers.as_bytes()).await.expect("headers");
+        socket.write_all(body).await.expect("body");
+    });
+    let ids =
+        super::fetch_provider_model_ids(&base_url, Some("sk-models"), Duration::from_secs(10))
+            .await
+            .expect("model ids");
+    assert_eq!(ids, vec!["gpt-image-2", "seedance-2.0", "wan3.0-video"]);
+    server.await.expect("server");
+}
+
+/// Minimal Sub2API mock: image task submit (asserts Idempotency-Key), poll,
+/// and an authorized file download.
+async fn spawn_sub2api_server() -> (String, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+    let address = listener.local_addr().expect("address");
+    let base_url = format!("http://{address}");
+    let response_base = base_url.clone();
+    let handle = tokio::spawn(async move {
+        for _ in 0..3 {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut buffer = [0_u8; 16 * 1024];
+            let length = socket.read(&mut buffer).await.expect("read");
+            let request = String::from_utf8_lossy(&buffer[..length]).to_string();
+            let lowercase = request.to_ascii_lowercase();
+            let path = request
+                .lines()
+                .next()
+                .and_then(|line| line.split_whitespace().nth(1))
+                .unwrap_or("/");
+            let authorized = lowercase.contains("authorization: bearer sk-test-secret");
+            let (status, content_type, body) = if !authorized {
+                (
+                    "401 Unauthorized",
+                    "application/json",
+                    b"{\"error\":\"unauthorized\"}".to_vec(),
+                )
+            } else {
+                match path {
+                    "/api/v1/image-tasks" => {
+                        if !lowercase.contains("idempotency-key:") {
+                            (
+                                "400 Bad Request",
+                                "application/json",
+                                b"{\"error\":\"missing Idempotency-Key\"}".to_vec(),
+                            )
+                        } else {
+                            (
+                                "202 Accepted",
+                                "application/json",
+                                b"{\"object\":\"image_task\",\"task_id\":\"imgtask_1\",\"status\":\"queued\"}"
+                                    .to_vec(),
+                            )
+                        }
+                    }
+                    "/api/v1/image-tasks/imgtask_1" => (
+                        "200 OK",
+                        "application/json",
+                        format!(
+                            "{{\"task_id\":\"imgtask_1\",\"status\":\"succeeded\",\"result\":{{\"created\":1,\"data\":[{{\"url\":\"{response_base}/api/v1/image-tasks/imgtask_1/files/0.png\"}}]}}}}"
+                        )
+                        .into_bytes(),
+                    ),
+                    "/api/v1/image-tasks/imgtask_1/files/0.png" => {
+                        ("200 OK", "image/png", b"png-bytes".to_vec())
+                    }
+                    _ => ("404 Not Found", "text/plain", Vec::new()),
+                }
+            };
+            let headers = format!(
+                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: {content_type}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            socket.write_all(headers.as_bytes()).await.expect("headers");
+            socket.write_all(&body).await.expect("body");
+        }
+    });
+    (base_url, handle)
+}
+
 async fn spawn_server() -> (String, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
     let address = listener.local_addr().expect("address");

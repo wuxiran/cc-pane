@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, KeyRound, Link2, Plus, Save } from "lucide-react";
+import { Check, KeyRound, Link2, ListRestart, LoaderCircle, Plus, Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useProvidersStore } from "@/stores";
+import { mediaService } from "@/services/mediaService";
 import { providerService } from "@/services/providerService";
 import { SYSTEM_PROVIDER_ID, type Provider, type ProviderModel } from "@/types/provider";
 import type { MediaProviderCapabilities, MediaProtocol } from "@/types/media";
@@ -46,8 +47,12 @@ export default function MediaProviderSection({
   const { t } = useTranslation("media");
   const providers = useProvidersStore((state) => state.providers);
   const loadProviders = useProvidersStore((state) => state.loadProviders);
+  // 媒体 Provider 是独立的 `media` 类型：这里只展示媒体 Provider，
+  // LLM Provider 不再混进来（docs/99 B1）。
   const selectableProviders = useMemo(
-    () => providers.filter((provider) => provider.id !== SYSTEM_PROVIDER_ID && provider.id !== LOCAL_COMFY_PROVIDER_ID),
+    () => providers.filter((provider) => provider.providerType === "media"
+      && provider.id !== SYSTEM_PROVIDER_ID
+      && provider.id !== LOCAL_COMFY_PROVIDER_ID),
     [providers],
   );
   const selectedProvider = selectableProviders.find((provider) => provider.id === providerId) ?? null;
@@ -58,6 +63,7 @@ export default function MediaProviderSection({
   const [models, setModels] = useState("");
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [fetchingModels, setFetchingModels] = useState(false);
 
   useEffect(() => { void loadProviders(); }, [loadProviders]);
 
@@ -112,7 +118,7 @@ export default function MediaProviderSection({
       const saved: Provider = {
         id: selectedProvider && selectedProvider.id !== SYSTEM_PROVIDER_ID ? selectedProvider.id : crypto.randomUUID(),
         name: trimmedName,
-        providerType: "open_ai",
+        providerType: "media",
         // Keep an existing secret when the provider API returns a redacted or
         // empty value and the user did not explicitly edit the key field.
         apiKey: apiKeyDirty || !selectedProvider
@@ -138,6 +144,30 @@ export default function MediaProviderSection({
       toast.error(t("providerSaveFailed", { message: getErrorMessage(error) }));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function fetchModels() {
+    if (!baseUrl.trim()) {
+      toast.error(t("providerUrlRequired"));
+      return;
+    }
+    setFetchingModels(true);
+    try {
+      // Explicit form values win; the saved provider fills in a stored key
+      // when the (possibly redacted) key field was not touched.
+      const ids = await mediaService.listProviderModels({
+        baseUrl: baseUrl.trim(),
+        apiKey: apiKeyDirty || !selectedProvider ? apiKey.trim() || undefined : undefined,
+        providerId: selectedProvider?.id,
+      });
+      setModels(ids.join(", "));
+      setEditing(true);
+      toast.success(t("modelsFetched", { count: ids.length }));
+    } catch (error) {
+      toast.error(t("fetchModelsFailed", { message: getErrorMessage(error) }));
+    } finally {
+      setFetchingModels(false);
     }
   }
 
@@ -186,8 +216,8 @@ export default function MediaProviderSection({
           <Select value={protocol} onValueChange={(value) => onProtocolChange(value as MediaProtocol)}>
             <SelectTrigger id="media-provider-protocol" size="sm"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="open_ai_compatible">{t("protocolOpenAi")}</SelectItem>
               <SelectItem value="sub2api">{t("protocolSub2Api")}</SelectItem>
+              <SelectItem value="open_ai_compatible">{t("protocolOpenAi")}</SelectItem>
               <SelectItem value="comfyui">{t("protocolComfy")}</SelectItem>
             </SelectContent>
           </Select>
@@ -201,7 +231,7 @@ export default function MediaProviderSection({
               className="pl-8"
               value={baseUrl}
               onChange={(event) => { setBaseUrl(event.target.value); setEditing(true); }}
-              placeholder={protocol === "comfyui" ? "https://comfy.example.com" : "https://api.example.com/v1"}
+              placeholder={protocol === "comfyui" ? "https://comfy.example.com" : protocol === "sub2api" ? "https://hub.nocannobb.com" : "https://api.example.com/v1"}
             />
           </div>
         </div>
@@ -213,8 +243,24 @@ export default function MediaProviderSection({
           </div>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="media-provider-models" className="text-[11px]">{t("models")}</Label>
-          <Input id="media-provider-models" value={models} onChange={(event) => { setModels(event.target.value); setEditing(true); }} placeholder={protocol === "comfyui" ? "workflow" : "gpt-image-1, sora-2"} />
+          <div className="flex items-center justify-between">
+            <Label htmlFor="media-provider-models" className="text-[11px]">{t("models")}</Label>
+            {protocol !== "comfyui" ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className="h-5 gap-1 px-1.5 text-[10px]"
+                disabled={fetchingModels || !baseUrl.trim()}
+                onClick={() => void fetchModels()}
+                data-testid="media-provider-fetch-models"
+              >
+                {fetchingModels ? <LoaderCircle className="size-3 animate-spin" aria-hidden="true" /> : <ListRestart className="size-3" aria-hidden="true" />}
+                {fetchingModels ? t("fetchingModels") : t("fetchModels")}
+              </Button>
+            ) : null}
+          </div>
+          <Input id="media-provider-models" value={models} onChange={(event) => { setModels(event.target.value); setEditing(true); }} placeholder={protocol === "comfyui" ? "workflow" : protocol === "sub2api" ? "gpt-image-2, seedance-2.0, wan3.0-video" : "gpt-image-1, sora-2"} />
         </div>
         {modelOptions.length > 0 ? <div className="space-y-1.5"><Label htmlFor="media-provider-model" className="text-[11px]">{t("currentModel")}</Label><Select value={effectiveModel ?? "__none__"} onValueChange={(value) => onModelChange(value === "__none__" ? null : value)}><SelectTrigger id="media-provider-model" size="sm"><SelectValue placeholder={t("selectModel")} /></SelectTrigger><SelectContent><SelectItem value="__none__">{t("noModel")}</SelectItem>{modelOptions.map((model) => <SelectItem key={model.id} value={model.id}>{model.label || model.id}</SelectItem>)}</SelectContent></Select></div> : null}
       </div>

@@ -6,7 +6,7 @@ const emptySelection = (): MediaStudioSelection => ({
   projectId: null,
   providerId: null,
   modelId: null,
-  protocol: "open_ai_compatible",
+  protocol: "sub2api",
 });
 
 describe("useMediaStudioStore", () => {

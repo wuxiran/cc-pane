@@ -140,6 +140,23 @@
     "upscale": "Upscale",
     "extend": "Extend"
   },
+  "canvasMediaSubtype": {
+    "text": "Text",
+    "script": "Script",
+    "audio": "Audio",
+    "board": "Board",
+    "storyboard": "Storyboard"
+  },
+  "canvasDeleteNode": "Delete node {{name}}",
+  "canvasDeleteNodeConfirm": "Delete node \"{{name}}\"? Its runs will be hidden as well.",
+  "canvasNodeActions": "Actions for {{name}}",
+  "canvasMediaOpenOriginal": "Open original",
+  "canvasMediaRevealInFolder": "Show in folder",
+  "canvasMediaRegenerate": "Generate again",
+  "canvasMediaNoRunToReplay": "This node has no run to regenerate",
+  "canvasRenameNode": "Rename",
+  "canvasRenameNodePrompt": "New node title",
+  "canvasMediaDisconnect": "Remove connections",
   "canvasStatus": {
     "pending": "Pending",
     "running": "Running",

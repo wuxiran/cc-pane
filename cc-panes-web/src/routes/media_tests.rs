@@ -53,9 +53,16 @@ async fn capability_route_keeps_protocol_specific_contracts() {
         .expect("capabilities route");
         assert_eq!(capabilities.provider_id, id);
         assert_eq!(capabilities.protocol.as_str(), protocol);
-        assert_eq!(capabilities.kinds.len(), 2);
+        // docs/99 A4: OpenAI-compatible endpoints only implement synchronous
+        // image generation/edits; sub2api and comfy keep image+video async.
+        if protocol == "open_ai_compatible" {
+            assert_eq!(capabilities.kinds.len(), 1);
+            assert!(!capabilities.supports_async_jobs);
+        } else {
+            assert_eq!(capabilities.kinds.len(), 2);
+            assert!(capabilities.supports_async_jobs);
+        }
         assert!(!capabilities.operations.is_empty());
-        assert!(capabilities.supports_async_jobs);
         assert_eq!(capabilities.supports_cancel, protocol == "comfyui");
     }
 }

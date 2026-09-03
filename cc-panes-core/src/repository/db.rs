@@ -1052,6 +1052,53 @@ const MIGRATIONS: &[Migration] = &[
                 ON media_cache_entries(source_run_id);
         ",
     },
+    Migration {
+        version: 38,
+        description: "short-drama pipeline: projects, episodes and shots",
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS drama_projects (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_drama_projects_workspace
+                ON drama_projects(workspace_id, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS drama_episodes (
+                id TEXT PRIMARY KEY,
+                drama_id TEXT NOT NULL,
+                ordinal INTEGER NOT NULL DEFAULT 0,
+                title TEXT NOT NULL,
+                screenplay TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (drama_id) REFERENCES drama_projects(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_drama_episodes_drama
+                ON drama_episodes(drama_id, ordinal ASC, created_at ASC);
+
+            CREATE TABLE IF NOT EXISTS drama_shots (
+                id TEXT PRIMARY KEY,
+                episode_id TEXT NOT NULL,
+                ordinal INTEGER NOT NULL DEFAULT 0,
+                title TEXT NOT NULL DEFAULT '',
+                dialogue TEXT NOT NULL DEFAULT '',
+                prompt TEXT NOT NULL DEFAULT '',
+                image_node_id TEXT,
+                image_run_id TEXT,
+                video_node_id TEXT,
+                video_run_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (episode_id) REFERENCES drama_episodes(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_drama_shots_episode
+                ON drama_shots(episode_id, ordinal ASC, created_at ASC);
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -1798,6 +1845,9 @@ mod tests {
             "media_assets",
             "media_run_assets",
             "media_edges",
+            "drama_projects",
+            "drama_episodes",
+            "drama_shots",
         ];
         for table in &tables {
             let exists: bool = conn
@@ -1820,7 +1870,7 @@ mod tests {
                 row.get(0)
             })
             .expect("schema version");
-        assert_eq!(version, 37);
+        assert_eq!(version, 38);
 
         let run_columns = conn
             .prepare("PRAGMA table_info(media_runs)")
@@ -1842,13 +1892,13 @@ mod tests {
         }
 
         // A second migration pass must be a no-op and preserve the same version.
-        Database::run_migrations(&conn).expect("v37 should be idempotent");
+        Database::run_migrations(&conn).expect("migrations should be idempotent");
         let version_after: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
                 row.get(0)
             })
             .expect("schema version after rerun");
-        assert_eq!(version_after, 37);
+        assert_eq!(version_after, 38);
     }
 
     #[test]

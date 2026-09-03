@@ -1,12 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, Grip, Maximize2 } from "lucide-react";
+import { ExternalLink, FolderOpen, Grip, ImageUp, Maximize2, MoreVertical, Pencil, RefreshCw, Trash2, Unlink } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { canvasNodeMinimumSize } from "@/lib/canvasGeometry";
+import { isTauriRuntime } from "@/services/runtime";
 import { useCanvasDisplayStore, usePanesStore } from "@/stores";
 import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import type { CanvasNodePosition, CanvasNodeProjection, NodeVisualState, PipeEvent } from "@/types/canvas";
 import TerminalView, { type TerminalViewHandle } from "@/components/panes/TerminalView";
 import MediaNodeCard from "./MediaNodeCard";
+import {
+  deleteMediaNode,
+  disconnectMediaNode,
+  openMediaAsset,
+  regenerateMediaNode,
+  renameMediaNode,
+  revealMediaAsset,
+} from "./mediaNodeActions";
 import {
   CANVAS_TERMINAL_INITIAL_FONT_SIZE,
   canvasTerminalZoomPersistenceKey,
@@ -17,6 +27,13 @@ interface CanvasNodeLayerProps {
   positions: Record<string, CanvasNodePosition>;
   events?: PipeEvent[];
   viewport?: { width: number; height: number };
+  /**
+   * Zoom factor of the surrounding transformed layer. Pointer deltas are in
+   * screen pixels and must be divided by this to move in world coordinates.
+   */
+  scale?: number;
+  /** Allow negative world coordinates (infinite canvases). */
+  unbounded?: boolean;
   onPositionChange: (nodeId: string, position: CanvasNodePosition) => void;
 }
 
@@ -149,6 +166,8 @@ function CanvasNodeCard({
   event,
   flashKey,
   viewport,
+  scale = 1,
+  unbounded = false,
   onPositionChange,
 }: {
   node: CanvasNodeProjection;
@@ -156,6 +175,8 @@ function CanvasNodeCard({
   event?: PipeEvent;
   flashKey?: number;
   viewport: { width: number; height: number };
+  scale?: number;
+  unbounded?: boolean;
   onPositionChange: CanvasNodeLayerProps["onPositionChange"];
 }) {
   const { t } = useTranslation("orchestration");
@@ -188,7 +209,9 @@ function CanvasNodeCard({
       : node.kind === "terminal"
         ? t("canvasNodeTerminal")
         : node.kind === "media"
-          ? t("canvasNodeMedia", { defaultValue: "Media" })
+          ? node.media?.subtype
+            ? t(`canvasMediaSubtype.${node.media.subtype}`, { defaultValue: node.media.subtype })
+            : t("canvasNodeMedia", { defaultValue: "Media" })
           : t("canvasNodeTask");
   const mediaOperationLabel = node.kind === "media" && node.media?.operation
     ? t(`canvasMediaOperation.${node.media.operation}`, { defaultValue: node.media.operation })
@@ -246,10 +269,11 @@ function CanvasNodeCard({
         onPointerMove={(pointerEvent) => {
           const active = drag.current;
           if (!active || active.pointerId !== pointerEvent.pointerId) return;
+          const minimum = unbounded ? Number.NEGATIVE_INFINITY : 8;
           onPositionChange(node.id, {
             ...position,
-            x: Math.max(8, Math.round(active.originX + pointerEvent.clientX - active.startX)),
-            y: Math.max(8, Math.round(active.originY + pointerEvent.clientY - active.startY)),
+            x: Math.max(minimum, Math.round(active.originX + (pointerEvent.clientX - active.startX) / scale)),
+            y: Math.max(minimum, Math.round(active.originY + (pointerEvent.clientY - active.startY) / scale)),
           });
         }}
         onPointerUp={finishDrag}
@@ -262,7 +286,59 @@ function CanvasNodeCard({
         <span className="shrink-0 text-[9px] uppercase tracking-[0.08em]" style={{ color }}>
           {nodeTypeLabel}
         </span>
-        {node.kind === "media" ? null : (
+        {node.kind === "media" ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("canvasNodeActions", { name: node.label, defaultValue: `Actions for ${node.label}` })}
+                title={t("canvasNodeActions", { name: node.label, defaultValue: `Actions for ${node.label}` })}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--app-hover)]"
+                style={{ color: "var(--app-text-secondary)" }}
+                onPointerDown={(event) => event.stopPropagation()}
+                data-testid={`canvas-media-actions-${node.id}`}
+              >
+                <MoreVertical className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" onPointerDown={(event) => event.stopPropagation()}>
+              {node.media?.assetId ? (
+                <DropdownMenuItem onSelect={() => void openMediaAsset(node)}>
+                  <ImageUp className="size-3.5" aria-hidden="true" />
+                  {t("canvasMediaOpenOriginal", { defaultValue: "Open original" })}
+                </DropdownMenuItem>
+              ) : null}
+              {node.media?.assetId && isTauriRuntime() ? (
+                <DropdownMenuItem onSelect={() => void revealMediaAsset(node)}>
+                  <FolderOpen className="size-3.5" aria-hidden="true" />
+                  {t("canvasMediaRevealInFolder", { defaultValue: "Show in folder" })}
+                </DropdownMenuItem>
+              ) : null}
+              {node.media?.runId && !node.media?.subtype ? (
+                <DropdownMenuItem onSelect={() => void regenerateMediaNode(node, t("canvasMediaNoRunToReplay", { defaultValue: "This node has no run to regenerate" }))}>
+                  <RefreshCw className="size-3.5" aria-hidden="true" />
+                  {t("canvasMediaRegenerate", { defaultValue: "Generate again" })}
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuItem onSelect={() => void renameMediaNode(node, t("canvasRenameNodePrompt", { defaultValue: "New node title" }))}>
+                <Pencil className="size-3.5" aria-hidden="true" />
+                {t("canvasRenameNode", { defaultValue: "Rename" })}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void disconnectMediaNode(node)}>
+                <Unlink className="size-3.5" aria-hidden="true" />
+                {t("canvasMediaDisconnect", { defaultValue: "Remove connections" })}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={() => void deleteMediaNode(node, t("canvasDeleteNodeConfirm", { name: node.label, defaultValue: `Delete node "${node.label}"?` }))}
+              >
+                <Trash2 className="size-3.5" aria-hidden="true" />
+                {t("canvasDeleteNode", { name: node.label, defaultValue: `Delete ${node.label}` })}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
           <button
             type="button"
             aria-label={t("canvasOpenTerminal", { name: node.label, defaultValue: `Open ${node.label}` })}
@@ -321,8 +397,8 @@ function CanvasNodeCard({
           if (!active || active.pointerId !== pointerEvent.pointerId) return;
           onPositionChange(node.id, {
             ...position,
-            width: Math.max(minimumSize.width, Math.round(active.originWidth + pointerEvent.clientX - active.startX)),
-            height: Math.max(minimumSize.height, Math.round(active.originHeight + pointerEvent.clientY - active.startY)),
+            width: Math.max(minimumSize.width, Math.round(active.originWidth + (pointerEvent.clientX - active.startX) / scale)),
+            height: Math.max(minimumSize.height, Math.round(active.originHeight + (pointerEvent.clientY - active.startY) / scale)),
           });
         }}
         onPointerUp={(pointerEvent) => {
@@ -365,6 +441,8 @@ export default function CanvasNodeLayer({
   positions,
   events = [],
   viewport = { width: 1200, height: 760 },
+  scale = 1,
+  unbounded = false,
   onPositionChange,
 }: CanvasNodeLayerProps) {
   const animationIntensity = useCanvasDisplayStore((state) => state.animationIntensity);
@@ -387,6 +465,8 @@ export default function CanvasNodeLayer({
               event={latestEvents.get(node.id)}
               flashKey={flashKeys[node.id]}
               viewport={viewport}
+              scale={scale}
+              unbounded={unbounded}
               onPositionChange={onPositionChange}
             />
           </div>

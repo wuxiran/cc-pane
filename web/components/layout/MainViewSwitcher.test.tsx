@@ -108,6 +108,7 @@ const themeState = vi.hoisted(() => ({
 // 实验功能门禁：默认按「已勾选」跑既有用例，单独的用例把它关掉验证兜底。
 const experimentalState = vi.hoisted(() => ({
   mediaGeneration: true,
+  dramaStudio: true,
   skillMarket: true,
 }));
 

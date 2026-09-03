@@ -31,6 +31,23 @@ export type CanvasMediaProbeStatus =
   | "failed"
   | "invalid";
 
+/**
+ * Non-generation node flavors layered on top of the durable media graph.
+ * They reuse the `media_nodes` table (kind stays `image`) and are recognized
+ * purely by the `nodeSubtype` key persisted inside `MediaNode.parameters`.
+ */
+export type CanvasMediaSubtype = "text" | "script" | "audio" | "board" | "storyboard";
+
+/** One cell of a storyboard-grid node. */
+export interface CanvasStoryboardShot {
+  id: string;
+  title?: string;
+  prompt?: string;
+  /** Durable media node generated for this shot, when one exists. */
+  generatedNodeId?: string;
+  previewUrl?: string;
+}
+
 export interface CanvasMediaCapabilities {
   /** Operations valid for this node's output kind. */
   supportedOperations: CanvasMediaOperation[];
@@ -42,6 +59,19 @@ export interface CanvasMediaCapabilities {
 /** Runtime media state projected into a Canvas node. */
 export interface CanvasMediaProjection {
   mediaKind: CanvasMediaKind;
+  /** Present for non-generation nodes (text/script/audio/board/storyboard). */
+  subtype?: CanvasMediaSubtype;
+  /** Editable text content for text/script/board subtypes. */
+  contentText?: string;
+  /** Local path or URL of the audio source for audio subtypes. */
+  audioSource?: string;
+  /** Storyboard cells for storyboard subtypes. */
+  shots?: CanvasStoryboardShot[];
+  /**
+   * Raw durable parameters, carried only for subtype nodes so inline editors
+   * can merge updates without refetching the node.
+   */
+  nodeParameters?: Record<string, unknown>;
   operation?: CanvasMediaOperation;
   runStatus?: CanvasMediaRunStatus;
   previewUrl?: string;

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { mediaService } from "@/services/mediaService";
-import { isMediaMimeCompatible, isMediaPreviewUrl, toCanvasMediaNode, type MediaEdge, type MediaNode, type MediaRun } from "@/types/media";
+import { isMediaMimeCompatible, isMediaPreviewUrl, mediaNodeSubtype, toCanvasMediaNode, type MediaEdge, type MediaNode, type MediaRun } from "@/types/media";
 import type { CanvasNodeProjection } from "@/types/canvas";
 import { getErrorMessage } from "@/utils";
 
@@ -11,7 +11,10 @@ interface MediaState {
   loading: boolean;
   error: string | null;
   refreshGeneration: number;
+  lastQuery: { workspaceId: string | null; layoutId: string | null; queryLayoutId: string | null } | null;
   refresh: (workspaceId: string | null, layoutId: string | null, queryLayoutId?: string | null) => Promise<void>;
+  /** Re-run the last refresh; used by inline node editors after a mutation. */
+  refreshCurrent: () => Promise<void>;
   clear: () => void;
 }
 
@@ -33,6 +36,9 @@ export function latestMediaRun(runs: MediaRun[]): MediaRun | undefined {
 }
 
 async function projectNode(node: MediaNode): Promise<CanvasNodeProjection> {
+  // Subtype nodes (text/script/audio/board/storyboard) never own runs; skip
+  // the run/asset queries entirely.
+  if (mediaNodeSubtype(node.parameters)) return toCanvasMediaNode(node);
   const runs = await mediaService.listRuns(node.id, 20);
   const run = latestMediaRun(runs);
   if (!run) return toCanvasMediaNode(node);
@@ -77,6 +83,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   // Incremented for every refresh/clear so an older request cannot overwrite
   // a newer result when the five-second poll overlaps a slow API response.
   refreshGeneration: 0,
+  lastQuery: null,
   refresh: async (workspaceId, layoutId, queryLayoutId = layoutId) => {
     if (!workspaceId || !layoutId) {
       get().clear();
@@ -84,7 +91,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     }
     const scopeKey = JSON.stringify([workspaceId, layoutId]);
     const requestGeneration = get().refreshGeneration + 1;
-    set({ scopeKey, loading: true, error: null, refreshGeneration: requestGeneration });
+    set({ scopeKey, loading: true, error: null, refreshGeneration: requestGeneration, lastQuery: { workspaceId, layoutId, queryLayoutId: queryLayoutId ?? null } });
     try {
       const [nodes, edges] = await Promise.all([
         mediaService.listNodes(workspaceId, queryLayoutId ?? undefined),
@@ -100,6 +107,11 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       set({ loading: false, error: getErrorMessage(error) });
     }
   },
+  refreshCurrent: async () => {
+    const last = get().lastQuery;
+    if (!last) return;
+    await get().refresh(last.workspaceId, last.layoutId, last.queryLayoutId);
+  },
   clear: () => set((state) => ({
     scopeKey: null,
     nodes: [],
@@ -107,5 +119,6 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     loading: false,
     error: null,
     refreshGeneration: state.refreshGeneration + 1,
+    lastQuery: null,
   })),
 }));

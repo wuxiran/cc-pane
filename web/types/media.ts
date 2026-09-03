@@ -4,12 +4,16 @@ import type {
   CanvasMediaProbeStatus,
   CanvasMediaProjection,
   CanvasMediaRunStatus,
+  CanvasMediaSubtype,
   CanvasNodeProjection,
+  CanvasStoryboardShot,
 } from "./canvas";
 
 export type MediaKind = CanvasMediaKind;
 export type MediaOperation = CanvasMediaOperation;
 export type MediaRunStatus = CanvasMediaRunStatus;
+export type MediaNodeSubtype = CanvasMediaSubtype;
+export type MediaStoryboardShot = CanvasStoryboardShot;
 export type MediaProtocol = "open_ai_compatible" | "sub2api" | "comfyui";
 export type MediaCachePolicy = "read_write" | "bypass" | "refresh";
 
@@ -43,6 +47,41 @@ export interface MediaCanvasSpace {
 }
 
 export const MEDIA_SCOPE_PARAMETER = "mediaScope" as const;
+
+/**
+ * Reserved key inside `MediaNode.parameters` marking a non-generation node.
+ * The durable `kind` column stays `image` (the SQLite CHECK is closed), so
+ * subtype nodes ride on the existing table without a schema migration.
+ */
+export const MEDIA_NODE_SUBTYPE_PARAMETER = "nodeSubtype" as const;
+
+export const MEDIA_NODE_SUBTYPES: readonly MediaNodeSubtype[] = ["text", "script", "audio", "board", "storyboard"];
+
+/** Read the subtype marker out of durable node parameters, if present. */
+export function mediaNodeSubtype(parameters: Record<string, unknown> | null | undefined): MediaNodeSubtype | undefined {
+  const value = parameters?.[MEDIA_NODE_SUBTYPE_PARAMETER];
+  return typeof value === "string" && (MEDIA_NODE_SUBTYPES as readonly string[]).includes(value)
+    ? value as MediaNodeSubtype
+    : undefined;
+}
+
+/** Normalize the persisted storyboard cells; tolerates malformed entries. */
+export function mediaStoryboardShots(parameters: Record<string, unknown> | null | undefined): MediaStoryboardShot[] {
+  const raw = parameters?.shots;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const shot = entry as Record<string, unknown>;
+    if (typeof shot.id !== "string" || !shot.id) return [];
+    return [{
+      id: shot.id,
+      title: typeof shot.title === "string" ? shot.title : undefined,
+      prompt: typeof shot.prompt === "string" ? shot.prompt : undefined,
+      generatedNodeId: typeof shot.generatedNodeId === "string" ? shot.generatedNodeId : undefined,
+      previewUrl: typeof shot.previewUrl === "string" ? shot.previewUrl : undefined,
+    }];
+  });
+}
 
 /** Normalized capabilities exposed by the selected media adapter. */
 export interface MediaProviderCapabilities {
@@ -227,6 +266,29 @@ export function toCanvasMediaNode(
   run?: MediaRun,
   previewAsset?: MediaAsset,
 ): CanvasNodeProjection {
+  const subtype = mediaNodeSubtype(node.parameters);
+  if (subtype) {
+    // Subtype nodes never run generations themselves; they carry authored
+    // content (text, audio reference, storyboard cells) on the durable graph.
+    const media: CanvasMediaProjection = {
+      mediaKind: node.kind,
+      subtype,
+      contentText: typeof node.parameters.contentText === "string" ? node.parameters.contentText : undefined,
+      audioSource: typeof node.parameters.audioSource === "string" ? node.parameters.audioSource : undefined,
+      shots: subtype === "storyboard" ? mediaStoryboardShots(node.parameters) : undefined,
+      nodeParameters: node.parameters,
+      alt: node.title,
+      capabilities: { supportedOperations: [], canRun: false, canCancel: false, canRetry: false },
+    };
+    return {
+      id: `media:${node.id}`,
+      label: node.title,
+      kind: "media",
+      status: "idle",
+      layoutId: node.layoutId,
+      media,
+    };
+  }
   const runStatus = run?.status;
   const status = runStatus === "succeeded"
     ? "completed"

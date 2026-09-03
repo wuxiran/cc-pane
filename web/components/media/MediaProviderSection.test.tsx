@@ -16,7 +16,9 @@ function provider(id: string, name: string): Provider {
   return {
     id,
     name,
-    providerType: "open_ai",
+    // Media providers are a dedicated type; the section filters LLM
+    // providers out entirely (docs/99 B1).
+    providerType: "media",
     apiKey: null,
     baseUrl: "https://api.example.com",
     models: [{ id: "model-1" }],

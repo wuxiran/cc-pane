@@ -27,6 +27,7 @@ import { useExperimentalFeature } from "@/hooks/useExperimentalFeature";
 // reducing startup work, this lets the existing terminal-only test doubles and
 // lightweight web deployments omit media-specific dependencies until opened.
 const MediaStudio = lazy(() => import("@/components/media/MediaStudio"));
+const DramaStudio = lazy(() => import("@/components/drama/DramaStudio"));
 const SkillMarketPage = lazy(() => import("@/components/skillmarket/SkillMarketPage"));
 
 interface MainViewSwitcherProps {
@@ -70,14 +71,17 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
   // orchestration 是"panes + overlay"的兼容态，不是独立全屏视图
   const effectiveAppViewMode = appViewMode === "orchestration" ? "panes" : appViewMode;
   const mediaGenerationEnabled = useExperimentalFeature("mediaGeneration");
+  const dramaStudioEnabled = useExperimentalFeature("dramaStudio");
   const skillMarketEnabled = useExperimentalFeature("skillMarket");
   const mediaRequested = effectiveAppViewMode === "imageGen" || effectiveAppViewMode === "videoGen";
   const mediaActive = mediaRequested && mediaGenerationEnabled;
   const mediaKind: MediaStudioKind = effectiveAppViewMode === "videoGen" ? "video" : "image";
   // 实验功能被关掉时（设置里取消勾选、或旧链路仍把模式设成了它）退回 panes，
   // 不能停在一个既不渲染又没有出口的空视图上。
+  const dramaActive = effectiveAppViewMode === "dramaGen" && dramaStudioEnabled;
   const gatedModeBlocked =
     (mediaRequested && !mediaGenerationEnabled)
+    || (effectiveAppViewMode === "dramaGen" && !dramaStudioEnabled)
     || (effectiveAppViewMode === "skillMarket" && !skillMarketEnabled);
   useEffect(() => {
     if (gatedModeBlocked) setAppViewMode("panes");
@@ -190,6 +194,14 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
               kind={mediaKind}
               onKindChange={(nextKind) => setAppViewMode(nextKind === "image" ? "imageGen" : "videoGen")}
             />
+          </Suspense>
+        </div>
+      )}
+      {/* 短剧制作台：剧本→分镜→镜头→成片流水线（与媒体工作区共用实验开关） */}
+      {dramaActive && (
+        <div className="flex h-full min-w-0 flex-1 overflow-hidden" data-testid="drama-workspace-shell">
+          <Suspense fallback={<div className="flex h-full w-full items-center justify-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>{mediaT("loadingMediaWorkspace")}</div>}>
+            <DramaStudio />
           </Suspense>
         </div>
       )}

@@ -1,4 +1,4 @@
-import { Command, FolderTree, ImagePlus, Settings, Store } from "lucide-react";
+import { Clapperboard, Command, FolderTree, ImagePlus, Settings, Store } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import LayoutBar from "@/components/LayoutBar";
 import ModuleAddMenu from "@/components/modules/ModuleAddMenu";
@@ -194,6 +194,7 @@ export default function ActivityBar() {
   const activityBarVisible = useActivityBarStore((state) => state.activityBarVisible);
   const toggleView = useActivityBarStore((state) => state.toggleView);
   const toggleMediaMode = useActivityBarStore((state) => state.toggleMediaMode);
+  const toggleDramaGenMode = useActivityBarStore((state) => state.toggleDramaGenMode);
   const toggleSkillMarketMode = useActivityBarStore((state) => state.toggleSkillMarketMode);
   const appViewMode = useActivityBarStore((state) => state.appViewMode);
   const orchestrationOverlayOpen = useActivityBarStore((state) => state.orchestrationOverlayOpen);
@@ -203,6 +204,7 @@ export default function ActivityBar() {
   const preferences = useModulePrefsStore((state) => state.preferences);
   // 实验功能入口：设置里勾选后才出现（默认关，客户装上看不到）。
   const mediaGenerationEnabled = useExperimentalFeature("mediaGeneration");
+  const dramaStudioEnabled = useExperimentalFeature("dramaStudio");
   const skillMarketEnabled = useExperimentalFeature("skillMarket");
 
   const visibleModules = MODULE_CONSUMERS.activityBar.filter((module) => {
@@ -263,6 +265,14 @@ export default function ActivityBar() {
                 label={t("mediaGeneration")}
                 active={appViewMode === "imageGen" || appViewMode === "videoGen"}
                 onClick={toggleMediaMode}
+              />
+            ) : null}
+            {dramaStudioEnabled ? (
+              <ActivityBarIcon
+                icon={<Clapperboard className="h-[22px] w-[22px]" strokeWidth={1.5} />}
+                label={t("dramaStudio")}
+                active={appViewMode === "dramaGen"}
+                onClick={toggleDramaGenMode}
               />
             ) : null}
             {skillMarketEnabled ? (

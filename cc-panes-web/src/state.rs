@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use cc_cli_adapters::CliToolRegistry;
 use cc_panes_core::services::{
-    ExternalSkillRegistry, FileSystemService, HistoryService, JournalService, LaunchHistoryService,
-    LaunchProfileService, LayoutSnapshotService, McpConfigService, MediaService, MemoryService,
-    PlanService, ProcessMonitorService, ProjectCliHooksService, ProjectService, ProviderService,
-    QuickCommandService, RunnerService, SessionIndexService, SessionRestoreService,
-    SettingsService, SharedMcpService, SkillService, SpecService, SshMachineService,
-    TaskBindingService, TerminalBackend, TodoService, UsageStatsService, UserSkillService,
-    WorkspaceService, WorktreeService,
+    DramaService, ExternalSkillRegistry, FileSystemService, HistoryService, JournalService,
+    LaunchHistoryService, LaunchProfileService, LayoutSnapshotService, McpConfigService,
+    MediaService, MemoryService, PlanService, ProcessMonitorService, ProjectCliHooksService,
+    ProjectService, ProviderService, QuickCommandService, RunnerService, SessionIndexService,
+    SessionRestoreService, SettingsService, SharedMcpService, SkillService, SpecService,
+    SshMachineService, TaskBindingService, TerminalBackend, TodoService, UsageStatsService,
+    UserSkillService, WorkspaceService, WorktreeService,
 };
 
 use crate::web_auth::WebAuthStore;
@@ -34,6 +34,7 @@ pub struct AppState {
     pub task_binding_service: Arc<TaskBindingService>,
     pub launch_history_service: Arc<LaunchHistoryService>,
     pub media_service: Arc<MediaService>,
+    pub drama_service: Arc<DramaService>,
     pub layout_snapshot_service: Arc<LayoutSnapshotService>,
     pub launch_profile_service: Arc<LaunchProfileService>,
     pub quick_command_service: Arc<QuickCommandService>,

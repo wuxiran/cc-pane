@@ -2,6 +2,7 @@ pub mod agent_transcript;
 pub mod ai_panel;
 pub mod context_usage;
 pub mod cursor_bridge;
+pub mod drama;
 pub mod dsh;
 pub mod external_skill;
 pub mod filesystem;
@@ -46,6 +47,11 @@ pub use cursor_bridge::{
     CursorBridgeModelTarget, CursorBridgeRegistry, CursorBridgeScope, CursorBridgeSession,
     CursorBridgeSessionControl, CursorBridgeSessionMode, CursorBridgeSessionStatus,
     CursorBridgeTurnPlan, CursorBridgeWorkspaceBinding, CURSOR_BRIDGE_SCHEMA_VERSION,
+};
+pub use drama::{
+    CreateDramaEpisodeRequest, CreateDramaProjectRequest, CreateDramaShotRequest, DramaEpisode,
+    DramaProject, DramaShot, UpdateDramaEpisodeRequest, UpdateDramaProjectRequest,
+    UpdateDramaShotRequest,
 };
 pub use external_skill::{DiscoveredExternalSkill, ExternalSkillSource};
 pub use git::{

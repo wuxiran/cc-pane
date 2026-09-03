@@ -68,6 +68,9 @@ use commands::{
     compute_text_diff,
     copy_skill,
     create_auto_label,
+    create_drama_episode,
+    create_drama_project,
+    create_drama_shot,
     create_launch_profile,
     create_media_asset,
     create_media_edge,
@@ -87,6 +90,9 @@ use commands::{
     delete_acp_chat_history,
     delete_ai_panel,
     delete_automation,
+    delete_drama_episode,
+    delete_drama_project,
+    delete_drama_shot,
     delete_label,
     delete_launch_history,
     delete_launch_profile,
@@ -149,6 +155,7 @@ use commands::{
     get_data_dir_info,
     get_default_provider,
     get_display_server,
+    get_drama_project,
     // DeepSeek Harness（dsh）命令
     get_dsh_instance,
     get_file_branches,
@@ -268,6 +275,9 @@ use commands::{
     list_deleted_files,
     // Local History - 目录级历史 + 最近更改
     list_directory_changes,
+    list_drama_episodes,
+    list_drama_projects,
+    list_drama_shots,
     list_dsh_instances,
     list_external_skills,
     list_file_versions,
@@ -282,6 +292,7 @@ use commands::{
     list_media_assets,
     list_media_edges,
     list_media_nodes,
+    list_media_provider_models,
     list_media_runs,
     list_memories,
     list_opencode_sessions,
@@ -382,6 +393,7 @@ use commands::{
     restore_to_label,
     retry_media_run,
     retry_terminal_task_queue_item,
+    reveal_media_asset,
     rollback_project_migration,
     rollback_workspace_migration,
     run_automation_now,
@@ -426,9 +438,9 @@ use commands::{
     search_project_files,
     search_skill_market,
     set_acp_chat_auto_approve,
+    set_acp_chat_config_option,
     set_acp_chat_mode,
     set_acp_chat_model,
-    set_acp_chat_config_option,
     set_decorations,
     set_default_launch_profile,
     set_default_provider,
@@ -481,6 +493,9 @@ use commands::{
     transcribe_voice_input,
     transition_media_run,
     trigger_notification,
+    update_drama_episode,
+    update_drama_project,
+    update_drama_shot,
     update_history_config,
     update_launch_last_prompt,
     update_launch_profile,
@@ -518,7 +533,7 @@ use repository::{
 };
 use services::BrowserTabManager;
 use services::{
-    registry_from_providers, ComfyMediaAdapter, ComfyRuntimeService, DshService,
+    registry_from_providers, ComfyMediaAdapter, ComfyRuntimeService, DramaService, DshService,
     ExternalSkillRegistry, FileSystemService, HistoryService, HistoryWatchManager, JournalService,
     LaunchHistoryService, LaunchProfileService, LayoutSnapshotService, McpConfigService,
     MediaJobWorker, MediaService, MemoryService, NotificationService, OrchestratorService,
@@ -1787,6 +1802,7 @@ pub fn run() {
     let session_restore_service =
         Arc::new(SessionRestoreService::new(db.clone(), app_paths.clone()));
     let layout_snapshot_service = Arc::new(LayoutSnapshotService::new(db.clone()));
+    let drama_service = Arc::new(DramaService::new(db.clone()));
 
     let popup_data_store = commands::PopupDataStore::default();
     let layout_switcher_snapshot_store = commands::LayoutSwitcherSnapshotStore::default();
@@ -1922,6 +1938,7 @@ pub fn run() {
         .manage(dsh_service.clone())
         .manage(session_restore_service)
         .manage(layout_snapshot_service)
+        .manage(drama_service)
         .manage(popup_data_store)
         .manage(layout_switcher_snapshot_store)
         .manage(orchestrator_service.clone())
@@ -3457,6 +3474,20 @@ pub fn run() {
             save_layout_snapshot,
             load_layout_snapshot,
             clear_layout_snapshot,
+            reveal_media_asset,
+            create_drama_project,
+            list_drama_projects,
+            get_drama_project,
+            update_drama_project,
+            delete_drama_project,
+            create_drama_episode,
+            list_drama_episodes,
+            update_drama_episode,
+            delete_drama_episode,
+            create_drama_shot,
+            list_drama_shots,
+            update_drama_shot,
+            delete_drama_shot,
             load_session_output,
             clear_session_output,
             prune_stale_session_outputs,
@@ -3472,6 +3503,7 @@ pub fn run() {
              free_comfy_memory,
              get_comfy_object_info,
              get_media_provider_capabilities,
+             list_media_provider_models,
              create_media_node,
             get_media_node,
             list_media_nodes,

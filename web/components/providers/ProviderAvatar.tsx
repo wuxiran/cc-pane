@@ -19,6 +19,8 @@ export const PROVIDER_TYPE_COLORS: Record<ProviderType, string> = {
   opencode: "var(--app-identity-provider-opencode)",
   cursor: "var(--app-identity-provider-cursor)",
   grok: "var(--app-identity-provider-grok)",
+  // 媒体 Provider 没有独立品牌色，沿用 open-ai 的色板。
+  media: "var(--app-identity-provider-open-ai)",
 };
 
 interface ProviderAvatarProps {

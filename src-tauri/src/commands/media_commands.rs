@@ -15,7 +15,7 @@ use cc_panes_core::services::{
     apply_media_run_protocol, shared_comfy_adapter_cache, ComfyMediaAdapter,
     ComfyObjectInfoResponse, ComfySystemStats, MediaProtocol, MediaProviderAdapter,
     MediaProviderCapabilities, MediaProviderProfile, OpenAiCompatibleMediaAdapter, ProviderService,
-    COMFY_OBJECT_INFO_SCHEMA_VERSION,
+    Sub2ApiMediaAdapter, COMFY_OBJECT_INFO_SCHEMA_VERSION,
 };
 use cc_panes_core::services::{MediaJobWorker, MediaService};
 use std::sync::Arc;
@@ -155,11 +155,49 @@ pub fn get_media_provider_capabilities(
         MediaProtocol::ComfyUi => Ok(shared_comfy_adapter_cache()
             .adapter_for_provider(&provider)?
             .capabilities()),
+        MediaProtocol::Sub2Api => Ok(Sub2ApiMediaAdapter::new(
+            MediaProviderProfile::from_provider(&provider)?,
+        )?
+        .capabilities()),
         protocol => Ok(OpenAiCompatibleMediaAdapter::new(
             MediaProviderProfile::from_provider(&provider)?.with_protocol(protocol),
         )?
         .capabilities()),
     }
+}
+
+/// List the model ids a media gateway exposes to the given API key
+/// (`GET /v1/models`). Explicit form values take precedence so the studio can
+/// query before the provider is saved; a stored provider fills in whatever the
+/// form left blank (e.g. the redacted key).
+#[tauri::command]
+pub async fn list_media_provider_models(
+    base_url: Option<String>,
+    api_key: Option<String>,
+    provider_id: Option<String>,
+    providers: State<'_, Arc<ProviderService>>,
+) -> AppResult<Vec<String>> {
+    let provider = provider_id
+        .as_deref()
+        .and_then(|id| providers.get_provider(id));
+    let base_url = base_url
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| provider.as_ref().and_then(|value| value.base_url.clone()))
+        .ok_or_else(|| {
+            cc_panes_core::utils::error::AppError::coded(
+                "MEDIA_PROVIDER_URL_REQUIRED",
+                "provider base URL is required to list models",
+            )
+        })?;
+    let api_key = api_key
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| provider.as_ref().and_then(|value| value.api_key.clone()));
+    cc_panes_core::services::fetch_provider_model_ids(
+        &base_url,
+        api_key.as_deref(),
+        std::time::Duration::from_secs(30),
+    )
+    .await
 }
 
 /// Fetch the normalized ComfyUI resource snapshot for local or configured
@@ -467,6 +505,22 @@ pub fn resolve_media_asset(
     } else {
         Ok(format!("asset://localhost/{encoded}"))
     }
+}
+
+/// Reveal a generated asset in the system file manager. Path resolution and
+/// containment checks stay inside `MediaService`.
+#[tauri::command]
+pub fn reveal_media_asset(
+    app: tauri::AppHandle,
+    asset_id: String,
+    service: State<'_, Arc<MediaService>>,
+) -> AppResult<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = service.resolve_asset_path(&asset_id)?;
+    app.opener()
+        .reveal_item_in_dir(&path)
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]

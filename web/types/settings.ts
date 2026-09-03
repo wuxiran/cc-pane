@@ -29,6 +29,8 @@ export interface AppSettings {
  * 入口组件经 `useExperimentalFeature(id)` 读取，未勾选时不渲染入口。 */
 export interface ExperimentalSettings {
   mediaGeneration: boolean;
+  /** 短剧制作台（DramaStudio + 批量转绘）；独立开关便于单独下线重构。 */
+  dramaStudio: boolean;
   skillMarket: boolean;
 }
 

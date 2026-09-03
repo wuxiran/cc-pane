@@ -10,7 +10,7 @@ use super::comfy_adapter::{ComfyAdapterProfile, ComfyMediaAdapter};
 use super::media_provider::{
     apply_media_run_protocol, DownloadedAsset, MediaInputAsset, MediaProtocol,
     MediaProviderAdapter, MediaProviderProfile, MediaProviderRegistry, NormalizedMediaRequest,
-    OpenAiCompatibleMediaAdapter, RemoteJob, RemoteJobStatus, RemoteOutput,
+    OpenAiCompatibleMediaAdapter, RemoteJob, RemoteJobStatus, RemoteOutput, Sub2ApiMediaAdapter,
 };
 use crate::models::{
     MediaKind, MediaProviderOutput, MediaResourceSnapshot, MediaRun, MediaRunStatus,
@@ -314,6 +314,8 @@ impl MediaJobWorker {
                                     adapter as Arc<dyn MediaProviderAdapter>
                                 })
                         }
+                        MediaProtocol::Sub2Api => Sub2ApiMediaAdapter::new(profile)
+                            .map(|adapter| Arc::new(adapter) as Arc<dyn MediaProviderAdapter>),
                         _ => OpenAiCompatibleMediaAdapter::new(profile)
                             .map(|adapter| Arc::new(adapter) as Arc<dyn MediaProviderAdapter>),
                     };

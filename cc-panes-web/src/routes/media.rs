@@ -18,7 +18,7 @@ use cc_panes_core::{
         apply_media_run_protocol, shared_comfy_adapter_cache, ComfyMediaAdapter,
         ComfyMemoryReleaseResult, ComfyObjectInfoResponse, ComfySystemStats, MediaProtocol,
         MediaProviderAdapter, MediaProviderCapabilities, MediaProviderProfile,
-        OpenAiCompatibleMediaAdapter, COMFY_OBJECT_INFO_SCHEMA_VERSION,
+        OpenAiCompatibleMediaAdapter, Sub2ApiMediaAdapter, COMFY_OBJECT_INFO_SCHEMA_VERSION,
     },
     utils::error::AppError,
 };
@@ -282,6 +282,12 @@ pub async fn get_provider_capabilities(
             .adapter_for_provider(&provider)
             .map_err(media_error)?
             .capabilities(),
+        MediaProtocol::Sub2Api => {
+            let profile = MediaProviderProfile::from_provider(&provider).map_err(media_error)?;
+            Sub2ApiMediaAdapter::new(profile)
+                .map_err(media_error)?
+                .capabilities()
+        }
         protocol => {
             let profile = MediaProviderProfile::from_provider(&provider)
                 .map_err(media_error)?
@@ -292,6 +298,49 @@ pub async fn get_provider_capabilities(
         }
     };
     Ok(Json(capabilities))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaProviderModelsRequest {
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+    pub provider_id: Option<String>,
+}
+
+/// List the model ids the gateway exposes to this API key (`GET /v1/models`).
+/// Form values win over the stored provider so the studio can query before
+/// saving; the stored provider fills in blanks such as the redacted key.
+pub async fn list_provider_models(
+    State(state): State<AppState>,
+    Json(request): Json<MediaProviderModelsRequest>,
+) -> MediaHttpResult<Vec<String>> {
+    let provider = request
+        .provider_id
+        .as_deref()
+        .and_then(|id| state.provider_service.get_provider(id));
+    let base_url = request
+        .base_url
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| provider.as_ref().and_then(|value| value.base_url.clone()))
+        .ok_or_else(|| {
+            media_error(AppError::coded(
+                "MEDIA_PROVIDER_URL_REQUIRED",
+                "provider base URL is required to list models",
+            ))
+        })?;
+    let api_key = request
+        .api_key
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| provider.as_ref().and_then(|value| value.api_key.clone()));
+    cc_panes_core::services::fetch_provider_model_ids(
+        &base_url,
+        api_key.as_deref(),
+        std::time::Duration::from_secs(30),
+    )
+    .await
+    .map(Json)
+    .map_err(media_error)
 }
 
 pub async fn create_node(

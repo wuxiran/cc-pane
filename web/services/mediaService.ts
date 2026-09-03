@@ -89,6 +89,19 @@ export const mediaService = {
     );
   },
 
+  /** List model ids the gateway exposes to this key (`GET /v1/models`). */
+  listProviderModels(request: {
+    baseUrl?: string;
+    apiKey?: string;
+    providerId?: string;
+  }): Promise<string[]> {
+    return invokeOrApi(
+      "list_media_provider_models",
+      request,
+      () => apiJson("/api/media/provider-models", "POST", request),
+    );
+  },
+
   getComfyObjectInfo(
     providerId: string,
     classType?: string,
@@ -259,6 +272,17 @@ export const mediaService = {
     );
   },
 
+  /** Reveal the generated file in the system file manager (desktop only). */
+  revealAsset(assetId: string): Promise<void> {
+    return invokeOrApi(
+      "reveal_media_asset",
+      { assetId },
+      async () => {
+        throw new Error("Reveal in folder is only available in the desktop app");
+      },
+    );
+  },
+
   listen(handler: (event: MediaJobChangedEvent) => void, workspaceId?: string | null): Promise<() => void> {
     if (isTauriRuntime()) {
       return listenWebviewIfTauri<MediaJobChangedEvent>("media-job-changed", (event) => {
@@ -319,5 +343,12 @@ export const mediaService = {
 
   createEdge(request: MediaEdgeRequest): Promise<MediaEdge> {
     return invokeOrApi("create_media_edge", { request }, () => apiJson("/api/media/edges", "POST", request));
+  },
+
+  deleteEdge(edgeId: string): Promise<boolean> {
+    return invokeOrApi("delete_media_edge", { edgeId }, async () => {
+      await apiDelete(`/api/media/edges/${encodeURIComponent(edgeId)}`);
+      return true;
+    });
   },
 };

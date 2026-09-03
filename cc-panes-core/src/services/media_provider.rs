@@ -383,11 +383,41 @@ impl NormalizedMediaRequest {
 
     fn to_wire_body(&self) -> AppResult<Value> {
         self.validate()?;
-        let mut body = self
-            .parameters
-            .as_object()
-            .cloned()
-            .unwrap_or_else(Map::new);
+        // OpenAI-compatible endpoints reject unknown fields with HTTP 400, so
+        // the wire body is built from an explicit whitelist instead of passing
+        // the UI parameter bag through. Everything else stays recorded in
+        // `MediaRun.request` but never reaches the provider (docs/99 A1).
+        let allowed: &[&str] = match self.kind {
+            MediaKind::Image => &[
+                "n",
+                "size",
+                "quality",
+                "background",
+                "output_format",
+                "outputFormat",
+                "output_compression",
+                "outputCompression",
+                "style",
+                "user",
+            ],
+            MediaKind::Video => &["n", "size", "seconds", "duration"],
+        };
+        let mut body = Map::new();
+        if let Some(parameters) = self.parameters.as_object() {
+            for key in allowed {
+                if let Some(value) = parameters.get(*key) {
+                    body.insert((*key).to_string(), value.clone());
+                }
+            }
+        }
+        // Force base64 payloads for images: the response then carries the
+        // bytes inline and no provider CDN download is required at all.
+        if self.kind == MediaKind::Image {
+            body.insert(
+                "response_format".to_string(),
+                Value::String("b64_json".to_string()),
+            );
+        }
         body.insert("model".to_string(), Value::String(self.model.clone()));
         if let Some(prompt) = &self.prompt {
             body.insert("prompt".to_string(), Value::String(prompt.clone()));
@@ -1064,12 +1094,25 @@ impl OpenAiCompatibleMediaAdapter {
         Ok(url)
     }
 
+    /// Output downloads accept any HTTPS host: providers routinely return
+    /// object-storage/CDN URLs (Azure Blob for OpenAI, third-party buckets for
+    /// gateways) that are never part of the configured base URL (docs/99 A3).
+    /// Size, MIME and hash validation still apply, and credentials are only
+    /// attached for allowlisted hosts (see `download_inner`). API endpoints
+    /// keep the strict host allowlist via `remote_url`.
     fn download_url(&self, raw_url: &str) -> AppResult<Url> {
-        let url = self.remote_url(raw_url)?;
-        if url.fragment().is_some() || !url.username().is_empty() || url.password().is_some() {
+        let url = Url::parse(raw_url).map_err(|_| {
+            AppError::coded("MEDIA_PROVIDER_URL_INVALID", "provider URL is invalid")
+        })?;
+        if !is_secure_or_local_url(&url)
+            || url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.fragment().is_some()
+        {
             return Err(AppError::coded(
                 "MEDIA_PROVIDER_URL_REJECTED",
-                "download URL contains unsafe components",
+                "download URL must be HTTPS without credentials or fragments",
             ));
         }
         Ok(url)
@@ -1093,20 +1136,19 @@ impl MediaProviderAdapter for OpenAiCompatibleMediaAdapter {
     }
 
     fn capabilities(&self) -> MediaProviderCapabilities {
+        // Only claim what the OpenAI images API family actually supports:
+        // synchronous image generation and edits. Video, upscale and extend
+        // stay hidden until a real adapter exists for them (docs/99 A4).
         MediaProviderCapabilities {
             provider_id: self.profile.id.clone(),
             protocol: self.profile.protocol.clone(),
-            kinds: vec![MediaKind::Image, MediaKind::Video],
+            kinds: vec![MediaKind::Image],
             operations: vec![
                 MediaOperation::TextToImage,
                 MediaOperation::ImageToImage,
-                MediaOperation::TextToVideo,
-                MediaOperation::ImageToVideo,
                 MediaOperation::Edit,
-                MediaOperation::Upscale,
-                MediaOperation::Extend,
             ],
-            supports_async_jobs: true,
+            supports_async_jobs: false,
             supports_cancel: self.profile.cancel_path_template.is_some(),
         }
     }
@@ -1137,6 +1179,777 @@ impl MediaProviderAdapter for OpenAiCompatibleMediaAdapter {
     ) -> MediaProviderFuture<'a, DownloadedAsset> {
         Box::pin(self.download_inner(output))
     }
+}
+
+const SUB2API_IMAGE_TASKS_PATH: &str = "/api/v1/image-tasks";
+const SUB2API_VIDEO_TASKS_PATH: &str = "/api/v1/video-tasks";
+const SUB2API_ERROR_BODY_EXCERPT_BYTES: usize = 600;
+
+/// Adapter for the Sub2API asynchronous media task API (nocannobb hub).
+///
+/// Wire contract: submit `POST /api/v1/{image,video}-tasks` with an
+/// `Idempotency-Key` header, poll `GET .../{task_id}`, then download image
+/// files (authorized, same host) or the signed `result.video_url`. The full
+/// upstream reference lives in `docs/101-sub2api-media-api.md`. Unlike the
+/// generic OpenAI-compatible adapter, requests are built from an explicit
+/// parameter whitelist so UI-only fields never reach the provider.
+#[derive(Clone)]
+pub struct Sub2ApiMediaAdapter {
+    inner: OpenAiCompatibleMediaAdapter,
+    submitted_kinds: Arc<RwLock<HashMap<String, MediaKind>>>,
+}
+
+impl fmt::Debug for Sub2ApiMediaAdapter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Sub2ApiMediaAdapter")
+            .field("profile", self.inner.profile())
+            .finish()
+    }
+}
+
+fn sub2api_profile(mut profile: MediaProviderProfile) -> MediaProviderProfile {
+    profile.protocol = MediaProtocol::Sub2Api;
+    // Image files are served from `/api/v1/image-tasks/{id}/files/{idx}` and
+    // require the same bearer token as the JSON API. The signed video URL is
+    // on the same host, where an extra Authorization header is harmless.
+    profile.send_auth_to_download = true;
+    profile.image_submit_path = SUB2API_IMAGE_TASKS_PATH.to_string();
+    profile.video_submit_path = SUB2API_VIDEO_TASKS_PATH.to_string();
+    profile.status_path_template = format!("{SUB2API_VIDEO_TASKS_PATH}/{{job_id}}");
+    profile
+}
+
+fn sub2api_task_path(kind: MediaKind) -> String {
+    match kind {
+        MediaKind::Image => format!("{SUB2API_IMAGE_TASKS_PATH}/{{job_id}}"),
+        MediaKind::Video => format!("{SUB2API_VIDEO_TASKS_PATH}/{{job_id}}"),
+    }
+}
+
+impl Sub2ApiMediaAdapter {
+    pub fn new(profile: MediaProviderProfile) -> AppResult<Self> {
+        Ok(Self {
+            inner: OpenAiCompatibleMediaAdapter::new(sub2api_profile(profile))?,
+            submitted_kinds: Arc::new(RwLock::new(HashMap::new())),
+        })
+    }
+
+    /// Inject a client in tests or applications owning proxy/TLS settings.
+    pub fn with_client(client: reqwest::Client, profile: MediaProviderProfile) -> AppResult<Self> {
+        Ok(Self {
+            inner: OpenAiCompatibleMediaAdapter::with_client(client, sub2api_profile(profile))?,
+            submitted_kinds: Arc::new(RwLock::new(HashMap::new())),
+        })
+    }
+
+    pub fn profile(&self) -> &MediaProviderProfile {
+        self.inner.profile()
+    }
+
+    async fn submit_inner(&self, request: NormalizedMediaRequest) -> AppResult<RemoteJob> {
+        let body = sub2api_wire_body(&request)?;
+        let url = self
+            .inner
+            .endpoint(self.inner.profile().submit_path(request.kind), None)?;
+        // Sub2API requires a globally unique idempotency key per new task.
+        // Reusing the durable client request id keeps transport retries safe.
+        let idempotency_key = request
+            .client_request_id
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let key_value = HeaderValue::from_str(&idempotency_key).map_err(|_| {
+            AppError::coded(
+                "MEDIA_CLIENT_REQUEST_ID_INVALID",
+                "client request id cannot be used as an HTTP header",
+            )
+        })?;
+        let mut builder = self
+            .inner
+            .client
+            .post(url)
+            .header(ACCEPT, "application/json")
+            .header("Idempotency-Key", key_value);
+        builder = self.inner.apply_auth(builder)?;
+        let response = builder
+            .json(&body)
+            .send()
+            .await
+            .map_err(http_transport_error)?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(self.http_error_with_body(status.as_u16(), response).await);
+        }
+        let value = read_json(response).await?;
+        let mut parsed = self.parse_task(&value, None, request.kind)?;
+        if let Some(error) = parsed.error.as_mut() {
+            error.message = self.inner.redact_text(&error.message);
+        }
+        if !parsed.status.is_terminal() {
+            self.submitted_kinds
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .insert(parsed.id.clone(), request.kind);
+        }
+        Ok(RemoteJob {
+            id: parsed.id,
+            status_url: None,
+            cancel_url: None,
+            status: parsed.status,
+            progress: parsed.progress,
+            outputs: parsed.outputs,
+            error: parsed.error,
+        })
+    }
+
+    async fn poll_inner(
+        &self,
+        job: &RemoteJob,
+        expected_kind: Option<MediaKind>,
+    ) -> AppResult<RemoteJobStatus> {
+        if job.status.is_terminal() {
+            return Ok(RemoteJobStatus {
+                id: job.id.clone(),
+                status: job.status,
+                status_url: None,
+                cancel_url: None,
+                progress: job.progress,
+                outputs: job.outputs.clone(),
+                error: job.error.clone(),
+            });
+        }
+        let kind = expected_kind
+            .or_else(|| {
+                self.submitted_kinds
+                    .read()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .get(&job.id)
+                    .copied()
+            })
+            .ok_or_else(|| {
+                AppError::coded(
+                    "MEDIA_PROVIDER_POLL",
+                    "sub2api task kind is unknown; poll with the durable node kind",
+                )
+            })?;
+        let url = self
+            .inner
+            .endpoint(&sub2api_task_path(kind), Some(&job.id))?;
+        let mut builder = self
+            .inner
+            .client
+            .get(url)
+            .header(ACCEPT, "application/json");
+        builder = self.inner.apply_auth(builder)?;
+        let response = builder.send().await.map_err(http_transport_error)?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(self.http_error_with_body(status.as_u16(), response).await);
+        }
+        let value = read_json(response).await?;
+        let mut parsed = self.parse_task(&value, Some(&job.id), kind)?;
+        if let Some(error) = parsed.error.as_mut() {
+            error.message = self.inner.redact_text(&error.message);
+        }
+        if parsed.status.is_terminal() {
+            self.submitted_kinds
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(&job.id);
+        }
+        Ok(parsed)
+    }
+
+    fn parse_task(
+        &self,
+        value: &Value,
+        fallback_id: Option<&str>,
+        kind: MediaKind,
+    ) -> AppResult<RemoteJobStatus> {
+        let id = string_field(value, &["task_id", "taskId", "id"])
+            .or_else(|| fallback_id.map(str::to_string))
+            .ok_or_else(|| {
+                AppError::coded(
+                    "MEDIA_PROVIDER_RESPONSE_INVALID",
+                    "sub2api response has no task id",
+                )
+            })?;
+        validate_remote_job_id(&id)?;
+        let raw_status = value.get("status").and_then(Value::as_str);
+        let (status, synthetic_error) = parse_sub2api_status(raw_status);
+        let outputs = if status == MediaRunStatus::Succeeded {
+            self.parse_outputs(value, kind)?
+        } else {
+            Vec::new()
+        };
+        let mut error = parse_error(value);
+        if status == MediaRunStatus::Failed && error.is_none() {
+            error = Some(RemoteJobError {
+                code: raw_status.map(str::to_string),
+                message: synthetic_error
+                    .unwrap_or("sub2api reported a failed task")
+                    .to_string(),
+            });
+        }
+        Ok(RemoteJobStatus {
+            id,
+            status,
+            status_url: None,
+            cancel_url: None,
+            progress: match status {
+                MediaRunStatus::Queued => Some(5),
+                MediaRunStatus::Processing => Some(50),
+                MediaRunStatus::Succeeded => Some(100),
+                _ => None,
+            },
+            outputs,
+            error,
+        })
+    }
+
+    fn parse_outputs(&self, value: &Value, kind: MediaKind) -> AppResult<Vec<RemoteOutput>> {
+        let result = value.get("result").unwrap_or(&Value::Null);
+        let outputs = match kind {
+            MediaKind::Video => {
+                let url =
+                    string_field(result, &["video_url", "videoUrl", "url"]).ok_or_else(|| {
+                        AppError::coded(
+                            "MEDIA_PROVIDER_RESPONSE_INVALID",
+                            "sub2api video task succeeded without a video URL",
+                        )
+                    })?;
+                vec![RemoteOutput {
+                    url: Some(self.absolute_output_url(&url)?),
+                    b64_json: None,
+                    mime_type: None,
+                    filename: None,
+                    kind: Some(MediaKind::Video),
+                    metadata: Value::Null,
+                }]
+            }
+            MediaKind::Image => {
+                let data = result
+                    .get("data")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let mut outputs = Vec::new();
+                for item in &data {
+                    let url = string_field(item, &["url"]);
+                    let b64_json = string_field(item, &["b64_json", "b64Json"]);
+                    if url.is_none() && b64_json.is_none() {
+                        continue;
+                    }
+                    outputs.push(RemoteOutput {
+                        url: url.map(|url| self.absolute_output_url(&url)).transpose()?,
+                        b64_json,
+                        mime_type: None,
+                        filename: None,
+                        kind: Some(MediaKind::Image),
+                        metadata: Value::Null,
+                    });
+                }
+                if outputs.is_empty() {
+                    return Err(AppError::coded(
+                        "MEDIA_PROVIDER_RESPONSE_INVALID",
+                        "sub2api image task succeeded without output files",
+                    ));
+                }
+                outputs
+            }
+        };
+        Ok(outputs)
+    }
+
+    /// Sub2API examples return absolute URLs, but tolerate a relative
+    /// `/api/v1/...` file path by resolving it against the provider base.
+    fn absolute_output_url(&self, url: &str) -> AppResult<String> {
+        if url.starts_with('/') {
+            let base = Url::parse(&self.inner.profile().base_url)
+                .map_err(|_| provider_config_error("provider base URL is invalid"))?;
+            return base
+                .join(url)
+                .map(|joined| joined.to_string())
+                .map_err(|_| {
+                    AppError::coded(
+                        "MEDIA_PROVIDER_RESPONSE_INVALID",
+                        "sub2api returned an invalid output path",
+                    )
+                });
+        }
+        Ok(url.to_string())
+    }
+
+    /// Upstream validation failures carry actionable JSON messages (model
+    /// mismatch, unsupported resolution, group binding). Surface a redacted
+    /// excerpt instead of a bare status code.
+    async fn http_error_with_body(&self, status: u16, response: reqwest::Response) -> AppError {
+        let excerpt = response
+            .bytes()
+            .await
+            .ok()
+            .map(|bytes| {
+                String::from_utf8_lossy(&bytes[..bytes.len().min(SUB2API_ERROR_BODY_EXCERPT_BYTES)])
+                    .replace(['\r', '\n'], " ")
+            })
+            .map(|text| text.trim().to_string())
+            .filter(|text| !text.is_empty());
+        match excerpt {
+            Some(text) => AppError::coded(
+                "MEDIA_PROVIDER_HTTP",
+                format!(
+                    "sub2api returned HTTP {status}: {}",
+                    self.inner.redact_text(&text)
+                ),
+            ),
+            None => http_status_error(status),
+        }
+    }
+}
+
+impl MediaProviderAdapter for Sub2ApiMediaAdapter {
+    fn provider_id(&self) -> &str {
+        &self.inner.profile().id
+    }
+
+    fn protocol(&self) -> MediaProtocol {
+        MediaProtocol::Sub2Api
+    }
+
+    fn capabilities(&self) -> MediaProviderCapabilities {
+        MediaProviderCapabilities {
+            provider_id: self.inner.profile().id.clone(),
+            protocol: MediaProtocol::Sub2Api,
+            kinds: vec![MediaKind::Image, MediaKind::Video],
+            // Only operations the task API actually implements: t2i, i2i and
+            // masked edits on image tasks; t2v and first-frame i2v on video
+            // tasks. Upscale/extend endpoints do not exist upstream.
+            operations: vec![
+                MediaOperation::TextToImage,
+                MediaOperation::ImageToImage,
+                MediaOperation::Edit,
+                MediaOperation::TextToVideo,
+                MediaOperation::ImageToVideo,
+            ],
+            supports_async_jobs: true,
+            supports_cancel: false,
+        }
+    }
+
+    fn submit<'a>(&'a self, request: NormalizedMediaRequest) -> MediaProviderFuture<'a, RemoteJob> {
+        Box::pin(self.submit_inner(request))
+    }
+
+    fn poll<'a>(&'a self, job: &'a RemoteJob) -> MediaProviderFuture<'a, RemoteJobStatus> {
+        Box::pin(self.poll_inner(job, None))
+    }
+
+    fn poll_for_kind<'a>(
+        &'a self,
+        job: &'a RemoteJob,
+        kind: MediaKind,
+    ) -> MediaProviderFuture<'a, RemoteJobStatus> {
+        Box::pin(self.poll_inner(job, Some(kind)))
+    }
+
+    fn cancel<'a>(&'a self, job: &'a RemoteJob) -> MediaProviderFuture<'a, ()> {
+        Box::pin(async move {
+            if job.status.is_terminal() {
+                return Ok(());
+            }
+            Err(AppError::coded(
+                "MEDIA_PROVIDER_CANCEL_UNSUPPORTED",
+                "sub2api does not expose task cancellation; failed tasks are not billed",
+            ))
+        })
+    }
+
+    fn download<'a>(
+        &'a self,
+        output: &'a RemoteOutput,
+    ) -> MediaProviderFuture<'a, DownloadedAsset> {
+        Box::pin(self.inner.download_inner(output))
+    }
+}
+
+fn parse_sub2api_status(raw: Option<&str>) -> (MediaRunStatus, Option<&'static str>) {
+    match raw.unwrap_or_default().to_ascii_lowercase().as_str() {
+        "queued" => (MediaRunStatus::Queued, None),
+        "running" => (MediaRunStatus::Processing, None),
+        "succeeded" => (MediaRunStatus::Succeeded, None),
+        "failed" => (MediaRunStatus::Failed, None),
+        "expired" => (
+            MediaRunStatus::Failed,
+            Some("sub2api output files expired before download (3-day retention)"),
+        ),
+        "succeeded_storage_failed" => (
+            MediaRunStatus::Failed,
+            Some("sub2api generated the media but failed to store the output files"),
+        ),
+        // Unknown states keep the job alive so the poll loop can settle it.
+        _ => (MediaRunStatus::Processing, None),
+    }
+}
+
+/// Build the whitelisted Sub2API request body. UI-only parameters (steps,
+/// sampler, codec, seeds, ...) are intentionally dropped: the upstream
+/// gateway rejects unknown fields with HTTP 400.
+pub fn sub2api_wire_body(request: &NormalizedMediaRequest) -> AppResult<Value> {
+    request.validate()?;
+    let parameters = request
+        .parameters
+        .as_object()
+        .cloned()
+        .unwrap_or_else(Map::new);
+    let mut body = Map::new();
+    body.insert("model".to_string(), Value::String(request.model.clone()));
+    if let Some(prompt) = request
+        .prompt
+        .as_deref()
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())
+    {
+        body.insert("prompt".to_string(), Value::String(prompt.to_string()));
+    }
+    match request.kind {
+        MediaKind::Image => sub2api_image_body(&mut body, &parameters, &request.input_assets)?,
+        MediaKind::Video => sub2api_video_body(
+            &mut body,
+            &parameters,
+            &request.input_assets,
+            request.operation,
+        )?,
+    }
+    let body = Value::Object(body);
+    let body_size = serde_json::to_vec(&body)
+        .map_err(|_| {
+            AppError::coded(
+                "MEDIA_PARAMETERS_INVALID",
+                "media request is not serializable",
+            )
+        })?
+        .len();
+    if body_size > MAX_REQUEST_BODY_BYTES {
+        return Err(AppError::coded(
+            "MEDIA_REQUEST_TOO_LARGE",
+            "media provider request exceeds the size limit",
+        ));
+    }
+    Ok(body)
+}
+
+fn sub2api_image_body(
+    body: &mut Map<String, Value>,
+    parameters: &Map<String, Value>,
+    inputs: &[MediaInputAsset],
+) -> AppResult<()> {
+    if let Some(size) = parameter_string(parameters, &["size"]) {
+        if is_valid_sub2api_size(&size) {
+            body.insert("size".to_string(), Value::String(size));
+        }
+    }
+    if let Some(n) = parameter_u64(parameters, &["n", "batchSize", "batch_size"]) {
+        body.insert("n".to_string(), Value::from(n.clamp(1, 8)));
+    }
+    if let Some(quality) = parameter_string(parameters, &["quality"]) {
+        let quality = quality.to_ascii_lowercase();
+        if matches!(quality.as_str(), "low" | "medium" | "high" | "auto") {
+            body.insert("quality".to_string(), Value::String(quality));
+        }
+    }
+    // Image files are fetched with the API key from the task file endpoint;
+    // URLs avoid blowing past the JSON response cap that inline base64 hits.
+    body.insert(
+        "response_format".to_string(),
+        Value::String("url".to_string()),
+    );
+    let mut images = Vec::new();
+    let mut masks = Vec::new();
+    for input in inputs {
+        let encoded = Value::String(sub2api_input_string(input));
+        if input_role(input) == Some("mask") {
+            masks.push(encoded);
+        } else {
+            images.push(encoded);
+        }
+    }
+    if !masks.is_empty() && images.is_empty() {
+        return Err(AppError::coded(
+            "MEDIA_INPUT_INVALID",
+            "sub2api mask edits require at least one source image",
+        ));
+    }
+    match images.len() {
+        0 => {}
+        1 => {
+            body.insert(
+                "image".to_string(),
+                images.into_iter().next().unwrap_or(Value::Null),
+            );
+        }
+        _ => {
+            body.insert("image".to_string(), Value::Array(images));
+        }
+    }
+    if let Some(mask) = masks.into_iter().next() {
+        body.insert("mask".to_string(), mask);
+    }
+    Ok(())
+}
+
+fn sub2api_video_body(
+    body: &mut Map<String, Value>,
+    parameters: &Map<String, Value>,
+    inputs: &[MediaInputAsset],
+    operation: MediaOperation,
+) -> AppResult<()> {
+    if let Some(duration) = parameter_u64(parameters, &["duration", "durationSeconds"]) {
+        body.insert("duration".to_string(), Value::from(duration.clamp(1, 30)));
+    }
+    if let Some(resolution) = parameter_string(parameters, &["resolution"]) {
+        let resolution = resolution.to_ascii_lowercase();
+        if matches!(resolution.as_str(), "480p" | "720p" | "1080p" | "4k") {
+            body.insert("resolution".to_string(), Value::String(resolution));
+        }
+    }
+    if let Some(ratio) = parameter_string(parameters, &["aspectRatio", "aspect_ratio"]) {
+        if matches!(
+            ratio.as_str(),
+            "16:9" | "9:16" | "3:4" | "4:3" | "1:1" | "21:9" | "adaptive"
+        ) {
+            body.insert("aspect_ratio".to_string(), Value::String(ratio));
+        }
+    }
+    let mut image_inputs = Vec::new();
+    let mut video_inputs = Vec::new();
+    let mut audio_inputs = Vec::new();
+    for input in inputs {
+        let mime = input.mime_type.as_deref().unwrap_or("image/*");
+        let encoded = Value::String(sub2api_input_string(input));
+        if mime.starts_with("video/") {
+            video_inputs.push(encoded);
+        } else if mime.starts_with("audio/") {
+            audio_inputs.push(encoded);
+        } else {
+            image_inputs.push(encoded);
+        }
+    }
+    let first_last = parameter_string(parameters, &["frameMode", "frame_mode"])
+        .is_some_and(|mode| mode == "firstLast" || mode == "first_last");
+    let first_frame_semantics = first_last
+        || matches!(
+            operation,
+            MediaOperation::ImageToVideo | MediaOperation::Extend | MediaOperation::Edit
+        );
+    let mut image_iter = image_inputs.into_iter();
+    if first_frame_semantics {
+        if let Some(first) = image_iter.next() {
+            body.insert("image".to_string(), first);
+        }
+        if first_last {
+            if let Some(tail) = image_iter.next() {
+                body.insert("image_tail".to_string(), tail);
+            }
+        }
+    }
+    let remaining: Vec<Value> = image_iter.collect();
+    if !remaining.is_empty() {
+        body.insert("images".to_string(), Value::Array(remaining));
+    }
+    match video_inputs.len() {
+        0 => {}
+        1 => {
+            body.insert(
+                "video".to_string(),
+                video_inputs.into_iter().next().unwrap_or(Value::Null),
+            );
+        }
+        _ => {
+            body.insert("video".to_string(), Value::Array(video_inputs));
+        }
+    }
+    match audio_inputs.len() {
+        0 => {}
+        1 => {
+            body.insert(
+                "audio".to_string(),
+                audio_inputs.into_iter().next().unwrap_or(Value::Null),
+            );
+        }
+        _ => {
+            body.insert("audio".to_string(), Value::Array(audio_inputs));
+        }
+    }
+    Ok(())
+}
+
+/// Sub2API accepts URLs everywhere and base64 data URLs on image tasks.
+/// Local staged assets only exist as bytes, so data URLs are the best-effort
+/// encoding; if the video endpoint insists on public HTTPS links the task
+/// fails with the upstream reason and is not billed.
+fn sub2api_input_string(input: &MediaInputAsset) -> String {
+    if let Some(url) = &input.url {
+        return url.clone();
+    }
+    let mime = input.mime_type.as_deref().unwrap_or("image/png");
+    format!(
+        "data:{mime};base64,{}",
+        input.data.as_deref().unwrap_or_default()
+    )
+}
+
+fn is_valid_sub2api_size(value: &str) -> bool {
+    let normalized = value.trim().to_ascii_lowercase();
+    if matches!(normalized.as_str(), "1k" | "2k" | "4k" | "auto") {
+        return true;
+    }
+    let Some((width, height)) = normalized.split_once('x') else {
+        return false;
+    };
+    let valid_side = |side: &str| {
+        (2..=5).contains(&side.len()) && side.bytes().all(|byte| byte.is_ascii_digit())
+    };
+    valid_side(width) && valid_side(height)
+}
+
+/// List the model ids a media provider exposes to this API key.
+///
+/// Gateways in the one-api/sub2api family (and OpenAI itself) expose
+/// `GET /v1/models` filtered to the key's group. When the configured base URL
+/// already ends in `/v1` only `<base>/models` is tried; otherwise
+/// `<base>/v1/models` is tried first with `<base>/models` as fallback.
+pub async fn fetch_provider_model_ids(
+    base_url: &str,
+    api_key: Option<&str>,
+    timeout: Duration,
+) -> AppResult<Vec<String>> {
+    let normalized = normalize_base_url(base_url)?;
+    let base = parse_provider_url(&normalized)?;
+    let ends_with_version = base
+        .path()
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .is_some_and(|segment| {
+            segment.len() >= 2
+                && segment.starts_with('v')
+                && segment[1..].bytes().all(|byte| byte.is_ascii_digit())
+        });
+    let candidates: Vec<Url> = if ends_with_version {
+        vec![base.join("models")]
+    } else {
+        vec![base.join("v1/models"), base.join("models")]
+    }
+    .into_iter()
+    .collect::<Result<_, _>>()
+    .map_err(|_| provider_config_error("provider base URL is invalid"))?;
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(timeout.clamp(Duration::from_secs(1), MAX_TIMEOUT))
+        // Some gateways sit behind Cloudflare rules that reject UA-less
+        // clients (error 1010); a browser-style UA keeps listings reachable.
+        .user_agent("Mozilla/5.0 (compatible; CC-Panes)")
+        .build()
+        .map_err(|_| provider_config_error("failed to create provider HTTP client"))?;
+    let mut last_error = AppError::coded(
+        "MEDIA_PROVIDER_MODELS",
+        "provider did not return a model list",
+    );
+    for url in candidates {
+        let mut builder = client.get(url).header(ACCEPT, "application/json");
+        if let Some(api_key) = api_key.filter(|key| !key.is_empty()) {
+            let value = HeaderValue::from_str(&format!("Bearer {api_key}")).map_err(|_| {
+                provider_config_error("provider API key contains invalid HTTP characters")
+            })?;
+            builder = builder.header(AUTHORIZATION, value);
+        }
+        let response = match builder.send().await {
+            Ok(response) => response,
+            Err(error) => {
+                last_error = http_transport_error(error);
+                continue;
+            }
+        };
+        let status = response.status();
+        if !status.is_success() {
+            let excerpt = response
+                .bytes()
+                .await
+                .ok()
+                .map(|bytes| {
+                    String::from_utf8_lossy(&bytes[..bytes.len().min(300)])
+                        .replace(['\r', '\n'], " ")
+                        .trim()
+                        .to_string()
+                })
+                .filter(|text| !text.is_empty());
+            let redacted = excerpt
+                .map(|text| match api_key.filter(|key| !key.is_empty()) {
+                    Some(secret) => text.replace(secret, "[REDACTED]"),
+                    None => text,
+                })
+                .map(|text| format!(": {}", truncate_text(&text)))
+                .unwrap_or_default();
+            last_error = AppError::coded(
+                "MEDIA_PROVIDER_MODELS",
+                format!("model listing returned HTTP {}{redacted}", status.as_u16()),
+            );
+            continue;
+        }
+        let value = read_json(response).await?;
+        let items = value
+            .get("data")
+            .and_then(Value::as_array)
+            .or_else(|| value.as_array());
+        let Some(items) = items else {
+            last_error = AppError::coded(
+                "MEDIA_PROVIDER_MODELS",
+                "provider returned an unrecognized model list shape",
+            );
+            continue;
+        };
+        let mut ids: Vec<String> = items
+            .iter()
+            .filter_map(|item| {
+                item.as_str()
+                    .map(str::to_string)
+                    .or_else(|| string_field(item, &["id", "name", "model"]))
+            })
+            .filter(|id| !id.trim().is_empty())
+            .collect();
+        ids.sort();
+        ids.dedup();
+        if ids.is_empty() {
+            last_error = AppError::coded(
+                "MEDIA_PROVIDER_MODELS",
+                "provider returned an empty model list",
+            );
+            continue;
+        }
+        return Ok(ids);
+    }
+    Err(last_error)
+}
+
+fn parameter_string(parameters: &Map<String, Value>, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        parameters
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    })
+}
+
+fn parameter_u64(parameters: &Map<String, Value>, keys: &[&str]) -> Option<u64> {
+    keys.iter().find_map(|key| {
+        let value = parameters.get(*key)?;
+        value
+            .as_f64()
+            .or_else(|| value.as_str()?.parse::<f64>().ok())
+            .filter(|number| number.is_finite() && *number >= 0.0)
+            .map(|number| number.round() as u64)
+    })
 }
 
 /// Parse a successful OpenAI-style generation response without making a

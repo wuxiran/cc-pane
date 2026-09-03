@@ -1,20 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FolderOpen, ImagePlus, Video } from "lucide-react";
+import { FolderOpen, ImagePlus, Sparkles, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { SegmentedTabs } from "@/components/ui/segmented";
 import MediaWorkspaceNavigator from "./MediaWorkspaceNavigator";
 import MediaProviderSection from "./MediaProviderSection";
 import MediaGenerationForm, { type MediaGenerationValues } from "./MediaGenerationForm";
 import MediaCanvasView from "./MediaCanvasView";
 import MediaHistoryPanel from "./MediaHistoryPanel";
+import MediaPromptCopilot from "./MediaPromptCopilot";
 import { mediaService } from "@/services/mediaService";
 import { useMediaStore, useMediaStudioStore, useWorkspacesStore } from "@/stores";
 import { legacyMediaLayoutId, useMediaCanvasStore } from "@/stores/useMediaCanvasStore";
 import { getErrorMessage } from "@/utils";
 import type { MediaStudioKind } from "@/stores/useMediaStudioStore";
-import type { MediaCanvasSpace, MediaInputAssetSelection, MediaNode, MediaProviderCapabilities, MediaProtocol, MediaScope } from "@/types/media";
-import type { Provider } from "@/types/provider";
+import { MEDIA_NODE_SUBTYPE_PARAMETER, type MediaCanvasSpace, type MediaInputAssetSelection, type MediaNode, type MediaProviderCapabilities, type MediaProtocol, type MediaScope } from "@/types/media";
 
 interface MediaStudioProps {
   kind: MediaStudioKind;
@@ -38,12 +39,13 @@ export default function MediaStudio({ kind, onKindChange }: MediaStudioProps) {
   const ensureProjectCanvasSpace = useMediaCanvasStore((state) => state.ensureProjectSpace);
   const activateCanvasSpace = useMediaCanvasStore((state) => state.activateSpace);
   const selectedWorkspace = useWorkspacesStore((state) => state.workspaces.find((workspace) => workspace.id === selection.workspaceId));
-  const updateWorkspaceProvider = useWorkspacesStore((state) => state.updateWorkspaceProvider);
   const projectedNodes = useMediaStore((state) => state.nodes);
   const [mediaNodes, setMediaNodes] = useState<MediaNode[]>([]);
   const [providerCapabilities, setProviderCapabilities] = useState<MediaProviderCapabilities | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
   const [linkedInput, setLinkedInput] = useState<MediaInputAssetSelection | null>(null);
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const [promptOverride, setPromptOverride] = useState<{ value: string; token: number } | null>(null);
   const activeCanvasSpace = useMemo(() => {
     if (!selection.workspaceId) return null;
     const activeId = activeCanvasSpaceIds[selection.workspaceId];
@@ -114,7 +116,7 @@ export default function MediaStudio({ kind, onKindChange }: MediaStudioProps) {
     setProviderCapabilities(null);
     if (!selection.providerId) return () => { cancelled = true; };
     void mediaService
-      .getProviderCapabilities(selection.providerId, selection.protocol ?? "open_ai_compatible")
+      .getProviderCapabilities(selection.providerId, selection.protocol ?? "sub2api")
       .then((capabilities) => {
         if (!cancelled) setProviderCapabilities(capabilities);
       })
@@ -124,11 +126,56 @@ export default function MediaStudio({ kind, onKindChange }: MediaStudioProps) {
     return () => { cancelled = true; };
   }, [selection.protocol, selection.providerId]);
 
+  // Cmd/Ctrl+K opens the prompt copilot while the media studio is mounted.
+  // Capture phase wins over the global command-palette shortcut, mirroring
+  // how the studio owns its own context.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "k" || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setCopilotOpen((current) => !current);
+    };
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
+  }, []);
+
+  const handleApplyPrompt = useCallback((text: string) => {
+    setPromptOverride({ value: text, token: Date.now() });
+  }, []);
+
+  const handleSavePromptNode = useCallback(async (text: string) => {
+    if (!selection.workspaceId || !generationLayoutId) {
+      toast.error(t("selectWorkspaceProjectModel"));
+      return;
+    }
+    try {
+      await mediaService.createNode({
+        workspaceId: selection.workspaceId,
+        layoutId: generationLayoutId,
+        kind: "image",
+        title: text.slice(0, 48) || t("nodeTypeText"),
+        defaultOperation: "textToImage",
+        parameters: {
+          [MEDIA_NODE_SUBTYPE_PARAMETER]: "text",
+          contentText: text,
+          ...(mediaScope ? { mediaScope } : {}),
+        },
+      });
+      setRefreshToken((value) => value + 1);
+      toast.success(t("copilotSavedNode"));
+    } catch (error) {
+      toast.error(t("nodeCreateFailed", { message: getErrorMessage(error) }));
+    }
+  }, [generationLayoutId, mediaScope, selection.workspaceId, t]);
+
+  // 媒体 Provider 与工作空间的 LLM Provider 解耦（docs/99 B2）：切换工作空间
+  // 只影响 scope，不再把工作空间的 CLI Provider 当媒体 Provider 默认值。
   const handleWorkspaceChange = useCallback((workspaceId: string) => {
     const workspace = useWorkspacesStore.getState().workspaces.find((item) => item.id === workspaceId);
     const projectId = workspace?.projects[0]?.id ?? null;
-    setSelection(kind, { workspaceId, projectId, providerId: workspace?.providerId ?? selection.providerId, modelId: null });
-  }, [kind, selection.providerId, setSelection]);
+    setSelection(kind, { workspaceId, projectId });
+  }, [kind, setSelection]);
 
   const handleProjectChange = useCallback((projectId: string) => setSelection(kind, { projectId }), [kind, setSelection]);
 
@@ -155,10 +202,8 @@ export default function MediaStudio({ kind, onKindChange }: MediaStudioProps) {
     setSelection(kind, {
       workspaceId: scope.workspaceId,
       projectId,
-      providerId: workspace?.providerId ?? selection.providerId,
-      modelId: scope.workspaceId === selection.workspaceId ? selection.modelId : null,
     });
-  }, [createCanvasSpace, kind, nextCanvasName, selection.modelId, selection.projectId, selection.providerId, selection.workspaceId, setSelection]);
+  }, [createCanvasSpace, kind, nextCanvasName, selection.projectId, selection.workspaceId, setSelection]);
   const handleCanvasChange = useCallback((space: MediaCanvasSpace) => {
     const workspace = useWorkspacesStore.getState().workspaces.find((item) => item.id === space.workspaceId);
     const projectId = space.projectId
@@ -169,10 +214,8 @@ export default function MediaStudio({ kind, onKindChange }: MediaStudioProps) {
     setSelection(kind, {
       workspaceId: space.workspaceId,
       projectId,
-      providerId: workspace?.providerId ?? selection.providerId,
-      modelId: space.workspaceId === selection.workspaceId ? selection.modelId : null,
     });
-  }, [activateCanvasSpace, kind, selection.modelId, selection.projectId, selection.providerId, selection.workspaceId, setSelection]);
+  }, [activateCanvasSpace, kind, selection.projectId, selection.workspaceId, setSelection]);
   const handleUseOutput = useCallback((next: MediaInputAssetSelection) => {
     const operation = operationForLinkedInput(kind, next.mediaKind);
     if (!operation || (providerCapabilities && !providerCapabilities.operations.includes(operation))) {
@@ -181,12 +224,6 @@ export default function MediaStudio({ kind, onKindChange }: MediaStudioProps) {
     }
     setLinkedInput(next);
   }, [kind, providerCapabilities, t]);
-
-  async function handleProviderSaved(provider: Provider) {
-    if (selectedWorkspace) {
-      try { await updateWorkspaceProvider(selectedWorkspace.name, provider.id); } catch { /* Provider is still usable for this studio. */ }
-    }
-  }
 
   async function handleGenerate(values: MediaGenerationValues) {
     if (!selection.workspaceId || !selection.projectId || !generationLayoutId || !selection.providerId || !selection.modelId || !mediaScope) {
@@ -198,7 +235,7 @@ export default function MediaStudio({ kind, onKindChange }: MediaStudioProps) {
     // as display metadata only.
     const generationParameters = {
       ...values.parameters,
-      providerProtocol: selection.protocol ?? "open_ai_compatible",
+      providerProtocol: selection.protocol ?? "sub2api",
       mediaScope,
     };
     let inputAssetIds = [...new Set(values.inputAssetIds ?? [])];
@@ -280,6 +317,18 @@ export default function MediaStudio({ kind, onKindChange }: MediaStudioProps) {
           <span className="hidden truncate text-[10px] sm:inline" style={{ color: "var(--app-text-tertiary)" }}>{t("studioSubtitle")}</span>
         </div>
         <div className="min-w-0 flex-1" />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1.5 text-xs"
+          title={t("copilotShortcutHint")}
+          onClick={() => setCopilotOpen(true)}
+          data-testid="media-copilot-open"
+        >
+          <Sparkles className="size-3.5" aria-hidden="true" />
+          {t("promptCopilot")}
+        </Button>
         <SegmentedTabs<MediaStudioKind>
           aria-label={t("mediaKind")}
           value={kind}
@@ -301,12 +350,18 @@ export default function MediaStudio({ kind, onKindChange }: MediaStudioProps) {
               <p className="truncate text-[10px]" title={mediaScope.projectPath ?? undefined} style={{ color: "var(--app-text-tertiary)" }}>{mediaScope.projectPath ?? t("projectPathUnavailable")}</p>
             </div>
           </div> : null}
-          <MediaProviderSection providerId={selection.providerId} modelId={selection.modelId} protocol={selection.protocol ?? "open_ai_compatible"} capabilities={providerCapabilities} onProviderChange={handleProviderChange} onModelChange={handleModelChange} onProtocolChange={handleProtocolChange} onSaved={(provider) => void handleProviderSaved(provider)} />
-          <MediaGenerationForm kind={kind} providerId={selection.providerId} modelId={selection.modelId} protocol={selection.protocol} capabilities={providerCapabilities} disabled={!selection.workspaceId || !selection.projectId || !layoutId} linkedInput={linkedInput} onClearLinkedInput={() => setLinkedInput(null)} onGenerate={handleGenerate} />
+          <MediaProviderSection providerId={selection.providerId} modelId={selection.modelId} protocol={selection.protocol ?? "sub2api"} capabilities={providerCapabilities} onProviderChange={handleProviderChange} onModelChange={handleModelChange} onProtocolChange={handleProtocolChange} />
+          <MediaGenerationForm kind={kind} providerId={selection.providerId} modelId={selection.modelId} protocol={selection.protocol} capabilities={providerCapabilities} disabled={!selection.workspaceId || !selection.projectId || !layoutId} linkedInput={linkedInput} onClearLinkedInput={() => setLinkedInput(null)} onGenerate={handleGenerate} externalPrompt={promptOverride} />
           <MediaHistoryPanel nodes={mediaNodes} refreshToken={refreshToken + projectedNodes.length} targetKind={kind} onUseOutput={handleUseOutput} />
         </aside>
         <MediaCanvasView workspaceId={selection.workspaceId} layoutId={layoutId} activeSpace={activeCanvasSpace} spaces={workspaceCanvasSpaces} onSpaceChange={handleCanvasChange} refreshToken={refreshToken} />
       </div>
+      <MediaPromptCopilot
+        open={copilotOpen}
+        onOpenChange={setCopilotOpen}
+        onApplyPrompt={handleApplyPrompt}
+        onSaveNode={handleSavePromptNode}
+      />
     </div>
   );
 }

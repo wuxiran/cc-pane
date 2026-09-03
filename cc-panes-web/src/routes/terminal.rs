@@ -910,6 +910,7 @@ mod tests {
                 cc_panes_core::repository::MediaRepository::new(database.clone()),
             ))),
             layout_snapshot_service: Arc::new(LayoutSnapshotService::new(database.clone())),
+            drama_service: Arc::new(cc_panes_core::services::DramaService::new(database.clone())),
             launch_profile_service,
             quick_command_service: Arc::new(cc_panes_core::services::QuickCommandService::new(
                 app_paths.quick_commands_path(),

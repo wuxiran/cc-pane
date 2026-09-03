@@ -156,6 +156,9 @@ impl ProviderService {
             ProviderType::OpenCode => "opencode",
             ProviderType::Cursor => "cursor",
             ProviderType::Grok => "grok",
+            // 媒体 Provider 不属于任何 CLI；返回一个不会与 CLI id 撞车的桶名，
+            // 且所有默认位写入处都会先跳过 Media 类型。
+            ProviderType::Media => "media",
         }
     }
 
@@ -326,8 +329,12 @@ impl ProviderService {
 
         let default_cli = Self::native_cli_for_provider_type(provider.provider_type);
         let provider_id = provider.id.clone();
+        // 媒体 Provider 不参与任何 CLI 的默认凭证位。
+        let claims_default = provider.provider_type != ProviderType::Media;
         next.providers.push(provider);
-        if requested_as_default || !next.default_provider_ids.contains_key(default_cli) {
+        if claims_default
+            && (requested_as_default || !next.default_provider_ids.contains_key(default_cli))
+        {
             next.default_provider_ids
                 .insert(default_cli.to_string(), provider_id);
         }
@@ -356,8 +363,11 @@ impl ProviderService {
         provider.is_default = false;
         let default_cli = Self::native_cli_for_provider_type(provider.provider_type);
         let provider_id = provider.id.clone();
+        let claims_default = provider.provider_type != ProviderType::Media;
         next.providers.push(provider);
-        if requested_as_default || !next.default_provider_ids.contains_key(default_cli) {
+        if claims_default
+            && (requested_as_default || !next.default_provider_ids.contains_key(default_cli))
+        {
             next.default_provider_ids
                 .insert(default_cli.to_string(), provider_id);
         }
@@ -379,7 +389,10 @@ impl ProviderService {
             .with_context(|| format!("Provider '{}' not found", provider.id))?;
         let mut next = config.clone();
 
-        if provider.is_default && !next.providers[pos].is_default {
+        if provider.is_default
+            && !next.providers[pos].is_default
+            && provider.provider_type != ProviderType::Media
+        {
             let default_cli = Self::native_cli_for_provider_type(provider.provider_type);
             next.default_provider_ids
                 .insert(default_cli.to_string(), provider.id.clone());

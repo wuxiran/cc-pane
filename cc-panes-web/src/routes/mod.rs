@@ -1,4 +1,5 @@
 pub mod agent_sessions;
+pub mod drama;
 pub mod git;
 pub mod history;
 pub mod journal;
@@ -83,6 +84,10 @@ pub fn build_router(state: AppState) -> Router {
             "/api/media/capabilities",
             get(media::get_provider_capabilities),
         )
+        .route(
+            "/api/media/provider-models",
+            post(media::list_provider_models),
+        )
         .route("/api/media/nodes/{node_id}", get(media::get_node))
         .route("/api/media/nodes/{node_id}", put(media::update_node))
         .route("/api/media/nodes/{node_id}", delete(media::delete_node))
@@ -124,6 +129,28 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/media/edges", get(media::list_edges))
         .route("/api/media/edges/{edge_id}", get(media::get_edge))
         .route("/api/media/edges/{edge_id}", delete(media::delete_edge))
+        .route("/api/drama/projects", post(drama::create_project))
+        .route("/api/drama/projects", get(drama::list_projects))
+        .route("/api/drama/projects/{drama_id}", get(drama::get_project))
+        .route("/api/drama/projects/{drama_id}", put(drama::update_project))
+        .route(
+            "/api/drama/projects/{drama_id}",
+            delete(drama::delete_project),
+        )
+        .route("/api/drama/episodes", post(drama::create_episode))
+        .route("/api/drama/episodes", get(drama::list_episodes))
+        .route(
+            "/api/drama/episodes/{episode_id}",
+            put(drama::update_episode),
+        )
+        .route(
+            "/api/drama/episodes/{episode_id}",
+            delete(drama::delete_episode),
+        )
+        .route("/api/drama/shots", post(drama::create_shot))
+        .route("/api/drama/shots", get(drama::list_shots))
+        .route("/api/drama/shots/{shot_id}", put(drama::update_shot))
+        .route("/api/drama/shots/{shot_id}", delete(drama::delete_shot))
         .route("/api/launch-history", get(history::list_launch_history))
         .route("/api/launch-history", post(history::add_launch_history))
         .route("/api/launch-history", delete(history::clear_launch_history))

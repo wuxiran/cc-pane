@@ -46,7 +46,7 @@ function setExperimental(flags: Partial<ExperimentalSettings>) {
   useSettingsStore.setState({
     settings: {
       ...defaults,
-      experimental: { mediaGeneration: false, skillMarket: false, ...flags },
+      experimental: { mediaGeneration: false, dramaStudio: false, skillMarket: false, ...flags },
     },
   });
 }

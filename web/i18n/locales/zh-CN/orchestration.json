@@ -140,6 +140,23 @@
     "upscale": "放大",
     "extend": "延长"
   },
+  "canvasMediaSubtype": {
+    "text": "文本",
+    "script": "脚本",
+    "audio": "音频",
+    "board": "站位板",
+    "storyboard": "分镜格子"
+  },
+  "canvasDeleteNode": "删除节点 {{name}}",
+  "canvasDeleteNodeConfirm": "确定删除节点“{{name}}”？其生成记录将一并隐藏。",
+  "canvasNodeActions": "节点操作：{{name}}",
+  "canvasMediaOpenOriginal": "查看原图/原片",
+  "canvasMediaRevealInFolder": "在文件夹中显示",
+  "canvasMediaRegenerate": "再次生成",
+  "canvasMediaNoRunToReplay": "该节点还没有可重跑的生成记录",
+  "canvasRenameNode": "重命名",
+  "canvasRenameNodePrompt": "新的节点标题",
+  "canvasMediaDisconnect": "移除全部连线",
   "canvasStatus": {
     "pending": "待执行",
     "running": "运行中",

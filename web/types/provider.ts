@@ -12,7 +12,16 @@ export type ProviderType =
   | "glm"
   | "opencode"
   | "cursor"
-  | "grok";
+  | "grok"
+  | "media";
+
+/**
+ * 媒体生成 Provider（图片/视频 API）。只被媒体工作台使用：不注入 CLI 环境
+ * 变量，也不出现在任何 LLM/终端 Provider 选择里。
+ */
+export function isMediaProvider(provider: Pick<Provider, "providerType">): boolean {
+  return provider.providerType === "media";
+}
 
 export interface ProviderModel {
   id: string;
@@ -148,7 +157,8 @@ export type ProviderTypeLabelKey =
   | "providerTypeGlmLabel"
   | "providerTypeOpenCodeLabel"
   | "providerTypeCursorLabel"
-  | "providerTypeGrokLabel";
+  | "providerTypeGrokLabel"
+  | "providerTypeMediaLabel";
 
 export type ProviderTypeDescKey =
   | "providerTypeAnthropicDesc"
@@ -162,7 +172,8 @@ export type ProviderTypeDescKey =
   | "providerTypeGlmDesc"
   | "providerTypeOpenCodeDesc"
   | "providerTypeCursorDesc"
-  | "providerTypeGrokDesc";
+  | "providerTypeGrokDesc"
+  | "providerTypeMediaDesc";
 
 export const PROVIDER_TYPE_META: Record<
   ProviderType,
@@ -226,6 +237,11 @@ export const PROVIDER_TYPE_META: Record<
   grok: {
     labelKey: "providerTypeGrokLabel",
     descriptionKey: "providerTypeGrokDesc",
+    fields: ["apiKey", "baseUrl"],
+  },
+  media: {
+    labelKey: "providerTypeMediaLabel",
+    descriptionKey: "providerTypeMediaDesc",
     fields: ["apiKey", "baseUrl"],
   },
 };

@@ -14,11 +14,11 @@ use cc_panes_core::{
     },
     services::{
         terminal_service::{SessionOutput, SessionStatus},
-        FileSystemService, HistoryService, LaunchHistoryService, LayoutSnapshotService,
-        McpConfigService, PlanService, ProcessMonitorService, ProjectService, ProviderService,
-        RunnerService, SessionRestoreService, SettingsService, SharedMcpService, SpecService,
-        SshCredentialService, SshMachineService, TaskBindingService, TerminalBackend, TodoService,
-        WorkspaceService, WorktreeService,
+        DramaService, FileSystemService, HistoryService, LaunchHistoryService,
+        LayoutSnapshotService, McpConfigService, PlanService, ProcessMonitorService,
+        ProjectService, ProviderService, RunnerService, SessionRestoreService, SettingsService,
+        SharedMcpService, SpecService, SshCredentialService, SshMachineService, TaskBindingService,
+        TerminalBackend, TodoService, WorkspaceService, WorktreeService,
     },
     utils::{AppPaths, AppResult},
 };
@@ -158,6 +158,7 @@ fn test_state(name: &str) -> crate::state::AppState {
             cc_panes_core::repository::MediaRepository::new(db.clone()),
         ))),
         layout_snapshot_service: Arc::new(LayoutSnapshotService::new(db.clone())),
+        drama_service: Arc::new(DramaService::new(db.clone())),
         launch_profile_service,
         quick_command_service: Arc::new(cc_panes_core::services::QuickCommandService::new(
             app_paths.quick_commands_path(),

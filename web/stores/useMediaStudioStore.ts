@@ -23,7 +23,8 @@ const emptySelection = (): MediaStudioSelection => ({
   projectId: null,
   providerId: null,
   modelId: null,
-  protocol: "open_ai_compatible",
+  // The nocannobb hub (Sub2API task protocol) is the primary media gateway.
+  protocol: "sub2api",
 });
 
 export const useMediaStudioStore = create<MediaStudioState>()(
@@ -76,7 +77,7 @@ export const useMediaStudioStore = create<MediaStudioState>()(
     }),
     {
       name: "cc-panes-media-studio",
-      version: 2,
+      version: 3,
       // API keys are deliberately excluded. ProviderService remains the only
       // persistence boundary for credentials.
       partialize: (state) => ({
@@ -87,16 +88,23 @@ export const useMediaStudioStore = create<MediaStudioState>()(
           ]),
         ),
       }),
-      migrate: (persistedState) => {
+      migrate: (persistedState, version) => {
         const persisted = persistedState as Partial<MediaStudioState> | undefined;
         const persistedSelections = persisted?.selections;
+        // Before v3 the default protocol was open_ai_compatible, so that value
+        // is a stale default rather than a user choice (the media stack never
+        // shipped a working OpenAI path). Move those to the sub2api default.
+        const migrateProtocol = (selection: Partial<MediaStudioSelection>): Partial<MediaStudioSelection> =>
+          version < 3 && selection.protocol === "open_ai_compatible"
+            ? { ...selection, protocol: "sub2api" }
+            : selection;
         const image = {
           ...emptySelection(),
-          ...(persistedSelections?.image ?? {}),
+          ...migrateProtocol(persistedSelections?.image ?? {}),
         };
         const video = {
           ...emptySelection(),
-          ...(persistedSelections?.video ?? {}),
+          ...migrateProtocol(persistedSelections?.video ?? {}),
         };
         // Older versions kept two independent roots. Prefer the image scope
         // when present, then fall back to video, and migrate both together.

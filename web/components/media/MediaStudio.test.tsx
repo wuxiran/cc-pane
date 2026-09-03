@@ -56,6 +56,7 @@ vi.mock("@/services/mediaService", () => ({
 }));
 
 vi.mock("./MediaWorkspaceNavigator", () => ({ default: () => null }));
+vi.mock("./MediaPromptCopilot", () => ({ default: () => null }));
 vi.mock("./MediaProviderSection", () => ({
   default: ({ capabilities }: { capabilities?: { operations: string[] } | null }) => (
     <span data-testid="mock-capabilities">{capabilities?.operations.join(",")}</span>

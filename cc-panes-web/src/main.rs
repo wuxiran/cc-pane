@@ -14,11 +14,11 @@ use cc_panes_core::{
         SpecRepository, TaskBindingRepository, TodoRepository, UsageStatsRepository,
     },
     services::{
-        registry_from_providers, ComfyEventStream, DaemonTerminalBackend, FileSystemService,
-        HistoryService, InProcessTerminalBackend, JournalService, LaunchHistoryService,
-        LaunchProfileService, LayoutSnapshotService, McpConfigService, MediaJobWorker,
-        MemoryService, PlanService, ProcessMonitorService, ProjectCliHooksService, ProjectService,
-        ProviderService, QuickCommandService, RunnerService, SessionIndexService,
+        registry_from_providers, ComfyEventStream, DaemonTerminalBackend, DramaService,
+        FileSystemService, HistoryService, InProcessTerminalBackend, JournalService,
+        LaunchHistoryService, LaunchProfileService, LayoutSnapshotService, McpConfigService,
+        MediaJobWorker, MemoryService, PlanService, ProcessMonitorService, ProjectCliHooksService,
+        ProjectService, ProviderService, QuickCommandService, RunnerService, SessionIndexService,
         SessionRestoreService, SettingsService, SharedMcpService, SkillService, SpecService,
         SshCredentialService, SshMachineService, TaskBindingService, TerminalBackend,
         TerminalDaemonClient, TerminalService, TodoService, UsageStatsService, UserSkillService,
@@ -275,6 +275,7 @@ async fn main() -> anyhow::Result<()> {
     ));
     media_service.set_workspace_service(workspace_service.clone());
     let layout_snapshot_service = Arc::new(LayoutSnapshotService::new(database.clone()));
+    let drama_service = Arc::new(DramaService::new(database.clone()));
     let session_restore_service = Arc::new(SessionRestoreService::new(
         database.clone(),
         app_paths.clone(),
@@ -380,6 +381,7 @@ async fn main() -> anyhow::Result<()> {
         task_binding_service,
         launch_history_service,
         media_service,
+        drama_service,
         layout_snapshot_service,
         launch_profile_service,
         quick_command_service,

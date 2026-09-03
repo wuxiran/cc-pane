@@ -241,6 +241,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
     },
     experimental: {
       mediaGeneration: false,
+      dramaStudio: false,
       skillMarket: false,
     },
     ...overrides,

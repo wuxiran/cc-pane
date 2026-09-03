@@ -4,23 +4,27 @@ import { describe, expect, it, vi } from "vitest";
 import MediaGenerationForm from "./MediaGenerationForm";
 
 describe("MediaGenerationForm", () => {
-  it("submits reproducible image parameters and variant seeds", async () => {
+  it("hides SD tuning fields for the OpenAI-compatible protocol and submits base parameters", async () => {
     const onGenerate = vi.fn().mockResolvedValue(undefined);
     render(
       <MediaGenerationForm
         kind="image"
         providerId="provider-1"
         modelId="model-1"
+        protocol="open_ai_compatible"
         onGenerate={onGenerate}
       />,
     );
 
+    // SD-only knobs never render outside the ComfyUI protocol (docs/99 P0);
+    // the backend additionally whitelists the wire body.
+    expect(screen.queryByLabelText("负面提示词")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("采样步数")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("引导强度")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Seed")).not.toBeInTheDocument();
+
     fireEvent.change(screen.getByLabelText("提示词"), { target: { value: "a red kite" } });
-    fireEvent.change(screen.getByLabelText("负面提示词"), { target: { value: "blurry" } });
     fireEvent.change(screen.getByLabelText("张数"), { target: { value: "3" } });
-    fireEvent.change(screen.getByLabelText("采样步数"), { target: { value: "36" } });
-    fireEvent.change(screen.getByLabelText("引导强度"), { target: { value: "6.5" } });
-    fireEvent.change(screen.getByLabelText("Seed"), { target: { value: "42" } });
     fireEvent.click(screen.getByRole("button", { name: "生成图片" }));
 
     await waitFor(() => expect(onGenerate).toHaveBeenCalledTimes(1));
@@ -31,14 +35,28 @@ describe("MediaGenerationForm", () => {
       parameters: expect.objectContaining({
         n: 3,
         batchSize: 3,
-        steps: 36,
-        cfgScale: 6.5,
-        negativePrompt: "blurry",
-        seed: 42,
         seedMode: "random",
-        variantSeeds: [42, 42, 42],
       }),
     }));
+  });
+
+  it("hides tuning fields the sub2api task protocol does not accept", () => {
+    render(
+      <MediaGenerationForm
+        kind="image"
+        providerId="provider-1"
+        modelId="model-1"
+        protocol="sub2api"
+        onGenerate={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    expect(screen.getByLabelText("提示词")).toBeInTheDocument();
+    expect(screen.getByLabelText("张数")).toBeInTheDocument();
+    expect(screen.queryByLabelText("负面提示词")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("采样步数")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("引导强度")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Seed")).not.toBeInTheDocument();
   });
 
   it("filters generation modes to the adapter capability contract", () => {

@@ -12,6 +12,7 @@ export type AppViewMode =
   | "providers"
   | "imageGen"
   | "videoGen"
+  | "dramaGen"
   | "skillMarket"
   | "orchestration";
 
@@ -19,6 +20,7 @@ export type AppViewMode =
 const GATED_MODES = {
   imageGen: "mediaGeneration",
   videoGen: "mediaGeneration",
+  dramaGen: "dramaStudio",
   skillMarket: "skillMarket",
 } as const;
 
@@ -54,6 +56,7 @@ interface ActivityBarState {
   toggleMediaMode: () => void;
   toggleImageGenMode: () => void;
   toggleVideoGenMode: () => void;
+  toggleDramaGenMode: () => void;
   toggleSkillMarketMode: () => void;
 }
 
@@ -214,6 +217,17 @@ export const useActivityBarStore = create<ActivityBarState>()(
           return {
             appViewMode: leavingMedia ? "panes" : "videoGen",
             sidebarVisible: leavingMedia,
+            orchestrationOverlayOpen: false,
+          };
+        }),
+
+      toggleDramaGenMode: () =>
+        set((s) => {
+          const leaving = s.appViewMode === "dramaGen";
+          if (!leaving && !gatedModeEnabled("dramaGen")) return {};
+          return {
+            appViewMode: leaving ? "panes" : "dramaGen",
+            sidebarVisible: leaving,
             orchestrationOverlayOpen: false,
           };
         }),

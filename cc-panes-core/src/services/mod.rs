@@ -13,6 +13,7 @@ pub mod cursor_bridge_service;
 pub mod cursor_session_service;
 mod daemon_client;
 pub mod default_skill_service;
+mod drama_service;
 pub mod dsh_service;
 mod external_skill_registry;
 pub mod external_usage_session_service;
@@ -112,6 +113,7 @@ pub use default_skill_service::{
     BundledSkillInfo, DefaultSkillCleanupReport, DefaultSkillService,
     LEGACY_CLEANUP_REPORT_FILE_NAME, MANAGED_SKILLS_SUBDIR,
 };
+pub use drama_service::DramaService;
 pub use dsh_service::DshService;
 pub use external_skill_registry::{
     parse_skill_metadata, skill_frontmatter_field, ExternalSkillRegistry,
@@ -133,13 +135,14 @@ pub use media_probe::{
     MEDIA_PROBE_EXECUTABLE_ENV,
 };
 pub use media_provider::{
-    apply_media_run_protocol, parse_openai_status_response, parse_openai_submit_response,
-    parse_openai_submit_response_for_kind, parse_status_response, parse_status_response_for_kind,
-    parse_submit_response, parse_submit_response_for_kind, registry_from_providers,
-    DownloadedAsset, MediaHttpMethod, MediaInputAsset, MediaJobStatus, MediaProtocol,
-    MediaProviderAdapter, MediaProviderCapabilities, MediaProviderFuture, MediaProviderProfile,
-    MediaProviderRegistry, NormalizedMediaRequest, OpenAiCompatibleMediaAdapter, RemoteJob,
-    RemoteJobError, RemoteJobStatus, RemoteOutput,
+    apply_media_run_protocol, fetch_provider_model_ids, parse_openai_status_response,
+    parse_openai_submit_response, parse_openai_submit_response_for_kind, parse_status_response,
+    parse_status_response_for_kind, parse_submit_response, parse_submit_response_for_kind,
+    registry_from_providers, sub2api_wire_body, DownloadedAsset, MediaHttpMethod, MediaInputAsset,
+    MediaJobStatus, MediaProtocol, MediaProviderAdapter, MediaProviderCapabilities,
+    MediaProviderFuture, MediaProviderProfile, MediaProviderRegistry, NormalizedMediaRequest,
+    OpenAiCompatibleMediaAdapter, RemoteJob, RemoteJobError, RemoteJobStatus, RemoteOutput,
+    Sub2ApiMediaAdapter,
 };
 pub use media_runtime::{DeterministicMockMediaProvider, MediaJobWorker};
 pub use media_service::MediaService;
