@@ -661,7 +661,9 @@ mod tests {
     fn a_normal_wakeup_resets_the_stall_streak() {
         // 最容易写错的一条：若连击计数只增不清，偶发抖动累积起来早晚误判成卡死，
         // 于是好端端的终端每隔一阵就整屏重建一次。
-        let gate = Arc::new(flooded_gate(Duration::from_millis(40)));
+        // failsafe 必须明显长于 ACK 线程的调度延迟——CI macOS runner 上 10ms vs 40ms
+        // 会让第二次 park 先超时，streak 升到 2 误报 Stalled。
+        let gate = Arc::new(flooded_gate(Duration::from_millis(800)));
         let cancelled = AtomicBool::new(false);
 
         // 先攒够一次超时
@@ -671,7 +673,7 @@ mod tests {
         gate.note_sent(Some(PRODUCER_FLOW_HIGH_WATERMARK_BYTES * 8));
         let waker = Arc::clone(&gate);
         let handle = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(10));
+            std::thread::sleep(Duration::from_millis(20));
             waker.note_acked(PRODUCER_FLOW_HIGH_WATERMARK_BYTES * 8);
         });
         assert_eq!(gate.park_if_paused(&cancelled), ParkOutcome::Resumed);
