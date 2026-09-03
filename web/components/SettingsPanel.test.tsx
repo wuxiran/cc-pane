@@ -163,20 +163,12 @@ describe("SettingsPanel", () => {
     for (const group of ["application", "services"] as const) {
       expect(screen.getByText(tSettings(`groups.${group}`))).toBeInTheDocument();
     }
-    const expectedTabs = [
-      ["general", "general"],
-      ["terminal", "terminal"],
-      ["provider", "launchProfilesTab"],
-      ["proxy", "proxy"],
-      ["usage-stats", "pages.usageStats.title"],
-      ["about", "pages.about.title"],
-    ] as const;
-    for (const [, translationKey] of expectedTabs) {
-      expect(screen.getByRole("tab", { name: tSettings(translationKey) })).toBeInTheDocument();
+    for (const page of ["general", "terminal", "aiTools", "system", "usageStats", "about"] as const) {
+      expect(screen.getByRole("button", { name: tSettings(`pages.${page}.title`) })).toBeInTheDocument();
     }
-    expect(screen.getByRole("tab", { name: tSettings("setupGuide.title") })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: tSettings("experimental.title") })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: tSettings("pages.general.title"), level: 3 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: tSettings("setupGuide.title") })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: tSettings("experimental.title") })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: tSettings("pages.general.title") })).not.toBeInTheDocument();
     expect(screen.getByRole("tablist", { name: tSettings("paneNavigation") })).toBeInTheDocument();
     expect(screen.getByText("CC-Panes")).toBeInTheDocument();
   });
@@ -205,11 +197,11 @@ describe("SettingsPanel", () => {
     const user = userEvent.setup();
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
-    await user.click(screen.getByRole("tab", { name: tSettings("terminal") }));
+    await user.click(screen.getByRole("button", { name: tSettings("pages.terminal.title") }));
     expect(await screen.findByTestId("terminal-section")).toBeInTheDocument();
     expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: tSettings("launchProfilesTab") }));
+    await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
     await user.click(screen.getByRole("tab", { name: tSettings("sharedMcp.title") }));
     expect(await screen.findByTestId("shared-mcp-section")).toBeInTheDocument();
 
@@ -223,7 +215,7 @@ describe("SettingsPanel", () => {
     const user = userEvent.setup();
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
-    await user.click(screen.getByRole("tab", { name: tSettings("launchProfilesTab") }));
+    await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
 
     const providerSection = await screen.findByTestId("provider-section");
     const paneRoot = providerSection.closest('[data-settings-section="provider-root"]');
@@ -234,7 +226,7 @@ describe("SettingsPanel", () => {
     const user = userEvent.setup();
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
-    await user.click(screen.getByRole("tab", { name: tSettings("launchProfilesTab") }));
+    await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
     expect(await screen.findByTestId("provider-section")).toHaveAttribute("data-view", "profiles");
 
     await user.click(screen.getByRole("tab", { name: tSettings("providerCredentialsTab") }));
@@ -245,9 +237,9 @@ describe("SettingsPanel", () => {
     const user = userEvent.setup();
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
-    await user.click(screen.getByRole("tab", { name: tSettings("launchProfilesTab") }));
+    await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
     await user.click(await screen.findByRole("button", { name: "mark-provider-settings-dirty" }));
-    await user.click(screen.getByRole("tab", { name: tSettings("general") }));
+    await user.click(screen.getByRole("button", { name: tSettings("pages.general.title") }));
 
     expect(screen.getByTestId("provider-section")).toBeInTheDocument();
     expect(await screen.findByRole("dialog", { name: i18n.t("unsavedChangesTitle", { ns: "common" }) })).toBeVisible();
@@ -261,7 +253,7 @@ describe("SettingsPanel", () => {
     const onOpenChange = vi.fn();
     render(<SettingsPanel open onOpenChange={onOpenChange} />);
 
-    await user.click(screen.getByRole("tab", { name: tSettings("launchProfilesTab") }));
+    await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
     await user.click(await screen.findByRole("button", { name: "mark-provider-settings-dirty" }));
     await user.click(screen.getAllByRole("button", { name: i18n.t("close") }).slice(-1)[0]!);
 
@@ -277,7 +269,7 @@ describe("SettingsPanel", () => {
     const onOpenChange = vi.fn();
     const view = render(<SettingsPanel open onOpenChange={onOpenChange} />);
 
-    await user.click(screen.getByRole("tab", { name: tSettings("launchProfilesTab") }));
+    await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
     await user.click(await screen.findByRole("button", { name: "mark-provider-settings-dirty" }));
     await user.click(screen.getAllByRole("button", { name: i18n.t("close") }).slice(-1)[0]!);
     expect(await screen.findByRole("dialog", { name: i18n.t("unsavedChangesTitle", { ns: "common" }) })).toBeVisible();
@@ -303,7 +295,7 @@ describe("SettingsPanel", () => {
     const user = userEvent.setup();
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
-    await user.click(screen.getByRole("tab", { name: tSettings("setupGuide.title") }));
+    await user.click(screen.getByRole("button", { name: tSettings("setupGuide.title") }));
 
     expect(await screen.findByTestId("setup-guide-section")).toBeInTheDocument();
     expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();
@@ -313,7 +305,7 @@ describe("SettingsPanel", () => {
     const user = userEvent.setup();
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
-    await user.click(screen.getByRole("tab", { name: tSettings("ccchanTitle") }));
+    await user.click(screen.getByRole("button", { name: tSettings("ccchanTitle") }));
 
     expect(await screen.findByTestId("ccchan-section")).toBeInTheDocument();
     expect(screen.queryByTestId("provider-section")).not.toBeInTheDocument();
@@ -323,8 +315,8 @@ describe("SettingsPanel", () => {
     const user = userEvent.setup();
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
-    await user.click(screen.getByRole("tab", { name: tSettings("screenshot") }));
-    expect(await screen.findByTestId("screenshot-section")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: tSettings("pages.system.title") }));
+    expect(screen.getByRole("tab", { name: tSettings("screenshot") })).toBeInTheDocument();
   });
 
   it("searches the registry and lazily opens the highest-ranked pane", async () => {
@@ -351,7 +343,7 @@ describe("SettingsPanel", () => {
     const user = userEvent.setup();
     render(<SettingsPanel open onOpenChange={vi.fn()} />);
 
-    await user.click(screen.getByRole("tab", { name: tSettings("experimental.title") }));
+    await user.click(screen.getByRole("button", { name: tSettings("experimental.title") }));
 
     expect(await screen.findByTestId("experimental-section")).toBeInTheDocument();
     expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();

@@ -4,6 +4,7 @@ import { Settings, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { SegmentedTabs } from "@/components/ui/segmented";
 import {
   Dialog,
   DialogContent,
@@ -31,8 +32,11 @@ import {
 } from "./settings/settingsDraft";
 import {
   getSettingsPane,
+  getSettingsPageForPane,
+  getSettingsPanesForPage,
   getVisibleSettingsPages,
   getVisibleSettingsPanes,
+  type SettingsPageId,
   type SettingsPaneId,
 } from "./settings/settingsRegistry";
 import {
@@ -73,6 +77,9 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
   const requestProviderNavigation = providerDiscardGuard.request;
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resetArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPaneByPageRef = useRef<Partial<Record<SettingsPageId, SettingsPaneId>>>({
+    general: "general",
+  });
 
   useEffect(() => {
     setBrowserWebviewBlocked(SETTINGS_WEBVIEW_BLOCKER_ID, open);
@@ -85,6 +92,8 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
   }), []);
   const pages = useMemo(() => getVisibleSettingsPages(panes), [panes]);
   const activePane = getSettingsPane(activePaneId);
+  const activePage = getSettingsPageForPane(activePaneId);
+  const activePagePanes = getSettingsPanesForPage(activePage.id, panes);
   const resettableKeys = SECTION_DRAFT_KEYS[activePaneId];
   const translate = (key: string) => t(key as never);
   const searchResults = useMemo(
@@ -98,6 +107,10 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
       .filter((result) => result.paneId === activePaneId)
       .map((result) => result.targetSectionId),
   ), [activePaneId, searchResults]);
+
+  useEffect(() => {
+    lastPaneByPageRef.current[activePage.id] = activePaneId;
+  }, [activePage.id, activePaneId]);
 
   useEffect(() => {
     if (!open) {
@@ -226,6 +239,13 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     requestProviderNavigation(() => selectPaneNow(paneId));
   }
 
+  function handleSelectPage(pageId: SettingsPageId) {
+    const pagePanes = getSettingsPanesForPage(pageId, panes);
+    const rememberedPaneId = lastPaneByPageRef.current[pageId];
+    const nextPane = pagePanes.find((pane) => pane.id === rememberedPaneId) ?? pagePanes[0];
+    if (nextPane) handleSelectPane(nextPane.id);
+  }
+
   function handleSelectSearchResult(result: SettingsSearchResult) {
     requestProviderNavigation(() => {
       setActivePaneId(result.paneId);
@@ -285,7 +305,23 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
             <DialogTitle className="hidden truncate text-[14px] font-semibold sm:block">{t("title")}</DialogTitle>
             <DialogDescription className="sr-only">{t("panelDescription")}</DialogDescription>
           </div>
-          <div className="min-w-0" aria-hidden="true" />
+          <div className="min-w-0 overflow-x-auto">
+            {activePagePanes.length > 1 && (
+              <div className="flex min-w-max justify-start">
+                <SegmentedTabs<SettingsPaneId>
+                  value={activePaneId}
+                  onValueChange={handleSelectPane}
+                  items={activePagePanes.map((pane) => ({
+                    value: pane.id,
+                    label: t(pane.titleKey),
+                  }))}
+                  size="md"
+                  className="min-w-max rounded-md"
+                  aria-label={t("paneNavigation")}
+                />
+              </div>
+            )}
+          </div>
           <button
             type="button"
             aria-label={t("close", { ns: "common" })}
@@ -299,9 +335,8 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <SettingsSidebar
             pages={pages}
-            panes={panes}
-            activePaneId={activePaneId}
-            onSelectPane={handleSelectPane}
+            activePageId={activePage.id}
+            onSelect={handleSelectPage}
             searchSlot={(
               <SettingsSearchBox
                 query={searchQuery}
@@ -312,7 +347,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
             )}
           />
           <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <div className={activePane.layout === "wide" ? "min-h-0 flex-1 overflow-hidden" : "app-scrollbar min-h-0 flex-1 overflow-y-auto"}>
+            <div className={activePane.layout === "wide" ? "min-h-0 flex-1 overflow-hidden" : "min-h-0 flex-1 overflow-y-auto"}>
               <div
                 data-testid="settings-content-container"
                 className={activePane.layout === "wide" ? "h-full min-h-0 w-full" : "w-full py-5 sm:py-6"}
