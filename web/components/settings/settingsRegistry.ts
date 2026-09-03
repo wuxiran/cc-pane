@@ -350,7 +350,6 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     descriptionKey: "automations.description",
     page: "ai-tools",
     availability: "tauri",
-    layout: "wide",
     searchEntries: [{
       id: "schedules",
       titleKey: "automations.title",
