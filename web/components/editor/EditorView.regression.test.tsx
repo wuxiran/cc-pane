@@ -7,7 +7,7 @@ import EditorView from "./EditorView";
 
 const modifiedLabel = String(i18n.t("editor:modified"));
 
-vi.mock("@monaco-editor/react", () => ({
+vi.mock("./MonacoCodeEditor", () => ({
   default: ({
     value,
     onChange,
@@ -109,7 +109,7 @@ describe("EditorView regressions", () => {
   it("loads and shows the file content", async () => {
     mockTextFile("hello world");
     await renderLoaded();
-    expect(screen.getByTestId("monaco-stub")).toHaveValue("hello world");
+    expect(await screen.findByTestId("monaco-stub")).toHaveValue("hello world");
   });
 
   it("rejects files above the 5MB limit before reading", async () => {
@@ -129,7 +129,7 @@ describe("EditorView regressions", () => {
     mockTextFile();
     await renderLoaded("/proj/node_modules/pkg/index.js");
     expect(screen.getByText("Read-only (protected path)")).toBeInTheDocument();
-    expect(screen.getByTestId("monaco-stub")).toHaveAttribute("readonly");
+    expect(await screen.findByTestId("monaco-stub")).toHaveAttribute("readonly");
   });
 
   it("marks non-UTF-8 files as read-only with the encoding reason", async () => {
@@ -149,7 +149,7 @@ describe("EditorView regressions", () => {
     const onDirtyChange = vi.fn();
     await renderLoaded(FILE, { onDirtyChange });
     expect(onDirtyChange).toHaveBeenLastCalledWith(false);
-    fireEvent.change(screen.getByTestId("monaco-stub"), { target: { value: "changed" } });
+    fireEvent.change(await screen.findByTestId("monaco-stub"), { target: { value: "changed" } });
     expect(onDirtyChange).toHaveBeenLastCalledWith(true);
     expect(screen.getByText(modifiedLabel)).toBeInTheDocument();
   });
@@ -159,10 +159,10 @@ describe("EditorView regressions", () => {
     mockTextFile("original");
     writeFile.mockResolvedValue(undefined);
     await renderLoaded();
-    fireEvent.change(screen.getByTestId("monaco-stub"), { target: { value: "changed" } });
+    fireEvent.change(await screen.findByTestId("monaco-stub"), { target: { value: "changed" } });
     await user.click(screen.getAllByRole("button")[0]);
     await waitFor(() => expect(writeFile).toHaveBeenCalledWith(FILE, "changed"));
-    expect(toast.success).toHaveBeenCalledWith("File saved");
+    expect(toast.success).toHaveBeenCalledWith("文件已保存");
     await waitFor(() => expect(screen.queryByText(modifiedLabel)).not.toBeInTheDocument());
   });
 
@@ -172,7 +172,7 @@ describe("EditorView regressions", () => {
     await renderLoaded();
     getEntryInfo.mockResolvedValue({ size: 8, modified: "2026-02-02T00:00:00Z" });
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-    fireEvent.change(screen.getByTestId("monaco-stub"), { target: { value: "changed" } });
+    fireEvent.change(await screen.findByTestId("monaco-stub"), { target: { value: "changed" } });
     await user.click(screen.getAllByRole("button")[0]);
     await waitFor(() => expect(confirmSpy).toHaveBeenCalledWith("File has been modified externally. Overwrite?"));
     expect(writeFile).not.toHaveBeenCalled();
@@ -183,12 +183,14 @@ describe("EditorView regressions", () => {
     const user = userEvent.setup();
     mockTextFile("# Title");
     await renderLoaded("/proj/README.md");
+    // 等懒加载边界内的编辑器就绪，确保后续「切预览后 stub 消失」的断言有实际意义
+    await screen.findByTestId("monaco-stub");
     await user.click(screen.getAllByRole("button")[4]);
     expect(screen.getByRole("heading", { name: "Title" })).toBeInTheDocument();
     expect(screen.queryByTestId("monaco-stub")).not.toBeInTheDocument();
     await user.click(screen.getAllByRole("button")[5]);
     expect(screen.getByRole("heading", { name: "Title" })).toBeInTheDocument();
-    expect(screen.getByTestId("monaco-stub")).toBeInTheDocument();
+    expect(await screen.findByTestId("monaco-stub")).toBeInTheDocument();
   });
 
   it("routes image files to the image preview instead of the text editor", async () => {
@@ -211,11 +213,11 @@ describe("EditorView regressions", () => {
     writeRemoteFile.mockResolvedValue(undefined);
 
     await renderLoaded("/srv/app/main.ts", { ssh: SSH_SOURCE });
-    expect(screen.getByTestId("monaco-stub")).toHaveValue("remote");
+    expect(await screen.findByTestId("monaco-stub")).toHaveValue("remote");
     expect(readRemoteFile).toHaveBeenCalledWith("m-1", "/srv/app/main.ts");
     expect(getEntryInfo).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByTestId("monaco-stub"), { target: { value: "updated" } });
+    fireEvent.change(await screen.findByTestId("monaco-stub"), { target: { value: "updated" } });
     await user.click(screen.getAllByRole("button")[0]);
     await waitFor(() => expect(writeRemoteFile).toHaveBeenCalledWith(
       "m-1",

@@ -166,8 +166,11 @@ function EditorTabItem({
 
           {/* 标签主体 */}
           <div
+            role="button"
+            tabIndex={0}
             className={`relative flex items-center ${d.tabHeight} ${d.tabPadding} ${d.tabMaxW} ${d.tabMinW}
               cursor-pointer select-none transition-colors ${d.fontSize}
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]
               ${isDragging ? 'opacity-50' : ''}
               ${active
                 ? `${d.tabRadius} z-20`
@@ -178,6 +181,13 @@ function EditorTabItem({
               color: active ? 'var(--editor-tab-active-fg)' : 'var(--editor-tab-inactive-fg)',
             }}
             onClick={onSelect}
+            onKeyDown={(e) => {
+              if (e.target !== e.currentTarget) return;
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect();
+              }
+            }}
           >
             {/* SVG skirts — 仅活跃标签 */}
             {active && (
@@ -203,14 +213,26 @@ function EditorTabItem({
               {tab.title}
             </span>
 
-            {/* 关闭按钮 — active 常驻，inactive hover 显示 */}
+            {/* 关闭按钮 — active 常驻，inactive hover/键盘聚焦显示 */}
             {!tab.pinned && (
               <div
+                role="button"
+                tabIndex={0}
+                aria-label={t("closeTab", { defaultValue: "Close Tab" })}
                 className={`flex items-center justify-center ${d.closeBtnSize} rounded-full
                   hover:bg-[var(--app-hover)] transition-colors
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] focus-visible:opacity-100
                   ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
                 style={{ color: 'var(--editor-tab-inactive-fg)' }}
                 onClick={(e) => { e.stopPropagation(); onClose(); }}
+                onKeyDown={(e) => {
+                  if (e.target !== e.currentTarget) return;
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onClose();
+                  }
+                }}
               >
                 <X size={d.closeIconSize} strokeWidth={2.5} />
               </div>

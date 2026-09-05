@@ -1,7 +1,17 @@
-import { useEffect, useRef, useState, useCallback } from "react";
-import Editor, { type OnMount } from "@monaco-editor/react";
+import { Suspense, useEffect, useRef, useState, useCallback } from "react";
+import type { OnMount } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { toast } from "sonner";
+import { lazyWithRetry } from "@/lib/lazyRetry";
+import type { EditorProps } from "./MonacoCodeEditor";
+
+// Monaco 本体走独立 chunk 懒加载（见 ./MonacoCodeEditor 顶部注释）；
+// fallback 与文件加载态同款样式，避免编辑器区域在 chunk 取回期间跳动。
+const MonacoCodeEditor = lazyWithRetry<EditorProps>(
+  () => import("./MonacoCodeEditor"),
+  "MonacoCodeEditor",
+);
+import i18n from "@/i18n";
 import { handleError, getErrorMessage } from "@/utils";
 import { filesystemService } from "@/services/filesystemService";
 import { sshFileService } from "@/services/sshFileService";
@@ -230,7 +240,7 @@ export default function EditorView({
         lastSavedMtime.current = info.modified;
       }
 
-      toast.success("File saved");
+      toast.success(i18n.t("fileSaved", { ns: "editor" }));
     } catch (err) {
       handleError(err, "save file");
     }
@@ -424,26 +434,34 @@ export default function EditorView({
       <div className="flex-1 flex overflow-hidden">
         {showEditor && (
           <div className={showPreview ? "w-1/2 border-r" : "flex-1"}>
-            <Editor
-              height="100%"
-              language={language}
-              value={content}
-              theme={isDark ? "vs-dark" : "vs"}
-              onChange={handleEditorChange}
-              onMount={handleEditorMount}
-              options={{
-                readOnly,
-                minimap: { enabled: false },
-                fontSize: 13,
-                lineNumbers: "on",
-                wordWrap: "on",
-                scrollBeyondLastLine: false,
-                automaticLayout: true,
-                tabSize: 2,
-                renderWhitespace: "selection",
-                bracketPairColorization: { enabled: true },
-              }}
-            />
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+                  Loading editor...
+                </div>
+              }
+            >
+              <MonacoCodeEditor
+                height="100%"
+                language={language}
+                value={content}
+                theme={isDark ? "vs-dark" : "vs"}
+                onChange={handleEditorChange}
+                onMount={handleEditorMount}
+                options={{
+                  readOnly,
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  lineNumbers: "on",
+                  wordWrap: "on",
+                  scrollBeyondLastLine: false,
+                  automaticLayout: true,
+                  tabSize: 2,
+                  renderWhitespace: "selection",
+                  bracketPairColorization: { enabled: true },
+                }}
+              />
+            </Suspense>
           </div>
         )}
 

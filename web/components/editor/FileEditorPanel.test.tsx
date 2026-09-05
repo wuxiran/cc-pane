@@ -203,4 +203,52 @@ describe("FileEditorPanel", () => {
       ).not.toBeInTheDocument();
     });
   });
+
+  describe("keyboard accessibility", () => {
+    it("tab body is Tab-focusable with a focus-visible ring and selects on Enter/Space", async () => {
+      const user = userEvent.setup();
+      const actions = setupStore([makeTab("a"), makeTab("b")], "a");
+      render(<FileEditorPanel />);
+
+      const tabB = screen.getByRole("button", { name: /b\.ts/ });
+      expect(tabB).toHaveAttribute("tabindex", "0");
+      expect(tabB.className).toContain("focus-visible:outline-none");
+      expect(tabB.className).toContain("focus-visible:ring-2");
+      expect(tabB.className).toContain("focus-visible:ring-[var(--app-accent)]");
+
+      // 第一个 tab 是标签栏首个 Tab 停留点
+      await user.tab();
+      expect(screen.getByRole("button", { name: /a\.ts/ })).toHaveFocus();
+
+      tabB.focus();
+      fireEvent.keyDown(tabB, { key: "Enter" });
+      expect(actions.selectTab).toHaveBeenCalledWith("b");
+      fireEvent.keyDown(tabB, { key: " " });
+      expect(actions.selectTab).toHaveBeenCalledTimes(2);
+    });
+
+    it("close control is focusable and closes on Enter/Space without selecting", () => {
+      const actions = setupStore([makeTab("a"), makeTab("b")], "a");
+      render(<FileEditorPanel />);
+
+      const closeLabel = i18n.t("panes:closeTab", { defaultValue: "Close Tab" });
+      const closeB = screen
+        .getAllByRole("button", { name: closeLabel })
+        .find((el) => tabElement("b.ts").contains(el)) as HTMLElement;
+      expect(closeB).toHaveAttribute("tabindex", "0");
+      expect(closeB.className).toContain("focus-visible:outline-none");
+      expect(closeB.className).toContain("focus-visible:ring-2");
+      expect(closeB.className).toContain("focus-visible:ring-[var(--app-accent)]");
+
+      closeB.focus();
+      expect(closeB).toHaveFocus();
+      fireEvent.keyDown(closeB, { key: "Enter" });
+      expect(actions.closeTab).toHaveBeenCalledWith("b");
+      expect(actions.selectTab).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(closeB, { key: " " });
+      expect(actions.closeTab).toHaveBeenCalledTimes(2);
+      expect(actions.selectTab).not.toHaveBeenCalled();
+    });
+  });
 });

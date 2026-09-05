@@ -7,7 +7,7 @@ import EditorView from "./EditorView";
 
 const monacoHarness = vi.hoisted(() => ({ props: null as null | { onMount: (editor: unknown) => void } }));
 
-vi.mock("@monaco-editor/react", () => ({
+vi.mock("./MonacoCodeEditor", () => ({
   default: (props: { onMount: (editor: unknown) => void }) => {
     monacoHarness.props = props;
     return <div data-testid="monaco-editor" />;

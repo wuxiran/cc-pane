@@ -20,10 +20,20 @@ export default defineConfig(async () => ({
         main: resolve(__dirname, "index.html"),
       },
       output: {
-        manualChunks: {
-          "xterm": ["@xterm/xterm", "@xterm/addon-fit"],
-          "radix": ["@radix-ui/react-dialog", "@radix-ui/react-dropdown-menu", "@radix-ui/react-context-menu", "@radix-ui/react-tooltip", "@radix-ui/react-alert-dialog"],
-          "monaco-editor": ["monaco-editor"],
+        // 函数形式 manualChunks：对象形式会把「被列出模块的依赖」一并抓进 chunk，
+        // 实测 vite 的 __vitePreload 共享 helper 被拖进 monaco-editor chunk，导致入口
+        // chunk 静态 import 它、monaco 重新变成首屏 modulepreload，懒加载失效。
+        // onlyExplicitManualChunks 关掉这种依赖传递合并，只有显式命中的模块进组。
+        onlyExplicitManualChunks: true,
+        manualChunks(id) {
+          // monaco 只经懒加载边界（editor/MonacoCodeEditor.tsx）动态引用，
+          // 该 chunk 不再进入首屏 modulepreload 图。
+          if (id.includes("node_modules/monaco-editor/") || id.includes("node_modules/@monaco-editor/")) {
+            return "monaco-editor";
+          }
+          if (id.includes("node_modules/@xterm/")) return "xterm";
+          if (id.includes("node_modules/@radix-ui/")) return "radix";
+          return undefined;
         },
       },
     },

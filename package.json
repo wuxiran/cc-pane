@@ -27,7 +27,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/verify-xterm-build.mjs",
-    "check:theme-contrast": "node scripts/check-light-theme-contrast.mjs",
+    "check:theme-contrast": "node scripts/check-theme-contrast.mjs",
+    "check:bundle": "node scripts/check-bundle-size.mjs",
     "clean:local": "node scripts/clean-local.mjs",
     "smoke:daemon-web": "node scripts/smoke-daemon-web.mjs",
     "preview": "vite preview",

@@ -1,10 +1,8 @@
 import { enableMapSet } from "immer";
 enableMapSet();
 
-// Monaco Editor: 使用本地打包资源，不从 CDN 加载（Release CSP 会阻止 CDN 脚本）
-import { loader } from "@monaco-editor/react";
-import * as monaco from "monaco-editor";
-loader.config({ monaco });
+// Monaco Editor 不再在入口静态配置：loader.config({ monaco }) 已移入懒加载边界
+// web/components/editor/MonacoCodeEditor.tsx，monaco-editor chunk 只在打开编辑器时才拉取。
 
 import { StrictMode } from "react";
 import ReactDOM from "react-dom/client";
@@ -14,6 +12,8 @@ import "./assets/index.css";
 import { recordFrontendCrash } from "@/utils/frontendCrashLog";
 import { installAppMenuPasteHandler } from "@/utils/appMenuPaste";
 import { isolateSpecialWindowShape } from "@/stores/useThemeStore";
+// 模块加载即在 React 挂载前恢复 UI 密度（dataset.density），与主题同通道避免首帧跳变
+import "@/stores/useDensityStore";
 
 const appPlatform = (() => {
   const platform = navigator.platform.toLowerCase();
