@@ -124,6 +124,31 @@
     "blurFallback": "Background blur is unavailable in this environment. Translucent surfaces remain enabled.",
     "defaultBadge": "Default",
     "wallpaperBadge": "Pairs with wallpaper",
+    "custom": {
+      "title": "Custom tweaks",
+      "description": "Fine-tune the accent color, corner radius, and panel lightness on top of the current color theme. Changes apply instantly and save automatically; shape and wallpaper settings are unaffected.",
+      "accentLabel": "Accent",
+      "accentFollowTheme": "Follow theme",
+      "accents": {
+        "blue": "Azure",
+        "indigo": "Indigo",
+        "violet": "Violet",
+        "magenta": "Magenta",
+        "pink": "Pink",
+        "red": "Crimson",
+        "amber": "Amber",
+        "green": "Emerald",
+        "teal": "Teal",
+        "slate": "Slate"
+      },
+      "radiusLabel": "Corner radius",
+      "panelLightnessLabel": "Panel lightness",
+      "reset": "Restore defaults",
+      "resetDone": "Theme tweaks reset to defaults",
+      "export": "Export theme JSON",
+      "exported": "Theme JSON copied to clipboard",
+      "exportFailed": "Copy failed. Check clipboard permission."
+    },
     "groups": {
       "dark": "Dark",
       "light": "Light",

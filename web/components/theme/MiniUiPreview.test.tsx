@@ -1,5 +1,6 @@
 import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { useThemeStore } from "@/stores/useThemeStore";
 import { THEME_PRESETS, themeGroup } from "@/theme/themePresets";
 import { THEME_SHAPE_CODES } from "@/theme/themeShapes";
 import { MiniUiPreview } from "./MiniUiPreview";
@@ -21,6 +22,15 @@ function expectNoBareHex(root: Element) {
   }
 }
 
+beforeEach(() => {
+  useThemeStore.setState({
+    themeId: "deep-ink",
+    preference: "deep-ink",
+    shape: "soft",
+    customOverrides: null,
+  });
+});
+
 describe("MiniUiPreview 主题模式", () => {
   it.each(THEME_PRESETS.map((preset) => [preset.id, preset.group] as const))(
     "data-theme=%s 套在预览框上，暗色主题补 .dark，整体 aria-hidden",
@@ -28,7 +38,8 @@ describe("MiniUiPreview 主题模式", () => {
       const { container } = render(<MiniUiPreview theme={themeId} />);
       const root = container.firstElementChild!;
       expect(root).toHaveAttribute("data-theme", themeId);
-      expect(root).not.toHaveAttribute("data-shape");
+      // 未显式传 shape 时跟随 useThemeStore 当前形态（测试基线 = soft）
+      expect(root).toHaveAttribute("data-shape", "soft");
       expect(root).toHaveAttribute("aria-hidden", "true");
       expect(root).toHaveClass("mini-ui-scope", "aspect-video");
       if (group === "dark") {
@@ -39,6 +50,24 @@ describe("MiniUiPreview 主题模式", () => {
       expect(themeGroup(themeId)).toBe(group);
     },
   );
+
+  it("主题卡预览跟随当前用户 shape（主题不同、shape 相同）", () => {
+    useThemeStore.setState({ shape: "carbon" });
+
+    const { container } = render(<MiniUiPreview theme="amber-gold" />);
+    const root = container.firstElementChild!;
+    expect(root).toHaveAttribute("data-theme", "amber-gold");
+    expect(root).toHaveAttribute("data-shape", "carbon");
+  });
+
+  it("显式 shape 优先于 store 当前形态", () => {
+    useThemeStore.setState({ shape: "carbon" });
+
+    const { container } = render(<MiniUiPreview theme="deep-ink" shape="glass" />);
+    const root = container.firstElementChild!;
+    expect(root).toHaveAttribute("data-theme", "deep-ink");
+    expect(root).toHaveAttribute("data-shape", "glass");
+  });
 
   it("卡顶有 4px 主色带，颜色走 var(--primary)", () => {
     const { container } = render(<MiniUiPreview theme="deep-ink" />);
@@ -110,5 +139,51 @@ describe("MiniUiPreview 形态模式", () => {
       expectNoBareHex(container.firstElementChild!);
       unmount();
     }
+  });
+});
+
+describe("MiniUiPreview 微调联动", () => {
+  it("overrides 依附当前预览主题时，覆盖 token inline 到作用域根", () => {
+    useThemeStore.setState({
+      themeId: "deep-ink",
+      customOverrides: { baseThemeId: "deep-ink", accent: "amber", radius: 0.6 },
+    });
+
+    const { container } = render(<MiniUiPreview theme="deep-ink" />);
+    const root = container.firstElementChild as HTMLElement;
+    // accent 预设色值（色板映射豁免裸 hex）+ 圆角派生经 var()/calc
+    expect(root.style.getPropertyValue("--app-accent")).toBe("#E9A916");
+    expect(root.style.getPropertyValue("--primary")).toBe("#E9A916");
+    expect(root.style.getPropertyValue("--radius")).toBe("0.6rem");
+    expect(root.style.getPropertyValue("--shape-radius-lg")).toBe("var(--radius)");
+  });
+
+  it("overrides 依附其他主题时预览不受影响", () => {
+    useThemeStore.setState({
+      themeId: "deep-ink",
+      customOverrides: { baseThemeId: "warm-gray", accent: "amber" },
+    });
+
+    const { container } = render(<MiniUiPreview theme="deep-ink" />);
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.style.getPropertyValue("--app-accent")).toBe("");
+  });
+
+  it("形态卡（无 theme prop）跟随当前主题的 overrides", () => {
+    useThemeStore.setState({
+      themeId: "sky-blue",
+      customOverrides: { baseThemeId: "sky-blue", accent: "red" },
+    });
+
+    const { container } = render(<MiniUiPreview shape="sharp" />);
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.style.getPropertyValue("--app-accent")).toBe("#DC2626");
+  });
+
+  it("无 overrides 时作用域根不带任何覆盖 token", () => {
+    const { container } = render(<MiniUiPreview theme="deep-ink" />);
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.style.getPropertyValue("--app-accent")).toBe("");
+    expect(root.style.getPropertyValue("--radius")).toBe("");
   });
 });

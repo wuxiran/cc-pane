@@ -20,8 +20,10 @@ describe("ThemeSection", () => {
       themeId: "deep-ink",
       preference: "deep-ink",
       shape: "soft",
+      customOverrides: null,
     });
     document.documentElement.dataset.shape = "soft";
+    document.documentElement.removeAttribute("style");
   });
 
   afterEach(() => {
@@ -147,6 +149,34 @@ describe("ThemeSection", () => {
     );
 
     expect(screen.getByText("当前环境不支持背景模糊，已保留半透明层次。")).toBeInTheDocument();
+  });
+
+  it("主题卡 mini UI 反映当前 shape：每张卡主题不同、shape 相同", () => {
+    useThemeStore.setState({ shape: "carbon" });
+    render(
+      <ThemeSection value={{ mode: "deep-ink", shape: "carbon" }} onChange={vi.fn()} />,
+    );
+
+    const colorSection = document.querySelector("[data-settings-section='theme-color']")!;
+    const previews = colorSection.querySelectorAll("[data-theme]");
+    expect(previews).toHaveLength(THEME_PRESETS.length);
+    for (const preview of previews) {
+      expect(preview).toHaveAttribute("data-shape", "carbon");
+    }
+  });
+
+  it("主题视图渲染自定义微调区块，形态视图不渲染", () => {
+    const { unmount } = render(
+      <ThemeSection view="theme" value={{ mode: "deep-ink", shape: "soft" }} onChange={vi.fn()} />,
+    );
+    expect(document.querySelector("[data-settings-section='theme-custom']")).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "自定义微调" })).toBeInTheDocument();
+    unmount();
+
+    render(
+      <ThemeSection view="shape" value={{ mode: "deep-ink", shape: "soft" }} onChange={vi.fn()} />,
+    );
+    expect(document.querySelector("[data-settings-section='theme-custom']")).toBeNull();
   });
 
   it("主题卡渲染 mini UI 预览：data-theme 套框、卡顶主色带、aria-pressed 选中态不变", () => {

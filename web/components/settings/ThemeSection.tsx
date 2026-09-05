@@ -3,6 +3,7 @@ import { Check, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toastOk } from "@/lib/feedback";
 import { MiniUiPreview } from "@/components/theme/MiniUiPreview";
+import { ThemeEditor } from "@/components/theme/ThemeEditor";
 import { PresetSwatches, SystemThemePreview } from "@/components/theme/ThemeSwatches";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -148,6 +149,8 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
           </button>
         </section>
       </section>}
+
+      {view !== "shape" && <ThemeEditor />}
 
       {view !== "theme" && <section
         className={cn("space-y-4", view === "all" && "border-t border-[var(--app-border)] pt-6")}

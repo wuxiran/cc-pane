@@ -124,6 +124,31 @@
     "blurFallback": "当前环境不支持背景模糊，已保留半透明层次。",
     "defaultBadge": "默认",
     "wallpaperBadge": "适合壁纸",
+    "custom": {
+      "title": "自定义微调",
+      "description": "在当前配色主题上微调主色、圆角和面板明度，立即生效并自动保存；不改变形态与壁纸设置。",
+      "accentLabel": "主色",
+      "accentFollowTheme": "跟随主题",
+      "accents": {
+        "blue": "湛蓝",
+        "indigo": "靛蓝",
+        "violet": "紫罗兰",
+        "magenta": "品红",
+        "pink": "樱粉",
+        "red": "绯红",
+        "amber": "琥珀",
+        "green": "翠绿",
+        "teal": "青碧",
+        "slate": "岩灰"
+      },
+      "radiusLabel": "圆角",
+      "panelLightnessLabel": "面板明度",
+      "reset": "恢复默认",
+      "resetDone": "已恢复主题默认",
+      "export": "导出主题 JSON",
+      "exported": "主题 JSON 已复制到剪贴板",
+      "exportFailed": "复制失败，请检查剪贴板权限"
+    },
     "groups": {
       "dark": "深色",
       "light": "浅色",

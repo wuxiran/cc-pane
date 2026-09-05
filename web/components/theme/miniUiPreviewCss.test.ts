@@ -11,6 +11,12 @@ import { THEME_SHAPE_CODES } from "@/theme/themeShapes";
 const appCss = readFileSync("web/assets/index.css", "utf8");
 const previewCss = readFileSync("web/components/theme/miniUiPreview.css", "utf8");
 
+// 注释里可能含花括号（如 body{font-size}），朴素块解析前先剥注释，
+// 否则 indexOf("}") 会被注释中的右括号提前截断。
+const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "");
+const appCssClean = stripComments(appCss);
+const previewCssClean = stripComments(previewCss);
+
 function blockOf(css: string, selector: string): string {
   const start = css.indexOf(selector);
   if (start < 0) return "";
@@ -27,8 +33,8 @@ function parseTokens(block: string): Record<string, string> {
   return out;
 }
 
-const rootTokens = parseTokens(blockOf(appCss, ":root {"));
-const darkTokens = parseTokens(blockOf(appCss, ".dark {"));
+const rootTokens = parseTokens(blockOf(appCssClean, ":root {"));
+const darkTokens = parseTokens(blockOf(appCssClean, ".dark {"));
 
 const THEME_TOKENS = [
   "--app-bg-deep",
@@ -61,7 +67,7 @@ const SHAPE_TOKENS = [
 
 function expectedThemeTokens(themeId: string, group: string): Record<string, string> {
   const base = group === "dark" ? { ...rootTokens, ...darkTokens } : { ...rootTokens };
-  const named = parseTokens(blockOf(appCss, `:root[data-theme="${themeId}"]`));
+  const named = parseTokens(blockOf(appCssClean, `:root[data-theme="${themeId}"]`));
   return { ...base, ...named };
 }
 
@@ -69,7 +75,7 @@ describe("miniUiPreview.css 主题作用域契约", () => {
   it.each(THEME_PRESETS.map((preset) => [preset.id, preset.group] as const))(
     ".mini-ui-scope[data-theme=%s] 与 index.css 有效值逐项一致",
     (themeId, group) => {
-      const scope = parseTokens(blockOf(previewCss, `.mini-ui-scope[data-theme="${themeId}"]`));
+      const scope = parseTokens(blockOf(previewCssClean, `.mini-ui-scope[data-theme="${themeId}"]`));
       const expected = expectedThemeTokens(themeId, group);
       for (const token of THEME_TOKENS) {
         expect(expected[token], `index.css 缺少 ${token} 的有效值`).toBeDefined();
@@ -80,7 +86,7 @@ describe("miniUiPreview.css 主题作用域契约", () => {
 
   it("每个主题作用域恰好声明契约 token，不缺不多", () => {
     for (const preset of THEME_PRESETS) {
-      const scope = parseTokens(blockOf(previewCss, `.mini-ui-scope[data-theme="${preset.id}"]`));
+      const scope = parseTokens(blockOf(previewCssClean, `.mini-ui-scope[data-theme="${preset.id}"]`));
       expect(Object.keys(scope).sort()).toEqual([...THEME_TOKENS].sort());
     }
   });
@@ -88,8 +94,8 @@ describe("miniUiPreview.css 主题作用域契约", () => {
 
 describe("miniUiPreview.css 形态作用域契约", () => {
   it.each(THEME_SHAPE_CODES)(".mini-ui-scope[data-shape=%s] 镜像 :root 形态块", (shape) => {
-    const scope = parseTokens(blockOf(previewCss, `.mini-ui-scope[data-shape="${shape}"]`));
-    const expected = parseTokens(blockOf(appCss, `:root[data-shape="${shape}"]`));
+    const scope = parseTokens(blockOf(previewCssClean, `.mini-ui-scope[data-shape="${shape}"]`));
+    const expected = parseTokens(blockOf(appCssClean, `:root[data-shape="${shape}"]`));
     for (const token of SHAPE_TOKENS) {
       expect(expected[token], `index.css 形态块缺少 ${token}`).toBeDefined();
       expect(scope[token], `${shape} 的 ${token} 与 index.css 不一致`).toBe(expected[token]);
@@ -97,8 +103,8 @@ describe("miniUiPreview.css 形态作用域契约", () => {
   });
 
   it("基础 .mini-ui-scope 缺省形态 = soft", () => {
-    const scope = parseTokens(blockOf(previewCss, ".mini-ui-scope {"));
-    const soft = parseTokens(blockOf(appCss, ':root[data-shape="soft"]'));
+    const scope = parseTokens(blockOf(previewCssClean, ".mini-ui-scope {"));
+    const soft = parseTokens(blockOf(appCssClean, ':root[data-shape="soft"]'));
     for (const token of SHAPE_TOKENS) {
       expect(scope[token]).toBe(soft[token]);
     }
