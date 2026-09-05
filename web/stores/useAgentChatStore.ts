@@ -23,6 +23,7 @@ import type {
   AcpUsage,
   AgentChatItem,
 } from "@/types/agentChat";
+import { parentToolCallIdOf } from "@/types/agentChat";
 
 let itemSeq = 0;
 function nextItemId(): string {
@@ -33,6 +34,8 @@ function nextItemId(): string {
 export interface AgentChatSessionState {
   snapshot: AcpChatSnapshot | null;
   items: AgentChatItem[];
+  /** 由首页「对 agent 说」以编排管家身份发起的会话（决定欢迎态文案）。 */
+  concierge: boolean;
   pendingPermission: AcpPermissionRequest | null;
   /** agent 广告的斜杠命令目录（available_commands_update 整表替换）。 */
   availableCommands: AcpAvailableCommand[];
@@ -45,9 +48,15 @@ export interface AgentChatSessionState {
 interface AgentChatStoreState {
   chats: Record<string, AgentChatSessionState>;
   setSnapshot: (chatId: string, snapshot: AcpChatSnapshot) => void;
+  setConcierge: (chatId: string, concierge: boolean) => void;
   addUserMessage: (chatId: string, text: string, attachmentLabels?: string[]) => void;
-  appendStreamText: (chatId: string, kind: "assistant" | "thought", text: string) => void;
-  pushImage: (chatId: string, mimeType: string, data: string) => void;
+  appendStreamText: (
+    chatId: string,
+    kind: "assistant" | "thought",
+    text: string,
+    parentToolCallId?: string,
+  ) => void;
+  pushImage: (chatId: string, mimeType: string, data: string, parentToolCallId?: string) => void;
   applySessionUpdate: (chatId: string, params: AcpSessionUpdate) => void;
   setPermission: (chatId: string, request: AcpPermissionRequest | null) => void;
   pushNotice: (chatId: string, text: string) => void;
@@ -60,6 +69,7 @@ function emptySession(): AgentChatSessionState {
   return {
     snapshot: null,
     items: [],
+    concierge: false,
     pendingPermission: null,
     availableCommands: [],
     usage: null,
@@ -72,6 +82,20 @@ function ensure(chats: Record<string, AgentChatSessionState>, chatId: string): A
     chats[chatId] = emptySession();
   }
   return chats[chatId];
+}
+
+/** 末尾若是仍在流式的思考块，记下收口时刻（"思考了 N 秒"的终点）。 */
+function closeOpenThought(chat: AgentChatSessionState): void {
+  const last = chat.items[chat.items.length - 1];
+  if (last && last.type === "thought" && last.doneAt === undefined) {
+    last.doneAt = Date.now();
+  }
+}
+
+/** 入列任何非思考条目前先收口思考块，再压入。 */
+function pushItem(chat: AgentChatSessionState, item: AgentChatItem): void {
+  if (item.type !== "thought") closeOpenThought(chat);
+  chat.items.push(item);
 }
 
 /** 从 ContentBlock 提取可显示文本；非 text 变体降级为类型占位。 */
@@ -109,39 +133,58 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
         chat.snapshot = snapshot;
         // 失败/异常退出要成为消息流的一部分，不然用户只看到输入框变灰。
         if (snapshot.error && snapshot.error !== previousError) {
-          chat.items.push({ type: "notice", id: nextItemId(), text: snapshot.error });
+          pushItem(chat, { type: "notice", id: nextItemId(), at: Date.now(), text: snapshot.error });
         }
+      }),
+
+    setConcierge: (chatId, concierge) =>
+      set((state) => {
+        ensure(state.chats, chatId).concierge = concierge;
       }),
 
     addUserMessage: (chatId, text, attachmentLabels) =>
       set((state) => {
         const chat = ensure(state.chats, chatId);
-        chat.items.push({
+        pushItem(chat, {
           type: "user",
           id: nextItemId(),
+          at: Date.now(),
           text,
           ...(attachmentLabels && attachmentLabels.length > 0 ? { attachmentLabels } : {}),
         });
       }),
 
-    appendStreamText: (chatId, kind, text) =>
+    appendStreamText: (chatId, kind, text, parentToolCallId) =>
       set((state) => {
         if (!text) return;
         const chat = ensure(state.chats, chatId);
         const itemType = kind === "assistant" ? "assistant" : "thought";
         const last = chat.items[chat.items.length - 1];
-        // 邻接同类 → 续写同一气泡；被工具卡等打断 → 新气泡（保持时序）。
-        if (last && last.type === itemType) {
+        // 邻接同类且同归属 → 续写同一气泡；被工具卡等打断、或主/子 agent 交替 → 新气泡。
+        if (last && last.type === itemType && last.parentToolCallId === parentToolCallId) {
           last.text += text;
         } else {
-          chat.items.push({ type: itemType, id: nextItemId(), text });
+          pushItem(chat, {
+            type: itemType,
+            id: nextItemId(),
+            at: Date.now(),
+            text,
+            ...(parentToolCallId ? { parentToolCallId } : {}),
+          });
         }
       }),
 
-    pushImage: (chatId, mimeType, data) =>
+    pushImage: (chatId, mimeType, data, parentToolCallId) =>
       set((state) => {
         const chat = ensure(state.chats, chatId);
-        chat.items.push({ type: "image", id: nextItemId(), mimeType, data });
+        pushItem(chat, {
+          type: "image",
+          id: nextItemId(),
+          at: Date.now(),
+          mimeType,
+          data,
+          ...(parentToolCallId ? { parentToolCallId } : {}),
+        });
       }),
 
     applySessionUpdate: (chatId, params) =>
@@ -155,7 +198,14 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
             if (!toolCallId) return;
             const call: AcpToolCall = { toolCallId };
             mergeToolCall(call, update);
-            chat.items.push({ type: "tool_call", id: nextItemId(), call });
+            const parentToolCallId = parentToolCallIdOf(update);
+            pushItem(chat, {
+              type: "tool_call",
+              id: nextItemId(),
+              at: Date.now(),
+              call,
+              ...(parentToolCallId ? { parentToolCallId } : {}),
+            });
             return;
           }
           case "tool_call_update": {
@@ -171,7 +221,14 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
             // 没见过 tool_call 就来 update：按 ACP 容错语义当作新卡片。
             const call: AcpToolCall = { toolCallId };
             mergeToolCall(call, update);
-            chat.items.push({ type: "tool_call", id: nextItemId(), call });
+            const parentToolCallId = parentToolCallIdOf(update);
+            pushItem(chat, {
+              type: "tool_call",
+              id: nextItemId(),
+              at: Date.now(),
+              call,
+              ...(parentToolCallId ? { parentToolCallId } : {}),
+            });
             return;
           }
           case "plan": {
@@ -183,7 +240,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
                 return;
               }
             }
-            chat.items.push({ type: "plan", id: nextItemId(), entries });
+            pushItem(chat, { type: "plan", id: nextItemId(), at: Date.now(), entries });
             return;
           }
           // session/load 回放会重放历史用户消息（发生在 starting 相位），必须
@@ -197,7 +254,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
             if (last && last.type === "user") {
               last.text += text;
             } else {
-              chat.items.push({ type: "user", id: nextItemId(), text });
+              pushItem(chat, { type: "user", id: nextItemId(), at: Date.now(), text });
             }
             return;
           }
@@ -240,7 +297,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
               (item) => item.type === "notice" && item.text === text,
             );
             if (!seen) {
-              chat.items.push({ type: "notice", id: nextItemId(), text });
+              pushItem(chat, { type: "notice", id: nextItemId(), at: Date.now(), text });
             }
             return;
           }
@@ -256,7 +313,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
     pushNotice: (chatId, text) =>
       set((state) => {
         const chat = ensure(state.chats, chatId);
-        chat.items.push({ type: "notice", id: nextItemId(), text });
+        pushItem(chat, { type: "notice", id: nextItemId(), at: Date.now(), text });
       }),
 
     turnEnded: (chatId, stopReason, error) =>
@@ -264,9 +321,10 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
         const chat = ensure(state.chats, chatId);
         // 回合结束后审批卡必然失效（agent 已用 cancelled 收场）。
         chat.pendingPermission = null;
+        closeOpenThought(chat);
         if (stopReason !== "end_turn") {
           const text = error ? `${stopReason}: ${error}` : `[${stopReason}]`;
-          chat.items.push({ type: "notice", id: nextItemId(), text });
+          pushItem(chat, { type: "notice", id: nextItemId(), at: Date.now(), text });
         }
       }),
 
@@ -292,6 +350,8 @@ const FLUSH_INTERVAL_MS = 16;
 interface ChunkBuffer {
   kind: "assistant" | "thought";
   text: string;
+  /** 子 agent 归属；主/子 agent 的流交错时换缓冲，防止拼进同一气泡。 */
+  parentToolCallId?: string;
 }
 
 const chunkBuffers = new Map<string, ChunkBuffer>();
@@ -306,7 +366,7 @@ function flushChunks(): void {
   if (chunkBuffers.size === 0) return;
   const store = useAgentChatStore.getState();
   for (const [chatId, buffer] of chunkBuffers) {
-    store.appendStreamText(chatId, buffer.kind, buffer.text);
+    store.appendStreamText(chatId, buffer.kind, buffer.text, buffer.parentToolCallId);
   }
   chunkBuffers.clear();
 }
@@ -315,17 +375,24 @@ function flushChat(chatId: string): void {
   const buffer = chunkBuffers.get(chatId);
   if (!buffer) return;
   chunkBuffers.delete(chatId);
-  useAgentChatStore.getState().appendStreamText(chatId, buffer.kind, buffer.text);
+  useAgentChatStore
+    .getState()
+    .appendStreamText(chatId, buffer.kind, buffer.text, buffer.parentToolCallId);
 }
 
-function bufferChunk(chatId: string, kind: "assistant" | "thought", text: string): void {
+function bufferChunk(
+  chatId: string,
+  kind: "assistant" | "thought",
+  text: string,
+  parentToolCallId?: string,
+): void {
   const existing = chunkBuffers.get(chatId);
-  if (existing && existing.kind === kind) {
+  if (existing && existing.kind === kind && existing.parentToolCallId === parentToolCallId) {
     existing.text += text;
   } else {
-    // 换了流的种类（assistant↔thought）先排空旧的，保持条目顺序。
+    // 换了流的种类（assistant↔thought）或归属（主↔子 agent）先排空旧的，保持条目顺序。
     if (existing) flushChat(chatId);
-    chunkBuffers.set(chatId, { kind, text });
+    chunkBuffers.set(chatId, { kind, text, parentToolCallId });
   }
   if (!flushTimer) {
     flushTimer = setTimeout(flushChunks, FLUSH_INTERVAL_MS);
@@ -364,15 +431,21 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
         const block = chunkContent as
           | { type?: string; text?: string; data?: string; mimeType?: string }
           | undefined;
+        const parentToolCallId = parentToolCallIdOf(params.update);
         // 接收侧图片块：真渲染而不是 [image] 占位。保序：先排空文本缓冲。
         if (block?.type === "image" && typeof block.data === "string") {
           flushChat(chatId);
-          store.pushImage(chatId, block.mimeType ?? "image/png", block.data);
+          store.pushImage(chatId, block.mimeType ?? "image/png", block.data, parentToolCallId);
           return;
         }
         const text = contentText(block);
         if (text) {
-          bufferChunk(chatId, updateKind === "agent_message_chunk" ? "assistant" : "thought", text);
+          bufferChunk(
+            chatId,
+            updateKind === "agent_message_chunk" ? "assistant" : "thought",
+            text,
+            parentToolCallId,
+          );
         }
       }
       return;

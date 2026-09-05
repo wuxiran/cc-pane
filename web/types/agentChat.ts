@@ -198,12 +198,23 @@ export interface AgentChatAttachment {
   path?: string;
 }
 
-/** 渲染层消息条目。tool_call 按 toolCallId 就地合并；plan 整表替换。 */
+/** 渲染层消息条目。tool_call 按 toolCallId 就地合并；plan 整表替换。
+ * `at` 是条目首次入列的本地时间戳（ms），回合头部据此显示时间。
+ * `parentToolCallId`：由子 agent 产出的条目指向派出它的 Task/Agent 工具调用
+ * （claude-agent-acp 经 `_meta.claudeCode.parentToolUseId` 标注），渲染时嵌套其下。 */
 export type AgentChatItem =
-  | { type: "user"; id: string; text: string; attachmentLabels?: string[] }
-  | { type: "assistant"; id: string; text: string }
-  | { type: "thought"; id: string; text: string }
-  | { type: "image"; id: string; mimeType: string; data: string }
-  | { type: "tool_call"; id: string; call: AcpToolCall }
-  | { type: "plan"; id: string; entries: AcpPlanEntry[] }
-  | { type: "notice"; id: string; text: string };
+  | { type: "user"; id: string; at: number; text: string; attachmentLabels?: string[] }
+  | { type: "assistant"; id: string; at: number; text: string; parentToolCallId?: string }
+  /** doneAt：思考流被后续条目或回合结束收口的时刻，用于"思考了 N 秒"。 */
+  | { type: "thought"; id: string; at: number; text: string; doneAt?: number; parentToolCallId?: string }
+  | { type: "image"; id: string; at: number; mimeType: string; data: string; parentToolCallId?: string }
+  | { type: "tool_call"; id: string; at: number; call: AcpToolCall; parentToolCallId?: string }
+  | { type: "plan"; id: string; at: number; entries: AcpPlanEntry[] }
+  | { type: "notice"; id: string; at: number; text: string };
+
+/** 从 session/update 的 `_meta` 里取子 agent 归属（仅 claude-agent-acp 提供）。 */
+export function parentToolCallIdOf(update: AcpSessionUpdate["update"]): string | undefined {
+  const meta = update?._meta as { claudeCode?: { parentToolUseId?: unknown } } | undefined;
+  const parent = meta?.claudeCode?.parentToolUseId;
+  return typeof parent === "string" && parent ? parent : undefined;
+}

@@ -38,7 +38,7 @@ const KIND_ICON: Record<string, LucideIcon> = {
   fetch: Globe2,
 };
 
-function StatusBadge({ status }: { status?: string }) {
+export function StatusBadge({ status }: { status?: string }) {
   switch (status) {
     case "in_progress":
       return <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--app-icon-inactive)]" />;
@@ -148,7 +148,7 @@ function TerminalBlockView({ chatId, terminalId }: { chatId: string; terminalId:
   );
 }
 
-function ContentBlockView({ block, chatId }: { block: AcpToolCallContent; chatId?: string }) {
+export function ContentBlockView({ block, chatId }: { block: AcpToolCallContent; chatId?: string }) {
   if (block.type === "diff") {
     return <DiffBlockView block={block} />;
   }

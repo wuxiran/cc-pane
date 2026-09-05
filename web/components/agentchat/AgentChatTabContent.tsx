@@ -43,8 +43,11 @@ import { handleErrorSilent } from "@/utils/errorHandler";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import ChatChangesPanel, { collectNetChanges } from "./ChatChangesPanel";
 import ChatComposer from "./ChatComposer";
+import ChatTurnView from "./ChatTurnView";
+import ChatWelcome from "./ChatWelcome";
 import ConfigOptionSelectors from "./ConfigOptionSelectors";
-import { HeaderSelect, ItemView } from "./ChatItems";
+import { HeaderSelect } from "./ChatItems";
+import { groupChatItems, type ChatTurn } from "./chatTurns";
 import EnginePicker from "./EnginePicker";
 import PermissionCard from "./PermissionCard";
 import PermissionPolicyDropdown from "./PermissionPolicyDropdown";
@@ -84,8 +87,8 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   const [cwdOverride, setCwdOverride] = useState<string | null>(null);
   const effectiveCwd = tab.projectPath || cwdOverride || "";
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  // 长会话分页：只渲染最近 N 条，顶部按钮逐段放开（防几百条全量渲染掉帧）。
-  const [visibleCount, setVisibleCount] = useState(150);
+  // 长会话分页：只渲染最近 N 个回合，顶部按钮逐段放开（防几百条全量渲染掉帧）。
+  const [visibleCount, setVisibleCount] = useState(60);
   // 工具卡全局展开/折叠信号（seq 递增触发，各卡自行响应）。
   const [toolFold, setToolFold] = useState<{ seq: number; expanded: boolean }>({
     seq: 0,
@@ -131,6 +134,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   const phase = snapshot?.phase;
   const availableCommands = chat?.availableCommands ?? [];
   const changesCount = useMemo(() => collectNetChanges(items ?? []).length, [items]);
+  const turns = useMemo(() => groupChatItems(items ?? []), [items]);
 
   const copyMarkdown = useCallback(() => {
     void navigator.clipboard
@@ -243,6 +247,13 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
 
   const generating = phase === "generating";
   const ended = phase === "exited" || phase === "failed";
+  const engineLabel = snapshot?.engineId ?? "agent";
+  // 生成中但 agent 还没吐出任何条目（刚发出去 / 上一条是用户）：先立一个空回合承载状态行。
+  const lastTurn = turns[turns.length - 1];
+  const pendingTurn: ChatTurn | null =
+    generating && lastTurn?.kind !== "assistant"
+      ? { kind: "assistant", id: "pending-turn", at: Date.now(), blocks: [] }
+      : null;
 
   const modeItems = (snapshot?.modes?.availableModes ?? []).map((mode) => ({
     id: mode.id,
@@ -394,30 +405,44 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
           onScroll={handleScroll}
           className="h-full overflow-y-auto px-3 py-3"
         >
-          <div className="mx-auto flex max-w-3xl flex-col gap-2.5">
-            {items && items.length > visibleCount ? (
+          <div className="mx-auto flex max-w-3xl flex-col gap-4">
+            {snapshot && turns.length <= visibleCount ? (
+              <ChatWelcome
+                engineLabel={engineLabel}
+                cwd={effectiveCwd}
+                concierge={chat?.concierge ?? false}
+              />
+            ) : null}
+            {turns.length > visibleCount ? (
               <button
                 type="button"
                 className="mx-auto rounded border border-[var(--app-border)] px-2.5 py-1 text-[11px] text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)]"
-                onClick={() => setVisibleCount((previous) => previous + 200)}
+                onClick={() => setVisibleCount((previous) => previous + 60)}
               >
-                {t("agentChatShowEarlier", { count: items.length - visibleCount })}
+                {t("agentChatShowEarlier", { count: turns.length - visibleCount })}
               </button>
             ) : null}
-            {(items ?? []).slice(-visibleCount).map((item) => (
-              <ItemView
-                key={item.id}
-                item={item}
+            {turns.slice(-visibleCount).map((turn, index, visible) => (
+              <ChatTurnView
+                key={turn.id}
+                turn={turn}
+                engineLabel={engineLabel}
+                streaming={generating && !pendingTurn && index === visible.length - 1}
+                chatId={tab.id}
                 onOpenLocation={openLocation}
                 onPlanToTodo={planToTodo}
                 expandAllSignal={toolFold}
-                chatId={tab.id}
               />
             ))}
-            {generating ? (
-              <div className="flex items-center gap-1.5 text-xs text-[var(--app-text-tertiary)]">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t("agentChatThinking")}
-              </div>
+            {pendingTurn ? (
+              <ChatTurnView
+                turn={pendingTurn}
+                engineLabel={engineLabel}
+                streaming
+                chatId={tab.id}
+                onOpenLocation={openLocation}
+                onPlanToTodo={planToTodo}
+              />
             ) : null}
           </div>
         </div>

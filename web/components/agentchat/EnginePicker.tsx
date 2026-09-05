@@ -32,6 +32,7 @@ import StartPrefDropdown from "./StartPrefDropdown";
 import StartProjectMenu, { projectNameOf } from "./StartProjectMenu";
 import StartRecentSessions from "./StartRecentSessions";
 import { takePendingResume } from "./pendingResume";
+import { takePendingStart } from "./pendingStart";
 import {
   loadAutoApproveKinds,
   loadEnginePrefs,
@@ -130,19 +131,33 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
   }, [loadHistory]);
 
   // 侧栏「最近会话」开出来的标签：领取续接意图，跳过选择页直接 start。
+  // 首页「对 agent 说」开出来的标签：领取启动意图，带首条消息直接 start。
   useEffect(() => {
-    const entry = takePendingResume(chatId);
-    if (entry) void start(entry.engineId, entry.cwd, entry.acpSessionId);
+    const resume = takePendingResume(chatId);
+    if (resume) {
+      void start(resume.engineId, resume.cwd, resume.acpSessionId);
+      return;
+    }
+    const launch = takePendingStart(chatId);
+    if (launch) {
+      onCwdAdopted(launch.cwd);
+      if (launch.preamble) useAgentChatStore.getState().setConcierge(chatId, true);
+      void start(launch.engineId, launch.cwd, undefined, launch.firstPrompt, launch.preamble);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatId]);
 
-  /** 启动会话；firstPrompt 非空时启动成功后立即作为首条消息发送。 */
+  /**
+   * 启动会话；firstPrompt 非空时启动成功后立即作为首条消息发送。
+   * preamble 只发给引擎、不进对话画面（管家角色指令等）。
+   */
   const start = useCallback(
     async (
       engineId: string,
       startCwd: string,
       resumeAcpSessionId?: string,
       firstPrompt?: string,
+      preamble?: string,
     ) => {
       if (!startCwd) return;
       setError(null);
@@ -203,7 +218,10 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
         const text = firstPrompt?.trim();
         if (text) {
           useAgentChatStore.getState().addUserMessage(chatId, text, []);
-          void agentChatService.prompt(chatId, [{ type: "text", text }]).catch((promptError) => {
+          // 单个文本块最稳：各引擎的 ACP 适配器对多块拼接行为不一致。
+          const lead = preamble?.trim();
+          const outbound = lead ? `${lead}\n\n---\n\n${text}` : text;
+          void agentChatService.prompt(chatId, [{ type: "text", text: outbound }]).catch((promptError) => {
             useAgentChatStore
               .getState()
               .pushNotice(

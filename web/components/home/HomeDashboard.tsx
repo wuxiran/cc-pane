@@ -18,6 +18,7 @@ import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import HomeHeader from "./HomeHeader";
 import HomeQuickActions from "./HomeQuickActions";
+import HomeAgentPrompt from "./HomeAgentPrompt";
 import HomeActiveSessions from "./HomeActiveSessions";
 import HomeDesignHighlights from "./HomeDesignHighlights";
 import HomeGettingStarted from "./HomeGettingStarted";
@@ -174,7 +175,10 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
             </IconTooltipButton>
           )}
         </div>
-        <HomeQuickActions onNewTerminal={handleNewTerminal} onOpenTerminal={onOpenTerminal} />
+        <HomeQuickActions onNewTerminal={handleNewTerminal} />
+
+        {/* 对 agent 说：首页只发起，对话在工作区的 agent-chat 标签里进行 */}
+        <HomeAgentPrompt />
 
         {/* 活跃会话：真实信息密度，空态优雅降级 */}
         <HomeActiveSessions />

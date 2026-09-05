@@ -41,6 +41,15 @@
   "minutesAgo": "{{count}}分钟前",
   "hoursAgo": "{{count}}小时前",
   "daysAgo": "{{count}}天前",
+  "agentPrompt": {
+    "title": "对 agent 说",
+    "placeholder": "告诉 agent 你想做什么，例如：把这个项目接进来，开两个 worker 分别跑测试和补文档。回车发送并进入工作区",
+    "placeholderNoTarget": "先选择一个项目或目录，再告诉 agent 你想做什么",
+    "pickTarget": "选择项目",
+    "pickEngine": "选择引擎",
+    "noEngine": "未检测到可用的 agent 引擎",
+    "send": "发送并进入工作区"
+  },
   "highlights": {
     "title": "它能为你做什么",
     "agentsTitle": "多 agent 并排干活",

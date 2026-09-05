@@ -31,6 +31,9 @@ vi.mock("./HomeQuickActions", () => ({
     <button data-testid="quick-actions" onClick={onNewTerminal} />
   ),
 }));
+vi.mock("./HomeAgentPrompt", () => ({
+  default: () => <div data-testid="agent-prompt" />,
+}));
 vi.mock("./HomeDesignHighlights", () => ({
   default: ({ compact }: { compact?: boolean }) => (
     <div data-testid={compact ? "highlights-compact" : "highlights-card"} />

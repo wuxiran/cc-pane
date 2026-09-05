@@ -598,6 +598,10 @@ impl AcpChatService {
                     "clientCapabilities": {
                         "fs": {"readTextFile": true, "writeTextFile": true},
                         "terminal": true,
+                        // claude-agent-acp 的扩展能力：转发子 agent 的正文/思维链（条目
+                        // 带 `_meta.claudeCode.parentToolUseId`），不声明则适配器一律剥掉，
+                        // 前端只能看到 Task 卡和它的最终汇报。
+                        "_meta": {"subagent-transcript": true},
                     },
                 }),
             ),

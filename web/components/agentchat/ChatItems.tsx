@@ -1,5 +1,6 @@
-// agent-chat 消息条目渲染（气泡/图片/工具卡/plan/notice）与头部小选择器。
+// agent-chat 单条目渲染（用户气泡/图片/plan/notice）与头部小选择器。
 // 从 AgentChatTabContent 拆出（行数棘轮），纯展示层：状态与动作全部经 props 注入。
+// assistant 正文、思考块、工具组在 ChatTurnView 里按回合承载，不在这里。
 import { useState, type ReactNode } from "react";
 import { Check, ChevronDown, Copy, ImageIcon, ListTodo } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -17,10 +18,8 @@ import {
 } from "@/components/ui/context-menu";
 import type { AcpPlanEntry, AgentChatItem } from "@/types/agentChat";
 import { handleErrorSilent } from "@/utils/errorHandler";
-import ChatMarkdown from "./ChatMarkdown";
-import ToolCallCard from "./ToolCallCard";
 
-function CopyButton({ text, label }: { text: string; label: string }) {
+export function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -44,7 +43,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 }
 
 /** 消息右键复制：复制动作的一等入口（assistant 悬停按钮之外的兜底）。 */
-function MessageCopyContextMenu({ text, children }: { text: string; children: ReactNode }) {
+export function MessageCopyContextMenu({ text, children }: { text: string; children: ReactNode }) {
   const { t } = useTranslation("panes");
   if (!text) return <>{children}</>;
   return (
@@ -67,14 +66,10 @@ function MessageCopyContextMenu({ text, children }: { text: string; children: Re
 
 export interface ItemViewProps {
   item: AgentChatItem;
-  onOpenLocation: (path: string, line?: number) => void;
   onPlanToTodo: (entries: AcpPlanEntry[]) => void;
-  expandAllSignal?: { seq: number; expanded: boolean };
-  /** 所属会话 id（tool_call 里的 terminal 块要按它订阅实时输出）。 */
-  chatId?: string;
 }
 
-export function ItemView({ item, onOpenLocation, onPlanToTodo, expandAllSignal, chatId }: ItemViewProps) {
+export function ItemView({ item, onPlanToTodo }: ItemViewProps) {
   const { t } = useTranslation("panes");
   switch (item.type) {
     case "user":
@@ -101,38 +96,12 @@ export function ItemView({ item, onOpenLocation, onPlanToTodo, expandAllSignal, 
           </div>
         </MessageCopyContextMenu>
       );
-    case "assistant":
-      return (
-        <MessageCopyContextMenu text={item.text}>
-          <div className="group relative">
-            <div className="absolute -top-1 right-0 z-[1]">
-              <CopyButton text={item.text} label={t("agentChatCopy")} />
-            </div>
-            <ChatMarkdown text={item.text} onOpenFile={onOpenLocation} />
-          </div>
-        </MessageCopyContextMenu>
-      );
     case "image":
       return (
         <img
           src={`data:${item.mimeType};base64,${item.data}`}
           alt="agent output"
           className="max-h-96 max-w-full self-start rounded border border-[var(--app-border)]"
-        />
-      );
-    case "thought":
-      return (
-        <div className="border-l-2 border-[var(--app-border)] pl-2.5 text-xs italic leading-relaxed text-[var(--app-text-tertiary)] whitespace-pre-wrap break-words">
-          {item.text}
-        </div>
-      );
-    case "tool_call":
-      return (
-        <ToolCallCard
-          call={item.call}
-          chatId={chatId}
-          onOpenLocation={onOpenLocation}
-          expandAllSignal={expandAllSignal}
         />
       );
     case "plan":

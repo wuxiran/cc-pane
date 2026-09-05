@@ -41,6 +41,15 @@
   "minutesAgo": "{{count}}m ago",
   "hoursAgo": "{{count}}h ago",
   "daysAgo": "{{count}}d ago",
+  "agentPrompt": {
+    "title": "Talk to agent",
+    "placeholder": "Tell the agent what you want, e.g. onboard this project and start two workers for tests and docs. Enter to send and open the workspace",
+    "placeholderNoTarget": "Pick a project or folder first, then tell the agent what you want",
+    "pickTarget": "Pick project",
+    "pickEngine": "Pick engine",
+    "noEngine": "No agent engine available",
+    "send": "Send and open workspace"
+  },
   "highlights": {
     "title": "What it does for you",
     "agentsTitle": "Agents working side by side",

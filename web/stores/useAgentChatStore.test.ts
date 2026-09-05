@@ -49,6 +49,36 @@ describe("useAgentChatStore", () => {
     expect(items[2].type === "assistant" && items[2].text).toBe("继续");
   });
 
+  it("条目带入列时间戳；思考块被后续条目或回合结束收口时记 doneAt", () => {
+    const store = useAgentChatStore.getState();
+    const before = Date.now();
+    store.addUserMessage(CHAT, "问");
+    store.appendStreamText(CHAT, "thought", "想");
+    store.appendStreamText(CHAT, "thought", "一想");
+    let items = useAgentChatStore.getState().chats[CHAT].items;
+    expect(items[0].at).toBeGreaterThanOrEqual(before);
+    expect(items[1].type === "thought" && items[1].doneAt).toBeUndefined();
+
+    store.appendStreamText(CHAT, "assistant", "答");
+    items = useAgentChatStore.getState().chats[CHAT].items;
+    expect(items[1].type === "thought" && typeof items[1].doneAt).toBe("number");
+
+    store.appendStreamText(CHAT, "thought", "再想");
+    store.turnEnded(CHAT, "end_turn");
+    items = useAgentChatStore.getState().chats[CHAT].items;
+    const last = items[items.length - 1];
+    expect(last.type).toBe("thought");
+    expect(last.type === "thought" && typeof last.doneAt).toBe("number");
+  });
+
+  it("setConcierge 标记管家会话，默认关闭", () => {
+    const store = useAgentChatStore.getState();
+    store.setSnapshot(CHAT, snapshot());
+    expect(useAgentChatStore.getState().chats[CHAT].concierge).toBe(false);
+    store.setConcierge(CHAT, true);
+    expect(useAgentChatStore.getState().chats[CHAT].concierge).toBe(true);
+  });
+
   it("tool_call_update 按 toolCallId 就地合并，content 整表替换", () => {
     const store = useAgentChatStore.getState();
     store.applySessionUpdate(CHAT, {
