@@ -59,6 +59,7 @@
   "center": {
     "title": "通知",
     "bellTooltip": "通知中心",
+    "bellLabelUnread": "通知中心，{{count}} 条未读",
     "unreadCount": "{{count}} 未读",
     "markAllRead": "全部已读",
     "clearAll": "清空",

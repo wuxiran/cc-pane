@@ -100,6 +100,7 @@ export default function UsageStatsHoverPreview({
 
   return (
     <section
+      id="usage-stats-hover-preview"
       data-testid="usage-stats-hover-preview"
       aria-label={t("usage.title")}
       className="absolute bottom-[calc(100%+8px)] right-0 z-50 w-[292px] rounded-md border p-2.5 shadow-xl"

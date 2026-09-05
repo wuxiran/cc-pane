@@ -35,10 +35,40 @@ function ContextMenu({
 }
 
 function ContextMenuTrigger({
+  onKeyDown,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Trigger>) {
+  // Radix ContextMenuTrigger 渲染 span，上游不处理 Menu 键（key === "ContextMenu"，含
+  // Shift+F10），只认右键与触屏长按。这里补通用键盘路径：仅当事件 target 是 trigger
+  // 自身（即使用方显式让 trigger 可聚焦）时，把按键翻译成合成 contextmenu 事件走
+  // Radix 自己的打开逻辑；焦点在后代元素时（如 filetree 的行）不介入——使用方已有
+  // 容器级 Menu 键实现，避免双开。使用方传入的 onKeyDown 优先，preventDefault 即让路。
+  const handleKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLSpanElement>) => {
+      onKeyDown?.(event)
+      if (event.defaultPrevented) return
+      if (event.key !== "ContextMenu") return
+      if (event.target !== event.currentTarget) return
+      event.preventDefault()
+      const rect = event.currentTarget.getBoundingClientRect()
+      event.currentTarget.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+        })
+      )
+    },
+    [onKeyDown]
+  )
+
   return (
-    <ContextMenuPrimitive.Trigger data-slot="context-menu-trigger" {...props} />
+    <ContextMenuPrimitive.Trigger
+      data-slot="context-menu-trigger"
+      onKeyDown={handleKeyDown}
+      {...props}
+    />
   )
 }
 

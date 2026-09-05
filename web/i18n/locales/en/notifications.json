@@ -59,6 +59,7 @@
   "center": {
     "title": "Notifications",
     "bellTooltip": "Notification center",
+    "bellLabelUnread": "Notification center, {{count}} unread",
     "unreadCount": "{{count}} unread",
     "markAllRead": "Mark all read",
     "clearAll": "Clear",

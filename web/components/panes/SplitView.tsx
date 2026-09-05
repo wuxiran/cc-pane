@@ -8,6 +8,11 @@ interface SplitViewProps {
   sizes: number[];
   /** 每个 pane 的最小像素尺寸 */
   minSize?: number;
+  /**
+   * 每个 pane 的布局层最小像素宽度（窄档保护，docs/splitview-narrow.md）。
+   * 仅水平分屏在窄档由 SplitContainer 传入；未传时 minWidth 保持 0，行为与旧版一致。
+   */
+  paneMinWidth?: number;
   /** 拖拽结束时回调，传入新的百分比数组 */
   onDragEnd: (sizes: number[]) => void;
   children: React.ReactNode[];
@@ -19,6 +24,7 @@ export default function SplitView({
   vertical,
   sizes,
   minSize = 50,
+  paneMinWidth,
   onDragEnd,
   children,
   keys,
@@ -173,7 +179,13 @@ export default function SplitView({
               flexGrow: 0,
               flexShrink: 0,
               overflow: "hidden",
-              minWidth: 0,
+              // 窄档列宽下限：只动 min-width，flexBasis 百分比数学保持不变；
+              // 断点穿越时 min-width 变化一次，经 min-width 过渡平滑落地
+              // （RO 只观察 xterm host，此处改动不自观察，无 refit 回路）。
+              minWidth: paneMinWidth ? `${paneMinWidth}px` : 0,
+              transition: paneMinWidth
+                ? "min-width var(--dur) var(--ease-out)"
+                : undefined,
               minHeight: 0,
             }}
           >

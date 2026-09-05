@@ -8,18 +8,20 @@ function renderSplitView({
   vertical = false,
   onDragEnd = vi.fn(),
   childCount = 2,
+  paneMinWidth,
 }: {
   sizes?: number[];
   vertical?: boolean;
   onDragEnd?: (sizes: number[]) => void;
   childCount?: number;
+  paneMinWidth?: number;
 } = {}) {
   const children = Array.from({ length: childCount }, (_, i) => (
     <div data-testid={`content-${i}`} key={i} />
   ));
   const keys = Array.from({ length: childCount }, (_, i) => `k${i}`);
   const view = render(
-    <SplitView vertical={vertical} sizes={sizes} onDragEnd={onDragEnd} keys={keys}>
+    <SplitView vertical={vertical} sizes={sizes} onDragEnd={onDragEnd} keys={keys} paneMinWidth={paneMinWidth}>
       {children}
     </SplitView>
   );
@@ -156,5 +158,100 @@ describe("SplitView", () => {
     // 卸载清理后 pointerup 不再触发 onDragEnd
     fireEvent.pointerUp(document);
     expect(onDragEnd).not.toHaveBeenCalled();
+  });
+
+  // 窄档列宽下限（docs/splitview-narrow.md）
+  describe("paneMinWidth floor", () => {
+    it("applies the min-width floor with a smooth min-width transition", () => {
+      const { container } = renderSplitView({ paneMinWidth: 320 });
+
+      const panes = container.querySelectorAll<HTMLElement>("[data-splitview-pane]");
+      expect(panes).toHaveLength(2);
+      for (const pane of panes) {
+        expect(pane.style.minWidth).toBe("320px");
+        expect(pane.style.transition).toContain("min-width var(--dur)");
+      }
+      // 百分比布局与 sash 结构不变
+      expect(panes[0].style.flexBasis).toBe("50%");
+      expect(container.querySelectorAll(".splitview-sash")).toHaveLength(1);
+    });
+
+    it("keeps minWidth 0 and no transition when paneMinWidth is omitted", () => {
+      const { container } = renderSplitView();
+
+      const panes = container.querySelectorAll<HTMLElement>("[data-splitview-pane]");
+      expect(panes[0].style.minWidth).toBe("0px");
+      expect(panes[0].style.transition).toBe("");
+    });
+
+    it("drags with the same percentage math when paneMinWidth is set", () => {
+      const onDragEnd = vi.fn();
+      const { container } = renderSplitView({ sizes: [50, 50], onDragEnd, paneMinWidth: 320 });
+
+      Object.defineProperty(container, "clientWidth", { configurable: true, value: 1000 });
+      const sash = container.querySelector<HTMLElement>(".splitview-sash")!;
+      const panes = container.querySelectorAll<HTMLElement>("[data-splitview-pane]");
+
+      fireEvent.pointerDown(sash, { clientX: 500, clientY: 0 });
+      fireEvent.pointerMove(document, { clientX: 600, clientY: 0 });
+      fireEvent.pointerUp(document);
+
+      expect(panes[0].style.flexBasis).toBe("60%");
+      expect(onDragEnd).toHaveBeenCalledWith([60, 40]);
+      // 拖拽只动 flexBasis，不写 min-width（不会制造额外 RO 回写）
+      expect(panes[0].style.minWidth).toBe("320px");
+    });
+
+    it("toggling paneMinWidth remounts nothing and creates no ResizeObserver", () => {
+      let roConstructed = 0;
+      const OriginalRO = globalThis.ResizeObserver;
+      globalThis.ResizeObserver = class {
+        constructor() {
+          roConstructed += 1;
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      } as unknown as typeof ResizeObserver;
+
+      try {
+        const children = [
+          <div data-testid="content-0" key={0} />,
+          <div data-testid="content-1" key={1} />,
+        ];
+        const { container, rerender } = render(
+          <SplitView vertical={false} sizes={[50, 50]} onDragEnd={vi.fn()} keys={["k0", "k1"]}>
+            {children}
+          </SplitView>
+        );
+        const before = Array.from(
+          container.querySelectorAll<HTMLElement>("[data-splitview-pane]")
+        );
+
+        rerender(
+          <SplitView
+            vertical={false}
+            sizes={[50, 50]}
+            onDragEnd={vi.fn()}
+            keys={["k0", "k1"]}
+            paneMinWidth={320}
+          >
+            {children}
+          </SplitView>
+        );
+        const after = Array.from(
+          container.querySelectorAll<HTMLElement>("[data-splitview-pane]")
+        );
+
+        // keep-alive 安全性：断点穿越只改样式，pane 元素同一引用，子树不卸载
+        expect(after[0]).toBe(before[0]);
+        expect(after[1]).toBe(before[1]);
+        expect(after[0].style.minWidth).toBe("320px");
+        // refit 回路防线：分屏组件自身不构造任何 ResizeObserver
+        expect(roConstructed).toBe(0);
+      } finally {
+        globalThis.ResizeObserver = OriginalRO;
+      }
+    });
   });
 });

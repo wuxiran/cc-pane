@@ -127,6 +127,7 @@ export default function NotificationCard({
             {expandable && (
               <button
                 type="button"
+                aria-expanded={expanded}
                 className="ml-[22px] mt-1 text-[11.5px] text-[var(--app-accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
                 onClick={() => setExpanded((value) => !value)}
               >

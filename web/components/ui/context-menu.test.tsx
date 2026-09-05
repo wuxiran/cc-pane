@@ -54,3 +54,83 @@ describe("ContextMenu browser webview overlay", () => {
     expect(useBrowserWebviewOverlayStore.getState().blockers.size).toBe(0);
   });
 });
+
+describe("ContextMenu 键盘 Menu 键路径", () => {
+  beforeEach(() => {
+    useBrowserWebviewOverlayStore.setState({ blockers: new Set() });
+  });
+
+  it("焦点在 trigger 自身时按 ContextMenu 键（Menu 键/Shift+F10）打开菜单", async () => {
+    render(
+      <ContextMenu>
+        <ContextMenuTrigger tabIndex={0}>菜单区域</ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem>动作</ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>,
+    );
+
+    fireEvent.keyDown(screen.getByText("菜单区域"), { key: "ContextMenu" });
+
+    expect(await screen.findByRole("menu")).toBeInTheDocument();
+  });
+
+  it("Esc 关闭键盘打开的菜单", async () => {
+    render(
+      <ContextMenu>
+        <ContextMenuTrigger tabIndex={0}>菜单区域</ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem>动作</ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>,
+    );
+
+    fireEvent.keyDown(screen.getByText("菜单区域"), { key: "ContextMenu" });
+    const menu = await screen.findByRole("menu");
+    fireEvent.keyDown(menu, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    });
+  });
+
+  it("事件从后代元素冒泡时封装不介入（使用方容器级实现如 filetree 不会双开）", () => {
+    render(
+      <ContextMenu>
+        <ContextMenuTrigger>
+          <span data-testid="row">文件行</span>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem>动作</ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>,
+    );
+
+    fireEvent.keyDown(screen.getByTestId("row"), { key: "ContextMenu" });
+
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("使用方 onKeyDown 先执行且 preventDefault 时封装让路", () => {
+    render(
+      <ContextMenu>
+        <ContextMenuTrigger
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === "ContextMenu") event.preventDefault();
+          }}
+        >
+          菜单区域
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem>动作</ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>,
+    );
+
+    fireEvent.keyDown(screen.getByText("菜单区域"), { key: "ContextMenu" });
+
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+});
+

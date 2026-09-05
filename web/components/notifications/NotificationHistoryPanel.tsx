@@ -97,6 +97,7 @@ export default function NotificationHistoryPanel() {
 
   return (
     <div
+      id="notification-history-panel"
       data-testid="notification-history-panel"
       className="flex w-full flex-col overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-lg motion-safe:animate-in motion-safe:slide-in-from-bottom-2 motion-safe:fade-in motion-safe:duration-[var(--dur-slow)] motion-safe:ease-[var(--ease-out)]"
     >
@@ -121,11 +122,12 @@ export default function NotificationHistoryPanel() {
         </IconTooltipButton>
       </div>
 
-      <div className="flex gap-1 px-3 pb-1 pt-2">
+      <div className="flex gap-1 px-3 pb-1 pt-2" role="group" aria-label={t("center.title")}>
         {filters.map(({ id, label }) => (
           <button
             key={id}
             type="button"
+            aria-pressed={filter === id}
             className={`rounded-full px-2.5 py-0.5 text-[11.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
               filter === id
                 ? "bg-[var(--app-active-bg)] font-semibold text-[var(--app-accent)]"
