@@ -125,6 +125,23 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
   // 首次切入时 visited 尚未含当前模式（effect 晚一拍），用 isActive 兜底立即挂载
   const isMounted = (mode: AppViewMode) => visited.has(mode) || isActive(mode);
 
+  // ===== aria-hidden 焦点告警修复：隐藏 keep-alive 层加 inert =====
+  // 现状：隐藏层只有 aria-hidden + opacity 0 + pointer-events none，层内已聚焦的
+  // 元素（如实机 home 层里的 button）不丢焦，Chromium 持续告警
+  // "Blocked aria-hidden on an element because its descendant retained focus"。
+  // 方案选 inert 而非「切视图手动移焦」：inert 是声明式状态，随活动态自动加/摘，
+  // 子树即刻不可聚焦/不可命中/对 AT 隐藏，且 Chromium 会把层内滞留焦点释放到
+  // body——告警根源（aria-hidden 子树持焦）被结构性消除。手动移焦要在每次切换
+  // 时抢焦点、还要记住切回时恢复到哪个元素，状态机和 enterMotion 动画期交互
+  // 都会变复杂，收益为零。aria-hidden 保留作双保险（inert 本身已对 AT 隐藏，
+  // 冗余声明无害且兼容不理解 inert 的旧 AT）。WebView2 为 Chromium 原生支持，
+  // 无需 polyfill。进入层恒为活动层（enterMotion.mode === effectiveAppViewMode），
+  // 永不带 inert，动画期间交互不受限。
+  const layerA11yAttrs = (mode: AppViewMode) => {
+    const active = isActive(mode);
+    return { "aria-hidden": !active, inert: !active };
+  };
+
   // ===== 亮色壁纸「脏交界」修复 =====
   // 亮色主题下 --app-panel-bg-effective 是 80% 半透明（提浓注释见上方常量），
   // 壁纸会透出面板；terminalOpacity<1（默认 0.85）时 xterm 本体也透壁纸，与白字
@@ -225,7 +242,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
         <div
           className="main-view-layer absolute inset-0 overflow-hidden"
           data-main-view="home"
-          aria-hidden={!isActive("home")}
+          {...layerA11yAttrs("home")}
           {...viewMotionAttr("home")}
           style={viewStyle("home")}
         >
@@ -237,7 +254,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
         <div
           className="main-view-layer absolute inset-0 overflow-hidden"
           data-main-view="todo"
-          aria-hidden={!isActive("todo")}
+          {...layerA11yAttrs("todo")}
           {...viewMotionAttr("todo")}
           style={{ background: "var(--app-panel-bg)", ...viewStyle("todo") }}
         >
@@ -249,7 +266,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
         <div
           className="main-view-layer absolute inset-0 overflow-hidden"
           data-main-view="selfchat"
-          aria-hidden={!isActive("selfchat")}
+          {...layerA11yAttrs("selfchat")}
           {...viewMotionAttr("selfchat")}
           style={viewStyle("selfchat")}
         >
@@ -261,7 +278,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
         <div
           className="main-view-layer absolute inset-0 overflow-hidden"
           data-main-view="providers"
-          aria-hidden={!isActive("providers")}
+          {...layerA11yAttrs("providers")}
           {...viewMotionAttr("providers")}
           style={viewStyle("providers")}
         >
@@ -297,6 +314,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
       {skillMarketEnabled && isMounted("skillMarket") && (
         <div
           className="main-view-layer flex-1 overflow-hidden"
+          {...layerA11yAttrs("skillMarket")}
           {...viewMotionAttr("skillMarket")}
           style={{ background: "var(--app-panel-bg)", ...viewStyle("skillMarket") }}
           data-testid="skill-market-shell"
@@ -311,7 +329,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
         <div
           className="main-view-layer absolute inset-0 overflow-hidden"
           data-main-view="files"
-          aria-hidden={!isActive("files")}
+          {...layerA11yAttrs("files")}
           {...viewMotionAttr("files")}
           style={{ background: "var(--app-panel-bg)", ...viewStyle("files") }}
         >
@@ -325,7 +343,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
         <div
           className="main-view-layer absolute inset-0 flex flex-col overflow-hidden"
           data-main-view="panes"
-          aria-hidden={!isActive("panes")}
+          {...layerA11yAttrs("panes")}
           {...viewMotionAttr("panes")}
           style={{
             background: "var(--app-panel-bg)",

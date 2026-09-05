@@ -35,8 +35,37 @@ let suppressLayoutSnapshotSaveUntil = 0;
 // 屏障先阻止重复建 PTY，再在租约自然过期后补一次自动认领。
 const STARTUP_ADOPTION_RETRY_MS = 31_000;
 
-function currentLayoutProfileId(): string {
-  return `layout-scope:${getActiveLayoutScope()}`;
+/**
+ * 后端 validate_profile_id 只接受 ASCII 字母数字与 - _ .（cc-panes-core
+ * layout_snapshot_service.rs）。LayoutScope 形如 `workspace:<id>` / `ssh-machine:<id>`，
+ * 结构冒号与 id 内可能出现的任意字符都必须转义进合法字符集，否则后端逐次拒绝
+ * save/load（启动与 5s 轮询刷屏的根因）。
+ * 规则：`[A-Za-z0-9-]` 原样保留；`_` 写成 `__`；其余字符写成 `_<codePointHex>`。
+ * 转义后分段内不含 `.`，分段以 `.` 连接，因此该编码是单射——不同 scope 不会撞键。
+ */
+const PROFILE_ID_SAFE_CHAR = /^[A-Za-z0-9-]$/;
+
+function escapeLayoutProfileIdPart(part: string): string {
+  let escaped = "";
+  for (const ch of part) {
+    if (PROFILE_ID_SAFE_CHAR.test(ch)) {
+      escaped += ch;
+    } else if (ch === "_") {
+      escaped += "__";
+    } else {
+      escaped += `_${(ch.codePointAt(0) ?? 0).toString(16).toUpperCase()}`;
+    }
+  }
+  return escaped;
+}
+
+/** 当前布局空间对应的共享快照 profileId，保证通过后端 profileId 字符校验。 */
+export function currentLayoutProfileId(): string {
+  const scope = getActiveLayoutScope();
+  const separatorIndex = scope.indexOf(":");
+  const kind = separatorIndex === -1 ? scope : scope.slice(0, separatorIndex);
+  const id = separatorIndex === -1 ? "" : scope.slice(separatorIndex + 1);
+  return `layout-scope.${escapeLayoutProfileIdPart(kind)}.${escapeLayoutProfileIdPart(id)}`;
 }
 
 function layoutSnapshotSource(): string {

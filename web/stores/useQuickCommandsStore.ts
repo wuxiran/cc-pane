@@ -103,6 +103,53 @@ function normalizeContext(context?: QuickCommandContext | string): QuickCommandC
   return context ?? {};
 }
 
+type QuickCommandLayer = "global" | "workspace" | "project";
+
+interface QuickCommandLayerFailure {
+  layer: QuickCommandLayer;
+  /** 失败层的排查锚点：workspace 名或 project 路径。 */
+  contextId?: string;
+  error: unknown;
+}
+
+/**
+ * 同一失败签名每次运行只告警一次：某层持续坏（如 SSH 伪路径项目、坏 JSON）时
+ * 不再每次启动/切项目刷屏，但首次必然留下含层名、上下文与错误明细的 warn。
+ */
+const reportedLoadFailureSignatures = new Set<string>();
+
+/** 测试专用：清空「已告警」缓存，让用例互不干扰。 */
+export function resetQuickCommandLoadFailureWarningsForTest(): void {
+  reportedLoadFailureSignatures.clear();
+}
+
+function describeLoadError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  try {
+    return JSON.stringify(error) ?? String(error);
+  } catch {
+    return String(error);
+  }
+}
+
+function warnLoadFailuresOnce(failures: QuickCommandLayerFailure[]): void {
+  for (const failure of failures) {
+    const detail = describeLoadError(failure.error);
+    const signature = `${failure.layer}:${failure.contextId ?? ""}:${detail}`;
+    if (reportedLoadFailureSignatures.has(signature)) continue;
+    reportedLoadFailureSignatures.add(signature);
+    console.warn(
+      `[QuickCommands] Skipping ${failure.layer} layer after load failure` +
+        (failure.contextId ? ` (${failure.contextId})` : "") +
+        `: ${detail}`,
+    );
+  }
+}
+
 let latestLoad = 0;
 
 export const useQuickCommandsStore = create<QuickCommandsState>((set, get) => {
@@ -153,12 +200,35 @@ export const useQuickCommandsStore = create<QuickCommandsState>((set, get) => {
         loading: true,
       }));
       try {
-        const [globalCommands, workspaceCommands, projectCommands] = await Promise.all([
-          quickCommandService.listGlobal(),
-          workspaceName ? quickCommandService.listWorkspace(workspaceName) : Promise.resolve([]),
-          projectPath ? quickCommandService.listProject(projectPath) : Promise.resolve([]),
-        ]);
+        // 分层隔离：单层坏（如 SSH 伪路径项目、损坏的层文件）不拖垮其他层，
+        // 好条目照常加载；失败明细见 warnLoadFailuresOnce 的一次性 warn。
+        const layerRequests: Array<[QuickCommandLayer, string | undefined, Promise<QuickCommand[]>]> = [
+          ["global", undefined, quickCommandService.listGlobal()],
+          [
+            "workspace",
+            workspaceName,
+            workspaceName ? quickCommandService.listWorkspace(workspaceName) : Promise.resolve([]),
+          ],
+          [
+            "project",
+            projectPath,
+            projectPath ? quickCommandService.listProject(projectPath) : Promise.resolve([]),
+          ],
+        ];
+        const results = await Promise.allSettled(layerRequests.map(([, , request]) => request));
         if (requestId !== latestLoad) return;
+        const [globalResult, workspaceResult, projectResult] = results;
+        const globalCommands = globalResult.status === "fulfilled" ? globalResult.value : [];
+        const workspaceCommands = workspaceResult.status === "fulfilled" ? workspaceResult.value : [];
+        const projectCommands = projectResult.status === "fulfilled" ? projectResult.value : [];
+        const failures: QuickCommandLayerFailure[] = [];
+        results.forEach((result, index) => {
+          if (result.status !== "rejected") return;
+          const [layer, contextId] = layerRequests[index];
+          // 未启用的层用立即 resolve 占位，不会进入失败列表
+          failures.push({ layer, contextId, error: result.reason });
+        });
+        warnLoadFailuresOnce(failures);
         set({
           globalCommands,
           workspaceCommands,

@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { quickCommandService } from "@/services/quickCommandService";
 import type { QuickCommand, QuickCommandDraft } from "@/types";
-import { useQuickCommandsStore } from "./useQuickCommandsStore";
+import {
+  resetQuickCommandLoadFailureWarningsForTest,
+  useQuickCommandsStore,
+} from "./useQuickCommandsStore";
 
 vi.mock("@/services/quickCommandService", () => ({
   quickCommandService: {
@@ -42,6 +45,8 @@ const draft: QuickCommandDraft = {
 describe("useQuickCommandsStore", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.restoreAllMocks();
+    resetQuickCommandLoadFailureWarningsForTest();
     service.listWorkspace.mockResolvedValue([]);
     useQuickCommandsStore.setState({
       globalCommands: [],
@@ -160,7 +165,8 @@ describe("useQuickCommandsStore", () => {
     });
   });
 
-  it("项目加载失败时不恢复上一个项目的命令", async () => {
+  it("项目层加载失败时降级：不恢复上一个项目的命令，好层照常加载", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const previousGlobal = command("global");
     const previousProject = command("project-a");
     useQuickCommandsStore.setState({
@@ -175,9 +181,8 @@ describe("useQuickCommandsStore", () => {
     service.listGlobal.mockResolvedValue([previousGlobal]);
     service.listProject.mockRejectedValue(new Error("broken project config"));
 
-    await expect(useQuickCommandsStore.getState().load("/repo/b")).rejects.toThrow(
-      "broken project config",
-    );
+    // 不再整体 reject：project 层被跳过，global 层保留
+    await useQuickCommandsStore.getState().load("/repo/b");
 
     expect(useQuickCommandsStore.getState()).toMatchObject({
       activeProjectPath: "/repo/b",
@@ -185,6 +190,46 @@ describe("useQuickCommandsStore", () => {
       commands: [{ ...previousGlobal, scope: "global" }],
       loading: false,
     });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("project");
+    expect(warn.mock.calls[0][0]).toContain("/repo/b");
+    expect(warn.mock.calls[0][0]).toContain("broken project config");
+  });
+
+  it("workspace 层失败不拖垮 project 层，非 Error 失败对象给出可读明细", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    service.listGlobal.mockResolvedValue([command("global")]);
+    // Tauri invoke 的失败往往是普通对象而非 Error 实例
+    service.listWorkspace.mockRejectedValue({ message: "Invalid workspace name 'a/b'" });
+    service.listProject.mockResolvedValue([command("project")]);
+
+    await useQuickCommandsStore
+      .getState()
+      .load({ projectPath: "/repo/a", workspaceName: "a/b" });
+
+    expect(useQuickCommandsStore.getState().commands).toEqual([
+      { ...command("global"), scope: "global" },
+      { ...command("project"), scope: "project" },
+    ]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("workspace");
+    expect(warn.mock.calls[0][0]).toContain("a/b");
+    expect(warn.mock.calls[0][0]).toContain("Invalid workspace name");
+  });
+
+  it("同一失败签名只 warn 一次，不再每轮启动刷屏", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    service.listGlobal.mockResolvedValue([]);
+    service.listProject.mockRejectedValue(new Error("ssh://root@host:22/~ cannot resolve"));
+
+    await useQuickCommandsStore.getState().load("/repo/ssh");
+    await useQuickCommandsStore.getState().load("/repo/ssh");
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // 失败明细变化（新路径/新错误）属于新签名，必须再次告警，不得吞掉
+    await useQuickCommandsStore.getState().load("/repo/other");
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls[1][0]).toContain("/repo/other");
   });
 
   it("创建项目命令时保存项目完整列表", async () => {

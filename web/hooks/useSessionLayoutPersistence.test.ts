@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   collectRestorableSessions,
+  currentLayoutProfileId,
   useSessionLayoutPersistence,
   useStartupTerminalRestoreBarrier,
 } from "./useSessionLayoutPersistence";
@@ -9,6 +10,8 @@ import { sessionRestoreService, terminalService } from "@/services";
 import { getCurrentWindowIfTauri, isTauriRuntime } from "@/services/runtime";
 import { waitForDesktopRuntime } from "@/utils/desktopRuntime";
 import { usePanesStore } from "@/stores";
+import { useLayoutScopeStore } from "@/stores/useLayoutScopeStore";
+import type { LayoutScope } from "@/utils/layoutScope";
 import {
   reconcileTerminalSessions,
   runBackgroundLayoutRestore,
@@ -53,6 +56,53 @@ vi.mock("@/hooks/useTerminalSessionRestore", () => ({
   reconcileTerminalSessions: vi.fn(async () => ({ attached: 0, blocked: 0, skipped: 0 })),
   runBackgroundLayoutRestore: vi.fn(async () => {}),
 }));
+
+describe("currentLayoutProfileId", () => {
+  // 与 cc-panes-core layout_snapshot_service.rs validate_profile_id 同一字符集
+  const BACKEND_SAFE = /^[A-Za-z0-9._-]+$/;
+
+  beforeEach(() => {
+    useLayoutScopeStore.getState().resetForTest();
+  });
+
+  it("默认布局空间生成合法且可读的 profileId", () => {
+    const profileId = currentLayoutProfileId();
+    expect(profileId).toBe("layout-scope.workspace.default");
+    expect(profileId).toMatch(BACKEND_SAFE);
+  });
+
+  it("scope 结构冒号与 id 内非法字符被转义，结果通过后端字符校验", () => {
+    useLayoutScopeStore.getState().setActiveScope("ssh-machine:my host:60020/~");
+    const profileId = currentLayoutProfileId();
+    expect(profileId).toMatch(BACKEND_SAFE);
+    expect(profileId).not.toContain(":");
+    expect(profileId.startsWith("layout-scope.ssh-machine.")).toBe(true);
+  });
+
+  it("编码是单射：仅在非法字符上不同的 scope 得到不同 profileId", () => {
+    const scopes: LayoutScope[] = ["workspace:a_b", "workspace:a:b", "workspace:a b", "workspace:ab"];
+    const profileIds = scopes.map((scope) => {
+      useLayoutScopeStore.getState().setActiveScope(scope);
+      return currentLayoutProfileId();
+    });
+    expect(new Set(profileIds).size).toBe(profileIds.length);
+    // '_' 自身转义为 '__'，与 '_3A'（':'）、'_20'（' '）区分
+    expect(profileIds[0]).toBe("layout-scope.workspace.a__b");
+    profileIds.forEach((id) => expect(id).toMatch(BACKEND_SAFE));
+  });
+
+  it("非 ASCII 字符按码点转义；本就合法的 id（如 uuid）原样保留", () => {
+    useLayoutScopeStore.getState().setActiveScope("workspace:中文机");
+    expect(currentLayoutProfileId()).toMatch(BACKEND_SAFE);
+
+    useLayoutScopeStore
+      .getState()
+      .setActiveScope("workspace:36511ac6-e1ba-4574-9689-ff5f37a65519");
+    expect(currentLayoutProfileId()).toBe(
+      "layout-scope.workspace.36511ac6-e1ba-4574-9689-ff5f37a65519",
+    );
+  });
+});
 
 describe("useStartupTerminalRestoreBarrier", () => {
   beforeEach(() => {

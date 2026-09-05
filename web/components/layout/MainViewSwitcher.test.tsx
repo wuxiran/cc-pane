@@ -555,3 +555,65 @@ describe("签名动效：视图切入视差滑动", () => {
     expect(homeLayer.style.opacity).toBe("1");
   });
 });
+
+describe("inert：隐藏 keep-alive 层不持焦（aria-hidden 焦点告警修复）", () => {
+  function mainViewLayer(testId: string, view: string) {
+    return screen.getByTestId(testId).closest(`[data-main-view='${view}']`) as HTMLElement;
+  }
+
+  it("首次挂载的活动层不带 inert，aria-hidden 为 false", () => {
+    setMode("panes");
+    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    const panesLayer = mainViewLayer("pane-container", "panes");
+    expect(panesLayer.hasAttribute("inert")).toBe(false);
+    expect(panesLayer).toHaveAttribute("aria-hidden", "false");
+  });
+
+  it("非活动 keep-alive 层带 inert + aria-hidden，活动层不带；切换后互换", async () => {
+    setMode("home");
+    const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    const homeLayer = mainViewLayer("home-dashboard", "home");
+    expect(homeLayer.hasAttribute("inert")).toBe(false);
+    expect(homeLayer).toHaveAttribute("aria-hidden", "false");
+
+    // 切到 panes：home 保持挂载但隐藏，inert 使子树不可聚焦/不可命中
+    setMode("panes");
+    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId("pane-container")).toBeVisible());
+    const panesLayer = mainViewLayer("pane-container", "panes");
+    expect(homeLayer.hasAttribute("inert")).toBe(true);
+    expect(homeLayer).toHaveAttribute("aria-hidden", "true");
+    expect(panesLayer.hasAttribute("inert")).toBe(false);
+    expect(panesLayer).toHaveAttribute("aria-hidden", "false");
+
+    // 切回 home：inert 摘除，焦点/命中能力恢复；panes 层转入 inert
+    setMode("home");
+    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId("home-dashboard")).toBeVisible());
+    expect(homeLayer.hasAttribute("inert")).toBe(false);
+    expect(homeLayer).toHaveAttribute("aria-hidden", "false");
+    expect(panesLayer.hasAttribute("inert")).toBe(true);
+    expect(panesLayer).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("enterMotion 视差动画期间，进入层（活动层）全程不带 inert", async () => {
+    setMode("panes");
+    const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+
+    setMode("home");
+    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    const homeLayer = mainViewLayer("home-dashboard", "home");
+
+    // 起始帧（from）：进入层已可交互，无 inert
+    expect(homeLayer).toHaveAttribute("data-enter-motion", "from");
+    expect(homeLayer.hasAttribute("inert")).toBe(false);
+    // 过渡帧（to）：仍无 inert
+    await waitFor(() => expect(homeLayer).toHaveAttribute("data-enter-motion", "to"));
+    expect(homeLayer.hasAttribute("inert")).toBe(false);
+    // 收尾后依然无 inert
+    await waitFor(() => expect(homeLayer.hasAttribute("data-enter-motion")).toBe(false), {
+      timeout: 2000,
+    });
+    expect(homeLayer.hasAttribute("inert")).toBe(false);
+  });
+});
