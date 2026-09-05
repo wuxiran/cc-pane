@@ -93,8 +93,6 @@ function renderTabBar({
         onTogglePin={vi.fn()}
         onToggleStar={vi.fn()}
         newTab={{ onAdd: vi.fn(), onAddSsh }}
-        onSplitRight={vi.fn()}
-        onSplitDown={vi.fn()}
         onFullscreen={onFullscreen}
         onRename={onRename}
         onSplitAndMoveRight={vi.fn()}
@@ -398,8 +396,6 @@ describe("TabBar", () => {
           onTogglePin={vi.fn()}
           onToggleStar={vi.fn()}
           newTab={{ onAdd: vi.fn() }}
-          onSplitRight={vi.fn()}
-          onSplitDown={vi.fn()}
           onFullscreen={vi.fn()}
           onRename={vi.fn()}
           onSplitAndMoveRight={vi.fn()}

@@ -18,6 +18,7 @@ import { useDialogStore } from "@/stores";
 import { useCliTools } from "@/hooks/useCliTools";
 import type { GeneralSettings, DataDirInfo, SearchScope } from "@/types";
 import { formatSize } from "@/utils";
+import AdvancedSettings from "./AdvancedSettings";
 
 interface GeneralSectionProps {
   value: GeneralSettings;
@@ -210,22 +211,24 @@ export default function GeneralSection({
         />
       </div>
 
-      <div className="flex items-center justify-between">
-        <div className="flex flex-col">
-          <Label htmlFor="general-disable-wsl-usage-scan">{t("disableWslUsageScan")}</Label>
-          <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("disableWslUsageScanDesc")}
-          </p>
+      <AdvancedSettings>
+        <div className="flex items-center justify-between">
+          <div className="flex flex-col">
+            <Label htmlFor="general-disable-wsl-usage-scan">{t("disableWslUsageScan")}</Label>
+            <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
+              {t("disableWslUsageScanDesc")}
+            </p>
+          </div>
+          <input
+            id="general-disable-wsl-usage-scan"
+            type="checkbox"
+            checked={value.disableWslUsageScan ?? false}
+            onChange={(e) => update("disableWslUsageScan", e.target.checked)}
+            className="w-4 h-4 cursor-pointer shrink-0"
+            style={{ accentColor: "var(--app-accent)" }}
+          />
         </div>
-        <input
-          id="general-disable-wsl-usage-scan"
-          type="checkbox"
-          checked={value.disableWslUsageScan ?? false}
-          onChange={(e) => update("disableWslUsageScan", e.target.checked)}
-          className="w-4 h-4 cursor-pointer shrink-0"
-          style={{ accentColor: "var(--app-accent)" }}
-        />
-      </div>
+      </AdvancedSettings>
 
       <div className="flex items-center justify-between gap-6">
         <Label htmlFor="general-language">{t("language")}</Label>

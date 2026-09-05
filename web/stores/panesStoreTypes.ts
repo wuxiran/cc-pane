@@ -207,6 +207,27 @@ export interface PanesState extends BrowserTabActions {
   splitDown: (paneId: string) => void;
   resizePanes: (paneId: string, sizes: number[]) => void;
   applyLayoutPreset: (preset: LayoutPresetId) => void;
+  /**
+   * 布局内临时放大（zoom，tmux 式）：非空时 SplitContainer 把不含该 pane 的支
+   * 挤到 0 宽（保持挂载，终端不死）。不持久化——重开应用不恢复 zoom 态。
+   */
+  zoomedPaneId: string | null;
+  /** 关闭窗格：走统一销毁出口（reason "close-pane"，pinned 豁免），空壳收编。 */
+  closePane: (paneId: string) => void;
+  /** 所有 split 节点尺寸归一为均分（递归整棵树）。 */
+  equalizePaneSizes: () => void;
+  /** 布局内临时放大/还原（单 pane 布局 no-op）。 */
+  togglePaneZoom: (paneId: string) => void;
+  /**
+   * 拖拽落边分屏：把 tab 落到 targetPane 旁的新窗格。target === from 时
+   * 退化为拆自己（splitAndMoveTab）；否则先 split 再 moveTab（源空壳自动收编）。
+   */
+  splitAndDropTab: (
+    targetPaneId: string,
+    fromPaneId: string,
+    tabId: string,
+    direction: SplitDirection,
+  ) => void;
   /** layoutId 省略 = 当前布局。传入时往该布局的树里写，不切换当前布局。 */
   addTab: (paneId: string, opts: CreateTabOptions, layoutId?: string) => void;
   togglePinTab: (paneId: string, tabId: string) => void;

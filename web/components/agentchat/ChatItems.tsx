@@ -9,6 +9,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import type { AcpPlanEntry, AgentChatItem } from "@/types/agentChat";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import ChatMarkdown from "./ChatMarkdown";
@@ -37,6 +43,28 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   );
 }
 
+/** 消息右键复制：复制动作的一等入口（assistant 悬停按钮之外的兜底）。 */
+function MessageCopyContextMenu({ text, children }: { text: string; children: ReactNode }) {
+  const { t } = useTranslation("panes");
+  if (!text) return <>{children}</>;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent className="w-40">
+        <ContextMenuItem
+          onSelect={() => {
+            void navigator.clipboard
+              .writeText(text)
+              .catch((error) => handleErrorSilent(error, "copy chat message"));
+          }}
+        >
+          <Copy size={14} /> {t("agentChatCopy")}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
 export interface ItemViewProps {
   item: AgentChatItem;
   onOpenLocation: (path: string, line?: number) => void;
@@ -51,34 +79,38 @@ export function ItemView({ item, onOpenLocation, onPlanToTodo, expandAllSignal, 
   switch (item.type) {
     case "user":
       return (
-        <div className="flex flex-col items-end gap-1">
-          {item.attachmentLabels && item.attachmentLabels.length > 0 ? (
-            <div className="flex flex-wrap justify-end gap-1">
-              {item.attachmentLabels.map((label, index) => (
-                <span
-                  key={index}
-                  className="flex items-center gap-1 rounded border border-[var(--app-border)] px-1.5 py-0.5 text-[11px] text-[var(--app-icon-inactive)]"
-                >
-                  <ImageIcon className="h-3 w-3" /> {label}
-                </span>
-              ))}
-            </div>
-          ) : null}
-          {item.text ? (
-            <div className="max-w-[85%] rounded-2xl rounded-br-md bg-[var(--app-active-bg)] px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
-              {item.text}
-            </div>
-          ) : null}
-        </div>
+        <MessageCopyContextMenu text={item.text ?? ""}>
+          <div className="flex flex-col items-end gap-1">
+            {item.attachmentLabels && item.attachmentLabels.length > 0 ? (
+              <div className="flex flex-wrap justify-end gap-1">
+                {item.attachmentLabels.map((label, index) => (
+                  <span
+                    key={index}
+                    className="flex items-center gap-1 rounded border border-[var(--app-border)] px-1.5 py-0.5 text-[11px] text-[var(--app-icon-inactive)]"
+                  >
+                    <ImageIcon className="h-3 w-3" /> {label}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {item.text ? (
+              <div className="max-w-[85%] rounded-2xl rounded-br-md bg-[var(--app-active-bg)] px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
+                {item.text}
+              </div>
+            ) : null}
+          </div>
+        </MessageCopyContextMenu>
       );
     case "assistant":
       return (
-        <div className="group relative">
-          <div className="absolute -top-1 right-0 z-[1]">
-            <CopyButton text={item.text} label={t("agentChatCopy")} />
+        <MessageCopyContextMenu text={item.text}>
+          <div className="group relative">
+            <div className="absolute -top-1 right-0 z-[1]">
+              <CopyButton text={item.text} label={t("agentChatCopy")} />
+            </div>
+            <ChatMarkdown text={item.text} onOpenFile={onOpenLocation} />
           </div>
-          <ChatMarkdown text={item.text} onOpenFile={onOpenLocation} />
-        </div>
+        </MessageCopyContextMenu>
       );
     case "image":
       return (

@@ -28,6 +28,7 @@ import { useSharedMcpStore } from "@/stores";
 import type { BridgeMode, SharedMcpServerConfig, SharedMcpServerInfo, SharedMcpServerStatus } from "@/types";
 import { mcpService } from "@/services";
 import { formatEnvLines, parseEnvLines } from "@/utils";
+import ScopeBanner from "./ScopeBanner";
 
 interface FormState {
   name: string;
@@ -319,6 +320,9 @@ export default function SharedMcpSection() {
 
   return (
     <div className="space-y-4">
+      {/* 作用域徽标：全局共享层（批 5 配置收敛） */}
+      <ScopeBanner scope="global" descriptionKey="scope.mcpGlobalDesc" />
+
       {/* CC-Panes 自身 MCP 配置 */}
       <CcpanesMcpCard />
 

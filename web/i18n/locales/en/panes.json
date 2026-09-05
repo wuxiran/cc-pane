@@ -508,5 +508,11 @@
   "chatRoleReasoning": "Thinking",
   "chatRoleTool": "Tool",
   "popOutFailed": "Failed to pop out window: {{error}}",
-  "sshMachineIdentityUnavailable": "SSH machine identity is unavailable"
+  "sshMachineIdentityUnavailable": "SSH machine identity is unavailable",
+  "splitCloneRight": "Clone Tab to the Right",
+  "splitCloneDown": "Clone Tab Below",
+  "zoomPane": "Zoom This Pane",
+  "unzoomPane": "Restore Pane Size",
+  "closePane": "Close This Pane",
+  "doubleClickFullscreenHint": "Double-click to fullscreen"
 }

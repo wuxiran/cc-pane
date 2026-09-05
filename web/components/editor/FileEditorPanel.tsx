@@ -252,6 +252,10 @@ function EditorTabItem({
         <ContextMenuItem onClick={onRevealInExplorer}>
           {t("revealInExplorer", { defaultValue: "Reveal in File Tree" })}
         </ContextMenuItem>
+        {/* 复制文件路径（与主标签菜单能力对齐） */}
+        <ContextMenuItem onClick={() => void navigator.clipboard.writeText(tab.filePath)}>
+          {t("copyFilePath", { defaultValue: "Copy File Path" })}
+        </ContextMenuItem>
         <ContextMenuSeparator />
         {/* 关闭左侧 */}
         <ContextMenuItem onClick={onCloseToLeft} disabled={!hasUnpinnedToLeft}>
@@ -270,8 +274,8 @@ function EditorTabItem({
           <>
             <ContextMenuSeparator />
             <ContextMenuItem
+              variant="destructive"
               onClick={onClose}
-              className="text-destructive"
             >
               {t("closeTab", { defaultValue: "Close Tab" })}
             </ContextMenuItem>

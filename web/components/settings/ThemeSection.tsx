@@ -11,6 +11,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 import { useDensityStore } from "@/stores/useDensityStore";
 import { useThemeStore } from "@/stores/useThemeStore";
+import { navigateToSettings } from "./settingsNavigation";
 import {
   canonicalThemePreference,
   THEME_PRESETS,
@@ -151,6 +152,22 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
       </section>}
 
       {view !== "shape" && <ThemeEditor />}
+
+      {/* 终端配色跨页链接：外观是一站式入口，终端主题留在终端页（批 5） */}
+      {view !== "shape" && (
+        <p className="m-0 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
+          {t("theme.terminalThemeHint")}
+          {" "}
+          <button
+            type="button"
+            className="underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+            style={{ color: "var(--app-accent)" }}
+            onClick={() => navigateToSettings({ paneId: "terminal", targetSectionId: "terminal-root" })}
+          >
+            {t("theme.terminalThemeLink")}
+          </button>
+        </p>
+      )}
 
       {view !== "theme" && <section
         className={cn("space-y-4", view === "all" && "border-t border-[var(--app-border)] pt-6")}

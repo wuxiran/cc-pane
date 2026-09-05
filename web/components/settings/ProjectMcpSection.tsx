@@ -10,6 +10,7 @@ import { useMcpStore, useWorkspacesStore } from "@/stores";
 import { workspaceNameForProject } from "@/hooks/useQuickCommandsSync";
 import type { McpLayerTarget, McpServerConfig } from "@/types";
 import { parseEnvLines, formatEnvLines } from "@/utils";
+import ScopeBanner from "./ScopeBanner";
 
 interface FormState {
   name: string;
@@ -147,6 +148,15 @@ export default function ProjectMcpSection({
 
   return (
     <div className="flex flex-col h-full">
+      {/* 作用域徽标：工作空间层 + 跨层跳转（批 5 配置收敛） */}
+      <div className="px-4 pt-3">
+        <ScopeBanner
+          scope="workspace"
+          descriptionKey="scope.mcpWorkspaceDesc"
+          link={{ labelKey: "scope.editGlobalMcp", paneId: "shared-mcp" }}
+        />
+      </div>
+
       {/* 标题栏 */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
         <div className="flex items-center gap-2 min-w-0">
@@ -230,6 +240,7 @@ export default function ProjectMcpSection({
                 size="icon"
                 variant="ghost"
                 className="h-7 w-7"
+                aria-label={t("mcpEdit")}
                 onClick={() => handleEdit(name, config)}
               >
                 <SquarePen size={13} />
@@ -238,6 +249,7 @@ export default function ProjectMcpSection({
                 size="icon"
                 variant="ghost"
                 className="h-7 w-7 text-destructive"
+                aria-label={t("mcpDelete")}
                 onClick={() => handleDelete(name)}
               >
                 <Trash2 size={13} />

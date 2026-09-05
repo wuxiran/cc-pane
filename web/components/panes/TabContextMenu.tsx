@@ -27,6 +27,7 @@ import {
 import { usePanesStore } from "@/stores";
 import type { Tab } from "@/types";
 import type { TFunction } from "i18next";
+import CommandMenuItem, { CommandShortcutHint } from "@/components/commands/CommandMenuItem";
 import TabQuickCommandsMenu from "./TabQuickCommandsMenu";
 
 export interface PaneMoveTarget {
@@ -51,8 +52,6 @@ interface TabContextMenuProps {
   onClose: (tabId: string) => void;
   onTogglePin: (tabId: string) => void;
   onToggleStar: (tabId: string) => void;
-  onSplitRight: () => void;
-  onSplitDown: () => void;
   onSplitAndMoveRight: (tabId: string) => void;
   onSplitAndMoveDown: (tabId: string) => void;
   moveTargets: PaneMoveTarget[];
@@ -85,8 +84,6 @@ export default function TabContextMenu({
   onClose,
   onTogglePin,
   onToggleStar,
-  onSplitRight,
-  onSplitDown,
   onSplitAndMoveRight,
   onSplitAndMoveDown,
   moveTargets,
@@ -170,12 +167,10 @@ export default function TabContextMenu({
         ) : null}
         <TabQuickCommandsMenu tab={tab} paneId={paneId} />
         <ContextMenuSeparator />
-        <ContextMenuItem onClick={onSplitRight}>
-          <PanelRight /> {t("splitPanelRight")}
-        </ContextMenuItem>
-        <ContextMenuItem onClick={onSplitDown}>
-          <PanelBottom /> {t("splitPanelDown")}
-        </ContextMenuItem>
+        {/* 窗格级分屏走命令注册中心：菜单项自动显示当前键位，键位改绑后同步变。
+            菜单文案保留「面板 · 拆分到右/下」，与终端格子分屏（下方 splitRight/splitDown）区分。 */}
+        <CommandMenuItem commandId="split-right" ctx={{ paneId }} label={t("splitPanelRight")} />
+        <CommandMenuItem commandId="split-down" ctx={{ paneId }} label={t("splitPanelDown")} />
         {tabs.length > 1 && (
           <>
             <ContextMenuItem onClick={() => onSplitAndMoveRight(tab.id)}>
@@ -293,6 +288,7 @@ export default function TabContextMenu({
           onClick={() => usePanesStore.getState().reopenClosedTab(paneId)}
         >
           {t("restoreClosedTabs", { count: closedTabCount })}
+          <CommandShortcutHint commandId="reopen-closed-tab" />
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

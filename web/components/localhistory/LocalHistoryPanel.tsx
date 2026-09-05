@@ -539,6 +539,7 @@ export default function LocalHistoryPanel({
                     fileBranches={fileBranches}
                     selectVersion={selectVersion}
                     openLabelDialog={openLabelDialog}
+                    restoreVersion={restoreVersion}
                     getVersionLabels={getVersionLabels}
                   />
                   <VersionDiffView
@@ -571,7 +572,7 @@ export default function LocalHistoryPanel({
                       >
                         {t("common:cancel")}
                       </Button>
-                      <Button onClick={restoreVersion}>
+                      <Button onClick={() => restoreVersion()}>
                         <RotateCcw size={14} className="mr-2" />{" "}
                         {t("restoreVersion")}
                       </Button>

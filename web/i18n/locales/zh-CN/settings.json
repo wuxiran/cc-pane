@@ -1035,5 +1035,24 @@
     "removed": "已移除 {{name}}",
     "removeFailed": "移除失败: {{error}}"
   },
-  "providerUrlCopied": "Provider 链接已复制"
+  "providerUrlCopied": "Provider 链接已复制",
+  "splitShortcutPassthrough": "分屏快捷键放行给终端",
+  "splitShortcutPassthroughHint": "打开后，终端聚焦时 Ctrl+ / Ctrl+- 发给终端（如 SIGQUIT）而不触发分屏。默认关闭：终端聚焦也可直接分屏。",
+  "pages.appearance.title": "外观",
+  "advancedSettings": "高级设置",
+  "scope.global": "全局共享",
+  "scope.workspace": "工作空间",
+  "scope.profile": "启动配置",
+  "scope.mcpGlobalDesc": "对所有工作空间生效。工作空间级 MCP 在此基础上叠加。",
+  "scope.mcpWorkspaceDesc": "仅当前工作空间生效，叠加在全局共享 MCP 之上。改了不生效时请检查全局层是否已有同名服务器。",
+  "scope.editGlobalMcp": "编辑全局共享 MCP",
+  "scope.skillsGlobalDesc": "全局技能库，对所有项目生效；项目级技能在此基础上叠加。",
+  "scope.profileDesc": "启动配置决定每次启动使用哪个服务商、模型与参数。",
+  "scope.manageCredentials": "管理服务商凭据",
+  "scope.credentialsDesc": "服务商凭据全局共享，被各启动配置引用。",
+  "scope.manageProfiles": "管理启动配置",
+  "theme.terminalThemeHint": "终端配色跟随应用主题，也可单独设置。",
+  "theme.terminalThemeLink": "前往终端设置",
+  "mcpEdit": "编辑",
+  "mcpDelete": "删除"
 }

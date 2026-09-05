@@ -16,6 +16,7 @@ import { handleError, getErrorMessage } from "@/utils";
 import { filesystemService } from "@/services/filesystemService";
 import { sshFileService } from "@/services/sshFileService";
 import { usePanesStore, useRightDockStore, useSshRemoteFilesStore } from "@/stores";
+import { registerMonacoProductActions } from "./monacoProductActions";
 import type { EditorTab } from "@/stores/useEditorTabsStore";
 import { useEditorRevealStore } from "@/stores/useEditorRevealStore";
 import { reportTabViewState } from "@/lib/tabLifecycle/tabViewState";
@@ -98,13 +99,12 @@ interface EditorViewProps {
 
 export default function EditorView({
   filePath,
-  projectPath: _projectPath,
+  projectPath,
   tabId,
   paneId,
   onDirtyChange,
   ssh,
 }: EditorViewProps) {
-  void _projectPath; // 保留 prop 供未来使用（如路径沙箱验证）
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const [editorMounted, setEditorMounted] = useState(false);
   const [content, setContent] = useState<string>("");
@@ -320,8 +320,11 @@ export default function EditorView({
           handleSave();
         },
       });
+
+      // 产品动作注入 Monaco 右键菜单（复制路径 / 文件树定位）
+      registerMonacoProductActions(editor, { filePath, projectPath, ssh: Boolean(ssh) });
     },
-    [handleSave, syncPreviewFromEditor, tabId]
+    [handleSave, syncPreviewFromEditor, tabId, filePath, projectPath, ssh]
   );
 
   useEffect(() => {
@@ -393,7 +396,7 @@ export default function EditorView({
     return (
       <ImagePreview
         filePath={filePath}
-        projectPath={_projectPath}
+        projectPath={projectPath}
         sourceUrl={ssh ? remoteImageUrl ?? undefined : undefined}
         sourceFileSize={ssh ? remoteImageSize ?? ssh.size : undefined}
         sourceLabel={ssh?.machineName}

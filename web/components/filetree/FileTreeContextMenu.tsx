@@ -14,13 +14,14 @@ import { ConfirmDialog } from "@/components/sidebar/WorkspaceDialogs";
 import { Input } from "@/components/ui/input";
 import {
   FileEdit, Trash2, Copy, Move, FolderPlus, FilePlus,
-  ExternalLink, ClipboardCopy, FileSymlink, Terminal,
+  ExternalLink, ClipboardCopy, FileSymlink, Terminal, RefreshCw,
 } from "lucide-react";
 import { useFileTreeStore } from "@/stores";
 import { usePanesStore } from "@/stores";
 import type { FileTreeNode } from "@/types/filesystem";
 import { isTauriRuntime } from "@/services/runtime";
 import { providerService } from "@/services/providerService";
+import { handleErrorSilent } from "@/utils/errorHandler";
 
 /** 暴露给父级的键盘操作入口（如 F2 重命名），复用右键菜单的对话框流程 */
 export interface FileTreeContextMenuApi {
@@ -162,6 +163,27 @@ export default function FileTreeContextMenu({
     [nodeRef]
   );
 
+  // 空白区（未命中任何节点）的根目录动作：合成根节点走同一套对话框流程
+  const rootName = rootPath.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() ?? rootPath;
+  const openRootDialog = useCallback(
+    (type: "newFile" | "newDir") => {
+      dialogNodeRef.current = {
+        entry: { path: rootPath, name: rootName, isDir: true },
+        children: null,
+        expanded: false,
+        loading: false,
+      } as FileTreeNode;
+      setInputValue("");
+      setDialogType(type);
+    },
+    [rootPath, rootName]
+  );
+
+  const refresh = useFileTreeStore((s) => s.refresh);
+  const handleRefresh = useCallback(() => {
+    void refresh(rootPath).catch((err) => handleErrorSilent(err, "refresh file tree"));
+  }, [refresh, rootPath]);
+
   // 键盘入口（F2）：复用 rename 对话框，调用方需先把目标节点写入 nodeRef
   useEffect(() => {
     if (!apiRef) return;
@@ -228,6 +250,30 @@ export default function FileTreeContextMenu({
       <ContextMenu>
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
         <ContextMenuContent className="w-48">
+          {/* 空白区（node 为 null）：只给根目录动作，不再显示一排点了没反应的死项 */}
+          {!node && (
+            <>
+              <ContextMenuItem onClick={() => openRootDialog("newFile")}>
+                <FilePlus size={14} />
+                {t("sidebar:filetree.newFile")}
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => openRootDialog("newDir")}>
+                <FolderPlus size={14} />
+                {t("sidebar:filetree.newFolder")}
+              </ContextMenuItem>
+              {onOpenTerminal && (
+                <ContextMenuItem onClick={() => onOpenTerminal(rootPath)}>
+                  <Terminal size={14} />
+                  {t("sidebar:filetree.openInTerminal")}
+                </ContextMenuItem>
+              )}
+              <ContextMenuSeparator />
+              <ContextMenuItem onClick={handleRefresh}>
+                <RefreshCw size={14} />
+                {t("sidebar:refresh")}
+              </ContextMenuItem>
+            </>
+          )}
           {node && !node.entry.isDir && (
             <>
               <ContextMenuItem onClick={handleOpenEditor}>
@@ -248,56 +294,60 @@ export default function FileTreeContextMenu({
             </>
           )}
 
-          <ContextMenuItem onClick={handleOpenInExplorer}>
-            <ExternalLink size={14} />
-            {node?.entry.isDir ? t("sidebar:filetree.openInExplorer") : t("sidebar:filetree.revealInExplorer")}
-          </ContextMenuItem>
-          <ContextMenuItem onClick={handleCopyPath}>
-            <ClipboardCopy size={14} />
-            {t("sidebar:filetree.copyAbsolutePath")}
-          </ContextMenuItem>
-          <ContextMenuItem onClick={handleCopyRelativePath}>
-            <FileSymlink size={14} />
-            {t("sidebar:filetree.copyRelativePath")}
-          </ContextMenuItem>
-
-          {node?.entry.isDir && (
+          {node && (
             <>
-              <ContextMenuSeparator />
-              <ContextMenuItem onClick={() => openDialog("newFile")}>
-                <FilePlus size={14} />
-                {t("sidebar:filetree.newFile")}
+              <ContextMenuItem onClick={handleOpenInExplorer}>
+                <ExternalLink size={14} />
+                {node.entry.isDir ? t("sidebar:filetree.openInExplorer") : t("sidebar:filetree.revealInExplorer")}
               </ContextMenuItem>
-              <ContextMenuItem onClick={() => openDialog("newDir")}>
-                <FolderPlus size={14} />
-                {t("sidebar:filetree.newFolder")}
+              <ContextMenuItem onClick={handleCopyPath}>
+                <ClipboardCopy size={14} />
+                {t("sidebar:filetree.copyAbsolutePath")}
+              </ContextMenuItem>
+              <ContextMenuItem onClick={handleCopyRelativePath}>
+                <FileSymlink size={14} />
+                {t("sidebar:filetree.copyRelativePath")}
+              </ContextMenuItem>
+
+              {node.entry.isDir && (
+                <>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onClick={() => openDialog("newFile")}>
+                    <FilePlus size={14} />
+                    {t("sidebar:filetree.newFile")}
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => openDialog("newDir")}>
+                    <FolderPlus size={14} />
+                    {t("sidebar:filetree.newFolder")}
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                </>
+              )}
+
+              {!node.entry.isDir && <ContextMenuSeparator />}
+
+              <ContextMenuItem onClick={() => openDialog("rename")}>
+                <FileEdit size={14} />
+                {t("sidebar:filetree.rename")}
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => openDialog("copy")}>
+                <Copy size={14} />
+                {t("sidebar:filetree.copyTo")}
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => openDialog("move")}>
+                <Move size={14} />
+                {t("sidebar:filetree.moveTo")}
               </ContextMenuItem>
               <ContextMenuSeparator />
+              <ContextMenuItem
+                onClick={handleDelete}
+                variant="destructive"
+              >
+                <Trash2 size={14} />
+                {t("sidebar:filetree.delete")}
+              </ContextMenuItem>
             </>
           )}
-
-          {!node?.entry.isDir && <ContextMenuSeparator />}
-
-          <ContextMenuItem onClick={() => openDialog("rename")}>
-            <FileEdit size={14} />
-            {t("sidebar:filetree.rename")}
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => openDialog("copy")}>
-            <Copy size={14} />
-            {t("sidebar:filetree.copyTo")}
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => openDialog("move")}>
-            <Move size={14} />
-            {t("sidebar:filetree.moveTo")}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            onClick={handleDelete}
-            variant="destructive"
-          >
-            <Trash2 size={14} />
-            {t("sidebar:filetree.delete")}
-          </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
 

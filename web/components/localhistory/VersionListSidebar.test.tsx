@@ -41,6 +41,7 @@ function renderSidebar(overrides: Record<string, unknown> = {}) {
     fileBranches: [],
     selectVersion: vi.fn(),
     openLabelDialog: vi.fn(),
+    restoreVersion: vi.fn(),
     getVersionLabels: () => [],
     ...overrides,
   };
@@ -76,10 +77,18 @@ describe("VersionListSidebar keyboard accessibility", () => {
     expect(props.selectVersion).toHaveBeenCalledTimes(2);
   });
 
-  it("右键打开标签对话框的行为不变", () => {
+  it("右键弹菜单（不再直接弹对话框），打标/恢复各自接线", async () => {
     const props = renderSidebar();
     fireEvent.contextMenu(screen.getByRole("button"));
+
+    const tagItem = await screen.findByRole("menuitem", { name: /addTag|打标|标签/ });
+    fireEvent.click(tagItem);
     expect(props.openLabelDialog).toHaveBeenCalledWith(V1);
+
+    fireEvent.contextMenu(screen.getByRole("button"));
+    const restoreItem = await screen.findByRole("menuitem", { name: /restoreVersion|恢复/ });
+    fireEvent.click(restoreItem);
+    expect(props.restoreVersion).toHaveBeenCalledWith(V1);
   });
 });
 

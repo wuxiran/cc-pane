@@ -21,6 +21,7 @@ import { createLayoutActions } from "./panes/layoutActions";
 import { createPaneQueryActions } from "./panes/paneQueryActions";
 import { createSessionBindingActions } from "./panes/sessionBindingActions";
 import { createSplitActions } from "./panes/splitActions";
+import { createPaneOpsActions } from "./panes/paneOpsActions";
 import { createTabBasicActions } from "./panes/tabBasicActions";
 import { createTabMoveActions } from "./panes/tabMoveActions";
 import { createTabOpenActions } from "./panes/tabOpenActions";
@@ -54,6 +55,7 @@ export const usePanesStore = create<PanesState>()(
     currentLayoutId: initialLayout.id,
     closedTabs: [],
     poppedOutTabs: new Set<string>(),
+    zoomedPaneId: null,
 
     ...createPaneQueryActions({ set, get }),
     ...createLayoutActions({ set, get }),
@@ -71,6 +73,7 @@ export const usePanesStore = create<PanesState>()(
     },
 
     ...createSplitActions({ set, get }),
+    ...createPaneOpsActions({ set, get }),
     ...createTabBasicActions({ set, get }),
     ...createTabMoveActions({ set, get }),
     ...createTabOpenActions({ set, get }),

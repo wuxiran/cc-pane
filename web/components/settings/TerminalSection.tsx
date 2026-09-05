@@ -13,6 +13,7 @@ import {
 } from "@/lib/terminalScrollback";
 import type { ShellInfo, TerminalSettings } from "@/types";
 import { SearchableSetting } from "./SettingsSearchContext";
+import AdvancedSettings from "./AdvancedSettings";
 
 interface TerminalSectionProps {
   value: TerminalSettings;
@@ -142,6 +143,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         </div>
       </div>
 
+      <SearchableSetting sectionId="terminal-shell">
       <div className="flex items-center justify-between gap-6">
         <Label htmlFor="terminal-shell">Shell</Label>
         <div className="w-44 shrink-0">
@@ -168,6 +170,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
           )}
         </div>
       </div>
+      </SearchableSetting>
 
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-6">
@@ -262,22 +265,22 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         </div>
       </SearchableSetting>
 
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <input
-            id="terminal-resume-id-backfill"
-            type="checkbox"
-            checked={value.resumeIdBackfillEnabled ?? false}
-            onChange={(e) => update("resumeIdBackfillEnabled", e.target.checked)}
-            className="w-4 h-4 cursor-pointer"
-            style={{ accentColor: "var(--app-accent)" }}
+      <SearchableSetting sectionId="terminal-split-passthrough">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 flex-col gap-1">
+            <Label htmlFor="terminal-split-passthrough-enabled">{t("splitShortcutPassthrough")}</Label>
+            <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+              {t("splitShortcutPassthroughHint")}
+            </p>
+          </div>
+          <Switch
+            id="terminal-split-passthrough-enabled"
+            aria-label={t("splitShortcutPassthrough")}
+            checked={value.splitShortcutPassthrough ?? false}
+            onCheckedChange={(checked) => update("splitShortcutPassthrough", checked)}
           />
-          <Label htmlFor="terminal-resume-id-backfill">{t("resumeIdBackfill")}</Label>
         </div>
-        <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("resumeIdBackfillHint")}
-        </p>
-      </div>
+      </SearchableSetting>
 
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
@@ -313,47 +316,66 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         </p>
       </div>
 
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <input
-            id="terminal-daemon-orphan-reaper-disabled"
-            type="checkbox"
-            checked={value.daemonOrphanReaperDisabled ?? false}
-            onChange={(e) => update("daemonOrphanReaperDisabled", e.target.checked)}
-            className="w-4 h-4 cursor-pointer"
-            style={{ accentColor: "var(--app-accent)" }}
-            disabled={!(value.daemonEnabled ?? true)}
-          />
-          <Label htmlFor="terminal-daemon-orphan-reaper-disabled">{t("daemonOrphanReaperDisabled")}</Label>
-        </div>
-        <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("daemonOrphanReaperDisabledHint")}
-        </p>
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <FormField label={t("daemonOrphanTtl")} className="flex flex-col gap-1 w-40">
-          {({ id }) => (
-            <Input
-              id={id}
-              type="number"
-              min={1}
-              max={10080}
-              step={1}
-              value={value.daemonOrphanTtlMinutes ?? 1440}
-              onChange={(e) => update("daemonOrphanTtlMinutes", Number(e.target.value))}
-              onBlur={(e) => {
-                const next = Math.min(10080, Math.max(1, Math.round(Number(e.target.value) || 1440)));
-                if (next !== value.daemonOrphanTtlMinutes) update("daemonOrphanTtlMinutes", next);
-              }}
-              disabled={!(value.daemonEnabled ?? true) || (value.daemonOrphanReaperDisabled ?? false)}
+      <AdvancedSettings>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <input
+              id="terminal-resume-id-backfill"
+              type="checkbox"
+              checked={value.resumeIdBackfillEnabled ?? false}
+              onChange={(e) => update("resumeIdBackfillEnabled", e.target.checked)}
+              className="w-4 h-4 cursor-pointer"
+              style={{ accentColor: "var(--app-accent)" }}
             />
-          )}
-        </FormField>
-        <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("daemonOrphanTtlHint")}
-        </p>
-      </div>
+            <Label htmlFor="terminal-resume-id-backfill">{t("resumeIdBackfill")}</Label>
+          </div>
+          <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+            {t("resumeIdBackfillHint")}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <input
+              id="terminal-daemon-orphan-reaper-disabled"
+              type="checkbox"
+              checked={value.daemonOrphanReaperDisabled ?? false}
+              onChange={(e) => update("daemonOrphanReaperDisabled", e.target.checked)}
+              className="w-4 h-4 cursor-pointer"
+              style={{ accentColor: "var(--app-accent)" }}
+              disabled={!(value.daemonEnabled ?? true)}
+            />
+            <Label htmlFor="terminal-daemon-orphan-reaper-disabled">{t("daemonOrphanReaperDisabled")}</Label>
+          </div>
+          <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+            {t("daemonOrphanReaperDisabledHint")}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <FormField label={t("daemonOrphanTtl")} className="flex flex-col gap-1 w-40">
+            {({ id }) => (
+              <Input
+                id={id}
+                type="number"
+                min={1}
+                max={10080}
+                step={1}
+                value={value.daemonOrphanTtlMinutes ?? 1440}
+                onChange={(e) => update("daemonOrphanTtlMinutes", Number(e.target.value))}
+                onBlur={(e) => {
+                  const next = Math.min(10080, Math.max(1, Math.round(Number(e.target.value) || 1440)));
+                  if (next !== value.daemonOrphanTtlMinutes) update("daemonOrphanTtlMinutes", next);
+                }}
+                disabled={!(value.daemonEnabled ?? true) || (value.daemonOrphanReaperDisabled ?? false)}
+              />
+            )}
+          </FormField>
+          <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+            {t("daemonOrphanTtlHint")}
+          </p>
+        </div>
+      </AdvancedSettings>
     </div>
   );
 }

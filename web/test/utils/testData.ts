@@ -121,6 +121,8 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       autoAdoptDaemonSessions: true,
       lowerSessionPriority: true,
       sessionCpuWeight: null,
+
+      splitShortcutPassthrough: false,
     },
     shortcuts: { bindings: {} },
     general: {

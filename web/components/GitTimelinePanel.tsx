@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FileDiff, GitCommitHorizontal, History, LoaderCircle } from "lucide-react";
+import { Copy, FileDiff, GitCommitHorizontal, History, LoaderCircle } from "lucide-react";
 import DiffView from "@/components/DiffView";
 import {
   Dialog,
@@ -8,6 +8,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   gitService,
   type GitChangedFile,
@@ -285,18 +291,32 @@ export default function GitTimelinePanel({
               <p className="px-3 py-3 text-xs text-[var(--app-text-tertiary)]">{t("gitTimeline.noCommits")}</p>
             )}
             {commits.map((commit) => (
-              <button
-                key={commit.hash}
-                type="button"
-                onClick={() => chooseCommit(commit)}
-                className={`block w-full border-b px-3 py-2 text-left hover:bg-[var(--app-hover)] ${selectedCommit?.hash === commit.hash ? "bg-[var(--app-active-bg)]" : ""}`}
-              >
-                <span className="block truncate text-xs font-medium text-[var(--app-text-primary)]" title={commit.subject}>{commit.subject}</span>
-                <span className="mt-1 flex min-w-0 gap-2 text-[10px] text-[var(--app-text-tertiary)]">
-                  <code>{commit.shortHash}</code><span className="truncate">{commit.author}</span>
-                </span>
-                <span className="mt-0.5 block text-[10px] text-[var(--app-text-tertiary)]">{shortDate(commit.date)}</span>
-              </button>
+              /* 提交行右键：复制哈希 / 查看更改（此前只能左键点了才知道能干嘛） */
+              <ContextMenu key={commit.hash}>
+                <ContextMenuTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => chooseCommit(commit)}
+                    className={`block w-full border-b px-3 py-2 text-left hover:bg-[var(--app-hover)] ${selectedCommit?.hash === commit.hash ? "bg-[var(--app-active-bg)]" : ""}`}
+                  >
+                    <span className="block truncate text-xs font-medium text-[var(--app-text-primary)]" title={commit.subject}>{commit.subject}</span>
+                    <span className="mt-1 flex min-w-0 gap-2 text-[10px] text-[var(--app-text-tertiary)]">
+                      <code>{commit.shortHash}</code><span className="truncate">{commit.author}</span>
+                    </span>
+                    <span className="mt-0.5 block text-[10px] text-[var(--app-text-tertiary)]">{shortDate(commit.date)}</span>
+                  </button>
+                </ContextMenuTrigger>
+                <ContextMenuContent className="w-44">
+                  <ContextMenuItem onSelect={() => chooseCommit(commit)}>
+                    <GitCommitHorizontal size={14} />
+                    {t("gitTimeline.viewChanges")}
+                  </ContextMenuItem>
+                  <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(commit.hash)}>
+                    <Copy size={14} />
+                    {t("gitTimeline.copyHash")}
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
             ))}
             {hasMore && (
               <button type="button" onClick={loadMore} disabled={logLoading} className="w-full px-3 py-2 text-xs text-[var(--app-accent)] hover:bg-[var(--app-hover)] disabled:opacity-50">

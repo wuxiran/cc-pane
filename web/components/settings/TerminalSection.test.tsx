@@ -41,6 +41,8 @@ function createValue(overrides: Partial<TerminalSettings> = {}): TerminalSetting
     autoAdoptDaemonSessions: false,
     lowerSessionPriority: true,
     sessionCpuWeight: null,
+
+    splitShortcutPassthrough: false,
     ...overrides,
   };
 }
@@ -207,10 +209,11 @@ describe("TerminalSection", () => {
     const onChange = vi.fn();
     render(<TerminalSection value={createValue()} onChange={onChange} />);
 
-    const checkboxes = screen.getAllByRole("checkbox");
-    // 顺序：cursorBlink → showContextUsage → showStatusBar → resumeIdBackfillEnabled
-    expect(checkboxes[3]).not.toBeChecked();
-    await user.click(checkboxes[3]);
+    // resumeIdBackfill 是专家项，收在「高级设置」折叠区里（批 5 设置分层）
+    await user.click(screen.getByRole("button", { name: /高级设置|Advanced/i }));
+    const backfill = screen.getByRole("checkbox", { name: /Resume ID 回填|legacy resume id backfill/i });
+    expect(backfill).not.toBeChecked();
+    await user.click(backfill);
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ resumeIdBackfillEnabled: true }));
   });

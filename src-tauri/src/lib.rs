@@ -431,6 +431,7 @@ use commands::{
     scan_workspace_directory,
     // Screenshot 命令
     screenshot_save_clipboard_image,
+    screenshot_trigger,
     screenshot_update_shortcut,
     // Memory 命令
     search_memory,
@@ -3362,6 +3363,7 @@ pub fn run() {
             search_project_contents,
             // Screenshot 命令
             screenshot_save_clipboard_image,
+            screenshot_trigger,
             screenshot_update_shortcut,
             // Clipboard 命令
             read_clipboard_file_paths,

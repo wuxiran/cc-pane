@@ -8,6 +8,7 @@ import type { LayoutEntry, PaneNode, Tab } from "@/types";
 export type DndDropAction =
   | { kind: "reorder-tabs"; paneId: string; fromIndex: number; toIndex: number }
   | { kind: "move-tab"; fromPaneId: string; toPaneId: string; tabId: string; toIndex?: number }
+  | { kind: "split-move-tab"; fromPaneId: string; toPaneId: string; tabId: string; edge: "right" | "bottom" }
   | { kind: "move-tab-to-layout"; fromPaneId: string; tabId: string; toLayoutId: string }
   | { kind: "reorder-layouts"; fromIndex: number; toIndex: number }
   | null;
@@ -58,6 +59,15 @@ export function resolveDndDrop(
     // 是意料外的副作用，一律不接。
     if (!target || target.kind === "starred" || target.id === ctx.currentLayoutId) return null;
     return { kind: "move-tab-to-layout", fromPaneId, tabId, toLayoutId };
+  }
+
+  // 拖拽落边分屏：落到 pane 右/下边缘条 → 在目标 pane 旁开新窗格放这个 tab
+  if (overType === "pane-edge") {
+    const toPaneId = over.data?.paneId as string | undefined;
+    const edge = over.data?.edge as "right" | "bottom" | undefined;
+    if (!toPaneId || !edge) return null;
+    if (!ctx.panels.some((p) => p.id === toPaneId)) return null;
+    return { kind: "split-move-tab", fromPaneId, toPaneId, tabId, edge };
   }
 
   if (overType !== "tab") return null;

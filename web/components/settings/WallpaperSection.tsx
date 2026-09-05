@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import WallpaperPreview from "@/components/settings/WallpaperPreview";
 import WallpaperSliderRow from "@/components/settings/WallpaperSliderRow";
+import { SearchableSetting } from "./SettingsSearchContext";
 import { wallpaperService } from "@/services";
 import { getErrorMessage } from "@/utils";
 import type { WallpaperFit, WallpaperPowerSaver, WallpaperSettings } from "@/types";
@@ -253,6 +254,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
         </Select>
       </div>
 
+      <SearchableSetting sectionId="wallpaper-sliders">
       <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
         {sliderRow(t("wallpaperOpacity"), value.opacity, 0.1, 1, 0.05, (v) => `${Math.round(v * 100)}%`, (v) => update("opacity", v))}
         {/* 「壁纸浓度」调低是壁纸变淡，「终端底色浓度」调低是壁纸变清楚——
@@ -287,6 +289,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
           {t("wallpaperGlassBlurHint")}
         </p>
       </div>
+      </SearchableSetting>
 
       <WallpaperPreview
         wallpaper={value}
@@ -350,6 +353,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
       )}
 
       {/* 背景音乐 */}
+      <SearchableSetting sectionId="wallpaper-music">
       <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
         <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
           <span>{t("wallpaperMusicEnabled")}</span>
@@ -454,6 +458,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
           </>
         )}
       </div>
+      </SearchableSetting>
     </div>
   );
 }

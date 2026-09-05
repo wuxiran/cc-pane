@@ -134,6 +134,8 @@ export function createLayoutActions({ set, get }: PanesStoreAccess): LayoutActio
         state.rootPane = target.rootPane;
         state.activePaneId = target.activePaneId;
         target.lastActiveAt = Date.now();
+        // zoom 是布局内临时态，切布局即失效（与全屏退出同口径）
+        state.zoomedPaneId = null;
       });
       useFullscreenStore.getState().exitFullscreen();
       notifyTerminalLayoutChanged("layout.switch");

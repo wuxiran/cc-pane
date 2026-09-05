@@ -32,6 +32,7 @@ export type SettingsGroupId =
 
 export type SettingsPageId =
   | "general"
+  | "appearance"
   | "terminal"
   | "ai-tools"
   | "system"
@@ -116,7 +117,15 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     icon: Settings,
     titleKey: "pages.general.title",
     group: "application",
-    paneIds: ["general", "theme", "theme-shape", "wallpaper", "modules"],
+    paneIds: ["general", "modules"],
+  },
+  {
+    // 外观一站式：颜色/形态/壁纸收到同一个 Page，「改外观只去一个地方」
+    id: "appearance",
+    icon: Palette,
+    titleKey: "pages.appearance.title",
+    group: "application",
+    paneIds: ["theme", "theme-shape", "wallpaper"],
   },
   {
     id: "terminal",
@@ -195,7 +204,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     id: "theme",
     icon: Palette,
     titleKey: "theme.title",
-    page: "general",
+    page: "appearance",
     searchEntries: [
       { id: "color", titleKey: "theme.colorTitle", descriptionKey: "theme.colorDescription", keywordsKey: "searchKeywords.theme", targetSectionId: "theme-color" },
     ],
@@ -204,7 +213,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     id: "theme-shape",
     icon: Palette,
     titleKey: "theme.shapeTabTitle",
-    page: "general",
+    page: "appearance",
     searchEntries: [
       { id: "shape", titleKey: "theme.shapeTitle", descriptionKey: "theme.shapeDescription", keywordsKey: "searchKeywords.themeShape", targetSectionId: "theme-shape" },
       { id: "density", titleKey: "theme.density.title", descriptionKey: "theme.density.description", keywordsKey: "searchKeywords.themeDensity", targetSectionId: "theme-density" },
@@ -245,9 +254,11 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     icon: Image,
     titleKey: "wallpaper",
     descriptionKey: "wallpaperDesc",
-    page: "general",
+    page: "appearance",
     searchEntries: [
       { id: "media", titleKey: "wallpaperImage", descriptionKey: "wallpaperImageHint", keywordsKey: "searchKeywords.wallpaper", targetSectionId: "wallpaper-root" },
+      { id: "sliders", titleKey: "wallpaperOpacity", descriptionKey: "wallpaperTerminalOpacityHint", targetSectionId: "wallpaper-sliders" },
+      { id: "music", titleKey: "wallpaperMusicEnabled", descriptionKey: "wallpaperMusicPauseUnfocusedHint", targetSectionId: "wallpaper-music" },
     ],
     availability: "tauri",
   },
@@ -264,6 +275,8 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
       { id: "context-usage", titleKey: "showContextUsage", descriptionKey: "showContextUsageHint", targetSectionId: "terminal-context-usage" },
       { id: "status-bar", titleKey: "showStatusBar", descriptionKey: "showStatusBarHint", targetSectionId: "terminal-status-bar" },
       { id: "task-queue", titleKey: "taskQueueEnabled", descriptionKey: "taskQueueEnabledHint", targetSectionId: "terminal-task-queue" },
+      { id: "split-passthrough", titleKey: "splitShortcutPassthrough", descriptionKey: "splitShortcutPassthroughHint", targetSectionId: "terminal-split-passthrough" },
+      { id: "shell", titleKey: "shellAutoDetect", targetSectionId: "terminal-shell" },
       { id: "session-priority", titleKey: "lowerSessionPriority", descriptionKey: "lowerSessionPriorityHint", targetSectionId: "terminal-root" },
       { id: "daemon", titleKey: "terminalDaemon", descriptionKey: "terminalDaemonHint", targetSectionId: "terminal-root" },
     ],
@@ -325,9 +338,13 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   ], layout: "wide" },
   { id: "proxy", icon: Globe, titleKey: "proxy", page: "system", searchEntries: [
     { id: "connection", titleKey: "proxyTitle", keywordsKey: "searchKeywords.proxy", targetSectionId: "proxy-root" },
+    { id: "server", titleKey: "enableProxy", descriptionKey: "excludeListHint", targetSectionId: "proxy-server" },
   ] },
   { id: "web-access", icon: Wifi, titleKey: "webAccessTitle", descriptionKey: "webAccessDescription", page: "system", searchEntries: [
     { id: "remote", titleKey: "webAccessTitle", keywordsKey: "searchKeywords.webAccess", targetSectionId: "web-access-root" },
+    { id: "server", titleKey: "webAccessSection.startupEnabled", descriptionKey: "webAccessSection.autoOpenHint", targetSectionId: "web-access-server" },
+    { id: "auth", titleKey: "webAccessSection.authEnabled", descriptionKey: "webAccessSection.authEnabledHint", targetSectionId: "web-access-auth" },
+    { id: "network", titleKey: "webAccessSection.allowLan", descriptionKey: "webAccessSection.ipWhitelistHint", targetSectionId: "web-access-network" },
   ] },
   {
     id: "quick-commands",
@@ -378,6 +395,9 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   },
   { id: "voice", icon: Mic, titleKey: "voice", descriptionKey: "voiceDesc", page: "system", searchEntries: [
     { id: "input", titleKey: "voiceTitle", descriptionKey: "voiceDesc", keywordsKey: "searchKeywords.voice", targetSectionId: "voice-root" },
+    { id: "enable", titleKey: "voiceEnable", descriptionKey: "voiceShowFloatingButtonDesc", targetSectionId: "voice-enable" },
+    { id: "provider", titleKey: "voiceProvider", descriptionKey: "voiceMimoBaseUrl", targetSectionId: "voice-provider" },
+    { id: "options", titleKey: "voiceLanguage", descriptionKey: "voiceCustomPreferWavDesc", targetSectionId: "voice-options" },
   ] },
   { id: "ccchan", icon: Bot, titleKey: "ccchanTitle", descriptionKey: "ccchanDescription", page: "ccchan", searchEntries: [
     { id: "companion", titleKey: "ccchanTitle", keywordsKey: "searchKeywords.ccchan", targetSectionId: "ccchan-root" },

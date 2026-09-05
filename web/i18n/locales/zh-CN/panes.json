@@ -508,5 +508,11 @@
   "chatRoleReasoning": "思考",
   "chatRoleTool": "工具",
   "popOutFailed": "弹出窗口失败: {{error}}",
-  "sshMachineIdentityUnavailable": "SSH 机器标识不可用"
+  "sshMachineIdentityUnavailable": "SSH 机器标识不可用",
+  "splitCloneRight": "克隆当前标签到右侧",
+  "splitCloneDown": "克隆当前标签到下方",
+  "zoomPane": "放大此窗格",
+  "unzoomPane": "还原窗格大小",
+  "closePane": "关闭此窗格",
+  "doubleClickFullscreenHint": "双击全屏"
 }

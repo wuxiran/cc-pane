@@ -18,6 +18,8 @@ interface SplitViewProps {
   children: React.ReactNode[];
   /** 与 children 一一对应的稳定唯一标识，用于 React reconciliation */
   keys: string[];
+  /** zoom 期间隐藏全部 sash（0 宽支不可拖拽） */
+  hideSashes?: boolean;
 }
 
 export default function SplitView({
@@ -28,6 +30,7 @@ export default function SplitView({
   onDragEnd,
   children,
   keys,
+  hideSashes = false,
 }: SplitViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sizesRef = useRef(sizes);
@@ -162,7 +165,7 @@ export default function SplitView({
     >
       {children.map((child, i) => (
         <Fragment key={keys[i]}>
-          {i > 0 && (
+          {i > 0 && !hideSashes && (
             <div
               className={`splitview-sash ${vertical ? "horizontal" : "vertical"}`}
               data-splitview-sash={i - 1}

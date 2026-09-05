@@ -725,3 +725,72 @@ describe("useShortcutsStore", () => {
     });
   });
 });
+
+// 分屏快捷键的终端聚焦行为（settings.terminal.splitShortcutPassthrough，批 4）：
+// 默认分屏优先（终端聚焦也生效），开关打开后恢复旧版透传；同 combo 时
+// terminal context 动作（缩放）有确定性优先权。
+describe("分屏快捷键的终端聚焦行为", () => {
+  function setupSplit(passthrough: boolean) {
+    const split = vi.fn();
+    const zoom = vi.fn();
+    useShortcutsStore.getState().setTerminalFocused(true);
+    useShortcutsStore.getState().registerAction({ id: "split-right", label: "Split Right", handler: split });
+    useShortcutsStore.getState().registerAction({ id: "split-down", label: "Split Down", handler: split });
+    useShortcutsStore.getState().registerAction({
+      id: "terminal-zoom-out",
+      label: "Zoom Out",
+      context: "terminal",
+      handler: zoom,
+    });
+    useSettingsStore.setState({
+      settings: {
+        terminal: { splitShortcutPassthrough: passthrough },
+        shortcuts: {
+          bindings: {
+            "split-right": "Ctrl+\\",
+            "split-down": "Ctrl+-",
+            "terminal-zoom-out": "Ctrl+-",
+          },
+        },
+      } as never,
+    });
+    return { split, zoom };
+  }
+
+  it("默认（关）：终端聚焦时 Ctrl+\ 触发分屏，不再透传", () => {
+    const { split } = setupSplit(false);
+    handleKeydown(createKeyEvent("\\", { ctrlKey: true }));
+    expect(split).toHaveBeenCalledTimes(1);
+  });
+
+  it("默认（关）：终端聚焦时 Ctrl+- 缩放优先于分屏（确定性）", () => {
+    const { split, zoom } = setupSplit(false);
+    handleKeydown(createKeyEvent("-", { ctrlKey: true }));
+    expect(zoom).toHaveBeenCalledTimes(1);
+    expect(split).not.toHaveBeenCalled();
+  });
+
+  it("默认（关）：非终端聚焦时 Ctrl+- 才轮到分屏", () => {
+    const { split, zoom } = setupSplit(false);
+    useShortcutsStore.getState().setTerminalFocused(false);
+    handleKeydown(createKeyEvent("-", { ctrlKey: true }));
+    expect(split).toHaveBeenCalledTimes(1);
+    expect(zoom).not.toHaveBeenCalled();
+  });
+
+  it("开：终端聚焦时 Ctrl+\ 放行给终端（分屏不触发）", () => {
+    const { split } = setupSplit(true);
+    handleKeydown(createKeyEvent("\\", { ctrlKey: true }));
+    expect(split).not.toHaveBeenCalled();
+  });
+
+  it("开：isTerminalPassthroughAction 反映设置", () => {
+    setupSplit(true);
+    expect(isTerminalPassthroughAction("split-right", false)).toBe(true);
+  });
+
+  it("关：isTerminalPassthroughAction 对分屏键为 false", () => {
+    setupSplit(false);
+    expect(isTerminalPassthroughAction("split-right", false)).toBe(false);
+  });
+});

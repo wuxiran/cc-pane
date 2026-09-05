@@ -12,6 +12,8 @@ import type { Tab, TerminalStatusType } from "@/types";
 import type { TFunction } from "i18next";
 import { DENSITY, type Density } from "./tabBarDensity";
 import NewTabMenu, { type NewTabActions } from "./NewTabMenu";
+import { PaneHeaderContextMenuWrapper } from "./PaneHeaderContextMenu";
+import PaneSplitButtons from "./PaneSplitButtons";
 import TabTypeIcon from "./TabTypeIcon";
 import TabContextMenu, {
   type LayoutMoveTarget,
@@ -32,8 +34,6 @@ interface TabBarProps {
    * prop 面被「其实不属于它的东西」占掉一大截（曾因此把两个 prop 挤成一行）。
    */
   newTab: NewTabActions;
-  onSplitRight: () => void;
-  onSplitDown: () => void;
   onFullscreen: (tabId: string) => void;
   onRename: (tabId: string, newTitle: string) => void;
   onSplitAndMoveRight: (tabId: string) => void;
@@ -81,8 +81,6 @@ function SortableTab({
   onTogglePin,
   onToggleStar,
   onFullscreen,
-  onSplitRight,
-  onSplitDown,
   onSplitAndMoveRight,
   onSplitAndMoveDown,
   moveTargets,
@@ -126,8 +124,6 @@ function SortableTab({
   onTogglePin: (tabId: string) => void;
   onToggleStar: (tabId: string) => void;
   onFullscreen: (tabId: string) => void;
-  onSplitRight: () => void;
-  onSplitDown: () => void;
   onSplitAndMoveRight: (tabId: string) => void;
   onSplitAndMoveDown: (tabId: string) => void;
   moveTargets: PaneMoveTarget[];
@@ -204,6 +200,7 @@ function SortableTab({
 
       {/* 标签主体 */}
       <div
+        title={`${tab.title} · ${t("doubleClickFullscreenHint")}`}
         className={`relative flex shrink-0 items-center gap-1.5 ${d.tabHeight} ${d.tabPadding} ${d.tabMaxW} ${d.tabMinW}
           ${isEditing ? "cursor-text" : "cursor-pointer"} select-none transition-colors ${d.fontSize} font-medium
           ${active
@@ -346,8 +343,6 @@ function SortableTab({
       onClose={onClose}
       onTogglePin={onTogglePin}
       onToggleStar={onToggleStar}
-      onSplitRight={onSplitRight}
-      onSplitDown={onSplitDown}
       onSplitAndMoveRight={onSplitAndMoveRight}
       onSplitAndMoveDown={onSplitAndMoveDown}
       moveTargets={moveTargets}
@@ -384,8 +379,6 @@ export default memo(function TabBar({
   onTogglePin,
   onToggleStar,
   newTab,
-  onSplitRight,
-  onSplitDown,
   onFullscreen,
   onRename,
   onSplitAndMoveRight,
@@ -524,7 +517,8 @@ export default memo(function TabBar({
   }, [tabs.length, updateScrollAffordance]);
 
   return (
-    <div className="shape-chrome flex min-w-0 items-stretch">
+    <PaneHeaderContextMenuWrapper paneId={paneId}>
+      <div className="shape-chrome group flex min-w-0 items-stretch">
       {canScrollLeft && (
         <button
           type="button"
@@ -565,8 +559,6 @@ export default memo(function TabBar({
                 onTogglePin={onTogglePin}
                 onToggleStar={onToggleStar}
                 onFullscreen={onFullscreen}
-                onSplitRight={onSplitRight}
-                onSplitDown={onSplitDown}
                 onSplitAndMoveRight={onSplitAndMoveRight}
                 onSplitAndMoveDown={onSplitAndMoveDown}
                 moveTargets={moveTargets}
@@ -600,6 +592,13 @@ export default memo(function TabBar({
               {...newTab}
               t={t}
             />
+            <PaneSplitButtons
+              paneId={paneId}
+              addBtnClass={d.addBtn}
+              addIconClass={d.addIcon}
+              splitRightLabel={t("splitPanelRight")}
+              splitDownLabel={t("splitPanelDown")}
+            />
           </div>
         </SortableContext>
       </div>
@@ -621,6 +620,7 @@ export default memo(function TabBar({
           if (!open) setSessionBindTab(null);
         }}
       />
-    </div>
+      </div>
+    </PaneHeaderContextMenuWrapper>
   );
 });

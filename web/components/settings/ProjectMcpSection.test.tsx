@@ -85,8 +85,8 @@ describe("ProjectMcpSection", () => {
     const user = userEvent.setup();
     render(<ProjectMcpSection projectPath={PROJECT} />);
 
-    // 打开新增表单（标题栏按钮）
-    await user.click(screen.getAllByRole("button")[0]);
+    // 打开新增表单（标题栏「添加」按钮）
+    await user.click(screen.getByRole("button", { name: /^添加$|^Add$/i }));
     // 直接保存（最后一个按钮是保存）
     const buttons = screen.getAllByRole("button");
     await user.click(buttons[buttons.length - 1]);
@@ -99,7 +99,7 @@ describe("ProjectMcpSection", () => {
     const user = userEvent.setup();
     render(<ProjectMcpSection projectPath={PROJECT} />);
 
-    await user.click(screen.getAllByRole("button")[0]);
+    await user.click(screen.getByRole("button", { name: /^添加$|^Add$/i }));
 
     const inputs = screen.getAllByRole("textbox");
     // 顺序：name → command → args → env(textarea)
@@ -127,9 +127,7 @@ describe("ProjectMcpSection", () => {
     });
     render(<ProjectMcpSection projectPath={PROJECT} />);
 
-    // 点击编辑按钮（列表行里第一个 icon 按钮）
-    const rowButtons = screen.getAllByRole("button");
-    await user.click(rowButtons[1]);
+    await user.click(screen.getByRole("button", { name: /^编辑$|^Edit$/i }));
 
     const nameInput = screen.getByDisplayValue("old-name");
     await user.clear(nameInput);
@@ -147,9 +145,7 @@ describe("ProjectMcpSection", () => {
     setServers({ doomed: { command: "npx", args: [], env: {} } });
     render(<ProjectMcpSection projectPath={PROJECT} />);
 
-    const buttons = screen.getAllByRole("button");
-    // 行内按钮：编辑 → 删除；标题栏还有一个"新增"
-    await user.click(buttons[2]);
+    await user.click(screen.getByRole("button", { name: /^删除$|^Delete$/i }));
 
     await waitFor(() => expect(removeServerMock).toHaveBeenCalledWith(PROJECT_TARGET, "doomed"));
     expect(toast.success).toHaveBeenCalled();
@@ -179,7 +175,7 @@ describe("ProjectMcpSection", () => {
     expect(screen.queryByText("kept, legacy")).not.toBeInTheDocument();
 
     // 项目不属于任何工作空间 → 导入到项目覆盖层（workspaceName 为 undefined）
-    const importButton = screen.getAllByRole("button")[1];
+    const importButton = screen.getByRole("button", { name: /导入到项目覆盖层|Import into project overlay/i });
     await user.click(importButton);
     await waitFor(() => expect(importLegacyServersMock).toHaveBeenCalledWith(PROJECT, undefined));
     expect(toast.success).toHaveBeenCalled();
@@ -191,7 +187,7 @@ describe("ProjectMcpSection", () => {
     upsertServerMock.mockRejectedValueOnce(new Error("io error"));
     render(<ProjectMcpSection projectPath={PROJECT} />);
 
-    await user.click(screen.getAllByRole("button")[0]);
+    await user.click(screen.getByRole("button", { name: /^添加$|^Add$/i }));
     const inputs = screen.getAllByRole("textbox");
     await user.type(inputs[0], "srv");
     await user.type(inputs[1], "cmd");

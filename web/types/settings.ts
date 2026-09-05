@@ -213,6 +213,8 @@ export interface TerminalSettings {
   lowerSessionPriority: boolean;
   /** 会话 CPU 相对权重（1..=9，中性 5）。null 表示不设 */
   sessionCpuWeight: number | null;
+  /** 分屏快捷键（Ctrl+\ / Ctrl+-）在终端聚焦时放行给终端（如 SIGQUIT）。默认 false = 分屏优先 */
+  splitShortcutPassthrough: boolean;
 }
 
 /** Shell 信息 */

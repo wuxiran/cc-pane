@@ -234,10 +234,11 @@ export function useLocalHistoryData({
     }
   }
 
-  async function restoreVersion() {
-    if (!selectedVersion) return;
+  async function restoreVersion(version?: FileVersion) {
+    const target = version ?? selectedVersion;
+    if (!target) return;
     try {
-      await localHistoryService.restoreFileVersion(projectPath, effectiveFilePath || "", selectedVersion.id);
+      await localHistoryService.restoreFileVersion(projectPath, effectiveFilePath || "", target.id);
       onRestored?.();
       onOpenChange(false);
     } catch (e) {

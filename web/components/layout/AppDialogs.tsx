@@ -10,6 +10,7 @@ import SelfChatPanel from "@/components/SelfChatPanel";
 import AiPanelDialog from "@/components/aipanel/AiPanelDialog";
 import RecentFilesPicker from "@/components/RecentFilesPicker";
 import CommandPalette from "@/components/CommandPalette";
+import ShortcutCheatsheet from "@/components/ShortcutCheatsheet";
 import TerminalPathLinkDialog from "@/components/panes/TerminalPathLinkDialog";
 import { useDialogStore } from "@/stores";
 
@@ -93,6 +94,9 @@ export default function AppDialogs({ recentFilesOpen, onCloseRecentFiles }: AppD
 
       {/* 命令面板（Ctrl+K，终端聚焦时放行给终端） */}
       <CommandPalette />
+
+      {/* 快捷键速查表（Ctrl+/，从命令注册中心生成） */}
+      <ShortcutCheatsheet />
     </>
   );
 }

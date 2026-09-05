@@ -12,6 +12,10 @@ export const screenshotService = {
   updateShortcut(oldShortcut: string, newShortcut: string): Promise<void> {
     return invokeOrApi<void>("screenshot_update_shortcut", { oldShortcut, newShortcut }, async () => {});
   },
+  /** 从应用内（命令面板）触发截图：与全局热键同一条 Rust 路径 */
+  trigger(): Promise<void> {
+    return invokeOrApi<void>("screenshot_trigger", undefined, async () => {});
+  },
   saveClipboardImage(): Promise<ScreenshotResult | null> {
     return invokeOrApi<ScreenshotResult | null>("screenshot_save_clipboard_image", undefined, async () => null);
   },

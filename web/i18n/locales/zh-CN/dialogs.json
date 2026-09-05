@@ -364,5 +364,7 @@
   "importDialog.fieldConfig": "配置",
   "importDialog.noApiKey": "（未提供）",
   "importDialog.trustHint": "确认后将写入 CC-Panes 全局配置。只导入你信任来源的链接。",
-  "importDialog.confirmImport": "确认导入"
+  "importDialog.confirmImport": "确认导入",
+  "gitTimeline.viewChanges": "查看更改",
+  "gitTimeline.copyHash": "复制提交哈希"
 }

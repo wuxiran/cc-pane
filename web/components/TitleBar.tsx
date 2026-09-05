@@ -86,6 +86,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
     <div
       className="shape-chrome relative flex items-center h-[calc(var(--density-row-h)+16px)] shrink-0 select-none z-10"
       data-tauri-drag-region=""
+      title={t("doubleClickWindowFullscreenHint")}
       style={{
         paddingLeft: isMac ? 78 : 12,
         paddingRight: 12,

@@ -57,24 +57,25 @@ export function ContextMenu({
           position: "absolute",
           left: position.x,
           top: position.y,
-          background: "#ffffff",
-          borderColor: "rgba(15, 23, 42, 0.16)",
-          color: "#0f172a",
-          boxShadow: "0 18px 42px rgba(15, 23, 42, 0.32), 0 0 0 1px rgba(255, 255, 255, 0.82)",
+          // 走全局主题 token（与 shadcn 菜单同色板），不再硬编码白底——
+          // 暗色主题下白菜单曾经是这个窗口唯一的亮块。
+          background: "var(--popover)",
+          borderColor: "var(--border)",
+          color: "var(--popover-foreground)",
         }}
       >
-        <div className="flex items-center gap-2 px-3 py-2 text-[12px] font-semibold" style={{ color: "#0f172a" }}>
+        <div className="flex items-center gap-2 px-3 py-2 text-[12px] font-semibold">
           <Bot size={14} />
           <span>{t("contextMenu.title")}</span>
         </div>
-        <div className="h-px" style={{ background: "#bae6fd" }} />
+        <div className="h-px" style={{ background: "var(--border)" }} />
         {items.map((item) => {
           const Icon = item.icon;
           return (
             <button
               key={item.label}
               type="button"
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] font-medium transition-colors hover:bg-sky-50"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] font-medium transition-colors hover:bg-[var(--accent)]"
               onClick={() => {
                 item.action();
                 if (item.closeAfter !== false) onClose();

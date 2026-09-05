@@ -14,7 +14,6 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import {
-  useShortcutsStore,
   useSettingsStore,
   useWorkspacesStore,
   usePanesStore,
@@ -23,6 +22,8 @@ import {
   useQuickCommandsStore,
 } from "@/stores";
 import { formatKeyCombo } from "@/stores/useShortcutsStore";
+import { resolveCommandTitle, runCommand, useCommandsStore } from "@/lib/commands/registry";
+import { COMMAND_GROUP_HEADING_KEYS, COMMAND_GROUP_ORDER } from "@/lib/commands/groups";
 import { workspaceNameForProject } from "@/hooks/useQuickCommandsSync";
 import { isTauriRuntime } from "@/services/runtime";
 import { getVisibleSettingsPanes } from "@/components/settings/settingsRegistry";
@@ -48,7 +49,7 @@ export default function CommandPalette() {
     return () => window.removeEventListener(COMMAND_PALETTE_TOGGLE_EVENT, toggle);
   }, []);
 
-  const actions = useShortcutsStore((s) => s.actions);
+  const commands = useCommandsStore((s) => s.commands);
   const bindings = useSettingsStore((s) => s.settings?.shortcuts.bindings);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const layouts = usePanesStore((s) => s.layouts);
@@ -130,12 +131,20 @@ export default function CommandPalette() {
 
   // 面板打开的动作本身（command-palette）不列入清单；
   // reopen-closed-tab 走下方带计数/禁用态的专属条目，避免重复出现两条
-  const listedActions = Array.from(actions.values()).filter(
-    (action) =>
-      action.id !== "command-palette"
-      && action.id !== "reopen-closed-tab"
-      && !/^switch-(tab|layout)-\d+$/.test(action.id),
+  const listedCommands = Array.from(commands.values()).filter(
+    (cmd) =>
+      cmd.id !== "command-palette"
+      && cmd.id !== "reopen-closed-tab"
+      && !cmd.hiddenFromPalette,
   );
+  // 按命令分组分节展示（标签/布局/终端/视图/系统），布局操作不再沉底难找
+  const groupedCommands = COMMAND_GROUP_ORDER
+    .map((group) => ({
+      group,
+      headingKey: COMMAND_GROUP_HEADING_KEYS[group],
+      items: listedCommands.filter((cmd) => cmd.group === group),
+    }))
+    .filter(({ items }) => items.length > 0);
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen} title={t("command-palette", { ns: "shortcuts", defaultValue: "命令面板" })}>
@@ -150,37 +159,48 @@ export default function CommandPalette() {
           {t("commandPaletteEmpty", { ns: "shortcuts", defaultValue: "没有匹配的命令" })}
         </CommandEmpty>
 
-        <CommandGroup heading={t("commandGroupActions", { ns: "shortcuts", defaultValue: "命令" })}>
-          {listedActions.map((action) => (
-            <CommandItem
-              key={action.id}
-              value={`${action.label} ${action.id}`}
-              onSelect={() => runAndClose(action.handler)}
-            >
-              <Zap strokeWidth={1.5} />
-              <span className="truncate">{action.label}</span>
-              {bindings?.[action.id] && (
-                <CommandShortcut>{formatKeyCombo(bindings[action.id])}</CommandShortcut>
-              )}
-            </CommandItem>
-          ))}
-          <CommandItem
-            value={`${t("restoreClosedTabs", { ns: "panes", count: closedTabsCount })} reopen-closed-tab`}
-            disabled={closedTabsCount === 0}
-            onSelect={() => runAndClose(() => {
-              const s = usePanesStore.getState();
-              s.reopenClosedTab(s.activePaneId);
-            })}
+        {groupedCommands.map(({ group, headingKey, items }) => (
+          <CommandGroup
+            key={group}
+            heading={t(headingKey as never, { ns: "shortcuts", defaultValue: group })}
           >
-            <History strokeWidth={1.5} />
-            <span className="truncate">
-              {t("restoreClosedTabs", { ns: "panes", count: closedTabsCount })}
-            </span>
-            {bindings?.["reopen-closed-tab"] && (
-              <CommandShortcut>{formatKeyCombo(bindings["reopen-closed-tab"])}</CommandShortcut>
+            {items.map((cmd) => {
+              const Icon = cmd.icon ?? Zap;
+              const title = resolveCommandTitle(cmd);
+              return (
+                <CommandItem
+                  key={cmd.id}
+                  value={`${title} ${cmd.id}`}
+                  onSelect={() => runAndClose(() => runCommand(cmd.id))}
+                >
+                  <Icon strokeWidth={1.5} />
+                  <span className="truncate">{title}</span>
+                  {bindings?.[cmd.id] && (
+                    <CommandShortcut>{formatKeyCombo(bindings[cmd.id])}</CommandShortcut>
+                  )}
+                </CommandItem>
+              );
+            })}
+            {group === "tab" && (
+              <CommandItem
+                value={`${t("restoreClosedTabs", { ns: "panes", count: closedTabsCount })} reopen-closed-tab`}
+                disabled={closedTabsCount === 0}
+                onSelect={() => runAndClose(() => {
+                  const s = usePanesStore.getState();
+                  s.reopenClosedTab(s.activePaneId);
+                })}
+              >
+                <History strokeWidth={1.5} />
+                <span className="truncate">
+                  {t("restoreClosedTabs", { ns: "panes", count: closedTabsCount })}
+                </span>
+                {bindings?.["reopen-closed-tab"] && (
+                  <CommandShortcut>{formatKeyCombo(bindings["reopen-closed-tab"])}</CommandShortcut>
+                )}
+              </CommandItem>
             )}
-          </CommandItem>
-        </CommandGroup>
+          </CommandGroup>
+        ))}
 
         <CommandGroup heading={t("modules.commandGroup", { ns: "settings" })}>
           {MODULE_CONSUMERS.commandPalette.map((module) => {

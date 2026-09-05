@@ -364,5 +364,7 @@
   "importDialog.fieldConfig": "Config",
   "importDialog.noApiKey": "(not provided)",
   "importDialog.trustHint": "This will be written to the CC-Panes global config. Only import links from sources you trust.",
-  "importDialog.confirmImport": "Import"
+  "importDialog.confirmImport": "Import",
+  "gitTimeline.viewChanges": "View Changes",
+  "gitTimeline.copyHash": "Copy Commit Hash"
 }

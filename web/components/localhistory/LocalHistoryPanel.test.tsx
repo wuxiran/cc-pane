@@ -299,6 +299,9 @@ describe("LocalHistoryPanel", () => {
 
     fireEvent.contextMenu(await screen.findByText("刚刚"));
 
+    // 右键先弹菜单（打标/恢复），点「打标」才打开标签对话框
+    await user.click(await screen.findByRole("menuitem", { name: /添加标签|打标|Add tag/i }));
+
     const input = await screen.findByPlaceholderText(/标签名称|Tag name/i);
     await user.type(input, "发布前");
     await user.click(screen.getByRole("button", { name: /^确定$|^Confirm$/i }));

@@ -122,5 +122,8 @@
   "contextUsage.windowSources.unknown": "Unknown",
   "statusbar.ccchanShow": "Show cc-chan",
   "statusbar.ccchanHide": "Hide cc-chan",
-  "statusbar.more": "More tools"
+  "statusbar.more": "More tools",
+  "statusbar.customize": "Customize status bar (checked items stay visible)",
+  "statusbar.item.webLock": "Web Lock",
+  "doubleClickWindowFullscreenHint": "Double-click to toggle fullscreen"
 }

@@ -1,5 +1,5 @@
 import type { SyntheticEvent } from "react";
-import { Check, GripVertical, Star, Trash2 } from "lucide-react";
+import { Check, GripVertical, Pencil, Rows2, Rows3, Star, Trash2 } from "lucide-react";
 import { useDndContext } from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -13,6 +13,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { useLayoutUiStore } from "@/stores/useLayoutUiStore";
 import { LayoutWorkspaceBadge, LayoutWorkspaceMenuItems } from "./LayoutWorkspaceMenu";
 import type { LayoutEntry, PaneNode, TerminalStatusInfo } from "@/types";
 import LayoutStatusRow from "./LayoutStatusRow";
@@ -229,9 +230,13 @@ export function SortableLayoutRow({
       {!isStarredLayout ? (
         <ContextMenuContent className="z-[160] w-44">
           <ContextMenuItem onClick={() => startRename(layout)}>
+            <Pencil />
             {t("renameLayout")}
           </ContextMenuItem>
           <LayoutWorkspaceMenuItems layout={layout} />
+          <ContextMenuSeparator />
+          {/* 密度切换与顶部布局 tab 菜单对齐（同一全局偏好，两处菜单能力对等） */}
+          <LayoutDensityMenuItem t={t} />
           <ContextMenuSeparator />
           <ContextMenuItem
             variant="destructive"
@@ -244,5 +249,20 @@ export function SortableLayoutRow({
         </ContextMenuContent>
       ) : null}
     </ContextMenu>
+  );
+}
+
+/** 密度切换项：与 SortableLayoutTab 菜单同文案同图标，直读全局 store。 */
+function LayoutDensityMenuItem({ t }: { t: TFunction<"panes"> }) {
+  const density = useLayoutUiStore((s) => s.layoutBarDensity);
+  const setDensity = useLayoutUiStore((s) => s.setLayoutBarDensity);
+  const DensityIcon = density === "comfortable" ? Rows2 : Rows3;
+  return (
+    <ContextMenuItem
+      onSelect={() => setDensity(density === "comfortable" ? "compact" : "comfortable")}
+    >
+      <DensityIcon />
+      {density === "comfortable" ? t("layoutDensityCompact") : t("layoutDensityComfortable")}
+    </ContextMenuItem>
   );
 }

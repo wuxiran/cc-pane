@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Code2,
+  Copy,
   LoaderCircle,
   LockKeyhole,
   Monitor,
@@ -18,6 +19,13 @@ import { useTabViewStateStore, viewKey } from "@/stores/useTabViewStateStore";
 import { browserService, type BrowserBounds } from "@/services/browserService";
 import { browserSecurityKind, normalizeBrowserUrl } from "@/lib/browserUrl";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { isTauriRuntime } from "@/services/runtime";
 
 interface BrowserTabContentProps {
@@ -218,7 +226,11 @@ export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) 
       className="flex h-full min-h-0 w-full flex-col bg-[var(--app-content)]"
       style={{ paddingTop: "var(--notch-bar-height, 0px)" }}
     >
-      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--app-border)] bg-[var(--app-panel-bg)] px-1.5">
+      {/* 工具栏右键菜单：页面区是原生 webview（右键归系统 webview），
+          浏览器动作的一等入口只能落在 React 渲染的工具栏上。 */}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[var(--app-border)] bg-[var(--app-panel-bg)] px-1.5">
         <IconTooltipButton
           label={t("browserBack")}
           className="h-7 w-7 shrink-0"
@@ -270,7 +282,27 @@ export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) 
         >
           <Code2 className="h-4 w-4" />
         </IconTooltipButton>
-      </div>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-44">
+          <ContextMenuItem onSelect={() => invokeAction(() => browserService.back(tab.id))}>
+            <ArrowLeft /> {t("browserBack")}
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => invokeAction(() => browserService.forward(tab.id))}>
+            <ArrowRight /> {t("browserForward")}
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => invokeAction(() => browserService.reload(tab.id))}>
+            <RefreshCw /> {t("browserReload")}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(address)}>
+            <Copy /> {t("copyBrowserUrl")}
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => invokeAction(() => browserService.openDevtools(tab.id))}>
+            <Code2 /> {t("browserDevtools")}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
       <div ref={viewportRef} className="relative min-h-0 flex-1 bg-[var(--app-content)]">
         {!isTauriRuntime() ? (
           <div className="flex h-full items-center justify-center px-6 text-sm text-[var(--app-text-secondary)]">

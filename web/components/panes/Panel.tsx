@@ -24,6 +24,7 @@ import { collectTerminalLeaves } from "@/lib/paneSessions";
 import { collectPanels } from "@/lib/paneTree";
 import TabBar from "./TabBar";
 import PanelEmptyState from "./PanelEmptyState";
+import PaneEdgeDropZones from "./PaneEdgeDropZones";
 import TabContentRenderer from "./TabContentRenderer";
 import { useTabClosing } from "./useTabClosing";
 import { useReportPaneVisibility } from "./useReportPaneVisibility";
@@ -60,7 +61,7 @@ export default memo(function Panel({ pane }: PanelProps) {
   // Action 选择器合并 + useShallow：浅比较避免对象引用变化导致的重渲染
   const {
     selectTab, togglePinTab, toggleStarTab, renameTab, addTab,
-    splitRight, splitDown, splitAndMoveTab, splitTerminalPane, removeTerminalLeafInternal,
+    splitAndMoveTab, splitTerminalPane, removeTerminalLeafInternal,
     moveTab, moveTabToLayoutPane,
     setActivePane, updateTabSession, reconnectTab,
     setTabDisconnected, markTabPoppedOut, isTabPoppedOut,
@@ -70,8 +71,6 @@ export default memo(function Panel({ pane }: PanelProps) {
     toggleStarTab: s.toggleStarTab,
     renameTab: s.renameTab,
     addTab: s.addTab,
-    splitRight: s.splitRight,
-    splitDown: s.splitDown,
     splitAndMoveTab: s.splitAndMoveTab,
     splitTerminalPane: s.splitTerminalPane,
     removeTerminalLeafInternal: s.removeTerminalLeafInternal,
@@ -204,16 +203,6 @@ export default memo(function Panel({ pane }: PanelProps) {
       orchestrationOverlayOpen: false,
     });
   }, []);
-
-  const handleSplitRight = useCallback(
-    () => splitRight(pane.id),
-    [pane.id, splitRight]
-  );
-
-  const handleSplitDown = useCallback(
-    () => splitDown(pane.id),
-    [pane.id, splitDown]
-  );
 
   const handleSplitAndMoveRight = useCallback(
     (tabId: string) => splitAndMoveTab(pane.id, tabId, "right"),
@@ -448,8 +437,6 @@ export default memo(function Panel({ pane }: PanelProps) {
               onAddFileExplorer: handleAddFileExplorer,
               onAddSsh: handleAddSsh,
             }}
-            onSplitRight={handleSplitRight}
-            onSplitDown={handleSplitDown}
             onFullscreen={handleFullscreen}
             onSplitAndMoveRight={handleSplitAndMoveRight}
             onSplitAndMoveDown={handleSplitAndMoveDown}
@@ -543,6 +530,9 @@ export default memo(function Panel({ pane }: PanelProps) {
         onCancel={cancelPendingClose}
         onConfirm={confirmPendingClose}
       />
+
+      {/* 拖拽落边分屏的落点条 + 半格预览（仅拖拽 tab 期间渲染） */}
+      <PaneEdgeDropZones paneId={pane.id} />
     </div>
   );
 });

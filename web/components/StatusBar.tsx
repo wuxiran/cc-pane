@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import {
   ArrowUpCircle, Eye, EyeOff, LockKeyhole, Minimize2, MoreHorizontal, Music, Music2,
   Pin, Terminal,
@@ -16,6 +16,7 @@ import {
   useWallpaperStore,
 } from "@/stores";
 import { toggleWallpaperMusic } from "@/utils/wallpaperMusicController";
+import { useStatusbarPrefsStore, type StatusbarItemId } from "@/stores/useStatusbarPrefsStore";
 import { useCCChanStore } from "@/stores/useCCChanStore";
 import { triggerUpdate } from "@/services";
 import { webAuthService, type WebAuthStatus } from "@/services/webAuthService";
@@ -27,6 +28,7 @@ import SystemResourceSegment from "@/components/statusbar/SystemResourceSegment"
 import UsageStatsStatusButton from "@/components/statusbar/UsageStatsStatusButton";
 import NotificationBellButton from "@/components/statusbar/NotificationBellButton";
 import CommandPaletteButton from "@/components/statusbar/CommandPaletteButton";
+import StatusbarCustomize from "@/components/statusbar/StatusbarCustomize";
 import ThemeQuickMenu from "@/components/statusbar/ThemeQuickMenu";
 
 /** 右侧图标组的组间竖分隔符，与既有分隔线风格一致。窄档收进更多菜单时由容器 CSS 隐藏。 */
@@ -162,109 +164,143 @@ export default function StatusBar() {
     ? t("statusbar.ccchanHide")
     : t("statusbar.ccchanShow");
 
-  // 低优先级项（资源/用量/音乐/Web 锁定/置顶/迷你/cc酱/语言）：宽档原样行内排布，
-  // 窄档整体收进「更多」Popover；同一份 JSX 单实例渲染，跨档只是换挂载位置。
-  const secondaryItems = (
-    <>
-      {isTauriRuntime() && showSystemResources && <SystemResourceSegment />}
-      {isTauriRuntime() && <UsageStatsStatusButton />}
+  // 状态栏减负：用户可在「更多」菜单里把低频项收起（宽档也生效，批 6）。
+  // 宽档行内只放未收起项，收起项进「更多」Popover；窄档维持旧行为（全部进 Popover）。
+  const tucked = useStatusbarPrefsStore((s) => s.tuckedItems);
 
-      {/* 壁纸音乐：autoplay 被拒时这里是显式起播入口，平时是播放/暂停开关 */}
-      {isTauriRuntime() && musicAvailable && <StatusDivider />}
-      {isTauriRuntime() && musicAvailable && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              aria-label={musicLabel}
-              className="flex items-center px-1.5 py-0.5 rounded transition-colors hover:bg-[var(--app-hover)]"
-              style={
-                musicGestureNeeded
-                  ? { color: "var(--app-accent)" }
-                  : undefined
-              }
-              onClick={() => toggleWallpaperMusic()}
-            >
-              {musicPlaying ? (
-                <Music2 className="w-3 h-3" />
-              ) : (
-                <Music className="w-3 h-3" />
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p>{musicLabel}</p>
-          </TooltipContent>
-        </Tooltip>
-      )}
-
-      {/* Web 只读徽章 + 锁定入口（Web 端） */}
-      {showWebLock && <StatusDivider />}
-      {showWebLock && webAuthStatus.readOnly && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
-              style={{
-                color: "var(--app-accent)",
-                background: "var(--app-active-bg)",
-              }}
-            >
-              <LockKeyhole className="w-3 h-3" />
-              只读模式
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p>
-              远程只读模式已启用：当前来源只能查看，终端输入与文件改动被禁止
-            </p>
-          </TooltipContent>
-        </Tooltip>
-      )}
-
-      {showWebLock && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors hover:bg-[var(--app-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={!canLockWeb}
-              onClick={() => void handleLockWeb()}
-            >
-              <LockKeyhole className="w-3 h-3" />
-              <span className="text-[10px] font-medium">锁定 Web</span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p>
-              {canLockWeb ? "锁定 Web 端" : "需要先启用账号密码并设置密码"}
-            </p>
-          </TooltipContent>
-        </Tooltip>
-      )}
-
-      {/* 置顶 + 迷你模式 */}
-      {isTauriRuntime() && <StatusDivider />}
-      {isTauriRuntime() && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              aria-label={t("alwaysOnTop", { ns: "sidebar" })}
-              className={`p-0.5 rounded transition-colors ${
-                isPinned ? "text-[var(--app-accent)]" : ""
-              } hover:bg-[var(--app-hover)]`}
-              onClick={togglePin}
-            >
-              <Pin
-                className={`w-3 h-3 ${isPinned ? "rotate-45" : ""} transition-transform`}
-              />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p>{t("alwaysOnTop", { ns: "sidebar" })}</p>
-          </TooltipContent>
-        </Tooltip>
-      )}
-
-      {isTauriRuntime() && (
+  const secondaryItemDefs: Array<{
+    id: StatusbarItemId;
+    label: string;
+    show: boolean;
+    node: React.ReactNode;
+  }> = [
+    {
+      id: "system-resources",
+      label: settingsT("showSystemResources"),
+      show: isTauriRuntime() && showSystemResources,
+      node: <SystemResourceSegment />,
+    },
+    {
+      id: "usage-stats",
+      label: settingsT("usageStats.title"),
+      show: isTauriRuntime(),
+      node: <UsageStatsStatusButton />,
+    },
+    {
+      id: "music",
+      label: settingsT("wallpaperMusicEnabled"),
+      show: isTauriRuntime() && musicAvailable,
+      node: (
+        <>
+          <StatusDivider />
+          {/* 壁纸音乐：autoplay 被拒时这里是显式起播入口，平时是播放/暂停开关 */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                aria-label={musicLabel}
+                className="flex items-center px-1.5 py-0.5 rounded transition-colors hover:bg-[var(--app-hover)]"
+                style={
+                  musicGestureNeeded
+                    ? { color: "var(--app-accent)" }
+                    : undefined
+                }
+                onClick={() => toggleWallpaperMusic()}
+              >
+                {musicPlaying ? (
+                  <Music2 className="w-3 h-3" />
+                ) : (
+                  <Music className="w-3 h-3" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>{musicLabel}</p>
+            </TooltipContent>
+          </Tooltip>
+        </>
+      ),
+    },
+    {
+      id: "web-lock",
+      label: t("statusbar.item.webLock"),
+      show: showWebLock,
+      node: (
+        <>
+          <StatusDivider />
+          {webAuthStatus?.readOnly && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
+                  style={{
+                    color: "var(--app-accent)",
+                    background: "var(--app-active-bg)",
+                  }}
+                >
+                  <LockKeyhole className="w-3 h-3" />
+                  只读模式
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                <p>
+                  远程只读模式已启用：当前来源只能查看，终端输入与文件改动被禁止
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors hover:bg-[var(--app-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!canLockWeb}
+                onClick={() => void handleLockWeb()}
+              >
+                <LockKeyhole className="w-3 h-3" />
+                <span className="text-[10px] font-medium">锁定 Web</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>
+                {canLockWeb ? "锁定 Web 端" : "需要先启用账号密码并设置密码"}
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </>
+      ),
+    },
+    {
+      id: "pin",
+      label: t("alwaysOnTop", { ns: "sidebar" }),
+      show: isTauriRuntime(),
+      node: (
+        <>
+          <StatusDivider />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                aria-label={t("alwaysOnTop", { ns: "sidebar" })}
+                className={`p-0.5 rounded transition-colors ${
+                  isPinned ? "text-[var(--app-accent)]" : ""
+                } hover:bg-[var(--app-hover)]`}
+                onClick={togglePin}
+              >
+                <Pin
+                  className={`w-3 h-3 ${isPinned ? "rotate-45" : ""} transition-transform`}
+                />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>{t("alwaysOnTop", { ns: "sidebar" })}</p>
+            </TooltipContent>
+          </Tooltip>
+        </>
+      ),
+    },
+    {
+      id: "mini-mode",
+      label: t("miniMode", { ns: "sidebar" }),
+      show: isTauriRuntime(),
+      node: (
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -280,54 +316,73 @@ export default function StatusBar() {
             <p>{t("miniMode", { ns: "sidebar" })}</p>
           </TooltipContent>
         </Tooltip>
-      )}
+      ),
+    },
+    {
+      id: "ccchan",
+      label: ccChanLabel,
+      show: isTauriRuntime(),
+      node: (
+        <>
+          <StatusDivider />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                aria-label={ccChanLabel}
+                className={`p-0.5 rounded transition-colors hover:bg-[var(--app-hover)] ${
+                  ccChanVisible ? "text-[var(--app-accent)]" : ""
+                }`}
+                onClick={() => void handleToggleCCChan()}
+              >
+                {ccChanVisible ? (
+                  <Eye className="w-3 h-3" />
+                ) : (
+                  <EyeOff className="w-3 h-3" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>{ccChanLabel}</p>
+            </TooltipContent>
+          </Tooltip>
+        </>
+      ),
+    },
+    {
+      id: "language",
+      label: t("switchLanguage"),
+      show: true,
+      node: (
+        <>
+          <StatusDivider />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                aria-label={t("switchLanguage")}
+                className="px-1 py-0.5 rounded transition-colors hover:bg-[var(--app-hover)] text-[10px] font-medium"
+                onClick={handleToggleLanguage}
+              >
+                {i18n.language === "zh-CN" ? "中" : "EN"}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>
+                {t("switchLanguage")} ({i18n.language === "zh-CN" ? "EN" : "中文"}
+                )
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </>
+      ),
+    },
+  ];
 
-      {/* cc酱 浮窗 */}
-      {isTauriRuntime() && <StatusDivider />}
-      {isTauriRuntime() && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              aria-label={ccChanLabel}
-              className={`p-0.5 rounded transition-colors hover:bg-[var(--app-hover)] ${
-                ccChanVisible ? "text-[var(--app-accent)]" : ""
-              }`}
-              onClick={() => void handleToggleCCChan()}
-            >
-              {ccChanVisible ? (
-                <Eye className="w-3 h-3" />
-              ) : (
-                <EyeOff className="w-3 h-3" />
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p>{ccChanLabel}</p>
-          </TooltipContent>
-        </Tooltip>
-      )}
-
-      {/* 语言切换 */}
-      {isTauriRuntime() && <StatusDivider />}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            aria-label={t("switchLanguage")}
-            className="px-1 py-0.5 rounded transition-colors hover:bg-[var(--app-hover)] text-[10px] font-medium"
-            onClick={handleToggleLanguage}
-          >
-            {i18n.language === "zh-CN" ? "中" : "EN"}
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="top">
-          <p>
-            {t("switchLanguage")} ({i18n.language === "zh-CN" ? "EN" : "中文"}
-            )
-          </p>
-        </TooltipContent>
-      </Tooltip>
-    </>
-  );
+  const shownSecondaryItems = secondaryItemDefs.filter((item) => item.show);
+  const inlineSecondaryItems = shownSecondaryItems.filter((item) => !tucked.includes(item.id));
+  const tuckedSecondaryItems = shownSecondaryItems.filter((item) => tucked.includes(item.id));
+  // 窄档全部进「更多」（旧行为）；宽档只在有用户收起项时显示「更多」
+  const popoverItems = upLg ? tuckedSecondaryItems : shownSecondaryItems;
+  const showMorePopover = !upLg || tuckedSecondaryItems.length > 0;
 
   return (
     <div
@@ -399,9 +454,12 @@ export default function StatusBar() {
         <CommandPaletteButton />
         {upSm && <NotificationBellButton />}
 
-        {upLg ? (
-          secondaryItems
-        ) : (
+        {upLg &&
+          inlineSecondaryItems.map((item) => (
+            <Fragment key={item.id}>{item.node}</Fragment>
+          ))}
+
+        {showMorePopover && (
           <Popover>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -422,8 +480,15 @@ export default function StatusBar() {
               {/* 菜单内换行排布；行内用的竖分隔符在菜单里无意义，容器级隐藏 */}
               <div className="flex max-w-[220px] flex-wrap items-center gap-0.5 [&_[data-status-divider]]:hidden">
                 {!upSm && <NotificationBellButton />}
-                {secondaryItems}
+                {popoverItems.map((item) => (
+                  <Fragment key={item.id}>{item.node}</Fragment>
+                ))}
               </div>
+              {/* 自定义：宽档也可把低频项收进「更多」（默认全显示，与旧行为一致） */}
+              <StatusbarCustomize
+                title={t("statusbar.customize")}
+                items={shownSecondaryItems.map((item) => ({ id: item.id, label: item.label }))}
+              />
             </PopoverContent>
           </Popover>
         )}

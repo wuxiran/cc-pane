@@ -1,19 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import McpYoloProfilesToggle from "./McpYoloProfilesToggle";
-import FollowAgentLaunchToggle from "./FollowAgentLaunchToggle";
+import { SearchableSetting } from "./SettingsSearchContext";
+import WebAccessOrchestratorBlock from "./WebAccessOrchestratorBlock";
 import { toastErr, toastOk } from "@/lib/feedback";
 import { ExternalLink, RefreshCw, RotateCcw, ShieldCheck, Square, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { settingsService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
 import { useSettingsStore } from "@/stores";
-import { useOrchestratorStatus } from "@/hooks/useOrchestratorStatus";
-import type { OrchestratorBindMode, OrchestratorSettings, TailscaleStatus, WebAccessSettings, WebAccessStatus } from "@/types";
+import type { OrchestratorSettings, TailscaleStatus, WebAccessSettings, WebAccessStatus } from "@/types";
 
 interface WebAccessSectionProps {
   value: WebAccessSettings;
@@ -21,10 +19,6 @@ interface WebAccessSectionProps {
   orchestrator?: OrchestratorSettings;
   onOrchestratorChange?: (value: OrchestratorSettings) => void;
 }
-
-const ORCHESTRATOR_BIND_MODES: OrchestratorBindMode[] = ["auto", "loopback", "all"];
-// 旧配置可能残留已下线的 bindMode；直接拿它拼 i18n key 会把 key 原样渲染给用户。
-const normalizeBindMode = (mode?: string) => ORCHESTRATOR_BIND_MODES.find((m) => m === mode) ?? "auto";
 
 function normalizeWhitelistText(value: string): string[] {
   return value
@@ -42,7 +36,6 @@ export default function WebAccessSection({
   const { t } = useTranslation("settings");
   const [status, setStatus] = useState<WebAccessStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
-  const orchestratorStatus = useOrchestratorStatus();
   const [tailscale, setTailscale] = useState<TailscaleStatus | null>(null);
   const [detectingTailscale, setDetectingTailscale] = useState(false);
   const [password, setPassword] = useState("");
@@ -121,6 +114,8 @@ export default function WebAccessSection({
 
   return (
     <div className="flex flex-col gap-4">
+      <SearchableSetting sectionId="web-access-server">
+      <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
           <Label htmlFor="web-access-enabled">{t("webAccessSection.startupEnabled")}</Label>
@@ -162,7 +157,10 @@ export default function WebAccessSection({
           onChange={(event) => update("autoOpen", event.target.checked)}
           className="w-4 h-4 cursor-pointer" style={{ accentColor: "var(--app-accent)" }} />
       </div>
+      </div>
+      </SearchableSetting>
 
+      <SearchableSetting sectionId="web-access-auth">
       <div className="flex flex-col gap-3 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
         <div className="flex items-center justify-between">
           <div>
@@ -211,7 +209,9 @@ export default function WebAccessSection({
           </Button>
         </div>
       </div>
+      </SearchableSetting>
 
+      <SearchableSetting sectionId="web-access-network">
       <div className="flex flex-col gap-3 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
         <div className="flex items-center justify-between">
           <div>
@@ -296,82 +296,12 @@ export default function WebAccessSection({
           )}
         </FormField>
       </div>
+      </SearchableSetting>
 
-      {orchestrator && onOrchestratorChange && isTauriRuntime() && (
-        <div className="flex flex-col gap-2 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
-          <div>
-            <Label>{t("webAccessSection.orchestrator.title")}</Label>
-            <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-              {t("webAccessSection.orchestrator.description")}
-            </p>
-          </div>
-          <div className="flex items-center justify-between gap-6">
-            <span className="text-[13px] text-[var(--app-text-secondary)]">
-              {t("webAccessSection.orchestrator.bindMode")}
-            </span>
-            <Select
-              value={normalizeBindMode(orchestrator.bindMode)}
-              onValueChange={(next) =>
-                onOrchestratorChange({ ...orchestrator, bindMode: next as OrchestratorBindMode })
-              }
-            >
-              <SelectTrigger aria-label={t("webAccessSection.orchestrator.bindMode")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {ORCHESTRATOR_BIND_MODES.map((mode) => (
-                  <SelectItem key={mode} value={mode}>
-                    {t(`webAccessSection.orchestrator.bindModes.${mode}.label`)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-            {t(`webAccessSection.orchestrator.bindModes.${normalizeBindMode(orchestrator.bindMode)}.hint`)}
-          </p>
-          <McpYoloProfilesToggle orchestrator={orchestrator} onChange={onOrchestratorChange} />
-          <FollowAgentLaunchToggle orchestrator={orchestrator} onChange={onOrchestratorChange} />
-          {orchestratorStatus?.bind && (
-            <p className="text-xs m-0" style={{ color: "var(--app-text-secondary)" }}>
-              {t("webAccessSection.orchestrator.currentListen", {
-                address: `${orchestratorStatus.bind.host}${
-                  orchestratorStatus.port != null ? `:${orchestratorStatus.port}` : ""
-                }`,
-                reason: orchestratorStatus.bind.reason,
-              })}
-            </p>
-          )}
-          {orchestratorStatus && (
-            <p className="text-xs m-0" style={{ color: "var(--app-text-secondary)" }}>
-              {t("orchestratorStatus.summary", {
-                lifecycle:
-                  orchestratorStatus.lifecycle === "binding"
-                    ? t("orchestratorStatus.binding")
-                    : orchestratorStatus.lifecycle === "ready"
-                      ? t("orchestratorStatus.ready")
-                      : t("orchestratorStatus.failed"),
-              })}
-              {orchestratorStatus.attempt != null
-                ? ` · ${t("orchestratorStatus.attempt", { attempt: orchestratorStatus.attempt })}`
-                : ""}
-              {orchestratorStatus.nextRetryAt != null
-                ? ` · ${t("orchestratorStatus.nextRetry", {
-                    time: new Date(orchestratorStatus.nextRetryAt).toLocaleTimeString(),
-                  })}`
-                : ""}
-            </p>
-          )}
-          {orchestratorStatus?.lastError && (
-            <p
-              className="text-xs m-0 whitespace-pre-wrap break-words"
-              style={{ color: "var(--app-status-danger)" }}
-            >
-              {t("orchestratorStatus.lastError", { error: orchestratorStatus.lastError })}
-            </p>
-          )}
-        </div>
-      )}
+      <WebAccessOrchestratorBlock
+        orchestrator={orchestrator}
+        onOrchestratorChange={onOrchestratorChange}
+      />
 
       {isTauriRuntime() && (
         <div className="flex flex-col gap-2 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>

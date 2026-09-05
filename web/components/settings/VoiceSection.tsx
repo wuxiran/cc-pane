@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { resolveVoiceProvider, VOICE_PROVIDERS, VOICE_PROVIDER_IDS } from "@/lib/voiceProviders";
 import type { VoiceSettings } from "@/types";
+import { SearchableSetting } from "./SettingsSearchContext";
 
 interface VoiceSectionProps {
   value: VoiceSettings;
@@ -85,6 +86,8 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
 
   return (
     <div className="flex flex-col gap-4">
+      <SearchableSetting sectionId="voice-enable">
+      <div className="flex flex-col gap-4">
       <label className="flex items-center gap-2 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
         <input
           type="checkbox"
@@ -113,7 +116,11 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
           })}
         </p>
       </div>
+      </div>
+      </SearchableSetting>
 
+      <SearchableSetting sectionId="voice-provider">
+      <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
         <Label id="voice-provider-label">{t("voiceProvider")}</Label>
         <div className="flex flex-wrap gap-2" role="group" aria-labelledby="voice-provider-label">
@@ -166,7 +173,11 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
           {modelInput}
         </div>
       ) : null}
+      </div>
+      </SearchableSetting>
 
+      <SearchableSetting sectionId="voice-options">
+      <div className="flex flex-col gap-4">
       {capability.showRegion ? (
         <>
           <div className="grid grid-cols-2 gap-3">
@@ -232,6 +243,8 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
       <p className="text-[11px] leading-5" style={{ color: "var(--app-text-tertiary)" }}>
         {t(capability.hintKey)}
       </p>
+      </div>
+      </SearchableSetting>
     </div>
   );
 }

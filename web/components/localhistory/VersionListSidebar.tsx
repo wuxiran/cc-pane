@@ -1,10 +1,16 @@
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Clock, Tag, GitBranch } from "lucide-react";
+import { Clock, Tag, GitBranch, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import type { FileVersion, HistoryLabel } from "@/services";
 import { formatRelativeTime, formatFullTime, formatSize } from "@/utils";
@@ -17,6 +23,8 @@ interface VersionListSidebarProps {
   fileBranches: string[];
   selectVersion: (version: FileVersion) => void;
   openLabelDialog: (version: FileVersion) => void;
+  /** 恢复指定版本（右键菜单）；与底部按钮同一条 restoreVersion 路径 */
+  restoreVersion: (version: FileVersion) => void;
   getVersionLabels: (versionId: string) => HistoryLabel[];
 }
 
@@ -30,6 +38,7 @@ export default function VersionListSidebar({
   fileBranches,
   selectVersion,
   openLabelDialog,
+  restoreVersion,
   getVersionLabels,
 }: VersionListSidebarProps) {
   const { t } = useTranslation(["dialogs", "common"]);
@@ -84,24 +93,26 @@ export default function VersionListSidebar({
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                <div
-                  role="button"
-                  tabIndex={0}
-                  className="px-3 py-2.5 rounded-md cursor-pointer transition-colors duration-[var(--dur-fast)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-                  style={{
-                    background: selectedVersion?.id === version.id ? "var(--app-active-bg)" : undefined,
-                    borderLeft: selectedVersion?.id === version.id ? "3px solid var(--app-accent)" : "3px solid transparent",
-                  }}
-                  onClick={() => selectVersion(version)}
-                  onKeyDown={(event) => {
-                    if (event.target !== event.currentTarget) return;
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      selectVersion(version);
-                    }
-                  }}
-                  onContextMenu={(e) => { e.preventDefault(); openLabelDialog(version); }}
-                >
+                {/* 右键是菜单而非直接弹打标框：打标/恢复两个版本动作的一等入口 */}
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      className="px-3 py-2.5 rounded-md cursor-pointer transition-colors duration-[var(--dur-fast)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                      style={{
+                        background: selectedVersion?.id === version.id ? "var(--app-active-bg)" : undefined,
+                        borderLeft: selectedVersion?.id === version.id ? "3px solid var(--app-accent)" : "3px solid transparent",
+                      }}
+                      onClick={() => selectVersion(version)}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          selectVersion(version);
+                        }
+                      }}
+                    >
                   <div className="flex items-center gap-1.5 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
                     <Clock size={12} />
                     <span title={formatFullTime(version.createdAt)}>{formatRelativeTime(version.createdAt)}</span>
@@ -130,7 +141,19 @@ export default function VersionListSidebar({
                       ))}
                     </div>
                   )}
-                </div>
+                    </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="w-44">
+                    <ContextMenuItem onSelect={() => openLabelDialog(version)}>
+                      <Tag size={14} />
+                      {t("addTag")}
+                    </ContextMenuItem>
+                    <ContextMenuItem onSelect={() => restoreVersion(version)}>
+                      <RotateCcw size={14} />
+                      {t("restoreVersion")}
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
               </div>
             );
           })}

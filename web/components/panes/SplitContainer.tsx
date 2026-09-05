@@ -3,6 +3,7 @@ import type { SplitPane } from "@/types";
 import { BREAKPOINT_ORDER } from "@/lib/breakpoints";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { usePanesStore } from "@/stores";
+import { subtreeContainsPane } from "@/stores/panes/paneOpsActions";
 import PaneContainer from "./PaneContainer";
 import SplitView from "./SplitView";
 
@@ -47,6 +48,19 @@ export default function SplitContainer({ pane }: SplitContainerProps) {
     [pane.children]
   );
 
+  // 布局内 zoom（tmux 式临时放大）：每层只留含 zoom pane 的一支占满，
+  // 其余支挤到 0 宽——保持挂载（终端会话不死），isTerminalHostRenderable
+  // 的 rect.width > 1 守卫会跳过 0 宽宿主的 refit，还原时统一 refit。
+  const zoomedPaneId = usePanesStore((s) => s.zoomedPaneId);
+  const zoomChildId = useMemo(() => {
+    if (!zoomedPaneId) return null;
+    const hit = pane.children.find((child) => subtreeContainsPane(child, zoomedPaneId));
+    return hit?.id ?? null;
+  }, [pane.children, zoomedPaneId]);
+  const effectiveSizes = zoomChildId
+    ? pane.children.map((child) => (child.id === zoomChildId ? 100 : 0))
+    : pane.sizes;
+
   return (
     <div
       className="h-full w-full min-h-0 min-w-0 split-container"
@@ -60,9 +74,11 @@ export default function SplitContainer({ pane }: SplitContainerProps) {
     >
       <SplitView
         vertical={pane.direction === "vertical"}
-        sizes={pane.sizes}
+        sizes={effectiveSizes}
         minSize={50}
-        paneMinWidth={narrowHorizontal ? NARROW_PANE_MIN_WIDTH_PX : undefined}
+        // zoom 时 0 宽支不能再带窄档列宽下限（会把布局顶破）
+        paneMinWidth={zoomChildId ? undefined : narrowHorizontal ? NARROW_PANE_MIN_WIDTH_PX : undefined}
+        hideSashes={Boolean(zoomChildId)}
         onDragEnd={handleDragEnd}
         keys={childKeys}
       >

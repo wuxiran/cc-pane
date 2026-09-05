@@ -16,6 +16,7 @@ import { handleErrorSilent } from "@/utils";
 import { notifySetupGuideProgress } from "@/components/onboarding/setupGuideProgress";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useDialogStore } from "@/stores/useDialogStore";
+import ScopeBanner from "@/components/settings/ScopeBanner";
 import { useExperimentalFeature } from "@/hooks/useExperimentalFeature";
 
 function externalSourceLabel(s: ExternalSkillSource): string {
@@ -90,6 +91,9 @@ export default function GlobalSkillsPanel() {
 
   return (
     <div className="app-scrollbar h-full min-h-0 overflow-y-auto py-5 sm:py-6 flex flex-col gap-6">
+      {/* 作用域徽标：全局技能库（批 5 配置收敛） */}
+      <ScopeBanner scope="global" descriptionKey="scope.skillsGlobalDesc" />
+
       <div className="flex items-center justify-between">
         <div className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>
           {t("globalSkillsDesc", { defaultValue: "管理 CC-Panes 全局 Skills：市场安装、已装用户 skill、以及各 CLI 已有的 skill（只读）。" })}

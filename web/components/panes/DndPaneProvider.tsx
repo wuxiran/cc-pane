@@ -15,6 +15,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { usePanesStore } from "@/stores";
+import { usePaneEdgeDropStore } from "@/stores/usePaneEdgeDropStore";
 import type { Tab } from "@/types";
 import { devDebugLog } from "@/utils/devLogger";
 import { resolveDndDrop } from "./paneDndRouting";
@@ -64,16 +65,33 @@ export default function DndPaneProvider({ children }: DndPaneProviderProps) {
         cliTool: tab.cliTool ?? (tab.launchClaude ? "claude" : "none"),
       });
       setActiveTab(tab);
+      // 边缘落点条只在拖拽 tab 期间渲染（见 PaneEdgeDropZones 的说明）
+      usePaneEdgeDropStore.getState().setDraggingTab(true);
     }
   }, []);
 
-  const handleDragOver = useCallback((_event: DragOverEvent) => {
-    // 可以在此处添加拖拽预览效果
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    // 悬停到边缘落点条 → 通知 Panel 渲染半格分屏预览
+    const over = event.over;
+    const edgeDrop = usePaneEdgeDropStore.getState();
+    if (over?.data.current?.type === "pane-edge") {
+      const paneId = over.data.current.paneId as string;
+      const edge = over.data.current.edge as "right" | "bottom";
+      const prev = edgeDrop.preview;
+      if (prev?.paneId !== paneId || prev?.edge !== edge) {
+        edgeDrop.setPreview({ paneId, edge });
+      }
+      return;
+    }
+    if (edgeDrop.preview) edgeDrop.setPreview(null);
   }, []);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     setActiveTab(null);
+    const edgeDrop = usePaneEdgeDropStore.getState();
+    edgeDrop.setDraggingTab(false);
+    edgeDrop.setPreview(null);
 
     const store = usePanesStore.getState();
     const action = resolveDndDrop(
@@ -102,6 +120,16 @@ export default function DndPaneProvider({ children }: DndPaneProviderProps) {
         moveTab(action.fromPaneId, action.toPaneId, action.tabId, action.toIndex);
         break;
       }
+      case "split-move-tab": {
+        debugDnd("drag.end.split-move", action);
+        store.splitAndDropTab(
+          action.toPaneId,
+          action.fromPaneId,
+          action.tabId,
+          action.edge === "right" ? "right" : "down",
+        );
+        break;
+      }
       case "move-tab-to-layout": {
         // 第 4 参（toPaneId）留空 → store 取目标布局第一个 panel。
         // 不要传 layout.activePaneId：它可能指向 split 节点，store 会静默 return，
@@ -122,6 +150,9 @@ export default function DndPaneProvider({ children }: DndPaneProviderProps) {
 
   const handleDragCancel = useCallback(() => {
     setActiveTab(null);
+    const edgeDrop = usePaneEdgeDropStore.getState();
+    edgeDrop.setDraggingTab(false);
+    edgeDrop.setPreview(null);
   }, []);
 
   // 碰撞算法按被拖对象分流：布局条合并进来之前用的是 closestCenter，

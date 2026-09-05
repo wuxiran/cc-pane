@@ -1035,5 +1035,24 @@
     "removed": "Removed {{name}}",
     "removeFailed": "Remove failed: {{error}}"
   },
-  "providerUrlCopied": "Provider URL copied"
+  "providerUrlCopied": "Provider URL copied",
+  "splitShortcutPassthrough": "Pass split shortcuts to terminal",
+  "splitShortcutPassthroughHint": "When on, Ctrl+ / Ctrl+- are sent to the focused terminal (e.g. SIGQUIT) instead of splitting. Off by default: splitting works even while a terminal is focused.",
+  "pages.appearance.title": "Appearance",
+  "advancedSettings": "Advanced",
+  "scope.global": "Global",
+  "scope.workspace": "Workspace",
+  "scope.profile": "Launch Profile",
+  "scope.mcpGlobalDesc": "Applies to all workspaces. Workspace-level MCP servers are layered on top.",
+  "scope.mcpWorkspaceDesc": "Applies to this workspace only, layered on top of shared global MCP. If a change seems ineffective, check for a same-name server at the global level.",
+  "scope.editGlobalMcp": "Edit shared global MCP",
+  "scope.skillsGlobalDesc": "Global skill library for all projects; project-level skills are layered on top.",
+  "scope.profileDesc": "A launch profile decides which provider, model and arguments each launch uses.",
+  "scope.manageCredentials": "Manage provider credentials",
+  "scope.credentialsDesc": "Provider credentials are shared globally and referenced by launch profiles.",
+  "scope.manageProfiles": "Manage launch profiles",
+  "theme.terminalThemeHint": "Terminal colors follow the app theme, or can be set separately.",
+  "theme.terminalThemeLink": "Open terminal settings",
+  "mcpEdit": "Edit",
+  "mcpDelete": "Delete"
 }

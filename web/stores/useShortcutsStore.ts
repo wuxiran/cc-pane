@@ -9,12 +9,10 @@ import { useSettingsStore } from "./useSettingsStore";
  * - new-tab        (Ctrl+T) → Claude Code: app:toggleTodos
  * - close-tab      (Ctrl+W) → readline: delete-word
  * - toggle-mini-mode (Ctrl+M) → terminal: Enter (0x0D)
- * - split-right    (Ctrl+\) → terminal: SIGQUIT
- * - split-down     (Ctrl+-) → 部分 TUI 应用使用
  * - command-palette (Ctrl+K) → readline: kill-line / Claude Code 常用
  *
  * 仅对「Ctrl 即应用修饰键」的平台成立。mac 上应用键是 ⌘、终端键是 ⌃，⌘W 对 readline
- * 毫无意义，照样放行等于白白吞掉最常用的 7 个快捷键——而主界面几乎总是终端聚焦，
+ * 毫无意义，照样放行等于白白吞掉最常用的 5 个快捷键——而主界面几乎总是终端聚焦，
  * 表现就是"mac 快捷键全都不能用"。mac 的让行改由 handleKeydown 按真实 ⌃ 键判断。
  */
 const TERMINAL_PASSTHROUGH_ACTIONS = new Set([
@@ -22,10 +20,21 @@ const TERMINAL_PASSTHROUGH_ACTIONS = new Set([
   "new-tab",
   "close-tab",
   "toggle-mini-mode",
-  "split-right",
-  "split-down",
   "command-palette",
 ]);
+
+/**
+ * 分屏快捷键（split-right Ctrl+\ / split-down Ctrl+-）：默认**不放行**——
+ * 这个 app 的主区域几乎永远终端聚焦，放行等于"教了也按不动"。
+ * 需要在终端里用 SIGQUIT 等原生语义的用户，可在 设置>终端 打开
+ * terminal.splitShortcutPassthrough 恢复旧版透传行为。
+ */
+const SPLIT_SHORTCUT_ACTIONS = new Set(["split-right", "split-down"]);
+
+/** 分屏键是否按用户设置放行给终端。 */
+function isSplitPassthroughEnabled(): boolean {
+  return useSettingsStore.getState().settings?.terminal?.splitShortcutPassthrough === true;
+}
 
 const TERMINAL_ONLY_ACTIONS = new Set([
   "terminal-zoom-in",
@@ -47,7 +56,9 @@ function detectMac(): boolean {
  */
 export function isTerminalPassthroughAction(actionId: string, isMac: boolean = detectMac()): boolean {
   if (isMac) return false;
-  return TERMINAL_PASSTHROUGH_ACTIONS.has(actionId);
+  if (TERMINAL_PASSTHROUGH_ACTIONS.has(actionId)) return true;
+  if (SPLIT_SHORTCUT_ACTIONS.has(actionId)) return isSplitPassthroughEnabled();
+  return false;
 }
 
 export interface ShortcutAction {
@@ -198,7 +209,7 @@ function isActionActive(
   // mac 走 shouldYieldToTerminal 按真实 ⌃ 键让行，这里不能再按 combo 字符串减一遍：
   // ⌘W 和 ⌃W 归一化后都是 "Ctrl+W"，减了就把 ⌘W 一起吞掉。
   if (isMac) return true;
-  return !(terminalFocused && TERMINAL_PASSTHROUGH_ACTIONS.has(actionId));
+  return !(terminalFocused && isTerminalPassthroughAction(actionId, isMac));
 }
 
 /**
@@ -218,10 +229,15 @@ function actionContextsOverlap(firstActionId: string, secondActionId: string): b
   const firstTerminalOnly = getActionContext(firstActionId) === "terminal";
   const secondTerminalOnly = getActionContext(secondActionId) === "terminal";
 
-  if (firstTerminalOnly && TERMINAL_PASSTHROUGH_ACTIONS.has(secondActionId)) {
+  // 终端 context 动作与「终端聚焦时不活跃」的动作不冲突。分屏键默认在终端聚焦时
+  // **活跃**，但 handleKeydown 对同 combo 给了 terminal context 明确优先权
+  // （Ctrl+- 缩放 > 分屏），所以也不算冲突——避免默认键位表自己告警。
+  const yieldsTo = (id: string) =>
+    TERMINAL_PASSTHROUGH_ACTIONS.has(id) || SPLIT_SHORTCUT_ACTIONS.has(id);
+  if (firstTerminalOnly && yieldsTo(secondActionId)) {
     return false;
   }
-  if (secondTerminalOnly && TERMINAL_PASSTHROUGH_ACTIONS.has(firstActionId)) {
+  if (secondTerminalOnly && yieldsTo(firstActionId)) {
     return false;
   }
   return true;
@@ -244,7 +260,17 @@ export function handleKeydown(e: KeyboardEvent, isMac: boolean = detectMac()) {
   const { actions, terminalFocused } = useShortcutsStore.getState();
   if (shouldYieldToTerminal(e, terminalFocused, isMac)) return;
 
-  for (const [actionId, keyCombo] of Object.entries(bindings)) {
+  // 终端聚焦时 terminal context 动作优先于全局动作：bindings 来自 Rust HashMap
+  // 序列化，遍历序不稳定，Ctrl+- 必须确定性地先给缩放、非终端环境才轮到分屏。
+  const entries = Object.entries(bindings);
+  const ordered = terminalFocused
+    ? [
+        ...entries.filter(([id]) => getActionContext(id) === "terminal"),
+        ...entries.filter(([id]) => getActionContext(id) !== "terminal"),
+      ]
+    : entries;
+
+  for (const [actionId, keyCombo] of ordered) {
     const action = actions.get(actionId);
     if (keyCombo !== combo || !action || !isActionActive(actionId, terminalFocused, isMac)) {
       continue;

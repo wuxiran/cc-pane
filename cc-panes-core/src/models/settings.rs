@@ -538,6 +538,10 @@ pub struct TerminalSettings {
     /// 刻意默认不设：目标是防失控，不是给正常工作设天花板。
     #[serde(default)]
     pub session_cpu_weight: Option<u8>,
+    /// 分屏快捷键（Ctrl+\ / Ctrl+-）在终端聚焦时是否放行给终端（如 SIGQUIT）。
+    /// 默认 false = 分屏优先（终端聚焦也触发分屏）；true = 恢复旧版透传行为。
+    #[serde(default)]
+    pub split_shortcut_passthrough: bool,
 }
 
 /// 孤儿会话 TTL 上限：7 天
@@ -1254,6 +1258,7 @@ impl Default for TerminalSettings {
             auto_adopt_daemon_sessions: true,
             lower_session_priority: true,
             session_cpu_weight: None,
+            split_shortcut_passthrough: false,
         }
     }
 }
@@ -1268,6 +1273,7 @@ impl Default for ShortcutSettings {
         bindings.insert("reopen-closed-tab".to_string(), "Ctrl+Shift+T".to_string());
         bindings.insert("settings".to_string(), "Ctrl+,".to_string());
         bindings.insert("command-palette".to_string(), "Ctrl+K".to_string());
+        bindings.insert("shortcut-cheatsheet".to_string(), "Ctrl+/".to_string());
         bindings.insert("toggle-layouts".to_string(), "Ctrl+Alt+L".to_string());
         bindings.insert("split-right".to_string(), "Ctrl+\\".to_string());
         bindings.insert("split-down".to_string(), "Ctrl+-".to_string());

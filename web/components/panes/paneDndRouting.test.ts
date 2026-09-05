@@ -21,6 +21,33 @@ const tabNode = (id: string, paneId: string) => ({ id, data: { type: "tab", pane
 const layoutNode = (id: string) => ({ id, data: { type: "layout", layoutId: id } });
 
 describe("resolveDndDrop", () => {
+  it("tab 拖到 pane 右边缘 → 落边分屏（split-move-tab）", () => {
+    const edgeNode = { id: "pane-edge-pane-2-right", data: { type: "pane-edge", paneId: "pane-2", edge: "right" } };
+    expect(resolveDndDrop(tabNode("t1", "pane-1"), edgeNode, ctx)).toEqual({
+      kind: "split-move-tab",
+      fromPaneId: "pane-1",
+      toPaneId: "pane-2",
+      tabId: "t1",
+      edge: "right",
+    });
+  });
+
+  it("tab 拖到 pane 下边缘 → 落边分屏（edge=bottom）", () => {
+    const edgeNode = { id: "pane-edge-pane-2-bottom", data: { type: "pane-edge", paneId: "pane-2", edge: "bottom" } };
+    expect(resolveDndDrop(tabNode("t1", "pane-1"), edgeNode, ctx)).toEqual({
+      kind: "split-move-tab",
+      fromPaneId: "pane-1",
+      toPaneId: "pane-2",
+      tabId: "t1",
+      edge: "bottom",
+    });
+  });
+
+  it("tab 拖到不存在的 pane 边缘 → 拒绝", () => {
+    const edgeNode = { id: "pane-edge-ghost-right", data: { type: "pane-edge", paneId: "ghost", edge: "right" } };
+    expect(resolveDndDrop(tabNode("t1", "pane-1"), edgeNode, ctx)).toBeNull();
+  });
+
   it("同 pane 内 tab→tab 是重排序", () => {
     expect(resolveDndDrop(tabNode("t1", "pane-1"), tabNode("t2", "pane-1"), ctx)).toEqual({
       kind: "reorder-tabs",

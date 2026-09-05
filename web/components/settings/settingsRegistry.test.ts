@@ -23,7 +23,7 @@ describe("settings registry", () => {
     expect(assignedPaneIds).toHaveLength(paneIds.length);
     expect(SETTINGS_PANES.every((pane) => Array.isArray(pane.searchEntries))).toBe(true);
     expect(SETTINGS_GROUPS.map((group) => group.id)).toEqual(["application", "services"]);
-    expect(pageIds).toEqual(["general", "terminal", "ai-tools", "system", "ccchan", "experimental", "usage-stats", "setup-guide", "about"]);
+    expect(pageIds).toEqual(["general", "appearance", "terminal", "ai-tools", "system", "ccchan", "experimental", "usage-stats", "setup-guide", "about"]);
   });
 
   it("applies desktop and platform availability from the registry", () => {
@@ -46,19 +46,22 @@ describe("settings registry", () => {
     )];
 
     expect(commandPaneIds).toEqual(visiblePaneIds);
-    expect(visiblePages).toHaveLength(9);
+    expect(visiblePages).toHaveLength(10);
     expect(visiblePages.every((page) =>
       page.paneIds.some((paneId) => visiblePaneIds.includes(paneId))
     )).toBe(true);
   });
 
   it("preserves the intended order inside consolidated pages", () => {
+    // 外观一站式：颜色/形态/壁纸收进独立 appearance Page（批 5）
     expect(getSettingsPanesForPage("general").map((pane) => pane.id)).toEqual([
       "general",
+      "modules",
+    ]);
+    expect(getSettingsPanesForPage("appearance").map((pane) => pane.id)).toEqual([
       "theme",
       "theme-shape",
       "wallpaper",
-      "modules",
     ]);
     expect(getSettingsPanesForPage("ai-tools").map((pane) => pane.id)).toEqual([
       "provider",

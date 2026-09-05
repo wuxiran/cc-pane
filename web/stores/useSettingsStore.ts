@@ -316,6 +316,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       autoAdoptDaemonSessions: true,
       lowerSessionPriority: true,
       sessionCpuWeight: null,
+      splitShortcutPassthrough: false,
     },
     shortcuts: {
       bindings: {
@@ -326,6 +327,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         "reopen-closed-tab": "Ctrl+Shift+T",
         settings: "Ctrl+,",
         "command-palette": "Ctrl+K",
+        "shortcut-cheatsheet": "Ctrl+/",
         "terminal-zoom-in": "Ctrl+=",
         "terminal-zoom-out": "Ctrl+-",
         "terminal-zoom-reset": "Ctrl+0",

@@ -54,6 +54,16 @@ pub fn screenshot_update_shortcut(
     }
 }
 
+/// 从应用内（命令面板/菜单）触发截图：与全局热键同一条 trigger_screenshot 路径。
+/// 此前截图是纯热键功能，无任何 UI 入口（批 6 可发现性）。
+#[tauri::command]
+pub fn screenshot_trigger(
+    app: tauri::AppHandle,
+    settings_service: State<'_, Arc<SettingsService>>,
+) {
+    crate::trigger_screenshot(&app, settings_service.inner().clone());
+}
+
 #[tauri::command]
 pub async fn screenshot_save_clipboard_image(
     app: tauri::AppHandle,

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { settingsService } from "@/services";
 import type { ProxySettings } from "@/types";
+import { SearchableSetting } from "./SettingsSearchContext";
 
 interface ProxySectionProps {
   value: ProxySettings;
@@ -51,7 +52,8 @@ export default function ProxySection({ value, onChange }: ProxySectionProps) {
       </div>
 
       {value.enabled && (
-        <>
+        <SearchableSetting sectionId="proxy-server">
+        <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between gap-6">
               <Label htmlFor={proxyTypeId}>{t("proxyType")}</Label>
@@ -136,7 +138,8 @@ export default function ProxySection({ value, onChange }: ProxySectionProps) {
           <div>
             <Button size="sm" variant="secondary" onClick={testProxy}>{t("testConnection")}</Button>
           </div>
-        </>
+        </div>
+        </SearchableSetting>
       )}
     </div>
   );
