@@ -1,7 +1,7 @@
 import "@/i18n";
 import type { ReactElement } from "react";
 import { render as rtlRender, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { usePanesStore, useSshMachinesStore, useTerminalStatusStore, useWorkspacesStore } from "@/stores";
 import { mockTauriInvoke } from "@/test/utils/mockTauriInvoke";
@@ -11,6 +11,20 @@ import SessionsView from "./SessionsView";
 
 // SessionsView 内嵌 RecentLaunches，其操作按钮使用统一 Tooltip，需 TooltipProvider 包裹
 const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
+
+/** jsdom 无布局：RecentLaunches 虚拟化读 offsetHeight，滚动容器给 600px 视口、行给 56px */
+beforeEach(() => {
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+    if (this.classList?.contains("app-scrollbar")) return 600;
+    if (this.hasAttribute?.("data-index")) return 56;
+    return 0;
+  });
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(() => 260);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },

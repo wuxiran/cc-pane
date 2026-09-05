@@ -29,6 +29,10 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
   const [launchHistory, setLaunchHistory] = useState<LaunchRecord[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const showHistorySkeleton = useDelayedLoading(!historyLoaded);
+  // 滚动容器：RecentLaunches 的虚拟化以它为视口。
+  // 用 callback ref + state 而非 useRef——子组件 layout effect 早于父级 ref 挂载，
+  // state 交接能保证元素就绪后触发重渲染，虚拟化器才能订阅到滚动容器。
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -93,7 +97,8 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
         </span>
       </div>
 
-      <div className="app-scrollbar flex-1 overflow-y-auto">
+      {/* relative：成为 RecentLaunches 列表的 offsetParent，scrollMargin 才能用 offsetTop 对齐 */}
+      <div ref={setScrollElement} className="app-scrollbar relative flex-1 overflow-y-auto">
         {/* 活跃会话 */}
         {activeSessions.length > 0 && (
           <div className="px-3 mb-3">
@@ -128,6 +133,7 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
               onOpenTerminal={onOpenTerminal}
               onClearHistory={clearHistory}
               onDeleteRecord={deleteRecord}
+              scrollElement={scrollElement}
             />
           ) : showHistorySkeleton ? (
             <RecentLaunchesSkeleton />

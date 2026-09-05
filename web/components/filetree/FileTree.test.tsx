@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { useFileTreeStore, usePanesStore } from "@/stores";
 import type { FileTreeNode as FileTreeNodeType, FsEntry } from "@/types/filesystem";
 import FileTree from "./FileTree";
@@ -19,6 +19,24 @@ beforeAll(() => {
 });
 
 const ROOT = "/proj";
+
+/** jsdom 布局恒为 0，虚拟化器会因 outerSize 为 0 一行不渲染；
+ *  @tanstack/virtual-core 读的是 offsetHeight/offsetWidth，
+ *  这里给滚动容器（app-scrollbar）一个固定视口高度。 */
+function mockLayoutMetrics(viewportHeight = 600) {
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+    return this.classList?.contains("app-scrollbar") ? viewportHeight : 28;
+  });
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(() => 300);
+}
+
+beforeEach(() => {
+  mockLayoutMetrics();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function entry(path: string, isDir: boolean): FsEntry {
   const name = path.split(/[/\\]/).pop() || path;
@@ -326,5 +344,65 @@ describe("FileTree keyboard navigation", () => {
     fireEvent.focus(getRow("README.md"));
     expect(getRow("README.md")).toHaveAttribute("tabindex", "0");
     expect(getRow("proj")).toHaveAttribute("tabindex", "-1");
+  });
+});
+
+describe("FileTree virtualization", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /** 根目录下 500 个文件的大平铺目录 */
+  function bigTree(count: number): FileTreeNodeType {
+    return makeNode(entry(ROOT, true), {
+      expanded: true,
+      children: Array.from({ length: count }, (_, i) =>
+        makeNode(entry(`${ROOT}/file-${String(i).padStart(3, "0")}.ts`, false)),
+      ),
+    });
+  }
+
+  it("renders only the visible window of rows for a large directory", () => {
+    setupStores({ trees: { [ROOT]: bigTree(500) } });
+    render(<FileTree rootPath={ROOT} />);
+
+    const rendered = screen.getAllByRole("treeitem");
+    // 600px 视口 / 28px 行高 + overscan，远小于总数
+    expect(rendered.length).toBeGreaterThan(0);
+    expect(rendered.length).toBeLessThan(60);
+    expect(screen.queryByText("file-499.ts")).not.toBeInTheDocument();
+    // 语义不省：总行数通过 aria-setsize 暴露
+    expect(rendered[0]).toHaveAttribute("aria-setsize", "501");
+    expect(rendered[0]).toHaveAttribute("aria-posinset", "1");
+  });
+
+  it("renders the tail rows after scrolling to the bottom", () => {
+    setupStores({ trees: { [ROOT]: bigTree(500) } });
+    render(<FileTree rootPath={ROOT} />);
+
+    const tree = screen.getByRole("tree");
+    tree.scrollTop = 28 * 500; // 直接跳到底部
+    fireEvent.scroll(tree);
+
+    expect(screen.getByText("file-499.ts")).toBeInTheDocument();
+    expect(screen.queryByText("file-000.ts")).not.toBeInTheDocument();
+    const rendered = screen.getAllByRole("treeitem");
+    expect(rendered.length).toBeLessThan(60);
+  });
+
+  it("moves keyboard focus into a row brought in by scrollToIndex", () => {
+    setupStores({ trees: { [ROOT]: bigTree(50) } });
+    render(<FileTree rootPath={ROOT} />);
+    const tree = screen.getByRole("tree");
+
+    // 从根目录一路 ↓ 穿过整个 600px 视口仍可达的项（50 项全部在 600px*2 内，先滚动模拟）
+    tree.scrollTop = 28 * 40;
+    fireEvent.scroll(tree);
+
+    fireEvent.focus(screen.getByText("file-040.ts"));
+    fireEvent.keyDown(tree, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(
+      screen.getByText("file-041.ts").closest("div[data-file-path]"),
+    );
   });
 });

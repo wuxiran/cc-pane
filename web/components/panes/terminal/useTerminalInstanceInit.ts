@@ -1,10 +1,11 @@
 // xterm 初始化与后端会话装配的 init effect。从 TerminalView.tsx 拆出
 // （纯代码移动，逻辑不变）；effect 依赖保持 [instanceEpoch] 不变。
 import { useEffect } from "react";
-import { Terminal, type IDisposable } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { SerializeAddon } from "@xterm/addon-serialize";
-import { Unicode11Addon } from "@xterm/addon-unicode11";
+// xterm 构造器不再静态取值（首屏 ~123kB gzip）：类型在这里 import type，
+// 运行时装配经 terminalXtermModules 的 loadXtermRuntime() 动态 import。
+import type { Terminal, IDisposable } from "@xterm/xterm";
+import type { FitAddon } from "@xterm/addon-fit";
+import type { SerializeAddon } from "@xterm/addon-serialize";
 import type { TFunction } from "i18next";
 import { terminalService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
@@ -23,10 +24,10 @@ import {
   createTerminalLayoutScheduler,
   type TerminalLayoutScheduler,
 } from "../terminalLayoutScheduler";
-import {
-  createTerminalRendererController,
-  type TerminalRendererController,
-} from "../terminalRendererController";
+// 渲染器控制器静态值引用 @xterm/addon-webgl，随 xterm 一起走动态边界
+// （见 terminalXtermModules.ts）；这里只留类型。
+import type { TerminalRendererController } from "../terminalRendererController";
+import { loadXtermRuntime } from "./terminalXtermModules";
 import { getCachedWindowsBuildNumber } from "../terminalWindows";
 import { createTerminalPathLinkIntegration } from "../terminalPathLinkRegistration";
 import {
@@ -232,6 +233,10 @@ export function useTerminalInstanceInit({
     const slot = createTerminalSlotHolder();
 
     const init = async () => {
+      // xterm 本体到用时才取回（首屏不再 modulepreload）。与下面的
+      // buildNumber / 字体等待并行发起，装配前在此汇合，启动时序不变。
+      const xtermRuntimePromise = loadXtermRuntime();
+
       // Read the Windows build number once so xterm can enable ConPTY tuning.
       let buildNumber = 0;
       if (navigator.platform.startsWith('Win')) {
@@ -251,6 +256,15 @@ export function useTerminalInstanceInit({
         );
         if (!isMounted || !terminalRef.current) return;
       }
+
+      const {
+        Terminal,
+        FitAddon,
+        SerializeAddon,
+        Unicode11Addon,
+        createTerminalRendererController,
+      } = await xtermRuntimePromise;
+      if (!isMounted || !terminalRef.current) return;
 
       const termSettings = useSettingsStore.getState().settings?.terminal;
       const scrollback = normalizeTerminalScrollback(termSettings?.scrollback);

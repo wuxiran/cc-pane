@@ -63,4 +63,42 @@ describe("heavy dependency lazy boundaries", () => {
     expect(block).toContain('import("mermaid")');
     expect(staticValueImports(block, "mermaid")).toEqual([]);
   });
+
+  it("xterm runtime loads only through the terminal dynamic-import boundary", () => {
+    const boundary = readWebFile("components/panes/terminal/terminalXtermModules.ts");
+    expect(boundary).toContain('import("@xterm/xterm")');
+    expect(boundary).toContain('import("@xterm/addon-fit")');
+    expect(boundary).toContain('import("@xterm/addon-serialize")');
+    expect(boundary).toContain('import("@xterm/addon-unicode11")');
+    // 渲染器控制器静态值引用 @xterm/addon-webgl，必须随边界一起动态装载。
+    expect(boundary).toContain('import("../terminalRendererController")');
+  });
+
+  it("terminal view files have no static @xterm value imports", () => {
+    const xtermSpecifiers = [
+      "@xterm/xterm",
+      "@xterm/addon-fit",
+      "@xterm/addon-serialize",
+      "@xterm/addon-unicode11",
+      "@xterm/addon-webgl",
+      "@xterm/xterm/css/xterm.css",
+    ];
+    for (const file of [
+      "components/panes/TerminalView.tsx",
+      "components/panes/terminal/useTerminalInstanceInit.ts",
+      "components/panes/terminal/terminalXtermModules.ts",
+    ]) {
+      const source = readWebFile(file);
+      for (const specifier of xtermSpecifiers) {
+        expect(staticValueImports(source, specifier)).toEqual([]);
+      }
+    }
+  });
+
+  it("the webgl renderer controller is only dynamically reachable from the terminal view", () => {
+    const init = readWebFile("components/panes/terminal/useTerminalInstanceInit.ts");
+    expect(staticValueImports(init, "../terminalRendererController")).toEqual([]);
+    const view = readWebFile("components/panes/TerminalView.tsx");
+    expect(staticValueImports(view, "./terminalRendererController")).toEqual([]);
+  });
 });

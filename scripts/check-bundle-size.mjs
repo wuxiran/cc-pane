@@ -8,18 +8,21 @@
  * 预算基线（2026-09 实测）：
  *   改造前首屏 JS gzip ≈ 1914 kB（main 849 + monaco 946 + xterm 83 + radix 35），
  *   其中 monaco-editor chunk 被 main.tsx 静态引用、随首屏强制下载。
- *   懒加载改造后首屏 JS gzip ≈ 941 kB（main 792 + xterm 123 + radix 26），降 ~51%。
+ *   monaco 懒加载后首屏 JS gzip ≈ 941 kB（main 792 + xterm 123 + radix 26）。
+ *   xterm 懒加载后首屏 JS gzip ≈ 831 kB（main 805 + radix 26），累计降 ~57%：
+ *   @xterm/* 只经 panes/terminal/terminalXtermModules.ts 动态 import，
+ *   xterm chunk 不再出现在 index.html modulepreload。
  * 预算取值：
- *   首屏总量 ≤ 1100 kB gzip（实测 941 + ~17% 余量，防自然增长，远低于旧基线）；
- *   入口 chunk ≤ 880 kB gzip（实测 792 + ~11% 余量，单独钉住防止 main 重新膨胀）；
- *   重依赖 chunk（monaco/mermaid/codemirror/recharts）不得出现在首屏静态图。
+ *   首屏总量 ≤ 1100 kB gzip（实测 831 + ~32% 余量，防自然增长，远低于旧基线）；
+ *   入口 chunk ≤ 880 kB gzip（实测 805 + ~9% 余量，单独钉住防止 main 重新膨胀）；
+ *   重依赖 chunk（monaco/mermaid/codemirror/recharts/xterm）不得出现在首屏静态图。
  */
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 
 const INITIAL_JS_GZIP_BUDGET_KB = 1100;
 const ENTRY_CHUNK_GZIP_BUDGET_KB = 880;
-const HEAVY_CHUNK_PATTERN = /monaco-editor|mermaid|codemirror|recharts|JsonEditor|HomeUsageStats/i;
+const HEAVY_CHUNK_PATTERN = /monaco-editor|mermaid|codemirror|recharts|JsonEditor|HomeUsageStats|xterm/i;
 
 const distDir = new URL("../dist/", import.meta.url);
 const assetsDir = new URL("../dist/assets/", import.meta.url);
@@ -94,7 +97,7 @@ if (totalKb > INITIAL_JS_GZIP_BUDGET_KB) {
 
 // 4. 重依赖 chunk 必须真实存在且独立分包（防止「解决方式」是把懒加载删掉）。
 const distFiles = [...assetFiles];
-for (const expected of [/monaco-editor-[\w-]+\.js$/, /mermaid\.core-[\w-]+\.js$/]) {
+for (const expected of [/monaco-editor-[\w-]+\.js$/, /mermaid\.core-[\w-]+\.js$/, /xterm-[\w-]+\.js$/]) {
   if (!distFiles.some((file) => expected.test(file))) {
     failures.push(`dist 里缺少独立的重依赖 chunk: ${expected}`);
   }

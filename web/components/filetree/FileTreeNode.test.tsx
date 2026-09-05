@@ -128,17 +128,11 @@ describe("FileTreeNode", () => {
     expect(loading.querySelector("svg.lucide-loader-circle, svg.lucide-loader-2")).not.toBeNull();
   });
 
-  it("renders children recursively when the directory is expanded", () => {
-    const tree = makeNode(entry("/proj/src", true), {
-      expanded: true,
-      children: [
-        makeNode(entry("/proj/src/a.ts", false)),
-        makeNode(entry("/proj/src/sub", true)),
-      ],
-    });
-    renderNode(tree);
-    expect(screen.getByText("a.ts")).toBeInTheDocument();
-    expect(screen.getByText("sub")).toBeInTheDocument();
+  it("exposes setsize/posinset semantics when rendered as a virtualized flat row", () => {
+    renderNode(makeNode(entry("/proj/a.ts", false)), { posInSet: 3, setSize: 42 });
+    const row = screen.getByRole("treeitem");
+    expect(row).toHaveAttribute("aria-posinset", "3");
+    expect(row).toHaveAttribute("aria-setsize", "42");
   });
 
   it.each([
@@ -230,16 +224,6 @@ describe("FileTreeNode", () => {
       selectedFilePath: "/proj/a.ts",
     });
     expect(screen.getByRole("treeitem")).toHaveAttribute("aria-selected", "true");
-  });
-
-  it("wraps expanded children in a group", () => {
-    const tree = makeNode(entry("/proj/src", true), {
-      expanded: true,
-      children: [makeNode(entry("/proj/src/a.ts", false))],
-    });
-    renderNode(tree);
-    const group = screen.getByRole("group");
-    expect(group.querySelectorAll('[role="treeitem"]')).toHaveLength(1);
   });
 
   it("reports focus to keep the roving tabindex in sync", () => {

@@ -1,7 +1,8 @@
 import "@/i18n";
+import { useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import type { LaunchRecord } from "@/services";
@@ -14,6 +15,20 @@ vi.mock("sonner", () => ({
 vi.mock("@/services/providerService", () => ({
   providerService: { openPathInExplorer: vi.fn(async () => undefined) },
 }));
+
+/** jsdom 无布局：虚拟化器读 offsetHeight，滚动容器给 600px 视口、行给 56px */
+beforeEach(() => {
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+    if (this.classList?.contains("app-scrollbar")) return 600;
+    if (this.hasAttribute?.("data-index")) return 56;
+    return 0;
+  });
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(() => 260);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 let recordId = 0;
 function createRecord(overrides: Partial<LaunchRecord> = {}): LaunchRecord {
@@ -29,13 +44,23 @@ function createRecord(overrides: Partial<LaunchRecord> = {}): LaunchRecord {
   };
 }
 
+/** 与生产一致：外层滚动容器 + callback ref/state 交接（见 SessionsView） */
+function ScrollHost(props: Omit<React.ComponentProps<typeof RecentLaunches>, "scrollElement">) {
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
+  return (
+    <div ref={setScrollElement} className="app-scrollbar" data-testid="scroll-host">
+      <RecentLaunches {...props} scrollElement={scrollElement} />
+    </div>
+  );
+}
+
 function renderRecent(launchHistory: LaunchRecord[]) {
   const onOpenTerminal = vi.fn();
   const onClearHistory = vi.fn();
   const onDeleteRecord = vi.fn();
   render(
     <TooltipProvider>
-      <RecentLaunches
+      <ScrollHost
         launchHistory={launchHistory}
         onOpenTerminal={onOpenTerminal}
         onClearHistory={onClearHistory}
@@ -136,5 +161,34 @@ describe("RecentLaunches", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Delete$|^删除$/i }));
 
     expect(onDeleteRecord).toHaveBeenCalledWith(7);
+  });
+});
+
+describe("RecentLaunches virtualization", () => {
+  it("长历史只渲染可视窗口内的行（标题 + 会话）", () => {
+    const records = Array.from({ length: 120 }, (_, i) =>
+      createRecord({ workspaceName: "Alpha", projectName: `App ${i}` }),
+    );
+    renderRecent(records);
+
+    const rendered = document.querySelectorAll("[data-index]");
+    expect(rendered.length).toBeGreaterThan(0);
+    // 120 条记录 + 1 个组标题，可视窗口只渲染一小部分
+    expect(rendered.length).toBeLessThan(40);
+    expect(screen.queryByText("App 119")).not.toBeInTheDocument();
+  });
+
+  it("滚动到底部后末尾记录可见", () => {
+    const records = Array.from({ length: 120 }, (_, i) =>
+      createRecord({ workspaceName: "Alpha", projectName: `App ${i}` }),
+    );
+    renderRecent(records);
+
+    const scroller = screen.getByTestId("scroll-host");
+    scroller.scrollTop = 56 * 121;
+    fireEvent.scroll(scroller);
+
+    expect(screen.getByText("App 119")).toBeInTheDocument();
+    expect(screen.queryByText("App 0")).not.toBeInTheDocument();
   });
 });

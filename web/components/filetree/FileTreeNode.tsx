@@ -31,6 +31,9 @@ interface FileTreeNodeProps {
   onDirDoubleClick?: (path: string) => void;
   /** 行获得焦点时同步 roving tabindex（鼠标点选/Tab 进入） */
   onFocusNode?: (path: string) => void;
+  /** 虚拟化扁平渲染时补齐树语义：同级序号（1 起）与可见项总数 */
+  posInSet?: number;
+  setSize?: number;
 }
 
 /** 文件类型保留形状区分，颜色统一退到中性层。 */
@@ -120,8 +123,6 @@ const GIT_STATUS_BADGES: Record<string, { letter: string; className: string }> =
 export default memo(function FileTreeNode({
   node,
   depth,
-  compact,
-  rootPath,
   selectedFilePath,
   gitStatuses,
   focusedPath,
@@ -130,6 +131,8 @@ export default memo(function FileTreeNode({
   onContextMenu,
   onDirDoubleClick,
   onFocusNode,
+  posInSet,
+  setSize,
 }: FileTreeNodeProps) {
   const handleClick = useCallback(() => {
     if (node.entry.isDir) {
@@ -162,87 +165,65 @@ export default memo(function FileTreeNode({
   const gitBadge = gitStatus ? GIT_STATUS_BADGES[gitStatus] : undefined;
 
   return (
-    <>
-      <div
-        role="treeitem"
-        aria-level={depth + 1}
-        aria-selected={isSelected}
-        aria-expanded={node.entry.isDir ? node.expanded : undefined}
-        tabIndex={node.entry.path === focusedPath ? 0 : -1}
-        className={`group flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-md px-2 text-[var(--app-text-primary)] outline-none transition-colors focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)] ${
-          isSelected ? "bg-[var(--editor-selection-bg)]" : "hover:bg-[var(--app-hover)]"
-        }`}
-        style={{ paddingLeft }}
-        data-file-path={node.entry.path}
-        data-current={isSelected ? "true" : undefined}
-        onClick={handleClick}
-        onDoubleClick={handleDoubleClick}
-        onContextMenu={handleContextMenu}
-        onFocus={handleFocus}
-      >
-        {node.entry.isDir ? (
-          node.loading ? (
-            <Loader2
-              size={16}
-              className="shrink-0 animate-spin text-[var(--app-text-tertiary)]"
-            />
-          ) : node.expanded ? (
-            <ChevronDown size={16} className="shrink-0 text-[var(--app-text-tertiary)]" />
-          ) : (
-            <ChevronRight size={16} className="shrink-0 text-[var(--app-text-tertiary)]" />
-          )
+    <div
+      role="treeitem"
+      aria-level={depth + 1}
+      aria-selected={isSelected}
+      aria-expanded={node.entry.isDir ? node.expanded : undefined}
+      aria-posinset={posInSet}
+      aria-setsize={setSize}
+      tabIndex={node.entry.path === focusedPath ? 0 : -1}
+      className={`group flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-md px-2 text-[var(--app-text-primary)] outline-none transition-colors focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)] ${
+        isSelected ? "bg-[var(--editor-selection-bg)]" : "hover:bg-[var(--app-hover)]"
+      }`}
+      style={{ paddingLeft }}
+      data-file-path={node.entry.path}
+      data-current={isSelected ? "true" : undefined}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
+      onContextMenu={handleContextMenu}
+      onFocus={handleFocus}
+    >
+      {node.entry.isDir ? (
+        node.loading ? (
+          <Loader2
+            size={16}
+            className="shrink-0 animate-spin text-[var(--app-text-tertiary)]"
+          />
+        ) : node.expanded ? (
+          <ChevronDown size={16} className="shrink-0 text-[var(--app-text-tertiary)]" />
         ) : (
-          <span className="w-4 shrink-0" />
-        )}
-
-        {node.entry.isDir ? (
-          node.expanded ? (
-            <FolderOpen size={16} className="shrink-0 text-[var(--app-accent)]" />
-          ) : (
-            <Folder size={16} className="shrink-0 text-[var(--app-accent)]" />
-          )
-        ) : (
-          getFileIcon(node.entry.extension)
-        )}
-
-        <span
-          className={`min-w-0 flex-1 truncate text-[13px] leading-5 text-[var(--app-text-primary)] ${
-            node.entry.isDir ? "font-semibold" : ""
-          }`}
-        >
-          {node.entry.name}
-        </span>
-        {gitBadge && (
-          <span
-            className={`ml-auto w-4 shrink-0 text-right text-xs font-semibold leading-none ${gitBadge.className}`}
-            title={gitStatus}
-          >
-            {gitBadge.letter}
-          </span>
-        )}
-      </div>
-
-      {node.entry.isDir && node.expanded && node.children && (
-        <div role="group">
-          {node.children.map((child) => (
-            <FileTreeNode
-              key={child.entry.path}
-              node={child}
-              depth={depth + 1}
-              compact={compact}
-              rootPath={rootPath}
-              selectedFilePath={selectedFilePath}
-              gitStatuses={gitStatuses}
-              focusedPath={focusedPath}
-              onToggle={onToggle}
-              onFileClick={onFileClick}
-              onContextMenu={onContextMenu}
-              onDirDoubleClick={onDirDoubleClick}
-              onFocusNode={onFocusNode}
-            />
-          ))}
-        </div>
+          <ChevronRight size={16} className="shrink-0 text-[var(--app-text-tertiary)]" />
+        )
+      ) : (
+        <span className="w-4 shrink-0" />
       )}
-    </>
+
+      {node.entry.isDir ? (
+        node.expanded ? (
+          <FolderOpen size={16} className="shrink-0 text-[var(--app-accent)]" />
+        ) : (
+          <Folder size={16} className="shrink-0 text-[var(--app-accent)]" />
+        )
+      ) : (
+        getFileIcon(node.entry.extension)
+      )}
+
+      <span
+        className={`min-w-0 flex-1 truncate text-[13px] leading-5 text-[var(--app-text-primary)] ${
+          node.entry.isDir ? "font-semibold" : ""
+        }`}
+      >
+        {node.entry.name}
+      </span>
+      {gitBadge && (
+        <span
+          className={`ml-auto w-4 shrink-0 text-right text-xs font-semibold leading-none ${gitBadge.className}`}
+          title={gitStatus}
+        >
+          {gitBadge.letter}
+        </span>
+      )}
+    </div>
   );
 });

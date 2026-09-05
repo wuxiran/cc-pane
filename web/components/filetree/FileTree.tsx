@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { handleErrorSilent } from "@/utils";
 import { useFileTreeStore } from "@/stores";
 import { usePanesStore } from "@/stores";
@@ -19,21 +20,25 @@ interface FileTreeProps {
   onOpenFile?: (filePath: string, fileName: string) => void;
 }
 
-/** 可见项（展开目录的子级可见），附带父路径供 ← 键回退 */
+/** 可见项（展开目录的子级可见），附带父路径供 ← 键回退、深度供缩进/aria-level */
 interface VisibleItem {
   node: FileTreeNodeType;
   parentPath: string | null;
+  depth: number;
 }
+
+/** 行高与 FileTreeNode 的 h-7 一致，固定行高正好喂给 useVirtualizer */
+const ROW_HEIGHT = 28;
 
 function flattenVisible(root: FileTreeNodeType): VisibleItem[] {
   const out: VisibleItem[] = [];
-  const walk = (n: FileTreeNodeType, parentPath: string | null) => {
-    out.push({ node: n, parentPath });
+  const walk = (n: FileTreeNodeType, parentPath: string | null, depth: number) => {
+    out.push({ node: n, parentPath, depth });
     if (n.entry.isDir && n.expanded && n.children) {
-      for (const child of n.children) walk(child, n.entry.path);
+      for (const child of n.children) walk(child, n.entry.path, depth + 1);
     }
   };
-  walk(root, null);
+  walk(root, null, 0);
   return out;
 }
 
@@ -166,8 +171,17 @@ export default function FileTree({
     []
   );
 
-  // 可见项扁平化（仅展开目录的子级参与键盘导航）
+  // 可见项扁平化（仅展开目录的子级参与键盘导航），扁平列表即虚拟行的数据源
   const visibleItems = useMemo(() => (tree ? flattenVisible(tree) : []), [tree]);
+
+  // 行虚拟化：滚动容器即树容器，固定行高 28px（h-7）
+  const rowVirtualizer = useVirtualizer({
+    count: visibleItems.length,
+    getScrollElement: () => treeContainerRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 5,
+    getItemKey: (index) => visibleItems[index]?.node.entry.path ?? index,
+  });
 
   // 聚焦项失效（折叠/删除后）时回退到首个可见项
   const activePath =
@@ -175,17 +189,35 @@ export default function FileTree({
       ? focusedPath
       : visibleItems[0]?.node.entry.path ?? null;
 
-  const focusItem = useCallback((path: string) => {
-    setFocusedPath(path);
+  // 键盘移动焦点时先登记待聚焦路径，待虚拟行挂载后再真正 focus
+  const pendingFocusRef = useRef<string | null>(null);
+  const focusItem = useCallback(
+    (path: string) => {
+      pendingFocusRef.current = path;
+      setFocusedPath(path);
+      // 目标行可能在可视区外未渲染，先滚到它
+      const index = visibleItems.findIndex((v) => v.node.entry.path === path);
+      if (index >= 0 && treeContainerRef.current) {
+        rowVirtualizer.scrollToIndex(index, { align: "auto" });
+      }
+    },
+    [visibleItems, rowVirtualizer],
+  );
+
+  // 渲染后落实待聚焦项（行被虚拟化卸载时等待重挂载，存在则立即聚焦）
+  useEffect(() => {
+    const path = pendingFocusRef.current;
+    if (!path) return;
     const container = treeContainerRef.current;
     if (!container) return;
     for (const row of container.querySelectorAll("[data-file-path]")) {
       if (row.getAttribute("data-file-path") === path) {
         (row as HTMLElement).focus();
+        pendingFocusRef.current = null;
         return;
       }
     }
-  }, []);
+  });
 
   // 树键盘导航：↑/↓ 移动，→ 展开或进首个子项，← 折叠或回父项，
   // Enter 打开文件/切换目录，F2 重命名，Menu 键打开右键菜单
@@ -314,20 +346,49 @@ export default function FileTree({
           className="app-scrollbar flex-1 overflow-y-auto overflow-x-hidden"
           onKeyDown={handleTreeKeyDown}
         >
-          <FileTreeNode
-            node={tree}
-            depth={0}
-            compact={compact}
-            rootPath={rootPath}
-            selectedFilePath={selectedFilePath}
-            gitStatuses={gitStatuses}
-            focusedPath={activePath}
-            onToggle={handleToggle}
-            onFileClick={handleFileClick}
-            onContextMenu={handleContextMenu}
-            onDirDoubleClick={onNavigateToDir}
-            onFocusNode={handleFocusNode}
-          />
+          {/* 虚拟行占位：总高度撑出滚动范围，行绝对定位只渲染可视区 */}
+          <div
+            style={{
+              height: rowVirtualizer.getTotalSize(),
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const item = visibleItems[virtualRow.index];
+              if (!item) return null;
+              return (
+                <div
+                  key={virtualRow.key}
+                  data-index={virtualRow.index}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <FileTreeNode
+                    node={item.node}
+                    depth={item.depth}
+                    compact={compact}
+                    rootPath={rootPath}
+                    selectedFilePath={selectedFilePath}
+                    gitStatuses={gitStatuses}
+                    focusedPath={activePath}
+                    onToggle={handleToggle}
+                    onFileClick={handleFileClick}
+                    onContextMenu={handleContextMenu}
+                    onDirDoubleClick={onNavigateToDir}
+                    onFocusNode={handleFocusNode}
+                    posInSet={virtualRow.index + 1}
+                    setSize={visibleItems.length}
+                  />
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     </FileTreeContextMenu>

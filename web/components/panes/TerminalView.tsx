@@ -1,7 +1,8 @@
 import { useRef, useEffect, useCallback, useMemo, useState, forwardRef, useImperativeHandle, type CSSProperties } from "react";
-import { Terminal, type IDisposable } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { SerializeAddon } from "@xterm/addon-serialize";
+// xterm 只作类型引用；构造器与 css 经 terminal/terminalXtermModules 动态装载。
+import type { Terminal, IDisposable } from "@xterm/xterm";
+import type { FitAddon } from "@xterm/addon-fit";
+import type { SerializeAddon } from "@xterm/addon-serialize";
 import { useTranslation } from "react-i18next";
 import { terminalService } from "@/services";
 import type { TerminalHiddenWriteBuffer } from "./terminalHiddenWriteBuffer";
@@ -55,7 +56,8 @@ import { useTerminalLayoutEvents } from "./terminal/useTerminalLayoutEvents";
 import { useTerminalWebglRecovery } from "./terminal/useTerminalWebglRecovery";
 import { useTerminalDeferredRestore } from "./terminal/useTerminalDeferredRestore";
 import { useTerminalInstanceInit } from "./terminal/useTerminalInstanceInit";
-import "@xterm/xterm/css/xterm.css";
+// 注意：@xterm/xterm/css/xterm.css 不再静态引入——它随 terminal/terminalXtermModules
+// 的动态 import 与 xterm JS 同 chunk 取回，在构造 Terminal 前就绪，加载完成后样式一致。
 
 import type { TerminalRendererMode, TerminalThemeMode } from "@/types";
 import { repaintTerminalWhenVisible } from "./terminalViewHelpers";
