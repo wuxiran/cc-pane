@@ -333,7 +333,7 @@ export default function StatusBar() {
     <div
       // tabular-nums 挂在根容器上即可继承到所有后代数字（CPU/内存/活跃数/版本号），
       // 等宽数字消除数值刷新时的横向跳动；只加类，不改任何结构。
-      className="shape-chrome flex items-center h-[var(--density-row-h)] px-2.5 shrink-0 select-none z-10 text-[11px] tabular-nums"
+      className="shape-chrome flex items-center h-[var(--density-row-h)] px-2.5 shrink-0 select-none z-10 text-[length:var(--text-caption)] tabular-nums"
       style={{
         background: "var(--app-menubar)",
         borderTop: "1px solid var(--app-border)",

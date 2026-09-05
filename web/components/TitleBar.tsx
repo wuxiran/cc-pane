@@ -111,7 +111,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
         className="pointer-events-none absolute inset-x-0 hidden justify-center md:flex"
       >
         <span
-          className="text-[12px] tracking-wide"
+          className="text-[length:var(--text-small)] tracking-wide"
           style={{ color: "var(--app-text-tertiary)" }}
         >
           CC-Panes{import.meta.env.DEV ? " [DEV]" : ""}
@@ -174,7 +174,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
 
         {currentWorkspace && currentWorkspace.projects.length > 0 && (
           <>
-            <span className="hidden text-[12px] sm:inline" style={{ color: "var(--app-text-tertiary)" }}>
+            <span className="hidden text-[length:var(--text-small)] sm:inline" style={{ color: "var(--app-text-tertiary)" }}>
               /
             </span>
             <DropdownMenu>

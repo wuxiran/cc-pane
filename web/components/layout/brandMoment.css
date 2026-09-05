@@ -1,0 +1,98 @@
+/* 冷启动品牌瞬间（brand moment）
+ * ================================
+ * 仅在应用冷启动（非恢复、非 mini 模式）后的首帧播放一次：
+ *   - 首页 logo（HomeHeader 的 img[alt="CC-Panes"]，全库唯一）微动画：
+ *     scale 0.96 → 1 + opacity 0 → 1，300ms；
+ *   - 五区容器依次落位：opacity 0 → 1 + translateY(4px) → 0，
+ *     每区错开 80ms（--brand-moment-stagger），顺序：
+ *     TitleBar(0) → ActivityBar(80) → 主区(160) → RightDock(240) → StatusBar(320)。
+ *
+ * 时序总账（zone 时长 = var(--dur-slow) = 240ms）：
+ *   最后一区 StatusBar 320 + 240 = 560ms；logo 160 + 300 = 460ms。
+ *   全程 ≤ 600ms，符合「克制的一次性品牌瞬间」预算。
+ *
+ * 一次性语义由 AppShell 控制：scope 类 .brand-moment 只在首帧挂载
+ * （brandMomentOnce.ts 的模块级 flag + sessionStorage 双闸门），
+ * 播放结束后撤掉 scope 类；此处所有规则都必须挂在 .brand-moment 之下。
+ *
+ * 防闪烁：所有动画 animation-fill-mode: both，delay 期间元素停留在 from 态
+ * （opacity 0），不会先闪一帧可见。
+ *
+ * reduced-motion：media query 内全部动画 none，元素静态即终态（不单靠
+ * index.css 的全局收短规则兜底）。
+ */
+
+@keyframes brand-moment-zone-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes brand-moment-logo-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.brand-moment {
+  /* 错峰步长与 logo 时序集中在此，测试与后续调参只改这一处。 */
+  --brand-moment-stagger: 80ms;
+  --brand-moment-logo-delay: calc(var(--brand-moment-stagger) * 2);
+  --brand-moment-logo-dur: 300ms;
+}
+
+/* TitleBar：最先落位（与全局首帧同拍） */
+.brand-moment .brand-moment-zone--titlebar {
+  animation: brand-moment-zone-in var(--dur-slow) var(--ease-out) both;
+  animation-delay: 0ms;
+}
+
+/* ActivityBar：第二拍（80ms） */
+.brand-moment .brand-moment-zone--activitybar {
+  animation: brand-moment-zone-in var(--dur-slow) var(--ease-out) both;
+  animation-delay: var(--brand-moment-stagger);
+}
+
+/* 主区（Sidebar/主内容）：第三拍（160ms） */
+.brand-moment .brand-moment-zone--content {
+  animation: brand-moment-zone-in var(--dur-slow) var(--ease-out) both;
+  animation-delay: calc(var(--brand-moment-stagger) * 2);
+}
+
+/* RightDock：第四拍（240ms） */
+.brand-moment .brand-moment-zone--rightdock {
+  animation: brand-moment-zone-in var(--dur-slow) var(--ease-out) both;
+  animation-delay: calc(var(--brand-moment-stagger) * 3);
+}
+
+/* StatusBar：收尾（320ms，结束于 560ms） */
+.brand-moment .brand-moment-zone--statusbar {
+  animation: brand-moment-zone-in var(--dur-slow) var(--ease-out) both;
+  animation-delay: calc(var(--brand-moment-stagger) * 4);
+}
+
+/* 首页 logo 微动画：与主区同拍起步（160ms），scale 0.96 → 1 + 淡入，300ms。
+ * 选择器命中 HomeHeader 的 img[alt="CC-Panes"]（全库唯一 alt）；
+ * 冷启动恢复到非首页视图时无匹配元素，规则静默不生效。 */
+.brand-moment img[alt="CC-Panes"] {
+  animation: brand-moment-logo-in var(--brand-moment-logo-dur) var(--ease-out) both;
+  animation-delay: var(--brand-moment-logo-delay);
+}
+
+/* reduced-motion：全部动画取消，元素直接处于终态（静态可见）。 */
+@media (prefers-reduced-motion: reduce) {
+  .brand-moment .brand-moment-zone,
+  .brand-moment img[alt="CC-Panes"] {
+    animation: none;
+  }
+}

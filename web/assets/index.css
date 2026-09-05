@@ -233,6 +233,25 @@
   --density-pad-x: 8px;
   --density-pad-y: 6px;
 
+  /* 语义字号阶梯（typography 2.0）：给现状字号命名，渲染值与现状逐像素一致。
+     取值依据全库 text-* 类众数统计（明细见 docs/typography.md）：
+       caption 11px — 状态栏/辅助说明（text-[11px] 众数 342 处）
+       small   12px — text-xs（598 处）+ text-[12px]（114 处），全库第一大渲染字号
+       body    14px — text-sm（220 处）与 body 基准字号（下方 body{font-size} 同源引用）
+       title   15px — 小节标题，配套 font-semibold（text-[15px] font-semibold 15 处）
+       display 20px — 页面级标题
+       hero    30px — 首页主标题响应区间 28→32px 的中位档
+     消费必须用带 length: 类型提示的任意值：text-[length:var(--text-body)]——
+     裸 text-[var(--text-*)] 会被 Tailwind 判定为 color 工具类（护栏见
+     web/components/designTokens.test.ts 的 typography tokens 块）。
+     字号与颜色/密度正交：.dark、各 [data-theme] 与 [data-density] 块不重复定义。 */
+  --text-caption: 11px;
+  --text-small: 12px;
+  --text-body: 14px;
+  --text-title: 15px;
+  --text-display: 20px;
+  --text-hero: 30px;
+
   /* Elevation（柔和低透明）+ 顶部内高光 */
   --sh-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
   --sh-md: 0 4px 14px rgba(16, 24, 40, 0.09), 0 1px 3px rgba(16, 24, 40, 0.05);
@@ -1658,7 +1677,8 @@
     @apply bg-background text-foreground;
     -webkit-app-region: no-drag;
     font-family: var(--font-sans);
-    font-size: 14px;
+    /* 全局基准字号 = 阶梯 body 档（14px），单点真源避免与 token 漂移 */
+    font-size: var(--text-body);
     line-height: 1.5;
     letter-spacing: -0.008em;
     -webkit-font-smoothing: antialiased;
