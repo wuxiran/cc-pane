@@ -60,7 +60,7 @@ describe("mediaNodeActions", () => {
 
   it("重跑：没有 runId 报错提示，有则 replayRun", async () => {
     await actions.regenerateMediaNode(node(), "no run");
-    expect(toast.error).toHaveBeenCalledWith("no run");
+    expect(toast.error).toHaveBeenCalledWith("no run", expect.objectContaining({ duration: expect.any(Number) }));
     await actions.regenerateMediaNode(node({ media: { runId: "r1" } as CanvasNodeProjection["media"] }), "no run");
     expect(mediaService.replayRun).toHaveBeenCalledWith("r1");
   });
@@ -76,7 +76,7 @@ describe("mediaNodeActions", () => {
     expect(open).toHaveBeenCalledWith("https://cdn.example/asset.png", "_blank", "noopener");
     vi.mocked(mediaService.revealAsset).mockRejectedValueOnce(new Error("boom"));
     await actions.revealMediaAsset(withAsset);
-    expect(toast.error).toHaveBeenCalledWith("boom");
+    expect(toast.error).toHaveBeenCalledWith("boom", expect.objectContaining({ duration: expect.any(Number) }));
   });
 
   it("断边：只删触及该节点的边，删完刷新", async () => {

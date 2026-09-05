@@ -6,10 +6,15 @@
 // 视频禁区（docs/39）：禁止隐藏 WebView 窗口做壁纸（失效 WebView2 emit 洪水）、
 // 禁止 WebGL/canvas 渲染视频帧（争抢 live context 预算）。必须用原生 <video
 // muted playsInline loop preload="metadata">，声音一律走独立 audio（阶段 3）。
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useWallpaperStore } from "@/stores/useWallpaperStore";
 import { useMiniModeStore } from "@/stores/useMiniModeStore";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
+import { useThemeStore } from "@/stores/useThemeStore";
+import { useCanvasDisplayStore } from "@/stores/useCanvasDisplayStore";
+import { usePanesStore } from "@/stores/usePanesStore";
+import { collectPanels } from "@/lib/paneTree";
+import { isWallpaperOccludedByTerminalUnderlay } from "@/utils/wallpaperVideoPolicy";
 import { isTauriRuntime } from "@/services/runtime";
 import type { WallpaperFit } from "@/types";
 
@@ -38,6 +43,13 @@ export default function MainWallpaperLayer() {
   const markVideoDecodeFailed = useWallpaperStore((s) => s.markVideoDecodeFailed);
   const isMiniMode = useMiniModeStore((s) => s.isMiniMode);
   const appViewMode = useActivityBarStore((s) => s.appViewMode);
+  // 垫层遮挡信号的输入（原子 selector，不引入新对象）：
+  // 与 MainViewSwitcher 的 terminalSolidUnderlay 同一事实源——那边垫纯色底，
+  // 这边据此暂停视频。在组件内组合而非下沉 useWallpaperStore：layoutHasTerminal
+  // 来自 usePanesStore，wallpaper store import panes store 有循环依赖风险。
+  const isDark = useThemeStore((s) => s.isDark);
+  const canvasDisplayMode = useCanvasDisplayStore((s) => s.mode);
+  const rootPane = usePanesStore((s) => s.rootPane);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const active = resolved !== null && assetUrl !== null;
 
@@ -47,6 +59,22 @@ export default function MainWallpaperLayer() {
   const videoAutoplay = resolved?.video.autoplay ?? true;
   // 运行时暂停（不改 mode，只 pause）：hidden / blur（按设置）/ MiniMode / 主视图切走 panes
   const viewVisible = appViewMode === "panes" || appViewMode === "orchestration";
+  // 亮色终端主导纯色垫层 opacity=1 时壁纸被完全遮住：视频暂停省电，垫层淡出即恢复。
+  const layoutHasTerminal = useMemo(
+    () =>
+      collectPanels(rootPane).some((panel) =>
+        panel.tabs.some((tab) => tab.contentType === "terminal"),
+      ),
+    [rootPane],
+  );
+  const underlayOccluded = isWallpaperOccludedByTerminalUnderlay({
+    wallpaperActive: active,
+    isDark,
+    canvasDisplayMode,
+    layoutHasTerminal,
+  });
+  // 有效可见性 = 所在视图层可见 && 未被垫层完全遮挡
+  const effectivelyVisible = viewVisible && !underlayOccluded;
 
   // orbs 的 mix-blend-screen 叠在照片上会洗白：壁纸激活时在文档根把 orbs 压到 0。
   // orbs 层挂在 AppShell（主区根节点之外），只能走文档根 token。
@@ -68,7 +96,7 @@ export default function MainWallpaperLayer() {
     const syncPlayback = () => {
       const shouldPlay =
         videoAutoplay &&
-        viewVisible &&
+        effectivelyVisible &&
         !isMiniMode &&
         document.visibilityState !== "hidden" &&
         (!pauseWhenUnfocused || document.hasFocus());
@@ -90,7 +118,7 @@ export default function MainWallpaperLayer() {
       window.removeEventListener("focus", syncPlayback);
       video.pause();
     };
-  }, [showVideo, playbackRate, videoAutoplay, viewVisible, isMiniMode, pauseWhenUnfocused]);
+  }, [showVideo, playbackRate, videoAutoplay, effectivelyVisible, isMiniMode, pauseWhenUnfocused]);
 
   if (!isTauriRuntime()) return null;
   if (!active || !resolved) return null;

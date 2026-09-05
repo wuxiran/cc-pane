@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Rocket } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import {
   Dialog,
   DialogContent,
@@ -173,7 +173,7 @@ export default function LauncherDialog() {
         );
         finalLaunch = { ...launch, path: worktreePath };
       } catch (e) {
-        toast.error(t("worktreeCreateFailed", { message: translateError(e) }));
+        toastErr(t("worktreeCreateFailed", { message: translateError(e) }));
         setSubmitting(false);
         return;
       }

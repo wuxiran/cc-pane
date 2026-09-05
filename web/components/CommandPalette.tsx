@@ -2,7 +2,7 @@
 // 打开入口走 shortcuts 体系（action id: command-palette），终端聚焦时放行给终端。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import { Zap, FolderOpen, LayoutGrid, Play, History } from "lucide-react";
 import {
   CommandDialog,
@@ -120,7 +120,7 @@ export default function CommandPalette() {
     const { scope: _scope, ...quickCommand } = command;
     runAndClose(() => {
       void executeQuickCommand(quickCommand, activeContext).catch((error) => {
-        toast.error(t("quickCommands.executeFailed", {
+        toastErr(t("quickCommands.executeFailed", {
           ns: "settings",
           error: String(error),
         }));

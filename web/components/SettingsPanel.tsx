@@ -2,7 +2,7 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 import { emitTo } from "@tauri-apps/api/event";
 import { Settings, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastInfo } from "@/lib/feedback";
 import { Button } from "@/components/ui/button";
 import { SegmentedTabs } from "@/components/ui/segmented";
 import {
@@ -190,7 +190,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
       }
       setLastSavedAt(new Date().toLocaleTimeString());
     } catch (error) {
-      toast.error(t("saveFailed", { ns: "common", error }));
+      toastErr(t("saveFailed", { ns: "common", error }));
     }
   }
 
@@ -270,7 +270,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
       (next as Record<string, unknown>)[key] = defaults[key];
     }
     updateDraft(next);
-    toast.info(t("sectionResetDone"));
+    toastInfo(t("sectionResetDone"));
   }
 
   return (

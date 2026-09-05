@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock3, Copy, Link2, LoaderCircle, RotateCcw, StopCircle, XCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import { Button } from "@/components/ui/button";
 import { mediaService } from "@/services/mediaService";
 import { latestMediaRun } from "@/stores/useMediaStore";
@@ -75,7 +75,7 @@ export default function MediaHistoryPanel({ nodes, refreshToken, targetKind, onU
     try {
       const asset = outputAsset(await mediaService.listAssets(node.workspaceId, run.id), node.kind);
       if (!asset) {
-        toast.error(t("generatedOutputUnavailable"));
+        toastErr(t("generatedOutputUnavailable"));
         return;
       }
       onUseOutput({
@@ -87,7 +87,7 @@ export default function MediaHistoryPanel({ nodes, refreshToken, targetKind, onU
         mimeType: asset.mimeType,
       });
     } catch (error) {
-      toast.error(t("generatedOutputLoadFailed", { message: getErrorMessage(error) }));
+      toastErr(t("generatedOutputLoadFailed", { message: getErrorMessage(error) }));
     } finally {
       setBusyRunId(null);
     }

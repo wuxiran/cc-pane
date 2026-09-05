@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { decideWallpaperVideoPolicy } from "./wallpaperVideoPolicy";
+import {
+  decideWallpaperVideoPolicy,
+  isWallpaperOccludedByTerminalUnderlay,
+} from "./wallpaperVideoPolicy";
 
 describe("decideWallpaperVideoPolicy", () => {
   const healthyEnv = {
@@ -81,5 +84,35 @@ describe("decideWallpaperVideoPolicy", () => {
       mode: "poster",
       reason: "user-power-saver",
     });
+  });
+});
+
+describe("isWallpaperOccludedByTerminalUnderlay（与 MainViewSwitcher terminalSolidUnderlay 同条件）", () => {
+  const occluded = {
+    wallpaperActive: true,
+    isDark: false,
+    canvasDisplayMode: "panel" as const,
+    layoutHasTerminal: true,
+  };
+
+  it("亮色 + panel 模式 + 终端主导 + 壁纸激活 → 完全遮挡", () => {
+    expect(isWallpaperOccludedByTerminalUnderlay(occluded)).toBe(true);
+  });
+
+  it("任一条件不成立即不遮挡", () => {
+    // 暗色主题不垫
+    expect(isWallpaperOccludedByTerminalUnderlay({ ...occluded, isDark: true })).toBe(false);
+    // canvas 模式不垫（节点间透壁纸是该视图设计）
+    expect(
+      isWallpaperOccludedByTerminalUnderlay({ ...occluded, canvasDisplayMode: "canvas" }),
+    ).toBe(false);
+    // 无终端的空态/启动器不垫
+    expect(isWallpaperOccludedByTerminalUnderlay({ ...occluded, layoutHasTerminal: false })).toBe(
+      false,
+    );
+    // 壁纸未激活无垫层
+    expect(isWallpaperOccludedByTerminalUnderlay({ ...occluded, wallpaperActive: false })).toBe(
+      false,
+    );
   });
 });

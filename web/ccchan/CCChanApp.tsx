@@ -5,8 +5,8 @@ import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
-import { Toaster, toast } from "sonner";
-import { TOASTER_OFFSET_CCCHAN, TOASTER_POSITION } from "@/lib/feedback";
+import { Toaster } from "sonner";
+import { TOASTER_OFFSET_CCCHAN, TOASTER_POSITION, toastErr, toastInfo, toastOk } from "@/lib/feedback";
 import { useCCChanStore } from "@/stores/useCCChanStore";
 import { useTerminalStatusStore } from "@/stores";
 import type { TerminalStatusInfo, TerminalStatusType } from "@/types";
@@ -435,9 +435,9 @@ export function CCChanApp() {
             : t("events.waiting", { title }),
         "event",
       );
-      if (payload.kind === "task-complete") toast.success(title);
-      if (payload.kind === "task-failed") toast.error(title);
-      if (payload.kind === "task-waiting") toast.info(title);
+      if (payload.kind === "task-complete") toastOk(title);
+      if (payload.kind === "task-failed") toastErr(title);
+      if (payload.kind === "task-waiting") toastInfo(title);
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         setEventState(null);

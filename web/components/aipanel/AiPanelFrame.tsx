@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import i18n from "@/i18n";
 import MarkdownPreview from "@/components/editor/MarkdownPreview";
 import { aiPanelService } from "@/services/aiPanelService";
@@ -113,7 +113,7 @@ export default function AiPanelFrame({ panel }: { panel: AiPanel }) {
       if (!isBridgeMessage(event.data, bridgeIdRef.current)) return;
       void aiPanelService
         .recordEvent(panel.panelId, event.data.action, event.data.payload)
-        .catch(() => toast.error(i18n.t("aiPanel.eventFailed", { ns: "sidebar" })));
+        .catch(() => toastErr(i18n.t("aiPanel.eventFailed", { ns: "sidebar" })));
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);

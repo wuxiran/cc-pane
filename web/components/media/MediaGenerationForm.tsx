@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Film, ImagePlus, Link2, LoaderCircle, Paperclip, Sparkles, Upload, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -198,7 +198,7 @@ export default function MediaGenerationForm({ kind, providerId = null, modelId, 
       )));
       setInputFiles((current) => [...current, ...selected].slice(0, 32));
     } catch (error) {
-      toast.error(getErrorMessage(error) || t("referenceAssetReadError"));
+      toastErr(getErrorMessage(error) || t("referenceAssetReadError"));
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
@@ -215,7 +215,7 @@ export default function MediaGenerationForm({ kind, providerId = null, modelId, 
       );
       setMaskFile({ ...selected, role: "mask" });
     } catch (error) {
-      toast.error(getErrorMessage(error) || t("referenceAssetReadError"));
+      toastErr(getErrorMessage(error) || t("referenceAssetReadError"));
     } finally {
       if (maskInputRef.current) maskInputRef.current.value = "";
     }
@@ -272,18 +272,18 @@ export default function MediaGenerationForm({ kind, providerId = null, modelId, 
         };
       if (protocol === "comfyui") {
         if (!workflowJson.trim()) {
-          toast.error(t("comfyWorkflowRequired"));
+          toastErr(t("comfyWorkflowRequired"));
           return;
         }
         let parsedWorkflow: ReturnType<typeof parseComfyWorkflow>;
         try {
           parsedWorkflow = parseComfyWorkflow(JSON.parse(workflowJson));
         } catch {
-          toast.error(t("comfyWorkflowInvalid"));
+          toastErr(t("comfyWorkflowInvalid"));
           return;
         }
         if (!parsedWorkflow.workflow) {
-          toast.error(parsedWorkflow.error === "ui_format" ? t("comfyUiWorkflowUnsupported") : t("comfyWorkflowInvalid"));
+          toastErr(parsedWorkflow.error === "ui_format" ? t("comfyUiWorkflowUnsupported") : t("comfyWorkflowInvalid"));
           return;
         }
         parameters.workflow = parsedWorkflow.workflow;

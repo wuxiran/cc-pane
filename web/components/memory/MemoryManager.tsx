@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { ListPlus, Trash2, Search, Database, Save, X, Star, BrainCircuit, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -142,7 +142,7 @@ export default function MemoryManager({ projectPath, workspaceName }: MemoryMana
 
   const handleSave = useCallback(async () => {
     if (!editForm.title.trim()) {
-      toast.error(tNotify("titleRequired"));
+      toastErr(tNotify("titleRequired"));
       return;
     }
     const tags = editForm.tags
@@ -165,7 +165,7 @@ export default function MemoryManager({ projectPath, workspaceName }: MemoryMana
         };
         await store(request);
         setIsCreating(false);
-        toast.success(tNotify("memoryCreated"));
+        toastOk(tNotify("memoryCreated"));
       } else if (selectedMemory) {
         await update(selectedMemory.id, {
           title: editForm.title.trim(),
@@ -174,10 +174,10 @@ export default function MemoryManager({ projectPath, workspaceName }: MemoryMana
           importance: editForm.importance,
           tags,
         });
-        toast.success(tNotify("memoryUpdated"));
+        toastOk(tNotify("memoryUpdated"));
       }
     } catch (e) {
-      toast.error(tNotify("operationFailed", { error: String(e) }));
+      toastErr(tNotify("operationFailed", { error: String(e) }));
     }
   }, [editForm, isCreating, selectedMemory, projectPath, workspaceName, workspaceMode, store, update, tNotify]);
 
@@ -185,9 +185,9 @@ export default function MemoryManager({ projectPath, workspaceName }: MemoryMana
     async (id: string) => {
       try {
         await remove(id);
-        toast.success(tNotify("memoryDeleted"));
+        toastOk(tNotify("memoryDeleted"));
       } catch (e) {
-        toast.error(tNotify("operationFailed", { error: String(e) }));
+        toastErr(tNotify("operationFailed", { error: String(e) }));
       }
     },
     [remove]

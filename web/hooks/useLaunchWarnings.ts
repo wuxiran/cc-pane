@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { toast } from "sonner";
+import { toastErr, toastWarn } from "@/lib/feedback";
 import { useTranslation } from "react-i18next";
 import { listenWebviewIfTauri } from "@/services/runtime";
 
@@ -50,7 +50,7 @@ export function useLaunchWarnings(): void {
             const payload = event.payload;
             if (!payload) return;
             if (payload.kind === "profileMismatch") {
-              toast.warning(
+              toastWarn(
                 t("launchProfileMismatch", {
                   ns: "panes",
                   profile: payload.requestedProfileName ?? "",
@@ -59,7 +59,7 @@ export function useLaunchWarnings(): void {
                 }),
               );
             } else if (payload.kind === "orchestratorLoopbackWsl") {
-              toast.warning(
+              toastWarn(
                 t("orchestratorLoopbackWsl", {
                   ns: "panes",
                   defaultValue:
@@ -67,14 +67,14 @@ export function useLaunchWarnings(): void {
                 }),
               );
             } else if (payload.kind === "codexResumeTargetMissing") {
-              toast.warning(
+              toastWarn(
                 t("codexResumeTargetMissing", {
                   ns: "panes",
                   defaultValue: "未找到 Codex 恢复目标，已改为启动新会话。",
                 }),
               );
             } else if (payload.kind === "codexResumeCaptureExhausted") {
-              toast.warning(
+              toastWarn(
                 t("codexResumeCaptureExhausted", {
                   ns: "panes",
                   defaultValue:
@@ -82,7 +82,7 @@ export function useLaunchWarnings(): void {
                 }),
               );
             } else if (payload.kind === "resumeLaunchFailed") {
-              toast.error(
+              toastErr(
                 t("resumeLaunchFailed", {
                   ns: "panes",
                   defaultValue:

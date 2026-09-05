@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -77,7 +77,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
         await wallpaperService.removeWallpaper(previousFile).catch(() => {});
       }
     } catch (err) {
-      toast.error(t("wallpaperImportFailed", { error: getErrorMessage(err) }));
+      toastErr(t("wallpaperImportFailed", { error: getErrorMessage(err) }));
     } finally {
       setImporting(false);
     }
@@ -98,7 +98,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
         await wallpaperService.removeWallpaper(previousFile).catch(() => {});
       }
     } catch (err) {
-      toast.error(t("wallpaperImportFailed", { error: getErrorMessage(err) }));
+      toastErr(t("wallpaperImportFailed", { error: getErrorMessage(err) }));
     } finally {
       setImporting(false);
     }
@@ -124,7 +124,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
         await wallpaperService.removeWallpaper(previousFile).catch(() => {});
       }
     } catch (err) {
-      toast.error(t("wallpaperImportFailed", { error: getErrorMessage(err) }));
+      toastErr(t("wallpaperImportFailed", { error: getErrorMessage(err) }));
     } finally {
       setImporting(false);
     }

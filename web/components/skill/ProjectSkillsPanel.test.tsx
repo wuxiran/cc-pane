@@ -120,7 +120,7 @@ describe("ProjectSkillsPanel", () => {
     await waitFor(() =>
       expect(service.saveProjectSkill).toHaveBeenCalledWith(PROJECT, ".claude/skills", "review", "Review carefully"),
     );
-    expect(toast.success).toHaveBeenCalledWith(i18n.t("projectSkills:toast.saved", { name: "pdf" }));
+    expect(toast.success).toHaveBeenCalledWith(i18n.t("projectSkills:toast.saved", { name: "pdf" }), expect.objectContaining({ duration: expect.any(Number) }));
   });
 
   it("删除需要确认，确认后调用后端并 toast", async () => {
@@ -134,7 +134,7 @@ describe("ProjectSkillsPanel", () => {
     await user.click(screen.getByRole("button", { name: i18n.t("projectSkills:editor.delete") }));
     expect(confirmSpy).toHaveBeenCalled();
     await waitFor(() => expect(service.deleteProjectSkill).toHaveBeenCalledWith(PROJECT, ".claude/skills", "pdf"));
-    expect(toast.success).toHaveBeenCalledWith(i18n.t("projectSkills:toast.deleted", { name: "pdf" }));
+    expect(toast.success).toHaveBeenCalledWith(i18n.t("projectSkills:toast.deleted", { name: "pdf" }), expect.objectContaining({ duration: expect.any(Number) }));
     confirmSpy.mockRestore();
   });
 

@@ -171,7 +171,7 @@ describe("ProviderFormPanel", () => {
     render(<ProviderFormPanel activeTab="claude" onBack={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: i18n.t("common:save") }));
-    expect(toast.error).toHaveBeenCalledWith(i18n.t("settings:nameRequired"));
+    expect(toast.error).toHaveBeenCalledWith(i18n.t("settings:nameRequired"), expect.objectContaining({ duration: expect.any(Number) }));
     expect(actions.addProvider).not.toHaveBeenCalled();
   });
 
@@ -199,7 +199,7 @@ describe("ProviderFormPanel", () => {
         })
       );
     });
-    expect(toast.success).toHaveBeenCalledWith(i18n.t("settings:providerAdded"));
+    expect(toast.success).toHaveBeenCalledWith(i18n.t("settings:providerAdded"), expect.objectContaining({ duration: expect.any(Number) }));
     expect(onBack).toHaveBeenCalled();
   });
 

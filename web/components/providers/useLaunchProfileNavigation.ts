@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { toast } from "sonner";
+import { toastOk } from "@/lib/feedback";
 import type { Dispatch, SetStateAction } from "react";
 import type { LaunchProfile, LaunchProfileDraft, LaunchProfileResolution, Workspace } from "@/types";
 import type { KnownCliTool } from "@/types/terminal";
@@ -84,7 +84,7 @@ export function useLaunchProfileNavigation({
     setMcpManagerOpen(false);
     setWorkspaceBindingOpen(false);
     setBindingWorkspaceName(null);
-    toast.success(t("toast.draftCreated", { tool: toolLabel(activeTool, t) }));
+    toastOk(t("toast.draftCreated", { tool: toolLabel(activeTool, t) }));
   }, [activeTool, draft, selectedId, setBindingWorkspaceName, setDraft, setMcpManagerOpen, setPreview, setSelectedId, setWorkspaceBindingOpen, t]);
   const handleCopySystemDefault = useCallback(() => requestDiscard(copySystemDefault), [copySystemDefault, requestDiscard]);
 

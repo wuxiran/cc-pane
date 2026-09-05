@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { Plus, Trash2, CodeXml, Wand2, Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -49,9 +49,9 @@ export default function SkillManager({ projectPath }: SkillManagerProps) {
       try {
         await saveSkill(projectPath, name, content);
         setIsCreating(false);
-        toast.success(tNotify("skillSaved"));
+        toastOk(tNotify("skillSaved"));
       } catch (e) {
-        toast.error(tNotify("operationFailed", { error: String(e) }));
+        toastErr(tNotify("operationFailed", { error: String(e) }));
       }
     },
     [projectPath, saveSkill]
@@ -61,9 +61,9 @@ export default function SkillManager({ projectPath }: SkillManagerProps) {
     async (name: string) => {
       try {
         await deleteSkill(projectPath, name);
-        toast.success(tNotify("skillDeleted"));
+        toastOk(tNotify("skillDeleted"));
       } catch (e) {
-        toast.error(tNotify("operationFailed", { error: String(e) }));
+        toastErr(tNotify("operationFailed", { error: String(e) }));
       }
     },
     [projectPath, deleteSkill]

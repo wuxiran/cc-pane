@@ -56,11 +56,11 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
-        <Label className="flex items-center gap-2">
+        <Label id="ccchan-engine-label" className="flex items-center gap-2">
           <Sparkles size={14} />
           <span>{t("ccchanEngine")}</span>
         </Label>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" role="group" aria-labelledby="ccchan-engine-label">
           {ENGINE_OPTIONS.map((option) => {
             const active = value.aiEngine === option.value;
             return (
@@ -84,7 +84,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
 
       <div className="flex items-start justify-between gap-6">
         <div className="min-w-0">
-          <Label>{t("ccchanDefaultPet")}</Label>
+          <Label htmlFor="ccchan-default-pet">{t("ccchanDefaultPet")}</Label>
           <p className="m-0 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
             {selectedPetDescriptionKey
               ? t(selectedPetDescriptionKey)
@@ -92,7 +92,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
           </p>
         </div>
         <Select value={value.defaultPetId} onValueChange={(next) => update("defaultPetId", next)}>
-          <SelectTrigger aria-label={t("ccchanDefaultPet")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+          <SelectTrigger id="ccchan-default-pet" aria-label={t("ccchanDefaultPet")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -162,12 +162,13 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
       </div>
 
       <div className="flex flex-col gap-2 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
-        <Label className="flex items-center gap-2">
+        <Label htmlFor="ccchan-pet-size" className="flex items-center gap-2">
           <Ruler size={14} />
           <span>{t("ccchanPetSize")}</span>
         </Label>
         <div className="flex items-center gap-3">
           <input
+            id="ccchan-pet-size"
             type="range"
             min={CCCHAN_PET_SIZE_MIN}
             max={CCCHAN_PET_SIZE_MAX}

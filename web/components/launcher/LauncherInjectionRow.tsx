@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { FileText, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { toast } from "sonner";
+import { toastErr, toastWarn } from "@/lib/feedback";
 import { filesystemService, skillService } from "@/services";
 import type { SkillSummary } from "@/types";
 import { appendInjection, clampInjection } from "./launcherInjection";
@@ -50,7 +50,7 @@ export default function LauncherInjectionRow({
 
   function inject(label: string, content: string) {
     const { text, truncated } = clampInjection(content);
-    if (truncated) toast.warning(t("injectionTruncated"));
+    if (truncated) toastWarn(t("injectionTruncated"));
     if (target === "append") {
       onChange({
         appendSystemPrompt: appendInjection(draft.appendSystemPrompt, text),
@@ -74,7 +74,7 @@ export default function LauncherInjectionRow({
       const file = await filesystemService.readFile(selected);
       inject(selected.split(/[/\\]/).pop() || selected, file.content);
     } catch {
-      toast.error(t("injectionReadFailed"));
+      toastErr(t("injectionReadFailed"));
     }
   }
 
@@ -83,12 +83,12 @@ export default function LauncherInjectionRow({
     try {
       const skill = await skillService.getSkill(projectPath, name);
       if (!skill) {
-        toast.error(t("injectionReadFailed"));
+        toastErr(t("injectionReadFailed"));
         return;
       }
       inject(skill.name, skill.content);
     } catch {
-      toast.error(t("injectionReadFailed"));
+      toastErr(t("injectionReadFailed"));
     }
   }
 

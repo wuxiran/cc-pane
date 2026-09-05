@@ -1,13 +1,14 @@
 import "@/i18n";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { useTodoStore } from "@/stores";
 import type { TodoItem } from "@/types";
 import TodoManager from "./TodoManager";
 
-vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+vi.mock("@/lib/feedback", () => ({
+  toastOk: vi.fn(),
+  toastErr: vi.fn(),
 }));
 
 // 子组件均有独立测试，这里桩化并捕获 props 以聚焦 Manager 的编排逻辑
@@ -293,7 +294,7 @@ describe("TodoManager", () => {
     await act(async () => {
       await lastEditor().onSave();
     });
-    expect(toast.error).toHaveBeenCalled();
+    expect(toastErr).toHaveBeenCalled();
     expect(useTodoStore.getState().create).not.toHaveBeenCalled();
   });
 
@@ -324,7 +325,7 @@ describe("TodoManager", () => {
         todoType: undefined,
       }),
     );
-    expect(toast.success).toHaveBeenCalled();
+    expect(toastOk).toHaveBeenCalled();
   });
 
   it("保存：编辑已选任务走 update", async () => {
@@ -360,7 +361,7 @@ describe("TodoManager", () => {
       await lastEditor().onSave();
     });
 
-    expect(toast.error).toHaveBeenCalled();
+    expect(toastErr).toHaveBeenCalled();
   });
 
   it("删除已选任务调用 remove 并提示", async () => {
@@ -373,7 +374,7 @@ describe("TodoManager", () => {
     });
 
     expect(useTodoStore.getState().remove).toHaveBeenCalledWith("t9");
-    expect(toast.success).toHaveBeenCalled();
+    expect(toastOk).toHaveBeenCalled();
   });
 
   it("列表项状态循环：todo→in_progress，done→todo", async () => {

@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useRef, useState, useCallback } from "react";
 import type { OnMount } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
-import { toast } from "sonner";
+import { toastOk } from "@/lib/feedback";
 import { lazyWithRetry } from "@/lib/lazyRetry";
 import type { EditorProps } from "./MonacoCodeEditor";
 
@@ -240,7 +240,7 @@ export default function EditorView({
         lastSavedMtime.current = info.modified;
       }
 
-      toast.success(i18n.t("fileSaved", { ns: "editor" }));
+      toastOk(i18n.t("fileSaved", { ns: "editor" }));
     } catch (err) {
       handleError(err, "save file");
     }

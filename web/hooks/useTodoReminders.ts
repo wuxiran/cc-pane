@@ -5,7 +5,7 @@
  * 对到期的 Todo 显示 Sonner toast 通知。
  */
 import { useEffect, useRef } from "react";
-import { toast } from "sonner";
+import { toastInfo } from "@/lib/feedback";
 import { todoService } from "@/services";
 import i18n from "@/i18n";
 
@@ -23,7 +23,7 @@ export function useTodoReminders() {
         for (const todo of dueTodos) {
           if (!notifiedRef.current.has(todo.id)) {
             notifiedRef.current.add(todo.id);
-            toast.info(
+            toastInfo(
               i18n.t("todoReminderTriggered", {
                 ns: "dialogs",
                 title: todo.title,

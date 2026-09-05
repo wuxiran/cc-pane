@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { skillService } from "@/services/skillService";
 import type { DiscoveredExternalSkill, InstalledUserSkill, SkillMarketEntry } from "@/types";
 import { useExperimentalFeature } from "@/hooks/useExperimentalFeature";
@@ -35,7 +35,7 @@ export function useSkillMarketData() {
       setUserSkills(installed);
       setExternalSkills(external);
     } catch (error) {
-      toast.error(t("toast.loadSkillFailed", { error: String(error) }));
+      toastErr(t("toast.loadSkillFailed", { error: String(error) }));
     } finally {
       setSkillMarketLoading(false);
     }
@@ -56,9 +56,9 @@ export function useSkillMarketData() {
           return next.sort((left, right) => left.name.localeCompare(right.name));
         });
         onInstalled(installed);
-        toast.success(t("toast.installedAndEnabled", { name: installed.name }));
+        toastOk(t("toast.installedAndEnabled", { name: installed.name }));
       } catch (error) {
-        toast.error(t("toast.installSkillFailed", { error: String(error) }));
+        toastErr(t("toast.installSkillFailed", { error: String(error) }));
       } finally {
         setInstallingSkillId(null);
       }

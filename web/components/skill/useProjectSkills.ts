@@ -2,7 +2,7 @@
 // 列表 / 选中内容 / 保存 / 删除 / 移动（仅项目）/ 导入；写操作成功后重拉列表并修正选中。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { skillService } from "@/services/skillService";
 import type {
   ProjectSkill,
@@ -48,7 +48,7 @@ export function useProjectSkills(scopeInput: SkillScope) {
       setSkills(list);
       return list;
     } catch (error) {
-      toast.error(t("toast.loadFailed", { error: String(error) }));
+      toastErr(t("toast.loadFailed", { error: String(error) }));
       return [];
     } finally {
       setLoading(false);
@@ -104,7 +104,7 @@ export function useProjectSkills(scopeInput: SkillScope) {
         await onOk?.(value);
         return value;
       } catch (error) {
-        toast.error(t("toast.failed", { error: String(error) }));
+        toastErr(t("toast.failed", { error: String(error) }));
         return null;
       } finally {
         setBusy(false);
@@ -121,7 +121,7 @@ export function useProjectSkills(scopeInput: SkillScope) {
             ? skillService.saveProjectSkill(scope.projectPath, root, name, content)
             : skillService.saveWorkspaceSkill(scope.workspaceName, name, content),
         async (saved) => {
-          toast.success(t("toast.saved", { name: saved.name }));
+          toastOk(t("toast.saved", { name: saved.name }));
           await reload();
           setSelectedId(saved.id);
         },
@@ -137,7 +137,7 @@ export function useProjectSkills(scopeInput: SkillScope) {
             ? skillService.deleteProjectSkill(scope.projectPath, skill.root, skill.relDir)
             : skillService.deleteWorkspaceSkill(scope.workspaceName, skill.relDir),
         async () => {
-          toast.success(t("toast.deleted", { name: skill.name }));
+          toastOk(t("toast.deleted", { name: skill.name }));
           if (selectedId === skill.id) setSelectedId(null);
           await reload();
         },
@@ -151,7 +151,7 @@ export function useProjectSkills(scopeInput: SkillScope) {
       return run(
         () => skillService.moveProjectSkill(scope.projectPath, skill.root, skill.relDir, toRoot),
         async (moved) => {
-          toast.success(t("toast.moved", { name: moved.name, root: toRoot }));
+          toastOk(t("toast.moved", { name: moved.name, root: toRoot }));
           await reload();
           setSelectedId(moved.id);
         },
@@ -169,7 +169,7 @@ export function useProjectSkills(scopeInput: SkillScope) {
       return run(
         () => skillService.importSkill(target, source, options),
         async (imported) => {
-          toast.success(t("toast.imported", { name: imported.name, root: imported.root }));
+          toastOk(t("toast.imported", { name: imported.name, root: imported.root }));
           await reload();
           setSelectedId(imported.id);
         },

@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastOk } from "@/lib/feedback";
 import { handleError } from "@/utils";
 import { FileTree } from "@/components/filetree";
 import { useFileTreeStore } from "@/stores";
@@ -50,10 +50,10 @@ export default function FileExplorerView({ projectPath }: FileExplorerViewProps)
     try {
       if (dialogType === "newFile") {
         await createFile(projectPath, inputValue.trim(), projectPath);
-        toast.success(t("filetree.created", { name: inputValue.trim() }));
+        toastOk(t("filetree.created", { name: inputValue.trim() }));
       } else if (dialogType === "newDir") {
         await createDirectory(projectPath, inputValue.trim(), projectPath);
-        toast.success(t("filetree.created", { name: inputValue.trim() }));
+        toastOk(t("filetree.created", { name: inputValue.trim() }));
       }
     } catch (err) {
       handleError(err, "create file/directory");

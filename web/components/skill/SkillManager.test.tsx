@@ -113,7 +113,7 @@ describe("SkillManager", () => {
       screen.getByRole("button", { name: new RegExp(i18n.t("common:save")) })
     );
     expect(actions.saveSkill).toHaveBeenCalledWith(PROJECT, "new-skill", "");
-    expect(toast.success).toHaveBeenCalledWith(i18n.t("notifications:skillSaved"));
+    expect(toast.success).toHaveBeenCalledWith(i18n.t("notifications:skillSaved"), expect.objectContaining({ duration: expect.any(Number) }));
   });
 
   it("shows an error toast when saving fails", async () => {
@@ -144,7 +144,7 @@ describe("SkillManager", () => {
     const deleteBtn = row.querySelector("button")!;
     await user.click(deleteBtn);
     expect(actions.deleteSkill).toHaveBeenCalledWith(PROJECT, "deploy");
-    expect(toast.success).toHaveBeenCalledWith(i18n.t("notifications:skillDeleted"));
+    expect(toast.success).toHaveBeenCalledWith(i18n.t("notifications:skillDeleted"), expect.objectContaining({ duration: expect.any(Number) }));
     // 删除按钮 stopPropagation，不应触发选中
     expect(actions.selectSkill).not.toHaveBeenCalled();
   });

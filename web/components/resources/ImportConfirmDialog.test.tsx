@@ -116,7 +116,7 @@ describe("ImportConfirmDialog", () => {
     await waitFor(() => {
       expect(mocks.executeImport).toHaveBeenCalledWith(providerReq);
     });
-    expect(toast.success).toHaveBeenCalledWith("imported ok");
+    expect(toast.success).toHaveBeenCalledWith("imported ok", expect.objectContaining({ duration: expect.any(Number) }));
     await waitFor(() => {
       expect(loadProviders).toHaveBeenCalled();
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -129,6 +129,7 @@ describe("ImportConfirmDialog", () => {
     act(() => mocks.importErrCb.current?.("bad link"));
     expect(toast.error).toHaveBeenCalledWith(
       String(i18n.t("dialogs:importLinkParseFailed", { error: "bad link" })),
+      expect.objectContaining({ duration: expect.any(Number) }),
     );
   });
 

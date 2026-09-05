@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { ChevronRight, Folder, FolderOpen, FolderPlus, Grid2X2, Import, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -88,7 +88,7 @@ export default function MediaWorkspaceNavigator({
       onProjectChange(project.id);
       setExpanded((current) => ({ ...current, [workspace.id]: true }));
     } catch (error) {
-      toast.error(t("importProjectFailed", { message: getErrorMessage(error) }));
+      toastErr(t("importProjectFailed", { message: getErrorMessage(error) }));
     }
   }
 
@@ -113,7 +113,7 @@ export default function MediaWorkspaceNavigator({
       setRootPath("");
       setCreateOpen(false);
     } catch (error) {
-      toast.error(t("createWorkspaceFailed", { message: getErrorMessage(error) }));
+      toastErr(t("createWorkspaceFailed", { message: getErrorMessage(error) }));
     } finally {
       setBusy(false);
     }

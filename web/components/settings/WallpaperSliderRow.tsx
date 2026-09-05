@@ -1,5 +1,6 @@
 // 壁纸滑杆行：全局设置（WallpaperSection）与工作空间覆盖（WorkspaceWallpaperCard）
 // 共用同一个渲染，避免两处滑杆样式/取值范围各写一份而漂移。
+import { useId } from "react";
 import { Label } from "@/components/ui/label";
 
 export interface WallpaperSliderRowProps {
@@ -28,11 +29,13 @@ export default function WallpaperSliderRow({
   disabled = false,
   className = "w-48",
 }: WallpaperSliderRowProps) {
+  const sliderId = useId();
   return (
     <div className="flex items-center justify-between gap-3">
-      <Label>{label}</Label>
+      <Label htmlFor={sliderId}>{label}</Label>
       <div className="flex items-center gap-3">
         <input
+          id={sliderId}
           type="range"
           min={min}
           max={max}

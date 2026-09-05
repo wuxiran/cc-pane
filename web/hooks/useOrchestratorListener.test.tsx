@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke } from "@tauri-apps/api/core";
-import { toast } from "sonner";
+import { toastErr, toastInfo } from "@/lib/feedback";
 import { useOrchestratorListener } from "./useOrchestratorListener";
 import { useActivityBarStore, usePanesStore } from "@/stores";
 import { createPanel, collectPanels } from "@/lib/paneTree";
@@ -11,11 +11,9 @@ import { mockTauriInvoke, resetTauriInvoke } from "@/test/utils/mockTauriInvoke"
 
 type WebviewListener = (event: { payload: Record<string, unknown> }) => void | Promise<void>;
 
-vi.mock("sonner", () => ({
-  toast: {
-    error: vi.fn(),
-    info: vi.fn(),
-  },
+vi.mock("@/lib/feedback", () => ({
+  toastErr: vi.fn(),
+  toastInfo: vi.fn(),
 }));
 
 function resetStores() {
@@ -53,8 +51,8 @@ function mockWebviewListeners() {
 describe("useOrchestratorListener layout placement", () => {
   beforeEach(() => {
     resetTauriInvoke();
-    vi.mocked(toast.error).mockClear();
-    vi.mocked(toast.info).mockClear();
+    vi.mocked(toastErr).mockClear();
+    vi.mocked(toastInfo).mockClear();
     vi.mocked(getCurrentWebview().listen).mockReset();
     mockTauriInvoke({
       exit_fullscreen: undefined,
@@ -456,7 +454,7 @@ describe("useOrchestratorListener layout placement", () => {
     expect(state.allPanelsAcrossLayouts().flatMap((panel) => panel.tabs)).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ sessionId: "session-blank-path" })])
     );
-    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("项目路径"));
+    expect(toastErr).toHaveBeenCalledWith(expect.stringContaining("项目路径"));
   });
 
   it("leader 在别的布局时不抢当前布局，worker 仍建在 leader 那边并弹可跳转提示", async () => {
@@ -498,7 +496,7 @@ describe("useOrchestratorListener layout placement", () => {
     expect(worker?.layoutId).toBe("layout-1");
     expect(collectPanels(state.rootPane).flatMap((p) => p.tabs)).toHaveLength(1);
     // 给了一条可点击跳转的提示
-    expect(toast.info).toHaveBeenCalledWith(
+    expect(toastInfo).toHaveBeenCalledWith(
       expect.stringContaining("布局 1"),
       expect.objectContaining({ action: expect.objectContaining({ onClick: expect.any(Function) }) }),
     );
@@ -528,7 +526,7 @@ describe("useOrchestratorListener layout placement", () => {
     expect(state.currentLayoutId).toBe(layout?.id);
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
     // 已经切过去了，就不该再弹「已在某布局启动」的提示
-    expect(toast.info).not.toHaveBeenCalled();
+    expect(toastInfo).not.toHaveBeenCalled();
   });
 
   it("placement=silent 既不切布局也不切视图、不弹提示", async () => {
@@ -565,7 +563,7 @@ describe("useOrchestratorListener layout placement", () => {
     expect(state.currentLayoutId).toBe(secondLayoutId);
     expect(useActivityBarStore.getState().appViewMode).toBe("files");
     expect(state.findTabBySessionAcrossLayouts("worker-silent")?.layoutId).toBe("layout-1");
-    expect(toast.info).not.toHaveBeenCalled();
+    expect(toastInfo).not.toHaveBeenCalled();
   });
 
   it("query-panes 返回当前 panes 兼容字段和 layouts 详情", async () => {
@@ -703,7 +701,7 @@ describe("useOrchestratorListener layout placement", () => {
         .map((tab) => tab.id),
     ).not.toContain("browser-tab-3");
     // 落点不在眼前：给一条可点提示，而不是自动切过去
-    expect(toast.info).toHaveBeenCalled();
+    expect(toastInfo).toHaveBeenCalled();
   });
 
   it("open-file 落到调用方所在布局", async () => {

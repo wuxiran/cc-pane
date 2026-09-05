@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import { getErrorMessage } from "@/utils";
 import { BookOpen, Save, FileText } from "lucide-react";
 import {
@@ -67,7 +67,7 @@ export default function JournalPanel({ open, onOpenChange, workspaceName, onSave
       onSaved?.();
     } catch (e) {
       console.error("Failed to save session:", e);
-      toast.error(t("sessionSaveFailed", { error: getErrorMessage(e) }));
+      toastErr(t("sessionSaveFailed", { error: getErrorMessage(e) }));
     } finally {
       setSaving(false);
     }

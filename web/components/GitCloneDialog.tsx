@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
-import { toast } from "sonner";
+import { toastErr, toastInfo, toastOk } from "@/lib/feedback";
 import { isTauriRuntime, listenWebviewIfTauri } from "@/services/runtime";
 import { FolderOpen } from "lucide-react";
 import {
@@ -80,7 +80,7 @@ export default function GitCloneDialog({
 
   async function handleSelectDir() {
     if (!isTauriRuntime()) {
-      toast.info(t("selectParentDir"));
+      toastInfo(t("selectParentDir"));
       return;
     }
     try {
@@ -89,7 +89,7 @@ export default function GitCloneDialog({
         setParentDir(selected);
       }
     } catch (e) {
-      toast.error(t("cloneSelectDirFailed", { error: e }));
+      toastErr(t("cloneSelectDirFailed", { error: e }));
     }
   }
 
@@ -100,7 +100,7 @@ export default function GitCloneDialog({
 
   async function handleClone() {
     if (!url.trim() || !parentDir.trim() || !folderName.trim()) {
-      toast.error(t("cloneFieldsRequired"));
+      toastErr(t("cloneFieldsRequired"));
       return;
     }
 
@@ -123,11 +123,11 @@ export default function GitCloneDialog({
         username: username || undefined,
         password: password || undefined,
       });
-      toast.success(t("cloneSuccess"));
+      toastOk(t("cloneSuccess"));
       onCloned(clonedPath);
       onOpenChange(false);
     } catch (e) {
-      toast.error(t("cloneFailed", { error: e }));
+      toastErr(t("cloneFailed", { error: e }));
     } finally {
       unlisten?.();
       setCloning(false);

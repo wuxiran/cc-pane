@@ -1,7 +1,7 @@
 // 全局快捷键动作注册（从 App.tsx 原样搬出，勿在此做行为改动）。
 // 所有 handler 通过 getState() 获取最新值，无需依赖。
 import { useEffect } from "react";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import {
   usePanesStore,
   useFullscreenStore,
@@ -58,12 +58,12 @@ export function useShortcutRegistrations(): void {
       const s = usePanesStore.getState();
       const pane = s.findPaneById(s.activePaneId);
       if (!pane || pane.type !== "panel") {
-        toast.error(i18n.t("voiceUnavailable", { ns: "panes" }));
+        toastErr(i18n.t("voiceUnavailable", { ns: "panes" }));
         return;
       }
       const tab = pane.tabs.find((item) => item.id === pane.activeTabId);
       if (!tab || tab.contentType !== "terminal" || !tab.terminalRootPane) {
-        toast.error(i18n.t("voiceUnavailable", { ns: "panes" }));
+        toastErr(i18n.t("voiceUnavailable", { ns: "panes" }));
         return;
       }
       const activeLeaf = tab.activeTerminalPaneId
@@ -71,11 +71,11 @@ export function useShortcutRegistrations(): void {
         : null;
       const leaf = activeLeaf ?? firstTerminalLeaf(tab.terminalRootPane);
       if (!leaf?.sessionId) {
-        toast.error(i18n.t("voiceNoSession", { ns: "panes" }));
+        toastErr(i18n.t("voiceNoSession", { ns: "panes" }));
         return;
       }
       if (leaf.disconnected || leaf.restoring) {
-        toast.error(i18n.t("voiceUnavailable", { ns: "panes" }));
+        toastErr(i18n.t("voiceUnavailable", { ns: "panes" }));
         return;
       }
       useVoiceInputStore.getState().requestToggle(`${leaf.id}:${leaf.sessionId}`);

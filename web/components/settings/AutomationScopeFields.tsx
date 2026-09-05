@@ -3,8 +3,8 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useWorkspacesStore } from "@/stores";
 
 interface AutomationScopeFieldsProps {
@@ -41,53 +41,57 @@ export default function AutomationScopeFields({
 
   return (
     <div className="flex flex-wrap items-end gap-3">
-      <div className="flex min-w-[200px] flex-col gap-1.5">
-        <Label className="text-[12px]">{t("automations.workspace")}</Label>
-        <select
-          className={selectClass}
-          value={workspaceName}
-          onChange={(event) => {
-            const next = event.target.value;
-            const first = workspaces.find((workspace) => workspace.name === next)?.projects[0];
-            onChange({ workspaceName: next, cwd: first?.path ?? cwd });
-          }}
-        >
-          <option value="">{t("automations.workspaceNone")}</option>
-          {workspaces.map((workspace) => (
-            <option key={workspace.id} value={workspace.name}>
-              {workspace.alias || workspace.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="flex min-w-[260px] flex-1 flex-col gap-1.5">
-        <Label className="text-[12px]">{t("automations.cwd")}</Label>
-        {workspaceName && projects.length > 0 ? (
+      <FormField label={t("automations.workspace")} className="flex min-w-[200px] flex-col gap-1.5" labelClassName="text-[12px]">
+        {({ id }) => (
           <select
+            id={id}
             className={selectClass}
-            value={cwdIsProject ? cwd : "__custom__"}
+            value={workspaceName}
             onChange={(event) => {
-              if (event.target.value !== "__custom__") onChange({ workspaceName, cwd: event.target.value });
+              const next = event.target.value;
+              const first = workspaces.find((workspace) => workspace.name === next)?.projects[0];
+              onChange({ workspaceName: next, cwd: first?.path ?? cwd });
             }}
           >
-            {projects.map((project) => (
-              <option key={project.id} value={project.path}>
-                {project.alias || project.path}
+            <option value="">{t("automations.workspaceNone")}</option>
+            {workspaces.map((workspace) => (
+              <option key={workspace.id} value={workspace.name}>
+                {workspace.alias || workspace.name}
               </option>
             ))}
-            {!cwdIsProject && (
-              <option value="__custom__">{cwd || t("automations.cwdCustom")}</option>
-            )}
           </select>
-        ) : (
-          <div className="flex gap-2">
-            <Input className="flex-1" value={cwd} onChange={(event) => onChange({ workspaceName, cwd: event.target.value })} />
-            <Button variant="outline" size="sm" onClick={onBrowse}>
-              {t("automations.browse")}
-            </Button>
-          </div>
         )}
-      </div>
+      </FormField>
+      <FormField label={t("automations.cwd")} className="flex min-w-[260px] flex-1 flex-col gap-1.5" labelClassName="text-[12px]">
+        {({ id }) =>
+          workspaceName && projects.length > 0 ? (
+            <select
+              id={id}
+              className={selectClass}
+              value={cwdIsProject ? cwd : "__custom__"}
+              onChange={(event) => {
+                if (event.target.value !== "__custom__") onChange({ workspaceName, cwd: event.target.value });
+              }}
+            >
+              {projects.map((project) => (
+                <option key={project.id} value={project.path}>
+                  {project.alias || project.path}
+                </option>
+              ))}
+              {!cwdIsProject && (
+                <option value="__custom__">{cwd || t("automations.cwdCustom")}</option>
+              )}
+            </select>
+          ) : (
+            <div className="flex gap-2">
+              <Input id={id} className="flex-1" value={cwd} onChange={(event) => onChange({ workspaceName, cwd: event.target.value })} />
+              <Button variant="outline" size="sm" onClick={onBrowse}>
+                {t("automations.browse")}
+              </Button>
+            </div>
+          )
+        }
+      </FormField>
     </div>
   );
 }

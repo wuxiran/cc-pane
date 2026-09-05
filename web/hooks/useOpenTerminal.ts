@@ -8,7 +8,7 @@ import { resolveWorkspaceLaunchLayout } from "@/utils/layoutWorkspace";
 import { resolveLayoutScope, sshMachineLayoutScope } from "@/utils/layoutScope";
 import { switchLayoutScope } from "@/hooks/useLayoutScopeSync";
 import { classifyTerminalLaunchPath, translateError } from "@/utils";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import i18n from "@/i18n";
 import type { LaunchExtras, OpenTerminalOptions } from "@/types";
 
@@ -49,7 +49,7 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
       const { path, workspaceName, providerId, modelId, providerSelection, launchProfileId, workspacePath, resumeId, ssh, wsl, machineName } = opts;
       const pathError = classifyTerminalLaunchPath(opts);
       if (pathError) {
-        toast.error(translateError(pathError));
+        toastErr(translateError(pathError));
         return;
       }
       // 兼容：如果有 resumeId 但没有指定 cliTool，跟随全局默认设置
@@ -57,7 +57,7 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
       const effectiveCliTool = opts.cliTool ?? (resumeId ? defaultTool : undefined);
       const runtimeKind = resolveRuntimeKind({ ssh, wsl });
       if (ssh && !ssh.machineId?.trim()) {
-        toast.error(i18n.t("sshMachineIdentityUnavailable", { ns: "panes" }));
+        toastErr(i18n.t("sshMachineIdentityUnavailable", { ns: "panes" }));
         return;
       }
       const launchClaude = effectiveCliTool !== undefined && effectiveCliTool !== "none";

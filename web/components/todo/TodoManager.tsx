@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { usePanesStore, useTodoStore } from "@/stores";
 import { focusTab } from "@/hooks/useFocusTab";
 import { asTabId } from "@/types/ids";
@@ -223,7 +223,7 @@ export default function TodoManager({
 
   const handleSave = useCallback(async () => {
     if (!editForm.title.trim()) {
-      toast.error(tNotify("titleRequired"));
+      toastErr(tNotify("titleRequired"));
       return;
     }
 
@@ -250,7 +250,7 @@ export default function TodoManager({
         await create(request);
         setIsCreating(false);
         setIsDirty(false);
-        toast.success(tNotify("todoCreated"));
+        toastOk(tNotify("todoCreated"));
       } else if (selectedTodo) {
         const request: UpdateTodoRequest = {
           title: editForm.title.trim(),
@@ -267,10 +267,10 @@ export default function TodoManager({
         };
         await update(selectedTodo.id, request);
         setIsDirty(false);
-        toast.success(tNotify("todoUpdated"));
+        toastOk(tNotify("todoUpdated"));
       }
     } catch (e) {
-      toast.error(tNotify("operationFailed", { error: String(e) }));
+      toastErr(tNotify("operationFailed", { error: String(e) }));
     }
   }, [editForm, isCreating, selectedTodo, create, update, tNotify]);
 
@@ -278,9 +278,9 @@ export default function TodoManager({
     async (id: string) => {
       try {
         await remove(id);
-        toast.success(tNotify("todoDeleted"));
+        toastOk(tNotify("todoDeleted"));
       } catch (e) {
-        toast.error(tNotify("operationFailed", { error: String(e) }));
+        toastErr(tNotify("operationFailed", { error: String(e) }));
       }
     },
     [remove, tNotify]
@@ -298,9 +298,9 @@ export default function TodoManager({
       try {
         await batchUpdateStatus(selectedIds, status);
         setSelectionMode(false);
-        toast.success(tNotify("todoUpdated"));
+        toastOk(tNotify("todoUpdated"));
       } catch (e) {
-        toast.error(tNotify("operationFailed", { error: String(e) }));
+        toastErr(tNotify("operationFailed", { error: String(e) }));
       }
     },
     [batchUpdateStatus, selectedIds, tNotify],
@@ -311,7 +311,7 @@ export default function TodoManager({
       try {
         await update(todo.id, { status: nextStatus(todo.status) });
       } catch (e) {
-        toast.error(tNotify("operationFailed", { error: String(e) }));
+        toastErr(tNotify("operationFailed", { error: String(e) }));
       }
     },
     [update, tNotify]
@@ -322,7 +322,7 @@ export default function TodoManager({
       try {
         await update(todo.id, { priority: nextPriority(todo.priority) });
       } catch (e) {
-        toast.error(tNotify("operationFailed", { error: String(e) }));
+        toastErr(tNotify("operationFailed", { error: String(e) }));
       }
     },
     [update, tNotify],
@@ -334,7 +334,7 @@ export default function TodoManager({
       try {
         await addSubtask(selectedTodo.id, title);
       } catch (e) {
-        toast.error(tNotify("operationFailed", { error: String(e) }));
+        toastErr(tNotify("operationFailed", { error: String(e) }));
       }
     },
     [selectedTodo, addSubtask, tNotify]
@@ -345,7 +345,7 @@ export default function TodoManager({
       try {
         await toggleSubtask(subtaskId);
       } catch (e) {
-        toast.error(tNotify("operationFailed", { error: String(e) }));
+        toastErr(tNotify("operationFailed", { error: String(e) }));
       }
     },
     [toggleSubtask, tNotify]
@@ -356,7 +356,7 @@ export default function TodoManager({
       try {
         await deleteSubtask(subtaskId);
       } catch (e) {
-        toast.error(tNotify("operationFailed", { error: String(e) }));
+        toastErr(tNotify("operationFailed", { error: String(e) }));
       }
     },
     [deleteSubtask, tNotify]

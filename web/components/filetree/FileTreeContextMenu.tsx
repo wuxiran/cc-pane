@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastInfo, toastOk } from "@/lib/feedback";
 import { handleError, getErrorCode, isWslUncPath } from "@/utils";
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem,
@@ -76,7 +76,7 @@ export default function FileTreeContextMenu({
     const n = nodeRef.current;
     if (!n) return;
     if (!isTauriRuntime()) {
-      toast.info(t("sidebar:filetree.pathCopied"));
+      toastInfo(t("sidebar:filetree.pathCopied"));
       await navigator.clipboard.writeText(n.entry.path);
       return;
     }
@@ -91,7 +91,7 @@ export default function FileTreeContextMenu({
     const n = nodeRef.current;
     if (!n) return;
     navigator.clipboard.writeText(n.entry.path);
-    toast.success(t("sidebar:filetree.pathCopied"));
+    toastOk(t("sidebar:filetree.pathCopied"));
   }, [nodeRef, t]);
 
   const handleCopyRelativePath = useCallback(() => {
@@ -103,7 +103,7 @@ export default function FileTreeContextMenu({
       ? normalizedPath.slice(normalizedRoot.length).replace(/^\//, "")
       : n.entry.path;
     navigator.clipboard.writeText(relativePath);
-    toast.success(t("sidebar:filetree.relativePathCopied"));
+    toastOk(t("sidebar:filetree.relativePathCopied"));
   }, [nodeRef, rootPath, t]);
 
   const handleDelete = useCallback(() => {
@@ -120,7 +120,7 @@ export default function FileTreeContextMenu({
     const permanent = isWslUncPath(n.entry.path);
     try {
       await deleteEntry(n.entry.path, rootPath, permanent);
-      toast.success(t("sidebar:filetree.deleted", { name: n.entry.name }));
+      toastOk(t("sidebar:filetree.deleted", { name: n.entry.name }));
     } catch (err) {
       if (getErrorCode(err) === "TRASH_FAILED") {
         // 回收站不可用（占用/无回收站卷）→ 保留待删节点，转入永久删除确认
@@ -139,7 +139,7 @@ export default function FileTreeContextMenu({
     if (!n) return;
     try {
       await deleteEntry(n.entry.path, rootPath, true);
-      toast.success(t("sidebar:filetree.deleted", { name: n.entry.name }));
+      toastOk(t("sidebar:filetree.deleted", { name: n.entry.name }));
     } catch (err) {
       handleError(err, "delete entry");
     }
@@ -178,27 +178,27 @@ export default function FileTreeContextMenu({
       switch (dialogType) {
         case "rename":
           await renameEntry(n.entry.path, inputValue.trim(), rootPath);
-          toast.success(t("sidebar:filetree.renamed", { name: inputValue.trim() }));
+          toastOk(t("sidebar:filetree.renamed", { name: inputValue.trim() }));
           break;
         case "newFile": {
           const parentDir = n.entry.isDir ? n.entry.path : n.entry.path.replace(/[/\\][^/\\]*$/, "");
           await createFile(parentDir, inputValue.trim(), rootPath);
-          toast.success(t("sidebar:filetree.created", { name: inputValue.trim() }));
+          toastOk(t("sidebar:filetree.created", { name: inputValue.trim() }));
           break;
         }
         case "newDir": {
           const parentDir = n.entry.isDir ? n.entry.path : n.entry.path.replace(/[/\\][^/\\]*$/, "");
           await createDirectory(parentDir, inputValue.trim(), rootPath);
-          toast.success(t("sidebar:filetree.created", { name: inputValue.trim() }));
+          toastOk(t("sidebar:filetree.created", { name: inputValue.trim() }));
           break;
         }
         case "copy":
           await copyEntry(n.entry.path, inputValue.trim(), rootPath);
-          toast.success(t("sidebar:filetree.copiedTo", { name: inputValue.trim() }));
+          toastOk(t("sidebar:filetree.copiedTo", { name: inputValue.trim() }));
           break;
         case "move":
           await moveEntry(n.entry.path, inputValue.trim(), rootPath);
-          toast.success(t("sidebar:filetree.movedTo", { name: inputValue.trim() }));
+          toastOk(t("sidebar:filetree.movedTo", { name: inputValue.trim() }));
           break;
       }
     } catch (err) {

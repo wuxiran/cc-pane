@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { focusTab } from "@/hooks/useFocusTab";
 import { sessionRestoreService } from "@/services/sessionRestoreService";
@@ -337,7 +337,7 @@ export default function SystemResourceSegment() {
         !claimsSupported ||
         (claimOwner && claimOwner !== claimOwnerInstanceId)
       ) {
-        toast.error(t("resourceManagerAdoptClaimed"));
+        toastErr(t("resourceManagerAdoptClaimed"));
         return;
       }
       // 无主会话：先接管成当前布局的一个 tab（复用 restore 的 reattach，不新建 PTY），再聚焦。
@@ -346,7 +346,7 @@ export default function SystemResourceSegment() {
       if (!runtime.ok) {
         // 指纹不完整就拒绝：接管本身安全（只是 reattach），但这个 tab 之后被重建时
         // 会在本地错误目录重启。宁可不接管，也不要让 agent 在错误的仓库里干活。
-        toast.error(
+        toastErr(
           t("resourceManagerAdoptIncompleteRuntime", { runtime: runtime.kind }),
         );
         return;
@@ -358,7 +358,7 @@ export default function SystemResourceSegment() {
         handleErrorSilent(error, "claim session for manual adoption");
       }
       if (!granted) {
-        toast.error(t("resourceManagerAdoptClaimed"));
+        toastErr(t("resourceManagerAdoptClaimed"));
         return;
       }
 
@@ -380,7 +380,7 @@ export default function SystemResourceSegment() {
         await terminalService.releaseSession(sessionId).catch((error) => {
           handleErrorSilent(error, "release failed manual adoption");
         });
-        toast.error(t("resourceManagerAdoptFailed"));
+        toastErr(t("resourceManagerAdoptFailed"));
         return;
       }
       panes.setSessionLeaseReadOnly(sessionId, false);
@@ -401,7 +401,7 @@ export default function SystemResourceSegment() {
       setArmedSessionId(null);
       await refreshResourceTree();
     } catch (error) {
-      toast.error(t("resourceManagerKillSessionFailed"));
+      toastErr(t("resourceManagerKillSessionFailed"));
       handleErrorSilent(error, "kill managed session");
     } finally {
       setKillingSessionId(null);
@@ -417,15 +417,15 @@ export default function SystemResourceSegment() {
       );
       const failed = results.filter((result) => !result.success).length;
       if (failed > 0)
-        toast.error(t("resourceManagerKillOrphansPartial", { count: failed }));
+        toastErr(t("resourceManagerKillOrphansPartial", { count: failed }));
       else
-        toast.success(
+        toastOk(
           t("resourceManagerKillOrphansSuccess", { count: results.length }),
         );
       setOrphanKillArmed(false);
       await refreshResourceTree();
     } catch (error) {
-      toast.error(t("resourceManagerKillOrphansFailed"));
+      toastErr(t("resourceManagerKillOrphansFailed"));
       handleErrorSilent(error, "kill orphan processes");
     } finally {
       setKillingOrphans(false);

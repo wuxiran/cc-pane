@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Check, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastOk } from "@/lib/feedback";
 import { MiniUiPreview } from "@/components/theme/MiniUiPreview";
 import { PresetSwatches, SystemThemePreview } from "@/components/theme/ThemeSwatches";
 import { Button } from "@/components/ui/button";
@@ -66,7 +66,7 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
 
   function restoreDefaultShape() {
     selectShape(DEFAULT_THEME_SHAPE);
-    toast.success(t("theme.restoredDefault"));
+    toastOk(t("theme.restoredDefault"));
   }
 
   function renderGroup(group: ThemeGroup) {

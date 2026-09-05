@@ -3,7 +3,7 @@
 // 从 useOrchestratorListener.ts 拆出：该文件已触到行数棘轮上限
 // （web/test/lineRatchet.test.ts）。这一组的共同点是「把调用方身份换算成落点，
 // 以及落点不在眼前时怎么告诉用户」，与事件订阅本身无关，自成一层。
-import { toast } from "sonner";
+import { toastInfo } from "@/lib/feedback";
 
 import i18n from "@/i18n";
 import { useActivityBarStore, usePanesStore } from "@/stores";
@@ -58,7 +58,7 @@ export function notifyOpenedInOtherLayout(
   if (landedLayoutId === store.currentLayoutId) return;
   const layout = store.listLayouts().find((item) => item.id === landedLayoutId);
   if (!layout) return;
-  toast.info(i18n.t("orchestratorOpenedInLayout", { ns: "panes", title, layout: layout.name }), {
+  toastInfo(i18n.t("orchestratorOpenedInLayout", { ns: "panes", title, layout: layout.name }), {
     action: {
       label: i18n.t("orchestratorLaunchedInLayoutGoto", { ns: "panes" }),
       onClick: () => {

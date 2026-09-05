@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Clapperboard, FileText, Grid2X2, LayoutPanelTop, Music, Pencil, Plus, RefreshCw, Scan, ScrollText, Trash2, ZoomIn, ZoomOut } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -294,7 +294,7 @@ export default function MediaCanvasView({ workspaceId, layoutId, activeSpace = n
       });
       await refreshScope();
     } catch (error) {
-      toast.error(t("nodeCreateFailed", { message: getErrorMessage(error) }));
+      toastErr(t("nodeCreateFailed", { message: getErrorMessage(error) }));
     }
   };
 

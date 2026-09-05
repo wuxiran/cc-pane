@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Download, LayoutTemplate, Play, Trash2, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -44,7 +44,7 @@ export default function MediaCanvasTemplates({ workspaceId, layoutId, queryLayou
         mediaService.listEdges(workspaceId, queryLayoutId ?? undefined).catch(() => []),
       ]);
       if (nodes.length === 0) {
-        toast.error(t("templateCanvasEmpty"));
+        toastErr(t("templateCanvasEmpty"));
         return;
       }
       const indexById = new Map(nodes.map((node, index) => [node.id, index]));
@@ -71,9 +71,9 @@ export default function MediaCanvasTemplates({ workspaceId, layoutId, queryLayou
         edges: templateEdges,
       });
       setTemplateName("");
-      toast.success(t("templateSaved"));
+      toastOk(t("templateSaved"));
     } catch (error) {
-      toast.error(t("templateSaveFailed", { message: getErrorMessage(error) }));
+      toastErr(t("templateSaveFailed", { message: getErrorMessage(error) }));
     } finally {
       setBusy(false);
     }
@@ -110,11 +110,11 @@ export default function MediaCanvasTemplates({ workspaceId, layoutId, queryLayou
           selector: "latestSucceeded",
         }).catch(() => undefined);
       }
-      toast.success(t("templateApplied", { count: template.nodes.length }));
+      toastOk(t("templateApplied", { count: template.nodes.length }));
       setOpen(false);
       onApplied();
     } catch (error) {
-      toast.error(t("templateApplyFailed", { message: getErrorMessage(error) }));
+      toastErr(t("templateApplyFailed", { message: getErrorMessage(error) }));
     } finally {
       setBusy(false);
     }
@@ -135,10 +135,10 @@ export default function MediaCanvasTemplates({ workspaceId, layoutId, queryLayou
       const parsed = JSON.parse(await file.text()) as unknown;
       const list = Array.isArray(parsed) ? parsed : [parsed];
       const count = importTemplates(list as Parameters<typeof importTemplates>[0]);
-      if (count > 0) toast.success(t("templateImported", { count }));
-      else toast.error(t("templateImportInvalid"));
+      if (count > 0) toastOk(t("templateImported", { count }));
+      else toastErr(t("templateImportInvalid"));
     } catch (error) {
-      toast.error(t("templateImportFailed", { message: getErrorMessage(error) }));
+      toastErr(t("templateImportFailed", { message: getErrorMessage(error) }));
     }
   };
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { Download, Trash2, Package, Store, Globe, ShieldCheck, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -67,11 +67,11 @@ export default function GlobalSkillsPanel() {
     setInstalling(id);
     try {
       const installed = await skillService.installMarketSkill(id);
-      toast.success(t("skillInstalled", { defaultValue: "已安装 {{name}}", name: installed.name }));
+      toastOk(t("skillInstalled", { defaultValue: "已安装 {{name}}", name: installed.name }));
       setUserSkills((prev) => [installed, ...prev.filter((s) => s.id !== installed.id)]);
       notifySetupGuideProgress();
     } catch (err) {
-      toast.error(t("skillInstallFailed", { defaultValue: "安装失败：{{error}}", error: String(err) }));
+      toastErr(t("skillInstallFailed", { defaultValue: "安装失败：{{error}}", error: String(err) }));
     } finally {
       setInstalling(null);
     }
@@ -82,9 +82,9 @@ export default function GlobalSkillsPanel() {
       await skillService.removeUserSkill(id);
       setUserSkills((prev) => prev.filter((s) => s.id !== id));
       notifySetupGuideProgress();
-      toast.success(t("skillRemoved", { defaultValue: "已移除" }));
+      toastOk(t("skillRemoved", { defaultValue: "已移除" }));
     } catch (err) {
-      toast.error(t("deleteFailed", { defaultValue: "删除失败：{{error}}", error: String(err) }));
+      toastErr(t("deleteFailed", { defaultValue: "删除失败：{{error}}", error: String(err) }));
     }
   }, [t]);
 

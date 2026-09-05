@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { Plug, Trash2, SquarePen, Server, ServerOff, Save, X, Loader2, Import } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FormField } from "@/components/ui/form-field";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useMcpStore, useWorkspacesStore } from "@/stores";
@@ -78,10 +78,10 @@ export default function ProjectMcpSection({
     setImporting(true);
     try {
       const imported = await importLegacyServers(projectPath, owningWorkspace);
-      toast.success(tNotify("mcpLegacyImported", { count: imported.length }));
+      toastOk(tNotify("mcpLegacyImported", { count: imported.length }));
       await loadLegacyServers(projectPath);
     } catch (e) {
-      toast.error(tNotify("operationFailed", { error: String(e) }));
+      toastErr(tNotify("operationFailed", { error: String(e) }));
     } finally {
       setImporting(false);
     }
@@ -111,7 +111,7 @@ export default function ProjectMcpSection({
 
   async function handleSave() {
     if (!form.name.trim() || !form.command.trim()) {
-      toast.error(tNotify("mcpNameCommandRequired"));
+      toastErr(tNotify("mcpNameCommandRequired"));
       return;
     }
     try {
@@ -126,20 +126,20 @@ export default function ProjectMcpSection({
       }
 
       await upsertServer(target, form.name.trim(), form.command.trim(), args, env);
-      toast.success(tNotify(editingName ? "mcpServerUpdated" : "mcpServerAdded"));
+      toastOk(tNotify(editingName ? "mcpServerUpdated" : "mcpServerAdded"));
       resetForm();
     } catch (e) {
-      toast.error(tNotify("operationFailed", { error: String(e) }));
+      toastErr(tNotify("operationFailed", { error: String(e) }));
     }
   }
 
   async function handleDelete(name: string) {
     try {
       await removeServer(target, name);
-      toast.success(tNotify("mcpServerDeleted"));
+      toastOk(tNotify("mcpServerDeleted"));
       if (editingName === name) resetForm();
     } catch (e) {
-      toast.error(tNotify("operationFailed", { error: String(e) }));
+      toastErr(tNotify("operationFailed", { error: String(e) }));
     }
   }
 
@@ -253,55 +253,61 @@ export default function ProjectMcpSection({
               {editingName ? t("mcpEditServer") : t("mcpAddServer")}
             </h4>
 
-            <div className="space-y-1">
-              <Label className="text-xs">{t("mcpServerName")}</Label>
-              <Input
-                value={form.name}
-                onChange={(e) =>
-                  setForm({ ...form, name: e.target.value })
-                }
-                placeholder={t("mcpServerNamePlaceholder")}
-                className="h-8 text-sm"
-              />
-            </div>
+            <FormField label={t("mcpServerName")} className="space-y-1" labelClassName="text-xs">
+              {({ id }) => (
+                <Input
+                  id={id}
+                  value={form.name}
+                  onChange={(e) =>
+                    setForm({ ...form, name: e.target.value })
+                  }
+                  placeholder={t("mcpServerNamePlaceholder")}
+                  className="h-8 text-sm"
+                />
+              )}
+            </FormField>
 
-            <div className="space-y-1">
-              <Label className="text-xs">{t("mcpCommand")}</Label>
-              <Input
-                value={form.command}
-                onChange={(e) =>
-                  setForm({ ...form, command: e.target.value })
-                }
-                placeholder={t("mcpCommandPlaceholder")}
-                className="h-8 text-sm font-mono"
-              />
-            </div>
+            <FormField label={t("mcpCommand")} className="space-y-1" labelClassName="text-xs">
+              {({ id }) => (
+                <Input
+                  id={id}
+                  value={form.command}
+                  onChange={(e) =>
+                    setForm({ ...form, command: e.target.value })
+                  }
+                  placeholder={t("mcpCommandPlaceholder")}
+                  className="h-8 text-sm font-mono"
+                />
+              )}
+            </FormField>
 
-            <div className="space-y-1">
-              <Label className="text-xs">{t("mcpArgs")}</Label>
-              <Input
-                value={form.args}
-                onChange={(e) =>
-                  setForm({ ...form, args: e.target.value })
-                }
-                placeholder={t("mcpArgsPlaceholder")}
-                className="h-8 text-sm font-mono"
-              />
-            </div>
+            <FormField label={t("mcpArgs")} className="space-y-1" labelClassName="text-xs">
+              {({ id }) => (
+                <Input
+                  id={id}
+                  value={form.args}
+                  onChange={(e) =>
+                    setForm({ ...form, args: e.target.value })
+                  }
+                  placeholder={t("mcpArgsPlaceholder")}
+                  className="h-8 text-sm font-mono"
+                />
+              )}
+            </FormField>
 
-            <div className="space-y-1">
-              <Label className="text-xs">
-                {t("mcpEnv")}
-              </Label>
-              <textarea
-                value={form.env}
-                onChange={(e) =>
-                  setForm({ ...form, env: e.target.value })
-                }
-                placeholder={t("mcpEnvPlaceholder")}
-                className="w-full h-20 rounded-md border border-input bg-background px-3 py-2 text-xs font-mono resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-              />
-            </div>
+            <FormField label={t("mcpEnv")} className="space-y-1" labelClassName="text-xs">
+              {({ id }) => (
+                <textarea
+                  id={id}
+                  value={form.env}
+                  onChange={(e) =>
+                    setForm({ ...form, env: e.target.value })
+                  }
+                  placeholder={t("mcpEnvPlaceholder")}
+                  className="w-full h-20 rounded-md border border-input bg-background px-3 py-2 text-xs font-mono resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              )}
+            </FormField>
 
             <div className="flex gap-2 justify-end">
               <Button size="sm" variant="ghost" onClick={resetForm}>

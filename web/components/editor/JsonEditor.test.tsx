@@ -72,7 +72,7 @@ describe("JsonEditor", () => {
 
     await user.click(screen.getByRole("button", { name: new RegExp(formatBtnLabel()) }));
     expect(onChange).toHaveBeenCalledWith('{\n  "a": 1,\n  "b": [\n    2,\n    3\n  ]\n}');
-    expect(toast.success).toHaveBeenCalledWith(i18n.t("settings:formatSuccess"));
+    expect(toast.success).toHaveBeenCalledWith(i18n.t("settings:formatSuccess"), expect.objectContaining({ duration: expect.any(Number) }));
   });
 
   it("reports an error toast for invalid JSON", async () => {
@@ -81,7 +81,7 @@ describe("JsonEditor", () => {
     render(<JsonEditor value="{not json" onChange={onChange} />);
 
     await user.click(screen.getByRole("button", { name: new RegExp(formatBtnLabel()) }));
-    expect(toast.error).toHaveBeenCalledWith(i18n.t("settings:formatError"));
+    expect(toast.error).toHaveBeenCalledWith(i18n.t("settings:formatError"), expect.objectContaining({ duration: expect.any(Number) }));
     expect(onChange).not.toHaveBeenCalled();
   });
 

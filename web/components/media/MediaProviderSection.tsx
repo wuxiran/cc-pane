@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, KeyRound, Link2, ListRestart, LoaderCircle, Plus, Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -110,7 +110,7 @@ export default function MediaProviderSection({
     const trimmedName = name.trim() || t("defaultProviderName");
     const parsedModels = normalizeModels(models);
     if (!baseUrl.trim()) {
-      toast.error(t("providerUrlRequired"));
+      toastErr(t("providerUrlRequired"));
       return;
     }
     setSaving(true);
@@ -139,9 +139,9 @@ export default function MediaProviderSection({
       onModelChange(parsedModels[0]?.id ?? null);
       onSaved?.(saved);
       setEditing(false);
-      toast.success(t("providerSaved"));
+      toastOk(t("providerSaved"));
     } catch (error) {
-      toast.error(t("providerSaveFailed", { message: getErrorMessage(error) }));
+      toastErr(t("providerSaveFailed", { message: getErrorMessage(error) }));
     } finally {
       setSaving(false);
     }
@@ -149,7 +149,7 @@ export default function MediaProviderSection({
 
   async function fetchModels() {
     if (!baseUrl.trim()) {
-      toast.error(t("providerUrlRequired"));
+      toastErr(t("providerUrlRequired"));
       return;
     }
     setFetchingModels(true);
@@ -163,9 +163,9 @@ export default function MediaProviderSection({
       });
       setModels(ids.join(", "));
       setEditing(true);
-      toast.success(t("modelsFetched", { count: ids.length }));
+      toastOk(t("modelsFetched", { count: ids.length }));
     } catch (error) {
-      toast.error(t("fetchModelsFailed", { message: getErrorMessage(error) }));
+      toastErr(t("fetchModelsFailed", { message: getErrorMessage(error) }));
     } finally {
       setFetchingModels(false);
     }

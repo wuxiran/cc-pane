@@ -140,7 +140,7 @@ describe("FileTreeContextMenu", () => {
     await openMenu();
     fireEvent.click(screen.getByText(tKey("filetree.copyAbsolutePath")));
     expect(writeText).toHaveBeenCalledWith(`${ROOT}\\src\\app.ts`);
-    expect(toast.success).toHaveBeenCalledWith(tKey("filetree.pathCopied"));
+    expect(toast.success).toHaveBeenCalledWith(tKey("filetree.pathCopied"), expect.objectContaining({ duration: expect.any(Number) }));
   });
 
   it("copies the relative path with normalized separators", async () => {

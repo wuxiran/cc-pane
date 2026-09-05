@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastInfo } from "@/lib/feedback";
 import { GitBranch, Plus, Trash2, FolderOpen, Terminal } from "lucide-react";
 import {
   Dialog,
@@ -75,7 +75,7 @@ export default function WorktreeManager({
   }
 
   function requestRemoveWorktree(wt: WorktreeInfo) {
-    if (wt.isMain) { toast.error(t("cannotDeleteMain")); return; }
+    if (wt.isMain) { toastErr(t("cannotDeleteMain")); return; }
     setPendingRemove(wt);
     setConfirmOpen(true);
   }
@@ -104,7 +104,7 @@ export default function WorktreeManager({
   const revealWorktree = useCallback(async (path: string) => {
     if (!isTauriRuntime()) {
       await navigator.clipboard.writeText(path).catch((e) => handleErrorSilent(e, "copy path"));
-      toast.info(t("sidebar:filetree.pathCopied", { defaultValue: "Path copied" }));
+      toastInfo(t("sidebar:filetree.pathCopied", { defaultValue: "Path copied" }));
       return;
     }
     await providerService.openPathInExplorer(path).catch((e) => handleErrorSilent(e, "open path"));

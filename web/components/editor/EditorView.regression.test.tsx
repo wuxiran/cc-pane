@@ -162,7 +162,7 @@ describe("EditorView regressions", () => {
     fireEvent.change(await screen.findByTestId("monaco-stub"), { target: { value: "changed" } });
     await user.click(screen.getAllByRole("button")[0]);
     await waitFor(() => expect(writeFile).toHaveBeenCalledWith(FILE, "changed"));
-    expect(toast.success).toHaveBeenCalledWith("文件已保存");
+    expect(toast.success).toHaveBeenCalledWith("文件已保存", expect.objectContaining({ duration: expect.any(Number) }));
     await waitFor(() => expect(screen.queryByText(modifiedLabel)).not.toBeInTheDocument());
   });
 

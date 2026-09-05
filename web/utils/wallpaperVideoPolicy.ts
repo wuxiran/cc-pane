@@ -47,6 +47,32 @@ export function decideWallpaperVideoPolicy(
   return { mode: "video", reason: "auto-video" };
 }
 
+// 「亮色终端主导纯色垫层」遮挡判定：与 MainViewSwitcher 的 terminalSolidUnderlay
+// 条件保持同一事实源（那边消费它垫纯色底，这边消费它暂停壁纸视频省电）。
+// 垫层 opacity=1 时壁纸被完全遮住，视频继续解码纯白耗 GPU。
+// 之所以放 utils 而不是 useWallpaperStore：layoutHasTerminal 来自 usePanesStore，
+// wallpaper store 不应反向 import panes store（循环依赖风险）；组件层组合各
+// store 的原子 selector 后喂给这个纯函数。
+export interface WallpaperUnderlayOcclusionInput {
+  /** 壁纸已解析且资产可用（resolved !== null && assetUrl !== null） */
+  wallpaperActive: boolean;
+  isDark: boolean;
+  canvasDisplayMode: "panel" | "canvas";
+  /** 当前布局含至少一个终端 tab（collectPanels(rootPane) 推导） */
+  layoutHasTerminal: boolean;
+}
+
+export function isWallpaperOccludedByTerminalUnderlay(
+  input: WallpaperUnderlayOcclusionInput,
+): boolean {
+  return (
+    input.wallpaperActive &&
+    !input.isDark &&
+    input.canvasDisplayMode === "panel" &&
+    input.layoutHasTerminal
+  );
+}
+
 interface BatteryManagerLike {
   charging: boolean;
   level: number;

@@ -1,6 +1,6 @@
 import { useCallback, useState, type Dispatch, type SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import type { LaunchProfileDraft } from "@/types";
 import {
   nextDeleteProfileSkill,
@@ -46,7 +46,7 @@ export function useLaunchProfileSkillEditor(
     const name = profileSkillForm.name.trim();
     const content = profileSkillForm.content.trim();
     if (!name || !content) {
-      toast.error(t("toast.profileSkillRequired"));
+      toastErr(t("toast.profileSkillRequired"));
       return;
     }
 

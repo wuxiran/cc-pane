@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import McpYoloProfilesToggle from "./McpYoloProfilesToggle";
 import FollowAgentLaunchToggle from "./FollowAgentLaunchToggle";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { ExternalLink, RefreshCw, RotateCcw, ShieldCheck, Square, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -62,7 +63,7 @@ export default function WebAccessSection({
     try {
       setStatus(await settingsService.getWebAccessStatus());
     } catch (error) {
-      toast.error(t("webAccessSection.errors.statusReadFailed", { error: String(error) }));
+      toastErr(t("webAccessSection.errors.statusReadFailed", { error: String(error) }));
     } finally {
       setLoadingStatus(false);
     }
@@ -79,9 +80,9 @@ export default function WebAccessSection({
       setPassword("");
       await loadSettings();
       await refreshStatus();
-      toast.success(t(password.trim() ? "webAccessSection.errors.passwordUpdated" : "webAccessSection.errors.passwordCleared"));
+      toastOk(t(password.trim() ? "webAccessSection.errors.passwordUpdated" : "webAccessSection.errors.passwordCleared"));
     } catch (error) {
-      toast.error(t("webAccessSection.errors.passwordUpdateFailed", { error: String(error) }));
+      toastErr(t("webAccessSection.errors.passwordUpdateFailed", { error: String(error) }));
     } finally {
       setSavingPassword(false);
     }
@@ -92,7 +93,7 @@ export default function WebAccessSection({
     try {
       setTailscale(await settingsService.detectTailscaleStatus());
     } catch (error) {
-      toast.error(t("webAccessSection.errors.tailscaleDetectionFailed", { error: String(error) }));
+      toastErr(t("webAccessSection.errors.tailscaleDetectionFailed", { error: String(error) }));
     } finally {
       setDetectingTailscale(false);
     }
@@ -101,9 +102,9 @@ export default function WebAccessSection({
   async function copyText(text: string, label: string) {
     try {
       await navigator.clipboard.writeText(text);
-      toast.success(t("webAccessSection.errors.copied", { label }));
+      toastOk(t("webAccessSection.errors.copied", { label }));
     } catch (error) {
-      toast.error(t("webAccessSection.errors.copyFailed", { error: String(error) }));
+      toastErr(t("webAccessSection.errors.copyFailed", { error: String(error) }));
     }
   }
 
@@ -114,7 +115,7 @@ export default function WebAccessSection({
       if (action === "restart") setStatus(await settingsService.restartWebAccess());
       if (action === "open") await settingsService.openWebAccess();
     } catch (error) {
-      toast.error(t("webAccessSection.errors.serviceActionFailed", { error: String(error) }));
+      toastErr(t("webAccessSection.errors.serviceActionFailed", { error: String(error) }));
     }
   }
 
@@ -122,12 +123,13 @@ export default function WebAccessSection({
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <Label>{t("webAccessSection.startupEnabled")}</Label>
+          <Label htmlFor="web-access-enabled">{t("webAccessSection.startupEnabled")}</Label>
           <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
             {t("webAccessSection.startupEnabledHint")}
           </p>
         </div>
         <input
+          id="web-access-enabled"
           type="checkbox"
           checked={value.enabled}
           onChange={(event) => update("enabled", event.target.checked)}
@@ -137,22 +139,13 @@ export default function WebAccessSection({
       </div>
 
       <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
-        <div className="flex flex-col gap-1">
-          <Label>{t("webAccessSection.port")}</Label>
-          <Input
-            type="number"
-            min={1}
-            max={65535}
-            value={value.port}
-            onChange={(event) => update("port", Number(event.target.value))}
-          />
-        </div>
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => update("port", 18080)}
-        >
+        <FormField label={t("webAccessSection.port")} className="flex flex-col gap-1">
+          {({ id }) => (
+            <Input id={id} type="number" min={1} max={65535} value={value.port}
+              onChange={(event) => update("port", Number(event.target.value))} />
+          )}
+        </FormField>
+        <Button type="button" variant="secondary" size="sm" onClick={() => update("port", 18080)}>
           <RotateCcw className="w-3.5 h-3.5 mr-1" />
           {t("webAccessSection.reset")}
         </Button>
@@ -160,29 +153,26 @@ export default function WebAccessSection({
 
       <div className="flex items-center justify-between">
         <div>
-          <Label>{t("webAccessSection.autoOpen")}</Label>
+          <Label htmlFor="web-access-auto-open">{t("webAccessSection.autoOpen")}</Label>
           <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
             {t("webAccessSection.autoOpenHint")}
           </p>
         </div>
-        <input
-          type="checkbox"
-          checked={value.autoOpen}
+        <input id="web-access-auto-open" type="checkbox" checked={value.autoOpen}
           onChange={(event) => update("autoOpen", event.target.checked)}
-          className="w-4 h-4 cursor-pointer"
-          style={{ accentColor: "var(--app-accent)" }}
-        />
+          className="w-4 h-4 cursor-pointer" style={{ accentColor: "var(--app-accent)" }} />
       </div>
 
       <div className="flex flex-col gap-3 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
         <div className="flex items-center justify-between">
           <div>
-            <Label>{t("webAccessSection.authEnabled")}</Label>
+            <Label htmlFor="web-access-auth-enabled">{t("webAccessSection.authEnabled")}</Label>
             <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
               {t("webAccessSection.authEnabledHint")}
             </p>
           </div>
           <input
+            id="web-access-auth-enabled"
             type="checkbox"
             checked={value.authEnabled}
             onChange={(event) => update("authEnabled", event.target.checked)}
@@ -192,32 +182,29 @@ export default function WebAccessSection({
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1">
-            <Label>{t("webAccessSection.username")}</Label>
-            <Input value={value.username} onChange={(event) => update("username", event.target.value)} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label>{t("webAccessSection.idleLock")}</Label>
-            <Input
-              type="number"
-              min={0}
-              max={1440}
-              value={value.lockOnIdleMinutes}
-              onChange={(event) => update("lockOnIdleMinutes", Number(event.target.value))}
-            />
-          </div>
+          <FormField label={t("webAccessSection.username")} className="flex flex-col gap-1">
+            {({ id }) => (
+              <Input id={id} value={value.username} onChange={(event) => update("username", event.target.value)} />
+            )}
+          </FormField>
+          <FormField label={t("webAccessSection.idleLock")} className="flex flex-col gap-1">
+            {({ id }) => (
+              <Input id={id} type="number" min={0} max={1440} value={value.lockOnIdleMinutes}
+                onChange={(event) => update("lockOnIdleMinutes", Number(event.target.value))} />
+            )}
+          </FormField>
         </div>
 
         <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
-          <div className="flex flex-col gap-1">
-            <Label>{t(passwordConfigured ? "webAccessSection.updatePassword" : "webAccessSection.setPassword")}</Label>
-            <Input
-              type="password"
-              value={password}
-              placeholder={t(passwordConfigured ? "webAccessSection.passwordPlaceholderConfigured" : "webAccessSection.passwordPlaceholder")}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </div>
+          <FormField
+            label={t(passwordConfigured ? "webAccessSection.updatePassword" : "webAccessSection.setPassword")}
+            className="flex flex-col gap-1"
+          >
+            {({ id }) => (
+              <Input id={id} type="password" value={password} onChange={(event) => setPassword(event.target.value)}
+                placeholder={t(passwordConfigured ? "webAccessSection.passwordPlaceholderConfigured" : "webAccessSection.passwordPlaceholder")} />
+            )}
+          </FormField>
           <Button type="button" size="sm" onClick={handleSetPassword} disabled={savingPassword}>
             <ShieldCheck className="w-3.5 h-3.5 mr-1" />
             {t("webAccessSection.savePassword")}
@@ -228,12 +215,13 @@ export default function WebAccessSection({
       <div className="flex flex-col gap-3 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
         <div className="flex items-center justify-between">
           <div>
-            <Label>{t("webAccessSection.allowLan")}</Label>
+            <Label htmlFor="web-access-allow-lan">{t("webAccessSection.allowLan")}</Label>
             <p className="text-xs m-0" style={{ color: canUseLan ? "var(--app-text-tertiary)" : "var(--app-accent)" }}>
               {t(canUseLan ? "webAccessSection.allowLanEnabledHint" : "webAccessSection.allowLanRequiresAuthHint")}
             </p>
           </div>
           <input
+            id="web-access-allow-lan"
             type="checkbox"
             checked={value.allowLan}
             disabled={!canUseLan}
@@ -245,12 +233,13 @@ export default function WebAccessSection({
 
         <div className="flex items-center justify-between">
           <div>
-            <Label>{t("webAccessSection.remoteReadOnly")}</Label>
+            <Label htmlFor="web-access-remote-read-only">{t("webAccessSection.remoteReadOnly")}</Label>
             <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
               {t("webAccessSection.remoteReadOnlyHint")}
             </p>
           </div>
           <input
+            id="web-access-remote-read-only"
             type="checkbox"
             checked={value.remoteReadOnly}
             onChange={(event) => update("remoteReadOnly", event.target.checked)}
@@ -262,7 +251,7 @@ export default function WebAccessSection({
         {value.remoteReadOnly && (
           <div className="flex items-center justify-between pl-4">
             <div>
-              <Label>{t("webAccessSection.remoteAuthenticatedWrite")}</Label>
+              <Label htmlFor="web-access-remote-authenticated-write">{t("webAccessSection.remoteAuthenticatedWrite")}</Label>
               <p className="text-xs m-0" style={{ color: canUseLan ? "var(--app-text-tertiary)" : "var(--app-accent)" }}>
                 {t(
                   canUseLan
@@ -272,6 +261,7 @@ export default function WebAccessSection({
               </p>
             </div>
             <input
+              id="web-access-remote-authenticated-write"
               type="checkbox"
               checked={value.remoteAuthenticatedWrite}
               disabled={!canUseLan}
@@ -282,24 +272,29 @@ export default function WebAccessSection({
           </div>
         )}
 
-        <div className="flex flex-col gap-1">
-          <Label>{t("webAccessSection.ipWhitelist")}</Label>
-          <textarea
-            value={whitelistText}
-            onChange={(event) => update("ipWhitelist", normalizeWhitelistText(event.target.value))}
-            rows={3}
-            className="px-2 py-1.5 rounded-md text-[13px] outline-none font-mono resize-none"
-            placeholder="192.168.1.20"
-            style={{
-              border: "1px solid var(--app-border)",
-              background: "var(--app-content)",
-              color: "var(--app-text-primary)",
-            }}
-          />
-          <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
-            {t("webAccessSection.ipWhitelistHint")}
-          </p>
-        </div>
+        <FormField
+          label={t("webAccessSection.ipWhitelist")}
+          hint={t("webAccessSection.ipWhitelistHint")}
+          className="flex flex-col gap-1"
+          hintClassName="text-xs m-0 text-[var(--app-text-tertiary)]"
+        >
+          {({ id, hintId }) => (
+            <textarea
+              id={id}
+              aria-describedby={hintId}
+              value={whitelistText}
+              onChange={(event) => update("ipWhitelist", normalizeWhitelistText(event.target.value))}
+              rows={3}
+              className="px-2 py-1.5 rounded-md text-[13px] outline-none font-mono resize-none"
+              placeholder="192.168.1.20"
+              style={{
+                border: "1px solid var(--app-border)",
+                background: "var(--app-content)",
+                color: "var(--app-text-primary)",
+              }}
+            />
+          )}
+        </FormField>
       </div>
 
       {orchestrator && onOrchestratorChange && isTauriRuntime() && (

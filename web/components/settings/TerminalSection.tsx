@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -55,25 +56,28 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
       <SearchableSetting sectionId="terminal-font">
         <div className="space-y-2">
           <div className="flex gap-2 items-end">
-            <div className="flex flex-col gap-1 w-28">
-              <Label>{t("fontSize")}</Label>
-              <Input
-                type="number"
-                min={10}
-                max={32}
-                step={1}
-                value={value.fontSize}
-                onChange={(e) => update("fontSize", Number(e.target.value))}
-                onBlur={(e) => {
-                  const next = Math.min(32, Math.max(10, Number(e.target.value) || 15));
-                  if (next !== value.fontSize) update("fontSize", next);
-                }}
-              />
-            </div>
-            <div className="flex flex-col gap-1 flex-1">
-              <Label>{t("fontFamily")}</Label>
-              <Input value={value.fontFamily} onChange={(e) => update("fontFamily", e.target.value)} />
-            </div>
+            <FormField label={t("fontSize")} className="flex flex-col gap-1 w-28">
+              {({ id }) => (
+                <Input
+                  id={id}
+                  type="number"
+                  min={10}
+                  max={32}
+                  step={1}
+                  value={value.fontSize}
+                  onChange={(e) => update("fontSize", Number(e.target.value))}
+                  onBlur={(e) => {
+                    const next = Math.min(32, Math.max(10, Number(e.target.value) || 15));
+                    if (next !== value.fontSize) update("fontSize", next);
+                  }}
+                />
+              )}
+            </FormField>
+            <FormField label={t("fontFamily")} className="flex flex-col gap-1 flex-1">
+              {({ id }) => (
+                <Input id={id} value={value.fontFamily} onChange={(e) => update("fontFamily", e.target.value)} />
+              )}
+            </FormField>
           </div>
           <p className="text-[12px]" style={{ color: "var(--app-text-secondary)" }}>
             {t("fontFamilyCjkHint")}
@@ -82,9 +86,9 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
       </SearchableSetting>
 
       <div className="flex items-center justify-between gap-6">
-        <Label>{t("terminalTheme")}</Label>
+        <Label htmlFor="terminal-theme-mode">{t("terminalTheme")}</Label>
         <Select value={value.themeMode ?? "followApp"} onValueChange={(next) => update("themeMode", next as TerminalSettings["themeMode"])}>
-          <SelectTrigger aria-label={t("terminalTheme")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+          <SelectTrigger id="terminal-theme-mode" aria-label={t("terminalTheme")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -96,10 +100,10 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
       </div>
 
       <div className="flex items-center justify-between gap-6">
-        <Label>{t("cursorStyle")}</Label>
+        <Label htmlFor="terminal-cursor-style">{t("cursorStyle")}</Label>
         <div className="flex items-center gap-4">
           <Select value={value.cursorStyle} onValueChange={(next) => update("cursorStyle", next)}>
-            <SelectTrigger aria-label={t("cursorStyle")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+            <SelectTrigger id="terminal-cursor-style" aria-label={t("cursorStyle")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -122,9 +126,10 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
       </div>
 
       <div className="flex items-center justify-between gap-6">
-        <Label>{t("scrollback")}</Label>
+        <Label htmlFor="terminal-scrollback">{t("scrollback")}</Label>
         <div className="w-44 shrink-0">
           <Input
+            id="terminal-scrollback"
             type="number"
             min={TERMINAL_SCROLLBACK_MIN}
             max={TERMINAL_SCROLLBACK_MAX}
@@ -138,11 +143,11 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
       </div>
 
       <div className="flex items-center justify-between gap-6">
-        <Label>Shell</Label>
+        <Label htmlFor="terminal-shell">Shell</Label>
         <div className="w-44 shrink-0">
           {shells.length > 0 ? (
             <Select value={value.shell ?? AUTO_SHELL_VALUE} onValueChange={(next) => update("shell", next === AUTO_SHELL_VALUE ? null : next)}>
-              <SelectTrigger aria-label="Shell" className="w-full bg-[var(--app-content)] text-[13px]">
+              <SelectTrigger id="terminal-shell" aria-label="Shell" className="w-full bg-[var(--app-content)] text-[13px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -155,6 +160,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
             </Select>
           ) : (
             <Input
+              id="terminal-shell"
               value={value.shell ?? ""}
               onChange={(e) => update("shell", e.target.value || null)}
               placeholder={t("shellAutoDetect")}
@@ -165,9 +171,9 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
 
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-6">
-          <Label>{t("rendererMode")}</Label>
+          <Label htmlFor="terminal-renderer-mode">{t("rendererMode")}</Label>
           <Select value={value.rendererMode ?? "auto"} onValueChange={(next) => update("rendererMode", next as TerminalSettings["rendererMode"])}>
-            <SelectTrigger aria-label={t("rendererMode")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+            <SelectTrigger id="terminal-renderer-mode" aria-label={t("rendererMode")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -203,6 +209,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <input
+              id="terminal-show-context-usage"
               type="checkbox"
               aria-label={t("showContextUsage")}
               checked={value.showContextUsage ?? true}
@@ -210,7 +217,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
               className="h-4 w-4 cursor-pointer"
               style={{ accentColor: "var(--app-accent)" }}
             />
-            <Label>{t("showContextUsage")}</Label>
+            <Label htmlFor="terminal-show-context-usage">{t("showContextUsage")}</Label>
           </div>
           <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
             {t("showContextUsageHint")}
@@ -222,6 +229,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <input
+              id="terminal-show-status-bar"
               type="checkbox"
               aria-label={t("showStatusBar")}
               checked={value.showStatusBar ?? true}
@@ -229,7 +237,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
               className="h-4 w-4 cursor-pointer"
               style={{ accentColor: "var(--app-accent)" }}
             />
-            <Label>{t("showStatusBar")}</Label>
+            <Label htmlFor="terminal-show-status-bar">{t("showStatusBar")}</Label>
           </div>
           <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
             {t("showStatusBarHint")}
@@ -257,13 +265,14 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
           <input
+            id="terminal-resume-id-backfill"
             type="checkbox"
             checked={value.resumeIdBackfillEnabled ?? false}
             onChange={(e) => update("resumeIdBackfillEnabled", e.target.checked)}
             className="w-4 h-4 cursor-pointer"
             style={{ accentColor: "var(--app-accent)" }}
           />
-          <Label>{t("resumeIdBackfill")}</Label>
+          <Label htmlFor="terminal-resume-id-backfill">{t("resumeIdBackfill")}</Label>
         </div>
         <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
           {t("resumeIdBackfillHint")}
@@ -273,13 +282,14 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
           <input
+            id="terminal-lower-session-priority"
             type="checkbox"
             checked={value.lowerSessionPriority ?? true}
             onChange={(e) => update("lowerSessionPriority", e.target.checked)}
             className="w-4 h-4 cursor-pointer"
             style={{ accentColor: "var(--app-accent)" }}
           />
-          <Label>{t("lowerSessionPriority")}</Label>
+          <Label htmlFor="terminal-lower-session-priority">{t("lowerSessionPriority")}</Label>
         </div>
         <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
           {t("lowerSessionPriorityHint")}
@@ -289,13 +299,14 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
           <input
+            id="terminal-daemon-enabled"
             type="checkbox"
             checked={value.daemonEnabled ?? true}
             onChange={(e) => update("daemonEnabled", e.target.checked)}
             className="w-4 h-4 cursor-pointer"
             style={{ accentColor: "var(--app-accent)" }}
           />
-          <Label>{t("terminalDaemon")}</Label>
+          <Label htmlFor="terminal-daemon-enabled">{t("terminalDaemon")}</Label>
         </div>
         <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
           {t("terminalDaemonHint")}
@@ -305,6 +316,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
           <input
+            id="terminal-daemon-orphan-reaper-disabled"
             type="checkbox"
             checked={value.daemonOrphanReaperDisabled ?? false}
             onChange={(e) => update("daemonOrphanReaperDisabled", e.target.checked)}
@@ -312,7 +324,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
             style={{ accentColor: "var(--app-accent)" }}
             disabled={!(value.daemonEnabled ?? true)}
           />
-          <Label>{t("daemonOrphanReaperDisabled")}</Label>
+          <Label htmlFor="terminal-daemon-orphan-reaper-disabled">{t("daemonOrphanReaperDisabled")}</Label>
         </div>
         <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
           {t("daemonOrphanReaperDisabledHint")}
@@ -320,22 +332,24 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
       </div>
 
       <div className="flex flex-col gap-1">
-        <div className="flex flex-col gap-1 w-40">
-          <Label>{t("daemonOrphanTtl")}</Label>
-          <Input
-            type="number"
-            min={1}
-            max={10080}
-            step={1}
-            value={value.daemonOrphanTtlMinutes ?? 1440}
-            onChange={(e) => update("daemonOrphanTtlMinutes", Number(e.target.value))}
-            onBlur={(e) => {
-              const next = Math.min(10080, Math.max(1, Math.round(Number(e.target.value) || 1440)));
-              if (next !== value.daemonOrphanTtlMinutes) update("daemonOrphanTtlMinutes", next);
-            }}
-            disabled={!(value.daemonEnabled ?? true) || (value.daemonOrphanReaperDisabled ?? false)}
-          />
-        </div>
+        <FormField label={t("daemonOrphanTtl")} className="flex flex-col gap-1 w-40">
+          {({ id }) => (
+            <Input
+              id={id}
+              type="number"
+              min={1}
+              max={10080}
+              step={1}
+              value={value.daemonOrphanTtlMinutes ?? 1440}
+              onChange={(e) => update("daemonOrphanTtlMinutes", Number(e.target.value))}
+              onBlur={(e) => {
+                const next = Math.min(10080, Math.max(1, Math.round(Number(e.target.value) || 1440)));
+                if (next !== value.daemonOrphanTtlMinutes) update("daemonOrphanTtlMinutes", next);
+              }}
+              disabled={!(value.daemonEnabled ?? true) || (value.daemonOrphanReaperDisabled ?? false)}
+            />
+          )}
+        </FormField>
         <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
           {t("daemonOrphanTtlHint")}
         </p>

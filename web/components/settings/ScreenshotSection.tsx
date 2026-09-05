@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { screenshotService } from "@/services";
@@ -51,9 +51,9 @@ export default function ScreenshotSection({ value, onChange }: ScreenshotSection
     try {
       await screenshotService.updateShortcut(value.shortcut, pendingShortcut);
       update("shortcut", pendingShortcut);
-      toast.success(t("screenshotShortcutUpdated"));
+      toastOk(t("screenshotShortcutUpdated"));
     } catch (err) {
-      toast.error(t("screenshotShortcutConflict", { error: getErrorMessage(err) }));
+      toastErr(t("screenshotShortcutConflict", { error: getErrorMessage(err) }));
     }
     setEditingShortcut(false);
     setPendingShortcut("");
@@ -70,10 +70,13 @@ export default function ScreenshotSection({ value, onChange }: ScreenshotSection
 
       {/* 快捷键 */}
       <div className="flex items-center justify-between">
+        {/* 这里不做 htmlFor 关联：按钮态的可访问名就是它显示的快捷键本身，
+            关联 Label 反而会覆盖；编辑态输入框用 aria-label 命名。 */}
         <Label>{t("screenshotShortcut")}</Label>
         {editingShortcut ? (
           <div className="flex items-center gap-2">
             <Input
+              aria-label={t("screenshotShortcut")}
               className="w-[180px] h-8 text-center text-xs"
               value={pendingShortcut || t("pressNewKey")}
               readOnly
@@ -106,12 +109,13 @@ export default function ScreenshotSection({ value, onChange }: ScreenshotSection
       {/* 保留天数 */}
       <div className="flex items-center justify-between">
         <div>
-          <Label>{t("screenshotRetention")}</Label>
+          <Label htmlFor="screenshot-retention-days">{t("screenshotRetention")}</Label>
           <p className="text-xs mt-0.5" style={{ color: "var(--app-text-tertiary)" }}>
             {t("screenshotRetentionHint")}
           </p>
         </div>
         <Input
+          id="screenshot-retention-days"
           type="number"
           min={0}
           max={365}

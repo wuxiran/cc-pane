@@ -1,6 +1,6 @@
 // 画布上媒体节点的右键动作（删除 / 重命名 / 重跑 / 打开 / 定位 / 断边）。
 // 从 CanvasNodeLayer 拆出（行数棘轮）；全部是无 React 依赖的纯动作，错误统一 toast。
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import { mediaService } from "@/services/mediaService";
 import { useMediaStore } from "@/stores/useMediaStore";
 import type { CanvasNodeProjection } from "@/types/canvas";
@@ -10,7 +10,7 @@ export function durableMediaId(projectionId: string): string {
 }
 
 function reportError(error: unknown): void {
-  toast.error(error instanceof Error ? error.message : String(error));
+  toastErr(error instanceof Error ? error.message : String(error));
 }
 
 export async function deleteMediaNode(node: CanvasNodeProjection, confirmMessage: string): Promise<void> {
@@ -39,7 +39,7 @@ export async function renameMediaNode(node: CanvasNodeProjection, promptMessage:
 export async function regenerateMediaNode(node: CanvasNodeProjection, noRunMessage: string): Promise<void> {
   const runId = node.media?.runId;
   if (!runId) {
-    toast.error(noRunMessage);
+    toastErr(noRunMessage);
     return;
   }
   try {

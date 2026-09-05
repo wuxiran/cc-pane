@@ -146,7 +146,7 @@ describe("MemoryManager", () => {
     // 标题为空时保存按钮 disabled，Ctrl+S 走 handleSave 弹错误
     const { fireEvent } = await import("@testing-library/react");
     fireEvent.keyDown(document, { key: "s", ctrlKey: true });
-    expect(toast.error).toHaveBeenCalledWith(i18n.t("notifications:titleRequired"));
+    expect(toast.error).toHaveBeenCalledWith(i18n.t("notifications:titleRequired"), expect.objectContaining({ duration: expect.any(Number) }));
     expect(actions.store).not.toHaveBeenCalled();
   });
 
@@ -183,7 +183,7 @@ describe("MemoryManager", () => {
         source: "user",
       });
     });
-    expect(toast.success).toHaveBeenCalledWith(i18n.t("notifications:memoryCreated"));
+    expect(toast.success).toHaveBeenCalledWith(i18n.t("notifications:memoryCreated"), expect.objectContaining({ duration: expect.any(Number) }));
   });
 
   describe("workspace view (empty projectPath + workspaceName)", () => {
@@ -237,7 +237,7 @@ describe("MemoryManager", () => {
         tags: ["zustand", "immer"],
       });
     });
-    expect(toast.success).toHaveBeenCalledWith(i18n.t("notifications:memoryUpdated"));
+    expect(toast.success).toHaveBeenCalledWith(i18n.t("notifications:memoryUpdated"), expect.objectContaining({ duration: expect.any(Number) }));
   });
 
   it("deletes a memory from the row action without selecting it", async () => {
@@ -253,7 +253,7 @@ describe("MemoryManager", () => {
     await waitFor(() => {
       expect(actions.remove).toHaveBeenCalledWith("m-1");
     });
-    expect(toast.success).toHaveBeenCalledWith(i18n.t("notifications:memoryDeleted"));
+    expect(toast.success).toHaveBeenCalledWith(i18n.t("notifications:memoryDeleted"), expect.objectContaining({ duration: expect.any(Number) }));
     expect(actions.select).not.toHaveBeenCalled();
   });
 

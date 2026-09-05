@@ -113,7 +113,7 @@ describe("ThemeSection", () => {
 
     expect(onChange).toHaveBeenCalledWith({ mode: "deep-ink", shape: "soft" });
     expect(document.documentElement.dataset.shape).toBe("soft");
-    expect(toast.success).toHaveBeenCalledWith("已恢复为柔和 Soft");
+    expect(toast.success).toHaveBeenCalledWith("已恢复为柔和 Soft", expect.objectContaining({ duration: expect.any(Number) }));
   });
 
   it("applies an external draft reset to both color and shape", () => {

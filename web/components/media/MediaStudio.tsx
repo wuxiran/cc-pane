@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FolderOpen, ImagePlus, Sparkles, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk, toastWarn } from "@/lib/feedback";
 import { Button } from "@/components/ui/button";
 import { SegmentedTabs } from "@/components/ui/segmented";
 import MediaWorkspaceNavigator from "./MediaWorkspaceNavigator";
@@ -146,7 +146,7 @@ export default function MediaStudio({ kind, onKindChange }: MediaStudioProps) {
 
   const handleSavePromptNode = useCallback(async (text: string) => {
     if (!selection.workspaceId || !generationLayoutId) {
-      toast.error(t("selectWorkspaceProjectModel"));
+      toastErr(t("selectWorkspaceProjectModel"));
       return;
     }
     try {
@@ -163,9 +163,9 @@ export default function MediaStudio({ kind, onKindChange }: MediaStudioProps) {
         },
       });
       setRefreshToken((value) => value + 1);
-      toast.success(t("copilotSavedNode"));
+      toastOk(t("copilotSavedNode"));
     } catch (error) {
-      toast.error(t("nodeCreateFailed", { message: getErrorMessage(error) }));
+      toastErr(t("nodeCreateFailed", { message: getErrorMessage(error) }));
     }
   }, [generationLayoutId, mediaScope, selection.workspaceId, t]);
 
@@ -219,7 +219,7 @@ export default function MediaStudio({ kind, onKindChange }: MediaStudioProps) {
   const handleUseOutput = useCallback((next: MediaInputAssetSelection) => {
     const operation = operationForLinkedInput(kind, next.mediaKind);
     if (!operation || (providerCapabilities && !providerCapabilities.operations.includes(operation))) {
-      toast.error(t("linkedReferenceUnsupported"));
+      toastErr(t("linkedReferenceUnsupported"));
       return;
     }
     setLinkedInput(next);
@@ -227,7 +227,7 @@ export default function MediaStudio({ kind, onKindChange }: MediaStudioProps) {
 
   async function handleGenerate(values: MediaGenerationValues) {
     if (!selection.workspaceId || !selection.projectId || !generationLayoutId || !selection.providerId || !selection.modelId || !mediaScope) {
-      toast.error(t("selectWorkspaceProjectModel"));
+      toastErr(t("selectWorkspaceProjectModel"));
       return;
     }
     // Keep the root scope in both the durable node snapshot and the run
@@ -259,7 +259,7 @@ export default function MediaStudio({ kind, onKindChange }: MediaStudioProps) {
         }));
         inputAssetIds = [...inputAssetIds, ...assets.map((asset) => asset.id)];
       } catch (error) {
-        toast.error(t("stageInputFailed", { message: getErrorMessage(error) }));
+        toastErr(t("stageInputFailed", { message: getErrorMessage(error) }));
         return;
       }
     }
@@ -297,13 +297,13 @@ export default function MediaStudio({ kind, onKindChange }: MediaStudioProps) {
         } catch (edgeError) {
           // The run already owns the selected asset, so an edge persistence
           // failure must not discard a valid generation request.
-          toast.warning(t("mediaEdgeCreateFailed", { message: getErrorMessage(edgeError) }));
+          toastWarn(t("mediaEdgeCreateFailed", { message: getErrorMessage(edgeError) }));
         }
       }
-      toast.success(t(kind === "image" ? "jobSubmittedImage" : "jobSubmittedVideo"));
+      toastOk(t(kind === "image" ? "jobSubmittedImage" : "jobSubmittedVideo"));
       setRefreshToken((value) => value + 1);
     } catch (error) {
-      toast.error(t("submitJobFailed", { message: getErrorMessage(error) }));
+      toastErr(t("submitJobFailed", { message: getErrorMessage(error) }));
     }
   }
 

@@ -1,4 +1,4 @@
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import { translateError } from "./errorTranslation";
 import { logErrorSafe } from "@/services/runtime";
 import { errorToString } from "./errorUtils";
@@ -22,7 +22,7 @@ export function handleError(error: unknown, context?: string): void {
   console.error(logMsg);
   logErrorSafe(`[frontend] ${logMsg}`).catch(() => {});
 
-  toast.error(userMessage);
+  toastErr(userMessage);
 }
 
 /**

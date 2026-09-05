@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Mic, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import { voiceService } from "@/services";
 import { useSettingsStore, useVoiceInputStore } from "@/stores";
 import { blobToAudioPayload, getRecorderMimeType } from "@/lib/voiceAudio";
@@ -96,7 +96,7 @@ export default function ChatVoiceButton({
         if (!text) throw new Error(t("voiceEmptyTranscript"));
         onText(text);
       } catch (error) {
-        toast.error(
+        toastErr(
           t("voiceFailed", { error: error instanceof Error ? error.message : String(error) }),
         );
       } finally {
@@ -117,7 +117,7 @@ export default function ChatVoiceButton({
   const startRecording = useCallback(async () => {
     const reason = unavailableReason();
     if (reason) {
-      toast.error(reason);
+      toastErr(reason);
       return;
     }
     setActiveTarget(targetId);
@@ -139,7 +139,7 @@ export default function ChatVoiceButton({
         cleanup();
         if (mountedRef.current) setStatus("idle");
         clearActiveTarget(targetId);
-        toast.error(t("voiceFailed", { error: "MediaRecorder error" }));
+        toastErr(t("voiceFailed", { error: "MediaRecorder error" }));
       };
       recorder.start();
       const maxSeconds = Math.min(Math.max(voice?.maxRecordSeconds || 60, 1), 300);
@@ -148,7 +148,7 @@ export default function ChatVoiceButton({
       cleanup();
       if (mountedRef.current) setStatus("idle");
       clearActiveTarget(targetId);
-      toast.error(
+      toastErr(
         t("voiceFailed", { error: error instanceof Error ? error.message : String(error) }),
       );
     }

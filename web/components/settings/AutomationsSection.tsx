@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { CalendarClock, Pencil, Play, Plus, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { automationService, listAcpEngines } from "@/services";
@@ -76,6 +76,7 @@ function formatMillis(millis: number | null | undefined): string {
 
 export default function AutomationsSection() {
   const { t, i18n } = useTranslation("settings");
+  const autoApproveId = useId();
   const [defs, setDefs] = useState<AutomationDef[]>([]);
   const [engines, setEngines] = useState<AcpEngineInfo[]>([]);
   const [draft, setDraft] = useState<EditorDraft | null>(null);
@@ -136,7 +137,7 @@ export default function AutomationsSection() {
       setDraft(null);
       await reload();
     } catch (error) {
-      toast.error(String(error));
+      toastErr(String(error));
     } finally {
       setSaving(false);
     }
@@ -148,7 +149,7 @@ export default function AutomationsSection() {
         await automationService.saveAutomation({ ...def, enabled });
         await reload();
       } catch (error) {
-        toast.error(String(error));
+        toastErr(String(error));
       }
     },
     [reload],
@@ -161,7 +162,7 @@ export default function AutomationsSection() {
         if (runsFor === automationId) setRunsFor(null);
         await reload();
       } catch (error) {
-        toast.error(String(error));
+        toastErr(String(error));
       }
     },
     [reload, runsFor],
@@ -170,9 +171,9 @@ export default function AutomationsSection() {
   const runNow = useCallback(async (automationId: string) => {
     try {
       await automationService.runAutomationNow(automationId);
-      toast.success(t("automations.runStarted"));
+      toastOk(t("automations.runStarted"));
     } catch (error) {
-      toast.error(String(error));
+      toastErr(String(error));
     }
   }, [t]);
 
@@ -221,36 +222,42 @@ export default function AutomationsSection() {
       {draft && (
         <div className="flex flex-col gap-3 rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-5 py-4 shadow-sm">
           <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-[12px]">{t("automations.name")}</Label>
-              <Input
-                value={draft.name}
-                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+            <FormField label={t("automations.name")} className="flex flex-col gap-1.5" labelClassName="text-[12px]">
+              {({ id }) => (
+                <Input
+                  id={id}
+                  value={draft.name}
+                  onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                />
+              )}
+            </FormField>
+            <FormField label={t("automations.engine")} className="flex flex-col gap-1.5" labelClassName="text-[12px]">
+              {({ id }) => (
+                <select
+                  id={id}
+                  className={selectClass}
+                  value={draft.engineId}
+                  onChange={(event) => setDraft({ ...draft, engineId: event.target.value })}
+                >
+                  {engines.map((engine) => (
+                    <option key={engine.id} value={engine.id} disabled={!engine.available}>
+                      {engine.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </FormField>
+          </div>
+          <FormField label={t("automations.prompt")} className="flex flex-col gap-1.5" labelClassName="text-[12px]">
+            {({ id }) => (
+              <textarea
+                id={id}
+                className="min-h-[72px] rounded-md border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-2 py-1.5 text-[12px]"
+                value={draft.prompt}
+                onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
               />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-[12px]">{t("automations.engine")}</Label>
-              <select
-                className={selectClass}
-                value={draft.engineId}
-                onChange={(event) => setDraft({ ...draft, engineId: event.target.value })}
-              >
-                {engines.map((engine) => (
-                  <option key={engine.id} value={engine.id} disabled={!engine.available}>
-                    {engine.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-[12px]">{t("automations.prompt")}</Label>
-            <textarea
-              className="min-h-[72px] rounded-md border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-2 py-1.5 text-[12px]"
-              value={draft.prompt}
-              onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
-            />
-          </div>
+            )}
+          </FormField>
           <AutomationScopeFields
             workspaceName={draft.workspaceName}
             cwd={draft.cwd}
@@ -259,97 +266,110 @@ export default function AutomationsSection() {
             onBrowse={() => void browseCwd()}
           />
           <div className="flex flex-wrap items-end gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-[12px]">{t("automations.schedule")}</Label>
-              <select
-                className={selectClass}
-                value={draft.schedule.preset}
-                onChange={(event) =>
-                  setDraft({
-                    ...draft,
-                    schedule: { ...draft.schedule, preset: event.target.value as SchedulePreset },
-                  })
-                }
-              >
-                {PRESETS.map((preset) => (
-                  <option key={preset} value={preset}>
-                    {t(`automations.preset.${preset}`)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {draft.schedule.preset !== "hourly" && draft.schedule.preset !== "custom" && (
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-[12px]">{t("automations.time")}</Label>
-                <Input
-                  type="time"
-                  className="w-28"
-                  value={draft.schedule.time}
-                  onChange={(event) =>
-                    setDraft({
-                      ...draft,
-                      schedule: { ...draft.schedule, time: event.target.value },
-                    })
-                  }
-                />
-              </div>
-            )}
-            {draft.schedule.preset === "weekly" && (
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-[12px]">{t("automations.weekday")}</Label>
+            <FormField label={t("automations.schedule")} className="flex flex-col gap-1.5" labelClassName="text-[12px]">
+              {({ id }) => (
                 <select
+                  id={id}
                   className={selectClass}
-                  value={draft.schedule.weekday}
+                  value={draft.schedule.preset}
                   onChange={(event) =>
                     setDraft({
                       ...draft,
-                      schedule: { ...draft.schedule, weekday: Number(event.target.value) },
+                      schedule: { ...draft.schedule, preset: event.target.value as SchedulePreset },
                     })
                   }
                 >
-                  {weekdays.map((label, day) => (
-                    <option key={day} value={day}>
-                      {label}
+                  {PRESETS.map((preset) => (
+                    <option key={preset} value={preset}>
+                      {t(`automations.preset.${preset}`)}
                     </option>
                   ))}
                 </select>
-              </div>
+              )}
+            </FormField>
+            {draft.schedule.preset !== "hourly" && draft.schedule.preset !== "custom" && (
+              <FormField label={t("automations.time")} className="flex flex-col gap-1.5" labelClassName="text-[12px]">
+                {({ id }) => (
+                  <Input
+                    id={id}
+                    type="time"
+                    className="w-28"
+                    value={draft.schedule.time}
+                    onChange={(event) =>
+                      setDraft({
+                        ...draft,
+                        schedule: { ...draft.schedule, time: event.target.value },
+                      })
+                    }
+                  />
+                )}
+              </FormField>
+            )}
+            {draft.schedule.preset === "weekly" && (
+              <FormField label={t("automations.weekday")} className="flex flex-col gap-1.5" labelClassName="text-[12px]">
+                {({ id }) => (
+                  <select
+                    id={id}
+                    className={selectClass}
+                    value={draft.schedule.weekday}
+                    onChange={(event) =>
+                      setDraft({
+                        ...draft,
+                        schedule: { ...draft.schedule, weekday: Number(event.target.value) },
+                      })
+                    }
+                  >
+                    {weekdays.map((label, day) => (
+                      <option key={day} value={day}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </FormField>
             )}
             {draft.schedule.preset === "custom" && (
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-[12px]">{t("automations.cron")}</Label>
+              <FormField label={t("automations.cron")} className="flex flex-col gap-1.5" labelClassName="text-[12px]">
+                {({ id }) => (
+                  <Input
+                    id={id}
+                    className="w-44 font-mono"
+                    value={draft.schedule.cron}
+                    onChange={(event) =>
+                      setDraft({
+                        ...draft,
+                        schedule: { ...draft.schedule, cron: event.target.value },
+                      })
+                    }
+                  />
+                )}
+              </FormField>
+            )}
+            <FormField label={t("automations.timeoutMinutes")} className="flex flex-col gap-1.5" labelClassName="text-[12px]">
+              {({ id }) => (
                 <Input
-                  className="w-44 font-mono"
-                  value={draft.schedule.cron}
+                  id={id}
+                  type="number"
+                  className="w-24"
+                  min={1}
+                  value={draft.timeoutMinutes}
                   onChange={(event) =>
-                    setDraft({
-                      ...draft,
-                      schedule: { ...draft.schedule, cron: event.target.value },
-                    })
+                    setDraft({ ...draft, timeoutMinutes: Number(event.target.value) || 30 })
                   }
                 />
-              </div>
-            )}
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-[12px]">{t("automations.timeoutMinutes")}</Label>
-              <Input
-                type="number"
-                className="w-24"
-                min={1}
-                value={draft.timeoutMinutes}
-                onChange={(event) =>
-                  setDraft({ ...draft, timeoutMinutes: Number(event.target.value) || 30 })
-                }
-              />
-            </div>
+              )}
+            </FormField>
           </div>
-          <label className="flex items-center gap-2 text-[12px]">
+          <div className="flex items-center gap-2 text-[12px]">
             <Switch
+              id={autoApproveId}
               checked={draft.autoApprove}
               onCheckedChange={(autoApprove) => setDraft({ ...draft, autoApprove })}
             />
-            {t("automations.autoApprove")}
-          </label>
+            <label htmlFor={autoApproveId} className="cursor-pointer">
+              {t("automations.autoApprove")}
+            </label>
+          </div>
           <p className="text-[11px] text-[var(--app-text-muted)]">
             {t("automations.autoApproveHint")}
           </p>

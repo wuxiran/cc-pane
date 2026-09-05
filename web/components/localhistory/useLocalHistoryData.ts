@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import {
   localHistoryService,
   type FileVersion,
@@ -242,7 +242,7 @@ export function useLocalHistoryData({
       onOpenChange(false);
     } catch (e) {
       console.error("Failed to restore version:", e);
-      toast.error(t("restoreFailed", { error: getErrorMessage(e) }));
+      toastErr(t("restoreFailed", { error: getErrorMessage(e) }));
     }
   }
 
@@ -282,17 +282,17 @@ export function useLocalHistoryData({
       setLabelDialogOpen(false);
     } catch (e) {
       console.error("Failed to add label:", e);
-      toast.error(t("addTagFailed", { error: getErrorMessage(e) }));
+      toastErr(t("addTagFailed", { error: getErrorMessage(e) }));
     }
   }
 
   async function restoreDeletedFile(file: FileVersion) {
     try {
       await localHistoryService.restoreFileVersion(projectPath, file.filePath, file.id);
-      toast.success(t("fileRestored", { path: file.filePath }));
+      toastOk(t("fileRestored", { path: file.filePath }));
       await loadDeletedFiles();
     } catch (e) {
-      toast.error(t("restoreFailed", { error: getErrorMessage(e) }));
+      toastErr(t("restoreFailed", { error: getErrorMessage(e) }));
     }
   }
 
@@ -301,11 +301,11 @@ export function useLocalHistoryData({
     setRestoring(true);
     try {
       const restored = await localHistoryService.restoreToLabel(projectPath, label.id);
-      toast.success(t("filesRestored", { count: restored.length }));
+      toastOk(t("filesRestored", { count: restored.length }));
       onRestored?.();
       await loadProjectLabels();
     } catch (e) {
-      toast.error(t("restoreFailed", { error: getErrorMessage(e) }));
+      toastErr(t("restoreFailed", { error: getErrorMessage(e) }));
     } finally {
       setRestoring(false);
     }

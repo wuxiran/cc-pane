@@ -1,10 +1,10 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { toast } from "sonner";
+import { toastWarn } from "@/lib/feedback";
 import { listenWebviewIfTauri } from "@/services/runtime";
 import { useLaunchWarnings, type LaunchWarningPayload } from "./useLaunchWarnings";
 
-vi.mock("sonner", () => ({ toast: { warning: vi.fn() } }));
+vi.mock("@/lib/feedback", () => ({ toastWarn: vi.fn(), toastErr: vi.fn() }));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => `${key}:${JSON.stringify(opts ?? {})}`,
@@ -36,7 +36,7 @@ describe("useLaunchWarnings", () => {
     expect(listen).toHaveBeenCalledWith("terminal-launch-warning", expect.any(Function));
   });
 
-  it("profileMismatch 事件触发 toast.warning 并带 profile/cli/used 参数", async () => {
+  it("profileMismatch 事件触发 toastWarn 并带 profile/cli/used 参数", async () => {
     const { handler } = await mount();
     handler({
       payload: {
@@ -46,8 +46,8 @@ describe("useLaunchWarnings", () => {
         usedProfileName: "Claude Default",
       },
     });
-    expect(toast.warning).toHaveBeenCalledTimes(1);
-    const msg = vi.mocked(toast.warning).mock.calls[0][0] as string;
+    expect(toastWarn).toHaveBeenCalledTimes(1);
+    const msg = vi.mocked(toastWarn).mock.calls[0][0] as string;
     expect(msg).toContain("launchProfileMismatch");
     expect(msg).toContain("Codex YOLO");
     expect(msg).toContain("claude");
@@ -59,7 +59,7 @@ describe("useLaunchWarnings", () => {
     handler({
       payload: { kind: "profileMismatch", requestedProfileName: "P", cliTool: "codex", usedProfileName: null },
     });
-    expect(toast.warning).toHaveBeenCalledTimes(1);
+    expect(toastWarn).toHaveBeenCalledTimes(1);
   });
 
   it("Codex 恢复目标缺失降级时给出明确警告", async () => {
@@ -72,14 +72,14 @@ describe("useLaunchWarnings", () => {
       },
     });
 
-    expect(toast.warning).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(toast.warning).mock.calls[0][0]).toContain("codexResumeTargetMissing");
+    expect(toastWarn).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(toastWarn).mock.calls[0][0]).toContain("codexResumeTargetMissing");
   });
 
   it("其他 kind 不触发 toast", async () => {
     const { handler } = await mount();
     handler({ payload: { kind: "somethingElse" } });
-    expect(toast.warning).not.toHaveBeenCalled();
+    expect(toastWarn).not.toHaveBeenCalled();
   });
 
   it("卸载时调用 unlisten", async () => {

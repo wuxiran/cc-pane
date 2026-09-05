@@ -3,16 +3,14 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import GitCloneDialog from "./GitCloneDialog";
 
-vi.mock("sonner", () => ({
-  toast: {
-    success: vi.fn(),
-    info: vi.fn(),
-    error: vi.fn(),
-  },
+vi.mock("@/lib/feedback", () => ({
+  toastOk: vi.fn(),
+  toastInfo: vi.fn(),
+  toastErr: vi.fn(),
 }));
 
 interface RenderOpts {
@@ -122,7 +120,7 @@ describe("GitCloneDialog", () => {
         },
       }),
     );
-    expect(toast.success).toHaveBeenCalled();
+    expect(toastOk).toHaveBeenCalled();
     expect(onCloned).toHaveBeenCalledWith("C:/repos/repo");
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
@@ -158,7 +156,7 @@ describe("GitCloneDialog", () => {
 
     await user.click(cloneButton());
 
-    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    await waitFor(() => expect(toastErr).toHaveBeenCalled());
     expect(onCloned).not.toHaveBeenCalled();
     // 失败路径不会关闭对话框
     expect(onOpenChange).not.toHaveBeenCalledWith(false);

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastInfo, toastOk } from "@/lib/feedback";
 import {
   ServerOff,
   Play,
@@ -21,8 +21,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useSharedMcpStore } from "@/stores";
 import type { BridgeMode, SharedMcpServerConfig, SharedMcpServerInfo, SharedMcpServerStatus } from "@/types";
@@ -168,12 +168,12 @@ export default function SharedMcpSection() {
     try {
       const imported = await importFromClaude();
       if (imported.length > 0) {
-        toast.success(t("sharedMcp.importedCount", { count: imported.length }));
+        toastOk(t("sharedMcp.importedCount", { count: imported.length }));
       } else {
-        toast.info(t("sharedMcp.noNewServers"));
+        toastInfo(t("sharedMcp.noNewServers"));
       }
     } catch (e) {
-      toast.error(t("sharedMcp.importFailed", { error: String(e) }));
+      toastErr(t("sharedMcp.importFailed", { error: String(e) }));
     } finally {
       setImporting(false);
     }
@@ -228,22 +228,22 @@ export default function SharedMcpSection() {
     const port = Number.parseInt(form.port, 10);
 
     if (!name || !command) {
-      toast.error(t("sharedMcp.nameCommandRequired"));
+      toastErr(t("sharedMcp.nameCommandRequired"));
       return;
     }
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      toast.error(t("sharedMcp.portInvalid"));
+      toastErr(t("sharedMcp.portInvalid"));
       return;
     }
 
     const duplicate = servers.some((server) => server.name !== editingName && server.name === name);
     if (duplicate) {
-      toast.error(t("sharedMcp.nameExists"));
+      toastErr(t("sharedMcp.nameExists"));
       return;
     }
     const portDuplicate = servers.some((server) => server.name !== editingName && server.config.port === port);
     if (portDuplicate) {
-      toast.error(t("sharedMcp.portInUse"));
+      toastErr(t("sharedMcp.portInUse"));
       return;
     }
 
@@ -261,37 +261,37 @@ export default function SharedMcpSection() {
         await removeServer(editingName);
       }
       await upsertServer(name, updated);
-      toast.success(editingName ? t("sharedMcp.updated") : t("sharedMcp.added"));
+      toastOk(editingName ? t("sharedMcp.updated") : t("sharedMcp.added"));
       resetForm();
     } catch (e) {
-      toast.error(t("common:saveFailed", { error: String(e) }));
+      toastErr(t("common:saveFailed", { error: String(e) }));
     }
   }
 
   async function handleStart(name: string) {
     try {
       await startServer(name);
-      toast.success(t("sharedMcp.started", { name }));
+      toastOk(t("sharedMcp.started", { name }));
     } catch (e) {
-      toast.error(t("sharedMcp.startFailed", { name, error: String(e) }));
+      toastErr(t("sharedMcp.startFailed", { name, error: String(e) }));
     }
   }
 
   async function handleStop(name: string) {
     try {
       await stopServer(name);
-      toast.success(t("sharedMcp.stopped", { name }));
+      toastOk(t("sharedMcp.stopped", { name }));
     } catch (e) {
-      toast.error(t("sharedMcp.stopFailed", { name, error: String(e) }));
+      toastErr(t("sharedMcp.stopFailed", { name, error: String(e) }));
     }
   }
 
   async function handleRestart(name: string) {
     try {
       await restartServer(name);
-      toast.success(t("sharedMcp.restarted", { name }));
+      toastOk(t("sharedMcp.restarted", { name }));
     } catch (e) {
-      toast.error(t("sharedMcp.restartFailed", { name, error: String(e) }));
+      toastErr(t("sharedMcp.restartFailed", { name, error: String(e) }));
     }
   }
 
@@ -299,17 +299,17 @@ export default function SharedMcpSection() {
     try {
       await toggleShared(name, enabled);
     } catch (e) {
-      toast.error(t("sharedMcp.toggleFailed", { error: String(e) }));
+      toastErr(t("sharedMcp.toggleFailed", { error: String(e) }));
     }
   }
 
   async function handleRemove(name: string) {
     try {
       await removeServer(name);
-      toast.success(t("sharedMcp.removed", { name }));
+      toastOk(t("sharedMcp.removed", { name }));
       if (editingName === name) resetForm();
     } catch (e) {
-      toast.error(t("sharedMcp.removeFailed", { error: String(e) }));
+      toastErr(t("sharedMcp.removeFailed", { error: String(e) }));
     }
   }
 
@@ -362,70 +362,61 @@ export default function SharedMcpSection() {
           </div>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className="space-y-1">
-              <Label className="text-xs">{t("sharedMcp.fieldName")}</Label>
-              <Input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="context7"
-                className="h-8 text-sm"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">{t("sharedMcp.fieldCommand")}</Label>
-              <Input
-                value={form.command}
-                onChange={(e) => setForm({ ...form, command: e.target.value })}
-                placeholder="npx"
-                className="h-8 text-sm font-mono"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">{t("sharedMcp.fieldArgs")}</Label>
-              <Input
-                value={form.args}
-                onChange={(e) => setForm({ ...form, args: e.target.value })}
-                placeholder="-y @upstash/context7-mcp"
-                className="h-8 text-sm font-mono"
-              />
-            </div>
+            <FormField label={t("sharedMcp.fieldName")} className="space-y-1" labelClassName="text-xs">
+              {({ id }) => (
+                <Input id={id} value={form.name} placeholder="context7" className="h-8 text-sm"
+                  onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              )}
+            </FormField>
+            <FormField label={t("sharedMcp.fieldCommand")} className="space-y-1" labelClassName="text-xs">
+              {({ id }) => (
+                <Input id={id} value={form.command} placeholder="npx" className="h-8 text-sm font-mono"
+                  onChange={(e) => setForm({ ...form, command: e.target.value })} />
+              )}
+            </FormField>
+            <FormField label={t("sharedMcp.fieldArgs")} className="space-y-1" labelClassName="text-xs">
+              {({ id }) => (
+                <Input id={id} value={form.args} placeholder="-y @upstash/context7-mcp" className="h-8 text-sm font-mono"
+                  onChange={(e) => setForm({ ...form, args: e.target.value })} />
+              )}
+            </FormField>
             <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">{t("sharedMcp.fieldPort")}</Label>
-                <Input
-                  value={form.port}
-                  onChange={(e) => setForm({ ...form, port: e.target.value })}
-                  placeholder="3100"
-                  className="h-8 text-sm font-mono"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">{t("sharedMcp.fieldBridge")}</Label>
-                <Select
-                  value={form.bridgeMode}
-                  onValueChange={(next) => setForm({ ...form, bridgeMode: next as BridgeMode })}
-                >
-                  <SelectTrigger className="h-8 w-full bg-[var(--app-content)] text-[13px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="mcp-proxy">mcp-proxy</SelectItem>
-                    <SelectItem value="native-http">native-http</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <FormField label={t("sharedMcp.fieldPort")} className="space-y-1" labelClassName="text-xs">
+                {({ id }) => (
+                  <Input id={id} value={form.port} placeholder="3100" className="h-8 text-sm font-mono"
+                    onChange={(e) => setForm({ ...form, port: e.target.value })} />
+                )}
+              </FormField>
+              <FormField label={t("sharedMcp.fieldBridge")} className="space-y-1" labelClassName="text-xs">
+                {({ id }) => (
+                  <Select
+                    value={form.bridgeMode}
+                    onValueChange={(next) => setForm({ ...form, bridgeMode: next as BridgeMode })}
+                  >
+                    <SelectTrigger id={id} className="h-8 w-full bg-[var(--app-content)] text-[13px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="mcp-proxy">mcp-proxy</SelectItem>
+                      <SelectItem value="native-http">native-http</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </FormField>
             </div>
           </div>
 
-          <div className="space-y-1">
-            <Label className="text-xs">{t("sharedMcp.fieldEnv")}</Label>
-            <textarea
-              value={form.env}
-              onChange={(e) => setForm({ ...form, env: e.target.value })}
-              placeholder="KEY=VALUE"
-              className="h-20 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-          </div>
+          <FormField label={t("sharedMcp.fieldEnv")} className="space-y-1" labelClassName="text-xs">
+            {({ id }) => (
+              <textarea
+                id={id}
+                value={form.env}
+                onChange={(e) => setForm({ ...form, env: e.target.value })}
+                placeholder="KEY=VALUE"
+                className="h-20 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            )}
+          </FormField>
 
           <div className="flex flex-wrap items-center justify-between gap-2">
             <label className="flex items-center gap-2 text-sm">

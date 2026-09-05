@@ -90,7 +90,7 @@ describe("FileExplorerView", () => {
     await waitFor(() => {
       expect(actions.createFile).toHaveBeenCalledWith(PROJECT, "hello.ts", PROJECT);
     });
-    expect(toast.success).toHaveBeenCalledWith(tt("sidebar:filetree.created", { name: "hello.ts" }));
+    expect(toast.success).toHaveBeenCalledWith(tt("sidebar:filetree.created", { name: "hello.ts" }), expect.objectContaining({ duration: expect.any(Number) }));
   });
 
   it("creates a new folder via Enter in the dialog input", async () => {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastWarn } from "@/lib/feedback";
 import { parseKeyEvent, formatKeyCombo, findConflict } from "@/stores";
 import type { ShortcutSettings } from "@/types";
 import { SearchableSetting } from "./SettingsSearchContext";
@@ -73,7 +73,7 @@ export default function ShortcutsSection({ value, onChange }: ShortcutsSectionPr
 
     const conflict = findConflict(value.bindings, editingAction, combo);
     if (conflict) {
-      toast.warning(t("settings:shortcutConflict", { combo, label: getActionLabel(conflict) }));
+      toastWarn(t("settings:shortcutConflict", { combo, label: getActionLabel(conflict) }));
       return;
     }
 

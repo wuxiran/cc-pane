@@ -4,15 +4,17 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MODULE_REGISTRY } from "@/modules/registry";
-import { toast } from "sonner";
+import { toastErr, toastInfo } from "@/lib/feedback";
 import type { AppSettings } from "@/types";
 import { useSettingsStore } from "@/stores";
 import { DEFAULT_CCCHAN_SETTINGS, useCCChanStore } from "@/stores/useCCChanStore";
 import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore";
 import SettingsPanel from "./SettingsPanel";
 
-vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
+vi.mock("@/lib/feedback", () => ({
+  toastOk: vi.fn(),
+  toastErr: vi.fn(),
+  toastInfo: vi.fn(),
 }));
 
 interface SectionProps<T> {
@@ -396,7 +398,7 @@ describe("SettingsPanel", () => {
       generalSectionProps!.onChange({ ...generalSectionProps!.value, language: "en" } as never);
     });
 
-    await waitFor(() => expect(toast.error).toHaveBeenCalled(), { timeout: 2000 });
+    await waitFor(() => expect(toastErr).toHaveBeenCalled(), { timeout: 2000 });
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 
@@ -428,11 +430,11 @@ describe("SettingsPanel", () => {
     getDefaults.mockClear();
     // 第一次点击只是待确认，不重置
     await user.click(screen.getByRole("button", { name: tSettings("resetSection") }));
-    expect(toast.info).not.toHaveBeenCalled();
+    expect(toastInfo).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: tSettings("resetSectionConfirm") }));
     expect(getDefaults).toHaveBeenCalled();
-    expect(toast.info).toHaveBeenCalledWith(tSettings("sectionResetDone"));
+    expect(toastInfo).toHaveBeenCalledWith(tSettings("sectionResetDone"));
     expect(generalSectionProps?.value).toEqual(getDefaults().general);
   });
 });

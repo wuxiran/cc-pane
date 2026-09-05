@@ -1,5 +1,7 @@
-import { toast } from "sonner";
+import { useId } from "react";
 import { useTranslation } from "react-i18next";
+import { toastErr, toastOk } from "@/lib/feedback";
+import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -14,6 +16,8 @@ interface ProxySectionProps {
 
 export default function ProxySection({ value, onChange }: ProxySectionProps) {
   const { t } = useTranslation("settings");
+  const enabledId = useId();
+  const proxyTypeId = useId();
 
   function update<K extends keyof ProxySettings>(key: K, v: ProxySettings[K]) {
     onChange({ ...value, [key]: v });
@@ -22,9 +26,9 @@ export default function ProxySection({ value, onChange }: ProxySectionProps) {
   async function testProxy() {
     try {
       await settingsService.testProxy();
-      toast.success(t("proxyTestSuccess"));
+      toastOk(t("proxyTestSuccess"));
     } catch (e) {
-      toast.error(t("proxyTestFailed", { error: e }));
+      toastErr(t("proxyTestFailed", { error: e }));
     }
   }
 
@@ -35,8 +39,9 @@ export default function ProxySection({ value, onChange }: ProxySectionProps) {
       </h3>
 
       <div className="flex items-center justify-between">
-        <Label>{t("enableProxy")}</Label>
+        <Label htmlFor={enabledId}>{t("enableProxy")}</Label>
         <input
+          id={enabledId}
           type="checkbox"
           checked={value.enabled}
           onChange={(e) => update("enabled", e.target.checked)}
@@ -49,9 +54,9 @@ export default function ProxySection({ value, onChange }: ProxySectionProps) {
         <>
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between gap-6">
-              <Label>{t("proxyType")}</Label>
+              <Label htmlFor={proxyTypeId}>{t("proxyType")}</Label>
               <Select value={value.proxyType} onValueChange={(next) => update("proxyType", next)}>
-                <SelectTrigger aria-label={t("proxyType")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+                <SelectTrigger id={proxyTypeId} aria-label={t("proxyType")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -75,47 +80,58 @@ export default function ProxySection({ value, onChange }: ProxySectionProps) {
           </div>
 
           <div className="flex gap-2">
-            <div className="flex flex-col gap-1 flex-1">
-              <Label>{t("host")}</Label>
-              <Input value={value.host} placeholder="127.0.0.1" onChange={(e) => update("host", e.target.value)} />
-            </div>
-            <div className="flex flex-col gap-1 w-28">
-              <Label>{t("port")}</Label>
-              <Input type="number" value={value.port} placeholder="7890" onChange={(e) => update("port", Number(e.target.value))} />
-            </div>
+            <FormField label={t("host")} className="flex flex-col gap-1 flex-1">
+              {({ id }) => (
+                <Input id={id} value={value.host} placeholder="127.0.0.1" onChange={(e) => update("host", e.target.value)} />
+              )}
+            </FormField>
+            <FormField label={t("port")} className="flex flex-col gap-1 w-28">
+              {({ id }) => (
+                <Input id={id} type="number" value={value.port} placeholder="7890" onChange={(e) => update("port", Number(e.target.value))} />
+              )}
+            </FormField>
           </div>
 
           <div className="flex gap-2">
-            <div className="flex flex-col gap-1 flex-1">
-              <Label>{t("username")}</Label>
-              <Input
-                value={value.username ?? ""}
-                placeholder={t("username")}
-                onChange={(e) => update("username", e.target.value || null)}
-              />
-            </div>
-            <div className="flex flex-col gap-1 flex-1">
-              <Label>{t("password")}</Label>
-              <Input
-                type="password"
-                value={value.password ?? ""}
-                placeholder={t("password")}
-                onChange={(e) => update("password", e.target.value || null)}
-              />
-            </div>
+            <FormField label={t("username")} className="flex flex-col gap-1 flex-1">
+              {({ id }) => (
+                <Input
+                  id={id}
+                  value={value.username ?? ""}
+                  placeholder={t("username")}
+                  onChange={(e) => update("username", e.target.value || null)}
+                />
+              )}
+            </FormField>
+            <FormField label={t("password")} className="flex flex-col gap-1 flex-1">
+              {({ id }) => (
+                <Input
+                  id={id}
+                  type="password"
+                  value={value.password ?? ""}
+                  placeholder={t("password")}
+                  onChange={(e) => update("password", e.target.value || null)}
+                />
+              )}
+            </FormField>
           </div>
 
-          <div className="flex flex-col gap-1">
-            <Label>{t("excludeList")}</Label>
-            <Input
-              value={value.noProxy ?? ""}
-              placeholder="localhost,127.0.0.1"
-              onChange={(e) => update("noProxy", e.target.value || null)}
-            />
-            <span className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-              {t("excludeListHint")}
-            </span>
-          </div>
+          <FormField
+            label={t("excludeList")}
+            hint={t("excludeListHint")}
+            className="flex flex-col gap-1"
+            hintClassName="text-[11px] text-[var(--app-text-tertiary)]"
+          >
+            {({ id, hintId }) => (
+              <Input
+                id={id}
+                aria-describedby={hintId}
+                value={value.noProxy ?? ""}
+                placeholder="localhost,127.0.0.1"
+                onChange={(e) => update("noProxy", e.target.value || null)}
+              />
+            )}
+          </FormField>
 
           <div>
             <Button size="sm" variant="secondary" onClick={testProxy}>{t("testConnection")}</Button>

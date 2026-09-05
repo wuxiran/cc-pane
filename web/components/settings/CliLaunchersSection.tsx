@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { Play, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -45,9 +45,9 @@ export default function CliLaunchersSection({ value, onChange }: CliLaunchersSec
     setTestingId(toolId);
     try {
       const output = await settingsService.testCliLauncher(command, versionArgs);
-      toast.success(t("cliLauncherTestSuccess", { output }));
+      toastOk(t("cliLauncherTestSuccess", { output }));
     } catch (error) {
-      toast.error(t("cliLauncherTestFailed", { error }));
+      toastErr(t("cliLauncherTestFailed", { error }));
     } finally {
       setTestingId(null);
     }

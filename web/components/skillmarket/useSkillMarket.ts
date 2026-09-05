@@ -2,7 +2,7 @@
 // 页面组件只消费这里的状态与动作，不直接碰 skillService。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { skillService } from "@/services/skillService";
 import type { SkillMarketEntry } from "@/types";
 import { handleErrorSilent } from "@/utils/errorHandler";
@@ -70,7 +70,7 @@ export function useSkillMarket(initialTarget: string = USER_INSTALL_TARGET) {
         setCatalog(entries);
       } catch (error) {
         setLoadError(String(error));
-        toast.error(t("toast.loadFailed", { error: String(error) }));
+        toastErr(t("toast.loadFailed", { error: String(error) }));
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -153,13 +153,13 @@ export function useSkillMarket(initialTarget: string = USER_INSTALL_TARGET) {
           toWorkspace ? installTarget : null,
         );
         setInstalledIds((current) => new Set([...current, installedKey(entry)]));
-        toast.success(
+        toastOk(
           toWorkspace
             ? t("toast.installedToWorkspace", { name: installed.name, workspace: installTarget })
             : t("toast.installed", { name: installed.name }),
         );
       } catch (error) {
-        toast.error(t("toast.installFailed", { error: String(error) }));
+        toastErr(t("toast.installFailed", { error: String(error) }));
       } finally {
         setBusyId(null);
       }
@@ -181,9 +181,9 @@ export function useSkillMarket(initialTarget: string = USER_INSTALL_TARGET) {
           next.delete(installedKey(entry));
           return next;
         });
-        toast.success(t("toast.removed", { name: entry.name }));
+        toastOk(t("toast.removed", { name: entry.name }));
       } catch (error) {
-        toast.error(t("toast.removeFailed", { error: String(error) }));
+        toastErr(t("toast.removeFailed", { error: String(error) }));
       } finally {
         setBusyId(null);
       }

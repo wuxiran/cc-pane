@@ -454,17 +454,21 @@
   /* shadcn 语义变量 — 冷调近黑,靠明度分层而非边框 */
   --background: #1E2024;
   --foreground: #E6E8EB;
-  --card: #26282D;
+  /* 2026-09 主区提亮联动：--card 与 panel 锁步 #26282D → #2E3137（同 hex），
+     --popover 保持对 panel 差值 #2C2F35 → #34383F（保 H/S，L +3.53%） */
+  --card: #2E3137;
   --card-foreground: #E6E8EB;
-  --popover: #2C2F35;
+  --popover: #34383F;
   --popover-foreground: #E6E8EB;
   --primary: #4C8DF5;
   --primary-foreground: #ffffff;
-  --secondary: #2C2F35;
+  --secondary: #34383F;
   --secondary-foreground: #E6E8EB;
-  --muted: #26282D;
+  /* --muted 与 --card 同语义锁步：#26282D → #2E3137；muted-foreground 在其上 5.01 ≥4.5 */
+  --muted: #2E3137;
   --muted-foreground: #9BA1A9;
-  --accent: #32363E;
+  /* --accent（浮起面 hover 填充）同档联动 #32363E → #3A3F48，保住 card < popover < accent 明度阶梯 */
+  --accent: #3A3F48;
   --accent-foreground: #E6E8EB;
   --destructive: #F85149;
   --border: rgba(255, 255, 255, 0.09);
@@ -493,7 +497,8 @@
   --app-content: #1E2024;
   --app-bg-deep: #1A1C20;
   --app-bg-sidebar-deep: #1A1C20;
-  --app-overlay: #2C2F35;
+  /* 2026-09 主区提亮联动：与 --popover 锁步 #2C2F35 → #34383F（保 H/S，L +3.53%） */
+  --app-overlay: #34383F;
   /* 2026-09 主区提亮联动：#4C8DF5 → #5E99F6（保 H/S，L 62.9%→66.7%），新 panel 上 4.57 */
   --app-accent: #5E99F6;
   --app-tag-red: #FF7B72;
@@ -657,17 +662,21 @@
   --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
   --background: #1b1920;
   --foreground: #eeeaf5;
-  --card: #292630;
+  /* 2026-09 主区提亮联动：--card 与 panel 锁步 #292630 → #322e3a（同 hex），
+     --popover 保持对 panel 差值 #302c39 → #393443（保 H/S，L +3.53%） */
+  --card: #322e3a;
   --card-foreground: #eeeaf5;
-  --popover: #302c39;
+  --popover: #393443;
   --popover-foreground: #eeeaf5;
   --primary: #9b7cf6;
   --primary-foreground: #ffffff;
-  --secondary: #302c39;
+  --secondary: #393443;
   --secondary-foreground: #eeeaf5;
-  --muted: #292630;
+  /* --muted 与 --card 同语义锁步：#292630 → #322e3a；muted-foreground 在其上 5.40 ≥4.5 */
+  --muted: #322e3a;
   --muted-foreground: #aaa2b8;
-  --accent: #373142;
+  /* --accent（浮起面 hover 填充）同档联动 #373142 → #40394c，保住 card < popover < accent 明度阶梯 */
+  --accent: #40394c;
   --accent-foreground: #eeeaf5;
   --border: rgba(238, 234, 245, 0.10);
   --input: rgba(238, 234, 245, 0.13);
@@ -686,7 +695,8 @@
   --app-content: #201d25;
   --app-bg-deep: #17161b;
   --app-bg-sidebar-deep: #19171d;
-  --app-overlay: #302c39;
+  /* 2026-09 主区提亮联动：与 --popover 锁步 #302c39 → #393443（保 H/S，L +3.53%） */
+  --app-overlay: #393443;
   /* 2026-09 主区提亮联动：#9b7cf6 → #a285f7（保 H/S），新 panel 上 4.56 */
   --app-accent: #a285f7;
   --app-text-primary: #eeeaf5;
@@ -757,17 +767,21 @@
   --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
   --background: #1d1b18;
   --foreground: #f0ede7;
-  --card: #2b2822;
+  /* 2026-09 主区提亮联动：--card 与 panel 锁步 #2b2822 → #35312a（同 hex），
+     --popover 保持对 panel 差值 #332f28 → #3d3830（保 H/S，L +3.53%） */
+  --card: #35312a;
   --card-foreground: #f0ede7;
-  --popover: #332f28;
+  --popover: #3d3830;
   --popover-foreground: #f0ede7;
   --primary: #e9a916;
   --primary-foreground: #211a09;
-  --secondary: #332f28;
+  --secondary: #3d3830;
   --secondary-foreground: #f0ede7;
-  --muted: #2b2822;
+  /* --muted 与 --card 同语义锁步：#2b2822 → #35312a；muted-foreground 在其上 5.17 ≥4.5 */
+  --muted: #35312a;
   --muted-foreground: #aaa397;
-  --accent: #3a352c;
+  /* --accent（浮起面 hover 填充）同档联动 #3a352c → #443e34，保住 card < popover < accent 明度阶梯 */
+  --accent: #443e34;
   --accent-foreground: #f0ede7;
   --border: rgba(240, 237, 231, 0.10);
   --input: rgba(240, 237, 231, 0.13);
@@ -786,7 +800,8 @@
   --app-content: #211f1b;
   --app-bg-deep: #171613;
   --app-bg-sidebar-deep: #191714;
-  --app-overlay: #332f28;
+  /* 2026-09 主区提亮联动：与 --popover 锁步 #332f28 → #3d3830（保 H/S，L +3.53%） */
+  --app-overlay: #3d3830;
   --app-accent: #e9a916;
   --app-text-primary: #f0ede7;
   --app-text-secondary: #aaa397;
@@ -1044,17 +1059,22 @@
   --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
   --background: #242933;
   --foreground: #E5E9F0;
-  --card: #2A313D;
+  /* 2026-09 主区提亮联动：--card 与 panel 锁步 #2A313D → #313948（同 hex），
+     --popover 保持对 panel 差值 #303846 → #374151（保 H/S，L +3.53%） */
+  --card: #313948;
   --card-foreground: #E5E9F0;
-  --popover: #303846;
+  --popover: #374151;
   --popover-foreground: #E5E9F0;
   --primary: #88C0D0;
   --primary-foreground: #212831;
-  --secondary: #333B49;
+  /* --secondary 现状已高于 popover 一档，保持差值联动 #333B49 → #3a4454 */
+  --secondary: #3a4454;
   --secondary-foreground: #E5E9F0;
-  --muted: #2A313D;
+  /* --muted 与 --card 同语义锁步：#2A313D → #313948；muted-foreground 在其上 4.93 ≥4.5 */
+  --muted: #313948;
   --muted-foreground: #9FABBC;
-  --accent: #39424F;
+  /* --accent（浮起面 hover 填充）同档联动 #39424F → #414b59，保住 card < popover < accent 明度阶梯 */
+  --accent: #414b59;
   --accent-foreground: #E5E9F0;
   --border: rgba(229, 233, 240, 0.10);
   --input: rgba(229, 233, 240, 0.13);
@@ -1073,7 +1093,8 @@
   --app-content: #20252E;
   --app-bg-deep: #1A1F27;
   --app-bg-sidebar-deep: #1E232C;
-  --app-overlay: #303846;
+  /* 2026-09 主区提亮联动：与 --popover 锁步 #303846 → #374151（保 H/S，L +3.53%） */
+  --app-overlay: #374151;
   --app-accent: #88C0D0;
   --app-text-primary: #E5E9F0;
   --app-text-secondary: #9FABBC;
@@ -1143,17 +1164,21 @@
   --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
   --background: #1A1B26;
   --foreground: #C8D0F0;
-  --card: #212336;
+  /* 2026-09 主区提亮联动：--card 与 panel 锁步 #212336 → #282A41（同 hex），
+     --popover 保持对 panel 差值 #272A3E → #2e3149（保 H/S，L +3.53%） */
+  --card: #282A41;
   --card-foreground: #C8D0F0;
-  --popover: #272A3E;
+  --popover: #2e3149;
   --popover-foreground: #C8D0F0;
   --primary: #7AA2F7;
   --primary-foreground: #FFFFFF;
-  --secondary: #272A3E;
+  --secondary: #2e3149;
   --secondary-foreground: #C8D0F0;
-  --muted: #212336;
+  /* --muted 与 --card 同语义锁步：#212336 → #282A41；muted-foreground 在其上 4.61 ≥4.5 */
+  --muted: #282A41;
   --muted-foreground: #8B93B0;
-  --accent: #2E3352;
+  /* --accent（浮起面 hover 填充）同档联动 #2E3352 → #343a5e，保住 card < popover < accent 明度阶梯 */
+  --accent: #343a5e;
   --accent-foreground: #C8D0F0;
   --border: rgba(199, 207, 240, 0.10);
   --input: rgba(199, 207, 240, 0.13);
@@ -1172,7 +1197,8 @@
   --app-content: #171827;
   --app-bg-deep: #12131C;
   --app-bg-sidebar-deep: #14151F;
-  --app-overlay: #272A3E;
+  /* 2026-09 主区提亮联动：与 --popover 锁步 #272A3E → #2e3149（保 H/S，L +3.53%） */
+  --app-overlay: #2e3149;
   --app-accent: #7AA2F7;
   --app-text-primary: #C8D0F0;
   --app-text-secondary: #8B93B0;

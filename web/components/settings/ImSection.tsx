@@ -1,6 +1,8 @@
-import { toast } from "sonner";
+import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { Trash2 } from "lucide-react";
+import { toastErr, toastOk } from "@/lib/feedback";
+import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -37,6 +39,8 @@ function newChannel(): ImChannelConfig {
 
 export default function ImSection({ value, onChange }: ImSectionProps) {
   const { t } = useTranslation("settings");
+  const enabledId = useId();
+  const pushWhenFocusedId = useId();
 
   function update<K extends keyof ImSettings>(key: K, v: ImSettings[K]) {
     onChange({ ...value, [key]: v });
@@ -63,9 +67,9 @@ export default function ImSection({ value, onChange }: ImSectionProps) {
   async function testChannel(channel: ImChannelConfig) {
     try {
       await settingsService.testImChannel(channel.id);
-      toast.success(t("imTestSuccess"));
+      toastOk(t("imTestSuccess"));
     } catch (e) {
-      toast.error(t("imTestFailed", { error: e }));
+      toastErr(t("imTestFailed", { error: e }));
     }
   }
 
@@ -92,8 +96,9 @@ export default function ImSection({ value, onChange }: ImSectionProps) {
       </h3>
 
       <div className="flex items-center justify-between">
-        <Label>{t("enableImBridge")}</Label>
+        <Label htmlFor={enabledId}>{t("enableImBridge")}</Label>
         <input
+          id={enabledId}
           type="checkbox"
           checked={value.enabled}
           onChange={(e) => update("enabled", e.target.checked)}
@@ -104,12 +109,13 @@ export default function ImSection({ value, onChange }: ImSectionProps) {
 
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-0.5">
-          <Label>{t("imPushWhenFocused")}</Label>
+          <Label htmlFor={pushWhenFocusedId}>{t("imPushWhenFocused")}</Label>
           <span className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
             {t("imPushWhenFocusedDesc")}
           </span>
         </div>
         <input
+          id={pushWhenFocusedId}
           type="checkbox"
           checked={value.pushWhenFocused}
           onChange={(e) => update("pushWhenFocused", e.target.checked)}
@@ -185,57 +191,72 @@ export default function ImSection({ value, onChange }: ImSectionProps) {
               </Button>
             </div>
 
-            <div className="flex flex-col gap-1">
-              <Label>{t("imChannelUrl")}</Label>
-              <Input
-                value={channel.url}
-                placeholder="https://…"
-                className="h-8"
-                onChange={(e) => updateChannel(channel.id, { url: e.target.value })}
-              />
-            </div>
+            <FormField label={t("imChannelUrl")} className="flex flex-col gap-1">
+              {({ id }) => (
+                <Input
+                  id={id}
+                  value={channel.url}
+                  placeholder="https://…"
+                  className="h-8"
+                  onChange={(e) => updateChannel(channel.id, { url: e.target.value })}
+                />
+              )}
+            </FormField>
 
             {SHOWS_SECRET.has(channel.channelType) && (
-              <div className="flex flex-col gap-1">
-                <Label>{t("imChannelSecret")}</Label>
-                <Input
-                  type="password"
-                  value={channel.secret ?? ""}
-                  className="h-8"
-                  onChange={(e) => updateChannel(channel.id, { secret: e.target.value || null })}
-                />
-                <span className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-                  {t("imChannelSecretHint")}
-                </span>
-              </div>
+              <FormField
+                label={t("imChannelSecret")}
+                hint={t("imChannelSecretHint")}
+                className="flex flex-col gap-1"
+                hintClassName="text-[11px] text-[var(--app-text-tertiary)]"
+              >
+                {({ id, hintId }) => (
+                  <Input
+                    id={id}
+                    aria-describedby={hintId}
+                    type="password"
+                    value={channel.secret ?? ""}
+                    className="h-8"
+                    onChange={(e) => updateChannel(channel.id, { secret: e.target.value || null })}
+                  />
+                )}
+              </FormField>
             )}
 
             {SHOWS_TOKEN.has(channel.channelType) && (
-              <div className="flex flex-col gap-1">
-                <Label>{t("imChannelToken")}</Label>
-                <Input
-                  type="password"
-                  value={channel.token ?? ""}
-                  className="h-8"
-                  onChange={(e) => updateChannel(channel.id, { token: e.target.value || null })}
-                />
-              </div>
+              <FormField label={t("imChannelToken")} className="flex flex-col gap-1">
+                {({ id }) => (
+                  <Input
+                    id={id}
+                    type="password"
+                    value={channel.token ?? ""}
+                    className="h-8"
+                    onChange={(e) => updateChannel(channel.id, { token: e.target.value || null })}
+                  />
+                )}
+              </FormField>
             )}
 
             {SHOWS_CHAT_ID.has(channel.channelType) && (
-              <div className="flex flex-col gap-1">
-                <Label>{t("imChannelChatId")}</Label>
-                <Input
-                  value={channel.chatId ?? ""}
-                  className="h-8"
-                  onChange={(e) => updateChannel(channel.id, { chatId: e.target.value || null })}
-                />
-              </div>
+              <FormField label={t("imChannelChatId")} className="flex flex-col gap-1">
+                {({ id }) => (
+                  <Input
+                    id={id}
+                    value={channel.chatId ?? ""}
+                    className="h-8"
+                    onChange={(e) => updateChannel(channel.id, { chatId: e.target.value || null })}
+                  />
+                )}
+              </FormField>
             )}
 
             <div className="flex flex-col gap-1">
-              <Label>{t("imChannelEvents")}</Label>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <Label id={`im-channel-events-label-${channel.id}`}>{t("imChannelEvents")}</Label>
+              <div
+                role="group"
+                aria-labelledby={`im-channel-events-label-${channel.id}`}
+                className="flex flex-wrap gap-x-4 gap-y-1"
+              >
                 {EVENT_KINDS.map((kind) => (
                   <label
                     key={kind}

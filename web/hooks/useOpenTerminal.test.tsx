@@ -1,19 +1,19 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import { usePanesStore, useWorkspacesStore } from "@/stores";
 import { useLayoutScopeStore } from "@/stores/useLayoutScopeStore";
 import { createPanel } from "@/lib/paneTree";
 import { historyService, localHistoryService } from "@/services";
 import { useOpenTerminal } from "./useOpenTerminal";
 
-vi.mock("sonner", () => ({
-  toast: { error: vi.fn() },
+vi.mock("@/lib/feedback", () => ({
+  toastErr: vi.fn(),
 }));
 
 describe("useOpenTerminal host path guard", () => {
   beforeEach(() => {
-    vi.mocked(toast.error).mockReset();
+    vi.mocked(toastErr).mockReset();
     useLayoutScopeStore.getState().resetForTest();
     useWorkspacesStore.setState({
       workspaces: [],
@@ -35,7 +35,7 @@ describe("useOpenTerminal host path guard", () => {
     act(() => result.current({ path: "D:\\repo", cliTool: "codex" }));
 
     expect(openProject).not.toHaveBeenCalled();
-    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("D:\\repo"));
+    expect(toastErr).toHaveBeenCalledWith(expect.stringContaining("D:\\repo"));
   });
 
   it("新建未绑定布局后打开工作空间时留在当前布局", () => {
@@ -151,7 +151,7 @@ describe("useOpenTerminal host path guard", () => {
     }));
 
     expect(openProject).not.toHaveBeenCalled();
-    expect(toast.error).toHaveBeenCalledWith("SSH 机器标识不可用");
+    expect(toastErr).toHaveBeenCalledWith("SSH 机器标识不可用");
   });
 
   it("从 SSH scope 启动本地终端时使用当前选中 workspace scope", () => {

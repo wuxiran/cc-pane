@@ -9,7 +9,7 @@ import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { useTranslation } from "react-i18next";
 import { Wand2 } from "lucide-react";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { formatJSON } from "@/utils/json";
 
 /** 亮色模式语法高亮 — 鲜明的 JSON 颜色 */
@@ -212,9 +212,9 @@ export default function JsonEditor({
     try {
       const formatted = formatJSON(currentValue);
       onChange(formatted);
-      toast.success(t("formatSuccess"));
+      toastOk(t("formatSuccess"));
     } catch {
-      toast.error(t("formatError"));
+      toastErr(t("formatError"));
     }
   };
 

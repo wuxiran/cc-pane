@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { TFunction } from "i18next";
-import { toast } from "sonner";
+import { toastOk } from "@/lib/feedback";
 import { usePanesStore } from "@/stores";
 import { getPoppedTabs } from "@/services";
 import {
@@ -107,7 +107,7 @@ export default function LayoutDeleteDialog({
       // 算好的（用户看到的数字就是它），重新遍历会与展示脱节。
       await destroySessionsDirectly(summary.sessionIds, summary.poppedTabIds, "delete-layout");
       deleteLayout(layout.id);
-      toast.success(t("layoutDeleted", { name: layout.name }));
+      toastOk(t("layoutDeleted", { name: layout.name }));
     } finally {
       onClose();
     }

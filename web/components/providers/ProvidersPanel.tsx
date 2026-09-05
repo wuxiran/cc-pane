@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { Zap, Wrench, ArrowLeft, ArrowRight, Keyboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
@@ -181,18 +181,18 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
   const handleDelete = useCallback(async (id: string) => {
     try {
       await removeProvider(id);
-      toast.success(t("providerDeleted"));
+      toastOk(t("providerDeleted"));
     } catch (e) {
-      toast.error(t("deleteFailed", { error: String(e) }));
+      toastErr(t("deleteFailed", { error: String(e) }));
     }
   }, [removeProvider, t]);
 
   const handleSetDefault = useCallback(async (id: string) => {
     try {
       await setDefault(id, activeTab);
-      toast.success(t("setAsDefault"));
+      toastOk(t("setAsDefault"));
     } catch (e) {
-      toast.error(t("setDefaultFailed", { error: String(e) }));
+      toastErr(t("setDefaultFailed", { error: String(e) }));
     }
   }, [activeTab, setDefault, t]);
 
@@ -208,7 +208,7 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
     setSelectedPreset(null);
     setFormReturnView("list");
     setView("form");
-    toast.success(t("duplicated"));
+    toastOk(t("duplicated"));
   }, [t]);
 
   const handleSelectPreset = useCallback((preset: ProviderPreset) => {

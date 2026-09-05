@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, FileJson, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useComfyWorkflowTemplateStore } from "@/stores";
@@ -84,7 +84,7 @@ export default function ComfyWorkflowPicker({ providerId, value, onChange }: Com
     try {
       const parsed = parseComfyWorkflow(JSON.parse(await file.text()));
       if (!parsed.workflow) {
-        toast.error(parsed.error === "ui_format" ? t("comfyUiWorkflowUnsupported") : t("comfyWorkflowInvalid"));
+        toastErr(parsed.error === "ui_format" ? t("comfyUiWorkflowUnsupported") : t("comfyWorkflowInvalid"));
         return;
       }
       const normalized = normalizeComfyWorkflow(parsed.workflow).json;
@@ -99,9 +99,9 @@ export default function ComfyWorkflowPicker({ providerId, value, onChange }: Com
           setSelectedId("");
         }
       }
-      toast.success(t("comfyWorkflowImported"));
+      toastOk(t("comfyWorkflowImported"));
     } catch (error) {
-      toast.error(getErrorMessage(error) || t("comfyWorkflowInvalid"));
+      toastErr(getErrorMessage(error) || t("comfyWorkflowInvalid"));
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }

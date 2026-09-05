@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Music, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { mediaService } from "@/services/mediaService";
@@ -47,7 +47,7 @@ export default function MediaSubtypeNodeCard({ node }: MediaSubtypeNodeCardProps
       await mediaService.updateNode(nodeId, { parameters: merged });
       await useMediaStore.getState().refreshCurrent();
     } catch (error) {
-      toast.error(t("nodeUpdateFailed", { message: getErrorMessage(error) }));
+      toastErr(t("nodeUpdateFailed", { message: getErrorMessage(error) }));
     } finally {
       setSaving(false);
     }

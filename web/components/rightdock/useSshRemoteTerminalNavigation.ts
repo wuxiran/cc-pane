@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import { activeTerminalLeaf } from "@/lib/paneSessions";
 import { terminalService } from "@/services";
 import { useActivityBarStore, usePanesStore } from "@/stores";
@@ -39,7 +39,7 @@ export function useSshRemoteTerminalNavigation(machineId: string | null) {
     if (!machineId || !entry.isDir) return;
     const sessionId = activeSshShellSessionId(machineId);
     if (!sessionId) {
-      toast.error(t("sshFiles.noActiveShell"));
+      toastErr(t("sshFiles.noActiveShell"));
       return;
     }
     try {
@@ -47,7 +47,7 @@ export function useSshRemoteTerminalNavigation(machineId: string | null) {
       // 不弹「终端已切换到…」toast：界面已切到 panes 视图，终端里能看到 cd 命令（见 docs/feedback-channels.md）。
       useActivityBarStore.setState({ appViewMode: "panes", orchestrationOverlayOpen: false });
     } catch (error) {
-      toast.error(getErrorMessage(error));
+      toastErr(getErrorMessage(error));
     }
   }, [machineId, t]);
 }

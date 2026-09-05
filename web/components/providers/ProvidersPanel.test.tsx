@@ -263,7 +263,7 @@ describe("ProvidersPanel", () => {
     await waitFor(() => {
       expect(actions.removeProvider).toHaveBeenCalledWith("p-1");
     });
-    expect(toast.success).toHaveBeenCalledWith(i18n.t("settings:providerDeleted"));
+    expect(toast.success).toHaveBeenCalledWith(i18n.t("settings:providerDeleted"), expect.objectContaining({ duration: expect.any(Number) }));
   });
 
   it("sets a provider as default from its card", async () => {
@@ -319,7 +319,7 @@ describe("ProvidersPanel", () => {
     expect(screen.getByTestId("provider-form")).toHaveTextContent(
       "dup:Claude API (Copy)"
     );
-    expect(toast.success).toHaveBeenCalledWith(i18n.t("settings:duplicated"));
+    expect(toast.success).toHaveBeenCalledWith(i18n.t("settings:duplicated"), expect.objectContaining({ duration: expect.any(Number) }));
   });
 
   it("opens the edit form for an existing provider", async () => {

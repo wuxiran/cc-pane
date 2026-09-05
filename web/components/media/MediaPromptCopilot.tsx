@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -68,7 +68,7 @@ export default function MediaPromptCopilot({ open, onOpenChange, onApplyPrompt, 
       });
       setOutput(text);
     } catch (error) {
-      toast.error(t("copilotFailed", { message: getErrorMessage(error) }));
+      toastErr(t("copilotFailed", { message: getErrorMessage(error) }));
     } finally {
       setRunning(false);
     }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import {
   AlertCircle,
   ArrowLeft,
@@ -169,7 +169,7 @@ export default function SshRemoteFilesView({ onOpenTerminal }: SshRemoteFilesVie
     setPasswordPromptMachineId(null);
     setError(null);
     if (remember) await useSshMachinesStore.getState().load();
-    toast.success(t(remember ? "sshFiles.passwordSaved" : "sshFiles.passwordReady"));
+    toastOk(t(remember ? "sshFiles.passwordSaved" : "sshFiles.passwordReady"));
     await loadDirectory(true);
   }, [loadDirectory, machine, markSessionPassword, t]);
 
@@ -192,7 +192,7 @@ export default function SshRemoteFilesView({ onOpenTerminal }: SshRemoteFilesVie
       setEntryDialog(null);
       await loadDirectory(true);
     } catch (operationError) {
-      toast.error(getErrorMessage(operationError));
+      toastErr(getErrorMessage(operationError));
     }
   }, [currentPath, entryDialog, entryName, loadDirectory, machineId, t]);
 
@@ -201,10 +201,10 @@ export default function SshRemoteFilesView({ onOpenTerminal }: SshRemoteFilesVie
     if (!window.confirm(t("sshFiles.confirmDelete", { name: entry.name }))) return;
     try {
       await sshFileService.deleteEntry(machineId, entry.path);
-      toast.success(t("sshFiles.deleted", { name: entry.name }));
+      toastOk(t("sshFiles.deleted", { name: entry.name }));
       await loadDirectory(true);
     } catch (deleteError) {
-      toast.error(getErrorMessage(deleteError));
+      toastErr(getErrorMessage(deleteError));
     }
   }, [loadDirectory, machineId, t]);
 
@@ -234,9 +234,9 @@ export default function SshRemoteFilesView({ onOpenTerminal }: SshRemoteFilesVie
     if (!destination) return;
     try {
       await sshFileService.downloadFile(machineId, entry.path, destination);
-      toast.success(t("sshFiles.downloaded", { name: entry.name }));
+      toastOk(t("sshFiles.downloaded", { name: entry.name }));
     } catch (downloadError) {
-      toast.error(getErrorMessage(downloadError));
+      toastErr(getErrorMessage(downloadError));
     }
   }, [machineId, t]);
 
@@ -249,10 +249,10 @@ export default function SshRemoteFilesView({ onOpenTerminal }: SshRemoteFilesVie
         Number.parseInt(permissionDialog.mode, 8),
       );
       setPermissionDialog(null);
-      toast.success(t("sshFiles.permissionsChanged"));
+      toastOk(t("sshFiles.permissionsChanged"));
       await loadDirectory(true);
     } catch (permissionError) {
-      toast.error(getErrorMessage(permissionError));
+      toastErr(getErrorMessage(permissionError));
     }
   }, [loadDirectory, machineId, permissionDialog, t]);
 
@@ -272,7 +272,7 @@ export default function SshRemoteFilesView({ onOpenTerminal }: SshRemoteFilesVie
     } catch (treeError) {
       const message = getErrorMessage(treeError);
       handleAuthenticationError(message);
-      toast.error(message);
+      toastErr(message);
       throw treeError;
     }
   }, [cacheDirectory, getCachedDirectory, handleAuthenticationError, machineId, showHidden]);

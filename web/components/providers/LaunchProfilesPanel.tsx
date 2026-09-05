@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastInfo, toastOk } from "@/lib/feedback";
 import { useLaunchProfilesStore, usePanesStore, useProvidersStore, useSharedMcpStore, useWorkspacesStore } from "@/stores";
 import type { DiscoveredExternalSkill, LaunchProfileDraft, LaunchProfileResolution, LaunchProfileRuntime, SkillMarketEntry } from "@/types";
 import { useCliTools } from "@/hooks/useCliTools";
@@ -314,7 +314,7 @@ export default function LaunchProfilesPanel({
   const handleSave = useCallback(async () => {
     try {
       if ((activeTool === "pi" || activeTool === "omp") && draft.targetRuntime === "ssh") {
-        toast.error(t(activeTool === "pi" ? "piSshRuntimeUnsupported" : "ompSshRuntimeUnsupported"));
+        toastErr(t(activeTool === "pi" ? "piSshRuntimeUnsupported" : "ompSshRuntimeUnsupported"));
         return;
       }
       const alias = draft.alias?.trim() || draft.name?.trim() || t("profileDefaultName", { tool: toolLabel(activeTool, t) });
@@ -339,7 +339,7 @@ export default function LaunchProfilesPanel({
       if (isSystemDefaultSelected) {
         setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
         replaceDraft(toDraft(saved));
-        toast.success(t("toast.systemDefaultSaved"));
+        toastOk(t("toast.systemDefaultSaved"));
         return;
       }
 
@@ -348,11 +348,11 @@ export default function LaunchProfilesPanel({
       }
       setSelectedId(saved.id);
       replaceDraft(toDraft(saved));
-      toast.success(workspaceContext && !selectedProfile
+      toastOk(workspaceContext && !selectedProfile
         ? t("toast.profileSavedBound", { name: workspaceContext.name })
         : t("toast.profileSaved"));
     } catch (error) {
-      toast.error(t("common:saveFailed", { error: String(error) }));
+      toastErr(t("common:saveFailed", { error: String(error) }));
     }
   }, [activeTool, createProfile, draft, isSystemDefaultSelected, replaceDraft, selectedProfile, t, toolDefaultProfile, updateProfile, updateWorkspaceLaunchProfile, workspaceContext]);
 
@@ -365,9 +365,9 @@ export default function LaunchProfilesPanel({
       await removeProfile(selectedProfile.id);
       setSelectedId(SYSTEM_DEFAULT_PROFILE_ID);
       replaceDraft((current) => toolDefaultProfile ? toDraft(toolDefaultProfile) : systemDefaultLaunchProfileDraft(activeTool, current.targetRuntime ?? null, t));
-      toast.success(t("toast.profileDeleted"));
+      toastOk(t("toast.profileDeleted"));
     } catch (error) {
-      toast.error(t("common:deleteFailed", { error: String(error) }));
+      toastErr(t("common:deleteFailed", { error: String(error) }));
     }
   }, [activeTool, isSystemDefaultSelected, removeProfile, replaceDraft, selectedProfile, t, toolDefaultProfile, updateWorkspaceLaunchProfile, workspaces]);
 
@@ -380,7 +380,7 @@ export default function LaunchProfilesPanel({
     if (!selectedProfile) return;
     replaceDraft(toDraft(selectedProfile));
     await setDefaultProfile(selectedProfile.id);
-    toast.success(t("toast.defaultProfileUpdated"));
+    toastOk(t("toast.defaultProfileUpdated"));
   }, [replaceDraft, selectedProfile, setDefaultProfile, t]);
 
   const handleSetDefault = useCallback(() => {
@@ -390,15 +390,15 @@ export default function LaunchProfilesPanel({
 
   const handleToggleWorkspaceBinding = useCallback(async (workspaceName: string, checked: boolean) => {
     if (!selectedProfileId) {
-      toast.info(t("toast.saveProfileFirst"));
+      toastInfo(t("toast.saveProfileFirst"));
       return;
     }
     setBindingWorkspaceName(workspaceName);
     try {
       await updateWorkspaceLaunchProfile(workspaceName, checked ? selectedProfileId : null);
-      toast.success(checked ? t("toast.boundTo", { name: workspaceName }) : t("toast.unboundFrom", { name: workspaceName }));
+      toastOk(checked ? t("toast.boundTo", { name: workspaceName }) : t("toast.unboundFrom", { name: workspaceName }));
     } catch (error) {
-      toast.error(t("toast.workspaceBindFailed", { error: String(error) }));
+      toastErr(t("toast.workspaceBindFailed", { error: String(error) }));
     } finally {
       setBindingWorkspaceName(null);
     }

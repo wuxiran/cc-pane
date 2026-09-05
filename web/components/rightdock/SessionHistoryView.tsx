@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, History, LoaderCircle, Play, RefreshCw, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastWarn } from "@/lib/feedback";
 import { sessionIndexService } from "@/services/sessionIndexService";
 import { useSshMachinesStore } from "@/stores/useSshMachinesStore";
 import type {
@@ -186,7 +186,7 @@ export default function SessionHistoryView({
       setSessions((current) => [...current, ...result]);
       setHasMore(result.length === PAGE_SIZE);
     } catch {
-      toast.error(t("sessionHistory.loadError"));
+      toastErr(t("sessionHistory.loadError"));
     } finally {
       setLoadingMore(false);
     }
@@ -199,7 +199,7 @@ export default function SessionHistoryView({
       setRolloutStatuses({});
       setReloadVersion((version) => version + 1);
     } catch {
-      toast.error(t("sessionHistory.refreshError"));
+      toastErr(t("sessionHistory.refreshError"));
     } finally {
       setRefreshing(false);
     }
@@ -215,19 +215,19 @@ export default function SessionHistoryView({
     ).then((result) => {
       if (result === false) {
         setRolloutStatuses((current) => ({ ...current, [entry.sessionId]: "invalid" }));
-        toast.warning(t("sessionHistory.rolloutMissing"));
+        toastWarn(t("sessionHistory.rolloutMissing"));
         return false;
       }
       if (result === null) {
         setRolloutStatuses((current) => ({ ...current, [entry.sessionId]: "unknown" }));
-        toast.warning(t("sessionHistory.rolloutCheckFailed"));
+        toastWarn(t("sessionHistory.rolloutCheckFailed"));
         return true;
       }
       setRolloutStatuses((current) => ({ ...current, [entry.sessionId]: "valid" }));
       return true;
     }).catch(() => {
       setRolloutStatuses((current) => ({ ...current, [entry.sessionId]: "unknown" }));
-      toast.warning(t("sessionHistory.rolloutCheckFailed"));
+      toastWarn(t("sessionHistory.rolloutCheckFailed"));
       return true;
     }).finally(() => {
       rolloutRequests.current.delete(entry.sessionId);

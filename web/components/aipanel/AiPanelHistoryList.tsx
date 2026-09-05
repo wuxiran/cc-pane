@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { FolderOpen, PanelTopOpen, Radio, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import {
   formatContentSize,
   groupPanelsByWorkspace,
@@ -51,13 +51,13 @@ export default function AiPanelHistoryList() {
 
   const handleOpen = async (panel: AiPanelSummary) => {
     const opened = await openAiPanelFromHistory(panel.panelId).catch(() => false);
-    if (!opened) toast.error(t("aiPanel.openHistoryFailed"));
+    if (!opened) toastErr(t("aiPanel.openHistoryFailed"));
   };
 
   const handleDelete = async (event: React.MouseEvent, panel: AiPanelSummary) => {
     event.stopPropagation();
     const removed = await removeAiPanelFromHistory(panel.panelId).catch(() => false);
-    if (!removed) toast.error(t("aiPanel.deleteFailed"));
+    if (!removed) toastErr(t("aiPanel.deleteFailed"));
   };
 
   return (

@@ -2,17 +2,15 @@ import "@/i18n";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
-import { toast } from "sonner";
+import { toastErr } from "@/lib/feedback";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import JournalPanel from "./JournalPanel";
 import type { JournalIndex } from "@/services";
 
-vi.mock("sonner", () => ({
-  toast: {
-    success: vi.fn(),
-    info: vi.fn(),
-    error: vi.fn(),
-  },
+vi.mock("@/lib/feedback", () => ({
+  toastOk: vi.fn(),
+  toastInfo: vi.fn(),
+  toastErr: vi.fn(),
 }));
 
 const WORKSPACE = "ws-demo";
@@ -143,6 +141,6 @@ describe("JournalPanel", () => {
     await user.type(screen.getByPlaceholderText(/实现用户认证功能|user authentication/i), "失败会话");
     await user.click(screen.getByRole("button", { name: /保存会话|Save Session/i }));
 
-    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    await waitFor(() => expect(toastErr).toHaveBeenCalled());
   });
 });

@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Pencil, Trash2, Copy, MonitorCog, Check, AlertTriangle } from "lucide-react";
-import { toast } from "sonner";
+import { toastOk } from "@/lib/feedback";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
@@ -171,7 +171,7 @@ export default function ProviderCard({
   const handleCopyUrl = () => {
     if (provider.baseUrl) {
       navigator.clipboard.writeText(provider.baseUrl);
-      toast.success(t("providerUrlCopied"));
+      toastOk(t("providerUrlCopied"));
     }
   };
 

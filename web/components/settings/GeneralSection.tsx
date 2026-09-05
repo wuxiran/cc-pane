@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { toast } from "sonner";
+import { toastInfo, toastOk, toastErr } from "@/lib/feedback";
 import { useTranslation } from "react-i18next";
 import { handleErrorSilent, isTauriRuntime } from "@/utils";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -63,7 +63,7 @@ export default function GeneralSection({
     const selected = await open({ directory: true, multiple: false, title: t("selectDataDir") });
     if (!selected || typeof selected !== "string") return;
     if (dataDirInfo && selected === dataDirInfo.currentPath) {
-      toast.info(t("dataDirSame"));
+      toastInfo(t("dataDirSame"));
       return;
     }
     const confirmed = window.confirm(
@@ -77,13 +77,13 @@ export default function GeneralSection({
     setMigrating(true);
     try {
       await settingsService.migrateDataDir(selected);
-      toast.success(t("migrationDone"));
+      toastOk(t("migrationDone"));
       const info = await settingsService.getDataDirInfo();
       setDataDirInfo(info);
       update("dataDir", selected);
       await loadSettings();
     } catch (e) {
-      toast.error(t("migrationFailed", { error: e }));
+      toastErr(t("migrationFailed", { error: e }));
     } finally {
       setMigrating(false);
     }
@@ -101,13 +101,13 @@ export default function GeneralSection({
     setMigrating(true);
     try {
       await settingsService.migrateDataDir(dataDirInfo.defaultPath);
-      toast.success(t("dataDirResetDone"));
+      toastOk(t("dataDirResetDone"));
       const info = await settingsService.getDataDirInfo();
       setDataDirInfo(info);
       update("dataDir", null);
       await loadSettings();
     } catch (e) {
-      toast.error(t("dataDirResetFailed", { error: e }));
+      toastErr(t("dataDirResetFailed", { error: e }));
     } finally {
       setMigrating(false);
     }
@@ -120,8 +120,9 @@ export default function GeneralSection({
       </h3>
 
       <div className="flex items-center justify-between">
-        <Label>{t("closeToTray")}</Label>
+        <Label htmlFor="general-close-to-tray">{t("closeToTray")}</Label>
         <input
+          id="general-close-to-tray"
           type="checkbox"
           checked={value.closeToTray}
           onChange={(e) => update("closeToTray", e.target.checked)}
@@ -131,8 +132,9 @@ export default function GeneralSection({
       </div>
 
       <div className="flex items-center justify-between">
-        <Label>{t("autoStart")}</Label>
+        <Label htmlFor="general-auto-start">{t("autoStart")}</Label>
         <input
+          id="general-auto-start"
           type="checkbox"
           checked={value.autoStart}
           onChange={(e) => update("autoStart", e.target.checked)}
@@ -142,8 +144,9 @@ export default function GeneralSection({
       </div>
 
       <div className="flex items-center justify-between">
-        <Label>{t("showSystemResources")}</Label>
+        <Label htmlFor="general-show-system-resources">{t("showSystemResources")}</Label>
         <input
+          id="general-show-system-resources"
           type="checkbox"
           aria-label={t("showSystemResources")}
           checked={value.showSystemResources ?? true}
@@ -155,12 +158,13 @@ export default function GeneralSection({
 
       <div className="flex items-center justify-between">
         <div className="flex flex-col pr-4">
-          <Label>{t("updateNotifyEnabled")}</Label>
+          <Label htmlFor="general-update-notify-enabled">{t("updateNotifyEnabled")}</Label>
           <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
             {t("updateNotifyEnabledDesc")}
           </p>
         </div>
         <input
+          id="general-update-notify-enabled"
           type="checkbox"
           aria-label={t("updateNotifyEnabled")}
           checked={updateNotifyEnabled}
@@ -172,12 +176,13 @@ export default function GeneralSection({
 
       <div className="flex items-center justify-between">
         <div className="flex flex-col pr-4">
-          <Label>{t("featureTipsEnabled")}</Label>
+          <Label htmlFor="general-feature-tips-enabled">{t("featureTipsEnabled")}</Label>
           <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
             {t("featureTipsEnabledDesc")}
           </p>
         </div>
         <input
+          id="general-feature-tips-enabled"
           type="checkbox"
           aria-label={t("featureTipsEnabled")}
           checked={featureTipsEnabled}
@@ -189,12 +194,13 @@ export default function GeneralSection({
 
       <div className="flex items-center justify-between">
         <div className="flex flex-col pr-4">
-          <Label>{t("localHistoryEnabled")}</Label>
+          <Label htmlFor="general-local-history-enabled">{t("localHistoryEnabled")}</Label>
           <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
             {t("localHistoryEnabledDesc")}
           </p>
         </div>
         <input
+          id="general-local-history-enabled"
           type="checkbox"
           aria-label={t("localHistoryEnabled")}
           checked={localHistoryEnabled}
@@ -206,12 +212,13 @@ export default function GeneralSection({
 
       <div className="flex items-center justify-between">
         <div className="flex flex-col">
-          <Label>{t("disableWslUsageScan")}</Label>
+          <Label htmlFor="general-disable-wsl-usage-scan">{t("disableWslUsageScan")}</Label>
           <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
             {t("disableWslUsageScanDesc")}
           </p>
         </div>
         <input
+          id="general-disable-wsl-usage-scan"
           type="checkbox"
           checked={value.disableWslUsageScan ?? false}
           onChange={(e) => update("disableWslUsageScan", e.target.checked)}
@@ -221,9 +228,9 @@ export default function GeneralSection({
       </div>
 
       <div className="flex items-center justify-between gap-6">
-        <Label>{t("language")}</Label>
+        <Label htmlFor="general-language">{t("language")}</Label>
         <Select value={value.language} onValueChange={(next) => update("language", next)}>
-          <SelectTrigger aria-label={t("language")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+          <SelectTrigger id="general-language" aria-label={t("language")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -236,13 +243,13 @@ export default function GeneralSection({
       {/* 默认 CLI 工具 */}
       <div className="flex items-center justify-between gap-6">
         <div className="min-w-0">
-          <Label>{t("defaultCliTool")}</Label>
+          <Label htmlFor="general-default-cli-tool">{t("defaultCliTool")}</Label>
           <p className="m-0 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
             {t("defaultCliToolDesc")}
           </p>
         </div>
         <Select value={value.defaultCliTool ?? "claude"} onValueChange={(next) => update("defaultCliTool", next)}>
-          <SelectTrigger aria-label={t("defaultCliTool")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+          <SelectTrigger id="general-default-cli-tool" aria-label={t("defaultCliTool")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -257,13 +264,13 @@ export default function GeneralSection({
       <div className="mt-1 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
         <div className="flex items-center justify-between gap-6">
           <div className="min-w-0">
-            <Label>{t("searchScope")}</Label>
+            <Label htmlFor="general-search-scope">{t("searchScope")}</Label>
             <p className="m-0 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
               {t("searchScopeDesc")}
             </p>
           </div>
           <Select value={value.searchScope} onValueChange={(next) => update("searchScope", next as SearchScope)}>
-            <SelectTrigger aria-label={t("searchScope")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+            <SelectTrigger id="general-search-scope" aria-label={t("searchScope")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

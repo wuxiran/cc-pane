@@ -1,8 +1,9 @@
-import { useState, useMemo, useCallback, useEffect, useRef, Suspense } from "react";
+import { useState, useMemo, useCallback, useEffect, useId, useRef, Suspense } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { ArrowLeft, Eye, EyeOff, ExternalLink, FolderOpen, FileText, Settings } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -64,6 +65,7 @@ interface ProviderFormPanelProps {
 }
 export default function ProviderFormPanel({ editProvider, duplicateSeed, preset, activeTab, compact, onBack, onSaved, onDirtyChange }: ProviderFormPanelProps) {
   const { t } = useTranslation(["settings", "common"]);
+  const configDirInputId = useId();
   const providers = useProvidersStore((s) => s.providers);
   const addProvider = useProvidersStore((s) => s.addProvider);
   const updateProvider = useProvidersStore((s) => s.updateProvider);
@@ -171,17 +173,17 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
   }
 
   async function handleSave() {
-    if (!form.name.trim()) { toast.error(t("nameRequired")); return; }
+    if (!form.name.trim()) { toastErr(t("nameRequired")); return; }
     const models = form.models.map((model) => ({
       id: model.id.trim(),
       label: model.label?.trim() || null,
       defaultEffort: model.defaultEffort ?? null,
       ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens ?? null }),
     }));
-    if (models.some((model) => !model.id)) { toast.error(t("providerModelIdRequired")); return; }
-    if (models.some((model) => !isValidProviderContextWindowTokens(model.contextWindowTokens))) { toast.error(t("providerModelContextWindowInvalid")); return; }
+    if (models.some((model) => !model.id)) { toastErr(t("providerModelIdRequired")); return; }
+    if (models.some((model) => !isValidProviderContextWindowTokens(model.contextWindowTokens))) { toastErr(t("providerModelContextWindowInvalid")); return; }
     if (new Set(models.map((model) => model.id)).size !== models.length) {
-      toast.error(t("providerModelIdsUnique"));
+      toastErr(t("providerModelIdsUnique"));
       return;
     }
     try {
@@ -189,7 +191,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
       if (isConfigJsonFile && configFileIsDirty) {
         await filesystemService.writeFile(form.configDir, configFileContent);
         setConfigFileOriginal(configFileContent);
-        toast.success(t("jsonFileSaved"));
+        toastOk(t("jsonFileSaved"));
       }
 
       // 复制种子路径永远走 add：editProvider 为空或 duplicateSeed 非空 → 一律 add。
@@ -214,14 +216,14 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
         const existing = providers.find((p) => p.id === editProvider.id);
         if (existing) provider.isDefault = existing.isDefault;
         await updateProvider(provider);
-        toast.success(t("providerUpdated"));
+        toastOk(t("providerUpdated"));
       } else {
         await addProvider(provider);
-        toast.success(t("providerAdded"));
+        toastOk(t("providerAdded"));
       }
       (onSaved ?? onBack)();
     } catch (e) {
-      toast.error(t("operationFailed", { error: String(e) }));
+      toastErr(t("operationFailed", { error: String(e) }));
     }
   }
 
@@ -263,7 +265,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
 
   async function handleOpenInExplorer(path: string) {
     try { await providerService.openPathInExplorer(path); }
-    catch (e) { toast.error(t("openFailed", { error: String(e) })); }
+    catch (e) { toastErr(t("openFailed", { error: String(e) })); }
   }
 
   const accentColor = preset?.accentColor || undefined;
@@ -314,15 +316,12 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
 
           <div className="flex flex-col gap-4">
             {/* Name */}
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs font-medium">{t("providerName")}</Label>
-              <Input
-                className="h-10 text-sm"
-                value={form.name}
-                onChange={(e) => updateForm({ name: e.target.value })}
-                placeholder={t("providerNamePlaceholder")}
-              />
-            </div>
+            <FormField label={t("providerName")} className="flex flex-col gap-1.5" labelClassName="text-xs font-medium">
+              {({ id }) => (
+                <Input id={id} className="h-10 text-sm" value={form.name}
+                  onChange={(e) => updateForm({ name: e.target.value })} placeholder={t("providerNamePlaceholder")} />
+              )}
+            </FormField>
 
             {/* Type */}
             {isPresetMode ? (
@@ -345,72 +344,72 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
 
             {/* Dynamic fields */}
             {shouldShowField("apiKey") && (
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-xs font-medium">{t("apiKey")}</Label>
-                <Input
-                  className="h-10 text-sm"
-                  type="password"
-                  value={form.apiKey}
-                  onChange={(e) => updateForm({ apiKey: e.target.value })}
-                  placeholder="sk-ant-..."
-                />
-              </div>
+              <FormField label={t("apiKey")} className="flex flex-col gap-1.5" labelClassName="text-xs font-medium">
+                {({ id }) => (
+                  <Input id={id} className="h-10 text-sm" type="password" value={form.apiKey}
+                    onChange={(e) => updateForm({ apiKey: e.target.value })} placeholder="sk-ant-..." />
+                )}
+              </FormField>
             )}
 
             {shouldShowField("baseUrl") && (
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-xs font-medium">{t("baseUrl")}</Label>
-                <Input
-                  className="h-10 text-sm"
-                  value={form.baseUrl}
-                  onChange={(e) => updateForm({ baseUrl: e.target.value })}
-                  placeholder="https://api.anthropic.com"
-                  readOnly={isPresetDefault("baseUrl")}
-                  style={isPresetDefault("baseUrl") ? { opacity: 0.6 } : undefined}
-                />
-              </div>
+              <FormField label={t("baseUrl")} className="flex flex-col gap-1.5" labelClassName="text-xs font-medium">
+                {({ id }) => (
+                  <Input id={id} className="h-10 text-sm" value={form.baseUrl}
+                    onChange={(e) => updateForm({ baseUrl: e.target.value })} placeholder="https://api.anthropic.com"
+                    readOnly={isPresetDefault("baseUrl")}
+                    style={isPresetDefault("baseUrl") ? { opacity: 0.6 } : undefined} />
+                )}
+              </FormField>
             )}
 
             {shouldShowField("region") && (
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-xs font-medium">{t("region")}</Label>
-                <Input
-                  className="h-10 text-sm"
-                  value={form.region}
-                  onChange={(e) => updateForm({ region: e.target.value })}
-                  placeholder={form.providerType === "bedrock" ? "us-east-1" : "us-central1"}
-                />
-              </div>
+              <FormField label={t("region")} className="flex flex-col gap-1.5" labelClassName="text-xs font-medium">
+                {({ id }) => (
+                  <Input
+                    id={id}
+                    className="h-10 text-sm"
+                    value={form.region}
+                    onChange={(e) => updateForm({ region: e.target.value })}
+                    placeholder={form.providerType === "bedrock" ? "us-east-1" : "us-central1"}
+                  />
+                )}
+              </FormField>
             )}
 
             {shouldShowField("awsProfile") && (
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-xs font-medium">{t("awsProfile")}</Label>
-                <Input
-                  className="h-10 text-sm"
-                  value={form.awsProfile}
-                  onChange={(e) => updateForm({ awsProfile: e.target.value })}
-                  placeholder="default"
-                />
-              </div>
+              <FormField label={t("awsProfile")} className="flex flex-col gap-1.5" labelClassName="text-xs font-medium">
+                {({ id }) => (
+                  <Input
+                    id={id}
+                    className="h-10 text-sm"
+                    value={form.awsProfile}
+                    onChange={(e) => updateForm({ awsProfile: e.target.value })}
+                    placeholder="default"
+                  />
+                )}
+              </FormField>
             )}
 
             {shouldShowField("projectId") && (
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-xs font-medium">{t("vertexProjectId")}</Label>
-                <Input
-                  className="h-10 text-sm"
-                  value={form.projectId}
-                  onChange={(e) => updateForm({ projectId: e.target.value })}
-                  placeholder="my-gcp-project"
-                />
-              </div>
+              <FormField label={t("vertexProjectId")} className="flex flex-col gap-1.5" labelClassName="text-xs font-medium">
+                {({ id }) => (
+                  <Input
+                    id={id}
+                    className="h-10 text-sm"
+                    value={form.projectId}
+                    onChange={(e) => updateForm({ projectId: e.target.value })}
+                    placeholder="my-gcp-project"
+                  />
+                )}
+              </FormField>
             )}
 
             {shouldShowField("configDir") && (
               <div className="flex flex-col gap-2">
-                <Label className="text-xs font-medium">{t("configPath")}</Label>
+                <Label htmlFor={configDirInputId} className="text-xs font-medium">{t("configPath")}</Label>
                 <Input
+                  id={configDirInputId}
                   className="h-10 text-sm"
                   value={form.configDir}
                   onChange={(e) => {

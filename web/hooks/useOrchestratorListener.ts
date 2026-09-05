@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { toast } from "sonner";
+import { toastErr, toastInfo } from "@/lib/feedback";
 import i18n from "@/i18n";
 import { nextLaunchId } from "@/components/panes/terminalLaunchIdentity";
 import {
@@ -87,7 +87,7 @@ export function useOrchestratorListener() {
 
           if (!projectPath?.trim()) {
             console.warn("[Orchestrator] Ignoring launch-task without projectPath:", event.payload);
-            toast.error(i18n.t("orchestratorLaunchProjectPathMissing", { ns: "panes" }));
+            toastErr(i18n.t("orchestratorLaunchProjectPathMissing", { ns: "panes" }));
             return;
           }
 
@@ -224,7 +224,7 @@ export function useOrchestratorListener() {
           }
 
           if (writeLayoutId && !silent && targetLayoutEntry) {
-            toast.info(
+            toastInfo(
               i18n.t("orchestratorLaunchedInLayout", {
                 ns: "panes",
                 layout: targetLayoutEntry.name,
@@ -243,7 +243,7 @@ export function useOrchestratorListener() {
 
           const notice = event.payload.notice?.trim();
           if (notice) {
-            toast.info(notice);
+            toastInfo(notice);
           }
         }
       )

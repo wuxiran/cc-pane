@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -36,8 +37,9 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
 
   const languageSelect = (
     <div className="flex flex-col gap-1">
-      <Label>{t("voiceLanguage")}</Label>
+      <Label htmlFor="voice-language">{t("voiceLanguage")}</Label>
       <select
+        id="voice-language"
         aria-label={t("voiceLanguage")}
         value={value.language ?? ""}
         onChange={(event) => update("language", event.target.value || null)}
@@ -54,27 +56,31 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
   );
 
   const maxRecordSecondsInput = (
-    <div className="flex flex-col gap-1">
-      <Label>{t("voiceMaxRecordSeconds")}</Label>
-      <Input
-        type="number"
-        min={1}
-        max={300}
-        value={value.maxRecordSeconds}
-        onChange={(event) => update("maxRecordSeconds", Number(event.target.value))}
-      />
-    </div>
+    <FormField label={t("voiceMaxRecordSeconds")} className="flex flex-col gap-1">
+      {({ id }) => (
+        <Input
+          id={id}
+          type="number"
+          min={1}
+          max={300}
+          value={value.maxRecordSeconds}
+          onChange={(event) => update("maxRecordSeconds", Number(event.target.value))}
+        />
+      )}
+    </FormField>
   );
 
   const modelInput = (
-    <div className="flex flex-col gap-1">
-      <Label>{t("voiceModel")}</Label>
-      <Input
-        value={value[capability.modelField]}
-        onChange={(event) => update(capability.modelField, event.target.value)}
-        placeholder={capability.modelPlaceholder}
-      />
-    </div>
+    <FormField label={t("voiceModel")} className="flex flex-col gap-1">
+      {({ id }) => (
+        <Input
+          id={id}
+          value={value[capability.modelField]}
+          onChange={(event) => update(capability.modelField, event.target.value)}
+          placeholder={capability.modelPlaceholder}
+        />
+      )}
+    </FormField>
   );
 
   return (
@@ -109,8 +115,8 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>{t("voiceProvider")}</Label>
-        <div className="flex flex-wrap gap-2">
+        <Label id="voice-provider-label">{t("voiceProvider")}</Label>
+        <div className="flex flex-wrap gap-2" role="group" aria-labelledby="voice-provider-label">
           {VOICE_PROVIDER_IDS.map((providerId) => {
             const option = VOICE_PROVIDERS[providerId];
             const active = capability.id === providerId;
@@ -133,26 +139,30 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
         </div>
       </div>
 
-      <div className="flex flex-col gap-1">
-        <Label>{t(capability.apiKeyLabelKey)}</Label>
-        <Input
-          type="password"
-          value={value[capability.apiKeyField]}
-          onChange={(event) => update(capability.apiKeyField, event.target.value)}
-          placeholder={capability.apiKeyPlaceholder}
-        />
-      </div>
+      <FormField label={t(capability.apiKeyLabelKey)} className="flex flex-col gap-1">
+        {({ id }) => (
+          <Input
+            id={id}
+            type="password"
+            value={value[capability.apiKeyField]}
+            onChange={(event) => update(capability.apiKeyField, event.target.value)}
+            placeholder={capability.apiKeyPlaceholder}
+          />
+        )}
+      </FormField>
 
       {capability.baseUrlField ? (
         <div className="grid grid-cols-[1fr_180px] gap-3">
-          <div className="flex flex-col gap-1">
-            <Label>{t(capability.baseUrlLabelKey ?? "voiceMimoBaseUrl")}</Label>
-            <Input
-              value={value[capability.baseUrlField]}
-              onChange={(event) => update(capability.baseUrlField!, event.target.value)}
-              placeholder={capability.baseUrlPlaceholder}
-            />
-          </div>
+          <FormField label={t(capability.baseUrlLabelKey ?? "voiceMimoBaseUrl")} className="flex flex-col gap-1">
+            {({ id }) => (
+              <Input
+                id={id}
+                value={value[capability.baseUrlField!]}
+                onChange={(event) => update(capability.baseUrlField!, event.target.value)}
+                placeholder={capability.baseUrlPlaceholder}
+              />
+            )}
+          </FormField>
           {modelInput}
         </div>
       ) : null}
@@ -161,8 +171,9 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
         <>
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
-              <Label>{t("voiceRegion")}</Label>
+              <Label htmlFor="voice-region">{t("voiceRegion")}</Label>
               <select
+                id="voice-region"
                 aria-label={t("voiceRegion")}
                 value={value.region}
                 onChange={(event) => update("region", event.target.value as VoiceSettings["region"])}

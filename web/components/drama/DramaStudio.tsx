@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Clapperboard } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import BatchRestyleDialog from "./BatchRestyleDialog";
 import DramaEpisodeEditor from "./DramaEpisodeEditor";
 import DramaSidebar from "./DramaSidebar";
@@ -69,7 +69,7 @@ export default function DramaStudio() {
       setProjects(loaded);
       setSelectedDramaId((current) => current && loaded.some((project) => project.id === current) ? current : loaded[0]?.id ?? null);
     } catch (error) {
-      toast.error(t("dramaLoadFailed", { message: getErrorMessage(error) }));
+      toastErr(t("dramaLoadFailed", { message: getErrorMessage(error) }));
     }
   }, [t, workspaceId]);
 
@@ -84,7 +84,7 @@ export default function DramaStudio() {
       setEpisodes(loaded);
       setSelectedEpisodeId((current) => current && loaded.some((episode) => episode.id === current) ? current : loaded[0]?.id ?? null);
     } catch (error) {
-      toast.error(t("dramaLoadFailed", { message: getErrorMessage(error) }));
+      toastErr(t("dramaLoadFailed", { message: getErrorMessage(error) }));
     }
   }, [selectedDramaId, t]);
 
@@ -96,7 +96,7 @@ export default function DramaStudio() {
     try {
       setShots(await dramaService.listShots(selectedEpisodeId));
     } catch (error) {
-      toast.error(t("dramaLoadFailed", { message: getErrorMessage(error) }));
+      toastErr(t("dramaLoadFailed", { message: getErrorMessage(error) }));
     }
   }, [selectedEpisodeId, t]);
 
@@ -156,7 +156,7 @@ export default function DramaStudio() {
 
   const requireMediaSelection = (selection: { providerId: string | null; modelId: string | null }): boolean => {
     if (!workspaceId || !projectId || !layoutId || !mediaScope || !selection.providerId || !selection.modelId) {
-      toast.error(t("dramaNeedMediaSelection"));
+      toastErr(t("dramaNeedMediaSelection"));
       return false;
     }
     return true;
@@ -188,7 +188,7 @@ export default function DramaStudio() {
     if (!requireMediaSelection(imageSelection)) return;
     const prompt = shot.prompt.trim();
     if (!prompt) {
-      toast.error(t("dramaShotPromptMissing"));
+      toastErr(t("dramaShotPromptMissing"));
       return;
     }
     const parameters = {
@@ -220,7 +220,7 @@ export default function DramaStudio() {
     const imageRun = shot.imageRunId ? runStates[shot.imageRunId] : undefined;
     const inputAssetId = imageRun?.status === "succeeded" ? imageRun.outputAssetIds[0] : undefined;
     if (!inputAssetId) {
-      toast.error(t("dramaShotImageMissing"));
+      toastErr(t("dramaShotImageMissing"));
       return;
     }
     const prompt = shot.prompt.trim() || shot.title;
@@ -256,7 +256,7 @@ export default function DramaStudio() {
         try {
           await operation(shot);
         } catch (error) {
-          toast.error(t("dramaGenerateFailed", { title: shot.title || `#${shot.ordinal + 1}`, message: getErrorMessage(error) }));
+          toastErr(t("dramaGenerateFailed", { title: shot.title || `#${shot.ordinal + 1}`, message: getErrorMessage(error) }));
         }
       }
     } finally {
@@ -307,12 +307,12 @@ export default function DramaStudio() {
   async function splitScreenplay() {
     if (!selectedEpisodeId || !screenplayDraft.trim()) return;
     if (!splitProvider) {
-      toast.error(t("copilotNoProviders"));
+      toastErr(t("copilotNoProviders"));
       return;
     }
     const modelId = splitProvider.defaultModelId ?? splitProvider.models?.[0]?.id;
     if (!modelId) {
-      toast.error(t("dramaSplitNoModel"));
+      toastErr(t("dramaSplitNoModel"));
       return;
     }
     setSplitting(true);
@@ -335,9 +335,9 @@ export default function DramaStudio() {
         });
       }
       await loadShots();
-      toast.success(t("dramaSplitDone", { count: parsedShots.length }));
+      toastOk(t("dramaSplitDone", { count: parsedShots.length }));
     } catch (error) {
-      toast.error(t("dramaSplitFailed", { message: getErrorMessage(error) }));
+      toastErr(t("dramaSplitFailed", { message: getErrorMessage(error) }));
     } finally {
       setSplitting(false);
     }
@@ -345,7 +345,7 @@ export default function DramaStudio() {
 
   const createProject = async () => {
     if (!workspaceId) {
-      toast.error(t("dramaNeedMediaSelection"));
+      toastErr(t("dramaNeedMediaSelection"));
       return;
     }
     try {
@@ -353,7 +353,7 @@ export default function DramaStudio() {
       setProjects((current) => [project, ...current]);
       setSelectedDramaId(project.id);
     } catch (error) {
-      toast.error(t("dramaLoadFailed", { message: getErrorMessage(error) }));
+      toastErr(t("dramaLoadFailed", { message: getErrorMessage(error) }));
     }
   };
 
@@ -364,7 +364,7 @@ export default function DramaStudio() {
       setEpisodes((current) => [...current, episode]);
       setSelectedEpisodeId(episode.id);
     } catch (error) {
-      toast.error(t("dramaLoadFailed", { message: getErrorMessage(error) }));
+      toastErr(t("dramaLoadFailed", { message: getErrorMessage(error) }));
     }
   };
 
@@ -374,7 +374,7 @@ export default function DramaStudio() {
       const updated = await dramaService.updateEpisode(selectedEpisodeId, { screenplay: screenplayDraft });
       setEpisodes((current) => current.map((episode) => episode.id === updated.id ? updated : episode));
     } catch (error) {
-      toast.error(t("dramaSaveFailed", { message: getErrorMessage(error) }));
+      toastErr(t("dramaSaveFailed", { message: getErrorMessage(error) }));
     }
   };
 
@@ -384,7 +384,7 @@ export default function DramaStudio() {
       const shot = await dramaService.createShot({ episodeId: selectedEpisodeId });
       setShots((current) => [...current, shot]);
     } catch (error) {
-      toast.error(t("dramaSaveFailed", { message: getErrorMessage(error) }));
+      toastErr(t("dramaSaveFailed", { message: getErrorMessage(error) }));
     }
   };
 
@@ -392,7 +392,7 @@ export default function DramaStudio() {
     try {
       patchShotInState(await dramaService.updateShot(shot.id, patch));
     } catch (error) {
-      toast.error(t("dramaSaveFailed", { message: getErrorMessage(error) }));
+      toastErr(t("dramaSaveFailed", { message: getErrorMessage(error) }));
     }
   };
 
@@ -401,7 +401,7 @@ export default function DramaStudio() {
       await dramaService.deleteShot(shot.id);
       setShots((current) => current.filter((candidate) => candidate.id !== shot.id));
     } catch (error) {
-      toast.error(t("dramaSaveFailed", { message: getErrorMessage(error) }));
+      toastErr(t("dramaSaveFailed", { message: getErrorMessage(error) }));
     }
   };
 
@@ -457,8 +457,8 @@ export default function DramaStudio() {
               onBatchImages={() => void runBatch(batchTargets.filter((shot) => !shot.imageRunId), generateShotImage)}
               onBatchVideos={() => void runBatch(batchTargets.filter((shot) => !shot.videoRunId), generateShotVideo)}
               onOpenRestyle={() => setRestyleOpen(true)}
-              onGenerateImage={(shot, index) => void generateShotImage(shot).catch((error) => toast.error(t("dramaGenerateFailed", { title: shot.title || `#${index + 1}`, message: getErrorMessage(error) })))}
-              onGenerateVideo={(shot, index) => void generateShotVideo(shot).catch((error) => toast.error(t("dramaGenerateFailed", { title: shot.title || `#${index + 1}`, message: getErrorMessage(error) })))}
+              onGenerateImage={(shot, index) => void generateShotImage(shot).catch((error) => toastErr(t("dramaGenerateFailed", { title: shot.title || `#${index + 1}`, message: getErrorMessage(error) })))}
+              onGenerateVideo={(shot, index) => void generateShotVideo(shot).catch((error) => toastErr(t("dramaGenerateFailed", { title: shot.title || `#${index + 1}`, message: getErrorMessage(error) })))}
               onPatchShot={(shot, patch) => void patchShotField(shot, patch)}
               onRemoveShot={(shot) => void removeShot(shot)}
             />

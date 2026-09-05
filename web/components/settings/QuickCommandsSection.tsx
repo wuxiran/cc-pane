@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LibraryBig, MessageSquareText, Pencil, Plus, Terminal, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { useQuickCommandsStore } from "@/stores";
 import type { QuickCommandDraft, QuickCommandScope, ScopedQuickCommand } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,7 @@ export default function QuickCommandsSection() {
       projectPath: activeProjectPath ?? undefined,
       workspaceName: activeWorkspaceName ?? undefined,
     }).catch((error) => {
-      toast.error(t("quickCommands.loadFailed", { error: String(error) }));
+      toastErr(t("quickCommands.loadFailed", { error: String(error) }));
     });
   }, [activeProjectPath, activeWorkspaceName, load, t]);
 
@@ -52,9 +52,9 @@ export default function QuickCommandsSection() {
         await create(draft, scope);
         await remove(editing.id, editing.scope);
       }
-      toast.success(t(editing ? "quickCommands.updated" : "quickCommands.created"));
+      toastOk(t(editing ? "quickCommands.updated" : "quickCommands.created"));
     } catch (error) {
-      toast.error(t("quickCommands.saveFailed", { error: String(error) }));
+      toastErr(t("quickCommands.saveFailed", { error: String(error) }));
       throw error;
     }
   };
@@ -63,9 +63,9 @@ export default function QuickCommandsSection() {
     if (!window.confirm(t("quickCommands.deleteConfirm", { name: command.name }))) return;
     try {
       await remove(command.id, command.scope);
-      toast.success(t("quickCommands.deleted"));
+      toastOk(t("quickCommands.deleted"));
     } catch (error) {
-      toast.error(t("quickCommands.deleteFailed", { error: String(error) }));
+      toastErr(t("quickCommands.deleteFailed", { error: String(error) }));
     }
   };
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
+import { toastErr, toastOk } from "@/lib/feedback";
 import { useTranslation } from "react-i18next";
 import { Download, X, Zap, Sparkles, Server, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -41,7 +41,7 @@ export default function ImportConfirmDialog() {
       if (disposed) u();
       else unImport = u;
     });
-    importService.onImportError((m) => toast.error(t("importLinkParseFailed", { ns: "dialogs", error: m }))).then((u) => {
+    importService.onImportError((m) => toastErr(t("importLinkParseFailed", { ns: "dialogs", error: m }))).then((u) => {
       if (disposed) u();
       else unErr = u;
     });
@@ -70,13 +70,13 @@ export default function ImportConfirmDialog() {
     setBusy(true);
     try {
       const msg = await importService.executeImport(req);
-      toast.success(msg);
+      toastOk(msg);
       // 刷新对应资源
       if (req.resource === "provider") await loadProviders();
       if (req.resource === "mcp") await loadSharedMcp?.();
       setReq(null);
     } catch (e) {
-      toast.error(t("importFailed", { ns: "dialogs", error: String(e) }));
+      toastErr(t("importFailed", { ns: "dialogs", error: String(e) }));
     } finally {
       setBusy(false);
     }

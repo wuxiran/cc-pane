@@ -27,8 +27,9 @@ export default function NotificationSection({ value, onChange }: NotificationSec
       <SearchableSetting sectionId="notification-controls">
       <div className="flex flex-col gap-[calc(var(--density-gap)+4px)]">
       <div className="flex items-center justify-between">
-        <Label>{t("enableNotification")}</Label>
+        <Label htmlFor="notification-enabled">{t("enableNotification")}</Label>
         <input
+          id="notification-enabled"
           type="checkbox"
           checked={value.enabled}
           onChange={(e) => update("enabled", e.target.checked)}
@@ -38,8 +39,9 @@ export default function NotificationSection({ value, onChange }: NotificationSec
       </div>
 
       <div className={`flex items-center justify-between ${!value.enabled ? "opacity-50" : ""}`}>
-        <Label>{t("notifyOnExit")}</Label>
+        <Label htmlFor="notification-on-exit">{t("notifyOnExit")}</Label>
         <input
+          id="notification-on-exit"
           type="checkbox"
           checked={value.onExit}
           disabled={!value.enabled}
@@ -50,8 +52,9 @@ export default function NotificationSection({ value, onChange }: NotificationSec
       </div>
 
       <div className={`flex items-center justify-between ${!value.enabled ? "opacity-50" : ""}`}>
-        <Label>{t("notifyOnWaitingInput")}</Label>
+        <Label htmlFor="notification-on-waiting-input">{t("notifyOnWaitingInput")}</Label>
         <input
+          id="notification-on-waiting-input"
           type="checkbox"
           checked={value.onWaitingInput}
           disabled={!value.enabled}
@@ -62,8 +65,9 @@ export default function NotificationSection({ value, onChange }: NotificationSec
       </div>
 
       <div className={`flex items-center justify-between ${!value.enabled ? "opacity-50" : ""}`}>
-        <Label>{t("notifyOnlyUnfocused")}</Label>
+        <Label htmlFor="notification-only-unfocused">{t("notifyOnlyUnfocused")}</Label>
         <input
+          id="notification-only-unfocused"
           type="checkbox"
           checked={value.onlyWhenUnfocused}
           disabled={!value.enabled}

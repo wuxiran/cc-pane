@@ -135,7 +135,7 @@ describe("SharedMcpSection", () => {
     await openNewForm(user);
     await user.click(screen.getByRole("button", { name: /保存/ }));
 
-    expect(toast.error).toHaveBeenCalledWith("MCP 名称和命令不能为空");
+    expect(toast.error).toHaveBeenCalledWith("MCP 名称和命令不能为空", expect.objectContaining({ duration: expect.any(Number) }));
     expect(upsertServerMock).not.toHaveBeenCalled();
   });
 
@@ -151,7 +151,7 @@ describe("SharedMcpSection", () => {
     await user.type(portInput, "99999");
     await user.click(screen.getByRole("button", { name: /保存/ }));
 
-    expect(toast.error).toHaveBeenCalledWith("端口必须是 1-65535 之间的数字");
+    expect(toast.error).toHaveBeenCalledWith("端口必须是 1-65535 之间的数字", expect.objectContaining({ duration: expect.any(Number) }));
     expect(upsertServerMock).not.toHaveBeenCalled();
   });
 
@@ -164,7 +164,7 @@ describe("SharedMcpSection", () => {
     await user.type(screen.getByPlaceholderText("context7"), "existing");
     await user.type(screen.getByPlaceholderText("npx"), "npx");
     await user.click(screen.getByRole("button", { name: /保存/ }));
-    expect(toast.error).toHaveBeenLastCalledWith("MCP 名称已存在");
+    expect(toast.error).toHaveBeenLastCalledWith("MCP 名称已存在", expect.objectContaining({ duration: expect.any(Number) }));
 
     const nameInput = screen.getByPlaceholderText("context7");
     await user.clear(nameInput);
@@ -173,7 +173,7 @@ describe("SharedMcpSection", () => {
     await user.clear(portInput);
     await user.type(portInput, "3100");
     await user.click(screen.getByRole("button", { name: /保存/ }));
-    expect(toast.error).toHaveBeenLastCalledWith("端口已被其他共享 MCP 使用");
+    expect(toast.error).toHaveBeenLastCalledWith("端口已被其他共享 MCP 使用", expect.objectContaining({ duration: expect.any(Number) }));
 
     expect(upsertServerMock).not.toHaveBeenCalled();
   });
@@ -199,7 +199,7 @@ describe("SharedMcpSection", () => {
         bridgeMode: "mcp-proxy",
       }),
     );
-    expect(toast.success).toHaveBeenCalledWith("共享 MCP 已新增");
+    expect(toast.success).toHaveBeenCalledWith("共享 MCP 已新增", expect.objectContaining({ duration: expect.any(Number) }));
   });
 
   it("removes the old entry when renaming through the edit form", async () => {
@@ -215,7 +215,7 @@ describe("SharedMcpSection", () => {
 
     await waitFor(() => expect(removeServerMock).toHaveBeenCalledWith("old"));
     expect(upsertServerMock).toHaveBeenCalledWith("new", expect.objectContaining({ command: "npx" }));
-    expect(toast.success).toHaveBeenCalledWith("共享 MCP 已更新");
+    expect(toast.success).toHaveBeenCalledWith("共享 MCP 已更新", expect.objectContaining({ duration: expect.any(Number) }));
   });
 
   it("shows start only for stopped shared servers and stop/restart only when running", async () => {
@@ -277,11 +277,11 @@ describe("SharedMcpSection", () => {
     await renderSection();
 
     await user.click(screen.getByRole("button", { name: /导入 MCP 配置/ }));
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(tk("sharedMcp.importedCount", { count: 2 })));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(tk("sharedMcp.importedCount", { count: 2 }), expect.objectContaining({ duration: expect.any(Number) })));
 
     importFromClaudeMock.mockResolvedValueOnce([]);
     await user.click(screen.getByRole("button", { name: /导入 MCP 配置/ }));
-    await waitFor(() => expect(toast.info).toHaveBeenCalledWith(tk("sharedMcp.noNewServers")));
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith(tk("sharedMcp.noNewServers"), expect.objectContaining({ duration: expect.any(Number) })));
   });
 
   it("polls fetchStatus every 5 seconds", async () => {
