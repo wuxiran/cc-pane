@@ -28,7 +28,16 @@ export default defineConfig(async () => ({
         manualChunks(id) {
           // monaco 只经懒加载边界（editor/MonacoCodeEditor.tsx）动态引用，
           // 该 chunk 不再进入首屏 modulepreload 图。
-          if (id.includes("node_modules/monaco-editor/") || id.includes("node_modules/@monaco-editor/")) {
+          // 必须带上 loader 的依赖链（@monaco-editor/loader → state-local）：
+          // state-local 不命中时落进 MonacoCodeEditor chunk（懒加载边界），
+          // loader 在模块求值期就调它的 .create —— monaco chunk ⇄ 边界 chunk
+          // 互相静态引用成环，生产包打开编辑器即崩 "Cannot read properties
+          // of undefined (reading 'create')"（2026-09-05 debug 打包实锤）。
+          if (
+            id.includes("node_modules/monaco-editor/")
+            || id.includes("node_modules/@monaco-editor/")
+            || id.includes("node_modules/state-local/")
+          ) {
             return "monaco-editor";
           }
           if (id.includes("node_modules/@xterm/")) return "xterm";
