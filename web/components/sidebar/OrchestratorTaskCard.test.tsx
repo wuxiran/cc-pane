@@ -1,5 +1,5 @@
 import "@/i18n";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import OrchestratorTaskCard from "./OrchestratorTaskCard";
@@ -159,5 +159,28 @@ describe("OrchestratorTaskCard", () => {
 
     // depth 2 -> marginLeft = min(2*14, 42) = 28px.
     expect(card.style.marginLeft).toBe("28px");
+  });
+
+  it("is Tab-focusable with a focus-visible ring and activates on Enter/Space", async () => {
+    const user = userEvent.setup();
+    const binding = createBinding({ title: "Keyboard task" });
+    seedStore([binding]);
+
+    const { container } = render(<OrchestratorTaskCard binding={binding} />);
+    const card = container.firstElementChild as HTMLElement;
+
+    expect(card).toHaveAttribute("role", "button");
+    expect(card).toHaveAttribute("tabindex", "0");
+    expect(card.className).toContain("focus-visible:outline-none");
+    expect(card.className).toContain("focus-visible:ring-2");
+    expect(card.className).toContain("focus-visible:ring-[var(--app-accent)]");
+
+    await user.tab();
+    expect(card).toHaveFocus();
+
+    fireEvent.keyDown(card, { key: "Enter" });
+    expect(setSelectedTaskId).toHaveBeenCalledWith(binding.id);
+    fireEvent.keyDown(card, { key: " " });
+    expect(setSelectedTaskId).toHaveBeenCalledTimes(2);
   });
 });

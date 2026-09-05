@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import MainViewSwitcher from "./MainViewSwitcher";
 import type { AppViewMode, ActivityView } from "@/stores/useActivityBarStore";
 
@@ -51,6 +51,9 @@ vi.mock("@/components/layoutbar/LayoutTopBar", () => ({
 }));
 vi.mock("@/components/layout/MainWallpaperLayer", () => ({
   default: () => <div data-testid="main-wallpaper-layer" />,
+}));
+vi.mock("@/components/skillmarket/SkillMarketPage", () => ({
+  default: () => <div data-testid="skill-market-page" />,
 }));
 vi.mock("@/components/media/MediaStudio", () => ({
   default: ({
@@ -167,7 +170,7 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     expect(screen.queryByTestId("sidebar")).toBeNull();
   });
 
-  it("keep-alive：切走隐藏不卸载，切回即显示；未访问过的模式不挂载", () => {
+  it("keep-alive：切走隐藏不卸载，切回即显示；未访问过的模式不挂载", async () => {
     setMode("home");
     const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
     const homeLayer = screen.getByTestId("home-dashboard").closest("[data-main-view='home']") as HTMLElement;
@@ -177,10 +180,10 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     // 未访问过 todo：不应挂载
     expect(screen.queryByTestId("todo-manager")).toBeNull();
 
-    // 切到 panes：home 保持挂载但隐藏
+    // 切到 panes：home 保持挂载但隐藏（panes 播入场视差滑动，等它落到终态）
     setMode("panes");
     rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.getByTestId("pane-container")).toBeVisible();
+    await waitFor(() => expect(screen.getByTestId("pane-container")).toBeVisible());
     expect(screen.getByTestId("home-dashboard")).not.toBeVisible();
     expect(homeLayer).toHaveAttribute("aria-hidden", "true");
     expect(homeLayer).toHaveStyle({ opacity: "0", pointerEvents: "none" });
@@ -188,7 +191,7 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     // 切回 home：同一实例重新显示，panes（含终端）保持挂载
     setMode("home");
     rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.getByTestId("home-dashboard")).toBeVisible();
+    await waitFor(() => expect(screen.getByTestId("home-dashboard")).toBeVisible());
     expect(screen.getByTestId("pane-container")).not.toBeVisible();
     expect(screen.getAllByTestId("home-dashboard")).toHaveLength(1);
   });
@@ -219,6 +222,15 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     setMode("selfchat");
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
     expect(screen.getByTestId("selfchat-manager")).toBeVisible();
+  });
+
+  it("skillMarket → 市场页挂 main-view-layer，与其余视图共用同一 cross-fade", async () => {
+    setMode("skillMarket");
+    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    const shell = screen.getByTestId("skill-market-shell");
+    expect(shell).toHaveClass("main-view-layer");
+    expect(shell).toHaveStyle({ opacity: "1", pointerEvents: "auto" });
+    await waitFor(() => expect(screen.getByTestId("skill-market-page")).toBeInTheDocument());
   });
 
   it("providers → ProvidersPanel 全屏", () => {
@@ -352,5 +364,194 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     const style = screen.getByTestId("main-wallpaper-layer").parentElement?.getAttribute("style") ?? "";
     expect(style).not.toContain("--app-panel-bg-effective");
     expect(style).not.toContain("--app-glass-blur");
+  });
+});
+
+describe("亮色壁纸终端区纯色垫层（脏交界修复）", () => {
+  const terminalTab = {
+    id: "t1",
+    title: "zsh",
+    contentType: "terminal",
+    projectId: "p1",
+    projectPath: "/proj",
+    sessionId: null,
+  };
+
+  function useTerminalLayout() {
+    panesState.rootPane = {
+      type: "panel",
+      id: "root",
+      tabs: [terminalTab],
+      activeTabId: "t1",
+    } as unknown as typeof panesState.rootPane;
+  }
+
+  function useEmptyLayout() {
+    panesState.rootPane = {
+      type: "panel",
+      id: "root",
+      tabs: [],
+      activeTabId: null,
+    } as unknown as typeof panesState.rootPane;
+  }
+
+  function useWallpaper(terminalOpacity = 1) {
+    wallpaperState.resolved = {
+      kind: "image",
+      glassBlur: 8,
+      dim: 0.35,
+      opacity: 1,
+      terminalOpacity,
+    };
+    wallpaperState.assetUrl = "asset://wallpaper.png";
+  }
+
+  function renderAndGetUnderlay() {
+    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    const panesLayer = screen.getByTestId("main-wallpaper-layer").parentElement as HTMLElement;
+    return panesLayer.querySelector("[data-terminal-solid-underlay]") as HTMLElement;
+  }
+
+  beforeEach(() => {
+    setMode("panes");
+    themeState.isDark = false;
+    useEmptyLayout();
+    useWallpaper(1);
+  });
+
+  afterEach(() => {
+    useEmptyLayout();
+    themeState.isDark = true;
+  });
+
+  it("亮色 + 终端主导布局：垫层激活垫纯色 panel 底，effective token 仍保持 80% 半透明", () => {
+    useTerminalLayout();
+    const underlay = renderAndGetUnderlay();
+
+    expect(underlay).toHaveAttribute("data-active", "true");
+    expect(underlay.style.opacity).toBe("1");
+    // 禁裸 hex：纯色底只能引用现有 --app-panel-bg token
+    expect(underlay.style.background).toBe("var(--app-panel-bg)");
+    // 平滑过渡：opacity（垫层淡入）+ background-color（主题切换）都走 --dur
+    expect(underlay.style.transition).toContain("opacity var(--dur)");
+    expect(underlay.style.transition).toContain("background-color var(--dur)");
+
+    // token 不换：内容区 80% color-mix 落在纯色垫上复合为 100% panel 色
+    const panesStyle = (underlay.parentElement as HTMLElement).getAttribute("style") ?? "";
+    expect(panesStyle).toContain("var(--app-panel-bg) 80%, transparent");
+  });
+
+  it("亮色 + 无终端的空布局：垫层关闭，空态继续透壁纸", () => {
+    const underlay = renderAndGetUnderlay();
+    expect(underlay).toHaveAttribute("data-active", "false");
+    expect(underlay.style.opacity).toBe("0");
+  });
+
+  it("暗色 + 终端主导：垫层关闭，暗色 62% 现状不动", () => {
+    themeState.isDark = true;
+    useTerminalLayout();
+    const underlay = renderAndGetUnderlay();
+    expect(underlay).toHaveAttribute("data-active", "false");
+  });
+
+  it("terminalOpacity<1（默认 0.85 半透明终端）时也垫：xterm 白底与纯色垫混合，壁纸不再透出", () => {
+    useTerminalLayout();
+    useWallpaper(0.6);
+    const underlay = renderAndGetUnderlay();
+    expect(underlay).toHaveAttribute("data-active", "true");
+  });
+
+  it("canvas 模式不垫：节点之间透壁纸是该视图的设计", () => {
+    useTerminalLayout();
+    canvasDisplayState.mode = "canvas";
+    const underlay = renderAndGetUnderlay();
+    expect(underlay).toHaveAttribute("data-active", "false");
+  });
+
+  it("壁纸未激活时不垫", () => {
+    useTerminalLayout();
+    wallpaperState.resolved = null;
+    wallpaperState.assetUrl = null;
+    const underlay = renderAndGetUnderlay();
+    expect(underlay).toHaveAttribute("data-active", "false");
+    expect(underlay.style.opacity).toBe("0");
+  });
+});
+
+describe("签名动效：视图切入视差滑动", () => {
+  function mainViewLayer(testId: string, view: string) {
+    return screen.getByTestId(testId).closest(`[data-main-view='${view}']`) as HTMLElement;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("首次挂载不播动效（无位移、无内联过渡）", () => {
+    setMode("panes");
+    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    const panesLayer = mainViewLayer("pane-container", "panes");
+    expect(panesLayer.hasAttribute("data-enter-motion")).toBe(false);
+    expect(panesLayer.style.transform).toBe("");
+    expect(panesLayer.style.transition).toBe("");
+  });
+
+  it("进入层 opacity + translateY(6px)→0（--dur-slow --ease-out），离场层纯 fade 无位移", async () => {
+    setMode("panes");
+    const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    const panesLayer = mainViewLayer("pane-container", "panes");
+
+    setMode("home");
+    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    const homeLayer = mainViewLayer("home-dashboard", "home");
+
+    // 起始帧：落位 6px、opacity 0、无过渡（双 rAF 的第一拍）
+    expect(homeLayer).toHaveAttribute("data-enter-motion", "from");
+    expect(homeLayer.style.transform).toBe("translateY(6px)");
+    expect(homeLayer.style.opacity).toBe("0");
+    expect(homeLayer.style.transition).toBe("none");
+    // 离场层：不带位移、不带内联过渡，纯 CSS 类 fade（opacity var(--dur)）
+    expect(panesLayer.hasAttribute("data-enter-motion")).toBe(false);
+    expect(panesLayer.style.transform).toBe("");
+    expect(panesLayer.style.transition).toBe("");
+
+    // 下一帧：滑向终态，过渡走 --dur-slow + --ease-out，且只入不追（transform 终态归零）
+    await waitFor(() => expect(homeLayer).toHaveAttribute("data-enter-motion", "to"));
+    expect(homeLayer.style.transform).toBe("translateY(0)");
+    expect(homeLayer.style.opacity).toBe("1");
+    expect(homeLayer.style.transition).toContain("opacity var(--dur-slow) var(--ease-out)");
+    expect(homeLayer.style.transition).toContain("transform var(--dur-slow) var(--ease-out)");
+
+    // 收尾：摘掉内联动效，后续离场交还 .main-view-layer 的纯 fade
+    await waitFor(() => expect(homeLayer.hasAttribute("data-enter-motion")).toBe(false), {
+      timeout: 2000,
+    });
+    expect(homeLayer.style.transform).toBe("");
+    expect(homeLayer.style.transition).toBe("");
+    expect(homeLayer.style.opacity).toBe("1");
+  });
+
+  it("prefers-reduced-motion：退回纯 fade，无视差位移、无内联过渡", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockReturnValue({
+        matches: true,
+        media: "(prefers-reduced-motion: reduce)",
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }),
+    );
+    setMode("panes");
+    const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
+
+    setMode("home");
+    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
+    const homeLayer = mainViewLayer("home-dashboard", "home");
+
+    // 直接呈现活动终态（opacity 由 CSS 类 fade 收短到 60ms），全程无位移
+    expect(homeLayer.hasAttribute("data-enter-motion")).toBe(false);
+    expect(homeLayer.style.transform).toBe("");
+    expect(homeLayer.style.transition).toBe("");
+    expect(homeLayer.style.opacity).toBe("1");
   });
 });

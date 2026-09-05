@@ -1,6 +1,8 @@
+import "@/i18n";
+import i18n from "i18next";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Tab, Workspace } from "@/types";
 import MobilePrototype from "./MobilePrototype";
 
@@ -55,6 +57,11 @@ describe("MobilePrototype", () => {
     vi.clearAllMocks();
   });
 
+  afterEach(async () => {
+    // 语言切换测试后复位，避免串扰其他断言中文的用例
+    if (i18n.language !== "zh-CN") await i18n.changeLanguage("zh-CN");
+  });
+
   it("shows workspace/project metrics in the header", () => {
     render(<MobilePrototype workspaces={[makeWorkspace()]} />);
     const metrics = screen.getByText("工作空间", { selector: "div" }).parentElement!
@@ -99,6 +106,40 @@ describe("MobilePrototype", () => {
 
     await user.click(terminalBtn);
     expect(screen.getByText("还没有打开真实终端")).toBeInTheDocument();
+  });
+
+  it("renders English copy when the language is en", async () => {
+    await i18n.changeLanguage("en");
+    render(<MobilePrototype workspaces={[]} />);
+    expect(screen.getByText("The backend returned no workspaces")).toBeInTheDocument();
+    expect(screen.getByText("CC-Panes Mobile")).toBeInTheDocument();
+  });
+
+  describe("pinned workspaces (reused HomePinnedWorkspaces)", () => {
+    it("renders the main-UI pinned card list for pinned workspaces", () => {
+      render(<MobilePrototype workspaces={[makeWorkspace({ pinned: true })]} />);
+      expect(screen.getByTestId("pinned-workspaces")).toBeInTheDocument();
+      // 复用组件自身的 home 命名空间标题
+      expect(screen.getByText("置顶工作区")).toBeInTheDocument();
+    });
+
+    it("does not render the pinned section when nothing is pinned", () => {
+      render(<MobilePrototype workspaces={[makeWorkspace()]} />);
+      expect(screen.queryByTestId("pinned-workspaces")).not.toBeInTheDocument();
+    });
+
+    it("adapts the card onOpenTerminal callback back to onOpenProject", async () => {
+      const user = userEvent.setup();
+      const onOpenProject = vi.fn();
+      const ws = makeWorkspace({ pinned: true });
+      render(<MobilePrototype workspaces={[ws]} onOpenProject={onOpenProject} />);
+
+      // 置顶卡片打开第一个可用项目（D:/ws/app）
+      await user.click(screen.getByText("main-ws", { selector: "span" }));
+      expect(onOpenProject).toHaveBeenCalledWith(ws, ws.projects[0]);
+      // 与项目行行为一致：打开后切到终端视图
+      expect(screen.getByText("还没有打开真实终端")).toBeInTheDocument();
+    });
   });
 
   describe("workspace action sheet", () => {

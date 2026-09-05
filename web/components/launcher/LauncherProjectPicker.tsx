@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 import { open as openDirectoryDialog } from "@tauri-apps/plugin-dialog";
 import { historyService, type LaunchRecord } from "@/services";
 import { useSshMachinesStore, useWorkspacesStore } from "@/stores";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import { buildLaunchRecordTerminalOptions } from "@/utils";
 import type { LauncherProjectSource } from "./launcherModel";
 
@@ -34,6 +36,8 @@ export default function LauncherProjectPicker({ value, onChange }: LauncherProje
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const machines = useSshMachinesStore((s) => s.machines);
   const [records, setRecords] = useState<LaunchRecord[]>([]);
+  const [recordsLoaded, setRecordsLoaded] = useState(false);
+  const showRecordsSkeleton = useDelayedLoading(!recordsLoaded);
 
   useEffect(() => {
     let disposed = false;
@@ -44,6 +48,9 @@ export default function LauncherProjectPicker({ value, onChange }: LauncherProje
       })
       .catch(() => {
         /* 历史不可用时隐藏最近区，不报错 */
+      })
+      .finally(() => {
+        if (!disposed) setRecordsLoaded(true);
       });
     return () => {
       disposed = true;
@@ -126,7 +133,11 @@ export default function LauncherProjectPicker({ value, onChange }: LauncherProje
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        {records.map((record) => {
+        {!recordsLoaded && showRecordsSkeleton
+          ? Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-[24px] w-20 rounded-md" data-testid="recent-project-skeleton" />
+            ))
+          : records.map((record) => {
           const active = value?.kind === "recent" && value.options.path === record.projectPath;
           return (
             <button

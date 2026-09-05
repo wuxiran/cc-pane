@@ -15,5 +15,6 @@
   "newFolder": "New Folder",
   "showHidden": "Show Hidden Files",
   "hideHidden": "Hide Hidden Files",
-  "mermaidError": "Mermaid render failed, showing source"
+  "mermaidError": "Mermaid render failed, showing source",
+  "fileSaved": "File saved"
 }

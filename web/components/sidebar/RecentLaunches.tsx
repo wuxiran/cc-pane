@@ -67,7 +67,7 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
             </Tooltip>
           )}
         </div>
-        <EmptyState icon={History} title={t("noResumableSessions")} className="px-2 py-6" />
+        <EmptyState icon={History} title={t("noResumableSessions")} illustration="empty-history" className="px-2 py-6" />
       </div>
     );
   }
@@ -100,7 +100,7 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
           <div key={group.workspaceName} className="mb-1">
             {/* 组标题 */}
             <button
-              className="w-full flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+              className="w-full flex items-center gap-[calc(var(--density-gap)-2px)] px-3 py-[var(--density-pad-y)] rounded-lg transition-colors text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
               onClick={() => toggleGroup(group.workspaceName)}
             >
               {isCollapsed ? (
@@ -123,7 +123,7 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
                 key={record.id}
                 role="button"
                 tabIndex={0}
-                className="w-full group flex items-center justify-between px-3 pl-7 py-2 mb-0.5 rounded-xl transition-colors duration-[var(--dur-fast)] border border-transparent cursor-pointer text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+                className="w-full group flex items-center justify-between px-3 pl-7 py-[calc(var(--density-pad-y)+2px)] mb-0.5 rounded-xl transition-colors duration-[var(--dur-fast)] border border-transparent cursor-pointer text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
                 onClick={() => {
                   if (!record.resumeSessionId) return;
                   handleResume(record);
@@ -158,6 +158,7 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
                   </span>
                   <ResumeDetailPopover record={record} onResume={handleResume} onDelete={onDeleteRecord}>
                     <button
+                      aria-label={t("recordDetails")}
                       className="p-0.5 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] text-[var(--app-text-tertiary)]"
                     >
                       <Info className="w-3.5 h-3.5" />

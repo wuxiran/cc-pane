@@ -341,7 +341,7 @@ export default function LaunchProfileListAside({
             </div>
 
             {workspaces.length === 0 && (
-              <EmptyState icon={FolderKanban} title={t("noWorkspaces")} className="py-6" />
+              <EmptyState icon={FolderKanban} title={t("noWorkspaces")} illustration="empty-folder" className="py-6" />
             )}
           </>
         )}

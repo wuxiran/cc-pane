@@ -12,6 +12,7 @@ import {
   Trash2,
   Sun,
 } from "lucide-react";
+import { useDndContext } from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { TodoItem } from "@/types";
@@ -260,7 +261,20 @@ export function SortableTodoListItem({
     transform,
     transition,
     isDragging,
+    isOver,
+    index,
   } = useSortable({ id: todo.id, disabled: dragDisabled });
+
+  // 投放指示线：被拖项来自下方 → 落点在本行之上；来自上方 → 落点在本行之下。
+  // sortable 拖拽期间只改 transform、不动 items 顺序，index 是稳定的原始序号。
+  const { active } = useDndContext();
+  const activeIndex: number | undefined = active?.data.current?.sortable?.index;
+  const dropIndicator =
+    isOver && !isDragging && activeIndex !== undefined && activeIndex !== index
+      ? activeIndex > index
+        ? "above"
+        : "below"
+      : undefined;
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -270,6 +284,17 @@ export function SortableTodoListItem({
 
   return (
     <div ref={setNodeRef} style={style} className="group/sortable relative flex items-center">
+      {/* 投放指示线：落点侧 2px accent 条，fade+slide 入场（--dur-fast）。
+          reduced-motion 由全局降级规则把入场动画压到 0.01ms。 */}
+      {dropIndicator && (
+        <span
+          aria-hidden
+          data-drop-indicator={dropIndicator}
+          className={`pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-[var(--app-accent)] animate-in fade-in duration-[var(--dur-fast)] ease-[var(--ease-out)] ${
+            dropIndicator === "above" ? "top-0 slide-in-from-top-1" : "bottom-0 slide-in-from-bottom-1"
+          }`}
+        />
+      )}
       {/* 拖拽手柄 */}
       {!dragDisabled && (
         <button

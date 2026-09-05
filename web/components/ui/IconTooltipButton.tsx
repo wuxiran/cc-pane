@@ -32,7 +32,7 @@ export const IconTooltipButton = React.forwardRef<HTMLButtonElement, IconTooltip
             aria-label={label}
             className={cn(
               "inline-flex items-center justify-center rounded-md p-1 text-[var(--app-text-secondary)]",
-              "transition-[color,background-color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:scale-[0.96] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]",
+              "transition-[color,background-color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] active:scale-[0.97] motion-reduce:active:scale-100 hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]",
               "disabled:pointer-events-none disabled:opacity-50",
               className,
             )}

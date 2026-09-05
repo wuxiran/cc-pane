@@ -44,8 +44,8 @@ export function useSshRemoteTerminalNavigation(machineId: string | null) {
     }
     try {
       await terminalService.submitToSession(sessionId, buildRemoteCdCommand(entry.path));
+      // 不弹「终端已切换到…」toast：界面已切到 panes 视图，终端里能看到 cd 命令（见 docs/feedback-channels.md）。
       useActivityBarStore.setState({ appViewMode: "panes", orchestrationOverlayOpen: false });
-      toast.success(t("sshFiles.cdComplete", { path: entry.path }));
     } catch (error) {
       toast.error(getErrorMessage(error));
     }

@@ -224,7 +224,7 @@ export default function TodoTaskListPanel({
 
         <div className="app-scrollbar flex-1 overflow-y-auto px-3 py-2">
           {loading && <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground"><Loader2 size={16} className="animate-spin" /><span>{t("loading", { ns: "common" })}</span></div>}
-          {!loading && todos.length === 0 && <EmptyState icon={ListTodo} title={t("noTasks")} className="py-24" />}
+          {!loading && todos.length === 0 && <EmptyState icon={ListTodo} title={t("noTasks")} illustration="empty-box" className="py-24" />}
           {!loading && groups && [...groups.entries()].map(([key, groupTodos]) => (
             <TodoTagGroup key={key} tag={key} label={groupLabelMap?.[key]} todos={groupTodos} selectedId={selectedTodo?.id}
               onSelect={onSelectTodo} onToggleStatus={onToggleStatus} onTogglePriority={onTogglePriority} onDelete={onDelete}

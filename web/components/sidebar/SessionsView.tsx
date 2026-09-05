@@ -3,6 +3,8 @@ import { Terminal } from "lucide-react";
 import { useTerminalStatusStore, usePanesStore } from "@/stores";
 import { historyService, type LaunchRecord } from "@/services";
 import RecentLaunches from "@/components/sidebar/RecentLaunches";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import { focusTab } from "@/hooks/useFocusTab";
 import { asTabId } from "@/types/ids";
 import { handleErrorSilent } from "@/utils";
@@ -25,6 +27,8 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
   const rootPane = usePanesStore((s) => s.rootPane);
 
   const [launchHistory, setLaunchHistory] = useState<LaunchRecord[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const showHistorySkeleton = useDelayedLoading(!historyLoaded);
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -32,6 +36,8 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
       setLaunchHistory(list);
     } catch (e) {
       handleErrorSilent(e, "fetch history");
+    } finally {
+      setHistoryLoaded(true);
     }
   }, []);
 
@@ -98,7 +104,7 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
               {activeSessions.map((s) => (
                 <button
                   key={s.tabId}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors text-left hover:bg-[var(--app-hover)] text-[var(--app-text-secondary)]"
+                  className="w-full flex items-center gap-[var(--density-gap)] px-[var(--density-pad-x)] py-[var(--density-pad-y)] rounded-lg transition-colors text-left hover:bg-[var(--app-hover)] text-[var(--app-text-secondary)]"
                   onClick={() => focusTab(asTabId(s.tabId))}
                 >
                   <div className="relative shrink-0">
@@ -114,16 +120,43 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
           </div>
         )}
 
-        {/* 最近启动历史 — 零修改 */}
+        {/* 最近启动历史：加载超过 300ms 才显示骨架，避免快加载闪空态 */}
         <div className="px-3 pb-4">
-          <RecentLaunches
-            launchHistory={launchHistory}
-            onOpenTerminal={onOpenTerminal}
-            onClearHistory={clearHistory}
-            onDeleteRecord={deleteRecord}
-          />
+          {historyLoaded ? (
+            <RecentLaunches
+              launchHistory={launchHistory}
+              onOpenTerminal={onOpenTerminal}
+              onClearHistory={clearHistory}
+              onDeleteRecord={deleteRecord}
+            />
+          ) : showHistorySkeleton ? (
+            <RecentLaunchesSkeleton />
+          ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** 启动历史骨架：组标题 + 会话行，尺寸贴近 RecentLaunches 真实布局 */
+function RecentLaunchesSkeleton() {
+  return (
+    <div aria-busy="true" aria-hidden="true" data-testid="recent-launches-skeleton">
+      <div className="flex items-center justify-between px-3 py-3 mt-4 mb-1">
+        <Skeleton className="h-3 w-24" />
+      </div>
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="flex items-center justify-between px-3 pl-7 py-2 mb-0.5">
+          <div className="flex items-center gap-2">
+            <Skeleton className="size-3.5 shrink-0 rounded-full" />
+            <div className="space-y-1">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-2.5 w-16" />
+            </div>
+          </div>
+          <Skeleton className="h-2.5 w-10 shrink-0" />
+        </div>
+      ))}
     </div>
   );
 }

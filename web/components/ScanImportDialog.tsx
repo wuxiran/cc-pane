@@ -9,6 +9,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
 import type { ScannedRepo } from "@/services/workspaceService";
 
@@ -121,17 +123,18 @@ export default function ScanImportDialog({
 
         {/* 全选 */}
         <div
-          className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-xs transition-colors hover:bg-accent"
+          className="flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors hover:bg-accent"
           style={{ color: "var(--app-text-secondary)" }}
-          onClick={toggleAll}
         >
-          <input
-            type="checkbox"
+          <Checkbox
+            id="scan-import-select-all"
             checked={selectedPaths.size === totalPaths}
-            readOnly
-            className="cursor-pointer shrink-0"
+            onCheckedChange={() => toggleAll()}
+            className="shrink-0"
           />
-          <span>{selectedPaths.size === totalPaths ? t("scanDeselectAll") : t("scanSelectAll")}</span>
+          <Label htmlFor="scan-import-select-all" className="cursor-pointer">
+            {selectedPaths.size === totalPaths ? t("scanDeselectAll") : t("scanSelectAll")}
+          </Label>
           <Badge variant="secondary" className="ml-auto">
             {selectedPaths.size}/{totalPaths}
           </Badge>
@@ -150,12 +153,12 @@ export default function ScanImportDialog({
                 ) : (
                   <ChevronRight size={14} className="shrink-0" style={{ color: "var(--app-text-tertiary)" }} />
                 )}
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={[repo.mainPath, ...repo.worktrees.map((w) => w.path)].every((p) => selectedPaths.has(p))}
-                  readOnly
-                  className="cursor-pointer shrink-0"
-                  onClick={(e) => { e.stopPropagation(); toggleRepo(repo); }}
+                  onCheckedChange={() => toggleRepo(repo)}
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={pathName(repo.mainPath)}
+                  className="shrink-0"
                 />
                 <Folder size={14} className="shrink-0" style={{ color: "var(--app-accent)" }} />
                 <span className="flex-1 text-[13px] font-medium truncate" style={{ color: "var(--app-text-primary)" }}>
@@ -179,12 +182,12 @@ export default function ScanImportDialog({
                     className="flex items-center gap-1.5 px-2 py-1 pl-7 rounded cursor-pointer transition-colors hover:bg-accent"
                     onClick={() => togglePath(repo.mainPath)}
                   >
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={selectedPaths.has(repo.mainPath)}
-                      readOnly
-                      className="cursor-pointer shrink-0"
-                      onClick={(e) => { e.stopPropagation(); togglePath(repo.mainPath); }}
+                      onCheckedChange={() => togglePath(repo.mainPath)}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={pathName(repo.mainPath)}
+                      className="shrink-0"
                     />
                     <Folder size={12} className="shrink-0" style={{ color: "var(--app-text-tertiary)" }} />
                     <span className="flex-1 text-xs truncate" style={{ color: "var(--app-text-primary)" }}>
@@ -201,12 +204,12 @@ export default function ScanImportDialog({
                       className="flex items-center gap-1.5 px-2 py-1 pl-7 rounded cursor-pointer transition-colors hover:bg-accent"
                       onClick={() => togglePath(wt.path)}
                     >
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={selectedPaths.has(wt.path)}
-                        readOnly
-                        className="cursor-pointer shrink-0"
-                        onClick={(e) => { e.stopPropagation(); togglePath(wt.path); }}
+                        onCheckedChange={() => togglePath(wt.path)}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={pathName(wt.path)}
+                        className="shrink-0"
                       />
                       <FolderOpen size={12} className="shrink-0 opacity-70" style={{ color: "var(--app-accent)" }} />
                       <span className="flex-1 text-xs truncate" style={{ color: "var(--app-text-primary)" }}>

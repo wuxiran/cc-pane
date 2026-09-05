@@ -16,16 +16,36 @@ interface MemoryManagerProps {
 }
 
 function ImportanceStars({ value, onChange }: { value: number; onChange?: (v: number) => void }) {
+  const { t } = useTranslation("dialogs");
   return (
     <div className="flex items-center gap-0.5">
       {[1, 2, 3, 4, 5].map((n) => (
         <Star
           key={n}
           size={14}
+          role={onChange ? "button" : undefined}
+          tabIndex={onChange ? 0 : undefined}
+          aria-label={
+            onChange
+              ? t("memorySetImportance", { count: n, defaultValue: "Set importance to {{count}}" })
+              : undefined
+          }
           className={`${n <= value ? "text-amber-400 fill-amber-400" : "text-muted-foreground/30"} ${
-            onChange ? "cursor-pointer hover:text-amber-300" : ""
+            onChange
+              ? "cursor-pointer rounded-sm hover:text-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+              : ""
           }`}
           onClick={() => onChange?.(n)}
+          onKeyDown={
+            onChange
+              ? (e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onChange(n);
+                  }
+                }
+              : undefined
+          }
         />
       ))}
     </div>
@@ -215,8 +235,17 @@ export default function MemoryManager({ projectPath, workspaceName }: MemoryMana
           <div className="flex gap-1 flex-wrap">
             <Badge
               variant={selectedScope === null ? "default" : "outline"}
-              className="cursor-pointer text-xs"
+              role="button"
+              tabIndex={0}
+              className="cursor-pointer text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
               onClick={() => setSelectedScope(null)}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setSelectedScope(null);
+                }
+              }}
             >
               {t("memoryAll")}
             </Badge>
@@ -224,8 +253,17 @@ export default function MemoryManager({ projectPath, workspaceName }: MemoryMana
               <Badge
                 key={scope}
                 variant={selectedScope === scope ? "default" : "outline"}
-                className="cursor-pointer text-xs"
+                role="button"
+                tabIndex={0}
+                className="cursor-pointer text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
                 onClick={() => setSelectedScope(scope)}
+                onKeyDown={(e) => {
+                  if (e.target !== e.currentTarget) return;
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedScope(scope);
+                  }
+                }}
               >
                 {SCOPE_LABELS[scope]}
               </Badge>
@@ -253,10 +291,19 @@ export default function MemoryManager({ projectPath, workspaceName }: MemoryMana
           {memories.map((memory) => (
             <div
               key={memory.id}
-              className={`group flex items-start gap-2 px-3 py-2 cursor-pointer border-b border-border/50 hover:bg-accent/50 transition-colors ${
+              role="button"
+              tabIndex={0}
+              className={`group flex items-start gap-2 px-3 py-2 cursor-pointer border-b border-border/50 hover:bg-accent/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
                 selectedMemory?.id === memory.id ? "bg-accent" : ""
               }`}
               onClick={() => select(memory)}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  select(memory);
+                }
+              }}
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
@@ -272,7 +319,7 @@ export default function MemoryManager({ projectPath, workspaceName }: MemoryMana
                   {memory.content.slice(0, 80)}
                 </p>
               </div>
-              <div className="hidden group-hover:flex items-center gap-1 pt-0.5">
+              <div className="hidden group-hover:flex group-focus-within:flex items-center gap-1 pt-0.5">
                 <Button
                   size="icon"
                   variant="ghost"

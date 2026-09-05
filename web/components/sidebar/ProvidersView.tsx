@@ -133,7 +133,7 @@ function ProviderListItem({ provider, isDefault, onDelete, onSetDefault }: {
           )}
         </div>
       </div>
-      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
         {!isDefault && (
           <button
             className="p-1 rounded hover:bg-[var(--app-hover)]"

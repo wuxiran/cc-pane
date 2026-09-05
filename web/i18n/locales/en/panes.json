@@ -506,5 +506,7 @@
   "chatRoleUser": "You",
   "chatRoleAssistant": "Assistant",
   "chatRoleReasoning": "Thinking",
-  "chatRoleTool": "Tool"
+  "chatRoleTool": "Tool",
+  "popOutFailed": "Failed to pop out window: {{error}}",
+  "sshMachineIdentityUnavailable": "SSH machine identity is unavailable"
 }

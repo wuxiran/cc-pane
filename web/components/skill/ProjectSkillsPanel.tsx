@@ -73,6 +73,7 @@ export default function ProjectSkillsPanel({ scope }: ProjectSkillsPanelProps) {
               icon={Sparkles}
               title={isWorkspace ? t("workspaceEmpty.title") : t("empty.title")}
               description={isWorkspace ? t("workspaceEmpty.hint") : t("empty.hint")}
+              illustration="empty-box"
               action={{ label: t("import"), onClick: () => setImportOpen(true) }}
             />
           )}

@@ -1,8 +1,10 @@
 import type { SyntheticEvent } from "react";
 import { Check, GripVertical, Star, Trash2 } from "lucide-react";
+import { useDndContext } from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { TFunction } from "i18next";
+import { cn } from "@/lib/utils";
 import InlineRename from "@/components/ui/InlineRename";
 import {
   ContextMenu,
@@ -77,10 +79,22 @@ export function SortableLayoutRow({
     transform,
     transition,
     isDragging,
+    isOver,
+    index,
   } = useSortable({
     id: layout.id,
     disabled: isEditing,
   });
+  // 投放指示线：被拖项来自下方 → 落点在本行之上；来自上方 → 落点在本行之下。
+  // sortable 在拖拽期间只改 transform、不改 items 顺序，故两侧 index 都是稳定的原始序号。
+  const { active } = useDndContext();
+  const activeIndex: number | undefined = active?.data.current?.sortable?.index;
+  const dropIndicator =
+    isOver && !isDragging && activeIndex !== undefined && activeIndex !== index
+      ? activeIndex > index
+        ? "above"
+        : "below"
+      : undefined;
 
   const style: React.CSSProperties = {
     ...layoutRowStyle(selected),
@@ -125,7 +139,7 @@ export function SortableLayoutRow({
       <ContextMenuTrigger asChild>
         <div
           ref={setNodeRef}
-          className="group flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors hover:bg-[var(--app-hover)]"
+          className="ui-hoverable group relative flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-[var(--app-hover)]"
           style={style}
           onMouseEnter={onMouseEnter}
           onDoubleClick={(event) => {
@@ -136,6 +150,20 @@ export function SortableLayoutRow({
             }
           }}
         >
+          {/* 投放指示线：落点侧 2px accent 条，fade+slide 入场（--dur-fast）。
+              reduced-motion 由全局降级规则把入场动画压到 0.01ms。 */}
+          {dropIndicator && (
+            <span
+              aria-hidden
+              data-drop-indicator={dropIndicator}
+              className={cn(
+                "pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-[var(--app-accent)] animate-in fade-in duration-[var(--dur-fast)] ease-[var(--ease-out)]",
+                dropIndicator === "above"
+                  ? "top-0 slide-in-from-top-1"
+                  : "bottom-0 slide-in-from-bottom-1",
+              )}
+            />
+          )}
           <button
             ref={setActivatorNodeRef}
             type="button"

@@ -111,7 +111,7 @@ describe("ProviderCard", () => {
 
     await user.click(screen.getByLabelText("Copy URL"));
     expect(writeText).toHaveBeenCalledWith("https://proxy.example.com/v1");
-    expect(toast.success).toHaveBeenCalledWith("Copied");
+    expect(toast.success).toHaveBeenCalledWith("Provider 链接已复制");
   });
 
   describe("system environment card", () => {

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import LayoutSwitcherWindow from "@/components/LayoutSwitcherWindow";
 import PopupTerminalWindow from "@/components/PopupTerminalWindow";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -29,6 +30,7 @@ import { useOpenTerminal } from "@/hooks/useOpenTerminal";
 import { useQuickCommandsSync } from "@/hooks/useQuickCommandsSync";
 import { usePipeEventListener } from "@/hooks/usePipeEventListener";
 import LauncherDialog from "@/components/launcher/LauncherDialog";
+import { useDensityStore } from "@/stores/useDensityStore";
 
 export default function App() {
   // 弹出窗口路由：mode=popup 时渲染纯终端视图（tabData 通过 IPC 获取）
@@ -63,6 +65,13 @@ function MainApp() {
   useSessionLayoutPersistence();
   useSharedLayoutSnapshotSync();
   const terminalRestoreReady = useStartupTerminalRestoreBarrier();
+
+  // UI 密度根部同步：store 当前档写到 <html data-density>（模块加载时已应用一次，
+  // 此 effect 兜底订阅后续变更，与主题 data-theme 的应用方式一致）。
+  const uiDensity = useDensityStore((s) => s.density);
+  useEffect(() => {
+    document.documentElement.dataset.density = uiDensity;
+  }, [uiDensity]);
 
   // 注册全局快捷键
   useKeyboardShortcuts();

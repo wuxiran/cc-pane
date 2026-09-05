@@ -380,7 +380,7 @@ export default function WorkspaceItem({
             role="button"
             tabIndex={0}
             aria-expanded={expanded}
-            className={`${sidebarEntityRowClass} flex items-center justify-between gap-2 ${
+            className={`${sidebarEntityRowClass} flex items-center justify-between gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
               expanded
                 ? "bg-[var(--app-active-bg)] text-[var(--app-accent)]"
                 : isDefaultWorkspace

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
@@ -268,6 +268,106 @@ describe("MemoryManager", () => {
     );
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalled();
+    });
+  });
+
+  describe("keyboard accessibility", () => {
+    it("memory row is focusable with a focus-visible ring and selects on Enter/Space", () => {
+      const memory = makeMemory();
+      const actions = setupStore({ memories: [memory], total: 1 });
+      render(<MemoryManager projectPath={PROJECT} />);
+
+      const row = screen
+        .getByText("Prefer immutable data")
+        .closest('[role="button"]') as HTMLElement;
+      expect(row).not.toBeNull();
+      expect(row).toHaveAttribute("tabindex", "0");
+      expect(row.className).toContain("focus-visible:outline-none");
+      expect(row.className).toContain("focus-visible:ring-2");
+      expect(row.className).toContain("focus-visible:ring-[var(--app-accent)]");
+
+      row.focus();
+      expect(row).toHaveFocus();
+      fireEvent.keyDown(row, { key: "Enter" });
+      expect(actions.select).toHaveBeenCalledWith(memory);
+      fireEvent.keyDown(row, { key: " " });
+      expect(actions.select).toHaveBeenCalledTimes(2);
+    });
+
+    it("scope filter badges are focusable and activate on Enter/Space", () => {
+      const actions = setupStore();
+      render(<MemoryManager projectPath={PROJECT} />);
+
+      const badge = screen.getByRole("button", {
+        name: i18n.t("dialogs:memoryProject"),
+      });
+      expect(badge).toHaveAttribute("tabindex", "0");
+      expect(badge.className).toContain("focus-visible:outline-none");
+      expect(badge.className).toContain("focus-visible:ring-2");
+      expect(badge.className).toContain("focus-visible:ring-[var(--app-accent)]");
+
+      badge.focus();
+      fireEvent.keyDown(badge, { key: "Enter" });
+      expect(actions.setSelectedScope).toHaveBeenCalledWith("project");
+      fireEvent.keyDown(badge, { key: " " });
+      expect(actions.setSelectedScope).toHaveBeenCalledTimes(2);
+    });
+
+    it("row delete action stays visible and keyboard reachable via group-focus-within", async () => {
+      const user = userEvent.setup();
+      const actions = setupStore({ memories: [makeMemory()], total: 1 });
+      render(<MemoryManager projectPath={PROJECT} />);
+
+      const row = screen
+        .getByText("Prefer immutable data")
+        .closest('[role="button"]') as HTMLElement;
+      const actionWrap = row.querySelector(
+        "div[class*='group-focus-within']"
+      ) as HTMLElement;
+      expect(actionWrap).not.toBeNull();
+      expect(actionWrap.className).toContain("group-hover:flex");
+      expect(actionWrap.className).toContain("group-focus-within:flex");
+
+      // 从行 Tab 到删除按钮；focus-within 让按钮在键盘聚焦时保持可见
+      row.focus();
+      await user.tab();
+      const deleteButton = actionWrap.querySelector("button")!;
+      expect(deleteButton).toHaveFocus();
+
+      await user.keyboard("{Enter}");
+      await waitFor(() => {
+        expect(actions.remove).toHaveBeenCalledWith("m-1");
+      });
+      expect(actions.select).not.toHaveBeenCalled();
+    });
+
+    it("importance stars in the editor are keyboard operable", async () => {
+      const user = userEvent.setup();
+      const actions = setupStore({ selectedMemory: makeMemory() });
+      render(<MemoryManager projectPath={PROJECT} />);
+
+      const star5 = screen.getByRole("button", {
+        name: i18n.t("dialogs:memorySetImportance", { count: 5 }),
+      });
+      expect(star5).toHaveAttribute("tabindex", "0");
+      // Star 是 SVG 元素，className 为 SVGAnimatedString，需读 class 属性
+      const star5Class = star5.getAttribute("class") ?? "";
+      expect(star5Class).toContain("focus-visible:outline-none");
+      expect(star5Class).toContain("focus-visible:ring-2");
+      expect(star5Class).toContain("focus-visible:ring-[var(--app-accent)]");
+
+      star5.focus();
+      fireEvent.keyDown(star5, { key: "Enter" });
+
+      await user.click(
+        screen.getByRole("button", { name: new RegExp(`${i18n.t("common:save")}$`) })
+      );
+      await waitFor(() => {
+        expect(actions.update).toHaveBeenCalledWith(
+          "m-1",
+          expect.objectContaining({ importance: 5 })
+        );
+      });
     });
   });
 });

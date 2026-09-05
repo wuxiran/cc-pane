@@ -461,4 +461,64 @@ describe("LocalHistoryPanel", () => {
       "D:/proj-feature",
     );
   });
+
+  describe("keyboard accessibility", () => {
+    const keyboardChange: RecentChange = {
+      filePath: "src/keyboard.ts",
+      versionId: "v-kb",
+      timestamp: iso(0),
+      size: 64,
+      hash: "h-kb",
+      labelName: null,
+      branch: "",
+    };
+
+    async function renderAndGetRow() {
+      setup({ get_recent_changes: [keyboardChange] });
+      render(
+        <LocalHistoryPanel open onOpenChange={vi.fn()} projectPath={PROJECT} />,
+      );
+      const nameCell = await screen.findByText("keyboard.ts");
+      return nameCell.closest('[role="button"]') as HTMLElement;
+    }
+
+    it("最近更改行可聚焦并带 focus-visible 焦点环", async () => {
+      const row = await renderAndGetRow();
+
+      expect(row).not.toBeNull();
+      expect(row).toHaveAttribute("tabindex", "0");
+      expect(row.className).toContain("focus-visible:outline-none");
+      expect(row.className).toContain("focus-visible:ring-2");
+      expect(row.className).toContain("focus-visible:ring-[var(--app-accent)]");
+
+      row.focus();
+      expect(row).toHaveFocus();
+    });
+
+    it("Enter 打开该文件的版本视图", async () => {
+      const row = await renderAndGetRow();
+
+      row.focus();
+      fireEvent.keyDown(row, { key: "Enter" });
+
+      expect(
+        await screen.findByRole("button", { name: /差异|Diff/i }),
+      ).toBeInTheDocument();
+      expect(invoke).toHaveBeenCalledWith("list_file_versions", {
+        projectPath: PROJECT,
+        filePath: "src/keyboard.ts",
+      });
+    });
+
+    it("Space 打开该文件的版本视图", async () => {
+      const row = await renderAndGetRow();
+
+      row.focus();
+      fireEvent.keyDown(row, { key: " " });
+
+      expect(
+        await screen.findByRole("button", { name: /差异|Diff/i }),
+      ).toBeInTheDocument();
+    });
+  });
 });

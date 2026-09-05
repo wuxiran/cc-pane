@@ -20,6 +20,7 @@
     "general": "startup tray language history data directory search scope version update notification feature tips",
     "theme": "theme style skin dark light system colors appearance",
     "themeShape": "shape corners square dividers glass blur wallpaper Soft Slab Sharp Glass Panel Carbon",
+    "themeDensity": "density compact comfortable row height spacing list 密度",
     "wallpaper": "image video background music opacity blur",
     "font": "font size family typography CJK",
     "shortcuts": "shortcut hotkey keyboard binding",
@@ -165,6 +166,20 @@
       "carbon": {
         "name": "Carbon",
         "description": "Adds a low-contrast geometric texture to translucent surfaces while keeping terminal content clear."
+      }
+    },
+    "density": {
+      "title": "Interface density",
+      "description": "Adjusts row height and spacing in sidebars, status bars, and forms. Applies immediately and saves automatically.",
+      "options": {
+        "comfortable": {
+          "name": "Comfortable",
+          "description": "Default row height and spacing for everyday use."
+        },
+        "compact": {
+          "name": "Compact",
+          "description": "Tighter rows and spacing to fit more content on screen."
+        }
       }
     }
   },
@@ -994,5 +1009,6 @@
     "toggleFailed": "Toggle failed: {{error}}",
     "removed": "Removed {{name}}",
     "removeFailed": "Remove failed: {{error}}"
-  }
+  },
+  "providerUrlCopied": "Provider URL copied"
 }

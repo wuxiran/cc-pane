@@ -37,7 +37,7 @@ export default function HomeHeader({ version }: HomeHeaderProps) {
         {/* 文字区域 */}
         <div className="min-w-0">
           <h1
-            className="text-2xl xl:text-[28px] 2xl:text-3xl font-bold tracking-wide"
+            className="text-[28px] xl:text-[30px] 2xl:text-[32px] font-bold tracking-tight"
             style={{ color: "var(--app-text-primary)" }}
           >
             {t(greetingKey)}

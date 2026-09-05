@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ThemeSettings } from "@/types/settings";
 import { useThemeStore } from "@/stores/useThemeStore";
+import { THEME_PRESETS } from "@/theme/themePresets";
+import { THEME_SHAPES } from "@/theme/themeShapes";
 import ThemeSection from "./ThemeSection";
 
 vi.mock("sonner", () => ({
@@ -145,5 +147,56 @@ describe("ThemeSection", () => {
     );
 
     expect(screen.getByText("当前环境不支持背景模糊，已保留半透明层次。")).toBeInTheDocument();
+  });
+
+  it("主题卡渲染 mini UI 预览：data-theme 套框、卡顶主色带、aria-pressed 选中态不变", () => {
+    render(
+      <ThemeSection value={{ mode: "tokyo-night", shape: "soft" }} onChange={vi.fn()} />,
+    );
+
+    const colorSection = document.querySelector("[data-settings-section='theme-color']")!;
+    for (const preset of THEME_PRESETS) {
+      const preview = colorSection.querySelector(`[data-theme="${preset.id}"]`);
+      expect(preview, `${preset.id} 卡片缺少 data-theme 预览框`).not.toBeNull();
+      expect(preview).toHaveAttribute("aria-hidden", "true");
+      expect(preview!.querySelector("[data-accent-band]")).not.toBeNull();
+      const card = preview!.closest("button")!;
+      expect(card).toHaveAttribute("aria-pressed", preset.id === "tokyo-night" ? "true" : "false");
+    }
+  });
+
+  it("主题卡预览内无裸 hex，颜色全部走 var()", () => {
+    render(
+      <ThemeSection value={{ mode: "deep-ink", shape: "soft" }} onChange={vi.fn()} />,
+    );
+
+    const previews = document.querySelectorAll("[data-settings-section='theme-color'] [data-theme]");
+    expect(previews).toHaveLength(THEME_PRESETS.length);
+    for (const preview of previews) {
+      for (const el of [preview, ...preview.querySelectorAll("*")]) {
+        for (const attr of el.getAttributeNames()) {
+          expect(el.getAttribute(attr)).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+        }
+      }
+    }
+  });
+
+  it("形态卡渲染 mini UI 预览：data-shape 套框且选中卡 aria-pressed=true", () => {
+    render(
+      <ThemeSection value={{ mode: "deep-ink", shape: "carbon" }} onChange={vi.fn()} />,
+    );
+
+    const shapeSection = document.querySelector("[data-settings-section='theme-shape']")!;
+    const previews = shapeSection.querySelectorAll("[data-shape]");
+    expect(previews).toHaveLength(THEME_SHAPES.length);
+    for (const shape of THEME_SHAPES) {
+      const preview = shapeSection.querySelector(`[data-shape="${shape.code}"]`);
+      expect(preview, `${shape.code} 卡片缺少 data-shape 预览框`).not.toBeNull();
+      expect(preview).toHaveAttribute("aria-hidden", "true");
+      expect(preview).not.toHaveAttribute("data-theme");
+      expect(preview!.querySelector("[data-accent-band]")).not.toBeNull();
+      const card = preview!.closest("button")!;
+      expect(card).toHaveAttribute("aria-pressed", shape.code === "carbon" ? "true" : "false");
+    }
   });
 });

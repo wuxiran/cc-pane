@@ -2,9 +2,13 @@ import { useEffect } from "react";
 import { Check, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { MiniUiPreview } from "@/components/theme/MiniUiPreview";
 import { PresetSwatches, SystemThemePreview } from "@/components/theme/ThemeSwatches";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
+import { useDensityStore } from "@/stores/useDensityStore";
 import { useThemeStore } from "@/stores/useThemeStore";
 import {
   canonicalThemePreference,
@@ -16,7 +20,6 @@ import {
   canonicalThemeShape,
   DEFAULT_THEME_SHAPE,
   THEME_SHAPES,
-  type ThemeShapeDefinition,
 } from "@/theme/themeShapes";
 import type { ThemeSettings } from "@/types/settings";
 
@@ -32,28 +35,12 @@ function supportsBackdropBlur(): boolean {
     || CSS.supports("-webkit-backdrop-filter", "blur(1px)");
 }
 
-function ShapePreview({ shape }: { shape: ThemeShapeDefinition }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="theme-shape-preview relative block h-16 w-full overflow-hidden border border-[var(--app-border)]"
-      data-shape-preview={shape.code}
-    >
-      <span className="theme-shape-preview-chrome absolute inset-x-0 top-0 h-3 border-b border-[var(--app-border)]" />
-      <span className="theme-shape-preview-sidebar absolute bottom-1 left-1 top-4 w-5 border border-[var(--app-border)]" />
-      <span className="theme-shape-preview-panel absolute bottom-1 left-7 right-1 top-4 border border-[var(--app-border)]">
-        <span className="absolute left-1.5 right-5 top-2 h-px bg-[var(--app-text-tertiary)] opacity-70" />
-        <span className="absolute left-1.5 right-8 top-4 h-px bg-[var(--app-text-tertiary)] opacity-50" />
-        <span className="absolute bottom-1.5 left-1.5 h-2 w-6 bg-[var(--app-active-bg)]" />
-      </span>
-    </span>
-  );
-}
-
 export default function ThemeSection({ view = "all", value, onChange }: ThemeSectionProps) {
   const { t } = useTranslation("settings");
   const preference = canonicalThemePreference(value.mode);
   const selectedShape = canonicalThemeShape(value.shape);
+  const density = useDensityStore((state) => state.density);
+  const setDensity = useDensityStore((state) => state.setDensity);
   const showBlurFallback = THEME_SHAPES.find((shape) => shape.code === selectedShape)?.traits.translucent
     && !supportsBackdropBlur();
 
@@ -204,7 +191,7 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
                     : "border-[var(--app-border)] bg-[var(--app-panel-bg)] hover:bg-[var(--app-hover)]",
                 )}
               >
-                <ShapePreview shape={shape} />
+                <MiniUiPreview shape={shape.code} />
                 <span className="mt-2.5 flex min-w-0 items-center gap-1.5">
                   <span className="min-w-0 truncate text-[12px] font-semibold text-[var(--app-text-primary)]">
                     {name}
@@ -238,6 +225,55 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
             {t("theme.blurFallback")}
           </p>
         )}
+      </section>}
+
+      {view !== "theme" && <section
+        className={cn("space-y-4", view === "all" && "border-t border-[var(--app-border)] pt-6")}
+        aria-labelledby="theme-density-heading"
+        data-settings-section="theme-density"
+      >
+        <div>
+          <h2 id="theme-density-heading" className="text-[13px] font-semibold text-[var(--app-text-primary)]">
+            {t("theme.density.title")}
+          </h2>
+          <p className="mt-1 text-[12px] text-[var(--app-text-tertiary)]">
+            {t("theme.density.description")}
+          </p>
+        </div>
+
+        <RadioGroup
+          value={density}
+          onValueChange={setDensity}
+          aria-label={t("theme.density.title")}
+          className="grid gap-2 sm:grid-cols-2"
+        >
+          {(["comfortable", "compact"] as const).map((option) => (
+            <Label
+              key={option}
+              htmlFor={`theme-density-${option}`}
+              className={cn(
+                "shape-control flex cursor-pointer items-start gap-2.5 rounded-md border p-3 transition-colors",
+                density === option
+                  ? "border-[var(--app-accent)] bg-[var(--app-active-bg)]"
+                  : "border-[var(--app-border)] bg-[var(--app-panel-bg)] hover:bg-[var(--app-hover)]",
+              )}
+            >
+              <RadioGroupItem
+                id={`theme-density-${option}`}
+                value={option}
+                className="mt-0.5"
+              />
+              <span className="min-w-0">
+                <span className="block text-[12px] font-medium text-[var(--app-text-primary)]">
+                  {t(`theme.density.options.${option}.name` as never)}
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-4 text-[var(--app-text-tertiary)]">
+                  {t(`theme.density.options.${option}.description` as never)}
+                </span>
+              </span>
+            </Label>
+          ))}
+        </RadioGroup>
       </section>}
     </div>
   );

@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { navigateToSettings } from "@/components/settings/settingsNavigation";
+import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import { usePanesStore, useWorkspacesStore } from "@/stores";
 import SkillMarketCard from "./SkillMarketCard";
 import {
@@ -64,6 +65,7 @@ export default function SkillMarketPage() {
   }, [featured, visible, market.ensureDescribed]);
 
   const showOffline = !market.loading && market.loadError !== null && market.catalog.length === 0;
+  const showLoadingGrid = useDelayedLoading(market.loading);
 
   return (
     <div className="flex h-full flex-col" data-testid="skill-market-page">
@@ -148,12 +150,13 @@ export default function SkillMarketPage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
         {market.loading ? (
-          <LoadingGrid />
+          showLoadingGrid ? <LoadingGrid /> : null
         ) : showOffline ? (
           <EmptyState
             icon={WifiOff}
             title={t("offline.title")}
             description={t("offline.hint")}
+            illustration="error-cloud"
             action={{ label: t("refresh"), onClick: () => void market.refresh() }}
           />
         ) : (
@@ -212,6 +215,7 @@ export default function SkillMarketPage() {
                   icon={PackageSearch}
                   title={t("empty.title")}
                   description={t("empty.hint")}
+                  illustration="empty-search"
                 />
               ) : (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">

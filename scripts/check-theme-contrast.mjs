@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 const css = readFileSync(new URL("../web/assets/index.css", import.meta.url), "utf8");
 const EXPECTED_LIGHT_THEMES = ["warm-gray", "sky-blue", "rice-paper", "mint-mist"];
+const EXPECTED_DARK_THEMES = ["cyber-purple", "amber-gold", "nord-frost", "tokyo-night"];
 const MIN_CONTRAST = 4.5;
 
 function blockFor(selector) {
@@ -158,35 +159,22 @@ function contrast(foreground, background) {
   return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
 }
 
-const root = variables(blockFor(":root"));
-const lightThemes = EXPECTED_LIGHT_THEMES.map((name) => {
-  const block = blockFor(`:root[data-theme="${name}"]`);
-  if (!/\bcolor-scheme\s*:\s*light\s*;/i.test(block)) {
-    throw new Error(`Theme ${name} is not declared as a light color scheme`);
-  }
-  return { name, values: variables(block) };
-});
-const discoveredThemes = [...css.matchAll(/:root\[data-theme="([a-z0-9-]+)"\]\s*\{/gi)].map((match) => match[1]);
-const discoveredLightThemes = discoveredThemes.filter((name) =>
-  /\bcolor-scheme\s*:\s*light\s*;/i.test(blockFor(`:root[data-theme="${name}"]`)),
-);
-if (discoveredLightThemes.join(",") !== EXPECTED_LIGHT_THEMES.join(",")) {
-  throw new Error(
-    `Expected light themes ${EXPECTED_LIGHT_THEMES.join(", ")}; found ${discoveredLightThemes.join(", ") || "none"}`,
-  );
-}
-
 const checks = [
   ["--app-text-primary", "--app-panel-bg", "primary-on-panel"],
   ["--app-text-secondary", "--app-panel-bg", "secondary-on-panel"],
+  ["--app-text-tertiary", "--app-panel-bg", "tertiary-on-panel"],
   ["--app-accent", "--app-panel-bg", "accent-on-panel"],
   ["--app-text-primary", "--app-sidebar-bg", "primary-on-sidebar"],
   ["--app-text-secondary", "--app-sidebar-bg", "secondary-on-sidebar"],
+  ["--app-text-tertiary", "--app-sidebar-bg", "tertiary-on-sidebar"],
   ["--app-accent", "--app-sidebar-bg", "accent-on-sidebar"],
   ["--app-status-warning", "--app-panel-bg", "warning-on-panel"],
   ["--app-status-success", "--app-panel-bg", "success-on-panel"],
   ["--app-status-danger", "--app-panel-bg", "danger-on-panel"],
 ];
+// 历史观察清单（tertiary 两组合 + 暗色上下文）已于 token 明度修正后清零：
+// 全部上下文 × 全部组合统一按 4.5 强约束执行，跌破即失败。CONTRAST_STRICT
+// 环境变量保留兼容（设与不设行为一致，均为强约束）。
 const requiredTokens = new Set([
   ...checks.flatMap(([foreground, background]) => [foreground, background]),
   "--app-status-success-bg",
@@ -196,28 +184,67 @@ const requiredTokens = new Set([
   "--app-status-danger-bg",
   "--app-status-danger-border",
 ]);
+
+const root = variables(blockFor(":root"));
+const darkBase = variables(blockFor(".dark"));
+
+function themeEntry(name, scheme, inherited) {
+  const block = blockFor(`:root[data-theme="${name}"]`);
+  if (!new RegExp(`\\bcolor-scheme\\s*:\\s*${scheme}\\s*;`, "i").test(block)) {
+    throw new Error(`Theme ${name} is not declared as a ${scheme} color scheme`);
+  }
+  return { name, tokens: { ...root, ...inherited, ...variables(block) } };
+}
+
+const discoveredThemes = [...css.matchAll(/:root\[data-theme="([a-z0-9-]+)"\]\s*\{/gi)].map((match) => match[1]);
+const discoveredByScheme = (scheme) =>
+  discoveredThemes.filter((name) =>
+    new RegExp(`\\bcolor-scheme\\s*:\\s*${scheme}\\s*;`, "i").test(blockFor(`:root[data-theme="${name}"]`)),
+  );
+
+const discoveredLightThemes = discoveredByScheme("light");
+if (discoveredLightThemes.join(",") !== EXPECTED_LIGHT_THEMES.join(",")) {
+  throw new Error(
+    `Expected light themes ${EXPECTED_LIGHT_THEMES.join(", ")}; found ${discoveredLightThemes.join(", ") || "none"}`,
+  );
+}
+const discoveredDarkThemes = discoveredByScheme("dark");
+if (discoveredDarkThemes.join(",") !== EXPECTED_DARK_THEMES.join(",")) {
+  throw new Error(
+    `Expected dark themes ${EXPECTED_DARK_THEMES.join(", ")}; found ${discoveredDarkThemes.join(", ") || "none"}`,
+  );
+}
+
+// 亮色主题直接继承 :root；暗色 [data-theme] 同时挂 .dark class，先继承 .dark 再叠加主题块
+const contexts = [
+  ...EXPECTED_LIGHT_THEMES.map((name) => ({ ...themeEntry(name, "light", {}), dark: false })),
+  { name: ".dark", tokens: { ...root, ...darkBase }, dark: true },
+  ...EXPECTED_DARK_THEMES.map((name) => ({ ...themeEntry(name, "dark", darkBase), dark: true })),
+];
+
 const failures = [];
 
-for (const { name, values } of lightThemes) {
-  const tokens = { ...root, ...values };
+for (const { name, tokens, dark } of contexts) {
   const cache = new Map();
   const resolve = (token) => resolveThemeValue(token, tokens, cache);
   for (const token of requiredTokens) {
     if (!resolve(token)) failures.push(`${name}: unresolved ${token}`);
   }
+  const backdrop = dark ? [0, 0, 0] : [255, 255, 255];
   for (const [foregroundToken, backgroundToken, label] of checks) {
     const foreground = resolve(foregroundToken);
     const background = resolve(backgroundToken);
     if (!foreground || !background) continue;
-    const actualBackground = composite(background, [255, 255, 255]);
+    const actualBackground = composite(background, backdrop);
     const ratio = contrast(composite(foreground, actualBackground), actualBackground);
     console.log(`${name}\t${label} ${ratio.toFixed(2)}`);
-    if (ratio < MIN_CONTRAST) failures.push(`${name}: ${label} ${ratio.toFixed(2)} < ${MIN_CONTRAST}`);
+    if (ratio >= MIN_CONTRAST) continue;
+    failures.push(`${name}: ${label} ${ratio.toFixed(2)} < ${MIN_CONTRAST}`);
   }
 }
 
 if (failures.length > 0) {
-  console.error("Light theme contrast guard failed:");
+  console.error("Theme contrast guard failed:");
   for (const failure of failures) console.error(`- ${failure}`);
   process.exitCode = 1;
 }

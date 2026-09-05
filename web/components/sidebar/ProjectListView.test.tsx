@@ -505,4 +505,147 @@ describe("ProjectListView", () => {
       expect(screen.queryByRole("menuitem", { name: "文件历史" })).not.toBeInTheDocument();
     });
   });
+
+  describe("keyboard accessibility", () => {
+    it("导入项目入口可 Tab 聚焦，Enter/Space 触发导入", async () => {
+      const user = userEvent.setup();
+      const onImportProject = vi.fn();
+      const workspace = createTestWorkspace({
+        projects: [
+          createTestWorkspaceProject({
+            alias: "local-project",
+            path: "D:/workspace/local-project",
+          }),
+        ],
+      });
+
+      render(
+        <ProjectListView
+          projects={workspace.projects}
+          ws={workspace}
+          gitBranches={{}}
+          onOpenTerminal={vi.fn()}
+          onRemoveProject={vi.fn()}
+          onSetProjectAlias={vi.fn()}
+          onImportProject={onImportProject}
+          onMigrateProject={vi.fn()}
+          onOpenWorktreeManager={vi.fn()}
+        />
+      );
+
+      const importEntry = screen.getByRole("button", { name: "导入项目" });
+      expect(importEntry).toHaveAttribute("tabindex", "0");
+      expect(importEntry.className).toContain("focus-visible:outline-none");
+      expect(importEntry.className).toContain("focus-visible:ring-2");
+      expect(importEntry.className).toContain("focus-visible:ring-[var(--app-accent)]");
+
+      // Tab 顺序：项目行是首个停留点，再 Tab 一次到导入入口
+      await user.tab();
+      await user.tab();
+      expect(importEntry).toHaveFocus();
+
+      fireEvent.keyDown(importEntry, { key: "Enter" });
+      expect(onImportProject).toHaveBeenCalledTimes(1);
+      fireEvent.keyDown(importEntry, { key: " " });
+      expect(onImportProject).toHaveBeenCalledTimes(2);
+    });
+
+    it("本地项目行可 Tab 聚焦，Enter/Space 打开文件浏览器（与双击一致）", () => {
+      const onOpenInFileBrowser = vi.fn();
+      const workspace = createTestWorkspace({
+        projects: [
+          createTestWorkspaceProject({
+            alias: "local-project",
+            path: "D:/workspace/local-project",
+          }),
+        ],
+      });
+
+      render(
+        <ProjectListView
+          projects={workspace.projects}
+          ws={workspace}
+          gitBranches={{}}
+          onOpenTerminal={vi.fn()}
+          onRemoveProject={vi.fn()}
+          onSetProjectAlias={vi.fn()}
+          onImportProject={vi.fn()}
+          onMigrateProject={vi.fn()}
+          onOpenWorktreeManager={vi.fn()}
+          onOpenInFileBrowser={onOpenInFileBrowser}
+        />
+      );
+
+      const row = screen
+        .getByText("local-project")
+        .closest('[role="button"]') as HTMLElement;
+      expect(row).not.toBeNull();
+      expect(row).toHaveAttribute("tabindex", "0");
+      expect(row.className).toContain("focus-visible:outline-none");
+      expect(row.className).toContain("focus-visible:ring-2");
+      expect(row.className).toContain("focus-visible:ring-[var(--app-accent)]");
+
+      row.focus();
+      expect(row).toHaveFocus();
+      fireEvent.keyDown(row, { key: "Enter" });
+      expect(onOpenInFileBrowser).toHaveBeenCalledWith("D:/workspace/local-project");
+      fireEvent.keyDown(row, { key: " " });
+      expect(onOpenInFileBrowser).toHaveBeenCalledTimes(2);
+
+      // 鼠标双击行为保持不变
+      fireEvent.doubleClick(row);
+      expect(onOpenInFileBrowser).toHaveBeenCalledTimes(3);
+
+      // 子元素冒泡上来的按键不触发（event.target !== event.currentTarget 守卫）
+      fireEvent.keyDown(screen.getByText("local-project"), { key: "Enter" });
+      expect(onOpenInFileBrowser).toHaveBeenCalledTimes(3);
+    });
+
+    it("SSH 项目行 Enter/Space 触发连接（与双击一致）", () => {
+      const onOpenTerminal = vi.fn();
+      const workspace = createTestWorkspace({
+        projects: [
+          createTestWorkspaceProject({
+            alias: "ssh-project",
+            path: "/ignored/for/ssh",
+            ssh: {
+              host: "devbox.local",
+              port: 22,
+              user: "dev",
+              remotePath: "/home/dev/repo",
+            },
+          }),
+        ],
+      });
+
+      render(
+        <ProjectListView
+          projects={workspace.projects}
+          ws={workspace}
+          gitBranches={{}}
+          onOpenTerminal={onOpenTerminal}
+          onRemoveProject={vi.fn()}
+          onSetProjectAlias={vi.fn()}
+          onImportProject={vi.fn()}
+          onMigrateProject={vi.fn()}
+          onOpenWorktreeManager={vi.fn()}
+        />
+      );
+
+      const row = screen
+        .getByText("ssh-project")
+        .closest('[role="button"]') as HTMLElement;
+      expect(row).not.toBeNull();
+
+      row.focus();
+      fireEvent.keyDown(row, { key: "Enter" });
+      expect(onOpenTerminal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ssh: expect.objectContaining({ host: "devbox.local" }),
+        }),
+      );
+      fireEvent.keyDown(row, { key: " " });
+      expect(onOpenTerminal).toHaveBeenCalledTimes(2);
+    });
+  });
 });

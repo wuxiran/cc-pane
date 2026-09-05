@@ -113,7 +113,9 @@ export default function OrchestratorTaskCard({ binding, depth = 0 }: Orchestrato
 
   return (
     <div
-      className="group my-1 flex cursor-pointer flex-col gap-1 rounded-md p-2 transition-colors hover:bg-[var(--app-hover)]"
+      role="button"
+      tabIndex={0}
+      className="group my-1 flex cursor-pointer flex-col gap-1 rounded-md p-2 transition-colors hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
       style={{
         marginLeft: depth > 0 ? Math.min(depth * 14, 42) : undefined,
         border: selected ? "1px solid var(--app-accent)" : "1px solid var(--app-border)",
@@ -121,6 +123,13 @@ export default function OrchestratorTaskCard({ binding, depth = 0 }: Orchestrato
         background: selected ? "color-mix(in srgb, var(--app-accent) 10%, transparent)" : undefined,
       }}
       onClick={() => handleFocusSession(binding)}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handleFocusSession(binding);
+        }
+      }}
       title={binding.prompt || binding.title}
     >
       <div className="flex items-start gap-1.5">

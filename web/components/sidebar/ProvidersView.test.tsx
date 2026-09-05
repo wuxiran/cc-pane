@@ -168,4 +168,28 @@ describe("ProvidersView", () => {
       expect(mockInvoke).toHaveBeenCalledWith("remove_provider", { id: provider.id }),
     );
   });
+
+  it("hover-only row actions stay visible and keyboard operable via focus-within", async () => {
+    const provider = createTestProvider({ providerType: "anthropic", name: "Claude Main", isDefault: false });
+    setup([provider]);
+    render(<ProvidersView />);
+
+    const starButton = await screen.findByTitle(/Set as default|设为默认/i);
+    const actionWrap = starButton.parentElement as HTMLElement;
+    expect(actionWrap.className).toContain("group-hover:opacity-100");
+    expect(actionWrap.className).toContain("focus-within:opacity-100");
+
+    // 键盘聚焦行内按钮时 focus-within 兜底让按钮保持可见，且可直接触发
+    const user = userEvent.setup();
+    starButton.focus();
+    expect(starButton).toHaveFocus();
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("set_default_provider", {
+        id: provider.id,
+        cliTool: "claude",
+      }),
+    );
+  });
 });

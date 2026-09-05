@@ -365,7 +365,7 @@ export default function AutomationsSection() {
       )}
 
       {defs.length === 0 && !draft ? (
-        <EmptyState icon={CalendarClock} title={t("automations.empty")} />
+        <EmptyState icon={CalendarClock} title={t("automations.empty")} illustration="empty-box" />
       ) : (
         defs.map((def) => (
           <div

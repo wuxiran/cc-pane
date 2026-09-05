@@ -367,6 +367,7 @@ export default function OrchestrationFullView({
                     description={t("emptyTasks.description", {
                       defaultValue: "由 leader/worker 派发的任务会出现在这里",
                     })}
+                    illustration="empty-box"
                   />
                 ) : viewType === "tree" ? (
                   <OrchestratorTaskTree />
@@ -402,6 +403,7 @@ export default function OrchestrationFullView({
                     description={t("emptyNotifications.description", {
                       defaultValue: "任务完成或出错时会在这里提醒",
                     })}
+                    illustration="empty-box"
                   />
                 ) : (
                   <div className="space-y-1">
@@ -465,7 +467,7 @@ export default function OrchestrationFullView({
         >
           <button
             type="button"
-            className="absolute left-0 top-0 z-10 flex h-full w-2 cursor-col-resize items-center justify-center opacity-0 transition-opacity duration-[var(--dur-fast)] group-hover:opacity-100"
+            className="absolute left-0 top-0 z-10 flex h-full w-2 cursor-col-resize items-center justify-center opacity-0 transition-opacity duration-[var(--dur-fast)] group-hover:opacity-100 focus-visible:opacity-100"
             onPointerDown={startResize}
             title={rightCollapsed ? t("expandPreview", { defaultValue: "展开预览" }) : t("resizePreview", { defaultValue: "调整预览宽度" })}
           >

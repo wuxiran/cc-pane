@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
@@ -64,11 +64,21 @@ describe("CliLaunchersSection", () => {
     mockTools([createTool()]);
   });
 
-  it("shows a loading hint while tools are being fetched", () => {
-    mockTools([], true);
-    render(<CliLaunchersSection value={{ overrides: {} }} onChange={vi.fn()} />);
+  it("shows a skeleton after the delay while tools are being fetched", () => {
+    vi.useFakeTimers();
+    try {
+      mockTools([], true);
+      render(<CliLaunchersSection value={{ overrides: {} }} onChange={vi.fn()} />);
 
-    expect(screen.getByText(/加载中|Loading/i)).toBeInTheDocument();
+      // 300ms 内不显示骨架，避免快加载闪占位
+      expect(screen.queryByTestId("cli-launchers-skeleton")).not.toBeInTheDocument();
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      expect(screen.getByTestId("cli-launchers-skeleton")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows one selected tool and switches it from the CLI dropdown", async () => {

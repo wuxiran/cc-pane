@@ -178,6 +178,20 @@ describe("OrchestrationFullView", () => {
     expect(window.sessionStorage.getItem("cc-panes-orchestration-right-collapsed")).toBe("true");
   });
 
+  it("preview resize handle stays visible when keyboard focused", () => {
+    setOrchestratorState([makeBinding("b1")]);
+    // jsdom 默认 innerWidth 1024 < 1280 会默认折叠右栏，这里强制展开以露出拖拽柄
+    window.sessionStorage.setItem("cc-panes-orchestration-right-collapsed", "false");
+    render(<OrchestrationFullView />);
+
+    const handle = screen.getByRole("button", { name: "调整预览宽度" });
+    expect(handle.className).toContain("group-hover:opacity-100");
+    expect(handle.className).toContain("focus-visible:opacity-100");
+
+    handle.focus();
+    expect(handle).toHaveFocus();
+  });
+
   it("lists notifications and jumps to the linked task", async () => {
     const user = userEvent.setup();
     const setSelectedTaskId = vi.fn();

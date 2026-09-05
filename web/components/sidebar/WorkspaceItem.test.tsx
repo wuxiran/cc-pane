@@ -37,6 +37,7 @@ function renderWorkspaceItem(
 ) {
   const onOpenTerminal = vi.fn();
   const onOpenEnvironment = vi.fn();
+  const onExpand = vi.fn();
   const ws = createTestWorkspace({
     name: "workspace-alpha",
     path: "D:/workspace-alpha",
@@ -51,7 +52,7 @@ function renderWorkspaceItem(
       <WorkspaceItem
         ws={ws}
         expanded={expanded}
-        onExpand={vi.fn()}
+        onExpand={onExpand}
         onOpenTerminal={onOpenTerminal}
         onRename={vi.fn()}
         onDelete={vi.fn()}
@@ -69,7 +70,7 @@ function renderWorkspaceItem(
     </TooltipProvider>,
   );
 
-  return { onOpenEnvironment, onOpenTerminal, ws };
+  return { onOpenEnvironment, onOpenTerminal, onExpand, ws };
 }
 
 function createLaunchProfile(overrides: Partial<LaunchProfile> = {}): LaunchProfile {
@@ -548,5 +549,34 @@ describe("WorkspaceItem", () => {
     fireEvent.contextMenu(screen.getByRole("button", { name: /workspace-alpha/i }));
     await user.hover(await screen.findByRole("menuitem", { name: /^设置$|^Settings$/ }));
     expect(await screen.findByRole("menuitem", { name: "Hooks" })).toBeVisible();
+  });
+
+  describe("keyboard accessibility", () => {
+    it("工作空间行可 Tab 聚焦并带 focus-visible 焦点环", async () => {
+      const user = userEvent.setup();
+      renderWorkspaceItem("local");
+
+      const row = screen.getByRole("button", { name: /workspace-alpha/i });
+      expect(row).toHaveAttribute("tabindex", "0");
+      expect(row.className).toContain("focus-visible:outline-none");
+      expect(row.className).toContain("focus-visible:ring-2");
+      expect(row.className).toContain("focus-visible:ring-[var(--app-accent)]");
+
+      await user.tab();
+      expect(row).toHaveFocus();
+    });
+
+    it("Enter/Space 触发展开（既有键盘行为回归）", () => {
+      const { onExpand, ws } = renderWorkspaceItem("local");
+      const row = screen.getByRole("button", { name: /workspace-alpha/i });
+
+      row.focus();
+      fireEvent.keyDown(row, { key: "Enter" });
+      expect(onExpand).toHaveBeenCalledTimes(1);
+      expect(onExpand).toHaveBeenCalledWith(ws.id);
+
+      fireEvent.keyDown(row, { key: " " });
+      expect(onExpand).toHaveBeenCalledTimes(2);
+    });
   });
 });

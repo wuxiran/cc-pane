@@ -121,5 +121,6 @@
   "contextUsage.windowSources.providerModel": "Provider \u6a21\u578b\u914d\u7f6e",
   "contextUsage.windowSources.unknown": "\u672a\u77e5",
   "statusbar.ccchanShow": "\u663e\u793a cc\u9171",
-  "statusbar.ccchanHide": "\u9690\u85cf cc\u9171"
+  "statusbar.ccchanHide": "\u9690\u85cf cc\u9171",
+  "statusbar.more": "更多工具"
 }

@@ -120,14 +120,10 @@ export default function LocalHistoryPanel({
       };
       groups[item.worktreePath].changes.push(item.change);
     }
-    return Object.values(groups).sort(
-      (a, b) => Number(b.isMain) - Number(a.isMain),
-    );
+    return Object.values(groups).sort((a, b) => Number(b.isMain) - Number(a.isMain));
   }, [worktreeChanges]);
 
-  useEffect(() => {
-    if (open) setShowAllWorktrees(false);
-  }, [open, projectPath]);
+  useEffect(() => { if (open) setShowAllWorktrees(false); }, [open, projectPath]);
 
   useEffect(() => {
     if (!open || filePath || !showAllWorktrees || !projectPath) return;
@@ -136,20 +132,14 @@ export default function LocalHistoryPanel({
     setWorktreeLoading(true);
     localHistoryService
       .listWorktreeRecentChanges(projectPath, 200)
-      .then((changes) => {
-        if (!cancelled) setWorktreeChanges(changes);
-      })
+      .then((changes) => { if (!cancelled) setWorktreeChanges(changes); })
       .catch((error) => {
         handleErrorSilent(error, "load worktree recent changes");
         if (!cancelled) setWorktreeChanges([]);
       })
-      .finally(() => {
-        if (!cancelled) setWorktreeLoading(false);
-      });
+      .finally(() => { if (!cancelled) setWorktreeLoading(false); });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [open, projectPath, filePath, showAllWorktrees]);
 
   function openFileHistory(changeFilePath: string, worktreePath?: string) {
@@ -164,8 +154,17 @@ export default function LocalHistoryPanel({
     return (
       <div
         key={`${worktreePath || projectPath}:${change.filePath}:${change.versionId}`}
-        className="flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer transition-colors hover:bg-[var(--app-hover)]"
+        role="button"
+        tabIndex={0}
+        className="flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer transition-colors hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
         onClick={() => openFileHistory(change.filePath, worktreePath)}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openFileHistory(change.filePath, worktreePath);
+          }
+        }}
       >
         <FolderOpen
           size={14}

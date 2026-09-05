@@ -10,7 +10,8 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="card"
       className={cn(
-        "rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-sm",
+        // ui-hoverable：调用方叠加 hover:bg-* 的可点卡片自动获得统一 120ms 过渡
+        "ui-hoverable rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-sm",
         className,
       )}
       {...props}

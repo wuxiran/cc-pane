@@ -506,5 +506,7 @@
   "chatRoleUser": "你",
   "chatRoleAssistant": "助手",
   "chatRoleReasoning": "思考",
-  "chatRoleTool": "工具"
+  "chatRoleTool": "工具",
+  "popOutFailed": "弹出窗口失败: {{error}}",
+  "sshMachineIdentityUnavailable": "SSH 机器标识不可用"
 }

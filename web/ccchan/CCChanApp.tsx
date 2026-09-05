@@ -6,6 +6,7 @@ import { MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { Toaster, toast } from "sonner";
+import { TOASTER_OFFSET_CCCHAN, TOASTER_POSITION } from "@/lib/feedback";
 import { useCCChanStore } from "@/stores/useCCChanStore";
 import { useTerminalStatusStore } from "@/stores";
 import type { TerminalStatusInfo, TerminalStatusType } from "@/types";
@@ -977,7 +978,7 @@ export function CCChanApp() {
         />
       )}
 
-      <Toaster position="top-center" richColors />
+      <Toaster position={TOASTER_POSITION} offset={TOASTER_OFFSET_CCCHAN} richColors />
     </div>
   );
 }

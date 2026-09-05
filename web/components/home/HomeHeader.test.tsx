@@ -41,6 +41,16 @@ describe("HomeHeader", () => {
     expect(screen.getByText(greeting)).toBeVisible();
   });
 
+  it("问候语标题使用 28px 级 tight 排版阶梯", () => {
+    render(<HomeHeader version="1.0.0" />);
+
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading).toHaveClass("tracking-tight");
+    expect(heading.className).toContain("text-[28px]");
+    expect(heading.className).toContain("xl:text-[30px]");
+    expect(heading.className).toContain("2xl:text-[32px]");
+  });
+
   it("无可用更新时显示已是最新", () => {
     render(<HomeHeader version="1.0.0" />);
 

@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
   RefreshCw, Trash2, ChevronDown, ChevronRight,
   X, Cpu, AlertTriangle,
@@ -64,6 +65,7 @@ function ProcessItem({
   onToggle: () => void;
   onKill: () => void;
 }) {
+  const { t } = useTranslation("sidebar");
   const typeInfo = TYPE_LABELS[process.processType];
 
   return (
@@ -91,6 +93,7 @@ function ProcessItem({
           <button
             onClick={(e) => { e.stopPropagation(); onKill(); }}
             disabled={killing}
+            aria-label={t("processMonitor.killProcess", { name: process.name })}
             className="shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-0.5 rounded hover:bg-[var(--app-status-danger-bg)] text-[var(--app-text-tertiary)] hover:text-[var(--app-status-danger)] transition-all duration-[var(--dur-fast)] disabled:opacity-50"
           >
             <X className="w-3 h-3" />
@@ -161,6 +164,7 @@ function CwdGroup({
 }
 
 export default function ProcessMonitorSection() {
+  const { t } = useTranslation("sidebar");
   const scanResult = useProcessMonitorStore((s) => s.scanResult);
   const scanning = useProcessMonitorStore((s) => s.scanning);
   const killing = useProcessMonitorStore((s) => s.killing);
@@ -237,13 +241,14 @@ export default function ProcessMonitorSection() {
               <TooltipTrigger asChild>
                 <button
                   onClick={() => setConfirmAction("selected")}
+                  aria-label={t("processMonitor.killSelected", { count: selectedPids.size })}
                   className="p-1 rounded hover:bg-[var(--app-status-danger-bg)] text-[var(--app-text-tertiary)] hover:text-[var(--app-status-danger)] transition-colors"
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="top">
-                <p>终止选中 ({selectedPids.size})</p>
+                <p>{t("processMonitor.killSelected", { count: selectedPids.size })}</p>
               </TooltipContent>
             </Tooltip>
           )}
@@ -252,13 +257,14 @@ export default function ProcessMonitorSection() {
               <TooltipTrigger asChild>
                 <button
                   onClick={() => setConfirmAction("all")}
+                  aria-label={t("processMonitor.killAll", { count: totalCount })}
                   className="p-1 rounded hover:bg-[var(--app-status-danger-bg)] text-[var(--app-text-tertiary)] hover:text-[var(--app-status-danger)] transition-colors"
                 >
                   <AlertTriangle className="w-3 h-3" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="top">
-                <p>终止全部 ({totalCount})</p>
+                <p>{t("processMonitor.killAll", { count: totalCount })}</p>
               </TooltipContent>
             </Tooltip>
           )}
@@ -267,13 +273,14 @@ export default function ProcessMonitorSection() {
               <button
                 onClick={() => scan()}
                 disabled={scanning}
+                aria-label={t("processMonitor.refresh")}
                 className="p-1 rounded hover:bg-[var(--app-hover)] text-[var(--app-text-tertiary)] hover:text-[var(--app-text-secondary)] transition-colors disabled:opacity-50"
               >
                 <RefreshCw className={`w-3 h-3 ${scanning ? "animate-spin" : ""}`} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="top">
-              <p>刷新</p>
+              <p>{t("processMonitor.refresh")}</p>
             </TooltipContent>
           </Tooltip>
         </div>

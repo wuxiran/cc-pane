@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { gitClone } from "@/services/workspaceService";
 
 interface GitCloneDialogProps {
@@ -193,32 +194,34 @@ export default function GitCloneDialog({
           </div>
 
           {/* 浅克隆 */}
-          <div
-            className="flex items-center gap-2 cursor-pointer select-none"
-            onClick={() => !cloning && setShallow(!shallow)}
-          >
-            <input
-              type="checkbox"
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="git-clone-shallow"
               checked={shallow}
-              readOnly
-              className="cursor-pointer"
+              onCheckedChange={(v) => setShallow(v === true)}
               disabled={cloning}
             />
-            <span className="text-xs" style={{ color: "var(--app-text-secondary)" }}>
+            <Label
+              htmlFor="git-clone-shallow"
+              className="cursor-pointer select-none text-xs"
+              style={{ color: "var(--app-text-secondary)" }}
+            >
               {t("shallowClone")}
-            </span>
+            </Label>
           </div>
 
           {/* 认证区域 */}
           <div className="flex flex-col gap-2">
-            <div
-              className="flex items-center gap-2 cursor-pointer select-none"
+            <button
+              type="button"
+              aria-expanded={showAuth}
+              className="flex cursor-pointer items-center gap-2 select-none"
               onClick={() => setShowAuth(!showAuth)}
             >
               <span className="text-xs font-medium" style={{ color: "var(--app-text-tertiary)" }}>
                 {showAuth ? "▾" : "▸"} {t("authOptional")}
               </span>
-            </div>
+            </button>
             {showAuth && (
               <div className="flex flex-col gap-2 pl-4">
                 <div className="flex flex-col gap-1">

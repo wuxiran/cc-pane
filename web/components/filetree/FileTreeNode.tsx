@@ -23,10 +23,14 @@ interface FileTreeNodeProps {
   rootPath: string;
   selectedFilePath?: string | null;
   gitStatuses?: Record<string, string>;
+  /** roving tabindex：当前可聚焦项路径（其余为 -1） */
+  focusedPath?: string | null;
   onToggle: (path: string) => void;
   onFileClick: (path: string) => void;
   onContextMenu: (e: React.MouseEvent, node: FileTreeNodeType) => void;
   onDirDoubleClick?: (path: string) => void;
+  /** 行获得焦点时同步 roving tabindex（鼠标点选/Tab 进入） */
+  onFocusNode?: (path: string) => void;
 }
 
 /** 文件类型保留形状区分，颜色统一退到中性层。 */
@@ -120,10 +124,12 @@ export default memo(function FileTreeNode({
   rootPath,
   selectedFilePath,
   gitStatuses,
+  focusedPath,
   onToggle,
   onFileClick,
   onContextMenu,
   onDirDoubleClick,
+  onFocusNode,
 }: FileTreeNodeProps) {
   const handleClick = useCallback(() => {
     if (node.entry.isDir) {
@@ -146,6 +152,10 @@ export default memo(function FileTreeNode({
     [node, onContextMenu],
   );
 
+  const handleFocus = useCallback(() => {
+    onFocusNode?.(node.entry.path);
+  }, [node.entry.path, onFocusNode]);
+
   const paddingLeft = depth * 14 + 12;
   const isSelected = !node.entry.isDir && node.entry.path === selectedFilePath;
   const gitStatus = gitStatuses?.[node.entry.path];
@@ -154,7 +164,12 @@ export default memo(function FileTreeNode({
   return (
     <>
       <div
-        className={`group flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-md px-2 text-[var(--app-text-primary)] transition-colors ${
+        role="treeitem"
+        aria-level={depth + 1}
+        aria-selected={isSelected}
+        aria-expanded={node.entry.isDir ? node.expanded : undefined}
+        tabIndex={node.entry.path === focusedPath ? 0 : -1}
+        className={`group flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-md px-2 text-[var(--app-text-primary)] outline-none transition-colors focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)] ${
           isSelected ? "bg-[var(--editor-selection-bg)]" : "hover:bg-[var(--app-hover)]"
         }`}
         style={{ paddingLeft }}
@@ -163,6 +178,7 @@ export default memo(function FileTreeNode({
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
+        onFocus={handleFocus}
       >
         {node.entry.isDir ? (
           node.loading ? (
@@ -207,7 +223,7 @@ export default memo(function FileTreeNode({
       </div>
 
       {node.entry.isDir && node.expanded && node.children && (
-        <div>
+        <div role="group">
           {node.children.map((child) => (
             <FileTreeNode
               key={child.entry.path}
@@ -217,10 +233,12 @@ export default memo(function FileTreeNode({
               rootPath={rootPath}
               selectedFilePath={selectedFilePath}
               gitStatuses={gitStatuses}
+              focusedPath={focusedPath}
               onToggle={onToggle}
               onFileClick={onFileClick}
               onContextMenu={onContextMenu}
               onDirDoubleClick={onDirDoubleClick}
+              onFocusNode={onFocusNode}
             />
           ))}
         </div>

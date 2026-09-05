@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { cn } from "@/lib/utils";
 
 interface InlineRenameProps {
   value: string;
@@ -63,7 +64,12 @@ export default function InlineRename({
       ref={inputRef}
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className={className}
+      // 默认 120ms 颜色/边框/阴影过渡：调用方给的 focus 边框与底色不再瞬时闪现；
+      // 调用方 className 仍可经 twMerge 覆盖。
+      className={cn(
+        "transition-[color,background-color,border-color,box-shadow] duration-[var(--dur-fast)] ease-[var(--ease-out)]",
+        className,
+      )}
       style={style}
       onBlur={confirmOnBlur ? onConfirm : undefined}
       onKeyDown={(event) => {

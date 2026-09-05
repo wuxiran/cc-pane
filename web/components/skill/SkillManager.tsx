@@ -114,12 +114,21 @@ export default function SkillManager({ projectPath }: SkillManagerProps) {
           {skills.map((skill) => (
             <div
               key={skill.name}
-              className={`group flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-border/50 hover:bg-accent/50 transition-colors ${
+              role="button"
+              tabIndex={0}
+              className={`group flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-border/50 hover:bg-accent/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
                 activeSkill?.name === skill.name
                   ? "bg-accent"
                   : ""
               }`}
               onClick={() => handleSelect(skill.name)}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handleSelect(skill.name);
+                }
+              }}
             >
               <CodeXml size={14} className="text-muted-foreground flex-shrink-0" />
               <div className="flex-1 min-w-0">
@@ -128,7 +137,7 @@ export default function SkillManager({ projectPath }: SkillManagerProps) {
                   {skill.preview}
                 </div>
               </div>
-              <div className="hidden group-hover:flex items-center gap-1">
+              <div className="hidden group-hover:flex group-focus-within:flex items-center gap-1">
                 <Button
                   size="icon"
                   variant="ghost"

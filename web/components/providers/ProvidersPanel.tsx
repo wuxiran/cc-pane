@@ -432,6 +432,7 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
               icon={Zap}
               title={t("emptyTitle")}
               description={t("emptyDesc")}
+              illustration="empty-box"
               className="mt-2"
               action={{ label: t("fromPreset"), onClick: () => setView("preset_pick") }}
             />

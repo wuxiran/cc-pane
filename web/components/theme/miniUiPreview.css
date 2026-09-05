@@ -1,0 +1,301 @@
+/* ==========================================================================
+ * Mini UI Preview 作用域 —— 配套 web/components/theme/MiniUiPreview.tsx
+ *
+ * index.css 的主题块挂在根元素（html）的类与 data 属性上，只在根元素生效。
+ * 设置页的迷你预览需要在卡片子树内解析另一套主题/形态 token，因此这里以
+ * .mini-ui-scope[data-theme|data-shape] 镜像同名 token 的有效值
+ *（暗色主题 = 浅色基块 + 暗色基块 + 命名块；浅色 = 浅色基块 + 命名块）。
+ *
+ * 本文件数值与 index.css 的一致性由 miniUiPreviewCss.test.ts 契约测试强制；
+ * 修改 index.css 的主题/形态 token 后必须同步本文件，否则契约测试会失败。
+ * ========================================================================== */
+
+.mini-ui-scope {
+  /* 形态缺省 = soft（对齐 DEFAULT_THEME_SHAPE），主题预览不受全局形态影响 */
+  --shape-radius-sm: 0.25rem;
+  --shape-radius-md: 0.375rem;
+  --shape-radius-lg: 0.5rem;
+  --shape-border-width: 1px;
+  --shape-shadow: none;
+  --shape-backdrop-blur: 0px;
+}
+
+.mini-ui-scope[data-theme="deep-ink"] {
+  --app-bg-deep: #1A1C20;
+  --app-sidebar: #26282D;
+  --app-tabbar: #1E2024;
+  --app-content: #1E2024;
+  --app-panel-bg: #2E3137;
+  --app-border: rgba(255, 255, 255, 0.09);
+  --app-active-bg: rgba(76, 141, 245, 0.14);
+  --app-accent: #5E99F6;
+  --app-text-primary: #E6E8EB;
+  --app-text-secondary: #9BA1A9;
+  --app-text-tertiary: #949AA0;
+  --app-tab-highlight: rgba(255, 255, 255, 0.10);
+  --app-terminal-bg: #17191E;
+  --app-terminal-fg: #f5f5f7;
+  --app-status-success: #3FB950;
+  --primary: #4C8DF5;
+  --primary-foreground: #ffffff;
+}
+
+.mini-ui-scope[data-theme="cyber-purple"] {
+  --app-bg-deep: #17161b;
+  --app-sidebar: #242129;
+  --app-tabbar: #201d25;
+  --app-content: #201d25;
+  --app-panel-bg: #322e3a;
+  --app-border: rgba(238, 234, 245, 0.10);
+  --app-active-bg: rgba(155, 124, 246, 0.16);
+  --app-accent: #a285f7;
+  --app-text-primary: #eeeaf5;
+  --app-text-secondary: #aaa2b8;
+  --app-text-tertiary: #9a95a6;
+  --app-tab-highlight: rgba(255, 255, 255, 0.10);
+  --app-terminal-bg: #17161d;
+  --app-terminal-fg: #f0edf7;
+  --app-status-success: #3FB950;
+  --primary: #9b7cf6;
+  --primary-foreground: #ffffff;
+}
+
+.mini-ui-scope[data-theme="amber-gold"] {
+  --app-bg-deep: #171613;
+  --app-sidebar: #25221d;
+  --app-tabbar: #211f1b;
+  --app-content: #211f1b;
+  --app-panel-bg: #35312a;
+  --app-border: rgba(240, 237, 231, 0.10);
+  --app-active-bg: rgba(233, 169, 22, 0.15);
+  --app-accent: #e9a916;
+  --app-text-primary: #f0ede7;
+  --app-text-secondary: #aaa397;
+  --app-text-tertiary: #9d9990;
+  --app-tab-highlight: rgba(255, 255, 255, 0.10);
+  --app-terminal-bg: #191714;
+  --app-terminal-fg: #f2efe9;
+  --app-status-success: #3FB950;
+  --primary: #e9a916;
+  --primary-foreground: #211a09;
+}
+
+.mini-ui-scope[data-theme="nord-frost"] {
+  --app-bg-deep: #1A1F27;
+  --app-sidebar: #262D38;
+  --app-tabbar: #20252E;
+  --app-content: #20252E;
+  --app-panel-bg: #313948;
+  --app-border: rgba(229, 233, 240, 0.10);
+  --app-active-bg: rgba(136, 192, 208, 0.15);
+  --app-accent: #88C0D0;
+  --app-text-primary: #E5E9F0;
+  --app-text-secondary: #9FABBC;
+  --app-text-tertiary: #99A3B3;
+  --app-tab-highlight: rgba(255, 255, 255, 0.10);
+  --app-terminal-bg: #1C2129;
+  --app-terminal-fg: #ECEFF4;
+  --app-status-success: #3FB950;
+  --primary: #88C0D0;
+  --primary-foreground: #212831;
+}
+
+.mini-ui-scope[data-theme="tokyo-night"] {
+  --app-bg-deep: #12131C;
+  --app-sidebar: #1D1F2E;
+  --app-tabbar: #171827;
+  --app-content: #171827;
+  --app-panel-bg: #282A41;
+  --app-border: rgba(199, 207, 240, 0.10);
+  --app-active-bg: rgba(122, 162, 247, 0.16);
+  --app-accent: #7AA2F7;
+  --app-text-primary: #C8D0F0;
+  --app-text-secondary: #8B93B0;
+  --app-text-tertiary: #8C93AA;
+  --app-tab-highlight: rgba(255, 255, 255, 0.10);
+  --app-terminal-bg: #16161E;
+  --app-terminal-fg: #D6DCF5;
+  --app-status-success: #3FB950;
+  --primary: #7AA2F7;
+  --primary-foreground: #FFFFFF;
+}
+
+.mini-ui-scope[data-theme="classic-white"] {
+  --app-bg-deep: #EEF0F3;
+  --app-sidebar: #F6F7F9;
+  --app-tabbar: #EEF0F3;
+  --app-content: #FFFFFF;
+  --app-panel-bg: #FFFFFF;
+  --app-border: rgba(17, 24, 39, 0.09);
+  --app-active-bg: rgba(37, 99, 235, 0.10);
+  --app-accent: #2563EB;
+  --app-text-primary: #1A1D21;
+  --app-text-secondary: #5A626C;
+  --app-text-tertiary: #6A717B;
+  --app-tab-highlight: #FFFFFF;
+  --app-terminal-bg: #ffffff;
+  --app-terminal-fg: #000000;
+  --app-status-success: #1a7f37;
+  --primary: #2563EB;
+  --primary-foreground: #ffffff;
+}
+
+.mini-ui-scope[data-theme="warm-gray"] {
+  --app-bg-deep: #efedea;
+  --app-sidebar: #f7f6f4;
+  --app-tabbar: #efedea;
+  --app-content: #fffefd;
+  --app-panel-bg: #fffefd;
+  --app-border: rgba(45, 38, 31, 0.11);
+  --app-active-bg: rgba(201, 95, 24, 0.11);
+  --app-accent: #b45309;
+  --app-text-primary: #24221f;
+  --app-text-secondary: #67615a;
+  --app-text-tertiary: #766f68;
+  --app-tab-highlight: #FFFFFF;
+  --app-terminal-bg: #fffefd;
+  --app-terminal-fg: #24221f;
+  --app-status-success: #1a7f37;
+  --primary: #c95f18;
+  --primary-foreground: #ffffff;
+}
+
+.mini-ui-scope[data-theme="sky-blue"] {
+  --app-bg-deep: #eaf2fb;
+  --app-sidebar: #f3f7fb;
+  --app-tabbar: #eaf2fb;
+  --app-content: #fbfdff;
+  --app-panel-bg: #fbfdff;
+  --app-border: rgba(28, 69, 105, 0.11);
+  --app-active-bg: rgba(40, 120, 208, 0.11);
+  --app-accent: #2167b2;
+  --app-text-primary: #192838;
+  --app-text-secondary: #586b7d;
+  --app-text-tertiary: #607384;
+  --app-tab-highlight: #FFFFFF;
+  --app-terminal-bg: #fbfdff;
+  --app-terminal-fg: #192838;
+  --app-status-success: #1a7f37;
+  --primary: #2878d0;
+  --primary-foreground: #ffffff;
+}
+
+.mini-ui-scope[data-theme="rice-paper"] {
+  --app-bg-deep: #F1ECE1;
+  --app-sidebar: #F4F0E7;
+  --app-tabbar: #F1ECE1;
+  --app-content: #FBFAF6;
+  --app-panel-bg: #FFFFFF;
+  --app-border: rgba(58, 52, 38, 0.10);
+  --app-active-bg: rgba(76, 105, 168, 0.11);
+  --app-accent: #4C69A8;
+  --app-text-primary: #2A2925;
+  --app-text-secondary: #6E6A5E;
+  --app-text-tertiary: #716C61;
+  --app-tab-highlight: #FFFFFF;
+  --app-terminal-bg: #FFFFFF;
+  --app-terminal-fg: #2A2A28;
+  --app-status-success: #1a7f37;
+  --primary: #4C69A8;
+  --primary-foreground: #FFFFFF;
+}
+
+.mini-ui-scope[data-theme="mint-mist"] {
+  --app-bg-deep: #EBF2EE;
+  --app-sidebar: #EDF4F0;
+  --app-tabbar: #EBF2EE;
+  --app-content: #FBFDFC;
+  --app-panel-bg: #FFFFFF;
+  --app-border: rgba(30, 50, 40, 0.10);
+  --app-active-bg: rgba(23, 138, 94, 0.11);
+  --app-accent: #147a55;
+  --app-text-primary: #212B26;
+  --app-text-secondary: #5F7268;
+  --app-text-tertiary: #627169;
+  --app-tab-highlight: #FFFFFF;
+  --app-terminal-bg: #FFFFFF;
+  --app-terminal-fg: #242B27;
+  --app-status-success: #1a7f37;
+  --primary: #178A5E;
+  --primary-foreground: #FFFFFF;
+}
+
+.mini-ui-scope[data-shape="soft"] {
+  --shape-radius-sm: 0.25rem;
+  --shape-radius-md: 0.375rem;
+  --shape-radius-lg: 0.5rem;
+  --shape-border-width: 1px;
+  --shape-shadow: none;
+  --shape-backdrop-blur: 0px;
+}
+
+.mini-ui-scope[data-shape="slab"] {
+  --shape-radius-sm: 0.125rem;
+  --shape-radius-md: 0.1875rem;
+  --shape-radius-lg: 0.25rem;
+  --shape-border-width: 1px;
+  --shape-shadow: var(--hi), var(--sh-sm);
+  --shape-backdrop-blur: 0px;
+}
+
+.mini-ui-scope[data-shape="sharp"] {
+  --shape-radius-sm: 0px;
+  --shape-radius-md: 0px;
+  --shape-radius-lg: 0px;
+  --shape-border-width: 1px;
+  --shape-shadow: none;
+  --shape-backdrop-blur: 0px;
+}
+
+.mini-ui-scope[data-shape="glass"] {
+  --shape-radius-sm: 0.5rem;
+  --shape-radius-md: 0.625rem;
+  --shape-radius-lg: 0.75rem;
+  --shape-border-width: 1px;
+  --shape-shadow: var(--sh-md);
+  --shape-backdrop-blur: 16px;
+}
+
+.mini-ui-scope[data-shape="panel"] {
+  --shape-radius-sm: 0px;
+  --shape-radius-md: 0px;
+  --shape-radius-lg: 0px;
+  --shape-border-width: 1px;
+  --shape-shadow: none;
+  --shape-backdrop-blur: 0px;
+}
+
+.mini-ui-scope[data-shape="carbon"] {
+  --shape-radius-sm: 0.125rem;
+  --shape-radius-md: 0.25rem;
+  --shape-radius-lg: 0.375rem;
+  --shape-border-width: 1px;
+  --shape-shadow: var(--sh-md);
+  --shape-backdrop-blur: 8px;
+}
+
+/* 结构规则：圆角/描边/表面材质全部走作用域 token，颜色一律 var()。 */
+.mini-ui-panel {
+  border: var(--shape-border-width) solid var(--app-border);
+  border-radius: var(--shape-radius-lg);
+  box-shadow: var(--shape-shadow);
+}
+
+.mini-ui-control {
+  border-radius: var(--shape-radius-sm);
+}
+
+.mini-ui-scope[data-shape="glass"] .mini-ui-surface {
+  background-color: color-mix(in srgb, var(--app-panel-bg) 78%, transparent);
+  backdrop-filter: blur(var(--shape-backdrop-blur));
+}
+
+.mini-ui-scope[data-shape="carbon"] .mini-ui-surface {
+  background-color: color-mix(in srgb, var(--app-panel-bg) 90%, transparent);
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--app-border) 38%, transparent) 0 1px,
+    transparent 1px 4px
+  );
+  backdrop-filter: blur(var(--shape-backdrop-blur));
+}

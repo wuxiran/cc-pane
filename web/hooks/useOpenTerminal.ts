@@ -9,6 +9,7 @@ import { resolveLayoutScope, sshMachineLayoutScope } from "@/utils/layoutScope";
 import { switchLayoutScope } from "@/hooks/useLayoutScopeSync";
 import { classifyTerminalLaunchPath, translateError } from "@/utils";
 import { toast } from "sonner";
+import i18n from "@/i18n";
 import type { LaunchExtras, OpenTerminalOptions } from "@/types";
 
 /** 从 OpenTerminalOptions 收拢启动器附加参数；全部缺省时返回 undefined */
@@ -56,7 +57,7 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
       const effectiveCliTool = opts.cliTool ?? (resumeId ? defaultTool : undefined);
       const runtimeKind = resolveRuntimeKind({ ssh, wsl });
       if (ssh && !ssh.machineId?.trim()) {
-        toast.error("SSH machine identity is unavailable");
+        toast.error(i18n.t("sshMachineIdentityUnavailable", { ns: "panes" }));
         return;
       }
       const launchClaude = effectiveCliTool !== undefined && effectiveCliTool !== "none";

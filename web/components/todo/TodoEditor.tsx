@@ -423,6 +423,12 @@ export default function TodoEditor({
                     {getTypeLabel(tp)}
                     {isCustom && (
                       <span
+                        role="button"
+                        tabIndex={0}
+                        aria-label={t("todoRemoveCustomType", {
+                          type: getTypeLabel(tp),
+                          defaultValue: "Remove custom type {{type}}",
+                        })}
                         onClick={(e) => {
                           e.stopPropagation();
                           removeCustomType(tp);
@@ -430,7 +436,18 @@ export default function TodoEditor({
                             onChange({ ...form, todoType: "" });
                           }
                         }}
-                        className="absolute -top-1 -right-1 hidden group-hover/type:flex w-3.5 h-3.5 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[8px] cursor-pointer"
+                        onKeyDown={(e) => {
+                          if (e.target !== e.currentTarget) return;
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            removeCustomType(tp);
+                            if (form.todoType === tp) {
+                              onChange({ ...form, todoType: "" });
+                            }
+                          }
+                        }}
+                        className="absolute -top-1 -right-1 hidden group-hover/type:flex group-focus-within/type:flex focus-visible:flex w-3.5 h-3.5 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[8px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
                       >
                         ×
                       </span>

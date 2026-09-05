@@ -23,6 +23,7 @@
   "activeSessions": "活跃会话",
   "totalSessions": "共 {{count}} 个终端会话",
   "noActiveSessions": "暂无活跃会话",
+  "noActiveSessionsHint": "新建一个终端会话，随时开始你的下一段任务。",
   "running": "运行中",
   "idle": "空闲",
   "waiting": "等待输入",

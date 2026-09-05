@@ -171,7 +171,7 @@ export default function ProviderCard({
   const handleCopyUrl = () => {
     if (provider.baseUrl) {
       navigator.clipboard.writeText(provider.baseUrl);
-      toast.success("Copied");
+      toast.success(t("providerUrlCopied"));
     }
   };
 

@@ -15,6 +15,7 @@ import { waitForTauri } from "@/utils";
 import { isTauriRuntime } from "@/services/runtime";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
+import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import HomeHeader from "./HomeHeader";
 import HomeQuickActions from "./HomeQuickActions";
 import HomeActiveSessions from "./HomeActiveSessions";
@@ -41,6 +42,7 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
   const [version, setVersion] = useState("...");
   const [launchHistory, setLaunchHistory] = useState<LaunchRecord[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const showHistorySkeleton = useDelayedLoading(!historyLoaded);
 
   // 首页在 home 模式下没有挂载常规 Sidebar，因此主动补齐它通常负责的两份轻量数据。
   const refreshLaunchHistory = useCallback(async () => {
@@ -183,7 +185,7 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
           <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
             {historyLoaded ? (
               <HomeRecentProjects records={launchHistory} onOpenTerminal={onOpenTerminal} />
-            ) : historySkeleton}
+            ) : showHistorySkeleton ? historySkeleton : null}
             <HomePinnedWorkspaces workspaces={workspaces} onOpenTerminal={onOpenTerminal} />
           </div>
         )}

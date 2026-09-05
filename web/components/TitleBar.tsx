@@ -84,7 +84,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
 
   return (
     <div
-      className="shape-chrome relative flex items-center h-[44px] shrink-0 select-none z-10"
+      className="shape-chrome relative flex items-center h-[calc(var(--density-row-h)+16px)] shrink-0 select-none z-10"
       data-tauri-drag-region=""
       style={{
         paddingLeft: isMac ? 78 : 12,
@@ -105,10 +105,10 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
         }}
       />
 
-      {/* 中间：居中应用名（纯装饰，点击穿透到拖拽区） */}
+      {/* 中间：居中应用名（纯装饰，点击穿透到拖拽区）；窄档（<md）让位给面包屑，避免叠字 */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 flex justify-center"
+        className="pointer-events-none absolute inset-x-0 hidden justify-center md:flex"
       >
         <span
           className="text-[12px] tracking-wide"
@@ -141,7 +141,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
               className="flex min-w-0 items-center gap-1 rounded-[5px] px-2 py-1 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
             >
               <span
-                className="truncate max-w-[220px] text-[13px] font-semibold"
+                className="hidden max-w-[110px] truncate text-[13px] font-semibold sm:inline md:max-w-[160px] lg:max-w-[220px]"
                 style={{ color: "var(--app-text-primary)" }}
               >
                 {workspaceLabel}
@@ -174,7 +174,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
 
         {currentWorkspace && currentWorkspace.projects.length > 0 && (
           <>
-            <span className="text-[12px]" style={{ color: "var(--app-text-tertiary)" }}>
+            <span className="hidden text-[12px] sm:inline" style={{ color: "var(--app-text-tertiary)" }}>
               /
             </span>
             <DropdownMenu>
@@ -185,7 +185,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
                   className="flex min-w-0 items-center gap-1 rounded-[5px] px-2 py-1 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
                 >
                   <span
-                    className="truncate max-w-[200px] text-[13px]"
+                    className="max-w-[80px] truncate text-[13px] md:max-w-[140px] lg:max-w-[200px]"
                     style={{
                       color: currentProject
                         ? "var(--app-text-primary)"

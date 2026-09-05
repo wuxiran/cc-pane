@@ -206,4 +206,47 @@ describe("FileTreeNode", () => {
     const row = screen.getByText("deep.ts").closest("div[data-file-path]") as HTMLElement;
     expect(row.style.paddingLeft).toBe("54px"); // 3 * 14 + 12
   });
+
+  it("exposes treeitem semantics: level, expanded state and roving tabindex", () => {
+    renderNode(makeNode(entry("/proj/src", true), { expanded: true }), {
+      focusedPath: "/proj/src",
+    });
+    const row = screen.getByRole("treeitem");
+    expect(row).toHaveAttribute("aria-level", "1");
+    expect(row).toHaveAttribute("aria-expanded", "true");
+    expect(row).toHaveAttribute("aria-selected", "false");
+    expect(row).toHaveAttribute("tabindex", "0");
+  });
+
+  it("keeps files free of aria-expanded and non-focused rows out of the tab order", () => {
+    renderNode(makeNode(entry("/proj/a.ts", false)), { focusedPath: "/proj/other" });
+    const row = screen.getByRole("treeitem");
+    expect(row).not.toHaveAttribute("aria-expanded");
+    expect(row).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("marks the selected file via aria-selected", () => {
+    renderNode(makeNode(entry("/proj/a.ts", false)), {
+      selectedFilePath: "/proj/a.ts",
+    });
+    expect(screen.getByRole("treeitem")).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("wraps expanded children in a group", () => {
+    const tree = makeNode(entry("/proj/src", true), {
+      expanded: true,
+      children: [makeNode(entry("/proj/src/a.ts", false))],
+    });
+    renderNode(tree);
+    const group = screen.getByRole("group");
+    expect(group.querySelectorAll('[role="treeitem"]')).toHaveLength(1);
+  });
+
+  it("reports focus to keep the roving tabindex in sync", () => {
+    const onFocusNode = vi.fn();
+    renderNode(makeNode(entry("/proj/a.ts", false)), { onFocusNode });
+    const row = screen.getByRole("treeitem");
+    row.focus();
+    expect(onFocusNode).toHaveBeenCalledWith("/proj/a.ts");
+  });
 });

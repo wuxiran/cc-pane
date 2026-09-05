@@ -110,7 +110,7 @@ export function CollapsibleCheckGroup({
             <button
               type="button"
               onClick={() => setOpen(true)}
-              className="rounded-full border border-dashed border-[var(--app-border)] px-2 py-0.5 text-[11px] text-[var(--app-accent)] hover:bg-[var(--app-hover)]"
+              className="rounded-full border border-dashed border-[var(--app-border)] px-2 py-0.5 text-[11px] text-[var(--app-accent)] transition-[color,background-color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-[var(--app-hover)] active:scale-[0.97] motion-reduce:active:scale-100"
             >
               {formatMore(hiddenCount)}
             </button>

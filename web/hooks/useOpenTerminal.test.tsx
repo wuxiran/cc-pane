@@ -151,7 +151,7 @@ describe("useOpenTerminal host path guard", () => {
     }));
 
     expect(openProject).not.toHaveBeenCalled();
-    expect(toast.error).toHaveBeenCalledWith("SSH machine identity is unavailable");
+    expect(toast.error).toHaveBeenCalledWith("SSH 机器标识不可用");
   });
 
   it("从 SSH scope 启动本地终端时使用当前选中 workspace scope", () => {

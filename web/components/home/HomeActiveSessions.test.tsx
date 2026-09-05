@@ -1,7 +1,8 @@
 import "@/i18n";
+import i18n from "@/i18n";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { usePanesStore, useTerminalStatusStore } from "@/stores";
+import { useDialogStore, usePanesStore, useTerminalStatusStore } from "@/stores";
 import type { Panel, Tab, TerminalStatusInfo, TerminalStatusType } from "@/types";
 import HomeActiveSessions from "./HomeActiveSessions";
 
@@ -183,5 +184,49 @@ describe("HomeActiveSessions", () => {
     fireEvent.click(screen.getByText("会话一"));
 
     expect(setActivePane).not.toHaveBeenCalled();
+  });
+
+  it("空态渲染终端插画、引导文案与新建终端按钮", () => {
+    const { container } = render(<HomeActiveSessions />);
+
+    expect(
+      container.querySelector("svg[data-illustration='empty-terminal']"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("暂无活跃会话")).toBeVisible();
+    expect(screen.getByText(/新建一个终端会话/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "新建终端" })).toBeVisible();
+  });
+
+  it("空态容器带静态 dot-grid 纹理底", () => {
+    render(<HomeActiveSessions />);
+
+    const empty = screen.getByTestId("home-active-sessions-empty");
+    expect(empty.style.backgroundImage).toContain("radial-gradient");
+    expect(empty.style.backgroundImage).toContain("var(--app-text-tertiary)");
+    expect(empty.style.backgroundSize).toBe("20px 20px");
+  });
+
+  it("空态点击新建终端按钮打开启动器", () => {
+    const openLauncher = vi.fn();
+    useDialogStore.setState({ openLauncher });
+    render(<HomeActiveSessions />);
+
+    fireEvent.click(screen.getByRole("button", { name: "新建终端" }));
+
+    expect(openLauncher).toHaveBeenCalledTimes(1);
+  });
+
+  it("会话统计数字使用 tabular-nums", () => {
+    usePanesStore.setState({ rootPane: panelWith([createTab()]) });
+    render(<HomeActiveSessions />);
+
+    expect(screen.getByText("共 1 个终端会话")).toHaveClass("tabular-nums");
+  });
+
+  it("空态引导文案在 en 语言环境下有对应翻译", () => {
+    const tEn = i18n.getFixedT("en", "home");
+
+    expect(tEn("noActiveSessionsHint")).not.toBe("noActiveSessionsHint");
+    expect(tEn("noActiveSessionsHint").length).toBeGreaterThan(0);
   });
 });

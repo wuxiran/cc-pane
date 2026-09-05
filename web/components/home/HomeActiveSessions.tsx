@@ -1,12 +1,13 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Terminal, Circle } from "lucide-react";
 import { focusTab } from "@/hooks/useFocusTab";
 import { statusColorToken } from "@/lib/statusPresentation";
-import { usePanesStore, useTerminalStatusStore } from "@/stores";
+import { useDialogStore, usePanesStore, useTerminalStatusStore } from "@/stores";
 import { asTabId } from "@/types/ids";
 import { isBusyStatus, type PaneNode, type Tab, type TerminalStatusType } from "@/types";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 function getAllTabs(pane: PaneNode): Tab[] {
   if (pane.type === "panel") return pane.tabs;
@@ -28,6 +29,11 @@ export default function HomeActiveSessions() {
     return t("idle");
   };
 
+  // 与首页「快速操作」的“新建终端”同一动作：打开启动器
+  const handleNewTerminal = useCallback(() => {
+    useDialogStore.getState().openLauncher();
+  }, []);
+
   if (activeTabs.length === 0) {
     return (
       <div>
@@ -37,23 +43,26 @@ export default function HomeActiveSessions() {
         >
           {t("activeSessions")}
         </h3>
+        {/* 空态去死重：dot-grid 纹理底 + 中大插画 + 引导文案 + 主行动按钮。
+            纹理为静态 radial-gradient 点阵，无动画依赖，reduced-motion 下观感一致。 */}
         <div
-          className="group relative flex h-[220px] xl:h-[280px] flex-col items-center justify-center overflow-hidden rounded-2xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-home-surface-hover)]"
+          className="relative flex min-h-[240px] xl:min-h-[300px] flex-col items-center justify-center overflow-hidden rounded-2xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-home-surface-hover)]"
+          style={{
+            backgroundImage:
+              "radial-gradient(color-mix(in srgb, var(--app-text-tertiary) 16%, transparent) 1px, transparent 1.5px)",
+            backgroundSize: "20px 20px",
+          }}
+          data-testid="home-active-sessions-empty"
         >
-          <div
-            className="absolute inset-0 bg-gradient-to-b from-transparent to-[color-mix(in_srgb,var(--primary-foreground)_1%,transparent)]"
-            aria-hidden="true"
+          <EmptyState
+            icon={Terminal}
+            illustration="empty-terminal"
+            accent="h-24 w-24 xl:h-28 xl:w-28"
+            title={t("noActiveSessions")}
+            description={t("noActiveSessionsHint")}
+            action={{ label: t("newTerminal"), onClick: handleNewTerminal }}
+            className="py-8"
           />
-          <Terminal
-            className="relative w-8 h-8 mb-2 opacity-40 transition-opacity duration-[var(--dur-fast)] group-hover:opacity-60"
-            style={{ color: "var(--app-text-tertiary)" }}
-          />
-          <p
-            className="relative text-xs"
-            style={{ color: "var(--app-text-tertiary)" }}
-          >
-            {t("noActiveSessions")}
-          </p>
         </div>
       </div>
     );
@@ -107,7 +116,7 @@ export default function HomeActiveSessions() {
           );
         })}
         <div
-          className="px-3 py-2 text-xs"
+          className="px-3 py-2 text-xs tabular-nums"
           style={{
             color: "var(--app-text-tertiary)",
             background: "var(--app-home-surface-light, var(--app-home-surface))",

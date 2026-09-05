@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { handleError, getErrorCode, isWslUncPath } from "@/utils";
@@ -22,11 +22,18 @@ import type { FileTreeNode } from "@/types/filesystem";
 import { isTauriRuntime } from "@/services/runtime";
 import { providerService } from "@/services/providerService";
 
+/** 暴露给父级的键盘操作入口（如 F2 重命名），复用右键菜单的对话框流程 */
+export interface FileTreeContextMenuApi {
+  openRename: () => void;
+}
+
 interface FileTreeContextMenuProps {
   children: React.ReactNode;
   nodeRef: React.MutableRefObject<FileTreeNode | null>;
   rootPath: string;
   onOpenTerminal?: (path: string) => void;
+  /** 可选：挂载后写入 { openRename }，卸载时清空 */
+  apiRef?: React.MutableRefObject<FileTreeContextMenuApi | null>;
 }
 
 export default function FileTreeContextMenu({
@@ -34,6 +41,7 @@ export default function FileTreeContextMenu({
   nodeRef,
   rootPath,
   onOpenTerminal,
+  apiRef,
 }: FileTreeContextMenuProps) {
   const { t } = useTranslation(["sidebar", "common"]);
 
@@ -153,6 +161,15 @@ export default function FileTreeContextMenu({
     },
     [nodeRef]
   );
+
+  // 键盘入口（F2）：复用 rename 对话框，调用方需先把目标节点写入 nodeRef
+  useEffect(() => {
+    if (!apiRef) return;
+    apiRef.current = { openRename: () => openDialog("rename") };
+    return () => {
+      apiRef.current = null;
+    };
+  }, [apiRef, openDialog]);
 
   const handleDialogSubmit = useCallback(async () => {
     const n = dialogNodeRef.current;

@@ -1,0 +1,88 @@
+{
+  "appTitle": "CC-Panes Mobile",
+  "views": {
+    "workspaces": "工作空间",
+    "layouts": "布局",
+    "terminal": "终端"
+  },
+  "metrics": {
+    "workspaces": "工作空间",
+    "projects": "项目",
+    "layouts": "布局",
+    "panes": "Pane"
+  },
+  "segment": {
+    "currentTerminal": "当前终端"
+  },
+  "status": {
+    "loading": "正在读取",
+    "connected": "后端工作空间",
+    "disconnected": "未连接后端"
+  },
+  "workspace": {
+    "openActionsMenu": "工作空间操作菜单",
+    "pinned": "已置顶",
+    "hidden": "已隐藏",
+    "projectCount": "{{count}} 个项目",
+    "tapToOpen": "点按打开项目终端",
+    "hasLaunchProfile": "有运行配置",
+    "empty": "当前后端没有返回工作空间"
+  },
+  "layouts": {
+    "paneTabSummary": "{{panes}} Pane / {{tabs}} Tab",
+    "currentSection": "当前布局",
+    "paneCount": "{{count}} Pane",
+    "empty": "暂无可同步布局",
+    "paneTabSection": "Pane / Tab",
+    "paneLabel": "Pane {{index}}",
+    "tabCount": "{{count}} Tab",
+    "noPanes": "当前布局没有可选择的 Pane"
+  },
+  "sheet": {
+    "title": "工作空间操作",
+    "close": "关闭",
+    "closeBackdrop": "关闭工作空间操作",
+    "busy": "处理中...",
+    "groups": {
+      "common": "常用",
+      "workspace": "工作空间",
+      "settings": "设置",
+      "danger": "删除"
+    },
+    "pin": "显示在常用",
+    "unpin": "取消置顶",
+    "pinDetail": "把工作空间加入常用列表",
+    "unpinDetail": "从常用工作空间中移除",
+    "openTerminal": "打开终端",
+    "openTerminalDetail": "打开第一个可用项目",
+    "openTerminalDisabled": "当前工作空间没有项目",
+    "openFolder": "打开文件夹",
+    "openFolderDetail": "在系统文件管理器中打开路径",
+    "noOpenablePath": "当前工作空间没有可打开路径",
+    "openInFileBrowser": "在文件浏览器中打开",
+    "openInFileBrowserDetail": "切到应用内文件浏览器查看路径",
+    "showWorkspace": "显示工作空间",
+    "hideWorkspace": "隐藏工作空间",
+    "showDetail": "恢复到工作空间列表",
+    "hideDetail": "从常规列表隐藏",
+    "setAlias": "设置别名",
+    "setAliasDetail": "修改侧栏显示名称",
+    "rename": "重命名",
+    "renameDetail": "修改工作空间名称",
+    "deleteWorkspace": "删除工作空间",
+    "deleteDetail": "从工作空间列表中移除",
+    "deleteConfirm": "删除工作空间 {{name}}？"
+  },
+  "terminal": {
+    "noLayouts": "暂无布局",
+    "emptyTitle": "还没有打开真实终端",
+    "emptyDescription": "从工作空间点按项目后，会进入现有 pane 的真实终端会话。",
+    "currentSelection": "当前选择：{{workspace}} / {{project}}",
+    "inputPlaceholder": "输入命令或消息...",
+    "waitingSession": "等待终端会话...",
+    "send": "发送到终端",
+    "sendFailed": "发送失败",
+    "writeFailed": "写入终端失败",
+    "shortcutLabel": "输入 {{char}}"
+  }
+}

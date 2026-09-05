@@ -207,6 +207,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
     page: "general",
     searchEntries: [
       { id: "shape", titleKey: "theme.shapeTitle", descriptionKey: "theme.shapeDescription", keywordsKey: "searchKeywords.themeShape", targetSectionId: "theme-shape" },
+      { id: "density", titleKey: "theme.density.title", descriptionKey: "theme.density.description", keywordsKey: "searchKeywords.themeDensity", targetSectionId: "theme-density" },
     ],
   },
   {

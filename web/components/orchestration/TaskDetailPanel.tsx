@@ -150,6 +150,7 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
           icon={FileText}
           title={t("detail.noTaskSelected", { defaultValue: "未选择任务" })}
           description={t("detail.noTaskSelectedDesc", { defaultValue: "从编排列表中选择一个任务。" })}
+          illustration="empty-box"
         />
       </div>
     );

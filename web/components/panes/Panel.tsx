@@ -389,7 +389,7 @@ export default memo(function Panel({ pane }: PanelProps) {
         markTabPoppedOut(tabId);
       } catch (err) {
         console.error("Failed to pop out tab:", err);
-        toast.error(`弹出窗口失败: ${String(err)}`);
+        toast.error(t("popOutFailed", { error: String(err) }));
       }
     },
     [pane.id, pane.tabs, markTabPoppedOut]

@@ -820,6 +820,7 @@ export default function WorkspaceEnvironmentPanel() {
                         <button
                           key={environment}
                           type="button"
+                          aria-pressed={selected}
                           className={`rounded-xl border px-4 py-3 text-left transition-colors ${
                             selected
                               ? "border-[var(--app-accent)] bg-[var(--app-active-bg)]"
@@ -835,10 +836,7 @@ export default function WorkspaceEnvironmentPanel() {
                                 </span>
                                 {isDefault ? (
                                   <Badge variant="secondary">
-                                    {t("workspaceEnv.defaultTag", {
-                                      ns: "sidebar",
-                                      defaultValue: "默认",
-                                    })}
+                                    {t("workspaceEnv.defaultTag", { ns: "sidebar", defaultValue: "默认" })}
                                   </Badge>
                                 ) : null}
                               </div>

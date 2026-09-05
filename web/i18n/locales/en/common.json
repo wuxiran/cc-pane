@@ -121,5 +121,6 @@
   "contextUsage.windowSources.providerModel": "Provider model settings",
   "contextUsage.windowSources.unknown": "Unknown",
   "statusbar.ccchanShow": "Show cc-chan",
-  "statusbar.ccchanHide": "Hide cc-chan"
+  "statusbar.ccchanHide": "Hide cc-chan",
+  "statusbar.more": "More tools"
 }

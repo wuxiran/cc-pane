@@ -71,8 +71,8 @@ const ALLOWLIST: Record<string, string[]> = {
   // 品牌身份色已迁到 --app-identity-provider-*；只剩头像字色（底色恒为深色品牌色）。
   "providers/ProviderAvatar.tsx": ["#fff"],
   "providers/ProviderCard.tsx": ["#6B7280"],
-  // 导入类型使用 Provider/Skill/MCP 类别色；背板黑色仅用于模态 dim。
-  "resources/ImportConfirmDialog.tsx": ["#E8590C", "#8B5CF6", "#0EA5E9", "rgba(0,0,0,0.5)"],
+  // 导入类型使用 Provider/Skill/MCP 类别色；模态 dim 已交给 ui/dialog 的 overlay。
+  "resources/ImportConfirmDialog.tsx": ["#E8590C", "#8B5CF6", "#0EA5E9"],
 };
 
 const RAW_MODULES = import.meta.glob("../components/**/*.{ts,tsx}", {

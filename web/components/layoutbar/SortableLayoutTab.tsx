@@ -147,7 +147,7 @@ export default function SortableLayoutTab({
         title={layout.name}
         data-density={density}
         data-drop-target={dropState}
-        className={`group flex flex-shrink-0 cursor-pointer select-none whitespace-nowrap rounded-md border px-3 text-[13px] transition-colors duration-[var(--dur-fast)] ${
+        className={`group flex flex-shrink-0 cursor-pointer select-none whitespace-nowrap rounded-md border px-3 text-[13px] transition-[color,background-color,border-color,outline-color] duration-[var(--dur-fast)] ease-[var(--ease-out)] ${
           density === "comfortable"
             ? "h-[64px] min-w-[176px] max-w-[240px] flex-col justify-center gap-0.5 py-1.5 text-left"
             : "h-[30px] items-center gap-1.5 pr-5"
@@ -155,6 +155,10 @@ export default function SortableLayoutTab({
           selected ? "" : "hover:bg-[var(--app-hover)]"
         }`}
         style={{
+          // outline 常置透明：投放态激活时 outline-color 走 --dur-fast 淡入，
+          // 而不是瞬间闪现；取消悬停同样淡出。
+          outline: "1px solid transparent",
+          outlineOffset: "1px",
           ...(selected
             ? {
                 background: "color-mix(in srgb, var(--app-accent) 12%, transparent)",

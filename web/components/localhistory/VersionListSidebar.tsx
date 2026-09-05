@@ -3,6 +3,7 @@ import { Clock, Tag, GitBranch } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import type { FileVersion, HistoryLabel } from "@/services";
 import { formatRelativeTime, formatFullTime, formatSize } from "@/utils";
 import { getLabelColor } from "./useLocalHistoryData";
@@ -27,10 +28,12 @@ export default function VersionListSidebar({
   getVersionLabels,
 }: VersionListSidebarProps) {
   const { t } = useTranslation(["dialogs", "common"]);
+  const showSkeleton = useDelayedLoading(loading);
 
   return (
     <div className="app-scrollbar w-[260px] shrink-0 overflow-y-auto rounded-lg p-2" style={{ border: "1px solid var(--app-border)" }}>
       {loading ? (
+        showSkeleton ? (
         <div className="space-y-1" aria-busy="true" aria-live="polite">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="px-3 py-2.5">
@@ -42,18 +45,28 @@ export default function VersionListSidebar({
             </div>
           ))}
         </div>
+        ) : null
       ) : filteredVersions.length === 0 ? (
-        <EmptyState icon={Clock} title={t("noHistory")} className="px-2 py-8" />
+        <EmptyState icon={Clock} title={t("noHistory")} illustration="empty-history" className="px-2 py-8" />
       ) : (
         filteredVersions.map((version) => (
           <div
             key={version.id}
-            className="px-3 py-2.5 rounded-md cursor-pointer transition-colors duration-[var(--dur-fast)] mb-1"
+            role="button"
+            tabIndex={0}
+            className="px-3 py-2.5 rounded-md cursor-pointer transition-colors duration-[var(--dur-fast)] mb-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
             style={{
               background: selectedVersion?.id === version.id ? "var(--app-active-bg)" : undefined,
               borderLeft: selectedVersion?.id === version.id ? "3px solid var(--app-accent)" : "3px solid transparent",
             }}
             onClick={() => selectVersion(version)}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                selectVersion(version);
+              }
+            }}
             onContextMenu={(e) => { e.preventDefault(); openLabelDialog(version); }}
           >
             <div className="flex items-center gap-1.5 text-[13px]" style={{ color: "var(--app-text-primary)" }}>

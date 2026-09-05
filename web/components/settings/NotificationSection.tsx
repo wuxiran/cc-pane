@@ -25,7 +25,7 @@ export default function NotificationSection({ value, onChange }: NotificationSec
       </p>
 
       <SearchableSetting sectionId="notification-controls">
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-[calc(var(--density-gap)+4px)]">
       <div className="flex items-center justify-between">
         <Label>{t("enableNotification")}</Label>
         <input

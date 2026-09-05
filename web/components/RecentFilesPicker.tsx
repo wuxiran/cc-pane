@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { Search, Clock, FileText } from "lucide-react";
 import { useEditorTabsStore } from "@/stores/useEditorTabsStore";
@@ -21,6 +21,7 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
 
   // 构建分组列表：Open tabs + Recent (不在 tabs 中的)
   const { items, openCount } = useMemo(() => {
@@ -124,14 +125,19 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
   };
 
   let itemIndex = 0;
+  const activeOptionId =
+    items.length > 0 ? `recent-file-option-${selectedIndex}` : undefined;
 
   return (
     <>
       <div
         className="fixed inset-0 z-50 bg-black/20"
         onClick={onClose}
+        aria-hidden="true"
       />
       <div
+        role="dialog"
+        aria-label={t("recentFiles.dialogLabel")}
         className="fixed z-50 top-[40px] left-1/2 -translate-x-1/2 w-[520px] max-w-[90vw] max-h-[400px] flex flex-col rounded-md shadow-2xl border overflow-hidden"
         style={{
           background: "var(--editor-bg)",
@@ -154,13 +160,16 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
             }}
             onKeyDown={handleKeyDown}
             placeholder={t("recentFiles.placeholder")}
+            aria-label={t("recentFiles.placeholder")}
+            aria-controls={listId}
+            aria-activedescendant={activeOptionId}
             className="flex-1 bg-transparent text-[13px] outline-none placeholder:opacity-50"
             style={{ color: "var(--app-text-primary)" }}
           />
         </div>
 
         {/* 结果列表 */}
-        <div ref={listRef} className="flex-1 overflow-y-auto max-h-[340px]">
+        <div ref={listRef} id={listId} role="listbox" className="flex-1 overflow-y-auto max-h-[340px]">
           {items.length === 0 ? (
             <div className="text-[13px] text-center py-8 text-muted-foreground">
               {query.trim() ? t("recentFiles.noMatch") : t("recentFiles.noRecent")}
@@ -170,6 +179,7 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
               {/* Open 分组 */}
               {openCount > 0 && (
                 <div
+                  role="presentation"
                   className="text-[11px] font-medium px-3 py-1.5 uppercase tracking-wider"
                   style={{ color: "var(--app-text-tertiary)" }}
                 >
@@ -182,6 +192,9 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
                 return (
                   <div
                     key={item.filePath}
+                    id={`recent-file-option-${idx}`}
+                    role="option"
+                    aria-selected={idx === selectedIndex}
                     className="flex items-center gap-2 px-3 py-1 cursor-pointer transition-colors"
                     style={{
                       background: idx === selectedIndex ? "var(--editor-selection-bg)" : undefined,
@@ -207,6 +220,7 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
               {/* Recent 分组 */}
               {items.length > openCount && (
                 <div
+                  role="presentation"
                   className="text-[11px] font-medium px-3 py-1.5 uppercase tracking-wider"
                   style={{ color: "var(--app-text-tertiary)" }}
                 >
@@ -219,6 +233,9 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
                 return (
                   <div
                     key={item.filePath}
+                    id={`recent-file-option-${idx}`}
+                    role="option"
+                    aria-selected={idx === selectedIndex}
                     className="flex items-center gap-2 px-3 py-1 cursor-pointer transition-colors"
                     style={{
                       background: idx === selectedIndex ? "var(--editor-selection-bg)" : undefined,

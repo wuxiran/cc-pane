@@ -43,6 +43,7 @@ export default function AiPanelHistoryList() {
       <EmptyState
         icon={PanelTopOpen}
         title={loading ? t("aiPanel.historyLoading") : t("aiPanel.historyEmpty")}
+        illustration="empty-history"
         className="h-full"
       />
     );

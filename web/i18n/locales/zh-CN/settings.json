@@ -20,6 +20,7 @@
     "general": "启动 托盘 语言 历史 数据目录 搜索范围 版本更新提示 功能提示",
     "theme": "主题 风格 皮肤 深色 浅色 系统 外观 配色",
     "themeShape": "形态 圆角 直角 边界 分隔线 玻璃 磨砂 壁纸 柔和 层板 面板 碳纹 Soft Slab Sharp Glass Panel Carbon",
+    "themeDensity": "密度 紧凑 舒适 行高 行距 间距 列表 density compact comfortable spacing",
     "wallpaper": "图片 视频 背景 音乐 透明度 模糊",
     "font": "字体 字号 font family 中文 CJK",
     "shortcuts": "快捷键 热键 键盘 绑定",
@@ -165,6 +166,20 @@
       "carbon": {
         "name": "碳纹 Carbon",
         "description": "在半透明表面叠加低对比几何纹理，同时保持终端内容清晰。"
+      }
+    },
+    "density": {
+      "title": "界面密度",
+      "description": "调整侧栏列表、状态栏与表单的行高和间距，立即生效并自动保存。",
+      "options": {
+        "comfortable": {
+          "name": "舒适 Comfortable",
+          "description": "默认行高与间距，适合日常浏览。"
+        },
+        "compact": {
+          "name": "紧凑 Compact",
+          "description": "更小的行高与间距，一屏容纳更多内容。"
+        }
       }
     }
   },
@@ -994,5 +1009,6 @@
     "toggleFailed": "切换失败: {{error}}",
     "removed": "已移除 {{name}}",
     "removeFailed": "移除失败: {{error}}"
-  }
+  },
+  "providerUrlCopied": "Provider 链接已复制"
 }

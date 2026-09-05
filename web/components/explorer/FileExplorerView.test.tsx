@@ -52,11 +52,12 @@ describe("FileExplorerView", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the toolbar and the (loading) file tree", () => {
+  it("renders the toolbar and the (loading) file tree", async () => {
     setupStore();
     render(<FileExplorerView projectPath={PROJECT} />);
     expect(screen.getAllByRole("button").length).toBeGreaterThanOrEqual(4);
-    expect(screen.getByText("Loading...")).toBeInTheDocument();
+    // 骨架屏按 300ms 延迟规范出现（useDelayedLoading），替代旧的 "Loading..." 文本
+    expect(await screen.findByTestId("file-tree-skeleton", {}, { timeout: 1000 })).toBeInTheDocument();
   });
 
   it("refreshes the tree from the toolbar", async () => {

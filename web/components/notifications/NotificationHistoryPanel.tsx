@@ -98,7 +98,7 @@ export default function NotificationHistoryPanel() {
   return (
     <div
       data-testid="notification-history-panel"
-      className="flex w-full flex-col overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-lg motion-safe:animate-in motion-safe:slide-in-from-bottom-2 motion-safe:fade-in"
+      className="flex w-full flex-col overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-lg motion-safe:animate-in motion-safe:slide-in-from-bottom-2 motion-safe:fade-in motion-safe:duration-[var(--dur-slow)] motion-safe:ease-[var(--ease-out)]"
     >
       <div className="flex items-center gap-2 border-b border-[var(--app-border)] px-3 py-2">
         <span className="text-[13px] font-semibold text-[var(--app-text-primary)]">

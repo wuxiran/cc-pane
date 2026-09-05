@@ -146,4 +146,44 @@ describe("RecentFilesPicker", () => {
     const tabs = useEditorTabsStore.getState().tabs;
     expect(tabs.some((t) => t.filePath === "/tmp/proj/b.ts")).toBe(true);
   });
+
+  it("暴露 dialog/listbox/option 语义并用 aria-activedescendant 追踪高亮项", async () => {
+    const user = userEvent.setup();
+    useEditorTabsStore.setState({
+      tabs: [],
+      activeTabId: null,
+      recentFiles: [
+        {
+          filePath: "/tmp/proj/a.ts",
+          projectPath: "/tmp/proj",
+          title: "a.ts",
+          openedAt: Date.now(),
+        },
+        {
+          filePath: "/tmp/proj/b.ts",
+          projectPath: "/tmp/proj",
+          title: "b.ts",
+          openedAt: Date.now(),
+        },
+      ],
+    });
+
+    render(<RecentFilesPicker open onClose={vi.fn()} />);
+
+    expect(screen.getByRole("dialog")).toHaveAttribute("aria-label");
+    const listbox = screen.getByRole("listbox");
+    const options = screen.getAllByRole("option");
+    expect(options).toHaveLength(2);
+
+    const input = screen.getByRole("textbox");
+    // 初始高亮第一项
+    expect(options[0]).toHaveAttribute("aria-selected", "true");
+    expect(input).toHaveAttribute("aria-controls", listbox.id);
+    expect(input).toHaveAttribute("aria-activedescendant", options[0].id);
+
+    // 方向键移动后 activedescendant 同步到第二项
+    await user.type(input, "{ArrowDown}");
+    expect(input).toHaveAttribute("aria-activedescendant", options[1].id);
+    expect(options[1]).toHaveAttribute("aria-selected", "true");
+  });
 });

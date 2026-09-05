@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { useQuickCommandsStore } from "@/stores";
 import type { QuickCommandDraft, QuickCommandScope, ScopedQuickCommand } from "@/types";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import QuickCommandDialog from "./QuickCommandDialog";
 
 export default function QuickCommandsSection() {
@@ -19,6 +21,7 @@ export default function QuickCommandsSection() {
   const remove = useQuickCommandsStore((state) => state.remove);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<ScopedQuickCommand | null>(null);
+  const showLoadingSkeleton = useDelayedLoading(loading && commands.length === 0);
 
   useEffect(() => {
     void load({
@@ -85,9 +88,27 @@ export default function QuickCommandsSection() {
 
       <div className="min-h-0 flex-1 overflow-y-auto py-5">
         {loading && commands.length === 0 ? (
-          <div className="py-12 text-center text-sm text-[var(--app-text-tertiary)]">
-            {t("loading", { ns: "common" })}
-          </div>
+          showLoadingSkeleton ? (
+            <div
+              className="overflow-hidden rounded-md border border-[var(--app-border)]"
+              aria-busy="true"
+              aria-hidden="true"
+              data-testid="quick-commands-skeleton"
+            >
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex min-h-16 items-center gap-3 border-b border-[var(--app-border)] px-4 py-3 last:border-b-0"
+                >
+                  <Skeleton className="size-4 shrink-0 rounded" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Skeleton className="h-3.5 w-40" />
+                    <Skeleton className="h-3 w-56" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null
         ) : commands.length === 0 ? (
           <div className="flex min-h-64 flex-col items-center justify-center gap-3 text-center">
             <LibraryBig className="size-8 text-[var(--app-text-tertiary)]" strokeWidth={1.5} />

@@ -379,16 +379,11 @@ export default function SshMachineDialog({
                 <button
                   key={opt.value}
                   type="button"
+                  aria-pressed={authMethod === opt.value}
                   className="rounded px-3 py-1 text-xs transition-colors"
                   style={{
-                    background:
-                      authMethod === opt.value
-                        ? "var(--app-accent)"
-                        : "var(--app-hover)",
-                    color:
-                      authMethod === opt.value
-                        ? "white"
-                        : "var(--app-text-primary)",
+                    background: authMethod === opt.value ? "var(--app-accent)" : "var(--app-hover)",
+                    color: authMethod === opt.value ? "white" : "var(--app-text-primary)",
                   }}
                   onClick={() => setAuthMethod(opt.value)}
                 >

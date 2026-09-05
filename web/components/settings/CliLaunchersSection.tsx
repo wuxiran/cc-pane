@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import CliToolSelect from "@/components/CliToolSelect";
 import { useCliTools } from "@/hooks/useCliTools";
+import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import { settingsService } from "@/services";
 import type { CliLauncherSettings } from "@/types";
 
@@ -19,6 +21,7 @@ interface CliLaunchersSectionProps {
 export default function CliLaunchersSection({ value, onChange }: CliLaunchersSectionProps) {
   const { t } = useTranslation("settings");
   const { tools, loading } = useCliTools();
+  const showLoadingSkeleton = useDelayedLoading(loading && tools.length === 0);
   const [selectedToolId, setSelectedToolId] = useState("");
   const [testingId, setTestingId] = useState<string | null>(null);
   const selectedTool = tools.find((tool) => tool.id === selectedToolId) ?? tools[0];
@@ -69,9 +72,13 @@ export default function CliLaunchersSection({ value, onChange }: CliLaunchersSec
             className="w-[220px]"
           />
         ) : loading ? (
-          <span className="text-xs text-[var(--app-text-tertiary)]">
-            {t("loading", { ns: "common" })}
-          </span>
+          showLoadingSkeleton ? (
+            <Skeleton
+              className="h-8 w-[220px] rounded-md"
+              aria-hidden="true"
+              data-testid="cli-launchers-skeleton"
+            />
+          ) : null
         ) : (
           <span className="text-xs text-[var(--app-text-tertiary)]">
             {t("cliLauncherEmpty")}

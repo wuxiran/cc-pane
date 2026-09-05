@@ -106,6 +106,23 @@ describe("OrchestratorTaskActions", () => {
     expect(screen.getByRole("menuitem", { name: tRe("orchestration:sidebar.delete") })).toBeVisible();
   });
 
+  it("hover-only trigger stays visible when keyboard focused and opens the menu on Enter", async () => {
+    const user = userEvent.setup();
+    const binding = createBinding();
+    seedStore([binding]);
+    render(<OrchestratorTaskActions binding={binding} />);
+
+    const trigger = screen.getByTitle(tt("orchestration:sidebar.actions"));
+    expect(trigger.className).toContain("group-hover:opacity-100");
+    expect(trigger.className).toContain("focus-visible:opacity-100");
+
+    await user.tab();
+    expect(trigger).toHaveFocus();
+    await user.keyboard("{Enter}");
+
+    expect(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.details") })).toBeVisible();
+  });
+
   it("opens task details and the orchestration overlay", async () => {
     const user = userEvent.setup();
     const binding = createBinding();

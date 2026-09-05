@@ -234,6 +234,15 @@ export default function ProjectListItem({
     onOpenTerminal(options);
   };
 
+  // 双击/键盘激活共用：SSH 项目=连接（launchProject），本地项目=打开文件浏览器
+  const activateProject = () => {
+    if (isSsh) {
+      launchProject();
+    } else {
+      onOpenInFileBrowser?.(project.path);
+    }
+  };
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -241,8 +250,17 @@ export default function ProjectListItem({
           className="rounded-xl border border-transparent px-2 py-1.5 transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:border-[var(--app-border)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
         >
           <div
-            className="flex cursor-pointer items-center gap-2"
-            onDoubleClick={() => isSsh ? launchProject() : onOpenInFileBrowser?.(project.path)}
+            role="button"
+            tabIndex={0}
+            className="flex cursor-pointer items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+            onDoubleClick={activateProject}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                activateProject();
+              }
+            }}
           >
             {leading}
             {isMissing

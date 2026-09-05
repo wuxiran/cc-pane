@@ -299,4 +299,32 @@ describe("GeneralSection", () => {
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ onboardingCompleted: false }));
     expect(openOnboardingMock).toHaveBeenCalled();
   });
+
+  it("reset data dir action is a real focusable button with a focus-visible ring", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    vi.mocked(settingsService.getDataDirInfo).mockResolvedValue({
+      ...dataDirInfo,
+      currentPath: "D:/custom-dir",
+      isDefault: false,
+    });
+    vi.mocked(settingsService.migrateDataDir).mockResolvedValue(undefined as never);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<GeneralSection value={createValue({ dataDir: "D:/custom-dir" })} onChange={onChange} />);
+    await screen.findByText("D:/custom-dir");
+
+    const resetButton = screen.getByRole("button", { name: /恢复默认|Reset/i });
+    expect(resetButton.className).toContain("focus-visible:outline-none");
+    expect(resetButton.className).toContain("focus-visible:ring-2");
+    expect(resetButton.className).toContain("focus-visible:ring-[var(--app-accent)]");
+
+    resetButton.focus();
+    expect(resetButton).toHaveFocus();
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(settingsService.migrateDataDir).toHaveBeenCalledWith(dataDirInfo.defaultPath),
+    );
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ dataDir: null }));
+  });
 });

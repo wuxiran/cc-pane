@@ -1,5 +1,5 @@
 import i18n from "@/i18n";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -144,5 +144,40 @@ describe("PlansPanel", () => {
     });
     renderPanel();
     expect(await screen.findByText(noArchivedPlans)).toBeInTheDocument();
+  });
+
+  it("计划行可聚焦并带 focus-visible 焦点环，Enter/Space 切换选中", async () => {
+    stubPlans();
+    renderPanel();
+
+    const authRow = (await screen.findByText("Auth Plan")).closest('[role="button"]') as HTMLElement;
+    expect(authRow).not.toBeNull();
+    expect(authRow).toHaveAttribute("tabindex", "0");
+    expect(authRow.className).toContain("focus-visible:outline-none");
+    expect(authRow.className).toContain("focus-visible:ring-2");
+    expect(authRow.className).toContain("focus-visible:ring-[var(--app-accent)]");
+
+    authRow.focus();
+    expect(authRow).toHaveFocus();
+    fireEvent.keyDown(authRow, { key: "Enter" });
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("get_plan_content", {
+        projectPath: PROJECT_PATH,
+        fileName: "p2.md",
+      }),
+    );
+    expect(await screen.findByText("# Auth content")).toBeInTheDocument();
+
+    // Space 在另一行触发，回到第一个计划
+    vi.mocked(invoke).mockClear();
+    const refactorRow = screen.getByText("Refactor Plan").closest('[role="button"]') as HTMLElement;
+    refactorRow.focus();
+    fireEvent.keyDown(refactorRow, { key: " " });
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("get_plan_content", {
+        projectPath: PROJECT_PATH,
+        fileName: "p1.md",
+      }),
+    );
   });
 });

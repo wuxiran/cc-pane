@@ -128,6 +128,42 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ===== 微交互标准 utility（按压 / 悬停 / 选中「三板斧」）=====
+   统一全库微交互参数：时长一律 --dur-fast，缓动 --ease-out。
+   - ui-pressable：按压缩放 scale(0.97)；reduced-motion 下禁用 transform
+     （按压反馈交回颜色/透明度，遵循「fewer/gentler, not zero」）。
+   - ui-hoverable：前景 / 背景色 hover 过渡。
+   - ui-selected：左侧 2px 选中指示条，inset box-shadow 实现，
+     不占盒模型、不产生布局位移；颜色走 shadcn 语义 token --primary。
+   注意：三者各写 transition-property / box-shadow，与同语义的显式
+   transition-* / shadow-* 类叠在同一元素上时后者会被级联覆盖，
+   组合场景请改写单个显式任意值类（参照 ui/button.tsx base）。 */
+@utility ui-pressable {
+  transition-property: transform;
+  transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease-out);
+
+  &:active {
+    transform: scale(0.97);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &:active {
+      transform: none;
+    }
+  }
+}
+
+@utility ui-hoverable {
+  transition-property: color, background-color;
+  transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease-out);
+}
+
+@utility ui-selected {
+  box-shadow: inset 2px 0 0 0 var(--primary);
+}
+
 @theme inline {
   --radius-sm: var(--shape-radius-sm, calc(var(--radius) - 4px));
   --radius-md: var(--shape-radius-md, calc(var(--radius) - 2px));
@@ -187,6 +223,15 @@
 :root {
   --radius: 0.5rem;
   color-scheme: light;
+
+  /* UI 密度 token（comfortable 默认值，与现状像素一致）：
+     行高 / 间距 / 水平内边距 / 垂直内边距，供侧栏列表行、StatusBar、TitleBar、
+     设置表单等关键容器以 var() 任意值引用；compact 档在 :root[data-density="compact"]
+     统一覆盖。密度与颜色正交——.dark 与各 [data-theme] 块不重复定义这些 token。 */
+  --density-row-h: 28px;
+  --density-gap: 8px;
+  --density-pad-x: 8px;
+  --density-pad-y: 6px;
 
   /* Elevation（柔和低透明）+ 顶部内高光 */
   --sh-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
@@ -257,7 +302,8 @@
   --app-tag-gray: #6E7781;
   --app-text-primary: #1A1D21;
   --app-text-secondary: #5A626C;
-  --app-text-tertiary: #8B929B;
+  /* 对比度修正：仅压明度保色相，panel/sidebar 上 ≥4.5（check-theme-contrast 强约束） */
+  --app-text-tertiary: #6A717B;
   --app-border: rgba(17, 24, 39, 0.09);
   --app-hover: rgba(17, 24, 39, 0.04);
   --app-active-bg: rgba(37, 99, 235, 0.10);
@@ -448,7 +494,8 @@
   --app-bg-deep: #1A1C20;
   --app-bg-sidebar-deep: #1A1C20;
   --app-overlay: #2C2F35;
-  --app-accent: #4C8DF5;
+  /* 2026-09 主区提亮联动：#4C8DF5 → #5E99F6（保 H/S，L 62.9%→66.7%），新 panel 上 4.57 */
+  --app-accent: #5E99F6;
   --app-tag-red: #FF7B72;
   --app-tag-amber: #E3B341;
   --app-tag-green: #56D364;
@@ -459,7 +506,9 @@
   --app-tag-gray: #A6ADB7;
   --app-text-primary: #E6E8EB;
   --app-text-secondary: #9BA1A9;
-  --app-text-tertiary: #767C85;
+  /* 对比度修正：仅提明度保色相，panel/sidebar 上 ≥4.5（check-theme-contrast 强约束）。
+     2026-09 主区提亮联动：#8A9097 → #949AA0（L 56.7%→60.4%），panel #2E3137 上 4.59 */
+  --app-text-tertiary: #949AA0;
   --app-border: rgba(255, 255, 255, 0.09);
   --app-hover: rgba(255, 255, 255, 0.06);
   --app-active-bg: rgba(76, 141, 245, 0.14);
@@ -517,7 +566,8 @@
   --app-input-bg: rgba(255, 255, 255, 0.04);
   --app-chat-composer-bg: var(--app-content);
   --app-status-success: #3FB950;
-  --app-status-danger: #F85149;
+  /* 2026-09 主区提亮联动：#F96B64 → #FA7D76（保 H/S），绑定约束为最亮的 nord-frost 新 panel（4.56） */
+  --app-status-danger: #FA7D76; /* 对比度修正：仅提明度，五暗色上下文共用此值 */
   --app-status-success-bg: color-mix(in srgb, var(--app-status-success) 10%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
   --app-status-success-border: color-mix(in srgb, var(--app-status-success) 30%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
   --app-status-warning-bg: color-mix(in srgb, var(--app-status-warning) 10%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
@@ -566,10 +616,13 @@
   /* TitleBar 高光线 */
   --app-titlebar-highlight: linear-gradient(90deg, transparent, rgba(255,255,255,0.05) 20%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.05) 80%, transparent);
 
-  /* 组件级变量 —— 明度三档：活动栏最深(#1A1C20) < 侧边栏(#212328) < 主区(#26282D) */
+  /* 组件级变量 —— 明度三档：活动栏最深(#1A1C20) < 侧边栏(#212328) < 主区(#2E3137)。
+     主区 2026-09 提亮：#26282D → #2E3137（HSL 保 H/S，L 16.3%→19.8%，+3.5%），
+     主区-侧栏明度差由 ~2% 拉宽到 ~5.5%，暗色下「主区浮起」肉眼可辨；
+     ActivityBar/侧栏不动，阶梯差全部来自主区一档。 */
   --app-activity-bar-bg: var(--app-bg-sidebar-deep);
   --app-sidebar-bg: #212328;
-  --app-panel-bg: #26282D;
+  --app-panel-bg: #2E3137;
   --app-icon-active: #E6E8EB;
   --app-icon-inactive: #767C85;
   --app-icon-hover: #9BA1A9;
@@ -599,6 +652,9 @@
 /* ===== Named application themes ===== */
 :root[data-theme="cyber-purple"] {
   color-scheme: dark;
+  /* 顶部内高光：与 .dark 同值（rgba 白 0.045，Linear/VSCode 暗色面板手法），
+     显式定义避免依赖 .dark 继承；消费方见 TitleBar / AlertBannerShell / 空态卡片 / slab 形状。 */
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
   --background: #1b1920;
   --foreground: #eeeaf5;
   --card: #292630;
@@ -631,10 +687,12 @@
   --app-bg-deep: #17161b;
   --app-bg-sidebar-deep: #19171d;
   --app-overlay: #302c39;
-  --app-accent: #9b7cf6;
+  /* 2026-09 主区提亮联动：#9b7cf6 → #a285f7（保 H/S），新 panel 上 4.56 */
+  --app-accent: #a285f7;
   --app-text-primary: #eeeaf5;
   --app-text-secondary: #aaa2b8;
-  --app-text-tertiary: #7f778d;
+  /* 2026-09 主区提亮联动：#928c9e → #9a95a6（保 H/S），新 panel #322e3a 上 4.55 */
+  --app-text-tertiary: #9a95a6;
   --app-border: rgba(238, 234, 245, 0.10);
   --app-hover: rgba(238, 234, 245, 0.065);
   --app-active-bg: rgba(155, 124, 246, 0.16);
@@ -662,7 +720,8 @@
   --app-canvas-pipe-channel: #201d25;
   --app-activity-bar-bg: #19171d;
   --app-sidebar-bg: #242129;
-  --app-panel-bg: #292630;
+  /* 主区提亮：#292630 → #322e3a（HSL 保 H/S，L 16.9%→20.4%，+3.5%），对齐 .dark 阶梯改造 */
+  --app-panel-bg: #322e3a;
   --app-icon-active: #eeeaf5;
   --app-icon-inactive: #7f778d;
   --app-icon-hover: #aaa2b8;
@@ -673,7 +732,8 @@
   --app-terminal-selection: rgba(155, 124, 246, 0.32);
   --editor-bg: #1b1920;
   --editor-tab-bar-bg: #201d25;
-  --editor-tab-active-bg: #292630;
+  /* 与 --app-panel-bg 锁步：活跃标签须与所在 pane 表面同明度（原 #292630） */
+  --editor-tab-active-bg: #322e3a;
   --editor-tab-inactive-bg: #201d25;
   --editor-tab-active-fg: #eeeaf5;
   --editor-tab-inactive-fg: #7f778d;
@@ -693,6 +753,8 @@
 
 :root[data-theme="amber-gold"] {
   color-scheme: dark;
+  /* 顶部内高光：与 .dark 同值（rgba 白 0.045），显式定义避免依赖 .dark 继承 */
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
   --background: #1d1b18;
   --foreground: #f0ede7;
   --card: #2b2822;
@@ -728,7 +790,8 @@
   --app-accent: #e9a916;
   --app-text-primary: #f0ede7;
   --app-text-secondary: #aaa397;
-  --app-text-tertiary: #7e786e;
+  /* 2026-09 主区提亮联动：#948f85 → #9d9990（保 H/S），新 panel #35312a 上 4.55 */
+  --app-text-tertiary: #9d9990;
   --app-border: rgba(240, 237, 231, 0.10);
   --app-hover: rgba(240, 237, 231, 0.065);
   --app-active-bg: rgba(233, 169, 22, 0.15);
@@ -756,7 +819,8 @@
   --app-canvas-pipe-channel: #211f1b;
   --app-activity-bar-bg: #191714;
   --app-sidebar-bg: #25221d;
-  --app-panel-bg: #2b2822;
+  /* 主区提亮：#2b2822 → #35312a（HSL 保 H/S，L 15.1%→18.6%，+3.5%），对齐 .dark 阶梯改造 */
+  --app-panel-bg: #35312a;
   --app-icon-active: #f0ede7;
   --app-icon-inactive: #7e786e;
   --app-icon-hover: #aaa397;
@@ -767,7 +831,8 @@
   --app-terminal-selection: rgba(233, 169, 22, 0.28);
   --editor-bg: #1d1b18;
   --editor-tab-bar-bg: #211f1b;
-  --editor-tab-active-bg: #2b2822;
+  /* 与 --app-panel-bg 锁步：活跃标签须与所在 pane 表面同明度（原 #2b2822） */
+  --editor-tab-active-bg: #35312a;
   --editor-tab-inactive-bg: #211f1b;
   --editor-tab-active-fg: #f0ede7;
   --editor-tab-inactive-fg: #7e786e;
@@ -822,7 +887,7 @@
   --app-accent: #b45309;
   --app-text-primary: #24221f;
   --app-text-secondary: #67615a;
-  --app-text-tertiary: #928b83;
+  --app-text-tertiary: #766f68;
   --app-border: rgba(45, 38, 31, 0.11);
   --app-hover: rgba(45, 38, 31, 0.05);
   --app-active-bg: rgba(201, 95, 24, 0.11);
@@ -916,7 +981,7 @@
   --app-accent: #2167b2;
   --app-text-primary: #192838;
   --app-text-secondary: #586b7d;
-  --app-text-tertiary: #8798a8;
+  --app-text-tertiary: #607384;
   --app-border: rgba(28, 69, 105, 0.11);
   --app-hover: rgba(28, 69, 105, 0.05);
   --app-active-bg: rgba(40, 120, 208, 0.11);
@@ -975,6 +1040,8 @@
 
 :root[data-theme="nord-frost"] {
   color-scheme: dark;
+  /* 顶部内高光：与 .dark 同值（rgba 白 0.045），显式定义避免依赖 .dark 继承 */
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
   --background: #242933;
   --foreground: #E5E9F0;
   --card: #2A313D;
@@ -1010,7 +1077,8 @@
   --app-accent: #88C0D0;
   --app-text-primary: #E5E9F0;
   --app-text-secondary: #9FABBC;
-  --app-text-tertiary: #78849A;
+  /* 2026-09 主区提亮联动：#8F99AB → #99A3B3（保 H/S），新 panel #313948 上 4.56 */
+  --app-text-tertiary: #99A3B3;
   --app-border: rgba(229, 233, 240, 0.10);
   --app-hover: rgba(229, 233, 240, 0.065);
   --app-active-bg: rgba(136, 192, 208, 0.15);
@@ -1038,7 +1106,8 @@
   --app-canvas-pipe-channel: #20252E;
   --app-activity-bar-bg: #1E232C;
   --app-sidebar-bg: #262D38;
-  --app-panel-bg: #2A313D;
+  /* 主区提亮：#2A313D → #313948（HSL 保 H/S，L 20.2%→23.7%，+3.5%），对齐 .dark 阶梯改造 */
+  --app-panel-bg: #313948;
   --app-icon-active: #E5E9F0;
   --app-icon-inactive: #78849A;
   --app-icon-hover: #9FABBC;
@@ -1049,7 +1118,8 @@
   --app-terminal-selection: rgba(136, 192, 208, 0.30);
   --editor-bg: #242933;
   --editor-tab-bar-bg: #20252E;
-  --editor-tab-active-bg: #2A313D;
+  /* 与 --app-panel-bg 锁步：活跃标签须与所在 pane 表面同明度（原 #2A313D） */
+  --editor-tab-active-bg: #313948;
   --editor-tab-inactive-bg: #20252E;
   --editor-tab-active-fg: #E5E9F0;
   --editor-tab-inactive-fg: #78849A;
@@ -1069,6 +1139,8 @@
 
 :root[data-theme="tokyo-night"] {
   color-scheme: dark;
+  /* 顶部内高光：与 .dark 同值（rgba 白 0.045），显式定义避免依赖 .dark 继承 */
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
   --background: #1A1B26;
   --foreground: #C8D0F0;
   --card: #212336;
@@ -1104,7 +1176,8 @@
   --app-accent: #7AA2F7;
   --app-text-primary: #C8D0F0;
   --app-text-secondary: #8B93B0;
-  --app-text-tertiary: #646B87;
+  /* 2026-09 主区提亮联动：#848BA4 → #8C93AA（保 H/S），新 panel #282A41 上 4.59 */
+  --app-text-tertiary: #8C93AA;
   --app-border: rgba(199, 207, 240, 0.10);
   --app-hover: rgba(199, 207, 240, 0.065);
   --app-active-bg: rgba(122, 162, 247, 0.16);
@@ -1132,7 +1205,8 @@
   --app-canvas-pipe-channel: #171827;
   --app-activity-bar-bg: #14151F;
   --app-sidebar-bg: #1D1F2E;
-  --app-panel-bg: #212336;
+  /* 主区提亮：#212336 → #282A41（HSL 保 H/S，L 17.1%→20.6%，+3.5%），对齐 .dark 阶梯改造 */
+  --app-panel-bg: #282A41;
   --app-icon-active: #C8D0F0;
   --app-icon-inactive: #646B87;
   --app-icon-hover: #8B93B0;
@@ -1143,7 +1217,8 @@
   --app-terminal-selection: rgba(122, 162, 247, 0.32);
   --editor-bg: #1A1B26;
   --editor-tab-bar-bg: #171827;
-  --editor-tab-active-bg: #212336;
+  /* 与 --app-panel-bg 锁步：活跃标签须与所在 pane 表面同明度（原 #212336） */
+  --editor-tab-active-bg: #282A41;
   --editor-tab-inactive-bg: #171827;
   --editor-tab-active-fg: #C8D0F0;
   --editor-tab-inactive-fg: #646B87;
@@ -1198,7 +1273,7 @@
   --app-accent: #4C69A8;
   --app-text-primary: #2A2925;
   --app-text-secondary: #6E6A5E;
-  --app-text-tertiary: #948F82;
+  --app-text-tertiary: #716C61;
   --app-border: rgba(58, 52, 38, 0.10);
   --app-hover: rgba(58, 52, 38, 0.045);
   --app-active-bg: rgba(76, 105, 168, 0.11);
@@ -1292,7 +1367,7 @@
   --app-accent: #147a55;
   --app-text-primary: #212B26;
   --app-text-secondary: #5F7268;
-  --app-text-tertiary: #86968D;
+  --app-text-tertiary: #627169;
   --app-border: rgba(30, 50, 40, 0.10);
   --app-hover: rgba(30, 50, 40, 0.045);
   --app-active-bg: rgba(23, 138, 94, 0.11);
@@ -1348,6 +1423,17 @@
   --notch-tab-hover-fg: #212B26;
   --notch-tab-border: rgba(23, 138, 94, 0.10);
 }
+
+/* UI DENSITY START */
+/* compact 档：行高 -4px（28→24），间距与水平内边距 -25%（8→6），
+   垂直内边距 6→4；派生容器（TitleBar = row-h + 16px）同步收缩 4px。 */
+:root[data-density="compact"] {
+  --density-row-h: 24px;
+  --density-gap: 6px;
+  --density-pad-x: 6px;
+  --density-pad-y: 4px;
+}
+/* UI DENSITY END */
 
 /* THEME SHAPES START */
 :root[data-shape="soft"] {
@@ -1972,10 +2058,10 @@
   transition: opacity 0.15s ease;
 }
 
-/* 主视图 keep-alive 舞台：层始终占满同一盒模型，只淡入淡出透明度。
-   pointer-events 与 aria-hidden 由 MainViewSwitcher 按活动层切换。 */
+/* 主视图 keep-alive 舞台：层始终占满同一盒模型，只淡入淡出透明度（cross-fade，
+   不做位移，避免布局抖动）。pointer-events 与 aria-hidden 由 MainViewSwitcher 按活动层切换。 */
 .main-view-layer {
-  transition: opacity 140ms var(--ease-out);
+  transition: opacity var(--dur) var(--ease-out);
   will-change: opacity;
 }
 

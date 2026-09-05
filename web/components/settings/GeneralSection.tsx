@@ -308,13 +308,14 @@ export default function GeneralSection({
             {!dataDirInfo.isDefault && (
               <>
                 {" · "}
-                <span
-                  className="underline cursor-pointer"
+                <button
+                  type="button"
+                  className="underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
                   style={{ color: "var(--app-accent)" }}
                   onClick={handleResetDataDir}
                 >
                   {t("resetDataDir")}
-                </span>
+                </button>
               </>
             )}
           </p>

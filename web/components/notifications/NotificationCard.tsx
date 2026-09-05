@@ -77,7 +77,7 @@ export default function NotificationCard({
   return (
     <div
       data-testid={`notification-card-${record.id}`}
-      className="relative w-full overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-lg motion-safe:animate-in motion-safe:slide-in-from-bottom-2 motion-safe:fade-in"
+      className="relative w-full overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-lg motion-safe:animate-in motion-safe:slide-in-from-bottom-2 motion-safe:fade-in motion-safe:duration-[var(--dur-slow)] motion-safe:ease-[var(--ease-out)]"
     >
       <span
         aria-hidden="true"

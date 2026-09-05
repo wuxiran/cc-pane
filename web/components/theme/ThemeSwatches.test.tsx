@@ -16,48 +16,60 @@ function expectInlineColor(el: Element, hex: string) {
   expect(usesColor(el, hex), `element style 应包含 ${hex}，实际：${el.getAttribute("style")}`).toBe(true);
 }
 
-describe("PresetSwatches card 变体（迷你窗口预览）", () => {
-  it("六个主题都渲染出迷你窗口：根底色 + 边框面色，且整体保持 aria-hidden", () => {
+describe("PresetSwatches card 变体（MiniUiPreview 迷你界面）", () => {
+  it("十个主题都渲染 mini UI 预览：data-theme 套框、aria-hidden、aspect-video 比例", () => {
     for (const preset of THEME_PRESETS) {
       const { container, unmount } = render(<PresetSwatches preset={preset} size="card" />);
       const root = container.firstElementChild;
       expect(root).not.toBeNull();
       expect(root).toHaveAttribute("aria-hidden", "true");
-      expect(root).toHaveClass("h-16", "rounded-md", "overflow-hidden");
-      expectInlineColor(root!, preset.swatches[0]);
-      expectInlineColor(root!, preset.swatches[1]);
+      expect(root).toHaveAttribute("data-theme", preset.id);
+      expect(root).toHaveClass("mini-ui-scope", "aspect-video", "overflow-hidden");
       unmount();
     }
   });
 
-  it("窗口结构克制：子元素不超过 10 个，accent 只出现在窗口钮/激活项/主按钮三处", () => {
+  it("暗色主题预览框补 .dark，浅色主题不带", () => {
     for (const preset of THEME_PRESETS) {
       const { container, unmount } = render(<PresetSwatches preset={preset} size="card" />);
       const root = container.firstElementChild!;
-      const children = [...root.querySelectorAll("span")];
-      expect(children.length).toBeLessThanOrEqual(10);
-
-      const accentEls = children.filter((el) => usesColor(el, preset.swatches[2]));
-      expect(accentEls).toHaveLength(3);
-      expect(accentEls.filter((el) => el.className.includes("rounded-full"))).toHaveLength(2);
-      expect(accentEls.some((el) => el.className.includes("mt-auto"))).toBe(true);
-
-      // 标题带 + 活动栏 + 3 根文字条都取面色 sw[1]；底色 sw[0] 只属于根容器。
-      const surfaceEls = children.filter((el) => usesColor(el, preset.swatches[1]));
-      expect(surfaceEls).toHaveLength(5);
-      expect(children.filter((el) => usesColor(el, preset.swatches[0]))).toHaveLength(0);
+      if (preset.group === "dark") {
+        expect(root).toHaveClass("dark");
+      } else {
+        expect(root).not.toHaveClass("dark");
+      }
       unmount();
     }
   });
 
-  it("文字条用透明度分出层次，accent 主按钮沉底", () => {
-    const preset = THEME_PRESETS[0];
-    const { container } = render(<PresetSwatches preset={preset} size="card" />);
-    const root = container.firstElementChild!;
-    const bars = [...root.querySelectorAll("span")].filter((el) => el.className.includes("opacity-"));
-    expect(bars).toHaveLength(2);
-    expect(bars[0]).toHaveClass("opacity-60");
-    expect(bars[1]).toHaveClass("opacity-40");
+  it("卡顶 4px 主色带存在且走 var(--primary)，预览内无裸 hex", () => {
+    for (const preset of THEME_PRESETS) {
+      const { container, unmount } = render(<PresetSwatches preset={preset} size="card" />);
+      const band = container.querySelector("[data-accent-band]");
+      expect(band).not.toBeNull();
+      expect(band).toHaveClass("h-1");
+      expect(band!.getAttribute("style")).toContain("var(--primary)");
+
+      for (const el of [container.firstElementChild!, ...container.querySelectorAll("*")]) {
+        for (const attr of el.getAttributeNames()) {
+          expect(el.getAttribute(attr)).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+        }
+      }
+      unmount();
+    }
+  });
+
+  it("mini UI 骨架齐全：侧栏 + 选中行 + 双 Tab + 终端三行 + 主色按钮", () => {
+    const { container } = render(<PresetSwatches preset={THEME_PRESETS[0]} size="card" />);
+    const html = container.innerHTML;
+    expect(html).toContain("var(--app-sidebar)");
+    expect(html).toContain("var(--app-active-bg)");
+    expect(html).toContain("var(--app-tabbar)");
+    expect(html).toContain("var(--app-tab-highlight)");
+    expect(html).toContain("var(--app-terminal-bg)");
+    expect(html).toContain("var(--app-terminal-fg)");
+    expect(html).toContain("var(--primary-foreground)");
+    expect(container.querySelector(".font-mono")).not.toBeNull();
   });
 });
 

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { useFileTreeStore, usePanesStore } from "@/stores";
@@ -86,12 +86,22 @@ describe("FileTree", () => {
     vi.clearAllMocks();
   });
 
-  it("shows a loading placeholder and requests the directory when the tree is absent", () => {
-    const actions = setupStores({ trees: {} });
-    render(<FileTree rootPath={ROOT} />);
-    expect(screen.getByText("Loading...")).toBeInTheDocument();
-    expect(actions.loadDirectory).toHaveBeenCalledWith(ROOT, ROOT);
-    expect(actions.loadGitStatuses).toHaveBeenCalledWith(ROOT);
+  it("requests the directory when the tree is absent and shows skeleton rows after the delay", () => {
+    vi.useFakeTimers();
+    try {
+      const actions = setupStores({ trees: {} });
+      render(<FileTree rootPath={ROOT} />);
+      expect(actions.loadDirectory).toHaveBeenCalledWith(ROOT, ROOT);
+      expect(actions.loadGitStatuses).toHaveBeenCalledWith(ROOT);
+      // 300ms 内不显示骨架，避免快加载闪占位
+      expect(screen.queryByTestId("file-tree-skeleton")).not.toBeInTheDocument();
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      expect(screen.getByTestId("file-tree-skeleton")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("renders the loaded tree without re-requesting it", () => {
@@ -187,5 +197,134 @@ describe("FileTree", () => {
     await waitFor(() => {
       expect(actions.setSelectedFilePath).toHaveBeenCalledWith(`${ROOT}/src/deep/file.ts`);
     });
+  });
+});
+
+describe("FileTree keyboard navigation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function getRow(name: string): HTMLElement {
+    return screen.getByText(name).closest("div[data-file-path]") as HTMLElement;
+  }
+
+  it("renders a labelled tree with a single tabbable treeitem (roving tabindex)", () => {
+    setupStores();
+    render(<FileTree rootPath={ROOT} />);
+    expect(screen.getByRole("tree")).toHaveAttribute("aria-label");
+    const items = screen.getAllByRole("treeitem");
+    expect(items).toHaveLength(6);
+    const tabbable = items.filter((el) => el.getAttribute("tabindex") === "0");
+    expect(tabbable).toHaveLength(1);
+    // 默认聚焦首个可见项（根目录）
+    expect(tabbable[0]).toBe(getRow("proj"));
+  });
+
+  it("moves focus with ArrowDown/ArrowUp across visible items only", () => {
+    setupStores();
+    render(<FileTree rootPath={ROOT} />);
+    const tree = screen.getByRole("tree");
+
+    fireEvent.keyDown(tree, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(getRow("src"));
+    fireEvent.keyDown(tree, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(getRow("deep"));
+    fireEvent.keyDown(tree, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(getRow("file.ts"));
+    fireEvent.keyDown(tree, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(getRow("deep"));
+  });
+
+  it("ArrowRight enters the first child of an expanded directory", () => {
+    setupStores();
+    render(<FileTree rootPath={ROOT} />);
+    fireEvent.keyDown(screen.getByRole("tree"), { key: "ArrowRight" });
+    expect(document.activeElement).toBe(getRow("src"));
+  });
+
+  it("ArrowRight expands a collapsed directory instead of moving focus", () => {
+    const actions = setupStores();
+    useFileTreeStore.setState({
+      trees: {
+        [ROOT]: makeNode(entry(ROOT, true), {
+          expanded: true,
+          children: [makeNode(entry(`${ROOT}/src`, true))],
+        }),
+      },
+    });
+    render(<FileTree rootPath={ROOT} />);
+    const tree = screen.getByRole("tree");
+
+    fireEvent.keyDown(tree, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(getRow("src"));
+    fireEvent.keyDown(tree, { key: "ArrowRight" });
+    expect(actions.toggleExpand).toHaveBeenCalledWith(ROOT, `${ROOT}/src`);
+    expect(document.activeElement).toBe(getRow("src"));
+  });
+
+  it("ArrowLeft collapses an expanded directory and otherwise moves to the parent", () => {
+    const actions = setupStores();
+    render(<FileTree rootPath={ROOT} />);
+    const tree = screen.getByRole("tree");
+
+    // 根目录展开 → 折叠
+    fireEvent.keyDown(tree, { key: "ArrowLeft" });
+    expect(actions.toggleExpand).toHaveBeenCalledWith(ROOT, ROOT);
+
+    // 文件 → 回到父目录
+    fireEvent.focus(getRow("file.ts"));
+    fireEvent.keyDown(tree, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(getRow("deep"));
+  });
+
+  it("Enter toggles directories and opens files like a mouse click", () => {
+    const actions = setupStores();
+    render(<FileTree rootPath={ROOT} />);
+    const tree = screen.getByRole("tree");
+
+    fireEvent.focus(getRow("src"));
+    fireEvent.keyDown(tree, { key: "Enter" });
+    expect(actions.toggleExpand).toHaveBeenCalledWith(ROOT, `${ROOT}/src`);
+
+    fireEvent.focus(getRow("README.md"));
+    fireEvent.keyDown(tree, { key: "Enter" });
+    expect(actions.openEditor).toHaveBeenCalledWith(ROOT, `${ROOT}/README.md`, "README.md");
+    expect(actions.setSelectedFilePath).toHaveBeenCalledWith(`${ROOT}/README.md`);
+  });
+
+  it("F2 opens the rename dialog for the focused node", async () => {
+    setupStores();
+    render(<FileTree rootPath={ROOT} />);
+    const tree = screen.getByRole("tree");
+
+    fireEvent.focus(getRow("README.md"));
+    fireEvent.keyDown(tree, { key: "F2" });
+    expect(await screen.findByDisplayValue("README.md")).toBeInTheDocument();
+  });
+
+  it("Menu key opens the context menu for the focused node", async () => {
+    setupStores();
+    render(<FileTree rootPath={ROOT} />);
+    const tree = screen.getByRole("tree");
+
+    fireEvent.focus(getRow("README.md"));
+    fireEvent.keyDown(tree, { key: "ContextMenu" });
+    await waitFor(() => {
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+    });
+  });
+
+  it("keeps mouse click behaviour intact while syncing the roving tabindex", async () => {
+    const user = userEvent.setup();
+    const actions = setupStores();
+    render(<FileTree rootPath={ROOT} />);
+
+    await user.click(screen.getByText("src"));
+    expect(actions.toggleExpand).toHaveBeenCalledWith(ROOT, `${ROOT}/src`);
+
+    fireEvent.focus(getRow("README.md"));
+    expect(getRow("README.md")).toHaveAttribute("tabindex", "0");
+    expect(getRow("proj")).toHaveAttribute("tabindex", "-1");
   });
 });

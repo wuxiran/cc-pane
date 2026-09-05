@@ -33,6 +33,7 @@ import { deriveWorkspaceTerminals } from "./workspaceTerminals";
 import WorkspaceTerminalList from "./WorkspaceTerminalList";
 import { useFirstPromptIndex } from "@/hooks/useFirstPromptIndex";
 import { useCliTools } from "@/hooks/useCliTools";
+import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import { filterWorkspaces, UNGROUPED_WORKSPACE_FILTER } from "@/stores/useWorkspacesStore";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { partitionWorkspaces } from "./workspaceDnd";
@@ -124,6 +125,7 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
   const { t } = useTranslation(["sidebar", "common"]);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const loading = useWorkspacesStore((s) => s.loading);
+  const showLoadingSkeleton = useDelayedLoading(loading && workspaces.length === 0);
   const workspaceFilter = useWorkspacesStore((s) => s.workspaceFilter);
   const clearWorkspaceFilter = useWorkspacesStore((s) => s.clearWorkspaceFilter);
   const expandedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);
@@ -291,11 +293,8 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
 
   // 分组成员统一缩进一格 + 左侧竖向引导线，避免与顶层（未分组）工作空间混成一片
   const renderGroupMembers = (members: Workspace[]) => (
-    <div className="relative flex flex-col gap-1 pl-3">
-      <span
-        aria-hidden="true"
-        className="absolute left-[15px] top-0.5 bottom-0.5 w-px bg-[var(--app-border)]"
-      />
+    <div className="relative flex flex-col gap-[calc(var(--density-gap)-4px)] pl-3">
+      <span aria-hidden="true" className="absolute left-[15px] top-0.5 bottom-0.5 w-px bg-[var(--app-border)]" />
       {members.map(renderWorkspace)}
     </div>
   );
@@ -394,12 +393,11 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
           items={visibleWorkspaces.map((workspace) => workspace.id)}
           strategy={verticalListSortingStrategy}
         >
-          <div className="flex flex-col gap-1">
-            {loading && workspaces.length === 0 ? (
+          <div className="flex flex-col gap-[calc(var(--density-gap)-4px)]">
+            {loading && workspaces.length === 0 && showLoadingSkeleton ? (
               Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="flex items-center gap-2 px-3 py-2">
-                  <Skeleton className="h-4 w-4 rounded" />
-                  <Skeleton className="h-4 flex-1" />
+                  <Skeleton className="h-4 w-4 rounded" /><Skeleton className="h-4 flex-1" />
                 </div>
               ))
             ) : (
@@ -443,7 +441,7 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
             {workspaces.length === 0 && (
               <EmptyState
                 icon={FolderGit2}
-                title={t("noWorkspaces")}
+                title={t("noWorkspaces")} illustration="empty-folder"
                 action={{ label: t("newWorkspace"), onClick: actions.handleCreateWorkspace }}
                 className="py-8"
               />
@@ -451,7 +449,7 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
             {workspaces.length > 0 && visibleWorkspaces.length === 0 ? (
               <EmptyState
                 icon={ListFilter}
-                title={t("noWorkspaceMatches")}
+                title={t("noWorkspaceMatches")} illustration="empty-search"
                 action={{ label: t("clearWorkspaceFilters"), onClick: clearWorkspaceFilter }}
                 className="py-8"
               />

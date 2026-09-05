@@ -31,6 +31,7 @@ import LauncherInjectionRow from "./LauncherInjectionRow";
 import LauncherProviderRow from "./LauncherProviderRow";
 import LauncherWorktreeRow from "./LauncherWorktreeRow";
 import LauncherLayoutRow from "./LauncherLayoutRow";
+import CcchanPeek from "./CcchanPeek";
 // 文件名带 View 后缀：Windows 大小写不敏感，避免与纯函数 launcherArgsPreview.ts 解析冲突
 import LauncherArgsPreview from "./LauncherArgsPreviewView";
 import {
@@ -280,6 +281,8 @@ export default function LauncherDialog() {
         </div>
 
         <DialogFooter>
+          {/* cc酱露脸：footer 左侧空白角落的静态小形象，纯装饰；窄屏堆叠时不占位 */}
+          <CcchanPeek className="hidden sm:mr-auto sm:inline-block" />
           <Button variant="outline" onClick={() => useDialogStore.getState().closeLauncher()}>
             {t("cancel")}
           </Button>

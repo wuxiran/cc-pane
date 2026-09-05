@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
@@ -145,6 +145,52 @@ describe("SkillManager", () => {
     await user.click(deleteBtn);
     expect(actions.deleteSkill).toHaveBeenCalledWith(PROJECT, "deploy");
     expect(toast.success).toHaveBeenCalledWith(i18n.t("notifications:skillDeleted"));
+    // 删除按钮 stopPropagation，不应触发选中
+    expect(actions.selectSkill).not.toHaveBeenCalled();
+  });
+
+  it("skill row is focusable with a focus-visible ring and selects on Enter/Space", () => {
+    const actions = mockActions();
+    useSkillStore.setState({ skills: summaries });
+    render(<SkillManager projectPath={PROJECT} />);
+
+    const row = screen.getByText("/review").closest('[role="button"]') as HTMLElement;
+    expect(row).not.toBeNull();
+    expect(row).toHaveAttribute("tabindex", "0");
+    expect(row.className).toContain("focus-visible:outline-none");
+    expect(row.className).toContain("focus-visible:ring-2");
+    expect(row.className).toContain("focus-visible:ring-[var(--app-accent)]");
+
+    row.focus();
+    expect(row).toHaveFocus();
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(actions.selectSkill).toHaveBeenCalledWith(PROJECT, "review");
+    fireEvent.keyDown(row, { key: " " });
+    expect(actions.selectSkill).toHaveBeenCalledTimes(2);
+  });
+
+  it("row delete action stays visible and keyboard reachable via group-focus-within", async () => {
+    const user = userEvent.setup();
+    const actions = mockActions();
+    useSkillStore.setState({ skills: summaries });
+    render(<SkillManager projectPath={PROJECT} />);
+
+    const row = screen.getByText("/deploy").closest('[role="button"]') as HTMLElement;
+    const actionWrap = row.querySelector(
+      "div[class*='group-focus-within']"
+    ) as HTMLElement;
+    expect(actionWrap).not.toBeNull();
+    expect(actionWrap.className).toContain("group-hover:flex");
+    expect(actionWrap.className).toContain("group-focus-within:flex");
+
+    // 从行 Tab 到删除按钮；focus-within 让按钮在键盘聚焦时保持可见
+    row.focus();
+    await user.tab();
+    const deleteButton = actionWrap.querySelector("button")!;
+    expect(deleteButton).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+    expect(actions.deleteSkill).toHaveBeenCalledWith(PROJECT, "deploy");
     // 删除按钮 stopPropagation，不应触发选中
     expect(actions.selectSkill).not.toHaveBeenCalled();
   });

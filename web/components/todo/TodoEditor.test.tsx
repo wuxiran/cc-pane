@@ -1,4 +1,4 @@
-import "@/i18n";
+import i18n from "@/i18n";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useTodoStore, useWorkspacesStore } from "@/stores";
@@ -246,6 +246,36 @@ describe("TodoEditor", () => {
     expect(props.onChange).toHaveBeenCalledWith(
       expect.objectContaining({ todoType: "" }),
     );
+  });
+
+  it("删除自定义类型的 × 支持键盘：可聚焦、Enter/Space 触发、带焦点环", () => {
+    useTodoStore.setState({ customTypes: ["infra"] });
+    const props = renderEditor({ form: createForm({ todoType: "infra" }) });
+
+    const chip = screen.getByText("infra");
+    const remove = chip.querySelector("span[role='button']") as HTMLElement;
+    expect(remove).not.toBeNull();
+    expect(remove).toHaveAttribute("tabindex", "0");
+    expect(remove).toHaveAttribute(
+      "aria-label",
+      i18n.t("dialogs:todoRemoveCustomType", { type: "infra" }),
+    );
+    expect(remove.className).toContain("focus-visible:outline-none");
+    expect(remove.className).toContain("focus-visible:ring-2");
+    expect(remove.className).toContain("focus-visible:ring-[var(--app-accent)]");
+    // 键盘聚焦路径下可见（原先仅 hover 可见时无法被 Tab 到达）
+    expect(remove.className).toContain("group-focus-within/type:flex");
+
+    remove.focus();
+    expect(remove).toHaveFocus();
+    fireEvent.keyDown(remove, { key: "Enter" });
+    expect(useTodoStore.getState().removeCustomType).toHaveBeenCalledWith("infra");
+    expect(props.onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ todoType: "" }),
+    );
+
+    fireEvent.keyDown(remove, { key: " " });
+    expect(useTodoStore.getState().removeCustomType).toHaveBeenCalledTimes(2);
   });
 
   it("到期日选择转为 ISO 字符串，清空转为空串", () => {

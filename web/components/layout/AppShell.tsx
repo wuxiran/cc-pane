@@ -2,6 +2,7 @@
 // 区域用明度分层划分（外框最深、侧栏次深、主区最亮），各区组件自绘背景但
 // 统一取对应 --app-* token；分区容器与边框归本壳所有。
 import { Toaster } from "sonner";
+import { TOASTER_OFFSET_MAIN, TOASTER_POSITION } from "@/lib/feedback";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import TitleBar from "@/components/TitleBar";
 import ActivityBar from "@/components/ActivityBar";
@@ -13,7 +14,7 @@ import OnboardingGuide from "@/components/OnboardingGuide";
 import DarkOrbsBackground from "@/components/layout/DarkOrbsBackground";
 import MainViewSwitcher from "@/components/layout/MainViewSwitcher";
 import AppDialogs from "@/components/layout/AppDialogs";
-import RightDock from "@/components/rightdock/RightDock";
+import ResponsiveRightDock from "@/components/layout/ResponsiveRightDock";
 import OrchestratorAlertBanner from "@/components/OrchestratorAlertBanner";
 import RestoreRegressionBanner from "@/components/RestoreRegressionBanner";
 import NotificationCenter from "@/components/notifications/NotificationCenter";
@@ -39,12 +40,17 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
       <div className="app h-full flex flex-col relative z-[1]" data-shape-surface="app-shell">
         <DarkOrbsBackground />
 
-        {/* Sonner Toast */}
-        <Toaster position="top-center" theme={isDark ? "dark" : "light"} richColors />
+        {/* Sonner Toast：bottom-center 避开右下通知中心栈，offset 抬到 StatusBar（28px）上方 */}
+        <Toaster
+          position={TOASTER_POSITION}
+          offset={TOASTER_OFFSET_MAIN}
+          theme={isDark ? "dark" : "light"}
+          richColors
+        />
         <OrchestratorAlertBanner />
         <RestoreRegressionBanner />
 
-        {/* 统一通知中心固定在右下角（update 卡 + 通知栈 + 历史面板），不改变全局 toast 位置。 */}
+        {/* 统一通知中心固定在右下角（update 卡 + 通知栈 + 历史面板），与 bottom-center 的全局 toast 不重叠。 */}
         <NotificationCenter />
         <FeatureTips />
 
@@ -59,7 +65,7 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
             <div className="min-w-0 flex-1 flex overflow-hidden relative z-[1]">
               <ActivityBar />
               <MainViewSwitcher onOpenTerminal={onOpenTerminal} />
-              <RightDock onOpenTerminal={onOpenTerminal} />
+              <ResponsiveRightDock onOpenTerminal={onOpenTerminal} />
             </div>
             <StatusBar />
           </>

@@ -258,7 +258,7 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="rounded p-0.5 opacity-0 transition-opacity hover:bg-[var(--app-hover)] group-hover:opacity-100"
+            className="rounded p-0.5 opacity-0 transition-opacity hover:bg-[var(--app-hover)] group-hover:opacity-100 focus-visible:opacity-100"
             onClick={(event) => event.stopPropagation()}
             title={t("sidebar.actions")}
           >

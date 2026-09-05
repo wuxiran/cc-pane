@@ -188,7 +188,7 @@ export default function SshRemoteFilesView({ onOpenTerminal }: SshRemoteFilesVie
       } else {
         await sshFileService.renameEntry(machineId, entryDialog.entry.path, entryName.trim());
       }
-      toast.success(t("sshFiles.operationComplete"));
+      // 不弹「操作已完成」toast：随后的 loadDirectory 刷新列表本身就是反馈（见 docs/feedback-channels.md）。
       setEntryDialog(null);
       await loadDirectory(true);
     } catch (operationError) {

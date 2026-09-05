@@ -1,0 +1,88 @@
+{
+  "appTitle": "CC-Panes Mobile",
+  "views": {
+    "workspaces": "Workspaces",
+    "layouts": "Layouts",
+    "terminal": "Terminal"
+  },
+  "metrics": {
+    "workspaces": "Workspaces",
+    "projects": "Projects",
+    "layouts": "Layouts",
+    "panes": "Panes"
+  },
+  "segment": {
+    "currentTerminal": "Current"
+  },
+  "status": {
+    "loading": "Loading",
+    "connected": "Backend workspaces",
+    "disconnected": "Backend not connected"
+  },
+  "workspace": {
+    "openActionsMenu": "Workspace actions",
+    "pinned": "Pinned",
+    "hidden": "Hidden",
+    "projectCount": "{{count}} projects",
+    "tapToOpen": "Tap to open a project terminal",
+    "hasLaunchProfile": "Launch profile",
+    "empty": "The backend returned no workspaces"
+  },
+  "layouts": {
+    "paneTabSummary": "{{panes}} panes / {{tabs}} tabs",
+    "currentSection": "Current layout",
+    "paneCount": "{{count}} panes",
+    "empty": "No layouts to sync yet",
+    "paneTabSection": "Panes / Tabs",
+    "paneLabel": "Pane {{index}}",
+    "tabCount": "{{count}} tabs",
+    "noPanes": "No selectable panes in the current layout"
+  },
+  "sheet": {
+    "title": "Workspace Actions",
+    "close": "Close",
+    "closeBackdrop": "Close workspace actions",
+    "busy": "Working...",
+    "groups": {
+      "common": "Favorites",
+      "workspace": "Workspace",
+      "settings": "Settings",
+      "danger": "Delete"
+    },
+    "pin": "Show in favorites",
+    "unpin": "Unpin",
+    "pinDetail": "Add this workspace to favorites",
+    "unpinDetail": "Remove this workspace from favorites",
+    "openTerminal": "Open terminal",
+    "openTerminalDetail": "Open the first available project",
+    "openTerminalDisabled": "This workspace has no projects",
+    "openFolder": "Open folder",
+    "openFolderDetail": "Open the path in the system file manager",
+    "noOpenablePath": "This workspace has no openable path",
+    "openInFileBrowser": "Open in file browser",
+    "openInFileBrowserDetail": "View the path in the in-app file browser",
+    "showWorkspace": "Show workspace",
+    "hideWorkspace": "Hide workspace",
+    "showDetail": "Restore to the workspace list",
+    "hideDetail": "Hide from the regular list",
+    "setAlias": "Set alias",
+    "setAliasDetail": "Change the sidebar display name",
+    "rename": "Rename",
+    "renameDetail": "Change the workspace name",
+    "deleteWorkspace": "Delete workspace",
+    "deleteDetail": "Remove from the workspace list",
+    "deleteConfirm": "Delete workspace {{name}}?"
+  },
+  "terminal": {
+    "noLayouts": "No layouts",
+    "emptyTitle": "No live terminal yet",
+    "emptyDescription": "Tap a project in a workspace to enter its live terminal session.",
+    "currentSelection": "Selected: {{workspace}} / {{project}}",
+    "inputPlaceholder": "Type a command or message...",
+    "waitingSession": "Waiting for a terminal session...",
+    "send": "Send to terminal",
+    "sendFailed": "Send failed",
+    "writeFailed": "Failed to write to the terminal",
+    "shortcutLabel": "Insert {{char}}"
+  }
+}

@@ -97,9 +97,11 @@ export function resolveRightDockWorkspace(
 
 interface RightDockProps {
   onOpenTerminal: (options: OpenTerminalOptions) => void;
+  /** 浮层模式（窄档 Sheet 内）：铺满宿主、隐藏常驻栏才有的拖宽手柄与左边框。 */
+  overlay?: boolean;
 }
 
-export default function RightDock({ onOpenTerminal }: RightDockProps) {
+export default function RightDock({ onOpenTerminal, overlay = false }: RightDockProps) {
   const { t } = useTranslation("sidebar");
   const visible = useRightDockStore((state) => state.visible);
   const activeView = useRightDockStore((state) => state.activeView);
@@ -191,14 +193,15 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
       data-testid="right-dock-panel"
       className="relative flex h-full shrink-0 flex-col"
       style={{
-        width,
+        width: overlay ? "100%" : width,
         background: "var(--app-sidebar-bg)",
-        borderLeft: "1px solid var(--app-border)",
+        borderLeft: overlay ? undefined : "1px solid var(--app-border)",
         backdropFilter: "blur(var(--app-glass-blur))",
         WebkitBackdropFilter: "blur(var(--app-glass-blur))",
         WebkitAppRegion: "no-drag",
       } as React.CSSProperties}
     >
+      {!overlay && (
       <div
         role="separator"
         aria-label={t("rightDock.resize")}
@@ -233,6 +236,7 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
           className="pointer-events-none absolute inset-y-3 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors group-hover:bg-[var(--app-accent)] group-focus-visible:bg-[var(--app-accent)]"
         />
       </div>
+      )}
 
       <div className="flex h-11 shrink-0 items-center gap-2 px-2 pl-2">
         <div
@@ -405,6 +409,7 @@ export default function RightDock({ onOpenTerminal }: RightDockProps) {
             icon={FolderOpen}
             title={t("rightDock.noProject")}
             description={t("rightDock.selectProject")}
+            illustration="empty-folder"
             className="h-full"
           />
         </div>

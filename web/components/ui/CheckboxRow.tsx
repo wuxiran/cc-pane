@@ -15,7 +15,7 @@ interface CheckboxRowProps {
 
 /**
  * 规范勾选行（docs/46 §3/§4）：行底色与边框保持中性，
- * 选中态只有 checkbox 打勾 + 左侧 2px accent inset 边条——
+ * 选中态只有 checkbox 打勾 + 左侧 2px primary inset 边条（ui-selected）——
  * accent 从「满屏面」退为「细线索」，汇总信息交给区头计数。
  */
 export function CheckboxRow({
@@ -31,10 +31,9 @@ export function CheckboxRow({
     <label
       data-checked={checked ? "true" : undefined}
       className={cn(
-        "relative flex cursor-pointer items-center gap-2.5 rounded-lg border border-[var(--app-border)] px-3 py-2 transition-colors",
+        "ui-hoverable relative flex cursor-pointer items-center gap-2.5 rounded-lg border border-[var(--app-border)] px-3 py-2",
         "hover:bg-[var(--app-hover)]",
-        checked &&
-          "before:absolute before:bottom-1.5 before:left-0 before:top-1.5 before:w-0.5 before:rounded-full before:bg-[var(--app-accent)] before:content-['']",
+        checked && "ui-selected",
         disabled && "cursor-not-allowed opacity-50",
         className,
       )}

@@ -48,10 +48,12 @@ export function SegmentedTabs<V extends string = string>({
             disabled={item.disabled}
             data-state={active ? "active" : "inactive"}
             className={cn(
-              "rounded-[7px] font-medium transition-colors duration-[var(--dur-fast)]",
+              "ui-hoverable rounded-[7px] font-medium",
               size === "sm" ? "px-2.5 py-1 text-xs" : "px-3.5 py-1.5 text-[13px]",
               active
-                ? "bg-[var(--app-panel-bg)] text-[var(--app-text-primary)] shadow-sm"
+                ? // 选中签名统一为 ui-selected 左侧 2px primary 条（box-shadow 不可叠加，
+                  // 与原 shadow-sm 二选一）；panel 底浮起 + 指示条已足够区分激活项。
+                  "ui-selected bg-[var(--app-panel-bg)] text-[var(--app-text-primary)]"
                 : "text-[var(--app-text-secondary)] hover:text-[var(--app-text-primary)]",
               "disabled:pointer-events-none disabled:opacity-50",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]",

@@ -189,12 +189,21 @@ export default function PlansPanel({ open, onOpenChange, projectPath }: PlansPan
                 {filteredPlans.map((plan) => (
                   <div
                     key={plan.fileName}
-                    className="group flex flex-col px-2.5 py-2 cursor-pointer transition-colors"
+                    role="button"
+                    tabIndex={0}
+                    className="group flex flex-col px-2.5 py-2 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
                     style={{
                       borderBottom: "1px solid var(--app-border)",
                       background: selectedFile === plan.fileName ? "var(--app-hover)" : undefined,
                     }}
                     onClick={() => setSelectedFile(plan.fileName)}
+                    onKeyDown={(e) => {
+                      if (e.target !== e.currentTarget) return;
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedFile(plan.fileName);
+                      }
+                    }}
                   >
                     <div className="flex items-center justify-between">
                       <span

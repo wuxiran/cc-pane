@@ -259,7 +259,9 @@ const MachineItem = memo(function MachineItem(props: MachineItemProps) {
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
-          className={`${sidebarEntityRowClass} cursor-pointer ${
+          role="button"
+          tabIndex={0}
+          className={`${sidebarEntityRowClass} cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
             selected
               ? "bg-[var(--app-active-bg)] text-[var(--app-accent)]"
               : "hover:bg-[var(--app-hover)]"
@@ -267,6 +269,13 @@ const MachineItem = memo(function MachineItem(props: MachineItemProps) {
           aria-selected={selected}
           onClick={() => props.onSelect(machine)}
           onDoubleClick={() => props.onConnect(machine)}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              props.onSelect(machine);
+            }
+          }}
         >
           <div className={sidebarEntityContentClass}>
             <div className={sidebarEntityIconSlotClass}>

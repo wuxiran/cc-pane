@@ -23,6 +23,7 @@
   "activeSessions": "Active Sessions",
   "totalSessions": "{{count}} terminal sessions",
   "noActiveSessions": "No active sessions",
+  "noActiveSessionsHint": "Start a new terminal session and pick up your next task anytime.",
   "running": "Running",
   "idle": "Idle",
   "waiting": "Waiting Input",
