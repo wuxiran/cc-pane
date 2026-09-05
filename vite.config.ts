@@ -32,7 +32,11 @@ export default defineConfig(async () => ({
             return "monaco-editor";
           }
           if (id.includes("node_modules/@xterm/")) return "xterm";
-          if (id.includes("node_modules/@radix-ui/")) return "radix";
+          // @radix-ui 不做独立分包：Radix 组件在模块求值期即调用 React.forwardRef，
+          // 独立 chunk 会与入口（React 所在）形成循环依赖——radix 先求值时 React
+          // 绑定未初始化，生产包启动即崩 "Cannot read properties of undefined
+          // (reading 'forwardRef')"（2026-09-05 debug 打包实锤，dev server 无 manualChunks
+          // 故从不复现）。并入入口 chunk 消除环，首屏 gzip 成本仅 ~26kB。
           return undefined;
         },
       },
