@@ -4,6 +4,41 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.12.11 - 2026-09-06
+
+Mostly a front-end release: first-screen JavaScript is cut by more than half, the UI/UX got a systematic pass, Agent Chat went from a flat message list to a conversation with turns, hierarchy and visible subagents, and the home page gained a direct line to the orchestration concierge.
+
+### Added
+
+- **"Talk to agent" on the home page goes straight to the concierge** — a prompt card sits under the quick-action buttons: pick a target project (or browse a folder), pick an engine, type a goal, press Enter. An Agent Chat tab opens in the workspace, the first message is sent as the orchestration concierge, and the view switches over. The home page only initiates; the conversation lives in the workspace. ACP has no system-prompt field, so the concierge instructions travel with the first prompt; the ccpanes MCP tool surface was already injected into every Agent Chat session. The previous "Talk to agent" button (terminal + CLI form) is removed from the home page; the copies inside onboarding stay.
+- **Agent Chat is organised into turns** — the stream is grouped into "user → agent output" turns: user turns are right-aligned bubbles with a timestamp; agent turns are an avatar column + engine name · time + content blocks, with body text on a light card that can be copied on hover or via right-click. Thought blocks collapse to one line by default, show "Thinking…" and auto-expand while streaming, and read "Thought for N s" once closed; consecutive tool calls inside a turn fold into "Called N tools" with running / failed counts and auto-expand while anything is still running. The streaming indicator moved inside the current turn, and a just-sent message gets an empty turn to carry it. A welcome card at the top says which engine (or the concierge) you are talking to and in which folder. Pagination is now "last 60 turns" instead of "last 150 items".
+- **Subagents render nested** — a subagent spawned by the Claude engine (Task / Agent tool) is now its own collapsible block: the header is the task description + status, the body is the subagent's own thoughts, tool calls and text, the footer is its final report; it auto-expands while running and collapses when done, and nests recursively when a subagent spawns another. Before this, the subagent's tool calls were flattened next to the parent's with no attribution, and its text and thinking never reached the front end at all — `claude-agent-acp` only forwards them when the client declares the `subagent-transcript` capability, which we did not. `initialize` now declares it and the front end attributes by `_meta.claudeCode.parentToolUseId`; engines without that annotation behave as before.
+- **Command registry** — context menus, the command palette, keyboard shortcuts and the Ctrl+/ cheatsheet share one action registry, and menu items show their current key binding; screenshot became a command (it was hotkey-only), buried features are reachable from the palette, and secondary status-bar items can be hidden per user.
+- **Layouts are first-class** — drop a tab on a pane's right / bottom edge to split (with a drop preview), pane-header context menu and hover split buttons, close pane / equalise / zoom-within-layout, searchable and grouped presets in the palette. Ctrl+\ / Ctrl+- work while a terminal has focus by default (`terminal.splitShortcutPassthrough` to opt out).
+- **Context menus consolidated** — density toggle on layout rows, copy path on editor tabs, a dedicated menu for the empty file-tree area, and product actions inside the history view, browser toolbar, git commit rows, chat messages and the Monaco editor.
+- **Settings converge** — a new Appearance page gathers colours / shape / wallpaper, expert items fold into Advanced, search anchors are complete, and MCP / skills / providers carry scope badges with cross-layer jumps.
+- **Theme editor** — ten accent presets, a radius slider, panel lightness ±5%, one-click reset, export as JSON to the clipboard; theme cards preview the current shape as well.
+- **Responsive and density** — five breakpoints (xs / sm / md / lg / xl) become the single source of truth: the sidebar turns into a flyout on narrow widths, the right dock into a sheet, the status bar overflows into "more", the title bar truncates, and preferences do not leak across breakpoints; a global comfortable / compact density switch. Split view gets a 320px column floor + horizontal scrolling below md.
+- **Look and feel** — a cold-start brand moment (five staggered fade-ins, static under reduced-motion), a semantic type scale, a slightly brighter dark main area that still holds 4.5:1 contrast, an empty-state illustration system (6 illustrations, 19 call sites), parallax view transitions, 300ms delayed skeletons on nine async entries, a bottom-centred Toaster, and seven new base components (separator / slider / progress / alert-dialog / radio-group / textarea / scroll-area).
+- **Accessibility** — keyboard navigation in the file tree (arrows / F2 / Menu), 90+ visual labels in settings and providers programmatically associated, 30+ focus and aria fixes, ContextMenu opens on the Menu key / Shift+F10, and the contrast script now covers dark mode as a hard constraint.
+
+### Changed
+
+- **First-screen JavaScript −57%** (gzip 1914 → 831kB): Monaco and xterm are lazy-loaded and kept out of modulepreload, guarded by a new `check:bundle` budget script (first screen ≤1100kB, entry ≤880kB); the file tree, local-history versions and recent-launch lists are virtualised, so 501 items render about 27 rows.
+- **TerminalView and usePanesStore split** (2226 → 711 lines, 2378 → 117 lines) with no change in appearance, behaviour or public API.
+- **GLM CLI adapter removed** — there is no standalone official `glm` CLI (it is launched via crush). `CliTool` / `ProviderType` now deserialise by hand so unknown ids in old data fall back to defaults instead of failing the whole record.
+- **Two reverts** — settings navigation goes back to page-level sidebar + top SegmentedTabs (the 22 sub-panels are no longer flattened into the sidebar; pages added since stay); the Chinese UI font falls back to the system YaHei / PingFang again and the bundled MiSans (~4.6MB) is gone.
+
+### Fixed
+
+- **Production build crashed on start / on opening the editor** — two siblings that only reproduce after bundling (the dev server has no manualChunks): the standalone Radix chunk formed a cycle with the entry and called `React.forwardRef` before React's binding was initialised; Monaco loader's dependency `state-local` landed in the lazy-boundary chunk and cycled with the monaco chunk. Both cycles are broken by folding the offenders back. Monaco's language-service worker had also never been configured, so every editor open threw `getWorker` errors in packaged builds and was logged as a window-error; it is configured now.
+- **Shared layout save / apply / polling never worked** — layout-scope isolation produced profile ids with a `layout-scope:` prefix containing a colon, and the backend only accepts `[A-Za-z0-9._-]`, so every call failed. The generator now uses an injective escape.
+- **One bad quick command hid all the others** — a single SSH pseudo-path failed the whole load; it is `Promise.allSettled` now, with one deduplicated warning.
+- **Usage preview and the "more tools" popover fought over focus in a worker-level loop** — the preview now opens on an explicit key (Enter / Space / ↓) and closes on Escape.
+- **Radix dropdowns would not open under UIA Invoke** — the trigger opened only on `onPointerDown` while UIA dispatches click; an event-path gap, not missing aria (docs/accessibility-notes.md). Notification bell aria-label / expanded and four aria-expanded / pressed gaps fixed alongside.
+- The keep-alive hidden view layer is `inert`, silencing Blocked aria-hidden warnings; the automations settings panel no longer sits flush against the content top; wallpaper video pauses while covered or off-screen.
+- **CI**: the lock written by local npm 11 lacked the react@18 peer variant entries npm10 needs, failing `npm ci` in all four jobs — the lock is regenerated with npm10.
+
 ## 0.12.10 - 2026-09-03
 
 ### Changed
