@@ -63,10 +63,41 @@ jobs:
       - name: Validate Chinese release notes
         run: node .github/scripts/extract-changelog.mjs "${{ steps.tag.outputs.version }}" > /dev/null
 
+  prepare-release:
+    name: Prepare one release draft
+    runs-on: ubuntu-latest
+    needs: validate-version
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create or reuse the release draft
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json apiUrl --jq .apiUrl > release-api-url.txt 2> release-query-error.txt; then
+            if ! grep -qi 'release not found' release-query-error.txt; then
+              cat release-query-error.txt >&2
+              exit 1
+            fi
+            node .github/scripts/extract-changelog.mjs "${TAG#v}" > release-notes.txt
+            cat .github/release-installation.md >> release-notes.txt
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
+              --title "CC-Panes $TAG" --notes-file release-notes.txt
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json apiUrl --jq .apiUrl > release-api-url.txt
+          fi
+          RELEASE_ID=$(gh api "$(cat release-api-url.txt)" --jq .id)
+          [[ "$RELEASE_ID" =~ ^[0-9]+$ ]]
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build (${{ matrix.label }})
     runs-on: ${{ matrix.platform }}
-    needs: validate-version
+    needs: [validate-version, prepare-release]
     permissions:
       contents: write
     strategy:
@@ -178,46 +209,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: v__VERSION__
-          releaseName: "CC-Panes v__VERSION__"
-          releaseBody: |
-            See the [CHANGELOG](https://github.com/wuxiran/cc-pane/blob/main/CHANGELOG.md) for details.
-
-            ---
-
-            ## macOS 安装说明
-
-            由于应用未经 Apple 签名，macOS 可能提示"文件已损坏"或"无法验证开发者"。请使用以下任一方式解决：
-
-            **方式一：系统设置（全版本可用）**
-            先双击打开一次（会被拦截），然后打开"系统设置 → 隐私与安全性"，在底部找到被阻止的应用，点击"仍要打开"。
-
-            **方式二：终端命令**
-            ```bash
-            xattr -cr /Applications/CC-Panes.app
-            ```
-
-            > 注意：旧教程里的"右键 → 打开"绕过方式在 macOS 15 Sequoia 已被系统移除，请使用上面两种方式。
-
-            ## Linux 安装说明
-
-            **Deb 包（Ubuntu/Debian）：**
-            ```bash
-            sudo dpkg -i cc-panes_*.deb
-            sudo apt-get install -f  # 安装缺少的依赖
-            ```
-
-            **AppImage：**
-            ```bash
-            chmod +x cc-panes_*.AppImage
-            ./cc-panes_*.AppImage
-            ```
-          # Keep the new version private until all packages and updater metadata are ready.
-          releaseDraft: true
-          # tag 含 `-`（如 v0.12.0-beta.1）自动标 prerelease：GitHub 的 releases/latest
-          # 排除 prerelease，稳定版用户的 updater（指向 latest/download/latest.json）
-          # 不会被推 beta——beta 只面向手动下载者。
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          # All platforms upload to the one prepared ID; parallel draft creation can split assets.
+          releaseId: ${{ needs.prepare-release.outputs.release_id }}
           # latest.json 绝不能由五个并行 job 各自生成上传：tauri-action 的
           # merge 是无锁 read-modify-write，后完成者用旧快照覆盖先完成者
           # （v0.12.1 实测线上清单只剩 linux + windows-arm64 两平台，
@@ -352,7 +345,7 @@ jobs:
   mobile-apk:
     name: Build Mobile APK
     runs-on: ubuntu-24.04
-    needs: validate-version
+    needs: [validate-version, prepare-release]
     permissions:
       contents: write
     steps:
@@ -386,14 +379,6 @@ jobs:
         run: |
           APK_NAME="cc-panes-mobile_${{ steps.tag.outputs.version }}.apk"
           cp cc-panes-mobile/build/app/outputs/flutter-apk/app-release.apk "$APK_NAME"
-          # tauri-action 的 build job 负责创建 release；这里等它就绪后上传。
-          # 上限 30 分钟：实测 windows 构建 16 分钟+ 才发布 release，10 分钟等不到（v0.12.0-beta.1 失败一次）
-          for i in $(seq 1 180); do
-            if gh release view "v${{ steps.tag.outputs.version }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              break
-            fi
-            sleep 10
-          done
           gh release upload "v${{ steps.tag.outputs.version }}" "$APK_NAME" --repo "$GITHUB_REPOSITORY" --clobber
 
   publish-release:
