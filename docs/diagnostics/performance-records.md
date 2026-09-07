@@ -63,7 +63,7 @@ resyncCount 的增量判断，不应单凭这个标志认定后台一直在重�
 2. 保留 performance 目录所有 JSONL 文件，并一起保留同级应用日志。
    如果整个程序闪退，同时保留 `%USERPROFILE%\.cc-panes\crash.log`（开发版为
    `.cc-panes-dev`），按发生时间核对 Windows 应用程序事件；panic 与资源耗尽
-   需要分别取证。已知案例见 [Grok 全屏恢复与对话闪退](../bugs/grok-fullscreen-recovery-and-transcript-crash.md)。
+   需要分别取证。已知案例见 [Grok 全屏恢复与对话闪退](https://github.com/wuxiran/cc-pane/blob/main/docs/bugs/grok-fullscreen-recovery-and-transcript-crash.md)。
 3. 运行摘要工具，快速查看各进程内存首值/末值/峰值、CPU、积压和事件计数：
 
 ```powershell
