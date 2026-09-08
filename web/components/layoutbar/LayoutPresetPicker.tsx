@@ -154,7 +154,7 @@ export default function LayoutPresetPicker({
 
   return (
     <>
-      <div ref={rootRef} className="ml-auto flex flex-shrink-0 items-center pl-1.5">
+      <div ref={rootRef} className="flex flex-shrink-0 items-center pl-1.5">
         <button
           ref={triggerRef}
           type="button"

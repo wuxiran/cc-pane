@@ -35,7 +35,7 @@ export default function SettingsSidebar({ pages, activePageId, onSelect, searchS
             <section key={group.id} aria-labelledby={`settings-group-${group.id}`}>
               <h2
                 id={`settings-group-${group.id}`}
-                className="mb-1 px-2 text-[11px] font-medium text-[var(--app-text-tertiary)]"
+                className="mb-1 px-2 text-[12px] font-medium text-[var(--app-text-tertiary)]"
               >
                 {t(group.titleKey)}
               </h2>
@@ -49,7 +49,7 @@ export default function SettingsSidebar({ pages, activePageId, onSelect, searchS
                       type="button"
                       aria-current={active ? "page" : undefined}
                       data-current={active ? "true" : undefined}
-                      className="flex min-h-8 w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-[var(--app-text-secondary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] data-[current=true]:bg-[var(--app-active-bg)] data-[current=true]:font-medium data-[current=true]:text-[var(--app-text-primary)] sm:text-[13px]"
+                      className="flex min-h-8 w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] text-[var(--app-text-secondary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] data-[current=true]:bg-[var(--app-active-bg)] data-[current=true]:font-medium data-[current=true]:text-[var(--app-text-primary)] sm:text-[13px]"
                       onClick={() => onSelect(page.id)}
                     >
                       <Icon aria-hidden="true" size={16} className="shrink-0" />
@@ -62,7 +62,7 @@ export default function SettingsSidebar({ pages, activePageId, onSelect, searchS
           );
         })}
       </div>
-      <div className="shrink-0 border-t border-[var(--app-border)] px-3 py-2.5 text-[10px] leading-4 text-[var(--app-text-tertiary)] sm:text-[11px]">
+      <div className="shrink-0 border-t border-[var(--app-border)] px-3 py-2.5 text-[12px] leading-4 text-[var(--app-text-tertiary)] sm:text-[12px]">
         <div className="truncate">CC-Panes</div>
         <div className="truncate">v{packageJson.version}</div>
       </div>

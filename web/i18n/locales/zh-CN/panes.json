@@ -527,5 +527,7 @@
   "zoomPane": "放大此窗格",
   "unzoomPane": "还原窗格大小",
   "closePane": "关闭此窗格",
-  "doubleClickFullscreenHint": "双击全屏"
+  "doubleClickFullscreenHint": "双击全屏",
+  "autoFitLayout": "自动适配布局",
+  "resizeLayoutList": "调整布局列表宽度"
 }

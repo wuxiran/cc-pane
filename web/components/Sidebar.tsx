@@ -1,4 +1,5 @@
-import { useEffect, useCallback, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { isTauriRuntime, waitForTauri } from "@/utils";
 import { useWorkspacesStore, useProvidersStore, useSshMachinesStore } from "@/stores";
 import type { ActivityView } from "@/stores/useActivityBarStore";
@@ -9,9 +10,12 @@ import SessionsView from "@/components/sidebar/SessionsView";
 import OrchestratorView from "@/components/sidebar/OrchestratorView";
 import FileBrowserView from "@/components/sidebar/FileBrowserView";
 import SshMachinesView from "@/components/sidebar/SshMachinesView";
-import { setDragging } from "@/stores/splitDragState";
+import { usePanelResize } from "@/hooks/usePanelResize";
+import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import {
   clampSidebarWidth,
+  MIN_SIDEBAR_WIDTH,
+  MAX_SIDEBAR_WIDTH,
   loadSidebarWidth,
   saveSidebarWidth,
 } from "@/lib/sidebarWidth";
@@ -31,50 +35,17 @@ export default function Sidebar({
   activeView,
   onOpenTerminal,
 }: SidebarProps) {
+  const { t } = useTranslation("sidebar");
   const loadWorkspaces = useWorkspacesStore((s) => s.load);
   const loadProviders = useProvidersStore((s) => s.loadProviders);
   const loadSshMachines = useSshMachinesStore((s) => s.load);
 
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const widthRef = useRef(sidebarWidth);
-
-  const handleResizePointerDown = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = widthRef.current;
-    let rafId = 0;
-
-    const onMove = (ev: PointerEvent) => {
-      cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        const delta = ev.clientX - startX;
-        const newWidth = clampSidebarWidth(startWidth + delta);
-        widthRef.current = newWidth;
-        if (sidebarRef.current) {
-          sidebarRef.current.style.width = `${newWidth}px`;
-        }
-      });
-    };
-
-    const onUp = () => {
-      cancelAnimationFrame(rafId);
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
-      setDragging(false);
-      const finalWidth = widthRef.current;
-      setSidebarWidth(finalWidth);
-      saveSidebarWidth(finalWidth);
-    };
-
-    setDragging(true);
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "col-resize";
-    document.addEventListener("pointermove", onMove);
-    document.addEventListener("pointerup", onUp);
-  }, []);
+  const saveWidth = (width: number) => { const value = clampSidebarWidth(width); setSidebarWidth(value); saveSidebarWidth(value); };
+  const collapse = () => useActivityBarStore.getState().setSidebarVisible(false);
+  const handleResizePointerDown = usePanelResize({ element: sidebarRef, width: sidebarWidth,
+    min: MIN_SIDEBAR_WIDTH, max: MAX_SIDEBAR_WIDTH, onCommit: saveWidth, onCollapse: collapse });
 
   useEffect(() => {
     waitForRuntimeReady().then(async (ready) => {
@@ -130,6 +101,11 @@ export default function Sidebar({
       {/* 右边界 resize sash */}
       <div
         className="splitview-sash vertical"
+        role="separator" aria-label={t("resizeSidebar")} aria-orientation="vertical" tabIndex={0}
+        aria-valuemin={MIN_SIDEBAR_WIDTH} aria-valuemax={MAX_SIDEBAR_WIDTH} aria-valuenow={sidebarWidth}
+        style={{ width: 12, right: 0, cursor: "col-resize", touchAction: "none" }}
+        onDoubleClick={collapse}
+        onKeyDown={e => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); saveWidth(sidebarWidth + (e.key === "ArrowRight" ? 10 : -10)); } }}
         onPointerDown={handleResizePointerDown}
       />
     </div>

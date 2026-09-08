@@ -69,7 +69,7 @@
   "resourceManagerOpen": "打开资源管理器",
   "resourceManagerTitle": "资源管理器",
   "resourceManagerRefresh": "刷新资源",
-  "resourceManagerAppMemory": "应用",
+  "resourceManagerAppMemory": "应用内存",
   "resourceManagerManagedSessions": "受管会话",
   "resourceManagerNoManagedSessions": "无活跃受管会话",
   "resourceManagerOtherWorkspace": "其他工作区",
@@ -125,5 +125,12 @@
   "statusbar.more": "更多工具",
   "statusbar.customize": "自定义状态栏（勾选项常驻显示）",
   "statusbar.item.webLock": "Web 锁定",
-  "doubleClickWindowFullscreenHint": "双击进入 / 退出全屏"
+  "doubleClickWindowFullscreenHint": "双击进入 / 退出全屏",
+  "resourceAppMemoryScope": "当前桌面实例及被跟踪子进程的工作集总和，占整机内存的比例；与受管会话可能重叠，请勿直接相加。",
+  "resourceResize": "调整资源面板宽度",
+  "resourceSort": "资源排序",
+  "resourceSortGroup": "按工作空间分组",
+  "resourceSortCpu": "CPU 占用降序",
+  "resourceSortMemory": "内存占用降序",
+  "resourceTopUsage": "占用排行"
 }

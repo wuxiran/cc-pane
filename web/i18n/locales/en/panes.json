@@ -527,5 +527,7 @@
   "zoomPane": "Zoom This Pane",
   "unzoomPane": "Restore Pane Size",
   "closePane": "Close This Pane",
-  "doubleClickFullscreenHint": "Double-click to fullscreen"
+  "doubleClickFullscreenHint": "Double-click to fullscreen",
+  "autoFitLayout": "Auto-fit layout",
+  "resizeLayoutList": "Resize layout list"
 }

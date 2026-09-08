@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Files, FolderOpen, FolderSync, GitBranch, type LucideIcon } from "lucide-react";
 import ExplorerFilesSection from "@/components/sidebar/ExplorerFilesSection";
@@ -10,11 +10,10 @@ import SessionHistoryView from "./SessionHistoryView";
 import SshRemoteFilesView from "./SshRemoteFilesView";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { setDragging } from "@/stores/splitDragState";
+import { usePanelResize } from "@/hooks/usePanelResize";
 import {
   MAX_RIGHT_DOCK_WIDTH,
   MIN_RIGHT_DOCK_WIDTH,
-  clampRightDockWidth,
   useRightDockStore,
   type RightDockView,
 } from "@/stores/useRightDockStore";
@@ -128,7 +127,6 @@ export default function RightDock({ onOpenTerminal, overlay = false }: RightDock
   );
   const selectedProject = resolveRightDockProject(workspace, selectedProjectId);
   const panelRef = useRef<HTMLDivElement>(null);
-  const widthRef = useRef(width);
   const dockModules = MODULE_CONSUMERS.rightDock.filter((module) => {
     const preference = modulePreferences[module.id];
     const fixedRightDock = module.id === "orchestration";
@@ -145,45 +143,13 @@ export default function RightDock({ onOpenTerminal, overlay = false }: RightDock
     || (activeView === "sshFiles" && !remoteMachineId);
   const resolvedActiveView = activeDockModuleMissing ? "git" : activeView;
 
-  useEffect(() => {
-    widthRef.current = width;
-  }, [width]);
 
   useEffect(() => {
     if (activeDockModuleMissing) setActiveView("git");
   }, [activeDockModuleMissing, setActiveView]);
 
-  const handleResizePointerDown = useCallback((event: React.PointerEvent) => {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = widthRef.current;
-    let animationFrame = 0;
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      cancelAnimationFrame(animationFrame);
-      animationFrame = requestAnimationFrame(() => {
-        const nextWidth = clampRightDockWidth(startWidth + startX - moveEvent.clientX);
-        widthRef.current = nextWidth;
-        if (panelRef.current) panelRef.current.style.width = `${nextWidth}px`;
-      });
-    };
-
-    const handlePointerUp = () => {
-      cancelAnimationFrame(animationFrame);
-      document.removeEventListener("pointermove", handlePointerMove);
-      document.removeEventListener("pointerup", handlePointerUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      setDragging(false);
-      setWidth(widthRef.current);
-    };
-
-    setDragging(true);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("pointermove", handlePointerMove);
-    document.addEventListener("pointerup", handlePointerUp);
-  }, [setWidth]);
+  const handleResizePointerDown = usePanelResize({ element: panelRef, width, min: MIN_RIGHT_DOCK_WIDTH,
+    max: MAX_RIGHT_DOCK_WIDTH, direction: -1, onCommit: setWidth, onCollapse: () => setVisible(false) });
 
   if (!visible) return null;
 
@@ -214,7 +180,7 @@ export default function RightDock({ onOpenTerminal, overlay = false }: RightDock
         style={{
           width: 14,
           minWidth: 14,
-          left: -7,
+          left: 0,
           cursor: "col-resize",
           touchAction: "none",
         }}

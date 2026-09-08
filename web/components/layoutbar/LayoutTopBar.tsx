@@ -1,9 +1,10 @@
+import { LayoutAutoFitButton } from "./LayoutAutoFit";
 // 布局条（topbar 模式）：终端标签上方的一层，水平列出全部布局。
 // 点击切换、双击重命名、悬停删除、＋新建；与左下角 LayoutBar 共用同一份
 // layouts 状态（usePanesStore），只是展示位置不同。右端按钮可切回 corner 模式。
 // 布局预设收在 LayoutPresetPicker 的浮层里，不再常驻一排图标。
 import { useEffect, useRef, useState } from "react";
-import { Command, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
 import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -110,11 +111,8 @@ export default function LayoutTopBar() {
       aria-label={t("layouts")}
       data-density={density}
     >
-      <Command
-        aria-hidden
-        className="mx-1 h-3.5 w-3.5 flex-shrink-0"
-        style={{ color: "var(--app-text-tertiary)" }}
-      />
+      <LayoutViewMenu />
+      {currentLayoutStarred ? null : <><LayoutPresetPicker matchedPreset={matchedPreset} /><LayoutAutoFitButton /></>}
 
       <SortableContext items={layouts.map((layout) => layout.id)} strategy={horizontalListSortingStrategy}>
           {layouts.map((layout) => {
@@ -192,14 +190,6 @@ export default function LayoutTopBar() {
         <TooltipContent>{t("newLayout")}</TooltipContent>
       </Tooltip>
 
-      {currentLayoutStarred ? null : <LayoutPresetPicker matchedPreset={matchedPreset} />}
-
-      <div
-        className={`flex flex-shrink-0 items-center border-l pl-1.5 ${currentLayoutStarred ? "ml-auto" : "ml-1"}`}
-        style={{ borderColor: "var(--app-border)" }}
-      >
-        <LayoutViewMenu />
-      </div>
 
       <LayoutDeleteDialog
         summary={deleteSummary}

@@ -610,5 +610,6 @@
   "treeModeProjects": "项目列表",
   "treeModeTerminals": "运行中的终端",
   "noRunningTerminals": "暂无运行中的终端",
-  "terminalSplitCount": "×{{count}}"
+  "terminalSplitCount": "×{{count}}",
+  "resizeSidebar": "调整侧栏宽度"
 }

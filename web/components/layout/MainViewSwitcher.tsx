@@ -1,3 +1,4 @@
+import { LayoutAutoFitObserver } from "@/components/layoutbar/LayoutAutoFit";
 // 主内容区视图切换：收拢 useActivityBarStore 的全部 appViewMode 分支。
 // keep-alive 语义：每个视图首次访问时挂载，之后固定在同一舞台上，仅切换 opacity。
 // 视图树（尤其终端 xterm）不会重建；重新显示时 TerminalView 的 ResizeObserver 负责 refit。
@@ -398,6 +399,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
                 style={{ display: canvasDisplayMode === "panel" ? "block" : "none" }}
                 data-terminal-layout-view
               >
+                <LayoutAutoFitObserver />
                 {layouts.map((layout) => {
                   const isCurrent = layout.id === currentLayoutId;
                   return (

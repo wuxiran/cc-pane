@@ -140,6 +140,8 @@ export function SortableLayoutRow({
       <ContextMenuTrigger asChild>
         <div
           ref={setNodeRef}
+          data-layout-selected={selected}
+          title={layout.name}
           className="ui-hoverable group relative flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-[var(--app-hover)]"
           style={style}
           onMouseEnter={onMouseEnter}
