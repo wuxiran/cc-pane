@@ -4,6 +4,25 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.12.13 - Unreleased
+
+This development version keeps video wallpaper and transparent terminals while improving recovery, rendering, layout controls, resource inspection and notifications.
+
+### Fixed
+
+- Desktop checkpoint identities cross JavaScript as exact decimal strings, while the daemon and persisted protocol retain compatible unsigned integers.
+- Completed recovery saves a new compact screen immediately, coalesces pending uploads and cancels capture after disposal.
+- Transparent WebGL uses correct alpha blending and removes the extra opaque scroll surface. Visible panes reclaim hidden GPU contexts within an eight-context budget; ordinary visibility changes reuse the GPU capability probe.
+- Sidebar resize handles remain inside their hit regions, support cancellation and drag-to-collapse, and restore saved expanded widths.
+- Settings dialogs use readable text sizes and fade without scaling the whole content layer.
+
+### Added
+
+- Persistent layout-list sizing, full-name tooltips, left-aligned layout controls and automatic geometry adaptation that preserves panels, tabs and live terminal identities.
+- Explicit app-memory capacity and scope, stable CPU/memory ranking, full session names and a resizable resource panel.
+- Per-layout default/custom/muted sounds with preview and reset; per-session timed snooze suppresses local cards, system popups and audio while preserving unread history and external delivery policy.
+- Recovery outcomes, renderer reasons, current focus and interval write latency in bounded performance records, plus isolated Windows DEV launch and desktop acceptance scripts.
+
 ## 0.12.12 - 2026-09-07
 
 This release fixes long-running terminal stalls, Grok fullscreen recovery and transcript crashes, and adds automatic performance records.
