@@ -57,10 +57,10 @@ describe("createTerminalWriteFlowControl", () => {
     const pending = flow.write("x".repeat(40 * 1024));
     expect(chunks[0]).toHaveLength(16 * 1024);
     callbacks.shift()?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 20));
     expect(chunks[1]).toHaveLength(16 * 1024);
     callbacks.shift()?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 20));
     expect(chunks[2]).toHaveLength(8 * 1024);
     callbacks.shift()?.();
     await pending;

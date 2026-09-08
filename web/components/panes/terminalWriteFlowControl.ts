@@ -60,10 +60,18 @@ export function createTerminalWriteFlowControl(
   function schedulePump(): void {
     if (pumpYieldScheduled) return;
     pumpYieldScheduled = true;
-    setTimeout(() => {
+    const resume = () => {
       pumpYieldScheduled = false;
       pump();
-    }, 0);
+    };
+    // A zero-delay timer can starve rendering when several terminals are
+    // flooding at once. One chunk per animation frame keeps input/layout
+    // work ahead of the replay while preserving byte order.
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(resume);
+    } else {
+      setTimeout(resume, 16);
+    }
   }
 
   function pump(): void {

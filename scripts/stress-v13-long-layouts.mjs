@@ -50,7 +50,7 @@ const until=async(fn,label,timeout=60000,interval=250)=>{const end=Date.now()+ti
 const call=async(command,args={})=>{
   let timer;try{return await Promise.race([
     page.evaluate(([command,args])=>window.__TAURI_INTERNALS__.invoke(command,args),[command,args]),
-    new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(`IPC timeout: ${command}`)),command==='create_terminal_session'?60000:15000);}),
+    new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(`IPC timeout: ${command}`)), command==='create_terminal_session'?60000:command==='write_terminal'?120000:15000);}),
   ]);}finally{clearTimeout(timer);}
 };
 

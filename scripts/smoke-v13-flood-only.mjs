@@ -62,6 +62,14 @@ const native=async(mode,extra={})=>await new Promise((resolve,reject)=>{
  p.on('error',reject);p.on('exit',code=>{if(code)reject(new Error(err));else {try{resolve(JSON.parse(out));}catch(e){reject(e);}}});
 });
 const resolvePath=resolve;
+async function sample(){
+  if(!recorderDirectory)return null;
+  const text=await readFile(join(recorderDirectory,'performance.jsonl'),'utf8').catch(()=>"");
+  for(const line of text.trim().split("\n").reverse()){
+    try{const record=JSON.parse(line);if(record.kind==='sample'&&record.appPid===app.pid)return record;}catch{}
+  }
+  return null;
+}
 async function addTerminal(index,layoutName,wsl=false){
  const tabId=`tab-${randomUUID()}`,terminalPaneId=`terminal-${randomUUID()}`,launchId=`launch-${randomUUID()}`;
  const sessionId=await call('create_terminal_session',{request:{projectPath:project,cols:160,rows:45,cliTool:'none',skipMcp:true,launchId,originTabId:tabId,originTerminalPaneId:terminalPaneId,
@@ -75,79 +83,45 @@ async function readRecord(){
  const lines=(await readFile(join(recorderDirectory,'performance.jsonl'),'utf8')).trim().split('\n');
  for(let i=lines.length-1;i>=0;i--){try{const r=JSON.parse(lines[i]);if(r.kind==='sample'&&r.appPid===app.pid)return r;}catch{}}
 }
-try{
+
+try {
  console.log(JSON.stringify({phase:'launch',artifactRoot,appPid:app.pid}));
  await until(async()=>{try{return(await fetch(`http://127.0.0.1:${debugPort}/json/version`)).ok;}catch{return false;}},'WebView',90000);
  browser=await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`);
  await until(async()=>{page=browser.contexts().flatMap(c=>c.pages()).find(p=>p.url().includes('tauri')||p.url().includes('localhost'));return Boolean(page);},'main page');
- await page.waitForFunction(()=>window.__TAURI_INTERNALS__?.invoke);page.on('pageerror',e=>errors.push(e.message));await wait(1500);
+ await page.waitForFunction(()=>window.__TAURI_INTERNALS__?.invoke);await wait(1500);
  daemon=JSON.parse(await readFile(join(profile,'runtime','daemon-manifest.json'),'utf8'));result.daemonPid=daemon.pid;
  recorderDirectory=(await call('get_performance_recorder_status')).directory;result.recorderDirectory=recorderDirectory;result.groups={};
  await page.evaluate(()=>localStorage.setItem('cc-panes-layout-ui',JSON.stringify({state:{switcherMode:'topbar',layoutBarDensity:'compact'},version:0})));
  await page.reload();await page.waitForFunction(()=>window.__TAURI_INTERNALS__?.invoke);await wait(1000);
- for(let i=0;i<16;i++){await addTerminal(i,`BURST-${Math.floor(i/4)+1}`);if(i%4===3)console.log(JSON.stringify({phase:'synthetic-ready',sessions:i+1}));}
- if(includeResumes)for(let i=0;i<4;i++)await addTerminal(16+i,'LONG-RESUME',true);
- result.nativeSpan=await native('span',{X:-3810,Y:30,Width:7560,Height:1950});
- await choose('BURST-1');await page.getByRole('button',{name:'自动适配布局',exact:true}).evaluate(el=>el.click());await wait(600);
- await page.evaluate(()=>{
-  window.__stressLongTasks=[];window.__stressClickTimes=[];
-  window.__stressObserver=new PerformanceObserver(l=>window.__stressLongTasks.push(...l.getEntries().map(e=>({at:performance.now(),ms:e.duration}))));window.__stressObserver.observe({type:'longtask'});
-  document.addEventListener('click',e=>{const tab=e.target.closest?.('[role="tab"][data-layout-id]');if(!tab)return;const start=performance.now();requestAnimationFrame(()=>requestAnimationFrame(()=>window.__stressClickTimes.push(performance.now()-start)));},true);
- });
- const longCommands=[
-  `codex fork ${codexResumeIds[0]} --all -C /tmp/ccpanes-v13-resume-stress --sandbox read-only --no-alt-screen`,
-  `codex fork ${codexResumeIds[1]} --all -C /tmp/ccpanes-v13-resume-stress --sandbox read-only --no-alt-screen`,
-  `grok --resume ${grokResumeIds[0]} --fork-session --cwd /tmp/ccpanes-v13-resume-stress --no-subagents --no-alt-screen`,
-  `grok --resume ${grokResumeIds[1]} --fork-session --cwd /tmp/ccpanes-v13-resume-stress --no-subagents --no-alt-screen`
- ];
- if(includeResumes)for(let i=0;i<4;i++)await call('write_terminal',{sessionId:result.groups['LONG-RESUME'][i],data:longCommands[i]+'\r'});
- result.resumeCommands=longCommands;
- await writeFile(join(artifactRoot,'control.json'),JSON.stringify({appPid:app.pid,daemonPid:daemon.pid,debugPort,profile,sessions,groups:result.groups}));
- console.log(JSON.stringify({phase:'resume-started',artifactRoot}));
- if(includeResumes)await choose('LONG-RESUME');await wait(includeResumes?10000:0);
- result.resumeInitial=[];
- if(includeResumes)for(const id of result.groups['LONG-RESUME']){
-  const output=await call('get_terminal_output',{sessionId:id,lines:18});result.resumeInitial.push({sessionId:id,output});
- }
- await save();console.log(JSON.stringify({phase:'resume-initial-recorded',artifactRoot}));
- await choose('BURST-1');
- const ps='$e=[char]27; $s="X"*480; for($i=0;$i -lt 30000;$i++){[Console]::Write("`r$e[2K$i $s"); if($i % 200 -eq 0){Start-Sleep -Milliseconds 10}}; [Console]::Write("`r`nV13_BURST_DONE`r`n")\r';
- for(const id of sessions.slice(0,16))await call('write_terminal',{sessionId:id,data:ps});
- result.burst={sessions:16,framesPerSession:30000,charactersPerFrameAtLeast:480,totalCharactersAtLeast:230400000};
- console.log(JSON.stringify({phase:'burst-started',...result.burst}));
- for(let i=0;i<32;i++){
-  await choose(includeResumes && i%5===4?'LONG-RESUME':`BURST-${i%4+1}`);
-  if(i%4===0){result.samples.push(await readRecord());await save();}
-  await wait(300);
- }
- if(includeResumes)await choose('LONG-RESUME');await wait(includeResumes?5000:0);
- result.resumed=[];
- if(includeResumes)for(let i=0;i<4;i++){
-  const id=result.groups['LONG-RESUME'][i];const snapshot=await call('get_terminal_recovery_snapshot',{sessionId:id});
-  const text=(snapshot?.checkpoint?.snapshotAnsi??'')+(snapshot?.delta??'');await writeFile(join(artifactRoot,`resume-${i+1}.ansi`),text);
-  result.resumed.push({sessionId:id,cli:i<2?'codex':'grok',snapshotChars:text.length,epoch:snapshot?.checkpointEpoch});
- }
- console.log(JSON.stringify({phase:'inspect-resume',artifactRoot,resumed:result.resumed}));
- for(let i=0;i<8;i++){
-  result.resizes??=[];result.resizes.push(await native('span',{X:-3810,Y:30,Width:i%2?7560:3100,Height:i%2?1950:1100}));await wait(700);
- }
- // Native monitor transitions and scale values; no device-metrics emulation.
- result.monitorTransitions=[];
- for(const index of [0,1,2,0]){const host=await native('move',{Monitor:index,Width:2100,Height:1550});await wait(500);
-  const view=await page.evaluate(()=>({dpr:devicePixelRatio,width:innerWidth,height:innerHeight,webgl:document.querySelectorAll('.xterm[data-cc-transparent-webgl]').length}));
-  assert.ok(Math.abs(view.dpr-host.Dpi/96)<1e-5);result.monitorTransitions.push({host,view});}
- await native('span',{X:-3810,Y:30,Width:7560,Height:1950});await wait(500);
- result.observations=await page.evaluate(()=>({longTasks:window.__stressLongTasks,clickTimes:window.__stressClickTimes,terminals:document.querySelectorAll('.cc-terminal-host>.xterm').length}));
- result.samples.push(await readRecord());result.pageErrors=errors;await save();
- console.log(JSON.stringify({phase:'observation-ready',artifactRoot}));
- // Leave a short bounded window for driver inspection / keyboard interaction.
- const deadline=Date.now()+180000;
- while(Date.now()<deadline){
-  if(await readFile(join(artifactRoot,'finish'),'utf8').then(()=>true,()=>false))break;
-  const r=await readRecord();if(r&&result.samples.at(-1)?.timestampMs!==r.timestampMs){result.samples.push(r);await save();}await wait(5000);
- }
- result.completed=true;await save();console.log(JSON.stringify({phase:'completed',artifactRoot}));
-}catch(error){result.error=String(error);await save();console.error(JSON.stringify({phase:'failed',artifactRoot,error:String(error)}));process.exitCode=1;}
+ for(let i=0;i<16;i++)await addTerminal(i,`BURST-${Math.floor(i/4)+1}`);
+ await choose('BURST-1');await wait(500);
+ const flood="$e=[char]27; $s=\"X\"*480; for($i=0;$i -lt 30000;$i++){[Console]::Write(\"`r$e[2K$i $s\"); if($i % 200 -eq 0){Start-Sleep -Milliseconds 10}}; [Console]::Write(\"`r`nV13_BURST_DONE`r`n\")\r";
+ const startedFlood=Date.now();
+ const sent=await Promise.allSettled(sessions.slice(0,16).map(sessionId=>call('write_terminal',{sessionId,data:flood})));
+ result.flood={sessions:16,framesPerSession:30000,charactersPerFrameAtLeast:480,totalCharactersAtLeast:230400000,startedFlood,writeResults:sent.map(x=>x.status)};
+ // Let each shell reach its prompt before detaching CDP; otherwise the
+ // benchmark measures shell startup rather than the flood itself.
+ await wait(10000);await sample();await browser.close();browser=null;page=null;
+ const deadline=Date.now()+90000;
+  while(Date.now()<deadline){const r=await sample();if(r&&!result.samples.some(x=>x.timestampMs===r.timestampMs))result.samples.push(r);await wait(5000);}
+  result.checks={detached:true,floodWindowSeconds:90};
+  browser=await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`);
+  page=browser.contexts().flatMap(c=>c.pages()).find(p=>p.url().includes('tauri')||p.url().includes('localhost'));
+  const interaction=[];
+  for(let i=0;i<20;i++){
+    const began=performance.now();
+    await Promise.race([
+      page.evaluate(title=>document.querySelector(`[role="tab"][title="${title}"]`)?.click(),`BURST-${i%4+1}`),
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error('layout interaction timeout')),5000)),
+    ]);
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    interaction.push(performance.now()-began);
+  }
+  result.interactionAfterFlood={count:interaction.length,p95Ms:[...interaction].sort((a,b)=>a-b)[Math.ceil(interaction.length*.95)-1]};
+ await writeFile(join(artifactRoot,'results.json'),JSON.stringify(result,null,2));
+ console.log(JSON.stringify({phase:'detached-observation',artifactRoot,samples:result.samples.length}));
+}catch(error){result.error=String(error);await writeFile(join(artifactRoot,'results.json'),JSON.stringify(result,null,2));console.error(JSON.stringify({phase:'failed',artifactRoot,error:String(error)}));process.exitCode=1;}
 finally{
  if(page){for(const id of sessions){try{await call('kill_terminal',{sessionId:id});}catch{break;}}}
  await browser?.close().catch(()=>{});app.kill();
