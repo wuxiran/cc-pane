@@ -70,6 +70,7 @@ fn to_cli_provider(provider: crate::models::provider::Provider) -> CliProvider {
         project_id: provider.project_id,
         aws_profile: provider.aws_profile,
         config_dir: provider.config_dir,
+        codex_wire_api: provider.codex_wire_api,
         is_default: provider.is_default,
     }
 }
@@ -3795,6 +3796,9 @@ impl TerminalService {
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
             let prev_status = Mutex::new(SessionStatus::Active);
+            // 连续确认计数（issue #61）：Codex 强判据需连续 2 个 chunk 复现，
+            // 单个 chunk 或弱提示不改变状态，也不触发 WaitingInput 通知。
+            let mut codex_waiting_strong_streak = 0u8;
             let mut utf8_carry: Vec<u8> = Vec::new();
             let mut first_output = true;
             let mut last_emitted_status = SessionStatus::Active;
@@ -3931,7 +3935,15 @@ impl TerminalService {
                         }
 
                         // 推断状态
-                        let inferred = infer_status(&data);
+                        let raw_inferred = infer_status(&data);
+                        let raw_strong_waiting = raw_inferred == SessionStatus::WaitingInput
+                            && inferred_waiting_is_strong(&data);
+                        let inferred = stabilize_codex_waiting_status(
+                            cli_tool,
+                            raw_inferred,
+                            raw_strong_waiting,
+                            &mut codex_waiting_strong_streak,
+                        );
                         // 阶段 2.8：hook 在 30s 内活跃时，ANSI 推断仅作"无变更"兜底，
                         // 不覆盖 SessionStateMachine 维护的细分 status（Thinking / ToolRunning /
                         // Compacting / WaitingInput / Error / Idle）。
@@ -3958,6 +3970,10 @@ impl TerminalService {
                         // 弱判据（`?` 结尾/裸 `>`/shell 提示符）只改徽章不弹通知：grok 这类
                         // TUI 底栏常驻 `>`，每次重绘都翻出一次伪边沿，曾造成 1-2 分钟一张的
                         // 「需要你输入」通知洪水。
+                        // Codex 的连续确认已在写入状态前完成；因此通知看到的 WaitingInput
+                        // 一定来自稳定强提示，而不是单个 TUI 重绘 chunk。
+                        let strong_waiting =
+                            new_status == SessionStatus::WaitingInput && raw_strong_waiting;
                         if !hook_active {
                             let mut prev = prev_status.lock().unwrap_or_else(|e| {
                                 warn!("prev_status lock poisoned, using fallback value");
@@ -3965,7 +3981,7 @@ impl TerminalService {
                             });
                             if *prev != SessionStatus::WaitingInput
                                 && new_status == SessionStatus::WaitingInput
-                                && inferred_waiting_is_strong(&data)
+                                && strong_waiting
                             {
                                 read_notifier.notify_waiting_input(&sid);
                             }
@@ -5621,6 +5637,37 @@ fn inferred_waiting_is_strong(output: &str) -> bool {
     false
 }
 
+/// Codex 会频繁按原始 PTY chunk 局部重绘。单个弱提示或强提示帧不足以证明
+/// TUI 已稳定等待输入；只有连续两个强提示帧才允许状态进入 WaitingInput。
+/// 其他 CLI 保留既有的逐 chunk 推断行为。
+fn stabilize_codex_waiting_status(
+    cli_tool: CliTool,
+    inferred: SessionStatus,
+    strong_waiting: bool,
+    strong_streak: &mut u8,
+) -> SessionStatus {
+    if cli_tool != CliTool::Codex {
+        *strong_streak = 0;
+        return inferred;
+    }
+
+    if inferred != SessionStatus::WaitingInput || !strong_waiting {
+        *strong_streak = 0;
+        return if inferred == SessionStatus::WaitingInput {
+            SessionStatus::Active
+        } else {
+            inferred
+        };
+    }
+
+    *strong_streak = strong_streak.saturating_add(1);
+    if *strong_streak >= 2 {
+        SessionStatus::WaitingInput
+    } else {
+        SessionStatus::Active
+    }
+}
+
 fn terminal_tail_lower(clean: &str, max_bytes: usize) -> String {
     let bytes = clean.as_bytes();
     let start = bytes.len().saturating_sub(max_bytes);
@@ -6007,6 +6054,7 @@ mod tests {
                 context_size: None,
             }],
             default_model_id: Some("provider-default".to_string()),
+            codex_wire_api: None,
             is_default: true,
         };
         let provider_plan = resolve_provider_plan(
@@ -6169,6 +6217,7 @@ mod tests {
                     context_size: None,
                 }],
                 default_model_id: Some("gpt-5-test".to_string()),
+                codex_wire_api: None,
                 is_default: false,
             })
             .expect("add managed provider");
@@ -6268,6 +6317,7 @@ mod tests {
                     context_size: None,
                 }],
                 default_model_id: Some("gpt-5-test".to_string()),
+                codex_wire_api: None,
                 is_default: false,
             })
             .expect("add managed provider");
@@ -7602,6 +7652,83 @@ mod tests {
         assert!(!inferred_waiting_is_strong(">"));
         assert!(!inferred_waiting_is_strong("PS>"));
         assert!(!inferred_waiting_is_strong("user@host $ "));
+    }
+
+    #[test]
+    fn codex_waiting_status_ignores_weak_and_transient_strong_chunks() {
+        let mut streak = 0;
+
+        assert_eq!(
+            stabilize_codex_waiting_status(
+                CliTool::Codex,
+                infer_status("Reviewing approval request?"),
+                inferred_waiting_is_strong("Reviewing approval request?"),
+                &mut streak,
+            ),
+            SessionStatus::Active
+        );
+        assert_eq!(streak, 0);
+
+        assert_eq!(
+            stabilize_codex_waiting_status(
+                CliTool::Codex,
+                infer_status("This command needs your approval"),
+                inferred_waiting_is_strong("This command needs your approval"),
+                &mut streak,
+            ),
+            SessionStatus::Active
+        );
+        assert_eq!(streak, 1);
+
+        assert_eq!(
+            stabilize_codex_waiting_status(
+                CliTool::Codex,
+                SessionStatus::Active,
+                false,
+                &mut streak,
+            ),
+            SessionStatus::Active
+        );
+        assert_eq!(streak, 0);
+    }
+
+    #[test]
+    fn codex_waiting_status_requires_two_consecutive_strong_chunks() {
+        let mut streak = 0;
+        let prompt = "This command needs your approval";
+
+        assert_eq!(
+            stabilize_codex_waiting_status(
+                CliTool::Codex,
+                infer_status(prompt),
+                inferred_waiting_is_strong(prompt),
+                &mut streak,
+            ),
+            SessionStatus::Active
+        );
+        assert_eq!(
+            stabilize_codex_waiting_status(
+                CliTool::Codex,
+                infer_status(prompt),
+                inferred_waiting_is_strong(prompt),
+                &mut streak,
+            ),
+            SessionStatus::WaitingInput
+        );
+    }
+
+    #[test]
+    fn non_codex_waiting_status_keeps_existing_single_chunk_behavior() {
+        let mut streak = 0;
+        assert_eq!(
+            stabilize_codex_waiting_status(
+                CliTool::Claude,
+                SessionStatus::WaitingInput,
+                true,
+                &mut streak,
+            ),
+            SessionStatus::WaitingInput
+        );
     }
 
     #[test]

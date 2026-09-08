@@ -105,3 +105,5 @@ export {
   type ModulePreferences,
   type ModulePreset,
 } from "./useModulePrefsStore";
+export { useLinkSkillStore } from "./useLinkSkillStore";
+export type { LinkStatusFilter, LinkTargetAgent } from "./useLinkSkillStore";

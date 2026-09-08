@@ -402,3 +402,7 @@ export type {
   ComfyWorkflowTemplate,
   ComfyWorkflowTemplateVersion,
 } from "./comfyWorkflowTemplate";
+export type {
+  AddWorkspaceOutcome, DisableCounts, EnableCounts, LinkAgent, LinkSnapshot, LinkState,
+  LinkWorkspace, ManagedSkill, SkillAgentState, UpdateOutcome,
+} from "./linkSkill";

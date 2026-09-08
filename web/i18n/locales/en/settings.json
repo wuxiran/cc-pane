@@ -1061,5 +1061,8 @@
   "performanceRecorderUnavailable": "Performance recorder unavailable",
   "openPerformanceRecords": "Open performance records",
   "markPerformanceIncident": "Mark current slowdown",
-  "performanceIncidentMarked": "Time marked. Capturing runtime state."
+  "performanceIncidentMarked": "Time marked. Capturing runtime state.",
+  "providerCodexWireApi": "Codex Wire API",
+  "providerWireApiResponses": "responses (official OpenAI / common proxies)",
+  "providerWireApiChat": "chat (proxies that only support /chat/completions)"
 }

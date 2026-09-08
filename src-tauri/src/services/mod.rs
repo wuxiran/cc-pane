@@ -1,5 +1,7 @@
 // Re-export core services from cc-panes-core
 pub use cc_panes_core::services::*;
+mod skill_remote_update_service;
+pub use skill_remote_update_service::SkillRemoteUpdateService;
 
 // Tauri-specific services (kept in src-tauri)
 mod acp_chat_service;

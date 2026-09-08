@@ -1061,5 +1061,8 @@
   "performanceRecorderUnavailable": "性能记录暂不可用",
   "openPerformanceRecords": "打开性能记录",
   "markPerformanceIncident": "标记当前卡顿",
-  "performanceIncidentMarked": "已标记当前时间，正在保存运行状态。"
+  "performanceIncidentMarked": "已标记当前时间，正在保存运行状态。",
+  "providerCodexWireApi": "Codex Wire API",
+  "providerWireApiResponses": "responses（官方 OpenAI / 主流中转）",
+  "providerWireApiChat": "chat（仅支持 /chat/completions 的中转）"
 }

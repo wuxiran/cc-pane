@@ -33,7 +33,7 @@ import {
   type FormState,
 } from "./providerFormState";
 import ProviderModelsEditor from "./ProviderModelsEditor";
-
+import CodexWireApiField from "./CodexWireApiField";
 const JsonEditor = lazyWithRetry(() => import("@/components/editor/JsonEditor"), "JsonEditor");
 /** 根据当前 Tab 推导手动创建时的默认 ProviderType */
 function defaultProviderTypeForTab(tab?: KnownCliTool): ProviderType {
@@ -208,6 +208,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
         projectId: form.projectId || null,
         awsProfile: form.awsProfile || null,
         configDir: form.configDir || null,
+        codexWireApi: form.codexWireApi || null,
         models,
         defaultModelId: form.defaultModelIndex === null ? null : models[form.defaultModelIndex]?.id ?? models[0]?.id ?? null,
         isDefault: false,
@@ -363,6 +364,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
               </FormField>
             )}
 
+            {form.providerType === "open_ai" && <CodexWireApiField value={form.codexWireApi} onChange={(codexWireApi) => updateForm({ codexWireApi })} />}
             {shouldShowField("region") && (
               <FormField label={t("region")} className="flex flex-col gap-1.5" labelClassName="text-xs font-medium">
                 {({ id }) => (

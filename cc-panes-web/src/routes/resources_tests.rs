@@ -543,6 +543,7 @@ async fn provider_routes_match_core_service_operations() {
         config_dir: None,
         models: Vec::new(),
         default_model_id: None,
+        codex_wire_api: None,
         is_default: true,
     };
 

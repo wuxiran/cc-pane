@@ -178,6 +178,7 @@ mod tests {
                 ..Default::default()
             }],
             default_model_id: None,
+            codex_wire_api: None,
             is_default: false,
         }
     }

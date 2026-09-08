@@ -1462,6 +1462,7 @@ mod tests {
             config_dir: None,
             models: Vec::new(),
             default_model_id: None,
+            codex_wire_api: None,
             is_default: false,
         }
     }

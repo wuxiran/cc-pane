@@ -194,9 +194,17 @@ impl CodexAdapter {
                 Self::format_toml_string_for_cli(CCPANES_CODEX_API_KEY_ENV)
             ));
         }
+        // wire_api 可由 Provider 覆盖（issue #46）：只支持 /chat/completions 的中转
+        // 需要显式设为 chat；缺省仍是官方 OpenAI / 主流中转使用的 responses。
+        let wire_api = provider
+            .codex_wire_api
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("responses");
         push(format!(
             "model_providers.{provider_key}.wire_api={}",
-            Self::format_toml_string_for_cli("responses")
+            Self::format_toml_string_for_cli(wire_api)
         ));
     }
 
@@ -1926,6 +1934,33 @@ mod tests {
             .args
             .iter()
             .any(|arg| arg.contains("secret-provider-key")));
+    }
+
+    #[test]
+    fn build_command_honors_chat_wire_api_override() {
+        // issue #46：只实现 /chat/completions 的中转需要能覆盖 wire_api
+        let adapter = CodexAdapter::new();
+        let mut ctx = test_context(Some("codex-test"));
+        ctx.provider = Some(crate::CliProvider {
+            id: "provider/ai".to_string(),
+            name: "ai".to_string(),
+            provider_type: "open_ai".to_string(),
+            api_key: Some("secret-provider-key".to_string()),
+            base_url: Some("https://provider.example/v1".to_string()),
+            codex_wire_api: Some("chat".to_string()),
+            ..Default::default()
+        });
+
+        let result = adapter.build_command(&ctx).unwrap();
+
+        assert!(result
+            .args
+            .iter()
+            .any(|arg| { arg == "model_providers.ccpanes_provider_ai.wire_api=\"chat\"" }));
+        assert!(!result
+            .args
+            .iter()
+            .any(|arg| { arg == "model_providers.ccpanes_provider_ai.wire_api=\"responses\"" }));
     }
 
     #[test]

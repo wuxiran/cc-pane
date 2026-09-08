@@ -56,6 +56,7 @@ mod session_restore_service;
 pub mod session_state_machine;
 mod settings_service;
 mod shared_mcp_service;
+pub mod skill_link_service;
 pub mod skill_service;
 mod spec_service;
 mod ssh_connection_service;
@@ -182,6 +183,7 @@ pub use session_restore_service::{
 pub use session_state_machine::{SessionStateMachine, StateTransition, TransitionListener};
 pub use settings_service::SettingsService;
 pub use shared_mcp_service::SharedMcpService;
+pub use skill_link_service::SkillLinkService;
 pub use skill_service::SkillService;
 pub use spec_service::SpecService;
 pub use ssh_connection_service::SshConnectionService;

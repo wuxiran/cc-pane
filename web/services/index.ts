@@ -58,6 +58,7 @@ export { todoService } from "./todoService";
 export { specService } from "./specService";
 export { memoryService } from "./memoryService";
 export { skillService } from "./skillService";
+export { linkSkillService } from "./linkSkillService";
 export { mcpService } from "./mcpService";
 export { planService } from "./planService";
 export type { LaunchRecord, SessionState } from "./historyService";

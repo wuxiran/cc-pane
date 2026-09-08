@@ -21,7 +21,7 @@ pub use command::{no_window_command, no_window_tokio_command};
 pub use context_size::{
     apply_context_size_suffix, parse_context_size_tokens, parse_context_window_from_model,
 };
-pub use error::AppResult;
+pub use error::{AppError, AppResult};
 pub use git_command::{
     git_https_credential_env, output_with_timeout, output_with_timeout_limit,
     prepare_git_clone_auth, redact_git_url, GIT_CHECKOUT_TIMEOUT, GIT_LOCAL_TIMEOUT,

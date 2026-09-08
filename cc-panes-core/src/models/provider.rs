@@ -104,6 +104,10 @@ pub struct Provider {
     pub models: Vec<ProviderModel>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model_id: Option<String>,
+    /// Codex 专用：模型供应商的 wire API（"responses" | "chat"），缺省 responses。
+    /// 只实现 /chat/completions 的中转需要显式设为 chat（issue #46）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_wire_api: Option<String>,
     #[serde(default)]
     pub is_default: bool,
 }
