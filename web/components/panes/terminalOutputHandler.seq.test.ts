@@ -44,18 +44,18 @@ beforeEach(() => {
 
 describe("createTerminalOutputHandler 的 seq 记账", () => {
   it("可见直写路径：onWritten 后 received == written，锚点候选闭合", () => {
-    reanchorSeq("s1", 0, 7);
+    reanchorSeq("s1", 0, "7");
     noteReceived("s1", 10);
     const { handler, writes } = makeHandler({ visible: true });
 
     handler("hello", 10);
 
     expect(writes).toEqual(["hello"]);
-    expect(anchorCandidate("s1")).toEqual({ anchorSeq: 10, checkpointEpoch: 7 });
+    expect(anchorCandidate("s1")).toEqual({ anchorSeq: 10, checkpointEpoch: "7" });
   });
 
   it("chunk 进隐藏积压 → 保守失效（禁拍直到统一恢复 reanchor）", () => {
-    reanchorSeq("s1", 0, 7);
+    reanchorSeq("s1", 0, "7");
     noteReceived("s1", 10);
     const { handler, writes } = makeHandler({ visible: false });
 
@@ -66,7 +66,7 @@ describe("createTerminalOutputHandler 的 seq 记账", () => {
   });
 
   it("xterm 不在（数据被丢弃）→ 失效", () => {
-    reanchorSeq("s1", 0, 7);
+    reanchorSeq("s1", 0, "7");
     noteReceived("s1", 10);
     const { handler } = makeHandler({ visible: true, term: null });
 
@@ -76,13 +76,13 @@ describe("createTerminalOutputHandler 的 seq 记账", () => {
   });
 
   it("渲染为空的 chunk 视同写完（否则尾空 chunk 让 in-flight 永不闭合）", () => {
-    reanchorSeq("s1", 0, 7);
+    reanchorSeq("s1", 0, "7");
     noteReceived("s1", 10);
     const { handler, writes } = makeHandler({ visible: true });
 
     handler("", 10);
 
     expect(writes).toEqual([]);
-    expect(anchorCandidate("s1")).toEqual({ anchorSeq: 10, checkpointEpoch: 7 });
+    expect(anchorCandidate("s1")).toEqual({ anchorSeq: 10, checkpointEpoch: "7" });
   });
 });

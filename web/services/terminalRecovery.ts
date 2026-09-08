@@ -20,6 +20,7 @@ import { noteEpoch } from "@/components/panes/terminalOutputSeqTracker";
 import { invokeOrApi } from "./apiClient";
 import { terminalService } from "./terminalService";
 import { debugTerminalService } from "./terminalServiceShared";
+import { normalizeCheckpointEpoch } from "./terminalEpoch";
 
 /** 首个缺路由后关断：旧 daemon 不会中途长出新端点，别再重复探测。 */
 let recoveryCapabilityDisabled = false;
@@ -35,7 +36,7 @@ async function legacyRecoverySnapshot(
     delta: snapshot.data,
     bufferMode: snapshot.bufferMode,
     endSeq: 0,
-    checkpointEpoch: 0,
+    checkpointEpoch: "0",
   };
 }
 
@@ -85,8 +86,16 @@ export async function getRecoverySnapshot(
     () => fetchRecoverySnapshotViaApi(sessionId),
   );
   if (!snapshot) return null;
+  const epoch = normalizeCheckpointEpoch(snapshot.checkpointEpoch);
+  const photoEpoch = snapshot.checkpoint && normalizeCheckpointEpoch(snapshot.checkpoint.checkpointEpoch);
+  if (epoch === null || (snapshot.checkpoint && photoEpoch === null)) {
+    debugTerminalService("recovery.unsafe-epoch", { sessionId });
+    return legacyRecoverySnapshot(sessionId);
+  }
+  snapshot.checkpointEpoch = epoch;
+  if (snapshot.checkpoint && photoEpoch !== null) snapshot.checkpoint.checkpointEpoch = photoEpoch;
   // epoch=0 = 旧 daemon 回落 / 无 seq 记账：不登记 epoch，上传保持 dormant。
-  if (snapshot.checkpointEpoch !== 0) {
+  if (snapshot.checkpointEpoch !== "0") {
     noteEpoch(sessionId, snapshot.checkpointEpoch);
   }
   return snapshot;

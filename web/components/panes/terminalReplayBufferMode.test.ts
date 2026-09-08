@@ -19,7 +19,7 @@ it("yields while scanning many private modes and cancels before writing to a dis
   const write = vi.fn().mockResolvedValue(undefined);
   const pending = restoreReplayBufferMode({
     checkpoint: null, delta: "\x1b[?25h".repeat(1_000), bufferMode: "alternate",
-    endSeq: 1, checkpointEpoch: 1,
+    endSeq: 1, checkpointEpoch: "1",
   }, { buffer: { active: { type: "normal" } } }, write, () => live);
   live = false;
   await expect(pending).rejects.toThrow("Terminal replay cancelled");
@@ -33,7 +33,7 @@ it("does not finish an empty fullscreen recovery if the view disappears during t
     term: { buffer: { active: { type: "normal" } } },
     sessionId: "disposed-during-mode-write", canWrite: () => live,
     getRecoverySnapshot: async () => ({
-      checkpoint: null, delta: "", bufferMode: "alternate", endSeq: 1, checkpointEpoch: 1,
+      checkpoint: null, delta: "", bufferMode: "alternate", endSeq: 1, checkpointEpoch: "1",
     }),
     writeData: async () => { live = false; }, writeCheckpointData: async () => {},
     syncTrackedBufferType: sync, debugLog: () => {},
@@ -47,9 +47,9 @@ describe.each(["attach", "resync"] as const)("%s screen recovery with real xterm
     terminals.push(term);
     const write = (data: string) => new Promise<void>(resolve => term.write(data, resolve));
     const snapshot: TerminalRecoverySnapshot = {
-      delta, bufferMode, endSeq: 1, checkpointEpoch: 1,
+      delta, bufferMode, endSeq: 1, checkpointEpoch: "1",
       checkpoint: photo === undefined ? null : {
-        snapshotAnsi: photo, bufferMode: "normal", anchorSeq: 0, checkpointEpoch: 1,
+        snapshotAnsi: photo, bufferMode: "normal", anchorSeq: 0, checkpointEpoch: "1",
         cols: 40, rows: 6, checkpointedAtMs: 1,
       },
     };

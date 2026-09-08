@@ -47,12 +47,12 @@ export interface TerminalHibernationHandle {
   hibernatedStateRef: RefValue<HibernatedTerminalState | null>;
   /** 唤醒交接（init attach 分支优先回放它）。 */
   wakeStateRef: RefValue<HibernatedTerminalState | null>;
-  /** 每次 render 汇报可见性（幂等），驱动 5min/30min 两档降档定时器。 */
+  /** 每次 render 汇报可见性（幂等），驱动 1s/30min 两档降档定时器。 */
   notifyVisibility: (visible: boolean) => void;
 }
 
 /**
- * 后台标签分层降档（docs/71 §3.1）：5min 挂 WebGL，30min 休眠。
+ * 后台标签分层降档（docs/71 §3.1）：1s 挂 WebGL，30min 休眠。
  *
  * Tier2 休眠：serialize 全量缓冲 → 交接给 hibernatedStateRef → epoch 自增。
  * 旧 init effect 的 cleanup 完整销毁 xterm/renderer/订阅；新一轮 effect 见到
@@ -155,12 +155,13 @@ export function useTerminalHibernation({
 
   const notifyVisibility = useCallback(
     (visible: boolean) => {
+      if (visible) rendererControllerRef.current?.resumeWebgl("view-visible");
       // 回调走 ref 蹦床：本函数在每次 render 被调用，notifyVisibility 幂等。
       backgroundLifecycleRef.current ??= createTerminalBackgroundLifecycle({
         onTier1: () => {
           rendererControllerRef.current?.suspendWebgl("background");
-          // M3b-2 触发点②：隐藏 5min 边沿补拍——xterm 还活着，休眠（Tier2）
-          // 还有 25min 才到，先抢一张。守卫（无锚点/去抖/无实例）在内部。
+          // M3b-2 触发点②：隐藏 1s 边沿补拍——xterm 还活着，休眠（Tier2）
+          // 仍有近 30min 才到，先抢一张。守卫（无锚点/去抖/无实例）在内部。
           const checkpointSessionId = currentSessionIdRef.current;
           if (checkpointSessionId) {
             void captureAndUploadCheckpoint(

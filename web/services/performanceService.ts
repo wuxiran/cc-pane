@@ -10,6 +10,7 @@ interface FrontendPerformanceSnapshot {
   longTaskMaxMs: number;
   longTaskSupported: boolean;
   playingVideos: number;
+  focused: boolean;
   visibility: "visible" | "hidden";
   terminalCount: number;
   failedTerminalSources: number;
@@ -67,7 +68,8 @@ export function startPerformanceSampling(): () => void {
     const snapshot: FrontendPerformanceSnapshot = { ...collectTerminalPerformanceMetrics(), heapUsedBytes: memory?.usedJSHeapSize ?? null,
       heapTotalBytes: memory?.totalJSHeapSize ?? null, timerLagMs: Math.min(lag, 86_400_000),
       longTaskCount, longTaskMaxMs: Math.min(longTaskMax, 86_400_000), visibility: document.visibilityState === "visible" ? "visible" : "hidden",
-      longTaskSupported: observer !== null, playingVideos: [...document.querySelectorAll("video")].filter(v => !v.paused).length };
+      focused: document.hasFocus(), longTaskSupported: observer !== null,
+      playingVideos: [...document.querySelectorAll("video")].filter(v => !v.paused).length };
     lag = 0; longTaskCount = 0; longTaskMax = 0;
       await invokeIfTauri("record_performance_snapshot", { snapshot });
       reportedError = false;

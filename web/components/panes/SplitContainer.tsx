@@ -1,3 +1,4 @@
+import { usePanelPreferencesStore } from "@/stores/usePanelPreferencesStore";
 import { useCallback, useMemo } from "react";
 import type { SplitPane } from "@/types";
 import { BREAKPOINT_ORDER } from "@/lib/breakpoints";
@@ -38,6 +39,8 @@ export default function SplitContainer({ pane }: SplitContainerProps) {
       const sum = rounded.slice(0, -1).reduce((a, b) => a + b, 0);
       rounded[rounded.length - 1] = Math.round((100 - sum) * 10) / 10;
 
+      const layoutId = usePanesStore.getState().currentLayoutId;
+      if (layoutId) usePanelPreferencesStore.getState().setAutoFit(layoutId, false);
       resizePanes(pane.id, rounded);
     },
     [pane.id, resizePanes]

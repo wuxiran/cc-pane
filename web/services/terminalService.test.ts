@@ -492,13 +492,13 @@ describe("terminalService", () => {
       mockTauriInvoke({});
       const subscriber = vi.fn();
       await terminalService.registerOutput("s-seq", subscriber);
-      reanchorSeq("s-seq", 4, 1);
-      expect(anchorCandidate("s-seq")).toEqual({ anchorSeq: 4, checkpointEpoch: 1 });
+      reanchorSeq("s-seq", 4, "1");
+      expect(anchorCandidate("s-seq")).toEqual({ anchorSeq: 4, checkpointEpoch: "1" });
 
       const handler = await getSeqOutputHandler();
       handler({ payload: { sessionId: "s-seq", data: "a" } });
       // 无 endSeq（旧 daemon/轮询降级）：记账不动
-      expect(anchorCandidate("s-seq")).toEqual({ anchorSeq: 4, checkpointEpoch: 1 });
+      expect(anchorCandidate("s-seq")).toEqual({ anchorSeq: 4, checkpointEpoch: "1" });
 
       handler({ payload: { sessionId: "s-seq", data: "b", endSeq: 9 } });
       // received 推进到 9，written 还在 4 → in-flight 禁拍
@@ -515,7 +515,7 @@ describe("terminalService", () => {
       mockTauriInvoke({});
       // 注册任一监听器以初始化全局 listeners
       await terminalService.registerOutput("s-desync", vi.fn());
-      reanchorSeq("s-desync", 10, 2);
+      reanchorSeq("s-desync", 10, "2");
 
       const { getCurrentWebview } = await import("@tauri-apps/api/webview");
       const listenMock = vi.mocked(getCurrentWebview().listen);
@@ -536,7 +536,7 @@ describe("terminalService", () => {
       );
       _resetSeqTrackersForTest();
       mockTauriInvoke({ kill_terminal_idempotent: undefined });
-      reanchorSeq("s-kill", 10, 2);
+      reanchorSeq("s-kill", 10, "2");
       expect(anchorCandidate("s-kill")).not.toBeNull();
 
       await terminalService.killSession("s-kill");

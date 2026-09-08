@@ -26,7 +26,7 @@ export function reanchorAfterRecovery(
   sessionId: string,
   snapshot: TerminalRecoverySnapshot,
 ): void {
-  if (snapshot.checkpointEpoch === 0) return;
+  if (snapshot.checkpointEpoch === "0") return;
   reanchorSeq(sessionId, snapshot.endSeq, snapshot.checkpointEpoch);
 }
 

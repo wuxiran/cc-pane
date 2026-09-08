@@ -46,6 +46,7 @@ export function createTerminalWriteFlowControl(
   let writeCalls = 0;
   let failedWrites = 0;
   let callbackMaxMs = 0;
+  let intervalCallbackMaxMs = 0;
   let blocked = false;
   let pumping = false;
   let pendingCallbacks = 0;
@@ -74,7 +75,9 @@ export function createTerminalWriteFlowControl(
           callbackCompleted = true;
           inFlightChars -= entry.data.length;
           inFlightWrites -= 1;
-          callbackMaxMs = Math.max(callbackMaxMs, now() - entry.queuedAt);
+          const elapsed = now() - entry.queuedAt;
+          callbackMaxMs = Math.max(callbackMaxMs, elapsed);
+          intervalCallbackMaxMs = Math.max(intervalCallbackMaxMs, elapsed);
           if (shouldTrackCallback) {
             pendingCallbacks = Math.max(0, pendingCallbacks - 1);
             if (blocked && pendingCallbacks <= lowWatermark) blocked = false;
@@ -162,6 +165,7 @@ export function createTerminalWriteFlowControl(
     reset,
     dispose,
     queueLength,
+    takeIntervalCallbackMaxMs: () => { const result = intervalCallbackMaxMs; intervalCallbackMaxMs = 0; return result; },
     getStats: () => ({ queuedChars, inFlightChars, inFlightWrites, queuedWrites: queue.length,
       receivedChars, writeCalls, failedWrites, callbackMaxMs,
       oldestWaitMs: queue.length ? Math.max(0, now() - queue[0].queuedAt) : 0 }),

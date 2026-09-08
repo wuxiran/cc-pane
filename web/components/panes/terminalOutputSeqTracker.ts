@@ -15,13 +15,13 @@ import { devDebugLog } from "@/utils/devLogger";
 
 export interface SeqAnchorCandidate {
   anchorSeq: number;
-  checkpointEpoch: number;
+  checkpointEpoch: string;
 }
 
 interface SeqTrackerEntry {
   lastReceivedEndSeq: number | null;
   lastWrittenEndSeq: number | null;
-  checkpointEpoch: number | null;
+  checkpointEpoch: string | null;
   valid: boolean;
 }
 
@@ -78,7 +78,7 @@ export function invalidateSeq(sessionId: string): void {
 }
 
 /** 统一恢复完成：用恢复响应的 endSeq/epoch 重锚，恢复可拍。 */
-export function reanchorSeq(sessionId: string, endSeq: number, checkpointEpoch: number): void {
+export function reanchorSeq(sessionId: string, endSeq: number, checkpointEpoch: string): void {
   entries.set(sessionId, {
     lastReceivedEndSeq: endSeq,
     lastWrittenEndSeq: endSeq,
@@ -88,7 +88,7 @@ export function reanchorSeq(sessionId: string, endSeq: number, checkpointEpoch: 
 }
 
 /** epoch 首次/更新登记（输出侧或恢复侧带来）。epoch 变化 = daemon/会话重建，旧 seq 作废。 */
-export function noteEpoch(sessionId: string, checkpointEpoch: number): void {
+export function noteEpoch(sessionId: string, checkpointEpoch: string): void {
   const entry = entryOf(sessionId);
   if (entry.checkpointEpoch !== null && entry.checkpointEpoch !== checkpointEpoch) {
     entry.valid = false;

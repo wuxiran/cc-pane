@@ -27,5 +27,7 @@ export function checkpointRecoveredTerminal(term: object, sessionId: string): vo
   if (!source || !source.canUpload()) return;
   // Serialization and anchor capture happen synchronously before the upload's first await.
   // Existing epoch/in-flight/debounce guards still apply; unsupported backends remain safe.
-  void captureAndUploadCheckpoint(sessionId, source.term, source.serializer, { reason: "recovery.complete" });
+  void captureAndUploadCheckpoint(sessionId, source.term, source.serializer, {
+    reason: "recovery.complete", canCapture: () => sources.get(term) === source && source.canUpload(),
+  });
 }

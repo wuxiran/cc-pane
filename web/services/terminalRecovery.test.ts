@@ -19,7 +19,7 @@ vi.mock("./runtime", async (importOriginal) => {
 
 const SNAPSHOT: TerminalRecoverySnapshot = {
   checkpoint: {
-    checkpointEpoch: 3,
+    checkpointEpoch: "3",
     anchorSeq: 40,
     snapshotAnsi: "PHOTO",
     bufferMode: "normal",
@@ -30,7 +30,7 @@ const SNAPSHOT: TerminalRecoverySnapshot = {
   delta: "DELTA",
   bufferMode: "normal",
   endSeq: 55,
-  checkpointEpoch: 3,
+  checkpointEpoch: "3",
 };
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -76,7 +76,7 @@ describe("getRecoverySnapshot（Tauri 模式）", () => {
     noteReceived("s-3", 60);
     noteWritten("s-3", 60);
 
-    expect(anchorCandidate("s-3")).toEqual({ anchorSeq: 60, checkpointEpoch: 3 });
+    expect(anchorCandidate("s-3")).toEqual({ anchorSeq: 60, checkpointEpoch: "3" });
   });
 
   it("epoch=0（旧 daemon 回落形状）不登记 epoch，上传保持 dormant", async () => {
@@ -86,7 +86,7 @@ describe("getRecoverySnapshot（Tauri 模式）", () => {
         delta: "OLD",
         bufferMode: "normal",
         endSeq: 0,
-        checkpointEpoch: 0,
+        checkpointEpoch: "0",
       } satisfies TerminalRecoverySnapshot,
     });
 
@@ -141,7 +141,7 @@ describe("getRecoverySnapshot（web 模式）", () => {
       delta: "LEGACY-VT",
       bufferMode: "alternate",
       endSeq: 0,
-      checkpointEpoch: 0,
+      checkpointEpoch: "0",
     });
   });
 

@@ -45,7 +45,7 @@ describe("terminal renderer selection", () => {
     }
   });
 
-  it("wallpaper transparency still wins over macOS WebGL", () => {
+  it("supports transparent WebGL on macOS", () => {
     const safari =
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15";
 
@@ -54,8 +54,8 @@ describe("terminal renderer selection", () => {
       webgl2Supported: true,
       transparencyRequired: true,
     })).toMatchObject({
-      renderer: "dom",
-      reason: "wallpaper-transparency",
+      renderer: "webgl",
+      reason: "auto-webgl",
     });
   });
 
@@ -199,7 +199,7 @@ describe("terminal renderer selection", () => {
     });
   });
 
-  it("wallpaper transparency forces DOM on non-Windows auto hosts", () => {
+  it("retains Linux GPU identity protection for transparent terminals", () => {
     const linuxChrome =
       "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
@@ -209,12 +209,12 @@ describe("terminal renderer selection", () => {
       transparencyRequired: true,
     })).toMatchObject({
       renderer: "dom",
-      reason: "wallpaper-transparency",
+      reason: "renderer-identity-unavailable",
       webglAllowed: false,
     });
   });
 
-  it("wallpaper transparency overrides explicit webgl mode", () => {
+  it("supports transparent backgrounds in explicit WebGL mode", () => {
     const linuxChrome =
       "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
@@ -223,12 +223,12 @@ describe("terminal renderer selection", () => {
       webgl2Supported: true,
       transparencyRequired: true,
     })).toMatchObject({
-      renderer: "dom",
-      reason: "wallpaper-transparency",
+      renderer: "webgl",
+      reason: "user-webgl",
     });
   });
 
-  it("Windows 下透明需求仍优先回退 DOM", () => {
+  it("Windows 透明终端保持 WebGL", () => {
     const webview2 =
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0";
 
@@ -237,8 +237,8 @@ describe("terminal renderer selection", () => {
       webgl2Supported: true,
       transparencyRequired: true,
     })).toMatchObject({
-      renderer: "dom",
-      reason: "wallpaper-transparency",
+      renderer: "webgl",
+      reason: "auto-webgl",
     });
   });
 

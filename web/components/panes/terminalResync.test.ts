@@ -21,7 +21,7 @@ function recoverySnapshot(
     delta: "",
     bufferMode: "normal",
     endSeq: 0,
-    checkpointEpoch: 0,
+    checkpointEpoch: "0",
     ...overrides,
   };
 }
@@ -242,7 +242,7 @@ describe("resyncFromReplaySnapshot", () => {
       getRecoverySnapshot: async () =>
         recoverySnapshot({
           checkpoint: {
-            checkpointEpoch: 4,
+            checkpointEpoch: "4",
             anchorSeq: 10,
             snapshotAnsi: "PHOTO-VT",
             bufferMode: "normal",
@@ -252,7 +252,7 @@ describe("resyncFromReplaySnapshot", () => {
           },
           delta: "DELTA-RAW",
           endSeq: 20,
-          checkpointEpoch: 4,
+          checkpointEpoch: "4",
         }),
       writeData: async (data) => {
         order.push(`delta:${data}`);
@@ -278,14 +278,14 @@ describe("resyncFromReplaySnapshot", () => {
       sessionId: "s-3",
       reason: "daemon-desync",
       getRecoverySnapshot: async () =>
-        recoverySnapshot({ delta: "D", endSeq: 33, checkpointEpoch: 6 }),
+        recoverySnapshot({ delta: "D", endSeq: 33, checkpointEpoch: "6" }),
       writeData: async () => {},
       writeCheckpointData: async () => {},
       syncTrackedBufferType: () => {},
       debugLog: () => {},
     });
 
-    expect(anchorCandidate("s-3")).toEqual({ anchorSeq: 33, checkpointEpoch: 6 });
+    expect(anchorCandidate("s-3")).toEqual({ anchorSeq: 33, checkpointEpoch: "6" });
   });
 
   it("epoch=0（旧 daemon 回落）不 reanchor", async () => {

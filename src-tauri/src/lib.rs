@@ -187,6 +187,8 @@ use commands::{
     get_media_scheduler_snapshot,
     get_memory,
     get_memory_stats,
+    get_notification_preferences,
+    get_notification_sound_path,
     // Orchestrator 命令
     get_orchestrator_port,
     get_orchestrator_status,
@@ -240,6 +242,7 @@ use commands::{
     handle_terminal_exit_spec,
     handle_terminal_exit_spec_by_session,
     import_legacy_mcp_servers,
+    import_notification_sound,
     import_project_skill,
     import_shared_mcp_from_claude,
     import_skill,
@@ -446,7 +449,9 @@ use commands::{
     set_default_launch_profile,
     set_default_provider,
     set_hidden_terminal_sessions,
+    set_layout_notification_sound,
     set_media_run_priority,
+    set_notification_snooze,
     set_project_cli_hook_enabled,
     set_web_access_password,
     set_workspace_archived,
@@ -1729,6 +1734,11 @@ pub fn run() {
     let quick_command_service = Arc::new(QuickCommandService::new(app_paths.quick_commands_path()));
     // 「本轮已富通知」标记注册表：trigger_notification 打标，状态机 turn_end 兜底查标去重
     let turn_notify_registry = Arc::new(services::TurnNotifyRegistry::new());
+    let notification_preferences = Arc::new(
+        services::notification_preferences::NotificationPreferenceService::new(
+            crate::utils::app_config_dir(),
+        ),
+    );
     let notification_service = Arc::new(NotificationService::new(turn_notify_registry.clone()));
     let notification_for_acp = notification_service.clone();
     let settings_for_acp = settings_service.clone();
@@ -1909,6 +1919,7 @@ pub fn run() {
         .manage(provider_service)
         .manage(launch_profile_service)
         .manage(quick_command_service)
+        .manage(notification_preferences)
         .manage(notification_service)
         .manage(turn_notify_registry)
         .manage(ccchan_service)
@@ -3264,6 +3275,11 @@ pub fn run() {
             migrate_data_dir,
             generate_claude_md,
             get_log_dir,
+            get_notification_preferences,
+            set_notification_snooze,
+            set_layout_notification_sound,
+            import_notification_sound,
+            get_notification_sound_path,
             trigger_notification,
             // IM 外推命令
             test_im_channel,

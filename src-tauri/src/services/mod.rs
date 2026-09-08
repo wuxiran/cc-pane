@@ -9,6 +9,7 @@ mod browser_service;
 mod comfy_runtime;
 pub mod im_bridge;
 mod launch_backfill_service;
+pub(crate) mod notification_preferences;
 mod notification_service;
 pub mod orchestrator_service;
 pub mod performance_recorder;

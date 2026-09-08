@@ -106,7 +106,7 @@ export const useWallpaperStore = create<WallpaperState>((set) => ({
 }));
 
 // 终端渲染器的透明需求 provider：decideTerminalRenderer 是纯函数模块，不 import store，
-// 由这里注入。只有壁纸激活且 terminalOpacity < 1 才要求 DOM 渲染器。
+// 由这里注入。壁纸 alpha 由终端主题处理；保留注册入口兼容既有调用，透明不再强制切换 DOM。
 setTerminalTransparencyProvider(() => {
   const state = useWallpaperStore.getState();
   return state.resolved !== null && state.assetUrl !== null && state.resolved.terminalOpacity < 1;

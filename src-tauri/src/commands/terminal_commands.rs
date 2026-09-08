@@ -1,3 +1,4 @@
+use super::terminal_checkpoint_dto::{CheckpointDto, RecoverySnapshotDto};
 use crate::models::TerminalReplaySnapshot;
 use crate::models::{CreateSessionRequest, ResizeRequest};
 use crate::services::terminal_service;
@@ -1021,7 +1022,7 @@ pub async fn get_terminal_recovery_snapshot(
     launch_history_service: State<'_, Arc<LaunchHistoryService>>,
     history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
     session_id: String,
-) -> AppResult<Option<cc_panes_core::models::TerminalRecoverySnapshot>> {
+) -> AppResult<Option<RecoverySnapshotDto>> {
     debug!(session_id = %session_id, "cmd::get_terminal_recovery_snapshot");
     let backend = service.backend();
     let uses_daemon = service.kind() == TerminalBackendKind::Daemon;
@@ -1071,7 +1072,7 @@ pub async fn get_terminal_recovery_snapshot(
         bridge.start_session_after_replay(session_id, backend, &baseline);
     }
 
-    Ok(recovery)
+    Ok(recovery.map(RecoverySnapshotDto::from))
     }).await.map_err(|error| AppError::from(error.to_string()))?
 }
 
@@ -1085,12 +1086,12 @@ pub async fn get_terminal_recovery_snapshot(
 pub async fn upload_terminal_checkpoint(
     service: State<'_, Arc<TerminalBackendState>>,
     session_id: String,
-    checkpoint: crate::models::TerminalCheckpoint,
+    checkpoint: CheckpointDto,
 ) -> AppResult<crate::models::StoreCheckpointOutcome> {
     debug!(session_id = %session_id, "cmd::upload_terminal_checkpoint");
     let backend = service.backend();
     tauri::async_runtime::spawn_blocking(move || {
-        backend.store_session_checkpoint(&session_id, checkpoint)
+        backend.store_session_checkpoint(&session_id, checkpoint.into())
     })
     .await
     .map_err(|e| AppError::from(e.to_string()))?

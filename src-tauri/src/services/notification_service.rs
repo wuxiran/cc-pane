@@ -1,3 +1,4 @@
+use super::notification_preferences::{now_ms, NotificationPreferenceService};
 use crate::services::{SettingsService, TaskBindingService, TurnNotifyRegistry};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -142,7 +143,12 @@ impl NotificationService {
             "notification::trigger"
         );
 
-        self.send_notification(app, &request.title, request.body.as_deref())?;
+        self.send_notification(
+            app,
+            &request.title,
+            request.body.as_deref(),
+            request.session_id.as_deref(),
+        )?;
         self.emit_notification_sent(
             app,
             NotificationSentEvent {
@@ -205,7 +211,7 @@ impl NotificationService {
             "Session exited with an error"
         };
         if self
-            .send_notification(app, "Session Exited", Some(body))
+            .send_notification(app, "Session Exited", Some(body), Some(session_id))
             .is_ok()
         {
             self.emit_notification_sent(
@@ -252,6 +258,7 @@ impl NotificationService {
                 app,
                 "Action Required",
                 Some("Terminal is waiting for input confirmation"),
+                Some(session_id),
             )
             .is_ok()
         {
@@ -322,7 +329,7 @@ impl NotificationService {
             .map(|s| s.chars().take(80).collect::<String>())
             .unwrap_or_else(|| "Claude finished this turn".to_string());
         if self
-            .send_notification(app, "✅ Completed", Some(&body_owned))
+            .send_notification(app, "✅ Completed", Some(&body_owned), Some(session_id))
             .is_ok()
         {
             self.emit_notification_sent(
@@ -366,7 +373,10 @@ impl NotificationService {
             return;
         }
         let body = format!("Error: {}", etype);
-        if self.send_notification(app, "❗ Error", Some(&body)).is_ok() {
+        if self
+            .send_notification(app, "❗ Error", Some(&body), Some(session_id))
+            .is_ok()
+        {
             self.emit_notification_sent(
                 app,
                 NotificationSentEvent {
@@ -412,7 +422,7 @@ impl NotificationService {
         }
         let body = format!("{} has been running for {}s", tool_name, seconds);
         if self
-            .send_notification(app, "⏱ Tool Running", Some(&body))
+            .send_notification(app, "⏱ Tool Running", Some(&body), Some(session_id))
             .is_ok()
         {
             self.emit_notification_sent(
@@ -534,7 +544,11 @@ impl NotificationService {
         app: &AppHandle,
         title: &str,
         body: Option<&str>,
+        session_id: Option<&str>,
     ) -> Result<(), String> {
+        if self.local_suppressed(app, session_id) {
+            return Ok(());
+        }
         let mut builder = app.notification().builder().title(title);
         if let Some(body) = body {
             builder = builder.body(body);
@@ -544,8 +558,17 @@ impl NotificationService {
             .map_err(|e| format!("Failed to show desktop notification: {}", e))
     }
 
+    fn local_suppressed(&self, app: &AppHandle, session_id: Option<&str>) -> bool {
+        app.try_state::<Arc<NotificationPreferenceService>>()
+            .is_some_and(|service| service.snoozed(session_id, now_ms()))
+    }
+
     fn emit_notification_sent(&self, app: &AppHandle, event: NotificationSentEvent<'_>) {
-        let _ = app.emit("notification-sent", build_notification_sent_payload(event));
+        let mut payload = build_notification_sent_payload(event);
+        payload["localSuppressed"] = self.local_suppressed(app, event.session_id).into();
+        if let Err(error) = app.emit("notification-sent", payload) {
+            warn!(%error, "Failed to deliver notification history event");
+        }
     }
 }
 

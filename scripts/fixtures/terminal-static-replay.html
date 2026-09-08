@@ -42,9 +42,9 @@ window.prepare = async (renderer, followBottom) => {
     window.recovery = resyncFromReplaySnapshot({
       term, sessionId: `${renderer}-${followBottom}`, reason: 'browser-regression',
       getRecoverySnapshot: async () => ({
-        checkpoint: { checkpointEpoch: 7, anchorSeq: 100, snapshotAnsi: saved,
+        checkpoint: { checkpointEpoch: "7", anchorSeq: 100, snapshotAnsi: saved,
           bufferMode: 'normal', cols: 80, rows: 20, checkpointedAtMs: 1 },
-        delta: raw, bufferMode: 'normal', endSeq: raw.length + 100, checkpointEpoch: 7,
+        delta: raw, bufferMode: 'normal', endSeq: raw.length + 100, checkpointEpoch: "7",
       }),
       writeCheckpointData: write,
       writeData: async data => {

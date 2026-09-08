@@ -337,7 +337,7 @@ export interface TerminalOutput {
  * 与 Rust `TerminalCheckpoint`（serde camelCase）逐字段对齐。
  */
 export interface TerminalCheckpointUpload {
-  checkpointEpoch: number;
+  checkpointEpoch: string;
   anchorSeq: number;
   snapshotAnsi: string;
   bufferMode: "normal" | "alternate";
@@ -352,7 +352,7 @@ export interface TerminalCheckpointUpload {
  * `TerminalCheckpointUpload` 是同一结构的写方向别名，两者形状必须一致。
  */
 export interface TerminalCheckpointData {
-  checkpointEpoch: number;
+  checkpointEpoch: string;
   anchorSeq: number;
   snapshotAnsi: string;
   bufferMode: "normal" | "alternate";
@@ -366,14 +366,14 @@ export interface TerminalCheckpointData {
  * photo（snapshotAnsi）是 SerializeAddon 成品 VT——**直写**，不过
  * renderTerminalData；delta 是 PTY 原始字节——**必须过** renderTerminalData。
  * 旧 daemon 回落形状：`{ checkpoint: null, delta, bufferMode, endSeq: 0,
- * checkpointEpoch: 0 }`（epoch=0 = 无 seq 记账能力，读侧不得 reanchor）。
+ * checkpointEpoch: "0" }`（epoch=0 = 无 seq 记账能力，读侧不得 reanchor）。
  */
 export interface TerminalRecoverySnapshot {
   checkpoint: TerminalCheckpointData | null;
   delta: string;
   bufferMode: "normal" | "alternate";
   endSeq: number;
-  checkpointEpoch: number;
+  checkpointEpoch: string;
 }
 
 /**

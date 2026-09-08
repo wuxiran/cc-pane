@@ -1,3 +1,5 @@
+import { getRecoveryMetrics } from "./performanceRecoveryMetrics";
+
 export interface TerminalPerformanceMetric {
   sessionId: string | null;
   visible: boolean;
@@ -10,6 +12,9 @@ export interface TerminalPerformanceMetric {
   failedWrites: number;
   oldestWaitMs: number;
   callbackMaxMs: number;
+  intervalCallbackMaxMs?: number;
+  rendererReason?: string;
+  requestedRenderer?: string;
   hiddenChars: number;
   resyncActive: boolean;
   contextLosses: number;
@@ -46,5 +51,6 @@ export function collectTerminalPerformanceMetrics() {
   // Keep the largest backlogs when a layout has more than 32 terminal views.
   terminals.sort((a, b) => b.queuedChars + b.inFlightChars + b.hiddenChars - a.queuedChars - a.inFlightChars - a.hiddenChars);
   return { terminalCount, failedTerminalSources, terminals: terminals.slice(0, 32).map(t => ({ ...t,
+    ...getRecoveryMetrics(t.sessionId),
     ...(t.sessionId ? resyncs.get(t.sessionId) : undefined) ?? { resyncCount: 0, resyncChars: 0, resyncLastChars: 0 } })) };
 }

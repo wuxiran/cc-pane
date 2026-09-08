@@ -31,6 +31,24 @@ pub struct TerminalMetric {
     pub failed_writes: u32,
     pub oldest_wait_ms: f64,
     pub callback_max_ms: f64,
+    #[serde(default)]
+    pub interval_callback_max_ms: f64,
+    #[serde(default)]
+    pub renderer_reason: String,
+    #[serde(default)]
+    pub requested_renderer: String,
+    #[serde(default)]
+    pub checkpoint_result: String,
+    #[serde(default)]
+    pub checkpoint_accepted: u64,
+    #[serde(default)]
+    pub checkpoint_rejected: u64,
+    #[serde(default)]
+    pub checkpoint_skipped: u64,
+    #[serde(default)]
+    pub recovery_reason: String,
+    #[serde(default)]
+    pub recovery_duration_ms: f64,
     pub hidden_chars: u64,
     pub resync_active: bool,
     pub resync_count: u64,
@@ -50,6 +68,8 @@ pub struct FrontendSnapshot {
     pub long_task_count: u32,
     pub long_task_supported: bool,
     pub playing_videos: u32,
+    #[serde(default)]
+    pub focused: bool,
     pub long_task_max_ms: f64,
     pub visibility: Visibility,
     pub terminal_count: u32,
@@ -80,6 +100,16 @@ impl FrontendSnapshot {
         if self.terminals.iter().any(|t| {
             !valid_duration(t.oldest_wait_ms)
                 || !valid_duration(t.callback_max_ms)
+                || !valid_duration(t.interval_callback_max_ms)
+                || !valid_duration(t.recovery_duration_ms)
+                || [
+                    &t.renderer_reason,
+                    &t.requested_renderer,
+                    &t.checkpoint_result,
+                    &t.recovery_reason,
+                ]
+                .iter()
+                .any(|text| text.len() > 80)
                 || t.session_id
                     .as_deref()
                     .is_some_and(|id| !valid_session_id(id))

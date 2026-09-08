@@ -26,18 +26,18 @@ describe("checkpoint after recovery", () => {
     const delta = "\rprogress...".repeat(1000) + "\rFINAL STATE";
     await resyncFromReplaySnapshot({
       term, sessionId: "s1", reason: "test",
-      getRecoverySnapshot: async () => ({ checkpoint: null, delta, bufferMode: "normal", endSeq: 100, checkpointEpoch: 7 }),
+      getRecoverySnapshot: async () => ({ checkpoint: null, delta, bufferMode: "normal", endSeq: 100, checkpointEpoch: "7" }),
       writeData: async () => {}, writeCheckpointData: async () => {},
       syncTrackedBufferType: vi.fn(), debugLog: vi.fn(),
     });
     expect(uploadCheckpoint).toHaveBeenCalledWith("s1", expect.objectContaining({
-      snapshotAnsi: "FINAL STATE", anchorSeq: 100, checkpointEpoch: 7, cols: 100, rows: 30,
+      snapshotAnsi: "FINAL STATE", anchorSeq: 100, checkpointEpoch: "7", cols: 100, rows: 30,
     }));
   });
 
   it("skips views without a registered primary checkpoint source", () => {
     const { term, serializer } = setup();
-    reanchorSeq("s1", 100, 7);
+    reanchorSeq("s1", 100, "7");
     checkpointRecoveredTerminal(term, "s1");
     expect(serializer.serialize).not.toHaveBeenCalled();
     expect(uploadCheckpoint).not.toHaveBeenCalled();
@@ -46,7 +46,7 @@ describe("checkpoint after recovery", () => {
   it("does not save state whose output is still in flight", () => {
     const { term, serializer } = setup();
     registerRecoveryCheckpointSource(term, serializer);
-    reanchorSeq("s1", 100, 7);
+    reanchorSeq("s1", 100, "7");
     noteReceived("s1", 120);
     checkpointRecoveredTerminal(term, "s1");
     expect(serializer.serialize).not.toHaveBeenCalled();
@@ -56,7 +56,7 @@ describe("checkpoint after recovery", () => {
   it("does not publish a snapshot after the terminal is disposed", () => {
     const { term, serializer } = setup();
     registerRecoveryCheckpointSource(term, serializer);
-    reanchorSeq("s1", 100, 7);
+    reanchorSeq("s1", 100, "7");
     unregisterRecoveryCheckpointSource(term);
     checkpointRecoveredTerminal(term, "s1");
     expect(uploadCheckpoint).not.toHaveBeenCalled();
@@ -66,7 +66,7 @@ describe("checkpoint after recovery", () => {
     const { term, serializer } = setup();
     let writable = true;
     registerRecoveryCheckpointSource(term, serializer, () => writable);
-    reanchorSeq("s1", 100, 7);
+    reanchorSeq("s1", 100, "7");
     writable = false;
     checkpointRecoveredTerminal(term, "s1");
     expect(serializer.serialize).not.toHaveBeenCalled();

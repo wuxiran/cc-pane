@@ -66,6 +66,8 @@ export function useTerminalDataPipeline({
     const stats = flow.getStats();
     const renderer = rendererControllerRef.current?.getDiagnostics();
     return { sessionId: currentSessionIdRef.current, visible: Boolean(term.element?.getClientRects().length),
+      intervalCallbackMaxMs: Math.min(flow.takeIntervalCallbackMaxMs(), 86_400_000),
+      rendererReason: renderer?.decisionReason ?? "unknown", requestedRenderer: renderer?.requestedMode ?? "auto",
       renderer: renderer?.activeRenderer ?? "unknown", queuedChars: stats.queuedChars, inFlightChars: stats.inFlightChars,
       queuedWrites: stats.queuedWrites, oldestWaitMs: Math.min(stats.oldestWaitMs, 86_400_000),
       receivedChars: stats.receivedChars, writeCalls: stats.writeCalls, failedWrites: stats.failedWrites,

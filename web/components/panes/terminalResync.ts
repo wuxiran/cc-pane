@@ -5,6 +5,7 @@ import { writeTerminalReplay } from "./terminalReplayChunks";
 import { restoreReplayBufferMode } from "./terminalReplayBufferMode";
 import { withTerminalReplayPresentation, type ReplayPresentationTerminal } from "./terminalReplayPresentation";
 import { checkpointRecoveredTerminal } from "./terminalRecoveryCheckpoint";
+import { noteRecoveryDuration } from "@/services/performanceRecoveryMetrics";
 
 /**
  * 从后端恢复快照（checkpoint+delta）整体重同步终端画面。
@@ -62,8 +63,10 @@ interface ResyncFromReplaySnapshotOptions {
   debugLog: ResyncLogger;
 }
 
-export function resyncFromReplaySnapshot(options: ResyncFromReplaySnapshotOptions): Promise<boolean> {
-  return withTerminalReplayPresentation(options.term, () => restoreSnapshot(options));
+export async function resyncFromReplaySnapshot(options: ResyncFromReplaySnapshotOptions): Promise<boolean> {
+  const started = performance.now();
+  try { return await withTerminalReplayPresentation(options.term, () => restoreSnapshot(options)); }
+  finally { noteRecoveryDuration(options.sessionId, options.reason, performance.now() - started); }
 }
 
 async function restoreSnapshot({
