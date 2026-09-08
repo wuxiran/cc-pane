@@ -4,7 +4,7 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
-## 0.12.13 - Unreleased
+## 0.12.13 - 2026-09-09
 
 This development version keeps video wallpaper and transparent terminals while improving recovery, rendering, layout controls, resource inspection and notifications.
 
@@ -18,6 +18,7 @@ This development version keeps video wallpaper and transparent terminals while i
 
 ### Added
 
+- Central skill link management across agents and workspaces, with guarded enable/disable, backups, rollback and remote updates; Codex providers expose a validated wire API choice.
 - Persistent layout-list sizing, full-name tooltips, left-aligned layout controls and automatic geometry adaptation that preserves panels, tabs and live terminal identities.
 - Explicit app-memory capacity and scope, stable CPU/memory ranking, full session names and a resizable resource panel.
 - Per-layout default/custom/muted sounds with preview and reset; per-session timed snooze suppresses local cards, system popups and audio while preserving unread history and external delivery policy.
