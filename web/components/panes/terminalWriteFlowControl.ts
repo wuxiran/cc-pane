@@ -53,14 +53,24 @@ export function createTerminalWriteFlowControl(
   let intervalCallbackMaxMs = 0;
   let blocked = false;
   let pumping = false;
+  let pumpYieldScheduled = false;
   let pendingCallbacks = 0;
   let bytesWritten = 0;
+
+  function schedulePump(): void {
+    if (pumpYieldScheduled) return;
+    pumpYieldScheduled = true;
+    setTimeout(() => {
+      pumpYieldScheduled = false;
+      pump();
+    }, 0);
+  }
 
   function pump(): void {
     if (pumping || blocked) return;
     pumping = true;
     try {
-      while (queue.length > 0 && !blocked) {
+      while (queue.length > 0 && !blocked && !pumpYieldScheduled) {
         const entry = queue.shift()!;
         const chunk = entry.data.slice(entry.offset, entry.offset + MAX_TARGET_WRITE_CHARS);
         entry.offset += chunk.length;
@@ -91,6 +101,9 @@ export function createTerminalWriteFlowControl(
           try {
             if (entry.offset < entry.data.length) {
               queue.unshift(entry);
+              // A synchronous xterm callback would otherwise make the outer
+              // pump consume every chunk in one renderer turn.
+              schedulePump();
             } else {
               entry.onWritten?.();
               entry.resolve();
@@ -124,7 +137,7 @@ export function createTerminalWriteFlowControl(
 
     // Synchronous xterm mocks can complete while the pump is active. Run one
     // more pass after dropping the re-entrancy guard so queued writes progress.
-    if (!blocked && queue.length > 0) pump();
+    if (!blocked && !pumpYieldScheduled && queue.length > 0) pump();
   }
 
   function write(data: string, onWritten?: () => void): Promise<void> {
