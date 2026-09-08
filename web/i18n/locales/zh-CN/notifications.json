@@ -94,5 +94,24 @@
       "slow_tool": "工具运行较慢"
     },
     "filterSystem": "系统"
+  },
+  "preferences": {
+    "layoutSound": "布局「{{name}}」提示音",
+    "chooseSound": "选择声音文件",
+    "preview": "试听",
+    "silent": "静音",
+    "default": "默认提示音",
+    "restoreDefault": "恢复默认",
+    "snooze": "暂不提醒",
+    "snoozeDescription": "只暂停当前会话的本机弹窗和声音，任务继续运行。",
+    "duration": "暂停时长",
+    "quarter": "15 分钟",
+    "hour": "1 小时",
+    "today": "今天",
+    "custom": "自定义",
+    "minutes": "分钟（1–10080）",
+    "apply": "暂停提醒",
+    "snoozedSessions": "已暂停提醒的会话",
+    "cancel": "提前恢复"
   }
 }

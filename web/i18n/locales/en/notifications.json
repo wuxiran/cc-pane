@@ -94,5 +94,24 @@
       "slow_tool": "Slow tool"
     },
     "filterSystem": "System"
+  },
+  "preferences": {
+    "layoutSound": "Sound for layout “{{name}}”",
+    "chooseSound": "Choose sound file",
+    "preview": "Preview",
+    "silent": "Mute",
+    "default": "Default sound",
+    "restoreDefault": "Restore default",
+    "snooze": "Snooze",
+    "snoozeDescription": "Pause local popups and sound for this session. The task continues.",
+    "duration": "Duration",
+    "quarter": "15 minutes",
+    "hour": "1 hour",
+    "today": "Today",
+    "custom": "Custom",
+    "minutes": "Minutes (1–10080)",
+    "apply": "Snooze session",
+    "snoozedSessions": "Snoozed sessions",
+    "cancel": "Resume alerts"
   }
 }

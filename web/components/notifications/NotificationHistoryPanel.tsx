@@ -1,3 +1,4 @@
+import { SnoozedNotifications } from "./NotificationPreferenceControls";
 // 历史面板：铃铛/折叠条展开。过滤（severity/interruptClass 分类，不再字符串猜）、
 // groupKey 分组折叠、未读点、点击跳任务/会话、全部已读、清空。
 // 取代 OrchestrationFullView 的 notifications 标签页。
@@ -101,6 +102,7 @@ export default function NotificationHistoryPanel() {
       data-testid="notification-history-panel"
       className="flex w-full flex-col overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-panel-bg)] shadow-lg motion-safe:animate-in motion-safe:slide-in-from-bottom-2 motion-safe:fade-in motion-safe:duration-[var(--dur-slow)] motion-safe:ease-[var(--ease-out)]"
     >
+      <SnoozedNotifications />
       <div className="flex items-center gap-2 border-b border-[var(--app-border)] px-3 py-2">
         <span className="text-[13px] font-semibold text-[var(--app-text-primary)]">
           {t("center.title")}

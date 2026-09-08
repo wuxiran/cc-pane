@@ -4,7 +4,9 @@
 import { useEffect } from "react";
 import { invokeIfTauri, isTauriRuntime, listenIfTauri, listenWebviewIfTauri } from "@/services/runtime";
 import { waitForDesktopRuntime } from "@/utils/desktopRuntime";
-import { playNotificationSound } from "@/utils/notificationSound";
+import { notificationPreferencesService } from "@/services/notificationPreferencesService";
+import { useNotificationPreferencesStore, isSessionSnoozed } from "@/stores/useNotificationPreferencesStore";
+import { usePanesStore } from "@/stores/usePanesStore";
 import { registerGlobalApi } from "@/utils/globalApi";
 
 export function useAppLifecycleEarly(): void {
@@ -16,8 +18,15 @@ export function useAppLifecycleEarly(): void {
     if (!isTauriRuntime()) return;
     waitForDesktopRuntime().then(async (ready) => {
       if (!ready || cancelled) return;
-      const cleanup = await listenIfTauri("notification-sent", () => {
-        playNotificationSound().catch((error) => {
+      const cleanup = await listenIfTauri<{ sessionId?: string; localSuppressed?: boolean }>("notification-sent", (event) => {
+        const play = async () => {
+          await useNotificationPreferencesStore.getState().load();
+          if (cancelled || event.payload?.localSuppressed || isSessionSnoozed(event.payload?.sessionId)) return;
+          const location = event.payload?.sessionId ? usePanesStore.getState().findTabBySessionAcrossLayouts(event.payload.sessionId) : null;
+          const sounds = useNotificationPreferencesStore.getState().preferences.layoutSounds;
+          await notificationPreferencesService.play(location ? sounds[location.layoutId] : undefined);
+        };
+        play().catch((error) => {
           console.warn("Notification sound failed:", error);
         });
       });

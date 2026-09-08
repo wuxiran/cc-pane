@@ -1,3 +1,4 @@
+import { NotificationSoundControl, NotificationSnoozeControl } from "./NotificationPreferenceControls";
 // 标准通知卡：左 3px severity 色条 + 图标行 + 定位元信息 + 正文截断/展开。
 // askInput 的输入区由 NotificationInputCard 包装追加，本组件只负责公共骨架。
 import { useMemo, useState, type ReactNode } from "react";
@@ -98,6 +99,7 @@ export default function NotificationCard({
             </span>
           )}
           <span className="flex-1" />
+          <NotificationSoundControl sessionId={record.sessionId} />
           <IconTooltipButton label={t("center.close")} side="left" onClick={() => onDismiss(record.id)}>
             <X aria-hidden="true" size={14} />
           </IconTooltipButton>
@@ -138,6 +140,7 @@ export default function NotificationCard({
         )}
 
         {footer}
+        <NotificationSnoozeControl sessionId={record.sessionId} />
 
         {!hideActions && (canFocusSession || canViewTask) && (
           <div className="ml-[22px] mt-2 flex justify-end gap-1.5">

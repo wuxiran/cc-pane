@@ -1,3 +1,4 @@
+import { isSessionSnoozed, listenNotificationPreferences, useNotificationPreferencesStore } from "@/stores/useNotificationPreferencesStore";
 // 右下角统一通知中心：update 卡（置顶、保留独立状态机）+ 通知卡片栈 + 历史面板。
 // 职责：持有 fixed 定位容器；新通知过闸门后准入栈；调度自动消失。
 // 被闸门挡下的通知不丢——已在历史里（未读），StatusBar 铃铛 badge 可见。
@@ -15,16 +16,34 @@ export default function NotificationCenter() {
   const notifications = useNotificationStore((state) => state.notifications);
   const activeToastIds = useNotificationStore((state) => state.activeToastIds);
   const historyOpen = useNotificationStore((state) => state.historyOpen);
+  const preferences = useNotificationPreferencesStore(s => s.preferences);
+  const preferencesReady = useNotificationPreferencesStore(s => s.ready);
+  useEffect(() => {
+    let stopped = false; let unlisten: (() => void) | null = null;
+    void useNotificationPreferencesStore.getState().load();
+    void listenNotificationPreferences().then(fn => { if (stopped) fn(); else unlisten = fn; })
+      .catch(error => console.warn("Notification preference listener failed", error));
+    return () => { stopped = true; unlisten?.(); };
+  }, []);
+  useEffect(() => {
+    const ends = Object.values(preferences.sessionSnoozes);
+    if (!ends.length) return;
+    const timer = setTimeout(() => useNotificationPreferencesStore.getState().prune(), Math.max(1, Math.min(...ends) - Date.now()));
+    return () => clearTimeout(timer);
+  }, [preferences]);
+
   // 已做过准入判定的通知（无论过没过闸门）不再重判：被挡的静默留在历史，不补弹
   const processedIdsRef = useRef<Set<string>>(new Set());
   // 每张卡的入栈时刻，自动消失的计时基准
   const shownAtRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
+    if (!preferencesReady) return;
     const { showToast } = useNotificationStore.getState();
     for (const record of notifications) {
       if (processedIdsRef.current.has(record.id)) continue;
       processedIdsRef.current.add(record.id);
+      if (record.localSuppressed || isSessionSnoozed(record.sessionId)) continue;
       if (record.read) continue; // sessionStorage 恢复的历史不重新弹
       const { interruptClass } = classifyNotification(record);
       if (checkInterruptGateLive(interruptClass) !== null) continue;
@@ -38,7 +57,7 @@ export default function NotificationCenter() {
         [...processedIdsRef.current].filter((id) => alive.has(id)),
       );
     }
-  }, [notifications]);
+  }, [notifications, preferencesReady, preferences]);
 
   // 自动消失：info/success 按入栈时刻 + 8s；askInput 已回传后按 respondedAt + 8s
   useEffect(() => {
