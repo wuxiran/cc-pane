@@ -149,6 +149,8 @@ vi.mock("./terminalRendererController", () => ({
   createTerminalRendererController: vi.fn(() => ({
     configure: vi.fn(),
     dispose: vi.fn(),
+    suspendWebgl: vi.fn(),
+    resumeWebgl: vi.fn(),
     getActiveRenderer: vi.fn(() => "canvas"),
     clearTextureAtlas: vi.fn(),
     repaint: vi.fn(),

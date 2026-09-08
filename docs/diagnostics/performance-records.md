@@ -45,6 +45,18 @@ Windows 正式版默认路径：
 隐藏视图的 resyncActive=true 也可能表示等待可见后再恢复；应结合 visible 和
 resyncCount 的增量判断，不应单凭这个标志认定后台一直在重放。
 
+## 0.12.13 补充指标
+
+- `focused`：本次前端采样是否持有焦点。与 `visibility`、`frontendAgeMs` 一起判断后台节流，不能将过期采样直接当作整段卡死。
+- `requestedRenderer` / `rendererReason`：请求的渲染模式与控制器决策；同时核对实际 `renderer`、`contextLosses`。
+- `intervalCallbackMaxMs`：本次采样周期内最长写入等待；`callbackMaxMs` 仍是视图生命周期峰值。
+- `checkpointResult` 与 accepted/rejected/skipped 计数：区分无锚点、在途、去抖、身份拒收与成功，结果不包含画面正文。
+- `recoveryReason` / `recoveryDurationMs`：最近一次 resync 处理入口及总耗时。共享恢复入口的 `daemon-desync` 也可能由隐藏积压溢出调用，不能只凭该字符串判定网络故障。
+
+桌面 IPC 的 `checkpointEpoch` 现为十进制字符串（含嵌套 checkpoint）。前端只保存和回传身份，Rust 转回精确 `u64` 后继续使用原 daemon 数值协议；不要求现有 daemon 为此重启。
+
+调试器连接本身可能影响私有内存。对长期增长下结论前，除 JS 堆外还要比较无调试客户端时的进程曲线。`smoke-v13-desktop.mjs` 支持 `CCPANES_SOAK_DETACH=1`：准备场景后断开 CDP，直接读取后台性能文件，观察结束再连接清理测试视图。
+
 ## 下次出现问题
 
 1. 点击“标记当前卡顿”，或记下本地时间；卡死时不要为了打开设置反复操作。
