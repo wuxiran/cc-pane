@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import { mkdtemp, mkdir, readFile, writeFile, copyFile, cp } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, appendFile, copyFile, cp } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join, resolve, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -13,7 +13,9 @@ const { chromium } = await import(pathToFileURL(process.argv[2]).href);
 const sourceExecutable = resolve(process.argv[3]);
 const wallpaper = resolve(process.argv[4]);
 const minutes = Number(process.argv[5] ?? 30);
-assert.ok(Number.isFinite(minutes)&&minutes>0&&minutes<=120,'duration must be between zero and 120 minutes');
+assert.ok(Number.isFinite(minutes)&&minutes>0&&minutes<=480,'duration must be between zero and 480 minutes');
+const recoveryMinutes=Number(process.env.CCPANES_SOAK_RECOVERY_MINUTES??0);
+assert.ok(Number.isFinite(recoveryMinutes)&&recoveryMinutes>=0&&recoveryMinutes<=60);
 const artifactRoot = await mkdtemp(join(tmpdir(), 'cc-v13-desktop-'));
 const program=join(artifactRoot,'program');await mkdir(join(program,'binaries'),{recursive:true});
 const executable=join(program,'cc-panes.exe');await copyFile(sourceExecutable,executable);
@@ -72,6 +74,22 @@ async function sample(){
   const text=await readFile(join(recorderDirectory,'performance.jsonl'),'utf8');
   const records=text.trim().split('\n').flatMap(line=>{try{return[JSON.parse(line)];}catch{return[];}});
   return records.filter(r=>r.kind==='sample'&&r.appPid===app.pid).at(-1);
+}
+async function recordWindow(durationMinutes,phase){
+  const began=Date.now(),deadline=began+durationMinutes*60000;
+  const target=phase==='soak'?result.samples:(result.recoverySamples=[]);
+  while(Date.now()<deadline){
+    assert.equal(app.exitCode,null,'test application must remain alive');
+    const record=await sample();
+    if(record&&record.timestampMs>=began-15000&&target.at(-1)?.timestampMs!==record.timestampMs){
+      target.push(record);
+      await appendFile(join(artifactRoot,`${phase}-samples.jsonl`),JSON.stringify(record)+'\n');
+    }
+    await writeFile(join(artifactRoot,'progress.json'),JSON.stringify({phase,began,deadline,now:Date.now(),samples:target.length,appPid:app.pid}));
+    await wait(Math.min(15000,Math.max(1,deadline-Date.now())));
+  }
+  assert.ok(target.length>=durationMinutes*3,'recorder must keep sampling throughout observation');
+  return {began,ended:Date.now(),minutes:durationMinutes,sampleCount:target.length};
 }
 async function chooseGroup(name){
   await page.locator(`[role="tab"][title="${name}"]`).click();
@@ -290,12 +308,9 @@ try {
     assert.equal(app.exitCode,null,'disconnecting CDP must leave the test application running');
     result.checks.detachedSoak=true;
   }
-  const deadline=Date.now()+minutes*60000;
+  await writeFile(join(artifactRoot,'control.json'),JSON.stringify({appPid:app.pid,daemonPid:daemon.pid,debugPort,profile,sessions}));
   console.log(JSON.stringify({phase:'soak',minutes,artifactRoot}));
-  while(Date.now()<deadline){
-    const record=await sample();if(record&&!result.samples.some(r=>r.timestampMs===record.timestampMs))result.samples.push(record);
-    await wait(Math.min(15000,Math.max(1,deadline-Date.now())));
-  }
+  result.checks.soakWindow=await recordWindow(minutes,'soak');
   result.checks.soakMinutes=minutes;
   if(!page){
     browser=await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`);
@@ -303,6 +318,11 @@ try {
     assert.ok(page);page.on('pageerror',error=>errors.push(error.message));
   }
   await closeTestTabs();
+  if(recoveryMinutes){
+    await browser.close();browser=null;page=null;
+    console.log(JSON.stringify({phase:'recovery',minutes:recoveryMinutes,artifactRoot}));
+    result.checks.recoveryWindow=await recordWindow(recoveryMinutes,'recovery');
+  }
   result.pageErrors=errors;
   await writeFile(join(artifactRoot,'results.json'),JSON.stringify(result,null,2));
   assert.deepEqual(errors,[]);
