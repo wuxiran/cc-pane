@@ -16,6 +16,9 @@ interface TerminalWriteFlowControlOptions {
 const DEFAULT_BYTES_THRESHOLD = 16 * 1024;
 const DEFAULT_HIGH_WATERMARK = 4;
 const DEFAULT_LOW_WATERMARK = 2;
+// xterm.write parses VT input synchronously. Keep replay/checkpoint payloads
+// bounded per renderer turn instead of handing one multi-MiB string to xterm.
+const MAX_TARGET_WRITE_CHARS = 16 * 1024;
 
 export function createTerminalWriteFlowControl(
   target: TerminalWriteTarget,
@@ -31,6 +34,7 @@ export function createTerminalWriteFlowControl(
 
   interface PendingWrite {
     data: string;
+    offset: number;
     queuedAt: number;
     onWritten?: () => void;
     resolve: () => void;
@@ -58,10 +62,12 @@ export function createTerminalWriteFlowControl(
     try {
       while (queue.length > 0 && !blocked) {
         const entry = queue.shift()!;
-        queuedChars -= entry.data.length;
-        inFlightChars += entry.data.length;
+        const chunk = entry.data.slice(entry.offset, entry.offset + MAX_TARGET_WRITE_CHARS);
+        entry.offset += chunk.length;
+        queuedChars -= chunk.length;
+        inFlightChars += chunk.length;
         inFlightWrites += 1;
-        bytesWritten += entry.data.length;
+        bytesWritten += chunk.length;
         const shouldTrackCallback = enabled && bytesWritten >= bytesThreshold;
         if (shouldTrackCallback) {
           bytesWritten = 0;
@@ -73,7 +79,7 @@ export function createTerminalWriteFlowControl(
         const complete = () => {
           if (callbackCompleted) return;
           callbackCompleted = true;
-          inFlightChars -= entry.data.length;
+          inFlightChars -= chunk.length;
           inFlightWrites -= 1;
           const elapsed = now() - entry.queuedAt;
           callbackMaxMs = Math.max(callbackMaxMs, elapsed);
@@ -83,8 +89,12 @@ export function createTerminalWriteFlowControl(
             if (blocked && pendingCallbacks <= lowWatermark) blocked = false;
           }
           try {
-            entry.onWritten?.();
-            entry.resolve();
+            if (entry.offset < entry.data.length) {
+              queue.unshift(entry);
+            } else {
+              entry.onWritten?.();
+              entry.resolve();
+            }
           } catch (error) {
             entry.reject(error);
           } finally {
@@ -93,10 +103,10 @@ export function createTerminalWriteFlowControl(
         };
 
         try {
-          target.write(entry.data, complete);
+          target.write(chunk, complete);
         } catch (error) {
           if (!callbackCompleted) {
-            inFlightChars -= entry.data.length;
+            inFlightChars -= chunk.length;
             inFlightWrites -= 1;
             failedWrites += 1;
           }
@@ -122,7 +132,7 @@ export function createTerminalWriteFlowControl(
       queuedChars += data.length;
       receivedChars += data.length;
       writeCalls += 1;
-      queue.push({ data, queuedAt: now(), onWritten, resolve, reject });
+      queue.push({ data, offset: 0, queuedAt: now(), onWritten, resolve, reject });
       try {
         pump();
       } catch (error) {

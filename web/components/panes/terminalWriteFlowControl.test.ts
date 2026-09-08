@@ -48,6 +48,23 @@ describe("createTerminalWriteFlowControl", () => {
     expect(target.write).toHaveBeenCalledTimes(writes.length);
   });
 
+  it("splits a large replay into bounded xterm writes while preserving one promise", async () => {
+    const callbacks: Array<() => void> = [];
+    const chunks: string[] = [];
+    const flow = createTerminalWriteFlowControl({
+      write: (data, callback) => { chunks.push(data); if (callback) callbacks.push(callback); },
+    });
+    const pending = flow.write("x".repeat(40 * 1024));
+    expect(chunks[0]).toHaveLength(16 * 1024);
+    callbacks.shift()?.();
+    expect(chunks[1]).toHaveLength(16 * 1024);
+    callbacks.shift()?.();
+    expect(chunks[2]).toHaveLength(8 * 1024);
+    callbacks.shift()?.();
+    await pending;
+    expect(flow.getStats()).toMatchObject({ queuedChars: 0, inFlightChars: 0, failedWrites: 0 });
+  });
+
   it("writes immediately when flow control is disabled", async () => {
     const callbacks: Array<() => void> = [];
     const target = {
