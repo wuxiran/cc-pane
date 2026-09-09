@@ -386,9 +386,8 @@ export default function StatusBar() {
 
   return (
     <div
-      // relative 不能省：backdrop-filter 已让本元素成为堆叠上下文，但没有定位时 z-10
-      // 不生效（上下文按 auto 层级的 0 参与排序），主内容行 relative z-[1] 会压在状态栏
-      // 上方——用量统计悬停面板（absolute z-50 被困在栏内上下文）因此被主内容遮挡。
+      // relative 不能省：backdrop-filter 已让本元素成为堆叠上下文，无定位时 z-10 不生效
+      // （按 auto 层级 0 排序），会被主内容行 relative z-[1] 压住，栏内 absolute z-50 悬停面板因此被遮。
       className="shape-chrome relative flex items-center h-[var(--density-row-h)] px-2.5 shrink-0 select-none z-10 text-[length:var(--text-caption)] tabular-nums"
       style={{
         background: "var(--app-menubar)",
