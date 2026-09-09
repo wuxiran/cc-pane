@@ -1,5 +1,7 @@
 // Re-export core services from cc-panes-core
 pub use cc_panes_core::services::*;
+mod skill_remote_update_service;
+pub use skill_remote_update_service::SkillRemoteUpdateService;
 
 // Tauri-specific services (kept in src-tauri)
 mod acp_chat_service;
@@ -9,8 +11,10 @@ mod browser_service;
 mod comfy_runtime;
 pub mod im_bridge;
 mod launch_backfill_service;
+pub(crate) mod notification_preferences;
 mod notification_service;
 pub mod orchestrator_service;
+pub mod performance_recorder;
 mod pi_rpc_event_bridge;
 mod process_guard;
 pub mod rest_launch_history;
@@ -28,6 +32,7 @@ mod terminal_daemon_bridge_reliability;
 mod terminal_daemon_control_link;
 mod terminal_daemon_event_bridge;
 mod terminal_daemon_lifecycle;
+mod terminal_daemon_output_cursor;
 mod turn_notify_registry;
 pub mod voice_service;
 mod web_access_lifecycle;

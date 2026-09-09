@@ -66,6 +66,7 @@ fn import_provider(service: &ProviderService, p: ProviderImport) -> AppResult<St
         config_dir: None,
         models: Vec::new(),
         default_model_id: None,
+        codex_wire_api: None,
         is_default: false,
     };
     // 原子去重 + 插入（同一把锁），避免并发导入堆重复项。

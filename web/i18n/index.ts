@@ -3,6 +3,7 @@ import { initReactI18next } from "react-i18next";
 
 // zh-CN
 import zhCommon from "./locales/zh-CN/common.json";
+import zhLinkSkills from "./locales/zh-CN/linkSkills.json";
 import zhSidebar from "./locales/zh-CN/sidebar.json";
 import zhSettings from "./locales/zh-CN/settings.json";
 import zhPanes from "./locales/zh-CN/panes.json";
@@ -25,6 +26,7 @@ import zhMobile from "./locales/zh-CN/mobile.json";
 
 // en
 import enCommon from "./locales/en/common.json";
+import enLinkSkills from "./locales/en/linkSkills.json";
 import enSidebar from "./locales/en/sidebar.json";
 import enSettings from "./locales/en/settings.json";
 import enPanes from "./locales/en/panes.json";
@@ -49,6 +51,7 @@ export const defaultNS = "common";
 export const resources = {
   "zh-CN": {
     common: zhCommon,
+    linkSkills: zhLinkSkills,
     sidebar: zhSidebar,
     settings: zhSettings,
     panes: zhPanes,
@@ -71,6 +74,7 @@ export const resources = {
   },
   en: {
     common: enCommon,
+    linkSkills: enLinkSkills,
     sidebar: enSidebar,
     settings: enSettings,
     panes: enPanes,

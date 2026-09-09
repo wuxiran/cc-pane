@@ -24,7 +24,7 @@ function recoverySnapshot(
     delta: "",
     bufferMode: "normal",
     endSeq: 0,
-    checkpointEpoch: 0,
+    checkpointEpoch: "0",
     ...overrides,
   };
 }
@@ -146,7 +146,7 @@ describe("replayAttachedSession", () => {
     });
     const snapshot = recoverySnapshot({
       checkpoint: {
-        checkpointEpoch: 7,
+        checkpointEpoch: "7",
         anchorSeq: 100,
         snapshotAnsi: "PHOTO-VT",
         bufferMode: "normal",
@@ -156,7 +156,7 @@ describe("replayAttachedSession", () => {
       },
       delta: "DELTA-RAW",
       endSeq: 142,
-      checkpointEpoch: 7,
+      checkpointEpoch: "7",
     });
 
     await replayAttachedSession({
@@ -183,7 +183,7 @@ describe("replayAttachedSession", () => {
       term: terminal,
       sessionId: "session-5",
       getRecoverySnapshot: vi.fn().mockResolvedValue(
-        recoverySnapshot({ delta: "D", endSeq: 42, checkpointEpoch: 9 }),
+        recoverySnapshot({ delta: "D", endSeq: 42, checkpointEpoch: "9" }),
       ),
       writeData: vi.fn().mockResolvedValue(undefined),
       writeCheckpointData: vi.fn().mockResolvedValue(undefined),
@@ -191,7 +191,7 @@ describe("replayAttachedSession", () => {
       debugLog: vi.fn(),
     });
 
-    expect(anchorCandidate("session-5")).toEqual({ anchorSeq: 42, checkpointEpoch: 9 });
+    expect(anchorCandidate("session-5")).toEqual({ anchorSeq: 42, checkpointEpoch: "9" });
   });
 
   it("epoch=0（旧 daemon 回落）不 reanchor：上传保持 dormant", async () => {
@@ -201,7 +201,7 @@ describe("replayAttachedSession", () => {
       term: terminal,
       sessionId: "session-6",
       getRecoverySnapshot: vi.fn().mockResolvedValue(
-        recoverySnapshot({ delta: "D", endSeq: 0, checkpointEpoch: 0 }),
+        recoverySnapshot({ delta: "D", endSeq: 0, checkpointEpoch: "0" }),
       ),
       writeData: vi.fn().mockResolvedValue(undefined),
       writeCheckpointData: vi.fn().mockResolvedValue(undefined),
@@ -219,7 +219,7 @@ describe("replayAttachedSession", () => {
       term: terminal,
       sessionId: "session-7",
       getRecoverySnapshot: vi.fn().mockResolvedValue(
-        recoverySnapshot({ endSeq: 5, checkpointEpoch: 3 }),
+        recoverySnapshot({ endSeq: 5, checkpointEpoch: "3" }),
       ),
       writeData: vi.fn().mockResolvedValue(undefined),
       writeCheckpointData: vi.fn().mockResolvedValue(undefined),
@@ -227,6 +227,6 @@ describe("replayAttachedSession", () => {
       debugLog: vi.fn(),
     });
 
-    expect(anchorCandidate("session-7")).toEqual({ anchorSeq: 5, checkpointEpoch: 3 });
+    expect(anchorCandidate("session-7")).toEqual({ anchorSeq: 5, checkpointEpoch: "3" });
   });
 });

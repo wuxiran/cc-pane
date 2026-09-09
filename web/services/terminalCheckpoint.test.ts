@@ -11,7 +11,7 @@ import {
 } from "./terminalCheckpoint";
 
 const CHECKPOINT: TerminalCheckpointUpload = {
-  checkpointEpoch: 7,
+  checkpointEpoch: "7",
   anchorSeq: 5,
   snapshotAnsi: "PHOTO",
   bufferMode: "normal",

@@ -1,3 +1,4 @@
+import { usePanelPreferencesStore } from "@/stores/usePanelPreferencesStore";
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
 import { PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
@@ -22,7 +23,7 @@ export function useLayoutSelectorState() {
     setFloatingPosition,
     clampFloatingPosition,
     updateFloatingPosition,
-  } = useFloatingPanelPosition();
+  } = useFloatingPanelPosition(usePanelPreferencesStore(s => s.layoutWidth));
 
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoveringRef = useRef(false);

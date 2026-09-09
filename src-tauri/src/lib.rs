@@ -187,6 +187,8 @@ use commands::{
     get_media_scheduler_snapshot,
     get_memory,
     get_memory_stats,
+    get_notification_preferences,
+    get_notification_sound_path,
     // Orchestrator 命令
     get_orchestrator_port,
     get_orchestrator_status,
@@ -240,6 +242,7 @@ use commands::{
     handle_terminal_exit_spec,
     handle_terminal_exit_spec_by_session,
     import_legacy_mcp_servers,
+    import_notification_sound,
     import_project_skill,
     import_shared_mcp_from_claude,
     import_skill,
@@ -259,6 +262,13 @@ use commands::{
     kill_orphan_processes,
     kill_terminal,
     kill_terminal_idempotent,
+    link_add_workspace,
+    link_annotate_repo,
+    link_disable,
+    link_enable,
+    link_set_workspace,
+    link_snapshot,
+    link_update,
     list_acp_chat_history,
     list_acp_engines,
     list_ai_panel_history,
@@ -446,7 +456,9 @@ use commands::{
     set_default_launch_profile,
     set_default_provider,
     set_hidden_terminal_sessions,
+    set_layout_notification_sound,
     set_media_run_priority,
+    set_notification_snooze,
     set_project_cli_hook_enabled,
     set_web_access_password,
     set_workspace_archived,
@@ -541,13 +553,13 @@ use services::{
     PiRpcEventBridge, PiRpcService, PlanArchiveService, PlanService, ProcessMonitorService,
     ProjectCliHooksService, ProjectContextService, ProjectService, ProviderService,
     QuickCommandService, ScreenshotService, SessionIndexService, SessionRestoreService,
-    SettingsService, SharedMcpService, SkillMarketService, SkillService, SpecService,
-    SshCredentialService, SshFileService, SshMachineService, StartLocks, SystemStatsService,
-    TaskBindingService, TaskQueueService, TaskQueueWorker, TerminalBackendKind,
-    TerminalBackendState, TerminalDaemonControlLink, TerminalDaemonEventBridge,
-    TerminalDaemonLifecycle, TerminalService, TodoService, UninstallCleanupService,
-    UsageStatsService, WebAccessLifecycle, WorkspaceService, WorktreeService,
-    COMFY_LOCAL_PROVIDER_ID,
+    SettingsService, SharedMcpService, SkillLinkService, SkillMarketService,
+    SkillRemoteUpdateService, SkillService, SpecService, SshCredentialService, SshFileService,
+    SshMachineService, StartLocks, SystemStatsService, TaskBindingService, TaskQueueService,
+    TaskQueueWorker, TerminalBackendKind, TerminalBackendState, TerminalDaemonControlLink,
+    TerminalDaemonEventBridge, TerminalDaemonLifecycle, TerminalService, TodoService,
+    UninstallCleanupService, UsageStatsService, WebAccessLifecycle, WorkspaceService,
+    WorktreeService, COMFY_LOCAL_PROVIDER_ID,
 };
 use std::sync::Arc;
 use utils::AppPaths;
@@ -1729,6 +1741,11 @@ pub fn run() {
     let quick_command_service = Arc::new(QuickCommandService::new(app_paths.quick_commands_path()));
     // 「本轮已富通知」标记注册表：trigger_notification 打标，状态机 turn_end 兜底查标去重
     let turn_notify_registry = Arc::new(services::TurnNotifyRegistry::new());
+    let notification_preferences = Arc::new(
+        services::notification_preferences::NotificationPreferenceService::new(
+            crate::utils::app_config_dir(),
+        ),
+    );
     let notification_service = Arc::new(NotificationService::new(turn_notify_registry.clone()));
     let notification_for_acp = notification_service.clone();
     let settings_for_acp = settings_service.clone();
@@ -1746,6 +1763,13 @@ pub fn run() {
         app_paths.skills_dir(),
         app_paths.user_skills_dir(),
     ));
+    let skill_link_service = Arc::new(SkillLinkService::new(
+        dirs::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".skill-manager")
+            .join("config.json"),
+    ));
+    let skill_remote_update_service = Arc::new(SkillRemoteUpdateService::new());
     let plan_service = Arc::new(PlanService::new(
         app_paths.clone(),
         workspace_service.clone(),
@@ -1909,6 +1933,7 @@ pub fn run() {
         .manage(provider_service)
         .manage(launch_profile_service)
         .manage(quick_command_service)
+        .manage(notification_preferences)
         .manage(notification_service)
         .manage(turn_notify_registry)
         .manage(ccchan_service)
@@ -1923,6 +1948,8 @@ pub fn run() {
         .manage(project_skill_service)
         .manage(workspace_skill_service)
         .manage(skill_market_service)
+        .manage(skill_link_service)
+        .manage(skill_remote_update_service)
         .manage(external_skill_registry)
         .manage(plan_service)
         .manage(plan_archive_service)
@@ -2277,6 +2304,18 @@ pub fn run() {
                     app_handle.clone(),
                     history_watch_manager.clone(),
                 )));
+                match app.path().app_log_dir() {
+                    Ok(directory) => {
+                        let recorder = services::performance_recorder::PerformanceRecorder::start(
+                            directory.join("performance"),
+                            app.state::<Arc<AppPaths>>().runtime_dir().join("daemon-manifest.json"),
+                            app.package_info().version.to_string(),
+                            app.state::<Arc<TerminalDaemonEventBridge>>().inner().clone(),
+                        );
+                        app.manage(recorder);
+                    }
+                    Err(error) => warn!(%error, "performance recorder directory unavailable"),
+                }
                 let tauri_emitter: std::sync::Arc<dyn cc_panes_core::events::EventEmitter> =
                     Arc::new(TauriEmitter::new(app_handle.clone()));
 
@@ -3053,6 +3092,9 @@ pub fn run() {
             submit_to_session,
             get_all_terminal_status,
             get_bridge_stats,
+            commands::record_performance_snapshot,
+            commands::get_performance_recorder_status,
+            commands::mark_performance_incident,
             get_available_shells,
             get_windows_build_number,
             check_environment,
@@ -3249,6 +3291,11 @@ pub fn run() {
             migrate_data_dir,
             generate_claude_md,
             get_log_dir,
+            get_notification_preferences,
+            set_notification_snooze,
+            set_layout_notification_sound,
+            import_notification_sound,
+            get_notification_sound_path,
             trigger_notification,
             // IM 外推命令
             test_im_channel,
@@ -3320,6 +3367,13 @@ pub fn run() {
             delete_skill,
             copy_skill,
             list_skill_market_entries,
+            link_add_workspace,
+            link_annotate_repo,
+            link_disable,
+            link_enable,
+            link_set_workspace,
+            link_snapshot,
+            link_update,
             search_skill_market,
             describe_skill_market_entry,
             install_skill_market_entry,
@@ -3549,6 +3603,9 @@ pub fn run() {
                 }
             }
             if let tauri::RunEvent::Exit = event {
+                if let Some(recorder) = app_handle.try_state::<Arc<services::performance_recorder::PerformanceRecorder>>() {
+                    recorder.stop();
+                }
                 info!("[cleanup] Application exiting, cleaning up resources...");
 
                 app_handle.state::<Arc<TaskQueueWorker>>().stop();

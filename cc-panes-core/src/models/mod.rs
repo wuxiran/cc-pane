@@ -10,6 +10,7 @@ pub mod git;
 mod history;
 pub mod launch_profile;
 pub mod layout_snapshot;
+pub mod link_skill;
 pub mod media;
 pub mod orchestrator_settings;
 pub mod plan;
@@ -85,6 +86,10 @@ pub use launch_profile::{
     ResolvedSkill, SharedMcpUrls, SkillCompatibility,
 };
 pub use layout_snapshot::{LayoutSnapshot, SaveLayoutSnapshotRequest};
+pub use link_skill::{
+    AddWorkspaceOutcome, DisableCounts, EnableCounts, LinkAgent, LinkSnapshot, LinkState,
+    LinkWorkspace, ManagedSkill, SkillAgentState, UpdateOutcome,
+};
 pub use media::{
     CreateMediaAssetRequest, CreateMediaEdgeRequest, CreateMediaNodeRequest, CreateMediaRunRequest,
     MediaAsset, MediaCachePolicy, MediaEdge, MediaEdgeSelector, MediaJobRequest, MediaKind,

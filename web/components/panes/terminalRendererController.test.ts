@@ -262,7 +262,7 @@ describe("terminal renderer controller", () => {
 
     controller.suspendWebgl("background");
     controller.resumeWebgl("foreground");
-    expect(rendererProbeMock.reset).toHaveBeenCalledTimes(2);
+    expect(rendererProbeMock.reset).toHaveBeenCalledOnce();
     expect(webglMock.instances).toHaveLength(1);
     expect(controller.getDiagnostics()).toMatchObject({
       activeRenderer: "dom",

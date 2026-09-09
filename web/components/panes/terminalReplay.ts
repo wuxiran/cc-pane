@@ -1,16 +1,15 @@
 import type { TerminalRecoverySnapshot } from "@/types";
 import { reanchorSeq } from "./terminalOutputSeqTracker";
+import { writeTerminalReplay } from "./terminalReplayChunks";
+import { restoreReplayBufferMode } from "./terminalReplayBufferMode";
+import { withTerminalReplayPresentation, type ReplayPresentationTerminal } from "./terminalReplayPresentation";
+import { checkpointRecoveredTerminal } from "./terminalRecoveryCheckpoint";
 
-interface ReplayTerminal {
-  buffer: {
-    active: {
-      type: "normal" | "alternate";
-    };
-  };
-}
+type ReplayTerminal = ReplayPresentationTerminal;
 type ReplayLogger = (event: string, payload?: Record<string, unknown>) => void;
 
 interface ReplayAttachedSessionOptions {
+  canWrite?: () => boolean;
   term: ReplayTerminal;
   sessionId: string;
   getRecoverySnapshot: (sessionId: string) => Promise<TerminalRecoverySnapshot | null>;
@@ -27,11 +26,16 @@ export function reanchorAfterRecovery(
   sessionId: string,
   snapshot: TerminalRecoverySnapshot,
 ): void {
-  if (snapshot.checkpointEpoch === 0) return;
+  if (snapshot.checkpointEpoch === "0") return;
   reanchorSeq(sessionId, snapshot.endSeq, snapshot.checkpointEpoch);
 }
 
-export async function replayAttachedSession({
+export function replayAttachedSession(options: ReplayAttachedSessionOptions): Promise<TerminalRecoverySnapshot | null> {
+  return withTerminalReplayPresentation(options.term, () => restoreAttachedSnapshot(options));
+}
+
+async function restoreAttachedSnapshot({
+  canWrite,
   term,
   sessionId,
   getRecoverySnapshot,
@@ -41,6 +45,7 @@ export async function replayAttachedSession({
   debugLog,
 }: ReplayAttachedSessionOptions): Promise<TerminalRecoverySnapshot | null> {
   const snapshot = await getRecoverySnapshot(sessionId);
+  if (canWrite && !canWrite()) return null;
 
   if (!snapshot) {
     debugLog("session.attach-existing.replay.skip", {
@@ -50,7 +55,7 @@ export async function replayAttachedSession({
     return null;
   }
 
-  if (!snapshot.checkpoint && !snapshot.delta) {
+  if (!snapshot.checkpoint && !snapshot.delta && term.buffer.active.type === snapshot.bufferMode) {
     debugLog("session.attach-existing.replay.skip", {
       attachSessionId: sessionId,
       reason: "empty-snapshot",
@@ -70,13 +75,16 @@ export async function replayAttachedSession({
 
   // 双管道（裁决 B）：photo 直写、delta 过 renderTerminalData。
   if (snapshot.checkpoint) {
-    await writeCheckpointData(snapshot.checkpoint.snapshotAnsi);
+    await writeTerminalReplay(snapshot.checkpoint.snapshotAnsi, writeCheckpointData, { canWrite });
+  } else {
+    await restoreReplayBufferMode(snapshot, term, writeData, canWrite);
   }
   if (snapshot.delta) {
-    await writeData(snapshot.delta);
+    await writeTerminalReplay(snapshot.delta, writeData, { canWrite });
   }
   syncTrackedBufferType("session.attach-existing.replay");
   reanchorAfterRecovery(sessionId, snapshot);
+  checkpointRecoveredTerminal(term, sessionId);
 
   debugLog("session.attach-existing.replay.end", {
     attachSessionId: sessionId,

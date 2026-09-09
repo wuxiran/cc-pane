@@ -18,7 +18,7 @@ export interface TerminalBackgroundLifecycle {
   dispose(): void;
 }
 
-export const BACKGROUND_TIER1_DELAY_MS = 5 * 60_000;
+export const BACKGROUND_TIER1_DELAY_MS = 1_000;
 export const BACKGROUND_TIER2_DELAY_MS = 30 * 60_000;
 
 interface CreateTerminalBackgroundLifecycleOptions {

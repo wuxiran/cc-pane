@@ -1419,6 +1419,9 @@ pub struct CliProvider {
     pub project_id: Option<String>,
     pub aws_profile: Option<String>,
     pub config_dir: Option<String>,
+    /// Codex 专用：wire API（"responses" | "chat"），None = 缺省 responses（issue #46）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_wire_api: Option<String>,
     #[serde(default)]
     pub is_default: bool,
 }

@@ -1,3 +1,4 @@
+use super::terminal_checkpoint_dto::{CheckpointDto, RecoverySnapshotDto};
 use crate::models::TerminalReplaySnapshot;
 use crate::models::{CreateSessionRequest, ResizeRequest};
 use crate::services::terminal_service;
@@ -1015,15 +1016,21 @@ pub fn ack_terminal_output(
 /// 旧 daemon 缺路由（CHECKPOINT_UNSUPPORTED）→ 回落旧 /snapshot 包成纯 delta
 /// 形状——前端消费方只有一个形状。
 #[tauri::command]
-pub fn get_terminal_recovery_snapshot(
+pub async fn get_terminal_recovery_snapshot(
     app_handle: AppHandle,
     service: State<'_, Arc<TerminalBackendState>>,
     launch_history_service: State<'_, Arc<LaunchHistoryService>>,
     history_watch_manager: State<'_, Arc<HistoryWatchManager>>,
     session_id: String,
-) -> AppResult<Option<cc_panes_core::models::TerminalRecoverySnapshot>> {
+) -> AppResult<Option<RecoverySnapshotDto>> {
     debug!(session_id = %session_id, "cmd::get_terminal_recovery_snapshot");
     let backend = service.backend();
+    let uses_daemon = service.kind() == TerminalBackendKind::Daemon;
+    let launch_history_service = launch_history_service.inner().clone();
+    let history_watch_manager = history_watch_manager.inner().clone();
+    // REST, JSON decoding, snapshot copies and history-watch restoration can
+    // take hundreds of milliseconds. Never run them on the desktop IPC thread.
+    tauri::async_runtime::spawn_blocking(move || {
     let recovery = match backend.get_session_recovery_snapshot(&session_id) {
         Ok(recovery) => recovery,
         Err(error) if error.code() == Some("CHECKPOINT_UNSUPPORTED") => {
@@ -1043,7 +1050,7 @@ pub fn get_terminal_recovery_snapshot(
 
     if let Some(recovery) = recovery
         .as_ref()
-        .filter(|_| service.kind() == TerminalBackendKind::Daemon)
+        .filter(|_| uses_daemon)
     {
         if let Ok(Some(record)) = launch_history_service.find_by_pty_session_id(&session_id) {
             if let Err(error) =
@@ -1065,7 +1072,8 @@ pub fn get_terminal_recovery_snapshot(
         bridge.start_session_after_replay(session_id, backend, &baseline);
     }
 
-    Ok(recovery)
+    Ok(recovery.map(RecoverySnapshotDto::from))
+    }).await.map_err(|error| AppError::from(error.to_string()))?
 }
 
 /// 前端上传终端画面照片（checkpoint，M3b-2）。
@@ -1078,12 +1086,12 @@ pub fn get_terminal_recovery_snapshot(
 pub async fn upload_terminal_checkpoint(
     service: State<'_, Arc<TerminalBackendState>>,
     session_id: String,
-    checkpoint: crate::models::TerminalCheckpoint,
+    checkpoint: CheckpointDto,
 ) -> AppResult<crate::models::StoreCheckpointOutcome> {
     debug!(session_id = %session_id, "cmd::upload_terminal_checkpoint");
     let backend = service.backend();
     tauri::async_runtime::spawn_blocking(move || {
-        backend.store_session_checkpoint(&session_id, checkpoint)
+        backend.store_session_checkpoint(&session_id, checkpoint.into())
     })
     .await
     .map_err(|e| AppError::from(e.to_string()))?

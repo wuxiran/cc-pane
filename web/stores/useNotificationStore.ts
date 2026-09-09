@@ -31,6 +31,7 @@ export interface NotificationRecord {
   read: boolean;
   /** 用户在卡片里回复并成功回传会话的时刻 */
   respondedAt?: number;
+  localSuppressed?: boolean;
 }
 
 interface NotificationStoreState {
@@ -72,6 +73,7 @@ type NotificationSentPayload = {
   sessionId?: unknown;
   requiresInput?: unknown;
   inputPlaceholder?: unknown;
+  localSuppressed?: unknown;
 };
 
 function readStoredNotifications(): NotificationRecord[] {
@@ -137,6 +139,7 @@ export function normalizeNotification(payload: NotificationSentPayload): Notific
       optionalString(metadata?.task_binding_id),
     timestamp: typeof payload.timestamp === "number" ? payload.timestamp : Date.now(),
     sessionId: optionalString(payload.sessionId),
+    localSuppressed: payload.localSuppressed === true ? true : undefined,
     requiresInput: payload.requiresInput === true ? true : undefined,
     inputPlaceholder: optionalString(payload.inputPlaceholder),
     metadata: metadata ?? undefined,

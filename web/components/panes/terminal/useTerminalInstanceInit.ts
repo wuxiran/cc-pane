@@ -1,5 +1,3 @@
-// xterm 初始化与后端会话装配的 init effect。从 TerminalView.tsx 拆出
-// （纯代码移动，逻辑不变）；effect 依赖保持 [instanceEpoch] 不变。
 import { useEffect } from "react";
 // xterm 构造器不再静态取值（首屏 ~123kB gzip）：类型在这里 import type，
 // 运行时装配经 terminalXtermModules 的 loadXtermRuntime() 动态 import。
@@ -20,6 +18,7 @@ import { collectHibernatedOutput } from "../useTerminalHibernation";
 import type { HibernatedTerminalState } from "../terminalHibernation";
 import { attachTerminalTuiWheelMultiplier } from "../terminalTuiWheelMultiplier";
 import { createTerminalWriteFlowControl } from "../terminalWriteFlowControl";
+import { registerRecoveryCheckpointSource } from "../terminalRecoveryCheckpoint";
 import {
   createTerminalLayoutScheduler,
   type TerminalLayoutScheduler,
@@ -309,6 +308,7 @@ export function useTerminalInstanceInit({
       const serialize = new SerializeAddon();
       term.loadAddon(serialize);
       serializeAddonRef.current = serialize;
+      if (drivesBackendPty) registerRecoveryCheckpointSource(term, serialize, () => isMounted && !readOnlyRef.current);
       term.open(terminalRef.current);
       // 给开了鼠标上报的全屏 TUI 补足滚轮距离（xterm 会抑制小像素增量）。
       // 走官方钩子而不是自己挂监听——理由见 terminalTuiWheelMultiplier.ts。

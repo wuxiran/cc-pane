@@ -3590,6 +3590,22 @@ struct McpQueryTaskBindingsParams {
     search: Option<String>,
     /// 返回数量上限（默认 50）
     limit: Option<u32>,
+    /// 紧凑模式：prompt 截断为前 200 字符并丢弃 metadata（issue #64-#2，默认 false）
+    #[serde(default)]
+    compact: Option<bool>,
+}
+
+fn compact_task_bindings(items: &mut [TaskBinding]) {
+    for item in items {
+        if let Some(prompt) = &mut item.prompt {
+            let count = prompt.chars().count();
+            if count > 200 {
+                let head: String = prompt.chars().take(200).collect();
+                *prompt = format!("{head}…（共 {count} 字）");
+            }
+        }
+        item.metadata = None;
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -8656,8 +8672,15 @@ impl McpToolHandler {
         };
 
         match self.state.task_binding_service.query(query) {
-            Ok(result) => serde_json::to_string(&result)
-                .unwrap_or_else(|e| format!("错误: 序列化失败: {}", e)),
+            Ok(mut result) => {
+                // 紧凑模式（issue #64-#2）：prompt 截断为前 200 字、丢弃 metadata，
+                // 避免默认返回体超出 MCP 工具上限被截断落盘。
+                if params.compact.unwrap_or(false) {
+                    compact_task_bindings(&mut result.items);
+                }
+                serde_json::to_string(&result)
+                    .unwrap_or_else(|error| format!("错误: 序列化失败: {error}"))
+            }
             Err(e) => format!("错误: 查询 TaskBindings 失败: {}", e),
         }
     }
@@ -16575,6 +16598,37 @@ mod tests {
             created_at: "2026-07-04T00:00:00Z".to_string(),
             updated_at: "2026-07-04T00:00:00Z".to_string(),
         }
+    }
+
+    #[test]
+    fn compact_task_bindings_truncates_unicode_prompts_and_drops_metadata() {
+        let mut short = test_pending_report_worker("short");
+        short.prompt = Some("简短提示".to_string());
+        short.metadata = Some(serde_json::json!({ "large": "payload" }));
+        let mut long = test_pending_report_worker("long");
+        long.prompt = Some("界".repeat(205));
+        long.metadata = Some(serde_json::json!({ "large": "payload" }));
+        let mut items = vec![short, long];
+
+        compact_task_bindings(&mut items);
+
+        assert_eq!(items[0].prompt.as_deref(), Some("简短提示"));
+        assert_eq!(
+            items[1]
+                .prompt
+                .as_ref()
+                .unwrap()
+                .chars()
+                .take(200)
+                .collect::<String>(),
+            "界".repeat(200)
+        );
+        assert!(items[1]
+            .prompt
+            .as_ref()
+            .unwrap()
+            .ends_with("…（共 205 字）"));
+        assert!(items.iter().all(|item| item.metadata.is_none()));
     }
 
     #[test]

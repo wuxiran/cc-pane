@@ -1,0 +1,6 @@
+/* The base xterm stylesheet gives the scroll viewport an opaque black fill.
+   WebGL paints the themed background itself; a second fill would hide video. */
+.xterm[data-cc-transparent-webgl] .xterm-viewport,
+.xterm[data-cc-transparent-webgl] .xterm-scrollable-element {
+  background-color: transparent !important;
+}

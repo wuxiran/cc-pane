@@ -4,6 +4,48 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.12.13 - 2026-09-09
+
+This development version keeps video wallpaper and transparent terminals while improving recovery, rendering, layout controls, resource inspection and notifications.
+
+### Fixed
+
+- Desktop checkpoint identities cross JavaScript as exact decimal strings, while the daemon and persisted protocol retain compatible unsigned integers.
+- Completed recovery saves a new compact screen immediately, coalesces pending uploads and cancels capture after disposal.
+- Transparent WebGL uses correct alpha blending and removes the extra opaque scroll surface. Visible panes reclaim hidden GPU contexts within an eight-context budget; ordinary visibility changes reuse the GPU capability probe.
+- Sidebar resize handles remain inside their hit regions, support cancellation and drag-to-collapse, and restore saved expanded widths.
+- Settings dialogs use readable text sizes and fade without scaling the whole content layer.
+
+### Added
+
+- Central skill link management across agents and workspaces, with guarded enable/disable, backups, rollback and remote updates; Codex providers expose a validated wire API choice.
+- Persistent layout-list sizing, full-name tooltips, left-aligned layout controls and automatic geometry adaptation that preserves panels, tabs and live terminal identities.
+- Explicit app-memory capacity and scope, stable CPU/memory ranking, full session names and a resizable resource panel.
+- Per-layout default/custom/muted sounds with preview and reset; per-session timed snooze suppresses local cards, system popups and audio while preserving unread history and external delivery policy.
+- Recovery outcomes, renderer reasons, current focus and interval write latency in bounded performance records, plus isolated Windows DEV launch and desktop acceptance scripts.
+
+## 0.12.12 - 2026-09-07
+
+This release fixes long-running terminal stalls, Grok fullscreen recovery and transcript crashes, and adds automatic performance records.
+
+### Fixed
+
+- Opening Grok conversation history no longer crashes the app when a tool preview cuts into a Chinese or emoji UTF-8 character. Transcript parsing runs off the native IPC thread and worker failures return a typed error.
+- Raw terminal recovery restores the initial alternate-screen mode after the rolling buffer evicts its entry sequence, while respecting explicit strip overrides and serialized checkpoints.
+- Polling fallback tracks output byte coordinates instead of replaying the whole history when the rolling window advances; WebSocket connections are retried after an outage.
+- Large history replays use bounded writes with main-thread yields. Hidden sessions defer recovery and disposed views cancel pending work.
+- Window restoration resynchronizes layout and PTY dimensions without rebuilding WebGL atlases on ordinary heartbeats.
+- Upgrades from 0.12.11 merge saved layouts when isolation is disabled, stop automatically replacing local layouts with shared snapshots, and protect sessions across all saved scopes.
+- Recovery keeps a static terminal frame while parsing old redraws, then restores the reading position and reveals the final state. Parsed checkpoints are captured after recovery, with current write ownership checked before upload.
+
+### Added
+
+- Automatic performance records every 15 seconds, with a 64 MiB rotating limit, per-process resource usage and terminal backlog/transport metrics. Terminal text and keyboard input are excluded. About settings provide directory access and incident marking; an offline summary script supports later diagnosis.
+
+### Release
+
+- Publish only after desktop/mobile packages, the portable archive, updater metadata and CI for the exact release commit have completed successfully; validate the Chinese changelog before building.
+
 ## 0.12.11 - 2026-09-06
 
 Mostly a front-end release: first-screen JavaScript is cut by more than half, the UI/UX got a systematic pass, Agent Chat went from a flat message list to a conversation with turns, hierarchy and visible subagents, and the home page gained a direct line to the orchestration concierge.

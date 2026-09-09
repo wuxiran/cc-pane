@@ -2,6 +2,27 @@ import { describe, expect, it, vi } from "vitest";
 import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
 
 describe("createTerminalWriteFlowControl", () => {
+  it("tracks waiting and in-flight characters without retaining output in diagnostics", async () => {
+    let now = 100;
+    const callbacks: Array<() => void> = [];
+    const flow = createTerminalWriteFlowControl({ write: (_data, callback) => { callbacks.push(callback!); } },
+      { bytesThreshold: 1, highWatermark: 1, lowWatermark: 0, now: () => now });
+    const first = flow.write("中文");
+    const second = flow.write("private-prompt");
+    now += 80;
+    expect(flow.getStats()).toMatchObject({ queuedChars: 14, inFlightChars: 2, queuedWrites: 1, oldestWaitMs: 80, writeCalls: 2 });
+    expect(JSON.stringify(flow.getStats())).not.toContain("private-prompt");
+    callbacks.shift()!(); await first;
+    expect(flow.getStats()).toMatchObject({ queuedChars: 0, inFlightChars: 14, callbackMaxMs: 80 });
+    now += 20; callbacks.shift()!(); await second;
+    expect(flow.getStats()).toMatchObject({ queuedChars: 0, inFlightChars: 0, callbackMaxMs: 100, receivedChars: 16 });
+  });
+
+  it("removes failed target writes from in-flight diagnostics", async () => {
+    const flow = createTerminalWriteFlowControl({ write: () => { throw new Error("closed"); } });
+    await expect(flow.write("test")).rejects.toThrow("closed");
+    expect(flow.getStats()).toMatchObject({ queuedChars: 0, inFlightChars: 0, inFlightWrites: 0, failedWrites: 1 });
+  });
   it("applies backpressure with the default watermarks after a bounded burst", async () => {
     const callbacks: Array<() => void> = [];
     let completeImmediately = false;
@@ -25,6 +46,25 @@ describe("createTerminalWriteFlowControl", () => {
     while (callbacks.length > 0) callbacks.shift()?.();
     await Promise.all(writes);
     expect(target.write).toHaveBeenCalledTimes(writes.length);
+  });
+
+  it("splits a large replay into bounded xterm writes while preserving one promise", async () => {
+    const callbacks: Array<() => void> = [];
+    const chunks: string[] = [];
+    const flow = createTerminalWriteFlowControl({
+      write: (data, callback) => { chunks.push(data); if (callback) callbacks.push(callback); },
+    });
+    const pending = flow.write("x".repeat(40 * 1024));
+    expect(chunks[0]).toHaveLength(16 * 1024);
+    callbacks.shift()?.();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(chunks[1]).toHaveLength(16 * 1024);
+    callbacks.shift()?.();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(chunks[2]).toHaveLength(8 * 1024);
+    callbacks.shift()?.();
+    await pending;
+    expect(flow.getStats()).toMatchObject({ queuedChars: 0, inFlightChars: 0, failedWrites: 0 });
   });
 
   it("writes immediately when flow control is disabled", async () => {

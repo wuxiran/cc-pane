@@ -26,11 +26,11 @@ export interface TerminalRendererEnvironment {
 }
 
 // 壁纸透明需求 provider：由 useWallpaperStore 模块注册，本文件保持纯函数、不 import store。
-// WebGL 渲染器不透传背景（不覆盖就是黑底），透明需求必须降 DOM。
-let transparencyRequiredProvider: () => boolean = () => false;
+// xterm WebGL supports theme alpha; transparency must not force a CPU renderer.
 
 export function setTerminalTransparencyProvider(provider: () => boolean): void {
-  transparencyRequiredProvider = provider;
+  // Alpha is applied through the terminal theme, independently of renderer selection.
+  void provider;
 }
 
 export interface TerminalRendererSessionContext {
@@ -190,7 +190,6 @@ export function decideTerminalRenderer(
     webglRenderer: webglProbe.renderer,
     webglVendor: webglProbe.vendor,
   };
-  const transparencyRequired = env.transparencyRequired ?? transparencyRequiredProvider();
 
   if (mode === "dom") {
     return {
@@ -215,17 +214,6 @@ export function decideTerminalRenderer(
   }
 
   if (mode === "webgl") {
-    // 用户显式选 webgl 也必须被透明需求覆盖：WebGL 不透传背景。
-    if (transparencyRequired) {
-      return {
-        requestedMode: mode,
-        renderer: "dom",
-        reason: "wallpaper-transparency",
-        webglAllowed: false,
-        webgl2Supported,
-        ...probeDiagnostics,
-      };
-    }
     return {
       requestedMode: mode,
       renderer: "webgl",
@@ -245,17 +233,6 @@ export function decideTerminalRenderer(
       requestedMode: mode,
       renderer: "dom",
       reason: "webkit-host",
-      webglAllowed: false,
-      webgl2Supported,
-      ...probeDiagnostics,
-    };
-  }
-
-  if (transparencyRequired) {
-    return {
-      requestedMode: mode,
-      renderer: "dom",
-      reason: "wallpaper-transparency",
       webglAllowed: false,
       webgl2Supported,
       ...probeDiagnostics,

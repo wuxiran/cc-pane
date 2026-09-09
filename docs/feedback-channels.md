@@ -63,10 +63,10 @@ toastErr(t("popOutFailed", { ns: "panes", error: String(err) }));
 
 ### Toaster 挂载与位置
 
-- 主窗口：`web/components/layout/AppShell.tsx`，`position="bottom-center"`，`offset={{ bottom: 40 }}`。
+- 主窗口：`web/components/layout/AppShell.tsx`，`position="bottom-center"`，`offset={TOASTER_OFFSET_MAIN}`。
   理由：右下是通知中心卡片栈（`fixed bottom-11 right-3`），顶部有 TitleBar 与 Banner，底部有 28px StatusBar；
   底部居中 + 40px offset（28px StatusBar + 12px 间距）三者都不遮挡。
-- ccchan 浮窗：`web/ccchan/CCChanApp.tsx`，同样 `bottom-center`，`offset={{ bottom: 12 }}`（浮窗无 StatusBar）。
+- ccchan 浮窗：`web/ccchan/CCChanApp.tsx`，同样 `bottom-center`，`offset={TOASTER_OFFSET_CCCHAN}`（浮窗无 StatusBar）。
 - 位置与 offset 常量由 `web/lib/feedback.ts` 导出（`TOASTER_POSITION` / `TOASTER_OFFSET_MAIN` / `TOASTER_OFFSET_CCCHAN`），不写裸 CSS hack。
 
 ### 通知中心

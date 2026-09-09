@@ -1,0 +1,51 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+body { margin:0; background:#345678; } video { position:fixed; inset:0; width:100%;height:100%;object-fit:cover; }
+#host { position:relative; margin:20px; width:800px;height:400px; } #host>.xterm {height:100%}
+</style></head><body><video id="wallpaper" src="/wallpaper.mp4" autoplay loop muted playsinline></video><div id="host"></div>
+<script type="module">
+import {Terminal} from '@xterm/xterm';
+import '@xterm/xterm/css/xterm.css';
+import {createTerminalRendererController} from '/web/components/panes/terminalRendererController.ts';
+import {terminalWebglBudget} from '/web/components/panes/terminalWebglBudget.ts';
+const controllers = [], terminals = [];
+window.prepareTransparent = async () => {
+  const term = new Terminal({cols:80,rows:20,allowTransparency:true,fontSize:15,allowProposedApi:true,
+    theme:{background:'#00000033',foreground:'#ffffff'},cursorBlink:false});
+  term.open(document.querySelector('#host'));
+  const controller = createTerminalRendererController({term,logger:()=>{},onRendererChanged:()=>{}});
+  controller.configure('webgl'); controllers.push(controller); terminals.push(term);
+  window.controller = controller;
+  const addonRenderer = () => term._core._renderService._renderer.value;
+  window.sample = null;
+  const subscription = term.onRender(() => {
+    const gl = addonRenderer()?._gl;
+    if (!gl) return;
+    const background = new Uint8Array(4), glyph = new Uint8Array(40*40*4);
+    gl.readPixels(300,100,1,1,gl.RGBA,gl.UNSIGNED_BYTE,background);
+    gl.readPixels(0,gl.drawingBufferHeight-40,40,40,gl.RGBA,gl.UNSIGNED_BYTE,glyph);
+    window.sample = {background:[...background],maxGlyphAlpha:Math.max(...glyph.filter((_,i)=>i%4===3)),
+      renderer:controller.getDiagnostics(), contexts:terminalWebglBudget.count()};
+  });
+  await new Promise(resolve=>term.write('MMMM 透明 WebGL\r\n',resolve));
+  term.refresh(0,19);
+  return true;
+};
+window.testBudget = async () => {
+  for(let i=0;i<11;i++) {
+    const host=document.createElement('div'); host.style.cssText='position:absolute;left:0;top:500px;width:400px;height:200px';document.body.append(host);
+    const term=new Terminal({cols:40,rows:10,allowTransparency:true});term.open(host);
+    const controller=createTerminalRendererController({term,logger:()=>{},onRendererChanged:()=>{}});
+    controller.configure('webgl');controllers.push(controller);terminals.push(term);
+  }
+  const peak=terminalWebglBudget.count();
+  terminals.slice(0,4).forEach(t=>t.element.parentElement.style.display='none');
+  // Reclaim immediately, before the background release timer can fire.
+  controllers.slice(8).forEach(c=>c.resumeWebgl('test-visible'));
+  await new Promise(r=>setTimeout(r,50));
+  const resumed=controllers.slice(8).map(c=>c.getActiveRenderer());
+  controllers.forEach(c=>c.dispose());terminals.forEach(t=>t.dispose());
+  await new Promise(r=>setTimeout(r,0));
+  return {peak,resumed,remaining:terminalWebglBudget.count()};
+};
+window.fixtureReady=true;
+</script></body></html>

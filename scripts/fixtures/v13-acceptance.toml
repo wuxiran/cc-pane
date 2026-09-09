@@ -1,0 +1,75 @@
+# Synthetic acceptance settings; no user credentials or project configuration.
+settingsVersion = 1
+
+[general]
+closeToTray = true
+autoStart = false
+language = "zh-CN"
+searchScope = "Workspace"
+logLevel = "info"
+onboardingCompleted = true
+defaultCliTool = "claude"
+launchFavorites = ["terminal-default", "claude-default", "codex-default"]
+hideNonFavoriteLaunchActions = true
+disableWslUsageScan = false
+showSystemResources = true
+
+[terminal]
+fontSize = 15
+fontFamily = "\"Maple Mono NF CN\", \"Maple Mono\", \"Cascadia Code\", \"Cascadia Mono\", \"JetBrains Mono\", Consolas, \"Sarasa Mono SC\", \"Microsoft YaHei UI\", \"PingFang SC\", monospace"
+cursorStyle = "block"
+cursorBlink = false
+scrollback = 20000
+themeMode = "followApp"
+rendererMode = "webgl"
+showContextUsage = true
+showStatusBar = true
+taskQueueEnabled = true
+pathLinksEnabled = true
+shell = "powershell"
+daemonEnabled = true
+daemonOrphanTtlMinutes = 1440
+daemonOrphanReaperDisabled = false
+snapshotApplyKillEnabled = false
+autoAdoptDaemonSessions = true
+lowerSessionPriority = true
+splitShortcutPassthrough = false
+
+[notification]
+enabled = true
+onExit = false
+onWaitingInput = false
+onlyWhenUnfocused = false
+
+[localHistory]
+enabled = false
+
+[orchestrator]
+bindMode = "auto"
+allowMcpYoloProfiles = false
+followAgentLaunch = true
+
+[wallpaper]
+enabled = true
+kind = "video"
+file = "__WALLPAPER_FILE__"
+fit = "cover"
+opacity = 0.85
+blur = 0.0
+dim = 0.35
+terminalOpacity = 0.2
+glassBlur = 0.0
+
+[wallpaper.video]
+autoplay = true
+playbackRate = 1.0
+pauseWhenUnfocused = false
+powerSaver = "auto"
+
+[wallpaper.music]
+enabled = false
+volume = 0.5
+loopPlayback = true
+autoplay = true
+pauseWhenUnfocused = false
+useVideoAudio = false

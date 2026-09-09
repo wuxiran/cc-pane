@@ -278,6 +278,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
         data-testid="settings-dialog"
+        scaleAnimation={false}
         showCloseButton={false}
         resizable
         className="shape-panel !flex flex-col !gap-0 overflow-hidden !rounded-lg !p-0 shadow-2xl"

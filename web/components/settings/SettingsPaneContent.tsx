@@ -22,6 +22,7 @@ const QuickCommandsSection = lazyWithRetry(() => import("./QuickCommandsSection"
 const ScreenshotSection = lazyWithRetry(() => import("./ScreenshotSection"), "ScreenshotSection");
 const SharedMcpSection = lazyWithRetry(() => import("./SharedMcpSection"), "SharedMcpSection");
 const GlobalSkillsPanel = lazyWithRetry(() => import("@/components/resources/GlobalSkillsPanel"), "GlobalSkillsPanel");
+const LinkSkillManager = lazyWithRetry(() => import("@/components/skill/LinkSkillManager"), "LinkSkillManager");
 const ShortcutsSection = lazyWithRetry(() => import("./ShortcutsSection"), "ShortcutsSection");
 const TerminalSection = lazyWithRetry(() => import("./TerminalSection"), "TerminalSection");
 const ThemeSection = lazyWithRetry(() => import("./ThemeSection"), "ThemeSection");
@@ -104,7 +105,12 @@ function Pane({ paneId, draft, updateDraft, onUnsavedChangesChange }: SettingsPa
     case "shared-mcp":
       return <SharedMcpSection />;
     case "skills":
-      return <GlobalSkillsPanel />;
+      return (
+        <div className="flex flex-col gap-4">
+          <LinkSkillManager />
+          <GlobalSkillsPanel />
+        </div>
+      );
     case "screenshot":
       return <ScreenshotSection value={draft.screenshot} onChange={(screenshot) => updateDraft({ ...draft, screenshot })} />;
     case "wallpaper":

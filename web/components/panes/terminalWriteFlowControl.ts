@@ -7,6 +7,7 @@ interface TerminalWriteFlowControlOptions {
   bytesThreshold?: number;
   highWatermark?: number;
   lowWatermark?: number;
+  now?: () => number;
 }
 
 // Keep the xterm write queue shallow during TUI redraw bursts. Orca applies a
@@ -15,6 +16,9 @@ interface TerminalWriteFlowControlOptions {
 const DEFAULT_BYTES_THRESHOLD = 16 * 1024;
 const DEFAULT_HIGH_WATERMARK = 4;
 const DEFAULT_LOW_WATERMARK = 2;
+// xterm.write parses VT input synchronously. Keep replay/checkpoint payloads
+// bounded per renderer turn instead of handing one multi-MiB string to xterm.
+const MAX_TARGET_WRITE_CHARS = 16 * 1024;
 
 export function createTerminalWriteFlowControl(
   target: TerminalWriteTarget,
@@ -30,24 +34,58 @@ export function createTerminalWriteFlowControl(
 
   interface PendingWrite {
     data: string;
+    offset: number;
+    queuedAt: number;
     onWritten?: () => void;
     resolve: () => void;
     reject: (error: unknown) => void;
   }
 
   const queue: PendingWrite[] = [];
+  const now = options.now ?? (() => performance.now());
+  let queuedChars = 0;
+  let inFlightChars = 0;
+  let inFlightWrites = 0;
+  let receivedChars = 0;
+  let writeCalls = 0;
+  let failedWrites = 0;
+  let callbackMaxMs = 0;
+  let intervalCallbackMaxMs = 0;
   let blocked = false;
   let pumping = false;
+  let pumpYieldScheduled = false;
   let pendingCallbacks = 0;
   let bytesWritten = 0;
+
+  function schedulePump(): void {
+    if (pumpYieldScheduled) return;
+    pumpYieldScheduled = true;
+    const resume = () => {
+      pumpYieldScheduled = false;
+      pump();
+    };
+    // A zero-delay timer can starve rendering when several terminals are
+    // flooding at once. One chunk per animation frame keeps input/layout
+    // work ahead of the replay while preserving byte order.
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(resume);
+    } else {
+      setTimeout(resume, 16);
+    }
+  }
 
   function pump(): void {
     if (pumping || blocked) return;
     pumping = true;
     try {
-      while (queue.length > 0 && !blocked) {
+      while (queue.length > 0 && !blocked && !pumpYieldScheduled) {
         const entry = queue.shift()!;
-        bytesWritten += entry.data.length;
+        const chunk = entry.data.slice(entry.offset, entry.offset + MAX_TARGET_WRITE_CHARS);
+        entry.offset += chunk.length;
+        queuedChars -= chunk.length;
+        inFlightChars += chunk.length;
+        inFlightWrites += 1;
+        bytesWritten += chunk.length;
         const shouldTrackCallback = enabled && bytesWritten >= bytesThreshold;
         if (shouldTrackCallback) {
           bytesWritten = 0;
@@ -59,13 +97,25 @@ export function createTerminalWriteFlowControl(
         const complete = () => {
           if (callbackCompleted) return;
           callbackCompleted = true;
+          inFlightChars -= chunk.length;
+          inFlightWrites -= 1;
+          const elapsed = now() - entry.queuedAt;
+          callbackMaxMs = Math.max(callbackMaxMs, elapsed);
+          intervalCallbackMaxMs = Math.max(intervalCallbackMaxMs, elapsed);
           if (shouldTrackCallback) {
             pendingCallbacks = Math.max(0, pendingCallbacks - 1);
             if (blocked && pendingCallbacks <= lowWatermark) blocked = false;
           }
           try {
-            entry.onWritten?.();
-            entry.resolve();
+            if (entry.offset < entry.data.length) {
+              queue.unshift(entry);
+              // A synchronous xterm callback would otherwise make the outer
+              // pump consume every chunk in one renderer turn.
+              schedulePump();
+            } else {
+              entry.onWritten?.();
+              entry.resolve();
+            }
           } catch (error) {
             entry.reject(error);
           } finally {
@@ -74,12 +124,18 @@ export function createTerminalWriteFlowControl(
         };
 
         try {
-          target.write(entry.data, complete);
+          target.write(chunk, complete);
         } catch (error) {
+          if (!callbackCompleted) {
+            inFlightChars -= chunk.length;
+            inFlightWrites -= 1;
+            failedWrites += 1;
+          }
           if (!callbackCompleted && shouldTrackCallback) {
             pendingCallbacks = Math.max(0, pendingCallbacks - 1);
             if (blocked && pendingCallbacks <= lowWatermark) blocked = false;
           }
+          callbackCompleted = true;
           entry.reject(error);
         }
       }
@@ -89,12 +145,15 @@ export function createTerminalWriteFlowControl(
 
     // Synchronous xterm mocks can complete while the pump is active. Run one
     // more pass after dropping the re-entrancy guard so queued writes progress.
-    if (!blocked && queue.length > 0) pump();
+    if (!blocked && !pumpYieldScheduled && queue.length > 0) pump();
   }
 
   function write(data: string, onWritten?: () => void): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      queue.push({ data, onWritten, resolve, reject });
+      queuedChars += data.length;
+      receivedChars += data.length;
+      writeCalls += 1;
+      queue.push({ data, offset: 0, queuedAt: now(), onWritten, resolve, reject });
       try {
         pump();
       } catch (error) {
@@ -120,6 +179,7 @@ export function createTerminalWriteFlowControl(
    */
   function dispose(reason = "terminal write flow control disposed"): void {
     const pending = queue.splice(0);
+    queuedChars = 0;
     bytesWritten = 0;
     pendingCallbacks = 0;
     blocked = false;
@@ -136,5 +196,9 @@ export function createTerminalWriteFlowControl(
     reset,
     dispose,
     queueLength,
+    takeIntervalCallbackMaxMs: () => { const result = intervalCallbackMaxMs; intervalCallbackMaxMs = 0; return result; },
+    getStats: () => ({ queuedChars, inFlightChars, inFlightWrites, queuedWrites: queue.length,
+      receivedChars, writeCalls, failedWrites, callbackMaxMs,
+      oldestWaitMs: queue.length ? Math.max(0, now() - queue[0].queuedAt) : 0 }),
   };
 }

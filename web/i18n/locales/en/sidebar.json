@@ -610,5 +610,6 @@
   "treeModeProjects": "Projects",
   "treeModeTerminals": "Running terminals",
   "noRunningTerminals": "No running terminals",
-  "terminalSplitCount": "×{{count}}"
+  "terminalSplitCount": "×{{count}}",
+  "resizeSidebar": "Resize sidebar"
 }

@@ -143,6 +143,7 @@ export default function SortableLayoutTab({
         {...attributes}
         {...listeners}
         role="tab"
+        data-layout-id={layout.id}
         aria-selected={selected}
         title={layout.name}
         data-density={density}

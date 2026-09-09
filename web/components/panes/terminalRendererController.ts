@@ -1,4 +1,6 @@
 import { WebglAddon } from "@xterm/addon-webgl";
+import { terminalWebglBudget } from "./terminalWebglBudget";
+import { configureTransparentWebglAlpha } from "./terminalWebglAlpha";
 import type { IDisposable, Terminal } from "@xterm/xterm";
 import type { TerminalRendererMode } from "@/types/settings";
 import {
@@ -110,6 +112,7 @@ export function createTerminalRendererController({
   onRendererChanged,
 }: CreateTerminalRendererControllerOptions): TerminalRendererController {
   let requestedMode: TerminalRendererMode = "auto";
+  const budgetOwner = {};
   let decision: TerminalRendererDecision = decideTerminalRenderer("auto");
   let activeRenderer: ActiveTerminalRenderer = "dom";
   let webglAddon: WebglAddon | null = null;
@@ -117,6 +120,7 @@ export function createTerminalRendererController({
   let disposed = false;
   let configured = false;
   let suspended = false;
+  let budgetDeferred = false;
   let contextLossCount = 0;
   let atlasClearCount = 0;
   let atlasChangeCount = 0;
@@ -161,6 +165,8 @@ export function createTerminalRendererController({
   });
 
   const disposeWebgl = (reason: string) => {
+    term.element?.removeAttribute("data-cc-transparent-webgl");
+    terminalWebglBudget.release(budgetOwner);
     // 退出广播名单并丢弃待刷标记：重新 enable 时是全新模型，补刷只会白画一帧。
     atlasRefresh.detach();
     for (const disposable of webglDisposables) {
@@ -218,6 +224,13 @@ export function createTerminalRendererController({
       });
       return false;
     }
+  };
+
+  const releaseForBudget = () => {
+    disposeWebgl("budget-reclaimed");
+    budgetDeferred = true;
+    decision = { ...decision, renderer: "dom", reason: "webgl-context-budget" };
+    onRendererChanged("webgl.budget-reclaimed", getDiagnostics());
   };
 
   const repaint = (reason: string) => {
@@ -301,6 +314,7 @@ export function createTerminalRendererController({
 
     try {
       term.loadAddon(addon);
+      if (term.options?.allowTransparency) configureTransparentWebglAlpha(addon, term.element);
     } catch (error) {
       // loadAddon 会同步 activate()；若 shader/renderer 初始化抛错，此时 webglAddon 尚未保存，
       // addon._renderer 也可能尚未赋值。只检查本次同步激活新增的 canvas，显式释放其中
@@ -326,6 +340,7 @@ export function createTerminalRendererController({
     }
     webglAddon = addon;
     activeRenderer = "webgl";
+    budgetDeferred = false;
     lastError = null;
     lastDevicePixelRatio = getDevicePixelRatio();
     atlasRefresh.attach();
@@ -373,6 +388,15 @@ export function createTerminalRendererController({
       return;
     }
 
+    if (!terminalWebglBudget.acquire(budgetOwner, () => {
+      if (!disposed && !suspended) { configured = false; configure(requestedMode); }
+    }, () => Boolean(term.element?.getClientRects().length), releaseForBudget)) {
+      budgetDeferred = true;
+      decision = { ...decision, renderer: "dom", reason: "webgl-context-budget" };
+      onRendererChanged("webgl.context-budget", getDiagnostics());
+      return;
+    }
+
     try {
       enableWebgl();
       onRendererChanged("webgl.enabled", getDiagnostics());
@@ -393,6 +417,8 @@ export function createTerminalRendererController({
 
     try {
       disposeWebgl(`recreate.${reason}`);
+      if (!terminalWebglBudget.acquire(budgetOwner, () => configure(requestedMode),
+        () => Boolean(term.element?.getClientRects().length), releaseForBudget)) return false;
       enableWebgl();
       webglRecreateCount += 1;
       refreshAfterRendererRecovery(reason);
@@ -419,6 +445,7 @@ export function createTerminalRendererController({
   const suspendWebgl = (reason: string) => {
     if (disposed || suspended) return;
     suspended = true;
+    terminalWebglBudget.release(budgetOwner);
     if (webglAddon) {
       disposeWebgl(`suspend.${reason}`);
       repaint(`suspend.${reason}`);
@@ -428,9 +455,11 @@ export function createTerminalRendererController({
   };
 
   const resumeWebgl = (reason: string) => {
-    if (disposed || !suspended) return;
+    if (disposed || (!suspended && !budgetDeferred)) return;
     suspended = false;
-    resetTerminalWebglProbe();
+    budgetDeferred = false;
+    // Visibility does not change GPU capabilities. Reprobing here creates an
+    // extra throwaway context for every pane on every layout switch.
     logger("renderer.webgl.resumed", { reason, ...getDiagnostics() });
     // 按挂起期间可能已更新的最新决策重建。Context loss 的锁存必须跨
     // suspend/resume 保留；只有用户显式切换 renderer mode 才允许再次尝试 WebGL。

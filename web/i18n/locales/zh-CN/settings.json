@@ -1054,5 +1054,15 @@
   "theme.terminalThemeHint": "终端配色跟随应用主题，也可单独设置。",
   "theme.terminalThemeLink": "前往终端设置",
   "mcpEdit": "编辑",
-  "mcpDelete": "删除"
+  "mcpDelete": "删除",
+  "performanceRecords": "性能记录",
+  "performanceRecordsDescription": "每 15 秒保存资源和终端运行状态，总容量上限 64 MiB，自动覆盖最旧记录。不保存终端正文或输入内容。",
+  "performanceRecording": "正在自动记录",
+  "performanceRecorderUnavailable": "性能记录暂不可用",
+  "openPerformanceRecords": "打开性能记录",
+  "markPerformanceIncident": "标记当前卡顿",
+  "performanceIncidentMarked": "已标记当前时间，正在保存运行状态。",
+  "providerCodexWireApi": "Codex Wire API",
+  "providerWireApiResponses": "responses（官方 OpenAI / 主流中转）",
+  "providerWireApiChat": "chat（仅支持 /chat/completions 的中转）"
 }

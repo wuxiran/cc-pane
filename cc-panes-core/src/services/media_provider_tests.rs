@@ -517,9 +517,7 @@ async fn spawn_sub2api_server() -> (String, tokio::task::JoinHandle<()>) {
     let handle = tokio::spawn(async move {
         for _ in 0..3 {
             let (mut socket, _) = listener.accept().await.expect("accept");
-            let mut buffer = [0_u8; 16 * 1024];
-            let length = socket.read(&mut buffer).await.expect("read");
-            let request = String::from_utf8_lossy(&buffer[..length]).to_string();
+            let request = read_mock_request(&mut socket).await;
             let lowercase = request.to_ascii_lowercase();
             let path = request
                 .lines()
@@ -584,9 +582,7 @@ async fn spawn_server() -> (String, tokio::task::JoinHandle<()>) {
     let handle = tokio::spawn(async move {
         for _ in 0..4 {
             let (mut socket, _) = listener.accept().await.expect("accept");
-            let mut buffer = [0_u8; 16 * 1024];
-            let length = socket.read(&mut buffer).await.expect("read");
-            let request = String::from_utf8_lossy(&buffer[..length]);
+            let request = read_mock_request(&mut socket).await;
             let path = request
                 .lines()
                 .next()
@@ -624,4 +620,60 @@ async fn spawn_server() -> (String, tokio::task::JoinHandle<()>) {
         }
     });
     (base_url, handle)
+}
+
+// Drain the complete request before closing a mock socket. A single TCP read can
+// contain only headers; closing with unread POST bytes can reset a Windows socket.
+async fn read_mock_request(socket: &mut (impl tokio::io::AsyncRead + Unpin)) -> String {
+    let mut buffer = [0_u8; 16 * 1024];
+    let mut length = 0;
+    let header_end = loop {
+        let count = socket
+            .read(&mut buffer[length..])
+            .await
+            .expect("read request");
+        assert!(count > 0, "incomplete mock request headers");
+        length += count;
+        if let Some(end) = buffer[..length].windows(4).position(|w| w == b"\r\n\r\n") {
+            break end + 4;
+        }
+    };
+    let headers = std::str::from_utf8(&buffer[..header_end]).expect("request headers");
+    let body_length = headers
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+        .map(|(_, value)| value.trim().parse::<usize>().expect("content length"))
+        .unwrap_or(0);
+    let end = header_end + body_length;
+    assert!(end <= buffer.len(), "mock request exceeds buffer");
+    while length < end {
+        let count = socket
+            .read(&mut buffer[length..end])
+            .await
+            .expect("read body");
+        assert!(count > 0, "incomplete mock request body");
+        length += count;
+    }
+    String::from_utf8(buffer[..end].to_vec()).expect("request UTF-8")
+}
+
+#[tokio::test]
+async fn mock_request_reader_waits_for_split_headers_and_post_body() {
+    let (mut writer, mut reader) = tokio::io::duplex(128);
+    let task = tokio::spawn(async move { read_mock_request(&mut reader).await });
+    writer
+        .write_all(b"POST /api HTTP/1.1\r\nContent-Len")
+        .await
+        .unwrap();
+    tokio::task::yield_now().await;
+    assert!(!task.is_finished());
+    writer.write_all(b"gth: 5\r\n\r\nhe").await.unwrap();
+    tokio::task::yield_now().await;
+    assert!(!task.is_finished());
+    writer.write_all(b"llo").await.unwrap();
+    assert_eq!(
+        task.await.unwrap(),
+        "POST /api HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello"
+    );
 }

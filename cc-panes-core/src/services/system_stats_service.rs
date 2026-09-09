@@ -6,6 +6,8 @@ use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
 
+mod diagnostics;
+
 #[cfg(any(windows, test))]
 mod process_math;
 #[cfg(windows)]

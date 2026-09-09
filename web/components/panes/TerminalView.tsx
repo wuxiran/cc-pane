@@ -60,10 +60,8 @@ import { useTerminalInstanceInit } from "./terminal/useTerminalInstanceInit";
 // 的动态 import 与 xterm JS 同 chunk 取回，在构造 Terminal 前就绪，加载完成后样式一致。
 
 import type { TerminalRendererMode, TerminalThemeMode } from "@/types";
-import { repaintTerminalWhenVisible } from "./terminalViewHelpers";
+import { bindTerminalWindowRecovery } from "./terminalWindowRecovery";
 const IS_WINDOWS = typeof navigator !== "undefined" && navigator.platform.startsWith("Win");
-const WEBGL_HEARTBEAT_INTERVAL_MS = 30_000;
-const WEBGL_SLEEP_GAP_MS = 75_000;
 
 // killSession 调用点白名单（web/test/killSessionAllowlist.test.ts）把本文件登记为
 // 「创建竞态回滚」杀点（预算 4 处）：拆到 terminal/ 下的会话创建与延迟恢复模块
@@ -151,11 +149,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const parserDisposableRefs = useRef<IDisposable[]>([]);
     const writeFlowControlRef = useRef<ReturnType<typeof createTerminalWriteFlowControl> | null>(null);
     const atlasResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const webglHeartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const lastDevicePixelRatioRef = useRef(
       typeof window !== "undefined" ? window.devicePixelRatio : 1
     );
-    const lastWebglHeartbeatAtRef = useRef(Date.now());
     const lastWebglRecoveryAtRef = useRef(0);
     const webglRecoveryStreakRef = useRef(0);
 
@@ -422,7 +418,6 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           onDataDisposableRef,
           currentSessionIdRef,
           atlasResetTimerRef,
-          webglHeartbeatTimerRef,
           layoutSchedulerRef,
           resizeObserverRef,
           parserDisposableRefs,
@@ -550,55 +545,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
     useEffect(() => {
       if (!IS_WINDOWS) return;
-
-      lastWebglHeartbeatAtRef.current = Date.now();
-      // 普通 resize/focus/visible 不清共享 atlas；只有 DPR 变化和休眠恢复才重建。
-      // atlas 结构变化时的跨 pane 同步已由 controller 的 notifyAtlasStructureChanged 负责。
-      const repaintIfVisible = (reason: string) => repaintTerminalWhenVisible(isRenderVisible,
-        (visibleReason) => rendererControllerRef.current?.repaint(visibleReason), reason);
-      const handleWindowResize = () => {
-        layoutSchedulerRef.current?.schedule("window.resize");
-        repaintIfVisible("window.resize");
-      };
-      const handleWindowFocus = () => {
-        if (window.devicePixelRatio !== lastDevicePixelRatioRef.current) {
-          scheduleWebglRecovery("window.focus.dpr-change");
-          return;
-        }
-        repaintIfVisible("window.focus");
-      };
-      const handleVisibilityChange = () => {
-        if (document.visibilityState === "visible") {
-          repaintIfVisible("document.visible");
-        }
-      };
-
-      window.addEventListener("resize", handleWindowResize);
-      window.addEventListener("focus", handleWindowFocus);
-      document.addEventListener("visibilitychange", handleVisibilityChange);
-      webglHeartbeatTimerRef.current = setInterval(() => {
-        const now = Date.now();
-        const elapsed = now - lastWebglHeartbeatAtRef.current;
-        lastWebglHeartbeatAtRef.current = now;
-        if (!shouldRunWebglRecovery()) return;
-
-        if (elapsed > WEBGL_SLEEP_GAP_MS) {
-          scheduleWebglRecovery("heartbeat.resume-gap", { forceRecreate: true });
-          return;
-        }
-
-        rendererControllerRef.current?.repaint("webgl.heartbeat");
-      }, WEBGL_HEARTBEAT_INTERVAL_MS);
-
-      return () => {
-        window.removeEventListener("resize", handleWindowResize);
-        window.removeEventListener("focus", handleWindowFocus);
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
-        if (webglHeartbeatTimerRef.current) {
-          clearInterval(webglHeartbeatTimerRef.current);
-          webglHeartbeatTimerRef.current = null;
-        }
-      };
+      return bindTerminalWindowRecovery({
+        isRenderVisible,
+        getLayoutScheduler: () => layoutSchedulerRef.current,
+        repaint: (reason) => rendererControllerRef.current?.repaint(reason),
+        getLastDevicePixelRatio: () => lastDevicePixelRatioRef.current,
+        shouldRunWebglRecovery,
+        scheduleWebglRecovery,
+      });
     }, [isRenderVisible, scheduleWebglRecovery, shouldRunWebglRecovery]);
 
     useTerminalDeferredRestore({

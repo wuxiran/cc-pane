@@ -1,0 +1,5 @@
+{
+  "identifier": "com.ccpanes.dev.v013",
+  "plugins": { "deep-link": { "desktop": { "schemes": ["ccpanes-dev-013"] } } },
+  "app": { "windows": [{ "label": "main", "title": "CC-Panes 0.12.13 [DEV]", "width": 1280, "height": 800, "minWidth": 960, "minHeight": 640, "center": true, "maximized": true, "decorations": false }] }
+}

@@ -149,6 +149,8 @@ vi.mock("./terminalRendererController", () => ({
   createTerminalRendererController: vi.fn(() => ({
     configure: vi.fn(),
     dispose: vi.fn(),
+    suspendWebgl: vi.fn(),
+    resumeWebgl: vi.fn(),
     getActiveRenderer: vi.fn(() => "canvas"),
     clearTextureAtlas: vi.fn(),
     repaint: vi.fn(),
@@ -540,7 +542,7 @@ describe("TerminalView", () => {
       delta: "replayed",
       bufferMode: "normal",
       endSeq: 0,
-      checkpointEpoch: 0,
+      checkpointEpoch: "0",
     });
     renderTerminalView({ sessionId: "existing-1", onSessionCreated });
 
@@ -555,7 +557,7 @@ describe("TerminalView", () => {
   it("removes serialized Codex composer backgrounds without requiring a wallpaper", async () => {
     getRecoverySnapshot.mockResolvedValue({
       checkpoint: {
-        checkpointEpoch: 1,
+        checkpointEpoch: "1",
         anchorSeq: 0,
         snapshotAnsi: "\x1b[7;48;2;41;41;41mcomposer",
         bufferMode: "normal",
@@ -566,7 +568,7 @@ describe("TerminalView", () => {
       delta: "",
       bufferMode: "normal",
       endSeq: 0,
-      checkpointEpoch: 1,
+      checkpointEpoch: "1",
     });
     renderTerminalView({ sessionId: "existing-1", cliTool: "codex" });
     const term = await lastTerm();
@@ -1117,7 +1119,7 @@ describe("TerminalView", () => {
       delta: "SNAPSHOT-REBUILD",
       bufferMode: "normal",
       endSeq: 0,
-      checkpointEpoch: 0,
+      checkpointEpoch: "0",
     });
     renderTerminalView();
     await waitFor(() => expect(registerOutput).toHaveBeenCalled());

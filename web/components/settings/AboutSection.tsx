@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { RefreshCw, FolderOpen, ShieldCheck } from "lucide-react";
 import { isTauriRuntime } from "@/services/runtime";
+import PerformanceDiagnosticsCard from "./PerformanceDiagnosticsCard";
 
 export default function AboutSection() {
   const { t } = useTranslation("settings");
@@ -166,6 +167,7 @@ export default function AboutSection() {
         )}
       </div>
 
+      <PerformanceDiagnosticsCard />
       {cleanupReport && (
         <div
           className="mt-2 space-y-2 border-t pt-3 text-[12px]"

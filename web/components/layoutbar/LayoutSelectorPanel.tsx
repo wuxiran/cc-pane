@@ -1,4 +1,7 @@
-import type { RefObject, PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
+import { LayoutAutoFitButton } from "./LayoutAutoFit";
+import { useEffect, type RefObject, type PointerEvent as ReactPointerEvent, type SyntheticEvent } from "react";
+import { usePanelResize } from "@/hooks/usePanelResize";
+import { usePanelPreferencesStore } from "@/stores/usePanelPreferencesStore";
 import { createPortal } from "react-dom";
 import { LayoutPanelTop, Network, PanelTop, Pin, PinOff, Plus } from "lucide-react";
 import { DndContext, closestCenter, type DragEndEvent, type SensorDescriptor, type SensorOptions } from "@dnd-kit/core";
@@ -74,6 +77,12 @@ export function LayoutSelectorPanel({
   const canvasMode = useCanvasDisplayStore((s) => s.mode);
   const setCanvasMode = useCanvasDisplayStore((s) => s.setMode);
   const canvasVisible = canvasMode === "canvas";
+  const width = usePanelPreferencesStore(s => s.layoutWidth);
+  const setWidth = usePanelPreferencesStore(s => s.setLayoutWidth);
+  const resize = usePanelResize({ element: floatingRef, width, min: 288, max: 720, onCommit: setWidth });
+  useEffect(() => {
+    floatingRef.current?.querySelector<HTMLElement>("[data-layout-selected=true]")?.scrollIntoView?.({ block: "nearest" });
+  }, [currentLayoutId, floatingRef]);
 
   // 类型计数桁的跳转：先切到目标布局（selectLayout 已含切视图），再挪 active 指针。
   // 只改指针不动挂载——keep-alive 靠 display:none，卸载会重建终端。
@@ -88,17 +97,22 @@ export function LayoutSelectorPanel({
       ref={floatingRef}
       role="dialog"
       aria-label={t("layouts")}
-      className={`fixed w-72 rounded-md border p-2 shadow-md outline-none ${panelPinned ? "z-[140]" : "z-[100]"}`}
+      className={`fixed rounded-md border p-2 shadow-md outline-none ${panelPinned ? "z-[140]" : "z-[100]"}`}
       onMouseEnter={openSelector}
       onMouseLeave={scheduleClose}
       style={{
-        left: floatingPosition.left,
+        width, maxWidth: "calc(100vw - 16px)",
+        left: Math.max(8, Math.min(floatingPosition.left, window.innerWidth - width - 8)),
         top: floatingPosition.top,
         background: "var(--app-panel-bg)",
         borderColor: "var(--app-border)",
         color: "var(--app-text-primary)",
       }}
     >
+      <div role="separator" aria-label={t("resizeLayoutList")} aria-orientation="vertical" tabIndex={0}
+        aria-valuemin={288} aria-valuemax={720} aria-valuenow={width}
+        className="absolute inset-y-0 -right-1 w-2 cursor-col-resize hover:bg-[var(--app-active-bg)]"
+        onPointerDown={resize} onKeyDown={e => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); setWidth(width + (e.key === "ArrowRight" ? 10 : -10)); } }} />
       <div className="mb-2 flex items-center justify-between px-1">
         <div
           className="flex min-w-0 flex-1 cursor-move select-none items-center self-stretch pr-2"
@@ -109,6 +123,7 @@ export function LayoutSelectorPanel({
           </span>
         </div>
         <div className="flex items-center gap-1">
+          {layouts.find(l => l.id === currentLayoutId)?.kind === "starred" ? null : <LayoutAutoFitButton />}
           <Tooltip>
             <TooltipTrigger asChild>
               <button

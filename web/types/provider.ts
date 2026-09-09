@@ -99,6 +99,7 @@ export interface Provider {
   projectId?: string | null;
   awsProfile?: string | null;
   configDir?: string | null;
+  codexWireApi?: string | null;
   models?: ProviderModel[];
   defaultModelId?: string | null;
   isDefault: boolean;

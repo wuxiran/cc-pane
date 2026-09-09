@@ -249,6 +249,7 @@ export async function bindTerminalSessionCallbacks(
     onSessionExit(sessionId, exitCode);
   });
   const resyncHandler = createTerminalDesyncHandler({
+      isRenderVisible,
       sessionId,
       terminalRef: terminalInstanceRef,
       hiddenWriteBufferRef,
@@ -295,6 +296,7 @@ export async function bindTerminalSessionCallbacks(
     );
   });
   desyncUnsubRef.current = () => {
+    resyncHandler.dispose();
     // 可选调用：测试替身的 registerDesync/registerCheckpointRequest 可能不返回
     // unsubscribe（真实实现恒返回函数）。
     desyncUnsub?.();

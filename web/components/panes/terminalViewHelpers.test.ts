@@ -30,16 +30,8 @@ describe("terminal view repaint visibility guard", () => {
     expect(repaint).toHaveBeenCalledWith("window.resize");
   });
 
-  it("routes all Windows window/document repaint events through the visibility guard", () => {
-    const handlers = terminalViewSource.match(
-      /const handleWindowResize = \(\) => \{[\s\S]*?document\.addEventListener\("visibilitychange", handleVisibilityChange\);/,
-    )?.[0];
-
-    expect(handlers).toContain('repaintIfVisible("window.resize")');
-    expect(handlers).toContain('repaintIfVisible("window.focus")');
-    expect(handlers).toContain('repaintIfVisible("document.visible")');
-    expect(handlers).not.toContain("rendererControllerRef.current?.repaint");
-  });
+  // Window listeners moved to terminalWindowRecovery. Its tests dispatch real
+  // focus/resize/visibility events and verify hidden-view guards and cleanup.
 });
 
 describe("macOS native menu block decision", () => {

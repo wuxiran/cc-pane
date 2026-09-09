@@ -310,7 +310,7 @@ describe("RightDock", () => {
     const sash = screen.getByRole("separator", { name: "调整右侧面板宽度" });
     expect(sash).toHaveStyle({
       width: "14px",
-      left: "-7px",
+      left: "0px",
       cursor: "col-resize",
       touchAction: "none",
     });

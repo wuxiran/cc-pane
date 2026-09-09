@@ -705,6 +705,7 @@ mod tests {
             project_id: None,
             aws_profile: None,
             config_dir: None,
+            codex_wire_api: None,
             is_default: false,
         }
     }

@@ -34,6 +34,30 @@ beforeEach(() => {
 });
 
 describe("captureAndUploadCheckpoint", () => {
+  it("checkpoints newly recovered output without waiting for the periodic debounce", async () => {
+    reanchorSeq("s1", 100, "117232978312953918");
+    uploadMock.mockResolvedValue({ kind: "accepted", anchorSeq: 100 });
+    await captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, { reason: "hidden-tier1-edge", nowMs: 1000 });
+    reanchorSeq("s1", 8_100_019, "117232978312953918");
+    await expect(captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, { reason: "recovery.complete", nowMs: 1100 })).resolves.toBe("uploaded");
+    expect(uploadMock).toHaveBeenCalledTimes(2);
+    expect(uploadMock.mock.calls[1][1].checkpointEpoch).toBe("117232978312953918");
+  });
+
+  it("waits for an older upload before saving recovered output, and cancels disposed sources", async () => {
+    reanchorSeq("s1", 100, "7");
+    let complete!: (value: { kind: "accepted"; anchorSeq: number }) => void;
+    uploadMock.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
+    const first = captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, { reason: "test", nowMs: 1000 });
+    reanchorSeq("s1", 200, "7");
+    let alive = true;
+    const second = captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, { reason: "recovery.complete", nowMs: 1100, canCapture: () => alive });
+    expect(uploadMock).toHaveBeenCalledTimes(1);
+    alive = false; complete({ kind: "accepted", anchorSeq: 100 });
+    await first;
+    await expect(second).resolves.toBe("skipped-no-terminal");
+    expect(uploadMock).toHaveBeenCalledTimes(1);
+  });
   it("无锚点候选（M3b-2 常态：epoch 未接通）→ skip 且不 serialize、不上传", async () => {
     const result = await captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, {
       reason: "test",
@@ -45,7 +69,7 @@ describe("captureAndUploadCheckpoint", () => {
   });
 
   it("无 xterm（休眠中）→ skip（daemon 周期重发兜底）", async () => {
-    reanchorSeq("s1", 100, 7);
+    reanchorSeq("s1", 100, "7");
     const result = await captureAndUploadCheckpoint("s1", null, serializeAddon, {
       reason: "test",
     });
@@ -55,7 +79,7 @@ describe("captureAndUploadCheckpoint", () => {
   });
 
   it("成功：payload 带锚点/epoch/尺寸/bufferMode，返回 uploaded", async () => {
-    reanchorSeq("s1", 100, 7);
+    reanchorSeq("s1", 100, "7");
     uploadMock.mockResolvedValue({ kind: "accepted", anchorSeq: 100 });
 
     const result = await captureAndUploadCheckpoint("s1", fakeTerm("alternate"), serializeAddon, {
@@ -65,7 +89,7 @@ describe("captureAndUploadCheckpoint", () => {
 
     expect(result).toBe("uploaded");
     expect(uploadMock).toHaveBeenCalledWith("s1", {
-      checkpointEpoch: 7,
+      checkpointEpoch: "7",
       anchorSeq: 100,
       snapshotAnsi: "PHOTO",
       bufferMode: "alternate",
@@ -76,7 +100,7 @@ describe("captureAndUploadCheckpoint", () => {
   });
 
   it("snapshotAnsi 已在手（休眠路径）时不再二次 serialize", async () => {
-    reanchorSeq("s1", 100, 7);
+    reanchorSeq("s1", 100, "7");
     uploadMock.mockResolvedValue({ kind: "accepted", anchorSeq: 100 });
 
     await captureAndUploadCheckpoint("s1", fakeTerm(), null, {
@@ -89,7 +113,7 @@ describe("captureAndUploadCheckpoint", () => {
   });
 
   it("409 STALE 无害：debug 即可，锚点记账不作废", async () => {
-    reanchorSeq("s1", 100, 7);
+    reanchorSeq("s1", 100, "7");
     uploadMock.mockResolvedValue({ kind: "rejectedStaleAnchor" });
 
     const result = await captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, {
@@ -97,11 +121,11 @@ describe("captureAndUploadCheckpoint", () => {
     });
 
     expect(result).toBe("rejected");
-    expect(anchorCandidate("s1")).toEqual({ anchorSeq: 100, checkpointEpoch: 7 });
+    expect(anchorCandidate("s1")).toEqual({ anchorSeq: 100, checkpointEpoch: "7" });
   });
 
   it("409 EPOCH_MISMATCH：本端 seq 记账整体作废（禁拍直到 reanchor）", async () => {
-    reanchorSeq("s1", 100, 7);
+    reanchorSeq("s1", 100, "7");
     uploadMock.mockResolvedValue({ kind: "rejectedEpochMismatch" });
 
     const result = await captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, {
@@ -113,13 +137,15 @@ describe("captureAndUploadCheckpoint", () => {
   });
 
   it("去抖 ≥60s：窗口内第二次触发直接 skip，不重复上传", async () => {
-    reanchorSeq("s1", 100, 7);
+    reanchorSeq("s1", 100, "7");
     uploadMock.mockResolvedValue({ kind: "accepted", anchorSeq: 100 });
 
     await captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, {
       reason: "first",
       nowMs: 1_000,
     });
+    reanchorSeq("s1", 200, "7");
+    uploadMock.mockResolvedValue({ kind: "accepted", anchorSeq: 200 });
     const second = await captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, {
       reason: "second",
       nowMs: 1_000 + CHECKPOINT_UPLOAD_DEBOUNCE_MS - 1,
@@ -131,12 +157,15 @@ describe("captureAndUploadCheckpoint", () => {
 
     expect(second).toBe("skipped-debounce");
     expect(third).toBe("uploaded");
+    await expect(captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, {
+      reason: "unchanged", nowMs: 1_000 + CHECKPOINT_UPLOAD_DEBOUNCE_MS * 2,
+    })).resolves.toBe("skipped-debounce");
     expect(uploadMock).toHaveBeenCalledTimes(2);
   });
 
   it("去抖按会话隔离：A 刚拍过不影响 B 立刻拍", async () => {
-    reanchorSeq("s1", 100, 7);
-    reanchorSeq("s2", 200, 7);
+    reanchorSeq("s1", 100, "7");
+    reanchorSeq("s2", 200, "7");
     uploadMock.mockResolvedValue({ kind: "accepted", anchorSeq: 100 });
 
     await captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, {
@@ -153,7 +182,7 @@ describe("captureAndUploadCheckpoint", () => {
   });
 
   it("去抖在尝试时点落账（先于 await）：上传失败也不放行第二次，防重试风暴", async () => {
-    reanchorSeq("s1", 100, 7);
+    reanchorSeq("s1", 100, "7");
     uploadMock.mockRejectedValue(new Error("boom"));
 
     const first = await captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, {
@@ -177,7 +206,7 @@ describe("captureAndUploadCheckpoint", () => {
     });
     expect(skipped).toBe("skipped-no-anchor");
 
-    reanchorSeq("s1", 100, 7);
+    reanchorSeq("s1", 100, "7");
     uploadMock.mockResolvedValue({ kind: "accepted", anchorSeq: 100 });
     const after = await captureAndUploadCheckpoint("s1", fakeTerm(), serializeAddon, {
       reason: "now-anchored",
@@ -187,7 +216,7 @@ describe("captureAndUploadCheckpoint", () => {
   });
 
   it("capability 关断（uploadCheckpoint 返回 null）→ skipped-capability", async () => {
-    reanchorSeq("s1", 100, 7);
+    reanchorSeq("s1", 100, "7");
     uploadMock.mockResolvedValue(null);
 
     await expect(
@@ -196,7 +225,7 @@ describe("captureAndUploadCheckpoint", () => {
   });
 
   it("上传异常不外抛（fire-and-forget 安全）", async () => {
-    reanchorSeq("s1", 100, 7);
+    reanchorSeq("s1", 100, "7");
     uploadMock.mockRejectedValue(new Error("boom"));
 
     await expect(

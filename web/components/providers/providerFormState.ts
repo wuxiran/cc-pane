@@ -13,6 +13,7 @@ export interface FormState {
   projectId: string;
   awsProfile: string;
   configDir: string;
+  codexWireApi: string;
   models: ProviderModel[];
   defaultModelIndex: number | null;
 }
@@ -26,6 +27,7 @@ export const emptyForm: FormState = {
   projectId: "",
   awsProfile: "",
   configDir: "",
+  codexWireApi: "",
   models: [],
   defaultModelIndex: null,
 };
@@ -67,6 +69,7 @@ export function formFromProvider(seed: Provider): FormState {
     projectId: seed.projectId || "",
     awsProfile: seed.awsProfile || "",
     configDir: seed.configDir || "",
+    codexWireApi: seed.codexWireApi || "",
     models: models.map((model) => ({ ...model })),
     defaultModelIndex: models.length === 0 ? null : defaultIndex >= 0 ? defaultIndex : 0,
   };

@@ -1,5 +1,9 @@
 import { ChevronDown, ChevronRight, RefreshCw, SquareTerminal, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useMemo, useRef } from "react";
+import { usePanelResize } from "@/hooks/usePanelResize";
+import { usePanelPreferencesStore, type ResourceSortMode } from "@/stores/usePanelPreferencesStore";
+import { sortResourceGroups } from "./resourceSorting";
 
 import StatusIndicator from "@/components/StatusIndicator";
 import { Button } from "@/components/ui/button";
@@ -88,17 +92,28 @@ export function SystemResourcePopover({
 }: SystemResourcePopoverProps) {
   const { t } = useTranslation("common");
   const orphanCount = tree?.orphans.length ?? 0;
+  const panelRef = useRef<HTMLDivElement>(null);
+  const width = usePanelPreferencesStore(s => s.resourceWidth);
+  const setWidth = usePanelPreferencesStore(s => s.setResourceWidth);
+  const sort = usePanelPreferencesStore(s => s.resourceSort);
+  const setSort = usePanelPreferencesStore(s => s.setResourceSort);
+  const resize = usePanelResize({ element: panelRef, width, min: 430, max: 960, direction: -1, onCommit: setWidth });
+  const displayGroups = useMemo(() => sortResourceGroups(groups, sort, t("resourceTopUsage")), [groups, sort, t]);
 
   return (
-    <PopoverContent side="top" align="end" sideOffset={6} className="w-[430px] p-0">
-      <div className="flex h-10 items-center gap-3 border-b border-[var(--app-border)] px-3">
+    <PopoverContent ref={panelRef} side="top" align="end" sideOffset={6} className="relative p-0" style={{ width, maxWidth: "calc(100vw - 16px)" }}>
+      <div role="separator" aria-label={t("resourceResize")} aria-orientation="vertical" tabIndex={0}
+        aria-valuemin={430} aria-valuemax={960} aria-valuenow={width}
+        className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize hover:bg-[var(--app-active-bg)]"
+        onPointerDown={resize} onKeyDown={e => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); setWidth(width + (e.key === "ArrowLeft" ? 10 : -10)); } }} />
+      <div className="flex min-h-10 flex-wrap items-center gap-3 border-b border-[var(--app-border)] px-3 py-1">
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--app-text-primary)]">
           {t("resourceManagerTitle")}
         </h2>
         <div className="flex shrink-0 items-center gap-2 text-xs tabular-nums text-[var(--app-text-secondary)]">
           <span>{t("cpuShort")} {formatCpu(headerStats.cpuPercent)}</span>
           <span>{t("memoryShort")} {formatGib(headerStats.memUsed)}/{formatGib(headerStats.memTotal)}G</span>
-          <span>{t("resourceManagerAppMemory")} {formatCpu(tree?.appMemoryPercent ?? 0)}</span>
+          <span title={t("resourceAppMemoryScope")}>{t("resourceManagerAppMemory")} {formatSize(tree?.appMemoryBytes ?? 0)} ({formatCpu(tree?.appMemoryPercent ?? 0)})</span>
         </div>
         <IconTooltipButton
           label={t("resourceManagerRefresh")}
@@ -110,6 +125,12 @@ export function SystemResourcePopover({
         </IconTooltipButton>
       </div>
 
+      <div className="flex items-center justify-end border-b border-[var(--app-border)] px-3 py-1">
+        <select aria-label={t("resourceSort")} value={sort} onChange={e => setSort(e.target.value as ResourceSortMode)} className="rounded bg-[var(--app-panel-bg)] px-2 py-1 text-xs">
+          <option value="group">{t("resourceSortGroup")}</option><option value="cpu">{t("resourceSortCpu")}</option><option value="memory">{t("resourceSortMemory")}</option>
+        </select>
+      </div>
+
       <div className="max-h-[430px] overflow-y-auto p-2">
         <div className="mb-1 px-1 text-[11px] font-semibold text-[var(--app-text-tertiary)]">
           {t("resourceManagerManagedSessions")}
@@ -119,7 +140,7 @@ export function SystemResourcePopover({
             {t("resourceManagerNoManagedSessions")}
           </div>
         ) : (
-          groups.map((group) => {
+          displayGroups.map((group) => {
             const collapsed = collapsedGroups.has(group.name);
             return (
               <div key={group.name} className="mb-1">
@@ -130,7 +151,7 @@ export function SystemResourcePopover({
                   onClick={() => onToggleGroup(group.name)}
                 >
                   {collapsed ? <ChevronRight className="size-3" /> : <ChevronDown className="size-3" />}
-                  <span className="min-w-0 flex-1 truncate">{group.name}</span>
+                  <span title={group.name} className="min-w-0 flex-1 truncate">{group.name}</span>
                   <span className="shrink-0 tabular-nums text-[11px] text-[var(--app-text-tertiary)]">
                     {formatCpu(group.cpuPercent)} · {formatSize(group.memoryBytes)}
                   </span>
@@ -171,7 +192,7 @@ export function SystemResourcePopover({
                             ? t("resourceManagerAdoptClaimed")
                             : session.adoptable
                               ? t("resourceManagerAdopt")
-                              : undefined
+                              : `${session.title}\n${session.workspaceName}`
                         }
                         className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-1 text-left hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
                         disabled={session.claimBlocked}

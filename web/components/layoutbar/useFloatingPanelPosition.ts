@@ -10,7 +10,7 @@ const FLOATING_PANEL_MARGIN = 8;
 const FLOATING_PANEL_GAP = 10;
 const FLOATING_PANEL_DEFAULT_HEIGHT = 360;
 
-export function useFloatingPanelPosition() {
+export function useFloatingPanelPosition(panelWidth = FLOATING_PANEL_WIDTH) {
   const rootRef = useRef<HTMLDivElement>(null);
   const floatingRef = useRef<HTMLDivElement>(null);
   const [floatingPosition, setFloatingPosition] = useState<FloatingPosition | null>(null);
@@ -19,7 +19,7 @@ export function useFloatingPanelPosition() {
     const panelHeight = floatingRef.current?.offsetHeight ?? FLOATING_PANEL_DEFAULT_HEIGHT;
     const maxLeft = Math.max(
       FLOATING_PANEL_MARGIN,
-      window.innerWidth - FLOATING_PANEL_WIDTH - FLOATING_PANEL_MARGIN,
+      window.innerWidth - panelWidth - FLOATING_PANEL_MARGIN,
     );
     const maxTop = Math.max(
       FLOATING_PANEL_MARGIN,

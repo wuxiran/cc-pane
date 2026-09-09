@@ -10,6 +10,7 @@ import { getErrorMessage } from "@/utils";
 import { terminalService } from "@/services/terminalService";
 import type { TerminalRecoverySnapshot } from "@/types";
 import { replayAttachedSession } from "./terminalReplay";
+import { writeTerminalReplay } from "./terminalReplayChunks";
 import {
   createTerminalBackgroundLifecycle,
   type TerminalBackgroundLifecycle,
@@ -21,6 +22,7 @@ import {
 } from "./terminalHibernation";
 import type { TerminalHiddenWriteBuffer } from "./terminalHiddenWriteBuffer";
 import type { TerminalRendererController } from "./terminalRendererController";
+import { withTerminalReplayPresentation } from "./terminalReplayPresentation";
 
 interface RefValue<T> {
   current: T;
@@ -45,12 +47,12 @@ export interface TerminalHibernationHandle {
   hibernatedStateRef: RefValue<HibernatedTerminalState | null>;
   /** 唤醒交接（init attach 分支优先回放它）。 */
   wakeStateRef: RefValue<HibernatedTerminalState | null>;
-  /** 每次 render 汇报可见性（幂等），驱动 5min/30min 两档降档定时器。 */
+  /** 每次 render 汇报可见性（幂等），驱动 1s/30min 两档降档定时器。 */
   notifyVisibility: (visible: boolean) => void;
 }
 
 /**
- * 后台标签分层降档（docs/71 §3.1）：5min 挂 WebGL，30min 休眠。
+ * 后台标签分层降档（docs/71 §3.1）：1s 挂 WebGL，30min 休眠。
  *
  * Tier2 休眠：serialize 全量缓冲 → 交接给 hibernatedStateRef → epoch 自增。
  * 旧 init effect 的 cleanup 完整销毁 xterm/renderer/订阅；新一轮 effect 见到
@@ -153,12 +155,13 @@ export function useTerminalHibernation({
 
   const notifyVisibility = useCallback(
     (visible: boolean) => {
+      if (visible) rendererControllerRef.current?.resumeWebgl("view-visible");
       // 回调走 ref 蹦床：本函数在每次 render 被调用，notifyVisibility 幂等。
       backgroundLifecycleRef.current ??= createTerminalBackgroundLifecycle({
         onTier1: () => {
           rendererControllerRef.current?.suspendWebgl("background");
-          // M3b-2 触发点②：隐藏 5min 边沿补拍——xterm 还活着，休眠（Tier2）
-          // 还有 25min 才到，先抢一张。守卫（无锚点/去抖/无实例）在内部。
+          // M3b-2 触发点②：隐藏 1s 边沿补拍——xterm 还活着，休眠（Tier2）
+          // 仍有近 30min 才到，先抢一张。守卫（无锚点/去抖/无实例）在内部。
           const checkpointSessionId = currentSessionIdRef.current;
           if (checkpointSessionId) {
             void captureAndUploadCheckpoint(
@@ -256,6 +259,7 @@ export function collectHibernatedOutput({
 }
 
 interface ReplayHibernationWakeOptions {
+  canWrite?: () => boolean;
   wake: HibernatedTerminalState;
   term: Pick<Terminal, "writeln">;
   /** 已是成品 VT 流，不可二次渲染。 */
@@ -274,6 +278,7 @@ interface ReplayHibernationWakeOptions {
  * （onSessionExited 在休眠期已回调，不重复）。
  */
 export async function replayHibernationWake({
+  canWrite,
   wake,
   term,
   writeTerminalData,
@@ -282,10 +287,11 @@ export async function replayHibernationWake({
   showReconnectHint,
   debugLog,
 }: ReplayHibernationWakeOptions): Promise<void> {
+  if (canWrite && !canWrite()) throw new Error("Terminal replay cancelled");
   const wakeData = wake.wakeData();
   if (wakeData !== null) {
     if (wakeData) {
-      await writeTerminalData(wakeData);
+      await writeTerminalReplay(wakeData, writeTerminalData, { canWrite });
     }
     syncTrackedBufferType("hibernation.wake");
     debugLog("hibernate.wake.replayed", {
@@ -305,6 +311,7 @@ export async function replayHibernationWake({
 }
 
 interface ReplayAttachOrWakeOptions {
+  canWrite?: () => boolean;
   term: Terminal;
   sessionId: string;
   /** 休眠唤醒交接；普通 attach 传 null。 */
@@ -320,7 +327,12 @@ interface ReplayAttachOrWakeOptions {
 }
 
 /** attach 分支的回放选路：休眠容器优先，普通 attach / 溢出走后端 snapshot。 */
-export async function replayAttachOrWake({
+export function replayAttachOrWake(options: ReplayAttachOrWakeOptions): Promise<void> {
+  return withTerminalReplayPresentation(options.term, () => restoreAttachOrWake(options));
+}
+
+async function restoreAttachOrWake({
+  canWrite,
   term,
   sessionId,
   wake,
@@ -334,6 +346,7 @@ export async function replayAttachOrWake({
 }: ReplayAttachOrWakeOptions): Promise<void> {
   const replayFromSnapshot = async () => {
     await replayAttachedSession({
+      canWrite,
       term,
       sessionId,
       getRecoverySnapshot,
@@ -350,6 +363,7 @@ export async function replayAttachOrWake({
   };
   if (wake) {
     await replayHibernationWake({
+      canWrite,
       wake,
       term,
       writeTerminalData,
