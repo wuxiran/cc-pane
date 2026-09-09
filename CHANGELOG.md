@@ -4,6 +4,10 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.12.16 - Unreleased
+
+Development branch after v0.12.15.
+
 ## 0.12.15 - 2026-09-10
 
 First public build after v0.12.13. Ships the 0.12.14 development work: a smaller session MCP surface, WSL workspace MCP/skills, and the 12.13 recovery/release pipeline kept intact.
