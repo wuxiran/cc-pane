@@ -10,6 +10,7 @@ const ALLOWED_LAYOUT_TRAVERSAL_FILES = {
   "components/LayoutSwitcherWindow.tsx": "renders a persisted layout snapshot list, not pane-tree traversal",
   "components/panes/DndPaneProvider.tsx": "looks up a DnD target layout by id",
   "components/panes/paneDndRouting.ts": "routes layout-tab DnD ordering",
+  "hooks/useHiddenSessionReporter.ts": "reports hidden terminal sessions across every stored layout when the window is occluded",
   "hooks/useLayoutSwitcherSync.ts": "serializes layout switcher metadata",
   "hooks/useLayoutScopeSync.ts": "merges retired layout-scope snapshot payloads (full arrays, starred included) back into the live tree",
   "stores/useLayoutScopeStore.ts": "collects session ids across every stored scope payload; iterates the full array so starred mirrors are protected",

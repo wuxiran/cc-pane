@@ -79,7 +79,7 @@ describe("AgentConciergeEntry", () => {
       path: "/workspace/demo",
       cliTool: "claude",
       skipMcp: false,
-      appendSystemPrompt: expect.stringContaining("launch_task"),
+      appendSystemPrompt: expect.stringContaining("dispatch_task"),
     }));
     const prompt = onOpenTerminal.mock.calls[0][0].appendSystemPrompt ?? "";
     expect(prompt).toContain("create_workspace");

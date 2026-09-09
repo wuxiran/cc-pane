@@ -225,6 +225,7 @@ vi.mock("@/services/terminalService", () => ({
     registerOutput: vi.fn().mockResolvedValue(undefined),
     registerExit: vi.fn().mockResolvedValue(undefined),
     registerDesync: vi.fn().mockResolvedValue(undefined),
+    registerHiddenTerminalQueryHandler: vi.fn().mockReturnValue(() => {}),
     detachOutput: vi.fn(),
     detachExit: vi.fn(),
     resize: vi.fn().mockResolvedValue(undefined),
@@ -233,6 +234,8 @@ vi.mock("@/services/terminalService", () => ({
     releaseSession: vi.fn().mockResolvedValue(undefined),
     getReplaySnapshot: vi.fn().mockResolvedValue(null),
     getAllStatus: vi.fn().mockResolvedValue([]),
+    setOutputViewVisibility: vi.fn(),
+    removeOutputViewVisibility: vi.fn(),
   },
 }));
 
