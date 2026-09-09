@@ -163,6 +163,7 @@ CC-Panes はターミナルで動く任意の CLI エージェントに対応し
   <kbd>Grok</kbd> &nbsp;
   <kbd>OpenCode</kbd> &nbsp;
   <kbd>Cursor</kbd> &nbsp;
+  <kbd>Jcode</kbd> &nbsp;
   <kbd>+ any terminal CLI</kbd>
 </p>
 

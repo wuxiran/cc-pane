@@ -183,6 +183,13 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
         requirement: "npm (npx) + configured Pi",
     },
     AcpEngineSpec {
+        id: "jcode",
+        label: "Jcode",
+        executable: "jcode",
+        args: &["acp"],
+        requirement: "Jcode CLI (native ACP)",
+    },
+    AcpEngineSpec {
         id: "openclaw",
         label: "OpenClaw",
         executable: "openclaw",

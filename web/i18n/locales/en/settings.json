@@ -793,6 +793,7 @@
   "tabOpenCode": "OpenCode",
   "tabCursor": "Cursor",
   "tabGrok": "Grok",
+  "tabJcode": "Jcode",
   "cliInstalled": "Installed",
   "cliNotInstalled": "Not installed",
   "cliToolSelect": "Select CLI",

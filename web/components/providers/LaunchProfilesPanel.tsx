@@ -5,6 +5,7 @@ import { useLaunchProfilesStore, usePanesStore, useProvidersStore, useSharedMcpS
 import type { DiscoveredExternalSkill, LaunchProfileDraft, LaunchProfileResolution, LaunchProfileRuntime, SkillMarketEntry } from "@/types";
 import { useCliTools } from "@/hooks/useCliTools";
 import { isProviderTypeCompatibleWithCli } from "@/utils/providerCompatibility";
+import { isLocalWslOnlyCliTool, localWslOnlySshUnsupportedKey } from "@/utils/cliTool";
 import type { KnownCliTool } from "@/types/terminal";
 import LaunchProfileBasicsCard from "./LaunchProfileBasicsCard";
 import LaunchProfileListAside, {
@@ -313,8 +314,9 @@ export default function LaunchProfilesPanel({
 
   const handleSave = useCallback(async () => {
     try {
-      if ((activeTool === "pi" || activeTool === "omp") && draft.targetRuntime === "ssh") {
-        toastErr(t(activeTool === "pi" ? "piSshRuntimeUnsupported" : "ompSshRuntimeUnsupported"));
+      const sshUnsupportedKey = localWslOnlySshUnsupportedKey(activeTool);
+      if (sshUnsupportedKey && draft.targetRuntime === "ssh") {
+        toastErr(t(sshUnsupportedKey));
         return;
       }
       const alias = draft.alias?.trim() || draft.name?.trim() || t("profileDefaultName", { tool: toolLabel(activeTool, t) });
@@ -327,7 +329,7 @@ export default function LaunchProfilesPanel({
         adapterOptions: activeTool === "pi"
           ? { ...(draft.adapterOptions ?? {}), piTransport: "pty" as const }
           : draft.adapterOptions ?? {},
-        yoloMode: activeTool === "pi" || activeTool === "omp" ? false : draft.yoloMode,
+        yoloMode: isLocalWslOnlyCliTool(activeTool) ? false : draft.yoloMode,
         isDefault: isSystemDefaultSelected ? true : draft.isDefault,
         targetTools: [activeTool],
         targetRuntime: draft.targetRuntime ?? null,

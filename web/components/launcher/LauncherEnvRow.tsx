@@ -4,11 +4,11 @@ import type { CliTool, WorkspaceLaunchEnvironment } from "@/types";
 
 const ENVIRONMENTS: WorkspaceLaunchEnvironment[] = ["local", "wsl", "ssh"];
 
-/** The Pi family keeps its installation and native auth on the local/WSL host. */
+/** The Pi family and jcode keep their installation and native auth on the local/WSL host. */
 export function getLauncherEnvironmentOptions(
   cliTool: CliTool | undefined,
 ): WorkspaceLaunchEnvironment[] {
-  return cliTool === "pi" || cliTool === "omp"
+  return cliTool === "pi" || cliTool === "omp" || cliTool === "jcode"
     ? ENVIRONMENTS.filter((environment) => environment !== "ssh")
     : ENVIRONMENTS;
 }

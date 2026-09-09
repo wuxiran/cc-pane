@@ -61,6 +61,7 @@ define_cli_tools! {
     Grok => "grok",
     Pi => "pi",
     Omp => "omp",
+    Jcode => "jcode",
 }
 
 impl<'de> Deserialize<'de> for CliTool {

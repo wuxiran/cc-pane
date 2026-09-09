@@ -15,7 +15,20 @@ function fakeT(key: string, options?: { defaultValue?: string }): string {
   return options?.defaultValue ?? key;
 }
 
-const CLI_TOOLS = ["claude", "codex", "pi", "omp", "gemini", "kimi", "opencode", "cursor", "grok"];
+const CLI_TOOLS = [
+  "claude",
+  "codex",
+  "pi",
+  "omp",
+  "gemini",
+  "kimi",
+  "opencode",
+  "cursor",
+  "grok",
+  "jcode",
+];
+// SSH 启动面未放开的工具（Pi 家族 + jcode），只有 default/local/WSL 三变体
+const LOCAL_WSL_ONLY_TOOLS = ["pi", "omp", "jcode"];
 
 describe("getDefaultSidebarFavoriteLaunchActionIds", () => {
   it("returns the terminal + claude + codex defaults", () => {
@@ -116,7 +129,7 @@ describe("buildSidebarLaunchActions", () => {
     const ids = buildSidebarLaunchActions(fakeT, false, true).map((a) => a.id);
     expect(ids).toContain("terminal-ssh");
     for (const tool of CLI_TOOLS) {
-      if (tool === "pi" || tool === "omp") {
+      if (LOCAL_WSL_ONLY_TOOLS.includes(tool)) {
         expect(ids).not.toContain(`${tool}-ssh`);
       } else {
         expect(ids).toContain(`${tool}-ssh`);
@@ -126,8 +139,10 @@ describe("buildSidebarLaunchActions", () => {
 
   it("includes both WSL and SSH variants when both enabled", () => {
     const actions = buildSidebarLaunchActions(fakeT, true, true);
-    // The Pi family is intentionally local/WSL only in this release.
-    expect(actions).toHaveLength(4 + (CLI_TOOLS.length - 2) * 4 + 2 * 3);
+    // The Pi family and jcode are intentionally local/WSL only in this release.
+    expect(actions).toHaveLength(
+      4 + (CLI_TOOLS.length - LOCAL_WSL_ONLY_TOOLS.length) * 4 + LOCAL_WSL_ONLY_TOOLS.length * 3,
+    );
   });
 
   it("tags terminal actions kind=terminal and cli actions kind=cli with cliTool", () => {
