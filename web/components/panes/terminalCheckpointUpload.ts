@@ -16,6 +16,7 @@ import { uploadCheckpoint } from "@/services/terminalCheckpoint";
 import { registerSessionScopedResource } from "@/lib/tabLifecycle/sessionScopedResources";
 import { anchorCandidate, invalidateSeq } from "./terminalOutputSeqTracker";
 import { noteCheckpointResult } from "@/services/performanceRecoveryMetrics";
+import { serializeTerminalSnapshot } from "./terminalSnapshotModes";
 
 /** 每会话上传去抖：18 个标签同时过隐藏边沿也只各打一次（M3b 风险表）。 */
 export const CHECKPOINT_UPLOAD_DEBOUNCE_MS = 60_000;
@@ -106,7 +107,7 @@ export async function captureAndUploadCheckpoint(
 
   let snapshotAnsi: string;
   try {
-    snapshotAnsi = options.snapshotAnsi ?? serializeAddon!.serialize();
+    snapshotAnsi = options.snapshotAnsi ?? serializeTerminalSnapshot(term, serializeAddon!);
   } catch (error) {
     devDebugLog("terminal-checkpoint", "serialize failed", {
       sessionId,

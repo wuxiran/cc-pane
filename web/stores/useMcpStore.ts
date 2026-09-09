@@ -23,7 +23,8 @@ interface McpState {
     name: string,
     command: string,
     args: string[],
-    env: Record<string, string>
+    env: Record<string, string>,
+    descriptions?: Record<string, string>,
   ) => Promise<void>;
   removeServer: (target: McpLayerTarget, name: string) => Promise<boolean>;
   loadLegacyServers: (projectPath: string) => Promise<void>;
@@ -55,8 +56,8 @@ export const useMcpStore = create<McpState>((set, get) => {
       }
     },
 
-    upsertServer: async (target, name, command, args, env) => {
-      await mcpService.upsertServer(target, name, command, args, env);
+    upsertServer: async (target, name, command, args, env, descriptions) => {
+      await mcpService.upsertServer(target, name, command, args, env, descriptions);
       await refreshIfCurrent(target);
     },
 

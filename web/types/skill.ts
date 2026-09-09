@@ -103,7 +103,15 @@ export type ProjectSkillImportSource =
   | { kind: "external"; id: string }
   | { kind: "project"; projectPath: string; root: string; relDir: string }
   | { kind: "workspace"; workspaceName: string; relDir: string }
-  | { kind: "market"; entry: SkillMarketEntry };
+  | { kind: "market"; entry: SkillMarketEntry }
+  | { kind: "bundled"; name: string };
+
+/** 工作空间下某个已注册项目里扫到的 Agent Skill */
+export interface WorkspaceProjectSkill {
+  projectPath: string;
+  projectAlias?: string | null;
+  skill: ProjectSkill;
+}
 
 /** 技能面板作用域：项目（仓库里的多根目录）或工作空间（单一插件目录，按会话挂载） */
 export type SkillScope =
@@ -126,9 +134,12 @@ export interface BundledSkillDelivery {
   requiresCcpanesMcp: boolean;
 }
 
-/** CC-Panes 自带、启动时注入到各 CLI 全局目录的内置 skill（只读展示） */
+/** CC-Panes 自带、启动会话时挂载的内置 skill（只读展示；开关走启动档策略） */
 export interface BundledSkill {
   name: string;
+  /** SKILL.md frontmatter 原文（CLI 触发匹配用） */
   description?: string | null;
+  /** 清单里的展示用双语介绍：`zh-CN` / `en` */
+  descriptions?: Record<string, string>;
   delivery?: BundledSkillDelivery;
 }

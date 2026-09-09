@@ -104,7 +104,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       fontFamily: "monospace",
       cursorStyle: "block",
       cursorBlink: false,
-      scrollback: 20000,
+      scrollback: 5000,
       themeMode: "followApp",
       rendererMode: "auto",
       showContextUsage: true,

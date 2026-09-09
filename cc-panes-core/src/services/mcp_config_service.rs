@@ -32,6 +32,10 @@ pub struct McpServerConfig {
     pub args: Vec<String>,
     #[serde(default)]
     pub env: HashMap<String, String>,
+    /// UI-only blurb per locale (`zh-CN` / `en`). Stored in our layer files, stripped before
+    /// the merged config is handed to a CLI.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub descriptions: BTreeMap<String, String>,
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: BTreeMap<String, serde_json::Value>,
 }
@@ -39,6 +43,14 @@ pub struct McpServerConfig {
 impl McpServerConfig {
     pub fn is_http(&self) -> bool {
         self.command.trim().is_empty() && self.extra.get("url").and_then(|v| v.as_str()).is_some()
+    }
+
+    /// What a CLI should receive: the same entry without CC-Panes display metadata.
+    pub fn for_cli(&self) -> McpServerConfig {
+        McpServerConfig {
+            descriptions: BTreeMap::new(),
+            ..self.clone()
+        }
     }
 }
 
@@ -379,7 +391,7 @@ pub fn effective_servers_to_json(
         .map(|server| {
             (
                 server.name.clone(),
-                serde_json::to_value(&server.config).unwrap_or(serde_json::Value::Null),
+                serde_json::to_value(server.config.for_cli()).unwrap_or(serde_json::Value::Null),
             )
         })
         .collect()
@@ -402,8 +414,35 @@ mod tests {
             command: command.to_string(),
             args: vec!["-y".into(), "pkg".into()],
             env: HashMap::from([("API_KEY".to_string(), "k".to_string())]),
+            descriptions: BTreeMap::new(),
             extra: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn descriptions_persist_in_layer_but_never_reach_the_cli() {
+        let (_data, project, svc) = service();
+        let path = project.path().to_string_lossy().to_string();
+        let mut config = stdio("npx");
+        config.descriptions.insert("zh-CN".into(), "查文档".into());
+        config
+            .descriptions
+            .insert("en".into(), "Look up docs".into());
+        svc.upsert_mcp_server(&path, "docs", config).unwrap();
+
+        let stored = svc.get_mcp_server(&path, "docs").unwrap().unwrap();
+        assert_eq!(stored.descriptions["en"], "Look up docs");
+
+        let json = effective_servers_to_json(&svc.effective_servers(None, &path));
+        assert!(json["docs"].get("descriptions").is_none());
+        assert_eq!(json["docs"]["command"], "npx");
+
+        let bare = stdio("npx");
+        let raw = serde_json::to_value(&bare).unwrap();
+        assert!(
+            raw.get("descriptions").is_none(),
+            "empty map must not be written"
+        );
     }
 
     #[test]

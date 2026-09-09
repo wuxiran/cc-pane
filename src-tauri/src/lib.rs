@@ -326,6 +326,7 @@ use commands::{
     list_todo_activities,
     list_user_skills,
     list_wallpapers,
+    list_workspace_project_skills,
     list_workspace_quick_commands,
     list_workspace_skills,
     list_workspace_snapshots,
@@ -361,6 +362,7 @@ use commands::{
     query_usage_stats,
     read_acp_image_attachment,
     read_agent_transcript_cmd,
+    read_bundled_skill,
     read_clipboard_file_paths,
     read_config_dir_info,
     read_project_skill,
@@ -1795,12 +1797,12 @@ pub fn run() {
         app_paths.as_ref(),
     ));
 
-    let memory_service = Arc::new(
-        MemoryService::new(app_paths.data_dir().join("memory.db")).unwrap_or_else(|e| {
-            error!("MemoryService init failed: {}, using in-memory fallback", e);
-            MemoryService::new_memory().expect("MemoryService fallback failed")
-        }),
-    );
+    let memory_db_path = app_paths.memory_db_path(settings.general.memory_db_path.as_deref());
+    boot_mark!("memory db: {}", memory_db_path.display());
+    let memory_service = Arc::new(MemoryService::new(memory_db_path).unwrap_or_else(|e| {
+        error!("MemoryService init failed: {}, using in-memory fallback", e);
+        MemoryService::new_memory().expect("MemoryService fallback failed")
+    }));
 
     let ssh_machine_service = Arc::new(SshMachineService::with_connection_service(
         app_paths.data_dir().join("ssh-machines.json"),
@@ -3392,6 +3394,8 @@ pub fn run() {
             import_project_skill,
             import_skill,
             list_workspace_skills,
+            list_workspace_project_skills,
+            read_bundled_skill,
             read_workspace_skill,
             save_workspace_skill,
             delete_workspace_skill,

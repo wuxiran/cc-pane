@@ -69,12 +69,12 @@ mcp__ccpanes__update_task_binding(
 ## 查询与监控
 
 ```text
-mcp__ccpanes__get_task_dispatch(bindingId: <bindingId>)
+mcp__ccpanes__get_task_status(bindingId: <bindingId>)
 mcp__ccpanes__get_session_status(sessionId: <sessionId>)
 mcp__ccpanes__get_session_output(sessionId: <sessionId>, lines: 300)
 ```
 
-`get_task_dispatch` 返回解析后的 `dispatchEnvelope` 和当前 `TaskBinding`，不需要手动读取 `metadata.dispatchEnvelope`。对于不支持 MCP 的目标，`TaskBinding` 可能一直保持 `running`，此时以 `get_session_status`、PTY 尾部输出和实际 diff/测试结果为准。
+`get_task_status(bindingId)` 返回解析后的 `dispatchEnvelope` 和当前 `TaskBinding`，不需要手动读取 `metadata.dispatchEnvelope`。对于不支持 MCP 的目标，`TaskBinding` 可能一直保持 `running`，此时以 `get_session_status`、PTY 尾部输出和实际 diff/测试结果为准。
 
 ## 反模式
 

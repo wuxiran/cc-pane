@@ -27,7 +27,7 @@ description: Split a large task into independent subtasks and dispatch parallel 
 
 ### 3. 轮询
 
-每 30 秒：对每个 `bindingId` 调 `get_task_dispatch`，并对每个 `sessionId` 调 `get_session_status`；状态变化时报告。没有 MCP 的目标以 session 状态和输出为准。所有 Exited/Idle 收敛后跳出。
+每 30 秒：对每个 `bindingId` 调 `get_task_status(bindingId)`，并对每个 `sessionId` 调 `get_session_status`；状态变化时报告。没有 MCP 的目标以 session 状态和输出为准。所有 Exited/Idle 收敛后跳出。
 
 ### 4. 汇总
 

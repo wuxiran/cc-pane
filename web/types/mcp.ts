@@ -3,6 +3,8 @@ export interface McpServerConfig {
   command: string;
   args: string[];
   env: Record<string, string>;
+  /** 展示用双语介绍（`zh-CN` / `en`），只存 CC-Panes 层文件，不下发给 CLI */
+  descriptions?: Record<string, string>;
   type?: string;
   url?: string;
   headers?: Record<string, string>;

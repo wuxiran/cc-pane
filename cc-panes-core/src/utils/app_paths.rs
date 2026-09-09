@@ -16,6 +16,16 @@ pub fn app_config_dir() -> PathBuf {
     )
 }
 
+/// `~/x` → `<home>/x`；其余原样返回。
+fn expand_home(raw: &str) -> PathBuf {
+    if let Some(rest) = raw.strip_prefix("~/").or_else(|| raw.strip_prefix("~\\")) {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest);
+        }
+    }
+    PathBuf::from(raw)
+}
+
 fn resolve_app_config_dir(explicit: Option<PathBuf>, home: Option<PathBuf>) -> PathBuf {
     explicit
         .filter(|path| path.is_absolute())
@@ -176,6 +186,14 @@ impl AppPaths {
     /// Markdown-first 迁移预留，并在启动时预创建。
     pub fn memory_dir(&self) -> PathBuf {
         self.data_dir.join("memory")
+    }
+
+    /// 记忆库文件：设置里给了 `memoryDbPath` 就用它（支持 `~`），否则 `<data_dir>/memory.db`。
+    pub fn memory_db_path(&self, override_path: Option<&str>) -> PathBuf {
+        match override_path.map(str::trim).filter(|p| !p.is_empty()) {
+            Some(raw) => expand_home(raw),
+            None => self.data_dir.join("memory.db"),
+        }
     }
 
     /// MCP 目标目录。
@@ -556,6 +574,27 @@ mod tests {
         assert!(paths.wallpapers_dir().is_dir());
         assert!(paths.media_dir().is_dir());
         assert!(paths.media_inputs_dir().is_dir());
+    }
+
+    #[test]
+    fn memory_db_path_honors_override_and_home_prefix() {
+        let tmp = TempDir::new().unwrap();
+        let paths = make_paths(&tmp);
+        assert_eq!(paths.memory_db_path(None), tmp.path().join("memory.db"));
+        assert_eq!(
+            paths.memory_db_path(Some("  ")),
+            tmp.path().join("memory.db")
+        );
+        assert_eq!(
+            paths.memory_db_path(Some("D:/shared/memory.db")),
+            PathBuf::from("D:/shared/memory.db")
+        );
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(
+                paths.memory_db_path(Some("~/.cc-panes/memory.db")),
+                home.join(".cc-panes/memory.db")
+            );
+        }
     }
 
     #[test]

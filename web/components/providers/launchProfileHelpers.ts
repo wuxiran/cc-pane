@@ -8,7 +8,7 @@ import type {
   SkillMarketEntry,
 } from "@/types";
 import type { KnownCliTool } from "@/types/terminal";
-import type { Workspace } from "@/types/workspace";
+import type { Workspace, WorkspaceLaunchEnvironment } from "@/types/workspace";
 import { CLI_TOOL_TABS } from "@/types/provider";
 
 export type ProfilesT = TFunction<["providers", "common"]>;
@@ -27,6 +27,8 @@ export const BUILTIN_SKILLS = [
   "ccpanes-dispatch-todos",
   "ccpanes-browse-sessions",
   "ccpanes-memory-dual-write",
+  "ccpanes-mcp-guide",
+  "ccpanes-admin",
 ];
 
 export type ExternalSkillSourceKind = "claude" | "codex" | "plugin";
@@ -84,6 +86,38 @@ export function launchEnvironmentLabel(targetTools: string[], fallbackTool: Know
 
 export function runtimeLabel(runtime: LaunchProfileRuntime, t: ProfilesT): string {
   return runtime ? t(`runtime.${runtime}`) : t("runtimeAll");
+}
+
+/**
+ * 这个工作空间的会话可能落在哪些远端运行时（WSL / SSH）。
+ * 来源：启动档的 targetRuntime、工作空间默认环境、按 CLI 的环境默认。
+ * 工作空间层 MCP / skills 目前只注入本机会话，页面用它来提示"配了也进不去"。
+ */
+export function workspaceRemoteRuntimes(
+  workspace: Workspace | undefined,
+  profile: LaunchProfile | null,
+): Array<Exclude<WorkspaceLaunchEnvironment, "local">> {
+  const found = new Set<Exclude<WorkspaceLaunchEnvironment, "local">>();
+  const add = (env: WorkspaceLaunchEnvironment | null | undefined) => {
+    if (env === "wsl" || env === "ssh") found.add(env);
+  };
+  add(profile?.targetRuntime ?? null);
+  add(workspace?.defaultEnvironment);
+  add(workspace?.cliEnvironmentDefaults?.claude);
+  add(workspace?.cliEnvironmentDefaults?.codex);
+  return Array.from(found);
+}
+
+/** 工作空间绑定的启动档；没绑就是默认档；都没有则 null */
+export function resolveWorkspaceLaunchProfile(
+  workspace: Workspace | undefined,
+  profiles: readonly LaunchProfile[],
+): LaunchProfile | null {
+  if (workspace?.launchProfileId) {
+    const bound = profiles.find((profile) => profile.id === workspace.launchProfileId);
+    if (bound) return bound;
+  }
+  return profiles.find((profile) => profile.isDefault) ?? null;
 }
 
 export function isSharedMcpServerSelected(policy: LaunchProfileDraft["mcpPolicy"], name: string): boolean {

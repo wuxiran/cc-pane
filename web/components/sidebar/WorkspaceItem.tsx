@@ -19,6 +19,8 @@ import {
 import { useLaunchProfilesStore, useProvidersStore, useSettingsStore, useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import AgentChatMenuItem from "./AgentChatMenuItem";
 import WorkspaceSkillsMenuItem from "./WorkspaceSkillsMenuItem";
+import InjectionBadges from "./InjectionBadges";
+import { summarizeInjection } from "./launchInjectionSummary";
 import { projectCliHooksService } from "@/services";
 import { providerService } from "@/services/providerService";
 import { isTauriRuntime } from "@/services/runtime";
@@ -257,7 +259,17 @@ export default function WorkspaceItem({
             })}
           </ContextMenuItem>
           <ContextMenuItem onClick={() => openWorkspace(item.cliTool, item.environment)}>
-            <Terminal /> {defaultActionLabel}
+            <Terminal />
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="truncate">{defaultActionLabel}</span>
+              <InjectionBadges
+                summary={summarizeInjection(
+                  boundProfileMatchesTarget ? boundProfile ?? null : null,
+                  effectiveEnvironment,
+                  item.cliTool,
+                )}
+              />
+            </span>
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem disabled>
@@ -269,8 +281,12 @@ export default function WorkspaceItem({
                 key={profile.id}
                 onClick={() => openWorkspace(item.cliTool, item.environment, profile.id)}
               >
-                <Terminal /> {profileDisplayName(profile)}
-                <span className="ml-auto text-[11px] opacity-70">
+                <Terminal />
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="truncate">{profileDisplayName(profile)}</span>
+                  <InjectionBadges summary={summarizeInjection(profile, effectiveEnvironment, item.cliTool)} />
+                </span>
+                <span className="ml-auto shrink-0 self-start text-[11px] opacity-70">
                   {profile.id === workspace.launchProfileId
                     ? t("launchProfileBoundBadge", { defaultValue: "已绑定" })
                     : runtimeLabel(profile.targetRuntime ?? null)}

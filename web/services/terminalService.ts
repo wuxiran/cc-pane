@@ -22,6 +22,11 @@ import type {
 import { invalidateSeq, noteReceived } from "@/components/panes/terminalOutputSeqTracker";
 import { deliverTerminalDataWithDeferredCredit } from "@/components/panes/terminalDeliveryCredit";
 import { noteOutputConsumed } from "./terminalOutputAck";
+import { extractTerminalQueries } from "./terminalQuerySalvage";
+import {
+  registerTerminalOutputSchedulerStatsReader,
+  TerminalOutputScheduler,
+} from "./terminalOutputScheduler";
 import {
   appendPendingOutput, clearAllPendingOutput, clearPendingOutput,
   consumeLatchedDesync, pendingChunkCount, takePendingOutput,
@@ -50,23 +55,61 @@ export type {
   TerminalWriteSource,
 } from "./terminalServiceShared";
 
+export type TerminalOutputViewVisibility = "active" | "visible" | "hidden";
+
 /** 把输出分发给该 session 的全部订阅者；无订阅者时返回 false。带 endSeq 时先记 received——无订阅（进 pendingBuffers）也算已接收（M3b-2 seq 记账）。 */
 function dispatchOutput(sessionId: string, data: string, endSeq?: number): boolean {
   if (typeof endSeq === "number") noteReceived(sessionId, endSeq);
+  return scheduleOutputToSubscribers(sessionId, data, endSeq);
+}
+
+function scheduleOutputToSubscribers(
+  sessionId: string,
+  data: string,
+  endSeq?: number,
+  includeUndefinedEndSeq = false,
+): boolean {
   const set = outputCallbacks.get(sessionId);
   if (!set || set.size === 0) return false;
-  // 信用等**全部**视图消化完才归还（星标镜像 = 同一 PTY 的第二个 xterm，完成顺序
-  // 不定）。只按最快的那个回执会低报背压，慢视图的积压对上游隐形。
-  deliverTerminalDataWithDeferredCredit(
-    () => noteOutputConsumed(sessionId, endSeq, data.length),
-    () => {
-      for (const callback of set) (endSeq === undefined ? callback(data) : callback(data, endSeq));
-    },
-  );
+  if (hiddenOutputSessions.has(sessionId)) {
+    const queries = extractTerminalQueries(data);
+    if (queries) {
+      for (const callback of hiddenQueryCallbacks.get(sessionId) ?? []) callback(queries);
+    }
+    noteOutputConsumed(sessionId, endSeq, data.length);
+    dispatchLatchedDesync(sessionId);
+    return true;
+  }
+  outputScheduler.enqueue(sessionId, data, endSeq, (chunk, chunkEndSeq, release) => {
+    const current = outputCallbacks.get(sessionId);
+    if (!current || current.size === 0) {
+      noteOutputConsumed(sessionId, chunkEndSeq, chunk.length);
+      dispatchLatchedDesync(sessionId);
+      release();
+      return;
+    }
+    // 信用等**全部**视图消化完才归还。调度器已经把 chunk 限制在
+    // 16KiB，并在多轮之间让出主线程。
+    deliverTerminalDataWithDeferredCredit(
+      () => {
+        noteOutputConsumed(sessionId, chunkEndSeq, chunk.length);
+        release();
+      },
+      () => {
+        for (const callback of current) {
+          chunkEndSeq === undefined && !includeUndefinedEndSeq
+            ? callback(chunk)
+            : callback(chunk, chunkEndSeq);
+        }
+      },
+    );
+  });
   return true;
 }
 
 function dispatchExit(sessionId: string, exitCode: number): void {
+  outputScheduler.cancelSession(sessionId);
+  hiddenQueryCallbacks.delete(sessionId);
   disposeTerminalSessionResources(sessionId);
   const set = exitCallbacks.get(sessionId);
   if (!set) return;
@@ -86,7 +129,10 @@ function maybeCloseWebSocket(sessionId: string): void {
   const hasSubscribers =
     (outputCallbacks.get(sessionId)?.size ?? 0) > 0
     || (exitCallbacks.get(sessionId)?.size ?? 0) > 0;
-  if (!hasSubscribers) closeWebSocket(sessionId);
+  if (!hasSubscribers) {
+    outputScheduler.cancelSession(sessionId);
+    closeWebSocket(sessionId);
+  }
 }
 
 // ── 模块级状态：单例监听器 ──────────────────────────────────
@@ -98,6 +144,10 @@ const exitCallbacks = new Map<string, Set<(exitCode: number) => void>>();
 const desyncCallbacks = new Map<string, Set<() => void>>();
 const webSockets = new Map<string, WebSocket>();
 const inputQueues = new Map<string, TerminalInputQueue>();
+const outputViewPriorities = new Map<string, Map<string, TerminalOutputViewVisibility>>();
+const hiddenOutputSessions = new Set<string>();
+const outputDesyncLatched = new Set<string>();
+const hiddenQueryCallbacks = new Map<string, Set<(data: string) => void>>();
 /** 已 kill 的 session ID 集合，用于事件监听器跳过已死 session */
 export const killedSessions = new Set<string>();
 const INPUT_BATCH_DELAY_MS = 8;
@@ -108,6 +158,87 @@ let unlistenKilled: UnlistenFn | null = null;
 let unlistenClaimLost: UnlistenFn | null = null;
 let unlistenDesync: UnlistenFn | null = null;
 let cachedBackendClientInfo: TerminalBackendClientInfo | null = null;
+
+const outputScheduler = new TerminalOutputScheduler({
+  onDrop: (sessionId, frame, droppedChars) => {
+    noteOutputConsumed(sessionId, frame.endSeq, droppedChars);
+    dispatchLatchedDesync(sessionId);
+  },
+});
+registerTerminalOutputSchedulerStatsReader(() => outputScheduler.getStats());
+
+function recomputeOutputPriority(sessionId: string): void {
+  if (hiddenOutputSessions.has(sessionId)) {
+    outputScheduler.markPriority(sessionId, "hidden");
+    return;
+  }
+  const views = outputViewPriorities.get(sessionId);
+  const priority = views && views.size > 0 && [...views.values()].every((value) => value === "hidden")
+    ? "hidden"
+    : views && [...views.values()].some((value) => value === "active")
+    ? "active"
+    : "normal";
+  outputScheduler.markPriority(sessionId, priority);
+}
+
+function dispatchLatchedDesync(sessionId: string): void {
+  if (outputDesyncLatched.has(sessionId)) return;
+  outputDesyncLatched.add(sessionId);
+  dispatchDesync(sessionId);
+}
+
+/** 清除本轮丢帧闩锁；仅在快照重建并重新锚定成功后调用。 */
+export function clearTerminalOutputDesyncLatch(sessionId: string): void {
+  outputDesyncLatched.delete(sessionId);
+}
+
+export function registerHiddenTerminalQueryHandler(
+  sessionId: string,
+  callback: (data: string) => void,
+): () => void {
+  let callbacks = hiddenQueryCallbacks.get(sessionId);
+  if (!callbacks) {
+    callbacks = new Set();
+    hiddenQueryCallbacks.set(sessionId, callbacks);
+  }
+  callbacks.add(callback);
+  return () => {
+    callbacks?.delete(callback);
+    if (callbacks && callbacks.size === 0) hiddenQueryCallbacks.delete(sessionId);
+  };
+}
+
+export function setTerminalOutputViewVisibility(
+  sessionId: string,
+  viewId: string,
+  visibility: TerminalOutputViewVisibility,
+): void {
+  let views = outputViewPriorities.get(sessionId);
+  if (!views) {
+    views = new Map();
+    outputViewPriorities.set(sessionId, views);
+  }
+  views.set(viewId, visibility);
+  recomputeOutputPriority(sessionId);
+}
+
+export function removeTerminalOutputViewVisibility(sessionId: string, viewId: string): void {
+  const views = outputViewPriorities.get(sessionId);
+  views?.delete(viewId);
+  if (views && views.size === 0) outputViewPriorities.delete(sessionId);
+  recomputeOutputPriority(sessionId);
+}
+
+export function setHiddenTerminalOutputSessions(sessionIds: readonly string[]): void {
+  const next = new Set(sessionIds);
+  for (const sessionId of new Set([...hiddenOutputSessions, ...next])) {
+    if (next.has(sessionId)) hiddenOutputSessions.add(sessionId);
+    else {
+      hiddenOutputSessions.delete(sessionId);
+    }
+    recomputeOutputPriority(sessionId);
+  }
+}
 
 function enqueueTerminalInput(sessionId: string, data: string, source: TerminalWriteSource, traceId?: number): Promise<void> {
   if (data.length === 0) return Promise.resolve();
@@ -273,7 +404,7 @@ export async function ensureListeners(): Promise<void> {
           pendingChunks: pendingChunkCount(sessionId),
         });
         if (appendPendingOutput(sessionId, data, endSeq) === "overflowed") {
-          dispatchDesync(sessionId);
+          dispatchLatchedDesync(sessionId);
         }
       }
     }
@@ -322,7 +453,7 @@ export async function ensureListeners(): Promise<void> {
     "terminal-desync",
     (event) => {
       if (killedSessions.has(event.payload.sessionId)) return;
-      dispatchDesync(event.payload.sessionId);
+      dispatchLatchedDesync(event.payload.sessionId);
     },
   );
 }
@@ -345,6 +476,11 @@ if (import.meta.hot) {
     outputCallbacks.clear();
     exitCallbacks.clear();
     desyncCallbacks.clear();
+    outputScheduler.dispose();
+    outputViewPriorities.clear();
+    hiddenOutputSessions.clear();
+    outputDesyncLatched.clear();
+    hiddenQueryCallbacks.clear();
     clearAllPendingOutput();
     for (const sessionId of Array.from(inputQueues.keys())) clearTerminalInputQueue(sessionId);
     killedSessions.clear();
@@ -360,6 +496,11 @@ export function _resetListenersForTest(): void {
   outputCallbacks.clear();
   exitCallbacks.clear();
   desyncCallbacks.clear();
+  outputScheduler.dispose();
+  outputViewPriorities.clear();
+  hiddenOutputSessions.clear();
+  outputDesyncLatched.clear();
+  hiddenQueryCallbacks.clear();
   clearAllPendingOutput();
   for (const sessionId of Array.from(inputQueues.keys())) clearTerminalInputQueue(sessionId);
   killedSessions.clear();
@@ -392,14 +533,14 @@ function ensureWebSocket(sessionId: string): void {
   socket.onmessage = (event) => {
     if (killedSessions.has(sessionId)) return;
     if (isWebSocketDesyncMessage(event.data)) {
-      dispatchDesync(sessionId);
+      dispatchLatchedDesync(sessionId);
       return;
     }
     const { data, endSeq } = parseWebSocketOutput(event.data);
     if (!data) return;
     if (dispatchOutput(sessionId, data, endSeq)) return;
     if (appendPendingOutput(sessionId, data, endSeq) === "overflowed") {
-      dispatchDesync(sessionId);
+      dispatchLatchedDesync(sessionId);
     }
   };
 
@@ -503,6 +644,7 @@ export const terminalService = {
     options: TerminalWriteOptions = { source: "user-keyboard" },
   ): Promise<void> {
     const source = options.source ?? "user-keyboard";
+    if (source === "user-keyboard") outputScheduler.markActive(sessionId, true);
     await enqueueTerminalInput(sessionId, data, source, options.traceId);
     if (source === "user-keyboard") {
       const charCount = countTerminalInputChars(data);
@@ -511,6 +653,18 @@ export const terminalService = {
       });
       recordTerminalInputActivity(sessionId);
     }
+  },
+
+  setOutputViewVisibility(
+    sessionId: string,
+    viewId: string,
+    visibility: TerminalOutputViewVisibility,
+  ): void {
+    setTerminalOutputViewVisibility(sessionId, viewId, visibility);
+  },
+
+  removeOutputViewVisibility(sessionId: string, viewId: string): void {
+    removeTerminalOutputViewVisibility(sessionId, viewId);
   },
 
   /** 调整终端大小 */
@@ -595,6 +749,11 @@ export const terminalService = {
       pendingChunks: pendingChunkCount(sessionId),
     });
     outputCallbacks.delete(sessionId);
+    outputViewPriorities.delete(sessionId);
+    hiddenOutputSessions.delete(sessionId);
+    outputDesyncLatched.delete(sessionId);
+    hiddenQueryCallbacks.delete(sessionId);
+    outputScheduler.cancelSession(sessionId);
     clearPendingOutput(sessionId);
     closeWebSocket(sessionId);
   },
@@ -620,6 +779,11 @@ export const terminalService = {
     killedSessions.add(sessionId);
     outputCallbacks.delete(sessionId);
     exitCallbacks.delete(sessionId);
+    outputViewPriorities.delete(sessionId);
+    hiddenOutputSessions.delete(sessionId);
+    outputDesyncLatched.delete(sessionId);
+    hiddenQueryCallbacks.delete(sessionId);
+    outputScheduler.cancelSession(sessionId);
     clearPendingOutput(sessionId);
     clearTerminalInputQueue(sessionId);
     disposeTerminalSessionResources(sessionId);
@@ -660,7 +824,9 @@ export const terminalService = {
       const buffered = takePendingOutput(sessionId);
       if (buffered.length > 0) {
         debugTerminalService("callback.flush.output", { sessionId, chunkCount: buffered.length });
-        for (const chunk of buffered) callback(chunk.data, chunk.endSeq);
+        for (const chunk of buffered) {
+          scheduleOutputToSubscribers(sessionId, chunk.data, chunk.endSeq, true);
+        }
       }
     }
     return () => {
@@ -713,6 +879,9 @@ export const terminalService = {
       removeSubscriber(desyncCallbacks, sessionId, callback);
     };
   },
+
+  /** 隐藏 pane 仍需让 xterm parser 处理 CPR/DA/颜色查询，避免 CLI 等不到回复。 */
+  registerHiddenTerminalQueryHandler,
 
   /** 注销该会话的全部退出回调（kill 前清理用） */
   unregisterExit(sessionId: string): void {

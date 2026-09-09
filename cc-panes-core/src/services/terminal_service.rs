@@ -2398,14 +2398,14 @@ impl TerminalService {
                 .and_then(|svc| svc.get_workspace(name).ok())
         });
         // Workspace skills live in this machine's data dir: mount root for Claude/Codex,
-        // inlined prompt for CLIs that cannot mount. Local runtime only.
+        // inlined prompt for CLIs that cannot mount. Local and WSL (via /mnt/…); SSH never.
         let workspace_skill_service =
             crate::services::WorkspaceSkillService::new(self.app_paths.clone());
         let workspace_skill_name = resolved_workspace
             .as_ref()
             .map(|w| w.name.as_str())
             .or(workspace_name)
-            .filter(|name| !name.trim().is_empty() && ssh.is_none() && wsl.is_none());
+            .filter(|name| !name.trim().is_empty() && ssh.is_none());
         let workspace_skill_mount_root =
             workspace_skill_name.and_then(|name| workspace_skill_service.mount_root(name));
         let runtime_kind = if ssh.is_some() {
@@ -2584,17 +2584,28 @@ impl TerminalService {
             "launch.mcp.resolved",
             "ok",
         );
-        // Workspace + project-overlay MCP servers (docs/98). Same local-only rule as skills:
-        // stdio commands in mcp.json are written for this machine, not for an SSH/WSL guest.
-        let workspace_mcp_servers = if ssh.is_none() && wsl.is_none() && !effective_skip_mcp {
+        // Workspace + project-overlay MCP servers (docs/98). Local sessions get everything;
+        // WSL only gets HTTP entries (stdio commands in mcp.json are written for this machine,
+        // not for the guest); SSH gets none.
+        let workspace_mcp_servers = if ssh.is_none() && !effective_skip_mcp {
             let mcp_layers = crate::services::McpConfigService::with_paths(self.app_paths.clone());
-            let effective = mcp_layers.effective_servers(
+            let mut effective = mcp_layers.effective_servers(
                 resolved_workspace
                     .as_ref()
                     .map(|w| w.name.as_str())
                     .or(workspace_name),
                 project_path,
             );
+            if wsl.is_some() {
+                let before = effective.len();
+                effective.retain(|server| server.config.is_http());
+                if effective.len() != before {
+                    info!(
+                        skipped = before - effective.len(),
+                        "create_session: stdio workspace/project MCP servers are not injected into WSL"
+                    );
+                }
+            }
             crate::services::effective_servers_to_json(&effective)
         } else {
             Default::default()
@@ -3065,6 +3076,20 @@ impl TerminalService {
                 }
             }
 
+            // 工作空间层里能进 WSL 的部分：HTTP 型 MCP（按启动档 allowed 过滤）+ skill 目录（/mnt 路径）。
+            let wsl_workspace_injection = wsl_codex::WslWorkspaceInjection::build(
+                &workspace_mcp_servers,
+                &allowed_mcp_server_ids,
+                disable_unlisted_mcp_servers,
+                &skill_mount_paths_for_profile(
+                    resolved_profile.as_ref(),
+                    &self.app_paths.builtin_skills_dir(),
+                    workspace_skill_mount_root.as_deref(),
+                ),
+                workspace_skill_mount_root.as_deref(),
+                workspace_skill_name,
+            );
+
             let (cmd, cmd_args) = match cli_tool {
                 CliTool::None => self.build_wsl_shell_command(&resolved_wsl)?,
                 CliTool::Codex => {
@@ -3106,6 +3131,7 @@ impl TerminalService {
                         &selected_mcp_config_toml,
                         effective_yolo_mode,
                         &adapter_options,
+                        &wsl_workspace_injection,
                     )?
                 }
                 // 其余 CLI 走同一个 builder。**这里的三态（shell / codex 专线 /
@@ -3136,6 +3162,8 @@ impl TerminalService {
                     effective_skip_mcp,
                     effective_yolo_mode,
                     &adapter_options,
+                    &effective_shared_mcp_urls,
+                    &wsl_workspace_injection,
                 )?,
             };
 

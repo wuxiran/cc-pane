@@ -251,6 +251,7 @@ export type {
   ProjectSkillRoot,
   SkillImportTarget,
   SkillScope,
+  WorkspaceProjectSkill,
 } from "./skill";
 export { WORKSPACE_SKILL_ROOT } from "./skill";
 export type {

@@ -40,7 +40,7 @@ description: Design and run a CC-Panes Commander/Leader/Worker team for multi-ag
 | Worker | 通过 `dispatch_task(parentBindingId=leaderId)` 启动的任意已注册 CLI 会话 |
 | Role | prompt/title 层的职责标签；`cliTool` 是独立的目标选择 |
 | Completion | MCP 目标必须先 `update_task_binding`，再可选 `report_to_leader`；无 MCP 目标用 PTY 输出交付 |
-| Fallback | Leader 用 `get_task_dispatch(bindingId)` / `get_session_status(sessionId)` / `get_session_output(sessionId)` 查状态 |
+| Fallback | Leader 用 `get_task_status(bindingId)` / `get_session_status(sessionId)` / `get_session_output(sessionId)` 查状态 |
 
 ## 可用角色建议
 
@@ -85,7 +85,7 @@ description: Design and run a CC-Panes Commander/Leader/Worker team for multi-ag
 
 1. 准备完整、自包含的 prompt。
 2. 调 `dispatch_task(projectPath, prompt, cliTool, parentBindingId=leaderId, runtimeKind?, title?)`。
-3. 记录返回的 `bindingId` 和 `sessionId`，再用 `get_task_dispatch` / `get_session_status` 确认启动成功。
+3. 记录返回的 `bindingId` 和 `sessionId`，再用 `get_task_status(bindingId)` / `get_session_status` 确认启动成功。
 4. 不要额外注册 worker，也不要把未知 worker id 二次写入 prompt；目标会话可从 `CC_PANES_TASK_BINDING_ID` 读取自己的 binding id。
 
 prompt 模板：
@@ -119,7 +119,7 @@ leaderId: <leaderId>
 
 Leader 不要只等 PTY 文本。对每个 `dispatch_task` 的返回值保留 `bindingId` / `sessionId`，并用 MCP 查询：
 
-- `get_task_dispatch(bindingId)`：读取持久化状态与解析后的目标能力。
+- `get_task_status(bindingId)`：读取持久化状态与解析后的目标能力。
 - `get_session_status(sessionId)`：确认 session 是否仍活跃或需要输入。
 - `get_session_output(sessionId)`：取得无 MCP 目标的完成说明与验证证据。
 

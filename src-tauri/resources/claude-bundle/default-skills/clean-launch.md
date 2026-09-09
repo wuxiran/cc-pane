@@ -15,6 +15,21 @@ description: Launch or restart a project's dev/build process in CC-Panes, resolv
 - `launch-task` / `dispatch-task` 启动 **任意已注册 CLI 本身**
 - `clean-launch` 启动 **项目代码**（npm / cargo / mvn / sh 脚本 / docker / …）
 
+## 工具怎么调
+
+runner 系列工具（`list_runner_profiles` / `upsert_runner_profile` / `start_runner` / `stop_runner` /
+`kill_runner_pid` / `list_active_runners` / `plan_runner_launch`）**不在会话 MCP 里**，用 shell 敲 ctl：
+
+```bash
+"$CC_PANES_CTL" --json call list_runner_profiles --arg projectPath=<p>
+"$CC_PANES_CTL" --json call start_runner --arg profileId=<id>
+"$CC_PANES_CTL" --json call kill_runner_pid --arg pid=<pid>
+"$CC_PANES_CTL" --json tools --schema upsert_runner_profile     # 建 profile 前看一眼字段
+```
+
+下文写的 `{{mcp_server_name}}.xxx(...)` 对 runner 工具一律指这种 ctl 调用；`list_projects` 与
+`get_session_output` 仍是会话 MCP 工具。详见 `ccpanes-admin` skill。
+
 ## SOP
 
 ### 步骤 1 — 解析意图，定位 RunnerProfile

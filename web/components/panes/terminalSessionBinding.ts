@@ -2,7 +2,7 @@ import type { Terminal } from "@xterm/xterm";
 
 import { registerCheckpointRequest } from "@/services/terminalCheckpoint";
 import { getRecoverySnapshot } from "@/services/terminalRecovery";
-import { terminalService } from "@/services/terminalService";
+import { clearTerminalOutputDesyncLatch, terminalService } from "@/services/terminalService";
 import { getErrorMessage } from "@/utils";
 import { captureAndUploadCheckpoint, type CheckpointSerializer } from "./terminalCheckpointUpload";
 import {
@@ -245,6 +245,13 @@ export async function bindTerminalSessionCallbacks(
       debugLog,
     }),
   );
+  const hiddenQueryUnsub = terminalService.registerHiddenTerminalQueryHandler(sessionId, (data) => {
+    const term = terminalInstanceRef.current;
+    if (!term) return;
+    // Queries have no visual payload; feed them directly to xterm's parser so
+    // its existing CPR/DA/OSC handlers can answer while the pane is hidden.
+    void term.write(data);
+  });
   exitUnsubRef.current = await terminalService.registerExit(sessionId, (exitCode) => {
     onSessionExit(sessionId, exitCode);
   });
@@ -273,6 +280,7 @@ export async function bindTerminalSessionCallbacks(
           onSessionExit(pendingExit.sessionId, pendingExit.exitCode);
         }
         if (resynced) {
+          clearTerminalOutputDesyncLatch(sessionId);
           layoutSchedulerRef.current?.schedule("terminal.resync", {
             force: true,
             allowInactive: true,
@@ -297,6 +305,7 @@ export async function bindTerminalSessionCallbacks(
   });
   desyncUnsubRef.current = () => {
     resyncHandler.dispose();
+    hiddenQueryUnsub();
     // 可选调用：测试替身的 registerDesync/registerCheckpointRequest 可能不返回
     // unsubscribe（真实实现恒返回函数）。
     desyncUnsub?.();

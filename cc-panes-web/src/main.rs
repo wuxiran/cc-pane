@@ -313,15 +313,16 @@ async fn main() -> anyhow::Result<()> {
         external_skill_registry.clone(),
     ));
     let quick_command_service = Arc::new(QuickCommandService::new(app_paths.quick_commands_path()));
-    let memory_service = Arc::new(
-        MemoryService::new(app_paths.data_dir().join("memory.db")).unwrap_or_else(|error| {
-            tracing::error!(
-                "MemoryService init failed: {}, using in-memory fallback",
-                error
-            );
-            MemoryService::new_memory().expect("MemoryService fallback failed")
-        }),
-    );
+    let memory_db_path =
+        app_paths.memory_db_path(loaded_settings.general.memory_db_path.as_deref());
+    info!(path = %memory_db_path.display(), "memory db resolved");
+    let memory_service = Arc::new(MemoryService::new(memory_db_path).unwrap_or_else(|error| {
+        tracing::error!(
+            "MemoryService init failed: {}, using in-memory fallback",
+            error
+        );
+        MemoryService::new_memory().expect("MemoryService fallback failed")
+    }));
     let user_skill_service = Arc::new(UserSkillService::new(app_paths.user_skills_dir()));
     let usage_stats_service = Arc::new(UsageStatsService::new_with_provider_and_settings(
         usage_stats_repo,

@@ -7,7 +7,7 @@ description: "CC-Panes 高级 CLI 启动与派发：用于 WSL、resume、PTY �
 
 CC-Panes 通过 MCP 工具与本地/WSL/SSH 上已注册的 CLI 实例交互。本 skill 是 **CC-Panes 高级启动手册**，覆盖：跨 CLI 派发、WSL 启动、resume、PTY 交互、TaskBinding 编排、REST fallback。
 
-> 需要跨会话追踪时，优先 [`/ccpanes:dispatch-task`](dispatch-task.md) 的 `dispatch_task`。`launch_task` 保留为旧调用方兼容接口，启动成功后不会自动建立 durable TaskBinding。
+> 需要跨会话追踪时，优先 [`/ccpanes:dispatch-task`](dispatch-task.md) 的 `dispatch_task`。`launch_task` 保留为旧调用方兼容接口（**已不在会话 MCP 里**，只能通过 `cc-panes-ctl call launch_task` 调），启动成功后不会自动建立 durable TaskBinding。
 
 > 简单新开窗口走本 skill 的最短路径即可；遇到 worktree、恢复、卡住、leader/worker 编排或 REST 兜底时使用完整流程。
 
@@ -24,8 +24,8 @@ CC-Panes 通过 MCP 工具与本地/WSL/SSH 上已注册的 CLI 实例交互。�
 | `mcp__ccpanes__dispatch_task` | `projectPath`（必填）, `prompt?`, `resumeId?`, `cliTool?`, `parentBindingId?`, `parentSessionId?`, `profileId?`, `runtimeKind?`, `title?`, `paneId?` | **首选**。`prompt` 与 `resumeId` 互斥；支持所有已注册内置 CLI，并返回 `bindingId` / `dispatchEnvelope` |
 | `mcp__ccpanes__launch_task` | 与 `dispatch_task` 相同的启动字段 | 兼容旧流程；不自动建立 TaskBinding |
 | `mcp__ccpanes__list_projects` | — | 取已注册项目原样路径（WSL 启动必须用） |
-| `mcp__ccpanes__add_project_to_workspace` | `workspaceName`, `projectPath` | 注册新项目 |
-| `mcp__ccpanes__scan_directory` | `path` | 扫目录发现 Git 仓库 |
+| ctl `call add_project_to_workspace` | `workspaceName`, `projectPath` | 注册新项目（管理工具，走 `"$CC_PANES_CTL"`，见 `ccpanes-admin`） |
+| ctl `call scan_directory` | `path` | 扫目录发现 Git 仓库（同上） |
 
 ### Session / PTY 交互（启动后必用）
 
@@ -86,7 +86,7 @@ CC-Panes 通过 MCP 工具与本地/WSL/SSH 上已注册的 CLI 实例交互。�
 
 | 工具 | 用途 |
 |------|------|
-| `list_workspaces` / `get_workspace` / `create_workspace` | workspace CRUD |
+| `list_workspaces` / `get_workspace`（MCP）/ `create_workspace`（ctl） | workspace 查询与创建 |
 
 ### Todo（与 launch-task 不直接相关，列出供参考）
 
@@ -105,7 +105,7 @@ CC-Panes 通过 MCP 工具与本地/WSL/SSH 上已注册的 CLI 实例交互。�
 ```
 1. mcp__ccpanes__list_projects            # 取已注册项目路径（WSL 启动必须用其中字符串原样）
 2. mcp__ccpanes__dispatch_task(...)       # 启动，记录 bindingId / dispatchTaskId / sessionId
-3. mcp__ccpanes__get_task_dispatch(...)   # 读目标 CLI、能力和持久化状态
+3. mcp__ccpanes__get_task_status(...)   # 读目标 CLI、能力和持久化状态
 4. mcp__ccpanes__get_session_status(...)  # 看启动是否成功（status=active/thinking 即正常）
 5. mcp__ccpanes__get_session_output(...)  # 读输出确认 prompt 已注入
 ```
@@ -163,7 +163,7 @@ mcp__ccpanes__kill_session(sessionId)
    先 update_task_binding(id=<环境变量>, status="completed", ...)
    后 report_to_leader(workerId=<环境变量>, status, summary)
 
-5. Leader 等 PTY [worker-report] 行；用 get_task_dispatch(bindingId) + get_session_status(workerSessionId) 兜底。
+5. Leader 等 PTY [worker-report] 行；用 get_task_status(bindingId) + get_session_status(workerSessionId) 兜底。
 ```
 
 **关键 gotcha**：`report_to_leader` 在 leader busy 时返回 `{sent: false, queued: true, skipReason: "leader busy"}`——report 进入引擎补投队列，leader 回到空闲（Idle/WaitingInput）时自动注入，**worker 无需重试**。但补投队列在 leader 崩溃/exited 时会被清空，所以 worker 仍必须配合 `update_task_binding` 持久化状态（纵深防御，也是 reconcile 的唯一依据）。多 worker 并发时这条特别重要。

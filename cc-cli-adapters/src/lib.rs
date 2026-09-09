@@ -1009,6 +1009,95 @@ impl CliAdapterContext {
     }
 }
 
+/// 会话常驻的 ccpanes MCP core 工具（docs/103）。
+/// `/mcp` 只暴露这些；Codex 再用 `enabled_tools` 做客户端白名单。
+/// 名字必须与 orchestrator `#[tool]` 函数名一致，`core_tool_names_all_exist` 守着。
+pub const CORE_MCP_TOOLS: &[&str] = &[
+    "dispatch_task",
+    "list_sessions",
+    "get_session_status",
+    "get_session_output",
+    "wait_for_session",
+    "submit_to_session",
+    "write_to_session",
+    "kill_session",
+    "list_panes",
+    "create_task_binding",
+    "update_task_binding",
+    "query_task_bindings",
+    "get_task_status",
+    "find_task_binding_by_session",
+    "delete_task_binding",
+    "report_to_leader",
+    "send_to_worker",
+    "create_todo",
+    "update_todo",
+    "query_todos",
+    "register_plan_leader",
+    "register_plan_worker",
+    "reconcile_plan_collaboration",
+    "get_plan_collaboration",
+    "list_recent_plans",
+    "search_plans",
+    "set_plan_archived",
+    "memory_add",
+    "memory_search",
+    "memory_get",
+    "memory_update",
+    "memory_delete",
+    "memory_stats",
+    "trigger_notification",
+    "ccchan_say",
+    "open_ai_panel",
+    "update_ai_panel",
+    "close_ai_panel",
+    "claim_ai_panel",
+    "get_ai_panel_events",
+    "list_ai_panel_history",
+    "list_resume_sessions",
+    "list_launch_history",
+    "list_skills",
+    "list_workspaces",
+    "get_workspace",
+    "list_projects",
+    "list_launch_profiles",
+];
+
+/// Codex `-c mcp_servers.ccpanes.enabled_tools=[...]`（不含 `-c`）。
+pub fn ccpanes_enabled_tools_override() -> String {
+    let values = CORE_MCP_TOOLS
+        .iter()
+        .map(|name| toml::Value::String((*name).to_string()))
+        .collect();
+    format!(
+        "mcp_servers.ccpanes.enabled_tools={}",
+        toml::Value::Array(values)
+    )
+}
+
+#[cfg(test)]
+mod core_mcp_tools_tests {
+    use super::{ccpanes_enabled_tools_override, CORE_MCP_TOOLS};
+
+    #[test]
+    fn enabled_tools_override_is_core_allowlist() {
+        let value = ccpanes_enabled_tools_override();
+        assert!(value.starts_with("mcp_servers.ccpanes.enabled_tools=["));
+        assert!(value.contains("\"dispatch_task\""));
+        assert!(value.contains("\"get_session_output\""));
+        assert!(!value.contains("\"create_workspace\""));
+        assert!(!value.contains("\"launch_task\""));
+        let mut sorted = CORE_MCP_TOOLS.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(
+            sorted.len(),
+            CORE_MCP_TOOLS.len(),
+            "CORE_MCP_TOOLS 有重复项"
+        );
+    }
+}
+
 /// Internal adapter option carrying the resolved managed Provider environment.
 /// The value may contain credentials and must never be logged or forwarded to CLI arguments.
 pub const MANAGED_PROVIDER_ENV_OPTION: &str = "__ccpanesProviderEnv";

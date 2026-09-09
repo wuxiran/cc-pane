@@ -10,7 +10,7 @@ use crate::discovery::{
     DataDirCandidate, DataDirMode, DiscoveryError, IdentityConfidence, InstanceKind,
     ServiceEndpoint,
 };
-use crate::mcp::{McpClient, ToolDefinition};
+use crate::mcp::{McpClient, McpSurface, ToolDefinition};
 use crate::offline_db::{self, OfflineCloseRequest, OfflineDbError};
 
 const MAX_SUBMIT_BYTES: usize = 256 * 1024;
@@ -363,9 +363,14 @@ pub(crate) fn launch(
     emit_simple(context, value)
 }
 
-pub(crate) fn tools(context: &CommandContext, schema: Option<&str>) -> Result<(), CliExit> {
+/// `tools` / `call` 走全量面：会话里看不到的管理台工具就是靠这里用的（docs/103）。
+fn full_surface_client(context: &CommandContext) -> Result<McpClient, CliExit> {
     let endpoint = select_endpoint(context, "orchestrator", discover_orchestrator_endpoint)?;
-    let mut client = McpClient::new(endpoint, context.launch_id.clone());
+    Ok(McpClient::new(endpoint, context.launch_id.clone()).with_surface(McpSurface::Full))
+}
+
+pub(crate) fn tools(context: &CommandContext, schema: Option<&str>) -> Result<(), CliExit> {
+    let mut client = full_surface_client(context)?;
     let tools = client.list_tools().map_err(|error| {
         CliExit::source(format!(
             "tools/list 失败: {error}；可用 status/sessions 检查 daemon"
@@ -380,8 +385,7 @@ pub(crate) fn call(
     raw_json: Option<&str>,
     args: &[String],
 ) -> Result<(), CliExit> {
-    let endpoint = select_endpoint(context, "orchestrator", discover_orchestrator_endpoint)?;
-    let mut client = McpClient::new(endpoint, context.launch_id.clone());
+    let mut client = full_surface_client(context)?;
     let tools = client
         .list_tools()
         .map_err(|error| CliExit::source(format!("tools/list 失败: {error}")))?;

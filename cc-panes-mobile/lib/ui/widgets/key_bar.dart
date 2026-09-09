@@ -24,28 +24,35 @@ class KeyBar extends StatelessWidget {
       ('~', () => controller.sendSequence('~')),
     ];
 
-    return Container(
-      height: 40,
-      color: Theme.of(context).colorScheme.surfaceContainerHigh,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        children: [
-          _KeyButton(
-            label: 'Ctrl',
-            highlighted: controller.ctrlLatched,
-            onTap: controller.toggleCtrl,
+    return IgnorePointer(
+      ignoring: !controller.canWrite,
+      child: Opacity(
+        opacity: controller.canWrite ? 1 : 0.45,
+        child: Container(
+          height: 48,
+          color: Theme.of(context).colorScheme.surfaceContainerHigh,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            children: [
+              _KeyButton(
+                label: 'Ctrl',
+                highlighted: controller.ctrlLatched,
+                onTap: controller.toggleCtrl,
+              ),
+              for (final (label, onTap) in keys)
+                _KeyButton(label: label, onTap: onTap),
+            ],
           ),
-          for (final (label, onTap) in keys)
-            _KeyButton(label: label, onTap: onTap),
-        ],
+        ),
       ),
     );
   }
 }
 
 class _KeyButton extends StatelessWidget {
-  const _KeyButton({required this.label, required this.onTap, this.highlighted = false});
+  const _KeyButton(
+      {required this.label, required this.onTap, this.highlighted = false});
 
   final String label;
   final VoidCallback onTap;

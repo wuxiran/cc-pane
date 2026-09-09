@@ -41,7 +41,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use cc_cli_adapters::{normalize_cli_command, CliToolRegistry};
+use cc_cli_adapters::{normalize_cli_command, CliToolRegistry, CORE_MCP_TOOLS};
 use cc_memory::models::{
     MemoryCategory, MemoryQuery, MemoryScope, StoreMemoryRequest, UpdateMemoryRequest,
 };
@@ -2405,10 +2405,16 @@ fn build_router(state: AppState) -> Router {
         .allow_methods(tower_http::cors::Any)
         .allow_headers(tower_http::cors::Any);
 
-    // MCP Server 层
+    // MCP Server 层：`/mcp` 是注入给 CLI 会话的 core 面，`/mcp-full` 是全量面（ctl / UI）。
     let mcp_state = state.clone();
     let mcp_service = StreamableHttpService::new(
-        move || Ok(McpToolHandler::new(mcp_state.clone())),
+        move || Ok(McpToolHandler::new_core(mcp_state.clone())),
+        Arc::new(LocalSessionManager::default()),
+        Default::default(),
+    );
+    let mcp_full_state = state.clone();
+    let mcp_full_service = StreamableHttpService::new(
+        move || Ok(McpToolHandler::new(mcp_full_state.clone())),
         Arc::new(LocalSessionManager::default()),
         Default::default(),
     );
@@ -2447,6 +2453,7 @@ fn build_router(state: AppState) -> Router {
         .route("/api/plan/archive", post(handle_plan_set_archived))
         .route("/api/health", get(handle_health))
         .nest_service("/mcp", mcp_service)
+        .nest_service("/mcp-full", mcp_full_service)
         .layer(middleware::from_fn(inject_mcp_accept_headers))
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -2514,53 +2521,55 @@ async fn inject_mcp_accept_headers(
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct McpLaunchTaskParams {
-    /// 项目路径（必须是已注册的项目）
+    /// 已注册的项目路径
     #[serde(rename = "projectPath")]
     project_path: String,
-    /// 要注入的 prompt（任务描述）。resume 时可不传。
+    /// 任务 prompt；resume 时可不传
     prompt: Option<String>,
-    /// 可选的 Provider ID
+    /// Provider ID
     #[serde(rename = "providerId")]
     provider_id: Option<String>,
-    /// 可选的 Provider 模型 ID
+    /// 模型 ID
     #[serde(rename = "modelId")]
     model_id: Option<String>,
-    /// Provider 选择模式：inherit / explicit / none
+    /// inherit / explicit / none
     #[serde(rename = "providerSelection")]
     provider_selection: Option<String>,
-    /// 可选的启动配置 ID。显式指定时优先于工作空间绑定；YOLO profile 受
-    /// orchestrator.allowMcpYoloProfiles 设置门控。
+    /// 启动配置 ID，优先于工作空间绑定
     #[serde(rename = "profileId")]
     profile_id: Option<String>,
-    /// 自定义标签名（不指定则使用默认 "${目录名} (Claude)"）
+    /// 标签标题
     title: Option<String>,
-    /// 工作空间名称（自动解析 workspace_path 和 provider）
+    /// 工作空间名
     #[serde(rename = "workspaceName")]
     workspace_name: Option<String>,
-    /// 本次启动运行环境：local / wsl / ssh。优先级高于 workspace.defaultEnvironment。
-    #[serde(rename = "runtimeKind", alias = "runtime", alias = "environment")]
+    /// local / wsl / ssh
+    #[serde(rename = "runtimeKind")]
     runtime_kind: Option<String>,
-    /// 恢复指定 Claude 会话（传入 session UUID，可从 list_launch_history 获取 claudeSessionId）
+    /// 要恢复的会话 ID（list_resume_sessions / list_launch_history）
     #[serde(rename = "resumeId")]
     resume_id: Option<String>,
-    /// 指定目标面板 ID（可选，不指定则使用活跃面板。通过 list_panes 获取可用面板）
+    /// 目标面板 ID（list_panes）
     #[serde(rename = "paneId")]
     pane_id: Option<String>,
-    /// 指定目标布局 ID（可选，通过 list_panes 获取可用布局）
+    /// 目标布局 ID
     #[serde(rename = "layoutId")]
     layout_id: Option<String>,
-    /// 指定目标布局名称（可选；前端不存在时会自动创建）
+    /// 目标布局名，不存在则新建
     #[serde(rename = "layoutName")]
     layout_name: Option<String>,
-    /// CLI 工具类型。支持所有已注册的内置 CLI，默认 `"claude"`。
+    /// CLI：claude（默认）/ codex / …
     #[serde(rename = "cliTool")]
     cli_tool: Option<String>,
-    /// 新会话落位方式（可选，默认 `"beside"`）。仅在未显式指定 `paneId` 时生效，指定了 `paneId` 则按 `paneId` 落位。注意：默认前端**不会**为 agent 启动跳转布局（worker 照样建在目标布局，只弹一条可跳转提示）；仅当显式传了 `layoutId`/`layoutName`、或用户开了设置里的「跟随 agent 启动跳转布局」才切换，`"silent"` 连这两种也不切。
-    /// - `"beside"`：在**调用者**（发起本次 launch_task 的会话）所在 pane **旁边分屏**打开并聚焦（默认，推荐——用户能立刻看到新会话）。
-    /// - `"tab"`：作为**标签页**加入调用者所在 pane，不额外分屏。仅当用户**明确要求**“在后台/同一窗格里以标签打开”时才用。`"background"` 是它的历史别名。
-    /// - `"silent"`：完全不打扰——不切布局、不切主视图、不弹提示；窗格仍正常建在目标布局。
+    /// beside（默认）/ tab / silent
     #[serde(rename = "placement")]
     placement: Option<String>,
+    /// 父 TaskBinding ID（成为其子任务）
+    #[serde(rename = "parentBindingId")]
+    parent_binding_id: Option<String>,
+    /// 父终端会话 ID（调用方没有 bindingId 时用）
+    #[serde(rename = "parentSessionId")]
+    parent_session_id: Option<String>,
     /// Internal dispatch context. This is never accepted from MCP callers;
     /// `dispatch_task` sets it after the durable TaskBinding exists.
     #[serde(skip)]
@@ -2579,22 +2588,6 @@ struct McpLaunchTaskParams {
     allow_resume_with_prompt: bool,
 }
 
-/// Generic, durable cross-CLI task dispatch parameters.
-///
-/// The launch fields intentionally match `launch_task`; the two parent fields
-/// describe an optional TaskBinding relationship without requiring the caller
-/// to be a particular CLI.
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct McpDispatchTaskParams {
-    #[serde(flatten)]
-    launch: McpLaunchTaskParams,
-    /// Optional parent TaskBinding ID. The target becomes a child task of this binding.
-    #[serde(rename = "parentBindingId", alias = "parentTaskId")]
-    parent_binding_id: Option<String>,
-    /// Optional parent terminal session ID when the caller has no TaskBinding ID.
-    #[serde(rename = "parentSessionId")]
-    parent_session_id: Option<String>,
-}
 
 /// Single-tool Cursor Bridge surface (docs/96). Action enum, not six MCP tools.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2650,9 +2643,12 @@ struct McpCursorBridgeParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct McpGetTaskStatusParams {
-    /// 任务 ID
+    /// launch_task 返回的 taskId
     #[serde(rename = "taskId")]
-    task_id: String,
+    task_id: Option<String>,
+    /// 或传 bindingId：返回 TaskBinding 及其派发信封（原 get_task_dispatch）
+    #[serde(rename = "bindingId")]
+    binding_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -3078,7 +3074,7 @@ struct McpWriteToSessionParams {
     /// 终端会话 ID（由 launch_task 返回）
     #[serde(rename = "sessionId")]
     session_id: String,
-    /// 要写入终端的文本。控制键必须用 JSON \u 转义（\x 不是合法 JSON 转义）：Esc = "\u001b"，Shift+Tab = "\u001b[Z"，Ctrl+C = "\u0003"，Ctrl+D = "\u0004"，回车 = "\r"（CR 非 LF）。控制键必须走本工具，不能用 submit_to_session（它总会追加一个 CR，会把 Esc 变成 Esc+Enter）。要发字面反斜杠请写两个反斜杠。
+    /// 原样写入的文本。控制键用 JSON \u 转义：Esc "\u001b"、Ctrl+C "\u0003"、回车 "\r"
     text: String,
 }
 
@@ -3167,7 +3163,7 @@ struct McpSubmitToSessionParams {
     /// 终端会话 ID（由 launch_task 返回）
     #[serde(rename = "sessionId")]
     session_id: String,
-    /// 要提交的单行或多行文本。工具会用 bracketed-paste 整体写入，等待后再单独发送 CR。
+    /// 要提交的文本（可多行），工具自动补回车
     text: String,
 }
 
@@ -3180,17 +3176,17 @@ struct McpGetSessionStatusParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct McpWaitForSessionParams {
-    /// 终端会话 ID；与 launchId 二选一
+    /// 会话 ID（与 launchId 二选一）
     #[serde(rename = "sessionId")]
     session_id: Option<String>,
-    /// launch_task 的 launch ID；与 sessionId 二选一
+    /// launch ID（与 sessionId 二选一）
     #[serde(rename = "launchId")]
     launch_id: Option<String>,
-    /// 任一状态命中即返回；状态名与 get_session_status 一致
+    /// 目标状态列表：idle / waitingInput / error / exited / thinking / toolRunning / compacting / initializing
     #[serde(rename = "waitFor")]
     #[schemars(with = "Vec<String>")]
     wait_for: Vec<SessionStatus>,
-    /// 最长等待毫秒数，默认 180000，范围 1000..=570000
+    /// 超时毫秒，默认 180000，最大 570000
     #[serde(rename = "timeoutMs")]
     timeout_ms: Option<u64>,
 }
@@ -3204,10 +3200,10 @@ struct McpKillSessionParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct McpGetSessionOutputParams {
-    /// 终端会话 ID（由 launch_task 返回）
+    /// 终端会话 ID
     #[serde(rename = "sessionId")]
     session_id: String,
-    /// 返回最近 N 行（0 或不传 = 全部缓冲，建议 100-500）
+    /// 返回最近 N 行；不传默认 50，0 = 全部缓冲
     lines: Option<usize>,
 }
 
@@ -3234,13 +3230,13 @@ struct McpTriggerNotificationParams {
     #[serde(default)]
     #[schemars(schema_with = "notification_metadata_schema")]
     metadata: Option<serde_json::Value>,
-    /// 关联的终端会话 ID。requiresInput=true 时必填：用户在通知卡片里的输入会以提交形式写回该会话
+    /// 关联会话 ID；requiresInput 时必填，用户输入会写回该会话
     #[serde(rename = "sessionId")]
     session_id: Option<String>,
-    /// 声明「需要用户输入」：通知卡片带输入框，用户输入直接回传 sessionId 指定的会话
+    /// 卡片带输入框，等用户回话
     #[serde(rename = "requiresInput")]
     requires_input: Option<bool>,
-    /// 输入框占位提示文案（仅 requiresInput=true 时有意义）
+    /// 输入框占位文案
     #[serde(rename = "inputPlaceholder")]
     input_placeholder: Option<String>,
 }
@@ -3620,12 +3616,10 @@ struct McpRegisterPlanLeaderParams {
     title: Option<String>,
     /// 完整 prompt
     prompt: Option<String>,
-    /// leader 的 PTY session ID。leaderKind 为 "dsh" 时可传空串——服务端会
-    /// 自动识别当前正在跑轮次的 dsh 会话作为 leader。
+    /// leader 的 PTY session ID；leaderKind=dsh 时可传空串
     #[serde(rename = "sessionId")]
     session_id: String,
-    /// leader 类型："pty"（默认，终端会话）或 "dsh"（DeepSeek Harness 网页会话，
-    /// 从 dsh 里调用时必须传 "dsh"，worker 回执会以聊天消息形式送回该会话）。
+    /// pty（默认）或 dsh（从 dsh 会话调用时传）
     #[serde(rename = "leaderKind")]
     leader_kind: Option<String>,
     /// leader 的 Claude/Codex/OpenCode resume ID
@@ -4653,17 +4647,53 @@ fn bind_workspace_launch_profile_impl(
     })
 }
 
+/// get_session_output 不传 lines 时的默认尾部行数。
+const DEFAULT_SESSION_OUTPUT_LINES: usize = 50;
+
+/// `/mcp`（core，会话常驻）还是 `/mcp-full`（全量，ctl / UI 用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum McpSurface {
+    Core,
+    Full,
+}
+
 /// MCP 工具处理器
 #[derive(Clone)]
 struct McpToolHandler {
     state: AppState,
     tool_router: ToolRouter<McpToolHandler>,
+    surface: McpSurface,
 }
 
 impl McpToolHandler {
+    /// 全量工具面（`/mcp-full`）。
     fn new(state: AppState) -> Self {
         let tool_router = Self::tool_router();
-        Self { state, tool_router }
+        Self {
+            state,
+            tool_router,
+            surface: McpSurface::Full,
+        }
+    }
+
+    /// core 工具面（`/mcp`）：全量路由减去不在 [`CORE_MCP_TOOLS`] 里的。
+    fn new_core(state: AppState) -> Self {
+        let mut tool_router = Self::tool_router();
+        let names: Vec<String> = tool_router
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect();
+        for name in names {
+            if !CORE_MCP_TOOLS.contains(&name.as_str()) {
+                tool_router.remove_route(&name);
+            }
+        }
+        Self {
+            state,
+            tool_router,
+            surface: McpSurface::Core,
+        }
     }
 
     fn emit_media_job_changed(&self, run: &MediaRun) {
@@ -5828,6 +5858,8 @@ impl McpToolHandler {
             layout_name: params.layout_name.clone(),
             cli_tool: Some("cursor".to_string()),
             placement: params.placement.clone(),
+            parent_binding_id: None,
+            parent_session_id: None,
             dispatch_binding_id: None,
             dispatch_task_id: None,
             adapter_options: Some(adapter_options),
@@ -6029,21 +6061,26 @@ fn dispatch_running_status(status: TaskBindingStatus) -> Option<TaskBindingStatu
 
 #[tool_router]
 impl McpToolHandler {
-    /// 将任务派发给任意已注册 CLI，并在启动前持久化版本化的派发信封。
-    ///
-    /// `cliTool` 缺省时仍使用 Claude。目标 CLI 不支持 MCP 时也可以接收首条任务
-    /// prompt；响应中的 dispatchEnvelope.mcp 会明确标识它无法自主编排或回报结果。
+    /// 派任务给任意已注册 CLI：新建会话（prompt）或恢复（resumeId），总是建 TaskBinding 便于跟踪；
+    /// 传 parentBindingId / parentSessionId 则成为子任务，worker 可 report_to_leader。
     #[tool]
     async fn dispatch_task(
         &self,
-        Parameters(params): Parameters<McpDispatchTaskParams>,
+        Parameters(params): Parameters<McpLaunchTaskParams>,
         extensions: Extensions,
     ) -> String {
-        let McpDispatchTaskParams {
-            mut launch,
-            parent_binding_id,
-            parent_session_id,
-        } = params;
+        self.run_durable_dispatch(params, extensions).await
+    }
+
+    /// 持久化派发的实现：建 TaskBinding + 派发信封，再复用 launch_task 启动。
+    /// launch_task 带父信息时也走这里；进入前必须把父字段取走，否则会递归。
+    async fn run_durable_dispatch(
+        &self,
+        mut launch: McpLaunchTaskParams,
+        extensions: Extensions,
+    ) -> String {
+        let parent_binding_id = launch.parent_binding_id.take();
+        let parent_session_id = launch.parent_session_id.take();
         let prompt_len = launch
             .prompt
             .as_ref()
@@ -6169,17 +6206,18 @@ impl McpToolHandler {
             warn!(binding_id, err = %error, "mcp::dispatch_task session launched but TaskBinding finalization failed");
         }
 
+        // 精简响应：完整派发信封走 get_task_status(bindingId)，这里只留调用方马上要用的字段。
         let mut response = serde_json::json!({
             "taskId": launch_response.task_id,
             "dispatchTaskId": plan.envelope.task_id,
             "bindingId": binding_id,
             "sessionId": launch_response.session_id,
             "status": launch_response.status,
+            "cliTool": plan.envelope.resolved_cli_tool,
             "runtimeKind": launch_response.runtime_kind,
-            "runtimeSource": launch_response.runtime_source,
             "profileId": launch_response.launch_profile_id,
+            "mcp": plan.envelope.mcp,
             "notice": launch_response.notice,
-            "dispatchEnvelope": plan.envelope,
         });
         if let Some(error) = persistence_warning {
             response["persistenceWarning"] = serde_json::Value::String(error);
@@ -6187,17 +6225,17 @@ impl McpToolHandler {
         response.to_string()
     }
 
-    /// 启动一个新的 CLI 实例来执行指定任务，或恢复已有会话。
-    /// 新任务：传 prompt（必需），会在 CC-Panes 中创建新标签页并注入 prompt。
-    /// 恢复会话：传 resumeId（必需），会以目标 CLI 的恢复参数启动，不注入 prompt。
-    /// profileId 显式指定启动配置并优先于工作空间绑定；若目标是 YOLO profile，必须先在
-    /// 设置中开启 orchestrator.allowMcpYoloProfiles。
+    /// 启动 CLI 会话（prompt）或恢复（resumeId），不建 TaskBinding；带父字段时等同 dispatch_task。
+    /// 会话内请用 dispatch_task；本工具留给 ctl / UI。
     #[tool]
     async fn launch_task(
         &self,
         Parameters(mut params): Parameters<McpLaunchTaskParams>,
         extensions: Extensions,
     ) -> String {
+        if params.parent_binding_id.is_some() || params.parent_session_id.is_some() {
+            return self.run_durable_dispatch(params, extensions).await;
+        }
         let is_resume = params.resume_id.is_some();
         let prompt_len = params.prompt.as_ref().map(|p| p.len()).unwrap_or(0);
         info!(project = %params.project_path, prompt_len, is_resume, "mcp::launch_task");
@@ -6755,6 +6793,7 @@ impl McpToolHandler {
             command: params.command,
             args: params.args.unwrap_or_default(),
             env: params.env.unwrap_or_default(),
+            descriptions: Default::default(),
             extra: Default::default(),
         };
         match self.state.mcp_config_service.upsert_mcp_server(
@@ -6957,7 +6996,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 搜索 CC-Panes Memory。默认返回当前 memory.db 中匹配项；可按 scope/project/workspace/importance 过滤。
+    /// 搜索记忆，可按 scope / project / workspace / importance 过滤。
     #[tool]
     async fn memory_search(&self, Parameters(params): Parameters<McpMemorySearchParams>) -> String {
         debug!("mcp::memory_search");
@@ -6972,7 +7011,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 写入一条 CC-Panes Memory。用于保存稳定偏好、决策、经验、事实或计划。
+    /// 写一条记忆（偏好 / 决策 / 经验 / 事实 / 计划）。
     #[tool]
     async fn memory_add(&self, Parameters(params): Parameters<McpMemoryAddParams>) -> String {
         info!(title = %params.title, "mcp::memory_add");
@@ -7084,16 +7123,22 @@ impl McpToolHandler {
         serde_json::json!({ "projects": infos }).to_string()
     }
 
-    /// 查询已启动任务的当前状态
+    /// 查任务状态：传 taskId 看启动状态；传 bindingId 看 TaskBinding 与派发信封。
     #[tool]
     async fn get_task_status(
         &self,
         Parameters(params): Parameters<McpGetTaskStatusParams>,
     ) -> String {
-        debug!(task_id = %params.task_id, "mcp::get_task_status");
+        if let Some(binding_id) = params.binding_id.as_deref() {
+            return self.task_dispatch_status(binding_id);
+        }
+        let Some(task_id) = params.task_id.as_deref() else {
+            return "错误: 需要 taskId 或 bindingId".to_string();
+        };
+        debug!(task_id, "mcp::get_task_status");
         let statuses = query_all_session_statuses(&self.state).await.ok();
         let mut tasks = self.state.tasks.lock().unwrap_or_else(|e| e.into_inner());
-        match tasks.get_mut(&params.task_id) {
+        match tasks.get_mut(task_id) {
             Some(status) => {
                 if let Some(statuses) = statuses.as_deref() {
                     refresh_task_status(status, statuses);
@@ -7107,9 +7152,34 @@ impl McpToolHandler {
                 .to_string()
             }
             None => {
-                format!("错误: 任务 '{}' 不存在", params.task_id)
+                format!("错误: 任务 '{}' 不存在", task_id)
             }
         }
+    }
+
+    /// bindingId → TaskBinding + 解析后的派发信封（get_task_status 与 get_task_dispatch 共用）。
+    fn task_dispatch_status(&self, binding_id: &str) -> String {
+        debug!(binding_id, "mcp::get_task_dispatch");
+        let binding = match self.state.task_binding_service.get(binding_id) {
+            Ok(Some(binding)) => binding,
+            Ok(None) => return format!("错误: TaskBinding '{}' 不存在", binding_id),
+            Err(error) => return format!("错误: 查询 TaskBinding 失败: {}", error),
+        };
+        let dispatch_envelope = match dispatch_envelope_from_binding(&binding) {
+            Ok(envelope) => envelope,
+            Err(error) => return format!("错误: {}", error),
+        };
+        if dispatch_envelope.binding_id.as_deref() != Some(binding.id.as_str()) {
+            return format!(
+                "错误: TaskBinding '{}' 的派发信封 bindingId 不匹配",
+                binding_id
+            );
+        }
+        serde_json::to_string(&TaskDispatchStatusResponse {
+            binding,
+            dispatch_envelope,
+        })
+        .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error))
     }
 
     // ============ Workspace Tools ============
@@ -7324,7 +7394,7 @@ impl McpToolHandler {
 
     // ============ Todo Tools ============
 
-    /// 查询待办任务列表，支持按状态、优先级、范围、标签、任务类型（todoType/excludeTodoType）等条件筛选
+    /// 查询待办，可按状态 / 优先级 / 范围 / 标签 / 类型筛选。
     #[tool]
     async fn query_todos(&self, Parameters(params): Parameters<McpQueryTodosParams>) -> String {
         debug!("mcp::query_todos");
@@ -7347,7 +7417,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 创建新的待办任务。AI 代替用户创建的派工工作项必须带 todoType="ai-work-item"
+    /// 创建待办；AI 派工项传 todoType="ai-work-item"。
     #[tool]
     async fn create_todo(&self, Parameters(params): Parameters<McpCreateTodoParams>) -> String {
         info!(title = %params.title, "mcp::create_todo");
@@ -7801,7 +7871,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 查询当前所有布局和面板信息（布局 ID/名称、面板 ID、稳定显示编号、标签数量、活跃标签等），可用于 launch_task 的 layoutId/layoutName/paneId 参数
+    /// 列出布局与面板（layoutId / paneId），供 launch_task 落位用。
     #[tool]
     async fn list_panes(&self) -> String {
         debug!("mcp::list_panes");
@@ -7846,7 +7916,7 @@ impl McpToolHandler {
 
     // ============ PTY Control Tools ============
 
-    /// 向指定 PTY 会话写入文本/控制键（不做 Enter 时序处理）。控制键必须用 JSON \u 转义（\x 不是合法 JSON 转义，写 "\\x03" 只会送出 4 个字面字符）：Esc = "\u001b"，Shift+Tab = "\u001b[Z"，Ctrl+C = "\u0003"，Ctrl+D = "\u0004"，回车 = "\r"。控制键只能用本工具，不要用 submit_to_session（它会追加 CR）。提交命令或 prompt 请改用 submit_to_session。
+    /// 向会话原样写入文本或控制键（不补回车）。发命令 / prompt 用 submit_to_session。
     #[tool]
     async fn write_to_session(
         &self,
@@ -7869,7 +7939,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 向 PTY 会话提交单行或多行文本（自动处理 Enter 键时序）。内部用 bracketed-paste 写入完整文本；TUI 已宣告 paste ready 时固定等待 200ms，否则回退长度档，然后单独发送 CR。适用于发送 slash command（如 "/plan"）或输入 prompt。控制键请改用 write_to_session。
+    /// 向会话提交一段文本并回车（slash 命令、prompt）。控制键用 write_to_session。
     #[tool]
     async fn submit_to_session(
         &self,
@@ -7907,7 +7977,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 查询指定终端会话的当前状态（Active/Idle/WaitingInput/Exited）及最近输出时间。
+    /// 查会话当前状态与最近输出时间。
     #[tool]
     async fn get_session_status(
         &self,
@@ -7926,7 +7996,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 阻塞到指定会话进入 waitFor 中任一状态或超时。合法状态值（小写驼峰）：initializing/idle/thinking/toolRunning/compacting/waitingInput/error/exited。事件驱动且无忙轮询；waitingInput/error 会立即以 blockedReason 返回。超时后重新调用即可续等。
+    /// 阻塞直到会话进入 waitFor 任一状态或超时；超时后再调即可续等。
     #[tool]
     async fn wait_for_session(
         &self,
@@ -8025,9 +8095,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 显式触发桌面通知，同时在应用右下角弹出通知卡片。适用于告知任务完成、请求用户关注等场景。
-    /// 传 requiresInput=true 时卡片会带输入框，用户输入会以提交形式直接写回 sessionId 指定的终端会话
-    /// ——此时 sessionId 必填（即目标 PTY 会话 ID；自己的可从环境变量 CC_PANES_PTY_SESSION_ID 获取）。
+    /// 发桌面通知 + 右下角卡片。requiresInput=true 时卡片带输入框，回复写回 sessionId 会话。
     #[tool]
     async fn trigger_notification(
         &self,
@@ -8049,7 +8117,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 让 cc酱在桌面浮窗中显示一句指定文本。适合轻量提醒、状态说明或手动打招呼。
+    /// 让 cc酱浮窗说一句话（轻量提醒）。
     #[tool]
     async fn ccchan_say(&self, Parameters(params): Parameters<McpCcChanSayParams>) -> String {
         match self.ccchan_say_impl(&params.text, params.duration_ms) {
@@ -8058,15 +8126,15 @@ impl McpToolHandler {
         }
     }
 
-    /// 读取终端会话的最近输出内容（纯文本，ANSI 已剥离）。
-    /// 用途：监控其他 Claude 实例进度、提取错误信息、判断任务完成状态。
-    /// 已退出的会话在 5 分钟内仍可读取。
+    /// 读会话最近输出（纯文本，默认尾部 50 行）。退出后 5 分钟内仍可读。
     #[tool]
     async fn get_session_output(
         &self,
         Parameters(params): Parameters<McpGetSessionOutputParams>,
     ) -> String {
-        let lines_param = params.lines.unwrap_or(0);
+        // 默认只给尾部 50 行：这是长任务里最常被反复调的工具，全量缓冲会把上下文吃光。
+        // 显式 lines=0 才给全部。
+        let lines_param = params.lines.unwrap_or(DEFAULT_SESSION_OUTPUT_LINES);
         debug!(session_id = %params.session_id, lines = lines_param, "mcp::get_session_output");
         let sid = params.session_id.clone();
         match backend_call(&self.state, move |backend| {
@@ -8075,10 +8143,10 @@ impl McpToolHandler {
         .await
         {
             Ok(output) => {
+                // 只回 content：之前 lines 数组 + content 字串是同一份文本发两遍。
                 let content = output.lines.join("\n");
                 serde_json::json!({
                     "sessionId": output.session_id,
-                    "lines": output.lines,
                     "content": content,
                     "lineCount": output.lines.len(),
                 })
@@ -8095,9 +8163,7 @@ impl McpToolHandler {
 
     // ============ Launch History / Resume Sessions Tools ============
 
-    /// 查询 CC-Panes 启动历史记录。返回 resumeSessionId（可用作 launch_task 的 resumeId）、
-    /// cliTool、runtimeKind、lastPrompt、projectPath、launchedAt 等信息。
-    /// 推荐 resume 流程：list_launch_history → 匹配 projectPath + 找到 resumeSessionId/cliTool → launch_task(resumeId=resumeSessionId, cliTool=cliTool)
+    /// CC-Panes 启动历史：resumeSessionId / cliTool / runtimeKind / lastPrompt，用于 launch_task 恢复。
     #[tool]
     async fn list_launch_history(
         &self,
@@ -8140,8 +8206,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 查询指定 CLI 的历史会话列表（Claude/Codex/OpenCode/Cursor）。
-    /// 返回 sessionId（可用作 launch_task 的 resumeId）、description、modifiedAt、projectPath、cliTool。
+    /// 某个 CLI 的历史会话（sessionId 可作 launch_task resumeId）。
     #[tool]
     async fn list_resume_sessions(
         &self,
@@ -8328,7 +8393,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 创建编排任务（TaskBinding），用于跟踪和管理多任务编排
+    /// 创建 TaskBinding（编排任务记录）。
     #[tool]
     async fn create_task_binding(
         &self,
@@ -8447,36 +8512,13 @@ impl McpToolHandler {
         }
     }
 
-    /// Read a dispatch_task binding with its parsed, versioned dispatch envelope.
-    ///
-    /// Use the bindingId returned by dispatch_task instead of manually parsing
-    /// TaskBinding.metadata.dispatchEnvelope.
+    /// 兼容旧调用方：等同 get_task_status(bindingId)。
     #[tool]
     async fn get_task_dispatch(
         &self,
         Parameters(params): Parameters<McpGetTaskDispatchParams>,
     ) -> String {
-        debug!(binding_id = %params.binding_id, "mcp::get_task_dispatch");
-        let binding = match self.state.task_binding_service.get(&params.binding_id) {
-            Ok(Some(binding)) => binding,
-            Ok(None) => return format!("错误: TaskBinding '{}' 不存在", params.binding_id),
-            Err(error) => return format!("错误: 查询 TaskBinding 失败: {}", error),
-        };
-        let dispatch_envelope = match dispatch_envelope_from_binding(&binding) {
-            Ok(envelope) => envelope,
-            Err(error) => return format!("错误: {}", error),
-        };
-        if dispatch_envelope.binding_id.as_deref() != Some(binding.id.as_str()) {
-            return format!(
-                "错误: TaskBinding '{}' 的派发信封 bindingId 不匹配",
-                params.binding_id
-            );
-        }
-        serde_json::to_string(&TaskDispatchStatusResponse {
-            binding,
-            dispatch_envelope,
-        })
-        .unwrap_or_else(|error| format!("错误: 序列化失败: {}", error))
+        self.task_dispatch_status(&params.binding_id)
     }
 
     /// Cursor Bridge: bind a workspace, run a read-only context query, or dispatch a bounded Cursor Agent CLI task.
@@ -8509,7 +8551,7 @@ impl McpToolHandler {
         }
     }
 
-    /// Manually report a worker's terminal status to its leader via PTY. Bypasses automatic dedup. Use when the auto-notify did not fire (e.g. worker.status was already completed before this call).
+    /// worker 主动向 leader 上报状态 / 摘要（自动上报没触发时用）。
     #[tool]
     async fn report_to_leader(
         &self,
@@ -8556,7 +8598,7 @@ impl McpToolHandler {
             .unwrap_or_else(|e| format!("错误: 序列化失败: {}", e))
     }
 
-    /// Leader 向一个 worker 或该 plan 的全部 worker 下发指令。worker busy 时自动排队，回到 Idle/WaitingInput 后补投。
+    /// leader 给一个或全部 worker 下发指令；worker 忙时排队补投。
     #[tool]
     async fn send_to_worker(
         &self,
@@ -8685,7 +8727,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 登记 Plan-to-Codex 的 leader（发起规划的会话）。
+    /// 登记 plan 协作的 leader（发起规划的会话）。
     #[tool]
     async fn register_plan_leader(
         &self,
@@ -8728,7 +8770,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 登记 Plan-to-Codex 的 worker（被派发执行的会话）。
+    /// 登记 plan 协作的 worker（被派发执行的会话）。
     #[tool]
     async fn register_plan_worker(
         &self,
@@ -8845,8 +8887,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 列出当前 workspace 或 project 最近的 plan 标签（按 created_at DESC）。
-    /// 不递增 recall_count；用于"我之前做过什么"的快速浏览。
+    /// 最近的 plan 标签（不计召回热度）。
     #[tool]
     async fn list_recent_plans(
         &self,
@@ -8867,9 +8908,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 关键词检索 plan 标签（按 recall_count DESC, created_at DESC）。
-    /// 命中后会递增 recall_count（同 plan + 同 session 去重）。
-    /// 用于 recall skill 实现"上次/之前/我们做过"等召回。
+    /// 按关键词检索 plan 标签（"上次 / 之前做过"类召回），命中计热度。
     #[tool]
     async fn search_plans(&self, Parameters(params): Parameters<McpSearchPlansParams>) -> String {
         let limit = params.limit.unwrap_or(3).clamp(1, 20);
@@ -9067,15 +9106,8 @@ impl McpToolHandler {
         }
     }
 
-    /// 打开新的 AI 面板，或用相同 panelId 替换调用会话自己的面板。
-    ///
-    /// `display` 控制展示形态：`auto`（默认，听用户偏好）/ `dialog`（请求弹框）/
-    /// `dock`（请求右侧 Dock）/ `silent`（只标未读）。`dialog` 与 `dock` 可盖过用户的
-    /// 自动打开偏好，但仍受「允许 AI 请求弹出面板」总闸约束。
-    ///
-    /// **返回值里的 `delivery` 才是真实投递结果**（dialog/dock/unread/disabled/unknown）。
-    /// 调用成功不等于用户看见了——必须读 `delivery` 与 `hint` 后再向用户描述，
-    /// 不要一看到 panelId 就说“已弹出”。
+    /// 打开（或按 panelId 替换）本会话的 AI 面板。display: auto / dialog / dock / silent。
+    /// 返回值 delivery 才是真实投递结果，别把调用成功当成用户已看见。
     #[tool]
     async fn open_ai_panel(
         &self,
@@ -9131,10 +9163,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 整块替换调用会话自己的 AI 面板内容。
-    ///
-    /// `display` 语义与 `open_ai_panel` 相同（默认 `auto`）；同样应读返回值里的
-    /// `delivery` / `hint` 来判断用户是否真的看见了，而不是看到成功就断言已展示。
+    /// 整块替换本会话 AI 面板内容；display 与 open_ai_panel 相同，同样看 delivery。
     #[tool]
     async fn update_ai_panel(
         &self,
@@ -9186,10 +9215,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 关闭调用会话自己的 AI 面板。
-    ///
-    /// 关闭只是让面板离开活跃集并释放持有者，**内容仍保留在历史里**
-    /// （按工作空间分组，用户可在右侧 Dock 的 AI 面板里重看或删除）。
+    /// 关闭本会话的 AI 面板；内容保留在历史里。
     #[tool]
     async fn close_ai_panel(
         &self,
@@ -9235,14 +9261,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 认领一个历史 AI 面板，接管它的后续更新与用户点击事件。
-    ///
-    /// 用于「重开一个旧面板继续用」：认领后本会话就是持有者，可以 `update_ai_panel`
-    /// 改内容、用 `get_ai_panel_events` 收按钮事件。事件序号从 1 重新开始，
-    /// 上一任持有者收到过的老事件不会重放。
-    ///
-    /// 面板若仍被**活着的**会话持有会被拒绝——先让对方 `close_ai_panel`，
-    /// 或等它退出后再认领。用 `list_ai_panel_history` 查可认领的面板。
+    /// 认领一个历史 AI 面板接着用；仍被活会话持有时会拒绝。
     #[tool]
     async fn claim_ai_panel(
         &self,
@@ -9349,10 +9368,7 @@ impl McpToolHandler {
         .to_string()
     }
 
-    /// 列出全部历史 AI 面板（按工作空间分组，不含内容正文）。
-    ///
-    /// 用来找回以前开过的面板：拿到 panelId 后可以 `claim_ai_panel` 接管它。
-    /// `ownerSessionId` 为空表示无人持有、可直接认领。
+    /// 历史 AI 面板列表（不含正文）；ownerSessionId 为空的可 claim_ai_panel。
     #[tool]
     async fn list_ai_panel_history(&self) -> String {
         match self.state.ai_panel_repo.list_summaries() {
@@ -10100,17 +10116,20 @@ impl ServerHandler for McpToolHandler {
     }
 
     fn get_info(&self) -> ServerInfo {
+        // instructions 每轮常驻，只留一眼能用上的；教学细节在 ccpanes-mcp-guide skill（按需加载）。
+        let instructions = match self.surface {
+            McpSurface::Core => concat!(
+                "CC-Panes Orchestrator (core)：会话、派发、编排、plan、memory。\n",
+                "派发: dispatch_task(parentBindingId 可选) → get_task_status(bindingId) → wait_for_session / get_session_output。\n",
+                "管理工作空间 / 启动档 / 共享 MCP 等不在此面：用 shell 运行 cc-panes-ctl（见 ccpanes-admin skill）。",
+            ),
+            McpSurface::Full => concat!(
+                "CC-Panes Orchestrator (full)：全部工具，供 cc-panes-ctl 与 UI 使用。\n",
+                "会话内请用 /mcp（core）。",
+            ),
+        };
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions(concat!(
-                "CC-Panes Orchestrator: 所有已注册 CLI 的多实例编排与工作空间管理。\n",
-                "工具按需调用，完整列表见 tools/list。\n",
-                "典型流程: dispatch_task（跨 CLI 且持久化）→ get_task_dispatch → wait_for_session / get_session_output；launch_task 仅兼容旧调用方。\n",
-                "Leader 下行: register_plan_leader → dispatch_task(parentBindingId)；旧会话复用才用 register_plan_worker。目标 busy 时自动排队并在空闲边沿补投。\n",
-                "布局分流: list_panes 查看 layoutId/paneId，dispatch_task 可传 layoutId 或 layoutName；layoutName 不存在时前端会自动创建布局。\n",
-                "项目接入: scan_directory → create_workspace → add_project_to_workspace → dispatch_task。\n",
-                "Resume: list_launch_history(projectPath) → 取 resumeSessionId/cliTool/runtimeKind → dispatch_task(resumeId, cliTool, runtimeKind)。\n",
-                "Cursor Bridge: cursor_bridge(action=init|context|do|status|model|session) 走官方 cursor-agent CLI，不走 CDP。",
-            ))
+            .with_instructions(instructions)
     }
 }
 
@@ -14422,6 +14441,61 @@ mod tests {
     use super::*;
     use crate::models::WorkspaceCliEnvironmentDefaults;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    /// core 清单里的每个名字都必须真有对应 `#[tool]`，否则是拼错了、会静默从 core 消失。
+    #[test]
+    fn core_tool_names_all_exist() {
+        let router = McpToolHandler::tool_router();
+        let missing: Vec<&str> = CORE_MCP_TOOLS
+            .iter()
+            .copied()
+            .filter(|name| !router.has_route(name))
+            .collect();
+        assert!(missing.is_empty(), "CORE_MCP_TOOLS 里不存在的工具: {missing:?}");
+        let mut sorted = CORE_MCP_TOOLS.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), CORE_MCP_TOOLS.len(), "CORE_MCP_TOOLS 有重复项");
+    }
+
+    /// core 面 = 全量减非 core；管理台工具不能漏进会话。
+    #[test]
+    fn core_surface_excludes_admin_tools() {
+        let mut core = McpToolHandler::tool_router();
+        let all: Vec<String> = core
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect();
+        for name in &all {
+            if !CORE_MCP_TOOLS.contains(&name.as_str()) {
+                core.remove_route(name);
+            }
+        }
+        let names: Vec<String> = core
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect();
+        assert_eq!(names.len(), CORE_MCP_TOOLS.len());
+        for admin in [
+            "create_workspace",
+            "create_runtime_config",
+            "upsert_shared_mcp_server",
+            "start_runner",
+            "create_media_run",
+            "browser_navigate",
+            "open_file",
+            "cursor_bridge",
+            "launch_task",
+            "get_task_dispatch",
+            "list_claude_sessions",
+            "register_plan_child",
+        ] {
+            assert!(!names.iter().any(|n| n == admin), "{admin} 不该在 core 面");
+        }
+        assert!(all.len() > names.len());
+    }
 
     fn wait_test_status(session_id: &str, status: SessionStatus) -> SessionStatusInfo {
         SessionStatusInfo {

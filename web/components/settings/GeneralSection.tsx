@@ -5,6 +5,8 @@ import { handleErrorSilent, isTauriRuntime } from "@/utils";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { FormField } from "@/components/ui/form-field";
 import {
   Select,
   SelectContent,
@@ -335,6 +337,24 @@ export default function GeneralSection({
         </p>
       </div>
       )}
+
+      {/* 记忆库路径：允许 dev / release 共用一份记忆 */}
+      <div className="flex flex-col gap-1 mt-1 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>
+        <FormField label={t("memoryDbPath")} className="flex flex-col gap-1" hint={t("memoryDbPathDesc")} hintClassName="text-xs m-0 text-[var(--app-text-tertiary)]">
+          {({ id }) => (
+            <Input
+              id={id}
+              value={value.memoryDbPath ?? ""}
+              onChange={(e) => update("memoryDbPath", e.target.value.trim() ? e.target.value : null)}
+              placeholder={t("memoryDbPathPlaceholder")}
+              className="h-8 font-mono text-xs"
+            />
+          )}
+        </FormField>
+        <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
+          {t("dataDirRestartHint")}
+        </p>
+      </div>
 
       {/* 新手引导 */}
       <div className="flex flex-col gap-1 mt-1 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>

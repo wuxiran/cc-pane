@@ -46,24 +46,41 @@ pub fn upsert_mcp_server(
     command: String,
     args: Vec<String>,
     env: HashMap<String, String>,
+    descriptions: Option<BTreeMap<String, String>>,
     service: State<'_, Arc<McpConfigService>>,
 ) -> AppResult<()> {
     debug!("cmd::upsert_mcp_server name={}", name);
     let layer = resolve_layer(workspace_name.as_deref(), project_path.as_deref())?;
     validate_mcp_name(&name)?;
     validate_command(&command)?;
-    // Keep fields the UI does not edit (type/url/headers) when editing an existing entry.
-    let extra = service
-        .get(&layer, &name)?
-        .map(|existing| existing.extra)
+    // Keep fields the UI does not edit (type/url/headers) when editing an existing entry;
+    // descriptions are kept too unless the caller sends a new map.
+    let existing = service.get(&layer, &name)?;
+    let extra = existing
+        .as_ref()
+        .map(|existing| existing.extra.clone())
+        .unwrap_or_default();
+    let descriptions = descriptions
+        .map(strip_blank_descriptions)
+        .or_else(|| existing.map(|existing| existing.descriptions))
         .unwrap_or_default();
     let config = McpServerConfig {
         command,
         args,
         env,
+        descriptions,
         extra,
     };
     Ok(service.upsert(&layer, &name, config)?)
+}
+
+fn strip_blank_descriptions(map: BTreeMap<String, String>) -> BTreeMap<String, String> {
+    map.into_iter()
+        .filter_map(|(locale, text)| {
+            let text = text.trim();
+            (!text.is_empty()).then(|| (locale, text.to_string()))
+        })
+        .collect()
 }
 
 #[tauri::command]

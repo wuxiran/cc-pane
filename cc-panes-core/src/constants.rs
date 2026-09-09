@@ -79,10 +79,13 @@ pub mod events {
 /// 终端默认值
 pub mod terminal {
     /// 默认回滚缓冲行数
-    pub const DEFAULT_SCROLLBACK: u32 = 20_000;
+    pub const DEFAULT_SCROLLBACK: u32 = 5_000;
 
     /// v0.9.38 及更早版本的默认回滚缓冲行数。
     pub const LEGACY_DEFAULT_SCROLLBACK: u32 = 1_000;
+
+    /// v0.12.x 的默认回滚缓冲行数，用于随默认值调整迁移现有配置。
+    pub const PREVIOUS_DEFAULT_SCROLLBACK: u32 = 20_000;
 }
 
 /// Hook/OSC 驱动的会话状态查询策略。

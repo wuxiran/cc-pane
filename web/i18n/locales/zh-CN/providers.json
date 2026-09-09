@@ -12,6 +12,15 @@
     "wsl": "WSL",
     "ssh": "SSH"
   },
+  "remoteRuntimeNotice": {
+    "ssh": {
+      "mcp": "这个工作空间的会话默认在 SSH 启动。本层 MCP 不会注入 SSH 会话；远端只拿到启动档里的共享 MCP（HTTP）和 ccpanes。",
+      "skills": "这个工作空间的会话默认在 SSH 启动。工作空间 skills 不会挂进 SSH 会话。"
+    },
+    "wsl": {
+      "mcp": "这个工作空间的会话默认在 WSL 启动。本层里 HTTP 型 MCP 会注入；stdio 型（command 启动的）是宿主命令，进不了 WSL——需要的话改成共享服务（HTTP 桥接）。"
+    }
+  },
   "mcpMode": {
     "default": "默认组合",
     "custom": "自定义选择",
@@ -168,7 +177,7 @@
   "mcpDisabledHint": "当前配置不会注入 CC-Panes MCP 或共享 MCP。",
   "mcpCustomHint": "自定义模式只注入下方选中的共享 MCP。",
   "mcpDefaultHint": "默认组合会使用 CC-Panes MCP，并启用共享服务库中未排除的 MCP。",
-  "ccpanesMcpDesc": "注入 CC-Panes 自身的任务、工作空间与编排能力。",
+  "ccpanesMcpDesc": "注入 CC-Panes 自身的会话、派发与编排能力（core 面）。管理台操作走 cc-panes-ctl。",
   "sharedMcpService": "共享 MCP 服务",
   "sharedMcpServiceDesc": "从共享服务库复用已配置的 MCP。",
   "sharedMcpSelection": "共享 MCP 选择",

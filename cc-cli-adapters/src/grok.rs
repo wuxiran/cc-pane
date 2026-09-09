@@ -455,12 +455,8 @@ impl CliToolAdapter for GrokAdapter {
 
         let (command, args) = ctx.resolve_launch("grok", args)?;
 
-        // 屏幕模式默认 fullscreen：CC-Panes 的 PTY 无终端指纹（无 WT_SESSION /
-        // TERM_PROGRAM），Grok 的 auto-detection 会回落 inline——而 inline 依赖
-        // xterm scrollback，长会话后台积压溢出 → snapshot 重建（daemon 缓冲有界）
-        // 后历史被截断，表现为「滚不上去」。fullscreen 下历史在 Grok 自己手里
-        // （PgUp/Ctrl+U 全量可滚），不受重建影响。
-        // 若 Grok 升版不认该 env，仅回落 auto-detect（现状 inline），失败模式安全。
+        // Grok 的托管会话默认使用 fullscreen；滚轮是否可用由终端的
+        // alternate-buffer / mouse-report / viewport 链路独立决定。
         let mut env_inject = HashMap::new();
         let screen_mode = screen_mode_from_options(&ctx.adapter_options);
         if screen_mode != "inherit" {

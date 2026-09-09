@@ -12,6 +12,15 @@
     "wsl": "WSL",
     "ssh": "SSH"
   },
+  "remoteRuntimeNotice": {
+    "ssh": {
+      "mcp": "Sessions in this workspace launch over SSH by default. This layer's MCP servers are not injected into SSH sessions; the remote side only gets the launch profile's shared MCP (HTTP) and ccpanes.",
+      "skills": "Sessions in this workspace launch over SSH by default. Workspace skills are not mounted into SSH sessions."
+    },
+    "wsl": {
+      "mcp": "Sessions in this workspace launch on WSL by default. HTTP-type MCP servers in this layer are injected; stdio entries (started via command) are host commands and cannot run inside WSL — move them to a shared service (HTTP bridge) if needed."
+    }
+  },
   "mcpMode": {
     "default": "Default set",
     "custom": "Custom",
@@ -168,7 +177,7 @@
   "mcpDisabledHint": "This profile won't inject CC-Panes MCP or shared MCP.",
   "mcpCustomHint": "Custom mode injects only the shared MCP selected below.",
   "mcpDefaultHint": "The default set uses CC-Panes MCP and enables shared MCP not excluded from the library.",
-  "ccpanesMcpDesc": "Injects CC-Panes' own task, workspace, and orchestration capabilities.",
+  "ccpanesMcpDesc": "Injects CC-Panes session, dispatch, and orchestration tools (core surface). Admin work goes through cc-panes-ctl.",
   "sharedMcpService": "Shared MCP services",
   "sharedMcpServiceDesc": "Reuse configured MCP from the shared library.",
   "sharedMcpSelection": "Shared MCP selection",

@@ -38,6 +38,9 @@ pub struct UpsertMcpServerRequest {
     pub args: Vec<String>,
     #[serde(default)]
     pub env: HashMap<String, String>,
+    /// Absent = keep whatever the stored entry already has.
+    #[serde(default)]
+    pub descriptions: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Deserialize)]
@@ -134,16 +137,31 @@ pub async fn upsert_mcp_server(
     let layer = resolve_layer(req.workspace_name.as_deref(), req.project_path.as_deref())?;
     validate_mcp_name(&req.name).map_err(service_error)?;
     validate_command(&req.command).map_err(service_error)?;
-    let extra = state
+    let existing = state
         .mcp_config_service
         .get(&layer, &req.name)
-        .map_err(service_error)?
-        .map(|existing| existing.extra)
+        .map_err(service_error)?;
+    let extra = existing
+        .as_ref()
+        .map(|existing| existing.extra.clone())
+        .unwrap_or_default();
+    let descriptions = req
+        .descriptions
+        .map(|map| {
+            map.into_iter()
+                .filter_map(|(locale, text)| {
+                    let text = text.trim();
+                    (!text.is_empty()).then(|| (locale, text.to_string()))
+                })
+                .collect()
+        })
+        .or_else(|| existing.map(|existing| existing.descriptions))
         .unwrap_or_default();
     let config = McpServerConfig {
         command: req.command,
         args: req.args,
         env: req.env,
+        descriptions,
         extra,
     };
     state

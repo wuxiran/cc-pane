@@ -6,33 +6,246 @@
     "mcp_server_name": "ccpanes"
   },
   "skills": [
-    { "name": "launch-task", "file": "launch-task.md", "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true } },
-    { "name": "dispatch-task", "file": "dispatch-task.md", "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true } },
-    { "name": "clean-launch", "file": "clean-launch.md" },
-    { "name": "fork-session", "file": "fork-session.md" },
-    { "name": "parallel-run", "file": "parallel-run.md" },
-    { "name": "parallel-advanced", "file": "parallel-advanced.md" },
-    { "name": "guided-team", "file": "guided-team.md" },
-    { "name": "workspace", "file": "workspace.md" },
-    { "name": "workspace-diagnostics", "file": "workspace-diagnostics.md" },
-    { "name": "organize-workspace", "file": "organize-workspace.md" },
-    { "name": "workspace-migrate", "file": "workspace-migrate.md" },
-    { "name": "browse-sessions", "file": "browse-sessions.md", "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true } },
-    { "name": "dispatch-todos", "file": "dispatch-todos.md", "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true } },
-    { "name": "spec", "file": "spec.md" },
-    { "name": "built-in-spec", "file": "built-in-spec.md" },
-    { "name": "openspec", "file": "openspec.md" },
-    { "name": "plantocodex", "file": "plantocodex.md" },
-    { "name": "plantocc", "file": "plantocc.md" },
-    { "name": "planreview", "file": "planreview.md" },
-    { "name": "plan2codexwsl", "file": "plan2codexwsl.md" },
-    { "name": "plantogrok", "file": "plantogrok.md" },
-    { "name": "cleanup-processes", "file": "cleanup-processes.md" },
-    { "name": "finish-work", "file": "finish-work.md" },
-    { "name": "cross-layer-check", "file": "cross-layer-check.md", "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "piSkill"], "requiresCcpanesMcp": false } },
-    { "name": "memory-dual-write", "file": "memory-dual-write.md", "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true } },
-    { "name": "recall", "file": "recall.md" },
-    { "name": "notify-done", "file": "notify-done.md" },
+    {
+      "name": "launch-task",
+      "file": "launch-task.md",
+      "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true },
+      "descriptions": {
+        "zh-CN": "{{app_name}} 高级 CLI 启动与派发：WSL、resume、PTY 恢复、TaskBinding、REST 兜底及跨 CLI worker 诊断。",
+        "en": "Advanced {{app_name}} CLI launch and dispatch: WSL, resume, PTY recovery, TaskBinding, REST fallback, and cross-CLI worker diagnostics."
+      }
+    },
+    {
+      "name": "dispatch-task",
+      "file": "dispatch-task.md",
+      "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true },
+      "descriptions": {
+        "zh-CN": "把一个持久任务派给任意已注册的 {{app_name}} CLI，用于跨 CLI 交接、实现、评审、调研或恢复。",
+        "en": "Dispatch a durable task to any registered {{app_name}} CLI. Use for cross-CLI handoff, implementation, review, research, or resume workflows."
+      }
+    },
+    {
+      "name": "clean-launch",
+      "file": "clean-launch.md",
+      "descriptions": {
+        "zh-CN": "在 {{app_name}} 里启动或重启项目的 dev/build 进程，先解决端口和 PID 冲突；支持 local / WSL / SSH。",
+        "en": "Launch or restart a project's dev/build process in {{app_name}}, resolving port and PID conflicts first. Supports local, WSL, and SSH runtimes."
+      }
+    },
+    {
+      "name": "fork-session",
+      "file": "fork-session.md",
+      "descriptions": {
+        "zh-CN": "总结当前对话上下文，在同一项目里派一个新的兼容 CLI 会话沿分支方向继续；只继承压缩摘要，不带完整记录。",
+        "en": "Summarize the current conversation and dispatch a new compatible CLI session in the same project to continue down a branch. Inherits a compressed summary, not the full transcript."
+      }
+    },
+    {
+      "name": "parallel-run",
+      "file": "parallel-run.md",
+      "descriptions": {
+        "zh-CN": "把大任务拆成独立子任务，并行派发多个 CLI 会话；适合安全的跨项目扇出。",
+        "en": "Split a large task into independent subtasks and dispatch parallel CLI sessions. Use for safe cross-project fan-out."
+      }
+    },
+    {
+      "name": "parallel-advanced",
+      "file": "parallel-advanced.md",
+      "descriptions": {
+        "zh-CN": "同一项目内的高级并行编排：原生子 agent 加隔离的 {{app_name}} worker；适合可拆成独立子任务的工作。",
+        "en": "Advanced same-project parallel orchestration with native sub-agents and isolated {{app_name}} workers. Use when work can split into independent subtasks."
+      }
+    },
+    {
+      "name": "guided-team",
+      "file": "guided-team.md",
+      "descriptions": {
+        "zh-CN": "设计并运行 {{app_name}} 的 Commander / Leader / Worker 多 agent 团队；增删改角色前必须先问用户。",
+        "en": "Design and run a {{app_name}} Commander/Leader/Worker team for multi-agent execution. Always ask before adding, removing, or changing roles."
+      }
+    },
+    {
+      "name": "workspace",
+      "file": "workspace.md",
+      "descriptions": {
+        "zh-CN": "通过 MCP 管理 {{app_name}} 工作空间：列出、新建、加项目、归档、修路径、批量导入仓库；永久删除只能在 UI 里做。",
+        "en": "Manage {{app_name}} workspaces via MCP: list, create, add projects, archive, fix paths, bulk-import repos. Permanent deletion is UI-only."
+      }
+    },
+    {
+      "name": "workspace-diagnostics",
+      "file": "workspace-diagnostics.md",
+      "descriptions": {
+        "zh-CN": "诊断 {{app_name}} 工作空间存储：workspace.json、projects.csv、数据目录路由、遗留文件；只读排查，不直接改。",
+        "en": "Diagnose {{app_name}} workspace storage: workspace.json, projects.csv, data-dir routing, legacy files. Read-only triage; changes go through MCP or the UI."
+      }
+    },
+    {
+      "name": "organize-workspace",
+      "file": "organize-workspace.md",
+      "descriptions": {
+        "zh-CN": "在不丢数据的前提下审计并整理 {{app_name}} 工作空间目录，先给出可审阅的计划；不确定的文件只移入 _trash/。",
+        "en": "Audit and tidy {{app_name}} workspace folders without data loss, producing a reviewable plan first. Uncertain files go to _trash/, never deleted."
+      }
+    },
+    {
+      "name": "workspace-migrate",
+      "file": "workspace-migrate.md",
+      "descriptions": {
+        "zh-CN": "引导用户使用 {{app_name}} 内置的「迁移工作空间」流程（本地到本地，或本地到 WSL）；只给操作指引，不直接执行。",
+        "en": "Guide the user through {{app_name}}'s built-in Migrate Workspace flow (local to local, or local to WSL). Guidance only; it does not run the migration."
+      }
+    },
+    {
+      "name": "browse-sessions",
+      "file": "browse-sessions.md",
+      "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true },
+      "descriptions": {
+        "zh-CN": "查看 {{app_name}} 实时会话：列出标签、读最近输出、查启动记录或历史 Claude 会话；要恢复会话请转 launch-task。",
+        "en": "Inspect live {{app_name}} sessions: list tabs, read recent output, look up launches or past Claude history. To resume a session, use launch-task."
+      }
+    },
+    {
+      "name": "dispatch-todos",
+      "file": "dispatch-todos.md",
+      "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true },
+      "descriptions": {
+        "zh-CN": "把待办按族群聚类，每组派给一个新的 CLI 会话；用于跑完整个 backlog。",
+        "en": "Cluster pending todos by family and dispatch each group to a fresh CLI session. Use when asked to run the backlog."
+      }
+    },
+    {
+      "name": "spec",
+      "file": "spec.md",
+      "descriptions": {
+        "zh-CN": "用外部 spec-workflow MCP 跑规格驱动流程（需求 → 设计 → 任务）；未安装该 MCP 时请改用 built-in-spec。",
+        "en": "Run a spec-driven workflow (requirements to design to tasks) with the external spec-workflow MCP. If it is not installed, use built-in-spec."
+      }
+    },
+    {
+      "name": "built-in-spec",
+      "file": "built-in-spec.md",
+      "descriptions": {
+        "zh-CN": "{{app_name}} 内置 Spec 与 Todo 双向绑定：文件布局、specService API、Tauri 命令边界；不是 MCP 工作流。",
+        "en": "{{app_name}} built-in Spec plus Todo two-way binding: file layout, specService API, Tauri command boundary. Not an MCP workflow."
+      }
+    },
+    {
+      "name": "openspec",
+      "file": "openspec.md",
+      "descriptions": {
+        "zh-CN": "按 {{app_name}} 的 OpenSpec 方法：动手前先写 Proposal、Design 和 Tasks；不依赖外部 spec-workflow MCP。",
+        "en": "Follow the {{app_name}} OpenSpec-style method: write Proposal, Design, and Tasks before implementing. No external spec-workflow MCP needed."
+      }
+    },
+    {
+      "name": "plantocodex",
+      "file": "plantocodex.md",
+      "descriptions": {
+        "zh-CN": "把写好的计划交给 Codex worker 实现，带 leader / worker 注册与自动反馈；Claude 只规划不写代码。WSL 入口见 plan2codexwsl。",
+        "en": "Hand a finished plan to a Codex worker to implement, with leader/worker registration and auto-feedback. Claude plans, Codex codes. For WSL see plan2codexwsl."
+      }
+    },
+    {
+      "name": "plantocc",
+      "file": "plantocc.md",
+      "descriptions": {
+        "zh-CN": "把写好的计划交给另一个 Claude Code 实例实现，带 leader / worker 自动反馈；流程同 plantocodex，只写 Claude worker 的差异。",
+        "en": "Hand a finished plan to another Claude Code instance to implement, with leader/worker auto-feedback. Same flow as plantocodex; covers Claude-worker differences only."
+      }
+    },
+    {
+      "name": "planreview",
+      "file": "planreview.md",
+      "descriptions": {
+        "zh-CN": "在 plan mode 内启动另一个兼容 CLI（本地或 WSL）做同行评审；用于高风险 plan 二审或用户要求跨 CLI peer review。",
+        "en": "From plan mode, launch another compatible CLI (local or WSL) for peer review. Use for high-risk plans or when the user asks for a cross-CLI review."
+      }
+    },
+    {
+      "name": "plan2codexwsl",
+      "file": "plan2codexwsl.md",
+      "descriptions": {
+        "zh-CN": "在 WSL 里用 Codex 执行计划：已注册路径、runtimeKind 和 WSL 路径转换；是 plantocodex 的 WSL 特化入口。",
+        "en": "Run a plan with Codex inside WSL: registered paths, runtimeKind, and WSL path translation. The WSL-specific entry point for plantocodex."
+      }
+    },
+    {
+      "name": "plantogrok",
+      "file": "plantogrok.md",
+      "descriptions": {
+        "zh-CN": "把写好的计划交给 Grok CLI 实例实现，带 leader / worker 自动反馈；流程同 plantocodex，只写 Grok worker 的差异。",
+        "en": "Hand a finished plan to a Grok CLI instance to implement, with leader/worker auto-feedback. Same flow as plantocodex; covers Grok-worker differences only."
+      }
+    },
+    {
+      "name": "cleanup-processes",
+      "file": "cleanup-processes.md",
+      "descriptions": {
+        "zh-CN": "找出并安全清理僵尸开发进程，同时保护正在运行的 {{app_name}}、MCP 和 dev server。",
+        "en": "Find and safely kill zombie dev processes while protecting active {{app_name}}, MCP, and dev servers."
+      }
+    },
+    {
+      "name": "finish-work",
+      "file": "finish-work.md",
+      "descriptions": {
+        "zh-CN": "交接前收尾：看 diff、跑检查、核对文档和测试、总结改动；作为 worker 时一并完成 {{app_name}} 上报。",
+        "en": "Finalize a task before handoff: inspect the diff, run checks, verify docs and tests, summarize changes. As a worker, also report back to {{app_name}}."
+      }
+    },
+    {
+      "name": "cross-layer-check",
+      "file": "cross-layer-check.md",
+      "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "piSkill"], "requiresCcpanesMcp": false },
+      "descriptions": {
+        "zh-CN": "评审横跨 UI、store、IPC/API、后端服务、仓储与持久化的改动；多层改动后或怀疑层间契约不一致时使用。",
+        "en": "Review changes spanning UI, stores, IPC/API, backend services, repositories, and persistence. Use after multi-layer changes or suspected contract drift."
+      }
+    },
+    {
+      "name": "memory-dual-write",
+      "file": "memory-dual-write.md",
+      "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true },
+      "descriptions": {
+        "zh-CN": "把长期记忆同步写入 {{app_name}} 共享池，让 Claude 和 Codex 共用一份记忆；CC_PANES_* 环境变量全缺失时必须跳过。",
+        "en": "Mirror long-term memory into the {{app_name}} shared pool so Claude and Codex share one memory. Skip when all CC_PANES_* env vars are missing."
+      }
+    },
+    {
+      "name": "recall",
+      "file": "recall.md",
+      "descriptions": {
+        "zh-CN": "从 {{app_name}} 历史里找回当前项目或工作空间过去的计划；缺少 CC_PANES_PROJECT_PATH 时跳过。",
+        "en": "Recall past plans for the current project or workspace from {{app_name}} history. Skip when CC_PANES_PROJECT_PATH is missing."
+      }
+    },
+    {
+      "name": "notify-done",
+      "file": "notify-done.md",
+      "descriptions": {
+        "zh-CN": "完成一轮实质性工作后推送带摘要的通知（桌面加 IM）；琐碎问答不要用。",
+        "en": "Push a rich summary notification (desktop plus IM) after finishing a substantial turn. Not for trivial Q&A."
+      }
+    },
+    {
+      "name": "mcp-guide",
+      "file": "mcp-guide.md",
+      "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true },
+      "descriptions": {
+        "zh-CN": "{{app_name}} core MCP 用法：派发、会话读写、等待、通知、记忆、待办、AI 面板。工具描述很短，细节都在这里。",
+        "en": "How to use the {{app_name}} core MCP tools well: dispatch, session I/O, waiting, notifications, memory, todos, AI panels. Tool descriptions are terse; the details live here."
+      }
+    },
+    {
+      "name": "admin",
+      "file": "admin.md",
+      "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": false },
+      "descriptions": {
+        "zh-CN": "用 cc-panes-ctl 从会话里管理 {{app_name}}：工作空间、项目、启动档、共享 MCP、runner、媒体、浏览器、文件。",
+        "en": "Manage {{app_name}} itself from a session via cc-panes-ctl: workspaces, projects, launch profiles, shared MCP, runners, media, browser tabs, files."
+      }
+    },
     {
       "name": "cursor-handoff",
       "file": "cursor-handoff.md",
@@ -40,6 +253,10 @@
         "portable": true,
         "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"],
         "requiresCcpanesMcp": false
+      },
+      "descriptions": {
+        "zh-CN": "把工作从 {{app_name}} 交接到 Cursor IDE：打开项目 / worktree、写交接文件、可选 prompt 深链、派发 Cursor Agent CLI，或用 cursor_bridge 做受限会话。",
+        "en": "Hand off work from {{app_name}} to Cursor IDE: open the project/worktree, write a handoff file, optional prompt deeplink, dispatch Cursor Agent CLI, or use cursor_bridge for bounded sessions."
       }
     }
   ]

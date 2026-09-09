@@ -552,7 +552,11 @@ pub const DEFAULT_DAEMON_ORPHAN_TTL_MINUTES: u32 = 24 * 60;
 
 impl TerminalSettings {
     pub fn merge_missing_defaults(&mut self) {
-        if self.scrollback == crate::constants::terminal::LEGACY_DEFAULT_SCROLLBACK {
+        if matches!(
+            self.scrollback,
+            crate::constants::terminal::LEGACY_DEFAULT_SCROLLBACK
+                | crate::constants::terminal::PREVIOUS_DEFAULT_SCROLLBACK
+        ) {
             self.scrollback = crate::constants::terminal::DEFAULT_SCROLLBACK;
         }
         if self.font_size < MIN_TERMINAL_FONT_SIZE || self.font_size > MAX_TERMINAL_FONT_SIZE {
@@ -675,6 +679,10 @@ pub struct GeneralSettings {
     pub language: String,
     #[serde(default)]
     pub data_dir: Option<String>,
+    /// 记忆库文件路径；空则用 `<data_dir>/memory.db`。
+    /// 记忆是用户知识，不该被 dev / release 的数据目录切成两份，dev 常把它指到正式库。
+    #[serde(default)]
+    pub memory_db_path: Option<String>,
     #[serde(default)]
     pub search_scope: SearchScope,
     /// 日志级别: "error" | "warn" | "info" | "debug" | "trace"
@@ -1387,6 +1395,7 @@ impl Default for GeneralSettings {
             auto_start: false,
             language: "zh-CN".to_string(),
             data_dir: None,
+            memory_db_path: None,
             search_scope: SearchScope::default(),
             log_level: default_log_level(),
             onboarding_completed: false,
@@ -1799,6 +1808,18 @@ mod tests {
     fn terminal_merge_missing_defaults_preserves_custom_scrollback() {
         let mut settings = TerminalSettings {
             scrollback: 5_000,
+            ..Default::default()
+        };
+
+        settings.merge_missing_defaults();
+
+        assert_eq!(settings.scrollback, 5_000);
+    }
+
+    #[test]
+    fn terminal_merge_missing_defaults_migrates_previous_default_scrollback() {
+        let mut settings = TerminalSettings {
+            scrollback: crate::constants::terminal::PREVIOUS_DEFAULT_SCROLLBACK,
             ..Default::default()
         };
 

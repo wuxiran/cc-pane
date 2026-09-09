@@ -15,7 +15,7 @@ description: Inspect live CC-Panes sessions: list tabs, read recent output, look
 | 某会话当前状态（Active/Idle/Exited） | `get_session_status(sessionId)` |
 | 某会话最近输出/错误 | `get_session_output(sessionId, lines: 100-500)` |
 | 历史启动过什么任务 | `list_launch_history(projectPath?, limit)` |
-| 找到一个想 resume 的 Claude 会话 | `list_claude_sessions(projectPath?)` → 然后交给 launch-task 的 resume |
+| 找到一个想 resume 的 Claude 会话 | `list_resume_sessions(cliTool="claude", projectPath?)` → 然后交给 launch-task 的 resume |
 
 ## 子命令快捷映射
 
@@ -24,7 +24,7 @@ list / 无参         → list_sessions（表：sessionId / status / lastOutputA
 status <id>         → get_session_status
 read <id> [lines]   → get_session_output（默认 100）
 history [path]      → list_launch_history
-claude-sessions     → list_claude_sessions
+claude-sessions     → list_resume_sessions
 ```
 
 ## 典型用途

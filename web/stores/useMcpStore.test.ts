@@ -95,7 +95,7 @@ describe("useMcpStore", () => {
 
       await useMcpStore.getState().upsertServer(projectA, "server1", "node", ["server.js"], {});
 
-      expect(mcpService.upsertServer).toHaveBeenCalledWith(projectA, "server1", "node", ["server.js"], {});
+      expect(mcpService.upsertServer).toHaveBeenCalledWith(projectA, "server1", "node", ["server.js"], {}, undefined);
       expect(mcpService.listServers).toHaveBeenCalledWith(projectA);
       expect(useMcpStore.getState().servers).toEqual(mockServers);
     });

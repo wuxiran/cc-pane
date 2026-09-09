@@ -18,6 +18,8 @@ import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useDialogStore } from "@/stores/useDialogStore";
 import ScopeBanner from "@/components/settings/ScopeBanner";
 import { useExperimentalFeature } from "@/hooks/useExperimentalFeature";
+import { useDescriptionLang } from "@/hooks/useDescriptionLang";
+import { DescriptionLangToggle } from "@/components/ui/DescriptionLangToggle";
 
 function externalSourceLabel(s: ExternalSkillSource): string {
   if (s.kind === "plugin") return `plugin:${s.pluginId}`;
@@ -29,7 +31,7 @@ function externalSourceLabel(s: ExternalSkillSource): string {
  * 1. 已安装用户 skills（~/.cc-panes/skills/user）—— 可删除
  * 2. 官方市场浏览 —— 一键安装（sha256 校验）
  * 3. 外部发现（只读）—— ~/.claude / ~/.codex / plugins 里已装的 skill
- * 4. 内置 ccpanes skills（只读）—— 启动时自动注入到各 CLI 的那批
+ * 4. 内置 ccpanes skills（只读）—— 启动会话时挂载，不写 CLI 主目录
  * 后端能力多数已存在（UserSkillService / SkillMarketService / ExternalSkillRegistry）。
  */
 export default function GlobalSkillsPanel() {
@@ -40,6 +42,7 @@ export default function GlobalSkillsPanel() {
   const [bundled, setBundled] = useState<BundledSkill[]>([]);
   const [loading, setLoading] = useState(false);
   const [installing, setInstalling] = useState<string | null>(null);
+  const { describe } = useDescriptionLang();
   // Skill 市场是实验功能：未勾选时不拉市场清单、不显示市场区块与入口按钮。
   const skillMarketEnabled = useExperimentalFeature("skillMarket");
 
@@ -199,13 +202,18 @@ export default function GlobalSkillsPanel() {
       </Section>
 
       {/* 4. 内置 ccpanes（只读） */}
-      <Section icon={<ShieldCheck size={15} />} title={t("bundledSkills", { defaultValue: "内置 CC-Panes Skills（只读）" })} count={bundled.length}>
+      <Section
+        icon={<ShieldCheck size={15} />}
+        title={t("bundledSkills", { defaultValue: "内置 CC-Panes Skills（会话挂载，只读）" })}
+        count={bundled.length}
+        trailing={<DescriptionLangToggle />}
+      >
         {bundled.length === 0 ? (
           <Empty text={t("noBundledSkills", { defaultValue: "（内置 skill 列表不可用）" })} />
         ) : (
           <div className="flex flex-col gap-2">
             {bundled.map((s) => (
-              <Row key={s.name} title={s.name} subtitle={s.description} meta="ccpanes" readonly />
+              <Row key={s.name} title={s.name} subtitle={describe(s.descriptions, s.description)} meta="ccpanes" readonly />
             ))}
           </div>
         )}
@@ -214,13 +222,16 @@ export default function GlobalSkillsPanel() {
   );
 }
 
-function Section({ icon, title, count, children }: { icon: React.ReactNode; title: string; count: number; children: React.ReactNode }) {
+function Section({ icon, title, count, trailing, children }: {
+  icon: React.ReactNode; title: string; count: number; trailing?: React.ReactNode; children: React.ReactNode;
+}) {
   return (
     <div>
       <div className="flex items-center gap-2 mb-3">
         <span style={{ color: "var(--app-text-secondary)" }}>{icon}</span>
         <span className="text-sm font-semibold" style={{ color: "var(--app-text-primary)" }}>{title}</span>
         <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{count}</Badge>
+        {trailing && <span className="ml-auto">{trailing}</span>}
       </div>
       {children}
     </div>

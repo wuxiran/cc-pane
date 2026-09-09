@@ -66,6 +66,23 @@ impl fmt::Display for McpError {
 
 impl std::error::Error for McpError {}
 
+/// orchestrator 上的两个 MCP 面（docs/103）：`/mcp` 是注入给 CLI 会话的 core 子集，
+/// `/mcp-full` 是全量。ctl 的 `tools` / `call` 走全量，`mcp-proxy` 代理会话时走 core。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum McpSurface {
+    Core,
+    Full,
+}
+
+impl McpSurface {
+    pub fn path(self) -> &'static str {
+        match self {
+            McpSurface::Core => "/mcp",
+            McpSurface::Full => "/mcp-full",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct McpClient {
     endpoint: ServiceEndpoint,
@@ -75,9 +92,11 @@ pub struct McpClient {
     next_id: u64,
     initialized: bool,
     timeout: Duration,
+    surface: McpSurface,
 }
 
 impl McpClient {
+    /// 默认连 core 面（与 CLI 会话看到的一致）。
     pub fn new(endpoint: ServiceEndpoint, launch_id: Option<String>) -> Self {
         Self {
             endpoint,
@@ -87,11 +106,17 @@ impl McpClient {
             next_id: 1,
             initialized: false,
             timeout: Duration::from_secs(10),
+            surface: McpSurface::Core,
         }
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    pub fn with_surface(mut self, surface: McpSurface) -> Self {
+        self.surface = surface;
         self
     }
 
@@ -316,7 +341,7 @@ impl McpClient {
                 format!("orchestrator base URL 无效: {error}"),
             )
         })?;
-        url.set_path("/mcp");
+        url.set_path(self.surface.path());
         url.set_query(None);
         if let Some(launch_id) = self.launch_id.as_deref() {
             url.query_pairs_mut().append_pair("launchId", launch_id);
@@ -548,9 +573,11 @@ mod tests {
             data_dir: std::path::PathBuf::from("/tmp"),
             identity: IdentityConfidence::Verified,
         };
-        let client = McpClient::new(endpoint, Some("launch id/1".to_string()));
+        let client = McpClient::new(endpoint.clone(), Some("launch id/1".to_string()));
         let url = client.mcp_url().unwrap();
         assert_eq!(url.path(), "/mcp");
+        let full = McpClient::new(endpoint, None).with_surface(McpSurface::Full);
+        assert_eq!(full.mcp_url().unwrap().path(), "/mcp-full");
         assert_eq!(
             url.query_pairs().collect::<Vec<_>>(),
             vec![("launchId".into(), "launch id/1".into())]

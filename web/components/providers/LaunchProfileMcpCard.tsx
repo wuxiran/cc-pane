@@ -148,8 +148,8 @@ export default function LaunchProfileMcpCard({
                             onCheckedChange={() => toggleServer(server.name)}
                             label={server.name}
                             trailing={
-                              <Badge variant={server.status === "Running" ? "default" : "secondary"} className="text-[10px]">
-                                {typeof server.status === "string" ? server.status : "Failed"}
+                              <Badge variant={server.status === "running" ? "default" : "secondary"} className="text-[10px]">
+                                {typeof server.status === "string" ? server.status : "failed"}
                               </Badge>
                             }
                           />

@@ -121,6 +121,28 @@ describe("mcpService", () => {
       });
     });
 
+    it("带中英介绍时一起下发", async () => {
+      mockTauriInvoke({ upsert_mcp_server: undefined });
+
+      await mcpService.upsertServer(
+        { workspaceName: "team" },
+        "docs",
+        "npx",
+        [],
+        {},
+        { "zh-CN": "查文档", en: "Look up docs" },
+      );
+
+      expect(invoke).toHaveBeenCalledWith("upsert_mcp_server", {
+        workspaceName: "team",
+        name: "docs",
+        command: "npx",
+        args: [],
+        env: {},
+        descriptions: { "zh-CN": "查文档", en: "Look up docs" },
+      });
+    });
+
     it("应该支持空参数和空环境变量", async () => {
       mockTauriInvoke({ upsert_mcp_server: undefined });
 

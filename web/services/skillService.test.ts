@@ -219,4 +219,20 @@ describe("skillService", () => {
       expect(result).toEqual(installed);
     });
   });
+
+  describe("workspace effective set", () => {
+    it("listWorkspaceProjectSkills 调用对应命令", async () => {
+      mockTauriInvoke({ list_workspace_project_skills: [] });
+      const result = await skillService.listWorkspaceProjectSkills("alpha");
+      expect(invoke).toHaveBeenCalledWith("list_workspace_project_skills", { workspaceName: "alpha" });
+      expect(result).toEqual([]);
+    });
+
+    it("readBundledSkill 调用对应命令", async () => {
+      mockTauriInvoke({ read_bundled_skill: null });
+      const result = await skillService.readBundledSkill("ccpanes-launch-task");
+      expect(invoke).toHaveBeenCalledWith("read_bundled_skill", { name: "ccpanes-launch-task" });
+      expect(result).toBeNull();
+    });
+  });
 });

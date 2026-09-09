@@ -18,6 +18,7 @@ import {
   useAggregateVisibilitySubscription,
   useDowngradeVisibility,
   useViewVisibilityEdgeSubscription,
+  useViewPrioritySubscription,
   useViewVisibilityReaders,
 } from "./useDowngradeVisibility";
 import { useTerminalAppearanceSync } from "./useTerminalAppearanceSync";
@@ -278,6 +279,32 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       layoutOnlyFallback,
     );
 
+    const outputViewId = `${props.visibilityOwnerId ?? props.sessionId}:${props.viewRole ?? "primary"}`;
+    const reportOutputViewVisibility = useCallback(() => {
+      if (!props.sessionId) return;
+      const visibility = !isRenderVisible()
+        ? "hidden"
+        : isViewActive()
+          ? "active"
+          : "visible";
+      terminalService.setOutputViewVisibility(props.sessionId, outputViewId, visibility);
+    }, [isRenderVisible, isViewActive, outputViewId, props.sessionId]);
+
+    useEffect(() => {
+      reportOutputViewVisibility();
+      return () => {
+        if (props.sessionId) {
+          terminalService.removeOutputViewVisibility(props.sessionId, outputViewId);
+        }
+      };
+    }, [outputViewId, props.sessionId, reportOutputViewVisibility]);
+
+    useViewPrioritySubscription(
+      props.visibilityOwnerId,
+      props.viewRole,
+      reportOutputViewVisibility,
+    );
+
     const resolveDowngradeVisibility = useDowngradeVisibility(
       props.visibilityOwnerId,
       isRenderVisible,
@@ -343,7 +370,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       }
     });
 
-    useAggregateVisibilitySubscription(props.visibilityOwnerId, notifyVisibility);
+    const handleAggregateVisibility = useCallback((visible: boolean) => {
+      notifyVisibility(visible);
+      reportOutputViewVisibility();
+    }, [notifyVisibility, reportOutputViewVisibility]);
+
+    useAggregateVisibilitySubscription(props.visibilityOwnerId, handleAggregateVisibility);
 
     // 单视图边沿补投积压并 refit；聚合边沿只负责降档/休眠。
     useViewVisibilityEdgeSubscription(
@@ -351,6 +383,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       props.viewRole,
       useCallback(
         (visible: boolean) => {
+          reportOutputViewVisibility();
           if (!visible) return;
           void restoreVisibleTerminalView({
             flushHiddenWrites,
@@ -358,7 +391,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             scheduleRefit: () => layoutSchedulerRef.current?.schedule("view.visible-edge.refit", { allowInactive: true }),
           });
         },
-        [flushHiddenWrites, isRenderVisible],
+        [flushHiddenWrites, isRenderVisible, reportOutputViewVisibility],
       ),
     );
 

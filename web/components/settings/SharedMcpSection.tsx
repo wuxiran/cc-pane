@@ -12,9 +12,6 @@ import {
   Loader2,
   ToggleLeft,
   ToggleRight,
-  Copy,
-  Check,
-  Zap,
   Plus,
   Save,
   X,
@@ -26,8 +23,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useSharedMcpStore } from "@/stores";
 import type { BridgeMode, SharedMcpServerConfig, SharedMcpServerInfo, SharedMcpServerStatus } from "@/types";
-import { mcpService } from "@/services";
+import { isSharedMcpFailed } from "@/types/shared-mcp";
 import { formatEnvLines, parseEnvLines } from "@/utils";
+import CcpanesMcpCard from "./CcpanesMcpCard";
 import ScopeBanner from "./ScopeBanner";
 
 interface FormState {
@@ -51,87 +49,20 @@ const emptyForm: FormState = {
 };
 
 function statusLabel(status: SharedMcpServerStatus): string {
-  if (status === "Running") return "Running";
-  if (status === "Stopped") return "Stopped";
-  if (status === "Starting") return "Starting";
-  if (typeof status === "object" && "Failed" in status)
-    return `Failed: ${status.Failed.message}`;
+  if (status === "running") return "Running";
+  if (status === "stopped") return "Stopped";
+  if (status === "starting") return "Starting";
+  if (isSharedMcpFailed(status)) return `Failed: ${status.failed.message}`;
   return "Unknown";
 }
 
 function statusVariant(
   status: SharedMcpServerStatus,
 ): "default" | "secondary" | "destructive" | "outline" {
-  if (status === "Running") return "default";
-  if (status === "Stopped") return "secondary";
-  if (typeof status === "object" && "Failed" in status) return "destructive";
+  if (status === "running") return "default";
+  if (status === "stopped") return "secondary";
+  if (isSharedMcpFailed(status)) return "destructive";
   return "outline";
-}
-
-function CcpanesMcpCard() {
-  const { t } = useTranslation(["settings", "common"]);
-  const [info, setInfo] = useState<{ port: number | null; token: string } | null>(null);
-  const [copiedUrl, setCopiedUrl] = useState(false);
-  const [copiedToken, setCopiedToken] = useState(false);
-
-  useEffect(() => {
-    mcpService.getOrchestratorInfo().then(setInfo).catch(() => {});
-  }, []);
-
-  if (!info || !info.port) return null;
-
-  const url = `http://127.0.0.1:${info.port}/mcp?token=${info.token}`;
-
-  function copyText(text: string, setter: (v: boolean) => void) {
-    navigator.clipboard.writeText(text).then(() => {
-      setter(true);
-      setTimeout(() => setter(false), 1500);
-    });
-  }
-
-  return (
-    <div className="rounded-lg border border-border bg-card p-3 space-y-2">
-      <div className="flex items-center gap-2">
-        <Zap size={14} className="text-primary shrink-0" />
-        <span className="text-xs font-medium">CC-Panes MCP (self)</span>
-        <Badge variant="secondary" className="text-[10px]">HTTP</Badge>
-      </div>
-
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-muted-foreground w-10 shrink-0">URL</span>
-          <code className="flex-1 text-[10px] font-mono bg-muted rounded px-1.5 py-0.5 truncate">
-            {url}
-          </code>
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-5 w-5 shrink-0"
-            onClick={() => copyText(url, setCopiedUrl)}
-            title={t("sharedMcp.copyUrl")}
-          >
-            {copiedUrl ? <Check size={10} className="text-[var(--app-status-success)]" /> : <Copy size={10} />}
-          </Button>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-muted-foreground w-10 shrink-0">Token</span>
-          <code className="flex-1 text-[10px] font-mono bg-muted rounded px-1.5 py-0.5 truncate">
-            {info.token}
-          </code>
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-5 w-5 shrink-0"
-            onClick={() => copyText(info.token, setCopiedToken)}
-            title={t("sharedMcp.copyToken")}
-          >
-            {copiedToken ? <Check size={10} className="text-[var(--app-status-success)]" /> : <Copy size={10} />}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 export default function SharedMcpSection() {
@@ -314,9 +245,7 @@ export default function SharedMcpSection() {
     }
   }
 
-  const runningCount = servers.filter(
-    (s) => s.status === "Running",
-  ).length;
+  const runningCount = servers.filter((s) => s.status === "running").length;
 
   return (
     <div className="space-y-4">
@@ -492,11 +421,11 @@ function ServerRow({
   onEdit: (server: SharedMcpServerInfo) => void;
 }) {
   const { t } = useTranslation(["settings", "common"]);
-  const isRunning = server.status === "Running";
-  const isStopped = server.status === "Stopped";
+  const isRunning = server.status === "running";
+  const isStopped = server.status === "stopped";
   // Failed（含超过重启上限的熔断态）必须给 Restart 入口：后端 restart 会
   // 重建 runtime 并清零重启计数，是解除熔断的唯一 UI 路径。
-  const isFailed = typeof server.status === "object" && "Failed" in server.status;
+  const isFailed = isSharedMcpFailed(server.status);
 
   return (
     <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card">

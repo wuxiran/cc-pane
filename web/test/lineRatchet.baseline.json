@@ -10,7 +10,7 @@
   "components/panes/TerminalView.tsx": 2226,
   "components/providers/LaunchProfilesPanel.tsx": 577,
   "components/providers/ProviderFormPanel.tsx": 575,
-  "components/settings/SharedMcpSection.tsx": 608,
+  "components/settings/SharedMcpSection.tsx": 532,
   "components/sidebar/SshMachineDialog.tsx": 603,
   "components/sidebar/SshMachinesView.tsx": 525,
   "components/sidebar/WorkspaceEnvironmentPanel.tsx": 925,

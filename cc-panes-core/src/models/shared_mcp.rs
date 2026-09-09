@@ -110,3 +110,29 @@ impl Default for SharedMcpConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 前端 `web/types/shared-mcp.ts` 的 `SharedMcpServerStatus` 必须和这里的线格式一致：
+    /// 变体名是 camelCase，Failed 是 `{"failed":{"message":…}}`。
+    #[test]
+    fn status_wire_format_is_camel_case() {
+        assert_eq!(
+            serde_json::to_string(&SharedMcpServerStatus::Running).unwrap(),
+            "\"running\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SharedMcpServerStatus::Stopped).unwrap(),
+            "\"stopped\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SharedMcpServerStatus::Failed {
+                message: "x".into()
+            })
+            .unwrap(),
+            r#"{"failed":{"message":"x"}}"#
+        );
+    }
+}

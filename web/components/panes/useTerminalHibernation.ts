@@ -16,6 +16,7 @@ import {
   type TerminalBackgroundLifecycle,
 } from "./terminalBackgroundLifecycle";
 import { captureAndUploadCheckpoint } from "./terminalCheckpointUpload";
+import { serializeTerminalSnapshot } from "./terminalSnapshotModes";
 import {
   createHibernatedTerminalState,
   type HibernatedTerminalState,
@@ -93,7 +94,7 @@ export function useTerminalHibernation({
 
     let base: string;
     try {
-      base = serialize.serialize();
+      base = serializeTerminalSnapshot(term, serialize);
     } catch (error) {
       debugLog("hibernate.serialize.failed", { error: getErrorMessage(error) });
       return;

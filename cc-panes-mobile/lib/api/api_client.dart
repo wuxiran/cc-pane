@@ -4,10 +4,12 @@ import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../core/config.dart';
 import '../core/result.dart';
 import '../models/server_profile.dart';
+import 'secure_cookie_storage.dart';
 
 /// 单个 ServerProfile 的 HTTP 客户端：dio + 持久化 cookie jar。
 /// cookie（ccp_web_session）按 profile 分目录落盘，切换服务器互不污染。
@@ -19,10 +21,21 @@ class ApiClient {
   final PersistCookieJar cookieJar;
 
   static Future<ApiClient> create(ServerProfile profile) async {
-    final supportDir = await getApplicationSupportDirectory();
-    final cookieDir = Directory('${supportDir.path}/cookies/${profile.id}');
-    await cookieDir.create(recursive: true);
-    final jar = PersistCookieJar(storage: FileStorage(cookieDir.path));
+    final Storage storage;
+    if (Platform.isIOS) {
+      storage = SecureCookieStorage(
+          const FlutterSecureStorage(
+            iOptions: IOSOptions(
+                accessibility: KeychainAccessibility.first_unlock_this_device),
+          ),
+          profile.id);
+    } else {
+      final supportDir = await getApplicationSupportDirectory();
+      final cookieDir = Directory('${supportDir.path}/cookies/${profile.id}');
+      await cookieDir.create(recursive: true);
+      storage = FileStorage(cookieDir.path);
+    }
+    final jar = PersistCookieJar(storage: storage);
 
     final dio = Dio(BaseOptions(
       baseUrl: profile.baseUrl,
@@ -61,12 +74,16 @@ Future<Result<T>> guard<T>(
 
   final status = response.statusCode ?? 0;
   if (status == 401) {
-    return Err(ApiFailure(FailureKind.unauthorized, '会话已过期，请重新登录', statusCode: status));
+    return Err(ApiFailure(FailureKind.unauthorized, '会话已过期，请重新登录',
+        statusCode: status));
   }
   if (status == 403) {
     final code = _errorCode(response.data);
-    final kind = code == 'READ_ONLY' ? FailureKind.readOnly : FailureKind.remoteForbidden;
-    return Err(ApiFailure(kind, _errorMessage(response.data) ?? '访问被拒绝', statusCode: status));
+    final kind = code == 'READ_ONLY'
+        ? FailureKind.readOnly
+        : FailureKind.remoteForbidden;
+    return Err(ApiFailure(kind, _errorMessage(response.data) ?? '访问被拒绝',
+        statusCode: status));
   }
   if (status < 200 || status >= 300) {
     return Err(ApiFailure(

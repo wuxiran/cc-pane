@@ -18,6 +18,7 @@
   "import": "Import",
   "export": "Export",
   "search": "Search...",
+  "descriptionLang": "Description language",
   "selectAll": "Select All",
   "deselectAll": "Deselect All",
   "noData": "No data",

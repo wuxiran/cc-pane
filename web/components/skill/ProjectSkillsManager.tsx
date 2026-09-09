@@ -1,12 +1,13 @@
 // 「Skill 管理」标签根组件。
 // 项目作用域两段：目录型 Agent Skills（跨 CLI）| Claude 专用 `.claude/commands` Slash 命令。
-// 工作空间作用域只有 Agent Skills（工作空间没有 slash 命令这一层）。
+// 工作空间作用域走有效集页：工作空间自有 + 内置注入 + 项目发现。
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SegmentedTabs } from "@/components/ui/segmented";
 import type { SkillScope } from "@/types";
 import ProjectSkillsPanel from "./ProjectSkillsPanel";
 import SkillManager from "./SkillManager";
+import WorkspaceSkillsHub from "./WorkspaceSkillsHub";
 
 type View = "skills" | "commands";
 
@@ -26,7 +27,7 @@ export default function ProjectSkillsManager({ projectPath, workspaceName }: Pro
   if (scope.kind === "workspace") {
     return (
       <div className="h-full" data-testid="project-skills-manager" data-scope="workspace">
-        <ProjectSkillsPanel scope={scope} />
+        <WorkspaceSkillsHub workspaceName={scope.workspaceName} />
       </div>
     );
   }

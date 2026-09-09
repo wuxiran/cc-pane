@@ -1,39 +1,47 @@
 ---
 name: ccpanes-workspace
-description: Manage CC-Panes workspaces via MCP: list, create, add project, archive, fix path, bulk-import repos. 触发词：工作空间、扫一下这个目录、把项目加进来、新建 workspace、归档工作空间。永久删除只能在 UI 里做，MCP 只提供可逆归档。
+description: Manage CC-Panes workspaces: list, create, add project, archive, fix path, bulk-import repos. 触发词：工作空间、扫一下这个目录、把项目加进来、新建 workspace、归档工作空间。查询走 MCP，写操作走 cc-panes-ctl；永久删除只能在 UI 里做。
 ---
 
 # 工作空间管理
 
 参数: $ARGUMENTS
 
+只读查询（`list_workspaces` / `get_workspace` / `list_projects`）在会话 MCP 里直接调；
+**写操作不在会话 MCP 里**，用 shell 敲 `cc-panes-ctl`（路径在 `$CC_PANES_CTL`，详见 `ccpanes-admin` skill）：
+
+```bash
+"$CC_PANES_CTL" --json call <tool> --arg k=v …      # 或 --json '{…}'
+"$CC_PANES_CTL" --json tools --schema <tool>        # 不确定参数时先看 schema
+```
+
 ## 决策树
 
 | 用户在做什么 | 调用 |
 |---|---|
-| 看有哪些工作空间 | `list_workspaces` |
-| 看某个工作空间的项目 | `get_workspace(workspaceName)` |
-| 新建工作空间 | `create_workspace(name, path?)` |
-| 把已有项目加进去 | `add_project_to_workspace(workspaceName, projectPath)` |
-| 一个目录里有一堆 git repo，批量导入 | `scan_directory(path)` → 确认 → `create_workspace` + 循环 `add_project_to_workspace` |
-| 列出所有已注册项目 | `list_projects` |
-| 工作空间加错了 / 重复了 / 不用了 | `set_workspace_archived(workspaceName, archived=true)` |
-| 项目加错了 | `set_workspace_project_archived(workspaceName, projectId, archived=true)` |
-| 找回归档的东西 | `list_workspaces(includeArchived=true)` → `set_workspace_archived(..., archived=false)` |
-| 工作空间路径填错了 / 没填 | `update_workspace_path(workspaceName, path)` |
+| 看有哪些工作空间 | MCP `list_workspaces` |
+| 看某个工作空间的项目 | MCP `get_workspace(workspaceName)` |
+| 新建工作空间 | ctl `call create_workspace --arg name=<n> [--arg path=<p>]` |
+| 把已有项目加进去 | ctl `call add_project_to_workspace --arg workspaceName=<ws> --arg projectPath=<p>` |
+| 一个目录里有一堆 git repo，批量导入 | ctl `call scan_directory --arg path=<dir>` → 确认 → `create_workspace` + 循环 `add_project_to_workspace` |
+| 列出所有已注册项目 | MCP `list_projects` |
+| 工作空间加错了 / 重复了 / 不用了 | ctl `call set_workspace_archived --arg workspaceName=<ws> --arg archived=true` |
+| 项目加错了 | ctl `call set_workspace_project_archived --arg workspaceName=<ws> --arg projectId=<id> --arg archived=true` |
+| 找回归档的东西 | MCP `list_workspaces(includeArchived=true)` → ctl `set_workspace_archived … --arg archived=false` |
+| 工作空间路径填错了 / 没填 | ctl `call update_workspace_path --arg workspaceName=<ws> --arg path=<p>` |
 
 ## 子命令快捷映射
 
 ```
-list                            → list_workspaces
-show <name>                     → get_workspace
-create <name> [--path <p>]      → create_workspace
-add <ws> <project>              → add_project_to_workspace
-archive <ws>                    → set_workspace_archived(archived=true)
-restore <ws>                    → set_workspace_archived(archived=false)
-set-path <ws> <path>            → update_workspace_path
-scan <dir>                      → scan_directory + 询问 + 批量 add
-projects                        → list_projects
+list                            → MCP list_workspaces
+show <name>                     → MCP get_workspace
+create <name> [--path <p>]      → ctl call create_workspace
+add <ws> <project>              → ctl call add_project_to_workspace
+archive <ws>                    → ctl call set_workspace_archived --arg archived=true
+restore <ws>                    → ctl call set_workspace_archived --arg archived=false
+set-path <ws> <path>            → ctl call update_workspace_path
+scan <dir>                      → ctl call scan_directory + 询问 + 批量 add
+projects                        → MCP list_projects
 ```
 
 ## 归档 vs 删除

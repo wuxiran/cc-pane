@@ -117,7 +117,7 @@ cc-panes/
 | 03 | [TUI 界面](./03-tui-interface.md) | TUI 命令行版本 | 🗄️ 已归档 |
 | 04 | [Provider 管理](./04-feature-enhancement.md) | 工作空间级 Provider 切换 | ✅ 已完成 |
 | 05 | [Local History](./05-local-history.md) | 文件版本历史管理 | ✅ 已完成（0.12.10 起落 `.ccpanes/.cache/history`，见 docs/98） |
-| 06 | [Skill 系统](./06-skill-system.md) | 应用内执行 Claude 任务 | ✅ 已完成（0.12.10 扩展为技能市场 + 项目/工作空间技能，见 docs/97） |
+| 06 | [Skill 系统](./06-skill-system.md) | 应用内执行 Claude 任务 | ✅ 已完成（0.12.10 市场 + 项目/工作空间技能见 docs/97；工作空间有效集页见 docs/102） |
 | 07 | [通知中心](./07-alert-system.md) | 集中通知转发（微信/邮件） | ✅ 已完成（形态改为 IM 外推桥：钉钉/企微/飞书/Slack/Telegram/webhook 出站，见 docs/88；邮件与微信个人号未做） |
 | 08 | [文件浏览](./08-document-management.md) | 工作空间文件浏览 + Markdown 预览 | ✅ 已完成（`FileBrowserView` + 文件浏览标签 + `MarkdownPreview`） |
 | 09 | [远程访问](./09-remote-access.md) | 移动端远程连接 | ✅ 已完成（`cc-panes-web` REST/WS + `cc-panes-mobile` Flutter Android/iOS + OpenHarmony 客户端） |
@@ -125,6 +125,7 @@ cc-panes/
 | 11 | [GUI 基础](./11-tauri-gui-basic.md) | Tauri GUI 框架搭建 | ✅ 已完成 |
 | 12 | [GUI 高级](./12-gui-advanced.md) | 高级 GUI 功能 | ✅ 已完成 |
 | 13 | [打包发布](./13-packaging.md) | 跨平台打包、自动更新 | ✅ 大部分完成 |
+| 103 | [ccpanes MCP 精简](./103-ccpanes-mcp-slimming.md) | 会话 `/mcp` core 48 工具 ~6.8k；全量挂 `/mcp-full`，管理台走 ctl + skill | ✅ 第一阶段已落地 |
 
 ## 已实现的核心功能
 
