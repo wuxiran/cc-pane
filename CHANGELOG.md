@@ -4,6 +4,20 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.12.15 - 2026-09-10
+
+First public build after v0.12.13. Ships the 0.12.14 development work: a smaller session MCP surface, WSL workspace MCP/skills, and the 12.13 recovery/release pipeline kept intact.
+
+### Changed
+
+- **ccpanes MCP slimmed (docs/103)** — session-injected `/mcp` now exposes 48 core tools (dispatch, sessions, orchestration, plan, memory, notifications, read-only queries); `tools/list` dropped from about 14–19k tokens to about 6.8k. The full set lives at `/mcp-full` for `cc-panes-ctl` and external clients. Admin work goes through ctl + the `ccpanes-admin` skill; usage notes moved to `ccpanes-mcp-guide`. Codex also gets an `enabled_tools` allow-list.
+- **WSL sessions inherit workspace HTTP MCP and skills** — Claude gets `--plugin-dir` on `/mnt/...`; Codex links workspace skills under `$CODEX_HOME/skills`. Host stdio MCP servers stay on the host. Chinese workspace names get a unique Codex skill-link slug instead of sharing `workspace`.
+
+### Added
+
+- Workspace skills hub and project MCP layer UI, including launch-profile injection badges and the local `/mcp` vs `/mcp-full` card.
+- Mobile terminal reconnect hardening and iOS cookie storage notes.
+
 ## 0.12.14 - 2026-09-10
 
 This release sits on v0.12.13. It shrinks the session-injected ccpanes MCP surface, mounts workspace MCP/skills into WSL, and keeps the 12.12/12.13 terminal recovery and release pipeline.

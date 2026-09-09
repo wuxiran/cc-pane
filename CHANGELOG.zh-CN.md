@@ -7,6 +7,20 @@
 两份是人工同步的，条目一一对应；改英文版时顺手改这里，逐条 diff 能看出漏了哪条。
 0.12.6 之前的版本只有英文版。
 
+## 0.12.15 - 2026-09-10
+
+v0.12.13 之后的第一个公开发布。把 0.12.14 开发线的内容发出去：会话 MCP 工具面缩小、WSL 工作空间 MCP/技能注入，并保留 12.13 的终端恢复与发版流水线。
+
+### 变更
+
+- **ccpanes MCP 精简（docs/103）** — 会话注入的 `/mcp` 只留 48 个 core 工具（派发、会话、编排、plan、memory、通知、只读查询），`tools/list` 从约 14–19k token 降到约 6.8k。全量挂 `/mcp-full`，给 `cc-panes-ctl` 和外部客户端。管理台操作改走 ctl + `ccpanes-admin` skill；用法说明在 `ccpanes-mcp-guide`。Codex 额外加 `enabled_tools` 白名单。
+- **WSL 会话带上工作空间 HTTP MCP 和技能** — Claude 用 `--plugin-dir /mnt/...`；Codex 在 `$CODEX_HOME/skills` 下为工作空间技能建符号链接。宿主 stdio MCP 仍留在宿主。中文工作空间名使用独立 slug，不再共用 `workspace` 前缀。
+
+### 新增
+
+- 工作空间技能中心与项目 MCP 分层界面，启动档注入徽标，以及本机 `/mcp` / `/mcp-full` 卡片。
+- 移动端终端重连加固与 iOS cookie 存储说明。
+
 ## 0.12.14 - 2026-09-10
 
 本版叠在 v0.12.13 之上：压缩会话里的 ccpanes MCP 工具面，把工作空间 MCP/技能挂进 WSL，并保留 12.12/12.13 的终端恢复与发版流水线。
