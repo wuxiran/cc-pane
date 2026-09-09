@@ -24,7 +24,16 @@ pub enum LayoutSound {
 pub struct NotificationPreferences {
     pub layout_sounds: HashMap<String, LayoutSound>,
     pub session_snoozes: HashMap<String, u64>,
+    /// 全局暂停截止（ms 时间戳）。None = 未暂停；`GLOBAL_PAUSE_INDEFINITE` = 直到手动恢复。
+    #[serde(default)]
+    pub global_pause_until: Option<u64>,
+    /// 全局静音提示音（不抑制系统通知，只静音应用内提示音）。
+    #[serde(default)]
+    pub sound_muted: bool,
 }
+
+/// 「暂停所有提醒」的永久取值：远未来时间戳，手动取消时清除。
+pub const GLOBAL_PAUSE_INDEFINITE: u64 = u64::MAX;
 
 pub fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -85,9 +94,38 @@ impl NotificationPreferenceService {
 
     pub fn snoozed(&self, session_id: Option<&str>, now: u64) -> bool {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.global_pause_until.is_some_and(|until| until > now) {
+            return true;
+        }
         session_id
             .and_then(|id| state.session_snoozes.get(id))
             .is_some_and(|until| *until > now)
+    }
+
+    /// 应用内提示音是否全局静音（系统通知不受此影响）。
+    pub fn sound_muted(&self) -> bool {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .sound_muted
+    }
+
+    /// 设置/取消全局暂停。暂停期间所有会话的系统通知与提示音都被抑制。
+    pub fn set_global_pause(&self, paused: bool) -> AppResult<NotificationPreferences> {
+        self.set_global_pause_until(paused.then_some(GLOBAL_PAUSE_INDEFINITE))
+    }
+
+    /// 暂停到指定截止（ms 时间戳；`GLOBAL_PAUSE_INDEFINITE` = 直到手动恢复；None = 取消）。
+    pub fn set_global_pause_until(&self, until: Option<u64>) -> AppResult<NotificationPreferences> {
+        self.update(|state| {
+            state.global_pause_until = until;
+        })
+    }
+
+    pub fn set_sound_muted(&self, muted: bool) -> AppResult<NotificationPreferences> {
+        self.update(|state| {
+            state.sound_muted = muted;
+        })
     }
 
     fn update(
@@ -233,5 +271,46 @@ mod tests {
         ));
         service.set_sound("layout-1", LayoutSound::Default).unwrap();
         assert!(service.get().layout_sounds.is_empty());
+    }
+
+    #[test]
+    fn global_pause_suppresses_every_session_until_cleared() {
+        let root = tempfile::tempdir().unwrap();
+        let service = NotificationPreferenceService::new(root.path().into());
+        let now = now_ms();
+        assert!(!service.snoozed(Some("session-a"), now));
+
+        let prefs = service.set_global_pause(true).unwrap();
+        assert_eq!(prefs.global_pause_until, Some(GLOBAL_PAUSE_INDEFINITE));
+        assert!(service.snoozed(Some("session-a"), now));
+        assert!(service.snoozed(None, now));
+        // 持久化后新实例仍然暂停（勾选态跨重启保留）
+        let loaded = NotificationPreferenceService::new(root.path().into());
+        assert!(loaded.snoozed(Some("session-b"), now));
+
+        let prefs = loaded.set_global_pause(false).unwrap();
+        assert_eq!(prefs.global_pause_until, None);
+        assert!(!loaded.snoozed(Some("session-a"), now));
+    }
+
+    #[test]
+    fn sound_muted_round_trips_and_defaults_off_for_legacy_files() {
+        let root = tempfile::tempdir().unwrap();
+        // 老数据文件没有新字段：serde default 兜底
+        std::fs::write(
+            root.path().join("notification-preferences.json"),
+            r#"{"layoutSounds":{},"sessionSnoozes":{}}"#,
+        )
+        .unwrap();
+        let service = NotificationPreferenceService::new(root.path().into());
+        assert!(!service.sound_muted());
+        assert_eq!(service.get().global_pause_until, None);
+
+        let prefs = service.set_sound_muted(true).unwrap();
+        assert!(prefs.sound_muted);
+        let loaded = NotificationPreferenceService::new(root.path().into());
+        assert!(loaded.sound_muted());
+        // 静音不抑制系统通知判定（snoozed 只反映暂停/ Snooze）
+        assert!(!loaded.snoozed(Some("session-a"), now_ms()));
     }
 }

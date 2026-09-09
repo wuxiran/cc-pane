@@ -9,8 +9,12 @@ export type LayoutSound = { mode: "default" } | { mode: "silent" } | { mode: "cu
 export interface NotificationPreferences {
   layoutSounds: Record<string, LayoutSound>;
   sessionSnoozes: Record<string, number>;
+  /** 托盘「暂停所有提醒」：ms 时间戳，null/缺省=未暂停；u64::MAX 表示永久直到手动取消。 */
+  globalPauseUntil?: number | null;
+  /** 托盘「静音提示音」。 */
+  soundMuted?: boolean;
 }
-export const emptyNotificationPreferences = (): NotificationPreferences => ({ layoutSounds: {}, sessionSnoozes: {} });
+export const emptyNotificationPreferences = (): NotificationPreferences => ({ layoutSounds: {}, sessionSnoozes: {}, globalPauseUntil: null, soundMuted: false });
 const desktopOnly = async (): Promise<never> => { throw new Error("Notification preferences require the desktop app"); };
 let audio: HTMLAudioElement | null = null;
 let lastPlayedAt = 0;

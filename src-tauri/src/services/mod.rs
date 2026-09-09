@@ -33,6 +33,7 @@ mod terminal_daemon_control_link;
 mod terminal_daemon_event_bridge;
 mod terminal_daemon_lifecycle;
 mod terminal_daemon_output_cursor;
+pub mod tray_menu;
 mod turn_notify_registry;
 pub mod voice_service;
 mod web_access_lifecycle;

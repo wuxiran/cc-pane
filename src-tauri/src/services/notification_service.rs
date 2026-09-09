@@ -563,9 +563,17 @@ impl NotificationService {
             .is_some_and(|service| service.snoozed(session_id, now_ms()))
     }
 
+    /// 应用内提示音是否全局静音。前端在 `notification-sent` 里播放提示音，
+    /// 与 `localSuppressed` 并列随 payload 下发（见 useAppLifecycleEarly.ts）。
+    fn sound_muted(&self, app: &AppHandle) -> bool {
+        app.try_state::<Arc<NotificationPreferenceService>>()
+            .is_some_and(|service| service.sound_muted())
+    }
+
     fn emit_notification_sent(&self, app: &AppHandle, event: NotificationSentEvent<'_>) {
         let mut payload = build_notification_sent_payload(event);
         payload["localSuppressed"] = self.local_suppressed(app, event.session_id).into();
+        payload["soundMuted"] = self.sound_muted(app).into();
         if let Err(error) = app.emit("notification-sent", payload) {
             warn!(%error, "Failed to deliver notification history event");
         }

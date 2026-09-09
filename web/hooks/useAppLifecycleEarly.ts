@@ -18,10 +18,11 @@ export function useAppLifecycleEarly(): void {
     if (!isTauriRuntime()) return;
     waitForDesktopRuntime().then(async (ready) => {
       if (!ready || cancelled) return;
-      const cleanup = await listenIfTauri<{ sessionId?: string; localSuppressed?: boolean }>("notification-sent", (event) => {
+      const cleanup = await listenIfTauri<{ sessionId?: string; localSuppressed?: boolean; soundMuted?: boolean }>("notification-sent", (event) => {
         const play = async () => {
           await useNotificationPreferencesStore.getState().load();
-          if (cancelled || event.payload?.localSuppressed || isSessionSnoozed(event.payload?.sessionId)) return;
+          // soundMuted：托盘「静音提示音」总开关（后端随 notification-sent 下发当前值）。
+          if (cancelled || event.payload?.localSuppressed || event.payload?.soundMuted || isSessionSnoozed(event.payload?.sessionId)) return;
           const location = event.payload?.sessionId ? usePanesStore.getState().findTabBySessionAcrossLayouts(event.payload.sessionId) : null;
           const sounds = useNotificationPreferencesStore.getState().preferences.layoutSounds;
           await notificationPreferencesService.play(location ? sounds[location.layoutId] : undefined);
