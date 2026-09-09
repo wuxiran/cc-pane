@@ -6,7 +6,8 @@ use crate::services::{SkillMarketEntry, SkillMarketService};
 use crate::utils::{validate_path, AppError, AppResult};
 use cc_panes_core::services::{
     ExternalSkillRegistry, ProjectSkill, ProjectSkillContent, ProjectSkillRoot,
-    ProjectSkillService, UserSkillService, WorkspaceSkillService,
+    ProjectSkillService, UserSkillService, WorkspaceProjectSkill, WorkspaceService,
+    WorkspaceSkillService,
 };
 use cc_panes_core::utils::AppPaths;
 use serde::Deserialize;
@@ -120,6 +121,33 @@ pub fn delete_workspace_skill(
     service.delete(&workspace_name, &rel_dir)
 }
 
+#[tauri::command]
+pub fn list_workspace_project_skills(
+    workspace_name: String,
+    workspace_service: State<'_, Arc<WorkspaceService>>,
+    service: State<'_, Arc<ProjectSkillService>>,
+) -> AppResult<Vec<WorkspaceProjectSkill>> {
+    let workspace = workspace_service
+        .get_workspace(&workspace_name)
+        .map_err(AppError::from)?;
+    let projects = workspace.projects.iter().filter_map(|project| {
+        if project.archived_at.is_some() {
+            return None;
+        }
+        Some((project.path.clone(), project.alias.clone()))
+    });
+    Ok(service.list_for_projects(projects))
+}
+
+#[tauri::command]
+pub fn read_bundled_skill(
+    name: String,
+    service: State<'_, Arc<ProjectSkillService>>,
+    app_paths: State<'_, Arc<AppPaths>>,
+) -> AppResult<Option<ProjectSkillContent>> {
+    service.read_bundled(&app_paths.builtin_skills_dir(), &name)
+}
+
 // ───────────────────────── import (both scopes) ─────────────────────────
 
 /// Where an imported skill folder comes from.
@@ -145,6 +173,8 @@ pub enum ProjectSkillImportSource {
     },
     /// Download straight from the skill market.
     Market { entry: Box<SkillMarketEntry> },
+    /// A materialized CC-Panes bundled skill (`~/.cc-panes/skills/builtin/skills/<name>`).
+    Bundled { name: String },
 }
 
 /// Where the imported folder lands.
@@ -212,6 +242,14 @@ fn resolve_source(
             ResolvedSource::Folder { dir, default_name }
         }
         ProjectSkillImportSource::Market { entry } => ResolvedSource::Market { entry },
+        ProjectSkillImportSource::Bundled { name } => {
+            let dir =
+                ProjectSkillService::bundled_dir(&services.app_paths.builtin_skills_dir(), &name)?;
+            ResolvedSource::Folder {
+                default_name: name,
+                dir,
+            }
+        }
     })
 }
 

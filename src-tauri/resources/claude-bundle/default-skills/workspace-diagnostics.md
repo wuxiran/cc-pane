@@ -12,8 +12,10 @@ description: Diagnose CC-Panes workspace storage: workspace.json, projects.csv, 
 优先使用 `ccpanes` MCP 和 CC-Panes UI。这个 skill 只做诊断和修复方案，不默认直接写 `workspace.json` 或删除工作空间。
 
 - 查看工作空间：`ccpanes.list_workspaces` / `ccpanes.get_workspace`
-- 扫描项目：`ccpanes.scan_directory`
-- 创建和添加项目：`ccpanes.create_workspace` / `ccpanes.add_project_to_workspace`
+- 扫描项目：`scan_directory`
+- 创建和添加项目：`create_workspace` / `add_project_to_workspace`
+
+以上三个是管理工具，不在会话 MCP 里：`"$CC_PANES_CTL" --json call <tool> --arg k=v`（见 `ccpanes-admin` skill）。
 - 删除工作空间或移除项目：在 CC-Panes UI 中操作
 
 ## 数据目录定位
@@ -109,7 +111,7 @@ find "$WS_ROOT" -maxdepth 2 -name workspace.json -print
 | 现象 | 可能原因 | 建议 |
 |---|---|---|
 | UI 里找不到工作空间 | data_dir 指向另一套目录 | 先确认 `config.toml` 和实际 `DATA_DIR` |
-| `dispatch_task` / `launch_task` 找不到项目 | 项目未登记或 Windows/WSL 路径不一致 | 用 `list_projects` 取原样路径，必要时 `add_project_to_workspace` |
+| `dispatch_task` / `launch_task` 找不到项目 | 项目未登记或 Windows/WSL 路径不一致 | 用 `list_projects` 取原样路径，必要时用 ctl 调 `add_project_to_workspace` |
 | workspace 看起来有项目但启动失败 | path 是旧盘符/旧 WSL UNC | 用 MCP 重新添加当前真实路径 |
 | `.ccpanes/projects.csv` 和 UI 不一致 | 文件缓存或旧迁移遗留 | 以 MCP/UI 结果为准，制定修复计划 |
 | 删除后又出现 | 仍在另一个 data_dir 或 session recovery | 查 data_dir、运行实例、启动历史 |

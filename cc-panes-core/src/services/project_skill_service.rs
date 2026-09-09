@@ -86,6 +86,16 @@ pub struct ProjectSkillContent {
     pub files: Vec<String>,
 }
 
+/// A project-owned Agent Skill discovered while scanning a workspace's registered repos.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceProjectSkill {
+    pub project_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_alias: Option<String>,
+    pub skill: ProjectSkill,
+}
+
 #[derive(Default)]
 pub struct ProjectSkillService;
 
@@ -121,6 +131,69 @@ impl ProjectSkillService {
                 .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
         });
         Ok(skills)
+    }
+
+    /// Scan each registered project; a single project failure is skipped so the
+    /// workspace page still shows the rest.
+    pub fn list_for_projects(
+        &self,
+        projects: impl IntoIterator<Item = (String, Option<String>)>,
+    ) -> Vec<WorkspaceProjectSkill> {
+        let mut found = Vec::new();
+        for (path, alias) in projects {
+            match self.list(&path) {
+                Ok(skills) => {
+                    for skill in skills {
+                        found.push(WorkspaceProjectSkill {
+                            project_path: path.clone(),
+                            project_alias: alias.clone(),
+                            skill,
+                        });
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        project = %path,
+                        error = %error,
+                        "skip project skill scan"
+                    );
+                }
+            }
+        }
+        found
+    }
+
+    /// Read a materialized bundled skill from `~/.cc-panes/skills/builtin/skills/<name>`.
+    /// Manifest names (`launch-task`) and on-disk names (`ccpanes-launch-task`) both resolve.
+    pub fn read_bundled(
+        &self,
+        builtin_root: &Path,
+        name: &str,
+    ) -> AppResult<Option<ProjectSkillContent>> {
+        let Some(dir) = resolve_bundled_dir(builtin_root, name)? else {
+            return Ok(None);
+        };
+        let root_dir = builtin_root.join(crate::services::MANAGED_SKILLS_SUBDIR);
+        let content = std::fs::read_to_string(dir.join(PROJECT_SKILL_FILE))
+            .map_err(|e| AppError::from(format!("Failed to read SKILL.md: {}", e)))?;
+        let skill = describe_skill_folder(
+            "builtin",
+            &root_dir,
+            &dir,
+            vec!["claude".into(), "codex".into()],
+        )
+        .ok_or_else(|| AppError::from("Bundled skill folder could not be described"))?;
+        Ok(Some(ProjectSkillContent {
+            skill,
+            content,
+            files: list_files_relative(&dir),
+        }))
+    }
+
+    /// Folder to copy when importing a bundled skill into a workspace or project.
+    pub fn bundled_dir(builtin_root: &Path, name: &str) -> AppResult<PathBuf> {
+        resolve_bundled_dir(builtin_root, name)?
+            .ok_or_else(|| AppError::from(format!("Bundled skill '{}' not found", name)))
     }
 
     pub fn read(
@@ -325,6 +398,23 @@ pub fn validate_skill_name(name: &str) -> AppResult<&str> {
         ));
     }
     Ok(trimmed)
+}
+
+/// Manifest lists `launch-task`; materialize writes `ccpanes-launch-task`.
+fn resolve_bundled_dir(builtin_root: &Path, name: &str) -> AppResult<Option<PathBuf>> {
+    let rel = safe_rel_dir(name)?;
+    let root_dir = builtin_root.join(crate::services::MANAGED_SKILLS_SUBDIR);
+    let mut dirs = vec![root_dir.join(&rel)];
+    if let Some(leaf) = rel.file_name().and_then(|value| value.to_str()) {
+        if let Some(stripped) = leaf.strip_prefix("ccpanes-") {
+            dirs.push(root_dir.join(stripped));
+        } else {
+            dirs.push(root_dir.join(format!("ccpanes-{leaf}")));
+        }
+    }
+    Ok(dirs
+        .into_iter()
+        .find(|dir| dir.join(PROJECT_SKILL_FILE).is_file()))
 }
 
 pub(crate) fn safe_rel_dir(rel_dir: &str) -> AppResult<PathBuf> {
@@ -710,5 +800,68 @@ mod tests {
         assert!(svc
             .import_dir(&project, ".agents/skills", "nope", &no_skill, false)
             .is_err());
+    }
+
+    #[test]
+    fn list_for_projects_skips_missing_repos_and_keeps_the_rest() {
+        let (_tmp, project) = project();
+        write_skill(
+            &project,
+            ".claude/skills",
+            "pdf",
+            "---\nname: pdf\ndescription: Read PDFs\n---\n",
+        );
+        let svc = ProjectSkillService::new();
+        let listed = svc.list_for_projects([
+            (project.clone(), Some("alpha".into())),
+            (
+                "D:/does-not-exist-ccpanes-scan".into(),
+                Some("ghost".into()),
+            ),
+        ]);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].project_alias.as_deref(), Some("alpha"));
+        assert_eq!(listed[0].skill.name, "pdf");
+        assert_eq!(listed[0].project_path, project);
+    }
+
+    #[test]
+    fn read_bundled_and_bundled_dir_round_trip() {
+        let tmp = TempDir::new().unwrap();
+        let skill_dir = tmp.path().join("skills").join("launch-task");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: launch-task\ndescription: Launch\n---\nGo\n",
+        )
+        .unwrap();
+        std::fs::write(skill_dir.join("notes.md"), "n").unwrap();
+
+        let svc = ProjectSkillService::new();
+        let content = svc
+            .read_bundled(tmp.path(), "launch-task")
+            .unwrap()
+            .unwrap();
+        assert_eq!(content.skill.root, "builtin");
+        assert_eq!(content.skill.name, "launch-task");
+        assert_eq!(content.files, vec!["SKILL.md", "notes.md"]);
+        assert!(svc.read_bundled(tmp.path(), "missing").unwrap().is_none());
+        assert!(ProjectSkillService::bundled_dir(tmp.path(), "launch-task").is_ok());
+        assert!(ProjectSkillService::bundled_dir(tmp.path(), "missing").is_err());
+        assert!(ProjectSkillService::bundled_dir(tmp.path(), "../evil").is_err());
+
+        let namespaced = tmp.path().join("skills").join("ccpanes-browse-sessions");
+        std::fs::create_dir_all(&namespaced).unwrap();
+        std::fs::write(
+            namespaced.join("SKILL.md"),
+            "---\nname: browse-sessions\n---\nHi\n",
+        )
+        .unwrap();
+        let aliased = svc
+            .read_bundled(tmp.path(), "browse-sessions")
+            .unwrap()
+            .unwrap();
+        assert_eq!(aliased.skill.rel_dir, "ccpanes-browse-sessions");
+        assert!(ProjectSkillService::bundled_dir(tmp.path(), "browse-sessions").is_ok());
     }
 }

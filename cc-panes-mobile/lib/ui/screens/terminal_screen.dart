@@ -9,7 +9,8 @@ import '../widgets/key_bar.dart';
 /// 默认不 resize 共享 PTY（避免破坏桌面端渲染），AppBar 提供手动「适配尺寸」；
 /// 手动适配过后，旋转/键盘等 metrics 变化会自动再适配。
 class TerminalScreen extends ConsumerStatefulWidget {
-  const TerminalScreen({super.key, required this.sessionId, required this.title});
+  const TerminalScreen(
+      {super.key, required this.sessionId, required this.title});
 
   final String sessionId;
   final String title;
@@ -40,6 +41,17 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final controller = ref.read(terminalControllerProvider(widget.sessionId));
+    if (state == AppLifecycleState.resumed) controller.resume();
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      controller.suspend();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final controller = ref.watch(terminalControllerProvider(widget.sessionId));
 
@@ -47,12 +59,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       appBar: AppBar(
         title: Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
-          if (controller.phase == TerminalPhase.connected)
+          if (controller.canWrite)
             IconButton(
               icon: const Icon(Icons.fit_screen_outlined),
               tooltip: '把 PTY 尺寸调整为手机屏幕（会影响桌面端同一会话的渲染）',
               onPressed: () {
-                controller.resizeToView();
+                if (!controller.resizeToView()) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('已按手机屏幕调整终端尺寸')),
                 );
@@ -63,15 +75,20 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       body: SafeArea(
         child: Column(
           children: [
-            if (controller.phase == TerminalPhase.connecting)
+            if (controller.phase == TerminalPhase.connecting ||
+                controller.phase == TerminalPhase.reconnecting)
               const LinearProgressIndicator(minHeight: 2),
+            if (controller.phase == TerminalPhase.reconnecting)
+              const Padding(
+                padding: EdgeInsets.all(8),
+                child: Text('正在恢复连接，终端画面已保留'),
+              ),
             if (controller.phase == TerminalPhase.error)
               MaterialBanner(
                 content: Text(controller.errorMessage ?? '连接中断'),
                 actions: [
                   TextButton(
-                    onPressed: () => ref.invalidate(
-                        terminalControllerProvider(widget.sessionId)),
+                    onPressed: controller.reconnect,
                     child: const Text('重连'),
                   ),
                 ],
@@ -97,7 +114,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                     fontSize: 12,
                     fontFamily: 'MapleMonoNFCN',
                   ),
-                  autofocus: true,
+                  autofocus: false,
+                  readOnly: !controller.canWrite,
                 ),
               ),
             ),

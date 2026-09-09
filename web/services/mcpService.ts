@@ -42,9 +42,17 @@ export const mcpService = {
     name: string,
     command: string,
     args: string[],
-    env: Record<string, string>
+    env: Record<string, string>,
+    descriptions?: Record<string, string>,
   ): Promise<void> {
-    const payload = { ...layerParams(target), name, command, args, env };
+    const payload = {
+      ...layerParams(target),
+      name,
+      command,
+      args,
+      env,
+      ...(descriptions ? { descriptions } : {}),
+    };
     return invokeOrApi<void>("upsert_mcp_server", payload, () =>
       apiJson<void>("/api/mcp/servers", "PUT", payload),
     );

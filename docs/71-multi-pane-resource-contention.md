@@ -252,7 +252,7 @@ PTY reader (4KB read)
 
 实测背景：v0.11.7 下 14 个挂载标签 + 3 天运行，renderer 3.8GB / 0.7 核、CC-Panes 独家掉帧（整机 CPU 27%、dwm 0%、GPU 正常——B 类判据实锤案例）。主因是**每个挂载标签的 xterm circular buffer 常驻**（scrollback 20000 行 × cols × cell 对象 ≈ 50MB+/实例）。
 
-用户约束：scrollback 默认 20000 不动、不许裁历史。参照 VS Code（SerializeAddon 序列化持久化）与 orca（agent hibernation），落地**后台分层降档**：
+当前默认 scrollback 调整为 5000 行以降低多 pane 常驻 xterm 缓冲的内存和解析压力；用户仍可在终端设置中提高该值。参照 VS Code（SerializeAddon 序列化持久化）与 orca（agent hibernation），落地**后台分层降档**：
 
 ```
 隐藏 T+5min  ：挂起 WebGL（terminalRendererController.suspendWebgl，Windows 恒 DOM 为 no-op，

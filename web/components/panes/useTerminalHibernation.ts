@@ -10,17 +10,20 @@ import { getErrorMessage } from "@/utils";
 import { terminalService } from "@/services/terminalService";
 import type { TerminalRecoverySnapshot } from "@/types";
 import { replayAttachedSession } from "./terminalReplay";
+import { writeTerminalReplay } from "./terminalReplayChunks";
 import {
   createTerminalBackgroundLifecycle,
   type TerminalBackgroundLifecycle,
 } from "./terminalBackgroundLifecycle";
 import { captureAndUploadCheckpoint } from "./terminalCheckpointUpload";
+import { serializeTerminalSnapshot } from "./terminalSnapshotModes";
 import {
   createHibernatedTerminalState,
   type HibernatedTerminalState,
 } from "./terminalHibernation";
 import type { TerminalHiddenWriteBuffer } from "./terminalHiddenWriteBuffer";
 import type { TerminalRendererController } from "./terminalRendererController";
+import { withTerminalReplayPresentation } from "./terminalReplayPresentation";
 
 interface RefValue<T> {
   current: T;
@@ -91,7 +94,7 @@ export function useTerminalHibernation({
 
     let base: string;
     try {
-      base = serialize.serialize();
+      base = serializeTerminalSnapshot(term, serialize);
     } catch (error) {
       debugLog("hibernate.serialize.failed", { error: getErrorMessage(error) });
       return;
@@ -256,6 +259,7 @@ export function collectHibernatedOutput({
 }
 
 interface ReplayHibernationWakeOptions {
+  canWrite?: () => boolean;
   wake: HibernatedTerminalState;
   term: Pick<Terminal, "writeln">;
   /** 已是成品 VT 流，不可二次渲染。 */
@@ -274,6 +278,7 @@ interface ReplayHibernationWakeOptions {
  * （onSessionExited 在休眠期已回调，不重复）。
  */
 export async function replayHibernationWake({
+  canWrite,
   wake,
   term,
   writeTerminalData,
@@ -282,10 +287,11 @@ export async function replayHibernationWake({
   showReconnectHint,
   debugLog,
 }: ReplayHibernationWakeOptions): Promise<void> {
+  if (canWrite && !canWrite()) throw new Error("Terminal replay cancelled");
   const wakeData = wake.wakeData();
   if (wakeData !== null) {
     if (wakeData) {
-      await writeTerminalData(wakeData);
+      await writeTerminalReplay(wakeData, writeTerminalData, { canWrite });
     }
     syncTrackedBufferType("hibernation.wake");
     debugLog("hibernate.wake.replayed", {
@@ -305,6 +311,7 @@ export async function replayHibernationWake({
 }
 
 interface ReplayAttachOrWakeOptions {
+  canWrite?: () => boolean;
   term: Terminal;
   sessionId: string;
   /** 休眠唤醒交接；普通 attach 传 null。 */
@@ -320,7 +327,12 @@ interface ReplayAttachOrWakeOptions {
 }
 
 /** attach 分支的回放选路：休眠容器优先，普通 attach / 溢出走后端 snapshot。 */
-export async function replayAttachOrWake({
+export function replayAttachOrWake(options: ReplayAttachOrWakeOptions): Promise<void> {
+  return withTerminalReplayPresentation(options.term, () => restoreAttachOrWake(options));
+}
+
+async function restoreAttachOrWake({
+  canWrite,
   term,
   sessionId,
   wake,
@@ -334,6 +346,7 @@ export async function replayAttachOrWake({
 }: ReplayAttachOrWakeOptions): Promise<void> {
   const replayFromSnapshot = async () => {
     await replayAttachedSession({
+      canWrite,
       term,
       sessionId,
       getRecoverySnapshot,
@@ -350,6 +363,7 @@ export async function replayAttachOrWake({
   };
   if (wake) {
     await replayHibernationWake({
+      canWrite,
       wake,
       term,
       writeTerminalData,

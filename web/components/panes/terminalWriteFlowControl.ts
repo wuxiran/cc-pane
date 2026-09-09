@@ -7,6 +7,7 @@ interface TerminalWriteFlowControlOptions {
   bytesThreshold?: number;
   highWatermark?: number;
   lowWatermark?: number;
+  now?: () => number;
 }
 
 // Keep the xterm write queue shallow during TUI redraw bursts. Orca applies a
@@ -30,12 +31,21 @@ export function createTerminalWriteFlowControl(
 
   interface PendingWrite {
     data: string;
+    queuedAt: number;
     onWritten?: () => void;
     resolve: () => void;
     reject: (error: unknown) => void;
   }
 
   const queue: PendingWrite[] = [];
+  const now = options.now ?? (() => performance.now());
+  let queuedChars = 0;
+  let inFlightChars = 0;
+  let inFlightWrites = 0;
+  let receivedChars = 0;
+  let writeCalls = 0;
+  let failedWrites = 0;
+  let callbackMaxMs = 0;
   let blocked = false;
   let pumping = false;
   let pendingCallbacks = 0;
@@ -47,6 +57,9 @@ export function createTerminalWriteFlowControl(
     try {
       while (queue.length > 0 && !blocked) {
         const entry = queue.shift()!;
+        queuedChars -= entry.data.length;
+        inFlightChars += entry.data.length;
+        inFlightWrites += 1;
         bytesWritten += entry.data.length;
         const shouldTrackCallback = enabled && bytesWritten >= bytesThreshold;
         if (shouldTrackCallback) {
@@ -59,6 +72,9 @@ export function createTerminalWriteFlowControl(
         const complete = () => {
           if (callbackCompleted) return;
           callbackCompleted = true;
+          inFlightChars -= entry.data.length;
+          inFlightWrites -= 1;
+          callbackMaxMs = Math.max(callbackMaxMs, now() - entry.queuedAt);
           if (shouldTrackCallback) {
             pendingCallbacks = Math.max(0, pendingCallbacks - 1);
             if (blocked && pendingCallbacks <= lowWatermark) blocked = false;
@@ -76,10 +92,16 @@ export function createTerminalWriteFlowControl(
         try {
           target.write(entry.data, complete);
         } catch (error) {
+          if (!callbackCompleted) {
+            inFlightChars -= entry.data.length;
+            inFlightWrites -= 1;
+            failedWrites += 1;
+          }
           if (!callbackCompleted && shouldTrackCallback) {
             pendingCallbacks = Math.max(0, pendingCallbacks - 1);
             if (blocked && pendingCallbacks <= lowWatermark) blocked = false;
           }
+          callbackCompleted = true;
           entry.reject(error);
         }
       }
@@ -94,7 +116,10 @@ export function createTerminalWriteFlowControl(
 
   function write(data: string, onWritten?: () => void): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      queue.push({ data, onWritten, resolve, reject });
+      queuedChars += data.length;
+      receivedChars += data.length;
+      writeCalls += 1;
+      queue.push({ data, queuedAt: now(), onWritten, resolve, reject });
       try {
         pump();
       } catch (error) {
@@ -120,6 +145,7 @@ export function createTerminalWriteFlowControl(
    */
   function dispose(reason = "terminal write flow control disposed"): void {
     const pending = queue.splice(0);
+    queuedChars = 0;
     bytesWritten = 0;
     pendingCallbacks = 0;
     blocked = false;
@@ -136,5 +162,8 @@ export function createTerminalWriteFlowControl(
     reset,
     dispose,
     queueLength,
+    getStats: () => ({ queuedChars, inFlightChars, inFlightWrites, queuedWrites: queue.length,
+      receivedChars, writeCalls, failedWrites, callbackMaxMs,
+      oldestWaitMs: queue.length ? Math.max(0, now() - queue[0].queuedAt) : 0 }),
   };
 }

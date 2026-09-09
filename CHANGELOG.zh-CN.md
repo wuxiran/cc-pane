@@ -7,7 +7,7 @@
 两份是人工同步的，条目一一对应；改英文版时顺手改这里，逐条 diff 能看出漏了哪条。
 0.12.6 之前的版本只有英文版。
 
-## 0.12.11 - 2026-09-06
+## 0.12.14 - 2026-09-10
 
 这一版主要是前端：首屏体积砍掉一半以上，UI/UX 做了一轮系统性升级，Agent Chat 从"平铺的消息列表"变成有回合、有层级、能看见子 agent 的对话页，首页多了一个直接把目标丢给编排管家的入口。
 
@@ -27,6 +27,7 @@
 
 ### 变更
 
+- **ccpanes MCP 精简（docs/103）** — 会话注入的 `/mcp` 只留 48 个 core 工具（派发、会话、编排、plan、memory、通知、只读查询），`tools/list` 从约 14–19k token 降到约 6.8k。全量挂 `/mcp-full`，给 `cc-panes-ctl` 和外部客户端。管理台操作改走 ctl + `ccpanes-admin` skill；用法说明在 `ccpanes-mcp-guide`。Codex 额外加 `enabled_tools` 白名单。
 - **首屏 JS 体积 -57%**（gzip 1914 → 831kB）：Monaco 与 xterm 改为懒加载并守住 modulepreload 禁令，新增 `check:bundle` 预算脚本（首屏 ≤1100kB、入口 ≤880kB）；文件树 / 本地历史版本 / 最近启动列表接入虚拟滚动，501 项只渲染约 27 行。
 - **TerminalView 与 usePanesStore 拆分**（2226 → 711 行、2378 → 117 行），外观与行为不变，公开 API 逐项兼容。
 - **移除 GLM CLI 适配** — 官方没有独立的 `glm` CLI（经 crush 间接拉起）。`CliTool` / `ProviderType` 改手写 Deserialize，老数据里的 glm 配置和会话按未知 id 回退默认值，不再整条加载失败。

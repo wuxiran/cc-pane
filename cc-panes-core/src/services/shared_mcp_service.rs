@@ -253,10 +253,19 @@ impl SharedMcpService {
 
     /// 启动单个 server
     pub fn start_server(&self, name: &str) -> Result<(), String> {
-        // 检查是否已在运行
-        if let Ok(running) = self.running.lock() {
-            if running.contains_key(name) {
-                return Err(format!("Server '{}' is already running", name));
+        // 已在跑就拒绝；但健康检查标成 Failed / 进程已退出的残留 runtime 要回收，
+        // 否则用户手点「启动」永远得到 "already running"。
+        if let Ok(mut running) = self.running.lock() {
+            if let Some(runtime) = running.get_mut(name) {
+                let dead = matches!(runtime.status, SharedMcpServerStatus::Failed { .. })
+                    || matches!(runtime.child.try_wait(), Ok(Some(_)));
+                if !dead {
+                    return Err(format!("Server '{}' is already running", name));
+                }
+                if let Some(mut stale) = running.remove(name) {
+                    let _ = stale.child.kill();
+                    let _ = stale.child.wait();
+                }
             }
         }
 
@@ -1014,6 +1023,71 @@ mod tests {
             .expect("stop callback");
         assert!(stop_urls.is_empty());
         assert!(stop_observed.is_empty());
+    }
+
+    /// 进程已经退出（或被健康检查标成 Failed）后，手点「启动」必须能拉起来，
+    /// 而不是撞上 "already running"。
+    #[test]
+    fn start_server_reclaims_a_dead_runtime() {
+        let (_dir, paths) = test_paths();
+        let svc = SharedMcpService::new(&paths);
+        // 一个立刻退出的命令
+        let (command, args) = if cfg!(windows) {
+            (
+                std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string()),
+                vec!["/C".to_string(), "exit 0".to_string()],
+            )
+        } else {
+            (
+                "sh".to_string(),
+                vec!["-c".to_string(), "exit 0".to_string()],
+            )
+        };
+        svc.upsert_server(
+            "flaky",
+            SharedMcpServerConfig {
+                command,
+                args,
+                env: HashMap::new(),
+                shared: true,
+                port: 3198,
+                bridge_mode: BridgeMode::NativeHttp,
+            },
+        )
+        .unwrap();
+
+        svc.start_server("flaky").expect("first start");
+        // 等子进程真的退出
+        for _ in 0..50 {
+            let exited = svc
+                .running
+                .lock()
+                .ok()
+                .and_then(|mut r| {
+                    r.get_mut("flaky")
+                        .map(|rt| matches!(rt.child.try_wait(), Ok(Some(_))))
+                })
+                .unwrap_or(false);
+            if exited {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        svc.start_server("flaky")
+            .expect("dead runtime must be reclaimed, not reported as running");
+
+        // 标成 Failed 但进程还活着的情况同样要放行
+        if let Ok(mut running) = svc.running.lock() {
+            if let Some(rt) = running.get_mut("flaky") {
+                rt.status = SharedMcpServerStatus::Failed {
+                    message: "test".into(),
+                };
+            }
+        }
+        svc.start_server("flaky")
+            .expect("failed runtime must be reclaimed");
+        svc.stop_server("flaky");
     }
 
     #[test]

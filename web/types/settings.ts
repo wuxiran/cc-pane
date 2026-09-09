@@ -263,6 +263,8 @@ export interface GeneralSettings {
   autoStart: boolean;
   language: string;
   dataDir: string | null;
+  /** 记忆库文件路径；空则 `<dataDir>/memory.db`。dev 常指向正式库以共用记忆 */
+  memoryDbPath?: string | null;
   searchScope: SearchScope;
   /** 新手引导是否已完成 */
   onboardingCompleted: boolean;

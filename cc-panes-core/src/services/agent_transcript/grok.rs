@@ -442,7 +442,11 @@ pub fn decode_grok_transcript_line(line: &str, fallback_id: &str) -> Option<Tran
             // 截断超长 tool 输出，避免 UI 被刷爆
             const TOOL_TEXT_MAX: usize = 4_000;
             if text.len() > TOOL_TEXT_MAX {
-                text.truncate(TOOL_TEXT_MAX);
+                let mut end = TOOL_TEXT_MAX;
+                while !text.is_char_boundary(end) {
+                    end -= 1;
+                }
+                text.truncate(end);
                 text.push_str("\n…");
             }
             let is_error = obj
@@ -557,6 +561,35 @@ mod tests {
         let msg = decode_grok_transcript_line(asst, "L2").expect("asst");
         assert_eq!(msg.role, TranscriptRole::Assistant);
         assert_eq!(msg.text, "world");
+    }
+
+    #[test]
+    fn tool_preview_truncates_at_utf8_boundaries() {
+        for (content, expected) in [
+            ("a".repeat(4_001), "a".repeat(4_000)),
+            ("中".repeat(1_400), "中".repeat(1_333)),
+            (format!("{}🙂tail", "a".repeat(3_998)), "a".repeat(3_998)),
+            (format!("{}中tail", "a".repeat(3_999)), "a".repeat(3_999)),
+        ] {
+            for is_error in [false, true] {
+                let line = serde_json::json!({
+                    "type": "tool_result", "content": content, "is_error": is_error
+                });
+                let msg = decode_grok_transcript_line(&line.to_string(), "L0").unwrap();
+                let prefix = if is_error { "[error] " } else { "" };
+                assert_eq!(msg.role, TranscriptRole::Tool);
+                assert_eq!(msg.text, format!("{prefix}{expected}\n…"));
+            }
+        }
+    }
+
+    #[test]
+    fn tool_preview_preserves_exact_limit_and_short_unicode() {
+        for content in ["a".repeat(4_000), "🙂".repeat(1_000), "中文🙂".into()] {
+            let line = serde_json::json!({ "type": "tool_result", "output": content });
+            let msg = decode_grok_transcript_line(&line.to_string(), "L0").unwrap();
+            assert_eq!(msg.text, content);
+        }
     }
 
     #[test]

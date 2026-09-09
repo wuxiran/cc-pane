@@ -23,6 +23,7 @@ import {
   terminalRestoreLaunchQueue,
 } from "../terminalRestoreQueue";
 import { syncTerminalGeometry } from "../terminalSessionGeometry";
+import { withTerminalReplayPresentation } from "../terminalReplayPresentation";
 import { findLiveSavedSessionId } from "../terminalViewHelpers";
 import type { RestoreLaunchState } from "../terminalRestoreQueue";
 import type { TerminalLayoutScheduler } from "../terminalLayoutScheduler";
@@ -121,7 +122,11 @@ export async function launchOrAttachTerminalSession({
       // (Restored tabs still start their live PTY on first app restore even when
       // hidden, otherwise background tabs can remain stuck on the restore overlay.)
       if (props.restoring && props.savedSessionId && !liveSavedSessionId) {
-        await replayColdRestoreOutput(term, props.savedSessionId, logRestoreEvent, debugLog, renderCheckpointData);
+        await withTerminalReplayPresentation(term, async () => {
+          await replayColdRestoreOutput(term, props.savedSessionId!, logRestoreEvent, debugLog, renderCheckpointData);
+          // writeln queues parsing; keep the static frame until the final write callback.
+          await new Promise<void>((resolve) => term.write("", resolve));
+        });
       }
 
       let sessionId: string;
@@ -144,6 +149,7 @@ export async function launchOrAttachTerminalSession({
         sessionId = attachSessionId;
         try {
           await replayAttachOrWake({
+            canWrite: isMounted,
             term,
             sessionId,
             wake,

@@ -1,0 +1,67 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Terminal static recovery regression</title>
+<style>
+  body { margin: 16px; background: #17212e; }
+  #host { position: relative; width: 760px; height: 400px; overflow: hidden; }
+  #host > .xterm { height: 100%; }
+</style></head><body><div id="host"></div>
+<script type="module">
+import { Terminal } from '@xterm/xterm';
+import { SerializeAddon } from '@xterm/addon-serialize';
+import { WebglAddon } from '@xterm/addon-webgl';
+import '@xterm/xterm/css/xterm.css';
+import { resyncFromReplaySnapshot } from '/web/components/panes/terminalResync.ts';
+import { registerRecoveryCheckpointSource } from '/web/components/panes/terminalRecoveryCheckpoint.ts';
+const host = document.querySelector('#host');
+const paint = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+window.prepare = async (renderer, followBottom) => {
+  window.term?.dispose();
+  host.replaceChildren();
+  window.uploads = [];
+  const term = window.term = new Terminal({ cols: 80, rows: 20, scrollback: 4000,
+    fontFamily: 'monospace', fontSize: 14, cursorBlink: false, allowProposedApi: true,
+    theme: { background: '#17212e', foreground: '#edf4ff' } });
+  const serializer = new SerializeAddon();
+  term.loadAddon(serializer);
+  term.open(host);
+  if (renderer === 'webgl') term.loadAddon(new WebglAddon());
+  const write = data => new Promise(resolve => term.write(data, resolve));
+  await write(Array.from({ length: 200 }, (_, i) => `\x1b[36mline ${String(i).padStart(3, '0')}\x1b[0m 稳定的历史内容\r\n`).join(''));
+  await write('\x1b[?25l');
+  const saved = serializer.serialize();
+  if (!followBottom) term.scrollToLine(20);
+  await paint();
+  registerRecoveryCheckpointSource(term, serializer);
+  const before = term.buffer.active.viewportY;
+  const anchor = term.buffer.active.getLine(before).translateToString(true);
+  const raw = '\r\x1b[2Kworking ... 1234567890'.repeat(300_000) + '\r\x1b[2KFINAL RESULT\r\n';
+  window.startRecovery = () => {
+    window.replayPaused = false;
+    window.recoveryDone = false;
+    let paused = false;
+    window.recovery = resyncFromReplaySnapshot({
+      term, sessionId: `${renderer}-${followBottom}`, reason: 'browser-regression',
+      getRecoverySnapshot: async () => ({
+        checkpoint: { checkpointEpoch: 7, anchorSeq: 100, snapshotAnsi: saved,
+          bufferMode: 'normal', cols: 80, rows: 20, checkpointedAtMs: 1 },
+        delta: raw, bufferMode: 'normal', endSeq: raw.length + 100, checkpointEpoch: 7,
+      }),
+      writeCheckpointData: write,
+      writeData: async data => {
+        await write(data);
+        if (!paused) {
+          paused = true;
+          await new Promise(resolve => { window.resumeReplay = resolve; window.replayPaused = true; });
+        }
+      },
+      syncTrackedBufferType: () => {}, debugLog: () => {},
+    }).then(() => {
+      window.recoveryDone = true;
+      return { before, after: term.buffer.active.viewportY, baseY: term.buffer.active.baseY,
+        anchor, current: term.buffer.active.getLine(term.buffer.active.viewportY).translateToString(true),
+        rawChars: raw.length, snapshotChars: window.uploads.at(-1)?.snapshotAnsi.length ?? 0 };
+    });
+  };
+};
+window.fixtureReady = true;
+</script></body></html>

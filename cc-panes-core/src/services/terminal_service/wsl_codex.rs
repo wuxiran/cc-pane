@@ -10,11 +10,161 @@ use crate::services::default_skill_service::{BUNDLED_NAMESPACE, VERSION_FILE_NAM
 use crate::services::DefaultSkillService;
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-#[cfg(windows)]
 use std::path::Path;
 use std::path::PathBuf;
 #[cfg(windows)]
 use tracing::{info, warn};
+
+/// 工作空间层里能进 WSL 会话的那部分（docs/98）：
+/// - `mcp_http_servers`：工作空间 / 项目 `mcp.json` 里的 **HTTP** 型条目（name → url），
+///   stdio 条目是宿主命令，进不了 guest，已在上游过滤掉；启动档的 allowed 过滤也已应用。
+/// - `claude_plugin_dirs`：内置 + 工作空间 skill 根目录的 `/mnt/...` 路径，Claude 走 `--plugin-dir`。
+/// - `codex_workspace_skills`：工作空间下每个 skill 目录 → `(WSL 内链接名, /mnt 目标)`，
+///   Codex 在 `$CODEX_HOME/skills` 下建符号链接（内置 skill 仍走既有的拷贝同步）。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(super) struct WslWorkspaceInjection {
+    pub mcp_http_servers: Vec<(String, String)>,
+    pub claude_plugin_dirs: Vec<String>,
+    pub codex_workspace_skills: Vec<(String, String)>,
+    /// 用来清理本工作空间旧链接的前缀（`ccpanes-ws-<slug>-`）
+    pub codex_workspace_link_prefix: Option<String>,
+}
+
+impl WslWorkspaceInjection {
+    pub(super) fn build(
+        workspace_mcp_servers: &std::collections::BTreeMap<String, serde_json::Value>,
+        allowed_mcp_server_ids: &[String],
+        disable_unlisted_mcp_servers: bool,
+        host_skill_mount_paths: &[String],
+        workspace_skill_root: Option<&Path>,
+        workspace_name: Option<&str>,
+    ) -> Self {
+        let mcp_http_servers = workspace_mcp_servers
+            .iter()
+            .filter(|(name, _)| {
+                !disable_unlisted_mcp_servers || allowed_mcp_server_ids.iter().any(|id| id == *name)
+            })
+            .filter_map(|(name, config)| {
+                config
+                    .get("url")
+                    .and_then(|url| url.as_str())
+                    .map(|url| (name.clone(), url.to_string()))
+            })
+            .collect();
+        let claude_plugin_dirs: Vec<String> = host_skill_mount_paths
+            .iter()
+            .filter_map(|path| windows_path_to_wsl(Path::new(path)))
+            .collect();
+
+        // 工作空间根没在挂载列表里（启动档关了、目录为空）就不建链接
+        let workspace_mounted = workspace_skill_root
+            .map(|root| {
+                host_skill_mount_paths
+                    .iter()
+                    .any(|path| Path::new(path) == root)
+            })
+            .unwrap_or(false);
+        let slug = workspace_name.map(codex_workspace_slug);
+        let codex_workspace_link_prefix = slug.as_ref().map(|slug| format!("ccpanes-ws-{slug}-"));
+        let codex_workspace_skills = match (
+            workspace_mounted,
+            workspace_skill_root,
+            &codex_workspace_link_prefix,
+        ) {
+            (true, Some(root), Some(prefix)) => list_workspace_skill_dirs(root)
+                .into_iter()
+                .filter_map(|dir| {
+                    let target = windows_path_to_wsl(&dir)?;
+                    let name = dir.file_name()?.to_str()?.to_string();
+                    Some((format!("{prefix}{name}"), target))
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        Self {
+            mcp_http_servers,
+            claude_plugin_dirs,
+            codex_workspace_skills,
+            codex_workspace_link_prefix,
+        }
+    }
+}
+
+/// 工作空间名 → 只含 `[a-z0-9-]` 的短 slug，做 Codex 链接名前缀。
+fn codex_workspace_slug(name: &str) -> String {
+    let mut slug = String::new();
+    let mut last_dash = false;
+    for ch in name.chars() {
+        let mapped = if ch.is_ascii_alphanumeric() {
+            Some(ch.to_ascii_lowercase())
+        } else if ch == '-' || ch == '_' || ch.is_whitespace() {
+            Some('-')
+        } else {
+            None
+        };
+        match mapped {
+            Some('-') if last_dash || slug.is_empty() => {}
+            Some(c) => {
+                last_dash = c == '-';
+                slug.push(c);
+            }
+            None => {}
+        }
+    }
+    let slug = slug.trim_end_matches('-').to_string();
+    if slug.is_empty() {
+        "workspace".to_string()
+    } else {
+        slug
+    }
+}
+
+/// `<root>/skills/<dir>/SKILL.md` 或 `<root>/<dir>/SKILL.md` 两种布局都认。
+fn list_workspace_skill_dirs(root: &Path) -> Vec<PathBuf> {
+    let candidates = [root.join("skills"), root.to_path_buf()];
+    let mut dirs = Vec::new();
+    for base in candidates {
+        let Ok(entries) = std::fs::read_dir(&base) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() && path.join("SKILL.md").is_file() {
+                dirs.push(path);
+            }
+        }
+        if !dirs.is_empty() {
+            break;
+        }
+    }
+    dirs.sort();
+    dirs
+}
+
+/// 在 `$CODEX_HOME/skills` 下把工作空间 skill 目录链接进来；先清掉本工作空间前缀下失效的旧链接。
+/// 只碰符号链接，用户自建的真实目录一律不动。
+#[cfg(windows)]
+fn build_wsl_codex_workspace_skill_link_prelude(
+    prefix: &str,
+    links: &[(String, String)],
+) -> Vec<String> {
+    let mut commands = vec![
+        "CCPANES_WSL_CODEX_SKILLS=\"${CODEX_HOME:-$HOME/.codex}/skills\"".to_string(),
+        "mkdir -p \"$CCPANES_WSL_CODEX_SKILLS\"".to_string(),
+        format!(
+            "for CCPANES_WS_LINK in \"$CCPANES_WSL_CODEX_SKILLS\"/{}*; do if [ -L \"$CCPANES_WS_LINK\" ] && [ ! -e \"$CCPANES_WS_LINK\" ]; then rm -f -- \"$CCPANES_WS_LINK\"; fi; done",
+            shell_escape_posix(prefix)
+        ),
+    ];
+    for (name, target) in links {
+        commands.push(format!(
+            "if [ ! -e \"$CCPANES_WSL_CODEX_SKILLS\"/{name} ] || [ -L \"$CCPANES_WSL_CODEX_SKILLS\"/{name} ]; then ln -sfn {target} \"$CCPANES_WSL_CODEX_SKILLS\"/{name}; fi",
+            name = shell_escape_posix(name),
+            target = shell_escape_posix(target),
+        ));
+    }
+    commands
+}
 
 /// 探活结果缓存 TTL：宿主网络拓扑短期内稳定，5 分钟内复用结果，
 /// 避免每次 create_session 都冷跑一次 wsl.exe（daemon 模式下这是 2s 超时的主要推手）。
@@ -1453,6 +1603,8 @@ impl TerminalService {
         skip_mcp: bool,
         yolo_mode: bool,
         adapter_options: &HashMap<String, serde_json::Value>,
+        shared_mcp_urls: &HashMap<String, String>,
+        workspace_injection: &WslWorkspaceInjection,
     ) -> Result<(String, Vec<String>)> {
         let command = match cli_tool {
             CliTool::Claude => "claude",
@@ -1610,11 +1762,7 @@ impl TerminalService {
             }
             // 旧版本会把 ~/.claude/commands/ccpanes 的 .md 拷进发行版内。宿主侧已停止
             // 生成该目录（内置能力改为 skill + 按会话挂载），源不复存在，故同步取消。
-            //
-            // 已知缺口：WSL 内的 Claude 会话本批**拿不到内置 skill**——宿主侧走
-            // `--plugin-dir`，而 WSL 分支的命令是另行拼装的，接线属 WSL 批次。
-            // 这里不做「拷贝到发行版内」的临时替代：那等于把刚从宿主移除的污染
-            // 原样搬进 WSL，与本次改动的目的直接冲突。
+            // 内置 / 工作空间 skill 现在通过 `--plugin-dir /mnt/...` 挂载（见下方 cli_args）。
         }
         if matches!(cli_tool, CliTool::Pi | CliTool::Omp) {
             match self.build_wsl_pi_skill_sync_commands(cli_tool) {
@@ -1655,12 +1803,22 @@ impl TerminalService {
                 cli_args.push(wsl.remote_path.clone());
             }
             if !skip_mcp {
-                if let Some(config_path) =
-                    self.write_wsl_claude_mcp_config(session_id, wsl, env_vars, adapter_options)?
-                {
+                if let Some(config_path) = self.write_wsl_claude_mcp_config(
+                    session_id,
+                    wsl,
+                    env_vars,
+                    adapter_options,
+                    shared_mcp_urls,
+                    &workspace_injection.mcp_http_servers,
+                )? {
                     cli_args.push("--mcp-config".to_string());
                     cli_args.push(config_path);
                 }
+            }
+            // 内置 + 工作空间 skill：宿主目录对 WSL 直接可读（/mnt/…），与本机一样按会话挂载。
+            for plugin_dir in &workspace_injection.claude_plugin_dirs {
+                cli_args.push("--plugin-dir".to_string());
+                cli_args.push(plugin_dir.clone());
             }
             if let Some(prompt) = append_system_prompt {
                 cli_args.push("--append-system-prompt".to_string());
@@ -1830,6 +1988,8 @@ impl TerminalService {
         _skip_mcp: bool,
         _yolo_mode: bool,
         _adapter_options: &HashMap<String, serde_json::Value>,
+        _shared_mcp_urls: &HashMap<String, String>,
+        _workspace_injection: &WslWorkspaceInjection,
     ) -> Result<(String, Vec<String>)> {
         unreachable!("WSL launch is only supported on Windows")
     }
@@ -1841,6 +2001,8 @@ impl TerminalService {
         wsl: &ResolvedWslLaunch,
         env_vars: &HashMap<String, String>,
         adapter_options: &HashMap<String, serde_json::Value>,
+        shared_mcp_urls: &HashMap<String, String>,
+        workspace_http_servers: &[(String, String)],
     ) -> Result<Option<String>> {
         let proxy = super::wsl_mcp_proxy::invocation(
             adapter_options,
@@ -1925,11 +2087,32 @@ impl TerminalService {
                 }
             })
         };
-        let config = serde_json::json!({
-            "mcpServers": {
-                "ccpanes": ccpanes
+        // 共享 MCP → 工作空间 / 项目层 HTTP MCP → ccpanes：后者覆盖前者，ccpanes 名字永远保留。
+        let mut servers = serde_json::Map::new();
+        let http_entries = shared_mcp_urls
+            .iter()
+            .map(|(name, url)| (name.as_str(), url.as_str()))
+            .chain(
+                workspace_http_servers
+                    .iter()
+                    .map(|(name, url)| (name.as_str(), url.as_str())),
+            );
+        for (name, url) in http_entries {
+            if name == "ccpanes" {
+                continue;
             }
-        });
+            let url = wsl
+                .windows_host
+                .as_deref()
+                .map(|host| rewrite_local_mcp_url_for_wsl(url, host))
+                .unwrap_or_else(|| url.to_string());
+            servers.insert(
+                name.to_string(),
+                serde_json::json!({ "type": "http", "url": url }),
+            );
+        }
+        servers.insert("ccpanes".to_string(), ccpanes);
+        let config = serde_json::json!({ "mcpServers": servers });
 
         std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
 
@@ -1943,6 +2126,8 @@ impl TerminalService {
         _wsl: &ResolvedWslLaunch,
         _env_vars: &HashMap<String, String>,
         _adapter_options: &HashMap<String, serde_json::Value>,
+        _shared_mcp_urls: &HashMap<String, String>,
+        _workspace_http_servers: &[(String, String)],
     ) -> Result<Option<String>> {
         unreachable!("WSL launch is only supported on Windows")
     }
@@ -1966,6 +2151,7 @@ impl TerminalService {
         _selected_mcp_config_toml: &str,
         yolo_mode: bool,
         adapter_options: &HashMap<String, serde_json::Value>,
+        workspace_injection: &WslWorkspaceInjection,
     ) -> Result<(String, Vec<String>)> {
         let mut remote_parts = Vec::new();
         let mut provider_env = provider_env.clone();
@@ -1990,6 +2176,12 @@ impl TerminalService {
                 error = %error,
                 "build_wsl_command: failed to prepare bundled Codex skill sync; continuing without sync"
             ),
+        }
+        if let Some(prefix) = workspace_injection.codex_workspace_link_prefix.as_deref() {
+            remote_parts.append(&mut build_wsl_codex_workspace_skill_link_prelude(
+                prefix,
+                &workspace_injection.codex_workspace_skills,
+            ));
         }
 
         let codex_path = "codex";
@@ -2019,6 +2211,8 @@ impl TerminalService {
                 ));
                 codex_args.push("-c".to_string());
                 codex_args.push("mcp_servers.ccpanes.enabled=true".to_string());
+                codex_args.push("-c".to_string());
+                codex_args.push(cc_cli_adapters::ccpanes_enabled_tools_override());
             } else {
                 warn!(
                     distro = %wsl.distro,
@@ -2029,12 +2223,22 @@ impl TerminalService {
                 );
             }
 
-            for (name, url) in shared_mcp_urls {
+            // 共享 MCP 在前、工作空间 / 项目层 HTTP MCP 在后：同名时后者覆盖（越窄越赢）。
+            let http_servers = shared_mcp_urls
+                .iter()
+                .map(|(name, url)| (name.as_str(), url.as_str()))
+                .chain(
+                    workspace_injection
+                        .mcp_http_servers
+                        .iter()
+                        .map(|(name, url)| (name.as_str(), url.as_str())),
+                );
+            for (name, url) in http_servers {
                 let mcp_url = wsl
                     .windows_host
                     .as_deref()
                     .map(|host| rewrite_local_mcp_url_for_wsl(url, host))
-                    .unwrap_or_else(|| url.clone());
+                    .unwrap_or_else(|| url.to_string());
                 codex_args.push("-c".to_string());
                 codex_args.push(format!(
                     "mcp_servers.{}.url={}",
@@ -2179,6 +2383,7 @@ impl TerminalService {
         _selected_mcp_config_toml: &str,
         _yolo_mode: bool,
         _adapter_options: &HashMap<String, serde_json::Value>,
+        _workspace_injection: &WslWorkspaceInjection,
     ) -> Result<(String, Vec<String>)> {
         unreachable!("WSL launch is only supported on Windows")
     }
@@ -2364,6 +2569,103 @@ mod tests {
             wsl_claude_mcp_config_paths(data_dir, r"..\..\evil id").unwrap();
         assert_eq!(file_name, "wsl-claude-mcp-evilid.json");
         assert_eq!(windows_path.parent().unwrap(), data_dir);
+    }
+
+    #[test]
+    fn codex_workspace_slug_is_safe_for_link_names() {
+        use super::codex_workspace_slug;
+        assert_eq!(codex_workspace_slug("ERP Workspace"), "erp-workspace");
+        assert_eq!(codex_workspace_slug("化工平台"), "workspace");
+        assert_eq!(codex_workspace_slug("__a--b__"), "a-b");
+    }
+
+    /// 工作空间层进 WSL 的子集：只留 HTTP MCP、按 allowed 过滤；skill 目录翻成 /mnt 路径并建链接。
+    #[test]
+    #[cfg(windows)]
+    fn wsl_workspace_injection_keeps_http_only_and_translates_skill_dirs() {
+        use super::WslWorkspaceInjection;
+        let tmp = tempfile::TempDir::new().unwrap();
+        let ws_root = tmp.path().join("skills");
+        std::fs::create_dir_all(ws_root.join("skills").join("review")).unwrap();
+        std::fs::write(ws_root.join("skills").join("review").join("SKILL.md"), "x").unwrap();
+        std::fs::create_dir_all(ws_root.join("skills").join("no-skill-md")).unwrap();
+
+        let mut servers = std::collections::BTreeMap::new();
+        servers.insert(
+            "docs".to_string(),
+            serde_json::json!({ "type": "http", "url": "http://127.0.0.1:3100/mcp" }),
+        );
+        servers.insert(
+            "local-stdio".to_string(),
+            serde_json::json!({ "command": "npx", "args": [] }),
+        );
+        servers.insert(
+            "blocked".to_string(),
+            serde_json::json!({ "url": "http://x/mcp" }),
+        );
+
+        let builtin = tmp.path().join("builtin");
+        let mounts = vec![
+            builtin.to_string_lossy().into_owned(),
+            ws_root.to_string_lossy().into_owned(),
+        ];
+        let injection = WslWorkspaceInjection::build(
+            &servers,
+            &["docs".to_string()],
+            true,
+            &mounts,
+            Some(&ws_root),
+            Some("ERP Workspace"),
+        );
+        assert_eq!(
+            injection.mcp_http_servers,
+            vec![("docs".to_string(), "http://127.0.0.1:3100/mcp".to_string())]
+        );
+        assert_eq!(injection.claude_plugin_dirs.len(), 2);
+        assert!(injection.claude_plugin_dirs[0].starts_with("/mnt/"));
+        assert_eq!(
+            injection.codex_workspace_link_prefix.as_deref(),
+            Some("ccpanes-ws-erp-workspace-")
+        );
+        assert_eq!(injection.codex_workspace_skills.len(), 1);
+        assert_eq!(
+            injection.codex_workspace_skills[0].0,
+            "ccpanes-ws-erp-workspace-review"
+        );
+        assert!(injection.codex_workspace_skills[0]
+            .1
+            .ends_with("/skills/skills/review"));
+
+        // 不隔离时 blocked 也放行；工作空间根没挂载时不建链接
+        let open = WslWorkspaceInjection::build(
+            &servers,
+            &[],
+            false,
+            &mounts[..1],
+            Some(&ws_root),
+            Some("erp"),
+        );
+        assert_eq!(open.mcp_http_servers.len(), 2);
+        assert!(open.codex_workspace_skills.is_empty());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn codex_workspace_skill_link_prelude_only_touches_symlinks() {
+        use super::build_wsl_codex_workspace_skill_link_prelude;
+        let lines = build_wsl_codex_workspace_skill_link_prelude(
+            "ccpanes-ws-erp-",
+            &[(
+                "ccpanes-ws-erp-review".to_string(),
+                "/mnt/c/ws/skills/review".to_string(),
+            )],
+        );
+        let script = lines.join("\n");
+        assert!(script.contains("[ -L \"$CCPANES_WS_LINK\" ] && [ ! -e \"$CCPANES_WS_LINK\" ]"));
+        assert!(script.contains("ln -sfn '/mnt/c/ws/skills/review'"));
+        // 真实目录（非链接）存在时不覆盖
+        assert!(script.contains("|| [ -L \"$CCPANES_WSL_CODEX_SKILLS\"/'ccpanes-ws-erp-review' ]"));
+        assert!(!script.contains("rm -rf"));
     }
 
     /// UNC / verbatim 前缀也要能翻成 /mnt 形式（data_dir 可能是 `\\?\C:\...`）。

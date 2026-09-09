@@ -7,7 +7,7 @@
 
 export const TERMINAL_SCROLLBACK_MIN = 200;
 export const TERMINAL_SCROLLBACK_MAX = 100_000;
-export const TERMINAL_SCROLLBACK_DEFAULT = 20_000;
+export const TERMINAL_SCROLLBACK_DEFAULT = 5_000;
 
 export function normalizeTerminalScrollback(scrollback?: number | null): number {
   if (!Number.isFinite(scrollback)) return TERMINAL_SCROLLBACK_DEFAULT;

@@ -47,7 +47,7 @@ function createServerInfo(
   return {
     name: "srv",
     config: createServerConfig(),
-    status: "Running",
+    status: "running",
     pid: 123,
     url: "http://localhost:9000",
     restartCount: 0,

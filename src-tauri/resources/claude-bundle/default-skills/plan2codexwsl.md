@@ -35,7 +35,7 @@ mcp__ccpanes__dispatch_task(
 ```
 
 - ❌ 自己拼 `/mnt/...` 传给 `projectPath` → 不匹配登记路径，启动失败
-- 项目没注册 → 先 `add_project_to_workspace(workspaceName, projectPath)`
+- 项目没注册 → 先 `"$CC_PANES_CTL" --json call add_project_to_workspace --arg workspaceName=<ws> --arg projectPath=<p>`（管理工具走 ctl，见 `ccpanes-admin` skill）
 
 ### 2. prompt 文本里的路径要转成 WSL 形式
 

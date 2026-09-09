@@ -46,15 +46,18 @@ pub(super) fn refresh_process_details(
     sampler.cpu_samples = next_samples;
 }
 
-struct ProcessDetails {
-    command: String,
-    memory_bytes: u64,
-    cpu_times: Option<(u64, u64)>,
+pub(super) struct ProcessDetails {
+    pub(super) command: String,
+    pub(super) memory_bytes: u64,
+    pub(super) private_bytes: Option<u64>,
+    pub(super) cpu_times: Option<(u64, u64)>,
 }
 
-fn query_process_details(pid: u32) -> Option<ProcessDetails> {
+pub(super) fn query_process_details(pid: u32) -> Option<ProcessDetails> {
     use ::windows::Win32::Foundation::{CloseHandle, FILETIME};
-    use ::windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
+    use ::windows::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX,
+    };
     use ::windows::Win32::System::Threading::{
         GetProcessTimes, OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
         PROCESS_VM_READ,
@@ -67,13 +70,22 @@ fn query_process_details(pid: u32) -> Option<ProcessDetails> {
             .ok()?;
 
         let command = query_command_line(handle).unwrap_or_default();
-        let mut counters = PROCESS_MEMORY_COUNTERS {
-            cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+        let mut counters = PROCESS_MEMORY_COUNTERS_EX {
+            cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32,
             ..Default::default()
         };
-        let memory_bytes = GetProcessMemoryInfo(handle, &mut counters, counters.cb)
-            .map(|_| counters.WorkingSetSize as u64)
-            .unwrap_or(0);
+        let memory_ok = GetProcessMemoryInfo(
+            handle,
+            (&mut counters as *mut PROCESS_MEMORY_COUNTERS_EX).cast(),
+            counters.cb,
+        )
+        .is_ok();
+        let memory_bytes = if memory_ok {
+            counters.WorkingSetSize as u64
+        } else {
+            0
+        };
+        let private_bytes = memory_ok.then_some(counters.PrivateUsage as u64);
 
         let mut creation = FILETIME::default();
         let mut exit = FILETIME::default();
@@ -92,6 +104,7 @@ fn query_process_details(pid: u32) -> Option<ProcessDetails> {
         Some(ProcessDetails {
             command,
             memory_bytes,
+            private_bytes,
             cpu_times,
         })
     }

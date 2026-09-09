@@ -78,6 +78,33 @@ export function subscribeViewVisibilityEdge(
   });
 }
 
+/** 订阅 active/visible/hidden 三档变化；用于输出优先级等非渲染副作用。 */
+export function subscribeViewPriority(
+  owner: string,
+  role: ViewRole,
+  onChange: () => void,
+): () => void {
+  const key = viewKey(owner, role);
+  let last = useTabViewStateStore.getState().views[key]?.visibility;
+  return useTabViewStateStore.subscribe((state) => {
+    const next = state.views[key]?.visibility;
+    if (next === last) return;
+    last = next;
+    onChange();
+  });
+}
+
+export function useViewPrioritySubscription(
+  owner: string | undefined,
+  role: ViewRole | undefined,
+  onChange: () => void,
+): void {
+  useEffect(() => {
+    if (!owner) return;
+    return subscribeViewPriority(owner, role ?? "primary", onChange);
+  }, [onChange, owner, role]);
+}
+
 /** subscribeViewVisibilityEdge 的 hook 包装（TerminalView 用）。 */
 export function useViewVisibilityEdgeSubscription(
   owner: string | undefined,

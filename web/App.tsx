@@ -31,6 +31,7 @@ import { useQuickCommandsSync } from "@/hooks/useQuickCommandsSync";
 import { usePipeEventListener } from "@/hooks/usePipeEventListener";
 import LauncherDialog from "@/components/launcher/LauncherDialog";
 import { useDensityStore } from "@/stores/useDensityStore";
+import { startPerformanceSampling } from "@/services/performanceService";
 
 export default function App() {
   // 弹出窗口路由：mode=popup 时渲染纯终端视图（tabData 通过 IPC 获取）
@@ -61,6 +62,7 @@ export default function App() {
 }
 
 function MainApp() {
+  useEffect(startPerformanceSampling, []);
   useLayoutScopeSync();
   useSessionLayoutPersistence();
   useSharedLayoutSnapshotSync();

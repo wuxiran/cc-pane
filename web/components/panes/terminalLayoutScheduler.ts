@@ -1,5 +1,6 @@
 import type { FitAddon } from "@xterm/addon-fit";
 import type { Terminal } from "@xterm/xterm";
+import { deferTerminalLayoutDuringReplay } from "./terminalReplayPresentation";
 import {
   bindTerminalCompositionRecovery,
   type AnimationFrameScheduler,
@@ -19,8 +20,8 @@ export interface TerminalLayoutRequestOptions {
   minContainerDelta?: number;
   force?: boolean;
   /**
-   * Explicit user actions may need to repair a lost PTY resize even when xterm
-   * still reports the same dimensions. This bypasses the drag-resize debounce.
+   * Explicit Fit and foreground recovery repair a lost PTY resize even when
+   * xterm reports unchanged dimensions. This bypasses the drag-resize debounce.
    */
   forceBackendSync?: boolean;
   allowInactive?: boolean;
@@ -109,7 +110,10 @@ export function createTerminalLayoutScheduler({
   let lastBackendResizeAt = 0;
   let pendingBackendSize: { cols: number; rows: number } | null = null;
   let disposed = false;
+  const replayLayoutOwner = {};
   let pendingReason: string | null = null;
+  let pendingBackendSync = false;
+  let pendingSyncAllowsInactive = false;
   let lastSize: { cols: number; rows: number } | null = null;
   let lastContainerSize: TerminalContainerSize | null = null;
   let verifyAttempts = 0;
@@ -189,6 +193,16 @@ export function createTerminalLayoutScheduler({
     options: TerminalLayoutRequestOptions = {},
   ): Terminal | null => {
     if (disposed) return null;
+    // focus/visible 后常紧跟 ResizeObserver；合并调度只能替换测量参数，
+    // 不能吞掉尚未执行的 PTY 同步。IME/隐藏导致本轮跳过时也保留到 fit 成功。
+    if (pendingBackendSync) {
+      options = {
+        ...options,
+        force: true,
+        forceBackendSync: true,
+        allowInactive: options.allowInactive || pendingSyncAllowsInactive,
+      };
+    }
     if (imeLayoutBlocked) {
       pendingReason = reason;
       logger("layout.skip.blocked", { reason });
@@ -200,6 +214,11 @@ export function createTerminalLayoutScheduler({
     const fitAddon = getFitAddon();
     const host = getHost();
     if (!term || !fitAddon || !host) return null;
+    if (deferTerminalLayoutDuringReplay(term, replayLayoutOwner, () =>
+      flush("replay.complete", { force: true, allowInactive: true }))) {
+      pendingReason = reason;
+      return null;
+    }
 
     if (!isActive() && !options.allowInactive) {
       pendingReason = reason;
@@ -242,8 +261,7 @@ export function createTerminalLayoutScheduler({
     }
     if (getSessionId() && canResizeBackend() && (sizeChanged || options.forceBackendSync)) {
       if (options.forceBackendSync) {
-        // A context-menu Fit is an explicit recovery action. Do not let the
-        // normal drag debounce delay or absorb the only resynchronization.
+        // Recovery must not be delayed or absorbed by the drag debounce.
         sendBackendResize(cols, rows);
       } else {
         scheduleBackendResize(cols, rows);
@@ -255,6 +273,8 @@ export function createTerminalLayoutScheduler({
     lastContainerSize = { width: rect.width, height: rect.height };
 
     pendingReason = null;
+    pendingBackendSync = false;
+    pendingSyncAllowsInactive = false;
     logger("layout.applied", {
       reason,
       cols,
@@ -316,6 +336,8 @@ export function createTerminalLayoutScheduler({
     options: TerminalLayoutRequestOptions = {},
   ) => {
     if (disposed) return;
+    pendingBackendSync ||= Boolean(options.forceBackendSync);
+    pendingSyncAllowsInactive ||= Boolean(options.forceBackendSync && options.allowInactive);
     cancel();
 
     const run = () => {
@@ -343,6 +365,8 @@ export function createTerminalLayoutScheduler({
     reason: string,
     options: TerminalLayoutRequestOptions = {},
   ): Terminal | null => {
+    pendingBackendSync ||= Boolean(options.forceBackendSync);
+    pendingSyncAllowsInactive ||= Boolean(options.forceBackendSync && options.allowInactive);
     cancel();
     return applyLayout(reason, options);
   };
@@ -392,6 +416,8 @@ export function createTerminalLayoutScheduler({
       }
       pendingBackendSize = null;
       pendingReason = null;
+      pendingBackendSync = false;
+      pendingSyncAllowsInactive = false;
       lastContainerSize = null;
       lastSize = null;
     },

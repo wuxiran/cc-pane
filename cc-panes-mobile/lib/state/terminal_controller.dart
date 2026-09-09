@@ -9,7 +9,21 @@ import '../api/terminal_socket.dart';
 import '../core/result.dart';
 import 'auth_controller.dart';
 
-enum TerminalPhase { connecting, connected, exited, error }
+enum TerminalPhase {
+  connecting,
+  reconnecting,
+  connected,
+  suspended,
+  exited,
+  error
+}
+
+Future<TerminalSocket> _connectSocket(AuthReady auth, String sessionId) async =>
+    TerminalSocket.connect(
+      baseUrl: auth.client.profile.baseUrl,
+      sessionId: sessionId,
+      cookieHeader: await auth.client.sessionCookieHeader(),
+    );
 
 /// 尺寸变化自动再适配策略：共享 PTY 默认不动（避免破坏桌面端渲染），
 /// 只有用户手动适配过（opt-in）后才跟随 metrics 变化下发 resize，
@@ -41,17 +55,27 @@ class RefitPolicy {
 /// 单个会话的终端状态机：
 /// snapshot 初始化 → 连 WS 收输出流 → 键盘输入经 WS input 回传。
 /// Enter 发 \r（CC-Panes PTY 约定，xterm 键盘默认即 CR）。
-/// 断线重连是 Phase 4，本期断开即显示错误状态。
+/// 重连与后台恢复使用独立世代，迟到的旧连接不能覆盖当前会话。
 class TerminalSessionController extends ChangeNotifier {
-  TerminalSessionController({required this.sessionId, required AuthReady auth})
-      : _auth = auth {
+  TerminalSessionController({
+    required this.sessionId,
+    required AuthReady auth,
+    Future<Result<String>> Function()? loadSnapshot,
+    Future<TerminalSocket> Function()? connectSocket,
+  })  : _auth = auth,
+        _loadSnapshot = loadSnapshot ??
+            (() => SessionsApi(auth.client).snapshot(sessionId)),
+        _openSocket = connectSocket ?? (() => _connectSocket(auth, sessionId)) {
     terminal.onOutput = _handleUserInput;
-    unawaited(_start());
+    unawaited(reconnect());
   }
 
   final String sessionId;
   final AuthReady _auth;
-  final Terminal terminal = Terminal(maxLines: 5000);
+  final Future<Result<String>> Function() _loadSnapshot;
+  final Future<TerminalSocket> Function() _openSocket;
+  Terminal _terminal = Terminal(maxLines: 5000);
+  Terminal get terminal => _terminal;
 
   TerminalPhase _phase = TerminalPhase.connecting;
   TerminalPhase get phase => _phase;
@@ -65,57 +89,143 @@ class TerminalSessionController extends ChangeNotifier {
   StreamSubscription<TerminalEvent>? _sub;
   final RefitPolicy _refitPolicy = RefitPolicy();
   bool _disposed = false;
+  bool _suspended = false;
+  int _generation = 0;
+  int _retryAttempt = 0;
+  Timer? _retryTimer;
 
-  Future<void> _start() async {
-    // 1. snapshot 初始化（拿不到不阻塞，直接连流）
-    final snapshot = await SessionsApi(_auth.client).snapshot(sessionId);
-    if (_disposed) return;
-    final data = snapshot.valueOrNull;
-    if (data != null && data.isNotEmpty) {
-      terminal.write(data);
-    }
+  bool get canWrite =>
+      !_auth.readOnly &&
+      !_disposed &&
+      !_suspended &&
+      _phase == TerminalPhase.connected;
 
-    // 2. 连 WebSocket
+  bool _isCurrent(int generation) =>
+      !_disposed && !_suspended && generation == _generation;
+
+  Future<void> reconnect() async {
+    if (_disposed || _suspended || _phase == TerminalPhase.exited) return;
+    final generation = ++_generation;
+    _retryTimer?.cancel();
+    _releaseConnection();
+    _setPhase(_retryAttempt == 0
+        ? TerminalPhase.connecting
+        : TerminalPhase.reconnecting);
     try {
-      final cookie = await _auth.client.sessionCookieHeader();
-      _socket = await TerminalSocket.connect(
-        baseUrl: _auth.client.profile.baseUrl,
-        sessionId: sessionId,
-        cookieHeader: cookie,
+      final snapshot = await _loadSnapshot();
+      if (!_isCurrent(generation)) return;
+      final failure = snapshot.failureOrNull;
+      if (failure != null) {
+        if (failure.kind == FailureKind.network) {
+          _retry(generation);
+          return;
+        }
+        _setPhase(TerminalPhase.error, message: failure.message);
+        return;
+      }
+      final restored =
+          await _restoreSnapshot(snapshot.valueOrNull ?? '', generation);
+      if (restored == null || !_isCurrent(generation)) return;
+      final socket = await _openSocket();
+      if (!_isCurrent(generation)) {
+        _closeSocket(socket);
+        return;
+      }
+      _socket = socket;
+      _terminal.onOutput = null;
+      _terminal = restored..onOutput = _handleUserInput;
+      _sub = socket.events.listen(
+        (event) => _handleEvent(generation, event),
+        onError: (Object _) => _retry(generation),
+        onDone: () => _retry(generation),
       );
-    } on Object catch (error) {
-      if (_disposed) return;
-      _setPhase(TerminalPhase.error, message: '连接终端流失败: $error');
-      return;
+      _retryAttempt = 0;
+      _setPhase(TerminalPhase.connected);
+    } on Object {
+      _retry(generation);
     }
-    if (_disposed) {
-      unawaited(_socket?.close());
-      return;
-    }
+  }
 
-    _setPhase(TerminalPhase.connected);
-    _sub = _socket!.events.listen(
-      (event) {
-        switch (event) {
-          case TerminalOutput(data: final data):
-            terminal.write(data);
-          case TerminalExit(exitCode: final code):
-            exitCode = code;
-            _setPhase(TerminalPhase.exited);
-        }
-      },
-      onError: (Object error) =>
-          _setPhase(TerminalPhase.error, message: '终端流中断: $error'),
-      onDone: () {
-        if (_phase == TerminalPhase.connected) {
-          _setPhase(TerminalPhase.error, message: '终端流已断开');
-        }
-      },
-    );
+  Future<Terminal?> _restoreSnapshot(String data, int generation) async {
+    final restored = Terminal(maxLines: 5000)
+      ..resize(terminal.viewWidth, terminal.viewHeight);
+    for (var start = 0; start < data.length;) {
+      if (!_isCurrent(generation)) return null;
+      var end = (start + 32768).clamp(0, data.length);
+      if (end < data.length &&
+          data.codeUnitAt(end - 1) >= 0xd800 &&
+          data.codeUnitAt(end - 1) <= 0xdbff) {
+        end--;
+      }
+      restored.write(data.substring(start, end));
+      start = end;
+      if (start < data.length) await Future<void>.delayed(Duration.zero);
+    }
+    return restored;
+  }
+
+  void _handleEvent(int generation, TerminalEvent event) {
+    if (!_isCurrent(generation)) return;
+    switch (event) {
+      case TerminalOutput(data: final data):
+        terminal.write(data);
+      case TerminalExit(exitCode: final code):
+        exitCode = code;
+        _setPhase(TerminalPhase.exited);
+        ++_generation;
+        _releaseConnection();
+      case TerminalDesync():
+        _retry(generation);
+    }
+  }
+
+  void _retry(int generation) {
+    if (!_isCurrent(generation) || _phase == TerminalPhase.exited) return;
+    ++_generation;
+    _releaseConnection();
+    final seconds = (1 << _retryAttempt.clamp(0, 5)).clamp(1, 30);
+    _retryAttempt++;
+    _setPhase(TerminalPhase.reconnecting, message: '连接中断，正在重试…');
+    _retryTimer?.cancel();
+    _retryTimer =
+        Timer(Duration(seconds: seconds), () => unawaited(reconnect()));
+  }
+
+  void suspend() {
+    if (_disposed || _suspended) return;
+    _suspended = true;
+    ++_generation;
+    _retryTimer?.cancel();
+    _releaseConnection();
+    if (_phase != TerminalPhase.exited) _setPhase(TerminalPhase.suspended);
+  }
+
+  void resume() {
+    if (_disposed || !_suspended) return;
+    _suspended = false;
+    _retryAttempt = 0;
+    unawaited(reconnect());
+  }
+
+  void _releaseConnection() {
+    final sub = _sub;
+    final socket = _socket;
+    _sub = null;
+    _socket = null;
+    if (sub != null) {
+      unawaited(sub.cancel().catchError((Object error) =>
+          debugPrint('Terminal subscription cleanup: ${error.runtimeType}')));
+    }
+    if (socket != null) _closeSocket(socket);
+  }
+
+  void _closeSocket(TerminalSocket socket) {
+    unawaited(socket.close().catchError((Object error) =>
+        debugPrint('Terminal socket cleanup: ${error.runtimeType}')));
   }
 
   void _handleUserInput(String data) {
-    if (_auth.readOnly) return;
+    if (!canWrite) return;
     var out = data;
     if (ctrlLatched && data.length == 1) {
       final code = data.toLowerCase().codeUnitAt(0);
@@ -132,6 +242,7 @@ class TerminalSessionController extends ChangeNotifier {
   void sendSequence(String sequence) => _handleUserInput(sequence);
 
   void toggleCtrl() {
+    if (!canWrite) return;
     ctrlLatched = !ctrlLatched;
     notifyListeners();
   }
@@ -139,13 +250,16 @@ class TerminalSessionController extends ChangeNotifier {
   /// 「跟随手机尺寸」：把共享 PTY 调整为当前 TerminalView 的 cols/rows。
   /// 仅由用户在 AppBar 手动触发（默认不 resize 共享 PTY，避免破坏桌面端渲染）；
   /// 手动适配过后旋转/键盘变化会经 [onViewMetricsChanged] 自动再适配。
-  void resizeToView() {
+  bool resizeToView() {
+    if (!canWrite) return false;
     _refitPolicy.markUserFitted();
     final cols = terminal.viewWidth;
     final rows = terminal.viewHeight;
     if (cols > 0 && rows > 0) {
       _socket?.sendResize(cols, rows);
+      return true;
     }
+    return false;
   }
 
   /// 屏幕 metrics 变化（旋转/软键盘）回调；仅用户手动适配过才生效。
@@ -160,6 +274,7 @@ class TerminalSessionController extends ChangeNotifier {
   }
 
   void _setPhase(TerminalPhase next, {String? message}) {
+    if (_disposed) return;
     _phase = next;
     errorMessage = message;
     notifyListeners();
@@ -168,14 +283,16 @@ class TerminalSessionController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    ++_generation;
+    _retryTimer?.cancel();
     _refitPolicy.dispose();
-    unawaited(_sub?.cancel());
-    unawaited(_socket?.close());
+    _releaseConnection();
+    terminal.onOutput = null;
     super.dispose();
   }
 }
 
-/// per-session controller；离开页面自动销毁（重连留到 Phase 4）。
+/// per-session controller；离开页面自动销毁连接及重试定时器。
 final terminalControllerProvider = ChangeNotifierProvider.autoDispose
     .family<TerminalSessionController, String>((ref, sessionId) {
   final auth = ref.watch(authControllerProvider).value;

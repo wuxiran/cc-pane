@@ -18,7 +18,7 @@ use crate::utils::atomic_file;
 use cc_cli_adapters::{CliToolRegistry, SkillDeliveryMode};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
@@ -60,6 +60,10 @@ struct SkillEntry {
     file: String,
     #[serde(default)]
     delivery: BundledSkillDelivery,
+    /// UI 展示用的多语言简介（locale → 文案）。frontmatter `description` 是 CLI 触发匹配用的原文，
+    /// 不在这里改；翻译层只放清单里，不进物化出去的 SKILL.md。
+    #[serde(default)]
+    descriptions: BTreeMap<String, String>,
 }
 
 impl SkillEntry {
@@ -103,7 +107,10 @@ struct LegacySkillHashes {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct BundledSkillInfo {
     pub name: String,
+    /// frontmatter 原文（CLI 实际看到的触发描述）
     pub description: Option<String>,
+    /// 清单里的多语言简介，键为 `zh-CN` / `en`
+    pub descriptions: BTreeMap<String, String>,
     pub delivery: BundledSkillDelivery,
 }
 
@@ -175,9 +182,20 @@ impl DefaultSkillService {
                     // 先做 {{app_name}} 等变量替换，否则描述里会残留占位符。
                     .map(|c| Self::replace_variables(&c, &manifest.variables))
                     .and_then(|c| Self::parse_frontmatter_description(&c));
+                let descriptions = s
+                    .descriptions
+                    .iter()
+                    .map(|(locale, text)| {
+                        (
+                            locale.clone(),
+                            Self::replace_variables(text, &manifest.variables),
+                        )
+                    })
+                    .collect();
                 BundledSkillInfo {
                     name: s.name.clone(),
                     description,
+                    descriptions,
                     delivery: s.delivery.clone(),
                 }
             })
@@ -1057,6 +1075,7 @@ mod tests {
                         modes: vec![SkillDeliveryMode::NativeCommand],
                         requires_ccpanes_mcp: false,
                     },
+                    descriptions: BTreeMap::new(),
                 },
                 SkillEntry {
                     name: "skill".to_string(),
@@ -1066,11 +1085,13 @@ mod tests {
                         modes: vec![SkillDeliveryMode::NativeSkill],
                         requires_ccpanes_mcp: false,
                     },
+                    descriptions: BTreeMap::new(),
                 },
                 SkillEntry {
                     name: "legacy".to_string(),
                     file: "legacy.md".to_string(),
                     delivery: BundledSkillDelivery::default(),
+                    descriptions: BTreeMap::new(),
                 },
             ],
         };
@@ -1122,6 +1143,7 @@ mod tests {
                         modes: vec![SkillDeliveryMode::NativeSkill],
                         requires_ccpanes_mcp: false,
                     },
+                    descriptions: BTreeMap::new(),
                 },
                 SkillEntry {
                     name: "pi".to_string(),
@@ -1131,6 +1153,7 @@ mod tests {
                         modes: vec![SkillDeliveryMode::PiSkill],
                         requires_ccpanes_mcp: false,
                     },
+                    descriptions: BTreeMap::new(),
                 },
                 SkillEntry {
                     name: "pi-mcp".to_string(),
@@ -1140,11 +1163,13 @@ mod tests {
                         modes: vec![SkillDeliveryMode::PiSkill],
                         requires_ccpanes_mcp: true,
                     },
+                    descriptions: BTreeMap::new(),
                 },
                 SkillEntry {
                     name: "legacy".to_string(),
                     file: "legacy.md".to_string(),
                     delivery: BundledSkillDelivery::default(),
+                    descriptions: BTreeMap::new(),
                 },
             ],
         };
@@ -1568,6 +1593,32 @@ mod tests {
                 "{file}: frontmatter name must be namespaced"
             );
         });
+    }
+
+    /// UI 的中英介绍放清单 `descriptions`，每条内置 skill 两种语言都得有，
+    /// 且不能残留 `{{app_name}}` 之类占位符。
+    #[test]
+    fn bundled_manifest_carries_zh_and_en_descriptions() {
+        let svc = DefaultSkillService::new(bundled_templates_dir());
+        let listed = svc.list_bundled();
+        assert!(!listed.is_empty());
+        for skill in listed {
+            for locale in ["zh-CN", "en"] {
+                let text = skill.descriptions.get(locale).unwrap_or_else(|| {
+                    panic!("{}: manifest is missing descriptions.{locale}", skill.name)
+                });
+                assert!(
+                    !text.trim().is_empty(),
+                    "{}: empty {locale} description",
+                    skill.name
+                );
+                assert!(
+                    !text.contains("{{"),
+                    "{}: {locale} description still has a placeholder",
+                    skill.name
+                );
+            }
+        }
     }
 
     /// `trigger:` 是自造字段，Claude 与 Codex 都不消费——留着只会误导维护者

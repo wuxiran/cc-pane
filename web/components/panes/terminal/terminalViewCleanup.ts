@@ -9,6 +9,7 @@ import type { attachTerminalInputTrace } from "../terminalInputTrace";
 import type { attachTerminalDomInputFallback } from "../terminalDomInputFallback";
 import type { attachTerminalImeGuard } from "../terminalImeGuard";
 import type { createTerminalWriteFlowControl } from "../terminalWriteFlowControl";
+import { unregisterRecoveryCheckpointSource } from "../terminalRecoveryCheckpoint";
 
 interface RefValue<T> {
   current: T;
@@ -18,7 +19,6 @@ export interface TerminalViewDisposableRefs {
   onDataDisposableRef: RefValue<IDisposable | null>;
   currentSessionIdRef: RefValue<string | null>;
   atlasResetTimerRef: RefValue<ReturnType<typeof setTimeout> | null>;
-  webglHeartbeatTimerRef: RefValue<ReturnType<typeof setInterval> | null>;
   layoutSchedulerRef: RefValue<TerminalLayoutScheduler | null>;
   resizeObserverRef: RefValue<ResizeObserver | null>;
   parserDisposableRefs: RefValue<IDisposable[]>;
@@ -68,10 +68,6 @@ export function disposeTerminalView(
     clearTimeout(refs.atlasResetTimerRef.current);
     refs.atlasResetTimerRef.current = null;
   }
-  if (refs.webglHeartbeatTimerRef.current) {
-    clearInterval(refs.webglHeartbeatTimerRef.current);
-    refs.webglHeartbeatTimerRef.current = null;
-  }
   refs.layoutSchedulerRef.current?.dispose();
   refs.layoutSchedulerRef.current = null;
   if (refs.resizeObserverRef.current) {
@@ -117,6 +113,7 @@ export function disposeTerminalView(
   const rendererToDispose = refs.rendererControllerRef.current;
   const fitToDispose = refs.fitAddonRef.current;
   const termToDispose = refs.terminalInstanceRef.current;
+  if (termToDispose) unregisterRecoveryCheckpointSource(termToDispose);
   refs.terminalInstanceRef.current = null;
   refs.rendererControllerRef.current = null;
   refs.fitAddonRef.current = null;

@@ -18,6 +18,7 @@
   "import": "导入",
   "export": "导出",
   "search": "搜索...",
+  "descriptionLang": "介绍语言",
   "selectAll": "全选",
   "deselectAll": "取消全选",
   "noData": "暂无数据",

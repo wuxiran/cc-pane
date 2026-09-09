@@ -310,6 +310,37 @@ describe("resyncFromReplaySnapshot", () => {
 // 它的三条不变式全都是「错了也不报错、只是丢字或永久静默」的类型：
 // 闸门必须先落再发快照请求；不完整积压必须丢；无论成败都要放闸。
 describe("createTerminalDesyncHandler", () => {
+  it("defers hidden-view recovery until visible without releasing the recovery gate", async () => {
+    let visible = false;
+    const fetch = vi.fn(async () => recoverySnapshot({ delta: "data" }));
+    const gate = vi.fn();
+    const handler = createTerminalDesyncHandler({ sessionId: "hidden", terminalRef: { current: createTerm() },
+      hiddenWriteBufferRef: { current: { reset: vi.fn() } }, isRenderVisible: () => visible,
+      getRecoverySnapshot: fetch, writeData: async () => {}, writeCheckpointData: async () => {},
+      syncTrackedBufferType: () => {}, setResyncActive: gate, onResyncSettled: () => {}, debugLog: () => {} });
+    expect(await handler()).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(gate).toHaveBeenLastCalledWith(true);
+    visible = true;
+    expect(await handler()).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(gate).toHaveBeenLastCalledWith(false);
+  });
+
+  it.each([true, false])("does not write a disposed view after snapshot fetch (present=%s)", async (present) => {
+    let finish!: (snapshot: TerminalRecoverySnapshot | null) => void;
+    const term = createTerm();
+    const write = vi.fn(async () => {});
+    const settled = vi.fn();
+    const handler = createTerminalDesyncHandler({ sessionId: "cancel", terminalRef: { current: term },
+      hiddenWriteBufferRef: { current: null }, getRecoverySnapshot: () => new Promise(resolve => { finish = resolve; }),
+      writeData: write, writeCheckpointData: write, syncTrackedBufferType: () => {},
+      setResyncActive: () => {}, onResyncSettled: settled, debugLog: () => {} });
+    const pending = handler(); handler.dispose(); finish(present ? recoverySnapshot({ delta: "old data" }) : null);
+    expect(await pending).toBe(false);
+    expect(term.reset).not.toHaveBeenCalled(); expect(write).not.toHaveBeenCalled();
+    expect(settled).not.toHaveBeenCalled();
+  });
   function harness(
     overrides: {
       getRecoverySnapshot?: (sessionId: string) => Promise<TerminalRecoverySnapshot | null>;

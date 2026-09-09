@@ -2,6 +2,27 @@ import { describe, expect, it, vi } from "vitest";
 import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
 
 describe("createTerminalWriteFlowControl", () => {
+  it("tracks waiting and in-flight characters without retaining output in diagnostics", async () => {
+    let now = 100;
+    const callbacks: Array<() => void> = [];
+    const flow = createTerminalWriteFlowControl({ write: (_data, callback) => { callbacks.push(callback!); } },
+      { bytesThreshold: 1, highWatermark: 1, lowWatermark: 0, now: () => now });
+    const first = flow.write("中文");
+    const second = flow.write("private-prompt");
+    now += 80;
+    expect(flow.getStats()).toMatchObject({ queuedChars: 14, inFlightChars: 2, queuedWrites: 1, oldestWaitMs: 80, writeCalls: 2 });
+    expect(JSON.stringify(flow.getStats())).not.toContain("private-prompt");
+    callbacks.shift()!(); await first;
+    expect(flow.getStats()).toMatchObject({ queuedChars: 0, inFlightChars: 14, callbackMaxMs: 80 });
+    now += 20; callbacks.shift()!(); await second;
+    expect(flow.getStats()).toMatchObject({ queuedChars: 0, inFlightChars: 0, callbackMaxMs: 100, receivedChars: 16 });
+  });
+
+  it("removes failed target writes from in-flight diagnostics", async () => {
+    const flow = createTerminalWriteFlowControl({ write: () => { throw new Error("closed"); } });
+    await expect(flow.write("test")).rejects.toThrow("closed");
+    expect(flow.getStats()).toMatchObject({ queuedChars: 0, inFlightChars: 0, inFlightWrites: 0, failedWrites: 1 });
+  });
   it("applies backpressure with the default watermarks after a bounded burst", async () => {
     const callbacks: Array<() => void> = [];
     let completeImmediately = false;

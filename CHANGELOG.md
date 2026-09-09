@@ -4,7 +4,7 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
-## 0.12.11 - 2026-09-06
+## 0.12.14 - 2026-09-10
 
 Mostly a front-end release: first-screen JavaScript is cut by more than half, the UI/UX got a systematic pass, Agent Chat went from a flat message list to a conversation with turns, hierarchy and visible subagents, and the home page gained a direct line to the orchestration concierge.
 
@@ -24,6 +24,7 @@ Mostly a front-end release: first-screen JavaScript is cut by more than half, th
 
 ### Changed
 
+- **ccpanes MCP slimmed (docs/103)** — session-injected `/mcp` now exposes 48 core tools (dispatch, sessions, orchestration, plan, memory, notifications, read-only queries); `tools/list` dropped from about 14–19k tokens to about 6.8k. The full set lives at `/mcp-full` for `cc-panes-ctl` and external clients. Admin work goes through ctl + the `ccpanes-admin` skill; usage notes moved to `ccpanes-mcp-guide`. Codex also gets an `enabled_tools` allow-list.
 - **First-screen JavaScript −57%** (gzip 1914 → 831kB): Monaco and xterm are lazy-loaded and kept out of modulepreload, guarded by a new `check:bundle` budget script (first screen ≤1100kB, entry ≤880kB); the file tree, local-history versions and recent-launch lists are virtualised, so 501 items render about 27 rows.
 - **TerminalView and usePanesStore split** (2226 → 711 lines, 2378 → 117 lines) with no change in appearance, behaviour or public API.
 - **GLM CLI adapter removed** — there is no standalone official `glm` CLI (it is launched via crush). `CliTool` / `ProviderType` now deserialise by hand so unknown ids in old data fall back to defaults instead of failing the whole record.

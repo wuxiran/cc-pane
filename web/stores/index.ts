@@ -46,6 +46,7 @@ export { useSpecStore } from "./useSpecStore";
 export { useMemoryStore } from "./useMemoryStore";
 export { useSkillStore } from "./useSkillStore";
 export { useMcpStore } from "./useMcpStore";
+export { useDescriptionLangStore } from "./useDescriptionLangStore";
 export {
   parseKeyEvent,
   formatKeyCombo,

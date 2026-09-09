@@ -1,6 +1,7 @@
 // 终端数据管线：渲染剥色、缓冲类型跟踪、重绘/重排、唯一写入出口、隐藏积压补投。
 // 从 TerminalView.tsx 拆出（纯代码移动，逻辑不变）。
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
+import { registerTerminalPerformanceSource } from "@/services/performanceMetrics";
 import type { Terminal } from "@xterm/xterm";
 import { captureTerminalWrite } from "@/utils/terminalCast";
 import { getErrorMessage } from "@/utils";
@@ -58,6 +59,20 @@ export function useTerminalDataPipeline({
   overflowResyncRef,
   debugLog,
 }: UseTerminalDataPipelineParams) {
+  useEffect(() => registerTerminalPerformanceSource(() => {
+    const term = terminalInstanceRef.current;
+    const flow = writeFlowControlRef.current;
+    if (!term || !flow) return null;
+    const stats = flow.getStats();
+    const renderer = rendererControllerRef.current?.getDiagnostics();
+    return { sessionId: currentSessionIdRef.current, visible: Boolean(term.element?.getClientRects().length),
+      renderer: renderer?.activeRenderer ?? "unknown", queuedChars: stats.queuedChars, inFlightChars: stats.inFlightChars,
+      queuedWrites: stats.queuedWrites, oldestWaitMs: Math.min(stats.oldestWaitMs, 86_400_000),
+      receivedChars: stats.receivedChars, writeCalls: stats.writeCalls, failedWrites: stats.failedWrites,
+      callbackMaxMs: Math.min(stats.callbackMaxMs, 86_400_000), hiddenChars: hiddenWriteBufferRef.current?.pendingLength() ?? 0,
+      resyncActive: resyncInProgressRef.current, contextLosses: renderer?.contextLossCount ?? 0,
+      atlasClears: renderer?.atlasClearCount ?? 0, scrollbackLines: term.buffer.active.length };
+  }), [currentSessionIdRef, hiddenWriteBufferRef, rendererControllerRef, resyncInProgressRef, terminalInstanceRef, writeFlowControlRef]);
   const renderTerminalData = useCallback((data: string) => {
     terminalDataRendererRef.current ??= createTerminalDataRenderer({
       // 常规运行中观测跨 chunk 重组后的真实 1049 命中；事件仅在切换时产生。

@@ -9,6 +9,7 @@ use tracing::debug;
 
 pub(super) const POLL_INTERVAL: Duration = Duration::from_secs(1);
 pub(super) const WEBSOCKET_STATUS_INTERVAL: Duration = Duration::from_secs(5);
+const RECONNECT_INTERVAL: Duration = Duration::from_secs(5);
 // daemon HTTP client uses `Connection: close`; one snapshot per tick plus one status per five
 // ticks caps fallback churn at 1.2 short TCP connections per second per session.
 const POLL_STATUS_EVERY_TICKS: usize = 5;
@@ -228,16 +229,32 @@ pub(super) enum BridgeMode {
 }
 
 impl BridgeMode {
-    pub(super) fn websocket_connect_allowed(self) -> bool {
-        self == Self::Connecting
-    }
-
     pub(super) fn enter_websocket(&mut self) {
         *self = Self::Websocket;
     }
 
     pub(super) fn enter_polling(&mut self) {
         *self = Self::Polling;
+    }
+}
+
+/// Probe in the background while the caller keeps polling. Each round retains
+/// the shared concurrency limit and bounded handshake timeout.
+pub(super) async fn reconnect_when_available<T, F, Fut>(
+    policy: ConnectRetryPolicy,
+    telemetry: BridgeTelemetry,
+    mut connect: F,
+) -> T
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = anyhow::Result<T>>,
+{
+    loop {
+        tokio::time::sleep(RECONNECT_INTERVAL).await;
+        match connect_with_retry(policy, telemetry.clone(), &mut connect).await {
+            Ok(connected) => return connected,
+            Err(error) => debug!(%error, "terminal websocket reconnect deferred"),
+        }
     }
 }
 
@@ -294,7 +311,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn websocket_connect_retries_are_bounded_then_fall_back_permanently() {
+    async fn websocket_connect_retries_are_bounded_then_allow_a_scheduled_probe() {
         let telemetry = BridgeTelemetry::new(4);
         let calls = Arc::new(AtomicUsize::new(0));
         let connector_calls = calls.clone();
@@ -319,12 +336,39 @@ mod tests {
         );
 
         let mut mode = BridgeMode::Connecting;
-        assert!(mode.websocket_connect_allowed());
+        assert_eq!(mode, BridgeMode::Connecting);
         mode.enter_polling();
-        assert!(
-            !mode.websocket_connect_allowed(),
-            "进入 polling 后不得再启动后台 websocket 探活"
-        );
+        assert_eq!(mode, BridgeMode::Polling);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reconnect_waits_between_rounds_and_recovers_after_an_outage() {
+        let telemetry = BridgeTelemetry::new(1);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let connector_calls = calls.clone();
+        let task = tokio::spawn(reconnect_when_available(
+            test_retry_policy(1, 1),
+            telemetry.clone(),
+            move || {
+                let call = connector_calls.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    if call == 0 {
+                        anyhow::bail!("offline")
+                    } else {
+                        Ok(42)
+                    }
+                }
+            },
+        ));
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        tokio::time::advance(RECONNECT_INTERVAL).await;
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(!task.is_finished());
+        tokio::time::advance(RECONNECT_INTERVAL).await;
+        assert_eq!(task.await.unwrap(), 42);
+        assert_eq!(telemetry.stats().active_connects, 0);
     }
 
     #[tokio::test]

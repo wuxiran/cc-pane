@@ -16,6 +16,8 @@ cc-panes-mobile/
 
 Android/iOS 共用 Flutter 实现；OpenHarmony 使用原生 ArkTS/ArkUI 实现，但复用同一套桌面端 REST + WebSocket 契约和交互设计。OpenHarmony 工程不是 Flutter 的 Gradle 子模块，需在 DevEco Studio 中单独打开 `ohos/`。
 
+iPhone 开发与 Mac 构建步骤见 [IOS_READINESS.md](IOS_READINESS.md)。
+
 ## 架构
 
 移动端是纯客户端，复用桌面端 `cc-panes-web`（axum）暴露的 REST + WebSocket 契约：
@@ -63,6 +65,7 @@ flutter run              # 连接的设备/模拟器
 ```
 
 ## 连接桌面端
+1. 在电脑端开启 Web 服务、账号密码登录和远程访问。
    若开了「远程只读模式」，还需开子开关「允许已登录的远程会话写入」才能在手机上操作终端。
 2. 放行 Windows 防火墙 18080 入站。
 3. 手机连同一局域网，App 中填 `http://<Windows IP>:18080` + 账号密码。
@@ -75,6 +78,6 @@ flutter run              # 连接的设备/模拟器
 ## 分期
 
 - [x] Phase 1：登录 + 会话列表（新建/关闭/状态轮询）
-- [ ] Phase 2：xterm 终端渲染 + WS 输入 + 快捷键条
-- [ ] Phase 3：断线重连 / 401 静默重登打磨 / 多服务器 UI / 设置页
-- [ ] Phase 4：iOS 适配 + TestFlight
+- [x] Phase 2：终端渲染 + WS 输入 + 快捷键条（iPhone 实机体验待验收）
+- [ ] Phase 3：自动重连和后台恢复已接入；401 重认证、多服务器 UI、设置页待完善
+- [ ] Phase 4：iOS 网络与 Keychain 适配已接入；Mac 构建、真机签名和 TestFlight 待完成

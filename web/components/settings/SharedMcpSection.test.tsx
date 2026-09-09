@@ -43,7 +43,7 @@ function createServer(overrides: {
 } = {}): SharedMcpServerInfo {
   return {
     name: overrides.name ?? "context7",
-    status: overrides.status ?? "Stopped",
+    status: overrides.status ?? "stopped",
     config: {
       command: "npx",
       args: ["-y", "@upstash/context7-mcp"],
@@ -107,6 +107,9 @@ describe("SharedMcpSection", () => {
 
     expect(
       await screen.findByText("http://127.0.0.1:4500/mcp?token=tok-123"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("http://127.0.0.1:4500/mcp-full?token=tok-123"),
     ).toBeInTheDocument();
     expect(screen.getByText("tok-123")).toBeInTheDocument();
   });
@@ -220,11 +223,11 @@ describe("SharedMcpSection", () => {
 
   it("shows start only for stopped shared servers and stop/restart only when running", async () => {
     setStore([
-      createServer({ name: "stopped-shared", status: "Stopped" }),
-      createServer({ name: "running", status: "Running", config: { port: 3101 } }),
+      createServer({ name: "stopped-shared", status: "stopped" }),
+      createServer({ name: "running", status: "running", config: { port: 3101 } }),
       createServer({
         name: "stopped-unshared",
-        status: "Stopped",
+        status: "stopped",
         config: { shared: false, port: 3102 },
       }),
     ]);
@@ -239,7 +242,7 @@ describe("SharedMcpSection", () => {
     setStore([
       createServer({
         name: "broken",
-        status: { Failed: { message: "spawn error" } } as never,
+        status: { failed: { message: "spawn error" } } as never,
       }),
     ]);
     await renderSection();
@@ -250,8 +253,8 @@ describe("SharedMcpSection", () => {
   it("starts, stops, toggles and removes servers through the row actions", async () => {
     const user = userEvent.setup();
     setStore([
-      createServer({ name: "stopped", status: "Stopped" }),
-      createServer({ name: "running", status: "Running", config: { port: 3101 } }),
+      createServer({ name: "stopped", status: "stopped" }),
+      createServer({ name: "running", status: "running", config: { port: 3101 } }),
     ]);
     await renderSection();
 

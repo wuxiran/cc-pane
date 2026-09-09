@@ -160,7 +160,8 @@ pub use project_cli_hooks_service::{ProjectCliHookGroupStatus, ProjectCliHooksSe
 pub use project_context_service::ProjectContextService;
 pub use project_service::ProjectService;
 pub use project_skill_service::{
-    ProjectSkill, ProjectSkillContent, ProjectSkillRoot, ProjectSkillService, PROJECT_SKILL_ROOTS,
+    ProjectSkill, ProjectSkillContent, ProjectSkillRoot, ProjectSkillService,
+    WorkspaceProjectSkill, PROJECT_SKILL_ROOTS,
 };
 pub use provider_resolver::{
     managed_provider_conflict_env_keys, resolve_provider_plan, validate_provider_runtime,

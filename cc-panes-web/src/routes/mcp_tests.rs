@@ -225,6 +225,7 @@ async fn project_mcp_routes_match_tauri_mcp_commands() {
             command: "npx".to_string(),
             args: vec!["-y".to_string(), "@upstash/context7-mcp".to_string()],
             env: std::collections::HashMap::from([("API_KEY".to_string(), "test".to_string())]),
+            descriptions: None,
         }),
     )
     .await

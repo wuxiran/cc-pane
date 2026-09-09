@@ -83,6 +83,8 @@ pub(super) fn push_codex_overrides(
     ));
     args.push("-c".to_string());
     args.push("mcp_servers.ccpanes.enabled=true".to_string());
+    args.push("-c".to_string());
+    args.push(cc_cli_adapters::ccpanes_enabled_tools_override());
 }
 
 #[cfg(windows)]

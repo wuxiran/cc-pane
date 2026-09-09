@@ -1,6 +1,6 @@
 // 项目技能编辑器：新建（选目录 + 起名）或编辑已有 SKILL.md；右侧列出目录文件。
 // 编辑态提供移动到其他根目录 / 打开目录 / 删除。Ctrl+S 保存。
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { FileText, FolderOpen, FolderInput, Save, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,8 @@ interface ProjectSkillEditorProps {
   existing: ProjectSkillContent | null;
   defaultRoot: string;
   busy: boolean;
+  readOnly?: boolean;
+  toolbarExtra?: ReactNode;
   onSave: (root: string, name: string, content: string) => void;
   onCancel: () => void;
   onDelete: (content: ProjectSkillContent) => void;
@@ -45,6 +47,8 @@ export default function ProjectSkillEditor({
   existing,
   defaultRoot,
   busy,
+  readOnly = false,
+  toolbarExtra,
   onSave,
   onCancel,
   onDelete,
@@ -67,9 +71,9 @@ export default function ProjectSkillEditor({
   const dirty = isNew ? name.trim().length > 0 || content.length > 0 : content !== existing.content;
 
   const handleSave = useCallback(() => {
-    if (!canSave) return;
+    if (readOnly || !canSave) return;
     onSave(root, isNew ? name.trim() : existing.skill.relDir, content);
-  }, [canSave, onSave, root, isNew, name, existing, content]);
+  }, [readOnly, canSave, onSave, root, isNew, name, existing, content]);
 
   useEffect(() => {
     function onKeydown(event: KeyboardEvent) {
@@ -149,7 +153,8 @@ export default function ProjectSkillEditor({
           </div>
         )}
         <div className="flex shrink-0 items-center gap-1">
-          {!isNew && (
+          {toolbarExtra}
+          {!isNew && !readOnly && (
             <>
               {!singleRoot && (
               <DropdownMenu>
@@ -188,10 +193,12 @@ export default function ProjectSkillEditor({
             <X size={14} className="mr-1" />
             {t("editor.cancel")}
           </Button>
-          <Button size="sm" onClick={handleSave} disabled={!canSave || (!isNew && !dirty)}>
-            <Save size={14} className="mr-1" />
-            {t("editor.save")}
-          </Button>
+          {!readOnly && (
+            <Button size="sm" onClick={handleSave} disabled={!canSave || (!isNew && !dirty)}>
+              <Save size={14} className="mr-1" />
+              {t("editor.save")}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -203,6 +210,7 @@ export default function ProjectSkillEditor({
           placeholder={t("editor.contentPlaceholder")}
           spellCheck={false}
           aria-label="SKILL.md"
+          readOnly={readOnly}
         />
         {!isNew && existing.files.length > 1 && (
           <aside className="w-56 shrink-0 overflow-y-auto border-l border-border p-3">

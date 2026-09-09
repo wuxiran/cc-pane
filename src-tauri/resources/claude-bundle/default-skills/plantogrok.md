@@ -76,7 +76,7 @@ Grok 自带 `-w/--worktree [名称]` 与 `--worktree-ref <基点>`，比 plantoc
 ### 8. launch 参数
 
 ```
-mcp__ccpanes__launch_task(
+mcp__ccpanes__dispatch_task(
   projectPath: <list_projects 已注册路径原样>,
   cliTool: "grok",
   runtimeKind: "wsl",        // 本地省略；WSL 路径细节见 /ccpanes:plan2codexwsl

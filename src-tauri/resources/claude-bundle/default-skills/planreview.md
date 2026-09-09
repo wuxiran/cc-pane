@@ -38,7 +38,7 @@ description: 在 plan mode 内启动另一个兼容 CLI（本地或 WSL）做同
 1. **当前在 plan mode 吗？** 否则提醒用户先 `EnterPlanMode`，写完初版 plan 再回来
 2. **能写 plan 文件吗？** — 见下方"plan mode 与 Write 的单一路径策略"
 3. **目标 reviewer 用哪个 CLI、走本地还是 WSL？** 直接 `AskUserQuestion` 问用户（不要靠 `list_launch_history` 猜——历史可能为空或含已废弃会话）。优先异 CLI；用户指定同 CLI 时照做。
-4. **ccpanes 已注册当前项目？** 调 `mcp__ccpanes__list_projects`，**WSL 启动必须用其中已注册的项目路径**（UNC `\\wsl.localhost\Ubuntu\...` 或 `/mnt/...` 都可能存在，挑已注册那条）。缺则提示用户先 `add_project_to_workspace(workspaceName, projectPath)`
+4. **ccpanes 已注册当前项目？** 调 `mcp__ccpanes__list_projects`，**WSL 启动必须用其中已注册的项目路径**（UNC `\\wsl.localhost\Ubuntu\...` 或 `/mnt/...` 都可能存在，挑已注册那条）。缺则先注册：`"$CC_PANES_CTL" --json call add_project_to_workspace --arg workspaceName=<ws> --arg projectPath=<p>`（管理工具不在会话 MCP 里，见 `ccpanes-admin` skill）
 
 ### plan mode 与 Write 的单一路径策略
 
@@ -293,12 +293,12 @@ mcp__ccpanes__report_to_leader(
 | 步骤 | 工具 |
 |------|------|
 | 查项目是否注册 | `mcp__ccpanes__list_projects` |
-| 注册项目 | `mcp__ccpanes__add_project_to_workspace(workspaceName, projectPath)` |
+| 注册项目 | ctl `call add_project_to_workspace --arg workspaceName=… --arg projectPath=…`（见 `ccpanes-admin`） |
 | 注册 leader | `mcp__ccpanes__register_plan_leader` |
 | 发现可复用 reviewer | `mcp__ccpanes__query_task_bindings(projectPath, role: "worker")` → 过滤 `workerKind === "reviewer"` |
 | 找已有窗口 | `mcp__ccpanes__list_sessions` + `mcp__ccpanes__list_panes` |
 | 启动新 reviewer 窗口 | `mcp__ccpanes__dispatch_task(parentBindingId=leaderId)` |
-| 读取派发状态 | `mcp__ccpanes__get_task_dispatch(bindingId)` |
+| 读取派发状态 | `mcp__ccpanes__get_task_status(bindingId)` |
 | 复用已有窗口提交 | `mcp__ccpanes__submit_to_session`（自动回车时序） |
 | 发原始字节 / Ctrl+C | `mcp__ccpanes__write_to_session`（`"\x03"`）|
 | 查状态 | `mcp__ccpanes__get_session_status` |

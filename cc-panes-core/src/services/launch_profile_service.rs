@@ -1420,14 +1420,18 @@ fn default_external_skill_registry() -> Arc<ExternalSkillRegistry> {
 }
 
 fn core_skill_ids() -> Vec<ResolvedSkill> {
-    // 默认 core 仅保留高频 5 个；其他 skill 仍会发布到磁盘，
+    // 默认 core 仅保留高频几个；其他 skill 仍会发布到磁盘，
     // 用户可在 UI 切到 `mode=custom` 手动启用。
+    // mcp-guide / admin 是 docs/103 把工具描述瘦身后的补充说明，必须默认带上，
+    // 否则模型只能看到一句话的工具描述。
     [
         "ccpanes-launch-task",
         "ccpanes-dispatch-task",
         "ccpanes-dispatch-todos",
         "ccpanes-browse-sessions",
         "ccpanes-memory-dual-write",
+        "ccpanes-mcp-guide",
+        "ccpanes-admin",
     ]
     .into_iter()
     .map(|name| ResolvedSkill {
@@ -2042,6 +2046,8 @@ mod tests {
                 "dispatch-todos",
                 "browse-sessions",
                 "memory-dual-write",
+                "mcp-guide",
+                "admin",
             ]
         );
 

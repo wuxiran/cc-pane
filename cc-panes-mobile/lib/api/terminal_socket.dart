@@ -19,6 +19,10 @@ final class TerminalExit extends TerminalEvent {
   final int? exitCode;
 }
 
+final class TerminalDesync extends TerminalEvent {
+  const TerminalDesync();
+}
+
 /// /ws/{sessionId} 终端流：文本 JSON 帧。
 /// 下行 {"type":"output","data"} / {"type":"exit","exitCode"}；
 /// 上行 {"type":"input","data"} / {"type":"resize","cols","rows"}。
@@ -57,7 +61,8 @@ class TerminalSocket {
   }
 
   void sendResize(int cols, int rows) {
-    _channel.sink.add(jsonEncode({'type': 'resize', 'cols': cols, 'rows': rows}));
+    _channel.sink
+        .add(jsonEncode({'type': 'resize', 'cols': cols, 'rows': rows}));
   }
 
   Future<void> close() => _channel.sink.close();
@@ -74,6 +79,7 @@ class TerminalSocket {
     return switch (decoded['type']) {
       'output' => TerminalOutput(decoded['data'] as String? ?? ''),
       'exit' => TerminalExit((decoded['exitCode'] as num?)?.toInt()),
+      'desync' => const TerminalDesync(),
       _ => null,
     };
   }

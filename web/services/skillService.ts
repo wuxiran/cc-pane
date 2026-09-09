@@ -13,6 +13,7 @@ import type {
   SkillInfo,
   SkillMarketEntry,
   SkillSummary,
+  WorkspaceProjectSkill,
 } from "@/types";
 import { apiDeleteJson, apiGet, apiJson, invokeOrApi } from "./apiClient";
 
@@ -128,6 +129,18 @@ export const skillService = {
   /** 列出 CC-Panes 内置注入的 skill（只读展示） */
   async listBundledSkills(): Promise<BundledSkill[]> {
     return invokeOrApi<BundledSkill[]>("list_bundled_skills", undefined, async () => []);
+  },
+
+  async readBundledSkill(name: string): Promise<ProjectSkillContent | null> {
+    return invokeOrApi<ProjectSkillContent | null>("read_bundled_skill", { name }, async () => null);
+  },
+
+  async listWorkspaceProjectSkills(workspaceName: string): Promise<WorkspaceProjectSkill[]> {
+    return invokeOrApi<WorkspaceProjectSkill[]>(
+      "list_workspace_project_skills",
+      { workspaceName },
+      async () => [],
+    );
   },
 
   // ============ 项目级 Agent Skills（目录型，跨 CLI 根目录） ============

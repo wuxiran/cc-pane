@@ -12,10 +12,13 @@ import { usePanesStore } from "@/stores";
 import { useTabViewStateStore, type ViewAggregate } from "@/stores/useTabViewStateStore";
 import { collectTabs, collectTerminalSessionIdsWithSaved } from "@/lib/paneSessions";
 import { invokeIfTauri, isTauriRuntime } from "@/services/runtime";
+import { setHiddenTerminalOutputSessions } from "@/services/terminalService";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import type { LayoutEntry, PaneNode } from "@/types";
 
-const REPORT_DEBOUNCE_MS = 800;
+// Keep the source-side gate close to the visibility edge. A long debounce lets a
+// newly hidden pane flood the renderer before the daemon stops that stream.
+const REPORT_DEBOUNCE_MS = 100;
 
 /**
  * 从聚合表 + 布局树推导「当前不可见的会话全集」。纯函数，便于测试。
@@ -33,6 +36,7 @@ export function deriveHiddenSessions(
   currentLayoutId: string,
   currentRootPane: PaneNode,
   isPoppedOut: (tabId: string) => boolean,
+  forceAllHidden = false,
 ): string[] {
   const hiddenOwners = new Set<string>();
   for (const [owner, agg] of Object.entries(aggregate)) {
@@ -43,7 +47,7 @@ export function deriveHiddenSessions(
     // WebView 共用），结果是**弹窗里正在看的终端冻结**。弹出期间一律视为
     // 可见，宁可多推流。
     if (isPoppedOut(owner)) continue;
-    if (!agg.anyVisible) hiddenOwners.add(owner);
+    if (forceAllHidden || !agg.anyVisible) hiddenOwners.add(owner);
   }
   if (hiddenOwners.size === 0) return [];
 
@@ -71,14 +75,24 @@ export function useHiddenSessionReporter(): void {
 
     const report = () => {
       const panes = usePanesStore.getState();
-      const hidden = deriveHiddenSessions(
-        useTabViewStateStore.getState().aggregate,
-        panes.layouts,
-        panes.currentLayoutId,
-        panes.rootPane,
-        (tabId) => panes.poppedOutTabs.has(tabId),
-      );
+      const documentHidden = document.visibilityState === "hidden";
+      const hidden = documentHidden
+        ? [...new Set(
+            panes.layouts.flatMap((layout) =>
+              collectTabs(layout.id === panes.currentLayoutId ? panes.rootPane : layout.rootPane)
+                .filter((tab) => !panes.poppedOutTabs.has(tab.id))
+                .flatMap((tab) => collectTerminalSessionIdsWithSaved(tab)),
+            ),
+          )].sort()
+        : deriveHiddenSessions(
+            useTabViewStateStore.getState().aggregate,
+            panes.layouts,
+            panes.currentLayoutId,
+            panes.rootPane,
+            (tabId) => panes.poppedOutTabs.has(tabId),
+          );
       const key = hidden.join(",");
+      setHiddenTerminalOutputSessions(hidden);
       // 同值不重发：聚合高频变化，但 hidden 全集往往不变
       if (key === lastReported) return;
       lastReported = key;
@@ -92,20 +106,29 @@ export function useHiddenSessionReporter(): void {
       });
     };
 
-    const schedule = () => {
+    const schedule = (immediate = false) => {
       if (timer) clearTimeout(timer);
+      if (immediate) {
+        timer = undefined;
+        report();
+        return;
+      }
       timer = setTimeout(report, REPORT_DEBOUNCE_MS);
     };
 
-    const unsubscribe = useTabViewStateStore.subscribe(schedule);
+    const onDocumentVisibilityChange = () => schedule(true);
+
+    const unsubscribe = useTabViewStateStore.subscribe(() => schedule());
     // poppedOutTabs 的翻转也影响派生（弹出/收回不经过可见性聚合），
     // 同值去抖比较会吸收无关的 panes store 变化。
-    const unsubscribePanes = usePanesStore.subscribe(schedule);
+    const unsubscribePanes = usePanesStore.subscribe(() => schedule());
+    document.addEventListener("visibilitychange", onDocumentVisibilityChange);
     schedule();
 
     return () => {
       unsubscribe();
       unsubscribePanes();
+      document.removeEventListener("visibilitychange", onDocumentVisibilityChange);
       if (timer) clearTimeout(timer);
     };
   }, []);

@@ -11,12 +11,20 @@ export interface SharedMcpServerConfig {
   bridgeMode: BridgeMode;
 }
 
-/** 运行时状态 */
+/** 运行时状态。线格式由 Rust `SharedMcpServerStatus` 的 `rename_all = "camelCase"` 决定 */
 export type SharedMcpServerStatus =
-  | "Stopped"
-  | "Starting"
-  | "Running"
-  | { Failed: { message: string } };
+  | "stopped"
+  | "starting"
+  | "running"
+  | { failed: { message: string } };
+
+export function isSharedMcpFailed(status: SharedMcpServerStatus): status is { failed: { message: string } } {
+  return typeof status === "object" && status !== null && "failed" in status;
+}
+
+export function sharedMcpFailureMessage(status: SharedMcpServerStatus): string | null {
+  return isSharedMcpFailed(status) ? status.failed.message : null;
+}
 
 /** 运行时信息（含配置 + 状态） */
 export interface SharedMcpServerInfo {

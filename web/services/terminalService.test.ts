@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { _resetListenersForTest, terminalService } from "./terminalService";
+import {
+  _resetListenersForTest,
+  clearTerminalOutputDesyncLatch,
+  setHiddenTerminalOutputSessions,
+  terminalService,
+} from "./terminalService";
 import {
   mockTauriInvoke,
   mockTauriInvokeError,
@@ -136,6 +141,42 @@ describe("terminalService", () => {
 
       expect(a).toHaveBeenCalledWith(3);
       expect(b).toHaveBeenCalledWith(3);
+    });
+
+    it("latches scheduler overflow until recovery, avoiding repeated desync storms", async () => {
+      mockTauriInvoke({});
+      const output = vi.fn();
+      const desync = vi.fn();
+      await terminalService.registerOutput("s-overflow", output);
+      await terminalService.registerDesync("s-overflow", desync);
+      const handler = await getOutputHandler();
+      const flood = "x".repeat(512 * 1024 + 1);
+
+      handler({ payload: { sessionId: "s-overflow", data: flood } });
+      handler({ payload: { sessionId: "s-overflow", data: flood } });
+      expect(desync).toHaveBeenCalledTimes(1);
+      expect(output).not.toHaveBeenCalled();
+
+      clearTerminalOutputDesyncLatch("s-overflow");
+      handler({ payload: { sessionId: "s-overflow", data: flood } });
+      expect(desync).toHaveBeenCalledTimes(2);
+    });
+
+    it("salvages parser queries while dropping hidden pane正文", async () => {
+      mockTauriInvoke({});
+      const output = vi.fn();
+      const query = vi.fn();
+      await terminalService.registerOutput("s-query", output);
+      const queryUnsub = terminalService.registerHiddenTerminalQueryHandler("s-query", query);
+      setHiddenTerminalOutputSessions(["s-query"]);
+      const handler = await getOutputHandler();
+
+      handler({ payload: { sessionId: "s-query", data: `body\x1b[6n\x1b[c` } });
+
+      expect(output).not.toHaveBeenCalled();
+      expect(query).toHaveBeenCalledWith("\x1b[6n\x1b[c");
+      queryUnsub();
+      setHiddenTerminalOutputSessions([]);
     });
   });
 

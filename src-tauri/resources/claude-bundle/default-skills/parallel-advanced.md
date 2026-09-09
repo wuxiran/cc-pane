@@ -140,7 +140,7 @@ mcp__ccpanes__register_plan_leader(
 | Worker 类型 | 完成通知 | 主 Agent 怎么知道 |
 |-------------|---------|---------------------|
 | Claude Task 子 agent | 同步返回（Task tool 调用直接拿结果） | 等 tool result |
-| CC-Panes dispatch_task worker | `update_task_binding` + 可选 PTY `report_to_leader` | `get_task_dispatch(bindingId)`、`get_session_status(sessionId)` 与 `[worker-report]` |
+| CC-Panes dispatch_task worker | `update_task_binding` + 可选 PTY `report_to_leader` | `get_task_status(bindingId)`、`get_session_status(sessionId)` 与 `[worker-report]` |
 
 **重要**：多个 worker 并发时，PTY `report_to_leader` 在 leader busy 时返回 `{sent:false, queued:true}` 进入引擎补投队列，leader 空闲后自动注入（无需重试）。但队列在 leader 崩溃/退出时会被清空，所以代码型 worker 的 prompt **必须**包含：
 
@@ -150,7 +150,7 @@ mcp__ccpanes__register_plan_leader(
 2. report_to_leader(workerId=<CC_PANES_TASK_BINDING_ID>, status="completed", summary="...")
 ```
 
-无 MCP 的目标必须将同样信息打印到终端。主 Agent 兜底：按每个 `bindingId` 调 `get_task_dispatch`，并结合 `get_session_status` / 输出 / diff 验收。
+无 MCP 的目标必须将同样信息打印到终端。主 Agent 兜底：按每个 `bindingId` 调 `get_task_status(bindingId)`，并结合 `get_session_status` / 输出 / diff 验收。
 
 ### Phase 6：汇总
 

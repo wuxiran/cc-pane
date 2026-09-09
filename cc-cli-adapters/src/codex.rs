@@ -242,6 +242,11 @@ impl CodexAdapter {
         ));
     }
 
+    fn push_ccpanes_enabled_tools_override(args: &mut Vec<String>) {
+        args.push("-c".to_string());
+        args.push(crate::ccpanes_enabled_tools_override());
+    }
+
     fn push_developer_instructions_override(args: &mut Vec<String>, prompt: &str) {
         let prompt = prompt.trim();
         if prompt.is_empty() {
@@ -354,6 +359,7 @@ impl CodexAdapter {
         if let Some(invocation) = proxy.as_ref() {
             Self::push_mcp_stdio_override(args, "ccpanes", invocation);
             Self::push_mcp_enabled_override(args, "ccpanes", true);
+            Self::push_ccpanes_enabled_tools_override(args);
         } else if let (Some(port), Some(token)) =
             (ctx.orchestrator_port, ctx.orchestrator_token.as_ref())
         {
@@ -368,6 +374,7 @@ impl CodexAdapter {
             // 变量时会启动失败（见 docs/18）。去掉对环境变量的依赖。
             Self::push_mcp_url_override(args, "ccpanes", &url);
             Self::push_mcp_enabled_override(args, "ccpanes", true);
+            Self::push_ccpanes_enabled_tools_override(args);
         }
 
         // 工作空间层 + 项目覆盖层（docs/98）先于 shared 写入：同名时 shared 的 URL 后写覆盖。
@@ -2159,6 +2166,13 @@ mod tests {
         assert!(args
             .iter()
             .any(|arg| arg == "mcp_servers.ccpanes.enabled=true"));
+        assert!(args
+            .iter()
+            .any(|arg| arg.starts_with("mcp_servers.ccpanes.enabled_tools=[")));
+        assert!(args
+            .iter()
+            .any(|arg| arg.contains("\"dispatch_task\"") && arg.contains("enabled_tools=")));
+        assert!(!args.iter().any(|arg| arg.contains("\"create_workspace\"")));
         assert!(!args.iter().any(|arg| arg.contains("bearer_token_env_var")));
     }
 

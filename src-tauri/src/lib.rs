@@ -316,6 +316,7 @@ use commands::{
     list_todo_activities,
     list_user_skills,
     list_wallpapers,
+    list_workspace_project_skills,
     list_workspace_quick_commands,
     list_workspace_skills,
     list_workspace_snapshots,
@@ -351,6 +352,7 @@ use commands::{
     query_usage_stats,
     read_acp_image_attachment,
     read_agent_transcript_cmd,
+    read_bundled_skill,
     read_clipboard_file_paths,
     read_config_dir_info,
     read_project_skill,
@@ -1771,12 +1773,12 @@ pub fn run() {
         app_paths.as_ref(),
     ));
 
-    let memory_service = Arc::new(
-        MemoryService::new(app_paths.data_dir().join("memory.db")).unwrap_or_else(|e| {
-            error!("MemoryService init failed: {}, using in-memory fallback", e);
-            MemoryService::new_memory().expect("MemoryService fallback failed")
-        }),
-    );
+    let memory_db_path = app_paths.memory_db_path(settings.general.memory_db_path.as_deref());
+    boot_mark!("memory db: {}", memory_db_path.display());
+    let memory_service = Arc::new(MemoryService::new(memory_db_path).unwrap_or_else(|e| {
+        error!("MemoryService init failed: {}, using in-memory fallback", e);
+        MemoryService::new_memory().expect("MemoryService fallback failed")
+    }));
 
     let ssh_machine_service = Arc::new(SshMachineService::with_connection_service(
         app_paths.data_dir().join("ssh-machines.json"),
@@ -2277,6 +2279,18 @@ pub fn run() {
                     app_handle.clone(),
                     history_watch_manager.clone(),
                 )));
+                match app.path().app_log_dir() {
+                    Ok(directory) => {
+                        let recorder = services::performance_recorder::PerformanceRecorder::start(
+                            directory.join("performance"),
+                            app.state::<Arc<AppPaths>>().runtime_dir().join("daemon-manifest.json"),
+                            app.package_info().version.to_string(),
+                            app.state::<Arc<TerminalDaemonEventBridge>>().inner().clone(),
+                        );
+                        app.manage(recorder);
+                    }
+                    Err(error) => warn!(%error, "performance recorder directory unavailable"),
+                }
                 let tauri_emitter: std::sync::Arc<dyn cc_panes_core::events::EventEmitter> =
                     Arc::new(TauriEmitter::new(app_handle.clone()));
 
@@ -3053,6 +3067,9 @@ pub fn run() {
             submit_to_session,
             get_all_terminal_status,
             get_bridge_stats,
+            commands::record_performance_snapshot,
+            commands::get_performance_recorder_status,
+            commands::mark_performance_incident,
             get_available_shells,
             get_windows_build_number,
             check_environment,
@@ -3338,6 +3355,8 @@ pub fn run() {
             import_project_skill,
             import_skill,
             list_workspace_skills,
+            list_workspace_project_skills,
+            read_bundled_skill,
             read_workspace_skill,
             save_workspace_skill,
             delete_workspace_skill,
@@ -3549,6 +3568,9 @@ pub fn run() {
                 }
             }
             if let tauri::RunEvent::Exit = event {
+                if let Some(recorder) = app_handle.try_state::<Arc<services::performance_recorder::PerformanceRecorder>>() {
+                    recorder.stop();
+                }
                 info!("[cleanup] Application exiting, cleaning up resources...");
 
                 app_handle.state::<Arc<TaskQueueWorker>>().stop();

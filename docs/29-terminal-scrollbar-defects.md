@@ -16,7 +16,7 @@ xterm v6 的 `ScrollbarVisibility.Auto` 判定不可滚动，因此不渲染滑�
 对比 Claude Code（Ink，逐行追加）→ scrollback 持续增长 → 滑块正常出现。
 
 **已决策：保持现状**（推测动机是牺牲滚动条换取 Codex 退出后的历史留存）。
-调大 `scrollback` 无效（当前 20000，非零，只是 Codex 不往里写行）。
+调大 `scrollback` 无效（默认 5000，非零，只是 Codex 不往里写行）。
 
 以下两项是排查过程中发现的**独立真缺陷**，与上述现象无关。
 

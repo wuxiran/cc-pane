@@ -20,9 +20,11 @@ description: >
 | 角色 | 是什么 | 本 skill 用法 |
 |------|--------|----------------|
 | **Cursor IDE** | 桌面编辑器 + Agents/Composer | 打开正确 path + handoff 文件 +（可选）deeplink 预填 |
-| **Cursor Agent CLI**（`cursor-agent` / `agent`） | 终端 agent，`x-cursor-client-type: cli` | `{{mcp_server_name}}.dispatch_task` / `launch_task`，`cliTool: "cursor"` |
-| **Cursor Bridge** | 同一 CLI 的有边界会话（init / context / do） | `{{mcp_server_name}}.cursor_bridge`；不是 CDP，不是 IDE 索引 |
+| **Cursor Agent CLI**（`cursor-agent` / `agent`） | 终端 agent，`x-cursor-client-type: cli` | `{{mcp_server_name}}.dispatch_task`，`cliTool: "cursor"` |
+| **Cursor Bridge** | 同一 CLI 的有边界会话（init / context / do） | `cursor_bridge` 工具，**不在会话 MCP 里**，用 ctl 调：`"$CC_PANES_CTL" --json call cursor_bridge --json '{"action":"init",…}'`（见 `ccpanes-admin` skill）；不是 CDP，不是 IDE 索引 |
 | **CC-Panes** | 多实例编排台 | 真源：项目 path、worktree、binding、plan |
+
+下文写作 `{{mcp_server_name}}.cursor_bridge(...)` 的地方都指上面这种 ctl 调用。
 
 ```
 磁盘上的同一 project / worktree path
@@ -203,7 +205,7 @@ macOS：`open 'cursor://anysphere.cursor-deeplink/prompt?text=...'`（依赖已�
 当用户要的是 **可 dispatch 的 worker**，不是 IDE：
 
 ```
-{{mcp_server_name}}.dispatch_task 或 launch_task
+{{mcp_server_name}}.dispatch_task
   projectPath: <登记路径>
   cliTool: "cursor"
   prompt: <短引用 handoff 文件>
