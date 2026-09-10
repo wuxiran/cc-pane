@@ -30,9 +30,6 @@ pub enum ProviderType {
     #[serde(rename = "opencode", alias = "open_code")]
     OpenCode,
     Grok,
-    /// 媒体生成 Provider（图片/视频 API）。只被媒体工作台使用：不注入任何
-    /// CLI 环境变量，也不出现在 LLM/终端相关的 Provider 选择里。
-    Media,
 }
 
 impl ProviderType {
@@ -50,7 +47,6 @@ impl ProviderType {
             "cursor" => ProviderType::Cursor,
             "opencode" | "open_code" => ProviderType::OpenCode,
             "grok" => ProviderType::Grok,
-            "media" => ProviderType::Media,
             _ => return None,
         })
     }
@@ -204,8 +200,6 @@ impl Provider {
                     vars.insert("GROK_CLI_CHAT_PROXY_BASE_URL".to_string(), url.clone());
                 }
             }
-            // 媒体 Provider 只服务媒体生成，绝不向 CLI 会话注入环境变量。
-            ProviderType::Media => {}
         }
 
         vars

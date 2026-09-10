@@ -81,8 +81,7 @@ fn wire_protocol(provider_type: ProviderType) -> Option<&'static str> {
         | ProviderType::Vertex
         | ProviderType::ConfigProfile
         | ProviderType::Cursor
-        | ProviderType::Gemini
-        | ProviderType::Media => None,
+        | ProviderType::Gemini => None,
     }
 }
 

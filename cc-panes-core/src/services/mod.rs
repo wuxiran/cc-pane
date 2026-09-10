@@ -2,10 +2,6 @@ pub mod agent_transcript;
 pub mod boundary_events;
 pub mod claude_session_service;
 pub mod codex_session_service;
-pub mod comfy;
-pub mod comfy_adapter;
-pub mod comfy_events;
-pub mod comfy_resources;
 mod ctl_sidecar;
 // ACP 聊天会话与 PTY 终端共用同一条 CC_PANES_CTL 注入链（src-tauri 侧也要用）。
 pub use ctl_sidecar::{session_ctl_env_value, SESSION_CTL_ENV_KEY};
@@ -28,10 +24,6 @@ mod launch_history_service;
 mod launch_profile_service;
 mod layout_snapshot_service;
 pub mod mcp_config_service;
-pub mod media_probe;
-pub mod media_provider;
-pub mod media_runtime;
-pub mod media_service;
 mod memory_service;
 pub mod opencode_session_service;
 pub mod pi_rpc_service;
@@ -90,20 +82,6 @@ mod worktree_service;
 pub mod wsl_discovery_service;
 
 pub use agent_transcript::read_agent_transcript;
-pub use comfy::{
-    canonical_json, json_fingerprint, ComfyEvent, ComfyHistoryResult, ComfyObjectInfoResponse,
-    ComfyOutputRef, ComfyPromptNode, ComfyPromptResponse, ComfyWorkflow,
-    COMFY_OBJECT_INFO_SCHEMA_VERSION, COMFY_WORKFLOW_SCHEMA_VERSION,
-};
-pub use comfy_adapter::{
-    shared_comfy_adapter_cache, ComfyAdapterCache, ComfyAdapterProfile, ComfyInputRef,
-    ComfyMediaAdapter,
-};
-pub use comfy_events::{comfy_websocket_url, ComfyEventStream};
-pub use comfy_resources::{
-    ComfyDeviceInfo, ComfyMemoryReleaseResult, ComfySystemInfo, ComfySystemStats,
-    COMFY_SYSTEM_STATS_SCHEMA_VERSION,
-};
 pub use cursor_bridge_hub::CursorBridgeHub;
 pub use cursor_bridge_prompts::{
     build_context_prompt, build_do_prompt, normalize_cce_search_result, CCE_RESULT_MARKER,
@@ -133,22 +111,6 @@ pub use mcp_config_service::{
     effective_servers_to_json, EffectiveMcpServer, McpConfigService, McpLayer, McpLayerKind,
     McpServerConfig,
 };
-pub use media_probe::{
-    parse_ffprobe_json, MediaProbe, MediaProbeConfig, MediaProbeReport, MediaProbeStatus,
-    MEDIA_PROBE_EXECUTABLE_ENV,
-};
-pub use media_provider::{
-    apply_media_run_protocol, fetch_provider_model_ids, parse_openai_status_response,
-    parse_openai_submit_response, parse_openai_submit_response_for_kind, parse_status_response,
-    parse_status_response_for_kind, parse_submit_response, parse_submit_response_for_kind,
-    registry_from_providers, sub2api_wire_body, DownloadedAsset, MediaHttpMethod, MediaInputAsset,
-    MediaJobStatus, MediaProtocol, MediaProviderAdapter, MediaProviderCapabilities,
-    MediaProviderFuture, MediaProviderProfile, MediaProviderRegistry, NormalizedMediaRequest,
-    OpenAiCompatibleMediaAdapter, RemoteJob, RemoteJobError, RemoteJobStatus, RemoteOutput,
-    Sub2ApiMediaAdapter,
-};
-pub use media_runtime::{DeterministicMockMediaProvider, MediaJobWorker};
-pub use media_service::MediaService;
 pub use memory_service::MemoryService;
 pub use pi_rpc_service::{
     PiRpcCommandResponse, PiRpcEvent, PiRpcLaunchSpec, PiRpcService, PiRpcSessionPhase,

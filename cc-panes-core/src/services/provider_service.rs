@@ -59,8 +59,22 @@ impl ProviderService {
         }
         let content =
             std::fs::read_to_string(path).with_context(|| "Failed to read providers config")?;
-        let mut config: ProviderConfig =
+        // 加载层清洗：provider_type == "media" 是老媒体生成 Provider，功能已删除。
+        // 必须按原始字符串过滤——删除 ProviderType::Media 变体后手写 Deserialize
+        // 会把它回退为 Anthropic，导致一个 base_url 指向图片/视频 API 的假 Anthropic
+        // Provider 出现在 LLM Provider 列表里。
+        let mut parsed: serde_json::Value =
             serde_json::from_str(&content).with_context(|| "Failed to parse providers.json")?;
+        if let Some(providers) = parsed.get_mut("providers").and_then(|v| v.as_array_mut()) {
+            providers.retain(|p| {
+                p.get("providerType")
+                    .and_then(|v| v.as_str())
+                    .map(|t| t != "media")
+                    .unwrap_or(true)
+            });
+        }
+        let mut config: ProviderConfig =
+            serde_json::from_value(parsed).with_context(|| "Failed to parse providers.json")?;
         if config.providers.len() > MAX_PROVIDER_COUNT {
             anyhow::bail!("providers config exceeds {} entries", MAX_PROVIDER_COUNT);
         }
@@ -155,9 +169,7 @@ impl ProviderService {
             ProviderType::OpenCode => "opencode",
             ProviderType::Cursor => "cursor",
             ProviderType::Grok => "grok",
-            // 媒体 Provider 不属于任何 CLI；返回一个不会与 CLI id 撞车的桶名，
-            // 且所有默认位写入处都会先跳过 Media 类型。
-            ProviderType::Media => "media",
+            // Media 不属于任何 CLI；已被加载层清洗丢弃（老数据 provider_type="media" 不会进入此逻辑）。
         }
     }
 
@@ -340,12 +352,8 @@ impl ProviderService {
 
         let default_cli = Self::native_cli_for_provider_type(provider.provider_type);
         let provider_id = provider.id.clone();
-        // 媒体 Provider 不参与任何 CLI 的默认凭证位。
-        let claims_default = provider.provider_type != ProviderType::Media;
         next.providers.push(provider);
-        if claims_default
-            && (requested_as_default || !next.default_provider_ids.contains_key(default_cli))
-        {
+        if requested_as_default || !next.default_provider_ids.contains_key(default_cli) {
             next.default_provider_ids
                 .insert(default_cli.to_string(), provider_id);
         }
@@ -374,11 +382,8 @@ impl ProviderService {
         provider.is_default = false;
         let default_cli = Self::native_cli_for_provider_type(provider.provider_type);
         let provider_id = provider.id.clone();
-        let claims_default = provider.provider_type != ProviderType::Media;
         next.providers.push(provider);
-        if claims_default
-            && (requested_as_default || !next.default_provider_ids.contains_key(default_cli))
-        {
+        if requested_as_default || !next.default_provider_ids.contains_key(default_cli) {
             next.default_provider_ids
                 .insert(default_cli.to_string(), provider_id);
         }
@@ -400,10 +405,7 @@ impl ProviderService {
             .with_context(|| format!("Provider '{}' not found", provider.id))?;
         let mut next = config.clone();
 
-        if provider.is_default
-            && !next.providers[pos].is_default
-            && provider.provider_type != ProviderType::Media
-        {
+        if provider.is_default && !next.providers[pos].is_default {
             let default_cli = Self::native_cli_for_provider_type(provider.provider_type);
             next.default_provider_ids
                 .insert(default_cli.to_string(), provider.id.clone());
@@ -1290,6 +1292,45 @@ mod tests {
         std::fs::write(&path, "{ not json").unwrap();
         let service = ProviderService::new(path);
         assert!(service.list_providers().is_empty());
+    }
+
+    #[test]
+    fn load_from_file_filters_out_legacy_media_providers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("providers.json");
+        // 模拟老数据：一个 provider_type="media" 的条目 + 一个正常条目
+        let json = serde_json::json!({
+            "providers": [
+                {
+                    "id": "media-provider",
+                    "name": "Old Media Provider",
+                    "providerType": "media",
+                    "apiKey": "sk-old",
+                    "baseUrl": "https://image-api.example.com"
+                },
+                {
+                    "id": "normal-provider",
+                    "name": "Anthropic Provider",
+                    "providerType": "anthropic",
+                    "apiKey": "sk-anthropic",
+                    "baseUrl": "https://api.anthropic.com"
+                }
+            ],
+            "defaultProviderIds": {},
+            "defaultProviderIdsVersion": 2,
+            "defaultIsSystem": false
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&json).unwrap()).unwrap();
+
+        let service = ProviderService::new(path);
+
+        // media 条目被丢弃
+        assert_eq!(service.list_providers().len(), 1);
+        assert!(service.get_provider("media-provider").is_none());
+        // 正常条目保留
+        let normal = service.get_provider("normal-provider").unwrap();
+        assert_eq!(normal.name, "Anthropic Provider");
+        assert_eq!(normal.provider_type, ProviderType::Anthropic);
     }
 
     #[test]

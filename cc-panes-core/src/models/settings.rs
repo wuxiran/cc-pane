@@ -70,10 +70,6 @@ pub struct AppSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExperimentalSettings {
-    /// 媒体生成工作台（图片/视频，活动栏 ImagePlus 入口 + MediaStudio 全屏页；
-    /// 含画布节点类型扩展、提示词助手、画布模板等实验面）。
-    #[serde(default = "default_experimental_flag")]
-    pub media_generation: bool,
     /// 短剧制作台（活动栏 Clapperboard 入口 + DramaStudio 全屏页 + 批量转绘）。
     /// 独立于媒体工作台开关，便于单独下线重构。
     #[serde(default = "default_experimental_flag")]
@@ -91,7 +87,6 @@ pub fn default_experimental_flag() -> bool {
 impl Default for ExperimentalSettings {
     fn default() -> Self {
         Self {
-            media_generation: default_experimental_flag(),
             drama_studio: default_experimental_flag(),
             skill_market: default_experimental_flag(),
         }
@@ -1501,17 +1496,16 @@ mod tests {
     fn experimental_defaults_follow_debug_assertions() {
         let expected = cfg!(debug_assertions);
         let defaults = ExperimentalSettings::default();
-        assert_eq!(defaults.media_generation, expected);
         assert_eq!(defaults.drama_studio, expected);
         assert_eq!(defaults.skill_market, expected);
 
         let missing_section: AppSettings = toml::from_str("").expect("empty config parses");
-        assert_eq!(missing_section.experimental.media_generation, expected);
+        assert_eq!(missing_section.experimental.drama_studio, expected);
 
         let partial: AppSettings =
             toml::from_str("[experimental]\nskillMarket = false\n").expect("partial parses");
         assert!(!partial.experimental.skill_market);
-        assert_eq!(partial.experimental.media_generation, expected);
+        assert_eq!(partial.experimental.drama_studio, expected);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Layout of the per-repository `.ccpanes/` folder (docs/98).
 //!
 //! `.ccpanes/` is meant to be **committed**: it holds what describes this repository for the
-//! team (specs, workflow, config). Everything machine-local — history blobs, media, journals,
+//! team (specs, workflow, config). Everything machine-local — history blobs, models, journals,
 //! hook state, externalised prompts — lives under `.ccpanes/.cache/`, which CC-Panes itself
 //! fences off with a `.ccpanes/.gitignore`. Every writer goes through this module so no code
 //! path can quietly add a new top-level entry.
@@ -26,7 +26,7 @@ pub fn cache_dir(project_path: &Path) -> PathBuf {
     ccpanes_dir(project_path).join(CACHE_DIR)
 }
 
-/// A named cache entry (`history`, `media`, `journal`, `prompts`, `cli-hooks.json` …).
+/// A named cache entry (`history`, `models`, `journal`, `prompts`, `cli-hooks.json` …).
 pub fn cache_entry(project_path: &Path, name: &str) -> PathBuf {
     cache_dir(project_path).join(name)
 }
@@ -131,19 +131,19 @@ mod tests {
     #[test]
     fn resolve_prefers_cache_then_legacy_then_cache_path() {
         let tmp = TempDir::new().unwrap();
-        let fresh = resolve_cache_entry(tmp.path(), "media");
-        assert_eq!(fresh, cache_entry(tmp.path(), "media"));
+        let fresh = resolve_cache_entry(tmp.path(), "models");
+        assert_eq!(fresh, cache_entry(tmp.path(), "models"));
 
-        fs::create_dir_all(legacy_entry(tmp.path(), "media")).unwrap();
+        fs::create_dir_all(legacy_entry(tmp.path(), "models")).unwrap();
         assert_eq!(
-            resolve_cache_entry(tmp.path(), "media"),
-            legacy_entry(tmp.path(), "media")
+            resolve_cache_entry(tmp.path(), "models"),
+            legacy_entry(tmp.path(), "models")
         );
 
-        fs::create_dir_all(cache_entry(tmp.path(), "media")).unwrap();
+        fs::create_dir_all(cache_entry(tmp.path(), "models")).unwrap();
         assert_eq!(
-            resolve_cache_entry(tmp.path(), "media"),
-            cache_entry(tmp.path(), "media")
+            resolve_cache_entry(tmp.path(), "models"),
+            cache_entry(tmp.path(), "models")
         );
     }
 }
