@@ -2588,7 +2588,6 @@ struct McpLaunchTaskParams {
     allow_resume_with_prompt: bool,
 }
 
-
 /// Single-tool Cursor Bridge surface (docs/96). Action enum, not six MCP tools.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct McpCursorBridgeParams {
@@ -14451,11 +14450,18 @@ mod tests {
             .copied()
             .filter(|name| !router.has_route(name))
             .collect();
-        assert!(missing.is_empty(), "CORE_MCP_TOOLS 里不存在的工具: {missing:?}");
+        assert!(
+            missing.is_empty(),
+            "CORE_MCP_TOOLS 里不存在的工具: {missing:?}"
+        );
         let mut sorted = CORE_MCP_TOOLS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
-        assert_eq!(sorted.len(), CORE_MCP_TOOLS.len(), "CORE_MCP_TOOLS 有重复项");
+        assert_eq!(
+            sorted.len(),
+            CORE_MCP_TOOLS.len(),
+            "CORE_MCP_TOOLS 有重复项"
+        );
     }
 
     /// core 面 = 全量减非 core；管理台工具不能漏进会话。
