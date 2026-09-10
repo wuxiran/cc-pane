@@ -61,6 +61,19 @@ npm run tauri:dev
 npm run tauri build
 ```
 
+### 本地验证模式（不要热替换正在跑的会话）
+
+渲染器 / WebGL / PTY 这类改动会直接影响**当前这条 AI 会话所在的窗口**。在承载会话的实例上 `tauri:dev` 热替换或覆盖安装，等于改自己正在用的产品，会话可能花屏、失色、甚至直接被装包杀掉。
+
+按目的选通道，两条都不要动当前会话窗口：
+
+| 目的 | 怎么跑 | 数据 / identifier | 注意 |
+|------|--------|-------------------|------|
+| 渲染器、布局、热更验证 | **独立** `npm run tauri:dev`，窗口标题 `CC-Panes [DEV]` | `com.ccpanes.dev`，`~/.cc-panes-dev/` | 可与正式版并行；不要对正在跑会话的正式进程热替换 |
+| 生产路径实测（用户数据、安装、CJK/Claude 真彩） | `npm run tauri build -- --bundles nsis` | `com.ccpanes.app`，`~/.cc-panes/` | 本机无 `TAURI_SIGNING_PRIVATE_KEY` 时 overlay 关掉 `createUpdaterArtifacts`，否则收尾会失败。产物在 `../cc-book-target/release/bundle/nsis/`。先关掉正式 CC-Panes 再装，不要从会话里杀自己 |
+
+WebGL 共享图集回归至少要：≥6 个 WebGL pane + 一个 Claude 真彩色长输出 + 一个 CJK 密集 pane，看几分钟花屏、颜色是否被抹、是否闪一帧无背景。
+
 ## 构建命令
 
 ### Windows

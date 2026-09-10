@@ -141,7 +141,9 @@ export function createTerminalRendererController({
         // 共享 atlas 重排后 UV 变了，但 refresh 的增量 diff 会跳过未改格子。
         // 只清 CPU skip 缓存（_clearModel(false)）。true 会把 GPU 双缓冲填 0，
         // Claude 真彩色频繁加页时颜色会被抹掉。绝不 clearTextureAtlas（会自激）。
-        invalidateWebglGlyphModel(webglAddon);
+        if (!invalidateWebglGlyphModel(webglAddon)) {
+          logger("renderer.webgl.atlas.invalidate.unavailable", getDiagnostics());
+        }
         term.refresh(0, Math.max(0, term.rows - 1));
         return true;
       } catch (error) {

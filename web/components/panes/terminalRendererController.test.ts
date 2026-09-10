@@ -283,14 +283,16 @@ describe("terminal renderer controller", () => {
   it("repaints every live WebGL terminal when the shared glyph atlas changes", () => {
     const first = createMockTerminal();
     const second = createMockTerminal();
+    const firstLogger = vi.fn();
+    const secondLogger = vi.fn();
     const firstController = createTerminalRendererController({
       term: first,
-      logger: vi.fn(),
+      logger: firstLogger,
       onRendererChanged: vi.fn(),
     });
     const secondController = createTerminalRendererController({
       term: second,
-      logger: vi.fn(),
+      logger: secondLogger,
       onRendererChanged: vi.fn(),
     });
 
@@ -304,8 +306,41 @@ describe("terminal renderer controller", () => {
     expect(second.refresh).toHaveBeenCalledWith(0, 23);
     expect(first.clearTextureAtlas).not.toHaveBeenCalled();
     expect(second.clearTextureAtlas).not.toHaveBeenCalled();
+    expect(firstLogger).not.toHaveBeenCalledWith(
+      "renderer.webgl.atlas.invalidate.unavailable",
+      expect.anything(),
+    );
+    expect(secondLogger).not.toHaveBeenCalledWith(
+      "renderer.webgl.atlas.invalidate.unavailable",
+      expect.anything(),
+    );
     firstController.dispose();
     secondController.dispose();
+  });
+
+  it("logs renderer.webgl.atlas.invalidate.unavailable when _clearModel is missing", () => {
+    const term = createMockTerminal();
+    const logger = vi.fn();
+    const controller = createTerminalRendererController({
+      term,
+      logger,
+      onRendererChanged: vi.fn(),
+    });
+
+    controller.configure("webgl");
+    const renderer = webglMock.instances[0]._renderer;
+    if (renderer) {
+      delete (renderer as { _clearModel?: unknown })._clearModel;
+    }
+
+    webglMock.instances[0].atlasChangeHandler?.(document.createElement("canvas"));
+
+    expect(logger).toHaveBeenCalledWith(
+      "renderer.webgl.atlas.invalidate.unavailable",
+      expect.objectContaining({ activeRenderer: "webgl" }),
+    );
+    expect(term.refresh).toHaveBeenCalledWith(0, 23);
+    controller.dispose();
   });
 
   // 花屏的成因：atlas 重排时隐藏的 pane 画不出来，旧实现直接丢弃这次刷新且无补偿，

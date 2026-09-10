@@ -13,7 +13,7 @@ v0.12.16 之后的开发分支。
 
 ### 修复
 
-- WebGL 共享字形图集：`_mergePages` 后其它 pane 先丢掉 CPU skip 缓存（`_clearModel(false)`）再 `refresh`，避免旧 UV 采到别人的 CJK/Latin 碎片。广播里不能 `_clearModel(true)` / `renderer.clear()`——会把 GPU 双缓冲填 0，Claude 真彩色频繁加页时 ANSI 颜色会被抹掉。仍然不能对每个 pane 调 `clearTextureAtlas()`（会自激）。
+- WebGL 共享字形图集：`_mergePages` 后其它 pane 先丢掉 CPU skip 缓存（`_clearModel(false)`）再 `refresh`，避免旧 UV 采到别人的 CJK/Latin 碎片。广播里不能 `_clearModel(true)` / `renderer.clear()`——会把 GPU 双缓冲填 0，Claude 真彩色频繁加页时 ANSI 颜色会被抹掉。仍然不能对每个 pane 调 `clearTextureAtlas()`（会自激）。私有 `_clearModel` 缺失时打 `renderer.webgl.atlas.invalidate.unavailable`。`@xterm/addon-webgl` 锁死 `0.19.0`（依赖该私有 API）。
 
 ## 0.12.16 - 2026-09-10
 
