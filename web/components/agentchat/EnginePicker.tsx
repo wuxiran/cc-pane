@@ -171,7 +171,9 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
           loadAutoApproveKinds(engineId),
         );
         useAgentChatStore.getState().setSnapshot(chatId, snapshot);
-        if (resumeAcpSessionId) onCwdAdopted(startCwd);
+        // 新会话同样要登记 cwd：顶栏工作空间 chip、restart、@引用相对路径都靠它
+        // （此前只有续接路径登记，手动启动的会话 chip 直接隐身）。
+        onCwdAdopted(startCwd);
         // 回填该引擎的模型/模式表缓存；有偏好且与当前不同则自动应用。
         const models = snapshot.models?.availableModels ?? [];
         const modes = snapshot.modes?.availableModes ?? [];

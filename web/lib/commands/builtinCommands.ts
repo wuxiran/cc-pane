@@ -48,6 +48,7 @@ import { buildDeepFeatureCommands } from "./deepFeatureCommands";
 import { resolvePaneTab } from "./resolveTarget";
 import i18n from "@/i18n";
 import type { TerminalPaneLeaf, TerminalPaneNode } from "@/types";
+import { AGENT_CHAT_LAYOUT_ID } from "@/types";
 import type { LayoutPresetId } from "@/types/pane";
 import type { CommandDescriptor } from "./types";
 
@@ -131,8 +132,15 @@ export function buildBuiltinCommands(): CommandDescriptor[] {
       titleKey: "new-tab",
       icon: Plus,
       group: "tab",
-      // 新建标签走全局启动器（项目/CLI/环境/参数一站式选择）
-      run: () => useDialogStore.getState().openLauncher(),
+      // 新建标签走全局启动器（项目/CLI/环境/参数一站式选择）；
+      // Agent Chat 专用布局里不开终端——Ctrl+T / 命令面板回落开新 agent 会话。
+      run: () => {
+        if (usePanesStore.getState().currentLayoutId === AGENT_CHAT_LAYOUT_ID) {
+          usePanesStore.getState().openAgentChat(undefined);
+          return;
+        }
+        useDialogStore.getState().openLauncher();
+      },
     },
     {
       id: "close-tab",

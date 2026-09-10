@@ -27,6 +27,7 @@ import ConfigOptionSelectors from "./ConfigOptionSelectors";
 import { HeaderSelect } from "./ChatItems";
 import { groupChatItems, type ChatTurn } from "./chatTurns";
 import EnginePicker from "./EnginePicker";
+import SessionWorkspaceMenu from "./SessionWorkspaceMenu";
 import PermissionCard from "./PermissionCard";
 import PermissionPolicyDropdown from "./PermissionPolicyDropdown";
 import { isAbsolutePath, joinCwd } from "./chatPaths";
@@ -60,10 +61,14 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   const { t } = useTranslation("panes");
   const chat = useAgentChatStore((state) => state.chats[tab.id]);
   const [atBottom, setAtBottom] = useState(true);
-  // 空壳窗格开出来的标签没有项目路径：用户在引擎选择页现选目录，选择结果
-  // 只活在组件内（会话真身在后端，重挂载后从快照对账，不依赖这里持久化）。
-  const [cwdOverride, setCwdOverride] = useState<string | null>(null);
-  const effectiveCwd = tab.projectPath || cwdOverride || "";
+  // 工作空间/目录覆盖存 store（切标签不丢），优先级高于标签自带项目；
+  // 顶栏 chip 与启动页共用 StartProjectMenu 切换。
+  const cwdOverride = chat?.cwdOverride ?? null;
+  const effectiveCwd = cwdOverride || tab.projectPath || "";
+  const setCwdOverride = useCallback(
+    (cwd: string | null) => useAgentChatStore.getState().setCwdOverride(tab.id, cwd),
+    [tab.id],
+  );
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // 长会话分页：只渲染最近 N 个回合，顶部按钮逐段放开（防几百条全量渲染掉帧）。
   const [visibleCount, setVisibleCount] = useState(60);
@@ -311,6 +316,9 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       {snapshot ? (
         <ChatSessionHeader
           engineLabel={snapshot.engineId}
+          workspaceMenu={
+            <SessionWorkspaceMenu chatId={tab.id} cwd={effectiveCwd} generating={generating} />
+          }
           generating={generating}
           changesCount={changesCount}
           showChanges={showChanges}
@@ -357,6 +365,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
                 engineLabel={engineLabel}
                 streaming={generating && !pendingTurn && index === visible.length - 1}
                 chatId={tab.id}
+                cwd={effectiveCwd}
                 onOpenLocation={openLocation}
                 onPlanToTodo={planToTodo}
                 expandAllSignal={toolFold}
@@ -368,6 +377,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
                 engineLabel={engineLabel}
                 streaming
                 chatId={tab.id}
+                cwd={effectiveCwd}
                 onOpenLocation={openLocation}
                 onPlanToTodo={planToTodo}
               />

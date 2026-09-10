@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type { Panel as PanelType, Tab } from "@/types";
+import { AGENT_CHAT_LAYOUT_ID } from "@/types";
 import { useShallow } from "zustand/react/shallow";
 import {
   useActivityBarStore,
@@ -188,6 +189,8 @@ export default memo(function Panel({ pane }: PanelProps) {
 
   const { handleAddBrowser, handleAddDsh, handleAddAgentChat, handleAddFile, handleAddFileExplorer } =
     useNewTabActions(pane.id, activeTab);
+  // Agent Chat 专用布局里 ＋ 只开 agent 对话（其余类型菜单项隐藏），保持空间纯净。
+  const isAgentChatLayoutCurrent = usePanesStore((s) => s.currentLayoutId === AGENT_CHAT_LAYOUT_ID);
 
   const handleAddSsh = useCallback(() => {
     useSshMachineDialogStore.getState().openAddDialog();
@@ -424,15 +427,19 @@ export default memo(function Panel({ pane }: PanelProps) {
             onTogglePin={handleTogglePin}
             onToggleStar={handleToggleStar}
             onRename={handleRename}
-            newTab={{
-              onAdd: handleAddTab,
-              onAddBrowser: handleAddBrowser,
-              onAddDsh: handleAddDsh,
-              onAddAgentChat: handleAddAgentChat,
-              onAddFile: handleAddFile,
-              onAddFileExplorer: handleAddFileExplorer,
-              onAddSsh: handleAddSsh,
-            }}
+            newTab={
+              isAgentChatLayoutCurrent
+                ? { onAdd: handleAddAgentChat, onAddAgentChat: handleAddAgentChat }
+                : {
+                    onAdd: handleAddTab,
+                    onAddBrowser: handleAddBrowser,
+                    onAddDsh: handleAddDsh,
+                    onAddAgentChat: handleAddAgentChat,
+                    onAddFile: handleAddFile,
+                    onAddFileExplorer: handleAddFileExplorer,
+                    onAddSsh: handleAddSsh,
+                  }
+            }
             onFullscreen={handleToggleFullscreen}
             onSplitAndMoveRight={handleSplitAndMoveRight}
             onSplitAndMoveDown={handleSplitAndMoveDown}

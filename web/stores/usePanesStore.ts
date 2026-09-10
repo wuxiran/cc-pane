@@ -28,6 +28,11 @@ import { createTabOpenActions } from "./panes/tabOpenActions";
 import { createTerminalLeafActions } from "./panes/terminalLeafActions";
 import { findTabAcrossLayouts } from "./panes/crossLayoutSearch";
 import { createStarredLayout, ensureLayoutState, ensureStarredLayoutInDraft } from "./panes/layoutLifecycle";
+import { createAgentChatLayout } from "./panes/agentChatLayout";
+import {
+  enforceAgentChatLayoutPurity,
+  sweepAgentChatTabsToReservedLayout,
+} from "./panes/agentChatLayout";
 import { isStarredLayout } from "./paneLayoutHelpers";
 
 // 真身在 paneTreeHelpers；这里保留 re-export 维持既有 import 路径。
@@ -45,13 +50,14 @@ const initialLayout: LayoutEntry = {
   activePaneId: initialPanel.id,
 };
 const initialStarredLayout = createStarredLayout();
+const initialAgentChatLayout = createAgentChatLayout();
 
 export const usePanesStore = create<PanesState>()(
   persist(
   immer((set, get) => ({
     rootPane: initialPanel,
     activePaneId: initialPanel.id,
-    layouts: [initialLayout, initialStarredLayout],
+    layouts: [initialLayout, initialStarredLayout, initialAgentChatLayout],
     currentLayoutId: initialLayout.id,
     closedTabs: [],
     poppedOutTabs: new Set<string>(),
@@ -81,7 +87,7 @@ export const usePanesStore = create<PanesState>()(
     ...createSessionBindingActions({ set, get }),
 
     ...createWorkspaceToolTabActions({ set, get }),
-    ...createBrowserTabActions(set),
+    ...createBrowserTabActions(set, get),
 
     ...createEditorTabActions(set, get),
 
@@ -107,6 +113,9 @@ export const usePanesStore = create<PanesState>()(
         rootPane: persisted?.rootPane ?? currentState.rootPane,
         activePaneId: persisted?.activePaneId ?? currentState.activePaneId,
       });
+      // 专用布局归拢+不变量只走 app 级 merge（scope 隔离的合成 payload 不经过这里）。
+      sweepAgentChatTabsToReservedLayout(layoutState.layouts);
+      enforceAgentChatLayoutPurity(layoutState);
       const merged = {
         ...currentState,
         ...(persisted as object),

@@ -13,10 +13,29 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
+import type { Workspace } from "@/types";
 import { samePath } from "./chatPaths";
 
 export function projectNameOf(cwd: string): string {
   return cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd;
+}
+
+/**
+ * 顶栏 chip 的显示名：cwd 落在注册工作空间里（工作空间根目录或其下项目）
+ * 就显示工作空间名，否则退回目录名。归档工作空间/项目不参与归属判定。
+ */
+export function workspaceLabelFor(cwd: string, workspaces: Workspace[]): string {
+  if (!cwd) return "";
+  for (const workspace of workspaces) {
+    if (workspace.archivedAt) continue;
+    const root = !workspace.isDefault && workspace.path ? workspace.path : null;
+    if (root && samePath(root, cwd)) return workspace.alias || workspace.name;
+    const owned = workspace.projects.some(
+      (project) => !project.archivedAt && samePath(project.path, cwd),
+    );
+    if (owned) return workspace.alias || workspace.name;
+  }
+  return projectNameOf(cwd);
 }
 
 export interface StartProjectMenuProps {

@@ -1,5 +1,6 @@
-// agent-chat 标签顶部的会话栏：引擎名 / 生成中状态 / 本轮改动计数 / 工具卡全展开折叠 / 更多菜单。
+// agent-chat 标签顶部的会话栏：引擎名 / 工作空间 chip / 生成中状态 / 本轮改动计数 / 工具卡全展开折叠 / 更多菜单。
 // 从 AgentChatTabContent 拆出（行数棘轮），纯展示层：状态与动作全部经 props 注入。
+import { type ReactNode } from "react";
 import {
   Bot,
   ChevronsDownUp,
@@ -22,6 +23,8 @@ import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 
 export interface ChatSessionHeaderProps {
   engineLabel: string;
+  /** 引擎名右侧的工作空间/目录 chip（StartProjectMenu trigger），由父组件注入。 */
+  workspaceMenu?: ReactNode;
   generating: boolean;
   changesCount: number;
   showChanges: boolean;
@@ -38,6 +41,7 @@ export interface ChatSessionHeaderProps {
 
 export default function ChatSessionHeader({
   engineLabel,
+  workspaceMenu,
   generating,
   changesCount,
   showChanges,
@@ -58,6 +62,7 @@ export default function ChatSessionHeader({
         <Bot className="h-3 w-3" />
       </span>
       <span className="text-xs font-medium text-[var(--app-text-primary)]">{engineLabel}</span>
+      {workspaceMenu}
       {generating ? (
         <span className="flex items-center gap-1 text-[11px] text-[var(--app-text-tertiary)]">
           <Loader2 className="h-3 w-3 animate-spin" /> {t("agentChatThinking")}

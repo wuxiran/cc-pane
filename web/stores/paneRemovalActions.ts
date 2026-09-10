@@ -26,6 +26,7 @@ import type {
 import { terminalService } from "@/services/terminalService";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import { toClosedTabSnapshot, trimClosedTabs } from "./closedTabsUndo";
+import { enforceAgentChatLayoutPurity } from "./panes/agentChatLayout";
 import {
   assignTreeAndConvergeActive,
   closeTabInTree,
@@ -186,7 +187,11 @@ export function createPaneRemovalActions(
       const policy = DESTROY_POLICY[reason];
       relocateAndCollect(get(), tabIds, policy, reason, opts);
       const removedIds = new Set<string>();
-      set((state) => spliceAcrossLayouts(state, tabIds, policy, removedIds));
+      set((state) => {
+        spliceAcrossLayouts(state, tabIds, policy, removedIds);
+        // 专用布局不变量：关完标签不留空白面板、不留混入的非 agent 标签。
+        enforceAgentChatLayoutPurity(state);
+      });
       if (removedIds.size === 0) return;
       cleanupSatelliteState(set, get, removedIds);
     },

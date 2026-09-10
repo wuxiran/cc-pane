@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import type { Workspace } from "@/types";
-import StartProjectMenu from "./StartProjectMenu";
+import StartProjectMenu, { workspaceLabelFor } from "./StartProjectMenu";
 
 function workspace(patch: Partial<Workspace>): Workspace {
   return {
@@ -60,5 +60,35 @@ describe("StartProjectMenu", () => {
     await user.click(screen.getByText("open"));
     await user.click(await screen.findByText("solo"));
     expect(onPickCwd).toHaveBeenCalledWith("D:/solo");
+  });
+});
+
+describe("workspaceLabelFor", () => {
+  const list = [
+    workspace({
+      name: "team",
+      alias: "团队",
+      path: "D:/work/team",
+      projects: [{ id: "p1", path: "D:/work/team/app", addedAt: "" } as Workspace["projects"][number]],
+    }),
+    workspace({ name: "archived", archivedAt: "2026-01-02T00:00:00Z", path: "D:/work/old" }),
+  ];
+
+  it("命中工作空间根目录或其下项目 → 工作空间名（alias 优先）", () => {
+    expect(workspaceLabelFor("D:/work/team", list)).toBe("团队");
+    expect(workspaceLabelFor("D:/work/team/app", list)).toBe("团队");
+  });
+
+  it("大小写/分隔符差异视为同路径", () => {
+    expect(workspaceLabelFor("d:\\work\\team\\app", list)).toBe("团队");
+  });
+
+  it("归档工作空间不参与归属，退回目录名", () => {
+    expect(workspaceLabelFor("D:/work/old", list)).toBe("old");
+  });
+
+  it("未注册目录退回目录名，空 cwd 返回空串", () => {
+    expect(workspaceLabelFor("C:/tmp/x", list)).toBe("x");
+    expect(workspaceLabelFor("", list)).toBe("");
   });
 });

@@ -1,7 +1,9 @@
 import type { Draft } from "immer";
 
 import type { PaneNode, Tab } from "@/types";
-import type { PanesDraft } from "./panesStoreTypes";
+import { AGENT_CHAT_LAYOUT_ID } from "@/types";
+import type { PanesDraft, PanesState } from "./panesStoreTypes";
+import { ensureAgentChatLayout } from "./panes/agentChatLayout";
 import { resolveLayoutWriteTarget } from "./paneLayoutHelpers";
 import { collectPanels, findPane } from "@/lib/paneTree";
 import { createTabOfType } from "@/lib/tabLifecycle/tabFactory";
@@ -111,6 +113,7 @@ function findTabByUrl(
 
 export function createBrowserTabActions(
   set: (recipe: (state: PanesDraft) => void) => void,
+  get: () => PanesState,
 ): BrowserTabActions {
   return {
     openBrowser: (url, title, tabId, options) => {
@@ -185,16 +188,23 @@ export function createBrowserTabActions(
       return actualTabId;
     },
     openAgentChat: (projectPath, options) => {
+      // 专用固定布局：无论从哪个入口开都落在 Agent Chat 布局并切过去；
+      // paneId 只在专用布局内生效（分屏区 ＋ 支持开进指定分屏）。
+      set((state) => {
+        ensureAgentChatLayout(state.layouts);
+      });
+      if (get().currentLayoutId !== AGENT_CHAT_LAYOUT_ID) {
+        get().switchLayout(AGENT_CHAT_LAYOUT_ID);
+      }
       let actualTabId: string | null = null;
       set((state) => {
-        const target = resolveLayoutWriteTarget(state, options?.layoutId);
-        if (!target) return;
-        const tree = target.tree;
-
+        // 切换后专用布局就是当前布局：当前布局的树真源是 state.rootPane 工作副本
+        // （immer 下经布局条目路径写会与工作副本分叉——标签会进"平行宇宙"，
+        // 画面渲染的工作副本里没有它）。与 resolveLayoutWriteTarget 同口径。
+        const tree = state.rootPane;
         const requested = options?.paneId ? findPane(tree, options.paneId) : null;
-        const fallbackPaneId = target.isCurrent ? state.activePaneId : "";
         const found =
-          requested?.type === "panel" ? requested : findPane(tree, fallbackPaneId);
+          requested?.type === "panel" ? requested : findPane(tree, state.activePaneId);
         const pane = found?.type === "panel" ? found : collectPanels(tree)[0];
         if (pane?.type !== "panel") return;
 
@@ -202,7 +212,9 @@ export function createBrowserTabActions(
         const newTab = createTabOfType("agent-chat", { projectPath });
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
-        target.setActivePaneId(pane.id);
+        state.activePaneId = pane.id;
+        const target = state.layouts.find((layout) => layout.id === AGENT_CHAT_LAYOUT_ID);
+        if (target) target.activePaneId = pane.id;
         actualTabId = newTab.id;
       });
       return actualTabId;

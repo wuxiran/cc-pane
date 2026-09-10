@@ -12,10 +12,11 @@ import AgentChatSessionsView from "@/components/sidebar/AgentChatSessionsView";
 import {
   useDialogStore,
   useExplorerSectionsStore,
+  usePanesStore,
   useWorkspacesStore,
   type ExplorerSectionId,
 } from "@/stores";
-import type { OpenTerminalOptions } from "@/types";
+import { AGENT_CHAT_LAYOUT_ID, type OpenTerminalOptions } from "@/types";
 
 // IDEA 风格图标 tab：图标 + tooltip，紧凑不占宽
 const SECTIONS = [
@@ -37,6 +38,8 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
   const { t } = useTranslation("sidebar");
   const activeSection = useExplorerSectionsStore((s) => s.activeSection);
   const setActiveSection = useExplorerSectionsStore((s) => s.setActiveSection);
+  // Agent Chat 专用布局里不放终端类入口（启动器按钮隐藏，Ctrl+T 由命令层回落）。
+  const isAgentChatLayout = usePanesStore((s) => s.currentLayoutId === AGENT_CHAT_LAYOUT_ID);
   const workspace = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === s.expandedWorkspaceId) ?? null,
   );
@@ -125,6 +128,7 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
       </div>
 
       {/* 底部常驻启动入口：shrink-0，永远不被上方列表挤出视口 */}
+      {!isAgentChatLayout && (
       <div
         className="shrink-0 px-3 py-2"
         style={{ borderTop: "1px solid var(--app-border)" }}
@@ -143,6 +147,7 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
           </kbd>
         </button>
       </div>
+      )}
     </div>
   );
 }

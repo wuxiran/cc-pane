@@ -18,6 +18,7 @@ const ALLOWED_LAYOUT_TRAVERSAL_FILES = {
   "stores/browserTabActions.ts": "legacy browser-tab lookup spans stored layout roots",
   "lib/paneTree.ts": "owns eachLayoutTreeWithStarred, the sanctioned starred-inclusive traversal for destroy paths",
   "stores/paneLayoutHelpers.ts": "owns the sanctioned layout traversal helpers",
+  "stores/panes/agentChatLayout.ts": "owns the reserved Agent Chat layout invariant (sweep/purity over the layout array)",
   "stores/paneRemovalActions.ts": "handles leaf/layout removal paths that may include starred mirrors",
   "stores/panesPersistMigrations.ts": "migrates persisted layout arrays",
   "stores/usePanesStore.ts": "core layout owner; still being split under docs/78",

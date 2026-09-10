@@ -3,6 +3,7 @@
 // - manual：LayoutEntry.workspaceName 手动绑定，优先级最高
 // - derived：布局 rootPane 深度优先遍历，取第一个带 workspaceName 的 terminal tab 推导
 import type { LayoutEntry, PaneNode, Tab } from "@/types";
+import { AGENT_CHAT_LAYOUT_ID } from "@/types";
 
 export type LayoutWorkspaceBindingSource = "manual" | "derived";
 
@@ -51,6 +52,8 @@ export function findLayoutForWorkspace(
   let best: { layout: LayoutEntry; source: LayoutWorkspaceBindingSource } | null = null;
   for (const layout of layouts) {
     if (layout.kind === "starred") continue;
+    // Agent Chat 专用布局不参与工作空间落位（它跨项目承载对话）。
+    if (layout.id === AGENT_CHAT_LAYOUT_ID) continue;
     const binding = getLayoutWorkspaceBinding(layout);
     if (!binding || binding.workspaceName !== target) continue;
     if (!best) {
@@ -83,7 +86,10 @@ export function resolveWorkspaceLaunchLayout(
   if (!target) return null;
 
   const current = layouts.find(
-    (layout) => layout.id === currentLayoutId && layout.kind !== "starred",
+    (layout) =>
+      layout.id === currentLayoutId
+      && layout.kind !== "starred"
+      && layout.id !== AGENT_CHAT_LAYOUT_ID,
   );
   if (!current) return findLayoutForWorkspace(layouts, target);
 

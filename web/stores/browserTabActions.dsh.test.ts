@@ -30,9 +30,12 @@ function runOpenDsh(projectPath?: string, workspacePath?: string) {
       { id: "layout-1", name: "布局 1", kind: "normal", rootPane: panel, activePaneId: "pane-1" },
     ],
   };
-  const actions = createBrowserTabActions((recipe) => {
-    recipe(state as never);
-  });
+  const actions = createBrowserTabActions(
+    (recipe) => {
+      recipe(state as never);
+    },
+    () => state as never,
+  );
   const tabId = actions.openDsh(projectPath, workspacePath, { paneId: "pane-1" });
   return { tabId, tab: (state.rootPane.tabs as Array<Record<string, unknown>>)[0] };
 }

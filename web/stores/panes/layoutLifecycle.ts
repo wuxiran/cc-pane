@@ -6,6 +6,7 @@ import { inferCliTool, resolveRestoreMode } from "@/lib/terminalRestoreMode";
 import { stripInitialPrompt } from "@/lib/tabLifecycle/terminalLeafReset";
 import type { LayoutEntry, PaneNode, TerminalPaneNode } from "@/types";
 import { firstNormalLayout, isNormalLayout, isStarredLayout } from "../paneLayoutHelpers";
+import { ensureAgentChatLayout } from "./agentChatLayout";
 import { filterLayouts, findLayout } from "./layoutTraversal";
 import type { PanesDraft, PanesState } from "../panesStoreTypes";
 
@@ -183,6 +184,8 @@ export function ensureLayoutState(
   const layouts = ensureStarredLayout(validLayouts.length > 0
     ? validLayouts
     : [createDefaultLayout()]);
+  // Agent Chat 专用固定布局：缺失即供给（原地 mutate，与 ensureStarredLayout 同口径）。
+  ensureAgentChatLayout(layouts);
 
   for (const layout of layouts) {
     if (isStarredLayout(layout)) continue;
@@ -193,6 +196,10 @@ export function ensureLayoutState(
       layout.activePaneId = collectPanels(layout.rootPane)[0]?.id ?? layout.rootPane.id;
     }
   }
+
+  // 归拢/不变量不在此处做：ensureLayoutState 也被布局 scope 隔离复用，
+  // 合成 scope payload 不能被 sweep/refill 污染。真路径在 usePanesStore merge
+  // 与 switchLayout/removeTabs 的 set 收尾。
 
   const currentLayoutId = layouts.some((layout) => layout.id === partial.currentLayoutId && isNormalLayout(layout))
     ? partial.currentLayoutId!

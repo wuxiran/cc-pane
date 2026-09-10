@@ -7,6 +7,7 @@ import { sweepOwnerState } from "@/lib/tabLifecycle/destroyPipeline";
 import { getLayoutWorkspaceBinding } from "@/utils/layoutWorkspace";
 import type { LayoutEntry } from "@/types";
 import { useFullscreenStore } from "../useFullscreenStore";
+import { isAgentChatLayout, enforceAgentChatLayoutPurity } from "./agentChatLayout";
 import {
   isNormalLayout,
   isStarredLayout,
@@ -88,6 +89,8 @@ export function createLayoutActions({ set, get }: PanesStoreAccess): LayoutActio
         if (index === -1) return;
         const deletingLayout = state.layouts[index];
         if (isStarredLayout(deletingLayout)) return;
+        // Agent Chat 专用固定布局不可删除（与星标同口径）。
+        if (isAgentChatLayout(deletingLayout)) return;
         if (filterLayouts(state.layouts, isNormalLayout).length <= 1) return;
 
         syncWorkingCopyToCurrentLayout(state);
@@ -136,6 +139,8 @@ export function createLayoutActions({ set, get }: PanesStoreAccess): LayoutActio
         target.lastActiveAt = Date.now();
         // zoom 是布局内临时态，切布局即失效（与全屏退出同口径）
         state.zoomedPaneId = null;
+        // 专用布局不变量（别名干净时机：工作副本刚对齐条目树）。
+        enforceAgentChatLayoutPurity(state);
       });
       useFullscreenStore.getState().exitFullscreen();
       notifyTerminalLayoutChanged("layout.switch");

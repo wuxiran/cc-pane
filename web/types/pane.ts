@@ -61,3 +61,9 @@ export interface PaneContextAction {
   disabled?: boolean;
   divider?: boolean;
 }
+
+/**
+ * Agent Chat 专用固定布局 id：自动供给、不可删除，所有 agent-chat 标签
+ * 收敛于此（其余布局归 CLI）。路由认 id 不认名——改名不影响收敛。
+ */
+export const AGENT_CHAT_LAYOUT_ID = "layout-agent-chat";
