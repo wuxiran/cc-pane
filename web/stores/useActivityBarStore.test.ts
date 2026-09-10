@@ -275,40 +275,6 @@ describe("useActivityBarStore", () => {
       expect(useActivityBarStore.getState().appViewMode).toBe("panes");
     });
 
-    it("toggleMediaMode 应在统一媒体工作区与 panes 间切换", () => {
-      useActivityBarStore.setState({ appViewMode: "panes", sidebarVisible: true });
-      useActivityBarStore.getState().toggleMediaMode();
-      expect(useActivityBarStore.getState()).toMatchObject({ appViewMode: "imageGen", sidebarVisible: false });
-
-      useActivityBarStore.getState().toggleMediaMode();
-      expect(useActivityBarStore.getState()).toMatchObject({ appViewMode: "panes", sidebarVisible: true });
-
-      useActivityBarStore.setState({ appViewMode: "videoGen", sidebarVisible: false });
-      useActivityBarStore.getState().toggleMediaMode();
-      expect(useActivityBarStore.getState().appViewMode).toBe("panes");
-    });
-
-    it("实验功能关着时媒体/技能市场入口动作是空操作，但能从该模式退出", () => {
-      registerExperimentalGate(() => false);
-      useActivityBarStore.setState({ appViewMode: "panes" });
-
-      useActivityBarStore.getState().toggleMediaMode();
-      useActivityBarStore.getState().toggleImageGenMode();
-      useActivityBarStore.getState().toggleVideoGenMode();
-      useActivityBarStore.getState().toggleSkillMarketMode();
-      useActivityBarStore.getState().setAppViewMode("skillMarket");
-      useActivityBarStore.getState().setAppViewMode("imageGen");
-      expect(useActivityBarStore.getState().appViewMode).toBe("panes");
-
-      // 功能在打开状态下被关掉：退出路径必须仍然可用
-      useActivityBarStore.setState({ appViewMode: "skillMarket" });
-      useActivityBarStore.getState().toggleSkillMarketMode();
-      expect(useActivityBarStore.getState().appViewMode).toBe("panes");
-      useActivityBarStore.setState({ appViewMode: "videoGen", sidebarVisible: false });
-      useActivityBarStore.getState().toggleMediaMode();
-      expect(useActivityBarStore.getState()).toMatchObject({ appViewMode: "panes", sidebarVisible: true });
-    });
-
     it("toggleFilesMode 进入 files 模式应设置 activeView 为 files", () => {
       useActivityBarStore.setState({ appViewMode: "panes", activeView: "explorer" });
 

@@ -20,6 +20,7 @@ import zhProviders from "./locales/zh-CN/providers.json";
 import zhLauncher from "./locales/zh-CN/launcher.json";
 import zhCcchan from "./locales/zh-CN/ccchan.json";
 import zhMedia from "./locales/zh-CN/media.json";
+import zhDrama from "./locales/zh-CN/drama.json";
 import zhSkillMarket from "./locales/zh-CN/skillMarket.json";
 import zhProjectSkills from "./locales/zh-CN/projectSkills.json";
 import zhMobile from "./locales/zh-CN/mobile.json";
@@ -43,6 +44,7 @@ import enProviders from "./locales/en/providers.json";
 import enLauncher from "./locales/en/launcher.json";
 import enCcchan from "./locales/en/ccchan.json";
 import enMedia from "./locales/en/media.json";
+import enDrama from "./locales/en/drama.json";
 import enSkillMarket from "./locales/en/skillMarket.json";
 import enProjectSkills from "./locales/en/projectSkills.json";
 import enMobile from "./locales/en/mobile.json";
@@ -67,8 +69,9 @@ export const resources = {
     providers: zhProviders,
     launcher: zhLauncher,
     ccchan: zhCcchan,
-    media: zhMedia,
-    skillMarket: zhSkillMarket,
+media: zhMedia,
+drama: zhDrama,
+skillMarket: zhSkillMarket,
     projectSkills: zhProjectSkills,
     mobile: zhMobile,
   },
@@ -90,8 +93,9 @@ export const resources = {
     providers: enProviders,
     launcher: enLauncher,
     ccchan: enCcchan,
-    media: enMedia,
-    skillMarket: enSkillMarket,
+media: enMedia,
+drama: enDrama,
+skillMarket: enSkillMarket,
     projectSkills: enProjectSkills,
     mobile: enMobile,
   },

@@ -130,7 +130,6 @@ export const DEFAULT_IM_SETTINGS: ImSettings = {
 export const EXPERIMENTAL_DEFAULT_ON = import.meta.env.DEV;
 
 export const DEFAULT_EXPERIMENTAL_SETTINGS: ExperimentalSettings = {
-  mediaGeneration: EXPERIMENTAL_DEFAULT_ON,
   dramaStudio: EXPERIMENTAL_DEFAULT_ON,
   skillMarket: EXPERIMENTAL_DEFAULT_ON,
 };

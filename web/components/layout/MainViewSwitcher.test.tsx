@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import MainViewSwitcher from "./MainViewSwitcher";
 import type { AppViewMode, ActivityView } from "@/stores/useActivityBarStore";
@@ -55,21 +55,6 @@ vi.mock("@/components/layout/MainWallpaperLayer", () => ({
 vi.mock("@/components/skillmarket/SkillMarketPage", () => ({
   default: () => <div data-testid="skill-market-page" />,
 }));
-vi.mock("@/components/media/MediaStudio", () => ({
-  default: ({
-    kind,
-    onKindChange,
-  }: {
-    kind: "image" | "video";
-    onKindChange?: (kind: "image" | "video") => void;
-  }) => (
-    <div data-testid="media-studio-mock" data-media-kind={kind}>
-      <button type="button" onClick={() => onKindChange?.(kind === "image" ? "video" : "image")}>
-        Switch media kind
-      </button>
-    </div>
-  ),
-}));
 
 const activityState = vi.hoisted(() => ({
   sidebarVisible: true,
@@ -110,7 +95,6 @@ const themeState = vi.hoisted(() => ({
 
 // 实验功能门禁：默认按「已勾选」跑既有用例，单独的用例把它关掉验证兜底。
 const experimentalState = vi.hoisted(() => ({
-  mediaGeneration: true,
   dramaStudio: true,
   skillMarket: true,
 }));
@@ -143,16 +127,7 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     setMode("panes");
     wallpaperState.resolved = null;
     wallpaperState.assetUrl = null;
-    experimentalState.mediaGeneration = true;
     experimentalState.skillMarket = true;
-  });
-
-  it("实验功能未勾选时，imageGen 不挂媒体工作区并退回 panes", async () => {
-    experimentalState.mediaGeneration = false;
-    setMode("imageGen");
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.queryByTestId("media-workspace-shell")).toBeNull();
-    await waitFor(() => expect(activityState.appViewMode).toBe("panes"));
   });
 
   it("实验功能未勾选时，skillMarket 不挂市场页并退回 panes", async () => {
@@ -237,27 +212,6 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     setMode("providers");
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
     expect(screen.getByTestId("providers-panel")).toBeVisible();
-  });
-
-  it("imageGen 与 videoGen 共用一个媒体工作区并可在其中切换类型", async () => {
-    setMode("imageGen");
-    const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-
-    expect(screen.getByTestId("media-workspace-shell")).toBeVisible();
-    await waitFor(() => expect(screen.getAllByTestId("media-studio-mock")).toHaveLength(1));
-    expect(screen.getByTestId("media-studio-mock")).toHaveAttribute("data-media-kind", "image");
-
-    fireEvent.click(screen.getByRole("button", { name: "Switch media kind" }));
-    expect(activityState.appViewMode).toBe("videoGen");
-
-    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.getAllByTestId("media-studio-mock")).toHaveLength(1);
-    expect(screen.getByTestId("media-studio-mock")).toHaveAttribute("data-media-kind", "video");
-
-    // 离开媒体即卸载（按需挂载语义）；媒体状态在 store 中保留，切回时重建工作区。
-    setMode("panes");
-    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.queryByTestId("media-workspace-shell")).toBeNull();
   });
 
   it("files → Sidebar + FileEditorPanel 组合", () => {

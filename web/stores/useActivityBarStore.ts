@@ -10,16 +10,12 @@ export type AppViewMode =
   | "selfchat"
   | "files"
   | "providers"
-  | "imageGen"
-  | "videoGen"
   | "dramaGen"
   | "skillMarket"
   | "orchestration";
 
 /** 受实验开关门禁的全屏模式 → 对应开关。 */
 const GATED_MODES = {
-  imageGen: "mediaGeneration",
-  videoGen: "mediaGeneration",
   dramaGen: "dramaStudio",
   skillMarket: "skillMarket",
 } as const;
@@ -53,9 +49,6 @@ interface ActivityBarState {
   toggleFilesMode: () => void;
   toggleHomeMode: () => void;
   toggleProvidersMode: () => void;
-  toggleMediaMode: () => void;
-  toggleImageGenMode: () => void;
-  toggleVideoGenMode: () => void;
   toggleDramaGenMode: () => void;
   toggleSkillMarketMode: () => void;
 }
@@ -185,41 +178,6 @@ export const useActivityBarStore = create<ActivityBarState>()(
           appViewMode: s.appViewMode === "providers" ? "panes" : "providers",
           orchestrationOverlayOpen: false,
         })),
-
-      toggleMediaMode: () =>
-        set((s) => {
-          const leavingMedia = s.appViewMode === "imageGen" || s.appViewMode === "videoGen";
-          if (!leavingMedia && !gatedModeEnabled("imageGen")) return {};
-          return {
-            appViewMode: leavingMedia ? "panes" : "imageGen",
-            sidebarVisible: leavingMedia,
-            orchestrationOverlayOpen: false,
-          };
-        }),
-
-      toggleImageGenMode: () =>
-        set((s) => {
-          const leavingMedia = s.appViewMode === "imageGen";
-          if (!leavingMedia && !gatedModeEnabled("imageGen")) return {};
-          return {
-            appViewMode: leavingMedia ? "panes" : "imageGen",
-            // The media workspace owns its configuration sidebar. Restore the
-            // regular sidebar only when returning to the terminal surface.
-            sidebarVisible: leavingMedia,
-            orchestrationOverlayOpen: false,
-          };
-        }),
-
-      toggleVideoGenMode: () =>
-        set((s) => {
-          const leavingMedia = s.appViewMode === "videoGen";
-          if (!leavingMedia && !gatedModeEnabled("videoGen")) return {};
-          return {
-            appViewMode: leavingMedia ? "panes" : "videoGen",
-            sidebarVisible: leavingMedia,
-            orchestrationOverlayOpen: false,
-          };
-        }),
 
       toggleDramaGenMode: () =>
         set((s) => {

@@ -46,7 +46,7 @@ function setExperimental(flags: Partial<ExperimentalSettings>) {
   useSettingsStore.setState({
     settings: {
       ...defaults,
-      experimental: { mediaGeneration: false, dramaStudio: false, skillMarket: false, ...flags },
+      experimental: { dramaStudio: false, skillMarket: false, ...flags },
     },
   });
 }
@@ -70,20 +70,19 @@ describe("ActivityBar", () => {
     resetStores();
   });
 
-  it("实验功能全关（release 默认）时不渲染媒体生成与技能市场入口", () => {
+  it("实验功能全关（release 默认）时不渲染技能市场入口", () => {
     const { container } = renderBar();
     expect(screen.getByTestId("layout-bar-stub")).toBeInTheDocument();
     // Home + explorer + ssh/todo + 添加模块 + settings = 6 按钮
     //（files 与 sessions 图标已移除：Explorer 侧栏自带 文件 / 最近启动 tab）
     expect(container.querySelectorAll("button")).toHaveLength(6);
-    expect(screen.queryByRole("button", { name: "媒体生成" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "技能市场" })).not.toBeInTheDocument();
   });
 
   it("实验功能未勾选时，store 动作也不能进入对应全屏页", () => {
     useActivityBarStore.getState().toggleSkillMarketMode();
     expect(useActivityBarStore.getState().appViewMode).toBe("home");
-    useActivityBarStore.getState().toggleMediaMode();
+    useActivityBarStore.getState().toggleDramaGenMode();
     expect(useActivityBarStore.getState().appViewMode).toBe("home");
     useActivityBarStore.getState().setAppViewMode("skillMarket");
     expect(useActivityBarStore.getState().appViewMode).toBe("home");
@@ -92,11 +91,10 @@ describe("ActivityBar", () => {
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
   });
 
-  it("勾选后两个入口出现，按钮总数回到 8", () => {
-    setExperimental({ mediaGeneration: true, skillMarket: true });
+  it("勾选后技能市场入口出现，按钮总数回到 7", () => {
+    setExperimental({ skillMarket: true });
     const { container } = renderBar();
-    expect(container.querySelectorAll("button")).toHaveLength(8);
-    expect(screen.getByRole("button", { name: "媒体生成" })).toBeInTheDocument();
+    expect(container.querySelectorAll("button")).toHaveLength(7);
     expect(screen.getByRole("button", { name: "技能市场" })).toBeInTheDocument();
   });
 
@@ -109,24 +107,6 @@ describe("ActivityBar", () => {
     expect(useActivityBarStore.getState().appViewMode).toBe("skillMarket");
     await user.click(marketButton);
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
-  });
-
-  it("左栏只有一个媒体入口，点击后进入共用媒体工作区", async () => {
-    setExperimental({ mediaGeneration: true });
-    const user = userEvent.setup();
-    const { container } = renderBar();
-    const mediaButton = screen.getByRole("button", { name: "媒体生成" });
-
-    await user.click(mediaButton);
-    expect(useActivityBarStore.getState().appViewMode).toBe("imageGen");
-    expect(mediaButton).toHaveAttribute("aria-label", "媒体生成");
-
-    expect(screen.queryByRole("button", { name: "生图" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "生视频" })).not.toBeInTheDocument();
-    await user.click(mediaButton);
-    expect(useActivityBarStore.getState().appViewMode).toBe("panes");
-    // 只开了媒体：Home + explorer + 媒体 + ssh/todo + 添加模块 + settings
-    expect(container.querySelectorAll("button")).toHaveLength(7);
   });
 
   it("不再有 sessions 竖排入口：explorer 之后紧跟 ssh（最近启动已迁至 Explorer 顶部 tab）", async () => {

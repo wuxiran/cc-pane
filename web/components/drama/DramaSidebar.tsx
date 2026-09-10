@@ -21,7 +21,7 @@ export default function DramaSidebar({
   projects, selectedDramaId, onSelectProject, onCreateProject,
   episodes, selectedEpisodeId, onSelectEpisode, onCreateEpisode,
 }: DramaSidebarProps) {
-  const { t } = useTranslation("media");
+  const { t } = useTranslation("drama");
   return (
     <aside className="flex w-64 shrink-0 flex-col overflow-y-auto border-r border-[var(--app-border)]" style={{ background: "var(--app-sidebar-bg)" }}>
       <div className="flex items-center justify-between px-3 py-2">
