@@ -4,6 +4,10 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.12.17 - Unreleased
+
+Development branch after v0.12.16.
+
 ## 0.12.16 - 2026-09-10
 
 First public build after v0.12.13 (v0.12.15 stayed a draft because CI on that tag did not pass). Includes the 0.12.15 MCP/WSL work plus tray, Jcode, and Agent Chat updates.
