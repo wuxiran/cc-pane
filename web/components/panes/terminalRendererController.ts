@@ -28,7 +28,6 @@ type XtermWebglAddonInternals = {
     _gl?: ReleasableWebglContext;
     _canvas?: HTMLCanvasElement;
     _clearModel?: (clearGlyphRenderer: boolean) => void;
-    clear?: () => void;
   };
 };
 
@@ -140,7 +139,8 @@ export function createTerminalRendererController({
     refresh: () => {
       try {
         // 共享 atlas 重排后 UV 变了，但 refresh 的增量 diff 会跳过未改格子。
-        // 只清本 pane 的顶点模型，绝不在这里 clearTextureAtlas（会自激广播）。
+        // 只清 CPU skip 缓存（_clearModel(false)）。true 会把 GPU 双缓冲填 0，
+        // Claude 真彩色频繁加页时颜色会被抹掉。绝不 clearTextureAtlas（会自激）。
         invalidateWebglGlyphModel(webglAddon);
         term.refresh(0, Math.max(0, term.rows - 1));
         return true;
@@ -293,7 +293,7 @@ export function createTerminalRendererController({
           height: canvas.height,
           dpr: getDevicePixelRatio(),
         });
-        // 共享 atlas 结构变化 → 所有共享 pane 清模型再 refresh。
+        // 共享 atlas 结构变化 → 所有共享 pane 丢掉 skip 缓存再 refresh。
         // 只 refresh 会留下旧 UV（颜色对、字形碎）。
         notifyAtlasStructureChanged();
       }),

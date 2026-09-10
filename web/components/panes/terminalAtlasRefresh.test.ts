@@ -5,20 +5,29 @@ import {
 } from "./terminalAtlasRefresh";
 
 describe("invalidateWebglGlyphModel", () => {
-  it("clears the glyph model via the private _clearModel(true) hook", () => {
+  it("busts the skip cache via _clearModel(false) so UVs rebuild without wiping GPU buffers", () => {
     const clearModel = vi.fn();
     const cleared = invalidateWebglGlyphModel({
       _renderer: { _clearModel: clearModel },
     });
     expect(cleared).toBe(true);
-    expect(clearModel).toHaveBeenCalledWith(true);
+    expect(clearModel).toHaveBeenCalledWith(false);
   });
 
-  it("falls back to the public renderer.clear() when _clearModel is missing", () => {
+  it("does not call renderer.clear() — that zeros GPU-bound double buffers before the next draw", () => {
+    const clearModel = vi.fn();
+    const clear = vi.fn();
+    invalidateWebglGlyphModel({
+      _renderer: { _clearModel: clearModel, clear },
+    });
+    expect(clear).not.toHaveBeenCalled();
+  });
+
+  it("returns false when _clearModel is missing instead of falling back to clear()", () => {
     const clear = vi.fn();
     const cleared = invalidateWebglGlyphModel({ _renderer: { clear } });
-    expect(cleared).toBe(true);
-    expect(clear).toHaveBeenCalledOnce();
+    expect(cleared).toBe(false);
+    expect(clear).not.toHaveBeenCalled();
   });
 
   it("returns false when the addon has no renderer", () => {

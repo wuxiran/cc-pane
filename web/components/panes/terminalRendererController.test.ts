@@ -298,8 +298,8 @@ describe("terminal renderer controller", () => {
     secondController.configure("webgl");
     webglMock.instances[0].atlasChangeHandler?.(document.createElement("canvas"));
 
-    expect(webglMock.instances[0]._renderer?._clearModel).toHaveBeenCalledWith(true);
-    expect(webglMock.instances[1]._renderer?._clearModel).toHaveBeenCalledWith(true);
+    expect(webglMock.instances[0]._renderer?._clearModel).toHaveBeenCalledWith(false);
+    expect(webglMock.instances[1]._renderer?._clearModel).toHaveBeenCalledWith(false);
     expect(first.refresh).toHaveBeenCalledWith(0, 23);
     expect(second.refresh).toHaveBeenCalledWith(0, 23);
     expect(first.clearTextureAtlas).not.toHaveBeenCalled();

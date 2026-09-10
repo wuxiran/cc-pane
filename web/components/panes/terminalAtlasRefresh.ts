@@ -6,15 +6,17 @@
 //
 // `term.refresh()` 不够：WebglRenderer._updateModel 在 code/fg/bg 没变时会 skip
 // 该格，不会重新查图集。结果是颜色对、位置对、字形碎（采样到别人的笔画）。
-// 必须先清该 pane 的模型（_clearModel(true)），再 refresh 强制全量 rebuild。
+// 必须先丢掉该 pane 的 **CPU skip 缓存**（_clearModel(false)），再 refresh
+// 强制按新 UV rebuild。
 //
-// 不要在广播里对每个 pane 调 clearTextureAtlas()：它清的是**共享**纹理，会再
-// 触发一轮 onChangeTextureAtlas，自激。
+// 绝不能在广播里调 _clearModel(true) 或公开的 renderer.clear()：两者都会
+// GlyphRenderer.clear()，把 GPU 正在用的 double-buffer 顶点填 0。Claude 真彩色
+// 会不断加 atlas 页，广播很密，下一帧 draw 还没 rebuild 就把 ANSI 颜色抹掉。
+// 也不要对每个 pane 调 clearTextureAtlas()：它清的是**共享**纹理，会自激。
 import type { Terminal } from "@xterm/xterm";
 
 type WebglRendererGlyphModel = {
   _clearModel?: (clearGlyphRenderer: boolean) => void;
-  clear?: () => void;
 };
 
 type WebglAddonGlyphModel = {
@@ -22,19 +24,15 @@ type WebglAddonGlyphModel = {
 };
 
 /**
- * 丢掉该 pane 自己的字形顶点（含 UV），不碰共享 atlas 纹理。
- * `_clearModel` 是 addon-webgl 私有 API；没有时退到公开的 `clear()`。
+ * 丢掉该 pane 的 CPU 顶点 skip 缓存，不碰共享 atlas，也不清 GPU 缓冲。
+ * `_clearModel` 是 addon-webgl 私有 API；没有时返回 false，由调用方只 refresh。
  */
 export function invalidateWebglGlyphModel(addon: unknown): boolean {
   const renderer = (addon as WebglAddonGlyphModel | null | undefined)?._renderer;
   if (!renderer) return false;
   try {
     if (typeof renderer._clearModel === "function") {
-      renderer._clearModel(true);
-      return true;
-    }
-    if (typeof renderer.clear === "function") {
-      renderer.clear();
+      renderer._clearModel(false);
       return true;
     }
   } catch {
