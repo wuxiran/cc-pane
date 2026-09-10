@@ -11,6 +11,10 @@
 
 v0.12.16 之后的开发分支。
 
+### 修复
+
+- WebGL 共享字形图集：`_mergePages` 后其它 pane 先丢掉自己的顶点模型再 `refresh`，避免旧 UV 采到别人的 CJK/Latin 碎片。广播里仍然不能对每个 pane 调 `clearTextureAtlas()`（会自激）。
+
 ## 0.12.16 - 2026-09-10
 
 v0.12.13 之后的第一个公开发布（v0.12.15 因该 tag 的 CI 未过而停在 draft）。包含 0.12.15 的 MCP/WSL 工作，以及托盘、Jcode、Agent Chat 更新。

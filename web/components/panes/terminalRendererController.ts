@@ -12,6 +12,7 @@ import {
 } from "./terminalRenderer";
 import {
   createAtlasRefreshCoordinator,
+  invalidateWebglGlyphModel,
   notifyAtlasStructureChanged,
   type AtlasRefreshCoordinator,
 } from "./terminalAtlasRefresh";
@@ -26,6 +27,8 @@ type XtermWebglAddonInternals = {
   _renderer?: {
     _gl?: ReleasableWebglContext;
     _canvas?: HTMLCanvasElement;
+    _clearModel?: (clearGlyphRenderer: boolean) => void;
+    clear?: () => void;
   };
 };
 
@@ -136,6 +139,9 @@ export function createTerminalRendererController({
     isLive: () => !disposed && webglAddon !== null,
     refresh: () => {
       try {
+        // 共享 atlas 重排后 UV 变了，但 refresh 的增量 diff 会跳过未改格子。
+        // 只清本 pane 的顶点模型，绝不在这里 clearTextureAtlas（会自激广播）。
+        invalidateWebglGlyphModel(webglAddon);
         term.refresh(0, Math.max(0, term.rows - 1));
         return true;
       } catch (error) {
@@ -287,8 +293,8 @@ export function createTerminalRendererController({
           height: canvas.height,
           dpr: getDevicePixelRatio(),
         });
-        // 共享 atlas 结构变化 → 刷新所有共享它的可见 WebGL pane（不只自己），
-        // 否则未同步模型的 pane 会采样错位（黑块 + 彩色碎片）。
+        // 共享 atlas 结构变化 → 所有共享 pane 清模型再 refresh。
+        // 只 refresh 会留下旧 UV（颜色对、字形碎）。
         notifyAtlasStructureChanged();
       }),
       addon.onAddTextureAtlasCanvas((canvas) => {
@@ -298,7 +304,7 @@ export function createTerminalRendererController({
           width: canvas.width,
           height: canvas.height,
         });
-        // 加页同理，是跨 pane 事件：所有共享该 atlas 的 renderer 都需重建模型。
+        // 加页/_mergePages 同理：所有共享该 atlas 的 renderer 都需重建顶点。
         notifyAtlasStructureChanged();
       }),
       addon.onRemoveTextureAtlasCanvas((canvas) => {

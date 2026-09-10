@@ -1,13 +1,47 @@
 // 跨终端共享字形图集（CharAtlas）的重绘协调。
 //
 // xterm 让**同配置**的终端共用同一张字形图集。当某个 pane 因输出新字形导致图集
-// 扩容 / 加页 / 合并页时，共享纹理里字形的位置会变，但**每个 pane 各自保存 WebGL
-// 顶点模型**；没有同步重建模型的 pane 会采样到错误位置 —— 表现为「大片黑 + 稀疏
-// 彩色碎片」，连纯 ASCII 都会坏，点击/滚动触发全量刷新才恢复。
+// 扩容 / 加页 / 合并页（_mergePages）时，共享纹理里字形的 UV 会变，但**每个 pane
+// 各自保存 WebGL 顶点模型**。
 //
-// 所以任一 pane 的图集结构变化时，必须让**所有活跃 WebGL 终端**各补一次 refresh。
-// 中文尤其容易触发：每个新汉字都是一个新字形，图集重排非常频繁。
+// `term.refresh()` 不够：WebglRenderer._updateModel 在 code/fg/bg 没变时会 skip
+// 该格，不会重新查图集。结果是颜色对、位置对、字形碎（采样到别人的笔画）。
+// 必须先清该 pane 的模型（_clearModel(true)），再 refresh 强制全量 rebuild。
+//
+// 不要在广播里对每个 pane 调 clearTextureAtlas()：它清的是**共享**纹理，会再
+// 触发一轮 onChangeTextureAtlas，自激。
 import type { Terminal } from "@xterm/xterm";
+
+type WebglRendererGlyphModel = {
+  _clearModel?: (clearGlyphRenderer: boolean) => void;
+  clear?: () => void;
+};
+
+type WebglAddonGlyphModel = {
+  _renderer?: WebglRendererGlyphModel;
+};
+
+/**
+ * 丢掉该 pane 自己的字形顶点（含 UV），不碰共享 atlas 纹理。
+ * `_clearModel` 是 addon-webgl 私有 API；没有时退到公开的 `clear()`。
+ */
+export function invalidateWebglGlyphModel(addon: unknown): boolean {
+  const renderer = (addon as WebglAddonGlyphModel | null | undefined)?._renderer;
+  if (!renderer) return false;
+  try {
+    if (typeof renderer._clearModel === "function") {
+      renderer._clearModel(true);
+      return true;
+    }
+    if (typeof renderer.clear === "function") {
+      renderer.clear();
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
 
 const atlasRefreshRegistry = new Set<() => void>();
 let atlasRefreshScheduled = false;

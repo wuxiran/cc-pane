@@ -12,6 +12,7 @@ const webglMock = vi.hoisted(() => {
     public _renderer: {
       _gl: { getExtension: (name: string) => { loseContext(): void } | null };
       _canvas: HTMLCanvasElement;
+      _clearModel: ReturnType<typeof vi.fn>;
     } | undefined = {
       _gl: {
         getExtension: (name: string) => name === "WEBGL_lose_context"
@@ -19,6 +20,7 @@ const webglMock = vi.hoisted(() => {
           : null,
       },
       _canvas: this.canvas,
+      _clearModel: vi.fn(),
     };
     public contextLossHandler: (() => void) | null = null;
     public atlasChangeHandler: ((canvas: HTMLCanvasElement) => void) | null = null;
@@ -296,8 +298,12 @@ describe("terminal renderer controller", () => {
     secondController.configure("webgl");
     webglMock.instances[0].atlasChangeHandler?.(document.createElement("canvas"));
 
+    expect(webglMock.instances[0]._renderer?._clearModel).toHaveBeenCalledWith(true);
+    expect(webglMock.instances[1]._renderer?._clearModel).toHaveBeenCalledWith(true);
     expect(first.refresh).toHaveBeenCalledWith(0, 23);
     expect(second.refresh).toHaveBeenCalledWith(0, 23);
+    expect(first.clearTextureAtlas).not.toHaveBeenCalled();
+    expect(second.clearTextureAtlas).not.toHaveBeenCalled();
     firstController.dispose();
     secondController.dispose();
   });

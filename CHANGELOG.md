@@ -8,6 +8,10 @@
 
 Development branch after v0.12.16.
 
+### Fixed
+
+- WebGL shared glyph atlas: after `_mergePages`, other panes now drop their vertex models before `refresh`, so stale UV coords cannot sample the wrong CJK/Latin fragments. Broadcast still must not call `clearTextureAtlas()` on every pane (that would recurse).
+
 ## 0.12.16 - 2026-09-10
 
 First public build after v0.12.13 (v0.12.15 stayed a draft because CI on that tag did not pass). Includes the 0.12.15 MCP/WSL work plus tray, Jcode, and Agent Chat updates.
