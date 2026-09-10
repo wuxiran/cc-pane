@@ -284,7 +284,7 @@ flutter pub get && flutter analyze && flutter test
 ├── quick-commands.json              # 项目级快捷命令覆盖
 └── .cache/                          # 机器本地，永不提交
     ├── history/                     # 本地文件历史（history.db + blobs/<sha256>）；旧位置 .ccpanes/history 首次打开时 rename
-    ├── media/  journal/  prompts/   # 生成产物 / 会话日志 / 外置长 prompt
+    ├── journal/  prompts/           # 会话日志 / 外置长 prompt
     └── cli-hooks.json               # hooks 同步状态
 ```
 
