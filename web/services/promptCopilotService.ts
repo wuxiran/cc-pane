@@ -1,9 +1,10 @@
 import type { Provider } from "@/types/provider";
 
 /**
- * One-shot LLM text completion for the media prompt copilot.
+ * One-shot LLM text completion (used by the drama studio's screenplay
+ * splitting).
  *
- * There is intentionally no session or tool protocol here: the copilot needs
+ * There is intentionally no session or tool protocol here: callers need
  * "prompt in, text out" against a provider the user already saved. Providers
  * used by the CLI launchers speak either the Anthropic Messages API
  * (anthropic itself and Claude-Code proxies) or an OpenAI-compatible
