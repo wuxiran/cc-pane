@@ -92,8 +92,6 @@ async function completeOpenAi(request: PromptCompletionRequest): Promise<string>
 
 /** True when the provider stores enough credentials for a direct completion. */
 export function supportsPromptCompletion(provider: Provider): boolean {
-  // Media providers speak image/video APIs, not chat completions.
-  if (provider.providerType === "media") return false;
   if (!provider.apiKey?.trim()) return false;
   if (ANTHROPIC_PROTOCOL_TYPES.has(provider.providerType)) return true;
   return Boolean(provider.baseUrl?.trim());

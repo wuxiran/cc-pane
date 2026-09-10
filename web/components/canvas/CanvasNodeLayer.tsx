@@ -1,22 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, FolderOpen, Grip, ImageUp, Maximize2, MoreVertical, Pencil, RefreshCw, Trash2, Unlink } from "lucide-react";
+import { ExternalLink, Grip, Maximize2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { canvasNodeMinimumSize } from "@/lib/canvasGeometry";
-import { isTauriRuntime } from "@/services/runtime";
 import { useCanvasDisplayStore, usePanesStore } from "@/stores";
 import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import type { CanvasNodePosition, CanvasNodeProjection, NodeVisualState, PipeEvent } from "@/types/canvas";
 import TerminalView, { type TerminalViewHandle } from "@/components/panes/TerminalView";
-import MediaNodeCard from "./MediaNodeCard";
-import {
-  deleteMediaNode,
-  disconnectMediaNode,
-  openMediaAsset,
-  regenerateMediaNode,
-  renameMediaNode,
-  revealMediaAsset,
-} from "./mediaNodeActions";
 import {
   CANVAS_TERMINAL_INITIAL_FONT_SIZE,
   canvasTerminalZoomPersistenceKey,
@@ -208,14 +197,7 @@ function CanvasNodeCard({
       ? t("canvasNodeWorker")
       : node.kind === "terminal"
         ? t("canvasNodeTerminal")
-        : node.kind === "media"
-          ? node.media?.subtype
-            ? t(`canvasMediaSubtype.${node.media.subtype}`, { defaultValue: node.media.subtype })
-            : t("canvasNodeMedia", { defaultValue: "Media" })
-          : t("canvasNodeTask");
-  const mediaOperationLabel = node.kind === "media" && node.media?.operation
-    ? t(`canvasMediaOperation.${node.media.operation}`, { defaultValue: node.media.operation })
-    : undefined;
+        : t("canvasNodeTask");
 
   const finishDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     if (drag.current?.pointerId === event.pointerId) {
@@ -286,74 +268,20 @@ function CanvasNodeCard({
         <span className="shrink-0 text-[9px] uppercase tracking-[0.08em]" style={{ color }}>
           {nodeTypeLabel}
         </span>
-        {node.kind === "media" ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label={t("canvasNodeActions", { name: node.label, defaultValue: `Actions for ${node.label}` })}
-                title={t("canvasNodeActions", { name: node.label, defaultValue: `Actions for ${node.label}` })}
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--app-hover)]"
-                style={{ color: "var(--app-text-secondary)" }}
-                onPointerDown={(event) => event.stopPropagation()}
-                data-testid={`canvas-media-actions-${node.id}`}
-              >
-                <MoreVertical className="h-3.5 w-3.5" aria-hidden="true" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" onPointerDown={(event) => event.stopPropagation()}>
-              {node.media?.assetId ? (
-                <DropdownMenuItem onSelect={() => void openMediaAsset(node)}>
-                  <ImageUp className="size-3.5" aria-hidden="true" />
-                  {t("canvasMediaOpenOriginal", { defaultValue: "Open original" })}
-                </DropdownMenuItem>
-              ) : null}
-              {node.media?.assetId && isTauriRuntime() ? (
-                <DropdownMenuItem onSelect={() => void revealMediaAsset(node)}>
-                  <FolderOpen className="size-3.5" aria-hidden="true" />
-                  {t("canvasMediaRevealInFolder", { defaultValue: "Show in folder" })}
-                </DropdownMenuItem>
-              ) : null}
-              {node.media?.runId && !node.media?.subtype ? (
-                <DropdownMenuItem onSelect={() => void regenerateMediaNode(node, t("canvasMediaNoRunToReplay", { defaultValue: "This node has no run to regenerate" }))}>
-                  <RefreshCw className="size-3.5" aria-hidden="true" />
-                  {t("canvasMediaRegenerate", { defaultValue: "Generate again" })}
-                </DropdownMenuItem>
-              ) : null}
-              <DropdownMenuItem onSelect={() => void renameMediaNode(node, t("canvasRenameNodePrompt", { defaultValue: "New node title" }))}>
-                <Pencil className="size-3.5" aria-hidden="true" />
-                {t("canvasRenameNode", { defaultValue: "Rename" })}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void disconnectMediaNode(node)}>
-                <Unlink className="size-3.5" aria-hidden="true" />
-                {t("canvasMediaDisconnect", { defaultValue: "Remove connections" })}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={() => void deleteMediaNode(node, t("canvasDeleteNodeConfirm", { name: node.label, defaultValue: `Delete node "${node.label}"?` }))}
-              >
-                <Trash2 className="size-3.5" aria-hidden="true" />
-                {t("canvasDeleteNode", { name: node.label, defaultValue: `Delete ${node.label}` })}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : (
-          <button
-            type="button"
-            aria-label={t("canvasOpenTerminal", { name: node.label, defaultValue: `Open ${node.label}` })}
-            title={t("canvasOpenTerminal", { name: node.label, defaultValue: `Open ${node.label}` })}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--app-hover)]"
-            style={{ color: "var(--app-text-secondary)" }}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={() => openNode(node)}
-          >
-            <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
-        )}
+        <button
+          type="button"
+          aria-label={t("canvasOpenTerminal", { name: node.label, defaultValue: `Open ${node.label}` })}
+          title={t("canvasOpenTerminal", { name: node.label, defaultValue: `Open ${node.label}` })}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--app-hover)]"
+          style={{ color: "var(--app-text-secondary)" }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => openNode(node)}
+        >
+          <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
       </div>
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        {node.kind === "media" ? <MediaNodeCard node={node} /> : <CanvasTerminalMirror node={{ ...node, position }} />}
+        <CanvasTerminalMirror node={{ ...node, position }} />
       </div>
       <div
         className="flex h-6 shrink-0 items-center gap-2 border-t px-2 text-[9px]"
@@ -366,7 +294,6 @@ function CanvasNodeCard({
       >
         <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: color }} aria-hidden="true" />
         <span className="min-w-0 shrink-0 truncate">{statusLabel}</span>
-        {mediaOperationLabel ? <span className="min-w-0 shrink-0 truncate">{mediaOperationLabel}</span> : null}
         {summary ? <span className="min-w-0 flex-1 truncate">{summary}</span> : null}
         {node.cliTool ? <span className="ml-auto shrink-0 uppercase">{node.cliTool}</span> : null}
       </div>

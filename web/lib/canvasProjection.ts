@@ -1,6 +1,6 @@
 import { collectPanels, collectTerminalLeaves } from "@/lib/paneTree";
 import type { PaneNode, Tab, TaskBinding, TerminalPaneLeaf } from "@/types";
-import type { CanvasMediaEdgeProjection, CanvasNodeProjection, CanvasPipeEvent, CanvasProjectionInput, NodeVisualState, PipeEdge } from "@/types/canvas";
+import type { CanvasNodeProjection, CanvasPipeEvent, CanvasProjectionInput, NodeVisualState, PipeEdge } from "@/types/canvas";
 
 function bindingStatus(binding: TaskBinding): NodeVisualState {
   return binding.status;
@@ -85,35 +85,6 @@ interface MetadataParentIds {
   tabId?: string;
 }
 
-/**
- * Merge media projections from the durable store and an optional live source.
- * The live source is applied last so a freshly reported run status wins, while
- * omitted fields (for example an already-resolved preview URL) stay intact.
- * Keeping this normalization in the projection layer prevents duplicate cards
- * regardless of which caller supplies the two sources.
- */
-export function mergeCanvasMediaNodes(...sources: CanvasNodeProjection[][]): CanvasNodeProjection[] {
-  const byId = new Map<string, CanvasNodeProjection>();
-  for (const source of sources) {
-    for (const node of source) {
-      if (node.kind !== "media") continue;
-      const previous = byId.get(node.id);
-      if (!previous) {
-        byId.set(node.id, node);
-        continue;
-      }
-      byId.set(node.id, {
-        ...previous,
-        ...node,
-        media: previous.media && node.media
-          ? { ...previous.media, ...node.media, mediaKind: node.media.mediaKind ?? previous.media.mediaKind }
-          : node.media ?? previous.media,
-      });
-    }
-  }
-  return [...byId.values()];
-}
-
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -150,7 +121,7 @@ function metadataParentIds(binding: TaskBinding): MetadataParentIds {
 }
 
 /** Projects bindings first, then only unbound leaves, so task identity survives layout moves. */
-export function projectCanvasNodes({ bindings, layouts, layoutId, mediaNodes = [] }: CanvasProjectionInput): CanvasNodeProjection[] {
+export function projectCanvasNodes({ bindings, layouts, layoutId }: CanvasProjectionInput): CanvasNodeProjection[] {
   const allLeaves = layouts
     .filter((layout) => layout.kind !== "starred")
     .flatMap((layout) => terminalLeavesForLayout(layout.rootPane).map((item) => ({ ...item, layoutId: layout.id })));
@@ -267,15 +238,10 @@ export function projectCanvasNodes({ bindings, layouts, layoutId, mediaNodes = [
       layoutId,
       projectPath: tab.projectPath,
       cliTool: tab.cliTool,
-      status: terminalState(leaf, sessionId),
-    }));
-  // Media nodes are persisted independently from terminal bindings. Keep them
-  // as a separate projection branch so the existing task/terminal visibility
-  // rules remain unchanged and a partially hydrated media runtime cannot make
-  // a terminal leaf reappear.
-  const visibleMediaNodes = mergeCanvasMediaNodes(mediaNodes).filter((node) => !layoutId || node.layoutId === layoutId);
-  return [...taskNodes, ...terminalNodes, ...visibleMediaNodes];
-}
+status: terminalState(leaf, sessionId),
+	    }));
+	  return [...taskNodes, ...terminalNodes];
+	}
 
 /** Resolve session-only events to binding node ids before rendering layers consume them. */
 export function resolveCanvasEventNodes(
@@ -356,7 +322,6 @@ function undirectedEdgeKey(sourceId: string, targetId: string): string {
 export function derivePipeEdges(
   nodes: CanvasNodeProjection[],
   events: CanvasPipeEvent[] = [],
-  mediaEdges: CanvasMediaEdgeProjection[] = [],
 ): PipeEdge[] {
   const nodeIds = new Set(nodes.map((node) => node.id));
   const byBinding = new Map(nodes.flatMap((node) => node.bindingId ? [[node.bindingId, node.id] as const] : []));
@@ -376,28 +341,6 @@ export function derivePipeEdges(
     pairs.add(pair);
     edges.push({
       id: `pipe:event:${sourceId}->${targetId}`,
-      sourceId,
-      targetId,
-      readOnly: true,
-    });
-  }
-
-  // Media edges are persisted independently from orchestration events. They
-  // are intentionally read-only in this graph layer; creation/deletion stays
-  // behind the MediaService validation boundary.
-  for (const mediaEdge of mediaEdges) {
-    const sourceId = mediaEdge.sourceNodeId.startsWith("media:")
-      ? mediaEdge.sourceNodeId
-      : `media:${mediaEdge.sourceNodeId}`;
-    const targetId = mediaEdge.targetNodeId.startsWith("media:")
-      ? mediaEdge.targetNodeId
-      : `media:${mediaEdge.targetNodeId}`;
-    if (sourceId === targetId || !nodeIds.has(sourceId) || !nodeIds.has(targetId)) continue;
-    const pair = undirectedEdgeKey(sourceId, targetId);
-    if (pairs.has(pair)) continue;
-    pairs.add(pair);
-    edges.push({
-      id: `media-edge:${mediaEdge.id}`,
       sourceId,
       targetId,
       readOnly: true,

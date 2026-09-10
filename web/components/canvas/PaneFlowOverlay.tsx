@@ -4,9 +4,8 @@ import { useTranslation } from "react-i18next";
 import { canvasNodeMinimumSize, defaultCanvasPositions } from "@/lib/canvasGeometry";
 import { derivePipeEdges, projectCanvasNodes, resolveCanvasEventNodes } from "@/lib/canvasProjection";
 import { activeLayout } from "@/stores/paneLayoutHelpers";
-import { useCanvasDisplayStore, useCanvasStore, useMediaStore, useOrchestratorStore, usePanesStore, useWorkspacesStore } from "@/stores";
-import { mediaService } from "@/services/mediaService";
-import type { CanvasNodePosition, CanvasNodeProjection } from "@/types/canvas";
+import { useCanvasDisplayStore, useCanvasStore, useOrchestratorStore, usePanesStore, useWorkspacesStore } from "@/stores";
+import type { CanvasNodePosition } from "@/types/canvas";
 import CanvasNodeLayer from "./CanvasNodeLayer";
 import CanvasDisplayToggle from "./CanvasDisplayToggle";
 import ParticleCanvasLayer from "./ParticleCanvasLayer";
@@ -51,30 +50,20 @@ function useCanvasViewport(rootRef: React.RefObject<HTMLDivElement | null>, disp
   return viewport;
 }
 
-interface PaneFlowOverlayProps {
-  /** Media projection is supplied by the media runtime when available. */
-  mediaNodes?: CanvasNodeProjection[];
-}
-
-const EMPTY_MEDIA_NODES: CanvasNodeProjection[] = [];
-
-export default function PaneFlowOverlay({ mediaNodes = EMPTY_MEDIA_NODES }: PaneFlowOverlayProps) {
+export default function PaneFlowOverlay() {
   const { t } = useTranslation("orchestration");
   const layouts = usePanesStore((state) => state.layouts);
   const rootPane = usePanesStore((state) => state.rootPane);
   const currentLayoutId = usePanesStore((state) => state.currentLayoutId);
   const currentLayoutName = usePanesStore((state) => activeLayout(state)?.name);
   const workspaceId = useWorkspacesStore((state) => state.expandedWorkspaceId);
-  const persistedMediaNodes = useMediaStore((state) => state.nodes);
-  const persistedMediaEdges = useMediaStore((state) => state.edges);
-  const refreshMedia = useMediaStore((state) => state.refresh);
   const bindings = useOrchestratorStore((state) => state.bindings);
   const projectedNodes = useMemo(() => {
     const projectionLayouts = layouts
       .filter((layout) => layout.kind !== "starred")
       .map((layout) => layout.id === currentLayoutId ? { ...layout, rootPane } : layout);
-    return projectCanvasNodes({ bindings, layouts: projectionLayouts, layoutId: currentLayoutId, mediaNodes: [...persistedMediaNodes, ...mediaNodes] });
-  }, [bindings, currentLayoutId, layouts, mediaNodes, persistedMediaNodes, rootPane]);
+    return projectCanvasNodes({ bindings, layouts: projectionLayouts, layoutId: currentLayoutId });
+  }, [bindings, currentLayoutId, layouts, rootPane]);
   const manualNodePositions = useCanvasStore((state) => state.nodePositions);
   const pendingRestoreNodeIds = useCanvasStore((state) => state.pendingRestoreNodeIds);
   const events = useCanvasStore((state) => state.events);
@@ -93,26 +82,6 @@ export default function PaneFlowOverlay({ mediaNodes = EMPTY_MEDIA_NODES }: Pane
     [currentLayoutId, workspaceId],
   );
   const snapshotScopeKey = JSON.stringify([snapshotScope.workspaceId, snapshotScope.layoutId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void refreshMedia(workspaceId, currentLayoutId);
-    let unlisten: (() => void) | undefined;
-    void mediaService.listen(() => {
-      if (!cancelled) void refreshMedia(workspaceId, currentLayoutId);
-    }, workspaceId).then((cleanup) => {
-      if (cancelled) cleanup();
-      else unlisten = cleanup;
-    });
-    const timer = window.setInterval(() => {
-      void refreshMedia(workspaceId, currentLayoutId);
-    }, 5000);
-    return () => {
-      cancelled = true;
-      unlisten?.();
-      window.clearInterval(timer);
-    };
-  }, [currentLayoutId, refreshMedia, workspaceId]);
 
   useEffect(() => {
     setLoadedScope(null);
@@ -161,7 +130,7 @@ export default function PaneFlowOverlay({ mediaNodes = EMPTY_MEDIA_NODES }: Pane
     () => resolveCanvasEventNodes(events, nodes),
     [events, nodes],
   );
-  const edges = useMemo(() => derivePipeEdges(nodes, normalizedEvents, persistedMediaEdges), [nodes, normalizedEvents, persistedMediaEdges]);
+  const edges = useMemo(() => derivePipeEdges(nodes, normalizedEvents), [nodes, normalizedEvents]);
   const previewEvents = usePipePreviewEvents(
     edges,
     mode === "canvas",

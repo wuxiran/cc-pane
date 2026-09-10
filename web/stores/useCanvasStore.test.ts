@@ -172,34 +172,4 @@ describe("canvas snapshot", () => {
     expect(useCanvasStore.getState().nodes[0].position).toBeUndefined();
     expect(useCanvasStore.getState().nodePositions).toEqual({});
   });
-
-  it("writes v2 geometry only, so media URLs and run metadata are not snapshotted", () => {
-    const mediaNode: CanvasNodeProjection = {
-      id: "media:poster",
-      label: "Poster",
-      kind: "media",
-      layoutId: scopeA.layoutId,
-      status: "completed",
-      media: {
-        mediaKind: "image",
-        runStatus: "succeeded",
-        previewUrl: "/api/media/assets/asset-1/content",
-        assetId: "asset-1",
-      },
-      position: { x: 20, y: 30, width: 360, height: 240 },
-    };
-    useCanvasStore.setState({ nodes: [mediaNode] });
-
-    const snapshot = useCanvasStore.getState().saveSnapshot(scopeA, {
-      customizedNodeIds: [mediaNode.id],
-      nodes: [mediaNode],
-    });
-
-    expect(snapshot.version).toBe(2);
-    expect(snapshot.nodes).toEqual([{
-      id: mediaNode.id,
-      position: mediaNode.position,
-    }]);
-    expect(JSON.stringify(snapshot)).not.toContain("asset-1");
-  });
 });

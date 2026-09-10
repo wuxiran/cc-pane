@@ -129,7 +129,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => {
       )];
       const customized = new Set(customizedNodeIds);
       // v2 deliberately excludes labels, run state and URLs. Those values are
-      // durable media/runtime records and are re-projected from SQLite; only a
+      // durable runtime records and are re-projected from SQLite; only a
       // user's explicit geometry belongs in the local Canvas snapshot.
       const persistedNodes = sourceNodes.flatMap((node) => {
         if (!customized.has(node.id) || !node.position) return [];

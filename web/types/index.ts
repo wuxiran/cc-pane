@@ -345,12 +345,6 @@ export type {
 } from "./orchestrator";
 export type {
   CanvasDisplayMode,
-  CanvasMediaKind,
-  CanvasMediaOperation,
-  CanvasMediaRunStatus,
-  CanvasMediaProjection,
-  CanvasMediaCapabilities,
-  CanvasMediaEdgeProjection,
   NodeVisualState,
   PipeEventKind,
   PipeEventPhase,
@@ -368,42 +362,6 @@ export type {
   PipeEvent,
   CanvasProjectionInput,
 } from "./canvas";
-export type {
-  MediaKind,
-  MediaOperation,
-  MediaRunStatus,
-  MediaProtocol,
-  MediaCachePolicy,
-  MediaScope,
-  MediaCanvasScope,
-  MediaCanvasSpace,
-  ComfyInputSpec,
-  ComfyNodeInputGroups,
-  ComfyNodeDefinition,
-  ComfyNodeBranch,
-  ComfyObjectInfoResponse,
-  ComfySystemInfo,
-  ComfyDeviceInfo,
-  ComfySystemStats,
-  ComfyMemoryReleaseResult,
-  MediaProviderCapabilities,
-  MediaProviderRef,
-  MediaNode,
-  MediaRun,
-  MediaAsset,
-  MediaEdge,
-  CreateMediaRunRequest,
-  ReplayMediaRunRequest,
-  MediaQueueSnapshot,
-  MediaResourceSnapshot,
-  MediaSchedulerSnapshot,
-} from "./media";
-export { classifyComfyNode } from "./media";
-export type {
-  ComfyWorkflowDiff,
-  ComfyWorkflowTemplate,
-  ComfyWorkflowTemplateVersion,
-} from "./comfyWorkflowTemplate";
 export type {
   AddWorkspaceOutcome, DisableCounts, EnableCounts, LinkAgent, LinkSnapshot, LinkState,
   LinkWorkspace, ManagedSkill, SkillAgentState, UpdateOutcome,

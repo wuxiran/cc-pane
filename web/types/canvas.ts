@@ -4,117 +4,6 @@ export type CanvasDisplayMode = "panel" | "canvas";
 export type NodeVisualState = "pending" | "running" | "waiting" | "completed" | "failed" | "idle" | "offline";
 export type PipeEventKind = "dispatch" | "message" | "report";
 export type PipeEventPhase = "queued" | "flowing" | "delivered" | "failed";
-export type CanvasMediaKind = "image" | "video";
-export type CanvasMediaOperation =
-  | "textToImage"
-  | "imageToImage"
-  | "textToVideo"
-  | "imageToVideo"
-  | "edit"
-  | "upscale"
-  | "extend";
-export type CanvasMediaRunStatus =
-  | "queued"
-  | "submitting"
-  | "processing"
-  | "downloading"
-  | "canceling"
-  | "succeeded"
-  | "failed"
-  | "canceled";
-export type CanvasMediaProbeStatus =
-  | "ok"
-  | "skipped"
-  | "unavailable"
-  | "timeout"
-  | "output_limit"
-  | "failed"
-  | "invalid";
-
-/**
- * Non-generation node flavors layered on top of the durable media graph.
- * They reuse the `media_nodes` table (kind stays `image`) and are recognized
- * purely by the `nodeSubtype` key persisted inside `MediaNode.parameters`.
- */
-export type CanvasMediaSubtype = "text" | "script" | "audio" | "board" | "storyboard";
-
-/** One cell of a storyboard-grid node. */
-export interface CanvasStoryboardShot {
-  id: string;
-  title?: string;
-  prompt?: string;
-  /** Durable media node generated for this shot, when one exists. */
-  generatedNodeId?: string;
-  previewUrl?: string;
-}
-
-export interface CanvasMediaCapabilities {
-  /** Operations valid for this node's output kind. */
-  supportedOperations: CanvasMediaOperation[];
-  canRun: boolean;
-  canCancel: boolean;
-  canRetry: boolean;
-}
-
-/** Runtime media state projected into a Canvas node. */
-export interface CanvasMediaProjection {
-  mediaKind: CanvasMediaKind;
-  /** Present for non-generation nodes (text/script/audio/board/storyboard). */
-  subtype?: CanvasMediaSubtype;
-  /** Editable text content for text/script/board subtypes. */
-  contentText?: string;
-  /** Local path or URL of the audio source for audio subtypes. */
-  audioSource?: string;
-  /** Storyboard cells for storyboard subtypes. */
-  shots?: CanvasStoryboardShot[];
-  /**
-   * Raw durable parameters, carried only for subtype nodes so inline editors
-   * can merge updates without refetching the node.
-   */
-  nodeParameters?: Record<string, unknown>;
-  operation?: CanvasMediaOperation;
-  runStatus?: CanvasMediaRunStatus;
-  previewUrl?: string;
-  posterUrl?: string;
-  assetId?: string;
-  progress?: number;
-  runId?: string;
-  cacheHit?: boolean;
-  priority?: number;
-  updatedAt?: string;
-  mimeType?: string;
-  width?: number;
-  height?: number;
-  durationMs?: number;
-  fps?: number;
-  frameCount?: number;
-  codec?: string;
-  container?: string;
-  audio?: boolean;
-  audioCodec?: string;
-  audioChannels?: number;
-  sampleRate?: number;
-  colorSpace?: string;
-  colorTransfer?: string;
-  colorPrimaries?: string;
-  pixelFormat?: string;
-  bitDepth?: number;
-  probeStatus?: CanvasMediaProbeStatus;
-  probeReason?: string;
-  alt?: string;
-  errorCode?: string;
-  errorMessage?: string;
-  capabilities?: CanvasMediaCapabilities;
-}
-
-/** Durable media-to-media link projected into the graph layer. */
-export interface CanvasMediaEdgeProjection {
-  id: string;
-  sourceNodeId: string;
-  targetNodeId: string;
-  sourcePort?: string;
-  targetPort?: string;
-}
 
 export interface CanvasNodePosition {
   x: number;
@@ -126,9 +15,7 @@ export interface CanvasNodePosition {
 export interface CanvasNodeProjection {
   id: string;
   label: string;
-  kind: "task" | "terminal" | "media";
-  /** Present only for media nodes; media content is rendered with DOM media elements. */
-  media?: CanvasMediaProjection;
+  kind: "task" | "terminal";
   /** Project metadata is used only to render an attach-only terminal mirror. */
   projectPath?: string;
   workspaceName?: string;
@@ -236,6 +123,4 @@ export interface CanvasProjectionInput {
   layouts: Array<{ id: string; rootPane: PaneNode; kind?: string }>;
   /** Only project nodes assigned to this normal layout when provided. */
   layoutId?: string;
-  /** Durable media nodes supplied by the media runtime. */
-  mediaNodes?: CanvasNodeProjection[];
 }

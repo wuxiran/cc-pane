@@ -128,5 +128,4 @@ export type { DshInstance } from "./dshService";
 export { workspaceSnapshotService } from "./workspaceSnapshotService";
 export { taskBindingService } from "./taskBindingService";
 export { canvasSnapshotService } from "./canvasSnapshotService";
-export { mediaService } from "./mediaService";
 export { taskQueueService, TaskQueueUnavailableError } from "./taskQueueService";
