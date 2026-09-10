@@ -7,6 +7,8 @@ pub mod comfy_adapter;
 pub mod comfy_events;
 pub mod comfy_resources;
 mod ctl_sidecar;
+// ACP 聊天会话与 PTY 终端共用同一条 CC_PANES_CTL 注入链（src-tauri 侧也要用）。
+pub use ctl_sidecar::{session_ctl_env_value, SESSION_CTL_ENV_KEY};
 mod cursor_bridge_hub;
 pub mod cursor_bridge_prompts;
 pub mod cursor_bridge_service;

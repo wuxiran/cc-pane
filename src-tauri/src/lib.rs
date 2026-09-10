@@ -2058,6 +2058,9 @@ pub fn run() {
 
             if let Ok(resource_dir) = app.path().resource_dir() {
                 app.state::<Arc<TerminalService>>()
+                    .set_sidecar_resource_dir(resource_dir.clone());
+                // ACP 聊天会话的 CC_PANES_CTL 注入 / http MCP 降级 stdio 同靠此目录解析 ctl。
+                app.state::<Arc<services::AcpChatService>>()
                     .set_sidecar_resource_dir(resource_dir);
             }
 

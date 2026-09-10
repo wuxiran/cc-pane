@@ -8,7 +8,7 @@ const BINARY_ENV: &str = "CC_PANES_CTL_BINARY";
 /// 会话内 `CC_PANES_CTL` 注入的逃生阀。默认开启，设为 0/false/no 关闭。
 const SESSION_ENV_SWITCH: &str = "CCPANES_SESSION_CTL_ENV";
 /// 注入给 PTY 会话的变量名：cc-panes-ctl 的绝对路径。
-pub(super) const SESSION_CTL_ENV_KEY: &str = "CC_PANES_CTL";
+pub const SESSION_CTL_ENV_KEY: &str = "CC_PANES_CTL";
 
 pub(super) fn inject_mcp_proxy_options(
     options: &mut std::collections::HashMap<String, serde_json::Value>,
@@ -40,7 +40,8 @@ pub(super) fn inject_mcp_proxy_options(
 ///    更完整、更新鲜的值，用户表现为"某些命令在 CC-Panes 终端里突然找不到"且零报错。
 ///
 /// SSH 会话不注入：PTY 里跑的是本地 ssh 客户端，路径对远端主机无意义。
-pub(super) fn session_ctl_env_value(resource_dir: Option<&Path>, is_ssh: bool) -> Option<String> {
+/// ACP 聊天会话同 PTY 一起共用本函数（is_ssh=false），逃生阀语义一致。
+pub fn session_ctl_env_value(resource_dir: Option<&Path>, is_ssh: bool) -> Option<String> {
     if is_ssh || !session_env_enabled() {
         return None;
     }

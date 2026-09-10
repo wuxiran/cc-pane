@@ -431,6 +431,9 @@ pub struct AcpChatService {
     /// 同一对话可以被不同 tab 先后续接（docs/69 的 id 语义教训）。
     chats_dir: PathBuf,
     turn_notifier: Arc<std::sync::RwLock<Option<AcpTurnNotifier>>>,
+    /// 侧车资源目录（app setup 阶段登记，镜像 TerminalService 同名字段）：
+    /// 解析 cc-panes-ctl 路径用——CC_PANES_CTL 注入与 http MCP 降级 stdio 都靠它。
+    sidecar_resource_dir: std::sync::RwLock<Option<PathBuf>>,
 }
 
 impl AcpChatService {
@@ -439,7 +442,26 @@ impl AcpChatService {
             sessions: RwLock::new(HashMap::new()),
             chats_dir,
             turn_notifier: Arc::new(std::sync::RwLock::new(None)),
+            sidecar_resource_dir: std::sync::RwLock::new(None),
         }
+    }
+
+    /// 登记侧车资源目录（setup 阶段一次）。未登记时 ctl 解析退回 exe 同目录候选。
+    pub fn set_sidecar_resource_dir(&self, dir: PathBuf) {
+        if let Ok(mut guard) = self.sidecar_resource_dir.write() {
+            *guard = Some(dir);
+        }
+    }
+
+    /// 本会话可用的 cc-panes-ctl 路径（含逃生阀判定）：CC_PANES_CTL 注入与
+    /// http MCP 降级 stdio 共用；解析失败 None，两者同时静默退场。
+    fn ctl_env_path(&self) -> Option<String> {
+        let dir = self
+            .sidecar_resource_dir
+            .read()
+            .ok()
+            .and_then(|guard| guard.clone());
+        cc_panes_core::services::session_ctl_env_value(dir.as_deref(), false)
     }
 
     /// 注入桌面通知钩子（setup 阶段一次）。Automations 的 headless 会话
@@ -497,6 +519,14 @@ impl AcpChatService {
         // block or reshape nested CLI startup.
         command.env_remove("CLAUDECODE");
         command.env_remove("CLAUDE_CODE_ENTRYPOINT");
+        // 与 PTY 终端同一条控制通道：ctl 可解析就注入 CC_PANES_CTL，agent 即使
+        // 不会 MCP 也能经 CLI 触达 cc-panes；与下面的 stdio MCP 降级共用逃生阀
+        // CCPANES_SESSION_CTL_ENV（关掉则两者同时消失）。解析失败静默跳过——
+        // 控制通道缺失绝不该阻断会话启动。
+        let ctl_path = self.ctl_env_path();
+        if let Some(ctl) = &ctl_path {
+            command.env(cc_panes_core::services::SESSION_CTL_ENV_KEY, ctl);
+        }
         process_guard::configure_command(command.as_std_mut());
 
         let mut child = command.spawn().map_err(|error| {
@@ -623,20 +653,25 @@ impl AcpChatService {
             node.and_then(Value::as_bool).unwrap_or(false)
         };
 
-        // http 形态的 MCP 服务器要求 agent 广告 mcpCapabilities.http，
-        // 不支持的引擎直接过滤掉——传了会被拒或静默失败。
+        // http 形态的 MCP 服务器要求 agent 广告 mcpCapabilities.http；不广告的
+        // 引擎不再静默丢弃——降级成 stdio 形态（cc-panes-ctl mcp-proxy，stdio 是
+        // ACP 基线能力），ctl 解析不到才退回旧的丢弃行为。
+        let ctl_path = self.ctl_env_path();
         let mcp_servers: Vec<Value> = spec
             .mcp_servers
             .iter()
-            .filter(|server| {
-                match server.get("type").and_then(Value::as_str) {
-                    Some("http") => capability(&["mcpCapabilities", "http"]),
-                    Some("sse") => capability(&["mcpCapabilities", "sse"]),
-                    // stdio 是基线能力
-                    _ => true,
+            .filter_map(|server| match server.get("type").and_then(Value::as_str) {
+                Some("http") => {
+                    if capability(&["mcpCapabilities", "http"]) {
+                        Some(server.clone())
+                    } else {
+                        http_to_stdio_fallback(server, ctl_path.as_deref())
+                    }
                 }
+                Some("sse") => capability(&["mcpCapabilities", "sse"]).then(|| server.clone()),
+                // stdio 是基线能力
+                _ => Some(server.clone()),
             })
-            .cloned()
             .collect();
 
         // 优先续接：agent 广告 loadSession 且调用方带了会话 id。失败则降级
@@ -1890,6 +1925,22 @@ fn trim_record_ending(record: &[u8]) -> &[u8] {
     record.strip_suffix(b"\r").unwrap_or(record)
 }
 
+/// http 形态 MCP 服务器 → stdio 形态（cc-panes-ctl mcp-proxy 子命令，stdio 是
+/// ACP 基线能力，所有引擎都收）。ctl 解析不到返回 None——调用方退回丢弃。
+fn http_to_stdio_fallback(server: &Value, ctl_path: Option<&str>) -> Option<Value> {
+    let ctl = ctl_path?;
+    let name = server
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("ccpanes");
+    Some(json!({
+        "name": name,
+        "command": ctl,
+        "args": ["mcp-proxy"],
+        "env": [],
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1902,6 +1953,26 @@ mod tests {
     fn auto_approve_empty_policy_always_asks() {
         assert!(!auto_approves(&[], Some("read")));
         assert!(!auto_approves(&[], None));
+    }
+
+    #[test]
+    fn http_mcp_falls_back_to_stdio_proxy_when_ctl_resolvable() {
+        let server = json!({"type": "http", "name": "ccpanes", "url": "http://127.0.0.1:1/mcp"});
+        let fallback = http_to_stdio_fallback(&server, Some("C:/ctl.exe"))
+            .expect("ctl resolvable must produce a stdio entry");
+        assert_eq!(fallback["name"], json!("ccpanes"));
+        assert_eq!(fallback["command"], json!("C:/ctl.exe"));
+        assert_eq!(fallback["args"], json!(["mcp-proxy"]));
+        assert!(
+            fallback.get("type").is_none(),
+            "stdio entry must not carry type=http: {fallback}"
+        );
+    }
+
+    #[test]
+    fn http_mcp_is_dropped_when_ctl_missing() {
+        let server = json!({"type": "http", "name": "ccpanes"});
+        assert!(http_to_stdio_fallback(&server, None).is_none());
     }
 
     #[test]
