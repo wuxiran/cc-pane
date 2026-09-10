@@ -278,6 +278,14 @@ export interface GeneralSettings {
   disableWslUsageScan: boolean;
   /** 是否在状态栏显示整机 CPU 与内存占用 */
   showSystemResources: boolean;
+  /** 托盘菜单显示会话状态（摘要 + 待处理列表） */
+  trayShowSessionStatus: boolean;
+  /** 托盘菜单待处理会话最多显示条数（1-10） */
+  trayMaxPendingEntries: number;
+  /** 托盘悬停提示显示状态摘要 */
+  trayTooltipSummary: boolean;
+  /** 退出前有运行会话时弹确认对话框 */
+  trayConfirmQuit: boolean;
 }
 
 /** 环境检测原始结果（来自 Rust check_environment 命令） */

@@ -39,7 +39,7 @@ const JsonEditor = lazyWithRetry(() => import("@/components/editor/JsonEditor"),
 function defaultProviderTypeForTab(tab?: KnownCliTool): ProviderType {
   switch (tab) {
     case "codex": return "open_ai";
-    case "pi": case "omp": return "anthropic";
+    case "pi": case "omp": case "jcode": return "anthropic";
     case "gemini": return "gemini";
     case "kimi": return "kimi";
     case "opencode": return "opencode";

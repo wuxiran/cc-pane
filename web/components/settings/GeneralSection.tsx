@@ -17,10 +17,21 @@ import {
 import { settingsService } from "@/services";
 import { useSettingsStore } from "@/stores";
 import { useDialogStore } from "@/stores";
+import {
+  TRAY_MAX_PENDING_ENTRIES_DEFAULT,
+  TRAY_MAX_PENDING_ENTRIES_MAX,
+  TRAY_MAX_PENDING_ENTRIES_MIN,
+} from "@/stores/useSettingsStore";
 import { useCliTools } from "@/hooks/useCliTools";
 import type { GeneralSettings, DataDirInfo, SearchScope } from "@/types";
 import { formatSize } from "@/utils";
 import AdvancedSettings from "./AdvancedSettings";
+
+// 托盘「待处理会话最多显示条数」的可选域（1-10）。
+const TRAY_MAX_PENDING_OPTIONS = Array.from(
+  { length: TRAY_MAX_PENDING_ENTRIES_MAX - TRAY_MAX_PENDING_ENTRIES_MIN + 1 },
+  (_, index) => TRAY_MAX_PENDING_ENTRIES_MIN + index,
+);
 
 interface GeneralSectionProps {
   value: GeneralSettings;
@@ -132,6 +143,94 @@ export default function GeneralSection({
           className="w-4 h-4 cursor-pointer"
           style={{ accentColor: "var(--app-accent)" }}
         />
+      </div>
+
+      {/* 系统托盘：data-settings-section 供托盘「打开设置」滚动定位（general-tray） */}
+      <div
+        className="mt-1 flex flex-col gap-3 border-t pt-3"
+        style={{ borderColor: "var(--app-border)" }}
+        data-settings-section="general-tray"
+      >
+        <Label>{t("traySectionTitle")}</Label>
+
+        <div className="flex items-center justify-between">
+          <div className="flex flex-col pr-4">
+            <Label htmlFor="general-tray-show-session-status">{t("trayShowSessionStatus")}</Label>
+            <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
+              {t("trayShowSessionStatusDesc")}
+            </p>
+          </div>
+          <input
+            id="general-tray-show-session-status"
+            type="checkbox"
+            checked={value.trayShowSessionStatus ?? true}
+            onChange={(e) => update("trayShowSessionStatus", e.target.checked)}
+            className="w-4 h-4 cursor-pointer shrink-0"
+            style={{ accentColor: "var(--app-accent)" }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between gap-6">
+          <div className="min-w-0">
+            <Label htmlFor="general-tray-max-pending">{t("trayMaxPendingEntries")}</Label>
+            <p className="m-0 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
+              {t("trayMaxPendingEntriesDesc")}
+            </p>
+          </div>
+          <Select
+            value={String(value.trayMaxPendingEntries ?? TRAY_MAX_PENDING_ENTRIES_DEFAULT)}
+            onValueChange={(next) => update("trayMaxPendingEntries", Number(next))}
+          >
+            <SelectTrigger
+              id="general-tray-max-pending"
+              aria-label={t("trayMaxPendingEntries")}
+              className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TRAY_MAX_PENDING_OPTIONS.map((count) => (
+                <SelectItem key={count} value={String(count)}>
+                  {count}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="flex flex-col pr-4">
+            <Label htmlFor="general-tray-tooltip-summary">{t("trayTooltipSummary")}</Label>
+            <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
+              {t("trayTooltipSummaryDesc")}
+            </p>
+          </div>
+          <input
+            id="general-tray-tooltip-summary"
+            type="checkbox"
+            checked={value.trayTooltipSummary ?? true}
+            onChange={(e) => update("trayTooltipSummary", e.target.checked)}
+            className="w-4 h-4 cursor-pointer shrink-0"
+            style={{ accentColor: "var(--app-accent)" }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="flex flex-col pr-4">
+            <Label htmlFor="general-tray-confirm-quit">{t("trayConfirmQuit")}</Label>
+            <p className="text-xs m-0" style={{ color: "var(--app-text-tertiary)" }}>
+              {t("trayConfirmQuitDesc")}
+            </p>
+          </div>
+          <input
+            id="general-tray-confirm-quit"
+            type="checkbox"
+            checked={value.trayConfirmQuit ?? true}
+            onChange={(e) => update("trayConfirmQuit", e.target.checked)}
+            className="w-4 h-4 cursor-pointer shrink-0"
+            style={{ accentColor: "var(--app-accent)" }}
+          />
+        </div>
       </div>
 
       <div className="flex items-center justify-between">

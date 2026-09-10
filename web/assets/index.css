@@ -407,6 +407,9 @@
   --app-cli-opencode: #8B5CF6;
   --app-cli-cursor: #111827;
   --app-cli-grok: #71767B;
+  /* jcode 品牌为黑白灰（favicon #7e7e7e），灰系已被 grok/cursor 占用，
+     取未占用的青色相保证 CLI 选择场景可区分 */
+  --app-cli-jcode: #0891B2;
   /*
    * Provider 类型身份色（ProviderAvatar 头像底色）。
    * 与 --app-cli-* 数值多有重合但**不能复用**：cli 那套是前景色，暗色下被整体提亮
@@ -616,6 +619,8 @@
   --app-cli-opencode: #A78BFA;
   --app-cli-cursor: #D1D5DB;
   --app-cli-grok: #9CA3AF;
+  /* 比 identity-ssh 的 #67E8F9 压暗一档，避免两类青色在暗色下混淆 */
+  --app-cli-jcode: #06B6D4;
   /*
    * Provider 身份色暗色套：只有对暗底不成立的两个改值（cursor / config_profile），
    * 其余品牌色本就是「深底白字」，提亮反而伤对比度，故与亮色同值。

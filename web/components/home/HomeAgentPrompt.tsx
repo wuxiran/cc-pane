@@ -11,31 +11,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import StartProjectMenu, { projectNameOf } from "@/components/agentchat/StartProjectMenu";
-import { setPendingStart } from "@/components/agentchat/pendingStart";
-import { CONCIERGE_SYSTEM_PROMPT } from "@/components/onboarding/AgentConciergeEntry";
 import { agentChatService } from "@/services/agentChatService";
-import { usePanesStore, useWorkspacesStore } from "@/stores";
-import { useActivityBarStore } from "@/stores/useActivityBarStore";
+import { useWorkspacesStore } from "@/stores";
 import type { AcpEngineInfo } from "@/types/agentChat";
 import { handleErrorSilent } from "@/utils/errorHandler";
-
-const ENGINE_PREF_KEY = "ccpanes.home.agentEngine";
-
-function loadPreferredEngine(): string | null {
-  try {
-    return localStorage.getItem(ENGINE_PREF_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function savePreferredEngine(engineId: string): void {
-  try {
-    localStorage.setItem(ENGINE_PREF_KEY, engineId);
-  } catch {
-    // 无持久化也不影响本次发送
-  }
-}
+import {
+  launchAgentChatSession,
+  pickPreferredEngine,
+  resolveDefaultAgentCwd,
+  savePreferredEngine,
+} from "./agentPromptLaunch";
 
 export default function HomeAgentPrompt() {
   const { t } = useTranslation("home");
@@ -50,23 +35,10 @@ export default function HomeAgentPrompt() {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // 默认目标：侧栏当前展开的项目 → 其所在工作空间的首个项目 → 任一项目 → 工作空间根目录。
-  const defaultCwd = useMemo(() => {
-    const active = workspaces.filter((workspace) => !workspace.archivedAt);
-    const expanded = active.find((workspace) => workspace.id === expandedWorkspaceId);
-    const expandedProject = expanded?.projects.find(
-      (project) => project.id === expandedProjectId && !project.archivedAt,
-    );
-    if (expandedProject) return expandedProject.path;
-    const ordered = expanded ? [expanded, ...active.filter((w) => w !== expanded)] : active;
-    for (const workspace of ordered) {
-      const project = workspace.projects.find((item) => !item.archivedAt);
-      if (project) return project.path;
-    }
-    for (const workspace of ordered) {
-      if (!workspace.isDefault && workspace.path) return workspace.path;
-    }
-    return "";
-  }, [workspaces, expandedWorkspaceId, expandedProjectId]);
+  const defaultCwd = useMemo(
+    () => resolveDefaultAgentCwd(workspaces, expandedWorkspaceId, expandedProjectId),
+    [workspaces, expandedWorkspaceId, expandedProjectId],
+  );
   const cwd = cwdOverride ?? defaultCwd;
 
   useEffect(() => {
@@ -76,10 +48,7 @@ export default function HomeAgentPrompt() {
       .then((list) => {
         if (cancelled) return;
         setEngines(list);
-        const preferred = loadPreferredEngine();
-        const fallback = list.find((engine) => engine.available) ?? list[0];
-        const chosen = list.find((engine) => engine.id === preferred && engine.available) ?? fallback;
-        setEngineId(chosen?.id ?? null);
+        setEngineId(pickPreferredEngine(list)?.id ?? null);
       })
       .catch((error) => {
         // Web 端 / 未就绪：没有引擎就只展示禁用态，不报错打扰。
@@ -98,20 +67,13 @@ export default function HomeAgentPrompt() {
   const submit = useCallback(() => {
     if (!canSend || !engineId) return;
     setSending(true);
-    const tabId = usePanesStore.getState().openAgentChat(cwd);
+    const tabId = launchAgentChatSession({ cwd, engineId, firstPrompt: text });
     if (!tabId) {
       setSending(false);
       return;
     }
-    setPendingStart(tabId, {
-      engineId,
-      cwd,
-      firstPrompt: text,
-      preamble: CONCIERGE_SYSTEM_PROMPT,
-    });
     setDraft("");
     setSending(false);
-    useActivityBarStore.getState().setAppViewMode("panes");
   }, [canSend, cwd, engineId, text]);
 
   const placeholder = cwd ? t("agentPrompt.placeholder") : t("agentPrompt.placeholderNoTarget");

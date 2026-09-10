@@ -163,6 +163,7 @@ CC-Panes 支持任意能在终端运行的 CLI Agent。一等适配器会在各 
   <kbd>Grok</kbd> &nbsp;
   <kbd>OpenCode</kbd> &nbsp;
   <kbd>Cursor</kbd> &nbsp;
+  <kbd>Jcode</kbd> &nbsp;
   <kbd>+ any terminal CLI</kbd>
 </p>
 

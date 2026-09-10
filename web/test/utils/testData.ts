@@ -137,6 +137,10 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       hideNonFavoriteLaunchActions: false,
       disableWslUsageScan: false,
       showSystemResources: true,
+      trayShowSessionStatus: true,
+      trayMaxPendingEntries: 5,
+      trayTooltipSummary: true,
+      trayConfirmQuit: true,
     },
     localHistory: {
       enabled: true,

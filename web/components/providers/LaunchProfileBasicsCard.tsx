@@ -44,11 +44,14 @@ export default function LaunchProfileBasicsCard({
 }: LaunchProfileBasicsCardProps) {
   const { t } = useTranslation(["providers", "common"]);
   const piFamilyTool = activeTool === "pi" || activeTool === "omp";
-  const runtimeOptions: Exclude<LaunchProfileRuntime, null>[] = piFamilyTool
+  // jcode 与 Pi 家族共享「仅本机/WSL、无 YOLO」约束，但 Provider 字段
+  // 走标准托管语义（env 注入），文案不跟 Pi 家族的 managed 特化。
+  const localWslOnlyTool = piFamilyTool || activeTool === "jcode";
+  const runtimeOptions: Exclude<LaunchProfileRuntime, null>[] = localWslOnlyTool
     ? ["local", "wsl"]
     : ["local", "wsl", "ssh"];
-  const legacyPiSshRuntime = piFamilyTool && draft.targetRuntime === "ssh";
-  const yoloSupported = !piFamilyTool;
+  const legacySshRuntime = localWslOnlyTool && draft.targetRuntime === "ssh";
+  const yoloSupported = !localWslOnlyTool;
 
   /** 模型下拉文案带上下文窗口标注：未配置窗口时显式标「未配置」而不是留白。
    * 优先用 `contextSize` 字符串（`"1m"` / `"500k"` 等，会拼到 ANTHROPIC_MODEL 后缀），
@@ -95,7 +98,7 @@ export default function LaunchProfileBasicsCard({
                 {runtimeOptions.map((runtime) => (
                   <SelectItem key={runtime} value={runtime}>{t(`runtime.${runtime}`)}</SelectItem>
                 ))}
-                {legacyPiSshRuntime && <SelectItem value="ssh" disabled>{t("runtime.ssh")}</SelectItem>}
+                {legacySshRuntime && <SelectItem value="ssh" disabled>{t("runtime.ssh")}</SelectItem>}
               </SelectContent>
             </Select>
           </Field>
@@ -216,7 +219,7 @@ export default function LaunchProfileBasicsCard({
               {runtimeOptions.map((runtime) => (
                 <SelectItem key={runtime} value={runtime}>{t(`runtime.${runtime}`)}</SelectItem>
               ))}
-              {legacyPiSshRuntime && <SelectItem value="ssh" disabled>{t("runtime.ssh")}</SelectItem>}
+              {legacySshRuntime && <SelectItem value="ssh" disabled>{t("runtime.ssh")}</SelectItem>}
             </SelectContent>
           </Select>
         </Field>

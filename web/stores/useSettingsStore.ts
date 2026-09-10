@@ -16,6 +16,19 @@ const defaultCloseToTray = () => {
   return !/Linux/i.test(navigator.userAgent);
 };
 
+/** 托盘待处理列表条数域：与设置页 Select 的 1-10 选项同口径。 */
+export const TRAY_MAX_PENDING_ENTRIES_MIN = 1;
+export const TRAY_MAX_PENDING_ENTRIES_MAX = 10;
+export const TRAY_MAX_PENDING_ENTRIES_DEFAULT = 5;
+
+export function normalizeTrayMaxPendingEntries(value?: number | null): number {
+  if (!Number.isFinite(value)) return TRAY_MAX_PENDING_ENTRIES_DEFAULT;
+  return Math.min(
+    TRAY_MAX_PENDING_ENTRIES_MAX,
+    Math.max(TRAY_MAX_PENDING_ENTRIES_MIN, Math.round(value as number)),
+  );
+}
+
 interface SettingsState {
   settings: AppSettings | null;
   loading: boolean;
@@ -165,6 +178,17 @@ function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
       taskQueueEnabled: typeof maybeSettings.terminal?.taskQueueEnabled === "boolean"
         ? maybeSettings.terminal.taskQueueEnabled
         : true,
+    },
+    general: {
+      ...settings.general,
+      // 托盘设置后于老配置引入：缺键时补默认（与 Rust serde default 同口径），
+      // 避免老用户升级后 UI 读到 undefined。
+      trayShowSessionStatus: maybeSettings.general?.trayShowSessionStatus ?? true,
+      trayMaxPendingEntries: normalizeTrayMaxPendingEntries(
+        maybeSettings.general?.trayMaxPendingEntries,
+      ),
+      trayTooltipSummary: maybeSettings.general?.trayTooltipSummary ?? true,
+      trayConfirmQuit: maybeSettings.general?.trayConfirmQuit ?? true,
     },
     cliLaunchers: {
       ...DEFAULT_CLI_LAUNCHER_SETTINGS,
@@ -377,6 +401,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       hideNonFavoriteLaunchActions: true,
       disableWslUsageScan: false,
       showSystemResources: true,
+      trayShowSessionStatus: true,
+      trayMaxPendingEntries: TRAY_MAX_PENDING_ENTRIES_DEFAULT,
+      trayTooltipSummary: true,
+      trayConfirmQuit: true,
     },
     localHistory: DEFAULT_LOCAL_HISTORY_SETTINGS,
     notification: {

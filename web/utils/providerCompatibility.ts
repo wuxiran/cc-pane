@@ -24,6 +24,9 @@ const FALLBACK_CLI_TO_PROVIDER_TYPES: Record<Exclude<KnownCliTool, "none">, Prov
   opencode: ["open_ai", "opencode", "anthropic"],
   cursor: ["cursor"],
   grok: ["grok"],
+  // jcode 原生读取 ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL（anthropic-api 通道），
+  // 与 cc-cli-adapters/src/jcode.rs 的 compatible_provider_types 对齐
+  jcode: ["anthropic", "proxy"],
 };
 
 function fallbackCompatibleProviderTypes(cliTool: string): ProviderType[] | null {

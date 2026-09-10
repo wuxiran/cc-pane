@@ -57,8 +57,9 @@ function ToggleChip({
 
 export default function LauncherChips({ draft, onChange }: LauncherChipsProps) {
   const { t } = useTranslation("launcher");
-  // The Pi family has no YOLO or MCP-chip contract; both chips are hidden.
-  const piFamilyLaunch = draft.cliTool === "pi" || draft.cliTool === "omp";
+  // The Pi family and jcode have no YOLO or MCP-chip contract; both chips are hidden.
+  const hideYoloMcpChips =
+    draft.cliTool === "pi" || draft.cliTool === "omp" || draft.cliTool === "jcode";
   const { tools } = useCliTools();
   const support = resolveLaunchOptionSupport(draft.cliTool, tools);
   const unsupportedHint = t("optionUnsupported", { cli: draft.cliTool });
@@ -66,7 +67,7 @@ export default function LauncherChips({ draft, onChange }: LauncherChipsProps) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-1.5">
-        {!piFamilyLaunch && (
+        {!hideYoloMcpChips && (
           <ToggleChip
             active={draft.yolo === true}
             label="YOLO"
@@ -74,7 +75,7 @@ export default function LauncherChips({ draft, onChange }: LauncherChipsProps) {
             onClick={() => onChange({ yolo: draft.yolo ? undefined : true })}
           />
         )}
-        {!piFamilyLaunch && (
+        {!hideYoloMcpChips && (
           <ToggleChip
             active={draft.skipMcp}
             label={t("skipMcp")}

@@ -31,9 +31,26 @@ export function isSessionSnoozed(id: string | undefined, now = Date.now()): bool
   return Boolean(id && (useNotificationPreferencesStore.getState().preferences.sessionSnoozes[id] ?? 0) > now);
 }
 
+/**
+ * 「notification-preferences-changed」事件的统一刷新入口：带偏好快照直接采用；
+ * 无 payload（托盘等入口即改即通知）则清掉 ready 短路、走 load 通道向后端重取。
+ */
+export function applyNotificationPreferencesEvent(
+  payload: NotificationPreferences | null | undefined,
+): void {
+  if (payload) {
+    useNotificationPreferencesStore.setState({ preferences: payload, ready: true });
+    return;
+  }
+  if (useNotificationPreferencesStore.getState().ready) {
+    useNotificationPreferencesStore.setState({ ready: false });
+  }
+  void useNotificationPreferencesStore.getState().load();
+}
+
 /** Mounted once by NotificationCenter; listeners are owned by that lifecycle. */
 export async function listenNotificationPreferences(): Promise<() => void> {
-  return listenIfTauri<NotificationPreferences>("notification-preferences-changed", event => {
-    useNotificationPreferencesStore.setState({ preferences: event.payload, ready: true });
+  return listenIfTauri<NotificationPreferences | null>("notification-preferences-changed", event => {
+    applyNotificationPreferencesEvent(event.payload);
   });
 }

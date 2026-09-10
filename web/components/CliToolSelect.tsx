@@ -34,6 +34,7 @@ export const CLI_COLOR_VAR: Record<string, string> = {
   opencode: "var(--app-cli-opencode)",
   cursor: "var(--app-cli-cursor)",
   grok: "var(--app-cli-grok)",
+  jcode: "var(--app-cli-jcode)",
 };
 
 export default function CliToolSelect({

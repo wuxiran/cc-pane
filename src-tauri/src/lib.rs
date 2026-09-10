@@ -66,6 +66,7 @@ use commands::{
     close_window,
     compress_history,
     compute_text_diff,
+    confirm_tray_quit,
     copy_skill,
     create_auto_label,
     create_drama_episode,
@@ -507,6 +508,7 @@ use commands::{
     touch_launch_by_session,
     transcribe_voice_input,
     transition_media_run,
+    tray_set_language,
     trigger_notification,
     update_drama_episode,
     update_drama_project,
@@ -570,7 +572,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::{debug, error, info, warn};
 
 use tauri::{
-    menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, WindowEvent,
 };
@@ -648,7 +649,7 @@ thread_local! {
 #[cfg(target_os = "macos")]
 fn with_macos_app_menu<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     use tauri::menu::{
-        AboutMetadata, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID, WINDOW_SUBMENU_ID,
+        AboutMetadata, Menu, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID, WINDOW_SUBMENU_ID,
     };
 
     builder
@@ -2909,10 +2910,6 @@ pub fn run() {
             );
 
             // ---- 系统托盘 ----
-            let show = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &quit])?;
-
             let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
 
             let tooltip = if cfg!(debug_assertions) {
@@ -2920,27 +2917,16 @@ pub fn run() {
             } else {
                 "CC-Panes"
             };
-            let _tray = TrayIconBuilder::new()
+            let tray = TrayIconBuilder::new()
                 .icon(icon)
                 .tooltip(tooltip)
-                .menu(&menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => {
-                        // 截图期间不恢复窗口，避免窗口重新出现在截图中
-                        if CAPTURING.load(Ordering::SeqCst) {
-                            return;
-                        }
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.unminimize();
-                            let _ = window.set_focus();
-                        }
+                .on_menu_event(|app, event| {
+                    if let Some(controller) =
+                        app.try_state::<Arc<services::tray_menu::TrayMenuController>>()
+                    {
+                        controller.inner().clone().handle_menu_event(event.id.as_ref());
                     }
-                    "quit" => {
-                        app.exit(0);
-                    }
-                    _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
                     // 左键单击托盘图标 → 显示窗口
@@ -2963,6 +2949,59 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // 动态托盘菜单控制器：右键菜单结构由 build_menu_spec 纯函数决策，
+            // 会话状态/偏好/生命周期事件驱动 300ms 节流重建（services/tray_menu.rs）。
+            let tray_orchestrator = app.state::<Arc<OrchestratorService>>().inner().clone();
+            let tray_controller = Arc::new(services::tray_menu::TrayMenuController::new(
+                app.handle().clone(),
+                tray.clone(),
+                app.state::<Arc<SettingsService>>().inner().clone(),
+                app.state::<Arc<TerminalBackendState>>().inner().clone(),
+                tray_orchestrator.clone(),
+                app.state::<Arc<TaskBindingService>>().inner().clone(),
+                app.state::<Arc<WorkspaceService>>().inner().clone(),
+                app.state::<Arc<services::notification_preferences::NotificationPreferenceService>>()
+                    .inner()
+                    .clone(),
+            ));
+            app.manage(tray_controller.clone());
+            tray_controller.refresh();
+
+            // 会话状态跃迁（hook 状态机 broadcast）→ 节流刷新
+            {
+                let mut rx = tray_orchestrator
+                    .session_state_machine()
+                    .subscribe_transitions();
+                let controller = tray_controller.clone();
+                tauri::async_runtime::spawn(async move {
+                    while rx.recv().await.is_ok() {
+                        controller.refresh();
+                    }
+                });
+            }
+            // 会话退出/被杀、偏好变更 → 刷新数量与勾选态
+            {
+                use tauri::Listener;
+                for event_name in [
+                    cc_panes_core::constants::events::TERMINAL_EXIT,
+                    cc_panes_core::constants::events::SESSION_KILLED,
+                    services::tray_menu::PREFS_CHANGED_EVENT,
+                ] {
+                    let controller = tray_controller.clone();
+                    app.listen_any(event_name, move |_| controller.refresh());
+                }
+            }
+            // 慢速兜底 tick：时长文案推进 + 无 hook 会话的进出
+            {
+                let controller = tray_controller.clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                        controller.refresh();
+                    }
+                });
+            }
 
             // ---- macOS: 运行时设置 titlebar overlay 样式 ----
             // config 保持 decorations: false（Windows 兼容），macOS 在此通过 NSWindow API
@@ -3299,6 +3338,9 @@ pub fn run() {
             import_notification_sound,
             get_notification_sound_path,
             trigger_notification,
+            // 托盘命令
+            confirm_tray_quit,
+            tray_set_language,
             // IM 外推命令
             test_im_channel,
             get_im_bridge_status,

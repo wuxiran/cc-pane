@@ -1626,6 +1626,7 @@ impl TerminalService {
             CliTool::Grok => "grok",
             CliTool::Pi => "pi",
             CliTool::Omp => "omp",
+            CliTool::Jcode => "jcode",
             other => {
                 return Err(anyhow!(
                     "WSL generic launch does not support CLI tool {:?}",
@@ -1774,6 +1775,15 @@ impl TerminalService {
             // 旧版本会把 ~/.claude/commands/ccpanes 的 .md 拷进发行版内。宿主侧已停止
             // 生成该目录（内置能力改为 skill + 按会话挂载），源不复存在，故同步取消。
             // 内置 / 工作空间 skill 现在通过 `--plugin-dir /mnt/...` 挂载（见下方 cli_args）。
+        }
+        if cli_tool == CliTool::Jcode {
+            // effort → jcode 推理档位（与本地 jcode.rs 的 env_inject 通道对齐；
+            // WSL 分支改为 remote 端 export 注入）。取值经 effort_from_options
+            // 白名单过滤（low..max），无需再转义。
+            if let Some(effort) = cc_cli_adapters::effort_from_options(adapter_options) {
+                remote_parts.push(format!("export JCODE_ANTHROPIC_REASONING_EFFORT={effort}"));
+                remote_parts.push(format!("export JCODE_OPENAI_REASONING_EFFORT={effort}"));
+            }
         }
         if matches!(cli_tool, CliTool::Pi | CliTool::Omp) {
             match self.build_wsl_pi_skill_sync_commands(cli_tool) {
@@ -1953,6 +1963,23 @@ impl TerminalService {
             if let Some(prompt) = initial_prompt {
                 cli_args.push(prompt.to_string());
             }
+        } else if cli_tool == CliTool::Jcode {
+            // 与本地 jcode.rs build_command 同口径：--no-update 确定性启动；
+            // managed anthropic/proxy 钉 anthropic-api 通道（凭证走前面已
+            // export 的通用 Provider env）。TUI 不接受位置参数 prompt，
+            // initial_prompt 显式忽略；effort 已在 remote_parts 以 export 注入。
+            cli_args.push("--no-update".to_string());
+            if provider.is_some_and(|provider| {
+                matches!(provider.provider_type.as_str(), "anthropic" | "proxy")
+            }) {
+                cli_args.push("--provider".to_string());
+                cli_args.push("anthropic-api".to_string());
+            }
+            if let Some(resume_id) = resume_id {
+                cli_args.push("--resume".to_string());
+                cli_args.push(resume_id.to_string());
+            }
+            cli_args.extend(cc_cli_adapters::extra_args_from_options(adapter_options));
         } else if let Some(prompt) = initial_prompt {
             cli_args.push(prompt.to_string());
         }

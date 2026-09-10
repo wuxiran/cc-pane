@@ -706,6 +706,18 @@ pub struct GeneralSettings {
     /// 是否在状态栏显示整机 CPU 与内存占用。
     #[serde(default = "default_true")]
     pub show_system_resources: bool,
+    /// 托盘菜单是否显示会话状态摘要与待处理会话区。
+    #[serde(default = "default_true")]
+    pub tray_show_session_status: bool,
+    /// 托盘菜单待处理会话区最大条数。
+    #[serde(default = "default_tray_max_pending_entries")]
+    pub tray_max_pending_entries: u8,
+    /// 托盘 tooltip 是否附带会话状态摘要。
+    #[serde(default = "default_true")]
+    pub tray_tooltip_summary: bool,
+    /// 退出前（仍有运行会话时）是否需要前端确认。
+    #[serde(default = "default_true")]
+    pub tray_confirm_quit: bool,
 }
 
 /// 应用版本更新提示设置。
@@ -1102,6 +1114,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_tray_max_pending_entries() -> u8 {
+    5
+}
+
 fn deserialize_bool_default_true<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -1406,6 +1422,10 @@ impl Default for GeneralSettings {
             hide_non_favorite_launch_actions: true,
             disable_wsl_usage_scan: false,
             show_system_resources: true,
+            tray_show_session_status: true,
+            tray_max_pending_entries: default_tray_max_pending_entries(),
+            tray_tooltip_summary: true,
+            tray_confirm_quit: true,
         }
     }
 }

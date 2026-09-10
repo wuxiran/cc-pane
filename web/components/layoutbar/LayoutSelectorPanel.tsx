@@ -1,7 +1,8 @@
 import { LayoutAutoFitButton } from "./LayoutAutoFit";
-import { useEffect, type RefObject, type PointerEvent as ReactPointerEvent, type SyntheticEvent } from "react";
+import { useCallback, useEffect, useRef, type RefObject, type PointerEvent as ReactPointerEvent, type SyntheticEvent } from "react";
 import { usePanelResize } from "@/hooks/usePanelResize";
 import { usePanelPreferencesStore } from "@/stores/usePanelPreferencesStore";
+import { setDragging } from "@/stores/splitDragState";
 import { createPortal } from "react-dom";
 import { LayoutPanelTop, Network, PanelTop, Pin, PinOff, Plus } from "lucide-react";
 import { DndContext, closestCenter, type DragEndEvent, type SensorDescriptor, type SensorOptions } from "@dnd-kit/core";
@@ -12,6 +13,10 @@ import type { TFunction } from "i18next";
 import type { LayoutEntry, PaneNode, TerminalStatusInfo } from "@/types";
 import { SortableLayoutRow } from "./SortableLayoutRow";
 import type { FloatingPosition } from "./useFloatingPanelPosition";
+
+// 布局列表纵向拉伸范围（与 usePanelPreferencesStore 的 layoutHeight clamp 同口径）
+const LIST_HEIGHT_MIN = 160;
+const LIST_HEIGHT_MAX = 800;
 
 export function LayoutSelectorPanel({
   floatingRef,
@@ -79,7 +84,48 @@ export function LayoutSelectorPanel({
   const canvasVisible = canvasMode === "canvas";
   const width = usePanelPreferencesStore(s => s.layoutWidth);
   const setWidth = usePanelPreferencesStore(s => s.setLayoutWidth);
+  const height = usePanelPreferencesStore(s => s.layoutHeight);
+  const setHeight = usePanelPreferencesStore(s => s.setLayoutHeight);
   const resize = usePanelResize({ element: floatingRef, width, min: 288, max: 720, onCommit: setWidth });
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  // 纵向拉伸：列表默认由内容撑开（height=null）；拖下缘把手向上 = 设上限收缩
+  // （出现滚动条），向下 = 放开上限直到内容高度/窗口底。顶边不动，下缘跟随光标。
+  const startHeightResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault(); event.stopPropagation();
+    const list = listRef.current, panel = floatingRef.current;
+    if (!list || !panel) return;
+    const start = event.clientY, original = list.offsetHeight;
+    const content = list.scrollHeight;
+    const chrome = panel.offsetHeight - list.offsetHeight;
+    const panelTop = panel.getBoundingClientRect().top;
+    const roomBottom = Math.max(LIST_HEIGHT_MIN, window.innerHeight - 12 - panelTop - chrome);
+    const previousCursor = document.body.style.cursor, previousSelection = document.body.style.userSelect;
+    let next = original, frame = 0;
+    const preview = () => { list.style.maxHeight = next >= content ? "" : `${next}px`; };
+    const move = (e: globalThis.PointerEvent) => {
+      next = Math.round(Math.min(Math.min(content, roomBottom), Math.max(LIST_HEIGHT_MIN, original + (e.clientY - start))));
+      cancelAnimationFrame(frame); frame = requestAnimationFrame(preview);
+    };
+    const finish = (cancelled: boolean) => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      document.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("blur", cancel);
+      document.body.style.cursor = previousCursor; document.body.style.userSelect = previousSelection;
+      setDragging(false);
+      if (cancelled) { list.style.maxHeight = height === null ? "" : `${height}px`; return; }
+      preview(); setHeight(next >= content ? null : next);
+    };
+    const up = () => finish(false), cancel = () => finish(true);
+    setDragging(true);
+    document.body.style.cursor = "row-resize"; document.body.style.userSelect = "none";
+    document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
+    document.addEventListener("pointercancel", cancel); window.addEventListener("blur", cancel);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }, [height, setHeight, floatingRef]);
   useEffect(() => {
     floatingRef.current?.querySelector<HTMLElement>("[data-layout-selected=true]")?.scrollIntoView?.({ block: "nearest" });
   }, [currentLayoutId, floatingRef]);
@@ -205,7 +251,7 @@ export function LayoutSelectorPanel({
         onDragCancel={handleLayoutDragCancel}
       >
         <SortableContext items={layouts.map((layout) => layout.id)} strategy={verticalListSortingStrategy}>
-          <div className="app-scrollbar flex max-h-[320px] flex-col gap-1 overflow-y-auto">
+          <div ref={listRef} className="app-scrollbar flex flex-col gap-1 overflow-y-auto" style={{ maxHeight: height ?? undefined }}>
             {layouts.map((layout) => {
               const selected = layout.id === currentLayoutId;
               return (
@@ -235,6 +281,23 @@ export function LayoutSelectorPanel({
           </div>
         </SortableContext>
       </DndContext>
+      <div role="separator" aria-label={t("resizeLayoutListHeight")} aria-orientation="horizontal" tabIndex={0}
+        aria-valuemin={LIST_HEIGHT_MIN} aria-valuemax={LIST_HEIGHT_MAX}
+        aria-valuenow={height ?? undefined}
+        className="absolute inset-x-0 -bottom-1 h-2 cursor-row-resize hover:bg-[var(--app-active-bg)]"
+        onPointerDown={startHeightResize}
+        onKeyDown={e => {
+          if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+          e.preventDefault();
+          const list = listRef.current;
+          if (!list) return;
+          if (e.key === "ArrowUp") {
+            setHeight(Math.max(LIST_HEIGHT_MIN, list.offsetHeight - 10));
+          } else {
+            const next = list.offsetHeight + 10;
+            setHeight(next >= list.scrollHeight ? null : next);
+          }
+        }} />
     </div>,
     document.body
   );

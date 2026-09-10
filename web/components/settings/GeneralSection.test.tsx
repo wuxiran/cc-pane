@@ -65,6 +65,10 @@ function createValue(overrides: Partial<GeneralSettings> = {}): GeneralSettings 
     hideNonFavoriteLaunchActions: false,
     disableWslUsageScan: false,
     showSystemResources: true,
+    trayShowSessionStatus: true,
+    trayMaxPendingEntries: 5,
+    trayTooltipSummary: true,
+    trayConfirmQuit: true,
     ...overrides,
   };
 }
@@ -100,11 +104,12 @@ describe("GeneralSection", () => {
     const onChange = vi.fn();
     render(<GeneralSection value={createValue()} onChange={onChange} />);
 
-    const checkboxes = screen.getAllByRole("checkbox");
-    await user.click(checkboxes[0]);
+    await user.click(
+      screen.getByRole("checkbox", { name: /关闭窗口时最小化到托盘|Minimize to tray on close/i }),
+    );
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ closeToTray: false }));
 
-    await user.click(checkboxes[1]);
+    await user.click(screen.getByRole("checkbox", { name: /开机自启|Start on boot/i }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ autoStart: true }));
   });
 
@@ -181,13 +186,12 @@ describe("GeneralSection", () => {
     const onChange = vi.fn();
     render(<GeneralSection value={createValue()} onChange={onChange} />);
 
-    const selects = screen.getAllByRole("combobox");
-    // 顺序：language → defaultCliTool → searchScope
-    await user.click(selects[0]);
+    // 按 aria-label 定位，新增下拉（如托盘条数）不影响既有断言
+    await user.click(screen.getByRole("combobox", { name: /^语言$|^Language$/i }));
     await user.click(screen.getByRole("option", { name: "English" }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ language: "en" }));
 
-    await user.click(selects[1]);
+    await user.click(screen.getByRole("combobox", { name: /默认 CLI 工具|Default CLI tool/i }));
     expect(screen.getByRole("option", { name: "Codex CLI" })).toBeInTheDocument();
     await user.click(screen.getByRole("option", { name: "Codex CLI" }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ defaultCliTool: "codex" }));
@@ -198,8 +202,7 @@ describe("GeneralSection", () => {
     const onChange = vi.fn();
     const { rerender } = render(<GeneralSection value={createValue()} onChange={onChange} />);
 
-    const selects = screen.getAllByRole("combobox");
-    await user.click(selects[2]);
+    await user.click(screen.getByRole("combobox", { name: /搜索范围|Search scope/i }));
     await user.click(screen.getByRole("option", { name: /全盘|Full disk/i }));
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ searchScope: "FullDisk" }));
 
@@ -326,5 +329,100 @@ describe("GeneralSection", () => {
       expect(settingsService.migrateDataDir).toHaveBeenCalledWith(dataDirInfo.defaultPath),
     );
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ dataDir: null }));
+  });
+
+  describe("系统托盘设置区", () => {
+    it("renders the tray subsection with all four controls", () => {
+      render(<GeneralSection value={createValue()} onChange={vi.fn()} />);
+
+      expect(screen.getByText(/系统托盘|System Tray/i)).toBeInTheDocument();
+      expect(
+        screen.getByRole("checkbox", { name: /托盘菜单显示会话状态|Show session status in tray menu/i }),
+      ).toBeChecked();
+      expect(
+        screen.getByRole("combobox", { name: /待处理会话最多显示条数|Max pending sessions shown/i }),
+      ).toHaveTextContent("5");
+      expect(
+        screen.getByRole("checkbox", { name: /托盘悬停提示显示状态摘要|Show status summary in tray tooltip/i }),
+      ).toBeChecked();
+      expect(
+        screen.getByRole("checkbox", { name: /退出前确认|Confirm before quitting/i }),
+      ).toBeChecked();
+    });
+
+    it("toggles trayShowSessionStatus / trayTooltipSummary / trayConfirmQuit", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(<GeneralSection value={createValue()} onChange={onChange} />);
+
+      await user.click(
+        screen.getByRole("checkbox", { name: /托盘菜单显示会话状态|Show session status in tray menu/i }),
+      );
+      expect(onChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ trayShowSessionStatus: false }),
+      );
+
+      await user.click(
+        screen.getByRole("checkbox", { name: /托盘悬停提示显示状态摘要|Show status summary in tray tooltip/i }),
+      );
+      expect(onChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ trayTooltipSummary: false }),
+      );
+
+      await user.click(
+        screen.getByRole("checkbox", { name: /退出前确认|Confirm before quitting/i }),
+      );
+      expect(onChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ trayConfirmQuit: false }),
+      );
+    });
+
+    it("changes trayMaxPendingEntries as a number within the 1-10 option range", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(<GeneralSection value={createValue()} onChange={onChange} />);
+
+      await user.click(
+        screen.getByRole("combobox", { name: /待处理会话最多显示条数|Max pending sessions shown/i }),
+      );
+      const options = screen.getAllByRole("option");
+      expect(options).toHaveLength(10);
+      await user.click(screen.getByRole("option", { name: "8" }));
+
+      expect(onChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ trayMaxPendingEntries: 8 }),
+      );
+    });
+
+    it("falls back to defaults for legacy settings without tray fields", () => {
+      const legacyValue: Record<string, unknown> = { ...createValue() };
+      delete legacyValue.trayShowSessionStatus;
+      delete legacyValue.trayMaxPendingEntries;
+      delete legacyValue.trayTooltipSummary;
+      delete legacyValue.trayConfirmQuit;
+
+      render(<GeneralSection value={legacyValue as unknown as GeneralSettings} onChange={vi.fn()} />);
+
+      expect(
+        screen.getByRole("checkbox", { name: /托盘菜单显示会话状态|Show session status in tray menu/i }),
+      ).toBeChecked();
+      expect(
+        screen.getByRole("combobox", { name: /待处理会话最多显示条数|Max pending sessions shown/i }),
+      ).toHaveTextContent("5");
+      expect(
+        screen.getByRole("checkbox", { name: /托盘悬停提示显示状态摘要|Show status summary in tray tooltip/i }),
+      ).toBeChecked();
+      expect(
+        screen.getByRole("checkbox", { name: /退出前确认|Confirm before quitting/i }),
+      ).toBeChecked();
+    });
+
+    it("marks the tray subsection as the general-tray scroll target", () => {
+      const { container } = render(<GeneralSection value={createValue()} onChange={vi.fn()} />);
+
+      expect(
+        container.querySelector('[data-settings-section="general-tray"]'),
+      ).not.toBeNull();
+    });
   });
 });

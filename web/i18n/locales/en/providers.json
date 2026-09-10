@@ -133,6 +133,7 @@
   "piRpcUnavailable": "This Pi adapter does not expose RPC. Use the interactive terminal transport.",
   "piSshRuntimeUnsupported": "Pi launch profiles support local and WSL runtimes only.",
   "ompSshRuntimeUnsupported": "Oh My Pi launch profiles support local and WSL runtimes only.",
+  "jcodeSshRuntimeUnsupported": "Jcode launch profiles support local and WSL runtimes only.",
   "sectionPermTitle": "Permissions",
   "sectionPermDesc": "Set the CLI permission policy for this launch profile.",
   "yoloBypassed": "⚠ Permission checks bypassed",

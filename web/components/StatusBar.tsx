@@ -386,9 +386,9 @@ export default function StatusBar() {
 
   return (
     <div
-      // tabular-nums 挂在根容器上即可继承到所有后代数字（CPU/内存/活跃数/版本号），
-      // 等宽数字消除数值刷新时的横向跳动；只加类，不改任何结构。
-      className="shape-chrome flex items-center h-[var(--density-row-h)] px-2.5 shrink-0 select-none z-10 text-[length:var(--text-caption)] tabular-nums"
+      // relative 不能省：backdrop-filter 已让本元素成为堆叠上下文，无定位时 z-10 不生效
+      // （按 auto 层级 0 排序），会被主内容行 relative z-[1] 压住，栏内 absolute z-50 悬停面板因此被遮。
+      className="shape-chrome relative flex items-center h-[var(--density-row-h)] px-2.5 shrink-0 select-none z-10 text-[length:var(--text-caption)] tabular-nums"
       style={{
         background: "var(--app-menubar)",
         borderTop: "1px solid var(--app-border)",
