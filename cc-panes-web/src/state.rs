@@ -4,8 +4,8 @@ use cc_cli_adapters::CliToolRegistry;
 use cc_panes_core::services::{
     DramaService, ExternalSkillRegistry, FileSystemService, HistoryService, JournalService,
     LaunchHistoryService, LaunchProfileService, LayoutSnapshotService, McpConfigService,
-    MediaService, MemoryService, PlanService, ProcessMonitorService, ProjectCliHooksService,
-    ProjectService, ProviderService, QuickCommandService, RunnerService, SessionIndexService,
+    MemoryService, PlanService, ProcessMonitorService, ProjectCliHooksService, ProjectService,
+    ProviderService, QuickCommandService, RunnerService, SessionIndexService,
     SessionRestoreService, SettingsService, SharedMcpService, SkillService, SpecService,
     SshMachineService, TaskBindingService, TerminalBackend, TodoService, UsageStatsService,
     UserSkillService, WorkspaceService, WorktreeService,
@@ -33,7 +33,6 @@ pub struct AppState {
     pub spec_service: Arc<SpecService>,
     pub task_binding_service: Arc<TaskBindingService>,
     pub launch_history_service: Arc<LaunchHistoryService>,
-    pub media_service: Arc<MediaService>,
     pub drama_service: Arc<DramaService>,
     pub layout_snapshot_service: Arc<LayoutSnapshotService>,
     pub launch_profile_service: Arc<LaunchProfileService>,
