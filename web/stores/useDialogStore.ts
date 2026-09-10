@@ -120,6 +120,12 @@ interface DialogState {
   launcherContext: LauncherContext | null;
   openLauncher: (ctx?: LauncherContext) => void;
   closeLauncher: () => void;
+
+  // Tray Quit Confirm（托盘退出确认，对话框挂在 AppDialogs）
+  trayQuitConfirmOpen: boolean;
+  trayQuitRunningCount: number;
+  openTrayQuitConfirm: (runningCount: number) => void;
+  closeTrayQuitConfirm: () => void;
 }
 
 export const useDialogStore = create<DialogState>((set) => ({
@@ -217,4 +223,11 @@ export const useDialogStore = create<DialogState>((set) => ({
   launcherContext: null,
   openLauncher: (ctx) => set({ launcherOpen: true, launcherContext: ctx ?? null }),
   closeLauncher: () => set({ launcherOpen: false, launcherContext: null }),
+
+  // Tray Quit Confirm
+  trayQuitConfirmOpen: false,
+  trayQuitRunningCount: 0,
+  openTrayQuitConfirm: (runningCount) =>
+    set({ trayQuitConfirmOpen: true, trayQuitRunningCount: runningCount }),
+  closeTrayQuitConfirm: () => set({ trayQuitConfirmOpen: false }),
 }));

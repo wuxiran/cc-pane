@@ -25,6 +25,7 @@ import {
 import { useTerminalResumeIdBridge } from "@/hooks/useTerminalSessionRestore";
 import { useAppLifecycleEarly } from "@/hooks/useAppLifecycleEarly";
 import { useAppLifecycleLate } from "@/hooks/useAppLifecycleLate";
+import { useTrayActions } from "@/hooks/useTrayActions";
 import { useShortcutRegistrations } from "@/hooks/useShortcutRegistrations";
 import { useOpenTerminal } from "@/hooks/useOpenTerminal";
 import { useQuickCommandsSync } from "@/hooks/useQuickCommandsSync";
@@ -114,6 +115,8 @@ function MainApp() {
   const { recentFilesOpen, closeRecentFiles } = useAppLifecycleLate();
   useShortcutRegistrations();
   useQuickCommandsSync();
+  // 系统托盘事件分发（tray-action / 通知偏好变更），独立于上面的生命周期序列。
+  useTrayActions();
   const handleOpenTerminal = useOpenTerminal();
 
   if (!terminalRestoreReady) return null;

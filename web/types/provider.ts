@@ -250,6 +250,7 @@ export const CLI_TOOL_TABS = [
   { id: "opencode" as const, labelKey: "tabOpenCode", accentColor: "#8B5CF6" },
   { id: "cursor" as const, labelKey: "tabCursor", accentColor: "#111827" },
   { id: "grok" as const, labelKey: "tabGrok", accentColor: "#71767B" },
+  { id: "jcode" as const, labelKey: "tabJcode", accentColor: "#0891B2" },
 ] as const;
 
 export type PresetCategory = "official" | "cloud" | "proxy_intl" | "openai_compat" | "domestic";

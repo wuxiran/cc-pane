@@ -5,6 +5,8 @@ const CLI_INSTALL_HINTS: Record<string, string> = {
     "Install Oh My Pi with: irm https://omp.sh/install.ps1 | iex (Bun >= 1.3.14 required)",
   opencode:
     "Install OpenCode with: npm install -g opencode-ai --registry=https://registry.npmjs.org",
+  jcode:
+    "Install Jcode with: curl -fsSL https://jcode.sh/install | bash (macOS/Linux) or irm https://jcode.sh/install.ps1 | iex (Windows)",
 };
 
 export function getCliInstallHint(toolName: string): string | null {

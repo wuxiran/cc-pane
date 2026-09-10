@@ -163,6 +163,7 @@ CC-Panes는 터미널에서 실행되는 모든 CLI 에이전트와 함께 동�
   <kbd>Grok</kbd> &nbsp;
   <kbd>OpenCode</kbd> &nbsp;
   <kbd>Cursor</kbd> &nbsp;
+  <kbd>Jcode</kbd> &nbsp;
   <kbd>+ any terminal CLI</kbd>
 </p>
 

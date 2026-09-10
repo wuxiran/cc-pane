@@ -160,6 +160,23 @@ pub fn managed_provider_conflict_env_keys(cli_tool: CliTool) -> &'static [&'stat
             "PI_CODING_AGENT_DIR",
             "PI_CODING_AGENT_SESSION_DIR",
         ],
+        // jcode 原生读取 ANTHROPIC_*（anthropic-api 通道）与 OPENAI_API_KEY，
+        // 且有自己的 JCODE_* 覆盖变量。managed 启动前清掉继承值，防止用户
+        // shell 里的凭证/端点覆盖本次托管 Provider；`-p`/`--model` flag 虽然
+        // 优先于 JCODE_PROVIDER/JCODE_MODEL，仍一并清除保持启动确定性。
+        CliTool::Jcode => &[
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_OAUTH_TOKEN",
+            "ANTHROPIC_BASE_URL",
+            "OPENAI_API_KEY",
+            "JCODE_API_KEY",
+            "JCODE_API_BASE",
+            "JCODE_ANTHROPIC_API_BASE",
+            "JCODE_ANTHROPIC_AUTH",
+            "JCODE_PROVIDER",
+            "JCODE_MODEL",
+        ],
         CliTool::None => &[],
     }
 }

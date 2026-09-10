@@ -151,6 +151,21 @@ npm run build
 npm run tauri build
 ```
 
+**Sidecar sync after backend changes（必读）**：终端会话的 spawn 由常驻侧车
+`cc-panes-daemon` 执行（app 只发请求），`cc-panes-cli-hook` / `cc-panes-ctl` /
+`cc-panes-web` 同为独立二进制。改了 `cc-panes-core` / 适配器等后端代码后，
+`npm run tauri:dev` **不会**自动重建它们——旧 daemon 仍在服务，会出现「UI 是新的、
+行为是旧的」的幽灵 bug（实例：旧 daemon 不认识新 CLI id，`from_id` 回落
+`launch_claude` 把启动静默换成 Claude）。同步流程：
+
+```bash
+cargo build -p cc-panes-daemon -p cc-panes-cli-hook -p cc-panes-ctl -p cc-panes-web
+node scripts/copy-hook.cjs --debug        # 同步到 src-tauri/binaries + resources
+# dev 运行时目录还需镜像（app 从那里拉起侧车）：
+cp -f ../cc-book-target/debug/cc-panes-{daemon,cli-hook,ctl,web}.exe ../cc-book-target/debug/binaries/
+# 然后杀掉常驻 daemon 让 app 重新拉起（或重启 dev app）
+```
+
 ### Frontend Testing & Checks
 
 ```bash

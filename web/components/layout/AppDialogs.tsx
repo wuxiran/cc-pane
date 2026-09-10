@@ -12,6 +12,7 @@ import RecentFilesPicker from "@/components/RecentFilesPicker";
 import CommandPalette from "@/components/CommandPalette";
 import ShortcutCheatsheet from "@/components/ShortcutCheatsheet";
 import TerminalPathLinkDialog from "@/components/panes/TerminalPathLinkDialog";
+import TrayQuitConfirmDialog from "@/components/tray/TrayQuitConfirmDialog";
 import { useDialogStore } from "@/stores";
 
 interface AppDialogsProps {
@@ -88,6 +89,8 @@ export default function AppDialogs({ recentFilesOpen, onCloseRecentFiles }: AppD
       />
       <AiPanelDialog />
       <TerminalPathLinkDialog />
+      {/* 托盘退出确认（tray-action/confirm-quit 触发，确认后回调 Rust 退出） */}
+      <TrayQuitConfirmDialog />
 
       {/* 最近文件选择器（Ctrl+E） */}
       <RecentFilesPicker open={recentFilesOpen} onClose={onCloseRecentFiles} />

@@ -248,11 +248,7 @@ export default memo(function Panel({ pane }: PanelProps) {
     removeTerminalLeafInternal(tabId, tab.activeTerminalPaneId, "user-close");
   }, [removeTerminalLeafInternal, pane.tabs]);
 
-  const handleFullscreen = useCallback(
-    (tabId: string) => enterFullscreen(pane.id, tabId),
-    [pane.id, enterFullscreen]
-  );
-
+  // 双击标签 = 切换全屏（进入/退出同一入口）；右键菜单走同一 toggle。
   const handleToggleFullscreen = useCallback(
     (tabId: string) => {
       if (isFullscreenPanel) {
@@ -437,7 +433,7 @@ export default memo(function Panel({ pane }: PanelProps) {
               onAddFileExplorer: handleAddFileExplorer,
               onAddSsh: handleAddSsh,
             }}
-            onFullscreen={handleFullscreen}
+            onFullscreen={handleToggleFullscreen}
             onSplitAndMoveRight={handleSplitAndMoveRight}
             onSplitAndMoveDown={handleSplitAndMoveDown}
             moveTargets={moveTargets}

@@ -14,6 +14,7 @@ mod cursor;
 mod fs_atomic;
 mod gemini;
 mod grok;
+mod jcode;
 mod kimi;
 mod omp;
 mod opencode;
@@ -24,6 +25,7 @@ pub use codex::CodexAdapter;
 pub use cursor::CursorAdapter;
 pub use gemini::GeminiAdapter;
 pub use grok::GrokAdapter;
+pub use jcode::JcodeAdapter;
 pub use kimi::KimiAdapter;
 pub use omp::OmpAdapter;
 pub use opencode::OpenCodeAdapter;
@@ -426,6 +428,9 @@ fn windows_user_cli_dirs(home: &Path, grok_home: Option<&std::ffi::OsStr>) -> Ve
         // Cursor Agent CLI installer: `%LOCALAPPDATA%\cursor-agent\cursor-agent.cmd`
         // （同目录还有 `agent.cmd`）。安装器不一定把该目录写入桌面 app 继承的 PATH。
         home.join("AppData").join("Local").join("cursor-agent"),
+        // jcode 的 PowerShell 安装器（irm https://jcode.sh/install.ps1 | iex）
+        // 把 jcode.exe 放在这里，PATH 更新对已运行的桌面 app 不可见。
+        home.join("AppData").join("Local").join("jcode").join("bin"),
     ];
     if let Some(grok_home) = grok_home {
         let path = PathBuf::from(grok_home);
@@ -1887,6 +1892,7 @@ impl CliToolRegistry {
         registry.register(Arc::new(GrokAdapter::new()));
         registry.register(Arc::new(PiAdapter::new()));
         registry.register(Arc::new(OmpAdapter::new()));
+        registry.register(Arc::new(JcodeAdapter::new()));
         registry
     }
 
@@ -2084,7 +2090,10 @@ mod registry_tests {
 
         assert_eq!(
             ids,
-            vec!["claude", "codex", "gemini", "kimi", "opencode", "cursor", "grok", "pi", "omp"]
+            vec![
+                "claude", "codex", "gemini", "kimi", "opencode", "cursor", "grok", "pi", "omp",
+                "jcode"
+            ]
         );
         assert!(registry.get("claude").is_some());
         assert!(registry.get("codex").is_some());

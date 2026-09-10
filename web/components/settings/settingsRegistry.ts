@@ -233,6 +233,7 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
       { id: "language", titleKey: "language", targetSectionId: "general-root" },
       { id: "cli", titleKey: "defaultCliTool", descriptionKey: "defaultCliToolDesc", targetSectionId: "general-root" },
       { id: "data", titleKey: "dataDir", descriptionKey: "dataDirDesc", targetSectionId: "general-root" },
+      { id: "tray", titleKey: "traySectionTitle", descriptionKey: "trayShowSessionStatusDesc", targetSectionId: "general-tray" },
     ],
   },
   {

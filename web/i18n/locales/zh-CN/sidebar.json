@@ -166,6 +166,7 @@
   "cliToolOpenCode": "OpenCode",
   "cliToolCursor": "Cursor CLI",
   "cliToolGrok": "Grok CLI",
+  "cliToolJcode": "Jcode",
   "cliLocalVariant": "{{label}}（本机）",
   "cliWslVariant": "{{label}}（WSL）",
   "cliSshVariant": "{{label}}（SSH）",

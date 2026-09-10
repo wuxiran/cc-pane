@@ -46,6 +46,8 @@ export const SIDEBAR_LAUNCH_CLI_TOOLS: ReadonlyArray<{
   { id: "opencode", labelKey: "cliToolOpenCode" },
   { id: "cursor", labelKey: "cliToolCursor" },
   { id: "grok", labelKey: "cliToolGrok" },
+  // SSH 启动面未实机验证（jcode 自有 client-server SSH 模式是另一套语义），v1 不放开
+  { id: "jcode", labelKey: "cliToolJcode", supportsSsh: false },
 ];
 
 const LEGACY_DEFAULT_FAVORITES = ["terminal-default", "claude-local", "codex-local"];

@@ -179,10 +179,10 @@ CC-Panes works with any CLI agent that runs in a terminal. First-class adapters 
   <kbd>Codex</kbd> &nbsp;
   <kbd>Gemini CLI</kbd> &nbsp;
   <kbd>Kimi</kbd> &nbsp;
-  <kbd>GLM</kbd> &nbsp;
   <kbd>Grok</kbd> &nbsp;
   <kbd>OpenCode</kbd> &nbsp;
   <kbd>Cursor</kbd> &nbsp;
+  <kbd>Jcode</kbd> &nbsp;
   <kbd>+ any terminal CLI</kbd>
 </p>
 

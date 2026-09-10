@@ -3148,6 +3148,7 @@ impl TerminalService {
                 | CliTool::Grok
                 | CliTool::Pi
                 | CliTool::Omp
+                | CliTool::Jcode
                 | CliTool::Kimi => self.build_wsl_supported_cli_command(
                     &resolved_wsl,
                     cli_tool,
@@ -5253,6 +5254,8 @@ impl TerminalService {
             // create_session rejects the Pi family over SSH before this fallback is used.
             CliTool::Pi => "pi",
             CliTool::Omp => "omp",
+            // v1 未在启动菜单放开 SSH（supportsSsh: false），此行为穷举兜底。
+            CliTool::Jcode => "jcode --no-update",
         }
     }
 
