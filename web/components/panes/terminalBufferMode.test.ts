@@ -5,6 +5,7 @@ import {
   createTerminalDataRenderer,
   detectAlternateBufferTransitions,
   resolveTerminalBufferMode,
+  shouldPromoteSgrBackgroundToForeground,
   stripAlternateBufferSequences,
   stripSgrBackgroundColors,
 } from "./terminalBufferMode";
@@ -324,6 +325,65 @@ describe("terminalBufferMode", () => {
       expect(
         renderer.render("\x1b[48;5;23mopaque", { ...transparent, stripBackgroundColors: false }),
       ).toBe("\x1b[48;5;23mopaque");
+    });
+  });
+
+  describe("promote background to foreground (Claude Clawd)", () => {
+    const promote = { promoteBackgroundToForeground: true };
+
+    it("turns truecolor background-only blocks into foreground color", () => {
+      expect(stripSgrBackgroundColors("\x1b[48;2;255;122;26m█\x1b[49m", promote)).toBe(
+        "\x1b[38;2;255;122;26m█\x1b[39m",
+      );
+    });
+
+    it("turns palette and ANSI backgrounds into matching foregrounds", () => {
+      expect(stripSgrBackgroundColors("\x1b[48;5;208m▀", promote)).toBe("\x1b[38;5;208m▀");
+      expect(stripSgrBackgroundColors("\x1b[41m█", promote)).toBe("\x1b[31m█");
+      expect(stripSgrBackgroundColors("\x1b[101m█", promote)).toBe("\x1b[91m█");
+    });
+
+    it("promotes colon-form truecolor backgrounds", () => {
+      expect(stripSgrBackgroundColors("\x1b[48:2::255:122:26m█", promote)).toBe(
+        "\x1b[38:2::255:122:26m█",
+      );
+    });
+
+    it("does not override an explicit foreground: drop the background only", () => {
+      expect(
+        stripSgrBackgroundColors("\x1b[38;2;255;255;255;48;2;255;122;26mX", promote),
+      ).toBe("\x1b[38;2;255;255;255;49mX");
+    });
+
+    it("survives being split across bytes like live PTY chunks", () => {
+      const input = "\x1b[48;2;255;122;26m█\x1b[49m";
+      const stripper = createSgrBackgroundStripper(promote);
+      const output = [...input].map((char) => stripper.push(char)).join("") + stripper.flush();
+      expect(output).toBe("\x1b[38;2;255;122;26m█\x1b[39m");
+    });
+
+    it("leaves Codex-style strip as a full background reset when promote is off", () => {
+      expect(stripSgrBackgroundColors("\x1b[48;2;255;122;26m█\x1b[49m")).toBe(
+        "\x1b[49m█\x1b[49m",
+      );
+    });
+
+    it("paints Clawd through the renderer when the Claude promote flag is set", () => {
+      const renderer = createTerminalDataRenderer();
+      expect(
+        renderer.render("\x1b[48;2;255;122;26m█", {
+          keepCliOutputInNormalBuffer: true,
+          sessionId: "s1",
+          stripBackgroundColors: true,
+          promoteBackgroundToForeground: true,
+        }),
+      ).toBe("\x1b[38;2;255;122;26m█");
+    });
+
+    it("promotes only for Claude, not Codex or a plain shell", () => {
+      expect(shouldPromoteSgrBackgroundToForeground("claude")).toBe(true);
+      expect(shouldPromoteSgrBackgroundToForeground("codex")).toBe(false);
+      expect(shouldPromoteSgrBackgroundToForeground("none")).toBe(false);
     });
   });
 

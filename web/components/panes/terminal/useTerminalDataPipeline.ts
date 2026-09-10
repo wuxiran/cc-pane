@@ -7,6 +7,7 @@ import { captureTerminalWrite } from "@/utils/terminalCast";
 import { getErrorMessage } from "@/utils";
 import {
   createTerminalDataRenderer,
+  shouldPromoteSgrBackgroundToForeground,
   stripSgrBackgroundColors,
   type TerminalDataRenderer,
 } from "../terminalBufferMode";
@@ -91,11 +92,20 @@ export function useTerminalDataPipeline({
       keepCliOutputInNormalBuffer,
       sessionId: currentSessionIdRef.current,
       stripBackgroundColors: transparentCliSurfaceRef.current,
+      promoteBackgroundToForeground: shouldPromoteSgrBackgroundToForeground(
+        effectiveCliToolProbeRef.current,
+      ),
     });
   }, [keepCliOutputInNormalBuffer]);
   // photo 成品 VT 只剥 SGR 背景色；二次剥 alt-screen 会破坏画面。
-  const renderCheckpointData = useCallback((data: string) =>
-    transparentCliSurfaceRef.current ? stripSgrBackgroundColors(data) : data, []);
+  const renderCheckpointData = useCallback((data: string) => {
+    if (!transparentCliSurfaceRef.current) return data;
+    return stripSgrBackgroundColors(data, {
+      promoteBackgroundToForeground: shouldPromoteSgrBackgroundToForeground(
+        effectiveCliToolProbeRef.current,
+      ),
+    });
+  }, []);
   const syncTrackedBufferType = useCallback((reason: string) => {
     const current = terminalInstanceRef.current?.buffer.active.type;
     const next =
@@ -147,7 +157,13 @@ export function useTerminalDataPipeline({
     if (!flowControl) {
       throw new Error("Terminal write flow control is not initialized");
     }
-    const terminalData = transparentCliSurfaceRef.current ? stripSgrBackgroundColors(data) : data;
+    const terminalData = transparentCliSurfaceRef.current
+      ? stripSgrBackgroundColors(data, {
+          promoteBackgroundToForeground: shouldPromoteSgrBackgroundToForeground(
+            effectiveCliToolProbeRef.current,
+          ),
+        })
+      : data;
     focusReportModeRef.current = detectFocusReportMode(terminalData, focusReportModeRef.current); // 1004 跟踪必须挂唯一写入出口：回放/重同步/唤醒同样携带，漏检=恢复会话丢光标（与 xterm 内部状态同源）
     // WebGL 花屏诊断台录制钩子（未 arm 时为 no-op，见 utils/terminalCast）。
     captureTerminalWrite(currentSessionIdRef.current ?? sessionId ?? "unknown", terminalData);

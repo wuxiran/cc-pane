@@ -11,6 +11,7 @@ Development branch after v0.12.16.
 ### Fixed
 
 - WebGL shared glyph atlas: after `_mergePages`, other panes now drop their CPU skip cache (`_clearModel(false)`) before `refresh`, so stale UV coords cannot sample the wrong CJK/Latin fragments. Do not `_clearModel(true)` / `renderer.clear()` in the broadcast — that zeros GPU double-buffers and strips ANSI colors (Claude truecolor fills atlas pages constantly). Still must not call `clearTextureAtlas()` on every pane (that would recurse). If the private `_clearModel` hook is missing, log `renderer.webgl.atlas.invalidate.unavailable`. `@xterm/addon-webgl` is pinned to `0.19.0` because this path depends on that private API.
+- Claude on the transparent CLI surface: background-only SGR (`48;2`, `40-47`) is rewritten to the matching foreground instead of reset to default white, so Clawd block art keeps its color without painting opaque cells. Codex still strips backgrounds.
 
 ## 0.12.16 - 2026-09-10
 

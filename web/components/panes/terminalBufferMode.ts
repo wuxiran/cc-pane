@@ -61,6 +61,14 @@ export interface SgrBackgroundStripper {
   flush(): string;
 }
 
+export interface SgrBackgroundStripperOptions {
+  /**
+   * Claude Clawd 等用 48;2 给色块上色。剥成 49 会变成默认白字。
+   * 打开后：没有显式前景时把背景色改写成前景，仍然不画不透明底。
+   */
+  promoteBackgroundToForeground?: boolean;
+}
+
 const MAX_PENDING_SGR_LENGTH = 128;
 
 function parseSgrCode(value: string): number | null {
@@ -69,19 +77,71 @@ function parseSgrCode(value: string): number | null {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
-function stripSgrBackgroundSequence(sequence: string): string {
+function isExplicitForegroundCode(value: number): boolean {
+  return value === 38 || value === 39 || (value >= 30 && value <= 37) || (value >= 90 && value <= 97);
+}
+
+function sequenceHasExplicitForeground(params: string[]): boolean {
+  return params.some((group) => {
+    const value = parseSgrCode(group.split(":")[0]);
+    return value !== null && isExplicitForegroundCode(value);
+  });
+}
+
+function takeExtendedColorTail(
+  params: string[],
+  index: number,
+  colonParams: string[],
+): { nextIndex: number; tail: string[] } {
+  if (colonParams.length > 1) {
+    const mode = colonParams[1];
+    let extra = 0;
+    if (mode === "2") {
+      const expectedParts = colonParams[2] === "" ? 6 : 5;
+      extra = Math.max(0, expectedParts - colonParams.length);
+    } else if (mode === "5" && colonParams.length < 3) {
+      extra = 1;
+    }
+    return {
+      nextIndex: index + extra,
+      tail: params.slice(index + 1, index + 1 + extra),
+    };
+  }
+  const extra = params[index + 1] === "5" ? 2 : params[index + 1] === "2" ? 4 : 0;
+  return {
+    nextIndex: index + extra,
+    tail: params.slice(index + 1, index + 1 + extra),
+  };
+}
+
+interface SgrBackgroundRewriteState {
+  promotedForegroundActive: boolean;
+}
+
+function stripSgrBackgroundSequence(
+  sequence: string,
+  options: SgrBackgroundStripperOptions,
+  state: SgrBackgroundRewriteState,
+): string {
   if (!sequence.endsWith("m")) return sequence;
   const body = sequence.slice(2, -1);
   const params = body === "" ? [""] : body.split(";");
   const kept: string[] = [];
   let changed = false;
   let hasBackgroundReset = false;
+  const promote = Boolean(options.promoteBackgroundToForeground);
+  const hasForeground = sequenceHasExplicitForeground(params);
   const resetBackground = () => {
     changed = true;
     if (!hasBackgroundReset) {
       kept.push("49");
       hasBackgroundReset = true;
     }
+  };
+  const promoteBackground = (replacement: string, tail: string[]) => {
+    changed = true;
+    kept.push(replacement, ...tail);
+    state.promotedForegroundActive = true;
   };
   for (let index = 0; index < params.length; index += 1) {
     const group = params[index];
@@ -91,21 +151,19 @@ function stripSgrBackgroundSequence(sequence: string): string {
       kept.push(group);
       continue;
     }
+    if (value === 0 || value === 39) {
+      state.promotedForegroundActive = false;
+      kept.push(group);
+      continue;
+    }
     if (value === 48) {
-      resetBackground();
-      // Colon notation (`48:2::r:g:b`, `48:5:n`) keeps the complete color
-      // in one semicolon group. Mixed notation is accepted defensively by
-      // consuming the same number of following semicolon parameters.
-      if (colonParams.length > 1) {
-        const mode = colonParams[1];
-        if (mode === "2") {
-          const expectedParts = colonParams[2] === "" ? 6 : 5;
-          index += Math.max(0, expectedParts - colonParams.length);
-        }
-        if (mode === "5" && colonParams.length < 3) index += 1;
+      const { nextIndex, tail } = takeExtendedColorTail(params, index, colonParams);
+      index = nextIndex;
+      if (promote && !hasForeground) {
+        const promoted = colonParams.length > 1 ? ["38", ...colonParams.slice(1)].join(":") : "38";
+        promoteBackground(promoted, tail);
       } else {
-        const mode = params[index + 1];
-        index += mode === "5" ? 2 : mode === "2" ? 4 : 0;
+        resetBackground();
       }
       continue;
     }
@@ -118,8 +176,24 @@ function stripSgrBackgroundSequence(sequence: string): string {
       changed = true;
       continue;
     }
-    if (value === 49 || (value >= 40 && value <= 47) || (value >= 100 && value <= 107)) {
-      resetBackground();
+    if (value >= 40 && value <= 47) {
+      if (promote && !hasForeground) promoteBackground(String(value - 10), []);
+      else resetBackground();
+      continue;
+    }
+    if (value >= 100 && value <= 107) {
+      if (promote && !hasForeground) promoteBackground(String(value - 10), []);
+      else resetBackground();
+      continue;
+    }
+    if (value === 49) {
+      if (promote && state.promotedForegroundActive && !hasForeground) {
+        changed = true;
+        kept.push("39");
+        state.promotedForegroundActive = false;
+      } else {
+        resetBackground();
+      }
       continue;
     }
     kept.push(group);
@@ -128,8 +202,11 @@ function stripSgrBackgroundSequence(sequence: string): string {
   return kept.length > 0 ? `\x1b[${kept.join(";")}m` : "";
 }
 
-export function createSgrBackgroundStripper(): SgrBackgroundStripper {
+export function createSgrBackgroundStripper(
+  options: SgrBackgroundStripperOptions = {},
+): SgrBackgroundStripper {
   let pending = "";
+  const state: SgrBackgroundRewriteState = { promotedForegroundActive: false };
 
   return {
     push(chunk: string): string {
@@ -157,7 +234,7 @@ export function createSgrBackgroundStripper(): SgrBackgroundStripper {
           break;
         }
         const sequence = combined.slice(start, end + 1);
-        output += stripSgrBackgroundSequence(sequence);
+        output += stripSgrBackgroundSequence(sequence, options, state);
         cursor = end + 1;
       }
       return output;
@@ -176,8 +253,11 @@ export function createSgrBackgroundStripper(): SgrBackgroundStripper {
  * Checkpoint/SerializeAddon data is already a rendered VT stream, so it must
  * not pass through the stateful alt-screen renderer; this helper is stateless.
  */
-export function stripSgrBackgroundColors(data: string): string {
-  const stripper = createSgrBackgroundStripper();
+export function stripSgrBackgroundColors(
+  data: string,
+  options: SgrBackgroundStripperOptions = {},
+): string {
+  const stripper = createSgrBackgroundStripper(options);
   return stripper.push(data) + stripper.flush();
 }
 
@@ -239,6 +319,8 @@ export interface TerminalDataRenderContext {
   sessionId: string | null;
   /** 托管 CLI 使用透明表面时，移除会绘制不透明单元格的 SGR 样式。 */
   stripBackgroundColors?: boolean;
+  /** Claude Clawd：把仅背景的 48;2 改写成前景，避免色块变成默认白。 */
+  promoteBackgroundToForeground?: boolean;
 }
 
 export interface TerminalDataRenderer {
@@ -268,6 +350,7 @@ export function createTerminalDataRenderer(
 ): TerminalDataRenderer {
   let stripper: AlternateBufferStripper | null = null;
   let backgroundStripper: SgrBackgroundStripper | null = null;
+  let backgroundStripperPromote = false;
   let activeSessionId: string | null = null;
 
   return {
@@ -279,9 +362,18 @@ export function createTerminalDataRenderer(
       }
       if (sessionId) activeSessionId = sessionId;
 
-      const rendered = context.stripBackgroundColors
-        ? (backgroundStripper ??= createSgrBackgroundStripper()).push(data)
-        : (backgroundStripper = null, data);
+      const promote = Boolean(context.promoteBackgroundToForeground);
+      if (context.stripBackgroundColors) {
+        if (!backgroundStripper || backgroundStripperPromote !== promote) {
+          backgroundStripper = createSgrBackgroundStripper({
+            promoteBackgroundToForeground: promote,
+          });
+          backgroundStripperPromote = promote;
+        }
+      } else {
+        backgroundStripper = null;
+      }
+      const rendered = backgroundStripper ? backgroundStripper.push(data) : data;
       if (!context.keepCliOutputInNormalBuffer) {
         stripper = null;
         return rendered;
@@ -305,6 +397,11 @@ export type TerminalBufferMode = "strip" | "native";
  * - 其它 CLI：从来就是透传，等价 native。
  */
 const DEFAULT_STRIP_CLI_TOOLS = new Set(["claude"]);
+
+/** Claude 的 Clawd/色块用 48;2 上色；透明表面下改写成前景，其它托管 CLI 仍剥底。 */
+export function shouldPromoteSgrBackgroundToForeground(cliToolId: string): boolean {
+  return cliToolId === "claude";
+}
 
 /**
  * 解析某个 CLI 的缓冲模式。`overrides` 来自设置 `terminal.cliBufferModes`
