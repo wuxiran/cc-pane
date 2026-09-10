@@ -4,9 +4,27 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
-## 0.12.16 - Unreleased
+## 0.12.16 - 2026-09-10
 
-Development branch after v0.12.15.
+First public build after v0.12.13 (v0.12.15 stayed a draft because CI on that tag did not pass). Includes the 0.12.15 MCP/WSL work plus tray, Jcode, and Agent Chat updates.
+
+### Changed
+
+- **ccpanes MCP slimmed (docs/103)** — session-injected `/mcp` now exposes 48 core tools; `tools/list` dropped from about 14–19k tokens to about 6.8k. The full set lives at `/mcp-full` for `cc-panes-ctl`. Codex gets an `enabled_tools` allow-list. Sessions receive `CC_PANES_CTL` so admin tools can be called from the shell; stdio MCP can fall back when HTTP MCP is unavailable.
+- **WSL sessions inherit workspace HTTP MCP and skills** — Claude `--plugin-dir` on `/mnt/...`; Codex links workspace skills under `$CODEX_HOME/skills`. Chinese workspace names get a unique Codex skill-link slug.
+
+### Added
+
+- System tray context menu: status summary, pending jumps, workspace switch, notification pause, settings toggles, and quit confirmation.
+- **Jcode** CLI adapter and ACP engine (docs/102-jcode-cli-support.md). Resume index is not wired yet.
+- Agent Chat: workspace picker in the header, a dedicated Agent Chat layout, composer attachments with local image rendering.
+- Workspace skills hub, project MCP layer UI, launch-profile injection badges, and the local `/mcp` vs `/mcp-full` card.
+- Mobile terminal reconnect hardening.
+
+### Fixed
+
+- macOS app menu compiles again after the tray refactor dropped the `MenuItem` import.
+- Usage-stats hover panel no longer sits under main content; double-click a tab toggles fullscreen; layout selector can stretch vertically.
 
 ## 0.12.15 - 2026-09-10
 

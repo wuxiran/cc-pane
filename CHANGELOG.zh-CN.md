@@ -7,9 +7,27 @@
 两份是人工同步的，条目一一对应；改英文版时顺手改这里，逐条 diff 能看出漏了哪条。
 0.12.6 之前的版本只有英文版。
 
-## 0.12.16 - Unreleased
+## 0.12.16 - 2026-09-10
 
-v0.12.15 之后的开发分支。
+v0.12.13 之后的第一个公开发布（v0.12.15 因该 tag 的 CI 未过而停在 draft）。包含 0.12.15 的 MCP/WSL 工作，以及托盘、Jcode、Agent Chat 更新。
+
+### 变更
+
+- **ccpanes MCP 精简（docs/103）** — 会话注入的 `/mcp` 只留 48 个 core 工具，`tools/list` 从约 14–19k token 降到约 6.8k。全量挂 `/mcp-full`，给 `cc-panes-ctl`。Codex 加 `enabled_tools` 白名单。会话注入 `CC_PANES_CTL`，管理台工具走 shell；HTTP MCP 不可用时可降级 stdio。
+- **WSL 会话带上工作空间 HTTP MCP 和技能** — Claude `--plugin-dir /mnt/...`；Codex 在 `$CODEX_HOME/skills` 建符号链接。中文工作空间名使用独立 slug。
+
+### 新增
+
+- 系统托盘右键菜单：状态摘要、待处理直达、工作区切换、通知暂停、设置开关、退出确认。
+- **Jcode** CLI 适配器与 ACP 引擎（docs/102-jcode-cli-support.md）。Resume 索引尚未接入。
+- Agent Chat：顶栏工作空间选择、专用 Agent Chat 布局、作曲器附件与本地图片渲染。
+- 工作空间技能中心、项目 MCP 分层界面、启动档注入徽标、本机 `/mcp` / `/mcp-full` 卡片。
+- 移动端终端重连加固。
+
+### 修复
+
+- macOS 应用菜单在托盘重构后重新编过（补回 `MenuItem` 导入）。
+- 用量统计悬停面板不再被主内容挡住；双击标签切换全屏；布局选择器可纵向拉伸。
 
 ## 0.12.15 - 2026-09-10
 
