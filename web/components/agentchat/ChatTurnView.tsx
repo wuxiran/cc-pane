@@ -31,6 +31,8 @@ export interface ChatTurnViewProps {
   /** 会话正在生成且这是最后一个回合。 */
   streaming: boolean;
   chatId: string;
+  /** 会话工作目录：正文里相对图片路径的解析基准。 */
+  cwd?: string;
   onOpenLocation: (path: string, line?: number) => void;
   onPlanToTodo: (entries: AcpPlanEntry[]) => void;
   expandAllSignal?: { seq: number; expanded: boolean };
@@ -41,6 +43,7 @@ export default function ChatTurnView({
   engineLabel,
   streaming,
   chatId,
+  cwd,
   onOpenLocation,
   onPlanToTodo,
   expandAllSignal,
@@ -85,6 +88,7 @@ export default function ChatTurnView({
             block={block}
             streaming={streaming && index === blocks.length - 1}
             chatId={chatId}
+            cwd={cwd}
             onOpenLocation={onOpenLocation}
             onPlanToTodo={onPlanToTodo}
             expandAllSignal={expandAllSignal}

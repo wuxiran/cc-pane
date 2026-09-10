@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { isLocalAssetPath, resolveRelativeAssetPath } from "./mdAssetPath";
+import { isLocalAssetPath, resolveRelativeAssetPath, resolveRelativeFromDir } from "./mdAssetPath";
+
+describe("resolveRelativeFromDir", () => {
+  it("以目录为基准解析相对路径（聊天 cwd 场景）", () => {
+    expect(resolveRelativeFromDir("D:/docs", "img/a.png")).toBe("D:/docs/img/a.png");
+    expect(resolveRelativeFromDir("D:\\proj", "./a.png")).toBe("D:/proj/a.png");
+    expect(resolveRelativeFromDir("/home/u", "../pic.png")).toBe("/home/pic.png");
+  });
+});
 
 describe("resolveRelativeAssetPath", () => {
   it("解析同级与子目录相对路径（Windows 基路径）", () => {

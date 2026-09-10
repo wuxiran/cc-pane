@@ -1,21 +1,18 @@
-// agent-chat 输入区：草稿/发送历史/图片附件/斜杠命令/@引用 全部自持。
-// 从 AgentChatTabContent 拆出（行数棘轮）。发送块组装（text/image/resource_link）
-// 也在这里——父组件只提供会话身份与相位。
+// agent-chat 输入区：草稿/发送历史/斜杠命令/@引用 全部自持。
+// 从 AgentChatTabContent 拆出（行数棘轮）；附件摄取（对话框/粘贴/拖放）在
+// useComposerAttachments hook。发送块组装（text/image/resource_link）也在这里
+// ——父组件只提供会话身份与相位。
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowUp, FileText, ImageIcon, Plus, RotateCw, Square, X } from "lucide-react";
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
-import type {
-  AcpAvailableCommand,
-  AcpChatPhase,
-  AcpUsage,
-  AgentChatAttachment,
-} from "@/types/agentChat";
+import type { AcpAvailableCommand, AcpChatPhase, AcpUsage } from "@/types/agentChat";
 import { agentChatService } from "@/services/agentChatService";
+import { isTauriRuntime } from "@/services/runtime";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { isAbsolutePath, joinCwd, toFileUri } from "./chatPaths";
+import { useComposerAttachments } from "./useComposerAttachments";
 import ChatVoiceButton from "./ChatVoiceButton";
 import ContextUsageRing from "./ContextUsageRing";
 
@@ -68,10 +65,20 @@ export default function ChatComposer({
     return caps?.promptCapabilities?.image === true;
   });
   const [draft, setDraftState] = useState(() => draftCache.get(chatId) ?? "");
-  const [attachments, setAttachments] = useState<AgentChatAttachment[]>([]);
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const historyIndexRef = useRef<number | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const {
+    attachments,
+    clearAttachments,
+    removeAttachment,
+    dropHint,
+    hostRef,
+    attachFromDialog,
+    pushFileAttachment,
+    attachClipboardFiles,
+  } = useComposerAttachments(chatId, imageSupported);
 
   const setDraft = useCallback(
     (value: string) => {
@@ -108,55 +115,25 @@ export default function ChatComposer({
     setSlashDismissed(false);
   }, [draft]);
 
-  const pushFileAttachment = useCallback((file: File, fallbackName: string) => {
-    if (!imageSupported) {
-      useAgentChatStore.getState().pushNotice(chatId, t("agentChatImageUnsupported"));
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result !== "string") return;
-      const base64 = result.split(",", 2)[1] ?? "";
-      if (!base64) return;
-      setAttachments((previous) => [
-        ...previous,
-        { name: file.name || fallbackName, mimeType: file.type, data: base64 },
-      ]);
-    };
-    reader.readAsDataURL(file);
-  }, [chatId, imageSupported, t]);
+  /** 手动把文本插到光标处（接管粘贴后，默认插入行为已被 preventDefault）。 */
+  const insertTextAtCursor = useCallback(
+    (text: string) => {
+      const element = textareaRef.current;
+      const start = element?.selectionStart ?? draft.length;
+      const end = element?.selectionEnd ?? start;
+      historyIndexRef.current = null;
+      setDraft(draft.slice(0, start) + text + draft.slice(end));
+      requestAnimationFrame(() => {
+        element?.focus();
+        const caret = start + text.length;
+        element?.setSelectionRange(caret, caret);
+      });
+    },
+    [draft, setDraft],
+  );
 
-  /** 附件对话框：图片内嵌为 image 块，其余文件转 resource_link（引用不内嵌）。 */
-  const attachFromDialog = useCallback(async () => {
-    const picked = await openFileDialog({ multiple: true, directory: false }).catch(() => null);
-    const paths = typeof picked === "string" ? [picked] : Array.isArray(picked) ? picked : [];
-    const imageExtensions = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
-    for (const path of paths) {
-      const name = path.split(/[\\/]/).pop() || path;
-      const extension = name.split(".").pop()?.toLowerCase() ?? "";
-      if (!imageExtensions.has(extension) || !imageSupported) {
-        setAttachments((previous) => [
-          ...previous,
-          { name, mimeType: "", data: "", kind: "file", path },
-        ]);
-        continue;
-      }
-      try {
-        const image = await agentChatService.readImageAttachment(path);
-        setAttachments((previous) => [
-          ...previous,
-          { name, mimeType: image.mimeType, data: image.dataBase64, kind: "image" },
-        ]);
-      } catch (error) {
-        useAgentChatStore
-          .getState()
-          .pushNotice(chatId, error instanceof Error ? error.message : String(error));
-      }
-    }
-  }, [chatId, imageSupported]);
-
-  /** HTML5 拖放：Tauri 若拦截了 drop 事件则此路径静默不触发，附件按钮兜底。 */
+  /** HTML5 拖放（web 部署兜底；桌面端由 hook 里的原生 onDragDropEvent 接管）：
+   * 位图 File 没有路径，只能走内嵌/落盘。 */
   const handleDrop = useCallback(
     (event: React.DragEvent<HTMLElement>) => {
       const files = Array.from(event.dataTransfer?.files ?? []).filter((file) =>
@@ -171,15 +148,28 @@ export default function ChatComposer({
 
   const handlePaste = useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      const files = Array.from(event.clipboardData?.items ?? [])
+      // 截图/复制的位图会作为 image File 出现在网页剪贴板里，优先内嵌处理。
+      const imageFiles = Array.from(event.clipboardData?.items ?? [])
         .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
         .map((item) => item.getAsFile())
         .filter((file): file is File => file !== null);
-      if (files.length === 0) return;
+      if (imageFiles.length > 0) {
+        event.preventDefault();
+        for (const file of imageFiles) pushFileAttachment(file, "pasted.png");
+        return;
+      }
+      // 资源管理器复制的文件走 CF_HDROP，网页层 clipboardData 看不到——接管
+      // 粘贴问后端要文件清单；没有文件再手动插回文本（与终端粘贴同优先级）。
+      if (!isTauriRuntime()) return;
       event.preventDefault();
-      for (const file of files) pushFileAttachment(file, "pasted.png");
+      const text = event.clipboardData?.getData("text/plain") ?? "";
+      void (async () => {
+        const attached = await attachClipboardFiles();
+        if (attached > 0 || !text) return;
+        insertTextAtCursor(text);
+      })();
     },
-    [pushFileAttachment],
+    [pushFileAttachment, attachClipboardFiles, insertTextAtCursor],
   );
 
   const send = useCallback(() => {
@@ -201,7 +191,7 @@ export default function ChatComposer({
 
     setDraft("");
     const sentAttachments = attachments;
-    setAttachments([]);
+    clearAttachments();
     onBeforeSend?.();
     historyIndexRef.current = null;
     if (text) {
@@ -210,17 +200,13 @@ export default function ChatComposer({
       if (history.length > SENT_HISTORY_LIMIT) history.shift();
       sentHistoryCache.set(chatId, history);
     }
-    useAgentChatStore.getState().addUserMessage(
-      chatId,
-      text,
-      sentAttachments.map((attachment) => attachment.name),
-    );
+    useAgentChatStore.getState().addUserMessage(chatId, text, sentAttachments);
     void agentChatService.prompt(chatId, blocks).catch((error) => {
       useAgentChatStore
         .getState()
         .pushNotice(chatId, error instanceof Error ? error.message : String(error));
     });
-  }, [draft, attachments, phase, chatId, cwd, setDraft, onBeforeSend]);
+  }, [draft, attachments, phase, chatId, cwd, setDraft, clearAttachments, onBeforeSend]);
 
   const recallHistory = useCallback(
     (direction: -1 | 1) => {
@@ -254,7 +240,7 @@ export default function ChatComposer({
   const retryLast = useCallback(() => {
     if (!lastUserText || phase !== "ready") return;
     onBeforeSend?.();
-    useAgentChatStore.getState().addUserMessage(chatId, lastUserText, []);
+    useAgentChatStore.getState().addUserMessage(chatId, lastUserText);
     void agentChatService.prompt(chatId, [{ type: "text", text: lastUserText }]).catch((error) => {
       useAgentChatStore
         .getState()
@@ -265,7 +251,7 @@ export default function ChatComposer({
   const canSend = phase === "ready" && (Boolean(draft.trim()) || attachments.length > 0);
 
   return (
-    <div className="px-3 pb-3 pt-1">
+    <div ref={hostRef} className="px-3 pb-3 pt-1">
       <div className="mx-auto flex max-w-3xl flex-col gap-1.5">
         {slashMatches.length > 0 ? (
           <div className="flex flex-col overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-overlay)] shadow-md">
@@ -295,7 +281,11 @@ export default function ChatComposer({
           </div>
         ) : null}
         <div
-          className="rounded-xl border border-[var(--app-border)] bg-[var(--app-chat-composer-bg)] px-3 pb-2 pt-2.5 shadow-sm transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)] focus-within:border-[var(--app-accent)]/70 focus-within:shadow-[0_0_0_3px_var(--app-active-bg)]"
+          className={`rounded-xl border bg-[var(--app-chat-composer-bg)] px-3 pb-2 pt-2.5 shadow-sm transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)] focus-within:border-[var(--app-accent)]/70 focus-within:shadow-[0_0_0_3px_var(--app-active-bg)] ${
+            dropHint
+              ? "border-[var(--app-accent)] shadow-[0_0_0_3px_var(--app-active-bg)]"
+              : "border-[var(--app-border)]"
+          }`}
           onDrop={handleDrop}
           onDragOver={(event) => event.preventDefault()}
         >
@@ -316,11 +306,7 @@ export default function ChatComposer({
                     type="button"
                     aria-label={t("agentChatRemoveAttachment")}
                     className="rounded hover:text-[var(--app-status-danger)]"
-                    onClick={() =>
-                      setAttachments((previous) =>
-                        previous.filter((_, itemIndex) => itemIndex !== index),
-                      )
-                    }
+                    onClick={() => removeAttachment(index)}
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -329,6 +315,7 @@ export default function ChatComposer({
             </div>
           ) : null}
           <textarea
+            ref={textareaRef}
             value={draft}
             onChange={(event) => {
               historyIndexRef.current = null;

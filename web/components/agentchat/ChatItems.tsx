@@ -2,7 +2,7 @@
 // 从 AgentChatTabContent 拆出（行数棘轮），纯展示层：状态与动作全部经 props 注入。
 // assistant 正文、思考块、工具组在 ChatTurnView 里按回合承载，不在这里。
 import { useState, type ReactNode } from "react";
-import { Check, ChevronDown, Copy, ImageIcon, ListTodo } from "lucide-react";
+import { Check, ChevronDown, Copy, FileText, ImageIcon, ListTodo } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   DropdownMenu,
@@ -16,8 +16,19 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import type { AcpPlanEntry, AgentChatItem } from "@/types/agentChat";
+import type { AcpPlanEntry, AgentChatAttachment, AgentChatItem } from "@/types/agentChat";
 import { handleErrorSilent } from "@/utils/errorHandler";
+import { toAssetUrl } from "@/utils/assetUrl";
+import { isImagePath } from "./chatAttachments";
+
+/** 用户附件的缩略图地址：内嵌图用 base64，文件引用里是图片扩展名的走 asset URL。 */
+function attachmentThumb(attachment: AgentChatAttachment): string | null {
+  if (attachment.kind === "image" && attachment.data) {
+    return `data:${attachment.mimeType || "image/png"};base64,${attachment.data}`;
+  }
+  if (attachment.path && isImagePath(attachment.path)) return toAssetUrl(attachment.path);
+  return null;
+}
 
 export function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -75,8 +86,32 @@ export function ItemView({ item, onPlanToTodo }: ItemViewProps) {
     case "user":
       return (
         <MessageCopyContextMenu text={item.text ?? ""}>
-          <div className="flex flex-col items-end gap-1">
-            {item.attachmentLabels && item.attachmentLabels.length > 0 ? (
+          {/* w-full：父级是 items-end 的 fit-content 列，不撑满的话子级
+              max-w-[85%] 会相对"内容自身宽度"算，短消息被挤成多行。 */}
+          <div className="flex w-full flex-col items-end gap-1">
+            {item.attachments && item.attachments.length > 0 ? (
+              <div className="flex flex-wrap justify-end gap-1">
+                {item.attachments.map((attachment, index) => {
+                  const thumb = attachmentThumb(attachment);
+                  return thumb ? (
+                    <img
+                      key={index}
+                      src={thumb}
+                      alt={attachment.name}
+                      title={attachment.name}
+                      className="h-14 max-w-40 rounded-md border border-[var(--app-border)] object-cover"
+                    />
+                  ) : (
+                    <span
+                      key={index}
+                      className="flex items-center gap-1 rounded border border-[var(--app-border)] px-1.5 py-0.5 text-[11px] text-[var(--app-icon-inactive)]"
+                    >
+                      <FileText className="h-3 w-3" /> {attachment.name}
+                    </span>
+                  );
+                })}
+              </div>
+            ) : item.attachmentLabels && item.attachmentLabels.length > 0 ? (
               <div className="flex flex-wrap justify-end gap-1">
                 {item.attachmentLabels.map((label, index) => (
                   <span

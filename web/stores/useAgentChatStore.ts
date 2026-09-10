@@ -16,6 +16,7 @@ import type {
   AcpTerminalOutput,
   AcpToolCall,
   AcpUsage,
+  AgentChatAttachment,
   AgentChatItem,
 } from "@/types/agentChat";
 import { parentToolCallIdOf } from "@/types/agentChat";
@@ -36,6 +37,9 @@ export interface AgentChatSessionState {
   availableCommands: AcpAvailableCommand[];
   /** 上下文窗口用量（usage_update 整体替换）；引擎不上报时为 null，UI 不显示。 */
   usage: AcpUsage | null;
+  /** 会话中途切换的工作空间/目录（顶栏 chip）。存 store 而非组件 state：
+   * 标签卸载重挂载不丢；优先级高于 tab.projectPath。null = 未覆盖。 */
+  cwdOverride: string | null;
   /** agent 经客户端 `terminal/*` 能力开的终端（terminalId → 最新输出快照）。 */
   terminals: Record<string, AcpTerminalOutput>;
 }
@@ -44,7 +48,8 @@ interface AgentChatStoreState {
   chats: Record<string, AgentChatSessionState>;
   setSnapshot: (chatId: string, snapshot: AcpChatSnapshot) => void;
   setConcierge: (chatId: string, concierge: boolean) => void;
-  addUserMessage: (chatId: string, text: string, attachmentLabels?: string[]) => void;
+  setCwdOverride: (chatId: string, cwd: string | null) => void;
+  addUserMessage: (chatId: string, text: string, attachments?: AgentChatAttachment[]) => void;
   appendStreamText: (
     chatId: string,
     kind: "assistant" | "thought",
@@ -69,6 +74,7 @@ function emptySession(): AgentChatSessionState {
     availableCommands: [],
     usage: null,
     terminals: {},
+    cwdOverride: null,
   };
 }
 
@@ -137,15 +143,21 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
         ensure(state.chats, chatId).concierge = concierge;
       }),
 
-    addUserMessage: (chatId, text, attachmentLabels) =>
+    setCwdOverride: (chatId, cwd) =>
+      set((state) => {
+        ensure(state.chats, chatId).cwdOverride = cwd;
+      }),
+
+    addUserMessage: (chatId, text, attachments) =>
       set((state) => {
         const chat = ensure(state.chats, chatId);
+        const labels = (attachments ?? []).map((attachment) => attachment.name);
         pushItem(chat, {
           type: "user",
           id: nextItemId(),
           at: Date.now(),
           text,
-          ...(attachmentLabels && attachmentLabels.length > 0 ? { attachmentLabels } : {}),
+          ...(labels.length > 0 ? { attachmentLabels: labels, attachments } : {}),
         });
       }),
 

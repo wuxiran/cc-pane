@@ -203,7 +203,15 @@ export interface AgentChatAttachment {
  * `parentToolCallId`：由子 agent 产出的条目指向派出它的 Task/Agent 工具调用
  * （claude-agent-acp 经 `_meta.claudeCode.parentToolUseId` 标注），渲染时嵌套其下。 */
 export type AgentChatItem =
-  | { type: "user"; id: string; at: number; text: string; attachmentLabels?: string[] }
+  | {
+      type: "user";
+      id: string;
+      at: number;
+      text: string;
+      attachmentLabels?: string[];
+      /** 发送时的完整附件（气泡回显缩略图用）；labels 是它的名字投影。 */
+      attachments?: AgentChatAttachment[];
+    }
   | { type: "assistant"; id: string; at: number; text: string; parentToolCallId?: string }
   /** doneAt：思考流被后续条目或回合结束收口的时刻，用于"思考了 N 秒"。 */
   | { type: "thought"; id: string; at: number; text: string; doneAt?: number; parentToolCallId?: string }

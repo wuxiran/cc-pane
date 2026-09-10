@@ -2,9 +2,8 @@ import { forwardRef, isValidElement, type ReactNode } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { convertFileSrc } from "@tauri-apps/api/core";
-import { isTauriRuntime } from "@/services/runtime";
 import { isLocalAssetPath, resolveRelativeAssetPath } from "@/utils/mdAssetPath";
+import { toAssetUrl } from "@/utils/assetUrl";
 import MermaidBlock from "./MermaidBlock";
 
 interface MarkdownPreviewProps {
@@ -13,12 +12,6 @@ interface MarkdownPreviewProps {
   filePath?: string;
   /** 分栏滚动同步：预览侧滚动时回调（EditorView 反向驱动 Monaco） */
   onScroll?: (el: HTMLDivElement) => void;
-}
-
-function toAssetUrl(absolutePath: string): string {
-  return isTauriRuntime()
-    ? convertFileSrc(absolutePath)
-    : `/api/fs/raw?path=${encodeURIComponent(absolutePath)}`;
 }
 
 function mermaidSource(children: ReactNode): string | null {

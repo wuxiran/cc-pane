@@ -18,6 +18,8 @@ export interface AssistantBlockViewProps {
   /** 会话正在生成且该块是当前最末一块（含嵌套路径上的最末）。 */
   streaming: boolean;
   chatId: string;
+  /** 会话工作目录：正文 markdown 里相对图片路径的解析基准。 */
+  cwd?: string;
   onOpenLocation: (path: string, line?: number) => void;
   onPlanToTodo: (entries: AcpPlanEntry[]) => void;
   expandAllSignal?: { seq: number; expanded: boolean };
@@ -31,6 +33,7 @@ export function SubagentBlock({
   block,
   streaming,
   chatId,
+  cwd,
   onOpenLocation,
   onPlanToTodo,
   expandAllSignal,
@@ -80,6 +83,7 @@ export function SubagentBlock({
                 block={child}
                 streaming={streaming && index === block.blocks.length - 1}
                 chatId={chatId}
+                cwd={cwd}
                 onOpenLocation={onOpenLocation}
                 onPlanToTodo={onPlanToTodo}
                 expandAllSignal={expandAllSignal}
@@ -112,6 +116,7 @@ export default function AssistantBlockView({
   block,
   streaming,
   chatId,
+  cwd,
   onOpenLocation,
   onPlanToTodo,
   expandAllSignal,
@@ -135,6 +140,7 @@ export default function AssistantBlockView({
           block={block}
           streaming={streaming}
           chatId={chatId}
+          cwd={cwd}
           onOpenLocation={onOpenLocation}
           onPlanToTodo={onPlanToTodo}
           expandAllSignal={expandAllSignal}
@@ -147,7 +153,7 @@ export default function AssistantBlockView({
             <div className="absolute right-2 top-2 z-[1]">
               <CopyButton text={block.item.text} label={t("agentChatCopy")} />
             </div>
-            <ChatMarkdown text={block.item.text} onOpenFile={onOpenLocation} />
+            <ChatMarkdown text={block.item.text} onOpenFile={onOpenLocation} cwd={cwd} />
           </div>
         </MessageCopyContextMenu>
       );

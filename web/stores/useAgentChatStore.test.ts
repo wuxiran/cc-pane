@@ -72,6 +72,27 @@ describe("useAgentChatStore", () => {
     expect(last.type === "thought" && typeof last.doneAt).toBe("number");
   });
 
+  it("setCwdOverride 存会话中途的工作空间切换，默认 null", () => {
+    const store = useAgentChatStore.getState();
+    store.setSnapshot(CHAT, snapshot());
+    expect(useAgentChatStore.getState().chats[CHAT].cwdOverride).toBeNull();
+    store.setCwdOverride(CHAT, "D:/work/team");
+    expect(useAgentChatStore.getState().chats[CHAT].cwdOverride).toBe("D:/work/team");
+  });
+
+  it("addUserMessage 携带附件：labels 是附件名投影，attachments 原样保留", () => {
+    const store = useAgentChatStore.getState();
+    store.addUserMessage(CHAT, "看图", [
+      { name: "a.png", mimeType: "image/png", data: "AA", kind: "image" },
+      { name: "b.md", mimeType: "", data: "", kind: "file", path: "C:\\x\\b.md" },
+    ]);
+    const items = useAgentChatStore.getState().chats[CHAT].items;
+    const last = items[items.length - 1];
+    expect(last.type).toBe("user");
+    expect(last.type === "user" && last.attachmentLabels).toEqual(["a.png", "b.md"]);
+    expect(last.type === "user" && last.attachments).toHaveLength(2);
+  });
+
   it("setConcierge 标记管家会话，默认关闭", () => {
     const store = useAgentChatStore.getState();
     store.setSnapshot(CHAT, snapshot());
