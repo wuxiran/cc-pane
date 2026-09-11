@@ -346,8 +346,10 @@ fn unix_nice_target(current: i32, increment: i8) -> i32 {
 }
 
 fn env_remove_keys(mut env_remove: Vec<String>) -> Vec<String> {
-    if !env_remove.iter().any(|key| key == "NO_COLOR") {
-        env_remove.push("NO_COLOR".to_string());
+    for key in ["NO_COLOR", "NODE_DISABLE_COLORS"] {
+        if !env_remove.iter().any(|existing| existing == key) {
+            env_remove.push(key.to_string());
+        }
     }
     env_remove
 }
@@ -460,6 +462,12 @@ mod tests {
             keys.iter().filter(|key| key.as_str() == "NO_COLOR").count(),
             1
         );
+        assert_eq!(
+            keys.iter()
+                .filter(|key| key.as_str() == "NODE_DISABLE_COLORS")
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -467,6 +475,12 @@ mod tests {
         let keys = env_remove_keys(vec!["NO_COLOR".to_string(), "TERM".to_string()]);
         assert_eq!(
             keys.iter().filter(|key| key.as_str() == "NO_COLOR").count(),
+            1
+        );
+        assert_eq!(
+            keys.iter()
+                .filter(|key| key.as_str() == "NODE_DISABLE_COLORS")
+                .count(),
             1
         );
     }

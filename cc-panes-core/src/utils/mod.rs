@@ -34,6 +34,7 @@ pub use host_path::{
 pub use launch_request::{
     ensure_cli_color_env, ensure_utf8_locale, mint_birth_anchors,
     normalize_session_request_for_current_host, normalize_session_request_for_host, BirthAnchors,
+    CLI_COLOR_ENV_FORWARD_KEYS,
 };
 pub use path_normalize::{
     normalize_project_path, paths_equivalent, simplify_opt_path_str, simplify_path,

@@ -404,6 +404,14 @@ export function shouldPromoteSgrBackgroundToForeground(cliToolId: string): boole
 }
 
 /**
+ * Claude 半块字（▀▄█）同时用前景+背景画两色。剥掉 48 会只剩一半颜色，Clawd 发灰。
+ * 透明表面对 Claude 让路：保留 SGR 背景，色块可以不透明。
+ */
+export function shouldPreserveSgrBackgrounds(cliToolId: string): boolean {
+  return cliToolId === "claude";
+}
+
+/**
  * 解析某个 CLI 的缓冲模式。`overrides` 来自设置 `terminal.cliBufferModes`
  * （用户级逃生阀：出问题的用户可按 CLI 翻转，无效值忽略走默认）。
  */

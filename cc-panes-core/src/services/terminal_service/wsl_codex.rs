@@ -658,6 +658,28 @@ fn push_wsl_ccpanes_env_exports(
     }
 }
 
+/// Windows 进程环境到不了 guest bash。把 FORCE_COLOR / TERM 等写进远程脚本，
+/// 否则 WSL 里的 Claude 仍按 hasColors()=false 画灰屏。
+#[cfg(windows)]
+fn push_wsl_cli_color_env_exports(
+    remote_parts: &mut Vec<String>,
+    env_vars: &HashMap<String, String>,
+) {
+    remote_parts.push("unset NO_COLOR".to_string());
+    remote_parts.push("unset NODE_DISABLE_COLORS".to_string());
+    for key in crate::utils::CLI_COLOR_ENV_FORWARD_KEYS {
+        if let Some(value) = env_vars.get(*key) {
+            if TerminalService::is_valid_env_key(key) {
+                remote_parts.push(format!(
+                    "export {}={}",
+                    key,
+                    TerminalService::shell_escape(value)
+                ));
+            }
+        }
+    }
+}
+
 #[cfg(windows)]
 fn collect_wsl_codex_source_dirs(source_root: &Path) -> Result<Vec<String>> {
     let version_path = source_root.join(VERSION_FILE_NAME);
@@ -1757,6 +1779,7 @@ impl TerminalService {
         }
         push_wsl_env_exports(&mut remote_parts, &managed_env);
         push_wsl_ccpanes_env_exports(&mut remote_parts, env_vars);
+        push_wsl_cli_color_env_exports(&mut remote_parts, env_vars);
         let managed_pi = pi_family && provider.is_some();
         if managed_pi {
             remote_parts.extend(build_wsl_managed_pi_cleanup_prelude(
@@ -2202,6 +2225,7 @@ impl TerminalService {
         push_wsl_provider_env_unsets(&mut remote_parts, CliTool::Codex, provider.is_some());
         push_wsl_env_exports(&mut remote_parts, &provider_env);
         push_wsl_ccpanes_env_exports(&mut remote_parts, env_vars);
+        push_wsl_cli_color_env_exports(&mut remote_parts, env_vars);
         push_wsl_codex_mcp_isolation_prelude(
             &mut remote_parts,
             disable_unlisted_mcp_servers,

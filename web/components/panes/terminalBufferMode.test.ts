@@ -5,6 +5,7 @@ import {
   createTerminalDataRenderer,
   detectAlternateBufferTransitions,
   resolveTerminalBufferMode,
+  shouldPreserveSgrBackgrounds,
   shouldPromoteSgrBackgroundToForeground,
   stripAlternateBufferSequences,
   stripSgrBackgroundColors,
@@ -384,6 +385,23 @@ describe("terminalBufferMode", () => {
       expect(shouldPromoteSgrBackgroundToForeground("claude")).toBe(true);
       expect(shouldPromoteSgrBackgroundToForeground("codex")).toBe(false);
       expect(shouldPromoteSgrBackgroundToForeground("none")).toBe(false);
+    });
+
+    it("keeps Claude SGR backgrounds: half-block art needs fg+bg together", () => {
+      expect(shouldPreserveSgrBackgrounds("claude")).toBe(true);
+      expect(shouldPreserveSgrBackgrounds("codex")).toBe(false);
+      const half = "\x1b[38;2;255;122;26;48;2;20;20;40m▀";
+      expect(
+        stripSgrBackgroundColors(half, { promoteBackgroundToForeground: true }),
+      ).toBe("\x1b[38;2;255;122;26;49m▀");
+      const renderer = createTerminalDataRenderer();
+      expect(
+        renderer.render(half, {
+          keepCliOutputInNormalBuffer: true,
+          sessionId: "s1",
+          stripBackgroundColors: false,
+        }),
+      ).toBe(half);
     });
   });
 

@@ -223,21 +223,46 @@ fn ensure_utf8_locale_from(
     env.insert("LANG".to_string(), UTF8_LOCALE.to_string());
 }
 
+/// 需要随 WSL 远程脚本 `export` 进 Linux 侧的颜色变量。
+/// Windows 进程环境到不了 `wsl.exe` 里的 bash，只设在 HashMap 里不够。
+pub const CLI_COLOR_ENV_FORWARD_KEYS: &[&str] = &[
+    "TERM",
+    "COLORTERM",
+    "FORCE_COLOR",
+    "CLICOLOR_FORCE",
+];
+
+fn force_color_already_enables(value: &str) -> bool {
+    matches!(value, "1" | "2" | "3" | "true" | "TRUE")
+}
+
+fn term_advertises_color(value: &str) -> bool {
+    let normalized = value.trim();
+    !normalized.is_empty() && !normalized.eq_ignore_ascii_case("dumb")
+}
+
 /// 让托管 CLI 在 ConPTY 里真的发 SGR 颜色。
 ///
 /// Claude Code 2.1（Bun）会画整屏 TUI（CSI 定位、擦行），但 Windows ConPTY 上
 /// `stdout.hasColors()` 仍可能是 false。于是欢迎屏只有默认前景——Clawd 色块全灰。
 /// `COLORTERM=truecolor` 不够：hasColors 在 tty 检测失败时会先短路。
 /// `FORCE_COLOR=3` 是 Bun/chalk 文档里的强制 truecolor 开关。
+///
+/// 不能用 `entry().or_insert`：GUI 继承来的 `TERM=dumb` / `FORCE_COLOR=0` 会把
+/// 注入变成空操作，看起来「已经修过」实际还是灰屏。
 pub fn ensure_cli_color_env(env: &mut std::collections::HashMap<String, String>) {
-    env.entry("TERM".to_string())
-        .or_insert_with(|| "xterm-256color".to_string());
-    env.entry("COLORTERM".to_string())
-        .or_insert_with(|| "truecolor".to_string());
-    env.entry("FORCE_COLOR".to_string())
-        .or_insert_with(|| "3".to_string());
-    env.entry("CLICOLOR_FORCE".to_string())
-        .or_insert_with(|| "1".to_string());
+    let term = env.get("TERM").cloned().unwrap_or_default();
+    if !term_advertises_color(&term) {
+        env.insert("TERM".to_string(), "xterm-256color".to_string());
+    }
+    env.insert("COLORTERM".to_string(), "truecolor".to_string());
+    let force = env.get("FORCE_COLOR").cloned().unwrap_or_default();
+    if !force_color_already_enables(&force) {
+        env.insert("FORCE_COLOR".to_string(), "3".to_string());
+    }
+    env.insert("CLICOLOR_FORCE".to_string(), "1".to_string());
+    env.remove("NO_COLOR");
+    env.remove("NODE_DISABLE_COLORS");
 }
 
 /// 出生锚点：会话在**创建时刻**就被指定的 tab / terminal-pane id。
@@ -503,11 +528,26 @@ mod tests {
     }
 
     #[test]
-    fn ensure_cli_color_env_does_not_override_explicit_force_color() {
-        let mut env =
-            std::collections::HashMap::from([("FORCE_COLOR".to_string(), "0".to_string())]);
+    fn ensure_cli_color_env_overrides_dumb_term_and_force_color_off() {
+        let mut env = std::collections::HashMap::from([
+            ("TERM".to_string(), "dumb".to_string()),
+            ("FORCE_COLOR".to_string(), "0".to_string()),
+            ("NO_COLOR".to_string(), "1".to_string()),
+            ("NODE_DISABLE_COLORS".to_string(), "1".to_string()),
+        ]);
         crate::utils::ensure_cli_color_env(&mut env);
-        assert_eq!(env.get("FORCE_COLOR").map(String::as_str), Some("0"));
+        assert_eq!(env.get("TERM").map(String::as_str), Some("xterm-256color"));
+        assert_eq!(env.get("FORCE_COLOR").map(String::as_str), Some("3"));
+        assert!(!env.contains_key("NO_COLOR"));
+        assert!(!env.contains_key("NODE_DISABLE_COLORS"));
+    }
+
+    #[test]
+    fn ensure_cli_color_env_keeps_explicit_force_color_level() {
+        let mut env =
+            std::collections::HashMap::from([("FORCE_COLOR".to_string(), "2".to_string())]);
+        crate::utils::ensure_cli_color_env(&mut env);
+        assert_eq!(env.get("FORCE_COLOR").map(String::as_str), Some("2"));
         assert_eq!(env.get("TERM").map(String::as_str), Some("xterm-256color"));
     }
 }
