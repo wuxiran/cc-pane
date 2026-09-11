@@ -4,20 +4,24 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
-## 0.12.17 - Unreleased
+## 0.12.17 - 2026-09-12
 
-Development branch after v0.12.16.
+Claude color on Windows ConPTY, a two-row layout cluster, a dedicated Agent Chat workspace, media generation removed, and CLI detection that no longer looks like an uninstall.
 
 ### Changed
 
-- Comfortable layout topbar stacks the preset chip and auto-fit toggle as two rows (64px) so they match the layout cards instead of sitting as a 26px strip.
+- Comfortable layout topbar is two rows: Agent Chat on top, Starred left / preset right below, auto-fit as a slim rail. Compact keeps the same controls in one row.
 - Switching layouts now force-refreshes terminal display (bust WebGL skip cache, then full `refresh`) so hidden panes do not come back with stale glyphs.
+- Agent Chat now has a dedicated persistent workspace (`workspaces/agent-chat`). It is created on startup if missing, sits after the default workspace, and cannot be archived or deleted.
+- Image/video/ComfyUI media generation is removed from the app. Drama studio stays, without the media generation UI.
 
 ### Fixed
 
 - WebGL shared glyph atlas: after `_mergePages`, other panes now drop their CPU skip cache (`_clearModel(false)`) before `refresh`, so stale UV coords cannot sample the wrong CJK/Latin fragments. Do not `_clearModel(true)` / `renderer.clear()` in the broadcast — that zeros GPU double-buffers and strips ANSI colors (Claude truecolor fills atlas pages constantly). Still must not call `clearTextureAtlas()` on every pane (that would recurse). If the private `_clearModel` hook is missing, log `renderer.webgl.atlas.invalidate.unavailable`. `@xterm/addon-webgl` is pinned to `0.19.0` because this path depends on that private API.
 - PTY sessions now set `FORCE_COLOR=3` (and `CLICOLOR_FORCE=1`) in addition to `COLORTERM=truecolor`. Claude Code 2.1 on Windows ConPTY was drawing the TUI with cursor moves only — zero SGR — because Bun's `hasColors()` stayed false. Inherited `TERM=dumb` / `FORCE_COLOR=0` / `NO_COLOR` are overridden, and WSL guest bash now exports the same color vars (Windows env does not reach Linux Claude).
 - Claude on the transparent surface no longer strips SGR backgrounds. Clawd half-block art (`▀▄`) paints with foreground+background together; rewriting 48→38 left only one color, so the mascot stayed gray. Codex still strips.
+- Closing CC-Panes no longer looks like it “uninstalled” the CLI. The daemon now re-reads the live machine PATH when resolve fails (Windows via registry, not GBK `reg.exe` stdout), launch errors tell you to stop `cc-panes-daemon` instead of reinstalling, and the orphan reaper only kills already-exited sessions.
+- The Skills panel on the tools settings page can scroll again (`h-full` / `min-h-0` on the split wrapper).
 
 ## 0.12.16 - 2026-09-10
 

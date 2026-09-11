@@ -7,20 +7,24 @@
 两份是人工同步的，条目一一对应；改英文版时顺手改这里，逐条 diff 能看出漏了哪条。
 0.12.6 之前的版本只有英文版。
 
-## 0.12.17 - Unreleased
+## 0.12.17 - 2026-09-12
 
-v0.12.16 之后的开发分支。
+Windows 上 Claude 终于有颜色，顶栏布局簇改成两行，Agent Chat 有了专用工作空间，媒体生成拆除，关掉应用不再被误判成 CLI 被卸载。
 
 ### 变更
 
-- 舒适档顶栏把布局预设芯片和自动适配叠成两行（64px），与旁边布局卡对齐，不再是一条 26px 细条。
+- 舒适档顶栏两行：上 Agent Chat，下左星标 / 下右预设，自适应只留右侧窄条。紧凑档同一组并排。
 - 切换布局时强制刷新终端画面（丢掉 WebGL skip 缓存再整屏 refresh），避免切回来还是旧字形。
+- Agent Chat 有了专用常驻工作空间（`workspaces/agent-chat`）。启动缺失则创建，排在默认工作空间之后，不能归档或删除。
+- 图像/视频/ComfyUI 媒体生成从应用里拆除。短剧制作台保留，但不再带媒体生成 UI。
 
 ### 修复
 
 - WebGL 共享字形图集：`_mergePages` 后其它 pane 先丢掉 CPU skip 缓存（`_clearModel(false)`）再 `refresh`，避免旧 UV 采到别人的 CJK/Latin 碎片。广播里不能 `_clearModel(true)` / `renderer.clear()`——会把 GPU 双缓冲填 0，Claude 真彩色频繁加页时 ANSI 颜色会被抹掉。仍然不能对每个 pane 调 `clearTextureAtlas()`（会自激）。私有 `_clearModel` 缺失时打 `renderer.webgl.atlas.invalidate.unavailable`。`@xterm/addon-webgl` 锁死 `0.19.0`（依赖该私有 API）。
 - PTY 在 `COLORTERM=truecolor` 之外再注入 `FORCE_COLOR=3` / `CLICOLOR_FORCE=1`。Claude Code 2.1 在 Windows ConPTY 上 `hasColors()` 为 false，欢迎屏只有光标定位、零 SGR，所以整屏灰。会覆盖继承来的 `TERM=dumb` / `FORCE_COLOR=0` / `NO_COLOR`；WSL 里的 bash 也会 `export` 这组变量（Windows 进程环境到不了 Linux 侧 Claude）。
 - 透明表面下的 Claude **不再剥 SGR 背景**。Clawd 半块字（`▀▄`）靠前景+背景各画一色，把 48 改写成 38 只剩一半颜色，吉祥物还是灰的。Codex 仍剥背景。
+- 关掉 CC-Panes 不再看起来像「CLI 被卸载」。daemon 在解析失败时会重读机器当前 PATH（Windows 走注册表，不吃 `reg.exe` 的 GBK 输出），启动失败提示结束 `cc-panes-daemon` 而不是重装，孤儿回收只杀已经退出的会话。
+- 设置 → 工具页的 Skills 面板又能滚动了（拆分容器补上 `h-full` / `min-h-0`）。
 
 ## 0.12.16 - 2026-09-10
 
