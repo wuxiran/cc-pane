@@ -5,7 +5,7 @@
 use crate::models::settings::CCChanSettings;
 use crate::models::{CliTool, LaunchProviderSelection};
 use crate::services::{SettingsService, TerminalService};
-use crate::utils::{AppError, AppPaths, AppResult};
+use crate::utils::{ensure_cli_color_env, AppError, AppPaths, AppResult};
 use cc_cli_adapters::{
     no_window_command, ClaudeAdapter, CliAdapterContext, CliToolAdapter, CodexAdapter,
 };
@@ -872,12 +872,7 @@ impl CCChanService {
 
     fn structured_claude_env_vars(&self, session_id: &str) -> HashMap<String, String> {
         let mut env_vars = self.settings_service.get_proxy_env_vars();
-        env_vars
-            .entry("TERM".to_string())
-            .or_insert_with(|| "xterm-256color".to_string());
-        env_vars
-            .entry("COLORTERM".to_string())
-            .or_insert_with(|| "truecolor".to_string());
+        ensure_cli_color_env(&mut env_vars);
         env_vars.insert("CC_PANES_CLI_TOOL".to_string(), "claude".to_string());
         env_vars.insert("CC_PANES_RUNTIME_KIND".to_string(), "local".to_string());
         env_vars.insert(
@@ -889,12 +884,7 @@ impl CCChanService {
 
     fn structured_codex_env_vars(&self, session_id: &str) -> HashMap<String, String> {
         let mut env_vars = self.settings_service.get_proxy_env_vars();
-        env_vars
-            .entry("TERM".to_string())
-            .or_insert_with(|| "xterm-256color".to_string());
-        env_vars
-            .entry("COLORTERM".to_string())
-            .or_insert_with(|| "truecolor".to_string());
+        ensure_cli_color_env(&mut env_vars);
         env_vars.insert("CC_PANES_CLI_TOOL".to_string(), "codex".to_string());
         env_vars.insert("CC_PANES_RUNTIME_KIND".to_string(), "local".to_string());
         env_vars.insert(

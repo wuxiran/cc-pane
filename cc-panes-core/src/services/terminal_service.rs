@@ -2738,12 +2738,7 @@ impl TerminalService {
                 .then(|| Uuid::new_v4().to_string());
 
         // 注入终端环境变量（macOS Release .app 从 Finder 启动时不继承终端环境）
-        env_vars
-            .entry("TERM".to_string())
-            .or_insert_with(|| "xterm-256color".to_string());
-        env_vars
-            .entry("COLORTERM".to_string())
-            .or_insert_with(|| "truecolor".to_string());
+        crate::utils::ensure_cli_color_env(&mut env_vars);
         // GUI 应用不继承 shell locale（macOS 从 Finder/Dock 启动即如此），不补的话
         // 整条会话跑在 LC_CTYPE=C 下，多字节文本的字符数与显示宽度都会算错。
         // 已经是 UTF-8 则不动——判据与 WSL Codex 那条路径一致。

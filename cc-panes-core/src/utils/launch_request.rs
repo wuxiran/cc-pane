@@ -223,6 +223,23 @@ fn ensure_utf8_locale_from(
     env.insert("LANG".to_string(), UTF8_LOCALE.to_string());
 }
 
+/// 让托管 CLI 在 ConPTY 里真的发 SGR 颜色。
+///
+/// Claude Code 2.1（Bun）会画整屏 TUI（CSI 定位、擦行），但 Windows ConPTY 上
+/// `stdout.hasColors()` 仍可能是 false。于是欢迎屏只有默认前景——Clawd 色块全灰。
+/// `COLORTERM=truecolor` 不够：hasColors 在 tty 检测失败时会先短路。
+/// `FORCE_COLOR=3` 是 Bun/chalk 文档里的强制 truecolor 开关。
+pub fn ensure_cli_color_env(env: &mut std::collections::HashMap<String, String>) {
+    env.entry("TERM".to_string())
+        .or_insert_with(|| "xterm-256color".to_string());
+    env.entry("COLORTERM".to_string())
+        .or_insert_with(|| "truecolor".to_string());
+    env.entry("FORCE_COLOR".to_string())
+        .or_insert_with(|| "3".to_string());
+    env.entry("CLICOLOR_FORCE".to_string())
+        .or_insert_with(|| "1".to_string());
+}
+
 /// 出生锚点：会话在**创建时刻**就被指定的 tab / terminal-pane id。
 ///
 /// 这两个 id 由创建方预先分配、随 launch 事件下发，前端**原样采用**（不再自己
@@ -473,5 +490,24 @@ mod tests {
         assert_ne!(first.tab_id, second.tab_id);
         assert_ne!(first.terminal_pane_id, second.terminal_pane_id);
         assert_ne!(first.tab_id, first.terminal_pane_id);
+    }
+
+    #[test]
+    fn ensure_cli_color_env_fills_term_and_force_color() {
+        let mut env = std::collections::HashMap::new();
+        crate::utils::ensure_cli_color_env(&mut env);
+        assert_eq!(env.get("TERM").map(String::as_str), Some("xterm-256color"));
+        assert_eq!(env.get("COLORTERM").map(String::as_str), Some("truecolor"));
+        assert_eq!(env.get("FORCE_COLOR").map(String::as_str), Some("3"));
+        assert_eq!(env.get("CLICOLOR_FORCE").map(String::as_str), Some("1"));
+    }
+
+    #[test]
+    fn ensure_cli_color_env_does_not_override_explicit_force_color() {
+        let mut env =
+            std::collections::HashMap::from([("FORCE_COLOR".to_string(), "0".to_string())]);
+        crate::utils::ensure_cli_color_env(&mut env);
+        assert_eq!(env.get("FORCE_COLOR").map(String::as_str), Some("0"));
+        assert_eq!(env.get("TERM").map(String::as_str), Some("xterm-256color"));
     }
 }
