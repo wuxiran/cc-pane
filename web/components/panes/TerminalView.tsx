@@ -416,7 +416,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       layoutActiveRef,
       layoutSchedulerRef,
       refreshDisplay: (reason) => {
-        rendererControllerRef.current?.refreshDisplay(reason);
+        rendererControllerRef.current?.refreshDisplay?.(reason);
       },
       debugLog,
     });

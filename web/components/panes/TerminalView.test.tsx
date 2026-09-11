@@ -154,6 +154,7 @@ vi.mock("./terminalRendererController", () => ({
     getActiveRenderer: vi.fn(() => "canvas"),
     clearTextureAtlas: vi.fn(),
     repaint: vi.fn(),
+    refreshDisplay: vi.fn(() => true),
   })),
 }));
 
@@ -419,6 +420,7 @@ describe("TerminalView", () => {
         suspendWebgl: vi.fn(),
         resumeWebgl: vi.fn(),
         recreateWebgl: vi.fn(),
+        refreshDisplay: vi.fn(() => true),
         getDiagnostics: vi.fn(),
       } as never;
     });

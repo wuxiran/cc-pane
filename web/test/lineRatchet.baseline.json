@@ -8,6 +8,7 @@
   "components/panes/Panel.tsx": 561,
   "components/panes/TabBar.tsx": 634,
   "components/panes/TerminalView.tsx": 2226,
+  "components/panes/terminalRendererController.ts": 509,
   "components/providers/LaunchProfilesPanel.tsx": 577,
   "components/providers/ProviderFormPanel.tsx": 575,
   "components/settings/ProjectMcpSection.tsx": 661,
