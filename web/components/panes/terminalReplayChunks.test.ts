@@ -8,7 +8,7 @@ describe("terminal replay scheduling", () => {
     const chunks: string[] = [];
     await writeTerminalReplay(source, async chunk => { chunks.push(chunk); }, { chunkChars: 256 });
     expect(chunks.join("")).toBe(source);
-    expect(chunks.map(stripSgrBackgroundColors).join("")).toBe(stripSgrBackgroundColors(source));
+    expect(chunks.map((chunk) => stripSgrBackgroundColors(chunk)).join("")).toBe(stripSgrBackgroundColors(source));
     expect(chunks.slice(0, -1).every(chunk => !/[\uD800-\uDBFF]$/.test(chunk))).toBe(true);
     expect(Math.max(...chunks.map(chunk => chunk.length))).toBeLessThanOrEqual(256);
   });

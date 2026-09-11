@@ -144,7 +144,7 @@ export function createTerminalRendererController({
         // 只清 CPU skip 缓存（_clearModel(false)）。true 会把 GPU 双缓冲填 0，
         // Claude 真彩色频繁加页时颜色会被抹掉。绝不 clearTextureAtlas（会自激）。
         if (!invalidateWebglGlyphModel(webglAddon)) {
-          logger("renderer.webgl.atlas.invalidate.unavailable", getDiagnostics());
+          logger("renderer.webgl.atlas.invalidate.unavailable", { ...getDiagnostics() });
         }
         term.refresh(0, Math.max(0, term.rows - 1));
         return true;

@@ -225,12 +225,8 @@ fn ensure_utf8_locale_from(
 
 /// 需要随 WSL 远程脚本 `export` 进 Linux 侧的颜色变量。
 /// Windows 进程环境到不了 `wsl.exe` 里的 bash，只设在 HashMap 里不够。
-pub const CLI_COLOR_ENV_FORWARD_KEYS: &[&str] = &[
-    "TERM",
-    "COLORTERM",
-    "FORCE_COLOR",
-    "CLICOLOR_FORCE",
-];
+pub const CLI_COLOR_ENV_FORWARD_KEYS: &[&str] =
+    &["TERM", "COLORTERM", "FORCE_COLOR", "CLICOLOR_FORCE"];
 
 fn force_color_already_enables(value: &str) -> bool {
     matches!(value, "1" | "2" | "3" | "true" | "TRUE")
