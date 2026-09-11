@@ -198,6 +198,7 @@
   "tabGroupFiles": "文件",
   "tabGroupTools": "工具面板",
   "layoutPresets": "布局预设",
+  "layoutAgentChat": "Agent Chat",
   "layoutPresetSingle": "单格",
   "layoutPresetTwoCol": "左右分栏",
   "layoutPresetThreeCol": "三列",

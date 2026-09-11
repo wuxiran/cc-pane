@@ -1,12 +1,13 @@
-// 布局预设选择器：顶栏右端的一个单按钮 + 弹出浮层网格。
-// 之前六个预设图标常驻顶栏（约 170px），收编后窄窗口少一排图标、
-// 浮层里每个预设带文字标签（比纯图标更易懂）。复用 corner 模式选择器的
-// useFloatingPanelPosition 定位/夹紧逻辑，但弹层方向改为按钮下方。
+// 布局快捷簇：舒适档两行（Agent Chat / 星标+预设），紧凑档同一组并排。
+// 点 Agent / 星标切到对应布局；点预设名弹出分屏网格。浮层不再重复专用布局。
+// 复用 corner 模式选择器的 useFloatingPanelPosition 定位/夹紧逻辑，弹层方向改为按钮下方。
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, MessagesSquare, Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useActivityBarStore, usePanesStore } from "@/stores";
+import { isAgentChatLayout } from "@/stores/panes/agentChatLayout";
+import { isStarredLayout } from "@/stores/paneLayoutHelpers";
 import type { LayoutPresetId } from "@/types/pane";
 import { useFloatingPanelPosition } from "./useFloatingPanelPosition";
 
@@ -72,16 +73,36 @@ const PRESET_LABEL_KEYS = PRESET_ORDER.reduce(
 // useFloatingPanelPosition 的 FLOATING_PANEL_WIDTH 夹紧常量对齐。
 const TRIGGER_PANEL_GAP = 10;
 
+function chipStyle(active: boolean): React.CSSProperties {
+  return active
+    ? {
+        background: "color-mix(in srgb, var(--app-accent) 12%, transparent)",
+        color: "var(--app-accent)",
+      }
+    : { color: "var(--app-text-primary)" };
+}
+
 export default function LayoutPresetPicker({
   matchedPreset,
+  stacked = false,
 }: {
   /** 当前布局命中的预设；自定义为 null（按钮回退到通用文案） */
   matchedPreset: LayoutPresetId | null;
+  /** 舒适档两行：上 Agent Chat，下左星标、下右预设 */
+  stacked?: boolean;
 }) {
   const { t } = useTranslation("panes");
   const applyLayoutPreset = usePanesStore((s) => s.applyLayoutPreset);
+  const layouts = usePanesStore((s) => s.layouts);
+  const currentLayoutId = usePanesStore((s) => s.currentLayoutId);
+  const switchLayout = usePanesStore((s) => s.switchLayout);
   const setAppViewMode = useActivityBarStore((s) => s.setAppViewMode);
   const [open, setOpen] = useState(false);
+  const starredLayout = layouts.find(isStarredLayout);
+  const agentChatLayout = layouts.find(isAgentChatLayout);
+  const onStarred = starredLayout?.id === currentLayoutId;
+  const onAgentChat = agentChatLayout?.id === currentLayoutId;
+  const presetActive = !onStarred && !onAgentChat && Boolean(matchedPreset);
   const {
     rootRef,
     floatingRef,
@@ -90,6 +111,8 @@ export default function LayoutPresetPicker({
     clampFloatingPosition,
   } = useFloatingPanelPosition();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const chipHeight = stacked ? "h-[30px]" : "h-[26px]";
+  const chipClass = `flex min-w-0 items-center gap-1 rounded-md px-1.5 text-xs transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] ${chipHeight}`;
 
   function positionBelowTrigger() {
     const root = rootRef.current;
@@ -114,6 +137,12 @@ export default function LayoutPresetPicker({
   function applyPreset(id: LayoutPresetId) {
     setAppViewMode("panes");
     applyLayoutPreset(id);
+    closePanel({ refocus: true });
+  }
+
+  function selectSpecialLayout(layoutId: string) {
+    setAppViewMode("panes");
+    switchLayout(layoutId);
     closePanel({ refocus: true });
   }
 
@@ -150,31 +179,85 @@ export default function LayoutPresetPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const activeLabel = matchedPreset ? t(PRESET_LABEL_KEYS[matchedPreset]) : t("layoutPresets");
+  const presetLabel = matchedPreset ? t(PRESET_LABEL_KEYS[matchedPreset]) : t("layoutPresets");
+
+  const agentButton = agentChatLayout ? (
+    <button
+      type="button"
+      data-testid="layout-special-agent-chat"
+      aria-label={t("layoutAgentChat")}
+      aria-pressed={onAgentChat}
+      className={`${chipClass} ${stacked ? "w-full" : ""}`}
+      style={chipStyle(onAgentChat)}
+      onClick={() => selectSpecialLayout(agentChatLayout.id)}
+    >
+      <MessagesSquare className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      <span className="hidden truncate sm:inline">{t("layoutAgentChat")}</span>
+    </button>
+  ) : null;
+
+  const starredButton = starredLayout ? (
+    <button
+      type="button"
+      data-testid="layout-special-starred"
+      aria-label={t("starredPanelTitle")}
+      aria-pressed={onStarred}
+      className={`${chipClass} shrink-0`}
+      style={chipStyle(onStarred)}
+      onClick={() => selectSpecialLayout(starredLayout.id)}
+    >
+      <Star className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      <span className="hidden truncate sm:inline">{t("starredPanelTitle")}</span>
+    </button>
+  ) : null;
+
+  const presetButton = (
+    <button
+      ref={triggerRef}
+      type="button"
+      aria-label={t("layoutPresets")}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      className={`${chipClass} ${stacked ? "flex-1" : ""}`}
+      style={presetActive ? chipStyle(true) : { color: "var(--app-text-tertiary)" }}
+      onClick={() => (open ? closePanel() : openPanel())}
+    >
+      <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0" fill="currentColor" aria-hidden>
+        <rect x="1.5" y="2.5" width="6" height="5" rx="1" />
+        <rect x="8.5" y="2.5" width="6" height="5" rx="1" />
+        <rect x="1.5" y="8.5" width="6" height="5" rx="1" />
+        <rect x="8.5" y="8.5" width="6" height="5" rx="1" />
+      </svg>
+      <span className="hidden truncate sm:inline">{presetLabel}</span>
+      <ChevronDown className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
+    </button>
+  );
 
   return (
     <>
-      <div ref={rootRef} className="flex flex-shrink-0 items-center pl-1.5">
-        <button
-          ref={triggerRef}
-          type="button"
-          aria-label={t("layoutPresets")}
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          className="flex h-[26px] items-center gap-1.5 rounded-md px-2 text-xs transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
-          style={{ color: matchedPreset ? "var(--app-text-primary)" : "var(--app-text-tertiary)" }}
-          onClick={() => (open ? closePanel() : openPanel())}
-        >
-          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0" fill="currentColor" aria-hidden>
-            <rect x="1.5" y="2.5" width="6" height="5" rx="1" />
-            <rect x="8.5" y="2.5" width="6" height="5" rx="1" />
-            <rect x="1.5" y="8.5" width="6" height="5" rx="1" />
-            <rect x="8.5" y="8.5" width="6" height="5" rx="1" />
-          </svg>
-          {/* 极窄窗口（< sm，桌面端 minWidth 960 出现不到，纯网页兜底）只留图标 */}
-          <span className="hidden truncate sm:inline">{activeLabel}</span>
-          <ChevronDown className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
-        </button>
+      <div
+        ref={rootRef}
+        className={
+          stacked
+            ? "flex h-full min-w-[152px] flex-col justify-center gap-1"
+            : "flex flex-shrink-0 items-center gap-0.5"
+        }
+      >
+        {stacked ? (
+          <>
+            {agentButton}
+            <div className="flex min-w-0 items-center gap-1">
+              {starredButton}
+              {presetButton}
+            </div>
+          </>
+        ) : (
+          <>
+            {agentButton}
+            {starredButton}
+            {presetButton}
+          </>
+        )}
       </div>
 
       {open && floatingPosition
@@ -195,24 +278,18 @@ export default function LayoutPresetPicker({
             >
               <div className="grid grid-cols-2 gap-1">
                 {PRESET_ORDER.map(({ id, labelKey }) => {
-                  const active = matchedPreset === id;
+                  const active = presetActive && matchedPreset === id;
                   return (
                     <button
                       key={id}
                       type="button"
+                      data-testid="layout-preset-option"
                       aria-label={t(labelKey)}
                       aria-pressed={active}
                       className={`flex h-9 min-w-0 items-center gap-2 rounded-md px-2 text-xs transition-colors duration-[var(--dur-fast)] ${
                         active ? "" : "hover:bg-[var(--app-hover)]"
                       }`}
-                      style={
-                        active
-                          ? {
-                              background: "color-mix(in srgb, var(--app-accent) 12%, transparent)",
-                              color: "var(--app-accent)",
-                            }
-                          : undefined
-                      }
+                      style={active ? chipStyle(true) : undefined}
                       onClick={() => applyPreset(id)}
                     >
                       <svg

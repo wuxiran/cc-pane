@@ -11,6 +11,7 @@ import { isAgentChatLayout, enforceAgentChatLayoutPurity } from "./agentChatLayo
 import {
   isNormalLayout,
   isStarredLayout,
+  isUserLayout,
   nextLayoutName,
   syncWorkingCopyToCurrentLayout,
 } from "../paneLayoutHelpers";
@@ -76,7 +77,7 @@ export function createLayoutActions({ set, get }: PanesStoreAccess): LayoutActio
       if (!trimmed) return;
       set((state) => {
         const layout = findLayout(state.layouts, (item) => item.id === id);
-        if (!layout || isStarredLayout(layout)) return;
+        if (!layout || isStarredLayout(layout) || isAgentChatLayout(layout)) return;
         layout.name = trimmed;
       });
     },
@@ -88,10 +89,9 @@ export function createLayoutActions({ set, get }: PanesStoreAccess): LayoutActio
         const index = findLayoutIndex(state.layouts, (layout) => layout.id === id);
         if (index === -1) return;
         const deletingLayout = state.layouts[index];
-        if (isStarredLayout(deletingLayout)) return;
-        // Agent Chat 专用固定布局不可删除（与星标同口径）。
-        if (isAgentChatLayout(deletingLayout)) return;
-        if (filterLayouts(state.layouts, isNormalLayout).length <= 1) return;
+        if (isStarredLayout(deletingLayout) || isAgentChatLayout(deletingLayout)) return;
+        // 用户布局至少留一套；Agent Chat 虽是 normal kind，但不算可删的工作布局。
+        if (filterLayouts(state.layouts, isUserLayout).length <= 1) return;
 
         syncWorkingCopyToCurrentLayout(state);
         const deletingCurrent = state.currentLayoutId === id;
@@ -109,12 +109,12 @@ export function createLayoutActions({ set, get }: PanesStoreAccess): LayoutActio
           .filter((tabId) => !survivors.has(tabId));
 
         if (deletingCurrent) {
-          const normalLayouts = filterLayouts(state.layouts, isNormalLayout);
-          const previousNormal = normalLayouts
+          const userLayouts = filterLayouts(state.layouts, isUserLayout);
+          const previousUser = userLayouts
             .slice()
             .reverse()
             .find((layout) => state.layouts.indexOf(layout) < index);
-          const nextLayout = previousNormal ?? normalLayouts[0];
+          const nextLayout = previousUser ?? userLayouts[0] ?? filterLayouts(state.layouts, isNormalLayout)[0];
           if (!nextLayout) return;
           state.currentLayoutId = nextLayout.id;
           state.rootPane = nextLayout.rootPane;
@@ -169,7 +169,7 @@ export function createLayoutActions({ set, get }: PanesStoreAccess): LayoutActio
       if (!trimmed) return;
       set((state) => {
         const layout = findLayout(state.layouts, (item) => item.id === layoutId);
-        if (!layout || isStarredLayout(layout)) return;
+        if (!layout || isStarredLayout(layout) || isAgentChatLayout(layout)) return;
         layout.workspaceName = trimmed;
       });
     },
@@ -177,7 +177,7 @@ export function createLayoutActions({ set, get }: PanesStoreAccess): LayoutActio
     unbindLayoutWorkspace: (layoutId) => {
       set((state) => {
         const layout = findLayout(state.layouts, (item) => item.id === layoutId);
-        if (!layout || isStarredLayout(layout)) return;
+        if (!layout || isStarredLayout(layout) || isAgentChatLayout(layout)) return;
         layout.workspaceName = undefined;
       });
     },

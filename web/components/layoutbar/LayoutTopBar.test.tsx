@@ -15,6 +15,7 @@ import {
 } from "@/stores";
 import { createPanel } from "@/lib/paneTree";
 import type { Panel, PaneNode, SplitPane, Tab, TerminalStatusInfo } from "@/types";
+import { AGENT_CHAT_LAYOUT_ID } from "@/types";
 
 const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
 
@@ -35,6 +36,7 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
 
 function resetStores(rootPane: PaneNode = createPanel()) {
   const starredRootPane = createPanel();
+  const agentChatRootPane = createPanel();
   usePanesStore.setState({
     rootPane,
     activePaneId: rootPane.id,
@@ -52,6 +54,13 @@ function resetStores(rootPane: PaneNode = createPanel()) {
         kind: "starred",
         rootPane: starredRootPane,
         activePaneId: starredRootPane.id,
+      },
+      {
+        id: AGENT_CHAT_LAYOUT_ID,
+        name: "Agent Chat",
+        kind: "normal",
+        rootPane: agentChatRootPane,
+        activePaneId: agentChatRootPane.id,
       },
     ],
     currentLayoutId: "layout-1",
@@ -132,6 +141,18 @@ describe("LayoutTopBar 布局预设浮层", () => {
     resetStores();
   });
 
+  it("舒适档两行：上 Agent Chat，下左星标下右预设，自适应只占窄条", () => {
+    render(<DndContext><LayoutTopBar /></DndContext>);
+
+    const cluster = screen.getByTestId("layout-preset-cluster");
+    expect(cluster).toHaveAttribute("data-density", "comfortable");
+    expect(within(cluster).getByTestId("layout-special-agent-chat")).toBeInTheDocument();
+    expect(within(cluster).getByTestId("layout-special-starred")).toBeInTheDocument();
+    expect(within(cluster).getByRole("button", { name: /布局预设|Layout presets/i })).toBe(presetTrigger());
+    const autofit = within(cluster).getByRole("button", { name: /自动适配布局|Auto-fit layout/i });
+    expect(autofit.className).toMatch(/\bw-7\b/);
+  });
+
   it("常驻入口收敛为单按钮，点开浮层列出 6 个带文字标签的预设", () => {
     render(<DndContext><LayoutTopBar /></DndContext>);
 
@@ -142,19 +163,22 @@ describe("LayoutTopBar 布局预设浮层", () => {
     fireEvent.click(presetTrigger());
 
     expect(presetTrigger().getAttribute("aria-expanded")).toBe("true");
-    const options = within(presetDialog()).getAllByRole("button");
+    const options = within(presetDialog()).getAllByTestId("layout-preset-option");
     expect(options).toHaveLength(6);
     // 当前命中的预设带 aria-pressed 高亮；每个选项都有文字标签（不再纯图标）
     expect(options[0].getAttribute("aria-pressed")).toBe("true");
     expect(options[1].getAttribute("aria-pressed")).toBe("false");
     expect(within(options[1]).getByText(/^(左右分栏|Two columns)$/)).toBeInTheDocument();
+    // 星标 / Agent Chat 是簇上的常驻按钮，不再进浮层
+    expect(within(presetDialog()).queryByTestId("layout-special-starred")).toBeNull();
+    expect(within(presetDialog()).queryByTestId("layout-special-agent-chat")).toBeNull();
   });
 
   it("点选预设生效并关闭浮层", () => {
     render(<DndContext><LayoutTopBar /></DndContext>);
     fireEvent.click(presetTrigger());
 
-    const options = within(presetDialog()).getAllByRole("button");
+    const options = within(presetDialog()).getAllByTestId("layout-preset-option");
     fireEvent.click(options[1]); // two-col
 
     const root = usePanesStore.getState().rootPane as SplitPane;
@@ -173,7 +197,7 @@ describe("LayoutTopBar 布局预设浮层", () => {
     render(<DndContext><LayoutTopBar /></DndContext>);
     fireEvent.click(presetTrigger());
 
-    const options = within(presetDialog()).getAllByRole("button");
+    const options = within(presetDialog()).getAllByTestId("layout-preset-option");
     fireEvent.click(options[3]); // two-row
 
     const root = usePanesStore.getState().rootPane as SplitPane;
@@ -213,11 +237,27 @@ describe("LayoutTopBar 布局预设浮层", () => {
     expect(presetTrigger().getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("当前是星标布局时不渲染预设入口", () => {
+  it("当前是星标布局时预设入口仍在，星标按钮呈按下态", () => {
     usePanesStore.setState({ currentLayoutId: "layout-starred" });
     render(<DndContext><LayoutTopBar /></DndContext>);
-    expect(screen.queryByRole("button", { name: /布局预设|Layout presets/i })).toBeNull();
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(presetTrigger()).toBeInTheDocument();
+    expect(screen.getByTestId("layout-special-starred").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("tab", { name: /星标|Starred/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /自动适配布局|Auto-fit layout/i })).toBeNull();
+  });
+
+  it("顶栏卡片不展示星标和 Agent Chat，点簇上按钮可切过去", () => {
+    render(<DndContext><LayoutTopBar /></DndContext>);
+    expect(screen.queryByRole("tab", { name: /星标|Starred/ })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /Agent Chat/ })).toBeNull();
+    expect(screen.getByRole("tab", { name: /布局 1/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("layout-special-starred"));
+    expect(usePanesStore.getState().currentLayoutId).toBe("layout-starred");
+
+    fireEvent.click(screen.getByTestId("layout-special-agent-chat"));
+    expect(usePanesStore.getState().currentLayoutId).toBe(AGENT_CHAT_LAYOUT_ID);
+    expect(screen.queryByRole("tab", { name: /Agent Chat/ })).toBeNull();
   });
 });
 
@@ -232,15 +272,18 @@ describe("LayoutTopBar 布局条密度", () => {
 
     expect(screen.getByRole("tablist")).toHaveAttribute("data-density", "comfortable");
     expect(screen.getAllByText(/无会话|No sessions/i).length).toBeGreaterThan(0);
-    expect(screen.getByRole("tab", { name: /星标/ })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /星标/ })).toBeNull();
 
     const menu = await openViewMenu(user);
     await user.click(within(menu).getByRole("menuitem", { name: /切换到紧凑档|Switch to compact/i }));
 
     expect(useLayoutUiStore.getState().layoutBarDensity).toBe("compact");
     expect(screen.getByRole("tablist")).toHaveAttribute("data-density", "compact");
+    expect(screen.getByTestId("layout-preset-cluster")).toHaveAttribute("data-density", "compact");
     expect(screen.queryAllByText(/无会话|No sessions/i)).toHaveLength(0);
-    expect(screen.getByRole("tab", { name: /星标/ })).toBeInTheDocument();
+    expect(screen.getByTestId("layout-special-starred")).toBeInTheDocument();
+    fireEvent.click(presetTrigger());
+    expect(within(presetDialog()).queryByTestId("layout-special-starred")).toBeNull();
   });
 
   it("舒适档摘要行按状态桶展示计数，零桶隐藏且不再出现项目名", () => {

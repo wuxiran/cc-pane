@@ -198,6 +198,7 @@
   "tabGroupFiles": "files",
   "tabGroupTools": "tool panels",
   "layoutPresets": "Layout presets",
+  "layoutAgentChat": "Agent Chat",
   "layoutPresetSingle": "Single",
   "layoutPresetTwoCol": "Two columns",
   "layoutPresetThreeCol": "Three columns",

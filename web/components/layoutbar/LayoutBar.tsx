@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Command } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
+import { isAgentChatLayout } from "@/stores/panes/agentChatLayout";
 import type { LayoutEntry } from "@/types";
 import { useLayoutSelectorState, LAYOUT_BAR_TOGGLE_EVENT } from "./useLayoutSelectorState";
 import { LayoutSelectorPanel } from "./LayoutSelectorPanel";
@@ -49,7 +50,7 @@ export default function LayoutBar() {
   const active = open;
 
   function requestDelete(layout: LayoutEntry) {
-    if (layout.kind === "starred") return;
+    if (layout.kind === "starred" || isAgentChatLayout(layout)) return;
     if (deletingLastLayout) return;
     closeSelector();
     setDeleteSummary(summarizeLayoutDelete(layout));

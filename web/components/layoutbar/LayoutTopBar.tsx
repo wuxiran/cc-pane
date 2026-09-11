@@ -2,7 +2,7 @@ import { LayoutAutoFitButton } from "./LayoutAutoFit";
 // 布局条（topbar 模式）：终端标签上方的一层，水平列出全部布局。
 // 点击切换、双击重命名、悬停删除、＋新建；与左下角 LayoutBar 共用同一份
 // layouts 状态（usePanesStore），只是展示位置不同。右端按钮可切回 corner 模式。
-// 布局预设收在 LayoutPresetPicker 的浮层里，不再常驻一排图标。
+// 布局预设 / 星标 / Agent Chat 收在 LayoutPresetPicker 簇里；顶栏卡片只列用户布局。
 import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
@@ -17,6 +17,8 @@ import {
   useTerminalStatusStore,
 } from "@/stores";
 import { matchLayoutPreset } from "@/stores/usePanesStore";
+import { isAgentChatLayout } from "@/stores/panes/agentChatLayout";
+import { isUserLayout } from "@/stores/paneLayoutHelpers";
 import type { LayoutEntry } from "@/types";
 import LayoutDeleteDialog, { summarizeLayoutDelete, type DeleteSummary } from "./LayoutDeleteDialog";
 import LayoutViewMenu from "./LayoutViewMenu";
@@ -49,8 +51,8 @@ export default function LayoutTopBar() {
     if (editingId) editInputRef.current?.select();
   }, [editingId]);
 
-  const normalLayoutCount = layouts.filter((layout) => layout.kind !== "starred").length;
-  const deletingLastLayout = normalLayoutCount <= 1;
+  const stripLayouts = layouts.filter(isUserLayout);
+  const deletingLastLayout = stripLayouts.length <= 1;
   const currentLayoutStarred =
     layouts.find((layout) => layout.id === currentLayoutId)?.kind === "starred";
   const matchedPreset = currentLayoutStarred ? null : matchLayoutPreset(liveRootPane);
@@ -71,7 +73,7 @@ export default function LayoutTopBar() {
   }
 
   function startRename(layout: LayoutEntry) {
-    if (layout.kind === "starred") return;
+    if (layout.kind === "starred" || isAgentChatLayout(layout)) return;
     setEditingId(layout.id);
     setEditingName(layout.name);
   }
@@ -90,7 +92,7 @@ export default function LayoutTopBar() {
   }
 
   function requestDelete(layout: LayoutEntry) {
-    if (layout.kind === "starred" || deletingLastLayout) return;
+    if (layout.kind === "starred" || isAgentChatLayout(layout) || deletingLastLayout) return;
     setDeleteSummary(summarizeLayoutDelete(layout));
   }
 
@@ -112,10 +114,22 @@ export default function LayoutTopBar() {
       data-density={density}
     >
       <LayoutViewMenu />
-      {currentLayoutStarred ? null : <><LayoutPresetPicker matchedPreset={matchedPreset} /><LayoutAutoFitButton /></>}
+      {/* 舒适档：上 Agent Chat，下左星标 / 下右预设；自适应贴右侧一条窄缝。紧凑档同一组并排。 */}
+      <div
+        data-testid="layout-preset-cluster"
+        data-density={density}
+        className={
+          density === "comfortable"
+            ? "ml-1.5 flex h-[64px] flex-shrink-0 items-stretch gap-0.5"
+            : "flex flex-shrink-0 items-center gap-0.5 pl-1.5"
+        }
+      >
+        <LayoutPresetPicker matchedPreset={matchedPreset} stacked={density === "comfortable"} />
+        {currentLayoutStarred ? null : <LayoutAutoFitButton stacked={density === "comfortable"} />}
+      </div>
 
-      <SortableContext items={layouts.map((layout) => layout.id)} strategy={horizontalListSortingStrategy}>
-          {layouts.map((layout) => {
+      <SortableContext items={stripLayouts.map((layout) => layout.id)} strategy={horizontalListSortingStrategy}>
+          {stripLayouts.map((layout) => {
             const selected = layout.id === currentLayoutId;
             const tree = selected ? liveRootPane : layout.rootPane;
             // tabCount 是**全类型** tab 总数，与下方类型计数桁各桁之和一致——

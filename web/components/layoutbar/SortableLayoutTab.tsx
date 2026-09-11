@@ -17,6 +17,7 @@ import {
 import { LayoutWorkspaceBadge, LayoutWorkspaceMenuItems } from "./LayoutWorkspaceMenu";
 import { getLayoutWorkspaceBinding } from "@/utils/layoutWorkspace";
 import type { LayoutBarDensity } from "@/stores";
+import { isAgentChatLayout } from "@/stores/panes/agentChatLayout";
 import type { LayoutEntry, PaneNode, TerminalStatusInfo } from "@/types";
 import LayoutStatusRow from "./LayoutStatusRow";
 import LayoutStatusGrid from "./LayoutStatusGrid";
@@ -100,14 +101,15 @@ export default function SortableLayoutTab({
   // 星标布局装不了终端 tab，当前布局落回自己是空操作——两者都不给反馈。
   const { active } = useDndContext();
   const draggingTab = active?.data.current?.type === "tab";
-  const canAcceptTab = draggingTab && layout.kind !== "starred" && !selected;
+  const reserved = layout.kind === "starred" || isAgentChatLayout(layout);
+  const canAcceptTab = draggingTab && !reserved && !selected;
   const dropState = canAcceptTab ? (isOver ? "active" : "candidate") : undefined;
 
   const DensityIcon = density === "comfortable" ? Rows2 : Rows3;
   const statusDots = layout.kind === "starred"
     ? null
     : <LayoutStatusRow rootPane={tree} statusMap={statusMap} />;
-  const deleteButton = deletable ? (
+  const deleteButton = deletable && !reserved ? (
     <button
       type="button"
       aria-label={deleteLabel}
@@ -255,7 +257,7 @@ export default function SortableLayoutTab({
     <ContextMenu>
       <ContextMenuTrigger asChild>{tabButton}</ContextMenuTrigger>
       <ContextMenuContent className="z-[160] w-44">
-        {layout.kind !== "starred" ? (
+        {!reserved ? (
           <>
             <ContextMenuItem onSelect={onStartRename}>
               <Pencil />
@@ -269,7 +271,7 @@ export default function SortableLayoutTab({
           <DensityIcon />
           {densityToggleLabel}
         </ContextMenuItem>
-        {layout.kind !== "starred" ? (
+        {!reserved ? (
           <>
             <ContextMenuSeparator />
             {/* 走与 hover × 同一条 onRequestDelete —— 删除是顺序敏感的

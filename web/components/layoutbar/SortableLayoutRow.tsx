@@ -46,6 +46,7 @@ export function SortableLayoutRow({
   requestDelete,
   deletingLastLayout,
   isStarredLayout,
+  isReservedLayout,
   handleContextMenuOpenChange,
   statusMap,
   onMouseEnter,
@@ -65,6 +66,7 @@ export function SortableLayoutRow({
   requestDelete: (layout: LayoutEntry) => void;
   deletingLastLayout: boolean;
   isStarredLayout: boolean;
+  isReservedLayout: boolean;
   handleContextMenuOpenChange: (open: boolean) => void;
   statusMap: Map<string, TerminalStatusInfo>;
   onMouseEnter: () => void;
@@ -148,7 +150,7 @@ export function SortableLayoutRow({
           onDoubleClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            if (!isStarredLayout) {
+            if (!isReservedLayout) {
               startRename(layout);
             }
           }}
@@ -211,7 +213,7 @@ export function SortableLayoutRow({
               onJump={(paneId, tabId) => onJumpToTab(layout.id, paneId, tabId)}
             />
           )}
-          {!isStarredLayout ? (
+          {!isReservedLayout ? (
             <button
               type="button"
               aria-label={deletingLastLayout ? t("cannotDeleteLastLayout") : t("deleteLayout")}
@@ -229,7 +231,7 @@ export function SortableLayoutRow({
           ) : null}
         </div>
       </ContextMenuTrigger>
-      {!isStarredLayout ? (
+      {!isReservedLayout ? (
         <ContextMenuContent className="z-[160] w-44">
           <ContextMenuItem onClick={() => startRename(layout)}>
             <Pencil />

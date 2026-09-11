@@ -105,6 +105,17 @@ describe("专用布局守卫", () => {
     ).toBe(true);
   });
 
+  it("只剩一套用户布局时即使有 Agent Chat 也不让删", () => {
+    const userLayout = usePanesStore.getState().layouts.find(
+      (layout) => layout.id !== AGENT_CHAT_LAYOUT_ID && layout.kind !== "starred",
+    );
+    expect(userLayout).toBeDefined();
+    usePanesStore.getState().deleteLayout(userLayout!.id);
+    expect(
+      usePanesStore.getState().layouts.some((layout) => layout.id === userLayout!.id),
+    ).toBe(true);
+  });
+
   it("agent 标签移不出专用布局，其他标签移不进来", () => {
     const agentId = "guard-agent";
     const terminalId = "guard-term";

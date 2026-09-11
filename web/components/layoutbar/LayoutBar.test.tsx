@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import LayoutBar from "./LayoutBar";
 import { useActivityBarStore, useCanvasDisplayStore, usePanesStore } from "@/stores";
 import { createPanel } from "@/lib/paneTree";
+import { AGENT_CHAT_LAYOUT_ID } from "@/types";
 
 // LayoutSelectorPanel 内部使用统一 Tooltip，需要 TooltipProvider 包裹
 const render = (ui: ReactElement) => rtlRender(<TooltipProvider>{ui}</TooltipProvider>);
@@ -269,6 +270,33 @@ describe("LayoutBar", () => {
 
     fireEvent.contextMenu(screen.getByRole("button", { name: "星标" }));
 
+    expect(screen.queryByRole("menuitem", { name: /删除布局|Delete Layout/i })).not.toBeInTheDocument();
+  });
+
+  it("Agent Chat 专用布局不显示删除入口", async () => {
+    const user = userEvent.setup();
+    const current = usePanesStore.getState();
+    const agentRoot = createPanel();
+    usePanesStore.setState({
+      layouts: [
+        ...current.layouts,
+        {
+          id: AGENT_CHAT_LAYOUT_ID,
+          name: "Agent Chat",
+          kind: "normal",
+          rootPane: agentRoot,
+          activePaneId: agentRoot.id,
+        },
+      ],
+    });
+    render(<LayoutBar />);
+
+    await user.hover(screen.getByRole("button", { name: /布局|Layout/i }));
+    const agentChatRow = await screen.findByRole("button", { name: /Agent Chat/ });
+    expect(agentChatRow).toBeInTheDocument();
+    expect(within(agentChatRow.closest(".group") as HTMLElement).queryByRole("button", { name: /删除布局|Delete Layout|最后一个布局不可删除|The last layout cannot be deleted/i })).toBeNull();
+
+    fireEvent.contextMenu(agentChatRow);
     expect(screen.queryByRole("menuitem", { name: /删除布局|Delete Layout/i })).not.toBeInTheDocument();
   });
 

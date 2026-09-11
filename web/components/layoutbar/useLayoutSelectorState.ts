@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
 import { PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { useActivityBarStore, usePanesStore } from "@/stores";
+import { isAgentChatLayout } from "@/stores/panes/agentChatLayout";
+import { isUserLayout } from "@/stores/paneLayoutHelpers";
 import type { LayoutEntry } from "@/types";
 import { useFloatingPanelPosition } from "./useFloatingPanelPosition";
 
@@ -37,8 +39,7 @@ export function useLayoutSelectorState() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
 
-  const normalLayoutCount = layouts.filter((layout) => layout.kind !== "starred").length;
-  const deletingLastLayout = normalLayoutCount <= 1;
+  const deletingLastLayout = layouts.filter(isUserLayout).length <= 1;
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -48,7 +49,7 @@ export function useLayoutSelectorState() {
   );
 
   function startRename(layout: LayoutEntry) {
-    if (layout.kind === "starred") return;
+    if (layout.kind === "starred" || isAgentChatLayout(layout)) return;
     clearCloseTimer();
     editingIdRef.current = layout.id;
     setEditingId(layout.id);
