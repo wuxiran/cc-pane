@@ -15,6 +15,7 @@ import { agentChatService } from "@/services/agentChatService";
 import { todoService } from "@/services/todoService";
 import { ensureAgentChatListener } from "@/stores/agentChatEvents";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
+import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { usePanesStore } from "@/stores";
 import { useEditorRevealStore } from "@/stores/useEditorRevealStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
@@ -30,7 +31,7 @@ import EnginePicker from "./EnginePicker";
 import SessionWorkspaceMenu from "./SessionWorkspaceMenu";
 import PermissionCard from "./PermissionCard";
 import PermissionPolicyDropdown from "./PermissionPolicyDropdown";
-import { isAbsolutePath, joinCwd } from "./chatPaths";
+import { isAbsolutePath, joinCwd, residentAgentChatCwd } from "./chatPaths";
 import {
   loadAutoApproveKinds,
   saveAutoApproveKinds,
@@ -64,7 +65,10 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   // 工作空间/目录覆盖存 store（切标签不丢），优先级高于标签自带项目；
   // 顶栏 chip 与启动页共用 StartProjectMenu 切换。
   const cwdOverride = chat?.cwdOverride ?? null;
-  const effectiveCwd = cwdOverride || tab.projectPath || "";
+  const workspaces = useWorkspacesStore((state) => state.workspaces);
+  // 既没覆盖也没带项目时（专用布局自动补的空标签、首页直接开聊），回退到
+  // Agent Chat 常驻工作空间：聊天永远要有一个真实存在的 cwd。
+  const effectiveCwd = cwdOverride || tab.projectPath || residentAgentChatCwd(workspaces);
   const setCwdOverride = useCallback(
     (cwd: string | null) => useAgentChatStore.getState().setCwdOverride(tab.id, cwd),
     [tab.id],

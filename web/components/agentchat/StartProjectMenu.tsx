@@ -29,13 +29,19 @@ export function workspaceLabelFor(cwd: string, workspaces: Workspace[]): string 
   for (const workspace of workspaces) {
     if (workspace.archivedAt) continue;
     const root = !workspace.isDefault && workspace.path ? workspace.path : null;
-    if (root && samePath(root, cwd)) return workspace.alias || workspace.name;
+    if (root && samePath(root, cwd)) return workspaceDisplayLabel(workspace);
     const owned = workspace.projects.some(
       (project) => !project.archivedAt && samePath(project.path, cwd),
     );
-    if (owned) return workspace.alias || workspace.name;
+    if (owned) return workspaceDisplayLabel(workspace);
   }
   return projectNameOf(cwd);
+}
+
+/** 系统供给的常驻工作空间用产品名展示（目录名 `agent-chat` 不适合直接给人看）。 */
+export function workspaceDisplayLabel(workspace: Workspace): string {
+  if (workspace.isAgentChat) return workspace.alias || "Agent Chat";
+  return workspace.alias || workspace.name;
 }
 
 export interface StartProjectMenuProps {

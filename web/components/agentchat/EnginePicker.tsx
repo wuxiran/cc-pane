@@ -18,6 +18,7 @@ import type { AcpChatHistoryEntry, AcpEngineInfo } from "@/types/agentChat";
 import { agentChatService } from "@/services/agentChatService";
 import { gitService } from "@/services/gitService";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
+import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import {
   DropdownMenu,
@@ -29,7 +30,7 @@ import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import ChatVoiceButton from "./ChatVoiceButton";
 import PermissionPolicyDropdown from "./PermissionPolicyDropdown";
 import StartPrefDropdown from "./StartPrefDropdown";
-import StartProjectMenu, { projectNameOf } from "./StartProjectMenu";
+import StartProjectMenu, { workspaceLabelFor } from "./StartProjectMenu";
 import StartRecentSessions from "./StartRecentSessions";
 import { takePendingResume } from "./pendingResume";
 import { takePendingStart } from "./pendingStart";
@@ -247,7 +248,9 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
   }, [cwd, selectedEngine, startingEngine, start, draft]);
 
   const selected = engines?.find((engine) => engine.id === selectedEngine) ?? null;
-  const projectName = cwd ? projectNameOf(cwd) : null;
+  const workspaces = useWorkspacesStore((state) => state.workspaces);
+  // 常驻工作空间显示产品名（Agent Chat），普通目录退回目录名
+  const projectName = cwd ? workspaceLabelFor(cwd, workspaces) : null;
 
   const launching = startingEngine !== null && startingEngine === selectedEngine;
 

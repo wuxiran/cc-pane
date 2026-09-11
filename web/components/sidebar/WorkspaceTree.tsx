@@ -112,7 +112,7 @@ function SortableWorkspaceItem(props: SortableWorkspaceItemProps) {
     >
       <WorkspaceItem
         {...props}
-        dragHandleProps={ws.isDefault ? undefined : {
+        dragHandleProps={ws.isDefault || ws.isAgentChat ? undefined : {
           ...attributes,
           ...listeners,
         }}

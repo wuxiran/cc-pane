@@ -321,6 +321,8 @@ impl WorkspaceService {
             // 默认工作空间置顶
             b.is_default
                 .cmp(&a.is_default)
+                // Agent Chat 专用工作空间紧随其后：同为系统供给，恒可见、位置稳定
+                .then_with(|| b.is_agent_chat.cmp(&a.is_agent_chat))
                 // 有分组在前；组间按组内成员最小 sort_order 排序
                 .then_with(|| match (a_group, b_group) {
                     (Some(a_group), Some(b_group)) => group_min_orders[a_group]
@@ -375,6 +377,41 @@ impl WorkspaceService {
             workspace.path = Some(ws_dir.to_string_lossy().to_string());
         }
         self.write_workspace_json(DEFAULT_NAME, &workspace)?;
+        self.init_workspace_files(&workspace)?;
+        Ok(Some(workspace))
+    }
+
+    /// 确保 Agent Chat 专用工作空间存在：启动时调用，缺失则自动创建。
+    ///
+    /// 与 [`Self::ensure_default_workspace`] 同构，锚点为 `base_dir/agent-chat`。
+    /// 它是新 Agent Chat 会话的默认 cwd：聊天会话的 cwd 悬空，比侧栏多一个系统
+    /// 工作空间的代价大得多，所以它必须真实存在且永不消失。
+    /// 返回 `Some(ws)` 表示本次创建/补标记了它，`None` 表示已存在。
+    pub fn ensure_agent_chat_workspace(&self) -> Result<Option<Workspace>, String> {
+        const AGENT_CHAT_NAME: &str = "agent-chat";
+
+        let workspaces = self.list_workspaces()?;
+        if workspaces.iter().any(|w| w.is_agent_chat) {
+            return Ok(None);
+        }
+
+        let ws_dir = self.workspace_dir(AGENT_CHAT_NAME);
+        let json_path = self.workspace_json_path(AGENT_CHAT_NAME);
+
+        // 目录/配置可能已被用户手建同名占用：补标记而不是报错
+        let mut workspace = if json_path.exists() {
+            self.read_workspace_json(&json_path)?
+        } else {
+            fs::create_dir_all(&ws_dir)
+                .map_err(|e| format!("Failed to create agent-chat workspace directory: {}", e))?;
+            Workspace::new(AGENT_CHAT_NAME.to_string(), None)
+        };
+
+        workspace.is_agent_chat = true;
+        if workspace.path.is_none() {
+            workspace.path = Some(ws_dir.to_string_lossy().to_string());
+        }
+        self.write_workspace_json(AGENT_CHAT_NAME, &workspace)?;
         self.init_workspace_files(&workspace)?;
         Ok(Some(workspace))
     }
@@ -449,14 +486,20 @@ impl WorkspaceService {
             return Err(format!("Workspace '{}' does not exist", name));
         }
 
-        // 默认工作空间不可删除（启动时会自动重建，删除只会造成困惑）
-        if self
+        // 系统供给的工作空间不可删除（启动时会自动重建，删除只会造成困惑）
+        let (is_default, is_agent_chat) = self
             .get_workspace(name)
-            .map(|ws| ws.is_default)
-            .unwrap_or(false)
-        {
+            .map(|ws| (ws.is_default, ws.is_agent_chat))
+            .unwrap_or((false, false));
+        if is_default {
             return Err(format!(
                 "DEFAULT_WORKSPACE_PROTECTED: Workspace '{}' is the default workspace and cannot be deleted",
+                name
+            ));
+        }
+        if is_agent_chat {
+            return Err(format!(
+                "AGENT_CHAT_WORKSPACE_PROTECTED: Workspace '{}' is the Agent Chat workspace and cannot be deleted",
                 name
             ));
         }
@@ -664,6 +707,13 @@ impl WorkspaceService {
         if ws.is_default && archived {
             return Err(format!(
                 "DEFAULT_WORKSPACE_PROTECTED: Workspace '{}' is the default workspace and cannot be archived",
+                name
+            ));
+        }
+        // Agent Chat 专用工作空间同理：它是新会话的默认 cwd，归档等于让聊天失去锚点。
+        if ws.is_agent_chat && archived {
+            return Err(format!(
+                "AGENT_CHAT_WORKSPACE_PROTECTED: Workspace '{}' is the Agent Chat workspace and cannot be archived",
                 name
             ));
         }
@@ -2315,6 +2365,73 @@ mod tests {
         let adopted = service.ensure_default_workspace().unwrap().unwrap();
         assert!(adopted.is_default);
         assert!(adopted.path.is_some());
+    }
+
+    #[test]
+    fn ensure_agent_chat_workspace_creates_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+
+        let created = service.ensure_agent_chat_workspace().unwrap().unwrap();
+        assert!(created.is_agent_chat);
+        assert!(!created.is_default);
+        assert_eq!(created.name, "agent-chat");
+        let anchor = created.path.clone().unwrap();
+        assert_eq!(
+            anchor,
+            service.workspace_dir("agent-chat").to_string_lossy()
+        );
+        assert!(Path::new(&anchor).exists());
+
+        // 再次调用：已存在，不重复创建
+        assert!(service.ensure_agent_chat_workspace().unwrap().is_none());
+    }
+
+    #[test]
+    fn agent_chat_workspace_sorts_right_after_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.ensure_default_workspace().unwrap();
+        service.ensure_agent_chat_workspace().unwrap();
+        service.create_workspace("alpha", None).unwrap();
+        // pinned 也压不过两个系统工作空间
+        service.update_workspace_pinned("alpha", true).unwrap();
+
+        let names: Vec<String> = service
+            .list_workspaces()
+            .unwrap()
+            .into_iter()
+            .map(|w| w.name)
+            .collect();
+        assert_eq!(names, ["default", "agent-chat", "alpha"]);
+    }
+
+    #[test]
+    fn delete_agent_chat_workspace_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.ensure_agent_chat_workspace().unwrap();
+
+        let err = service.delete_workspace("agent-chat").unwrap_err();
+        assert!(err.contains("AGENT_CHAT_WORKSPACE_PROTECTED"));
+        assert!(service.get_workspace("agent-chat").is_ok());
+    }
+
+    #[test]
+    fn archive_agent_chat_workspace_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        service.ensure_agent_chat_workspace().unwrap();
+
+        let err = service
+            .set_workspace_archived("agent-chat", true)
+            .unwrap_err();
+        assert!(err.contains("AGENT_CHAT_WORKSPACE_PROTECTED"));
+        assert!(service
+            .get_workspace("agent-chat")
+            .unwrap()
+            .archived_at
+            .is_none());
     }
 
     #[test]

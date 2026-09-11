@@ -2,7 +2,8 @@
 // 放在消息流顶部，不进 store——它不是消息，是会话头。
 import { Bot, FolderOpen, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { projectNameOf } from "./StartProjectMenu";
+import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
+import { workspaceLabelFor } from "./StartProjectMenu";
 
 interface ChatWelcomeProps {
   engineLabel: string;
@@ -12,6 +13,7 @@ interface ChatWelcomeProps {
 
 export default function ChatWelcome({ engineLabel, cwd, concierge }: ChatWelcomeProps) {
   const { t } = useTranslation("panes");
+  const workspaces = useWorkspacesStore((state) => state.workspaces);
   const Icon = concierge ? Sparkles : Bot;
   return (
     <div
@@ -37,7 +39,7 @@ export default function ChatWelcome({ engineLabel, cwd, concierge }: ChatWelcome
           >
             <FolderOpen className="h-3 w-3 shrink-0" aria-hidden="true" />
             <span className="truncate">
-              {projectNameOf(cwd)} · {cwd}
+              {workspaceLabelFor(cwd, workspaces)} · {cwd}
             </span>
           </p>
         ) : null}

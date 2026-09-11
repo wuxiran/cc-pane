@@ -2,8 +2,8 @@ import { useCallback, useMemo, useState, type ButtonHTMLAttributes } from "react
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
-  ChevronRight, Files, Folder, FolderOpen, FolderSearch, GitBranch, Globe,
-  GripVertical, House, Settings2, Star, Terminal, Trash2,
+  Bot, ChevronRight, Files, Folder, FolderOpen, FolderSearch, GitBranch, Globe,
+  GripVertical, House, Settings2, Star, Terminal,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -16,7 +16,7 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { useLaunchProfilesStore, useProvidersStore, useSettingsStore, useSshMachinesStore, useWorkspacesStore } from "@/stores";
+import { useLaunchProfilesStore, useProvidersStore, useSettingsStore, useSshMachinesStore } from "@/stores";
 import AgentChatMenuItem from "./AgentChatMenuItem";
 import WorkspaceSkillsMenuItem from "./WorkspaceSkillsMenuItem";
 import InjectionBadges from "./InjectionBadges";
@@ -42,9 +42,9 @@ import type {
   Workspace, WorkspaceLaunchEnvironment,
 } from "@/types";
 import AddSshProjectDialog from "./AddSshProjectDialog";
-import ArchiveMenuItem from "./ArchiveMenuItem";
 import WorkspaceBadges from "./WorkspaceBadges";
 import WorkspaceAppearanceMenu from "./WorkspaceAppearanceMenu";
+import WorkspaceDangerItems from "./WorkspaceDangerItems";
 import { sidebarEntityCountClass, sidebarEntityRowClass } from "./sidebarStyles";
 import WorkspaceColorDot from "./WorkspaceColorDot";
 import WorkspaceGroupDialog from "./WorkspaceGroupDialog";
@@ -112,11 +112,13 @@ export default function WorkspaceItem({
   const [sshDialogOpen, setSshDialogOpen] = useState(false);
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
 
-  const setArchived = useWorkspacesStore((state) => state.setArchived);
   const isDefaultWorkspace = !!workspace.isDefault;
+  const isAgentChatWorkspace = !!workspace.isAgentChat;
   const isArchived = !!workspace.archivedAt;
-  const displayName = workspace.alias
-    || (isDefaultWorkspace ? t("defaultWorkspaceName", { defaultValue: "默认工作空间" }) : workspace.name);
+  const systemName = isDefaultWorkspace
+    ? t("defaultWorkspaceName", { defaultValue: "默认工作空间" })
+    : isAgentChatWorkspace ? t("agentChatWorkspaceName", { defaultValue: "Agent Chat" }) : null;
+  const displayName = workspace.alias || systemName || workspace.name;
   const rootProject = projects.find((project) => !project.ssh);
   const rootPath = workspace.path || rootProject?.path;
   const showWslBadge = hasWorkspaceWslPath(workspace);
@@ -437,6 +439,8 @@ export default function WorkspaceItem({
               />
               {isDefaultWorkspace ? (
                 <House className="w-4 h-4 shrink-0 text-[var(--app-accent)]" strokeWidth={1.5} />
+              ) : isAgentChatWorkspace ? (
+                <Bot className="w-4 h-4 shrink-0 text-[var(--app-accent)]" strokeWidth={1.5} />
               ) : expanded ? (
                 <FolderOpen className="w-4 h-4 shrink-0 text-[var(--app-accent)]" />
               ) : (
@@ -676,14 +680,10 @@ export default function WorkspaceItem({
                 onNewGroup={() => setGroupDialogOpen(true)}
               />
               <ContextMenuSeparator />
-              <ArchiveMenuItem
-                target="workspace"
-                archivedAt={workspace.archivedAt}
-                onToggle={(next) => void setArchived(workspace.name, next)}
-              />
-              <ContextMenuItem variant="destructive" onClick={() => onDelete(workspace)}>
-                <Trash2 /> {t("deleteWorkspace")}
-              </ContextMenuItem>
+              {/* Agent Chat 常驻工作空间不给归档/删除入口（后端同样拒绝，双保险） */}
+              {!isAgentChatWorkspace ? (
+                <WorkspaceDangerItems workspace={workspace} onDelete={onDelete} />
+              ) : null}
             </>
           ) : null}
         </ContextMenuContent>

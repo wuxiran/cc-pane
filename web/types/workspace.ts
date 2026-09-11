@@ -122,6 +122,11 @@ export interface Workspace {
   color?: WorkspaceColor;
   /** 默认工作空间：启动时缺失自动创建，恒置顶，不可删除/拖拽 */
   isDefault?: boolean;
+  /**
+   * Agent Chat 专用工作空间：启动时缺失自动创建，常驻列表，不可删除/归档/拖拽。
+   * 它是新 Agent Chat 会话的默认 cwd 锚点（后端 `ensure_agent_chat_workspace`）。
+   */
+  isAgentChat?: boolean;
   /** 工作空间壁纸覆盖（inherit/custom/off），存 workspace.json */
   wallpaperOverride?: WorkspaceWallpaperOverride | null;
   /**

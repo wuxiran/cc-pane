@@ -108,6 +108,12 @@ pub struct Workspace {
     /// 默认工作空间：启动时缺失自动创建，列表恒置顶，不可删除
     #[serde(default)]
     pub is_default: bool,
+    /// Agent Chat 专用工作空间：启动时缺失自动创建，常驻列表，不可删除/归档。
+    ///
+    /// 与 `is_default` 同属「系统供给」但职责不同：它是新 Agent Chat 会话的默认
+    /// 工作目录锚点，保证聊天永远有一个真实存在、不会被误删的 cwd。
+    #[serde(default)]
+    pub is_agent_chat: bool,
     /// 归档（逻辑删除）时间戳，RFC3339。`None` = 活跃。
     ///
     /// 与 `hidden` 是两件事：`hidden` 只把工作空间从命令面板/标题栏快捷切换里摘掉，
@@ -290,6 +296,7 @@ impl Workspace {
             group: None,
             color: None,
             is_default: false,
+            is_agent_chat: false,
             wallpaper_override: None,
             archived_at: None,
         }

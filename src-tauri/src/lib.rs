@@ -1682,6 +1682,12 @@ pub fn run() {
         Ok(None) => {}
         Err(e) => warn!("[workspace] ensure default workspace failed: {}", e),
     }
+    // Agent Chat 专用工作空间：常驻、不可删除，作为新会话默认 cwd（workspaces/agent-chat）
+    match workspace_service.ensure_agent_chat_workspace() {
+        Ok(Some(ws)) => info!("[workspace] agent-chat workspace ensured at {:?}", ws.path),
+        Ok(None) => {}
+        Err(e) => warn!("[workspace] ensure agent-chat workspace failed: {}", e),
+    }
     let session_index_service = Arc::new(SessionIndexService::new_with_settings(
         session_index_repo,
         launch_history_service.clone(),

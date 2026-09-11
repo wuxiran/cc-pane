@@ -91,4 +91,22 @@ describe("workspaceLabelFor", () => {
     expect(workspaceLabelFor("C:/tmp/x", list)).toBe("x");
     expect(workspaceLabelFor("", list)).toBe("");
   });
+
+  it("Agent Chat 常驻工作空间用产品名展示，而不是目录名 agent-chat", () => {
+    const withResident = [
+      ...list,
+      workspace({ name: "agent-chat", isAgentChat: true, path: "D:/data/agent-chat" }),
+    ];
+    expect(workspaceLabelFor("D:/data/agent-chat", withResident)).toBe("Agent Chat");
+    // alias 仍然优先
+    const aliased = [
+      workspace({
+        name: "agent-chat",
+        isAgentChat: true,
+        alias: "聊天台",
+        path: "D:/data/agent-chat",
+      }),
+    ];
+    expect(workspaceLabelFor("D:/data/agent-chat", aliased)).toBe("聊天台");
+  });
 });
