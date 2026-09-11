@@ -5,7 +5,7 @@ import { terminalService } from "@/services/terminalService";
 import { notificationService } from "@/services/notificationService";
 import { isTauriRuntime } from "@/services/runtime";
 import { waitForTauri } from "@/utils";
-import { selectOrphanSessions } from "@/lib/orphanSessionReconcile";
+import { selectOrphanSessions, selectReclaimableOrphans } from "@/lib/orphanSessionReconcile";
 import {
   collectReferencedSessionIdsAcrossSources,
   isSweepUnsafeForMultiClient,
@@ -27,7 +27,8 @@ function isReapingDisabled(): boolean {
  *
  * daemon 会话可能失去全部前端引用（布局删除、崩溃重启后未被收养等），
  * 空闲 TUI 每帧重绘持续消耗 CPU。本 hook 周期性把 daemon 全量会话与
- * 所有引用来源对账，无引用且非活跃状态的会话直接 kill 并聚合通知。
+ * 所有引用来源对账：发现数全量打日志（验收仪表），但**只回收已经 exited 的**，
+ * 活着的孤儿留给 daemon 侧 TTL 兜底——理由见 `selectReclaimableOrphans`。
  *
  * 只在桌面端运行：web/mobile 镜像的布局是残缺视图，会误判孤儿。
  * daemon 侧另有 TTL 兜底（session_reaper，默认 24h）覆盖 app 不运行的时段。
@@ -51,6 +52,8 @@ export function useOrphanSessionReconciler() {
         const referenced = await collectReferencedSessionIdsAcrossSources();
         const statuses = await terminalService.getAllStatus();
         const orphans = selectOrphanSessions(statuses, referenced, Date.now());
+        // 发现 ≠ 可杀：活着的孤儿只观测，处置留给 daemon 侧 TTL（见 selectReclaimableOrphans）。
+        const reclaimable = selectReclaimableOrphans(statuses, orphans);
 
         // 验收仪表（docs/78）：销毁出口统一后，孤儿发现数应当趋零——
         // 每轮都打一行，**包括零发现**。只在有发现时打印的话，「一直是 0」
@@ -59,15 +62,17 @@ export function useOrphanSessionReconciler() {
         // 这里却没发现，说明差集算多了，真杀开闸即误杀活会话。
         console.info("[orphan-reconcile] sweep", {
           orphanCount: orphans.length,
+          reclaimableCount: reclaimable.length,
+          liveOrphanCount: orphans.length - reclaimable.length,
           liveCount: statuses.length,
           referencedCount: referenced.size,
           orphanIds: orphans,
         });
 
-        if (orphans.length === 0) return;
+        if (reclaimable.length === 0) return;
 
         let killed = 0;
-        for (const sessionId of orphans) {
+        for (const sessionId of reclaimable) {
           if (disposed || isReapingDisabled()) break;
           // sweep 期间可能有第二个桌面实例刚启动，杀前复查
           if (await isSweepUnsafeForMultiClient(LOG_PREFIX)) break;

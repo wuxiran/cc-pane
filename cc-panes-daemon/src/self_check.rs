@@ -49,6 +49,16 @@ pub fn decide_manifest_action(
     }
 }
 
+/// manifest 连续自愈失败到上限后该怎么办。
+///
+/// runtime_dir 不可写（磁盘满 / 权限 / 被清理）只意味着这个 daemon 暂时不可被发现，
+/// 不意味着该死：Windows 上会话树挂在 `KILL_ON_JOB_CLOSE` 的 Job Object 上，daemon
+/// 一退，内核瞬杀全部活着的 CLI（用户视角就是「CLI 被卸载了」）。有活会话就留着继续
+/// 重试，代价只是新 app 实例可能发现不到它。
+pub fn should_shutdown_on_unrecoverable_manifest(own_has_live_sessions: bool) -> bool {
+    !own_has_live_sessions
+}
+
 fn probe_foreign_daemon(manifest: &DaemonManifest) -> bool {
     let client = TerminalDaemonClient::new(manifest.addr.clone(), manifest.token.clone());
     if client.health().is_err() {
@@ -106,6 +116,13 @@ pub fn spawn_manifest_self_check(runtime_dir: PathBuf, config: DaemonConfig) {
                             "failed to self-heal manifest"
                         );
                         if rewrite_failures >= MAX_REWRITE_FAILURES {
+                            if !should_shutdown_on_unrecoverable_manifest(own_has_live_sessions) {
+                                warn!(
+                                    "manifest unrecoverable, but sessions are live; staying up and retrying"
+                                );
+                                rewrite_failures = 0;
+                                continue;
+                            }
                             warn!("manifest unrecoverable; shutting down");
                             config.request_shutdown();
                             return;
@@ -173,5 +190,12 @@ mod tests {
             panic!("must not probe pid-reuse manifest")
         });
         assert_eq!(action, ManifestAction::Rewrite);
+    }
+
+    #[test]
+    fn unrecoverable_manifest_shuts_down_only_without_sessions() {
+        // Windows 上 daemon 退出 = Job Object 瞬杀整棵 CLI 树，所以有会话时必须留着。
+        assert!(!should_shutdown_on_unrecoverable_manifest(true));
+        assert!(should_shutdown_on_unrecoverable_manifest(false));
     }
 }

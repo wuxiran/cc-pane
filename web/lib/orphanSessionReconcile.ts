@@ -54,3 +54,28 @@ export function selectOrphanSessions(
     .slice(0, maxKills)
     .map((info) => info.sessionId);
 }
+
+/**
+ * 发现结果里哪些真可以杀：只有 `exited`（进程已死，回收只是清元数据）。
+ *
+ * 活着的孤儿一律**不杀**。失去前端引用通常意味着布局恢复/收养失败，而不是用户不要
+ * 它了；一个 CLI 跑完一轮停在提示符上时状态就是 `idle`，不在受保护名单里，于是
+ * 「关掉 app 再打开，十几分钟后 CLI 被悄悄杀掉」——用户看到的就是进程凭空消失。
+ * 活孤儿的 CPU 兜底交给 daemon 侧 session_reaper（默认 24h TTL，设置里可调可关），
+ * 它的宽限比这里的 10 分钟大两个数量级，且是用户能看见的那个开关。
+ */
+export function isReclaimableOrphanStatus(status: TerminalStatusInfo["status"]): boolean {
+  return status === "exited";
+}
+
+/** 把 `selectOrphanSessions` 的发现结果收窄到可回收子集（观测口径不变，处置口径变严）。 */
+export function selectReclaimableOrphans(
+  statuses: readonly TerminalStatusInfo[],
+  orphanIds: readonly string[],
+): string[] {
+  const statusById = new Map(statuses.map((info) => [info.sessionId, info.status]));
+  return orphanIds.filter((sessionId) => {
+    const status = statusById.get(sessionId);
+    return status !== undefined && isReclaimableOrphanStatus(status);
+  });
+}

@@ -78,9 +78,14 @@ vi.mock("@/utils", () => ({
 const FIRST_SWEEP_DELAY_MS = 5 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 
-function status(sessionId: string, ageMs: number): TerminalStatusInfo {
+/** 默认 exited：那是唯一可回收的孤儿状态，活着的孤儿只观测不杀。 */
+function status(
+  sessionId: string,
+  ageMs: number,
+  sessionStatus: TerminalStatusInfo["status"] = "exited",
+): TerminalStatusInfo {
   const at = Date.now() - ageMs;
-  return { sessionId, status: "idle", lastOutputAt: at, updatedAt: at };
+  return { sessionId, status: sessionStatus, lastOutputAt: at, updatedAt: at };
 }
 
 describe("useOrphanSessionReconciler", () => {
@@ -151,7 +156,7 @@ describe("useOrphanSessionReconciler", () => {
     expect(terminalService.getAllStatus).toHaveBeenCalledTimes(2);
   });
 
-  it("kills unreferenced stale sessions and sends one aggregated notification", async () => {
+  it("kills unreferenced exited sessions and sends one aggregated notification", async () => {
     vi.mocked(terminalService.getAllStatus).mockResolvedValue([
       status("orphan-1", 60 * 60 * 1000),
       status("orphan-2", 30 * 60 * 1000),
@@ -163,6 +168,34 @@ describe("useOrphanSessionReconciler", () => {
     expect(terminalService.killSession).toHaveBeenCalledWith("orphan-1", "orphan-reclaim");
     expect(terminalService.killSession).toHaveBeenCalledWith("orphan-2", "orphan-reclaim");
     expect(notificationService.trigger).toHaveBeenCalledTimes(1);
+  });
+
+  // 活着的孤儿只观测不杀：CLI 跑完一轮停在提示符上就是 idle，失去前端引用多半是
+  // 布局恢复/收养失败，10 分钟后把它杀掉 = 用户眼里的「CLI 被异常卸载」。
+  it("observes but never kills live orphans (idle CLI at a prompt)", async () => {
+    vi.mocked(terminalService.getAllStatus).mockResolvedValue([
+      status("live-orphan", 60 * 60 * 1000, "idle"),
+    ]);
+    renderHook(() => useOrphanSessionReconciler());
+
+    await vi.advanceTimersByTimeAsync(FIRST_SWEEP_DELAY_MS);
+
+    expect(terminalService.getAllStatus).toHaveBeenCalled();
+    expect(terminalService.killSession).not.toHaveBeenCalled();
+    expect(notificationService.trigger).not.toHaveBeenCalled();
+  });
+
+  it("kills exited orphans while leaving live ones alone in the same sweep", async () => {
+    vi.mocked(terminalService.getAllStatus).mockResolvedValue([
+      status("dead", 60 * 60 * 1000, "exited"),
+      status("alive", 60 * 60 * 1000, "idle"),
+    ]);
+    renderHook(() => useOrphanSessionReconciler());
+
+    await vi.advanceTimersByTimeAsync(FIRST_SWEEP_DELAY_MS);
+
+    expect(terminalService.killSession).toHaveBeenCalledTimes(1);
+    expect(terminalService.killSession).toHaveBeenCalledWith("dead", "orphan-reclaim");
   });
 
   it("skips a session that gets claimed between select and kill (TOCTOU recheck)", async () => {

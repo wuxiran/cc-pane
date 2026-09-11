@@ -22,6 +22,25 @@ const isWindowsTarget = targetTriple ? targetTriple.includes("windows") : proces
 const d = path.join("src-tauri", "binaries");
 fs.mkdirSync(d, { recursive: true });
 
+const ext = isWindowsTarget ? ".exe" : "";
+// 不要写死 "target"：`.cargo/config.toml` 把 target-dir 指到了仓库外。
+const targetDir = cargoTargetDir();
+const buildDir = targetTriple
+  ? path.join(targetDir, targetTriple, profile)
+  : path.join(targetDir, profile);
+
+const SIDECAR_BASE_NAMES = ["cc-panes-cli-hook", "cc-panes-ctl", "cc-panes-daemon", "cc-panes-web"];
+
+// 先校验全部产物都在，再清空目标目录。顺序反了的话，任一产物缺失会让 throw 发生在
+// 清空之后 —— src-tauri/binaries 被掏空且不回填，app 找不到 daemon 就静默回退
+// in-process 后端，从此「一关 app，CLI 进程树全被 Job Object 带走」。
+const missing = SIDECAR_BASE_NAMES
+  .map((baseName) => path.join(buildDir, `${baseName}${ext}`))
+  .filter((sourceBinary) => !fs.existsSync(sourceBinary));
+if (missing.length > 0) {
+  throw new Error(`sidecar binaries not found: ${missing.join(", ")}`);
+}
+
 // 清理旧文件，避免通配符误匹配
 for (const f of fs.readdirSync(d).filter(f =>
   f.startsWith("cc-panes-hook") ||
@@ -32,13 +51,6 @@ for (const f of fs.readdirSync(d).filter(f =>
 )) {
   fs.unlinkSync(path.join(d, f));
 }
-
-const ext = isWindowsTarget ? ".exe" : "";
-// 不要写死 "target"：`.cargo/config.toml` 把 target-dir 指到了仓库外。
-const targetDir = cargoTargetDir();
-const buildDir = targetTriple
-  ? path.join(targetDir, targetTriple, profile)
-  : path.join(targetDir, profile);
 
 function copyBinary(baseName) {
   const binaryName = `${baseName}${ext}`;
@@ -58,10 +70,9 @@ function copyBinary(baseName) {
   }
 }
 
-copyBinary("cc-panes-cli-hook");
-copyBinary("cc-panes-ctl");
-copyBinary("cc-panes-daemon");
-copyBinary("cc-panes-web");
+for (const baseName of SIDECAR_BASE_NAMES) {
+  copyBinary(baseName);
+}
 
 // 2. 复制 Web React 产物到 Tauri resources，供独立 cc-panes-web 子进程服务
 const webDistSrc = "dist";

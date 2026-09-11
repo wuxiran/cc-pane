@@ -41,8 +41,8 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HookCommandShell {
@@ -235,6 +235,18 @@ pub fn resolve_executable(executable: &str) -> Result<PathBuf> {
         }
     }
 
+    // 常驻进程的环境是启动那一刻的快照：上面全部落空时重读一次「机器当前」的环境
+    // （Windows 注册表 / Unix login shell，限频见 ENVIRONMENT_REFRESH_INTERVAL），
+    // 让陈旧环境自愈而不是把锅甩给用户去重装。见 fresh_environment_dirs。
+    let fresh_dirs = fresh_environment_dirs();
+    if !fresh_dirs.is_empty() {
+        if let Some(found) =
+            find_executable_in_dirs(executable, &fresh_dirs, &executable_extensions())
+        {
+            return Ok(found);
+        }
+    }
+
     Err(anyhow!(
         "{} CLI not found in PATH or common install locations",
         executable
@@ -249,24 +261,263 @@ pub fn resolve_executable(executable: &str) -> Result<PathBuf> {
 fn login_shell_path_dirs() -> &'static [PathBuf] {
     use std::sync::OnceLock;
     static CACHE: OnceLock<Vec<PathBuf>> = OnceLock::new();
-    CACHE.get_or_init(|| {
-        // 递归守卫：shell rc 里若有触发环境解析的钩子，此变量已置位
-        if std::env::var_os("CCPANES_RESOLVING_ENVIRONMENT").is_some() {
-            return Vec::new();
+    CACHE.get_or_init(read_login_shell_path_dirs)
+}
+
+/// 实打实起一次 login shell 抓 PATH（不走缓存）。
+///
+/// `login_shell_path_dirs` 的 OnceLock **失败也缓存空**：一次 shell 超时/rc 卡死，
+/// 这条兜底就在整个进程生命周期里永久失效。常驻 daemon 需要能重试，所以把真实读取
+/// 抽出来，让环境自愈路径（`fresh_environment_dirs`）能绕过负缓存。
+#[cfg(not(windows))]
+fn read_login_shell_path_dirs() -> Vec<PathBuf> {
+    // 递归守卫：shell rc 里若有触发环境解析的钩子，此变量已置位
+    if std::env::var_os("CCPANES_RESOLVING_ENVIRONMENT").is_some() {
+        return Vec::new();
+    }
+    let shell = resolve_login_shell();
+    let output = run_with_timeout_env(
+        Path::new(&shell),
+        &["-ilc".to_string(), "echo $PATH".to_string()],
+        Duration::from_secs(8),
+        // 对齐 src-tauri 的 resolve_path_from_shell：防 rc 递归 + 防 tmux 劫持
+        &[
+            ("CCPANES_RESOLVING_ENVIRONMENT", "1"),
+            ("ZSH_TMUX_AUTOSTART", "false"),
+        ],
+    );
+    output.as_deref().map(split_path_dirs).unwrap_or_default()
+}
+
+// ============ 陈旧环境自愈 ============
+
+/// 两次真实环境读取之间的最小间隔。
+///
+/// 读一次不便宜，而解析失败往往连着来（detect_all 逐个工具试），所以限频；窗口内
+/// 复用上一份快照。两个平台的代价差了两个数量级——Windows 起 reg.exe 是几十毫秒，
+/// Unix 起 login shell 最坏 8s——所以 Windows 收得紧一些，让用户「装完就重试」基本
+/// 能立刻自愈，Unix 放宽到一分钟防止重试风暴里反复起 shell。
+#[cfg(windows)]
+const ENVIRONMENT_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
+#[cfg(not(windows))]
+const ENVIRONMENT_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
+
+struct EnvironmentSnapshot {
+    dirs: Vec<PathBuf>,
+    read_at: Instant,
+}
+
+static FRESH_ENVIRONMENT: Mutex<Option<EnvironmentSnapshot>> = Mutex::new(None);
+/// 真实读取的闸门：同一时刻只放一个线程去起子进程，抢不到锁的调用方跳过这次自愈
+/// （它本来就要报 not found，少一次自救不改变结果，只是不排队等）。
+static ENVIRONMENT_REFRESH_GATE: Mutex<()> = Mutex::new(());
+
+/// 限频窗口内的快照（过期 / 没读过则 None）。
+fn cached_environment_dirs() -> Option<Vec<PathBuf>> {
+    let cache = FRESH_ENVIRONMENT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let snapshot = cache.as_ref()?;
+    is_environment_snapshot_fresh(snapshot.read_at.elapsed()).then(|| snapshot.dirs.clone())
+}
+
+/// 快照是否还在限频窗口内（纯函数，便于直接断言边界）。
+fn is_environment_snapshot_fresh(age: Duration) -> bool {
+    age < ENVIRONMENT_REFRESH_INTERVAL
+}
+
+/// 解析全部落空时的最后一次自救：重读「机器当前」的可执行目录。
+///
+/// 常驻进程（daemon）的环境是它被拉起那一刻的快照——Windows 上连 PATH 注入都没有
+/// （`terminal_daemon_lifecycle` 的注入块是 `cfg(not(windows))`），用户之后装的 CLI
+/// 它永远看不见；而 app 进程的检测说装着，前端于是喊用户去重装一个本来就装好的 CLI
+/// （重装"有效"只是因为 shim 恰好落回硬编码白名单目录）。这里让陈旧环境自愈。
+///
+/// 返回空 = 本轮没有新目录可用（读失败或闸门被占），调用方按原样报 not found。
+fn fresh_environment_dirs() -> Vec<PathBuf> {
+    if let Some(dirs) = cached_environment_dirs() {
+        return dirs;
+    }
+    // login shell / reg.exe 可能阻塞数秒：同一时刻只放一个线程去读。抢不到锁的直接
+    // 放弃这次自愈——它本来就要报 not found，排队等只会把失败提示拖慢。
+    let Ok(_gate) = ENVIRONMENT_REFRESH_GATE.try_lock() else {
+        return Vec::new();
+    };
+    // 抢锁期间别的线程可能刚刷新完，复查一次免得白起一个子进程。
+    if let Some(dirs) = cached_environment_dirs() {
+        return dirs;
+    }
+    let dirs = read_machine_environment_dirs();
+    let mut cache = FRESH_ENVIRONMENT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *cache = Some(EnvironmentSnapshot {
+        dirs: dirs.clone(),
+        read_at: Instant::now(),
+    });
+    dirs
+}
+
+/// 读「机器当前」的可执行目录：Windows 走注册表，Unix 走 login shell + cached_path。
+#[cfg(windows)]
+fn read_machine_environment_dirs() -> Vec<PathBuf> {
+    use windows::Win32::System::Registry::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+
+    let mut dirs = Vec::new();
+    // 机器级在前、用户级在后，与 Windows 自己拼 PATH 的顺序一致。
+    for (root, subkey) in [
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+        ),
+        (HKEY_CURRENT_USER, "Environment"),
+    ] {
+        if let Some(value) = read_registry_string(root, subkey, "Path") {
+            extend_unique_dirs(
+                &mut dirs,
+                std::env::split_paths(&expand_registry_variables(&value)),
+            );
         }
-        let shell = resolve_login_shell();
-        let output = run_with_timeout_env(
-            Path::new(&shell),
-            &["-ilc".to_string(), "echo $PATH".to_string()],
-            Duration::from_secs(8),
-            // 对齐 src-tauri 的 resolve_path_from_shell：防 rc 递归 + 防 tmux 劫持
-            &[
-                ("CCPANES_RESOLVING_ENVIRONMENT", "1"),
-                ("ZSH_TMUX_AUTOSTART", "false"),
-            ],
-        );
-        output.as_deref().map(split_path_dirs).unwrap_or_default()
-    })
+    }
+    dedupe_existing_dirs(dirs)
+}
+
+#[cfg(not(windows))]
+fn read_machine_environment_dirs() -> Vec<PathBuf> {
+    // OnceLock 那份已经读到东西的话，重读只是白等一次 shell 启动（最坏 8s）；
+    // 只有它是空的（首读失败被负缓存）才值得再试一次。
+    let mut dirs = if login_shell_path_dirs().is_empty() {
+        read_login_shell_path_dirs()
+    } else {
+        login_shell_path_dirs().to_vec()
+    };
+    if let Some(home) = dirs::home_dir() {
+        // cached_path 由 app 后台刷新，daemon 起跑后可能被写过更新的一份。
+        for app_dir in [".cc-panes", ".cc-panes-dev"] {
+            if let Ok(value) = std::fs::read_to_string(home.join(app_dir).join("cached_path")) {
+                extend_unique_dirs(&mut dirs, std::env::split_paths(value.trim()));
+            }
+        }
+    }
+    dedupe_existing_dirs(dirs)
+}
+
+/// 读注册表里的字符串值（Win32 API，不起子进程）。
+///
+/// **不能用 `reg query`**：它的 stdout 是 OEM 代码页（中文 Windows = GBK），PATH 里只要
+/// 有一个非 ASCII 目录（`D:\微信小程序\...` 这种），`read_to_string` 就整体失败、自愈
+/// 拿到空——真机实测就是这么炸的。注册表 API 直接给 UTF-16，无损，也省掉一次进程启动。
+#[cfg(windows)]
+fn read_registry_string(
+    root: windows::Win32::System::Registry::HKEY,
+    subkey: &str,
+    value_name: &str,
+) -> Option<String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::System::Registry::{RegCloseKey, RegOpenKeyExW, HKEY, KEY_READ};
+
+    let subkey_wide: Vec<u16> = subkey.encode_utf16().chain(std::iter::once(0)).collect();
+    let name_wide: Vec<u16> = value_name
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+
+    let mut key = HKEY(std::ptr::null_mut());
+    // SAFETY: subkey_wide 是以 NUL 结尾的宽字符串，&mut key 是合法输出指针。
+    let opened = unsafe {
+        RegOpenKeyExW(root, PCWSTR(subkey_wide.as_ptr()), None, KEY_READ, &mut key).is_ok()
+    };
+    if !opened {
+        return None;
+    }
+
+    let value = read_registry_key_string(key, PCWSTR(name_wide.as_ptr()));
+    // SAFETY: key 由上面成功打开且此后不再使用，这里关闭一次。
+    unsafe {
+        let _ = RegCloseKey(key);
+    }
+    value
+}
+
+/// 读一个已打开键下的字符串值；只接受 REG_SZ / REG_EXPAND_SZ，空值视为没有。
+#[cfg(windows)]
+fn read_registry_key_string(
+    key: windows::Win32::System::Registry::HKEY,
+    name: windows::core::PCWSTR,
+) -> Option<String> {
+    use windows::Win32::System::Registry::{
+        RegQueryValueExW, REG_EXPAND_SZ, REG_SZ, REG_VALUE_TYPE,
+    };
+
+    let mut kind = REG_VALUE_TYPE::default();
+    let mut byte_len = 0_u32;
+    // SAFETY: 第一次调用只问长度，lpdata 传 None。
+    let sized =
+        unsafe { RegQueryValueExW(key, name, None, Some(&mut kind), None, Some(&mut byte_len)) };
+    if sized.is_err() || (kind != REG_SZ && kind != REG_EXPAND_SZ) || byte_len == 0 {
+        return None;
+    }
+
+    // 按 u16 分配：既满足 API 的字节长度语义，又天然保证 UTF-16 的 2 字节对齐。
+    let capacity = byte_len as usize / 2 + 1;
+    let mut buffer: Vec<u16> = vec![0_u16; capacity];
+    // SAFETY: buffer 提供 capacity*2 ≥ byte_len 个可写字节，且存活到调用返回。
+    let filled = unsafe {
+        RegQueryValueExW(
+            key,
+            name,
+            None,
+            Some(&mut kind),
+            Some(buffer.as_mut_ptr().cast::<u8>()),
+            Some(&mut byte_len),
+        )
+        .is_ok()
+    };
+    if !filled {
+        return None;
+    }
+
+    let filled = (byte_len as usize / 2).min(capacity);
+    let mut text = String::from_utf16_lossy(&buffer[..filled]);
+    while text.ends_with('\0') {
+        text.pop();
+    }
+    let text = text.trim();
+    (!text.is_empty()).then(|| text.to_string())
+}
+
+/// 展开 REG_EXPAND_SZ 里的 `%VAR%`。
+///
+/// 取不到的变量原样留着——后面的 `dedupe_existing_dirs` 会把不存在的目录过滤掉，
+/// 比在这里静默吞掉更容易追查。落单的 `%`（含 `%%` 转义）原样带过。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn expand_registry_variables(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut rest = raw;
+    while let Some(open) = rest.find('%') {
+        let after_open = &rest[open + 1..];
+        match after_open.find('%') {
+            Some(close) if close > 0 => {
+                let name = &after_open[..close];
+                out.push_str(&rest[..open]);
+                match std::env::var(name) {
+                    Ok(value) => out.push_str(&value),
+                    Err(_) => {
+                        out.push('%');
+                        out.push_str(name);
+                        out.push('%');
+                    }
+                }
+                rest = &after_open[close + 1..];
+            }
+            _ => {
+                out.push_str(&rest[..=open]);
+                rest = &rest[open + 1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// 从 shell 输出中提取 PATH 目录列表。
@@ -1359,7 +1610,8 @@ fn is_pe_binary(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// 为 npm shim 寻找 `node` 可执行文件：优先 shim 同目录的 `node.exe`，否则 PATH。
+/// 为 npm shim 寻找 `node` 可执行文件：优先 shim 同目录的 `node.exe`，其次进程 PATH，
+/// 最后重读一次机器当前环境。
 #[cfg(any(windows, test))]
 fn node_for_npm_shim(shim_path: &Path) -> Option<PathBuf> {
     if let Some(dir) = shim_path.parent() {
@@ -1368,7 +1620,14 @@ fn node_for_npm_shim(shim_path: &Path) -> Option<PathBuf> {
             return Some(adjacent_node);
         }
     }
-    which::which("node").ok()
+    if let Ok(node) = which::which("node") {
+        return Some(node);
+    }
+    // `which` 只看进程 PATH，而常驻 daemon 的那份是启动快照：nvm-windows / volta 装的
+    // node 在 daemon 起跑之后才出现时这里必然落空，接着掉到 cmd.exe 兜底——而那条路里
+    // 的 shim 自己还是要靠 PATH 找 node，等于换个地方失败。所以同样走一次环境自愈。
+    let fresh_dirs = fresh_environment_dirs();
+    find_executable_in_dirs("node", &fresh_dirs, &executable_extensions())
 }
 
 /// 从 npm 生成的 `.cmd` shim 内容中解析真正的 JS 入口绝对路径。
@@ -1862,6 +2121,41 @@ mod path_resolution_tests {
         // 过滤前的清单：CI 机器没装 bun，目录不存在属正常。
         let home = dirs::home_dir().expect("home directory");
         assert!(home_fallback_cli_dirs(&home).contains(&home.join(".bun").join("bin")));
+    }
+
+    // ===== 陈旧环境自愈（daemon 的 PATH 是启动快照，装完 CLI 它看不见）=====
+
+    #[test]
+    fn registry_variables_expand_when_known_and_stay_literal_when_not() {
+        std::env::set_var("CCPANES_TEST_EXPAND_DIR", "C:\\expanded");
+        let expanded = expand_registry_variables(
+            "%CCPANES_TEST_EXPAND_DIR%\\bin;%CCPANES_TEST_MISSING_DIR%\\x;C:\\plain",
+        );
+        std::env::remove_var("CCPANES_TEST_EXPAND_DIR");
+
+        assert_eq!(
+            expanded,
+            "C:\\expanded\\bin;%CCPANES_TEST_MISSING_DIR%\\x;C:\\plain"
+        );
+    }
+
+    #[test]
+    fn registry_variables_pass_lone_percent_through() {
+        assert_eq!(expand_registry_variables("C:\\100%\\dir"), "C:\\100%\\dir");
+        assert_eq!(expand_registry_variables("%%"), "%%");
+        assert_eq!(expand_registry_variables(""), "");
+    }
+
+    #[test]
+    fn environment_snapshot_freshness_is_bounded_by_the_interval() {
+        assert!(is_environment_snapshot_fresh(Duration::ZERO));
+        assert!(is_environment_snapshot_fresh(
+            ENVIRONMENT_REFRESH_INTERVAL / 2
+        ));
+        assert!(!is_environment_snapshot_fresh(ENVIRONMENT_REFRESH_INTERVAL));
+        assert!(!is_environment_snapshot_fresh(
+            ENVIRONMENT_REFRESH_INTERVAL * 2
+        ));
     }
 }
 

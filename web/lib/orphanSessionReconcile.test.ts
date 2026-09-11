@@ -3,7 +3,9 @@ import type { TerminalStatusInfo } from "@/types";
 import {
   DEFAULT_GRACE_MS,
   DEFAULT_MAX_KILLS_PER_SWEEP,
+  isReclaimableOrphanStatus,
   selectOrphanSessions,
+  selectReclaimableOrphans,
 } from "./orphanSessionReconcile";
 
 const NOW = 1_700_000_000_000;
@@ -77,5 +79,41 @@ describe("selectOrphanSessions", () => {
       maxKillsPerSweep: 1,
     });
     expect(selected).toEqual(["b"]);
+  });
+});
+
+// 发现 ≠ 可杀：活着的孤儿（CLI 跑完一轮停在提示符 = idle）失去前端引用多半是布局
+// 恢复/收养失败，杀掉它就是用户报的「关了 app 再开，CLI 凭空消失」。
+describe("selectReclaimableOrphans", () => {
+  it("only exited sessions are reclaimable", () => {
+    expect(isReclaimableOrphanStatus("exited")).toBe(true);
+    for (const status of ["idle", "active", "thinking", "toolRunning", "waitingInput", "initializing"] as const) {
+      expect(isReclaimableOrphanStatus(status)).toBe(false);
+    }
+  });
+
+  it("narrows discovered orphans down to the exited ones", () => {
+    const statuses: TerminalStatusInfo[] = [
+      info({ sessionId: "dead", status: "exited" }),
+      info({ sessionId: "idle-cli", status: "idle" }),
+      info({ sessionId: "waiting", status: "waitingInput" }),
+    ];
+
+    expect(selectReclaimableOrphans(statuses, ["dead", "idle-cli", "waiting"])).toEqual(["dead"]);
+  });
+
+  it("keeps discovery order and drops ids missing from the status snapshot", () => {
+    const statuses: TerminalStatusInfo[] = [
+      info({ sessionId: "b", status: "exited" }),
+      info({ sessionId: "a", status: "exited" }),
+    ];
+
+    expect(selectReclaimableOrphans(statuses, ["a", "ghost", "b"])).toEqual(["a", "b"]);
+  });
+
+  it("returns an empty list when every orphan is still alive", () => {
+    const statuses = [info({ sessionId: "alive", status: "idle" })];
+
+    expect(selectReclaimableOrphans(statuses, ["alive"])).toEqual([]);
   });
 });

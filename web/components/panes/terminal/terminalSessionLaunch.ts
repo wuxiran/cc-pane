@@ -14,7 +14,8 @@ import {
   replayColdRestoreOutput,
 } from "../terminalResume";
 import { replayAttachOrWake } from "../useTerminalHibernation";
-import { describeTerminalInitError } from "../terminalInitError";
+import { describeTerminalInitError, extractCliNotFoundTool } from "../terminalInitError";
+import { probeCliToolDetection } from "@/services/cliToolService";
 import { startLaunchBackfillIfNeeded } from "../terminalLaunchBackfill";
 import { resolveCliTool, resolveLaunchId, resolveRuntimeKind } from "../terminalLaunchIdentity";
 import {
@@ -391,8 +392,15 @@ export async function launchOrAttachTerminalSession({
         `[TerminalView] FAILED to init session: project=${props.projectPath}, launchClaude=${props.launchClaude ?? false}, error=`,
         error
       );
-      // 文案三级降级（结构化错误码 / CLI 未安装 / 通用）在 terminalInitError。
-      for (const line of describeTerminalInitError(getErrorMessage(error))) {
+      // 文案四级降级（结构化错误码 / launcher 环境陈旧 / CLI 未安装 / 通用）在 terminalInitError。
+      // 「未安装」这一级必须先取证：可执行文件是在 daemon 进程里解析的，它的 PATH 是 daemon
+      // 启动那一刻的快照，与 app 进程（设置页那份检测）不是同一套环境。不取证就会把环境
+      // 陈旧说成没装，把用户推去重装一个本来就装好的 CLI。
+      const initErrorMsg = getErrorMessage(error);
+      const missingTool = extractCliNotFoundTool(initErrorMsg);
+      const detection = missingTool ? await probeCliToolDetection(missingTool) : null;
+      if (!isMounted()) return;
+      for (const line of describeTerminalInitError(initErrorMsg, detection)) {
         term.writeln(line);
       }
     }
