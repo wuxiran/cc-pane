@@ -11,11 +11,16 @@
 
 v0.12.16 之后的开发分支。
 
+### 变更
+
+- 舒适档顶栏把布局预设芯片和自动适配叠成两行（64px），与旁边布局卡对齐，不再是一条 26px 细条。
+- 切换布局时强制刷新终端画面（丢掉 WebGL skip 缓存再整屏 refresh），避免切回来还是旧字形。
+
 ### 修复
 
 - WebGL 共享字形图集：`_mergePages` 后其它 pane 先丢掉 CPU skip 缓存（`_clearModel(false)`）再 `refresh`，避免旧 UV 采到别人的 CJK/Latin 碎片。广播里不能 `_clearModel(true)` / `renderer.clear()`——会把 GPU 双缓冲填 0，Claude 真彩色频繁加页时 ANSI 颜色会被抹掉。仍然不能对每个 pane 调 `clearTextureAtlas()`（会自激）。私有 `_clearModel` 缺失时打 `renderer.webgl.atlas.invalidate.unavailable`。`@xterm/addon-webgl` 锁死 `0.19.0`（依赖该私有 API）。
-- 透明表面下的 Claude：仅背景的 SGR（`48;2`、`40-47`）改写成对应前景，Clawd 色块不再变成默认白，且不画不透明底。Codex 仍剥背景。
-- PTY 在 `COLORTERM=truecolor` 之外再注入 `FORCE_COLOR=3` / `CLICOLOR_FORCE=1`。Claude Code 2.1 在 Windows ConPTY 上 `hasColors()` 为 false，欢迎屏只有光标定位、零 SGR，所以整屏灰。
+- PTY 在 `COLORTERM=truecolor` 之外再注入 `FORCE_COLOR=3` / `CLICOLOR_FORCE=1`。Claude Code 2.1 在 Windows ConPTY 上 `hasColors()` 为 false，欢迎屏只有光标定位、零 SGR，所以整屏灰。会覆盖继承来的 `TERM=dumb` / `FORCE_COLOR=0` / `NO_COLOR`；WSL 里的 bash 也会 `export` 这组变量（Windows 进程环境到不了 Linux 侧 Claude）。
+- 透明表面下的 Claude **不再剥 SGR 背景**。Clawd 半块字（`▀▄`）靠前景+背景各画一色，把 48 改写成 38 只剩一半颜色，吉祥物还是灰的。Codex 仍剥背景。
 
 ## 0.12.16 - 2026-09-10
 

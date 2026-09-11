@@ -118,6 +118,23 @@ describe("terminal renderer controller", () => {
     vi.unstubAllGlobals();
   });
 
+  it("refreshDisplay busts the WebGL skip cache then refreshes without clearing the atlas", () => {
+    const term = createMockTerminal();
+    const controller = createTerminalRendererController({
+      term,
+      logger: vi.fn(),
+      onRendererChanged: vi.fn(),
+    });
+
+    controller.configure("webgl");
+    expect(controller.refreshDisplay("layout.activated")).toBe(true);
+
+    expect(webglMock.instances[0]._renderer?._clearModel).toHaveBeenCalledWith(false);
+    expect(term.refresh).toHaveBeenCalledWith(0, 23);
+    expect(term.clearTextureAtlas).not.toHaveBeenCalled();
+    controller.dispose();
+  });
+
   it("repaints WebGL terminals without clearing the texture atlas", () => {
     const term = createMockTerminal();
     const controller = createTerminalRendererController({

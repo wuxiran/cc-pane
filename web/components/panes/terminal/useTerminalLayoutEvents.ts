@@ -1,5 +1,5 @@
 // 布局变更 / 全部重排事件 → 布局调度。从 TerminalView.tsx 拆出（纯代码移动，逻辑不变）。
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { TERMINAL_LAYOUT_CHANGED_EVENT } from "@/stores";
 import { TERMINAL_FIT_ALL_EVENT } from "../terminalFitEvents";
 import type { TerminalLayoutScheduler } from "../terminalLayoutScheduler";
@@ -9,16 +9,42 @@ interface RefValue<T> {
 }
 
 export interface UseTerminalLayoutEventsParams {
+  layoutActive: boolean;
   layoutActiveRef: RefValue<boolean>;
   layoutSchedulerRef: RefValue<TerminalLayoutScheduler | null>;
+  refreshDisplay?: (reason: string) => void;
   debugLog: (event: string, payload?: Record<string, unknown>) => void;
 }
 
+/** 切到本布局的那一帧：hidden → visible。首屏挂载不算。 */
+export function didLayoutBecomeVisible(
+  previous: boolean | undefined,
+  next: boolean,
+): boolean {
+  return previous === false && next;
+}
+
 export function useTerminalLayoutEvents({
+  layoutActive,
   layoutActiveRef,
   layoutSchedulerRef,
+  refreshDisplay,
   debugLog,
 }: UseTerminalLayoutEventsParams): void {
+  const previousLayoutActiveRef = useRef<boolean | undefined>(undefined);
+
+  useEffect(() => {
+    const previous = previousLayoutActiveRef.current;
+    previousLayoutActiveRef.current = layoutActive;
+    if (!didLayoutBecomeVisible(previous, layoutActive)) return;
+    debugLog("layout.activated.refresh", {});
+    layoutSchedulerRef.current?.schedule("layout.activated", {
+      force: true,
+      allowInactive: true,
+    });
+    refreshDisplay?.("layout.activated");
+  }, [debugLog, layoutActive, layoutSchedulerRef, refreshDisplay]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -37,6 +63,8 @@ export function useTerminalLayoutEvents({
         // 非焦点格），否则切回时尺寸是旧的
         allowInactive: true,
       });
+      // fit 的 repaint 只 refresh，WebGL 会 skip 未改格子。切布局时强制重建显示。
+      refreshDisplay?.(`layout-change.${reason}`);
     };
 
     const handleFitAll = () => {

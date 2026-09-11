@@ -8,11 +8,16 @@
 
 Development branch after v0.12.16.
 
+### Changed
+
+- Comfortable layout topbar stacks the preset chip and auto-fit toggle as two rows (64px) so they match the layout cards instead of sitting as a 26px strip.
+- Switching layouts now force-refreshes terminal display (bust WebGL skip cache, then full `refresh`) so hidden panes do not come back with stale glyphs.
+
 ### Fixed
 
 - WebGL shared glyph atlas: after `_mergePages`, other panes now drop their CPU skip cache (`_clearModel(false)`) before `refresh`, so stale UV coords cannot sample the wrong CJK/Latin fragments. Do not `_clearModel(true)` / `renderer.clear()` in the broadcast — that zeros GPU double-buffers and strips ANSI colors (Claude truecolor fills atlas pages constantly). Still must not call `clearTextureAtlas()` on every pane (that would recurse). If the private `_clearModel` hook is missing, log `renderer.webgl.atlas.invalidate.unavailable`. `@xterm/addon-webgl` is pinned to `0.19.0` because this path depends on that private API.
-- Claude on the transparent CLI surface: background-only SGR (`48;2`, `40-47`) is rewritten to the matching foreground instead of reset to default white, so Clawd block art keeps its color without painting opaque cells. Codex still strips backgrounds.
-- PTY sessions now set `FORCE_COLOR=3` (and `CLICOLOR_FORCE=1`) in addition to `COLORTERM=truecolor`. Claude Code 2.1 on Windows ConPTY was drawing the TUI with cursor moves only — zero SGR — because Bun's `hasColors()` stayed false.
+- PTY sessions now set `FORCE_COLOR=3` (and `CLICOLOR_FORCE=1`) in addition to `COLORTERM=truecolor`. Claude Code 2.1 on Windows ConPTY was drawing the TUI with cursor moves only — zero SGR — because Bun's `hasColors()` stayed false. Inherited `TERM=dumb` / `FORCE_COLOR=0` / `NO_COLOR` are overridden, and WSL guest bash now exports the same color vars (Windows env does not reach Linux Claude).
+- Claude on the transparent surface no longer strips SGR backgrounds. Clawd half-block art (`▀▄`) paints with foreground+background together; rewriting 48→38 left only one color, so the mascot stayed gray. Codex still strips.
 
 ## 0.12.16 - 2026-09-10
 

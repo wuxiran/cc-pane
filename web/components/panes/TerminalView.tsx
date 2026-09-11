@@ -411,7 +411,15 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       rendererControllerRef.current?.configure(terminalRendererModeRef.current);
     }, [wallpaperTransparencyRequired]);
 
-    useTerminalLayoutEvents({ layoutActiveRef, layoutSchedulerRef, debugLog });
+    useTerminalLayoutEvents({
+      layoutActive: props.layoutActive ?? true,
+      layoutActiveRef,
+      layoutSchedulerRef,
+      refreshDisplay: (reason) => {
+        rendererControllerRef.current?.refreshDisplay(reason);
+      },
+      debugLog,
+    });
 
     const {
       unbindSessionCallbacks,

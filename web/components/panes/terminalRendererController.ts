@@ -86,6 +86,8 @@ export interface TerminalRendererController {
   configure: (mode: TerminalRendererMode) => void;
   dispose: () => void;
   repaint: (reason: string) => void;
+  /** 切布局等：丢掉 WebGL skip 缓存再整屏 refresh，避免隐藏期间的旧 UV。 */
+  refreshDisplay: (reason: string) => boolean;
   clearTextureAtlas: (reason: string) => boolean;
   recreateWebgl: (reason: string) => boolean;
   /**
@@ -254,6 +256,20 @@ export function createTerminalRendererController({
         });
       }
     });
+  };
+
+  const refreshDisplay = (reason: string): boolean => {
+    if (disposed) return false;
+    try {
+      invalidateWebglGlyphModel(webglAddon);
+      term.refresh(0, Math.max(0, term.rows - 1));
+      logger("renderer.display.refresh", { reason, ...getDiagnostics() });
+      return true;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      logger("renderer.display.refresh.fail", { reason, error: lastError });
+      return false;
+    }
   };
 
   const refreshAfterRendererRecovery = (reason: string) => {
@@ -484,6 +500,7 @@ export function createTerminalRendererController({
     suspendWebgl,
     resumeWebgl,
     repaint,
+    refreshDisplay,
     clearTextureAtlas,
     recreateWebgl,
     getDiagnostics,
