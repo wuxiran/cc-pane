@@ -105,10 +105,17 @@ function Pane({ paneId, draft, updateDraft, onUnsavedChangesChange }: SettingsPa
     case "shared-mcp":
       return <SharedMcpSection />;
     case "skills":
+      // wide 布局下外层是 overflow-hidden，高度链必须一路传到两个面板：
+      // 两个子面板各自 h-full + 内部 overflow-y-auto，包一层 bounded flex 容器
+      // 才能各分到一半高度并内部滚动；裸 flex-col 会被内容撑高，溢出部分直接裁掉。
       return (
-        <div className="flex flex-col gap-4">
-          <LinkSkillManager />
-          <GlobalSkillsPanel />
+        <div className="flex h-full min-h-0 flex-col gap-4">
+          <div className="min-h-0 flex-1 basis-0">
+            <LinkSkillManager />
+          </div>
+          <div className="min-h-0 flex-1 basis-0">
+            <GlobalSkillsPanel />
+          </div>
         </div>
       );
     case "screenshot":
