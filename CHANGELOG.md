@@ -4,6 +4,10 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.12.18 - Unreleased
+
+Development branch after v0.12.17.
+
 ## 0.12.17 - 2026-09-12
 
 Claude color on Windows ConPTY, a two-row layout cluster, a dedicated Agent Chat workspace, media generation removed, and CLI detection that no longer looks like an uninstall.
