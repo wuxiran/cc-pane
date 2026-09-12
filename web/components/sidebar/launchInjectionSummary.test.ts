@@ -46,8 +46,15 @@ describe("summarizeInjection", () => {
   });
 
   it("不支持 MCP 的 CLI 直接 off；没有运行配置按系统默认全开", () => {
-    expect(summarizeInjection(base, "local", "pi").mcp).toBe("off");
+    expect(summarizeInjection(base, "local", "gemini").mcp).toBe("off");
+    expect(summarizeInjection(base, "local", "gemini").reasons.mcp).toBe("injection.mcpUnsupportedCli");
     const s = summarizeInjection(null, "local", "claude");
     expect([s.mcp, s.skills, s.memory]).toEqual(["on", "on", "on"]);
+  });
+
+  it("docs/104：pi / omp / jcode 已接入 MCP 注入链，本机默认策略为 on", () => {
+    for (const cli of ["pi", "omp", "jcode"] as const) {
+      expect(summarizeInjection(base, "local", cli).mcp).toBe("on");
+    }
   });
 });

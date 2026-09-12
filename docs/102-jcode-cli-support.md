@@ -67,8 +67,9 @@ jcode 无 effort CLI flag，`JCODE_ANTHROPIC_REASONING_EFFORT` /
 ### E. 显式忽略的启动输入
 
 `initial_prompt` / `append_system_prompt` / `yolo_mode` 均无对应 jcode 启动面，静默忽略
-（好过把 prompt 当位置参数导致 clap 报错、面板启动即崩）。前端同步：YOLO/skipMcp chips
-隐藏、SSH 环境不可选（v1 未实机验证 SSH 链路）、MCP 卡片显示「不支持」。
+（好过把 prompt 当位置参数导致 clap 报错、面板启动即崩）。前端同步：YOLO chip
+隐藏、SSH 环境不可选（v1 未实机验证 SSH 链路）。~~MCP 卡片显示「不支持」~~
+（docs/104 已接入：MCP 卡片解禁、skipMcp chip 恢复显示）。
 
 ### F. v1 未接（backlog）
 
@@ -76,7 +77,7 @@ jcode 无 effort CLI flag，`JCODE_ANTHROPIC_REASONING_EFFORT` /
 |----|--------|
 | 会话历史 / resume UI | `~/.jcode/sessions/` 落盘格式需真实样本（空会话不落盘） |
 | 用量 / 上下文统计 | 同上，依赖 transcript 解析 |
-| MCP 注入 | 无 per-launch flag；候选方案是写项目 `.jcode/mcp.json`（污染仓库，需所有权签名 + 清理策略，参照 grok 的 config.toml 方案评估） |
+| ~~MCP 注入~~ | **已落地（docs/104）**：收据驱动写项目 `.jcode/mcp.json`，仅 stdio（http/sse 层条目跳过），共享 MCP 用原始 stdio 定义，ccpanes 内置走 ctl mcp-proxy |
 | 项目 hooks / 通知 | `JCODE_HOOK_*` env 钩子面已确认存在，未做事件映射 |
 | 编排启动 / 结构化结果 | `jcode run --json` 是候选通道，未实机验证 |
 | RPC | Pi 风格 JSONL RPC 不接；**ACP 已接**（见下） |

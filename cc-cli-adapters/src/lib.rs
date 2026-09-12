@@ -16,6 +16,7 @@ mod gemini;
 mod grok;
 mod jcode;
 mod kimi;
+pub mod mcp_file_injection;
 mod omp;
 mod opencode;
 mod pi;
@@ -1230,6 +1231,10 @@ pub struct CliAdapterContext {
     /// 非空时 generate_mcp_config 会跳过同名 stdio 配置并注入 HTTP 版本
     #[allow(dead_code)]
     pub shared_mcp_urls: HashMap<String, String>,
+    /// 共享 MCP Server 的原始 stdio 定义（name → `{command,args,env}`，Claude 条目形状），
+    /// 与 `shared_mcp_urls` 同名集合。只认 stdio 的 CLI（jcode）用它绕过 HTTP 桥
+    /// 直接注入源命令；HTTP 型共享服务器没有 stdio 源，不在此表中（docs/104）。
+    pub shared_mcp_stdio: BTreeMap<String, serde_json::Value>,
     /// 运行配置允许保留的 MCP server id。
     /// Codex 需要这个列表来禁用用户 config.toml 中未被本次运行配置选中的 MCP。
     #[allow(dead_code)]
@@ -2366,6 +2371,7 @@ mod registry_tests {
             launch_id: None,
             data_dir: std::env::temp_dir(),
             shared_mcp_urls: HashMap::new(),
+            shared_mcp_stdio: Default::default(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),

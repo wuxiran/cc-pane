@@ -7,7 +7,16 @@
 //! instead of `~/.pi`, and there are no `--name` or project-trust flags. The
 //! shared Pi-family launch core in [`crate::pi`] owns the details; this module
 //! only declares the Oh My Pi surface and capabilities.
+//!
+//! MCP（docs/104）：与上游 Pi 不同，omp **原生支持 MCP**（stdio/HTTP/SSE，
+//! `@oh-my-pi/pi-coding-agent` ≥17 实机取证：`src/config/mcp-schema.json`，
+//! 与 Claude 同形 `{"mcpServers":{...}}`）。没有 per-launch flag，注入面是
+//! 它原生读取的项目级 `.omp/mcp.json`（`mcp.enableProjectConfig` 默认 true），
+//! 由 [`crate::mcp_file_injection`] 收据驱动同步，用户自有条目永不覆盖。
+//! 隔离模式（disable_unlisted）v1 不支持：omp 还会从 .claude/.cursor 等
+//! 外部配置导入 server，没有逐源禁用通道，与 grok 同款 warn 降级。
 
+use crate::mcp_file_injection::{self, CollectOptions};
 use crate::pi::{PiFamilyAdapter, OMP_FAMILY_CONFIG};
 use crate::{
     CliAdapterContext, CliCommandResult, CliToolAdapter, CliToolCapabilities, CliToolInfo,
@@ -41,7 +50,8 @@ fn omp_capabilities() -> CliToolCapabilities {
     CliToolCapabilities {
         supports_provider: true,
         supports_resume: true,
-        supports_mcp: false,
+        // omp 原生读项目 .omp/mcp.json（stdio/HTTP/SSE 全支持），启动期同步注入
+        supports_mcp: true,
         supports_system_prompt: true,
         supports_workspace: false,
         supports_project_hooks: false,
@@ -81,6 +91,23 @@ impl CliToolAdapter for OmpAdapter {
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
+        // MCP 注入（docs/104）：omp 启动时原生读取 <项目>/.omp/mcp.json，
+        // 这里在拼命令前把有效集合同步进去。ccpanes 内置走 HTTP 直连
+        // （omp 原生支持 headers，能带 Authorization；不附 launchId，
+        // 项目级文件被同项目所有会话共享，见 ccpanes_http_entry 注释）。
+        let ccpanes_entry = ctx
+            .orchestrator_port
+            .zip(ctx.orchestrator_token.as_deref())
+            .map(|(port, token)| mcp_file_injection::ccpanes_http_entry(port, token));
+        mcp_file_injection::sync_adapter_project_mcp(
+            "omp",
+            &[".omp", "mcp.json"],
+            ctx,
+            &CollectOptions {
+                stdio_only: false,
+                ccpanes_entry,
+            },
+        );
         self.family.build_command(ctx)
     }
 }
@@ -95,7 +122,7 @@ mod tests {
     };
     use crate::CliProvider;
     use serde_json::json;
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
     use std::path::PathBuf;
 
     fn context(managed_provider: Option<CliProvider>) -> CliAdapterContext {
@@ -117,6 +144,7 @@ mod tests {
             launch_id: None,
             data_dir: std::env::temp_dir(),
             shared_mcp_urls: HashMap::new(),
+            shared_mcp_stdio: Default::default(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),
@@ -254,7 +282,10 @@ mod tests {
         assert!(!caps.supports_rpc);
         assert!(!caps.supports_structured_result);
         assert!(!adapter.can_report_task_result());
-        assert!(!caps.supports_mcp);
+        assert!(
+            caps.supports_mcp,
+            "omp natively reads .omp/mcp.json (docs/104)"
+        );
         assert!(!caps.supports_yolo);
         assert!(!caps.supports_orchestrated_launch);
         assert!(!caps.supports_effort_option);
@@ -282,5 +313,100 @@ mod tests {
             PiAdapterOptions::from_adapter_options(&ctx.adapter_options).is_err(),
             "the same payload must still be invalid for the Pi adapter"
         );
+    }
+
+    #[test]
+    fn mcp_sync_writes_project_omp_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = context(None);
+        ctx.project_path = dir.path().to_string_lossy().into_owned();
+        ctx.orchestrator_port = Some(3100);
+        ctx.orchestrator_token = Some("tok".to_string());
+        ctx.workspace_mcp_servers = BTreeMap::from([
+            (
+                "layer-stdio".to_string(),
+                json!({"command":"npx","args":["-y","ctx7"],"env":{}}),
+            ),
+            (
+                "layer-http".to_string(),
+                json!({"type":"http","url":"https://remote/mcp"}),
+            ),
+        ]);
+        ctx.shared_mcp_urls = HashMap::from([(
+            "shared1".to_string(),
+            "http://127.0.0.1:3101/mcp".to_string(),
+        )]);
+
+        OmpAdapter::new().build_command(&ctx).unwrap();
+
+        let target = dir.path().join(".omp").join("mcp.json");
+        let value: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&target).unwrap()).unwrap();
+        // 层条目 stdio + http 原样进（omp 全支持）
+        assert_eq!(value["mcpServers"]["layer-stdio"]["command"], "npx");
+        assert_eq!(
+            value["mcpServers"]["layer-http"]["url"],
+            "https://remote/mcp"
+        );
+        // 共享 MCP 走 HTTP 桥 URL
+        assert_eq!(value["mcpServers"]["shared1"]["type"], "http");
+        // ccpanes 内置：HTTP + Authorization header，不带 launchId
+        assert_eq!(
+            value["mcpServers"]["ccpanes"]["url"],
+            "http://127.0.0.1:3100/mcp?token=tok"
+        );
+        assert_eq!(
+            value["mcpServers"]["ccpanes"]["headers"]["Authorization"],
+            "Bearer tok"
+        );
+        // token 守卫：.omp/.gitignore 覆盖 mcp.json
+        let guard = std::fs::read_to_string(dir.path().join(".omp").join(".gitignore")).unwrap();
+        assert!(guard.contains("mcp.json"));
+    }
+
+    #[test]
+    fn skip_mcp_removes_previously_injected_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = context(None);
+        ctx.project_path = dir.path().to_string_lossy().into_owned();
+        ctx.workspace_mcp_servers =
+            BTreeMap::from([("ctx7".to_string(), json!({"command":"npx"}))]);
+        OmpAdapter::new().build_command(&ctx).unwrap();
+        assert!(dir.path().join(".omp").join("mcp.json").exists());
+
+        ctx.skip_mcp = true;
+        OmpAdapter::new().build_command(&ctx).unwrap();
+
+        let target = dir.path().join(".omp").join("mcp.json");
+        let value: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&target).unwrap()).unwrap();
+        assert_eq!(
+            value["mcpServers"].as_object().unwrap().len(),
+            0,
+            "skip_mcp must clear managed entries (omp reads the file live)"
+        );
+    }
+
+    #[test]
+    fn user_owned_entry_with_same_name_is_never_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool_dir = dir.path().join(".omp");
+        std::fs::create_dir_all(&tool_dir).unwrap();
+        std::fs::write(
+            tool_dir.join("mcp.json"),
+            json!({"mcpServers":{"ctx7":{"command":"user-own"}}}).to_string(),
+        )
+        .unwrap();
+        let mut ctx = context(None);
+        ctx.project_path = dir.path().to_string_lossy().into_owned();
+        ctx.workspace_mcp_servers =
+            BTreeMap::from([("ctx7".to_string(), json!({"command":"ccpanes-version"}))]);
+
+        OmpAdapter::new().build_command(&ctx).unwrap();
+
+        let value: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(tool_dir.join("mcp.json")).unwrap())
+                .unwrap();
+        assert_eq!(value["mcpServers"]["ctx7"]["command"], "user-own");
     }
 }

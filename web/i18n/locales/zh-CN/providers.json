@@ -173,6 +173,8 @@
   "sectionMcpDesc": "设置本运行配置启动时注入的 MCP 组合。",
   "mcpUnsupported": "不支持",
   "mcpUnsupportedHint": "此 CLI 无法接收 MCP 服务。已保存的 MCP 策略会保留，但启动时不会注入。",
+  "mcpBridgePiHint": "pi 上游没有 MCP 客户端，CC-Panes 通过内置扩展桥接：MCP 工具会注册为 pi 原生工具（mcp__服务__工具）。实验性能力，异常时可在启动器勾选「禁 MCP」回退。",
+  "mcpStdioOnlyJcodeHint": "jcode 只认 stdio 型服务器：HTTP/SSE 型条目会被跳过；共享 MCP 以原始 stdio 命令注入，CC-Panes MCP 走本地代理。",
   "collapseServerLib": "收起服务库",
   "manageSharedMcp": "管理共享 MCP",
   "mcpDisabledHint": "当前配置不会注入 CC-Panes MCP 或共享 MCP。",

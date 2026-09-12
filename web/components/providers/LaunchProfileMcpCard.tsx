@@ -8,6 +8,7 @@ import { CollapsibleCheckGroup } from "@/components/ui/CollapsibleCheckGroup";
 import { SegmentedTabs } from "@/components/ui/segmented";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import SharedMcpSection from "@/components/settings/SharedMcpSection";
+import { useCliTools } from "@/hooks/useCliTools";
 import type { LaunchProfileDraft } from "@/types";
 import type { SharedMcpServerInfo } from "@/types/shared-mcp";
 import type { KnownCliTool } from "@/types/terminal";
@@ -25,6 +26,14 @@ interface LaunchProfileMcpCardProps {
   toggleServer: (name: string) => void;
 }
 
+/** per-CLI 的注入形态提示：桥接/stdio-only 与 Claude 的全量注入体验不同，说清楚。 */
+const TOOL_MCP_HINT_KEYS: Partial<
+  Record<KnownCliTool, "mcpBridgePiHint" | "mcpStdioOnlyJcodeHint">
+> = {
+  pi: "mcpBridgePiHint",
+  jcode: "mcpStdioOnlyJcodeHint",
+};
+
 export default function LaunchProfileMcpCard({
   draft,
   setDraft,
@@ -37,11 +46,18 @@ export default function LaunchProfileMcpCard({
 }: LaunchProfileMcpCardProps) {
   const { t } = useTranslation(["providers", "common"]);
   const [query, setQuery] = useState("");
+  const { tools: cliTools } = useCliTools();
   const mcpDisabled = draft.mcpPolicy.mode === "disabled";
   const sharedMcpNames = servers.map((server) => server.name);
   const sharedMcpSelectedCount = selectedSharedMcpCount(draft.mcpPolicy, sharedMcpNames);
   const normalizedQuery = query.trim().toLowerCase();
-  const mcpSupported = activeTool !== "pi" && activeTool !== "omp" && activeTool !== "jcode";
+  const toolHintKey = TOOL_MCP_HINT_KEYS[activeTool];
+  // MCP 门控走后端能力位（docs/104），不再硬编码排除名单：pi（扩展桥）/
+  // omp（原生 .omp/mcp.json）/ jcode（原生 .jcode/mcp.json，仅 stdio）已接入。
+  // 能力缺失（加载中/旧 daemon 不发）按「支持」处理——用能力声明去禁用实际
+  // 可用的功能，比不置灰更糟（口径同 launcherCapabilities）。
+  const capabilities = cliTools.find((tool) => tool.id === activeTool)?.capabilities;
+  const mcpSupported = capabilities ? capabilities.supportsMcp : true;
   // 过滤只影响可见行；计数仍按全量，避免搜索时看着像「服务器变少了」
   const visibleServers = useMemo(
     () => normalizedQuery
@@ -93,6 +109,16 @@ export default function LaunchProfileMcpCard({
                   label: t(`mcpMode.${mode}`),
                 }))}
               />
+
+              {toolHintKey && (
+                <div
+                  data-testid="mcp-tool-hint"
+                  className="mt-2 rounded-md border border-dashed border-[var(--app-border)] px-3 py-2 text-xs"
+                  style={{ color: "var(--app-text-tertiary)" }}
+                >
+                  {t(toolHintKey)}
+                </div>
+              )}
 
               <div className="mt-2.5 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
                 {mcpDisabled

@@ -4,7 +4,9 @@
 // **effort / 详细日志 / 最大轮数按目标 CLI 的能力位置灰**：这三个键由 adapter 的
 // build_command 各自消费，不支持的会被静默丢弃（实测 8 个 adapter 里 5 个三键全不消费）。
 // 置灰而非隐藏，是为了让「这个 CLI 做不到」可见——隐藏会让用户以为功能不存在。
-// YOLO / 禁 MCP / 系统提示 / 初始 prompt 是全 CLI 通用，不受门控。
+// **YOLO / 禁 MCP 按 supports_yolo / supports_mcp 能力位隐藏**（docs/104）：
+// 这两个键改变会话安全边界，点了没用还看不出区别，隐藏比置灰更诚实。
+// 系统提示 / 初始 prompt 是全 CLI 通用，不受门控。
 import { useTranslation } from "react-i18next";
 import { EFFORT_LEVELS } from "@/constants/effortMapping";
 import { useCliTools } from "@/hooks/useCliTools";
@@ -57,17 +59,23 @@ function ToggleChip({
 
 export default function LauncherChips({ draft, onChange }: LauncherChipsProps) {
   const { t } = useTranslation("launcher");
-  // The Pi family and jcode have no YOLO or MCP-chip contract; both chips are hidden.
-  const hideYoloMcpChips =
-    draft.cliTool === "pi" || draft.cliTool === "omp" || draft.cliTool === "jcode";
   const { tools } = useCliTools();
   const support = resolveLaunchOptionSupport(draft.cliTool, tools);
+  const capabilities = tools.find((tool) => tool.id === draft.cliTool)?.capabilities;
+  // YOLO / 禁 MCP 按能力位门控，口径同 resolveLaunchOptionSupport：字段缺失 =
+  // 支持，显式 false 才是真信号。docs/104：pi/omp/jcode 接入 MCP 后「禁 MCP」
+  // 对三者可用（清掉项目文件/桥配置里的残留注入）；YOLO 仍按 supports_yolo。
+  // 能力未加载完时 YOLO 回退旧硬编码名单，禁 MCP 乐观显示。
+  const legacyYoloHidden =
+    draft.cliTool === "pi" || draft.cliTool === "omp" || draft.cliTool === "jcode";
+  const hideYoloChip = capabilities ? capabilities.supportsYolo === false : legacyYoloHidden;
+  const hideSkipMcpChip = capabilities ? capabilities.supportsMcp === false : false;
   const unsupportedHint = t("optionUnsupported", { cli: draft.cliTool });
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-1.5">
-        {!hideYoloMcpChips && (
+        {!hideYoloChip && (
           <ToggleChip
             active={draft.yolo === true}
             label="YOLO"
@@ -75,7 +83,7 @@ export default function LauncherChips({ draft, onChange }: LauncherChipsProps) {
             onClick={() => onChange({ yolo: draft.yolo ? undefined : true })}
           />
         )}
-        {!hideYoloMcpChips && (
+        {!hideSkipMcpChip && (
           <ToggleChip
             active={draft.skipMcp}
             label={t("skipMcp")}

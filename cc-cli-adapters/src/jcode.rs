@@ -10,8 +10,15 @@
 //!   （`auto_server_reload`），面板启动要求确定性。
 //! - TUI **不接受位置参数 prompt**（clap 会报 unrecognized subcommand），
 //!   也没有 yolo / `--append-system-prompt` / `--mcp-config` flag。对应的
-//!   启动输入在此显式忽略；MCP 由 jcode 原生读取项目 `.mcp.json` /
-//!   `.jcode/mcp.json`，无需启动期注入。
+//!   启动输入在此显式忽略。
+//! - MCP（docs/104）：jcode 原生**实时读取**项目 `.jcode/mcp.json` /
+//!   `.mcp.json` / `.claude/mcp.json`（Claude 同形），但**只认 stdio**
+//!   server（http/sse 解析后跳过）；`--mcp-tools` 只是暴露模式开关
+//!   （auto/eager/deferred，默认 auto，实机 --help 确认），不是启停。
+//!   注入面 = 启动时把有效集合同步进 `<项目>/.jcode/mcp.json`（收据驱动，
+//!   见 [`crate::mcp_file_injection`]）：层条目取 stdio 型、共享 MCP 取
+//!   原始 stdio 定义（绕过 HTTP 桥）、ccpanes 内置走 cc-panes-ctl
+//!   mcp-proxy 的 stdio 包装。http/sse 型层条目跳过并上报。
 //! - effort 走 env：`JCODE_ANTHROPIC_REASONING_EFFORT` /
 //!   `JCODE_OPENAI_REASONING_EFFORT`。jcode 档位 `none|minimal|low|medium|
 //!   high|xhigh|max` 完整覆盖 cc-pane 六档，直接透传。
@@ -19,13 +26,15 @@
 //!   jcode 会话落盘在 `~/.jcode/sessions/`（含 sessions-index.json），
 //!   cc-pane 尚无对应 session index parser，没有 resume id 来源。
 
+use crate::mcp_file_injection::{self, CollectOptions};
 use crate::{
     effort_from_options, extra_args_from_options, push_model_arg, CliAdapterContext,
     CliCommandResult, CliToolAdapter, CliToolCapabilities, CliToolInfo,
 };
 use anyhow::Result;
+use serde_json::json;
 use std::collections::HashMap;
-use tracing::info;
+use tracing::{info, warn};
 
 /// effort 档位透传的 env（anthropic 通道与 openai 通道各一个，jcode 按
 /// 当前 provider 家族取用；同时注入两个避免 managed provider 切换时漏配）。
@@ -54,9 +63,9 @@ impl JcodeAdapter {
                 supports_provider: true,
                 // flag 已接线但没有 resume id 来源（会话索引未接入，见模块头）
                 supports_resume: false,
-                // jcode 原生读项目 .mcp.json / .jcode/mcp.json，但无 per-launch
-                // 注入 flag；cc-pane 的启动期 MCP 注入面暂不可用
-                supports_mcp: false,
+                // jcode 原生实时读项目 .jcode/mcp.json（仅 stdio），启动期由
+                // mcp_file_injection 收据驱动同步（docs/104）
+                supports_mcp: true,
                 // 无 --append-system-prompt；jcode 的项目指令机制是 AGENTS.md
                 supports_system_prompt: false,
                 supports_workspace: false,
@@ -112,6 +121,31 @@ impl CliToolAdapter for JcodeAdapter {
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
+        // MCP 注入（docs/104）：jcode 启动后实时读取 <项目>/.jcode/mcp.json。
+        // 只认 stdio：ccpanes 内置走 ctl mcp-proxy 的 stdio 包装；代理不可用
+        // （ctl 缺失/门控被逃生阀关闭）时 ccpanes 条目缺席，只 warn 不阻断。
+        let ccpanes_entry = crate::mcp_proxy_invocation(ctx)
+            .map(|proxy| json!({ "command": proxy.command, "args": proxy.args }));
+        if ccpanes_entry.is_none()
+            && !ctx.skip_mcp
+            && ctx.orchestrator_port.is_some()
+            && ctx.orchestrator_token.is_some()
+        {
+            warn!(
+                session_id = %ctx.session_id,
+                "jcode: ctl MCP proxy unavailable; ccpanes builtin MCP will not be injected"
+            );
+        }
+        mcp_file_injection::sync_adapter_project_mcp(
+            "jcode",
+            &[".jcode", "mcp.json"],
+            ctx,
+            &CollectOptions {
+                stdio_only: true,
+                ccpanes_entry,
+            },
+        );
+
         let mut args = vec!["--no-update".to_string()];
 
         if Self::pins_anthropic_api(ctx.provider.as_ref()) {
@@ -165,6 +199,7 @@ impl CliToolAdapter for JcodeAdapter {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::collections::BTreeMap;
 
     fn context(provider: Option<crate::CliProvider>) -> CliAdapterContext {
         CliAdapterContext {
@@ -185,6 +220,7 @@ mod tests {
             launch_id: None,
             data_dir: std::env::temp_dir(),
             shared_mcp_urls: HashMap::new(),
+            shared_mcp_stdio: Default::default(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),
@@ -341,7 +377,10 @@ mod tests {
         assert!(caps.supports_provider);
         assert!(caps.supports_effort_option);
         assert!(!caps.supports_resume);
-        assert!(!caps.supports_mcp);
+        assert!(
+            caps.supports_mcp,
+            "jcode natively reads .jcode/mcp.json (stdio only, docs/104)"
+        );
         assert!(!caps.supports_system_prompt);
         assert!(!caps.supports_workspace);
         assert!(!caps.supports_project_hooks);
@@ -352,7 +391,11 @@ mod tests {
         assert!(!caps.supports_orchestrated_launch);
         assert!(!caps.supports_verbose_option);
         assert!(!caps.supports_max_turns_option);
-        assert!(!adapter.can_report_task_result());
+        // ccpanes MCP（ctl 代理 stdio）带 core 工具集，含 report_to_leader 等
+        // 持久任务结果通道 → 默认实现跟随 supports_mcp 翻真（docs/104）。
+        // jcode 仍不可被编排启动（supports_orchestrated_launch=false），
+        // 该能力只在用户手动挂 TaskBinding 时生效。
+        assert!(adapter.can_report_task_result());
         assert_eq!(caps.compatible_provider_types, vec!["anthropic", "proxy"]);
     }
 
@@ -368,5 +411,112 @@ mod tests {
             vec![crate::SkillDeliveryMode::NativeSkill]
         );
         assert!(adapter.global_commands_dir().is_none());
+    }
+
+    fn mcp_context(dir: &std::path::Path) -> CliAdapterContext {
+        let mut ctx = context(None);
+        ctx.project_path = dir.to_string_lossy().into_owned();
+        ctx
+    }
+
+    #[test]
+    fn mcp_sync_writes_stdio_entries_and_skips_http() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = mcp_context(dir.path());
+        ctx.workspace_mcp_servers = BTreeMap::from([
+            (
+                "stdio-one".to_string(),
+                json!({"command":"npx","args":["-y","srv"],"env":{}}),
+            ),
+            (
+                "http-one".to_string(),
+                json!({"type":"http","url":"https://remote/mcp"}),
+            ),
+        ]);
+        ctx.shared_mcp_urls = HashMap::from([
+            (
+                "shared-stdio".to_string(),
+                "http://127.0.0.1:3101/mcp".to_string(),
+            ),
+            (
+                "shared-http-only".to_string(),
+                "http://127.0.0.1:3102/mcp".to_string(),
+            ),
+        ]);
+        ctx.shared_mcp_stdio = BTreeMap::from([(
+            "shared-stdio".to_string(),
+            json!({"command":"node","args":["server.js"],"env":{}}),
+        )]);
+        ctx.orchestrator_port = Some(3100);
+        ctx.orchestrator_token = Some("tok".to_string());
+        ctx.adapter_options
+            .insert("mcpProxyEnabled".to_string(), json!(true));
+        ctx.adapter_options.insert(
+            "mcpProxyCommand".to_string(),
+            json!(dir.path().join("cc-panes-ctl.exe").to_string_lossy()),
+        );
+
+        JcodeAdapter::new().build_command(&ctx).unwrap();
+
+        let target = dir.path().join(".jcode").join("mcp.json");
+        let value: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&target).unwrap()).unwrap();
+        let servers = value["mcpServers"].as_object().unwrap();
+        // stdio 层条目保留，http 层条目跳过（jcode 识别后也会跳过，写进去只会污染）
+        assert_eq!(servers["stdio-one"]["command"], "npx");
+        assert!(!servers.contains_key("http-one"));
+        // 共享 MCP 取原始 stdio 定义；无 stdio 源的 HTTP 原生共享被跳过
+        assert_eq!(servers["shared-stdio"]["command"], "node");
+        assert!(!servers.contains_key("shared-http-only"));
+        // ccpanes 走 ctl mcp-proxy 的 stdio 包装
+        assert!(servers["ccpanes"]["args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|arg| arg == "mcp-proxy"));
+        // token 守卫
+        let guard = std::fs::read_to_string(dir.path().join(".jcode").join(".gitignore")).unwrap();
+        assert!(guard.contains("mcp.json"));
+    }
+
+    #[test]
+    fn mcp_sync_without_proxy_omits_ccpanes_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = mcp_context(dir.path());
+        ctx.orchestrator_port = Some(3100);
+        ctx.orchestrator_token = Some("tok".to_string());
+        ctx.workspace_mcp_servers =
+            BTreeMap::from([("stdio-one".to_string(), json!({"command":"npx"}))]);
+
+        JcodeAdapter::new().build_command(&ctx).unwrap();
+
+        let target = dir.path().join(".jcode").join("mcp.json");
+        let value: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&target).unwrap()).unwrap();
+        assert_eq!(value["mcpServers"]["stdio-one"]["command"], "npx");
+        assert!(
+            value["mcpServers"].get("ccpanes").is_none(),
+            "without the ctl proxy there is no stdio channel for ccpanes"
+        );
+    }
+
+    #[test]
+    fn skip_mcp_clears_previously_injected_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = mcp_context(dir.path());
+        ctx.workspace_mcp_servers =
+            BTreeMap::from([("stdio-one".to_string(), json!({"command":"npx"}))]);
+        JcodeAdapter::new().build_command(&ctx).unwrap();
+
+        ctx.skip_mcp = true;
+        JcodeAdapter::new().build_command(&ctx).unwrap();
+
+        let target = dir.path().join(".jcode").join("mcp.json");
+        let value: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&target).unwrap()).unwrap();
+        assert!(
+            value["mcpServers"].as_object().unwrap().is_empty(),
+            "jcode reads the file live: stale entries would keep injecting"
+        );
     }
 }

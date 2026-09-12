@@ -1394,6 +1394,7 @@ mod tests {
             launch_id: None,
             data_dir: std::env::temp_dir(),
             shared_mcp_urls: HashMap::new(),
+            shared_mcp_stdio: Default::default(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),

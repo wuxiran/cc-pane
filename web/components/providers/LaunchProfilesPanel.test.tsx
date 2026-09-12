@@ -223,7 +223,8 @@ function renderPiPanel(onSave: (draft: LaunchProfileDraft) => void) {
     capabilities: {
       supportsProvider: true,
       supportsResume: true,
-      supportsMcp: false,
+      // docs/104：pi 经扩展桥接入 MCP，后端能力位已翻真
+      supportsMcp: true,
       supportsSystemPrompt: true,
       supportsWorkspace: true,
       supportsProjectHooks: false,
@@ -670,7 +671,9 @@ describe("LaunchProfilesPanel Pi options", () => {
       savedDraft = draft;
     });
 
-    expect(await screen.findByTestId("mcp-unsupported")).toHaveTextContent(tp("mcpUnsupportedHint"));
+    // docs/104：pi 走扩展桥接入 MCP——卡片解禁并展示桥接提示，而非「不支持」
+    expect(await screen.findByTestId("mcp-tool-hint")).toHaveTextContent(tp("mcpBridgePiHint"));
+    expect(screen.queryByTestId("mcp-unsupported")).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "YOLO mode" })).not.toBeInTheDocument();
 
     expect(screen.queryByRole("combobox", { name: tp("fieldPiTransport") })).not.toBeInTheDocument();

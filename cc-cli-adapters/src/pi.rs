@@ -10,7 +10,22 @@
 //! names, and JSONL session format, but its state lives under `~/.omp` and it
 //! has no `--name` or project-trust flags. Both adapters share the launch
 //! core below; per-tool differences are declared in `PiFamilyConfig`.
+//!
+//! MCP（docs/104）：两个 CLI 走完全不同的路——
+//! - **omp 原生支持 MCP**（stdio/HTTP/SSE），注入面是项目 `.omp/mcp.json`，
+//!   见 [`crate::omp`]。
+//! - **pi 上游没有 MCP 客户端**（0.85.x 实机取证：自有代码零 MCP 字符串，
+//!   官方立场是用扩展系统替代）。CC-Panes 通过 pi 的扩展机制桥接：启动时写
+//!   per-session 配置 `<data_dir>/mcp-pi-<session>.json` + 注入
+//!   `CCPANES_MCP_CONFIG` env + 把零依赖桥接扩展
+//!   `resources/pi-mcp-bridge.js`（include_str 内嵌）落进 extensions 目录
+//!   （托管启动 → `<PI_CODING_AGENT_DIR>/extensions/`，原生启动 →
+//!   `~/.pi/agent/extensions/`，内容比对幂等）。扩展把每个 MCP server 的
+//!   工具注册成 pi 原生工具（`mcp__<server>__<tool>`）。无 env 时扩展完全
+//!   惰性，不影响用户在 CC-Panes 之外手动使用 pi。RPC 模式（`--mode rpc`）
+//!   同样加载扩展，但 RPC 启动链固定 skip_mcp=true（v1 不注入）。
 
+use crate::mcp_file_injection::{self, CollectOptions};
 use crate::{
     CliAdapterContext, CliCommandResult, CliProvider, CliToolAdapter, CliToolCapabilities,
     CliToolInfo, SkillDeliveryMode,
@@ -20,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tracing::info;
+use tracing::{info, warn};
 
 pub const PI_TRANSPORT_OPTION: &str = "piTransport";
 pub const PI_NATIVE_PROVIDER_OPTION: &str = "piNativeProvider";
@@ -29,6 +44,16 @@ pub const PI_PROJECT_TRUST_OPTION: &str = "piProjectTrust";
 pub const PI_SESSION_NAME_OPTION: &str = "piSessionName";
 pub const PI_CODING_AGENT_DIR_ENV: &str = "PI_CODING_AGENT_DIR";
 pub const PI_CODING_AGENT_SESSION_DIR_ENV: &str = "PI_CODING_AGENT_SESSION_DIR";
+
+/// 桥接扩展读取的 per-session MCP 配置路径 env（docs/104）。
+pub const CCPANES_MCP_CONFIG_ENV: &str = "CCPANES_MCP_CONFIG";
+/// 落进 pi extensions 目录的桥接扩展文件名。
+const PI_MCP_EXTENSION_FILE_NAME: &str = "ccpanes-mcp.js";
+/// 桥接扩展源码（零依赖单文件，随二进制编译分发——daemon 侧没有资源目录
+/// 解析问题，与 claude 的 hook 分发同理）。
+const PI_MCP_BRIDGE_SOURCE: &str = include_str!("../resources/pi-mcp-bridge.js");
+/// per-session 配置文件名前缀（与 claude.rs 的 `mcp-*.json` 1h GC 循环兼容）。
+const PI_MCP_CONFIG_FILE_PREFIX: &str = "mcp-pi-";
 
 const MANAGED_PI_RUNS_DIR_NAME: &str = "runs";
 const MANAGED_PI_SESSIONS_DIR_NAME: &str = "ccpanes-managed";
@@ -610,7 +635,9 @@ fn pi_capabilities() -> CliToolCapabilities {
     CliToolCapabilities {
         supports_provider: true,
         supports_resume: true,
-        supports_mcp: false,
+        // pi 上游无 MCP 客户端；CC-Panes 用自带扩展桥把 MCP 工具注册成 pi
+        // 原生工具（CCPANES_MCP_CONFIG + extensions/ccpanes-mcp.js，docs/104）
+        supports_mcp: true,
         supports_system_prompt: true,
         supports_workspace: false,
         supports_project_hooks: false,
@@ -637,6 +664,147 @@ pub(crate) fn pi_family_compatible_provider_types() -> Vec<String> {
     ]
 }
 
+// ---------------------------------------------------------------------------
+// MCP 扩展桥（docs/104）
+// ---------------------------------------------------------------------------
+
+/// 桥接扩展落点：托管启动进隔离 agent root（family 已把
+/// `PI_CODING_AGENT_DIR` 写进 env_inject），原生启动进 `~/.pi/agent/extensions`。
+/// `home` 参数仅供测试注入，生产传 `dirs::home_dir()`。
+fn pi_extension_dir(
+    env_inject: &HashMap<String, String>,
+    home: Option<PathBuf>,
+) -> Option<PathBuf> {
+    if let Some(managed) = env_inject
+        .get(PI_CODING_AGENT_DIR_ENV)
+        .map(String::as_str)
+        .filter(|value| !value.trim().is_empty())
+    {
+        return Some(PathBuf::from(managed).join("extensions"));
+    }
+    home.map(|home| {
+        home.join(PI_AGENT_HOME_DIR)
+            .join("agent")
+            .join("extensions")
+    })
+}
+
+/// 内容比对幂等落盘：已是最新则零写入（不刷 mtime，避免每次启动都触发
+/// pi 的扩展缓存失效/jiti 重编译）。
+fn write_pi_mcp_extension(extensions_dir: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(extensions_dir)?;
+    let target = extensions_dir.join(PI_MCP_EXTENSION_FILE_NAME);
+    if let Ok(existing) = std::fs::read_to_string(&target) {
+        if existing == PI_MCP_BRIDGE_SOURCE {
+            return Ok(());
+        }
+    }
+    std::fs::write(&target, PI_MCP_BRIDGE_SOURCE)
+}
+
+/// 清理 >1h 的旧 per-session 配置（claude.rs 同款 GC 语义；文件名前缀
+/// `mcp-pi-` 同时落在 claude 的 `mcp-*.json` 清理循环里，双保险）。
+fn gc_stale_pi_mcp_configs(data_dir: &Path, current_file: &str) {
+    let Ok(entries) = std::fs::read_dir(data_dir) else {
+        return;
+    };
+    let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str.starts_with(PI_MCP_CONFIG_FILE_PREFIX)
+            && name_str.ends_with(".json")
+            && *name_str != *current_file
+        {
+            if let Ok(meta) = entry.metadata() {
+                if meta.modified().map(|m| m < cutoff).unwrap_or(false) {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+}
+
+/// Pi MCP 桥接注入：per-session 配置 + `CCPANES_MCP_CONFIG` env + 扩展落盘。
+/// best-effort——任何失败只 warn 不阻断启动（MCP 缺失不致命）。
+///
+/// skip_mcp / 空集合：只 env_remove（扩展没有 env 即完全惰性），并清掉本
+/// 会话可能残留的配置文件；不落扩展文件（已存在的旧扩展无害）。
+fn inject_pi_mcp_bridge(ctx: &CliAdapterContext, result: &mut CliCommandResult) {
+    // 用户环境里可能残留旧值：先无条件摘除，激活时再注入
+    result.env_remove.push(CCPANES_MCP_CONFIG_ENV.to_string());
+
+    let ccpanes_entry = ctx
+        .orchestrator_port
+        .zip(ctx.orchestrator_token.as_deref())
+        .map(|(port, token)| mcp_file_injection::ccpanes_http_entry(port, token));
+    let collected = mcp_file_injection::collect_mcp_servers(
+        ctx,
+        &CollectOptions {
+            // pi 桥扩展同时会说 stdio 与 Streamable HTTP，http/sse 层条目直传；
+            // 共享 MCP 用 HTTP 桥 URL（桥进程已在跑，比每会话再拉一份 stdio 省资源）
+            stdio_only: false,
+            ccpanes_entry,
+        },
+    );
+    for name in &collected.skipped_invalid_names {
+        warn!(server = %name, "pi: invalid MCP server name skipped");
+    }
+    if collected.servers.is_empty() {
+        return;
+    }
+    if ctx.disable_unlisted_mcp_servers {
+        warn!(
+            "pi: MCP isolation only narrows the CC-Panes managed set; pi has no channel to \
+             disable servers the user installed into their own pi config"
+        );
+    }
+
+    // 1) per-session 配置（扩展启动时读一次）
+    let file_name = format!("{PI_MCP_CONFIG_FILE_PREFIX}{}.json", ctx.session_id);
+    let config_path = ctx.data_dir.join(&file_name);
+    gc_stale_pi_mcp_configs(&ctx.data_dir, &file_name);
+    let config = serde_json::json!({ "mcpServers": collected.servers });
+    if let Err(error) = std::fs::write(
+        &config_path,
+        serde_json::to_string_pretty(&config).unwrap_or_default(),
+    ) {
+        warn!(
+            session_id = %ctx.session_id,
+            %error,
+            "pi: failed to write MCP bridge config; extension stays inert"
+        );
+        return;
+    }
+    result.env_inject.insert(
+        CCPANES_MCP_CONFIG_ENV.to_string(),
+        config_path.to_string_lossy().into_owned(),
+    );
+
+    // 2) 桥接扩展落进 pi 的 extensions 发现目录
+    let Some(extensions_dir) = pi_extension_dir(&result.env_inject, dirs::home_dir()) else {
+        warn!(
+            session_id = %ctx.session_id,
+            "pi: no agent home resolvable; MCP bridge extension not installed"
+        );
+        return;
+    };
+    match write_pi_mcp_extension(&extensions_dir) {
+        Ok(()) => info!(
+            session_id = %ctx.session_id,
+            extensions_dir = %extensions_dir.display(),
+            servers = collected.servers.len(),
+            "pi: MCP bridge extension + per-session config ready"
+        ),
+        Err(error) => warn!(
+            session_id = %ctx.session_id,
+            extensions_dir = %extensions_dir.display(),
+            %error,
+            "pi: failed to install MCP bridge extension; config written but tools will not appear"
+        ),
+    }
+}
+
 impl CliToolAdapter for PiAdapter {
     fn info(&self) -> &CliToolInfo {
         self.family.info()
@@ -659,7 +827,11 @@ impl CliToolAdapter for PiAdapter {
     }
 
     fn build_command(&self, ctx: &CliAdapterContext) -> Result<CliCommandResult> {
-        self.family.build_command(ctx)
+        let mut result = self.family.build_command(ctx)?;
+        // family 已决定是否托管（env_inject 里的 PI_CODING_AGENT_DIR），
+        // 桥接注入依赖该结果选扩展落点，必须放在其后。
+        inject_pi_mcp_bridge(ctx, &mut result);
+        Ok(result)
     }
 }
 
@@ -687,6 +859,7 @@ mod tests {
             launch_id: None,
             data_dir: std::env::temp_dir(),
             shared_mcp_urls: HashMap::new(),
+            shared_mcp_stdio: Default::default(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),
@@ -767,7 +940,8 @@ mod tests {
             ]
         );
         assert!(result.env_inject.is_empty());
-        assert!(result.env_remove.is_empty());
+        // 无 MCP 注入时只留下休眠守卫：摘除环境里可能残留的桥配置路径
+        assert_eq!(result.env_remove, vec![CCPANES_MCP_CONFIG_ENV.to_string()]);
     }
 
     #[test]
@@ -923,7 +1097,10 @@ mod tests {
         let caps = adapter.capabilities();
         assert!(caps.supports_rpc);
         assert!(caps.supports_structured_result);
-        assert!(!caps.supports_mcp);
+        assert!(
+            caps.supports_mcp,
+            "pi gets MCP through the CC-Panes extension bridge (docs/104)"
+        );
         assert!(!caps.supports_project_hooks);
         assert!(!caps.supports_issued_session_id);
         assert!(!caps.supports_yolo);
@@ -935,5 +1112,150 @@ mod tests {
             adapter.skill_delivery_modes(),
             vec![SkillDeliveryMode::PiSkill]
         );
+    }
+
+    fn mcp_context(dir: &Path, managed_provider: Option<CliProvider>) -> CliAdapterContext {
+        let mut ctx = context(managed_provider);
+        ctx.session_id = "mcp-bridge-session".to_string();
+        ctx.data_dir = dir.to_path_buf();
+        ctx.orchestrator_port = Some(3100);
+        ctx.orchestrator_token = Some("tok".to_string());
+        ctx
+    }
+
+    #[test]
+    fn managed_launch_writes_bridge_config_and_extension_into_isolated_agent_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = mcp_context(dir.path(), Some(provider("anthropic")));
+        ctx.workspace_mcp_servers = std::collections::BTreeMap::from([(
+            "ctx7".to_string(),
+            json!({"command":"npx","args":["-y","ctx7"],"env":{}}),
+        )]);
+
+        let result = PiAdapter::new().build_command(&ctx).unwrap();
+
+        // env：CCPANES_MCP_CONFIG 指向 per-session 配置
+        let config_env = result
+            .env_inject
+            .get(CCPANES_MCP_CONFIG_ENV)
+            .expect("bridge config env");
+        let config_path = PathBuf::from(config_env);
+        assert_eq!(
+            config_path,
+            dir.path().join("mcp-pi-mcp-bridge-session.json")
+        );
+        let config: Value =
+            serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+        // 层条目 + ccpanes HTTP（带 Authorization，不带 launchId）
+        assert_eq!(config["mcpServers"]["ctx7"]["command"], "npx");
+        assert_eq!(
+            config["mcpServers"]["ccpanes"]["url"],
+            "http://127.0.0.1:3100/mcp?token=tok"
+        );
+        assert_eq!(
+            config["mcpServers"]["ccpanes"]["headers"]["Authorization"],
+            "Bearer tok"
+        );
+        // 扩展落进隔离 agent root（PI_CODING_AGENT_DIR/extensions）
+        let managed_dir = result
+            .env_inject
+            .get(PI_CODING_AGENT_DIR_ENV)
+            .expect("managed agent dir");
+        let extension = PathBuf::from(managed_dir)
+            .join("extensions")
+            .join("ccpanes-mcp.js");
+        let source = std::fs::read_to_string(&extension).expect("extension installed");
+        assert!(source.contains("CCPANES_MCP_CONFIG"));
+        assert!(source.contains("registerTool"));
+    }
+
+    #[test]
+    fn skip_mcp_keeps_bridge_inert() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = mcp_context(dir.path(), Some(provider("anthropic")));
+        ctx.skip_mcp = true;
+        ctx.workspace_mcp_servers =
+            std::collections::BTreeMap::from([("ctx7".to_string(), json!({"command":"npx"}))]);
+
+        let result = PiAdapter::new().build_command(&ctx).unwrap();
+
+        assert!(
+            !result.env_inject.contains_key(CCPANES_MCP_CONFIG_ENV),
+            "skip_mcp must not activate the bridge"
+        );
+        assert!(result
+            .env_remove
+            .contains(&CCPANES_MCP_CONFIG_ENV.to_string()));
+        assert!(!dir.path().join("mcp-pi-mcp-bridge-session.json").exists());
+    }
+
+    #[test]
+    fn dormant_without_any_mcp_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = mcp_context(dir.path(), None);
+        ctx.orchestrator_port = None;
+        ctx.orchestrator_token = None;
+
+        let result = PiAdapter::new().build_command(&ctx).unwrap();
+
+        // 无任何 MCP 源：不写配置、不落扩展（原生启动的扩展落点是真实
+        // ~/.pi，测试绝不能触碰；落点解析由 extension_dir_* 单测覆盖）
+        assert!(!result.env_inject.contains_key(CCPANES_MCP_CONFIG_ENV));
+        assert_eq!(result.env_remove, vec![CCPANES_MCP_CONFIG_ENV.to_string()]);
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "data dir must stay clean when the bridge is dormant"
+        );
+    }
+
+    #[test]
+    fn gc_removes_stale_pi_configs_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let stale = dir.path().join("mcp-pi-old-session.json");
+        std::fs::write(&stale, "{}").unwrap();
+        filetime_set_two_hours_ago(&stale);
+        let fresh = dir.path().join("mcp-pi-new-session.json");
+        std::fs::write(&fresh, "{}").unwrap();
+        let unrelated = dir.path().join("other.json");
+        std::fs::write(&unrelated, "{}").unwrap();
+
+        gc_stale_pi_mcp_configs(dir.path(), "mcp-pi-current.json");
+
+        assert!(!stale.exists(), "stale pi config must be collected");
+        assert!(fresh.exists(), "fresh pi config must survive");
+        assert!(unrelated.exists(), "unrelated files must not be touched");
+    }
+
+    /// `std::fs::FileTimes`（Rust 1.75+ 稳定）：跨平台把 mtime 拨回 2 小时前。
+    fn filetime_set_two_hours_ago(path: &Path) {
+        use std::fs::FileTimes;
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .expect("open for time travel");
+        let mtime = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
+        file.set_times(FileTimes::new().set_modified(mtime))
+            .expect("set mtime");
+    }
+
+    #[test]
+    fn extension_dir_prefers_managed_agent_root_over_home() {
+        let mut env_inject = HashMap::new();
+        env_inject.insert(
+            PI_CODING_AGENT_DIR_ENV.to_string(),
+            "/managed/root".to_string(),
+        );
+        let managed = pi_extension_dir(&env_inject, Some(PathBuf::from("/home/user")));
+        assert_eq!(managed, Some(PathBuf::from("/managed/root/extensions")));
+
+        let native = pi_extension_dir(&HashMap::new(), Some(PathBuf::from("/home/user")));
+        assert_eq!(
+            native,
+            Some(PathBuf::from("/home/user/.pi/agent/extensions"))
+        );
+
+        let headless = pi_extension_dir(&HashMap::new(), None);
+        assert_eq!(headless, None);
     }
 }

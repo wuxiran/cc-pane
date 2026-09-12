@@ -10,11 +10,15 @@ const SESSION_ENV_SWITCH: &str = "CCPANES_SESSION_CTL_ENV";
 /// 注入给 PTY 会话的变量名：cc-panes-ctl 的绝对路径。
 pub const SESSION_CTL_ENV_KEY: &str = "CC_PANES_CTL";
 
+/// `force=true` 绕过 `CCPANES_MCP_PROXY` 灰度开关：jcode 只认 stdio server，
+/// ccpanes 内置 MCP 必须经 ctl 代理才能进去，没有"维持原连接方式"的选项，
+/// 灰度开关对它没有意义（docs/104）。
 pub(super) fn inject_mcp_proxy_options(
     options: &mut std::collections::HashMap<String, serde_json::Value>,
     resource_dir: Option<&Path>,
+    force: bool,
 ) -> Result<Option<PathBuf>> {
-    if !enabled_from_env() {
+    if !force && !enabled_from_env() {
         return Ok(None);
     }
 

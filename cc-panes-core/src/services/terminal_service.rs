@@ -265,6 +265,28 @@ fn launch_profile_isolates_mcp(profile: Option<&LaunchProfile>) -> bool {
         .unwrap_or(false)
 }
 
+/// 共享 MCP 服务器的原始 stdio 定义（Claude 条目形状，docs/104）。
+/// 只认 stdio 的 CLI（jcode）用它绕过 HTTP 桥直接注入源命令；只收本次实际
+/// 暴露（出现在 URL 表）的服务器。HTTP 原生型共享服务器没有 stdio 源，不在表中。
+fn shared_mcp_stdio_specs(
+    urls: &HashMap<String, String>,
+    shared_mcp_config: &SharedMcpConfig,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    urls.keys()
+        .filter_map(|name| {
+            let server = shared_mcp_config.servers.get(name)?;
+            Some((
+                name.clone(),
+                serde_json::json!({
+                    "command": server.command,
+                    "args": server.args,
+                    "env": server.env,
+                }),
+            ))
+        })
+        .collect()
+}
+
 /// Server names this launch may keep. `workspace_mcp_server_names` (workspace layer +
 /// project overlay, docs/98) follow the same enabled/disabled id rules as shared servers:
 /// Default mode keeps all but `disabled_server_ids`, Custom keeps only `enabled_server_ids`.
@@ -2211,6 +2233,7 @@ impl TerminalService {
             launch_id: request.launch_id.clone(),
             data_dir: self.app_paths.data_dir().to_path_buf(),
             shared_mcp_urls: HashMap::new(),
+            shared_mcp_stdio: Default::default(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: true,
             skill_mount_paths: Vec::new(),
@@ -2550,16 +2573,32 @@ impl TerminalService {
         // `set_sidecar_resource_dir` 只有 app 侧调用 —— 此处恒为 None，ctl 路径
         // 实际由 `ctl_binary_candidates` 的 exe 同目录候选兜底（有测试钉着）。
         let sidecar_resource_dir = self.sidecar_resource_dir.read().clone();
-        if !is_ssh && !effective_skip_mcp && matches!(cli_tool, CliTool::Claude | CliTool::Codex) {
-            if let Some(binary) = super::ctl_sidecar::inject_mcp_proxy_options(
+        if !is_ssh
+            && !effective_skip_mcp
+            && matches!(cli_tool, CliTool::Claude | CliTool::Codex | CliTool::Jcode)
+        {
+            // jcode 只认 stdio：ccpanes 内置 MCP 必须走 ctl 代理（force，不受
+            // CCPANES_MCP_PROXY 灰度开关约束）；ctl 缺失只降级（ccpanes 条目不注入），
+            // 绝不阻断开终端。Claude/Codex 维持灰度 + 错误上抛的原语义（docs/104）。
+            let force_proxy = matches!(cli_tool, CliTool::Jcode);
+            let injected = super::ctl_sidecar::inject_mcp_proxy_options(
                 &mut adapter_options,
                 sidecar_resource_dir.as_deref(),
-            )? {
-                info!(
+                force_proxy,
+            );
+            match injected {
+                Ok(Some(binary)) => info!(
                     cli_tool = cli_tool.as_id(),
                     binary = %binary.display(),
                     "create_session: cc-panes-ctl MCP proxy enabled"
-                );
+                ),
+                Ok(None) => {}
+                Err(error) if force_proxy => warn!(
+                    cli_tool = cli_tool.as_id(),
+                    %error,
+                    "create_session: ctl MCP proxy unavailable; ccpanes builtin MCP will not reach this CLI"
+                ),
+                Err(error) => return Err(error),
             }
         }
         let shared_mcp_service = self.shared_mcp_service.read().clone();
@@ -2611,6 +2650,9 @@ impl TerminalService {
             Default::default()
         };
         let workspace_mcp_server_names = workspace_mcp_servers.keys().cloned().collect::<Vec<_>>();
+        // 只认 stdio 的 CLI（jcode）需要共享服务器的源命令而非 HTTP 桥 URL（docs/104）
+        let shared_mcp_stdio =
+            shared_mcp_stdio_specs(&effective_shared_mcp_urls, &shared_mcp_config);
         let allowed_mcp_server_ids = allowed_mcp_server_ids_for_profile(
             resolved_profile.as_ref(),
             &shared_mcp_config,
@@ -3291,6 +3333,7 @@ impl TerminalService {
                     launch_id: launch_id.map(|s| s.to_string()),
                     data_dir: self.app_paths.data_dir().to_path_buf(),
                     shared_mcp_urls: effective_shared_mcp_urls,
+                    shared_mcp_stdio,
                     allowed_mcp_server_ids,
                     disable_unlisted_mcp_servers,
                     skill_mount_paths: skill_mount_paths_for_profile(
