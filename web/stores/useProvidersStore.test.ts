@@ -11,6 +11,8 @@ import {
 vi.mock("@/services/providerService", () => ({
   providerService: {
     listProviders: vi.fn(),
+    importCcSwitchProviders: vi.fn(),
+    detectSystemProvider: vi.fn(),
     addProvider: vi.fn(),
     updateProvider: vi.fn(),
     removeProvider: vi.fn(),
@@ -33,6 +35,29 @@ describe("useProvidersStore", () => {
       defaultIsSystem: false,
       defaultProviderIds: {},
     });
+  });
+
+  it("导入成功后刷新供应商列表并保留后端返回的默认项", async () => {
+    const imported = createTestProvider({ id: "imported", isDefault: false });
+    const report = { imported: 1, skippedDuplicate: 2, skippedEmpty: 0, skippedUnsupported: 1 };
+    vi.mocked(providerService.importCcSwitchProviders).mockResolvedValueOnce(report);
+    vi.mocked(providerService.listProviders).mockResolvedValueOnce([imported]);
+    vi.mocked(providerService.detectSystemProvider).mockResolvedValueOnce({
+      active: false, ccSwitch: true, envKeys: [], defaultIsSystem: false,
+      defaultProviderIds: { claude: "existing" },
+    });
+    expect(await useProvidersStore.getState().importCcSwitchProviders()).toEqual(report);
+    expect(useProvidersStore.getState().providers).toEqual([imported]);
+    expect(useProvidersStore.getState().defaultProviderIds).toEqual({ claude: "existing" });
+  });
+
+  it("导入失败时保留当前供应商列表并传播错误", async () => {
+    const existing = createTestProvider();
+    useProvidersStore.setState({ providers: [existing] });
+    vi.mocked(providerService.importCcSwitchProviders).mockRejectedValueOnce(new Error("source unavailable"));
+    await expect(useProvidersStore.getState().importCcSwitchProviders()).rejects.toThrow("source unavailable");
+    expect(providerService.listProviders).not.toHaveBeenCalled();
+    expect(useProvidersStore.getState().providers).toEqual([existing]);
   });
 
   describe("初始状态", () => {

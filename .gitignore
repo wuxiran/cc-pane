@@ -123,3 +123,8 @@ build.bat
 # cargo test 在 src-tauri 下用相对/假项目路径跑出来的 .ccpanes 残留（待逐个改成 tempdir）
 src-tauri/.ccpanes/
 
+
+# 本机会话归档、验收输出与打包覆盖配置
+/.ccpanes/history/
+/evidence/
+/src-tauri/tauri.local-*.conf.json

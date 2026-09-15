@@ -114,7 +114,7 @@ export default function LayoutTopBar() {
       data-density={density}
     >
       <LayoutViewMenu />
-      {/* 舒适档：上 Agent Chat，下左星标 / 下右预设；自适应贴右侧一条窄缝。紧凑档同一组并排。 */}
+      {/* 舒适档：上 Agent Chat，下星标 / 预设 / 自动化纯图标。紧凑档同一组并排。 */}
       <div
         data-testid="layout-preset-cluster"
         data-density={density}

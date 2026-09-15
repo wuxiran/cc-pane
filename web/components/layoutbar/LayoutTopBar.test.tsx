@@ -34,6 +34,13 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
   },
 }));
 
+const { navigateToSettingsMock } = vi.hoisted(() => ({
+  navigateToSettingsMock: vi.fn(),
+}));
+vi.mock("@/components/settings/settingsNavigation", () => ({
+  navigateToSettings: (...args: unknown[]) => navigateToSettingsMock(...args),
+}));
+
 function resetStores(rootPane: PaneNode = createPanel()) {
   const starredRootPane = createPanel();
   const agentChatRootPane = createPanel();
@@ -139,16 +146,20 @@ async function openViewMenu(user: ReturnType<typeof userEvent.setup>) {
 describe("LayoutTopBar 布局预设浮层", () => {
   beforeEach(() => {
     resetStores();
+    navigateToSettingsMock.mockClear();
   });
 
-  it("舒适档两行：上 Agent Chat，下左星标下右预设，自适应只占窄条", () => {
+  it("舒适档两行：上 Agent Chat，下星标 / 预设 / 自动化纯图标", () => {
     render(<DndContext><LayoutTopBar /></DndContext>);
 
     const cluster = screen.getByTestId("layout-preset-cluster");
     expect(cluster).toHaveAttribute("data-density", "comfortable");
     expect(within(cluster).getByTestId("layout-special-agent-chat")).toBeInTheDocument();
     expect(within(cluster).getByTestId("layout-special-starred")).toBeInTheDocument();
+    expect(within(cluster).getByTestId("layout-special-automations")).toBeInTheDocument();
     expect(within(cluster).getByRole("button", { name: /布局预设|Layout presets/i })).toBe(presetTrigger());
+    expect(within(presetTrigger()).queryByText(/^(单格|Single|布局预设|Layout presets)$/)).not.toBeInTheDocument();
+    expect(within(cluster).getByTestId("layout-special-starred")).not.toHaveTextContent(/星标|Starred/);
     const autofit = within(cluster).getByRole("button", { name: /自动适配布局|Auto-fit layout/i });
     expect(autofit.className).toMatch(/\bw-7\b/);
   });
@@ -156,9 +167,9 @@ describe("LayoutTopBar 布局预设浮层", () => {
   it("常驻入口收敛为单按钮，点开浮层列出 6 个带文字标签的预设", () => {
     render(<DndContext><LayoutTopBar /></DndContext>);
 
-    // 初始单 panel 根命中 single，触发按钮显示当前预设名
+    // 初始单 panel 根命中 single；入口改为纯图标，名称走 aria-label / tooltip
     expect(presetTrigger().getAttribute("aria-expanded")).toBe("false");
-    expect(within(presetTrigger()).getByText(/^(单格|Single)$/)).toBeInTheDocument();
+    expect(presetTrigger().getAttribute("aria-label")).toMatch(/布局预设|Layout presets/);
 
     fireEvent.click(presetTrigger());
 
@@ -258,6 +269,12 @@ describe("LayoutTopBar 布局预设浮层", () => {
     fireEvent.click(screen.getByTestId("layout-special-agent-chat"));
     expect(usePanesStore.getState().currentLayoutId).toBe(AGENT_CHAT_LAYOUT_ID);
     expect(screen.queryByRole("tab", { name: /Agent Chat/ })).toBeNull();
+  });
+
+  it("点自动化跳到设置对应节", () => {
+    render(<DndContext><LayoutTopBar /></DndContext>);
+    fireEvent.click(screen.getByTestId("layout-special-automations"));
+    expect(navigateToSettingsMock).toHaveBeenCalledWith({ paneId: "automations" });
   });
 });
 

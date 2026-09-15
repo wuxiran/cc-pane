@@ -4,6 +4,27 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.12.20 - 2026-09-16
+
+Complete the pending product changes and reconcile them with the published stability fixes.
+
+### Added
+
+- Place Automations beside Starred and layout presets beneath Agent Chat. The lower row uses icon buttons with tooltips in both comfortable and compact layouts.
+- Show CLI brand icons, provider counts and installation status directly in provider settings, with wrapping for narrow panels.
+- Import supported provider credentials from the local cc-switch database on demand. Preserve existing credentials and defaults, skip duplicates, report unsupported and unresolved entries, and commit the batch atomically.
+
+### Fixed
+
+- Let the corner layout list grow beyond its content height while respecting the window and maximum height.
+- Preserve Codex's selected endpoint, model and wire API during import; support OpenCode's OpenAI-compatible options without reinterpreting other protocols.
+- Include the development fixes for direct Codex startup in its working directory, incomplete escape replay, stalled terminal display recovery, Kitty keyboard negotiation and WebAssembly CSP.
+- Retain the bottom-right MCP notification and terminal replay fixes shipped in 0.12.18–0.12.19.
+
+### Maintenance
+
+- Commit and reconcile the previously uncommitted source and review documents. Keep machine-local session archives, diagnostic output and build overrides outside version control.
+
 ## 0.12.19 - 2026-09-15
 
 Restore the MCP startup notification change omitted from the 0.12.18 release.

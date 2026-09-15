@@ -1,5 +1,5 @@
 import "@/i18n";
-import { fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render as rtlRender, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -88,12 +88,10 @@ describe("ProvidersView", () => {
     render(<ProvidersView />);
 
     expect(screen.getByText(/^(Providers|服务商|供应商)$/i)).toBeVisible();
-    const user = userEvent.setup();
-    const selector = await screen.findByRole("combobox", { name: /选择 CLI|Select CLI/i });
-    expect(selector).toBeVisible();
-    await user.click(selector);
-    expect(await screen.findByRole("option", { name: /Claude/ })).toBeVisible();
-    expect(screen.getByRole("option", { name: /Codex/ })).toBeVisible();
+    const list = await screen.findByRole("tablist", { name: /选择 CLI|Select CLI/i });
+    expect(list).toBeVisible();
+    expect(within(list).getByRole("tab", { name: /Claude/ })).toBeVisible();
+    expect(within(list).getByRole("tab", { name: /Codex/ })).toBeVisible();
   });
 
   it("shows the empty placeholder when the active tab has no providers", async () => {
@@ -124,8 +122,7 @@ describe("ProvidersView", () => {
 
     await screen.findByText("Claude Main");
     const user = userEvent.setup();
-    await user.click(screen.getByRole("combobox", { name: /选择 CLI|Select CLI/i }));
-    await user.click(await screen.findByRole("option", { name: /Codex/ }));
+    await user.click(within(screen.getByRole("tablist", { name: /选择 CLI|Select CLI/i })).getByRole("tab", { name: /Codex/ }));
 
     expect(await screen.findByText("Codex Side")).toBeVisible();
     expect(screen.queryByText("Claude Main")).not.toBeInTheDocument();

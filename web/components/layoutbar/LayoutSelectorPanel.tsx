@@ -89,27 +89,38 @@ export function LayoutSelectorPanel({
   const setHeight = usePanelPreferencesStore(s => s.setLayoutHeight);
   const resize = usePanelResize({ element: floatingRef, width, min: 288, max: 720, onCommit: setWidth });
   const listRef = useRef<HTMLDivElement | null>(null);
+  const heightResizeCleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => heightResizeCleanup.current?.(), []);
 
-  // 纵向拉伸：列表默认由内容撑开（height=null）；拖下缘把手向上 = 设上限收缩
-  // （出现滚动条），向下 = 放开上限直到内容高度/窗口底。顶边不动，下缘跟随光标。
+  // 纵向拉伸：顶边不动，下缘跟随光标。可拉过内容高度（底下留白），上限是
+  // LIST_HEIGHT_MAX 与窗口底，下限 LIST_HEIGHT_MIN。以前卡在 scrollHeight 上，
+  // 列表已经撑满时往下拖完全不动。
   const startHeightResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
+    heightResizeCleanup.current?.();
     event.preventDefault(); event.stopPropagation();
     const list = listRef.current, panel = floatingRef.current;
     if (!list || !panel) return;
     const start = event.clientY, original = list.offsetHeight;
-    const content = list.scrollHeight;
     const chrome = panel.offsetHeight - list.offsetHeight;
     const panelTop = panel.getBoundingClientRect().top;
     const roomBottom = Math.max(LIST_HEIGHT_MIN, window.innerHeight - 12 - panelTop - chrome);
     const previousCursor = document.body.style.cursor, previousSelection = document.body.style.userSelect;
     let next = original, frame = 0;
-    const preview = () => { list.style.maxHeight = next >= content ? "" : `${next}px`; };
-    const move = (e: globalThis.PointerEvent) => {
-      next = Math.round(Math.min(Math.min(content, roomBottom), Math.max(LIST_HEIGHT_MIN, original + (e.clientY - start))));
-      cancelAnimationFrame(frame); frame = requestAnimationFrame(preview);
+    const applyPreview = () => {
+      list.style.height = `${next}px`;
+      list.style.maxHeight = `${next}px`;
     };
+    const move = (e: globalThis.PointerEvent) => {
+      next = Math.round(Math.min(LIST_HEIGHT_MAX, roomBottom, Math.max(LIST_HEIGHT_MIN, original + (e.clientY - start))));
+      cancelAnimationFrame(frame); frame = requestAnimationFrame(applyPreview);
+    };
+    const clearPreview = () => { list.style.height = ""; list.style.maxHeight = ""; };
+    let finished = false;
     const finish = (cancelled: boolean) => {
+      if (finished) return;
+      finished = true;
+      heightResizeCleanup.current = null;
       cancelAnimationFrame(frame);
       document.removeEventListener("pointermove", move);
       document.removeEventListener("pointerup", up);
@@ -117,10 +128,16 @@ export function LayoutSelectorPanel({
       window.removeEventListener("blur", cancel);
       document.body.style.cursor = previousCursor; document.body.style.userSelect = previousSelection;
       setDragging(false);
-      if (cancelled) { list.style.maxHeight = height === null ? "" : `${height}px`; return; }
-      preview(); setHeight(next >= content ? null : next);
+      if (cancelled) {
+        clearPreview();
+        if (height !== null) { list.style.maxHeight = `${height}px`; list.style.height = `${height}px`; }
+        return;
+      }
+      clearPreview();
+      setHeight(next);
     };
     const up = () => finish(false), cancel = () => finish(true);
+    heightResizeCleanup.current = cancel;
     setDragging(true);
     document.body.style.cursor = "row-resize"; document.body.style.userSelect = "none";
     document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
@@ -252,7 +269,11 @@ export function LayoutSelectorPanel({
         onDragCancel={handleLayoutDragCancel}
       >
         <SortableContext items={layouts.map((layout) => layout.id)} strategy={verticalListSortingStrategy}>
-          <div ref={listRef} className="app-scrollbar flex flex-col gap-1 overflow-y-auto" style={{ maxHeight: height ?? undefined }}>
+          <div
+            ref={listRef}
+            className="app-scrollbar flex flex-col gap-1 overflow-y-auto"
+            style={height == null ? undefined : { height, maxHeight: height }}
+          >
             {layouts.map((layout) => {
               const selected = layout.id === currentLayoutId;
               return (
@@ -291,14 +312,12 @@ export function LayoutSelectorPanel({
         onKeyDown={e => {
           if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
           e.preventDefault();
-          const list = listRef.current;
-          if (!list) return;
-          if (e.key === "ArrowUp") {
-            setHeight(Math.max(LIST_HEIGHT_MIN, list.offsetHeight - 10));
-          } else {
-            const next = list.offsetHeight + 10;
-            setHeight(next >= list.scrollHeight ? null : next);
-          }
+          const list = listRef.current, panel = floatingRef.current;
+          if (!list || !panel) return;
+          const chrome = panel.offsetHeight - list.offsetHeight;
+          const roomBottom = Math.max(LIST_HEIGHT_MIN, window.innerHeight - 12 - panel.getBoundingClientRect().top - chrome);
+          const delta = e.key === "ArrowDown" ? 10 : -10;
+          setHeight(Math.round(Math.min(LIST_HEIGHT_MAX, roomBottom, Math.max(LIST_HEIGHT_MIN, list.offsetHeight + delta))));
         }} />
     </div>,
     document.body

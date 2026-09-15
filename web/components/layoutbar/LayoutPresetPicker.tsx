@@ -1,10 +1,12 @@
-// 布局快捷簇：舒适档两行（Agent Chat / 星标+预设），紧凑档同一组并排。
-// 点 Agent / 星标切到对应布局；点预设名弹出分屏网格。浮层不再重复专用布局。
+// 布局快捷簇：舒适档两行（上 Agent Chat，下星标/预设/自动化纯图标），紧凑档同一组并排。
+// 点 Agent / 星标切到对应布局；点预设弹出分屏网格；点自动化跳设置。浮层不再重复专用布局。
 // 复用 corner 模式选择器的 useFloatingPanelPosition 定位/夹紧逻辑，弹层方向改为按钮下方。
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, MessagesSquare, Star } from "lucide-react";
+import { CalendarClock, MessagesSquare, Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { navigateToSettings } from "@/components/settings/settingsNavigation";
 import { useActivityBarStore, usePanesStore } from "@/stores";
 import { isAgentChatLayout } from "@/stores/panes/agentChatLayout";
 import { isStarredLayout } from "@/stores/paneLayoutHelpers";
@@ -88,7 +90,7 @@ export default function LayoutPresetPicker({
 }: {
   /** 当前布局命中的预设；自定义为 null（按钮回退到通用文案） */
   matchedPreset: LayoutPresetId | null;
-  /** 舒适档两行：上 Agent Chat，下左星标、下右预设 */
+  /** 舒适档两行：上 Agent Chat，下星标 / 预设 / 自动化纯图标 */
   stacked?: boolean;
 }) {
   const { t } = useTranslation("panes");
@@ -113,6 +115,7 @@ export default function LayoutPresetPicker({
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const chipHeight = stacked ? "h-[30px]" : "h-[26px]";
   const chipClass = `flex min-w-0 items-center gap-1 rounded-md px-1.5 text-xs transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] ${chipHeight}`;
+  const iconChipClass = `flex shrink-0 items-center justify-center rounded-md ${chipHeight} w-[30px] px-0 text-xs transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]`;
 
   function positionBelowTrigger() {
     const root = rootRef.current;
@@ -197,40 +200,65 @@ export default function LayoutPresetPicker({
   ) : null;
 
   const starredButton = starredLayout ? (
-    <button
-      type="button"
-      data-testid="layout-special-starred"
-      aria-label={t("starredPanelTitle")}
-      aria-pressed={onStarred}
-      className={`${chipClass} shrink-0`}
-      style={chipStyle(onStarred)}
-      onClick={() => selectSpecialLayout(starredLayout.id)}
-    >
-      <Star className="h-3.5 w-3.5 shrink-0" aria-hidden />
-      <span className="hidden truncate sm:inline">{t("starredPanelTitle")}</span>
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          data-testid="layout-special-starred"
+          aria-label={t("starredPanelTitle")}
+          aria-pressed={onStarred}
+          className={iconChipClass}
+          style={chipStyle(onStarred)}
+          onClick={() => selectSpecialLayout(starredLayout.id)}
+        >
+          <Star className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{t("starredPanelTitle")}</TooltipContent>
+    </Tooltip>
   ) : null;
 
   const presetButton = (
-    <button
-      ref={triggerRef}
-      type="button"
-      aria-label={t("layoutPresets")}
-      aria-haspopup="dialog"
-      aria-expanded={open}
-      className={`${chipClass} ${stacked ? "flex-1" : ""}`}
-      style={presetActive ? chipStyle(true) : { color: "var(--app-text-tertiary)" }}
-      onClick={() => (open ? closePanel() : openPanel())}
-    >
-      <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0" fill="currentColor" aria-hidden>
-        <rect x="1.5" y="2.5" width="6" height="5" rx="1" />
-        <rect x="8.5" y="2.5" width="6" height="5" rx="1" />
-        <rect x="1.5" y="8.5" width="6" height="5" rx="1" />
-        <rect x="8.5" y="8.5" width="6" height="5" rx="1" />
-      </svg>
-      <span className="hidden truncate sm:inline">{presetLabel}</span>
-      <ChevronDown className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-label={t("layoutPresets")}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className={iconChipClass}
+          style={presetActive ? chipStyle(true) : { color: "var(--app-text-tertiary)" }}
+          onClick={() => (open ? closePanel() : openPanel())}
+        >
+          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0" fill="currentColor" aria-hidden>
+            <rect x="1.5" y="2.5" width="6" height="5" rx="1" />
+            <rect x="8.5" y="2.5" width="6" height="5" rx="1" />
+            <rect x="1.5" y="8.5" width="6" height="5" rx="1" />
+            <rect x="8.5" y="8.5" width="6" height="5" rx="1" />
+          </svg>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{presetLabel}</TooltipContent>
+    </Tooltip>
+  );
+
+  const automationsButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          data-testid="layout-special-automations"
+          aria-label={t("layoutAutomations")}
+          className={iconChipClass}
+          style={{ color: "var(--app-text-primary)" }}
+          onClick={() => navigateToSettings({ paneId: "automations" })}
+        >
+          <CalendarClock className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{t("layoutAutomations")}</TooltipContent>
+    </Tooltip>
   );
 
   return (
@@ -239,7 +267,7 @@ export default function LayoutPresetPicker({
         ref={rootRef}
         className={
           stacked
-            ? "flex h-full min-w-[152px] flex-col justify-center gap-1"
+            ? "flex h-full min-w-0 flex-col justify-center gap-1"
             : "flex flex-shrink-0 items-center gap-0.5"
         }
       >
@@ -249,6 +277,7 @@ export default function LayoutPresetPicker({
             <div className="flex min-w-0 items-center gap-1">
               {starredButton}
               {presetButton}
+              {automationsButton}
             </div>
           </>
         ) : (
@@ -256,6 +285,7 @@ export default function LayoutPresetPicker({
             {agentButton}
             {starredButton}
             {presetButton}
+            {automationsButton}
           </>
         )}
       </div>

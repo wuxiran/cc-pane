@@ -109,6 +109,12 @@ function setupStores(providers: Provider[] = []) {
   const claudeDefault = providers.find((provider) => provider.isDefault)?.id;
   const actions = {
     loadProviders: vi.fn().mockResolvedValue(undefined),
+    importCcSwitchProviders: vi.fn().mockResolvedValue({
+      imported: 1,
+      skippedDuplicate: 0,
+      skippedEmpty: 0,
+      skippedUnsupported: 0,
+    }),
     removeProvider: vi.fn().mockResolvedValue(undefined),
     setDefault: vi.fn().mockResolvedValue(undefined),
   };
@@ -142,11 +148,10 @@ async function selectCli(
   user: ReturnType<typeof userEvent.setup>,
   label: string,
 ) {
-  await user.click(screen.getByRole("combobox", {
+  const list = screen.getByRole("tablist", {
     name: i18n.t("settings:cliToolSelect"),
-  }));
-  const listbox = await screen.findByRole("listbox");
-  await user.click(within(listbox).getByRole("option", {
+  });
+  await user.click(within(list).getByRole("tab", {
     name: new RegExp(label),
   }));
 }
@@ -177,6 +182,33 @@ describe("ProvidersPanel", () => {
     render(<ProvidersPanel compact view="providers" />);
 
     expect(screen.queryByRole("button", { name: i18n.t("settings:fromPreset") })).not.toBeInTheDocument();
+  });
+
+  it("imports providers from cc-switch on the credentials page", async () => {
+    const user = userEvent.setup();
+    const actions = setupStores([makeProvider()]);
+    render(<ProvidersPanel view="providers" />);
+
+    await user.click(screen.getByRole("button", { name: i18n.t("settings:importFromCcSwitch") }));
+    expect(actions.importCcSwitchProviders).toHaveBeenCalled();
+  });
+
+  it("reports skipped configurations separately and allows retry after import failure", async () => {
+    const user = userEvent.setup();
+    const actions = setupStores([makeProvider()]);
+    actions.importCcSwitchProviders.mockRejectedValueOnce(new Error("source unavailable"));
+    render(<ProvidersPanel view="providers" />);
+    const button = screen.getByRole("button", { name: i18n.t("settings:importFromCcSwitch") });
+    await user.click(button);
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("source unavailable"), expect.anything());
+    expect(button).toBeEnabled();
+    actions.importCcSwitchProviders.mockResolvedValueOnce({
+      imported: 0, skippedDuplicate: 1, skippedEmpty: 2, skippedUnsupported: 3,
+    });
+    await user.click(button);
+    expect(toast.success).toHaveBeenCalledWith(i18n.t("settings:ccSwitchImportOk", {
+      imported: 0, skipped: 1, empty: 2, unsupported: 3,
+    }), expect.anything());
   });
 
   it("switches to the provider credential list and shows the empty state", async () => {

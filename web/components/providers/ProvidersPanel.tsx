@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { toastErr, toastOk } from "@/lib/feedback";
-import { Zap, Wrench, ArrowLeft, ArrowRight, Keyboard } from "lucide-react";
+import { Zap, Wrench, ArrowLeft, ArrowRight, Keyboard, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -64,6 +64,7 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
     (s) => s.settings?.shortcuts.bindings["new-tab"],
   ) ?? "Ctrl+T";
   const loadProviders = useProvidersStore((s) => s.loadProviders);
+  const importCcSwitchProviders = useProvidersStore((s) => s.importCcSwitchProviders);
   const removeProvider = useProvidersStore((s) => s.removeProvider);
   const setDefault = useProvidersStore((s) => s.setDefault);
   const activeTerminalTab = activePane?.tabs.find((tab) => tab.id === activePane.activeTabId) ?? null;
@@ -86,6 +87,7 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
   const [selectedPreset, setSelectedPreset] = useState<ProviderPreset | null>(null);
   const [activeTab, setActiveTab] = useState<KnownCliTool>(() => launchDefaults.tool);
   const [childDirty, setChildDirty] = useState(false);
+  const [importingCcSwitch, setImportingCcSwitch] = useState(false);
   const discardGuard = useUnsavedChangesGuard(childDirty, () => {
     setChildDirty(false);
     onDirtyChange?.(false);
@@ -195,6 +197,30 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
       toastErr(t("setDefaultFailed", { error: String(e) }));
     }
   }, [activeTab, setDefault, t]);
+
+  const handleImportCcSwitch = useCallback(async () => {
+    if (importingCcSwitch) return;
+    setImportingCcSwitch(true);
+    try {
+      const report = await importCcSwitchProviders();
+      if (report.imported > 0 || report.skippedEmpty > 0 || report.skippedUnsupported > 0) {
+        toastOk(t("ccSwitchImportOk", {
+          imported: report.imported,
+          skipped: report.skippedDuplicate,
+          empty: report.skippedEmpty,
+          unsupported: report.skippedUnsupported,
+        }));
+      } else if (report.skippedDuplicate > 0) {
+        toastOk(t("ccSwitchImportDuplicatesOnly"));
+      } else {
+        toastOk(t("ccSwitchImportNone"));
+      }
+    } catch (e) {
+      toastErr(t("ccSwitchImportFailed", { error: String(e) }));
+    } finally {
+      setImportingCcSwitch(false);
+    }
+  }, [importCcSwitchProviders, importingCcSwitch, t]);
 
   const handleDuplicate = useCallback((p: Provider) => {
     const duplicated: Provider = {
@@ -374,6 +400,17 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
       counts={activeTopView === "providers" ? providerCounts : profileCounts}
       compact={compact}
       showTopViewTabs={!fixedTopView}
+      actions={activeTopView === "providers" ? (
+        <Button
+          variant="outline"
+          size={compact ? "xs" : "sm"}
+          disabled={importingCcSwitch}
+          onClick={() => void handleImportCcSwitch()}
+        >
+          <Download size={14} />
+          {t("importFromCcSwitch")}
+        </Button>
+      ) : undefined}
     />
   );
 

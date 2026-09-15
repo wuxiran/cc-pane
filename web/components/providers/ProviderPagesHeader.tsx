@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { SegmentedTabs } from "@/components/ui/segmented";
 import ProviderToolSelect from "./ProviderToolTabs";
@@ -12,9 +13,10 @@ interface Props {
   onTabChange: (tab: KnownCliTool) => void;
   /** 当前子页语义下的 chips 计数（凭证页=provider 数，运行配置页=profile 数） */
   counts: Record<string, number>;
-  /** 页面级动作槽（凭证页放「从预设创建」） */
+  /** 页面级动作槽（凭证页放「从预设创建」/「从 cc-switch 导入」） */
   compact?: boolean;
   showTopViewTabs?: boolean;
+  actions?: ReactNode;
 }
 
 /**
@@ -28,6 +30,7 @@ export default function ProviderPagesHeader({
   counts,
   compact,
   showTopViewTabs = true,
+  actions,
 }: Props) {
   const { t } = useTranslation("settings");
 
@@ -49,6 +52,7 @@ export default function ProviderPagesHeader({
       )}
       <div className="min-w-0 flex-1" />
       <ProviderToolSelect activeTab={activeTab} onTabChange={onTabChange} providerCounts={counts} />
+      {actions}
     </div>
   );
 }

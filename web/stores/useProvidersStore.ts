@@ -19,6 +19,12 @@ interface ProvidersState {
   defaultProviderIds: Partial<Record<KnownCliTool, string>>;
   defaultProvider: (cliTool?: KnownCliTool) => Provider | null;
   loadProviders: () => Promise<void>;
+  importCcSwitchProviders: () => Promise<{
+    imported: number;
+    skippedDuplicate: number;
+    skippedEmpty: number;
+    skippedUnsupported: number;
+  }>;
   addProvider: (provider: Provider) => Promise<void>;
   updateProvider: (provider: Provider) => Promise<void>;
   removeProvider: (id: string) => Promise<void>;
@@ -76,6 +82,12 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     } catch (e) {
       handleErrorSilent(e, "load providers");
     }
+  },
+
+  importCcSwitchProviders: async () => {
+    const report = await providerService.importCcSwitchProviders();
+    await get().loadProviders();
+    return report;
   },
 
   addProvider: async (provider) => {

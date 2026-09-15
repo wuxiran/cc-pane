@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error 测试运行在 Node；前端 tsconfig 刻意不引入 @types/node。
 import { readFileSync } from "node:fs";
 
+import { CLI_BRAND_ICON_TOOLS } from "@/components/CliBrandIcon";
 import { CLI_COLOR_VAR } from "@/components/CliToolSelect";
 import { SIDEBAR_LAUNCH_CLI_TOOLS } from "@/components/sidebar/launchMenu";
 import enSidebar from "@/i18n/locales/en/sidebar.json";
@@ -29,6 +30,10 @@ describe("known CLI tool coverage", () => {
   it("每个 CLI 都有 Provider 设置页的 tab", () => {
     const tabIds = CLI_TOOL_TABS.map((tab) => tab.id as string);
     expect(LAUNCHABLE_CLI_TOOLS.filter((tool) => !tabIds.includes(tool))).toEqual([]);
+  });
+
+  it("每个 CLI 都有品牌图标", () => {
+    expect(LAUNCHABLE_CLI_TOOLS.filter((tool) => !CLI_BRAND_ICON_TOOLS.includes(tool))).toEqual([]);
   });
 
   it("每个 CLI 都在侧边栏启动菜单里", () => {

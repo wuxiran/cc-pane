@@ -64,6 +64,17 @@ export const providerService = {
     }));
   },
 
+  async importCcSwitchProviders(): Promise<{
+    imported: number;
+    skippedDuplicate: number;
+    skippedEmpty: number;
+    skippedUnsupported: number;
+  }> {
+    return invokeOrApi("import_cc_switch_providers", undefined, async () => {
+      throw new Error("Importing from cc-switch is only available in the desktop app");
+    });
+  },
+
   async readConfigDirInfo(path: string): Promise<ConfigDirInfo> {
     return invokeOrApi<ConfigDirInfo>("read_config_dir_info", { path }, async () => ({
       path,
