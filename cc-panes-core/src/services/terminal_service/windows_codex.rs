@@ -1,92 +1,69 @@
 use crate::models::CliTool;
-use anyhow::{Context, Result};
-use base64::{engine::general_purpose::STANDARD, Engine as _};
-use serde::Serialize;
-use std::collections::HashMap;
 use std::path::Path;
+use std::path::PathBuf;
 
-const PAYLOAD_ENV: &str = "CC_PANES_WINDOWS_CODEX_LAUNCH_PAYLOAD";
-
-// Windows PowerShell 5.1 removes embedded double quotes when it lowers a
-// String[] to a native command line. Prefixing those quotes with one backslash
-// preserves the exact argv value seen by the child process.
-const BOOTSTRAP_SCRIPT: &str = r#"
-$ErrorActionPreference = 'Stop'
-$payload = $env:CC_PANES_WINDOWS_CODEX_LAUNCH_PAYLOAD | ConvertFrom-Json
-[Environment]::SetEnvironmentVariable('CC_PANES_WINDOWS_CODEX_LAUNCH_PAYLOAD', $null)
-$nativeArgs = @()
-foreach ($item in @($payload.args)) {
-    $nativeArgs += ([string]$item).Replace(
-        ([char]34).ToString(),
-        ([char]92).ToString() + ([char]34).ToString()
-    )
-}
-& ([string]$payload.command) @nativeArgs
-exit $LASTEXITCODE
-"#;
-
-#[derive(Serialize)]
-struct LaunchPayload {
-    command: String,
-    args: Vec<String>,
-}
-
-fn requires_powershell_bootstrap(cwd: &Path) -> bool {
+fn requires_wrapper(cwd: &Path) -> bool {
     !cwd.as_os_str().to_string_lossy().is_ascii()
 }
 
-/// 是否需要用 PowerShell 作 ConPTY 根进程再拉起 Codex。
+/// 是否需要给 Codex 做非 ASCII cwd 直启改写（`-C` 方案）。
 ///
 /// 三个条件缺一不可：**本地**启动、CLI 是 Codex、cwd 含非 ASCII 字符。
-///
-/// `is_local_launch` 这道门必须有：WSL/SSH 模式的 cwd 同样取项目的 Windows 路径
-/// （`terminal_service.rs` 的三分支同构），少了它，中文路径下的 WSL 项目会把
-/// `wsl.exe` 连同整串 argv 一起塞进 JSON payload 再过一遍 PowerShell 5.1 的引号
-/// 转义——而这条链要修的本来只是「codex.exe 直接作 ConPTY 根进程时零输出」。
+/// WSL/SSH 模式的 cwd 同样取项目的 Windows 路径（三分支同构），不能把它们
+/// 的 `wsl.exe` argv 加 `-C`。
 pub(super) fn should_bootstrap(is_local_launch: bool, cli_tool: CliTool, cwd: &Path) -> bool {
-    is_local_launch && cli_tool == CliTool::Codex && requires_powershell_bootstrap(cwd)
+    is_local_launch && cli_tool == CliTool::Codex && requires_wrapper(cwd)
 }
 
-pub(super) fn wrap_with_powershell(
-    command: String,
-    args: Vec<String>,
-    env: &mut HashMap<String, String>,
-) -> Result<(String, Vec<String>)> {
-    let payload = serde_json::to_string(&LaunchPayload { command, args })
-        .context("failed to serialize Windows Codex launch payload")?;
-    env.insert(PAYLOAD_ENV.to_string(), payload);
+/// 非 ASCII cwd 的 codex 直启改写：ConPTY 根进程 = codex.exe，spawn cwd 落 ASCII
+/// 目录（绕开「codex.exe 直接作 ConPTY 根进程 + 非 ASCII cwd 零输出」的原始
+/// bug），codex 用 `-C <原 cwd>` 自己 cd 进中文项目目录。
+///
+/// 为什么不再包 cmd/powershell shim：任何包装进程插在 codex.exe 与 ConPTY 之间
+/// 都会破坏输入链路（活体实锤：shim 会话 banner 能渲染、composer 不回显任何
+/// 按键；直启 + `-C` 探针回显正常）。
+pub(super) fn rewrite_with_cd_arg(mut args: Vec<String>, cwd: &Path) -> (PathBuf, Vec<String>) {
+    let spawn_cwd = ascii_spawn_cwd();
+    let mut rewritten = Vec::with_capacity(args.len() + 2);
+    rewritten.push("-C".to_string());
+    rewritten.push(cwd.as_os_str().to_string_lossy().into_owned());
+    rewritten.append(&mut args);
+    (spawn_cwd, rewritten)
+}
 
-    let encoded_script = STANDARD.encode(
-        BOOTSTRAP_SCRIPT
-            .encode_utf16()
-            .flat_map(u16::to_le_bytes)
-            .collect::<Vec<_>>(),
-    );
-
-    Ok((
-        "powershell.exe".to_string(),
-        vec![
-            "-NoLogo".to_string(),
-            "-NoProfile".to_string(),
-            "-NonInteractive".to_string(),
-            "-EncodedCommand".to_string(),
-            encoded_script,
-        ],
-    ))
+/// `-C` 直启的 spawn cwd：必须 ASCII，优先 %TEMP%，兜底系统 Temp。
+fn ascii_spawn_cwd() -> PathBuf {
+    let temp = std::env::temp_dir();
+    if temp.as_os_str().to_string_lossy().is_ascii() {
+        temp
+    } else {
+        PathBuf::from(r"C:\Windows\Temp")
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::pty::{spawn_pty, PtyConfig};
+    use std::collections::HashMap;
     use std::io::Read;
 
     #[test]
     fn bootstrap_is_only_required_for_non_ascii_paths() {
-        assert!(!requires_powershell_bootstrap(Path::new(
-            r"E:\workspace\geedo"
-        )));
-        assert!(requires_powershell_bootstrap(Path::new(r"E:\geedo联调")));
+        assert!(!requires_wrapper(Path::new(r"E:\workspace\geedo")));
+        assert!(requires_wrapper(Path::new(r"E:\geedo联调")));
+    }
+
+    #[test]
+    fn cd_rewrite_prepends_dash_c_and_picks_ascii_spawn_cwd() {
+        let (spawn_cwd, args) = rewrite_with_cd_arg(
+            vec!["--dangerously-bypass-approvals-and-sandbox".to_string()],
+            Path::new(r"C:\Users\ZhuanZ\Desktop\学习笔记"),
+        );
+        assert!(spawn_cwd.as_os_str().to_string_lossy().is_ascii());
+        assert_eq!(args[0], "-C");
+        assert_eq!(args[1], r"C:\Users\ZhuanZ\Desktop\学习笔记");
+        assert_eq!(args[2], "--dangerously-bypass-approvals-and-sandbox");
     }
 
     #[test]
@@ -97,7 +74,7 @@ mod tests {
         // 本地 + Codex + 非 ASCII cwd：唯一命中的组合
         assert!(should_bootstrap(true, CliTool::Codex, non_ascii));
 
-        // WSL/SSH 的 cwd 同样是项目的 Windows 路径，不能把 wsl.exe/ssh 包进 PowerShell
+        // WSL/SSH 的 cwd 同样是项目的 Windows 路径，不能把 wsl.exe/ssh 包进 wrapper
         assert!(!should_bootstrap(false, CliTool::Codex, non_ascii));
 
         // 其它 CLI 与 ASCII 路径都走原样直启
@@ -105,98 +82,144 @@ mod tests {
         assert!(!should_bootstrap(true, CliTool::Codex, ascii));
     }
 
+    /// 真机探针（--ignored）：真 codex 直启后往 composer 打字，
+    /// 输出里出现回显 = PTY 输入链路和 codex 输入处理都正常（问题在前端）。
     #[test]
-    fn wrapper_keeps_original_argv_out_of_the_powershell_command_line() {
-        let command = r"C:\Program Files\Codex\codex.exe".to_string();
-        let args = vec![
-            "-c".to_string(),
-            r#"mcp_servers.ccpanes.url="http://127.0.0.1:1234/mcp?token=TOKEN""#.to_string(),
-            "请只回复 OK。".to_string(),
-        ];
-        let mut env = HashMap::new();
-
-        let (wrapped_command, wrapped_args) =
-            wrap_with_powershell(command.clone(), args.clone(), &mut env).unwrap();
-
-        assert_eq!(wrapped_command, "powershell.exe");
-        assert!(wrapped_args.iter().any(|arg| arg == "-EncodedCommand"));
-        assert!(!wrapped_args.join(" ").contains("TOKEN"));
-
-        let payload: serde_json::Value =
-            serde_json::from_str(env.get(PAYLOAD_ENV).unwrap()).unwrap();
-        assert_eq!(payload["command"], command);
-        assert_eq!(payload["args"], serde_json::json!(args));
+    #[ignore = "manual probe: needs real codex install"]
+    fn probe_real_codex_composer_echo() {
+        probe_codex_input(vec![]);
     }
 
+    /// 真机探针 2（--ignored）：带额外 -c 参数启动 codex。
+    /// 参数取环境变量 CC_PANES_PROBE_ARGS（多个值用 \x1f 分隔），未设则用死 MCP url。
     #[test]
-    fn encoded_script_clears_payload_before_starting_codex() {
-        let mut env = HashMap::new();
-        let (_, wrapped_args) =
-            wrap_with_powershell("codex.exe".to_string(), vec![], &mut env).unwrap();
-        let encoded = wrapped_args.last().unwrap();
-        let bytes = STANDARD.decode(encoded).unwrap();
-        // as_chunks：块长是常量，rust 1.98 的 clippy::chunks_exact_to_as_chunks 会拦
-        // chunks_exact。语义不变——UTF-16LE 解码本就不该有落单字节。
-        let units = bytes
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|chunk| u16::from_le_bytes(*chunk))
-            .collect::<Vec<_>>();
-        let script = String::from_utf16(&units).unwrap();
-
-        assert!(script.contains("SetEnvironmentVariable"));
-        assert!(script.contains("$nativeArgs"));
-        assert!(script.contains("Replace"));
+    #[ignore = "manual probe: needs real codex install"]
+    fn probe_real_codex_composer_echo_with_dead_mcp() {
+        let extra = match std::env::var("CC_PANES_PROBE_ARGS") {
+            Ok(raw) => raw
+                .split('\u{1f}')
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>(),
+            Err(_) => {
+                vec![r#"mcp_servers.ccpanes.url="http://127.0.0.1:1/mcp?token=dead""#.to_string()]
+            }
+        };
+        let mut args = Vec::new();
+        let raw = std::env::var("CC_PANES_PROBE_DIRECT").is_ok();
+        for value in extra {
+            if !raw {
+                args.push("-c".to_string());
+            }
+            args.push(value);
+        }
+        probe_codex_input(args);
     }
 
-    #[test]
-    fn powershell_bootstrap_runs_a_child_in_a_non_ascii_pty() {
-        let temp = tempfile::tempdir().unwrap();
-        let cwd = temp.path().join("联调");
-        std::fs::create_dir(&cwd).unwrap();
-
-        let expected = "BOOTSTRAP_OK";
-        let mut env = HashMap::new();
-        let (command, args) = wrap_with_powershell(
-            "cmd.exe".to_string(),
-            vec![
-                "/d".to_string(),
-                "/c".to_string(),
-                "echo".to_string(),
-                expected.to_string(),
-            ],
-            &mut env,
-        )
-        .unwrap();
-
+    fn probe_codex_input(extra_args: Vec<String>) {
+        use std::io::Write;
+        use std::sync::{Arc, Mutex};
+        let cwd = std::env::var("CC_PANES_PROBE_CWD")
+            .unwrap_or_else(|_| r"C:\Users\ZhuanZ\Desktop\学习笔记".to_string());
+        // 生产已改为直启（-C 方案），探针同构：一律直启。
+        let (command, args) = (
+            std::env::var("CC_PANES_PROBE_CMD").unwrap_or_else(|_| which_codex()),
+            extra_args.clone(),
+        );
         let spawned = spawn_pty(PtyConfig {
-            cols: 80,
-            rows: 24,
-            cwd,
+            cols: 120,
+            rows: 32,
+            cwd: std::path::PathBuf::from(cwd),
             command,
             args,
-            env,
+            env: HashMap::new(),
             env_remove: Vec::new(),
-            // 本测试只验 PowerShell bootstrap 的命令行拼装，不测资源策略；
-            // 用默认值即可（默认不施加任何限制，行为与加此字段之前一致）。
             resource_policy: Default::default(),
         })
         .unwrap();
-
-        let writer = spawned.writer;
+        let mut writer = spawned.writer;
         let mut reader = spawned.reader;
-        let read = std::thread::spawn(move || {
-            let mut output = String::new();
-            reader.read_to_string(&mut output).unwrap();
-            output
+        let sink = Arc::new(Mutex::new(String::new()));
+        let sink_for_thread = Arc::clone(&sink);
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 8192];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => sink_for_thread
+                        .lock()
+                        .unwrap()
+                        .push_str(&String::from_utf8_lossy(&buf[..n])),
+                }
+            }
         });
-        let status = spawned.process.wait().unwrap();
-        drop(writer);
-        drop(spawned.process);
-        let output = read.join().unwrap();
 
-        assert!(status.success(), "bootstrap output: {output:?}");
-        assert!(output.contains(expected), "bootstrap output: {output:?}");
+        std::thread::sleep(std::time::Duration::from_secs(6));
+        writer.write_all(b"xyzzy-input-probe").unwrap();
+        writer.flush().unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        let mut echoed = false;
+        while std::time::Instant::now() < deadline {
+            if sink.lock().unwrap().contains("xyzzy-input-probe") {
+                echoed = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        // 焦点门控探针：focus-out 报告后再打字，若不回显 = codex 按焦点态禁输入。
+        writer.write_all(b"\x1b[O").unwrap();
+        writer.flush().unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        writer.write_all(b"focusgate-probe-2").unwrap();
+        writer.flush().unwrap();
+        let deadline2 = std::time::Instant::now() + std::time::Duration::from_secs(6);
+        let mut echoed2 = false;
+        while std::time::Instant::now() < deadline2 {
+            if sink.lock().unwrap().contains("focusgate-probe-2") {
+                echoed2 = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        let tail = {
+            let s = sink.lock().unwrap();
+            s.chars().rev().take(400).collect::<String>()
+        };
+        // 落盘活体 VT 流（含打字回显），供前端渲染管线回归测试回放。
+        let dump = std::env::temp_dir().join("ccpanes-codex-vt-capture.bin");
+        let _ = std::fs::write(&dump, sink.lock().unwrap().as_bytes());
+        let _ = spawned.process.kill();
+        println!(
+            "PROBE echoed={echoed} echoed_after_focus_out={echoed2} dump={} tail={tail:?}",
+            dump.display()
+        );
+        assert!(
+            echoed || !extra_args.is_empty(),
+            "codex composer did not echo typed input; tail={tail:?}"
+        );
+    }
+
+    /// 探针直启用原生 exe：.cmd 不能作 ConPTY 根进程（CreateProcess 不执行 .cmd）。
+    /// 优先 `where codex` 里的 .exe，其次 npm vendor 常见路径，最后兜底裸名。
+    fn which_codex() -> String {
+        if let Ok(out) = std::process::Command::new("where").arg("codex").output() {
+            if let Some(line) = String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .find(|l| l.to_lowercase().ends_with("codex.exe"))
+            {
+                return line.trim().to_string();
+            }
+        }
+        let vendor = std::env::var("APPDATA").map(|root| {
+            format!(
+                r"{root}\npm\node_modules\@openai\codex\node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe"
+            )
+        });
+        if let Ok(path) = vendor {
+            if std::path::Path::new(&path).exists() {
+                return path;
+            }
+        }
+        "codex".to_string()
     }
 }

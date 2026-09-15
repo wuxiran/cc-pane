@@ -142,7 +142,9 @@ async function restoreSnapshot({
     await restoreReplayBufferMode(snapshot, term, writeData, canWrite);
   }
   if (snapshot.delta) {
-    await writeTerminalReplay(snapshot.delta, writeData, { canWrite });
+    // delta 窗口起点是 read-chunk 边界，可能切在转义序列中段：首块断头尾会被
+    // xterm 当正文打印（TUI 差量重绘不清未变单元格 → 乱码驻留），写入前切掉。
+    await writeTerminalReplay(snapshot.delta, writeData, { canWrite, dropLeadingEscapeTail: true });
   }
   syncTrackedBufferType(`terminal.resync.${reason}`);
   reanchorAfterRecovery(sessionId, snapshot);

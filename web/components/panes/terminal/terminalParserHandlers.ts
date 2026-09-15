@@ -135,6 +135,12 @@ export function registerTerminalParserHandlers({
     term.parser.registerCsiHandler({ prefix: "?", final: "n" }, handleCursorPositionReport("?")),
     term.parser.registerCsiHandler({ final: "c" }, handlePrimaryDeviceAttributesReport()),
     term.parser.registerCsiHandler({ prefix: "?", final: "u" }, handleKittyKeyboardProtocolQuery("?")),
+    // codex 0.154+ 默认 push kitty keyboard 协议：xterm.js 切到 kitty 编码后 IME
+    // 合成路径失效（拼音 raw 文本插进 TUI 输入框、候选窗与正文双写）。
+    // 「应答但不启用」：消费 push/pop 让 CLI 以为协商成功，实际保持 legacy 编码
+    // （= 0.153 及以前的行为），IME 与普通按键都不受影响。
+    term.parser.registerCsiHandler({ prefix: ">", final: "u" }, () => true),
+    term.parser.registerCsiHandler({ prefix: "<", final: "u" }, () => true),
     term.parser.registerOscHandler(4, handleOscColorQuery(4)),
     term.parser.registerOscHandler(10, handleOscColorQuery(10)),
     term.parser.registerOscHandler(11, handleOscColorQuery(11)),

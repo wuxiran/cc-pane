@@ -54,11 +54,18 @@ export interface AlternateBufferStripper {
   push(chunk: string): string;
   /** 会话结束时调用，吐出仍被扣留的尾部残留。 */
   flush(): string;
+  /**
+   * 取出并清空扣留中的不完整序列尾（重置 stripper 前调用）。
+   * 直接丢弃 = 字节流断头：续段丢 ESC 前缀会被 xterm 当正文打印（乱码驻留）。
+   */
+  takePending(): string;
 }
 
 export interface SgrBackgroundStripper {
   push(chunk: string): string;
   flush(): string;
+  /** 见 AlternateBufferStripper.takePending——重置前必须把扣留尾接走。 */
+  takePending(): string;
 }
 
 export interface SgrBackgroundStripperOptions {
@@ -244,6 +251,11 @@ export function createSgrBackgroundStripper(
       pending = "";
       return remaining;
     },
+    takePending(): string {
+      const remaining = pending;
+      pending = "";
+      return remaining;
+    },
   };
 }
 
@@ -309,6 +321,11 @@ export function createAlternateBufferStripper(
       pending = "";
       return release(remaining);
     },
+    takePending(): string {
+      const remaining = pending;
+      pending = "";
+      return remaining;
+    },
   };
 }
 
@@ -357,30 +374,46 @@ export function createTerminalDataRenderer(
     render(data: string, context: TerminalDataRenderContext): string {
       const { sessionId } = context;
       if (sessionId && activeSessionId && sessionId !== activeSessionId) {
+        // 换会话 = 换字节流：扣留尾属于旧流，丢弃（新流从完整序列开始）。
         stripper = null;
         backgroundStripper = null;
       }
       if (sessionId) activeSessionId = sessionId;
 
+      // 同一条流上的 stripper 重建/摘除（透明表面开关、promote 翻转、strip 模式
+      // 翻转）前必须把扣留中的不完整序列尾接走拼回输出头部：字节流在这些切换点
+      // 不断流，丢弃 pending 等于吃掉续段的 ESC 头 → xterm ground 态把
+      // `[38;2;…m` 当正文打印（codex 输入行乱码驻留的根因之一）。
+      let carry = "";
       const promote = Boolean(context.promoteBackgroundToForeground);
       if (context.stripBackgroundColors) {
-        if (!backgroundStripper || backgroundStripperPromote !== promote) {
+        if (!backgroundStripper) {
+          backgroundStripper = createSgrBackgroundStripper({
+            promoteBackgroundToForeground: promote,
+          });
+          backgroundStripperPromote = promote;
+        } else if (backgroundStripperPromote !== promote) {
+          carry += backgroundStripper.takePending();
           backgroundStripper = createSgrBackgroundStripper({
             promoteBackgroundToForeground: promote,
           });
           backgroundStripperPromote = promote;
         }
-      } else {
+      } else if (backgroundStripper) {
+        carry += backgroundStripper.takePending();
         backgroundStripper = null;
       }
       const rendered = backgroundStripper ? backgroundStripper.push(data) : data;
       if (!context.keepCliOutputInNormalBuffer) {
-        stripper = null;
-        return rendered;
+        if (stripper) {
+          carry += stripper.takePending();
+          stripper = null;
+        }
+        return carry + rendered;
       }
 
       stripper ??= createAlternateBufferStripper(options?.onStrippedTransition);
-      return stripper.push(rendered);
+      return carry + stripper.push(rendered);
     },
   };
 }

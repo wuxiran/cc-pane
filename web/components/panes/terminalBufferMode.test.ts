@@ -440,4 +440,46 @@ describe("terminalBufferMode", () => {
       expect(stripSgrBackgroundColors("plain output\r\n")).toBe("plain output\r\n");
     });
   });
+
+  // 同一条字节流上的 stripper 重建/摘除不得丢扣留尾：丢 = 续段丢 ESC 头 =
+  // xterm ground 态把 `[38;2;…m` 当正文打印（codex 输入行乱码驻留的根因）。
+  describe("renderer 切换点扣留尾接续", () => {
+    it("carries a dangling ESC across a transparent-surface flip", () => {
+      const renderer = createTerminalDataRenderer();
+      const stripOn = { keepCliOutputInNormalBuffer: false, sessionId: "s1", stripBackgroundColors: true };
+      const stripOff = { keepCliOutputInNormalBuffer: false, sessionId: "s1", stripBackgroundColors: false };
+      expect(renderer.render("a\x1b", stripOn)).toBe("a");
+      expect(renderer.render("[38;2;68;70;75;48;2;50;55;58mX", stripOff))
+        .toBe("\x1b[38;2;68;70;75;48;2;50;55;58mX");
+    });
+
+    it("carries a withheld SGR tail across a promote-flag flip", () => {
+      const renderer = createTerminalDataRenderer();
+      const ctx = (promote: boolean) => ({
+        keepCliOutputInNormalBuffer: false,
+        sessionId: "s1",
+        stripBackgroundColors: true,
+        promoteBackgroundToForeground: promote,
+      });
+      expect(renderer.render("x\x1b[48;2;1;2;3", ctx(false))).toBe("x");
+      // 扣留尾原样接回（不再过重写）：宁可漏剥一个序列，不可断头。
+      expect(renderer.render("mX", ctx(true))).toBe("\x1b[48;2;1;2;3mX");
+    });
+
+    it("carries a withheld alt-screen tail across a strip-mode flip", () => {
+      const renderer = createTerminalDataRenderer();
+      expect(renderer.render("a\x1b[?10", { keepCliOutputInNormalBuffer: true, sessionId: "s1" }))
+        .toBe("a");
+      expect(renderer.render("49hb", { keepCliOutputInNormalBuffer: false, sessionId: "s1" }))
+        .toBe("\x1b[?1049hb");
+    });
+
+    it("still drops the withheld tail on a real session switch", () => {
+      const renderer = createTerminalDataRenderer();
+      const stripOn = { keepCliOutputInNormalBuffer: false, sessionId: "s1", stripBackgroundColors: true };
+      expect(renderer.render("a\x1b", stripOn)).toBe("a");
+      // 换会话 = 换字节流：旧流扣留的裸 ESC 不得拼进新流。
+      expect(renderer.render("plainX", { ...stripOn, sessionId: "s2" })).toBe("plainX");
+    });
+  });
 });

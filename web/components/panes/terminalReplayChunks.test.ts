@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { writeTerminalReplay } from "./terminalReplayChunks";
+import { dropLeadingEscapeTail, writeTerminalReplay } from "./terminalReplayChunks";
 import { stripSgrBackgroundColors } from "./terminalBufferMode";
 
 describe("terminal replay scheduling", () => {
@@ -50,5 +50,46 @@ describe("terminal replay scheduling", () => {
     let mounted = true;
     await expect(writeTerminalReplay("final", async () => { mounted = false; },
       { canWrite: () => mounted })).rejects.toThrow("cancelled");
+  });
+});
+
+describe("dropLeadingEscapeTail（回放窗口断头尾清理）", () => {
+  it("drops headless CSI tails at a window start", () => {
+    // conpty truecolor 组合 SGR 丢 ESC 头——codex 输入行乱码的活体形态。
+    expect(dropLeadingEscapeTail("[38;2;68;70;75;48;2;50;55;58mrest")).toBe("rest");
+    expect(dropLeadingEscapeTail(";58mrest")).toBe("rest");
+    expect(dropLeadingEscapeTail("8;2;50;55;58mrest")).toBe("rest");
+    expect(dropLeadingEscapeTail("?1049hrest")).toBe("rest");
+  });
+
+  it("drops headless OSC tails up to BEL", () => {
+    expect(dropLeadingEscapeTail("8;;https://x\x07rest")).toBe("rest");
+    expect(dropLeadingEscapeTail("]8;;https://x\x07rest")).toBe("rest");
+    expect(dropLeadingEscapeTail("0;window title\x07rest")).toBe("rest");
+  });
+
+  it("keeps aligned starts and ordinary prose", () => {
+    expect(dropLeadingEscapeTail("\x1b[38;2;1;2;3mrest")).toBe("\x1b[38;2;1;2;3mrest");
+    expect(dropLeadingEscapeTail("[INFO] building rest")).toBe("[INFO] building rest");
+    expect(dropLeadingEscapeTail("2026-09-14 log line")).toBe("2026-09-14 log line");
+    expect(dropLeadingEscapeTail("hello world")).toBe("hello world");
+    expect(dropLeadingEscapeTail("")).toBe("");
+  });
+
+  it("does not mistake a CSI tail followed by a real OSC for an OSC tail", () => {
+    // CSI 残尾后面跟着真 OSC：只切 CSI 尾，OSC 及其后正文原样保留。
+    expect(dropLeadingEscapeTail(";58m ok \x1b]0;t\x07")).toBe(" ok \x1b]0;t\x07");
+  });
+
+  it("writeTerminalReplay drops the leading tail only when asked", async () => {
+    const source = ";58mrest-of-delta";
+    const withOption: string[] = [];
+    await writeTerminalReplay(source, async chunk => { withOption.push(chunk); },
+      { dropLeadingEscapeTail: true });
+    expect(withOption.join("")).toBe("rest-of-delta");
+
+    const withoutOption: string[] = [];
+    await writeTerminalReplay(source, async chunk => { withoutOption.push(chunk); });
+    expect(withoutOption.join("")).toBe(source);
   });
 });

@@ -55,6 +55,10 @@ import { useTerminalDataPipeline } from "./terminal/useTerminalDataPipeline";
 import { useTerminalSessionCallbacks } from "./terminal/useTerminalSessionCallbacks";
 import { useTerminalLayoutEvents } from "./terminal/useTerminalLayoutEvents";
 import { useTerminalWebglRecovery } from "./terminal/useTerminalWebglRecovery";
+import { useTerminalWriteWatchdog } from "./terminal/useTerminalWriteWatchdog";
+import { usePanesStore } from "@/stores";
+import { findTabAcrossLayouts } from "@/stores/panes/crossLayoutSearch";
+import { findTerminalPane } from "@/lib/paneSessions";
 import { useTerminalDeferredRestore } from "./terminal/useTerminalDeferredRestore";
 import { useTerminalInstanceInit } from "./terminal/useTerminalInstanceInit";
 // 注意：@xterm/xterm/css/xterm.css 不再静态引入——它随 terminal/terminalXtermModules
@@ -240,6 +244,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
     /** desync 重同步闸门：置真期间实时输出改走积压，防 reset 抹掉快照外的新输出。 */
     const resyncInProgressRef = useRef(false);
+    /** 最近收到输出 chunk 的时间戳（watchdog D 输出饿死检测锚点）。 */
+    const lastOutputReceivedAtRef = useRef(0);
     const overflowResyncRef = useRef<(() => Promise<boolean>) | null>(null);
     const pendingExitDuringResyncRef = useRef<PendingSessionExit | null>(null);
 
@@ -469,7 +475,67 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       writeTerminalData,
       syncTrackedBufferType,
       flushHiddenWrites,
+      lastOutputReceivedAtRef,
       debugLog,
+    });
+    // 采用活会话：leaf.sessionId 被恢复/重建链路更新后，已挂载实例必须换绑。
+    // 不采用 = 输入写向旧（死）会话、输出订阅挂在错 id 上——右键重开 codex
+    // 「输入框无反应」的根因（写往 bc8122da 而活会话是 a9a2919f 的活体形态）。
+    const liveLeafSessionId = usePanesStore((state) => {
+      if (!props.tabId || !props.paneId) return null;
+      const location = findTabAcrossLayouts(state, props.tabId);
+      const rootPane =
+        location?.tab.contentType === "terminal" ? location.tab.terminalRootPane : null;
+      const node = rootPane ? findTerminalPane(rootPane, props.paneId) : null;
+      return node?.type === "leaf" ? node.sessionId : null;
+    });
+    useEffect(() => {
+      if (!liveLeafSessionId || liveLeafSessionId === currentSessionIdRef.current) return;
+      const previous = currentSessionIdRef.current;
+      debugLog("session.adopt-live.begin", { previous, live: liveLeafSessionId });
+      unbindSessionCallbacks();
+      currentSessionIdRef.current = liveLeafSessionId;
+      void bindSessionCallbacks(liveLeafSessionId)
+        .then(() => debugLog("session.adopt-live.end", { live: liveLeafSessionId }))
+        .catch((error: unknown) =>
+          debugLog("session.adopt-live.failed", {
+            live: liveLeafSessionId,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+    }, [liveLeafSessionId, bindSessionCallbacks, unbindSessionCallbacks, debugLog]);
+
+    // daemon 侧最近输出时间（watchdog D 的对照源）。
+    const getDaemonLastOutputAt = useCallback(async (sessionId: string) => {
+      const all = await terminalService
+        .getAllStatus()
+        .catch(() => [] as Array<{ sessionId: string; lastOutputAt?: number }>);
+      const info = (all as Array<{ sessionId: string; lastOutputAt?: number }>).find(
+        (entry) => entry.sessionId === sessionId,
+      );
+      return typeof info?.lastOutputAt === "number" ? info.lastOutputAt : null;
+    }, []);
+    const rebindOutputForWatchdog = useCallback(async () => {
+      const sessionId = currentSessionIdRef.current;
+      if (sessionId) await bindSessionCallbacks(sessionId);
+    }, [bindSessionCallbacks]);
+
+    // 写入链路自愈：挂载竞态吞首帧 / 流控卡死 / resync 挂死 / 输出饿死四类静默
+    // 冻屏的兜底发现者（各自复用既有恢复原语，watchdog 只负责发现）。
+    useTerminalWriteWatchdog({
+      isRenderVisible,
+      terminalInstanceRef,
+      hiddenWriteBufferRef,
+      writeFlowControlRef,
+      resyncInProgressRef,
+      overflowResyncRef,
+      flushHiddenWrites,
+      onRendererFailure: recoverRenderer,
+      debugLog,
+      currentSessionIdRef,
+      lastOutputReceivedAtRef,
+      getDaemonLastOutputAt,
+      rebindOutput: rebindOutputForWatchdog,
     });
 
     // Dispose listeners, timers, observers, addons, and the terminal instance.

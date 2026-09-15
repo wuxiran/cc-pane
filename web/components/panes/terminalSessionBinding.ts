@@ -98,6 +98,8 @@ export interface BindTerminalSessionCallbacksOptions {
   syncTrackedBufferType: (reason: string) => void;
   /** 换绑前注销旧订阅（重连等场景），避免旧回调残留。 */
   unbindSessionCallbacks: () => void;
+  /** 每收到一个输出 chunk 打时间戳（watchdog D 输出饿死检测的对照锚点）。 */
+  lastOutputReceivedAtRef?: RefValue<number>;
   onSessionExit: (sessionId: string, exitCode: number) => void;
   /** desync 重同步闸门（见 createTerminalDesyncHandler 的时序契约）。 */
   resyncActiveRef: RefValue<boolean>;
@@ -213,6 +215,7 @@ export async function bindTerminalSessionCallbacks(
     exitUnsubRef,
     desyncUnsubRef,
     isRenderVisible,
+    lastOutputReceivedAtRef,
     keepCliOutputInNormalBuffer,
     renderTerminalData,
     renderCheckpointData,
@@ -229,21 +232,25 @@ export async function bindTerminalSessionCallbacks(
 ): Promise<void> {
   debugLog("session.bind-callbacks.begin", { bindSessionId: sessionId });
   unbindSessionCallbacks();
+  const outputHandler = createTerminalOutputHandler({
+    sessionId,
+    terminalRef: terminalInstanceRef,
+    hiddenWriteBufferRef,
+    // 输出直写门槛 = 可见 且 无重同步在途：闸门期实时输出必须进积压，
+    // 否则会赶在快照 reset 前落地随后被抹掉（真丢失）。
+    isRenderVisible: () => isRenderVisible() && !resyncActiveRef.current,
+    keepCliOutputInNormalBuffer,
+    renderTerminalData,
+    writeTerminalData,
+    syncTrackedBufferType,
+    debugLog,
+  });
   outputUnsubRef.current = await terminalService.registerOutput(
     sessionId,
-    createTerminalOutputHandler({
-      sessionId,
-      terminalRef: terminalInstanceRef,
-      hiddenWriteBufferRef,
-      // 输出直写门槛 = 可见 且 无重同步在途：闸门期实时输出必须进积压，
-      // 否则会赶在快照 reset 前落地随后被抹掉（真丢失）。
-      isRenderVisible: () => isRenderVisible() && !resyncActiveRef.current,
-      keepCliOutputInNormalBuffer,
-      renderTerminalData,
-      writeTerminalData,
-      syncTrackedBufferType,
-      debugLog,
-    }),
+    (data: string, endSeq?: number) => {
+      if (lastOutputReceivedAtRef) lastOutputReceivedAtRef.current = Date.now();
+      outputHandler(data, endSeq);
+    },
   );
   const hiddenQueryUnsub = terminalService.registerHiddenTerminalQueryHandler(sessionId, (data) => {
     const term = terminalInstanceRef.current;

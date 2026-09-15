@@ -27,6 +27,8 @@ export interface UseTerminalSessionCallbacksParams {
   exitUnsubRef: RefValue<(() => void) | null>;
   desyncUnsubRef: RefValue<(() => void) | null>;
   resyncInProgressRef: RefValue<boolean>;
+  /** 每收到一个输出 chunk 打时间戳（watchdog D 输出饿死检测的对照锚点）。 */
+  lastOutputReceivedAtRef?: RefValue<number>;
   overflowResyncRef: RefValue<(() => Promise<boolean>) | null>;
   pendingExitDuringResyncRef: RefValue<PendingSessionExit | null>;
   isSshRef: RefValue<boolean>;
@@ -54,6 +56,7 @@ export function useTerminalSessionCallbacks({
   exitUnsubRef,
   desyncUnsubRef,
   resyncInProgressRef,
+  lastOutputReceivedAtRef,
   overflowResyncRef,
   pendingExitDuringResyncRef,
   isSshRef,
@@ -122,6 +125,7 @@ export function useTerminalSessionCallbacks({
       unbindSessionCallbacks,
       onSessionExit: handleSessionExit,
       resyncActiveRef: resyncInProgressRef,
+      lastOutputReceivedAtRef,
       overflowResyncRef,
       flushHiddenWrites,
       pendingExitRef: pendingExitDuringResyncRef,

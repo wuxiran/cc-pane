@@ -138,7 +138,13 @@ export function attachTerminalTextareaIntegration({
     textarea.addEventListener('blur', () => {
       setFocused(false);
       setMacosTerminalNativeFocus(false);
-      debugLog("textarea.blur", {});
+      // 取证：记录抢焦点的元素，定位「终端吃不到按键」的焦点小偷。
+      const active = document.activeElement as (HTMLElement & { className?: string }) | null;
+      debugLog("textarea.blur", {
+        activeTag: active?.tagName ?? "null",
+        activeClass: typeof active?.className === "string" ? active.className.slice(0, 120) : "",
+        activeId: active?.id ?? "",
+      });
     });
 
     const pasteHandler = (e: ClipboardEvent) => {

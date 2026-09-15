@@ -1619,9 +1619,20 @@ fn spawn_terminal_writer(
     let (writer_tx, writer_rx) = mpsc::sync_channel::<WriterCommand>(64);
 
     thread::spawn(move || {
+        let mut logged_first_write = false;
         while let Ok(command) = writer_rx.recv() {
             match command {
                 WriterCommand::Write { data, ack } => {
+                    // INFO 级首笔写入：「应用里输入无反应」取证的分界点——daemon 收没收
+                    // 到 IPC 写入，一条日志即可分辨（debug 级 trace 生产版不可见）。
+                    if !logged_first_write {
+                        logged_first_write = true;
+                        info!(
+                            session_id = %session_id,
+                            input = %summarize_input_bytes(&data),
+                            "terminal-input.info pty.writer.first-write"
+                        );
+                    }
                     debug!(
                         session_id = %session_id,
                         input = %summarize_input_bytes(&data),
@@ -3603,23 +3614,22 @@ impl TerminalService {
         });
 
         #[cfg(windows)]
-        let (pty_command, pty_args) = if windows_codex::should_bootstrap(
-            is_local_launch,
-            cli_tool,
-            &cwd,
-        ) {
-            info!(
-                session_id = %session_id,
-                cwd = %cwd.display(),
-                "create_session: using Windows PowerShell bootstrap for Codex in a non-ASCII cwd"
-            );
-            windows_codex::wrap_with_powershell(command, args, &mut env_vars)?
-        } else {
-            (command, args)
-        };
+        let (pty_cwd, pty_command, pty_args) =
+            if windows_codex::should_bootstrap(is_local_launch, cli_tool, &cwd) {
+                info!(
+                    session_id = %session_id,
+                    cwd = %cwd.display(),
+                    "create_session: Codex non-ASCII cwd — direct launch with -C \
+                     (ConPTY root = codex.exe; replaces the broken wrapper chain)"
+                );
+                let (cwd_override, args) = windows_codex::rewrite_with_cd_arg(args, &cwd);
+                (cwd_override, command, args)
+            } else {
+                (cwd.clone(), command, args)
+            };
 
         #[cfg(not(windows))]
-        let (pty_command, pty_args) = (command, args);
+        let (pty_cwd, pty_command, pty_args) = (cwd.clone(), command, args);
 
         // 资源策略随会话启动一次性下发（docs/71）：让窗格里的 cargo/rg 抢不过 UI。
         let resource_policy = self
@@ -3631,7 +3641,7 @@ impl TerminalService {
         let config = PtyConfig {
             cols,
             rows,
-            cwd,
+            cwd: pty_cwd,
             command: pty_command,
             args: pty_args,
             env: env_vars,
@@ -4376,6 +4386,29 @@ impl TerminalService {
                         );
                         break;
                     }
+                }
+            }
+            // 收尾 flush：sanitize/utf8 两级 carry 可能还扣着最后一次 read 切断的
+            // 序列尾（会话末尾 / read 瞬断）。不 flush 会在 ReplayBuffer 与实时流
+            // 里留字节空洞——跨重启交接后洞后的续段丢头，前端 ground 态当正文打印。
+            let mut carry_tail: Vec<u8> = Vec::new();
+            #[cfg(windows)]
+            carry_tail.extend_from_slice(&sanitize_state.carry);
+            carry_tail.extend_from_slice(&utf8_carry);
+            if !carry_tail.is_empty() {
+                let tail = decode_terminal_output(&carry_tail);
+                if !tail.is_empty() {
+                    let chunk_end_seq = match read_replay_buffer.lock() {
+                        Ok(mut replay) => {
+                            replay.push(&tail);
+                            Some(replay.pushed_seq)
+                        }
+                        Err(_) => None,
+                    };
+                    if let Ok(mut buf) = read_output_buffer.lock() {
+                        buf.push(&tail);
+                    }
+                    let _ = batch_tx.try_send((tail, chunk_end_seq));
                 }
             }
             // reader 线程退出时 batch_tx 被 drop，触发 batcher 线程的 Disconnected 分支
