@@ -1,4 +1,4 @@
-import { registerTerminalReplayFailureHandler } from "../terminalReplayPresentation";
+import { noteTerminalReplayProgress, registerTerminalReplayFailureHandler } from "../terminalReplayPresentation";
 import { useEffect } from "react";
 // xterm 类型静态导入，实例装配通过 loadXtermRuntime 懒加载。
 import type { Terminal, IDisposable } from "@xterm/xterm";
@@ -318,7 +318,10 @@ export function useTerminalInstanceInit({
         writeFlowControlRef.current?.dispose(error.message);
         onRendererFailure(error);
       };
-      writeFlowControlRef.current = createTerminalWriteFlowControl(term, { onStall: onFailure });
+      writeFlowControlRef.current = createTerminalWriteFlowControl(term, {
+        onStall: onFailure,
+        onProgress: () => noteTerminalReplayProgress(term),
+      });
       parserDisposableRefs.current.push({ dispose: registerTerminalReplayFailureHandler(term, onFailure) });
       terminalInstanceRef.current = term;
       fitAddonRef.current = fit;

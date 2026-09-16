@@ -101,6 +101,12 @@ function armPresentationWatchdog(term: object, presentation: FrozenPresentation)
   }, presentationWatchdogMs);
 }
 
+/** Only completed parser writes count as progress; queued input does not. */
+export function noteTerminalReplayProgress(term: object): void {
+  const presentation = presentations.get(term);
+  if (presentation && presentation.depth > 0) armPresentationWatchdog(term, presentation);
+}
+
 /** 诊断：当前盖着静态帧的 replay。WeakMap 不可遍历，另挂一份 live set。 */
 export function getActivePresentationDebug(): Array<{ depth: number; version: number; ageMs: number }> {
   const now = Date.now();

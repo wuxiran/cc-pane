@@ -9,6 +9,7 @@ interface TerminalWriteFlowControlOptions {
   lowWatermark?: number;
   now?: () => number;
   onStall?: (error: Error) => void;
+  onProgress?: () => void;
 }
 
 const MAX_TARGET_WRITE_CHARS = 16 * 1024;
@@ -127,6 +128,7 @@ export function createTerminalWriteFlowControl(
           if (blocked && pendingCallbacks <= lowWatermark) blocked = false;
           clearWatchdog();
           watchProgress();
+          options.onProgress?.();
           if (entry.offset < entry.data.length) schedulePump();
           else {
             pending.delete(entry);

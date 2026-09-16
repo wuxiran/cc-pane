@@ -16,6 +16,7 @@ Complete the pending product changes and reconcile them with the published stabi
 
 ### Fixed
 
+- Keep long terminal replays alive while parser writes complete, while retaining timeout recovery once progress stops.
 - Let the corner layout list grow beyond its content height while respecting the window and maximum height.
 - Preserve Codex's selected endpoint, model and wire API during import; support OpenCode's OpenAI-compatible options without reinterpreting other protocols.
 - Include the development fixes for direct Codex startup in its working directory, incomplete escape replay, stalled terminal display recovery, Kitty keyboard negotiation and WebAssembly CSP.

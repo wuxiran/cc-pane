@@ -8,6 +8,7 @@
 | CLI 品牌图标 | CliBrandIcon / ProviderToolTabs | 全部注册 CLI 可见，切换正确，窄面板不溢出 |
 | 布局列表拉伸 | LayoutSelectorPanel | 可超过内容高度，取消恢复，受视口上限约束 |
 | CC Switch 导入 | cc_switch_import / ProviderService / provider_commands / providerService / useProvidersStore / ProvidersPanel | 实际 SQLite fixture、原子失败、去重与默认项保留、统计准确、前端成功和失败状态 |
+| 长回放进度 | terminalReplayPresentation / terminalWriteFlowControl | 解析持续进展时不误报超时，停止进展后恢复超时检查 |
 | MCP 右下角通知 | OrchestratorAlertBanner / NotificationCenter | 保留已发布修复，同一故障关闭后不重复出现 |
 | 终端已发布与开发修复 | terminal renderer/replay/write watchdog / CLI adapters | 全量自动检查与隔离 Windows 回放、短时性能对比 |
 | 最终安装包 | Windows NSIS / 发布附件 | 版本、签名、安装内容、实际自动化入口、后台会话保留 |
@@ -19,7 +20,7 @@ CC Switch 映射依据：[官方配置说明](https://github.com/farion1231/cc-s
 ## 已完成的本机验证
 
 - Windows TypeScript、前端生产构建、主题对比度与 bundle 预算通过；入口 gzip 871.0 kB，预算 880 kB。
-- 前端全量 5720 项通过，补充导入/列表状态验证 45 项通过。
+- 本机集成初检前端全量 5720 项通过，补充导入/列表状态验证 45 项通过；后续长回放进度修复的定向回归 102 项通过。最终提交的全量与覆盖率由 CI 再次确认。
 - Windows Rust workspace check、Clippy 通过；全量复核 2595 项通过、6 项原有忽略项。
 - 首次并发全量运行中 ConPTY 自然退出测试超时；单独复测以及限制为 4 个测试线程的全量复核通过。未改源码或放宽超时。
 - CC Switch SQLite 定向测试 12 项通过；测试不读取或导入真实用户凭证。

@@ -2,10 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   _setPresentationWatchdogMsForTest,
   getActivePresentationDebug,
+  noteTerminalReplayProgress,
   PRESENTATION_WATCHDOG_MS,
+  registerTerminalReplayFailureHandler,
   withTerminalReplayPresentation,
 } from "./terminalReplayPresentation";
 import { createTerminalLayoutScheduler } from "./terminalLayoutScheduler";
+import { createTerminalWriteFlowControl } from "./terminalWriteFlowControl";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
 
@@ -36,6 +39,30 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("static replay presentation", () => {
+  it("keeps a progressing replay alive beyond ten seconds, then expires when writes stop", async () => {
+    const { term, host } = setup();
+    const failure = vi.fn();
+    const unregister = registerTerminalReplayFailureHandler(term, failure);
+    const flow = createTerminalWriteFlowControl({
+      write: (_data, callback) => { setTimeout(() => callback?.(), 1_000); },
+    }, { onProgress: () => noteTerminalReplayProgress(term) });
+    const gate = deferred();
+    const done = withTerminalReplayPresentation(term, async () => {
+      for (let i = 0; i < 12; i++) await flow.write("chunk");
+      await gate.promise;
+    }).catch(error => error);
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(failure).not.toHaveBeenCalled();
+    expect(host.querySelector(".cc-terminal-static-frame")).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(PRESENTATION_WATCHDOG_MS + 150);
+    expect(failure).toHaveBeenCalledOnce();
+    expect(await done).toBeInstanceOf(Error);
+    expect(host.querySelector(".cc-terminal-static-frame")).toBeNull();
+    gate.resolve();
+    flow.dispose();
+    unregister();
+  });
+
   it("keeps the last frame visible while replay changes the live terminal, then restores the reading position", async () => {
     const { host, element, term, buffer } = setup();
     const gate = deferred();
