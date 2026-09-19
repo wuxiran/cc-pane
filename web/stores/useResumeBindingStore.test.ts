@@ -13,16 +13,32 @@ describe("resumeSourcePriority", () => {
   // 与 cc-panes-core/src/services/resume_identity.rs 的表保持镜像。
   it("镜像后端优先级表", () => {
     expect(resumeSourcePriority("manual")).toBe(40);
+    expect(resumeSourcePriority("hook")).toBe(35);
     expect(resumeSourcePriority("issued")).toBe(30);
     expect(resumeSourcePriority("osc-title")).toBe(30);
     expect(resumeSourcePriority("rollout-scan")).toBe(10);
     expect(resumeSourcePriority("backfill")).toBe(10);
+    expect(resumeSourcePriority("pi-session-file")).toBe(10);
+    expect(resumeSourcePriority("cursor-chat-scan")).toBe(10);
     expect(resumeSourcePriority("rescue")).toBe(5);
     expect(resumeSourcePriority(undefined)).toBe(30);
   });
 });
 
 describe("recordBinding 来源仲裁", () => {
+  it("SessionStart hook 替换发号身份并拒绝旧标题或扫描事件回退", () => {
+    const store = useResumeBindingStore.getState();
+    store.recordBinding("pty-1", "issued-old", "issued");
+    expect(store.recordBinding("pty-1", "hook-new", "hook")).toBe(true);
+    for (const source of ["issued", "osc-title", "rollout-scan", "pi-session-file", "cursor-chat-scan"]) {
+      expect(store.recordBinding("pty-1", "stale", source)).toBe(false);
+    }
+    expect(store.getBinding("pty-1")?.resumeId).toBe("hook-new");
+    expect(store.recordBinding("pty-1", "manual-selection", "manual")).toBe(true);
+    expect(store.recordBinding("pty-1", "hook-late", "hook")).toBe(false);
+    expect(store.getBinding("pty-1")?.resumeId).toBe("manual-selection");
+  });
+
   it("同级来源覆盖（should_replace_source 的 >= 语义），版本单调递增", () => {
     const store = useResumeBindingStore.getState();
     expect(store.recordBinding("pty-1", "resume-a", "issued")).toBe(true);

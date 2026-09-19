@@ -286,7 +286,7 @@ describe("collectRestorableSessions", () => {
             id: "split-1",
             direction: "row",
             children: [
-              { type: "leaf", id: "leaf-a", sessionId: "pty-a" },
+              { type: "leaf", id: "leaf-a", sessionId: "pty-a", launchExtras: { launchCwd: "/worktree-a" } },
               { type: "leaf", id: "leaf-b", sessionId: "pty-b" },
             ],
           },
@@ -298,6 +298,7 @@ describe("collectRestorableSessions", () => {
 
     const rows = collectRestorableSessions();
     expect(rows.map((r) => r.sessionId)).toEqual(["pty-a", "pty-b"]);
+    expect(rows.map((r) => r.launchCwd)).toEqual(["/worktree-a", undefined]);
     expect(rows.map((r) => r.terminalPaneId)).toEqual(["leaf-a", "leaf-b"]);
     expect(rows.every((r) => r.tabId === "t1" && r.layoutId === "layout-1")).toBe(true);
   });

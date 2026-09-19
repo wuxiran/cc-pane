@@ -254,6 +254,7 @@ export async function launchOrAttachTerminalSession({
           return terminalService.createSession({
             launchId: createdLaunchId,
             projectPath: props.projectPath,
+            launchCwd: props.launchCwd,
             cols: fitted ? term.cols : 80,
             rows: fitted ? term.rows : 24,
             workspaceName: props.workspaceName,

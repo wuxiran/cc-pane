@@ -108,6 +108,8 @@ export interface LaunchAdapterOptions extends PiLaunchOptions {
  * initialPrompt 仅首次启动生效，session 创建成功后由 clearTabInitialPrompt 清除防重放。
  */
 export interface LaunchExtras {
+  /** Actual CLI working directory, persisted independently of workspace metadata. */
+  launchCwd?: string;
   skipMcp?: boolean;
   appendSystemPrompt?: string;
   initialPrompt?: string;
@@ -271,6 +273,7 @@ export interface TerminalSession {
 export interface CreateSessionRequest {
   launchId?: string;
   projectPath: string;
+  launchCwd?: string;
   cols: number;
   rows: number;
   workspaceName?: string;
@@ -303,6 +306,7 @@ export interface CreateSessionRequest {
 /** 打开终端的选项 */
 export interface OpenTerminalOptions {
   path: string;
+  launchCwd?: string;
   workspaceName?: string;
   providerId?: string;
   modelId?: string;

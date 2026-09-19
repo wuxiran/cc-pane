@@ -2965,6 +2965,7 @@ impl TerminalService {
 
             if cli_tool_id != "none" {
                 let hooks_project_path = workspace_path.unwrap_or(project_path);
+                let launch_hooks_path = resolved_wsl.launch_cwd_host_path();
                 if sync_project_hooks {
                     let hook_sync_result = if cli_tool == CliTool::Codex {
                         let hook_binary =
@@ -2982,7 +2983,7 @@ impl TerminalService {
                             Ok(wsl_hook_binary) => {
                                 self.project_cli_hooks_service.sync_wsl_codex_project_hooks(
                                     hooks_project_path,
-                                    project_path,
+                                    launch_hooks_path.as_deref().unwrap_or(project_path),
                                     &wsl_hook_binary,
                                 )
                             }
@@ -3001,13 +3002,14 @@ impl TerminalService {
                                     })
                             });
                         match hook_binary {
-                            Ok(wsl_hook_binary) => self
-                                .project_cli_hooks_service
-                                .sync_project_cli_hooks_with_binary(
+                            Ok(wsl_hook_binary) => {
+                                self.project_cli_hooks_service.sync_launch_hooks(
                                     hooks_project_path,
+                                    launch_hooks_path.as_deref().unwrap_or(hooks_project_path),
                                     cli_tool_id,
-                                    &wsl_hook_binary,
-                                ),
+                                    Some(&wsl_hook_binary),
+                                )
+                            }
                             Err(error) => Err(error),
                         }
                     };
@@ -3088,7 +3090,7 @@ impl TerminalService {
                     cc_cli_adapters::CodexAdapter::ensure_yolo_wsl_project_trust(
                         &resolved_wsl.wsl_path,
                         &resolved_wsl.distro,
-                        &resolved_wsl.remote_path,
+                        resolved_wsl.project_cwd(),
                         effective_yolo_mode,
                     );
                     // 收口 #7：清掉 WSL 内 ~/.codex/config.toml 残留的旧 CC-Panes ccpanes 段
@@ -3214,10 +3216,12 @@ impl TerminalService {
                     "started",
                 );
                 if sync_project_hooks {
-                    if let Err(error) = self
-                        .project_cli_hooks_service
-                        .sync_project_cli_hooks(hooks_project_path, cli_tool_id)
-                    {
+                    if let Err(error) = self.project_cli_hooks_service.sync_launch_hooks(
+                        hooks_project_path,
+                        local_cwd,
+                        cli_tool_id,
+                        None,
+                    ) {
                         warn!(
                             session_id = %session_id,
                             cli_tool = cli_tool_id,

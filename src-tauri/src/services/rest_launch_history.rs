@@ -17,6 +17,7 @@ use tracing::warn;
 pub struct RestLaunchRecord<'a> {
     pub project_id: &'a str,
     pub project_path: &'a str,
+    pub launch_cwd: Option<&'a str>,
     pub session_id: &'a str,
     pub cli_tool: &'a str,
     pub runtime_kind: &'a str,
@@ -55,7 +56,7 @@ pub fn record_rest_launch(
         record.wsl_distro,
         record.workspace_name,
         record.workspace_path,
-        Some(record.project_path),
+        record.launch_cwd.or(Some(record.project_path)),
         record.provider_id,
         record.model_id,
         record.provider_selection,
@@ -99,6 +100,41 @@ pub fn merge_notice(runtime_notice: Option<String>, degraded: Option<String>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rest_launch_records_actual_cwd_without_changing_workspace_or_project() {
+        use cc_panes_core::repository::{Database, HistoryRepository};
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(Database::new(dir.path().join("history.db")).unwrap());
+        let service = Arc::new(LaunchHistoryService::new(Arc::new(HistoryRepository::new(
+            db,
+        ))));
+        let notice = record_rest_launch(
+            &service,
+            RestLaunchRecord {
+                project_id: "launch",
+                project_path: "/repo",
+                launch_cwd: Some("/worktree"),
+                session_id: "pty",
+                cli_tool: "codex",
+                runtime_kind: "local",
+                wsl_distro: None,
+                workspace_name: Some("workspace"),
+                workspace_path: Some("/workspace"),
+                provider_id: None,
+                model_id: None,
+                provider_selection: None,
+                launch_profile_id: None,
+                resume_id: Some("resume"),
+            },
+        );
+        assert!(notice.is_none());
+        let record = service.find_by_launch_id("launch").unwrap().unwrap();
+        assert_eq!(record.project_path, "/repo");
+        assert_eq!(record.workspace_path.as_deref(), Some("/workspace"));
+        assert_eq!(record.launch_cwd.as_deref(), Some("/worktree"));
+        assert_eq!(record.resume_session_id.as_deref(), Some("resume"));
+    }
 
     #[test]
     fn merge_notice_keeps_both_sides() {

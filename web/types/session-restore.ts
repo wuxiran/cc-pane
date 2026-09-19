@@ -4,6 +4,7 @@
 
 /** 保存的终端会话元数据（与 Rust SavedSession 对应） */
 export interface SavedSession {
+  launchCwd?: string;
   workspaceSnapshotId?: string;
   sessionId: string;
   tabId: string;

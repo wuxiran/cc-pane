@@ -33,8 +33,8 @@ impl SessionRestoreRepository {
                     workspace_name, workspace_path, provider_id, provider_selection, launch_profile_id, cli_tool,
                     runtime_kind, resume_id, ssh_config, custom_title,
                     created_at, saved_at,
-                    terminal_pane_id, layout_id, wsl_config, machine_name, observer_instance_id
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
+                    terminal_pane_id, layout_id, wsl_config, machine_name, observer_instance_id, launch_cwd
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
                 ON CONFLICT(session_id) DO UPDATE SET
                     workspace_session_id = excluded.workspace_session_id,
                     workspace_snapshot_id = excluded.workspace_snapshot_id,
@@ -56,7 +56,8 @@ impl SessionRestoreRepository {
                     layout_id = excluded.layout_id,
                     wsl_config = excluded.wsl_config,
                     machine_name = excluded.machine_name,
-                    observer_instance_id = excluded.observer_instance_id
+                    observer_instance_id = excluded.observer_instance_id,
+                    launch_cwd = COALESCE(excluded.launch_cwd, terminal_sessions.launch_cwd)
                 WHERE terminal_sessions.observer_instance_id IS NULL
                    OR terminal_sessions.observer_instance_id = excluded.observer_instance_id",
             )
@@ -87,6 +88,7 @@ impl SessionRestoreRepository {
                 s.wsl_config,
                 s.machine_name,
                 s.observer_instance_id,
+                s.launch_cwd,
             ])
             .map_err(|e| {
                 error!(session_id = %s.session_id, err = %e, "Failed to insert session");
@@ -112,7 +114,10 @@ impl SessionRestoreRepository {
                         ts.observer_instance_id,
                         provenance.daemon_generation,
                         provenance.birth_nonce,
-                        provenance.origin_instance_id
+                        provenance.origin_instance_id,
+                        COALESCE(ts.launch_cwd, (SELECT lh.launch_cwd FROM launch_history lh
+                         WHERE lh.pty_session_id = ts.session_id
+                         ORDER BY lh.launched_at DESC, lh.id DESC LIMIT 1)) AS launch_cwd
                  FROM terminal_sessions ts
                  LEFT JOIN terminal_session_provenance provenance
                    ON provenance.session_id = ts.session_id",
@@ -122,6 +127,7 @@ impl SessionRestoreRepository {
         let rows = stmt
             .query_map([], |row| {
                 Ok(SavedSession {
+                    launch_cwd: row.get(25)?,
                     session_id: row.get(0)?,
                     tab_id: row.get(1)?,
                     pane_id: row.get(2)?,
@@ -310,6 +316,7 @@ mod tests {
 
     fn bare_session(session_id: &str) -> SavedSession {
         SavedSession {
+            launch_cwd: None,
             workspace_snapshot_id: None,
             session_id: session_id.into(),
             tab_id: format!("t-{session_id}"),
@@ -337,6 +344,64 @@ mod tests {
             saved_at: "2025-01-01T00:01:00Z".into(),
             has_output: false,
         }
+    }
+
+    #[test]
+    fn loaded_observation_recovers_cwd_from_its_own_launch_history() {
+        let db = Arc::new(Database::new_in_memory().unwrap());
+        let repo = SessionRestoreRepository::new(db.clone());
+        repo.save_sessions(&[bare_session("pty-own"), bare_session("pty-other")])
+            .unwrap();
+        let history = crate::repository::HistoryRepository::new(db);
+        history
+            .add_with_pty_session(
+                "launch-own",
+                "repo",
+                "/repo",
+                "pty-own",
+                "claude",
+                "local",
+                None,
+                None,
+                Some("/workspace"),
+                Some("/worktree"),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        let rows = repo.load_sessions().unwrap();
+        assert_eq!(
+            rows.iter()
+                .find(|row| row.session_id == "pty-own")
+                .unwrap()
+                .launch_cwd
+                .as_deref(),
+            Some("/worktree")
+        );
+        assert!(rows
+            .iter()
+            .find(|row| row.session_id == "pty-other")
+            .unwrap()
+            .launch_cwd
+            .is_none());
+    }
+
+    #[test]
+    fn saved_cwd_round_trips_without_history_and_old_clients_cannot_erase_it() {
+        let db = Arc::new(Database::new_in_memory().unwrap());
+        let repo = SessionRestoreRepository::new(db);
+        let mut session = bare_session("pty");
+        session.launch_cwd = Some("/worktree".into());
+        repo.save_sessions(&[session.clone()]).unwrap();
+        session.launch_cwd = None;
+        repo.save_sessions(&[session]).unwrap();
+        assert_eq!(
+            repo.load_sessions().unwrap()[0].launch_cwd.as_deref(),
+            Some("/worktree")
+        );
     }
 
     /// 缺凭证的会话在恢复期会被 identity-mismatch 永久拦下——这个查询是启动期
@@ -378,6 +443,7 @@ mod tests {
 
         let sessions = vec![
             SavedSession {
+                launch_cwd: None,
                 workspace_snapshot_id: None,
                 session_id: "s1".into(),
                 tab_id: "t1".into(),
@@ -406,6 +472,7 @@ mod tests {
                 has_output: false,
             },
             SavedSession {
+                launch_cwd: None,
                 workspace_snapshot_id: None,
                 session_id: "s2".into(),
                 tab_id: "t2".into(),
@@ -451,6 +518,7 @@ mod tests {
         let repo = SessionRestoreRepository::new(db);
 
         let session = SavedSession {
+            launch_cwd: None,
             workspace_snapshot_id: None,
             session_id: "s1".into(),
             tab_id: "t1".into(),
@@ -532,6 +600,7 @@ mod tests {
 
     fn sample_session(session_id: &str) -> SavedSession {
         SavedSession {
+            launch_cwd: None,
             workspace_snapshot_id: None,
             session_id: session_id.into(),
             tab_id: "t1".into(),
@@ -567,6 +636,7 @@ mod tests {
         let repo = SessionRestoreRepository::new(db);
 
         let session = SavedSession {
+            launch_cwd: None,
             workspace_snapshot_id: None,
             session_id: "s1".into(),
             tab_id: "t1".into(),

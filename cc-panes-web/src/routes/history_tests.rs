@@ -204,6 +204,7 @@ fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
 
 fn saved_session(root: &std::path::Path) -> SavedSession {
     SavedSession {
+        launch_cwd: None,
         workspace_snapshot_id: Some("snapshot-a".to_string()),
         session_id: "pty-session-a".to_string(),
         tab_id: "tab-a".to_string(),

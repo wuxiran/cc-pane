@@ -155,6 +155,7 @@ export function collectRestorableSessions(): SavedSession[] {
         projectPath: tab.projectPath,
         workspaceName: leaf.workspaceName ?? tab.workspaceName,
         workspacePath: leaf.workspacePath ?? tab.workspacePath,
+        launchCwd: leaf.launchExtras?.launchCwd ?? tab.launchExtras?.launchCwd,
         providerId: leaf.providerId ?? tab.providerId,
         providerSelection: leaf.providerSelection ?? tab.providerSelection,
         launchProfileId: leaf.launchProfileId ?? tab.launchProfileId,

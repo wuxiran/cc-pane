@@ -63,7 +63,7 @@ const HOOK_DEFS: &[HookDef] = &[
         name: "session-resume-inject",
         subcommand: "session-resume",
         event: "SessionStart",
-        matcher: "resume|compact",
+        matcher: "resume|compact|clear",
         timeout: 10,
         label: "Context Inject (Resume)",
     },
@@ -620,6 +620,7 @@ impl ClaudeAdapter {
     fn legacy_matchers_for_def(def: &HookDef) -> &'static [&'static str] {
         match def.name {
             "session-inject" => &["startup|resume"],
+            "session-resume-inject" => &["resume|compact"],
             // 旧五类 matcher（含 idle_prompt）：不登记在这里的话，sync 认不出旧
             // 条目是我们的，清不掉也升不了级——旧 entry 带着 idle_prompt 继续
             // 误报「需要你输入」（输入框闲置 ≠ agent 卡住），且 grok 经 Claude
@@ -1282,7 +1283,7 @@ impl CliToolAdapter for ClaudeAdapter {
             }
             CcPaneEvent::SessionResume => Some(NativeHookBinding::new(
                 "SessionStart",
-                Some("resume|compact"),
+                Some("resume|compact|clear"),
                 10,
             )),
             CcPaneEvent::SessionEnd => Some(NativeHookBinding::new("SessionEnd", None, 5)),
@@ -1552,6 +1553,52 @@ mod tests {
         assert_eq!(
             settings["hooks"]["SessionStart"].as_array().unwrap().len(),
             2
+        );
+    }
+
+    #[test]
+    fn clear_session_start_is_installed_and_legacy_resume_matcher_is_replaced() {
+        let dir = tempdir().unwrap();
+        let binary = dir.path().join("cc-panes-cli-hook");
+        fs::write(&binary, "fixture").unwrap();
+        let settings_path = dir.path().join(".claude/settings.local.json");
+        fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+        fs::write(
+            &settings_path,
+            serde_json::json!({"hooks": {"SessionStart": [
+                {"matcher": "resume|compact", "hooks": [{"type": "command",
+                    "command": format!("\"{}\" session-resume", binary.display())}]},
+                {"matcher": "clear", "hooks": [{"type": "command", "command": "user-clear-hook"}]}
+            ]}})
+            .to_string(),
+        )
+        .unwrap();
+        let adapter = ClaudeAdapter::new();
+        adapter
+            .sync_project_hooks(dir.path(), Some(&binary), &HashMap::new())
+            .unwrap();
+        adapter
+            .sync_project_hooks(dir.path(), Some(&binary), &HashMap::new())
+            .unwrap();
+        let settings: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(settings_path).unwrap()).unwrap();
+        let entries = settings["hooks"]["SessionStart"].as_array().unwrap();
+        let resume: Vec<_> = entries
+            .iter()
+            .filter(|entry| entry["hooks"].to_string().contains("session-resume"))
+            .collect();
+        assert_eq!(resume.len(), 1);
+        assert_eq!(resume[0]["matcher"], "resume|compact|clear");
+        assert!(entries
+            .iter()
+            .any(|entry| entry["hooks"].to_string().contains("user-clear-hook")));
+        assert_eq!(
+            adapter
+                .map_cc_pane_event(&CcPaneEvent::SessionResume)
+                .unwrap()
+                .matcher
+                .as_deref(),
+            Some("resume|compact|clear")
         );
     }
 
@@ -2415,7 +2462,7 @@ mod tests {
         let a = ClaudeAdapter::new();
         let b = a.map_cc_pane_event(&CcPaneEvent::SessionResume).unwrap();
         assert_eq!(b.event, "SessionStart");
-        assert_eq!(b.matcher.as_deref(), Some("resume|compact"));
+        assert_eq!(b.matcher.as_deref(), Some("resume|compact|clear"));
 
         let b = a.map_cc_pane_event(&CcPaneEvent::BeforeCompact).unwrap();
         assert_eq!(b.event, "PreCompact");

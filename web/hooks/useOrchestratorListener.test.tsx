@@ -167,6 +167,8 @@ describe("useOrchestratorListener layout placement", () => {
           projectPath: "/tmp/project-a",
           projectId: "project-a",
           launchProfileId: "profile-yolo",
+          launchCwd: "/tmp/worktree",
+          workspacePath: "/tmp/workspace",
           modelId: "claude-sonnet-4-6",
           cliTool: "claude",
         },
@@ -180,6 +182,9 @@ describe("useOrchestratorListener layout placement", () => {
       .find((item) => item.sessionId === "session-profile");
     expect(tab?.launchProfileId).toBe("profile-yolo");
     expect(tab?.modelId).toBe("claude-sonnet-4-6");
+    expect(tab?.workspacePath).toBe("/tmp/workspace");
+    expect(tab?.launchExtras?.launchCwd).toBe("/tmp/worktree");
+    expect(tab?.terminalRootPane).toMatchObject({ launchExtras: { launchCwd: "/tmp/worktree" } });
   });
 
   it("launch-task 有调用者会话时默认在其 pane 旁边分屏打开(并排,不是后台标签)", async () => {

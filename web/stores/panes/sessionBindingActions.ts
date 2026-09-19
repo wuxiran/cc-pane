@@ -139,6 +139,7 @@ export function createSessionBindingActions({ set, get }: PanesStoreAccess): Ses
         const sessionId = await terminalService.createSession({
           launchId,
           projectPath: tab.projectPath,
+          launchCwd: leaf?.launchExtras?.launchCwd ?? tab.launchExtras?.launchCwd,
           cols: 80,
           rows: 24,
           workspaceName: leaf?.workspaceName ?? tab.workspaceName,
@@ -422,6 +423,7 @@ export function createSessionBindingActions({ set, get }: PanesStoreAccess): Ses
 
         const tab = createTab({
           projectId: meta.projectId ?? sessionId,
+          launchExtras: meta.launchCwd ? { launchCwd: meta.launchCwd } : undefined,
           projectPath: meta.projectPath,
           workspaceName: meta.workspaceName,
           workspacePath: meta.workspacePath,

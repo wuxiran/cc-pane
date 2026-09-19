@@ -145,6 +145,7 @@ describe("usePanesStore", () => {
     it("应把无主会话建成当前布局的活动 tab，并写成待 reattach 的 savedSession", () => {
       const tabId = usePanesStore.getState().adoptSession("orphan-session-1", {
         projectPath: "/tmp/proj1",
+        launchCwd: "/worktree",
         workspaceName: "ws-a",
         cliTool: "claude",
       });
@@ -154,9 +155,11 @@ describe("usePanesStore", () => {
       const tab = pane.tabs.find((item) => item.id === tabId);
       expect(pane.activeTabId).toBe(tabId);
       expect(tab?.workspaceName).toBe("ws-a");
+      expect(tab?.launchExtras?.launchCwd).toBe("/worktree");
 
       const leaf = tab?.terminalRootPane;
       expect(leaf?.type).toBe("leaf");
+      expect(leaf).toMatchObject({ launchExtras: { launchCwd: "/worktree" } });
       // 关键：写 savedSessionId + restoring 而非 sessionId，交给 TerminalView 重连既有 PTY
       expect(leaf?.type === "leaf" ? leaf.savedSessionId : null).toBe("orphan-session-1");
       expect(leaf?.type === "leaf" ? leaf.restoring : null).toBe(true);

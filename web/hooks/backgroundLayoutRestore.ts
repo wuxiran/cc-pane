@@ -88,6 +88,7 @@ export async function runBackgroundLayoutRestore(): Promise<void> {
         const sessionId = await terminalService.createSession({
           launchId,
           projectPath: tab.projectPath,
+          launchCwd: freshLeaf.launchExtras?.launchCwd ?? tab.launchExtras?.launchCwd,
           cols: 80,
           rows: 24,
           workspaceName: freshLeaf.workspaceName ?? tab.workspaceName,

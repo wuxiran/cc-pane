@@ -45,10 +45,12 @@ export function buildLaunchRecordTerminalOptions(
     providerId,
     providerSelection,
     // 兜底剥 `\\?\`：存量历史记录仍可能带被 hook 污染的值（docs/35-unc-path-contamination.md）。
-    // 注意此处 launchCwd 优先于 workspacePath 的顺序**未改动**——见该文档的评估。
-    workspacePath: stripVerbatimPrefix(
-      optionalValue(record.launchCwd ?? record.workspacePath),
-    ),
+    // cwd 与 workspace 配置根分别还原，避免将 worktree 当作工作空间。
+    workspacePath: stripVerbatimPrefix(optionalValue(record.workspacePath)),
+    // Old SSH records used a display URI here, which is not a real cwd.
+    launchCwd: record.launchCwd?.startsWith("ssh://")
+      ? undefined
+      : stripVerbatimPrefix(optionalValue(record.launchCwd)),
     cliTool,
     resumeId: optionalValue(record.resumeSessionId),
   };
@@ -100,6 +102,7 @@ export function buildLaunchRecordTerminalOptions(
 
   return {
     ...options,
+    launchCwd: fallback.launchCwd,
     resumeId: optionalValue(record.resumeSessionId),
   };
 }

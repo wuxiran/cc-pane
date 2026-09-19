@@ -169,6 +169,7 @@ export function useOrchestratorListener() {
             launchProfileId,
             workspacePath,
             cliTool: resolvedCliTool,
+            launchExtras: event.payload.launchCwd ? { launchCwd: event.payload.launchCwd } : undefined,
             wsl,
             ssh,
             customTitle: title,

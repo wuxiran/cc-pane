@@ -14,9 +14,10 @@ import type { LaunchExtras, OpenTerminalOptions } from "@/types";
 
 /** 从 OpenTerminalOptions 收拢启动器附加参数；全部缺省时返回 undefined */
 function buildLaunchExtras(opts: OpenTerminalOptions): LaunchExtras | undefined {
-  const { skipMcp, appendSystemPrompt, initialPrompt, yolo, adapterOptions } = opts;
+  const { launchCwd, skipMcp, appendSystemPrompt, initialPrompt, yolo, adapterOptions } = opts;
   if (
-    skipMcp === undefined
+    launchCwd === undefined
+    && skipMcp === undefined
     && appendSystemPrompt === undefined
     && initialPrompt === undefined
     && yolo === undefined
@@ -24,7 +25,7 @@ function buildLaunchExtras(opts: OpenTerminalOptions): LaunchExtras | undefined 
   ) {
     return undefined;
   }
-  return { skipMcp, appendSystemPrompt, initialPrompt, yolo, adapterOptions };
+  return { launchCwd, skipMcp, appendSystemPrompt, initialPrompt, yolo, adapterOptions };
 }
 
 function resolveWorkspaceLaunchScope(workspaceName?: string) {
@@ -84,9 +85,9 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
       const name = path.split(/[/\\]/).pop() || path;
 
       // SSH 项目：launchCwd 用 display path
-      const launchCwd = ssh
+      const launchCwd = opts.launchCwd ?? (ssh
         ? path  // SSH 项目的 path 已是 ssh:// display path
-        : (workspacePath ?? path);
+        : (workspacePath ?? path));
 
       // launch_history 记录的是一次 PTY 启动，不是 conversation。即使 resume 已有
       // 历史行，本次启动也必须用新的 leaf launch id 建新行，不能 touch 并复用旧行。

@@ -86,6 +86,15 @@ beforeEach(() => {
 });
 
 describe("槽位（同进程并发挡在 spawn 之前）", () => {
+  it("restores the saved cwd independently of workspace settings", async () => {
+    mockState({ leaf: { workspacePath: "/workspace", launchExtras: { launchCwd: "/worktree" } } });
+    vi.mocked(terminalService.createSession).mockResolvedValue("new-session");
+    await runBackgroundLayoutRestore();
+    await flush();
+    expect(terminalService.createSession).toHaveBeenCalledWith(expect.objectContaining({
+      projectPath: "/p", workspacePath: "/workspace", launchCwd: "/worktree",
+    }));
+  });
   it("槽位已被占时不 create（否则同一格会真的多起一个 PTY）", async () => {
     mockState();
     const held = acquireTerminalSlot("tab-1", "leaf-1");

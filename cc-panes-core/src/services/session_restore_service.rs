@@ -481,6 +481,7 @@ mod tests {
 
     fn sample_session(session_id: &str, workspace_name: Option<&str>) -> SavedSession {
         SavedSession {
+            launch_cwd: None,
             workspace_snapshot_id: None,
             session_id: session_id.to_string(),
             tab_id: format!("tab-{}", session_id),

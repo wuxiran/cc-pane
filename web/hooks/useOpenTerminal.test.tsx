@@ -40,6 +40,23 @@ describe("useOpenTerminal host path guard", () => {
     expect(toastErr).toHaveBeenCalledWith(expect.stringContaining("D:\\repo"));
   });
 
+  it("persists an independent launch cwd in history and restorable tab metadata", () => {
+    vi.spyOn(window.navigator, "platform", "get").mockReturnValue("Linux x86_64");
+    const add = vi.spyOn(historyService, "add").mockResolvedValue(1);
+    vi.spyOn(localHistoryService, "initProjectHistory").mockResolvedValue(undefined);
+    const openProject = vi.fn();
+    usePanesStore.setState({ openProject } as never);
+    const { result } = renderHook(() => useOpenTerminal());
+    act(() => result.current({ path: "/repo", workspacePath: "/workspace", launchCwd: "/worktree" }));
+    expect(openProject).toHaveBeenCalledWith(expect.objectContaining({
+      projectPath: "/repo", workspacePath: "/workspace",
+      launchExtras: expect.objectContaining({ launchCwd: "/worktree" }),
+    }));
+    const recorded = add.mock.calls[add.mock.calls.length - 1];
+    expect(recorded?.[7]).toBe("/workspace");
+    expect(recorded?.[8]).toBe("/worktree");
+  });
+
   it("新建未绑定布局后打开工作空间时留在当前布局", () => {
     vi.spyOn(window.navigator, "platform", "get").mockReturnValue("Linux x86_64");
     vi.spyOn(historyService, "add").mockResolvedValue(1);

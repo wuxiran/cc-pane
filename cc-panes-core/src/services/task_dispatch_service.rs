@@ -81,7 +81,13 @@ impl TaskDispatchService {
             ));
         }
         let mcp_supported = capabilities.supports_mcp;
-        let cwd = resolve_dispatch_cwd(&request.project_path, request.cwd.as_deref())?;
+        // project_path is an identity (including SSH URIs and WSL proxy paths).
+        // Resolve an omitted cwd only after the orchestrator selects the runtime.
+        let cwd = request
+            .cwd
+            .as_deref()
+            .map(|cwd| resolve_dispatch_cwd(&request.project_path, Some(cwd)))
+            .transpose()?;
         dispatch_permission_yolo_mode(request.permission_mode.as_deref())?;
 
         Ok(TaskDispatchPlan {
@@ -96,7 +102,7 @@ impl TaskDispatchService {
                 workspace_name: clean_optional(request.workspace_name),
                 profile_id: clean_optional(request.profile_id),
                 runtime_kind: clean_optional(request.runtime_kind),
-                cwd: Some(cwd),
+                cwd,
                 permission_mode: clean_optional(request.permission_mode),
                 model_id: clean_optional(request.model_id),
                 mode,
@@ -214,6 +220,16 @@ mod tests {
         );
         assert!(dispatch_permission_yolo_mode(Some("invalid")).is_err());
         assert!(dispatch_permission_yolo_mode(Some("")).is_err());
+    }
+
+    #[test]
+    fn omitted_cwd_leaves_remote_project_identity_for_runtime_resolution() {
+        let mut input = request(Some("claude"));
+        input.project_path = "ssh://user@host/home/user/repo".into();
+        input.runtime_kind = Some("ssh".into());
+        let envelope = TaskDispatchService::default().plan(input).unwrap().envelope;
+        assert!(envelope.cwd.is_none());
+        assert_eq!(envelope.project_path, "ssh://user@host/home/user/repo");
     }
 
     #[test]

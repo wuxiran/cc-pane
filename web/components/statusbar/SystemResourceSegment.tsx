@@ -363,6 +363,7 @@ export default function SystemResourceSegment() {
       }
 
       const adoptedTabId = panes.adoptSession(sessionId, {
+        launchCwd: saved?.launchCwd,
         projectPath: saved?.projectPath ?? "",
         workspaceName: saved?.workspaceName,
         workspacePath: saved?.workspacePath,

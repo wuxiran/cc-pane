@@ -322,6 +322,24 @@ impl ProjectCliHooksService {
         )
     }
 
+    /// Keep hook preferences at the workspace/project configuration root while
+    /// installing the CLI-visible settings in its actual launch directory.
+    pub fn sync_launch_hooks(
+        &self,
+        state_path: &str,
+        launch_path: &str,
+        cli_tool: &str,
+        hook_binary_override: Option<&Path>,
+    ) -> Result<(), String> {
+        let state = Self::read_state(Path::new(state_path))?;
+        self.sync_project_cli_hooks_for_state_with_binary(
+            Path::new(launch_path),
+            cli_tool,
+            &state,
+            hook_binary_override,
+        )
+    }
+
     pub fn sync_wsl_codex_project_hooks(
         &self,
         state_project_path: &str,
@@ -479,6 +497,42 @@ mod tests {
         registry.register(Arc::new(ClaudeAdapter::new()));
         registry.register(Arc::new(CodexAdapter::new()));
         Arc::new(registry)
+    }
+
+    #[test]
+    fn launch_hooks_use_cwd_but_keep_workspace_preferences() {
+        let dir = tempdir().unwrap();
+        let workspace = dir.path().join("workspace");
+        let cwd = dir.path().join("unrelated-worktree");
+        fs::create_dir_all(&cwd).unwrap();
+        let binary = dir.path().join("cc-panes-cli-hook");
+        fs::write(&binary, "fixture").unwrap();
+        let state = StoredProjectCliHooks {
+            tools: HashMap::from([(
+                "claude".into(),
+                HashMap::from([("plan-archive".into(), false)]),
+            )]),
+        };
+        ProjectCliHooksService::write_state(&workspace, &state).unwrap();
+        let service = ProjectCliHooksService::new(build_registry());
+        service
+            .sync_launch_hooks(
+                &workspace.to_string_lossy(),
+                &cwd.to_string_lossy(),
+                "claude",
+                Some(&binary),
+            )
+            .unwrap();
+        let statuses = ClaudeAdapter::new()
+            .get_project_hook_statuses(&cwd)
+            .unwrap();
+        assert!(statuses
+            .iter()
+            .any(|hook| hook.name == "session-resume-inject" && hook.enabled));
+        assert!(statuses
+            .iter()
+            .any(|hook| hook.name == "plan-archive" && !hook.enabled));
+        assert!(!workspace.join(".claude/settings.local.json").exists());
     }
 
     #[test]

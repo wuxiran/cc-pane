@@ -8,6 +8,7 @@ export interface OrchestratorLaunchPayload {
   taskId: string;
   sessionId: string;
   projectPath: string;
+  launchCwd?: string;
   projectId: string;
   workspaceName?: string;
   providerId?: string;

@@ -174,6 +174,8 @@ pub struct OrchestratorLaunchEvent {
     pub task_id: String,
     pub session_id: String,
     pub project_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_cwd: Option<String>,
     pub project_id: String,
     pub workspace_name: Option<String>,
     pub provider_id: Option<String>,
@@ -538,6 +540,31 @@ struct ResolvedLaunchRuntime {
     notice: Option<String>,
     wsl: Option<WslLaunchInfo>,
     ssh: Option<SshConnectionInfo>,
+}
+
+fn resolve_runtime_launch_cwd(
+    project_path: &str,
+    requested_cwd: Option<&str>,
+    runtime: &ResolvedLaunchRuntime,
+) -> std::result::Result<String, String> {
+    let default_cwd = runtime
+        .ssh
+        .as_ref()
+        .map(|ssh| ssh.remote_path.as_str())
+        .or_else(|| runtime.wsl.as_ref().map(|wsl| wsl.remote_path.as_str()))
+        .unwrap_or(project_path);
+    let cwd = requested_cwd.unwrap_or(default_cwd).trim();
+    if runtime.kind == LaunchRuntimeKind::Ssh {
+        if cwd.chars().any(char::is_control)
+            || !(cwd.starts_with('/') || cwd == "~" || cwd.starts_with("~/"))
+        {
+            return Err(
+                "SSH cwd must be an absolute remote directory or home-relative path".into(),
+            );
+        }
+        return Ok(cwd.to_string());
+    }
+    resolve_dispatch_cwd(default_cwd, requested_cwd)
 }
 
 fn parse_runtime_mcp_mode(mode: Option<&str>) -> std::result::Result<LaunchProfileMcpMode, String> {
@@ -5173,6 +5200,11 @@ impl McpToolHandler {
         plan.envelope.workspace_name = project_context.workspace_name;
         plan.envelope.profile_id = launch_profile_id;
         plan.envelope.runtime_kind = Some(runtime.kind.as_str().to_string());
+        plan.envelope.cwd = Some(resolve_runtime_launch_cwd(
+            &launch.project_path,
+            launch.cwd.as_deref(),
+            &runtime,
+        )?);
 
         if let Some(parent_id) = plan.envelope.parent_binding_id.clone() {
             let parent = self
@@ -6261,10 +6293,6 @@ impl McpToolHandler {
             params.profile_id.as_deref(),
             &self.state.workspace_service,
         );
-        let launch_cwd = match resolve_dispatch_cwd(&params.project_path, params.cwd.as_deref()) {
-            Ok(cwd) => cwd,
-            Err(error) => return format!("错误: {}", error),
-        };
         let yolo_mode = match dispatch_permission_yolo_mode(params.permission_mode.as_deref()) {
             Ok(mode) => mode,
             Err(error) => return format!("错误: {}", error),
@@ -6328,6 +6356,13 @@ impl McpToolHandler {
             Err(error) => return format!("错误: {}", error),
         };
 
+        let launch_cwd =
+            match resolve_runtime_launch_cwd(&params.project_path, params.cwd.as_deref(), &runtime)
+            {
+                Ok(cwd) => cwd,
+                Err(error) => return format!("错误: {}", error),
+            };
+
         let launch_profile_id = match resolve_orchestrator_launch_profile(
             &self.state.launch_profile_service,
             project_context.launch_profile_id.as_deref(),
@@ -6360,7 +6395,7 @@ impl McpToolHandler {
         let mut create_request = CoreCreateSessionRequest {
             launch_id: Some(child_launch_id.clone()),
             project_path: params.project_path.clone(),
-            launch_cwd: Some(launch_cwd),
+            launch_cwd: Some(launch_cwd.clone()),
             cols: 120,
             rows: 30,
             workspace_name: None,
@@ -6476,7 +6511,7 @@ impl McpToolHandler {
             wsl_distro,
             ws_name.as_deref(),
             ws_path.as_deref(),
-            Some(&params.project_path),
+            Some(&launch_cwd),
             params.provider_id.as_deref(),
             resolved_model_id.as_deref(),
             provider_selection_str,
@@ -6498,18 +6533,9 @@ impl McpToolHandler {
             && params.resume_id.is_none()
             && matches!(runtime.kind.as_str(), "local" | "wsl")
         {
-            // WSL 时 rollout 的 session_meta.cwd 是 POSIX（/mnt/...），优先用 runtime.wsl.remote_path
-            // （已解析为 POSIX）作为反查候选，最易命中；非 WSL 回退 workspace 路径。
-            // 叠加 detect_in_sessions 的跨平台归一化（Windows/UNC↔POSIX）双保险。
-            let backfill_workspace_path = if runtime.kind.as_str() == "wsl" {
-                runtime
-                    .wsl
-                    .as_ref()
-                    .map(|wsl| wsl.remote_path.clone())
-                    .or_else(|| ws_path.clone())
-            } else {
-                ws_path.clone()
-            };
+            // Match the actual launch directory; detection normalizes Windows/UNC/POSIX
+            // representations without replacing workspace configuration metadata.
+            let backfill_workspace_path = Some(launch_cwd.clone());
             tauri::async_runtime::spawn(crate::services::run_launch_history_backfill(
                 self.state.app_handle.clone(),
                 self.state.launch_history_service.clone(),
@@ -6566,6 +6592,7 @@ impl McpToolHandler {
             task_id: task_id.clone(),
             session_id: session_id.clone(),
             project_path: params.project_path.clone(),
+            launch_cwd: Some(launch_cwd),
             project_id,
             workspace_name: ws_name,
             provider_id: params.provider_id.clone(),
@@ -10661,15 +10688,6 @@ async fn handle_launch_task(
         .workspace_path
         .clone()
         .or_else(|| project_context.workspace_path.clone());
-    let launch_cwd = match resolve_dispatch_cwd(&req.project_path, req.cwd.as_deref()) {
-        Ok(cwd) => cwd,
-        Err(error) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!(ApiError { error })),
-            )
-        }
-    };
     let yolo_mode = match dispatch_permission_yolo_mode(req.permission_mode.as_deref()) {
         Ok(mode) => mode,
         Err(error) => {
@@ -10703,6 +10721,17 @@ async fn handle_launch_task(
         }
     };
 
+    let launch_cwd =
+        match resolve_runtime_launch_cwd(&req.project_path, req.cwd.as_deref(), &runtime) {
+            Ok(cwd) => cwd,
+            Err(error) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!(ApiError { error })),
+                )
+            }
+        };
+
     let launch_profile_id = match resolve_orchestrator_launch_profile(
         &state.launch_profile_service,
         project_context.launch_profile_id.as_deref(),
@@ -10735,7 +10764,7 @@ async fn handle_launch_task(
         // 走的正是本路径）。
         launch_id: Some(project_id.clone()),
         project_path: req.project_path.clone(),
-        launch_cwd: Some(launch_cwd),
+        launch_cwd: Some(launch_cwd.clone()),
         cols: 120,
         rows: 30,
         workspace_name: None,
@@ -10809,6 +10838,7 @@ async fn handle_launch_task(
         crate::services::rest_launch_history::RestLaunchRecord {
             project_id: &project_id,
             project_path: &req.project_path,
+            launch_cwd: Some(&launch_cwd),
             session_id: &session_id,
             cli_tool: cli_tool.as_id(),
             runtime_kind: runtime.kind.as_str(),
@@ -10842,6 +10872,7 @@ async fn handle_launch_task(
         task_id: task_id.clone(),
         session_id: session_id.clone(),
         project_path: req.project_path.clone(),
+        launch_cwd: Some(launch_cwd),
         project_id,
         workspace_name,
         provider_id: req.provider_id.clone(),
@@ -17422,6 +17453,55 @@ mod tests {
             wsl: None,
             ssh: None,
         }
+    }
+
+    #[test]
+    fn default_dispatch_cwd_uses_remote_runtime_path_and_explicit_override_wins() {
+        let ssh = ResolvedLaunchRuntime {
+            kind: LaunchRuntimeKind::Ssh,
+            ssh: Some(SshConnectionInfo {
+                host: "host".into(),
+                port: 22,
+                user: "user".into(),
+                remote_path: "/srv/project".into(),
+                identity_file: None,
+                machine_id: None,
+                auth_method: None,
+            }),
+            ..local_runtime()
+        };
+        for project in ["ssh://user@host/srv/project", "D:/proxy"] {
+            assert_eq!(
+                resolve_runtime_launch_cwd(project, None, &ssh).unwrap(),
+                "/srv/project"
+            );
+            assert_eq!(
+                resolve_runtime_launch_cwd(project, Some("/srv/worktree"), &ssh).unwrap(),
+                "/srv/worktree"
+            );
+        }
+        assert!(resolve_runtime_launch_cwd("D:/proxy", Some("D:/wrong"), &ssh).is_err());
+        let wsl = ResolvedLaunchRuntime {
+            kind: LaunchRuntimeKind::Wsl,
+            wsl: Some(WslLaunchInfo {
+                distro: Some("Ubuntu".into()),
+                remote_path: "/home/user/repo".into(),
+                workspace_remote_path: None,
+            }),
+            ..local_runtime()
+        };
+        assert_eq!(
+            resolve_runtime_launch_cwd("D:/proxy", None, &wsl).unwrap(),
+            "/home/user/repo"
+        );
+        assert_eq!(
+            resolve_runtime_launch_cwd("D:/proxy", Some("D:/worktree"), &wsl).unwrap(),
+            "D:/worktree"
+        );
+        assert_eq!(
+            resolve_runtime_launch_cwd("D:/project", None, &local_runtime()).unwrap(),
+            "D:/project"
+        );
     }
 
     #[tokio::test]

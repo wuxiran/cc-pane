@@ -10,6 +10,7 @@ export interface TerminalViewProps {
   /** A remount after a failed launch must not reuse the failed attempt's identity. */
   launchAttempt?: number;
   projectPath: string;
+  launchCwd?: string;
   /**
    * Whether this terminal belongs to the current top-level layout.
    * 独立于可见性单源的 layout 级判据（后台布局的延迟恢复语义靠它，store

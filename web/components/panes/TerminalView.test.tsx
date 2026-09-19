@@ -390,13 +390,15 @@ describe("TerminalView", () => {
 
   it("creates a backend session sized to the terminal and reports it", async () => {
     const onSessionCreated = vi.fn();
-    renderTerminalView({ onSessionCreated, cliTool: "none", launchId: "reserved-launch" });
+    renderTerminalView({ onSessionCreated, cliTool: "none", launchId: "reserved-launch", launchCwd: "/tmp/worktree", workspacePath: "/tmp/workspace" });
 
     await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
     expect(createSession).toHaveBeenCalledWith(
       expect.objectContaining({
         launchId: "reserved-launch",
         projectPath: "/tmp/proj",
+        launchCwd: "/tmp/worktree",
+        workspacePath: "/tmp/workspace",
         cols: 80,
         rows: 24,
         cliTool: "none",
@@ -864,6 +866,8 @@ describe("TerminalView", () => {
       sessionId: null,
       launchId: "previous-launch",
       projectPath: "/tmp/proj",
+      launchCwd: "/tmp/worktree",
+      workspacePath: "/tmp/workspace",
       layoutActive: false,
       restoring: true,
       savedSessionId: "expired-session",
@@ -877,6 +881,7 @@ describe("TerminalView", () => {
     view.rerender(<TerminalView {...initialProps} layoutActive />);
 
     await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+    expect(createSession).toHaveBeenCalledWith(expect.objectContaining({ launchCwd: "/tmp/worktree", workspacePath: "/tmp/workspace" }));
     expect(onSessionCreated).toHaveBeenCalledWith("new-session-1");
   });
 

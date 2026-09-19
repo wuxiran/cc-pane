@@ -276,7 +276,9 @@ pub async fn create_terminal_session(
                 "local"
             };
             let project_name = launch_project_name(&observation_request.project_path);
-            let launch_cwd = if observation_request.ssh.is_some() {
+            let launch_cwd = if let Some(cwd) = observation_request.launch_cwd.as_deref() {
+                Some(cwd)
+            } else if observation_request.ssh.is_some() {
                 Some(observation_request.project_path.as_str())
             } else {
                 observation_request

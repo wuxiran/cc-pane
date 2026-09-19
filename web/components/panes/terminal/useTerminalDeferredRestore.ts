@@ -224,6 +224,7 @@ export function useTerminalDeferredRestore({
               return terminalService.createSession({
                 launchId: createdLaunchId,
                 projectPath: props.projectPath,
+                launchCwd: props.launchCwd,
                 cols: term.cols,
                 rows: term.rows,
                 workspaceName: props.workspaceName,

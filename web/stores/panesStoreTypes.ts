@@ -55,6 +55,7 @@ export interface CreateTabOptions {
 }
 
 export interface AdoptSessionMeta {
+  launchCwd?: string;
   projectPath: string;
   projectId?: string;
   workspaceName?: string;

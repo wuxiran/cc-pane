@@ -322,6 +322,7 @@ describe("SystemResourceSegment", () => {
         tabId: "tab-old",
         paneId: "pane-old",
         projectPath: "D:/work/project-1",
+        launchCwd: "D:/worktree",
         workspaceName: "Workspace A",
         cliTool: "codex",
         runtimeKind: "local",
@@ -353,6 +354,7 @@ describe("SystemResourceSegment", () => {
       "session-1",
       expect.objectContaining({
         projectPath: "D:/work/project-1",
+        launchCwd: "D:/worktree",
       }),
     );
     expect(

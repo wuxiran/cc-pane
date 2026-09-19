@@ -31,6 +31,10 @@ pub struct TerminalSessionProvenance {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SavedSession {
+    /// Actual launch cwd, independent of workspace/project identity. Legacy
+    /// observations may recover it from their matching launch_history row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_cwd: Option<String>,
     /// Workspace Session ID owned by CC-Panes.
     #[serde(default)]
     pub workspace_snapshot_id: Option<String>,
@@ -112,6 +116,7 @@ impl SavedSession {
             .ok()
             .and_then(|value| value.as_str().map(str::to_string));
         Some(Self {
+            launch_cwd: request.launch_cwd.clone(),
             workspace_snapshot_id: request.workspace_snapshot_id.clone(),
             session_id: provenance.session_id.clone(),
             tab_id,

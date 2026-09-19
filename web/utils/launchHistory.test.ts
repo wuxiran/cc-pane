@@ -42,10 +42,21 @@ describe("launchHistory", () => {
     expect(options).toMatchObject({
       path: record.projectPath,
       workspaceName: record.workspaceName,
-      workspacePath: record.launchCwd,
+      workspacePath: record.workspacePath,
+      launchCwd: record.launchCwd,
       cliTool: "codex",
       providerSelection: "none",
       resumeId: "resume-1",
+    });
+  });
+
+  it("keeps an explicit cwd separate from workspace configuration when reopening", () => {
+    const record = createRecord({ launchCwd: "D:/worktree", workspacePath: "D:/workspace" });
+    const options = buildLaunchRecordTerminalOptions(record, [], []);
+    expect(options).toMatchObject({
+      path: record.projectPath,
+      launchCwd: "D:/worktree",
+      workspacePath: "D:/workspace",
     });
   });
 
@@ -86,7 +97,7 @@ describe("launchHistory", () => {
         }),
       ],
     });
-    const record = createRecord({ runtimeKind: "wsl" });
+    const record = createRecord({ runtimeKind: "wsl", launchCwd: "/home/user/worktree" });
 
     const options = buildLaunchRecordTerminalOptions(record, [workspace], []);
 
@@ -94,6 +105,7 @@ describe("launchHistory", () => {
       path: "D:/workspace-root/apps/api",
       cliTool: "codex",
       resumeId: "resume-1",
+      launchCwd: "/home/user/worktree",
       wsl: {
         distro: "Ubuntu",
         remotePath: "/mnt/d/workspace-root/apps/api",
@@ -106,7 +118,7 @@ describe("launchHistory · verbatim 路径污染兜底", () => {
   // 存量历史记录仍带被 CLI hook 回填的 `\\?\` 路径，从「最近启动」再启动时
   // 它会成为 OpenTerminalOptions.workspacePath 并被 cmd.exe 拒绝。
   // 见 docs/35-unc-path-contamination.md。
-  it("launchCwd 带 verbatim 前缀时 workspacePath 解析后是干净的", () => {
+  it("launchCwd 带 verbatim 前缀时独立 cwd 解析后是干净的", () => {
     const record = createRecord({
       runtimeKind: "local",
       launchCwd: String.raw`\\?\C:\Users\me\.cc-panes-dev\workspaces\default`,
@@ -115,7 +127,7 @@ describe("launchHistory · verbatim 路径污染兜底", () => {
 
     const options = buildLaunchRecordTerminalOptions(record, [], []);
 
-    expect(options.workspacePath).toBe(
+    expect(options.launchCwd).toBe(
       String.raw`C:\Users\me\.cc-panes-dev\workspaces\default`,
     );
   });

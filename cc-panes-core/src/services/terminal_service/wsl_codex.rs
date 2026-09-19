@@ -253,8 +253,16 @@ impl ResolvedWslLaunch {
             .unwrap_or(&self.remote_path)
     }
 
-    fn project_cwd(&self) -> &str {
+    pub(super) fn project_cwd(&self) -> &str {
         self.launch_cwd.as_deref().unwrap_or(&self.remote_path)
+    }
+
+    /// The hook synchronizer writes through the Windows filesystem, while cwd
+    /// is a Linux path. Use this distro's share, including native /home paths.
+    pub(super) fn launch_cwd_host_path(&self) -> Option<String> {
+        self.launch_cwd
+            .as_ref()
+            .map(|cwd| format!(r"\\wsl.localhost\{}{}", self.distro, cwd.replace('/', r"\")))
     }
 }
 
@@ -2979,6 +2987,10 @@ mod tests {
         assert_eq!(wsl.cli_cwd(), "/workspace");
         assert_eq!(wsl.project_cwd(), "/project"); // Codex already used project -C.
         wsl.launch_cwd = Some("/worktree".into());
+        assert_eq!(
+            wsl.launch_cwd_host_path().as_deref(),
+            Some(r"\\wsl.localhost\Ubuntu\worktree")
+        );
         assert_eq!(wsl.cli_cwd(), "/worktree");
         assert_eq!(wsl.project_cwd(), "/worktree");
         assert_eq!(wsl.remote_path, "/project");

@@ -22,7 +22,7 @@ import { persist } from "zustand/middleware";
  *
  * # 来源仲裁
  *
- * 与后端 `resume_identity.rs` 同口径：manual(40) > issued|osc-title(30) >
+ * 与后端 `resume_identity.rs` 同口径：manual(40) > hook(35) > issued|osc-title(30) >
  * rollout-scan|backfill(10) > rescue(5)。同级或更高才覆盖（`>=`，与
  * `should_replace_source` 一致）；低优先级来源不得降级已有绑定。
  */
@@ -40,11 +40,15 @@ export function resumeSourcePriority(source?: string): number {
   switch (source) {
     case "manual":
       return 40;
+    case "hook":
+      return 35;
     case "issued":
     case "osc-title":
       return 30;
     case "rollout-scan":
     case "backfill":
+    case "pi-session-file":
+    case "cursor-chat-scan":
       return 10;
     case "rescue":
       return 5;

@@ -161,6 +161,7 @@ export default memo(function TerminalTabContent({
                   providerSelection={leaf.providerSelection}
                   launchProfileId={leaf.launchProfileId}
                   workspacePath={leaf.workspacePath}
+                  launchCwd={leaf.launchExtras?.launchCwd}
                   workspaceSnapshotId={leaf.workspaceSnapshotId}
                   launchClaude={leaf.launchClaude}
                   cliTool={leaf.cliTool}

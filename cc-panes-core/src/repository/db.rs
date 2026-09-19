@@ -1099,6 +1099,18 @@ const MIGRATIONS: &[Migration] = &[
                 ON drama_shots(episode_id, ordinal ASC, created_at ASC);
         ",
     },
+    Migration {
+        version: 39,
+        description: "terminal observations retain independent launch cwd",
+        up_sql: "
+            ALTER TABLE terminal_sessions ADD COLUMN launch_cwd TEXT;
+            UPDATE terminal_sessions SET launch_cwd = (
+                SELECT lh.launch_cwd FROM launch_history lh
+                WHERE lh.pty_session_id = terminal_sessions.session_id
+                ORDER BY lh.launched_at DESC, lh.id DESC LIMIT 1
+            ) WHERE launch_cwd IS NULL;
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -1703,6 +1715,26 @@ mod tests {
     }
 
     #[test]
+    fn migration_39_preserves_v38_observations_and_backfills_only_matching_cwd() {
+        let db = Database::new_in_memory().unwrap();
+        let conn = db.connection().unwrap();
+        conn.execute_batch("ALTER TABLE terminal_sessions DROP COLUMN launch_cwd;
+            DELETE FROM schema_migrations WHERE version >= 39;
+            INSERT INTO terminal_sessions (session_id, tab_id, pane_id, project_path, created_at, saved_at)
+            VALUES ('legacy-pty', 'tab', 'pane', '/repo', '2026', '2026');
+            INSERT INTO launch_history (project_id, project_name, project_path, launched_at, pty_session_id, launch_cwd)
+            VALUES ('launch', 'repo', '/repo', '2026', 'legacy-pty', '/worktree');").unwrap();
+        Database::run_migrations(&conn).unwrap();
+        let read = || {
+            conn.query_row("SELECT project_path, launch_cwd FROM terminal_sessions WHERE session_id = 'legacy-pty'", [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).unwrap()
+        };
+        assert_eq!(read(), ("/repo".into(), "/worktree".into()));
+        Database::run_migrations(&conn).unwrap();
+        assert_eq!(read(), ("/repo".into(), "/worktree".into()));
+    }
+
+    #[test]
     fn migration_30_preserves_v29_rows_with_a_null_model_id() {
         let conn = Connection::open_in_memory().expect("in-memory db");
         conn.execute_batch(
@@ -1870,7 +1902,7 @@ mod tests {
                 row.get(0)
             })
             .expect("schema version");
-        assert_eq!(version, 38);
+        assert_eq!(version, MIGRATIONS.last().unwrap().version as i64);
 
         let run_columns = conn
             .prepare("PRAGMA table_info(media_runs)")
@@ -1898,7 +1930,7 @@ mod tests {
                 row.get(0)
             })
             .expect("schema version after rerun");
-        assert_eq!(version_after, 38);
+        assert_eq!(version_after, MIGRATIONS.last().unwrap().version as i64);
     }
 
     #[test]
