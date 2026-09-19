@@ -13,6 +13,7 @@
 pub fn source_priority(source: &str) -> u8 {
     match source {
         "manual" => 40,
+        "hook" => 35,
         "issued" | "osc-title" => 30,
         "rollout-scan" | "backfill" | "pi-session-file" | "cursor-chat-scan" => 10,
         "rescue" => 5,
@@ -38,6 +39,13 @@ pub fn should_retain_incoming(
     incoming_source: &str,
     incoming_resume_id: &str,
 ) -> bool {
+    if let Some(source) = existing_source {
+        if let Some(tombstoned) = source.strip_prefix("clear-tombstone:") {
+            if tombstoned == incoming_resume_id {
+                return false;
+            }
+        }
+    }
     match (existing_source, existing_resume_id) {
         (Some(source), Some(resume_id)) => {
             let incoming_priority = source_priority(incoming_source);
@@ -114,5 +122,30 @@ mod tests {
             source_priority("rollout-scan")
         );
         assert!(!should_replace_source(Some("issued"), "cursor-chat-scan"));
+    }
+
+    #[test]
+    fn session_start_hook_wins_over_delayed_issued_or_scan_but_manual_wins_over_hook() {
+        assert!(source_priority("hook") > source_priority("issued"));
+        assert!(source_priority("hook") > source_priority("rollout-scan"));
+        assert!(source_priority("manual") > source_priority("hook"));
+        assert!(!should_retain_incoming(
+            Some("hook"),
+            Some("new"),
+            "issued",
+            "old"
+        ));
+        assert!(!should_retain_incoming(
+            Some("hook"),
+            Some("new"),
+            "rollout-scan",
+            "old"
+        ));
+        assert!(should_retain_incoming(
+            Some("hook"),
+            Some("new"),
+            "manual",
+            "manual-id"
+        ));
     }
 }

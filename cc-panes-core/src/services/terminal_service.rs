@@ -28,6 +28,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
+#[cfg(test)]
 use std::thread;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
@@ -35,9 +36,15 @@ use uuid::Uuid;
 
 mod csi_mode_detect;
 mod cursor_chat_capture;
+mod launch_threads;
 mod osc_resume_capture;
 mod osc_state_detect;
+mod output_archive;
 mod output_batch_clock;
+mod plain_output;
+#[cfg(test)]
+mod runtime_regression_tests;
+use plain_output::OutputBuffer;
 mod shell_integration;
 #[cfg(windows)]
 mod windows_codex;
@@ -792,79 +799,6 @@ fn strip_ansi(data: &str) -> String {
     String::from_utf8_lossy(&bytes).to_string()
 }
 
-/// 未完成转义序列的攒字节上限，按类型分档。超限就当普通文本放行——那等于退回
-/// 「前半被吞、后半裸奔」的旧行为，所以档位必须留足真实序列的长度。
-///
-/// CSI 短得多（SGR truecolor 也才 19 字节），128 绰绰有余。OSC 则可以很长：
-/// OSC 8 超链接带一条百余字符的 URL 就逼近 128（正好卡在临界，URL 再长一点就悄悄
-/// 退化），OSC 52 往剪贴板塞 1KB 文本更是 1300+ 字节。故 OSC/DCS 一档给到 4KB，
-/// 仍然有界——攒不满只说明流里有个孤立的 ESC，不该让它无限扣着后续输出不放。
-const MAX_CSI_CARRY: usize = 128;
-const MAX_STRING_ESCAPE_CARRY: usize = 4096;
-
-/// `candidate` 以 ESC 开头；返回它这一类允许攒多少字节。
-fn escape_carry_limit(candidate: &str) -> usize {
-    match candidate.as_bytes().get(1) {
-        // OSC / DCS / SOS / PM / APC 都是「字符串型」转义，长度无固定上限。
-        Some(b']') | Some(b'P') | Some(b'X') | Some(b'^') | Some(b'_') => MAX_STRING_ESCAPE_CARRY,
-        _ => MAX_CSI_CARRY,
-    }
-}
-
-/// 把结尾那段**未完成的转义序列**从文本里切出来。返回 `(可安全剥离的部分, 待续尾巴)`。
-///
-/// PTY 是字节流，转义序列会被随机切在任意位置。`strip_ansi_escapes` 遇到未终止的
-/// 序列是**整段吞掉**（实测 `"A\x1b[38;2;24"` → `"A"`，连 ESC 一起没了），于是下一个
-/// chunk 开头的 `8;248;242m` 因为丢了 ESC 前缀，就被当成普通文本留在纯文本缓冲里。
-///
-/// `utf8_safe_process` 已经 carry 了未完成的 UTF-8 字符，`OutputBuffer` 也 carry 了
-/// 未完成的行——唯独转义序列没人 carry，这里补上。
-fn split_trailing_incomplete_escape(text: &str) -> (&str, &str) {
-    let Some(esc_at) = text.rfind('\u{1b}') else {
-        return (text, "");
-    };
-    // ESC 是 ASCII，不可能落在多字节字符内部，按字节切是安全的。
-    let candidate = &text[esc_at..];
-    if candidate.len() > escape_carry_limit(candidate) || is_complete_escape(candidate) {
-        return (text, "");
-    }
-    (&text[..esc_at], candidate)
-}
-
-/// `candidate` 以 ESC 开头；判断它是否已经完整。
-fn is_complete_escape(candidate: &str) -> bool {
-    let bytes = candidate.as_bytes();
-    debug_assert_eq!(bytes.first(), Some(&0x1b));
-    let Some(&kind) = bytes.get(1) else {
-        return false; // 光一个 ESC，后面还没来
-    };
-
-    match kind {
-        // CSI：参数字节 0x30–0x3F、中间字节 0x20–0x2F，终止于 0x40–0x7E。
-        b'[' => bytes[2..].iter().any(|&b| (0x40..=0x7e).contains(&b)),
-        // OSC / DCS / SOS / PM / APC：终止于 BEL 或 ST（ESC \）。
-        b']' | b'P' | b'X' | b'^' | b'_' => {
-            bytes[2..].contains(&0x07) || candidate[2..].contains("\u{1b}\\")
-        }
-        // 其余是两字节转义（ESC + 单个终止符），有第二个字节就算完整。
-        _ => true,
-    }
-}
-
-/// 终端会话的输出环形缓冲区（存储 ANSI 已剥离的纯文本行）
-struct OutputBuffer {
-    lines: VecDeque<String>,
-    /// 当前未完成行（未遇到换行符的尾部数据）
-    partial: String,
-    /// 被 chunk 边界切断的转义序列尾巴，等下一个 chunk 拼回去再剥离。
-    /// 不 carry 的话前半会被 strip 整个吞掉，后半丢了 ESC 前缀就当正文留下。
-    escape_carry: String,
-    max_lines: usize,
-    /// 当前 lines 中所有行的总字节数
-    total_bytes: usize,
-    max_bytes: usize,
-}
-
 /// attach-existing 时用于重建终端画面的原始 VT 回放缓冲区
 struct ReplayBuffer {
     chunks: VecDeque<String>,
@@ -902,202 +836,12 @@ fn generate_checkpoint_epoch() -> u64 {
 pub struct SessionOutput {
     pub session_id: String,
     pub lines: Vec<String>,
-}
-
-fn is_spinner_decoration(c: char) -> bool {
-    matches!(
-        c,
-        '✻' | '✽' | '✶' | '✢' | '●' | '·' | '*' | '○' | '◉' | '◌' | '◦' | '•'
-    )
-}
-
-fn normalize_spinner_line(line: &str) -> String {
-    let trimmed = line.trim().trim_start_matches(|c: char| {
-        is_spinner_decoration(c) || c.is_ascii_digit() || c.is_whitespace()
-    });
-    let mut normalized = String::with_capacity(trimmed.len());
-    let mut previous_ascii_letter = None;
-
-    for ch in trimmed.chars() {
-        if is_spinner_decoration(ch) || ch.is_ascii_digit() {
-            continue;
-        }
-
-        if ch.is_ascii_alphabetic() {
-            let lower = ch.to_ascii_lowercase();
-            if previous_ascii_letter == Some(lower) {
-                continue;
-            }
-            normalized.push(lower);
-            previous_ascii_letter = Some(lower);
-            continue;
-        }
-
-        previous_ascii_letter = None;
-        if ch.is_whitespace() {
-            if !normalized.ends_with(' ') {
-                normalized.push(' ');
-            }
-        } else {
-            normalized.push(ch);
-        }
-    }
-
-    normalized.trim().to_string()
-}
-
-/// 检测 Claude/Codex 动态状态行（无实质内容，应被过滤）
-fn is_spinner_line(line: &str) -> bool {
-    let text = normalize_spinner_line(line);
-    if text.is_empty() {
-        return false;
-    }
-
-    const SPINNER_WORDS: &[&str] = &[
-        "reticulating",
-        // 归一化会折叠连续相同字母，故存 simering 而非 simmering——与 bondogling
-        // （来自 Boondoggling）同理。写原词会永远匹配不上。
-        "simering",
-        "swirling",
-        "whirlpooling",
-        "quantumizing",
-        "synthesizing",
-        "materializing",
-        "crystalizing",
-        "harmonizing",
-        "calibrating",
-        "percolating",
-        "amalgamating",
-        "coalescing",
-        "bondogling",
-        "churned",
-    ];
-
-    if SPINNER_WORDS.iter().any(|word| text.starts_with(word)) {
-        return true;
-    }
-
-    text == "thinking more"
-        || text == "almost done thinking"
-        || text.starts_with("thinking more ")
-        || text.starts_with("almost done thinking ")
-        || text == "working"
-        || text.starts_with("working(")
-        || text.starts_with("working (")
-        || text.starts_with("workinw")
-        || text.starts_with("waiting for background terminal")
-}
-
-impl OutputBuffer {
-    fn new(max_lines: usize, max_bytes: usize) -> Self {
-        Self {
-            lines: VecDeque::new(),
-            partial: String::new(),
-            escape_carry: String::new(),
-            max_lines,
-            total_bytes: 0,
-            max_bytes,
-        }
-    }
-
-    /// 追加终端输出文本到缓冲区
-    fn push(&mut self, text: &str) {
-        // 1. 先接回上个 chunk 被切断的转义序列，再切出本 chunk 的新尾巴，然后才剥离。
-        //    顺序不能反：剥离是无状态的，未终止序列会被整段吞掉且不可恢复。
-        let joined = if self.escape_carry.is_empty() {
-            std::borrow::Cow::Borrowed(text)
-        } else {
-            let mut merged = std::mem::take(&mut self.escape_carry);
-            merged.push_str(text);
-            std::borrow::Cow::Owned(merged)
-        };
-        let (strippable, carry) = split_trailing_incomplete_escape(&joined);
-        self.escape_carry = carry.to_string();
-
-        let clean = strip_ansi(strippable);
-        if clean.is_empty() {
-            return;
-        }
-
-        // 2. 归一化换行：\r\n → \n，单独 \r → \n
-        let normalized = clean.replace("\r\n", "\n").replace('\r', "\n");
-
-        // 3. 拼接 partial 后按 \n 分行
-        let combined = if self.partial.is_empty() {
-            normalized
-        } else {
-            let mut p = std::mem::take(&mut self.partial);
-            p.push_str(&normalized);
-            p
-        };
-
-        let mut parts = combined.split('\n').peekable();
-        while let Some(part) = parts.next() {
-            if parts.peek().is_some() {
-                // 完整行（后面还有 \n）
-                self.push_line(part.to_string());
-            } else {
-                // 最后一段 → partial
-                self.partial = part.to_string();
-            }
-        }
-
-        // 4. partial 超 4KB 时强制 flush 成一行（防进度条等输出持续追加导致内存增长）
-        if self.partial.len() > 4096 {
-            let line = std::mem::take(&mut self.partial);
-            self.push_line(line);
-        }
-
-        // 5. 淘汰直到满足限制
-        self.evict();
-    }
-
-    fn push_line(&mut self, line: String) {
-        // 过滤 spinner 动画行
-        if is_spinner_line(&line) {
-            return;
-        }
-        // 压缩连续空行：最多保留 1 个
-        if line.trim().is_empty() {
-            if let Some(last) = self.lines.back() {
-                if last.trim().is_empty() {
-                    return;
-                }
-            }
-        }
-        self.total_bytes += line.len();
-        self.lines.push_back(line);
-    }
-
-    fn evict(&mut self) {
-        while self.lines.len() > self.max_lines || self.total_bytes > self.max_bytes {
-            if let Some(removed) = self.lines.pop_front() {
-                self.total_bytes = self.total_bytes.saturating_sub(removed.len());
-            } else {
-                break;
-            }
-        }
-    }
-
-    /// 缩减缓冲区到指定上限（用于会话退出后释放内存）
-    fn shrink(&mut self, max_lines: usize, max_bytes: usize) {
-        self.max_lines = max_lines;
-        self.max_bytes = max_bytes;
-        self.evict();
-    }
-
-    /// 获取最近 N 行（0 = 全部）
-    fn get_recent(&self, n: usize) -> Vec<String> {
-        if n == 0 || n >= self.lines.len() {
-            self.lines.iter().cloned().collect()
-        } else {
-            self.lines
-                .iter()
-                .skip(self.lines.len() - n)
-                .cloned()
-                .collect()
-        }
-    }
+    /// True only with an OS wait result, never a hook's synthetic Exited status.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exited: Option<bool>,
+    /// True only after a persisted output file was successfully read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retained: Option<bool>,
 }
 
 impl ReplayBuffer {
@@ -1600,6 +1344,18 @@ pub fn wrap_bracketed_paste(text: &str) -> String {
     wrapped
 }
 
+fn is_native_slash_command(text: &str) -> bool {
+    let Some(command) = text.strip_prefix('/') else {
+        return false;
+    };
+    let name = command.split(' ').next().unwrap_or_default();
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b':'))
+        && !text.chars().any(char::is_control)
+}
+
 fn submit_delay_ms(text_len: usize, paste_ready: bool) -> u64 {
     if paste_ready {
         PASTE_READY_SUBMIT_DELAY_MS
@@ -1615,10 +1371,10 @@ fn summarize_input_bytes(data: &[u8]) -> serde_json::Value {
 fn spawn_terminal_writer(
     session_id: String,
     mut writer: Box<dyn Write + Send>,
-) -> mpsc::SyncSender<WriterCommand> {
+) -> std::io::Result<mpsc::SyncSender<WriterCommand>> {
     let (writer_tx, writer_rx) = mpsc::sync_channel::<WriterCommand>(64);
 
-    thread::spawn(move || {
+    crate::pty::thread::spawn_named("cc-panes-pty-writer", move || {
         let mut logged_first_write = false;
         while let Ok(command) = writer_rx.recv() {
             match command {
@@ -1652,9 +1408,9 @@ fn spawn_terminal_writer(
                 }
             }
         }
-    });
+    })?;
 
-    writer_tx
+    Ok(writer_tx)
 }
 
 fn write_via_writer_tx(writer_tx: &mpsc::SyncSender<WriterCommand>, data: Vec<u8>) -> Result<()> {
@@ -1945,11 +1701,13 @@ fn update_pty_status(
     // Match apply_hook_status's lock order so a concurrent hook cannot be
     // overwritten after this reader checked an obsolete freshness timestamp.
     let mut current = status.lock().unwrap_or_else(|e| e.into_inner());
-    let recent_remote_hook = hook_updated_at
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
+    let last_remote_hook = *hook_updated_at.lock().unwrap_or_else(|e| e.into_inner());
+    // Permission dialogs have no periodic hook heartbeat. A structured wait remains
+    // authoritative until the next hook or explicit input; spinner output is not a reply.
+    let structured_wait = *current == SessionStatus::WaitingInput && last_remote_hook.is_some();
+    let recent_remote_hook = last_remote_hook
         .is_some_and(|at| now.saturating_duration_since(at) < Duration::from_secs(30));
-    let hook_active = hook_active || recent_remote_hook;
+    let hook_active = hook_active || recent_remote_hook || structured_wait;
     if should_apply_pty_status_fallback(hook_active, *current) {
         *current = inferred;
     }
@@ -2195,7 +1953,10 @@ impl TerminalService {
 
         validate_launch_cwd(
             &request.project_path,
-            request.workspace_path.as_deref(),
+            request
+                .launch_cwd
+                .as_deref()
+                .or(request.workspace_path.as_deref()),
             LaunchRuntime::Local,
         )?;
 
@@ -2428,8 +2189,9 @@ impl TerminalService {
         env.extend(result.env_inject);
 
         let cwd = request
-            .workspace_path
+            .launch_cwd
             .as_deref()
+            .or(request.workspace_path.as_deref())
             .unwrap_or(request.project_path.as_str())
             .to_string();
         Ok(PiRpcLaunchSpec {
@@ -2533,6 +2295,7 @@ impl TerminalService {
             ssh,
             wsl,
             None,
+            None,
         )
         .map(|outcome| outcome.session_id)
     }
@@ -2561,6 +2324,7 @@ impl TerminalService {
         extra_env: Option<&HashMap<String, String>>,
         ssh: Option<&SshConnectionInfo>,
         wsl: Option<&WslLaunchInfo>,
+        launch_cwd: Option<&str>,
         publisher: Option<&crate::services::terminal_backend::SessionPublisher>,
     ) -> Result<CreateSessionOutcome> {
         // 归一化前端遗留哨兵："new"/空串都视为「新会话」（避免 `--resume new`，
@@ -2578,7 +2342,19 @@ impl TerminalService {
         };
         let _launch_reservation = self.reserve_launch(launch_id)?;
         self.ensure_launch_active(launch_id, "launch.begin")?;
-        validate_launch_cwd(project_path, workspace_path, runtime).map_err(anyhow::Error::new)?;
+        let local_cwd = launch_cwd.or(workspace_path).unwrap_or(project_path);
+        if runtime == LaunchRuntime::Local {
+            validate_launch_cwd(local_cwd, None, runtime).map_err(anyhow::Error::new)?;
+        } else {
+            validate_launch_cwd(project_path, workspace_path, runtime)
+                .map_err(anyhow::Error::new)?;
+        }
+        if let Some(cwd) = launch_cwd {
+            anyhow::ensure!(
+                !cwd.trim().is_empty() && !cwd.chars().any(char::is_control),
+                "Invalid launch cwd"
+            );
+        }
         let is_ssh = ssh.is_some();
         let resolved_workspace = workspace_name.and_then(|name| {
             self.workspace_service
@@ -3105,12 +2881,21 @@ impl TerminalService {
         let is_local_launch = ssh.is_none() && wsl.is_none();
 
         // SSH 模式 vs 本地模式分支
+        let mut wsl_rollout_cwd = None;
         let (cwd, command, args, env_remove, ssh_remote_command) = if let Some(ssh_info) = ssh {
             // 新连接走应用内 SSH2 channel；旧配置缺少认证元数据时保留系统 ssh 回退。
             // 跳过 MCP 注入、Orchestrator 信息注入、--add-dir、--resume、--append-system-prompt
             let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+            let mut remote_launch = ssh_info.clone();
+            if let Some(cwd) = launch_cwd {
+                anyhow::ensure!(
+                    cwd.starts_with('/') || cwd == "~" || cwd.starts_with("~/"),
+                    "SSH launch cwd must be absolute"
+                );
+                remote_launch.remote_path = cwd.to_string();
+            }
             let remote_command = Self::build_ssh_remote_command(
-                ssh_info,
+                &remote_launch,
                 cli_tool,
                 &provider_vars,
                 provider.as_ref(),
@@ -3159,6 +2944,10 @@ impl TerminalService {
             }
             strip_wsl_proxy_env_vars(&mut env_vars);
             let mut resolved_wsl = self.resolve_wsl_launch(wsl_info, &session_id)?;
+            if let Some(cwd) = launch_cwd {
+                self.apply_wsl_launch_cwd(&mut resolved_wsl, cwd)?;
+                wsl_rollout_cwd = resolved_wsl.launch_cwd.clone();
+            }
             let wsl_mcp_proxy_enabled = !effective_skip_mcp
                 && cc_cli_adapters::mcp_proxy_invocation_from_options(
                     &adapter_options,
@@ -3392,11 +3181,8 @@ impl TerminalService {
 
             (cwd, cmd, cmd_args, env_remove, None)
         } else {
-            // 本地模式：原有逻辑
-            let cwd = match workspace_path {
-                Some(ws_path) => PathBuf::from(ws_path),
-                None => PathBuf::from(project_path),
-            };
+            // Only the process cwd changes; project/workspace identity and add-dir stay intact.
+            let cwd = PathBuf::from(local_cwd);
 
             let cli_tool_id = cli_tool.as_id();
 
@@ -3581,7 +3367,7 @@ impl TerminalService {
         let cwd_for_log = cwd.display().to_string();
         let launch_started_at = std::time::SystemTime::now();
         let rollout_cwds = if let Some(wsl) = wsl {
-            let mut paths = Vec::new();
+            let mut paths: Vec<String> = wsl_rollout_cwd.clone().into_iter().collect();
             if let Some(workspace_remote_path) = wsl
                 .workspace_remote_path
                 .as_deref()
@@ -3596,7 +3382,7 @@ impl TerminalService {
             }
             paths
         } else if ssh.is_none() {
-            vec![workspace_path.unwrap_or(project_path).to_string()]
+            vec![local_cwd.to_string()]
         } else {
             Vec::new()
         };
@@ -3749,10 +3535,14 @@ impl TerminalService {
             );
         }
 
+        let process = spawn_result.process;
+        let mut launch_guard =
+            launch_threads::LaunchThreadGuard::new(self, &session_id, process.clone());
+        // Unstarted reader/writer handles must drop before the guard closes ConPTY.
         let mut reader = spawn_result.reader;
         let writer = spawn_result.writer;
-        let process = spawn_result.process;
-        let writer_tx = spawn_terminal_writer(session_id.clone(), writer);
+        let writer_tx = spawn_terminal_writer(session_id.clone(), writer)
+            .map_err(|error| launch_threads::spawn_error("writer", error))?;
         let read_writer_tx = writer_tx.clone();
 
         // 状态追踪
@@ -3761,9 +3551,11 @@ impl TerminalService {
         let exit_code = Arc::new(Mutex::new(None));
         let last_output_at = Arc::new(Mutex::new(Instant::now()));
         let cancelled = Arc::new(AtomicBool::new(false));
-        let output_buffer = Arc::new(Mutex::new(OutputBuffer::new(
+        let output_buffer = Arc::new(Mutex::new(OutputBuffer::with_size(
             LIVE_OUTPUT_MAX_LINES,
             LIVE_OUTPUT_MAX_BYTES,
+            cols,
+            rows,
         )));
         // replay 上限跟随用户的 scrollback 设置：把 scrollback 调到 50k 行的用户
         // 不该在 attach/desync 重建时被 8MB 的硬编码窗口白白截史。
@@ -3857,11 +3649,8 @@ impl TerminalService {
                 cleanup.cleanup();
             }
             // No reader/wait owner has started yet. Roll back this unpublished child only.
-            let _ = process.kill();
-            let discard = thread::spawn(move || std::io::copy(&mut reader, &mut std::io::sink()));
-            process.close_output();
-            let _ = discard.join();
-            let _ = process.wait();
+            // The launch guard kills and reaps this child without allocating another thread.
+            drop(reader);
             return Err(error);
         }
         log_launch_stage(
@@ -3890,7 +3679,7 @@ impl TerminalService {
         let batch_emitter = emitter.clone();
         let batch_sid = session_id.clone();
         let batch_flow = output_flow.clone();
-        let batch_thread = thread::spawn(move || {
+        let batch_thread = crate::pty::thread::spawn_named("cc-panes-pty-batch", move || {
             const BATCH_SIZE_THRESHOLD: usize = 16384; // 16KB
 
             // 只有**真正发出去**的批才计 in-flight（B-5）。emit 返回 Err 时字节根本
@@ -3996,7 +3785,8 @@ impl TerminalService {
                     }
                 }
             }
-        });
+        })
+        .map_err(|error| launch_threads::spawn_error("output batcher", error))?;
 
         // Codex 会话：从 PTY 输出的 OSC 标题序列捕获确定性 thread-id
         // （配合 build_command 注入的 tui.terminal_title=["...","thread-id"]）
@@ -4030,6 +3820,11 @@ impl TerminalService {
                         workspace_path: workspace_path.map(str::to_string),
                         wsl_distro: wsl.and_then(|w| w.distro.clone()),
                         launch_started_at,
+                        capture_cwd: Some(
+                            wsl_rollout_cwd
+                                .clone()
+                                .unwrap_or_else(|| local_cwd.to_string()),
+                        ),
                     },
                     emitter.clone(),
                 )
@@ -4061,7 +3856,14 @@ impl TerminalService {
             .and_then(|g| g.as_ref().cloned());
         // F5：OSC 9;4 徽章旁路存储 clone 进 read 线程（Progress 信号落盘点）
         let read_osc_store = Arc::clone(&self.osc_progress_store);
-        let reader_thread = thread::spawn(move || {
+        let osc_state_machine = read_state_machine.clone().unwrap_or_else(|| {
+            osc_fallback_state_machine(
+                read_status.clone(),
+                read_hook_updated_at.clone(),
+                read_notifier.clone(),
+            )
+        });
+        let reader_thread = crate::pty::thread::spawn_named("cc-panes-pty-reader", move || {
             let _reader_scope = read_watch.reader_scope();
             let mut buf = [0u8; 4096];
             let prev_status = Mutex::new(SessionStatus::Active);
@@ -4199,9 +4001,7 @@ impl TerminalService {
                         // OSC-only CLI（无 hook）也要能显示进度徽章。
                         osc_detector.process(data.as_bytes(), |signal| {
                             apply_osc_progress_signal(&read_osc_store, &sid, &signal);
-                            if let Some(sm) = read_state_machine.as_ref() {
-                                apply_osc_signal(sm, &sid, signal);
-                            }
+                            apply_osc_signal(&osc_state_machine, &sid, signal);
                         });
 
                         read_watch.processing("status-inference");
@@ -4412,7 +4212,7 @@ impl TerminalService {
                 }
             }
             // reader 线程退出时 batch_tx 被 drop，触发 batcher 线程的 Disconnected 分支
-        });
+        }).map_err(|error| launch_threads::spawn_error("reader", error))?;
 
         // 启动等待线程
         let sid = session_id.clone();
@@ -4437,11 +4237,13 @@ impl TerminalService {
             .and_then(|g| g.as_ref().cloned());
         // F5：徽章旁路存储 clone 进 wait 线程（退出时清条目 + 最终状态注入）
         let wait_osc_store = Arc::clone(&self.osc_progress_store);
-        thread::spawn(move || {
-            let process_exit_code = process_for_wait
-                .wait()
-                .map(|status| status.code().unwrap_or(-1))
-                .unwrap_or(-1);
+        let wait_app_paths = self.app_paths.clone();
+        crate::pty::thread::spawn_named("cc-panes-pty-wait", move || {
+            let waited_exit_code = match process_for_wait.wait() {
+                Ok(status) => Some(status.code().unwrap_or(-1)),
+                Err(error) => { warn!(%error, session_id = %sid, "PTY wait failed; no exit proof available"); None }
+            };
+            let process_exit_code = waited_exit_code.unwrap_or(-1);
             // Closing the ConPTY master signals EOF while the reader is still draining.
             // The final exit event follows every queued output event.
             wait_output_flow.release();
@@ -4453,7 +4255,7 @@ impl TerminalService {
                 warn!(session_id = %sid, "PTY output batcher failed before exit");
             }
             if let Ok(mut stored_exit_code) = wait_exit_code.lock() {
-                *stored_exit_code = Some(process_exit_code);
+                *stored_exit_code = waited_exit_code;
             }
             info!(session_id = %sid, exit_code = process_exit_code, "PTY process exited");
             if let Some(cleanup) = wait_pi_managed_state_cleanup.as_ref() {
@@ -4536,6 +4338,14 @@ impl TerminalService {
             // F5：会话结束清掉徽章旁路条目，最终状态 emit 自然带 None
             wait_osc_store.write().remove(&sid);
 
+            let archive_lines = wait_output_buffer.lock().map(|buffer| buffer.get_recent(0));
+            if let Ok(lines) = archive_lines {
+                if let Err(error) = output_archive::persist(&wait_app_paths, &sid, &lines, waited_exit_code) {
+                    warn!(session_id = %sid, %error, "failed to archive completed terminal output");
+                }
+            } else {
+                warn!(session_id = %sid, "cannot archive terminal output: buffer lock poisoned");
+            }
             // 发送退出通知
             wait_notifier.notify_session_exited(&sid, process_exit_code);
             wait_notifier.cleanup_session(&sid);
@@ -4602,7 +4412,8 @@ impl TerminalService {
                 }
             }
             wsl_codex::cleanup_session_mcp_configs(&wait_data_dir, &sid);
-        });
+        }).map_err(|error| launch_threads::spawn_error("process waiter", error))?;
+        launch_guard.disarm();
 
         log_launch_stage(
             launch_id,
@@ -4949,6 +4760,15 @@ impl TerminalService {
         if let Ok(sessions) = self.sessions.lock() {
             if let Some(session) = sessions.get(session_id) {
                 session.output_flow.note_input();
+                if let Ok(mut status) = session.status.lock() {
+                    if *status == SessionStatus::WaitingInput {
+                        *status = SessionStatus::Active;
+                        *session
+                            .hook_updated_at
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()) = None;
+                    }
+                }
             }
         }
     }
@@ -5031,7 +4851,9 @@ impl TerminalService {
         // 比丢掉用户草稿轻得多。
         let needs_paste_guard =
             !paste_ready && text.contains('\n') && self.session_runs_tui_composer(session_id);
-        let wrapped_text = (paste_ready || needs_paste_guard).then(|| wrap_bracketed_paste(text));
+        let slash_command = is_native_slash_command(text);
+        let wrapped_text = (!slash_command && (paste_ready || needs_paste_guard))
+            .then(|| wrap_bracketed_paste(text));
         let submitted_text = wrapped_text.as_deref().unwrap_or(text);
         if needs_paste_guard {
             debug!(
@@ -5072,6 +4894,18 @@ impl TerminalService {
         };
         // A ConPTY resize/recovery may wait. It must not hold every session's lock.
         process.resize(cols, rows)?;
+        if let Some(session) = self
+            .sessions
+            .lock()
+            .map_err(|_| anyhow!("sessions lock poisoned"))?
+            .get(session_id)
+        {
+            session
+                .output_buffer
+                .lock()
+                .map_err(|_| anyhow!("output buffer lock poisoned"))?
+                .resize(cols, rows);
+        }
         Ok(())
     }
 
@@ -5115,6 +4949,16 @@ impl TerminalService {
 
         if let Some(session) = session {
             session.paste_ready.store(false, Ordering::Release);
+            if let Ok(buffer) = session.output_buffer.lock() {
+                if let Err(error) = output_archive::persist(
+                    &self.app_paths,
+                    session_id,
+                    &buffer.get_recent(0),
+                    None,
+                ) {
+                    warn!(session_id, %error, "failed to archive killed terminal output");
+                }
+            }
             // 保存 output_buffer 到 dead_buffers，供事后读取
             // 保留足够输出供用户在关闭/断连后短时间回看。
             if let Ok(mut buf) = session.output_buffer.lock() {
@@ -5253,44 +5097,86 @@ impl TerminalService {
 
     /// 读取终端会话的最近输出（纯文本，ANSI 已剥离）
     ///
-    /// 先查活跃会话，未找到则查 dead_buffers（已退出会话保留 5 分钟）。
+    /// 先查活跃会话与五分钟内存缓存，再读有界落盘输出（30 天/128 会话/128MiB）。
     /// `lines` 为 0 时返回缓冲区全部内容。
     pub fn get_session_output(&self, session_id: &str, lines: usize) -> Result<SessionOutput> {
-        // 1. 从活跃会话中查找（clone Arc 后立即释放 sessions 锁）
-        let buf_arc = {
-            let sessions = self
-                .sessions
-                .lock()
-                .map_err(|_| anyhow!("sessions lock poisoned"))?;
-            sessions
-                .get(session_id)
-                .map(|s| Arc::clone(&s.output_buffer))
-        };
-
-        // 2. 未找到则查 dead_buffers（懒清理过期条目）
-        let buf_arc = match buf_arc {
-            Some(arc) => arc,
+        let live = self
+            .sessions
+            .lock()
+            .map_err(|_| anyhow!("sessions lock poisoned"))?
+            .get(session_id)
+            .map(|session| {
+                (
+                    session.output_buffer.clone(),
+                    session
+                        .exit_code
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .is_some(),
+                )
+            });
+        let memory = match live {
+            Some(buffer) => Some(buffer),
             None => {
                 let mut dead = self
                     .dead_buffers
                     .lock()
                     .map_err(|_| anyhow!("dead_buffers lock poisoned"))?;
-                // 懒清理：移除超过 5 分钟的条目
                 dead.retain(|_, entry| entry.created_at.elapsed().as_secs() < 300);
-                dead.get(session_id)
-                    .map(|entry| Arc::clone(&entry.output_buffer))
-                    .ok_or_else(|| anyhow!("Session not found: {}", session_id))?
+                dead.get(session_id).map(|entry| {
+                    (
+                        entry.output_buffer.clone(),
+                        entry
+                            .exit_code
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .is_some(),
+                    )
+                })
             }
         };
-
-        // 3. 单独锁 buffer 读取
-        let buf = buf_arc
+        let Some((buffer, exited)) = memory else {
+            return self
+                .read_archived_output(session_id, lines)?
+                .ok_or_else(|| anyhow!("Session not found: {}", session_id));
+        };
+        let archived = match self.read_archived_output(session_id, 1) {
+            Ok(output) => output,
+            Err(error) => {
+                warn!(session_id, %error, "archive unreadable; returning cached terminal output without retention proof");
+                None
+            }
+        };
+        // For an exited process the archive must itself be the waiter's final snapshot,
+        // not the earlier snapshot of an in-progress explicit kill.
+        let retained = archived
+            .as_ref()
+            .is_some_and(|output| !exited || output.exited == Some(true));
+        let lines = buffer
             .lock()
-            .map_err(|_| anyhow!("output_buffer lock poisoned"))?;
+            .map_err(|_| anyhow!("output_buffer lock poisoned"))?
+            .get_recent(lines);
         Ok(SessionOutput {
             session_id: session_id.to_string(),
-            lines: buf.get_recent(lines),
+            lines,
+            exited: Some(exited),
+            retained: Some(retained),
         })
+    }
+
+    fn read_archived_output(
+        &self,
+        session_id: &str,
+        lines: usize,
+    ) -> Result<Option<SessionOutput>> {
+        Ok(
+            output_archive::read(&self.app_paths, session_id, lines)?.map(|output| SessionOutput {
+                session_id: session_id.to_string(),
+                lines: output.lines,
+                exited: output.exit_code.map(|_| true),
+                retained: Some(true),
+            }),
+        )
     }
 
     /// 读取终端会话的原始 VT replay 快照，用于 attach-existing 首屏恢复。
@@ -5901,6 +5787,26 @@ fn strip_ansi_escapes(s: &str) -> String {
     String::from_utf8_lossy(&result).to_string()
 }
 
+// A daemon has no orchestrator-owned state machine. OSC must still reach its
+// status store; keep this fallback local so forwarded HTTP status remains authoritative.
+fn osc_fallback_state_machine(
+    status: Arc<Mutex<SessionStatus>>,
+    hook_updated_at: Arc<Mutex<Option<Instant>>>,
+    notifier: Arc<dyn SessionNotifier>,
+) -> Arc<crate::services::SessionStateMachine> {
+    let machine = Arc::new(crate::services::SessionStateMachine::new());
+    machine.subscribe(Arc::new(move |transition| {
+        let mut current = status.lock().unwrap_or_else(|e| e.into_inner());
+        *current = transition.to;
+        *hook_updated_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+        drop(current);
+        if transition.to == SessionStatus::WaitingInput && transition.from != transition.to {
+            notifier.notify_waiting_input(&transition.pty_session_id);
+        }
+    }));
+    machine
+}
+
 /// OSC 状态信号 → 状态机事件（PTY 读线程回调）。
 ///
 /// 状态更新与前端广播由 orchestrator 注册在状态机上的 listener 完成，
@@ -6335,6 +6241,55 @@ mod tests {
         }
     }
 
+    #[test]
+    fn issue64_output_reads_persisted_history_after_memory_is_gone() {
+        let (service, _temp_dir) = terminal_service_for_test();
+        crate::services::write_session_output(
+            &service.app_paths,
+            "persisted",
+            &["first".into(), "last".into()],
+        )
+        .unwrap();
+        assert_eq!(
+            service.get_session_output("persisted", 1).unwrap().lines,
+            ["last"]
+        );
+        assert!(service.get_session_output("../outside", 0).is_err());
+    }
+
+    #[test]
+    fn issue64_redraw_replaces_cells_instead_of_concatenating_frames() {
+        let mut buffer = OutputBuffer::new(64, 65536);
+        buffer.push("question\r\n✢ Seasoning…39");
+        buffer.push("\r\x1b[2K· Seasoning…664");
+        buffer.push("\r\x1b[2Kfinal answer\r\n");
+        assert_eq!(buffer.get_recent(0), ["question", "final answer"]);
+    }
+
+    #[test]
+    fn issue64_cursor_up_redraw_collapses_frames_across_chunks() {
+        let mut buffer = OutputBuffer::new(64, 65536);
+        buffer.push("prompt\r\nold status\r\nold footer");
+        buffer.push("\x1b[");
+        buffer.push("1A\r\x1b[Jfinal answer");
+        assert_eq!(buffer.get_recent(0), ["prompt", "final answer"]);
+    }
+
+    #[test]
+    fn issue64_structured_waiting_survives_stale_hook_and_spinner_output() {
+        let status = Mutex::new(SessionStatus::WaitingInput);
+        let last_hook = Mutex::new(Some(Instant::now() - Duration::from_secs(85 * 60)));
+        let (actual, hook_active) = update_pty_status(
+            &status,
+            &last_hook,
+            false,
+            SessionStatus::Active,
+            Instant::now(),
+        );
+        assert_eq!(actual, SessionStatus::WaitingInput);
+        assert!(hook_active);
+    }
+
     /// PTY 是字节流，转义序列会被切在任意位置。`strip_ansi_escapes` 对未终止的序列是
     /// **整段吞掉**（连 ESC 一起），所以前半不可恢复、后半丢了前缀就当正文留下——
     /// 实测残渣形如 `8;248;242m`。必须在剥离**之前**把尾巴切出来 carry 到下个 chunk。
@@ -6360,7 +6315,7 @@ mod tests {
 
         // 孤立 ESC 后面跟着大量正文：攒满上限就该放行，不能无限扣着不吐。
         buffer.push("\u{1b}");
-        buffer.push(&"x".repeat(MAX_CSI_CARRY * 2));
+        buffer.push(&"x".repeat(256));
         buffer.push("\n");
 
         assert!(buffer.get_recent(0).join("\n").contains(&"x".repeat(64)));
@@ -6373,12 +6328,6 @@ mod tests {
     fn carries_long_osc_sequences_that_would_bust_the_csi_limit() {
         let url = "x".repeat(600);
         let head = format!("\u{1b}]8;;https://example.com/{url}");
-        assert_eq!(
-            split_trailing_incomplete_escape(&head),
-            ("", head.as_str()),
-            "长 OSC 未终止时应整段 carry"
-        );
-
         let mut buffer = OutputBuffer::new(64, 1 << 20);
         buffer.push(&format!("before{head}"));
         buffer.push("\u{7}link\n");
@@ -6388,44 +6337,6 @@ mod tests {
         assert!(
             !output.contains("example.com"),
             "OSC 载荷漏成正文：{output:?}"
-        );
-    }
-
-    #[test]
-    fn still_bounds_the_carry_for_oversized_string_escapes() {
-        let huge = format!("\u{1b}]52;c;{}", "A".repeat(MAX_STRING_ESCAPE_CARRY));
-        assert_eq!(
-            split_trailing_incomplete_escape(&huge).1,
-            "",
-            "超档应放行而非无限扣留"
-        );
-    }
-
-    #[test]
-    fn splits_only_genuinely_incomplete_escapes() {
-        // 完整序列不该被切走——切了就会平白延迟一个 chunk 才输出。
-        assert_eq!(
-            split_trailing_incomplete_escape("a\u{1b}[0mb"),
-            ("a\u{1b}[0mb", "")
-        );
-        assert_eq!(
-            split_trailing_incomplete_escape("a\u{1b}[38;2;24"),
-            ("a", "\u{1b}[38;2;24")
-        );
-        assert_eq!(split_trailing_incomplete_escape("a\u{1b}"), ("a", "\u{1b}"));
-        // OSC 终止于 BEL 或 ST，没等到就是未完成。
-        assert_eq!(
-            split_trailing_incomplete_escape("a\u{1b}]0;title"),
-            ("a", "\u{1b}]0;title")
-        );
-        assert_eq!(
-            split_trailing_incomplete_escape("a\u{1b}]0;title\u{7}b"),
-            ("a\u{1b}]0;title\u{7}b", "")
-        );
-        // 多字节字符不能被误切（ESC 是 ASCII，不会落在字符内部）。
-        assert_eq!(
-            split_trailing_incomplete_escape("中文测试"),
-            ("中文测试", "")
         );
     }
 
@@ -6575,19 +6486,6 @@ mod tests {
         );
     }
 
-    /// spinner 帧靠光标控制原地刷新，ANSI 剥离后光标控制没了、帧首尾相接堆成巨行，
-    /// 直到 partial 超 4KB 才 flush——漏一个词的后果是「要 200 行拿回上百万字符」。
-    #[test]
-    fn filters_the_simmering_spinner_frame() {
-        assert!(is_spinner_line(
-            "✻ Simmering… (12s · ↑ 1.2k tokens · esc to interrupt)"
-        ));
-        assert!(is_spinner_line("✽ Simmering…"));
-        // 归一化后是 simering；词表里写原词 simmering 会永远匹配不上。
-        // 词表比对走 starts_with；省略号不算装饰字符会被保留，故不是全等。
-        assert_eq!(normalize_spinner_line("✻ Simmering…"), "simering…");
-    }
-
     /// waitFor 参数的 schema 是 `Vec<String>`，客户端只能猜大小写——实测两个
     /// 不同的 agent 第一次都发了 `"Idle"`。alias 让两种写法都过；序列化端
     /// 必须保持 camelCase 不变（前端与 hook 通道都按它匹配）。
@@ -6669,7 +6567,7 @@ mod tests {
         );
     }
 
-    fn pi_rpc_test_service() -> (Arc<TerminalService>, tempfile::TempDir) {
+    pub(super) fn pi_rpc_test_service() -> (Arc<TerminalService>, tempfile::TempDir) {
         let temp_dir = tempfile::tempdir().expect("temp dir");
         let app_paths = Arc::new(AppPaths::new(Some(
             temp_dir.path().to_string_lossy().to_string(),
@@ -6699,9 +6597,10 @@ mod tests {
         (service, temp_dir)
     }
 
-    fn pi_rpc_request(project_path: &std::path::Path) -> CreateSessionRequest {
+    pub(super) fn pi_rpc_request(project_path: &std::path::Path) -> CreateSessionRequest {
         CreateSessionRequest {
             launch_id: Some("launch-pi-rpc".to_string()),
+            launch_cwd: None,
             project_path: project_path.to_string_lossy().to_string(),
             cols: 120,
             rows: 32,
@@ -7234,7 +7133,7 @@ mod tests {
         }
     }
 
-    fn terminal_service_for_test() -> (Arc<TerminalService>, tempfile::TempDir) {
+    pub(super) fn terminal_service_for_test() -> (Arc<TerminalService>, tempfile::TempDir) {
         terminal_service_for_test_with_registry(Arc::new(CliToolRegistry::new()))
     }
 
@@ -7769,7 +7668,7 @@ mod tests {
         assert_eq!(info.token, "new-token");
     }
 
-    fn install_recording_session(
+    pub(super) fn install_recording_session(
         service: &TerminalService,
         session_id: &str,
         writes: Arc<Mutex<Vec<String>>>,
@@ -7847,7 +7746,8 @@ mod tests {
         session_cli_tool: CliTool,
     ) {
         let writer_tx =
-            spawn_terminal_writer(session_id.to_string(), Box::new(RecordingWriter { writes }));
+            spawn_terminal_writer(session_id.to_string(), Box::new(RecordingWriter { writes }))
+                .unwrap();
         service
             .sessions
             .lock()
@@ -8159,7 +8059,7 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .as_slice(),
-            ["\x1b[200~/clear\x1b[201~", "\r"]
+            ["/clear", "\r"]
         );
     }
 
@@ -8970,27 +8870,6 @@ mod tests {
             vec!["session-1".to_string()],
             "差值 > 阈值必须催"
         );
-    }
-
-    #[test]
-    fn test_spinner_line_filters_claude_dynamic_status() {
-        assert!(is_spinner_line("✶ Boondoggling… (44s · ↓ 1.5k tokens)"));
-        assert!(is_spinner_line("✻thinking more"));
-        assert!(is_spinner_line("almost done thinking"));
-        assert!(is_spinner_line(
-            "◦Waiting for background terminal(15m 35s • esc to interrupt)"
-        ));
-    }
-
-    #[test]
-    fn test_spinner_line_filters_garbled_status_fragments() {
-        assert!(is_spinner_line("WWoorrkkiinWngWogorrkkiin1ngg"));
-    }
-
-    #[test]
-    fn test_spinner_line_keeps_real_content() {
-        assert!(!is_spinner_line("可以开工 M-1 Spike。"));
-        assert!(!is_spinner_line("Maven 进程还有 CPU 活动，先继续等。"));
     }
 
     // --- strip_ansi_escapes 单元测试 ---

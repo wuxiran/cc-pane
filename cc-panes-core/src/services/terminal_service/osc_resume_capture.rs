@@ -190,7 +190,7 @@ impl OscResumeCapture {
         let shared = self.shared.clone();
         let ctx = self.ctx.clone();
         let emitter = self.emitter.clone();
-        std::thread::spawn(move || {
+        crate::pty::thread::spawn_optional("cc-panes-rollout-scan", move || {
             for attempt in 0..ROLLOUT_SCAN_MAX_ATTEMPTS {
                 if shared.done.load(Ordering::Acquire) {
                     return;
@@ -230,7 +230,8 @@ impl OscResumeCapture {
         let shared = self.shared.clone();
         let ctx = self.ctx.clone();
         let emitter = self.emitter.clone();
-        std::thread::spawn(move || {
+        let reset_on_failure = shared.clone();
+        if let Err(error) = crate::pty::thread::spawn_named("cc-panes-resume-resolver", move || {
             let prefix = shared
                 .current_prefix
                 .lock()
@@ -280,7 +281,10 @@ impl OscResumeCapture {
                 }
             }
             shared.in_flight.store(false, Ordering::Release);
-        });
+        }) {
+            reset_on_failure.in_flight.store(false, Ordering::Release);
+            warn!(%error, "resume resolver unavailable; next title may retry");
+        }
     }
 }
 

@@ -61,7 +61,8 @@ use cc_panes_core::services::terminal_service::{
 };
 use cc_panes_core::services::TerminalBackend;
 use cc_panes_core::services::{
-    CursorBridgeCreateSpec, CursorBridgeHub, CursorBridgeService, TaskDispatchService,
+    dispatch_permission_yolo_mode, resolve_dispatch_cwd, CursorBridgeCreateSpec, CursorBridgeHub,
+    CursorBridgeService, TaskDispatchService,
 };
 use cc_panes_core::services::{PipeEventRequest, PipeEventService};
 #[cfg(target_os = "windows")]
@@ -96,6 +97,10 @@ pub struct LaunchTaskRequest {
     pub prompt: Option<String>,
     pub provider_id: Option<String>,
     pub model_id: Option<String>,
+    /// Real launch directory. Omitted dispatches use projectPath, not workspacePath.
+    pub cwd: Option<String>,
+    pub permission_mode: Option<String>,
+    pub profile_id: Option<String>,
     pub provider_selection: Option<String>,
     pub workspace_name: Option<String>,
     pub workspace_path: Option<String>,
@@ -274,6 +279,17 @@ fn reconcile_parent_session_id(
     Ok(requested_session_id
         .map(str::to_string)
         .or_else(|| binding_session_id.map(str::to_string)))
+}
+
+/// Leader children must participate in plan messaging; ordinary nested tasks
+/// remain tasks. Copy plan identity only from a verified parent leader.
+fn apply_dispatch_parent(request: &mut CreateTaskBindingRequest, parent: Option<&TaskBinding>) {
+    let Some(parent) = parent.filter(|parent| parent.role == TaskBindingRole::Leader) else {
+        return;
+    };
+    request.role = Some(TaskBindingRole::Worker);
+    request.plan_path = parent.plan_path.clone();
+    request.normalized_plan_path = parent.normalized_plan_path.clone();
 }
 
 fn dispatch_binding_metadata(envelope: &TaskDispatchEnvelope) -> serde_json::Value {
@@ -2449,6 +2465,10 @@ fn build_router(state: AppState) -> Router {
             post(handle_session_started),
         )
         .route(
+            "/api/terminal/session-identity-cleared",
+            post(handle_session_identity_cleared),
+        )
+        .route(
             "/api/notifications/trigger",
             post(handle_trigger_notification),
         )
@@ -2544,6 +2564,11 @@ struct McpLaunchTaskParams {
     /// 模型 ID
     #[serde(rename = "modelId")]
     model_id: Option<String>,
+    /// 真实启动目录，省略时使用 projectPath；独立于工作空间配置根。
+    cwd: Option<String>,
+    /// default / bypassPermissions；省略继承 profile，bypass 受 allowMcpYoloProfiles 门控。
+    #[serde(rename = "permissionMode")]
+    permission_mode: Option<String>,
     /// inherit / explicit / none
     #[serde(rename = "providerSelection")]
     provider_selection: Option<String>,
@@ -4383,18 +4408,33 @@ fn ensure_mcp_yolo_profile_allowed(
     )
 }
 
-fn validate_orchestrator_launch_profile(
-    launch_profile_service: &LaunchProfileService,
-    launch_profile_id: Option<&str>,
+fn resolve_orchestrator_launch_profile(
+    service: &LaunchProfileService,
+    profile_id: Option<&str>,
+    cli_tool: &str,
+    runtime_kind: &str,
+    yolo_override: Option<bool>,
     allow_mcp_yolo_profiles: bool,
-) -> std::result::Result<(), String> {
-    let Some(profile_id) = launch_profile_id else {
-        return Ok(());
-    };
-    let profile = launch_profile_service
-        .get_profile(profile_id)
-        .ok_or_else(|| format!("Launch profile '{}' was not found", profile_id))?;
-    ensure_mcp_yolo_profile_allowed(profile.yolo_mode, allow_mcp_yolo_profiles)
+) -> std::result::Result<Option<String>, String> {
+    let profile_id = profile_id.map(str::trim).filter(|id| !id.is_empty());
+    if let Some(id) = profile_id {
+        if service.get_profile(id).is_none() {
+            return Err(format!("Launch profile '{}' was not found", id));
+        }
+    }
+    let resolved =
+        service.resolve_launch_profile(profile_id, None, None, Some(cli_tool), Some(runtime_kind));
+    if let Some(id) = profile_id {
+        if resolved.as_ref().map(|profile| profile.id.as_str()) != Some(id) {
+            return Err(format!(
+                "Launch profile '{}' does not support CLI '{}' and runtime '{}'",
+                id, cli_tool, runtime_kind
+            ));
+        }
+    }
+    let yolo = yolo_override.unwrap_or_else(|| resolved.as_ref().is_some_and(|p| p.yolo_mode));
+    ensure_mcp_yolo_profile_allowed(yolo, allow_mcp_yolo_profiles)?;
+    Ok(resolved.map(|profile| profile.id))
 }
 
 fn list_launch_profiles_impl(
@@ -5089,6 +5129,9 @@ impl McpToolHandler {
             project_path: launch.project_path.clone(),
             workspace_name: launch.workspace_name.clone(),
             profile_id: launch.profile_id.clone(),
+            cwd: launch.cwd.clone(),
+            permission_mode: launch.permission_mode.clone(),
+            model_id: launch.model_id.clone(),
             runtime_kind: launch.runtime_kind.clone(),
             prompt: launch.prompt.clone(),
             resume_id: launch.resume_id.clone(),
@@ -5106,16 +5149,6 @@ impl McpToolHandler {
             launch.profile_id.as_deref(),
             &self.state.workspace_service,
         );
-        let launch_profile_id = project_context.launch_profile_id.clone();
-        validate_orchestrator_launch_profile(
-            &self.state.launch_profile_service,
-            launch_profile_id.as_deref(),
-            self.state
-                .settings_service
-                .get_settings()
-                .orchestrator
-                .allow_mcp_yolo_profiles,
-        )?;
         parse_provider_selection(launch.provider_selection.as_deref())?;
         let runtime = resolve_launch_runtime(
             &launch.project_path,
@@ -5124,6 +5157,18 @@ impl McpToolHandler {
             launch.runtime_kind.as_deref(),
             launch.resume_id.as_deref(),
             &self.state,
+        )?;
+        let launch_profile_id = resolve_orchestrator_launch_profile(
+            &self.state.launch_profile_service,
+            project_context.launch_profile_id.as_deref(),
+            &plan.envelope.resolved_cli_tool,
+            runtime.kind.as_str(),
+            dispatch_permission_yolo_mode(launch.permission_mode.as_deref())?,
+            self.state
+                .settings_service
+                .get_settings()
+                .orchestrator
+                .allow_mcp_yolo_profiles,
         )?;
         plan.envelope.workspace_name = project_context.workspace_name;
         plan.envelope.profile_id = launch_profile_id;
@@ -5163,27 +5208,41 @@ impl McpToolHandler {
                     &plan.envelope.resolved_cli_tool,
                 )
             });
+        let parent = plan
+            .envelope
+            .parent_binding_id
+            .as_deref()
+            .map(|id| {
+                self.state
+                    .task_binding_service
+                    .get(id)
+                    .map_err(|error| format!("查询父任务绑定失败: {}", error))?
+                    .ok_or_else(|| format!("父任务绑定 '{}' 不存在", id))
+            })
+            .transpose()?;
+        let mut request = CreateTaskBindingRequest {
+            title,
+            role: Some(TaskBindingRole::Task),
+            parent_id: plan.envelope.parent_binding_id.clone(),
+            plan_path: None,
+            normalized_plan_path: None,
+            prompt: launch.prompt.clone(),
+            session_id: None,
+            resume_id: launch.resume_id.clone(),
+            pane_id: launch.pane_id.clone(),
+            tab_id: None,
+            todo_id: None,
+            project_path: launch.project_path.clone(),
+            workspace_name: plan.envelope.workspace_name.clone(),
+            cli_tool: Some(plan.envelope.resolved_cli_tool.clone()),
+            worker_kind: None,
+            metadata: None,
+        };
+        apply_dispatch_parent(&mut request, parent.as_ref());
         let binding = self
             .state
             .task_binding_service
-            .create(CreateTaskBindingRequest {
-                title,
-                role: Some(TaskBindingRole::Task),
-                parent_id: plan.envelope.parent_binding_id.clone(),
-                plan_path: None,
-                normalized_plan_path: None,
-                prompt: launch.prompt.clone(),
-                session_id: None,
-                resume_id: launch.resume_id.clone(),
-                pane_id: launch.pane_id.clone(),
-                tab_id: None,
-                todo_id: None,
-                project_path: launch.project_path.clone(),
-                workspace_name: plan.envelope.workspace_name.clone(),
-                cli_tool: Some(plan.envelope.resolved_cli_tool.clone()),
-                worker_kind: None,
-                metadata: None,
-            })
+            .create(request)
             .map_err(|error| format!("创建任务绑定失败: {}", error))?;
 
         plan.attach_binding_id(binding.id.clone());
@@ -5762,6 +5821,8 @@ impl McpToolHandler {
             prompt: Some(plan.prompt.clone()),
             provider_id: None,
             model_id: plan.model_id.clone(),
+            cwd: None,
+            permission_mode: None,
             provider_selection: None,
             profile_id: None,
             title: params
@@ -6200,18 +6261,14 @@ impl McpToolHandler {
             params.profile_id.as_deref(),
             &self.state.workspace_service,
         );
-        let launch_profile_id = project_context.launch_profile_id.clone();
-        if let Err(error) = validate_orchestrator_launch_profile(
-            &self.state.launch_profile_service,
-            launch_profile_id.as_deref(),
-            self.state
-                .settings_service
-                .get_settings()
-                .orchestrator
-                .allow_mcp_yolo_profiles,
-        ) {
-            return format!("错误: {}", error);
-        }
+        let launch_cwd = match resolve_dispatch_cwd(&params.project_path, params.cwd.as_deref()) {
+            Ok(cwd) => cwd,
+            Err(error) => return format!("错误: {}", error),
+        };
+        let yolo_mode = match dispatch_permission_yolo_mode(params.permission_mode.as_deref()) {
+            Ok(mode) => mode,
+            Err(error) => return format!("错误: {}", error),
+        };
 
         let provider_selection =
             match parse_provider_selection(params.provider_selection.as_deref()) {
@@ -6222,7 +6279,7 @@ impl McpToolHandler {
         // 工作空间和项目绑定由共享解析器决定；Provider、模型和推理强度仍由 TerminalService 解析。
         let ws_name = project_context.workspace_name.clone();
         let ws_path = project_context.workspace_path.clone();
-        debug!(workspace = ?ws_name, path = ?ws_path, profile = ?launch_profile_id, "mcp::launch_task resolved launch context");
+        debug!(workspace = ?ws_name, path = ?ws_path, profile = ?project_context.launch_profile_id, "mcp::launch_task resolved launch context");
 
         let task_id = uuid::Uuid::new_v4().to_string();
         // launch_id 同时用作 history.project_id（`find_by_launch_id` 的查询键）。
@@ -6271,6 +6328,22 @@ impl McpToolHandler {
             Err(error) => return format!("错误: {}", error),
         };
 
+        let launch_profile_id = match resolve_orchestrator_launch_profile(
+            &self.state.launch_profile_service,
+            project_context.launch_profile_id.as_deref(),
+            cli_tool.as_id(),
+            runtime.kind.as_str(),
+            yolo_mode,
+            self.state
+                .settings_service
+                .get_settings()
+                .orchestrator
+                .allow_mcp_yolo_profiles,
+        ) {
+            Ok(profile) => profile,
+            Err(error) => return format!("错误: {}", error),
+        };
+
         // 在创建 PTY 之前捕获 backfill 起始时刻：本地 Windows / WSL Codex 不装 hook，
         // 靠 run_launch_history_backfill 启动后扫 ~/.codex/sessions 反查 rollout id 回填。
         // after_ts 必须早于 PTY spawn，否则 rollout 已生成但 mtime 早于扫描起点会被跳过。
@@ -6287,6 +6360,7 @@ impl McpToolHandler {
         let mut create_request = CoreCreateSessionRequest {
             launch_id: Some(child_launch_id.clone()),
             project_path: params.project_path.clone(),
+            launch_cwd: Some(launch_cwd),
             cols: 120,
             rows: 30,
             workspace_name: None,
@@ -6307,7 +6381,7 @@ impl McpToolHandler {
             skip_mcp: false,
             append_system_prompt: None,
             initial_prompt: prompt_delivery.initial_prompt,
-            yolo_mode: None,
+            yolo_mode,
             adapter_options: params.adapter_options.clone(),
             extra_env: dispatch_task_environment(
                 params.dispatch_binding_id.as_deref(),
@@ -6317,6 +6391,7 @@ impl McpToolHandler {
             wsl: runtime.wsl.clone(),
         };
         apply_project_launch_context_to_request(&mut create_request, &project_context);
+        create_request.launch_profile_id = launch_profile_id.clone();
         let (session_id, resolved_model_id) = match create_launch_session(
             self.state.terminal_backend.clone(),
             Some(self.state.session_restore_service.clone()),
@@ -8044,7 +8119,7 @@ impl McpToolHandler {
         }
     }
 
-    /// 读会话最近输出（纯文本，默认尾部 50 行）。退出后 5 分钟内仍可读。
+    /// 读会话最近输出（纯文本，默认尾部 50 行）。可读取的保留输出由后端归档策略决定。
     #[tool]
     async fn get_session_output(
         &self,
@@ -8063,16 +8138,26 @@ impl McpToolHandler {
             Ok(output) => {
                 // 只回 content：之前 lines 数组 + content 字串是同一份文本发两遍。
                 let content = output.lines.join("\n");
-                serde_json::json!({
+                let mut response = serde_json::json!({
                     "sessionId": output.session_id,
                     "content": content,
                     "lineCount": output.lines.len(),
-                })
-                .to_string()
+                });
+                // Preserve the optional R2 evidence fields when a new daemon
+                // provides them. Old daemons serialize no fields, so absence
+                // stays absence; never infer exit/retention from the buffer.
+                if let Ok(serialized) = serde_json::to_value(&output) {
+                    for key in ["exited", "retained"] {
+                        if let Some(value) = serialized.get(key) {
+                            response[key] = value.clone();
+                        }
+                    }
+                }
+                response.to_string()
             }
             Err(e) => {
                 format!(
-                    "错误: 会话 '{}' 不存在或已退出超过 5 分钟: {}",
+                    "错误: 会话 '{}' 不存在或没有可读取的保留输出: {}",
                     params.session_id, e
                 )
             }
@@ -9354,6 +9439,7 @@ impl RunnerTerminal for AppRunnerTerminal {
         let request = CoreCreateSessionRequest {
             launch_id: None,
             project_path: profile.cwd.clone(),
+            launch_cwd: None,
             cols: 120,
             rows: 30,
             workspace_name: profile.workspace_name.clone(),
@@ -10021,11 +10107,16 @@ fn resolve_project_launch_context(
             .and_then(|project| trim_optional_string(project.launch_profile_id.clone()))
     });
 
+    let workspace_profile_id = workspace
+        .as_ref()
+        .and_then(|workspace| trim_optional_string(workspace.launch_profile_id.clone()));
+
     ProjectLaunchContext {
         workspace_name: workspace.as_ref().map(|workspace| workspace.name.clone()),
         workspace_path: workspace.and_then(|workspace| workspace.path),
         launch_profile_id: trim_optional_string(explicit_profile_id.map(str::to_string))
-            .or(project_profile_id),
+            .or(project_profile_id)
+            .or(workspace_profile_id),
     }
 }
 
@@ -10562,7 +10653,7 @@ async fn handle_launch_task(
     let project_context = resolve_project_launch_context(
         &req.project_path,
         req.workspace_name.as_deref(),
-        None,
+        req.profile_id.as_deref(),
         &state.workspace_service,
     );
     let workspace_name = project_context.workspace_name.clone();
@@ -10570,22 +10661,24 @@ async fn handle_launch_task(
         .workspace_path
         .clone()
         .or_else(|| project_context.workspace_path.clone());
-    let launch_profile_id = project_context.launch_profile_id.clone();
-    debug!(workspace = ?workspace_name, path = ?workspace_path, profile = ?launch_profile_id, "REST::launch_task resolved launch context");
-    if let Err(error) = validate_orchestrator_launch_profile(
-        &state.launch_profile_service,
-        launch_profile_id.as_deref(),
-        state
-            .settings_service
-            .get_settings()
-            .orchestrator
-            .allow_mcp_yolo_profiles,
-    ) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!(ApiError { error })),
-        );
-    }
+    let launch_cwd = match resolve_dispatch_cwd(&req.project_path, req.cwd.as_deref()) {
+        Ok(cwd) => cwd,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!(ApiError { error })),
+            )
+        }
+    };
+    let yolo_mode = match dispatch_permission_yolo_mode(req.permission_mode.as_deref()) {
+        Ok(mode) => mode,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!(ApiError { error })),
+            )
+        }
+    };
 
     let prompt_delivery = prepare_launch_prompt(
         &req.project_path,
@@ -10610,6 +10703,27 @@ async fn handle_launch_task(
         }
     };
 
+    let launch_profile_id = match resolve_orchestrator_launch_profile(
+        &state.launch_profile_service,
+        project_context.launch_profile_id.as_deref(),
+        cli_tool.as_id(),
+        runtime.kind.as_str(),
+        yolo_mode,
+        state
+            .settings_service
+            .get_settings()
+            .orchestrator
+            .allow_mcp_yolo_profiles,
+    ) {
+        Ok(profile) => profile,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!(ApiError { error })),
+            )
+        }
+    };
+
     // 预分配出生锚点：PTY 建在前端决定落点**之前**，若不在此处指定，凭证里的
     // 锚点就会是 NULL，该会话此后永远无法被自动接管（凭证不可改写）。这两个 id
     // 随下方 launch 事件下发，前端原样采用，因此是可核对的真实数据。
@@ -10621,6 +10735,7 @@ async fn handle_launch_task(
         // 走的正是本路径）。
         launch_id: Some(project_id.clone()),
         project_path: req.project_path.clone(),
+        launch_cwd: Some(launch_cwd),
         cols: 120,
         rows: 30,
         workspace_name: None,
@@ -10643,13 +10758,14 @@ async fn handle_launch_task(
         skip_mcp: false,
         append_system_prompt: None,
         initial_prompt: prompt_delivery.initial_prompt,
-        yolo_mode: None,
+        yolo_mode,
         adapter_options: None,
         extra_env: None,
         ssh: runtime.ssh.clone(),
         wsl: runtime.wsl.clone(),
     };
     apply_project_launch_context_to_request(&mut create_request, &project_context);
+    create_request.launch_profile_id = launch_profile_id.clone();
     let (session_id, resolved_model_id) = match create_launch_session(
         state.terminal_backend.clone(),
         Some(state.session_restore_service.clone()),
@@ -10922,6 +11038,14 @@ struct SessionStartedRequest {
     cwd: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionIdentityClearedRequest {
+    launch_id: String,
+    pty_session_id: String,
+    old_resume_session_id: String,
+}
+
 impl From<TriggerNotificationRequest> for NotificationRequest {
     fn from(value: TriggerNotificationRequest) -> Self {
         Self {
@@ -11054,10 +11178,20 @@ fn emit_ccchan_say(
         .map_err(|error| format!("Failed to dispatch ccchan-say-dom: {error}"))?;
     let shrink_window = window.clone();
     let (collapsed_w, collapsed_h) = ccchan_service.window_size(CCChanWindowMode::Collapsed);
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(duration_ms));
-        let _ = shrink_window.set_size(LogicalSize::new(collapsed_w, collapsed_h));
-    });
+    if let Err(error) = std::thread::Builder::new()
+        .name("ccchan-collapse".to_string())
+        .spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(duration_ms));
+            if let Err(error) = shrink_window.set_size(LogicalSize::new(collapsed_w, collapsed_h)) {
+                tracing::warn!(%error, "ccchan bubble collapse resize failed; keeping visible size");
+            }
+        })
+    {
+        // The bubble was already delivered. A transient thread resource limit
+        // only degrades the later collapse timer; never turn a successful
+        // notification into a panic or lose the user's message.
+        tracing::warn!(%error, "ccchan collapse timer could not be scheduled; keeping bubble size");
+    }
     Ok(serde_json::json!({
         "success": true,
         "text": text,
@@ -11696,6 +11830,62 @@ async fn handle_session_started(
                 error: format!("Launch '{}' not found", req.launch_id)
             })),
         ),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!(ApiError { error })),
+        ),
+    }
+}
+
+/// `/clear` invalidates only the identity observed by that SessionEnd hook.
+/// Repository CAS prevents a delayed old clear from erasing a newer identity.
+async fn handle_session_identity_cleared(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(req): Json<SessionIdentityClearedRequest>,
+) -> impl IntoResponse {
+    if !verify_token(&headers, &state.token) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!(ApiError {
+                error: "Invalid or missing Bearer token".to_string()
+            })),
+        );
+    }
+    if req.launch_id.trim().is_empty()
+        || req.pty_session_id.trim().is_empty()
+        || req.old_resume_session_id.trim().is_empty()
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!(ApiError {
+                error: "launchId, ptySessionId and oldResumeSessionId are required".to_string()
+            })),
+        );
+    }
+    match state
+        .launch_history_service
+        .clear_session_identity_by_pty_if_matches(&req.pty_session_id, &req.old_resume_session_id)
+    {
+        Ok(record_id) => {
+            if let Some(record_id) = record_id {
+                let _ = state.app_handle.emit(
+                    "history-updated",
+                    serde_json::json!({
+                        "source": "session-clear",
+                        "recordId": record_id,
+                        "launchId": req.launch_id,
+                        "ptySessionId": req.pty_session_id,
+                        "oldResumeSessionId": req.old_resume_session_id,
+                        "resumeSessionId": serde_json::Value::Null,
+                    }),
+                );
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "success": true, "cleared": record_id.is_some() })),
+            )
+        }
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!(ApiError { error })),
@@ -14778,6 +14968,7 @@ mod tests {
         CoreCreateSessionRequest {
             launch_id: Some("launch-id".to_string()),
             project_path: "/tmp/project".to_string(),
+            launch_cwd: None,
             cols: 120,
             rows: 30,
             workspace_name: None,
@@ -15469,6 +15660,26 @@ mod tests {
     }
 
     #[test]
+    fn orchestrator_project_profile_inherits_workspace_then_project_then_explicit() {
+        let (_dir, service) = orchestrator_project_profile_workspace_service();
+        let mut workspace = service.get_workspace("alpha").unwrap();
+        workspace.launch_profile_id = Some("profile-workspace".into());
+        service.write_workspace_json("alpha", &workspace).unwrap();
+        let resolve = |explicit| {
+            resolve_project_launch_context(r"D:\Repos\App", Some("alpha"), explicit, &service)
+                .launch_profile_id
+        };
+        assert_eq!(resolve(None).as_deref(), Some("profile-workspace"));
+        workspace.projects[0].launch_profile_id = Some("profile-project".into());
+        service.write_workspace_json("alpha", &workspace).unwrap();
+        assert_eq!(resolve(None).as_deref(), Some("profile-project"));
+        assert_eq!(
+            resolve(Some("profile-explicit")).as_deref(),
+            Some("profile-explicit")
+        );
+    }
+
+    #[test]
     fn orchestrator_project_profile_unbound_project_preserves_fallback() {
         let (_dir, service) = orchestrator_project_profile_workspace_service();
 
@@ -15550,11 +15761,59 @@ mod tests {
             })
             .expect("create derived YOLO profile");
 
-        let error =
-            validate_orchestrator_launch_profile(&service, Some(profile.id.as_str()), false)
-                .expect_err("derived YOLO profile must honor the orchestrator permission gate");
+        let error = resolve_orchestrator_launch_profile(
+            &service,
+            Some(profile.id.as_str()),
+            "claude",
+            "local",
+            None,
+            false,
+        )
+        .expect_err("derived YOLO profile must honor the orchestrator permission gate");
 
         assert!(error.contains("allowMcpYoloProfiles"));
+        // Explicit default can safely override a YOLO profile; implicit defaults
+        // still pass through the same gate (the first fixture profile is default).
+        assert!(resolve_orchestrator_launch_profile(
+            &service,
+            Some(&profile.id),
+            "claude",
+            "local",
+            Some(false),
+            false
+        )
+        .is_ok());
+        assert!(resolve_orchestrator_launch_profile(
+            &service, None, "claude", "local", None, false
+        )
+        .is_err());
+        assert!(resolve_orchestrator_launch_profile(
+            &service,
+            Some(&profile.id),
+            "codex",
+            "local",
+            None,
+            true
+        )
+        .is_err());
+        assert!(resolve_orchestrator_launch_profile(
+            &service,
+            Some(&profile.id),
+            "claude",
+            "wsl",
+            None,
+            true
+        )
+        .is_err());
+        assert!(resolve_orchestrator_launch_profile(
+            &service,
+            Some("missing"),
+            "claude",
+            "local",
+            None,
+            true
+        )
+        .is_err());
     }
 
     #[test]
@@ -17504,6 +17763,51 @@ mod tests {
     }
 
     #[test]
+    fn dispatched_leader_child_can_receive_directives_and_ordinary_tasks_stay_tasks() {
+        let service = directive_test_service();
+        let (leader, _) = register_directive_plan(&service, &[]);
+        let mut request = CreateTaskBindingRequest {
+            title: "dispatched worker".into(),
+            role: Some(TaskBindingRole::Task),
+            parent_id: Some(leader.id.clone()),
+            plan_path: None,
+            normalized_plan_path: None,
+            prompt: Some("task".into()),
+            session_id: Some("new-worker-session".into()),
+            resume_id: None,
+            pane_id: None,
+            tab_id: None,
+            todo_id: None,
+            project_path: "D:/repo".into(),
+            workspace_name: None,
+            cli_tool: Some("codex".into()),
+            worker_kind: None,
+            metadata: None,
+        };
+        apply_dispatch_parent(&mut request, Some(&leader));
+        let worker = service.create(request.clone()).unwrap();
+        assert_eq!(worker.role, TaskBindingRole::Worker);
+        assert_eq!(worker.plan_path, leader.plan_path);
+        let (_, targets) =
+            resolve_directive_targets(&service, "leader-session", Some("new-worker-session"), None)
+                .expect("dispatch worker must be addressable by its leader");
+        assert_eq!(targets[0].worker_binding_id, worker.id);
+        let (_, broadcast) =
+            resolve_directive_targets(&service, "leader-session", None, Some(&leader.id)).unwrap();
+        assert!(broadcast
+            .iter()
+            .any(|target| target.worker_binding_id == worker.id));
+        request.role = Some(TaskBindingRole::Task);
+        request.plan_path = None;
+        request.normalized_plan_path = None;
+        apply_dispatch_parent(&mut request, Some(&worker));
+        assert_eq!(request.role, Some(TaskBindingRole::Task));
+        assert!(request.plan_path.is_none());
+        apply_dispatch_parent(&mut request, None);
+        assert_eq!(request.role, Some(TaskBindingRole::Task));
+    }
+
+    #[test]
     fn dispatch_envelope_persists_before_and_after_session_creation() {
         let service = directive_test_service();
         let mut plan = TaskDispatchService::default()
@@ -17512,6 +17816,9 @@ mod tests {
                 project_path: "D:/repo".to_string(),
                 workspace_name: Some("workspace-a".to_string()),
                 profile_id: Some("profile-a".to_string()),
+                cwd: Some("D:/repo".into()),
+                permission_mode: Some("default".into()),
+                model_id: Some("test-model".into()),
                 runtime_kind: Some("local".to_string()),
                 prompt: Some("implement the task".to_string()),
                 resume_id: None,
@@ -17643,10 +17950,14 @@ mod tests {
 
         let launch = &router.map["launch_task"].attr;
         assert!(launch.input_schema["properties"]["profileId"].is_object());
+        assert!(launch.input_schema["properties"]["cwd"].is_object());
+        assert!(launch.input_schema["properties"]["permissionMode"].is_object());
 
         let dispatch = &router.map["dispatch_task"].attr;
         assert!(dispatch.input_schema["properties"]["cliTool"].is_object());
         assert!(dispatch.input_schema["properties"]["parentBindingId"].is_object());
+        assert!(dispatch.input_schema["properties"]["cwd"].is_object());
+        assert!(dispatch.input_schema["properties"]["permissionMode"].is_object());
     }
 
     #[test]

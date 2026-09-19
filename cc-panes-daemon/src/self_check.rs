@@ -73,7 +73,7 @@ fn probe_foreign_daemon(manifest: &DaemonManifest) -> bool {
 /// 周期自检 manifest：被新 daemon 取代即优雅退出（防孤儿 daemon 永久残留），
 /// manifest 意外丢失/损坏则自愈重写。全程阻塞 I/O，跑在独立线程上。
 pub fn spawn_manifest_self_check(runtime_dir: PathBuf, config: DaemonConfig) {
-    std::thread::spawn(move || {
+    cc_panes_core::pty::thread::spawn_optional("cc-panes-manifest-check", move || {
         let own_pid = std::process::id();
         let mut rewrite_failures = 0_u32;
         loop {

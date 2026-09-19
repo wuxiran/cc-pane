@@ -77,7 +77,26 @@ fn main() {
             dispatch_with_business("session-resume", DispatchKind::SessionStart)
         }
         Commands::ToolAfter => dispatch_with_business("tool-after", DispatchKind::PlanArchive),
-        Commands::SessionEnd => dispatch_with_business("session-end", DispatchKind::None),
+        Commands::SessionEnd => {
+            // Claude `/clear` is an identity transition, not process exit. Keep
+            // it out of the state machine/OSC exit path and CAS-clear the old id.
+            let mut raw = String::new();
+            let _ = std::io::stdin().read_to_string(&mut raw);
+            let is_clear = serde_json::from_str::<serde_json::Value>(&raw)
+                .ok()
+                .and_then(|payload| {
+                    payload
+                        .get("reason")
+                        .and_then(serde_json::Value::as_str)
+                        .map(|r| r == "clear")
+                })
+                .unwrap_or(false);
+            if is_clear {
+                session_start::clear_with_stdin(&raw);
+            } else {
+                dispatch_with_business_raw("session-end", DispatchKind::None, &raw);
+            }
+        }
         Commands::PromptBefore => dispatch_with_business("prompt-before", DispatchKind::None),
         Commands::ToolBefore => dispatch_with_business("tool-before", DispatchKind::None),
         Commands::TurnEnd => dispatch_with_business("turn-end", DispatchKind::None),
@@ -103,11 +122,15 @@ fn dispatch_with_business(event_name: &str, kind: DispatchKind) {
     let mut raw = String::new();
     let _ = std::io::stdin().read_to_string(&mut raw);
 
-    if !should_dispatch_event(event_name, &raw) {
+    dispatch_with_business_raw(event_name, kind, &raw);
+}
+
+fn dispatch_with_business_raw(event_name: &str, kind: DispatchKind, raw: &str) {
+    if !should_dispatch_event(event_name, raw) {
         return;
     }
 
-    events::dispatch::report_with_payload(event_name, &raw);
+    events::dispatch::report_with_payload(event_name, raw);
 
     // OSC in-band 通道：仅纯状态子命令与 stdout 无输出的业务子命令可发
     // （terminalSequence JSON 必须独占 stdout；session-init/resume 的
@@ -121,8 +144,8 @@ fn dispatch_with_business(event_name: &str, kind: DispatchKind) {
 
     match kind {
         DispatchKind::None => {}
-        DispatchKind::SessionStart => session_start::run_with_stdin(&raw),
-        DispatchKind::PlanArchive => plan_archive::run_with_stdin(&raw),
+        DispatchKind::SessionStart => session_start::run_with_stdin(raw),
+        DispatchKind::PlanArchive => plan_archive::run_with_stdin(raw),
     }
 }
 

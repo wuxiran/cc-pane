@@ -37,15 +37,16 @@ impl SessionOutputStore {
         });
         let worker_sink = sink.clone();
         let (queue, receiver) = mpsc::sync_channel::<PersistWork>(64);
-        std::thread::Builder::new()
-            .name("cc-panes-output-store".into())
-            .spawn(move || {
+        if let Err(error) =
+            cc_panes_core::pty::thread::spawn_named("cc-panes-output-store", move || {
                 while let Ok(work) = receiver.recv() {
                     worker_sink.persist_session(&work.session_id);
                     let _ = work.completed.send(());
                 }
             })
-            .expect("start terminal output persistence worker");
+        {
+            warn!(%error, "output worker unavailable; completion threads will persist synchronously");
+        }
         Self { sink, queue }
     }
 
@@ -61,9 +62,16 @@ impl SessionOutputStore {
             })
             .is_ok()
         {
-            let _ = receiver.recv();
+            if let Err(error) = receiver.recv() {
+                warn!(session_id, %error, "output worker did not acknowledge; persisting synchronously");
+                self.sink.persist_session(session_id);
+            }
         } else {
-            warn!(session_id, "terminal output persistence worker stopped");
+            warn!(
+                session_id,
+                "terminal output persistence worker stopped; persisting synchronously"
+            );
+            self.sink.persist_session(session_id);
         }
     }
 

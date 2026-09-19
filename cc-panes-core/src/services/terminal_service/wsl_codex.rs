@@ -241,7 +241,90 @@ pub(super) struct ResolvedWslLaunch {
     pub(super) distro: String,
     pub(super) remote_path: String,
     pub(super) workspace_remote_path: Option<String>,
+    pub(super) launch_cwd: Option<String>,
     pub(super) windows_host: Option<String>,
+}
+
+impl ResolvedWslLaunch {
+    fn cli_cwd(&self) -> &str {
+        self.launch_cwd
+            .as_deref()
+            .or(self.workspace_remote_path.as_deref())
+            .unwrap_or(&self.remote_path)
+    }
+
+    fn project_cwd(&self) -> &str {
+        self.launch_cwd.as_deref().unwrap_or(&self.remote_path)
+    }
+}
+
+#[cfg(windows)]
+fn resolve_wsl_launch_cwd(path: &str, distro: &str) -> Result<String> {
+    if path.trim().is_empty() || path.chars().any(char::is_control) {
+        return Err(anyhow!(
+            "WSL launch cwd must be a non-empty absolute directory"
+        ));
+    }
+    let path = path.trim();
+    let normalized = path.replace('\\', "/");
+    let unc = normalized
+        .strip_prefix("//wsl.localhost/")
+        .or_else(|| normalized.strip_prefix("//wsl$/"));
+    if let Some(unc) = unc {
+        let (path_distro, guest) = unc.split_once('/').unwrap_or((unc, ""));
+        if !path_distro.eq_ignore_ascii_case(distro) {
+            return Err(anyhow!("WSL cwd belongs to a different distro"));
+        }
+        return Ok(format!("/{guest}"));
+    }
+    if path.starts_with('/') && !path.starts_with("//") {
+        return Ok(path.to_string());
+    }
+    let drive = normalized.strip_prefix("//?/").unwrap_or(&normalized);
+    if drive.as_bytes().get(2) == Some(&b'/') {
+        if let Some(path) = windows_path_to_wsl(Path::new(drive)) {
+            return Ok(path);
+        }
+    }
+    Err(anyhow!(
+        "WSL cwd must be an absolute Linux, Windows drive, or matching WSL UNC path"
+    ))
+}
+
+#[cfg(windows)]
+fn validate_wsl_launch_cwd(wsl: &ResolvedWslLaunch, cwd: &str) -> Result<()> {
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+    // Raw arguments, no shell evaluation: quotes/metacharacters in paths stay data.
+    let mut child = cc_cli_adapters::no_window_command(&wsl.wsl_path.to_string_lossy())
+        .args(["-d", &wsl.distro, "--exec", "test", "-d", cwd])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(_)) => {
+                return Err(anyhow!(
+                    "WSL launch cwd does not exist or is not a directory: {}",
+                    cwd
+                ))
+            }
+            Ok(None) if started.elapsed() < Duration::from_secs(10) => {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            result => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(anyhow!(
+                    "WSL launch cwd validation failed or timed out: {:?}",
+                    result
+                ));
+            }
+        }
+    }
 }
 
 /// Cleanup ownership for the WSL-side configuration directory created by a
@@ -890,13 +973,11 @@ fn sanitize_wsl_claude_session_id(session_id: &str) -> String {
         .collect()
 }
 
-/// 会话结束（自然退出 / kill）时删除该会话的临时 MCP 配置文件。
-/// 本地启动写 `mcp-<id>.json`（cc-cli-adapters/claude.rs），WSL 启动写
-/// `wsl-claude-mcp-<id>.json`（本文件），两者都只在 CLI 启动时读取一次，
-/// 会话结束后即为垃圾。尽力而为：删除失败不影响会话清理主流程。
+/// PTY exit retires Claude MCP configs for delayed collection: Claude jobs may
+/// still reference them. Other launch-only artifacts keep their existing cleanup.
 pub(super) fn cleanup_session_mcp_configs(data_dir: &std::path::Path, session_id: &str) {
     let sanitized = sanitize_wsl_claude_session_id(session_id);
-    if sanitized.is_empty() {
+    if sanitized.is_empty() || sanitized != session_id {
         return;
     }
     for file_name in [
@@ -905,12 +986,12 @@ pub(super) fn cleanup_session_mcp_configs(data_dir: &std::path::Path, session_id
     ] {
         let path = data_dir.join(file_name);
         if path.exists() {
-            if let Err(e) = std::fs::remove_file(&path) {
+            if let Err(e) = cc_cli_adapters::mcp_config_lifecycle::retire_config(&path) {
                 tracing::warn!(
                     session_id = %session_id,
                     path = %path.display(),
                     error = %e,
-                    "Failed to remove per-session MCP config"
+                    "Failed to retire per-session MCP config"
                 );
             }
         }
@@ -1509,6 +1590,7 @@ impl TerminalService {
             distro,
             remote_path: remote_path.to_string(),
             workspace_remote_path,
+            launch_cwd: None,
             windows_host: None,
         })
     }
@@ -1519,6 +1601,28 @@ impl TerminalService {
         _wsl: &WslLaunchInfo,
         _session_id: &str,
     ) -> Result<ResolvedWslLaunch> {
+        Err(anyhow!("WSL launch is only supported on Windows"))
+    }
+
+    /// Independent cwd override; project and workspace identities are not mutated.
+    #[cfg(windows)]
+    pub(super) fn apply_wsl_launch_cwd(
+        &self,
+        resolved: &mut ResolvedWslLaunch,
+        launch_cwd: &str,
+    ) -> Result<()> {
+        let cwd = resolve_wsl_launch_cwd(launch_cwd, &resolved.distro)?;
+        validate_wsl_launch_cwd(resolved, &cwd)?;
+        resolved.launch_cwd = Some(cwd);
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    pub(super) fn apply_wsl_launch_cwd(
+        &self,
+        _resolved: &mut ResolvedWslLaunch,
+        _launch_cwd: &str,
+    ) -> Result<()> {
         Err(anyhow!("WSL launch is only supported on Windows"))
     }
 
@@ -1583,8 +1687,8 @@ impl TerminalService {
         wsl: &ResolvedWslLaunch,
     ) -> Result<(String, Vec<String>)> {
         let mut remote_parts = Vec::new();
-        if !is_wsl_home_path(&wsl.remote_path) {
-            remote_parts.push(format!("cd {}", Self::shell_escape(&wsl.remote_path)));
+        if !is_wsl_home_path(wsl.project_cwd()) {
+            remote_parts.push(format!("cd {}", Self::shell_escape(wsl.project_cwd())));
         }
         remote_parts.push("exec $SHELL -l".to_string());
 
@@ -1675,7 +1779,7 @@ impl TerminalService {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
-        let launch_cwd = workspace_remote_path.unwrap_or(wsl.remote_path.as_str());
+        let launch_cwd = wsl.cli_cwd();
         let mut adapter_args = None;
         // The Pi family has a provider-specific environment contract. Do not
         // carry the generic CC-Panes Provider map into its launch: it can
@@ -2096,38 +2200,10 @@ impl TerminalService {
         let (file_name, config_path, wsl_config_path) =
             wsl_claude_mcp_config_paths(self.app_paths.data_dir(), session_id)?;
 
-        // 清扫崩溃残留：会话正常结束会删自己的配置（cleanup_session_mcp_configs），
-        // 但 daemon 崩溃时会遗留。仅删除同时满足两个条件的文件：
-        // 1) 修改时间 >1h（不是刚启动的会话）；2) 文件名对应的会话不在活跃
-        // 会话表中（"旧于一小时"单独不足以断定不活跃——长跑会话可以超过一小时）。
-        let active_session_files: std::collections::HashSet<String> = self
-            .sessions
-            .lock()
-            .map(|sessions| {
-                sessions
-                    .keys()
-                    .map(|id| format!("wsl-claude-mcp-{}.json", sanitize_wsl_claude_session_id(id)))
-                    .collect()
-            })
-            .unwrap_or_default();
-        if let Ok(entries) = std::fs::read_dir(self.app_paths.data_dir()) {
-            let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if name_str.starts_with("wsl-claude-mcp-")
-                    && name_str.ends_with(".json")
-                    && *name_str != file_name
-                    && !active_session_files.contains(name_str.as_ref())
-                {
-                    if let Ok(meta) = entry.metadata() {
-                        if meta.modified().map(|m| m < cutoff).unwrap_or(false) {
-                            let _ = std::fs::remove_file(entry.path());
-                        }
-                    }
-                }
-            }
-        }
+        cc_cli_adapters::mcp_config_lifecycle::collect_retired_configs(
+            self.app_paths.data_dir(),
+            &file_name,
+        );
         let ccpanes = if let Some(proxy) = proxy {
             serde_json::json!({
                 "type": "stdio",
@@ -2176,6 +2252,7 @@ impl TerminalService {
         servers.insert("ccpanes".to_string(), ccpanes);
         let config = serde_json::json!({ "mcpServers": servers });
 
+        cc_cli_adapters::mcp_config_lifecycle::prepare_config(&config_path)?;
         std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
 
         Ok(Some(wsl_config_path))
@@ -2328,9 +2405,9 @@ impl TerminalService {
             ));
         }
 
-        if wsl.remote_path != "~" && wsl.remote_path != "~/" {
+        if !is_wsl_home_path(wsl.project_cwd()) {
             codex_args.push("-C".to_string());
-            codex_args.push(wsl.remote_path.clone());
+            codex_args.push(wsl.project_cwd().to_string());
         }
         push_codex_developer_instructions_arg(&mut codex_args, append_system_prompt);
         // 标题带 thread-id：CC-Panes 从 PTY 输出的 OSC 标题序列解析确定性 resume id
@@ -2418,13 +2495,7 @@ impl TerminalService {
             "codex(wsl): build_wsl_command result"
         );
 
-        self.build_wsl_script_command(
-            wsl,
-            session_id,
-            "codex",
-            wsl.remote_path.as_str(),
-            remote_parts,
-        )
+        self.build_wsl_script_command(wsl, session_id, "codex", wsl.project_cwd(), remote_parts)
     }
 
     #[cfg(not(windows))]
@@ -2869,7 +2940,53 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_session_mcp_configs_removes_only_own_session_files() {
+    #[cfg(windows)]
+    fn launch_cwd_override_translates_paths_without_rewriting_identity() {
+        assert_eq!(
+            super::resolve_wsl_launch_cwd(r"D:\repo with space", "Ubuntu").unwrap(),
+            "/mnt/d/repo with space"
+        );
+        assert_eq!(
+            super::resolve_wsl_launch_cwd(r"\\wsl.localhost\Ubuntu\home\u\repo", "Ubuntu").unwrap(),
+            "/home/u/repo"
+        );
+        assert_eq!(
+            super::resolve_wsl_launch_cwd("/tmp/has'quote$(literal)", "Ubuntu").unwrap(),
+            "/tmp/has'quote$(literal)"
+        );
+        for bad in [
+            "",
+            "~/repo",
+            "relative",
+            "D:relative",
+            "//server/share",
+            "\n/tmp",
+            r"\\wsl$\Debian\tmp",
+        ] {
+            assert!(
+                super::resolve_wsl_launch_cwd(bad, "Ubuntu").is_err(),
+                "{bad}"
+            );
+        }
+        let mut wsl = ResolvedWslLaunch {
+            wsl_path: PathBuf::from("wsl.exe"),
+            distro: "Ubuntu".into(),
+            remote_path: "/project".into(),
+            workspace_remote_path: Some("/workspace".into()),
+            launch_cwd: None,
+            windows_host: None,
+        };
+        assert_eq!(wsl.cli_cwd(), "/workspace");
+        assert_eq!(wsl.project_cwd(), "/project"); // Codex already used project -C.
+        wsl.launch_cwd = Some("/worktree".into());
+        assert_eq!(wsl.cli_cwd(), "/worktree");
+        assert_eq!(wsl.project_cwd(), "/worktree");
+        assert_eq!(wsl.remote_path, "/project");
+        assert_eq!(wsl.workspace_remote_path.as_deref(), Some("/workspace"));
+    }
+
+    #[test]
+    fn cleanup_session_mcp_configs_retires_claude_and_removes_own_launch_artifacts() {
         let dir = unique_temp_dir("mcp-cleanup");
         let sid = "11111111-aaaa-bbbb-cccc-222222222222";
         let other = "33333333-dddd-eeee-ffff-444444444444";
@@ -2902,8 +3019,12 @@ mod tests {
 
         super::cleanup_session_mcp_configs(&dir, sid);
 
-        assert!(!dir.join(format!("mcp-{}.json", sid)).exists());
-        assert!(!dir.join(format!("wsl-claude-mcp-{}.json", sid)).exists());
+        assert!(dir.join(format!("mcp-{}.json", sid)).exists());
+        assert!(dir.join(format!("mcp-{}.json.retired", sid)).exists());
+        assert!(dir.join(format!("wsl-claude-mcp-{}.json", sid)).exists());
+        assert!(dir
+            .join(format!("wsl-claude-mcp-{}.json.retired", sid))
+            .exists());
         assert!(dir.join(format!("mcp-{}.json", other)).exists());
         assert!(dir.join(format!("wsl-claude-mcp-{}.json", other)).exists());
         assert!(dir.join("mcp-orchestrator.json").exists());
@@ -3352,6 +3473,7 @@ mod tests {
                 distro: "Ubuntu".to_string(),
                 remote_path: "/workspace/project".to_string(),
                 workspace_remote_path: None,
+                launch_cwd: None,
                 windows_host: None,
             },
             session_id,

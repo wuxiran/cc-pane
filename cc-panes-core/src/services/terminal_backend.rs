@@ -333,12 +333,12 @@ impl DaemonTerminalBackend {
                             }
                             let handles: Vec<_> = chunk
                                 .iter()
-                                .map(|(session_id, lease)| {
+                                .filter_map(|(session_id, lease)| {
                                     let client = client.clone();
                                     let session_id = session_id.clone();
                                     let lease = lease.clone();
                                     let owned = owned.clone();
-                                    std::thread::spawn(move || {
+                                    crate::pty::thread::spawn_named("cc-panes-claim-renew-one", move || {
                                         let Ok(_gate) = lease.gate.lock() else {
                                             return (session_id, None);
                                         };
@@ -352,7 +352,9 @@ impl DaemonTerminalBackend {
                                         }
                                         let outcome = client.claim_session(&session_id, None);
                                         (session_id, Some(outcome))
-                                    })
+                                    }).map_err(|error| {
+                                        tracing::warn!(%error, "claim renewal thread unavailable; retrying on next bounded sweep");
+                                    }).ok()
                                 })
                                 .collect();
 
@@ -459,6 +461,7 @@ fn create_core_session(
         request.extra_env.as_ref(),
         request.ssh.as_ref(),
         request.wsl.as_ref(),
+        request.launch_cwd.as_deref(),
         publisher,
     )
     .map_err(|error| {
@@ -471,36 +474,7 @@ fn create_core_session(
 
 impl TerminalBackend for TerminalService {
     fn create_session(&self, request: CreateSessionRequest) -> AppResult<String> {
-        TerminalService::create_session(
-            self,
-            request.launch_id.as_deref(),
-            &request.project_path,
-            request.cols,
-            request.rows,
-            request.workspace_name.as_deref(),
-            request.provider_id.as_deref(),
-            request.model_id.as_deref(),
-            request.provider_selection,
-            request.launch_profile_id.as_deref(),
-            request.workspace_path.as_deref(),
-            request.workspace_snapshot_id.as_deref(),
-            request.effective_cli_tool(),
-            request.resume_id.as_deref(),
-            request.skip_mcp,
-            request.append_system_prompt.as_deref(),
-            request.initial_prompt.as_deref(),
-            request.yolo_mode,
-            request.adapter_options.as_ref(),
-            request.extra_env.as_ref(),
-            request.ssh.as_ref(),
-            request.wsl.as_ref(),
-        )
-        .map_err(|error| {
-            error
-                .downcast_ref::<AppError>()
-                .cloned()
-                .unwrap_or_else(|| AppError::from(error))
-        })
+        create_core_session(self, request, None).map(|outcome| outcome.session_id)
     }
 
     fn create_session_with_outcome(
@@ -1176,6 +1150,7 @@ mod tests {
     fn create_request() -> CreateSessionRequest {
         CreateSessionRequest {
             launch_id: None,
+            launch_cwd: None,
             project_path: "/repo".to_string(),
             cols: 120,
             rows: 30,

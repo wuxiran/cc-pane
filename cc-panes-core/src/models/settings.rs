@@ -464,6 +464,17 @@ pub struct TerminalSettings {
     pub font_family: String,
     pub cursor_style: String, // "block" | "underline" | "bar"
     pub cursor_blink: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor_color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor_accent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection_background: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection_foreground: Option<String>,
+    /// UI-only gate; each completed task must also explicitly opt in. Never kills a PTY.
+    #[serde(default)]
+    pub auto_close_completed_tasks: bool,
     pub scrollback: u32,
     /// 终端主题: "followApp" | "dark" | "light"
     #[serde(default = "default_terminal_theme_mode")]
@@ -1264,6 +1275,11 @@ impl Default for TerminalSettings {
             font_family: "\"Maple Mono NF CN\", \"Maple Mono\", \"Cascadia Code\", \"Cascadia Mono\", \"JetBrains Mono\", Consolas, \"Sarasa Mono SC\", \"Microsoft YaHei UI\", \"PingFang SC\", monospace".to_string(),
             cursor_style: "block".to_string(),
             cursor_blink: false,
+            cursor_color: None,
+            cursor_accent: None,
+            selection_background: None,
+            selection_foreground: None,
+            auto_close_completed_tasks: false,
             scrollback: crate::constants::terminal::DEFAULT_SCROLLBACK,
             theme_mode: default_terminal_theme_mode(),
             renderer_mode: default_terminal_renderer_mode(),
