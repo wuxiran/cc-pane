@@ -7,6 +7,7 @@ use vte::{Params, Perform};
 
 const MAX_ROWS: usize = 512;
 const MAX_COLS: usize = 1024;
+type SavedScreen = (Vec<Vec<String>>, usize, usize, bool);
 
 pub(super) struct OutputBuffer {
     parser: vte::Parser,
@@ -24,7 +25,7 @@ struct Screen {
     cols: usize,
     max_lines: usize,
     max_bytes: usize,
-    alternate: Option<(Vec<Vec<String>>, usize, usize)>,
+    alternate: Option<SavedScreen>,
     scroll_top: usize,
     scroll_bottom: usize,
     wrap_pending: bool,
@@ -67,15 +68,22 @@ impl OutputBuffer {
         let s = &mut self.screen;
         s.rows = usize::from(rows).clamp(1, MAX_ROWS);
         s.cols = usize::from(cols).clamp(1, MAX_COLS);
-        s.cells.resize(s.rows, Vec::new());
-        for row in &mut s.cells {
-            row.truncate(s.cols);
+        if let Some(main) = s.alternate.take() {
+            // Resize the saved main screen too, without adding alternate-screen noise.
+            s.alternate = Some(resize_screen(main, s.rows, s.cols, |line| {
+                s.remember_line(line);
+            }));
         }
-        s.row = s.row.min(s.rows - 1);
-        s.col = s.col.min(s.cols - 1);
+        let active = (std::mem::take(&mut s.cells), s.row, s.col, s.wrap_pending);
+        (s.cells, s.row, s.col, s.wrap_pending) = resize_screen(active, s.rows, s.cols, |line| {
+            if s.alternate.is_none() {
+                s.remember_line(line);
+            }
+        });
+        s.saved_cursor.0 = s.saved_cursor.0.min(s.rows - 1);
+        s.saved_cursor.1 = s.saved_cursor.1.min(s.cols - 1);
         s.scroll_top = 0;
         s.scroll_bottom = s.rows - 1;
-        s.wrap_pending = false;
     }
 
     pub(super) fn shrink(&mut self, max_lines: usize, max_bytes: usize) {
@@ -126,7 +134,111 @@ fn render(row: &[String]) -> String {
     row.concat().trim_end().to_string()
 }
 
+/// Preserve physical line boundaries when growing; split overlong rows when shrinking.
+/// This intentionally does not reconstruct logical lines from old soft wraps.
+fn resize_screen(
+    (mut cells, cursor_row, cursor_col, wrap_pending): SavedScreen,
+    rows: usize,
+    cols: usize,
+    mut remember: impl FnMut(String),
+) -> SavedScreen {
+    let used = cells
+        .iter()
+        .rposition(|line| line.iter().any(|cell| !cell.trim().is_empty()))
+        .map_or(0, |row| row + 1)
+        .max(cursor_row + 1);
+    cells.truncate(used);
+    let mut visible = VecDeque::new();
+    let mut removed = 0;
+    let mut cursor = (0, 0, false);
+    for (row_index, source) in cells.into_iter().enumerate() {
+        let target = cursor_col + usize::from(wrap_pending);
+        let length = source
+            .len()
+            .max(if row_index == cursor_row { target } else { 0 });
+        let mut line = Vec::new();
+        let mut index = 0;
+        while index < length {
+            let cell = source.get(index).filter(|cell| !cell.is_empty());
+            let glyph = cell.map(String::as_str).unwrap_or(" ");
+            let source_width =
+                if cell.is_some() && source.get(index + 1).is_some_and(String::is_empty) {
+                    2
+                } else {
+                    1
+                };
+            // A one-column observation still keeps a wide glyph's text. On expansion
+            // its real width is recovered from the glyph, not the old continuation cell.
+            let width = glyph
+                .chars()
+                .next()
+                .and_then(UnicodeWidthChar::width)
+                .unwrap_or(1)
+                .clamp(1, cols);
+            if line.len() + width > cols {
+                keep_resized_line(
+                    &mut visible,
+                    std::mem::take(&mut line),
+                    rows,
+                    &mut removed,
+                    &mut remember,
+                );
+            }
+            if row_index == cursor_row && (index..index + source_width).contains(&target) {
+                cursor = (
+                    removed + visible.len(),
+                    line.len() + (target - index).min(width - 1),
+                    false,
+                );
+            }
+            line.push(glyph.to_string());
+            if width == 2 {
+                line.push(String::new());
+            }
+            index += source_width;
+        }
+        if row_index == cursor_row && target >= length {
+            cursor = (
+                removed + visible.len(),
+                line.len().min(cols - 1),
+                line.len() == cols,
+            );
+        }
+        keep_resized_line(&mut visible, line, rows, &mut removed, &mut remember);
+    }
+    let mut cells: Vec<_> = visible.into_iter().collect();
+    cells.resize(rows, Vec::new());
+    (
+        cells,
+        cursor.0.saturating_sub(removed).min(rows - 1),
+        cursor.1,
+        cursor.2,
+    )
+}
+
+fn keep_resized_line(
+    visible: &mut VecDeque<Vec<String>>,
+    line: Vec<String>,
+    rows: usize,
+    removed: &mut usize,
+    remember: &mut impl FnMut(String),
+) {
+    visible.push_back(line);
+    if visible.len() > rows {
+        if let Some(line) = visible.pop_front() {
+            remember(render(&line));
+            *removed += 1;
+        }
+    }
+}
+
 impl Screen {
+    fn remember_line(&mut self, line: String) {
+        self.history_bytes += line.len();
+        self.history.push_back(line);
+        self.evict();
+    }
+
     fn evict(&mut self) {
         while self.history.len() > self.max_lines || self.history_bytes > self.max_bytes {
             if let Some(line) = self.history.pop_front() {
@@ -217,21 +329,18 @@ impl Screen {
     fn alternate_screen(&mut self, enabled: bool) {
         if enabled && self.alternate.is_none() {
             let old = std::mem::replace(&mut self.cells, vec![Vec::new(); self.rows]);
-            self.alternate = Some((old, self.row, self.col));
+            self.alternate = Some((old, self.row, self.col, self.wrap_pending));
             self.row = 0;
             self.col = 0;
+            self.wrap_pending = false;
         } else if !enabled {
-            if let Some((cells, row, col)) = self.alternate.take() {
+            if let Some((cells, row, col, wrap_pending)) = self.alternate.take() {
                 self.cells = cells;
-                self.cells.resize(self.rows, Vec::new());
-                for row in &mut self.cells {
-                    row.truncate(self.cols);
-                }
-                self.row = row.min(self.rows - 1);
-                self.col = col.min(self.cols - 1);
+                self.row = row;
+                self.col = col;
+                self.wrap_pending = wrap_pending;
             }
         }
-        self.wrap_pending = false;
     }
 }
 
@@ -492,6 +601,83 @@ mod tests {
         assert_eq!(b.get_recent(0), ["A 文"]);
         b.push("\r\x1b[2Kdone\r\nnext");
         assert_eq!(b.get_recent(0), ["done", "next"]);
+    }
+
+    #[test]
+    fn issue64_plain_height_shrink_preserves_latest_output_and_history() {
+        let mut b = OutputBuffer::with_size(64, 65536, 80, 3);
+        b.push("old\r\nmiddle\r\nFINAL");
+        b.resize(80, 2);
+        assert_eq!(b.get_recent(0), ["old", "middle", "FINAL"]);
+        assert_eq!(b.screen.history.front().map(String::as_str), Some("old"));
+        b.push("!");
+        assert_eq!(b.get_recent(1), ["FINAL!"]);
+
+        let mut b = OutputBuffer::with_size(64, 65536, 80, 10);
+        b.push("first\r\nlast");
+        b.resize(80, 2);
+        assert!(
+            b.screen.history.is_empty(),
+            "discard unused bottom rows first"
+        );
+        assert_eq!(b.get_recent(0), ["first", "last"]);
+    }
+
+    #[test]
+    fn issue64_plain_width_shrink_keeps_unicode_and_cursor_append() {
+        for text in ["abcdefgh", "a中文e\u{301}z", "中文"] {
+            for width in [1, 2, 3, 4] {
+                let mut b = OutputBuffer::with_size(64, 65536, 8, 8);
+                b.push(text);
+                b.resize(width, 8);
+                assert_eq!(b.get_recent(0).concat(), text);
+                assert!(b
+                    .screen
+                    .cells
+                    .iter()
+                    .all(|row| row.len() <= usize::from(width)));
+                b.resize(16, 8);
+                assert_eq!(b.get_recent(0).concat(), text);
+                b.push("!");
+                assert_eq!(b.get_recent(0).concat(), format!("{text}!"));
+            }
+        }
+    }
+
+    #[test]
+    fn issue64_plain_resize_keeps_pending_wrap_on_last_character() {
+        let mut b = OutputBuffer::with_size(64, 65536, 4, 3);
+        b.push("abcd");
+        b.resize(4, 2);
+        b.push("e");
+        assert_eq!(b.get_recent(0), ["abcd", "e"]);
+    }
+
+    #[test]
+    fn issue64_plain_resize_alternate_does_not_pollute_main_history() {
+        let mut b = OutputBuffer::with_size(64, 65536, 8, 4);
+        b.push("old\r\n中文e\u{301}\x1b[?1049hALTERNATE\r\nnoise");
+        b.resize(2, 2);
+        assert!(b.screen.history.iter().all(|line| !line.contains("ALT")));
+        b.push("\x1b[?1049l!");
+        assert_eq!(b.get_recent(0).concat(), "old中文e\u{301}!");
+        b.resize(8, 4);
+        assert_eq!(b.get_recent(0).concat(), "old中文e\u{301}!");
+        assert!(b.screen.cells.iter().all(|row| row.len() <= 8));
+    }
+
+    #[test]
+    fn issue64_plain_resize_stays_bounded() {
+        let mut b = OutputBuffer::with_size(4, 16, 80, 24);
+        for _ in 0..100 {
+            b.push("abcdefghijklmnop\r\n");
+            b.resize(1, 1);
+            b.resize(80, 24);
+        }
+        assert!(b.screen.history.len() <= 4);
+        assert!(b.screen.history_bytes <= 16);
+        assert!(b.get_recent(0).concat().len() <= 16);
+        assert!(b.screen.cells.len() <= 24);
     }
 
     #[test]
