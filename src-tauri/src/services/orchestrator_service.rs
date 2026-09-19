@@ -17462,7 +17462,7 @@ mod tests {
             ssh: Some(SshConnectionInfo {
                 host: "host".into(),
                 port: 22,
-                user: "user".into(),
+                user: Some("user".into()),
                 remote_path: "/srv/project".into(),
                 identity_file: None,
                 machine_id: None,
