@@ -224,6 +224,7 @@ mod wsl_cleanup {
     use crate::services::wsl_discovery_service::decode_utf16le;
     use std::path::PathBuf;
     use std::time::Duration;
+    use tracing::warn;
 
     /// 停止状态的发行版会被 wsl.exe 顺带拉起，冷启动数秒；30s 之外视为不可达。
     const WSL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -239,13 +240,19 @@ mod wsl_cleanup {
     fn run_wsl(args: Vec<String>) -> Option<std::process::Output> {
         let wsl_path = which::which("wsl.exe").ok()?;
         let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = sender.send(
-                crate::utils::no_window_command(&wsl_path)
-                    .args(&args)
-                    .output(),
-            );
-        });
+        if let Err(error) = std::thread::Builder::new()
+            .name("ccpanes-wsl-cleanup".to_string())
+            .spawn(move || {
+                let _ = sender.send(
+                    crate::utils::no_window_command(&wsl_path)
+                        .args(&args)
+                        .output(),
+                );
+            })
+        {
+            warn!(%error, "uninstall cleanup could not start the WSL worker");
+            return None;
+        }
         receiver
             .recv_timeout(WSL_TIMEOUT)
             .ok()?

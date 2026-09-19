@@ -74,6 +74,26 @@ struct CodexCommandSpec {
     env_inject: HashMap<String, String>,
 }
 
+fn spawn_stderr_reader(
+    stderr: Option<std::process::ChildStderr>,
+    name: &'static str,
+) -> AppResult<std::thread::JoinHandle<String>> {
+    std::thread::Builder::new()
+        .name(name.to_string())
+        .spawn(move || {
+            let mut text = String::new();
+            if let Some(mut stderr) = stderr {
+                let _ = stderr.read_to_string(&mut text);
+            }
+            text
+        })
+        .map_err(|error| {
+            AppError::from(format!(
+                "Failed to start structured chat stderr reader: {error}"
+            ))
+        })
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 struct ParsedClaudeLine {
     text: Option<String>,
@@ -607,14 +627,15 @@ impl CCChanService {
             .stdout
             .take()
             .ok_or_else(|| AppError::from("Claude structured chat stdout is unavailable"))?;
-        let mut stderr = child.stderr.take();
-        let stderr_reader = std::thread::spawn(move || {
-            let mut text = String::new();
-            if let Some(mut stderr) = stderr.take() {
-                let _ = stderr.read_to_string(&mut text);
-            }
-            text
-        });
+        let stderr_reader =
+            match spawn_stderr_reader(child.stderr.take(), "ccpanes-ccchan-claude-stderr") {
+                Ok(reader) => reader,
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(error);
+                }
+            };
 
         let mut next_claude_session_id = resume_id.map(str::to_string);
         let mut last_error: Option<String> = None;
@@ -707,14 +728,15 @@ impl CCChanService {
             .stdout
             .take()
             .ok_or_else(|| AppError::from("Codex structured chat stdout is unavailable"))?;
-        let mut stderr = child.stderr.take();
-        let stderr_reader = std::thread::spawn(move || {
-            let mut text = String::new();
-            if let Some(mut stderr) = stderr.take() {
-                let _ = stderr.read_to_string(&mut text);
-            }
-            text
-        });
+        let stderr_reader =
+            match spawn_stderr_reader(child.stderr.take(), "ccpanes-ccchan-codex-stderr") {
+                Ok(reader) => reader,
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(error);
+                }
+            };
 
         let mut next_thread_id = resume_id.map(str::to_string);
         let mut last_error: Option<String> = None;

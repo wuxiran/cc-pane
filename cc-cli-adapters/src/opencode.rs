@@ -548,21 +548,36 @@ impl OpenCodeAdapter {
         let cancelled = Arc::new(AtomicBool::new(false));
         let worker_cancelled = Arc::clone(&cancelled);
         let adapter_root = Self::adapter_root(ctx);
-        std::thread::spawn(move || {
-            let adapter = OpenCodeAdapter::new();
-            let result = adapter.write_session_configs(
-                &context,
-                custom_tui_config.as_deref(),
-                user_tui_config.as_deref(),
-                user_main_config.as_deref(),
-                user_theme_path.as_deref(),
-            );
-            if worker_cancelled.load(Ordering::Acquire) {
-                let _ = std::fs::remove_dir_all(adapter_root);
-                return;
+        if let Err(error) = std::thread::Builder::new()
+            .name("ccpanes-opencode-config".to_string())
+            .spawn(move || {
+                let adapter = OpenCodeAdapter::new();
+                let result = adapter.write_session_configs(
+                    &context,
+                    custom_tui_config.as_deref(),
+                    user_tui_config.as_deref(),
+                    user_main_config.as_deref(),
+                    user_theme_path.as_deref(),
+                );
+                if worker_cancelled.load(Ordering::Acquire) {
+                    let _ = std::fs::remove_dir_all(adapter_root);
+                    return;
+                }
+                let _ = result_tx.send(result);
+            })
+        {
+            if ctx.provider.is_some() {
+                return Err(anyhow!(
+                    "Managed OpenCode session configuration worker could not start: {error}"
+                ));
             }
-            let _ = result_tx.send(result);
-        });
+            warn!(
+                session_id = %ctx.session_id,
+                %error,
+                "opencode: config worker could not start; launching with native config"
+            );
+            return Ok(HashMap::new());
+        }
 
         match result_rx.recv_timeout(CONFIG_WRITE_DEADLINE) {
             Ok(Ok(env)) => Ok(env),

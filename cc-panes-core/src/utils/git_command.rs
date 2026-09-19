@@ -1,4 +1,6 @@
 use super::error::AppError;
+#[cfg(test)]
+use std::cell::Cell;
 use std::io::{self, Read};
 use std::process::{Command, Output, Stdio};
 use std::sync::{
@@ -169,14 +171,29 @@ pub fn output_with_timeout_limit(
         .ok_or_else(|| io::Error::other("failed to capture command stderr"))?;
     let total_bytes = Arc::new(AtomicUsize::new(0));
     let exceeded = Arc::new(AtomicBool::new(false));
-    let stdout_thread = spawn_limited_reader(
+    let stdout_thread = match spawn_limited_reader(
         stdout,
         total_bytes.clone(),
         exceeded.clone(),
         max_output_bytes,
-    );
+    ) {
+        Ok(handle) => handle,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+    };
     let stderr_thread =
-        spawn_limited_reader(stderr, total_bytes, exceeded.clone(), max_output_bytes);
+        match spawn_limited_reader(stderr, total_bytes, exceeded.clone(), max_output_bytes) {
+            Ok(handle) => handle,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = join_reader(stdout_thread);
+                return Err(error);
+            }
+        };
 
     let start = Instant::now();
     let wait_result = loop {
@@ -230,27 +247,39 @@ fn spawn_limited_reader<R>(
     total_bytes: Arc<AtomicUsize>,
     exceeded: Arc<AtomicBool>,
     max_output_bytes: usize,
-) -> std::thread::JoinHandle<io::Result<Vec<u8>>>
+) -> io::Result<std::thread::JoinHandle<io::Result<Vec<u8>>>>
 where
     R: Read + Send + 'static,
 {
-    std::thread::spawn(move || {
-        let mut output = Vec::new();
-        let mut chunk = [0u8; 8192];
-        loop {
-            let read = reader.read(&mut chunk)?;
-            if read == 0 {
-                break;
+    #[cfg(test)]
+    if TEST_FORCE_READER_THREAD_FAILURE.with(|flag| flag.replace(false)) {
+        return Err(io::Error::other("injected reader thread creation failure"));
+    }
+
+    std::thread::Builder::new()
+        .name("ccpanes-git-output-reader".to_string())
+        .spawn(move || {
+            let mut output = Vec::new();
+            let mut chunk = [0u8; 8192];
+            loop {
+                let read = reader.read(&mut chunk)?;
+                if read == 0 {
+                    break;
+                }
+                let previous = total_bytes.fetch_add(read, Ordering::AcqRel);
+                let remaining = max_output_bytes.saturating_sub(previous);
+                output.extend_from_slice(&chunk[..read.min(remaining)]);
+                if read > remaining {
+                    exceeded.store(true, Ordering::Release);
+                }
             }
-            let previous = total_bytes.fetch_add(read, Ordering::AcqRel);
-            let remaining = max_output_bytes.saturating_sub(previous);
-            output.extend_from_slice(&chunk[..read.min(remaining)]);
-            if read > remaining {
-                exceeded.store(true, Ordering::Release);
-            }
-        }
-        Ok(output)
-    })
+            Ok(output)
+        })
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_FORCE_READER_THREAD_FAILURE: Cell<bool> = const { Cell::new(false) };
 }
 
 fn join_reader(handle: std::thread::JoinHandle<io::Result<Vec<u8>>>) -> io::Result<Vec<u8>> {
@@ -420,6 +449,19 @@ mod tests {
         let error = result.expect_err("output above the hard limit must fail");
         assert_eq!(error.kind(), io::ErrorKind::FileTooLarge);
         assert!(error.to_string().contains("output limit"));
+    }
+
+    #[test]
+    fn output_with_timeout_propagates_reader_thread_creation_failure() {
+        TEST_FORCE_READER_THREAD_FAILURE.with(|flag| flag.set(true));
+
+        let error =
+            output_with_timeout(Command::new("git").arg("--version"), Duration::from_secs(5))
+                .expect_err("reader thread creation failure must be returned");
+
+        assert!(error
+            .to_string()
+            .contains("injected reader thread creation failure"));
     }
 
     #[cfg(not(windows))]

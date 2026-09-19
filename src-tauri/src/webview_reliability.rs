@@ -273,23 +273,39 @@ fn spawn_rebuild_watchdog(
     app_handle: tauri::AppHandle,
     kind: ProcessFailureKind,
     detected_at_ms: u128,
-) {
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(10));
-        if WEBVIEW_RECOVERY_HOLDS_EXIT
-            .compare_exchange(true, false, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-        {
+) -> bool {
+    let worker_app = app_handle.clone();
+    match std::thread::Builder::new()
+        .name("ccpanes-webview-rebuild-watchdog".to_string())
+        .spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            if WEBVIEW_RECOVERY_HOLDS_EXIT
+                .compare_exchange(true, false, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                let action = finish_browser_rebuild(false);
+                debug_assert_eq!(action, RecoveryAction::ExitApplication);
+                exit_after_webview_failure(
+                    &worker_app,
+                    kind,
+                    detected_at_ms,
+                    "main window rebuild timed out after 10 seconds",
+                );
+            }
+        }) {
+        Ok(_) => true,
+        Err(error) => {
             let action = finish_browser_rebuild(false);
             debug_assert_eq!(action, RecoveryAction::ExitApplication);
             exit_after_webview_failure(
                 &app_handle,
                 kind,
                 detected_at_ms,
-                "main window rebuild timed out after 10 seconds",
+                &format!("failed to start main window rebuild watchdog: {error}"),
             );
+            false
         }
-    });
+    }
 }
 
 #[cfg(windows)]
@@ -345,11 +361,26 @@ fn spawn_browser_rebuild(
     suspend_webview_emits();
     WEBVIEW_RECOVERY_HOLDS_EXIT.store(true, Ordering::Release);
     log_crash_marker(kind, "rebuild-main-window", detected_at_ms, "attempt=1");
-    spawn_rebuild_watchdog(app_handle.clone(), kind, detected_at_ms);
-    std::thread::spawn(move || {
-        let result = rebuild_main_window(&app_handle);
-        complete_browser_rebuild(&app_handle, kind, detected_at_ms, result);
-    });
+    if !spawn_rebuild_watchdog(app_handle.clone(), kind, detected_at_ms) {
+        return;
+    }
+    let worker_app = app_handle.clone();
+    if let Err(error) = std::thread::Builder::new()
+        .name("ccpanes-webview-rebuild".to_string())
+        .spawn(move || {
+            let result = rebuild_main_window(&worker_app);
+            complete_browser_rebuild(&worker_app, kind, detected_at_ms, result);
+        })
+    {
+        complete_browser_rebuild(
+            &app_handle,
+            kind,
+            detected_at_ms,
+            Err(anyhow::anyhow!(
+                "failed to start main window rebuild: {error}"
+            )),
+        );
+    }
 }
 
 #[cfg(windows)]
@@ -388,15 +419,26 @@ fn spawn_renderer_reload(
 ) {
     use tauri::Manager;
 
-    std::thread::spawn(move || {
-        let result = app_handle
-            .get_webview_window("main")
-            .ok_or_else(|| "main window is not registered".to_string())
-            .and_then(|window| window.reload().map_err(|error| error.to_string()));
-        if let Err(error) = result {
-            escalate_renderer_reload_failure(app_handle, kind, detected_at_ms, error);
-        }
-    });
+    let worker_app = app_handle.clone();
+    if let Err(error) = std::thread::Builder::new()
+        .name("ccpanes-webview-renderer-reload".to_string())
+        .spawn(move || {
+            let result = worker_app
+                .get_webview_window("main")
+                .ok_or_else(|| "main window is not registered".to_string())
+                .and_then(|window| window.reload().map_err(|error| error.to_string()));
+            if let Err(error) = result {
+                escalate_renderer_reload_failure(worker_app, kind, detected_at_ms, error);
+            }
+        })
+    {
+        escalate_renderer_reload_failure(
+            app_handle,
+            kind,
+            detected_at_ms,
+            format!("failed to start renderer reload worker: {error}"),
+        );
+    }
 }
 
 #[cfg(windows)]

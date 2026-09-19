@@ -326,43 +326,66 @@ fn git_clone_blocking(app_handle: AppHandle, request: GitCloneRequest) -> AppRes
     // 后台线程读取 stderr 发送进度
     let stderr = child.stderr.take();
     let handle = app_handle.clone();
-    let progress_thread = stderr.map(|mut stderr| {
-        std::thread::spawn(move || {
-            use std::io::Read;
-            let mut buf = Vec::new();
-            let mut byte = [0u8; 1];
-            // git progress 输出使用 \r 覆盖行，按字节读取
-            loop {
-                match stderr.read(&mut byte) {
-                    Ok(0) => break,
-                    Ok(_) => {
-                        if byte[0] == b'\r' || byte[0] == b'\n' {
-                            if !buf.is_empty() {
-                                let line = String::from_utf8_lossy(&buf).to_string();
-                                let progress = parse_git_progress(&line);
-                                let _ = handle.emit_to(
-                                    EventTarget::webview("main"),
-                                    "git-clone-progress",
-                                    progress,
-                                );
-                                buf.clear();
+    let progress_thread = match stderr {
+        None => None,
+        Some(mut stderr) => match std::thread::Builder::new()
+            .name("ccpanes-git-clone-progress".to_string())
+            .spawn(move || {
+                use std::io::Read;
+                let mut buf = Vec::new();
+                let mut byte = [0u8; 1];
+                // git progress 输出使用 \r 覆盖行，按字节读取
+                loop {
+                    match stderr.read(&mut byte) {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            if byte[0] == b'\r' || byte[0] == b'\n' {
+                                if !buf.is_empty() {
+                                    let line = String::from_utf8_lossy(&buf).to_string();
+                                    let progress = parse_git_progress(&line);
+                                    let _ = handle.emit_to(
+                                        EventTarget::webview("main"),
+                                        "git-clone-progress",
+                                        progress,
+                                    );
+                                    buf.clear();
+                                }
+                            } else {
+                                buf.push(byte[0]);
                             }
-                        } else {
-                            buf.push(byte[0]);
                         }
+                        Err(_) => break,
                     }
-                    Err(_) => break,
                 }
+                // 处理剩余数据
+                if !buf.is_empty() {
+                    let line = String::from_utf8_lossy(&buf).to_string();
+                    let progress = parse_git_progress(&line);
+                    let _ = handle.emit_to(
+                        EventTarget::webview("main"),
+                        "git-clone-progress",
+                        progress,
+                    );
+                }
+            }) {
+            Ok(thread) => Some(thread),
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let cleanup = std::fs::remove_dir_all(&clone_path).err();
+                let detail = cleanup
+                    .map(|cleanup_error| {
+                        format!(
+                            "failed to start git clone progress reader: {error}; also failed to remove partial clone: {cleanup_error}"
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        format!("failed to start git clone progress reader: {error}")
+                    });
+                return Err(detail.into());
             }
-            // 处理剩余数据
-            if !buf.is_empty() {
-                let line = String::from_utf8_lossy(&buf).to_string();
-                let progress = parse_git_progress(&line);
-                let _ =
-                    handle.emit_to(EventTarget::webview("main"), "git-clone-progress", progress);
-            }
-        })
-    });
+        },
+    };
 
     // 等待完成（5 分钟超时）
     let clone_timeout = std::time::Duration::from_secs(300);
