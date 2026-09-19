@@ -1674,7 +1674,9 @@ mod tests {
              CREATE TABLE launch_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_id TEXT NOT NULL,
-                launched_at TEXT NOT NULL
+                launched_at TEXT NOT NULL,
+                pty_session_id TEXT,
+                launch_cwd TEXT
              );
              CREATE TABLE task_bindings (id TEXT PRIMARY KEY);
              INSERT INTO launch_history (project_id, launched_at) VALUES
@@ -1750,7 +1752,9 @@ mod tests {
                 project_name TEXT NOT NULL,
                 project_path TEXT NOT NULL,
                 launched_at TEXT NOT NULL,
-                provider_id TEXT
+                provider_id TEXT,
+                pty_session_id TEXT,
+                launch_cwd TEXT
              );
              CREATE TABLE task_bindings (id TEXT PRIMARY KEY);
              INSERT INTO launch_history (

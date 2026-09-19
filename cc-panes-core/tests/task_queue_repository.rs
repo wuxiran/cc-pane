@@ -66,7 +66,13 @@ fn migration_v34_upgrades_a_v33_database() {
             description TEXT NOT NULL,
             applied_at TEXT NOT NULL DEFAULT (datetime('now'))
          );
-         INSERT INTO schema_migrations(version, description) VALUES (33, 'seeded');",
+         INSERT INTO schema_migrations(version, description) VALUES (33, 'seeded');
+         CREATE TABLE launch_history (
+            id INTEGER PRIMARY KEY,
+            launched_at TEXT NOT NULL,
+            pty_session_id TEXT,
+            launch_cwd TEXT
+         );",
     )
     .unwrap();
     drop(conn);
