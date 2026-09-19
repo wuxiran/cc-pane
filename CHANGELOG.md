@@ -4,6 +4,31 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.12.21 - 2026-09-19
+
+Fix the launch, terminal observation, identity and interaction issues under CC-Panes control from Issue #64, including gaps found during cross-layer release review.
+
+### Fixed
+
+- Render editable CLI settings immediately; slow or failed detection no longer blanks the editor or disables unknown launch tools. Accept late successful detection results.
+- Support independent cwd and per-launch permission overrides for MCP/REST dispatch. Resolve real local, WSL and SSH working directories and preserve them through history and adoption without replacing workspace metadata.
+- Capture Claude SessionStart after `/clear`, migrate the clear hook matcher, and prevent stale resume identities and usage from returning.
+- Reclaim Claude MCP files only after explicit retirement and seven days; preserve active, legacy-unknown and Pi files.
+- Observe bounded VT redraws in terminal text, type single-line slash commands natively, retain bracketed paste for multiline input, and prefer structured permission signals.
+- Clear stale failure state when a leader registers again, and return errors or degrade when background thread creation fails.
+- Improve cursor and selection visibility across nine themes with optional overrides.
+- Fix the documentation build failure caused by links from excluded diagnostic records.
+
+### Added
+
+- Optional completion-based tab closing, disabled by default and enabled per session. Require a completion summary, proven PTY exit and readable archived output; never kill the session.
+- Bounded retained terminal output for later review. Missing exit/retention evidence from older daemons keeps automatic closing disabled.
+
+### Compatibility
+
+- Database v39 adds nullable launch_cwd while preserving legacy observations and old-client updates.
+- External Claude jobs/adopt/respawn behavior and host OOM recovery are not claimed fully resolved.
+
 ## 0.12.20 - 2026-09-16
 
 Complete the pending product changes and reconcile them with the published stability fixes.
