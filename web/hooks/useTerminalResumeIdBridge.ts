@@ -7,6 +7,7 @@
 // `useTerminalResumeIdBridge` 经原文件 re-export，消费方无感。
 import { useEffect } from "react";
 import { usePanesStore } from "@/stores";
+import { useContextUsageStore } from "@/stores/useContextUsageStore";
 import { useResumeBindingStore } from "@/stores/useResumeBindingStore";
 import { listenIfTauri } from "@/services/runtime";
 import { TERMINAL_LAYOUT_CHANGED_EVENT } from "@/lib/paneTree";
@@ -21,6 +22,23 @@ interface PendingResumeBinding {
   resumeSessionId: string;
   resumeSource?: string;
   expiresAt: number;
+}
+
+interface ResumeIdentityEvent {
+  ptySessionId?: string;
+  resumeSessionId?: string | null;
+  resumeSource?: string;
+  oldResumeSessionId?: string;
+}
+
+function isOutdatedClear(payload: ResumeIdentityEvent): boolean {
+  const { ptySessionId, resumeSessionId, oldResumeSessionId } = payload;
+  if (!ptySessionId || resumeSessionId !== null || !oldResumeSessionId) return false;
+  const identities = [
+    useResumeBindingStore.getState().getBinding(ptySessionId)?.resumeId,
+    useContextUsageStore.getState().sessions.get(ptySessionId)?.snapshot?.agentSessionId,
+  ];
+  return identities.some((id) => Boolean(id) && id !== oldResumeSessionId);
 }
 
 // 重试耗尽后的晚到回填暂存：key = ptySessionId。leaf.sessionId 写入时
@@ -49,9 +67,26 @@ export function useTerminalResumeIdBridge(): void {
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
-    listenIfTauri<{ ptySessionId?: string; resumeSessionId?: string; resumeSource?: string }>("history-updated", (event) => {
+    const identityVersions = new Map<string, number>();
+    listenIfTauri<ResumeIdentityEvent>("history-updated", (event) => {
       if (cancelled) return;
       const payload = event.payload ?? {};
+      // Check before invalidating usage, cancelling retries, or deleting pending bindings.
+      if (isOutdatedClear(payload)) return;
+      if (payload.ptySessionId && "resumeSessionId" in payload) {
+        identityVersions.set(payload.ptySessionId, (identityVersions.get(payload.ptySessionId) ?? 0) + 1);
+        pendingResumeBindings.delete(payload.ptySessionId);
+        const usage = useContextUsageStore.getState();
+        const entry = usage.sessions.get(payload.ptySessionId);
+        if (entry && (!payload.resumeSessionId
+          || entry.snapshot?.agentSessionId !== payload.resumeSessionId)) {
+          usage.dropSession(payload.ptySessionId);
+        }
+      }
+      if (payload.ptySessionId && payload.resumeSessionId === null) {
+        useResumeBindingStore.getState().clearBinding(payload.ptySessionId);
+        usePanesStore.getState().updateTabAgentResumeId(payload.ptySessionId, "");
+      }
       if (payload.ptySessionId && payload.resumeSessionId) {
         // 绑定事件可能早于 create_terminal 返回（tab.sessionId 尚未写入）到达，
         // 未命中 tab 时带退避重试，避免 issued/osc-title 绑定丢失
@@ -63,8 +98,9 @@ export function useTerminalResumeIdBridge(): void {
           resumeSessionId,
           resumeSource,
         );
+        const version = identityVersions.get(ptySessionId);
         const applyBinding = (attempt: number) => {
-          if (cancelled) return;
+          if (cancelled || identityVersions.get(ptySessionId) !== version) return;
           const found = usePanesStore.getState().updateTabAgentResumeId(
             ptySessionId,
             resumeSessionId,

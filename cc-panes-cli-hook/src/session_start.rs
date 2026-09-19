@@ -43,6 +43,14 @@ struct SessionStartedRequest<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct SessionIdentityClearedRequest<'a> {
+    launch_id: &'a str,
+    pty_session_id: &'a str,
+    old_resume_session_id: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct MemoryRecallRequest<'a> {
     workspace_name: Option<&'a str>,
     project_path: &'a str,
@@ -124,6 +132,72 @@ pub fn run_with_stdin(stdin_raw: &str) {
                 h
             });
     run_inner(hook_input);
+}
+
+/// `/clear` invalidates only the identity observed by that SessionEnd hook.
+/// The server performs a PTY + old-id compare-and-set; no PTY is killed.
+pub fn clear_with_stdin(stdin_raw: &str) {
+    let old_resume_id = serde_json::from_str::<HookInput>(stdin_raw)
+        .ok()
+        .and_then(|input| input.session_id)
+        .filter(|id| !id.trim().is_empty());
+    let Some(old_resume_id) = old_resume_id else {
+        eprintln!("[ccpanes-hook] clear identity skipped: session_id missing");
+        return;
+    };
+    let launch_id = match std::env::var("CC_PANES_LAUNCH_ID") {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => {
+            eprintln!("[ccpanes-hook] clear identity skipped: launch id missing");
+            return;
+        }
+    };
+    let pty_session_id = match std::env::var("CC_PANES_PTY_SESSION_ID") {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => {
+            eprintln!("[ccpanes-hook] clear identity skipped: PTY id missing");
+            return;
+        }
+    };
+    let (api_base_url, api_token) =
+        match crate::common::orchestrator::resolve_orchestrator_endpoint() {
+            Some(endpoint) => endpoint,
+            None => {
+                eprintln!("[ccpanes-hook] clear identity skipped: orchestrator unavailable");
+                return;
+            }
+        };
+    let request = SessionIdentityClearedRequest {
+        launch_id: &launch_id,
+        pty_session_id: &pty_session_id,
+        old_resume_session_id: &old_resume_id,
+    };
+    let Ok(payload) = serde_json::to_vec(&request) else {
+        return;
+    };
+    let url = format!(
+        "{}/api/terminal/session-identity-cleared",
+        api_base_url.trim_end_matches('/')
+    );
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_millis(750)))
+        .build()
+        .new_agent();
+    match agent
+        .post(&url)
+        .header("Authorization", &format!("Bearer {}", api_token))
+        .header("Content-Type", "application/json")
+        .send(payload.as_slice())
+    {
+        Ok(_) => eprintln!(
+            "[ccpanes-hook] clear identity reported (pty={})",
+            pty_session_id
+        ),
+        Err(error) => eprintln!(
+            "[ccpanes-hook] clear identity report failed (non-fatal): {}",
+            error
+        ),
+    }
 }
 
 fn run_inner(hook_input: Option<HookInput>) {

@@ -295,24 +295,7 @@ impl ClaudeAdapter {
         let file_name = format!("mcp-{}.json", ctx.session_id);
         let config_path = ctx.data_dir.join(&file_name);
 
-        // 清理旧 MCP 配置文件（>1h），防止 per-session 文件随时间积累
-        if let Ok(entries) = std::fs::read_dir(&ctx.data_dir) {
-            let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if name_str.starts_with("mcp-")
-                    && name_str.ends_with(".json")
-                    && *name_str != file_name
-                {
-                    if let Ok(meta) = entry.metadata() {
-                        if meta.modified().map(|m| m < cutoff).unwrap_or(false) {
-                            let _ = std::fs::remove_file(entry.path());
-                        }
-                    }
-                }
-            }
-        }
+        crate::mcp_config_lifecycle::collect_retired_configs(&ctx.data_dir, &file_name);
 
         let ccpanes_server = if let Some(proxy) = proxy {
             serde_json::json!({
@@ -339,12 +322,17 @@ impl ClaudeAdapter {
         };
 
         let mut mcp_servers = serde_json::Map::new();
-        Self::cleanup_legacy_global_mcp_servers();
+        if !cfg!(test) {
+            Self::cleanup_legacy_global_mcp_servers();
+        }
 
         // 合并用户全局 MCP 配置（低优先级）
         // 跳过已在 shared_mcp_urls 中的 server（它们将以 HTTP 模式注入）
-        if let Some(serde_json::Value::Object(user_servers)) = Self::read_user_global_mcp_servers()
-        {
+        if let Some(serde_json::Value::Object(user_servers)) = if cfg!(test) {
+            None
+        } else {
+            Self::read_user_global_mcp_servers()
+        } {
             let total = user_servers.len();
             let mut merged = 0;
             let mut skipped = 0;
@@ -402,6 +390,10 @@ impl ClaudeAdapter {
 
         let config = serde_json::json!({ "mcpServers": mcp_servers });
 
+        if let Err(error) = crate::mcp_config_lifecycle::prepare_config(&config_path) {
+            tracing::error!(%error, "Failed to prepare Claude MCP config");
+            return None;
+        }
         match std::fs::write(
             &config_path,
             serde_json::to_string_pretty(&config).unwrap_or_default(),
@@ -1178,6 +1170,12 @@ impl CliToolAdapter for ClaudeAdapter {
             );
             args.push("--mcp-config".to_string());
             args.push(mcp_config_path);
+        } else if crate::mcp_proxy_invocation(ctx).is_some()
+            || (ctx.orchestrator_port.is_some() && ctx.orchestrator_token.is_some())
+        {
+            return Err(anyhow!(
+                "Failed to create per-session Claude MCP configuration; launch cancelled"
+            ));
         } else {
             warn!(
                 session_id = %ctx.session_id,
@@ -2222,6 +2220,62 @@ mod tests {
                 "args": ["mcp-proxy"]
             })
         ));
+    }
+
+    #[test]
+    fn mcp_config_write_failure_cancels_launch_instead_of_silently_skipping_mcp() {
+        let dir = tempdir().unwrap();
+        let mut ctx = test_context(Some("claude"));
+        ctx.skip_mcp = false;
+        ctx.data_dir = dir.path().join("not-a-directory");
+        fs::write(&ctx.data_dir, "fixture").unwrap();
+        ctx.orchestrator_port = Some(37123);
+        ctx.orchestrator_token = Some("fixture-token".into());
+        let error = ClaudeAdapter::new()
+            .build_command(&ctx)
+            .err()
+            .expect("launch must fail")
+            .to_string();
+        assert!(error.contains("MCP configuration"));
+        assert!(!error.contains("fixture-token"));
+    }
+
+    #[test]
+    fn separate_launches_keep_previous_config_and_get_distinct_identity() {
+        let dir = tempdir().unwrap();
+        let adapter = ClaudeAdapter::new();
+        let mut ctx = test_context(Some("claude"));
+        ctx.skip_mcp = false;
+        ctx.data_dir = dir.path().into();
+        ctx.orchestrator_port = Some(37123);
+        ctx.orchestrator_token = Some("fixture-token".into());
+        ctx.session_id = "11111111-aaaa-bbbb-cccc-222222222222".into();
+        ctx.launch_id = Some("launch-first".into());
+        let first = adapter.generate_mcp_config(&ctx).unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&first)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        let pi = dir.path().join("mcp-pi-old.json");
+        fs::write(&pi, "pi fixture").unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&pi)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        ctx.session_id = "33333333-dddd-eeee-ffff-444444444444".into();
+        ctx.launch_id = Some("launch-second".into());
+        let second = adapter.generate_mcp_config(&ctx).unwrap();
+        assert_ne!(first, second);
+        assert!(fs::read_to_string(first).unwrap().contains("launch-first"));
+        assert!(fs::read_to_string(second)
+            .unwrap()
+            .contains("launch-second"));
+        assert_eq!(fs::read_to_string(pi).unwrap(), "pi fixture");
     }
 
     #[test]

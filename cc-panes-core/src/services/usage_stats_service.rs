@@ -478,8 +478,19 @@ impl UsageStatsService {
         let observed_at = now_millis();
         let request = match self.context_request(pty_session_id, observed_at) {
             Ok(request) => request,
-            Err(snapshot) => return *snapshot,
+            Err(snapshot) => {
+                self.invalidate_context_usage(pty_session_id);
+                return *snapshot;
+            }
         };
+        if let Ok(mut cache) = self.context_file_cache.lock() {
+            if cache
+                .get(pty_session_id)
+                .is_some_and(|entry| entry.resume_id != request.resume_id)
+            {
+                cache.remove(pty_session_id);
+            }
+        }
         let path = self
             .cached_context_path(&request.pty_session_id, &request.resume_id)
             .filter(|path| path.is_file())
@@ -487,9 +498,26 @@ impl UsageStatsService {
                 find_context_session_file(self, &request.cli, &request.record, &request.resume_id)
             });
         let Some(path) = path else {
+            self.invalidate_context_usage(pty_session_id);
             return ContextUsageSnapshot::error("SESSION_NOT_FOUND", observed_at);
         };
-        self.read_context_snapshot(&request, &path, observed_at)
+        let snapshot = self.read_context_snapshot(&request, &path, observed_at);
+        // The identity can change while a slow UNC/transcript read is in progress.
+        match self.context_request(pty_session_id, observed_at) {
+            Ok(current) if current.resume_id == request.resume_id => snapshot,
+            _ => {
+                self.invalidate_context_usage(pty_session_id);
+                ContextUsageSnapshot::waiting("SESSION_IDENTITY_CHANGED", observed_at)
+            }
+        }
+    }
+
+    /// Forget observations on clear/resume. The identity owner must also clear or
+    /// update launch_history so a later poll cannot rediscover the old transcript.
+    pub fn invalidate_context_usage(&self, pty_session_id: &str) {
+        if let Ok(mut cache) = self.context_file_cache.lock() {
+            cache.remove(pty_session_id);
+        }
     }
 
     fn context_request(
@@ -602,17 +630,14 @@ impl UsageStatsService {
                 observed_at,
             );
         }
-        let from_offset = cached
-            .as_ref()
-            .filter(|entry| {
-                entry.path == path
-                    && entry.resume_id == request.resume_id
-                    && entry.file_identity == file_identity
-                    && entry.file_len <= file_len
-                    && modified_at_ms >= entry.modified_at_ms
-            })
-            .map(|entry| entry.byte_offset)
-            .unwrap_or(0);
+        let reusable = cached.as_ref().filter(|entry| {
+            entry.path == path
+                && entry.resume_id == request.resume_id
+                && entry.file_identity == file_identity
+                && entry.file_len < file_len
+                && modified_at_ms >= entry.modified_at_ms
+        });
+        let from_offset = reusable.map(|entry| entry.byte_offset).unwrap_or(0);
         let parsed =
             match request.cli.as_str() {
                 "claude" => claude_session_service::read_latest_context_usage(path, from_offset)
@@ -672,7 +697,10 @@ impl UsageStatsService {
                 return ContextUsageSnapshot::error("SOURCE_UNAVAILABLE", observed_at);
             }
         };
-        let observation = new_observation.or_else(|| cached.and_then(|entry| entry.observation));
+        // Only an appended tail of the same transcript may omit a usage line.
+        // A new resume/path, replaced or truncated file must start with unknown usage.
+        let observation =
+            new_observation.or_else(|| reusable.and_then(|entry| entry.observation.clone()));
         if let Ok(mut cache) = self.context_file_cache.lock() {
             cache.insert(
                 request.pty_session_id.clone(),
@@ -1090,7 +1118,9 @@ impl UsageStatsService {
         observed_at: i64,
     ) -> ContextUsageSnapshot {
         let Some(observation) = observation else {
-            return ContextUsageSnapshot::waiting("WAITING_FIRST_RESPONSE", observed_at);
+            let mut snapshot = ContextUsageSnapshot::waiting("WAITING_FIRST_RESPONSE", observed_at);
+            snapshot.agent_session_id = Some(request.resume_id.clone());
+            return snapshot;
         };
         match request.cli.as_str() {
             "claude" => with_window_diagnostic(
@@ -1765,6 +1795,10 @@ mod tests {
     use std::collections::HashMap;
     use std::fs;
     use std::sync::Arc;
+
+    mod identity_regression {
+        include!("usage_context_identity_tests.rs");
+    }
 
     fn wsl_distro(name: &str, state: WslDistroState, default_user: Option<&str>) -> WslDistro {
         WslDistro {

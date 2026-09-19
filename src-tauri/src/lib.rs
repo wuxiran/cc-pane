@@ -887,7 +887,9 @@ pub fn trigger_screenshot(app: &tauri::AppHandle, settings_service: Arc<Settings
     #[allow(unused_variables)]
     let app = app.clone();
     let retention_days = settings_service.get_settings().screenshot.retention_days;
-    std::thread::spawn(move || {
+    #[cfg(not(target_os = "windows"))]
+    let fallback_app = app.clone();
+    if let Err(error) = cc_panes_core::pty::thread::spawn_named("cc-panes-screenshot", move || {
         // Drop guard: 确保 CAPTURING 在 panic 或提前返回时也能重置
         struct CapturingGuard;
         impl Drop for CapturingGuard {
@@ -993,7 +995,14 @@ pub fn trigger_screenshot(app: &tauri::AppHandle, settings_service: Arc<Settings
             t0.elapsed().as_millis()
         );
         // _guard Drop 会自动重置 CAPTURING
-    });
+    }) {
+        CAPTURING.store(false, Ordering::SeqCst);
+        #[cfg(target_os = "windows")]
+        restore_display_affinity(main_hwnd);
+        #[cfg(not(target_os = "windows"))]
+        restore_main_window_tauri(&fallback_app);
+        error!(%error, "screenshot unavailable: could not create capture thread");
+    }
 }
 
 /// Windows: 恢复 DisplayAffinity 为 WDA_NONE（截图完成后）
@@ -1179,9 +1188,28 @@ fn resolve_path_from_shell(shell: &str) -> Option<String> {
 
     let child_pid = child.id();
     let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(child.wait_with_output());
-    });
+    let child = Arc::new(std::sync::Mutex::new(Some(child)));
+    let worker_child = child.clone();
+    if let Err(error) = cc_panes_core::pty::thread::spawn_named("cc-panes-shell-env", move || {
+        if let Some(child) = worker_child
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
+            let _ = tx.send(child.wait_with_output());
+        }
+    }) {
+        eprintln!("[boot] shell environment reader unavailable: {error}");
+        if let Some(mut child) = child.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            if let Err(error) = child.kill() {
+                eprintln!("[boot] shell kill failed: {error}");
+            }
+            if let Err(error) = child.wait() {
+                eprintln!("[boot] shell reap failed: {error}");
+            }
+        }
+        return None;
+    }
 
     match rx.recv_timeout(std::time::Duration::from_secs(10)) {
         Ok(Ok(output)) if output.status.success() => {
@@ -1289,7 +1317,9 @@ fn load_full_path() {
                 std::env::set_var("PATH", &cached);
             }
             let cache_file_bg = cache_file.clone();
-            std::thread::spawn(move || refresh_path_cache(&cache_file_bg));
+            cc_panes_core::pty::thread::spawn_optional("cc-panes-path-refresh", move || {
+                refresh_path_cache(&cache_file_bg)
+            });
             return;
         }
     }
@@ -1305,7 +1335,9 @@ fn load_full_path() {
     }
 
     // 后台 spawn shell 刷新缓存 + 更新当前进程 PATH
-    std::thread::spawn(move || refresh_path_cache(&cache_file));
+    cc_panes_core::pty::thread::spawn_optional("cc-panes-path-refresh", move || {
+        refresh_path_cache(&cache_file)
+    });
 }
 
 /// wry/WebView2 日志限流：60s 窗口内最多放行 5 条 `tauri_runtime_wry` 记录。
@@ -1445,8 +1477,8 @@ fn spawn_main_window_geometry_watcher(app: tauri::AppHandle, window: tauri::Webv
         }
         let generation = PENDING.fetch_add(1, AtomicOrdering::SeqCst) + 1;
         let handle = handle.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(DEBOUNCE_MS));
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(DEBOUNCE_MS)).await;
             // 期间又来了新事件就交给后来者，避免中间态被写进配置
             if PENDING.load(AtomicOrdering::SeqCst) != generation {
                 return;
@@ -1537,7 +1569,20 @@ pub fn run() {
                 .open(&crash_log)
             {
                 let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+                let thread = std::thread::current();
                 let _ = writeln!(f, "[{timestamp}] PANIC: {info}");
+                let _ = writeln!(
+                    f,
+                    "runtime: version={} pid={} thread={:?} name={:?} os={} arch={} debug={}",
+                    env!("CARGO_PKG_VERSION"),
+                    std::process::id(),
+                    thread.id(),
+                    thread.name(),
+                    std::env::consts::OS,
+                    std::env::consts::ARCH,
+                    cfg!(debug_assertions)
+                );
+                let _ = writeln!(f, "executable={:?}; retain the matching release PDB/debug symbols to resolve frames", std::env::current_exe());
                 let bt = std::backtrace::Backtrace::force_capture();
                 let _ = writeln!(f, "{bt}");
             }

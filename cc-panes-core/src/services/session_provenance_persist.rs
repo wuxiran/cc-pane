@@ -203,6 +203,8 @@ mod tests {
             _lines: usize,
         ) -> AppResult<crate::services::terminal_service::SessionOutput> {
             Ok(SessionOutput {
+                exited: None,
+                retained: None,
                 session_id: session_id.to_string(),
                 lines: Vec::new(),
             })

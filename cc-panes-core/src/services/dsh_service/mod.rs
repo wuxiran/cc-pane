@@ -463,40 +463,58 @@ impl DshService {
             .map_err(|e| format!("failed to spawn dsh: {e}"))?;
         let pid = child.id();
 
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| "dsh stdout unavailable".to_string())?;
         if let Some(stderr) = child.stderr.take() {
             // stderr 全程转进日志。dsh 自己声明 stdout 只走协议/URL，
             // 诊断都在 stderr，丢了就等于盲飞。
             let owner = key.clone();
-            std::thread::spawn(move || {
-                for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                    warn!(workspace_key = %owner, "dsh stderr: {line}");
-                }
-            });
+            if let Err(error) = std::thread::Builder::new()
+                .name("ccpanes-dsh-stderr".to_string())
+                .spawn(move || {
+                    for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                        warn!(workspace_key = %owner, "dsh stderr: {line}");
+                    }
+                })
+            {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("failed to start dsh stderr reader: {error}"));
+            }
         }
 
+        let stdout = match child.stdout.take() {
+            Some(stdout) => stdout,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("dsh stdout unavailable".to_string());
+            }
+        };
         let (tx, rx) = mpsc::channel::<Option<u16>>();
         let owner = key.clone();
-        std::thread::spawn(move || {
-            let mut reported = false;
-            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                if !reported {
-                    if let Some(port) = parse_startup_port(&line) {
-                        reported = true;
-                        let _ = tx.send(Some(port));
-                        continue;
+        if let Err(error) = std::thread::Builder::new()
+            .name("ccpanes-dsh-stdout".to_string())
+            .spawn(move || {
+                let mut reported = false;
+                for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                    if !reported {
+                        if let Some(port) = parse_startup_port(&line) {
+                            reported = true;
+                            let _ = tx.send(Some(port));
+                            continue;
+                        }
                     }
+                    debug!(workspace_key = %owner, "dsh stdout: {line}");
                 }
-                debug!(workspace_key = %owner, "dsh stdout: {line}");
-            }
-            if !reported {
-                // stdout 关闭仍未见 URL：进程早退，别让调用方干等到超时。
-                let _ = tx.send(None);
-            }
-        });
+                if !reported {
+                    // stdout 关闭仍未见 URL：进程早退，别让调用方干等到超时。
+                    let _ = tx.send(None);
+                }
+            })
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("failed to start dsh stdout reader: {error}"));
+        }
 
         let port = match rx.recv_timeout(STARTUP_TIMEOUT) {
             Ok(Some(port)) => port,

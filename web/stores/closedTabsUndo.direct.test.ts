@@ -468,7 +468,7 @@ describe("restoreClosedTabSplitTree", () => {
 describe("撤销栈准入：recordsClosedTabs 与 pinned 豁免", () => {
   // 这两条是 DESTROY_POLICY 与撤销栈的接缝：矩阵改了但 push 点没跟上，表现为
   // 「自动化路径把标签塞进了撤销栈」或「用户关的标签撤销不回来」。
-  it("recordsClosedTabs=false 的 reason 穷举：delete-layout / snapshot-apply / backend-close / editor-path-close", () => {
+  it("recordsClosedTabs=false 的 reason 穷举：delete-layout / snapshot-apply / backend-close / editor-path-close / task-completed", () => {
     const notRecorded = ALL_DESTROY_REASONS.filter(
       (reason) => !DESTROY_POLICY[reason].recordsClosedTabs,
     );
@@ -477,6 +477,7 @@ describe("撤销栈准入：recordsClosedTabs 与 pinned 豁免", () => {
       "delete-layout",
       "editor-path-close",
       "snapshot-apply",
+      "task-completed",
     ]);
   });
 

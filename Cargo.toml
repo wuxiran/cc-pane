@@ -23,3 +23,10 @@ debug = 1
 
 [profile.dev.package."*"]
 debug = 0
+
+# Keep line tables for our release binaries. Retain matching PDB/debug files with future builds.
+[profile.release]
+debug = 1
+
+[profile.release.package."*"]
+debug = 0

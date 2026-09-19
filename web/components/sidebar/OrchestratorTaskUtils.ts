@@ -5,6 +5,8 @@ export interface OrchestratorMetadataUi {
   retryOf?: string;
   retriedAt?: number;
   muted?: boolean;
+  autoCloseCompletedSessionId?: string;
+  autoCloseCompletedTabId?: string;
   startedAt?: number | string;
   isWorktree?: boolean;
   worktree?: boolean;

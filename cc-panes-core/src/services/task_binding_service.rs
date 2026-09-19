@@ -10,6 +10,10 @@ const TASK_BINDING_CHANGED_EVENT: &str = "task-binding-changed";
 const TASK_BINDING_PATCH_MAX_BYTES: usize = 64 * 1024;
 const TASK_BINDING_MERGE_PATCH_MAX_DEPTH: usize = 16;
 
+#[cfg(test)]
+#[path = "task_binding_leader_tests.rs"]
+mod leader_tests;
+
 /// TaskBinding 业务逻辑层
 pub struct TaskBindingService {
     repo: Arc<TaskBindingRepository>,
@@ -176,8 +180,18 @@ impl TaskBindingService {
     fn update_with_emit(
         &self,
         id: &str,
+        req: UpdateTaskBindingRequest,
+        emit: bool,
+    ) -> AppResult<TaskBinding> {
+        self.update_with_result_reset(id, req, emit, false)
+    }
+
+    fn update_with_result_reset(
+        &self,
+        id: &str,
         mut req: UpdateTaskBindingRequest,
         emit: bool,
+        reset_result: bool,
     ) -> AppResult<TaskBinding> {
         debug!("svc::update_task_binding");
         if let Some(ref title) = req.title {
@@ -197,7 +211,7 @@ impl TaskBindingService {
             req.normalized_plan_path = req.plan_path.as_deref().map(normalize_plan_path);
         }
 
-        self.repo.update(id, &req)?;
+        self.repo.update_with_result_reset(id, &req, reset_result)?;
         let binding = self
             .get(id)?
             .ok_or_else(|| AppError::from(format!("TaskBinding '{}' not found", id)))?;
@@ -327,11 +341,18 @@ impl TaskBindingService {
             )
         })?;
 
+        // Serialize registration with terminal-exit reconciliation so an old session
+        // cannot mark the replacement leader failed between lookup and rebinding.
+        let _guard = self.update_lock.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = self
             .repo
             .find_leader_by_plan(&normalized_plan_path, Some(&project_path))?
         {
-            let binding = self.update_with_emit(
+            let reset_result = matches!(
+                existing.status,
+                TaskBindingStatus::Completed | TaskBindingStatus::Failed
+            ) || existing.session_id.as_deref() != Some(session_id.as_str());
+            let binding = self.update_with_result_reset(
                 &existing.id,
                 UpdateTaskBindingRequest {
                     title: req.title,
@@ -343,10 +364,12 @@ impl TaskBindingService {
                     resume_id: req.resume_id,
                     pane_id: req.pane_id,
                     tab_id: req.tab_id,
+                    status: Some(TaskBindingStatus::Running),
                     metadata: req.metadata,
                     ..Default::default()
                 },
                 false,
+                reset_result,
             )?;
             // fix(M1) review: register 中间 update 静默，只发最终 Register 事件。
             self.emit_changed(TaskBindingChangeOp::Register, &binding.id, Some(&binding));

@@ -1151,5 +1151,13 @@
     "1m": "Claude Sonnet 4.5 (1M beta) · Gemini 2.5 Pro/Flash · GPT-4.1 · Grok 3 · Llama 4 Maverick",
     "2m": "Gemini 2.5 Pro long context",
     "10m": "Llama 4 Scout (10M)"
-  }
+  },
+  "cursorColor": "Cursor color",
+  "cursorAccent": "Cursor text color",
+  "selectionBackground": "Selection background",
+  "selectionForeground": "Selection text color",
+  "terminalColorAuto": "Theme default (#RRGGBB)",
+  "terminalColorHint": "Leave empty to follow the theme. Low contrast colors are adjusted for visible marks and readable text. Try the DOM renderer if the cursor or selection is still missing.",
+  "autoCloseCompletedTasks": "Allow completed tasks to close automatically",
+  "autoCloseCompletedTasksHint": "Off by default. Opt in separately from each task menu. Tabs close after the task completes, the process exits, and a result summary is saved, with a 30-second grace period. Results remain in task details."
 }

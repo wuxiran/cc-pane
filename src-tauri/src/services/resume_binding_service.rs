@@ -153,6 +153,10 @@ pub async fn bind_resume_id(
         }
     }
 
+    if selected_resume_id.is_empty() {
+        return;
+    }
+
     match service.find_by_resume_session_id(&selected_resume_id) {
         Ok(Some(existing)) if existing.pty_session_id.as_deref() != Some(&payload.session_id) => {
             warn!(
@@ -278,6 +282,9 @@ async fn bind_by_pty_window(
             &payload.resume_session_id,
             &payload.source,
         ) {
+            Ok(Some(selected)) if selected.resume_session_id.is_empty() => {
+                return BindByPtyOutcome::Rejected;
+            }
             Ok(Some(selected)) => return BindByPtyOutcome::Bound(selected),
             Ok(None) => {}
             Err(error) => {

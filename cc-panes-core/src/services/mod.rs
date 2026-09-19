@@ -163,7 +163,9 @@ pub use ssh_file_service::SshFileService;
 pub use ssh_machine_service::{SshConnectivityResult, SshMachineService};
 pub use system_stats_service::SystemStatsService;
 pub use task_binding_service::TaskBindingService;
-pub use task_dispatch_service::TaskDispatchService;
+pub use task_dispatch_service::{
+    dispatch_permission_yolo_mode, resolve_dispatch_cwd, TaskDispatchService,
+};
 pub use task_queue_dispatcher::{
     BackendTaskQueueDispatchGateway, TaskQueueDispatchGateway, TaskQueueDispatchOutcome,
     TaskQueueDispatcher, TaskQueueReadiness, TaskQueueSubmitFailure,

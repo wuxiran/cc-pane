@@ -218,17 +218,25 @@ impl WorkspaceService {
         let dirty_poll = dirty.clone();
         let stop_flag = self.watcher_stop.clone();
         stop_flag.store(false, Ordering::Relaxed); // 重置，支持 restart
-        std::thread::spawn(move || {
-            while !stop_flag.load(Ordering::Relaxed) {
-                std::thread::sleep(Duration::from_millis(500));
-                if dirty_poll.swap(false, Ordering::Relaxed) {
-                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        let _ = emitter.emit(EV::WORKSPACES_CHANGED, serde_json::Value::Null);
-                    }));
+        if let Err(error) = std::thread::Builder::new()
+            .name("ccpanes-workspace-watcher".to_string())
+            .spawn(move || {
+                while !stop_flag.load(Ordering::Relaxed) {
+                    std::thread::sleep(Duration::from_millis(500));
+                    if dirty_poll.swap(false, Ordering::Relaxed) {
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            let _ = emitter.emit(EV::WORKSPACES_CHANGED, serde_json::Value::Null);
+                        }));
+                    }
                 }
-            }
-            info!("[workspace-watcher] Debounce thread stopped");
-        });
+                info!("[workspace-watcher] Debounce thread stopped");
+            })
+        {
+            self.watcher_stop.store(true, Ordering::Relaxed);
+            let mut guard = self._watcher.lock().unwrap_or_else(|e| e.into_inner());
+            guard.take();
+            warn!("[workspace-watcher] Failed to start debounce thread; watcher disabled: {error}");
+        }
     }
 
     /// 停止文件系统监控

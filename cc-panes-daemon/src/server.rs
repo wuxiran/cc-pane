@@ -412,6 +412,8 @@ pub struct CreateSessionRequest {
 pub struct PartialCreateSessionRequest {
     pub launch_id: Option<String>,
     pub project_path: Option<String>,
+    #[serde(default)]
+    pub launch_cwd: Option<String>,
     pub cols: Option<u16>,
     pub rows: Option<u16>,
     pub workspace_name: Option<String>,
@@ -844,6 +846,7 @@ async fn create_session(
     let owner = caller_instance(&headers);
     let core_request = normalize_session_request_for_current_host(CoreCreateSessionRequest {
         launch_id: req.core.launch_id,
+        launch_cwd: req.core.launch_cwd,
         project_path,
         cols: req.core.cols.unwrap_or(120),
         rows: req.core.rows.unwrap_or(30),
@@ -2043,6 +2046,8 @@ mod tests {
 
         fn get_session_output(&self, session_id: &str, _lines: usize) -> AppResult<SessionOutput> {
             Ok(SessionOutput {
+                exited: None,
+                retained: None,
                 session_id: session_id.to_string(),
                 lines: vec!["ready".to_string()],
             })

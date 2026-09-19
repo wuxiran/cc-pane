@@ -620,12 +620,20 @@ impl TrayMenuController {
             let delay = REFRESH_THROTTLE - elapsed;
             drop(last);
             let this = Arc::clone(self);
-            std::thread::spawn(move || {
-                std::thread::sleep(delay);
-                this.trailing_scheduled.store(false, Ordering::SeqCst);
-                *this.last_refresh.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
-                this.rebuild();
-            });
+            if let Err(error) = std::thread::Builder::new()
+                .name("ccpanes-tray-refresh".to_string())
+                .spawn(move || {
+                    std::thread::sleep(delay);
+                    this.trailing_scheduled.store(false, Ordering::SeqCst);
+                    *this.last_refresh.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+                    this.rebuild();
+                })
+            {
+                // The trailing refresh is optional.  Clear the coalescing
+                // latch so a later event can retry instead of freezing the menu.
+                self.trailing_scheduled.store(false, Ordering::SeqCst);
+                warn!("Failed to start tray refresh thread: {error}");
+            }
         }
     }
 

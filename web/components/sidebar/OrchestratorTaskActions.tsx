@@ -24,6 +24,7 @@ import {
   useOrchestratorStore,
   usePanesStore,
   useTerminalStatusStore,
+  useSettingsStore,
 } from "@/stores";
 import { handleErrorSilent } from "@/utils";
 import type { TaskBinding } from "@/types";
@@ -104,6 +105,9 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
     Boolean(binding.sessionId) &&
     (terminalStatus?.status === "idle" || terminalStatus?.status === "waitingInput");
   const muted = getMetadataUi(binding).muted === true;
+  const autoCloseEnabled = useSettingsStore((s) => s.settings?.terminal.autoCloseCompletedTasks === true);
+  const autoCloseSelected = Boolean(binding.sessionId
+    && getMetadataUi(binding).autoCloseCompletedSessionId === binding.sessionId);
 
   useEffect(() => {
     if (!retryLocked) return;
@@ -299,6 +303,19 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
           </DropdownMenuItem>
           <DropdownMenuItem disabled={muted || isBusy} onClick={muteTask}>
             🔕 {t("sidebar.mute")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={isBusy || !binding.sessionId || (!autoCloseEnabled && !autoCloseSelected)}
+            onClick={() => runAction("auto-close", async () => {
+              const location = usePanesStore.getState().findTabBySessionAcrossLayouts(binding.sessionId!);
+              if (!location && !autoCloseSelected) return;
+              await updatePatch(binding.id, { metadata: { ui: {
+                autoCloseCompletedSessionId: autoCloseSelected ? null : binding.sessionId,
+                autoCloseCompletedTabId: autoCloseSelected ? null : location?.tab.id,
+              } } });
+            })}
+          >
+            {t(autoCloseSelected ? "sidebar.cancelAutoClose" : "sidebar.autoClose")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem

@@ -41,7 +41,7 @@ wait_for_session / get_session_output → 真正的进度
 `get_session_output(sessionId, lines?)`
 
 - **默认只返回尾部 50 行**（纯文本，ANSI 已剥）。要更多传 `lines`（100–500 常见），`lines: 0` 才是全部缓冲——别在循环里传 0。
-- 已退出的会话 5 分钟内仍可读。
+- 已退出会话能否读取取决于后端保留输出；若无可读归档，工具会返回无可读取的保留输出。
 - 判断任务是否完成看输出和 `get_session_status`，不要只看 `get_task_status(taskId)`。
 
 ## 往会话里写东西

@@ -187,6 +187,16 @@ impl TaskBindingRepository {
 
     /// 更新 TaskBinding
     pub fn update(&self, id: &str, req: &UpdateTaskBindingRequest) -> Result<bool, String> {
+        self.update_with_result_reset(id, req, false)
+    }
+
+    /// Rebinding a leader and clearing the previous attempt's result share one SQL update.
+    pub(crate) fn update_with_result_reset(
+        &self,
+        id: &str,
+        req: &UpdateTaskBindingRequest,
+        reset_result: bool,
+    ) -> Result<bool, String> {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
 
         let mut sets: Vec<String> = Vec::new();
@@ -212,9 +222,17 @@ impl TaskBindingRepository {
         add_field!("resume_id", req.resume_id);
         add_field!("pane_id", req.pane_id);
         add_field!("tab_id", req.tab_id);
-        add_field!("progress", req.progress);
-        add_field!("completion_summary", req.completion_summary);
-        add_field!("exit_code", req.exit_code);
+        if reset_result {
+            sets.extend([
+                "progress = 0".into(),
+                "completion_summary = NULL".into(),
+                "exit_code = NULL".into(),
+            ]);
+        } else {
+            add_field!("progress", req.progress);
+            add_field!("completion_summary", req.completion_summary);
+            add_field!("exit_code", req.exit_code);
+        }
         add_field!("sort_order", req.sort_order);
         add_field!("worker_kind", req.worker_kind);
 

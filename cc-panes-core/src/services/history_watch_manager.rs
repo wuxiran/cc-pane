@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tracing::warn;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -104,20 +105,42 @@ impl HistoryWatchManager {
         let state = self.state.clone();
         let history_service = self.history_service.clone();
         let grace = self.grace;
-        std::thread::spawn(move || {
-            std::thread::sleep(grace);
-            let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
+        let fallback_generation = generation.clone();
+        let spawn_result = std::thread::Builder::new()
+            .name("ccpanes-history-watch-grace".to_string())
+            .spawn(move || {
+                std::thread::sleep(grace);
+                let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
+                let should_stop = state.projects.get(&generation.0).is_some_and(|project| {
+                    project.active == 0 && project.generation == generation.1
+                });
+                if should_stop {
+                    let _ = history_service.stop_watching(&generation.0);
+                    if let Some(project) = state.projects.get_mut(&generation.0) {
+                        project.generation = project.generation.wrapping_add(1);
+                    }
+                }
+            });
+        if let Err(error) = spawn_result {
+            // Delayed cleanup is optional; if its worker cannot be created,
+            // perform the same generation-guarded cleanup synchronously so a
+            // watcher is never leaked indefinitely.
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             let should_stop = state
                 .projects
-                .get(&generation.0)
-                .is_some_and(|project| project.active == 0 && project.generation == generation.1);
+                .get(&fallback_generation.0)
+                .is_some_and(|project| {
+                    project.active == 0 && project.generation == fallback_generation.1
+                });
             if should_stop {
-                let _ = history_service.stop_watching(&generation.0);
-                if let Some(project) = state.projects.get_mut(&generation.0) {
+                let _ = self.history_service.stop_watching(&fallback_generation.0);
+                if let Some(project) = state.projects.get_mut(&fallback_generation.0) {
                     project.generation = project.generation.wrapping_add(1);
                 }
             }
-        });
+            let project_display = fallback_generation.0.display().to_string();
+            warn!(%error, project = %project_display, "history watch grace cleanup thread unavailable; cleaned synchronously");
+        }
     }
 
     pub fn force_stop_project(&self, project_path: impl AsRef<Path>) {

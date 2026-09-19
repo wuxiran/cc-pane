@@ -123,6 +123,17 @@ describe("TerminalSection", () => {
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ showContextUsage: false }));
   });
 
+  it("keeps auto-close off by default and saves explicit color overrides", async () => {
+    const onChange = vi.fn();
+    render(<TerminalSection value={createValue()} onChange={onChange} />);
+    const gate = screen.getByRole("switch", { name: /允许完成任务自动收窗|Allow completed tasks/i });
+    expect(gate).not.toBeChecked();
+    fireEvent.click(gate);
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ autoCloseCompletedTasks: true }));
+    fireEvent.change(screen.getByLabelText(/^(光标颜色|Cursor color)$/i), { target: { value: "#ffffff" } });
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ cursorColor: "#ffffff" }));
+  });
+
   it("emits terminal path link changes", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

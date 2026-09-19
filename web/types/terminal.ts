@@ -394,6 +394,10 @@ export type StoreCheckpointOutcome =
 export interface TerminalSessionOutput {
   sessionId: string;
   lines: string[];
+  /** Proven by actual PTY exit, never inferred from a CLI hook. Missing = unknown. */
+  exited?: boolean;
+  /** True only after exited output has been persisted successfully. */
+  retained?: boolean;
 }
 
 /**

@@ -121,11 +121,18 @@ impl ScreenshotService {
 
         let result = Self::build_result(&file_path, img.width(), img.height());
         let cleanup_dir = save_dir.to_path_buf();
-        std::thread::spawn(move || {
-            if let Err(e) = Self::cleanup_screenshots_in_dir(&cleanup_dir, retention_days) {
-                error!("Screenshot cleanup error: {}", e);
-            }
-        });
+        if let Err(error) = std::thread::Builder::new()
+            .name("ccpanes-screenshot-cleanup".to_string())
+            .spawn(move || {
+                if let Err(e) = Self::cleanup_screenshots_in_dir(&cleanup_dir, retention_days) {
+                    error!("Screenshot cleanup error: {}", e);
+                }
+            })
+        {
+            // Cleanup is best effort; keep the freshly written screenshot and
+            // make the skipped retention work visible for the next run.
+            error!("Failed to start screenshot cleanup thread: {}", error);
+        }
 
         Ok(result)
     }

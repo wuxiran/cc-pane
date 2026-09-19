@@ -34,6 +34,7 @@ export type DestroyReason =
   | "close-pane"
   | "delete-layout"
   | "snapshot-apply"
+  | "task-completed"
   | "backend-close"
   | "editor-path-close";
 
@@ -44,6 +45,7 @@ export const ALL_DESTROY_REASONS: readonly DestroyReason[] = [
   "close-pane",
   "delete-layout",
   "snapshot-apply",
+  "task-completed",
   "backend-close",
   "editor-path-close",
 ] as const;
@@ -104,6 +106,13 @@ export const DESTROY_POLICY: Record<DestroyReason, DestroyPolicy> = {
     kills: true,
     closesPopups: true,
   },
+  "task-completed": {
+    vetoable: false,
+    recordsClosedTabs: false,
+    respectsPinned: true,
+    kills: false,
+    closesPopups: true,
+  },
   "backend-close": {
     vetoable: false,
     recordsClosedTabs: false,
@@ -135,6 +144,7 @@ export const DESTROY_KILL_REASON: Record<DestroyReason, KillReason | null> = {
   "close-pane": "user-close",
   "delete-layout": "user-close",
   "snapshot-apply": "user-close",
+  "task-completed": null,
   "backend-close": null,
   "editor-path-close": null,
 };

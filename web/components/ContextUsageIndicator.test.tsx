@@ -72,6 +72,14 @@ describe("ContextUsageIndicator", () => {
     useContextUsageStore.setState({ sessions: new Map() });
   });
 
+  it.each(["waiting", "error"] as const)("shows unknown instead of old 81 percent while %s", (status) => {
+    setSnapshot(snapshot({ status, usedTokens: null, usedPercentage: null, agentSessionId: null }),
+      snapshot({ usedPercentage: 81, agentSessionId: "old-agent" }));
+    render(<ContextUsageIndicator />);
+    expect(screen.queryByText("81%")).not.toBeInTheDocument();
+    expect(screen.getByText("未知")).toBeInTheDocument();
+  });
+
   it("reads the snapshot for an explicitly supplied grid terminal", () => {
     const gridSnapshot = snapshot({
       usedPercentage: 73,

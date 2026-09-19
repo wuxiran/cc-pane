@@ -350,7 +350,7 @@ impl HistoryRepository {
         let selected_resume_id = if retain_incoming {
             resume_session_id.to_string()
         } else {
-            existing_resume_id.unwrap_or_else(|| resume_session_id.to_string())
+            existing_resume_id.unwrap_or_default()
         };
         let selected_resume_source = if retain_incoming {
             Some(source.to_string())
@@ -448,7 +448,8 @@ impl HistoryRepository {
                      cli_tool = ?3,
                      runtime_kind = ?4,
                      wsl_distro = COALESCE(?5, wsl_distro),
-                     launch_cwd = COALESCE(?6, launch_cwd)
+                     launch_cwd = COALESCE(?6, launch_cwd),
+                     resume_source = 'hook'
                  WHERE project_id = ?7",
                 rusqlite::params![
                     pty_session_id,
@@ -481,6 +482,48 @@ impl HistoryRepository {
             })?;
 
         Ok(Some(id))
+    }
+
+    /// Clear the identity of a Claude session after `/clear` without treating
+    /// it as a PTY exit. The old identity is part of the CAS predicate so a
+    /// delayed hook cannot erase a newer SessionStart identity.
+    pub fn clear_session_identity_by_pty_if_matches(
+        &self,
+        pty_session_id: &str,
+        old_resume_session_id: &str,
+    ) -> Result<Option<i64>, String> {
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
+        let affected = conn
+            .execute(
+                "UPDATE launch_history
+                 SET resume_session_id = NULL,
+                     claude_session_id = NULL,
+                     resume_source = 'clear-tombstone:' || ?2
+                 WHERE pty_session_id = ?1
+                   AND (?2 <> '')
+                   AND (resume_session_id = ?2
+                        OR (resume_session_id IS NULL AND claude_session_id = ?2))",
+                rusqlite::params![pty_session_id, old_resume_session_id],
+            )
+            .map_err(|e| {
+                error!(
+                    table = "launch_history",
+                    pty_session_id = %pty_session_id,
+                    err = %e,
+                    "SQL clear_session_identity_by_pty_if_matches failed"
+                );
+                e.to_string()
+            })?;
+        if affected == 0 {
+            return Ok(None);
+        }
+        conn.query_row(
+            "SELECT id FROM launch_history WHERE pty_session_id = ?1 ORDER BY launched_at DESC LIMIT 1",
+            rusqlite::params![pty_session_id],
+            |row| row.get(0),
+        )
+        .map(Some)
+        .map_err(|e| e.to_string())
     }
 
     /// 回填会话启动信息（upsert）：先按 project_id UPDATE（同 update_session_started）；
@@ -626,7 +669,7 @@ impl HistoryRepository {
             let selected_resume_id = if replace_resume {
                 resume_session_id.to_string()
             } else {
-                existing_resume.unwrap_or_else(|| resume_session_id.to_string())
+                existing_resume.unwrap_or_default()
             };
             let selected_resume_source = if replace_resume {
                 resume_source.map(str::to_string).or(existing_source)
@@ -963,6 +1006,206 @@ mod tests {
         assert_eq!(found.runtime_kind, "local");
         // resume_session_id is filled later by `update_session_started`.
         assert!(found.resume_session_id.is_none());
+    }
+
+    #[test]
+    fn clear_identity_is_pty_and_old_resume_compare_and_set() {
+        let r = repo();
+        let id = r
+            .add_with_pty_session(
+                "clear-launch",
+                "project",
+                "/tmp/project",
+                "pty-clear",
+                "claude",
+                "local",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        r.update_session_started(
+            "clear-launch",
+            "pty-clear",
+            "resume-old",
+            "claude",
+            "local",
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            r.clear_session_identity_by_pty_if_matches("pty-clear", "stale")
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            r.find_by_launch_id("clear-launch")
+                .unwrap()
+                .unwrap()
+                .resume_session_id
+                .as_deref(),
+            Some("resume-old")
+        );
+        // A new SessionStart wins the race; the delayed clear for the old id is a no-op.
+        r.update_session_started(
+            "clear-launch",
+            "pty-clear",
+            "resume-new",
+            "claude",
+            "local",
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            r.clear_session_identity_by_pty_if_matches("pty-clear", "resume-old")
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            r.find_by_launch_id("clear-launch")
+                .unwrap()
+                .unwrap()
+                .resume_session_id
+                .as_deref(),
+            Some("resume-new")
+        );
+        assert_eq!(
+            r.clear_session_identity_by_pty_if_matches("pty-clear", "resume-new")
+                .unwrap(),
+            Some(id)
+        );
+        let cleared = r.find_by_launch_id("clear-launch").unwrap().unwrap();
+        assert!(cleared.resume_session_id.is_none());
+    }
+
+    #[test]
+    fn clear_does_not_match_legacy_field_when_authoritative_resume_is_new() {
+        let r = repo();
+        r.add_with_pty_session(
+            "legacy-clear",
+            "project",
+            "/tmp/project",
+            "pty-legacy",
+            "claude",
+            "local",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        r.update_session_started(
+            "legacy-clear",
+            "pty-legacy",
+            "resume-new",
+            "claude",
+            "local",
+            None,
+            None,
+        )
+        .unwrap();
+        let conn = r.db.connection().unwrap();
+        conn.execute("UPDATE launch_history SET claude_session_id = 'resume-old' WHERE project_id = 'legacy-clear'", []).unwrap();
+        drop(conn);
+        assert_eq!(
+            r.clear_session_identity_by_pty_if_matches("pty-legacy", "resume-old")
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            r.find_by_launch_id("legacy-clear")
+                .unwrap()
+                .unwrap()
+                .resume_session_id
+                .as_deref(),
+            Some("resume-new")
+        );
+    }
+
+    #[test]
+    fn clear_tombstone_rejects_old_issued_and_scan_replays_until_new_session_start() {
+        let r = repo();
+        r.add_with_pty_session(
+            "tombstone-clear",
+            "project",
+            "/tmp/project",
+            "pty-tombstone",
+            "claude",
+            "local",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        r.update_session_started(
+            "tombstone-clear",
+            "pty-tombstone",
+            "resume-old",
+            "claude",
+            "local",
+            None,
+            None,
+        )
+        .unwrap();
+        r.clear_session_identity_by_pty_if_matches("pty-tombstone", "resume-old")
+            .unwrap();
+        for source in ["issued", "rollout-scan"] {
+            let result = r
+                .update_resume_session_with_source_by_pty("pty-tombstone", "resume-old", source)
+                .unwrap();
+            assert_eq!(result.unwrap().resume_session_id, "");
+            assert!(r
+                .find_by_launch_id("tombstone-clear")
+                .unwrap()
+                .unwrap()
+                .resume_session_id
+                .is_none());
+        }
+        // A valid new SessionStart removes the tombstone and installs its identity.
+        r.update_session_started(
+            "tombstone-clear",
+            "pty-tombstone",
+            "resume-new",
+            "claude",
+            "local",
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            r.find_by_launch_id("tombstone-clear")
+                .unwrap()
+                .unwrap()
+                .resume_session_id
+                .as_deref(),
+            Some("resume-new")
+        );
+        for source in ["issued", "rollout-scan"] {
+            r.update_resume_session_with_source_by_pty("pty-tombstone", "resume-old", source)
+                .unwrap();
+            let current = r.find_by_launch_id("tombstone-clear").unwrap().unwrap();
+            assert_eq!(current.resume_session_id.as_deref(), Some("resume-new"));
+            assert_eq!(current.resume_source.as_deref(), Some("hook"));
+        }
     }
 
     #[test]

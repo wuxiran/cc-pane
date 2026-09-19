@@ -51,7 +51,7 @@ pub fn select_throttled(
 
 /// 30s 周期扫描线程（形态同 `session_reaper::spawn_session_reaper`）。
 pub fn spawn_checkpoint_monitor(service: Arc<TerminalService>, emitter: Arc<WsEmitter>) {
-    std::thread::spawn(move || {
+    cc_panes_core::pty::thread::spawn_optional("cc-panes-checkpoint-monitor", move || {
         let mut last_requested: HashMap<String, Instant> = HashMap::new();
         loop {
             std::thread::sleep(SCAN_INTERVAL);

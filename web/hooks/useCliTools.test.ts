@@ -38,14 +38,16 @@ describe("useCliTools", () => {
     expect(listCliTools).toHaveBeenCalledTimes(1);
   });
 
-  it("拉取失败时保留空列表、loading 结束且不抛出", async () => {
+  it("拉取失败时保留静态工具列表、loading 结束且不抛出", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(listCliTools).mockRejectedValue(new Error("ipc down"));
 
     const { result } = renderHook(() => useCliTools());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(result.current.tools).toEqual([]);
+    expect(result.current.tools.map((tool) => tool.id)).toEqual(
+      ["claude", "codex", "pi", "omp", "gemini", "kimi", "opencode", "cursor", "grok", "jcode"],
+    );
     expect(consoleError).toHaveBeenCalled();
     consoleError.mockRestore();
   });
@@ -88,5 +90,20 @@ describe("useCliTools", () => {
 
     expect(result.current.tools.map((t) => t.id)).toEqual(["claude", "codex"]);
     expect(listCliTools).toHaveBeenCalledTimes(2);
+  });
+
+  it("检测卡住超过总超时仍显示静态工具列表并结束 loading", async () => {
+    vi.mocked(listCliTools).mockImplementation(() => new Promise(() => {}));
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useCliTools());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_001);
+      });
+      expect(result.current.loading).toBe(false);
+      expect(result.current.tools.length).toBe(10);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

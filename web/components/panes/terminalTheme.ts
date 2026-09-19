@@ -1,4 +1,5 @@
-import type { TerminalThemeMode } from "@/types";
+import { ensureTerminalContrast } from "./terminalInteractionContrast";
+import type { TerminalThemeMode, TerminalSettings } from "@/types";
 
 export interface TerminalThemePalette {
   background: string;
@@ -7,6 +8,7 @@ export interface TerminalThemePalette {
   cursorAccent: string;
   selectionBackground: string;
   selectionForeground: string;
+  selectionInactiveBackground: string;
   black: string;
   red: string;
   green: string;
@@ -30,7 +32,8 @@ export const DARK_TERMINAL_THEME: TerminalThemePalette = {
   foreground: "#f5f5f7",
   cursor: "#0a84ff",
   cursorAccent: "#17191E",
-  selectionBackground: "rgba(10, 132, 255, 0.3)",
+  selectionBackground: "#526e96",
+  selectionInactiveBackground: "#526e96",
   selectionForeground: "#f5f5f7",
   black: "#17191E",
   red: "#ff453a",
@@ -55,9 +58,10 @@ export const LIGHT_TERMINAL_THEME: TerminalThemePalette = {
   background: "#ffffff",
   foreground: "#000000",
   cursor: "#919191",
-  cursorAccent: "#ffffff",
-  selectionBackground: "rgba(178, 212, 255, 0.8)",
-  selectionForeground: "#000000",
+  cursorAccent: "#000000",
+  selectionBackground: "#476c9b",
+  selectionInactiveBackground: "#476c9b",
+  selectionForeground: "#ffffff",
   black: "#000000",
   red: "#c33720",
   green: "#32be28",
@@ -192,6 +196,7 @@ export function getTerminalTheme(
   isDark: boolean,
   themeMode?: TerminalThemeMode | string | null,
   alpha?: number,
+  overrides?: Pick<TerminalSettings, "cursorColor" | "cursorAccent" | "selectionBackground" | "selectionForeground">,
 ): TerminalThemePalette {
   const resolvedMode = resolveTerminalThemeMode(themeMode);
   const base =
@@ -204,6 +209,12 @@ export function getTerminalTheme(
           : LIGHT_TERMINAL_THEME;
   const appThemeMatches =
     resolvedMode === "followApp" || (resolvedMode === "dark") === isDark;
-  const themedBase = appThemeMatches ? withCssCoreColors(base) : base;
+  let themedBase = appThemeMatches ? withCssCoreColors(base) : base;
+  for (const [setting, key] of [["cursorColor", "cursor"], ["cursorAccent", "cursorAccent"],
+    ["selectionBackground", "selectionBackground"], ["selectionForeground", "selectionForeground"]] as const) {
+    const value = overrides?.[setting]?.trim();
+    if (value && /^#[0-9a-f]{6}$/i.test(value)) themedBase = { ...themedBase, [key]: value };
+  }
+  themedBase = ensureTerminalContrast(themedBase);
   return alpha === undefined ? themedBase : withTerminalBackgroundAlpha(themedBase, alpha);
 }

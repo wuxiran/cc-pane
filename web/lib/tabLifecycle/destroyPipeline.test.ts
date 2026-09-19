@@ -65,6 +65,7 @@ const HANDWRITTEN_REASONS: DestroyReason[] = [
   "close-pane",
   "delete-layout",
   "snapshot-apply",
+  "task-completed",
   "backend-close",
   "editor-path-close",
 ];
@@ -141,6 +142,7 @@ describe("DESTROY_POLICY 矩阵穷举", () => {
       "close-pane": { vetoable: true, recordsClosedTabs: true, respectsPinned: false, kills: true, closesPopups: true },
       "delete-layout": { vetoable: true, recordsClosedTabs: false, respectsPinned: false, kills: true, closesPopups: true },
       "snapshot-apply": { vetoable: false, recordsClosedTabs: false, respectsPinned: false, kills: true, closesPopups: true },
+      "task-completed": { vetoable: false, recordsClosedTabs: false, respectsPinned: true, kills: false, closesPopups: true },
       "backend-close": { vetoable: false, recordsClosedTabs: false, respectsPinned: false, kills: false, closesPopups: true },
       "editor-path-close": { vetoable: false, recordsClosedTabs: false, respectsPinned: false, kills: false, closesPopups: false },
     });
@@ -148,6 +150,11 @@ describe("DESTROY_POLICY 矩阵穷举", () => {
 });
 
 describe("KillReason 映射三条语义锁", () => {
+  it("completed task cleanup never invokes kill", async () => {
+    await commitResourceDestroy([makeTerminalTab("completed")], "task-completed");
+    expect(killSession).not.toHaveBeenCalled();
+    expect(detachOutput).toHaveBeenCalledWith("completed");
+  });
   it("① kills=true → 映射非 null 且不落回收类（回收类会让 session-killed 保留标签，标签关不掉）", () => {
     for (const reason of ALL_DESTROY_REASONS) {
       if (!DESTROY_POLICY[reason].kills) continue;

@@ -25,6 +25,7 @@ pub(super) struct CursorChatCaptureContext {
     pub workspace_path: Option<String>,
     pub wsl_distro: Option<String>,
     pub launch_started_at: SystemTime,
+    pub capture_cwd: Option<String>,
 }
 
 /// 启动后台扫描线程。返回的 handle 目前只作生命周期占位（线程自管 done）。
@@ -37,7 +38,7 @@ impl CursorChatCapture {
     pub(super) fn start(ctx: CursorChatCaptureContext, emitter: Arc<dyn EventEmitter>) -> Self {
         let done = Arc::new(AtomicBool::new(false));
         let done_flag = done.clone();
-        std::thread::Builder::new()
+        if let Err(error) = std::thread::Builder::new()
             .name(format!(
                 "cursor-chat-scan-{}",
                 &ctx.session_id[..8.min(ctx.session_id.len())]
@@ -45,7 +46,9 @@ impl CursorChatCapture {
             .spawn(move || {
                 run_scan(ctx, emitter, done_flag);
             })
-            .ok();
+        {
+            warn!(%error, "Cursor resume scan unavailable: thread creation failed");
+        }
         Self { done }
     }
 }
@@ -58,12 +61,15 @@ fn run_scan(ctx: CursorChatCaptureContext, emitter: Arc<dyn EventEmitter>, done:
         let found = if ctx.runtime_kind == "wsl" {
             let after = chrono::DateTime::<chrono::Utc>::from(ctx.launch_started_at);
             cursor_session_service::detect_wsl_session_after(
-                &ctx.project_path,
+                ctx.capture_cwd.as_deref().unwrap_or(&ctx.project_path),
                 after,
                 ctx.wsl_distro.as_deref(),
             )
         } else {
-            cursor_session_service::detect_session_after(&ctx.project_path, ctx.launch_started_at)
+            cursor_session_service::detect_session_after(
+                ctx.capture_cwd.as_deref().unwrap_or(&ctx.project_path),
+                ctx.launch_started_at,
+            )
         };
 
         match found {

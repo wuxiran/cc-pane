@@ -35,7 +35,6 @@ const ALLOWLIST: Record<string, string[]> = {
     "#17191E",
     "#f5f5f7",
     "#0a84ff",
-    "rgba(10, 132, 255, 0.3)",
     "#ff453a",
     "#30d158",
     "#ffd60a",
@@ -51,7 +50,6 @@ const ALLOWLIST: Record<string, string[]> = {
     "#ffffff",
     "#000000",
     "#919191",
-    "rgba(178, 212, 255, 0.8)",
     "#c33720",
     "#32be28",
     "#afaf23",
@@ -70,7 +68,11 @@ const ALLOWLIST: Record<string, string[]> = {
     "rgba(${r}, ${g}, ${b}, ${alpha})",
     "rgba(${match[1]}, ${match[2]}, ${match[3]}, 0)",
     "rgba(0, 0, 0, 0)",
+    "#526e96",
+    "#476c9b",
   ],
+  // 终端交互对比度算法需要黑白文字候选与可读选区背景，属于终端专用调色板。
+  "panes/terminalInteractionContrast.ts": ["#ffffff", "#000000", "#526e96"],
   // 品牌身份色已迁到 --app-identity-provider-*；只剩头像字色（底色恒为深色品牌色）。
   "providers/ProviderAvatar.tsx": ["#fff"],
   "providers/ProviderCard.tsx": ["#6B7280"],

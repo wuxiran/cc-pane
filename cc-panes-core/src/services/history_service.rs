@@ -152,9 +152,17 @@ impl HistoryService {
         // 启动单写者后台线程
         let repos_clone = repos.clone();
         let debounce_clone = debounce_state.clone();
-        std::thread::spawn(move || {
-            Self::event_loop(rx, repos_clone, debounce_clone);
-        });
+        if let Err(error) = std::thread::Builder::new()
+            .name("ccpanes-history-writer".to_string())
+            .spawn(move || {
+                Self::event_loop(rx, repos_clone, debounce_clone);
+            })
+        {
+            // Local history is optional, but dropping the receiver makes the
+            // event sender report a visible disconnect instead of silently
+            // pretending that snapshots were persisted.
+            warn!(%error, "history writer thread unavailable; history events will be reported as disconnected");
+        }
 
         Self {
             watchers: Arc::new(Mutex::new(HashMap::new())),

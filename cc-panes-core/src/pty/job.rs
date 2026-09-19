@@ -178,6 +178,40 @@ impl Drop for ProcessJob {
     }
 }
 
+/// Retained fallback identity for a child which could not be assigned to a Job.
+pub struct ProcessHandle(HANDLE);
+// SAFETY: the owned process handle supports concurrent OS operations and closes once.
+unsafe impl Send for ProcessHandle {}
+unsafe impl Sync for ProcessHandle {}
+impl ProcessHandle {
+    pub fn open(pid: u32) -> Result<Self> {
+        unsafe {
+            OpenProcess(
+                PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+                false,
+                pid,
+            )
+        }
+        .map(Self)
+        .map_err(|error| anyhow!("OpenProcess failed: {error}"))
+    }
+    pub fn terminate(&self) -> Result<()> {
+        let mut code = 0;
+        unsafe { GetExitCodeProcess(self.0, &mut code) }
+            .map_err(|error| anyhow!("GetExitCodeProcess failed: {error}"))?;
+        if code != 259 {
+            return Ok(());
+        } // STILL_ACTIVE
+        unsafe { TerminateProcess(self.0, 1) }
+            .map_err(|error| anyhow!("TerminateProcess failed: {error}"))
+    }
+}
+impl Drop for ProcessHandle {
+    fn drop(&mut self) {
+        let _ = unsafe { CloseHandle(self.0) };
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,39 +353,5 @@ mod tests {
                 None => std::thread::sleep(Duration::from_millis(50)),
             }
         }
-    }
-}
-
-/// Retained fallback identity for a child which could not be assigned to a Job.
-pub struct ProcessHandle(HANDLE);
-// SAFETY: the owned process handle supports concurrent OS operations and closes once.
-unsafe impl Send for ProcessHandle {}
-unsafe impl Sync for ProcessHandle {}
-impl ProcessHandle {
-    pub fn open(pid: u32) -> Result<Self> {
-        unsafe {
-            OpenProcess(
-                PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
-                false,
-                pid,
-            )
-        }
-        .map(Self)
-        .map_err(|error| anyhow!("OpenProcess failed: {error}"))
-    }
-    pub fn terminate(&self) -> Result<()> {
-        let mut code = 0;
-        unsafe { GetExitCodeProcess(self.0, &mut code) }
-            .map_err(|error| anyhow!("GetExitCodeProcess failed: {error}"))?;
-        if code != 259 {
-            return Ok(());
-        } // STILL_ACTIVE
-        unsafe { TerminateProcess(self.0, 1) }
-            .map_err(|error| anyhow!("TerminateProcess failed: {error}"))
-    }
-}
-impl Drop for ProcessHandle {
-    fn drop(&mut self) {
-        let _ = unsafe { CloseHandle(self.0) };
     }
 }

@@ -80,4 +80,11 @@ describe("SessionOutputPreview", () => {
     view.rerender(<SessionOutputPreview sessionId="sess-2" />);
     await waitFor(() => expect(getRecentOutput).toHaveBeenCalledWith("sess-2", 200));
   });
+  it("reads retained output for a completed task after its tab has closed", async () => {
+    getRecentOutput.mockResolvedValue({ sessionId: "closed-pty", lines: ["retained result"], exited: true, retained: true });
+    render(<SessionOutputPreview sessionId="closed-pty" />);
+    expect(await screen.findByText("retained result")).toBeInTheDocument();
+    expect(getRecentOutput).toHaveBeenCalledWith("closed-pty", 200);
+  });
+
 });

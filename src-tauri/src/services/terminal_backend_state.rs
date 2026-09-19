@@ -405,6 +405,8 @@ mod tests {
 
         fn get_session_output(&self, session_id: &str, _lines: usize) -> AppResult<SessionOutput> {
             Ok(SessionOutput {
+                exited: None,
+                retained: None,
                 session_id: session_id.to_string(),
                 lines: vec!["ready".to_string()],
             })
@@ -450,6 +452,8 @@ mod tests {
 
         fn get_session_output(&self, session_id: &str, _lines: usize) -> AppResult<SessionOutput> {
             Ok(SessionOutput {
+                exited: None,
+                retained: None,
                 session_id: session_id.to_string(),
                 lines: Vec::new(),
             })
@@ -465,6 +469,7 @@ mod tests {
 
     fn test_request() -> CreateSessionRequest {
         CreateSessionRequest {
+            launch_cwd: None,
             launch_id: None,
             project_path: "/tmp/project".to_string(),
             cols: 80,

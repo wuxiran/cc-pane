@@ -194,6 +194,7 @@ describe("useSettingsStore", () => {
       expect(defaults.terminal.scrollback).toBe(5000);
       expect(defaults.terminal.themeMode).toBe("followApp");
       expect(defaults.terminal.rendererMode).toBe("auto");
+      expect(defaults.terminal.autoCloseCompletedTasks).toBe(false);
       expect(defaults.terminal.showContextUsage).toBe(true);
       expect(defaults.terminal.showStatusBar).toBe(true);
       expect(defaults.terminal.taskQueueEnabled).toBe(true);

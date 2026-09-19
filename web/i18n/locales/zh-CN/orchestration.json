@@ -87,6 +87,8 @@
     "expand": "展开"
   },
   "sidebar": {
+    "autoClose": "完成并退出后自动收窗",
+    "cancelAutoClose": "取消自动收窗",
     "actions": "操作",
     "workspace": "工作空间",
     "allWorkspaces": "全部工作空间",

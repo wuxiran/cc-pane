@@ -44,6 +44,23 @@ const SOCKS5_ATYP_IPV4: u8 = 0x01;
 const SOCKS5_ATYP_DOMAIN: u8 = 0x03;
 const SOCKS5_ATYP_IPV6: u8 = 0x04;
 
+struct JumpRelayResources {
+    relay_side: TcpStream,
+    jump_session: Session,
+    channel: ssh2::Channel,
+}
+
+impl Drop for JumpRelayResources {
+    fn drop(&mut self) {
+        // 切回阻塞模式再关闭：非阻塞下 libssh2 返回 EAGAIN，
+        // channel 释放会被忽略从而泄漏远端转发。
+        let _ = self.relay_side.shutdown(std::net::Shutdown::Both);
+        self.jump_session.set_blocking(true);
+        let _ = self.channel.close();
+        let _ = self.channel.wait_close();
+    }
+}
+
 /// 拼 `host:port`，IPv6 字面量加方括号（HTTP CONNECT 的 authority 要求）。
 pub(crate) fn format_address(host: &str, port: u16) -> String {
     if host.contains(':') {
@@ -113,33 +130,41 @@ pub(crate) fn establish_jump_tunnel(
     target_port: u16,
 ) -> Result<TcpStream> {
     jump_session.set_blocking(true);
-    let mut channel = jump_session
+    let channel = jump_session
         .channel_direct_tcpip(target_host, target_port, None)
         .with_context(|| {
             format!("Failed to open jump-host forward to {target_host}:{target_port}")
         })?;
     let mut stream = ChannelIo::new(&channel);
 
-    let (session_side, mut relay_side) = create_loopback_pair()?;
+    let (session_side, relay_side) = create_loopback_pair()?;
     relay_side
         .set_nonblocking(true)
         .context("Failed to switch the jump relay socket to non-blocking mode")?;
     jump_session.set_timeout(RELAY_SESSION_TIMEOUT_MS);
     jump_session.set_blocking(false);
 
-    thread::spawn(move || {
-        let outcome = pump_bidirectional(&mut relay_side, &mut stream);
-        if let Err(error) = outcome {
-            tracing::debug!(%error, "SSH jump-host relay stopped");
-        }
-        // Release the caller before bounded channel cleanup.
-        let _ = relay_side.shutdown(std::net::Shutdown::Both);
-        // 切回阻塞模式再关闭：非阻塞下 libssh2 返回 EAGAIN，
-        // channel 释放会被忽略从而泄漏远端转发。
-        jump_session.set_blocking(true);
-        let _ = channel.close();
-        let _ = channel.wait_close();
-    });
+    let resources = JumpRelayResources {
+        relay_side,
+        jump_session,
+        channel,
+    };
+    if let Err(error) = thread::Builder::new()
+        .name("ccpanes-ssh-jump-relay".to_string())
+        .spawn(move || {
+            let mut resources = resources;
+            let outcome = pump_bidirectional(&mut resources.relay_side, &mut stream);
+            if let Err(error) = outcome {
+                tracing::debug!(%error, "SSH jump-host relay stopped");
+            }
+        })
+    {
+        // `resources` is dropped with the rejected closure, invoking its
+        // cleanup guard before the error reaches the caller.
+        return Err(anyhow::anyhow!(
+            "Failed to start SSH jump-host relay thread: {error}"
+        ));
+    }
 
     Ok(session_side)
 }

@@ -87,6 +87,8 @@
     "expand": "Expand"
   },
   "sidebar": {
+    "autoClose": "Close after completion and exit",
+    "cancelAutoClose": "Cancel automatic close",
     "actions": "Actions",
     "workspace": "Workspace",
     "allWorkspaces": "All workspaces",

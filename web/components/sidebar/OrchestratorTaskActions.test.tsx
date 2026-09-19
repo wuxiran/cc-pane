@@ -7,6 +7,8 @@ import {
   useActivityBarStore,
   useOrchestratorStore,
   useTerminalStatusStore,
+  usePanesStore,
+  useSettingsStore,
 } from "@/stores";
 import type { TaskBinding, TerminalStatusInfo } from "@/types";
 
@@ -68,6 +70,30 @@ function seedStore(bindings: TaskBinding[]) {
     setSelectedTaskId: setSelectedTaskId as never,
   });
 }
+
+it("requires the global gate and records exactly the chosen session and tab", async () => {
+  const user = userEvent.setup();
+  const binding = createBinding({ sessionId: "chosen-pty" });
+  seedStore([binding]);
+  const settings = useSettingsStore.getState().getDefaults();
+  useSettingsStore.setState({ settings });
+  const location = vi.spyOn(usePanesStore.getState(), "findTabBySessionAcrossLayouts")
+    .mockReturnValue({ tab: { id: "chosen-tab" } } as never);
+  const view = render(<OrchestratorTaskActions binding={binding} />);
+  await user.click(screen.getByTitle(tt("orchestration:sidebar.actions")));
+  const option = await screen.findByRole("menuitem", { name: tt("orchestration:sidebar.autoClose") });
+  expect(option).toHaveAttribute("data-disabled");
+  view.unmount();
+  useSettingsStore.setState({ settings: { ...settings, terminal: { ...settings.terminal, autoCloseCompletedTasks: true } } });
+  render(<OrchestratorTaskActions binding={binding} />);
+  await user.click(screen.getByTitle(tt("orchestration:sidebar.actions")));
+  await user.click(await screen.findByRole("menuitem", { name: tt("orchestration:sidebar.autoClose") }));
+  expect(updatePatch).toHaveBeenCalledWith(binding.id, { metadata: { ui: {
+    autoCloseCompletedSessionId: "chosen-pty", autoCloseCompletedTabId: "chosen-tab",
+  } } });
+  location.mockRestore();
+  useSettingsStore.setState({ settings: null });
+});
 
 function setSessionStatus(sessionId: string, status: TerminalStatusInfo["status"]) {
   useTerminalStatusStore.setState({

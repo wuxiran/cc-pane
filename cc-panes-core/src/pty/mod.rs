@@ -11,6 +11,7 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 #[cfg(windows)]
 mod job;
 mod read_watch;
+pub mod thread;
 pub use read_watch::ReaderIoWatch;
 use std::collections::HashMap;
 use std::io::{Read, Write};

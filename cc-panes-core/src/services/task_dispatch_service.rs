@@ -81,6 +81,8 @@ impl TaskDispatchService {
             ));
         }
         let mcp_supported = capabilities.supports_mcp;
+        let cwd = resolve_dispatch_cwd(&request.project_path, request.cwd.as_deref())?;
+        dispatch_permission_yolo_mode(request.permission_mode.as_deref())?;
 
         Ok(TaskDispatchPlan {
             cli_tool,
@@ -94,6 +96,9 @@ impl TaskDispatchService {
                 workspace_name: clean_optional(request.workspace_name),
                 profile_id: clean_optional(request.profile_id),
                 runtime_kind: clean_optional(request.runtime_kind),
+                cwd: Some(cwd),
+                permission_mode: clean_optional(request.permission_mode),
+                model_id: clean_optional(request.model_id),
                 mode,
                 resume_id,
                 skill_delivery_modes: adapter.skill_delivery_modes(),
@@ -123,6 +128,33 @@ impl Default for TaskDispatchService {
     }
 }
 
+/// Dispatch works in the registered project unless the caller explicitly chooses
+/// another absolute directory. Runtime-specific existence/conversion is core-owned.
+pub fn resolve_dispatch_cwd(project_path: &str, cwd: Option<&str>) -> Result<String, String> {
+    let cwd = cwd.unwrap_or(project_path).trim();
+    if cwd.is_empty() || cwd.chars().any(char::is_control) {
+        return Err("cwd must be a non-empty absolute directory without control characters".into());
+    }
+    let drive_absolute = cwd.as_bytes().get(1) == Some(&b':')
+        && cwd.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+        && matches!(cwd.as_bytes().get(2), Some(b'/' | b'\\'));
+    if !cwd.starts_with('/') && !cwd.starts_with(r"\\") && !drive_absolute {
+        return Err("cwd must be an absolute directory".into());
+    }
+    Ok(cwd.to_string())
+}
+
+/// None inherits the launch profile. `default` only disables CC-Panes' YOLO
+/// override; the CLI's own user settings remain under the user's control.
+pub fn dispatch_permission_yolo_mode(mode: Option<&str>) -> Result<Option<bool>, String> {
+    match mode.map(str::trim) {
+        None => Ok(None),
+        Some("default") => Ok(Some(false)),
+        Some("bypassPermissions") => Ok(Some(true)),
+        Some(_) => Err("permissionMode must be default or bypassPermissions".into()),
+    }
+}
+
 fn clean_optional(value: Option<String>) -> Option<String> {
     value.and_then(|value| {
         let trimmed = value.trim();
@@ -142,6 +174,63 @@ mod tests {
             prompt: Some("implement the task".to_string()),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn dispatch_cwd_and_permission_overrides_validate_and_survive_round_trip() {
+        let mut input = request(Some("claude"));
+        input.cwd = Some("D:/worktree".into());
+        input.permission_mode = Some("default".into());
+        input.model_id = Some("model-override".into());
+        let envelope = TaskDispatchService::default().plan(input).unwrap().envelope;
+        assert_eq!(envelope.cwd.as_deref(), Some("D:/worktree"));
+        assert_eq!(envelope.permission_mode.as_deref(), Some("default"));
+        assert_eq!(envelope.model_id.as_deref(), Some("model-override"));
+        let json = serde_json::to_value(&envelope).unwrap();
+        assert_eq!(json["cwd"], "D:/worktree");
+        assert_eq!(
+            serde_json::from_value::<TaskDispatchEnvelope>(json).unwrap(),
+            envelope
+        );
+        assert_eq!(
+            resolve_dispatch_cwd("C:/project", None).unwrap(),
+            "C:/project"
+        );
+        assert_eq!(
+            resolve_dispatch_cwd("C:/project", Some("/home/user/repo")).unwrap(),
+            "/home/user/repo"
+        );
+        for invalid in ["", " ", "relative/path", "D:relative", "x\n/y", "x\0/y"] {
+            assert!(resolve_dispatch_cwd("C:/project", Some(invalid)).is_err());
+        }
+        assert_eq!(dispatch_permission_yolo_mode(None).unwrap(), None);
+        assert_eq!(
+            dispatch_permission_yolo_mode(Some("default")).unwrap(),
+            Some(false)
+        );
+        assert_eq!(
+            dispatch_permission_yolo_mode(Some("bypassPermissions")).unwrap(),
+            Some(true)
+        );
+        assert!(dispatch_permission_yolo_mode(Some("invalid")).is_err());
+        assert!(dispatch_permission_yolo_mode(Some("")).is_err());
+    }
+
+    #[test]
+    fn old_dispatch_envelopes_deserialize_without_overrides() {
+        let envelope = TaskDispatchService::default()
+            .plan(request(Some("claude")))
+            .unwrap()
+            .envelope;
+        let mut json = serde_json::to_value(&envelope).unwrap();
+        let object = json.as_object_mut().unwrap();
+        for key in ["cwd", "permissionMode", "modelId"] {
+            object.remove(key);
+        }
+        let old: TaskDispatchEnvelope = serde_json::from_value(json).unwrap();
+        assert!(old.cwd.is_none());
+        assert!(old.permission_mode.is_none());
+        assert!(old.model_id.is_none());
     }
 
     #[test]
@@ -220,6 +309,7 @@ mod tests {
                 resume_id: Some("resume-a".to_string()),
                 parent_binding_id: Some("binding-a".to_string()),
                 parent_session_id: Some("session-a".to_string()),
+                ..Default::default()
             })
             .unwrap();
 
