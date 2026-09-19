@@ -13,6 +13,7 @@ import {
 } from "@/lib/terminalScrollback";
 import type { ShellInfo, TerminalSettings } from "@/types";
 import { SearchableSetting } from "./SettingsSearchContext";
+import TerminalVisibilitySettings from "./TerminalVisibilitySettings";
 import AdvancedSettings from "./AdvancedSettings";
 
 interface TerminalSectionProps {
@@ -125,6 +126,8 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
           </label>
         </div>
       </div>
+
+      <TerminalVisibilitySettings value={value} onChange={onChange} />
 
       <div className="flex items-center justify-between gap-6">
         <Label htmlFor="terminal-scrollback">{t("scrollback")}</Label>

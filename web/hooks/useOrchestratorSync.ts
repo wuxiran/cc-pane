@@ -1,3 +1,4 @@
+import useCompletedTaskAutoClose from "./useCompletedTaskAutoClose";
 import { useEffect } from "react";
 import {
   useOrchestratorStore,
@@ -10,6 +11,7 @@ import { listenWebviewIfTauri } from "@/services/runtime";
  * 编排同步 Hook — 事件增量更新 TaskBinding，并保留轮询兜底。
  */
 export default function useOrchestratorSync() {
+  useCompletedTaskAutoClose();
   const loadBindings = useOrchestratorStore((s) => s.loadBindings);
   const applyChangedEvent = useOrchestratorStore((s) => s.applyChangedEvent);
   const selectedWorkspaceId = useWorkspacesStore((s) => s.expandedWorkspaceId);

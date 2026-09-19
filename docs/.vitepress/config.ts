@@ -23,6 +23,7 @@ export default defineConfig({
     "remote-control-design.md",
     "marketing/**",
     "bugs/**",
+    "diagnostics/**",
     "prototypes/**",
     "examples/**",
   ],

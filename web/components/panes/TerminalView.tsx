@@ -1,3 +1,4 @@
+import { useShallow } from "zustand/react/shallow";
 import { useRef, useEffect, useCallback, useMemo, useState, forwardRef, useImperativeHandle, type CSSProperties } from "react";
 // xterm 只作类型引用；构造器与 css 经 terminal/terminalXtermModules 动态装载。
 import type { Terminal, IDisposable } from "@xterm/xterm";
@@ -107,9 +108,15 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       s.resolved !== null && s.assetUrl !== null ? s.resolved.terminalOpacity : 1,
     );
     const wallpaperTransparencyRequired = wallpaperTerminalAlpha < 1;
+    const terminalColors = useSettingsStore(useShallow((s) => ({
+      cursorColor: s.settings?.terminal.cursorColor,
+      cursorAccent: s.settings?.terminal.cursorAccent,
+      selectionBackground: s.settings?.terminal.selectionBackground,
+      selectionForeground: s.settings?.terminal.selectionForeground,
+    })));
     const terminalTheme = useMemo(
-      () => getTerminalTheme(isDark, terminalThemeMode, wallpaperTerminalAlpha),
-      [isDark, terminalThemeMode, wallpaperTerminalAlpha],
+      () => getTerminalTheme(isDark, terminalThemeMode, wallpaperTerminalAlpha, terminalColors),
+      [isDark, terminalThemeMode, wallpaperTerminalAlpha, terminalColors],
     );
     // 底色由外层容器独占（见 withTransparentTerminalBackground 注释）：
     // xterm 侧一律用全透明 background，否则同一层 rgba 被画两遍。

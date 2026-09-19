@@ -45,7 +45,23 @@ describe("terminalTheme", () => {
     expect(resolveTerminalThemeMode(null)).toBe("followApp");
   });
 
-  it("核心四色跟随当前应用主题的 CSS 变量", () => {
+  it("applies readable custom colors and corrects invisible overrides", () => {
+    const themed = getTerminalTheme(true, "dark", undefined, {
+      cursorColor: "#ffffff", cursorAccent: "#000000",
+      selectionBackground: "#ffffff", selectionForeground: "#000000",
+    });
+    expect(themed.cursor).toBe("#ffffff");
+    expect(themed.selectionBackground).toBe("#ffffff");
+    expect(themed.selectionInactiveBackground).toBe("#ffffff");
+    const corrected = getTerminalTheme(true, "dark", undefined, {
+      cursorColor: "#17191e", selectionBackground: "#17191e",
+    });
+    expect(corrected.cursor).not.toBe("#17191e");
+    expect(corrected.selectionBackground).not.toBe("#17191e");
+    expect(getTerminalTheme(true, "dark", undefined, { cursorColor: "bad" })).toBe(DARK_TERMINAL_THEME);
+  });
+
+  it("核心颜色跟随 CSS 变量并修正不可见的选区", () => {
     setCoreColorVariables({
       "--app-terminal-bg": "#112233",
       "--app-terminal-fg": "#ddeeff",
@@ -60,7 +76,7 @@ describe("terminalTheme", () => {
       background: "#112233",
       foreground: "#ddeeff",
       cursor: "#abcdef",
-      selectionBackground: "rgba(12, 34, 56, 0.4)",
+      selectionBackground: "#526e96",
     });
     expect(themed.red).toBe(DARK_TERMINAL_THEME.red);
   });

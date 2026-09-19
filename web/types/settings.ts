@@ -131,6 +131,13 @@ export interface TerminalSettings {
   fontFamily: string;
   cursorStyle: string;
   cursorBlink: boolean;
+  /** Optional #RRGGBB terminal colors; empty follows theme, minimum contrast is enforced. */
+  cursorColor?: string | null;
+  cursorAccent?: string | null;
+  selectionBackground?: string | null;
+  selectionForeground?: string | null;
+  /** Global gate. Each task still requires explicit opt-in; never kills a PTY. */
+  autoCloseCompletedTasks?: boolean;
   scrollback: number;
   /** 终端主题: followApp 跟随应用, dark 深色终端, light 浅色终端 */
   themeMode: TerminalThemeMode;

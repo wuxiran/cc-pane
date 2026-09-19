@@ -24,6 +24,7 @@ function formatTokens(value: number | null): string {
 }
 
 function statusColor(snapshot: ContextUsageSnapshot): string {
+  if (snapshot.usedTokens === null) return "var(--app-text-secondary)";
   if (snapshot.status === "error") return "var(--app-status-danger)";
   if (snapshot.status === "stale") return "var(--app-status-warning)";
   const percentage = normalizeContextPercentage(snapshot.usedPercentage);
@@ -90,9 +91,10 @@ export default function ContextUsageIndicator({
       } satisfies ContextUsageSnapshot;
     }
     const age = now - snapshot.observedAt;
-    if (age > STALE_AFTER_MS && lastReady) return toStale(lastReady);
-    if ((snapshot.status === "error" || snapshot.status === "waiting") && lastReady) {
-      return now - lastReady.observedAt > STALE_AFTER_MS ? toStale(lastReady) : lastReady;
+    if (snapshot.status === "error" || snapshot.status === "waiting") return snapshot;
+    if (age > STALE_AFTER_MS && lastReady
+      && snapshot.agentSessionId && lastReady.agentSessionId === snapshot.agentSessionId) {
+      return toStale(lastReady);
     }
     return snapshot;
   }, [lastReady, now, sessionId, snapshot]);
@@ -105,7 +107,9 @@ export default function ContextUsageIndicator({
     : displaySnapshot.status === "error"
       ? <AlertTriangle className="h-3.5 w-3.5" />
       : <Gauge className="h-3.5 w-3.5" />;
-  const primary = percentage === null ? "-%" : `${percentage}%`;
+  const primary = displaySnapshot.status === "waiting" || displaySnapshot.status === "error"
+    ? t("contextUsage.windowSources.unknown")
+    : percentage === null ? "-%" : `${percentage}%`;
   const rawSummary = `${formatTokens(displaySnapshot.usedTokens)} / ${formatTokens(displaySnapshot.windowTokens)}`;
   const effectiveDiffers = displaySnapshot.effectiveUsedTokens !== displaySnapshot.usedTokens
     || displaySnapshot.effectiveWindowTokens !== displaySnapshot.windowTokens;

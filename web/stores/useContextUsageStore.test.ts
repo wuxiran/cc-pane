@@ -89,6 +89,43 @@ describe("useContextUsageStore", () => {
     expect(state.lastReady).toBeNull();
   });
 
+  it.each(["new-agent", null])("never keeps old 81%% when identity becomes %s", async (identity) => {
+    vi.spyOn(usageStatsService, "queryContextUsage")
+      .mockResolvedValueOnce({ ...snapshot("old-agent"), usedPercentage: 81 })
+      .mockResolvedValueOnce({
+        ...snapshot("new-agent"), status: "waiting", agentSessionId: identity,
+        usedTokens: null, usedPercentage: null,
+      });
+    await useContextUsageStore.getState().load("pty");
+    await useContextUsageStore.getState().load("pty");
+    expect(useContextUsageStore.getState().lastReady).toBeNull();
+    expect(useContextUsageStore.getState().sessions.get("pty")?.lastReady).toBeNull();
+  });
+
+  it("drops old usage when the identity source fails", async () => {
+    vi.spyOn(usageStatsService, "queryContextUsage")
+      .mockResolvedValueOnce({ ...snapshot("old-agent"), usedPercentage: 81 })
+      .mockRejectedValueOnce(new Error("identity unavailable"));
+    await useContextUsageStore.getState().load("pty");
+    await useContextUsageStore.getState().load("pty");
+    expect(useContextUsageStore.getState().lastReady).toBeNull();
+  });
+
+  it("rejects a late old response after the same PTY is invalidated and loaded again", async () => {
+    const oldRequest = deferred<ContextUsageSnapshot>();
+    const newRequest = deferred<ContextUsageSnapshot>();
+    vi.spyOn(usageStatsService, "queryContextUsage")
+      .mockReturnValueOnce(oldRequest.promise).mockReturnValueOnce(newRequest.promise);
+    const oldLoad = useContextUsageStore.getState().load("pty");
+    useContextUsageStore.getState().dropSession("pty");
+    const newLoad = useContextUsageStore.getState().load("pty");
+    newRequest.resolve(snapshot("new"));
+    await newLoad;
+    oldRequest.resolve({ ...snapshot("old"), usedPercentage: 81 });
+    await oldLoad;
+    expect(useContextUsageStore.getState().snapshot?.agentSessionId).toBe("new");
+  });
+
   it("caps the cache so long-running instances cannot grow it without bound", async () => {
     vi.spyOn(usageStatsService, "queryContextUsage")
       .mockImplementation(async (sessionId) => snapshot(sessionId));

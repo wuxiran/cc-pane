@@ -64,6 +64,8 @@ export function registerTerminalParserHandlers({
       getTerminalTheme(
         useThemeStore.getState().isDark,
         useSettingsStore.getState().settings?.terminal.themeMode,
+        undefined,
+        useSettingsStore.getState().settings?.terminal,
       ),
       {
         preserveTransparentBackground: transparentCliSurfaceRef.current,

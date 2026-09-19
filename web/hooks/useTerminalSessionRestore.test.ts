@@ -9,6 +9,11 @@ import { coldRestoreBlockedTerminal } from "./coldTerminalRestore";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
 import { sessionRestoreService, terminalService } from "@/services";
 import { listenIfTauri } from "@/services/runtime";
+import { useContextUsageStore } from "@/stores/useContextUsageStore";
+import { useResumeBindingStore } from "@/stores/useResumeBindingStore";
+import { usageStatsService } from "@/services/usageStatsService";
+import type { ContextUsageSnapshot } from "@/types/contextUsage";
+import { TERMINAL_LAYOUT_CHANGED_EVENT } from "@/lib/paneTree";
 
 vi.mock("@/stores", () => ({
   usePanesStore: { getState: vi.fn() },
@@ -562,6 +567,100 @@ describe("useTerminalResumeIdBridge", () => {
     // 已命中，不再重试
     await vi.advanceTimersByTimeAsync(10_000);
     expect(updateTabAgentResumeId).toHaveBeenCalledTimes(3);
+    unmount();
+  });
+
+  it("clear identity event invalidates usage even without a new resume id", async () => {
+    const { getHandler } = setup([true]);
+    const drop = vi.spyOn(useContextUsageStore.getState(), "dropSession");
+    useContextUsageStore.setState({ sessions: new Map([["pty-clear", {
+      snapshot: null, lastReady: null, requestId: 7, loading: true,
+    }]]) });
+    const { unmount } = renderHook(() => useTerminalResumeIdBridge());
+    await vi.waitFor(() => expect(getHandler()).toBeDefined());
+    getHandler()!({ payload: { ptySessionId: "pty-clear", resumeSessionId: null } });
+    expect(drop).toHaveBeenCalledWith("pty-clear");
+    expect(useContextUsageStore.getState().sessions.has("pty-clear")).toBe(false);
+    unmount();
+    drop.mockRestore();
+  });
+
+  it("null identity cancels pending old binding retries and clears the resume mirror", async () => {
+    const { getHandler, updateTabAgentResumeId } = setup([false, true]);
+    const { unmount } = renderHook(() => useTerminalResumeIdBridge());
+    await vi.waitFor(() => expect(getHandler()).toBeDefined());
+    getHandler()!({ payload: { ptySessionId: "pty-delayed", resumeSessionId: "old" } });
+    expect(useResumeBindingStore.getState().getBinding("pty-delayed")?.resumeId).toBe("old");
+    getHandler()!({ payload: { ptySessionId: "pty-delayed", resumeSessionId: null } });
+    expect(useResumeBindingStore.getState().getBinding("pty-delayed")).toBeUndefined();
+    expect(updateTabAgentResumeId).toHaveBeenLastCalledWith("pty-delayed", "");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(updateTabAgentResumeId).toHaveBeenCalledTimes(2);
+    unmount();
+  });
+
+  it("null identity drops a late 81 percent query result", async () => {
+    const { getHandler } = setup([true]);
+    let resolve!: (snapshot: ContextUsageSnapshot) => void;
+    const query = vi.spyOn(usageStatsService, "queryContextUsage")
+      .mockReturnValue(new Promise((done) => { resolve = done; }));
+    const { unmount } = renderHook(() => useTerminalResumeIdBridge());
+    await vi.waitFor(() => expect(getHandler()).toBeDefined());
+    const load = useContextUsageStore.getState().load("pty-late");
+    getHandler()!({ payload: { ptySessionId: "pty-late", resumeSessionId: null } });
+    resolve({ status: "ready", agentSessionId: "old", usedPercentage: 81 } as ContextUsageSnapshot);
+    await load;
+    expect(useContextUsageStore.getState().snapshot).toBeNull();
+    expect(useContextUsageStore.getState().lastReady).toBeNull();
+    unmount();
+    query.mockRestore();
+  });
+
+  it.each(["retrying", "pending"])("ignores old clear after new SessionStart and preserves %s binding", async (phase) => {
+    const sessionId = `pty-new-before-clear-${phase}`;
+    const { getHandler, updateTabAgentResumeId } = setup([]);
+    updateTabAgentResumeId.mockReturnValue(false);
+    const { unmount } = renderHook(() => useTerminalResumeIdBridge());
+    await vi.waitFor(() => expect(getHandler()).toBeDefined());
+    getHandler()!({ payload: { ptySessionId: sessionId, resumeSessionId: "new-resume" } });
+    if (phase === "pending") await vi.advanceTimersByTimeAsync(60_000);
+    const snapshot = { agentSessionId: "new-resume", usedPercentage: 8 } as ContextUsageSnapshot;
+    const entry = { snapshot, lastReady: snapshot, loading: false, requestId: 42 };
+    useContextUsageStore.setState({ sessions: new Map([[sessionId, entry]]) });
+    updateTabAgentResumeId.mockClear().mockReturnValue(true);
+
+    getHandler()!({ payload: {
+      ptySessionId: sessionId, resumeSessionId: null, oldResumeSessionId: "old-resume",
+    } });
+    expect(useResumeBindingStore.getState().getBinding(sessionId)?.resumeId).toBe("new-resume");
+    expect(useContextUsageStore.getState().sessions.get(sessionId)).toBe(entry);
+    expect(updateTabAgentResumeId).not.toHaveBeenCalled();
+    if (phase === "pending") {
+      window.dispatchEvent(new CustomEvent(TERMINAL_LAYOUT_CHANGED_EVENT, { detail: { reason: "session.update" } }));
+    } else {
+      await vi.advanceTimersByTimeAsync(500);
+    }
+    expect(updateTabAgentResumeId).toHaveBeenCalledWith(sessionId, "new-resume", undefined);
+    unmount();
+  });
+
+  it.each(["old-resume", "new-resume"])("compares clear identity with usage %s when the mirror is absent", async (resumeId) => {
+    const sessionId = `pty-usage-only-${resumeId}`;
+    const { getHandler, updateTabAgentResumeId } = setup([true]);
+    useResumeBindingStore.getState().clearBinding(sessionId);
+    const snapshot = { agentSessionId: resumeId } as ContextUsageSnapshot;
+    const entry = { snapshot, lastReady: snapshot, loading: false, requestId: 43 };
+    useContextUsageStore.setState({ sessions: new Map([[sessionId, entry]]) });
+    const { unmount } = renderHook(() => useTerminalResumeIdBridge());
+    await vi.waitFor(() => expect(getHandler()).toBeDefined());
+    getHandler()!({ payload: { ptySessionId: sessionId, resumeSessionId: null, oldResumeSessionId: "old-resume" } });
+    if (resumeId === "old-resume") {
+      expect(useContextUsageStore.getState().sessions.has(sessionId)).toBe(false);
+      expect(updateTabAgentResumeId).toHaveBeenCalledWith(sessionId, "");
+    } else {
+      expect(useContextUsageStore.getState().sessions.get(sessionId)).toBe(entry);
+      expect(updateTabAgentResumeId).not.toHaveBeenCalled();
+    }
     unmount();
   });
 

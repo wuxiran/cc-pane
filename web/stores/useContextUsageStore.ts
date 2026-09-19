@@ -23,6 +23,9 @@ interface ContextUsageState {
  */
 export const MAX_CONTEXT_USAGE_ENTRIES = 64;
 
+// Monotonic across drop/recreate: an old in-flight response must never match a new request.
+let nextRequestId = 0;
+
 function pruneSessions(
   sessions: Map<string, ContextUsageEntry>,
   keepSessionId: string | null,
@@ -114,7 +117,7 @@ export const useContextUsageStore = create<ContextUsageState>((set, get) => ({
     // terminal overwrite every other terminal's usage snapshot.
     const previous = get().sessions.get(sessionId) ?? emptyEntry();
     if (previous.loading) return;
-    const requestId = previous.requestId + 1;
+    const requestId = ++nextRequestId;
     set((state) => {
       const sessions = new Map(state.sessions);
       sessions.set(sessionId, { ...previous, loading: true, requestId });
@@ -130,14 +133,14 @@ export const useContextUsageStore = create<ContextUsageState>((set, get) => ({
       set((state) => ({
         sessions: new Map(state.sessions).set(sessionId, {
           snapshot,
-          lastReady: snapshot.status === "ready" ? snapshot : current.lastReady,
+          lastReady: snapshot.status === "ready" ? snapshot : null,
           loading: false,
           requestId,
         }),
         ...(state.sessionId === sessionId
           ? {
               snapshot,
-              lastReady: snapshot.status === "ready" ? snapshot : current.lastReady,
+              lastReady: snapshot.status === "ready" ? snapshot : null,
               loading: false,
               requestId,
             }
@@ -151,7 +154,7 @@ export const useContextUsageStore = create<ContextUsageState>((set, get) => ({
         const sessions = new Map(state.sessions);
         sessions.set(sessionId, {
           snapshot,
-          lastReady: current.lastReady,
+          lastReady: null,
           loading: false,
           requestId,
         });
@@ -159,7 +162,7 @@ export const useContextUsageStore = create<ContextUsageState>((set, get) => ({
           ? {
               sessions,
               snapshot,
-              lastReady: current.lastReady,
+              lastReady: null,
               loading: false,
               requestId,
             }

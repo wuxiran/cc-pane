@@ -322,6 +322,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       fontFamily: '"Maple Mono NF CN", "Maple Mono", "Cascadia Code", "Cascadia Mono", "JetBrains Mono", Consolas, "Sarasa Mono SC", "Microsoft YaHei UI", "PingFang SC", monospace',
       cursorStyle: "block",
       cursorBlink: false,
+      autoCloseCompletedTasks: false,
       scrollback: TERMINAL_SCROLLBACK_DEFAULT,
       themeMode: "followApp",
       rendererMode: "auto",
