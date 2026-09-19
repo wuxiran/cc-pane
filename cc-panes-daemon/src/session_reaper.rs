@@ -72,7 +72,7 @@ fn current_epoch_millis() -> u64 {
 /// 每轮 sweep 前重读 config.toml，TTL 改动无需重启 daemon 即生效。
 /// 全程阻塞 I/O，跑在独立线程上。
 pub fn spawn_session_reaper(config: DaemonConfig, settings: Arc<SettingsService>) {
-    std::thread::spawn(move || loop {
+    cc_panes_core::pty::thread::spawn_optional("cc-panes-session-reaper", move || loop {
         std::thread::sleep(SWEEP_INTERVAL);
 
         // 热生效：重读 config.toml。文件存在但读/解析失败（可能是半写瞬态）时

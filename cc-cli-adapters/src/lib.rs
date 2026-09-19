@@ -16,6 +16,7 @@ mod gemini;
 mod grok;
 mod jcode;
 mod kimi;
+pub mod mcp_config_lifecycle;
 pub mod mcp_file_injection;
 mod omp;
 mod opencode;

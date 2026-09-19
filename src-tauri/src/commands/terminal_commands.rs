@@ -802,6 +802,8 @@ mod tests {
 
         fn get_session_output(&self, session_id: &str, _lines: usize) -> AppResult<SessionOutput> {
             Ok(SessionOutput {
+                exited: None,
+                retained: None,
                 session_id: session_id.to_string(),
                 lines: Vec::new(),
             })

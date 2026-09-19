@@ -136,6 +136,9 @@ pub struct CreateSessionRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch_id: Option<String>,
     pub project_path: String,
+    /// Independent runtime cwd; None preserves workspace-first launch behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_cwd: Option<String>,
     pub cols: u16,
     pub rows: u16,
     pub workspace_name: Option<String>,

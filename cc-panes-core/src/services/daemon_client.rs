@@ -1058,6 +1058,7 @@ mod tests {
 
     fn test_create_request() -> CreateSessionRequest {
         CreateSessionRequest {
+            launch_cwd: None,
             launch_id: Some("launch-1".to_string()),
             project_path: "/repo".to_string(),
             cols: 100,
@@ -1673,6 +1674,17 @@ mod tests {
             .expect("snapshot")
             .expect("some snapshot");
         assert_eq!(snapshot.buffer_mode, TerminalBufferMode::Normal);
+    }
+
+    #[test]
+    fn issue64_output_retention_proof_round_trips_daemon_transport() {
+        let body = r#"{"sessionId":"retained","lines":["final"],"exited":true,"retained":true}"#;
+        let (addr, _rx) = spawn_response_server(http_json_response("200 OK", body));
+        let client = TerminalDaemonClient::new(addr.to_string(), "fixture")
+            .with_timeout(Duration::from_secs(1));
+        let output = client.get_session_output("retained", 1).unwrap();
+        assert_eq!((output.exited, output.retained), (Some(true), Some(true)));
+        assert_eq!(output.lines, ["final"]);
     }
 
     #[test]

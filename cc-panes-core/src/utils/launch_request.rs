@@ -15,6 +15,11 @@ pub fn normalize_session_request_for_host(
         return request;
     }
 
+    request.launch_cwd = request
+        .launch_cwd
+        .take()
+        .map(|path| normalize_path_for_wsl(&path).unwrap_or(path));
+
     if let Some(wsl) = request.wsl.take() {
         let project_path = non_empty(&wsl.remote_path)
             .map(expand_home_path)
@@ -292,6 +297,7 @@ mod tests {
 
     fn request(project_path: &str) -> CreateSessionRequest {
         CreateSessionRequest {
+            launch_cwd: None,
             launch_id: None,
             project_path: project_path.to_string(),
             cols: 120,

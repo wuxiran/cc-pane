@@ -613,6 +613,7 @@ fn restore_snapshot_entry(
 
     let request = cc_panes_core::utils::normalize_session_request_for_current_host(
         cc_panes_core::models::CreateSessionRequest {
+            launch_cwd: None,
             launch_id: None,
             project_path: entry.project_path.clone(),
             cols: 120,

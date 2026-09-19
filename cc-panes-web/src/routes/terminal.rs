@@ -178,6 +178,8 @@ pub struct CreateSessionRequest {
 pub struct PartialCreateSessionRequest {
     pub launch_id: Option<String>,
     pub project_path: Option<String>,
+    #[serde(default)]
+    pub launch_cwd: Option<String>,
     pub cols: Option<u16>,
     pub rows: Option<u16>,
     pub workspace_name: Option<String>,
@@ -268,6 +270,7 @@ pub async fn create_session(
         .unwrap_or_else(|| state.default_cwd.clone());
 
     let core_request = normalize_session_request_for_current_host(CoreCreateSessionRequest {
+        launch_cwd: req.core.launch_cwd,
         launch_id: req.core.launch_id,
         project_path,
         cols: req.core.cols.unwrap_or(120),
@@ -778,6 +781,8 @@ mod tests {
                 .unwrap()
                 .push((session_id.to_string(), lines));
             Ok(SessionOutput {
+                exited: None,
+                retained: None,
                 session_id: session_id.to_string(),
                 lines: vec!["ready".to_string()],
             })
@@ -1028,6 +1033,7 @@ mod tests {
 
         let request = CreateSessionRequest {
             core: PartialCreateSessionRequest {
+                launch_cwd: None,
                 launch_id: Some("launch-model".to_string()),
                 project_path: Some("/repo".to_string()),
                 cli_tool: CliTool::Claude,
