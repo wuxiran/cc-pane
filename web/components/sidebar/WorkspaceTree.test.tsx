@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Workspace } from "@/types";
+import type { CliToolInfo, Workspace } from "@/types";
+import { useCliTools } from "@/hooks/useCliTools";
 import WorkspaceTree from "./WorkspaceTree";
 import { getReorderedWorkspaceNames } from "./workspaceDnd";
 
@@ -45,13 +46,13 @@ vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 // WorkspaceTree 只负责把可用 CLI 集合传给菜单子树；CLI 探测本身由 hook
 // 单测覆盖，这里避免每个渲染用例都触发真实的 /api/cli-tools 请求。
 vi.mock("@/hooks/useCliTools", () => ({
-  useCliTools: () => ({
+  useCliTools: vi.fn(() => ({
     tools: [],
     loading: false,
     refresh: vi.fn(),
     getToolById: vi.fn(),
     installedTools: [],
-  }),
+  })),
 }));
 vi.mock("@/stores/useSettingsStore", () => ({
   useSettingsStore: (selector: (state: { settings: null }) => unknown) => selector({ settings: null }),
@@ -62,7 +63,9 @@ vi.mock("@/components/WorktreeManager", () => ({ default: () => null }));
 vi.mock("./WorkspaceDialogs", () => ({ default: () => null }));
 vi.mock("./ProjectListView", () => ({ default: () => null }));
 vi.mock("./WorkspaceItem", () => ({
-  default: ({ ws }: { ws: Workspace }) => <div data-testid="ws-item">{ws.name}</div>,
+  default: ({ ws, availableCliToolIds }: { ws: Workspace; availableCliToolIds?: ReadonlySet<string> }) => (
+    <div data-testid="ws-item" data-cli-availability={availableCliToolIds === undefined ? "unknown" : [...availableCliToolIds].join(",")}>{ws.name}</div>
+  ),
 }));
 
 const handleCreateWorkspace = vi.fn();
@@ -170,6 +173,8 @@ describe("getReorderedWorkspaceNames", () => {
 describe("WorkspaceTree component", () => {
   beforeEach(() => {
     handleCreateWorkspace.mockClear();
+    vi.mocked(useCliTools).mockReturnValue({ tools: [], loading: false,
+      refresh: vi.fn(), getToolById: vi.fn(), installedTools: [] });
     storeState = {
       workspaces: [],
       workspaceFilter: { query: "", colors: [], group: null },
@@ -184,6 +189,20 @@ describe("WorkspaceTree component", () => {
       collapsedWorkspaceGroups: [],
       toggleWorkspaceGroup: vi.fn(),
     };
+  });
+
+  it("探测未知时保留启动菜单，真实结果到达后才限制可用工具", () => {
+    storeState.workspaces = [makeWorkspace({ id: "a", name: "alpha" })];
+    const { rerender } = render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
+    expect(screen.getByTestId("ws-item")).toHaveAttribute("data-cli-availability", "unknown");
+    const tools: CliToolInfo[] = [
+      { id: "claude", displayName: "Claude", executable: "claude", versionArgs: [], installed: true, version: null, path: null },
+      { id: "codex", displayName: "Codex", executable: "codex", versionArgs: [], installed: false, version: null, path: null },
+    ];
+    vi.mocked(useCliTools).mockReturnValue({ tools, loading: false,
+      refresh: vi.fn(), getToolById: vi.fn(), installedTools: [tools[0]] });
+    rerender(<WorkspaceTree onOpenTerminal={vi.fn()} />);
+    expect(screen.getByTestId("ws-item")).toHaveAttribute("data-cli-availability", "claude");
   });
 
   it("空工作空间时显示 noWorkspaces 与计数 0", () => {

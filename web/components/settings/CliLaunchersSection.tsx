@@ -6,12 +6,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import CliToolSelect from "@/components/CliToolSelect";
 import { useCliTools } from "@/hooks/useCliTools";
-import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import { settingsService } from "@/services";
-import type { CliLauncherSettings } from "@/types";
+import type { CliLauncherSettings, CliToolInfo } from "@/types";
+import { CLI_TOOL_TABS } from "@/types/provider";
+
+type LauncherTool = Omit<CliToolInfo, "installed"> & { installed?: boolean };
+const FALLBACK_TOOL_LABELS: Record<string, string> = {
+  claude: "Claude Code", codex: "Codex CLI", pi: "Pi", omp: "OMP", gemini: "Gemini CLI",
+  kimi: "Kimi CLI", opencode: "OpenCode", cursor: "Cursor Agent", grok: "Grok CLI", jcode: "JCode",
+};
+// Editing a command needs static metadata, not successful host detection.
+// Keep this fallback local: an unknown install state must never gate launching.
+const FALLBACK_LAUNCHER_TOOLS: LauncherTool[] = CLI_TOOL_TABS.map(({ id }) => ({
+  id, displayName: FALLBACK_TOOL_LABELS[id] ?? id,
+  executable: id === "cursor" ? "cursor-agent" : id,
+  versionArgs: ["--version"], version: null, path: null,
+}));
 
 interface CliLaunchersSectionProps {
   value: CliLauncherSettings;
@@ -19,9 +31,9 @@ interface CliLaunchersSectionProps {
 }
 
 export default function CliLaunchersSection({ value, onChange }: CliLaunchersSectionProps) {
-  const { t } = useTranslation("settings");
-  const { tools, loading } = useCliTools();
-  const showLoadingSkeleton = useDelayedLoading(loading && tools.length === 0);
+  const { t } = useTranslation(["settings", "common"]);
+  const { tools: detectedTools, loading } = useCliTools();
+  const tools: LauncherTool[] = detectedTools.length > 0 ? detectedTools : FALLBACK_LAUNCHER_TOOLS;
   const [selectedToolId, setSelectedToolId] = useState("");
   const [testingId, setTestingId] = useState<string | null>(null);
   const selectedTool = tools.find((tool) => tool.id === selectedToolId) ?? tools[0];
@@ -60,30 +72,16 @@ export default function CliLaunchersSection({ value, onChange }: CliLaunchersSec
   return (
     <div className="flex flex-col gap-3">
       <div className="flex min-h-8 items-center justify-end">
-        {tools.length > 0 ? (
-          <CliToolSelect
-            value={effectiveSelectedToolId}
-            options={tools.map((tool) => ({
-              id: tool.id,
-              label: tool.displayName,
-              installed: tool.installed,
-            }))}
-            onValueChange={setSelectedToolId}
-            className="w-[220px]"
-          />
-        ) : loading ? (
-          showLoadingSkeleton ? (
-            <Skeleton
-              className="h-8 w-[220px] rounded-md"
-              aria-hidden="true"
-              data-testid="cli-launchers-skeleton"
-            />
-          ) : null
-        ) : (
-          <span className="text-xs text-[var(--app-text-tertiary)]">
-            {t("cliLauncherEmpty")}
-          </span>
-        )}
+        <CliToolSelect
+          value={effectiveSelectedToolId}
+          options={tools.map((tool) => ({
+            id: tool.id,
+            label: tool.displayName,
+            installed: tool.installed,
+          }))}
+          onValueChange={setSelectedToolId}
+          className="w-[220px]"
+        />
       </div>
 
       {selectedTool && (
@@ -103,7 +101,9 @@ export default function CliLaunchersSection({ value, onChange }: CliLaunchersSec
                   {selectedTool.displayName}
                 </span>
                 <Badge variant={selectedTool.installed ? "secondary" : "outline"} className="rounded-md">
-                  {selectedTool.installed ? t("cliInstalled") : t("cliNotInstalled")}
+                  {selectedTool.installed === undefined
+                    ? loading ? t("checking") : t("common:contextUsage.windowSources.unknown")
+                    : selectedTool.installed ? t("cliInstalled") : t("cliNotInstalled")}
                 </Badge>
               </div>
               <div className="mt-1 truncate font-mono text-[11px] text-[var(--app-text-tertiary)]">

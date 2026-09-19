@@ -135,7 +135,9 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
   const cliLauncherOverrides = useSettingsStore((s) => s.settings?.cliLaunchers.overrides);
   const availableCliToolIds = useMemo(
     () => getAvailableSidebarCliToolIds(
-      cliToolsLoading ? undefined : cliTools,
+      // No successful registry response yet: preserve launch choices even
+      // after the loading deadline or an IPC failure.
+      cliToolsLoading || cliTools.length === 0 ? undefined : cliTools,
       cliLauncherOverrides,
     ),
     [cliLauncherOverrides, cliTools, cliToolsLoading],

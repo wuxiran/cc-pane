@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
@@ -64,21 +64,37 @@ describe("CliLaunchersSection", () => {
     mockTools([createTool()]);
   });
 
-  it("shows a skeleton after the delay while tools are being fetched", () => {
-    vi.useFakeTimers();
-    try {
-      mockTools([], true);
-      render(<CliLaunchersSection value={{ overrides: {} }} onChange={vi.fn()} />);
+  it.each([true, false])("keeps the command editor usable with unknown detection (loading=%s)", async (loading) => {
+    mockTools([], loading);
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<CliLaunchersSection value={{ overrides: {} }} onChange={onChange} />);
 
-      // 300ms 内不显示骨架，避免快加载闪占位
-      expect(screen.queryByTestId("cli-launchers-skeleton")).not.toBeInTheDocument();
-      act(() => {
-        vi.advanceTimersByTime(300);
-      });
-      expect(screen.getByTestId("cli-launchers-skeleton")).toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(screen.getByTestId("cli-launcher-editor")).toHaveAttribute("data-cli-tool", "claude");
+    expect(screen.getByText(i18n.t(loading ? "settings:checking" : "common:contextUsage.windowSources.unknown"))).toBeInTheDocument();
+    expect(screen.queryByText(i18n.t("settings:cliNotInstalled"))).not.toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("claude"), { target: { value: "custom-claude" } });
+    expect(onChange).toHaveBeenCalledWith({ overrides: { claude: { command: "custom-claude" } } });
+
+    await user.click(screen.getByRole("combobox", { name: i18n.t("settings:cliToolSelect") }));
+    expect(screen.getAllByRole("option")).toHaveLength(10);
+    expect(screen.queryByText(i18n.t("settings:cliNotInstalled"))).not.toBeInTheDocument();
+    await user.click(within(screen.getByRole("listbox")).getByRole("option", { name: "Codex CLI" }));
+    expect(screen.getByTestId("cli-launcher-editor")).toHaveAttribute("data-cli-tool", "codex");
+  });
+
+  it("replaces fallback metadata with a late real detection without losing the selected editor", async () => {
+    mockTools([], false);
+    const user = userEvent.setup();
+    const value = { overrides: { codex: { command: "custom-codex" } } };
+    const { rerender } = render(<CliLaunchersSection value={value} onChange={vi.fn()} />);
+    await selectTool(user, "Codex CLI");
+    mockTools([createTool(), createTool({ id: "codex", displayName: "Codex CLI", executable: "codex", path: "C:/bin/codex.cmd" })]);
+    rerender(<CliLaunchersSection value={value} onChange={vi.fn()} />);
+    expect(screen.getByTestId("cli-launcher-editor")).toHaveAttribute("data-cli-tool", "codex");
+    expect(screen.getByDisplayValue("custom-codex")).toBeInTheDocument();
+    expect(screen.getByText("C:/bin/codex.cmd")).toBeInTheDocument();
+    expect(screen.getByText(i18n.t("settings:cliInstalled"))).toBeInTheDocument();
   });
 
   it("shows one selected tool and switches it from the CLI dropdown", async () => {

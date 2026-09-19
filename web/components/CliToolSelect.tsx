@@ -11,7 +11,8 @@ import {
 export interface CliToolSelectOption {
   id: string;
   label: string;
-  installed: boolean;
+  /** Missing means detection is pending/unavailable, not confirmed absent. */
+  installed?: boolean;
   count?: number;
 }
 
@@ -99,7 +100,7 @@ export default function CliToolSelect({
                       {option.count}
                     </span>
                   )}
-                  {!option.installed && (
+                  {option.installed === false && (
                     <span className="text-[10px] text-[var(--app-text-tertiary)]">
                       {t("cliNotInstalled")}
                     </span>
