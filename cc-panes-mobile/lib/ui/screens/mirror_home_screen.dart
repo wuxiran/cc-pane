@@ -5,6 +5,7 @@ import '../../core/result.dart';
 import '../../state/auth_controller.dart';
 import '../../state/mirror_controller.dart';
 import '../../state/workspaces_controller.dart';
+import '../widgets/adaptive_layout.dart';
 import '../widgets/mirror_card.dart';
 import 'terminal_screen.dart';
 import 'workspace_tab.dart';
@@ -29,9 +30,10 @@ class _MirrorHomeScreenState extends ConsumerState<MirrorHomeScreen> {
     final auth = widget.auth;
     final mirror = ref.watch(mirrorControllerProvider);
     final onTerminalTab = _tab == 1;
-    final sessionCount = mirror.value?.groups.fold<int>(0, (n, g) => n + g.cards.length) ?? 0;
+    final sessionCount =
+        mirror.value?.groups.fold<int>(0, (n, g) => n + g.cards.length) ?? 0;
 
-    return Scaffold(
+    return AdaptiveTabScaffold(
       appBar: AppBar(
         title: onTerminalTab
             ? Column(
@@ -56,7 +58,8 @@ class _MirrorHomeScreenState extends ConsumerState<MirrorHomeScreen> {
           if (auth.readOnly)
             const Padding(
               padding: EdgeInsets.only(right: 4),
-              child: Chip(label: Text('只读'), visualDensity: VisualDensity.compact),
+              child:
+                  Chip(label: Text('只读'), visualDensity: VisualDensity.compact),
             ),
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -81,26 +84,21 @@ class _MirrorHomeScreenState extends ConsumerState<MirrorHomeScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.folder_outlined),
-            selectedIcon: Icon(Icons.folder),
-            label: '工作区',
-          ),
-          NavigationDestination(
-            icon: Badge(
-              isLabelVisible: sessionCount > 0,
-              label: Text('$sessionCount'),
-              child: const Icon(Icons.terminal_outlined),
-            ),
-            selectedIcon: const Icon(Icons.terminal),
-            label: '终端',
-          ),
-        ],
-      ),
+      selectedIndex: _tab,
+      onDestinationSelected: (i) => setState(() => _tab = i),
+      destinations: [
+        const AdaptiveDestination(
+          icon: Icons.folder_outlined,
+          selectedIcon: Icons.folder,
+          label: '工作区',
+        ),
+        AdaptiveDestination(
+          icon: Icons.terminal_outlined,
+          selectedIcon: Icons.terminal,
+          label: '终端',
+          badgeCount: sessionCount,
+        ),
+      ],
     );
   }
 }
@@ -140,33 +138,38 @@ class _MirrorBody extends ConsumerWidget {
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: () async => ref.invalidate(mirrorControllerProvider),
-      child: ListView(
-        padding: const EdgeInsets.only(bottom: 80),
-        children: [
-          for (final group in state.groups) ...[
-            _GroupHeader(group: group),
-            for (final card in group.cards)
-              MirrorCardTile(
-                card: card,
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => TerminalScreen(
-                      sessionId: card.sessionId,
-                      title: card.title,
+    return LayoutBuilder(
+      builder: (context, constraints) => RefreshIndicator(
+        onRefresh: () async => ref.invalidate(mirrorControllerProvider),
+        child: ListView(
+          padding: Breakpoints.centered(
+              constraints.maxWidth, const EdgeInsets.only(bottom: 80)),
+          children: [
+            for (final group in state.groups) ...[
+              _GroupHeader(group: group),
+              for (final card in group.cards)
+                MirrorCardTile(
+                  card: card,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => TerminalScreen(
+                        sessionId: card.sessionId,
+                        title: card.title,
+                      ),
                     ),
                   ),
+                  onKill:
+                      auth.readOnly ? null : () => _kill(context, ref, card),
                 ),
-                onKill: auth.readOnly ? null : () => _kill(context, ref, card),
-              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
 
-  Future<void> _kill(BuildContext context, WidgetRef ref, MirrorCard card) async {
+  Future<void> _kill(
+      BuildContext context, WidgetRef ref, MirrorCard card) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -183,8 +186,9 @@ class _MirrorBody extends ConsumerWidget {
       ),
     );
     if (confirmed != true || !context.mounted) return;
-    final result =
-        await ref.read(mirrorControllerProvider.notifier).killSession(card.sessionId);
+    final result = await ref
+        .read(mirrorControllerProvider.notifier)
+        .killSession(card.sessionId);
     if (!context.mounted) return;
     result.when(
       ok: (_) {},
@@ -192,7 +196,8 @@ class _MirrorBody extends ConsumerWidget {
         final message = failure.kind == FailureKind.readOnly
             ? '远程只读模式已拦截。可在桌面端开启「允许已登录的远程会话写入」。'
             : failure.message;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
       },
     );
   }
@@ -207,8 +212,10 @@ class _GroupHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final (icon, suffix) = switch (group.kind) {
-      MirrorGroupKind.layout =>
-        (Icons.dashboard_outlined, group.isCurrentLayout ? ' · 当前' : ''),
+      MirrorGroupKind.layout => (
+          Icons.dashboard_outlined,
+          group.isCurrentLayout ? ' · 当前' : ''
+        ),
       MirrorGroupKind.mobileRemote => (Icons.smartphone, ''),
       MirrorGroupKind.orphan => (Icons.help_outline, ''),
     };

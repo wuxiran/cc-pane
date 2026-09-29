@@ -5,6 +5,7 @@ import '../../models/layout_snapshot.dart' show normalizeProjectPath;
 import '../../models/workspace.dart';
 import '../../state/mirror_controller.dart';
 import '../../state/workspaces_controller.dart';
+import '../widgets/adaptive_layout.dart';
 import '../widgets/launch_sheet.dart';
 import '../widgets/workspace_actions_sheet.dart';
 
@@ -32,25 +33,28 @@ class WorkspaceTab extends ConsumerWidget {
           ],
         ),
       ),
-      data: (list) => RefreshIndicator(
-        onRefresh: () async {
-          ref.invalidate(workspacesControllerProvider);
-          ref.invalidate(launchHistoryProvider);
-        },
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 80),
-          children: [
-            _MetricsRow(workspaces: list),
-            const SizedBox(height: 8),
-            if (list.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(40),
-                child: Center(child: Text('桌面端还没有工作空间')),
-              )
-            else
-              for (final workspace in list)
-                _WorkspaceCard(workspace: workspace),
-          ],
+      data: (list) => LayoutBuilder(
+        builder: (context, constraints) => RefreshIndicator(
+          onRefresh: () async {
+            ref.invalidate(workspacesControllerProvider);
+            ref.invalidate(launchHistoryProvider);
+          },
+          child: ListView(
+            padding: Breakpoints.centered(
+                constraints.maxWidth, const EdgeInsets.fromLTRB(12, 8, 12, 80)),
+            children: [
+              _MetricsRow(workspaces: list),
+              const SizedBox(height: 8),
+              if (list.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(40),
+                  child: Center(child: Text('桌面端还没有工作空间')),
+                )
+              else
+                for (final workspace in list)
+                  _WorkspaceCard(workspace: workspace),
+            ],
+          ),
         ),
       ),
     );
@@ -78,7 +82,8 @@ class _MetricsRow extends StatelessWidget {
     );
   }
 
-  Widget _metric(BuildContext context, String value, String label, Color color) {
+  Widget _metric(
+      BuildContext context, String value, String label, Color color) {
     return Expanded(
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 3),
@@ -86,16 +91,19 @@ class _MetricsRow extends StatelessWidget {
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surfaceContainerLow,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+          border:
+              Border.all(color: Theme.of(context).colorScheme.outlineVariant),
         ),
         child: Column(
           children: [
             Text(value,
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: color)),
+                style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w700, color: color)),
             const SizedBox(height: 2),
             Text(label,
                 style: TextStyle(
-                    fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                    fontSize: 11,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
           ],
         ),
       ),
@@ -128,7 +136,8 @@ class _WorkspaceCard extends ConsumerWidget {
                     color: scheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Icon(Icons.folder_outlined, size: 20, color: scheme.onSurfaceVariant),
+                  child: Icon(Icons.folder_outlined,
+                      size: 20, color: scheme.onSurfaceVariant),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -138,12 +147,14 @@ class _WorkspaceCard extends ConsumerWidget {
                       Text(workspace.displayName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                          style: const TextStyle(
+                              fontSize: 14, fontWeight: FontWeight.w700)),
                       if (workspace.path != null)
                         Text(workspace.path!,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+                            style: TextStyle(
+                                fontSize: 12, color: scheme.onSurfaceVariant)),
                       const SizedBox(height: 6),
                       Wrap(spacing: 6, runSpacing: 6, children: [
                         if (workspace.pinned) const _Pill(label: '已置顶'),
@@ -157,7 +168,8 @@ class _WorkspaceCard extends ConsumerWidget {
                   icon: const Icon(Icons.more_horiz),
                   visualDensity: VisualDensity.compact,
                   tooltip: '工作区操作',
-                  onPressed: () => showWorkspaceActions(context, ref, workspace: workspace),
+                  onPressed: () =>
+                      showWorkspaceActions(context, ref, workspace: workspace),
                 ),
               ],
             ),
@@ -202,7 +214,8 @@ class _ProjectRow extends ConsumerWidget {
             children: [
               Row(
                 children: [
-                  Icon(Icons.terminal, size: 18, color: scheme.onSurfaceVariant),
+                  Icon(Icons.terminal,
+                      size: 18, color: scheme.onSurfaceVariant),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Column(
@@ -211,11 +224,13 @@ class _ProjectRow extends ConsumerWidget {
                         Text(project.displayName,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                            style: const TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.w600)),
                         Text(project.path,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+                            style: TextStyle(
+                                fontSize: 11, color: scheme.onSurfaceVariant)),
                       ],
                     ),
                   ),
@@ -246,7 +261,8 @@ class _ProjectRow extends ConsumerWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Text('点按打开项目终端',
-                    style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+                    style: TextStyle(
+                        fontSize: 11, color: scheme.onSurfaceVariant)),
               ),
             ],
           ),
@@ -258,7 +274,8 @@ class _ProjectRow extends ConsumerWidget {
 
 /// 项目「电脑在跑 / 手机打开」状态徽标（图标 + 文字 + 半透明底色）。
 class _StatusBadge extends StatelessWidget {
-  const _StatusBadge({required this.icon, required this.label, required this.color});
+  const _StatusBadge(
+      {required this.icon, required this.label, required this.color});
 
   final IconData icon;
   final String label;
@@ -278,7 +295,8 @@ class _StatusBadge extends StatelessWidget {
           Icon(icon, size: 12, color: color),
           const SizedBox(width: 3),
           Text(label,
-              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color)),
+              style: TextStyle(
+                  fontSize: 10, fontWeight: FontWeight.w600, color: color)),
         ],
       ),
     );

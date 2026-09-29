@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../state/auth_controller.dart';
 import '../../state/sessions_controller.dart';
+import '../widgets/adaptive_layout.dart';
 import 'session_list_screen.dart';
 import 'workspace_screen.dart';
 
@@ -24,14 +25,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final sessionCount =
         ref.watch(sessionsControllerProvider).value?.length ?? 0;
 
-    return Scaffold(
+    return AdaptiveTabScaffold(
       appBar: AppBar(
         title: Text(widget.auth.client.profile.name),
         actions: [
           if (widget.auth.readOnly)
             const Padding(
               padding: EdgeInsets.only(right: 8),
-              child: Chip(label: Text('只读'), visualDensity: VisualDensity.compact),
+              child:
+                  Chip(label: Text('只读'), visualDensity: VisualDensity.compact),
             ),
         ],
       ),
@@ -42,26 +44,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           SessionListScreen(readOnly: widget.auth.readOnly),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (index) => setState(() => _tab = index),
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.folder_outlined),
-            selectedIcon: Icon(Icons.folder),
-            label: '工作空间',
-          ),
-          NavigationDestination(
-            icon: Badge(
-              isLabelVisible: sessionCount > 0,
-              label: Text('$sessionCount'),
-              child: const Icon(Icons.terminal_outlined),
-            ),
-            selectedIcon: const Icon(Icons.terminal),
-            label: '会话',
-          ),
-        ],
-      ),
+      selectedIndex: _tab,
+      onDestinationSelected: (index) => setState(() => _tab = index),
+      destinations: [
+        const AdaptiveDestination(
+          icon: Icons.folder_outlined,
+          selectedIcon: Icons.folder,
+          label: '工作空间',
+        ),
+        AdaptiveDestination(
+          icon: Icons.terminal_outlined,
+          selectedIcon: Icons.terminal,
+          label: '会话',
+          badgeCount: sessionCount,
+        ),
+      ],
     );
   }
 }

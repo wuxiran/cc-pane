@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../state/terminal_controller.dart';
+import '../widgets/adaptive_layout.dart';
 import '../widgets/key_bar.dart';
 
 /// 终端页：xterm 渲染 + WS 输入 + 快捷键条。
@@ -54,6 +55,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   @override
   Widget build(BuildContext context) {
     final controller = ref.watch(terminalControllerProvider(widget.sessionId));
+    // 平板屏幕大、观看距离远，12pt 偏小；按最短边判定，旋转不改字号。
+    final fontSize = Breakpoints.isTablet(context) ? 14.0 : 12.0;
 
     return Scaffold(
       appBar: AppBar(
@@ -62,11 +65,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           if (controller.canWrite)
             IconButton(
               icon: const Icon(Icons.fit_screen_outlined),
-              tooltip: '把 PTY 尺寸调整为手机屏幕（会影响桌面端同一会话的渲染）',
+              tooltip: '把 PTY 尺寸调整为本机屏幕（会影响桌面端同一会话的渲染）',
               onPressed: () {
                 if (!controller.resizeToView()) return;
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('已按手机屏幕调整终端尺寸')),
+                  const SnackBar(content: Text('已按本机屏幕调整终端尺寸')),
                 );
               },
             ),
@@ -110,8 +113,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   controller.terminal,
                   // 打包的 CJK 等宽字体：系统等宽字体普遍缺 CJK，回退字体
                   // 非等宽会让中文与 cell 网格错位。
-                  textStyle: const TerminalStyle(
-                    fontSize: 12,
+                  textStyle: TerminalStyle(
+                    fontSize: fontSize,
                     fontFamily: 'MapleMonoNFCN',
                   ),
                   autofocus: false,

@@ -19,4 +19,7 @@ flutter pub get
 flutter analyze
 flutter test
 flutter build ios --debug --no-codesign
-echo "IOS_BUILD=PASS（未签名构建；真机签名与安装需在 Xcode 配置 Team）"
+# 模拟器切片单独构建一次：Apple Silicon 模拟器是 arm64，与真机构建不是同一产物。
+flutter build ios --debug --simulator
+echo "IOS_BUILD=PASS（真机未签名构建 + 模拟器构建；真机签名与安装需在 Xcode 配置 Team）"
+echo "下一步：open -a Simulator，选 iPhone 与 iPad 各一台后执行 flutter run -d <设备>"
