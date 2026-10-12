@@ -15,6 +15,8 @@
 | 多开不卡 | 渲染进程是单点：N 个挂载的 xterm、N 份轮询、N 个 WebGL 上下文都压在同一个 WebView2 主线程上（实测峰值 135% CPU / 1.7 GB）。本机 28 个 claude.exe **空闲时合计只有 77% 核**，CLI 本身不是主因 | **P1 隐藏视图停泊（parking）** + 隐藏 WebGL 上下文 LRU（≤6）+ 启动/恢复风暴信号量 | Orca §4/§7、OpenCode §2 |
 | 编译不拖垮整机 | 子进程只被降到 BELOW_NORMAL，没有内存软限、没有 WSL 配额、没有"正在编译"的闸门；而且**肇事者在会话树外时 CC-Panes 完全看不见**（今天实测：Everything 索引器 874% CPU，用户以为是 CC-Panes 卡） | **P2 资源管理器**（含整机 Top 非会话进程、一键降优先级/EcoQoS）、**P3 Job 内存通知软限 + WSL systemd scope**、**P4 构建并行度环境注入** | Orca §2、docs/71 §9.2、Codex §6 |
 | CLI 侧省资源 | Codex 运行中状态条 31 Hz 重绘、默认 6 个子 agent；Claude Code 无可注入项 | **P4 Codex 轻量注入**：`tui.animations=false`、`agents.max_concurrent_threads_per_session`、`shell_environment_policy.set.CARGO_BUILD_JOBS` | Codex §3/§5/§6 |
+| 总量失控 | 优先级只是"让路"，10 个窗格同时编译依然 100%；`rg` 短促满核躲过优先级 | **P6 资源门禁**：重负载经 daemon 拿槽位、共享构建 Job 设总上限、rg 限线程 | docs/71 A-3 的正确形态 |
+| 本机算力不够 | 一个 `cargo build --workspace` 就 99%，再多的让路也救不了 | **P7 编译卸载到第二台机器**：短期用已有 SSH 运行时把重项目的会话整个开到远端；中期门禁把 `cargo check/test/clippy` 这类"只要结果不要产物"的命令同步源码后在远端跑、输出流回窗格 | 现有 `ssh_*_service` |
 | 看得见再优化 | 发布版诊断只在 0.12.21 刚加；没有"N 个窗格 × 合成 TUI 重绘 + 一个窗格敲键"的回归门禁 | **P5 夜间规模性能门禁**（10/25/50 窗格，中位按键回显 ≤ 75 ms，渲染队列 ≤ 2 MiB） | Orca §6 |
 
 三家对照里**没有任何一家限制自己子进程的 CPU/内存**（Orca 零、OpenCode 零、Codex 零）。CC-Panes 的 BELOW_NORMAL + CPU 权重已经领先；本专项要补的是"看得见 + 能干预 + 内存与 WSL 不裸奔"，而不是去追别人。
@@ -187,6 +189,33 @@ Codex 的 Job 在 `spawn_contained` 里用 `CREATE_SUSPENDED → assign → NtRe
 **验收**：10 个窗格同时 `cargo build`，整机 CPU 稳定在上限附近、UI 按键回显 p50 ≤ 75 ms；排队窗格 5 分钟内全部完成；`rg` 在 30 会话场景下单次不超过 N 线程；关闭门禁后行为与 0.12.21 完全一致。
 
 **分期**：① 随 P3 先上（零风险）；门禁本体 + 嵌套构建 Job 第二步；垫片 ② 最后，且先只做 cargo / npm / rg 三个。
+
+### P7 · 编译卸载到第二台机器（新想法，2026-10-12）
+
+**想法**：本机只负责编辑、渲染和跑 agent，编译 / 测试 / 大 grep 这类重活丢到一台辅机上做，本机不再动不动 99%。
+
+**两条路，先后不同**：
+
+| 路 | 做法 | 现在能不能用 | 代价 |
+|---|---|---|---|
+| **A · 整个会话开到辅机** | 用 CC-Panes 已有的 SSH 运行时（`ssh_terminal_service.rs`、`ssh_machine_service.rs`）把重项目的 Claude/Codex 会话直接起在辅机上，仓库也放辅机；本机只是渲染端 | **今天就能用，零代码**。这是对"动不动 99%"最快的解法 | 仓库要在辅机上（或辅机挂本机共享盘，慢）；编辑器也得看辅机的文件（VS Code Remote-SSH 配合）；辅机 OS 得跟构建目标一致（Tauri Windows 包只能在 Windows 上打） |
+| **B · 命令级卸载** | 门禁（P6）判定某条命令"只要结果不要产物"（`cargo check/test/clippy`、`tsc --noEmit`、`vitest`、`rg`）时：把本机工作树的**未提交差异**同步到辅机同名 worktree → 远端执行 → stdout/stderr/退出码流回本窗格，agent 无感 | 要做：源码同步 + 远端执行 + 路径映射 + 产物回传规则 | 复杂度在同步与路径，不在执行 |
+
+**B 的关键设计**：
+
+- **同步用 git 而不是 rsync**：`git diff --binary HEAD` + 未跟踪文件列表 → 远端 `git fetch` 到同一提交后 `git apply`；或者直接 `git bundle`。Windows 上没有可靠的 rsync，而两端本来都有 git。每次只传差异，秒级。
+- **路径映射**：本机 `D:\04_workspace_rust\cc-book` ↔ 辅机 `/srv/build/cc-book`（或 Windows 辅机的 `D:\build\cc-book`），在 SSH 机器配置里登记一次；错误输出里的路径要**反向映射**回本机，否则 agent 读到的 `file:line` 全是辅机路径，会去改不存在的文件。
+- **产物规则**：默认不回传；白名单命令才回传（例如 `npm run build` 的 `dist/`）。Rust 的 `target/` 永远不传。
+- **缓存**：辅机上 `sccache` / cargo 增量缓存常驻，第二次起比本机还快；JS 侧 Nx / Turborepo 远端缓存同理。
+- **判定什么该卸载**：门禁已经知道命令名；加一条"本机负载 > 阈值 或 队列非空 → 优先远端"。前台用户正在等的交互式命令不卸载。
+- **失败回退**：辅机不可达 / 同步失败 → 本地照常跑，并在资源管理器里标"已回退本地"，不能静默。
+- **与 P6 的关系**：P7 是 P6 的一个"槽位类型"——门禁把本机槽位和远端槽位放在同一个调度器里，而不是两套。
+
+**OS 匹配**：Rust/TS 的 check、test、clippy、vitest 跨 OS 基本等价，可以用 Linux 辅机；`cargo build` 产 Windows 包、WebView2 相关测试必须 Windows 辅机（或辅机上的 Windows 虚拟机）。
+
+**验收**：在本机 `cargo check` 期间整机 CPU 不超过 20%；远端往返（同步 + 执行 + 回传）比本地慢不超过 30%；辅机断网时命令自动回退本地且窗格可见。
+
+**分期**：A 立即可用，写进手册即可；B 在 P6 门禁本体之后做，先只做 `cargo check/test/clippy` + `vitest` 四条白名单。
 
 ### P5 · 回归门禁：夜间规模性能测试
 
