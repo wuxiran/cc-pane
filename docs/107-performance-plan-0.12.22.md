@@ -149,6 +149,45 @@ Codex 的 Job 在 `spawn_contained` 里用 `CREATE_SUSPENDED → assign → NtRe
 | 所有 | 编译并行度环境变量（见 P3） | 开 |
 | Claude Code | 无可注入项；只能靠 Job 与环境变量 | — |
 
+### P3b · 线程模型：不做线程池，收 tokio worker，评估 daemon 侧 headless 模拟
+
+实测（2026-10-12，36 个会话）：daemon 146 条线程、app 126 条、web 68 条，**全部处于 Wait**；10 秒内只有 11 条线程跑过、最忙的一条 47 ms；daemon 空闲 CPU 1.2% 的一个核。每会话固定 3–4 条阻塞线程（`cc-panes-pty-reader` / `-batch` / `-wait` / `-writer`），合批线程用 `recv_timeout` 不是轮询。
+
+| 项 | 结论 | 落点 |
+|---|---|---|
+| 读线程并成 IOCP 事件循环 / 线程池 | **不做**。省的是百余条睡眠线程 + 几 MB 栈，换的是 ConPTY 重叠 IO 重写与新的边界 bug；daemon 不是卡的来源 | — |
+| tokio worker 数 | 默认 = 核数（本机 32）。daemon / cc-panes-web 收到 **4–8**，减少空闲定时器唤醒与线程数 | `cc-panes-daemon/src/main.rs:206`、`cc-panes-web/src/main.rs:217` 的 `#[tokio::main]` 改 `worker_threads` |
+| daemon 侧 headless 终端模拟 | **评估项（0.12.23）**。停泊（P1）后字节不进 xterm，状态靠 checkpoint + delta；Orca 更进一步在 daemon 里跑 headless 模拟器，重挂载 170 ms 且无需重放。Rust 侧候选 `vt100` / `alacritty_terminal`。这是"后端多线程"唯一值得用的地方：把隐藏终端的 VT 解析整体搬出渲染进程的单条 JS 主线程 | 新 crate 或 `cc-panes-core/src/pty/` 下模块；先做 spike 量 36 会话的内存 |
+| 序列化 / checkpoint 上传下放 Web Worker | SerializeAddon 必须在主线程；压缩、分块、上传可下放。**先用 `[terminal-diag]` 日志确认主线程占比再决定** | `terminalCheckpointUpload.ts` |
+
+### P6 · 资源门禁：编译 / grep 等重负载统一经 CC-Panes 调度（新想法，2026-10-12）
+
+**想法**：CLI 代理在窗格里跑 `cargo build` / `npm run build` / `rg` 时，不是各自撒开跑，而是经 CC-Panes 的门禁拿到一个"重负载槽位"，在限定的 CPU/内存配额内完成；没拿到槽位的排队，排队状态对用户可见。
+
+**为什么现有机制不够**：Job 的 BELOW_NORMAL + CPU 权重是"竞争时让路"，不是"总量上限"。10 个窗格同时编译，每个都让路，整机依然 100%；grep 一类短促但满核的任务更是躲过优先级就打满所有核。门禁解决的是**跨会话总量**，是 docs/71 A-3 "通用启动闸门"的正确形态——不是限制开窗格，而是限制同时跑的重负载。
+
+**拦截点（按可靠性排序）**：
+
+| 方式 | 覆盖 | 做法 | 风险 |
+|---|---|---|---|
+| ① **环境变量注入**（已在 P3） | cargo / make / cmake / rayon / node / rg | 会话环境里注入 `CARGO_BUILD_JOBS` `MAKEFLAGS=-jN` `CMAKE_BUILD_PARALLEL_LEVEL` `RAYON_NUM_THREADS` `UV_THREADPOOL_SIZE`，以及 **`RIPGREP_CONFIG_PATH`** 指向 CC-Panes 生成的 rg 配置（`--threads=N`、`--max-columns`）。Claude Code 的 Grep 工具调的是它自带的 rg，同样读这个环境变量 | 只限并行度不限总量；工具若 `--no-config` 则绕过 |
+| ② **PATH 垫片（shim）** | 任何按名调用的工具：cargo rustc rg npm pnpm tsc make cmake ninja go dotnet msbuild | 会话 PATH 最前面放 `~/.cc-panes/shims/`，内有 Rust 写的小 exe（不用 .cmd，.cmd 会破坏引号与退出码）。垫片：向 daemon 申请槽位（Unix socket / 已有 REST）→ 拿到后把自己放进"构建 Job"（嵌套 Job，Windows 8+ 允许）→ `exec` 真实二进制并原样转发 stdin/stdout/信号/退出码 | PATH 被 CLI 自己的 login shell 重写则失效（WSL 的 `appendWindowsPath` 同类问题，docs/71 §7.4）；垫片本身是新的进程层 |
+| ③ Claude Code `PreToolUse` hook 改写 Bash 命令 | 仅 Claude | 在命令前加 `cc-panes-ctl run --gate --` | 脆弱：复合命令、管道、`cd &&`、heredoc 都要正确包裹；不推荐做主路径 |
+
+**门禁本体（daemon 内）**：
+
+- **槽位**：`heavy_job_slots` 默认 `max(1, 核数 / 8)`（32 核 → 4），设置可调；按会话公平（同一会话不占两个槽）。等待方收到一行带外提示（走已有 `{"type":...}` 控制消息，不写进终端缓冲，避免污染 `get_session_output`），窗格标签显示"排队中 2/4"。超时（默认 5 min）放行并记日志，**永不无限期阻塞 agent**。
+- **配额**：所有持槽进程放进一个共享的 **"构建 Job"**（嵌套在各自会话 Job 之下）：`JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP` 对整组设总上限（默认 75%，即给 UI 留 8 核）、或 **CPU sets** 把构建钉在核 8–31；内存走通知型软限（P3）。WSL 侧对应 `systemd-run --scope -p CPUQuota=` 的一个共享 slice。
+- **grep 特判**：短任务不排队（排队比跑完还慢），只限线程数（①）+ 进构建 Job 吃总上限。判据：命令名在白名单 `rg grep fd find`。
+- **可见性**：资源管理器（P2）多一栏"构建队列"：谁持槽、跑了多久、谁在排。
+- **killswitch**：全局开关 + 每会话"不受门禁"标记（例如用户正在盯着的前台窗格）。
+
+**与 Codex 的交互**：Codex 的命令由其内嵌 server 起（见 §2.3 gotcha），进程树在会话 Job 里，PATH 与环境变量都继承，①② 均生效。`shell_environment_policy` 可能清洗环境——需确认默认 `inherit = "all"` 下 `RIPGREP_CONFIG_PATH` 能传到。
+
+**验收**：10 个窗格同时 `cargo build`，整机 CPU 稳定在上限附近、UI 按键回显 p50 ≤ 75 ms；排队窗格 5 分钟内全部完成；`rg` 在 30 会话场景下单次不超过 N 线程；关闭门禁后行为与 0.12.21 完全一致。
+
+**分期**：① 随 P3 先上（零风险）；门禁本体 + 嵌套构建 Job 第二步；垫片 ② 最后，且先只做 cargo / npm / rg 三个。
+
 ### P5 · 回归门禁：夜间规模性能测试
 
 | 项 | 说明 |
