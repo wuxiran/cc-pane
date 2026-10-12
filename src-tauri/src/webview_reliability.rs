@@ -75,15 +75,30 @@ enum BrowserRecoveryState {
     Failed,
 }
 
+/// 渲染进程"无响应"触发 reload 的最小间隔。reload 会让所有面板重放历史，是重操作；
+/// 页面持续卡死时 WebView2 会反复上报 Unresponsive，不能每次都重载。
+#[cfg(any(windows, test))]
+const UNRESPONSIVE_RELOAD_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(120);
+
 #[cfg(any(windows, test))]
 #[derive(Debug, Default)]
 struct WebviewRecoveryState {
     browser: BrowserRecoveryState,
+    /// 上一次因 RenderProcessUnresponsive 触发 reload 的时刻。
+    last_unresponsive_reload: Option<std::time::Instant>,
 }
 
 #[cfg(any(windows, test))]
 impl WebviewRecoveryState {
     fn process_failed(&mut self, kind: ProcessFailureKind) -> RecoveryAction {
+        self.process_failed_at(kind, std::time::Instant::now())
+    }
+
+    fn process_failed_at(
+        &mut self,
+        kind: ProcessFailureKind,
+        now: std::time::Instant,
+    ) -> RecoveryAction {
         match kind {
             ProcessFailureKind::BrowserProcessExited => match self.browser {
                 BrowserRecoveryState::Ready => {
@@ -96,9 +111,20 @@ impl WebviewRecoveryState {
                 }
             },
             ProcessFailureKind::RenderProcessExited => RecoveryAction::ReloadRenderer,
-            ProcessFailureKind::RenderProcessUnresponsive | ProcessFailureKind::Other(_) => {
-                RecoveryAction::Ignore
+            // 页面卡死到 WebView2 都判定无响应，用户唯一能做的就是手动刷新；
+            // 这里替他做，但限频——连续上报只处理第一次。
+            ProcessFailureKind::RenderProcessUnresponsive => {
+                let cooled_down = self
+                    .last_unresponsive_reload
+                    .is_none_or(|last| now.duration_since(last) >= UNRESPONSIVE_RELOAD_COOLDOWN);
+                if cooled_down {
+                    self.last_unresponsive_reload = Some(now);
+                    RecoveryAction::ReloadRenderer
+                } else {
+                    RecoveryAction::Ignore
+                }
             }
+            ProcessFailureKind::Other(_) => RecoveryAction::Ignore,
         }
     }
 
@@ -548,7 +574,7 @@ mod tests {
         );
         assert_eq!(
             state.process_failed(ProcessFailureKind::RenderProcessUnresponsive),
-            RecoveryAction::Ignore
+            RecoveryAction::ReloadRenderer
         );
         assert_eq!(
             state.process_failed(ProcessFailureKind::Other(9)),
@@ -557,6 +583,33 @@ mod tests {
         assert_eq!(
             state.process_failed(ProcessFailureKind::BrowserProcessExited),
             RecoveryAction::RebuildMainWindow
+        );
+    }
+
+    #[test]
+    fn unresponsive_renderer_reloads_once_per_cooldown() {
+        let mut state = WebviewRecoveryState::default();
+        let t0 = std::time::Instant::now();
+
+        assert_eq!(
+            state.process_failed_at(ProcessFailureKind::RenderProcessUnresponsive, t0),
+            RecoveryAction::ReloadRenderer
+        );
+        // 冷却期内的重复上报只记日志。
+        assert_eq!(
+            state.process_failed_at(
+                ProcessFailureKind::RenderProcessUnresponsive,
+                t0 + std::time::Duration::from_secs(30)
+            ),
+            RecoveryAction::Ignore
+        );
+        // 冷却期过后再卡死，允许再 reload 一次。
+        assert_eq!(
+            state.process_failed_at(
+                ProcessFailureKind::RenderProcessUnresponsive,
+                t0 + UNRESPONSIVE_RELOAD_COOLDOWN
+            ),
+            RecoveryAction::ReloadRenderer
         );
     }
 }

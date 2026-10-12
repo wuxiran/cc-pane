@@ -129,6 +129,9 @@ export function useTerminalWriteWatchdog({
 
       // D：输出饿死——daemon 近期有产出而本视图零收到（订阅死/闸门卡）。
       // 一级重绑输出订阅，二级强 resync 重放；daemon 静默（真空闲）不误伤。
+      // **只查可见视图**：隐藏/休眠的视图唤醒时本来就走 resync，没必要盯着；
+      // 而每次对照都是一次 daemon 往返，几十个后台标签一起查曾把本机端口打爆
+      // （每 2s × N 个视图 → WSAENOBUFS → WebSocket 掉线 → 全量重放）。
       const sessionId = currentSessionIdRef?.current ?? null;
       const lastReceived = lastOutputReceivedAtRef?.current ?? 0;
       if (
@@ -136,6 +139,7 @@ export function useTerminalWriteWatchdog({
         && lastOutputReceivedAtRef
         && getDaemonLastOutputAt
         && now - lastReceived >= STARVE_CHECK_MS
+        && (isRenderVisible() || domVisible())
       ) {
         starvedSince ??= now;
         void (async () => {

@@ -133,6 +133,9 @@ pub struct UsageStatsService {
     scan_running: AtomicBool,
     context_file_cache: Mutex<HashMap<String, ContextFileCache>>,
     context_reads: Mutex<HashSet<String>>,
+    /// 已经告警过"解析失败"的文件。同一个坏文件每轮扫描都会再失败一次，
+    /// 每次都 WARN 会把应用日志刷满（实机一天几千条），之后降为 debug。
+    scan_failure_warned: Mutex<HashSet<PathBuf>>,
     /// 供 WSL 扫描开关读取；None（测试等场景）视为未禁用
     settings: Option<Arc<crate::services::SettingsService>>,
     native_scan_home: Option<PathBuf>,
@@ -188,6 +191,7 @@ impl UsageStatsService {
             scan_running: AtomicBool::new(false),
             context_file_cache: Mutex::new(HashMap::new()),
             context_reads: Mutex::new(HashSet::new()),
+            scan_failure_warned: Mutex::new(HashSet::new()),
             settings,
             native_scan_home,
             allow_wsl_scan,
@@ -822,13 +826,27 @@ impl UsageStatsService {
                 continue;
             }
             if let Err(error) = self.scan_file(root.cli, root.source, &path) {
-                warn!(
-                    cli = root.cli,
-                    origin = ?root.origin,
-                    path = %path.display(),
-                    err = %error,
-                    "Failed to scan usage file"
-                );
+                let first_failure = self
+                    .scan_failure_warned
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .insert(path.clone());
+                if first_failure {
+                    warn!(
+                        cli = root.cli,
+                        origin = ?root.origin,
+                        path = %path.display(),
+                        err = %error,
+                        "Failed to scan usage file (further failures for this file are logged at debug)"
+                    );
+                } else {
+                    tracing::debug!(
+                        cli = root.cli,
+                        path = %path.display(),
+                        err = %error,
+                        "Failed to scan usage file (repeat)"
+                    );
+                }
             }
         }
     }

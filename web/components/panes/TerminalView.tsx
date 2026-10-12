@@ -57,6 +57,7 @@ import { useTerminalSessionCallbacks } from "./terminal/useTerminalSessionCallba
 import { useTerminalLayoutEvents } from "./terminal/useTerminalLayoutEvents";
 import { useTerminalWebglRecovery } from "./terminal/useTerminalWebglRecovery";
 import { useTerminalWriteWatchdog } from "./terminal/useTerminalWriteWatchdog";
+import { getAllTerminalStatusShared } from "./terminal/daemonStatusCache";
 import { usePanesStore } from "@/stores";
 import { findTabAcrossLayouts } from "@/stores/panes/crossLayoutSearch";
 import { findTerminalPane } from "@/lib/paneSessions";
@@ -422,6 +423,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             flushHiddenWrites,
             isRenderVisible,
             scheduleRefit: () => layoutSchedulerRef.current?.schedule("view.visible-edge.refit", { allowInactive: true }),
+            refreshDisplay: (reason) => {
+              rendererControllerRef.current?.refreshDisplay?.(reason);
+            },
           });
         },
         [flushHiddenWrites, isRenderVisible, reportOutputViewVisibility],
@@ -512,10 +516,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         );
     }, [liveLeafSessionId, bindSessionCallbacks, unbindSessionCallbacks, debugLog]);
 
-    // daemon 侧最近输出时间（watchdog D 的对照源）。
+    // daemon 侧最近输出时间（watchdog D 的对照源）。走页面级共享缓存：
+    // 全部视图合并成一次查询，而不是每个视图各打一次 daemon。
     const getDaemonLastOutputAt = useCallback(async (sessionId: string) => {
-      const all = await terminalService
-        .getAllStatus()
+      const all = await getAllTerminalStatusShared()
         .catch(() => [] as Array<{ sessionId: string; lastOutputAt?: number }>);
       const info = (all as Array<{ sessionId: string; lastOutputAt?: number }>).find(
         (entry) => entry.sessionId === sessionId,

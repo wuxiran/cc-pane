@@ -1,6 +1,7 @@
 use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,8 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(2);
 const CREATE_SESSION_TIMEOUT: Duration = Duration::from_secs(60);
 /// kill 超时：daemon 侧同步跑 taskkill /T /F 杀进程树，系统负载高时会超过 2s
 const KILL_SESSION_TIMEOUT: Duration = Duration::from_secs(15);
+/// 空闲 keep-alive 连接池上限。daemon 请求是突发的短调用，几条就够；多了只是占 fd。
+const POOL_MAX_IDLE: usize = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -66,6 +69,13 @@ pub struct TerminalDaemonClient {
     /// 本 app 进程的实例身份（docs/61 阶段 2）。随进程生成，重启即换新；
     /// 上个进程残留的租约靠 TTL 自然过期，不需要持久化。
     instance_id: String,
+    /// HTTP/1.1 keep-alive 空闲连接池（Clone 共享）。
+    ///
+    /// 历史上每个请求新建 TCP 连接并带 `Connection: close`：31 个会话的
+    /// watchdog / 状态轮询合计每秒二三十次请求，本机堆出两三千个 TIME_WAIT，
+    /// 最终 WSAENOBUFS(10055) 把同一 daemon 的 WebSocket 一并打断 → 回退轮询
+    /// → desync 全量重放 → 终端"停住"。复用连接把这个起点直接去掉。
+    pool: Arc<Mutex<Vec<TcpStream>>>,
 }
 
 /// 进程级实例身份。同一进程内所有 daemon 客户端共享，重启后必然不同。
@@ -163,6 +173,7 @@ impl TerminalDaemonClient {
             create_timeout: CREATE_SESSION_TIMEOUT,
             kill_timeout: KILL_SESSION_TIMEOUT,
             instance_id: app_instance_id().to_string(),
+            pool: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -769,6 +780,9 @@ impl TerminalDaemonClient {
 
     /// 发起请求，read 阶段使用指定超时（create/kill 等 daemon 侧慢操作需要放宽）。
     /// connect / write 始终用短超时 `self.timeout`——连不上本机 daemon 就该 fail-fast。
+    ///
+    /// 优先复用池中的 keep-alive 连接；池中连接可能已被 daemon 侧关闭（stale），
+    /// 这类失败只会发生在"一个字节都没收到"之前，可以安全地换一条新连接重发一次。
     fn request_with_timeout(
         &self,
         method: &str,
@@ -781,16 +795,9 @@ impl TerminalDaemonClient {
             .addr
             .parse()
             .map_err(|error| AppError::from(format!("invalid daemon addr: {error}")))?;
-        let mut stream = TcpStream::connect_timeout(&addr, self.timeout).map_err(AppError::from)?;
-        stream
-            .set_read_timeout(Some(read_timeout))
-            .map_err(AppError::from)?;
-        stream
-            .set_write_timeout(Some(self.timeout))
-            .map_err(AppError::from)?;
 
         let mut request = format!(
-            "{method} {path} HTTP/1.1\r\nHost: {}\r\nAccept: application/json\r\nConnection: close\r\n",
+            "{method} {path} HTTP/1.1\r\nHost: {}\r\nAccept: application/json\r\n",
             self.addr
         );
         if authorize {
@@ -808,11 +815,291 @@ impl TerminalDaemonClient {
             request.push_str(body);
         }
 
-        stream
-            .write_all(request.as_bytes())
-            .map_err(AppError::from)?;
-        let response = read_http_response(stream)?;
-        Ok(response)
+        let mut pooled = self.take_idle_connection();
+        loop {
+            let reused = pooled.is_some();
+            let mut stream = match pooled.take() {
+                Some(stream) => stream,
+                None => TcpStream::connect_timeout(&addr, self.timeout).map_err(AppError::from)?,
+            };
+            stream
+                .set_read_timeout(Some(read_timeout))
+                .map_err(AppError::from)?;
+            stream
+                .set_write_timeout(Some(self.timeout))
+                .map_err(AppError::from)?;
+
+            match exchange_http(&mut stream, request.as_bytes()) {
+                Ok(HttpExchange { response, reusable }) => {
+                    if reusable {
+                        self.return_idle_connection(stream);
+                    }
+                    return Ok(response);
+                }
+                // 池里的连接已被对端关掉：还没收到任何响应字节，重发是安全的。
+                Err(ExchangeError::Stale(_)) if reused => continue,
+                Err(ExchangeError::Stale(error)) | Err(ExchangeError::Io(error)) => {
+                    return Err(error);
+                }
+            }
+        }
+    }
+
+    fn take_idle_connection(&self) -> Option<TcpStream> {
+        self.pool
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .pop()
+    }
+
+    fn return_idle_connection(&self, stream: TcpStream) {
+        let mut pool = self
+            .pool
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if pool.len() < POOL_MAX_IDLE {
+            pool.push(stream);
+        }
+    }
+
+    #[cfg(test)]
+    fn idle_connections(&self) -> usize {
+        self.pool
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .len()
+    }
+}
+
+struct HttpExchange {
+    /// 完整响应文本（状态行 + 头 + 已解码的 body），供 `split_http_response` 消费。
+    response: String,
+    /// 连接是否还能复用：有确定的 body 边界且对端没要求关闭。
+    reusable: bool,
+}
+
+enum ExchangeError {
+    /// 一个响应字节都没收到就失败了（写失败 / 对端直接 EOF）——典型的 keep-alive
+    /// 连接已被 daemon 回收。调用方可换新连接重试。
+    Stale(AppError),
+    Io(AppError),
+}
+
+/// 响应 body 的定界方式。
+enum BodyFraming {
+    ContentLength(usize),
+    Chunked,
+    /// 既无 Content-Length 也非 chunked：读到对端关闭为止（HTTP/1.0 风格）。
+    UntilClose,
+}
+
+struct ResponseHead {
+    framing: BodyFraming,
+    connection_close: bool,
+}
+
+/// 按 RFC 9112 §6.3 规则 1：1xx / 204 / 304 响应没有 body，与是否带 Content-Length 无关。
+/// hyper（daemon 侧 axum）给 204 既不发 Content-Length 也不发 Transfer-Encoding 并保持连接，
+/// 若按「读到关闭」处理会一直等到读超时——write / resize / kill 全部报错。
+fn status_has_no_body(status_line: &str) -> bool {
+    let Some(code) = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse::<u16>().ok())
+    else {
+        return false;
+    };
+    (100..200).contains(&code) || code == 204 || code == 304
+}
+
+fn parse_response_head(head: &str) -> ResponseHead {
+    let mut lines = head.lines();
+    let status_line = lines.next().unwrap_or_default();
+    let no_body = status_has_no_body(status_line);
+    let mut framing = if no_body {
+        BodyFraming::ContentLength(0)
+    } else {
+        BodyFraming::UntilClose
+    };
+    let mut connection_close = false;
+    for line in lines {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        if name.eq_ignore_ascii_case("content-length") {
+            if let Ok(length) = value.parse::<usize>() {
+                if !no_body {
+                    framing = BodyFraming::ContentLength(length);
+                }
+            }
+        } else if name.eq_ignore_ascii_case("transfer-encoding")
+            && value.to_ascii_lowercase().contains("chunked")
+        {
+            if !no_body {
+                framing = BodyFraming::Chunked;
+            }
+        } else if name.eq_ignore_ascii_case("connection") && value.eq_ignore_ascii_case("close") {
+            connection_close = true;
+        }
+    }
+    ResponseHead {
+        framing,
+        connection_close,
+    }
+}
+
+fn find_crlf(buffer: &[u8], pattern: &[u8]) -> Option<usize> {
+    buffer
+        .windows(pattern.len())
+        .position(|window| window == pattern)
+}
+
+/// 发请求并按 HTTP/1.1 定界读完一个响应，不依赖对端关闭连接。
+fn exchange_http(stream: &mut TcpStream, request: &[u8]) -> Result<HttpExchange, ExchangeError> {
+    if let Err(error) = stream.write_all(request) {
+        return Err(ExchangeError::Stale(AppError::from(error)));
+    }
+
+    let mut bytes = Vec::new();
+    let mut chunk = [0_u8; 4096];
+    // 1. 读到头部结束。
+    let header_end = loop {
+        if let Some(index) = find_crlf(&bytes, b"\r\n\r\n") {
+            break index + 4;
+        }
+        match stream.read(&mut chunk) {
+            Ok(0) if bytes.is_empty() => {
+                return Err(ExchangeError::Stale(AppError::from(
+                    "daemon closed the connection before responding",
+                )));
+            }
+            Ok(0) => {
+                return Err(ExchangeError::Io(AppError::from(
+                    "invalid daemon HTTP response: truncated headers",
+                )));
+            }
+            Ok(n) => bytes.extend_from_slice(&chunk[..n]),
+            Err(error)
+                if bytes.is_empty()
+                    && matches!(
+                        error.kind(),
+                        ErrorKind::ConnectionReset | ErrorKind::ConnectionAborted
+                    ) =>
+            {
+                return Err(ExchangeError::Stale(AppError::from(error)));
+            }
+            Err(error) => return Err(ExchangeError::Io(AppError::from(error))),
+        }
+    };
+    let head = String::from_utf8_lossy(&bytes[..header_end]).into_owned();
+    let parsed = parse_response_head(&head);
+    let mut body = bytes.split_off(header_end);
+
+    // 2. 按定界读 body。
+    let reusable = match parsed.framing {
+        BodyFraming::ContentLength(length) => {
+            while body.len() < length {
+                match stream.read(&mut chunk) {
+                    Ok(0) => {
+                        return Err(ExchangeError::Io(AppError::from(
+                            "invalid daemon HTTP response: truncated body",
+                        )))
+                    }
+                    Ok(n) => body.extend_from_slice(&chunk[..n]),
+                    Err(error) => return Err(ExchangeError::Io(AppError::from(error))),
+                }
+            }
+            body.truncate(length);
+            !parsed.connection_close
+        }
+        BodyFraming::Chunked => {
+            body = decode_chunked_body(stream, body).map_err(ExchangeError::Io)?;
+            !parsed.connection_close
+        }
+        BodyFraming::UntilClose => {
+            loop {
+                match stream.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(n) => body.extend_from_slice(&chunk[..n]),
+                    Err(error)
+                        if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut)
+                            && !body.is_empty() =>
+                    {
+                        break;
+                    }
+                    Err(error) => return Err(ExchangeError::Io(AppError::from(error))),
+                }
+            }
+            false
+        }
+    };
+
+    let mut response = head;
+    response.push_str(
+        &String::from_utf8(body)
+            .map_err(|error| ExchangeError::Io(AppError::from(error.to_string())))?,
+    );
+    Ok(HttpExchange { response, reusable })
+}
+
+/// 解码 chunked body；`buffered` 是读头部时顺带读进来的 body 前缀。
+fn decode_chunked_body(stream: &mut TcpStream, mut buffered: Vec<u8>) -> AppResult<Vec<u8>> {
+    let mut decoded = Vec::new();
+    let mut chunk = [0_u8; 4096];
+    // 保证缓冲里至少有 `needed` 字节，否则继续读。
+    let mut fill = |buffered: &mut Vec<u8>, needed: usize| -> AppResult<()> {
+        while buffered.len() < needed {
+            match stream.read(&mut chunk) {
+                Ok(0) => {
+                    return Err(AppError::from(
+                        "invalid daemon HTTP response: truncated chunked body",
+                    ))
+                }
+                Ok(n) => buffered.extend_from_slice(&chunk[..n]),
+                Err(error) => return Err(AppError::from(error)),
+            }
+        }
+        Ok(())
+    };
+    loop {
+        // chunk-size 行
+        let line_end = loop {
+            if let Some(index) = find_crlf(&buffered, b"\r\n") {
+                break index;
+            }
+            let needed = buffered.len() + 1;
+            fill(&mut buffered, needed)?;
+        };
+        let size_text = String::from_utf8_lossy(&buffered[..line_end]).into_owned();
+        let size_hex = size_text.split(';').next().unwrap_or("").trim();
+        let size = usize::from_str_radix(size_hex, 16).map_err(|_| {
+            AppError::from(format!(
+                "invalid daemon HTTP response: bad chunk size {size_hex:?}"
+            ))
+        })?;
+        buffered.drain(..line_end + 2);
+        if size == 0 {
+            // 可选 trailer 直到空行。
+            loop {
+                fill(&mut buffered, 2)?;
+                if buffered.starts_with(b"\r\n") {
+                    break;
+                }
+                let line_end = loop {
+                    if let Some(index) = find_crlf(&buffered, b"\r\n") {
+                        break index;
+                    }
+                    let needed = buffered.len() + 1;
+                    fill(&mut buffered, needed)?;
+                };
+                buffered.drain(..line_end + 2);
+            }
+            return Ok(decoded);
+        }
+        fill(&mut buffered, size + 2)?;
+        decoded.extend_from_slice(&buffered[..size]);
+        buffered.drain(..size + 2);
     }
 }
 
@@ -822,25 +1109,6 @@ fn session_path(session_id: &str, suffix: &str) -> String {
         urlencoding::encode(session_id),
         suffix
     )
-}
-
-fn read_http_response(mut stream: TcpStream) -> AppResult<String> {
-    let mut bytes = Vec::new();
-    let mut chunk = [0_u8; 4096];
-    loop {
-        match stream.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(n) => bytes.extend_from_slice(&chunk[..n]),
-            Err(error)
-                if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut)
-                    && !bytes.is_empty() =>
-            {
-                break;
-            }
-            Err(error) => return Err(AppError::from(error)),
-        }
-    }
-    String::from_utf8(bytes).map_err(|error| AppError::from(error.to_string()))
 }
 
 fn parse_json_response<T>(response: &str) -> AppResult<T>
@@ -980,6 +1248,165 @@ mod tests {
             .get_terminal_flow_diagnostics("session-1")
             .unwrap()
             .is_none());
+    }
+
+    /// 单连接上连续服务 `responses.len()` 个请求（HTTP/1.1 keep-alive），用于验证连接复用。
+    fn spawn_keepalive_server(responses: Vec<String>) -> (SocketAddr, mpsc::Receiver<usize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
+        let addr = listener.local_addr().expect("local addr");
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept client");
+            let mut served = 0;
+            let mut pending = Vec::new();
+            let mut chunk = [0_u8; 1024];
+            for response in responses {
+                // 读完一个请求头（测试请求无 body）。
+                while find_crlf(&pending, b"\r\n\r\n").is_none() {
+                    let n = stream.read(&mut chunk).expect("read request");
+                    if n == 0 {
+                        return;
+                    }
+                    pending.extend_from_slice(&chunk[..n]);
+                }
+                let end = find_crlf(&pending, b"\r\n\r\n").unwrap() + 4;
+                pending.drain(..end);
+                stream
+                    .write_all(response.as_bytes())
+                    .expect("write response");
+                served += 1;
+                tx.send(served).ok();
+            }
+        });
+        (addr, rx)
+    }
+
+    #[test]
+    fn sequential_requests_reuse_one_keepalive_connection() {
+        let flow = crate::services::terminal_output_flow::OutputFlowGate::new();
+        let body = serde_json::to_string(&flow.diagnostics("session-1")).unwrap();
+        let (addr, rx) = spawn_keepalive_server(vec![
+            http_json_response("200 OK", &body),
+            http_json_response("200 OK", &body),
+        ]);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret");
+
+        assert!(client.get_terminal_flow_diagnostics("session-1").is_ok());
+        assert_eq!(
+            client.idle_connections(),
+            1,
+            "connection goes back to the pool"
+        );
+        assert!(client.get_terminal_flow_diagnostics("session-1").is_ok());
+
+        // 同一条连接上服务了两个请求：accept 只发生一次，served 计数到 2。
+        assert_eq!(rx.recv().unwrap(), 1);
+        assert_eq!(rx.recv().unwrap(), 2);
+    }
+
+    #[test]
+    fn headerless_204_is_framed_as_empty_and_keeps_the_connection() {
+        // hyper 的 204 没有 Content-Length / Transfer-Encoding，连接保持打开。
+        // 回归：按「读到关闭」处理会卡到读超时，write/resize/kill 全部失败。
+        let flow = crate::services::terminal_output_flow::OutputFlowGate::new();
+        let body = serde_json::to_string(&flow.diagnostics("session-1")).unwrap();
+        let (addr, rx) = spawn_keepalive_server(vec![
+            "HTTP/1.1 204 No Content\r\ndate: Sun, 12 Oct 2026 00:00:00 GMT\r\n\r\n".to_string(),
+            http_json_response("200 OK", &body),
+        ]);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret");
+
+        let started = std::time::Instant::now();
+        client
+            .write_session("session-1", "x")
+            .expect("204 without framing headers must not wait for close");
+        assert!(
+            started.elapsed() < Duration::from_millis(1500),
+            "must not block until read timeout: {:?}",
+            started.elapsed()
+        );
+        assert_eq!(
+            client.idle_connections(),
+            1,
+            "204 connection goes back to the pool"
+        );
+        assert!(client.get_terminal_flow_diagnostics("session-1").is_ok());
+        assert_eq!(rx.recv().unwrap(), 1);
+        assert_eq!(rx.recv().unwrap(), 2);
+    }
+
+    #[test]
+    fn stale_pooled_connection_is_retried_on_a_fresh_one() {
+        // 第一台服务器只服务一个请求然后关闭连接（模拟 daemon 回收 keep-alive）。
+        let (addr, _rx) = spawn_response_server(http_json_response("404 Not Found", "{}"));
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret");
+        assert!(client
+            .get_terminal_flow_diagnostics("session-1")
+            .unwrap()
+            .is_none());
+        assert_eq!(client.idle_connections(), 1);
+        // 等对端关闭落到客户端。
+        thread::sleep(Duration::from_millis(50));
+
+        // 第二台服务器在同一地址上接管：客户端先用池中的死连接失败，再换新连接成功。
+        let listener = TcpListener::bind(addr).expect("rebind test server");
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept client");
+            let mut chunk = [0_u8; 1024];
+            let mut pending = Vec::new();
+            while find_crlf(&pending, b"\r\n\r\n").is_none() {
+                let n = stream.read(&mut chunk).expect("read request");
+                if n == 0 {
+                    return;
+                }
+                pending.extend_from_slice(&chunk[..n]);
+            }
+            stream
+                .write_all(http_json_response("404 Not Found", "{}").as_bytes())
+                .expect("write response");
+        });
+        assert!(client
+            .get_terminal_flow_diagnostics("session-1")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn chunked_responses_are_decoded_and_keep_the_connection() {
+        let flow = crate::services::terminal_output_flow::OutputFlowGate::new();
+        flow.note_sent(Some(7));
+        let body = serde_json::to_string(&flow.diagnostics("session-1")).unwrap();
+        let (first, second) = body.split_at(20);
+        let chunked = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n{}\r\n{:x}\r\n{}\r\n0\r\n\r\n",
+            first.len(),
+            first,
+            second.len(),
+            second
+        );
+        let (addr, _rx) = spawn_keepalive_server(vec![chunked]);
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret");
+        let diagnostics = client
+            .get_terminal_flow_diagnostics("session-1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(diagnostics.in_flight_bytes, 7);
+        assert_eq!(client.idle_connections(), 1);
+    }
+
+    #[test]
+    fn responses_without_framing_are_read_to_close_and_not_pooled() {
+        let flow = crate::services::terminal_output_flow::OutputFlowGate::new();
+        let body = serde_json::to_string(&flow.diagnostics("session-1")).unwrap();
+        let (addr, _rx) = spawn_response_server(format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{body}"
+        ));
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret");
+        assert!(client
+            .get_terminal_flow_diagnostics("session-1")
+            .unwrap()
+            .is_some());
+        assert_eq!(client.idle_connections(), 0);
     }
 
     fn http_json_response(status: &str, body: &str) -> String {

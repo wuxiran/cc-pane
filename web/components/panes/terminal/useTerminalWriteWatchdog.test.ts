@@ -196,6 +196,26 @@ describe("useTerminalWriteWatchdog", () => {
     }
   });
 
+  it("does not consult the daemon for hidden views", async () => {
+    vi.useFakeTimers();
+    try {
+      const rebindOutput = vi.fn().mockResolvedValue(undefined);
+      // 后台/休眠视图：daemon 有新产出、本视图没收到，也不该每 2s 去查 daemon。
+      setup({
+        sessionId: "s1",
+        visible: false,
+        domVisible: false,
+        lastReceived: Date.now() - 60_000,
+        daemonRecent: true,
+        rebindOutput,
+      });
+      await vi.advanceTimersByTimeAsync(27_000);
+      expect(rebindOutput).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not treat a genuinely quiet session as starved", async () => {
     vi.useFakeTimers();
     try {
