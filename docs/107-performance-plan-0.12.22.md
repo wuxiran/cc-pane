@@ -211,11 +211,47 @@ Codex 的 Job 在 `spawn_contained` 里用 `CREATE_SUSPENDED → assign → NtRe
 - **失败回退**：辅机不可达 / 同步失败 → 本地照常跑，并在资源管理器里标"已回退本地"，不能静默。
 - **与 P6 的关系**：P7 是 P6 的一个"槽位类型"——门禁把本机槽位和远端槽位放在同一个调度器里，而不是两套。
 
+**执行后端：Docker 作为第三种目标（想法三，2026-10-12）**
+
+路 B 的"远端执行"抽象成一个 `HeavyRunTarget`，三种实现共用同步与路径映射：
+
+| 目标 | 形态 | 资源上限怎么来 | 适合谁 |
+|---|---|---|---|
+| `local` | 本机直接跑，进构建 Job | Job CPU 硬上限 / CPU sets（Windows），systemd scope（WSL） | 没有辅机也没有 Docker 的用户 |
+| `docker`（**本机 Docker Desktop**） | `docker run --rm --cpus=N --memory=XG --cpuset-cpus=8-31 -v <源码卷> <toolchain 镜像> <cmd>` | **cgroup 硬限，是 Windows 上最可靠、最现成的"总量上限"**——比 Job 的 HARD_CAP 语义清楚，比 WSL scope 不依赖发行版 systemd | 已装 Docker Desktop 的用户（本机实测就有 `docker-desktop` 发行版）；CPU 还是本机的，但**绝对出不了上限** |
+| `docker` via `DOCKER_HOST=ssh://辅机` | 同一条命令，Docker 自己通过 SSH 走到辅机的 daemon | 辅机的 cgroup | 有辅机的用户，**与本机 Docker 共用一套实现**，这是选 Docker 当后端的主要理由 |
+| `ssh` | 裸 SSH 执行（P7 路 B 原方案） | 辅机 systemd scope / 不限 | 辅机没装 Docker |
+
+Docker 的几个硬约束，决定它只能是"之一"而不是唯一：
+
+- **源码进容器不能走 Windows 盘的 bind mount**：`D:\...` 挂进 WSL2 容器是 9P 协议，`cargo check` 这种海量小文件读会慢 5–10 倍。必须把源码放在**命名卷 / WSL 文件系统**里，用与路 B 相同的 git 差异同步进去（`docker exec … git apply`）。这反而让 docker 与 ssh 两条路的同步层完全一致。
+- **只能产 Linux 产物**：`cargo check/test/clippy`、`tsc`、`vitest`、`rg` 没问题；Tauri Windows 包、WebView2 相关测试不行。Windows 容器理论可行但镜像 10 GB 级，不做。
+- **工具链镜像按项目**：需要 `Dockerfile.heavy` 或从仓库的 `Dockerfile` / `rust-toolchain.toml` / `.nvmrc` 推导；首次拉镜像和冷缓存慢，所以卷要常驻（`target/`、`node_modules/`、sccache 都在卷里，第二次起很快）。
+- **VM 天花板**：Docker Desktop 的 WSL2 VM 受 `.wslconfig` 的 `processors` / `memory` 约束——docs/71 §7.4 的 WSL 配置面板在这里直接复用，"给 Windows 留 8 核"就是一行 `processors=24`。
+- **路径映射同样必需**：容器内 `/work/cc-book/src/x.rs:12` 要映回 `D:\04_workspace_rust\cc-book\src\x.rs:12`，否则 agent 去改不存在的文件。
+
+**结论**：Docker 不是第四个想法，而是 P7 路 B 最好的默认执行后端：没有辅机时它给本机一个真正的硬上限；有辅机时改一个 `DOCKER_HOST` 就切过去。没装 Docker 的用户落到 `local`，行为与今天一致。
+
 **OS 匹配**：Rust/TS 的 check、test、clippy、vitest 跨 OS 基本等价，可以用 Linux 辅机；`cargo build` 产 Windows 包、WebView2 相关测试必须 Windows 辅机（或辅机上的 Windows 虚拟机）。
 
 **验收**：在本机 `cargo check` 期间整机 CPU 不超过 20%；远端往返（同步 + 执行 + 回传）比本地慢不超过 30%；辅机断网时命令自动回退本地且窗格可见。
 
 **分期**：A 立即可用，写进手册即可；B 在 P6 门禁本体之后做，先只做 `cargo check/test/clippy` + `vitest` 四条白名单。
+
+### P6/P7 的交付形态：可选开启的 skill + `cc-panes-ctl run`，默认不生效
+
+**原则**：没有辅机、不想要门禁的用户，装了新版后行为与 0.12.21 完全一致。所有重负载调度都是**可选层**，不是基础设施强加的。
+
+| 层 | 内容 | 默认 |
+|---|---|---|
+| **设置 → 性能**（新段） | 三个独立开关：`资源门禁`（本机槽位 + 构建 Job 总上限）、`编译并行度注入`（环境变量）、`辅机卸载`（选一台已登记的 SSH 机器 + 路径映射 + 白名单命令）。任一关闭则对应路径直通 | 门禁 **关**、并行度注入 **开**（只限并行度，无副作用）、辅机 **关** |
+| **`cc-panes-ctl run [--heavy] -- <cmd>`**（新子命令，`cc-panes-ctl/src/cli.rs`） | agent 侧唯一入口。按设置决定：直通 / 本机排队拿槽进构建 Job / 同步到辅机执行并反向映射路径；辅机不可达自动回退本地并打标。三个开关全关时**就是 exec**，零开销 | — |
+| **skill `ccpanes-heavy-run`**（`src-tauri/resources/claude-bundle/default-skills/heavy-run.md`，同步到 skill-market） | 教 agent：编译 / 测试 / 全仓 grep 一类重命令经 `cc-panes-ctl run --heavy --` 跑；短命令和交互式命令不经它。**只在用户打开"资源门禁"或"辅机卸载"任一开关时才注入会话**，否则 agent 根本看不到这个 skill，不会多一层 | 随开关启停 |
+| **Claude Code `PreToolUse` hook**（可选） | 开关打开时由 CC-Panes 代写 hooks：Bash 命令匹配 `cargo (build|check|test|clippy)|npm run (build|test)|vitest|rg ` 则自动包上 `cc-panes-ctl run --heavy --`。用于 agent 忘了用 skill 的兜底；复合命令（管道 / `&&` / heredoc）**不改写**，宁可漏不可错 | 关，"门禁"开关下的二级选项 |
+
+**为什么 skill 而不是只做 PATH 垫片**：垫片是无差别拦截，对不想要的用户是负担，且 WSL/login shell 重写 PATH 时静默失效；skill + ctl 是**合作式**的——agent 知道自己在排队、知道命令在辅机跑、能把"已回退本地"告诉用户，也能被用户一句话关掉。垫片留作第三步，只给明确要"所有工具无脑接管"的用户。
+
+**Codex / Grok 的对应**：Codex 用 `-c` 注入 `shell_environment_policy.set.*`（环境变量层）即可，skill 同样可装进 `CODEX_HOME/skills`；Grok 无 skill 机制，只吃环境变量层。
 
 ### P5 · 回归门禁：夜间规模性能测试
 
