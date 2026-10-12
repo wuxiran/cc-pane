@@ -129,6 +129,35 @@ Codex 的 Job 在 `spawn_contained` 里用 `CREATE_SUSPENDED → assign → NtRe
 | 策略结果回传 | `PolicyOutcome` → 前端 | 现在只 `tracing::warn!`；按 `resource_policy.rs:86` 的注释补到会话状态里，popover 显示"已降级：原因" |
 | CPU 归属按最近祖先 | `build_resource_tree_from_snapshot` | 修 docs/71 §2.9 的迭代顺序漂移，加双会话嵌套测试 |
 
+### P2b · 重负载命令台账：自动记录"谁、在哪个项目、跑了什么、花了多少"（2026-10-12）
+
+**目标**：不靠人回忆，CC-Panes 自己知道过去一周哪些命令最贵，P6 的分流、P7 的白名单、以及"该优化什么"都从这份数据出发。
+
+**两路采集，互相校准**：
+
+| 路 | 拿到什么 | 覆盖 | 成本 |
+|---|---|---|---|
+| **① CLI hooks** | 精确的命令文本、开始/结束时间、退出码 | Claude Code：`PostToolUse`(Bash) 已有 hooks 安装链路（身份捕获那套），加一条记录器；Codex：0.162 已有 hooks 引擎（`codex-rs/hooks`），能装则装；Grok：无 | 几乎为零，每条命令一次本地 HTTP |
+| **② 进程树采样** | 会话树里**实际吃资源的进程**：名字、命令行、峰值 CPU、峰值内存、CPU 秒、持续时间 | 所有 CLI、所有 runtime，包括 agent 自己 fork 的 `rg` / `rustc` / `node` | **必须边沿触发**（docs/41 教训）：会话树 CPU ≥ 100% 或内存 ≥ 2 GB 持续 5 s 才开始记录，回落即封账。空闲时零采样 |
+
+两路按 `session_id + 时间窗` 对齐：hook 给"命令是什么"，采样给"命令花了什么"。只有 ② 时（Grok / 用户手敲的命令），命令文本取采样到的根子进程命令行。
+
+**存储**：SQLite 新表 `heavy_commands`（session、project、cli、runtime、`cmd_normalized`、`cmd_raw`、started_at、duration_ms、peak_cpu_pct、peak_mem_bytes、cpu_seconds、exit_code、target=local|docker|ssh、offloaded_reason）。`cmd_normalized` 去掉路径与参数值（`cargo test -p X` → `cargo test`），用于聚合。**命令行先脱敏再落盘**（token / 密码形参数、URL 里的凭据），表只在本机，有总开关，默认开但可一键清空。
+
+**消费**：
+
+| 用处 | 怎么用 |
+|---|---|
+| 资源管理器新页"最贵命令" | 按项目 / 按命令聚合：次数、总 CPU 秒、p50/p95 时长、峰值内存；周环比 |
+| 喂 P6 门禁 | 同一 `cmd_normalized` 的历史 p50 时长 = 预估时长；> 60 s 的自动候选卸载，< 5 s 的不排队 |
+| 喂 P7 白名单 | 按"总 CPU 秒 × 出现次数"排序，Top N 就是最该卸载的；实测卸载后把 `target` 与耗时也记进同一张表，前后对比自然有 |
+| 优化建议（规则，不猜） | 例：`cargo test` 一周 23 次共 48 分钟 → 提示 `cargo nextest` / 卸载；`npm run build` 每次 3 分钟且无增量 → 提示开缓存；`rg` 单次 > 20 s → 提示加 `.rgignore` 排除 `target/node_modules`；同一 `cargo build` 在 4 个会话里并发 → 这就是门禁要拦的 |
+| 性能文档的证据 | `docs/107` 以后每轮复核直接贴这张表的导出，不再靠临时 PowerShell 抓现场 |
+
+**与现有东西的关系**：`usage_stats_service` 记的是 token 用量，`performance_recorder` 记的是 CC-Panes 自身进程，`system_stats_service` 有进程树但不留历史。本表是第三类——**子进程的历史账**，复用 `system_stats_service` 的树归属（先修 docs/71 §2.9 的祖先归属漂移，否则账会记错窝）。
+
+**验收**：空闲 30 会话下采样器 CPU 为 0（有计数器断言）；在一个窗格跑 `cargo build`，30 s 内表里出现一条带正确 session / project / 命令文本 / 峰值的记录；关掉总开关后不再写入。
+
 ### P3 · 编译不拖垮：内存软限 + WSL 配额（A 类执行面，docs/71 A-1/A-2/A-6）
 
 | 项 | 落点 | 说明 |
