@@ -4,9 +4,9 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
-## 0.12.21 - 2026-09-19
+## 0.12.21 - 2026-10-12
 
-Fix the launch, terminal observation, identity and interaction issues under CC-Panes control from Issue #64, including gaps found during cross-layer release review.
+Fix the launch, terminal observation, identity and interaction issues under CC-Panes control from Issue #64, including gaps found during cross-layer release review. A follow-up field investigation removes the root cause of terminals that occasionally stop updating, and Codex's new fullscreen transcript mode gets the same per-process injection as Grok.
 
 ### Fixed
 
@@ -18,9 +18,19 @@ Fix the launch, terminal observation, identity and interaction issues under CC-P
 - Clear stale failure state when a leader registers again, and return errors or degrade when background thread creation fails.
 - Improve cursor and selection visibility across nine themes with optional overrides.
 - Fix the documentation build failure caused by links from excluded diagnostic records.
+- Fix terminals that occasionally stopped updating until a right-click refresh: desktop-to-daemon REST requests now reuse HTTP keep-alive connections instead of opening a short-lived connection per request; hidden or hibernated terminal views no longer poll the daemon every 2 seconds, and `get_all_terminal_status` is coalesced page-wide with a 1.5 s cache. With many sessions, roughly 29 short connections per second exhausted local ports (WSAENOBUFS 10055), dropped the WebSocket and triggered repeated full replays that saturated the render thread. See `docs/bugs/daemon-socket-churn-terminal-stall.md`.
+- Reload the page automatically when WebView2 reports the render process unresponsive (120 s cooldown) instead of only logging it.
+- Carry the PTY geometry at the delta start and in-window resize points in terminal recovery snapshots and replay at that geometry; TUIs such as Ink that redraw by column-dependent cursor moves no longer leave stale frames in scrollback. Older daemons without geometry fall back to writing at the current size.
+- Preserve recent text and Unicode when shrinking terminal output views, so plain text read through MCP `get_session_output` is no longer truncated mid-character.
+- Warn only once per file when usage-statistics scanning keeps failing to parse it; later failures log at debug instead of thousands of WARN lines per day.
+- Mobile layout mirroring reads both the layout-scoped snapshot written since 0.12.11 and the legacy `default` snapshot and picks the newer one; previously only the legacy id was read, returning a stale layout frozen at upgrade time.
 
 ### Added
 
+- Inject Codex's fullscreen transcript mode per process by default (`-c tui.fullscreen_transcript=true`, the "TUI mode" introduced in Codex 0.158); `adapterOptions.screenMode` accepts `scrollback` / `inherit`. Applied consistently for local and WSL launches without rewriting the user's `~/.codex/config.toml`, matching the Grok handling.
+- Release builds now persist rate-limited terminal diagnostics (watchdog, renderer switches, WebGL context, resync and recovery events) to `cc-panes.log` with a `[terminal-diag]` prefix, so stalls in production no longer have to be inferred from performance sampling alone.
+- cc-panes-web adds `GET /api/sessions/:id/recovery-snapshot` returning the checkpoint + delta recovery snapshot (structured 404, epoch as a string, plain-delta fallback for older backends).
+- The mobile app runs on iOS and gains a basic adaptive iPad layout (side navigation rail on wide screens).
 - Optional completion-based tab closing, disabled by default and enabled per session. Require a completion summary, proven PTY exit and readable archived output; never kill the session.
 - Bounded retained terminal output for later review. Missing exit/retention evidence from older daemons keeps automatic closing disabled.
 

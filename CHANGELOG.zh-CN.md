@@ -7,9 +7,9 @@
 两份是人工同步的，条目一一对应；改英文版时顺手改这里，逐条 diff 能看出漏了哪条。
 0.12.6 之前的版本只有英文版。
 
-## 0.12.21 - 2026-09-19
+## 0.12.21 - 2026-10-12
 
-修复 Issue #64 中可由 CC-Panes 控制的启动、终端观察、身份与交互问题，并补齐发布前跨层审阅发现的遗漏。
+修复 Issue #64 中可由 CC-Panes 控制的启动、终端观察、身份与交互问题，并补齐发布前跨层审阅发现的遗漏。随后一轮实机排障解决了终端画面偶发停住的根因，并为 Codex 新的全屏 transcript 模式补上与 Grok 一致的按进程注入。
 
 ### 修复
 
@@ -21,9 +21,19 @@
 - leader 重新注册清除旧失败状态；线程创建失败返回错误或降级，不因单次后台任务创建失败直接 panic。
 - 提升九套主题的光标和选区可见性，并增加可选覆盖设置。
 - 修复文档站诊断记录链接触发的构建死链。
+- 终端画面偶发停止更新、需右键刷新才恢复：桌面端到 daemon 的 REST 请求改为 HTTP keep-alive 连接复用，不再每次请求新建短连接；后台或休眠的终端视图不再每 2 秒查询 daemon，`get_all_terminal_status` 改为页面级合并并缓存 1.5 秒。此前多会话下每秒约 29 条短连接把本机端口堆满（WSAENOBUFS 10055），WebSocket 掉线后反复全量重放把渲染主线程占死。排障记录见 `docs/bugs/daemon-socket-churn-terminal-stall.md`。
+- WebView2 渲染进程报告无响应时自动重载页面（120 秒冷却），不再只记一条日志。
+- 终端恢复快照携带 delta 起点的 PTY 尺寸与窗口内 resize 点，前端按当时尺寸重放；Ink 等按列宽差量重绘的 TUI 不再把残帧堆进 scrollback。旧 daemon 不带尺寸时回落按当前尺寸整写。
+- 终端输出视图缩小时保留最近文本与 Unicode 字符，MCP `get_session_output` 读到的纯文本不再被截坏。
+- 使用统计扫描同一文件重复解析失败只告警一次，之后降为 debug，不再每天写几千条 WARN。
+- 移动端布局镜像同时读取 0.12.11 之后按布局空间保存的快照与旧 `default` 快照并取较新者；此前只读旧 id，拿到的是升级前停更的陈旧布局。
 
 ### 新增
 
+- Codex 托管会话默认按进程注入全屏 transcript 模式（`-c tui.fullscreen_transcript=true`，Codex 0.158 起的「TUI mode」），`adapterOptions.screenMode` 可选 `scrollback` / `inherit`；本地与 WSL 一致，不改写用户 `~/.codex/config.toml`，与 Grok 的处理方式对齐。
+- 发布版也把终端 watchdog、渲染器切换、WebGL 上下文、resync 与 recovery 事件限频落盘到 `cc-panes.log`（`[terminal-diag]` 前缀），正式版里的停住不再只能靠性能采样反推。
+- cc-panes-web 新增 `GET /api/sessions/:id/recovery-snapshot`，返回 checkpoint + delta 恢复快照（结构化 404，epoch 以字符串下发，旧后端回落纯 delta）。
+- 移动端可运行于 iOS，并提供基础 iPad 自适应布局（宽屏切换为侧边导航栏）。
 - 可选的完成任务收窗，默认关闭且逐会话启用；只有完成摘要、真实 PTY 退出与可读归档输出齐备才收窗，不终止会话。
 - 完成终端输出有界保存供回看，旧 daemon 缺少退出/留存证据时保持自动收窗禁用。
 
