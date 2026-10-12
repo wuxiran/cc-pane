@@ -232,6 +232,28 @@ Docker 的几个硬约束，决定它只能是"之一"而不是唯一：
 
 **结论**：Docker 不是第四个想法，而是 P7 路 B 最好的默认执行后端：没有辅机时它给本机一个真正的硬上限；有辅机时改一个 `DOCKER_HOST` 就切过去。没装 Docker 的用户落到 `local`，行为与今天一致。
 
+**辅机 CPU 弱（例如那台 5090 机）还值不值得卸载？** 值得，但要分命令。编译是纯 CPU 活，GPU 帮不上；弱 CPU 意味着同一条 `cargo check` 可能慢 2–3 倍。判断标准不是"谁更快"，而是"谁在等"：
+
+| 命令 | 谁在等结果 | 建议目标 |
+|---|---|---|
+| `cargo check` / `tsc --noEmit`（agent 改一行就跑一次的内环） | agent 在等，用户在等 agent | **本机门禁槽位**（P6），慢 1 秒都有感 |
+| `cargo test` / `clippy` / `vitest` 全量 / `cargo build --release` | agent 在等，但一跑几分钟 | **辅机**，本机不被占死比快两分钟重要 |
+| `rg` 全仓 | agent 在等，秒级 | 本机限线程，不卸载（同步开销比跑完还久） |
+| 夜间性能门禁（P5）、发版打包 | 没人在等 | 辅机或 CI |
+
+门禁按命令名 + 预估时长（可以记上次耗时）决定去向，并在资源管理器里显示"本次为何去了辅机"。另外弱 CPU 机的 `target/` 常驻缓存 + sccache 可以把差距缩到 1.5 倍以内。
+
+**要不要做成 Jenkins 那样的系统？** 不做 Jenkins，但抄它的四个概念：
+
+| Jenkins 概念 | 我们对应 | 说明 |
+|---|---|---|
+| Executor + 节点标签（`linux` / `windows` / `gpu`） | `HeavyRunTarget` 带 `labels` 与并发容量 | 门禁按命令需要的标签选目标；Windows 打包只去 `windows` 节点 |
+| 构建队列 + 优先级 | P6 的槽位队列 | 前台窗格 > 后台 agent > 夜间任务 |
+| 工作区 per job | 辅机 / 卷里的同名 worktree + git 差异同步 | 不重新 clone，只 apply 差异 |
+| 控制台实时输出 | 输出流回本窗格 | agent 当作本地命令在跑 |
+
+不抄的：Pipeline DSL、插件体系、Web UI、制品库——那是"按提交触发的 CI"的需求，延迟以分钟计（排队 + checkout + 环境准备）；agent 的内环需要秒级反馈，**CI 的延迟模型对 agent 不可用**。两者分工：P6/P7 是交互式执行器，服务 agent；CI 用现成的 GitHub Actions self-hosted runner 装在 5090 机上，服务 P5 夜间门禁与发版——自己造 Jenkins 没有收益。
+
 **OS 匹配**：Rust/TS 的 check、test、clippy、vitest 跨 OS 基本等价，可以用 Linux 辅机；`cargo build` 产 Windows 包、WebView2 相关测试必须 Windows 辅机（或辅机上的 Windows 虚拟机）。
 
 **验收**：在本机 `cargo check` 期间整机 CPU 不超过 20%；远端往返（同步 + 执行 + 回传）比本地慢不超过 30%；辅机断网时命令自动回退本地且窗格可见。
