@@ -59,6 +59,10 @@ pub fn build_router(state: AppState) -> Router {
             "/api/sessions/{id}/snapshot",
             get(terminal::get_session_snapshot),
         )
+        .route(
+            "/api/sessions/{id}/recovery-snapshot",
+            get(terminal::get_session_recovery_snapshot),
+        )
         .route("/api/sessions/{id}/write", post(terminal::write_session))
         .route("/api/sessions/{id}/submit", post(terminal::submit_session))
         .route("/api/sessions/{id}/resize", post(terminal::resize_session))

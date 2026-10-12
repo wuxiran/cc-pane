@@ -2,6 +2,7 @@ import type { TerminalRecoverySnapshot } from "@/types";
 import { reanchorAfterRecovery } from "./terminalReplay";
 import { noteTerminalPerformanceResync } from "@/services/performanceMetrics";
 import { writeTerminalReplay } from "./terminalReplayChunks";
+import { writeTerminalDeltaReplay } from "./terminalReplayDelta";
 import { restoreReplayBufferMode } from "./terminalReplayBufferMode";
 import { withTerminalReplayPresentation, type ReplayPresentationTerminal } from "./terminalReplayPresentation";
 import { checkpointRecoveredTerminal } from "./terminalRecoveryCheckpoint";
@@ -142,9 +143,8 @@ async function restoreSnapshot({
     await restoreReplayBufferMode(snapshot, term, writeData, canWrite);
   }
   if (snapshot.delta) {
-    // delta 窗口起点是 read-chunk 边界，可能切在转义序列中段：首块断头尾会被
-    // xterm 当正文打印（TUI 差量重绘不清未变单元格 → 乱码驻留），写入前切掉。
-    await writeTerminalReplay(snapshot.delta, writeData, { canWrite, dropLeadingEscapeTail: true });
+    // delta 按 PTY 当时尺寸分段写（首段切断头尾，见 writeTerminalDeltaReplay）。
+    await writeTerminalDeltaReplay(term, snapshot, writeData, canWrite);
   }
   syncTrackedBufferType(`terminal.resync.${reason}`);
   reanchorAfterRecovery(sessionId, snapshot);

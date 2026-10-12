@@ -1,5 +1,8 @@
 //! JavaScript boundary only. The daemon and disk continue to use exact u64 values.
-use cc_panes_core::models::{TerminalBufferMode, TerminalCheckpoint, TerminalRecoverySnapshot};
+use super::{
+    TerminalBufferMode, TerminalCheckpoint, TerminalDeltaResize, TerminalGeometry,
+    TerminalRecoverySnapshot,
+};
 use serde::{Deserialize, Serialize};
 
 mod epoch {
@@ -83,6 +86,10 @@ pub struct RecoverySnapshotDto {
     pub end_seq: u64,
     #[serde(with = "epoch")]
     pub checkpoint_epoch: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delta_geometry: Option<TerminalGeometry>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub delta_resizes: Vec<TerminalDeltaResize>,
 }
 
 impl From<TerminalRecoverySnapshot> for RecoverySnapshotDto {
@@ -93,6 +100,8 @@ impl From<TerminalRecoverySnapshot> for RecoverySnapshotDto {
             buffer_mode: snapshot.buffer_mode,
             end_seq: snapshot.end_seq,
             checkpoint_epoch: snapshot.checkpoint_epoch,
+            delta_geometry: snapshot.delta_geometry,
+            delta_resizes: snapshot.delta_resizes,
         }
     }
 }
@@ -157,6 +166,8 @@ mod tests {
             delta: String::new(),
             buffer_mode: TerminalBufferMode::Normal,
             end_seq: 17,
+            delta_geometry: None,
+            delta_resizes: Vec::new(),
         });
         let wire = serde_json::to_value(snapshot).unwrap();
         assert_eq!(wire["checkpointEpoch"], "117232978312953918");

@@ -482,6 +482,10 @@ export function createTerminalRendererController({
     // suspend/resume 保留；只有用户显式切换 renderer mode 才允许再次尝试 WebGL。
     configured = false;
     configure(requestedMode);
+    // 新 WebGL 没有挂起期间的像素：下一帧整屏重建显示，否则切回标签像冻住/残点。
+    requestAnimationFrame(() => {
+      refreshDisplay(`resume.${reason}`);
+    });
   };
 
   return {

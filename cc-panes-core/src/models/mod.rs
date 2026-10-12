@@ -32,6 +32,7 @@ pub mod task_binding;
 pub mod task_dispatch;
 pub mod task_queue;
 mod terminal;
+pub mod terminal_recovery_dto;
 pub mod todo;
 pub mod usage_stats;
 mod workspace;
@@ -128,9 +129,10 @@ pub use task_queue::{
 };
 pub use terminal::{
     CliTool, CreateSessionRequest, ResizeRequest, StoreCheckpointOutcome, TerminalBufferMode,
-    TerminalCheckpoint, TerminalExit, TerminalOutput, TerminalOutputFlowStat,
-    TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
+    TerminalCheckpoint, TerminalDeltaResize, TerminalExit, TerminalGeometry, TerminalOutput,
+    TerminalOutputFlowStat, TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
 };
+pub use terminal_recovery_dto::{CheckpointDto, RecoverySnapshotDto};
 pub use usage_stats::{
     UsageDayPoint, UsageEntry, UsageQueryResult, UsageScanState, UsageStatsDelta, UsageStatsRow,
     UsageTotals,

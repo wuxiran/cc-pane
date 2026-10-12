@@ -285,6 +285,30 @@ pub struct TerminalRecoverySnapshot {
     pub buffer_mode: TerminalBufferMode,
     pub end_seq: u64,
     pub checkpoint_epoch: u64,
+    /// delta 起点时的 PTY 尺寸。raw 字节是按这个宽度画的（Ink 的光标上移/擦行
+    /// 依赖列宽），重放前必须先把 xterm 调到它，否则残帧堆进 scrollback。
+    /// 旧 daemon 不发 → None，前端回落「按当前尺寸写」。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delta_geometry: Option<TerminalGeometry>,
+    /// delta 窗口内的 PTY resize，按出现顺序；offset 为 delta 字符串的
+    /// UTF-16 码元下标（JS 字符串下标），重放到此处前 resize xterm。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub delta_resizes: Vec<TerminalDeltaResize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalGeometry {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalDeltaResize {
+    pub offset: u64,
+    pub cols: u16,
+    pub rows: u16,
 }
 
 /// store_checkpoint 的结构化结果（tag 化以便未来跨 REST 传输）。

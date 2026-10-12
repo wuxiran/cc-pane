@@ -98,7 +98,9 @@ export async function captureAndUploadCheckpoint(
   }
   // A newly recovered screen must replace an invalidated/full raw window now;
   // the periodic sixty-second debounce must not force another giant replay.
-  if (reason !== "recovery.complete" && last !== undefined && now - last < CHECKPOINT_UPLOAD_DEBOUNCE_MS) {
+  // 卸载是最后机会：错过它 remount 就只剩整窗 raw 重放，去抖不拦。
+  if (reason !== "recovery.complete" && reason !== "unmount"
+    && last !== undefined && now - last < CHECKPOINT_UPLOAD_DEBOUNCE_MS) {
     return done("skipped-debounce");
   }
   // 去抖在尝试时点落账（同步，先于任何 await）：上传失败也不进重试风暴，

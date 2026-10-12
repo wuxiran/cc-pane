@@ -48,7 +48,6 @@ mod system_stats_commands;
 mod tailscale_commands;
 mod task_binding_commands;
 mod task_queue_commands;
-mod terminal_checkpoint_dto;
 mod terminal_commands;
 mod terminal_path_link_commands;
 mod todo_commands;

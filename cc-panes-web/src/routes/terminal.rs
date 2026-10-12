@@ -8,7 +8,7 @@ use axum::{
 use cc_panes_core::{
     models::{
         CliTool, CreateSessionRequest as CoreCreateSessionRequest, LaunchProviderSelection,
-        SshConnectionInfo, TerminalReplaySnapshot,
+        RecoverySnapshotDto, SshConnectionInfo, TerminalRecoverySnapshot, TerminalReplaySnapshot,
     },
     services::{
         resolve_terminal_path_link as resolve_core_terminal_path_link,
@@ -637,6 +637,78 @@ pub async fn get_session_snapshot(
     }
 }
 
+type RecoveryHttpError = (StatusCode, Json<serde_json::Value>);
+
+fn recovery_error(status: StatusCode, code: &str, message: &str) -> RecoveryHttpError {
+    (
+        status,
+        Json(serde_json::json!({ "code": code, "message": message })),
+    )
+}
+
+fn read_recovery_snapshot(
+    backend: &dyn TerminalBackend,
+    session_id: &str,
+) -> AppResult<Option<TerminalRecoverySnapshot>> {
+    match backend.get_session_recovery_snapshot(session_id) {
+        Ok(recovery) => Ok(recovery),
+        // 旧 daemon / 不支持 checkpoint 的后端：回落旧快照，包成无 seq 的纯 delta 形状
+        // （endSeq=0、epoch="0"，客户端据此走旧路径）。与桌面端 IPC 命令同语义。
+        Err(error)
+            if error.code() == Some("CHECKPOINT_UNSUPPORTED")
+                || error.to_string().contains("checkpoint not supported") =>
+        {
+            Ok(backend
+                .get_session_replay_snapshot(session_id)?
+                .map(|snapshot| TerminalRecoverySnapshot {
+                    checkpoint: None,
+                    delta: snapshot.data,
+                    buffer_mode: snapshot.buffer_mode,
+                    end_seq: 0,
+                    checkpoint_epoch: 0,
+                    delta_geometry: None,
+                    delta_resizes: Vec::new(),
+                }))
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// GET /api/sessions/:id/recovery-snapshot — checkpoint+delta 恢复快照（带 endSeq）
+///
+/// 会话不存在返回结构化 404 `{"code":"NOT_FOUND"}`，与"旧服务缺路由"的裸 404 区分。
+/// epoch 以十进制字符串下发（超出 JS 安全整数）。
+pub async fn get_session_recovery_snapshot(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<RecoverySnapshotDto>, RecoveryHttpError> {
+    let backend = state.terminal_backend.clone();
+    let session_id = id.clone();
+    let recovery =
+        tokio::task::spawn_blocking(move || read_recovery_snapshot(backend.as_ref(), &session_id))
+            .await
+            .map_err(|e| {
+                tracing::error!(session_id = id, error = %e, "recovery snapshot task failed");
+                recovery_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "INTERNAL",
+                    "Failed to read recovery snapshot",
+                )
+            })?
+            .map_err(|e| {
+                tracing::error!(session_id = id, error = %e, "Failed to read recovery snapshot");
+                recovery_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "INTERNAL",
+                    "Failed to read recovery snapshot",
+                )
+            })?;
+
+    recovery
+        .map(|snapshot| Json(RecoverySnapshotDto::from(snapshot)))
+        .ok_or_else(|| recovery_error(StatusCode::NOT_FOUND, "NOT_FOUND", "Session not found"))
+}
+
 /// DELETE /api/sessions/:id — kill terminal session
 pub async fn kill_session(
     State(state): State<AppState>,
@@ -683,6 +755,8 @@ mod tests {
         kills: Mutex<Vec<String>>,
         output_requests: Mutex<Vec<(String, usize)>>,
         snapshot_requests: Mutex<Vec<String>>,
+        /// None = 走 trait 默认实现（不支持 checkpoint）；Some(v) = 返回 Ok(v)。
+        recovery: Mutex<Option<Option<TerminalRecoverySnapshot>>>,
         claims_supported: bool,
         adoption_snapshot_error: Mutex<Option<AppError>>,
         adoption_owner: Mutex<Option<String>>,
@@ -800,6 +874,16 @@ mod tests {
                 data: "\u{1b}[2J".to_string(),
                 buffer_mode: TerminalBufferMode::Normal,
             }))
+        }
+
+        fn get_session_recovery_snapshot(
+            &self,
+            _session_id: &str,
+        ) -> AppResult<Option<TerminalRecoverySnapshot>> {
+            match self.recovery.lock().unwrap().clone() {
+                Some(recovery) => Ok(recovery),
+                None => Err(AppError::from("checkpoint not supported by this backend")),
+            }
         }
 
         fn adopt_session(&self, session_id: &str) -> AppResult<bool> {
@@ -1420,5 +1504,70 @@ mod tests {
         .expect("kill fresh session");
         assert_eq!(fresh_backend.kills.lock().unwrap().as_slice(), &["fresh"]);
         assert!(fresh_backend.releases.lock().unwrap().is_empty());
+    }
+    #[tokio::test]
+    async fn recovery_snapshot_serializes_end_seq_and_string_epochs() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        *backend.recovery.lock().unwrap() = Some(Some(TerminalRecoverySnapshot {
+            checkpoint: Some(cc_panes_core::models::TerminalCheckpoint {
+                checkpoint_epoch: 117232978312953918,
+                anchor_seq: 10,
+                snapshot_ansi: "photo".to_string(),
+                buffer_mode: TerminalBufferMode::Normal,
+                cols: 80,
+                rows: 24,
+                checkpointed_at_ms: 1,
+            }),
+            delta: "tail".to_string(),
+            buffer_mode: TerminalBufferMode::Normal,
+            end_seq: 14,
+            checkpoint_epoch: 117232978312953918,
+            delta_geometry: None,
+            delta_resizes: Vec::new(),
+        }));
+        let Json(dto) = get_session_recovery_snapshot(
+            State(test_state(backend)),
+            Path("session-1".to_string()),
+        )
+        .await
+        .expect("recovery");
+        let wire = serde_json::to_value(dto).unwrap();
+        assert_eq!(wire["endSeq"], 14);
+        assert_eq!(wire["delta"], "tail");
+        assert_eq!(wire["checkpointEpoch"], "117232978312953918");
+        assert_eq!(wire["checkpoint"]["checkpointEpoch"], "117232978312953918");
+        assert_eq!(wire["checkpoint"]["snapshotAnsi"], "photo");
+    }
+
+    #[tokio::test]
+    async fn recovery_snapshot_missing_session_is_structured_not_found() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        *backend.recovery.lock().unwrap() = Some(None);
+        let (status, Json(body)) =
+            get_session_recovery_snapshot(State(test_state(backend)), Path("gone".to_string()))
+                .await
+                .expect_err("missing session");
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["code"], "NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn recovery_snapshot_falls_back_to_legacy_replay_without_seq() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let Json(dto) = get_session_recovery_snapshot(
+            State(test_state(backend.clone())),
+            Path("session-1".to_string()),
+        )
+        .await
+        .expect("legacy fallback");
+        let wire = serde_json::to_value(dto).unwrap();
+        assert!(wire["checkpoint"].is_null());
+        assert_eq!(wire["delta"], "\u{1b}[2J");
+        assert_eq!(wire["endSeq"], 0);
+        assert_eq!(wire["checkpointEpoch"], "0");
+        assert_eq!(
+            backend.snapshot_requests.lock().unwrap().as_slice(),
+            &["session-1".to_string()]
+        );
     }
 }

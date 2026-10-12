@@ -68,6 +68,30 @@ describe("terminalSessionBinding hidden-output flush", () => {
     expect(scheduleRefit).toHaveBeenCalledOnce();
   });
 
+  it("rebuilds the display after the visible-edge refit, but not after a resync", async () => {
+    const scheduleRefit = vi.fn();
+    const refreshDisplay = vi.fn();
+
+    await terminalSessionBinding.restoreVisibleTerminalView({
+      flushHiddenWrites: vi.fn(async () => "ready" as const),
+      isRenderVisible: () => true,
+      scheduleRefit,
+      refreshDisplay,
+    });
+    expect(refreshDisplay).toHaveBeenCalledWith("view.visible-edge");
+    expect(scheduleRefit.mock.invocationCallOrder[0])
+      .toBeLessThan(refreshDisplay.mock.invocationCallOrder[0]);
+
+    refreshDisplay.mockClear();
+    await terminalSessionBinding.restoreVisibleTerminalView({
+      flushHiddenWrites: vi.fn(async () => "resync" as const),
+      isRenderVisible: () => true,
+      scheduleRefit,
+      refreshDisplay,
+    });
+    expect(refreshDisplay).not.toHaveBeenCalled();
+  });
+
   it("skips refit when the view becomes hidden again during the flush", async () => {
     let visible = true;
     let finishFlush!: () => void;

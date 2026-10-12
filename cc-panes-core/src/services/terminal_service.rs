@@ -4,8 +4,8 @@ use crate::models::shared_mcp::SharedMcpConfig;
 use crate::models::{
     CliTool, CreateSessionRequest, LaunchProfile, LaunchProfileMcpMode, LaunchProfileSkillMode,
     LaunchProviderSelection, SshConnectionInfo, StoreCheckpointOutcome, TerminalBufferMode,
-    TerminalCheckpoint, TerminalExit, TerminalOutput, TerminalOutputFlowStat,
-    TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
+    TerminalCheckpoint, TerminalDeltaResize, TerminalExit, TerminalGeometry, TerminalOutput,
+    TerminalOutputFlowStat, TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
 };
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess, ReaderIoWatch};
 use crate::services::pi_rpc_service::PiManagedStateCleanup;
@@ -815,6 +815,16 @@ struct ReplayBuffer {
     window_start_seq: u64,
     /// 前端上传的画面照片（M3b-1 只存不裁剪；锚定裁剪属 M3b-4）。
     checkpoint: Option<TerminalCheckpoint>,
+    /// PTY 尺寸变更记录（seq = 变更时的 pushed_seq），按 seq 升序。
+    /// 保留「≤ window_start_seq 的最后一条」作窗口起点尺寸，更早的随淘汰裁掉。
+    geometry_marks: VecDeque<GeometryMark>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GeometryMark {
+    seq: u64,
+    cols: u16,
+    rows: u16,
 }
 
 /// 生成 ReplayBuffer 的 checkpoint epoch：UNIX 毫秒 << 16 | 进程内单调计数低位。
@@ -855,7 +865,92 @@ impl ReplayBuffer {
             pushed_seq: 0,
             window_start_seq: 0,
             checkpoint: None,
+            geometry_marks: VecDeque::new(),
         }
+    }
+
+    /// 记录 PTY 尺寸：之后推入的字节按此尺寸渲染。同 seq 的连续 resize 只留最后一次。
+    fn record_geometry(&mut self, cols: u16, rows: u16) {
+        if let Some(last) = self.geometry_marks.back_mut() {
+            if last.cols == cols && last.rows == rows {
+                return;
+            }
+            if last.seq == self.pushed_seq {
+                last.cols = cols;
+                last.rows = rows;
+                self.dedupe_last_geometry();
+                return;
+            }
+        }
+        self.geometry_marks.push_back(GeometryMark {
+            seq: self.pushed_seq,
+            cols,
+            rows,
+        });
+    }
+
+    /// 改写末条后若与前一条同尺寸则合并，保持「相邻记录尺寸不同」。
+    fn dedupe_last_geometry(&mut self) {
+        let len = self.geometry_marks.len();
+        if len >= 2 {
+            let (prev, last) = (self.geometry_marks[len - 2], self.geometry_marks[len - 1]);
+            if prev.cols == last.cols && prev.rows == last.rows {
+                self.geometry_marks.pop_back();
+            }
+        }
+    }
+
+    /// 窗口起点前移后丢掉已无用的尺寸记录，只留起点处生效的那条。
+    fn prune_geometry_marks(&mut self) {
+        while self.geometry_marks.len() >= 2 && self.geometry_marks[1].seq <= self.window_start_seq
+        {
+            self.geometry_marks.pop_front();
+        }
+    }
+
+    /// delta（从 start_seq 起的保留字节拼接串）的起点尺寸与窗口内 resize 点。
+    /// offset 按 UTF-16 码元计，直接对应前端 JS 字符串下标。
+    fn delta_geometry_from(
+        &self,
+        start_seq: u64,
+    ) -> (Option<TerminalGeometry>, Vec<TerminalDeltaResize>) {
+        let start = self
+            .geometry_marks
+            .iter()
+            .take_while(|mark| mark.seq <= start_seq)
+            .last()
+            .map(|mark| TerminalGeometry {
+                cols: mark.cols,
+                rows: mark.rows,
+            });
+        let mut pending = self
+            .geometry_marks
+            .iter()
+            .filter(|mark| mark.seq > start_seq)
+            .peekable();
+        let mut resizes = Vec::new();
+        let mut seq = self.window_start_seq;
+        let mut offset = 0u64;
+        for chunk in &self.chunks {
+            while let Some(mark) = pending.next_if(|mark| mark.seq <= seq) {
+                resizes.push(TerminalDeltaResize {
+                    offset,
+                    cols: mark.cols,
+                    rows: mark.rows,
+                });
+            }
+            if seq >= start_seq {
+                offset += chunk.encode_utf16().count() as u64;
+            }
+            seq += chunk.len() as u64;
+        }
+        // 最后一个 chunk 之后的 resize（输出静止期改的尺寸）落在 delta 末尾。
+        resizes.extend(pending.map(|mark| TerminalDeltaResize {
+            offset,
+            cols: mark.cols,
+            rows: mark.rows,
+        }));
+        (start, resizes)
     }
 
     fn push(&mut self, data: &str) {
@@ -887,6 +982,7 @@ impl ReplayBuffer {
             self.total_bytes = self.total_bytes.saturating_sub(front.len());
             self.window_start_seq += front.len() as u64;
         }
+        self.prune_geometry_marks();
         // 窗口推过锚点 → 照片与保留字节之间出现缝隙，整体作废（宁可截史不可花屏）。
         if self
             .checkpoint
@@ -943,6 +1039,7 @@ impl ReplayBuffer {
             self.total_bytes = self.total_bytes.saturating_sub(front.len());
             self.window_start_seq += front.len() as u64;
         }
+        self.prune_geometry_marks();
         debug_assert!(
             self.checkpoint
                 .as_ref()
@@ -970,16 +1067,23 @@ impl ReplayBuffer {
         let valid_checkpoint = self.checkpoint.as_ref().filter(|cp| {
             cp.checkpoint_epoch == self.epoch && cp.anchor_seq >= self.window_start_seq
         });
-        let (checkpoint, delta) = match valid_checkpoint {
-            Some(cp) => (Some(cp.clone()), self.concat_chunks_from(cp.anchor_seq)),
-            None => (None, self.snapshot().data),
+        let (checkpoint, delta, delta_start_seq) = match valid_checkpoint {
+            Some(cp) => (
+                Some(cp.clone()),
+                self.concat_chunks_from(cp.anchor_seq),
+                cp.anchor_seq,
+            ),
+            None => (None, self.snapshot().data, self.window_start_seq),
         };
+        let (delta_geometry, delta_resizes) = self.delta_geometry_from(delta_start_seq);
         TerminalRecoverySnapshot {
             checkpoint,
             delta,
             buffer_mode: self.buffer_mode,
             end_seq: self.pushed_seq,
             checkpoint_epoch: self.epoch,
+            delta_geometry,
+            delta_resizes,
         }
     }
 
@@ -3566,6 +3670,9 @@ impl TerminalService {
         let replay_buffer = Arc::new(Mutex::new(ReplayBuffer::new(live_replay_max_bytes(
             self.settings_service.get_settings().terminal.scrollback,
         ))));
+        if let Ok(mut replay) = replay_buffer.lock() {
+            replay.record_geometry(cols, rows);
+        }
         let paste_ready = Arc::new(AtomicBool::new(false));
         let output_flow = Arc::new(if is_ssh_session {
             OutputFlowGate::disabled()
@@ -4909,6 +5016,11 @@ impl TerminalService {
                 .lock()
                 .map_err(|_| anyhow!("output buffer lock poisoned"))?
                 .resize(cols, rows);
+            session
+                .replay_buffer
+                .lock()
+                .map_err(|_| anyhow!("replay_buffer lock poisoned"))?
+                .record_geometry(cols, rows);
         }
         Ok(())
     }
@@ -8499,6 +8611,88 @@ mod tests {
         assert_eq!(recovery.delta, replay.snapshot().data);
         assert_eq!(recovery.end_seq, 10);
         assert_eq!(recovery.buffer_mode, TerminalBufferMode::Normal);
+    }
+
+    #[test]
+    fn recovery_snapshot_reports_delta_geometry_and_resize_offsets() {
+        let mut replay = ReplayBuffer::new(1024);
+        replay.record_geometry(80, 24);
+        replay.push("ab");
+        // UTF-16 offset：「中」1 码元、emoji 2 码元，与字节数不同。
+        replay.push("中😀");
+        replay.record_geometry(120, 30);
+        replay.push("cd");
+        replay.record_geometry(100, 30);
+
+        let recovery = replay.recovery_snapshot();
+        assert_eq!(recovery.delta, "ab中😀cd");
+        assert_eq!(
+            recovery.delta_geometry,
+            Some(TerminalGeometry { cols: 80, rows: 24 })
+        );
+        assert_eq!(
+            recovery.delta_resizes,
+            vec![
+                TerminalDeltaResize {
+                    offset: 5,
+                    cols: 120,
+                    rows: 30
+                },
+                TerminalDeltaResize {
+                    offset: 7,
+                    cols: 100,
+                    rows: 30
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn geometry_marks_follow_window_eviction_and_checkpoint_anchor() {
+        let mut replay = ReplayBuffer::new(8);
+        replay.record_geometry(80, 24);
+        replay.push("1234");
+        replay.record_geometry(90, 24);
+        // 同 seq 连发只留最后一次；改回前一条尺寸时合并掉。
+        replay.record_geometry(95, 24);
+        replay.push("5678");
+        replay.record_geometry(100, 40);
+        replay.record_geometry(90, 24);
+        replay.record_geometry(100, 40);
+        replay.push("90");
+
+        // 窗口前移到 4：起点尺寸取「≤ 4 的最后一条」= 95x24。
+        let recovery = replay.recovery_snapshot();
+        assert_eq!(recovery.delta, "567890");
+        assert_eq!(
+            recovery.delta_geometry,
+            Some(TerminalGeometry { cols: 95, rows: 24 })
+        );
+        assert_eq!(
+            recovery.delta_resizes,
+            vec![TerminalDeltaResize {
+                offset: 4,
+                cols: 100,
+                rows: 40
+            }]
+        );
+        assert_eq!(replay.geometry_marks.len(), 2);
+
+        // 照片锚在 8：delta 从 anchor 起算，起点尺寸 100x40，无窗口内 resize。
+        assert_eq!(
+            replay.store_checkpoint(test_checkpoint(&replay, 8)),
+            StoreCheckpointOutcome::Accepted { anchor_seq: 8 }
+        );
+        let recovery = replay.recovery_snapshot();
+        assert_eq!(recovery.delta, "90");
+        assert_eq!(
+            recovery.delta_geometry,
+            Some(TerminalGeometry {
+                cols: 100,
+                rows: 40
+            })
+        );
+        assert!(recovery.delta_resizes.is_empty());
     }
 
     #[test]

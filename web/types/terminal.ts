@@ -100,6 +100,12 @@ export interface LaunchAdapterOptions extends PiLaunchOptions {
   extraArgs?: string[];
   verbose?: boolean;
   maxTurns?: number;
+  /**
+   * TUI 屏幕模式，缺省 = fullscreen；inherit = 不注入、跟随用户全局配置。
+   * codex: fullscreen / scrollback（`-c tui.fullscreen_transcript`）；
+   * grok: fullscreen / minimal（`GROK_SCREEN_MODE`）。
+   */
+  screenMode?: "fullscreen" | "scrollback" | "minimal" | "inherit";
 }
 
 /**
@@ -379,6 +385,16 @@ export interface TerminalRecoverySnapshot {
   bufferMode: "normal" | "alternate";
   endSeq: number;
   checkpointEpoch: string;
+  /** delta 起点时的 PTY 尺寸（raw 字节按它渲染）；旧后端缺省。 */
+  deltaGeometry?: { cols: number; rows: number } | null;
+  /** delta 内的 PTY resize；offset 为 delta 的 JS 字符串下标（UTF-16 码元）。 */
+  deltaResizes?: TerminalDeltaResize[];
+}
+
+export interface TerminalDeltaResize {
+  offset: number;
+  cols: number;
+  rows: number;
 }
 
 /**

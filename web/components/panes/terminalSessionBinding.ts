@@ -190,6 +190,8 @@ interface RestoreVisibleTerminalViewOptions {
   flushHiddenWrites: (reason: string) => Promise<HiddenWriteFlushOutcome>;
   isRenderVisible: () => boolean;
   scheduleRefit: () => void;
+  /** 丢 WebGL skip 缓存整屏重绘：refit 只 refresh 已改格子，隐藏期的旧像素会残留。 */
+  refreshDisplay?: (reason: string) => void;
 }
 
 /** Keep a visible-edge refit from racing xterm while it consumes hidden output. */
@@ -197,10 +199,12 @@ export async function restoreVisibleTerminalView({
   flushHiddenWrites,
   isRenderVisible,
   scheduleRefit,
+  refreshDisplay,
 }: RestoreVisibleTerminalViewOptions): Promise<void> {
   const outcome = await flushHiddenWrites("view.visible-edge");
   if (outcome === "resync" || !isRenderVisible()) return;
   scheduleRefit();
+  refreshDisplay?.("view.visible-edge");
 }
 
 /** 输出/退出/desync 三路订阅的标准接线（从 TerminalView 抽出，行数棘轮）。 */

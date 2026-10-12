@@ -1,4 +1,3 @@
-use super::terminal_checkpoint_dto::{CheckpointDto, RecoverySnapshotDto};
 use crate::models::TerminalReplaySnapshot;
 use crate::models::{CreateSessionRequest, ResizeRequest};
 use crate::services::terminal_service;
@@ -11,6 +10,7 @@ use crate::services::{
 use crate::utils::error::AppError;
 use crate::utils::{validate_launch_cwd, validate_ssh_info, AppResult, LaunchRuntime};
 use cc_cli_adapters::{CliToolInfo, CliToolRegistry};
+use cc_panes_core::models::{CheckpointDto, RecoverySnapshotDto};
 // 出生凭证落库 / 失败清理已提到 cc-panes-core，由 Tauri 命令、REST、orchestrator
 // launch_task 三条创建路径共用，保证行为（含 fail-closed 语义）一致。
 use cc_panes_core::services::session_provenance_persist::{
@@ -1066,6 +1066,8 @@ pub async fn get_terminal_recovery_snapshot(
                     buffer_mode: snapshot.buffer_mode,
                     end_seq: 0,
                     checkpoint_epoch: 0,
+                    delta_geometry: None,
+                    delta_resizes: Vec::new(),
                 })
         }
         Err(error) => return Err(error),

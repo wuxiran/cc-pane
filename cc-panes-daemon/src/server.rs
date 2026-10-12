@@ -2124,6 +2124,8 @@ mod tests {
                 buffer_mode: TerminalBufferMode::Normal,
                 end_seq: 9,
                 checkpoint_epoch: 7,
+                delta_geometry: None,
+                delta_resizes: Vec::new(),
             }))
         }
     }

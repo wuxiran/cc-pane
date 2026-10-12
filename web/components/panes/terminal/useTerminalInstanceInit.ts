@@ -48,6 +48,7 @@ import { createTerminalResizeObserver } from "./terminalResizeObserver";
 import { launchOrAttachTerminalSession } from "./terminalSessionLaunch";
 import { MINIMUM_TERMINAL_CONTRAST_RATIO } from "../terminalContrast";
 import type { TerminalViewProps } from "./terminalViewTypes";
+import { captureAndUploadCheckpoint } from "../terminalCheckpointUpload";
 
 const IS_WINDOWS = typeof navigator !== "undefined" && navigator.platform.startsWith("Win");
 
@@ -488,6 +489,17 @@ export function useTerminalInstanceInit({
       isUnmountedRef.current = true;
       // 槽位不得比组件活得长：create 永不落定时 finally 不会执行，只有这里能收。
       slot.release();
+      // 卸载前拍一张照片：否则 remount 只能整窗重放 raw 字节（最多 8MB，
+      // 残帧/慢）。serialize 在首个 await 前同步完成，赶在 cleanup 销毁 xterm 之前。
+      const unmountSessionId = currentSessionIdRef.current;
+      if (unmountSessionId && terminalInstanceRef.current) {
+        void captureAndUploadCheckpoint(
+          unmountSessionId,
+          terminalInstanceRef.current,
+          serializeAddonRef.current,
+          { reason: "unmount" },
+        );
+      }
       cleanup();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
