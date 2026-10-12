@@ -165,6 +165,20 @@ export async function captureAndUploadCheckpoint(
 }
 
 /** 测试用：清空去抖记账。 */
+/**
+ * 组件卸载前拍一张照片：否则 remount 只能整窗重放 raw 字节（最多 8MB，残帧/慢）。
+ * serialize 在首个 await 前同步完成，所以调用方必须在销毁 xterm 之前调用。
+ * fire-and-forget；没有会话或 xterm 已不在时什么都不做。
+ */
+export function captureCheckpointOnUnmount(
+  sessionId: string | null,
+  term: CheckpointTerminal | null,
+  serializeAddon: CheckpointSerializer | null,
+): void {
+  if (!sessionId || !term) return;
+  void captureAndUploadCheckpoint(sessionId, term, serializeAddon, { reason: "unmount" });
+}
+
 export function _resetCheckpointUploadStateForTest(): void {
   lastAttemptAtMs.clear();
   for (const upload of inFlight.values()) upload.finish();
