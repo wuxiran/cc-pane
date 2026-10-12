@@ -227,7 +227,7 @@ class MirrorController extends AsyncNotifier<MirrorState> {
   }
 
   Future<MirrorState> _fetch(LayoutSnapshotApi snapshotApi, SessionsApi sessionsApi) async {
-    final snapResult = await snapshotApi.fetch();
+    final snapResult = await snapshotApi.fetchCurrent();
     final running = (await sessionsApi.list()).valueOrNull ?? const <SessionInfo>[];
     if (snapResult is Err<LayoutSnapshot?>) {
       if (snapResult.failure.kind == FailureKind.unauthorized) {
