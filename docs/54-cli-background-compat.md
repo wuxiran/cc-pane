@@ -25,6 +25,8 @@
 
 **codex（候选，待拍板）**：
 - C1：适配器注入 `[tui] alternate_screen="never"`（或 `--no-alt-screen`）——覆盖层改走 inline，绕开"剥离器剥 `?1049h` 后 `terminal.clear()` 清主缓冲区可视区"的交互风险（当前主要风险点）。
+  - **2026-10-01 结论：不采用，改为默认注入全屏。** codex 0.158 新增 TUI mode（`[tui] fullscreen_transcript`，缺省即全屏）。node-pty 实测：`true`/缺省 → `?1049h` + `?1003;1006h`（alt-screen 且开鼠标上报）；`false` → 无 alt-screen、无鼠标上报，走终端 scrollback。适配器现按进程注入 `-c tui.fullscreen_transcript=true`（`adapterOptions.screenMode` = `fullscreen`/`scrollback`/`inherit` 可覆盖，不回写用户 config.toml；本地 `codex.rs` 与 WSL `wsl_codex.rs` 一致），与 Grok 的 `GROK_SCREEN_MODE` 同构。上表「屏幕模式」一列的 0.145 描述对 0.158 已不成立。
+  - 遗留：全屏下滚轮走鼠标报告补发链路（`terminalTuiWheelMultiplier.ts`），codex 每个报告滚几行尚未实测，手感待调。
 - C2：壁纸激活时对 codex **拒答 OSC 11** → 用户消息/plan 块不再 blend 铺色，透明更彻底；代价：明暗判定退化（accent 固定 Cyan）。按 CLI+壁纸双条件收窄（机制同 opencode plan 方案 B 设计）。
 
 ## 3. 新 CLI 接入预检清单（壁纸兼容五问）

@@ -362,6 +362,34 @@ impl CodexAdapter {
         args.push(r#"tui.terminal_title=["activity","project","thread-id"]"#.to_string());
     }
 
+    /// `adapterOptions.screenMode` → Codex TUI 模式。缺省 / 非法值 → `fullscreen`；
+    /// `inherit` = 不注入（尊重用户全局 `[tui] fullscreen_transcript` 配置）。
+    fn screen_mode_from_options(options: &HashMap<String, serde_json::Value>) -> String {
+        options
+            .get("screenMode")
+            .and_then(serde_json::Value::as_str)
+            .map(|value| value.trim().to_ascii_lowercase())
+            .filter(|value| matches!(value.as_str(), "fullscreen" | "scrollback" | "inherit"))
+            .unwrap_or_else(|| "fullscreen".to_string())
+    }
+
+    /// 注入 `tui.fullscreen_transcript`（0.158 PTY 实测：`true` 进 alt-screen 并开
+    /// 鼠标上报，`false` 走 inline + 终端 scrollback）。托管会话默认 fullscreen，
+    /// 与 Grok 一致。`-c` 逐进程生效、不写回用户 config.toml；不认识该键的旧版
+    /// Codex 会忽略它。
+    pub fn push_screen_mode_override(
+        args: &mut Vec<String>,
+        options: &HashMap<String, serde_json::Value>,
+    ) {
+        let fullscreen = match Self::screen_mode_from_options(options).as_str() {
+            "inherit" => return,
+            "scrollback" => false,
+            _ => true,
+        };
+        args.push("-c".to_string());
+        args.push(format!("tui.fullscreen_transcript={fullscreen}"));
+    }
+
     fn push_mcp_overrides(&self, args: &mut Vec<String>, ctx: &CliAdapterContext) {
         let proxy = crate::mcp_proxy_invocation(ctx);
         if let Some(invocation) = proxy.as_ref() {
@@ -1688,6 +1716,9 @@ impl CliToolAdapter for CodexAdapter {
         // 标题带 thread-id：resume 与新会话都注入（resume 后活跃线程 id 同样经标题回报）
         Self::push_terminal_title_override(&mut args);
 
+        // 屏幕模式：托管会话默认 fullscreen，`adapterOptions.screenMode` 可覆盖
+        Self::push_screen_mode_override(&mut args, &ctx.adapter_options);
+
         // effort → `-c model_reasoning_effort=<v>`（max 映射 xhigh）。
         // `-c` 是全局 flag，必须在 resume 子命令之前。
         if let Some(effort) = crate::effort_from_options(&ctx.adapter_options)
@@ -2579,6 +2610,59 @@ bearer_token_env_var = "USER_TOKEN"
             .position(|arg| arg == "resume")
             .expect("resume subcommand present");
         assert!(effort_pos < resume_pos, "-c must precede resume subcommand");
+    }
+
+    fn screen_mode_args(screen_mode: Option<&str>) -> Vec<String> {
+        let adapter = CodexAdapter::new();
+        let mut ctx = test_context(Some("/opt/codex-next/bin/codex"));
+        if let Some(mode) = screen_mode {
+            ctx.adapter_options
+                .insert("screenMode".to_string(), serde_json::json!(mode));
+        }
+        adapter.build_command(&ctx).unwrap().args
+    }
+
+    #[test]
+    fn build_command_injects_fullscreen_screen_mode_before_resume_by_default() {
+        let args = screen_mode_args(None);
+
+        let mode_pos = args
+            .iter()
+            .position(|arg| arg == "tui.fullscreen_transcript=true")
+            .expect("screen mode override present");
+        assert_eq!(args[mode_pos - 1], "-c");
+        let resume_pos = args
+            .iter()
+            .position(|arg| arg == "resume")
+            .expect("resume subcommand present");
+        assert!(mode_pos < resume_pos, "-c must precede resume subcommand");
+    }
+
+    #[test]
+    fn build_command_screen_mode_option_overrides_default() {
+        let args = screen_mode_args(Some("scrollback"));
+
+        assert!(args
+            .iter()
+            .any(|arg| arg == "tui.fullscreen_transcript=false"));
+    }
+
+    #[test]
+    fn build_command_screen_mode_inherit_skips_injection() {
+        let args = screen_mode_args(Some("inherit"));
+
+        assert!(!args
+            .iter()
+            .any(|arg| arg.starts_with("tui.fullscreen_transcript")));
+    }
+
+    #[test]
+    fn build_command_invalid_screen_mode_falls_back_to_fullscreen() {
+        let args = screen_mode_args(Some("bogus"));
+
+        assert!(args
+            .iter()
+            .any(|arg| arg == "tui.fullscreen_transcript=true"));
     }
 
     #[test]

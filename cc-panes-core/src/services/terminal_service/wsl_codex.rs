@@ -2422,6 +2422,8 @@ impl TerminalService {
         // （与本地 codex.rs push_terminal_title_override 保持一致）
         codex_args.push("-c".to_string());
         codex_args.push(r#"tui.terminal_title=["activity","project","thread-id"]"#.to_string());
+        // 屏幕模式：与本地 codex.rs 对齐（默认 fullscreen，adapterOptions.screenMode 可覆盖）
+        cc_cli_adapters::CodexAdapter::push_screen_mode_override(&mut codex_args, adapter_options);
         // effort → `-c model_reasoning_effort=<v>`（max 映射 xhigh，与本地 codex.rs 对齐）。
         // `-c` 必须在 resume 子命令之前 → 放在 append_codex_resume_args 前。
         if let Some(effort) = cc_cli_adapters::effort_from_options(adapter_options)
