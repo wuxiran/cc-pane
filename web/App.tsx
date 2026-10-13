@@ -13,6 +13,7 @@ import { useAiPanelListener } from "@/hooks/useAiPanelListener";
 import { useOrphanSessionReconciler } from "@/hooks/useOrphanSessionReconciler";
 import { useHiddenSessionReporter } from "@/hooks/useHiddenSessionReporter";
 import { useTabAttentionWiring } from "@/hooks/useTabAttentionWiring";
+import { useTabResourceBadgeWiring } from "@/hooks/useTabResourceBadgeWiring";
 import useOrchestratorSync from "@/hooks/useOrchestratorSync";
 import useLayoutSwitcherSync from "@/hooks/useLayoutSwitcherSync";
 import { useLayoutScopeSync } from "@/hooks/useLayoutScopeSync";
@@ -96,6 +97,7 @@ function MainApp() {
   useOrphanSessionReconciler();
   useHiddenSessionReporter();
   useTabAttentionWiring();
+  useTabResourceBadgeWiring();
 
   // fix(M4) review: Orchestrator 同步提升到 App 顶层，全局只挂一次。
   useOrchestratorSync();

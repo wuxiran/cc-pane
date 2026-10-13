@@ -102,7 +102,11 @@ export const useTerminalStatusStore = create<TerminalStatusState>((set, get) => 
           current.currentToolUseId === event.payload.currentToolUseId &&
           current.currentToolSummary === event.payload.currentToolSummary &&
           current.oscProgress?.state === event.payload.oscProgress?.state &&
-          current.oscProgress?.progress === event.payload.oscProgress?.progress
+          current.oscProgress?.progress === event.payload.oscProgress?.progress &&
+          current.resourcePolicy?.outcome === event.payload.resourcePolicy?.outcome &&
+          current.resourcePolicy?.reason === event.payload.resourcePolicy?.reason &&
+          current.resourcePolicy?.ecoQos === event.payload.resourcePolicy?.ecoQos &&
+          current.resourcePolicy?.lowerPriority === event.payload.resourcePolicy?.lowerPriority
         ) {
           return;
         }

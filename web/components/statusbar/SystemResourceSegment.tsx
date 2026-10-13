@@ -7,6 +7,7 @@ import { sessionRestoreService } from "@/services/sessionRestoreService";
 import { systemStatsService } from "@/services/systemStatsService";
 import { terminalService } from "@/services/terminalService";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
+import { useResourcePopoverStore } from "@/stores/useResourcePopoverStore";
 import { asTabId } from "@/types/ids";
 import type {
   CliTool,
@@ -142,31 +143,24 @@ export default function SystemResourceSegment() {
   const { t } = useTranslation("common");
   const stats = useSystemStats();
   const statusMap = useTerminalStatusStore((state) => state.statusMap);
-  const [open, setOpen] = useState(false);
+  const open = useResourcePopoverStore((state) => state.open);
+  const setOpen = useResourcePopoverStore((state) => state.setOpen);
+  // 状态栏卸载（切视图 / 测试 cleanup）时收起：open 现在是全局的，不随组件消失自动归零。
+  useEffect(() => () => useResourcePopoverStore.getState().setOpen(false), []);
   const [tree, setTree] = useState<ResourceTree | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
-    new Set(),
-  );
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [orphansExpanded, setOrphansExpanded] = useState(false);
-  const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(
-    new Set(),
-  );
+  const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(new Set());
   const [armedSessionId, setArmedSessionId] = useState<string | null>(null);
   const [killingSessionId, setKillingSessionId] = useState<string | null>(null);
   const [orphanKillArmed, setOrphanKillArmed] = useState(false);
   const [killingOrphans, setKillingOrphans] = useState(false);
   // 无主会话（本实例没有 tab 引用）的归属元数据，来自跨实例共享的 session_restore 表。
   // 没有它，这些会话只能显示成「终端 <pid>」/「其他工作区」，也无法被接管到正确的项目下。
-  const [savedSessions, setSavedSessions] = useState<Map<string, SavedSession>>(
-    new Map(),
-  );
-  const [sessionClaims, setSessionClaims] = useState<Record<string, string>>(
-    {},
-  );
-  const [claimOwnerInstanceId, setClaimOwnerInstanceId] = useState<
-    string | undefined
-  >();
+  const [savedSessions, setSavedSessions] = useState<Map<string, SavedSession>>(new Map());
+  const [sessionClaims, setSessionClaims] = useState<Record<string, string>>({});
+  const [claimOwnerInstanceId, setClaimOwnerInstanceId] = useState<string | undefined>();
   const [claimsSupported, setClaimsSupported] = useState(false);
   const refreshingRef = useRef(false);
 

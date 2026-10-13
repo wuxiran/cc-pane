@@ -41,14 +41,47 @@ export interface OrphanProcessInfo {
   processCount: number;
 }
 
+/** 会话之外的高负载进程（只读展示，**不提供任何操作**）。 */
+export interface TopProcessInfo {
+  pid: number;
+  name: string;
+  cpuPercent: number;
+  memoryBytes: number;
+}
+
 export interface ResourceTree {
   system: SystemStats;
   appMemoryBytes: number;
   appMemoryPercent: number;
   sessions: SessionResourceUsage[];
   orphans: OrphanProcessInfo[];
+  /**
+   * 整机 CPU ≥ 60%（滞回 <45% 关）时才计算的"会话之外"前 3 名；平时与非 Windows 为
+   * null/undefined（旧后端不返回该字段，消费方必须容忍缺失）。
+   */
+  topProcesses?: TopProcessInfo[] | null;
   sampledAt: number;
   elapsedMicros: number;
+}
+
+/** 会话级资源策略（后端 `SessionResourcePolicy`）。 */
+export interface SessionResourcePolicy {
+  lowerPriority: boolean;
+  /** 1..=9，中性 5；null = 不设。 */
+  cpuWeight: number | null;
+  /** Windows EcoQoS（效率模式）：逐进程下发，后生子进程不覆盖。 */
+  ecoQos: boolean;
+}
+
+export type ResourcePolicyOutcome = "applied" | "degraded" | "unsupported";
+
+/** 策略下发结果（随 `TerminalStatusInfo.resourcePolicy` 上报，popover 显示"已降级：原因"）。 */
+export interface ResourcePolicyStatus {
+  outcome: ResourcePolicyOutcome;
+  reason?: string | null;
+  lowerPriority: boolean;
+  ecoQos: boolean;
+  cpuWeight?: number | null;
 }
 
 export interface KillProcessResult {

@@ -287,8 +287,12 @@ export type {
   OrphanProcessInfo,
   ResourceTree,
   SessionProcessInfo,
+  ResourcePolicyOutcome,
+  ResourcePolicyStatus,
+  SessionResourcePolicy,
   SessionResourceUsage,
   SystemStats,
+  TopProcessInfo,
   TruncatedProcessSummary,
 } from "./systemStats";
 export type {

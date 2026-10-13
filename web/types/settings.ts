@@ -480,4 +480,6 @@ export interface TerminalStatusInfo {
   updatedAt: number;
   /** OSC 9;4 进度徽章；undefined/null = 无信号（已清除或 TTL 衰减）。 */
   oscProgress?: OscProgressBadge | null;
+  /** 会话资源策略下发结果（0.12.22）；旧后端不返回，必须容忍缺失。 */
+  resourcePolicy?: import("./systemStats").ResourcePolicyStatus | null;
 }
