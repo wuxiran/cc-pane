@@ -8,6 +8,7 @@ mod acp_chat_service;
 mod acp_client_ops;
 mod automation_service;
 mod browser_service;
+pub mod bundled_skills;
 pub mod heavy_command_recorder;
 pub mod heavy_command_sampler;
 pub mod heavy_job_routes;

@@ -861,6 +861,10 @@ fn collect_wsl_pi_source_dirs(source_root: &Path) -> Result<Vec<String>> {
     Ok(dirs)
 }
 
+/// WSL 内 `~/.codex/skills` 下记录「上次由 CC-Panes 同步进来的内置 skill 目录名」的清单文件。
+#[cfg(windows)]
+const WSL_MANAGED_LIST_FILE_NAME: &str = ".ccpanes-managed-skills";
+
 #[cfg(windows)]
 fn build_wsl_codex_skill_sync_prelude(source_wsl_path: &str, dir_names: &[String]) -> Vec<String> {
     let mut commands = vec![
@@ -885,13 +889,32 @@ fn build_wsl_codex_skill_sync_prelude(source_wsl_path: &str, dir_names: &[String
         ));
     }
 
+    // 门控 skill（W8 heavy-run）会随设置开关从源集合里消失，版本戳不变。记一份「上次由我们
+    // 同步进来的目录名」清单，和本次期望集不一致就触发同步，并只删清单里有、期望集里没有的目录。
+    let expected_list = dir_names.join(" ");
+    commands.push(format!(
+        "CCPANES_WSL_CODEX_MANAGED_LIST=\"$CCPANES_WSL_CODEX_DST/{WSL_MANAGED_LIST_FILE_NAME}\""
+    ));
+    commands.push(format!(
+        "CCPANES_WSL_CODEX_EXPECTED={}",
+        shell_escape_posix(&expected_list)
+    ));
+    commands.push(
+        "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 0 ] && [ \"$(cat \"$CCPANES_WSL_CODEX_MANAGED_LIST\" 2>/dev/null)\" != \"$CCPANES_WSL_CODEX_EXPECTED\" ]; then CCPANES_WSL_NEEDS_SYNC=1; fi"
+            .to_string(),
+    );
     commands.push(
         "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then mkdir -p \"$CCPANES_WSL_CODEX_DST\"; fi"
             .to_string(),
     );
     // 去隔离后 $CCPANES_WSL_CODEX_DST 指向真实 ~/.codex/skills，绝不能像旧隔离目录那样
     // `find ... -name 'ccpanes-*' -exec rm -rf` 批量删 —— 会误删用户自建的同前缀 skill。
-    // 改为只 upsert 内置 skill（下方 mkdir+cp 覆盖各 SKILL.md）；残留的旧内置目录无害。
+    // 删除只针对「上次清单里有、本次期望集里没有」且仍带 ccpanes- 前缀的目录——那是我们
+    // 自己放进去的，门控 skill 关掉后就该消失。其余一律 upsert（下方 mkdir+cp）。
+    commands.push(
+        "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ] && [ -f \"$CCPANES_WSL_CODEX_MANAGED_LIST\" ]; then for ccpanes_dir in $(cat \"$CCPANES_WSL_CODEX_MANAGED_LIST\"); do case \" $CCPANES_WSL_CODEX_EXPECTED \" in *\" $ccpanes_dir \"*) ;; *) case \"$ccpanes_dir\" in ccpanes-*) rm -rf \"$CCPANES_WSL_CODEX_DST/$ccpanes_dir\" ;; esac ;; esac; done; fi"
+            .to_string(),
+    );
     for dir_name in dir_names {
         commands.push(format!(
             "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then mkdir -p \"$CCPANES_WSL_CODEX_DST/{}\"; fi",
@@ -903,6 +926,10 @@ fn build_wsl_codex_skill_sync_prelude(source_wsl_path: &str, dir_names: &[String
         ));
     }
     commands.push("if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then cp \"$CCPANES_WSL_CODEX_SRC/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\" \"$CCPANES_WSL_CODEX_DST/$CCPANES_WSL_DEFAULT_SKILLS_VERSION_FILE\"; fi".to_string());
+    commands.push(
+        "if [ \"$CCPANES_WSL_NEEDS_SYNC\" -eq 1 ]; then printf '%s' \"$CCPANES_WSL_CODEX_EXPECTED\" > \"$CCPANES_WSL_CODEX_MANAGED_LIST\"; fi"
+            .to_string(),
+    );
 
     commands
 }
@@ -3401,6 +3428,42 @@ mod tests {
             .contains("mkdir -p \"$CCPANES_WSL_CODEX_DST/ccpanes-launch-task\"")));
         assert!(commands.iter().any(|line: &String| line
             .contains("cp \"$CCPANES_WSL_CODEX_SRC/ccpanes-launch-task/SKILL.md\"")));
+    }
+
+    /// W8：门控 skill 关掉后要从 WSL 侧消失——只删「上次清单里有、本次期望集里没有」且仍带
+    /// ccpanes- 前缀的目录；清单不一致也触发同步（版本戳不变时唯一的信号）。
+    #[test]
+    #[cfg(windows)]
+    fn build_wsl_codex_skill_sync_prelude_removes_only_previously_managed_dirs() {
+        let commands = build_wsl_codex_skill_sync_prelude(
+            "/mnt/c/Users/test/.codex/skills",
+            &[
+                String::from("ccpanes-heavy-run"),
+                String::from("ccpanes-launch-task"),
+            ],
+        );
+        let script = commands.join("\n");
+        assert!(
+            script.contains("CCPANES_WSL_CODEX_EXPECTED='ccpanes-heavy-run ccpanes-launch-task'")
+        );
+        assert!(script.contains(".ccpanes-managed-skills"));
+        // 清单与期望集不一致 → 需要同步
+        assert!(
+            script.contains("!= \"$CCPANES_WSL_CODEX_EXPECTED\" ]; then CCPANES_WSL_NEEDS_SYNC=1")
+        );
+        // 删除分支：来自清单、不在期望集、ccpanes- 前缀三重守卫；绝无 find 批删
+        let remove_line = commands
+            .iter()
+            .find(|line| line.contains("rm -rf"))
+            .expect("delete branch");
+        assert!(remove_line.contains("cat \"$CCPANES_WSL_CODEX_MANAGED_LIST\""));
+        assert!(remove_line.contains("case \"$ccpanes_dir\" in ccpanes-*)"));
+        assert!(remove_line.contains("*\" $ccpanes_dir \"*) ;;"));
+        assert!(!script.contains("find "));
+        // 同步完成后写回清单
+        assert!(script.contains(
+            "printf '%s' \"$CCPANES_WSL_CODEX_EXPECTED\" > \"$CCPANES_WSL_CODEX_MANAGED_LIST\""
+        ));
     }
 
     #[test]

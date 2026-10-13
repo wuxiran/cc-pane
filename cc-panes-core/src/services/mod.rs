@@ -99,7 +99,7 @@ pub use daemon_client::{
     app_instance_id, TerminalDaemonClient, TerminalDaemonManifest, TerminalDaemonStatus,
 };
 pub use default_skill_service::{
-    BundledSkillInfo, DefaultSkillCleanupReport, DefaultSkillService,
+    BundledSkillInfo, DefaultSkillCleanupReport, DefaultSkillService, SkillGateContext,
     LEGACY_CLEANUP_REPORT_FILE_NAME, MANAGED_SKILLS_SUBDIR,
 };
 pub use drama_service::DramaService;

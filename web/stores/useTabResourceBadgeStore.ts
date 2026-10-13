@@ -20,6 +20,9 @@ export interface ResourceBadgeEntry {
   sessionId?: string;
   cpuPercent?: number;
   memoryBytes?: number;
+  /** reason === "queued" 时：1-based 位次 / 队列总长，标签 chip 显示"排队 n/m"。 */
+  queuePosition?: number;
+  queueTotal?: number;
 }
 
 interface TabResourceBadgeState {
@@ -31,7 +34,8 @@ interface TabResourceBadgeState {
   clearReason: (owner: string, reason: ResourceBadgeReason) => void;
   /** 无条件清（标签关闭等）。 */
   clearResource: (owner: string) => void;
-  /** 清掉 `at` 早于 `now - ttlMs` 的条目（来源断流兜底）。返回清掉的 owner。 */
+  /** 清掉 `at` 早于 `now - ttlMs` 的条目（来源断流兜底）。返回清掉的 owner。
+   *  `queued` 不参与：门禁只在位次变化时发事件，不是心跳流；它由 `queued:false` 或会话消失清。 */
   sweepStale: (now: number, ttlMs: number) => string[];
   hasResourceBadge: (owner: string) => boolean;
   getResourceBadge: (owner: string) => ResourceBadgeEntry | undefined;
@@ -66,6 +70,8 @@ export const useTabResourceBadgeStore = create<TabResourceBadgeState>((set, get)
           sessionId: entry.sessionId ?? current?.sessionId,
           cpuPercent: entry.cpuPercent,
           memoryBytes: entry.memoryBytes,
+          queuePosition: entry.queuePosition,
+          queueTotal: entry.queueTotal,
         },
       },
     }));
@@ -97,7 +103,7 @@ export const useTabResourceBadgeStore = create<TabResourceBadgeState>((set, get)
 
   sweepStale: (now, ttlMs) => {
     const stale = Object.entries(get().entries)
-      .filter(([, entry]) => now - entry.at > ttlMs)
+      .filter(([, entry]) => entry.reason !== "queued" && now - entry.at > ttlMs)
       .map(([owner]) => owner);
     if (stale.length === 0) return [];
     set((state) => {

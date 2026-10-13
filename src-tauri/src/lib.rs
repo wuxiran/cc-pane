@@ -2138,14 +2138,11 @@ pub fn run() {
                         // 用户的 ~/.claude 与 ~/.codex 零写入。
                         let t_skill = std::time::Instant::now();
                         let registry = app.state::<Arc<cc_cli_adapters::CliToolRegistry>>();
-                        let svc = cc_panes_core::services::DefaultSkillService::new(
-                            resource_dir
-                                .join("resources")
-                                .join("claude-bundle")
-                                .join("default-skills"),
-                        );
-                        match svc.materialize_managed_bundle(
-                            &paths.builtin_skills_dir(),
+                        // 门控 skill（如 heavy-run）按当前设置决定是否物化；设置保存时同一入口重物化。
+                        match services::bundled_skills::materialize_bundled_skills(
+                            &resource_dir,
+                            &paths,
+                            &app.state::<Arc<SettingsService>>().get_settings(),
                             env!("CARGO_PKG_VERSION"),
                         ) {
                             Ok(written) => info!(
@@ -2169,6 +2166,9 @@ pub fn run() {
                         let report_path = paths
                             .skills_dir()
                             .join(cc_panes_core::services::LEGACY_CLEANUP_REPORT_FILE_NAME);
+                        let svc = cc_panes_core::services::DefaultSkillService::new(
+                            services::bundled_skills::bundled_templates_dir(&resource_dir),
+                        );
                         match svc.cleanup_legacy_injected_once(registry.inner(), &report_path) {
                             Ok(Some(report)) => info!(
                                 "[boot] legacy skill cleanup: removed {}, preserved {}, failed {}",
