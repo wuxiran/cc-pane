@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Terminal } from "@xterm/xterm";
 import { createTerminalRendererController } from "./terminalRendererController";
+import { terminalWebglBudget } from "./terminalWebglBudget";
+import { WEBGL_CONTEXT_LOSS_RETRY_DELAY_MS } from "./terminalWebglContextLossRetry";
 
 const webglMock = vi.hoisted(() => {
   const instances: MockWebglAddon[] = [];
@@ -105,6 +107,8 @@ describe("terminal renderer controller", () => {
 
   beforeEach(() => {
     webglMock.instances.length = 0;
+    // 未 dispose 的 controller 会在单例预算池里泄漏租约（jsdom 下全部判为隐藏，受 6 个隐藏上限约束）。
+    terminalWebglBudget._resetForTest();
     rendererProbeMock.reset.mockClear();
     originalGetContext = HTMLCanvasElement.prototype.getContext;
     Object.defineProperty(window, "WebGL2RenderingContext", {
@@ -325,6 +329,86 @@ describe("terminal renderer controller", () => {
       activeRenderer: "webgl",
       webglDisabledAfterContextLoss: false,
     });
+    controller.dispose();
+  });
+
+  it("retries WebGL after a transient context loss, then pins DOM once retries are exhausted", () => {
+    vi.useFakeTimers();
+    try {
+      const term = createMockTerminal();
+      const controller = createTerminalRendererController({
+        term,
+        logger: vi.fn(),
+        onRendererChanged: vi.fn(),
+      });
+      controller.configure("webgl");
+      expect(webglMock.instances).toHaveLength(1);
+
+      // 第 1 次丢失：闩上，但 1 s 后自动清闩重建。
+      webglMock.instances[0].contextLossHandler?.();
+      expect(controller.getDiagnostics()).toMatchObject({
+        activeRenderer: "dom",
+        webglDisabledAfterContextLoss: true,
+      });
+      vi.advanceTimersByTime(WEBGL_CONTEXT_LOSS_RETRY_DELAY_MS);
+      expect(webglMock.instances).toHaveLength(2);
+      expect(controller.getDiagnostics()).toMatchObject({
+        activeRenderer: "webgl",
+        webglDisabledAfterContextLoss: false,
+        contextLossCount: 1,
+      });
+
+      // 第 2、3 次：退避 2 s / 4 s 后仍重建。
+      webglMock.instances[1].contextLossHandler?.();
+      vi.advanceTimersByTime(WEBGL_CONTEXT_LOSS_RETRY_DELAY_MS * 2);
+      expect(webglMock.instances).toHaveLength(3);
+      webglMock.instances[2].contextLossHandler?.();
+      vi.advanceTimersByTime(WEBGL_CONTEXT_LOSS_RETRY_DELAY_MS * 4);
+      expect(webglMock.instances).toHaveLength(4);
+
+      // 第 4 次（60 s 窗口内）：耗尽，钉 DOM，不再重建。
+      webglMock.instances[3].contextLossHandler?.();
+      vi.advanceTimersByTime(WEBGL_CONTEXT_LOSS_RETRY_DELAY_MS * 32);
+      expect(webglMock.instances).toHaveLength(4);
+      expect(controller.getDiagnostics()).toMatchObject({
+        activeRenderer: "dom",
+        webglDisabledAfterContextLoss: true,
+        contextLossCount: 4,
+      });
+
+      // 挂起期间到点的重试不得打穿挂起。
+      controller.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not let a pending context-loss retry break through suspend or dispose", () => {
+    vi.useFakeTimers();
+    try {
+      const term = createMockTerminal();
+      const controller = createTerminalRendererController({
+        term,
+        logger: vi.fn(),
+        onRendererChanged: vi.fn(),
+      });
+      controller.configure("webgl");
+      webglMock.instances[0].contextLossHandler?.();
+      controller.suspendWebgl("background");
+      vi.advanceTimersByTime(WEBGL_CONTEXT_LOSS_RETRY_DELAY_MS);
+      expect(webglMock.instances).toHaveLength(1);
+      expect(controller.getDiagnostics().webglDisabledAfterContextLoss).toBe(true);
+
+      controller.resumeWebgl("foreground");
+      // 恢复仍尊重闩（与既有语义一致）；下一次丢失事件才会再安排重试。
+      expect(webglMock.instances).toHaveLength(1);
+
+      controller.dispose();
+      vi.advanceTimersByTime(WEBGL_CONTEXT_LOSS_RETRY_DELAY_MS * 8);
+      expect(webglMock.instances).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("repaints every live WebGL terminal when the shared glyph atlas changes", () => {
