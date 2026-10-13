@@ -615,6 +615,9 @@ impl TerminalSettings {
         crate::models::SessionResourcePolicy {
             lower_priority: self.lower_session_priority,
             cpu_weight: self.session_cpu_weight,
+            // 效率模式不做默认策略：EcoQoS 逐进程下发、后生子进程不继承，只在用户点
+            // "效率模式"或 W8 拿槽时按需开。
+            eco_qos: false,
         }
     }
 }

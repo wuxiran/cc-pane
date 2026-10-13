@@ -14540,6 +14540,7 @@ mod tests {
             current_tool_summary: None,
             updated_at: 0,
             osc_progress: None,
+            resource_policy: None,
         }
     }
 
@@ -17342,6 +17343,7 @@ mod tests {
                 current_tool_summary: None,
                 updated_at: 0,
                 osc_progress: None,
+                resource_policy: None,
             });
         }
 
@@ -17383,6 +17385,7 @@ mod tests {
                 current_tool_summary: None,
                 updated_at: 0,
                 osc_progress: None,
+                resource_policy: None,
             });
             Ok(session_id)
         }

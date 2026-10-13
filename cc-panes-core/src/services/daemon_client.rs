@@ -11,6 +11,7 @@ use crate::models::{
     CreateSessionRequest, StoreCheckpointOutcome, TerminalCheckpoint, TerminalRecoverySnapshot,
     TerminalSessionProvenance,
 };
+use crate::models::{ResourcePolicyStatus, SessionResourcePolicy};
 use crate::services::terminal_backend::TerminalAdoptionSnapshot;
 use crate::services::terminal_service::KillReason;
 use crate::services::terminal_service::SessionOutput;
@@ -601,6 +602,42 @@ impl TerminalDaemonClient {
         // 会话已退出（404）不算错误——状态回写本就是尽力而为。
         if status_code == 404 || (200..300).contains(&status_code) {
             return Ok(());
+        }
+        Err(daemon_http_error(status_code, body))
+    }
+
+    /// POST `/api/sessions/{id}/resource-policy`（0.12.22）。
+    ///
+    /// 版本偏斜：0.12.21 的 daemon 没这条路由，axum 回裸 404（无结构化 code）→
+    /// `Unsupported("daemon too old")`，UI 显示"不支持"而非报错；结构化 `NOT_FOUND` =
+    /// 会话已退出。
+    pub fn set_resource_policy(
+        &self,
+        session_id: &str,
+        policy: &SessionResourcePolicy,
+    ) -> AppResult<ResourcePolicyStatus> {
+        let body =
+            serde_json::to_string(policy).map_err(|error| AppError::from(error.to_string()))?;
+        let response = self.request(
+            "POST",
+            &session_path(session_id, "/resource-policy"),
+            true,
+            Some(&body),
+        )?;
+        let (status_code, body) = split_http_response(&response)?;
+        if (200..300).contains(&status_code) {
+            return serde_json::from_str(body).map_err(|error| AppError::from(error.to_string()));
+        }
+        if status_code == 404 || status_code == 405 {
+            let structured_code = serde_json::from_str::<serde_json::Value>(body)
+                .ok()
+                .and_then(|value| value.get("code")?.as_str().map(str::to_string));
+            return Ok(match structured_code.as_deref() {
+                Some("NOT_FOUND") => ResourcePolicyStatus::unsupported("session not found"),
+                _ => ResourcePolicyStatus::unsupported(
+                    "daemon too old: resource-policy route missing",
+                ),
+            });
         }
         Err(daemon_http_error(status_code, body))
     }
@@ -2176,6 +2213,60 @@ mod tests {
         client
             .apply_hook_status("gone", SessionStatus::Idle)
             .expect("404 tolerated");
+    }
+
+    #[test]
+    fn set_resource_policy_parses_status_and_maps_old_daemon_404_to_unsupported() {
+        use crate::models::PolicyOutcomeKind;
+        let policy = SessionResourcePolicy {
+            lower_priority: true,
+            cpu_weight: None,
+            eco_qos: true,
+        };
+
+        // 新 daemon：200 + 状态体
+        let (addr, rx) = spawn_response_server(http_json_response(
+            "200 OK",
+            r#"{"outcome":"degraded","reason":"eco qos: 1/3 processes failed","lowerPriority":true,"ecoQos":true}"#,
+        ));
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+        let status = client
+            .set_resource_policy("sess-1", &policy)
+            .expect("status");
+        assert_eq!(status.outcome, PolicyOutcomeKind::Degraded);
+        assert_eq!(
+            status.reason.as_deref(),
+            Some("eco qos: 1/3 processes failed")
+        );
+        assert!(status.eco_qos);
+        let request = rx.recv().expect("captured request");
+        assert!(request.starts_with("POST /api/sessions/sess-1/resource-policy HTTP/1.1"));
+        assert!(request.contains("Authorization: Bearer secret"));
+        assert!(request.contains(r#""ecoQos":true"#));
+
+        // 旧 daemon：axum 对未知路由回裸 404 → Unsupported("daemon too old")
+        let (addr, _) = spawn_response_server(empty_response("404 Not Found"));
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+        let status = client
+            .set_resource_policy("sess-1", &policy)
+            .expect("old daemon tolerated");
+        assert_eq!(status.outcome, PolicyOutcomeKind::Unsupported);
+        assert!(status.reason.as_deref().unwrap().contains("daemon too old"));
+
+        // 新 daemon、会话已退出：结构化 NOT_FOUND
+        let (addr, _) = spawn_response_server(http_json_response(
+            "404 Not Found",
+            r#"{"code":"NOT_FOUND","message":"Session not found"}"#,
+        ));
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+        let status = client
+            .set_resource_policy("gone", &policy)
+            .expect("404 tolerated");
+        assert_eq!(status.outcome, PolicyOutcomeKind::Unsupported);
+        assert_eq!(status.reason.as_deref(), Some("session not found"));
     }
 
     #[test]

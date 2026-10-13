@@ -416,6 +416,71 @@ fn kill_guard_rejects_self_managed_unknown_and_reports_partial_failure() {
         .contains("current orphan"));
 }
 
+#[test]
+fn top_processes_gate_has_hysteresis_between_45_and_60() {
+    let mut armed = false;
+    assert!(!top_processes_gate(&mut armed, 59.9));
+    assert!(top_processes_gate(&mut armed, 60.0));
+    // 滞回带内保持武装
+    assert!(top_processes_gate(&mut armed, 50.0));
+    assert!(top_processes_gate(&mut armed, 45.0));
+    // 低于 45 才关
+    assert!(!top_processes_gate(&mut armed, 44.9));
+    // 关掉后 50 不会重新开
+    assert!(!top_processes_gate(&mut armed, 50.0));
+    assert!(top_processes_gate(&mut armed, 95.0));
+}
+
+#[test]
+fn rank_top_processes_orders_by_cpu_then_memory_drops_idle_and_caps_at_three() {
+    let candidate = |pid: u32, cpu: f32, mem: u64| TopProcessCandidate {
+        pid,
+        name: format!("p{pid}"),
+        cpu_percent: cpu,
+        memory_bytes: mem,
+    };
+    let ranked = rank_top_processes(vec![
+        candidate(1, 0.0, 9_000),
+        candidate(2, 50.0, 100),
+        candidate(3, 50.0, 500),
+        candidate(4, 400.0, 10),
+        candidate(5, 10.0, 10),
+        candidate(6, 0.0, 1),
+    ]);
+    let pids: Vec<u32> = ranked.iter().map(|p| p.pid).collect();
+    assert_eq!(
+        pids,
+        vec![4, 3, 2],
+        "cpu desc, then memory desc, capped at 3"
+    );
+    assert_eq!(ranked[0].name, "p4");
+    // 全 0（武装后第一帧无基线）→ 空表，UI 不显示该块
+    assert!(rank_top_processes(vec![candidate(7, 0.0, 1)]).is_empty());
+}
+
+#[test]
+fn top_process_candidates_exclude_family_sessions_and_orphan_trees() {
+    let mut processes = snapshot();
+    // 会话外的两个候选：一个浏览器进程、一个编译器
+    processes.push(process(80, Some(1), "msedge.exe", "msedge", 90.0, 1_000));
+    processes.push(process(81, Some(80), "rustc.exe", "rustc", 300.0, 2_000));
+    // Idle / System 永远排除
+    processes.push(process(0, None, "System Idle Process", "", 1500.0, 0));
+    processes.push(process(4, Some(0), "System", "", 5.0, 0));
+    let index = ProcessIndex::new(&processes);
+    let sessions = [ManagedSessionRoot {
+        session_id: "s".into(),
+        root_pid: 20,
+    }];
+    let mut candidates =
+        top_process_candidate_pids(&index, &processes, &sessions, 10, &known_family());
+    candidates.sort_unstable();
+    // 1 (explorer，家族祖先) / 10 (cc-panes) / 19-21 (会话树含 conhost 祖先) /
+    // 31 (孤儿) / 0,4 (Idle/System) 排除。40/50/51/60 是死家族下的白名单进程
+    // （mcp-server / dev server / npm install）：已不受管也不是孤儿，算"会话之外"。
+    assert_eq!(candidates, vec![40, 50, 51, 60, 80, 81]);
+}
+
 // Environment-dependent live diagnostic. Run manually with:
 // cargo test -p cc-panes-core live_resource_tree_enumeration_stays_within_budget -- --ignored --nocapture
 #[test]

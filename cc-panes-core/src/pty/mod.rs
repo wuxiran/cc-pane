@@ -43,6 +43,9 @@ pub struct PtySpawnResult {
     pub process: Arc<dyn PtyProcess>,
     pub reader: Box<dyn Read + Send>,
     pub writer: Box<dyn Write + Send>,
+    /// 启动时资源策略的下发结果。`None` = 该通道不涉及本机进程策略（SSH）。
+    /// 调用方必须把它带进会话状态（docs/45：降级必须可见，只 warn 等于静默）。
+    pub policy_outcome: Option<PolicyOutcome>,
 }
 
 /// PTY 进程控制接口（不含 I/O）
@@ -286,10 +289,11 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
     // Job 分配失败时仍保留子进程句柄，显式 kill 不按可复用的 PID 查找进程。
     // 资源策略在同一处下发，但失败只降级、不影响孤儿防护（见 job::create_for_with_policy）。
     #[cfg(windows)]
-    let job = if pid != 0 {
+    let (job, policy_outcome) = if pid != 0 {
         match job::ProcessJob::create_for_with_policy(pid, &policy) {
             Ok((j, outcome)) => {
                 // 降级必须可见：静默失败 = 用户以为限制生效、实际裸奔（docs/45 教训）。
+                // 日志之外还随 PtySpawnResult 带回，进 SessionStatusInfo 给前端看。
                 if let PolicyOutcome::Degraded { reason } = &outcome {
                     tracing::warn!(
                         pid,
@@ -297,24 +301,36 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
                         "resource policy degraded (session still started)"
                     );
                 }
-                Some(j)
+                (Some(j), Some(outcome))
             }
             Err(e) => {
                 tracing::warn!("ProcessJob create failed for pid {pid} (non-fatal): {e}");
-                None
+                (
+                    None,
+                    Some(PolicyOutcome::degraded(format!("job object: {e}"))),
+                )
             }
         }
     } else {
-        None
+        (None, Some(PolicyOutcome::Unsupported))
     };
 
     // Unix：优先级用 nice 表达（Windows 侧走 Job 的 PRIORITY_CLASS）。
     #[cfg(unix)]
-    if pid != 0 {
+    let policy_outcome = if pid != 0 {
         if let Some(increment) = policy.nice_increment() {
             apply_unix_nice_increment(pid, increment);
         }
-    }
+        Some(if policy.eco_qos {
+            PolicyOutcome::degraded("eco qos is Windows-only")
+        } else {
+            PolicyOutcome::Applied
+        })
+    } else {
+        Some(PolicyOutcome::Unsupported)
+    };
+    #[cfg(not(any(windows, unix)))]
+    let policy_outcome = Some(PolicyOutcome::Unsupported);
 
     Ok(PtySpawnResult {
         process: Arc::new(PortablePtyProcess {
@@ -329,6 +345,7 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
         }),
         reader,
         writer,
+        policy_outcome,
     })
 }
 

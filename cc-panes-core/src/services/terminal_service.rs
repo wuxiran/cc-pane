@@ -3,9 +3,10 @@ use crate::events::{EventEmitter, SessionNotifier};
 use crate::models::shared_mcp::SharedMcpConfig;
 use crate::models::{
     CliTool, CreateSessionRequest, LaunchProfile, LaunchProfileMcpMode, LaunchProfileSkillMode,
-    LaunchProviderSelection, SshConnectionInfo, StoreCheckpointOutcome, TerminalBufferMode,
-    TerminalCheckpoint, TerminalDeltaResize, TerminalExit, TerminalGeometry, TerminalOutput,
-    TerminalOutputFlowStat, TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
+    LaunchProviderSelection, PolicyOutcome, ResourcePolicyStatus, SessionResourcePolicy,
+    SshConnectionInfo, StoreCheckpointOutcome, TerminalBufferMode, TerminalCheckpoint,
+    TerminalDeltaResize, TerminalExit, TerminalGeometry, TerminalOutput, TerminalOutputFlowStat,
+    TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
 };
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess, ReaderIoWatch};
 use crate::services::pi_rpc_service::PiManagedStateCleanup;
@@ -664,6 +665,13 @@ pub struct SessionStatusInfo {
     /// `None` = 当前无 OSC 进度信号（已清除或 TTL 衰减）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub osc_progress: Option<OscProgressBadge>,
+    /// 会话资源策略的下发结果（0.12.22，docs/45：降级必须可见）。
+    /// `None` = 不涉及（SSH）/ 未知 / 对端是 0.12.21 的 daemon。
+    /// **新增 `SessionStatusInfo` 字段必须同时加进两处去重**：
+    /// `terminal_daemon_event_bridge.rs::same_status_payload` 与
+    /// `useTerminalStatusStore.ts` 的事件去重。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_policy: Option<ResourcePolicyStatus>,
 }
 
 /// OSC 9;4 子状态（可序列化，跨界传给前端做徽章动画）。
@@ -1375,6 +1383,9 @@ pub struct TerminalService {
     /// 生命周期：read 线程写入、build_session_status_info 读取（含 TTL 衰减）、
     /// 会话结束（wait 线程 / kill）清条目。
     osc_progress_store: Arc<parking_lot::RwLock<HashMap<String, OscProgressEntry>>>,
+    /// 会话资源策略下发结果（spawn 时从 `PtySpawnResult` 带回，`set_resource_policy` 更新），
+    /// 由 `build_session_status_info` 注入状态；生命周期同 `osc_progress_store`。
+    resource_policy_store: Arc<parking_lot::RwLock<HashMap<String, ResourcePolicyStatus>>>,
 }
 
 struct SshAuthRuntime {
@@ -1739,6 +1750,9 @@ fn current_epoch_millis() -> u64 {
         .as_millis() as u64
 }
 
+// 两条旁路存储（OSC 徽章 / 资源策略）各自一参：与 history_repo 同款豁免，
+// 合成结构体只会把 8 个 clone 点改成 8 个 struct 字面量，可读性不升反降。
+#[allow(clippy::too_many_arguments)]
 fn build_session_status_info(
     session_id: String,
     status: SessionStatus,
@@ -1747,7 +1761,9 @@ fn build_session_status_info(
     exit_code: Option<i32>,
     state_machine: Option<&Arc<crate::services::SessionStateMachine>>,
     osc_store: Option<&parking_lot::RwLock<HashMap<String, OscProgressEntry>>>,
+    policy_store: Option<&parking_lot::RwLock<HashMap<String, ResourcePolicyStatus>>>,
 ) -> SessionStatusInfo {
+    let resource_policy = policy_store.and_then(|store| store.read().get(&session_id).cloned());
     let snapshot = state_machine.and_then(|sm| sm.snapshot(&session_id));
     let effective_status = state_machine
         .map(|sm| sm.status_for_query(&session_id, status))
@@ -1788,6 +1804,7 @@ fn build_session_status_info(
             .map(|entry| entry.updated_at)
             .unwrap_or(last_output_at),
         osc_progress,
+        resource_policy,
     }
 }
 
@@ -1867,6 +1884,7 @@ impl TerminalService {
             workspace_service: parking_lot::RwLock::new(None),
             input_mutexes: Arc::new(Mutex::new(HashMap::new())),
             osc_progress_store: Arc::new(parking_lot::RwLock::new(HashMap::new())),
+            resource_policy_store: Arc::new(parking_lot::RwLock::new(HashMap::new())),
         }
     }
 
@@ -3692,6 +3710,14 @@ impl TerminalService {
             );
         }
 
+        // 策略下发结果进状态（docs/45：只 warn 等于静默降级）。SSH 为 None，不写条目。
+        if let Some(outcome) = spawn_result.policy_outcome.as_ref() {
+            self.resource_policy_store.write().insert(
+                session_id.clone(),
+                ResourcePolicyStatus::from_outcome(outcome, &resource_policy),
+            );
+        }
+
         let process = spawn_result.process;
         let mut launch_guard =
             launch_threads::LaunchThreadGuard::new(self, &session_id, process.clone());
@@ -4016,6 +4042,7 @@ impl TerminalService {
             .and_then(|g| g.as_ref().cloned());
         // F5：OSC 9;4 徽章旁路存储 clone 进 read 线程（Progress 信号落盘点）
         let read_osc_store = Arc::clone(&self.osc_progress_store);
+        let read_policy_store = Arc::clone(&self.resource_policy_store);
         let osc_state_machine = read_state_machine.clone().unwrap_or_else(|| {
             osc_fallback_state_machine(
                 read_status.clone(),
@@ -4328,6 +4355,7 @@ impl TerminalService {
                                         None,
                                         read_state_machine.as_ref(),
                                         Some(&read_osc_store),
+                                        Some(&read_policy_store),
                                     ))
                                     .unwrap_or_default(),
                                 );
@@ -4397,6 +4425,7 @@ impl TerminalService {
             .and_then(|g| g.as_ref().cloned());
         // F5：徽章旁路存储 clone 进 wait 线程（退出时清条目 + 最终状态注入）
         let wait_osc_store = Arc::clone(&self.osc_progress_store);
+        let wait_policy_store = Arc::clone(&self.resource_policy_store);
         let wait_app_paths = self.app_paths.clone();
         crate::pty::thread::spawn_named("cc-panes-pty-wait", move || {
             let waited_exit_code = match process_for_wait.wait() {
@@ -4497,6 +4526,7 @@ impl TerminalService {
             }
             // F5：会话结束清掉徽章旁路条目，最终状态 emit 自然带 None
             wait_osc_store.write().remove(&sid);
+            wait_policy_store.write().remove(&sid);
 
             let archive_lines = wait_output_buffer.lock().map(|buffer| buffer.get_recent(0));
             if let Ok(lines) = archive_lines {
@@ -4533,6 +4563,7 @@ impl TerminalService {
                         Some(process_exit_code),
                         wait_state_machine.as_ref(),
                         Some(&wait_osc_store),
+                        Some(&wait_policy_store),
                     ))
                     .unwrap_or_default(),
                 );
@@ -4769,6 +4800,7 @@ impl TerminalService {
                         .and_then(|guard| guard.as_ref().cloned())
                         .as_ref(),
                     Some(&self.osc_progress_store),
+                    Some(&self.resource_policy_store),
                 )
             })
             .collect())
@@ -4804,6 +4836,7 @@ impl TerminalService {
                         .and_then(|guard| guard.as_ref().cloned())
                         .as_ref(),
                     Some(&self.osc_progress_store),
+                    Some(&self.resource_policy_store),
                 )));
             }
         }
@@ -4830,8 +4863,69 @@ impl TerminalService {
                     .and_then(|guard| guard.as_ref().cloned())
                     .as_ref(),
                 Some(&self.osc_progress_store),
+                Some(&self.resource_policy_store),
             )
         }))
+    }
+
+    /// 对运行中的会话重新下发资源策略（正常 / 让路 / 效率模式）。
+    ///
+    /// 结果写入 `resource_policy_store` 并立即推一次 TERMINAL_STATUS，前端据此显示
+    /// "已降级：原因"。会话不存在 → `NotFound`（daemon 路由映射 404）。
+    pub fn set_resource_policy(
+        &self,
+        session_id: &str,
+        policy: SessionResourcePolicy,
+    ) -> AppResult<ResourcePolicyStatus> {
+        let (process, status, pid) = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| AppError::from("sessions lock poisoned"))?;
+            let Some(session) = sessions.get(session_id) else {
+                return Err(AppError::NotFound(format!(
+                    "Session not found: {session_id}"
+                )));
+            };
+            let status = *session.status.lock().unwrap_or_else(|e| e.into_inner());
+            (Arc::clone(&session.process), status, session.process.pid())
+        };
+        let outcome = match process.set_resource_policy(&policy) {
+            Ok(outcome) => outcome,
+            Err(error) => PolicyOutcome::degraded(error.to_string()),
+        };
+        let result = ResourcePolicyStatus::from_outcome(&outcome, &policy);
+        self.resource_policy_store
+            .write()
+            .insert(session_id.to_string(), result.clone());
+        info!(
+            session_id,
+            outcome = ?result.outcome,
+            lower_priority = policy.lower_priority,
+            eco_qos = policy.eco_qos,
+            "[terminal] resource policy reapplied"
+        );
+        if let Some(emitter) = self.emitter.read().as_ref() {
+            let _ = emitter.emit(
+                EV::TERMINAL_STATUS,
+                serde_json::to_value(build_session_status_info(
+                    session_id.to_string(),
+                    status,
+                    current_epoch_millis(),
+                    Some(pid),
+                    None,
+                    self.state_machine
+                        .lock()
+                        .ok()
+                        .and_then(|guard| guard.as_ref().cloned())
+                        .as_ref(),
+                    Some(&self.osc_progress_store),
+                    Some(&self.resource_policy_store),
+                ))
+                .unwrap_or_default(),
+            );
+        }
+        Ok(result)
     }
 
     pub fn terminal_link_context(
@@ -5110,6 +5204,7 @@ impl TerminalService {
         }
         // F5：kill 路径同步清徽章旁路条目（wait 线程只覆盖自然退出）
         self.osc_progress_store.write().remove(session_id);
+        self.resource_policy_store.write().remove(session_id);
         wsl_codex::cleanup_session_mcp_configs(self.app_paths.data_dir(), session_id);
 
         if let Some(session) = session {
@@ -5844,6 +5939,7 @@ impl TerminalService {
                             .and_then(|guard| guard.as_ref().cloned())
                             .as_ref(),
                         Some(&self.osc_progress_store),
+                        Some(&self.resource_policy_store),
                     ))
                     .unwrap_or_default(),
                 );

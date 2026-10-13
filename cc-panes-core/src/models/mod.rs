@@ -104,7 +104,9 @@ pub use project::Project;
 pub use quick_command::{
     QuickCommand, QuickCommandConfig, QuickCommandDraft, QuickCommandKind, QuickCommandTarget,
 };
-pub use resource_policy::{PolicyOutcome, SessionResourcePolicy};
+pub use resource_policy::{
+    PolicyOutcome, PolicyOutcomeKind, ResourcePolicyStatus, SessionResourcePolicy,
+};
 pub use runner::{
     PortClaim, PortConflict, PortReservation, RunnerInstance, RunnerInstanceStatus,
     RunnerLaunchPlan, RunnerLaunchSuggestedAction, RunnerProfile, RunnerProfileDraft,
@@ -122,7 +124,7 @@ pub use ssh_machine::{
 };
 pub use system_stats::{
     KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionProcessInfo,
-    SessionResourceUsage, SystemStats, TruncatedProcessSummary,
+    SessionResourceUsage, SystemStats, TopProcessInfo, TruncatedProcessSummary,
 };
 pub use task_dispatch::{
     TaskDispatchEnvelope, TaskDispatchMcpCapability, TaskDispatchMode, TaskDispatchPlan,

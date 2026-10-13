@@ -839,6 +839,7 @@ mod tests {
                 current_tool_summary: None,
                 updated_at: 120,
                 osc_progress: None,
+                resource_policy: None,
             }])
         }
 

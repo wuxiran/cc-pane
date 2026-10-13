@@ -16,6 +16,7 @@ use cc_panes_core::models::{
     SshConnectionInfo, StoreCheckpointOutcome, TerminalCheckpoint, TerminalReplaySnapshot,
     TerminalSessionProvenance, WslLaunchInfo,
 };
+use cc_panes_core::models::{ResourcePolicyStatus, SessionResourcePolicy};
 use cc_panes_core::services::terminal_service::{KillReason, SessionOutput, SessionStatus};
 use cc_panes_core::services::{
     SessionStatusInfo, SettingsService, SshCredentialService, TerminalAdoptionSnapshot,
@@ -618,6 +619,10 @@ pub fn router(config: DaemonConfig) -> Router {
             get(find_session_by_launch),
         )
         .route("/api/sessions/{id}/hook-status", post(hook_status))
+        .route(
+            "/api/sessions/{id}/resource-policy",
+            post(set_resource_policy),
+        )
         .route("/api/sessions/{id}/output", get(get_session_output))
         .route("/api/sessions/{id}/snapshot", get(get_session_snapshot))
         .route(
@@ -1158,6 +1163,22 @@ async fn hook_status(
         .apply_hook_status(&id, req.status)
         .map_err(internal_error)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// 对运行中的会话重新下发资源策略（0.12.22 资源管理器三态）。
+/// 会话不存在 → 结构化 404（客户端据 code 区分"会话没了"与"daemon 太旧没路由"）。
+async fn set_resource_policy(
+    State(config): State<DaemonConfig>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(policy): Json<SessionResourcePolicy>,
+) -> Result<Json<ResourcePolicyStatus>, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&headers, config.token())?;
+    let backend = config.terminal_backend_arc();
+    let status = terminal_io(move || backend.set_resource_policy(&id, policy))
+        .await
+        .map_err(app_error)?;
+    Ok(Json(status))
 }
 
 async fn resize_session(
@@ -1982,6 +2003,7 @@ mod tests {
         hook_statuses: Mutex<Vec<(String, SessionStatus)>>,
         checkpoints: Mutex<Vec<(String, TerminalCheckpoint)>>,
         recovery_snapshot_calls: Mutex<Vec<String>>,
+        resource_policies: Mutex<Vec<(String, SessionResourcePolicy)>>,
     }
 
     impl TerminalBackend for MockTerminalBackend {
@@ -2076,6 +2098,7 @@ mod tests {
                 current_tool_summary: None,
                 updated_at: 120,
                 osc_progress: None,
+                resource_policy: None,
             }])
         }
 
@@ -2126,6 +2149,24 @@ mod tests {
                 .unwrap()
                 .push((session_id.to_string(), status));
             Ok(())
+        }
+
+        fn set_resource_policy(
+            &self,
+            session_id: &str,
+            policy: SessionResourcePolicy,
+        ) -> AppResult<ResourcePolicyStatus> {
+            if session_id == "missing" {
+                return Err(AppError::NotFound("Session not found".to_string()));
+            }
+            self.resource_policies
+                .lock()
+                .unwrap()
+                .push((session_id.to_string(), policy));
+            Ok(ResourcePolicyStatus::from_outcome(
+                &cc_panes_core::models::PolicyOutcome::Applied,
+                &policy,
+            ))
         }
 
         fn store_session_checkpoint(
@@ -3238,6 +3279,78 @@ mod tests {
             recorded.as_slice(),
             &[("session-1".to_string(), SessionStatus::ToolRunning)]
         );
+    }
+
+    #[tokio::test]
+    async fn resource_policy_route_requires_token_maps_missing_session_and_echoes_status() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let app = router(test_config("secret", "127.0.0.1:18092", backend.clone()));
+        let body = r#"{"lowerPriority":true,"cpuWeight":null,"ecoQos":true}"#;
+
+        // 401：无 token
+        let unauthorized = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/sessions/session-1/resource-policy")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+        assert!(backend.resource_policies.lock().unwrap().is_empty());
+
+        // 404：会话不存在 → 结构化 NOT_FOUND（客户端据此区分"daemon 太旧"）
+        let missing = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/sessions/missing/resource-policy")
+                    .header(header::AUTHORIZATION, "Bearer secret")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+        let bytes = to_bytes(missing.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let parsed: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+        assert_eq!(parsed["code"], "NOT_FOUND");
+
+        // 200：策略到达 backend，状态体原样回传
+        let applied = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/sessions/session-1/resource-policy")
+                    .header(header::AUTHORIZATION, "Bearer secret")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(applied.status(), StatusCode::OK);
+        let bytes = to_bytes(applied.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let status: ResourcePolicyStatus = serde_json::from_slice(&bytes).expect("status");
+        assert_eq!(
+            status.outcome,
+            cc_panes_core::models::PolicyOutcomeKind::Applied
+        );
+        assert!(status.eco_qos && status.lower_priority);
+        let recorded = backend.resource_policies.lock().unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].0, "session-1");
+        assert!(recorded[0].1.eco_qos);
     }
 
     #[tokio::test]

@@ -1,5 +1,7 @@
 use crate::utils::{AppError, AppResult};
-use cc_panes_core::models::{KillProcessResult, ResourceTree, SystemStats};
+use cc_panes_core::models::{
+    KillProcessResult, ResourcePolicyStatus, ResourceTree, SessionResourcePolicy, SystemStats,
+};
 use cc_panes_core::services::SystemStatsService;
 use std::sync::Arc;
 use tauri::State;
@@ -51,6 +53,20 @@ pub async fn kill_orphan_processes(
         .map_err(|error| AppError::from(error.to_string()))
 }
 
+/// 资源管理器会话行三态（正常 / 让路 / 效率模式）。daemon 模式下打到 daemon；
+/// 旧 daemon 缺路由回 `Unsupported("daemon too old")`，由 UI 显示而非报错。
+#[tauri::command]
+pub async fn set_session_resource_policy(
+    session_id: String,
+    policy: SessionResourcePolicy,
+    terminal_backend: State<'_, Arc<TerminalBackendState>>,
+) -> AppResult<ResourcePolicyStatus> {
+    let backend = terminal_backend.backend();
+    tauri::async_runtime::spawn_blocking(move || backend.set_resource_policy(&session_id, policy))
+        .await
+        .map_err(|error| AppError::from(error.to_string()))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -71,6 +87,7 @@ mod tests {
             current_tool_summary: None,
             updated_at: 0,
             osc_progress: None,
+            resource_policy: None,
         }
     }
 

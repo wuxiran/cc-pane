@@ -68,6 +68,19 @@ pub struct OrphanProcessInfo {
     pub process_count: u32,
 }
 
+/// 会话之外的高负载进程（资源管理器"会话之外"块）。
+///
+/// **只读展示**：不回传命令行（可能含凭据），也不提供任何操作——对会话外进程
+/// 杀错 / 降错的代价远高于看一眼。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopProcessInfo {
+    pub pid: u32,
+    pub name: String,
+    pub cpu_percent: f32,
+    pub memory_bytes: u64,
+}
+
 /// 一次按需进程枚举的完整结果。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,6 +90,10 @@ pub struct ResourceTree {
     pub app_memory_percent: f32,
     pub sessions: Vec<SessionResourceUsage>,
     pub orphans: Vec<OrphanProcessInfo>,
+    /// 会话之外的前 3 名。只在整机 CPU ≥ 60%（滞回 <45% 关）时计算（docs/41：监控
+    /// 不得常驻吃资源）；平时与非 Windows 为 `None`，字段不序列化，旧前端无感。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_processes: Option<Vec<TopProcessInfo>>,
     pub sampled_at: u64,
     pub elapsed_micros: u64,
 }

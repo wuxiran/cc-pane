@@ -445,6 +445,7 @@ use commands::{
     set_notification_snooze,
     set_project_cli_hook_enabled,
     set_quick_terminal_session,
+    set_session_resource_policy,
     set_web_access_password,
     set_workspace_archived,
     set_workspace_project_archived,
@@ -3415,6 +3416,7 @@ pub fn run() {
             get_system_stats,
             get_resource_tree,
             kill_orphan_processes,
+            set_session_resource_policy,
             // Runner Registry 命令
             runner_list_profiles,
             runner_get_profile,

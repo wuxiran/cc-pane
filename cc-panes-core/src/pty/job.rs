@@ -12,24 +12,33 @@
 
 use crate::models::{PolicyOutcome, SessionResourcePolicy};
 use anyhow::{anyhow, Result};
+use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JobObjectCpuRateControlInformation,
-    JobObjectExtendedLimitInformation, SetInformationJobObject, TerminateJobObject,
-    JOBOBJECT_CPU_RATE_CONTROL_INFORMATION, JOBOBJECT_CPU_RATE_CONTROL_INFORMATION_0,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_CPU_RATE_CONTROL_ENABLE,
-    JOB_OBJECT_CPU_RATE_CONTROL_WEIGHT_BASED, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOB_OBJECT_LIMIT_PRIORITY_CLASS,
+    AssignProcessToJobObject, CreateJobObjectW, JobObjectBasicProcessIdList,
+    JobObjectCpuRateControlInformation, JobObjectExtendedLimitInformation,
+    QueryInformationJobObject, SetInformationJobObject, TerminateJobObject,
+    JOBOBJECT_BASIC_PROCESS_ID_LIST, JOBOBJECT_CPU_RATE_CONTROL_INFORMATION,
+    JOBOBJECT_CPU_RATE_CONTROL_INFORMATION_0, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JOB_OBJECT_CPU_RATE_CONTROL_ENABLE, JOB_OBJECT_CPU_RATE_CONTROL_WEIGHT_BASED,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_LIMIT_PRIORITY_CLASS,
 };
 use windows::Win32::System::Threading::{
-    GetExitCodeProcess, OpenProcess, TerminateProcess, BELOW_NORMAL_PRIORITY_CLASS,
-    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+    GetExitCodeProcess, OpenProcess, ProcessPowerThrottling, SetProcessInformation,
+    TerminateProcess, BELOW_NORMAL_PRIORITY_CLASS, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+    PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_STATE,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_INFORMATION, PROCESS_SET_QUOTA,
+    PROCESS_TERMINATE,
 };
 
 /// 持有 Job Object 句柄；Drop（含进程异常终止时的 OS 句柄回收）即击杀
 /// 已分配进程及其所有子孙。
 pub struct ProcessJob {
     handle: HANDLE,
+    /// 曾对本 Job 下发过 EcoQoS。EcoQoS 是逐进程状态而非 Job 限制：只有开过才需要在
+    /// "调回正常"时逐进程清掉；从未开过就不碰（旧系统上 `SetProcessInformation` 必失败，
+    /// 默认路径不能被它误报成 Degraded）。
+    eco_qos_applied: AtomicBool,
 }
 
 // SAFETY: Job Object 句柄本身线程安全，仅在 Drop 时关闭一次。
@@ -92,9 +101,15 @@ impl ProcessJob {
             }
 
             // —— 第二段：资源策略，失败不影响已建立的孤儿防护 ——
-            let outcome = apply_policy(job, policy);
+            let outcome = apply_policy(job, policy, policy.eco_qos);
 
-            Ok((Self { handle: job }, outcome))
+            Ok((
+                Self {
+                    handle: job,
+                    eco_qos_applied: AtomicBool::new(policy.eco_qos),
+                },
+                outcome,
+            ))
         }
     }
 
@@ -103,16 +118,111 @@ impl ProcessJob {
         if self.handle.is_invalid() {
             return Ok(PolicyOutcome::Unsupported);
         }
+        let touch_eco_qos = policy.eco_qos || self.eco_qos_applied.load(Ordering::Acquire);
         // SAFETY: handle 由本类型持有，Drop 前始终有效。
-        Ok(unsafe { apply_policy(self.handle, policy) })
+        let outcome = unsafe { apply_policy(self.handle, policy, touch_eco_qos) };
+        if policy.eco_qos {
+            self.eco_qos_applied.store(true, Ordering::Release);
+        }
+        Ok(outcome)
+    }
+
+    /// Job 内当前所有 pid（含 assign 之后新生的子孙）。W8 拿槽重放 EcoQoS 时要用。
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn process_ids(&self) -> Result<Vec<u32>> {
+        // SAFETY: handle 由本类型持有，Drop 前始终有效。
+        unsafe { job_process_ids(self.handle) }
+    }
+}
+
+/// 枚举 Job 内的 pid。缓冲不够时按返回的 `NumberOfAssignedProcesses` 扩容重试。
+///
+/// # Safety
+/// `job` 必须是有效的 Job Object 句柄。
+unsafe fn job_process_ids(job: HANDLE) -> Result<Vec<u32>> {
+    let header = std::mem::size_of::<JOBOBJECT_BASIC_PROCESS_ID_LIST>();
+    let slot = std::mem::size_of::<usize>();
+    let mut capacity = 64usize;
+    for _ in 0..4 {
+        let mut buffer = vec![0u8; header + capacity * slot];
+        let mut returned = 0u32;
+        let result = QueryInformationJobObject(
+            Some(job),
+            JobObjectBasicProcessIdList,
+            buffer.as_mut_ptr().cast(),
+            buffer.len() as u32,
+            Some(&mut returned),
+        );
+        // 缓冲不够时 Win32 返回 ERROR_MORE_DATA，但头部已写入 NumberOfAssignedProcesses。
+        let head =
+            std::ptr::read_unaligned(buffer.as_ptr().cast::<JOBOBJECT_BASIC_PROCESS_ID_LIST>());
+        let assigned = head.NumberOfAssignedProcesses as usize;
+        let listed = (head.NumberOfProcessIdsInList as usize).min(capacity);
+        if result.is_ok() || listed >= assigned {
+            let list_offset = std::mem::offset_of!(JOBOBJECT_BASIC_PROCESS_ID_LIST, ProcessIdList);
+            let pids = (0..listed)
+                .map(|index| {
+                    let ptr = buffer
+                        .as_ptr()
+                        .add(list_offset + index * slot)
+                        .cast::<usize>();
+                    std::ptr::read_unaligned(ptr) as u32
+                })
+                .collect();
+            return Ok(pids);
+        }
+        if assigned <= capacity {
+            return Err(anyhow!(
+                "QueryInformationJobObject(ProcessIdList) failed: {}",
+                result.err().map(|e| e.to_string()).unwrap_or_default()
+            ));
+        }
+        capacity = assigned + 16;
+    }
+    Err(anyhow!(
+        "QueryInformationJobObject(ProcessIdList): pid list kept growing"
+    ))
+}
+
+/// 对单个进程开/关 EcoQoS（`PROCESS_POWER_THROTTLING_EXECUTION_SPEED`）。
+///
+/// 只动 `EXECUTION_SPEED` 位；`IGNORE_TIMER_RESOLUTION` 等其他位保持系统默认。
+fn set_process_eco_qos(pid: u32, enabled: bool) -> Result<()> {
+    let state = PROCESS_POWER_THROTTLING_STATE {
+        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+        StateMask: if enabled {
+            PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+        } else {
+            0
+        },
+    };
+    unsafe {
+        let process = OpenProcess(PROCESS_SET_INFORMATION, false, pid)
+            .map_err(|e| anyhow!("OpenProcess({pid}) failed: {e}"))?;
+        let result = SetProcessInformation(
+            process,
+            ProcessPowerThrottling,
+            (&state as *const PROCESS_POWER_THROTTLING_STATE).cast(),
+            std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+        );
+        let _ = CloseHandle(process);
+        result.map_err(|e| anyhow!("SetProcessInformation({pid}) failed: {e}"))
     }
 }
 
 /// 下发资源策略。任何失败都只降级、不销毁 Job（调用方已持有孤儿防护）。
 ///
+/// `touch_eco_qos`：是否执行第三段（逐进程 EcoQoS）。调用方只在"要开"或"曾开过要关"
+/// 时置 true——见 [`ProcessJob::eco_qos_applied`]。
+///
 /// # Safety
 /// `job` 必须是有效的 Job Object 句柄。
-unsafe fn apply_policy(job: HANDLE, policy: &SessionResourcePolicy) -> PolicyOutcome {
+unsafe fn apply_policy(
+    job: HANDLE,
+    policy: &SessionResourcePolicy,
+    touch_eco_qos: bool,
+) -> PolicyOutcome {
     let mut failures: Vec<String> = Vec::new();
 
     // 始终整体重写 LimitFlags，**不做 is_noop 早退**：早退会让"把优先级调回正常"
@@ -158,6 +268,31 @@ unsafe fn apply_policy(job: HANDLE, policy: &SessionResourcePolicy) -> PolicyOut
             std::mem::size_of::<JOBOBJECT_CPU_RATE_CONTROL_INFORMATION>() as u32,
         ) {
             failures.push(format!("cpu rate control: {e}"));
+        }
+    }
+
+    // —— 第三段：EcoQoS（效率模式），逐进程 ——
+    // Job 没有 EcoQoS 级别的限制，只能枚举当前 pid 逐个 SetProcessInformation；
+    // assign 之后新生的子进程**不会**继承，需要时由调用方重放（docs/107 gotcha）。
+    if touch_eco_qos {
+        match job_process_ids(job) {
+            Ok(pids) => {
+                let mut failed = 0usize;
+                let mut last_error = String::new();
+                for pid in &pids {
+                    if let Err(e) = set_process_eco_qos(*pid, policy.eco_qos) {
+                        failed += 1;
+                        last_error = e.to_string();
+                    }
+                }
+                if failed > 0 {
+                    failures.push(format!(
+                        "eco qos: {failed}/{} processes failed: {last_error}",
+                        pids.len()
+                    ));
+                }
+            }
+            Err(e) => failures.push(format!("eco qos: {e}")),
         }
     }
 
@@ -262,6 +397,7 @@ mod tests {
         let policy = SessionResourcePolicy {
             lower_priority: true,
             cpu_weight: None,
+            eco_qos: false,
         };
         let (job, outcome) =
             ProcessJob::create_for_with_policy(child.id(), &policy).expect("create job");
@@ -293,6 +429,7 @@ mod tests {
         let policy = SessionResourcePolicy {
             lower_priority: true,
             cpu_weight: Some(2),
+            eco_qos: false,
         };
         let (job, _) = ProcessJob::create_for_with_policy(child.id(), &policy).expect("create job");
 
@@ -302,6 +439,61 @@ mod tests {
             0,
             "KILL_ON_JOB_CLOSE lost after applying policy: 0x{flags:08X}"
         );
+
+        drop(job);
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    /// 回读某进程的 EcoQoS 状态位。
+    fn query_eco_qos(pid: u32) -> u32 {
+        use windows::Win32::System::Threading::{
+            GetProcessInformation, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        let mut state = PROCESS_POWER_THROTTLING_STATE {
+            Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+            ..Default::default()
+        };
+        unsafe {
+            let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).unwrap();
+            GetProcessInformation(
+                process,
+                ProcessPowerThrottling,
+                (&mut state as *mut PROCESS_POWER_THROTTLING_STATE).cast(),
+                std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+            )
+            .expect("GetProcessInformation");
+            let _ = CloseHandle(process);
+        }
+        state.StateMask & PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+    }
+
+    /// EcoQoS 开 → 任务管理器会给叶子图标；关 → 位清零。两次都必须 Applied。
+    #[test]
+    fn eco_qos_applies_per_process_and_can_be_cleared() {
+        let mut child = spawn_sleeper();
+        let eco = SessionResourcePolicy {
+            lower_priority: false,
+            cpu_weight: None,
+            eco_qos: true,
+        };
+        let (job, outcome) =
+            ProcessJob::create_for_with_policy(child.id(), &eco).expect("create job");
+        assert_eq!(outcome, PolicyOutcome::Applied, "eco qos should apply");
+        assert!(job.process_ids().unwrap().contains(&child.id()));
+        assert_ne!(query_eco_qos(child.id()), 0, "EXECUTION_SPEED bit not set");
+
+        let normal = SessionResourcePolicy::disabled();
+        let outcome = job.reapply_policy(&normal).expect("reapply");
+        assert_eq!(outcome, PolicyOutcome::Applied);
+        assert_eq!(
+            query_eco_qos(child.id()),
+            0,
+            "EXECUTION_SPEED bit not cleared"
+        );
+
+        let flags = query_limit_flags(&job);
+        assert_ne!(flags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.0, 0);
 
         drop(job);
         let _ = child.kill();

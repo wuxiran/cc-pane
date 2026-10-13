@@ -37,6 +37,13 @@ pub struct SessionResourcePolicy {
     /// CPU 相对权重（[`CPU_WEIGHT_MIN`]..=[`CPU_WEIGHT_MAX`]）。
     /// `None` 表示不设——与显式给中性值等价，但省掉一次系统调用。
     pub cpu_weight: Option<u8>,
+    /// Windows EcoQoS（任务管理器"效率模式"）：`PROCESS_POWER_THROTTLING_EXECUTION_SPEED`。
+    ///
+    /// **逐进程**下发到 Job 内当前所有 pid；Job 没有 EcoQoS 级别的限制，assign 之后新生的
+    /// 子进程不会继承——需要时由调用方（W8 拿槽）重放。`#[serde(default)]`：0.12.21 的
+    /// daemon/app 互发的策略里没有这个字段。
+    #[serde(default)]
+    pub eco_qos: bool,
 }
 
 impl Default for SessionResourcePolicy {
@@ -45,6 +52,7 @@ impl Default for SessionResourcePolicy {
         Self {
             lower_priority: true,
             cpu_weight: None,
+            eco_qos: false,
         }
     }
 }
@@ -55,12 +63,13 @@ impl SessionResourcePolicy {
         Self {
             lower_priority: false,
             cpu_weight: None,
+            eco_qos: false,
         }
     }
 
     /// 是否什么都不用做——省掉一次系统调用，也让日志不产生噪声。
     pub fn is_noop(&self) -> bool {
-        !self.lower_priority && self.effective_cpu_weight().is_none()
+        !self.lower_priority && self.effective_cpu_weight().is_none() && !self.eco_qos
     }
 
     /// 收敛后的 CPU 权重：越界值 clamp 回合法区间，中性值视同不设。
@@ -104,6 +113,68 @@ impl PolicyOutcome {
     }
 }
 
+/// [`PolicyOutcome`] 的扁平种类（前端三态显示用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PolicyOutcomeKind {
+    Applied,
+    Degraded,
+    Unsupported,
+}
+
+/// 策略下发结果 + 当前生效的策略，随 `SessionStatusInfo.resource_policy` 上报前端。
+///
+/// 与 [`PolicyOutcome`] 的区别：`Unsupported` 也能带原因（"daemon too old" /
+/// "session not found"），popover 要把"不支持"和"失败"区分着显示。
+/// 所有字段 `#[serde(default)]`：0.12.21 的 daemon 状态 payload 里没有这一节。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourcePolicyStatus {
+    pub outcome: PolicyOutcomeKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub lower_priority: bool,
+    #[serde(default)]
+    pub eco_qos: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_weight: Option<u8>,
+}
+
+impl ResourcePolicyStatus {
+    pub fn from_outcome(outcome: &PolicyOutcome, policy: &SessionResourcePolicy) -> Self {
+        let (kind, reason) = match outcome {
+            PolicyOutcome::Applied => (PolicyOutcomeKind::Applied, None),
+            PolicyOutcome::Degraded { reason } => {
+                (PolicyOutcomeKind::Degraded, Some(reason.clone()))
+            }
+            PolicyOutcome::Unsupported => (PolicyOutcomeKind::Unsupported, None),
+        };
+        Self {
+            outcome: kind,
+            reason,
+            lower_priority: policy.lower_priority,
+            eco_qos: policy.eco_qos,
+            cpu_weight: policy.effective_cpu_weight(),
+        }
+    }
+
+    /// 平台 / 后端 / 版本不支持，带可展示原因。
+    pub fn unsupported(reason: impl Into<String>) -> Self {
+        Self {
+            outcome: PolicyOutcomeKind::Unsupported,
+            reason: Some(reason.into()),
+            lower_priority: false,
+            eco_qos: false,
+            cpu_weight: None,
+        }
+    }
+
+    pub fn degraded(reason: impl Into<String>, policy: &SessionResourcePolicy) -> Self {
+        Self::from_outcome(&PolicyOutcome::degraded(reason), policy)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,9 +199,56 @@ mod tests {
         let policy = SessionResourcePolicy {
             lower_priority: false,
             cpu_weight: Some(CPU_WEIGHT_NEUTRAL),
+            eco_qos: false,
         };
         assert_eq!(policy.effective_cpu_weight(), None);
         assert!(policy.is_noop());
+    }
+
+    #[test]
+    fn eco_qos_alone_is_not_noop_and_defaults_off_for_old_payloads() {
+        let policy = SessionResourcePolicy {
+            lower_priority: false,
+            cpu_weight: None,
+            eco_qos: true,
+        };
+        assert!(!policy.is_noop());
+
+        // 0.12.21 的 daemon/app 互发的策略没有 ecoQos 字段，必须能反序列化且为 false。
+        let legacy: SessionResourcePolicy =
+            serde_json::from_str(r#"{"lowerPriority":true,"cpuWeight":3}"#).unwrap();
+        assert!(legacy.lower_priority);
+        assert_eq!(legacy.cpu_weight, Some(3));
+        assert!(!legacy.eco_qos);
+    }
+
+    #[test]
+    fn resource_policy_status_flattens_outcome_and_tolerates_missing_fields() {
+        let policy = SessionResourcePolicy {
+            lower_priority: true,
+            cpu_weight: Some(2),
+            eco_qos: true,
+        };
+        let status = ResourcePolicyStatus::from_outcome(&PolicyOutcome::degraded("x"), &policy);
+        assert_eq!(status.outcome, PolicyOutcomeKind::Degraded);
+        assert_eq!(status.reason.as_deref(), Some("x"));
+        assert!(status.lower_priority && status.eco_qos);
+        assert_eq!(status.cpu_weight, Some(2));
+
+        let json = serde_json::to_value(&status).unwrap();
+        assert_eq!(json["outcome"], "degraded");
+        assert_eq!(json["lowerPriority"], true);
+        assert_eq!(json["ecoQos"], true);
+
+        let minimal: ResourcePolicyStatus =
+            serde_json::from_str(r#"{"outcome":"applied"}"#).unwrap();
+        assert_eq!(minimal.outcome, PolicyOutcomeKind::Applied);
+        assert!(minimal.reason.is_none());
+        assert!(!minimal.lower_priority);
+
+        let unsupported = ResourcePolicyStatus::unsupported("daemon too old");
+        assert_eq!(unsupported.outcome, PolicyOutcomeKind::Unsupported);
+        assert_eq!(unsupported.reason.as_deref(), Some("daemon too old"));
     }
 
     #[test]
@@ -138,12 +256,14 @@ mod tests {
         let low = SessionResourcePolicy {
             lower_priority: false,
             cpu_weight: Some(0),
+            eco_qos: false,
         };
         assert_eq!(low.effective_cpu_weight(), Some(CPU_WEIGHT_MIN));
 
         let high = SessionResourcePolicy {
             lower_priority: false,
             cpu_weight: Some(200),
+            eco_qos: false,
         };
         assert_eq!(high.effective_cpu_weight(), Some(CPU_WEIGHT_MAX));
     }
@@ -154,6 +274,7 @@ mod tests {
         let scaled = SessionResourcePolicy {
             lower_priority: false,
             cpu_weight: Some(4),
+            eco_qos: false,
         }
         .cgroup_cpu_weight();
         assert_eq!(scaled, Some(80));

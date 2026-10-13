@@ -1,6 +1,6 @@
 use crate::models::{
     KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionProcessInfo,
-    SessionResourceUsage, SystemStats, TruncatedProcessSummary,
+    SessionResourceUsage, SystemStats, TopProcessInfo, TruncatedProcessSummary,
 };
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
@@ -37,6 +37,141 @@ struct ResourceProcessSampler {
     known_family: HashSet<ProcessIdentity>,
     #[cfg(windows)]
     cpu_samples: HashMap<u32, WindowsCpuSample>,
+    /// "会话之外"块的滞回状态：整机 CPU ≥ 60% 开、< 45% 关。
+    top_processes_armed: bool,
+    /// 会话外候选进程的 CPU 基线，与 `cpu_samples` 分开：两者的 pid 集合不同，
+    /// 混在一张表里会被 `refresh_process_details` 的整表覆盖清掉。
+    #[cfg(windows)]
+    top_cpu_samples: HashMap<u32, WindowsCpuSample>,
+}
+
+/// 整机 CPU 到这个值开始算"会话之外"前 3 名。
+pub const TOP_PROCESSES_ARM_CPU_PERCENT: f32 = 60.0;
+/// 低于这个值停止计算（滞回，避免在阈值附近抖动）。
+pub const TOP_PROCESSES_DISARM_CPU_PERCENT: f32 = 45.0;
+/// 回传条数。
+pub const TOP_PROCESSES_LIMIT: usize = 3;
+
+/// 滞回门：返回本次是否计算。
+fn top_processes_gate(armed: &mut bool, machine_cpu_percent: f32) -> bool {
+    if machine_cpu_percent >= TOP_PROCESSES_ARM_CPU_PERCENT {
+        *armed = true;
+    } else if machine_cpu_percent < TOP_PROCESSES_DISARM_CPU_PERCENT {
+        *armed = false;
+    }
+    *armed
+}
+
+/// 会话外候选的一次读数（平台层只负责填这个，排序在纯函数里）。
+#[derive(Debug, Clone, PartialEq)]
+struct TopProcessCandidate {
+    pid: u32,
+    name: String,
+    cpu_percent: f32,
+    memory_bytes: u64,
+}
+
+/// 按 CPU 降序（同 CPU 按工作集），只留 CPU > 0 的（武装后第一帧没基线，全 0 → 空表，
+/// UI 不显示该块，下一帧才有值）。
+fn rank_top_processes(mut candidates: Vec<TopProcessCandidate>) -> Vec<TopProcessInfo> {
+    candidates.retain(|candidate| candidate.cpu_percent > 0.0);
+    candidates.sort_by(|left, right| {
+        right
+            .cpu_percent
+            .partial_cmp(&left.cpu_percent)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| right.memory_bytes.cmp(&left.memory_bytes))
+            .then_with(|| left.pid.cmp(&right.pid))
+    });
+    candidates
+        .into_iter()
+        .take(TOP_PROCESSES_LIMIT)
+        .map(|candidate| TopProcessInfo {
+            pid: candidate.pid,
+            name: candidate.name,
+            cpu_percent: candidate.cpu_percent,
+            memory_bytes: candidate.memory_bytes,
+        })
+        .collect()
+}
+
+/// 会话外候选 pid：排除 CC-Panes 家族（含祖先）、受管会话树（含祖先）、孤儿树、
+/// 以及 pid 0/4（Idle / System）。
+fn top_process_candidate_pids(
+    index: &ProcessIndex<'_>,
+    processes: &[ProcessSnapshot],
+    sessions: &[ManagedSessionRoot],
+    self_pid: u32,
+    known_family: &HashSet<ProcessIdentity>,
+) -> Vec<u32> {
+    let family = family_pids(processes, self_pid);
+    let analysis = analyze_process_ownership(index, processes, sessions, &family, known_family);
+    let orphan_trees: HashSet<u32> = orphan_roots(index, processes, &analysis)
+        .into_iter()
+        .flat_map(|root| index.descendants_including(root))
+        .collect();
+    processes
+        .iter()
+        .map(|process| process.pid)
+        .filter(|pid| *pid != 0 && *pid != 4)
+        .filter(|pid| !analysis.protected_family.contains(pid))
+        .filter(|pid| !analysis.managed_context.contains(pid))
+        .filter(|pid| !orphan_trees.contains(pid))
+        .collect()
+}
+
+#[cfg(windows)]
+fn collect_top_processes(
+    processes: &[ProcessSnapshot],
+    sessions: &[ManagedSessionRoot],
+    self_pid: u32,
+    sampler: &mut ResourceProcessSampler,
+) -> Vec<TopProcessInfo> {
+    let index = ProcessIndex::new(processes);
+    let candidates =
+        top_process_candidate_pids(&index, processes, sessions, self_pid, &sampler.known_family);
+    let sampled_at = std::time::Instant::now();
+    let mut next_samples = HashMap::with_capacity(candidates.len());
+    let mut readings = Vec::with_capacity(candidates.len());
+    for pid in candidates {
+        let Some((creation_time_100ns, total_time_100ns, memory_bytes)) =
+            windows::query_process_cpu_memory(pid)
+        else {
+            continue;
+        };
+        let cpu_percent = sampler
+            .top_cpu_samples
+            .get(&pid)
+            .filter(|previous| previous.creation_time_100ns == creation_time_100ns)
+            .map(|previous| {
+                cpu_percent_since(
+                    previous.total_time_100ns,
+                    total_time_100ns,
+                    sampled_at.saturating_duration_since(previous.sampled_at),
+                )
+            })
+            .unwrap_or(0.0);
+        next_samples.insert(
+            pid,
+            WindowsCpuSample {
+                creation_time_100ns,
+                total_time_100ns,
+                sampled_at,
+            },
+        );
+        readings.push(TopProcessCandidate {
+            pid,
+            name: index
+                .by_pid
+                .get(&pid)
+                .map(|process| process.name.clone())
+                .unwrap_or_default(),
+            cpu_percent,
+            memory_bytes,
+        });
+    }
+    sampler.top_cpu_samples = next_samples;
+    rank_top_processes(readings)
 }
 
 #[derive(Debug, Clone)]
@@ -134,8 +269,22 @@ impl SystemStatsService {
         let processes =
             refresh_resource_snapshot(&mut system, std::process::id(), sessions, &mut sampler);
         let stats = system_stats(&system);
+        // "会话之外"只在整机高负载时算（滞回 60/45）；平时零开销，非 Windows 不算。
+        let compute_top = top_processes_gate(&mut sampler.top_processes_armed, stats.cpu_percent);
+        #[cfg(windows)]
+        let top_processes = compute_top
+            .then(|| collect_top_processes(&processes, sessions, std::process::id(), &mut sampler));
+        #[cfg(not(windows))]
+        let top_processes: Option<Vec<TopProcessInfo>> = {
+            let _ = compute_top;
+            None
+        };
+        if !compute_top {
+            #[cfg(windows)]
+            sampler.top_cpu_samples.clear();
+        }
         let elapsed = started.elapsed().as_micros() as u64;
-        let tree = build_resource_tree_from_snapshot(
+        let mut tree = build_resource_tree_from_snapshot(
             stats,
             &processes,
             sessions,
@@ -143,11 +292,13 @@ impl SystemStatsService {
             &sampler.known_family,
             elapsed,
         );
+        tree.top_processes = top_processes;
         tracing::debug!(
             elapsed_micros = tree.elapsed_micros,
             process_count = processes.len(),
             session_count = tree.sessions.len(),
             orphan_count = tree.orphans.len(),
+            top_processes = tree.top_processes.as_ref().map(Vec::len),
             "[system-stats] resource tree sample completed"
         );
         tree
@@ -543,6 +694,7 @@ fn build_resource_tree_from_snapshot(
         app_memory_percent,
         sessions: session_usage,
         orphans,
+        top_processes: None,
         sampled_at: now_millis(),
         elapsed_micros,
     }

@@ -7,6 +7,7 @@ use crate::models::{
     CreateSessionRequest, StoreCheckpointOutcome, TerminalCheckpoint, TerminalRecoverySnapshot,
     TerminalReplaySnapshot, TerminalSessionProvenance,
 };
+use crate::models::{ResourcePolicyStatus, SessionResourcePolicy};
 use crate::services::daemon_client::TerminalDaemonClient;
 use crate::services::terminal_output_flow::OutputFlowDiagnostics;
 use crate::services::terminal_service::KillReason;
@@ -178,6 +179,19 @@ pub trait TerminalBackend: Send + Sync {
     /// 默认 no-op；真实后端覆盖之。
     fn apply_hook_status(&self, _session_id: &str, _status: SessionStatus) -> AppResult<()> {
         Ok(())
+    }
+    /// 对运行中的会话重新下发资源策略（0.12.22 资源管理器三态：正常 / 让路 / 效率模式）。
+    ///
+    /// 默认 `Unsupported`（mock / 不管本机进程的后端）。真实后端覆盖之；daemon 客户端
+    /// 遇到旧 daemon 缺路由同样回 `Unsupported("daemon too old")`，UI 显示而非报错。
+    fn set_resource_policy(
+        &self,
+        _session_id: &str,
+        _policy: SessionResourcePolicy,
+    ) -> AppResult<ResourcePolicyStatus> {
+        Ok(ResourcePolicyStatus::unsupported(
+            "resource policy not supported by this backend",
+        ))
     }
     fn event_stream_url(&self, _session_id: &str) -> Option<String> {
         None
@@ -583,6 +597,14 @@ impl TerminalBackend for TerminalService {
         Ok(())
     }
 
+    fn set_resource_policy(
+        &self,
+        session_id: &str,
+        policy: SessionResourcePolicy,
+    ) -> AppResult<ResourcePolicyStatus> {
+        TerminalService::set_resource_policy(self, session_id, policy)
+    }
+
     fn terminal_link_context(&self, session_id: &str) -> AppResult<Option<TerminalLinkContext>> {
         TerminalService::terminal_link_context(self, session_id)
     }
@@ -723,6 +745,18 @@ impl TerminalBackend for InProcessTerminalBackend {
             self.service.as_ref(),
             session_id,
             status,
+        )
+    }
+
+    fn set_resource_policy(
+        &self,
+        session_id: &str,
+        policy: SessionResourcePolicy,
+    ) -> AppResult<ResourcePolicyStatus> {
+        <TerminalService as TerminalBackend>::set_resource_policy(
+            self.service.as_ref(),
+            session_id,
+            policy,
         )
     }
 
@@ -950,6 +984,14 @@ impl TerminalBackend for DaemonTerminalBackend {
 
     fn apply_hook_status(&self, session_id: &str, status: SessionStatus) -> AppResult<()> {
         self.client.apply_hook_status(session_id, status)
+    }
+
+    fn set_resource_policy(
+        &self,
+        session_id: &str,
+        policy: SessionResourcePolicy,
+    ) -> AppResult<ResourcePolicyStatus> {
+        self.client.set_resource_policy(session_id, &policy)
     }
 
     fn event_stream_url(&self, session_id: &str) -> Option<String> {

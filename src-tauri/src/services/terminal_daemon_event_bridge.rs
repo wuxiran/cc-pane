@@ -755,6 +755,8 @@ fn same_status_payload(left: &SessionStatusInfo, right: &SessionStatusInfo) -> b
         && left.updated_at == right.updated_at
         // F5：OSC 徽章独立于 updated_at 变化（TTL 衰减/黏滞），漏比会被去重抑制
         && left.osc_progress == right.osc_progress
+        // 0.12.22：策略三态切换只改这一字段，漏比则 popover 永远看不到"已降级"
+        && left.resource_policy == right.resource_policy
 }
 
 fn synthesized_exited_status(session_id: &str) -> SessionStatusInfo {
@@ -777,6 +779,7 @@ fn synthesized_exited_status_with_code(
         current_tool_summary: None,
         updated_at: now,
         osc_progress: None,
+        resource_policy: None,
     }
 }
 
