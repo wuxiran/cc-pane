@@ -52,6 +52,7 @@ fn windows_codex_emits_thread_id_in_osc_title() {
         env: HashMap::new(),
         env_remove: vec![],
         resource_policy: Default::default(),
+        on_job_memory_notify: None,
     };
 
     let spawn = spawn_pty(config).expect("spawn codex in ConPTY");

@@ -840,6 +840,8 @@ mod tests {
                 updated_at: 120,
                 osc_progress: None,
                 resource_policy: None,
+                job_memory_warning: None,
+                runtime_kind: None,
             }])
         }
 

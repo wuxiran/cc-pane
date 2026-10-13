@@ -642,6 +642,30 @@ impl TerminalDaemonClient {
         Err(daemon_http_error(status_code, body))
     }
 
+    /// 清 Job 内存越线告警（W5）。旧 daemon 无此路由（裸 404/405）→ `Ok(false)`：
+    /// 它也不会产生这种告警，没什么可清。结构化 NOT_FOUND（会话已退出）同样 `Ok(false)`。
+    pub fn clear_job_memory_warning(&self, session_id: &str) -> AppResult<bool> {
+        let response = self.request(
+            "POST",
+            &session_path(session_id, "/job-memory-warning/clear"),
+            true,
+            Some("{}"),
+        )?;
+        let (status_code, body) = split_http_response(&response)?;
+        if (200..300).contains(&status_code) {
+            let value: serde_json::Value =
+                serde_json::from_str(body).map_err(|error| AppError::from(error.to_string()))?;
+            return Ok(value
+                .get("cleared")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false));
+        }
+        if status_code == 404 || status_code == 405 {
+            return Ok(false);
+        }
+        Err(daemon_http_error(status_code, body))
+    }
+
     pub fn get_session_output(&self, session_id: &str, lines: usize) -> AppResult<SessionOutput> {
         self.get_json(
             &format!("{}?lines={}", session_path(session_id, "/output"), lines),
@@ -2222,6 +2246,7 @@ mod tests {
             lower_priority: true,
             cpu_weight: None,
             eco_qos: true,
+            memory_notify_bytes: None,
         };
 
         // 新 daemon：200 + 状态体
@@ -2269,6 +2294,24 @@ mod tests {
         assert_eq!(status.reason.as_deref(), Some("session not found"));
     }
 
+    #[test]
+    fn clear_job_memory_warning_reads_cleared_flag_and_tolerates_old_daemon() {
+        let (addr, rx) = spawn_response_server(http_json_response("200 OK", r#"{"cleared":true}"#));
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+        assert!(client.clear_job_memory_warning("sess-1").expect("cleared"));
+        let request = rx.recv().expect("captured request");
+        assert!(request.starts_with("POST /api/sessions/sess-1/job-memory-warning/clear HTTP/1.1"));
+        assert!(request.contains("Authorization: Bearer secret"));
+
+        // 旧 daemon：裸 404 → Ok(false)，不报错。
+        let (addr, _) = spawn_response_server(empty_response("404 Not Found"));
+        let client = TerminalDaemonClient::new(addr.to_string(), "secret")
+            .with_timeout(Duration::from_secs(1));
+        assert!(!client
+            .clear_job_memory_warning("sess-1")
+            .expect("old daemon tolerated"));
+    }
     #[test]
     fn missing_snapshot_maps_to_none() {
         let (addr, _) = spawn_response_server(http_json_response(

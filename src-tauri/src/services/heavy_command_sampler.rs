@@ -15,9 +15,11 @@
 
 use crate::services::TerminalBackendState;
 use cc_panes_core::models::{
-    HeavyEpisode, HeavySamplerStats, HeavySessionContext, ManagedSessionRoot, SessionResourceUsage,
+    HeavyEpisode, HeavySamplerStats, HeavySessionContext, JobMemoryWarning, ManagedSessionRoot,
+    SessionResourceUsage,
 };
 use cc_panes_core::services::heavy_command_normalize::{normalize, redact};
+use cc_panes_core::services::TerminalBackend;
 use cc_panes_core::services::{SessionStatusInfo, SettingsService, SystemStatsService};
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -324,6 +326,58 @@ pub(crate) fn session_sample(usage: &SessionResourceUsage) -> SessionSample {
     }
 }
 
+/// 带 Job 内存越线告警的会话（W5）。树采样后据此判回落。
+pub(crate) fn job_memory_warnings_of(
+    statuses: &[SessionStatusInfo],
+) -> HashMap<String, JobMemoryWarning> {
+    statuses
+        .iter()
+        .filter_map(|status| {
+            status
+                .job_memory_warning
+                .map(|warning| (status.session_id.clone(), warning))
+        })
+        .collect()
+}
+
+/// 树内存已回落到水位 80% 以下的告警会话（纯函数，便于测试）。
+pub(crate) fn recovered_job_memory_sessions(
+    warnings: &HashMap<String, JobMemoryWarning>,
+    sessions: &[SessionResourceUsage],
+) -> Vec<String> {
+    let mut recovered = sessions
+        .iter()
+        .filter(|usage| {
+            warnings
+                .get(&usage.session_id)
+                .is_some_and(|warning| warning.recovered_by(usage.memory_bytes))
+        })
+        .map(|usage| usage.session_id.clone())
+        .collect::<Vec<_>>();
+    recovered.sort();
+    recovered
+}
+
+/// 回落的告警交给后端清除（daemon 模式走路由）。失败只记日志：告警多留一会儿不致命。
+pub(crate) fn clear_recovered_job_memory_warnings(
+    backend: &dyn TerminalBackend,
+    warnings: &HashMap<String, JobMemoryWarning>,
+    sessions: &[SessionResourceUsage],
+) -> usize {
+    let recovered = recovered_job_memory_sessions(warnings, sessions);
+    let mut cleared = 0usize;
+    for session_id in recovered {
+        match backend.clear_job_memory_warning(&session_id) {
+            Ok(true) => cleared += 1,
+            Ok(false) => {}
+            Err(error) => {
+                debug!(%error, session_id, "[heavy-sampler] clear job memory warning failed")
+            }
+        }
+    }
+    cleared
+}
+
 pub(crate) fn session_roots(statuses: Vec<SessionStatusInfo>) -> Vec<ManagedSessionRoot> {
     statuses
         .into_iter()
@@ -405,14 +459,26 @@ impl HeavyCommandSampler {
             if enabled {
                 let machine_cpu = stats_service.get_system_stats().cpu_percent;
                 if machine.on_cpu_sample(machine_cpu, now) == TickDecision::SampleTree {
-                    let roots = match terminal_backend.backend().get_all_status() {
-                        Ok(statuses) => session_roots(statuses),
+                    let backend = terminal_backend.backend();
+                    let (roots, warnings) = match backend.get_all_status() {
+                        Ok(statuses) => (
+                            session_roots(statuses.clone()),
+                            job_memory_warnings_of(&statuses),
+                        ),
                         Err(error) => {
                             debug!(%error, "[heavy-sampler] status query failed; skipping tree");
-                            Vec::new()
+                            (Vec::new(), HashMap::new())
                         }
                     };
                     let tree = stats_service.get_resource_tree(&roots);
+                    // W5：顺手判 Job 内存告警回落——树已经建好，不另起轮询。
+                    if !warnings.is_empty() {
+                        clear_recovered_job_memory_warnings(
+                            backend.as_ref(),
+                            &warnings,
+                            &tree.sessions,
+                        );
+                    }
                     let samples: Vec<SessionSample> =
                         tree.sessions.iter().map(session_sample).collect();
                     for event in machine.on_tree(&samples, Instant::now()) {
@@ -639,5 +705,33 @@ mod tests {
         assert_eq!(json["cpuPercent"], 1.5);
         assert_eq!(json["memoryBytes"], 2);
         assert_eq!(json["active"], true);
+    }
+
+    #[test]
+    fn job_memory_recovery_uses_80_percent_hysteresis_and_ignores_unwarned_sessions() {
+        let warning = JobMemoryWarning {
+            bytes: 1_200,
+            limit_bytes: 1_000,
+            at: 1,
+        };
+        let warnings: HashMap<String, JobMemoryWarning> =
+            [("hot".to_string(), warning), ("cool".to_string(), warning)]
+                .into_iter()
+                .collect();
+        let usage = |id: &str, mem: u64| SessionResourceUsage {
+            session_id: id.to_string(),
+            root_pid: 1,
+            cpu_percent: 0.0,
+            memory_bytes: mem,
+            process_count: 1,
+            processes: Vec::new(),
+            truncated: None,
+        };
+        let sessions = [usage("hot", 900), usage("cool", 100), usage("unwarned", 0)];
+        assert_eq!(
+            recovered_job_memory_sessions(&warnings, &sessions),
+            vec!["cool".to_string()]
+        );
+        assert!(recovered_job_memory_sessions(&HashMap::new(), &sessions).is_empty());
     }
 }

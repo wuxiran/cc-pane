@@ -7,20 +7,29 @@
 //! 整棵进程树被内核击杀，是 Windows 上唯一可靠的孤儿防护。
 //!
 //! 移植自 Terax proc/job.rs（MIT）。**没有替代方案前不要移除**。
+//!
+//! ## 为什么不是"挂起 → 入 Job → 恢复"
+//!
+//! Codex 式做法是 `CREATE_SUSPENDED` 起子进程、assign 进 Job、再 `ResumeThread`，
+//! 这样 spawn 与 assign 之间不存在"孙进程漏网"窗口。portable-pty 0.8 的
+//! `CommandBuilder` **不暴露创建标志**（ConPTY 路径在内部调 `CreateProcessW`），
+//! 这条路走不通；窄窗口可接受，写在这里省得下一个人再去翻一遍（docs/107 gotcha）。
 
 #![cfg(windows)]
 
 use crate::models::{PolicyOutcome, SessionResourcePolicy};
+use crate::pty::job_events::{self, JobMemoryCallback};
 use anyhow::{anyhow, Result};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JobObjectBasicProcessIdList,
     JobObjectCpuRateControlInformation, JobObjectExtendedLimitInformation,
-    QueryInformationJobObject, SetInformationJobObject, TerminateJobObject,
-    JOBOBJECT_BASIC_PROCESS_ID_LIST, JOBOBJECT_CPU_RATE_CONTROL_INFORMATION,
+    JobObjectNotificationLimitInformation, QueryInformationJobObject, SetInformationJobObject,
+    TerminateJobObject, JOBOBJECT_BASIC_PROCESS_ID_LIST, JOBOBJECT_CPU_RATE_CONTROL_INFORMATION,
     JOBOBJECT_CPU_RATE_CONTROL_INFORMATION_0, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-    JOB_OBJECT_CPU_RATE_CONTROL_ENABLE, JOB_OBJECT_CPU_RATE_CONTROL_WEIGHT_BASED,
+    JOBOBJECT_NOTIFICATION_LIMIT_INFORMATION, JOB_OBJECT_CPU_RATE_CONTROL_ENABLE,
+    JOB_OBJECT_CPU_RATE_CONTROL_WEIGHT_BASED, JOB_OBJECT_LIMIT_JOB_MEMORY_HIGH,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_LIMIT_PRIORITY_CLASS,
 };
 use windows::Win32::System::Threading::{
@@ -39,6 +48,10 @@ pub struct ProcessJob {
     /// "调回正常"时逐进程清掉；从未开过就不碰（旧系统上 `SetProcessInformation` 必失败，
     /// 默认路径不能被它误报成 Degraded）。
     eco_qos_applied: AtomicBool,
+    /// 完成端口登记键（0 = 未登记）。见 `job_events`。
+    event_key: AtomicUsize,
+    /// 当前通知水位（0 = 未设）。`rearm_memory_notify` 用它重设。
+    memory_notify_bytes: AtomicU64,
 }
 
 // SAFETY: Job Object 句柄本身线程安全，仅在 Drop 时关闭一次。
@@ -67,6 +80,7 @@ impl ProcessJob {
     pub fn create_for_with_policy(
         pid: u32,
         policy: &SessionResourcePolicy,
+        on_memory_notify: Option<JobMemoryCallback>,
     ) -> Result<(Self, PolicyOutcome)> {
         unsafe {
             let job = CreateJobObjectW(None, None)
@@ -100,13 +114,28 @@ impl ProcessJob {
                 return Err(anyhow!("AssignProcessToJobObject({pid}) failed: {e}"));
             }
 
-            // —— 第二段：资源策略，失败不影响已建立的孤儿防护 ——
-            let outcome = apply_policy(job, policy, policy.eco_qos);
+            // —— 完成端口：必须先于第四段的水位下发，否则越线消息无处投递 ——
+            let mut port_failure = None;
+            let mut event_key = 0usize;
+            if let (Some(bytes), Some(callback)) = (policy.memory_notify_bytes, on_memory_notify) {
+                match job_events::register(job, bytes, callback) {
+                    Ok(key) => event_key = key,
+                    Err(e) => port_failure = Some(format!("memory notify port: {e}")),
+                }
+            }
+
+            // —— 第二段起：资源策略，失败不影响已建立的孤儿防护 ——
+            let mut outcome = apply_policy(job, policy, policy.eco_qos);
+            if let Some(failure) = port_failure {
+                outcome = merge_degraded(outcome, failure);
+            }
 
             Ok((
                 Self {
                     handle: job,
                     eco_qos_applied: AtomicBool::new(policy.eco_qos),
+                    event_key: AtomicUsize::new(event_key),
+                    memory_notify_bytes: AtomicU64::new(policy.memory_notify_bytes.unwrap_or(0)),
                 },
                 outcome,
             ))
@@ -124,7 +153,22 @@ impl ProcessJob {
         if policy.eco_qos {
             self.eco_qos_applied.store(true, Ordering::Release);
         }
+        if let Some(bytes) = policy.memory_notify_bytes {
+            self.memory_notify_bytes.store(bytes, Ordering::Release);
+            job_events::update_limit(self.event_key.load(Ordering::Acquire), bytes);
+        }
         Ok(outcome)
+    }
+
+    /// 重新武装内存通知水位。上层确认树内存回落后调用（`job_events` 模块注释里解释了
+    /// 为什么这只是兜底而非必需）。未设水位时是 no-op。
+    pub fn rearm_memory_notify(&self) -> Result<()> {
+        let bytes = self.memory_notify_bytes.load(Ordering::Acquire);
+        if bytes == 0 || self.handle.is_invalid() {
+            return Ok(());
+        }
+        // SAFETY: handle 由本类型持有，Drop 前始终有效。
+        unsafe { set_memory_notify_limit(self.handle, bytes) }
     }
 
     /// Job 内当前所有 pid（含 assign 之后新生的子孙）。W8 拿槽重放 EcoQoS 时要用。
@@ -296,6 +340,16 @@ unsafe fn apply_policy(
         }
     }
 
+    // —— 第四段：内存通知水位（只报警，不设硬限）——
+    // 只在显式给了水位时下发（同 CPU 配额的理由：不为"清空"白发一次必失败的调用）。
+    // 用 NotificationLimitInformation 这一独立结构，**不碰**第一段的 ExtendedLimit——
+    // 把 JOB_MEMORY 塞进 ExtendedLimit 就成了硬限，越线即分配失败（模块注释里的禁区）。
+    if let Some(bytes) = policy.memory_notify_bytes {
+        if let Err(e) = set_memory_notify_limit(job, bytes) {
+            failures.push(format!("memory notify: {e}"));
+        }
+    }
+
     if failures.is_empty() {
         PolicyOutcome::Applied
     } else {
@@ -303,8 +357,38 @@ unsafe fn apply_policy(
     }
 }
 
+/// 设置（或重设）通知型内存水位。
+///
+/// # Safety
+/// `job` 必须是有效的 Job Object 句柄。
+unsafe fn set_memory_notify_limit(job: HANDLE, bytes: u64) -> Result<()> {
+    let info = JOBOBJECT_NOTIFICATION_LIMIT_INFORMATION {
+        JobMemoryLimit: bytes,
+        LimitFlags: JOB_OBJECT_LIMIT_JOB_MEMORY_HIGH,
+        ..Default::default()
+    };
+    SetInformationJobObject(
+        job,
+        JobObjectNotificationLimitInformation,
+        &info as *const _ as *const _,
+        std::mem::size_of::<JOBOBJECT_NOTIFICATION_LIMIT_INFORMATION>() as u32,
+    )
+    .map_err(|e| anyhow!("SetInformationJobObject(NotificationLimit): {e}"))
+}
+
+fn merge_degraded(outcome: PolicyOutcome, failure: String) -> PolicyOutcome {
+    match outcome {
+        PolicyOutcome::Degraded { reason } => {
+            PolicyOutcome::degraded(format!("{reason}; {failure}"))
+        }
+        _ => PolicyOutcome::degraded(failure),
+    }
+}
+
 impl Drop for ProcessJob {
     fn drop(&mut self) {
+        // 先注销再关句柄：句柄号复用后监听线程不能再按旧键查到别的 Job。
+        job_events::unregister(self.event_key.load(Ordering::Acquire));
         if !self.handle.is_invalid() {
             unsafe {
                 let _ = CloseHandle(self.handle);
@@ -351,13 +435,15 @@ impl Drop for ProcessHandle {
 mod tests {
     use super::*;
     use std::process::Command;
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
     #[test]
     fn create_for_invalid_pid_errors() {
         assert!(ProcessJob::create_for_with_policy(
             0xFFFF_FFFE,
-            &SessionResourcePolicy::disabled()
+            &SessionResourcePolicy::disabled(),
+            None
         )
         .is_err());
     }
@@ -398,9 +484,10 @@ mod tests {
             lower_priority: true,
             cpu_weight: None,
             eco_qos: false,
+            memory_notify_bytes: None,
         };
         let (job, outcome) =
-            ProcessJob::create_for_with_policy(child.id(), &policy).expect("create job");
+            ProcessJob::create_for_with_policy(child.id(), &policy, None).expect("create job");
 
         assert_eq!(
             outcome,
@@ -430,8 +517,10 @@ mod tests {
             lower_priority: true,
             cpu_weight: Some(2),
             eco_qos: false,
+            memory_notify_bytes: None,
         };
-        let (job, _) = ProcessJob::create_for_with_policy(child.id(), &policy).expect("create job");
+        let (job, _) =
+            ProcessJob::create_for_with_policy(child.id(), &policy, None).expect("create job");
 
         let flags = query_limit_flags(&job);
         assert_ne!(
@@ -476,9 +565,10 @@ mod tests {
             lower_priority: false,
             cpu_weight: None,
             eco_qos: true,
+            memory_notify_bytes: None,
         };
         let (job, outcome) =
-            ProcessJob::create_for_with_policy(child.id(), &eco).expect("create job");
+            ProcessJob::create_for_with_policy(child.id(), &eco, None).expect("create job");
         assert_eq!(outcome, PolicyOutcome::Applied, "eco qos should apply");
         assert!(job.process_ids().unwrap().contains(&child.id()));
         assert_ne!(query_eco_qos(child.id()), 0, "EXECUTION_SPEED bit not set");
@@ -505,7 +595,7 @@ mod tests {
     fn policy_job_still_kills_tree_on_drop() {
         let mut child = spawn_sleeper();
         let (job, _) =
-            ProcessJob::create_for_with_policy(child.id(), &SessionResourcePolicy::default())
+            ProcessJob::create_for_with_policy(child.id(), &SessionResourcePolicy::default(), None)
                 .expect("create job");
         drop(job);
 
@@ -529,9 +619,12 @@ mod tests {
             .spawn()
             .expect("spawn cmd.exe");
 
-        let (job, _) =
-            ProcessJob::create_for_with_policy(child.id(), &SessionResourcePolicy::disabled())
-                .expect("create job");
+        let (job, _) = ProcessJob::create_for_with_policy(
+            child.id(),
+            &SessionResourcePolicy::disabled(),
+            None,
+        )
+        .expect("create job");
         drop(job);
 
         let deadline = Instant::now() + Duration::from_secs(3);
@@ -545,5 +638,93 @@ mod tests {
                 None => std::thread::sleep(Duration::from_millis(50)),
             }
         }
+    }
+
+    /// 第四段：64 MB 通知水位 + 子进程分配 128 MB → 3 s 内收到越线事件，且字节数来自内核。
+    /// 通知型限制**不会**让分配失败：子进程照常 Start-Sleep，不是 OOM 退出。
+    #[test]
+    fn memory_notify_limit_fires_event_without_failing_allocation() {
+        use std::sync::mpsc;
+        let mut child = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-c",
+                "$a = New-Object byte[] 134217728; Start-Sleep 5",
+            ])
+            .spawn()
+            .expect("spawn powershell");
+        let (tx, rx) = mpsc::channel();
+        let callback: JobMemoryCallback = Arc::new(move |event| {
+            let _ = tx.send(event);
+        });
+        let policy = SessionResourcePolicy {
+            lower_priority: false,
+            cpu_weight: None,
+            eco_qos: false,
+            memory_notify_bytes: Some(64 * 1024 * 1024),
+        };
+        let (job, outcome) =
+            ProcessJob::create_for_with_policy(child.id(), &policy, Some(callback))
+                .expect("create job");
+        assert_eq!(outcome, PolicyOutcome::Applied, "notify limit should apply");
+
+        let event = rx
+            .recv_timeout(Duration::from_secs(3))
+            .expect("memory notify event within 3s");
+        assert_eq!(event.limit_bytes, 64 * 1024 * 1024);
+        assert!(
+            event.bytes > 64 * 1024 * 1024,
+            "kernel-reported bytes should exceed the limit: {}",
+            event.bytes
+        );
+        // 内核会持续投递（实测 1.5 s 内 7 条），监听线程按 NOTIFY_DEBOUNCE 去抖：
+        // 去抖窗口内不得再回调。
+        let mut extra = 0usize;
+        let until = Instant::now() + Duration::from_millis(1500);
+        while Instant::now() < until {
+            if rx.recv_timeout(Duration::from_millis(50)).is_ok() {
+                extra += 1;
+            }
+        }
+        assert!(extra <= 1, "debounce leaked {extra} callbacks within 1.5s");
+        // 子进程没被硬限杀掉。
+        assert!(
+            child.try_wait().expect("try_wait").is_none(),
+            "child must survive"
+        );
+
+        // 第四段之后 KILL_ON_JOB_CLOSE 仍在。
+        let flags = query_limit_flags(&job);
+        assert_ne!(flags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.0, 0);
+        job.rearm_memory_notify().expect("rearm");
+
+        drop(job);
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    /// 回归护栏：通知水位走 NotificationLimit，不得把 JOB_MEMORY 混进 ExtendedLimit 变成硬限。
+    #[test]
+    fn memory_notify_never_sets_hard_job_memory_limit() {
+        use windows::Win32::System::JobObjects::JOB_OBJECT_LIMIT_JOB_MEMORY;
+        let mut child = spawn_sleeper();
+        let policy = SessionResourcePolicy {
+            lower_priority: true,
+            cpu_weight: None,
+            eco_qos: false,
+            memory_notify_bytes: Some(1024 * 1024),
+        };
+        let (job, _) =
+            ProcessJob::create_for_with_policy(child.id(), &policy, None).expect("create job");
+        let flags = query_limit_flags(&job);
+        assert_eq!(
+            flags & JOB_OBJECT_LIMIT_JOB_MEMORY.0,
+            0,
+            "hard JOB_MEMORY limit must never be set: 0x{flags:08X}"
+        );
+        assert_ne!(flags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.0, 0);
+        drop(job);
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }

@@ -623,6 +623,10 @@ pub fn router(config: DaemonConfig) -> Router {
             "/api/sessions/{id}/resource-policy",
             post(set_resource_policy),
         )
+        .route(
+            "/api/sessions/{id}/job-memory-warning/clear",
+            post(clear_job_memory_warning),
+        )
         .route("/api/sessions/{id}/output", get(get_session_output))
         .route("/api/sessions/{id}/snapshot", get(get_session_snapshot))
         .route(
@@ -1179,6 +1183,21 @@ async fn set_resource_policy(
         .await
         .map_err(app_error)?;
     Ok(Json(status))
+}
+
+/// 树内存回落后清 Job 内存越线告警（0.12.22 W5）。app 侧的采样器 / 资源管理器判定回落，
+/// 告警与水位却在 daemon 进程里，所以要一条路由。回 `{"cleared":bool}`。
+async fn clear_job_memory_warning(
+    State(config): State<DaemonConfig>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&headers, config.token())?;
+    let backend = config.terminal_backend_arc();
+    let cleared = terminal_io(move || backend.clear_job_memory_warning(&id))
+        .await
+        .map_err(app_error)?;
+    Ok(Json(serde_json::json!({ "cleared": cleared })))
 }
 
 async fn resize_session(
@@ -2099,6 +2118,8 @@ mod tests {
                 updated_at: 120,
                 osc_progress: None,
                 resource_policy: None,
+                job_memory_warning: None,
+                runtime_kind: None,
             }])
         }
 
@@ -2149,6 +2170,10 @@ mod tests {
                 .unwrap()
                 .push((session_id.to_string(), status));
             Ok(())
+        }
+
+        fn clear_job_memory_warning(&self, session_id: &str) -> AppResult<bool> {
+            Ok(session_id == "session-1")
         }
 
         fn set_resource_policy(
@@ -3279,6 +3304,46 @@ mod tests {
             recorded.as_slice(),
             &[("session-1".to_string(), SessionStatus::ToolRunning)]
         );
+    }
+
+    #[tokio::test]
+    async fn job_memory_warning_clear_route_requires_token_and_reports_cleared_flag() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let app = router(test_config("secret", "127.0.0.1:18093", backend.clone()));
+
+        let unauthorized = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/sessions/session-1/job-memory-warning/clear")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+        for (session, expected) in [("session-1", true), ("other", false)] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(format!("/api/sessions/{session}/job-memory-warning/clear"))
+                        .header(header::AUTHORIZATION, "Bearer secret")
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("response");
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body");
+            let parsed: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+            assert_eq!(parsed["cleared"], expected, "{session}");
+        }
     }
 
     #[tokio::test]

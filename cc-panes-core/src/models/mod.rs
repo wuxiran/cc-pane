@@ -105,7 +105,7 @@ pub use quick_command::{
     QuickCommand, QuickCommandConfig, QuickCommandDraft, QuickCommandKind, QuickCommandTarget,
 };
 pub use resource_policy::{
-    PolicyOutcome, PolicyOutcomeKind, ResourcePolicyStatus, SessionResourcePolicy,
+    JobMemoryWarning, PolicyOutcome, PolicyOutcomeKind, ResourcePolicyStatus, SessionResourcePolicy,
 };
 pub use runner::{
     PortClaim, PortConflict, PortReservation, RunnerInstance, RunnerInstanceStatus,

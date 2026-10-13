@@ -13,6 +13,8 @@ fn status(session_id: &str, status: SessionStatus, updated_at: u64) -> SessionSt
         updated_at,
         osc_progress: None,
         resource_policy: None,
+        job_memory_warning: None,
+        runtime_kind: None,
     }
 }
 
@@ -137,6 +139,18 @@ fn same_status_payload_detects_relevant_changes() {
         cc_panes_core::models::ResourcePolicyStatus::unsupported("daemon too old"),
     );
     assert!(!same_status_payload(&first, &changed_policy));
+
+    // W5：越线 → 回落只改 job_memory_warning；runtime_kind 同理
+    let mut warned = first.clone();
+    warned.job_memory_warning = Some(cc_panes_core::models::JobMemoryWarning {
+        bytes: 2,
+        limit_bytes: 1,
+        at: 3,
+    });
+    assert!(!same_status_payload(&first, &warned));
+    let mut kinded = first.clone();
+    kinded.runtime_kind = Some("wsl".to_string());
+    assert!(!same_status_payload(&first, &kinded));
 }
 
 /// daemon/app 版本偏斜：0.12.21 的 daemon 发来的状态 payload 没有 oscProgress /
@@ -148,6 +162,8 @@ fn pre_0_12_22_status_payload_still_deserializes() {
     assert_eq!(parsed.session_id, "s1");
     assert!(parsed.osc_progress.is_none());
     assert!(parsed.resource_policy.is_none());
+    assert!(parsed.job_memory_warning.is_none());
+    assert!(parsed.runtime_kind.is_none());
 
     let mut current = status("s1", SessionStatus::Idle, 2);
     current.resource_policy = Some(cc_panes_core::models::ResourcePolicyStatus::unsupported(
@@ -156,6 +172,19 @@ fn pre_0_12_22_status_payload_still_deserializes() {
     let json = serde_json::to_value(&current).expect("serialize");
     assert_eq!(json["resourcePolicy"]["outcome"], "unsupported");
     assert_eq!(json["resourcePolicy"]["reason"], "daemon too old");
+    assert!(
+        json.get("jobMemoryWarning").is_none(),
+        "None must not serialize"
+    );
+    current.job_memory_warning = Some(cc_panes_core::models::JobMemoryWarning {
+        bytes: 5,
+        limit_bytes: 4,
+        at: 6,
+    });
+    current.runtime_kind = Some("local".to_string());
+    let json = serde_json::to_value(&current).expect("serialize");
+    assert_eq!(json["jobMemoryWarning"]["limitBytes"], 4);
+    assert_eq!(json["runtimeKind"], "local");
     // 往回：新 payload 给旧 app（忽略未知字段）——由 serde 默认行为保证，这里只确认字段名稳定。
     assert!(json.get("oscProgress").is_none());
 }

@@ -2,11 +2,11 @@ use crate::constants::events as EV;
 use crate::events::{EventEmitter, SessionNotifier};
 use crate::models::shared_mcp::SharedMcpConfig;
 use crate::models::{
-    CliTool, CreateSessionRequest, LaunchProfile, LaunchProfileMcpMode, LaunchProfileSkillMode,
-    LaunchProviderSelection, PolicyOutcome, ResourcePolicyStatus, SessionResourcePolicy,
-    SshConnectionInfo, StoreCheckpointOutcome, TerminalBufferMode, TerminalCheckpoint,
-    TerminalDeltaResize, TerminalExit, TerminalGeometry, TerminalOutput, TerminalOutputFlowStat,
-    TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
+    CliTool, CreateSessionRequest, JobMemoryWarning, LaunchProfile, LaunchProfileMcpMode,
+    LaunchProfileSkillMode, LaunchProviderSelection, PolicyOutcome, ResourcePolicyStatus,
+    SessionResourcePolicy, SshConnectionInfo, StoreCheckpointOutcome, TerminalBufferMode,
+    TerminalCheckpoint, TerminalDeltaResize, TerminalExit, TerminalGeometry, TerminalOutput,
+    TerminalOutputFlowStat, TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
 };
 use crate::pty::{spawn_pty, PtyConfig, PtyProcess, ReaderIoWatch};
 use crate::services::pi_rpc_service::PiManagedStateCleanup;
@@ -672,6 +672,14 @@ pub struct SessionStatusInfo {
     /// `useTerminalStatusStore.ts` 的事件去重。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resource_policy: Option<ResourcePolicyStatus>,
+    /// Job 内存通知水位越线（W5）。`None` = 未越线 / 已回落 / 未设水位 / 旧 daemon。
+    /// 同样参与两处去重。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_memory_warning: Option<JobMemoryWarning>,
+    /// 运行时种类（`local` / `wsl` / `ssh`），资源管理器据此认出 WSL 根去读 cgroup。
+    /// `None` = 旧 daemon / 已退出会话的 dead buffer。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_kind: Option<String>,
 }
 
 /// OSC 9;4 子状态（可序列化，跨界传给前端做徽章动画）。
@@ -1386,6 +1394,18 @@ pub struct TerminalService {
     /// 会话资源策略下发结果（spawn 时从 `PtySpawnResult` 带回，`set_resource_policy` 更新），
     /// 由 `build_session_status_info` 注入状态；生命周期同 `osc_progress_store`。
     resource_policy_store: Arc<parking_lot::RwLock<HashMap<String, ResourcePolicyStatus>>>,
+    /// Job 内存通知越线（W5）：完成端口监听线程写入、`clear_job_memory_warning` 清除并
+    /// 重新武装水位；生命周期同上两个旁路存储。
+    job_memory_warning_store: Arc<parking_lot::RwLock<HashMap<String, JobMemoryWarning>>>,
+}
+
+/// Job 越线回调推状态时需要的会话上下文；spawn 之后才齐，故用 OnceLock 延迟填充。
+/// 回调在上下文就位前触发（理论上只有微秒级窗口）就只落存储不推事件，由下一次
+/// 常规状态发射自然带出。
+struct JobMemoryEmitContext {
+    status: Arc<Mutex<SessionStatus>>,
+    pid: u32,
+    runtime_kind: String,
 }
 
 struct SshAuthRuntime {
@@ -1762,8 +1782,11 @@ fn build_session_status_info(
     state_machine: Option<&Arc<crate::services::SessionStateMachine>>,
     osc_store: Option<&parking_lot::RwLock<HashMap<String, OscProgressEntry>>>,
     policy_store: Option<&parking_lot::RwLock<HashMap<String, ResourcePolicyStatus>>>,
+    memory_store: Option<&parking_lot::RwLock<HashMap<String, JobMemoryWarning>>>,
+    runtime_kind: Option<&str>,
 ) -> SessionStatusInfo {
     let resource_policy = policy_store.and_then(|store| store.read().get(&session_id).cloned());
+    let job_memory_warning = memory_store.and_then(|store| store.read().get(&session_id).copied());
     let snapshot = state_machine.and_then(|sm| sm.snapshot(&session_id));
     let effective_status = state_machine
         .map(|sm| sm.status_for_query(&session_id, status))
@@ -1805,6 +1828,8 @@ fn build_session_status_info(
             .unwrap_or(last_output_at),
         osc_progress,
         resource_policy,
+        job_memory_warning,
+        runtime_kind: runtime_kind.map(str::to_string),
     }
 }
 
@@ -1885,6 +1910,7 @@ impl TerminalService {
             input_mutexes: Arc::new(Mutex::new(HashMap::new())),
             osc_progress_store: Arc::new(parking_lot::RwLock::new(HashMap::new())),
             resource_policy_store: Arc::new(parking_lot::RwLock::new(HashMap::new())),
+            job_memory_warning_store: Arc::new(parking_lot::RwLock::new(HashMap::new())),
         }
     }
 
@@ -3593,11 +3619,29 @@ impl TerminalService {
         let (pty_cwd, pty_command, pty_args) = (cwd.clone(), command, args);
 
         // 资源策略随会话启动一次性下发（docs/71）：让窗格里的 cargo/rg 抢不过 UI。
-        let resource_policy = self
+        let mut resource_policy = self
             .settings_service
             .get_settings()
             .terminal
             .resource_policy();
+        // W5：Job 内存**通知**水位 = 百分比 × 物理内存，只对本机进程树有意义
+        // （WSL 根是 wsl.exe、SSH 没有本机进程）。0% = 关。
+        let job_memory_emit_ctx: Arc<std::sync::OnceLock<JobMemoryEmitContext>> =
+            Arc::new(std::sync::OnceLock::new());
+        let on_job_memory_notify = if ssh.is_none() && wsl.is_none() {
+            resource_policy.memory_notify_bytes = SessionResourcePolicy::memory_notify_bytes_for(
+                performance_settings.job_memory_notify_percent,
+                crate::models::performance_settings::total_memory_bytes(),
+            );
+            resource_policy.memory_notify_bytes.map(|_| {
+                self.job_memory_notify_callback(
+                    session_id.clone(),
+                    Arc::clone(&job_memory_emit_ctx),
+                )
+            })
+        } else {
+            None
+        };
 
         let config = PtyConfig {
             cols,
@@ -3608,6 +3652,7 @@ impl TerminalService {
             env: env_vars,
             env_remove,
             resource_policy,
+            on_job_memory_notify,
         };
 
         log_launch_stage(
@@ -3730,6 +3775,11 @@ impl TerminalService {
 
         // 状态追踪
         let status = Arc::new(Mutex::new(SessionStatus::Active));
+        let _ = job_memory_emit_ctx.set(JobMemoryEmitContext {
+            status: Arc::clone(&status),
+            pid: process.pid(),
+            runtime_kind: runtime_kind.to_string(),
+        });
         let hook_updated_at = Arc::new(Mutex::new(None));
         let exit_code = Arc::new(Mutex::new(None));
         let last_output_at = Arc::new(Mutex::new(Instant::now()));
@@ -4043,6 +4093,8 @@ impl TerminalService {
         // F5：OSC 9;4 徽章旁路存储 clone 进 read 线程（Progress 信号落盘点）
         let read_osc_store = Arc::clone(&self.osc_progress_store);
         let read_policy_store = Arc::clone(&self.resource_policy_store);
+        let read_memory_store = Arc::clone(&self.job_memory_warning_store);
+        let read_runtime_kind = runtime_kind.to_string();
         let osc_state_machine = read_state_machine.clone().unwrap_or_else(|| {
             osc_fallback_state_machine(
                 read_status.clone(),
@@ -4356,6 +4408,8 @@ impl TerminalService {
                                         read_state_machine.as_ref(),
                                         Some(&read_osc_store),
                                         Some(&read_policy_store),
+                                        Some(&read_memory_store),
+                                        Some(read_runtime_kind.as_str()),
                                     ))
                                     .unwrap_or_default(),
                                 );
@@ -4426,6 +4480,8 @@ impl TerminalService {
         // F5：徽章旁路存储 clone 进 wait 线程（退出时清条目 + 最终状态注入）
         let wait_osc_store = Arc::clone(&self.osc_progress_store);
         let wait_policy_store = Arc::clone(&self.resource_policy_store);
+        let wait_memory_store = Arc::clone(&self.job_memory_warning_store);
+        let wait_runtime_kind = runtime_kind.to_string();
         let wait_app_paths = self.app_paths.clone();
         crate::pty::thread::spawn_named("cc-panes-pty-wait", move || {
             let waited_exit_code = match process_for_wait.wait() {
@@ -4527,6 +4583,7 @@ impl TerminalService {
             // F5：会话结束清掉徽章旁路条目，最终状态 emit 自然带 None
             wait_osc_store.write().remove(&sid);
             wait_policy_store.write().remove(&sid);
+            wait_memory_store.write().remove(&sid);
 
             let archive_lines = wait_output_buffer.lock().map(|buffer| buffer.get_recent(0));
             if let Ok(lines) = archive_lines {
@@ -4564,6 +4621,8 @@ impl TerminalService {
                         wait_state_machine.as_ref(),
                         Some(&wait_osc_store),
                         Some(&wait_policy_store),
+                        Some(&wait_memory_store),
+                        Some(wait_runtime_kind.as_str()),
                     ))
                     .unwrap_or_default(),
                 );
@@ -4801,6 +4860,8 @@ impl TerminalService {
                         .as_ref(),
                     Some(&self.osc_progress_store),
                     Some(&self.resource_policy_store),
+                    Some(&self.job_memory_warning_store),
+                    Some(session.runtime_kind.as_str()),
                 )
             })
             .collect())
@@ -4837,6 +4898,8 @@ impl TerminalService {
                         .as_ref(),
                     Some(&self.osc_progress_store),
                     Some(&self.resource_policy_store),
+                    Some(&self.job_memory_warning_store),
+                    Some(session.runtime_kind.as_str()),
                 )));
             }
         }
@@ -4864,6 +4927,8 @@ impl TerminalService {
                     .as_ref(),
                 Some(&self.osc_progress_store),
                 Some(&self.resource_policy_store),
+                Some(&self.job_memory_warning_store),
+                None,
             )
         }))
     }
@@ -4877,7 +4942,7 @@ impl TerminalService {
         session_id: &str,
         policy: SessionResourcePolicy,
     ) -> AppResult<ResourcePolicyStatus> {
-        let (process, status, pid) = {
+        let (process, status, pid, runtime_kind) = {
             let sessions = self
                 .sessions
                 .lock()
@@ -4888,7 +4953,12 @@ impl TerminalService {
                 )));
             };
             let status = *session.status.lock().unwrap_or_else(|e| e.into_inner());
-            (Arc::clone(&session.process), status, session.process.pid())
+            (
+                Arc::clone(&session.process),
+                status,
+                session.process.pid(),
+                session.runtime_kind.clone(),
+            )
         };
         let outcome = match process.set_resource_policy(&policy) {
             Ok(outcome) => outcome,
@@ -4921,11 +4991,123 @@ impl TerminalService {
                         .as_ref(),
                     Some(&self.osc_progress_store),
                     Some(&self.resource_policy_store),
+                    Some(&self.job_memory_warning_store),
+                    Some(runtime_kind.as_str()),
                 ))
                 .unwrap_or_default(),
             );
         }
         Ok(result)
+    }
+
+    /// 树内存已回落（调用方按 [`JobMemoryWarning::recovered_by`] 判定）：清掉越线条目、
+    /// 重新武装通知水位、推一次 TERMINAL_STATUS 让徽标消失。返回是否确有条目被清。
+    ///
+    /// 会话不存在时也清条目（退出竞态），但不报错。
+    pub fn clear_job_memory_warning(&self, session_id: &str) -> AppResult<bool> {
+        let removed = self
+            .job_memory_warning_store
+            .write()
+            .remove(session_id)
+            .is_some();
+        if !removed {
+            return Ok(false);
+        }
+        let Some((process, status, pid, runtime_kind)) = ({
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| AppError::from("sessions lock poisoned"))?;
+            sessions.get(session_id).map(|session| {
+                (
+                    Arc::clone(&session.process),
+                    *session.status.lock().unwrap_or_else(|e| e.into_inner()),
+                    session.process.pid(),
+                    session.runtime_kind.clone(),
+                )
+            })
+        }) else {
+            return Ok(true);
+        };
+        if let Err(error) = process.rearm_job_memory_notify() {
+            warn!(session_id, %error, "[terminal] job memory notify re-arm failed");
+        }
+        info!(session_id, "[terminal] job memory warning cleared");
+        if let Some(emitter) = self.emitter.read().as_ref() {
+            let _ = emitter.emit(
+                EV::TERMINAL_STATUS,
+                serde_json::to_value(build_session_status_info(
+                    session_id.to_string(),
+                    status,
+                    current_epoch_millis(),
+                    Some(pid),
+                    None,
+                    self.state_machine
+                        .lock()
+                        .ok()
+                        .and_then(|guard| guard.as_ref().cloned())
+                        .as_ref(),
+                    Some(&self.osc_progress_store),
+                    Some(&self.resource_policy_store),
+                    Some(&self.job_memory_warning_store),
+                    Some(runtime_kind.as_str()),
+                ))
+                .unwrap_or_default(),
+            );
+        }
+        Ok(true)
+    }
+
+    /// 构造 Job 内存越线回调：落 `job_memory_warning_store` 并立即推一次 TERMINAL_STATUS。
+    /// 在完成端口监听线程上执行，**不得**拿 `sessions` 锁之外的重锁、不得阻塞。
+    fn job_memory_notify_callback(
+        &self,
+        session_id: String,
+        emit_ctx: Arc<std::sync::OnceLock<JobMemoryEmitContext>>,
+    ) -> crate::pty::JobMemoryCallback {
+        let memory_store = Arc::clone(&self.job_memory_warning_store);
+        let osc_store = Arc::clone(&self.osc_progress_store);
+        let policy_store = Arc::clone(&self.resource_policy_store);
+        let emitter = self.emitter.read().clone();
+        let state_machine = self
+            .state_machine
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().cloned());
+        Arc::new(move |event: crate::pty::JobMemoryNotification| {
+            let warning = JobMemoryWarning {
+                bytes: event.bytes,
+                limit_bytes: event.limit_bytes,
+                at: current_epoch_millis(),
+            };
+            memory_store.write().insert(session_id.clone(), warning);
+            warn!(
+                session_id = %session_id,
+                bytes = event.bytes,
+                limit_bytes = event.limit_bytes,
+                "[terminal] job memory notify limit exceeded (observation only, build continues)"
+            );
+            let (Some(emitter), Some(ctx)) = (emitter.as_ref(), emit_ctx.get()) else {
+                return;
+            };
+            let status = *ctx.status.lock().unwrap_or_else(|e| e.into_inner());
+            let _ = emitter.emit(
+                EV::TERMINAL_STATUS,
+                serde_json::to_value(build_session_status_info(
+                    session_id.clone(),
+                    status,
+                    current_epoch_millis(),
+                    Some(ctx.pid),
+                    None,
+                    state_machine.as_ref(),
+                    Some(&osc_store),
+                    Some(&policy_store),
+                    Some(&memory_store),
+                    Some(ctx.runtime_kind.as_str()),
+                ))
+                .unwrap_or_default(),
+            );
+        })
     }
 
     pub fn terminal_link_context(
@@ -5205,6 +5387,7 @@ impl TerminalService {
         // F5：kill 路径同步清徽章旁路条目（wait 线程只覆盖自然退出）
         self.osc_progress_store.write().remove(session_id);
         self.resource_policy_store.write().remove(session_id);
+        self.job_memory_warning_store.write().remove(session_id);
         wsl_codex::cleanup_session_mcp_configs(self.app_paths.data_dir(), session_id);
 
         if let Some(session) = session {
@@ -5904,7 +6087,7 @@ impl TerminalService {
     /// 这是端到端能通的关键：状态机内部更新后必须落到 session 上，前端才能看到。
     /// 找不到 session（已退出 / 不存在）静默忽略。
     pub fn apply_hook_status(&self, session_id: &str, new_status: SessionStatus) {
-        let pid = {
+        let (pid, runtime_kind) = {
             let Ok(sessions) = self.sessions.lock() else {
                 return;
             };
@@ -5919,7 +6102,7 @@ impl TerminalService {
                     .lock()
                     .unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
             }
-            session.process.pid()
+            (session.process.pid(), session.runtime_kind.clone())
         };
 
         // 推给前端（仿 PTY read 线程的 emit 节流块，但这里不节流，hook 事件本身就是节点）
@@ -5940,6 +6123,8 @@ impl TerminalService {
                             .as_ref(),
                         Some(&self.osc_progress_store),
                         Some(&self.resource_policy_store),
+                        Some(&self.job_memory_warning_store),
+                        Some(runtime_kind.as_str()),
                     ))
                     .unwrap_or_default(),
                 );

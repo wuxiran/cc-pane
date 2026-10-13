@@ -216,6 +216,14 @@ impl PerformanceSettings {
     }
 }
 
+/// 物理内存总量（字节）。Job 内存通知水位 = `job_memory_notify_percent` × 本值，
+/// 在 spawn 时算一次。拿不到时返回 0，调用方据此不设水位。
+pub fn total_memory_bytes() -> u64 {
+    let mut system = sysinfo::System::new();
+    system.refresh_memory();
+    system.total_memory()
+}
+
 /// 当前机器的逻辑核数（拿不到时按 1 处理，让所有 `effective_*` 落到下限）。
 pub fn logical_cores() -> u32 {
     std::thread::available_parallelism()

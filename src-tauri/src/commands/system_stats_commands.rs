@@ -6,7 +6,9 @@ use cc_panes_core::services::SystemStatsService;
 use std::sync::Arc;
 use tauri::State;
 
-use crate::services::heavy_command_sampler::session_roots;
+use crate::services::heavy_command_sampler::{
+    clear_recovered_job_memory_warnings, job_memory_warnings_of, session_roots,
+};
 use crate::services::TerminalBackendState;
 
 async fn get_system_stats_from(service: Arc<SystemStatsService>) -> AppResult<SystemStats> {
@@ -33,11 +35,21 @@ pub async fn get_resource_tree(
     stats_service: State<'_, Arc<SystemStatsService>>,
     terminal_backend: State<'_, Arc<TerminalBackendState>>,
 ) -> AppResult<ResourceTree> {
-    let roots = session_roots(terminal_backend.backend().get_all_status()?);
+    let backend = terminal_backend.backend();
+    let statuses = backend.get_all_status()?;
+    let warnings = job_memory_warnings_of(&statuses);
+    let roots = session_roots(statuses);
     let service = stats_service.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || service.get_resource_tree(&roots))
-        .await
-        .map_err(|error| AppError::from(error.to_string()))
+    tauri::async_runtime::spawn_blocking(move || {
+        let tree = service.get_resource_tree(&roots);
+        // W5：弹层刷新也是一次树采样，顺手清掉已回落的 Job 内存告警（不另起轮询）。
+        if !warnings.is_empty() {
+            clear_recovered_job_memory_warnings(backend.as_ref(), &warnings, &tree.sessions);
+        }
+        tree
+    })
+    .await
+    .map_err(|error| AppError::from(error.to_string()))
 }
 
 #[tauri::command]
@@ -88,6 +100,8 @@ mod tests {
             updated_at: 0,
             osc_progress: None,
             resource_policy: None,
+            job_memory_warning: None,
+            runtime_kind: None,
         }
     }
 

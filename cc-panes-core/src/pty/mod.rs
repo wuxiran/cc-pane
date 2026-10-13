@@ -10,7 +10,9 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
 #[cfg(windows)]
 mod job;
+pub mod job_events;
 mod read_watch;
+pub use job_events::{JobMemoryCallback, JobMemoryNotification};
 pub mod thread;
 pub use read_watch::ReaderIoWatch;
 use std::collections::HashMap;
@@ -35,6 +37,9 @@ pub struct PtyConfig {
     /// 刻意不给 `PtyConfig` 加 `Default`：`cols`/`rows` 默认 0 会 spawn 出 0×0
     /// 终端，是个安静的陷阱。字面量构造点只有 3 处，显式写出来更安全。
     pub resource_policy: SessionResourcePolicy,
+    /// Job 内存通知水位越线回调（W5）。只有 `resource_policy.memory_notify_bytes` 为
+    /// `Some` 且本字段为 `Some` 时才登记完成端口；非 Windows 忽略。
+    pub on_job_memory_notify: Option<JobMemoryCallback>,
 }
 
 /// PTY 创建后返回的三件套（所有权一次性转移）
@@ -63,6 +68,12 @@ pub trait PtyProcess: Send + Sync {
     /// 默认返回 `Unsupported`，实现者按需覆盖——这样新增实现不会被迫关心资源策略。
     fn set_resource_policy(&self, _policy: &SessionResourcePolicy) -> Result<PolicyOutcome> {
         Ok(PolicyOutcome::Unsupported)
+    }
+
+    /// 重新武装 Job 内存通知水位（通知限每次 set 只触发一次）。上层确认树内存回落后
+    /// 调用。默认 no-op：非 Windows / SSH / 测试桩没有水位可重设。
+    fn rearm_job_memory_notify(&self) -> Result<()> {
+        Ok(())
     }
 
     /// tty 是否处在**真 cooked 模式**（`ECHO` 且 `ICANON` 同时开着）。
@@ -170,6 +181,16 @@ impl PtyProcess for PortablePtyProcess {
         drop(master);
     }
 
+    fn rearm_job_memory_notify(&self) -> Result<()> {
+        #[cfg(windows)]
+        {
+            if let Some(job) = self.job.as_ref() {
+                return job.rearm_memory_notify();
+            }
+        }
+        Ok(())
+    }
+
     fn set_resource_policy(&self, policy: &SessionResourcePolicy) -> Result<PolicyOutcome> {
         #[cfg(windows)]
         {
@@ -250,6 +271,8 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
     validate_spawn_cwd(&config.cwd).map_err(anyhow::Error::new)?;
     #[cfg_attr(not(any(windows, unix)), allow(unused_variables))]
     let policy = config.resource_policy;
+    #[cfg_attr(not(windows), allow(unused_variables))]
+    let on_job_memory_notify = config.on_job_memory_notify;
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows: config.rows,
@@ -290,7 +313,7 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
     // 资源策略在同一处下发，但失败只降级、不影响孤儿防护（见 job::create_for_with_policy）。
     #[cfg(windows)]
     let (job, policy_outcome) = if pid != 0 {
-        match job::ProcessJob::create_for_with_policy(pid, &policy) {
+        match job::ProcessJob::create_for_with_policy(pid, &policy, on_job_memory_notify) {
             Ok((j, outcome)) => {
                 // 降级必须可见：静默失败 = 用户以为限制生效、实际裸奔（docs/45 教训）。
                 // 日志之外还随 PtySpawnResult 带回，进 SessionStatusInfo 给前端看。
@@ -417,6 +440,7 @@ mod tests {
             env: HashMap::new(),
             env_remove: Vec::new(),
             resource_policy: crate::models::SessionResourcePolicy::default(),
+            on_job_memory_notify: None,
         }
     }
 
@@ -453,6 +477,7 @@ mod tests {
             env: HashMap::new(),
             env_remove: Vec::new(),
             resource_policy: crate::models::SessionResourcePolicy::default(),
+            on_job_memory_notify: None,
         })
         .expect("spawn pty");
 
@@ -643,6 +668,7 @@ mod completion_tests {
                     env: HashMap::new(),
                     env_remove: vec![],
                     resource_policy: SessionResourcePolicy::default(),
+                    on_job_memory_notify: None,
                 })?;
                 let mut reader = spawned.reader;
                 let reading = std::thread::spawn(move || {

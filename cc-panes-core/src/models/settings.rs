@@ -618,6 +618,8 @@ impl TerminalSettings {
             // 效率模式不做默认策略：EcoQoS 逐进程下发、后生子进程不继承，只在用户点
             // "效率模式"或 W8 拿槽时按需开。
             eco_qos: false,
+            // 通知水位由 create_session 按 [performance] 与物理内存现算，不在这里。
+            memory_notify_bytes: None,
         }
     }
 }

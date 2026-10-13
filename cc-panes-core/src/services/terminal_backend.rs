@@ -193,6 +193,11 @@ pub trait TerminalBackend: Send + Sync {
             "resource policy not supported by this backend",
         ))
     }
+    /// 树内存回落后清掉 Job 内存越线告警并重新武装水位（W5）。返回是否确有告警被清。
+    /// 默认 `Ok(false)`：不管本机进程的后端没有告警可清。
+    fn clear_job_memory_warning(&self, _session_id: &str) -> AppResult<bool> {
+        Ok(false)
+    }
     fn event_stream_url(&self, _session_id: &str) -> Option<String> {
         None
     }
@@ -605,6 +610,10 @@ impl TerminalBackend for TerminalService {
         TerminalService::set_resource_policy(self, session_id, policy)
     }
 
+    fn clear_job_memory_warning(&self, session_id: &str) -> AppResult<bool> {
+        TerminalService::clear_job_memory_warning(self, session_id)
+    }
+
     fn terminal_link_context(&self, session_id: &str) -> AppResult<Option<TerminalLinkContext>> {
         TerminalService::terminal_link_context(self, session_id)
     }
@@ -757,6 +766,13 @@ impl TerminalBackend for InProcessTerminalBackend {
             self.service.as_ref(),
             session_id,
             policy,
+        )
+    }
+
+    fn clear_job_memory_warning(&self, session_id: &str) -> AppResult<bool> {
+        <TerminalService as TerminalBackend>::clear_job_memory_warning(
+            self.service.as_ref(),
+            session_id,
         )
     }
 
@@ -992,6 +1008,10 @@ impl TerminalBackend for DaemonTerminalBackend {
         policy: SessionResourcePolicy,
     ) -> AppResult<ResourcePolicyStatus> {
         self.client.set_resource_policy(session_id, &policy)
+    }
+
+    fn clear_job_memory_warning(&self, session_id: &str) -> AppResult<bool> {
+        self.client.clear_job_memory_warning(session_id)
     }
 
     fn event_stream_url(&self, session_id: &str) -> Option<String> {

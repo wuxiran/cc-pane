@@ -65,6 +65,8 @@ impl TerminalBackend for NoopTerminalBackend {
             updated_at: 0,
             osc_progress: None,
             resource_policy: None,
+            job_memory_warning: None,
+            runtime_kind: None,
         }])
     }
 

@@ -757,6 +757,9 @@ fn same_status_payload(left: &SessionStatusInfo, right: &SessionStatusInfo) -> b
         && left.osc_progress == right.osc_progress
         // 0.12.22：策略三态切换只改这一字段，漏比则 popover 永远看不到"已降级"
         && left.resource_policy == right.resource_policy
+        // W5：越线/回落只改这一字段，漏比则徽标永远不亮或永远不灭
+        && left.job_memory_warning == right.job_memory_warning
+        && left.runtime_kind == right.runtime_kind
 }
 
 fn synthesized_exited_status(session_id: &str) -> SessionStatusInfo {
@@ -780,6 +783,8 @@ fn synthesized_exited_status_with_code(
         updated_at: now,
         osc_progress: None,
         resource_policy: None,
+        job_memory_warning: None,
+        runtime_kind: None,
     }
 }
 
