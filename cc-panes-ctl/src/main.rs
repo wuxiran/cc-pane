@@ -19,7 +19,10 @@ fn main() {
         }
     };
     if let Err(error) = execute(cli) {
-        eprintln!("错误: {}", error.message);
+        // `run` 透传子进程退出码时 message 为空：子进程已经说过话了，别再加一行。
+        if !error.message.is_empty() {
+            eprintln!("错误: {}", error.message);
+        }
         std::process::exit(error.code);
     }
 }
