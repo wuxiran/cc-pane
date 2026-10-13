@@ -1672,6 +1672,9 @@ pub fn run() {
     let mcp_tool_call_stats_repo = Arc::new(
         cc_panes_core::repository::McpToolCallStatsRepository::new(db.clone()),
     );
+    let heavy_commands_repo = Arc::new(cc_panes_core::repository::HeavyCommandsRepository::new(
+        db.clone(),
+    ));
     let launch_history_service = Arc::new(LaunchHistoryService::new(history_repo));
     let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
     let todo_service = Arc::new(TodoService::new(todo_repo));
@@ -1965,6 +1968,7 @@ pub fn run() {
         .manage(task_queue_service)
         .manage(ai_panel_repo)
         .manage(mcp_tool_call_stats_repo)
+        .manage(heavy_commands_repo)
         .manage(spec_service)
         .manage(mcp_config_service)
         .manage(skill_service)
@@ -2344,6 +2348,24 @@ pub fn run() {
                         app.manage(recorder);
                     }
                     Err(error) => warn!(%error, "performance recorder directory unavailable"),
+                }
+                // 重负载命令台账（docs/107 P2b）：hook 记录器 + 边沿触发采样器。
+                // 两者各自持独立 SystemStatsService / 线程，不与弹层、recorder 共享实例。
+                {
+                    let heavy_recorder = services::HeavyCommandRecorder::start(
+                        app.state::<Arc<cc_panes_core::repository::HeavyCommandsRepository>>()
+                            .inner()
+                            .clone(),
+                        app.state::<Arc<SettingsService>>().inner().clone(),
+                    );
+                    let heavy_sampler = services::HeavyCommandSampler::start(
+                        heavy_recorder.clone(),
+                        app.state::<Arc<SettingsService>>().inner().clone(),
+                        app.state::<Arc<TerminalBackendState>>().inner().clone(),
+                        app_handle.clone(),
+                    );
+                    app.manage(heavy_recorder);
+                    app.manage(heavy_sampler);
                 }
                 let tauri_emitter: std::sync::Arc<dyn cc_panes_core::events::EventEmitter> =
                     Arc::new(TauriEmitter::new(app_handle.clone()));
@@ -2978,6 +3000,11 @@ pub fn run() {
             get_all_terminal_status,
             get_bridge_stats,
             commands::record_performance_snapshot,
+            // 重负载命令台账
+            commands::list_heavy_commands,
+            commands::aggregate_heavy_commands,
+            commands::clear_heavy_commands,
+            commands::get_heavy_sampler_stats,
             commands::get_performance_recorder_status,
             commands::mark_performance_incident,
             get_available_shells,

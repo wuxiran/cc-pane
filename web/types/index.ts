@@ -292,6 +292,14 @@ export type {
   TruncatedProcessSummary,
 } from "./systemStats";
 export type {
+  HeavyCommandAggregate,
+  HeavyCommandQuery,
+  HeavyCommandRecord,
+  HeavyCommandSource,
+  HeavySamplerStats,
+  HeavySessionUsagePayload,
+} from "./heavyCommand";
+export type {
   BridgeMode,
   SharedMcpServerConfig,
   SharedMcpServerStatus,

@@ -1,9 +1,10 @@
 use crate::utils::{AppError, AppResult};
-use cc_panes_core::models::{KillProcessResult, ManagedSessionRoot, ResourceTree, SystemStats};
-use cc_panes_core::services::{SessionStatusInfo, SystemStatsService};
+use cc_panes_core::models::{KillProcessResult, ResourceTree, SystemStats};
+use cc_panes_core::services::SystemStatsService;
 use std::sync::Arc;
 use tauri::State;
 
+use crate::services::heavy_command_sampler::session_roots;
 use crate::services::TerminalBackendState;
 
 async fn get_system_stats_from(service: Arc<SystemStatsService>) -> AppResult<SystemStats> {
@@ -23,19 +24,6 @@ pub async fn get_system_stats(
     service: State<'_, Arc<SystemStatsService>>,
 ) -> AppResult<SystemStats> {
     get_system_stats_from(service.inner().clone()).await
-}
-
-fn session_roots(statuses: Vec<SessionStatusInfo>) -> Vec<ManagedSessionRoot> {
-    statuses
-        .into_iter()
-        .filter(|status| !status.status.is_terminal())
-        .filter_map(|status| {
-            status.pid.map(|root_pid| ManagedSessionRoot {
-                session_id: status.session_id,
-                root_pid,
-            })
-        })
-        .collect()
 }
 
 #[tauri::command]
@@ -66,8 +54,9 @@ pub async fn kill_orphan_processes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cc_panes_core::models::ManagedSessionRoot;
     use cc_panes_core::services::terminal_service::SessionStatus;
-    use cc_panes_core::services::SystemStatsService;
+    use cc_panes_core::services::{SessionStatusInfo, SystemStatsService};
     use std::sync::Arc;
 
     fn status(session_id: &str, status: SessionStatus, pid: Option<u32>) -> SessionStatusInfo {

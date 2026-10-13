@@ -19,6 +19,7 @@ mod external_skill_registry;
 pub mod external_usage_session_service;
 mod filesystem_service;
 mod git_service;
+pub mod heavy_command_normalize;
 mod history_service;
 mod history_watch_manager;
 mod journal_service;

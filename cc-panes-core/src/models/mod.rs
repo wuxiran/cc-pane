@@ -7,6 +7,7 @@ pub mod dsh;
 pub mod external_skill;
 pub mod filesystem;
 pub mod git;
+pub mod heavy_command;
 mod history;
 pub mod launch_profile;
 pub mod layout_snapshot;
@@ -62,6 +63,10 @@ pub use git::{
     GitConflictStage, GitConflictStageKind, GitConflictSummary, GitConflictVersions, GitDiffSpec,
     GitLogPage, GitLogQuery, GitMergeState, GitRepoInfo, GitRepoState, GitResolveConflictRequest,
     GitResolveConflictResult,
+};
+pub use heavy_command::{
+    HeavyCommandAggregate, HeavyCommandQuery, HeavyCommandRecord, HeavyCommandSource, HeavyEpisode,
+    HeavySamplerStats, HeavySessionContext, NewHeavyCommand,
 };
 pub use history::{
     // Diff 模型

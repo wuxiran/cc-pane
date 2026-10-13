@@ -1,9 +1,10 @@
 import { ChevronDown, ChevronRight, RefreshCw, SquareTerminal, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { usePanelResize } from "@/hooks/usePanelResize";
 import { usePanelPreferencesStore, type ResourceSortMode } from "@/stores/usePanelPreferencesStore";
 import { sortResourceGroups } from "./resourceSorting";
+import { HeavyCommandsTab } from "./HeavyCommandsTab";
 
 import StatusIndicator from "@/components/StatusIndicator";
 import { Button } from "@/components/ui/button";
@@ -59,6 +60,9 @@ interface SystemResourcePopoverProps {
   onKillOrphans: () => void;
 }
 
+/** 弹层标签：进程视图（原有）/ 最贵命令（台账聚合，只在打开时拉取）。 */
+export type ResourcePopoverTab = "processes" | "commands";
+
 function formatGib(bytes: number): string {
   const value = Math.round((bytes / 1024 ** 3) * 10) / 10;
   return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
@@ -99,6 +103,7 @@ export function SystemResourcePopover({
   const setSort = usePanelPreferencesStore(s => s.setResourceSort);
   const resize = usePanelResize({ element: panelRef, width, min: 430, max: 960, direction: -1, onCommit: setWidth });
   const displayGroups = useMemo(() => sortResourceGroups(groups, sort, t("resourceTopUsage")), [groups, sort, t]);
+  const [tab, setTab] = useState<ResourcePopoverTab>("processes");
 
   return (
     <PopoverContent ref={panelRef} side="top" align="end" sideOffset={6} className="relative p-0" style={{ width, maxWidth: "calc(100vw - 16px)" }}>
@@ -125,12 +130,33 @@ export function SystemResourcePopover({
         </IconTooltipButton>
       </div>
 
-      <div className="flex items-center justify-end border-b border-[var(--app-border)] px-3 py-1">
-        <select aria-label={t("resourceSort")} value={sort} onChange={e => setSort(e.target.value as ResourceSortMode)} className="rounded bg-[var(--app-panel-bg)] px-2 py-1 text-xs">
-          <option value="group">{t("resourceSortGroup")}</option><option value="cpu">{t("resourceSortCpu")}</option><option value="memory">{t("resourceSortMemory")}</option>
-        </select>
+      <div className="flex items-center gap-1 border-b border-[var(--app-border)] px-3 py-1">
+        <div role="tablist" aria-label={t("resourceTabs")} className="flex flex-1 items-center gap-1">
+          {(["processes", "commands"] as const).map((id) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              className={`rounded px-2 py-1 text-xs ${tab === id ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]" : "text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"}`}
+              onClick={() => setTab(id)}
+            >
+              {t(id === "processes" ? "resourceTabProcesses" : "resourceTabCommands")}
+            </button>
+          ))}
+        </div>
+        {tab === "processes" && (
+          <select aria-label={t("resourceSort")} value={sort} onChange={e => setSort(e.target.value as ResourceSortMode)} className="rounded bg-[var(--app-panel-bg)] px-2 py-1 text-xs">
+            <option value="group">{t("resourceSortGroup")}</option><option value="cpu">{t("resourceSortCpu")}</option><option value="memory">{t("resourceSortMemory")}</option>
+          </select>
+        )}
       </div>
 
+      {tab === "commands" ? (
+        <div className="max-h-[430px] overflow-y-auto">
+          <HeavyCommandsTab active />
+        </div>
+      ) : (
       <div className="max-h-[430px] overflow-y-auto p-2">
         <div className="mb-1 px-1 text-[11px] font-semibold text-[var(--app-text-tertiary)]">
           {t("resourceManagerManagedSessions")}
@@ -331,6 +357,7 @@ export function SystemResourcePopover({
           ))}
         </div>
       </div>
+      )}
     </PopoverContent>
   );
 }

@@ -11696,6 +11696,15 @@ async fn handle_hook_event(
         }
     };
 
+    // 重负载命令台账（docs/107 P2b）：Bash 的 ToolBefore/ToolAfter 在状态机之前入队。
+    // 微秒级 try_send，不等 SQLite；recorder 未起（极早期）时直接跳过。
+    if let Some(recorder) = state
+        .app_handle
+        .try_state::<Arc<crate::services::HeavyCommandRecorder>>()
+    {
+        recorder.record_hook_event(&req.pty_session_id, &event, &req.payload);
+    }
+
     let (from, to) = state.session_state_machine.on_event(
         &req.pty_session_id,
         &event,

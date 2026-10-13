@@ -19,8 +19,6 @@ const LEGACY_HOOK_BINARY_NAME: &str = "cc-panes-hook";
 const TOOL_UNSUPPORTED_ON_WINDOWS: &str = "Codex project hooks are not supported on Windows.";
 const DOT_CODEX_FILE_CONFLICT: &str =
     "Project root contains a file named .codex, so Codex project hooks cannot be configured.";
-const PLAN_ARCHIVE_UNSUPPORTED: &str =
-    "Codex does not support CC-Panes plan archive yet; only session-start is available.";
 const CC_PANE_EVENT_UNSUPPORTED: &str =
     "Codex CLI does not expose this hook event yet. Only SessionStart and PostToolUse are usable.";
 const CCPANES_CODEX_API_KEY_ENV: &str = "CCPANES_CODEX_API_KEY";
@@ -56,9 +54,11 @@ const HOOK_DEFS: &[HookDef] = &[
         event: "PostToolUse",
         matcher: "Bash",
         timeout: 5,
-        label: "Plan Archive",
-        supported: false,
-        reason: Some(PLAN_ARCHIVE_UNSUPPORTED),
+        // 0.12.22：翻开 PostToolUse。payload 经 /api/hook-event 进 orchestrator，
+        // 重负载命令台账靠它记录 Bash 命令（Codex 没有 PreToolUse，时长由采样器补）。
+        label: "Tool After",
+        supported: true,
+        reason: None,
     },
 ];
 
@@ -1546,7 +1546,7 @@ printf '%s\n%s\n%s\n' "$(wslpath -w "$cfg")" "$cwd" "$(wslpath -w "$cwd/.git")""
                         "type": "command",
                         "command": command,
                         "timeout": def.timeout,
-                        "statusMessage": "Loading CC-Panes context"
+                        "statusMessage": "CC-Panes hook"
                     }]
                 });
                 Self::merge_hook_entry(hooks_obj, def.event, entry);
@@ -1928,8 +1928,13 @@ mod tests {
             .unwrap();
         assert!(session.enabled);
         assert!(session.supported);
-        assert!(!plan.supported);
-        assert_eq!(plan.reason.as_deref(), Some(PLAN_ARCHIVE_UNSUPPORTED));
+        // 0.12.22：PostToolUse 已翻开（台账记录 Bash 命令），hooks.json 里必须出现。
+        assert!(plan.supported);
+        assert!(plan.enabled);
+        assert!(plan.reason.is_none());
+        assert!(hooks.contains("PostToolUse"));
+        assert!(hooks.contains("tool-after"));
+        assert!(!hooks.contains("Loading CC-Panes context"));
     }
 
     #[test]

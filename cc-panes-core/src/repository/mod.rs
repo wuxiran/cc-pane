@@ -1,6 +1,7 @@
 mod ai_panel_repo;
 mod db;
 mod drama_repo;
+mod heavy_commands_repo;
 mod history_file_repo;
 mod history_repo;
 mod layout_snapshot_repo;
@@ -19,6 +20,7 @@ mod usage_stats_repo;
 pub use ai_panel_repo::AiPanelRepository;
 pub use db::Database;
 pub use drama_repo::DramaRepository;
+pub use heavy_commands_repo::HeavyCommandsRepository;
 pub use history_file_repo::HistoryFileRepository;
 pub use history_repo::{HistoryRepository, LaunchRecord, SessionStartedUpsertResult};
 pub use layout_snapshot_repo::LayoutSnapshotRepository;
