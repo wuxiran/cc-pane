@@ -2161,6 +2161,14 @@ impl TerminalService {
         }
 
         let mut env = self.settings_service.get_proxy_env_vars();
+        // Pi RPC 子进程也是本机构建/搜索的发起方：同一套并行度环境，同一条不覆盖规则。
+        let rpc_perf_plan = crate::utils::build_perf_env(
+            &self.settings_service.get_settings().performance,
+            crate::models::performance_settings::logical_cores(),
+            self.app_paths.data_dir(),
+            crate::utils::PerfEnvRuntime::Local,
+        );
+        crate::utils::apply_perf_env(&mut env, &rpc_perf_plan);
         if let Some(extra_env) = request.extra_env.as_ref() {
             for (key, value) in extra_env {
                 if Self::is_valid_env_key(key) {
@@ -2533,6 +2541,21 @@ impl TerminalService {
                 adapter_options.insert(key.clone(), value.clone());
             }
         }
+        // `[performance]` 一次读齐：Codex 轻量开关经 adapter options 下发（profile /
+        // request 显式给了同名键则尊重），并行度环境在后面 spawn 前注入。
+        let performance_settings = self.settings_service.get_settings().performance;
+        if cli_tool == CliTool::Codex {
+            adapter_options
+                .entry(cc_cli_adapters::CODEX_LIGHTWEIGHT_OPTION.to_string())
+                .or_insert(serde_json::Value::Bool(
+                    performance_settings.codex_lightweight_enabled,
+                ));
+            adapter_options
+                .entry(cc_cli_adapters::CODEX_LOW_SPEC_OPTION.to_string())
+                .or_insert(serde_json::Value::Bool(
+                    performance_settings.codex_low_spec_mode,
+                ));
+        }
         if cli_tool == CliTool::Pi
             && PiAdapterOptions::from_adapter_options(&adapter_options)
                 .map_err(|error| anyhow!("Invalid Pi launch options: {error}"))?
@@ -2831,6 +2854,23 @@ impl TerminalService {
         // 整条会话跑在 LC_CTYPE=C 下，多字节文本的字符数与显示宽度都会算错。
         // 已经是 UTF-8 则不动——判据与 WSL Codex 那条路径一致。
         crate::utils::ensure_utf8_locale(&mut env_vars);
+        // 并行度环境（docs/107 P2）：CARGO_BUILD_JOBS / MAKEFLAGS / … / RIPGREP_CONFIG_PATH。
+        // 用户进程环境或启动档里已有的键不覆盖；SSH 不带路径键（远端没有 rgrc）。
+        // 实际写入的键记下来，WSL 分支据此追加 WSLENV 条目。
+        let perf_env_runtime = if ssh.is_some() {
+            crate::utils::PerfEnvRuntime::Ssh
+        } else if wsl.is_some() {
+            crate::utils::PerfEnvRuntime::Wsl
+        } else {
+            crate::utils::PerfEnvRuntime::Local
+        };
+        let perf_env_plan = crate::utils::build_perf_env(
+            &performance_settings,
+            crate::models::performance_settings::logical_cores(),
+            self.app_paths.data_dir(),
+            perf_env_runtime,
+        );
+        let perf_env_applied_keys = crate::utils::apply_perf_env(&mut env_vars, &perf_env_plan);
         env_vars.insert("CC_PANES_PTY_SESSION_ID".to_string(), session_id.clone());
         if let Some(workspace_snapshot_id) = workspace_snapshot_id {
             env_vars.insert(
@@ -2969,7 +3009,15 @@ impl TerminalService {
                 // 跑 Windows 那份 exe，它的 127.0.0.1 正好是服务在听的那个）。
                 wsl_keys.push("CC_PANES_CTL/p");
             }
-            let injected = wsl_keys.join(":");
+            let mut wsl_entries = wsl_keys
+                .iter()
+                .map(|key| key.to_string())
+                .collect::<Vec<_>>();
+            // 并行度键：纯数值裸 key；RIPGREP_CONFIG_PATH 是宿主路径，/p 让 WSL 翻成 /mnt/...
+            wsl_entries.extend(crate::utils::perf_env::wslenv_entries(
+                &perf_env_applied_keys,
+            ));
+            let injected = wsl_entries.join(":");
             let merged = match env_vars.get("WSLENV") {
                 Some(existing) if !existing.is_empty() => {
                     format!("{}:{}", existing, injected)
@@ -3004,6 +3052,7 @@ impl TerminalService {
                 &provider_vars,
                 provider.as_ref(),
                 effective_yolo_mode,
+                &env_vars,
             );
             let embedded = self
                 .ssh_connection_service
@@ -5617,8 +5666,14 @@ impl TerminalService {
         provider_env: &HashMap<String, String>,
         provider: Option<&CliProvider>,
         yolo_mode: bool,
+        session_env: &HashMap<String, String>,
     ) -> String {
         let mut remote_parts: Vec<String> = Vec::new();
+        // 并行度：只导出五个非路径键，且用 `${K:-v}` 形式——远端 profile 已设的值优先。
+        remote_parts.extend(crate::utils::perf_env::remote_export_statements(
+            session_env,
+            Self::shell_escape,
+        ));
         let mut provider_env = provider_env.clone();
         let mut codex_provider_args = Vec::new();
         if cli_tool == CliTool::Codex {
@@ -9488,6 +9543,59 @@ mod tests {
             runtime.lock().expect("SSH auth runtime").saved_password,
             "temporary-secret"
         );
+    }
+
+    /// SSH 远端只导出五个非路径并行度键，`${K:-v}` 形式让远端 profile 已设的值优先；
+    /// `RIPGREP_CONFIG_PATH` 是宿主路径，绝不能出现在远端命令里。
+    #[test]
+    fn ssh_remote_command_exports_portable_perf_env_only_when_unset() {
+        let ssh = SshConnectionInfo {
+            host: "example.com".to_string(),
+            port: 22,
+            user: Some("dev".to_string()),
+            remote_path: "/srv/app".to_string(),
+            identity_file: None,
+            machine_id: None,
+            auth_method: None,
+        };
+        let plan = crate::utils::perf_env::plan_perf_env(
+            &crate::models::settings::PerformanceSettings::default(),
+            32,
+            Some(PathBuf::from(r"C:\data\runtime\rgrc")),
+        );
+        let mut session_env = HashMap::new();
+        crate::utils::perf_env::apply_perf_env_with(&mut session_env, &plan, |_| false);
+
+        let command = TerminalService::build_ssh_remote_command(
+            &ssh,
+            CliTool::Claude,
+            &HashMap::new(),
+            None,
+            false,
+            &session_env,
+        );
+
+        assert!(
+            command.contains("export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-'24'}"),
+            "{command}"
+        );
+        assert!(
+            command.contains("export MAKEFLAGS=${MAKEFLAGS:-'-j24'}"),
+            "{command}"
+        );
+        assert!(!command.contains("RIPGREP_CONFIG_PATH"), "{command}");
+        assert!(command.contains("cd '/srv/app'"), "{command}");
+        assert!(command.ends_with("claude"), "{command}");
+
+        let plain = TerminalService::build_ssh_remote_command(
+            &ssh,
+            CliTool::Claude,
+            &HashMap::new(),
+            None,
+            false,
+            &HashMap::new(),
+        );
+        assert!(!plain.contains("CARGO_BUILD_JOBS"), "{plain}");
     }
 
     #[test]

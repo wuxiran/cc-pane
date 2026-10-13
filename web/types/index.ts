@@ -199,11 +199,13 @@ export type {
   ImChannelConfig,
   ExperimentalSettings,
   ExperimentalFeatureId,
+  PerformanceSettings,
   ImChannelType,
   ImChannelStatus,
   ImEventKind,
 } from "./settings";
 export { BUSY_STATUSES, isBusyStatus } from "./settings";
+export { DEFAULT_PERFORMANCE_SETTINGS, PERFORMANCE_LIMITS } from "./settings";
 export type {
   TodoStatus,
   TodoPriority,

@@ -13,9 +13,11 @@ pub mod orchestrator_manifest;
 pub mod orchestrator_manifest_lifecycle;
 pub mod path_normalize;
 pub mod path_validator;
+pub mod perf_env;
 pub mod project_dirs;
 pub mod project_identity;
 pub mod text_encoding;
+pub mod tokio_runtime;
 
 pub use app_paths::{app_config_dir, AppPaths, APP_CONFIG_DIR_ENV, APP_DIR_NAME};
 pub use claude_path::{encode_claude_project_path, is_claude_project_match};
@@ -46,8 +48,13 @@ pub use path_validator::{
     sanitize_path_display, validate_command, validate_git_url, validate_mcp_name, validate_path,
     validate_relative_path, validate_ssh_info, validate_ssh_machine, validate_worktree_name,
 };
+pub use perf_env::{
+    apply_perf_env, build_perf_env, PerfEnvPlan, PerfEnvRuntime, PERF_ENV_FORWARD_KEYS,
+    PERF_ENV_PORTABLE_KEYS, RIPGREP_CONFIG_ENV,
+};
 pub use project_identity::{
     canonical_project_path, project_identity_key, project_paths_equivalent,
     repair_persisted_project_path,
 };
 pub use text_encoding::decode_text_lossy_gbk;
+pub use tokio_runtime::{tokio_worker_threads, tokio_worker_threads_from_env, TOKIO_WORKERS_ENV};

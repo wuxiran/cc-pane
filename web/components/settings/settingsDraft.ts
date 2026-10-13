@@ -1,6 +1,9 @@
 import type { CCChanSettings } from "@/ccchan/types";
 import { DEFAULT_CCCHAN_SETTINGS } from "@/stores/useCCChanStore";
-import { DEFAULT_EXPERIMENTAL_SETTINGS } from "@/stores/useSettingsStore";
+import {
+  DEFAULT_EXPERIMENTAL_SETTINGS,
+  DEFAULT_PERFORMANCE_SETTINGS,
+} from "@/stores/useSettingsStore";
 import type { AppSettings } from "@/types";
 import type { SettingsPaneId } from "./settingsRegistry";
 
@@ -52,6 +55,10 @@ export function createSettingsDraft(value: AppSettings): SettingsDraft {
     experimental: {
       ...DEFAULT_EXPERIMENTAL_SETTINGS,
       ...maybeWithCCChan.experimental,
+    },
+    performance: {
+      ...DEFAULT_PERFORMANCE_SETTINGS,
+      ...maybeWithCCChan.performance,
     },
     ccchan: {
       ...DEFAULT_CCCHAN_SETTINGS,
