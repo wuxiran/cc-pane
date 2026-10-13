@@ -287,6 +287,7 @@ export type {
   OrphanProcessInfo,
   ResourceTree,
   SessionProcessInfo,
+  JobMemoryWarning,
   ResourcePolicyOutcome,
   ResourcePolicyStatus,
   SessionResourcePolicy,

@@ -164,6 +164,7 @@
   "resourcePolicyDegraded": "已降级：{{reason}}",
   "resourcePolicyUnsupported": "不支持：{{reason}}",
   "resourcePolicyNoReason": "无详情",
+  "jobMemoryWarningLine": "内存越线：该窗格已用 {{used}}（阈值 {{limit}}）",
   "relativeTime": {
     "justNow": "刚刚",
     "minutesAgo": "{{count}} 分钟前",

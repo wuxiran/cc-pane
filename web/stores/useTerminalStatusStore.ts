@@ -106,7 +106,11 @@ export const useTerminalStatusStore = create<TerminalStatusState>((set, get) => 
           current.resourcePolicy?.outcome === event.payload.resourcePolicy?.outcome &&
           current.resourcePolicy?.reason === event.payload.resourcePolicy?.reason &&
           current.resourcePolicy?.ecoQos === event.payload.resourcePolicy?.ecoQos &&
-          current.resourcePolicy?.lowerPriority === event.payload.resourcePolicy?.lowerPriority
+          current.resourcePolicy?.lowerPriority === event.payload.resourcePolicy?.lowerPriority &&
+          current.jobMemoryWarning?.bytes === event.payload.jobMemoryWarning?.bytes &&
+          current.jobMemoryWarning?.limitBytes === event.payload.jobMemoryWarning?.limitBytes &&
+          current.jobMemoryWarning?.at === event.payload.jobMemoryWarning?.at &&
+          current.runtimeKind === event.payload.runtimeKind
         ) {
           return;
         }

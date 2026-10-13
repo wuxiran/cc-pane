@@ -191,6 +191,34 @@ describe("useTerminalStatusStore", () => {
       expect(useTerminalStatusStore.getState().statusMap).toBe(before);
     });
 
+    it("listen 回调：只有 jobMemoryWarning 出现/消失也必须更新（去重不得漏比）", async () => {
+      let listenCallback: ((event: { payload: TerminalStatusInfo }) => void) | null = null;
+      vi.mocked(getCurrentWebview().listen).mockImplementation(async (_event, handler) => {
+        listenCallback = handler as (event: { payload: TerminalStatusInfo }) => void;
+        return () => {};
+      });
+      await useTerminalStatusStore.getState().init();
+
+      const base: TerminalStatusInfo = {
+        sessionId: "session-1",
+        status: "active",
+        lastOutputAt: 1000,
+        updatedAt: 1000,
+        runtimeKind: "local",
+      };
+      listenCallback!({ payload: base });
+      listenCallback!({ payload: { ...base, jobMemoryWarning: { bytes: 20, limitBytes: 16, at: 5 } } });
+      expect(useTerminalStatusStore.getState().statusMap.get("session-1")?.jobMemoryWarning?.limitBytes).toBe(16);
+
+      // 回落：字段消失也要更新
+      listenCallback!({ payload: base });
+      expect(useTerminalStatusStore.getState().statusMap.get("session-1")?.jobMemoryWarning).toBeUndefined();
+
+      const before = useTerminalStatusStore.getState().statusMap;
+      listenCallback!({ payload: { ...base } });
+      expect(useTerminalStatusStore.getState().statusMap).toBe(before);
+    });
+
     it("setInterval 应将超过 30s 无输出的 active 会话标记为 idle", async () => {
       await useTerminalStatusStore.getState().init();
 

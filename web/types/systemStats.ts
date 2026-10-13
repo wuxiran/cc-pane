@@ -84,6 +84,16 @@ export interface ResourcePolicyStatus {
   cpuWeight?: number | null;
 }
 
+/** Job 内存通知水位越线（W5，随 `TerminalStatusInfo.jobMemoryWarning` 上报；只是观测，build 不会失败）。 */
+export interface JobMemoryWarning {
+  /** 越线时内核报告的 Job 已提交内存（字节）。 */
+  bytes: number;
+  /** 当时的通知水位（字节）。 */
+  limitBytes: number;
+  /** 毫秒 epoch。 */
+  at: number;
+}
+
 export interface KillProcessResult {
   pid: number;
   success: boolean;

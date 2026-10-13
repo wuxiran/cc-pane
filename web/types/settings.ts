@@ -482,4 +482,8 @@ export interface TerminalStatusInfo {
   oscProgress?: OscProgressBadge | null;
   /** 会话资源策略下发结果（0.12.22）；旧后端不返回，必须容忍缺失。 */
   resourcePolicy?: import("./systemStats").ResourcePolicyStatus | null;
+  /** Job 内存通知水位越线（W5）；回落后后端清除，字段消失。旧后端不返回。 */
+  jobMemoryWarning?: import("./systemStats").JobMemoryWarning | null;
+  /** `local` / `wsl` / `ssh`；旧后端不返回。 */
+  runtimeKind?: string | null;
 }

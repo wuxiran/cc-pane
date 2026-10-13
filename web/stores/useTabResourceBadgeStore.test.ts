@@ -56,6 +56,15 @@ describe("useTabResourceBadgeStore", () => {
     expect(useTabResourceBadgeStore.getState().sweepStale(50_000, 30_000)).toEqual([]);
   });
 
+  it("sweepStale 不碰状态驱动的原因（job-memory / queued 没有流可断）", () => {
+    const store = useTabResourceBadgeStore.getState();
+    store.markResource("jm", { reason: "job-memory", at: 1 });
+    store.markResource("q", { reason: "queued", at: 1 });
+    expect(useTabResourceBadgeStore.getState().sweepStale(1_000_000, 30_000)).toEqual([]);
+    expect(useTabResourceBadgeStore.getState().hasResourceBadge("jm")).toBe(true);
+    expect(useTabResourceBadgeStore.getState().hasResourceBadge("q")).toBe(true);
+  });
+
   it("clearResource 无条件清；不存在时不触发更新", () => {
     const store = useTabResourceBadgeStore.getState();
     store.markResource("t1", { reason: "queued" });

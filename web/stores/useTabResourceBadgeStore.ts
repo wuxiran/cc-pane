@@ -31,7 +31,11 @@ interface TabResourceBadgeState {
   clearReason: (owner: string, reason: ResourceBadgeReason) => void;
   /** 无条件清（标签关闭等）。 */
   clearResource: (owner: string) => void;
-  /** 清掉 `at` 早于 `now - ttlMs` 的条目（来源断流兜底）。返回清掉的 owner。 */
+  /**
+   * 清掉 `at` 早于 `now - ttlMs` 的条目（来源断流兜底）。返回清掉的 owner。
+   * 只针对**流式**来源（cpu/memory：采样器每 2 s 推一次）；job-memory / queued 由状态字段
+   * 驱动，出现与消失都有明确事件，不按 TTL 清。
+   */
   sweepStale: (now: number, ttlMs: number) => string[];
   hasResourceBadge: (owner: string) => boolean;
   getResourceBadge: (owner: string) => ResourceBadgeEntry | undefined;
@@ -97,7 +101,7 @@ export const useTabResourceBadgeStore = create<TabResourceBadgeState>((set, get)
 
   sweepStale: (now, ttlMs) => {
     const stale = Object.entries(get().entries)
-      .filter(([, entry]) => now - entry.at > ttlMs)
+      .filter(([, entry]) => isSamplerReason(entry.reason) && now - entry.at > ttlMs)
       .map(([owner]) => owner);
     if (stale.length === 0) return [];
     set((state) => {

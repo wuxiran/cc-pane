@@ -161,6 +161,26 @@ describe("SystemResourcePopover (W4)", () => {
     expect(screen.getAllByRole("radio")[1]).toHaveAttribute("aria-checked", "true");
   });
 
+  it("shows the job memory watermark line while the status carries a warning", () => {
+    const map = new Map<string, TerminalStatusInfo>();
+    map.set("s1", {
+      sessionId: "s1",
+      status: "toolRunning",
+      lastOutputAt: 1,
+      updatedAt: 1,
+      jobMemoryWarning: { bytes: 20 * 1024 ** 3, limitBytes: 16 * 1024 ** 3, at: 1 },
+    });
+    useTerminalStatusStore.setState({ statusMap: map });
+    renderPopover();
+    const line = screen.getByTestId("job-memory-warning");
+    expect(line).toHaveTextContent("20");
+    expect(line).toHaveTextContent("16");
+    cleanup();
+    setStatus(undefined);
+    renderPopover();
+    expect(screen.queryByTestId("job-memory-warning")).toBeNull();
+  });
+
   it("highlights the session the tab badge asked for", () => {
     useResourcePopoverStore.setState({ open: true, highlightSessionId: "s1" });
     renderPopover();

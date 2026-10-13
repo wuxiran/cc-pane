@@ -164,6 +164,7 @@
   "resourcePolicyDegraded": "Degraded: {{reason}}",
   "resourcePolicyUnsupported": "Unsupported: {{reason}}",
   "resourcePolicyNoReason": "no details",
+  "jobMemoryWarningLine": "Memory watermark exceeded: this pane uses {{used}} (threshold {{limit}})",
   "relativeTime": {
     "justNow": "just now",
     "minutesAgo": "{{count}}m ago",

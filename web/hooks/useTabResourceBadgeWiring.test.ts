@@ -2,7 +2,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { usePanesStore } from "@/stores";
 import { useTabResourceBadgeStore } from "@/stores/useTabResourceBadgeStore";
-import { applyHeavySessionUsage, resourceBadgeReasonOf } from "./useTabResourceBadgeWiring";
+import type { TerminalStatusInfo } from "@/types";
+import {
+  applyHeavySessionUsage,
+  resourceBadgeReasonOf,
+  syncJobMemoryBadges,
+} from "./useTabResourceBadgeWiring";
 
 function stubLocation(sessionId: string, tabId: string | null) {
   vi.spyOn(usePanesStore.getState(), "findTabBySessionAcrossLayouts").mockImplementation((id) =>
@@ -52,6 +57,52 @@ describe("applyHeavySessionUsage", () => {
   it("会话不在本实例任何布局里：忽略", () => {
     stubLocation("s1", null);
     applyHeavySessionUsage({ sessionId: "s1", cpuPercent: 420, memoryBytes: 1, active: true });
+    expect(useTabResourceBadgeStore.getState().entries).toEqual({});
+  });
+});
+
+describe("syncJobMemoryBadges", () => {
+  const status = (sessionId: string, warning?: TerminalStatusInfo["jobMemoryWarning"]): TerminalStatusInfo => ({
+    sessionId,
+    status: "active",
+    lastOutputAt: 1,
+    updatedAt: 1,
+    jobMemoryWarning: warning,
+  });
+
+  it("状态里出现 jobMemoryWarning → job-memory 徽标；字段消失 → 撤销", () => {
+    stubLocation("s1", "tab-1");
+    const map = new Map<string, TerminalStatusInfo>();
+    map.set("s1", status("s1", { bytes: 20e9, limitBytes: 16e9, at: 1 }));
+    const warned = syncJobMemoryBadges(map, new Set());
+    expect([...warned]).toEqual(["s1"]);
+    const entry = useTabResourceBadgeStore.getState().getResourceBadge("tab-1");
+    expect(entry?.reason).toBe("job-memory");
+    expect(entry?.memoryBytes).toBe(20e9);
+    expect(entry?.sessionId).toBe("s1");
+
+    map.set("s1", status("s1"));
+    const after = syncJobMemoryBadges(map, warned);
+    expect(after.size).toBe(0);
+    expect(useTabResourceBadgeStore.getState().hasResourceBadge("tab-1")).toBe(false);
+  });
+
+  it("job-memory 压过采样器原因；采样器封账不撤销它", () => {
+    stubLocation("s1", "tab-1");
+    applyHeavySessionUsage({ sessionId: "s1", cpuPercent: 420, memoryBytes: 1, active: true });
+    const map = new Map<string, TerminalStatusInfo>();
+    map.set("s1", status("s1", { bytes: 2, limitBytes: 1, at: 1 }));
+    syncJobMemoryBadges(map, new Set());
+    expect(useTabResourceBadgeStore.getState().getResourceBadge("tab-1")?.reason).toBe("job-memory");
+    applyHeavySessionUsage({ sessionId: "s1", cpuPercent: 0, memoryBytes: 0, active: false });
+    expect(useTabResourceBadgeStore.getState().getResourceBadge("tab-1")?.reason).toBe("job-memory");
+  });
+
+  it("会话不在任何布局里：不记入集合，不报错", () => {
+    stubLocation("s1", null);
+    const map = new Map<string, TerminalStatusInfo>();
+    map.set("s1", status("s1", { bytes: 2, limitBytes: 1, at: 1 }));
+    expect(syncJobMemoryBadges(map, new Set()).size).toBe(0);
     expect(useTabResourceBadgeStore.getState().entries).toEqual({});
   });
 });

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import StatusIndicator from "@/components/StatusIndicator";
 import { Button } from "@/components/ui/button";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
+import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
 import type { SessionView } from "./SystemResourcePopover";
 import { useSessionResourcePolicy, type SessionPolicyMode } from "./useSessionResourcePolicy";
 import { formatSize } from "@/utils";
@@ -41,6 +42,9 @@ export function SystemResourceSessionRow({
 }: SystemResourceSessionRowProps) {
   const { t } = useTranslation("common");
   const policy = useSessionResourcePolicy(session.sessionId);
+  const jobMemoryWarning = useTerminalStatusStore(
+    (state) => state.statusMap.get(session.sessionId)?.jobMemoryWarning ?? null,
+  );
   const rowRef = useRef<HTMLDivElement>(null);
   const processes = session.processes ?? [];
   // 旧后端不返回明细字段；此时退回成"没有可展开的东西"，不显示假的展开箭头。
@@ -167,6 +171,19 @@ export function SystemResourceSessionRow({
               : "resourcePolicyUnsupported",
             { reason: policy.status.reason ?? t("resourcePolicyNoReason") },
           )}
+        </div>
+      )}
+      {/* W5：Job 内存越线只是观测——窗格没停、build 没失败，但要让用户知道是哪一格在吃内存。 */}
+      {jobMemoryWarning && (
+        <div
+          className="flex min-h-5 items-center pl-9 pr-2 text-[11px]"
+          style={{ color: "var(--app-status-warning)" }}
+          data-testid="job-memory-warning"
+        >
+          {t("jobMemoryWarningLine", {
+            used: formatSize(jobMemoryWarning.bytes),
+            limit: formatSize(jobMemoryWarning.limitBytes),
+          })}
         </div>
       )}
       {expanded && (
