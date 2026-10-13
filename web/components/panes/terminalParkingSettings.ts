@@ -1,22 +1,15 @@
-// 停泊参数的唯一读取口（docs/107 P1）。设置模型里 `settings.performance.*`
-// 由 W1 另行落地；这里用可选访问 + 默认值兜底，W1 接线时只需删掉类型兜底。
+// 停泊参数的唯一读取口（docs/107 P1）：读 `settings.performance.*`（W1 已落地），
+// 这里仍做钳位 + 默认值兜底，覆盖设置尚未加载 / 老配置缺键的窄窗口。
 import { useSettingsStore } from "@/stores";
+import type { PerformanceSettings } from "@/types";
 
 export const DEFAULT_PARKED_TERMINAL_LIMIT = 6;
 export const DEFAULT_PARK_DELAY_SECS = 30;
 const PARKED_LIMIT_RANGE = [2, 12] as const;
 const PARK_DELAY_RANGE_SECS = [5, 600] as const;
 
-interface PerformanceParkingSettings {
-  parkedTerminalLimit?: number;
-  parkDelaySecs?: number;
-}
-
-function readPerformanceSettings(): PerformanceParkingSettings | undefined {
-  const settings = useSettingsStore.getState().settings as
-    | ({ performance?: PerformanceParkingSettings } & object)
-    | null;
-  return settings?.performance;
+function readPerformanceSettings(): PerformanceSettings | undefined {
+  return useSettingsStore.getState().settings?.performance;
 }
 
 function clampInt(value: unknown, fallback: number, [min, max]: readonly [number, number]): number {

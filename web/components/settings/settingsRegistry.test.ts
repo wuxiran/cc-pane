@@ -112,6 +112,46 @@ describe("settings registry", () => {
     }));
   });
 
+  it("hosts the performance pane on the system page with one search entry per group", () => {
+    const system = SETTINGS_PAGES.find((page) => page.id === "system");
+    expect(system?.paneIds).toContain("performance");
+
+    const performance = SETTINGS_PANES.find((pane) => pane.id === "performance");
+    expect(performance?.page).toBe("system");
+    expect(performance?.titleKey).toBe("performance.title");
+    expect(performance?.searchEntries.map((entry) => entry.targetSectionId)).toEqual([
+      "performance-build",
+      "performance-codex",
+      "performance-heavy-gate",
+      "performance-heavy-ledger",
+      "performance-session-policy",
+      "performance-session-policy",
+      "performance-wsl-quota",
+      "performance-parking",
+    ]);
+    expect(performance?.searchEntries).toContainEqual(expect.objectContaining({
+      id: "build",
+      keywordsKey: "searchKeywords.performance",
+    }));
+  });
+
+  it("moves the session priority search entry from the terminal pane to the performance pane", () => {
+    const terminal = SETTINGS_PANES.find((pane) => pane.id === "terminal");
+    const performance = SETTINGS_PANES.find((pane) => pane.id === "performance");
+
+    expect(terminal?.searchEntries.some((entry) => entry.titleKey === "lowerSessionPriority")).toBe(false);
+    expect(performance?.searchEntries).toContainEqual(expect.objectContaining({
+      id: "session-priority",
+      titleKey: "lowerSessionPriority",
+      targetSectionId: "performance-session-policy",
+    }));
+    expect(performance?.searchEntries).toContainEqual(expect.objectContaining({
+      id: "session-cpu-weight",
+      titleKey: "performance.sessionCpuWeight",
+      targetSectionId: "performance-session-policy",
+    }));
+  });
+
   it("registers the opt-in terminal inline image setting for search", () => {
     const terminal = SETTINGS_PANES.find((pane) => pane.id === "terminal");
 
