@@ -24,6 +24,12 @@ mod pi;
 
 pub use claude::ClaudeAdapter;
 pub use codex::CodexAdapter;
+
+/// adapter option 键：Codex 轻量模式（`tui.animations=false` + `tui.auto_recap=false`）。
+/// 由 CC-Panes `[performance].codexLightweightEnabled` 下发，启动档 / 请求可显式覆盖。
+pub const CODEX_LIGHTWEIGHT_OPTION: &str = "codexLightweight";
+/// adapter option 键：Codex 低配模式（`agents.max_concurrent_threads_per_session=2`）。
+pub const CODEX_LOW_SPEC_OPTION: &str = "codexLowSpecMode";
 pub use cursor::CursorAdapter;
 pub use gemini::GeminiAdapter;
 pub use grok::GrokAdapter;

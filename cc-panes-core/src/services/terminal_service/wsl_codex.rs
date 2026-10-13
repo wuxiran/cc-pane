@@ -771,6 +771,18 @@ fn push_wsl_cli_color_env_exports(
     }
 }
 
+/// 并行度键（docs/107 P2）：WSLENV 已把宿主值透传进 guest，这里再按
+/// `export K=${K:-v}` 兜一层——WSLENV 没带到、或登录 profile 清掉时补上，但
+/// profile 自己设的值优先。只有五个非路径键；`RIPGREP_CONFIG_PATH` 是宿主路径，
+/// 只走 WSLENV `/p` 翻译，不在脚本里写死。
+#[cfg(windows)]
+fn push_wsl_perf_env_exports(remote_parts: &mut Vec<String>, env_vars: &HashMap<String, String>) {
+    remote_parts.extend(crate::utils::perf_env::remote_export_statements(
+        env_vars,
+        TerminalService::shell_escape,
+    ));
+}
+
 #[cfg(windows)]
 fn collect_wsl_codex_source_dirs(source_root: &Path) -> Result<Vec<String>> {
     let version_path = source_root.join(VERSION_FILE_NAME);
@@ -1893,6 +1905,7 @@ impl TerminalService {
         push_wsl_env_exports(&mut remote_parts, &managed_env);
         push_wsl_ccpanes_env_exports(&mut remote_parts, env_vars);
         push_wsl_cli_color_env_exports(&mut remote_parts, env_vars);
+        push_wsl_perf_env_exports(&mut remote_parts, env_vars);
         let managed_pi = pi_family && provider.is_some();
         if managed_pi {
             remote_parts.extend(build_wsl_managed_pi_cleanup_prelude(
@@ -2312,6 +2325,7 @@ impl TerminalService {
         push_wsl_env_exports(&mut remote_parts, &provider_env);
         push_wsl_ccpanes_env_exports(&mut remote_parts, env_vars);
         push_wsl_cli_color_env_exports(&mut remote_parts, env_vars);
+        push_wsl_perf_env_exports(&mut remote_parts, env_vars);
         push_wsl_codex_mcp_isolation_prelude(
             &mut remote_parts,
             disable_unlisted_mcp_servers,
@@ -2424,6 +2438,8 @@ impl TerminalService {
         codex_args.push(r#"tui.terminal_title=["activity","project","thread-id"]"#.to_string());
         // 屏幕模式：与本地 codex.rs 对齐（默认 fullscreen，adapterOptions.screenMode 可覆盖）
         cc_cli_adapters::CodexAdapter::push_screen_mode_override(&mut codex_args, adapter_options);
+        // 轻量 / 低配：与本地 codex.rs 对齐（开关由 terminal_service 从 [performance] 注入 options）
+        cc_cli_adapters::CodexAdapter::push_tui_perf_overrides(&mut codex_args, adapter_options);
         // effort → `-c model_reasoning_effort=<v>`（max 映射 xhigh，与本地 codex.rs 对齐）。
         // `-c` 必须在 resume 子命令之前 → 放在 append_codex_resume_args 前。
         if let Some(effort) = cc_cli_adapters::effort_from_options(adapter_options)
@@ -2537,6 +2553,8 @@ impl TerminalService {
 mod tests {
     #[cfg(windows)]
     use super::build_wsl_managed_adapter_plan;
+    #[cfg(windows)]
+    use super::push_wsl_perf_env_exports;
     #[cfg(windows)]
     use super::wsl_host_probe_bash_arg;
     use super::WslHostProbeCache;
@@ -3518,5 +3536,35 @@ mod tests {
             cc_cli_adapters::PI_MANAGED_STATE_DIR_NAME
         )
         .is_none());
+    }
+
+    /// WSL 脚本里的并行度导出：只有五个非路径键，`${K:-v}` 让登录 profile 的值优先；
+    /// `RIPGREP_CONFIG_PATH` 只走 WSLENV `/p`，不进脚本。
+    #[cfg(windows)]
+    #[test]
+    fn wsl_perf_env_exports_cover_portable_keys_only() {
+        let plan = crate::utils::perf_env::plan_perf_env(
+            &crate::models::settings::PerformanceSettings::default(),
+            16,
+            Some(std::path::PathBuf::from(r"C:\data\runtime\rgrc")),
+        );
+        let mut env_vars = HashMap::new();
+        crate::utils::perf_env::apply_perf_env_with(&mut env_vars, &plan, |_| false);
+
+        let mut remote_parts = Vec::new();
+        push_wsl_perf_env_exports(&mut remote_parts, &env_vars);
+
+        assert_eq!(remote_parts.len(), 5);
+        assert!(
+            remote_parts.contains(&"export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-'8'}".to_string())
+        );
+        assert!(remote_parts.contains(&"export MAKEFLAGS=${MAKEFLAGS:-'-j8'}".to_string()));
+        assert!(!remote_parts
+            .iter()
+            .any(|part| part.contains("RIPGREP_CONFIG_PATH")));
+
+        let mut none = Vec::new();
+        push_wsl_perf_env_exports(&mut none, &HashMap::new());
+        assert!(none.is_empty());
     }
 }
