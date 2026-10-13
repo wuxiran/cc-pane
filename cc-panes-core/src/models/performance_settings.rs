@@ -35,9 +35,11 @@ pub const DEFAULT_HEAVY_GATE_TIMEOUT_SECS: u32 = 300;
 pub const MIN_WSL_CPU_WEIGHT: u32 = 1;
 pub const MAX_WSL_CPU_WEIGHT: u32 = 10_000;
 pub const DEFAULT_WSL_CPU_WEIGHT: u32 = 20;
-/// WSL MemoryHigh 百分比钳位区间（0 = 不设）。
-pub const MAX_WSL_MEMORY_HIGH_PERCENT: u32 = 100;
-pub const DEFAULT_WSL_MEMORY_HIGH_PERCENT: u32 = 25;
+/// WSL MemoryHigh 百分比钳位区间（0 = 不设）。默认 **0**：与 0.12.21 一致，不给
+/// WSL 编译加内存软限——MemoryHigh 一到就触发激进回收 + throttle，默认开会把
+/// 正常构建拖慢而用户不知道原因。上限 90：留 10% 给宿主，再高等于没设。
+pub const MAX_WSL_MEMORY_HIGH_PERCENT: u32 = 90;
+pub const DEFAULT_WSL_MEMORY_HIGH_PERCENT: u32 = 0;
 /// Job 内存通知阈值百分比（0 = 关）。
 pub const MAX_JOB_MEMORY_NOTIFY_PERCENT: u32 = 100;
 pub const DEFAULT_JOB_MEMORY_NOTIFY_PERCENT: u32 = 25;
@@ -116,7 +118,7 @@ pub struct PerformanceSettings {
     /// WSL scope 的 `CPUWeight`（systemd 1..=10000，默认 20）。
     #[serde(default = "default_wsl_cpu_weight")]
     pub wsl_cpu_weight: u32,
-    /// WSL scope 的 `MemoryHigh` 占物理内存百分比（0 = 不设）。
+    /// WSL scope 的 `MemoryHigh` 占物理内存百分比（0 = 不设，默认）。钳 0..=90。
     #[serde(default = "default_wsl_memory_high_percent")]
     pub wsl_memory_high_percent: u32,
     /// Windows Job 内存**通知**阈值占物理内存百分比（0 = 关）。只告警不限制。
@@ -249,7 +251,10 @@ mod tests {
         assert!(d.heavy_ledger_enabled);
         assert!(d.wsl_quota_enabled);
         assert_eq!(d.wsl_cpu_weight, 20);
-        assert_eq!(d.wsl_memory_high_percent, 25);
+        assert_eq!(
+            d.wsl_memory_high_percent, 0,
+            "0 = 不设 MemoryHigh，与 0.12.21 一致"
+        );
         assert_eq!(d.job_memory_notify_percent, 25);
         assert_eq!(d.parked_terminal_limit, 6);
         assert_eq!(d.park_delay_secs, 30);

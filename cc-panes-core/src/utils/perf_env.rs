@@ -40,9 +40,6 @@ pub const RIPGREP_CONFIG_ENV: &str = "RIPGREP_CONFIG_PATH";
 /// `<data>/runtime/` 下的 rg 配置文件名。
 pub const RG_CONFIG_FILE_NAME: &str = "rgrc";
 
-/// rg 单行最大列宽：TUI 里超长行只会把屏幕糊掉。
-const RG_MAX_COLUMNS: u32 = 4096;
-
 /// 注入目标运行时：决定要不要带路径键。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PerfEnvRuntime {
@@ -124,7 +121,10 @@ pub fn plan_perf_env(
     }
 }
 
-/// 写 `<data>/runtime/rgrc`（`--threads=N` + `--max-columns=4096`），内容相同则不重写。
+/// 写 `<data>/runtime/rgrc`（**只有** `--threads=N`），内容相同则不重写。
+///
+/// 不带 `--max-columns`：它会把超长行替换成 `[Omitted long line …]`，改变 agent 的 Grep
+/// 工具语义（minified JS / 长 JSON 行直接搜不到内容）。线程数不改变输出，只改变快慢。
 pub fn ensure_rg_config(data_dir: &Path, threads: u32) -> std::io::Result<PathBuf> {
     let runtime_dir = data_dir.join("runtime");
     std::fs::create_dir_all(&runtime_dir)?;
@@ -139,7 +139,7 @@ pub fn ensure_rg_config(data_dir: &Path, threads: u32) -> std::io::Result<PathBu
 }
 
 fn rg_config_content(threads: u32) -> String {
-    format!("--threads={threads}\n--max-columns={RG_MAX_COLUMNS}\n")
+    format!("--threads={threads}\n")
 }
 
 /// 把计划写进会话 env，返回**实际写入**的键（供 WSLENV 透传表使用）。
@@ -234,7 +234,11 @@ mod tests {
         let path = plan.rg_config_path.clone().expect("rgrc written");
         assert_eq!(path, dir.path().join("runtime").join("rgrc"));
         let content = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(content, "--threads=12\n--max-columns=4096\n");
+        assert_eq!(content, "--threads=12\n");
+        assert!(
+            !content.contains("--max-columns"),
+            "rgrc must not change Grep output semantics"
+        );
         let first_mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
         let vars: HashMap<_, _> = plan.vars.iter().cloned().collect();
         assert_eq!(vars[RIPGREP_CONFIG_ENV], path.to_string_lossy());
@@ -255,7 +259,7 @@ mod tests {
         build_perf_env(&fewer, 32, dir.path(), PerfEnvRuntime::Local);
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
-            "--threads=3\n--max-columns=4096\n"
+            "--threads=3\n"
         );
     }
 

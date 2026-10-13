@@ -160,6 +160,11 @@ pub struct ResourcePolicyStatus {
     pub eco_qos: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_weight: Option<u8>,
+    /// W6：Linux 侧 `ccpanes-<session8>.scope` 确实建起来了（WSL 配额 Applied）。
+    /// 资源管理器 / 采样器据此决定要不要起 `wsl.exe` 读 cgroup——没有 scope 就没有读数，
+    /// 不该为此唤醒 VM。非 WSL / 配额关 / 降级为 `nice` 都是 false。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub wsl_scope: bool,
 }
 
 impl ResourcePolicyStatus {
@@ -177,6 +182,7 @@ impl ResourcePolicyStatus {
             lower_priority: policy.lower_priority,
             eco_qos: policy.eco_qos,
             cpu_weight: policy.effective_cpu_weight(),
+            wsl_scope: false,
         }
     }
 
@@ -188,6 +194,7 @@ impl ResourcePolicyStatus {
             lower_priority: false,
             eco_qos: false,
             cpu_weight: None,
+            wsl_scope: false,
         }
     }
 
@@ -334,6 +341,17 @@ mod tests {
         assert_eq!(minimal.outcome, PolicyOutcomeKind::Applied);
         assert!(minimal.reason.is_none());
         assert!(!minimal.lower_priority);
+        assert!(!minimal.wsl_scope, "old daemon payload has no wslScope");
+        assert!(
+            serde_json::to_value(&minimal)
+                .unwrap()
+                .get("wslScope")
+                .is_none(),
+            "false is omitted from the payload"
+        );
+        let scoped: ResourcePolicyStatus =
+            serde_json::from_str(r#"{"outcome":"applied","wslScope":true}"#).unwrap();
+        assert!(scoped.wsl_scope);
 
         let unsupported = ResourcePolicyStatus::unsupported("daemon too old");
         assert_eq!(unsupported.outcome, PolicyOutcomeKind::Unsupported);

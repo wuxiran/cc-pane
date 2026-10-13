@@ -234,6 +234,13 @@ impl<'a> ProcessIndex<'a> {
     }
 }
 
+/// [`SystemStatsService::get_resource_tree_with`] 的选项。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResourceTreeOptions {
+    /// 要不要算"会话之外"前 3 名（整机高负载时的全表 CPU 差分）。只有弹层读它。
+    pub top_processes: bool,
+}
+
 /// 按调用采样整机资源，不创建线程或定时任务。
 pub struct SystemStatsService {
     system: Mutex<System>,
@@ -266,41 +273,65 @@ impl SystemStatsService {
     }
 
     /// 仅由前端资源管理器弹层按需调用，不创建后台线程或定时器。
+    /// 弹层要"会话之外"块，所以带 `top_processes`。
     pub fn get_resource_tree(&self, sessions: &[ManagedSessionRoot]) -> ResourceTree {
-        let started = std::time::Instant::now();
-        let mut system = self.system.lock();
-        let mut sampler = self.resource_process_sampler.lock();
-        let processes =
-            refresh_resource_snapshot(&mut system, std::process::id(), sessions, &mut sampler);
-        let stats = system_stats(&system);
-        // "会话之外"只在整机高负载时算（滞回 60/45）；平时零开销，非 Windows 不算。
-        let compute_top = top_processes_gate(&mut sampler.top_processes_armed, stats.cpu_percent);
-        #[cfg(windows)]
-        let top_processes = compute_top
-            .then(|| collect_top_processes(&processes, sessions, std::process::id(), &mut sampler));
-        #[cfg(not(windows))]
-        let top_processes: Option<Vec<TopProcessInfo>> = {
-            let _ = compute_top;
-            None
-        };
-        if !compute_top {
-            #[cfg(windows)]
-            sampler.top_cpu_samples.clear();
-        }
-        let elapsed = started.elapsed().as_micros() as u64;
-        let mut tree = build_resource_tree_from_snapshot(
-            stats,
-            &processes,
+        self.get_resource_tree_with(
             sessions,
-            std::process::id(),
-            &sampler.known_family,
-            elapsed,
-        );
-        tree.top_processes = top_processes;
+            ResourceTreeOptions {
+                top_processes: true,
+            },
+        )
+    }
+
+    /// 带选项的建树。台账采样器用 `top_processes: false`：它只看会话树，算出来的
+    /// "会话之外"前 3 名没人读，白跑一遍全表 CPU 差分。
+    pub fn get_resource_tree_with(
+        &self,
+        sessions: &[ManagedSessionRoot],
+        options: ResourceTreeOptions,
+    ) -> ResourceTree {
+        let started = std::time::Instant::now();
+        // 两把锁只罩住进程表枚举；`wsl.exe` 可能跑满 2 s 超时，不能在锁里起——
+        // 否则状态栏 3 s 一次的 `get_system_stats` 会被它卡住。
+        let (mut tree, process_count) = {
+            let mut system = self.system.lock();
+            let mut sampler = self.resource_process_sampler.lock();
+            let processes =
+                refresh_resource_snapshot(&mut system, std::process::id(), sessions, &mut sampler);
+            let stats = system_stats(&system);
+            // "会话之外"只在整机高负载时算（滞回 60/45）；平时零开销，非 Windows 不算。
+            // 不要的调用方连滞回门都不碰，免得把弹层的武装状态搅乱。
+            let compute_top = options.top_processes
+                && top_processes_gate(&mut sampler.top_processes_armed, stats.cpu_percent);
+            #[cfg(windows)]
+            let top_processes = compute_top.then(|| {
+                collect_top_processes(&processes, sessions, std::process::id(), &mut sampler)
+            });
+            #[cfg(not(windows))]
+            let top_processes: Option<Vec<TopProcessInfo>> = {
+                let _ = compute_top;
+                None
+            };
+            if options.top_processes && !compute_top {
+                #[cfg(windows)]
+                sampler.top_cpu_samples.clear();
+            }
+            let elapsed = started.elapsed().as_micros() as u64;
+            let mut tree = build_resource_tree_from_snapshot(
+                stats,
+                &processes,
+                sessions,
+                std::process::id(),
+                &sampler.known_family,
+                elapsed,
+            );
+            tree.top_processes = top_processes;
+            (tree, processes.len())
+        };
         apply_wsl_cgroup_readings(&self.wsl_cgroup, sessions, &mut tree.sessions);
         tracing::debug!(
             elapsed_micros = tree.elapsed_micros,
-            process_count = processes.len(),
+            process_count,
             session_count = tree.sessions.len(),
             orphan_count = tree.orphans.len(),
             top_processes = tree.top_processes.as_ref().map(Vec::len),
@@ -336,6 +367,8 @@ impl SystemStatsService {
 
 /// W6：WSL 根在 Windows 侧只有 wsl.exe 壳，读数来自 Linux 侧 `ccpanes-<session8>.scope`。
 /// 按发行版一次批量读（采样器内部缓存 2 s、VM 没跑零次 wsl.exe）；没读到的会话保留进程树聚合。
+/// **只读有 scope 的根**（`wsl_scope`）：配额关 / 降级 `nice` 的会话没有 cgroup 目录，
+/// 为它们起 `wsl.exe` 只会白跑一次 2 s 超时的子进程。
 fn apply_wsl_cgroup_readings(
     sampler: &WslCgroupSampler,
     sessions: &[ManagedSessionRoot],
@@ -343,7 +376,7 @@ fn apply_wsl_cgroup_readings(
 ) {
     let wsl_sessions: HashMap<&str, &str> = sessions
         .iter()
-        .filter(|session| session.runtime_kind.as_deref() == Some("wsl"))
+        .filter(|session| session.runtime_kind.as_deref() == Some("wsl") && session.wsl_scope)
         .filter_map(|session| {
             session
                 .wsl_distro

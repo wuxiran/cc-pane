@@ -144,6 +144,7 @@ mod tests {
                 root_pid: 42,
                 runtime_kind: None,
                 wsl_distro: None,
+                wsl_scope: false,
             }]
         );
     }

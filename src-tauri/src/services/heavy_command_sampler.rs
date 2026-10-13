@@ -20,7 +20,9 @@ use cc_panes_core::models::{
 };
 use cc_panes_core::services::heavy_command_normalize::{normalize, redact};
 use cc_panes_core::services::TerminalBackend;
-use cc_panes_core::services::{SessionStatusInfo, SettingsService, SystemStatsService};
+use cc_panes_core::services::{
+    ResourceTreeOptions, SessionStatusInfo, SettingsService, SystemStatsService,
+};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -138,6 +140,11 @@ impl SamplerStateMachine {
     #[cfg(test)]
     pub(crate) fn armed(&self) -> bool {
         self.armed
+    }
+
+    /// 还有会话在观察 / 开着 episode（空根时据此决定要不要喂一次空样本封账）。
+    pub(crate) fn has_tracks(&self) -> bool {
+        !self.tracks.is_empty()
     }
 
     /// 每个 tick 先喂整机 CPU。返回要不要建树。
@@ -388,16 +395,47 @@ pub(crate) fn session_roots(statuses: Vec<SessionStatusInfo>) -> Vec<ManagedSess
                 pid,
                 runtime_kind,
                 wsl_distro,
+                resource_policy,
                 ..
             } = status;
+            // 只有 WSL 配额真的落成 scope 才有 cgroup 可读（见 `ManagedSessionRoot::wsl_scope`）。
+            let wsl_scope = runtime_kind.as_deref() == Some("wsl")
+                && resource_policy.is_some_and(|policy| policy.wsl_scope);
             pid.map(|root_pid| ManagedSessionRoot {
                 session_id,
                 root_pid,
                 runtime_kind,
                 wsl_distro,
+                wsl_scope,
             })
         })
         .collect()
+}
+
+/// 武装后的一次建树步骤（纯编排，便于测试）。
+///
+/// 没有一个受管会话时**不建树**：`snapshot` 不会被调用（枚举全表进程只为了得到空结果，
+/// 正是 docs/41 说的"监控自己吃资源"）。但只要状态机里还有开着的 episode，仍喂一次空样本
+/// 让它们按"会话消失"封账。返回 (会话读数, 事件)。
+pub(crate) fn sample_tree_step(
+    machine: &mut SamplerStateMachine,
+    roots: &[ManagedSessionRoot],
+    now: Instant,
+    snapshot: impl FnOnce(&[ManagedSessionRoot]) -> Vec<SessionResourceUsage>,
+) -> (Vec<SessionResourceUsage>, Vec<EpisodeEvent>) {
+    if roots.is_empty() {
+        let events = if machine.has_tracks() {
+            machine.on_tree(&[], now)
+        } else {
+            machine.stats.idle_ticks += 1;
+            Vec::new()
+        };
+        return (Vec::new(), events);
+    }
+    let sessions = snapshot(roots);
+    let samples: Vec<SessionSample> = sessions.iter().map(session_sample).collect();
+    let events = machine.on_tree(&samples, now);
+    (sessions, events)
 }
 
 /// 采样器句柄（Tauri `manage`）。
@@ -479,18 +517,23 @@ impl HeavyCommandSampler {
                             (Vec::new(), HashMap::new())
                         }
                     };
-                    let tree = stats_service.get_resource_tree(&roots);
+                    // 采样器只看会话树：不算"会话之外"前 3 名（没人读），空根不建树。
+                    let (sessions, events) =
+                        sample_tree_step(&mut machine, &roots, Instant::now(), |roots| {
+                            stats_service
+                                .get_resource_tree_with(
+                                    roots,
+                                    ResourceTreeOptions {
+                                        top_processes: false,
+                                    },
+                                )
+                                .sessions
+                        });
                     // W5：顺手判 Job 内存告警回落——树已经建好，不另起轮询。
-                    if !warnings.is_empty() {
-                        clear_recovered_job_memory_warnings(
-                            backend.as_ref(),
-                            &warnings,
-                            &tree.sessions,
-                        );
+                    if !warnings.is_empty() && !sessions.is_empty() {
+                        clear_recovered_job_memory_warnings(backend.as_ref(), &warnings, &sessions);
                     }
-                    let samples: Vec<SessionSample> =
-                        tree.sessions.iter().map(session_sample).collect();
-                    for event in machine.on_tree(&samples, Instant::now()) {
+                    for event in events {
                         match event {
                             EpisodeEvent::Usage(payload) => {
                                 if let Err(error) = app_handle.emit(
@@ -662,6 +705,112 @@ mod tests {
         assert!(matches!(&events[0], EpisodeEvent::Closed(_)));
         assert!(matches!(&events[1], EpisodeEvent::Usage(p) if !p.active));
         assert_eq!(machine.stats.open_episodes, 0);
+    }
+
+    /// 武装但没有一个受管会话：不枚举进程树（闭包零调用）；有开着的 episode 时仍喂空样本封账。
+    #[test]
+    fn armed_tick_with_no_roots_takes_no_snapshot() {
+        use std::cell::Cell;
+        let mut machine = SamplerStateMachine::new();
+        let t0 = Instant::now();
+        machine.on_cpu_sample(90.0, t0);
+        assert_eq!(
+            machine.on_cpu_sample(90.0, t0 + Duration::from_secs(5)),
+            TickDecision::SampleTree
+        );
+        let snapshots = Cell::new(0usize);
+        let snapshot = |_: &[ManagedSessionRoot]| {
+            snapshots.set(snapshots.get() + 1);
+            Vec::new()
+        };
+        let (sessions, events) = sample_tree_step(&mut machine, &[], t0, snapshot);
+        assert!(sessions.is_empty() && events.is_empty());
+        assert_eq!(snapshots.get(), 0, "no roots → no process-table walk");
+        assert_eq!(machine.stats.tree_samples, 0);
+        assert_eq!(machine.stats.idle_ticks, 2, "counted as an idle tick");
+
+        // 有根：建树一次
+        let root = ManagedSessionRoot {
+            session_id: "s1".into(),
+            root_pid: 1,
+            ..ManagedSessionRoot::default()
+        };
+        let snapshot = |_: &[ManagedSessionRoot]| {
+            snapshots.set(snapshots.get() + 1);
+            Vec::new()
+        };
+        sample_tree_step(&mut machine, std::slice::from_ref(&root), t0, snapshot);
+        assert_eq!(snapshots.get(), 1);
+        assert_eq!(machine.stats.tree_samples, 1);
+
+        // episode 开着、会话随后全部消失：空根仍喂一次空样本封账，但不建树。
+        let mut t = t0 + Duration::from_secs(5);
+        machine.on_tree(&[sample("s1", 400.0, 1)], t);
+        t += Duration::from_secs(5);
+        machine.on_tree(&[sample("s1", 400.0, 1)], t);
+        assert_eq!(machine.stats.open_episodes, 1);
+        let snapshot = |_: &[ManagedSessionRoot]| {
+            snapshots.set(snapshots.get() + 1);
+            Vec::new()
+        };
+        let (_, events) = sample_tree_step(&mut machine, &[], t + Duration::from_secs(2), snapshot);
+        assert_eq!(snapshots.get(), 1, "still no snapshot without roots");
+        assert!(matches!(&events[0], EpisodeEvent::Closed(_)));
+        assert_eq!(machine.stats.open_episodes, 0);
+    }
+
+    /// WSL 根只有在 `resource_policy.wsl_scope` 为 true 时才标 `wsl_scope`（决定要不要起 wsl.exe）。
+    #[test]
+    fn session_roots_mark_wsl_scope_only_when_policy_says_scope_exists() {
+        use cc_panes_core::models::{PolicyOutcome, ResourcePolicyStatus, SessionResourcePolicy};
+        use cc_panes_core::services::terminal_service::SessionStatus;
+        let status =
+            |id: &str, runtime: &str, policy: Option<ResourcePolicyStatus>| SessionStatusInfo {
+                session_id: id.to_string(),
+                status: SessionStatus::Active,
+                last_output_at: 0,
+                pid: Some(7),
+                exit_code: None,
+                current_tool_name: None,
+                current_tool_use_id: None,
+                current_tool_summary: None,
+                updated_at: 0,
+                osc_progress: None,
+                resource_policy: policy,
+                job_memory_warning: None,
+                runtime_kind: Some(runtime.to_string()),
+                wsl_distro: (runtime == "wsl").then(|| "Ubuntu".to_string()),
+                heavy_queue: None,
+            };
+        let applied = ResourcePolicyStatus::from_outcome(
+            &PolicyOutcome::Applied,
+            &SessionResourcePolicy::default(),
+        );
+        let scoped = ResourcePolicyStatus {
+            wsl_scope: true,
+            ..applied.clone()
+        };
+        let roots = session_roots(vec![
+            status("scoped", "wsl", Some(scoped)),
+            status("job-only", "wsl", Some(applied.clone())),
+            status("no-policy", "wsl", None),
+            status(
+                "local",
+                "local",
+                Some(ResourcePolicyStatus {
+                    wsl_scope: true,
+                    ..applied
+                }),
+            ),
+        ]);
+        let by_id = |id: &str| roots.iter().find(|r| r.session_id == id).unwrap();
+        assert!(by_id("scoped").wsl_scope);
+        assert!(
+            !by_id("job-only").wsl_scope,
+            "Applied on the wsl.exe Job is not a scope"
+        );
+        assert!(!by_id("no-policy").wsl_scope);
+        assert!(!by_id("local").wsl_scope, "never for non-WSL roots");
     }
 
     #[test]

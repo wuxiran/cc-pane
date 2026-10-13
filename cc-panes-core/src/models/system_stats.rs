@@ -18,6 +18,10 @@ pub struct ManagedSessionRoot {
     pub runtime_kind: Option<String>,
     /// WSL 发行版；按它批量读 cgroup。
     pub wsl_distro: Option<String>,
+    /// W6：Linux 侧 `ccpanes-*.scope` 确实存在（`ResourcePolicyStatus.wsl_scope`）。
+    /// 只有它为 true 才值得起 `wsl.exe` 读 cgroup；配额关 / 降级 `nice` 的 WSL 会话
+    /// 没有 scope，读了也是空，不该为此唤醒 VM。
+    pub wsl_scope: bool,
 }
 
 /// 会话进程树里的单个进程，用于在资源管理器里展开查看「底下挂了什么」。

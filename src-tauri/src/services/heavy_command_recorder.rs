@@ -31,6 +31,10 @@ const QUEUE_CAPACITY: usize = 1024;
 const PRUNE_INTERVAL: Duration = Duration::from_secs(60 * 60);
 /// 同一会话悬着的起始行上限：CLI 被杀、ToolAfter 永远不来时不让 map 无界增长。
 const MAX_PENDING_PER_SESSION: usize = 64;
+/// 悬着的起始行最多留多久：ToolAfter 24 h 还不来就是永远不来了（会话早没了）。
+pub(crate) const PENDING_MAX_AGE_MS: i64 = 24 * 60 * 60 * 1000;
+/// 悬挂表的键数上限（会话 × tool_use_id）。超出按最早起始行逐出。
+pub(crate) const MAX_PENDING_KEYS: usize = 1024;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Message {
@@ -120,12 +124,21 @@ fn extract_exit_code(response: &serde_json::Value) -> Option<i32> {
     None
 }
 
+/// 悬着的起始行：行 id + 起始时刻（逐出用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PendingStart {
+    id: i64,
+    at: i64,
+}
+
 /// 后台线程的工作体。与线程分离是为了让测试不起线程直接驱动。
 pub(crate) struct Worker {
     repo: Arc<HeavyCommandsRepository>,
-    /// (session_id, tool_use_id) → 行 id。tool_use_id 缺失时键为 (session_id, "")，
+    /// (session_id, tool_use_id) → 行。tool_use_id 缺失时键为 (session_id, "")，
     /// 同一会话顺序配对（Codex 等不带 id 的 CLI）。
-    pending: HashMap<(String, String), Vec<i64>>,
+    /// 每个 `Prune` 按 [`PENDING_MAX_AGE_MS`] / [`MAX_PENDING_KEYS`] 逐出，否则会话
+    /// 被杀时没配上的起始行会在这里留到 app 退出。
+    pending: HashMap<(String, String), Vec<PendingStart>>,
 }
 
 impl Worker {
@@ -168,7 +181,7 @@ impl Worker {
                     Ok(id) => {
                         let key = (session_id, tool_use_id.unwrap_or_default());
                         let slot = self.pending.entry(key).or_default();
-                        slot.push(id);
+                        slot.push(PendingStart { id, at });
                         if slot.len() > MAX_PENDING_PER_SESSION {
                             slot.remove(0);
                         }
@@ -187,7 +200,7 @@ impl Worker {
                     return;
                 };
                 // 同键多行（无 tool_use_id 的 CLI）按 FIFO 配对。
-                let id = slot.remove(0);
+                let PendingStart { id, .. } = slot.remove(0);
                 if slot.is_empty() {
                     self.pending.remove(&key);
                 }
@@ -201,14 +214,54 @@ impl Worker {
                     warn!(%error, "[heavy-ledger] merge_episode failed");
                 }
             }
-            Message::Prune => match self.repo.prune(now_millis()) {
-                Ok(removed) if removed > 0 => {
-                    debug!(removed, "[heavy-ledger] pruned ledger rows")
+            Message::Prune => {
+                let now = now_millis();
+                let evicted = self.evict_stale_pending(now);
+                if evicted > 0 {
+                    debug!(evicted, "[heavy-ledger] dropped unmatched pending starts");
                 }
-                Ok(_) => {}
-                Err(error) => warn!(%error, "[heavy-ledger] prune failed"),
-            },
+                match self.repo.prune(now) {
+                    Ok(removed) if removed > 0 => {
+                        debug!(removed, "[heavy-ledger] pruned ledger rows")
+                    }
+                    Ok(_) => {}
+                    Err(error) => warn!(%error, "[heavy-ledger] prune failed"),
+                }
+            }
         }
+    }
+
+    /// 逐出超过 [`PENDING_MAX_AGE_MS`] 的起始行；键数仍超 [`MAX_PENDING_KEYS`] 时按最早
+    /// 起始行继续逐出整键。返回逐出的行数。
+    pub(crate) fn evict_stale_pending(&mut self, now: i64) -> usize {
+        let cutoff = now.saturating_sub(PENDING_MAX_AGE_MS);
+        let mut evicted = 0usize;
+        self.pending.retain(|_, slot| {
+            let before = slot.len();
+            slot.retain(|start| start.at >= cutoff);
+            evicted += before - slot.len();
+            !slot.is_empty()
+        });
+        if self.pending.len() > MAX_PENDING_KEYS {
+            let mut by_age: Vec<((String, String), i64)> = self
+                .pending
+                .iter()
+                .map(|(key, slot)| {
+                    (
+                        key.clone(),
+                        slot.iter().map(|start| start.at).min().unwrap_or(i64::MAX),
+                    )
+                })
+                .collect();
+            by_age.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
+            let excess = self.pending.len() - MAX_PENDING_KEYS;
+            for (key, _) in by_age.into_iter().take(excess) {
+                if let Some(slot) = self.pending.remove(&key) {
+                    evicted += slot.len();
+                }
+            }
+        }
+        evicted
     }
 
     #[cfg(test)]
@@ -470,6 +523,63 @@ mod tests {
         let second = rows.iter().find(|r| r.started_at == 2_000).unwrap();
         assert_eq!(second.duration_ms, None);
         assert_eq!(worker.pending_len(), 1);
+    }
+
+    /// 审查 #9：ToolAfter 永远不来的起始行要在 Prune 时逐出（24 h），键数封顶。
+    #[test]
+    fn prune_evicts_stale_pending_starts_and_caps_key_count() {
+        let (mut worker, _repo, _db) = worker();
+        let before = |session: &str, id: &str, at: i64| Message::Before {
+            session_id: session.into(),
+            tool_use_id: Some(id.into()),
+            cmd_normalized: "cargo build".into(),
+            cmd_redacted: "cargo build".into(),
+            at,
+        };
+        let now = 10 * PENDING_MAX_AGE_MS;
+        worker.handle(before("s1", "old", now - PENDING_MAX_AGE_MS - 1));
+        worker.handle(before("s1", "fresh", now - 1_000));
+        worker.handle(before("s2", "fresh-2", now));
+        assert_eq!(worker.pending_len(), 3);
+
+        assert_eq!(worker.evict_stale_pending(now), 1);
+        assert_eq!(worker.pending_len(), 2, "only the 24 h old start goes");
+        // 逐出后 After 匹配不上就被安静忽略；新鲜的仍可配对
+        worker.handle(Message::After {
+            session_id: "s1".into(),
+            tool_use_id: Some("old".into()),
+            exit_code: Some(0),
+            at: now,
+        });
+        worker.handle(Message::After {
+            session_id: "s1".into(),
+            tool_use_id: Some("fresh".into()),
+            exit_code: Some(0),
+            at: now,
+        });
+        assert_eq!(worker.pending_len(), 1);
+
+        // 键数封顶：超过 MAX_PENDING_KEYS 时最早的键先走
+        for i in 0..(MAX_PENDING_KEYS + 5) {
+            worker.handle(before("flood", &format!("t{i}"), now + i as i64));
+        }
+        assert!(worker.pending_len() > MAX_PENDING_KEYS);
+        let evicted = worker.evict_stale_pending(now + 10);
+        assert!(evicted >= 6, "evicted={evicted}");
+        assert_eq!(worker.pending_len(), MAX_PENDING_KEYS);
+        // 最老的（s2/fresh-2 at=now 与 flood/t0..）先走，最新的 flood/t1028 还在
+        worker.handle(Message::After {
+            session_id: "flood".into(),
+            tool_use_id: Some(format!("t{}", MAX_PENDING_KEYS + 4)),
+            exit_code: Some(0),
+            at: now + 100,
+        });
+        assert_eq!(worker.pending_len(), MAX_PENDING_KEYS - 1);
+
+        // 走 Prune 消息也会逐出（真实时钟：1970 年的起始行一定过期）
+        worker.handle(before("ancient", "x", 1_000));
+        worker.handle(Message::Prune);
+        assert!(worker.pending_len() < MAX_PENDING_KEYS);
     }
 
     #[test]

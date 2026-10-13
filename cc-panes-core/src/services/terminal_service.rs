@@ -3102,6 +3102,8 @@ impl TerminalService {
         let mut wsl_rollout_cwd = None;
         // W6：WSL 配额（systemd scope / nice）的结果，spawn 后覆盖 wsl.exe 那个 Job 的结果。
         let mut wsl_scope_outcome: Option<PolicyOutcome> = None;
+        // W6：Applied 时实际下发的配额摘要（`CPUWeight=20, MemoryHigh=25%`），进 reason。
+        let mut wsl_scope_summary: Option<String> = None;
         let (cwd, command, args, env_remove, ssh_remote_command) = if let Some(ssh_info) = ssh {
             // 新连接走应用内 SSH2 channel；旧配置缺少认证元数据时保留系统 ssh 回退。
             // 跳过 MCP 注入、Orchestrator 信息注入、--add-dir、--resume、--append-system-prompt
@@ -3166,6 +3168,7 @@ impl TerminalService {
             strip_wsl_proxy_env_vars(&mut env_vars);
             let mut resolved_wsl = self.resolve_wsl_launch(wsl_info, &session_id)?;
             wsl_scope_outcome = resolved_wsl.scope_outcome.clone();
+            wsl_scope_summary = resolved_wsl.scope_summary.clone();
             if let Some(cwd) = launch_cwd {
                 self.apply_wsl_launch_cwd(&mut resolved_wsl, cwd)?;
                 wsl_rollout_cwd = resolved_wsl.launch_cwd.clone();
@@ -3786,10 +3789,15 @@ impl TerminalService {
             .as_ref()
             .or(spawn_result.policy_outcome.as_ref())
         {
-            self.resource_policy_store.write().insert(
-                session_id.clone(),
-                ResourcePolicyStatus::from_outcome(outcome, &resource_policy),
-            );
+            let mut status = ResourcePolicyStatus::from_outcome(outcome, &resource_policy);
+            if matches!(wsl_scope_outcome, Some(PolicyOutcome::Applied)) {
+                // scope 真的建起来了：cgroup 读数可用，Applied 也要把限了什么说出来。
+                status.wsl_scope = true;
+                status.reason = wsl_scope_summary.clone();
+            }
+            self.resource_policy_store
+                .write()
+                .insert(session_id.clone(), status);
         }
 
         let process = spawn_result.process;
@@ -5003,10 +5011,16 @@ impl TerminalService {
             Ok(outcome) => outcome,
             Err(error) => PolicyOutcome::degraded(error.to_string()),
         };
-        let result = ResourcePolicyStatus::from_outcome(&outcome, &policy);
-        self.resource_policy_store
-            .write()
-            .insert(session_id.to_string(), result.clone());
+        let mut result = ResourcePolicyStatus::from_outcome(&outcome, &policy);
+        {
+            let mut store = self.resource_policy_store.write();
+            // 三态重下发只改 Job；Linux 侧 scope 还在，`wsl_scope` 必须保留，否则
+            // 资源管理器一按"让路"WSL 会话的 cgroup 读数就消失。
+            if let Some(previous) = store.get(session_id) {
+                result.wsl_scope = previous.wsl_scope;
+            }
+            store.insert(session_id.to_string(), result.clone());
+        }
         info!(
             session_id,
             outcome = ?result.outcome,

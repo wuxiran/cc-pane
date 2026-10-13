@@ -4,7 +4,9 @@
 //! - [`normalize`]：聚合键。去掉前导 `cd … &&` / 环境赋值 / 包管理器前缀，取首段
 //!   前两个 token（`cargo test -p x` → `cargo test`，`rg foo src` → `rg`）。
 //! - [`redact`]：给人看的那一行。掩掉 token/key/secret/password/authorization
-//!   的值、URL 里的凭据、≥32 位的 base64/hex 串，并截断到 [`REDACTED_MAX_CHARS`]。
+//!   的值（`k=v` / `k:v` / `--flag v` / `-H "Authorization: Bearer v"` / `curl -u u:p` /
+//!   `mysql -pSECRET`）、URL 里的凭据、≥32 位的 base64/hex/JWT 串，并截断到
+//!   [`REDACTED_MAX_CHARS`]。宁可多掩：这一行只用来认出是哪条命令。
 
 /// 脱敏后命令的最大字符数（再长也只是识别用）。
 pub const REDACTED_MAX_CHARS: usize = 240;
@@ -124,19 +126,96 @@ pub fn normalize(command: &str) -> String {
     }
 }
 
+/// `-p` 紧贴密码的命令（`mysql -pSECRET`、`7z -pSECRET`）。只对这些命令掩 `-p`：
+/// `cargo test -p crate` 的 `-p` 是包名，掩掉就认不出是哪条命令了。
+const PASSWORD_P_COMMANDS: &[&str] = &[
+    "mysql",
+    "mysqladmin",
+    "mysqldump",
+    "mariadb",
+    "mariadb-dump",
+    "sshpass",
+    "smbclient",
+    "7z",
+    "7za",
+    "7zr",
+    "rar",
+    "unrar",
+];
+
+/// 下一 token 该怎么掩。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NextToken {
+    Keep,
+    /// 整个值掩掉（`--password x` / `Bearer x`）。
+    Mask,
+    /// `user:pass` 只掩冒号后（`curl -u u:p`）。
+    MaskUserPass,
+}
+
 /// 脱敏并截断。输出可安全落盘 / 回传前端。
 pub fn redact(command: &str) -> String {
     let mut out = String::with_capacity(command.len());
+    let head = command_head(command);
+    let password_p = PASSWORD_P_COMMANDS.contains(&head.as_str());
+    let mut next = NextToken::Keep;
     for (index, token) in command.split_whitespace().enumerate() {
         if index > 0 {
             out.push(' ');
         }
-        out.push_str(&redact_token(token));
+        let bare = token.trim_matches(|c| c == '"' || c == '\'');
+        // `Bearer` / `Basic` 本身保留，掩它后面那个。
+        if bare.eq_ignore_ascii_case("bearer") || bare.eq_ignore_ascii_case("basic") {
+            out.push_str(token);
+            next = NextToken::Mask;
+            continue;
+        }
+        // 宣告了"下一个是值"但来的是另一个 flag：没有值，不吞。
+        let is_flag = bare.starts_with('-') && bare.len() > 1;
+        match next {
+            NextToken::Mask if !is_flag => {
+                out.push_str(&mask_value(token));
+                next = NextToken::Keep;
+                continue;
+            }
+            NextToken::MaskUserPass if !is_flag => {
+                out.push_str(&mask_user_pass(token));
+                next = NextToken::Keep;
+                continue;
+            }
+            _ => {}
+        }
+        next = next_token_rule(bare, password_p);
+        out.push_str(&redact_token(token, bare, password_p));
     }
     truncate_chars(&out, REDACTED_MAX_CHARS)
 }
 
-fn redact_token(token: &str) -> String {
+/// 本 token 是否宣告"下一个是值"：`--password` / `-H` 后的 `Authorization:` /
+/// `-u` / `-p`（仅密码类命令）。带 `=` 的是 glued 形态，不影响下一个。
+fn next_token_rule(bare: &str, password_p: bool) -> NextToken {
+    if bare.contains('=') {
+        return NextToken::Keep;
+    }
+    if bare == "-u" || bare == "--user" {
+        return NextToken::MaskUserPass;
+    }
+    if password_p && bare == "-p" {
+        return NextToken::Mask;
+    }
+    if let Some(key) = bare.strip_suffix(':') {
+        // `"Authorization:` → 下一个是 `Bearer`（会再顺延一个）或裸值。
+        if is_sensitive_key(key) {
+            return NextToken::Mask;
+        }
+    }
+    if bare.starts_with("--") && is_sensitive_key(bare) {
+        return NextToken::Mask;
+    }
+    NextToken::Keep
+}
+
+fn redact_token(token: &str, bare: &str, password_p: bool) -> String {
     // URL 凭据：scheme://user:pass@host
     if let Some(scheme_end) = token.find("://") {
         let (scheme, rest) = token.split_at(scheme_end + 3);
@@ -144,6 +223,18 @@ fn redact_token(token: &str) -> String {
             let (_, host) = rest.split_at(at);
             return format!("{scheme}{MASK}{host}");
         }
+    }
+    // `--user=u:p` / `-uu:p`
+    if let Some(value) = bare
+        .strip_prefix("--user=")
+        .or_else(|| bare.strip_prefix("-u").filter(|rest| rest.contains(':')))
+    {
+        let prefix = &bare[..bare.len() - value.len()];
+        return format!("{prefix}{}", mask_user_pass(value));
+    }
+    // `mysql -pSECRET`
+    if password_p && bare.len() > 2 && bare.starts_with("-p") && !bare.starts_with("--") {
+        return format!("-p{MASK}");
     }
     // key=value / key:value（key 含敏感词）
     for sep in ['=', ':'] {
@@ -154,11 +245,53 @@ fn redact_token(token: &str) -> String {
             }
         }
     }
-    // Bearer xxx 在上一轮处理不到（跨 token），这里只处理裸长串
-    if is_long_opaque(token) {
-        return MASK.to_string();
+    if is_long_opaque(bare) {
+        return mask_value(token);
     }
     token.to_string()
+}
+
+/// 掩整个值，保留两端引号（`"x"` → `"***"`，`x"` → `***"`），行看起来还是那条命令。
+fn mask_value(token: &str) -> String {
+    let open = token
+        .chars()
+        .next()
+        .filter(|c| *c == '"' || *c == '\'')
+        .map(|c| c.to_string())
+        .unwrap_or_default();
+    let close = token
+        .chars()
+        .last()
+        .filter(|c| (*c == '"' || *c == '\'') && token.len() > 1)
+        .map(|c| c.to_string())
+        .unwrap_or_default();
+    format!("{open}{MASK}{close}")
+}
+
+/// `user:pass` → `user:***`；没有冒号就原样（只有用户名）。
+fn mask_user_pass(token: &str) -> String {
+    match token.split_once(':') {
+        Some((user, pass)) if !pass.is_empty() => {
+            let close = pass
+                .chars()
+                .last()
+                .filter(|c| *c == '"' || *c == '\'')
+                .map(|c| c.to_string())
+                .unwrap_or_default();
+            format!("{user}:{MASK}{close}")
+        }
+        _ => token.to_string(),
+    }
+}
+
+/// 第一段的命令名（跳过环境赋值与 runner 前缀），供 `-p` 规则判断。
+fn command_head(command: &str) -> String {
+    let tokens = tokenize(split_first_segment(command));
+    tokens
+        .iter()
+        .map(|token| base_name(token))
+        .find(|name| !is_env_assignment(name) && !RUNNER_PREFIXES.contains(&name.as_str()))
+        .unwrap_or_default()
 }
 
 fn is_sensitive_key(key: &str) -> bool {
@@ -178,13 +311,21 @@ fn is_sensitive_key(key: &str) -> bool {
     .any(|needle| key.contains(needle))
 }
 
-/// ≥32 位且只由 base64/hex 字符组成的串，视为凭据。
+/// ≥32 位且只由 base64 / base64url / hex / JWT 字符组成的串，视为凭据。
+/// `.` 允许是为了 JWT（`eyJ….eyJ….sig`）；带 `.` 的同时带路径分隔符的是文件路径，不掩。
+/// 以 `-` 开头的是长选项，不掩。
 fn is_long_opaque(token: &str) -> bool {
+    if token.starts_with("eyJ") && token.matches('.').count() == 2 {
+        return true;
+    }
     let body = token.trim_end_matches('=');
+    let looks_like_path = body.contains('.') && (body.contains('/') || body.contains('\\'));
     body.len() >= 32
+        && !body.starts_with('-')
+        && !looks_like_path
         && body
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '-' || c == '_')
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '-' | '_' | '.'))
         && body.chars().any(|c| c.is_ascii_digit())
         && body.chars().any(|c| c.is_ascii_alphabetic())
 }
@@ -331,10 +472,119 @@ mod tests {
             ("COOKIE=a=b ls", "COOKIE=*** ls"),
             ("ls token", "ls token"),
             ("x=1 y=2 z=3", "x=1 y=2 z=3"),
+            // 带路径分隔符的长文件名不是凭据（允许 `.` 之后的回归守卫）
+            (
+                "cat docs/107-performance-plan-0.12.22-with-a-long-name.md",
+                "cat docs/107-performance-plan-0.12.22-with-a-long-name.md",
+            ),
+            (
+                "rg foo --glob=!node_modules/**/dist-2024-01-01-build-output-x",
+                "rg foo --glob=!node_modules/**/dist-2024-01-01-build-output-x",
+            ),
         ];
         for (input, expected) in cases {
             assert_eq!(redact(input), expected, "input: {input:?}");
         }
+    }
+
+    /// 敏感 flag 后面单独一个值 token 的形态（审查发现 #6）。
+    #[test]
+    fn redact_masks_separate_value_tokens() {
+        let cases = [
+            ("mysql --password hunter2 -e x", "mysql --password *** -e x"),
+            (
+                "cargo run -- --token abc --other ok",
+                "cargo run -- --token *** --other ok",
+            ),
+            ("foo --api-key sk-123 bar", "foo --api-key *** bar"),
+            ("foo --secret-file path.txt", "foo --secret-file ***"),
+            // 值紧跟 `=` 的 glued 形态不影响下一个 token
+            ("foo --token=abc next", "foo --token=*** next"),
+            // `-p` 只对密码类命令生效；cargo 的 -p 是包名
+            ("mysql -p hunter2 db", "mysql -p *** db"),
+            ("mysql -phunter2 db", "mysql -p*** db"),
+            ("7z x -pS3cret a.7z", "7z x -p*** a.7z"),
+            ("cargo test -p cc-panes-core", "cargo test -p cc-panes-core"),
+            ("cargo test -pcc-panes-core", "cargo test -pcc-panes-core"),
+            ("sudo mysql -pxyz", "sudo mysql -p***"),
+            // 敏感 flag 后面已经是另一个 flag：没有值，不吞
+            ("--password --other", "--password --other"),
+            ("mysql -p -e x", "mysql -p -e x"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(redact(input), expected, "input: {input:?}");
+        }
+    }
+
+    /// `-H "Authorization: Bearer x"` / `Basic x`：掩 `Bearer` 之后那个。
+    #[test]
+    fn redact_masks_authorization_header_values() {
+        let cases = [
+            (
+                r#"curl -H "Authorization: Bearer abc.def" https://x"#,
+                r#"curl -H "Authorization: Bearer ***" https://x"#,
+            ),
+            (
+                "curl -H 'Authorization: Basic dXNlcjpwYXNz' https://x",
+                "curl -H 'Authorization: Basic ***' https://x",
+            ),
+            (
+                "curl -H Authorization:Bearer-xyz",
+                "curl -H Authorization:***",
+            ),
+            // 没有 Bearer 的裸头值
+            (
+                r#"curl -H "X-Api-Key: abc123" https://x"#,
+                r#"curl -H "X-Api-Key: ***" https://x"#,
+            ),
+            ("echo Bearer abc", "echo Bearer ***"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(redact(input), expected, "input: {input:?}");
+        }
+    }
+
+    /// `curl -u user:pass` → `user:***`，三种拼法。
+    #[test]
+    fn redact_masks_basic_auth_user_pass() {
+        let cases = [
+            (
+                "curl -u alice:hunter2 https://x",
+                "curl -u alice:*** https://x",
+            ),
+            (
+                "curl --user alice:hunter2 https://x",
+                "curl --user alice:*** https://x",
+            ),
+            (
+                "curl --user=alice:hunter2 https://x",
+                "curl --user=alice:*** https://x",
+            ),
+            (
+                "curl -ualice:hunter2 https://x",
+                "curl -ualice:*** https://x",
+            ),
+            (r#"curl -u "alice:hunter2" x"#, r#"curl -u "alice:***" x"#),
+            // 只有用户名：原样
+            ("curl -u alice https://x", "curl -u alice https://x"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(redact(input), expected, "input: {input:?}");
+        }
+    }
+
+    /// JWT（三段 base64url，带 `.`）必须被掩。
+    #[test]
+    fn redact_masks_jwt_tokens() {
+        let jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+        assert_eq!(redact(&format!("curl -H x {jwt}")), "curl -H x ***");
+        assert_eq!(
+            redact(&format!("echo \"{jwt}\"")),
+            "echo \"***\"",
+            "quotes stay, value goes"
+        );
+        // 短一点但仍是三段 eyJ 的也掩
+        assert_eq!(redact("echo eyJa.eyJb.c"), "echo ***");
     }
 
     #[test]

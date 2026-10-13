@@ -347,9 +347,14 @@ pub(super) fn probe_wsl_systemd_scope(wsl_path: &Path, distro: &str) -> WslSyste
 pub(super) struct WslScopePlan {
     pub(super) prefix: Vec<String>,
     pub(super) outcome: Option<crate::models::PolicyOutcome>,
+    /// Applied 时实际下发的配额（`CPUWeight=20, MemoryHigh=25%` / `CPUWeight=20`），
+    /// 进 `ResourcePolicyStatus.reason` 让用户看得到"限了什么"。非 Applied 为 None。
+    pub(super) applied_summary: Option<String>,
 }
 
 /// 三态：关 → 无前缀；开且可用 → `systemd-run --user --scope`；开但不可用 → `nice -n 10` + Degraded。
+///
+/// `memory_high_percent == 0` = 不设 `MemoryHigh`（默认，与 0.12.21 一致）；>0 钳到 1..=90。
 ///
 /// **只前缀 argv，不重新引用脚本**：脚本路径 / `-lic` 字符串原样跟在 `--` 之后。
 pub(super) fn plan_wsl_scope(
@@ -363,27 +368,35 @@ pub(super) fn plan_wsl_scope(
         return WslScopePlan {
             prefix: Vec::new(),
             outcome: None,
+            applied_summary: None,
         };
     }
     let scope = scope.cloned().unwrap_or(WslSystemdScope::NoSystemd);
     if scope.is_available() {
         let unit = crate::services::wsl_cgroup_stats::wsl_scope_unit_name(session_id);
         let weight = cpu_weight.clamp(1, 10_000);
-        let memory_high = memory_high_percent.clamp(1, 100);
+        let mut prefix = vec![
+            "systemd-run".to_string(),
+            "--user".to_string(),
+            "--scope".to_string(),
+            "-q".to_string(),
+            format!("--unit={unit}"),
+            "-p".to_string(),
+            format!("CPUWeight={weight}"),
+        ];
+        let mut summary = format!("CPUWeight={weight}");
+        if memory_high_percent > 0 {
+            let memory_high = memory_high_percent
+                .min(crate::models::performance_settings::MAX_WSL_MEMORY_HIGH_PERCENT);
+            prefix.push("-p".to_string());
+            prefix.push(format!("MemoryHigh={memory_high}%"));
+            summary.push_str(&format!(", MemoryHigh={memory_high}%"));
+        }
+        prefix.push("--".to_string());
         return WslScopePlan {
-            prefix: vec![
-                "systemd-run".to_string(),
-                "--user".to_string(),
-                "--scope".to_string(),
-                "-q".to_string(),
-                format!("--unit={unit}"),
-                "-p".to_string(),
-                format!("CPUWeight={weight}"),
-                "-p".to_string(),
-                format!("MemoryHigh={memory_high}%"),
-                "--".to_string(),
-            ],
+            prefix,
             outcome: Some(crate::models::PolicyOutcome::Applied),
+            applied_summary: Some(summary),
         };
     }
     WslScopePlan {
@@ -391,6 +404,7 @@ pub(super) fn plan_wsl_scope(
         outcome: Some(crate::models::PolicyOutcome::degraded(
             scope.degraded_reason(),
         )),
+        applied_summary: None,
     }
 }
 
@@ -420,6 +434,8 @@ pub(super) struct ResolvedWslLaunch {
     pub(super) scope_prefix: Vec<String>,
     /// W6：配额策略结果，spawn 后覆盖 `resource_policy` 状态；`None` = 开关关着。
     pub(super) scope_outcome: Option<crate::models::PolicyOutcome>,
+    /// W6：Applied 时实际下发的配额摘要，进 `ResourcePolicyStatus.reason`。
+    pub(super) scope_summary: Option<String>,
 }
 
 impl ResolvedWslLaunch {
@@ -1834,6 +1850,7 @@ impl TerminalService {
             windows_host: None,
             scope_prefix: plan.prefix,
             scope_outcome: plan.outcome,
+            scope_summary: plan.applied_summary,
         })
     }
 
@@ -3230,6 +3247,7 @@ mod tests {
             windows_host: None,
             scope_prefix: Vec::new(),
             scope_outcome: None,
+            scope_summary: None,
         };
         assert_eq!(wsl.cli_cwd(), "/workspace");
         assert_eq!(wsl.project_cwd(), "/project"); // Codex already used project -C.
@@ -3428,9 +3446,34 @@ mod tests {
             ]
         );
         assert_eq!(on.outcome, Some(crate::models::PolicyOutcome::Applied));
+        assert_eq!(
+            on.applied_summary.as_deref(),
+            Some("CPUWeight=20, MemoryHigh=25%")
+        );
+
+        // 默认 0 = 不设 MemoryHigh：argv 里没有它，摘要只报 CPUWeight。
+        let default_memory = plan_wsl_scope(true, Some(&WslSystemdScope::Available), "s", 20, 0);
+        assert_eq!(
+            default_memory.prefix,
+            vec![
+                "systemd-run",
+                "--user",
+                "--scope",
+                "-q",
+                "--unit=ccpanes-s",
+                "-p",
+                "CPUWeight=20",
+                "--",
+            ]
+        );
+        assert_eq!(
+            default_memory.applied_summary.as_deref(),
+            Some("CPUWeight=20")
+        );
 
         let degraded = plan_wsl_scope(true, Some(&WslSystemdScope::NoUserManager), "s", 20, 25);
         assert_eq!(degraded.prefix, vec!["nice", "-n", "10"]);
+        assert!(degraded.applied_summary.is_none());
         match degraded.outcome {
             Some(crate::models::PolicyOutcome::Degraded { reason }) => {
                 assert!(reason.starts_with("no systemd user manager"), "{reason}")
@@ -3443,7 +3486,7 @@ mod tests {
         // 越界参数钳位而不是拒绝。
         let clamped = plan_wsl_scope(true, Some(&WslSystemdScope::Available), "s", 0, 500);
         assert!(clamped.prefix.contains(&"CPUWeight=1".to_string()));
-        assert!(clamped.prefix.contains(&"MemoryHigh=100%".to_string()));
+        assert!(clamped.prefix.contains(&"MemoryHigh=90%".to_string()));
     }
 
     /// 负结果 60 s 后重探，正结果 10 min 内复用。
@@ -3909,6 +3952,7 @@ mod tests {
                 windows_host: None,
                 scope_prefix: Vec::new(),
                 scope_outcome: None,
+                scope_summary: None,
             },
             session_id,
             cc_cli_adapters::PI_MANAGED_STATE_DIR_NAME,

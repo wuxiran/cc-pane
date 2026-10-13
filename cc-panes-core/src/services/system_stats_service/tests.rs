@@ -181,6 +181,7 @@ fn resource_tree_aggregates_managed_session_descendants_once() {
             root_pid: 20,
             runtime_kind: None,
             wsl_distro: None,
+            wsl_scope: false,
         }],
         10,
         &known_family(),
@@ -226,12 +227,14 @@ fn nested_session_roots_use_nearest_owner_independent_of_input_order() {
         root_pid: 100,
         runtime_kind: None,
         wsl_distro: None,
+        wsl_scope: false,
     };
     let nested = ManagedSessionRoot {
         session_id: "nested".to_string(),
         root_pid: 110,
         runtime_kind: None,
         wsl_distro: None,
+        wsl_scope: false,
     };
 
     let build = |sessions: &[ManagedSessionRoot]| {
@@ -313,6 +316,7 @@ fn session_process_detail_caps_the_list_and_reports_what_it_folded() {
             root_pid: 20,
             runtime_kind: None,
             wsl_distro: None,
+            wsl_scope: false,
         }],
         10,
         &identities(&[(10, 100)]),
@@ -369,6 +373,7 @@ fn orphan_detection_excludes_active_conpty_family_and_whitelisted_branches() {
             root_pid: 20,
             runtime_kind: None,
             wsl_distro: None,
+            wsl_scope: false,
         }],
         10,
         &known_family(),
@@ -390,6 +395,7 @@ fn kill_guard_rejects_self_managed_unknown_and_reports_partial_failure() {
         root_pid: 20,
         runtime_kind: None,
         wsl_distro: None,
+        wsl_scope: false,
     }];
     let results = kill_orphans_from_snapshot(
         &snapshot(),
@@ -485,6 +491,7 @@ fn top_process_candidates_exclude_family_sessions_and_orphan_trees() {
         root_pid: 20,
         runtime_kind: None,
         wsl_distro: None,
+        wsl_scope: false,
     }];
     let mut candidates =
         top_process_candidate_pids(&index, &processes, &sessions, 10, &known_family());
@@ -554,12 +561,14 @@ fn wsl_roots_take_cgroup_readings_and_local_roots_keep_tree_aggregate() {
             root_pid: 20,
             runtime_kind: Some("wsl".to_string()),
             wsl_distro: Some("Ubuntu".to_string()),
+            wsl_scope: true,
         },
         ManagedSessionRoot {
             session_id: "local-1".to_string(),
             root_pid: 30,
             runtime_kind: Some("local".to_string()),
             wsl_distro: None,
+            wsl_scope: false,
         },
     ];
     let usage = |id: &str| SessionResourceUsage {
@@ -595,5 +604,19 @@ fn wsl_roots_take_cgroup_readings_and_local_roots_keep_tree_aggregate() {
     let mut tree = vec![usage("wsl-sess-1")];
     super::apply_wsl_cgroup_readings(&off, &sessions[..1], &mut tree);
     assert_eq!(off.spawn_count(), 0);
+    assert!(tree[0].source.is_none());
+
+    // WSL 根但没有 scope（配额关 / 降级 nice）：没有 cgroup 目录可读，零次 wsl.exe、不问 VM。
+    let unscoped = [ManagedSessionRoot {
+        wsl_scope: false,
+        ..sessions[0].clone()
+    }];
+    let strict = WslCgroupSampler::with_runner(
+        Box::new(|_| panic!("must not spawn without a scope")),
+        Box::new(|| panic!("must not consult vm gate without a scope")),
+    );
+    let mut tree = vec![usage("wsl-sess-1")];
+    super::apply_wsl_cgroup_readings(&strict, &unscoped, &mut tree);
+    assert_eq!(strict.spawn_count(), 0);
     assert!(tree[0].source.is_none());
 }

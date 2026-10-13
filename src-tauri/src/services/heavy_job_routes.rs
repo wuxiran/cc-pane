@@ -24,11 +24,13 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use cc_panes_core::models::{ResourcePolicyStatus, SessionResourcePolicy};
 use cc_panes_core::services::heavy_job_gate::{
     AcquireOutcome, AcquireRequest, GateConfig, HeavyJobGate, Lease, QueuePositions,
 };
 use parking_lot::Mutex;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Notify;
@@ -375,12 +377,92 @@ impl HeavyJobEnvironment for DisabledHeavyJobEnvironment {
     fn on_queue_changed(&self, _session_id: &str, _position: Option<(u32, u32)>) {}
 }
 
-/// 真实环境：设置 → 配置；拿槽下发 lower_priority；归还回填台账；位次发 Tauri 事件。
+/// 门禁对会话策略的**只升不降**决策（纯逻辑，便于测试）。
+///
+/// 审查 #1：拿槽时无脑下发 `{lower_priority:true, eco_qos:false}` 会把用户在资源管理器里
+/// 选的"效率模式"关掉（`reapply_policy` 对已开过 EcoQoS 的 Job 会照 `eco_qos:false` 清掉）。
+/// 所以：
+/// - 拿槽：会话已经让路 / 已在效率模式 → 什么都不做；否则只加 `lower_priority`，
+///   权重 / EcoQoS 保持原样，并记住拿槽前的策略；
+/// - 归还：只有当前状态仍是门禁设的那样（让路且非效率模式）才还原；用户中途在
+///   UI 里改过（比如切到效率模式）就不碰——那是更新的意图。
+pub(crate) fn grant_policy(current: &ResourcePolicyStatus) -> Option<SessionResourcePolicy> {
+    if current.lower_priority || current.eco_qos {
+        return None;
+    }
+    Some(SessionResourcePolicy {
+        lower_priority: true,
+        cpu_weight: current.cpu_weight,
+        eco_qos: current.eco_qos,
+        memory_notify_bytes: None,
+    })
+}
+
+pub(crate) fn restore_policy(
+    saved: &SessionResourcePolicy,
+    current: &ResourcePolicyStatus,
+) -> Option<SessionResourcePolicy> {
+    let still_gate_shape = current.lower_priority && !current.eco_qos;
+    still_gate_shape.then_some(SessionResourcePolicy {
+        lower_priority: saved.lower_priority,
+        cpu_weight: current.cpu_weight,
+        eco_qos: saved.eco_qos,
+        memory_notify_bytes: None,
+    })
+}
+
+/// 记住门禁改过的会话（按租约 id），归还时据此还原。
+#[derive(Default)]
+pub(crate) struct GateEscalations {
+    saved: Mutex<HashMap<String, SessionResourcePolicy>>,
+}
+
+impl GateEscalations {
+    /// 拿槽：返回要下发的策略；`None` = 不动。`current = None`（SSH / 旧 daemon /
+    /// 会话不在）也不动——看不到现状就不该改。
+    pub(crate) fn plan_grant(
+        &self,
+        lease_id: &str,
+        current: Option<&ResourcePolicyStatus>,
+    ) -> Option<SessionResourcePolicy> {
+        let current = current?;
+        let policy = grant_policy(current)?;
+        self.saved.lock().insert(
+            lease_id.to_string(),
+            SessionResourcePolicy {
+                lower_priority: current.lower_priority,
+                cpu_weight: current.cpu_weight,
+                eco_qos: current.eco_qos,
+                memory_notify_bytes: None,
+            },
+        );
+        Some(policy)
+    }
+
+    /// 归还：门禁没改过这张租约 → `None`；改过则按 [`restore_policy`] 决定。记录一律清掉。
+    pub(crate) fn plan_release(
+        &self,
+        lease_id: &str,
+        current: Option<&ResourcePolicyStatus>,
+    ) -> Option<SessionResourcePolicy> {
+        let saved = self.saved.lock().remove(lease_id)?;
+        restore_policy(&saved, current?)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn tracked(&self) -> usize {
+        self.saved.lock().len()
+    }
+}
+
+/// 真实环境：设置 → 配置；拿槽只升不降地下发 lower_priority、归还还原；归还回填台账；
+/// 位次发 Tauri 事件。
 pub struct AppHeavyJobEnvironment {
     settings: Arc<cc_panes_core::services::SettingsService>,
     terminal_backend: Arc<crate::services::TerminalBackendState>,
     ledger: Arc<cc_panes_core::repository::HeavyCommandsRepository>,
     emitter: Arc<dyn cc_panes_core::events::EventEmitter>,
+    escalations: Arc<GateEscalations>,
 }
 
 impl AppHeavyJobEnvironment {
@@ -395,6 +477,21 @@ impl AppHeavyJobEnvironment {
             terminal_backend,
             ledger,
             emitter,
+            escalations: Arc::new(GateEscalations::default()),
+        }
+    }
+}
+
+/// 读会话当前策略状态（daemon 后端是一次 HTTP；失败视为看不见 → `None`）。
+fn current_policy_status(
+    backend: &dyn cc_panes_core::services::TerminalBackend,
+    session_id: &str,
+) -> Option<ResourcePolicyStatus> {
+    match backend.get_session_status(session_id) {
+        Ok(status) => status.and_then(|status| status.resource_policy),
+        Err(error) => {
+            debug!(session = %session_id, %error, "[heavy-gate] status lookup failed");
+            None
         }
     }
 }
@@ -413,16 +510,17 @@ impl HeavyJobEnvironment for AppHeavyJobEnvironment {
     }
 
     fn on_granted(&self, lease: &Lease) {
-        // 让路：BELOW_NORMAL（Windows Job）/ nice。EcoQoS 不在这里开——门禁只保证总量，
-        // 效率模式是用户在资源管理器里的显式选择。daemon 后端是一次 HTTP，放 blocking 线程。
+        // 让路：BELOW_NORMAL（Windows Job）/ nice，**只升不降**：会话已让路 / 已在效率模式
+        // 就不碰（见 [`grant_policy`]）。daemon 后端是两次 HTTP，放 blocking 线程。
         let backend = self.terminal_backend.backend();
+        let escalations = Arc::clone(&self.escalations);
         let session_id = lease.session_id.clone();
+        let lease_id = lease.id.clone();
         tokio::task::spawn_blocking(move || {
-            let policy = cc_panes_core::models::SessionResourcePolicy {
-                lower_priority: true,
-                cpu_weight: None,
-                eco_qos: false,
-                memory_notify_bytes: None,
+            let current = current_policy_status(backend.as_ref(), &session_id);
+            let Some(policy) = escalations.plan_grant(&lease_id, current.as_ref()) else {
+                debug!(session = %session_id, ?current, "[heavy-gate] policy left as-is on grant");
+                return;
             };
             match backend.set_resource_policy(&session_id, policy) {
                 Ok(status) => {
@@ -436,15 +534,30 @@ impl HeavyJobEnvironment for AppHeavyJobEnvironment {
     }
 
     fn on_released(&self, lease: &Lease, _exit_code: Option<i32>, _duration_ms: Option<u64>) {
-        // 台账行由 hook 记录器写（时长 / 退出码已在那边），这里只回填 target / 原因。
+        // 台账行由 hook 记录器写（时长 / 退出码已在那边），这里只回填 target / 原因；
+        // 并把拿槽时改过的策略还原（用户中途改过就不碰，见 [`restore_policy`]）。
         let ledger = self.ledger.clone();
+        let backend = self.terminal_backend.backend();
+        let escalations = Arc::clone(&self.escalations);
         let session_id = lease.session_id.clone();
+        let lease_id = lease.id.clone();
         let cmd = lease.cmd_normalized.clone();
         let target = lease.target.as_str();
         let reason = lease.forced.then_some(FORCED_REASON);
         tokio::task::spawn_blocking(move || {
             if let Err(error) = ledger.mark_target(&session_id, &cmd, target, reason) {
                 debug!(%error, "[heavy-gate] ledger mark_target failed (best effort)");
+            }
+            let current = current_policy_status(backend.as_ref(), &session_id);
+            if let Some(policy) = escalations.plan_release(&lease_id, current.as_ref()) {
+                match backend.set_resource_policy(&session_id, policy) {
+                    Ok(status) => {
+                        debug!(session = %session_id, ?status, "[heavy-gate] policy restored")
+                    }
+                    Err(error) => {
+                        debug!(session = %session_id, %error, "[heavy-gate] restore failed (best effort)")
+                    }
+                }
             }
         });
     }
@@ -518,6 +631,111 @@ mod tests {
     }
 
     const TOKEN: &str = "test-token";
+
+    fn status(lower_priority: bool, eco_qos: bool, cpu_weight: Option<u8>) -> ResourcePolicyStatus {
+        ResourcePolicyStatus {
+            outcome: cc_panes_core::models::PolicyOutcomeKind::Applied,
+            reason: None,
+            lower_priority,
+            eco_qos,
+            cpu_weight,
+            wsl_scope: false,
+        }
+    }
+
+    /// 审查 #1：拿槽只升不降——已让路 / 已效率模式的会话不动；普通会话只加 lower_priority
+    /// 且保留权重。
+    #[test]
+    fn grant_only_escalates_and_keeps_user_choices() {
+        assert_eq!(
+            grant_policy(&status(true, false, None)),
+            None,
+            "already lowered"
+        );
+        assert_eq!(
+            grant_policy(&status(false, true, None)),
+            None,
+            "eco qos is above"
+        );
+        assert_eq!(grant_policy(&status(true, true, Some(3))), None);
+        assert_eq!(
+            grant_policy(&status(false, false, Some(3))),
+            Some(SessionResourcePolicy {
+                lower_priority: true,
+                cpu_weight: Some(3),
+                eco_qos: false,
+                memory_notify_bytes: None,
+            }),
+            "normal session: lower priority, weight untouched"
+        );
+
+        let escalations = GateEscalations::default();
+        assert_eq!(
+            escalations.plan_grant("L1", None),
+            None,
+            "unknown status → hands off"
+        );
+        assert_eq!(escalations.tracked(), 0);
+        assert!(escalations
+            .plan_grant("L2", Some(&status(false, true, None)))
+            .is_none());
+        assert_eq!(
+            escalations.tracked(),
+            0,
+            "nothing to restore when nothing changed"
+        );
+        assert!(escalations
+            .plan_grant("L3", Some(&status(false, false, Some(7))))
+            .is_some());
+        assert_eq!(escalations.tracked(), 1);
+    }
+
+    /// 审查 #1：归还只在状态仍是门禁设的形状时还原；用户中途改过（效率模式）就不碰。
+    #[test]
+    fn release_restores_only_what_the_gate_changed() {
+        let escalations = GateEscalations::default();
+        escalations.plan_grant("L1", Some(&status(false, false, Some(7))));
+        assert_eq!(
+            escalations.plan_release("L1", Some(&status(true, false, Some(7)))),
+            Some(SessionResourcePolicy {
+                lower_priority: false,
+                cpu_weight: Some(7),
+                eco_qos: false,
+                memory_notify_bytes: None,
+            })
+        );
+        assert_eq!(escalations.tracked(), 0, "record consumed");
+        assert_eq!(
+            escalations.plan_release("L1", Some(&status(true, false, None))),
+            None,
+            "second release of the same lease is a no-op"
+        );
+
+        // 用户在持槽期间切到效率模式：归还不还原
+        escalations.plan_grant("L2", Some(&status(false, false, None)));
+        assert_eq!(
+            escalations.plan_release("L2", Some(&status(true, true, None))),
+            None
+        );
+        assert_eq!(escalations.tracked(), 0);
+
+        // 用户在持槽期间自己把让路关了：也不碰
+        escalations.plan_grant("L3", Some(&status(false, false, None)));
+        assert_eq!(
+            escalations.plan_release("L3", Some(&status(false, false, None))),
+            None
+        );
+
+        // 归还时看不到状态（会话已退出）：不碰
+        escalations.plan_grant("L4", Some(&status(false, false, None)));
+        assert_eq!(escalations.plan_release("L4", None), None);
+
+        // 没拿过的租约：不碰
+        assert_eq!(
+            escalations.plan_release("never", Some(&status(true, false, None))),
+            None
+        );
+    }
 
     fn enabled(slots: u32) -> GateConfig {
         GateConfig {
