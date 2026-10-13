@@ -110,7 +110,7 @@ Codex 的 Job 在 `spawn_contained` 里用 `CREATE_SUSPENDED → assign → NtRe
 
 | 项 | 落点 | 说明 |
 |---|---|---|
-| 停泊状态机 | `terminalBackgroundLifecycle.ts` 新增 `parked` 层 | 隐藏 **30 s** → 卸载 xterm（当前 5 min 只挂 WebGL、30 min 才休眠）。热实例上限 6（设置可调 2–12），LRU 逐出。恢复复用现有 recovery snapshot（checkpoint + delta，0.12.21 已带几何），不另造 headless emulator |
+| 停泊状态机 | `terminalBackgroundLifecycle.ts` 新增 `parked` 层 | 隐藏 **30 s** → 卸载 xterm（原来 Tier1 1 s 只挂 WebGL、30 min 才休眠）。热实例上限 6（设置可调 2–12），LRU 逐出。恢复复用现有 recovery snapshot（checkpoint + delta，0.12.21 已带几何），不另造 headless emulator |
 | 字节观察器 | `terminalHiddenWriteBuffer.ts` 旁路 | 停泊中只解析 bell / OSC 标题 / 完成信号，不喂 xterm。现有 hidden 预算（`terminalHiddenBudget.ts`）保持 |
 | 隐藏 WebGL LRU | `terminalRendererController.ts` | 预算从"总数 8"改为"可见全给 + 隐藏保留 ≤6，按最近隐藏时间逐出"；上下文丢失 60 s 内最多重试 3 次后钉 DOM |
 | 恢复风暴信号量 | `terminalRestoreQueue.ts` 升级 | 冷启动重放并发 **1**，前台窗格优先级插队（Orca PrioritySemaphore 77 行可直接移植）；checkpoint 上传并发 4、只拍脏会话 |
@@ -344,3 +344,71 @@ Docker 的几个硬约束，决定它只能是"之一"而不是唯一：
 > **给 Codex 任何 `-c`（除 `tui.fullscreen_transcript`）都会让它放弃共享后台 server 改用内嵌模式**：我们注入了 `tui.terminal_title`，所以 CC-Panes 下的 Codex 永远是内嵌模式。副作用是每实例多占内存；好处是整棵进程树留在窗格 Job 里。不要为了"省内存"把 `-c` 挪进 `CODEX_HOME/config.toml`——那会让所有实例共享一个 server，资源归属失真。
 
 > **Windows 上 Job Object 的内存限制要用通知型**：`JOB_OBJECT_LIMIT_JOB_MEMORY` 是硬限，超限分配直接失败，用户看到的是莫名其妙的 build 失败；`JobObjectNotificationLimitInformation` 只发事件。CPU 同理用 WEIGHT_BASED 不用 HARD_CAP（docs/71 §6）。
+
+---
+
+## 7. 落地记录（2026-10-13，`dev/v0.12.22@6a470775`）
+
+| 项 | 状态 | 落点（提交） |
+|---|---|---|
+| P1 停泊 + WebGL 隐藏 LRU + context-loss 有限重试 | ✅ | `5195c19d`：`terminalParkingRegistry.ts` / `terminalParking.ts` / `terminalParkingSettings.ts` / `terminalWebglContextLossRetry.ts`；lifecycle 新增 Park 层（Tier1 1 s → Park 30 s → Tier2 30 min）；隐藏上下文 ≤6 LRU |
+| P1 重放信号量 + 唤醒清 desync 闩 | ✅ | `e2ce4b8d`：`terminalReplaySemaphore.ts`（并发 1、前台优先、30 s 超时释放）包四个重放入口；`terminalService.clearDesync` |
+| P2 整机 Top 非会话进程 | ✅ | `7c0b47ca`：`ResourceTree.top_processes`（整机 CPU ≥60% 才算、<45% 关，按 CPU 差分排名，**只读展示**）；UI `TopProcessesBlock.tsx` |
+| P2 琥珀徽标 / 降优先级 / 效率模式 / 策略结果回传 | ✅ | `7c0b47ca` + `52e01238`：`useTabResourceBadgeStore`（cpu/memory/job-memory/queued）、`set_session_resource_policy`（trait + daemon 路由 `POST /api/sessions/{id}/resource-policy`）、`SessionResourcePolicy.eco_qos`（`SetProcessInformation(ProcessPowerThrottling)`）、`SessionStatusInfo.resource_policy` |
+| P2b 重负载命令台账 | ✅ | `ce3ae588`：迁移 v40 `heavy_commands`；`heavy_command_recorder.rs`（Bash ToolBefore/After 配对）、`heavy_command_sampler.rs`（整机 ≥60% 两次武装、树 ≥100%/2 GB 持续 5 s 开 episode、计数器 `get_heavy_sampler_stats`）；popover "最贵命令"标签；Codex `tool-after` hook 启用 |
+| P3 并行度环境注入 | ✅ | `9202b266`：`utils/perf_env.rs`（`CARGO_BUILD_JOBS MAKEFLAGS CMAKE_BUILD_PARALLEL_LEVEL RAYON_NUM_THREADS UV_THREADPOOL_SIZE RIPGREP_CONFIG_PATH`，用户已有键不覆盖）；本地 / Pi / WSL（WSLENV `/p`）/ SSH（五个非路径键） |
+| P3 Job 内存**通知**水位 | ✅ | `68bae902` + `c67db5a5`：`pty/job_events.rs` 完成端口监听；`JOB_OBJECT_LIMIT_JOB_MEMORY_HIGH` 通知型；`SessionStatusInfo.job_memory_warning`；树内存 <80% 阈值回落清除 |
+| P3 WSL systemd scope + cgroup 读数 | ✅ | `fa2687d3`：`probe_wsl_systemd_scope`（正 TTL 10 min / 负 60 s）、`systemd-run --user --scope -p CPUWeight -p MemoryHigh` 前缀、`wsl_cgroup_stats.rs`（VM 运行时一次 `wsl.exe` 批读、2 s 缓存、`source:"cgroup"`） |
+| P3b tokio worker 收口 + 建会话前重读设置 | ✅ | `e1be4430`：daemon / web `worker_threads` 默认 4（`CC_PANES_TOKIO_WORKERS` 2..=8）；daemon `create_session` 前 2 s 限频 `reload_from_disk` |
+| P4 Codex 轻量注入 | ✅ | `9202b266`：`push_tui_perf_overrides`（`tui.animations=false`、`tui.auto_recap=false`；低配模式 `agents.max_concurrent_threads_per_session=2`）；**不发** `shell_environment_policy.set.*` |
+| P6 门禁骨架 + `ctl run` + skill | ✅ | `855c7c7e` / `0319be7e` / `f01a1d09`：`heavy_job_gate.rs` 纯逻辑；orchestrator `/api/heavy-jobs/{acquire,release,heartbeat}` + `GET`；`cc-panes-ctl run [--heavy] [--label] -- <cmd>`；skill `ccpanes-heavy-run` 由 manifest `requiresSetting` 门控；排队 chip 走 Tauri 事件 `heavy-queue-changed` |
+| 交付形态：设置 "性能" 面板 | ✅ | `821622c2` + `250597f8`：`[performance]` 15 个键（camelCase），面板挂在 "system" 页，`lowerSessionPriority` 从终端页搬来，新增 CPU 权重滑杆 |
+| P5 夜间规模性能门禁脚本 | ⏳ 未做 | 留给 0.12.22 收尾或 0.12.23 |
+| P7 辅机 / Docker 卸载 | ⏳ 未做 | `HeavyRunTarget::Local` 枚举已留接缝（serde tag `target`），台账已有 `target` / `offloaded_reason` 列 |
+| 共享"构建 Job"（嵌套 Job 硬上限）、PATH 垫片、PreToolUse 自动包裹 | ⏳ 未做 | 按 P6 分期放到门禁本体稳定之后 |
+
+### 7.1 实施中确认的事实（覆盖本文前面的旧描述）
+
+- Tier1 挂 WebGL 延迟原本就是 **1 s**，不是 5 min；P1 的收益来自卸载 xterm 实例本身，不是提前挂 WebGL。
+- Tauri 模式下隐藏会话**收不到任何字节**（daemon 源头切断 + 前端闩 desync），停泊不需要字节观察器；进度 / 等待输入 / 完成信号都在后端解析，卸载 xterm 不丢。
+- docs/71 §2.9 的归属漂移早已修复（最深根优先），P2b 不需要前置修复。
+- daemon 不开 SQLite，台账与采样器都在 app 进程；WSL 会话只到得了 app 的 orchestrator，所以门禁路由在 orchestrator 而不在 daemon。
+- Claude 本来就装了 catch-all `PostToolUse` hook，Bash 记录器不需要新 hook。
+- `JOB_OBJECT_MSG_NOTIFICATION_LIMIT` 在 Win11 26200 上**不是一次性**：越线后每次 commit 都会再发（实测 1.5 s 内 7 条），所以监听线程按 Job 做 2 s 去抖，只在回落时重设一次限制。
+- `top_processes` 没放在 `SystemStats`（状态栏 3 s 轮询用），放在 `ResourceTree`（只在 popover 打开时算）；排名用 CPU 差分而不是先按工作集取前 10——8 个小的 `while(1){}` 永远进不了工作集前十。
+- 排队状态用 Tauri 事件 `heavy-queue-changed` 直达前端，`SessionStatusInfo.heavy_queue` 字段保留为契约占位：门禁在 app，而 daemon 模式的状态 payload 产自 daemon，填字段要在两条后端路径叠加。
+
+### 7.2 新增 Known Gotcha
+
+> **portable-pty 0.8 的 `spawn_command` 不暴露 `CREATE_SUSPENDED`**：Codex 那套"挂起 → 入 Job → 恢复"消 spawn-assign 窗口的做法做不了，`job.rs` 的"极小窗口"注释仍然成立。缓解：策略作用在 Job 上，assign 之后出生的子孙自动覆盖。
+
+> **EcoQoS（`ProcessPowerThrottling`）是逐进程的**：`set_session_resource_policy(eco_qos: true)` 只覆盖当时 Job 里的 pid，之后 fork 的 rustc 不在效率模式。门禁拿槽时会重放一次；长编译中途新起的进程仍可能漏。要"整树硬上限"得用 Job 的 `CPU_RATE_CONTROL_HARD_CAP`（本批未做）。
+
+> **popover、台账采样器、performance_recorder 各自持有独立的 `SystemStatsService`**：`windows.rs` 的 CPU 基线是按调用整体覆盖的，共享实例会让两边的 CPU% 互相归零。新增任何采样方都要自己 new 一个。
+
+> **Codex 的命令继承会话环境（`shell_environment_policy.inherit = "all"` 默认）**：并行度环境变量直接到达 Codex 跑的 `cargo`，不需要 `-c shell_environment_policy.set.*`；用户若自己改成 `inherit = "core"`，要手工把这些键写进 `shell_environment_policy.set`。有断言测试保证我们不发这个 `-c`。
+
+> **`[performance]` 的 TOML 键是 camelCase**（`buildJobs`、`parkedTerminalLimit`），与其他段落一致；`Some(0)` 视同 `None`（自动）。
+
+### 7.3 CHANGELOG 0.12.22 草稿（待并入两份 CHANGELOG；当前 CHANGELOG 工作区有其他实例的未提交改动，本批不碰）
+
+**新增**
+- 「性能」设置面板：构建并行度注入、Codex 轻量模式、重负载门禁、重负载台账、会话资源策略（含 CPU 权重）、WSL 配额、隐藏窗格停泊，共 15 个开关，默认只开低风险项。
+- 新会话注入构建并行度环境变量（`CARGO_BUILD_JOBS` / `MAKEFLAGS` / `CMAKE_BUILD_PARALLEL_LEVEL` / `RAYON_NUM_THREADS` / `UV_THREADPOOL_SIZE` / `RIPGREP_CONFIG_PATH`），默认核数 − 8，用户已有设置不覆盖；本地、WSL、SSH、Codex 一致。
+- Codex 托管会话默认注入 `tui.animations=false`、`tui.auto_recap=false`，运行中状态条重绘从 32 ms 一次降到 1 s 一次。
+- 资源管理器 2.0：整机高负载时列出会话之外的肇事进程；每个会话可切换 正常 / 让路 / 效率模式；策略降级原因可见；吃资源的标签页亮琥珀点，点击直达。
+- 重负载命令台账：自动记录各会话里耗资源的命令（hook + 边沿触发采样，空闲零采样），资源管理器新增"最贵命令"标签。
+- Windows 会话 Job 内存通知水位：某窗格进程树超过阈值时标签与资源管理器提示，构建不会因此失败。
+- WSL 会话包进 systemd scope（CPUWeight / MemoryHigh），资源管理器显示真实 cgroup 读数，不再恒显示 8 MB / 0%。
+- 重负载门禁（默认关）：`cc-panes-ctl run --heavy -- <cmd>` 向 CC-Panes 申请槽位再执行，排队状态显示在标签页；开启后自动注入 `ccpanes-heavy-run` skill。
+- 隐藏窗格停泊：隐藏 30 s 后卸载 xterm 实例，只保留 6 个热实例，切回时从恢复快照重建；隐藏 WebGL 上下文 ≤6 按 LRU 逐出；冷恢复重放串行、前台优先。
+
+**修复 / 优化**
+- daemon 与 cc-panes-web 的 tokio worker 从核数收到默认 4，daemon 建会话前重读设置（最多 2 s 一次），设置改动不再要等 60 s。
+- WebGL 上下文丢失后 60 s 内最多重试 3 次，不再永久钉死在 DOM。
+- 唤醒重放成功后清除 desync 闩。
+
+**兼容说明**
+- 数据库 v40 新增 `heavy_commands` 表。
+- `SessionStatusInfo` 新增四个可选字段（`resourcePolicy`、`jobMemoryWarning`、`runtimeKind`/`wslDistro`、`heavyQueue`），旧 daemon 不发则为空；新 daemon 路由在旧 daemon 上返回 404，UI 显示"不支持（daemon 过旧）"。
+- 老 `config.toml` 没有 `[performance]` 段时全部取默认值。
