@@ -229,6 +229,13 @@ describe("TerminalSection", () => {
     expect(shellSelect).toHaveTextContent("D:\\tools\\nu.exe");
   });
 
+  it("no longer renders the session priority checkbox (moved to PerformanceSection)", () => {
+    const { container } = render(<TerminalSection value={createValue()} onChange={vi.fn()} />);
+
+    expect(container.querySelector("#terminal-lower-session-priority")).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: /降低会话进程优先级|Lower session process priority/i })).toBeNull();
+  });
+
   it("treats a null resumeIdBackfillEnabled as unchecked and toggles it on", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

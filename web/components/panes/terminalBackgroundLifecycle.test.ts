@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  BACKGROUND_PARK_DELAY_MS,
   BACKGROUND_TIER1_DELAY_MS,
   BACKGROUND_TIER2_DELAY_MS,
   createTerminalBackgroundLifecycle,
@@ -102,5 +103,76 @@ describe("createTerminalBackgroundLifecycle", () => {
 
     expect(hooks.onTier1).not.toHaveBeenCalled();
     expect(hooks.onTier2).not.toHaveBeenCalled();
+  });
+
+  function createParkHooks() {
+    return { ...createHooks(), onPark: vi.fn(), onParkRestore: vi.fn() };
+  }
+
+  it("三档顺序：Tier1(1s) → Park(30s) → Tier2(30min)", () => {
+    const hooks = createParkHooks();
+    const lifecycle = createTerminalBackgroundLifecycle(hooks);
+
+    lifecycle.notifyVisibility(false);
+    vi.advanceTimersByTime(BACKGROUND_TIER1_DELAY_MS);
+    expect(hooks.onTier1).toHaveBeenCalledTimes(1);
+    expect(hooks.onPark).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(BACKGROUND_PARK_DELAY_MS - BACKGROUND_TIER1_DELAY_MS);
+    expect(hooks.onPark).toHaveBeenCalledTimes(1);
+    expect(hooks.onTier2).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(BACKGROUND_TIER2_DELAY_MS - BACKGROUND_PARK_DELAY_MS);
+    expect(hooks.onTier2).toHaveBeenCalledTimes(1);
+  });
+
+  it("parkDelayMs 可注入（读设置）", () => {
+    const hooks = createParkHooks();
+    const lifecycle = createTerminalBackgroundLifecycle({ ...hooks, parkDelayMs: 5_000 });
+    lifecycle.notifyVisibility(false);
+    vi.advanceTimersByTime(4_999);
+    expect(hooks.onPark).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(hooks.onPark).toHaveBeenCalledTimes(1);
+  });
+
+  it("恢复优先级：Park 已触发时只走 onParkRestore，不走 Tier1 restore", () => {
+    const hooks = createParkHooks();
+    const lifecycle = createTerminalBackgroundLifecycle(hooks);
+    lifecycle.notifyVisibility(false);
+    vi.advanceTimersByTime(BACKGROUND_PARK_DELAY_MS);
+    lifecycle.notifyVisibility(true);
+    expect(hooks.onParkRestore).toHaveBeenCalledTimes(1);
+    expect(hooks.onTier1Restore).not.toHaveBeenCalled();
+    expect(hooks.onTier2Restore).not.toHaveBeenCalled();
+  });
+
+  it("恢复优先级：Tier2 已触发时只走 onTier2Restore，不走 Park/Tier1 restore", () => {
+    const hooks = createParkHooks();
+    const lifecycle = createTerminalBackgroundLifecycle(hooks);
+    lifecycle.notifyVisibility(false);
+    vi.advanceTimersByTime(BACKGROUND_TIER2_DELAY_MS);
+    lifecycle.notifyVisibility(true);
+    expect(hooks.onTier2Restore).toHaveBeenCalledTimes(1);
+    expect(hooks.onParkRestore).not.toHaveBeenCalled();
+    expect(hooks.onTier1Restore).not.toHaveBeenCalled();
+  });
+
+  it("停泊前变可见取消停泊定时器；不传 onPark 时退化为两档", () => {
+    const hooks = createParkHooks();
+    const lifecycle = createTerminalBackgroundLifecycle(hooks);
+    lifecycle.notifyVisibility(false);
+    vi.advanceTimersByTime(BACKGROUND_PARK_DELAY_MS - 1);
+    lifecycle.notifyVisibility(true);
+    vi.advanceTimersByTime(BACKGROUND_TIER2_DELAY_MS);
+    expect(hooks.onPark).not.toHaveBeenCalled();
+    expect(hooks.onTier1Restore).toHaveBeenCalledTimes(1);
+
+    const legacy = createHooks();
+    const twoTier = createTerminalBackgroundLifecycle(legacy);
+    twoTier.notifyVisibility(false);
+    vi.advanceTimersByTime(BACKGROUND_TIER2_DELAY_MS);
+    expect(legacy.onTier1).toHaveBeenCalledTimes(1);
+    expect(legacy.onTier2).toHaveBeenCalledTimes(1);
   });
 });

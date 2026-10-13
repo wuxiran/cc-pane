@@ -302,22 +302,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         </div>
       </SearchableSetting>
 
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <input
-            id="terminal-lower-session-priority"
-            type="checkbox"
-            checked={value.lowerSessionPriority ?? true}
-            onChange={(e) => update("lowerSessionPriority", e.target.checked)}
-            className="w-4 h-4 cursor-pointer"
-            style={{ accentColor: "var(--app-accent)" }}
-          />
-          <Label htmlFor="terminal-lower-session-priority">{t("lowerSessionPriority")}</Label>
-        </div>
-        <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
-          {t("lowerSessionPriorityHint")}
-        </p>
-      </div>
+      {/* lowerSessionPriority / sessionCpuWeight 的 UI 已搬到 PerformanceSection「会话资源策略」，存储位置不变 */}
 
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">

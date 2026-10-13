@@ -772,6 +772,11 @@ export const terminalService = {
     };
   },
 
+  /** 唤醒 / 重同步成功后清 desync 闩（闩住期间同会话不再重复广播 desync）。 */
+  clearDesync(sessionId: string): void {
+    clearTerminalOutputDesyncLatch(sessionId);
+  },
+
   /** 隐藏 pane 仍需让 xterm parser 处理 CPR/DA/颜色查询，避免 CLI 等不到回复。 */
   registerHiddenTerminalQueryHandler,
 

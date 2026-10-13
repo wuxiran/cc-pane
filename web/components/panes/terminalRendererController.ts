@@ -1,5 +1,6 @@
 import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalWebglBudget } from "./terminalWebglBudget";
+import { createTerminalWebglContextLossRetry } from "./terminalWebglContextLossRetry";
 import { configureTransparentWebglAlpha } from "./terminalWebglAlpha";
 import type { IDisposable, Terminal } from "@xterm/xterm";
 import type { TerminalRendererMode } from "@/types/settings";
@@ -133,6 +134,7 @@ export function createTerminalRendererController({
   let webglDisabledAfterContextLoss = false;
   let lastError: string | null = null;
   let lastDevicePixelRatio = getDevicePixelRatio();
+  const contextLossRetry = createTerminalWebglContextLossRetry(() => { if (disposed || suspended || webglAddon) return; webglDisabledAfterContextLoss = false; configured = false; configure(requestedMode); });
 
   // 共享字形图集的重绘协调（含「隐藏时推迟、可见时补刷」）。
   const atlasRefresh: AtlasRefreshCoordinator = createAtlasRefreshCoordinator({
@@ -293,6 +295,7 @@ export function createTerminalRendererController({
       addon.onContextLoss(() => {
         contextLossCount += 1;
         webglDisabledAfterContextLoss = true;
+        contextLossRetry.recordLoss();
         resetTerminalWebglProbe();
         logger("renderer.webgl.context-loss", {
           requestedMode,
@@ -491,7 +494,7 @@ export function createTerminalRendererController({
   return {
     configure,
     dispose: () => {
-      disposed = true;
+      disposed = true; contextLossRetry.dispose();
       disposeWebgl("dispose");
     },
     suspendWebgl,
