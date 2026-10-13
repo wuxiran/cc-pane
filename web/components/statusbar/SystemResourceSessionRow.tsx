@@ -100,6 +100,16 @@ export function SystemResourceSessionRow({
           <span className="min-w-0 flex-1 truncate text-xs text-[var(--app-text-primary)]">
             {session.title}
           </span>
+          {/* W6：WSL 会话的读数来自 Linux 侧 cgroup，不是 wsl.exe 进程树——标一下免得被当成假数。 */}
+          {session.source === "cgroup" && (
+            <span
+              className="shrink-0 rounded bg-[var(--app-hover)] px-1 text-[10px] text-[var(--app-text-tertiary)]"
+              title={t("resourceSourceCgroupHint")}
+              data-testid="resource-source-cgroup"
+            >
+              {t("resourceSourceCgroup")}
+            </span>
+          )}
           {/* 数字本来就是整棵进程树的聚合，但只显示 CPU/内存时"含不含子进程"完全看不出来。 */}
           {session.processCount > 1 && (
             <span className="shrink-0 rounded bg-[var(--app-hover)] px-1 text-[10px] tabular-nums text-[var(--app-text-tertiary)]">

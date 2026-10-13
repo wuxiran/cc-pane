@@ -179,6 +179,8 @@ fn resource_tree_aggregates_managed_session_descendants_once() {
         &[ManagedSessionRoot {
             session_id: "session-1".to_string(),
             root_pid: 20,
+            runtime_kind: None,
+            wsl_distro: None,
         }],
         10,
         &known_family(),
@@ -222,10 +224,14 @@ fn nested_session_roots_use_nearest_owner_independent_of_input_order() {
     let parent = ManagedSessionRoot {
         session_id: "parent".to_string(),
         root_pid: 100,
+        runtime_kind: None,
+        wsl_distro: None,
     };
     let nested = ManagedSessionRoot {
         session_id: "nested".to_string(),
         root_pid: 110,
+        runtime_kind: None,
+        wsl_distro: None,
     };
 
     let build = |sessions: &[ManagedSessionRoot]| {
@@ -305,6 +311,8 @@ fn session_process_detail_caps_the_list_and_reports_what_it_folded() {
         &[ManagedSessionRoot {
             session_id: "session-1".to_string(),
             root_pid: 20,
+            runtime_kind: None,
+            wsl_distro: None,
         }],
         10,
         &identities(&[(10, 100)]),
@@ -359,6 +367,8 @@ fn orphan_detection_excludes_active_conpty_family_and_whitelisted_branches() {
         &[ManagedSessionRoot {
             session_id: "session-1".to_string(),
             root_pid: 20,
+            runtime_kind: None,
+            wsl_distro: None,
         }],
         10,
         &known_family(),
@@ -378,6 +388,8 @@ fn kill_guard_rejects_self_managed_unknown_and_reports_partial_failure() {
     let sessions = [ManagedSessionRoot {
         session_id: "session-1".to_string(),
         root_pid: 20,
+        runtime_kind: None,
+        wsl_distro: None,
     }];
     let results = kill_orphans_from_snapshot(
         &snapshot(),
@@ -471,6 +483,8 @@ fn top_process_candidates_exclude_family_sessions_and_orphan_trees() {
     let sessions = [ManagedSessionRoot {
         session_id: "s".into(),
         root_pid: 20,
+        runtime_kind: None,
+        wsl_distro: None,
     }];
     let mut candidates =
         top_process_candidate_pids(&index, &processes, &sessions, 10, &known_family());
@@ -514,4 +528,72 @@ fn live_resource_tree_enumeration_stays_within_budget() {
         "resource tree enumeration exceeded 100ms budget: {} us",
         tree.elapsed_micros
     );
+}
+
+/// W6：WSL 根用 cgroup 读数覆盖进程树聚合并标 `source: cgroup`；本机根不受影响；
+/// 没有 WSL 根时连 VM 门控都不碰（注入的门控会 panic）。
+#[test]
+fn wsl_roots_take_cgroup_readings_and_local_roots_keep_tree_aggregate() {
+    use crate::services::wsl_cgroup_stats::WslCgroupSampler;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&calls);
+    let sampler = WslCgroupSampler::with_runner(
+        Box::new(move |distro| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            assert_eq!(distro, "Ubuntu");
+            Some("unit=ccpanes-wslsess1.scope\nmem=\n4000\ncpu=\nusage_usec 1\nend=\n".to_string())
+        }),
+        Box::new(|| true),
+    );
+    let sessions = [
+        ManagedSessionRoot {
+            session_id: "wsl-sess-1".to_string(),
+            root_pid: 20,
+            runtime_kind: Some("wsl".to_string()),
+            wsl_distro: Some("Ubuntu".to_string()),
+        },
+        ManagedSessionRoot {
+            session_id: "local-1".to_string(),
+            root_pid: 30,
+            runtime_kind: Some("local".to_string()),
+            wsl_distro: None,
+        },
+    ];
+    let usage = |id: &str| SessionResourceUsage {
+        session_id: id.to_string(),
+        root_pid: 1,
+        cpu_percent: 1.0,
+        memory_bytes: 10,
+        process_count: 1,
+        processes: Vec::new(),
+        truncated: None,
+        source: None,
+    };
+    let mut tree = vec![usage("wsl-sess-1"), usage("local-1")];
+    super::apply_wsl_cgroup_readings(&sampler, &sessions, &mut tree);
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "one batch per distro");
+    assert_eq!(tree[0].memory_bytes, 4000);
+    assert_eq!(tree[0].source.as_deref(), Some("cgroup"));
+    assert_eq!(tree[1].memory_bytes, 10);
+    assert!(tree[1].source.is_none());
+
+    // 无 WSL 根：零次 wsl.exe、不问 VM
+    let strict = WslCgroupSampler::with_runner(
+        Box::new(|_| panic!("must not spawn")),
+        Box::new(|| panic!("must not consult vm gate")),
+    );
+    let mut local_only = vec![usage("local-1")];
+    super::apply_wsl_cgroup_readings(&strict, &sessions[1..], &mut local_only);
+    assert!(local_only[0].source.is_none());
+
+    // VM 关着：零次 wsl.exe，读数保留进程树聚合
+    let off =
+        WslCgroupSampler::with_runner(Box::new(|_| panic!("must not spawn")), Box::new(|| false));
+    let mut tree = vec![usage("wsl-sess-1")];
+    super::apply_wsl_cgroup_readings(&off, &sessions[..1], &mut tree);
+    assert_eq!(off.spawn_count(), 0);
+    assert!(tree[0].source.is_none());
 }

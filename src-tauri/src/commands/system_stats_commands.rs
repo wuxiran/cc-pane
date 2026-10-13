@@ -102,6 +102,7 @@ mod tests {
             resource_policy: None,
             job_memory_warning: None,
             runtime_kind: None,
+            wsl_distro: None,
         }
     }
 
@@ -140,6 +141,8 @@ mod tests {
             vec![ManagedSessionRoot {
                 session_id: "live".to_string(),
                 root_pid: 42,
+                runtime_kind: None,
+                wsl_distro: None,
             }]
         );
     }

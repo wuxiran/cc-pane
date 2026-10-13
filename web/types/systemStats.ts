@@ -30,6 +30,8 @@ export interface SessionResourceUsage {
   /** 进程树明细，按内存降序。旧后端可能不返回，消费方必须容忍缺失。 */
   processes?: SessionProcessInfo[];
   truncated?: TruncatedProcessSummary | null;
+  /** 读数来源：缺省 = Windows 进程树聚合；`"cgroup"` = WSL 侧 systemd scope（W6）。 */
+  source?: string | null;
 }
 
 export interface OrphanProcessInfo {

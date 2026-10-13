@@ -85,6 +85,7 @@ mod worktree_service;
 // 模块内部自带平台门控：Windows 编译完整实现（inner mod），非 Windows 只暴露
 // is_wsl_vm_running 恒 false stub —— 这里不能再整体 cfg 掉，否则非 Windows
 // 调用方（usage_stats_service::wsl_scan_allowed）编译失败。
+pub mod wsl_cgroup_stats;
 pub mod wsl_discovery_service;
 
 pub use agent_transcript::read_agent_transcript;

@@ -221,6 +221,179 @@ impl WslHostProbeCache {
     }
 }
 
+/// WSL 发行版里 `systemd --user` 的可用性（W6）。只有 `Available` 才能用
+/// `systemd-run --user --scope` 给会话建 cgroup；其余一律回退 `nice -n 10` 并把原因上状态。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum WslSystemdScope {
+    Available,
+    /// 发行版里没有 systemctl（WSL 默认不启 systemd，需 `/etc/wsl.conf` 的 `systemd=true`）。
+    NoSystemd,
+    /// 有 systemd 但用户实例不在线（`is-system-running` 报 offline / 连不上 bus）。
+    NoUserManager,
+    Error(String),
+}
+
+impl WslSystemdScope {
+    pub(super) fn is_available(&self) -> bool {
+        matches!(self, Self::Available)
+    }
+
+    /// 回退 `nice` 时上报到 `resource_policy` 的降级原因。统一以 "no systemd user manager" 开头，
+    /// 前端 / 日志按这个前缀识别。
+    pub(super) fn degraded_reason(&self) -> String {
+        let detail = match self {
+            Self::Available => return String::new(),
+            Self::NoSystemd => "systemd not enabled in distro".to_string(),
+            Self::NoUserManager => "user instance offline".to_string(),
+            Self::Error(error) => format!("probe failed: {error}"),
+        };
+        format!("no systemd user manager ({detail}); using nice -n 10")
+    }
+}
+
+/// 探测脚本：没有 `$(...)`（wsl.exe argv 会把命令替换静默搅坏）。
+/// 输出一行：`running`/`degraded`/… = 可用；`ccpanes-no-systemd` = 没装；其余 = 用户实例不在线。
+pub(super) const WSL_SYSTEMD_PROBE_SCRIPT: &str = "if command -v systemctl >/dev/null 2>&1; then systemctl --user is-system-running 2>/dev/null || echo ccpanes-offline; else echo ccpanes-no-systemd; fi";
+
+pub(super) fn parse_systemd_scope_probe(output: Option<&str>) -> WslSystemdScope {
+    let Some(output) = output else {
+        return WslSystemdScope::Error("probe timed out".to_string());
+    };
+    let first = output.lines().map(str::trim).find(|line| !line.is_empty());
+    match first {
+        None => WslSystemdScope::NoUserManager,
+        Some("ccpanes-no-systemd") => WslSystemdScope::NoSystemd,
+        // `is-system-running` 在 degraded（有单元失败）时退出码非零但管理器照常工作。
+        Some("running") | Some("degraded") | Some("starting") | Some("initializing")
+        | Some("maintenance") => WslSystemdScope::Available,
+        Some(_) => WslSystemdScope::NoUserManager,
+    }
+}
+
+/// 探测缓存 TTL：可用结果 10 min（发行版配置不会频繁变）；**不可用只缓存 60 s**——
+/// 用户刚在 wsl.conf 开了 systemd 并重启发行版，下一分钟内新会话就该用上 scope。
+pub(super) const WSL_SCOPE_PROBE_POSITIVE_TTL: std::time::Duration =
+    std::time::Duration::from_secs(600);
+pub(super) const WSL_SCOPE_PROBE_NEGATIVE_TTL: std::time::Duration =
+    std::time::Duration::from_secs(60);
+
+/// systemd 探测结果缓存（进程级，按发行版）。照 [`WslHostProbeCache`]，但正负 TTL 不同。
+pub(super) struct WslScopeProbeCache {
+    entries: std::sync::Mutex<HashMap<String, (WslSystemdScope, std::time::Instant)>>,
+}
+
+impl WslScopeProbeCache {
+    pub(super) fn new() -> Self {
+        Self {
+            entries: std::sync::Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub(super) fn get_or_probe_at(
+        &self,
+        distro: &str,
+        now: std::time::Instant,
+        probe: impl FnOnce() -> WslSystemdScope,
+    ) -> WslSystemdScope {
+        if let Ok(entries) = self.entries.lock() {
+            if let Some((scope, at)) = entries.get(distro) {
+                let ttl = if scope.is_available() {
+                    WSL_SCOPE_PROBE_POSITIVE_TTL
+                } else {
+                    WSL_SCOPE_PROBE_NEGATIVE_TTL
+                };
+                if now.duration_since(*at) < ttl {
+                    return scope.clone();
+                }
+            }
+        }
+        let scope = probe();
+        if let Ok(mut entries) = self.entries.lock() {
+            entries.insert(distro.to_string(), (scope.clone(), now));
+        }
+        scope
+    }
+}
+
+#[cfg(windows)]
+static WSL_SCOPE_PROBE_CACHE: std::sync::OnceLock<WslScopeProbeCache> = std::sync::OnceLock::new();
+
+/// `systemctl --user is-system-running`，3 s 超时，经缓存。
+#[cfg(windows)]
+pub(super) fn probe_wsl_systemd_scope(wsl_path: &Path, distro: &str) -> WslSystemdScope {
+    WSL_SCOPE_PROBE_CACHE
+        .get_or_init(WslScopeProbeCache::new)
+        .get_or_probe_at(distro, std::time::Instant::now(), || {
+            let args = vec![
+                "-d".to_string(),
+                distro.to_string(),
+                "--".to_string(),
+                "sh".to_string(),
+                "-c".to_string(),
+                WSL_SYSTEMD_PROBE_SCRIPT.to_string(),
+            ];
+            let output = cc_cli_adapters::run_with_timeout(
+                wsl_path,
+                &args,
+                std::time::Duration::from_secs(3),
+            );
+            let scope = parse_systemd_scope_probe(output.as_deref());
+            info!(distro = %distro, scope = ?scope, "wsl systemd --user probe");
+            scope
+        })
+}
+
+/// 会话 argv 前缀与策略结果（W6）。`outcome = None` = 配额开关关着，不覆盖 Job 的结果。
+pub(super) struct WslScopePlan {
+    pub(super) prefix: Vec<String>,
+    pub(super) outcome: Option<crate::models::PolicyOutcome>,
+}
+
+/// 三态：关 → 无前缀；开且可用 → `systemd-run --user --scope`；开但不可用 → `nice -n 10` + Degraded。
+///
+/// **只前缀 argv，不重新引用脚本**：脚本路径 / `-lic` 字符串原样跟在 `--` 之后。
+pub(super) fn plan_wsl_scope(
+    enabled: bool,
+    scope: Option<&WslSystemdScope>,
+    session_id: &str,
+    cpu_weight: u32,
+    memory_high_percent: u32,
+) -> WslScopePlan {
+    if !enabled {
+        return WslScopePlan {
+            prefix: Vec::new(),
+            outcome: None,
+        };
+    }
+    let scope = scope.cloned().unwrap_or(WslSystemdScope::NoSystemd);
+    if scope.is_available() {
+        let unit = crate::services::wsl_cgroup_stats::wsl_scope_unit_name(session_id);
+        let weight = cpu_weight.clamp(1, 10_000);
+        let memory_high = memory_high_percent.clamp(1, 100);
+        return WslScopePlan {
+            prefix: vec![
+                "systemd-run".to_string(),
+                "--user".to_string(),
+                "--scope".to_string(),
+                "-q".to_string(),
+                format!("--unit={unit}"),
+                "-p".to_string(),
+                format!("CPUWeight={weight}"),
+                "-p".to_string(),
+                format!("MemoryHigh={memory_high}%"),
+                "--".to_string(),
+            ],
+            outcome: Some(crate::models::PolicyOutcome::Applied),
+        };
+    }
+    WslScopePlan {
+        prefix: vec!["nice".to_string(), "-n".to_string(), "10".to_string()],
+        outcome: Some(crate::models::PolicyOutcome::degraded(
+            scope.degraded_reason(),
+        )),
+    }
+}
+
 pub(super) const WSL_BASH_EVAL_FLAG: &str = "-lic";
 #[cfg(windows)]
 pub(super) const WSL_BASH_LOGIN_FLAG: &str = "-l";
@@ -243,6 +416,10 @@ pub(super) struct ResolvedWslLaunch {
     pub(super) workspace_remote_path: Option<String>,
     pub(super) launch_cwd: Option<String>,
     pub(super) windows_host: Option<String>,
+    /// W6：`-- ` 之后、`bash` 之前的 argv 前缀（`systemd-run … --` / `nice -n 10` / 空）。
+    pub(super) scope_prefix: Vec<String>,
+    /// W6：配额策略结果，spawn 后覆盖 `resource_policy` 状态；`None` = 开关关着。
+    pub(super) scope_outcome: Option<crate::models::PolicyOutcome>,
 }
 
 impl ResolvedWslLaunch {
@@ -1431,14 +1608,14 @@ impl TerminalService {
             cwd_non_ascii = !launch_cwd.is_ascii(),
             "wsl launch diagnostics"
         );
-        let args = vec![
-            "-d".to_string(),
-            wsl.distro.clone(),
-            "--".to_string(),
+        // W6：scope / nice 前缀只接在 `--` 之后，脚本路径原样不动。
+        let mut args = vec!["-d".to_string(), wsl.distro.clone(), "--".to_string()];
+        args.extend(wsl.scope_prefix.iter().cloned());
+        args.extend([
             "bash".to_string(),
             WSL_BASH_LOGIN_FLAG.to_string(),
             script_path,
-        ];
+        ]);
         Ok((wsl.wsl_path.to_string_lossy().into_owned(), args))
     }
 
@@ -1579,7 +1756,7 @@ impl TerminalService {
     pub(super) fn resolve_wsl_launch(
         &self,
         wsl: &WslLaunchInfo,
-        _session_id: &str,
+        session_id: &str,
     ) -> Result<ResolvedWslLaunch> {
         let remote_path = wsl.remote_path.trim();
         if remote_path.is_empty() {
@@ -1605,6 +1782,22 @@ impl TerminalService {
             .or_else(|_| cached_which("wsl"))
             .map_err(|_| anyhow!("wsl.exe not found in PATH"))?;
 
+        // W6：配额开着才探测 systemd（关着就不为它多跑一次 wsl.exe）。
+        let performance = self.settings_service.get_settings().performance;
+        let scope = performance
+            .wsl_quota_enabled
+            .then(|| probe_wsl_systemd_scope(&wsl_path, &distro));
+        let plan = plan_wsl_scope(
+            performance.wsl_quota_enabled,
+            scope.as_ref(),
+            session_id,
+            performance.wsl_cpu_weight,
+            performance.wsl_memory_high_percent,
+        );
+        if let Some(crate::models::PolicyOutcome::Degraded { reason }) = plan.outcome.as_ref() {
+            warn!(session_id = %session_id, distro = %distro, reason = %reason, "wsl quota degraded");
+        }
+
         Ok(ResolvedWslLaunch {
             wsl_path,
             distro,
@@ -1612,6 +1805,8 @@ impl TerminalService {
             workspace_remote_path,
             launch_cwd: None,
             windows_host: None,
+            scope_prefix: plan.prefix,
+            scope_outcome: plan.outcome,
         })
     }
 
@@ -1712,14 +1907,13 @@ impl TerminalService {
         }
         remote_parts.push("exec $SHELL -l".to_string());
 
-        let args = vec![
-            "-d".to_string(),
-            wsl.distro.clone(),
-            "--".to_string(),
+        let mut args = vec!["-d".to_string(), wsl.distro.clone(), "--".to_string()];
+        args.extend(wsl.scope_prefix.iter().cloned());
+        args.extend([
             "bash".to_string(),
             WSL_BASH_EVAL_FLAG.to_string(),
             remote_parts.join(" && "),
-        ];
+        ]);
 
         Ok((wsl.wsl_path.to_string_lossy().into_owned(), args))
     }
@@ -2572,6 +2766,10 @@ mod tests {
         forward_wsl_env_vars, push_wsl_provider_env_unsets, push_wsl_provider_env_unsets_except,
         remove_wsl_env_forwarding, ResolvedWslLaunch, WslManagedPiStateCleanup, VERSION_FILE_NAME,
     };
+    use super::{
+        parse_systemd_scope_probe, plan_wsl_scope, WslScopeProbeCache, WslSystemdScope,
+        WSL_SCOPE_PROBE_NEGATIVE_TTL, WSL_SCOPE_PROBE_POSITIVE_TTL, WSL_SYSTEMD_PROBE_SCRIPT,
+    };
     #[cfg(windows)]
     use super::{windows_path_to_wsl, wsl_claude_mcp_config_paths};
     use crate::models::CliTool;
@@ -3003,6 +3201,8 @@ mod tests {
             workspace_remote_path: Some("/workspace".into()),
             launch_cwd: None,
             windows_host: None,
+            scope_prefix: Vec::new(),
+            scope_outcome: None,
         };
         assert_eq!(wsl.cli_cwd(), "/workspace");
         assert_eq!(wsl.project_cwd(), "/project"); // Codex already used project -C.
@@ -3127,6 +3327,143 @@ mod tests {
         super::cleanup_session_mcp_configs(&dir, "../..");
         super::cleanup_session_mcp_configs(&dir, "");
         remove_dir(&dir);
+    }
+
+    #[test]
+    fn systemd_probe_parsing_covers_available_missing_offline_and_timeout() {
+        assert!(!WSL_SYSTEMD_PROBE_SCRIPT.contains("$("));
+        assert_eq!(
+            parse_systemd_scope_probe(Some("running")),
+            WslSystemdScope::Available
+        );
+        assert_eq!(
+            parse_systemd_scope_probe(Some("degraded\n")),
+            WslSystemdScope::Available
+        );
+        assert_eq!(
+            parse_systemd_scope_probe(Some("ccpanes-no-systemd")),
+            WslSystemdScope::NoSystemd
+        );
+        assert_eq!(
+            parse_systemd_scope_probe(Some("offline\nccpanes-offline")),
+            WslSystemdScope::NoUserManager
+        );
+        assert_eq!(
+            parse_systemd_scope_probe(Some("ccpanes-offline")),
+            WslSystemdScope::NoUserManager
+        );
+        assert_eq!(
+            parse_systemd_scope_probe(Some("")),
+            WslSystemdScope::NoUserManager
+        );
+        assert!(matches!(
+            parse_systemd_scope_probe(None),
+            WslSystemdScope::Error(_)
+        ));
+        assert!(WslSystemdScope::NoSystemd
+            .degraded_reason()
+            .starts_with("no systemd user manager"));
+    }
+
+    /// argv 三态：关 → 无前缀；可用 → systemd-run；不可用 → nice + Degraded。
+    #[test]
+    fn wsl_scope_plan_three_states_only_prefix_argv() {
+        let off = plan_wsl_scope(
+            false,
+            Some(&WslSystemdScope::Available),
+            "1a2b3c4d-x",
+            20,
+            25,
+        );
+        assert!(off.prefix.is_empty());
+        assert!(off.outcome.is_none());
+
+        let on = plan_wsl_scope(
+            true,
+            Some(&WslSystemdScope::Available),
+            "1a2b3c4d-x",
+            20,
+            25,
+        );
+        assert_eq!(
+            on.prefix,
+            vec![
+                "systemd-run",
+                "--user",
+                "--scope",
+                "-q",
+                "--unit=ccpanes-1a2b3c4d",
+                "-p",
+                "CPUWeight=20",
+                "-p",
+                "MemoryHigh=25%",
+                "--",
+            ]
+        );
+        assert_eq!(on.outcome, Some(crate::models::PolicyOutcome::Applied));
+
+        let degraded = plan_wsl_scope(true, Some(&WslSystemdScope::NoUserManager), "s", 20, 25);
+        assert_eq!(degraded.prefix, vec!["nice", "-n", "10"]);
+        match degraded.outcome {
+            Some(crate::models::PolicyOutcome::Degraded { reason }) => {
+                assert!(reason.starts_with("no systemd user manager"), "{reason}")
+            }
+            other => panic!("expected degraded, got {other:?}"),
+        }
+        // 探测缺席（None）按不可用处理，绝不默认 systemd-run。
+        let unknown = plan_wsl_scope(true, None, "s", 0, 500);
+        assert_eq!(unknown.prefix[0], "nice");
+        // 越界参数钳位而不是拒绝。
+        let clamped = plan_wsl_scope(true, Some(&WslSystemdScope::Available), "s", 0, 500);
+        assert!(clamped.prefix.contains(&"CPUWeight=1".to_string()));
+        assert!(clamped.prefix.contains(&"MemoryHigh=100%".to_string()));
+    }
+
+    /// 负结果 60 s 后重探，正结果 10 min 内复用。
+    #[test]
+    fn scope_probe_cache_negative_ttl_is_short_and_positive_ttl_is_long() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let cache = WslScopeProbeCache::new();
+        let calls = AtomicUsize::new(0);
+        let t0 = std::time::Instant::now();
+        let probe_offline = || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            WslSystemdScope::NoUserManager
+        };
+        assert_eq!(
+            cache.get_or_probe_at("Ubuntu", t0, probe_offline),
+            WslSystemdScope::NoUserManager
+        );
+        // 59 s：仍在负 TTL 内，不重探
+        cache.get_or_probe_at(
+            "Ubuntu",
+            t0 + std::time::Duration::from_secs(59),
+            probe_offline,
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        // 刚过负 TTL：重探，这次可用
+        let after_neg = t0 + WSL_SCOPE_PROBE_NEGATIVE_TTL;
+        let probe_ok = || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            WslSystemdScope::Available
+        };
+        assert_eq!(
+            cache.get_or_probe_at("Ubuntu", after_neg, probe_ok),
+            WslSystemdScope::Available
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        // 正 TTL 内（9 min）复用；别的发行版各自缓存
+        cache.get_or_probe_at(
+            "Ubuntu",
+            after_neg + std::time::Duration::from_secs(540),
+            probe_ok,
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        cache.get_or_probe_at("Debian", after_neg, probe_ok);
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        // 过了正 TTL 重探
+        cache.get_or_probe_at("Ubuntu", after_neg + WSL_SCOPE_PROBE_POSITIVE_TTL, probe_ok);
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
     }
 
     #[test]
@@ -3507,6 +3844,8 @@ mod tests {
                 workspace_remote_path: None,
                 launch_cwd: None,
                 windows_host: None,
+                scope_prefix: Vec::new(),
+                scope_outcome: None,
             },
             session_id,
             cc_cli_adapters::PI_MANAGED_STATE_DIR_NAME,

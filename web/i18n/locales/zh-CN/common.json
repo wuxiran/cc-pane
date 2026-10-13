@@ -164,6 +164,8 @@
   "resourcePolicyDegraded": "已降级：{{reason}}",
   "resourcePolicyUnsupported": "不支持：{{reason}}",
   "resourcePolicyNoReason": "无详情",
+  "resourceSourceCgroup": "cgroup",
+  "resourceSourceCgroupHint": "读数来自 WSL 侧 systemd scope（memory.current / cpu.stat），不是 wsl.exe 进程树",
   "jobMemoryWarningLine": "内存越线：该窗格已用 {{used}}（阈值 {{limit}}）",
   "relativeTime": {
     "justNow": "刚刚",

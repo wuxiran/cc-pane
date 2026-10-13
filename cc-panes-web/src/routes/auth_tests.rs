@@ -67,6 +67,7 @@ impl TerminalBackend for NoopTerminalBackend {
             resource_policy: None,
             job_memory_warning: None,
             runtime_kind: None,
+            wsl_distro: None,
         }])
     }
 

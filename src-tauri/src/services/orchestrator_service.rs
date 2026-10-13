@@ -14543,6 +14543,7 @@ mod tests {
             resource_policy: None,
             job_memory_warning: None,
             runtime_kind: None,
+            wsl_distro: None,
         }
     }
 
@@ -17348,6 +17349,7 @@ mod tests {
                 resource_policy: None,
                 job_memory_warning: None,
                 runtime_kind: None,
+                wsl_distro: None,
             });
         }
 
@@ -17392,6 +17394,7 @@ mod tests {
                 resource_policy: None,
                 job_memory_warning: None,
                 runtime_kind: None,
+                wsl_distro: None,
             });
             Ok(session_id)
         }

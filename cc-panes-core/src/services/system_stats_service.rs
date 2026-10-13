@@ -2,6 +2,7 @@ use crate::models::{
     KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionProcessInfo,
     SessionResourceUsage, SystemStats, TopProcessInfo, TruncatedProcessSummary,
 };
+use crate::services::wsl_cgroup_stats::{self, WslCgroupSampler};
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
@@ -237,6 +238,8 @@ impl<'a> ProcessIndex<'a> {
 pub struct SystemStatsService {
     system: Mutex<System>,
     resource_process_sampler: Mutex<ResourceProcessSampler>,
+    /// W6：WSL 会话的 cgroup 读数（VM 没跑时零次 wsl.exe）。
+    wsl_cgroup: WslCgroupSampler,
 }
 
 impl Default for SystemStatsService {
@@ -250,6 +253,7 @@ impl SystemStatsService {
         Self {
             system: Mutex::new(System::new()),
             resource_process_sampler: Mutex::new(ResourceProcessSampler::default()),
+            wsl_cgroup: WslCgroupSampler::new(),
         }
     }
 
@@ -293,6 +297,7 @@ impl SystemStatsService {
             elapsed,
         );
         tree.top_processes = top_processes;
+        apply_wsl_cgroup_readings(&self.wsl_cgroup, sessions, &mut tree.sessions);
         tracing::debug!(
             elapsed_micros = tree.elapsed_micros,
             process_count = processes.len(),
@@ -326,6 +331,46 @@ impl SystemStatsService {
             &known_family,
             |pid| crate::pty::kill_process_tree_by_pid(pid).map_err(|error| error.to_string()),
         )
+    }
+}
+
+/// W6：WSL 根在 Windows 侧只有 wsl.exe 壳，读数来自 Linux 侧 `ccpanes-<session8>.scope`。
+/// 按发行版一次批量读（采样器内部缓存 2 s、VM 没跑零次 wsl.exe）；没读到的会话保留进程树聚合。
+fn apply_wsl_cgroup_readings(
+    sampler: &WslCgroupSampler,
+    sessions: &[ManagedSessionRoot],
+    usage: &mut [SessionResourceUsage],
+) {
+    let wsl_sessions: HashMap<&str, &str> = sessions
+        .iter()
+        .filter(|session| session.runtime_kind.as_deref() == Some("wsl"))
+        .filter_map(|session| {
+            session
+                .wsl_distro
+                .as_deref()
+                .map(|distro| (session.session_id.as_str(), distro))
+        })
+        .collect();
+    if wsl_sessions.is_empty() {
+        return;
+    }
+    let mut distros: Vec<String> = wsl_sessions.values().map(|d| d.to_string()).collect();
+    distros.sort();
+    distros.dedup();
+    let readings = sampler.sample(&distros);
+    if readings.is_empty() {
+        return;
+    }
+    for entry in usage.iter_mut() {
+        if !wsl_sessions.contains_key(entry.session_id.as_str()) {
+            continue;
+        }
+        let unit = wsl_cgroup_stats::wsl_scope_unit_file(&entry.session_id);
+        if let Some(reading) = readings.get(&unit) {
+            entry.memory_bytes = reading.memory_bytes;
+            entry.cpu_percent = reading.cpu_percent;
+            entry.source = Some("cgroup".to_string());
+        }
     }
 }
 
@@ -651,6 +696,7 @@ fn build_resource_tree_from_snapshot(
                     .count() as u32,
                 processes,
                 truncated,
+                source: None,
             }
         })
         .collect::<Vec<_>>();

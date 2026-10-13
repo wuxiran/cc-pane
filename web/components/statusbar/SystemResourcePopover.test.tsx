@@ -181,6 +181,45 @@ describe("SystemResourcePopover (W4)", () => {
     expect(screen.queryByTestId("job-memory-warning")).toBeNull();
   });
 
+  it("labels cgroup-sourced readings and leaves tree-aggregated rows unlabeled", () => {
+    renderPopover();
+    expect(screen.queryByTestId("resource-source-cgroup")).toBeNull();
+    cleanup();
+    const wslGroups: WorkspaceGroup[] = [
+      { ...groups[0], sessions: [{ ...groups[0].sessions[0], source: "cgroup" }] },
+    ];
+    const noop = vi.fn();
+    render(
+      <TooltipProvider>
+        <Popover open>
+          <SystemResourcePopover
+            headerStats={stats}
+            tree={tree}
+            groups={wslGroups}
+            collapsedGroups={new Set()}
+            refreshing={false}
+            armedSessionId={null}
+            killingSessionId={null}
+            orphansExpanded={false}
+            orphanKillArmed={false}
+            killingOrphans={false}
+            expandedSessionIds={new Set()}
+            onRefresh={noop}
+            onToggleGroup={noop}
+            onToggleSessionProcesses={noop}
+            onFocusSession={noop}
+            onArmSession={noop}
+            onKillSession={noop}
+            onToggleOrphans={noop}
+            onArmOrphanKill={noop}
+            onKillOrphans={noop}
+          />
+        </Popover>
+      </TooltipProvider>,
+    );
+    expect(screen.getByTestId("resource-source-cgroup")).toHaveTextContent("cgroup");
+  });
+
   it("highlights the session the tab badge asked for", () => {
     useResourcePopoverStore.setState({ open: true, highlightSessionId: "s1" });
     renderPopover();

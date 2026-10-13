@@ -785,6 +785,7 @@ fn synthesized_exited_status_with_code(
         resource_policy: None,
         job_memory_warning: None,
         runtime_kind: None,
+        wsl_distro: None,
     }
 }
 

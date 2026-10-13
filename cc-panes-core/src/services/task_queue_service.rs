@@ -545,6 +545,7 @@ mod unattended_responder_tests {
                 resource_policy: None,
                 job_memory_warning: None,
                 runtime_kind: None,
+                wsl_distro: None,
             }))
         }
 

@@ -10,10 +10,14 @@ pub struct SystemStats {
 }
 
 /// 活跃终端账本中的 session -> PTY 根进程映射。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ManagedSessionRoot {
     pub session_id: String,
     pub root_pid: u32,
+    /// `local` / `wsl` / `ssh`。W6：WSL 根的真读数在 Linux 侧 cgroup，不在 wsl.exe 进程树。
+    pub runtime_kind: Option<String>,
+    /// WSL 发行版；按它批量读 cgroup。
+    pub wsl_distro: Option<String>,
 }
 
 /// 会话进程树里的单个进程，用于在资源管理器里展开查看「底下挂了什么」。
@@ -54,6 +58,10 @@ pub struct SessionResourceUsage {
     pub processes: Vec<SessionProcessInfo>,
     /// 超出上限被折叠的部分；`None` 表示 `processes` 就是全部。
     pub truncated: Option<TruncatedProcessSummary>,
+    /// 读数来源。`None` = Windows 进程树聚合；`"cgroup"` = WSL 侧 systemd scope 的
+    /// `memory.current` / `cpu.stat`（W6）。UI 据此标注"cgroup"。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 /// 可安全清理的孤立终端进程树根节点。

@@ -15,6 +15,7 @@ fn status(session_id: &str, status: SessionStatus, updated_at: u64) -> SessionSt
         resource_policy: None,
         job_memory_warning: None,
         runtime_kind: None,
+        wsl_distro: None,
     }
 }
 
@@ -164,6 +165,7 @@ fn pre_0_12_22_status_payload_still_deserializes() {
     assert!(parsed.resource_policy.is_none());
     assert!(parsed.job_memory_warning.is_none());
     assert!(parsed.runtime_kind.is_none());
+    assert!(parsed.wsl_distro.is_none());
 
     let mut current = status("s1", SessionStatus::Idle, 2);
     current.resource_policy = Some(cc_panes_core::models::ResourcePolicyStatus::unsupported(
@@ -181,10 +183,12 @@ fn pre_0_12_22_status_payload_still_deserializes() {
         limit_bytes: 4,
         at: 6,
     });
-    current.runtime_kind = Some("local".to_string());
+    current.runtime_kind = Some("wsl".to_string());
+    current.wsl_distro = Some("Ubuntu".to_string());
     let json = serde_json::to_value(&current).expect("serialize");
     assert_eq!(json["jobMemoryWarning"]["limitBytes"], 4);
-    assert_eq!(json["runtimeKind"], "local");
+    assert_eq!(json["runtimeKind"], "wsl");
+    assert_eq!(json["wslDistro"], "Ubuntu");
     // 往回：新 payload 给旧 app（忽略未知字段）——由 serde 默认行为保证，这里只确认字段名稳定。
     assert!(json.get("oscProgress").is_none());
 }

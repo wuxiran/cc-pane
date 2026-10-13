@@ -383,9 +383,18 @@ pub(crate) fn session_roots(statuses: Vec<SessionStatusInfo>) -> Vec<ManagedSess
         .into_iter()
         .filter(|status| !status.status.is_terminal())
         .filter_map(|status| {
-            status.pid.map(|root_pid| ManagedSessionRoot {
-                session_id: status.session_id,
+            let SessionStatusInfo {
+                session_id,
+                pid,
+                runtime_kind,
+                wsl_distro,
+                ..
+            } = status;
+            pid.map(|root_pid| ManagedSessionRoot {
+                session_id,
                 root_pid,
+                runtime_kind,
+                wsl_distro,
             })
         })
         .collect()
@@ -683,6 +692,7 @@ mod tests {
                 },
             ],
             truncated: None,
+            source: None,
         };
         let sample = session_sample(&usage);
         assert_eq!(
@@ -726,6 +736,7 @@ mod tests {
             process_count: 1,
             processes: Vec::new(),
             truncated: None,
+            source: None,
         };
         let sessions = [usage("hot", 900), usage("cool", 100), usage("unwarned", 0)];
         assert_eq!(

@@ -164,6 +164,8 @@
   "resourcePolicyDegraded": "Degraded: {{reason}}",
   "resourcePolicyUnsupported": "Unsupported: {{reason}}",
   "resourcePolicyNoReason": "no details",
+  "resourceSourceCgroup": "cgroup",
+  "resourceSourceCgroupHint": "Readings come from the WSL-side systemd scope (memory.current / cpu.stat), not the wsl.exe process tree",
   "jobMemoryWarningLine": "Memory watermark exceeded: this pane uses {{used}} (threshold {{limit}})",
   "relativeTime": {
     "justNow": "just now",
