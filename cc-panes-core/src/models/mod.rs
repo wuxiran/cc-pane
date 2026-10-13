@@ -12,6 +12,7 @@ pub mod launch_profile;
 pub mod layout_snapshot;
 pub mod link_skill;
 pub mod orchestrator_settings;
+pub mod performance_settings;
 pub mod plan;
 pub mod process_info;
 mod project;

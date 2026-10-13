@@ -35,6 +35,20 @@ autoAdoptDaemonSessions = true
 lowerSessionPriority = true
 splitShortcutPassthrough = false
 
+[performance]
+buildParallelismEnabled = true
+codexLightweightEnabled = true
+codexLowSpecMode = false
+heavyGateEnabled = false
+heavyGateTimeoutSecs = 300
+heavyLedgerEnabled = true
+wslQuotaEnabled = true
+wslCpuWeight = 20
+wslMemoryHighPercent = 25
+jobMemoryNotifyPercent = 25
+parkedTerminalLimit = 6
+parkDelaySecs = 30
+
 [notification]
 enabled = true
 onExit = false

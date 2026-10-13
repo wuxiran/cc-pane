@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { settingsService } from "@/services";
 import type { AppSettings } from "@/types";
+import { DEFAULT_PERFORMANCE_SETTINGS } from "@/types/performanceSettings";
 import { handleErrorSilent } from "@/utils";
 import { getDefaultSidebarFavoriteLaunchActionIds } from "@/components/sidebar/launchMenu";
 import { DEFAULT_CCCHAN_SETTINGS } from "./useCCChanStore";
@@ -17,6 +18,9 @@ const defaultCloseToTray = () => {
 };
 
 /** 托盘待处理列表条数域：与设置页 Select 的 1-10 选项同口径。 */
+// 供 settingsDraft 等与其它默认值同一出处取用（真源在 types/performanceSettings.ts）。
+export { DEFAULT_PERFORMANCE_SETTINGS };
+
 export const TRAY_MAX_PENDING_ENTRIES_MIN = 1;
 export const TRAY_MAX_PENDING_ENTRIES_MAX = 10;
 export const TRAY_MAX_PENDING_ENTRIES_DEFAULT = 5;
@@ -246,6 +250,10 @@ function withCCChanSettings(settings: AppSettings): AppSettingsWithCCChan {
       ...DEFAULT_EXPERIMENTAL_SETTINGS,
       ...maybeSettings.experimental,
     },
+    performance: {
+      ...DEFAULT_PERFORMANCE_SETTINGS,
+      ...maybeSettings.performance,
+    },
     ccchan: {
       ...DEFAULT_CCCHAN_SETTINGS,
       ...maybeWithCCChan.ccchan,
@@ -452,6 +460,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     wallpaper: DEFAULT_WALLPAPER_SETTINGS,
     im: DEFAULT_IM_SETTINGS,
     experimental: DEFAULT_EXPERIMENTAL_SETTINGS,
+    performance: DEFAULT_PERFORMANCE_SETTINGS,
   }),
 }));
 

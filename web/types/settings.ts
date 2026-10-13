@@ -1,4 +1,8 @@
 import type { ThemeShape } from "@/theme/themeShapes";
+import type { PerformanceSettings } from "./performanceSettings";
+
+export type { PerformanceSettings } from "./performanceSettings";
+export { DEFAULT_PERFORMANCE_SETTINGS, PERFORMANCE_LIMITS } from "./performanceSettings";
 
 /** 应用设置 */
 export interface AppSettings {
@@ -24,6 +28,8 @@ export interface AppSettings {
   wallpaper: WallpaperSettings;
   im: ImSettings;
   experimental: ExperimentalSettings;
+  /** 性能专项（docs/107）：构建并行度 / Codex 轻量 / 门禁 / 台账 / WSL 配额 / 停泊 */
+  performance: PerformanceSettings;
 }
 
 /** 实验功能开关（镜像 cc-panes-core ExperimentalSettings）。默认全关；
