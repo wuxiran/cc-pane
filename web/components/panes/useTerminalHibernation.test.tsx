@@ -10,9 +10,6 @@ import { replayHibernationWake, useTerminalHibernation } from "./useTerminalHibe
 vi.mock("./terminalCheckpointUpload", () => ({
   captureAndUploadCheckpoint: vi.fn(async () => undefined),
 }));
-vi.mock("@/stores/useSettingsStore", () => ({
-  useSettingsStore: { getState: () => ({ settings: null }) },
-}));
 
 function createHarness() {
   const term = { cols: 132, rows: 43 } as unknown as Terminal;

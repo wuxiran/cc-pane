@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { terminalReplaySemaphore } from "./terminalReplaySemaphore";
 import {
   TERMINAL_FONT_SIZE_DEFAULT,
   TERMINAL_LAYOUT_CHANGED_EVENT,
@@ -363,6 +364,8 @@ async function waitForResizeCall(
 
 describe("TerminalView", () => {
   beforeEach(() => {
+    // 重放信号量是单例：上个用例里永不 settle 的 mock 会把并发 1 的槽位占到 30 s 超时。
+    terminalReplaySemaphore._resetForTest();
     vi.spyOn(console, "debug").mockImplementation(() => {});
     vi.spyOn(console, "info").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});

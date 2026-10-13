@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { uploadCheckpoint } from "@/services/terminalCheckpoint";
+import { terminalService } from "@/services/terminalService";
 import { resyncFromReplaySnapshot } from "./terminalResync";
 import { _resetCheckpointUploadStateForTest } from "./terminalCheckpointUpload";
 import { _resetSeqTrackersForTest, noteReceived, reanchorSeq } from "./terminalOutputSeqTracker";
@@ -10,6 +11,8 @@ import {
 vi.mock("@/services/terminalCheckpoint", () => ({
   uploadCheckpoint: vi.fn(async () => ({ kind: "accepted", anchorSeq: 100 })),
 }));
+
+const clearDesync = vi.spyOn(terminalService, "clearDesync");
 
 beforeEach(() => { vi.clearAllMocks(); _resetSeqTrackersForTest(); _resetCheckpointUploadStateForTest(); });
 
@@ -33,6 +36,15 @@ describe("checkpoint after recovery", () => {
     expect(uploadCheckpoint).toHaveBeenCalledWith("s1", expect.objectContaining({
       snapshotAnsi: "FINAL STATE", anchorSeq: 100, checkpointEpoch: "7", cols: 100, rows: 30,
     }));
+    // 快照重建成功 → 清 desync 闩，之后的新缺口才会再次广播。
+    expect(clearDesync).toHaveBeenCalledWith("s1");
+  });
+
+  it("clears the desync latch even when no checkpoint source is registered (parked wake path)", () => {
+    const { term } = setup();
+    checkpointRecoveredTerminal(term, "s-parked");
+    expect(clearDesync).toHaveBeenCalledWith("s-parked");
+    expect(uploadCheckpoint).not.toHaveBeenCalled();
   });
 
   it("skips views without a registered primary checkpoint source", () => {

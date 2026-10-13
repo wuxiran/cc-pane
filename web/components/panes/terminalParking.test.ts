@@ -3,9 +3,6 @@ import { useTerminalInputActivityStore } from "@/stores/useTerminalInputActivity
 import type { HibernatedTerminalState } from "./terminalHibernation";
 import { createParkedTerminalState, parkTerminal, type ParkTerminalContext } from "./terminalParking";
 
-vi.mock("@/stores/useSettingsStore", () => ({
-  useSettingsStore: { getState: () => ({ settings: null }) },
-}));
 
 function createContext(overrides: Partial<ParkTerminalContext> = {}): ParkTerminalContext {
   return {

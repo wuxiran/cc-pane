@@ -1,3 +1,4 @@
+import { terminalService } from "@/services/terminalService";
 import {
   captureAndUploadCheckpoint,
   type CheckpointSerializer,
@@ -23,6 +24,8 @@ export function unregisterRecoveryCheckpointSource(term: object): void {
 
 /** Save parsed final state immediately after reanchoring, before releasing live output. */
 export function checkpointRecoveredTerminal(term: object, sessionId: string): void {
+  // 快照重建 + reanchor 已完成：清 desync 闩，之后的新缺口才会再次广播（停泊唤醒也走这里）。
+  terminalService.clearDesync?.(sessionId);
   const source = sources.get(term);
   if (!source || !source.canUpload()) return;
   // Serialization and anchor capture happen synchronously before the upload's first await.
