@@ -63,3 +63,13 @@ export interface HeavySessionUsagePayload {
   memoryBytes: number;
   active: boolean;
 }
+
+/** Tauri 事件 `heavy-queue-changed`（W8 门禁）的载荷；`queued:false` = 该会话不再排队。 */
+export interface HeavyQueueChangedPayload {
+  sessionId: string;
+  /** 1-based 位次；不排队时为 0。 */
+  position: number;
+  /** 队列总长；不排队时为 0。 */
+  total: number;
+  queued: boolean;
+}

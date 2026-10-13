@@ -95,6 +95,32 @@ impl HeavyCommandsRepository {
         Ok(changed > 0)
     }
 
+    /// W8 门禁归还时回填：同会话、同归一化命令的**最近一行**打上 `target` /
+    /// `offloaded_reason`。没有匹配行返回 `Ok(false)`（hook 记录器可能关着），纯尽力而为。
+    pub fn mark_target(
+        &self,
+        session_id: &str,
+        cmd_normalized: &str,
+        target: &str,
+        offloaded_reason: Option<&str>,
+    ) -> Result<bool, String> {
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
+        let changed = conn
+            .execute(
+                "UPDATE heavy_commands
+                 SET target = ?3, offloaded_reason = ?4
+                 WHERE id = (
+                     SELECT id FROM heavy_commands
+                     WHERE session_id = ?1 AND cmd_normalized = ?2
+                     ORDER BY started_at DESC
+                     LIMIT 1
+                 )",
+                params![session_id, cmd_normalized, target, offloaded_reason],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(changed > 0)
+    }
+
     /// 采样器封账：与同会话、时间重叠的 hook 行合并（source → both），否则新插一行
     /// `source = sampler`。返回被写的行 id。
     ///
@@ -396,6 +422,32 @@ mod tests {
         assert_eq!(rows[0].source, HeavyCommandSource::Hook);
         assert_eq!(rows[0].project_path, "D:/repo");
         assert_eq!(rows[0].target, "local");
+    }
+
+    #[test]
+    fn mark_target_updates_latest_matching_row_only() {
+        let repo = setup();
+        let older = repo.insert(&hook_row("s1", "cargo build", 1_000)).unwrap();
+        let newer = repo.insert(&hook_row("s1", "cargo build", 2_000)).unwrap();
+        assert!(repo
+            .mark_target(
+                "s1",
+                "cargo build",
+                "local",
+                Some("gate: forced after timeout")
+            )
+            .unwrap());
+        assert!(!repo
+            .mark_target("s9", "cargo build", "local", None)
+            .unwrap());
+
+        let rows = repo.list(&HeavyCommandQuery::default()).unwrap();
+        let find = |id: i64| rows.iter().find(|row| row.id == id).unwrap();
+        assert_eq!(
+            find(newer).offloaded_reason.as_deref(),
+            Some("gate: forced after timeout")
+        );
+        assert_eq!(find(older).offloaded_reason, None);
     }
 
     #[test]

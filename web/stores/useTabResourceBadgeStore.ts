@@ -20,6 +20,9 @@ export interface ResourceBadgeEntry {
   sessionId?: string;
   cpuPercent?: number;
   memoryBytes?: number;
+  /** reason === "queued" 时：1-based 位次 / 队列总长，标签 chip 显示"排队 n/m"。 */
+  queuePosition?: number;
+  queueTotal?: number;
 }
 
 interface TabResourceBadgeState {
@@ -70,6 +73,8 @@ export const useTabResourceBadgeStore = create<TabResourceBadgeState>((set, get)
           sessionId: entry.sessionId ?? current?.sessionId,
           cpuPercent: entry.cpuPercent,
           memoryBytes: entry.memoryBytes,
+          queuePosition: entry.queuePosition,
+          queueTotal: entry.queueTotal,
         },
       },
     }));

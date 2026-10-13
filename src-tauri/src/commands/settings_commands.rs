@@ -40,7 +40,14 @@ pub fn update_settings(
     let task_queue_enabled = settings.terminal.task_queue_enabled;
     let previous_scrollback = previous_settings.terminal.scrollback;
     let scrollback = settings.terminal.scrollback;
+    let skill_gate_changed =
+        crate::services::bundled_skills::skill_gate_changed(&previous_settings, &settings);
     service.update_settings(settings)?;
+    // 门控 skill（heavy-run）随「重负载门禁」开关出现 / 消失，无需重启：重物化 managed 目录。
+    // 失败只记日志——设置本身已保存，skill 目录下次启动还会再物化一遍。
+    if skill_gate_changed {
+        rematerialize_bundled_skills(&app, &service.get_settings());
+    }
     // replay 上限跟随 scrollback（docs/71 §9.2）：调小立刻 front-drop 到新上限，
     // 调大只抬上限。仅在真变了时才扫全表——它要逐个上 replay 锁，而那把锁正被
     // reader 线程高频争用。
@@ -61,6 +68,29 @@ pub fn update_settings(
         history_watch_manager.set_enabled(is_enabled);
     }
     Ok(())
+}
+
+fn rematerialize_bundled_skills(app: &AppHandle, settings: &AppSettings) {
+    let resource_dir = match app.path().resource_dir() {
+        Ok(dir) => dir,
+        Err(error) => {
+            tracing::warn!(%error, "[settings] resource_dir unavailable; bundled skills not refreshed");
+            return;
+        }
+    };
+    let paths = app.state::<Arc<AppPaths>>();
+    match crate::services::bundled_skills::materialize_bundled_skills(
+        &resource_dir,
+        &paths,
+        settings,
+        env!("CARGO_PKG_VERSION"),
+    ) {
+        Ok(written) => info!(
+            count = written.len(),
+            "[settings] re-materialized bundled skills after gate toggle"
+        ),
+        Err(error) => tracing::warn!(%error, "[settings] failed to re-materialize bundled skills"),
+    }
 }
 
 fn sync_task_queue_setting(service: &TaskQueueService, enabled: bool, now: i64) -> AppResult<()> {

@@ -4,6 +4,7 @@ import { usePanesStore } from "@/stores";
 import { useTabResourceBadgeStore } from "@/stores/useTabResourceBadgeStore";
 import type { TerminalStatusInfo } from "@/types";
 import {
+  applyHeavyQueueChanged,
   applyHeavySessionUsage,
   resourceBadgeReasonOf,
   syncJobMemoryBadges,
@@ -103,6 +104,51 @@ describe("syncJobMemoryBadges", () => {
     const map = new Map<string, TerminalStatusInfo>();
     map.set("s1", status("s1", { bytes: 2, limitBytes: 1, at: 1 }));
     expect(syncJobMemoryBadges(map, new Set()).size).toBe(0);
+  });
+});
+
+describe("applyHeavyQueueChanged（W8 门禁排队 chip）", () => {
+  it("queued:true 按会话所在标签打 queued 徽标并带位次", () => {
+    stubLocation("s1", "tab-1");
+    applyHeavyQueueChanged({ sessionId: "s1", position: 2, total: 4, queued: true });
+    const entry = useTabResourceBadgeStore.getState().getResourceBadge("tab-1");
+    expect(entry?.reason).toBe("queued");
+    expect(entry?.sessionId).toBe("s1");
+    expect(entry?.queuePosition).toBe(2);
+    expect(entry?.queueTotal).toBe(4);
+  });
+
+  it("位次变化刷新数字；queued:false 撤销", () => {
+    stubLocation("s1", "tab-1");
+    applyHeavyQueueChanged({ sessionId: "s1", position: 2, total: 4, queued: true });
+    applyHeavyQueueChanged({ sessionId: "s1", position: 1, total: 3, queued: true });
+    expect(useTabResourceBadgeStore.getState().getResourceBadge("tab-1")?.queuePosition).toBe(1);
+    expect(useTabResourceBadgeStore.getState().getResourceBadge("tab-1")?.queueTotal).toBe(3);
+    applyHeavyQueueChanged({ sessionId: "s1", position: 0, total: 0, queued: false });
+    expect(useTabResourceBadgeStore.getState().hasResourceBadge("tab-1")).toBe(false);
+  });
+
+  it("queued 比采样器 cpu 优先级高，且采样器封账不撤销排队", () => {
+    stubLocation("s1", "tab-1");
+    applyHeavySessionUsage({ sessionId: "s1", cpuPercent: 420, memoryBytes: 1, active: true });
+    applyHeavyQueueChanged({ sessionId: "s1", position: 1, total: 1, queued: true });
+    expect(useTabResourceBadgeStore.getState().getResourceBadge("tab-1")?.reason).toBe("queued");
+    applyHeavySessionUsage({ sessionId: "s1", cpuPercent: 0, memoryBytes: 0, active: false });
+    expect(useTabResourceBadgeStore.getState().getResourceBadge("tab-1")?.reason).toBe("queued");
+  });
+
+  it("queued 不被 TTL sweep 清掉（门禁只在变化时发事件）", () => {
+    stubLocation("s1", "tab-1");
+    applyHeavyQueueChanged({ sessionId: "s1", position: 1, total: 1, queued: true });
+    useTabResourceBadgeStore.getState().markResource("tab-2", { reason: "cpu", at: 0 });
+    const swept = useTabResourceBadgeStore.getState().sweepStale(Date.now() + 10 * 60_000, 30_000);
+    expect(swept).toEqual(["tab-2"]);
+    expect(useTabResourceBadgeStore.getState().hasResourceBadge("tab-1")).toBe(true);
+  });
+
+  it("会话不在本实例任何布局里：忽略", () => {
+    stubLocation("s1", null);
+    applyHeavyQueueChanged({ sessionId: "s1", position: 1, total: 1, queued: true });
     expect(useTabResourceBadgeStore.getState().entries).toEqual({});
   });
 });

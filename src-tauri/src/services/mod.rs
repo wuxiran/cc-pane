@@ -8,8 +8,10 @@ mod acp_chat_service;
 mod acp_client_ops;
 mod automation_service;
 mod browser_service;
+pub mod bundled_skills;
 pub mod heavy_command_recorder;
 pub mod heavy_command_sampler;
+pub mod heavy_job_routes;
 pub mod im_bridge;
 mod launch_backfill_service;
 pub(crate) mod notification_preferences;
@@ -46,6 +48,7 @@ pub use browser_service::{
 };
 pub use heavy_command_recorder::HeavyCommandRecorder;
 pub use heavy_command_sampler::HeavyCommandSampler;
+pub use heavy_job_routes::{AppHeavyJobEnvironment, HeavyJobGateState};
 pub use launch_backfill_service::rescue_null_codex_records;
 pub use launch_backfill_service::run_launch_history_backfill;
 pub(crate) use launch_backfill_service::{derive_project_name, detect_resume_session};

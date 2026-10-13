@@ -972,6 +972,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.27.0",
  "toml 0.8.2",
+ "tower",
  "tower-http",
  "tracing",
  "trash",
@@ -1066,6 +1067,7 @@ name = "cc-panes-ctl"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "ctrlc",
  "dirs",
  "rusqlite",
  "serde",
@@ -1596,6 +1598,17 @@ name = "ctor-proc-macro"
 version = "0.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52560adf09603e58c9a7ee1fe1dcb95a16927b17c127f0ac02d6e768a0e25bc1"
+
+[[package]]
+name = "ctrlc"
+version = "3.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0b1fab2ae45819af2d0731d60f2afe17227ebb1a1538a236da84c93e9a60162"
+dependencies = [
+ "dispatch2",
+ "nix 0.31.1",
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "darling"
@@ -4129,6 +4142,18 @@ name = "nix"
 version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6"
+dependencies = [
+ "bitflags 2.10.0",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+]
+
+[[package]]
+name = "nix"
+version = "0.31.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "225e7cfe711e0ba79a68baeddb2982723e4235247aefce1482f2f16c27865b66"
 dependencies = [
  "bitflags 2.10.0",
  "cfg-if",

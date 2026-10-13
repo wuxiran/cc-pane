@@ -486,4 +486,14 @@ export interface TerminalStatusInfo {
   jobMemoryWarning?: import("./systemStats").JobMemoryWarning | null;
   /** `local` / `wsl` / `ssh`；旧后端不返回。 */
   runtimeKind?: string | null;
+  /** WSL 会话的发行版名（W6）；非 WSL / 旧后端不返回。 */
+  wslDistro?: string | null;
+  /** 重负载门禁排队位次（0.12.22 W8）；undefined/null = 不在排队。 */
+  heavyQueue?: HeavyQueueStatus | null;
+}
+
+/** 排队位次：1-based position / 队列总长 total。 */
+export interface HeavyQueueStatus {
+  position: number;
+  total: number;
 }

@@ -29,7 +29,20 @@ export default function TabBadgeDots({ tabId, t }: TabBadgeDotsProps) {
           style={{ background: "var(--app-status-danger)" }}
         />
       )}
-      {resource && (
+      {resource && resource.reason === "queued" && (
+        // 排队 chip（docs/107 W8）：位次是用户要看的数字，光一个点不够
+        <span
+          aria-label={queueChipLabel(resource.queuePosition, resource.queueTotal, t)}
+          className="shrink-0 rounded px-1 text-[10px] leading-4"
+          style={{
+            background: "color-mix(in srgb, var(--app-status-warning) 18%, transparent)",
+            color: "var(--app-status-warning)",
+          }}
+        >
+          {queueChipLabel(resource.queuePosition, resource.queueTotal, t)}
+        </span>
+      )}
+      {resource && resource.reason !== "queued" && (
         <button
           type="button"
           aria-label={t("tabResourceDot")}
@@ -50,6 +63,14 @@ export default function TabBadgeDots({ tabId, t }: TabBadgeDotsProps) {
       )}
     </>
   );
+}
+
+function queueChipLabel(
+  position: number | undefined,
+  total: number | undefined,
+  t: TFunction<"panes">,
+): string {
+  return t("tabQueueChip", { position: position ?? 0, total: total ?? 0 });
 }
 
 function resourceTitle(

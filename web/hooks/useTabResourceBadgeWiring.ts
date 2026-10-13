@@ -16,10 +16,12 @@ import {
   type ResourceBadgeReason,
 } from "@/stores/useTabResourceBadgeStore";
 import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
-import type { HeavySessionUsagePayload } from "@/types/heavyCommand";
+import type { HeavyQueueChangedPayload, HeavySessionUsagePayload } from "@/types/heavyCommand";
 import type { TerminalStatusInfo } from "@/types";
 
 export const HEAVY_SESSION_USAGE_EVENT = "heavy-session-usage";
+/** W8 门禁：排队位次变化（只在变化时发，不是心跳）。 */
+export const HEAVY_QUEUE_CHANGED_EVENT = "heavy-queue-changed";
 /** 采样器 episode 内每 2 s 推一次；30 s 没来就当断流。 */
 export const RESOURCE_BADGE_TTL_MS = 30_000;
 const SWEEP_INTERVAL_MS = 10_000;
@@ -80,21 +82,52 @@ export function syncJobMemoryBadges(
   return current;
 }
 
+/** 门禁排队事件 → `queued` 徽标（带位次）；`queued:false` 撤销。owner 解析失败忽略。 */
+export function applyHeavyQueueChanged(payload: HeavyQueueChangedPayload): void {
+  const location = usePanesStore.getState().findTabBySessionAcrossLayouts(payload.sessionId);
+  if (!location) return;
+  const owner = location.tab.id;
+  const badges = useTabResourceBadgeStore.getState();
+  if (!payload.queued) {
+    badges.clearReason(owner, "queued");
+    return;
+  }
+  badges.markResource(owner, {
+    reason: "queued",
+    sessionId: payload.sessionId,
+    queuePosition: payload.position,
+    queueTotal: payload.total,
+  });
+}
+
+function subscribe<T>(event: string, handler: (payload: T) => void): () => void {
+  let disposed = false;
+  let unlisten: (() => void) | null = null;
+  listenWebviewIfTauri<T>(event, (e) => handler(e.payload))
+    .then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    })
+    .catch((error) => {
+      console.warn(`[resource-badge] failed to subscribe to ${event}:`, error);
+    });
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
+}
+
 /** App 级挂载一次。 */
 export function useTabResourceBadgeWiring(): void {
   useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | null = null;
-    listenWebviewIfTauri<HeavySessionUsagePayload>(HEAVY_SESSION_USAGE_EVENT, (event) => {
-      applyHeavySessionUsage(event.payload);
-    })
-      .then((fn) => {
-        if (disposed) fn();
-        else unlisten = fn;
-      })
-      .catch((error) => {
-        console.warn("[resource-badge] failed to subscribe to heavy-session-usage:", error);
-      });
+    const unlistenUsage = subscribe<HeavySessionUsagePayload>(
+      HEAVY_SESSION_USAGE_EVENT,
+      applyHeavySessionUsage,
+    );
+    const unlistenQueue = subscribe<HeavyQueueChangedPayload>(
+      HEAVY_QUEUE_CHANGED_EVENT,
+      applyHeavyQueueChanged,
+    );
 
     // 会话消失（关闭 / 退出）→ 它的标签不该再亮；Job 内存越线随状态字段出现/消失
     const knownSessions = new Set<string>();
@@ -115,8 +148,8 @@ export function useTabResourceBadgeWiring(): void {
     }, SWEEP_INTERVAL_MS);
 
     return () => {
-      disposed = true;
-      unlisten?.();
+      unlistenUsage();
+      unlistenQueue();
       unsubStatus();
       clearInterval(sweep);
     };

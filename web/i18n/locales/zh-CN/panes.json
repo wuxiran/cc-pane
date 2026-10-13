@@ -456,6 +456,7 @@
   "closeTabDirtyEditors_one": "{{count}} 个编辑器有未保存的修改：",
   "tabAttentionDot": "有新动态",
   "tabResourceDot": "正在占用大量资源，点击打开资源管理器",
+  "tabQueueChip": "排队 {{position}}/{{total}}",
   "taskQueue": {
     "title": "任务队列",
     "description": "当前轮次结束后，按顺序发送后续任务。",

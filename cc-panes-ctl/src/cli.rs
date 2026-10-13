@@ -71,6 +71,21 @@ enum Command {
         #[arg(long = "arg", value_name = "KEY=VALUE")]
         arg: Vec<String>,
     },
+    /// Run a command; with --heavy, take a slot from the CC-Panes heavy-job gate first.
+    ///
+    /// Usage: cc-panes-ctl run [--heavy] [--label NAME] -- <cmd> [args...]
+    /// Gate off / unreachable / no session id → plain exec. Exit code is the child's.
+    Run {
+        /// Queue for a heavy-job slot before running (compile / test / repo-wide grep).
+        #[arg(long)]
+        heavy: bool,
+        /// Short label shown in the resource manager instead of the normalized command.
+        #[arg(long, value_name = "NAME")]
+        label: Option<String>,
+        /// The command to run, after `--`.
+        #[arg(required = true, last = true, value_name = "CMD")]
+        cmd: Vec<String>,
+    },
     /// Run a resilient stdio MCP proxy for Claude Code or Codex.
     McpProxy {
         #[arg(long, value_name = "ID")]
@@ -202,6 +217,14 @@ impl CliExit {
             message: message.into(),
         }
     }
+
+    /// 透传子进程退出码：不打印任何错误（子进程自己已经输出了）。
+    pub(crate) fn silent(code: i32) -> Self {
+        Self {
+            code,
+            message: String::new(),
+        }
+    }
 }
 
 pub fn execute(cli: Cli) -> Result<(), CliExit> {
@@ -266,6 +289,9 @@ pub fn execute(cli: Cli) -> Result<(), CliExit> {
             arguments_json,
             arg,
         } => commands::call(&context, &tool, arguments_json.as_deref(), &arg),
+        Command::Run { heavy, label, cmd } => {
+            commands::run::run(&context, heavy, label.as_deref(), &cmd)
+        }
         Command::McpProxy {
             launch_id,
             startup_wait_ms,

@@ -2138,14 +2138,11 @@ pub fn run() {
                         // 用户的 ~/.claude 与 ~/.codex 零写入。
                         let t_skill = std::time::Instant::now();
                         let registry = app.state::<Arc<cc_cli_adapters::CliToolRegistry>>();
-                        let svc = cc_panes_core::services::DefaultSkillService::new(
-                            resource_dir
-                                .join("resources")
-                                .join("claude-bundle")
-                                .join("default-skills"),
-                        );
-                        match svc.materialize_managed_bundle(
-                            &paths.builtin_skills_dir(),
+                        // 门控 skill（如 heavy-run）按当前设置决定是否物化；设置保存时同一入口重物化。
+                        match services::bundled_skills::materialize_bundled_skills(
+                            &resource_dir,
+                            &paths,
+                            &app.state::<Arc<SettingsService>>().get_settings(),
                             env!("CARGO_PKG_VERSION"),
                         ) {
                             Ok(written) => info!(
@@ -2169,6 +2166,9 @@ pub fn run() {
                         let report_path = paths
                             .skills_dir()
                             .join(cc_panes_core::services::LEGACY_CLEANUP_REPORT_FILE_NAME);
+                        let svc = cc_panes_core::services::DefaultSkillService::new(
+                            services::bundled_skills::bundled_templates_dir(&resource_dir),
+                        );
                         match svc.cleanup_legacy_injected_once(registry.inner(), &report_path) {
                             Ok(Some(report)) => info!(
                                 "[boot] legacy skill cleanup: removed {}, preserved {}, failed {}",
@@ -2370,6 +2370,23 @@ pub fn run() {
                 }
                 let tauri_emitter: std::sync::Arc<dyn cc_panes_core::events::EventEmitter> =
                     Arc::new(TauriEmitter::new(app_handle.clone()));
+                // W8 重负载门禁状态：orchestrator 启动时取走挂到 /api/heavy-jobs。
+                // 必须在 orch_svc.start 之前 manage，否则路由退化为永远透传。
+                {
+                    let heavy_env = services::AppHeavyJobEnvironment::new(
+                        app.state::<Arc<SettingsService>>().inner().clone(),
+                        app.state::<Arc<TerminalBackendState>>().inner().clone(),
+                        app.state::<Arc<cc_panes_core::repository::HeavyCommandsRepository>>()
+                            .inner()
+                            .clone(),
+                        tauri_emitter.clone(),
+                    );
+                    let token = app.state::<Arc<OrchestratorService>>().token().to_string();
+                    app.manage(Arc::new(services::HeavyJobGateState::new(
+                        token,
+                        Arc::new(heavy_env),
+                    )));
+                }
 
                 // 注入到 TerminalService
                 let term_svc = app.state::<Arc<TerminalService>>();

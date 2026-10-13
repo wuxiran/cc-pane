@@ -760,6 +760,9 @@ fn same_status_payload(left: &SessionStatusInfo, right: &SessionStatusInfo) -> b
         // W5：越线/回落只改这一字段，漏比则徽标永远不亮或永远不灭
         && left.job_memory_warning == right.job_memory_warning
         && left.runtime_kind == right.runtime_kind
+        && left.wsl_distro == right.wsl_distro
+        // W8：排队位次变化只改这一字段，漏比则标签 chip 停在旧位次
+        && left.heavy_queue == right.heavy_queue
 }
 
 fn synthesized_exited_status(session_id: &str) -> SessionStatusInfo {
@@ -786,6 +789,7 @@ fn synthesized_exited_status_with_code(
         job_memory_warning: None,
         runtime_kind: None,
         wsl_distro: None,
+        heavy_queue: None,
     }
 }
 

@@ -16,6 +16,7 @@ fn status(session_id: &str, status: SessionStatus, updated_at: u64) -> SessionSt
         job_memory_warning: None,
         runtime_kind: None,
         wsl_distro: None,
+        heavy_queue: None,
     }
 }
 
@@ -152,6 +153,23 @@ fn same_status_payload_detects_relevant_changes() {
     let mut kinded = first.clone();
     kinded.runtime_kind = Some("wsl".to_string());
     assert!(!same_status_payload(&first, &kinded));
+    let mut distro = first.clone();
+    distro.wsl_distro = Some("Ubuntu".to_string());
+    assert!(!same_status_payload(&first, &distro));
+    // W8：排队位次变化（2/4 → 1/3）也必须算变化
+    let mut queued = status("s1", SessionStatus::Active, 10);
+    queued.heavy_queue = Some(cc_panes_core::services::HeavyQueueStatus {
+        position: 2,
+        total: 4,
+    });
+    let mut moved = queued.clone();
+    moved.heavy_queue = Some(cc_panes_core::services::HeavyQueueStatus {
+        position: 1,
+        total: 3,
+    });
+    assert!(!same_status_payload(&first, &queued));
+    assert!(!same_status_payload(&queued, &moved));
+    assert!(same_status_payload(&queued, &queued.clone()));
 }
 
 /// daemon/app 版本偏斜：0.12.21 的 daemon 发来的状态 payload 没有 oscProgress /
@@ -166,14 +184,21 @@ fn pre_0_12_22_status_payload_still_deserializes() {
     assert!(parsed.job_memory_warning.is_none());
     assert!(parsed.runtime_kind.is_none());
     assert!(parsed.wsl_distro.is_none());
+    assert!(parsed.heavy_queue.is_none());
 
     let mut current = status("s1", SessionStatus::Idle, 2);
+    current.heavy_queue = Some(cc_panes_core::services::HeavyQueueStatus {
+        position: 2,
+        total: 4,
+    });
     current.resource_policy = Some(cc_panes_core::models::ResourcePolicyStatus::unsupported(
         "daemon too old",
     ));
     let json = serde_json::to_value(&current).expect("serialize");
     assert_eq!(json["resourcePolicy"]["outcome"], "unsupported");
     assert_eq!(json["resourcePolicy"]["reason"], "daemon too old");
+    assert_eq!(json["heavyQueue"]["position"], 2);
+    assert_eq!(json["heavyQueue"]["total"], 4);
     assert!(
         json.get("jobMemoryWarning").is_none(),
         "None must not serialize"

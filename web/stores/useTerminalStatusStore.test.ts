@@ -191,7 +191,7 @@ describe("useTerminalStatusStore", () => {
       expect(useTerminalStatusStore.getState().statusMap).toBe(before);
     });
 
-    it("listen 回调：只有 jobMemoryWarning 出现/消失也必须更新（去重不得漏比）", async () => {
+    it("listen 回调：只有 jobMemoryWarning / wslDistro / heavyQueue 变化也必须更新（去重不得漏比）", async () => {
       let listenCallback: ((event: { payload: TerminalStatusInfo }) => void) | null = null;
       vi.mocked(getCurrentWebview().listen).mockImplementation(async (_event, handler) => {
         listenCallback = handler as (event: { payload: TerminalStatusInfo }) => void;
@@ -214,8 +214,31 @@ describe("useTerminalStatusStore", () => {
       listenCallback!({ payload: base });
       expect(useTerminalStatusStore.getState().statusMap.get("session-1")?.jobMemoryWarning).toBeUndefined();
 
+      // W6：只有 wslDistro 变化也要更新
+      listenCallback!({ payload: { ...base, wslDistro: "Ubuntu" } });
+      expect(useTerminalStatusStore.getState().statusMap.get("session-1")?.wslDistro).toBe("Ubuntu");
+      listenCallback!({ payload: base });
+
+      // W8：只有 heavyQueue 位次变化也必须更新
+      listenCallback!({ payload: { ...base, heavyQueue: { position: 2, total: 4 } } });
+      expect(useTerminalStatusStore.getState().statusMap.get("session-1")?.heavyQueue).toEqual({
+        position: 2,
+        total: 4,
+      });
+
+      listenCallback!({ payload: { ...base, heavyQueue: { position: 1, total: 3 } } });
+      expect(useTerminalStatusStore.getState().statusMap.get("session-1")?.heavyQueue).toEqual({
+        position: 1,
+        total: 3,
+      });
+
+      // 出队（字段消失）也要更新
+      listenCallback!({ payload: base });
+      expect(useTerminalStatusStore.getState().statusMap.get("session-1")?.heavyQueue).toBeUndefined();
+
+      // 相同 payload 再来一次不触发 set（引用不变）
       const before = useTerminalStatusStore.getState().statusMap;
-      listenCallback!({ payload: { ...base } });
+      listenCallback!({ payload: base });
       expect(useTerminalStatusStore.getState().statusMap).toBe(before);
     });
 

@@ -110,7 +110,10 @@ export const useTerminalStatusStore = create<TerminalStatusState>((set, get) => 
           current.jobMemoryWarning?.bytes === event.payload.jobMemoryWarning?.bytes &&
           current.jobMemoryWarning?.limitBytes === event.payload.jobMemoryWarning?.limitBytes &&
           current.jobMemoryWarning?.at === event.payload.jobMemoryWarning?.at &&
-          current.runtimeKind === event.payload.runtimeKind
+          current.runtimeKind === event.payload.runtimeKind &&
+          current.wslDistro === event.payload.wslDistro &&
+          current.heavyQueue?.position === event.payload.heavyQueue?.position &&
+          current.heavyQueue?.total === event.payload.heavyQueue?.total
         ) {
           return;
         }

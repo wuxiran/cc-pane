@@ -683,6 +683,19 @@ pub struct SessionStatusInfo {
     /// WSL 会话的发行版名（W6 cgroup 读数要按发行版批量读）。非 WSL / 旧 daemon 为 `None`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wsl_distro: Option<String>,
+    /// 重负载门禁排队位次（0.12.22 W8）。`None` = 不在排队。
+    /// 门禁本体在 app 侧（orchestrator），当前通过 Tauri 事件 `heavy-queue-changed` 直达前端；
+    /// 本字段是状态契约的保留位（daemon 侧门禁 / P7 回填时用），同样受两处去重约束。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heavy_queue: Option<HeavyQueueStatus>,
+}
+
+/// 排队位次：1-based `position` / 队列总长 `total`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeavyQueueStatus {
+    pub position: u32,
+    pub total: u32,
 }
 
 /// OSC 9;4 子状态（可序列化，跨界传给前端做徽章动画）。
@@ -1838,6 +1851,7 @@ fn build_session_status_info(
         job_memory_warning,
         runtime_kind: runtime_kind.map(str::to_string),
         wsl_distro: wsl_distro.map(str::to_string),
+        heavy_queue: None,
     }
 }
 
