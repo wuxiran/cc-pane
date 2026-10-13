@@ -16,6 +16,7 @@ pub mod path_validator;
 pub mod project_dirs;
 pub mod project_identity;
 pub mod text_encoding;
+pub mod tokio_runtime;
 
 pub use app_paths::{app_config_dir, AppPaths, APP_CONFIG_DIR_ENV, APP_DIR_NAME};
 pub use claude_path::{encode_claude_project_path, is_claude_project_match};
@@ -51,3 +52,4 @@ pub use project_identity::{
     repair_persisted_project_path,
 };
 pub use text_encoding::decode_text_lossy_gbk;
+pub use tokio_runtime::{tokio_worker_threads, tokio_worker_threads_from_env, TOKIO_WORKERS_ENV};

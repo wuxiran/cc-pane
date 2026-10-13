@@ -24,3 +24,4 @@ parking_lot = "0.12"
 
 [dev-dependencies]
 tower = "0.5"
+tempfile = "3"
