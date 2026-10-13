@@ -482,4 +482,12 @@ export interface TerminalStatusInfo {
   oscProgress?: OscProgressBadge | null;
   /** 会话资源策略下发结果（0.12.22）；旧后端不返回，必须容忍缺失。 */
   resourcePolicy?: import("./systemStats").ResourcePolicyStatus | null;
+  /** 重负载门禁排队位次（0.12.22 W8）；undefined/null = 不在排队。 */
+  heavyQueue?: HeavyQueueStatus | null;
+}
+
+/** 排队位次：1-based position / 队列总长 total。 */
+export interface HeavyQueueStatus {
+  position: number;
+  total: number;
 }

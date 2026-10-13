@@ -972,6 +972,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.27.0",
  "toml 0.8.2",
+ "tower",
  "tower-http",
  "tracing",
  "trash",

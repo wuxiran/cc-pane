@@ -13,6 +13,7 @@ fn status(session_id: &str, status: SessionStatus, updated_at: u64) -> SessionSt
         updated_at,
         osc_progress: None,
         resource_policy: None,
+        heavy_queue: None,
     }
 }
 
@@ -137,6 +138,21 @@ fn same_status_payload_detects_relevant_changes() {
         cc_panes_core::models::ResourcePolicyStatus::unsupported("daemon too old"),
     );
     assert!(!same_status_payload(&first, &changed_policy));
+
+    // W8：排队位次变化（2/4 → 1/3）也必须算变化
+    let mut queued = status("s1", SessionStatus::Active, 10);
+    queued.heavy_queue = Some(cc_panes_core::services::HeavyQueueStatus {
+        position: 2,
+        total: 4,
+    });
+    let mut moved = queued.clone();
+    moved.heavy_queue = Some(cc_panes_core::services::HeavyQueueStatus {
+        position: 1,
+        total: 3,
+    });
+    assert!(!same_status_payload(&first, &queued));
+    assert!(!same_status_payload(&queued, &moved));
+    assert!(same_status_payload(&queued, &queued.clone()));
 }
 
 /// daemon/app 版本偏斜：0.12.21 的 daemon 发来的状态 payload 没有 oscProgress /
@@ -148,14 +164,21 @@ fn pre_0_12_22_status_payload_still_deserializes() {
     assert_eq!(parsed.session_id, "s1");
     assert!(parsed.osc_progress.is_none());
     assert!(parsed.resource_policy.is_none());
+    assert!(parsed.heavy_queue.is_none());
 
     let mut current = status("s1", SessionStatus::Idle, 2);
+    current.heavy_queue = Some(cc_panes_core::services::HeavyQueueStatus {
+        position: 2,
+        total: 4,
+    });
     current.resource_policy = Some(cc_panes_core::models::ResourcePolicyStatus::unsupported(
         "daemon too old",
     ));
     let json = serde_json::to_value(&current).expect("serialize");
     assert_eq!(json["resourcePolicy"]["outcome"], "unsupported");
     assert_eq!(json["resourcePolicy"]["reason"], "daemon too old");
+    assert_eq!(json["heavyQueue"]["position"], 2);
+    assert_eq!(json["heavyQueue"]["total"], 4);
     // 往回：新 payload 给旧 app（忽略未知字段）——由 serde 默认行为保证，这里只确认字段名稳定。
     assert!(json.get("oscProgress").is_none());
 }

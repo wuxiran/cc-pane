@@ -543,6 +543,7 @@ mod unattended_responder_tests {
                 updated_at: 0,
                 osc_progress: None,
                 resource_policy: None,
+                heavy_queue: None,
             }))
         }
 

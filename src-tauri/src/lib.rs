@@ -2370,6 +2370,23 @@ pub fn run() {
                 }
                 let tauri_emitter: std::sync::Arc<dyn cc_panes_core::events::EventEmitter> =
                     Arc::new(TauriEmitter::new(app_handle.clone()));
+                // W8 重负载门禁状态：orchestrator 启动时取走挂到 /api/heavy-jobs。
+                // 必须在 orch_svc.start 之前 manage，否则路由退化为永远透传。
+                {
+                    let heavy_env = services::AppHeavyJobEnvironment::new(
+                        app.state::<Arc<SettingsService>>().inner().clone(),
+                        app.state::<Arc<TerminalBackendState>>().inner().clone(),
+                        app.state::<Arc<cc_panes_core::repository::HeavyCommandsRepository>>()
+                            .inner()
+                            .clone(),
+                        tauri_emitter.clone(),
+                    );
+                    let token = app.state::<Arc<OrchestratorService>>().token().to_string();
+                    app.manage(Arc::new(services::HeavyJobGateState::new(
+                        token,
+                        Arc::new(heavy_env),
+                    )));
+                }
 
                 // 注入到 TerminalService
                 let term_svc = app.state::<Arc<TerminalService>>();

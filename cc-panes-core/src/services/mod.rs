@@ -20,6 +20,7 @@ pub mod external_usage_session_service;
 mod filesystem_service;
 mod git_service;
 pub mod heavy_command_normalize;
+pub mod heavy_job_gate;
 mod history_service;
 mod history_watch_manager;
 mod journal_service;
@@ -183,8 +184,8 @@ pub use terminal_path_link_service::{
     TerminalLinkContext, TerminalPathKind,
 };
 pub use terminal_service::{
-    codex_rollout_exists, KillReason, OrchestratorInfo, SessionStatusInfo, ShellInfo,
-    TerminalService,
+    codex_rollout_exists, HeavyQueueStatus, KillReason, OrchestratorInfo, SessionStatusInfo,
+    ShellInfo, TerminalService,
 };
 pub use todo_service::TodoService;
 pub use uninstall_cleanup_service::{UninstallCleanupReport, UninstallCleanupService};

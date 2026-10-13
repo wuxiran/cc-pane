@@ -840,6 +840,7 @@ mod tests {
                 updated_at: 120,
                 osc_progress: None,
                 resource_policy: None,
+                heavy_queue: None,
             }])
         }
 

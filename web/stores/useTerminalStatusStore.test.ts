@@ -191,6 +191,42 @@ describe("useTerminalStatusStore", () => {
       expect(useTerminalStatusStore.getState().statusMap).toBe(before);
     });
 
+    it("listen 回调：只有 heavyQueue 位次变化也必须更新（去重不得漏比）", async () => {
+      let listenCallback: ((event: { payload: TerminalStatusInfo }) => void) | null = null;
+      vi.mocked(getCurrentWebview().listen).mockImplementation(async (_event, handler) => {
+        listenCallback = handler as (event: { payload: TerminalStatusInfo }) => void;
+        return () => {};
+      });
+      await useTerminalStatusStore.getState().init();
+
+      const base: TerminalStatusInfo = {
+        sessionId: "session-1",
+        status: "active",
+        lastOutputAt: 1000,
+        updatedAt: 1000,
+      };
+      listenCallback!({ payload: { ...base, heavyQueue: { position: 2, total: 4 } } });
+      expect(useTerminalStatusStore.getState().statusMap.get("session-1")?.heavyQueue).toEqual({
+        position: 2,
+        total: 4,
+      });
+
+      listenCallback!({ payload: { ...base, heavyQueue: { position: 1, total: 3 } } });
+      expect(useTerminalStatusStore.getState().statusMap.get("session-1")?.heavyQueue).toEqual({
+        position: 1,
+        total: 3,
+      });
+
+      // 出队（字段消失）也要更新
+      listenCallback!({ payload: base });
+      expect(useTerminalStatusStore.getState().statusMap.get("session-1")?.heavyQueue).toBeUndefined();
+
+      // 相同 payload 再来一次不触发 set（引用不变）
+      const before = useTerminalStatusStore.getState().statusMap;
+      listenCallback!({ payload: base });
+      expect(useTerminalStatusStore.getState().statusMap).toBe(before);
+    });
+
     it("setInterval 应将超过 30s 无输出的 active 会话标记为 idle", async () => {
       await useTerminalStatusStore.getState().init();
 
