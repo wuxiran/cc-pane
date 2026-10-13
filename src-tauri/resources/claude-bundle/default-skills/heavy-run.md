@@ -33,6 +33,9 @@ cc-panes-ctl run --heavy -- rg "TODO" --glob '!node_modules'
 
 - 命令写在 `--` 之后，**原样**传给子进程：不要再包一层 `sh -c` / `cmd /c`，除非命令本身需要
   shell 特性（管道、`&&`）。需要 shell 时把整条命令作为 `sh -c '...'` 的一个参数。
+- Windows 上 `npm` / `npx` / `pnpm` / `tsc` / `vitest` 这类 `.cmd` 垫片直接写名字即可：
+  `cc-panes-ctl` 自己按 PATH + PATHEXT 解析并经 cmd.exe 起它们，不需要你写 `npm.cmd` 或
+  `cmd /c`。
 - `--label` 可选：资源管理器里显示的短名，不影响执行。
 - 子进程的 stdout / stderr / 退出码**原样透传**，你照常读输出、照常判断成败。
 - `cc-panes-ctl` 已在会话 PATH 里（`$CC_PANES_CTL` 也指向它）。找不到命令时直接跑原命令，

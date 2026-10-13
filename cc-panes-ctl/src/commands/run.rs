@@ -10,8 +10,16 @@
 //! Ctrl-C：不自己杀子进程。同一控制台 / 前台进程组里子进程本来就会收到 Ctrl-C（Windows 的
 //! `GenerateConsoleCtrlEvent` 是整组的），ctl 只需**吞掉**自己这份、等子进程退出、归还槽位，
 //! 再带着它的退出码退出。自己动手 kill 反而会和子进程自己的清理打架。
+//!
+//! Windows 的程序名解析：`Command::new("npm")` 只会找 `npm.exe`，而 npm / npx / pnpm / tsc /
+//! vitest 这些全是 `.cmd` 垫片，直接 spawn 会报"找不到文件"。所以 bare 名先按
+//! `PATH` × `PATHEXT` 解析（[`resolve_program`]）；解析到 `.cmd` / `.bat` 时经
+//! `cmd.exe /d /s /c "<path> args…"` 起（批处理只能由 cmd.exe 解释），其余可执行文件
+//! 仍直接 spawn，不过 shell。参数按 MSVCRT 规则引用（[`quote_windows_arg`]），带空格 /
+//! 引号 / cmd 元字符的参数原样到达垫片后面的 node.exe。
 
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -56,7 +64,7 @@ pub(crate) fn run(
 
     swallow_ctrl_c();
     let started = Instant::now();
-    let status = Command::new(program).args(&cmd[1..]).status();
+    let status = build_command(program, &cmd[1..]).status();
     let code = match status {
         Ok(status) => status.code().unwrap_or(1),
         Err(error) => {
@@ -77,6 +85,163 @@ pub(crate) fn run(
     } else {
         Err(CliExit::silent(code))
     }
+}
+
+/// 组装子进程命令。非 Windows：原样 `Command::new(program)`。
+/// Windows：解析不到就仍交给 `Command::new`（让它报原生错误）。
+fn build_command(program: &str, args: &[String]) -> Command {
+    #[cfg(windows)]
+    {
+        let path = std::env::var("PATH").unwrap_or_default();
+        let pathext = std::env::var("PATHEXT").unwrap_or_default();
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        if let Some(resolved) = resolve_program(program, &path, &pathext, &cwd) {
+            return command_for_resolved(&resolved, args);
+        }
+    }
+    let mut command = Command::new(program);
+    command.args(args);
+    command
+}
+
+/// 解析后的程序怎么起：批处理经 `cmd.exe /d /s /c`，其余直接 spawn（无 shell）。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn command_for_resolved(resolved: &Path, args: &[String]) -> Command {
+    if is_batch_file(resolved) {
+        let comspec = std::env::var_os("ComSpec").unwrap_or_else(|| "cmd.exe".into());
+        let mut command = Command::new(comspec);
+        command.arg("/d").arg("/s").arg("/c");
+        // `/s`：去掉整段的首尾引号后原样当命令行；所以整段必须自己包一层引号。
+        let line = format!("\"{}\"", cmd_exe_line(resolved, args));
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.raw_arg(line);
+        }
+        #[cfg(not(windows))]
+        {
+            command.arg(line);
+        }
+        return command;
+    }
+    let mut command = Command::new(resolved);
+    command.args(args);
+    command
+}
+
+/// 默认 `PATHEXT`（环境里没有时用，顺序照 Windows 默认）。
+#[cfg_attr(not(windows), allow(dead_code))]
+const DEFAULT_PATHEXT: &str = ".COM;.EXE;.BAT;.CMD";
+
+/// 按 `PATH` × `PATHEXT` 解析程序名。带路径分隔符的名字只在原地找（补扩展名）；
+/// bare 名先看当前目录再看 `PATH` 各目录（与 cmd.exe / `CreateProcess` 一致）。
+/// 每个目录内：名字本身带扩展名就先按原样找，再按 `PATHEXT` 顺序补。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn resolve_program(program: &str, path: &str, pathext: &str, cwd: &Path) -> Option<PathBuf> {
+    let program = program.trim();
+    if program.is_empty() {
+        return None;
+    }
+    let exts: Vec<String> = {
+        let raw = if pathext.trim().is_empty() {
+            DEFAULT_PATHEXT
+        } else {
+            pathext
+        };
+        raw.split(';')
+            .map(str::trim)
+            .filter(|ext| !ext.is_empty())
+            .map(|ext| ext.to_string())
+            .collect()
+    };
+    let has_separator = program.contains(['/', '\\']);
+    let candidate_in = |dir: &Path| -> Option<PathBuf> {
+        let base = dir.join(program);
+        if Path::new(program).extension().is_some() && base.is_file() {
+            return Some(base);
+        }
+        for ext in &exts {
+            let mut name = program.to_string();
+            // 小写补扩展名：NTFS 不分大小写，但日志 / 测试里 `npm.cmd` 比 `npm.CMD` 好认。
+            name.push_str(&ext.to_ascii_lowercase());
+            let candidate = dir.join(&name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        None
+    };
+    if has_separator {
+        let direct = Path::new(program);
+        let dir = if direct.is_absolute() {
+            PathBuf::new()
+        } else {
+            cwd.to_path_buf()
+        };
+        return candidate_in(&dir);
+    }
+    if let Some(found) = candidate_in(cwd) {
+        return Some(found);
+    }
+    path.split(';')
+        .map(str::trim)
+        .filter(|dir| !dir.is_empty())
+        .map(|dir| dir.trim_matches('"'))
+        .find_map(|dir| candidate_in(Path::new(dir)))
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn is_batch_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"))
+}
+
+/// `cmd.exe /c` 后面那一段（不含外层引号）：`"<path>" arg1 "arg 2" …`。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn cmd_exe_line(program: &Path, args: &[String]) -> String {
+    let mut line = quote_windows_arg(&program.to_string_lossy(), true);
+    for arg in args {
+        line.push(' ');
+        line.push_str(&quote_windows_arg(arg, true));
+    }
+    line
+}
+
+/// MSVCRT 参数引用：有空白 / 引号 / 为空才加引号；引号前的反斜杠成双，引号写成 `\"`。
+/// `for_cmd` 时含 cmd 元字符（`& | < > ^ ( ) % !`）的也加引号——cmd.exe 在双引号内
+/// 不解释它们（`%` 展开除外，那是 cmd 的固有行为）。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn quote_windows_arg(arg: &str, for_cmd: bool) -> String {
+    let needs_quotes = arg.is_empty()
+        || arg.chars().any(|c| {
+            matches!(c, ' ' | '\t' | '\n' | '"')
+                || (for_cmd && matches!(c, '&' | '|' | '<' | '>' | '^' | '(' | ')' | '%' | '!'))
+        });
+    if !needs_quotes {
+        return arg.to_string();
+    }
+    let mut out = String::with_capacity(arg.len() + 2);
+    out.push('"');
+    let mut backslashes = 0usize;
+    for c in arg.chars() {
+        match c {
+            '\\' => backslashes += 1,
+            '"' => {
+                out.extend(std::iter::repeat_n('\\', backslashes * 2 + 1));
+                out.push('"');
+                backslashes = 0;
+            }
+            other => {
+                out.extend(std::iter::repeat_n('\\', backslashes));
+                backslashes = 0;
+                out.push(other);
+            }
+        }
+    }
+    out.extend(std::iter::repeat_n('\\', backslashes * 2));
+    out.push('"');
+    out
 }
 
 /// ctl 自己忽略 Ctrl-C（子进程照常收到），保证能走到 release。只装一次；失败不致命。
@@ -298,6 +463,155 @@ impl HeldLease {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_arg_quoting_follows_msvcrt_rules() {
+        assert_eq!(quote_windows_arg("plain", false), "plain");
+        assert_eq!(quote_windows_arg("", false), "\"\"");
+        assert_eq!(quote_windows_arg("hello world", false), "\"hello world\"");
+        assert_eq!(quote_windows_arg("say \"hi\"", false), "\"say \\\"hi\\\"\"");
+        // 引号前的反斜杠成双；结尾反斜杠成双（否则会吃掉收尾引号）
+        assert_eq!(quote_windows_arg("a\\\"b", false), "\"a\\\\\\\"b\"");
+        assert_eq!(quote_windows_arg("C:\\dir\\", false), "C:\\dir\\");
+        assert_eq!(
+            quote_windows_arg("C:\\my dir\\", false),
+            "\"C:\\my dir\\\\\""
+        );
+        // cmd 元字符只在 for_cmd 时加引号
+        assert_eq!(quote_windows_arg("a&b", false), "a&b");
+        assert_eq!(quote_windows_arg("a&b", true), "\"a&b\"");
+        assert_eq!(
+            quote_windows_arg("--glob=!node_modules", true),
+            "\"--glob=!node_modules\""
+        );
+    }
+
+    #[test]
+    fn cmd_exe_line_quotes_program_and_each_arg() {
+        let line = cmd_exe_line(
+            Path::new("C:\\Program Files\\nodejs\\npm.cmd"),
+            &["run".to_string(), "build it".to_string()],
+        );
+        assert_eq!(
+            line,
+            "\"C:\\Program Files\\nodejs\\npm.cmd\" run \"build it\""
+        );
+        assert!(is_batch_file(Path::new("x\\npm.cmd")));
+        assert!(is_batch_file(Path::new("x\\old.BAT")));
+        assert!(!is_batch_file(Path::new("x\\cargo.exe")));
+        assert!(!is_batch_file(Path::new("x\\cargo")));
+    }
+
+    /// bare 名按 PATH 目录 × PATHEXT 顺序解析：`npm` → `npm.cmd`，`.exe` 优先于 `.cmd`。
+    /// 只在 Windows 跑：PATHEXT 是大写而文件名小写，靠的是 NTFS 不分大小写。
+    #[cfg(windows)]
+    #[test]
+    fn resolves_bare_names_through_path_and_pathext() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("bin");
+        let other = dir.path().join("other");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(bin.join("npm.cmd"), "@echo off\r\n").unwrap();
+        std::fs::write(bin.join("both.cmd"), "").unwrap();
+        std::fs::write(bin.join("both.exe"), "").unwrap();
+        std::fs::write(other.join("later.cmd"), "").unwrap();
+        std::fs::write(bin.join("noext"), "").unwrap();
+        let path = format!("{};\"{}\"", bin.display(), other.display());
+        let pathext = ".COM;.EXE;.BAT;.CMD";
+        let cwd = dir.path();
+
+        assert_eq!(
+            resolve_program("npm", &path, pathext, cwd),
+            Some(bin.join("npm.cmd"))
+        );
+        assert_eq!(
+            resolve_program("both", &path, pathext, cwd),
+            Some(bin.join("both.exe")),
+            "PATHEXT order wins inside a directory"
+        );
+        assert_eq!(
+            resolve_program("later", &path, pathext, cwd),
+            Some(other.join("later.cmd")),
+            "quoted PATH entries are honoured"
+        );
+        assert_eq!(
+            resolve_program("npm.cmd", &path, pathext, cwd),
+            Some(bin.join("npm.cmd")),
+            "explicit extension found as-is"
+        );
+        assert_eq!(resolve_program("missing", &path, pathext, cwd), None);
+        assert_eq!(
+            resolve_program("noext", &path, pathext, cwd),
+            None,
+            "a file without an executable extension is not a program"
+        );
+        // 带路径的名字只在原地找并补扩展名
+        let relative = format!("bin{}npm", std::path::MAIN_SEPARATOR);
+        assert_eq!(
+            resolve_program(&relative, "", pathext, cwd),
+            Some(cwd.join("bin").join("npm.cmd"))
+        );
+        assert_eq!(
+            resolve_program(&bin.join("npm").to_string_lossy(), "", pathext, cwd),
+            Some(bin.join("npm.cmd"))
+        );
+        // 空 PATHEXT 用默认表
+        assert_eq!(
+            resolve_program("npm", &path, "", cwd),
+            Some(bin.join("npm.cmd"))
+        );
+    }
+
+    /// 真起一个 `.cmd`：退出码透传，带空格 / 引号的参数原样到达。
+    #[cfg(windows)]
+    #[test]
+    fn runs_cmd_shim_through_cmd_exe_with_exit_code_and_args_preserved() {
+        let dir = tempfile::tempdir().unwrap();
+        let shim = dir.path().join("echoargs.cmd");
+        std::fs::write(&shim, "@echo off\r\necho ARGS=%*\r\nexit /b 7\r\n").unwrap();
+        let resolved = resolve_program(
+            "echoargs",
+            &dir.path().to_string_lossy(),
+            ".COM;.EXE;.BAT;.CMD",
+            Path::new("."),
+        )
+        .expect("shim resolves through PATH");
+        assert_eq!(resolved, shim);
+
+        let args = vec![
+            "hello world".to_string(),
+            "plain".to_string(),
+            "say \"hi\"".to_string(),
+            "a&b".to_string(),
+        ];
+        let output = command_for_resolved(&resolved, &args)
+            .output()
+            .expect("cmd.exe spawns the shim");
+        assert_eq!(
+            output.status.code(),
+            Some(7),
+            "batch exit code is propagated"
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("ARGS=\"hello world\" plain \"say \\\"hi\\\"\" \"a&b\""),
+            "stdout: {stdout:?}"
+        );
+
+        // `.exe` 不经 shell：program 就是解析到的路径本身。
+        let exe = resolve_program(
+            "cmd",
+            &std::env::var("PATH").unwrap_or_default(),
+            &std::env::var("PATHEXT").unwrap_or_default(),
+            Path::new("."),
+        )
+        .expect("cmd.exe on PATH");
+        assert!(!is_batch_file(&exe));
+        let mut direct = command_for_resolved(&exe, &["/c".to_string(), "exit 3".to_string()]);
+        assert_eq!(direct.get_program(), exe.as_os_str());
+        assert_eq!(direct.output().unwrap().status.code(), Some(3));
+    }
 
     #[test]
     fn parses_three_outcomes_and_rejects_garbage() {
