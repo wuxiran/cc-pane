@@ -1,7 +1,7 @@
 // 资源琥珀徽标接线：事件 → store，封账撤销，owner 解析。
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { usePanesStore } from "@/stores";
-import { useTabResourceBadgeStore } from "@/stores/useTabResourceBadgeStore";
+import { QUEUED_BADGE_TTL_MS, useTabResourceBadgeStore } from "@/stores/useTabResourceBadgeStore";
 import type { TerminalStatusInfo } from "@/types";
 import {
   applyHeavyQueueChanged,
@@ -137,13 +137,23 @@ describe("applyHeavyQueueChanged（W8 门禁排队 chip）", () => {
     expect(useTabResourceBadgeStore.getState().getResourceBadge("tab-1")?.reason).toBe("queued");
   });
 
-  it("queued 不被 TTL sweep 清掉（门禁只在变化时发事件）", () => {
+  it("丢了 queued:false 的 chip 最多亮 60 s：门禁重发续命，断流即清", () => {
     stubLocation("s1", "tab-1");
-    applyHeavyQueueChanged({ sessionId: "s1", position: 1, total: 1, queued: true });
-    useTabResourceBadgeStore.getState().markResource("tab-2", { reason: "cpu", at: 0 });
-    const swept = useTabResourceBadgeStore.getState().sweepStale(Date.now() + 10 * 60_000, 30_000);
-    expect(swept).toEqual(["tab-2"]);
+    const t0 = 1_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(t0);
+    applyHeavyQueueChanged({ sessionId: "s1", position: 2, total: 3, queued: true });
+    // 门禁在 ctl 再轮询时重发同一位次 → 刷新时间戳
+    vi.spyOn(Date, "now").mockReturnValue(t0 + 25_000);
+    applyHeavyQueueChanged({ sessionId: "s1", position: 2, total: 3, queued: true });
+    expect(useTabResourceBadgeStore.getState().getResourceBadge("tab-1")?.at).toBe(t0 + 25_000);
+    // 50 s 后（距最近刷新 25 s）：还在
+    expect(useTabResourceBadgeStore.getState().sweepStale(t0 + 50_000, 30_000)).toEqual([]);
     expect(useTabResourceBadgeStore.getState().hasResourceBadge("tab-1")).toBe(true);
+    // 之后 ctl 退出、`queued:false` 丢了：最近刷新 + TTL 一过就清
+    expect(
+      useTabResourceBadgeStore.getState().sweepStale(t0 + 25_000 + QUEUED_BADGE_TTL_MS + 1, 30_000),
+    ).toEqual(["tab-1"]);
+    expect(useTabResourceBadgeStore.getState().hasResourceBadge("tab-1")).toBe(false);
   });
 
   it("会话不在本实例任何布局里：忽略", () => {

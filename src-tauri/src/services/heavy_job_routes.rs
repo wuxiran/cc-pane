@@ -312,6 +312,18 @@ async fn handle_acquire(
         cmd_normalized,
         priority: body.priority.unwrap_or(1),
     };
+    // 已在排队的会话再来轮询（ctl 每 ≤25 s 一次）：把当前位次再发一遍当心跳。前端的
+    // `queued` chip 靠它续命（60 s TTL），丢一条 `queued:false` 不会留下永远不灭的 chip。
+    let refresh = state
+        .last_positions
+        .lock()
+        .get(&request.session_id)
+        .copied();
+    if let Some(position) = refresh {
+        state
+            .env
+            .on_queue_changed(&request.session_id, Some(position));
+    }
     let deadline = Instant::now() + state.long_poll_max;
     loop {
         let outcome = state.step_acquire(Instant::now(), request.clone());
@@ -835,6 +847,35 @@ mod tests {
             env.queue_events.lock().as_slice(),
             [("b".to_string(), Some((1, 1)))]
         );
+    }
+
+    /// 审查 #7：排队中的会话每次再来轮询都把位次再发一遍（前端 chip 的 TTL 续命），
+    /// 首次入队不重复发。
+    #[tokio::test]
+    async fn re_polling_while_queued_refreshes_the_queue_event() {
+        let env = RecordingEnv::with(enabled(1));
+        let app = app(env.clone(), Duration::from_millis(10));
+        post(&app, "/acquire", Some(TOKEN), acquire("a", false)).await;
+        let (_, first) = post(&app, "/acquire", Some(TOKEN), acquire("b", false)).await;
+        assert_eq!(first["outcome"], "queued");
+        assert_eq!(
+            env.queue_events.lock().as_slice(),
+            [("b".to_string(), Some((1, 1)))],
+            "first enqueue emits exactly once"
+        );
+        let (_, again) = post(&app, "/acquire", Some(TOKEN), acquire("b", false)).await;
+        assert_eq!(again["outcome"], "queued");
+        assert_eq!(
+            env.queue_events.lock().as_slice(),
+            [
+                ("b".to_string(), Some((1, 1))),
+                ("b".to_string(), Some((1, 1)))
+            ],
+            "re-poll refreshes the same position"
+        );
+        // 不排队的会话来轮询：没有可刷新的
+        post(&app, "/acquire", Some(TOKEN), acquire("a", false)).await;
+        assert_eq!(env.queue_events.lock().len(), 2);
     }
 
     #[tokio::test]

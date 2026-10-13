@@ -268,7 +268,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       heavyLedgerEnabled: true,
       wslQuotaEnabled: true,
       wslCpuWeight: 20,
-      wslMemoryHighPercent: 25,
+      wslMemoryHighPercent: 0,
       jobMemoryNotifyPercent: 25,
       parkedTerminalLimit: 6,
       parkDelaySecs: 30,

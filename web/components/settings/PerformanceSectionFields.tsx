@@ -4,7 +4,7 @@
  * 从 `PerformanceSection.tsx` 拆出以守住 ≤300 行：分组标题、开关行、
  * 带钳位的数字输入（支持 `null` = 自动）。所有文案都走 `settings` 命名空间。
  */
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -84,8 +84,14 @@ interface NumberRowProps {
   suffix?: string;
 }
 
-/** 必填数字：输入时原样透传，失焦时钳到区间内（空值回落到 fallback）。 */
+/**
+ * 必填数字：编辑中保留本地字符串草稿——清空输入框准备重打时不能被当成 0 提交
+ * （`Number("") === 0`，会把 "300 秒" 一瞬间写成 0 再被钳成 10）。能解析成有限数的
+ * 输入照常即时透传；失焦时钳到区间内（空值回落到 fallback）并丢弃草稿。
+ */
 export function NumberRow({ id, label, hint, value, limits, fallback, onChange, disabled, suffix }: NumberRowProps) {
+  // null = 没在编辑，显示外部值；string = 编辑中的原始输入
+  const [draft, setDraft] = useState<string | null>(null);
   return (
     <div className="flex items-center justify-between gap-6">
       <div className="flex min-w-0 flex-col gap-1">
@@ -100,11 +106,19 @@ export function NumberRow({ id, label, hint, value, limits, fallback, onChange, 
           min={limits.min}
           max={limits.max}
           step={1}
-          value={value}
+          value={draft ?? String(value)}
           disabled={disabled}
-          onChange={(e) => onChange(Number(e.target.value))}
+          onChange={(e) => {
+            const raw = e.target.value;
+            setDraft(raw);
+            if (raw.trim() === "") return;
+            const n = Number(raw);
+            if (Number.isFinite(n)) onChange(n);
+          }}
           onBlur={(e) => {
-            const next = clampNumber(e.target.value === "" ? NaN : e.target.value, limits, fallback);
+            const raw = e.target.value;
+            setDraft(null);
+            const next = clampNumber(raw.trim() === "" ? NaN : raw, limits, fallback);
             if (next !== value) onChange(next);
           }}
         />

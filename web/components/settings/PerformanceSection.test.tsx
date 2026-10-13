@@ -156,6 +156,40 @@ describe("PerformanceSection", () => {
     );
   });
 
+  it("keeps an empty draft while typing instead of committing 0, then falls back on blur", () => {
+    // 起始值刻意不等于默认值：失焦回落 (300) 才会与现值 (120) 不同而被提交
+    const value = createValue({ heavyGateEnabled: true, heavyGateTimeoutSecs: 120 });
+    const { container, onChange } = renderSection({ value });
+    const input = container.querySelector<HTMLInputElement>("#performance-heavy-gate-timeout-secs")!;
+
+    // 清空准备重打：不提交（以前这里会提交 Number("") === 0，再被钳成 10）
+    fireEvent.change(input, { target: { value: "" } });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input.value).toBe("");
+
+    // 清空后失焦：回落到默认值，不是 0 也不是钳位下限；草稿丢弃、回显外部值
+    fireEvent.blur(input, { target: { value: "" } });
+    expect(onChange).toHaveBeenLastCalledWith({
+      ...value,
+      heavyGateTimeoutSecs: DEFAULT_PERFORMANCE_SETTINGS.heavyGateTimeoutSecs,
+    });
+    // （jsdom 对受控 number input 的 .value 回写不可靠，这里只断言提交行为）
+
+    // 打合法数字：即时透传
+    fireEvent.change(input, { target: { value: "45" } });
+    expect(onChange).toHaveBeenLastCalledWith({ ...value, heavyGateTimeoutSecs: 45 });
+
+    expect(onChange.mock.calls.flat().some((next) => next.heavyGateTimeoutSecs === 0)).toBe(false);
+  });
+
+  it("ships WSL MemoryHigh default 0 (unset) and caps it at 90", () => {
+    expect(DEFAULT_PERFORMANCE_SETTINGS.wslMemoryHighPercent).toBe(0);
+    expect(PERFORMANCE_LIMITS.wslMemoryHighPercent).toEqual({ min: 0, max: 90 });
+    const { container, onChange } = renderSection({ value: createValue({ wslMemoryHighPercent: 95 }) });
+    fireEvent.blur(container.querySelector("#performance-wsl-memory-high-percent")!, { target: { value: "95" } });
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ wslMemoryHighPercent: 90 }));
+  });
+
   it("does not emit on blur when the value is already within limits", () => {
     const { container, onChange } = renderSection({ value: createValue({ parkDelaySecs: 30 }) });
     fireEvent.blur(container.querySelector("#performance-park-delay-secs")!, { target: { value: "30" } });

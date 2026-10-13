@@ -112,7 +112,7 @@
     "wslCpuWeight": "WSL CPUWeight",
     "wslCpuWeightHint": "systemd CPUWeight (1–10000, default 20). Only matters under contention; idle cores still run flat out.",
     "wslMemoryHighPercent": "WSL MemoryHigh",
-    "wslMemoryHighPercentHint": "Percentage of physical memory above which the kernel starts reclaiming; 0 = unset.",
+    "wslMemoryHighPercentHint": "Percentage of physical memory (0–90) above which the kernel starts reclaiming; default 0 = unset, same as 0.12.21. Builds that cross it slow down noticeably.",
     "parkingGroup": "Hidden pane parking",
     "parkedTerminalLimit": "Hidden panes kept live",
     "parkedTerminalLimitHint": "How many hidden panes keep an unparked terminal instance (2–12); the least recently viewed are parked first and replayed from the backend snapshot when shown again.",

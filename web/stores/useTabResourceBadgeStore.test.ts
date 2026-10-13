@@ -1,6 +1,6 @@
 // 资源琥珀徽标 store：不随可见清除，只随条件消失清除。
 import { beforeEach, describe, expect, it } from "vitest";
-import { useTabResourceBadgeStore } from "./useTabResourceBadgeStore";
+import { QUEUED_BADGE_TTL_MS, useTabResourceBadgeStore } from "./useTabResourceBadgeStore";
 
 beforeEach(() => {
   useTabResourceBadgeStore.setState({ entries: {} });
@@ -56,13 +56,25 @@ describe("useTabResourceBadgeStore", () => {
     expect(useTabResourceBadgeStore.getState().sweepStale(50_000, 30_000)).toEqual([]);
   });
 
-  it("sweepStale 不碰状态驱动的原因（job-memory / queued 没有流可断）", () => {
+  it("sweepStale 不碰 job-memory（状态字段驱动，没有流可断）", () => {
     const store = useTabResourceBadgeStore.getState();
     store.markResource("jm", { reason: "job-memory", at: 1 });
-    store.markResource("q", { reason: "queued", at: 1 });
     expect(useTabResourceBadgeStore.getState().sweepStale(1_000_000, 30_000)).toEqual([]);
     expect(useTabResourceBadgeStore.getState().hasResourceBadge("jm")).toBe(true);
+  });
+
+  it("queued 有自己的 60 s TTL：丢了 queued:false 也不会留下永远亮着的 chip", () => {
+    const store = useTabResourceBadgeStore.getState();
+    store.markResource("q", { reason: "queued", at: 0, queuePosition: 1, queueTotal: 1 });
+    // 30 s 的采样器 TTL 不碰它（门禁 25 s 才重发一次）
+    expect(useTabResourceBadgeStore.getState().sweepStale(QUEUED_BADGE_TTL_MS, 30_000)).toEqual([]);
     expect(useTabResourceBadgeStore.getState().hasResourceBadge("q")).toBe(true);
+    // 刷新把 at 往后推
+    store.markResource("q", { reason: "queued", at: QUEUED_BADGE_TTL_MS, queuePosition: 1, queueTotal: 1 });
+    expect(useTabResourceBadgeStore.getState().sweepStale(QUEUED_BADGE_TTL_MS * 2, 30_000)).toEqual([]);
+    // 之后再没刷新：过 TTL 即清
+    expect(useTabResourceBadgeStore.getState().sweepStale(QUEUED_BADGE_TTL_MS * 2 + 1, 30_000)).toEqual(["q"]);
+    expect(useTabResourceBadgeStore.getState().hasResourceBadge("q")).toBe(false);
   });
 
   it("clearResource 无条件清；不存在时不触发更新", () => {

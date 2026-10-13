@@ -113,7 +113,7 @@ Codex 的 Job 在 `spawn_contained` 里用 `CREATE_SUSPENDED → assign → NtRe
 | 停泊状态机 | `terminalBackgroundLifecycle.ts` 新增 `parked` 层 | 隐藏 **30 s** → 卸载 xterm（原来 Tier1 1 s 只挂 WebGL、30 min 才休眠）。热实例上限 6（设置可调 2–12），LRU 逐出。恢复复用现有 recovery snapshot（checkpoint + delta，0.12.21 已带几何），不另造 headless emulator |
 | 字节观察器 | `terminalHiddenWriteBuffer.ts` 旁路 | 停泊中只解析 bell / OSC 标题 / 完成信号，不喂 xterm。现有 hidden 预算（`terminalHiddenBudget.ts`）保持 |
 | 隐藏 WebGL LRU | `terminalRendererController.ts` | 预算从"总数 8"改为"可见全给 + 隐藏保留 ≤6，按最近隐藏时间逐出"；上下文丢失 60 s 内最多重试 3 次后钉 DOM |
-| 恢复风暴信号量 | `terminalRestoreQueue.ts` 升级 | 冷启动重放并发 **1**，前台窗格优先级插队（Orca PrioritySemaphore 77 行可直接移植）；checkpoint 上传并发 4、只拍脏会话 |
+| 恢复风暴信号量 | `terminalRestoreQueue.ts` 升级 | 冷启动重放并发 **1**，前台窗格优先级插队（Orca PrioritySemaphore 77 行可直接移植）。~~checkpoint 上传并发 4、只拍脏会话~~ **未做**（0.12.22 只落了重放信号量，checkpoint 上传路径未改） |
 | 单一动画时钟 | `web/components/ui/*spinner*` | 忙碌标签 spinner 改共享 rAF/interval，无任务自停 |
 
 **验收**：30 个会话、25 个隐藏，renderer 私有内存与 CPU 用 `summarize-performance.mjs` 对照 0.12.21 基线；切标签 p95 ≤ 200 ms。
@@ -351,14 +351,14 @@ Docker 的几个硬约束，决定它只能是"之一"而不是唯一：
 
 | 项 | 状态 | 落点（提交） |
 |---|---|---|
-| P1 停泊 + WebGL 隐藏 LRU + context-loss 有限重试 | ✅ | `5195c19d`：`terminalParkingRegistry.ts` / `terminalParking.ts` / `terminalParkingSettings.ts` / `terminalWebglContextLossRetry.ts`；lifecycle 新增 Park 层（Tier1 1 s → Park 30 s → Tier2 30 min）；隐藏上下文 ≤6 LRU |
-| P1 重放信号量 + 唤醒清 desync 闩 | ✅ | `e2ce4b8d`：`terminalReplaySemaphore.ts`（并发 1、前台优先、30 s 超时释放）包四个重放入口；`terminalService.clearDesync` |
+| P1 停泊 + WebGL 隐藏 LRU + context-loss 有限重试 | ✅ | `5195c19d`：`terminalParkingRegistry.ts` / `terminalParking.ts` / `terminalParkingSettings.ts` / `terminalWebglContextLossRetry.ts`；lifecycle 新增 Park 层（Tier1 1 s → Park 30 s → Tier2 30 min）；隐藏上下文 ≤6 LRU。契约测试 `terminalParkingMemoryContract.test.ts` 是**纯注册表 / 预算模型**：30 个假终端驱动 `createTerminalParkingRegistry` 与 `createTerminalWebglBudget`，断言 ≤6 隐藏实例、≤6 隐藏 context、总 context ≤8——**不实例化 xterm**，不量真实内存。停泊上限 / 延迟设置只对**之后挂载的视图**生效：`getParkedTerminalLimit()` / `getParkDelayMs()` 在挂载时惰性读取，保存设置不会调 `registry.setLimit`，已挂载的视图沿用旧值直到重挂载 |
+| P1 重放信号量 + 唤醒清 desync 闩 | ✅ | `e2ce4b8d`：`terminalReplaySemaphore.ts`（并发 1、前台优先、30 s 超时释放）包四个重放入口；`terminalService.clearDesync`。§3 P1 表里的"checkpoint 上传并发 4、只拍脏会话"**未做** |
 | P2 整机 Top 非会话进程 | ✅ | `7c0b47ca`：`ResourceTree.top_processes`（整机 CPU ≥60% 才算、<45% 关，按 CPU 差分排名，**只读展示**）；UI `TopProcessesBlock.tsx` |
 | P2 琥珀徽标 / 降优先级 / 效率模式 / 策略结果回传 | ✅ | `7c0b47ca` + `52e01238`：`useTabResourceBadgeStore`（cpu/memory/job-memory/queued）、`set_session_resource_policy`（trait + daemon 路由 `POST /api/sessions/{id}/resource-policy`）、`SessionResourcePolicy.eco_qos`（`SetProcessInformation(ProcessPowerThrottling)`）、`SessionStatusInfo.resource_policy` |
 | P2b 重负载命令台账 | ✅ | `ce3ae588`：迁移 v40 `heavy_commands`；`heavy_command_recorder.rs`（Bash ToolBefore/After 配对）、`heavy_command_sampler.rs`（整机 ≥60% 两次武装、树 ≥100%/2 GB 持续 5 s 开 episode、计数器 `get_heavy_sampler_stats`）；popover "最贵命令"标签；Codex `tool-after` hook 启用 |
 | P3 并行度环境注入 | ✅ | `9202b266`：`utils/perf_env.rs`（`CARGO_BUILD_JOBS MAKEFLAGS CMAKE_BUILD_PARALLEL_LEVEL RAYON_NUM_THREADS UV_THREADPOOL_SIZE RIPGREP_CONFIG_PATH`，用户已有键不覆盖）；本地 / Pi / WSL（WSLENV `/p`）/ SSH（五个非路径键） |
 | P3 Job 内存**通知**水位 | ✅ | `68bae902` + `c67db5a5`：`pty/job_events.rs` 完成端口监听；`JOB_OBJECT_LIMIT_JOB_MEMORY_HIGH` 通知型；`SessionStatusInfo.job_memory_warning`；树内存 <80% 阈值回落清除 |
-| P3 WSL systemd scope + cgroup 读数 | ✅ | `fa2687d3`：`probe_wsl_systemd_scope`（正 TTL 10 min / 负 60 s）、`systemd-run --user --scope -p CPUWeight -p MemoryHigh` 前缀、`wsl_cgroup_stats.rs`（VM 运行时一次 `wsl.exe` 批读、2 s 缓存、`source:"cgroup"`） |
+| P3 WSL systemd scope + cgroup 读数 | ✅ | `fa2687d3`：`probe_wsl_systemd_scope`（正 TTL 10 min / 负 60 s）、`systemd-run --user --scope -p CPUWeight [-p MemoryHigh]` 前缀、`wsl_cgroup_stats.rs`（VM 运行时一次 `wsl.exe` 批读、2 s 缓存、`source:"cgroup"`）。评审后：`wslMemoryHighPercent` **默认 0 = 不设**（与 0.12.21 一致，钳 0–90），Applied 的实际配额写进 `ResourcePolicyStatus.reason`；只对 `wsl_scope` 为真的根起 `wsl.exe` |
 | P3b tokio worker 收口 + 建会话前重读设置 | ✅ | `e1be4430`：daemon / web `worker_threads` 默认 4（`CC_PANES_TOKIO_WORKERS` 2..=8）；daemon `create_session` 前 2 s 限频 `reload_from_disk` |
 | P4 Codex 轻量注入 | ✅ | `9202b266`：`push_tui_perf_overrides`（`tui.animations=false`、`tui.auto_recap=false`；低配模式 `agents.max_concurrent_threads_per_session=2`）；**不发** `shell_environment_policy.set.*` |
 | P6 门禁骨架 + `ctl run` + skill | ✅ | `855c7c7e` / `0319be7e` / `f01a1d09`：`heavy_job_gate.rs` 纯逻辑；orchestrator `/api/heavy-jobs/{acquire,release,heartbeat}` + `GET`；`cc-panes-ctl run [--heavy] [--label] -- <cmd>`；skill `ccpanes-heavy-run` 由 manifest `requiresSetting` 门控；排队 chip 走 Tauri 事件 `heavy-queue-changed` |

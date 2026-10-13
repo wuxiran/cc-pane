@@ -80,10 +80,13 @@ export type ResourcePolicyOutcome = "applied" | "degraded" | "unsupported";
 /** 策略下发结果（随 `TerminalStatusInfo.resourcePolicy` 上报，popover 显示"已降级：原因"）。 */
 export interface ResourcePolicyStatus {
   outcome: ResourcePolicyOutcome;
+  /** Degraded 的原因；WSL 配额 Applied 时是实际配额（`CPUWeight=20, MemoryHigh=25%`）。 */
   reason?: string | null;
   lowerPriority: boolean;
   ecoQos: boolean;
   cpuWeight?: number | null;
+  /** W6：Linux 侧 `ccpanes-*` scope 确实存在（WSL 配额 Applied）。后端 false 时不发该字段。 */
+  wslScope?: boolean;
 }
 
 /** Job 内存通知水位越线（W5，随 `TerminalStatusInfo.jobMemoryWarning` 上报；只是观测，build 不会失败）。 */

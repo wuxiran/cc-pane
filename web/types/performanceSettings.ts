@@ -29,7 +29,7 @@ export interface PerformanceSettings {
   wslQuotaEnabled: boolean;
   /** WSL scope 的 CPUWeight（systemd 1..=10000，默认 20） */
   wslCpuWeight: number;
-  /** WSL scope 的 MemoryHigh 占物理内存百分比（0 = 不设） */
+  /** WSL scope 的 MemoryHigh 占物理内存百分比（0 = 不设，默认；钳 0..=90） */
   wslMemoryHighPercent: number;
   /** Windows Job 内存通知阈值占物理内存百分比（0 = 关）。只告警不限制 */
   jobMemoryNotifyPercent: number;
@@ -46,7 +46,7 @@ export const PERFORMANCE_LIMITS = {
   heavyGateSlots: { min: 1, max: 32 },
   heavyGateTimeoutSecs: { min: 10, max: 3600 },
   wslCpuWeight: { min: 1, max: 10_000 },
-  wslMemoryHighPercent: { min: 0, max: 100 },
+  wslMemoryHighPercent: { min: 0, max: 90 },
   jobMemoryNotifyPercent: { min: 0, max: 100 },
   parkedTerminalLimit: { min: 2, max: 12 },
   parkDelaySecs: { min: 5, max: 600 },
@@ -65,7 +65,7 @@ export const DEFAULT_PERFORMANCE_SETTINGS: PerformanceSettings = {
   heavyLedgerEnabled: true,
   wslQuotaEnabled: true,
   wslCpuWeight: 20,
-  wslMemoryHighPercent: 25,
+  wslMemoryHighPercent: 0,
   jobMemoryNotifyPercent: 25,
   parkedTerminalLimit: 6,
   parkDelaySecs: 30,

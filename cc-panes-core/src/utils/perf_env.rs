@@ -257,10 +257,7 @@ mod tests {
             ..settings(true)
         };
         build_perf_env(&fewer, 32, dir.path(), PerfEnvRuntime::Local);
-        assert_eq!(
-            std::fs::read_to_string(&path).unwrap(),
-            "--threads=3\n"
-        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "--threads=3\n");
     }
 
     #[test]

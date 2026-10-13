@@ -20,7 +20,7 @@ import type { HeavyQueueChangedPayload, HeavySessionUsagePayload } from "@/types
 import type { TerminalStatusInfo } from "@/types";
 
 export const HEAVY_SESSION_USAGE_EVENT = "heavy-session-usage";
-/** W8 门禁：排队位次变化（只在变化时发，不是心跳）。 */
+/** W8 门禁：排队位次变化；排队中的会话每次再轮询门禁（≤25 s）也重发一遍当心跳。 */
 export const HEAVY_QUEUE_CHANGED_EVENT = "heavy-queue-changed";
 /** 采样器 episode 内每 2 s 推一次；30 s 没来就当断流。 */
 export const RESOURCE_BADGE_TTL_MS = 30_000;

@@ -7,8 +7,14 @@
 // 原因与来源：
 //   cpu / memory   ← W3 采样器 `heavy-session-usage` 事件（episode 期间持续推送）
 //   job-memory     ← W5 Job 内存通知限
-//   queued         ← W8 重负载门禁排队
+//   queued         ← W8 重负载门禁排队（ctl 每次再轮询门禁都重发位次；60 s 没来当掉队）
 import { create } from "zustand";
+
+/**
+ * `queued` 的 TTL：门禁在 ctl 每次 acquire 长轮询（≤25 s 一次）时都重发一遍位次，
+ * 60 s 没刷新说明 ctl 已经走了而 `queued:false` 那条丢了——chip 不能因此永远亮着。
+ */
+export const QUEUED_BADGE_TTL_MS = 60_000;
 
 export type ResourceBadgeReason = "cpu" | "memory" | "job-memory" | "queued";
 
@@ -35,11 +41,13 @@ interface TabResourceBadgeState {
   /** 无条件清（标签关闭等）。 */
   clearResource: (owner: string) => void;
   /**
-   * 清掉 `at` 早于 `now - ttlMs` 的条目（来源断流兜底）。返回清掉的 owner。
-   * 只针对**流式**来源（cpu/memory：采样器每 2 s 推一次）；job-memory / queued 由状态字段
-   * 驱动，出现与消失都有明确事件，不按 TTL 清。
+   * 清掉过期条目（来源断流兜底）。返回清掉的 owner。
+   * - cpu / memory：采样器每 2 s 推一次，`at` 早于 `now - ttlMs` 即断流；
+   * - queued：门禁每次长轮询重发位次，`at` 早于 `now - queuedTtlMs`（默认
+   *   {@link QUEUED_BADGE_TTL_MS}）即 ctl 已走、`queued:false` 丢了；
+   * - job-memory：由状态字段驱动，出现与消失都有明确事件，不按 TTL 清。
    */
-  sweepStale: (now: number, ttlMs: number) => string[];
+  sweepStale: (now: number, ttlMs: number, queuedTtlMs?: number) => string[];
   hasResourceBadge: (owner: string) => boolean;
   getResourceBadge: (owner: string) => ResourceBadgeEntry | undefined;
 }
@@ -104,9 +112,13 @@ export const useTabResourceBadgeStore = create<TabResourceBadgeState>((set, get)
     });
   },
 
-  sweepStale: (now, ttlMs) => {
+  sweepStale: (now, ttlMs, queuedTtlMs = QUEUED_BADGE_TTL_MS) => {
     const stale = Object.entries(get().entries)
-      .filter(([, entry]) => isSamplerReason(entry.reason) && now - entry.at > ttlMs)
+      .filter(
+        ([, entry]) =>
+          (isSamplerReason(entry.reason) && now - entry.at > ttlMs) ||
+          (entry.reason === "queued" && now - entry.at > queuedTtlMs),
+      )
       .map(([owner]) => owner);
     if (stale.length === 0) return [];
     set((state) => {
