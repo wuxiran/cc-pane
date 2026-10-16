@@ -63,6 +63,8 @@ windows = { version = "0.62", features = [
     "Win32_System_Threading",
     "Wdk_System_Threading",
 ] }
+# 默认 WSL 发行版从 HKCU\...\Lxss 直读：零 spawn、不唤醒 VM、永远新鲜（`wsl --list` 只作回退）。
+windows-registry = "0.6"
 
 [target.'cfg(unix)'.dependencies]
 errno = "0.3"

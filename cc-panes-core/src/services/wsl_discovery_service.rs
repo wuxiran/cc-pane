@@ -49,7 +49,44 @@ mod inner {
     }
 
     /// 解析默认分发版名称。未安装或未找到默认分发版时返回 None。
+    ///
+    /// 先读注册表（`HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss` 的
+    /// `DefaultDistribution` → 子键 `DistributionName`）：零 spawn、不唤醒 WSL VM、
+    /// `wsl --set-default` 后立即生效，所以**不做进程级缓存**。注册表读不到
+    /// （未安装 / 键缺失 / 权限）才回退 `wsl --list --verbose`。
     pub fn resolve_default_distro() -> Result<Option<String>> {
+        if let Some(name) = default_distro_from_registry() {
+            return Ok(Some(name));
+        }
+        resolve_default_distro_via_wsl_list()
+    }
+
+    const LXSS_REGISTRY_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Lxss";
+
+    fn default_distro_from_registry() -> Option<String> {
+        let lxss = match windows_registry::CURRENT_USER.open(LXSS_REGISTRY_PATH) {
+            Ok(key) => key,
+            Err(error) => {
+                debug!(%error, "Lxss registry key unavailable; falling back to wsl --list");
+                return None;
+            }
+        };
+        let default_guid = lxss.get_string("DefaultDistribution").ok()?;
+        let name = lxss
+            .open(&default_guid)
+            .ok()?
+            .get_string("DistributionName")
+            .ok()?;
+        normalize_distro_name(&name)
+    }
+
+    /// 注册表里的名字可能带尾随 NUL / 空白；空名视为缺失。
+    pub(crate) fn normalize_distro_name(raw: &str) -> Option<String> {
+        let trimmed = raw.trim_matches(|ch: char| ch == '\0' || ch.is_whitespace());
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    }
+
+    fn resolve_default_distro_via_wsl_list() -> Result<Option<String>> {
         let wsl_path = match find_wsl_path() {
             Ok(path) => path,
             Err(_) => return Ok(None),
@@ -323,6 +360,34 @@ mod inner {
         fn decode_utf16le_with_bom() {
             let bytes: Vec<u8> = vec![0xFF, 0xFE, 0x48, 0x00, 0x69, 0x00];
             assert_eq!(decode_utf16le(&bytes), "Hi");
+        }
+
+        #[test]
+        fn registry_distro_name_is_trimmed_and_empty_is_none() {
+            assert_eq!(
+                normalize_distro_name("Ubuntu-24.04\0"),
+                Some("Ubuntu-24.04".to_string())
+            );
+            assert_eq!(
+                normalize_distro_name("  Debian \0\0"),
+                Some("Debian".to_string())
+            );
+            assert_eq!(normalize_distro_name("\0"), None);
+            assert_eq!(normalize_distro_name(""), None);
+        }
+
+        /// 本机真读一次注册表：`wsl --list` 标了 `*` 的机器上，注册表**必须**读到同名
+        /// （WSL 有默认发行版时一定写了 Lxss\DefaultDistribution）。没装 WSL 的机器
+        /// 列表为 None 则跳过。这条测试把「注册表路径写错 → 永远走回退」暴露出来。
+        #[test]
+        fn registry_default_distro_agrees_with_wsl_list_when_available() {
+            let Ok(Some(from_list)) = resolve_default_distro_via_wsl_list() else {
+                return;
+            };
+            assert_eq!(
+                default_distro_from_registry().as_deref(),
+                Some(from_list.as_str())
+            );
         }
     }
 }
