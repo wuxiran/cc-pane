@@ -1729,11 +1729,9 @@ impl WorkspaceService {
             return true;
         }
 
-        let normalized_source = Self::normalize_compare_path(&source_path.to_string_lossy());
-        skipped_project_roots.iter().any(|project_root| {
-            normalized_source == *project_root
-                || normalized_source.starts_with(&(project_root.clone() + "/"))
-        })
+        skipped_project_roots
+            .iter()
+            .any(|project_root| cc_panes_paths::path_starts_with(source_path, project_root))
     }
 
     fn ensure_directory_exists(&self, path: &Path) -> Result<(), String> {
@@ -1821,24 +1819,18 @@ impl WorkspaceService {
     }
 
     fn relative_path_from_workspace(project_path: &str, workspace_root: &str) -> Option<String> {
-        let display_root = Self::normalize_filesystem_path(workspace_root);
-        let display_project = Self::normalize_filesystem_path(project_path);
-        let compare_root = Self::normalize_compare_path(workspace_root);
-        let compare_project = Self::normalize_compare_path(project_path);
-
-        if compare_project == compare_root {
-            return Some(String::new());
+        if !cc_panes_paths::path_starts_with(project_path, workspace_root) {
+            return None;
         }
-
-        let prefix = compare_root + "/";
-        if compare_project.starts_with(&prefix) {
-            let relative = display_project
-                .strip_prefix(&(display_root + "/"))
-                .unwrap_or("");
-            return Some(relative.to_string());
-        }
-
-        None
+        // comparison_key 只做 ASCII 大小写折叠，与 comparison_path 字节长度一致，
+        // 因此可以按根的长度切出保留原大小写的相对部分。
+        let display_root = cc_panes_paths::comparison_path(workspace_root);
+        let display_project = cc_panes_paths::comparison_path(project_path);
+        let relative = display_project
+            .get(display_root.len()..)
+            .unwrap_or_default()
+            .trim_start_matches('/');
+        Some(relative.to_string())
     }
 
     fn normalize_wsl_root(path: &str) -> Result<String, String> {
@@ -1893,13 +1885,10 @@ impl WorkspaceService {
         path.replace('\\', "/").trim_end_matches('/').to_string()
     }
 
+    /// 同宿主比较键：只折叠盘符路径与 WSL `/mnt/<x>` 部分的大小写，
+    /// WSL Linux 路径（含 UNC 形式）保持大小写。
     fn normalize_compare_path(path: &str) -> String {
-        let normalized = Self::normalize_filesystem_path(path);
-        if cfg!(windows) {
-            normalized.to_lowercase()
-        } else {
-            normalized
-        }
+        cc_panes_paths::comparison_key(path)
     }
 
     fn path_basename(path: &str) -> String {
@@ -1919,12 +1908,7 @@ impl WorkspaceService {
 
     #[cfg(target_os = "windows")]
     fn wsl_remote_to_windows_path(distro: &str, remote_path: &str) -> PathBuf {
-        let tail = remote_path.trim_start_matches('/').replace('/', "\\");
-        if tail.is_empty() {
-            PathBuf::from(format!("\\\\wsl$\\{}", distro))
-        } else {
-            PathBuf::from(format!("\\\\wsl$\\{}\\{}", distro, tail))
-        }
+        PathBuf::from(cc_panes_paths::to_windows_unc(remote_path, distro))
     }
 
     fn read_workspace_json(&self, path: &PathBuf) -> Result<Workspace, String> {
@@ -2933,6 +2917,43 @@ mod tests {
         assert_eq!(
             WorkspaceService::relative_path_from_workspace("\\root\\sub", "/root/"),
             Some("sub".to_string())
+        );
+        // 前缀按组件判断，不把同名前缀的兄弟目录算进来
+        assert_eq!(
+            WorkspaceService::relative_path_from_workspace("/root-other/x", "/root"),
+            None
+        );
+    }
+
+    #[test]
+    fn relative_path_folds_only_drive_case() {
+        assert_eq!(
+            WorkspaceService::relative_path_from_workspace(r"d:\ws\Sub\Dir", r"D:\WS"),
+            Some("Sub/Dir".to_string())
+        );
+        assert_eq!(
+            WorkspaceService::relative_path_from_workspace(
+                r"\\wsl.localhost\Ubuntu\home\User\ws\App",
+                r"\\wsl.localhost\Ubuntu\home\User\ws"
+            ),
+            Some("App".to_string())
+        );
+        // WSL Linux 路径大小写敏感：旧实现在 Windows 上整体 lowercase，会把这两个当成同一棵树
+        assert_eq!(
+            WorkspaceService::relative_path_from_workspace(
+                r"\\wsl.localhost\Ubuntu\home\user\ws\App",
+                r"\\wsl.localhost\Ubuntu\home\User\ws"
+            ),
+            None
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn wsl_remote_to_windows_path_uses_wsl_localhost() {
+        assert_eq!(
+            WorkspaceService::wsl_remote_to_windows_path("Ubuntu", "/home/u/ws"),
+            PathBuf::from(r"\\wsl.localhost\Ubuntu\home\u\ws")
         );
     }
 
