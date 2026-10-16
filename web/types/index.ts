@@ -47,6 +47,7 @@ export type {
   PiTransport,
   LaunchExtras,
   TerminalLaunchError,
+  TerminalLaunchFailure,
   TerminalRestoreBlockedReason,
   TerminalPaneNode,
   TerminalPaneLeaf,

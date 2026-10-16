@@ -6,7 +6,7 @@ import {
 } from "./useResumeBindingStore";
 
 beforeEach(() => {
-  useResumeBindingStore.setState({ bindings: {} });
+  useResumeBindingStore.setState({ bindings: {}, tombstones: {} });
 });
 
 describe("resumeSourcePriority", () => {
@@ -92,5 +92,30 @@ describe("persist merge", () => {
       useResumeBindingStore.getState(),
     ) as { bindings: Record<string, unknown> };
     expect(Object.keys(merged.bindings)).toEqual(["fresh"]);
+  });
+});
+
+describe("clearBinding 墓碑", () => {
+  // 启动失败事件（后端撤回预发 id）可能先于迟到的 issued 绑定到达：
+  // 没有墓碑，那条绑定会把一个从未存在的会话 id 重新写回来。
+  it("带墓碑清除后，同 id 的迟到绑定被拒，别的 id 仍可绑定", () => {
+    const store = useResumeBindingStore.getState();
+    store.recordBinding("pty-1", "issued-dead", "issued");
+    store.clearBinding("pty-1", "issued-dead");
+    expect(useResumeBindingStore.getState().getBinding("pty-1")).toBeUndefined();
+    expect(store.recordBinding("pty-1", "issued-dead", "issued")).toBe(false);
+    expect(useResumeBindingStore.getState().getBinding("pty-1")).toBeUndefined();
+    expect(store.recordBinding("pty-1", "hook-real", "hook")).toBe(true);
+    expect(useResumeBindingStore.getState().getBinding("pty-1")?.resumeId).toBe("hook-real");
+  });
+
+  it("没有绑定也能单独立墓碑；不带墓碑的清除行为不变", () => {
+    const store = useResumeBindingStore.getState();
+    store.clearBinding("pty-2", "issued-dead");
+    expect(store.recordBinding("pty-2", "issued-dead", "issued")).toBe(false);
+    store.recordBinding("pty-3", "resume-a", "issued");
+    store.clearBinding("pty-3");
+    expect(useResumeBindingStore.getState().getBinding("pty-3")).toBeUndefined();
+    expect(store.recordBinding("pty-3", "resume-a", "issued")).toBe(true);
   });
 });

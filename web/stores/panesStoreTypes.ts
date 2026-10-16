@@ -341,6 +341,14 @@ export interface PanesState extends BrowserTabActions {
     agentResumeId: string,
     resumeIdSource?: string,
   ) => boolean;
+  /**
+   * 后端判定该 PTY 的启动失败（如 WSL 缺原生 CLI）：按 sessionId 找到 leaf，写入持久化的
+   * `launchFailure`、把 restoreMode 置 `failed`。返回是否命中 leaf。
+   */
+  markTerminalLaunchFailed: (
+    ptySessionId: string,
+    failure: import("@/types").TerminalLaunchFailure,
+  ) => boolean;
   setTabResumeBinding: (
     tabId: string,
     resumeId: string | undefined,

@@ -64,10 +64,18 @@ export const RESUME_BINDING_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
 interface ResumeBindingState {
   bindings: Record<string, ResumeBinding>;
-  /** 记录绑定；按来源优先级仲裁，接受返回 true。 */
+  /**
+   * 墓碑：key = ptySessionId，value = 被后端撤回的 resume id（与 launch_history 的
+   * `clear-tombstone:<id>` 同口径）。启动失败事件可能先于迟到的 issued 绑定到达，
+   * 没有墓碑的话那条绑定会把一个从未存在的会话 id 重新写回来。不持久化——DB 侧
+   * 的墓碑才是跨重启的权威，这里只挡同一次运行内的乱序事件。
+   */
+  tombstones: Record<string, string>;
+  /** 记录绑定；按来源优先级仲裁，接受返回 true。命中墓碑一律拒绝。 */
   recordBinding: (ptySessionId: string, resumeId: string, source?: string) => boolean;
   getBinding: (ptySessionId: string) => ResumeBinding | undefined;
-  clearBinding: (ptySessionId: string) => void;
+  /** 清绑定；带 `tombstoneResumeId` 时同时立墓碑，之后同 id 的绑定被拒。 */
+  clearBinding: (ptySessionId: string, tombstoneResumeId?: string | null) => void;
 }
 
 export const RESUME_BINDING_STORAGE_KEY = "cc-panes-resume-bindings";
@@ -95,8 +103,10 @@ export const useResumeBindingStore = create<ResumeBindingState>()(
   persist(
     (set, get) => ({
       bindings: {},
+      tombstones: {},
 
       recordBinding: (ptySessionId, resumeId, source) => {
+        if (get().tombstones[ptySessionId] === resumeId) return false;
         const existing = get().bindings[ptySessionId];
         if (existing) {
           if (existing.resumeId === resumeId && existing.source === source) return true;
@@ -121,12 +131,17 @@ export const useResumeBindingStore = create<ResumeBindingState>()(
 
       getBinding: (ptySessionId) => get().bindings[ptySessionId],
 
-      clearBinding: (ptySessionId) => {
+      clearBinding: (ptySessionId, tombstoneResumeId) => {
         set((state) => {
-          if (!state.bindings[ptySessionId]) return state;
+          const hasBinding = Boolean(state.bindings[ptySessionId]);
+          const tombstone = tombstoneResumeId ?? undefined;
+          if (!hasBinding && !tombstone) return state;
           const next = { ...state.bindings };
           delete next[ptySessionId];
-          return { bindings: next };
+          const tombstones = tombstone
+            ? { ...state.tombstones, [ptySessionId]: tombstone }
+            : state.tombstones;
+          return { bindings: next, tombstones };
         });
       },
     }),

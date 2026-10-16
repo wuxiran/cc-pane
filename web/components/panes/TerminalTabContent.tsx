@@ -206,7 +206,53 @@ export default memo(function TerminalTabContent({
               disabled={!isInteractivePhase(phaseOf(leaf), leaf.leaseReadOnly)}
             />
           ) : null}
-          {!restoreBlocked && !launchError && showPlaceholder ? (
+          {!restoreBlocked && !launchError && !leaf.sessionId && leaf.launchFailure ? (
+            <div
+              data-testid="terminal-launch-failure-hint"
+              className="pointer-events-auto absolute left-3 top-3 z-[1] flex max-w-[calc(100%-1.5rem)] items-start"
+              style={{ top: "calc(var(--notch-bar-height, 0px) + 12px)" }}
+            >
+              <div
+                className="flex min-w-0 flex-col gap-1 rounded-lg px-3 py-2"
+                style={{
+                  background: "var(--app-hover)",
+                  border: "1px solid var(--status-warning, var(--app-border))",
+                  boxShadow: "var(--sh-md)",
+                }}
+              >
+                <span
+                  className="text-xs font-medium tracking-wide"
+                  style={{ color: "var(--app-text-primary)" }}
+                >
+                  {leaf.launchFailure.reason === "native-cli-missing"
+                    ? t("launchFailure.nativeCliMissingTitle", {
+                        cli: leaf.launchFailure.missingCli ?? leafCli ?? "",
+                        distro: leaf.launchFailure.wslDistro ?? leaf.wsl?.distro ?? "WSL",
+                      })
+                    : t("launchFailure.genericTitle", { reason: leaf.launchFailure.reason })}
+                </span>
+                {leaf.launchFailure.fixHint ? (
+                  <code
+                    className="select-text break-all rounded px-1.5 py-0.5 text-[11px] leading-4"
+                    style={{
+                      background: "var(--app-bg)",
+                      color: "var(--app-text-secondary)",
+                      border: "1px solid var(--app-border)",
+                    }}
+                  >
+                    {leaf.launchFailure.fixHint}
+                  </code>
+                ) : null}
+                <span
+                  className="text-[11px] leading-4"
+                  style={{ color: "var(--app-text-secondary)" }}
+                >
+                  {t("launchFailure.retryHint")}
+                </span>
+              </div>
+            </div>
+          ) : null}
+          {!restoreBlocked && !launchError && !leaf.launchFailure && showPlaceholder ? (
             <div
               className="pointer-events-none absolute left-3 top-3 z-[1] flex max-w-[calc(100%-1.5rem)] items-start"
               style={{ top: "calc(var(--notch-bar-height, 0px) + 12px)" }}

@@ -18,6 +18,7 @@ import type { PanesStoreAccess } from "./storeAccess";
 export type SessionBindingActions = Pick<
   PanesState,
   | "updateTabAgentResumeId"
+  | "markTerminalLaunchFailed"
   | "updateTabClaudeSession"
   | "setTabResumeBinding"
   | "reconnectTab"
@@ -84,6 +85,35 @@ export function createSessionBindingActions({ set, get }: PanesStoreAccess): Ses
       // 异常退出会恢复到旧会话。同值 no-op：daemon 重连会全量重放 identity
       // 事件，不做去重会把重放风暴变成一轮轮无意义的快照写盘。
       if (changed) notifyTerminalLayoutChanged("resume-id.update");
+      return found;
+    },
+
+    markTerminalLaunchFailed: (ptySessionId, failure) => {
+      let found = false;
+      set((state) => {
+        eachLayoutTree(state, (_layout, tree) => {
+          if (found) return;
+          for (const panel of collectPanels(tree)) {
+            for (const tab of panel.tabs) {
+              if (tab.contentType !== "terminal" || !tab.terminalRootPane) continue;
+              for (const leaf of collectTerminalLeaves(tab.terminalRootPane)) {
+                if (leaf.sessionId !== ptySessionId) continue;
+                leaf.launchFailure = failure;
+                // 预发的 resume id 指向一个从未存在的会话：本地也撤掉，
+                // 不等后端 history-updated 再清一遍（它仍会来，幂等）。
+                leaf.resumeId = undefined;
+                leaf.resumeIdSource = undefined;
+                leaf.restoreMode = "failed";
+                syncTabTerminalState(tab);
+                found = true;
+                return;
+              }
+            }
+          }
+        });
+      });
+      // 必须立刻进共享快照：异常退出后恢复要据此判 failed 而不是 resumed。
+      if (found) notifyTerminalLayoutChanged("launch-failure.update");
       return found;
     },
 

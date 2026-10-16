@@ -319,7 +319,9 @@
   "restoreRegression": {
     "title": "{{count}} 个终端会话未能恢复历史对话",
     "impact": "这些会话恢复成了全新会话，resume id 可能未写入数据库；请查看应用日志里的 [restore-report] 与 bind_resume_id。",
-    "dismiss": "关闭提示"
+    "dismiss": "关闭提示",
+    "failedTitle": "{{count}} 个终端上次启动失败，本次已按新会话启动",
+    "failedImpact": "上次失败的原因是 WSL 发行版内没有原生 Linux 版 CLI（PATH 上只有 Windows 版）。预发的会话 id 已撤回，不会去恢复一个不存在的对话；修复命令见对应标签。"
   },
   "newTabMenu": "新建…",
   "newTerminalTab": "新建终端",
@@ -545,6 +547,12 @@
   "resizeLayoutListHeight": "调整布局列表高度",
   "codexResumeCaptureExhausted": "Codex 会话 id 捕获失败：本次会话的新 resume id 未能记录，下次恢复可能回到更早的对话。",
   "resumeLaunchFailed": "会话恢复失败：resume 目标可能已失效（{{cli}}）。原对话未能接上，可在该标签重新启动或新建会话。",
+  "nativeCliMissing": "WSL 发行版 {{distro}} 内没有原生 Linux 版 {{cli}}，启动失败。请在该发行版内执行：{{fix}}",
+  "launchFailure": {
+    "nativeCliMissingTitle": "{{distro}} 内没有原生 Linux 版 {{cli}}，上次启动失败",
+    "genericTitle": "上次启动失败（{{reason}}）",
+    "retryHint": "在该 WSL 发行版内执行上面的命令后，重新启动此标签即可。"
+  },
   "defaultLayoutName": "布局 {{index}}",
   "starredLayoutName": "星标"
 }

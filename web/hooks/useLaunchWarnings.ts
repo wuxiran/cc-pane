@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { toastErr, toastWarn } from "@/lib/feedback";
 import { useTranslation } from "react-i18next";
 import { listenWebviewIfTauri } from "@/services/runtime";
+import { usePanesStore } from "@/stores/usePanesStore";
 
 /**
  * 后端 `terminal-launch-warning` 事件的载荷（见 cc-panes-core constants::events）。
@@ -16,6 +17,9 @@ import { listenWebviewIfTauri } from "@/services/runtime";
  * - `resumeLaunchFailed`：resume 启动后短时间内退出且输出命中错误特征
  *   （resume id 失效等）。此前只有后端 WARN 取证，前端表现为「标签一闪即空」
  *   零提示（docs/86 A4）。
+ * - `nativeCliMissing`：WSL 发行版内没有原生 Linux 版 CLI（PATH 上只有 Windows shim），
+ *   启动脚本 exit 127。后端已把这次启动记成 failed 并撤回预发 resume id；前端写
+ *   leaf.launchFailure（持久化）并给出一行修复命令（`fixHint`）。
  */
 export interface LaunchWarningPayload {
   kind: string;
@@ -30,6 +34,12 @@ export interface LaunchWarningPayload {
   resumeId?: string;
   exitCode?: number;
   matchedPattern?: string;
+  launchId?: string | null;
+  missingCli?: string;
+  wslDistro?: string | null;
+  reason?: string;
+  issuedResumeId?: string | null;
+  fixHint?: string;
 }
 
 /**
@@ -88,6 +98,27 @@ export function useLaunchWarnings(): void {
                   defaultValue:
                     "会话恢复失败：resume 目标可能已失效（{{cli}}）。原对话未能接上，可在该标签重新启动或新建会话。",
                   cli: payload.cliTool ?? "",
+                }),
+              );
+            } else if (payload.kind === "nativeCliMissing") {
+              const missingCli = payload.missingCli ?? payload.cliTool ?? "";
+              if (payload.sessionId) {
+                usePanesStore.getState().markTerminalLaunchFailed(payload.sessionId, {
+                  reason: payload.reason ?? "native-cli-missing",
+                  at: Date.now(),
+                  missingCli,
+                  fixHint: payload.fixHint,
+                  wslDistro: payload.wslDistro ?? undefined,
+                });
+              }
+              toastErr(
+                t("nativeCliMissing", {
+                  ns: "panes",
+                  defaultValue:
+                    "WSL 发行版 {{distro}} 内没有原生 Linux 版 {{cli}}，启动失败。请在该发行版内执行：{{fix}}",
+                  cli: missingCli,
+                  distro: payload.wslDistro ?? "",
+                  fix: payload.fixHint ?? "",
                 }),
               );
             }

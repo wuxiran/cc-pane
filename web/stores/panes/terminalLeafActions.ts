@@ -65,6 +65,12 @@ export function createTerminalLeafActions({ set }: PanesStoreAccess): TerminalLe
         if (leaf?.type !== "leaf") return;
         leaf.sessionId = sessionId;
         leaf.launchError = undefined;
+        // 新 PTY 建成 = 用户重新启动成功：上次的启动失败标记到此为止。
+        // （后端若再次判失败会重新写回来；restoreMode 由下次 rehydrate 重算。）
+        if (sessionId && leaf.launchFailure) {
+          leaf.launchFailure = undefined;
+          if (leaf.restoreMode === "failed") leaf.restoreMode = undefined;
+        }
         syncTabTerminalState(tab);
       });
       // 写入会话 sessionId 也要落快照——否则手机镜像看不到新会话，直到 60s 兜底保存。
