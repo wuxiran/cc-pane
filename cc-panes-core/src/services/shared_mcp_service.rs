@@ -13,7 +13,7 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
 /// 单个共享 server 的运行时状态
@@ -45,6 +45,8 @@ pub struct SharedMcpService {
     health_check_running: AtomicBool,
     /// 健康检查停止信号
     health_check_stop: Arc<AtomicBool>,
+    /// 健康检查线程句柄，stop 时 unpark 让它不必等满一个检查间隔。
+    health_check_thread: Mutex<Option<std::thread::Thread>>,
 }
 
 impl SharedMcpService {
@@ -59,6 +61,7 @@ impl SharedMcpService {
             on_running_changed: Mutex::new(None),
             health_check_running: AtomicBool::new(false),
             health_check_stop: Arc::new(AtomicBool::new(false)),
+            health_check_thread: Mutex::new(None),
         }
     }
 
@@ -396,7 +399,7 @@ impl SharedMcpService {
         let svc = Arc::clone(self);
         let stop = Arc::clone(&self.health_check_stop);
 
-        std::thread::Builder::new()
+        let handle = std::thread::Builder::new()
             .name("shared-mcp-health".into())
             .spawn(move || {
                 info!("[shared-mcp] Health check thread started");
@@ -407,25 +410,45 @@ impl SharedMcpService {
                         .map(|c| c.health_check_interval_secs)
                         .unwrap_or(30);
 
-                    // 分段 sleep，以便快速响应停止信号
-                    for _ in 0..interval {
+                    // 整段 park 到下次检查，stop_health_check 用 unpark 立即叫醒；
+                    // park_timeout 可能提前返回，所以按截止时间循环。
+                    let deadline = Instant::now() + Duration::from_secs(interval);
+                    loop {
                         if stop.load(Ordering::SeqCst) {
                             info!("[shared-mcp] Health check thread stopping");
                             svc.health_check_running.store(false, Ordering::SeqCst);
                             return;
                         }
-                        std::thread::sleep(Duration::from_secs(1));
+                        let now = Instant::now();
+                        if now >= deadline {
+                            break;
+                        }
+                        std::thread::park_timeout(deadline - now);
                     }
 
                     svc.run_health_check();
                 }
             })
             .ok();
+        if let Some(handle) = handle {
+            *self
+                .health_check_thread
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(handle.thread().clone());
+        }
     }
 
     /// 停止健康检查线程
     pub fn stop_health_check(&self) {
         self.health_check_stop.store(true, Ordering::SeqCst);
+        if let Some(thread) = self
+            .health_check_thread
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
+            thread.unpark();
+        }
     }
 
     /// 执行一次健康检查
@@ -747,6 +770,25 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let paths = AppPaths::new(Some(dir.path().to_string_lossy().to_string()));
         (dir, paths) // TempDir 必须持有以防目录被提前删除
+    }
+
+    #[test]
+    fn stop_health_check_wakes_parked_thread_immediately() {
+        let (_dir, paths) = test_paths();
+        let svc = Arc::new(SharedMcpService::new(&paths));
+        svc.start_health_check();
+        assert!(svc.health_check_running.load(Ordering::SeqCst));
+        std::thread::sleep(Duration::from_millis(50));
+
+        let started = Instant::now();
+        svc.stop_health_check();
+        while svc.health_check_running.load(Ordering::SeqCst) {
+            assert!(
+                started.elapsed() < Duration::from_secs(2),
+                "health check thread must not wait out its 30 s interval"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     #[test]
