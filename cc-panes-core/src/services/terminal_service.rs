@@ -1894,6 +1894,51 @@ fn append_ssh_session_options(args: &mut Vec<String>) {
     }
 }
 
+/// 会话数据目录环境变量：hook（`cc-panes-paths::DataDirResolver` 的第一优先级）与
+/// cc-panes-ctl 都读它。不下发时 hook 只能按构建类型猜 `~/.cc-panes[-dev]`，用户在设置里
+/// 自定义了数据目录（`CCPANES_CONFIG_DIR`）就对不上。
+pub(crate) const SESSION_DATA_DIR_ENV_KEY: &str = "CC_PANES_DATA_DIR";
+
+/// WSLENV 条目：`/p` 让 WSL 把 Windows 路径翻成 `/mnt/...` 形式。
+const SESSION_DATA_DIR_WSLENV_ENTRY: &str = "CC_PANES_DATA_DIR/p";
+
+/// 把当前实例实际使用的数据目录下发给会话。
+///
+/// - SSH：远端看不到本机目录，不下发（与 `CC_PANES_PLANS_DIR` 同口径）。
+/// - WSL：同时写进 WSLENV（带 `/p`）。合并逻辑与 `wsl_codex::forward_wsl_env_vars`
+///   一致：保留既有条目、同键去重、追加。create_session 后面那段统一的 WSLENV 拼接
+///   会把这里已有的 WSLENV 当 `existing` 前缀保留。
+pub(crate) fn apply_session_data_dir_env(
+    env_vars: &mut HashMap<String, String>,
+    data_dir: &Path,
+    runtime: crate::utils::PerfEnvRuntime,
+) {
+    use crate::utils::PerfEnvRuntime;
+    if runtime == PerfEnvRuntime::Ssh {
+        return;
+    }
+    env_vars.insert(
+        SESSION_DATA_DIR_ENV_KEY.to_string(),
+        data_dir.to_string_lossy().into_owned(),
+    );
+    if runtime != PerfEnvRuntime::Wsl {
+        return;
+    }
+    let mut entries = env_vars
+        .get("WSLENV")
+        .map(|value| {
+            value
+                .split(':')
+                .filter(|entry| !entry.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    entries.retain(|entry| entry.split('/').next() != Some(SESSION_DATA_DIR_ENV_KEY));
+    entries.push(SESSION_DATA_DIR_WSLENV_ENTRY.to_string());
+    env_vars.insert("WSLENV".to_string(), entries.join(":"));
+}
+
 impl TerminalService {
     pub fn new(
         settings_service: Arc<SettingsService>,
@@ -2260,6 +2305,12 @@ impl TerminalService {
         env.insert(
             "CC_PANES_PROJECT_PATH".to_string(),
             request.project_path.clone(),
+        );
+        // Pi RPC 会话也是本机会话：与 PTY 路径同样下发数据目录。
+        apply_session_data_dir_env(
+            &mut env,
+            self.app_paths.data_dir(),
+            crate::utils::PerfEnvRuntime::Local,
         );
         if let Some(launch_id) = request
             .launch_id
@@ -2979,6 +3030,9 @@ impl TerminalService {
                 ctl_path,
             );
         }
+
+        // 数据目录下发（SSH 不下发；WSL 进 WSLENV 带 /p）。
+        apply_session_data_dir_env(&mut env_vars, self.app_paths.data_dir(), perf_env_runtime);
 
         // 解析 Shell 配置
         let shell_id = self.settings_service.get_settings().terminal.shell.clone();
@@ -6620,6 +6674,69 @@ mod tests {
     use crate::models::provider::{Provider, ProviderModel, ProviderType};
     use crate::models::settings::CliLauncherOverride;
     use crate::services::SharedMcpService;
+
+    // ---- 会话数据目录下发（hook 的 DataDirResolver 第一优先级）----
+    mod session_data_dir_env {
+        use super::super::{apply_session_data_dir_env, SESSION_DATA_DIR_ENV_KEY};
+        use crate::utils::PerfEnvRuntime;
+        use std::collections::HashMap;
+        use std::path::Path;
+
+        fn data_dir() -> &'static Path {
+            Path::new(if cfg!(windows) {
+                r"C:\Users\me\.cc-panes-dev"
+            } else {
+                "/home/me/.cc-panes-dev"
+            })
+        }
+
+        #[test]
+        fn local_session_gets_data_dir_without_wslenv() {
+            let mut env = HashMap::new();
+            apply_session_data_dir_env(&mut env, data_dir(), PerfEnvRuntime::Local);
+            assert_eq!(
+                env.get(SESSION_DATA_DIR_ENV_KEY).map(String::as_str),
+                Some(data_dir().to_string_lossy().as_ref())
+            );
+            assert!(!env.contains_key("WSLENV"));
+        }
+
+        #[test]
+        fn wsl_session_gets_data_dir_and_path_translated_wslenv_entry() {
+            let mut env = HashMap::new();
+            apply_session_data_dir_env(&mut env, data_dir(), PerfEnvRuntime::Wsl);
+            assert_eq!(
+                env.get(SESSION_DATA_DIR_ENV_KEY).map(String::as_str),
+                Some(data_dir().to_string_lossy().as_ref())
+            );
+            assert_eq!(
+                env.get("WSLENV").map(String::as_str),
+                Some("CC_PANES_DATA_DIR/p")
+            );
+        }
+
+        /// 用户进程环境里已有 WSLENV（甚至已有同键不同 flag）时：保留其它条目、同键去重。
+        #[test]
+        fn wsl_session_merges_into_existing_wslenv_without_duplicates() {
+            let mut env = HashMap::from([(
+                "WSLENV".to_string(),
+                "FOO:CC_PANES_DATA_DIR:BAR/u".to_string(),
+            )]);
+            apply_session_data_dir_env(&mut env, data_dir(), PerfEnvRuntime::Wsl);
+            assert_eq!(
+                env.get("WSLENV").map(String::as_str),
+                Some("FOO:BAR/u:CC_PANES_DATA_DIR/p")
+            );
+        }
+
+        #[test]
+        fn ssh_session_does_not_get_data_dir() {
+            let mut env = HashMap::new();
+            apply_session_data_dir_env(&mut env, data_dir(), PerfEnvRuntime::Ssh);
+            assert!(!env.contains_key(SESSION_DATA_DIR_ENV_KEY));
+            assert!(!env.contains_key("WSLENV"));
+        }
+    }
 
     // ---- F5：OSC 9;4 进度徽章旁路通道单元测试 ----
     //
