@@ -4525,6 +4525,13 @@ impl TerminalService {
         let wait_runtime_kind = runtime_kind.to_string();
         let wait_wsl_distro = wsl.and_then(|w| w.distro.clone());
         let wait_app_paths = self.app_paths.clone();
+        // 原生 CLI 缺失判定（WSL）所需的上下文：发号的 resume id 要随告警一起带回
+        // app 侧写墓碑，否则 launch_history 里留着一个从未存在过的会话 id，重启恢复
+        // 会拿它去 `claude --resume`。
+        let wait_is_wsl = wsl.is_some();
+        let wait_cli_tool_id = cli_tool.as_id().to_string();
+        let wait_launch_id = launch_id.map(str::to_string);
+        let wait_issued_resume_id = issued_session_id.clone();
         crate::pty::thread::spawn_named("cc-panes-pty-wait", move || {
             let waited_exit_code = match process_for_wait.wait() {
                 Ok(status) => Some(status.code().unwrap_or(-1)),
@@ -4603,6 +4610,48 @@ impl TerminalService {
                             );
                         }));
                     }
+                }
+            }
+
+            // 原生 CLI 缺失（WSL）：解析前置块只找到 Windows shim 时打固定标记后
+            // `exit 127`。主判据是输出尾部的标记行；exit code 只作佐证——实测 127 经
+            // scope/wsl.exe 转发到这里已是 1，不能拿它当信号，也不设时间窗（Ctrl+C、
+            // 慢启动后立刻退出都会落进时间窗）。告警带上发号的 resume id，app 侧据此
+            // 写墓碑 + 把这次启动记成 failed（重启恢复不再把它算作 resumed）。
+            if wait_is_wsl {
+                let tail = wait_output_buffer
+                    .lock()
+                    .map(|buf| buf.get_recent(40))
+                    .unwrap_or_default();
+                if let Some(missing_cli) = wsl_codex::detect_native_cli_missing(&tail) {
+                    let fix_hint = wsl_codex::native_cli_install_hint(&missing_cli);
+                    warn!(
+                        session_id = %sid,
+                        cli_tool = %wait_cli_tool_id,
+                        missing_cli = %missing_cli,
+                        distro = ?wait_wsl_distro,
+                        exit_code = process_exit_code,
+                        issued_resume_id = ?wait_issued_resume_id,
+                        "WSL launch failed: no native Linux CLI on PATH (marker matched)"
+                    );
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let _ = wait_emitter.emit(
+                            EV::TERMINAL_LAUNCH_WARNING,
+                            serde_json::json!({
+                                "kind": "nativeCliMissing",
+                                "sessionId": sid.clone(),
+                                "launchId": wait_launch_id,
+                                "cliTool": wait_cli_tool_id,
+                                "missingCli": missing_cli,
+                                "runtimeKind": wait_runtime_kind,
+                                "wslDistro": wait_wsl_distro,
+                                "exitCode": process_exit_code,
+                                "reason": "native-cli-missing",
+                                "issuedResumeId": wait_issued_resume_id,
+                                "fixHint": fix_hint,
+                            }),
+                        );
+                    }));
                 }
             }
 

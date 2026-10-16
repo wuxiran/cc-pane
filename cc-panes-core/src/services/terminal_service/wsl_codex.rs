@@ -1371,6 +1371,11 @@ fn is_wsl_home_path(path: &str) -> bool {
 ///
 /// 一个候选都不剩就带诊断信息 `exit 127`——宁可显式失败，
 /// 也不要静默跑 Windows 版（那是本缺陷的全部成本来源）。
+///
+/// 第一行是机器可读标记（[`WSL_NATIVE_CLI_MISSING_MARKER`]）：pty-wait 线程据此判定
+/// 「原生 CLI 缺失」并发 `nativeCliMissing` 告警。**不能靠 exit code**——实测 127 经
+/// `systemd-run --scope` + wsl.exe 到 `process_for_wait.wait()` 时已变成 1。标记行刻意
+/// 很短且独占一行：ConPTY 会按终端宽度把长行折行，折在中间的标记就匹配不到了。
 fn push_wsl_native_cli_resolution_prelude(remote_parts: &mut Vec<String>, command: &str) {
     remote_parts.push(format!(
         r#"CCPANES_CLI_NAME={cmd}
@@ -1402,6 +1407,7 @@ for __ccpanes_cand in $(type -pa "$CCPANES_CLI_NAME" 2>/dev/null || true); do
   fi
 done
 if [ -z "$CCPANES_CLI_BIN" ]; then
+  echo "{marker} $CCPANES_CLI_NAME" >&2
   echo "[cc-panes] '$CCPANES_CLI_NAME' 在该 WSL 发行版内没有原生 Linux 版本。" >&2
   if [ -n "$CCPANES_CLI_REJECTED" ]; then
     echo "[cc-panes] PATH 上只找到 Windows 可执行文件（WSL PATH interop 从 Windows 继承）：$CCPANES_CLI_REJECTED" >&2
@@ -1410,8 +1416,40 @@ if [ -z "$CCPANES_CLI_BIN" ]; then
   echo "[cc-panes] 请在该发行版内安装原生 Linux 版 '$CCPANES_CLI_NAME' 后重试。" >&2
   exit 127
 fi"#,
-        cmd = shell_escape_posix(command)
+        cmd = shell_escape_posix(command),
+        marker = WSL_NATIVE_CLI_MISSING_MARKER,
     ));
+}
+
+/// 原生 CLI 解析失败时脚本打到 stderr 的机器可读标记，后跟 CLI 名。
+/// 与 [`detect_native_cli_missing`] 配对；改任一边必须同步另一边。
+pub(crate) const WSL_NATIVE_CLI_MISSING_MARKER: &str = "[cc-panes:native-cli-missing]";
+
+/// 从会话输出尾部判定「WSL 内没有原生 Linux 版 CLI」，返回缺失的 CLI 名。
+///
+/// 只认 [`WSL_NATIVE_CLI_MISSING_MARKER`] 开头的整行（允许前导空白与 CR）；
+/// 人类可读的那几行诊断文案不参与判定——它们会随文案调整、会被 ConPTY 折行。
+pub(crate) fn detect_native_cli_missing(output_tail: &[String]) -> Option<String> {
+    output_tail.iter().rev().find_map(|line| {
+        let trimmed = line.trim_matches(|ch: char| ch.is_whitespace() || ch == '\r');
+        let rest = trimmed.strip_prefix(WSL_NATIVE_CLI_MISSING_MARKER)?;
+        let name = rest.split_whitespace().next()?;
+        Some(name.trim_matches('\'').to_string())
+    })
+}
+
+/// 给 `nativeCliMissing` 告警的一行修复命令（在 WSL 发行版内执行）。
+/// 只列有把握的官方安装方式；其余 CLI 给出通用提示，不猜包名。
+pub(crate) fn native_cli_install_hint(cli_name: &str) -> String {
+    match cli_name {
+        "claude" => "npm i -g @anthropic-ai/claude-code".to_string(),
+        "codex" => "npm i -g @openai/codex".to_string(),
+        "gemini" => "npm i -g @google/gemini-cli".to_string(),
+        "opencode" => "npm i -g opencode-ai".to_string(),
+        "grok" => "npm i -g @vibe-kit/grok-cli".to_string(),
+        "cursor-agent" => "curl https://cursor.com/install -fsS | bash".to_string(),
+        other => format!("在该 WSL 发行版内安装原生 Linux 版 {other}（当前 PATH 只有 Windows 版）"),
+    }
 }
 
 #[cfg(windows)]
@@ -2797,10 +2835,11 @@ mod tests {
     use super::wsl_host_probe_bash_arg;
     use super::WslHostProbeCache;
     use super::{
-        append_codex_resume_args, push_codex_developer_instructions_arg, push_codex_yolo_mode_arg,
+        append_codex_resume_args, detect_native_cli_missing, native_cli_install_hint,
+        push_codex_developer_instructions_arg, push_codex_yolo_mode_arg,
         push_wsl_codex_mcp_isolation_prelude, push_wsl_native_cli_resolution_prelude,
         render_wsl_launch_script, wsl_grok_mcp_register_command, wsl_host_probe_script,
-        wsl_model_id,
+        wsl_model_id, WSL_NATIVE_CLI_MISSING_MARKER,
     };
     #[cfg(windows)]
     use super::{
@@ -2841,6 +2880,51 @@ mod tests {
             ("CC_PANES_API_PORT".to_string(), "14300".to_string()),
             ("CC_PANES_API_TOKEN".to_string(), "tok-123".to_string()),
         ])
+    }
+
+    /// 标记行是 pty-wait 线程判定「原生 CLI 缺失」的唯一依据：必须独占一行、位于
+    /// 人类文案之前，且与 `detect_native_cli_missing` 的解析严格配对。
+    #[test]
+    fn native_cli_resolution_prelude_prints_machine_marker_before_human_text() {
+        let mut parts = Vec::new();
+        push_wsl_native_cli_resolution_prelude(&mut parts, "claude");
+        let script = parts.join("\n");
+        let marker_line = format!("echo \"{WSL_NATIVE_CLI_MISSING_MARKER} $CCPANES_CLI_NAME\" >&2");
+        let marker_at = script.find(&marker_line).expect("marker echo present");
+        let human_at = script
+            .find("没有原生 Linux 版本")
+            .expect("human text present");
+        assert!(marker_at < human_at);
+        assert!(script.contains("exit 127"));
+    }
+
+    #[test]
+    fn detect_native_cli_missing_matches_marker_line_only() {
+        let tail = vec![
+            "some earlier output".to_string(),
+            format!("  {WSL_NATIVE_CLI_MISSING_MARKER} claude\r"),
+            "[cc-panes] 'claude' 在该 WSL 发行版内没有原生 Linux 版本。".to_string(),
+        ];
+        assert_eq!(detect_native_cli_missing(&tail).as_deref(), Some("claude"));
+
+        // 只有人类文案、没有标记行：不判定（文案会改、会被 ConPTY 折行）
+        let human_only =
+            vec!["[cc-panes] 'claude' 在该 WSL 发行版内没有原生 Linux 版本。".to_string()];
+        assert_eq!(detect_native_cli_missing(&human_only), None);
+        assert_eq!(detect_native_cli_missing(&[]), None);
+        // 标记不在行首（被别的输出拼在同一行）不算
+        let mid_line = vec![format!("prompt> {WSL_NATIVE_CLI_MISSING_MARKER} codex")];
+        assert_eq!(detect_native_cli_missing(&mid_line), None);
+    }
+
+    #[test]
+    fn native_cli_install_hint_knows_official_packages_and_falls_back() {
+        assert_eq!(
+            native_cli_install_hint("claude"),
+            "npm i -g @anthropic-ai/claude-code"
+        );
+        assert_eq!(native_cli_install_hint("codex"), "npm i -g @openai/codex");
+        assert!(native_cli_install_hint("kimi").contains("kimi"));
     }
 
     #[test]

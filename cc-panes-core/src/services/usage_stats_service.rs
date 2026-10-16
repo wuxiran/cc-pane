@@ -1944,6 +1944,8 @@ mod tests {
                 launch_profile_id: None,
                 workspace_snapshot_id: None,
                 resume_source: None,
+                launch_status: None,
+                failure_reason: None,
             },
             pty_session_id: "pty".to_string(),
             cli: cli.to_string(),

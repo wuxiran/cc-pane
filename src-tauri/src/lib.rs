@@ -2486,6 +2486,40 @@ pub fn run() {
                 );
             }
 
+            // ---- 启动失败落库：监听 terminal-launch-warning 里的 nativeCliMissing ----
+            // WSL 内没有原生 CLI 时 PTY 起了又立刻退出；不记成 failed 的话，预发的
+            // resume id 留在 launch_history 里，重启恢复会把它当 resumed 去 `--resume`。
+            // 其余 kind 只是给 WebView 的提示，这里不处理。
+            {
+                use tauri::Listener;
+                let app_handle = app.handle().clone();
+                let lh_svc = app.state::<Arc<LaunchHistoryService>>().inner().clone();
+                app.listen(
+                    cc_panes_core::constants::events::TERMINAL_LAUNCH_WARNING,
+                    move |event| {
+                        let Ok(raw) = serde_json::from_str::<serde_json::Value>(event.payload())
+                        else {
+                            return;
+                        };
+                        if !services::is_launch_failure_warning(&raw) {
+                            return;
+                        }
+                        match serde_json::from_value::<services::LaunchFailurePayload>(raw) {
+                            Ok(payload) => {
+                                let app_handle = app_handle.clone();
+                                let lh_svc = lh_svc.clone();
+                                tauri::async_runtime::spawn(services::apply_launch_failure(
+                                    app_handle, lh_svc, payload,
+                                ));
+                            }
+                            Err(error) => {
+                                warn!(error = %error, "terminal-launch-warning: invalid nativeCliMissing payload");
+                            }
+                        }
+                    },
+                );
+            }
+
             // ---- 一次性补救历史遗留的 Codex 记录（resume_session_id 为 null）----
             // 本修复前经 orchestrator 启动的 Codex 从未回填 resume id，导致旧会话 reload 不能恢复。
             // 用 marker 文件确保只跑一次；后台 spawn，不阻塞启动。

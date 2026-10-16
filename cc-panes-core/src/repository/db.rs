@@ -1142,6 +1142,17 @@ const MIGRATIONS: &[Migration] = &[
                 ON heavy_commands(project_path, cmd_normalized, started_at DESC);
         ",
     },
+    // V41：启动失败状态（WSL 原生 CLI 缺失等「进程起了但 CLI 根本没跑」的情形）。
+    // 此前这类启动与成功启动在表里无法区分，预发的 resume id 照样落库，重启恢复
+    // 把它算作 resumed 并拿不存在的 id 去 `--resume`。两列均可空，旧二进制忽略即可。
+    Migration {
+        version: 41,
+        description: "launch_history: launch_status + failure_reason for failed launches",
+        up_sql: "
+            ALTER TABLE launch_history ADD COLUMN launch_status TEXT;
+            ALTER TABLE launch_history ADD COLUMN failure_reason TEXT;
+        ",
+    },
 ];
 
 /// 数据库连接管理

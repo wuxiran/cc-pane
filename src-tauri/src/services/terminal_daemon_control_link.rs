@@ -443,6 +443,17 @@ async fn run_control_link(
                                 }
                                 apply_resume_binding(&app_handle, payload, &ack_tx);
                             }
+                            Ok(Some(ControlAction::LaunchFailure(payload))) => {
+                                apply_launch_failure(&app_handle, payload.clone());
+                                // 落库之后再给 WebView（toast + leaf 标记），门禁照旧。
+                                if crate::webview_reliability::webview_emits_allowed() {
+                                    if let Err(error) =
+                                        app_handle.emit(EV::TERMINAL_LAUNCH_WARNING, payload)
+                                    {
+                                        warn!(error = %error, "terminal daemon launch failure emit failed");
+                                    }
+                                }
+                            }
                             Ok(Some(ControlAction::Notify {
                                 event,
                                 session_id,
@@ -531,6 +542,9 @@ struct ControlEvent {
 enum ControlAction {
     Emit(ControlEvent),
     BindResume(serde_json::Value),
+    /// 启动失败（`nativeCliMissing`）：与 resume id 同理，要落 launch_history
+    /// （记 failed + 撤回预发 id），不能被 WebView 门禁吞掉。落库后再 emit 给 WebView。
+    LaunchFailure(serde_json::Value),
     Notify {
         event: String,
         session_id: String,
@@ -554,10 +568,14 @@ fn parse_control_event(text: &str) -> serde_json::Result<Option<ControlAction>> 
             Some(ControlAction::BindResume(payload))
         }
         DaemonControlMessage::LaunchWarning { payload } => {
-            Some(ControlAction::Emit(ControlEvent {
-                name: EV::TERMINAL_LAUNCH_WARNING,
-                payload,
-            }))
+            if crate::services::is_launch_failure_warning(&payload) {
+                Some(ControlAction::LaunchFailure(payload))
+            } else {
+                Some(ControlAction::Emit(ControlEvent {
+                    name: EV::TERMINAL_LAUNCH_WARNING,
+                    payload,
+                }))
+            }
         }
         DaemonControlMessage::CheckpointRequest { session_id } => {
             Some(ControlAction::Emit(ControlEvent {
@@ -601,6 +619,25 @@ fn apply_resume_binding(
         if let Some(key) = key {
             let _ = ack_tx.send(key);
         }
+    });
+}
+
+/// 启动失败直接落库，不经 WebView 门禁（同 resume id）。
+fn apply_launch_failure(app_handle: &tauri::AppHandle, payload: serde_json::Value) {
+    let payload = match serde_json::from_value::<crate::services::LaunchFailurePayload>(payload) {
+        Ok(payload) => payload,
+        Err(error) => {
+            warn!(error = %error, "terminal daemon launch failure: invalid payload");
+            return;
+        }
+    };
+    let service = app_handle
+        .state::<std::sync::Arc<cc_panes_core::services::LaunchHistoryService>>()
+        .inner()
+        .clone();
+    let handle = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        crate::services::apply_launch_failure(handle, service, payload).await;
     });
 }
 
@@ -854,6 +891,25 @@ mod tests {
                 exit_code: Some(3),
             }
         );
+    }
+
+    /// `nativeCliMissing` 要落 launch_history（记 failed + 撤回预发 id），与 resume id
+    /// 同理不能是受 WebView 门禁约束的 UI emit；其余 kind 维持 Emit。
+    #[test]
+    fn native_cli_missing_warning_bypasses_webview_gate_as_launch_failure() {
+        let payload = serde_json::json!({
+            "kind": "nativeCliMissing",
+            "sessionId": "pty-7",
+            "cliTool": "claude",
+            "issuedResumeId": "issued-7",
+            "reason": "native-cli-missing",
+        });
+        let message =
+            serde_json::json!({ "type": "launchWarning", "payload": payload }).to_string();
+        let action = parse_control_event(&message)
+            .expect("valid control message")
+            .expect("known control message");
+        assert_eq!(action, ControlAction::LaunchFailure(payload));
     }
 
     /// waitingInput / cleanup 不带 exitCode，缺字段必须解析成 None 而不是失败。

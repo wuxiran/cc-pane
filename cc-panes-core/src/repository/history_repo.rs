@@ -31,7 +31,14 @@ pub struct LaunchRecord {
     pub workspace_snapshot_id: Option<String>,
     /// resume id 的来源：issued / osc-title / backfill / rescue / manual（NULL = 旧数据）
     pub resume_source: Option<String>,
+    /// 启动结果：`failed` = 进程起了但 CLI 没跑起来（NULL = 正常 / 旧数据，不等于成功）
+    pub launch_status: Option<String>,
+    /// `launch_status = failed` 时的原因码（如 `native-cli-missing`）
+    pub failure_reason: Option<String>,
 }
+
+/// `launch_status` 的取值：只有一个，缺省（NULL）表示「没记录到失败」。
+pub const LAUNCH_STATUS_FAILED: &str = "failed";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionStartedUpsertResult {
@@ -61,7 +68,9 @@ const LAUNCH_RECORD_COLUMNS: &str = "
     provider_selection,
     launch_profile_id,
     COALESCE(workspace_snapshot_id, workspace_session_id) AS workspace_snapshot_id,
-    resume_source";
+    resume_source,
+    launch_status,
+    failure_reason";
 
 fn map_launch_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<LaunchRecord> {
     Ok(LaunchRecord {
@@ -85,6 +94,8 @@ fn map_launch_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<LaunchRecord> 
         launch_profile_id: row.get(17)?,
         workspace_snapshot_id: row.get(18)?,
         resume_source: row.get(19)?,
+        launch_status: row.get(20)?,
+        failure_reason: row.get(21)?,
     })
 }
 
@@ -524,6 +535,74 @@ impl HistoryRepository {
         )
         .map(Some)
         .map_err(|e| e.to_string())
+    }
+
+    /// 把一次启动记成失败，并撤回预发（issued）的 resume id。
+    ///
+    /// 场景：WSL 内没有原生 CLI，脚本 `exit 127`——进程起过、PTY 有过、但对话从未存在。
+    /// 发号事件与失败事件谁先落库不确定（发号绑定带最长 12 s 重试窗），所以这里不走
+    /// 「先有 id 再 CAS 清除」，而是：有 issued id 时无论当前列是 NULL 还是等于它，都写
+    /// `clear-tombstone:<issued>`——`should_retain_incoming` 认墓碑，晚到的同 id 绑定会被拒。
+    /// 当前列已是**别的** id（CLI 自己报了真实会话）则不动身份，只记状态。
+    /// 返回命中的记录 id；该 PTY 还没有行时返回 None（调用方可短暂重试）。
+    pub fn mark_launch_failed_by_pty(
+        &self,
+        pty_session_id: &str,
+        failure_reason: &str,
+        issued_resume_session_id: Option<&str>,
+    ) -> Result<Option<i64>, String> {
+        let mut conn = self.db.connection().map_err(|e| e.to_string())?;
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let affected = tx
+            .execute(
+                "UPDATE launch_history
+                 SET launch_status = ?2,
+                     failure_reason = ?3
+                 WHERE pty_session_id = ?1",
+                rusqlite::params![pty_session_id, LAUNCH_STATUS_FAILED, failure_reason],
+            )
+            .map_err(|e| {
+                error!(
+                    table = "launch_history",
+                    pty_session_id = %pty_session_id,
+                    err = %e,
+                    "SQL mark_launch_failed_by_pty failed"
+                );
+                e.to_string()
+            })?;
+        if affected == 0 {
+            return Ok(None);
+        }
+        if let Some(issued) = issued_resume_session_id.filter(|value| !value.is_empty()) {
+            tx.execute(
+                "UPDATE launch_history
+                 SET resume_session_id = NULL,
+                     claude_session_id = NULL,
+                     resume_source = 'clear-tombstone:' || ?2
+                 WHERE pty_session_id = ?1
+                   AND (resume_session_id IS NULL OR resume_session_id = ?2)
+                   AND (claude_session_id IS NULL OR claude_session_id = ?2)",
+                rusqlite::params![pty_session_id, issued],
+            )
+            .map_err(|e| {
+                error!(
+                    table = "launch_history",
+                    pty_session_id = %pty_session_id,
+                    err = %e,
+                    "SQL mark_launch_failed_by_pty (tombstone) failed"
+                );
+                e.to_string()
+            })?;
+        }
+        let id: i64 = tx
+            .query_row(
+                "SELECT id FROM launch_history WHERE pty_session_id = ?1 ORDER BY launched_at DESC LIMIT 1",
+                rusqlite::params![pty_session_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(Some(id))
     }
 
     /// 回填会话启动信息（upsert）：先按 project_id UPDATE（同 update_session_started）；
@@ -1660,5 +1739,102 @@ mod tests {
             .expect("row exists");
         assert_eq!(found.launch_cwd.as_deref(), Some(weird));
         assert_eq!(found.workspace_path.as_deref(), Some(weird));
+    }
+
+    fn failed_launch_row(r: &HistoryRepository, launch_id: &str, pty: &str) -> i64 {
+        r.add_with_pty_session(
+            launch_id,
+            "project",
+            "/tmp/project",
+            pty,
+            "claude",
+            "wsl",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap()
+    }
+
+    /// 发号事件先到、失败事件后到：记 failed + 撤回 issued id + 留墓碑。
+    #[test]
+    fn mark_launch_failed_revokes_already_bound_issued_id() {
+        let r = repo();
+        let id = failed_launch_row(&r, "fail-launch", "pty-fail");
+        r.update_resume_session_with_source_by_pty("pty-fail", "issued-1", "issued")
+            .unwrap();
+
+        assert_eq!(
+            r.mark_launch_failed_by_pty("pty-fail", "native-cli-missing", Some("issued-1"))
+                .unwrap(),
+            Some(id)
+        );
+        let row = r.find_by_launch_id("fail-launch").unwrap().unwrap();
+        assert_eq!(row.launch_status.as_deref(), Some(LAUNCH_STATUS_FAILED));
+        assert_eq!(row.failure_reason.as_deref(), Some("native-cli-missing"));
+        assert!(row.resume_session_id.is_none());
+        assert_eq!(
+            row.resume_source.as_deref(),
+            Some("clear-tombstone:issued-1")
+        );
+    }
+
+    /// 失败事件先到、发号绑定后到（WSL 下 1 s 内退出，绑定窗最长 12 s）：
+    /// 墓碑先写，晚到的同 id 绑定必须被拒，不能把失败启动重新标回有 id。
+    #[test]
+    fn mark_launch_failed_tombstone_blocks_late_issued_bind() {
+        let r = repo();
+        let id = failed_launch_row(&r, "fail-first", "pty-first");
+
+        assert_eq!(
+            r.mark_launch_failed_by_pty("pty-first", "native-cli-missing", Some("issued-2"))
+                .unwrap(),
+            Some(id)
+        );
+        let late = r
+            .update_resume_session_with_source_by_pty("pty-first", "issued-2", "issued")
+            .unwrap()
+            .expect("row exists");
+        assert!(
+            late.resume_session_id.is_empty(),
+            "late issued bind must be rejected"
+        );
+        let row = r.find_by_launch_id("fail-first").unwrap().unwrap();
+        assert!(row.resume_session_id.is_none());
+        assert_eq!(row.launch_status.as_deref(), Some(LAUNCH_STATUS_FAILED));
+    }
+
+    /// 行上已是别的（真实）id 时只记状态，不动身份；无 issued id 时也只记状态。
+    #[test]
+    fn mark_launch_failed_keeps_foreign_identity_and_works_without_issued_id() {
+        let r = repo();
+        failed_launch_row(&r, "fail-foreign", "pty-foreign");
+        r.update_resume_session_with_source_by_pty("pty-foreign", "real-id", "osc-title")
+            .unwrap();
+        r.mark_launch_failed_by_pty("pty-foreign", "native-cli-missing", Some("issued-3"))
+            .unwrap();
+        let row = r.find_by_launch_id("fail-foreign").unwrap().unwrap();
+        assert_eq!(row.resume_session_id.as_deref(), Some("real-id"));
+        assert_eq!(row.resume_source.as_deref(), Some("osc-title"));
+        assert_eq!(row.launch_status.as_deref(), Some(LAUNCH_STATUS_FAILED));
+
+        failed_launch_row(&r, "fail-noid", "pty-noid");
+        r.mark_launch_failed_by_pty("pty-noid", "native-cli-missing", None)
+            .unwrap();
+        let row = r.find_by_launch_id("fail-noid").unwrap().unwrap();
+        assert_eq!(row.launch_status.as_deref(), Some(LAUNCH_STATUS_FAILED));
+        assert!(row.resume_source.is_none());
+
+        assert_eq!(
+            r.mark_launch_failed_by_pty("pty-missing", "native-cli-missing", None)
+                .unwrap(),
+            None
+        );
     }
 }

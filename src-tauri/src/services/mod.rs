@@ -56,7 +56,10 @@ pub use notification_service::NotificationService;
 pub use notification_service::{NotificationRequest, NotificationTriggerResult};
 pub use orchestrator_service::{OrchestratorService, StartLocks};
 pub use pi_rpc_event_bridge::{PiRpcEventBridge, PI_RPC_EVENT};
-pub use resume_binding_service::{bind_resume_id, ResumeIdDetectedPayload};
+pub use resume_binding_service::{
+    apply_launch_failure, bind_resume_id, is_launch_failure_warning, LaunchFailurePayload,
+    ResumeIdDetectedPayload,
+};
 pub use screenshot_service::{CaptureResult, ScreenshotService};
 pub use session_prompt_service::extract_last_prompt;
 pub use skill_market_catalog::CATEGORY_IDS as SKILL_MARKET_CATEGORY_IDS;
