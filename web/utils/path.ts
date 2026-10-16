@@ -1,3 +1,5 @@
+import { parseWslUnc, toWslPosix, type WslUncPath } from "./wslPath";
+
 /**
  * 剥离 Windows `\\?\` verbatim 前缀。
  *
@@ -42,29 +44,20 @@ export function getProjectName(path: string): string {
 }
 
 /**
- * 将 Windows 本地路径转换为 WSL 路径
+ * 将 Windows 本地路径（盘符或 WSL UNC）转换为 WSL 路径；已是 POSIX 或无法转换的返回 null。
  */
 export function toWslPath(path?: string | null): string | null {
   if (!path) return null;
-  const wslUncRemotePath = getWslUncRemotePath(path);
-  if (wslUncRemotePath) return wslUncRemotePath;
-  const match = path.match(/^([A-Za-z]):[\\/](.*)$/);
-  if (!match) return null;
-  const drive = match[1].toLowerCase();
-  const rest = match[2].replace(/\\/g, "/").replace(/^\/+/, "");
-  return rest ? `/mnt/${drive}/${rest}` : `/mnt/${drive}`;
+  const slashed = path.trim().replace(/\\/g, "/");
+  if (slashed.startsWith("/") && !slashed.startsWith("//")) return null;
+  return toWslPosix(path);
 }
 
 /**
- * 从 WSL UNC 路径中提取 Linux 远端路径
+ * 从 WSL UNC 路径中提取发行版与 Linux 远端路径
  */
-export function getWslUncRemotePath(path?: string | null): string | null {
-  if (!path) return null;
-  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
-  const match = normalized.match(/^\/\/(?:wsl(?:\.localhost)?|wsl\$)\/[^/]+(?:\/(.*))?$/i);
-  if (!match) return null;
-  const remotePath = match[1]?.replace(/^\/+/, "") ?? "";
-  return remotePath ? `/${remotePath}` : "/";
+export function getWslUncRemotePath(path?: string | null): WslUncPath | null {
+  return parseWslUnc(path);
 }
 
 /**
