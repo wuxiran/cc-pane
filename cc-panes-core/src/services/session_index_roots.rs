@@ -10,6 +10,8 @@ pub(super) struct ScanRoot {
     pub path: PathBuf,
     pub source: &'static str,
     pub wsl_distro: Option<String>,
+    /// `wsl_distro` 是否为默认发行版；本地根恒为 false。
+    pub wsl_default_distro: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -29,6 +31,7 @@ pub(super) fn collect_scan_roots(wsl_distros: &[WslDistro], wsl_allowed: bool) -
             path: home.join(".claude").join("projects"),
             source: "local",
             wsl_distro: None,
+            wsl_default_distro: false,
         });
         let codex_root = std::env::var_os("CODEX_HOME")
             .filter(|value| !value.is_empty())
@@ -39,18 +42,21 @@ pub(super) fn collect_scan_roots(wsl_distros: &[WslDistro], wsl_allowed: bool) -
             path: codex_root.join("sessions"),
             source: "local",
             wsl_distro: None,
+            wsl_default_distro: false,
         });
         roots.push(ScanRoot {
             cli_tool: "pi",
             path: home.join(".pi").join("agent").join("sessions"),
             source: "local",
             wsl_distro: None,
+            wsl_default_distro: false,
         });
         roots.push(ScanRoot {
             cli_tool: "omp",
             path: home.join(".omp").join("agent").join("sessions"),
             source: "local",
             wsl_distro: None,
+            wsl_default_distro: false,
         });
     }
     if !wsl_allowed {
@@ -77,6 +83,7 @@ pub(super) fn collect_scan_roots(wsl_distros: &[WslDistro], wsl_allowed: bool) -
             )),
             source: "wsl",
             wsl_distro: Some(distro.name.trim().to_string()),
+            wsl_default_distro: distro.is_default,
         });
         roots.push(ScanRoot {
             cli_tool: "pi",
@@ -87,6 +94,7 @@ pub(super) fn collect_scan_roots(wsl_distros: &[WslDistro], wsl_allowed: bool) -
             )),
             source: "wsl",
             wsl_distro: Some(distro.name.trim().to_string()),
+            wsl_default_distro: distro.is_default,
         });
         roots.push(ScanRoot {
             cli_tool: "omp",
@@ -97,6 +105,7 @@ pub(super) fn collect_scan_roots(wsl_distros: &[WslDistro], wsl_allowed: bool) -
             )),
             source: "wsl",
             wsl_distro: Some(distro.name.trim().to_string()),
+            wsl_default_distro: distro.is_default,
         });
     }
     roots
@@ -170,7 +179,34 @@ fn registered_projects_for_workspace(workspace: &Workspace) -> Vec<RegisteredPro
 }
 
 pub(super) fn normalize_path(path: &str) -> String {
-    super::codex_session_service::normalize_cross_platform_compare_path(path.trim())
+    cc_panes_paths::wsl_compare_key(path)
+}
+
+/// 按 cwd 找归属项目：取最长前缀匹配，且 WSL 扫描根只认同一发行版的项目。
+///
+/// 项目没配 distro（`None`）视为默认发行版；本地扫描根不按发行版过滤。
+/// 这样两个发行版下的同名 Linux 路径（比较键相同）不会串到对方的项目上。
+pub(super) fn match_registered_project<'a>(
+    cwd_norm: &str,
+    registered: &'a [RegisteredProject],
+    root: &ScanRoot,
+) -> Option<&'a RegisteredProject> {
+    registered
+        .iter()
+        .filter(|project| project_on_root_distro(project, root))
+        .filter(|project| path_has_prefix(cwd_norm, &project.match_path_norm))
+        .max_by_key(|project| project.match_path_norm.len())
+}
+
+fn project_on_root_distro(project: &RegisteredProject, root: &ScanRoot) -> bool {
+    if root.source != "wsl" {
+        return true;
+    }
+    match (project.wsl_distro.as_deref(), root.wsl_distro.as_deref()) {
+        (Some(project), Some(root)) => project.trim().eq_ignore_ascii_case(root.trim()),
+        (None, Some(_)) => root.wsl_default_distro,
+        (_, None) => true,
+    }
 }
 
 pub(super) fn path_has_prefix(path: &str, prefix: &str) -> bool {
@@ -192,7 +228,9 @@ pub(super) fn path_name(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::collect_scan_roots;
+    use super::{
+        collect_scan_roots, match_registered_project, normalize_path, RegisteredProject, ScanRoot,
+    };
     use crate::models::{WslDistro, WslDistroState};
 
     fn running_distro() -> WslDistro {
@@ -250,5 +288,85 @@ mod tests {
             .find(|root| root.source == "local" && root.cli_tool == "omp")
             .expect("local Oh My Pi root");
         assert!(omp.path.ends_with(".omp/agent/sessions"));
+    }
+
+    fn wsl_root(distro: &str, is_default: bool) -> ScanRoot {
+        ScanRoot {
+            cli_tool: "codex",
+            path: std::path::PathBuf::from("rollouts"),
+            source: "wsl",
+            wsl_distro: Some(distro.to_string()),
+            wsl_default_distro: is_default,
+        }
+    }
+
+    fn project(path: &str, name: &str, distro: Option<&str>) -> RegisteredProject {
+        RegisteredProject {
+            match_path_norm: normalize_path(path),
+            project_path_norm: normalize_path(path),
+            project_name: name.to_string(),
+            workspace_name: "ws".to_string(),
+            wsl_distro: distro.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn drive_mnt_and_unc_forms_share_one_key() {
+        let key = normalize_path(r"D:\Foo");
+        assert_eq!(normalize_path("/mnt/d/Foo"), key);
+        assert_eq!(normalize_path(r"\\wsl.localhost\Ubuntu\mnt\d\foo"), key);
+        assert_eq!(
+            normalize_path(r"\\wsl.localhost\Ubuntu\home\u\x"),
+            normalize_path("/home/u/x")
+        );
+        assert_ne!(normalize_path("/home/u/Foo"), normalize_path("/home/u/foo"));
+    }
+
+    #[test]
+    fn wsl_attribution_does_not_cross_distros() {
+        let registered = vec![
+            project(
+                r"\\wsl.localhost\Ubuntu\home\u\x",
+                "ubuntu-x",
+                Some("Ubuntu"),
+            ),
+            project(
+                r"\\wsl.localhost\Debian\home\u\x",
+                "debian-x",
+                Some("Debian"),
+            ),
+        ];
+        let cwd = normalize_path("/home/u/x/src");
+
+        let ubuntu = match_registered_project(&cwd, &registered, &wsl_root("Ubuntu", true));
+        let debian = match_registered_project(&cwd, &registered, &wsl_root("Debian", false));
+        let other = match_registered_project(&cwd, &registered, &wsl_root("Arch", false));
+
+        assert_eq!(ubuntu.map(|p| p.project_name.as_str()), Some("ubuntu-x"));
+        assert_eq!(debian.map(|p| p.project_name.as_str()), Some("debian-x"));
+        assert!(other.is_none());
+    }
+
+    #[test]
+    fn project_without_distro_belongs_to_default_distro_only() {
+        let registered = vec![project(r"D:\Repo", "repo", None)];
+        let cwd = normalize_path("/mnt/d/repo");
+
+        assert!(match_registered_project(&cwd, &registered, &wsl_root("Ubuntu", true)).is_some());
+        assert!(match_registered_project(&cwd, &registered, &wsl_root("Debian", false)).is_none());
+    }
+
+    #[test]
+    fn local_roots_are_not_filtered_by_distro() {
+        let registered = vec![project(r"D:\Repo", "repo", Some("Ubuntu"))];
+        let local = ScanRoot {
+            cli_tool: "claude",
+            path: std::path::PathBuf::from("projects"),
+            source: "local",
+            wsl_distro: None,
+            wsl_default_distro: false,
+        };
+        let cwd = normalize_path(r"d:\repo\sub");
+        assert!(match_registered_project(&cwd, &registered, &local).is_some());
     }
 }
