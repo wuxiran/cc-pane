@@ -745,6 +745,12 @@ impl HistoryService {
     ) {
         use notify::EventKind;
 
+        // 编译、装依赖时 target/、node_modules 等会刷出成千上万个事件，最后都会被下面的
+        // 过滤丢掉；先判掉，免得每个事件都读一次 .git/HEAD、拿两次锁。
+        if Self::event_is_ignored_noise(project_path, &event.paths) {
+            return;
+        }
+
         // 读取当前分支并检测是否切换。
         // read 失败返回空串——git 在很多操作中非原子重写 .git/HEAD，瞬时读不到
         // 时若把空串当成"切到空分支"，会伪造一次 BranchSwitched 并开静默窗口
@@ -830,6 +836,23 @@ impl HistoryService {
             || patterns
                 .iter()
                 .any(|pattern| Self::matches_pattern(path, pattern))
+    }
+
+    /// 事件路径全部落在内置忽略目录、且没有一条在 `.git/` 下（checkout 改写 HEAD
+    /// 要留给分支检测）时返回 true。空路径事件保持原流程。
+    fn event_is_ignored_noise(project_path: &Path, paths: &[PathBuf]) -> bool {
+        !paths.is_empty()
+            && paths.iter().all(|path| {
+                Self::is_builtin_ignored_event_path(project_path, path)
+                    && Self::relative_to_project(path, project_path)
+                        .and_then(|relative| {
+                            relative
+                                .components()
+                                .next()
+                                .map(|first| first.as_os_str() != ".git")
+                        })
+                        .unwrap_or(false)
+            })
     }
 
     fn is_builtin_ignored_event_path(project_path: &Path, file_path: &Path) -> bool {
@@ -1557,6 +1580,34 @@ mod tests {
             "src/not__pycache__/module.py",
             &legacy_patterns
         ));
+    }
+
+    #[test]
+    fn ignored_noise_skips_build_output_but_keeps_git_and_mixed_events() {
+        let project = std::path::Path::new("/workspace/project");
+        let paths = |items: &[&str]| -> Vec<PathBuf> { items.iter().map(PathBuf::from).collect() };
+
+        assert!(HistoryService::event_is_ignored_noise(
+            project,
+            &paths(&[
+                "/workspace/project/target/debug/deps/a.rlib",
+                "/workspace/project/node_modules/pkg/index.js",
+            ])
+        ));
+        // checkout 改写 HEAD：必须走分支检测。
+        assert!(!HistoryService::event_is_ignored_noise(
+            project,
+            &paths(&["/workspace/project/.git/HEAD"])
+        ));
+        // 混有真实源码的事件保持原流程。
+        assert!(!HistoryService::event_is_ignored_noise(
+            project,
+            &paths(&[
+                "/workspace/project/target/x",
+                "/workspace/project/src/main.rs"
+            ])
+        ));
+        assert!(!HistoryService::event_is_ignored_noise(project, &[]));
     }
 
     #[test]
