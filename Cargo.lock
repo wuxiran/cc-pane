@@ -1006,6 +1006,7 @@ version = "0.94.0"
 dependencies = [
  "cc-cli-adapters",
  "cc-panes-ctl",
+ "cc-panes-paths",
  "chrono",
  "clap",
  "dirs",
