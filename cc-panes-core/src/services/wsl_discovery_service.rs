@@ -28,7 +28,12 @@ mod inner {
 
         let mut results = Vec::with_capacity(distros.len());
         for (name, state, version, is_default) in distros {
-            let default_user = if state == WslDistroState::Running {
+            // 基础设施发行版（docker-desktop 等）没有常规用户 home，`whoami` 只会
+            // 多拉一次 wsl.exe 并把 root 当成「默认用户」——下游据此去扫
+            // \\wsl$\docker-desktop\home\root\.codex 这类恒空的根。这里直接不探测，
+            // default_user 留 None，会话索引 / usage 扫描按既有逻辑自然跳过。
+            let default_user = if state == WslDistroState::Running && !super::is_infra_distro(&name)
+            {
                 get_default_user(&wsl_path, &name).await
             } else {
                 None
@@ -402,4 +407,35 @@ pub(crate) use inner::decode_utf16le;
 #[cfg(not(target_os = "windows"))]
 pub fn is_wsl_vm_running() -> bool {
     false
+}
+
+/// 基础设施发行版（Docker Desktop / Rancher Desktop / Podman 的后端）。
+///
+/// CC-Panes 从不往里注入，它们通常没有 bash / 常规用户 home：对它们做用户探测、
+/// 会话扫描、卸载清理只会产出误报和白跑的 wsl.exe。所有「按发行版遍历」的入口
+/// 都应先过这一道（`discover()` 已内置；卸载清理复用）。跨平台纯字符串函数，无 cfg。
+pub fn is_infra_distro(name: &str) -> bool {
+    let lower = name.trim().to_ascii_lowercase();
+    lower.starts_with("docker-desktop")
+        || lower.starts_with("rancher-desktop")
+        || lower.starts_with("podman-machine")
+}
+
+#[cfg(test)]
+mod infra_tests {
+    use super::is_infra_distro;
+
+    #[test]
+    fn infra_distros_are_recognized_case_insensitively() {
+        assert!(is_infra_distro("docker-desktop"));
+        assert!(is_infra_distro("docker-desktop-data"));
+        assert!(is_infra_distro("Docker-Desktop-data"));
+        assert!(is_infra_distro("rancher-desktop"));
+        assert!(is_infra_distro("podman-machine-default"));
+        assert!(is_infra_distro("  docker-desktop "));
+        assert!(!is_infra_distro("Ubuntu"));
+        assert!(!is_infra_distro("Ubuntu-24.04"));
+        assert!(!is_infra_distro("Debian"));
+        assert!(!is_infra_distro("mydocker"));
+    }
 }

@@ -193,16 +193,10 @@ impl UninstallCleanupService {
     }
 }
 
-/// 基础设施发行版（Docker Desktop / Rancher / Podman 的后端）：CC-Panes 从不
-/// 往里注入，且它们通常没有 bash / 常规用户 home，探测只会产出误报。
-/// 仅 Windows 的 WSL 清理路径调用；测试跨平台跑，故 cfg 带 test。
-#[cfg(any(target_os = "windows", test))]
-fn is_infra_distro(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    lower.starts_with("docker-desktop")
-        || lower.starts_with("rancher-desktop")
-        || lower.starts_with("podman-machine")
-}
+// 基础设施发行版判定统一在 wsl_discovery_service::is_infra_distro（discover() 也用它
+// 跳过用户探测），这里只复用，不再各留一份。
+#[cfg(target_os = "windows")]
+use crate::services::wsl_discovery_service::is_infra_distro;
 
 /// 把发行版内 POSIX 绝对路径拼成宿主可达的 UNC 路径。
 /// `unc_root` 来自发行版内 `wslpath -w /`（如 `\\wsl.localhost\Ubuntu\`）——
@@ -357,17 +351,6 @@ mod tests {
         assert_eq!(report.skipped.len(), 1);
         assert!(report.skipped[0].contains("missing"));
         assert!(report.failed.is_empty());
-    }
-
-    #[test]
-    fn infra_distros_are_recognized_case_insensitively() {
-        assert!(is_infra_distro("docker-desktop"));
-        assert!(is_infra_distro("Docker-Desktop-data"));
-        assert!(is_infra_distro("rancher-desktop"));
-        assert!(is_infra_distro("podman-machine-default"));
-        assert!(!is_infra_distro("Ubuntu"));
-        assert!(!is_infra_distro("Ubuntu-24.04"));
-        assert!(!is_infra_distro("mydocker"));
     }
 
     #[test]
