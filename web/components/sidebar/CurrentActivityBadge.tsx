@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useTerminalStatusStore } from "@/stores";
 import type { TaskBinding, TerminalStatusInfo } from "@/types";
 import { getMetadataUi } from "./OrchestratorTaskUtils";
+import { startVisibleInterval } from "@/utils/visibleInterval";
 
 function startedAtMillis(binding: TaskBinding): number {
   const startedAt = getMetadataUi(binding).startedAt;
@@ -77,8 +78,7 @@ export default function CurrentActivityBadge({ binding }: CurrentActivityBadgePr
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
-    const interval = window.setInterval(() => setNow(Date.now()), 15000);
-    return () => window.clearInterval(interval);
+    return startVisibleInterval(() => setNow(Date.now()), 15000);
   }, []);
 
   const label = useMemo(() => deriveLabel(binding, info, now), [binding, info, now]);

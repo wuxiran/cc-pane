@@ -10,6 +10,7 @@ import type { TipsSettings } from "@/types";
 import { handleErrorSilent } from "@/utils";
 import FeatureTip from "./FeatureTip";
 import { FEATURE_TIPS, type FeatureTipDefinition } from "./featureTipRegistry";
+import { startVisibleInterval } from "@/utils/visibleInterval";
 
 const TIP_STARTUP_GRACE_MS = 5 * 60 * 1_000;
 const USER_IDLE_MS = 20_000;
@@ -136,8 +137,7 @@ export default function FeatureTips() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setClock(Date.now()), 5_000);
-    return () => window.clearInterval(timer);
+    return startVisibleInterval(() => setClock(Date.now()), 5_000);
   }, []);
 
   useEffect(() => {

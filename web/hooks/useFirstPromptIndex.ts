@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { sessionIndexService } from "@/services/sessionIndexService";
 import { handleErrorSilent } from "@/utils";
+import { startVisibleInterval } from "@/utils/visibleInterval";
 
 const LIST_LIMIT = 500;
 const REFRESH_INTERVAL_MS = 60_000;
@@ -40,12 +41,12 @@ export function useFirstPromptIndex(enabled: boolean): ReadonlyMap<string, strin
     };
 
     void load(true);
-    const timer = window.setInterval(() => void load(true), REFRESH_INTERVAL_MS);
+    const stopRefresh = startVisibleInterval(() => void load(true), REFRESH_INTERVAL_MS);
     const onHistoryUpdated = () => void load(true);
     window.addEventListener("cc-panes:history-updated", onHistoryUpdated);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stopRefresh();
       window.removeEventListener("cc-panes:history-updated", onHistoryUpdated);
     };
   }, [enabled]);

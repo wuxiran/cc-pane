@@ -4,6 +4,7 @@ import { terminalService } from "@/services/terminalService";
 import { taskBindingService } from "@/services/taskBindingService";
 import { handleErrorSilent } from "@/utils";
 import { completedTaskTabId, hasRetainedExitedOutput } from "./completedTaskAutoClose";
+import { startVisibleInterval } from "@/utils/visibleInterval";
 
 /** UI cleanup only. Never sends kill, exit, or input to a PTY. */
 export default function useCompletedTaskAutoClose(): void {
@@ -36,8 +37,8 @@ export default function useCompletedTaskAutoClose(): void {
         busy = false;
       }
     };
-    const timer = window.setInterval(() => void check(), 5_000);
+    const stop = startVisibleInterval(() => void check(), 5_000);
     void check();
-    return () => { cancelled = true; window.clearInterval(timer); };
+    return () => { cancelled = true; stop(); };
   }, [enabled]);
 }

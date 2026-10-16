@@ -1,6 +1,7 @@
 import { invokeIfTauri, isTauriRuntime } from "./runtime";
 import { invokeOrApi } from "./apiClient";
 import { collectTerminalPerformanceMetrics } from "./performanceMetrics";
+import { startVisibleInterval } from "@/utils/visibleInterval";
 
 interface FrontendPerformanceSnapshot {
   heapUsedBytes: number | null;
@@ -55,7 +56,12 @@ export function startPerformanceSampling(): () => void {
   const observer = createLongTaskObserver((duration) => {
     longTaskCount += 1; longTaskMax = Math.max(longTaskMax, duration);
   });
-  const timer = setInterval(() => {
+  // 1 s 延迟探针只在可见时跑：隐藏页的定时器本来就被节流，量出来的“延迟”是假的，
+  // 还平白每秒唤醒一次。15 s 上报照旧，记录器要能记到隐藏态（visibility 字段）。
+  // 先挂基线重置：回到可见时它要排在探针的补跑之前，否则整段隐藏时长会被记成延迟。
+  const resetLagBaseline = () => { lastTick = performance.now(); };
+  document.addEventListener("visibilitychange", resetLagBaseline);
+  const stopLagProbe = startVisibleInterval(() => {
     const now = performance.now();
     lag = Math.max(lag, Math.max(0, now - lastTick - 1000));
     lastTick = now;
@@ -83,7 +89,10 @@ export function startPerformanceSampling(): () => void {
   };
   const reporter = setInterval(() => { void report(); }, 15_000);
   void report();
-  return () => { stopped = true; clearInterval(timer); clearInterval(reporter); observer?.disconnect(); };
+  return () => {
+    stopped = true; stopLagProbe(); clearInterval(reporter); observer?.disconnect();
+    document.removeEventListener("visibilitychange", resetLagBaseline);
+  };
 }
 
 function createLongTaskObserver(onDuration: (duration: number) => void): PerformanceObserver | null {
