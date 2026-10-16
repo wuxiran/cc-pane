@@ -605,6 +605,43 @@ impl HistoryRepository {
         Ok(Some(id))
     }
 
+    /// 按 PTY 补写 `wsl_distro`，只填空值（请求没带 distro、后端回退到默认发行版的情形）。
+    /// 已有值不覆盖：用户显式选的发行版比事后推断的可信。无匹配行返回 None。
+    pub fn fill_wsl_distro_by_pty_if_null(
+        &self,
+        pty_session_id: &str,
+        wsl_distro: &str,
+    ) -> Result<Option<i64>, String> {
+        let wsl_distro = wsl_distro.trim();
+        if wsl_distro.is_empty() {
+            return Ok(None);
+        }
+        let conn = self.db.connection().map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE launch_history
+             SET wsl_distro = ?2
+             WHERE pty_session_id = ?1
+               AND (wsl_distro IS NULL OR wsl_distro = '')",
+            rusqlite::params![pty_session_id, wsl_distro],
+        )
+        .map_err(|e| {
+            error!(
+                table = "launch_history",
+                pty_session_id = %pty_session_id,
+                err = %e,
+                "SQL fill_wsl_distro_by_pty_if_null failed"
+            );
+            e.to_string()
+        })?;
+        conn.query_row(
+            "SELECT id FROM launch_history WHERE pty_session_id = ?1 ORDER BY launched_at DESC LIMIT 1",
+            rusqlite::params![pty_session_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+    }
+
     /// 回填会话启动信息（upsert）：先按 project_id UPDATE（同 update_session_started）；
     /// 若无匹配记录（GUI 经 TabBar 新建等路径从未 INSERT 过 launch_history），则 INSERT
     /// 一条带 pty + resume 的完整记录，使这类会话也能在 reload 时 `codex resume`。
@@ -1808,6 +1845,34 @@ mod tests {
         let row = r.find_by_launch_id("fail-first").unwrap().unwrap();
         assert!(row.resume_session_id.is_none());
         assert_eq!(row.launch_status.as_deref(), Some(LAUNCH_STATUS_FAILED));
+    }
+
+    /// 默认发行版启动：请求不带 distro，行里 wsl_distro 为 NULL；事件带解析结果后补上，
+    /// 但用户显式选过的发行版不被覆盖。
+    #[test]
+    fn fill_wsl_distro_only_fills_null() {
+        let r = repo();
+        let id = failed_launch_row(&r, "distro-launch", "pty-distro");
+        assert_eq!(
+            r.fill_wsl_distro_by_pty_if_null("pty-distro", "Ubuntu")
+                .unwrap(),
+            Some(id)
+        );
+        let distro_of = |launch: &str| r.find_by_launch_id(launch).unwrap().unwrap().wsl_distro;
+        assert_eq!(distro_of("distro-launch").as_deref(), Some("Ubuntu"));
+        r.fill_wsl_distro_by_pty_if_null("pty-distro", "Debian")
+            .unwrap();
+        assert_eq!(distro_of("distro-launch").as_deref(), Some("Ubuntu"));
+        assert_eq!(
+            r.fill_wsl_distro_by_pty_if_null("pty-none", "Ubuntu")
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            r.fill_wsl_distro_by_pty_if_null("pty-distro", "  ")
+                .unwrap(),
+            None
+        );
     }
 
     /// 行上已是别的（真实）id 时只记状态，不动身份；无 issued id 时也只记状态。

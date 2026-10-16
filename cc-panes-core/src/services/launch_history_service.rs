@@ -252,6 +252,16 @@ impl LaunchHistoryService {
             .clear_session_identity_by_pty_if_matches(pty_session_id, old_resume_session_id)
     }
 
+    /// 按 PTY 补写 wsl_distro（只填空值，见 repo 同名方法）。
+    pub fn fill_wsl_distro_by_pty_if_null(
+        &self,
+        pty_session_id: &str,
+        wsl_distro: &str,
+    ) -> Result<Option<i64>, String> {
+        self.repo
+            .fill_wsl_distro_by_pty_if_null(pty_session_id, wsl_distro)
+    }
+
     /// 把一次启动记成 failed，并给预发的 resume id 写墓碑（见 repo 同名方法）。
     pub fn mark_launch_failed_by_pty(
         &self,

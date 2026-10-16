@@ -3104,6 +3104,10 @@ impl TerminalService {
         let mut wsl_scope_outcome: Option<PolicyOutcome> = None;
         // W6：Applied 时实际下发的配额摘要（`CPUWeight=20, MemoryHigh=25%`），进 reason。
         let mut wsl_scope_summary: Option<String> = None;
+        // 实际启动所用的发行版：请求里 `wsl.distro` 为空时回退默认发行版，解析结果只在
+        // resolve_wsl_launch 里。此前所有事件/记录都直接取请求值，默认发行版启动的
+        // launch_history.wsl_distro 与 status 事件的 wslDistro 恒为 null。
+        let mut resolved_wsl_distro: Option<String> = None;
         let (cwd, command, args, env_remove, ssh_remote_command) = if let Some(ssh_info) = ssh {
             // 新连接走应用内 SSH2 channel；旧配置缺少认证元数据时保留系统 ssh 回退。
             // 跳过 MCP 注入、Orchestrator 信息注入、--add-dir、--resume、--append-system-prompt
@@ -3169,6 +3173,13 @@ impl TerminalService {
             let mut resolved_wsl = self.resolve_wsl_launch(wsl_info, &session_id)?;
             wsl_scope_outcome = resolved_wsl.scope_outcome.clone();
             wsl_scope_summary = resolved_wsl.scope_summary.clone();
+            resolved_wsl_distro = Some(resolved_wsl.distro.clone());
+            // hook 的 session-started 上报从这个变量取 wslDistro；上面按请求值写入的
+            // 那份在默认发行版时根本没写，这里用解析结果覆盖/补上。
+            env_vars.insert(
+                "CC_PANES_WSL_DISTRO".to_string(),
+                resolved_wsl.distro.clone(),
+            );
             if let Some(cwd) = launch_cwd {
                 self.apply_wsl_launch_cwd(&mut resolved_wsl, cwd)?;
                 wsl_rollout_cwd = resolved_wsl.launch_cwd.clone();
@@ -3765,6 +3776,9 @@ impl TerminalService {
             wsl_codex::cleanup_session_mcp_configs(self.app_paths.data_dir(), &session_id);
             return Err(error);
         }
+        // 会话期间所有事件/记录统一用解析后的发行版（见 resolved_wsl_distro 注释）。
+        let effective_wsl_distro =
+            resolved_wsl_distro.or_else(|| wsl.and_then(|w| w.distro.clone()));
         // Claude 发号成功：广播确定性 resume id（后端监听写 launch_history 并转发前端）
         if let Some(ref issued) = issued_session_id {
             let _ = emitter.emit(
@@ -3778,7 +3792,7 @@ impl TerminalService {
                     "launchId": launch_id,
                     "projectPath": project_path,
                     "workspacePath": workspace_path,
-                    "wslDistro": wsl.and_then(|w| w.distro.clone()),
+                    "wslDistro": effective_wsl_distro.clone(),
                 }),
             );
         }
@@ -3816,7 +3830,7 @@ impl TerminalService {
             status: Arc::clone(&status),
             pid: process.pid(),
             runtime_kind: runtime_kind.to_string(),
-            wsl_distro: wsl.and_then(|w| w.distro.clone()),
+            wsl_distro: effective_wsl_distro.clone(),
         });
         let hook_updated_at = Arc::new(Mutex::new(None));
         let exit_code = Arc::new(Mutex::new(None));
@@ -3887,7 +3901,7 @@ impl TerminalService {
                     launch_id: launch_id.map(str::to_string),
                     project_path: project_path.to_string(),
                     runtime_kind: runtime_kind.to_string(),
-                    wsl_distro: wsl.and_then(|w| w.distro.clone()),
+                    wsl_distro: effective_wsl_distro.clone(),
                     cli_tool,
                     process: Arc::clone(&process),
                     writer_tx: writer_tx.clone(),
@@ -4073,7 +4087,7 @@ impl TerminalService {
                     launch_id: launch_id.map(str::to_string),
                     project_path: project_path.to_string(),
                     workspace_path: workspace_path.map(str::to_string),
-                    wsl_distro: wsl.and_then(|w| w.distro.clone()),
+                    wsl_distro: effective_wsl_distro.clone(),
                     rollout_cwds,
                     launch_started_at,
                     rollout_fallback: resume_id.is_none() && ssh.is_none(),
@@ -4093,7 +4107,7 @@ impl TerminalService {
                         launch_id: launch_id.map(str::to_string),
                         project_path: project_path.to_string(),
                         workspace_path: workspace_path.map(str::to_string),
-                        wsl_distro: wsl.and_then(|w| w.distro.clone()),
+                        wsl_distro: effective_wsl_distro.clone(),
                         launch_started_at,
                         capture_cwd: Some(
                             wsl_rollout_cwd
@@ -4134,7 +4148,7 @@ impl TerminalService {
         let read_policy_store = Arc::clone(&self.resource_policy_store);
         let read_memory_store = Arc::clone(&self.job_memory_warning_store);
         let read_runtime_kind = runtime_kind.to_string();
-        let read_wsl_distro = wsl.and_then(|w| w.distro.clone());
+        let read_wsl_distro = effective_wsl_distro.clone();
         let osc_state_machine = read_state_machine.clone().unwrap_or_else(|| {
             osc_fallback_state_machine(
                 read_status.clone(),
@@ -4523,7 +4537,7 @@ impl TerminalService {
         let wait_policy_store = Arc::clone(&self.resource_policy_store);
         let wait_memory_store = Arc::clone(&self.job_memory_warning_store);
         let wait_runtime_kind = runtime_kind.to_string();
-        let wait_wsl_distro = wsl.and_then(|w| w.distro.clone());
+        let wait_wsl_distro = effective_wsl_distro.clone();
         let wait_app_paths = self.app_paths.clone();
         // 原生 CLI 缺失判定（WSL）所需的上下文：发号的 resume id 要随告警一起带回
         // app 侧写墓碑，否则 launch_history 里留着一个从未存在过的会话 id，重启恢复

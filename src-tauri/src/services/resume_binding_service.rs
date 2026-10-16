@@ -155,6 +155,10 @@ pub async fn apply_launch_failure(
         tokio::time::sleep(Duration::from_millis(BIND_RETRY_DELAY_MS)).await;
     }
 
+    if let (Some(_), Some(distro)) = (record_id, payload.wsl_distro.as_deref()) {
+        let _ = service.fill_wsl_distro_by_pty_if_null(&payload.session_id, distro);
+    }
+
     match record_id {
         Some(id) => info!(
             record_id = id,
@@ -314,6 +318,18 @@ pub async fn bind_resume_id(
             );
         }
         _ => {}
+    }
+
+    // 发行版回写（L2-3）：事件里的 wslDistro 是后端解析后的实际发行版；前端建行时
+    // 请求里没带 distro（默认发行版）就留了 NULL，这里只补空值。
+    if let (Some(_), Some(distro)) = (record_id, payload.wsl_distro.as_deref()) {
+        if let Err(error) = service.fill_wsl_distro_by_pty_if_null(&payload.session_id, distro) {
+            warn!(
+                pty_session_id = %payload.session_id,
+                error = %error,
+                "bind_resume_id: wsl_distro backfill failed"
+            );
+        }
     }
 
     match record_id {
