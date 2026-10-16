@@ -821,38 +821,53 @@ fn apply_json_merge_patch(
     Ok(())
 }
 
+/// Plan 路径的协作比较键。输出形式是持久化契约（`normalized_plan_path` 列），保持不变：
+/// Windows 盘符（含 `/mnt/<x>/...` 与指向挂载盘的 WSL UNC）统一为小写 `x:/...`，
+/// 其余路径只统一分隔符、去重复与尾部 `/`，**不**改大小写。
 pub fn normalize_plan_path(path: &str) -> String {
-    let mut normalized = path.trim().replace('\\', "/");
-    while normalized.contains("//") {
-        normalized = normalized.replace("//", "/");
-    }
-    normalized = normalized.trim_end_matches('/').to_string();
-
-    let lower = normalized.to_ascii_lowercase();
-    if let Some(rest) = lower.strip_prefix("/mnt/") {
-        let mut parts = rest.splitn(2, '/');
-        if let (Some(drive), Some(path_rest)) = (parts.next(), parts.next()) {
-            if drive.len() == 1 && drive.as_bytes()[0].is_ascii_alphabetic() {
-                return format!("{}:/{}", drive, path_rest);
-            }
+    let trimmed = path.trim();
+    // 只认 UNC 本身指向的挂载盘；路径中部出现的 `/mnt/` 不是挂载点。
+    if let Some((_, posix)) = cc_panes_paths::parse_wsl_unc(trimmed) {
+        if let Some(drive_form) = mounted_drive_plan_path(&collapse_slashes(posix)) {
+            return drive_form;
         }
     }
 
-    if let Some(mnt_index) = lower.find("/mnt/") {
-        let rest = &lower[mnt_index + "/mnt/".len()..];
-        let mut parts = rest.splitn(2, '/');
-        if let (Some(drive), Some(path_rest)) = (parts.next(), parts.next()) {
-            if drive.len() == 1 && drive.as_bytes()[0].is_ascii_alphabetic() {
-                return format!("{}:/{}", drive, path_rest);
-            }
-        }
+    let without_verbatim = trimmed
+        .strip_prefix(r"\\?\")
+        .filter(|rest| rest.as_bytes().get(1) == Some(&b':'))
+        .unwrap_or(trimmed);
+    let normalized = collapse_slashes(without_verbatim.replace('\\', "/"))
+        .trim_end_matches('/')
+        .to_string();
+
+    if let Some(drive_form) = mounted_drive_plan_path(&normalized) {
+        return drive_form;
     }
 
-    if lower.len() >= 3 && lower.as_bytes()[1] == b':' && lower.as_bytes()[2] == b'/' {
-        lower
+    let bytes = normalized.as_bytes();
+    if bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'/' {
+        normalized.to_ascii_lowercase()
     } else {
         normalized
     }
+}
+
+fn collapse_slashes(mut value: String) -> String {
+    while value.contains("//") {
+        value = value.replace("//", "/");
+    }
+    value
+}
+
+/// `/mnt/<x>/rest` → `x:/rest`（小写）；`/mnt/<x>` 本身与非挂载路径返回 `None`。
+fn mounted_drive_plan_path(posix: &str) -> Option<String> {
+    let drive = cc_panes_paths::mnt_drive_letter(posix)?;
+    let rest = posix.get("/mnt/x/".len()..)?.trim_matches('/');
+    if rest.is_empty() {
+        return None;
+    }
+    Some(format!("{drive}:/{rest}").to_ascii_lowercase())
 }
 
 fn plan_file_name(path: &str) -> String {
@@ -1062,6 +1077,45 @@ mod tests {
             normalize_plan_path(r"\\wsl.localhost\Ubuntu\mnt\d\repo\.claude\plans\Plan.md"),
             "d:/repo/.claude/plans/plan.md"
         );
+        assert_eq!(
+            normalize_plan_path(r"\\wsl$\Ubuntu\mnt\D\repo\.claude\plans\Plan.md"),
+            "d:/repo/.claude/plans/plan.md"
+        );
+        assert_eq!(
+            normalize_plan_path(r"\\?\D:\repo\.claude\plans\Plan.md"),
+            "d:/repo/.claude/plans/plan.md"
+        );
+    }
+
+    #[test]
+    fn test_normalize_plan_path_ignores_mid_path_mnt_decoy() {
+        // 旧实现在任意位置 find("/mnt/")，会把 /home/u/mnt/a/foo 误转成 a:/foo。
+        assert_eq!(
+            normalize_plan_path("/home/u/mnt/a/foo/plan.md"),
+            "/home/u/mnt/a/foo/plan.md"
+        );
+        assert_eq!(
+            normalize_plan_path(r"D:\work\mnt\c\plan.md"),
+            "d:/work/mnt/c/plan.md"
+        );
+        assert_eq!(
+            normalize_plan_path(r"\\wsl.localhost\Ubuntu\home\u\mnt\a\Plan.md"),
+            "/wsl.localhost/Ubuntu/home/u/mnt/a/Plan.md"
+        );
+    }
+
+    #[test]
+    fn test_normalize_plan_path_keeps_wsl_linux_case() {
+        assert_eq!(
+            normalize_plan_path("/home/User/repo/.claude/plans/Plan.md/"),
+            "/home/User/repo/.claude/plans/Plan.md"
+        );
+        // 非挂载盘的 WSL UNC 保持历史输出形式（只合并斜杠），不改大小写。
+        assert_eq!(
+            normalize_plan_path(r"\\wsl.localhost\Ubuntu\home\User\Plan.md"),
+            "/wsl.localhost/Ubuntu/home/User/Plan.md"
+        );
+        assert_eq!(normalize_plan_path("/mnt/d"), "/mnt/d");
     }
 
     #[test]
