@@ -805,9 +805,14 @@ impl CodexAdapter {
             return None;
         }
 
-        // On WSL, a Windows drive path such as `D:/repo/.git/...` is relative.
+        // Windows 侧 git 写的 gitdir 是盘符路径（`D:/repo/.git/worktrees/x`）。旧实现把它当
+        // 相对路径拼到 cwd 后面，产出 `/mnt/d/wt/D:/repo` 这种脏 key；先转成 WSL 视角。
         let resolved = if git_dir.starts_with('/') {
             git_dir.to_string()
+        } else if let Some(posix) =
+            cc_panes_paths::to_wsl_posix(git_dir, cc_panes_paths::DEFAULT_WSL_MOUNT_ROOT)
+        {
+            posix
         } else {
             format!("{}/{git_dir}", project_path.trim_end_matches('/'))
         };
@@ -840,7 +845,109 @@ impl CodexAdapter {
         {
             keys.push(main_repo);
         }
+        keys.retain(|key| {
+            let dirty = Self::is_dirty_wsl_trust_key(key);
+            if dirty {
+                warn!(
+                    trust_key = %key,
+                    "codex(wsl): refusing to write malformed project trust key"
+                );
+            }
+            !dirty
+        });
         keys
+    }
+
+    /// WSL trust key 的脏形态护栏：路径里夹着盘符（`/x/D:/y`），或挂载盘套挂载盘
+    /// （`/mnt/c/mnt/d`）。这些都是把 Windows 路径当相对路径拼接的产物，codex 永远不会
+    /// 以它们为 cwd，写进去只会污染用户的 config.toml。
+    #[cfg(any(windows, test))]
+    fn is_dirty_wsl_trust_key(key: &str) -> bool {
+        let bytes = key.as_bytes();
+        let embedded_drive = bytes.windows(4).any(|window| {
+            window[0] == b'/'
+                && window[1].is_ascii_alphabetic()
+                && window[2] == b':'
+                && window[3] == b'/'
+        }) || (bytes.len() >= 3
+            && bytes[bytes.len() - 3] == b'/'
+            && bytes[bytes.len() - 2].is_ascii_alphabetic()
+            && bytes[bytes.len() - 1] == b':');
+        let nested_mount = cc_panes_paths::mnt_drive_letter(key).is_some()
+            && key
+                .get("/mnt/x".len()..)
+                .is_some_and(|rest| cc_panes_paths::mnt_drive_letter(rest).is_some());
+        embedded_drive || nested_mount
+    }
+
+    /// 一次性清扫旧版本写进 WSL config.toml 的脏 trust key。
+    ///
+    /// 只删带 [`CCPANES_TRUST_MARKER`] 的条目（确属 CC-Panes 写入）；没有标记的只 warn，
+    /// 由用户自己决定。删除前把原文件备份到同目录 `config.toml.bak-<unix 秒>`。
+    /// 返回删除的条目数；没有可删的条目时不写文件。
+    #[cfg(any(windows, test))]
+    fn cleanup_dirty_wsl_trust_keys_at(path: &Path) -> Result<usize> {
+        if !path.is_file() {
+            return Ok(0);
+        }
+        let content = fs::read_to_string(path)
+            .with_context(|| format!("failed to read Codex config {}", path.display()))?;
+        let mut document = content
+            .parse::<DocumentMut>()
+            .with_context(|| format!("failed to parse Codex config {}", path.display()))?;
+        let Some(projects) = document
+            .get_mut("projects")
+            .and_then(Item::as_table_like_mut)
+        else {
+            return Ok(0);
+        };
+
+        let dirty_keys = projects
+            .iter()
+            .map(|(key, _)| key.to_string())
+            .filter(|key| Self::is_dirty_wsl_trust_key(key))
+            .collect::<Vec<_>>();
+        let mut removed = 0;
+        for key in dirty_keys {
+            let marked = projects
+                .get(&key)
+                .and_then(Item::as_table_like)
+                .and_then(|project| project.get("trust_level"))
+                .is_some_and(Self::is_ccpanes_marked_item);
+            if !marked {
+                warn!(
+                    config = %path.display(),
+                    trust_key = %key,
+                    "codex(wsl): malformed project trust key is not managed by cc-panes; leaving it"
+                );
+                continue;
+            }
+            let Some(project) = projects.get_mut(&key).and_then(Item::as_table_like_mut) else {
+                continue;
+            };
+            project.remove("trust_level");
+            if project.is_empty() {
+                projects.remove(&key);
+            }
+            removed += 1;
+        }
+        if removed == 0 {
+            return Ok(0);
+        }
+
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_secs())
+            .unwrap_or_default();
+        let backup_path = Self::sibling_path_with_suffix(path, &format!(".bak-{stamp}"));
+        fs::copy(path, &backup_path).with_context(|| {
+            format!(
+                "failed to write Codex config backup {}",
+                backup_path.display()
+            )
+        })?;
+        Self::write_file_via_temp_rename(path, &document.to_string())?;
+        Ok(removed)
     }
 
     fn ensure_yolo_local_project_trust(ctx: &CliAdapterContext) {
@@ -927,6 +1034,21 @@ printf '%s\n%s\n%s\n' "$(wslpath -w "$cfg")" "$cwd" "$(wslpath -w "$cwd/.git")""
             );
             return;
         };
+        match Self::cleanup_dirty_wsl_trust_keys_at(&config_path) {
+            Ok(0) => {}
+            Ok(removed) => info!(
+                config = %config_path.display(),
+                distro,
+                removed,
+                "codex(wsl): removed malformed cc-panes project trust keys"
+            ),
+            Err(error) => tracing::warn!(
+                config = %config_path.display(),
+                distro,
+                error = %error,
+                "codex(wsl): failed to clean malformed project trust keys; continuing launch"
+            ),
+        }
         let dot_git_content = fs::read_to_string(dot_git_path).ok();
         let trust_keys = Self::wsl_project_trust_keys(&project_path, dot_git_content.as_deref());
         match Self::prewrite_trusted_projects_at(&config_path, &trust_keys, true) {
@@ -2540,10 +2662,18 @@ url = "https://example.com/mcp"
                 cwd,
                 Some("gitdir: D:/04_workspace_rust/cc-book/.git/worktrees/cc-book-wt-trust\n"),
             ),
+            // 盘符 gitdir 先转成 WSL 视角，不再拼成 `{cwd}/D:/...` 的脏 key
             vec![
                 cwd.to_string(),
-                format!("{cwd}/D:/04_workspace_rust/cc-book"),
+                "/mnt/d/04_workspace_rust/cc-book".to_string(),
             ]
+        );
+        assert_eq!(
+            CodexAdapter::wsl_project_trust_keys(
+                cwd,
+                Some("gitdir: \\\\wsl.localhost\\Ubuntu\\home\\u\\cc-book\\.git\\worktrees\\wt\n"),
+            ),
+            vec![cwd.to_string(), "/home/u/cc-book".to_string()]
         );
         assert_eq!(
             CodexAdapter::wsl_project_trust_keys(
@@ -2554,6 +2684,90 @@ url = "https://example.com/mcp"
                 cwd.to_string(),
                 "/mnt/d/04_workspace_rust/cc-book".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn dirty_wsl_trust_keys_are_detected() {
+        for dirty in [
+            "/mnt/d/wt/D:/04_workspace_rust/cc-book",
+            "/x/D:/y",
+            "/x/D:",
+            "/mnt/c/mnt/d",
+            "/mnt/c/mnt/d/repo",
+        ] {
+            assert!(CodexAdapter::is_dirty_wsl_trust_key(dirty), "{dirty}");
+        }
+        for clean in [
+            "/mnt/d/04_workspace_rust/cc-book",
+            "/home/u/mnt/a/foo",
+            "/home/u/repo",
+            "/mnt/c",
+            "/mnt/data/mnt/d",
+        ] {
+            assert!(!CodexAdapter::is_dirty_wsl_trust_key(clean), "{clean}");
+        }
+    }
+
+    #[test]
+    fn wsl_trust_keys_never_emit_dirty_keys() {
+        // 相对 gitdir 解析出带盘符的路径时，护栏拦下，只保留 cwd 本身
+        let keys = CodexAdapter::wsl_project_trust_keys(
+            "/mnt/d/wt",
+            Some("gitdir: ../x/D:/repo/.git/worktrees/wt\n"),
+        );
+        assert_eq!(keys, vec!["/mnt/d/wt".to_string()]);
+    }
+
+    #[test]
+    fn cleanup_removes_only_marked_dirty_trust_keys_with_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        fs::write(
+            &config_path,
+            r#"model = "gpt-5"
+
+[projects."/mnt/d/wt/D:/04_workspace_rust/cc-book"]
+trust_level = "trusted" # managed by cc-panes
+
+[projects."/mnt/c/mnt/d"]
+trust_level = "trusted"
+
+[projects."/mnt/d/04_workspace_rust/cc-book"]
+trust_level = "trusted" # managed by cc-panes
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            CodexAdapter::cleanup_dirty_wsl_trust_keys_at(&config_path).unwrap(),
+            1
+        );
+        let written = fs::read_to_string(&config_path).unwrap();
+        assert!(!written.contains("/mnt/d/wt/D:/"));
+        assert!(
+            written.contains(r#"[projects."/mnt/c/mnt/d"]"#),
+            "unmarked dirty key is kept"
+        );
+        assert!(written.contains(r#"[projects."/mnt/d/04_workspace_rust/cc-book"]"#));
+        assert!(written.contains(r#"model = "gpt-5""#));
+
+        let backups = fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("config.toml.bak-")
+            })
+            .count();
+        assert_eq!(backups, 1);
+
+        // 幂等：再跑一次没有可删的，不再写文件、不再备份
+        assert_eq!(
+            CodexAdapter::cleanup_dirty_wsl_trust_keys_at(&config_path).unwrap(),
+            0
         );
     }
 
