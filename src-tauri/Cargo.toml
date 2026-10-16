@@ -95,6 +95,8 @@ tower = "0.5"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "=0.38.2"
+# webview2-com 的 COM 接口实现的是 0.61 的 Interface trait（cast 要用）。
+windows-core-061 = { package = "windows-core", version = "0.61" }
 socket2 = "0.6"
 windows = { version = "0.62", features = [
     "Win32_System_SystemInformation",
@@ -108,6 +110,8 @@ windows = { version = "0.62", features = [
     "Win32_UI_HiDpi",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
+    # main_window_visibility 的窗口子类
+    "Win32_UI_Shell",
     # process_guard 的 Job Object 兜底（web-access 子进程随宿主一同回收）
     "Win32_System_JobObjects",
     "Win32_Security",
