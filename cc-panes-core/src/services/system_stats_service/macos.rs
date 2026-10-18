@@ -6,6 +6,9 @@ use super::ProcessSnapshot;
 use std::io;
 use std::mem::{size_of, MaybeUninit};
 
+mod diagnostics;
+pub(super) use diagnostics::DiagnosticSampler;
+
 fn process_ids() -> io::Result<Vec<libc::pid_t>> {
     for _ in 0..3 {
         // SAFETY: a null buffer queries the required PID count.
@@ -47,6 +50,18 @@ fn process_info(pid: libc::pid_t) -> Option<ProcessSnapshot> {
         return None; // Process exited or is inaccessible; never fabricate a root.
     }
     let info = unsafe { info.assume_init() };
+    Some(ProcessSnapshot {
+        pid: info.pbi_pid,
+        parent_pid: (info.pbi_ppid != 0).then_some(info.pbi_ppid),
+        name: process_name(&info),
+        command: String::new(),
+        started_at: Some(info.pbi_start_tvsec),
+        cpu_percent: 0.0,
+        memory_bytes: 0,
+    })
+}
+
+fn process_name(info: &libc::proc_bsdinfo) -> String {
     let name = if info.pbi_name[0] != 0 {
         &info.pbi_name[..]
     } else {
@@ -57,15 +72,7 @@ fn process_info(pid: libc::pid_t) -> Option<ProcessSnapshot> {
         .take_while(|c| **c != 0)
         .map(|c| *c as u8)
         .collect();
-    Some(ProcessSnapshot {
-        pid: info.pbi_pid,
-        parent_pid: (info.pbi_ppid != 0).then_some(info.pbi_ppid),
-        name: String::from_utf8_lossy(&bytes).into_owned(),
-        command: String::new(),
-        started_at: Some(info.pbi_start_tvsec),
-        cpu_percent: 0.0,
-        memory_bytes: 0,
-    })
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 pub(super) fn capture_topology() -> io::Result<Vec<ProcessSnapshot>> {

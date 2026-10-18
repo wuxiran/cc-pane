@@ -41,3 +41,42 @@ test("frontend intervals are independent of sampling phase and retain stalls", a
     assert.equal((await summarize([700])).maxFrontendUpdateIntervalMs, null);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("retains unavailable metrics as null and separates hidden lag from observation gaps", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ccpanes-performance-missing-"));
+  try {
+    const rows = [
+      { visibility: "hidden", timerLagMs: 3_600_000, samplingGapMs: 0 },
+      { visibility: "visible", timerLagMs: 25, samplingGapMs: 60_000 },
+    ].map((frontend, i) => ({ schemaVersion: 1, bootId: "one", appPid: 1,
+      timestampMs: i * 15_000, kind: "sample", data: {
+        frontend: { ...frontend, heapUsedBytes: null },
+        processes: [{ pid: 1, role: "renderer", privateBytes: null, cpuPercent: null, residentBytes: 1024 }],
+      } }));
+    await writeFile(join(dir, "performance.jsonl"), rows.map(JSON.stringify).join("\n"));
+    const report = await summarizePerformance(dir);
+    assert.equal(report.maxHeapUsedBytes, null);
+    assert.equal(report.maxTimerLagMs, 25);
+    assert.equal(report.maxSamplingGapMs, 60_000);
+    assert.equal(report.processes[0].peakPrivateBytes, null);
+    assert.equal(report.processes[0].peakCpuPercent, null);
+    assert.equal(report.processes[0].peakResidentBytes, 1024);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("missing frontend stays unavailable and v2 keeps visible lag reported after hiding", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ccpanes-performance-visibility-"));
+  const write = data => writeFile(join(dir, "performance.jsonl"), JSON.stringify({
+    schemaVersion: 1, bootId: "one", appPid: 1, timestampMs: 15_000, kind: "sample", data,
+  }));
+  try {
+    await write({ frontend: null, frontendAgeMs: null });
+    let report = await summarizePerformance(dir);
+    for (const key of ["maxQueuedChars", "maxFrontendAgeMs", "maxHeapUsedBytes", "maxTimerLagMs", "maxSampleDurationMs"]) {
+      assert.equal(report[key], null, key);
+    }
+    await write({ frontend: { timingVersion: 2, visibility: "hidden", timerLagMs: 4000, samplingGapMs: 0 } });
+    report = await summarizePerformance(dir);
+    assert.equal(report.maxTimerLagMs, 4000);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

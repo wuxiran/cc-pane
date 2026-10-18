@@ -5,6 +5,17 @@ use tokio::sync::Semaphore;
 
 static IO_JOBS: Semaphore = Semaphore::const_new(4);
 
+/// Async I/O uses the same admission limit without occupying a blocking thread.
+pub(super) async fn run_async<T>(
+    task: impl std::future::Future<Output = AppResult<T>>,
+) -> AppResult<T> {
+    let _permit = IO_JOBS
+        .acquire()
+        .await
+        .map_err(|e| AppError::from(e.to_string()))?;
+    task.await
+}
+
 pub(super) async fn run<T: Send + 'static>(
     task: impl FnOnce() -> AppResult<T> + Send + 'static,
 ) -> AppResult<T> {

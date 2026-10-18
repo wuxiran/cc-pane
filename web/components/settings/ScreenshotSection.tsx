@@ -36,7 +36,8 @@ export default function ScreenshotSection({ value, onChange }: ScreenshotSection
     if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
 
     const parts: string[] = [];
-    if (e.ctrlKey || e.metaKey) parts.push("Ctrl");
+    if (e.ctrlKey) parts.push("Ctrl");
+    if (e.metaKey) parts.push("Super");
     if (e.shiftKey) parts.push("Shift");
     if (e.altKey) parts.push("Alt");
     parts.push(e.key.length === 1 ? e.key.toUpperCase() : e.key);

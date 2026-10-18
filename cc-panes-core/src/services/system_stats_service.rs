@@ -38,6 +38,8 @@ struct WindowsCpuSample {
 #[derive(Default)]
 struct ResourceProcessSampler {
     known_family: HashSet<ProcessIdentity>,
+    #[cfg(target_os = "macos")]
+    diagnostic_sampler: macos::DiagnosticSampler,
     #[cfg(windows)]
     cpu_samples: HashMap<u32, WindowsCpuSample>,
     /// "会话之外"块的滞回状态：整机 CPU ≥ 60% 开、< 45% 关。

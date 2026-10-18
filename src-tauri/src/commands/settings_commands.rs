@@ -6,15 +6,15 @@ use crate::services::{
 };
 use crate::utils::AppPaths;
 use crate::utils::AppResult;
-use cc_cli_adapters::{no_window_command, normalize_cli_command};
 use serde::Serialize;
 use std::net::TcpStream;
 use std::path::Path;
-use std::process::Stdio;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 use tracing::{debug, info};
+
+mod cli_launcher;
 
 /// 获取设置
 #[tauri::command]
@@ -140,65 +140,12 @@ pub async fn test_cli_launcher(
     command: String,
     version_args: Option<Vec<String>>,
 ) -> AppResult<String> {
-    super::blocking::run(move || test_cli_launcher_blocking(command, version_args)).await
-}
-
-fn test_cli_launcher_blocking(
-    command: String,
-    version_args: Option<Vec<String>>,
-) -> AppResult<String> {
-    let command = normalize_cli_command(&command);
-    if command.is_empty() {
-        return Err("CLI command is empty".into());
-    }
-
-    let args = version_args.unwrap_or_else(|| vec!["--version".to_string()]);
-    let mut child = no_window_command(command)
-        .args(&args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdin(Stdio::null())
-        .spawn()
-        .map_err(|error| format!("Failed to start CLI command: {}", error))?;
-
-    let started = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(_status)) => {
-                let output = child
-                    .wait_with_output()
-                    .map_err(|error| format!("Failed to read CLI output: {}", error))?;
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let text = first_non_empty([stdout.trim(), stderr.trim()])
-                    .unwrap_or_else(|| "Command completed without output".to_string());
-                if !output.status.success() {
-                    return Err(format!(
-                        "CLI command exited with {}: {}",
-                        output
-                            .status
-                            .code()
-                            .map(|code| code.to_string())
-                            .unwrap_or_else(|| "signal".to_string()),
-                        truncate_cli_launcher_output(&text)
-                    )
-                    .into());
-                }
-                return Ok(truncate_cli_launcher_output(&text));
-            }
-            Ok(None) => {
-                if started.elapsed() > Duration::from_secs(8) {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err("CLI command timed out".into());
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(error) => {
-                return Err(format!("Failed to wait for CLI command: {}", error).into());
-            }
-        }
-    }
+    super::blocking::run_async(cli_launcher::probe(
+        command,
+        version_args,
+        Duration::from_secs(8),
+    ))
+    .await
 }
 
 fn first_non_empty<'a>(values: impl IntoIterator<Item = &'a str>) -> Option<String> {
@@ -231,13 +178,17 @@ pub struct DataDirInfo {
 
 /// 获取数据目录信息
 #[tauri::command]
-pub fn get_data_dir_info(app_paths: State<'_, Arc<AppPaths>>) -> AppResult<DataDirInfo> {
-    Ok(DataDirInfo {
-        current_path: app_paths.data_dir().to_string_lossy().to_string(),
-        default_path: app_paths.default_data_dir().to_string_lossy().to_string(),
-        is_default: app_paths.is_default(),
-        size_bytes: app_paths.data_dir_size(),
+pub async fn get_data_dir_info(app_paths: State<'_, Arc<AppPaths>>) -> AppResult<DataDirInfo> {
+    let app_paths = app_paths.inner().clone();
+    super::blocking::run(move || {
+        Ok(DataDirInfo {
+            current_path: app_paths.data_dir().to_string_lossy().to_string(),
+            default_path: app_paths.default_data_dir().to_string_lossy().to_string(),
+            is_default: app_paths.is_default(),
+            size_bytes: app_paths.data_dir_size(),
+        })
     })
+    .await
 }
 
 /// 迁移数据目录

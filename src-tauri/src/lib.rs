@@ -843,18 +843,25 @@ fn should_close_main_window_to_tray(window: &tauri::Window) -> bool {
         .unwrap_or(false)
 }
 
-/// 触发截图流程：SetWindowDisplayAffinity 方案
-/// Windows: 设置 WDA_EXCLUDEFROMCAPTURE → xcap 截屏 → 选区 → 裁剪保存 → 恢复 WDA_NONE
-/// 非 Windows: Tauri hide → 截屏 → 选区 → 裁剪保存 → Tauri show
+/// 全局快捷键与应用内菜单共用的截图入口；交互、编码和文件 I/O 均在后台执行。
 pub fn trigger_screenshot(app: &tauri::AppHandle, settings_service: Arc<SettingsService>) {
-    use std::time::Instant;
-
     if CAPTURING
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
         return;
     }
+
+    let retention_days = settings_service.get_settings().screenshot.retention_days;
+    #[cfg(target_os = "macos")]
+    ScreenshotService::trigger_macos(app.clone(), retention_days, &CAPTURING);
+    #[cfg(not(target_os = "macos"))]
+    trigger_legacy_screenshot(app, retention_days);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn trigger_legacy_screenshot(app: &tauri::AppHandle, retention_days: u32) {
+    use std::time::Instant;
 
     // 获取主窗口 HWND（isize 可安全跨线程传递）
     #[cfg(target_os = "windows")]
@@ -887,7 +894,6 @@ pub fn trigger_screenshot(app: &tauri::AppHandle, settings_service: Arc<Settings
 
     #[allow(unused_variables)]
     let app = app.clone();
-    let retention_days = settings_service.get_settings().screenshot.retention_days;
     #[cfg(not(target_os = "windows"))]
     let fallback_app = app.clone();
     if let Err(error) = cc_panes_core::pty::thread::spawn_named("cc-panes-screenshot", move || {
@@ -1019,8 +1025,8 @@ fn restore_display_affinity(hwnd_val: Option<isize>) {
     }
 }
 
-/// 非 Windows 平台：通过 Tauri API 恢复主窗口
-#[cfg(not(target_os = "windows"))]
+/// 其余平台：通过 Tauri API 恢复主窗口
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn restore_main_window_tauri(app: &tauri::AppHandle) {
     if let Some(main_win) = app.get_webview_window("main") {
         let _ = main_win.show();
@@ -2525,8 +2531,8 @@ pub fn run() {
                 boot_t0.elapsed().as_millis()
             );
 
-            // ---- 注册截图全局快捷键（仅 Windows，macOS 截图功能暂未实现）----
-            #[cfg(target_os = "windows")]
+            // ---- 注册截图全局快捷键（Windows / macOS 原生选区）----
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
                 let settings_svc = app.state::<Arc<SettingsService>>();

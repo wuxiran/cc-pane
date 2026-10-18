@@ -50,13 +50,22 @@ test("treats improvement beyond tolerance as improved, not regression", () => {
   assert.equal(queued.verdict, "improved");
 });
 
-test("marks metrics with missing or zero baseline as na without blocking", () => {
+test("keeps missing metrics as na but catches regressions from a measured zero", () => {
   const baseline = report({ maxTimerLagMs: 0, processes: [] });
   const candidate = report({ maxTimerLagMs: 999, processes: [{ peakPrivateBytes: 10 }] });
   const result = compareReports(baseline, candidate);
-  assert.equal(result.ok, true); // na 不计入回归
-  assert.equal(result.rows.find((row) => row.key === "maxTimerLagMs").verdict, "na");
+  assert.equal(result.ok, false);
+  assert.equal(result.rows.find((row) => row.key === "maxTimerLagMs").verdict, "regression");
   assert.equal(result.rows.find((row) => row.key === "peakProcessPrivateBytes").verdict, "na");
+});
+
+test("does not report a long stall as improvement when the new sampler separates gaps", () => {
+  const old = report({ maxTimerLagMs: 59_000 });
+  const current = report({ maxTimerLagMs: 0, maxSamplingGapMs: 60_000 });
+  const timing = compareReports(old, current).rows.find(row => row.key === "maxTimerLagMs");
+  assert.equal(timing.baseline, 59_000);
+  assert.equal(timing.candidate, 59_000);
+  assert.equal(timing.verdict, "ok");
 });
 
 test("aggregates peak process private bytes across processes", () => {
@@ -71,8 +80,28 @@ test("aggregates peak process private bytes across processes", () => {
 
 test("handles null/undefined reports defensively", () => {
   const result = compareReports(undefined, null);
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, false);
+  assert.equal(result.comparableMetrics, 0);
   assert.ok(result.rows.every((row) => row.verdict === "na"));
+  assert.match(formatComparison(result), /无法判断/);
+});
+
+test("does not turn missing macOS private memory into an improvement", () => {
+  const result = compareReports(report(), report({ processes: [{ peakPrivateBytes: null }] }));
+  assert.equal(result.rows.find(r => r.key === "peakProcessPrivateBytes").verdict, "na");
+});
+
+test("compares renderer RSS only when renderer data exists on both sides", () => {
+  const withRenderer = bytes => report({ processes: [{ role: "renderer", peakResidentBytes: bytes, peakPrivateBytes: null }] });
+  const result = compareReports(withRenderer(1_000), withRenderer(2_000));
+  assert.deepEqual(result.regressions, ["peakRendererResidentBytes"]);
+  const missing = compareReports(report(), withRenderer(2_000));
+  assert.equal(missing.rows.find(r => r.key === "peakRendererResidentBytes").verdict, "na");
+});
+
+test("retains a new unobserved gap instead of silently passing a zero baseline", () => {
+  const result = compareReports(report({ maxSamplingGapMs: 0 }), report({ maxSamplingGapMs: 60_000 }));
+  assert.deepEqual(result.regressions, ["maxSamplingGapMs"]);
 });
 
 test("formatComparison includes a human-readable verdict line", () => {
