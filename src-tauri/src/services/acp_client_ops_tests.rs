@@ -90,13 +90,13 @@ async fn simultaneous_create_and_close_cannot_leave_registered_or_running_childr
     let barrier = Arc::new(tokio::sync::Barrier::new(13));
     let dir = tempfile::tempdir().unwrap();
     let mut tasks = JoinSet::new();
-    for n in 0..12 {
+    for _ in 0..12 {
         let manager = manager.clone();
         let barrier = barrier.clone();
-        let path = dir.path().join(format!("{n}.pid"));
+        let path = dir.path().to_path_buf();
         tasks.spawn(async move {
             barrier.wait().await;
-            manager.create(&json!({"command":"sh","args":["-c", "echo $$ > \"$1\"; sleep 30", "probe", path]}), &std::env::temp_dir(), Arc::new(|_|{})).await
+            manager.create(&json!({"command":"sh","args":["-c", ": > \"$1/$$.pid\"; sleep 30", "probe", path]}), &std::env::temp_dir(), Arc::new(|_|{})).await
         });
     }
     barrier.wait().await;
@@ -110,9 +110,15 @@ async fn simultaneous_create_and_close_cannot_leave_registered_or_running_childr
     assert!(registry.closed);
     assert!(registry.entries.is_empty());
     for entry in std::fs::read_dir(dir.path()).unwrap() {
-        let pid: i32 = std::fs::read_to_string(entry.unwrap().path())
+        // Closing can kill the shell between opening a file and writing its
+        // contents. Put the PID in the atomically created filename instead.
+        let pid: i32 = entry
             .unwrap()
-            .trim()
+            .path()
+            .file_stem()
+            .unwrap()
+            .to_str()
+            .unwrap()
             .parse()
             .unwrap();
         // The child owner has waited/reaped before release_all returns.
