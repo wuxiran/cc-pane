@@ -9,6 +9,9 @@
 //! - 项目路径白名单校验
 //! - 请求频率限制
 
+#[path = "orchestrator_service/dispatch_retry.rs"]
+mod dispatch_retry;
+
 use crate::ccchan_service::CCChanService;
 use crate::models::task_binding::{
     CreateTaskBindingRequest, TaskBinding, TaskBindingRole, TaskBindingStatus,
@@ -1020,6 +1023,7 @@ impl StartLocks {
 /// axum 路由共享状态
 #[derive(Clone)]
 pub struct AppState {
+    retry_gate: Arc<dispatch_retry::RetryGate>,
     pub token: String,
     pub started_at: u64,
     pub local_terminal_service: Arc<TerminalService>,
@@ -1752,6 +1756,7 @@ impl Drop for BindingLoopGuard {
 }
 
 pub struct OrchestratorService {
+    retry_gate: Arc<dispatch_retry::RetryGate>,
     status: Arc<Mutex<OrchestratorStatus>>,
     token: String,
     started_at: u64,
@@ -1788,6 +1793,7 @@ impl OrchestratorService {
             None => generate_token(),
         };
         Self {
+            retry_gate: Arc::new(dispatch_retry::RetryGate::default()),
             status: Arc::new(Mutex::new(OrchestratorStatus::default())),
             token,
             started_at: std::time::SystemTime::now()
@@ -1974,6 +1980,7 @@ impl OrchestratorService {
             .map(|shared| shared.inner().clone())
             .unwrap_or_else(|| Arc::new(CursorBridgeHub::new(app_paths.clone())));
         let state = AppState {
+            retry_gate: self.retry_gate.clone(),
             token: self.token.clone(),
             started_at: self.started_at,
             local_terminal_service,
@@ -2498,6 +2505,10 @@ fn build_router(state: AppState, heavy_jobs: Arc<crate::services::HeavyJobGateSt
     // M2: MCP 路由通过 auth middleware 校验 Bearer token
     Router::new()
         .route("/api/launch-task", post(handle_launch_task))
+        .route(
+            dispatch_retry::RETRY_PATH,
+            post(dispatch_retry::handle_retry),
+        )
         .route("/api/projects", get(handle_list_projects))
         .route("/api/task-status/{task_id}", get(handle_task_status))
         .route("/api/sessions", get(handle_list_sessions))
@@ -5185,6 +5196,8 @@ impl McpToolHandler {
             cwd: launch.cwd.clone(),
             permission_mode: launch.permission_mode.clone(),
             model_id: launch.model_id.clone(),
+            provider_id: launch.provider_id.clone(),
+            provider_selection: launch.provider_selection.clone(),
             runtime_kind: launch.runtime_kind.clone(),
             prompt: launch.prompt.clone(),
             resume_id: launch.resume_id.clone(),
@@ -17908,6 +17921,8 @@ mod tests {
                 cwd: Some("D:/repo".into()),
                 permission_mode: Some("default".into()),
                 model_id: Some("test-model".into()),
+                provider_id: Some("test-provider".into()),
+                provider_selection: Some("explicit".into()),
                 runtime_kind: Some("local".to_string()),
                 prompt: Some("implement the task".to_string()),
                 resume_id: None,

@@ -137,6 +137,15 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
 
   flushChat(chatId);
   switch (kind) {
+    case "history_replay": {
+      const data = payload as { phase?: string; acpSessionId?: string };
+      if (typeof data?.acpSessionId !== "string") return;
+      if (data.phase === "begin") store.beginHistoryReplay(chatId, data.acpSessionId);
+      else if (data.phase === "commit" || data.phase === "abort") {
+        store.finishHistoryReplay(chatId, data.acpSessionId, data.phase === "commit");
+      }
+      return;
+    }
     case "state":
       store.setSnapshot(chatId, payload as AcpChatSnapshot);
       return;

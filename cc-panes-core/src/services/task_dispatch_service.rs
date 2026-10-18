@@ -105,6 +105,8 @@ impl TaskDispatchService {
                 cwd,
                 permission_mode: clean_optional(request.permission_mode),
                 model_id: clean_optional(request.model_id),
+                provider_id: clean_optional(request.provider_id),
+                provider_selection: clean_optional(request.provider_selection),
                 mode,
                 resume_id,
                 skill_delivery_modes: adapter.skill_delivery_modes(),
@@ -188,10 +190,14 @@ mod tests {
         input.cwd = Some("D:/worktree".into());
         input.permission_mode = Some("default".into());
         input.model_id = Some("model-override".into());
+        input.provider_id = Some("provider-override".into());
+        input.provider_selection = Some("explicit".into());
         let envelope = TaskDispatchService::default().plan(input).unwrap().envelope;
         assert_eq!(envelope.cwd.as_deref(), Some("D:/worktree"));
         assert_eq!(envelope.permission_mode.as_deref(), Some("default"));
         assert_eq!(envelope.model_id.as_deref(), Some("model-override"));
+        assert_eq!(envelope.provider_id.as_deref(), Some("provider-override"));
+        assert_eq!(envelope.provider_selection.as_deref(), Some("explicit"));
         let json = serde_json::to_value(&envelope).unwrap();
         assert_eq!(json["cwd"], "D:/worktree");
         assert_eq!(

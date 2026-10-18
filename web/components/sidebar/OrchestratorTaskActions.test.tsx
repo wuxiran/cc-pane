@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import OrchestratorTaskActions from "./OrchestratorTaskActions";
+import { taskBindingService as directTaskBindingService } from "@/services/taskBindingService";
 import {
   useActivityBarStore,
   useOrchestratorStore,
@@ -113,6 +114,25 @@ describe("OrchestratorTaskActions", () => {
     seedStore([]);
     useTerminalStatusStore.setState({ statusMap: new Map() });
     useActivityBarStore.setState({ orchestrationOverlayOpen: false });
+  });
+
+  it("retries durable tasks through the dispatcher without creating a default terminal", async () => {
+    const user = userEvent.setup();
+    const binding = createBinding({ status: "failed", metadata: { dispatchEnvelope: {
+      runtimeKind: "wsl", profileId: "profile", cwd: "/repo/subdir", modelId: "model", permissionMode: "default",
+    } } });
+    const child = createBinding({ id: "durable-child", sessionId: "child-pty", metadata: { dispatchEnvelope: { bindingId: "durable-child" } } });
+    const retry = vi.spyOn(directTaskBindingService, "retryDispatched").mockResolvedValue(child);
+    seedStore([binding]);
+    render(<OrchestratorTaskActions binding={binding} />);
+    await openMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.retry") }));
+    await waitFor(() => expect(retry).toHaveBeenCalledWith(binding.id));
+    expect(createSession).not.toHaveBeenCalled();
+    expect(submitToSession).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(useOrchestratorStore.getState().bindings).toContainEqual(child);
+    retry.mockRestore();
   });
 
   it("opens the action menu with all entries", async () => {

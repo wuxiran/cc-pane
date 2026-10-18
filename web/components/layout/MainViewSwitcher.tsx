@@ -15,7 +15,6 @@ import TodoManager from "@/components/todo/TodoManager";
 import { SelfChatManager } from "@/components/selfchat";
 import { HomeDashboard } from "@/components/home";
 import { ProvidersPanel } from "@/components/providers";
-import OrchestrationOverlay from "@/components/orchestration/OrchestrationOverlay";
 import PaneFlowOverlay from "@/components/canvas/PaneFlowOverlay";
 import { LayoutVisibilityContext } from "@/contexts/LayoutVisibilityContext";
 import LayoutTopBar from "@/components/layoutbar/LayoutTopBar";
@@ -31,6 +30,7 @@ import { collectPanels } from "@/lib/paneTree";
 // reducing startup work, this lets the existing terminal-only test doubles and
 // lightweight web deployments omit specific dependencies until opened.
 const DramaStudio = lazy(() => import("@/components/drama/DramaStudio"));
+const OrchestrationOverlay = lazy(() => import("@/components/orchestration/OrchestrationOverlay"));
 const SkillMarketPage = lazy(() => import("@/components/skillmarket/SkillMarketPage"));
 
 interface MainViewSwitcherProps {
@@ -421,7 +421,7 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
       </SidebarFlyout>
       </main>
       {showOrchestrationOverlay && (
-        <OrchestrationOverlay onClose={closeOrchestrationOverlay} />
+        <Suspense fallback={null}><OrchestrationOverlay onClose={closeOrchestrationOverlay} /></Suspense>
       )}
         </>
       )}

@@ -58,6 +58,7 @@
   "selfChat": "Self Chat",
   "selfChat.title": "CC-Panes Assistant",
   "selfChat.restart": "Restart Session",
+  "selfChat.stopped": "Session ended. Restart when you are ready.",
   "selfChat.emptyState": "Starting CC-Panes assistant...",
   "selfChat.contextInjected": "Injected",
   "selfChat.injecting": "Injecting...",

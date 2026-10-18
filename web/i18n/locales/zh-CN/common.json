@@ -58,6 +58,7 @@
   "selfChat": "自我对话",
   "selfChat.title": "CC-Panes 助手",
   "selfChat.restart": "重启会话",
+  "selfChat.stopped": "会话已结束，可手动重新启动。",
   "selfChat.emptyState": "正在启动 CC-Panes 助手...",
   "selfChat.contextInjected": "已注入",
   "selfChat.injecting": "注入中...",

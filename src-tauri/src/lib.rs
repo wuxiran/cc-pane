@@ -21,6 +21,7 @@ use ccchan_commands::{
     take_ccchan_say,
 };
 use ccchan_service::{CCChanService, CcChanSessionNotifier};
+use commands::retry_dispatched_task;
 use commands::{
     abort_pi_rpc_session,
     ack_terminal_output,
@@ -3379,6 +3380,7 @@ pub fn run() {
             // Orchestrator 命令
             get_orchestrator_port,
             get_orchestrator_status,
+            retry_dispatched_task,
             get_orchestrator_token,
             respond_orchestrator_query,
             list_ai_panels,

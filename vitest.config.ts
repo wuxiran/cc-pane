@@ -37,10 +37,10 @@ export default defineConfig({
       // 从而只防退化、随补测逐步收紧，直到重新逼近 80%。基线由 `npm run test:coverage` 实测得出。
       thresholds: {
         autoUpdate: true,
-        statements: 78.27,
-        branches: 71.18,
-        functions: 75.99,
-        lines: 81.1,
+        statements: 78.51,
+        branches: 71.39,
+        functions: 76,
+        lines: 81.36,
       },
     },
   },

@@ -20,6 +20,7 @@ struct FakeGateway {
     submitted: Mutex<Vec<String>>,
     readiness_calls: AtomicUsize,
     readiness_hook: Mutex<Option<(usize, ReadinessHook)>>,
+    fail_readiness_call: AtomicUsize,
 }
 
 impl FakeGateway {
@@ -31,6 +32,7 @@ impl FakeGateway {
             submitted: Mutex::new(Vec::new()),
             readiness_calls: AtomicUsize::new(0),
             readiness_hook: Mutex::new(None),
+            fail_readiness_call: AtomicUsize::new(0),
         }
     }
 
@@ -57,6 +59,12 @@ impl TaskQueueDispatchGateway for FakeGateway {
         if let Some(hook) = hook {
             hook();
         }
+        if call == self.fail_readiness_call.load(Ordering::SeqCst) {
+            return Err(AppError::coded(
+                "DAEMON_UNAVAILABLE",
+                "temporary status lookup failure",
+            ));
+        }
         Ok(self
             .readiness
             .lock()
@@ -79,6 +87,8 @@ impl TaskQueueDispatchGateway for FakeGateway {
 }
 
 struct Fixture {
+    database: Arc<Database>,
+    service: Arc<TaskQueueService>,
     repository: Arc<TaskQueueRepository>,
     dispatcher: TaskQueueDispatcher,
     gateway: Arc<FakeGateway>,
@@ -87,9 +97,8 @@ struct Fixture {
 }
 
 fn fixture(readiness: impl IntoIterator<Item = TaskQueueReadiness>) -> Fixture {
-    let repository = Arc::new(TaskQueueRepository::new(Arc::new(
-        Database::new_fallback().expect("database"),
-    )));
+    let database = Arc::new(Database::new_fallback().expect("database"));
+    let repository = Arc::new(TaskQueueRepository::new(database.clone()));
     let image_root = tempfile::tempdir().expect("image root");
     let trusted_root = tempfile::tempdir().expect("trusted root");
     let service = Arc::new(TaskQueueService::new(
@@ -98,8 +107,10 @@ fn fixture(readiness: impl IntoIterator<Item = TaskQueueReadiness>) -> Fixture {
         trusted_root.path().to_path_buf(),
     ));
     let gateway = Arc::new(FakeGateway::new(readiness));
-    let dispatcher = TaskQueueDispatcher::new(service, gateway.clone());
+    let dispatcher = TaskQueueDispatcher::new(service.clone(), gateway.clone());
     Fixture {
+        database,
+        service,
         repository,
         dispatcher,
         gateway,
@@ -294,4 +305,178 @@ fn ambiguous_submit_failure_requires_action_and_never_auto_retries() {
     assert_eq!(snapshot.items[0].state, QueueItemState::DeliveryUnknown);
     assert_eq!(snapshot.state, TaskQueueState::ActionRequired);
     assert_eq!(snapshot.reason, Some(TaskQueueReason::DeliveryUnknown));
+}
+
+#[test]
+fn post_claim_lookup_error_is_retryable_and_following_tasks_keep_fifo_order() {
+    let fixture = fixture(std::iter::repeat_n(TaskQueueReadiness::Ready, 20));
+    fixture
+        .gateway
+        .fail_readiness_call
+        .store(2, Ordering::SeqCst);
+    queue(&fixture.repository, "first", 1);
+    queue(&fixture.repository, "second", 2);
+    assert!(matches!(
+        fixture.dispatcher.check_session("pty-1", 3).unwrap(),
+        TaskQueueDispatchOutcome::Failed { .. }
+    ));
+    let snapshot = fixture.repository.snapshot("pty-1").unwrap();
+    assert_eq!(snapshot.items[0].state, QueueItemState::Failed);
+    assert_eq!(
+        snapshot.items[0].last_error.as_deref(),
+        Some("temporary status lookup failure")
+    );
+    assert!(fixture.gateway.submitted.lock().unwrap().is_empty());
+    assert_eq!(
+        fixture.dispatcher.check_session("pty-1", 4).unwrap(),
+        TaskQueueDispatchOutcome::Noop
+    );
+    fixture
+        .service
+        .retry_item("pty-1", &snapshot.items[0].id, 5)
+        .unwrap();
+    for now in [6, 7] {
+        assert!(matches!(
+            fixture.dispatcher.check_session("pty-1", now).unwrap(),
+            TaskQueueDispatchOutcome::Submitted { .. }
+        ));
+    }
+    assert_eq!(
+        *fixture.gateway.submitted.lock().unwrap(),
+        ["first", "second"]
+    );
+    assert!(fixture
+        .repository
+        .snapshot("pty-1")
+        .unwrap()
+        .items
+        .is_empty());
+}
+
+#[test]
+fn failed_claim_finalization_is_retried_without_restarting_the_worker() {
+    let fixture = fixture(std::iter::repeat_n(TaskQueueReadiness::Ready, 20));
+    fixture
+        .gateway
+        .fail_readiness_call
+        .store(2, Ordering::SeqCst);
+    fixture.database.connection().unwrap().execute_batch(
+        "CREATE TRIGGER reject_failed_finalization BEFORE UPDATE OF state ON terminal_task_queue_items
+         WHEN NEW.state = 'failed' BEGIN SELECT RAISE(FAIL, 'temporary storage error'); END;"
+    ).unwrap();
+    queue(&fixture.repository, "first", 1);
+    queue(&fixture.repository, "second", 2);
+    assert!(fixture.dispatcher.check_session("pty-1", 3).is_err());
+    assert_eq!(
+        fixture.repository.snapshot("pty-1").unwrap().items[0].state,
+        QueueItemState::Dispatching
+    );
+    fixture
+        .database
+        .connection()
+        .unwrap()
+        .execute_batch("DROP TRIGGER reject_failed_finalization")
+        .unwrap();
+    assert!(matches!(
+        fixture.dispatcher.check_session("pty-1", 4).unwrap(),
+        TaskQueueDispatchOutcome::Failed { .. }
+    ));
+    let snapshot = fixture.repository.snapshot("pty-1").unwrap();
+    fixture
+        .service
+        .retry_item("pty-1", &snapshot.items[0].id, 5)
+        .unwrap();
+    for now in [6, 7] {
+        fixture.dispatcher.check_session("pty-1", now).unwrap();
+    }
+    assert_eq!(
+        *fixture.gateway.submitted.lock().unwrap(),
+        ["first", "second"]
+    );
+}
+
+#[test]
+fn acknowledgement_persistence_failure_never_automatically_replays_the_prompt() {
+    let fixture = fixture(std::iter::repeat_n(TaskQueueReadiness::Ready, 20));
+    fixture
+        .database
+        .connection()
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER reject_acknowledgement BEFORE DELETE ON terminal_task_queue_items
+         WHEN OLD.state = 'dispatching' BEGIN SELECT RAISE(FAIL, 'lost acknowledgement'); END;",
+        )
+        .unwrap();
+    queue(&fixture.repository, "first", 1);
+    queue(&fixture.repository, "second", 2);
+    assert!(matches!(
+        fixture.dispatcher.check_session("pty-1", 3).unwrap(),
+        TaskQueueDispatchOutcome::DeliveryUnknown { .. }
+    ));
+    fixture
+        .database
+        .connection()
+        .unwrap()
+        .execute_batch("DROP TRIGGER reject_acknowledgement")
+        .unwrap();
+    for now in [4, 5, 6] {
+        assert_eq!(
+            fixture.dispatcher.check_session("pty-1", now).unwrap(),
+            TaskQueueDispatchOutcome::Noop
+        );
+    }
+    let snapshot = fixture.repository.snapshot("pty-1").unwrap();
+    assert_eq!(snapshot.items[0].state, QueueItemState::DeliveryUnknown);
+    assert_eq!(*fixture.gateway.submitted.lock().unwrap(), ["first"]);
+    // The user confirms the first prompt was received and removes only that uncertain item.
+    fixture
+        .service
+        .delete_item("pty-1", &snapshot.items[0].id, 7)
+        .unwrap();
+    fixture.dispatcher.check_session("pty-1", 8).unwrap();
+    assert_eq!(
+        *fixture.gateway.submitted.lock().unwrap(),
+        ["first", "second"]
+    );
+}
+
+#[test]
+fn submitted_images_remain_readable_for_delayed_cli_consumption_and_followup_tasks() {
+    let fixture = fixture(std::iter::repeat_n(TaskQueueReadiness::Ready, 20));
+    let source = fixture._trusted_root.path().join("clipboard.png");
+    let bytes = b"\x89PNG\r\n\x1a\nimage";
+    std::fs::write(&source, bytes).unwrap();
+    for text in ["first image", "second image"] {
+        let staged = fixture.service.stage_image("pty-1", &source, 1, 1).unwrap();
+        fixture
+            .service
+            .add_item(
+                "pty-1",
+                &TaskQueueItemDraft::new(text, vec![staged.image_ref]).unwrap(),
+                1,
+            )
+            .unwrap();
+    }
+    for now in [2, 3] {
+        assert!(matches!(
+            fixture.dispatcher.check_session("pty-1", now).unwrap(),
+            TaskQueueDispatchOutcome::Submitted { .. }
+        ));
+        // A CLI reads the file only after submit_text has acknowledged the terminal write.
+        for prompt in fixture.gateway.submitted.lock().unwrap().iter() {
+            assert_eq!(
+                std::fs::read(prompt.lines().next().unwrap()).unwrap(),
+                bytes
+            );
+        }
+        assert_eq!(fixture.service.prune_unreferenced_images().unwrap(), 0);
+    }
+    assert_eq!(fixture.gateway.submitted.lock().unwrap().len(), 2);
+    assert!(fixture
+        .repository
+        .snapshot("pty-1")
+        .unwrap()
+        .items
+        .is_empty());
+    assert_eq!(fixture.service.release_session_images("pty-1").unwrap(), 2);
 }

@@ -37,6 +37,7 @@ vi.mock("@/services/selfChatService", () => ({
 vi.mock("@/services/terminalService", () => ({
   terminalService: {
     killSession: vi.fn().mockResolvedValue(undefined),
+    killIdempotent: vi.fn().mockResolvedValue(undefined),
     write: vi.fn().mockResolvedValue(undefined),
   },
 }));
@@ -44,7 +45,7 @@ vi.mock("@/services/terminalService", () => ({
 const getAppCwd = vi.mocked(selfChatService.getAppCwd);
 const collectAppContext = vi.mocked(selfChatService.collectAppContext);
 const collectOnboardingContext = vi.mocked(selfChatService.collectOnboardingContext);
-const killSession = vi.mocked(terminalService.killSession);
+const killSession = vi.mocked(terminalService.killIdempotent);
 const write = vi.mocked(terminalService.write);
 
 describe("SelfChatManager", () => {
@@ -52,7 +53,7 @@ describe("SelfChatManager", () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
-    useSelfChatStore.setState({ activeSession: null, isOnboarding: false });
+    useSelfChatStore.setState({ activeSession: null, isOnboarding: false, autoStartPaused: false });
     useSettingsStore.setState({
       settings: { general: { defaultCliTool: "codex" } },
     } as never);
@@ -217,23 +218,40 @@ describe("SelfChatManager", () => {
     expect(useSelfChatStore.getState().activeSession?.status).toBe("exited");
   });
 
-  it("kills the PTY on end session and auto-starts a fresh session", async () => {
+  it("ends without restarting, stays stopped across remount, and restarts explicitly", async () => {
     const user = userEvent.setup();
-    render(<SelfChatManager />);
+    const view = render(<SelfChatManager />);
     await screen.findByTestId("terminal-view");
     act(() => terminalViewProps!.onSessionCreated("pty-1"));
     const firstId = useSelfChatStore.getState().activeSession!.id;
-
     const buttons = screen.getAllByRole("button");
     await user.click(buttons[buttons.length - 1]);
-
+    await waitFor(() => expect(useSelfChatStore.getState().activeSession).toBeNull());
     expect(killSession).toHaveBeenCalledWith("pty-1");
-    // 结束后 autoStartedRef 复位，挂载中的组件按现状会自动拉起新会话
-    await waitFor(() => {
-      const session = useSelfChatStore.getState().activeSession;
-      expect(session).not.toBeNull();
-      expect(session!.id).not.toBe(firstId);
-    });
+    expect(useSelfChatStore.getState().autoStartPaused).toBe(true);
+    view.unmount();
+    render(<SelfChatManager />);
+    expect(screen.queryByTestId("terminal-view")).not.toBeInTheDocument();
+    expect(useSelfChatStore.getState().activeSession).toBeNull();
+    await user.click(screen.getByRole("button"));
+    await screen.findByTestId("terminal-view");
+    expect(useSelfChatStore.getState().activeSession?.id).not.toBe(firstId);
+  });
+
+  it("preserves the live session and subscriptions when stopping fails", async () => {
+    const user = userEvent.setup();
+    render(<SelfChatManager />);
+    await screen.findByTestId("terminal-view");
+    act(() => terminalViewProps!.onSessionCreated("pty-live"));
+    const original = useSelfChatStore.getState().activeSession;
+    killSession.mockRejectedValueOnce(new Error("temporary daemon failure"));
+    const buttons = screen.getAllByRole("button");
+    await user.click(buttons[buttons.length - 1]);
+    await waitFor(() => expect(killSession).toHaveBeenCalledWith("pty-live"));
+    expect(useSelfChatStore.getState().activeSession).toEqual(original);
+    expect(terminalService.killSession).not.toHaveBeenCalled();
+    expect(screen.getByTestId("terminal-view")).toBeInTheDocument();
+    expect(useSelfChatStore.getState().autoStartPaused).toBe(false);
   });
 
   it("restart kills the current session and auto-starts a fresh one", async () => {

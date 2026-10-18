@@ -16,6 +16,13 @@ import type {
 } from "@/types";
 
 export const taskBindingService = {
+  /** Re-enter the desktop durable dispatcher; never silently launch with default settings. */
+  async retryDispatched(bindingId: string): Promise<TaskBinding> {
+    return invokeOrApi<TaskBinding>("retry_dispatched_task", { bindingId }, async () => {
+      throw new Error("Retry this dispatched task in the desktop app");
+    });
+  },
+
   /** 创建编排任务 */
   async create(request: CreateTaskBindingRequest): Promise<TaskBinding> {
     return invokeOrApi<TaskBinding>("create_task_binding", { request }, () =>

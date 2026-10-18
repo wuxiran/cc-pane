@@ -19,6 +19,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { localHistoryService, terminalService } from "@/services";
+import { taskBindingService } from "@/services/taskBindingService";
+import { toastErr } from "@/lib/feedback";
 import {
   useActivityBarStore,
   useOrchestratorStore,
@@ -126,6 +128,7 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
         if (name === "retry") {
           // fix(C5) review: retry 失败立即解锁，避免异常后 5s 内误锁死。
           setRetryLocked(false);
+          toastErr(error instanceof Error ? error.message : String(error));
         }
         handleErrorSilent(error, `orchestrator ${name}`);
       } finally {
@@ -154,6 +157,12 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
     if (!canRetry || isBusy) return;
     setRetryLocked(true);
     await runAction("retry", async () => {
+      if (binding.metadata && typeof binding.metadata === "object"
+        && "dispatchEnvelope" in binding.metadata) {
+        const next = await taskBindingService.retryDispatched(binding.id);
+        useOrchestratorStore.getState().applyChangedEvent({ op: "create", id: next.id, binding: next });
+        return;
+      }
       const gitBranch = await readGitBranch(binding.projectPath);
       await updatePatch(binding.id, {
         metadata: {
