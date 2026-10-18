@@ -58,7 +58,10 @@ export default function SessionWorkspaceMenu({
         }
         // 只有真正切换成功后才发布目录和成功提示；失败保留旧会话的实际目录。
         store.setCwdOverride(chatId, newCwd);
-        if (current) store.pushNotice(chatId, t("agentChatWorkspaceSwitched", { name }));
+        if (current) {
+          store.pushNotice(chatId, t("agentChatWorkspaceSwitched", { name }));
+          store.preserveTranscriptPrefix(chatId);
+        }
       } catch (error) {
         if (ownsSetup()) store.pushNotice(chatId, error instanceof Error ? error.message : String(error));
       } finally {

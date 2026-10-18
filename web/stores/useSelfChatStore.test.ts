@@ -3,7 +3,7 @@ import { useSelfChatStore } from "./useSelfChatStore";
 
 describe("useSelfChatStore", () => {
   beforeEach(() => {
-    useSelfChatStore.setState({ activeSession: null, isOnboarding: false });
+    useSelfChatStore.setState({ activeSession: null, isOnboarding: false, autoStartPaused: false });
   });
 
   describe("初始状态", () => {

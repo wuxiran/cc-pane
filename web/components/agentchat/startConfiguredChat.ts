@@ -18,21 +18,27 @@ interface StartConfiguredChatOptions {
   onCwdAdopted?: (cwd: string) => void;
 }
 
-async function applyPreferredMode(chatId: string, snapshot: AcpChatSnapshot, mode?: string | null): Promise<void> {
-  if (!mode) return;
-  const config = snapshot.configOptions?.find((option) => option.category === "mode");
+async function applyPreferredSelection(
+  chatId: string, snapshot: AcpChatSnapshot, category: "mode" | "model", value?: string | null,
+): Promise<void> {
+  if (!value) return;
+  const config = snapshot.configOptions?.find((option) => option.category === category);
   // 新版适配器可能只广告 configOptions，不提供 legacy modes/set_mode。
   // 用户选择来自缓存时仍须以本次广告为准，不能把不可用的限制模式静默抹掉。
   const available = config
-    ? (config.options ?? []).some((choice) => choice.value === mode)
-    : (snapshot.modes?.availableModes ?? []).some((item) => item.id === mode);
+    ? (config.options ?? []).some((choice) => choice.value === value)
+    : category === "mode"
+      ? (snapshot.modes?.availableModes ?? []).some((item) => item.id === value)
+      : (snapshot.models?.availableModels ?? []).some((item) => item.modelId === value);
   if (!available) {
-    throw new Error(i18n.t("agentChatModeUnavailable", { ns: "panes", mode }));
+    throw new Error(i18n.t(category === "mode" ? "agentChatModeUnavailable" : "agentChatModelUnavailable", { ns: "panes", mode: value, model: value }));
   }
   if (config) {
-    if (config.currentValue !== mode) await agentChatService.setConfigOption(chatId, config.configId, mode);
-  } else if (snapshot.modes?.currentModeId !== mode) {
-    await agentChatService.setMode(chatId, mode);
+    if (config.currentValue !== value) await agentChatService.setConfigOption(chatId, config.configId, value);
+  } else if (category === "mode" && snapshot.modes?.currentModeId !== value) {
+    await agentChatService.setMode(chatId, value);
+  } else if (category === "model" && snapshot.models?.currentModelId !== value) {
+    await agentChatService.setModel(chatId, value);
   }
 }
 
@@ -40,18 +46,17 @@ async function applyPreferences(chatId: string, snapshot: AcpChatSnapshot): Prom
   const engineId = snapshot.engineId;
   // 必须在刷新广告缓存前读取偏好：saveEngineModes 会移除不在新列表中的值。
   const prefs = loadEnginePrefs(engineId);
-  await applyPreferredMode(chatId, snapshot, prefs?.preferredModeId);
-  const models = snapshot.models?.availableModels ?? [];
+  await applyPreferredSelection(chatId, snapshot, "mode", prefs?.preferredModeId);
+  await applyPreferredSelection(chatId, snapshot, "model", prefs?.preferredModelId);
+  const modelConfig = snapshot.configOptions?.find((option) => option.category === "model");
+  const models = modelConfig?.options?.map((choice) => ({ modelId: choice.value, name: choice.name, description: choice.description }))
+    ?? snapshot.models?.availableModels ?? [];
   const modeConfig = snapshot.configOptions?.find((option) => option.category === "mode");
   const modes = modeConfig?.options?.map((choice) => ({ id: choice.value, name: choice.name, description: choice.description }))
     ?? snapshot.modes?.availableModes
     ?? [];
   saveEngineModels(engineId, models);
   saveEngineModes(engineId, modes);
-  const model = prefs?.preferredModelId;
-  if (model && model !== snapshot.models?.currentModelId && models.some((item) => item.modelId === model)) {
-    await agentChatService.setModel(chatId, model);
-  }
   const preferredOptions = loadPreferredConfigOptions(engineId);
   for (const option of snapshot.configOptions ?? []) {
     const wanted = preferredOptions[option.configId];
@@ -80,10 +85,11 @@ export async function startConfiguredChat(options: StartConfiguredChatOptions): 
     if (!ownsSetup()) return null;
     const text = firstPrompt?.trim();
     if (text) {
-      store.addUserMessage(chatId, text, []);
       const lead = preamble?.trim();
       const outbound = lead ? `${lead}\n\n---\n\n${text}` : text;
-      await agentChatService.prompt(chatId, [{ type: "text", text: outbound }]);
+      const blocks = [{ type: "text", text: outbound }];
+      store.addUserMessage(chatId, text, [], blocks);
+      await agentChatService.prompt(chatId, blocks);
     }
     store.finishSetup(chatId, token);
     return snapshot;

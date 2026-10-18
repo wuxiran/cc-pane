@@ -29,7 +29,7 @@ import ChatTurnView from "./ChatTurnView";
 import ChatTimelineNavigation from "./ChatTimelineNavigation";
 import ChatWelcome from "./ChatWelcome";
 import "./agentChatAppearance.css";
-import ConfigOptionSelectors from "./ConfigOptionSelectors";
+import ConfigOptionSelectors, { selectableConfigOptions } from "./ConfigOptionSelectors";
 import { HeaderSelect } from "./ChatItems";
 import { groupChatItems, type ChatTurn } from "./chatTurns";
 import EnginePicker from "./EnginePicker";
@@ -93,6 +93,8 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   });
   // 本轮改动审查面板开关。
   const [showChanges, setShowChanges] = useState(false);
+  const [recoverySelections, setRecoverySelections] = useState<Record<string, string>>({});
+  useEffect(() => setRecoverySelections({}), [tab.id, chat?.setup?.token]);
 
   useEffect(() => {
     ensureAgentChatListener();
@@ -129,6 +131,8 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
 
   const snapshot = chat?.snapshot ?? null;
   const phase = chat?.setup?.pending ? "starting" : chat?.setup?.error ? "failed" : snapshot?.phase;
+  // 配置失败但进程仍就绪：允许修改下次启动的偏好，继续禁止发送；真实退出不开放此入口。
+  const setupRecovery = Boolean(chat?.setup?.error) && snapshot?.phase === "ready";
   const availableCommands = chat?.availableCommands ?? [];
   const changesCount = useMemo(() => collectNetChanges(items ?? []).length, [items]);
   const turns = useMemo(() => groupChatItems(items ?? []), [items]);
@@ -273,12 +277,15 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       ? { kind: "assistant", id: "pending-turn", at: Date.now(), blocks: [] }
       : null;
 
-  const modeItems = (snapshot?.modes?.availableModes ?? []).map((mode) => ({
+  const recoveryConfigCategories = new Set(setupRecovery
+    ? selectableConfigOptions(snapshot?.configOptions, new Set()).map((option) => option.category)
+    : []);
+  const modeItems = (recoveryConfigCategories.has("mode") ? [] : snapshot?.modes?.availableModes ?? []).map((mode) => ({
     id: mode.id,
     label: mode.name || mode.id,
     description: mode.description,
   }));
-  const modelItems = (snapshot?.models?.availableModels ?? []).map((model) => ({
+  const modelItems = (recoveryConfigCategories.has("model") ? [] : snapshot?.models?.availableModels ?? []).map((model) => ({
     id: model.modelId,
     label: model.name || model.modelId,
     description: model.description,
@@ -297,17 +304,21 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   };
 
   // composer 底栏：模型 / 模式 / 权限（会话结束后不再可改）。
-  const composerToolbar = snapshot && !ended && !chat?.setup?.pending ? (
+  const composerToolbar = snapshot && (!ended || setupRecovery) && !chat?.setup?.pending ? (
     <>
       {modelItems.length > 0 ? (
         <HeaderSelect
           icon={<Cpu className="h-3.5 w-3.5 shrink-0 opacity-70" />}
           items={modelItems}
-          currentId={snapshot.models?.currentModelId}
+          currentId={setupRecovery ? recoverySelections.model ?? snapshot.models?.currentModelId : snapshot.models?.currentModelId}
           onSelect={(modelId) => {
             // 记为该引擎的偏好模型，下次启动页直接可选并自动应用。
             savePreferredModel(snapshot.engineId, modelId);
             saveEngineModels(snapshot.engineId, snapshot.models?.availableModels ?? []);
+            if (setupRecovery) {
+              setRecoverySelections((previous) => ({ ...previous, model: modelId }));
+              return;
+            }
             void agentChatService.setModel(tab.id, modelId).catch(pushError);
           }}
         />
@@ -316,33 +327,43 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
         <HeaderSelect
           icon={<SlidersHorizontal className="h-3.5 w-3.5 shrink-0 opacity-70" />}
           items={modeItems}
-          currentId={snapshot.modes?.currentModeId}
+          currentId={setupRecovery ? recoverySelections.mode ?? snapshot.modes?.currentModeId : snapshot.modes?.currentModeId}
           onSelect={(modeId) => {
             savePreferredMode(snapshot.engineId, modeId);
             saveEngineModes(snapshot.engineId, snapshot.modes?.availableModes ?? []);
+            if (setupRecovery) {
+              setRecoverySelections((previous) => ({ ...previous, mode: modeId }));
+              return;
+            }
             void agentChatService.setMode(tab.id, modeId).catch(pushError);
           }}
         />
       ) : null}
       <ConfigOptionSelectors
-        options={snapshot.configOptions}
+        options={setupRecovery ? snapshot.configOptions?.map((option) => ({
+          ...option, currentValue: recoverySelections[`config:${option.configId}`] ?? option.currentValue,
+        })) : snapshot.configOptions}
         hiddenCategories={legacyCategories}
         onSelect={(option, value) => {
           // mode/model 类别（legacy 缺席时才从这里出）沿用原偏好字段；其余记进配置项偏好。
           if (option.category === "model") savePreferredModel(snapshot.engineId, value);
           else if (option.category === "mode") savePreferredMode(snapshot.engineId, value);
           else savePreferredConfigOption(snapshot.engineId, option.configId, value);
+          if (setupRecovery) {
+            setRecoverySelections((previous) => ({ ...previous, [`config:${option.configId}`]: value }));
+            return;
+          }
           void agentChatService.setConfigOption(tab.id, option.configId, value).catch(pushError);
         }}
       />
-      <PermissionPolicyDropdown
+      {!setupRecovery ? <PermissionPolicyDropdown
         kinds={autoApproveKinds}
         onChange={(kinds) => {
           // 同时落为引擎偏好（下次启动沿用）并对当前会话立即生效。
           saveAutoApproveKinds(snapshot.engineId, kinds);
           void agentChatService.setAutoApprove(tab.id, kinds).catch(pushError);
         }}
-      />
+      /> : null}
     </>
   ) : null;
 
@@ -459,8 +480,14 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
 
       {ended ? (
         <div className="agent-chat-ended px-3 pb-3 pt-1">
+          {setupRecovery ? (
+            <div className="mx-auto mb-2 flex max-w-3xl flex-col gap-2 text-xs text-[var(--app-text-secondary)]">
+              <span>{t("agentChatSetupRecovery")}</span>
+              <div className="flex flex-wrap items-center gap-1">{composerToolbar}</div>
+            </div>
+          ) : null}
           <div className="mx-auto flex max-w-3xl items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--app-border)] bg-[var(--app-chat-composer-bg)] px-3 py-3 text-xs text-[var(--app-text-tertiary)]">
-            <span>{t("agentChatEnded")}</span>
+            {!setupRecovery ? <span>{t("agentChatEnded")}</span> : null}
             {effectiveCwd ? (
               <button
                 type="button"

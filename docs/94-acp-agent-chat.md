@@ -38,7 +38,7 @@ Chat UI (React) ←acp-chat-event← AcpChatService (src-tauri, ndjson JSON-RPC)
   重启即断进程，续接走 `session/load`（见 §5）。web 模式（cc-panes-web）
   不支持，桌面 only。
 - 事件信封 `{chatId, kind, payload}`，kind ∈ state / update /
-  permission_request / turn_ended / notification / protocol_noise。
+  permission_request / turn_ended / history_replay / notification / protocol_noise。
   `session/update` 的 params **原样透传**，未知变体前端降级可见（notice
   去重提示）——这是 v1→v2 过渡期的协议漂移探针，不许静默丢弃。
 - token 流防渲染风暴：`agent_message_chunk` 在监听层 16ms 合批再进
@@ -66,6 +66,11 @@ Orca 架构的必要之恶，不是我们的（docs/55 H6 数量竞赛不追的�
   有 resume id 且 agent 广告 `loadSession` 时走 `session/load`（agent 全量
   回放历史成 update 流），否则 `session/new`。**load 失败降级新会话必须可
   见**（notice），resume 链路静默降级的老教训。
+- 恢复回放使用 `history_replay` 的 begin/commit/abort 边界：历史更新先进入临时缓冲，
+  成功后替换当前会话正文；拒绝、超时或取消会丢弃临时回放，保留原画面和其他项目的历史前缀。
+- 审批按 requestKey 排队；成功回复后才出队，发送失败保留原审批供重试。
+- 启动阶段等待已选模式、模型及配置项应用完成，再开放手动输入和发送首条任务。
+  缓存模式已不可用时明确报错；配置失败且进程仍可用时可改选本次广告的配置，再明确重启。
 - 历史：每个对话按 acpSessionId 落一个 meta JSON（engine/cwd/title/时间），
   引擎选择页列出可筛选、可续接。消息本体不落盘——回放靠协议。标题三来源
   （meta 的 `titleSource`）：`auto` = 首条 prompt 截 60 字；`agent` = 引擎经
@@ -80,6 +85,8 @@ Orca 架构的必要之恶，不是我们的（docs/55 H6 数量竞赛不追的�
   独立工作树从当前提交出发，复制已跟踪文件的未提交修改和未忽略的新普通文件；
   未跟踪符号链接/嵌套仓库会明确报错并清理本次创建的工作树。创建成功但引擎
   启动失败时保留工作树，错误信息显示其路径，原会话仍可用。
+- 停止：adapter 与客户端工具终端统一管理进程组/Job Object，取消不会被等待退出的任务吞掉。
+  文件写入保留既有权限和软链接，重试消息保留原始文本、图片与资源引用块。
 - 回收：关标签走 `TAB_LIFECYCLE["agent-chat"].onClosed`（组件未挂载路径可
   达），generating 中关闭有 closeGuard 确认。
 

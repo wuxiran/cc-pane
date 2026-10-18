@@ -23,7 +23,10 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
+
+#[path = "acp_client_file.rs"]
+mod file;
 use tokio::sync::{watch, Notify, RwLock};
 use tokio::task::JoinSet;
 
@@ -93,49 +96,24 @@ pub fn window_lines(content: &str, line: Option<u64>, limit: Option<u64>) -> Str
     lines[start..end].concat()
 }
 
-/// `fs/write_text_file` → `null`. Creates parent directories; overwrites atomically
-/// enough for our purposes (write to temp + rename) so a crash never leaves a
-/// half-written file the agent then reads back.
+/// `fs/write_text_file` → `null`. Follow links, retain existing permissions and
+/// replace atomically using an independently owned temporary file per write.
 pub async fn fs_write_text_file(params: &Value) -> RpcResult {
-    let path = require_absolute_path(params)?;
+    let path = require_absolute_path(params)?.to_path_buf();
     let content = params
         .get("content")
         .and_then(Value::as_str)
-        .ok_or_else(|| rpc_error(JSONRPC_INVALID_PARAMS, "missing 'content'"))?;
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|error| rpc_error(JSONRPC_INTERNAL_ERROR, format!("mkdir failed: {error}")))?;
-    }
-    let tmp = path.with_extension(format!(
-        "{}.ccpanes-tmp",
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or("txt")
-    ));
-    {
-        let mut file = tokio::fs::File::create(&tmp).await.map_err(|error| {
-            rpc_error(JSONRPC_INTERNAL_ERROR, format!("create failed: {error}"))
-        })?;
-        file.write_all(content.as_bytes())
-            .await
-            .map_err(|error| rpc_error(JSONRPC_INTERNAL_ERROR, format!("write failed: {error}")))?;
-        file.flush()
-            .await
-            .map_err(|error| rpc_error(JSONRPC_INTERNAL_ERROR, format!("flush failed: {error}")))?;
-    }
-    if let Err(error) = tokio::fs::rename(&tmp, path).await {
-        // Windows: rename over an open/readonly target can fail; fall back to a plain write.
-        let _ = tokio::fs::remove_file(&tmp).await;
-        tokio::fs::write(path, content)
-            .await
-            .map_err(|write_error| {
-                rpc_error(
-                    JSONRPC_INTERNAL_ERROR,
-                    format!("write failed: {write_error} (rename: {error})"),
-                )
-            })?;
-    }
+        .ok_or_else(|| rpc_error(JSONRPC_INVALID_PARAMS, "missing 'content'"))?
+        .to_string();
+    tokio::task::spawn_blocking(move || file::write_text(&path, &content))
+        .await
+        .map_err(|error| {
+            rpc_error(
+                JSONRPC_INTERNAL_ERROR,
+                format!("write task failed: {error}"),
+            )
+        })?
+        .map_err(|error| rpc_error(JSONRPC_INTERNAL_ERROR, format!("write failed: {error}")))?;
     Ok(Value::Null)
 }
 

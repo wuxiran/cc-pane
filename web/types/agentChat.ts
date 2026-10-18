@@ -211,6 +211,8 @@ export type AgentChatItem =
       attachmentLabels?: string[];
       /** 发送时的完整附件（气泡回显缩略图用）；labels 是它的名字投影。 */
       attachments?: AgentChatAttachment[];
+      /** 真正交给 agent 的完整内容；重试保留图片、引用以及启动指令。 */
+      promptBlocks?: AcpContentBlock[];
     }
   | { type: "assistant"; id: string; at: number; text: string; parentToolCallId?: string }
   /** doneAt：思考流被后续条目或回合结束收口的时刻，用于"思考了 N 秒"。 */

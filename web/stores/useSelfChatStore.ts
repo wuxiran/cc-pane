@@ -8,6 +8,8 @@ interface SelfChatState {
   activeSession: SelfChatSession | null;
   /** 当前 SelfChat 会话是否为 onboarding 模式 */
   isOnboarding: boolean;
+  autoStartPaused: boolean;
+  resumeAutoStart: () => void;
 
   startSession: (appCwd: string, systemPrompt: string | null) => string;
   updatePtySessionId: (id: string, ptySessionId: string) => void;
@@ -19,6 +21,8 @@ interface SelfChatState {
 export const useSelfChatStore = create<SelfChatState>((set, get) => ({
   activeSession: null,
   isOnboarding: false,
+  autoStartPaused: false,
+  resumeAutoStart: () => set({ autoStartPaused: false }),
 
   startSession: (appCwd, systemPrompt) => {
     const id = crypto.randomUUID();
@@ -29,7 +33,7 @@ export const useSelfChatStore = create<SelfChatState>((set, get) => ({
       status: "initializing",
       systemPrompt,
     };
-    set({ activeSession: session });
+    set({ activeSession: session, autoStartPaused: false });
     return id;
   },
 
@@ -50,9 +54,9 @@ export const useSelfChatStore = create<SelfChatState>((set, get) => ({
   endSession: (id) => {
     const s = get().activeSession;
     if (s?.id === id) {
-      set({ activeSession: null, isOnboarding: false });
+      set({ activeSession: null, isOnboarding: false, autoStartPaused: true });
     }
   },
 
-  setOnboarding: (value) => set({ isOnboarding: value }),
+  setOnboarding: (value) => set((state) => ({ isOnboarding: value, autoStartPaused: value ? false : state.autoStartPaused })),
 }));

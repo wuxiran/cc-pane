@@ -97,3 +97,15 @@ pub fn record_ai_panel_event(
         .record_ai_panel_event(&panel_id, &action, payload)
         .map_err(AppError::from)
 }
+
+/// Retry through the same durable dispatcher used by MCP, preserving launch context.
+#[tauri::command]
+pub async fn retry_dispatched_task(
+    orchestrator: State<'_, Arc<OrchestratorService>>,
+    binding_id: String,
+) -> AppResult<cc_panes_core::models::task_binding::TaskBinding> {
+    orchestrator
+        .retry_dispatched_task(&binding_id)
+        .await
+        .map_err(AppError::from)
+}

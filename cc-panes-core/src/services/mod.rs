@@ -175,6 +175,7 @@ pub use task_queue_dispatcher::{
 };
 pub use task_queue_service::{
     TaskQueueService, UnattendedPermissionDecision, TASK_QUEUE_IMAGE_MAX_BYTES,
+    TASK_QUEUE_IMAGE_RETENTION, TASK_QUEUE_IMAGE_STORAGE_MAX_BYTES,
 };
 pub use terminal_backend::{
     set_claim_lost_hook, AutomaticWriteAuthority, CreateSessionOutcome, DaemonTerminalBackend,

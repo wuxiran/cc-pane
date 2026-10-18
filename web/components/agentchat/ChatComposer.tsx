@@ -11,7 +11,7 @@ import { isTauriRuntime } from "@/services/runtime";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
-import { isAbsolutePath, joinCwd, toFileUri } from "./chatPaths";
+import { buildPromptBlocks } from "./chatPrompt";
 import { useComposerAttachments } from "./useComposerAttachments";
 import ChatVoiceButton from "./ChatVoiceButton";
 import ContextUsageRing from "./ContextUsageRing";
@@ -47,12 +47,12 @@ export default function ChatComposer({
 }: ChatComposerProps) {
   const { t } = useTranslation("panes");
   // 最后一条用户消息（重试上一轮用；从 store 取，重挂载不丢）。
-  const lastUserText = useAgentChatStore((state) => {
+  const lastUserMessage = useAgentChatStore((state) => {
     const chatItems = state.chats[chatId]?.items;
     if (!chatItems) return null;
     for (let index = chatItems.length - 1; index >= 0; index -= 1) {
       const item = chatItems[index];
-      if (item.type === "user" && item.text) return item.text;
+      if (item.type === "user") return item;
     }
     return null;
   });
@@ -176,18 +176,7 @@ export default function ChatComposer({
     const text = draft.trim();
     if ((!text && attachments.length === 0) || phase !== "ready") return;
 
-    const blocks: unknown[] = attachments.map((attachment) =>
-      attachment.kind === "file" && attachment.path
-        ? { type: "resource_link", uri: toFileUri(attachment.path), name: attachment.name }
-        : { type: "image", mimeType: attachment.mimeType, data: attachment.data },
-    );
-    // `@路径` → resource_link 块（ACP 基线能力，所有 agent 必须支持）。
-    for (const match of text.matchAll(/(?:^|\s)@([^\s@]+)/g)) {
-      const mention = match[1];
-      const absolute = isAbsolutePath(mention) ? mention : joinCwd(cwd || ".", mention);
-      blocks.push({ type: "resource_link", uri: toFileUri(absolute), name: mention });
-    }
-    if (text) blocks.push({ type: "text", text });
+    const blocks = buildPromptBlocks(text, attachments, cwd);
 
     setDraft("");
     const sentAttachments = attachments;
@@ -200,7 +189,7 @@ export default function ChatComposer({
       if (history.length > SENT_HISTORY_LIMIT) history.shift();
       sentHistoryCache.set(chatId, history);
     }
-    useAgentChatStore.getState().addUserMessage(chatId, text, sentAttachments);
+    useAgentChatStore.getState().addUserMessage(chatId, text, sentAttachments, blocks);
     void agentChatService.prompt(chatId, blocks).catch((error) => {
       useAgentChatStore
         .getState()
@@ -236,17 +225,20 @@ export default function ChatComposer({
     });
   }, [chatId]);
 
-  /** 重试上一轮：原样重发最后一条用户消息（附件/文件引用不重放）。 */
+  /** 重试上一轮：保留原始 blocks，包含仅附件消息以及发送时解析出的绝对引用。 */
   const retryLast = useCallback(() => {
-    if (!lastUserText || phase !== "ready") return;
+    if (!lastUserMessage || phase !== "ready") return;
+    const blocks = lastUserMessage.promptBlocks
+      ?? buildPromptBlocks(lastUserMessage.text, lastUserMessage.attachments ?? [], cwd);
+    if (blocks.length === 0) return;
     onBeforeSend?.();
-    useAgentChatStore.getState().addUserMessage(chatId, lastUserText);
-    void agentChatService.prompt(chatId, [{ type: "text", text: lastUserText }]).catch((error) => {
+    useAgentChatStore.getState().addUserMessage(chatId, lastUserMessage.text, lastUserMessage.attachments, blocks);
+    void agentChatService.prompt(chatId, blocks).catch((error) => {
       useAgentChatStore
         .getState()
         .pushNotice(chatId, error instanceof Error ? error.message : String(error));
     });
-  }, [chatId, lastUserText, phase, onBeforeSend]);
+  }, [chatId, lastUserMessage, phase, onBeforeSend, cwd]);
 
   const canSend = phase === "ready" && (Boolean(draft.trim()) || attachments.length > 0);
 
@@ -387,7 +379,7 @@ export default function ChatComposer({
             </div>
             <div className="agent-chat-composer-actions flex shrink-0 items-center gap-1.5">
               {usage ? <ContextUsageRing usage={usage} /> : null}
-              {lastUserText && !generating ? (
+              {lastUserMessage && !generating ? (
                 <IconTooltipButton
                   label={t("agentChatRetry")}
                   disabled={phase !== "ready"}

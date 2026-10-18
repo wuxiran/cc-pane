@@ -36,6 +36,8 @@ use permissions::PendingPermissions;
 #[path = "acp_chat_service/process.rs"]
 pub(super) mod process;
 use process::AcpProcess;
+#[path = "acp_chat_service/replay.rs"]
+mod replay;
 
 pub const ACP_CHAT_EVENT: &str = "acp-chat-event";
 
@@ -697,25 +699,41 @@ impl AcpChatService {
             .filter(|id| !id.is_empty())
         {
             if capability(&["loadSession"]) {
-                let load = tokio::time::timeout(
-                    HANDSHAKE_TIMEOUT,
-                    session.request(
-                        "session/load",
-                        json!({
-                            "sessionId": resume_id,
-                            "cwd": cwd,
-                            "mcpServers": mcp_servers,
-                        }),
-                    ),
+                let load = replay::load(
+                    |phase| {
+                        session.emit(
+                            "history_replay",
+                            json!({
+                                "phase": phase, "acpSessionId": resume_id,
+                            }),
+                        )
+                    },
+                    async {
+                        tokio::time::timeout(
+                            HANDSHAKE_TIMEOUT,
+                            session.request(
+                                "session/load",
+                                json!({
+                                    "sessionId": resume_id,
+                                    "cwd": cwd,
+                                    "mcpServers": mcp_servers,
+                                }),
+                            ),
+                        )
+                        .await
+                        .map_err(|_| {
+                            AppError::coded("ACP_HANDSHAKE_TIMEOUT", "ACP session/load timed out")
+                        })?
+                    },
                 )
-                .await
-                .map_err(|_| {
-                    AppError::coded("ACP_HANDSHAKE_TIMEOUT", "ACP session/load timed out")
-                })?;
+                .await;
                 match load {
                     Ok(response) => {
                         resumed_session_id = Some(resume_id.to_string());
                         session_response = Some(response);
+                    }
+                    Err(error) if error.code() == Some("ACP_HANDSHAKE_TIMEOUT") => {
+                        return Err(error);
                     }
                     Err(error) => {
                         warn!(chat_id = %session.chat_id, error = %error, "ACP session/load failed; starting a fresh session");
@@ -1210,32 +1228,26 @@ impl AcpChatService {
             return;
         };
         let now = unix_millis();
-        let existing = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
-        let created_at = existing
-            .as_ref()
-            .and_then(|meta| meta.get("createdAt"))
-            .and_then(Value::as_i64)
-            .unwrap_or(now);
+        // Resume refreshes identity/timestamps, while preserving user title
+        // ownership and other metadata written by newer versions of the app.
+        let mut meta = read_meta(&path)
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({}));
+        let created_at = meta.get("createdAt").and_then(Value::as_i64).unwrap_or(now);
         let kept_title = title
             .map(str::to_string)
             .or_else(|| {
-                existing
-                    .as_ref()
-                    .and_then(|meta| meta.get("title"))
+                meta.get("title")
                     .and_then(Value::as_str)
                     .map(str::to_string)
             })
             .unwrap_or_default();
-        let meta = json!({
-            "acpSessionId": acp_session_id,
-            "engineId": engine_id,
-            "cwd": cwd,
-            "title": kept_title,
-            "createdAt": created_at,
-            "updatedAt": now,
-        });
+        meta["acpSessionId"] = json!(acp_session_id);
+        meta["engineId"] = json!(engine_id);
+        meta["cwd"] = json!(cwd);
+        meta["title"] = json!(kept_title);
+        meta["createdAt"] = json!(created_at);
+        meta["updatedAt"] = json!(now);
         if std::fs::create_dir_all(&self.chats_dir).is_ok() {
             if let Err(error) = std::fs::write(&path, meta.to_string()) {
                 warn!(error = %error, "failed to write ACP chat meta");
@@ -2103,6 +2115,48 @@ mod tests {
         apply_agent_title(&dir, "missing", "x");
         assert!(!dir.join("missing.json").exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resume_preserves_user_title_ownership_and_other_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = AcpChatService::new(dir.path().into());
+        service.write_chat_meta("session-1", "fake", "/original", None);
+        service
+            .rename_chat_history("session-1", "My title")
+            .unwrap();
+        let path = dir.path().join("session-1.json");
+        let mut meta = read_meta(&path).unwrap();
+        meta["futureMetadata"] = json!({"pinned": true});
+        let created = meta["createdAt"].clone();
+        std::fs::write(&path, meta.to_string()).unwrap();
+
+        // A fresh runtime service sees the same persisted conversation on resume.
+        let resumed = AcpChatService::new(dir.path().into());
+        resumed.write_chat_meta("session-1", "fake", "/resumed", None);
+        apply_agent_title(dir.path(), "session-1", "Agent replacement");
+        let meta = read_meta(&path).unwrap();
+        assert_eq!(meta["title"], "My title");
+        assert_eq!(meta["titleSource"], "user");
+        assert_eq!(meta["createdAt"], created);
+        assert_eq!(meta["futureMetadata"], json!({"pinned": true}));
+        assert_eq!(meta["cwd"], "/resumed");
+    }
+
+    #[test]
+    fn resume_still_accepts_agent_titles_after_user_clears_their_title() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = AcpChatService::new(dir.path().into());
+        service.write_chat_meta("session-2", "fake", "/repo", None);
+        service
+            .rename_chat_history("session-2", "User title")
+            .unwrap();
+        service.rename_chat_history("session-2", "").unwrap();
+        service.write_chat_meta("session-2", "fake", "/repo", None);
+        apply_agent_title(dir.path(), "session-2", "New agent title");
+        let meta = read_meta(&dir.path().join("session-2.json")).unwrap();
+        assert_eq!(meta["title"], "New agent title");
+        assert_eq!(meta["titleSource"], "agent");
     }
 
     #[test]

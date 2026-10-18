@@ -11,14 +11,37 @@ export function joinCwd(cwd: string, relative: string): string {
 }
 
 export function toFileUri(absolutePath: string): string {
-  const normalized = absolutePath.replace(/\\/g, "/");
-  return normalized.startsWith("/") ? `file://${normalized}` : `file:///${normalized}`;
+  const windows = isWindowsPath(absolutePath);
+  const normalized = windows ? withoutWindowsNamespace(absolutePath).replace(/\\/g, "/") : absolutePath;
+  const encodePath = (path: string) => path.split("/").map(encodeURIComponent).join("/");
+  if (windows && normalized.startsWith("//")) {
+    const slash = normalized.indexOf("/", 2);
+    const host = slash < 0 ? normalized.slice(2) : normalized.slice(2, slash);
+    return `file://${host}${slash < 0 ? "/" : encodePath(normalized.slice(slash))}`;
+  }
+  if (/^[a-zA-Z]:\//.test(normalized)) {
+    return `file:///${normalized.slice(0, 2)}${encodePath(normalized.slice(2))}`;
+  }
+  return `file://${normalized.startsWith("/") ? "" : "/"}${encodePath(normalized)}`;
 }
 
-/** 路径宽松等价（Windows 大小写 + 分隔符差异），仅用于 UI 高亮/过滤。 */
+function withoutWindowsNamespace(path: string): string {
+  if (/^\\\\\?\\UNC\\/i.test(path)) return `\\\\${path.slice(8)}`;
+  return /^\\\\\?\\[a-zA-Z]:\\/.test(path) ? path.slice(4) : path;
+}
+
+function isWindowsPath(path: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(path) || /^\\\\/.test(path) || /^\/\/[^/]+\/[^/]+/.test(path);
+}
+
+/** 只对盘符/UNC 路径应用 Windows 语义；POSIX 大小写和反斜杠都是有效文件名。 */
 export function samePath(left: string, right: string): boolean {
-  const normalize = (value: string) =>
-    value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const windows = isWindowsPath(left);
+  if (windows !== isWindowsPath(right)) return false;
+  const normalize = (value: string) => {
+    if (windows) return withoutWindowsNamespace(value).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    return value ? value.replace(/\/+$/, "") || "/" : "";
+  };
   return normalize(left) === normalize(right);
 }
 
