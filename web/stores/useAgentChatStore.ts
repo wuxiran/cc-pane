@@ -21,6 +21,7 @@ import type {
   AgentChatItem,
 } from "@/types/agentChat";
 import { parentToolCallIdOf } from "@/types/agentChat";
+import { seedForkTranscript } from "./agentChatForkTranscript";
 
 let itemSeq = 0;
 let setupSeq = 0;
@@ -170,19 +171,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
     chats: {},
 
     seedFork: (chatId, items, acpSessionId, preservedPrefixLength = 0) => set((state) => {
-      const child = ensure(state.chats, chatId);
-      // Native fork establishes model context; this copy only supplies the visible transcript.
-      // Do not copy pending approvals, tool terminals, live usage or other parent resources.
-      if (!child.items.some((item) => item.type !== "notice")) {
-        child.items = [...structuredClone(items), ...child.items];
-        child.transcriptStart = Math.min(items.length, Math.max(0, preservedPrefixLength));
-      } else {
-        // A native fork may already have replayed its own transcript before IPC returns.
-        child.transcriptStart = 0;
-      }
-      // Bind the copied history before/after ready alike: later load must replace it,
-      // while preserving only the source's explicit older-session prefix.
-      child.transcriptSessionId = acpSessionId;
+      seedForkTranscript(ensure(state.chats, chatId), items, acpSessionId, preservedPrefixLength);
     }),
 
     setSnapshot: (chatId, snapshot) =>
