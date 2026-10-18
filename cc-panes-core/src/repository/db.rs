@@ -1142,6 +1142,11 @@ const MIGRATIONS: &[Migration] = &[
                 ON heavy_commands(project_path, cmd_normalized, started_at DESC);
         ",
     },
+    Migration {
+        version: 41,
+        description: "remove unsafe legacy command text while retaining workload metrics",
+        up_sql: "UPDATE heavy_commands SET cmd_normalized = '(legacy command)', cmd_redacted = '[legacy command text removed for privacy]';",
+    },
 ];
 
 /// 数据库连接管理
@@ -1866,6 +1871,26 @@ mod tests {
         );
 
         Database::run_migrations(&conn).expect("v35 remains idempotent");
+    }
+
+    #[test]
+    fn migration_41_removes_legacy_credentials_but_keeps_metrics() {
+        let db = Database::new_in_memory().unwrap();
+        let conn = db.connection().unwrap();
+        conn.execute("DELETE FROM schema_migrations WHERE version = 41", [])
+            .unwrap();
+        conn.execute("INSERT INTO heavy_commands (session_id,cmd_normalized,cmd_redacted,started_at,created_at,duration_ms) VALUES ('s','export token=SECRET','password=*** secret suffix',1,1,42)", []).unwrap();
+        Database::run_migrations(&conn).unwrap();
+        let (key, display, duration): (String, String, i64) = conn
+            .query_row(
+                "SELECT cmd_normalized,cmd_redacted,duration_ms FROM heavy_commands",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(key, "(legacy command)");
+        assert_eq!(display, "[legacy command text removed for privacy]");
+        assert_eq!(duration, 42);
     }
 
     #[test]

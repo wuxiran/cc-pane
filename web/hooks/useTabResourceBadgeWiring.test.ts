@@ -21,7 +21,7 @@ function stubLocation(sessionId: string, tabId: string | null) {
 }
 
 beforeEach(() => {
-  useTabResourceBadgeStore.setState({ entries: {} });
+  useTabResourceBadgeStore.setState({ entries: {}, sources: {} });
   vi.restoreAllMocks();
 });
 

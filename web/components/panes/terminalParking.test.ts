@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useTerminalInputActivityStore } from "@/stores/useTerminalInputActivityStore";
+import { createTerminalBackgroundLifecycle } from "./terminalBackgroundLifecycle";
 import type { HibernatedTerminalState } from "./terminalHibernation";
 import { createParkedTerminalState, parkTerminal, type ParkTerminalContext } from "./terminalParking";
 
@@ -84,4 +85,24 @@ describe("parkTerminal", () => {
     const allowed = createContext();
     expect(parkTerminal(allowed)).toBe(true);
   });
+});
+
+afterEach(() => vi.useRealTimers());
+
+it("parks after the real input guard expires without another visibility change", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(100_000);
+  const ctx = createContext();
+  useTerminalInputActivityStore.getState().recordInput("s1", "idle");
+  const lifecycle = createTerminalBackgroundLifecycle({
+    onPark: () => parkTerminal(ctx), onTier1: vi.fn(), onTier1Restore: vi.fn(),
+    onTier2: vi.fn(), onTier2Restore: vi.fn(),
+  });
+  lifecycle.notifyVisibility(false);
+  vi.advanceTimersByTime(30_000);
+  expect(ctx.hibernatedStateRef.current).toBeNull();
+  vi.advanceTimersByTime(30_000);
+  expect(ctx.hibernatedStateRef.current).not.toBeNull();
+  expect(ctx.bumpInstanceEpoch).toHaveBeenCalledTimes(1);
+  lifecycle.dispose();
 });

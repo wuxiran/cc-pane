@@ -114,12 +114,33 @@ pub async fn read_only_guard(
     next.run(request).await
 }
 
-#[derive(Default)]
 pub struct WebAuthStore {
+    revocations: tokio::sync::watch::Sender<u64>,
     sessions: Mutex<HashMap<String, Instant>>,
 }
 
+impl Default for WebAuthStore {
+    fn default() -> Self {
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+            revocations: tokio::sync::watch::channel(0).0,
+        }
+    }
+}
+
 impl WebAuthStore {
+    pub fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.revocations.subscribe()
+    }
+
+    pub fn session_is_valid(&self, token: &str, idle_timeout: Option<Duration>) -> bool {
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        sessions.get(token).is_some_and(|last| {
+            let age = last.elapsed();
+            age <= SESSION_TTL && idle_timeout.is_none_or(|limit| age <= limit)
+        })
+    }
+
     pub fn create_session(&self) -> String {
         let token = generate_token();
         self.sessions
@@ -152,6 +173,8 @@ impl WebAuthStore {
             .lock()
             .unwrap_or_else(|err| err.into_inner())
             .remove(token);
+        self.revocations
+            .send_modify(|version| *version = version.wrapping_add(1));
     }
 }
 
@@ -307,12 +330,14 @@ pub async fn access_control(
     }
 }
 
-fn idle_timeout(settings: &cc_panes_core::models::settings::WebAccessSettings) -> Option<Duration> {
+pub(crate) fn idle_timeout(
+    settings: &cc_panes_core::models::settings::WebAccessSettings,
+) -> Option<Duration> {
     (settings.lock_on_idle_minutes > 0)
         .then(|| Duration::from_secs(u64::from(settings.lock_on_idle_minutes) * 60))
 }
 
-fn remote_allowed(
+pub(crate) fn remote_allowed(
     ip: IpAddr,
     settings: &cc_panes_core::models::settings::WebAccessSettings,
 ) -> bool {
@@ -333,7 +358,11 @@ fn remote_allowed(
 }
 
 fn session_from_request(request: &Request<Body>) -> Option<String> {
-    let cookie = request.headers().get(header::COOKIE)?.to_str().ok()?;
+    session_from_headers(request.headers())
+}
+
+pub(crate) fn session_from_headers(headers: &HeaderMap) -> Option<String> {
+    let cookie = headers.get(header::COOKIE)?.to_str().ok()?;
     cookie.split(';').find_map(|part| {
         let (name, value) = part.trim().split_once('=')?;
         (name == SESSION_COOKIE && !value.is_empty()).then(|| value.to_string())

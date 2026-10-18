@@ -11,6 +11,7 @@ mod browser_service;
 pub mod bundled_skills;
 pub mod heavy_command_recorder;
 pub mod heavy_command_sampler;
+mod heavy_job_policy_queue;
 pub mod heavy_job_routes;
 pub mod im_bridge;
 mod launch_backfill_service;

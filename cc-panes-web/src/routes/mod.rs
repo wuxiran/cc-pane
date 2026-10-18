@@ -28,7 +28,6 @@ use axum::{
     routing::{delete, get, patch, post, put},
     Router,
 };
-use tower_http::cors::CorsLayer;
 
 use crate::state::AppState;
 use crate::ws_handler::ws_upgrade;
@@ -805,6 +804,9 @@ pub fn build_router(state: AppState) -> Router {
         .merge(auth)
         .merge(protected)
         .fallback(static_files::static_handler)
-        .layer(CorsLayer::permissive())
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::browser_trust::guard,
+        ))
         .with_state(state)
 }

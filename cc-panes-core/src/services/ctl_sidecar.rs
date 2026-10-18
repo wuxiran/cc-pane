@@ -54,6 +54,18 @@ pub fn session_ctl_env_value(resource_dir: Option<&Path>, is_ssh: bool) -> Optio
         .map(|path| path.to_string_lossy().into_owned())
 }
 
+/// Script lives on the mounted data volume. Invoke it with bash in the guest,
+/// without changing PATH or executing Linux tools via Windows interop.
+pub fn materialize_wsl_runner(data_dir: &Path) -> Result<PathBuf> {
+    let path = data_dir.join("runtime").join("cc-panes-run.sh");
+    let script = include_str!("../../assets/heavy-run.sh");
+    std::fs::create_dir_all(path.parent().expect("runtime parent"))?;
+    if std::fs::read_to_string(&path).ok().as_deref() != Some(script) {
+        crate::utils::atomic_file::write_atomic(&path, script.as_bytes())?;
+    }
+    Ok(path)
+}
+
 /// 逃生阀：默认开启，显式设成 0/false/no 才关闭。
 ///
 /// 与 `ENABLE_ENV` 的默认值相反是**有意的**——MCP 代理默认关是因为它改变所有会话的

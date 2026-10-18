@@ -2980,6 +2980,15 @@ impl TerminalService {
             );
         }
 
+        if wsl.is_some() {
+            match super::ctl_sidecar::materialize_wsl_runner(self.app_paths.data_dir()) {
+                Ok(path) => {
+                    env_vars.insert("CC_PANES_RUN".into(), path.to_string_lossy().into_owned());
+                }
+                Err(error) => warn!(%error, "failed to materialize native WSL heavy runner"),
+            }
+        }
+
         // 解析 Shell 配置
         let shell_id = self.settings_service.get_settings().terminal.shell.clone();
 
@@ -3074,6 +3083,9 @@ impl TerminalService {
                 // /p = 路径翻译。WSL 内敲 `"$CC_PANES_CTL" status` 即可（走 interop
                 // 跑 Windows 那份 exe，它的 127.0.0.1 正好是服务在听的那个）。
                 wsl_keys.push("CC_PANES_CTL/p");
+            }
+            if env_vars.contains_key("CC_PANES_RUN") {
+                wsl_keys.push("CC_PANES_RUN/p");
             }
             let mut wsl_entries = wsl_keys
                 .iter()

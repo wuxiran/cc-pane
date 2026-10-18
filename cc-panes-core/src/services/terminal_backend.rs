@@ -104,6 +104,10 @@ pub trait TerminalBackend: Send + Sync {
     }
     fn resize(&self, session_id: &str, cols: u16, rows: u16) -> AppResult<()>;
     fn kill(&self, session_id: &str) -> AppResult<()>;
+    /// Release only this adapter's leases without terminating shared sessions.
+    fn release_owned_sessions(&self) -> AppResult<()> {
+        Ok(())
+    }
     /// 带来源的 kill。默认委托 `kill`（reason 丢失），真实后端覆盖之以便
     /// `session-killed` 事件携带来源、前端分流关标签/保留标签。
     fn kill_with_reason(&self, session_id: &str, _reason: KillReason) -> AppResult<()> {
@@ -857,6 +861,23 @@ impl TerminalBackend for DaemonTerminalBackend {
 
     fn resize(&self, session_id: &str, cols: u16, rows: u16) -> AppResult<()> {
         self.client.resize_session(session_id, cols, rows)
+    }
+
+    fn release_owned_sessions(&self) -> AppResult<()> {
+        let ids = self
+            .owned_sessions
+            .lock()
+            .map_err(|_| AppError::from("session claims lock poisoned"))?
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut failure = None;
+        for id in ids {
+            if let Err(error) = self.release_owned(&id) {
+                failure = Some(error);
+            }
+        }
+        failure.map_or(Ok(()), Err)
     }
 
     fn kill(&self, session_id: &str) -> AppResult<()> {

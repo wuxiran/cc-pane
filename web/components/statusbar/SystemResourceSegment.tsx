@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toastErr, toastOk } from "@/lib/feedback";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
@@ -21,11 +21,10 @@ import type {
   TerminalPaneNode,
 } from "@/types";
 import { handleErrorSilent } from "@/utils";
-import {
-  SystemResourcePopover,
-  type SessionView,
-  type WorkspaceGroup,
-} from "./SystemResourcePopover";
+import type { SessionView, WorkspaceGroup } from "./SystemResourcePopover";
+
+const SystemResourcePopover = lazy(() => import("./SystemResourcePopover")
+  .then((module) => ({ default: module.SystemResourcePopover })));
 
 const POLL_INTERVAL_MS = 3_000;
 const GIB = 1024 ** 3;
@@ -145,6 +144,8 @@ export default function SystemResourceSegment() {
   const statusMap = useTerminalStatusStore((state) => state.statusMap);
   const open = useResourcePopoverStore((state) => state.open);
   const setOpen = useResourcePopoverStore((state) => state.setOpen);
+  const [popoverMounted, setPopoverMounted] = useState(false);
+  useEffect(() => { if (open) setPopoverMounted(true); }, [open]);
   // 状态栏卸载（切视图 / 测试 cleanup）时收起：open 现在是全局的，不随组件消失自动归零。
   useEffect(() => () => useResourcePopoverStore.getState().setOpen(false), []);
   const [tree, setTree] = useState<ResourceTree | null>(null);
@@ -463,31 +464,35 @@ export default function SystemResourceSegment() {
         </button>
       </PopoverTrigger>
 
-      <SystemResourcePopover
-        headerStats={headerStats}
-        tree={tree}
-        groups={groups}
-        collapsedGroups={collapsedGroups}
-        refreshing={refreshing}
-        armedSessionId={armedSessionId}
-        killingSessionId={killingSessionId}
-        orphansExpanded={orphansExpanded}
-        orphanKillArmed={orphanKillArmed}
-        killingOrphans={killingOrphans}
-        expandedSessionIds={expandedSessionIds}
-        onRefresh={() => void refreshResourceTree()}
-        onToggleGroup={toggleGroup}
-        onToggleSessionProcesses={toggleSessionProcesses}
-        onFocusSession={(sessionId) => void focusSession(sessionId)}
-        onArmSession={setArmedSessionId}
-        onKillSession={(sessionId) => void killSession(sessionId)}
-        onToggleOrphans={() => setOrphansExpanded((value) => !value)}
-        onArmOrphanKill={() => {
-          setOrphansExpanded(true);
-          setOrphanKillArmed(true);
-        }}
-        onKillOrphans={() => void killOrphans()}
-      />
+      {(open || popoverMounted) && (
+        <Suspense fallback={null}>
+          <SystemResourcePopover
+            headerStats={headerStats}
+            tree={tree}
+            groups={groups}
+            collapsedGroups={collapsedGroups}
+            refreshing={refreshing}
+            armedSessionId={armedSessionId}
+            killingSessionId={killingSessionId}
+            orphansExpanded={orphansExpanded}
+            orphanKillArmed={orphanKillArmed}
+            killingOrphans={killingOrphans}
+            expandedSessionIds={expandedSessionIds}
+            onRefresh={() => void refreshResourceTree()}
+            onToggleGroup={toggleGroup}
+            onToggleSessionProcesses={toggleSessionProcesses}
+            onFocusSession={(sessionId) => void focusSession(sessionId)}
+            onArmSession={setArmedSessionId}
+            onKillSession={(sessionId) => void killSession(sessionId)}
+            onToggleOrphans={() => setOrphansExpanded((value) => !value)}
+            onArmOrphanKill={() => {
+              setOrphansExpanded(true);
+              setOrphanKillArmed(true);
+            }}
+            onKillOrphans={() => void killOrphans()}
+          />
+        </Suspense>
+      )}
     </Popover>
   );
 }

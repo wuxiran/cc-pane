@@ -107,6 +107,8 @@ function setDocumentHidden(hidden: boolean) {
 
 async function flushPromises() {
   await act(async () => {
+    // Resource details load on first open; settle that boundary as well as API reads.
+    await import("./SystemResourcePopover");
     await Promise.resolve();
   });
 }

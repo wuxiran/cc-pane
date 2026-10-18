@@ -64,6 +64,10 @@ const RUNNER_PREFIXES: &[&str] = &[
 
 /// 归一化为聚合键。永不返回空串（兜底 `"(empty)"`）。
 pub fn normalize(command: &str) -> String {
+    redact(&normalize_command(command))
+}
+
+fn normalize_command(command: &str) -> String {
     let first_segment = split_first_segment(command);
     let tokens = tokenize(first_segment);
     let mut tokens = tokens.as_slice();
@@ -111,6 +115,9 @@ pub fn normalize(command: &str) -> String {
     let Some((head, rest)) = tokens.split_first() else {
         return "(empty)".to_string();
     };
+    if head.contains('=') || head.starts_with('$') {
+        return "(assignment)".into();
+    }
     let head = base_name(head);
     if head.is_empty() {
         return "(empty)".to_string();
@@ -119,7 +126,7 @@ pub fn normalize(command: &str) -> String {
         return head;
     }
     match rest.first() {
-        Some(sub) if !sub.starts_with('-') && !looks_like_path(sub) => {
+        Some(sub) if trusted_subcommand(&head, sub) => {
             format!("{head} {}", sub.to_ascii_lowercase())
         }
         _ => head,
@@ -158,8 +165,9 @@ pub fn redact(command: &str) -> String {
     let mut out = String::with_capacity(command.len());
     let head = command_head(command);
     let password_p = PASSWORD_P_COMMANDS.contains(&head.as_str());
+    let assignment = matches!(head.as_str(), "export" | "set" | "setx" | "declare");
     let mut next = NextToken::Keep;
-    for (index, token) in command.split_whitespace().enumerate() {
+    for (index, token) in quoted_tokens(command).into_iter().enumerate() {
         if index > 0 {
             out.push(' ');
         }
@@ -168,6 +176,10 @@ pub fn redact(command: &str) -> String {
         if bare.eq_ignore_ascii_case("bearer") || bare.eq_ignore_ascii_case("basic") {
             out.push_str(token);
             next = NextToken::Mask;
+            continue;
+        }
+        if bare == "=" && next == NextToken::Mask {
+            out.push_str(token);
             continue;
         }
         // 宣告了"下一个是值"但来的是另一个 flag：没有值，不吞。
@@ -185,7 +197,11 @@ pub fn redact(command: &str) -> String {
             }
             _ => {}
         }
-        next = next_token_rule(bare, password_p);
+        next = if assignment && is_sensitive_key(bare) && !bare.contains('=') {
+            NextToken::Mask
+        } else {
+            next_token_rule(bare, password_p)
+        };
         out.push_str(&redact_token(token, bare, password_p));
     }
     truncate_chars(&out, REDACTED_MAX_CHARS)
@@ -194,8 +210,15 @@ pub fn redact(command: &str) -> String {
 /// 本 token 是否宣告"下一个是值"：`--password` / `-H` 后的 `Authorization:` /
 /// `-u` / `-p`（仅密码类命令）。带 `=` 的是 glued 形态，不影响下一个。
 fn next_token_rule(bare: &str, password_p: bool) -> NextToken {
-    if bare.contains('=') {
-        return NextToken::Keep;
+    if let Some((key, value)) = bare.split_once('=') {
+        return if value.is_empty() && is_sensitive_key(key) {
+            NextToken::Mask
+        } else {
+            NextToken::Keep
+        };
+    }
+    if bare.starts_with("$env:") && is_sensitive_key(bare) {
+        return NextToken::Mask;
     }
     if bare == "-u" || bare == "--user" {
         return NextToken::MaskUserPass;
@@ -216,6 +239,24 @@ fn next_token_rule(bare: &str, password_p: bool) -> NextToken {
 }
 
 fn redact_token(token: &str, bare: &str, password_p: bool) -> String {
+    // Keep an entire quoted header/value together, including spaces in secrets.
+    if let Some((key, value)) = token.split_once(':') {
+        if is_sensitive_key(key) && value.starts_with(' ') {
+            let value = value.trim_start();
+            let scheme = ["Bearer ", "Basic "]
+                .into_iter()
+                .find(|scheme| value.starts_with(scheme))
+                .unwrap_or("");
+            let close = token
+                .chars()
+                .last()
+                .filter(|c| matches!(c, '\'' | '"'))
+                .map(|c| c.to_string())
+                .unwrap_or_default();
+            return format!("{key}: {scheme}{MASK}{close}");
+        }
+    }
+
     // URL 凭据：scheme://user:pass@host
     if let Some(scheme_end) = token.find("://") {
         let (scheme, rest) = token.split_at(scheme_end + 3);
@@ -368,9 +409,43 @@ fn split_once_any<'a>(input: &'a str, separators: &[&str]) -> (&'a str, Option<&
     }
 }
 
+/// Preserve quoted spans so a secret containing whitespace cannot leak a suffix.
+fn quoted_tokens(input: &str) -> Vec<&str> {
+    let mut tokens = Vec::new();
+    let mut start = None;
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, ch) in input.char_indices() {
+        if ch.is_whitespace() && quote.is_none() && !escaped {
+            if let Some(start) = start.take() {
+                tokens.push(&input[start..index]);
+            }
+            continue;
+        }
+        start.get_or_insert(index);
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' && quote != Some('\'') {
+            escaped = true;
+            continue;
+        }
+        if Some(ch) == quote {
+            quote = None;
+        } else if quote.is_none() && matches!(ch, '\'' | '"') {
+            quote = Some(ch);
+        }
+    }
+    if let Some(start) = start {
+        tokens.push(&input[start..]);
+    }
+    tokens
+}
+
 fn tokenize(segment: &str) -> Vec<String> {
-    segment
-        .split_whitespace()
+    quoted_tokens(segment)
+        .into_iter()
         .map(|token| token.trim_matches(|c| c == '"' || c == '\'').to_string())
         .filter(|token| !token.is_empty())
         .collect()
@@ -394,8 +469,30 @@ fn base_name(token: &str) -> String {
     name.to_ascii_lowercase()
 }
 
-fn looks_like_path(token: &str) -> bool {
-    token.contains('/') || token.contains('\\') || token.starts_with('.') || token.contains(':')
+fn trusted_subcommand(command: &str, sub: &str) -> bool {
+    let verbs: &[&str] = match command {
+        "cargo" => &[
+            "build", "check", "test", "clippy", "doc", "run", "fmt", "clean", "install", "bench",
+            "metadata", "update", "fetch",
+        ],
+        "git" => &[
+            "status", "diff", "log", "show", "clone", "fetch", "pull", "push", "add", "commit",
+            "checkout", "switch", "worktree", "branch", "merge", "rebase",
+        ],
+        "docker" => &[
+            "build",
+            "compose",
+            "run",
+            "exec",
+            "pull",
+            "push",
+            "image",
+            "container",
+        ],
+        "go" | "dotnet" => &["build", "test", "run", "restore", "publish", "install"],
+        _ => &[],
+    };
+    verbs.contains(&sub.to_ascii_lowercase().as_str())
 }
 
 fn truncate_chars(value: &str, limit: usize) -> String {
@@ -410,6 +507,27 @@ fn truncate_chars(value: &str, limit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn credentials_never_survive_either_ledger_field() {
+        for command in [
+            "export API_KEY=synthetic-secret-123",
+            "set DATABASE_PASSWORD=synthetic-secret-123",
+            "setx TOKEN \"synthetic secret value\"",
+            "$env:API_KEY = 'synthetic secret value'",
+            "mysql --password=\"synthetic secret value\" -e select",
+            "mysql --password 'synthetic secret value'",
+            "arbitrary-tool synthetic-secret-123",
+        ] {
+            assert!(
+                !normalize(command).contains("synthetic"),
+                "aggregate: {command}"
+            );
+            if !command.starts_with("arbitrary-tool") {
+                assert!(!redact(command).contains("synthetic"), "display: {command}");
+            }
+        }
+    }
 
     #[test]
     fn normalize_table() {
