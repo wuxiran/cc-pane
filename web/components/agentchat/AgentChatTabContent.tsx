@@ -31,6 +31,7 @@ import ChatWelcome from "./ChatWelcome";
 import "./agentChatAppearance.css";
 import ChatSessionControls from "./ChatSessionControls";
 import { groupChatItems, type ChatTurn } from "./chatTurns";
+import { useChatTurnWindow } from "./useChatTurnWindow";
 import EnginePicker from "./EnginePicker";
 import SessionWorkspaceMenu from "./SessionWorkspaceMenu";
 import ChatPermissionQueue from "./ChatPermissionQueue";
@@ -74,8 +75,6 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
     [tab.id],
   );
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  // 长会话分页：只渲染最近 N 个回合，顶部按钮逐段放开（防几百条全量渲染掉帧）。
-  const [visibleCount, setVisibleCount] = useState(60);
   // 工具卡全局展开/折叠信号（seq 递增触发，各卡自行响应）。
   const [toolFold, setToolFold] = useState<{ seq: number; expanded: boolean }>({
     seq: 0,
@@ -126,6 +125,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   const availableCommands = chat?.availableCommands ?? [];
   const changesCount = useMemo(() => collectNetChanges(items ?? []).length, [items]);
   const turns = useMemo(() => groupChatItems(items ?? []), [items]);
+  const [visibleCount, setVisibleCount] = useChatTurnWindow(turns, !atBottom);
 
   const timelineKey = snapshot?.acpSessionId
     ? JSON.stringify([snapshot.engineId, snapshot.acpSessionId]) : tab.id;
