@@ -36,7 +36,9 @@
 
 原始日志、基准源代码和本机环境记录保存在本机 `/Users/wuxiran/Documents/ChatGPT/ccpane/perf-evidence/2026-10-19/`：`inference-benchmark.log`、`benchmark-inference.py`、`benchmark-inference.rs`、`topology-release.log`、`benchmark-topology.rs`、`Cargo.toml`。复现时用该目录的 Cargo manifest 运行 release 的 `inference` 和 `topology` 两个目标；拓扑探针中的源文件路径需对应本机 checkout。
 
-## macOS 审阅中仍需处理的问题
+## 上轮 macOS 审阅发现
+
+以下两项及原有包体超标已在后续提交修复，完整结果见 [性能与 macOS 后续修复](2026-10-19-performance-macos-followup.md)。本节保留发现时的证据。
 
 ### P1 区域截图没有 macOS 选区实现
 
