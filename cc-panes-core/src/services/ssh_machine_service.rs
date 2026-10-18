@@ -165,6 +165,10 @@ impl SshMachineService {
         let previous = config.clone();
         let mut new_config = previous.clone();
         new_config.machines.push(machine.clone());
+        super::ssh_connection_service::validate_changed_machine_routes(
+            &new_config.machines,
+            &machine.id,
+        )?;
         self.save_to_file(&new_config)?;
         if let Err(error) = self.apply_secret_update(&machine, &request, None) {
             warn!(
@@ -205,6 +209,10 @@ impl SshMachineService {
         let previous = config.clone();
         let mut new_config = previous.clone();
         new_config.machines[pos] = machine.clone();
+        super::ssh_connection_service::validate_changed_machine_routes(
+            &new_config.machines,
+            &machine.id,
+        )?;
         self.save_to_file(&new_config)?;
         if let Err(error) = self.apply_secret_update(&machine, &request, Some(&previous_machine)) {
             warn!(

@@ -79,7 +79,13 @@ impl ProviderService {
         let mut config: ProviderConfig =
             serde_json::from_value(parsed).with_context(|| "Failed to parse providers.json")?;
         if config.providers.len() > MAX_PROVIDER_COUNT {
-            anyhow::bail!("providers config exceeds {} entries", MAX_PROVIDER_COUNT);
+            // Older writers could exceed this limit. The file-size bound still
+            // applies, but valid saved credentials must remain readable/recoverable.
+            warn!(
+                count = config.providers.len(),
+                limit = MAX_PROVIDER_COUNT,
+                "Provider configuration exceeds the creation limit; keeping existing entries"
+            );
         }
         let mut ids = HashSet::with_capacity(config.providers.len());
         for provider in &mut config.providers {
@@ -115,6 +121,13 @@ impl ProviderService {
 
     fn commit_config(&self, current: &mut ProviderConfig, next: ProviderConfig) -> Result<()> {
         let mut next = next;
+        // One boundary for all mutations: reject growth beyond the limit without
+        // blocking edits/removals that let legacy oversized configurations recover.
+        if next.providers.len() > MAX_PROVIDER_COUNT
+            && next.providers.len() > current.providers.len()
+        {
+            anyhow::bail!("providers config exceeds {} entries", MAX_PROVIDER_COUNT);
+        }
         next.default_provider_ids_version = DEFAULT_PROVIDER_IDS_VERSION;
         Self::sync_legacy_default_flags(&mut next);
         self.save_to_file(&next)?;

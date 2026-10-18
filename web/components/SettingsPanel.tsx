@@ -1,8 +1,7 @@
 import { type CSSProperties, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { emitTo } from "@tauri-apps/api/event";
 import { Settings, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toastErr, toastInfo } from "@/lib/feedback";
+import { toastInfo } from "@/lib/feedback";
 import { Button } from "@/components/ui/button";
 import { SegmentedTabs } from "@/components/ui/segmented";
 import {
@@ -14,7 +13,6 @@ import {
 } from "@/components/ui/dialog";
 import { isTauriRuntime } from "@/services/runtime";
 import { useSettingsStore } from "@/stores";
-import { useCCChanStore } from "@/stores/useCCChanStore";
 import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore";
 import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import UnsavedChangesDialog from "@/components/providers/UnsavedChangesDialog";
@@ -28,8 +26,8 @@ import {
   createSettingsDraft,
   resetSettingsSection,
   SECTION_DRAFT_KEYS,
-  type SettingsDraft,
 } from "./settings/settingsDraft";
+import { useSettingsAutosave } from "./settings/useSettingsAutosave";
 import {
   getSettingsPane,
   getSettingsPageForPane,
@@ -62,22 +60,18 @@ const SETTINGS_LAYOUT_STYLE = {
 
 export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
   const { t } = useTranslation("settings");
-  const settings = useSettingsStore((state) => state.settings);
-  const saveSettings = useSettingsStore((state) => state.saveSettings);
   const getDefaults = useSettingsStore((state) => state.getDefaults);
   const setBrowserWebviewBlocked = useBrowserWebviewOverlayStore((state) => state.setBlocked);
-  const [draft, setDraft] = useState<SettingsDraft>(() => createSettingsDraft(getDefaults()));
+  const { draft, updateDraft, lastSavedAt, flush, discard } = useSettingsAutosave(open);
   const [activePaneId, setActivePaneId] = useState<SettingsPaneId>("general");
   const [searchQuery, setSearchQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
   const [highlightedSectionId, setHighlightedSectionId] = useState<string | null>(null);
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [resetArmed, setResetArmed] = useState(false);
-  const dirtyRef = useRef(false);
   const [providerDirty, setProviderDirty] = useState(false);
+  const [saveCloseFailed, setSaveCloseFailed] = useState(false);
   const providerDiscardGuard = useUnsavedChangesGuard(providerDirty, () => setProviderDirty(false));
   const requestProviderNavigation = providerDiscardGuard.request;
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resetArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPaneByPageRef = useRef<Partial<Record<SettingsPageId, SettingsPaneId>>>({
     general: "general",
@@ -117,19 +111,12 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
   useEffect(() => {
     if (!open) {
       setProviderDirty(false);
+      setSaveCloseFailed(false);
       return;
     }
-    dirtyRef.current = false;
     setProviderDirty(false);
-    setLastSavedAt(null);
     setResetArmed(false);
   }, [open]);
-
-  useEffect(() => {
-    if (open && settings && !dirtyRef.current) {
-      setDraft(createSettingsDraft(structuredClone(settings)));
-    }
-  }, [open, settings]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setAppliedQuery(searchQuery), 150);
@@ -167,57 +154,12 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     return () => window.removeEventListener(SETTINGS_NAVIGATE_EVENT, handleNavigate);
   }, [panes, requestProviderNavigation]);
 
-  function updateDraft(next: SettingsDraft) {
-    dirtyRef.current = true;
-    setDraft(next);
-  }
-
-  async function persistDraft(current: SettingsDraft) {
-    try {
-      const live = useSettingsStore.getState().settings;
-      const settingsToSave: SettingsDraft = {
-        ...current,
-        webAccess: {
-          ...current.webAccess,
-          passwordSalt: live?.webAccess.passwordSalt ?? current.webAccess.passwordSalt,
-          passwordHash: live?.webAccess.passwordHash ?? current.webAccess.passwordHash,
-        },
-      };
-      await useCCChanStore.getState().saveSettings(current.ccchan);
-      await saveSettings(settingsToSave);
-      try {
-        await emitTo("ccchan", "ccchan:settings-updated", useCCChanStore.getState().settings);
-      } catch {
-        // The companion window may be closed or the app may be running in a browser.
-      }
-      setLastSavedAt(new Date().toLocaleTimeString());
-    } catch (error) {
-      toastErr(t("saveFailed", { ns: "common", error }));
-    }
-  }
-
-  useEffect(() => {
-    if (!open || !dirtyRef.current) return;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      saveTimerRef.current = null;
-      void persistDraft(draft);
-    }, 500);
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    };
-    // persistDraft intentionally closes over the latest draft.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, open]);
-
   function closeNow(nextOpen: boolean) {
-    if (!nextOpen && saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-      void persistDraft(draft);
-    }
-    onOpenChange(nextOpen);
+    if (nextOpen) onOpenChange(true);
+    else void flush().then((saved) => {
+      if (saved) onOpenChange(false);
+      else setSaveCloseFailed(true);
+    });
   }
 
   function handleClose(nextOpen: boolean) {
@@ -397,6 +339,11 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
       open={providerDiscardGuard.confirmOpen}
       onCancel={providerDiscardGuard.cancel}
       onDiscard={providerDiscardGuard.discard}
+    />
+    <UnsavedChangesDialog
+      open={saveCloseFailed}
+      onCancel={() => setSaveCloseFailed(false)}
+      onDiscard={() => { discard(); setSaveCloseFailed(false); onOpenChange(false); }}
     />
     </>
   );

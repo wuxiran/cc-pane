@@ -26,61 +26,9 @@ import EditorBreadcrumb from "./EditorBreadcrumb";
 import MarkdownPreview from "./MarkdownPreview";
 import ImagePreview from "./ImagePreview";
 import { isImageFile } from "@/lib/fileTypes";
+import { useEditorDocument } from "./useEditorDocument";
 
-/** 支持预览的图片扩展名（SVG 不纳入，保持 Monaco XML 编辑） */
-/** 文件扩展名 → Monaco 语言 ID */
-const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
-  ts: "typescript",
-  tsx: "typescriptreact",
-  js: "javascript",
-  jsx: "javascriptreact",
-  json: "json",
-  jsonc: "json",
-  md: "markdown",
-  mdx: "markdown",
-  css: "css",
-  scss: "scss",
-  less: "less",
-  html: "html",
-  htm: "html",
-  xml: "xml",
-  svg: "xml",
-  yaml: "yaml",
-  yml: "yaml",
-  toml: "ini",
-  rs: "rust",
-  py: "python",
-  go: "go",
-  java: "java",
-  c: "c",
-  cpp: "cpp",
-  h: "cpp",
-  hpp: "cpp",
-  cs: "csharp",
-  rb: "ruby",
-  php: "php",
-  sh: "shell",
-  bash: "shell",
-  zsh: "shell",
-  ps1: "powershell",
-  sql: "sql",
-  graphql: "graphql",
-  dockerfile: "dockerfile",
-  makefile: "makefile",
-  lua: "lua",
-  swift: "swift",
-  kt: "kotlin",
-  dart: "dart",
-  r: "r",
-};
-
-function getLanguageFromPath(filePath: string): string {
-  const ext = filePath.split(".").pop()?.toLowerCase() || "";
-  const name = filePath.split(/[/\\]/).pop()?.toLowerCase() || "";
-  if (name === "dockerfile") return "dockerfile";
-  if (name === "makefile" || name === "gnumakefile") return "makefile";
-  return EXTENSION_LANGUAGE_MAP[ext] || "plaintext";
-}
+import { getLanguageFromPath } from "./editorLanguage";
 
 type PreviewMode = "edit" | "preview" | "split";
 
@@ -92,6 +40,8 @@ interface EditorViewProps {
   projectPath: string;
   tabId?: string;
   paneId?: string;
+  /** Files-mode tab owns the buffer even while its view is unmounted. */
+  bufferId?: string;
   /** 独立面板模式下的 dirty 状态回调（替代 paneId/tabId） */
   onDirtyChange?: (dirty: boolean) => void;
   ssh?: NonNullable<EditorTab["ssh"]>;
@@ -102,21 +52,21 @@ export default function EditorView({
   projectPath,
   tabId,
   paneId,
+  bufferId,
   onDirtyChange,
   ssh,
 }: EditorViewProps) {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const [editorMounted, setEditorMounted] = useState(false);
-  const [content, setContent] = useState<string>("");
-  const [originalContent, setOriginalContent] = useState<string>("");
-  const [loading, setLoading] = useState(true);
+  const { document, updateDocument, beginSave, endSave } = useEditorDocument(bufferId);
+  const { content, originalContent, readOnly, readOnlyReason } = document;
+  // Choose once per mounted view: save completion must not reload over newer edits.
+  const restoreDirtyBuffer = useRef(Boolean(bufferId && document.loaded && document.content !== document.originalContent));
+  const [loading, setLoading] = useState(!restoreDirtyBuffer.current);
   const [error, setError] = useState<string | null>(null);
-  const [readOnly, setReadOnly] = useState(false);
-  const [readOnlyReason, setReadOnlyReason] = useState<"path" | "encoding" | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("edit");
   const [remoteImageUrl, setRemoteImageUrl] = useState<string | null>(null);
   const [remoteImageSize, setRemoteImageSize] = useState<number | null>(null);
-  const lastSavedMtime = useRef<string | null>(null);
   // 分栏滚动同步：previewModeRef 供 Monaco 事件闭包读最新值；syncLock 防两侧互相回声
   const previewRef = useRef<HTMLDivElement | null>(null);
   const previewModeRef = useRef<PreviewMode>("edit");
@@ -151,6 +101,10 @@ export default function EditorView({
 
   // 加载文件
   useEffect(() => {
+    if (restoreDirtyBuffer.current) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -190,17 +144,18 @@ export default function EditorView({
           return;
         }
 
-        setContent(result.content);
-        setOriginalContent(result.content);
         const pathReadOnly = !ssh && isReadOnlyPath(filePath);
         const encodingReadOnly = result.encoding !== "utf-8";
-        setReadOnly(pathReadOnly || encodingReadOnly);
-        setReadOnlyReason(pathReadOnly ? "path" : encodingReadOnly ? "encoding" : null);
-
-        if (!ssh) {
-          const entryInfo = await filesystemService.getEntryInfo(filePath);
-          lastSavedMtime.current = entryInfo.modified;
-        }
+        const entryInfo = !ssh ? await filesystemService.getEntryInfo(filePath) : null;
+        if (cancelled) return;
+        updateDocument({
+          content: result.content,
+          originalContent: result.content,
+          modified: entryInfo?.modified ?? null,
+          loaded: true,
+          readOnly: pathReadOnly || encodingReadOnly,
+          readOnlyReason: pathReadOnly ? "path" : encodingReadOnly ? "encoding" : null,
+        });
       } catch (err) {
         if (!cancelled) {
           setError(`Failed to load file: ${getErrorMessage(err)}`);
@@ -213,17 +168,18 @@ export default function EditorView({
     return () => {
       cancelled = true;
     };
-  }, [filePath, isReadOnlyPath, ssh]);
+  }, [filePath, isReadOnlyPath, ssh, updateDocument]);
 
   // 保存
   const handleSave = useCallback(async () => {
     if (readOnly || !dirty) return;
+    if (!beginSave()) return;
 
     try {
       // 冲突检测：比对 mtime
-      if (!ssh && lastSavedMtime.current) {
+      if (!ssh && document.modified) {
         const current = await filesystemService.getEntryInfo(filePath);
-        if (current.modified && current.modified !== lastSavedMtime.current) {
+        if (current.modified && current.modified !== document.modified) {
           const overwrite = window.confirm(
             "File has been modified externally. Overwrite?"
           );
@@ -233,18 +189,24 @@ export default function EditorView({
 
       if (ssh) await sshFileService.writeFile(ssh.machineId, filePath, content);
       else await filesystemService.writeFile(filePath, content);
-      setOriginalContent(content);
+      updateDocument({ originalContent: content });
 
       if (!ssh) {
         const info = await filesystemService.getEntryInfo(filePath);
-        lastSavedMtime.current = info.modified;
+        updateDocument({ modified: info.modified });
       }
 
       toastOk(i18n.t("fileSaved", { ns: "editor" }));
     } catch (err) {
       handleError(err, "save file");
+    } finally {
+      endSave();
     }
-  }, [filePath, content, readOnly, dirty, ssh]);
+  }, [filePath, content, readOnly, dirty, ssh, document.modified, updateDocument, beginSave, endSave]);
+
+  // Monaco calls onMount once; its action must read the current save closure.
+  const saveRef = useRef(handleSave);
+  saveRef.current = handleSave;
 
   const handleRemoteBreadcrumbNavigate = useCallback((path: string) => {
     if (!ssh) return;
@@ -317,14 +279,14 @@ export default function EditorView({
           2048 | 49, // monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS
         ],
         run: () => {
-          handleSave();
+          void saveRef.current();
         },
       });
 
       // 产品动作注入 Monaco 右键菜单（复制路径 / 文件树定位）
       registerMonacoProductActions(editor, { filePath, projectPath, ssh: Boolean(ssh) });
     },
-    [handleSave, syncPreviewFromEditor, tabId, filePath, projectPath, ssh]
+    [syncPreviewFromEditor, tabId, filePath, projectPath, ssh]
   );
 
   useEffect(() => {
@@ -360,10 +322,10 @@ export default function EditorView({
   const handleEditorChange = useCallback(
     (value: string | undefined) => {
       if (value !== undefined) {
-        setContent(value);
+        updateDocument({ content: value });
       }
     },
-    []
+    [updateDocument]
   );
 
   // 工具栏操作

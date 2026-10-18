@@ -59,7 +59,7 @@ impl GitService {
             .map_err(|state| format!("Git repository unavailable: {state:?}"))?;
         let rel = Path::new(file);
         Self::validate_repo_relative_path(rel)?;
-        let raw = Self::unmerged_stages(&context.repo_root, Some(rel))?;
+        let raw = Self::unmerged_file_stages(&context.repo_root, rel)?;
         if raw.is_empty() {
             return Err(format!("File is not in a conflicted state: {file}"));
         }
@@ -89,7 +89,7 @@ impl GitService {
         let rel = Path::new(&request.file);
         Self::validate_repo_relative_path(rel)?;
         let git_path = request.file.replace('\\', "/");
-        let staged_now = Self::unmerged_stages(&context.repo_root, Some(rel))?;
+        let staged_now = Self::unmerged_file_stages(&context.repo_root, rel)?;
         if staged_now.is_empty() {
             return Err(format!(
                 "File is not in a conflicted state: {}",
@@ -105,7 +105,12 @@ impl GitService {
             .map_err(|error| format!("Failed to write resolved file: {error}"))?;
         let output = Self::run_git(
             &context.repo_root,
-            [OsStr::new("add"), OsStr::new("--"), OsStr::new(&git_path)],
+            [
+                OsStr::new("--literal-pathspecs"),
+                OsStr::new("add"),
+                OsStr::new("--"),
+                OsStr::new(&git_path),
+            ],
         )?;
         if !output.status.success() {
             return Err(Self::git_failure("git add failed", &output));
@@ -123,11 +128,21 @@ impl GitService {
         })
     }
 
-    /// 运行 `git ls-files -u -z --eol`（可选 scope pathspec）并解析。
+    /// A single file must not borrow conflicts from matching files or descendants.
+    fn unmerged_file_stages(root: &Path, file: &Path) -> Result<Vec<RawStage>, String> {
+        let git_path = file.to_string_lossy().replace('\\', "/");
+        Ok(Self::unmerged_stages(root, Some(file))?
+            .into_iter()
+            .filter(|stage| stage.path == git_path)
+            .collect())
+    }
+
+    /// 运行 `git ls-files -u -z --eol`（可选字面量 scope 路径）并解析。
     fn unmerged_stages(root: &Path, scope: Option<&Path>) -> Result<Vec<RawStage>, String> {
         let mut args: Vec<OsString> = [
             "-c",
             "core.quotepath=false",
+            "--literal-pathspecs",
             "ls-files",
             "-u",
             "-z",
