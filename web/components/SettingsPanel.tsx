@@ -27,6 +27,7 @@ import {
 import SettingsSidebar from "./settings/SettingsSidebar";
 import {
   createSettingsDraft,
+  resetSettingsSection,
   SECTION_DRAFT_KEYS,
   type SettingsDraft,
 } from "./settings/settingsDraft";
@@ -265,11 +266,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     if (resetArmTimerRef.current) clearTimeout(resetArmTimerRef.current);
     setResetArmed(false);
     const defaults = createSettingsDraft(getDefaults());
-    const next = { ...draft };
-    for (const key of resettableKeys) {
-      (next as Record<string, unknown>)[key] = defaults[key];
-    }
-    updateDraft(next);
+    updateDraft(resetSettingsSection(draft, defaults, activePaneId));
     toastInfo(t("sectionResetDone"));
   }
 

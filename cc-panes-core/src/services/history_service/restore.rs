@@ -9,7 +9,7 @@ use std::path::{Component, Path, PathBuf};
 
 struct RestoreFile {
     relative: String,
-    content: Vec<u8>,
+    content: Option<Vec<u8>>,
 }
 
 impl HistoryService {
@@ -22,7 +22,7 @@ impl HistoryService {
             &repo,
             vec![RestoreFile {
                 relative: file.into(),
-                content,
+                content: Some(content),
             }],
             &format!("Before Restore: {file}"),
         )?;
@@ -44,9 +44,18 @@ impl HistoryService {
             .map(|snapshot| {
                 Ok(RestoreFile {
                     relative: snapshot.file_path.clone(),
-                    content: repo
-                        .get_version_content(&snapshot.file_path, &snapshot.version_id)
-                        .with_context(|| format!("Snapshot unavailable: {}", snapshot.file_path))?,
+                    content: if repo
+                        .version_is_deleted(&snapshot.file_path, &snapshot.version_id)?
+                    {
+                        None
+                    } else {
+                        Some(
+                            repo.get_version_content(&snapshot.file_path, &snapshot.version_id)
+                                .with_context(|| {
+                                    format!("Snapshot unavailable: {}", snapshot.file_path)
+                                })?,
+                        )
+                    },
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -82,12 +91,7 @@ impl HistoryService {
         )?;
         let mut restored = Vec::new();
         for file in files {
-            let target = restore_path(&root, &file.relative)?;
-            if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            let target = restore_path(&root, &file.relative)?;
-            write_atomic(&target, &file.content).with_context(|| {
+            apply_file(&root, &file).with_context(|| {
                 format!(
                     "Failed to restore {}; previous state is in {label_name}",
                     file.relative
@@ -169,4 +173,28 @@ fn restore_path(root: &Path, relative: &str) -> Result<PathBuf> {
         "History target is not a file: {relative}"
     );
     Ok(target)
+}
+
+fn apply_file(root: &Path, file: &RestoreFile) -> Result<()> {
+    let target = restore_path(root, &file.relative)?;
+    if let Some(content) = &file.content {
+        let permissions = fs::metadata(&target)
+            .ok()
+            .map(|metadata| metadata.permissions());
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let target = restore_path(root, &file.relative)?;
+        write_atomic(&target, content)?;
+        if let Some(permissions) = permissions {
+            fs::set_permissions(target, permissions)?;
+        }
+    } else {
+        match fs::remove_file(target) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
 }
