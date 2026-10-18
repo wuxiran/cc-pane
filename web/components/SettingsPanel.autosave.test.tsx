@@ -33,6 +33,11 @@ vi.mock("./settings/SettingsPaneContent", () => ({
 }));
 vi.mock("@/lib/feedback", () => ({ toastOk: vi.fn(), toastErr: vi.fn(), toastInfo: vi.fn() }));
 
+async function renderReady(onOpenChange = vi.fn()) {
+  render(<SettingsPanel open onOpenChange={onOpenChange} />);
+  await screen.findByRole("button", { name: i18n.t("settings:webAccessSection.savePassword") });
+}
+
 function change(patch: (draft: SettingsDraft) => SettingsDraft) {
   act(() => io.pane!.updateDraft(patch(io.pane!.draft)));
 }
@@ -49,6 +54,7 @@ function deferred() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  io.pane = null;
   io.disk = useSettingsStore.getState().getDefaults();
   io.disk.webAccess.passwordHash = "old-hash";
   io.disk.webAccess.passwordSalt = "old-salt";
@@ -60,7 +66,7 @@ beforeEach(() => {
 
 describe("settings autosave ownership and ordering", () => {
   it("keeps an explicitly cleared Web password null after another field autosaves", async () => {
-    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+    await renderReady();
     change((draft) => ({ ...draft, general: { ...draft.general, language: "en" } }));
     await waitFor(() => expect(io.write).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole("button", { name: i18n.t("settings:webAccessSection.savePassword") }));
@@ -74,7 +80,7 @@ describe("settings autosave ownership and ordering", () => {
   });
 
   it("rebases pending fields over unrelated live updates including fields in the same section", async () => {
-    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+    await renderReady();
     change((draft) => ({ ...draft, general: { ...draft.general, language: "en" } }));
     await act(async () => {
       const live = useSettingsStore.getState().settings!;
@@ -95,7 +101,7 @@ describe("settings autosave ownership and ordering", () => {
     const first = deferred();
     io.write.mockImplementationOnce(async (value) => { await first.promise; io.disk = structuredClone(value); });
     const onOpenChange = vi.fn();
-    render(<SettingsPanel open onOpenChange={onOpenChange} />);
+    await renderReady(onOpenChange);
     const original = io.pane!.draft.general.language;
     change((draft) => ({ ...draft, general: { ...draft.general, language: "en" } }));
     await waitFor(() => expect(io.write).toHaveBeenCalledTimes(1));
@@ -113,7 +119,7 @@ describe("settings autosave ownership and ordering", () => {
   it("keeps a failed close flush open with its draft and retries all pending fields", async () => {
     io.write.mockRejectedValueOnce(new Error("disk full"));
     const onOpenChange = vi.fn();
-    render(<SettingsPanel open onOpenChange={onOpenChange} />);
+    await renderReady(onOpenChange);
     change((draft) => ({ ...draft, general: { ...draft.general, language: "en" } }));
     close();
     await waitFor(() => expect(toastErr).toHaveBeenCalled());
@@ -129,7 +135,7 @@ describe("settings autosave ownership and ordering", () => {
   it("offers cancel or explicit discard when persistent save failure prevents closing", async () => {
     io.write.mockRejectedValue(new Error("disk remains full"));
     const onOpenChange = vi.fn();
-    render(<SettingsPanel open onOpenChange={onOpenChange} />);
+    await renderReady(onOpenChange);
     change((draft) => ({ ...draft, general: { ...draft.general, language: "en" } }));
     close();
     const discardName = i18n.t("common:discardChanges");
@@ -149,7 +155,7 @@ describe("settings autosave ownership and ordering", () => {
       await gate.promise;
       useCCChanStore.setState({ settings: { ...value, windowX: useCCChanStore.getState().settings.windowX } });
     });
-    render(<SettingsPanel open onOpenChange={vi.fn()} />);
+    await renderReady();
     change((draft) => ({ ...draft, ccchan: { ...draft.ccchan, petSize: 180 } }));
     await waitFor(() => expect(io.companion).toHaveBeenCalledTimes(1));
     expect(io.write).not.toHaveBeenCalled();

@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Settings, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toastInfo } from "@/lib/feedback";
@@ -16,7 +16,6 @@ import { useSettingsStore } from "@/stores";
 import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore";
 import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import UnsavedChangesDialog from "@/components/providers/UnsavedChangesDialog";
-import SettingsPaneContent from "./settings/SettingsPaneContent";
 import SettingsSearchBox from "./settings/SettingsSearchBox";
 import {
   SettingsSearchProvider,
@@ -43,6 +42,8 @@ import {
   type SettingsNavigationTarget,
 } from "./settings/settingsNavigation";
 import { searchSettings, type SettingsSearchResult } from "./settings/settingsSearch";
+
+const SettingsPaneContent = lazy(() => import("./settings/SettingsPaneContent"));
 
 interface SettingsPanelProps {
   open: boolean;
@@ -298,12 +299,14 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
                   matchedSectionIds,
                   highlightedSectionId,
                 }}>
-                  <SettingsPaneContent
-                    paneId={activePaneId}
-                    draft={draft}
-                    updateDraft={updateDraft}
-                    onUnsavedChangesChange={setProviderDirty}
-                  />
+                  <Suspense fallback={<div role="status">{t("loading", { ns: "common" })}</div>}>
+                    <SettingsPaneContent
+                      paneId={activePaneId}
+                      draft={draft}
+                      updateDraft={updateDraft}
+                      onUnsavedChangesChange={setProviderDirty}
+                    />
+                  </Suspense>
                 </SettingsSearchProvider>
               </div>
             </div>
