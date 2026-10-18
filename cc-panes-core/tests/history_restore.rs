@@ -366,3 +366,34 @@ fn retention_expires_whole_labels_and_preserves_complete_and_empty_labels() {
             .is_err());
     }
 }
+
+#[test]
+fn restored_state_updates_deleted_files_and_new_labels_without_a_watcher() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = HistoryFileRepository::open(dir.path()).unwrap();
+    let deleted = snapshot(&repo, "gone.txt", b"recover me", true);
+    label(&repo, "deleted", vec![deleted.clone()]);
+    let service = HistoryService::new();
+    service
+        .restore_version(dir.path(), &deleted.file_path, &deleted.version_id)
+        .unwrap();
+    assert!(service.list_deleted_files(dir.path()).unwrap().is_empty());
+    let recovered = service
+        .create_auto_label(dir.path(), "recovered", "user")
+        .unwrap();
+    let label = service
+        .list_labels(dir.path())
+        .unwrap()
+        .into_iter()
+        .find(|l| l.id == recovered)
+        .unwrap();
+    let version = &label.file_snapshots[0];
+    assert_eq!(
+        repo.get_version_content(&version.file_path, &version.version_id)
+            .unwrap(),
+        b"recover me"
+    );
+    service.restore_to_label(dir.path(), "deleted").unwrap();
+    assert_eq!(service.list_deleted_files(dir.path()).unwrap().len(), 1);
+    assert!(!dir.path().join("gone.txt").exists());
+}

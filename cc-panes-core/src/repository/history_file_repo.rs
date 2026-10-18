@@ -358,7 +358,7 @@ impl HistoryFileRepository {
 
     /// A restore backup must capture the current disk state even inside the normal
     /// debounce interval, including a missing file or recreation after a tombstone.
-    pub(crate) fn save_restore_backup(
+    pub(crate) fn save_restore_snapshot(
         &self,
         file_path: &str,
         content: Option<&[u8]>,

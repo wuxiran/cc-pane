@@ -82,13 +82,8 @@ impl HistoryService {
                 read_current(&target)
             })
             .collect::<Result<Vec<_>>>()?;
-        save_backup(
-            repo,
-            &files,
-            &current,
-            label_name,
-            &Self::read_current_branch(project).unwrap_or_default(),
-        )?;
+        let branch = Self::read_current_branch(project).unwrap_or_default();
+        save_backup(repo, &files, &current, label_name, &branch)?;
         let mut restored = Vec::new();
         for file in files {
             apply_file(&root, &file).with_context(|| {
@@ -97,6 +92,9 @@ impl HistoryService {
                     file.relative
                 )
             })?;
+            // The watcher may be inactive or throttle this write. Publish the
+            // restored state immediately so deleted-file lists and new labels agree.
+            repo.save_restore_snapshot(&file.relative, file.content.as_deref(), &branch)?;
             restored.push(file.relative);
         }
         Ok(restored)
@@ -120,7 +118,7 @@ fn save_backup(
 ) -> Result<()> {
     let mut snapshots = Vec::with_capacity(files.len());
     for (file, content) in files.iter().zip(current) {
-        let version = repo.save_restore_backup(&file.relative, content.as_deref(), branch)?;
+        let version = repo.save_restore_snapshot(&file.relative, content.as_deref(), branch)?;
         snapshots.push(LabelFileSnapshot {
             file_path: file.relative.clone(),
             version_id: version.id,
