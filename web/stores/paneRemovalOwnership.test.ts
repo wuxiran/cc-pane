@@ -2,6 +2,8 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { usePanesStore } from "./usePanesStore";
 import { useTerminalStatusStore } from "./useTerminalStatusStore";
 import { useTerminalInputActivityStore } from "./useTerminalInputActivityStore";
+import { useTabViewStateStore } from "./useTabViewStateStore";
+import { useTabResourceBadgeStore } from "./useTabResourceBadgeStore";
 import { terminalService } from "@/services/terminalService";
 import { registerSessionScopedResource } from "@/lib/tabLifecycle/sessionScopedResources";
 import type { Panel, Tab, TerminalPaneLeaf } from "@/types";
@@ -20,6 +22,8 @@ beforeEach(() => {
   registerSessionScopedResource({ name: "ownership-regression", dispose });
   useTerminalStatusStore.setState({ statusMap: new Map() });
   useTerminalInputActivityStore.setState({ entries: {} });
+  useTabViewStateStore.getState().removeOwner("shared-tab");
+  useTabResourceBadgeStore.getState().clearResource("shared-tab");
 });
 
 function tab(sessions: string[], pinned = false): Tab {
@@ -28,7 +32,7 @@ function tab(sessions: string[], pinned = false): Tab {
   }));
   return {
     id: "shared-tab", title: "Shared", contentType: "terminal", projectId: "project",
-    projectPath: "/fixture", pinned,
+    projectPath: "/fixture", sessionId: null, pinned,
     terminalRootPane: leaves.length === 1 ? leaves[0] : {
       type: "split", id: "split", direction: "horizontal", children: leaves, sizes: [50, 50],
     },
@@ -50,6 +54,9 @@ function install(normal: Tab, pinned: Tab) {
     sessionId, { sessionId, status: "idle" as const, lastOutputAt: 0, updatedAt: 0 },
   ])) });
   useTerminalInputActivityStore.getState().recordInput("keep", "idle");
+  useTabViewStateStore.getState().reportView("shared-tab", "popup", "visible");
+  useTabResourceBadgeStore.getState().markResource("shared-tab", { reason: "job-memory", sessionId: "keep" });
+  usePanesStore.setState({ poppedOutTabs: new Set(["shared-tab"]) });
 }
 
 it("keeps subscriptions and state while another pinned owner survives", async () => {
@@ -62,6 +69,9 @@ it("keeps subscriptions and state while another pinned owner survives", async ()
   expect(dispose).not.toHaveBeenCalled();
   expect(useTerminalStatusStore.getState().statusMap.has("keep")).toBe(true);
   expect(useTerminalInputActivityStore.getState().getEntry("keep")).toBeDefined();
+  expect(useTabViewStateStore.getState().getAggregate("shared-tab")?.anyVisible).toBe(true);
+  expect(useTabResourceBadgeStore.getState().hasResourceBadge("shared-tab")).toBe(true);
+  expect(usePanesStore.getState().poppedOutTabs.has("shared-tab")).toBe(true);
   expect((usePanesStore.getState().layouts[1].rootPane as Panel).tabs[0].pinned).toBe(true);
 });
 

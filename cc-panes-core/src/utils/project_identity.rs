@@ -200,6 +200,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn shared_frontend_backend_identity_contract() {
+        #[derive(serde::Deserialize)]
+        struct Case {
+            input: String,
+            key: String,
+        }
+        let cases: Vec<Case> =
+            serde_json::from_str(include_str!("../../tests/fixtures/project_identity.json"))
+                .unwrap();
+        for case in cases {
+            assert_eq!(
+                project_identity_key(&case.input),
+                case.key,
+                "{}",
+                case.input
+            );
+        }
+    }
+
+    #[test]
     fn canonicalizes_windows_drive_variants() {
         assert_eq!(canonical_project_path(r"d:\Repo\App\\"), r"D:\Repo\App");
         assert_eq!(canonical_project_path("d:/Repo/App/"), r"D:\Repo\App");

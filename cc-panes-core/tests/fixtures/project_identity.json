@@ -1,0 +1,13 @@
+[
+  { "input": "D:\\Repos\\Äpp", "key": "d:\\repos\\Äpp" },
+  { "input": "D:\\Repos\\äpp", "key": "d:\\repos\\äpp" },
+  { "input": "C:/İSTANBUL/Σigma", "key": "c:\\İstanbul\\Σigma" },
+  { "input": "/mnt/d/Repos/Äpp/", "key": "d:\\repos\\Äpp" },
+  { "input": "\\\\?\\d:\\Repos\\App\\", "key": "d:\\repos\\app" },
+  { "input": "\\\\wsl$\\Ubuntu\\mnt\\d\\Repos\\Äpp", "key": "d:\\repos\\Äpp" },
+  { "input": "\\\\wsl$\\Ubuntu\\home\\User\\App", "key": "\\\\wsl.localhost\\Ubuntu\\home\\User\\App" },
+  { "input": "\\\\wsl.localhost\\Ubuntu\\home\\User\\app", "key": "\\\\wsl.localhost\\Ubuntu\\home\\User\\app" },
+  { "input": "/home/User/App", "key": "/home/User/App" },
+  { "input": "ssh://review@example.invalid/srv/App", "key": "ssh://review@example.invalid/srv/App" },
+  { "input": "ssh://review@example.invalid/srv/app", "key": "ssh://review@example.invalid/srv/app" }
+]

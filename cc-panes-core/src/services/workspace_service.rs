@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{error, info, warn};
 
+mod migration_paths;
 mod persistence;
 use persistence::RegistryWriteGuard;
 
@@ -1211,22 +1212,10 @@ impl WorkspaceService {
     fn ensure_migration_target_available(
         &self,
         source_root: &Path,
-        target_kind: WorkspaceMigrationTargetKind,
+        _target_kind: WorkspaceMigrationTargetKind,
         physical_target_root: &Path,
     ) -> Result<(), String> {
-        if matches!(target_kind, WorkspaceMigrationTargetKind::Local) {
-            let normalized_source = Self::normalize_filesystem_path(&source_root.to_string_lossy());
-            let normalized_target =
-                Self::normalize_filesystem_path(&physical_target_root.to_string_lossy());
-            if normalized_source == normalized_target {
-                return Err("Migration target root cannot be the same as source root".to_string());
-            }
-            if normalized_target.starts_with(&(normalized_source.clone() + "/")) {
-                return Err(
-                    "Migration target root cannot be inside the source workspace".to_string(),
-                );
-            }
-        }
+        migration_paths::ensure_separate_target(source_root, physical_target_root)?;
 
         if physical_target_root.exists() {
             let mut entries = fs::read_dir(physical_target_root)
@@ -1544,7 +1533,9 @@ impl WorkspaceService {
         source: &Path,
         destination: &Path,
     ) -> Result<CopyStats, String> {
+        migration_paths::ensure_separate_target(source, destination)?;
         self.ensure_directory_exists(destination)?;
+        migration_paths::ensure_separate_target(source, destination)?;
         let mut stats = CopyStats::default();
         self.copy_directory_recursive_inner(source, source, destination, &mut stats)?;
         Ok(stats)
@@ -1568,7 +1559,9 @@ impl WorkspaceService {
             .map(|project| Self::normalize_compare_path(&project.path))
             .collect();
 
+        migration_paths::ensure_separate_target(source_root, destination_root)?;
         self.ensure_directory_exists(destination_root)?;
+        migration_paths::ensure_separate_target(source_root, destination_root)?;
         let mut stats = CopyStats::default();
         self.copy_directory_recursive_filtered(
             source_root,
@@ -1846,24 +1839,7 @@ impl WorkspaceService {
     }
 
     fn relative_path_from_workspace(project_path: &str, workspace_root: &str) -> Option<String> {
-        let display_root = Self::normalize_filesystem_path(workspace_root);
-        let display_project = Self::normalize_filesystem_path(project_path);
-        let compare_root = Self::normalize_compare_path(workspace_root);
-        let compare_project = Self::normalize_compare_path(project_path);
-
-        if compare_project == compare_root {
-            return Some(String::new());
-        }
-
-        let prefix = compare_root + "/";
-        if compare_project.starts_with(&prefix) {
-            let relative = display_project
-                .strip_prefix(&(display_root + "/"))
-                .unwrap_or("");
-            return Some(relative.to_string());
-        }
-
-        None
+        migration_paths::relative_project_path(project_path, workspace_root)
     }
 
     fn normalize_wsl_root(path: &str) -> Result<String, String> {
@@ -1914,17 +1890,8 @@ impl WorkspaceService {
         path.replace('\\', "/").trim_start_matches("./").to_string()
     }
 
-    fn normalize_filesystem_path(path: &str) -> String {
-        path.replace('\\', "/").trim_end_matches('/').to_string()
-    }
-
     fn normalize_compare_path(path: &str) -> String {
-        let normalized = Self::normalize_filesystem_path(path);
-        if cfg!(windows) {
-            normalized.to_lowercase()
-        } else {
-            normalized
-        }
+        migration_paths::comparison_key(path)
     }
 
     fn path_basename(path: &str) -> String {

@@ -173,6 +173,23 @@ describe("useOpenTerminal host path guard", () => {
     expect(toastErr).toHaveBeenCalledWith("SSH 机器标识不可用");
   });
 
+  it("launches SSH without initializing or labeling any local history", () => {
+    vi.spyOn(window.navigator, "platform", "get").mockReturnValue("MacIntel");
+    vi.spyOn(historyService, "add").mockResolvedValue(1);
+    const initialize = vi.spyOn(localHistoryService, "initProjectHistory").mockResolvedValue(undefined);
+    const label = vi.spyOn(localHistoryService, "createAutoLabel").mockResolvedValue("unused");
+    const openProject = vi.fn();
+    usePanesStore.setState({ openProject } as never);
+    const { result } = renderHook(() => useOpenTerminal());
+    act(() => result.current({
+      path: "ssh://review@example.invalid/srv/app", workspacePath: "/local/workspace", cliTool: "claude",
+      ssh: { host: "example.invalid", user: "review", port: 22, remotePath: "/srv/app", machineId: "machine" },
+    }));
+    expect(openProject).toHaveBeenCalledOnce();
+    expect(initialize).not.toHaveBeenCalled();
+    expect(label).not.toHaveBeenCalled();
+  });
+
   it("从 SSH scope 启动本地终端时使用当前选中 workspace scope（隔离打开时）", () => {
     // 隔离默认关闭（0.12.12 热修）；本用例验证的是隔离本身的切换语义，显式打开。
     layoutScopePolicy.isolationEnabled = true;

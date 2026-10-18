@@ -160,8 +160,13 @@ function cleanupSatelliteState(
   get: () => PanesState,
   removedIds: Set<string>,
 ): void {
-  const popped = get().poppedOutTabs;
-  const stalePopped = [...removedIds].filter((id) => popped.has(id));
+  const state = get();
+  const retiredIds = new Set([...removedIds].filter((id) => !state.layouts.some((layout) => {
+    const tree = layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane;
+    return tree && findTabLocation(tree, id);
+  })));
+  const popped = state.poppedOutTabs;
+  const stalePopped = [...retiredIds].filter((id) => popped.has(id));
   if (stalePopped.length > 0) {
     const next = new Set(popped);
     for (const id of stalePopped) next.delete(id);
@@ -170,10 +175,10 @@ function cleanupSatelliteState(
     });
   }
   const fullscreen = useFullscreenStore.getState();
-  if (fullscreen.fullscreenTabId && removedIds.has(fullscreen.fullscreenTabId)) {
+  if (fullscreen.fullscreenTabId && retiredIds.has(fullscreen.fullscreenTabId)) {
     void fullscreen.exitFullscreen();
   }
-  sweepOwnerState(removedIds);
+  sweepOwnerState(retiredIds);
   notifyTerminalLayoutChanged("tab.remove");
 }
 

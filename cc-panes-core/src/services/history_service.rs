@@ -522,6 +522,13 @@ impl HistoryService {
 
     /// 获取或创建项目的仓库实例
     fn get_or_create_repo(&self, project_path: &Path) -> Result<Arc<HistoryFileRepository>> {
+        // All history APIs converge here before creating directories or a database.
+        // Requiring an existing host directory rejects SSH/file URIs, including
+        // previously-created relative `ssh:/...` pollution, without touching disk.
+        anyhow::ensure!(
+            project_path.is_absolute() && project_path.is_dir(),
+            "HISTORY_LOCAL_PATH_REQUIRED: local history requires an existing absolute host directory"
+        );
         let project_path = normalize_project_path(project_path);
         if self.is_protected(&project_path) {
             anyhow::bail!(

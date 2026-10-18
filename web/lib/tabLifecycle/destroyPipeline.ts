@@ -15,6 +15,7 @@ import {
 import { isTauriRuntime } from "@/services/runtime";
 import { terminalService } from "@/services/terminalService";
 import { useTabAttentionStore } from "@/stores/useTabAttentionStore";
+import { useTabResourceBadgeStore } from "@/stores/useTabResourceBadgeStore";
 import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
@@ -228,6 +229,7 @@ export function sweepOwnerState(tabIds: Iterable<string>): void {
   for (const tabId of tabIds) {
     useTabViewStateStore.getState().removeOwner(tabId);
     useTabAttentionStore.getState().clearAttention(tabId);
+    useTabResourceBadgeStore.getState().clearResource(tabId);
   }
 }
 
