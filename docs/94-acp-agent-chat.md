@@ -72,8 +72,14 @@ Orca 架构的必要之恶，不是我们的（docs/55 H6 数量竞赛不追的�
   `session_info_update` 给的（claude/codex/copilot/cursor 实测首轮后发一次，
   覆盖 auto）；`user` = 手改，agent 不得覆盖，清空即放弃手改。前端收到
   `session_info_update` 时派发 `ccpanes:agent-chat-history-changed` 让侧栏即时重拉。
-- 分叉：新标签 + `session/load` 同一 acpSessionId（claude 的 resume 语义
-  天然分叉）。
+- 分叉：更多菜单 → 创建聊天分叉，选择同目录或独立 Git 工作树。仅向明确
+  广告 `agentCapabilities.sessionCapabilities.fork` 的引擎调用 `session/fork`，
+  校验返回的新会话 ID 与父会话不同。失败时不会退回加载父会话或新建空会话。
+  Codex ACP 固定为 `2.2.2`，Claude ACP 保持 `0.70.0`，两者均支持原生分叉。
+  前端复制可见转写，不复制父会话的待审批请求、运行中工具终端或用量状态。
+  独立工作树从当前提交出发，复制已跟踪文件的未提交修改和未忽略的新普通文件；
+  未跟踪符号链接/嵌套仓库会明确报错并清理本次创建的工作树。创建成功但引擎
+  启动失败时保留工作树，错误信息显示其路径，原会话仍可用。
 - 回收：关标签走 `TAB_LIFECYCLE["agent-chat"].onClosed`（组件未挂载路径可
   达），generating 中关闭有 closeGuard 确认。
 

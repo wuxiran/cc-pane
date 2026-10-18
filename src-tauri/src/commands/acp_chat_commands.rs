@@ -123,7 +123,7 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
         id: "codex",
         label: "Codex",
         executable: "npx",
-        args: &["-y", "@agentclientprotocol/codex-acp@1.7.0"],
+        args: &["-y", "@agentclientprotocol/codex-acp@2.2.2"],
         requirement: "npm (npx) + logged-in Codex CLI",
     },
     AcpEngineSpec {
@@ -239,6 +239,7 @@ pub fn resolve_engine_launch(engine: &ResolvedEngine, cwd: &str) -> AppResult<Ac
         // 由 start 命令按 orchestrator 存活状态补充。
         mcp_servers: Vec::new(),
         resume_acp_session_id: None,
+        fork_acp_session_id: None,
         auto_approve_kinds: Vec::new(),
     })
 }
@@ -477,4 +478,44 @@ pub async fn stop_acp_chat(
     chat_id: String,
 ) -> AppResult<()> {
     service.stop(&chat_id).await
+}
+
+/// Fork uses a new adapter and session/fork. Loading the parent's ID would let
+/// both tabs append to the same conversation, so there is no resume fallback.
+#[tauri::command]
+pub async fn fork_acp_chat(
+    app: AppHandle,
+    service: State<'_, Arc<AcpChatService>>,
+    app_paths: State<'_, Arc<AppPaths>>,
+    source_chat_id: String,
+    chat_id: String,
+    cwd: String,
+) -> AppResult<AcpChatSnapshot> {
+    if source_chat_id == chat_id || service.snapshot(&chat_id).await.is_some() {
+        return Err(AppError::coded(
+            "ACP_FORK_TARGET_EXISTS",
+            "Fork requires a new chat ID",
+        ));
+    }
+    let source = service
+        .snapshot(&source_chat_id)
+        .await
+        .ok_or_else(|| AppError::from("Source chat is unavailable"))?;
+    if !matches!(source.phase, crate::services::AcpChatPhase::Ready) {
+        return Err(AppError::from(
+            "Wait for the source chat to finish its turn before forking",
+        ));
+    }
+    let session_id = source
+        .acp_session_id
+        .ok_or_else(|| AppError::from("Source conversation has no session ID"))?;
+    let engine = engine_spec(&app_paths, &source.engine_id)?;
+    let mut spec =
+        tauri::async_runtime::spawn_blocking(move || resolve_engine_launch(&engine, &cwd))
+            .await
+            .map_err(|e| AppError::from(e.to_string()))??;
+    spec.mcp_servers = ccpanes_mcp_servers(&app_paths);
+    spec.fork_acp_session_id = Some(session_id);
+    spec.auto_approve_kinds = source.auto_approve_kinds;
+    service.start(app, chat_id, spec).await
 }

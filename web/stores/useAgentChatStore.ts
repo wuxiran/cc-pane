@@ -63,6 +63,7 @@ export interface AgentChatSessionState {
 interface AgentChatStoreState {
   chats: Record<string, AgentChatSessionState>;
   setSnapshot: (chatId: string, snapshot: AcpChatSnapshot) => void;
+  seedFork: (chatId: string, items: AgentChatItem[]) => void;
   setConcierge: (chatId: string, concierge: boolean) => void;
   setCwdOverride: (chatId: string, cwd: string | null) => void;
   addUserMessage: (chatId: string, text: string, attachments?: AgentChatAttachment[]) => void;
@@ -145,6 +146,15 @@ function mergeToolCall(existing: AcpToolCall, patch: ToolCallPatch): void {
 export const useAgentChatStore = create<AgentChatStoreState>()(
   immer((set) => ({
     chats: {},
+
+    seedFork: (chatId, items) => set((state) => {
+      const child = ensure(state.chats, chatId);
+      // Native fork establishes model context; this copy only supplies the visible transcript.
+      // Do not copy pending approvals, tool terminals, live usage or other parent resources.
+      if (!child.items.some((item) => item.type !== "notice")) {
+        child.items = [...structuredClone(items), ...child.items];
+      }
+    }),
 
     setSnapshot: (chatId, snapshot) =>
       set((state) => {

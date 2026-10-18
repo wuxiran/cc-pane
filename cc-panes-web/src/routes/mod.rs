@@ -223,6 +223,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/worktrees/is-git-repo", get(git::is_git_repo))
         .route("/api/worktrees", get(git::list_worktrees))
         .route("/api/worktrees", post(git::add_worktree))
+        .route("/api/worktrees/fork", post(git::fork_chat_worktree))
         .route("/api/worktrees", delete(git::remove_worktree))
         .route("/api/runtime/cwd", get(system::get_app_cwd))
         .route("/api/cli-tools", get(system::list_cli_tools))

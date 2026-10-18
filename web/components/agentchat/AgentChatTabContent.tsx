@@ -6,14 +6,17 @@
 //
 // 拆分（行数棘轮）：条目渲染在 ChatItems，输入区在 ChatComposer，引擎选择页
 // 在 EnginePicker——本文件只管会话壳（头部/滚动/审批/生命周期动作）。
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { ArrowDown, Cpu, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Tab } from "@/types";
 import type { AcpPlanEntry, AgentChatItem } from "@/types/agentChat";
+import { lazyWithRetry } from "@/lib/lazyRetry";
+import { supportsAcpFork, type ChatForkMode } from "@/services/chatForkService";
+import { forkWorkingDirectory } from "@/services/chatForkLaunch";
 import { agentChatService } from "@/services/agentChatService";
 import { todoService } from "@/services/todoService";
-import { ensureAgentChatListener } from "@/stores/agentChatEvents";
+import { dropAgentChatState, ensureAgentChatListener } from "@/stores/agentChatEvents";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { usePanesStore } from "@/stores";
@@ -43,6 +46,9 @@ import {
   savePreferredModel,
 } from "./enginePrefs";
 
+const ChatForkDialog = lazyWithRetry(() => import("@/components/chatfork/ChatForkDialog"), "ChatForkDialog");
+
+
 /** 会话转写 → Markdown（导出用；工具卡只留标题行，diff 太重不进转写）。 */
 function transcriptMarkdown(items: AgentChatItem[]): string {
   const sections: string[] = [];
@@ -63,6 +69,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   const { t } = useTranslation("panes");
   const chat = useAgentChatStore((state) => state.chats[tab.id]);
   const [atBottom, setAtBottom] = useState(true);
+  const [forkOpen, setForkOpen] = useState(false);
   // 工作空间/目录覆盖存 store（切标签不丢），优先级高于标签自带项目；
   // 顶栏 chip 与启动页共用 StartProjectMenu 切换。
   const cwdOverride = chat?.cwdOverride ?? null;
@@ -169,29 +176,28 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
     [tab.id, t],
   );
 
-  /** 分叉：新开一个 agent-chat 标签，用 session/load 续接当前对话上下文。
-   * claude 的 resume 语义天然分叉（原会话文件不动，续接产生新线），两个
-   * 标签各自往下走。 */
-  const forkToNewTab = useCallback(() => {
-    const current = useAgentChatStore.getState().chats[tab.id]?.snapshot;
-    if (!current?.acpSessionId || !effectiveCwd) return;
-    const newTabId = usePanesStore.getState().openAgentChat(effectiveCwd);
-    if (!newTabId) return;
-    void agentChatService
-      .start(
-        newTabId,
-        current.engineId,
-        effectiveCwd,
-        current.acpSessionId,
-        current.autoApproveKinds ?? loadAutoApproveKinds(current.engineId),
-      )
-      .then((snapshot) => useAgentChatStore.getState().setSnapshot(newTabId, snapshot))
-      .catch((error) => {
-        useAgentChatStore
-          .getState()
-          .pushNotice(newTabId, error instanceof Error ? error.message : String(error));
-      });
-  }, [tab.id, effectiveCwd]);
+  const forkToNewTab = useCallback(async (mode: ChatForkMode) => {
+    const source = useAgentChatStore.getState().chats[tab.id];
+    if (!source?.snapshot?.acpSessionId || source.snapshot.phase !== "ready" || !effectiveCwd) {
+      throw new Error(t("forkUnsupported"));
+    }
+    const transcript = structuredClone(source.items);
+    const cwd = await forkWorkingDirectory(effectiveCwd, mode);
+    const newTabId = `tab-${crypto.randomUUID()}`;
+    try {
+      const snapshot = await agentChatService.fork(tab.id, newTabId, cwd);
+      useAgentChatStore.getState().seedFork(newTabId, transcript);
+      useAgentChatStore.getState().setSnapshot(newTabId, snapshot);
+      if (!usePanesStore.getState().openAgentChat(cwd, { tabId: newTabId })) {
+        throw new Error("Unable to open the forked conversation tab");
+      }
+    } catch (error) {
+      await agentChatService.stop(newTabId).catch((stopError) => handleErrorSilent(stopError, "stop failed fork"));
+      dropAgentChatState(newTabId);
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(mode === "worktree" ? `${detail}\n${cwd}` : detail);
+    }
+  }, [tab.id, effectiveCwd, t]);
 
   const copySessionId = useCallback(() => {
     const sessionId = useAgentChatStore.getState().chats[tab.id]?.snapshot?.acpSessionId;
@@ -314,6 +320,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
+      {forkOpen && <Suspense fallback={null}><ChatForkDialog open={forkOpen} onOpenChange={setForkOpen} onFork={forkToNewTab} /></Suspense>}
       {snapshot ? (
         <ChatSessionHeader
           engineLabel={snapshot.engineId}
@@ -328,8 +335,8 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
           onToggleTools={() =>
             setToolFold((previous) => ({ seq: previous.seq + 1, expanded: !previous.expanded }))
           }
-          canFork={Boolean(snapshot.acpSessionId && effectiveCwd)}
-          onFork={forkToNewTab}
+          canFork={Boolean(snapshot.acpSessionId && effectiveCwd && phase === "ready" && supportsAcpFork(snapshot.agentCapabilities))}
+          onFork={() => setForkOpen(true)}
           canCopySessionId={Boolean(snapshot.acpSessionId)}
           onCopySessionId={copySessionId}
           canExport={Boolean(items && items.length > 0)}

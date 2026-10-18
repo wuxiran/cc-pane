@@ -9,6 +9,8 @@
 //!
 //! Prompt payloads are never logged; they may contain user code and secrets.
 
+mod fork;
+
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -191,6 +193,7 @@ pub struct AcpLaunchSpec {
     /// Resume an existing ACP conversation via `session/load` when the agent
     /// advertises `loadSession`. Falls back to a fresh session otherwise.
     pub resume_acp_session_id: Option<String>,
+    pub fork_acp_session_id: Option<String>,
     /// 自动放行的 ACP ToolKind 集合：命中的 `session/request_permission` 自动
     /// 选第一个 allow 选项，不弹审批卡。`*` = 全部（Automations 的 headless
     /// 会话）；交互式 chat 由用户在权限下拉里按类勾选，空 = 每次都问。
@@ -681,7 +684,13 @@ impl AcpChatService {
         // 新会话（旧会话可能已被 agent 侧清理），降级必须对用户可见。
         let mut resumed_session_id: Option<String> = None;
         let mut session_response: Option<Value> = None;
-        if let Some(resume_id) = spec
+        if let Some(source) = spec.fork_acp_session_id.as_deref() {
+            let (child, response) =
+                fork::fork_session(session, source, capabilities.as_ref(), cwd, &mcp_servers)
+                    .await?;
+            resumed_session_id = Some(child);
+            session_response = Some(response);
+        } else if let Some(resume_id) = spec
             .resume_acp_session_id
             .as_deref()
             .map(str::trim)

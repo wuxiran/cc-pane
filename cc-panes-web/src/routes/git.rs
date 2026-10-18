@@ -497,3 +497,21 @@ pub async fn remove_worktree(
 #[cfg(test)]
 #[path = "git_tests.rs"]
 mod git_tests;
+
+#[derive(serde::Deserialize)]
+pub struct ForkChatWorktreeRequest {
+    pub cwd: String,
+}
+
+pub async fn fork_chat_worktree(
+    State(state): State<AppState>,
+    Json(req): Json<ForkChatWorktreeRequest>,
+) -> Result<Json<String>, (StatusCode, String)> {
+    validate_path(&req.cwd).map_err(service_error)?;
+    let service = state.worktree_service.clone();
+    tokio::task::spawn_blocking(move || service.fork_chat_worktree(&req.cwd))
+        .await
+        .map_err(service_error)?
+        .map(Json)
+        .map_err(service_error)
+}

@@ -1,9 +1,13 @@
+import { Suspense, useState } from "react";
+import { lazyWithRetry } from "@/lib/lazyRetry";
+import { terminalForkSource } from "@/services/chatForkService";
 // tab 右键菜单：从 TabBar 拆出（行数棘轮约束），行为与外观保持不变。
 // 新增「恢复已关闭标签」入口直接读 usePanesStore（与 TabQuickCommandsMenu 直读 store 同形态），
 // 避免 Panel → TabBar → 此处的三层 props 透传。
 import {
   Copy,
   CopyPlus,
+  GitFork,
   ExternalLink,
   FolderTree,
   Maximize2,
@@ -29,6 +33,9 @@ import type { Tab } from "@/types";
 import type { TFunction } from "i18next";
 import CommandMenuItem, { CommandShortcutHint } from "@/components/commands/CommandMenuItem";
 import TabQuickCommandsMenu from "./TabQuickCommandsMenu";
+
+const ChatForkDialog = lazyWithRetry(() => import("@/components/chatfork/ChatForkDialog"), "ChatForkDialog");
+
 
 export interface PaneMoveTarget {
   id: string;
@@ -105,6 +112,8 @@ export default function TabContextMenu({
   isPaneFullscreen,
   t,
 }: TabContextMenuProps) {
+  const [forkOpen, setForkOpen] = useState(false);
+  const forkSource = terminalForkSource(tab);
   const terminalLeafCount =
     tab.contentType === "terminal" && tab.terminalRootPane
       ? countTerminalLeaves(tab.terminalRootPane)
@@ -113,6 +122,12 @@ export default function TabContextMenu({
   const closedTabCount = usePanesStore((s) => s.closedTabs.length);
 
   return (
+    <>
+    {forkOpen && <Suspense fallback={null}><ChatForkDialog open={forkOpen} onOpenChange={setForkOpen} allowWorktree={!forkSource?.wsl} onFork={async (mode) => {
+      const { buildTerminalFork } = await import("@/services/chatForkLaunch");
+      const options = await buildTerminalFork(tab, mode);
+      usePanesStore.getState().addTab(paneId, options);
+    }} /></Suspense>}
     <ContextMenu>
       <ContextMenuTrigger asChild>
         {children}
@@ -131,6 +146,9 @@ export default function TabContextMenu({
           <ContextMenuItem onClick={() => onCloneTab(tab)}>
             <CopyPlus /> {t("cloneTerminal")}
           </ContextMenuItem>
+        )}
+        {forkSource && !forkSource.ssh && (
+          <ContextMenuItem onClick={() => setForkOpen(true)}><GitFork /> {t("forkChat")}</ContextMenuItem>
         )}
         {onToggleFullscreen && (
           <ContextMenuItem onClick={() => onToggleFullscreen(tab.id)}>
@@ -292,6 +310,7 @@ export default function TabContextMenu({
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+    </>
   );
 }
 

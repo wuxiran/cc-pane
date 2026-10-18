@@ -1141,15 +1141,12 @@ impl CliToolAdapter for ClaudeAdapter {
             args.push(settings_path);
         }
 
-        // Resume（claude --resume 复用原会话 id，无需重新发号/捕获）
-        if let Some(ref rid) = ctx.resume_id {
-            args.push("--resume".to_string());
-            args.push(rid.clone());
-        } else if let Some(ref issued) = ctx.issued_session_id {
-            // 新会话由 CC-Panes 发号，启动前即确定 resume id
-            args.push("--session-id".to_string());
-            args.push(issued.clone());
-        }
+        crate::push_claude_session_args(
+            &mut args,
+            &ctx.adapter_options,
+            ctx.resume_id.as_deref(),
+            ctx.issued_session_id.as_deref(),
+        )?;
 
         // 多目录模式：workspace_path 存在时 project_path 作为 --add-dir
         if ctx.workspace_path.is_some() {
@@ -2508,5 +2505,18 @@ mod tests {
             bash_cmd_prefix: None,
         };
         assert_eq!(a.render_cc_pane_tool_matcher(&m).as_deref(), Some("Write"));
+    }
+    #[test]
+    fn build_command_creates_native_fork_without_resuming_parent() {
+        let mut ctx = test_context(Some("fixture-cli"));
+        ctx.resume_id = None;
+        ctx.adapter_options
+            .insert("forkSessionId".into(), serde_json::json!("parent-id"));
+        let result = ClaudeAdapter::new().build_command(&ctx).unwrap();
+        assert!(result
+            .args
+            .windows(2)
+            .any(|p| p == ["--resume", "parent-id"]));
+        assert!(result.args.iter().any(|p| p == "--fork-session"));
     }
 }

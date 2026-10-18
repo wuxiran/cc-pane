@@ -47,7 +47,7 @@ export interface BrowserTabActions {
    * 不按任何键去重：一个标签就是一段独立对话，用户要几个开几个。
    * 引擎在标签内选择（引擎选择页），不在创建时定死。
    */
-  openAgentChat: (projectPath?: string, options?: OpenBrowserOptions) => string | null;
+  openAgentChat: (projectPath?: string, options?: OpenBrowserOptions & { tabId?: string }) => string | null;
 }
 
 
@@ -209,7 +209,7 @@ export function createBrowserTabActions(
         if (pane?.type !== "panel") return;
 
         // projectPath 是 agent 的 cwd；没有它标签也能开（引擎选择页会提示）。
-        const newTab = createTabOfType("agent-chat", { projectPath });
+        const newTab = createTabOfType("agent-chat", { projectPath, id: options?.tabId });
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
         state.activePaneId = pane.id;

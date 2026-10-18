@@ -96,6 +96,9 @@ export interface PiLaunchOptions {
  * claude 侧 effort 经 MAX_THINKING_TOKENS env 注入，codex 侧走 `-c model_reasoning_effort`。
  */
 export interface LaunchAdapterOptions extends PiLaunchOptions {
+  /** Source conversation only for first launch; the captured child resumeId takes precedence. */
+  forkSessionId?: string;
+  forkCwd?: string;
   effort?: LaunchEffort;
   extraArgs?: string[];
   verbose?: boolean;
