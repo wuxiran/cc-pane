@@ -211,10 +211,12 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
     let started = false;
     try {
       // The dialog and worktree operation can outlive a restart or project switch.
-      const transcript = structuredClone(readSource().items);
+      const source = readSource();
+      const transcript = structuredClone(source.items);
       started = true;
       const snapshot = await agentChatService.fork(tab.id, newTabId, cwd);
-      useAgentChatStore.getState().seedFork(newTabId, transcript);
+      if (!snapshot.acpSessionId) throw new Error("Fork returned no independent session ID");
+      useAgentChatStore.getState().seedFork(newTabId, transcript, snapshot.acpSessionId, source.transcriptStart);
       useAgentChatStore.getState().setSnapshot(newTabId, snapshot);
       if (!usePanesStore.getState().openAgentChat(cwd, { tabId: newTabId })) {
         throw new Error("Unable to open the forked conversation tab");

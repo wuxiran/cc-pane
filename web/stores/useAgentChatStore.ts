@@ -73,7 +73,7 @@ export interface AgentChatSessionState {
 interface AgentChatStoreState {
   chats: Record<string, AgentChatSessionState>;
   setSnapshot: (chatId: string, snapshot: AcpChatSnapshot) => void;
-  seedFork: (chatId: string, items: AgentChatItem[]) => void;
+  seedFork: (chatId: string, items: AgentChatItem[], acpSessionId: string, preservedPrefixLength?: number) => void;
   setConcierge: (chatId: string, concierge: boolean) => void;
   setCwdOverride: (chatId: string, cwd: string | null) => void;
   addUserMessage: (chatId: string, text: string, attachments?: AgentChatAttachment[], promptBlocks?: AcpContentBlock[]) => void;
@@ -169,13 +169,20 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
   immer((set) => ({
     chats: {},
 
-    seedFork: (chatId, items) => set((state) => {
+    seedFork: (chatId, items, acpSessionId, preservedPrefixLength = 0) => set((state) => {
       const child = ensure(state.chats, chatId);
       // Native fork establishes model context; this copy only supplies the visible transcript.
       // Do not copy pending approvals, tool terminals, live usage or other parent resources.
       if (!child.items.some((item) => item.type !== "notice")) {
         child.items = [...structuredClone(items), ...child.items];
+        child.transcriptStart = Math.min(items.length, Math.max(0, preservedPrefixLength));
+      } else {
+        // A native fork may already have replayed its own transcript before IPC returns.
+        child.transcriptStart = 0;
       }
+      // Bind the copied history before/after ready alike: later load must replace it,
+      // while preserving only the source's explicit older-session prefix.
+      child.transcriptSessionId = acpSessionId;
     }),
 
     setSnapshot: (chatId, snapshot) =>

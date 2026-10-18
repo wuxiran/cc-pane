@@ -112,6 +112,8 @@ describe("fork dialog source revalidation", () => {
     expect(agentChatService.fork).toHaveBeenCalledExactlyOnceWith(parentId, tabId, cwd);
     expect(useAgentChatStore.getState().chats[tabId].items).toEqual(parent.items);
     expect(useAgentChatStore.getState().chats[tabId].snapshot?.acpSessionId).toBe("child-session");
+    expect(useAgentChatStore.getState().chats[tabId].transcriptSessionId).toBe("child-session");
+    expect(useAgentChatStore.getState().chats[tabId].transcriptStart).toBe(0);
     expect(useAgentChatStore.getState().chats[parentId]).toEqual(parent);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -130,6 +132,28 @@ describe("fork dialog source revalidation", () => {
     await waitFor(() => expect(openAgentChat).toHaveBeenCalledOnce());
     const childId = openAgentChat.mock.calls[0][1].tabId;
     expect(useAgentChatStore.getState().chats[childId].items).toEqual(parent.items);
+    expect(useAgentChatStore.getState().chats[parentId]).toEqual(parent);
+  });
+
+  it("passes the source's preserved prefix through the UI fork and subsequent replay", async () => {
+    const store = useAgentChatStore.getState();
+    store.preserveTranscriptPrefix(parentId);
+    store.addUserMessage(parentId, "Current project question");
+    store.appendStreamText(parentId, "assistant", "Current project answer");
+    const parent = structuredClone(useAgentChatStore.getState().chats[parentId]);
+    await openDialog();
+    fireEvent.click(screen.getByRole("button", { name: "创建聊天分叉" }));
+    await waitFor(() => expect(openAgentChat).toHaveBeenCalledOnce());
+    const childId = openAgentChat.mock.calls[0][1].tabId;
+    expect(useAgentChatStore.getState().chats[childId].transcriptStart).toBe(2);
+    act(() => {
+      store.beginHistoryReplay(childId, "child-session");
+      store.addUserMessage(childId, "Current project question");
+      store.appendStreamText(childId, "assistant", "Current project answer");
+      store.finishHistoryReplay(childId, "child-session", true);
+    });
+    expect(useAgentChatStore.getState().chats[childId].items.slice(0, 2)).toEqual(parent.items.slice(0, 2));
+    expect(useAgentChatStore.getState().chats[childId].items).toHaveLength(4);
     expect(useAgentChatStore.getState().chats[parentId]).toEqual(parent);
   });
 });
