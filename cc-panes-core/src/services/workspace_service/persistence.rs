@@ -4,8 +4,13 @@
 //! never renamed with a workspace and survives crashes without a stale lockfile.
 //! Hold it for the whole read/modify/write operation, not just the final write.
 use rusqlite::Connection;
+use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::time::Duration;
+
+pub(super) fn revision(content: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(content))
+}
 
 pub(super) struct RegistryWriteGuard {
     _connection: Connection,

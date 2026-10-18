@@ -392,7 +392,7 @@ impl WorkspaceService {
         }
         self.write_workspace_json_locked(DEFAULT_NAME, &workspace)?;
         self.init_workspace_files(&workspace)?;
-        Ok(Some(workspace))
+        Ok(Some(self.get_workspace(DEFAULT_NAME)?))
     }
 
     /// 确保 Agent Chat 专用工作空间存在：启动时调用，缺失则自动创建。
@@ -428,7 +428,7 @@ impl WorkspaceService {
         }
         self.write_workspace_json_locked(AGENT_CHAT_NAME, &workspace)?;
         self.init_workspace_files(&workspace)?;
-        Ok(Some(workspace))
+        Ok(Some(self.get_workspace(AGENT_CHAT_NAME)?))
     }
 
     /// 创建新工作空间
@@ -453,7 +453,7 @@ impl WorkspaceService {
             self.init_workspace_files(&workspace)?;
         }
 
-        Ok(workspace)
+        self.get_workspace(name)
     }
 
     /// 获取工作空间
@@ -852,6 +852,7 @@ impl WorkspaceService {
 
         self.write_workspace_json_locked(&workspace.name, &updated_workspace)?;
         self.sync_projects_csv(&updated_workspace);
+        let updated_workspace = self.get_workspace(&workspace.name)?;
 
         Ok(WorkspaceMigrationResult {
             status: WorkspaceMigrationStatus::Succeeded,
@@ -876,7 +877,7 @@ impl WorkspaceService {
         self.sync_projects_csv(&snapshot.workspace);
         Ok(WorkspaceMigrationRollbackResult {
             snapshot_id: snapshot_id.to_string(),
-            workspace: snapshot.workspace,
+            workspace: self.get_workspace(workspace_name)?,
         })
     }
 
@@ -913,6 +914,7 @@ impl WorkspaceService {
             self.build_workspace_after_project_migration(&workspace, &plan, &target_root);
         self.write_workspace_json_locked(&workspace.name, &updated_workspace)?;
         self.sync_projects_csv(&updated_workspace);
+        let updated_workspace = self.get_workspace(&workspace.name)?;
 
         Ok(ProjectMigrationResult {
             status: WorkspaceMigrationStatus::Succeeded,
@@ -936,7 +938,7 @@ impl WorkspaceService {
         self.sync_projects_csv(&snapshot.workspace);
         Ok(ProjectMigrationRollbackResult {
             snapshot_id: snapshot_id.to_string(),
-            workspace: snapshot.workspace,
+            workspace: self.get_workspace(workspace_name)?,
         })
     }
 
@@ -1923,14 +1925,35 @@ impl WorkspaceService {
         let content =
             fs::read_to_string(path).map_err(|e| format!("Failed to read file: {}", e))?;
 
-        serde_json::from_str(&content).map_err(|e| format!("Failed to parse JSON: {}", e))
+        let mut workspace: Workspace =
+            serde_json::from_str(&content).map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        workspace.revision = Some(persistence::revision(content.as_bytes()));
+        Ok(workspace)
     }
 
     /// Explicitly replace a workspace snapshot. Read/modify/write callers should use
     /// `update_workspace_with` so their read is part of the same transaction.
     pub fn write_workspace_json(&self, name: &str, workspace: &Workspace) -> Result<(), String> {
+        self.save_workspace_snapshot(name, workspace).map(|_| ())
+    }
+
+    /// Reject a stale form snapshot instead of overwriting concurrent project edits.
+    pub fn save_workspace_snapshot(
+        &self,
+        name: &str,
+        workspace: &Workspace,
+    ) -> Result<Workspace, String> {
         let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
-        self.write_workspace_json_locked(name, workspace)
+        if let Some(expected) = workspace.revision.as_ref() {
+            let current = self.get_workspace(name)?;
+            if current.revision.as_ref() != Some(expected) {
+                return Err(
+                    "WORKSPACE_CHANGED: Workspace changed; reload before saving".to_string()
+                );
+            }
+        }
+        self.write_workspace_json_locked(name, workspace)?;
+        self.get_workspace(name)
     }
 
     pub fn update_workspace_with<T>(
@@ -1950,7 +1973,9 @@ impl WorkspaceService {
         if !self.workspace_dir(name).is_dir() {
             return Err(format!("Workspace '{name}' does not exist"));
         }
-        let content = serde_json::to_string_pretty(workspace)
+        let mut persisted = workspace.clone();
+        persisted.revision = None;
+        let content = serde_json::to_string_pretty(&persisted)
             .map_err(|e| format!("Failed to serialize JSON: {}", e))?;
 
         crate::utils::atomic_file::write_atomic(&json_path, content)

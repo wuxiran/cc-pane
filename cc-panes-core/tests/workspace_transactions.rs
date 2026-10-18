@@ -104,3 +104,37 @@ fn failed_transaction_keeps_previous_snapshot() {
         Some("still writable")
     );
 }
+
+#[test]
+fn stale_form_snapshot_cannot_erase_a_concurrent_project_addition() {
+    let root = tempfile::tempdir().unwrap();
+    let service = WorkspaceService::new(root.path().to_path_buf());
+    let mut form = service.create_workspace("safe", None).unwrap();
+    assert!(form.revision.is_some());
+    service.add_project("safe", "/fixture/concurrent").unwrap();
+    form.alias = Some("stale form".to_string());
+    let error = service.save_workspace_snapshot("safe", &form).unwrap_err();
+    assert!(error.starts_with("WORKSPACE_CHANGED:"));
+    let current = service.get_workspace("safe").unwrap();
+    assert_eq!(current.projects.len(), 1);
+    assert_eq!(current.alias, None);
+}
+
+#[test]
+fn successful_snapshot_save_returns_revision_for_the_next_edit() {
+    let root = tempfile::tempdir().unwrap();
+    let service = WorkspaceService::new(root.path().to_path_buf());
+    let mut form = service.create_workspace("safe", None).unwrap();
+    let original_revision = form.revision.clone();
+    form.alias = Some("first".to_string());
+    let mut saved = service.save_workspace_snapshot("safe", &form).unwrap();
+    assert_ne!(saved.revision, original_revision);
+    saved.alias = Some("second".to_string());
+    let saved = service.save_workspace_snapshot("safe", &saved).unwrap();
+    assert_eq!(saved.alias.as_deref(), Some("second"));
+    let disk = std::fs::read_to_string(root.path().join("safe/workspace.json")).unwrap();
+    assert!(
+        !disk.contains("\"revision\""),
+        "revision belongs to the transport snapshot"
+    );
+}

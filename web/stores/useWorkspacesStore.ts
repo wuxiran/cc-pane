@@ -6,7 +6,7 @@ import type {
   WorkspaceProject,
 } from "@/types";
 import * as workspaceService from "@/services/workspaceService";
-import { detectAppPlatform } from "@/utils";
+import { detectAppPlatform, getErrorMessage } from "@/utils";
 
 export const UNGROUPED_WORKSPACE_FILTER = "__ungrouped__";
 
@@ -355,10 +355,23 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
   },
 
   saveWorkspace: async (workspace) => {
-    await workspaceService.saveWorkspace(workspace.name, workspace);
+    let saved: Workspace | void;
+    try {
+      saved = await workspaceService.saveWorkspace(workspace.name, workspace);
+    } catch (error) {
+      if (getErrorMessage(error).includes("WORKSPACE_CHANGED:")) {
+        try {
+          const latest = await workspaceService.getWorkspace(workspace.name);
+          set((state) => ({ workspaces: mergeWorkspace(state.workspaces, latest) }));
+        } catch (refreshError) {
+          console.warn("Failed to refresh conflicting workspace:", refreshError);
+        }
+      }
+      throw error;
+    }
     set((state) => ({
       workspaces: state.workspaces.map((ws) =>
-        ws.name === workspace.name ? workspace : ws
+        ws.name === workspace.name ? saved ?? workspace : ws
       ),
     }));
   },

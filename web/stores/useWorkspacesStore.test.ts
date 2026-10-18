@@ -8,6 +8,7 @@ import {
 } from "@/test/utils/testData";
 
 vi.mock("@/services/workspaceService", () => ({
+  getWorkspace: vi.fn(),
   listWorkspaces: vi.fn(),
   createWorkspace: vi.fn(),
   renameWorkspace: vi.fn(),
@@ -291,6 +292,18 @@ describe("useWorkspacesStore", () => {
   });
 
   describe("saveWorkspace", () => {
+    it("refreshes a rejected stale snapshot without retrying a destructive overwrite", async () => {
+      const stale = createTestWorkspace({ name: "ws-1", revision: "old" });
+      const latest = { ...stale, revision: "new", alias: "another writer" };
+      useWorkspacesStore.setState({ workspaces: [stale] });
+      const error = new Error("WORKSPACE_CHANGED: Workspace changed; reload before saving");
+      vi.mocked(workspaceService.saveWorkspace).mockRejectedValueOnce(error);
+      vi.mocked(workspaceService.getWorkspace).mockResolvedValueOnce(latest);
+      await expect(useWorkspacesStore.getState().saveWorkspace(stale)).rejects.toBe(error);
+      expect(workspaceService.saveWorkspace).toHaveBeenCalledTimes(1);
+      expect(useWorkspacesStore.getState().workspaces[0]).toEqual(latest);
+    });
+
     it("应该保存并替换本地 store 中的工作空间", async () => {
       const ws = createTestWorkspace({ name: "ws-1" });
       useWorkspacesStore.setState({ workspaces: [ws] });
@@ -302,12 +315,13 @@ describe("useWorkspacesStore", () => {
           remotePath: "/home/dev/project",
         },
       };
-      vi.mocked(workspaceService.saveWorkspace).mockResolvedValue();
+      const saved = { ...updated, revision: "new-revision" };
+      vi.mocked(workspaceService.saveWorkspace).mockResolvedValue(saved);
 
       await useWorkspacesStore.getState().saveWorkspace(updated);
 
       expect(workspaceService.saveWorkspace).toHaveBeenCalledWith("ws-1", updated);
-      expect(useWorkspacesStore.getState().workspaces[0]).toEqual(updated);
+      expect(useWorkspacesStore.getState().workspaces[0]).toEqual(saved);
     });
   });
 
