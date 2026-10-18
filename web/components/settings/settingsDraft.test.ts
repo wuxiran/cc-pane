@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { createSettingsDraft, resetSettingsSection } from "./settingsDraft";
+
+// Match the settings store unit tests: draft reset needs defaults, not live services.
+vi.mock("@/services", () => ({ settingsService: {} }));
 
 function fixture() {
   const defaults = createSettingsDraft(useSettingsStore.getState().getDefaults());
