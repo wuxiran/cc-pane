@@ -141,6 +141,8 @@ async fn waiting_input_reports_survive_redelivery_and_flush_once_after_idle() {
         session_state_machine: directive_runtime.session_state_machine,
         task_binding_service: service,
         pending_worker_reports: Arc::new(Mutex::new(PendingReportMap::new())),
+        report_delivery_locks: Arc::new(Mutex::new(HashMap::new())),
+        sent_report_keys: Arc::new(Mutex::new(HashSet::new())),
         failed_report_events: Arc::new(Mutex::new(HashSet::new())),
         pipe_event_service: directive_runtime.pipe_event_service,
         dsh_service: Arc::new(cc_panes_core::services::DshService::new(&paths)),

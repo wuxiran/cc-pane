@@ -1,4 +1,5 @@
 import type { ChatTurn } from "./chatTurns";
+import type { AcpContentBlock } from "@/types/agentChat";
 
 export interface ChatTimelineEntry {
   id: string;
@@ -21,6 +22,16 @@ function fingerprint(text: string): string {
   return (hash >>> 0).toString(36);
 }
 
+/** Attachment-only turns have no visible text after ACP replay. Use their wire
+ * blocks for identity; keep the historical text/label identity untouched. */
+function attachmentIdentity(blocks: readonly AcpContentBlock[]): string {
+  return JSON.stringify(blocks.map((block) => {
+    if (block.type === "image") return { type: block.type, mimeType: block.mimeType, data: block.data };
+    if (block.type === "resource_link") return { type: block.type, uri: block.uri, name: block.name };
+    return { type: block.type, text: block.text };
+  }));
+}
+
 export function buildChatTimeline(turns: readonly ChatTurn[]): ChatTimelineEntry[] {
   const entries: ChatTimelineEntry[] = [];
   const occurrences = new Map<string, number>();
@@ -30,7 +41,12 @@ export function buildChatTimeline(turns: readonly ChatTurn[]): ChatTimelineEntry
       const title = turn.kind === "user"
         ? turn.item.text || (turn.item.attachmentLabels ?? []).join(", ")
         : "";
-      const identity = `${turn.kind}:${fingerprint(title)}`;
+      // Preserve the pre-existing text/label key format for ordinary turns so
+      // persisted bookmarks remain valid across this migration.
+      const identityText = turn.kind === "user" && !turn.item.text && turn.item.promptBlocks?.length
+        ? `attachment:${attachmentIdentity(turn.item.promptBlocks)}`
+        : title;
+      const identity = `${turn.kind}:${fingerprint(identityText)}`;
       const occurrence = occurrences.get(identity) ?? 0;
       occurrences.set(identity, occurrence + 1);
       entries.push({

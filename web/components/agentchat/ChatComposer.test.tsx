@@ -231,3 +231,29 @@ describe("ChatComposer failed IPC recovery", () => {
     expect(screen.getByRole("button", { name: "停止" })).toBeEnabled();
   });
 });
+
+describe("ChatComposer draft attachment lifetime", () => {
+  it("keeps text and file attachments across panel remounts", async () => {
+    mockInvoke(["C:\\repo\\report.pdf"]);
+    const view = renderComposer();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "summarize the report" } });
+    await act(async () => fireEvent.paste(screen.getByRole("textbox"), pasteData()));
+    expect(await screen.findByText("report.pdf")).toBeInTheDocument();
+    view.unmount(); renderComposer();
+    expect(screen.getByRole("textbox")).toHaveValue("summarize the report");
+    expect(screen.getByText("report.pdf")).toBeInTheDocument();
+  });
+
+  it("does not resurrect an attachment after explicit chat close", async () => {
+    let resolvePaths!: (paths: string[]) => void;
+    vi.mocked(invoke).mockImplementation(((command: string) => command === "read_clipboard_file_paths"
+      ? new Promise<string[]>((resolve) => { resolvePaths = resolve; }) : Promise.resolve(null)) as typeof invoke);
+    const view = renderComposer();
+    await act(async () => fireEvent.paste(screen.getByRole("textbox"), pasteData()));
+    view.unmount();
+    useAgentChatStore.getState().dropChat(CHAT);
+    await act(async () => resolvePaths(["C:\\repo\\late.pdf"]));
+    renderComposer();
+    expect(screen.queryByText("late.pdf")).toBeNull();
+  });
+});

@@ -30,6 +30,7 @@ import { useNotificationStore, type NotificationRecord } from "@/stores/useNotif
 import type { TaskBinding } from "@/types";
 import TaskDetailPanel from "./TaskDetailPanel";
 import SessionOutputPreview from "./SessionOutputPreview";
+import LoadMoreTasks from "./LoadMoreTasks";
 type MainTab = "tasks" | "notifications";
 type NotificationFilter = "all" | "errors" | "completed";
 type OrchestrationFullViewProps = {
@@ -153,13 +154,14 @@ export default function OrchestrationFullView({
   const viewType = useOrchestratorStore((state) => state.viewType);
   const selectedTaskId = useOrchestratorStore((state) => state.selectedTaskId);
   const loadBindings = useOrchestratorStore((state) => state.loadBindings);
+  const loadMoreBindings = useOrchestratorStore((state) => state.loadMoreBindings);
+  const hasMore = useOrchestratorStore((state) => state.hasMore);
   const setFilterTab = useOrchestratorStore((state) => state.setFilterTab);
   const setSearchKeyword = useOrchestratorStore((state) => state.setSearchKeyword);
   const setViewType = useOrchestratorStore((state) => state.setViewType);
   const setSelectedTaskId = useOrchestratorStore((state) => state.setSelectedTaskId);
   const notifications = useNotificationStore((state) => state.notifications);
   const clearNotifications = useNotificationStore((state) => state.clear);
-
   const [mainTab, setMainTab] = useState<MainTab>("tasks");
   const [notificationFilter, setNotificationFilter] = useState<NotificationFilter>("all");
   const [rightCollapsed, setRightCollapsed] = useState(() =>
@@ -167,7 +169,6 @@ export default function OrchestrationFullView({
   );
   const [rightWidth, setRightWidth] = useState(readRightWidth);
   const isOverlay = variant === "overlay";
-
   const close = useCallback(() => {
     if (onClose) {
       onClose();
@@ -374,6 +375,7 @@ export default function OrchestrationFullView({
                 ) : (
                   <TaskList bindings={bindings} selectedTaskId={selectedTaskId} onSelect={setSelectedTaskId} />
                 )}
+                <LoadMoreTasks hasMore={hasMore} loading={loading} onLoad={() => void loadMoreBindings()} label={t("loadMore", { defaultValue: "Load more tasks" })} />
               </div>
             </>
           ) : (

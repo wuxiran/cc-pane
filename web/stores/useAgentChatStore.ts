@@ -22,6 +22,7 @@ import type {
 } from "@/types/agentChat";
 import { parentToolCallIdOf } from "@/types/agentChat";
 import { seedForkTranscript } from "./agentChatForkTranscript";
+import { dropAgentChatDraft } from "./useAgentChatDraftStore";
 import { createPromptSubmissionActions, emptyPromptSubmission, observePromptPhase, type PromptSubmissionActions, type PromptSubmissionState } from "./agentChatPromptSubmission";
 
 let itemSeq = 0;
@@ -486,10 +487,10 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
         (chat.replay?.terminals ?? chat.terminals)[output.terminalId] = output;
       }),
 
-    dropChat: (chatId) =>
-      set((state) => {
-        delete state.chats[chatId];
-      }),
+    dropChat: (chatId) => {
+      dropAgentChatDraft(chatId);
+      set((state) => { delete state.chats[chatId]; });
+    },
   })),
 );
 

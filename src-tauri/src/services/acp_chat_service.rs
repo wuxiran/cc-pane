@@ -9,6 +9,7 @@
 //!
 //! Prompt payloads are never logged; they may contain user code and secrets.
 
+mod auth;
 mod fork;
 
 use std::collections::{HashMap, VecDeque};
@@ -721,40 +722,48 @@ impl AcpChatService {
             .filter(|id| !id.is_empty())
         {
             if capability(&["loadSession"]) {
-                let load = replay::load(
-                    |phase| {
-                        session.emit(
-                            "history_replay",
-                            json!({
-                                "phase": phase, "acpSessionId": resume_id,
-                            }),
-                        )
-                    },
-                    async {
-                        tokio::time::timeout(
-                            HANDSHAKE_TIMEOUT,
-                            session.request(
-                                "session/load",
+                let load = auth::retry(session, &initialize, || {
+                    replay::load(
+                        |phase| {
+                            session.emit(
+                                "history_replay",
                                 json!({
-                                    "sessionId": resume_id,
-                                    "cwd": cwd,
-                                    "mcpServers": mcp_servers,
+                                    "phase": phase, "acpSessionId": resume_id,
                                 }),
-                            ),
-                        )
-                        .await
-                        .map_err(|_| {
-                            AppError::coded("ACP_HANDSHAKE_TIMEOUT", "ACP session/load timed out")
-                        })?
-                    },
-                )
+                            )
+                        },
+                        async {
+                            tokio::time::timeout(
+                                HANDSHAKE_TIMEOUT,
+                                session.request(
+                                    "session/load",
+                                    json!({
+                                        "sessionId": resume_id,
+                                        "cwd": cwd,
+                                        "mcpServers": mcp_servers,
+                                    }),
+                                ),
+                            )
+                            .await
+                            .map_err(|_| {
+                                AppError::coded(
+                                    "ACP_HANDSHAKE_TIMEOUT",
+                                    "ACP session/load timed out",
+                                )
+                            })?
+                        },
+                    )
+                })
                 .await;
                 match load {
                     Ok(response) => {
                         resumed_session_id = Some(resume_id.to_string());
                         session_response = Some(response);
                     }
-                    Err(error) if error.code() == Some("ACP_HANDSHAKE_TIMEOUT") => {
+                    Err(error)
+                        if error.code() == Some("ACP_HANDSHAKE_TIMEOUT")
+                            || is_auth_required(&error) =>
+                    {
                         return Err(error);
                     }
                     Err(error) => {
@@ -779,106 +788,35 @@ impl AcpChatService {
             }
         }
 
-        let (acp_session_id, response) = if let (Some(id), Some(response)) =
-            (resumed_session_id, session_response)
-        {
-            (id, response)
-        } else {
-            let new_session_params = json!({"cwd": cwd, "mcpServers": mcp_servers});
-            let first_attempt = tokio::time::timeout(
-                HANDSHAKE_TIMEOUT,
-                session.request("session/new", new_session_params.clone()),
-            )
-            .await
-            .map_err(|_| AppError::coded("ACP_HANDSHAKE_TIMEOUT", "ACP session/new timed out"))?;
-            let new_session = match first_attempt {
-                Ok(response) => response,
-                // `auth_required`（-32000）：按 initialize 广告的 authMethods 逐个
-                // `authenticate`，成功后重试一次 session/new。交互式（需要跳浏览器/
-                // 输入 key）的方法在这里不会成功，把方法列表连同错误一起抛给用户。
-                Err(error) if is_auth_required(&error) => {
-                    let auth_methods = initialize
-                        .get("authMethods")
-                        .and_then(Value::as_array)
-                        .cloned()
-                        .unwrap_or_default();
-                    let mut authenticated = false;
-                    for method in &auth_methods {
-                        let Some(method_id) = method.get("id").and_then(Value::as_str) else {
-                            continue;
-                        };
-                        match tokio::time::timeout(
-                            HANDSHAKE_TIMEOUT,
-                            session.request("authenticate", json!({"methodId": method_id})),
-                        )
-                        .await
-                        {
-                            Ok(Ok(_)) => {
-                                authenticated = true;
-                                session.emit(
-                                    "notification",
-                                    json!({
-                                        "method": "ccpanes/authenticated",
-                                        "params": {"methodId": method_id},
-                                    }),
-                                );
-                                break;
-                            }
-                            Ok(Err(auth_error)) => {
-                                debug!(chat_id = %session.chat_id, method_id, error = %auth_error, "ACP authenticate rejected");
-                            }
-                            Err(_) => {
-                                debug!(chat_id = %session.chat_id, method_id, "ACP authenticate timed out");
-                            }
-                        }
-                    }
-                    if !authenticated {
-                        let names: Vec<String> = auth_methods
-                            .iter()
-                            .filter_map(|method| {
-                                method
-                                    .get("name")
-                                    .or_else(|| method.get("id"))
-                                    .and_then(Value::as_str)
-                                    .map(str::to_string)
-                            })
-                            .collect();
-                        return Err(AppError::coded(
-                            "ACP_AUTH_REQUIRED",
-                            if names.is_empty() {
-                                format!("{error}")
-                            } else {
-                                format!(
-                                    "{error}\n该引擎需要先登录，可用方式：{}。请在终端里完成登录后重试。",
-                                    names.join(" / ")
-                                )
-                            },
-                        ));
-                    }
+        let (acp_session_id, response) =
+            if let (Some(id), Some(response)) = (resumed_session_id, session_response) {
+                (id, response)
+            } else {
+                let new_session_params = json!({"cwd": cwd, "mcpServers": mcp_servers});
+                let new_session = auth::retry(session, &initialize, || async {
                     tokio::time::timeout(
                         HANDSHAKE_TIMEOUT,
-                        session.request("session/new", new_session_params),
+                        session.request("session/new", new_session_params.clone()),
                     )
                     .await
                     .map_err(|_| {
                         AppError::coded("ACP_HANDSHAKE_TIMEOUT", "ACP session/new timed out")
-                    })??
-                }
-                Err(error) => return Err(error),
+                    })?
+                })
+                .await?;
+                let id = new_session
+                    .get("sessionId")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .map(str::to_string)
+                    .ok_or_else(|| {
+                        AppError::coded(
+                            "ACP_HANDSHAKE_FAILED",
+                            "ACP session/new returned no sessionId",
+                        )
+                    })?;
+                (id, new_session)
             };
-            let id = new_session
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .filter(|value| !value.trim().is_empty())
-                .map(str::to_string)
-                .ok_or_else(|| {
-                    AppError::coded(
-                        "ACP_HANDSHAKE_FAILED",
-                        "ACP session/new returned no sessionId",
-                    )
-                })?;
-            (id, new_session)
-        };
 
         {
             let mut snapshot = session.snapshot.write().await;

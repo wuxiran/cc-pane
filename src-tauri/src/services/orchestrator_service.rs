@@ -1068,6 +1068,8 @@ pub struct AppState {
     /// leader busy 时排队的 worker report（key = leader 的 PTY session_id），
     /// leader 状态跃迁回 Idle 时由状态机 listener 补投
     pub pending_worker_reports: Arc<Mutex<PendingReportMap>>,
+    report_delivery_locks: Arc<ReportDeliveryLocks>,
+    sent_report_keys: Arc<Mutex<HashSet<String>>>,
     /// 已发射的 report 失败键，避免 leader 清理与发送失败并发时重复发事件。
     pub failed_report_events: Arc<Mutex<HashSet<(String, u32)>>>,
     /// 目标会话 busy 时排队的通用 directive（key = 目标 PTY session_id）。
@@ -1768,6 +1770,8 @@ pub struct OrchestratorService {
     cancel_tx: Mutex<Option<tokio::sync::watch::Sender<bool>>>,
     pending_queries: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
     pending_worker_reports: Arc<Mutex<PendingReportMap>>,
+    report_delivery_locks: Arc<ReportDeliveryLocks>,
+    sent_report_keys: Arc<Mutex<HashSet<String>>>,
     failed_report_events: Arc<Mutex<HashSet<(String, u32)>>>,
     pending_directives: Arc<Mutex<PendingDirectiveMap>>,
     directive_delivery_locks: Arc<DirectiveDeliveryLocks>,
@@ -1807,6 +1811,8 @@ impl OrchestratorService {
             cancel_tx: Mutex::new(None),
             pending_queries: Arc::new(Mutex::new(HashMap::new())),
             pending_worker_reports: Arc::new(Mutex::new(HashMap::new())),
+            report_delivery_locks: Arc::new(Mutex::new(HashMap::new())),
+            sent_report_keys: Arc::new(Mutex::new(HashSet::new())),
             failed_report_events: Arc::new(Mutex::new(HashSet::new())),
             pending_directives: Arc::new(Mutex::new(HashMap::new())),
             directive_delivery_locks: Arc::new(Mutex::new(HashMap::new())),
@@ -2019,6 +2025,8 @@ impl OrchestratorService {
             last_request_times: Arc::new(Mutex::new(Vec::new())),
             pending_queries: self.pending_queries.clone(),
             pending_worker_reports: self.pending_worker_reports.clone(),
+            report_delivery_locks: self.report_delivery_locks.clone(),
+            sent_report_keys: self.sent_report_keys.clone(),
             failed_report_events: self.failed_report_events.clone(),
             pending_directives: self.pending_directives.clone(),
             directive_delivery_locks: self.directive_delivery_locks.clone(),
@@ -12601,12 +12609,41 @@ impl LeaderReportResult {
 
 /// Dependencies shared by initial worker reports and every redelivery path.
 /// Keep this independent of the UI so message safety can be verified with a real queue.
+// Successful report versions are idempotent while failed attempts remain retryable.
+type ReportDeliveryLocks = Mutex<HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>;
+
+fn report_delivery_lock(state: &ReportRuntime, key: &str) -> Arc<tokio::sync::Mutex<()>> {
+    let mut locks = state
+        .report_delivery_locks
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(key).and_then(std::sync::Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(tokio::sync::Mutex::new(()));
+    locks.insert(key.to_owned(), Arc::downgrade(&lock));
+    lock
+}
+
+fn report_delivery_key(worker: &TaskBinding) -> String {
+    format!(
+        "{}|{}|{}|{}",
+        worker.id,
+        worker.status,
+        worker.updated_at,
+        worker.completion_summary.as_deref().unwrap_or("")
+    )
+}
+
 #[derive(Clone)]
 struct ReportRuntime {
     terminal_backend: Arc<TerminalBackendState>,
     session_state_machine: Arc<cc_panes_core::services::SessionStateMachine>,
     task_binding_service: Arc<crate::services::TaskBindingService>,
     pending_worker_reports: Arc<Mutex<PendingReportMap>>,
+    report_delivery_locks: Arc<ReportDeliveryLocks>,
+    sent_report_keys: Arc<Mutex<HashSet<String>>>,
     failed_report_events: Arc<Mutex<HashSet<(String, u32)>>>,
     pipe_event_service: Arc<PipeEventService>,
     dsh_service: Arc<cc_panes_core::services::DshService>,
@@ -12619,6 +12656,8 @@ impl ReportRuntime {
             session_state_machine: state.session_state_machine.clone(),
             task_binding_service: state.task_binding_service.clone(),
             pending_worker_reports: state.pending_worker_reports.clone(),
+            report_delivery_locks: state.report_delivery_locks.clone(),
+            sent_report_keys: state.sent_report_keys.clone(),
             failed_report_events: state.failed_report_events.clone(),
             pipe_event_service: state.pipe_event_service.clone(),
             dsh_service: state.dsh_service.clone(),
@@ -14153,6 +14192,11 @@ async fn send_worker_report_to_dsh_leader(
                 "worker report delivered to dsh leader session"
             );
             emit(PipeEventPhase::Delivered, "worker report delivered", None);
+            state
+                .sent_report_keys
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(report_delivery_key(worker));
             LeaderReportResult::sent()
         }
         Err(e) => {
@@ -14258,6 +14302,19 @@ async fn send_worker_report_to_leader_with_attempt_and_queued_at(
             return LeaderReportResult::skipped(reason);
         }
     };
+
+    let report_key = report_delivery_key(&worker);
+    // Serialize all versions for one worker, while sent_report_keys still distinguishes versions.
+    let report_lock = report_delivery_lock(&state, &worker.id);
+    let _report_guard = report_lock.lock().await;
+    if state
+        .sent_report_keys
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .contains(&report_key)
+    {
+        return LeaderReportResult::skipped("duplicate report version already delivered");
+    }
 
     let Some(leader_session_id) = leader.session_id.clone() else {
         warn!(
@@ -14490,6 +14547,11 @@ async fn send_worker_report_to_leader_with_attempt_and_queued_at(
                     reason: None,
                 },
             );
+            state
+                .sent_report_keys
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(report_key.clone());
             LeaderReportResult::sent()
         }
         Err(e) => {
@@ -14524,6 +14586,7 @@ mod tests {
 
     include!("orchestrator_message_safety_tests.rs");
     include!("orchestrator_directive_fifo_tests.rs");
+    include!("orchestrator_report_idempotency_tests.rs");
     use crate::models::WorkspaceCliEnvironmentDefaults;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 

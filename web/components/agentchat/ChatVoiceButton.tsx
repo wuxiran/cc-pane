@@ -56,6 +56,8 @@ export default function ChatVoiceButton({
 
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const attemptRef = useRef<RecordingAttempt | null>(null);
+  const onTextRef = useRef(onText);
+  onTextRef.current = onText;
   const mountedRef = useRef(true);
   const targetId = `agent-chat:${chatId}`;
   const isCurrent = useCallback((attempt: RecordingAttempt) => mountedRef.current && attemptRef.current === attempt, []);
@@ -109,7 +111,7 @@ export default function ChatVoiceButton({
         if (!isCurrent(attempt)) return;
         const text = result.text.trim();
         if (!text) throw new Error(t("voiceEmptyTranscript"));
-        onText(text);
+        onTextRef.current(text);
       } catch (error) {
         if (isCurrent(attempt)) toastErr(t("voiceFailed", { error: error instanceof Error ? error.message : String(error) }));
       } finally {
@@ -120,7 +122,7 @@ export default function ChatVoiceButton({
         }
       }
     },
-    [clearActiveTarget, isCurrent, onText, t, targetId, voice],
+    [clearActiveTarget, isCurrent, t, targetId, voice],
   );
 
   const stopRecording = useCallback(() => {

@@ -13,6 +13,7 @@
     "errors": "Errors"
   },
   "searchPlaceholder": "Search tasks",
+  "loadMore": "Load more tasks",
   "view": {
     "list": "List",
     "tree": "Tree"

@@ -58,6 +58,10 @@ describe("selfChatService", () => {
       expect(context).toContain("[high] 修复终端闪烁");
       expect(context).toContain("## 可用 Skill");
       expect(context).toContain("CC-Panes 的操控助手");
+      expect(context).toContain("dispatch_task");
+      expect(context).toContain("$CC_PANES_CTL");
+      expect(context).not.toContain("launch_task（启动 Claude/Codex 实例");
+      expect(context).not.toContain("upsert_mcp_server（项目级 MCP");
     });
 
     it("应该在待办超过 10 项时追加剩余数量提示", async () => {
@@ -102,6 +106,8 @@ describe("selfChatService", () => {
 
       expect(context).toContain("新手引导助手");
       expect(context).toContain("scan_directory");
+      expect(context).toContain("$CC_PANES_CTL");
+      expect(context).not.toContain("使用 ccpanes MCP 工具 scan_directory");
     });
 
     it("应该为英文界面返回英文引导提示", () => {
@@ -109,6 +115,8 @@ describe("selfChatService", () => {
 
       expect(context).toContain("onboarding assistant");
       expect(context).toContain("scan_directory");
+      expect(context).toContain("$CC_PANES_CTL");
+      expect(context).not.toContain("Use the ccpanes MCP tool scan_directory");
     });
   });
 });

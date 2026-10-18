@@ -530,6 +530,7 @@
   "chatViewTitle": "对话历史",
   "chatBackToTerminal": "返回终端",
   "chatRefresh": "刷新",
+  "chatHistoryChanged": "对话记录已变化，请刷新后重新加载。",
   "chatLoadEarlier": "加载更早",
   "chatNoResumeId": "尚无 resume id，无法打开对话历史（会话未发号或未绑定）。",
   "chatNotFound": "找不到本机对话记录文件。",

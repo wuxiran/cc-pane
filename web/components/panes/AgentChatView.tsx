@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   ArrowLeft,
   LoaderCircle,
@@ -7,17 +7,13 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { agentTranscriptService } from "@/services/agentTranscriptService";
+import { useAgentTranscript } from "./useAgentTranscript";
 import type {
   AgentTranscriptErrorCode,
-  ReadAgentTranscriptResult,
   TranscriptMessage,
   TranscriptRole,
 } from "@/types/agentTranscript";
-import { isTranscriptSupportedCliTool } from "@/types/agentTranscript";
 import { Button } from "@/components/ui/button";
-
-const PAGE_SIZE = 200;
 
 export type TerminalViewMode = "terminal" | "chat";
 
@@ -62,6 +58,8 @@ function errorMessageKey(code: AgentTranscriptErrorCode | null | undefined) {
       return "chatUnsupported";
     case "invalidSessionId":
       return "chatNoResumeId";
+    case "cursorExpired":
+      return "chatHistoryChanged";
     default:
       return null;
   }
@@ -101,79 +99,24 @@ function MessageBubble({ message }: { message: TranscriptMessage }) {
   );
 }
 
-export default function AgentChatView({
+export default function AgentChatView(props: AgentChatViewProps) {
+  // A conversation change remounts its state immediately; old reads cannot
+  // paint the previous conversation while the next effect is still pending.
+  const key = JSON.stringify([props.cliTool, props.resumeId, props.cwd]);
+  return <TranscriptView key={key} {...props} />;
+}
+
+function TranscriptView({
   cliTool,
   resumeId,
   cwd,
   onBackToTerminal,
 }: AgentChatViewProps) {
   const { t } = useTranslation("panes");
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [result, setResult] = useState<ReadAgentTranscriptResult | null>(null);
-  const [offsetFromEnd, setOffsetFromEnd] = useState(0);
-  const [accumulated, setAccumulated] = useState<TranscriptMessage[]>([]);
-
-  const supported = isTranscriptSupportedCliTool(cliTool);
-  const hasResume = Boolean(resumeId && resumeId !== "new");
-
-  const load = useCallback(
-    async (opts: { offset: number; append: boolean }) => {
-      if (!hasResume || !resumeId || !supported) {
-        setLoading(false);
-        setResult(null);
-        setAccumulated([]);
-        return;
-      }
-      if (opts.append) setLoadingMore(true);
-      else setLoading(true);
-      try {
-        const next = await agentTranscriptService.read({
-          cliTool: cliTool ?? "grok",
-          resumeSessionId: resumeId,
-          cwd: cwd ?? undefined,
-          limit: PAGE_SIZE,
-          offsetFromEnd: opts.offset,
-        });
-        setResult(next);
-        if (next.errorCode) {
-          if (!opts.append) setAccumulated([]);
-        } else if (opts.append) {
-          setAccumulated((prev) => [...next.messages, ...prev]);
-        } else {
-          setAccumulated(next.messages);
-        }
-      } catch (err) {
-        setResult({
-          messages: [],
-          truncated: false,
-          errorCode: "ioError",
-          errorMessage: err instanceof Error ? err.message : String(err),
-        });
-        if (!opts.append) setAccumulated([]);
-      } finally {
-        setLoading(false);
-        setLoadingMore(false);
-      }
-    },
-    [cliTool, cwd, hasResume, resumeId, supported],
-  );
-
-  useEffect(() => {
-    setOffsetFromEnd(0);
-    void load({ offset: 0, append: false });
-  }, [load]);
-
-  const handleRefresh = () => {
-    setOffsetFromEnd(0);
-    void load({ offset: 0, append: false });
-  };
-
-  const handleLoadEarlier = () => {
-    const nextOffset = offsetFromEnd + PAGE_SIZE;
-    setOffsetFromEnd(nextOffset);
-    void load({ offset: nextOffset, append: true });
-  };
+  const {
+    loading, loadingMore, result, error, messages: accumulated, hasEarlier,
+    supported, hasResume, refresh: handleRefresh, loadEarlier: handleLoadEarlier,
+  } = useAgentTranscript(cliTool, resumeId, cwd);
 
   const headerMeta = useMemo(() => {
     const total = result?.totalEstimate ?? accumulated.length;
@@ -186,13 +129,13 @@ export default function AgentChatView({
       ? t("chatUnsupported")
       : null;
 
-  const resultErrorKey = errorMessageKey(result?.errorCode ?? undefined);
+  const resultErrorKey = errorMessageKey(error?.errorCode ?? undefined);
   const resultError =
     bareError ??
     (resultErrorKey
       ? t(resultErrorKey)
-      : result?.errorMessage
-        ? t("chatLoadFailed", { error: result.errorMessage })
+      : error?.errorMessage
+        ? t("chatLoadFailed", { error: error.errorMessage })
         : null);
 
   return (
@@ -252,7 +195,7 @@ export default function AgentChatView({
             <LoaderCircle className="size-4 animate-spin" />
             {t("chatLoading")}
           </div>
-        ) : resultError ? (
+        ) : resultError && accumulated.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-xs opacity-80">
             <TriangleAlert className="size-5 opacity-60" />
             <p className="max-w-md leading-5">{resultError}</p>
@@ -263,7 +206,12 @@ export default function AgentChatView({
           </div>
         ) : (
           <>
-            {result?.truncated ? (
+            {resultError ? (
+              <div role="alert" className="border-b px-3 py-2 text-xs" style={{ borderColor: "var(--app-border)" }}>
+                {resultError}
+              </div>
+            ) : null}
+            {hasEarlier ? (
               <div className="flex justify-center border-b py-2" style={{ borderColor: "var(--app-border)" }}>
                 <Button
                   type="button"

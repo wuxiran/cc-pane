@@ -9,6 +9,7 @@ import type { AcpAvailableCommand, AcpChatPhase, AcpUsage } from "@/types/agentC
 import { agentChatService } from "@/services/agentChatService";
 import { isTauriRuntime } from "@/services/runtime";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
+import { acquireChatDraft, useAgentChatDraftStore } from "@/stores/useAgentChatDraftStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { buildPromptBlocks } from "./chatPrompt";
@@ -16,11 +17,6 @@ import { submitReservedPrompt } from "./submitReservedPrompt";
 import { useComposerAttachments } from "./useComposerAttachments";
 import ChatVoiceButton from "./ChatVoiceButton";
 import ContextUsageRing from "./ContextUsageRing";
-
-// 草稿与发送历史按 tabId 缓存在模块级：组件卸载（切标签）不丢。
-const draftCache = new Map<string, string>();
-const sentHistoryCache = new Map<string, string[]>();
-const SENT_HISTORY_LIMIT = 50;
 
 export interface ChatComposerProps {
   chatId: string;
@@ -72,7 +68,8 @@ export default function ChatComposer({
     return Boolean(chat?.pendingPrompt || chat?.setup?.pending || chat?.setup?.error
       || (chat?.snapshot && chat.snapshot.phase !== "ready"));
   });
-  const [draft, setDraftState] = useState(() => draftCache.get(chatId) ?? "");
+  const draftToken = useMemo(() => acquireChatDraft(chatId), [chatId]);
+  const draft = useAgentChatDraftStore((state) => state.drafts[chatId]?.text ?? "");
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const historyIndexRef = useRef<number | null>(null);
@@ -90,10 +87,9 @@ export default function ChatComposer({
 
   const setDraft = useCallback(
     (value: string) => {
-      draftCache.set(chatId, value);
-      setDraftState(value);
+      useAgentChatDraftStore.getState().setText(chatId, draftToken, value);
     },
-    [chatId],
+    [chatId, draftToken],
   );
 
   // `/` 开头且未含空格 → 斜杠命令菜单（点击/键盘补全，发送仍是普通文本 prompt）。
@@ -192,18 +188,13 @@ export default function ChatComposer({
     clearAttachments();
     onBeforeSend?.();
     historyIndexRef.current = null;
-    if (text) {
-      const history = sentHistoryCache.get(chatId) ?? [];
-      history.push(text);
-      if (history.length > SENT_HISTORY_LIMIT) history.shift();
-      sentHistoryCache.set(chatId, history);
-    }
+    if (text) useAgentChatDraftStore.getState().rememberSent(chatId, draftToken, text);
     void submitReservedPrompt(chatId, token, blocks).catch((error) => handleErrorSilent(error, "submit acp prompt"));
-  }, [draft, attachments, phase, chatId, cwd, setDraft, clearAttachments, onBeforeSend]);
+  }, [draft, attachments, phase, chatId, cwd, draftToken, setDraft, clearAttachments, onBeforeSend]);
 
   const recallHistory = useCallback(
     (direction: -1 | 1) => {
-      const history = sentHistoryCache.get(chatId) ?? [];
+      const history = useAgentChatDraftStore.getState().drafts[chatId]?.sentHistory ?? [];
       if (history.length === 0) return false;
       const current = historyIndexRef.current;
       let next: number | null;
@@ -396,7 +387,7 @@ export default function ChatComposer({
                 chatId={chatId}
                 variant="ghost"
                 sizeClass="h-8 w-8 rounded-full"
-                onText={(text) => setDraft(draft ? `${draft} ${text}` : text)}
+                onText={(text) => useAgentChatDraftStore.getState().appendText(chatId, draftToken, text)}
               />
               {generating ? (
                 <IconTooltipButton

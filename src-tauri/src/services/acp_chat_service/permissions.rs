@@ -24,6 +24,9 @@ pub(super) enum PermissionResolution {
 impl PendingPermissions {
     pub(super) async fn begin_turn(&self) {
         *self.responding.lock().await = false;
+        // A new prompt starts a new ACP turn. Any unresolved approval from the
+        // previous turn must not be selectable in the new one.
+        self.requests.lock().await.clear();
     }
 
     /// Registration, automatic replies and cancellation share one fence. A

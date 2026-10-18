@@ -17,6 +17,7 @@ import type {
 type FilterTab = "all" | "running" | "completed";
 type OrchestratorViewType = "list" | "tree";
 const SELECTED_TASK_STORAGE_KEY = "cc-panes-orchestration-selected-task-id";
+let loadSequence = 0;
 
 function readSelectedTaskId(): string | null {
   if (typeof window === "undefined") return null;
@@ -45,6 +46,7 @@ interface OrchestratorState {
   bindings: TaskBinding[];
   total: number;
   hasMore: boolean;
+  pageLimit: number;
   loading: boolean;
 
   // 过滤
@@ -63,6 +65,7 @@ interface OrchestratorState {
 
   // Actions
   loadBindings: (query?: TaskBindingQuery) => Promise<void>;
+  loadMoreBindings: () => Promise<void>;
   create: (request: CreateTaskBindingRequest) => Promise<TaskBinding>;
   update: (id: string, request: UpdateTaskBindingRequest) => Promise<TaskBinding>;
   updatePatch: (id: string, patch: TaskBindingPatch) => Promise<TaskBinding>;
@@ -146,12 +149,23 @@ function upsertBinding(bindings: TaskBinding[], binding: TaskBinding): TaskBindi
   return next;
 }
 
+function matchesFilters(state: OrchestratorState, binding: TaskBinding): boolean {
+  const status = filterTabToStatus(state.filterTab);
+  if (status && binding.status !== status) return false;
+  if (state.filterWorkspace && binding.workspaceName !== state.filterWorkspace) return false;
+  if (state.filterProjectPath && binding.projectPath !== state.filterProjectPath) return false;
+  if (state.filterRole && binding.role !== state.filterRole) return false;
+  const search = state.searchKeyword.trim().toLowerCase();
+  return !search || `${binding.title} ${binding.prompt ?? ""}`.toLowerCase().includes(search);
+}
+
 export const useOrchestratorStore = create<OrchestratorState>()(
   persist(
     immer((set, get) => ({
       bindings: [],
       total: 0,
       hasMore: false,
+      pageLimit: 50,
       loading: false,
       filterTab: "all",
       filterWorkspace: null,
@@ -163,8 +177,10 @@ export const useOrchestratorStore = create<OrchestratorState>()(
       selectedTaskId: readSelectedTaskId(),
 
     loadBindings: async (query?) => {
+      const requestId = ++loadSequence;
       set((state) => {
         state.loading = true;
+        if (query?.limit) state.pageLimit = query.limit;
       });
       try {
         const {
@@ -180,10 +196,11 @@ export const useOrchestratorStore = create<OrchestratorState>()(
           projectPath: query?.projectPath ?? filterProjectPath ?? undefined,
           role: query?.role ?? filterRole ?? undefined,
           search: query?.search ?? (searchKeyword.trim() || undefined),
-          limit: query?.limit ?? 50,
+          limit: query?.limit ?? get().pageLimit,
           offset: query?.offset ?? 0,
         };
         const result = await taskBindingService.query(mergedQuery);
+        if (requestId !== loadSequence) return;
         set((state) => {
           state.bindings = result.items;
           state.total = result.total;
@@ -192,10 +209,42 @@ export const useOrchestratorStore = create<OrchestratorState>()(
           ensureSelectedTask(state);
         });
       } catch (error) {
+        if (requestId !== loadSequence) return;
         console.error("[orchestrator] Failed to load bindings:", error);
         set((state) => {
           state.loading = false;
         });
+      }
+    },
+
+    loadMoreBindings: async () => {
+      const state = get();
+      if (state.loading || !state.hasMore) return;
+      const requestId = ++loadSequence;
+      set((draft) => { draft.loading = true; });
+      try {
+        const result = await taskBindingService.query({
+          status: filterTabToStatus(state.filterTab),
+          workspaceName: state.filterWorkspace ?? undefined,
+          projectPath: state.filterProjectPath ?? undefined,
+          role: state.filterRole ?? undefined,
+          search: state.searchKeyword.trim() || undefined,
+          limit: state.pageLimit,
+          offset: state.bindings.length,
+        });
+        if (requestId !== loadSequence) return;
+        set((draft) => {
+          const seen = new Set(draft.bindings.map((item) => item.id));
+          draft.bindings.push(...result.items.filter((item) => !seen.has(item.id)));
+          draft.total = result.total;
+          draft.hasMore = result.hasMore;
+          draft.loading = false;
+          ensureSelectedTask(draft);
+        });
+      } catch (error) {
+        if (requestId !== loadSequence) return;
+        console.error("[orchestrator] Failed to load more bindings:", error);
+        set((draft) => { draft.loading = false; });
       }
     },
 
@@ -252,12 +301,18 @@ export const useOrchestratorStore = create<OrchestratorState>()(
     applyChangedEvent: (event) => {
       set((state) => {
         if (event.op === "delete") {
+          const existed = state.bindings.some((binding) => binding.id === event.id);
           state.bindings = state.bindings.filter((binding) => binding.id !== event.id);
-          state.total = Math.max(0, state.total - 1);
+          if (existed) state.total = Math.max(0, state.total - 1);
           ensureSelectedTask(state);
           return;
         }
         if (!event.binding) return;
+        if (!matchesFilters(state, event.binding)) {
+          state.bindings = state.bindings.filter((binding) => binding.id !== event.binding?.id);
+          ensureSelectedTask(state);
+          return;
+        }
         state.bindings = upsertBinding(state.bindings, event.binding);
         state.total = Math.max(state.total, state.bindings.length);
         ensureSelectedTask(state);
