@@ -139,6 +139,8 @@ export async function listenAgentChatEvents(
 export const agentChatService = {
   listEngines: listAcpEngines,
   start: startAcpChat,
+  fork: (sourceChatId: string, chatId: string, cwd: string): Promise<AcpChatSnapshot> =>
+    call("fork_acp_chat", { sourceChatId, chatId, cwd }),
   prompt: promptAcpChat,
   cancel: cancelAcpChat,
   setMode: setAcpChatMode,

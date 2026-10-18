@@ -2196,14 +2196,12 @@ impl TerminalService {
             }
         }
         if cli_tool == CliTool::Claude {
-            if let Some(resume_id) = resume_id {
-                cli_args.push("--resume".to_string());
-                cli_args.push(resume_id.to_string());
-            } else if let Some(issued) = issued_session_id {
-                // 新会话由 CC-Panes 发号（与本地 claude.rs build_command 一致）
-                cli_args.push("--session-id".to_string());
-                cli_args.push(issued.to_string());
-            }
+            cc_cli_adapters::push_claude_session_args(
+                &mut cli_args,
+                adapter_options,
+                resume_id,
+                issued_session_id,
+            )?;
             if workspace_remote_path.is_some()
                 && workspace_remote_path != Some(wsl.remote_path.as_str())
             {
@@ -2719,7 +2717,12 @@ impl TerminalService {
             }
             other => other,
         };
-        append_codex_resume_args(&mut codex_args, effective_resume_id, initial_prompt);
+        cc_cli_adapters::push_codex_session_args(
+            &mut codex_args,
+            adapter_options,
+            effective_resume_id,
+        )?;
+        append_codex_resume_args(&mut codex_args, None, initial_prompt);
 
         let escaped_codex_args = codex_args
             .iter()

@@ -1771,11 +1771,17 @@ impl CliToolAdapter for CodexAdapter {
         // extraArgs 追加在 resume 子命令 / positional prompt 之前
         args.extend(crate::extra_args_from_options(&ctx.adapter_options));
 
-        // Resume: codex resume <id>
-        if let Some(ref rid) = ctx.resume_id {
-            args.push("resume".to_string());
-            args.push(rid.clone());
+        if crate::fork_source(&ctx.adapter_options, ctx.resume_id.as_deref())?.is_some() {
+            args.extend([
+                "-C".into(),
+                ctx.adapter_options
+                    .get("forkCwd")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(ctx.workspace_path.as_deref().unwrap_or(&ctx.project_path))
+                    .to_owned(),
+            ]);
         }
+        crate::push_codex_session_args(&mut args, &ctx.adapter_options, ctx.resume_id.as_deref())?;
 
         // [PROMPT] 位置参数（必须在所有 --option 之后）
         if let Some(ref prompt) = ctx.initial_prompt {
@@ -3022,5 +3028,15 @@ bearer_token_env_var = "USER_TOKEN"
         assert!(result.is_err());
 
         let _ = fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn build_command_creates_native_fork_without_resuming_parent() {
+        let mut ctx = test_context(Some("fixture-cli"));
+        ctx.resume_id = None;
+        ctx.adapter_options
+            .insert("forkSessionId".into(), serde_json::json!("parent-id"));
+        let result = CodexAdapter::new().build_command(&ctx).unwrap();
+        assert!(result.args.windows(2).any(|p| p == ["fork", "parent-id"]));
+        assert!(!result.args.iter().any(|p| p == "resume"));
     }
 }

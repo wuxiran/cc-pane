@@ -66,3 +66,16 @@ pub async fn remove_worktree(
     .map_err(|error| AppError::from(error.to_string()))?
     .map_err(AppError::from)
 }
+
+#[tauri::command]
+pub async fn fork_chat_worktree(
+    cwd: String,
+    service: State<'_, Arc<WorktreeService>>,
+) -> AppResult<String> {
+    validate_path(&cwd)?;
+    let service = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || service.fork_chat_worktree(&cwd))
+        .await
+        .map_err(|e| AppError::from(e.to_string()))?
+        .map_err(AppError::from)
+}

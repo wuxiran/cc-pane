@@ -106,8 +106,8 @@ export default function ChatSessionHeader({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuItem disabled={!canFork} onSelect={onFork}>
-            <GitFork /> {t("agentChatContinueNewTab")}
+          <DropdownMenuItem disabled={!canFork} title={!canFork ? t("forkUnsupported") : undefined} onSelect={onFork}>
+            <GitFork /> {t("forkChat")}
           </DropdownMenuItem>
           <DropdownMenuItem disabled={!canCopySessionId} onSelect={onCopySessionId}>
             <Copy /> {t("agentChatCopySessionId")}

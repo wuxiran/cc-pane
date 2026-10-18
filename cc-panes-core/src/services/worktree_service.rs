@@ -1,3 +1,5 @@
+mod chat_fork;
+
 use crate::services::GitService;
 use crate::utils::{
     output_with_timeout, paths_equivalent, GIT_CHECKOUT_TIMEOUT, GIT_LOCAL_TIMEOUT,

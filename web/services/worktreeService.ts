@@ -11,6 +11,11 @@ export interface WorktreeInfo {
  * Worktree 服务 - 管理 Git Worktree
  */
 export const worktreeService = {
+  async forkChat(cwd: string): Promise<string> {
+    return invokeOrApi<string>("fork_chat_worktree", { cwd }, () =>
+      apiJson<string>("/api/worktrees/fork", "POST", { cwd }),
+    );
+  },
   /**
    * 检查项目是否为 Git 仓库
    */
