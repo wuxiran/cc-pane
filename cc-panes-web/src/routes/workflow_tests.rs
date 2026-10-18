@@ -116,7 +116,7 @@ fn test_dir(name: &str) -> std::path::PathBuf {
     path
 }
 
-fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
+pub(in crate::routes) fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
     let root = test_dir(name);
     let app_paths = Arc::new(AppPaths::new(Some(
         root.join("data").to_string_lossy().to_string(),
@@ -161,6 +161,13 @@ fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
         filesystem_service: Arc::new(FileSystemService::new()),
         todo_service: todo_service.clone(),
         spec_service: Arc::new(SpecService::new(spec_repo, todo_service)),
+        task_verification_service: Arc::new(cc_panes_core::services::TaskVerificationService::new(
+            app_paths.data_dir().to_path_buf(),
+            Arc::new(TaskBindingService::new(task_binding_repo.clone())),
+        )),
+        fork_review_service: Arc::new(cc_panes_core::services::ForkReviewService::new(
+            app_paths.data_dir().to_path_buf(),
+        )),
         task_binding_service: Arc::new(TaskBindingService::new(task_binding_repo)),
         launch_history_service,
         layout_snapshot_service: Arc::new(LayoutSnapshotService::new(db.clone())),

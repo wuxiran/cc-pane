@@ -1,0 +1,28 @@
+{
+  "verification": {
+    "passed": "通过 · 当前代码",
+    "failed": "检查失败",
+    "timedOut": "检查超时",
+    "stale": "证据已过期 · 需要重跑",
+    "unknown": "代码状态未知 · 未验证",
+    "exitCode": "退出码",
+    "signal": "终止信号",
+    "duration": "耗时",
+    "changedDuringRun": "检查期间代码发生变化，此结果不能验证当前代码。",
+    "details": "执行详情与输出",
+    "cwd": "工作目录",
+    "started": "开始时间",
+    "completed": "结束时间",
+    "head": "原始 Git 提交",
+    "fingerprint": "原始代码指纹",
+    "truncated": "输出已截断，每个输出流最多保留 64 KiB。",
+    "title": "验收证据",
+    "refresh": "刷新代码状态",
+    "description": "在任务项目目录运行你指定的检查命令。每次执行独立保存结果；代码变化后须重新检查。",
+    "command": "检查命令",
+    "timeout": "超时（秒）",
+    "running": "检查运行中…",
+    "run": "运行检查",
+    "empty": "尚无检查结果。任务完成不代表验收已通过。"
+  }
+}

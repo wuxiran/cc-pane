@@ -267,6 +267,8 @@ export interface Tab {
    * (`#N.M`, `#N.M.K`). Top-level tabs leave it unset.
    */
   parentTabId?: string;
+  /** Durable fork baseline and origin record, independent of runtime session IDs. */
+  forkReviewId?: string;
 }
 
 /** 终端会话状态 */

@@ -27,6 +27,8 @@ export interface TabCreateInput {
   title?: string;
   projectId?: string;
   projectPath?: string;
+  parentTabId?: string;
+  forkReviewId?: string;
   /** browser：初始 URL。 */
   browserUrl?: string;
   /** editor：文件绝对路径。 */
@@ -48,6 +50,8 @@ function baseTab(contentType: TabContentType, input: TabCreateInput): Tab {
     projectId: input.projectId ?? "",
     projectPath: input.projectPath ?? "",
     sessionId: null,
+    ...(input.parentTabId ? { parentTabId: input.parentTabId } : {}),
+    ...(input.forkReviewId ? { forkReviewId: input.forkReviewId } : {}),
     ...(input.workspaceName ? { workspaceName: input.workspaceName } : {}),
   };
 }

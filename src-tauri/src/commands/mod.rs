@@ -1,3 +1,7 @@
+mod fork_review_commands;
+pub use fork_review_commands::*;
+mod task_verification_commands;
+pub use task_verification_commands::*;
 mod acp_chat_commands;
 mod agent_transcript_commands;
 mod automation_commands;

@@ -1,3 +1,9 @@
+mod fork_review_service;
+pub use fork_review_service::ForkReviewService;
+mod repository_snapshot;
+pub use repository_snapshot::RepositorySnapshotService;
+mod task_verification_service;
+pub use task_verification_service::TaskVerificationService;
 pub mod agent_transcript;
 pub mod boundary_events;
 pub mod claude_session_service;

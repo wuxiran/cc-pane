@@ -33,6 +33,8 @@ export interface ChatSessionHeaderProps {
   onToggleTools: () => void;
   canFork: boolean;
   onFork: () => void;
+  onReviewFork?: () => void;
+  hasForkOrigin?: boolean;
   canCopySessionId: boolean;
   onCopySessionId: () => void;
   canExport: boolean;
@@ -50,6 +52,8 @@ export default function ChatSessionHeader({
   onToggleTools,
   canFork,
   onFork,
+  onReviewFork,
+  hasForkOrigin,
   canCopySessionId,
   onCopySessionId,
   canExport,
@@ -63,6 +67,7 @@ export default function ChatSessionHeader({
       </span>
       <span className="text-xs font-medium text-[var(--app-text-primary)]">{engineLabel}</span>
       {workspaceMenu}
+      {hasForkOrigin && onReviewFork && <IconTooltipButton label={t("forkReviewTitle", { defaultValue: "Compare fork results" })} className="h-6 w-6" onClick={onReviewFork}><GitFork className="h-3.5 w-3.5" /></IconTooltipButton>}
       {generating ? (
         <span className="flex items-center gap-1 text-[11px] text-[var(--app-text-tertiary)]">
           <Loader2 className="h-3 w-3 animate-spin" /> {t("agentChatThinking")}
@@ -109,6 +114,7 @@ export default function ChatSessionHeader({
           <DropdownMenuItem disabled={!canFork} title={!canFork ? t("forkUnsupported") : undefined} onSelect={onFork}>
             <GitFork /> {t("forkChat")}
           </DropdownMenuItem>
+          {onReviewFork && <DropdownMenuItem onSelect={onReviewFork}><FileDiff /> {t("forkReviewTitle", { defaultValue: "Compare fork results" })}</DropdownMenuItem>}
           <DropdownMenuItem disabled={!canCopySessionId} onSelect={onCopySessionId}>
             <Copy /> {t("agentChatCopySessionId")}
           </DropdownMenuItem>

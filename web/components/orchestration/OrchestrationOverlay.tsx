@@ -1,6 +1,8 @@
-import type { CSSProperties } from "react";
+import { Suspense, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import OrchestrationFullView from "./OrchestrationFullView";
+import { lazyWithRetry } from "@/lib/lazyRetry";
+
+const OrchestrationFullView = lazyWithRetry(() => import("./OrchestrationFullView"), "OrchestrationFullView");
 
 interface OrchestrationOverlayProps {
   onClose: () => void;
@@ -36,7 +38,9 @@ export default function OrchestrationOverlay({ onClose }: OrchestrationOverlayPr
         }}
         onClick={(event) => event.stopPropagation()}
       >
-        <OrchestrationFullView variant="overlay" onClose={onClose} />
+        <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">{t("loading", { ns: "common" })}</div>}>
+          <OrchestrationFullView variant="overlay" onClose={onClose} />
+        </Suspense>
       </section>
     </div>
   );

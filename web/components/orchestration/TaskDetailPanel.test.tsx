@@ -6,6 +6,8 @@ import type { TaskBinding } from "@/types";
 import { useActivityBarStore, usePanesStore } from "@/stores";
 import TaskDetailPanel from "./TaskDetailPanel";
 
+vi.mock("./TaskVerificationCard", () => ({ default: () => null }));
+
 function makeBinding(overrides?: Partial<TaskBinding>): TaskBinding {
   return {
     id: "binding-1",

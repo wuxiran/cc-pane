@@ -1,0 +1,28 @@
+{
+  "verification": {
+    "title": "Verification evidence",
+    "description": "Run your check command in this task’s project directory. Each execution is saved separately; changed code requires a new check.",
+    "command": "Check command",
+    "timeout": "Timeout (seconds)",
+    "run": "Run check",
+    "running": "Check running…",
+    "refresh": "Refresh code state",
+    "empty": "No check results yet. Task completion does not mean verification passed.",
+    "passed": "Passed · current code",
+    "failed": "Check failed",
+    "timedOut": "Check timed out",
+    "stale": "Evidence is outdated · rerun required",
+    "unknown": "Code state unknown · unverified",
+    "exitCode": "Exit code",
+    "signal": "Termination signal",
+    "duration": "Duration",
+    "changedDuringRun": "Code changed during this check; this result cannot verify the current code.",
+    "details": "Execution details and output",
+    "cwd": "Working directory",
+    "started": "Started",
+    "completed": "Completed",
+    "fingerprint": "Original code fingerprint",
+    "head": "Original Git commit",
+    "truncated": "Output truncated; each stream retains at most 64 KiB."
+  }
+}

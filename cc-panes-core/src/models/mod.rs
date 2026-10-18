@@ -1,3 +1,9 @@
+pub mod fork_review;
+pub use fork_review::*;
+pub mod repository_snapshot;
+pub use repository_snapshot::{RepositorySnapshot, SnapshotEntry, SnapshotFile};
+pub mod task_verification;
+pub use task_verification::*;
 pub mod agent_transcript;
 pub mod ai_panel;
 pub mod context_usage;

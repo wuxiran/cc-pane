@@ -134,5 +134,8 @@
     "failed": "Failed",
     "idle": "Idle",
     "offline": "Offline"
+  },
+  "verification": {
+    "title": "Verification evidence"
   }
 }

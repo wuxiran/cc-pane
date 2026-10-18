@@ -275,6 +275,14 @@ async fn async_main() -> anyhow::Result<()> {
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let spec_service = Arc::new(SpecService::new(spec_repo, todo_service.clone()));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
+    let task_verification_service =
+        Arc::new(cc_panes_core::services::TaskVerificationService::new(
+            app_paths.data_dir().to_path_buf(),
+            task_binding_service.clone(),
+        ));
+    let fork_review_service = Arc::new(cc_panes_core::services::ForkReviewService::new(
+        app_paths.data_dir().to_path_buf(),
+    ));
     let launch_history_service = Arc::new(LaunchHistoryService::new(history_repo));
     let layout_snapshot_service = Arc::new(LayoutSnapshotService::new(database.clone()));
     let drama_service = Arc::new(DramaService::new(database.clone()));
@@ -372,6 +380,8 @@ async fn async_main() -> anyhow::Result<()> {
         todo_service,
         spec_service,
         task_binding_service,
+        task_verification_service,
+        fork_review_service,
         launch_history_service,
         drama_service,
         layout_snapshot_service,

@@ -50,6 +50,8 @@ export interface CreateTabOptions {
   wsl?: WslLaunchInfo;
   machineName?: string;
   parentTabId?: string;
+  /** Durable fork baseline and origin record, independent of runtime session IDs. */
+  forkReviewId?: string;
   targetLayoutId?: string;
   launchExtras?: LaunchExtras;
 }
@@ -152,6 +154,8 @@ export interface ClosedTabSnapshot {
   pinned?: boolean;
   starred?: boolean;
   parentTabId?: string;
+  /** Durable fork baseline and origin record, independent of runtime session IDs. */
+  forkReviewId?: string;
   /**
    * 启动附加项（yolo / skipMcp / appendSystemPrompt / adapterOptions）。
    * initialPrompt 在存快照时就已剥掉——撤销出来的会话不得重放首启 prompt。

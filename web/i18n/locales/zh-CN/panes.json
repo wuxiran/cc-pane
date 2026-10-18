@@ -548,11 +548,6 @@
   "defaultLayoutName": "布局 {{index}}",
   "starredLayoutName": "星标",
   "forkChat": "创建聊天分叉",
-  "forkChatDescription": "保留当前对话上下文，创建独立的新会话。原会话会继续保留。",
-  "forkSameDirectory": "在当前项目目录分叉",
-  "forkWorktree": "创建独立 Git 工作树后分叉",
-  "forkWorktreeDescription": "独立工作树包含当前未提交修改和未被忽略的新文件；原目录保持不变。需要已有提交的本地 Git 仓库。",
-  "forkWorktreeLocalOnly": "独立工作树目前适用于本机项目。",
-  "forkCreating": "正在创建…",
-  "forkUnsupported": "当前引擎尚不支持独立会话分叉"
+  "forkUnsupported": "当前引擎尚不支持独立会话分叉",
+  "forkReviewTitle": "比较分叉结果"
 }

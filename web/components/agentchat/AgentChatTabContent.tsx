@@ -13,7 +13,6 @@ import type { Tab } from "@/types";
 import type { AcpPlanEntry, AgentChatItem } from "@/types/agentChat";
 import { lazyWithRetry } from "@/lib/lazyRetry";
 import { supportsAcpFork, type ChatForkMode } from "@/services/chatForkService";
-import { forkWorkingDirectory } from "@/services/chatForkLaunch";
 import { agentChatService } from "@/services/agentChatService";
 import { todoService } from "@/services/todoService";
 import { dropAgentChatState, ensureAgentChatListener } from "@/stores/agentChatEvents";
@@ -46,6 +45,7 @@ import {
 } from "./enginePrefs";
 
 const ChatForkDialog = lazyWithRetry(() => import("@/components/chatfork/ChatForkDialog"), "ChatForkDialog");
+const ForkReviewDialog = lazyWithRetry(() => import("@/components/chatfork/ForkReviewDialog"), "ForkReviewDialog");
 
 
 /** 会话转写 → Markdown（导出用；工具卡只留标题行，diff 太重不进转写）。 */
@@ -69,6 +69,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   const chat = useAgentChatStore((state) => state.chats[tab.id]);
   const [atBottom, setAtBottom] = useState(true);
   const [forkOpen, setForkOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   // 工作空间/目录覆盖存 store（切标签不丢），优先级高于标签自带项目；
   // 顶栏 chip 与启动页共用 StartProjectMenu 切换。
   const cwdOverride = chat?.cwdOverride ?? null;
@@ -181,13 +182,19 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       throw new Error(t("forkUnsupported"));
     }
     const transcript = structuredClone(source.items);
-    const cwd = await forkWorkingDirectory(effectiveCwd, mode);
     const newTabId = `tab-${crypto.randomUUID()}`;
+    const { forkReviewService } = await import("@/services/forkReviewService");
+    const prepared = await forkReviewService.prepare({
+      cwd: effectiveCwd, mode, sourceTabId: tab.id, childTabId: newTabId,
+      sourceSessionId: source.snapshot.acpSessionId, title: tab.title,
+      engineId: source.snapshot.engineId,
+    });
+    const cwd = prepared.cwd;
     try {
       const snapshot = await agentChatService.fork(tab.id, newTabId, cwd);
       useAgentChatStore.getState().seedFork(newTabId, transcript);
       useAgentChatStore.getState().setSnapshot(newTabId, snapshot);
-      if (!usePanesStore.getState().openAgentChat(cwd, { tabId: newTabId })) {
+      if (!usePanesStore.getState().openAgentChat(cwd, { tabId: newTabId, parentTabId: tab.id, forkReviewId: prepared.record?.id })) {
         throw new Error("Unable to open the forked conversation tab");
       }
     } catch (error) {
@@ -196,7 +203,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(mode === "worktree" ? `${detail}\n${cwd}` : detail);
     }
-  }, [tab.id, effectiveCwd, t]);
+  }, [tab.id, tab.title, effectiveCwd, t]);
 
   const copySessionId = useCallback(() => {
     const sessionId = useAgentChatStore.getState().chats[tab.id]?.snapshot?.acpSessionId;
@@ -324,6 +331,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {forkOpen && <Suspense fallback={null}><ChatForkDialog open={forkOpen} onOpenChange={setForkOpen} onFork={forkToNewTab} /></Suspense>}
+      {reviewOpen && <Suspense fallback={null}><ForkReviewDialog open={reviewOpen} onOpenChange={setReviewOpen} forkReviewId={tab.forkReviewId} cwd={effectiveCwd} sourceSessionId={snapshot?.acpSessionId} /></Suspense>}
       {snapshot ? (
         <ChatSessionHeader
           engineLabel={snapshot.engineId}
@@ -340,6 +348,8 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
           }
           canFork={Boolean(snapshot.acpSessionId && effectiveCwd && phase === "ready" && supportsAcpFork(snapshot.agentCapabilities))}
           onFork={() => setForkOpen(true)}
+          onReviewFork={() => setReviewOpen(true)}
+          hasForkOrigin={Boolean(tab.forkReviewId)}
           canCopySessionId={Boolean(snapshot.acpSessionId)}
           onCopySessionId={copySessionId}
           canExport={Boolean(items && items.length > 0)}

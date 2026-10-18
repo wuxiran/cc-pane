@@ -134,6 +134,7 @@ describe("关闭撤销往返", () => {
       projectId: "proj-1",
       projectPath: "/tmp/identity",
       parentTabId: "tab-parent",
+      forkReviewId: "fork-review-1",
     });
     const before = tabsOf().find((t) => t.projectPath === "/tmp/identity")!;
     usePanesStore.getState().toggleStarTab(before.id);
@@ -147,6 +148,7 @@ describe("关闭撤销往返", () => {
     const after = findByPath("/tmp/identity")!;
     expect(after.starred).toBe(true);
     expect(after.parentTabId).toBe("tab-parent");
+    expect(after.forkReviewId).toBe("fork-review-1");
   });
 
   it("分屏结构往返：三格工作台撤销后仍是三格，且每格的启动身份就位", () => {

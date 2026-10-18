@@ -21,11 +21,11 @@ vi.mock("./OrchestrationFullView", () => ({
 }));
 
 describe("OrchestrationOverlay", () => {
-  it("renders the full view in overlay variant inside a modal dialog", () => {
+  it("renders the full view in overlay variant inside a modal dialog", async () => {
     render(<OrchestrationOverlay onClose={vi.fn()} />);
 
     expect(screen.getByRole("dialog", { name: tt("orchestration:title") })).toBeInTheDocument();
-    expect(screen.getByTestId("full-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("full-view")).toBeInTheDocument();
     expect(lastFullViewProps?.variant).toBe("overlay");
   });
 
@@ -39,10 +39,11 @@ describe("OrchestrationOverlay", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("passes the same onClose down to the full view", () => {
+  it("passes the same onClose down to the full view", async () => {
     const onClose = vi.fn();
     render(<OrchestrationOverlay onClose={onClose} />);
 
+    await screen.findByTestId("full-view");
     lastFullViewProps?.onClose?.();
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -52,7 +53,7 @@ describe("OrchestrationOverlay", () => {
     const onClose = vi.fn();
     render(<OrchestrationOverlay onClose={onClose} />);
 
-    await user.click(screen.getByTestId("full-view"));
+    await user.click(await screen.findByTestId("full-view"));
 
     expect(onClose).not.toHaveBeenCalled();
   });
