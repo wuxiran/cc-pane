@@ -791,9 +791,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           onOpenProjectDir={props.projectPath ? handleMenuOpenProjectDir : undefined}
         >
           <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-            {/* 这里不要再挂 onContextMenu：原生菜单已由 blockNativeTerminalMenu 在捕获阶段
-                preventDefault 压制，而冒泡阶段 stopPropagation 会挡住外层 TerminalContextMenu
-                （Radix 靠冒泡的 onContextMenu 打开）。 */}
+            {/* 这里不要再挂 onContextMenu：原生菜单由外层 TerminalContextMenu（Radix）打开时
+                preventDefault 压制；这里 stopPropagation 或 preventDefault 都会让 Radix 不开菜单。 */}
             <div
               ref={terminalRef}
               className="cc-terminal-host h-full w-full overflow-hidden [&_.xterm]:h-full"

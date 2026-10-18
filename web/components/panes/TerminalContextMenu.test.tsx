@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import TerminalContextMenu from "./TerminalContextMenu";
+import { resolveNativeMenuBlock } from "./terminalViewHelpers";
 
 function renderMenu(overrides: Partial<React.ComponentProps<typeof TerminalContextMenu>> = {}) {
   const props = {
@@ -32,6 +33,35 @@ function renderMenu(overrides: Partial<React.ComponentProps<typeof TerminalConte
 const openMenu = () => fireEvent.contextMenu(screen.getByTestId("terminal-host"));
 
 describe("TerminalContextMenu", () => {
+  // 回归护栏：mac 终端宿主上挂着捕获阶段的原生菜单 blocker（terminalTextareaIntegration），
+  // 它对 contextmenu 做任何 preventDefault / stopPropagation，Radix 都不会开菜单。
+  it("mac 原生菜单 blocker 挂在宿主上时右键仍能打开菜单", async () => {
+    renderMenu();
+    const host = screen.getByTestId("terminal-host");
+    const blocker = (event: Event) => {
+      const { blocked, stopPropagation } = resolveNativeMenuBlock({
+        eventType: event.type,
+        button: (event as MouseEvent).button,
+        ctrlKey: (event as MouseEvent).ctrlKey,
+        isMac: true,
+      });
+      if (!blocked) return;
+      event.preventDefault();
+      if (stopPropagation) event.stopImmediatePropagation();
+    };
+    for (const name of ["pointerdown", "mousedown", "mouseup", "auxclick", "contextmenu"]) {
+      host.addEventListener(name, blocker, true);
+    }
+
+    fireEvent.mouseDown(host, { button: 2 });
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 });
+    fireEvent(host, event);
+
+    expect(await screen.findByRole("menuitem", { name: /全选|Select All/i })).toBeInTheDocument();
+    // 原生菜单仍被压住——由 Radix 自己 preventDefault。
+    expect(event.defaultPrevented).toBe(true);
+  });
+
   it("右键展示全部菜单项，无选中时复制选中内容禁用", async () => {
     renderMenu();
     openMenu();

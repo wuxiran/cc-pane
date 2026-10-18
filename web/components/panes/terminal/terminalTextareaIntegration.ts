@@ -66,7 +66,7 @@ export function attachTerminalTextareaIntegration({
   const cleanupNativeMenuBlockers: Array<() => void> = [];
   const blockNativeTerminalMenu = (event: Event) => {
     // 决策逻辑在 resolveNativeMenuBlock（terminalViewHelpers）里，带单测。
-    // 要点：contextmenu 只 preventDefault、**放行传播**，交给外层 TerminalContextMenu。
+    // 要点：contextmenu 完全不碰（不 preventDefault、不掐传播），交给外层 TerminalContextMenu。
     const { blocked, stopPropagation } = resolveNativeMenuBlock({
       eventType: event.type,
       button: "button" in event && typeof event.button === "number" ? event.button : undefined,
