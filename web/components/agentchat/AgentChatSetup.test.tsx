@@ -220,6 +220,20 @@ describe("configured first turn", () => {
     expect(agentChatService.prompt).not.toHaveBeenCalled();
   });
 
+  it("keeps a rejected automatic first prompt retryable without leaving a sent user bubble", async () => {
+    vi.mocked(agentChatService.prompt).mockRejectedValueOnce(new Error("first prompt rejected")).mockResolvedValueOnce(undefined);
+    renderChat(); await launch();
+    await waitFor(() => expect(useAgentChatStore.getState().chats[CHAT].setup?.error).toBe("first prompt rejected"));
+    const chat = useAgentChatStore.getState().chats[CHAT];
+    expect(chat.items.filter((item) => item.type === "user")).toHaveLength(0);
+    expect(chat.rejectedPrompt?.promptBlocks).toEqual([{ type: "text", text: "initial task" }]);
+    expect(chat.items.filter((item) => item.type === "notice" && item.text === "first prompt rejected")).toHaveLength(1);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "重新启动会话" })));
+    expect(agentChatService.prompt).toHaveBeenCalledTimes(2);
+    expect(useAgentChatStore.getState().chats[CHAT].items.filter((item) => item.type === "user")).toHaveLength(1);
+    expect(useAgentChatStore.getState().chats[CHAT].rejectedPrompt).toBeNull();
+  });
+
   it("blocks all sends on mode failure and retries configuration with the retained initial task", async () => {
     savePreferredMode("claude", "plan");
     vi.mocked(agentChatService.setMode).mockRejectedValueOnce(new Error("mode denied")).mockResolvedValueOnce(undefined);

@@ -12,6 +12,7 @@ import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { buildPromptBlocks } from "./chatPrompt";
+import { submitReservedPrompt } from "./submitReservedPrompt";
 import { useComposerAttachments } from "./useComposerAttachments";
 import ChatVoiceButton from "./ChatVoiceButton";
 import ContextUsageRing from "./ContextUsageRing";
@@ -48,7 +49,9 @@ export default function ChatComposer({
   const { t } = useTranslation("panes");
   // 最后一条用户消息（重试上一轮用；从 store 取，重挂载不丢）。
   const lastUserMessage = useAgentChatStore((state) => {
-    const chatItems = state.chats[chatId]?.items;
+    const chat = state.chats[chatId];
+    if (chat?.rejectedPrompt) return chat.rejectedPrompt;
+    const chatItems = chat?.items;
     if (!chatItems) return null;
     for (let index = chatItems.length - 1; index >= 0; index -= 1) {
       const item = chatItems[index];
@@ -63,6 +66,11 @@ export default function ChatComposer({
       | { promptCapabilities?: { image?: boolean } }
       | undefined;
     return caps?.promptCapabilities?.image === true;
+  });
+  const submissionBlocked = useAgentChatStore((state) => {
+    const chat = state.chats[chatId];
+    return Boolean(chat?.pendingPrompt || chat?.setup?.pending || chat?.setup?.error
+      || (chat?.snapshot && chat.snapshot.phase !== "ready"));
   });
   const [draft, setDraftState] = useState(() => draftCache.get(chatId) ?? "");
   const [slashIndex, setSlashIndex] = useState(0);
@@ -177,9 +185,10 @@ export default function ChatComposer({
     if ((!text && attachments.length === 0) || phase !== "ready") return;
 
     const blocks = buildPromptBlocks(text, attachments, cwd);
+    const token = useAgentChatStore.getState().beginPrompt(chatId, { text, attachments, promptBlocks: blocks });
+    if (token === null) return;
 
     setDraft("");
-    const sentAttachments = attachments;
     clearAttachments();
     onBeforeSend?.();
     historyIndexRef.current = null;
@@ -189,12 +198,7 @@ export default function ChatComposer({
       if (history.length > SENT_HISTORY_LIMIT) history.shift();
       sentHistoryCache.set(chatId, history);
     }
-    useAgentChatStore.getState().addUserMessage(chatId, text, sentAttachments, blocks);
-    void agentChatService.prompt(chatId, blocks).catch((error) => {
-      useAgentChatStore
-        .getState()
-        .pushNotice(chatId, error instanceof Error ? error.message : String(error));
-    });
+    void submitReservedPrompt(chatId, token, blocks).catch((error) => handleErrorSilent(error, "submit acp prompt"));
   }, [draft, attachments, phase, chatId, cwd, setDraft, clearAttachments, onBeforeSend]);
 
   const recallHistory = useCallback(
@@ -231,16 +235,15 @@ export default function ChatComposer({
     const blocks = lastUserMessage.promptBlocks
       ?? buildPromptBlocks(lastUserMessage.text, lastUserMessage.attachments ?? [], cwd);
     if (blocks.length === 0) return;
-    onBeforeSend?.();
-    useAgentChatStore.getState().addUserMessage(chatId, lastUserMessage.text, lastUserMessage.attachments, blocks);
-    void agentChatService.prompt(chatId, blocks).catch((error) => {
-      useAgentChatStore
-        .getState()
-        .pushNotice(chatId, error instanceof Error ? error.message : String(error));
+    const token = useAgentChatStore.getState().beginPrompt(chatId, {
+      text: lastUserMessage.text, attachments: lastUserMessage.attachments, promptBlocks: blocks,
     });
+    if (token === null) return;
+    onBeforeSend?.();
+    void submitReservedPrompt(chatId, token, blocks).catch((error) => handleErrorSilent(error, "retry acp prompt"));
   }, [chatId, lastUserMessage, phase, onBeforeSend, cwd]);
 
-  const canSend = phase === "ready" && (Boolean(draft.trim()) || attachments.length > 0);
+  const canSend = phase === "ready" && !submissionBlocked && (Boolean(draft.trim()) || attachments.length > 0);
 
   return (
     <div ref={hostRef} className="agent-chat-composer px-5 pb-5 pt-3">
@@ -382,7 +385,7 @@ export default function ChatComposer({
               {lastUserMessage && !generating ? (
                 <IconTooltipButton
                   label={t("agentChatRetry")}
-                  disabled={phase !== "ready"}
+                  disabled={phase !== "ready" || submissionBlocked}
                   className="h-8 w-8 rounded-full"
                   onClick={retryLast}
                 >

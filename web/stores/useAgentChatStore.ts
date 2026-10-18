@@ -22,6 +22,7 @@ import type {
 } from "@/types/agentChat";
 import { parentToolCallIdOf } from "@/types/agentChat";
 import { seedForkTranscript } from "./agentChatForkTranscript";
+import { createPromptSubmissionActions, emptyPromptSubmission, observePromptPhase, type PromptSubmissionActions, type PromptSubmissionState } from "./agentChatPromptSubmission";
 
 let itemSeq = 0;
 let setupSeq = 0;
@@ -43,7 +44,7 @@ export interface ChatSetupState {
   preamble?: string;
 }
 
-export interface AgentChatSessionState {
+export interface AgentChatSessionState extends PromptSubmissionState {
   snapshot: AcpChatSnapshot | null;
   items: AgentChatItem[];
   /** 当前会话正文的起点；切项目留下的旧会话和分隔提示属于此前的只读前缀。 */
@@ -71,7 +72,7 @@ export interface AgentChatSessionState {
   terminals: Record<string, AcpTerminalOutput>;
 }
 
-interface AgentChatStoreState {
+interface AgentChatStoreState extends PromptSubmissionActions {
   chats: Record<string, AgentChatSessionState>;
   setSnapshot: (chatId: string, snapshot: AcpChatSnapshot) => void;
   seedFork: (chatId: string, items: AgentChatItem[], acpSessionId: string, preservedPrefixLength?: number) => void;
@@ -102,6 +103,7 @@ interface AgentChatStoreState {
 
 function emptySession(): AgentChatSessionState {
   return {
+    ...emptyPromptSubmission(),
     snapshot: null,
     items: [],
     transcriptSessionId: null,
@@ -169,6 +171,7 @@ function mergeToolCall(existing: AcpToolCall, patch: ToolCallPatch): void {
 export const useAgentChatStore = create<AgentChatStoreState>()(
   immer((set) => ({
     chats: {},
+    ...createPromptSubmissionActions(set, (state, chatId) => ensure(state.chats, chatId), pushItem, nextItemId),
 
     seedFork: (chatId, items, acpSessionId, preservedPrefixLength = 0) => set((state) => {
       seedForkTranscript(ensure(state.chats, chatId), items, acpSessionId, preservedPrefixLength);
@@ -178,6 +181,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
       set((state) => {
         const chat = ensure(state.chats, chatId);
         const previousError = chat.snapshot?.error;
+        observePromptPhase(chat, snapshot.phase);
         // 新进程起来（starting）= 新的上下文窗口，旧用量作废。
         if (snapshot.phase === "starting") chat.usage = null;
         if (snapshot.phase === "failed" || snapshot.phase === "exited") chat.replay = null;
@@ -440,7 +444,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
       let token: number | null = null;
       set((state) => {
         const chat = ensure(state.chats, chatId);
-        if (chat.setup?.pending) return;
+        if (chat.setup?.pending || chat.pendingPrompt) return;
         token = ++setupSeq;
         chat.setup = { token, pending: true, error: null, ...prompt };
       });
@@ -466,6 +470,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
     turnEnded: (chatId, stopReason, error) =>
       set((state) => {
         const chat = ensure(state.chats, chatId);
+        observePromptPhase(chat, "turn_ended");
         // 回合结束后审批卡必然失效（agent 已用 cancelled 收场）。
         chat.pendingPermissions = [];
         closeOpenThought(chat);

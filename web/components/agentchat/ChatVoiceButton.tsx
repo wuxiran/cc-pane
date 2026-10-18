@@ -13,6 +13,27 @@ import { isTauriRuntime } from "@/services/runtime";
 
 type VoiceStatus = "idle" | "recording" | "transcribing";
 
+interface RecordingAttempt {
+  stream: MediaStream | null;
+  recorder: MediaRecorder | null;
+  chunks: Blob[];
+  timer: number | null;
+}
+
+function releaseRecording(attempt: RecordingAttempt, discard = false): void {
+  if (attempt.timer !== null) window.clearTimeout(attempt.timer);
+  attempt.timer = null;
+  if (discard && attempt.recorder) {
+    attempt.recorder.onstop = null;
+    attempt.recorder.ondataavailable = null;
+    attempt.recorder.onerror = null;
+    if (attempt.recorder.state !== "inactive") attempt.recorder.stop();
+  }
+  attempt.stream?.getTracks().forEach((track) => track.stop());
+  attempt.stream = null;
+  if (discard) attempt.chunks = [];
+}
+
 export interface ChatVoiceButtonProps {
   chatId: string;
   onText: (text: string) => void;
@@ -30,41 +51,31 @@ export default function ChatVoiceButton({
 }: ChatVoiceButtonProps) {
   const { t } = useTranslation("panes");
   const voice = useSettingsStore((state) => state.settings?.voice);
-  const activeTargetId = useVoiceInputStore((state) => state.activeTargetId);
   const setActiveTarget = useVoiceInputStore((state) => state.setActiveTarget);
   const clearActiveTarget = useVoiceInputStore((state) => state.clearActiveTarget);
 
   const [status, setStatus] = useState<VoiceStatus>("idle");
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const stopTimerRef = useRef<number | null>(null);
+  const attemptRef = useRef<RecordingAttempt | null>(null);
   const mountedRef = useRef(true);
-
   const targetId = `agent-chat:${chatId}`;
-  const busyElsewhere = activeTargetId !== null && activeTargetId !== targetId;
+  const isCurrent = useCallback((attempt: RecordingAttempt) => mountedRef.current && attemptRef.current === attempt, []);
 
-  const cleanup = useCallback(() => {
-    if (stopTimerRef.current !== null) {
-      window.clearTimeout(stopTimerRef.current);
-      stopTimerRef.current = null;
-    }
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    recorderRef.current = null;
-  }, []);
+  const cancelAttempt = useCallback(() => {
+    const attempt = attemptRef.current;
+    if (!attempt) return;
+    attemptRef.current = null;
+    releaseRecording(attempt, true);
+    if (mountedRef.current) setStatus("idle");
+    clearActiveTarget(targetId);
+  }, [clearActiveTarget, targetId]);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      if (recorderRef.current && recorderRef.current.state !== "inactive") {
-        recorderRef.current.stop();
-      }
-      cleanup();
-      clearActiveTarget(targetId);
+      cancelAttempt();
     };
-  }, [cleanup, clearActiveTarget, targetId]);
+  }, [cancelAttempt]);
 
   const unavailableReason = useCallback((): string | null => {
     if (!isTauriRuntime()) return t("voiceUnavailable");
@@ -73,86 +84,88 @@ export default function ChatVoiceButton({
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       return t("voiceRecorderUnsupported");
     }
-    if (busyElsewhere) return t("voiceBusyElsewhere");
+    const active = useVoiceInputStore.getState().activeTargetId;
+    if (active !== null && active !== targetId) return t("voiceBusyElsewhere");
     return null;
-  }, [busyElsewhere, t, voice]);
+  }, [t, targetId, voice]);
 
   const finish = useCallback(
-    async (mimeType: string) => {
-      if (mountedRef.current) setStatus("transcribing");
-      cleanup();
+    async (attempt: RecordingAttempt, mimeType: string) => {
+      if (!isCurrent(attempt)) { releaseRecording(attempt, true); return; }
+      setStatus("transcribing");
+      releaseRecording(attempt);
       try {
-        const blob = new Blob(chunksRef.current, { type: mimeType || "audio/webm" });
-        chunksRef.current = [];
+        const blob = new Blob(attempt.chunks, { type: mimeType || "audio/webm" });
+        attempt.chunks = [];
         if (blob.size === 0) throw new Error(t("voiceEmptyAudio"));
         const audio = await blobToAudioPayload(blob, voice ? shouldPreferWav(voice) : false);
+        if (!isCurrent(attempt)) return;
         const result = await voiceService.transcribe({
           audioBase64: audio.audioBase64,
           mimeType: audio.mimeType || blob.type || mimeType || "audio/webm",
           language: voice?.language ?? null,
           enableItn: voice?.enableItn ?? false,
         });
+        if (!isCurrent(attempt)) return;
         const text = result.text.trim();
         if (!text) throw new Error(t("voiceEmptyTranscript"));
         onText(text);
       } catch (error) {
-        toastErr(
-          t("voiceFailed", { error: error instanceof Error ? error.message : String(error) }),
-        );
+        if (isCurrent(attempt)) toastErr(t("voiceFailed", { error: error instanceof Error ? error.message : String(error) }));
       } finally {
-        if (mountedRef.current) setStatus("idle");
-        clearActiveTarget(targetId);
+        if (isCurrent(attempt)) {
+          attemptRef.current = null;
+          setStatus("idle");
+          clearActiveTarget(targetId);
+        }
       }
     },
-    [cleanup, clearActiveTarget, onText, t, targetId, voice],
+    [clearActiveTarget, isCurrent, onText, t, targetId, voice],
   );
 
   const stopRecording = useCallback(() => {
-    const recorder = recorderRef.current;
-    if (!recorder || recorder.state === "inactive") return;
-    if (mountedRef.current) setStatus("transcribing");
-    recorder.stop();
-  }, []);
+    const attempt = attemptRef.current;
+    if (!attempt) return;
+    // 停止也能撤销尚未返回的系统授权；迟到的流由 startRecording 立即释放。
+    if (!attempt.recorder) { cancelAttempt(); return; }
+    if (attempt.recorder.state === "inactive") return;
+    setStatus("transcribing");
+    attempt.recorder.stop();
+  }, [cancelAttempt]);
 
   const startRecording = useCallback(async () => {
+    if (attemptRef.current) return;
     const reason = unavailableReason();
-    if (reason) {
-      toastErr(reason);
-      return;
-    }
+    if (reason) { toastErr(reason); return; }
+    const attempt: RecordingAttempt = { stream: null, recorder: null, chunks: [], timer: null };
+    attemptRef.current = attempt;
     setActiveTarget(targetId);
     setStatus("recording");
-    chunksRef.current = [];
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
+      if (!isCurrent(attempt)) { stream.getTracks().forEach((track) => track.stop()); return; }
+      attempt.stream = stream;
       const mimeType = getRecorderMimeType();
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      recorderRef.current = recorder;
+      attempt.recorder = recorder;
       recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunksRef.current.push(event.data);
+        if (isCurrent(attempt) && event.data.size > 0) attempt.chunks.push(event.data);
       };
-      recorder.onstop = () => {
-        void finish(recorder.mimeType || mimeType || "audio/webm");
-      };
+      recorder.onstop = () => { void finish(attempt, recorder.mimeType || mimeType || "audio/webm"); };
       recorder.onerror = () => {
-        cleanup();
-        if (mountedRef.current) setStatus("idle");
-        clearActiveTarget(targetId);
+        if (!isCurrent(attempt)) return;
+        cancelAttempt();
         toastErr(t("voiceFailed", { error: "MediaRecorder error" }));
       };
       recorder.start();
       const maxSeconds = Math.min(Math.max(voice?.maxRecordSeconds || 60, 1), 300);
-      stopTimerRef.current = window.setTimeout(stopRecording, maxSeconds * 1000);
+      attempt.timer = window.setTimeout(() => { if (isCurrent(attempt)) stopRecording(); }, maxSeconds * 1000);
     } catch (error) {
-      cleanup();
-      if (mountedRef.current) setStatus("idle");
-      clearActiveTarget(targetId);
-      toastErr(
-        t("voiceFailed", { error: error instanceof Error ? error.message : String(error) }),
-      );
+      if (!isCurrent(attempt)) return;
+      cancelAttempt();
+      toastErr(t("voiceFailed", { error: error instanceof Error ? error.message : String(error) }));
     }
-  }, [cleanup, clearActiveTarget, finish, setActiveTarget, stopRecording, t, targetId, unavailableReason, voice]);
+  }, [cancelAttempt, finish, isCurrent, setActiveTarget, stopRecording, t, targetId, unavailableReason, voice]);
 
   const label =
     status === "recording"
