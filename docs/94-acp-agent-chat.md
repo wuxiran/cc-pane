@@ -129,7 +129,8 @@ allow_once 并列 = 提问，不能替用户乱选）；通配 `*`（Automations
 | 客户端 `terminal/create|output|wait_for_exit|kill|release` | ✅ | `acp_client_ops::AcpTerminalManager`：每 terminalId 一个子进程（Job/进程组守卫），stdout+stderr 合并进有界缓冲（`outputByteLimit`，上限 4MB，从前截断到 UTF-8 边界），退出码进 `exitStatus`；输出去抖 80ms 经 `terminal_output` 事件推前端，`ToolCallCard` 的 `{type:"terminal"}` 块按 terminalId 订阅实时渲染。会话结束 `release_all`。请求在读循环外 spawn 处理——`wait_for_exit` 会阻塞。 |
 | `authenticate` | ✅ | `session/new` 回 `-32000 auth_required` 时按 `initialize.authMethods` 逐个 `authenticate` 再重试一次；都不成功则 `ACP_AUTH_REQUIRED` 带方法名列表报给用户（交互式登录仍需在终端完成）。 |
 | `promptCapabilities.image` 门控 | ✅ | composer 只在 agent 广告 `image: true` 时内嵌图片；有路径的图片转 `resource_link`，粘贴/拖放的丢弃并 notice。 |
-| `session/list` / `session/fork` / `session/resume` / `session/close` | ⏳ | v2 / unstable，等适配器跟进（§7 v2 适配时机）。 |
+| `session/fork` | ✅ | 按引擎广告的分叉能力发送原生请求，校验父子会话 ID 独立；提供同目录与独立工作树两种模式。 |
+| `session/list` / `session/resume` / `session/close` | ⏳ | v2 / unstable，等适配器跟进（§7 v2 适配时机）。 |
 
 ## 7. 排障判据
 
