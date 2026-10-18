@@ -1,4 +1,5 @@
 mod routes;
+mod shutdown;
 mod state;
 mod web_auth;
 mod ws_emitter;
@@ -361,6 +362,7 @@ async fn async_main() -> anyhow::Result<()> {
     // OS 级 job/进程组兜底（src-tauri/src/services/process_guard.rs），
     // 覆盖本进程来不及响应信号的异常路径。两者是互补而非重复。
     let shutdown_backend = backend_state.backend.clone();
+    let owns_sessions = backend_state.owns_sessions;
 
     let state = AppState {
         terminal_backend: backend_state.backend,
@@ -417,32 +419,7 @@ async fn async_main() -> anyhow::Result<()> {
     .with_graceful_shutdown(shutdown_signal())
     .await?;
 
-    // 协作式清理：把本进程派生的 PTY 全部收掉，否则它们会比 server 活得久
-    // ——远程终端里的 CLI 会变成孤儿，端口与工作目录都不释放。
-    //
-    // 走 trait 的 get_all_status + kill 而不是具体类型的 cleanup_all()：
-    // `AppState.terminal_backend` 是 `Arc<dyn TerminalBackend>`，而 `cleanup_all`
-    // 只存在于 TerminalService 上。**daemon 模式下这一点尤其重要**——那时后端是
-    // 远端 daemon 的代理，本进程地址空间里根本没有 TerminalService
-    // （CLAUDE.md 记着这条：daemon 模式下 app 侧 sessions 恒为空）。
-    // 按 trait 逐个 kill 才能在两种后端下都成立。
-    info!("CC-Panes Web shutting down; cleaning up terminal sessions");
-    match shutdown_backend.get_all_status() {
-        Ok(sessions) => {
-            for session in sessions {
-                if let Err(error) = shutdown_backend.kill(&session.session_id) {
-                    tracing::warn!(
-                        session_id = %session.session_id,
-                        %error,
-                        "failed to clean up terminal session on shutdown"
-                    );
-                }
-            }
-        }
-        Err(error) => {
-            tracing::warn!(%error, "failed to enumerate sessions for shutdown cleanup");
-        }
-    }
+    shutdown::cleanup(shutdown_backend.as_ref(), owns_sessions);
     Ok(())
 }
 
@@ -526,6 +503,7 @@ struct BackendConfig {
 }
 
 struct BackendState {
+    owns_sessions: bool,
     backend: Arc<dyn TerminalBackend>,
     output_mode: TerminalOutputMode,
 }
@@ -549,6 +527,7 @@ fn create_terminal_backend(
         );
         return Ok(BackendState {
             backend: Arc::new(DaemonTerminalBackend::new(client)),
+            owns_sessions: false,
             output_mode: TerminalOutputMode::Polling,
         });
     }
@@ -556,6 +535,7 @@ fn create_terminal_backend(
     let terminal_service = create_in_process_terminal_service(config, ws_emitter);
     Ok(BackendState {
         backend: Arc::new(InProcessTerminalBackend::new(terminal_service)),
+        owns_sessions: true,
         output_mode: TerminalOutputMode::Emitter,
     })
 }
@@ -757,6 +737,7 @@ mod tests {
         .expect("backend state");
 
         assert_eq!(state.output_mode, TerminalOutputMode::Emitter);
+        assert!(state.owns_sessions);
     }
 
     #[test]
@@ -780,6 +761,7 @@ mod tests {
         .expect("backend state");
 
         assert_eq!(state.output_mode, TerminalOutputMode::Polling);
+        assert!(!state.owns_sessions);
         let health = rx.recv().expect("health request");
         assert!(health.starts_with("GET /api/health HTTP/1.1"));
         assert!(!health.contains("Authorization: Bearer"));
