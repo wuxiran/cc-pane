@@ -77,6 +77,7 @@ export interface GuardContext {
 export interface TabDestroyOptions {
   detach: boolean;
   reason: DestroyReason;
+  keepAliveSessionIds?: ReadonlySet<string>;
 }
 
 export interface TabLifecycleEntry {
@@ -189,6 +190,7 @@ const terminalEntry: TabLifecycleEntry = {
   },
   onClosed: (tab, opts) => {
     for (const sessionId of collectTerminalSessionIdsWithSaved(tab)) {
+      if (opts.keepAliveSessionIds?.has(sessionId)) continue;
       if (opts.detach) {
         terminalService.detachOutput(sessionId);
         terminalService.detachExit(sessionId);

@@ -4695,12 +4695,11 @@ fn bind_workspace_launch_profile_impl(
         ensure_mcp_yolo_profile_allowed(profile.yolo_mode, allow_mcp_yolo_profiles)?;
     }
 
-    let mut workspace = workspace_service
-        .get_workspace(&workspace_name)
-        .map_err(|error| format!("Failed to load workspace '{}': {}", workspace_name, error))?;
-    workspace.launch_profile_id = profile_id.clone();
     workspace_service
-        .write_workspace_json(&workspace_name, &workspace)
+        .update_workspace_with(&workspace_name, |workspace| {
+            workspace.launch_profile_id = profile_id.clone();
+            Ok(())
+        })
         .map_err(|error| {
             format!(
                 "Failed to update launch profile binding for workspace '{}': {}",
@@ -4889,7 +4888,7 @@ impl McpToolHandler {
 
         let bind_workspace = params.bind_to_workspace.unwrap_or(false);
         let bind_project = params.bind_to_project.unwrap_or(false);
-        let mut workspace_for_binding = if bind_workspace || bind_project {
+        let workspace_for_binding = if bind_workspace || bind_project {
             let workspace_name =
                 trim_optional_string(params.workspace_name.clone()).ok_or_else(|| {
                     "workspaceName is required when binding a runtime config".to_string()
@@ -5003,16 +5002,24 @@ impl McpToolHandler {
                 (profile, true, false)
             };
 
-        if let Some(workspace) = workspace_for_binding.as_mut() {
-            if bind_workspace {
-                workspace.launch_profile_id = Some(profile.id.clone());
-            }
-            if let Some(index) = project_index {
-                workspace.projects[index].launch_profile_id = Some(profile.id.clone());
-            }
+        if let Some(workspace) = workspace_for_binding.as_ref() {
+            let project_id = project_index.map(|index| workspace.projects[index].id.clone());
             self.state
                 .workspace_service
-                .write_workspace_json(&workspace.name, workspace)
+                .update_workspace_with(&workspace.name, |current| {
+                    if bind_workspace {
+                        current.launch_profile_id = Some(profile.id.clone());
+                    }
+                    if let Some(project_id) = project_id.as_ref() {
+                        let project = current
+                            .projects
+                            .iter_mut()
+                            .find(|p| &p.id == project_id)
+                            .ok_or_else(|| format!("Project '{project_id}' no longer exists"))?;
+                        project.launch_profile_id = Some(profile.id.clone());
+                    }
+                    Ok(())
+                })
                 .map_err(|error| {
                     format!(
                         "Failed to bind launch profile to workspace '{}': {}",

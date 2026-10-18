@@ -78,6 +78,7 @@ function relocateAndCollect(
 ): void {
   const doomedTabs: Tab[] = [];
   const pinnedProtected = new Set<string>();
+  const pinnedOwners = new Set<string>();
   for (const tabId of tabIds) {
     for (const layout of state.layouts) {
       const tree = layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane;
@@ -85,6 +86,7 @@ function relocateAndCollect(
       const location = findTabLocation(tree, tabId);
       if (!location) continue;
       if (policy.respectsPinned && location.tab.pinned) {
+        pinnedOwners.add(location.tab.id);
         for (const sid of collectTerminalSessionIdsWithSaved(location.tab)) {
           pinnedProtected.add(sid);
         }
@@ -99,7 +101,11 @@ function relocateAndCollect(
     const protect = pinnedProtected.size > 0
       ? new Set([...(opts?.protectSessionIds ?? []), ...pinnedProtected])
       : opts?.protectSessionIds;
-    void commitResourceDestroy(doomedTabs, reason, { protectSessionIds: protect });
+    void commitResourceDestroy(doomedTabs, reason, {
+      protectSessionIds: protect,
+      keepAliveSessionIds: pinnedProtected,
+      keepAliveTabIds: pinnedOwners,
+    });
   }
 }
 

@@ -1,6 +1,7 @@
 import type { LaunchRecord } from "@/services";
 import type { OpenTerminalOptions, SshMachine, Workspace, WorkspaceProject } from "@/types";
 import { stripVerbatimPrefix } from "./path";
+import { projectPathsEquivalent } from "./projectIdentity";
 import {
   buildSshConnectionDisplayPath,
   resolveWorkspaceProjectLaunchOptions,
@@ -10,21 +11,16 @@ function optionalValue<T>(value: T | null | undefined): T | undefined {
   return value ?? undefined;
 }
 
-function normalizeComparePath(path: string): string {
-  return path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-}
-
 function findWorkspaceProject(
   workspace: Workspace,
   record: LaunchRecord,
 ): WorkspaceProject | undefined {
-  const target = normalizeComparePath(record.projectPath);
   return workspace.projects.find((project) => {
-    if (normalizeComparePath(project.path) === target) {
+    if (projectPathsEquivalent(project.path, record.projectPath)) {
       return true;
     }
     if (project.ssh) {
-      return normalizeComparePath(buildSshConnectionDisplayPath(project.ssh)) === target;
+      return projectPathsEquivalent(buildSshConnectionDisplayPath(project.ssh), record.projectPath);
     }
     return false;
   });

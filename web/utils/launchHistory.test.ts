@@ -112,6 +112,35 @@ describe("launchHistory", () => {
       },
     });
   });
+
+  it("reopens the exact case-sensitive SSH project, regardless of list order", () => {
+    const connection = { host: "example.invalid", port: 22, user: "review", machineId: "machine" };
+    const projects = ["App", "app"].map((name) => createTestWorkspaceProject({
+      path: `ssh://review@example.invalid/srv/${name}`,
+      ssh: { ...connection, remotePath: `/srv/${name}` },
+    }));
+    const workspace = createTestWorkspace({ name: "workspace-1", projects });
+    const record = createRecord({
+      runtimeKind: "ssh", projectPath: projects[1].path, launchCwd: projects[1].path,
+    });
+    const options = buildLaunchRecordTerminalOptions(record, [workspace], []);
+    expect(options.path).toBe(projects[1].path);
+    expect(options.ssh?.remotePath).toBe("/srv/app");
+  });
+
+  it("matches Windows aliases without folding WSL Linux path case", () => {
+    Object.defineProperty(window.navigator, "platform", { configurable: true, value: "Win32" });
+    const paths = [String.raw`\\wsl.localhost\Ubuntu\home\User\App`, String.raw`\\wsl.localhost\Ubuntu\home\User\app`];
+    const workspace = createTestWorkspace({
+      name: "workspace-1", defaultEnvironment: "wsl", wsl: { distro: "Ubuntu", remotePath: "/home/User" },
+      path: String.raw`\\wsl.localhost\Ubuntu\home\User`,
+      projects: paths.map((path) => createTestWorkspaceProject({ path })),
+    });
+    const options = buildLaunchRecordTerminalOptions(createRecord({
+      runtimeKind: "wsl", projectPath: String.raw`\\wsl$\Ubuntu\home\User\app`, launchCwd: "/home/User/app",
+    }), [workspace], []);
+    expect(options.path).toBe(paths[1]);
+  });
 });
 
 describe("launchHistory · verbatim 路径污染兜底", () => {
