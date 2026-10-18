@@ -251,10 +251,10 @@ export default function ChatComposer({
   const canSend = phase === "ready" && (Boolean(draft.trim()) || attachments.length > 0);
 
   return (
-    <div ref={hostRef} className="px-3 pb-3 pt-1">
-      <div className="mx-auto flex max-w-3xl flex-col gap-1.5">
+    <div ref={hostRef} className="agent-chat-composer px-5 pb-5 pt-3">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
         {slashMatches.length > 0 ? (
-          <div className="flex flex-col overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-overlay)] shadow-md">
+          <div className="flex flex-col overflow-hidden rounded-2xl border border-[var(--app-border)] bg-[var(--app-overlay)] py-1 shadow-md">
             {slashMatches.map((command, index) => (
               <button
                 key={command.name}
@@ -281,7 +281,8 @@ export default function ChatComposer({
           </div>
         ) : null}
         <div
-          className={`rounded-xl border bg-[var(--app-chat-composer-bg)] px-3 pb-2 pt-2.5 shadow-sm transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)] focus-within:border-[var(--app-accent)]/70 focus-within:shadow-[0_0_0_3px_var(--app-active-bg)] ${
+          data-drop-active={dropHint || undefined}
+          className={`agent-chat-composer-shell rounded-3xl border bg-[var(--app-chat-composer-bg)] px-4 pb-3 pt-4 transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)] focus-within:border-[var(--app-text-tertiary)] ${
             dropHint
               ? "border-[var(--app-accent)] shadow-[0_0_0_3px_var(--app-active-bg)]"
               : "border-[var(--app-border)]"
@@ -290,11 +291,11 @@ export default function ChatComposer({
           onDragOver={(event) => event.preventDefault()}
         >
           {attachments.length > 0 ? (
-            <div className="mb-2 flex flex-wrap gap-1.5">
+            <div className="mb-3 flex flex-wrap gap-2">
               {attachments.map((attachment, index) => (
                 <span
                   key={index}
-                  className="flex items-center gap-1 rounded-md border border-[var(--app-border)] bg-[var(--app-overlay)] px-1.5 py-0.5 text-[11px] text-[var(--app-text-secondary)]"
+                  className="flex min-w-0 items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-overlay)] px-2.5 py-1.5 text-xs text-[var(--app-text-secondary)]"
                 >
                   {attachment.kind === "file" ? (
                     <FileText className="h-3 w-3" />
@@ -371,26 +372,26 @@ export default function ChatComposer({
             }}
             placeholder={t("agentChatSendPlaceholder")}
             rows={2}
-            className="max-h-48 min-h-[2.75rem] w-full resize-none bg-transparent text-sm leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
+            className="agent-chat-composer-input max-h-48 min-h-[4.25rem] w-full resize-none bg-transparent text-[15px] leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
           />
-          <div className="mt-1.5 flex items-end justify-between gap-2">
-            <div className="flex min-w-0 flex-wrap items-center gap-1">
+          <div className="agent-chat-composer-toolbar mt-3 flex items-end justify-between gap-3">
+            <div className="agent-chat-composer-options flex min-w-0 flex-wrap items-center gap-1.5">
               <IconTooltipButton
                 label={t("agentChatAttach")}
-                className="h-7 w-7 shrink-0"
+                className="h-8 w-8 shrink-0 rounded-full"
                 onClick={() => void attachFromDialog()}
               >
                 <Plus className="h-4 w-4" />
               </IconTooltipButton>
               {toolbar}
             </div>
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="agent-chat-composer-actions flex shrink-0 items-center gap-1.5">
               {usage ? <ContextUsageRing usage={usage} /> : null}
               {lastUserText && !generating ? (
                 <IconTooltipButton
                   label={t("agentChatRetry")}
                   disabled={phase !== "ready"}
-                  className="h-7 w-7"
+                  className="h-8 w-8 rounded-full"
                   onClick={retryLast}
                 >
                   <RotateCw className="h-3.5 w-3.5" />
@@ -399,12 +400,13 @@ export default function ChatComposer({
               <ChatVoiceButton
                 chatId={chatId}
                 variant="ghost"
+                sizeClass="h-8 w-8 rounded-full"
                 onText={(text) => setDraft(draft ? `${draft} ${text}` : text)}
               />
               {generating ? (
                 <IconTooltipButton
                   label={t("agentChatStop")}
-                  className="h-7 w-7 rounded-full bg-[var(--app-text-primary)] text-[var(--app-panel-bg)] hover:bg-[var(--app-text-primary)] hover:text-[var(--app-panel-bg)] hover:opacity-85"
+                  className="h-8 w-8 rounded-full bg-[var(--app-text-primary)] text-[var(--app-panel-bg)] hover:bg-[var(--app-text-primary)] hover:text-[var(--app-panel-bg)] hover:opacity-85"
                   onClick={cancel}
                 >
                   <Square className="h-3 w-3 fill-current" />
@@ -414,7 +416,7 @@ export default function ChatComposer({
                   label={t("agentChatSend")}
                   kbd="Enter"
                   disabled={!canSend}
-                  className="h-7 w-7 rounded-full bg-[var(--app-accent)] text-white hover:bg-[var(--app-accent)] hover:text-white hover:opacity-90 disabled:opacity-35"
+                  className="h-8 w-8 rounded-full bg-[var(--app-text-primary)] text-[var(--app-panel-bg)] hover:bg-[var(--app-text-primary)] hover:text-[var(--app-panel-bg)] hover:opacity-85 disabled:opacity-30"
                   onClick={send}
                 >
                   <ArrowUp className="h-4 w-4" strokeWidth={2.5} />

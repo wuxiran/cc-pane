@@ -208,10 +208,11 @@ export default function ToolCallCard({ call, chatId, onOpenLocation, expandAllSi
   );
 
   return (
-    <div className="rounded-lg border border-[var(--app-border)] bg-[var(--app-overlay)] text-sm shadow-sm">
+    <div className="agent-chat-tool-card text-sm">
       <button
         type="button"
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-[var(--app-hover)] rounded-lg"
+        aria-expanded={hasBody ? expanded : undefined}
         onClick={() => setExpanded((value) => !value)}
       >
         {hasBody ? (

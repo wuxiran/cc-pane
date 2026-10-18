@@ -72,7 +72,7 @@ export default function ChatTimelineNavigation({ conversationKey, turns, ...navi
 
   if (!entries.length) return null;
   return (
-    <div className="pointer-events-none absolute inset-y-0 left-0 z-10 flex w-12 items-center justify-center py-4">
+    <div className="agent-chat-timeline-rail pointer-events-none absolute inset-y-0 left-0 z-10 flex w-12 items-center justify-center py-4">
       <nav
         ref={navRef}
         aria-label={t("agentChatTimeline")}

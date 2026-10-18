@@ -42,7 +42,7 @@ export default function ToolCallGroup({ items, chatId, onOpenLocation, expandAll
   const expanded = userChoice ?? summary.running > 0;
 
   return (
-    <div className="rounded-lg border border-[var(--app-border)] bg-[var(--app-overlay)] text-xs shadow-sm">
+    <div className="agent-chat-activity text-xs">
       <button
         type="button"
         aria-expanded={expanded}

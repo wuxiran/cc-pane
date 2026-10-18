@@ -25,6 +25,7 @@ import ChatSessionHeader from "./ChatSessionHeader";
 import ChatTurnView from "./ChatTurnView";
 import ChatTimelineNavigation from "./ChatTimelineNavigation";
 import ChatWelcome from "./ChatWelcome";
+import "./agentChatAppearance.css";
 import ConfigOptionSelectors from "./ConfigOptionSelectors";
 import { HeaderSelect } from "./ChatItems";
 import { groupChatItems, type ChatTurn } from "./chatTurns";
@@ -231,12 +232,14 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   // 尚未启动过（没有快照也没有消息）→ 引擎选择页。
   if (!snapshot && (!items || items.length === 0)) {
     return (
-      <EnginePicker
-        chatId={tab.id}
-        cwd={effectiveCwd}
-        onPickCwd={setCwdOverride}
-        onCwdAdopted={setCwdOverride}
-      />
+      <div className="agent-chat-shell flex h-full min-w-0 flex-col overflow-hidden">
+        <EnginePicker
+          chatId={tab.id}
+          cwd={effectiveCwd}
+          onPickCwd={setCwdOverride}
+          onCwdAdopted={setCwdOverride}
+        />
+      </div>
     );
   }
 
@@ -324,6 +327,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   ) : null;
 
   return (
+    <section className="agent-chat-shell h-full min-w-0">
     <div className="flex h-full flex-col overflow-hidden">
       {snapshot ? (
         <ChatSessionHeader
@@ -360,10 +364,10 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className={`h-full overflow-y-auto py-3 pr-3 ${turns.some((turn) => turn.kind !== "notice") ? "pl-14" : "pl-3"}`}
+          className="agent-chat-scroll h-full overflow-y-auto"
         >
-          <div className="mx-auto flex max-w-3xl flex-col gap-4">
-            {snapshot && turns.length <= visibleCount ? (
+          <div className="agent-chat-reading-column mx-auto flex min-w-0 max-w-3xl flex-col">
+            {snapshot && turns.length === 0 ? (
               <ChatWelcome
                 engineLabel={engineLabel}
                 cwd={effectiveCwd}
@@ -373,14 +377,14 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
             {turns.length > visibleCount ? (
               <button
                 type="button"
-                className="mx-auto rounded border border-[var(--app-border)] px-2.5 py-1 text-[11px] text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)]"
+                className="agent-chat-earlier flex w-full items-center border-b border-[var(--app-border)] py-3 text-left text-xs text-[var(--app-text-tertiary)] transition-colors hover:text-[var(--app-text-primary)]"
                 onClick={() => setVisibleCount((previous) => previous + 60)}
               >
                 {t("agentChatShowEarlier", { count: turns.length - visibleCount })}
               </button>
             ) : null}
             {turns.slice(-visibleCount).map((turn, index, visible) => (
-              <div key={turn.id} data-chat-turn-id={turn.id} data-chat-turn-index={Math.max(0, turns.length - visibleCount) + index}>
+              <div className="agent-chat-turn" data-turn-kind={turn.kind} key={turn.id} data-chat-turn-id={turn.id} data-chat-turn-index={Math.max(0, turns.length - visibleCount) + index}>
                 <ChatTurnView
                   turn={turn}
                   engineLabel={engineLabel}
@@ -441,7 +445,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       ) : null}
 
       {ended ? (
-        <div className="px-3 pb-3 pt-1">
+        <div className="agent-chat-ended px-3 pb-3 pt-1">
           <div className="mx-auto flex max-w-3xl items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--app-border)] bg-[var(--app-chat-composer-bg)] px-3 py-3 text-xs text-[var(--app-text-tertiary)]">
             <span>{t("agentChatEnded")}</span>
             {effectiveCwd ? (
@@ -468,5 +472,6 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
         />
       )}
     </div>
+    </section>
   );
 }

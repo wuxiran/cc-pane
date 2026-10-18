@@ -1,13 +1,10 @@
-// 回合渲染：用户回合右对齐气泡 + 时间；assistant 回合是"头像列 + 头部（引擎名 ·
-// 时间）+ 内容块"，内容块的具体渲染在 AssistantBlocks；notice 居中一行。
-// 正文不做对称气泡（长 markdown 放气泡里难看），用轻底色卡片做承载面，
-// 与右侧用户气泡形成左右对话节奏。
-import { Bot, Loader2 } from "lucide-react";
+// Agent replies use a reading column; metadata stays quiet below the content.
+import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AcpPlanEntry } from "@/types/agentChat";
 import type { ChatTurn } from "./chatTurns";
 import AssistantBlockView from "./AssistantBlocks";
-import { ItemView } from "./ChatItems";
+import { CopyButton, ItemView } from "./ChatItems";
 
 export function formatClock(at: number): string {
   return new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -52,7 +49,7 @@ export default function ChatTurnView({
 
   if (turn.kind === "user") {
     return (
-      <div className="flex flex-col items-end gap-1 pl-10" data-testid="chat-turn-user">
+      <div className="agent-chat-turn-user flex min-w-0 flex-col items-end gap-1" data-testid="chat-turn-user">
         <ItemView item={turn.item} onPlanToTodo={onPlanToTodo} />
         <TimeStamp at={turn.at} className="pr-1" />
       </div>
@@ -64,24 +61,16 @@ export default function ChatTurnView({
   }
 
   const blocks = turn.blocks;
+  const replyText = blocks.flatMap((block) => block.kind === "text" ? [block.item.text] : []).join("\n\n");
   const lastBlock = blocks[blocks.length - 1];
   // 思考块 / 子 agent 块流式时自带状态行，不再叠一个"正在生成"。
   const showGenerating =
     streaming && lastBlock?.kind !== "thought" && lastBlock?.kind !== "subagent";
 
   return (
-    <div className="flex gap-3" data-testid="chat-turn-assistant">
-      <span
-        aria-hidden="true"
-        className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--app-active-bg)] text-[var(--app-accent)]"
-      >
-        <Bot className="h-4 w-4" />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <div className="flex items-baseline gap-2 leading-none">
-          <span className="text-xs font-medium text-[var(--app-text-primary)]">{engineLabel}</span>
-          <TimeStamp at={turn.at} />
-        </div>
+    <div className="agent-chat-turn-assistant group min-w-0" data-testid="chat-turn-assistant">
+      <span className="sr-only">{engineLabel}</span>
+      <div className="flex min-w-0 flex-col gap-4">
         {blocks.map((block, index) => (
           <AssistantBlockView
             key={block.kind === "tools" || block.kind === "subagent" ? block.id : block.item.id}
@@ -92,6 +81,7 @@ export default function ChatTurnView({
             onOpenLocation={onOpenLocation}
             onPlanToTodo={onPlanToTodo}
             expandAllSignal={expandAllSignal}
+            showCopyAction={false}
           />
         ))}
         {showGenerating ? (
@@ -100,6 +90,10 @@ export default function ChatTurnView({
             {t("agentChatGenerating")}
           </div>
         ) : null}
+      </div>
+      <div className="agent-chat-turn-meta mt-3 flex min-h-7 items-center gap-3">
+        {replyText ? <CopyButton text={replyText} label={t("agentChatCopy")} /> : null}
+        <TimeStamp at={turn.at} />
       </div>
     </div>
   );
