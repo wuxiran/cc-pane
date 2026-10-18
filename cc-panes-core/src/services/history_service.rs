@@ -1,3 +1,5 @@
+mod restore;
+
 use anyhow::{Context, Result};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::{HashMap, HashSet};
@@ -893,42 +895,6 @@ impl HistoryService {
     }
 
     /// 恢复文件到指定版本（恢复前自动打标签）
-    pub fn restore_version(
-        &self,
-        project_path: &Path,
-        file_path: &str,
-        version_id: &str,
-    ) -> Result<()> {
-        let repo = self.get_or_create_repo(project_path)?;
-
-        // 恢复前自动打 "Before Restore" 标签
-        let current_branch = Self::read_current_branch(project_path).unwrap_or_default();
-        let snapshots = repo.get_all_latest_snapshots()?;
-        if !snapshots.is_empty() {
-            let label = HistoryLabel {
-                id: uuid::Uuid::new_v4().to_string(),
-                name: format!("Before Restore: {}", file_path),
-                label_type: "auto".to_string(),
-                source: "restore".to_string(),
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                file_snapshots: snapshots,
-                branch: current_branch,
-            };
-            let _ = repo.put_label(&label);
-        }
-
-        let content = repo.get_version_content(file_path, version_id)?;
-        let full_path = project_path.join(file_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-
-        // 确保父目录存在（恢复已删除文件时需要）
-        if let Some(parent) = full_path.parent() {
-            fs::create_dir_all(parent).context("Failed to create parent directory")?;
-        }
-
-        fs::write(&full_path, &content).context("Failed to restore file")?;
-        Ok(())
-    }
-
     /// 清理旧版本
     pub fn cleanup(&self, project_path: &Path) -> Result<()> {
         let repo = self.get_or_create_repo(project_path)?;
@@ -981,50 +947,6 @@ impl HistoryService {
     pub fn delete_label(&self, project_path: &Path, label_id: &str) -> Result<()> {
         let repo = self.get_or_create_repo(project_path)?;
         repo.delete_label(label_id)
-    }
-
-    /// 恢复到标签（Session 级回滚）
-    pub fn restore_to_label(&self, project_path: &Path, label_id: &str) -> Result<Vec<String>> {
-        let repo = self.get_or_create_repo(project_path)?;
-
-        // 恢复前自动打 "Before Rollback" 标签
-        let current_branch = Self::read_current_branch(project_path).unwrap_or_default();
-        let current_snapshots = repo.get_all_latest_snapshots()?;
-        if !current_snapshots.is_empty() {
-            let before_label = HistoryLabel {
-                id: uuid::Uuid::new_v4().to_string(),
-                name: "Before Rollback".to_string(),
-                label_type: "auto".to_string(),
-                source: "restore".to_string(),
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                file_snapshots: current_snapshots,
-                branch: current_branch,
-            };
-            repo.put_label(&before_label)?;
-        }
-
-        // 获取目标标签
-        let labels = repo.list_labels()?;
-        let target_label = labels
-            .into_iter()
-            .find(|l| l.id == label_id)
-            .context("Label not found")?;
-
-        let mut restored_files = Vec::new();
-        for snap in &target_label.file_snapshots {
-            if let Ok(content) = repo.get_version_content(&snap.file_path, &snap.version_id) {
-                let full_path =
-                    project_path.join(snap.file_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-                if let Some(parent) = full_path.parent() {
-                    let _ = fs::create_dir_all(parent);
-                }
-                if fs::write(&full_path, &content).is_ok() {
-                    restored_files.push(snap.file_path.clone());
-                }
-            }
-        }
-
-        Ok(restored_files)
     }
 
     /// 创建自动标签（快捷方法）

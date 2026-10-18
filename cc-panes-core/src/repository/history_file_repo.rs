@@ -23,6 +23,8 @@ const DB_FILE: &str = "history.db";
 
 pub struct HistoryFileRepository {
     db: Mutex<Connection>,
+    // Serialize blob publication/collection and restores within this repository.
+    files_lock: parking_lot::ReentrantMutex<()>,
     project_path: PathBuf,
 }
 
@@ -52,6 +54,7 @@ impl HistoryFileRepository {
         // 迁移旧版 versions.json 数据
         let repo = Self {
             db: Mutex::new(conn),
+            files_lock: parking_lot::ReentrantMutex::new(()),
             project_path: project_path.to_path_buf(),
         };
         repo.migrate_from_json()?;
@@ -342,11 +345,54 @@ impl HistoryFileRepository {
         branch: &str,
         min_interval_secs: u64,
     ) -> Result<Option<FileVersion>> {
+        self.save_version_inner(
+            file_path,
+            content,
+            is_deleted,
+            branch,
+            min_interval_secs,
+            false,
+        )
+    }
+
+    /// A restore backup must capture the current disk state even inside the normal
+    /// debounce interval, including a missing file or recreation after a tombstone.
+    pub(crate) fn save_restore_backup(
+        &self,
+        file_path: &str,
+        content: Option<&[u8]>,
+        branch: &str,
+    ) -> Result<FileVersion> {
+        self.save_version_inner(
+            file_path,
+            content.unwrap_or_default(),
+            content.is_none(),
+            branch,
+            0,
+            true,
+        )?
+        .context("Restore backup was not saved")
+    }
+
+    pub(crate) fn lock_files(&self) -> parking_lot::ReentrantMutexGuard<'_, ()> {
+        self.files_lock.lock()
+    }
+
+    fn save_version_inner(
+        &self,
+        file_path: &str,
+        content: &[u8],
+        is_deleted: bool,
+        branch: &str,
+        min_interval_secs: u64,
+        force: bool,
+    ) -> Result<Option<FileVersion>> {
+        let _files = self.lock_files();
         let hash = Self::calculate_hash(content);
 
         // 检查是否与同分支的最新版本相同（去重）+ 时间间隔检查
         // 注意：is_deleted 标记的版本不做去重，即使内容相同也要记录
-        if !is_deleted {
+        if !is_deleted && !force {
             let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
             let latest: Option<(String, String)> = db
                 .query_row(
@@ -523,6 +569,7 @@ impl HistoryFileRepository {
 
     /// 清理旧版本
     pub fn cleanup_old_versions(&self, config: &HistoryConfig) -> Result<()> {
+        let _files = self.lock_files();
         let cutoff = chrono::Utc::now() - chrono::Duration::days(config.max_age_days as i64);
         let cutoff_str = cutoff.to_rfc3339();
 
@@ -573,6 +620,7 @@ impl HistoryFileRepository {
 
     /// LRU 清理：按 max_total_size 限制
     pub fn cleanup_by_total_size(&self, max_total_size: u64) -> Result<()> {
+        let _files = self.lock_files();
         let blobs_dir = self.blobs_path();
         if !blobs_dir.exists() {
             return Ok(());
@@ -985,7 +1033,8 @@ impl HistoryFileRepository {
 
     /// 创建标签
     pub fn put_label(&self, label: &HistoryLabel) -> Result<()> {
-        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut connection = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let db = connection.transaction()?;
         db.execute(
             "INSERT OR REPLACE INTO labels (id, name, label_type, source, timestamp, branch)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -1014,6 +1063,7 @@ impl HistoryFileRepository {
             )?;
         }
 
+        db.commit()?;
         Ok(())
     }
 
@@ -1252,6 +1302,7 @@ impl HistoryFileRepository {
 
     /// 压缩所有未压缩的 blob 文件
     pub fn compress_blobs(&self) -> Result<usize> {
+        let _files = self.lock_files();
         let blobs_dir = self.blobs_path();
         if !blobs_dir.exists() {
             return Ok(0);
@@ -1316,6 +1367,7 @@ impl HistoryFileRepository {
 
         Ok(Self {
             db: Mutex::new(conn),
+            files_lock: parking_lot::ReentrantMutex::new(()),
             project_path: project_path.to_path_buf(),
         })
     }
