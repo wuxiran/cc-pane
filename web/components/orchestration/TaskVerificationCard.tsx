@@ -27,11 +27,11 @@ function Evidence({ evidence, currentFingerprint, checking }: {
     : checking || evidence.observationError !== null || !codeMatches ? "unknown"
     : evidence.timedOut ? "timedOut" : passed ? "passed" : "failed";
   const labels = {
-    passed: t("verification.passed", { defaultValue: "通过 · 当前代码" }),
-    failed: t("verification.failed", { defaultValue: "检查失败" }),
-    timedOut: t("verification.timedOut", { defaultValue: "检查超时" }),
-    stale: t("verification.stale", { defaultValue: "证据已过期 · 需要重跑" }),
-    unknown: t("verification.unknown", { defaultValue: "代码状态未知 · 未验证" }),
+    passed: t("verification.passed", { defaultValue: "Passed · current code" }),
+    failed: t("verification.failed", { defaultValue: "Check failed" }),
+    timedOut: t("verification.timedOut", { defaultValue: "Check timed out" }),
+    stale: t("verification.stale", { defaultValue: "Evidence is outdated · rerun required" }),
+    unknown: t("verification.unknown", { defaultValue: "Code state unknown · unverified" }),
   };
   return (
     <article className="rounded-md border border-border p-3 text-xs" aria-label={evidence.command}>
@@ -42,22 +42,22 @@ function Evidence({ evidence, currentFingerprint, checking }: {
         </span>
       </div>
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
-        <span>{t("verification.exitCode", { defaultValue: "退出码" })}: {evidence.exitCode ?? "—"}</span>
-        {evidence.signal !== null && <span>{t("verification.signal", { defaultValue: "终止信号" })}: {evidence.signal}</span>}
-        <span>{t("verification.duration", { defaultValue: "耗时" })}: {(evidence.durationMs / 1000).toFixed(2)}s</span>
+        <span>{t("verification.exitCode", { defaultValue: "Exit code" })}: {evidence.exitCode ?? "—"}</span>
+        {evidence.signal !== null && <span>{t("verification.signal", { defaultValue: "Termination signal" })}: {evidence.signal}</span>}
+        <span>{t("verification.duration", { defaultValue: "Duration" })}: {(evidence.durationMs / 1000).toFixed(2)}s</span>
       </div>
-      {evidence.codeChangedDuringRun && <p className="mt-2 text-amber-600">{t("verification.changedDuringRun", { defaultValue: "检查期间代码发生变化，此结果不能验证当前代码。" })}</p>}
+      {evidence.codeChangedDuringRun && <p className="mt-2 text-[var(--app-status-warning)]">{t("verification.changedDuringRun", { defaultValue: "Code changed during this check; this result cannot verify the current code." })}</p>}
       {(evidence.executionError || evidence.observationError) && <p className="mt-2 break-words text-destructive">{evidence.executionError || evidence.observationError}</p>}
       <details className="mt-2">
-        <summary className="cursor-pointer text-muted-foreground">{t("verification.details", { defaultValue: "执行详情与输出" })}</summary>
+        <summary className="cursor-pointer text-muted-foreground">{t("verification.details", { defaultValue: "Execution details and output" })}</summary>
         <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 break-all text-muted-foreground">
-          <dt>{t("verification.cwd", { defaultValue: "工作目录" })}</dt><dd>{evidence.cwd}</dd>
-          <dt>{t("verification.started", { defaultValue: "开始时间" })}</dt><dd>{new Date(evidence.startedAt).toLocaleString()}</dd>
-          <dt>{t("verification.completed", { defaultValue: "结束时间" })}</dt><dd>{new Date(evidence.completedAt).toLocaleString()}</dd>
-          <dt>{t("verification.head", { defaultValue: "原始 Git 提交" })}</dt><dd className="font-mono">{evidence.originalHead || "—"}</dd>
-          <dt>{t("verification.fingerprint", { defaultValue: "原始代码指纹" })}</dt><dd className="font-mono">{evidence.originalFingerprint}</dd>
+          <dt>{t("verification.cwd", { defaultValue: "Working directory" })}</dt><dd>{evidence.cwd}</dd>
+          <dt>{t("verification.started", { defaultValue: "Started" })}</dt><dd>{new Date(evidence.startedAt).toLocaleString()}</dd>
+          <dt>{t("verification.completed", { defaultValue: "Completed" })}</dt><dd>{new Date(evidence.completedAt).toLocaleString()}</dd>
+          <dt>{t("verification.head", { defaultValue: "Original Git commit" })}</dt><dd className="font-mono">{evidence.originalHead || "—"}</dd>
+          <dt>{t("verification.fingerprint", { defaultValue: "Original code fingerprint" })}</dt><dd className="font-mono">{evidence.originalFingerprint}</dd>
         </dl>
-        {evidence.outputTruncated && <p className="mt-2 text-amber-600">{t("verification.truncated", { defaultValue: "输出已截断，每个输出流最多保留 64 KiB。" })}</p>}
+        {evidence.outputTruncated && <p className="mt-2 text-[var(--app-status-warning)]">{t("verification.truncated", { defaultValue: "Output truncated; each stream retains at most 64 KiB." })}</p>}
         <p className="mt-2 font-medium">stdout</p>
         <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2">{evidence.stdout || "—"}</pre>
         <p className="mt-2 font-medium">stderr</p>
@@ -128,34 +128,34 @@ export default function TaskVerificationCard({ taskId }: { taskId: string }) {
   };
 
   return (
-    <section className="flex flex-col gap-3" aria-label={t("verification.title", { defaultValue: "验收证据" })}>
+    <section className="flex flex-col gap-3" aria-label={t("verification.title", { defaultValue: "Verification evidence" })}>
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">{t("verification.title", { defaultValue: "验收证据" })}</h3>
+        <h3 className="text-sm font-semibold">{t("verification.title", { defaultValue: "Verification evidence" })}</h3>
         <Button variant="ghost" size="sm" onClick={() => void refresh()} disabled={refreshing}>
           <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
-          {t("verification.refresh", { defaultValue: "刷新代码状态" })}
+          {t("verification.refresh", { defaultValue: "Refresh code state" })}
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">{t("verification.description", { defaultValue: "在任务项目目录运行你指定的检查命令。每次执行独立保存结果；代码变化后须重新检查。" })}</p>
+      <p className="text-xs text-muted-foreground">{t("verification.description", { defaultValue: "Run your check command in this task’s project directory. Each execution is saved separately; changed code requires a new check." })}</p>
       <form onSubmit={(event) => { event.preventDefault(); void run(); }} className="flex flex-wrap items-end gap-2">
         <label className="flex min-w-48 flex-1 flex-col gap-1 text-xs">
-          {t("verification.command", { defaultValue: "检查命令" })}
+          {t("verification.command", { defaultValue: "Check command" })}
           <input className="h-8 rounded-md border border-input bg-transparent px-2 font-mono" value={command}
             onChange={(event) => setCommand(event.target.value)} placeholder="npm test" maxLength={8192} disabled={busy} />
         </label>
         <label className="flex w-28 flex-col gap-1 text-xs">
-          {t("verification.timeout", { defaultValue: "超时（秒）" })}
+          {t("verification.timeout", { defaultValue: "Timeout (seconds)" })}
           <input type="number" min={1} max={600} required className="h-8 rounded-md border border-input bg-transparent px-2"
             value={timeoutSecs} onChange={(event) => setTimeoutSecs(Number(event.target.value))} disabled={busy} />
         </label>
         <Button type="submit" size="sm" disabled={!command.trim() || busy || report?.running || timeoutSecs < 1 || timeoutSecs > 600}>
           <Play className="h-3.5 w-3.5" />
-          {busy || report?.running ? t("verification.running", { defaultValue: "检查运行中…" }) : t("verification.run", { defaultValue: "运行检查" })}
+          {busy || report?.running ? t("verification.running", { defaultValue: "Check running…" }) : t("verification.run", { defaultValue: "Run check" })}
         </Button>
       </form>
       {error && <p role="alert" className="break-words text-xs text-destructive">{error}</p>}
       {report?.snapshotError && <p role="alert" className="break-words text-xs text-destructive">{report.snapshotError}</p>}
-      {report?.evidence.length === 0 && <p className="text-xs text-muted-foreground">{t("verification.empty", { defaultValue: "尚无检查结果。任务完成不代表验收已通过。" })}</p>}
+      {report?.evidence.length === 0 && <p className="text-xs text-muted-foreground">{t("verification.empty", { defaultValue: "No check results yet. Task completion does not mean verification passed." })}</p>}
       {report?.evidence.map((item) => <Evidence key={item.id} evidence={item}
         currentFingerprint={report.currentFingerprint}
         checking={busy || refreshing || report.running || report.snapshotError !== null} />)}

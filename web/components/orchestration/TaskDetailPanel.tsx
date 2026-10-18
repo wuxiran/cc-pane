@@ -225,7 +225,7 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
           </Button>
         </header>
 
-        <Suspense fallback={<p className="text-xs text-muted-foreground">{t("verification.title", { defaultValue: "验收证据" })}…</p>}>
+        <Suspense fallback={<p className="text-xs text-muted-foreground">{t("verification.title", { defaultValue: "Verification evidence" })}…</p>}>
           <TaskVerificationCard key={binding.id} taskId={binding.id} />
         </Suspense>
 
