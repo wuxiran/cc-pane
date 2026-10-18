@@ -39,7 +39,6 @@ import { startConfiguredChat } from "./startConfiguredChat";
 import PermissionPolicyDropdown from "./PermissionPolicyDropdown";
 import { isAbsolutePath, joinCwd, residentAgentChatCwd } from "./chatPaths";
 import {
-  loadAutoApproveKinds,
   saveAutoApproveKinds,
   saveEngineModels,
   saveEngineModes,
@@ -72,6 +71,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   const chat = useAgentChatStore((state) => state.chats[tab.id]);
   const [atBottom, setAtBottom] = useState(true);
   const [forkOpen, setForkOpen] = useState(false);
+  const forkSource = useRef<{ engineId: string; sessionId: string; cwd: string } | null>(null);
   // 工作空间/目录覆盖存 store（切标签不丢），优先级高于标签自带项目；
   // 顶栏 chip 与启动页共用 StartProjectMenu 切换。
   const cwdOverride = chat?.cwdOverride ?? null;
@@ -186,14 +186,29 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   );
 
   const forkToNewTab = useCallback(async (mode: ChatForkMode) => {
-    const source = useAgentChatStore.getState().chats[tab.id];
-    if (!source?.snapshot?.acpSessionId || source.snapshot.phase !== "ready" || !effectiveCwd) {
-      throw new Error(t("forkUnsupported"));
-    }
-    const transcript = structuredClone(source.items);
-    const cwd = await forkWorkingDirectory(effectiveCwd, mode);
+    const expected = forkSource.current;
+    if (!expected) throw new Error(t("forkUnsupported"));
+    const readSource = () => {
+      const current = useAgentChatStore.getState().chats[tab.id];
+      const cwd = current?.cwdOverride || tab.projectPath
+        || residentAgentChatCwd(useWorkspacesStore.getState().workspaces);
+      if (current?.setup?.pending || current?.setup?.error
+        || current?.snapshot?.phase !== "ready"
+        || current.snapshot.acpSessionId !== expected.sessionId
+        || current.snapshot.engineId !== expected.engineId || cwd !== expected.cwd
+        || !supportsAcpFork(current.snapshot.agentCapabilities)) {
+        throw new Error(t("forkUnsupported"));
+      }
+      return current;
+    };
+    readSource();
+    const cwd = await forkWorkingDirectory(expected.cwd, mode);
     const newTabId = `tab-${crypto.randomUUID()}`;
+    let started = false;
     try {
+      // The dialog and worktree operation can outlive a restart or project switch.
+      const transcript = structuredClone(readSource().items);
+      started = true;
       const snapshot = await agentChatService.fork(tab.id, newTabId, cwd);
       useAgentChatStore.getState().seedFork(newTabId, transcript);
       useAgentChatStore.getState().setSnapshot(newTabId, snapshot);
@@ -201,12 +216,14 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
         throw new Error("Unable to open the forked conversation tab");
       }
     } catch (error) {
-      await agentChatService.stop(newTabId).catch((stopError) => handleErrorSilent(stopError, "stop failed fork"));
-      dropAgentChatState(newTabId);
+      if (started) {
+        await agentChatService.stop(newTabId).catch((stopError) => handleErrorSilent(stopError, "stop failed fork"));
+        dropAgentChatState(newTabId);
+      }
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(mode === "worktree" ? `${detail}\n${cwd}` : detail);
     }
-  }, [tab.id, effectiveCwd, t]);
+  }, [tab.id, tab.projectPath, t]);
 
   const copySessionId = useCallback(() => {
     const sessionId = useAgentChatStore.getState().chats[tab.id]?.snapshot?.acpSessionId;
@@ -348,7 +365,11 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
             setToolFold((previous) => ({ seq: previous.seq + 1, expanded: !previous.expanded }))
           }
           canFork={Boolean(snapshot.acpSessionId && effectiveCwd && phase === "ready" && supportsAcpFork(snapshot.agentCapabilities))}
-          onFork={() => setForkOpen(true)}
+          onFork={() => {
+            if (!snapshot.acpSessionId || !effectiveCwd) return;
+            forkSource.current = { engineId: snapshot.engineId, sessionId: snapshot.acpSessionId, cwd: effectiveCwd };
+            setForkOpen(true);
+          }}
           canCopySessionId={Boolean(snapshot.acpSessionId)}
           onCopySessionId={copySessionId}
           canExport={Boolean(items && items.length > 0)}
