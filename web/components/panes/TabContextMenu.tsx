@@ -8,6 +8,7 @@ import {
   Copy,
   CopyPlus,
   GitFork,
+  FileDiff,
   ExternalLink,
   FolderTree,
   Maximize2,
@@ -35,6 +36,7 @@ import CommandMenuItem, { CommandShortcutHint } from "@/components/commands/Comm
 import TabQuickCommandsMenu from "./TabQuickCommandsMenu";
 
 const ChatForkDialog = lazyWithRetry(() => import("@/components/chatfork/ChatForkDialog"), "ChatForkDialog");
+const ForkReviewDialog = lazyWithRetry(() => import("@/components/chatfork/ForkReviewDialog"), "ForkReviewDialog");
 
 
 export interface PaneMoveTarget {
@@ -113,6 +115,7 @@ export default function TabContextMenu({
   t,
 }: TabContextMenuProps) {
   const [forkOpen, setForkOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const forkSource = terminalForkSource(tab);
   const terminalLeafCount =
     tab.contentType === "terminal" && tab.terminalRootPane
@@ -128,6 +131,7 @@ export default function TabContextMenu({
       const options = await buildTerminalFork(tab, mode);
       usePanesStore.getState().addTab(paneId, options);
     }} /></Suspense>}
+    {reviewOpen && <Suspense fallback={null}><ForkReviewDialog open={reviewOpen} onOpenChange={setReviewOpen} forkReviewId={tab.forkReviewId} cwd={tab.projectPath} sourceSessionId={forkSource?.resumeId} /></Suspense>}
     <ContextMenu>
       <ContextMenuTrigger asChild>
         {children}
@@ -150,6 +154,7 @@ export default function TabContextMenu({
         {forkSource && !forkSource.ssh && (
           <ContextMenuItem onClick={() => setForkOpen(true)}><GitFork /> {t("forkChat")}</ContextMenuItem>
         )}
+        {(tab.forkReviewId || (forkSource && !forkSource.ssh && !forkSource.wsl)) && <ContextMenuItem onClick={() => setReviewOpen(true)}><FileDiff /> {t("forkReviewTitle", { defaultValue: "Compare fork results" })}</ContextMenuItem>}
         {onToggleFullscreen && (
           <ContextMenuItem onClick={() => onToggleFullscreen(tab.id)}>
             {isPaneFullscreen ? <Minimize2 /> : <Maximize2 />}{" "}

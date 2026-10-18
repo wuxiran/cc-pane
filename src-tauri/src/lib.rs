@@ -37,6 +37,7 @@ use commands::{
     add_workspace_project,
     add_worktree,
     adopt_terminal_session,
+    apply_fork_changes,
     batch_update_todo_status,
     browser_back,
     browser_close,
@@ -155,6 +156,7 @@ use commands::{
     // DeepSeek Harness（dsh）命令
     get_dsh_instance,
     get_file_branches,
+    get_fork_comparison,
     get_git_branch,
     get_git_changed_files,
     get_git_conflict_versions,
@@ -287,6 +289,7 @@ use commands::{
     list_external_skills,
     list_file_versions,
     list_file_versions_by_branch,
+    list_fork_reviews,
     list_git_commit_files,
     list_git_conflicts,
     list_labels,
@@ -313,6 +316,7 @@ use commands::{
     list_specs,
     // SSH Machine 命令
     list_ssh_machines,
+    list_task_verification,
     list_todo_activities,
     list_user_skills,
     list_wallpapers,
@@ -336,6 +340,7 @@ use commands::{
     open_path_in_explorer,
     open_web_access,
     parse_import_url,
+    prepare_chat_fork,
     prepare_session_context,
     preview_launch_profile_resolution,
     preview_project_migration,
@@ -396,6 +401,7 @@ use commands::{
     rollback_project_migration,
     rollback_workspace_migration,
     run_automation_now,
+    run_task_verification,
     run_terminal_path_link_action,
     // Runner Registry 命令
     runner_delete_profile,
@@ -1684,6 +1690,13 @@ pub fn run() {
     let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
+    let task_verification_service = Arc::new(services::TaskVerificationService::new(
+        app_paths.data_dir().to_path_buf(),
+        task_binding_service.clone(),
+    ));
+    let fork_review_service = Arc::new(services::ForkReviewService::new(
+        app_paths.data_dir().to_path_buf(),
+    ));
     let pi_rpc_service = Arc::new(PiRpcService::new());
     let acp_chat_service = Arc::new(services::AcpChatService::new(
         app_paths.data_dir().join("agent-chats"),
@@ -1970,6 +1983,8 @@ pub fn run() {
         .manage(ccchan_service)
         .manage(todo_service)
         .manage(task_binding_service)
+        .manage(task_verification_service)
+        .manage(fork_review_service)
         .manage(task_queue_service)
         .manage(ai_panel_repo)
         .manage(mcp_tool_call_stats_repo)
@@ -3206,6 +3221,8 @@ pub fn run() {
             is_git_repo,
             list_worktrees,
             add_worktree,
+            prepare_chat_fork, list_fork_reviews, get_fork_comparison, apply_fork_changes,
+            list_task_verification, run_task_verification,
             fork_chat_worktree,
             remove_worktree,
             // Workspace 命令

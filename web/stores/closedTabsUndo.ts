@@ -50,6 +50,8 @@ export function toClosedTabSnapshot(t: {
   pinned?: boolean;
   starred?: boolean;
   parentTabId?: string;
+  /** Durable fork baseline and origin record, independent of runtime session IDs. */
+  forkReviewId?: string;
   launchExtras?: LaunchExtras;
   terminalRootPane?: TerminalPaneNode;
 }): ClosedTabSnapshot {
@@ -73,6 +75,7 @@ export function toClosedTabSnapshot(t: {
     pinned: t.pinned,
     starred: t.starred,
     parentTabId: t.parentTabId,
+    forkReviewId: t.forkReviewId,
     launchExtras: stripInitialPrompt(detach(t.launchExtras)),
     terminalRootPane: snapshotTerminalTree(t.terminalRootPane),
   };

@@ -13,7 +13,6 @@ import type { Tab } from "@/types";
 import type { AcpPlanEntry, AgentChatItem } from "@/types/agentChat";
 import { lazyWithRetry } from "@/lib/lazyRetry";
 import { supportsAcpFork, type ChatForkMode } from "@/services/chatForkService";
-import { forkWorkingDirectory } from "@/services/chatForkLaunch";
 import { agentChatService } from "@/services/agentChatService";
 import { todoService } from "@/services/todoService";
 import { dropAgentChatState, ensureAgentChatListener } from "@/stores/agentChatEvents";
@@ -38,6 +37,7 @@ import { startConfiguredChat } from "./startConfiguredChat";
 import { isAbsolutePath, joinCwd, residentAgentChatCwd } from "./chatPaths";
 
 const ChatForkDialog = lazyWithRetry(() => import("@/components/chatfork/ChatForkDialog"), "ChatForkDialog");
+const ForkReviewDialog = lazyWithRetry(() => import("@/components/chatfork/ForkReviewDialog"), "ForkReviewDialog");
 
 
 /** 会话转写 → Markdown（导出用；工具卡只留标题行，diff 太重不进转写）。 */
@@ -61,6 +61,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   const chat = useAgentChatStore((state) => state.chats[tab.id]);
   const [atBottom, setAtBottom] = useState(true);
   const [forkOpen, setForkOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const forkSource = useRef<{ engineId: string; sessionId: string; cwd: string } | null>(null);
   // 工作空间/目录覆盖存 store（切标签不丢），优先级高于标签自带项目；
   // 顶栏 chip 与启动页共用 StartProjectMenu 切换。
@@ -196,8 +197,14 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       return current;
     };
     readSource();
-    const cwd = await forkWorkingDirectory(expected.cwd, mode);
     const newTabId = `tab-${crypto.randomUUID()}`;
+    const { forkReviewService } = await import("@/services/forkReviewService");
+    readSource();
+    const prepared = await forkReviewService.prepare({
+      cwd: expected.cwd, mode, sourceTabId: tab.id, childTabId: newTabId,
+      sourceSessionId: expected.sessionId, title: tab.title, engineId: expected.engineId,
+    });
+    const cwd = prepared.cwd;
     let started = false;
     try {
       // The dialog and worktree operation can outlive a restart or project switch.
@@ -208,7 +215,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       if (!snapshot.acpSessionId) throw new Error("Fork returned no independent session ID");
       useAgentChatStore.getState().seedFork(newTabId, transcript, snapshot.acpSessionId, source.transcriptStart);
       useAgentChatStore.getState().setSnapshot(newTabId, snapshot);
-      if (!usePanesStore.getState().openAgentChat(cwd, { tabId: newTabId })) {
+      if (!usePanesStore.getState().openAgentChat(cwd, { tabId: newTabId, parentTabId: tab.id, forkReviewId: prepared.record?.id })) {
         throw new Error("Unable to open the forked conversation tab");
       }
     } catch (error) {
@@ -219,7 +226,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(mode === "worktree" ? `${detail}\n${cwd}` : detail);
     }
-  }, [tab.id, tab.projectPath, t]);
+  }, [tab.id, tab.title, tab.projectPath, t]);
 
   const copySessionId = useCallback(() => {
     const sessionId = useAgentChatStore.getState().chats[tab.id]?.snapshot?.acpSessionId;
@@ -284,6 +291,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
     <section className="agent-chat-shell h-full min-w-0">
     <div className="flex h-full flex-col overflow-hidden">
       {forkOpen && <Suspense fallback={null}><ChatForkDialog open={forkOpen} onOpenChange={setForkOpen} onFork={forkToNewTab} /></Suspense>}
+      {reviewOpen && <Suspense fallback={null}><ForkReviewDialog open={reviewOpen} onOpenChange={setReviewOpen} forkReviewId={tab.forkReviewId} cwd={effectiveCwd} sourceSessionId={snapshot?.acpSessionId} /></Suspense>}
       {snapshot ? (
         <ChatSessionHeader
           engineLabel={snapshot.engineId}
@@ -304,6 +312,8 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
             forkSource.current = { engineId: snapshot.engineId, sessionId: snapshot.acpSessionId, cwd: effectiveCwd };
             setForkOpen(true);
           }}
+          onReviewFork={() => setReviewOpen(true)}
+          hasForkOrigin={Boolean(tab.forkReviewId)}
           canCopySessionId={Boolean(snapshot.acpSessionId)}
           onCopySessionId={copySessionId}
           canExport={Boolean(items && items.length > 0)}

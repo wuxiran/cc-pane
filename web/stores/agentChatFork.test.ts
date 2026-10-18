@@ -1,6 +1,10 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import type { AcpChatSnapshot } from "@/types/agentChat";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { agentChatService } from "@/services/agentChatService";
+import { ensureAgentChatListener } from "./agentChatEvents";
+import type { AcpChatEvent, AcpChatSnapshot } from "@/types/agentChat";
 import { useAgentChatStore } from "./useAgentChatStore";
+
+vi.mock("@/services/agentChatService", () => ({ agentChatService: { listen: vi.fn() } }));
 
 beforeEach(() => useAgentChatStore.setState({ chats: {} }));
 
@@ -20,7 +24,13 @@ it("fork transcript is detached and does not carry parent permissions or termina
   const store = useAgentChatStore.getState();
   store.addUserMessage("parent", "original question");
   store.appendStreamText("parent", "assistant", "original answer");
-  store.enqueuePermission("parent", { requestKey: "approval", params: {} });
+  let dispatch!: (event: AcpChatEvent) => void;
+  vi.mocked(agentChatService.listen).mockImplementation(async (handler) => {
+    dispatch = handler;
+    return () => {};
+  });
+  ensureAgentChatListener();
+  dispatch({ chatId: "parent", kind: "permission_request", payload: { requestKey: "approval", params: {} } });
   store.setTerminalOutput("parent", {
     terminalId: "live-tool",
     output: "running",

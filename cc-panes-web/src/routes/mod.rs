@@ -1,5 +1,6 @@
 pub mod agent_sessions;
 pub mod drama;
+pub mod fork_review;
 pub mod git;
 pub mod history;
 pub mod journal;
@@ -16,12 +17,15 @@ pub mod skills;
 pub mod ssh_machines;
 pub mod static_files;
 pub mod system;
+pub mod task_verification;
 pub mod terminal;
 pub mod usage_stats;
 pub mod workflow;
 
 #[cfg(test)]
 mod auth_tests;
+#[cfg(test)]
+mod delivery_tests;
 
 use axum::{
     middleware,
@@ -35,6 +39,10 @@ use crate::ws_handler::ws_upgrade;
 /// Build the axum router with all routes.
 pub fn build_router(state: AppState) -> Router {
     let api = Router::new()
+        .nest(
+            "/api",
+            fork_review::router().merge(task_verification::router()),
+        )
         .route("/api/sessions", post(terminal::create_session))
         .route(
             "/api/terminal/path-link/resolve",

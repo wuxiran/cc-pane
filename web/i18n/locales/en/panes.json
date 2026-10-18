@@ -559,11 +559,6 @@
   "defaultLayoutName": "Layout {{index}}",
   "starredLayoutName": "Starred",
   "forkChat": "Fork conversation",
-  "forkChatDescription": "Create an independent conversation with the current context. The original conversation stays available.",
-  "forkSameDirectory": "Fork in the current directory",
-  "forkWorktree": "Fork into a new Git worktree",
-  "forkWorktreeDescription": "The worktree includes uncommitted changes and non-ignored new files. Requires a local Git repository with a commit.",
-  "forkWorktreeLocalOnly": "Worktree forks are currently available for local projects.",
-  "forkCreating": "Creating…",
-  "forkUnsupported": "This engine does not support independent conversation forks"
+  "forkUnsupported": "This engine does not support independent conversation forks",
+  "forkReviewTitle": "Compare fork results"
 }

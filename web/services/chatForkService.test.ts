@@ -2,9 +2,9 @@ import { buildTerminalFork } from "./chatForkLaunch";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Tab } from "@/types";
 import { supportsAcpFork, terminalForkSource } from "./chatForkService";
-import { worktreeService } from "./worktreeService";
-vi.mock("./worktreeService", () => ({
-  worktreeService: { forkChat: vi.fn() },
+import { forkReviewService } from "./forkReviewService";
+vi.mock("./forkReviewService", () => ({
+  forkReviewService: { prepare: vi.fn() },
 }));
 const tab = (): Tab => ({
   id: "parent",
@@ -20,7 +20,10 @@ const tab = (): Tab => ({
     adapterOptions: { effort: "high" },
   },
 });
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(forkReviewService.prepare).mockImplementation(async ({ cwd }) => ({ cwd, record: null }));
+});
 describe("chat fork launch", () => {
   it("creates an independent identity and preserves configuration without replaying the prompt", async () => {
     const parent = tab();
@@ -35,7 +38,11 @@ describe("chat fork launch", () => {
     });
     expect(child.projectId).not.toBe(parent.projectId);
     expect(parent.resumeId).toBe("parent-conversation");
-    expect(worktreeService.forkChat).not.toHaveBeenCalled();
+    expect(forkReviewService.prepare).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: "/repo", mode: "same-directory", sourceTabId: parent.id,
+      childTabId: child.tabId, sourceSessionId: parent.resumeId,
+    }));
+    expect(child.tabId).not.toBe(parent.id);
   });
   it("uses the active split conversation rather than its sibling", () => {
     const parent = tab();
@@ -50,16 +57,23 @@ describe("chat fork launch", () => {
     expect(terminalForkSource(parent)?.resumeId).toBe("leaf-conversation");
   });
   it("worktree changes cwd and clears the source workspace execution path", async () => {
-    vi.mocked(worktreeService.forkChat).mockResolvedValue(
-      "/repo-worktrees/fork/sub",
-    );
+    vi.mocked(forkReviewService.prepare).mockResolvedValue({ cwd: "/repo-worktrees/fork/sub", record: { id: "review-1" } as never });
     const parent = tab();
     parent.workspacePath = "/repo/sub";
     const child = await buildTerminalFork(parent, "worktree");
-    expect(worktreeService.forkChat).toHaveBeenCalledWith("/repo/sub");
+    expect(forkReviewService.prepare).toHaveBeenCalledWith(expect.objectContaining({ cwd: "/repo/sub", mode: "worktree" }));
+    expect(child.forkReviewId).toBe("review-1");
     expect(child.projectPath).toBe("/repo-worktrees/fork/sub");
     expect(child.workspacePath).toBeUndefined();
     expect(child.launchExtras?.launchCwd).toBe(child.projectPath);
+  });
+  it("keeps same-directory WSL forks on the distro without host snapshots", async () => {
+    const parent = tab();
+    parent.wsl = { distro: "Ubuntu" } as Tab["wsl"];
+    const child = await buildTerminalFork(parent, "same-directory");
+    expect(child.forkReviewId).toBeUndefined();
+    expect(forkReviewService.prepare).not.toHaveBeenCalled();
+    await expect(buildTerminalFork(parent, "worktree")).rejects.toThrow("WSL");
   });
   it("rejects unsupported or unidentified conversations", async () => {
     const parent = tab();

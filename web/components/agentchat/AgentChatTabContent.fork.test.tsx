@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Tab } from "@/types";
 import type { AcpChatSnapshot } from "@/types/agentChat";
 import { agentChatService } from "@/services/agentChatService";
-import { forkWorkingDirectory } from "@/services/chatForkLaunch";
+import { forkReviewService } from "@/services/forkReviewService";
+import type { PreparedChatFork } from "@/types/forkReview";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import AgentChatTabContent from "./AgentChatTabContent";
 
@@ -12,7 +13,7 @@ const { openAgentChat } = vi.hoisted(() => ({ openAgentChat: vi.fn() }));
 vi.mock("@/stores", () => ({ usePanesStore: { getState: () => ({ openAgentChat }) } }));
 vi.mock("@/stores/agentChatEvents", () => ({ ensureAgentChatListener: vi.fn(), dropAgentChatState: vi.fn() }));
 vi.mock("@/services/agentChatService", () => ({ agentChatService: { get: vi.fn(), fork: vi.fn(), stop: vi.fn() } }));
-vi.mock("@/services/chatForkLaunch", () => ({ forkWorkingDirectory: vi.fn() }));
+vi.mock("@/services/forkReviewService", () => ({ forkReviewService: { prepare: vi.fn() } }));
 vi.mock("./ChatSessionHeader", () => ({ default: ({ onFork, canFork }: { onFork: () => void; canFork: boolean }) =>
   <button disabled={!canFork} onClick={onFork}>Open fork</button> }));
 vi.mock("./ChatComposer", () => ({ default: () => null }));
@@ -24,11 +25,19 @@ vi.mock("./ChatPermissionQueue", () => ({ default: () => null }));
 vi.mock("./ChatChangesPanel", () => ({ default: () => null, collectNetChanges: () => [] }));
 
 const parentId = "fork-parent";
-const tab = { id: parentId, contentType: "agent-chat", projectPath: "/repo" } as Tab;
+const tab = { id: parentId, title: "Parent conversation", contentType: "agent-chat", projectPath: "/repo" } as Tab;
 const snapshot: AcpChatSnapshot = {
   chatId: parentId, engineId: "codex", acpSessionId: "parent-session", phase: "ready",
   agentCapabilities: { sessionCapabilities: { fork: {} } },
 };
+
+function prepared(cwd: string): PreparedChatFork {
+  return { cwd, record: {
+    id: "fork-review", createdAt: "2026-10-19T00:00:00Z", mode: cwd === "/repo" ? "same-directory" : "worktree",
+    sourceCwd: "/repo", targetCwd: cwd, sourceTabId: parentId, sourceSessionId: "parent-session",
+    baseline: { repositoryRoot: "/repo", head: "head", tree: "tree", fingerprint: "fingerprint", snapshotRepository: "/snapshots" },
+  } };
+}
 
 async function openDialog(worktree = false) {
   render(<AgentChatTabContent tab={tab} />);
@@ -43,7 +52,7 @@ beforeEach(() => {
   useAgentChatStore.getState().setSnapshot(parentId, snapshot);
   useAgentChatStore.getState().addUserMessage(parentId, "Keep this conversation");
   useAgentChatStore.getState().appendStreamText(parentId, "assistant", "Original response");
-  vi.mocked(forkWorkingDirectory).mockImplementation(async (cwd) => cwd);
+  vi.mocked(forkReviewService.prepare).mockImplementation(async ({ cwd }) => prepared(cwd));
   vi.mocked(agentChatService.fork).mockImplementation(async (_source, chatId) => ({
     ...snapshot, chatId, acpSessionId: "child-session",
   }));
@@ -61,7 +70,7 @@ describe("fork dialog source revalidation", () => {
     const parent = structuredClone(useAgentChatStore.getState().chats[parentId]);
     fireEvent.click(screen.getByRole("button", { name: "创建聊天分叉" }));
     await screen.findByRole("alert");
-    expect(forkWorkingDirectory).not.toHaveBeenCalled();
+    expect(forkReviewService.prepare).not.toHaveBeenCalled();
     expect(agentChatService.fork).not.toHaveBeenCalled();
     expect(agentChatService.stop).not.toHaveBeenCalled();
     expect(openAgentChat).not.toHaveBeenCalled();
@@ -73,16 +82,16 @@ describe("fork dialog source revalidation", () => {
     act(() => useAgentChatStore.getState().setSnapshot(parentId, { ...snapshot, acpSessionId: "replacement" }));
     fireEvent.click(screen.getByRole("button", { name: "创建聊天分叉" }));
     await screen.findByRole("alert");
-    expect(forkWorkingDirectory).not.toHaveBeenCalled();
+    expect(forkReviewService.prepare).not.toHaveBeenCalled();
     expect(agentChatService.fork).not.toHaveBeenCalled();
   });
 
   it.each(["pending", "error", "session", "directory"])("rechecks %s changes after worktree preparation", async (change) => {
-    let finishDirectory!: (cwd: string) => void;
-    vi.mocked(forkWorkingDirectory).mockImplementation(() => new Promise((resolve) => { finishDirectory = resolve; }));
+    let finishPreparation!: (result: PreparedChatFork) => void;
+    vi.mocked(forkReviewService.prepare).mockImplementation(() => new Promise((resolve) => { finishPreparation = resolve; }));
     await openDialog(true);
     fireEvent.click(screen.getByRole("button", { name: "创建聊天分叉" }));
-    expect(forkWorkingDirectory).toHaveBeenCalledExactlyOnceWith("/repo", "worktree");
+    await waitFor(() => expect(forkReviewService.prepare).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ cwd: "/repo", mode: "worktree", sourceTabId: parentId, sourceSessionId: "parent-session", childTabId: expect.any(String) })));
     act(() => {
       const store = useAgentChatStore.getState();
       if (change === "session") store.setSnapshot(parentId, { ...snapshot, acpSessionId: "replacement" });
@@ -93,7 +102,7 @@ describe("fork dialog source revalidation", () => {
       }
     });
     const parent = structuredClone(useAgentChatStore.getState().chats[parentId]);
-    await act(async () => finishDirectory("/repo-worktrees/child"));
+    await act(async () => finishPreparation(prepared("/repo-worktrees/child")));
     expect(await screen.findByRole("alert")).toHaveTextContent("/repo-worktrees/child");
     expect(agentChatService.fork).not.toHaveBeenCalled();
     expect(agentChatService.stop).not.toHaveBeenCalled();
@@ -102,12 +111,18 @@ describe("fork dialog source revalidation", () => {
   });
 
   it.each([false, true])("forks a ready source independently with worktree=%s", async (worktree) => {
-    vi.mocked(forkWorkingDirectory).mockResolvedValue(worktree ? "/repo-worktrees/child" : "/repo");
+    vi.mocked(forkReviewService.prepare).mockResolvedValue(prepared(worktree ? "/repo-worktrees/child" : "/repo"));
     const parent = structuredClone(useAgentChatStore.getState().chats[parentId]);
     await openDialog(worktree);
     fireEvent.click(screen.getByRole("button", { name: "创建聊天分叉" }));
     await waitFor(() => expect(openAgentChat).toHaveBeenCalledOnce());
-    const [cwd, { tabId }] = openAgentChat.mock.calls[0];
+    const [cwd, { tabId, parentTabId, forkReviewId }] = openAgentChat.mock.calls[0];
+    expect(parentTabId).toBe(parentId);
+    expect(forkReviewId).toBe("fork-review");
+    expect(forkReviewService.prepare).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      cwd: "/repo", mode: worktree ? "worktree" : "same-directory", sourceTabId: parentId,
+      childTabId: tabId, sourceSessionId: "parent-session", title: "Parent conversation", engineId: "codex",
+    }));
     expect(tabId).not.toBe(parentId);
     expect(agentChatService.fork).toHaveBeenCalledExactlyOnceWith(parentId, tabId, cwd);
     expect(useAgentChatStore.getState().chats[tabId].items).toEqual(parent.items);
@@ -119,20 +134,40 @@ describe("fork dialog source revalidation", () => {
   });
 
   it("copies the latest completed transcript after worktree preparation", async () => {
-    let finishDirectory!: (cwd: string) => void;
-    vi.mocked(forkWorkingDirectory).mockImplementation(() => new Promise((resolve) => { finishDirectory = resolve; }));
+    let finishPreparation!: (result: PreparedChatFork) => void;
+    vi.mocked(forkReviewService.prepare).mockImplementation(() => new Promise((resolve) => { finishPreparation = resolve; }));
     await openDialog(true);
     fireEvent.click(screen.getByRole("button", { name: "创建聊天分叉" }));
+    await waitFor(() => expect(forkReviewService.prepare).toHaveBeenCalledOnce());
     act(() => {
       useAgentChatStore.getState().addUserMessage(parentId, "Another completed turn");
       useAgentChatStore.getState().appendStreamText(parentId, "assistant", "Latest answer");
     });
     const parent = structuredClone(useAgentChatStore.getState().chats[parentId]);
-    await act(async () => finishDirectory("/repo-worktrees/child"));
+    await act(async () => finishPreparation(prepared("/repo-worktrees/child")));
     await waitFor(() => expect(openAgentChat).toHaveBeenCalledOnce());
     const childId = openAgentChat.mock.calls[0][1].tabId;
     expect(useAgentChatStore.getState().chats[childId].items).toEqual(parent.items);
     expect(useAgentChatStore.getState().chats[parentId]).toEqual(parent);
+  });
+
+  it("keeps native same-directory forks available when no Git baseline can be saved", async () => {
+    vi.mocked(forkReviewService.prepare).mockResolvedValue({ cwd: "/repo", record: null, unavailableReason: "Not a Git repository" });
+    await openDialog();
+    fireEvent.click(screen.getByRole("button", { name: "创建聊天分叉" }));
+    await waitFor(() => expect(openAgentChat).toHaveBeenCalledOnce());
+    expect(openAgentChat.mock.calls[0][1]).toMatchObject({ parentTabId: parentId });
+    expect(openAgentChat.mock.calls[0][1].forkReviewId).toBeUndefined();
+  });
+
+  it("does not fork or stop a child when baseline preparation fails", async () => {
+    vi.mocked(forkReviewService.prepare).mockRejectedValue(new Error("Cannot save baseline"));
+    await openDialog(true);
+    fireEvent.click(screen.getByRole("button", { name: "创建聊天分叉" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Cannot save baseline");
+    expect(agentChatService.fork).not.toHaveBeenCalled();
+    expect(agentChatService.stop).not.toHaveBeenCalled();
+    expect(openAgentChat).not.toHaveBeenCalled();
   });
 
   it("passes the source's preserved prefix through the UI fork and subsequent replay", async () => {
