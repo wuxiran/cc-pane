@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { AgentChatItem } from "@/types/agentChat";
+import type { AcpContentBlock, AgentChatAttachment, AgentChatItem } from "@/types/agentChat";
+import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { groupChatItems } from "./chatTurns";
 import { buildChatTimeline, entryForTurn } from "./chatTimeline";
+import { buildPromptBlocks } from "./chatPrompt";
 
 const conversation: AgentChatItem[] = [
   { type: "user", id: "u1", at: 1, text: "Fix the\nsettings" },
@@ -43,5 +45,40 @@ describe("conversation timeline entries", () => {
     expect(attachment[0].title).toBe("design.png");
     const assistant = buildChatTimeline(groupChatItems([{ type: "assistant", id: "a", at: 1, text: "Recovered answer" }]));
     expect(assistant[0]).toMatchObject({ id: "a", preview: "Recovered answer" });
+  });
+  it("retains existing plain-text keys when sent and replayed text blocks are available", () => {
+    const plain: AgentChatItem = { type: "user", id: "old", at: 1, text: "Continue this task" };
+    const sent = { ...plain, promptBlocks: [{ type: "text", text: plain.text }] };
+    const replay = { ...plain, id: "new", promptBlocks: [{ type: "text", text: "Continue " }, { type: "text", text: "this task" }] };
+    const key = (item: AgentChatItem) => buildChatTimeline(groupChatItems([item]))[0].bookmarkKey;
+    expect(key(sent)).toBe(key(plain));
+    expect(key(replay)).toBe(key(plain));
+  });
+  it.each([
+    { name: "image-only", text: "", attachments: [{ kind: "image", name: "design.png", data: "AA==", mimeType: "image/png" }] },
+    { name: "image and text", text: "Review this picture", attachments: [{ kind: "image", name: "design.png", data: "AA==", mimeType: "image/png" }] },
+    { name: "file and mention", text: "Read @other.txt", attachments: [{ kind: "file", name: "report.txt", path: "/project/report.txt" }] },
+    { name: "concierge preamble", text: "Review this project", attachments: [], preamble: "Act as the project concierge.\n\n---\n\n" },
+  ])("preserves $name bookmark identity through the real history replay store", ({ text, attachments, preamble }) => {
+    const chatId = "timeline-replay";
+    const store = useAgentChatStore.getState();
+    store.dropChat(chatId);
+    store.setSnapshot(chatId, { chatId, engineId: "codex", acpSessionId: "same-session", phase: "ready" });
+    const blocks = buildPromptBlocks(`${preamble ?? ""}${text}`, attachments as AgentChatAttachment[], "/project");
+    store.addUserMessage(chatId, text, attachments as AgentChatAttachment[], blocks);
+    const before = buildChatTimeline(groupChatItems(useAgentChatStore.getState().chats[chatId].items))[0];
+    store.beginHistoryReplay(chatId, "same-session");
+    for (const block of blocks) {
+      // Adapters may add metadata or deliver one text block in multiple chunks.
+      const replayBlocks: AcpContentBlock[] = block.type === "text"
+        ? [{ type: "text", text: block.text!.slice(0, 3) }, { type: "text", text: block.text!.slice(3) }]
+        : [{ ...block, _meta: { volatileRequestId: "changed" }, annotations: { audience: ["user"] } }];
+      for (const content of replayBlocks) store.applySessionUpdate(chatId, { update: { sessionUpdate: "user_message_chunk", content } });
+    }
+    store.finishHistoryReplay(chatId, "same-session", true);
+    const after = buildChatTimeline(groupChatItems(useAgentChatStore.getState().chats[chatId].items))[0];
+    expect(after.id).not.toBe(before.id);
+    expect(after.bookmarkKey).toBe(before.bookmarkKey);
+    store.dropChat(chatId);
   });
 });

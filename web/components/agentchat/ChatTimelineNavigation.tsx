@@ -30,6 +30,9 @@ export default function ChatTimelineNavigation({ conversationKey, turns, ...navi
   const navRef = useRef<HTMLElement | null>(null);
   const suppressFocusPreview = useRef(false);
   const activeIndex = entries.findIndex((entry) => entry.id === activeId);
+  // session/load regenerates local ids without remounting this conversation.
+  // Keep one keyboard entry point when the previously focused marker disappears.
+  const tabStopId = entries.some((entry) => entry.id === focusedId) ? focusedId : activeId;
 
   function keepOpen() {
     if (closeTimer.current) clearTimeout(closeTimer.current);
@@ -95,7 +98,7 @@ export default function ChatTimelineNavigation({ conversationKey, turns, ...navi
                   aria-current={entry.id === activeId ? "step" : undefined}
                   aria-expanded={previewId === entry.id}
                   aria-haspopup="dialog"
-                  tabIndex={entry.id === (focusedId ?? activeId) ? 0 : -1}
+                  tabIndex={entry.id === tabStopId ? 0 : -1}
                   className="group relative flex h-5 w-10 items-center justify-start rounded px-2 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)]"
                   onPointerEnter={() => { keepOpen(); setPreviewId(entry.id); }}
                   onPointerLeave={closeSoon}

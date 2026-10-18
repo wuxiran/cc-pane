@@ -1,4 +1,5 @@
 import type { ChatTurn } from "./chatTurns";
+import type { AcpContentBlock } from "@/types/agentChat";
 
 export interface ChatTimelineEntry {
   id: string;
@@ -21,6 +22,14 @@ function fingerprint(text: string): string {
   return (hash >>> 0).toString(36);
 }
 
+/** Replay can split text into chunks and add attachment metadata. Project only
+ * the sent text and block types, matching the transcript's replay representation.
+ * Plain text remains unchanged so existing text-only bookmark keys still work. */
+function promptIdentity(blocks: readonly AcpContentBlock[] | undefined, fallback: string): string {
+  if (!blocks?.length) return fallback;
+  return blocks.map((block) => typeof block.text === "string" ? block.text : `[${block.type}]`).join("");
+}
+
 export function buildChatTimeline(turns: readonly ChatTurn[]): ChatTimelineEntry[] {
   const entries: ChatTimelineEntry[] = [];
   const occurrences = new Map<string, number>();
@@ -30,7 +39,8 @@ export function buildChatTimeline(turns: readonly ChatTurn[]): ChatTimelineEntry
       const title = turn.kind === "user"
         ? turn.item.text || (turn.item.attachmentLabels ?? []).join(", ")
         : "";
-      const identity = `${turn.kind}:${fingerprint(title)}`;
+      const content = turn.kind === "user" ? promptIdentity(turn.item.promptBlocks, title) : title;
+      const identity = `${turn.kind}:${fingerprint(content)}`;
       const occurrence = occurrences.get(identity) ?? 0;
       occurrences.set(identity, occurrence + 1);
       entries.push({
