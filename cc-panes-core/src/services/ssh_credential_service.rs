@@ -3,9 +3,13 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+#[cfg(target_os = "macos")]
+mod macos;
+
 trait CredentialBackend: Send + Sync {
     fn set_password(&self, machine_id: &str, password: &str) -> Result<()>;
     fn get_password(&self, machine_id: &str) -> Result<Option<String>>;
+    fn has_password(&self, machine_id: &str) -> Result<bool>;
     fn delete_password(&self, machine_id: &str) -> Result<()>;
 }
 
@@ -40,6 +44,22 @@ impl CredentialBackend for SystemCredentialBackend {
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(error) => Err(error)
                 .with_context(|| format!("Failed to read stored password for {}", machine_id)),
+        }
+    }
+
+    fn has_password(&self, machine_id: &str) -> Result<bool> {
+        #[cfg(target_os = "macos")]
+        {
+            macos::has_password(&self.service_name, machine_id)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            match self.entry(machine_id)?.get_attributes() {
+                Ok(_) => Ok(true),
+                Err(keyring::Error::NoEntry) => Ok(false),
+                Err(error) => Err(error)
+                    .with_context(|| format!("Failed to check stored password for {}", machine_id)),
+            }
         }
     }
 
@@ -80,6 +100,14 @@ impl CredentialBackend for MemoryCredentialBackend {
             .unwrap_or_else(|error| error.into_inner())
             .get(machine_id)
             .cloned())
+    }
+
+    fn has_password(&self, machine_id: &str) -> Result<bool> {
+        Ok(self
+            .entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .contains_key(machine_id))
     }
 
     fn delete_password(&self, machine_id: &str) -> Result<()> {
@@ -148,7 +176,7 @@ impl SshCredentialService {
     }
 
     pub fn has_password(&self, machine_id: &str) -> Result<bool> {
-        Ok(self.load_password(machine_id)?.is_some())
+        self.backend.has_password(machine_id)
     }
 
     pub fn delete_password(&self, machine_id: &str) -> Result<()> {
@@ -207,7 +235,7 @@ impl SshCredentialService {
     }
 
     pub fn has_proxy_password(&self, machine_id: &str) -> Result<bool> {
-        Ok(self.load_proxy_password(machine_id)?.is_some())
+        self.backend.has_password(&proxy_account(machine_id))
     }
 
     pub fn delete_proxy_password(&self, machine_id: &str) -> Result<()> {
@@ -232,6 +260,65 @@ fn proxy_account(machine_id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct MetadataOnlyBackend;
+
+    impl CredentialBackend for MetadataOnlyBackend {
+        fn set_password(&self, _: &str, _: &str) -> Result<()> {
+            anyhow::bail!("credential writes are not allowed in this fixture")
+        }
+
+        fn get_password(&self, _: &str) -> Result<Option<String>> {
+            anyhow::bail!("secret access requires authorization")
+        }
+
+        fn has_password(&self, machine_id: &str) -> Result<bool> {
+            Ok(matches!(machine_id, "stored" | "stored:proxy"))
+        }
+
+        fn delete_password(&self, _: &str) -> Result<()> {
+            anyhow::bail!("credential deletion is not allowed in this fixture")
+        }
+    }
+
+    #[test]
+    fn presence_checks_do_not_request_or_authorize_secret_access() {
+        let service = SshCredentialService {
+            backend: Arc::new(MetadataOnlyBackend),
+            temporary_passwords: Mutex::new(HashMap::new()),
+        };
+        assert!(service.has_password("stored").unwrap());
+        assert!(service.has_proxy_password("stored").unwrap());
+        assert!(!service.has_password("missing").unwrap());
+        assert!(!service.has_proxy_password("missing").unwrap());
+        assert!(service.load_password("stored").is_err());
+        assert!(service.load_proxy_password("stored").is_err());
+    }
+
+    #[test]
+    fn machine_listing_reports_presence_without_reading_host_or_proxy_secrets() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_path = temp.path().join("ssh-machines.json");
+        let config = serde_json::json!({"machines": [{
+            "id": "stored", "name": "Fixture", "host": "example.invalid",
+            "authMethod": "password", "createdAt": "", "updatedAt": "",
+            "proxy": {"kind": "socks5", "host": "proxy.invalid", "port": 1080,
+                "username": "fixture"}
+        }]});
+        std::fs::write(&config_path, config.to_string()).unwrap();
+        let credentials = Arc::new(SshCredentialService {
+            backend: Arc::new(MetadataOnlyBackend),
+            temporary_passwords: Mutex::new(HashMap::new()),
+        });
+        let machines = crate::services::SshMachineService::new(config_path, credentials);
+        let listed = machines.list();
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].has_stored_password);
+        assert!(listed[0].has_stored_proxy_password);
+        let loaded = machines.get("stored").unwrap();
+        assert!(loaded.has_stored_password);
+        assert!(loaded.has_stored_proxy_password);
+    }
 
     #[test]
     fn temporary_password_is_used_for_connections_without_becoming_persistent() {
