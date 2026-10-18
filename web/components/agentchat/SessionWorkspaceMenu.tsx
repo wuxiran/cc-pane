@@ -28,40 +28,44 @@ export default function SessionWorkspaceMenu({
 }: SessionWorkspaceMenuProps) {
   const { t } = useTranslation("panes");
   const workspaces = useWorkspacesStore((state) => state.workspaces);
+  const switching = useAgentChatStore((state) => state.chats[chatId]?.setup?.pending ?? false);
   const label = workspaceLabelFor(cwd, workspaces);
 
   const switchWorkspace = useCallback(
     async (newCwd: string) => {
-      if (!newCwd || samePath(newCwd, cwd)) return;
-      const current = useAgentChatStore.getState().chats[chatId]?.snapshot;
+      const store = useAgentChatStore.getState();
+      const current = store.chats[chatId]?.snapshot;
+      if (!newCwd || samePath(newCwd, cwd) || generating || current?.phase === "generating") return;
+      // 在确认弹窗之前抢锁：同一标签的两个选择/重挂载不能交错覆盖实际目录。
+      const token = store.beginSetup(chatId);
+      if (token === null) return;
       const name = workspaceLabelFor(newCwd, useWorkspacesStore.getState().workspaces);
-      if (current) {
-        const message = t("agentChatSwitchConfirm", { name });
-        const ok = await confirmDialog(message, {
-          title: t("agentChatSwitchConfirmTitle"),
-          kind: "warning",
-        }).catch(() => window.confirm(message));
-        if (!ok) return;
+      const ownsSetup = () => useAgentChatStore.getState().chats[chatId]?.setup?.token === token;
+      try {
+        if (current) {
+          const message = t("agentChatSwitchConfirm", { name });
+          const ok = await confirmDialog(message, {
+            title: t("agentChatSwitchConfirmTitle"),
+            kind: "warning",
+          }).catch(() => window.confirm(message));
+          if (!ok || !ownsSetup()) return;
+          const next = await agentChatService.start(
+            chatId, current.engineId, newCwd, undefined,
+            current.autoApproveKinds ?? loadAutoApproveKinds(current.engineId),
+          );
+          if (!ownsSetup()) return;
+          store.setSnapshot(chatId, next);
+        }
+        // 只有真正切换成功后才发布目录和成功提示；失败保留旧会话的实际目录。
+        store.setCwdOverride(chatId, newCwd);
+        if (current) store.pushNotice(chatId, t("agentChatWorkspaceSwitched", { name }));
+      } catch (error) {
+        if (ownsSetup()) store.pushNotice(chatId, error instanceof Error ? error.message : String(error));
+      } finally {
+        store.finishSetup(chatId, token);
       }
-      useAgentChatStore.getState().setCwdOverride(chatId, newCwd);
-      if (!current) return; // 未启动：启动页/欢迎态自行生效
-      useAgentChatStore.getState().pushNotice(chatId, t("agentChatWorkspaceSwitched", { name }));
-      void agentChatService
-        .start(
-          chatId,
-          current.engineId,
-          newCwd,
-          undefined,
-          current.autoApproveKinds ?? loadAutoApproveKinds(current.engineId),
-        )
-        .then((next) => useAgentChatStore.getState().setSnapshot(chatId, next))
-        .catch((error) => {
-          useAgentChatStore
-            .getState()
-            .pushNotice(chatId, error instanceof Error ? error.message : String(error));
-        });
     },
-    [chatId, cwd, t],
+    [chatId, cwd, generating, t],
   );
 
   if (!cwd) return null;
@@ -72,7 +76,7 @@ export default function SessionWorkspaceMenu({
       trigger={
         <button
           type="button"
-          disabled={generating}
+          disabled={generating || switching}
           title={cwd}
           aria-label={t("agentChatWorkspaceChipTip")}
           className="flex h-6 max-w-44 items-center gap-1 rounded-md border border-[var(--app-border)] bg-[var(--app-overlay)] px-1.5 text-[11px] text-[var(--app-text-secondary)] transition-colors hover:text-[var(--app-text-primary)] disabled:opacity-50"

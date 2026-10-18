@@ -22,9 +22,23 @@ import type {
 import { parentToolCallIdOf } from "@/types/agentChat";
 
 let itemSeq = 0;
+let setupSeq = 0;
 function nextItemId(): string {
   itemSeq += 1;
   return `aci-${Date.now().toString(36)}-${itemSeq}`;
+}
+
+export interface PendingChatPermission extends AcpPermissionRequest {
+  responding: boolean;
+  error: string | null;
+}
+
+export interface ChatSetupState {
+  token: number;
+  pending: boolean;
+  error: string | null;
+  firstPrompt?: string;
+  preamble?: string;
 }
 
 export interface AgentChatSessionState {
@@ -32,7 +46,9 @@ export interface AgentChatSessionState {
   items: AgentChatItem[];
   /** 由首页「对 agent 说」以编排管家身份发起的会话（决定欢迎态文案）。 */
   concierge: boolean;
-  pendingPermission: AcpPermissionRequest | null;
+  pendingPermissions: PendingChatPermission[];
+  /** 后端 ready 仅代表握手完成；前端配置/目录提交完成前仍禁止输入。 */
+  setup: ChatSetupState | null;
   /** agent 广告的斜杠命令目录（available_commands_update 整表替换）。 */
   availableCommands: AcpAvailableCommand[];
   /** 上下文窗口用量（usage_update 整体替换）；引擎不上报时为 null，UI 不显示。 */
@@ -58,7 +74,11 @@ interface AgentChatStoreState {
   ) => void;
   pushImage: (chatId: string, mimeType: string, data: string, parentToolCallId?: string) => void;
   applySessionUpdate: (chatId: string, params: AcpSessionUpdate) => void;
-  setPermission: (chatId: string, request: AcpPermissionRequest | null) => void;
+  enqueuePermission: (chatId: string, request: AcpPermissionRequest) => void;
+  beginPermissionResponse: (chatId: string, requestKey: string) => boolean;
+  finishPermissionResponse: (chatId: string, requestKey: string, error?: string) => void;
+  beginSetup: (chatId: string, prompt?: { firstPrompt?: string; preamble?: string }) => number | null;
+  finishSetup: (chatId: string, token: number, error?: string) => void;
   pushNotice: (chatId: string, text: string) => void;
   turnEnded: (chatId: string, stopReason: string, error?: string) => void;
   setTerminalOutput: (chatId: string, output: AcpTerminalOutput) => void;
@@ -70,7 +90,8 @@ function emptySession(): AgentChatSessionState {
     snapshot: null,
     items: [],
     concierge: false,
-    pendingPermission: null,
+    pendingPermissions: [],
+    setup: null,
     availableCommands: [],
     usage: null,
     terminals: {},
@@ -131,6 +152,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
         const previousError = chat.snapshot?.error;
         // 新进程起来（starting）= 新的上下文窗口，旧用量作废。
         if (snapshot.phase === "starting") chat.usage = null;
+        if (["starting", "exited", "failed"].includes(snapshot.phase)) chat.pendingPermissions = [];
         chat.snapshot = snapshot;
         // 失败/异常退出要成为消息流的一部分，不然用户只看到输入框变灰。
         if (snapshot.error && snapshot.error !== previousError) {
@@ -311,10 +333,59 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
         }
       }),
 
-    setPermission: (chatId, request) =>
+    enqueuePermission: (chatId, request) =>
       set((state) => {
         const chat = ensure(state.chats, chatId);
-        chat.pendingPermission = request;
+        const existing = chat.pendingPermissions.find((item) => item.requestKey === request.requestKey);
+        if (existing) existing.params = request.params;
+        else chat.pendingPermissions.push({ ...request, responding: false, error: null });
+      }),
+
+    beginPermissionResponse: (chatId, requestKey) => {
+      let started = false;
+      set((state) => {
+        const request = state.chats[chatId]?.pendingPermissions.find((item) => item.requestKey === requestKey);
+        if (!request || request.responding) return;
+        request.responding = true;
+        request.error = null;
+        started = true;
+      });
+      return started;
+    },
+
+    finishPermissionResponse: (chatId, requestKey, error) =>
+      set((state) => {
+        const chat = state.chats[chatId];
+        if (!chat) return;
+        const request = chat.pendingPermissions.find((item) => item.requestKey === requestKey);
+        if (!request) return;
+        if (error !== undefined) {
+          request.responding = false;
+          request.error = error;
+        } else {
+          chat.pendingPermissions = chat.pendingPermissions.filter((item) => item.requestKey !== requestKey);
+        }
+      }),
+
+    beginSetup: (chatId, prompt) => {
+      let token: number | null = null;
+      set((state) => {
+        const chat = ensure(state.chats, chatId);
+        if (chat.setup?.pending) return;
+        token = ++setupSeq;
+        chat.setup = { token, pending: true, error: null, ...prompt };
+      });
+      return token;
+    },
+
+    finishSetup: (chatId, token, error) =>
+      set((state) => {
+        const chat = state.chats[chatId];
+        if (!chat?.setup || chat.setup.token !== token) return;
+        if (error !== undefined) {
+          chat.setup.pending = false;
+          chat.setup.error = error;
+        } else chat.setup = null;
       }),
 
     pushNotice: (chatId, text) =>
@@ -327,7 +398,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
       set((state) => {
         const chat = ensure(state.chats, chatId);
         // 回合结束后审批卡必然失效（agent 已用 cancelled 收场）。
-        chat.pendingPermission = null;
+        chat.pendingPermissions = [];
         closeOpenThought(chat);
         if (stopReason !== "end_turn") {
           const text = error ? `${stopReason}: ${error}` : `[${stopReason}]`;

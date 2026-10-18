@@ -9,6 +9,8 @@ import type { AcpPermissionRequest } from "@/types/agentChat";
 interface PermissionCardProps {
   request: AcpPermissionRequest;
   onRespond: (optionId: string) => void;
+  responding?: boolean;
+  error?: string | null;
 }
 
 function optionClass(kind: string): string {
@@ -21,7 +23,7 @@ function optionClass(kind: string): string {
   return "border-[var(--app-border)] hover:bg-[var(--app-hover)]";
 }
 
-export default function PermissionCard({ request, onRespond }: PermissionCardProps) {
+export default function PermissionCard({ request, onRespond, responding, error }: PermissionCardProps) {
   const { t } = useTranslation("panes");
   const title = request.params.toolCall?.title;
   const options = request.params.options ?? [];
@@ -58,11 +60,13 @@ export default function PermissionCard({ request, onRespond }: PermissionCardPro
         {title ? (
           <div className="mt-1 text-xs text-[var(--app-text-primary)] break-all">{title}</div>
         ) : null}
+        {error ? <div role="alert" className="mt-1 text-xs text-[var(--app-status-danger)]">{error}</div> : null}
         <div className="mt-2 flex flex-wrap gap-2">
           {options.map((option) => (
             <button
               key={option.optionId}
               type="button"
+              disabled={responding}
               className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${optionClass(option.kind)}`}
               onClick={() => onRespond(option.optionId)}
             >

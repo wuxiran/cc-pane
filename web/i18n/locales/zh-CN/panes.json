@@ -343,6 +343,7 @@
   "agentChatDeleteHistory": "删除记录",
   "agentChatDeleteConfirm": "确认删除",
   "agentChatModeDefault": "默认模式",
+  "agentChatModeUnavailable": "无法启用所选模式“{{mode}}”：引擎本次未提供此模式。已阻止发送，请在新对话中重新选择可用模式。",
   "agentChatPermTitle": "权限",
   "agentChatPermHint": "勾选的类别不再弹审批卡，自动选「允许一次」；未勾选的每次都问。归类以引擎上报为准：Codex 的联网请求算「执行命令」，MCP 工具算「其他」。多选项的提问仍会弹出。",
   "agentChatPermDefault": "默认权限",

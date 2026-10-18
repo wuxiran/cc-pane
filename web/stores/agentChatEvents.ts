@@ -141,7 +141,7 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
       store.setSnapshot(chatId, payload as AcpChatSnapshot);
       return;
     case "permission_request":
-      store.setPermission(chatId, payload as AcpPermissionRequest);
+      store.enqueuePermission(chatId, payload as AcpPermissionRequest);
       return;
     case "turn_ended": {
       const data = payload as { stopReason?: string; error?: string };

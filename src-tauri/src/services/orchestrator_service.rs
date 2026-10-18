@@ -1062,7 +1062,7 @@ pub struct AppState {
     /// 前端查询的 pending 请求（request_id → oneshot 发送端）
     pub pending_queries: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
     /// leader busy 时排队的 worker report（key = leader 的 PTY session_id），
-    /// leader 状态跃迁回 Idle/WaitingInput 时由状态机 listener 补投
+    /// leader 状态跃迁回 Idle 时由状态机 listener 补投
     pub pending_worker_reports: Arc<Mutex<PendingReportMap>>,
     /// 已发射的 report 失败键，避免 leader 清理与发送失败并发时重复发事件。
     pub failed_report_events: Arc<Mutex<HashSet<(String, u32)>>>,
@@ -1366,11 +1366,14 @@ where
 }
 
 async fn query_session_status_for_automatic_submit(
-    state: &AppState,
+    state: &ReportRuntime,
     session_id: &str,
 ) -> std::result::Result<Option<SessionStatus>, String> {
     let sid = session_id.to_string();
-    let status = backend_call(state, move |backend| backend.get_session_status(&sid)).await?;
+    let status = backend_call_for_state(state.terminal_backend.clone(), move |backend| {
+        backend.get_session_status(&sid)
+    })
+    .await?;
     Ok(status.map(|status| {
         state.session_state_machine.status_for_automatic_submit(
             &status.session_id,
@@ -2180,7 +2183,7 @@ impl OrchestratorService {
         // 的 apply_hook_status 先把新状态写回 TerminalService。
         // 回调在 hook/PTY 线程同步执行：这里只做锁内 O(1) 检查 + spawn，重活在异步任务里。
         {
-            let state_for_flush = state.clone();
+            let state_for_flush = ReportRuntime::from_app_state(&state);
             state.session_state_machine.subscribe(Arc::new(
                 move |transition: &cc_panes_core::services::StateTransition| {
                     match pending_flush_action(transition.to) {
@@ -2377,7 +2380,7 @@ impl OrchestratorService {
                         current.mark_ready(port);
                     });
 
-                    let level_scan_state = state.clone();
+                    let level_scan_state = ReportRuntime::from_app_state(&state);
                     let directive_runtime = DirectiveRuntime::from_app_state(&state);
                     let directive_transitions = state.session_state_machine.subscribe_transitions();
                     // W8 门禁状态由 lib.rs manage（带设置 / 台账 / 事件）；拿不到就挂一个
@@ -12541,7 +12544,7 @@ async fn submit_text_to_session(
 struct LeaderReportResult {
     sent: bool,
     skip_reason: Option<String>,
-    /// report 已入补投队列，leader 回到 Idle/WaitingInput 时由引擎自动补投。
+    /// report 已入补投队列，leader 回到 Idle 时由引擎自动补投。
     /// false 时不序列化，保持旧 JSON 格式逐字节兼容（skill 文档匹配 skipReason 字符串）。
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     queued: bool,
@@ -12569,6 +12572,33 @@ impl LeaderReportResult {
             sent: false,
             skip_reason: Some(reason.into()),
             queued: true,
+        }
+    }
+}
+
+/// Dependencies shared by initial worker reports and every redelivery path.
+/// Keep this independent of the UI so message safety can be verified with a real queue.
+#[derive(Clone)]
+struct ReportRuntime {
+    terminal_backend: Arc<TerminalBackendState>,
+    session_state_machine: Arc<cc_panes_core::services::SessionStateMachine>,
+    task_binding_service: Arc<crate::services::TaskBindingService>,
+    pending_worker_reports: Arc<Mutex<PendingReportMap>>,
+    failed_report_events: Arc<Mutex<HashSet<(String, u32)>>>,
+    pipe_event_service: Arc<PipeEventService>,
+    dsh_service: Arc<cc_panes_core::services::DshService>,
+}
+
+impl ReportRuntime {
+    fn from_app_state(state: &AppState) -> Self {
+        Self {
+            terminal_backend: state.terminal_backend.clone(),
+            session_state_machine: state.session_state_machine.clone(),
+            task_binding_service: state.task_binding_service.clone(),
+            pending_worker_reports: state.pending_worker_reports.clone(),
+            failed_report_events: state.failed_report_events.clone(),
+            pipe_event_service: state.pipe_event_service.clone(),
+            dsh_service: state.dsh_service.clone(),
         }
     }
 }
@@ -12820,7 +12850,19 @@ async fn query_directive_session_status(
         backend
             .get_session_status(&session_id)
             .map(|status| {
-                status.map(|status| state_machine.status_for_query(&session_id, status.status))
+                status.map(|status| {
+                    // Hook state can lead the backend cache (or its write-back can fail).
+                    // Never let a stale Idle cache bypass an active permission/question dialog.
+                    if !status.status.is_terminal()
+                        && state_machine
+                            .snapshot(&session_id)
+                            .is_some_and(|snapshot| snapshot.status == SessionStatus::WaitingInput)
+                    {
+                        SessionStatus::WaitingInput
+                    } else {
+                        state_machine.status_for_query(&session_id, status.status)
+                    }
+                })
             })
             .map_err(|error| error.to_string())
     })
@@ -12913,7 +12955,7 @@ async fn dispatch_directive(
     };
 
     match status {
-        Some(SessionStatus::Idle | SessionStatus::WaitingInput) => {
+        Some(SessionStatus::Idle) => {
             emit(PipeEventPhase::Flowing, "directive flowing", None);
             match deliver_directive_text(&runtime, &directive).await {
                 Ok(()) => {
@@ -12945,6 +12987,7 @@ async fn dispatch_directive(
             | SessionStatus::Thinking
             | SessionStatus::ToolRunning
             | SessionStatus::Compacting
+            | SessionStatus::WaitingInput
             | SessionStatus::Active,
         ) => {
             let enqueue_result = {
@@ -12974,9 +13017,7 @@ async fn dispatch_directive(
                 .await
                 .ok()
                 .flatten()
-                .is_some_and(|status| {
-                    matches!(status, SessionStatus::Idle | SessionStatus::WaitingInput)
-                })
+                .is_some_and(|status| matches!(status, SessionStatus::Idle))
             {
                 schedule_ready_directive_flush(
                     runtime.clone(),
@@ -13129,7 +13170,7 @@ async fn scan_pending_directives_once(runtime: &DirectiveRuntime) {
             continue;
         }
         match query_directive_session_status(runtime, &session_id).await {
-            Ok(Some(SessionStatus::Idle | SessionStatus::WaitingInput)) => {
+            Ok(Some(SessionStatus::Idle)) => {
                 flush_pending_directives(runtime.clone(), session_id).await;
             }
             Ok(Some(SessionStatus::Error)) => {
@@ -13283,7 +13324,7 @@ struct SendToWorkerResult {
 // ============ worker report 补投队列 ============
 //
 // leader busy/initializing 时 report 不丢弃而是入队（key = leader PTY session_id），
-// 状态机 listener 在 leader 跃迁回 Idle/WaitingInput 时补投。队列元素存 worker
+// 状态机 listener 在 leader 跃迁回 Idle 时补投。队列元素存 worker
 // TaskBinding **快照**（保住 MCP report_to_leader 覆写的 status/summary，不重查 DB）。
 
 const PENDING_REPORT_TTL_SECS: u64 = 30 * 60;
@@ -13493,7 +13534,7 @@ struct ReportPipeEvent<'a> {
     reason: Option<&'a str>,
 }
 
-fn emit_pipe_event_once(state: &AppState, spec: PipeEventSpec) {
+fn emit_pipe_event_once(state: &ReportRuntime, spec: PipeEventSpec) {
     if spec.phase == PipeEventPhase::Failed
         && !claim_report_failure(
             &state.failed_report_events,
@@ -13521,7 +13562,7 @@ fn is_delivery_failure_reason(reason: &str) -> bool {
     reason != "superseded"
 }
 
-fn emit_report_pipe_event(state: &AppState, worker: &TaskBinding, event: ReportPipeEvent<'_>) {
+fn emit_report_pipe_event(state: &ReportRuntime, worker: &TaskBinding, event: ReportPipeEvent<'_>) {
     let spec = PipeEventSpec::new(
         report_correlation_id(worker),
         pipe_workspace_id(worker.workspace_name.as_deref(), Some(&worker.project_path)),
@@ -13571,7 +13612,7 @@ fn record_dropped_pending_reports(
     updated
 }
 
-fn emit_dropped_pending_report_events(state: &AppState, dropped: &[DroppedPendingReport]) {
+fn emit_dropped_pending_report_events(state: &ReportRuntime, dropped: &[DroppedPendingReport]) {
     for dropped_report in dropped {
         if !is_delivery_failure_reason(dropped_report.reason) {
             continue;
@@ -13606,7 +13647,7 @@ fn clear_pending_reports(
 }
 
 fn clear_pending_reports_and_emit(
-    state: &AppState,
+    state: &ReportRuntime,
     leader_session_id: &str,
     reason: &'static str,
 ) -> usize {
@@ -13637,13 +13678,16 @@ enum PendingFlushAction {
 /// 状态机跃迁 → 补投动作。不检查 from：Initializing→Idle 也必须 flush
 /// （initializing 期间入队的 report 靠这次边沿投出）。
 fn pending_flush_action(to: SessionStatus) -> PendingFlushAction {
+    // WaitingInput means the agent is blocked on a user decision, not ready for a prompt.
+    // Keep queued messages intact until a real Idle transition or level observation.
     match to {
-        SessionStatus::Idle | SessionStatus::WaitingInput => PendingFlushAction::Flush,
+        SessionStatus::Idle => PendingFlushAction::Flush,
         SessionStatus::Exited | SessionStatus::Error => PendingFlushAction::Clear,
         SessionStatus::Initializing
         | SessionStatus::Thinking
         | SessionStatus::ToolRunning
         | SessionStatus::Compacting
+        | SessionStatus::WaitingInput
         | SessionStatus::Active => PendingFlushAction::None,
     }
 }
@@ -13654,7 +13698,7 @@ fn pending_level_action(status: Option<SessionStatus>) -> PendingFlushAction {
 
 /// 补投：锁内取走队列立即放锁，逐条顺序重跑 send_worker_report_to_leader
 /// （保序；期间 leader 再次变 busy 时其内部会重新入队等下次边沿）。
-async fn flush_pending_reports(state: AppState, leader_session_id: String) {
+async fn flush_pending_reports(state: ReportRuntime, leader_session_id: String) {
     let batch = {
         let mut map = state
             .pending_worker_reports
@@ -13695,7 +13739,7 @@ async fn flush_pending_reports(state: AppState, leader_session_id: String) {
 /// busy/initializing 入队 + 竞态双重检查：入队后 leader 可能已恰好跃迁回空闲
 /// （边沿已过、无人再触发 flush），重读一次状态，空闲则立即补投。
 fn read_session_status_for_automatic_submit(
-    state: &AppState,
+    state: &ReportRuntime,
     session_id: &str,
 ) -> std::result::Result<Option<SessionStatus>, String> {
     state
@@ -13715,7 +13759,7 @@ fn read_session_status_for_automatic_submit(
 }
 
 fn enqueue_and_recheck_with_queued_at(
-    state: &AppState,
+    state: &ReportRuntime,
     leader: &TaskBinding,
     leader_session_id: &str,
     worker: &TaskBinding,
@@ -13780,7 +13824,7 @@ fn enqueue_and_recheck_with_queued_at(
     let now_idle = read_session_status_for_automatic_submit(state, leader_session_id)
         .ok()
         .flatten()
-        .is_some_and(|status| matches!(status, SessionStatus::Idle | SessionStatus::WaitingInput));
+        .is_some_and(|status| matches!(status, SessionStatus::Idle));
     if now_idle {
         let flush_state = state.clone();
         let sid = leader_session_id.to_string();
@@ -13790,7 +13834,7 @@ fn enqueue_and_recheck_with_queued_at(
     LeaderReportResult::queued(reason)
 }
 
-async fn scan_pending_reports_once(state: &AppState) {
+async fn scan_pending_reports_once(state: &ReportRuntime) {
     let leader_session_ids = {
         let map = state
             .pending_worker_reports
@@ -13844,7 +13888,7 @@ async fn scan_pending_reports_once(state: &AppState) {
     }
 }
 
-async fn run_pending_report_level_scan(state: AppState) {
+async fn run_pending_report_level_scan(state: ReportRuntime) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(
         PENDING_REPORT_SCAN_INTERVAL_SECS,
     ));
@@ -13945,7 +13989,7 @@ async fn resolve_dsh_leader_session(
 /// 实例没在跑就诚实丢弃并在 worker metadata 记 `reportDropped`（与队列 TTL
 /// 过期同口径）——补投需要 dsh 生命周期事件源，超出当前批次。
 async fn send_worker_report_to_dsh_leader(
-    state: &AppState,
+    state: &ReportRuntime,
     worker: &TaskBinding,
     leader: &TaskBinding,
     leader_session_id: &str,
@@ -14051,11 +14095,12 @@ async fn send_worker_report_to_dsh_leader(
 }
 
 async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> LeaderReportResult {
-    send_worker_report_to_leader_with_attempt(state, worker, 0).await
+    send_worker_report_to_leader_with_attempt(ReportRuntime::from_app_state(&state), worker, 0)
+        .await
 }
 
 async fn send_worker_report_to_leader_with_attempt(
-    state: AppState,
+    state: ReportRuntime,
     worker: TaskBinding,
     attempt: u32,
 ) -> LeaderReportResult {
@@ -14063,7 +14108,7 @@ async fn send_worker_report_to_leader_with_attempt(
 }
 
 async fn send_worker_report_to_leader_with_attempt_and_queued_at(
-    state: AppState,
+    state: ReportRuntime,
     worker: TaskBinding,
     attempt: u32,
     queued_at: Option<std::time::Instant>,
@@ -14218,7 +14263,20 @@ async fn send_worker_report_to_leader_with_attempt_and_queued_at(
     };
 
     match leader_status {
-        SessionStatus::Idle | SessionStatus::WaitingInput => {}
+        SessionStatus::Idle => {}
+        SessionStatus::WaitingInput => {
+            // WaitingInput denotes a permission or question dialog, not a free composer.
+            // Preserve the report until Idle instead of injecting text/Enter into that dialog.
+            return enqueue_and_recheck_with_queued_at(
+                &state,
+                &leader,
+                &leader_session_id,
+                &worker,
+                attempt,
+                "leader waiting for user input",
+                queued_at,
+            );
+        }
         status @ (SessionStatus::Thinking
         | SessionStatus::ToolRunning
         | SessionStatus::Compacting
@@ -14383,6 +14441,8 @@ async fn send_worker_report_to_leader_with_attempt_and_queued_at(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    include!("orchestrator_message_safety_tests.rs");
     use crate::models::WorkspaceCliEnvironmentDefaults;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -16249,7 +16309,7 @@ mod tests {
         let service = directive_test_service();
         let (leader, workers) = register_directive_plan(&service, &["worker-draft"]);
         let backend = Arc::new(DirectiveTestBackend::default());
-        backend.set_status("worker-draft", SessionStatus::WaitingInput);
+        backend.set_status("worker-draft", SessionStatus::Idle);
         let runtime = directive_test_runtime(backend.clone(), service);
         let mut directive = test_pending_directive(
             &leader.id,
@@ -17062,7 +17122,7 @@ mod tests {
         assert_eq!(pending_level_action(None), PendingFlushAction::Clear);
         let cases = [
             (SessionStatus::Idle, PendingFlushAction::Flush),
-            (SessionStatus::WaitingInput, PendingFlushAction::Flush),
+            (SessionStatus::WaitingInput, PendingFlushAction::None),
             (SessionStatus::Exited, PendingFlushAction::Clear),
             (SessionStatus::Error, PendingFlushAction::Clear),
             (SessionStatus::Initializing, PendingFlushAction::None),

@@ -29,7 +29,8 @@ import { HeaderSelect } from "./ChatItems";
 import { groupChatItems, type ChatTurn } from "./chatTurns";
 import EnginePicker from "./EnginePicker";
 import SessionWorkspaceMenu from "./SessionWorkspaceMenu";
-import PermissionCard from "./PermissionCard";
+import ChatPermissionQueue from "./ChatPermissionQueue";
+import { startConfiguredChat } from "./startConfiguredChat";
 import PermissionPolicyDropdown from "./PermissionPolicyDropdown";
 import { isAbsolutePath, joinCwd, residentAgentChatCwd } from "./chatPaths";
 import {
@@ -103,7 +104,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
     if (!atBottom) return;
     const node = scrollRef.current;
     if (node) node.scrollTop = node.scrollHeight;
-  }, [items, chat?.pendingPermission, atBottom]);
+  }, [items, chat?.pendingPermissions, atBottom]);
 
   const handleScroll = useCallback(() => {
     const node = scrollRef.current;
@@ -118,7 +119,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   }, []);
 
   const snapshot = chat?.snapshot ?? null;
-  const phase = snapshot?.phase;
+  const phase = chat?.setup?.pending ? "starting" : chat?.setup?.error ? "failed" : snapshot?.phase;
   const availableCommands = chat?.availableCommands ?? [];
   const changesCount = useMemo(() => collectNetChanges(items ?? []).length, [items]);
   const turns = useMemo(() => groupChatItems(items ?? []), [items]);
@@ -204,20 +205,16 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
     const current = useAgentChatStore.getState().chats[tab.id]?.snapshot;
     if (!current?.engineId || !effectiveCwd) return;
     useAgentChatStore.getState().pushNotice(tab.id, `— ${t("agentChatRestart")} —`);
-    void agentChatService
-      .start(
-        tab.id,
-        current.engineId,
-        effectiveCwd,
-        current.acpSessionId,
-        current.autoApproveKinds ?? loadAutoApproveKinds(current.engineId),
-      )
-      .then((snapshot) => useAgentChatStore.getState().setSnapshot(tab.id, snapshot))
-      .catch((error) => {
-        useAgentChatStore
-          .getState()
-          .pushNotice(tab.id, error instanceof Error ? error.message : String(error));
-      });
+    const setup = useAgentChatStore.getState().chats[tab.id]?.setup;
+    void startConfiguredChat({
+      chatId: tab.id,
+      engineId: current.engineId,
+      cwd: effectiveCwd,
+      resumeAcpSessionId: current.acpSessionId,
+      autoApproveKinds: current.autoApproveKinds,
+      firstPrompt: setup?.firstPrompt,
+      preamble: setup?.preamble,
+    }).catch((error) => handleErrorSilent(error, "restart acp chat"));
   }, [tab.id, effectiveCwd, t]);
 
   // 尚未启动过（没有快照也没有消息）→ 引擎选择页。
@@ -266,7 +263,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   };
 
   // composer 底栏：模型 / 模式 / 权限（会话结束后不再可改）。
-  const composerToolbar = snapshot && !ended ? (
+  const composerToolbar = snapshot && !ended && !chat?.setup?.pending ? (
     <>
       {modelItems.length > 0 ? (
         <HeaderSelect
@@ -408,19 +405,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
         />
       ) : null}
 
-      {chat?.pendingPermission ? (
-        <PermissionCard
-          request={chat.pendingPermission}
-          onRespond={(optionId) => {
-            const requestKey = chat.pendingPermission?.requestKey;
-            if (!requestKey) return;
-            useAgentChatStore.getState().setPermission(tab.id, null);
-            void agentChatService
-              .respondPermission(tab.id, requestKey, optionId)
-              .catch((error) => handleErrorSilent(error, "respond acp permission"));
-          }}
-        />
-      ) : null}
+      <ChatPermissionQueue chatId={tab.id} />
 
       {ended ? (
         <div className="px-3 pb-3 pt-1">

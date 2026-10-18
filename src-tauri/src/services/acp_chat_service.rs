@@ -28,6 +28,13 @@ use crate::services::process_guard::{self, ProcessGuard};
 use crate::utils::{AppError, AppResult};
 use cc_panes_core::utils::no_window_tokio_command;
 
+#[path = "acp_chat_service/permissions.rs"]
+mod permissions;
+use permissions::PendingPermissions;
+#[path = "acp_chat_service/process.rs"]
+pub(super) mod process;
+use process::AcpProcess;
+
 pub const ACP_CHAT_EVENT: &str = "acp-chat-event";
 
 /// ACP protocol major version this client speaks (v1 stable line).
@@ -197,16 +204,13 @@ struct AcpChatSession {
     app: AppHandle,
     snapshot: RwLock<AcpChatSnapshot>,
     stdin: Mutex<ChildStdin>,
-    child: Mutex<Option<Child>>,
-    /// Held for the session lifetime; dropping the Windows job handle kills
-    /// the adapter tree if anything else fails to.
-    _guard: Option<ProcessGuard>,
+    process: AcpProcess,
     /// Our outgoing JSON-RPC requests awaiting a response, keyed by id.
     pending: Mutex<HashMap<u64, oneshot::Sender<PendingResult>>>,
     next_request_id: AtomicU64,
     /// Incoming `session/request_permission` request ids awaiting the user.
     /// On cancel we MUST answer them all with the `cancelled` outcome.
-    pending_permissions: Mutex<HashMap<String, Value>>,
+    pending_permissions: PendingPermissions,
     stderr_tail: Mutex<VecDeque<String>>,
     /// 自动放行策略（ToolKind 集合，`*` = 全部）。会话中可改，读写都在
     /// 微秒级临界区里，用同步锁即可。
@@ -330,21 +334,21 @@ impl AcpChatSession {
         for (_, sender) in pending {
             let _ = sender.send(Err(json!({"message": message})));
         }
-        self.pending_permissions.lock().await.clear();
+        self.pending_permissions.clear().await;
     }
 
     /// Answer every outstanding permission request with `cancelled`, as the
     /// spec requires after `session/cancel`.
     async fn cancel_pending_permissions(&self) {
-        let pending = {
-            let mut pending = self.pending_permissions.lock().await;
-            std::mem::take(&mut *pending)
-        };
-        for (_, id) in pending {
-            let outcome = json!({"outcome": {"outcome": "cancelled"}});
-            if let Err(error) = self.respond(&id, Ok(outcome)).await {
-                debug!(chat_id = %self.chat_id, error = %error, "failed to cancel ACP permission request");
-            }
+        let errors = self
+            .pending_permissions
+            .cancel_all(|id| async move {
+                let outcome = json!({"outcome": {"outcome": "cancelled"}});
+                self.respond(&id, Ok(outcome)).await
+            })
+            .await;
+        for error in errors {
+            debug!(chat_id = %self.chat_id, error = %error, "failed to cancel ACP permission request");
         }
     }
 
@@ -572,11 +576,10 @@ impl AcpChatService {
                 error: None,
             }),
             stdin: Mutex::new(stdin),
-            child: Mutex::new(Some(child)),
-            _guard: guard,
+            process: AcpProcess::new(child, guard),
             pending: Mutex::new(HashMap::new()),
             next_request_id: AtomicU64::new(1),
-            pending_permissions: Mutex::new(HashMap::new()),
+            pending_permissions: PendingPermissions::default(),
             stderr_tail: Mutex::new(VecDeque::new()),
             auto_approve_kinds: std::sync::RwLock::new(spec.auto_approve_kinds.clone()),
             tool_kinds: std::sync::Mutex::new(HashMap::new()),
@@ -1102,22 +1105,17 @@ impl AcpChatService {
         option_id: Option<String>,
     ) -> AppResult<()> {
         let session = self.session(chat_id).await?;
-        let id = session
-            .pending_permissions
-            .lock()
-            .await
-            .remove(&request_key)
-            .ok_or_else(|| {
-                AppError::coded(
-                    "ACP_PERMISSION_NOT_PENDING",
-                    "ACP permission request is no longer pending",
-                )
-            })?;
         let outcome = match option_id {
             Some(option_id) => json!({"outcome": {"outcome": "selected", "optionId": option_id}}),
             None => json!({"outcome": {"outcome": "cancelled"}}),
         };
-        session.respond(&id, Ok(outcome)).await
+        let session_ref = &session;
+        session
+            .pending_permissions
+            .respond(&request_key, |id| async move {
+                session_ref.respond(&id, Ok(outcome)).await
+            })
+            .await
     }
 
     pub async fn snapshot(&self, chat_id: &str) -> Option<AcpChatSnapshot> {
@@ -1147,19 +1145,12 @@ impl AcpChatService {
     ) {
         // agent 开的终端子进程不能比会话活得长。
         session.terminals.release_all().await;
-        let exit_code = {
-            let mut child_guard = session.child.lock().await;
-            match child_guard.as_mut() {
-                None => None,
-                Some(child) => match child.try_wait() {
-                    Ok(Some(status)) => status.code(),
-                    _ => {
-                        let _ = child.kill().await;
-                        child.wait().await.ok().and_then(|status| status.code())
-                    }
-                },
-            }
-        };
+        let exit_code = session
+            .process
+            .kill()
+            .await
+            .ok()
+            .and_then(|status| status.code());
         if session.mark_finished(phase, exit_code, error).await {
             session.emit_state().await;
         }
@@ -1486,9 +1477,8 @@ async fn route_message(session: &Arc<AcpChatSession>, message: Value) {
                 let request_key = permission_request_key(&id);
                 session
                     .pending_permissions
-                    .lock()
-                    .await
-                    .insert(request_key.clone(), id);
+                    .insert(request_key.clone(), id)
+                    .await;
                 session.emit(
                     "permission_request",
                     json!({"requestKey": request_key, "params": params}),
@@ -1853,19 +1843,12 @@ fn permission_request_key(id: &Value) -> String {
 
 async fn finish_after_stdout_closed(session: Arc<AcpChatSession>, stdout_error: Option<String>) {
     session.terminals.release_all().await;
-    let exit_code = {
-        let mut child_guard = session.child.lock().await;
-        match child_guard.as_mut() {
-            None => None,
-            Some(child) => match child.try_wait() {
-                Ok(Some(status)) => status.code(),
-                _ => {
-                    let _ = child.kill().await;
-                    child.wait().await.ok().and_then(|status| status.code())
-                }
-            },
-        }
-    };
+    let exit_code = session
+        .process
+        .kill()
+        .await
+        .ok()
+        .and_then(|status| status.code());
     let stderr_tail = session.stderr_tail().await;
     let error = if let Some(stdout_error) = stdout_error {
         Some(stdout_error)

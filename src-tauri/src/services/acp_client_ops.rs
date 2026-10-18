@@ -13,7 +13,8 @@
 //!   content can render live. Every terminal is job/process-group guarded and killed
 //!   on `release` or session shutdown.
 
-use crate::services::process_guard::{self, ProcessGuard};
+use super::acp_chat_service::process::AcpProcess;
+use crate::services::process_guard;
 use cc_panes_core::utils::no_window_tokio_command;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -23,8 +24,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::process::Child;
-use tokio::sync::{Mutex, Notify, RwLock};
+use tokio::sync::{watch, Notify, RwLock};
+use tokio::task::JoinSet;
 
 pub const JSONRPC_INVALID_PARAMS: i64 = -32602;
 pub const JSONRPC_INTERNAL_ERROR: i64 = -32603;
@@ -180,10 +181,8 @@ impl TerminalOutputState {
 pub struct AcpTerminal {
     pub terminal_id: String,
     state: RwLock<TerminalOutputState>,
-    child: Mutex<Option<Child>>,
-    _guard: Option<ProcessGuard>,
-    exited: Notify,
-    exited_flag: AtomicBool,
+    process: AcpProcess,
+    exited: watch::Sender<Option<Value>>,
     dirty: Notify,
     released: AtomicBool,
 }
@@ -194,24 +193,21 @@ impl AcpTerminal {
     }
 
     async fn wait_for_exit(&self) -> Value {
+        let mut exited = self.exited.subscribe();
         loop {
-            if let Some(exit) = self.state.read().await.exit_status.clone() {
+            if let Some(exit) = exited.borrow_and_update().clone() {
                 return exit;
             }
-            if self.exited_flag.load(Ordering::Acquire) {
-                // exited_flag 先于 exit_status 写入的窗口极短，再读一次即可。
-                if let Some(exit) = self.state.read().await.exit_status.clone() {
-                    return exit;
-                }
+            if exited.changed().await.is_err() {
+                return json!({"signal": "terminal monitor stopped"});
             }
-            self.exited.notified().await;
         }
     }
 
     async fn kill(&self) {
-        if let Some(child) = self.child.lock().await.as_mut() {
-            let _ = child.start_kill();
-        }
+        self.process.request_kill();
+        // Exit is published only after output readers have drained their pipes.
+        self.wait_for_exit().await;
     }
 }
 
@@ -221,7 +217,13 @@ pub type TerminalEmitter = Arc<dyn Fn(Value) + Send + Sync>;
 
 #[derive(Default)]
 pub struct AcpTerminalManager {
-    terminals: RwLock<HashMap<String, Arc<AcpTerminal>>>,
+    terminals: RwLock<TerminalRegistry>,
+}
+
+#[derive(Default)]
+struct TerminalRegistry {
+    closed: bool,
+    entries: HashMap<String, Arc<AcpTerminal>>,
 }
 
 impl AcpTerminalManager {
@@ -233,12 +235,6 @@ impl AcpTerminalManager {
         session_cwd: &Path,
         emitter: TerminalEmitter,
     ) -> RpcResult {
-        if self.terminals.read().await.len() >= MAX_TERMINALS_PER_SESSION {
-            return Err(rpc_error(
-                JSONRPC_INTERNAL_ERROR,
-                "too many live terminals; release some first",
-            ));
-        }
         let program = require_str(params, "command")?;
         let args: Vec<String> = params
             .get("args")
@@ -292,6 +288,18 @@ impl AcpTerminalManager {
                 }
             }
         }
+        // Serialize spawn/registration with shutdown. Once closed, queued
+        // terminal/create requests must not bring commands back to life.
+        let mut registry = self.terminals.write().await;
+        if registry.closed {
+            return Err(rpc_error(JSONRPC_INTERNAL_ERROR, "ACP session is closed"));
+        }
+        if registry.entries.len() >= MAX_TERMINALS_PER_SESSION {
+            return Err(rpc_error(
+                JSONRPC_INTERNAL_ERROR,
+                "too many live terminals; release some first",
+            ));
+        }
         process_guard::configure_command(command.as_std_mut());
         let mut child = command.spawn().map_err(|error| {
             rpc_error(
@@ -299,7 +307,13 @@ impl AcpTerminalManager {
                 format!("failed to spawn '{program}': {error}"),
             )
         })?;
-        let guard = super::acp_chat_service::attach_guard(&child).ok().flatten();
+        let guard = match super::acp_chat_service::attach_guard(&child) {
+            Ok(guard) => guard,
+            Err(error) => {
+                let _ = child.kill().await;
+                return Err(rpc_error(JSONRPC_INTERNAL_ERROR, error.to_string()));
+            }
+        };
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
 
@@ -307,22 +321,21 @@ impl AcpTerminalManager {
         let terminal = Arc::new(AcpTerminal {
             terminal_id: terminal_id.clone(),
             state: RwLock::new(TerminalOutputState::default()),
-            child: Mutex::new(Some(child)),
-            _guard: guard,
-            exited: Notify::new(),
-            exited_flag: AtomicBool::new(false),
+            process: AcpProcess::new(child, guard),
+            exited: watch::channel(None).0,
             dirty: Notify::new(),
             released: AtomicBool::new(false),
         });
-        self.terminals
-            .write()
-            .await
+        registry
+            .entries
             .insert(terminal_id.clone(), terminal.clone());
+        drop(registry);
+        let mut readers = JoinSet::new();
 
         // stdout / stderr → 合并进有界缓冲；每块标脏，flusher 去抖后 emit。
         if let Some(mut stdout) = stdout {
             let owner = terminal.clone();
-            tokio::spawn(async move {
+            readers.spawn(async move {
                 let mut buffer = [0u8; 8192];
                 while let Ok(read) = stdout.read(&mut buffer).await {
                     if read == 0 {
@@ -335,7 +348,7 @@ impl AcpTerminalManager {
         }
         if let Some(mut stderr) = stderr {
             let owner = terminal.clone();
-            tokio::spawn(async move {
+            readers.spawn(async move {
                 let mut buffer = [0u8; 8192];
                 while let Ok(read) = stderr.read(&mut buffer).await {
                     if read == 0 {
@@ -346,23 +359,24 @@ impl AcpTerminalManager {
                 }
             });
         }
-        // 退出跟踪：拿走 child 等待（wait 需要 &mut），退出码写回 state。
+        // Keep the process cancellable while waiting. Drain both pipes before
+        // publishing exit, rather than guessing how much 30ms can read.
         {
             let owner = terminal.clone();
             tokio::spawn(async move {
-                let child = owner.child.lock().await.take();
-                let exit = match child {
-                    Some(mut child) => match child.wait().await {
-                        Ok(status) => exit_status_json(status),
-                        Err(error) => json!({"signal": format!("wait failed: {error}")}),
-                    },
-                    None => json!({}),
+                let exit = match owner.process.wait().await {
+                    Ok(status) => exit_status_json(status),
+                    Err(error) => json!({"signal": format!("wait failed: {error}")}),
                 };
-                // 给输出读取任务一点时间排空管道尾巴（进程退出后 pipe 里可能还有数据）。
-                tokio::time::sleep(Duration::from_millis(30)).await;
-                owner.state.write().await.exit_status = Some(exit);
-                owner.exited_flag.store(true, Ordering::Release);
-                owner.exited.notify_waiters();
+                // Normal descendants are already stopped by AcpProcess. Bound
+                // cleanup if a detached process escaped the group but kept a pipe.
+                let _ = tokio::time::timeout(Duration::from_secs(2), async {
+                    while readers.join_next().await.is_some() {}
+                })
+                .await;
+                readers.shutdown().await;
+                owner.state.write().await.exit_status = Some(exit.clone());
+                owner.exited.send_replace(Some(exit));
                 owner.dirty.notify_one();
             });
         }
@@ -393,6 +407,7 @@ impl AcpTerminalManager {
         self.terminals
             .read()
             .await
+            .entries
             .get(id)
             .cloned()
             .ok_or_else(|| rpc_error(JSONRPC_INVALID_PARAMS, format!("unknown terminalId '{id}'")))
@@ -417,7 +432,7 @@ impl AcpTerminalManager {
     /// `terminal/release` → `null`. Kills if still running and forgets the id.
     pub async fn release(&self, params: &Value) -> RpcResult {
         let id = require_str(params, "terminalId")?;
-        let removed = self.terminals.write().await.remove(id);
+        let removed = self.terminals.write().await.entries.remove(id);
         match removed {
             Some(terminal) => {
                 terminal.released.store(true, Ordering::Release);
@@ -433,16 +448,18 @@ impl AcpTerminalManager {
 
     /// Session shutdown: kill everything still alive.
     pub async fn release_all(&self) {
-        let drained: Vec<Arc<AcpTerminal>> = self
-            .terminals
-            .write()
-            .await
-            .drain()
-            .map(|(_, t)| t)
-            .collect();
-        for terminal in drained {
+        let drained = {
+            let mut registry = self.terminals.write().await;
+            registry.closed = true;
+            registry.entries.drain().map(|(_, t)| t).collect::<Vec<_>>()
+        };
+        // Signal every process first; output draining then runs concurrently.
+        for terminal in &drained {
             terminal.released.store(true, Ordering::Release);
-            terminal.kill().await;
+            terminal.process.request_kill();
+        }
+        for terminal in drained {
+            terminal.wait_for_exit().await;
         }
     }
 }
@@ -471,6 +488,10 @@ fn signal_name(signal: i32) -> String {
         other => format!("SIG{other}"),
     }
 }
+
+#[cfg(test)]
+#[path = "acp_client_ops_tests.rs"]
+mod lifecycle_tests;
 
 #[cfg(test)]
 mod tests {

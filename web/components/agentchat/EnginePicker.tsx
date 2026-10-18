@@ -34,13 +34,11 @@ import StartProjectMenu, { workspaceLabelFor } from "./StartProjectMenu";
 import StartRecentSessions from "./StartRecentSessions";
 import { takePendingResume } from "./pendingResume";
 import { takePendingStart } from "./pendingStart";
+import { startConfiguredChat } from "./startConfiguredChat";
 import {
   loadAutoApproveKinds,
   loadEnginePrefs,
-  loadPreferredConfigOptions,
   saveAutoApproveKinds,
-  saveEngineModels,
-  saveEngineModes,
   savePreferredMode,
   savePreferredModel,
   type EngineModelPrefs,
@@ -164,75 +162,10 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
       setError(null);
       setStartingEngine(resumeAcpSessionId ?? engineId);
       try {
-        const snapshot = await agentChatService.start(
-          chatId,
-          engineId,
-          startCwd,
-          resumeAcpSessionId,
-          loadAutoApproveKinds(engineId),
-        );
-        useAgentChatStore.getState().setSnapshot(chatId, snapshot);
-        // 新会话同样要登记 cwd：顶栏工作空间 chip、restart、@引用相对路径都靠它
-        // （此前只有续接路径登记，手动启动的会话 chip 直接隐身）。
-        onCwdAdopted(startCwd);
-        // 回填该引擎的模型/模式表缓存；有偏好且与当前不同则自动应用。
-        const models = snapshot.models?.availableModels ?? [];
-        const modes = snapshot.modes?.availableModes ?? [];
-        saveEngineModels(engineId, models);
-        saveEngineModes(engineId, modes);
-        const prefs = loadEnginePrefs(engineId);
-        const preferred = prefs?.preferredModelId;
-        if (
-          preferred
-          && preferred !== snapshot.models?.currentModelId
-          && models.some((model) => model.modelId === preferred)
-        ) {
-          void agentChatService.setModel(chatId, preferred).catch((modelError) => {
-            handleErrorSilent(modelError, "apply preferred acp model");
-          });
-        }
-        const preferredMode = prefs?.preferredModeId;
-        if (
-          preferredMode
-          && preferredMode !== snapshot.modes?.currentModeId
-          && modes.some((mode) => mode.id === preferredMode)
-        ) {
-          void agentChatService.setMode(chatId, preferredMode).catch((modeError) => {
-            handleErrorSilent(modeError, "apply preferred acp mode");
-          });
-        }
-        // 配置项偏好（思维深度等）：只对 agent 本次仍广告、且值仍在选项里的项应用。
-        const preferredOptions = loadPreferredConfigOptions(engineId);
-        for (const option of snapshot.configOptions ?? []) {
-          const wanted = preferredOptions[option.configId];
-          if (
-            wanted === undefined
-            || option.category === "mode"
-            || option.category === "model"
-            || option.currentValue === wanted
-            || !(option.options ?? []).some((choice) => choice.value === wanted)
-          ) {
-            continue;
-          }
-          void agentChatService.setConfigOption(chatId, option.configId, wanted).catch((optionError) => {
-            handleErrorSilent(optionError, "apply preferred acp config option");
-          });
-        }
-        const text = firstPrompt?.trim();
-        if (text) {
-          useAgentChatStore.getState().addUserMessage(chatId, text, []);
-          // 单个文本块最稳：各引擎的 ACP 适配器对多块拼接行为不一致。
-          const lead = preamble?.trim();
-          const outbound = lead ? `${lead}\n\n---\n\n${text}` : text;
-          void agentChatService.prompt(chatId, [{ type: "text", text: outbound }]).catch((promptError) => {
-            useAgentChatStore
-              .getState()
-              .pushNotice(
-                chatId,
-                promptError instanceof Error ? promptError.message : String(promptError),
-              );
-          });
-        }
+        await startConfiguredChat({
+          chatId, engineId, cwd: startCwd, resumeAcpSessionId, firstPrompt, preamble,
+          onCwdAdopted,
+        });
       } catch (startError) {
         setError(startError instanceof Error ? startError.message : String(startError));
       } finally {

@@ -343,6 +343,7 @@
   "agentChatDeleteHistory": "Delete record",
   "agentChatDeleteConfirm": "Confirm delete",
   "agentChatModeDefault": "Default mode",
+  "agentChatModeUnavailable": "The selected mode \"{{mode}}\" is not available from this engine. Sending is blocked. Choose an available mode in a new conversation.",
   "agentChatPermTitle": "Permissions",
   "agentChatPermHint": "Checked categories skip the approval card and pick \"allow once\"; everything else still asks. Categories follow what the engine reports: Codex network access counts as \"Run commands\", MCP tools count as \"Other\". Multi-choice questions always show.",
   "agentChatPermDefault": "Default permissions",
