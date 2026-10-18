@@ -15,7 +15,8 @@ vi.mock("@/components/settings/SettingsPaneContent", () => ({
 vi.mock("@/lib/feedback", () => ({ toastOk: vi.fn(), toastErr: vi.fn(), toastInfo: vi.fn() }));
 
 const defaults = useSettingsStore.getState().getDefaults();
-const t = (key: string) => i18n.t(key, { ns: "settings" });
+const translate = i18n.t as (key: string, options: Record<string, unknown>) => string;
+const t = (key: string) => translate(key, { ns: "settings" });
 const save = vi.fn<(value: AppSettings) => Promise<void>>().mockResolvedValue(undefined);
 
 beforeEach(() => {
