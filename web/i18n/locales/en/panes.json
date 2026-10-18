@@ -1,4 +1,12 @@
 {
+  "agentChatTimeline": "Conversation timeline",
+  "agentChatTimelineUntitled": "Conversation",
+  "agentChatTimelineJump": "Jump to turn {{number}}: {{title}}",
+  "agentChatTimelinePreview": "Turn {{number}} preview",
+  "agentChatTimelineBookmark": "Add bookmark",
+  "agentChatTimelineUnbookmark": "Remove bookmark",
+  "agentChatTimelineNoReply": "No reply yet",
+  "agentChatTimelinePosition": "Turn {{number}} of {{total}}",
   "rendererRecoveryFailed": "The terminal display could not recover. Retrying restores the display without rerunning the task.",
   "retryRendererRecovery": "Retry display recovery",
   "ready": "Ready",

@@ -82,7 +82,7 @@ interface ChatMarkdownProps {
 
 export default memo(function ChatMarkdown({ text, onOpenFile, cwd }: ChatMarkdownProps) {
   return (
-    <div className="markdown-preview prose prose-sm dark:prose-invert max-w-none break-words [&_pre]:overflow-x-auto [&_pre]:text-[12px]">
+    <div className="agent-chat-prose markdown-preview min-w-0 max-w-none break-words">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeHighlight, { detect: false }]]}
