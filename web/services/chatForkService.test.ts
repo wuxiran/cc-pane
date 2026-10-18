@@ -1,10 +1,7 @@
+import { buildTerminalFork } from "./chatForkLaunch";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Tab } from "@/types";
-import {
-  buildTerminalFork,
-  supportsAcpFork,
-  terminalForkSource,
-} from "./chatForkService";
+import { supportsAcpFork, terminalForkSource } from "./chatForkService";
 import { worktreeService } from "./worktreeService";
 vi.mock("./worktreeService", () => ({
   worktreeService: { forkChat: vi.fn() },
