@@ -8,6 +8,10 @@ mod acp_chat_service;
 mod acp_client_ops;
 mod automation_service;
 mod browser_service;
+pub mod bundled_skills;
+pub mod heavy_command_recorder;
+pub mod heavy_command_sampler;
+pub mod heavy_job_routes;
 pub mod im_bridge;
 mod launch_backfill_service;
 pub(crate) mod notification_preferences;
@@ -33,6 +37,7 @@ mod terminal_daemon_event_bridge;
 mod terminal_daemon_lifecycle;
 mod terminal_daemon_output_cursor;
 pub mod tray_menu;
+mod tray_refresh;
 mod turn_notify_registry;
 pub mod voice_service;
 mod web_access_lifecycle;
@@ -42,6 +47,9 @@ pub use automation_service::{AutomationDef, AutomationRun, AutomationService};
 pub use browser_service::{
     BrowserBounds, BrowserOpenTabEvent, BrowserSpikeReport, BrowserTabManager,
 };
+pub use heavy_command_recorder::HeavyCommandRecorder;
+pub use heavy_command_sampler::HeavyCommandSampler;
+pub use heavy_job_routes::{AppHeavyJobEnvironment, HeavyJobGateState};
 pub use launch_backfill_service::rescue_null_codex_records;
 pub use launch_backfill_service::run_launch_history_backfill;
 pub(crate) use launch_backfill_service::{derive_project_name, detect_resume_session};

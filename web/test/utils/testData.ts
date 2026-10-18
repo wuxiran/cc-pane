@@ -256,6 +256,23 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
       dramaStudio: false,
       skillMarket: false,
     },
+    performance: {
+      buildParallelismEnabled: true,
+      buildJobs: null,
+      rgThreads: null,
+      codexLightweightEnabled: true,
+      codexLowSpecMode: false,
+      heavyGateEnabled: false,
+      heavyGateSlots: null,
+      heavyGateTimeoutSecs: 300,
+      heavyLedgerEnabled: true,
+      wslQuotaEnabled: true,
+      wslCpuWeight: 20,
+      wslMemoryHighPercent: 0,
+      jobMemoryNotifyPercent: 25,
+      parkedTerminalLimit: 6,
+      parkDelaySecs: 30,
+    },
     ...overrides,
   };
 }

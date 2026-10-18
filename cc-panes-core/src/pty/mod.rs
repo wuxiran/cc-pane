@@ -10,7 +10,11 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
 #[cfg(windows)]
 mod job;
+pub mod job_events;
 mod read_watch;
+#[cfg(unix)]
+mod unix_priority;
+pub use job_events::{JobMemoryCallback, JobMemoryNotification};
 pub mod thread;
 pub use read_watch::ReaderIoWatch;
 use std::collections::HashMap;
@@ -35,6 +39,9 @@ pub struct PtyConfig {
     /// 刻意不给 `PtyConfig` 加 `Default`：`cols`/`rows` 默认 0 会 spawn 出 0×0
     /// 终端，是个安静的陷阱。字面量构造点只有 3 处，显式写出来更安全。
     pub resource_policy: SessionResourcePolicy,
+    /// Job 内存通知水位越线回调（W5）。只有 `resource_policy.memory_notify_bytes` 为
+    /// `Some` 且本字段为 `Some` 时才登记完成端口；非 Windows 忽略。
+    pub on_job_memory_notify: Option<JobMemoryCallback>,
 }
 
 /// PTY 创建后返回的三件套（所有权一次性转移）
@@ -43,6 +50,9 @@ pub struct PtySpawnResult {
     pub process: Arc<dyn PtyProcess>,
     pub reader: Box<dyn Read + Send>,
     pub writer: Box<dyn Write + Send>,
+    /// 启动时资源策略的下发结果。`None` = 该通道不涉及本机进程策略（SSH）。
+    /// 调用方必须把它带进会话状态（docs/45：降级必须可见，只 warn 等于静默）。
+    pub policy_outcome: Option<PolicyOutcome>,
 }
 
 /// PTY 进程控制接口（不含 I/O）
@@ -60,6 +70,12 @@ pub trait PtyProcess: Send + Sync {
     /// 默认返回 `Unsupported`，实现者按需覆盖——这样新增实现不会被迫关心资源策略。
     fn set_resource_policy(&self, _policy: &SessionResourcePolicy) -> Result<PolicyOutcome> {
         Ok(PolicyOutcome::Unsupported)
+    }
+
+    /// 重新武装 Job 内存通知水位（通知限每次 set 只触发一次）。上层确认树内存回落后
+    /// 调用。默认 no-op：非 Windows / SSH / 测试桩没有水位可重设。
+    fn rearm_job_memory_notify(&self) -> Result<()> {
+        Ok(())
     }
 
     /// tty 是否处在**真 cooked 模式**（`ECHO` 且 `ICANON` 同时开着）。
@@ -101,6 +117,8 @@ struct PortablePtyProcess {
     exited: AtomicBool,
     /// 创建时存储 PID，kill() 通过 OS API 按 PID 终止，绕过 child 锁死锁
     pid: u32,
+    #[cfg(unix)]
+    inherited_nice: Option<i32>,
     /// Windows：KILL_ON_JOB_CLOSE Job Object。宿主进程异常终止时由 OS 回收
     /// 句柄并击杀整棵子进程树（taskkill 只覆盖显式 kill 路径）。
     /// 同时承载会话级资源策略（优先级 / CPU 权重），见 `set_resource_policy`。
@@ -167,6 +185,16 @@ impl PtyProcess for PortablePtyProcess {
         drop(master);
     }
 
+    fn rearm_job_memory_notify(&self) -> Result<()> {
+        #[cfg(windows)]
+        {
+            if let Some(job) = self.job.as_ref() {
+                return job.rearm_memory_notify();
+            }
+        }
+        Ok(())
+    }
+
     fn set_resource_policy(&self, policy: &SessionResourcePolicy) -> Result<PolicyOutcome> {
         #[cfg(windows)]
         {
@@ -178,16 +206,7 @@ impl PtyProcess for PortablePtyProcess {
         }
         #[cfg(unix)]
         {
-            match policy.nice_increment() {
-                Some(increment) => {
-                    apply_unix_nice_increment(self.pid, increment);
-                    Ok(PolicyOutcome::Applied)
-                }
-                // 提高优先级需要 CAP_SYS_NICE，普通用户降了就回不去。
-                None => Ok(PolicyOutcome::degraded(
-                    "raising priority back requires CAP_SYS_NICE",
-                )),
-            }
+            Ok(unix_priority::apply(self.pid, self.inherited_nice, policy))
         }
         #[cfg(not(any(windows, unix)))]
         {
@@ -247,6 +266,8 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
     validate_spawn_cwd(&config.cwd).map_err(anyhow::Error::new)?;
     #[cfg_attr(not(any(windows, unix)), allow(unused_variables))]
     let policy = config.resource_policy;
+    #[cfg_attr(not(windows), allow(unused_variables))]
+    let on_job_memory_notify = config.on_job_memory_notify;
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows: config.rows,
@@ -286,10 +307,11 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
     // Job 分配失败时仍保留子进程句柄，显式 kill 不按可复用的 PID 查找进程。
     // 资源策略在同一处下发，但失败只降级、不影响孤儿防护（见 job::create_for_with_policy）。
     #[cfg(windows)]
-    let job = if pid != 0 {
-        match job::ProcessJob::create_for_with_policy(pid, &policy) {
+    let (job, policy_outcome) = if pid != 0 {
+        match job::ProcessJob::create_for_with_policy(pid, &policy, on_job_memory_notify) {
             Ok((j, outcome)) => {
                 // 降级必须可见：静默失败 = 用户以为限制生效、实际裸奔（docs/45 教训）。
+                // 日志之外还随 PtySpawnResult 带回，进 SessionStatusInfo 给前端看。
                 if let PolicyOutcome::Degraded { reason } = &outcome {
                     tracing::warn!(
                         pid,
@@ -297,24 +319,26 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
                         "resource policy degraded (session still started)"
                     );
                 }
-                Some(j)
+                (Some(j), Some(outcome))
             }
             Err(e) => {
                 tracing::warn!("ProcessJob create failed for pid {pid} (non-fatal): {e}");
-                None
+                (
+                    None,
+                    Some(PolicyOutcome::degraded(format!("job object: {e}"))),
+                )
             }
         }
     } else {
-        None
+        (None, Some(PolicyOutcome::Unsupported))
     };
 
-    // Unix：优先级用 nice 表达（Windows 侧走 Job 的 PRIORITY_CLASS）。
     #[cfg(unix)]
-    if pid != 0 {
-        if let Some(increment) = policy.nice_increment() {
-            apply_unix_nice_increment(pid, increment);
-        }
-    }
+    let inherited_nice = unix_priority::read(pid).ok();
+    #[cfg(unix)]
+    let policy_outcome = Some(unix_priority::apply(pid, inherited_nice, &policy));
+    #[cfg(not(any(windows, unix)))]
+    let policy_outcome = Some(PolicyOutcome::Unsupported);
 
     Ok(PtySpawnResult {
         process: Arc::new(PortablePtyProcess {
@@ -322,6 +346,8 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
             master: Mutex::new(Some(pair.master)),
             exited: AtomicBool::new(false),
             pid,
+            #[cfg(unix)]
+            inherited_nice,
             #[cfg(windows)]
             job,
             #[cfg(windows)]
@@ -329,44 +355,8 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
         }),
         reader,
         writer,
+        policy_outcome,
     })
-}
-
-/// Unix：基于进程继承到的当前 nice 值，按增量调低调度优先级。
-///
-/// 失败只 warn——查询或设置在容器/受限环境下可能被拒，但那不该阻断会话。
-#[cfg(unix)]
-fn apply_unix_nice_increment(pid: u32, increment: i8) {
-    errno::set_errno(errno::Errno(0));
-    // SAFETY: getpriority 只读取指定 PID 的调度属性，不解引用用户态指针。
-    let current = unsafe { libc::getpriority(libc::PRIO_PROCESS, pid) };
-    let get_error = errno::errno();
-    if current == -1 && get_error.0 != 0 {
-        tracing::warn!(
-            pid,
-            increment,
-            error = %std::io::Error::from_raw_os_error(get_error.0),
-            "getpriority failed (non-fatal, session still started)"
-        );
-        return;
-    }
-
-    let target = unix_nice_target(current, increment);
-    if target == current {
-        return;
-    }
-    // SAFETY: setpriority 对不存在的 pid 只返回 -1，不会有内存安全问题。
-    let rc = unsafe { libc::setpriority(libc::PRIO_PROCESS, pid, target) };
-    if rc != 0 {
-        tracing::warn!(
-            pid,
-            increment,
-            current,
-            target,
-            error = %std::io::Error::last_os_error(),
-            "setpriority failed (non-fatal, session still started)"
-        );
-    }
 }
 
 #[cfg(unix)]
@@ -400,6 +390,7 @@ mod tests {
             env: HashMap::new(),
             env_remove: Vec::new(),
             resource_policy: crate::models::SessionResourcePolicy::default(),
+            on_job_memory_notify: None,
         }
     }
 
@@ -436,6 +427,7 @@ mod tests {
             env: HashMap::new(),
             env_remove: Vec::new(),
             resource_policy: crate::models::SessionResourcePolicy::default(),
+            on_job_memory_notify: None,
         })
         .expect("spawn pty");
 
@@ -626,6 +618,7 @@ mod completion_tests {
                     env: HashMap::new(),
                     env_remove: vec![],
                     resource_policy: SessionResourcePolicy::default(),
+                    on_job_memory_notify: None,
                 })?;
                 let mut reader = spawned.reader;
                 let reading = std::thread::spawn(move || {

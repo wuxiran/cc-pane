@@ -390,7 +390,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       // 积压补投两道防线（docs/78）：drain-on-push 管「可见性翻转与数据到达的
       // 竞态」；store 单视图边沿订阅（useViewVisibilityEdgeSubscription）管
       // 「静默会话本视图翻可见时的补投」。两者覆盖不同，删任一都丢字。
-      // 后台分层降档（docs/71 §3.1）：5min 挂 WebGL，30min 休眠。幂等，可每次 render 调。
+      // 后台分层降档（docs/71 §3.1，docs/107 P1）：1s 挂 WebGL，30s 停泊，30min 休眠。幂等，可每次 render 调。
       // 判据是「任一视图可见」而非「本视图可见」，见 resolveDowngradeVisibility。
       // 注意本处只覆盖「自身 render 触发」的路径；别的视图变化（如切到星标页）
       // 不会让本组件 render，那条边沿由下面的 store 订阅补上。
@@ -791,9 +791,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           onOpenProjectDir={props.projectPath ? handleMenuOpenProjectDir : undefined}
         >
           <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-            {/* 这里不要再挂 onContextMenu：原生菜单已由 blockNativeTerminalMenu 在捕获阶段
-                preventDefault 压制，而冒泡阶段 stopPropagation 会挡住外层 TerminalContextMenu
-                （Radix 靠冒泡的 onContextMenu 打开）。 */}
+            {/* 这里不要再挂 onContextMenu：原生菜单由外层 TerminalContextMenu（Radix）打开时
+                preventDefault 压制；这里 stopPropagation 或 preventDefault 都会让 Radix 不开菜单。 */}
             <div
               ref={terminalRef}
               className="cc-terminal-host h-full w-full overflow-hidden [&_.xterm]:h-full"

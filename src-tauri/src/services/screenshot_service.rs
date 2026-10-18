@@ -1,3 +1,7 @@
+#[cfg(target_os = "macos")]
+#[path = "screenshot_macos.rs"]
+mod macos;
+
 use crate::models::ScreenshotResult;
 use crate::utils::AppResult;
 use std::path::{Path, PathBuf};
@@ -56,6 +60,15 @@ impl ScreenshotService {
         Self
     }
 
+    #[cfg(target_os = "macos")]
+    pub fn trigger_macos(
+        app: tauri::AppHandle,
+        retention_days: u32,
+        capturing: &'static std::sync::atomic::AtomicBool,
+    ) {
+        macos::trigger(app, retention_days, capturing);
+    }
+
     /// 截图保存目录：~/.cc-panes/screenshots/
     pub fn screenshots_dir() -> PathBuf {
         let dir = crate::utils::app_config_dir().join("screenshots");
@@ -112,14 +125,29 @@ impl ScreenshotService {
         std::fs::create_dir_all(save_dir)
             .map_err(|e| format!("Failed to create screenshots dir: {}", e))?;
 
-        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f");
-        let filename = format!("screenshot_{}.png", timestamp);
-        let file_path = save_dir.join(&filename);
+        let file_path = Self::new_screenshot_path(save_dir);
 
         img.save(&file_path)
             .map_err(|e| format!("Failed to save screenshot: {}", e))?;
 
         let result = Self::build_result(&file_path, img.width(), img.height());
+        Self::schedule_cleanup(save_dir, retention_days);
+        Ok(result)
+    }
+
+    fn new_screenshot_path(save_dir: &Path) -> PathBuf {
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f");
+        save_dir.join(format!(
+            "screenshot_{}_{}.png",
+            timestamp,
+            uuid::Uuid::new_v4()
+        ))
+    }
+
+    fn schedule_cleanup(save_dir: &Path, retention_days: u32) {
+        if retention_days == 0 {
+            return;
+        }
         let cleanup_dir = save_dir.to_path_buf();
         if let Err(error) = std::thread::Builder::new()
             .name("ccpanes-screenshot-cleanup".to_string())
@@ -133,8 +161,6 @@ impl ScreenshotService {
             // make the skipped retention work visible for the next run.
             error!("Failed to start screenshot cleanup thread: {}", error);
         }
-
-        Ok(result)
     }
 
     pub fn save_terminal_paste_image(
@@ -168,7 +194,7 @@ impl ScreenshotService {
         let img_width = img.width();
         let img_height = img.height();
 
-        if x + w > img_width || y + h > img_height {
+        if x > img_width || y > img_height || w > img_width - x || h > img_height - y {
             return Err(format!(
                 "Crop region ({},{},{},{}) exceeds image bounds ({}x{})",
                 x, y, w, h, img_width, img_height
@@ -236,6 +262,32 @@ mod tests {
             std::path::Path::new(&result.file_path).exists(),
             "saved image should exist on disk"
         );
+    }
+
+    #[test]
+    fn screenshot_paths_do_not_collide_within_the_same_millisecond() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths: std::collections::HashSet<_> = (0..100)
+            .map(|_| ScreenshotService::new_screenshot_path(temp.path()))
+            .collect();
+        assert_eq!(paths.len(), 100);
+    }
+
+    #[test]
+    fn crop_bounds_reject_integer_overflow_without_panicking() {
+        let image = image::RgbaImage::new(2, 2);
+        for (x, y, w, h) in [
+            (u32::MAX, 0, 1, 1),
+            (1, 0, u32::MAX, 1),
+            (0, u32::MAX, 1, 1),
+            (0, 1, 1, u32::MAX),
+        ] {
+            let result = ScreenshotService::save_cropped(&image, x, y, w, h, 0);
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds image bounds"));
+        }
     }
 
     #[test]

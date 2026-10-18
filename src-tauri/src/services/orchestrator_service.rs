@@ -2380,7 +2380,25 @@ impl OrchestratorService {
                     let level_scan_state = state.clone();
                     let directive_runtime = DirectiveRuntime::from_app_state(&state);
                     let directive_transitions = state.session_state_machine.subscribe_transitions();
-                    let app = build_router(state);
+                    // W8 门禁状态由 lib.rs manage（带设置 / 台账 / 事件）；拿不到就挂一个
+                    // 永远透传的替身，路由存在但不生效，ctl 侧表现为"门禁关"。
+                    let heavy_jobs = state
+                        .app_handle
+                        .try_state::<Arc<crate::services::HeavyJobGateState>>()
+                        .map(|shared| shared.inner().clone())
+                        .unwrap_or_else(|| {
+                            warn!(
+                                "[orchestrator] heavy job gate state missing; routes passthrough"
+                            );
+                            Arc::new(crate::services::HeavyJobGateState::new(
+                                state.token.clone(),
+                                Arc::new(
+                                    crate::services::heavy_job_routes::DisabledHeavyJobEnvironment,
+                                ),
+                            ))
+                        });
+                    heavy_jobs.spawn_reaper();
+                    let app = build_router(state, heavy_jobs);
 
                     tokio::spawn(run_pending_report_level_scan(level_scan_state));
                     tokio::spawn(run_pending_directive_level_scan(directive_runtime.clone()));
@@ -2442,7 +2460,7 @@ impl OrchestratorService {
 
 const TASK_QUEUE_PERMISSION_REQUEST_PATH: &str = "/api/task-queue/permission-request";
 
-fn build_router(state: AppState) -> Router {
+fn build_router(state: AppState, heavy_jobs: Arc<crate::services::HeavyJobGateState>) -> Router {
     use rmcp::transport::streamable_http_server::{
         session::local::LocalSessionManager, StreamableHttpService,
     };
@@ -2511,6 +2529,11 @@ fn build_router(state: AppState) -> Router {
         .route("/api/plan/search", post(handle_plan_search))
         .route("/api/plan/archive", post(handle_plan_set_archived))
         .route("/api/health", get(handle_health))
+        // W8 重负载门禁：独立小路由，自带 Bearer 校验；WSL 会话也只能到这里（到不了 daemon）
+        .nest_service(
+            "/api/heavy-jobs",
+            crate::services::heavy_job_routes::router(heavy_jobs),
+        )
         .nest_service("/mcp", mcp_service)
         .nest_service("/mcp-full", mcp_full_service)
         .layer(middleware::from_fn(inject_mcp_accept_headers))
@@ -11696,6 +11719,15 @@ async fn handle_hook_event(
         }
     };
 
+    // 重负载命令台账（docs/107 P2b）：Bash 的 ToolBefore/ToolAfter 在状态机之前入队。
+    // 微秒级 try_send，不等 SQLite；recorder 未起（极早期）时直接跳过。
+    if let Some(recorder) = state
+        .app_handle
+        .try_state::<Arc<crate::services::HeavyCommandRecorder>>()
+    {
+        recorder.record_hook_event(&req.pty_session_id, &event, &req.payload);
+    }
+
     let (from, to) = state.session_state_machine.on_event(
         &req.pty_session_id,
         &event,
@@ -14531,6 +14563,11 @@ mod tests {
             current_tool_summary: None,
             updated_at: 0,
             osc_progress: None,
+            resource_policy: None,
+            job_memory_warning: None,
+            runtime_kind: None,
+            wsl_distro: None,
+            heavy_queue: None,
         }
     }
 
@@ -17333,6 +17370,11 @@ mod tests {
                 current_tool_summary: None,
                 updated_at: 0,
                 osc_progress: None,
+                resource_policy: None,
+                job_memory_warning: None,
+                runtime_kind: None,
+                wsl_distro: None,
+                heavy_queue: None,
             });
         }
 
@@ -17374,6 +17416,11 @@ mod tests {
                 current_tool_summary: None,
                 updated_at: 0,
                 osc_progress: None,
+                resource_policy: None,
+                job_memory_warning: None,
+                runtime_kind: None,
+                wsl_distro: None,
+                heavy_queue: None,
             });
             Ok(session_id)
         }

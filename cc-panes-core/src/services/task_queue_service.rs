@@ -542,6 +542,11 @@ mod unattended_responder_tests {
                 current_tool_summary: None,
                 updated_at: 0,
                 osc_progress: None,
+                resource_policy: None,
+                job_memory_warning: None,
+                runtime_kind: None,
+                wsl_distro: None,
+                heavy_queue: None,
             }))
         }
 

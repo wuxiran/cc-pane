@@ -38,11 +38,13 @@ describe("macOS native menu block decision", () => {
   const { resolveNativeMenuBlock } = terminalViewHelpers;
 
   // 回归护栏：这一条挂了就说明 mac 右键菜单又被掐死了。
-  it("lets contextmenu keep propagating so the Radix menu can open", () => {
-    expect(resolveNativeMenuBlock({ eventType: "contextmenu", button: 2, isMac: true })).toEqual({
-      blocked: true,
-      stopPropagation: false,
-    });
+  // contextmenu 连 preventDefault 都不能做：Radix 见 defaultPrevented 就不开菜单。
+  it("leaves contextmenu untouched so the Radix menu can open", () => {
+    for (const ctrlKey of [false, true]) {
+      expect(
+        resolveNativeMenuBlock({ eventType: "contextmenu", button: 2, ctrlKey, isMac: true }),
+      ).toEqual({ blocked: false, stopPropagation: false });
+    }
   });
 
   it("still swallows the non-contextmenu triggers entirely", () => {

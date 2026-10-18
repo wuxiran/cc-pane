@@ -9,6 +9,7 @@ import {
   Camera,
   Cloud,
   FlaskConical,
+  Gauge,
   Globe,
   Image,
   Info,
@@ -64,6 +65,7 @@ export type SettingsPaneId =
   | "proxy"
   | "web-access"
   | "notification"
+  | "performance"
   | "im-bridge"
   | "screenshot"
   | "voice"
@@ -148,7 +150,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     icon: Globe,
     titleKey: "pages.system.title",
     group: "services",
-    paneIds: ["proxy", "web-access", "notification", "im-bridge", "screenshot", "voice"],
+    paneIds: ["proxy", "web-access", "notification", "im-bridge", "screenshot", "voice", "performance"],
   },
   {
     id: "ccchan",
@@ -281,7 +283,6 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
       { id: "task-queue", titleKey: "taskQueueEnabled", descriptionKey: "taskQueueEnabledHint", targetSectionId: "terminal-task-queue" },
       { id: "split-passthrough", titleKey: "splitShortcutPassthrough", descriptionKey: "splitShortcutPassthroughHint", targetSectionId: "terminal-split-passthrough" },
       { id: "shell", titleKey: "shellAutoDetect", targetSectionId: "terminal-shell" },
-      { id: "session-priority", titleKey: "lowerSessionPriority", descriptionKey: "lowerSessionPriorityHint", targetSectionId: "terminal-root" },
       { id: "daemon", titleKey: "terminalDaemon", descriptionKey: "terminalDaemonHint", targetSectionId: "terminal-root" },
     ],
   },
@@ -353,6 +354,16 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   { id: "proxy", icon: Globe, titleKey: "proxy", page: "system", searchEntries: [
     { id: "connection", titleKey: "proxyTitle", keywordsKey: "searchKeywords.proxy", targetSectionId: "proxy-root" },
     { id: "server", titleKey: "enableProxy", descriptionKey: "excludeListHint", targetSectionId: "proxy-server" },
+  ] },
+  { id: "performance", icon: Gauge, titleKey: "performance.title", descriptionKey: "performance.description", page: "system", searchEntries: [
+    { id: "build", titleKey: "performance.buildGroup", descriptionKey: "performance.buildParallelismEnabledHint", keywordsKey: "searchKeywords.performance", targetSectionId: "performance-build" },
+    { id: "codex", titleKey: "performance.codexGroup", descriptionKey: "performance.codexLightweightEnabledHint", targetSectionId: "performance-codex" },
+    { id: "heavy-gate", titleKey: "performance.heavyGateGroup", descriptionKey: "performance.heavyGateEnabledHint", targetSectionId: "performance-heavy-gate" },
+    { id: "heavy-ledger", titleKey: "performance.heavyLedgerGroup", descriptionKey: "performance.heavyLedgerEnabledHint", targetSectionId: "performance-heavy-ledger" },
+    { id: "session-priority", titleKey: "lowerSessionPriority", descriptionKey: "lowerSessionPriorityHint", targetSectionId: "performance-session-policy" },
+    { id: "session-cpu-weight", titleKey: "performance.sessionCpuWeight", descriptionKey: "performance.sessionCpuWeightHint", targetSectionId: "performance-session-policy" },
+    { id: "wsl-quota", titleKey: "performance.wslQuotaGroup", descriptionKey: "performance.wslQuotaEnabledHint", targetSectionId: "performance-wsl-quota" },
+    { id: "parking", titleKey: "performance.parkingGroup", descriptionKey: "performance.parkedTerminalLimitHint", targetSectionId: "performance-parking" },
   ] },
   { id: "web-access", icon: Wifi, titleKey: "webAccessTitle", descriptionKey: "webAccessDescription", page: "system", searchEntries: [
     { id: "remote", titleKey: "webAccessTitle", keywordsKey: "searchKeywords.webAccess", targetSectionId: "web-access-root" },

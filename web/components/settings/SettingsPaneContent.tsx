@@ -16,6 +16,7 @@ const GeneralSection = lazyWithRetry(() => import("./GeneralSection"), "GeneralS
 const ImSection = lazyWithRetry(() => import("./ImSection"), "ImSection");
 const ModulesSection = lazyWithRetry(() => import("./ModulesSection"), "ModulesSection");
 const NotificationSection = lazyWithRetry(() => import("./NotificationSection"), "NotificationSection");
+const PerformanceSection = lazyWithRetry(() => import("./PerformanceSection"), "PerformanceSection");
 const ProviderSection = lazyWithRetry(() => import("./ProviderSection"), "ProviderSection");
 const ProxySection = lazyWithRetry(() => import("./ProxySection"), "ProxySection");
 const QuickCommandsSection = lazyWithRetry(() => import("./QuickCommandsSection"), "QuickCommandsSection");
@@ -97,6 +98,15 @@ function Pane({ paneId, draft, updateDraft, onUnsavedChangesChange }: SettingsPa
       return <AutomationsSection />;
     case "terminal":
       return <TerminalSection value={draft.terminal} onChange={(terminal) => updateDraft({ ...draft, terminal })} />;
+    case "performance":
+      return (
+        <PerformanceSection
+          value={draft.performance}
+          onChange={(performance) => updateDraft({ ...draft, performance })}
+          terminal={draft.terminal}
+          onTerminalChange={(terminal) => updateDraft({ ...draft, terminal })}
+        />
+      );
     case "quick-terminal":
       return <QuickTerminalSection value={draft.quickTerminal} onChange={(quickTerminal) => updateDraft({ ...draft, quickTerminal })} />;
     case "voice":

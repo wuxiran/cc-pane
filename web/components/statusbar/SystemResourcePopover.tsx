@@ -1,11 +1,14 @@
-import { ChevronDown, ChevronRight, RefreshCw, SquareTerminal, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, RefreshCw, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePanelResize } from "@/hooks/usePanelResize";
 import { usePanelPreferencesStore, type ResourceSortMode } from "@/stores/usePanelPreferencesStore";
 import { sortResourceGroups } from "./resourceSorting";
+import { HeavyCommandsTab } from "./HeavyCommandsTab";
+import { SystemResourceSessionRow } from "./SystemResourceSessionRow";
+import { TopProcessesBlock } from "./TopProcessesBlock";
+import { useResourcePopoverStore } from "@/stores/useResourcePopoverStore";
 
-import StatusIndicator from "@/components/StatusIndicator";
 import { Button } from "@/components/ui/button";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { PopoverContent } from "@/components/ui/popover";
@@ -59,6 +62,9 @@ interface SystemResourcePopoverProps {
   onKillOrphans: () => void;
 }
 
+/** 弹层标签：进程视图（原有）/ 最贵命令（台账聚合，只在打开时拉取）。 */
+export type ResourcePopoverTab = "processes" | "commands";
+
 function formatGib(bytes: number): string {
   const value = Math.round((bytes / 1024 ** 3) * 10) / 10;
   return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
@@ -99,6 +105,10 @@ export function SystemResourcePopover({
   const setSort = usePanelPreferencesStore(s => s.setResourceSort);
   const resize = usePanelResize({ element: panelRef, width, min: 430, max: 960, direction: -1, onCommit: setWidth });
   const displayGroups = useMemo(() => sortResourceGroups(groups, sort, t("resourceTopUsage")), [groups, sort, t]);
+  const [tab, setTab] = useState<ResourcePopoverTab>("processes");
+  // 从标签琥珀点进来：高亮那一行；再打开时不残留
+  const highlightSessionId = useResourcePopoverStore(s => s.highlightSessionId);
+  useEffect(() => () => useResourcePopoverStore.getState().clearHighlight(), []);
 
   return (
     <PopoverContent ref={panelRef} side="top" align="end" sideOffset={6} className="relative p-0" style={{ width, maxWidth: "calc(100vw - 16px)" }}>
@@ -125,12 +135,33 @@ export function SystemResourcePopover({
         </IconTooltipButton>
       </div>
 
-      <div className="flex items-center justify-end border-b border-[var(--app-border)] px-3 py-1">
-        <select aria-label={t("resourceSort")} value={sort} onChange={e => setSort(e.target.value as ResourceSortMode)} className="rounded bg-[var(--app-panel-bg)] px-2 py-1 text-xs">
-          <option value="group">{t("resourceSortGroup")}</option><option value="cpu">{t("resourceSortCpu")}</option><option value="memory">{t("resourceSortMemory")}</option>
-        </select>
+      <div className="flex items-center gap-1 border-b border-[var(--app-border)] px-3 py-1">
+        <div role="tablist" aria-label={t("resourceTabs")} className="flex flex-1 items-center gap-1">
+          {(["processes", "commands"] as const).map((id) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              className={`rounded px-2 py-1 text-xs ${tab === id ? "bg-[var(--app-active-bg)] text-[var(--app-text-primary)]" : "text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"}`}
+              onClick={() => setTab(id)}
+            >
+              {t(id === "processes" ? "resourceTabProcesses" : "resourceTabCommands")}
+            </button>
+          ))}
+        </div>
+        {tab === "processes" && (
+          <select aria-label={t("resourceSort")} value={sort} onChange={e => setSort(e.target.value as ResourceSortMode)} className="rounded bg-[var(--app-panel-bg)] px-2 py-1 text-xs">
+            <option value="group">{t("resourceSortGroup")}</option><option value="cpu">{t("resourceSortCpu")}</option><option value="memory">{t("resourceSortMemory")}</option>
+          </select>
+        )}
       </div>
 
+      {tab === "commands" ? (
+        <div className="max-h-[430px] overflow-y-auto">
+          <HeavyCommandsTab active />
+        </div>
+      ) : (
       <div className="max-h-[430px] overflow-y-auto p-2">
         <div className="mb-1 px-1 text-[11px] font-semibold text-[var(--app-text-tertiary)]">
           {t("resourceManagerManagedSessions")}
@@ -156,129 +187,27 @@ export function SystemResourcePopover({
                     {formatCpu(group.cpuPercent)} · {formatSize(group.memoryBytes)}
                   </span>
                 </button>
-                {!collapsed && group.sessions.map((session) => {
-                  const armed = armedSessionId === session.sessionId;
-                  const killing = killingSessionId === session.sessionId;
-                  const processes = session.processes ?? [];
-                  // 旧后端不返回明细字段；此时退回成"没有可展开的东西"，不显示假的展开箭头。
-                  const expandable = processes.length > 0;
-                  const expanded = expandable && expandedSessionIds.has(session.sessionId);
-                  return (
-                    <div key={session.sessionId}>
-                    <div className="group flex h-8 items-center gap-1 pl-2 pr-1">
-                      {expandable ? (
-                        <button
-                          type="button"
-                          aria-expanded={expanded}
-                          aria-label={t(
-                            expanded
-                              ? "resourceManagerCollapseProcesses"
-                              : "resourceManagerExpandProcesses",
-                            { name: session.title },
-                          )}
-                          className="flex size-4 shrink-0 items-center justify-center rounded text-[var(--app-text-tertiary)] hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
-                          onClick={() => onToggleSessionProcesses(session.sessionId)}
-                        >
-                          {expanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-                        </button>
-                      ) : (
-                        <span className="size-4 shrink-0" aria-hidden />
-                      )}
-                      <button
-                        type="button"
-                        aria-label={`${session.adoptable ? t("resourceManagerAdopt") : t("resourceManagerFocusSession")}: ${session.title}`}
-                        title={
-                          session.claimBlocked
-                            ? t("resourceManagerAdoptClaimed")
-                            : session.adoptable
-                              ? t("resourceManagerAdopt")
-                              : `${session.title}\n${session.workspaceName}`
-                        }
-                        className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-1 text-left hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
-                        disabled={session.claimBlocked}
-                        onClick={() => onFocusSession(session.sessionId)}
-                      >
-                        <StatusIndicator status={session.status} toolName={session.toolName} size={7} />
-                        <SquareTerminal className="size-3.5 shrink-0 text-[var(--app-text-tertiary)]" />
-                        <span className="shrink-0 text-[10px] uppercase text-[var(--app-text-tertiary)]">
-                          {session.cliTool === "none" ? "CLI" : session.cliTool}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-xs text-[var(--app-text-primary)]">
-                          {session.title}
-                        </span>
-                        {/* 数字本来就是整棵进程树的聚合，但只显示 CPU/内存时"含不含子进程"完全看不出来。 */}
-                        {session.processCount > 1 && (
-                          <span className="shrink-0 rounded bg-[var(--app-hover)] px-1 text-[10px] tabular-nums text-[var(--app-text-tertiary)]">
-                            {t("resourceManagerProcessCount", { count: session.processCount })}
-                          </span>
-                        )}
-                        <span className="w-10 shrink-0 text-right text-[11px] tabular-nums text-[var(--app-text-secondary)]">
-                          {formatCpu(session.cpuPercent)}
-                        </span>
-                        <span className="w-[58px] shrink-0 text-right text-[11px] tabular-nums text-[var(--app-text-secondary)]">
-                          {formatSize(session.memoryBytes)}
-                        </span>
-                      </button>
-                      {armed ? (
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          className="h-6 px-2 text-[11px]"
-                          disabled={killing}
-                          onClick={() => onKillSession(session.sessionId)}
-                        >
-                          {t("resourceManagerConfirmEnd")}
-                        </Button>
-                      ) : (
-                        <IconTooltipButton
-                          label={t("resourceManagerEndSessionNamed", { name: session.title })}
-                          className="h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-[var(--app-status-danger-bg)] hover:text-[var(--app-status-danger)]"
-                          onClick={() => onArmSession(session.sessionId)}
-                        >
-                          <X className="size-3.5" />
-                        </IconTooltipButton>
-                      )}
-                    </div>
-                    {expanded && (
-                      <div className="mb-1">
-                        {processes.map((process) => (
-                          <div
-                            key={process.pid}
-                            className="flex min-h-6 items-center gap-2 pl-9 pr-2 text-[11px]"
-                          >
-                            <span
-                              className="min-w-0 flex-1 truncate text-[var(--app-text-secondary)]"
-                              title={process.command}
-                            >
-                              {process.name}
-                            </span>
-                            <span className="shrink-0 tabular-nums text-[var(--app-text-tertiary)]">
-                              PID {process.pid} · {formatCpu(process.cpuPercent)} · {formatSize(process.memoryBytes)}
-                            </span>
-                          </div>
-                        ))}
-                        {/* 截断必须可见：不说"另有 N 个"，用户会以为上面就是全部。 */}
-                        {session.truncated && (
-                          <div className="flex min-h-6 items-center gap-2 pl-9 pr-2 text-[11px] text-[var(--app-text-tertiary)]">
-                            <span className="min-w-0 flex-1 truncate italic">
-                              {t("resourceManagerMoreProcesses", {
-                                count: session.truncated.processCount,
-                              })}
-                            </span>
-                            <span className="shrink-0 tabular-nums">
-                              {formatCpu(session.truncated.cpuPercent)} · {formatSize(session.truncated.memoryBytes)}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    </div>
-                  );
-                })}
+                {!collapsed && group.sessions.map((session) => (
+                  <SystemResourceSessionRow
+                    key={session.sessionId}
+                    session={session}
+                    armed={armedSessionId === session.sessionId}
+                    killing={killingSessionId === session.sessionId}
+                    expanded={expandedSessionIds.has(session.sessionId)}
+                    highlighted={highlightSessionId === session.sessionId}
+                    onToggleProcesses={onToggleSessionProcesses}
+                    onFocus={onFocusSession}
+                    onArm={onArmSession}
+                    onKill={onKillSession}
+                  />
+                ))}
               </div>
             );
           })
         )}
+
+        {/* 会话之外：整机高负载但受管会话都不重时，元凶在外面。只读。 */}
+        <TopProcessesBlock topProcesses={tree?.topProcesses} />
 
         <div className="mt-2 border-t border-[var(--app-border)] pt-2">
           <div className="flex min-h-8 items-center gap-1 px-1">
@@ -331,6 +260,7 @@ export function SystemResourcePopover({
           ))}
         </div>
       </div>
+      )}
     </PopoverContent>
   );
 }

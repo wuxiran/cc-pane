@@ -1,4 +1,8 @@
 import type { ThemeShape } from "@/theme/themeShapes";
+import type { PerformanceSettings } from "./performanceSettings";
+
+export type { PerformanceSettings } from "./performanceSettings";
+export { DEFAULT_PERFORMANCE_SETTINGS, PERFORMANCE_LIMITS } from "./performanceSettings";
 
 /** 应用设置 */
 export interface AppSettings {
@@ -24,6 +28,8 @@ export interface AppSettings {
   wallpaper: WallpaperSettings;
   im: ImSettings;
   experimental: ExperimentalSettings;
+  /** 性能专项（docs/107）：构建并行度 / Codex 轻量 / 门禁 / 台账 / WSL 配额 / 停泊 */
+  performance: PerformanceSettings;
 }
 
 /** 实验功能开关（镜像 cc-panes-core ExperimentalSettings）。默认全关；
@@ -474,4 +480,20 @@ export interface TerminalStatusInfo {
   updatedAt: number;
   /** OSC 9;4 进度徽章；undefined/null = 无信号（已清除或 TTL 衰减）。 */
   oscProgress?: OscProgressBadge | null;
+  /** 会话资源策略下发结果（0.12.22）；旧后端不返回，必须容忍缺失。 */
+  resourcePolicy?: import("./systemStats").ResourcePolicyStatus | null;
+  /** Job 内存通知水位越线（W5）；回落后后端清除，字段消失。旧后端不返回。 */
+  jobMemoryWarning?: import("./systemStats").JobMemoryWarning | null;
+  /** `local` / `wsl` / `ssh`；旧后端不返回。 */
+  runtimeKind?: string | null;
+  /** WSL 会话的发行版名（W6）；非 WSL / 旧后端不返回。 */
+  wslDistro?: string | null;
+  /** 重负载门禁排队位次（0.12.22 W8）；undefined/null = 不在排队。 */
+  heavyQueue?: HeavyQueueStatus | null;
+}
+
+/** 排队位次：1-based position / 队列总长 total。 */
+export interface HeavyQueueStatus {
+  position: number;
+  total: number;
 }

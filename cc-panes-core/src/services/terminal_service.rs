@@ -2,8 +2,9 @@ use crate::constants::events as EV;
 use crate::events::{EventEmitter, SessionNotifier};
 use crate::models::shared_mcp::SharedMcpConfig;
 use crate::models::{
-    CliTool, CreateSessionRequest, LaunchProfile, LaunchProfileMcpMode, LaunchProfileSkillMode,
-    LaunchProviderSelection, SshConnectionInfo, StoreCheckpointOutcome, TerminalBufferMode,
+    CliTool, CreateSessionRequest, JobMemoryWarning, LaunchProfile, LaunchProfileMcpMode,
+    LaunchProfileSkillMode, LaunchProviderSelection, PolicyOutcome, ResourcePolicyStatus,
+    SessionResourcePolicy, SshConnectionInfo, StoreCheckpointOutcome, TerminalBufferMode,
     TerminalCheckpoint, TerminalDeltaResize, TerminalExit, TerminalGeometry, TerminalOutput,
     TerminalOutputFlowStat, TerminalRecoverySnapshot, TerminalReplaySnapshot, WslLaunchInfo,
 };
@@ -664,6 +665,37 @@ pub struct SessionStatusInfo {
     /// `None` = 当前无 OSC 进度信号（已清除或 TTL 衰减）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub osc_progress: Option<OscProgressBadge>,
+    /// 会话资源策略的下发结果（0.12.22，docs/45：降级必须可见）。
+    /// `None` = 不涉及（SSH）/ 未知 / 对端是 0.12.21 的 daemon。
+    /// **新增 `SessionStatusInfo` 字段必须同时加进两处去重**：
+    /// `terminal_daemon_event_bridge.rs::same_status_payload` 与
+    /// `useTerminalStatusStore.ts` 的事件去重。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_policy: Option<ResourcePolicyStatus>,
+    /// Job 内存通知水位越线（W5）。`None` = 未越线 / 已回落 / 未设水位 / 旧 daemon。
+    /// 同样参与两处去重。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_memory_warning: Option<JobMemoryWarning>,
+    /// 运行时种类（`local` / `wsl` / `ssh`），资源管理器据此认出 WSL 根去读 cgroup。
+    /// `None` = 旧 daemon / 已退出会话的 dead buffer。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_kind: Option<String>,
+    /// WSL 会话的发行版名（W6 cgroup 读数要按发行版批量读）。非 WSL / 旧 daemon 为 `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wsl_distro: Option<String>,
+    /// 重负载门禁排队位次（0.12.22 W8）。`None` = 不在排队。
+    /// 门禁本体在 app 侧（orchestrator），当前通过 Tauri 事件 `heavy-queue-changed` 直达前端；
+    /// 本字段是状态契约的保留位（daemon 侧门禁 / P7 回填时用），同样受两处去重约束。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heavy_queue: Option<HeavyQueueStatus>,
+}
+
+/// 排队位次：1-based `position` / 队列总长 `total`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeavyQueueStatus {
+    pub position: u32,
+    pub total: u32,
 }
 
 /// OSC 9;4 子状态（可序列化，跨界传给前端做徽章动画）。
@@ -1170,6 +1202,8 @@ struct TerminalSession {
     launch_id: Option<String>,
     project_path: String,
     runtime_kind: String,
+    /// WSL 发行版（runtime_kind == "wsl" 时有值），随状态上报给资源管理器。
+    wsl_distro: Option<String>,
     /// 这条会话跑的是哪个 CLI。submit 时据此判断目标是不是带 composer 的 TUI——
     /// 纯 shell 与 TUI agent 对「多行文本里的换行」期待相反。
     cli_tool: CliTool,
@@ -1375,6 +1409,22 @@ pub struct TerminalService {
     /// 生命周期：read 线程写入、build_session_status_info 读取（含 TTL 衰减）、
     /// 会话结束（wait 线程 / kill）清条目。
     osc_progress_store: Arc<parking_lot::RwLock<HashMap<String, OscProgressEntry>>>,
+    /// 会话资源策略下发结果（spawn 时从 `PtySpawnResult` 带回，`set_resource_policy` 更新），
+    /// 由 `build_session_status_info` 注入状态；生命周期同 `osc_progress_store`。
+    resource_policy_store: Arc<parking_lot::RwLock<HashMap<String, ResourcePolicyStatus>>>,
+    /// Job 内存通知越线（W5）：完成端口监听线程写入、`clear_job_memory_warning` 清除并
+    /// 重新武装水位；生命周期同上两个旁路存储。
+    job_memory_warning_store: Arc<parking_lot::RwLock<HashMap<String, JobMemoryWarning>>>,
+}
+
+/// Job 越线回调推状态时需要的会话上下文；spawn 之后才齐，故用 OnceLock 延迟填充。
+/// 回调在上下文就位前触发（理论上只有微秒级窗口）就只落存储不推事件，由下一次
+/// 常规状态发射自然带出。
+struct JobMemoryEmitContext {
+    status: Arc<Mutex<SessionStatus>>,
+    pid: u32,
+    runtime_kind: String,
+    wsl_distro: Option<String>,
 }
 
 struct SshAuthRuntime {
@@ -1739,6 +1789,9 @@ fn current_epoch_millis() -> u64 {
         .as_millis() as u64
 }
 
+// 两条旁路存储（OSC 徽章 / 资源策略）各自一参：与 history_repo 同款豁免，
+// 合成结构体只会把 8 个 clone 点改成 8 个 struct 字面量，可读性不升反降。
+#[allow(clippy::too_many_arguments)]
 fn build_session_status_info(
     session_id: String,
     status: SessionStatus,
@@ -1747,7 +1800,13 @@ fn build_session_status_info(
     exit_code: Option<i32>,
     state_machine: Option<&Arc<crate::services::SessionStateMachine>>,
     osc_store: Option<&parking_lot::RwLock<HashMap<String, OscProgressEntry>>>,
+    policy_store: Option<&parking_lot::RwLock<HashMap<String, ResourcePolicyStatus>>>,
+    memory_store: Option<&parking_lot::RwLock<HashMap<String, JobMemoryWarning>>>,
+    runtime_kind: Option<&str>,
+    wsl_distro: Option<&str>,
 ) -> SessionStatusInfo {
+    let resource_policy = policy_store.and_then(|store| store.read().get(&session_id).cloned());
+    let job_memory_warning = memory_store.and_then(|store| store.read().get(&session_id).copied());
     let snapshot = state_machine.and_then(|sm| sm.snapshot(&session_id));
     let effective_status = state_machine
         .map(|sm| sm.status_for_query(&session_id, status))
@@ -1788,6 +1847,11 @@ fn build_session_status_info(
             .map(|entry| entry.updated_at)
             .unwrap_or(last_output_at),
         osc_progress,
+        resource_policy,
+        job_memory_warning,
+        runtime_kind: runtime_kind.map(str::to_string),
+        wsl_distro: wsl_distro.map(str::to_string),
+        heavy_queue: None,
     }
 }
 
@@ -1867,6 +1931,8 @@ impl TerminalService {
             workspace_service: parking_lot::RwLock::new(None),
             input_mutexes: Arc::new(Mutex::new(HashMap::new())),
             osc_progress_store: Arc::new(parking_lot::RwLock::new(HashMap::new())),
+            resource_policy_store: Arc::new(parking_lot::RwLock::new(HashMap::new())),
+            job_memory_warning_store: Arc::new(parking_lot::RwLock::new(HashMap::new())),
         }
     }
 
@@ -2161,6 +2227,14 @@ impl TerminalService {
         }
 
         let mut env = self.settings_service.get_proxy_env_vars();
+        // Pi RPC 子进程也是本机构建/搜索的发起方：同一套并行度环境，同一条不覆盖规则。
+        let rpc_perf_plan = crate::utils::build_perf_env(
+            &self.settings_service.get_settings().performance,
+            crate::models::performance_settings::logical_cores(),
+            self.app_paths.data_dir(),
+            crate::utils::PerfEnvRuntime::Local,
+        );
+        crate::utils::apply_perf_env(&mut env, &rpc_perf_plan);
         if let Some(extra_env) = request.extra_env.as_ref() {
             for (key, value) in extra_env {
                 if Self::is_valid_env_key(key) {
@@ -2533,6 +2607,21 @@ impl TerminalService {
                 adapter_options.insert(key.clone(), value.clone());
             }
         }
+        // `[performance]` 一次读齐：Codex 轻量开关经 adapter options 下发（profile /
+        // request 显式给了同名键则尊重），并行度环境在后面 spawn 前注入。
+        let performance_settings = self.settings_service.get_settings().performance;
+        if cli_tool == CliTool::Codex {
+            adapter_options
+                .entry(cc_cli_adapters::CODEX_LIGHTWEIGHT_OPTION.to_string())
+                .or_insert(serde_json::Value::Bool(
+                    performance_settings.codex_lightweight_enabled,
+                ));
+            adapter_options
+                .entry(cc_cli_adapters::CODEX_LOW_SPEC_OPTION.to_string())
+                .or_insert(serde_json::Value::Bool(
+                    performance_settings.codex_low_spec_mode,
+                ));
+        }
         if cli_tool == CliTool::Pi
             && PiAdapterOptions::from_adapter_options(&adapter_options)
                 .map_err(|error| anyhow!("Invalid Pi launch options: {error}"))?
@@ -2831,6 +2920,23 @@ impl TerminalService {
         // 整条会话跑在 LC_CTYPE=C 下，多字节文本的字符数与显示宽度都会算错。
         // 已经是 UTF-8 则不动——判据与 WSL Codex 那条路径一致。
         crate::utils::ensure_utf8_locale(&mut env_vars);
+        // 并行度环境（docs/107 P2）：CARGO_BUILD_JOBS / MAKEFLAGS / … / RIPGREP_CONFIG_PATH。
+        // 用户进程环境或启动档里已有的键不覆盖；SSH 不带路径键（远端没有 rgrc）。
+        // 实际写入的键记下来，WSL 分支据此追加 WSLENV 条目。
+        let perf_env_runtime = if ssh.is_some() {
+            crate::utils::PerfEnvRuntime::Ssh
+        } else if wsl.is_some() {
+            crate::utils::PerfEnvRuntime::Wsl
+        } else {
+            crate::utils::PerfEnvRuntime::Local
+        };
+        let perf_env_plan = crate::utils::build_perf_env(
+            &performance_settings,
+            crate::models::performance_settings::logical_cores(),
+            self.app_paths.data_dir(),
+            perf_env_runtime,
+        );
+        let perf_env_applied_keys = crate::utils::apply_perf_env(&mut env_vars, &perf_env_plan);
         env_vars.insert("CC_PANES_PTY_SESSION_ID".to_string(), session_id.clone());
         if let Some(workspace_snapshot_id) = workspace_snapshot_id {
             env_vars.insert(
@@ -2969,7 +3075,15 @@ impl TerminalService {
                 // 跑 Windows 那份 exe，它的 127.0.0.1 正好是服务在听的那个）。
                 wsl_keys.push("CC_PANES_CTL/p");
             }
-            let injected = wsl_keys.join(":");
+            let mut wsl_entries = wsl_keys
+                .iter()
+                .map(|key| key.to_string())
+                .collect::<Vec<_>>();
+            // 并行度键：纯数值裸 key；RIPGREP_CONFIG_PATH 是宿主路径，/p 让 WSL 翻成 /mnt/...
+            wsl_entries.extend(crate::utils::perf_env::wslenv_entries(
+                &perf_env_applied_keys,
+            ));
+            let injected = wsl_entries.join(":");
             let merged = match env_vars.get("WSLENV") {
                 Some(existing) if !existing.is_empty() => {
                     format!("{}:{}", existing, injected)
@@ -2986,6 +3100,10 @@ impl TerminalService {
 
         // SSH 模式 vs 本地模式分支
         let mut wsl_rollout_cwd = None;
+        // W6：WSL 配额（systemd scope / nice）的结果，spawn 后覆盖 wsl.exe 那个 Job 的结果。
+        let mut wsl_scope_outcome: Option<PolicyOutcome> = None;
+        // W6：Applied 时实际下发的配额摘要（`CPUWeight=20, MemoryHigh=25%`），进 reason。
+        let mut wsl_scope_summary: Option<String> = None;
         let (cwd, command, args, env_remove, ssh_remote_command) = if let Some(ssh_info) = ssh {
             // 新连接走应用内 SSH2 channel；旧配置缺少认证元数据时保留系统 ssh 回退。
             // 跳过 MCP 注入、Orchestrator 信息注入、--add-dir、--resume、--append-system-prompt
@@ -3004,6 +3122,7 @@ impl TerminalService {
                 &provider_vars,
                 provider.as_ref(),
                 effective_yolo_mode,
+                &env_vars,
             );
             let embedded = self
                 .ssh_connection_service
@@ -3048,6 +3167,8 @@ impl TerminalService {
             }
             strip_wsl_proxy_env_vars(&mut env_vars);
             let mut resolved_wsl = self.resolve_wsl_launch(wsl_info, &session_id)?;
+            wsl_scope_outcome = resolved_wsl.scope_outcome.clone();
+            wsl_scope_summary = resolved_wsl.scope_summary.clone();
             if let Some(cwd) = launch_cwd {
                 self.apply_wsl_launch_cwd(&mut resolved_wsl, cwd)?;
                 wsl_rollout_cwd = resolved_wsl.launch_cwd.clone();
@@ -3526,11 +3647,29 @@ impl TerminalService {
         let (pty_cwd, pty_command, pty_args) = (cwd.clone(), command, args);
 
         // 资源策略随会话启动一次性下发（docs/71）：让窗格里的 cargo/rg 抢不过 UI。
-        let resource_policy = self
+        let mut resource_policy = self
             .settings_service
             .get_settings()
             .terminal
             .resource_policy();
+        // W5：Job 内存**通知**水位 = 百分比 × 物理内存，只对本机进程树有意义
+        // （WSL 根是 wsl.exe、SSH 没有本机进程）。0% = 关。
+        let job_memory_emit_ctx: Arc<std::sync::OnceLock<JobMemoryEmitContext>> =
+            Arc::new(std::sync::OnceLock::new());
+        let on_job_memory_notify = if ssh.is_none() && wsl.is_none() {
+            resource_policy.memory_notify_bytes = SessionResourcePolicy::memory_notify_bytes_for(
+                performance_settings.job_memory_notify_percent,
+                crate::models::performance_settings::total_memory_bytes(),
+            );
+            resource_policy.memory_notify_bytes.map(|_| {
+                self.job_memory_notify_callback(
+                    session_id.clone(),
+                    Arc::clone(&job_memory_emit_ctx),
+                )
+            })
+        } else {
+            None
+        };
 
         let config = PtyConfig {
             cols,
@@ -3541,6 +3680,7 @@ impl TerminalService {
             env: env_vars,
             env_remove,
             resource_policy,
+            on_job_memory_notify,
         };
 
         log_launch_stage(
@@ -3643,6 +3783,23 @@ impl TerminalService {
             );
         }
 
+        // 策略下发结果进状态（docs/45：只 warn 等于静默降级）。SSH 为 None，不写条目。
+        // WSL：Job 管的只是 wsl.exe 壳，真正的配额是 Linux 侧 scope——以它的结果为准。
+        if let Some(outcome) = wsl_scope_outcome
+            .as_ref()
+            .or(spawn_result.policy_outcome.as_ref())
+        {
+            let mut status = ResourcePolicyStatus::from_outcome(outcome, &resource_policy);
+            if matches!(wsl_scope_outcome, Some(PolicyOutcome::Applied)) {
+                // scope 真的建起来了：cgroup 读数可用，Applied 也要把限了什么说出来。
+                status.wsl_scope = true;
+                status.reason = wsl_scope_summary.clone();
+            }
+            self.resource_policy_store
+                .write()
+                .insert(session_id.clone(), status);
+        }
+
         let process = spawn_result.process;
         let mut launch_guard =
             launch_threads::LaunchThreadGuard::new(self, &session_id, process.clone());
@@ -3655,6 +3812,12 @@ impl TerminalService {
 
         // 状态追踪
         let status = Arc::new(Mutex::new(SessionStatus::Active));
+        let _ = job_memory_emit_ctx.set(JobMemoryEmitContext {
+            status: Arc::clone(&status),
+            pid: process.pid(),
+            runtime_kind: runtime_kind.to_string(),
+            wsl_distro: wsl.and_then(|w| w.distro.clone()),
+        });
         let hook_updated_at = Arc::new(Mutex::new(None));
         let exit_code = Arc::new(Mutex::new(None));
         let last_output_at = Arc::new(Mutex::new(Instant::now()));
@@ -3724,6 +3887,7 @@ impl TerminalService {
                     launch_id: launch_id.map(str::to_string),
                     project_path: project_path.to_string(),
                     runtime_kind: runtime_kind.to_string(),
+                    wsl_distro: wsl.and_then(|w| w.distro.clone()),
                     cli_tool,
                     process: Arc::clone(&process),
                     writer_tx: writer_tx.clone(),
@@ -3967,6 +4131,10 @@ impl TerminalService {
             .and_then(|g| g.as_ref().cloned());
         // F5：OSC 9;4 徽章旁路存储 clone 进 read 线程（Progress 信号落盘点）
         let read_osc_store = Arc::clone(&self.osc_progress_store);
+        let read_policy_store = Arc::clone(&self.resource_policy_store);
+        let read_memory_store = Arc::clone(&self.job_memory_warning_store);
+        let read_runtime_kind = runtime_kind.to_string();
+        let read_wsl_distro = wsl.and_then(|w| w.distro.clone());
         let osc_state_machine = read_state_machine.clone().unwrap_or_else(|| {
             osc_fallback_state_machine(
                 read_status.clone(),
@@ -4065,20 +4233,20 @@ impl TerminalService {
                             first_output = false;
                         }
                         #[cfg(windows)]
-                        let output_bytes = sanitize_windows_output(
+                        let output_bytes = &sanitize_windows_output(
                             &buf[..n],
                             &mut sanitize_state,
                             disable_sanitize,
                         );
                         #[cfg(not(windows))]
-                        let output_bytes = buf[..n].to_vec();
+                        let output_bytes = &buf[..n];
 
                         if output_bytes.is_empty() {
                             continue;
                         }
 
                         // UTF-8 安全处理
-                        let data = match utf8_safe_process(&output_bytes, &mut utf8_carry) {
+                        let data = match utf8_safe_process(output_bytes, &mut utf8_carry) {
                             Some(s) => s,
                             None => continue,
                         };
@@ -4126,9 +4294,8 @@ impl TerminalService {
                         }
 
                         // 推断状态
-                        let raw_inferred = infer_status(&data);
-                        let raw_strong_waiting = raw_inferred == SessionStatus::WaitingInput
-                            && inferred_waiting_is_strong(&data);
+                        let (raw_inferred, strong_waiting) = infer_status_with_strength(&data);
+                        let raw_strong_waiting = raw_inferred == SessionStatus::WaitingInput && strong_waiting;
                         let inferred = stabilize_codex_waiting_status(
                             cli_tool,
                             raw_inferred,
@@ -4174,9 +4341,6 @@ impl TerminalService {
                             *prev = new_status;
                         }
 
-                        read_watch.processing("normalize-output");
-                        let normalized_prompt = normalize_prompt_text(&data);
-
                         // 追加到原始 VT 回放缓冲区，并取 push 后的 pushed_seq 作为
                         // 本 chunk 的 end seq——seq 必须与 ReplayBuffer 记账同源
                         // （同一字节流同一计数），锁失败时不产 seq（None）。
@@ -4202,7 +4366,11 @@ impl TerminalService {
                         // 并发 desync**——绝不掐断 VT 序列中段（同 ws_emitter 契约）。
                         // 字节已进 ReplayBuffer，前端走 snapshot 重放补齐。
                         read_watch.processing("batch-send");
-                        match batch_tx.try_send((data.clone(), chunk_end_seq)) {
+                        // Only SSH authentication needs this additional text view.
+                        let normalized_prompt = read_ssh_auth_runtime
+                            .as_ref()
+                            .map(|_| normalize_prompt_text(&data));
+                        match batch_tx.try_send((data, chunk_end_seq)) {
                             Ok(()) => {}
                             Err(std::sync::mpsc::TrySendError::Full(_)) => {
                                 if !read_desync_warned.swap(true, Ordering::Relaxed) {
@@ -4223,7 +4391,9 @@ impl TerminalService {
                             }
                         }
 
-                        if let Some(runtime) = read_ssh_auth_runtime.as_ref() {
+                        if let (Some(runtime), Some(normalized_prompt)) =
+                            (read_ssh_auth_runtime.as_ref(), normalized_prompt)
+                        {
                             if let Ok(mut runtime) = runtime.lock() {
                                 runtime.prompt_buffer.push_str(&normalized_prompt);
                                 if runtime.prompt_buffer.len() > 512 {
@@ -4279,6 +4449,10 @@ impl TerminalService {
                                         None,
                                         read_state_machine.as_ref(),
                                         Some(&read_osc_store),
+                                        Some(&read_policy_store),
+                                        Some(&read_memory_store),
+                                        Some(read_runtime_kind.as_str()),
+                                        read_wsl_distro.as_deref(),
                                     ))
                                     .unwrap_or_default(),
                                 );
@@ -4348,6 +4522,10 @@ impl TerminalService {
             .and_then(|g| g.as_ref().cloned());
         // F5：徽章旁路存储 clone 进 wait 线程（退出时清条目 + 最终状态注入）
         let wait_osc_store = Arc::clone(&self.osc_progress_store);
+        let wait_policy_store = Arc::clone(&self.resource_policy_store);
+        let wait_memory_store = Arc::clone(&self.job_memory_warning_store);
+        let wait_runtime_kind = runtime_kind.to_string();
+        let wait_wsl_distro = wsl.and_then(|w| w.distro.clone());
         let wait_app_paths = self.app_paths.clone();
         crate::pty::thread::spawn_named("cc-panes-pty-wait", move || {
             let waited_exit_code = match process_for_wait.wait() {
@@ -4448,6 +4626,8 @@ impl TerminalService {
             }
             // F5：会话结束清掉徽章旁路条目，最终状态 emit 自然带 None
             wait_osc_store.write().remove(&sid);
+            wait_policy_store.write().remove(&sid);
+            wait_memory_store.write().remove(&sid);
 
             let archive_lines = wait_output_buffer.lock().map(|buffer| buffer.get_recent(0));
             if let Ok(lines) = archive_lines {
@@ -4484,6 +4664,10 @@ impl TerminalService {
                         Some(process_exit_code),
                         wait_state_machine.as_ref(),
                         Some(&wait_osc_store),
+                        Some(&wait_policy_store),
+                        Some(&wait_memory_store),
+                        Some(wait_runtime_kind.as_str()),
+                        wait_wsl_distro.as_deref(),
                     ))
                     .unwrap_or_default(),
                 );
@@ -4720,6 +4904,10 @@ impl TerminalService {
                         .and_then(|guard| guard.as_ref().cloned())
                         .as_ref(),
                     Some(&self.osc_progress_store),
+                    Some(&self.resource_policy_store),
+                    Some(&self.job_memory_warning_store),
+                    Some(session.runtime_kind.as_str()),
+                    session.wsl_distro.as_deref(),
                 )
             })
             .collect())
@@ -4755,6 +4943,10 @@ impl TerminalService {
                         .and_then(|guard| guard.as_ref().cloned())
                         .as_ref(),
                     Some(&self.osc_progress_store),
+                    Some(&self.resource_policy_store),
+                    Some(&self.job_memory_warning_store),
+                    Some(session.runtime_kind.as_str()),
+                    session.wsl_distro.as_deref(),
                 )));
             }
         }
@@ -4781,8 +4973,200 @@ impl TerminalService {
                     .and_then(|guard| guard.as_ref().cloned())
                     .as_ref(),
                 Some(&self.osc_progress_store),
+                Some(&self.resource_policy_store),
+                Some(&self.job_memory_warning_store),
+                None,
+                None,
             )
         }))
+    }
+
+    /// 对运行中的会话重新下发资源策略（正常 / 让路 / 效率模式）。
+    ///
+    /// 结果写入 `resource_policy_store` 并立即推一次 TERMINAL_STATUS，前端据此显示
+    /// "已降级：原因"。会话不存在 → `NotFound`（daemon 路由映射 404）。
+    pub fn set_resource_policy(
+        &self,
+        session_id: &str,
+        policy: SessionResourcePolicy,
+    ) -> AppResult<ResourcePolicyStatus> {
+        let (process, status, pid, runtime_kind, wsl_distro) = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| AppError::from("sessions lock poisoned"))?;
+            let Some(session) = sessions.get(session_id) else {
+                return Err(AppError::NotFound(format!(
+                    "Session not found: {session_id}"
+                )));
+            };
+            let status = *session.status.lock().unwrap_or_else(|e| e.into_inner());
+            (
+                Arc::clone(&session.process),
+                status,
+                session.process.pid(),
+                session.runtime_kind.clone(),
+                session.wsl_distro.clone(),
+            )
+        };
+        let outcome = match process.set_resource_policy(&policy) {
+            Ok(outcome) => outcome,
+            Err(error) => PolicyOutcome::degraded(error.to_string()),
+        };
+        let mut result = ResourcePolicyStatus::from_outcome(&outcome, &policy);
+        {
+            let mut store = self.resource_policy_store.write();
+            // 三态重下发只改 Job；Linux 侧 scope 还在，`wsl_scope` 必须保留，否则
+            // 资源管理器一按"让路"WSL 会话的 cgroup 读数就消失。
+            if let Some(previous) = store.get(session_id) {
+                result.wsl_scope = previous.wsl_scope;
+            }
+            store.insert(session_id.to_string(), result.clone());
+        }
+        info!(
+            session_id,
+            outcome = ?result.outcome,
+            lower_priority = policy.lower_priority,
+            eco_qos = policy.eco_qos,
+            "[terminal] resource policy reapplied"
+        );
+        if let Some(emitter) = self.emitter.read().as_ref() {
+            let _ = emitter.emit(
+                EV::TERMINAL_STATUS,
+                serde_json::to_value(build_session_status_info(
+                    session_id.to_string(),
+                    status,
+                    current_epoch_millis(),
+                    Some(pid),
+                    None,
+                    self.state_machine
+                        .lock()
+                        .ok()
+                        .and_then(|guard| guard.as_ref().cloned())
+                        .as_ref(),
+                    Some(&self.osc_progress_store),
+                    Some(&self.resource_policy_store),
+                    Some(&self.job_memory_warning_store),
+                    Some(runtime_kind.as_str()),
+                    wsl_distro.as_deref(),
+                ))
+                .unwrap_or_default(),
+            );
+        }
+        Ok(result)
+    }
+
+    /// 树内存已回落（调用方按 [`JobMemoryWarning::recovered_by`] 判定）：清掉越线条目、
+    /// 重新武装通知水位、推一次 TERMINAL_STATUS 让徽标消失。返回是否确有条目被清。
+    ///
+    /// 会话不存在时也清条目（退出竞态），但不报错。
+    pub fn clear_job_memory_warning(&self, session_id: &str) -> AppResult<bool> {
+        let removed = self
+            .job_memory_warning_store
+            .write()
+            .remove(session_id)
+            .is_some();
+        if !removed {
+            return Ok(false);
+        }
+        let Some((process, status, pid, runtime_kind, wsl_distro)) = ({
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| AppError::from("sessions lock poisoned"))?;
+            sessions.get(session_id).map(|session| {
+                (
+                    Arc::clone(&session.process),
+                    *session.status.lock().unwrap_or_else(|e| e.into_inner()),
+                    session.process.pid(),
+                    session.runtime_kind.clone(),
+                    session.wsl_distro.clone(),
+                )
+            })
+        }) else {
+            return Ok(true);
+        };
+        if let Err(error) = process.rearm_job_memory_notify() {
+            warn!(session_id, %error, "[terminal] job memory notify re-arm failed");
+        }
+        info!(session_id, "[terminal] job memory warning cleared");
+        if let Some(emitter) = self.emitter.read().as_ref() {
+            let _ = emitter.emit(
+                EV::TERMINAL_STATUS,
+                serde_json::to_value(build_session_status_info(
+                    session_id.to_string(),
+                    status,
+                    current_epoch_millis(),
+                    Some(pid),
+                    None,
+                    self.state_machine
+                        .lock()
+                        .ok()
+                        .and_then(|guard| guard.as_ref().cloned())
+                        .as_ref(),
+                    Some(&self.osc_progress_store),
+                    Some(&self.resource_policy_store),
+                    Some(&self.job_memory_warning_store),
+                    Some(runtime_kind.as_str()),
+                    wsl_distro.as_deref(),
+                ))
+                .unwrap_or_default(),
+            );
+        }
+        Ok(true)
+    }
+
+    /// 构造 Job 内存越线回调：落 `job_memory_warning_store` 并立即推一次 TERMINAL_STATUS。
+    /// 在完成端口监听线程上执行，**不得**拿 `sessions` 锁之外的重锁、不得阻塞。
+    fn job_memory_notify_callback(
+        &self,
+        session_id: String,
+        emit_ctx: Arc<std::sync::OnceLock<JobMemoryEmitContext>>,
+    ) -> crate::pty::JobMemoryCallback {
+        let memory_store = Arc::clone(&self.job_memory_warning_store);
+        let osc_store = Arc::clone(&self.osc_progress_store);
+        let policy_store = Arc::clone(&self.resource_policy_store);
+        let emitter = self.emitter.read().clone();
+        let state_machine = self
+            .state_machine
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().cloned());
+        Arc::new(move |event: crate::pty::JobMemoryNotification| {
+            let warning = JobMemoryWarning {
+                bytes: event.bytes,
+                limit_bytes: event.limit_bytes,
+                at: current_epoch_millis(),
+            };
+            memory_store.write().insert(session_id.clone(), warning);
+            warn!(
+                session_id = %session_id,
+                bytes = event.bytes,
+                limit_bytes = event.limit_bytes,
+                "[terminal] job memory notify limit exceeded (observation only, build continues)"
+            );
+            let (Some(emitter), Some(ctx)) = (emitter.as_ref(), emit_ctx.get()) else {
+                return;
+            };
+            let status = *ctx.status.lock().unwrap_or_else(|e| e.into_inner());
+            let _ = emitter.emit(
+                EV::TERMINAL_STATUS,
+                serde_json::to_value(build_session_status_info(
+                    session_id.clone(),
+                    status,
+                    current_epoch_millis(),
+                    Some(ctx.pid),
+                    None,
+                    state_machine.as_ref(),
+                    Some(&osc_store),
+                    Some(&policy_store),
+                    Some(&memory_store),
+                    Some(ctx.runtime_kind.as_str()),
+                    ctx.wsl_distro.as_deref(),
+                ))
+                .unwrap_or_default(),
+            );
+        })
     }
 
     pub fn terminal_link_context(
@@ -5061,6 +5445,8 @@ impl TerminalService {
         }
         // F5：kill 路径同步清徽章旁路条目（wait 线程只覆盖自然退出）
         self.osc_progress_store.write().remove(session_id);
+        self.resource_policy_store.write().remove(session_id);
+        self.job_memory_warning_store.write().remove(session_id);
         wsl_codex::cleanup_session_mcp_configs(self.app_paths.data_dir(), session_id);
 
         if let Some(session) = session {
@@ -5617,8 +6003,14 @@ impl TerminalService {
         provider_env: &HashMap<String, String>,
         provider: Option<&CliProvider>,
         yolo_mode: bool,
+        session_env: &HashMap<String, String>,
     ) -> String {
         let mut remote_parts: Vec<String> = Vec::new();
+        // 并行度：只导出五个非路径键，且用 `${K:-v}` 形式——远端 profile 已设的值优先。
+        remote_parts.extend(crate::utils::perf_env::remote_export_statements(
+            session_env,
+            Self::shell_escape,
+        ));
         let mut provider_env = provider_env.clone();
         let mut codex_provider_args = Vec::new();
         if cli_tool == CliTool::Codex {
@@ -5754,7 +6146,7 @@ impl TerminalService {
     /// 这是端到端能通的关键：状态机内部更新后必须落到 session 上，前端才能看到。
     /// 找不到 session（已退出 / 不存在）静默忽略。
     pub fn apply_hook_status(&self, session_id: &str, new_status: SessionStatus) {
-        let pid = {
+        let (pid, runtime_kind, wsl_distro) = {
             let Ok(sessions) = self.sessions.lock() else {
                 return;
             };
@@ -5769,7 +6161,11 @@ impl TerminalService {
                     .lock()
                     .unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
             }
-            session.process.pid()
+            (
+                session.process.pid(),
+                session.runtime_kind.clone(),
+                session.wsl_distro.clone(),
+            )
         };
 
         // 推给前端（仿 PTY read 线程的 emit 节流块，但这里不节流，hook 事件本身就是节点）
@@ -5789,6 +6185,10 @@ impl TerminalService {
                             .and_then(|guard| guard.as_ref().cloned())
                             .as_ref(),
                         Some(&self.osc_progress_store),
+                        Some(&self.resource_policy_store),
+                        Some(&self.job_memory_warning_store),
+                        Some(runtime_kind.as_str()),
+                        wsl_distro.as_deref(),
                     ))
                     .unwrap_or_default(),
                 );
@@ -5977,76 +6377,44 @@ fn apply_osc_signal(
     sm.on_event_with_channel(session_id, &event, None, &payload, EventChannel::Osc);
 }
 
-/// 从输出内容推断终端状态
-fn infer_status(output: &str) -> SessionStatus {
-    // 先剥离 ANSI 转义序列，得到纯文本
+/// Infer status and notification strength from the same ANSI-free text view.
+/// Keep this on the reader: status, replay sequence and output must stay ordered.
+fn infer_status_with_strength(output: &str) -> (SessionStatus, bool) {
     let clean = strip_ansi_escapes(output);
     let trimmed = clean.trim();
     let tail_lower = terminal_tail_lower(trimmed, 2048);
-
-    // 优先级：waitingInput > toolRunning > thinking > 通用 prompt
-    // Cursor chrome 只匹配稳定文案，不碰 spinner 单帧（会抖动）。
-    if cursor_agent_waiting_input(&tail_lower) {
-        return SessionStatus::WaitingInput;
-    }
-    if cursor_agent_tool_running(&tail_lower) {
-        return SessionStatus::ToolRunning;
-    }
-    if cursor_agent_thinking(&tail_lower) {
-        return SessionStatus::Thinking;
-    }
-
-    if let Some(last_line) = trimmed.lines().last() {
-        let line = last_line.trim();
-
-        // Claude Code 权限提示：Yes/No 确认
-        if line.ends_with("[Y/n]") || line.ends_with("[y/N]") {
-            return SessionStatus::WaitingInput;
-        }
-
-        // Claude Code 提问：以 "?" 结尾
-        if line.ends_with('?') {
-            return SessionStatus::WaitingInput;
-        }
-
-        // Claude Code ink UI 提示符（剥离 ANSI 后就是 ">"）
-        if line == ">" {
-            return SessionStatus::WaitingInput;
-        }
-
-        // 检测 shell prompt 特征（等待输入）
-        let prompt_patterns = ["$ ", "# ", "> ", "❯ ", "λ ", "PS>", ">>> ", "... "];
-        for pattern in &prompt_patterns {
-            if line.ends_with(pattern) || line.ends_with(pattern.trim()) {
-                return SessionStatus::WaitingInput;
-            }
-        }
-    }
-
-    // 默认为活跃
-    SessionStatus::Active
+    let line = trimmed.lines().last().unwrap_or_default().trim();
+    let explicit_wait = cursor_agent_waiting_input(&tail_lower);
+    let confirmation = line.ends_with("[Y/n]") || line.ends_with("[y/N]");
+    // Preserve the existing priority: explicit waiting > tool > thinking > prompt.
+    let status = if explicit_wait {
+        SessionStatus::WaitingInput
+    } else if cursor_agent_tool_running(&tail_lower) {
+        SessionStatus::ToolRunning
+    } else if cursor_agent_thinking(&tail_lower) {
+        SessionStatus::Thinking
+    } else if confirmation
+        || line.ends_with('?')
+        || ["$", "#", ">", "❯", "λ", "PS>", ">>>", "..."]
+            .iter()
+            .any(|prompt| line.ends_with(prompt))
+    {
+        SessionStatus::WaitingInput
+    } else {
+        SessionStatus::Active
+    };
+    (status, explicit_wait || confirmation)
 }
 
-/// PTY 推断的 WaitingInput 是否值得打扰（弹桌面/IM 通知）。
-///
-/// 强判据 = 显式等待文案（Workspace Trust / needs your approval / [Y/n] 确认）；
-/// 弱判据 = `?` 结尾、裸 `>`、shell 提示符——那些只用于状态徽章。TUI 的
-/// spinner/底栏每帧重绘会让弱判据反复翻边沿，通知必须只认强判据
-///（对齐 Orca：waiting 不从输出猜，例行形态一律不打扰）。
+#[cfg(test)]
+fn infer_status(output: &str) -> SessionStatus {
+    infer_status_with_strength(output).0
+}
+
+/// Only explicit approvals notify; weak shell/TUI prompts only update the badge.
+#[cfg(test)]
 fn inferred_waiting_is_strong(output: &str) -> bool {
-    let clean = strip_ansi_escapes(output);
-    let trimmed = clean.trim();
-    let tail_lower = terminal_tail_lower(trimmed, 2048);
-    if cursor_agent_waiting_input(&tail_lower) {
-        return true;
-    }
-    if let Some(last_line) = trimmed.lines().last() {
-        let line = last_line.trim();
-        if line.ends_with("[Y/n]") || line.ends_with("[y/N]") {
-            return true;
-        }
-    }
-    false
+    infer_status_with_strength(output).1
 }
 
 /// Codex 会频繁按原始 PTY chunk 局部重绘。单个弱提示或强提示帧不足以证明
@@ -7874,6 +8242,7 @@ mod tests {
                     launch_id: launch_id.map(str::to_string),
                     project_path: "/repo".to_string(),
                     runtime_kind: "local".to_string(),
+                    wsl_distro: None,
                     cli_tool: session_cli_tool,
                     process: Arc::new(FakePtyProcess { echo: pty_echo }),
                     writer_tx,
@@ -9488,6 +9857,59 @@ mod tests {
             runtime.lock().expect("SSH auth runtime").saved_password,
             "temporary-secret"
         );
+    }
+
+    /// SSH 远端只导出五个非路径并行度键，`${K:-v}` 形式让远端 profile 已设的值优先；
+    /// `RIPGREP_CONFIG_PATH` 是宿主路径，绝不能出现在远端命令里。
+    #[test]
+    fn ssh_remote_command_exports_portable_perf_env_only_when_unset() {
+        let ssh = SshConnectionInfo {
+            host: "example.com".to_string(),
+            port: 22,
+            user: Some("dev".to_string()),
+            remote_path: "/srv/app".to_string(),
+            identity_file: None,
+            machine_id: None,
+            auth_method: None,
+        };
+        let plan = crate::utils::perf_env::plan_perf_env(
+            &crate::models::settings::PerformanceSettings::default(),
+            32,
+            Some(PathBuf::from(r"C:\data\runtime\rgrc")),
+        );
+        let mut session_env = HashMap::new();
+        crate::utils::perf_env::apply_perf_env_with(&mut session_env, &plan, |_| false);
+
+        let command = TerminalService::build_ssh_remote_command(
+            &ssh,
+            CliTool::Claude,
+            &HashMap::new(),
+            None,
+            false,
+            &session_env,
+        );
+
+        assert!(
+            command.contains("export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-'24'}"),
+            "{command}"
+        );
+        assert!(
+            command.contains("export MAKEFLAGS=${MAKEFLAGS:-'-j24'}"),
+            "{command}"
+        );
+        assert!(!command.contains("RIPGREP_CONFIG_PATH"), "{command}");
+        assert!(command.contains("cd '/srv/app'"), "{command}");
+        assert!(command.ends_with("claude"), "{command}");
+
+        let plain = TerminalService::build_ssh_remote_command(
+            &ssh,
+            CliTool::Claude,
+            &HashMap::new(),
+            None,
+            false,
+            &HashMap::new(),
+        );
+        assert!(!plain.contains("CARGO_BUILD_JOBS"), "{plain}");
     }
 
     #[test]

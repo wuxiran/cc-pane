@@ -74,6 +74,9 @@ pub mod events {
     /// daemon 侧补拍请求（M3b-2）：某会话照片锚点之后的 delta 已超阈值，
     /// 催前端重拍并上传。best-effort：丢了 daemon 周期扫描会重发。
     pub const TERMINAL_CHECKPOINT_REQUEST: &str = "terminal-checkpoint-request";
+    /// 重负载采样器：某会话正处于高负载 episode（标签琥珀徽标）。
+    /// 载荷 `{sessionId, cpuPercent, memoryBytes, active}`；`active:false` = 封账，清徽标。
+    pub const HEAVY_SESSION_USAGE: &str = "heavy-session-usage";
 }
 
 /// 终端默认值

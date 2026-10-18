@@ -16,9 +16,11 @@ use cc_panes_core::models::{
     SshConnectionInfo, StoreCheckpointOutcome, TerminalCheckpoint, TerminalReplaySnapshot,
     TerminalSessionProvenance, WslLaunchInfo,
 };
+use cc_panes_core::models::{ResourcePolicyStatus, SessionResourcePolicy};
 use cc_panes_core::services::terminal_service::{KillReason, SessionOutput, SessionStatus};
 use cc_panes_core::services::{
-    SessionStatusInfo, SshCredentialService, TerminalAdoptionSnapshot, TerminalBackend,
+    SessionStatusInfo, SettingsService, SshCredentialService, TerminalAdoptionSnapshot,
+    TerminalBackend,
 };
 use cc_panes_core::utils::error::AppError;
 use cc_panes_core::utils::project_paths_equivalent;
@@ -37,6 +39,14 @@ const MANIFEST_FILE: &str = "daemon-manifest.json";
 /// Server-side launch deadline. The handler returns promptly while the blocking worker is
 /// cancelled/cleaned asynchronously, so a slow WSL or hook step cannot leave the client waiting.
 const DAEMON_CREATE_DEADLINE: Duration = Duration::from_secs(45);
+/// create_session 前重读 config.toml 的最小间隔：app 保存设置后新会话应立即拿到
+/// 新值，但批量恢复 30 个会话时不能把同一份文件读 30 遍。
+const SETTINGS_RELOAD_MIN_INTERVAL: Duration = Duration::from_secs(2);
+
+/// 限频判定（纯函数便于测试）：从未重读过或距上次 ≥ 间隔才允许。
+fn settings_reload_due(last: Option<Instant>, now: Instant) -> bool {
+    last.is_none_or(|at| now.duration_since(at) >= SETTINGS_RELOAD_MIN_INTERVAL)
+}
 
 fn summarize_terminal_input(data: &str) -> serde_json::Value {
     serde_json::json!({ "charCount": data.chars().count(), "utf8Bytes": data.len() })
@@ -77,8 +87,41 @@ impl DaemonConfig {
                 restore_replacements: parking_lot::RwLock::new(HashMap::new()),
                 session_visibility: RwLock::new(()),
                 restore_creation_locks: parking_lot::Mutex::new(HashMap::new()),
+                settings_reload: parking_lot::Mutex::new(SettingsReloadGate::default()),
             }),
         }
+    }
+
+    /// 注册设置服务，使 create_session 前能限频重读 config.toml（见 `reload_settings_if_due`）。
+    pub fn set_settings_service(&self, settings: Arc<SettingsService>) {
+        self.inner.settings_reload.lock().service = Some(settings);
+    }
+
+    /// 建会话前重读设置（≤ 每 2 s 一次）。读/解析失败只记日志并沿用内存旧值：
+    /// 半写瞬态不该让建会话失败，也绝不回落默认值（`reload_from_disk` 已保证）。
+    /// 返回是否真的发起了一次重读（测试用）。
+    pub(crate) fn reload_settings_if_due(&self) -> bool {
+        let now = Instant::now();
+        let service = {
+            let mut gate = self.inner.settings_reload.lock();
+            let Some(service) = gate.service.clone() else {
+                return false;
+            };
+            if !settings_reload_due(gate.last_reload_at, now) {
+                return false;
+            }
+            gate.last_reload_at = Some(now);
+            service
+        };
+        if service.config_path().exists() {
+            if let Err(error) = service.reload_from_disk() {
+                tracing::warn!(
+                    error = %error,
+                    "create_session: settings reload failed; keeping in-memory settings"
+                );
+            }
+        }
+        true
     }
 
     fn restore_creation_lock(&self, session_id: &str) -> Arc<tokio::sync::Mutex<()>> {
@@ -319,6 +362,14 @@ struct DaemonState {
     session_visibility: RwLock<()>,
     restore_creation_locks:
         parking_lot::Mutex<HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>,
+    /// create_session 前的设置重读闸（服务句柄 + 上次重读时刻）。
+    settings_reload: parking_lot::Mutex<SettingsReloadGate>,
+}
+
+#[derive(Default)]
+struct SettingsReloadGate {
+    service: Option<Arc<SettingsService>>,
+    last_reload_at: Option<Instant>,
 }
 
 /// 一条会话写权限租约。
@@ -568,6 +619,14 @@ pub fn router(config: DaemonConfig) -> Router {
             get(find_session_by_launch),
         )
         .route("/api/sessions/{id}/hook-status", post(hook_status))
+        .route(
+            "/api/sessions/{id}/resource-policy",
+            post(set_resource_policy),
+        )
+        .route(
+            "/api/sessions/{id}/job-memory-warning/clear",
+            post(clear_job_memory_warning),
+        )
         .route("/api/sessions/{id}/output", get(get_session_output))
         .route("/api/sessions/{id}/snapshot", get(get_session_snapshot))
         .route(
@@ -807,6 +866,8 @@ async fn create_session(
             "SSH and WSL launch options cannot be combined",
         ));
     }
+    // app 刚保存的性能/终端设置要对这条新会话生效；限频 2 s，批量恢复不会狂读文件。
+    config.reload_settings_if_due();
 
     let project_path = req
         .core
@@ -1106,6 +1167,37 @@ async fn hook_status(
         .apply_hook_status(&id, req.status)
         .map_err(internal_error)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// 对运行中的会话重新下发资源策略（0.12.22 资源管理器三态）。
+/// 会话不存在 → 结构化 404（客户端据 code 区分"会话没了"与"daemon 太旧没路由"）。
+async fn set_resource_policy(
+    State(config): State<DaemonConfig>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(policy): Json<SessionResourcePolicy>,
+) -> Result<Json<ResourcePolicyStatus>, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&headers, config.token())?;
+    let backend = config.terminal_backend_arc();
+    let status = terminal_io(move || backend.set_resource_policy(&id, policy))
+        .await
+        .map_err(app_error)?;
+    Ok(Json(status))
+}
+
+/// 树内存回落后清 Job 内存越线告警（0.12.22 W5）。app 侧的采样器 / 资源管理器判定回落，
+/// 告警与水位却在 daemon 进程里，所以要一条路由。回 `{"cleared":bool}`。
+async fn clear_job_memory_warning(
+    State(config): State<DaemonConfig>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&headers, config.token())?;
+    let backend = config.terminal_backend_arc();
+    let cleared = terminal_io(move || backend.clear_job_memory_warning(&id))
+        .await
+        .map_err(app_error)?;
+    Ok(Json(serde_json::json!({ "cleared": cleared })))
 }
 
 async fn resize_session(
@@ -1930,6 +2022,7 @@ mod tests {
         hook_statuses: Mutex<Vec<(String, SessionStatus)>>,
         checkpoints: Mutex<Vec<(String, TerminalCheckpoint)>>,
         recovery_snapshot_calls: Mutex<Vec<String>>,
+        resource_policies: Mutex<Vec<(String, SessionResourcePolicy)>>,
     }
 
     impl TerminalBackend for MockTerminalBackend {
@@ -2024,6 +2117,11 @@ mod tests {
                 current_tool_summary: None,
                 updated_at: 120,
                 osc_progress: None,
+                resource_policy: None,
+                job_memory_warning: None,
+                runtime_kind: None,
+                wsl_distro: None,
+                heavy_queue: None,
             }])
         }
 
@@ -2074,6 +2172,28 @@ mod tests {
                 .unwrap()
                 .push((session_id.to_string(), status));
             Ok(())
+        }
+
+        fn clear_job_memory_warning(&self, session_id: &str) -> AppResult<bool> {
+            Ok(session_id == "session-1")
+        }
+
+        fn set_resource_policy(
+            &self,
+            session_id: &str,
+            policy: SessionResourcePolicy,
+        ) -> AppResult<ResourcePolicyStatus> {
+            if session_id == "missing" {
+                return Err(AppError::NotFound("Session not found".to_string()));
+            }
+            self.resource_policies
+                .lock()
+                .unwrap()
+                .push((session_id.to_string(), policy));
+            Ok(ResourcePolicyStatus::from_outcome(
+                &cc_panes_core::models::PolicyOutcome::Applied,
+                &policy,
+            ))
         }
 
         fn store_session_checkpoint(
@@ -2139,6 +2259,60 @@ mod tests {
             Arc::new(WsEmitter::new()),
             "/default/project".to_string(),
         )
+    }
+
+    #[test]
+    fn settings_reload_due_rate_limits_to_min_interval() {
+        let now = Instant::now();
+        assert!(settings_reload_due(None, now), "first reload is always due");
+        assert!(
+            !settings_reload_due(Some(now), now + Duration::from_millis(1999)),
+            "second reload inside the window must be skipped"
+        );
+        assert!(settings_reload_due(
+            Some(now),
+            now + SETTINGS_RELOAD_MIN_INTERVAL
+        ));
+    }
+
+    #[test]
+    fn reload_settings_if_due_picks_up_on_disk_changes_at_most_once_per_window() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let config = test_config("test-token", "127.0.0.1:12345", backend);
+        // 未注册设置服务：静默不动。
+        assert!(!config.reload_settings_if_due());
+
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        // `writer` 扮演 app：同一份 config.toml 的另一个进程内写者。
+        let writer = SettingsService::new_with_config_path(config_path.clone());
+        let mut app_settings = writer.get_settings();
+        app_settings.terminal.daemon_orphan_ttl_minutes = 30;
+        writer.update_settings(app_settings.clone()).unwrap();
+        let settings = Arc::new(SettingsService::new_with_config_path(config_path));
+        assert_eq!(
+            settings.get_settings().terminal.daemon_orphan_ttl_minutes,
+            30
+        );
+        config.set_settings_service(settings.clone());
+
+        // app 改了文件：首次重读立即生效。
+        app_settings.terminal.daemon_orphan_ttl_minutes = 50;
+        writer.update_settings(app_settings.clone()).unwrap();
+        assert!(config.reload_settings_if_due());
+        assert_eq!(
+            settings.get_settings().terminal.daemon_orphan_ttl_minutes,
+            50
+        );
+
+        // 2 s 窗口内再改：本次不重读，沿用上次值。
+        app_settings.terminal.daemon_orphan_ttl_minutes = 70;
+        writer.update_settings(app_settings).unwrap();
+        assert!(!config.reload_settings_if_due());
+        assert_eq!(
+            settings.get_settings().terminal.daemon_orphan_ttl_minutes,
+            50
+        );
     }
 
     #[tokio::test]
@@ -3132,6 +3306,118 @@ mod tests {
             recorded.as_slice(),
             &[("session-1".to_string(), SessionStatus::ToolRunning)]
         );
+    }
+
+    #[tokio::test]
+    async fn job_memory_warning_clear_route_requires_token_and_reports_cleared_flag() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let app = router(test_config("secret", "127.0.0.1:18093", backend.clone()));
+
+        let unauthorized = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/sessions/session-1/job-memory-warning/clear")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+        for (session, expected) in [("session-1", true), ("other", false)] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(format!("/api/sessions/{session}/job-memory-warning/clear"))
+                        .header(header::AUTHORIZATION, "Bearer secret")
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("response");
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body");
+            let parsed: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+            assert_eq!(parsed["cleared"], expected, "{session}");
+        }
+    }
+
+    #[tokio::test]
+    async fn resource_policy_route_requires_token_maps_missing_session_and_echoes_status() {
+        let backend = Arc::new(MockTerminalBackend::default());
+        let app = router(test_config("secret", "127.0.0.1:18092", backend.clone()));
+        let body = r#"{"lowerPriority":true,"cpuWeight":null,"ecoQos":true}"#;
+
+        // 401：无 token
+        let unauthorized = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/sessions/session-1/resource-policy")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+        assert!(backend.resource_policies.lock().unwrap().is_empty());
+
+        // 404：会话不存在 → 结构化 NOT_FOUND（客户端据此区分"daemon 太旧"）
+        let missing = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/sessions/missing/resource-policy")
+                    .header(header::AUTHORIZATION, "Bearer secret")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+        let bytes = to_bytes(missing.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let parsed: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+        assert_eq!(parsed["code"], "NOT_FOUND");
+
+        // 200：策略到达 backend，状态体原样回传
+        let applied = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/sessions/session-1/resource-policy")
+                    .header(header::AUTHORIZATION, "Bearer secret")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(applied.status(), StatusCode::OK);
+        let bytes = to_bytes(applied.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let status: ResourcePolicyStatus = serde_json::from_slice(&bytes).expect("status");
+        assert_eq!(
+            status.outcome,
+            cc_panes_core::models::PolicyOutcomeKind::Applied
+        );
+        assert!(status.eco_qos && status.lower_priority);
+        let recorded = backend.resource_policies.lock().unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].0, "session-1");
+        assert!(recorded[0].1.eco_qos);
     }
 
     #[tokio::test]

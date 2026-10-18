@@ -37,6 +37,20 @@ pub struct SessionResourcePolicy {
     /// CPU 相对权重（[`CPU_WEIGHT_MIN`]..=[`CPU_WEIGHT_MAX`]）。
     /// `None` 表示不设——与显式给中性值等价，但省掉一次系统调用。
     pub cpu_weight: Option<u8>,
+    /// Windows EcoQoS（任务管理器"效率模式"）：`PROCESS_POWER_THROTTLING_EXECUTION_SPEED`。
+    ///
+    /// **逐进程**下发到 Job 内当前所有 pid；Job 没有 EcoQoS 级别的限制，assign 之后新生的
+    /// 子进程不会继承——需要时由调用方（W8 拿槽）重放。`#[serde(default)]`：0.12.21 的
+    /// daemon/app 互发的策略里没有这个字段。
+    #[serde(default)]
+    pub eco_qos: bool,
+    /// Windows Job **通知型**内存水位（字节）：`JOB_OBJECT_LIMIT_JOB_MEMORY_HIGH` 配合
+    /// `JobObjectNotificationLimitInformation`，越线只发完成端口消息，**绝不**用硬限
+    /// `JOB_OBJECT_LIMIT_JOB_MEMORY`（见模块注释）。`None` = 不设 / 关闭（0%）。
+    /// 由 `job_memory_notify_percent × 物理内存` 在 spawn 时算出；UI 三态重下发时不带
+    /// 此字段，已设的水位原样保留。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_notify_bytes: Option<u64>,
 }
 
 impl Default for SessionResourcePolicy {
@@ -45,6 +59,8 @@ impl Default for SessionResourcePolicy {
         Self {
             lower_priority: true,
             cpu_weight: None,
+            eco_qos: false,
+            memory_notify_bytes: None,
         }
     }
 }
@@ -55,12 +71,26 @@ impl SessionResourcePolicy {
         Self {
             lower_priority: false,
             cpu_weight: None,
+            eco_qos: false,
+            memory_notify_bytes: None,
         }
+    }
+
+    /// 由设置里的百分比与物理内存总量算出通知水位；0% 或无法读到总量 → `None`。
+    pub fn memory_notify_bytes_for(percent: u32, total_memory_bytes: u64) -> Option<u64> {
+        if percent == 0 || total_memory_bytes == 0 {
+            return None;
+        }
+        let percent = u64::from(percent.min(100));
+        Some(total_memory_bytes / 100 * percent + total_memory_bytes % 100 * percent / 100)
     }
 
     /// 是否什么都不用做——省掉一次系统调用，也让日志不产生噪声。
     pub fn is_noop(&self) -> bool {
-        !self.lower_priority && self.effective_cpu_weight().is_none()
+        !self.lower_priority
+            && self.effective_cpu_weight().is_none()
+            && !self.eco_qos
+            && self.memory_notify_bytes.is_none()
     }
 
     /// 收敛后的 CPU 权重：越界值 clamp 回合法区间，中性值视同不设。
@@ -104,9 +134,143 @@ impl PolicyOutcome {
     }
 }
 
+/// [`PolicyOutcome`] 的扁平种类（前端三态显示用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PolicyOutcomeKind {
+    Applied,
+    Degraded,
+    Unsupported,
+}
+
+/// 策略下发结果 + 当前生效的策略，随 `SessionStatusInfo.resource_policy` 上报前端。
+///
+/// 与 [`PolicyOutcome`] 的区别：`Unsupported` 也能带原因（"daemon too old" /
+/// "session not found"），popover 要把"不支持"和"失败"区分着显示。
+/// 所有字段 `#[serde(default)]`：0.12.21 的 daemon 状态 payload 里没有这一节。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourcePolicyStatus {
+    pub outcome: PolicyOutcomeKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub lower_priority: bool,
+    #[serde(default)]
+    pub eco_qos: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_weight: Option<u8>,
+    /// W6：Linux 侧 `ccpanes-<session8>.scope` 确实建起来了（WSL 配额 Applied）。
+    /// 资源管理器 / 采样器据此决定要不要起 `wsl.exe` 读 cgroup——没有 scope 就没有读数，
+    /// 不该为此唤醒 VM。非 WSL / 配额关 / 降级为 `nice` 都是 false。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub wsl_scope: bool,
+}
+
+impl ResourcePolicyStatus {
+    pub fn from_outcome(outcome: &PolicyOutcome, policy: &SessionResourcePolicy) -> Self {
+        let (kind, reason) = match outcome {
+            PolicyOutcome::Applied => (PolicyOutcomeKind::Applied, None),
+            PolicyOutcome::Degraded { reason } => {
+                (PolicyOutcomeKind::Degraded, Some(reason.clone()))
+            }
+            PolicyOutcome::Unsupported => (PolicyOutcomeKind::Unsupported, None),
+        };
+        Self {
+            outcome: kind,
+            reason,
+            lower_priority: policy.lower_priority,
+            eco_qos: policy.eco_qos,
+            cpu_weight: policy.effective_cpu_weight(),
+            wsl_scope: false,
+        }
+    }
+
+    /// 平台 / 后端 / 版本不支持，带可展示原因。
+    pub fn unsupported(reason: impl Into<String>) -> Self {
+        Self {
+            outcome: PolicyOutcomeKind::Unsupported,
+            reason: Some(reason.into()),
+            lower_priority: false,
+            eco_qos: false,
+            cpu_weight: None,
+            wsl_scope: false,
+        }
+    }
+
+    pub fn degraded(reason: impl Into<String>, policy: &SessionResourcePolicy) -> Self {
+        Self::from_outcome(&PolicyOutcome::degraded(reason), policy)
+    }
+}
+
+/// Job 内存通知限越线事件（0.12.22 W5），随 `SessionStatusInfo.job_memory_warning` 上报。
+///
+/// 只是**观测**：build 不会失败，窗格照常跑；UI 打 `job-memory` 琥珀徽标并在资源管理器
+/// 行下写"已用 X（阈值 Y）"。树内存回落到阈值 80% 以下时由上层清除并重新武装水位。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobMemoryWarning {
+    /// 越线时内核报告的 Job 已提交内存（字节）。
+    pub bytes: u64,
+    /// 当时设定的通知水位（字节）。
+    pub limit_bytes: u64,
+    /// 毫秒 epoch。
+    pub at: u64,
+}
+
+impl JobMemoryWarning {
+    /// 树内存低于水位的 80% 即视为回落（滞回，避免在阈值附近抖动）。
+    pub fn recovered_by(&self, tree_memory_bytes: u64) -> bool {
+        tree_memory_bytes < self.limit_bytes / 5 * 4
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn memory_notify_bytes_scales_percent_and_zero_is_off() {
+        assert_eq!(
+            SessionResourcePolicy::memory_notify_bytes_for(0, 1 << 34),
+            None
+        );
+        assert_eq!(SessionResourcePolicy::memory_notify_bytes_for(25, 0), None);
+        assert_eq!(
+            SessionResourcePolicy::memory_notify_bytes_for(25, 64 * 1024 * 1024 * 1024),
+            Some(16 * 1024 * 1024 * 1024)
+        );
+        assert_eq!(
+            SessionResourcePolicy::memory_notify_bytes_for(250, 1000),
+            Some(1000)
+        );
+        // 带水位的策略不是 noop，且旧 payload 缺字段时为 None。
+        let policy = SessionResourcePolicy {
+            memory_notify_bytes: Some(1),
+            ..SessionResourcePolicy::disabled()
+        };
+        assert!(!policy.is_noop());
+        let legacy: SessionResourcePolicy =
+            serde_json::from_str(r#"{"lowerPriority":false,"cpuWeight":null}"#).unwrap();
+        assert_eq!(legacy.memory_notify_bytes, None);
+        assert!(!serde_json::to_string(&legacy)
+            .unwrap()
+            .contains("memoryNotifyBytes"));
+    }
+
+    #[test]
+    fn job_memory_warning_recovers_below_80_percent() {
+        let warning = JobMemoryWarning {
+            bytes: 1200,
+            limit_bytes: 1000,
+            at: 1,
+        };
+        assert!(!warning.recovered_by(1000));
+        assert!(!warning.recovered_by(800));
+        assert!(warning.recovered_by(799));
+        let json = serde_json::to_value(warning).unwrap();
+        assert_eq!(json["limitBytes"], 1000);
+    }
 
     #[test]
     fn default_lowers_priority_without_touching_cpu() {
@@ -128,9 +292,70 @@ mod tests {
         let policy = SessionResourcePolicy {
             lower_priority: false,
             cpu_weight: Some(CPU_WEIGHT_NEUTRAL),
+            eco_qos: false,
+            memory_notify_bytes: None,
         };
         assert_eq!(policy.effective_cpu_weight(), None);
         assert!(policy.is_noop());
+    }
+
+    #[test]
+    fn eco_qos_alone_is_not_noop_and_defaults_off_for_old_payloads() {
+        let policy = SessionResourcePolicy {
+            lower_priority: false,
+            cpu_weight: None,
+            eco_qos: true,
+            memory_notify_bytes: None,
+        };
+        assert!(!policy.is_noop());
+
+        // 0.12.21 的 daemon/app 互发的策略没有 ecoQos 字段，必须能反序列化且为 false。
+        let legacy: SessionResourcePolicy =
+            serde_json::from_str(r#"{"lowerPriority":true,"cpuWeight":3}"#).unwrap();
+        assert!(legacy.lower_priority);
+        assert_eq!(legacy.cpu_weight, Some(3));
+        assert!(!legacy.eco_qos);
+    }
+
+    #[test]
+    fn resource_policy_status_flattens_outcome_and_tolerates_missing_fields() {
+        let policy = SessionResourcePolicy {
+            lower_priority: true,
+            cpu_weight: Some(2),
+            eco_qos: true,
+            memory_notify_bytes: None,
+        };
+        let status = ResourcePolicyStatus::from_outcome(&PolicyOutcome::degraded("x"), &policy);
+        assert_eq!(status.outcome, PolicyOutcomeKind::Degraded);
+        assert_eq!(status.reason.as_deref(), Some("x"));
+        assert!(status.lower_priority && status.eco_qos);
+        assert_eq!(status.cpu_weight, Some(2));
+
+        let json = serde_json::to_value(&status).unwrap();
+        assert_eq!(json["outcome"], "degraded");
+        assert_eq!(json["lowerPriority"], true);
+        assert_eq!(json["ecoQos"], true);
+
+        let minimal: ResourcePolicyStatus =
+            serde_json::from_str(r#"{"outcome":"applied"}"#).unwrap();
+        assert_eq!(minimal.outcome, PolicyOutcomeKind::Applied);
+        assert!(minimal.reason.is_none());
+        assert!(!minimal.lower_priority);
+        assert!(!minimal.wsl_scope, "old daemon payload has no wslScope");
+        assert!(
+            serde_json::to_value(&minimal)
+                .unwrap()
+                .get("wslScope")
+                .is_none(),
+            "false is omitted from the payload"
+        );
+        let scoped: ResourcePolicyStatus =
+            serde_json::from_str(r#"{"outcome":"applied","wslScope":true}"#).unwrap();
+        assert!(scoped.wsl_scope);
+
+        let unsupported = ResourcePolicyStatus::unsupported("daemon too old");
+        assert_eq!(unsupported.outcome, PolicyOutcomeKind::Unsupported);
+        assert_eq!(unsupported.reason.as_deref(), Some("daemon too old"));
     }
 
     #[test]
@@ -138,12 +363,16 @@ mod tests {
         let low = SessionResourcePolicy {
             lower_priority: false,
             cpu_weight: Some(0),
+            eco_qos: false,
+            memory_notify_bytes: None,
         };
         assert_eq!(low.effective_cpu_weight(), Some(CPU_WEIGHT_MIN));
 
         let high = SessionResourcePolicy {
             lower_priority: false,
             cpu_weight: Some(200),
+            eco_qos: false,
+            memory_notify_bytes: None,
         };
         assert_eq!(high.effective_cpu_weight(), Some(CPU_WEIGHT_MAX));
     }
@@ -154,6 +383,8 @@ mod tests {
         let scaled = SessionResourcePolicy {
             lower_priority: false,
             cpu_weight: Some(4),
+            eco_qos: false,
+            memory_notify_bytes: None,
         }
         .cgroup_cpu_weight();
         assert_eq!(scaled, Some(80));

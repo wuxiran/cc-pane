@@ -1,3 +1,5 @@
+pub(crate) mod run;
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 

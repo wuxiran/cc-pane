@@ -23,7 +23,7 @@ use cc_panes_core::{
         TaskBindingService, TerminalBackend, TerminalDaemonClient, TerminalService, TodoService,
         UsageStatsService, UserSkillService, WorkspaceService, WorktreeService,
     },
-    utils::{simplify_path, AppPaths, APP_DIR_NAME},
+    utils::{simplify_path, tokio_worker_threads_from_env, AppPaths, APP_DIR_NAME},
 };
 use clap::Parser;
 use tracing::info;
@@ -214,8 +214,18 @@ fn windows_path_to_wsl_path(path: &str) -> Option<PathBuf> {
     Some(PathBuf::from(format!("/mnt/{drive}/{rest}")))
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    // 不用 `#[tokio::main]`：默认 worker = 逻辑核数，I/O 转发型进程没必要起 32 条。
+    // 收口到 2..=8（默认 4，`CC_PANES_TOKIO_WORKERS` 可调）。
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(tokio_worker_threads_from_env())
+        .enable_all()
+        .thread_name("cc-panes-web-tokio")
+        .build()?;
+    runtime.block_on(async_main())
+}
+
+async fn async_main() -> anyhow::Result<()> {
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(

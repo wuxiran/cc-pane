@@ -25,6 +25,7 @@ import {
 } from "../terminalRestoreQueue";
 import { syncTerminalGeometry } from "../terminalSessionGeometry";
 import { withTerminalReplayPresentation } from "../terminalReplayPresentation";
+import { runTerminalReplay } from "../terminalReplaySemaphore";
 import { findLiveSavedSessionId } from "../terminalViewHelpers";
 import type { RestoreLaunchState } from "../terminalRestoreQueue";
 import type { TerminalLayoutScheduler } from "../terminalLayoutScheduler";
@@ -123,7 +124,8 @@ export async function launchOrAttachTerminalSession({
       // (Restored tabs still start their live PTY on first app restore even when
       // hidden, otherwise background tabs can remain stuck on the restore overlay.)
       if (props.restoring && props.savedSessionId && !liveSavedSessionId) {
-        await withTerminalReplayPresentation(term, async () => {
+        // 重放信号量：30 标签冷恢复串行喂 xterm，前台视图插队。
+        await runTerminalReplay(term, () => withTerminalReplayPresentation(term, async () => {
           await replayColdRestoreOutput(term, props.savedSessionId!, logRestoreEvent, debugLog, renderCheckpointData);
           // writeln queues parsing; keep the static frame until the final write callback.
           // 回调丢失时不能永远盖着静态帧。
@@ -131,7 +133,7 @@ export async function launchOrAttachTerminalSession({
             new Promise<void>((resolve) => term.write("", resolve)),
             new Promise<void>((resolve) => setTimeout(resolve, 2000)),
           ]);
-        });
+        }), { isCancelled: () => !isMounted(), label: "cold-restore" });
       }
 
       let sessionId: string;
@@ -153,7 +155,7 @@ export async function launchOrAttachTerminalSession({
         console.info(`[TerminalView] Reconnecting to existing session: ${attachSessionId}`);
         sessionId = attachSessionId;
         try {
-          await replayAttachOrWake({
+          await runTerminalReplay(term, () => replayAttachOrWake({
             canWrite: isMounted,
             term,
             sessionId,
@@ -165,7 +167,7 @@ export async function launchOrAttachTerminalSession({
             syncTrackedBufferType,
             showReconnectHint: Boolean(isSshRef.current && onReconnectRef.current),
             debugLog,
-          });
+          }), { isCancelled: () => !isMounted(), label: wake ? "wake" : "attach" });
         } catch (error) {
           if (props.restoring) {
             logRestoreEvent("init.attach-replay.failed", {

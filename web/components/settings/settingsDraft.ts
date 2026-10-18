@@ -1,6 +1,9 @@
 import type { CCChanSettings } from "@/ccchan/types";
 import { DEFAULT_CCCHAN_SETTINGS } from "@/stores/useCCChanStore";
-import { DEFAULT_EXPERIMENTAL_SETTINGS } from "@/stores/useSettingsStore";
+import {
+  DEFAULT_EXPERIMENTAL_SETTINGS,
+  DEFAULT_PERFORMANCE_SETTINGS,
+} from "@/stores/useSettingsStore";
 import type { AppSettings } from "@/types";
 import type { SettingsPaneId } from "./settingsRegistry";
 
@@ -17,6 +20,7 @@ export const SECTION_DRAFT_KEYS: Partial<
   "cli-launchers": ["cliLaunchers"],
   proxy: ["proxy"],
   terminal: ["terminal"],
+  performance: ["performance"],
   "quick-terminal": ["quickTerminal"],
   voice: ["voice"],
   ccchan: ["ccchan"],
@@ -52,6 +56,10 @@ export function createSettingsDraft(value: AppSettings): SettingsDraft {
     experimental: {
       ...DEFAULT_EXPERIMENTAL_SETTINGS,
       ...maybeWithCCChan.experimental,
+    },
+    performance: {
+      ...DEFAULT_PERFORMANCE_SETTINGS,
+      ...maybeWithCCChan.performance,
     },
     ccchan: {
       ...DEFAULT_CCCHAN_SETTINGS,

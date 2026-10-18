@@ -138,6 +138,15 @@ pub fn resolve_orchestrator_endpoint() -> Option<(String, String)> {
     env_candidate.map(endpoint_tuple)
 }
 
+/// 仅凭会话环境（`CC_PANES_API_BASE_URL`/`PORT` + `TOKEN`）得到 orchestrator 端点，
+/// 含 WSL 内的主机重写；不读 manifest、不探活（调用方自己承担"不可达即回退"）。
+/// 供 `run --heavy` 这类热路径用：零文件 I/O。
+pub fn env_orchestrator_endpoint() -> Option<(String, String)> {
+    endpoint_candidate_from_env()
+        .and_then(adapt_candidate_for_current_host)
+        .map(endpoint_tuple)
+}
+
 /// 严格发现 orchestrator。除 token 外还核对服务名、pid、startedAt，避免把端口复用者
 /// 当作 CC-Panes。能读取同用户 manifest 的进程处在同一信任域，本核对不防御该类对手。
 pub fn discover_orchestrator_endpoint(data_dir: &Path) -> Result<ServiceEndpoint, DiscoveryError> {

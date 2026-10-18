@@ -199,11 +199,13 @@ export type {
   ImChannelConfig,
   ExperimentalSettings,
   ExperimentalFeatureId,
+  PerformanceSettings,
   ImChannelType,
   ImChannelStatus,
   ImEventKind,
 } from "./settings";
 export { BUSY_STATUSES, isBusyStatus } from "./settings";
+export { DEFAULT_PERFORMANCE_SETTINGS, PERFORMANCE_LIMITS } from "./settings";
 export type {
   TodoStatus,
   TodoPriority,
@@ -285,10 +287,23 @@ export type {
   OrphanProcessInfo,
   ResourceTree,
   SessionProcessInfo,
+  JobMemoryWarning,
+  ResourcePolicyOutcome,
+  ResourcePolicyStatus,
+  SessionResourcePolicy,
   SessionResourceUsage,
   SystemStats,
+  TopProcessInfo,
   TruncatedProcessSummary,
 } from "./systemStats";
+export type {
+  HeavyCommandAggregate,
+  HeavyCommandQuery,
+  HeavyCommandRecord,
+  HeavyCommandSource,
+  HeavySamplerStats,
+  HeavySessionUsagePayload,
+} from "./heavyCommand";
 export type {
   BridgeMode,
   SharedMcpServerConfig,

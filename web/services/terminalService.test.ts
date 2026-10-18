@@ -204,6 +204,13 @@ describe("terminalService", () => {
       clearTerminalOutputDesyncLatch("s-overflow");
       handler({ payload: { sessionId: "s-overflow", data: flood } });
       expect(desync).toHaveBeenCalledTimes(2);
+
+      // terminalService.clearDesync 是同一把闩的对象方法入口（唤醒成功后调用）。
+      handler({ payload: { sessionId: "s-overflow", data: flood } });
+      expect(desync).toHaveBeenCalledTimes(2);
+      terminalService.clearDesync("s-overflow");
+      handler({ payload: { sessionId: "s-overflow", data: flood } });
+      expect(desync).toHaveBeenCalledTimes(3);
     });
 
     it("salvages parser queries while dropping hidden pane正文", async () => {

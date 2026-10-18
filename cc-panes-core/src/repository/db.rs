@@ -1111,6 +1111,37 @@ const MIGRATIONS: &[Migration] = &[
             ) WHERE launch_cwd IS NULL;
         ",
     },
+    Migration {
+        version: 40,
+        description: "heavy_commands: heavy workload ledger (hook + sampler episodes)",
+        up_sql: "
+            CREATE TABLE IF NOT EXISTS heavy_commands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                project_path TEXT NOT NULL DEFAULT '',
+                workspace TEXT,
+                cli_tool TEXT NOT NULL DEFAULT 'none',
+                runtime_kind TEXT NOT NULL DEFAULT 'local',
+                cmd_normalized TEXT NOT NULL,
+                cmd_redacted TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'hook',
+                started_at INTEGER NOT NULL,
+                ended_at INTEGER,
+                duration_ms INTEGER,
+                exit_code INTEGER,
+                peak_cpu_pct REAL,
+                peak_mem_bytes INTEGER,
+                cpu_seconds REAL,
+                target TEXT NOT NULL DEFAULT 'local',
+                offloaded_reason TEXT,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_heavy_commands_started
+                ON heavy_commands(started_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_heavy_commands_project_cmd
+                ON heavy_commands(project_path, cmd_normalized, started_at DESC);
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -1884,6 +1915,7 @@ mod tests {
             "drama_projects",
             "drama_episodes",
             "drama_shots",
+            "heavy_commands",
         ];
         for table in &tables {
             let exists: bool = conn
@@ -1906,7 +1938,7 @@ mod tests {
                 row.get(0)
             })
             .expect("schema version");
-        assert_eq!(version, MIGRATIONS.last().unwrap().version as i64);
+        assert_eq!(version, MIGRATIONS.last().unwrap().version);
 
         let run_columns = conn
             .prepare("PRAGMA table_info(media_runs)")
@@ -1934,7 +1966,7 @@ mod tests {
                 row.get(0)
             })
             .expect("schema version after rerun");
-        assert_eq!(version_after, MIGRATIONS.last().unwrap().version as i64);
+        assert_eq!(version_after, MIGRATIONS.last().unwrap().version);
     }
 
     #[test]

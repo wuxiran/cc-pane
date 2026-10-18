@@ -110,6 +110,48 @@ pub(super) fn query_process_details(pid: u32) -> Option<ProcessDetails> {
     }
 }
 
+/// 轻量读数：只要 CPU 时间与工作集，**不读命令行**（会话外进程的命令行可能含凭据，
+/// 也用不着）。给 `top_processes` 每 3 s 扫几百个 pid 用，必须比 `query_process_details` 便宜。
+pub(super) fn query_process_cpu_memory(pid: u32) -> Option<(u64, u64, u64)> {
+    use ::windows::Win32::Foundation::{CloseHandle, FILETIME};
+    use ::windows::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX,
+    };
+    use ::windows::Win32::System::Threading::{
+        GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut creation = FILETIME::default();
+        let mut exit = FILETIME::default();
+        let mut kernel = FILETIME::default();
+        let mut user = FILETIME::default();
+        let times = GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user);
+        let mut counters = PROCESS_MEMORY_COUNTERS_EX {
+            cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32,
+            ..Default::default()
+        };
+        let memory_ok = GetProcessMemoryInfo(
+            handle,
+            (&mut counters as *mut PROCESS_MEMORY_COUNTERS_EX).cast(),
+            counters.cb,
+        )
+        .is_ok();
+        let _ = CloseHandle(handle);
+        times.ok()?;
+        Some((
+            filetime_100ns(creation),
+            filetime_100ns(kernel).saturating_add(filetime_100ns(user)),
+            if memory_ok {
+                counters.WorkingSetSize as u64
+            } else {
+                0
+            },
+        ))
+    }
+}
+
 fn filetime_100ns(value: ::windows::Win32::Foundation::FILETIME) -> u64 {
     ((value.dwHighDateTime as u64) << 32) | value.dwLowDateTime as u64
 }

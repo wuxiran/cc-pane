@@ -6,15 +6,15 @@ use crate::services::{
 };
 use crate::utils::AppPaths;
 use crate::utils::AppResult;
-use cc_cli_adapters::{no_window_command, normalize_cli_command};
 use serde::Serialize;
 use std::net::TcpStream;
 use std::path::Path;
-use std::process::Stdio;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 use tracing::{debug, info};
+
+mod cli_launcher;
 
 /// 获取设置
 #[tauri::command]
@@ -40,7 +40,14 @@ pub fn update_settings(
     let task_queue_enabled = settings.terminal.task_queue_enabled;
     let previous_scrollback = previous_settings.terminal.scrollback;
     let scrollback = settings.terminal.scrollback;
+    let skill_gate_changed =
+        crate::services::bundled_skills::skill_gate_changed(&previous_settings, &settings);
     service.update_settings(settings)?;
+    // 门控 skill（heavy-run）随「重负载门禁」开关出现 / 消失，无需重启：重物化 managed 目录。
+    // 失败只记日志——设置本身已保存，skill 目录下次启动还会再物化一遍。
+    if skill_gate_changed {
+        rematerialize_bundled_skills(&app, &service.get_settings());
+    }
     // replay 上限跟随 scrollback（docs/71 §9.2）：调小立刻 front-drop 到新上限，
     // 调大只抬上限。仅在真变了时才扫全表——它要逐个上 replay 锁，而那把锁正被
     // reader 线程高频争用。
@@ -63,6 +70,29 @@ pub fn update_settings(
     Ok(())
 }
 
+fn rematerialize_bundled_skills(app: &AppHandle, settings: &AppSettings) {
+    let resource_dir = match app.path().resource_dir() {
+        Ok(dir) => dir,
+        Err(error) => {
+            tracing::warn!(%error, "[settings] resource_dir unavailable; bundled skills not refreshed");
+            return;
+        }
+    };
+    let paths = app.state::<Arc<AppPaths>>();
+    match crate::services::bundled_skills::materialize_bundled_skills(
+        &resource_dir,
+        &paths,
+        settings,
+        env!("CARGO_PKG_VERSION"),
+    ) {
+        Ok(written) => info!(
+            count = written.len(),
+            "[settings] re-materialized bundled skills after gate toggle"
+        ),
+        Err(error) => tracing::warn!(%error, "[settings] failed to re-materialize bundled skills"),
+    }
+}
+
 fn sync_task_queue_setting(service: &TaskQueueService, enabled: bool, now: i64) -> AppResult<()> {
     service.set_global_enabled(enabled, now)
 }
@@ -83,7 +113,7 @@ pub fn cleanup_before_uninstall(
 
 /// 测试代理连接
 #[tauri::command]
-pub fn test_proxy(service: State<'_, Arc<SettingsService>>) -> AppResult<bool> {
+pub async fn test_proxy(service: State<'_, Arc<SettingsService>>) -> AppResult<bool> {
     let settings = service.get_settings();
     let proxy = &settings.proxy;
     if !proxy.enabled || proxy.host.is_empty() {
@@ -95,67 +125,27 @@ pub fn test_proxy(service: State<'_, Arc<SettingsService>>) -> AppResult<bool> {
         .parse()
         .map_err(|e| format!("Failed to parse address: {}", e))?;
 
-    TcpStream::connect_timeout(&socket_addr, Duration::from_secs(5))
-        .map(|_| true)
-        .map_err(|e| format!("Failed to connect to proxy {}: {}", addr, e).into())
+    super::blocking::run(move || {
+        TcpStream::connect_timeout(&socket_addr, Duration::from_secs(5))
+            .map(|_| true)
+            .map_err(|e| format!("Failed to connect to proxy {}: {}", addr, e).into())
+    })
+    .await
 }
 
 /// 测试 CLI 启动命令。只运行 `<command> --version` 这类轻量版本探测，
 /// 不注入用户 prompt / token / provider 环境。
 #[tauri::command]
-pub fn test_cli_launcher(command: String, version_args: Option<Vec<String>>) -> AppResult<String> {
-    let command = normalize_cli_command(&command);
-    if command.is_empty() {
-        return Err("CLI command is empty".into());
-    }
-
-    let args = version_args.unwrap_or_else(|| vec!["--version".to_string()]);
-    let mut child = no_window_command(command)
-        .args(&args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdin(Stdio::null())
-        .spawn()
-        .map_err(|error| format!("Failed to start CLI command: {}", error))?;
-
-    let started = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(_status)) => {
-                let output = child
-                    .wait_with_output()
-                    .map_err(|error| format!("Failed to read CLI output: {}", error))?;
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let text = first_non_empty([stdout.trim(), stderr.trim()])
-                    .unwrap_or_else(|| "Command completed without output".to_string());
-                if !output.status.success() {
-                    return Err(format!(
-                        "CLI command exited with {}: {}",
-                        output
-                            .status
-                            .code()
-                            .map(|code| code.to_string())
-                            .unwrap_or_else(|| "signal".to_string()),
-                        truncate_cli_launcher_output(&text)
-                    )
-                    .into());
-                }
-                return Ok(truncate_cli_launcher_output(&text));
-            }
-            Ok(None) => {
-                if started.elapsed() > Duration::from_secs(8) {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err("CLI command timed out".into());
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(error) => {
-                return Err(format!("Failed to wait for CLI command: {}", error).into());
-            }
-        }
-    }
+pub async fn test_cli_launcher(
+    command: String,
+    version_args: Option<Vec<String>>,
+) -> AppResult<String> {
+    super::blocking::run_async(cli_launcher::probe(
+        command,
+        version_args,
+        Duration::from_secs(8),
+    ))
+    .await
 }
 
 fn first_non_empty<'a>(values: impl IntoIterator<Item = &'a str>) -> Option<String> {
@@ -188,13 +178,17 @@ pub struct DataDirInfo {
 
 /// 获取数据目录信息
 #[tauri::command]
-pub fn get_data_dir_info(app_paths: State<'_, Arc<AppPaths>>) -> AppResult<DataDirInfo> {
-    Ok(DataDirInfo {
-        current_path: app_paths.data_dir().to_string_lossy().to_string(),
-        default_path: app_paths.default_data_dir().to_string_lossy().to_string(),
-        is_default: app_paths.is_default(),
-        size_bytes: app_paths.data_dir_size(),
+pub async fn get_data_dir_info(app_paths: State<'_, Arc<AppPaths>>) -> AppResult<DataDirInfo> {
+    let app_paths = app_paths.inner().clone();
+    super::blocking::run(move || {
+        Ok(DataDirInfo {
+            current_path: app_paths.data_dir().to_string_lossy().to_string(),
+            default_path: app_paths.default_data_dir().to_string_lossy().to_string(),
+            is_default: app_paths.is_default(),
+            size_bytes: app_paths.data_dir_size(),
+        })
     })
+    .await
 }
 
 /// 迁移数据目录

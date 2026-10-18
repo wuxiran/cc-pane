@@ -455,6 +455,8 @@
   "closeTabDirtyEditors_other": "{{count}} editors with unsaved changes:",
   "closeTabConfirmAction": "Close anyway",
   "tabAttentionDot": "Needs attention",
+  "tabResourceDot": "Using heavy resources; click to open the resource manager",
+  "tabQueueChip": "Queued {{position}}/{{total}}",
   "taskQueue": {
     "title": "Task queue",
     "description": "Tasks are sent in order after the current turn finishes.",

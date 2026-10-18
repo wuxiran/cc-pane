@@ -445,6 +445,7 @@ use commands::{
     set_notification_snooze,
     set_project_cli_hook_enabled,
     set_quick_terminal_session,
+    set_session_resource_policy,
     set_web_access_password,
     set_workspace_archived,
     set_workspace_project_archived,
@@ -842,18 +843,25 @@ fn should_close_main_window_to_tray(window: &tauri::Window) -> bool {
         .unwrap_or(false)
 }
 
-/// 触发截图流程：SetWindowDisplayAffinity 方案
-/// Windows: 设置 WDA_EXCLUDEFROMCAPTURE → xcap 截屏 → 选区 → 裁剪保存 → 恢复 WDA_NONE
-/// 非 Windows: Tauri hide → 截屏 → 选区 → 裁剪保存 → Tauri show
+/// 全局快捷键与应用内菜单共用的截图入口；交互、编码和文件 I/O 均在后台执行。
 pub fn trigger_screenshot(app: &tauri::AppHandle, settings_service: Arc<SettingsService>) {
-    use std::time::Instant;
-
     if CAPTURING
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
         return;
     }
+
+    let retention_days = settings_service.get_settings().screenshot.retention_days;
+    #[cfg(target_os = "macos")]
+    ScreenshotService::trigger_macos(app.clone(), retention_days, &CAPTURING);
+    #[cfg(not(target_os = "macos"))]
+    trigger_legacy_screenshot(app, retention_days);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn trigger_legacy_screenshot(app: &tauri::AppHandle, retention_days: u32) {
+    use std::time::Instant;
 
     // 获取主窗口 HWND（isize 可安全跨线程传递）
     #[cfg(target_os = "windows")]
@@ -886,7 +894,6 @@ pub fn trigger_screenshot(app: &tauri::AppHandle, settings_service: Arc<Settings
 
     #[allow(unused_variables)]
     let app = app.clone();
-    let retention_days = settings_service.get_settings().screenshot.retention_days;
     #[cfg(not(target_os = "windows"))]
     let fallback_app = app.clone();
     if let Err(error) = cc_panes_core::pty::thread::spawn_named("cc-panes-screenshot", move || {
@@ -1018,8 +1025,8 @@ fn restore_display_affinity(hwnd_val: Option<isize>) {
     }
 }
 
-/// 非 Windows 平台：通过 Tauri API 恢复主窗口
-#[cfg(not(target_os = "windows"))]
+/// 其余平台：通过 Tauri API 恢复主窗口
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn restore_main_window_tauri(app: &tauri::AppHandle) {
     if let Some(main_win) = app.get_webview_window("main") {
         let _ = main_win.show();
@@ -1672,6 +1679,9 @@ pub fn run() {
     let mcp_tool_call_stats_repo = Arc::new(
         cc_panes_core::repository::McpToolCallStatsRepository::new(db.clone()),
     );
+    let heavy_commands_repo = Arc::new(cc_panes_core::repository::HeavyCommandsRepository::new(
+        db.clone(),
+    ));
     let launch_history_service = Arc::new(LaunchHistoryService::new(history_repo));
     let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
     let todo_service = Arc::new(TodoService::new(todo_repo));
@@ -1965,6 +1975,7 @@ pub fn run() {
         .manage(task_queue_service)
         .manage(ai_panel_repo)
         .manage(mcp_tool_call_stats_repo)
+        .manage(heavy_commands_repo)
         .manage(spec_service)
         .manage(mcp_config_service)
         .manage(skill_service)
@@ -2133,14 +2144,11 @@ pub fn run() {
                         // 用户的 ~/.claude 与 ~/.codex 零写入。
                         let t_skill = std::time::Instant::now();
                         let registry = app.state::<Arc<cc_cli_adapters::CliToolRegistry>>();
-                        let svc = cc_panes_core::services::DefaultSkillService::new(
-                            resource_dir
-                                .join("resources")
-                                .join("claude-bundle")
-                                .join("default-skills"),
-                        );
-                        match svc.materialize_managed_bundle(
-                            &paths.builtin_skills_dir(),
+                        // 门控 skill（如 heavy-run）按当前设置决定是否物化；设置保存时同一入口重物化。
+                        match services::bundled_skills::materialize_bundled_skills(
+                            &resource_dir,
+                            &paths,
+                            &app.state::<Arc<SettingsService>>().get_settings(),
                             env!("CARGO_PKG_VERSION"),
                         ) {
                             Ok(written) => info!(
@@ -2164,6 +2172,9 @@ pub fn run() {
                         let report_path = paths
                             .skills_dir()
                             .join(cc_panes_core::services::LEGACY_CLEANUP_REPORT_FILE_NAME);
+                        let svc = cc_panes_core::services::DefaultSkillService::new(
+                            services::bundled_skills::bundled_templates_dir(&resource_dir),
+                        );
                         match svc.cleanup_legacy_injected_once(registry.inner(), &report_path) {
                             Ok(Some(report)) => info!(
                                 "[boot] legacy skill cleanup: removed {}, preserved {}, failed {}",
@@ -2345,8 +2356,43 @@ pub fn run() {
                     }
                     Err(error) => warn!(%error, "performance recorder directory unavailable"),
                 }
+                // 重负载命令台账（docs/107 P2b）：hook 记录器 + 边沿触发采样器。
+                // 两者各自持独立 SystemStatsService / 线程，不与弹层、recorder 共享实例。
+                {
+                    let heavy_recorder = services::HeavyCommandRecorder::start(
+                        app.state::<Arc<cc_panes_core::repository::HeavyCommandsRepository>>()
+                            .inner()
+                            .clone(),
+                        app.state::<Arc<SettingsService>>().inner().clone(),
+                    );
+                    let heavy_sampler = services::HeavyCommandSampler::start(
+                        heavy_recorder.clone(),
+                        app.state::<Arc<SettingsService>>().inner().clone(),
+                        app.state::<Arc<TerminalBackendState>>().inner().clone(),
+                        app_handle.clone(),
+                    );
+                    app.manage(heavy_recorder);
+                    app.manage(heavy_sampler);
+                }
                 let tauri_emitter: std::sync::Arc<dyn cc_panes_core::events::EventEmitter> =
                     Arc::new(TauriEmitter::new(app_handle.clone()));
+                // W8 重负载门禁状态：orchestrator 启动时取走挂到 /api/heavy-jobs。
+                // 必须在 orch_svc.start 之前 manage，否则路由退化为永远透传。
+                {
+                    let heavy_env = services::AppHeavyJobEnvironment::new(
+                        app.state::<Arc<SettingsService>>().inner().clone(),
+                        app.state::<Arc<TerminalBackendState>>().inner().clone(),
+                        app.state::<Arc<cc_panes_core::repository::HeavyCommandsRepository>>()
+                            .inner()
+                            .clone(),
+                        tauri_emitter.clone(),
+                    );
+                    let token = app.state::<Arc<OrchestratorService>>().token().to_string();
+                    app.manage(Arc::new(services::HeavyJobGateState::new(
+                        token,
+                        Arc::new(heavy_env),
+                    )));
+                }
 
                 // 注入到 TerminalService
                 let term_svc = app.state::<Arc<TerminalService>>();
@@ -2485,8 +2531,8 @@ pub fn run() {
                 boot_t0.elapsed().as_millis()
             );
 
-            // ---- 注册截图全局快捷键（仅 Windows，macOS 截图功能暂未实现）----
-            #[cfg(target_os = "windows")]
+            // ---- 注册截图全局快捷键（Windows / macOS 原生选区）----
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
                 let settings_svc = app.state::<Arc<SettingsService>>();
@@ -2978,6 +3024,11 @@ pub fn run() {
             get_all_terminal_status,
             get_bridge_stats,
             commands::record_performance_snapshot,
+            // 重负载命令台账
+            commands::list_heavy_commands,
+            commands::aggregate_heavy_commands,
+            commands::clear_heavy_commands,
+            commands::get_heavy_sampler_stats,
             commands::get_performance_recorder_status,
             commands::mark_performance_incident,
             get_available_shells,
@@ -3388,6 +3439,7 @@ pub fn run() {
             get_system_stats,
             get_resource_tree,
             kill_orphan_processes,
+            set_session_resource_policy,
             // Runner Registry 命令
             runner_list_profiles,
             runner_get_profile,

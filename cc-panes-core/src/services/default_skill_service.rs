@@ -60,10 +60,55 @@ struct SkillEntry {
     file: String,
     #[serde(default)]
     delivery: BundledSkillDelivery,
+    /// 只在某个设置打开时才物化（如 `performance.heavyGateEnabled`，见 docs/107 交付形态：
+    /// 门禁关着的用户根本看不到这个 skill）。缺省 = 无条件。键名由 [`SkillGateContext`] 解释。
+    #[serde(default, rename = "requiresSetting")]
+    requires_setting: Option<String>,
     /// UI 展示用的多语言简介（locale → 文案）。frontmatter `description` 是 CLI 触发匹配用的原文，
     /// 不在这里改；翻译层只放清单里，不进物化出去的 SKILL.md。
     #[serde(default)]
     descriptions: BTreeMap<String, String>,
+}
+
+/// 物化时的设置门：条目声明了 `requiresSetting` 的，只有该键在 `enabled_settings` 里才渲染。
+///
+/// 键是稳定字符串而非 `AppSettings` 字段引用，这样 manifest 可以独立于 Rust 结构演进；
+/// 映射在 [`SkillGateContext::from_app_settings`] 一处维护。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SkillGateContext {
+    pub enabled_settings: HashSet<String>,
+}
+
+impl SkillGateContext {
+    /// 设置 → 性能 → 重负载门禁。
+    pub const HEAVY_GATE_SETTING: &'static str = "performance.heavyGateEnabled";
+
+    pub fn from_app_settings(settings: &crate::models::settings::AppSettings) -> Self {
+        let mut enabled_settings = HashSet::new();
+        if settings.performance.heavy_gate_enabled {
+            enabled_settings.insert(Self::HEAVY_GATE_SETTING.to_string());
+        }
+        Self { enabled_settings }
+    }
+
+    pub fn with_enabled<I, S>(keys: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            enabled_settings: keys.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    fn allows(&self, entry: &SkillEntry) -> bool {
+        entry
+            .requires_setting
+            .as_deref()
+            .map(str::trim)
+            .filter(|key| !key.is_empty())
+            .is_none_or(|key| self.enabled_settings.contains(key))
+    }
 }
 
 impl SkillEntry {
@@ -326,10 +371,25 @@ impl DefaultSkillService {
         target_root: &Path,
         app_version: &str,
     ) -> Result<Vec<PathBuf>, String> {
+        self.materialize_managed_bundle_gated(
+            target_root,
+            app_version,
+            &SkillGateContext::default(),
+        )
+    }
+
+    /// 同上，但带设置门：声明了 `requiresSetting` 的条目只在对应设置打开时物化；
+    /// 关掉后再物化会把它的目录当 stale 清掉——skill 目录随开关出现 / 消失，无需重启。
+    pub fn materialize_managed_bundle_gated(
+        &self,
+        target_root: &Path,
+        app_version: &str,
+        gate: &SkillGateContext,
+    ) -> Result<Vec<PathBuf>, String> {
         let manifest = Self::load_manifest(&self.templates_dir.join("manifest.json"))
             .ok_or_else(|| "bundled skill manifest is unavailable".to_string())?;
         let rendered = self
-            .render_bundle(&manifest, SkillDeliveryMode::NativeSkill)
+            .render_bundle(&manifest, SkillDeliveryMode::NativeSkill, gate)
             .ok_or_else(|| "bundled skills could not be rendered".to_string())?;
 
         let skills_root = target_root.join(MANAGED_SKILLS_SUBDIR);
@@ -820,6 +880,7 @@ impl DefaultSkillService {
         &self,
         manifest: &SkillManifest,
         delivery_mode: SkillDeliveryMode,
+        gate: &SkillGateContext,
     ) -> Option<RenderedBundle> {
         if manifest.namespace != BUNDLED_NAMESPACE {
             warn!(
@@ -831,7 +892,7 @@ impl DefaultSkillService {
         let mut skills = Vec::with_capacity(manifest.skills.len());
 
         for skill in &manifest.skills {
-            if !skill.supports_delivery_mode(delivery_mode) {
+            if !skill.supports_delivery_mode(delivery_mode) || !gate.allows(skill) {
                 continue;
             }
             let template_path = self.templates_dir.join(&skill.file);
@@ -858,7 +919,12 @@ impl DefaultSkillService {
 
     fn render_explicit_pi_skill_bundle(&self) -> Option<RenderedBundle> {
         let manifest = Self::load_manifest(&self.templates_dir.join("manifest.json"))?;
-        let rendered = self.render_bundle(&manifest, SkillDeliveryMode::PiSkill)?;
+        // Pi 只装无条件的 portable skill；设置门控的（门禁）走 ctl，Pi 没有会话级重物化。
+        let rendered = self.render_bundle(
+            &manifest,
+            SkillDeliveryMode::PiSkill,
+            &SkillGateContext::default(),
+        )?;
         if rendered.skills.is_empty() {
             info!("[default_skill] No explicitly Pi-compatible bundled skills to publish");
             return None;
@@ -1076,6 +1142,7 @@ mod tests {
                         requires_ccpanes_mcp: false,
                     },
                     descriptions: BTreeMap::new(),
+                    requires_setting: None,
                 },
                 SkillEntry {
                     name: "skill".to_string(),
@@ -1086,19 +1153,25 @@ mod tests {
                         requires_ccpanes_mcp: false,
                     },
                     descriptions: BTreeMap::new(),
+                    requires_setting: None,
                 },
                 SkillEntry {
                     name: "legacy".to_string(),
                     file: "legacy.md".to_string(),
                     delivery: BundledSkillDelivery::default(),
                     descriptions: BTreeMap::new(),
+                    requires_setting: None,
                 },
             ],
         };
         let service = DefaultSkillService::new(root.clone());
 
         let command_delivery = service
-            .render_bundle(&manifest, SkillDeliveryMode::NativeCommand)
+            .render_bundle(
+                &manifest,
+                SkillDeliveryMode::NativeCommand,
+                &SkillGateContext::default(),
+            )
             .unwrap();
         assert_eq!(
             command_delivery
@@ -1110,7 +1183,11 @@ mod tests {
         );
 
         let skills = service
-            .render_bundle(&manifest, SkillDeliveryMode::NativeSkill)
+            .render_bundle(
+                &manifest,
+                SkillDeliveryMode::NativeSkill,
+                &SkillGateContext::default(),
+            )
             .unwrap();
         assert_eq!(
             skills
@@ -1144,6 +1221,7 @@ mod tests {
                         requires_ccpanes_mcp: false,
                     },
                     descriptions: BTreeMap::new(),
+                    requires_setting: None,
                 },
                 SkillEntry {
                     name: "pi".to_string(),
@@ -1154,6 +1232,7 @@ mod tests {
                         requires_ccpanes_mcp: false,
                     },
                     descriptions: BTreeMap::new(),
+                    requires_setting: None,
                 },
                 SkillEntry {
                     name: "pi-mcp".to_string(),
@@ -1164,19 +1243,25 @@ mod tests {
                         requires_ccpanes_mcp: true,
                     },
                     descriptions: BTreeMap::new(),
+                    requires_setting: None,
                 },
                 SkillEntry {
                     name: "legacy".to_string(),
                     file: "legacy.md".to_string(),
                     delivery: BundledSkillDelivery::default(),
                     descriptions: BTreeMap::new(),
+                    requires_setting: None,
                 },
             ],
         };
         let service = DefaultSkillService::new(root.clone());
 
         let pi = service
-            .render_bundle(&manifest, SkillDeliveryMode::PiSkill)
+            .render_bundle(
+                &manifest,
+                SkillDeliveryMode::PiSkill,
+                &SkillGateContext::default(),
+            )
             .unwrap();
 
         assert_eq!(
@@ -1309,6 +1394,156 @@ mod tests {
 
         remove_dir(&templates);
         remove_dir(&target);
+    }
+
+    /// 造一个带两条 skill 的模板目录：`plain` 无条件，`gated` 要求 `performance.heavyGateEnabled`。
+    fn templates_with_gated_skill(root: &Path) {
+        fs::create_dir_all(root).unwrap();
+        fs::write(
+            root.join("manifest.json"),
+            r#"{"schemaVersion":2,"namespace":"ccpanes","variables":{},"skills":[
+                {"name":"plain","file":"plain.md"},
+                {"name":"gated","file":"gated.md","requiresSetting":"performance.heavyGateEnabled"}
+            ]}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("plain.md"),
+            "---
+name: ccpanes-plain
+description: d
+---
+
+P",
+        )
+        .unwrap();
+        fs::write(
+            root.join("gated.md"),
+            "---
+name: ccpanes-gated
+description: d
+---
+
+G",
+        )
+        .unwrap();
+        fs::write(
+            root.join(LEGACY_HASH_FILE_NAME),
+            serde_json::json!({ "sha256": [] }).to_string(),
+        )
+        .unwrap();
+    }
+
+    fn managed_dir_names(target: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(target.join(MANAGED_SKILLS_SUBDIR))
+            .unwrap()
+            .flatten()
+            .filter(|entry| entry.path().is_dir())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// `requiresSetting` 三态：缺省无条件；设置打开 → 物化；关闭 → 不物化且已有目录被清。
+    #[test]
+    fn requires_setting_gates_materialization_in_three_states() {
+        let templates = unique_temp_dir("gated-templates");
+        templates_with_gated_skill(&templates);
+        let target = unique_temp_dir("gated-target");
+        let svc = DefaultSkillService::new(templates.clone());
+
+        // 1. 默认门（啥都没开）：只有无条件的 plain
+        svc.materialize_managed_bundle(&target, "1.0.0").unwrap();
+        assert_eq!(managed_dir_names(&target), vec!["ccpanes-plain"]);
+
+        // 2. 开关打开：gated 出现，无需重启
+        let enabled = SkillGateContext::with_enabled([SkillGateContext::HEAVY_GATE_SETTING]);
+        let written = svc
+            .materialize_managed_bundle_gated(&target, "1.0.0", &enabled)
+            .unwrap();
+        assert_eq!(written.len(), 2);
+        assert_eq!(
+            managed_dir_names(&target),
+            vec!["ccpanes-gated", "ccpanes-plain"]
+        );
+
+        // 3. 开关关闭：gated 目录被当 stale 清掉；无关设置打开不算
+        let other = SkillGateContext::with_enabled(["performance.somethingElse"]);
+        svc.materialize_managed_bundle_gated(&target, "1.0.0", &other)
+            .unwrap();
+        assert_eq!(managed_dir_names(&target), vec!["ccpanes-plain"]);
+
+        remove_dir(&templates);
+        remove_dir(&target);
+    }
+
+    #[test]
+    fn manifest_schema_parses_requires_setting_and_defaults_to_none() {
+        let manifest: SkillManifest = serde_json::from_str(
+            r#"{"schemaVersion":2,"namespace":"ccpanes","skills":[
+                {"name":"a","file":"a.md"},
+                {"name":"b","file":"b.md","requiresSetting":"performance.heavyGateEnabled"}
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(manifest.skills[0].requires_setting, None);
+        assert_eq!(
+            manifest.skills[1].requires_setting.as_deref(),
+            Some("performance.heavyGateEnabled")
+        );
+        let gate = SkillGateContext::default();
+        assert!(gate.allows(&manifest.skills[0]));
+        assert!(!gate.allows(&manifest.skills[1]));
+        assert!(
+            SkillGateContext::with_enabled(["performance.heavyGateEnabled"])
+                .allows(&manifest.skills[1])
+        );
+    }
+
+    #[test]
+    fn skill_gate_context_from_settings_tracks_heavy_gate_toggle() {
+        let mut settings = crate::models::settings::AppSettings::default();
+        assert!(SkillGateContext::from_app_settings(&settings)
+            .enabled_settings
+            .is_empty());
+        settings.performance.heavy_gate_enabled = true;
+        assert!(SkillGateContext::from_app_settings(&settings)
+            .enabled_settings
+            .contains(SkillGateContext::HEAVY_GATE_SETTING));
+    }
+
+    /// 内置清单里的 heavy-run 必须是门控条目：门禁关着的用户不该看到它。
+    #[test]
+    fn bundled_heavy_run_is_gated_by_heavy_gate_setting() {
+        let manifest =
+            DefaultSkillService::load_manifest(&bundled_templates_dir().join("manifest.json"))
+                .expect("bundled manifest");
+        let heavy_run = manifest
+            .skills
+            .iter()
+            .find(|skill| skill.name == "heavy-run")
+            .expect("heavy-run entry");
+        assert_eq!(
+            heavy_run.requires_setting.as_deref(),
+            Some(SkillGateContext::HEAVY_GATE_SETTING)
+        );
+        assert!(
+            !heavy_run.delivery.requires_ccpanes_mcp,
+            "heavy-run talks to ctl, not MCP"
+        );
+        // 其他条目都无条件（有新门控 skill 时在此登记）
+        for skill in manifest
+            .skills
+            .iter()
+            .filter(|skill| skill.name != "heavy-run")
+        {
+            assert_eq!(
+                skill.requires_setting, None,
+                "{} unexpectedly gated",
+                skill.name
+            );
+        }
     }
 
     #[test]

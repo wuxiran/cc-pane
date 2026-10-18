@@ -19,7 +19,7 @@ use cc_panes_core::{
         ProjectCliHooksService, ProviderService, SettingsService, SharedMcpService,
         SshCredentialService, TerminalBackend, TerminalService, WorkspaceService,
     },
-    utils::{simplify_path, AppPaths, APP_DIR_NAME},
+    utils::{simplify_path, tokio_worker_threads_from_env, AppPaths, APP_DIR_NAME},
 };
 use clap::Parser;
 use tracing::info;
@@ -203,8 +203,19 @@ fn windows_path_to_wsl_path(path: &str) -> Option<PathBuf> {
     Some(PathBuf::from(format!("/mnt/{drive}/{rest}")))
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    // 不用 `#[tokio::main]`：默认 worker = 逻辑核数，32 核机器上这个只做 I/O 转发的
+    // 进程白起 32 条线程。收口到 2..=8（默认 4，`CC_PANES_TOKIO_WORKERS` 可调）。
+    let worker_threads = tokio_worker_threads_from_env();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(worker_threads)
+        .enable_all()
+        .thread_name("cc-panes-daemon-tokio")
+        .build()?;
+    runtime.block_on(async_main(worker_threads))
+}
+
+async fn async_main(worker_threads: usize) -> anyhow::Result<()> {
     let args = Args::parse();
     let _log_guard = logging::init(args.data_dir.as_deref(), args.runtime_dir.as_deref())?;
     let previous_panic_hook = std::panic::take_hook();
@@ -273,6 +284,8 @@ async fn main() -> anyhow::Result<()> {
         // 周期自检：被新 daemon 取代即优雅退出，manifest 丢失则自愈重写。
         self_check::spawn_manifest_self_check(runtime_dir, config.clone());
     }
+    // create_session 前限频重读 config.toml：app 改了并行度/性能设置，新会话立即生效。
+    config.set_settings_service(settings_service.clone());
     // 孤儿会话回收：无人查看超过 TTL（设置可调，0=禁用）的会话按 FIFO 回收。
     session_reaper::spawn_session_reaper(config.clone(), settings_service);
     // 补拍周期扫描（M3b-2）：delta 超阈值的会话经 control 催前端重拍照片。
@@ -281,7 +294,12 @@ async fn main() -> anyhow::Result<()> {
         config.ws_emitter(),
     );
 
-    info!(addr = %local_addr, cwd = cwd_str, "CC-Panes daemon listening");
+    info!(
+        addr = %local_addr,
+        cwd = cwd_str,
+        tokio_workers = worker_threads,
+        "CC-Panes daemon listening"
+    );
     let serve_result = axum::serve(listener, server::router(config))
         .with_graceful_shutdown(server::wait_for_shutdown(shutdown_rx))
         .await;

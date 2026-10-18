@@ -65,6 +65,27 @@ describe("ScreenshotSection", () => {
     expect(toast.success).toHaveBeenCalled();
   });
 
+  it.each([
+    { ctrlKey: false, expected: "Super+Shift+S" },
+    { ctrlKey: true, expected: "Ctrl+Super+Shift+S" },
+  ])("records Command separately from Control: $expected", async ({ ctrlKey, expected }) => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    vi.mocked(screenshotService.updateShortcut).mockResolvedValue(undefined as never);
+    render(<ScreenshotSection value={createValue()} onChange={onChange} />);
+
+    await user.click(screen.getByRole("button", { name: "Ctrl+Shift+S" }));
+    const input = screen.getByRole("textbox");
+    fireEvent.keyDown(input, { key: "s", metaKey: true, ctrlKey, shiftKey: true });
+    expect(input).toHaveValue(expected);
+    fireEvent.blur(input);
+
+    await waitFor(() =>
+      expect(screenshotService.updateShortcut).toHaveBeenCalledWith("Ctrl+Shift+S", expected),
+    );
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ shortcut: expected }));
+  });
+
   it("ignores standalone modifier keys while capturing", async () => {
     const user = userEvent.setup();
     render(<ScreenshotSection value={createValue()} onChange={vi.fn()} />);
@@ -72,6 +93,7 @@ describe("ScreenshotSection", () => {
     await user.click(screen.getByRole("button", { name: "Ctrl+Shift+S" }));
     const input = screen.getByRole("textbox");
     fireEvent.keyDown(input, { key: "Control", ctrlKey: true });
+    fireEvent.keyDown(input, { key: "Meta", metaKey: true });
     fireEvent.keyDown(input, { key: "Shift", shiftKey: true });
 
     // 仍显示提示文案，没有捕获任何组合键

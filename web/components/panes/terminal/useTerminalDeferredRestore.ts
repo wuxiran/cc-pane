@@ -11,6 +11,7 @@ import { waitForTerminalRestoreBarrierWithDeadline } from "@/services/terminalRe
 import { createTerminalSlotHolder } from "@/lib/terminalSlot";
 import { pickCreateSessionResumeId } from "../terminalResume";
 import { replayAttachedSession } from "../terminalReplay";
+import { runTerminalReplay } from "../terminalReplaySemaphore";
 import { startLaunchBackfillIfNeeded } from "../terminalLaunchBackfill";
 import { resolveCliTool, resolveLaunchId, resolveRuntimeKind } from "../terminalLaunchIdentity";
 import { clearColdReplayOutputOnFailure } from "../terminalResume";
@@ -156,7 +157,10 @@ export function useTerminalDeferredRestore({
               });
               reportRestoreLaunchState("idle");
               onSessionCreatedRef.current(liveSavedSessionId);
-              await replayAttachedSession({
+              // 重放信号量（并发 1，前台插队）。此处不传 isCancelled：isUnmountedRef 在
+              // init effect 重跑的 cleanup→mount 间会短暂为 true，出队即拒会漏掉 attach；
+              // 卸载语义由下方 replay 完成后的 isUnmountedRef 检查（unbind）兜底，与改前一致。
+              await runTerminalReplay(term, () => replayAttachedSession({
                 term,
                 sessionId: liveSavedSessionId,
                 getRecoverySnapshot: (attachSessionId) => getRecoverySnapshot(attachSessionId),
@@ -167,7 +171,7 @@ export function useTerminalDeferredRestore({
                 writeCheckpointData: (data) => writeTerminalData(renderCheckpointData(data)),
                 syncTrackedBufferType,
                 debugLog,
-              });
+              }), { label: "deferred-attach" });
               if (props.paneId && props.tabId) {
                 usePanesStore.getState().clearRestoring(props.paneId ?? "", props.tabId, props.paneId);
                 sessionRestoreService.clearOutput(liveSavedSessionId).catch(console.error);

@@ -7,6 +7,7 @@
 > **缺口总表见 §9**（含优先级排序与"为什么不能简单修"的理由）。
 >
 > 触发场景：任一窗格里跑 `cargo build` / `rg` 扫大目录 / `npm run build`，整机 CPU 与内存被吃满，所有窗格连带整台机器一起卡。
+> 后续：`docs/107-performance-plan-0.12.22.md`（2026-10-12，三家对照更新 + 0.12.22 实施方案，本文 §9.2 缺口的去向在那里）。
 > 关联：`docs/41-wallpaper-perf-investigation.md`（轮询扫描器把 28.6 核打满的先例）、`docs/46-frontend-styleguide.md`（琥珀约定）、`docs/17-persistent-terminal-daemon.md`
 >
 > ⚠️ **读本文注意**：§2.1 与 §3 的表格原先记录的是 2026-08-02 的代码现状，此后被多批提交改写。凡带"已改写"标注的段落，请以标注为准，不要照着旧描述去改代码。

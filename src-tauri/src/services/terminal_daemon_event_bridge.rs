@@ -755,6 +755,14 @@ fn same_status_payload(left: &SessionStatusInfo, right: &SessionStatusInfo) -> b
         && left.updated_at == right.updated_at
         // F5：OSC 徽章独立于 updated_at 变化（TTL 衰减/黏滞），漏比会被去重抑制
         && left.osc_progress == right.osc_progress
+        // 0.12.22：策略三态切换只改这一字段，漏比则 popover 永远看不到"已降级"
+        && left.resource_policy == right.resource_policy
+        // W5：越线/回落只改这一字段，漏比则徽标永远不亮或永远不灭
+        && left.job_memory_warning == right.job_memory_warning
+        && left.runtime_kind == right.runtime_kind
+        && left.wsl_distro == right.wsl_distro
+        // W8：排队位次变化只改这一字段，漏比则标签 chip 停在旧位次
+        && left.heavy_queue == right.heavy_queue
 }
 
 fn synthesized_exited_status(session_id: &str) -> SessionStatusInfo {
@@ -777,6 +785,11 @@ fn synthesized_exited_status_with_code(
         current_tool_summary: None,
         updated_at: now,
         osc_progress: None,
+        resource_policy: None,
+        job_memory_warning: None,
+        runtime_kind: None,
+        wsl_distro: None,
+        heavy_queue: None,
     }
 }
 

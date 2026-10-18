@@ -229,6 +229,16 @@
       }
     },
     {
+      "name": "heavy-run",
+      "file": "heavy-run.md",
+      "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": false },
+      "requiresSetting": "performance.heavyGateEnabled",
+      "descriptions": {
+        "zh-CN": "编译 / 测试 / 全仓 grep 一类重命令经 `cc-panes-ctl run --heavy` 走 {{app_name}} 资源门禁排队拿槽；只在打开门禁时注入。",
+        "en": "Run compile, test and repo-wide grep commands through the {{app_name}} heavy-job gate via `cc-panes-ctl run --heavy`. Only injected while the gate is on."
+      }
+    },
+    {
       "name": "mcp-guide",
       "file": "mcp-guide.md",
       "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true },

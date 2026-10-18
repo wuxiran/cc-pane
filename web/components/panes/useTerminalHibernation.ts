@@ -16,6 +16,8 @@ import {
   type TerminalBackgroundLifecycle,
 } from "./terminalBackgroundLifecycle";
 import { captureAndUploadCheckpoint } from "./terminalCheckpointUpload";
+import { parkTerminal, terminalParkingRegistry } from "./terminalParking";
+import { getParkDelayMs } from "./terminalParkingSettings";
 import { serializeTerminalSnapshot } from "./terminalSnapshotModes";
 import {
   createHibernatedTerminalState,
@@ -49,12 +51,13 @@ export interface TerminalHibernationHandle {
   hibernatedStateRef: RefValue<HibernatedTerminalState | null>;
   /** 唤醒交接（init attach 分支优先回放它）。 */
   wakeStateRef: RefValue<HibernatedTerminalState | null>;
-  /** 每次 render 汇报可见性（幂等），驱动 1s/30min 两档降档定时器。 */
+  /** 每次 render 汇报可见性（幂等），驱动 1s 挂 WebGL / 30s 停泊 / 30min 休眠三档定时器。 */
   notifyVisibility: (visible: boolean) => void;
 }
 
 /**
- * 后台标签分层降档（docs/71 §3.1）：1s 挂 WebGL，30min 休眠。
+ * 后台标签分层降档（docs/71 §3.1，docs/107 P1）：1s 挂 WebGL，30s 停泊，30min 休眠。
+ * 停泊 = 不序列化的休眠（`terminalParking.ts`）；隐藏数超上限时注册表按 LRU 提前停泊。
  *
  * Tier2 休眠：serialize 全量缓冲 → 交接给 hibernatedStateRef → epoch 自增。
  * 旧 init effect 的 cleanup 完整销毁 xterm/renderer/订阅；新一轮 effect 见到
@@ -154,16 +157,53 @@ export function useTerminalHibernation({
     bumpInstanceEpoch();
   }, [bumpInstanceEpoch, debugLog]);
 
+  const parkOwnerRef = useRef<object>({});
+  const parkNow = useCallback((reason: "park-timer" | "park-evict") => {
+    const parked = parkTerminal({
+      terminalInstanceRef,
+      currentSessionIdRef,
+      hibernatedStateRef,
+      isReconnectingRef,
+      isDisconnectedRef,
+      debugLog,
+      bumpInstanceEpoch,
+      reason,
+    });
+    if (parked) terminalParkingRegistry.notifyParked(parkOwnerRef.current);
+    return parked;
+  }, [
+    bumpInstanceEpoch,
+    currentSessionIdRef,
+    debugLog,
+    isDisconnectedRef,
+    isReconnectingRef,
+    terminalInstanceRef,
+  ]);
+
   const hibernateNowRef = useRef(hibernateNow);
   const wakeFromHibernationRef = useRef(wakeFromHibernation);
+  const parkNowRef = useRef(parkNow);
   hibernateNowRef.current = hibernateNow;
   wakeFromHibernationRef.current = wakeFromHibernation;
+  parkNowRef.current = parkNow;
 
   const notifyVisibility = useCallback(
     (visible: boolean) => {
-      if (visible) rendererControllerRef.current?.resumeWebgl("view-visible");
+      if (visible) {
+        rendererControllerRef.current?.resumeWebgl("view-visible");
+        terminalParkingRegistry.notifyVisible(parkOwnerRef.current);
+        // 注册表逐出的停泊不经 lifecycle 计时，可见即唤醒（幂等，无容器时 no-op）。
+        if (hibernatedStateRef.current) wakeFromHibernationRef.current();
+      } else if (hibernatedStateRef.current) {
+        terminalParkingRegistry.notifyParked(parkOwnerRef.current);
+      } else {
+        terminalParkingRegistry.notifyHidden(parkOwnerRef.current, () => parkNowRef.current("park-evict"));
+      }
       // 回调走 ref 蹦床：本函数在每次 render 被调用，notifyVisibility 幂等。
       backgroundLifecycleRef.current ??= createTerminalBackgroundLifecycle({
+        parkDelayMs: getParkDelayMs(),
+        onPark: () => parkNowRef.current("park-timer"),
+        onParkRestore: () => wakeFromHibernationRef.current(),
         onTier1: () => {
           rendererControllerRef.current?.suspendWebgl("background");
           // M3b-2 触发点②：隐藏 1s 边沿补拍——xterm 还活着，休眠（Tier2）
@@ -192,6 +232,7 @@ export function useTerminalHibernation({
     return () => {
       backgroundLifecycleRef.current?.dispose();
       backgroundLifecycleRef.current = null;
+      terminalParkingRegistry.notifyVisible(parkOwnerRef.current);
       hibernatedStateRef.current = null;
       wakeStateRef.current = null;
     };

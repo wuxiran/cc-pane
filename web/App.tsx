@@ -1,10 +1,9 @@
 import { useEffect } from "react";
-import LayoutSwitcherWindow from "@/components/LayoutSwitcherWindow";
 import PopupTerminalWindow from "@/components/PopupTerminalWindow";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import WebAuthGate from "@/components/WebAuthGate";
 import AppShell from "@/components/layout/AppShell";
-import MobilePrototypeRoute from "@/components/layout/MobilePrototypeRoute";
+import AuxiliaryRoute from "@/components/layout/AuxiliaryRoute";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTodoReminders } from "@/hooks/useTodoReminders";
 import { useWorkspaceWatcher } from "@/hooks/useWorkspaceWatcher";
@@ -13,6 +12,7 @@ import { useAiPanelListener } from "@/hooks/useAiPanelListener";
 import { useOrphanSessionReconciler } from "@/hooks/useOrphanSessionReconciler";
 import { useHiddenSessionReporter } from "@/hooks/useHiddenSessionReporter";
 import { useTabAttentionWiring } from "@/hooks/useTabAttentionWiring";
+import { useTabResourceBadgeWiring } from "@/hooks/useTabResourceBadgeWiring";
 import useOrchestratorSync from "@/hooks/useOrchestratorSync";
 import useLayoutSwitcherSync from "@/hooks/useLayoutSwitcherSync";
 import { useLayoutScopeSync } from "@/hooks/useLayoutScopeSync";
@@ -42,13 +42,13 @@ export default function App() {
     return <PopupTerminalWindow />;
   }
   if (params.get("mode") === "layout-switcher") {
-    return <LayoutSwitcherWindow />;
+    return <ErrorBoundary><AuxiliaryRoute mode="layout-switcher" /></ErrorBoundary>;
   }
   if (params.get("mode") === "mobile-prototype") {
     return (
       <ErrorBoundary>
         <WebAuthGate>
-          <MobilePrototypeRoute />
+          <AuxiliaryRoute mode="mobile-prototype" />
         </WebAuthGate>
       </ErrorBoundary>
     );
@@ -96,6 +96,7 @@ function MainApp() {
   useOrphanSessionReconciler();
   useHiddenSessionReporter();
   useTabAttentionWiring();
+  useTabResourceBadgeWiring();
 
   // fix(M4) review: Orchestrator 同步提升到 App 顶层，全局只挂一次。
   useOrchestratorSync();

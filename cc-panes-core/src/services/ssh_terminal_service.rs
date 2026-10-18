@@ -66,6 +66,8 @@ pub(super) fn spawn_ssh_terminal(
         process: Arc::new(process),
         reader: Box::new(reader),
         writer: Box::new(writer),
+        // 远端进程不受本机 Job / nice 管辖；"不涉及"而非"不支持"。
+        policy_outcome: None,
     })
 }
 

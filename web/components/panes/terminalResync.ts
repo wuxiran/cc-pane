@@ -8,6 +8,7 @@ import { withTerminalReplayPresentation, type ReplayPresentationTerminal } from 
 import { checkpointRecoveredTerminal } from "./terminalRecoveryCheckpoint";
 import { noteRecoveryDuration } from "@/services/performanceRecoveryMetrics";
 import { restoreTerminalReplayGeometry } from "./terminalReplayGeometry";
+import { runTerminalReplay } from "./terminalReplaySemaphore";
 
 /**
  * 从后端恢复快照（checkpoint+delta）整体重同步终端画面。
@@ -67,7 +68,11 @@ interface ResyncFromReplaySnapshotOptions {
 
 export async function resyncFromReplaySnapshot(options: ResyncFromReplaySnapshotOptions): Promise<boolean> {
   const started = performance.now();
-  try { return await withTerminalReplayPresentation(options.term, () => restoreSnapshot(options)); }
+  // 重放信号量：与 attach/冷恢复/唤醒共用并发 1，前台插队；排队期间已取消则直接拒绝。
+  const isCancelled = options.canWrite ? () => !options.canWrite!() : undefined;
+  try {
+    return await runTerminalReplay(options.term, () => withTerminalReplayPresentation(options.term, () => restoreSnapshot(options)), { isCancelled, label: `resync.${options.reason}` });
+  }
   finally { noteRecoveryDuration(options.sessionId, options.reason, performance.now() - started); }
 }
 

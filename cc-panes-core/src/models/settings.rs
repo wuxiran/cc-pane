@@ -4,6 +4,7 @@ use std::collections::HashMap;
 // OrchestratorSettings 已拆到独立模块（settings.rs 触到行数棘轮上限），
 // 在此重导出以保持既有 import 路径不变。
 pub use super::orchestrator_settings::OrchestratorSettings;
+pub use super::performance_settings::PerformanceSettings;
 pub use super::quick_terminal_settings::QuickTerminalSettings;
 
 const DEFAULT_TERMINAL_FONT_SIZE: u16 = 15;
@@ -62,6 +63,9 @@ pub struct AppSettings {
     pub im: ImSettings,
     #[serde(default)]
     pub experimental: ExperimentalSettings,
+    /// 性能专项（docs/107）：构建并行度 / Codex 轻量 / 门禁 / 台账 / WSL 配额 / 停泊。
+    #[serde(default)]
+    pub performance: PerformanceSettings,
 }
 
 /// 实验功能开关。Release 默认全关，用户在「设置 → 实验功能」显式勾选后入口才
@@ -156,6 +160,7 @@ impl AppSettings {
         self.orchestrator.merge_missing_defaults();
         self.wallpaper.merge_missing_defaults();
         self.quick_terminal.merge_missing_defaults();
+        self.performance.merge_missing_defaults();
     }
 }
 
@@ -610,6 +615,11 @@ impl TerminalSettings {
         crate::models::SessionResourcePolicy {
             lower_priority: self.lower_session_priority,
             cpu_weight: self.session_cpu_weight,
+            // 效率模式不做默认策略：EcoQoS 逐进程下发、后生子进程不继承，只在用户点
+            // "效率模式"或 W8 拿槽时按需开。
+            eco_qos: false,
+            // 通知水位由 create_session 按 [performance] 与物理内存现算，不在这里。
+            memory_notify_bytes: None,
         }
     }
 }
@@ -1686,6 +1696,22 @@ mod tests {
 
         assert!(!settings.allow_mcp_yolo_profiles);
         assert!(!OrchestratorSettings::default().allow_mcp_yolo_profiles);
+    }
+
+    /// 老 config.toml 没有 `[performance]` 节：整节回落默认；有节但越界：经 AppSettings
+    /// 的 merge 链钳位（而非丢弃）。
+    #[test]
+    fn app_settings_without_performance_section_loads_and_clamps() {
+        let legacy: AppSettings =
+            toml::from_str("[experimental]\nskillMarket = false\n").expect("legacy config parses");
+        assert_eq!(legacy.performance, PerformanceSettings::default());
+
+        let mut out_of_range: AppSettings =
+            toml::from_str("[performance]\nparkedTerminalLimit = 99\nheavyGateTimeoutSecs = 1\n")
+                .expect("parses");
+        out_of_range.merge_missing_defaults();
+        assert_eq!(out_of_range.performance.parked_terminal_limit, 12);
+        assert_eq!(out_of_range.performance.heavy_gate_timeout_secs, 10);
     }
 
     #[test]

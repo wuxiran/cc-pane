@@ -19,8 +19,6 @@ const LEGACY_HOOK_BINARY_NAME: &str = "cc-panes-hook";
 const TOOL_UNSUPPORTED_ON_WINDOWS: &str = "Codex project hooks are not supported on Windows.";
 const DOT_CODEX_FILE_CONFLICT: &str =
     "Project root contains a file named .codex, so Codex project hooks cannot be configured.";
-const PLAN_ARCHIVE_UNSUPPORTED: &str =
-    "Codex does not support CC-Panes plan archive yet; only session-start is available.";
 const CC_PANE_EVENT_UNSUPPORTED: &str =
     "Codex CLI does not expose this hook event yet. Only SessionStart and PostToolUse are usable.";
 const CCPANES_CODEX_API_KEY_ENV: &str = "CCPANES_CODEX_API_KEY";
@@ -56,9 +54,11 @@ const HOOK_DEFS: &[HookDef] = &[
         event: "PostToolUse",
         matcher: "Bash",
         timeout: 5,
-        label: "Plan Archive",
-        supported: false,
-        reason: Some(PLAN_ARCHIVE_UNSUPPORTED),
+        // 0.12.22：翻开 PostToolUse。payload 经 /api/hook-event 进 orchestrator，
+        // 重负载命令台账靠它记录 Bash 命令（Codex 没有 PreToolUse，时长由采样器补）。
+        label: "Tool After",
+        supported: true,
+        reason: None,
     },
 ];
 
@@ -388,6 +388,39 @@ impl CodexAdapter {
         };
         args.push("-c".to_string());
         args.push(format!("tui.fullscreen_transcript={fullscreen}"));
+    }
+
+    /// 轻量 / 低配覆盖（docs/107 P2）。开关由 CC-Panes 的 `[performance]` 设置经
+    /// adapter options 下发（`codexLightweight` / `codexLowSpecMode`），缺键 = 不注入：
+    /// 让 orchestrator 等绕过设置合并的调用方保持 Codex 原生行为。
+    ///
+    /// - 轻量：`tui.animations=false` + `tui.auto_recap=false`——TUI 动画是 30 窗格
+    ///   并开时最稠密的重绘来源，auto recap 则是空闲时的额外模型调用。
+    /// - 低配：`agents.max_concurrent_threads_per_session=2`，压住子 agent 并发。
+    ///
+    /// **刻意不发 `shell_environment_policy.set.*`**：Codex 默认 `inherit="all"`，
+    /// CC-Panes 注入进 PTY 的 CARGO_BUILD_JOBS 等并行度环境自然进 shell 工具；
+    /// 用 `-c` 再写一遍会在用户 config.toml 已改 policy 时产生两套真相。
+    pub fn push_tui_perf_overrides(
+        args: &mut Vec<String>,
+        options: &HashMap<String, serde_json::Value>,
+    ) {
+        let flag = |key: &str| {
+            options
+                .get(key)
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        };
+        if flag(crate::CODEX_LIGHTWEIGHT_OPTION) {
+            args.push("-c".to_string());
+            args.push("tui.animations=false".to_string());
+            args.push("-c".to_string());
+            args.push("tui.auto_recap=false".to_string());
+        }
+        if flag(crate::CODEX_LOW_SPEC_OPTION) {
+            args.push("-c".to_string());
+            args.push("agents.max_concurrent_threads_per_session=2".to_string());
+        }
     }
 
     fn push_mcp_overrides(&self, args: &mut Vec<String>, ctx: &CliAdapterContext) {
@@ -1513,7 +1546,7 @@ printf '%s\n%s\n%s\n' "$(wslpath -w "$cfg")" "$cwd" "$(wslpath -w "$cwd/.git")""
                         "type": "command",
                         "command": command,
                         "timeout": def.timeout,
-                        "statusMessage": "Loading CC-Panes context"
+                        "statusMessage": "CC-Panes hook"
                     }]
                 });
                 Self::merge_hook_entry(hooks_obj, def.event, entry);
@@ -1719,6 +1752,9 @@ impl CliToolAdapter for CodexAdapter {
         // 屏幕模式：托管会话默认 fullscreen，`adapterOptions.screenMode` 可覆盖
         Self::push_screen_mode_override(&mut args, &ctx.adapter_options);
 
+        // 轻量 / 低配（[performance] 经 options 下发；缺键不注入）
+        Self::push_tui_perf_overrides(&mut args, &ctx.adapter_options);
+
         // effort → `-c model_reasoning_effort=<v>`（max 映射 xhigh）。
         // `-c` 是全局 flag，必须在 resume 子命令之前。
         if let Some(effort) = crate::effort_from_options(&ctx.adapter_options)
@@ -1892,8 +1928,13 @@ mod tests {
             .unwrap();
         assert!(session.enabled);
         assert!(session.supported);
-        assert!(!plan.supported);
-        assert_eq!(plan.reason.as_deref(), Some(PLAN_ARCHIVE_UNSUPPORTED));
+        // 0.12.22：PostToolUse 已翻开（台账记录 Bash 命令），hooks.json 里必须出现。
+        assert!(plan.supported);
+        assert!(plan.enabled);
+        assert!(plan.reason.is_none());
+        assert!(hooks.contains("PostToolUse"));
+        assert!(hooks.contains("tool-after"));
+        assert!(!hooks.contains("Loading CC-Panes context"));
     }
 
     #[test]
@@ -2636,6 +2677,80 @@ bearer_token_env_var = "USER_TOKEN"
             .position(|arg| arg == "resume")
             .expect("resume subcommand present");
         assert!(mode_pos < resume_pos, "-c must precede resume subcommand");
+    }
+
+    fn perf_args(lightweight: Option<bool>, low_spec: Option<bool>) -> Vec<String> {
+        let adapter = CodexAdapter::new();
+        let mut ctx = test_context(Some("/opt/codex-next/bin/codex"));
+        if let Some(value) = lightweight {
+            ctx.adapter_options.insert(
+                crate::CODEX_LIGHTWEIGHT_OPTION.to_string(),
+                serde_json::json!(value),
+            );
+        }
+        if let Some(value) = low_spec {
+            ctx.adapter_options.insert(
+                crate::CODEX_LOW_SPEC_OPTION.to_string(),
+                serde_json::json!(value),
+            );
+        }
+        adapter.build_command(&ctx).unwrap().args
+    }
+
+    #[test]
+    fn build_command_lightweight_option_disables_animations_and_auto_recap_before_resume() {
+        let args = perf_args(Some(true), None);
+
+        let anim_pos = args
+            .iter()
+            .position(|arg| arg == "tui.animations=false")
+            .expect("animations override present");
+        assert_eq!(args[anim_pos - 1], "-c");
+        let recap_pos = args
+            .iter()
+            .position(|arg| arg == "tui.auto_recap=false")
+            .expect("auto_recap override present");
+        assert_eq!(args[recap_pos - 1], "-c");
+        let resume_pos = args.iter().position(|arg| arg == "resume").unwrap();
+        assert!(anim_pos < resume_pos && recap_pos < resume_pos);
+        assert!(!args
+            .iter()
+            .any(|arg| arg.starts_with("agents.max_concurrent_threads_per_session")));
+    }
+
+    #[test]
+    fn build_command_low_spec_option_caps_agent_threads() {
+        let args = perf_args(None, Some(true));
+
+        assert!(args
+            .iter()
+            .any(|arg| arg == "agents.max_concurrent_threads_per_session=2"));
+        assert!(!args.iter().any(|arg| arg.starts_with("tui.animations")));
+    }
+
+    #[test]
+    fn build_command_without_perf_options_or_with_false_injects_nothing() {
+        for args in [perf_args(None, None), perf_args(Some(false), Some(false))] {
+            assert!(!args.iter().any(|arg| arg.starts_with("tui.animations")));
+            assert!(!args.iter().any(|arg| arg.starts_with("tui.auto_recap")));
+            assert!(!args
+                .iter()
+                .any(|arg| arg.starts_with("agents.max_concurrent_threads_per_session")));
+        }
+    }
+
+    /// 决策回归：并行度环境靠 Codex 默认 `inherit="all"` 进 shell 工具，绝不用
+    /// `-c shell_environment_policy.set.*` 再写一遍（见 push_tui_perf_overrides 文档）。
+    #[test]
+    fn build_command_never_emits_shell_environment_policy_overrides() {
+        for args in [perf_args(None, None), perf_args(Some(true), Some(true))] {
+            assert!(
+                !args
+                    .iter()
+                    .any(|arg| arg.contains("shell_environment_policy")),
+                "unexpected shell_environment_policy override in {args:?}"
+            );
+        }
     }
 
     #[test]

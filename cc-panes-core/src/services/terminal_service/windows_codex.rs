@@ -135,6 +135,7 @@ mod tests {
             env: HashMap::new(),
             env_remove: Vec::new(),
             resource_policy: Default::default(),
+            on_job_memory_notify: None,
         })
         .unwrap();
         let mut writer = spawned.writer;

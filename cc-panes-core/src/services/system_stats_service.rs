@@ -1,12 +1,15 @@
 use crate::models::{
     KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionProcessInfo,
-    SessionResourceUsage, SystemStats, TruncatedProcessSummary,
+    SessionResourceUsage, SystemStats, TopProcessInfo, TruncatedProcessSummary,
 };
+use crate::services::wsl_cgroup_stats::{self, WslCgroupSampler};
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
 
 mod diagnostics;
+#[cfg(target_os = "macos")]
+mod macos;
 
 #[cfg(any(windows, test))]
 mod process_math;
@@ -35,8 +38,149 @@ struct WindowsCpuSample {
 #[derive(Default)]
 struct ResourceProcessSampler {
     known_family: HashSet<ProcessIdentity>,
+    #[cfg(target_os = "macos")]
+    diagnostic_sampler: macos::DiagnosticSampler,
     #[cfg(windows)]
     cpu_samples: HashMap<u32, WindowsCpuSample>,
+    /// "会话之外"块的滞回状态：整机 CPU ≥ 60% 开、< 45% 关。
+    top_processes_armed: bool,
+    /// 会话外候选进程的 CPU 基线，与 `cpu_samples` 分开：两者的 pid 集合不同，
+    /// 混在一张表里会被 `refresh_process_details` 的整表覆盖清掉。
+    #[cfg(windows)]
+    top_cpu_samples: HashMap<u32, WindowsCpuSample>,
+}
+
+/// 整机 CPU 到这个值开始算"会话之外"前 3 名。
+pub const TOP_PROCESSES_ARM_CPU_PERCENT: f32 = 60.0;
+/// 低于这个值停止计算（滞回，避免在阈值附近抖动）。
+pub const TOP_PROCESSES_DISARM_CPU_PERCENT: f32 = 45.0;
+/// 回传条数。
+#[cfg(any(windows, test))]
+pub const TOP_PROCESSES_LIMIT: usize = 3;
+
+/// 滞回门：返回本次是否计算。
+fn top_processes_gate(armed: &mut bool, machine_cpu_percent: f32) -> bool {
+    if machine_cpu_percent >= TOP_PROCESSES_ARM_CPU_PERCENT {
+        *armed = true;
+    } else if machine_cpu_percent < TOP_PROCESSES_DISARM_CPU_PERCENT {
+        *armed = false;
+    }
+    *armed
+}
+
+/// 会话外候选的一次读数（平台层只负责填这个，排序在纯函数里）。
+#[cfg(any(windows, test))]
+#[derive(Debug, Clone, PartialEq)]
+struct TopProcessCandidate {
+    pid: u32,
+    name: String,
+    cpu_percent: f32,
+    memory_bytes: u64,
+}
+
+/// 按 CPU 降序（同 CPU 按工作集），只留 CPU > 0 的（武装后第一帧没基线，全 0 → 空表，
+/// UI 不显示该块，下一帧才有值）。
+#[cfg(any(windows, test))]
+fn rank_top_processes(mut candidates: Vec<TopProcessCandidate>) -> Vec<TopProcessInfo> {
+    candidates.retain(|candidate| candidate.cpu_percent > 0.0);
+    candidates.sort_by(|left, right| {
+        right
+            .cpu_percent
+            .partial_cmp(&left.cpu_percent)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| right.memory_bytes.cmp(&left.memory_bytes))
+            .then_with(|| left.pid.cmp(&right.pid))
+    });
+    candidates
+        .into_iter()
+        .take(TOP_PROCESSES_LIMIT)
+        .map(|candidate| TopProcessInfo {
+            pid: candidate.pid,
+            name: candidate.name,
+            cpu_percent: candidate.cpu_percent,
+            memory_bytes: candidate.memory_bytes,
+        })
+        .collect()
+}
+
+/// 会话外候选 pid：排除 CC-Panes 家族（含祖先）、受管会话树（含祖先）、孤儿树、
+/// 以及 pid 0/4（Idle / System）。
+#[cfg(any(windows, test))]
+fn top_process_candidate_pids(
+    index: &ProcessIndex<'_>,
+    processes: &[ProcessSnapshot],
+    sessions: &[ManagedSessionRoot],
+    self_pid: u32,
+    known_family: &HashSet<ProcessIdentity>,
+) -> Vec<u32> {
+    let family = family_pids(processes, self_pid);
+    let analysis = analyze_process_ownership(index, processes, sessions, &family, known_family);
+    let orphan_trees: HashSet<u32> = orphan_roots(index, processes, &analysis)
+        .into_iter()
+        .flat_map(|root| index.descendants_including(root))
+        .collect();
+    processes
+        .iter()
+        .map(|process| process.pid)
+        .filter(|pid| *pid != 0 && *pid != 4)
+        .filter(|pid| !analysis.protected_family.contains(pid))
+        .filter(|pid| !analysis.managed_context.contains(pid))
+        .filter(|pid| !orphan_trees.contains(pid))
+        .collect()
+}
+
+#[cfg(windows)]
+fn collect_top_processes(
+    processes: &[ProcessSnapshot],
+    sessions: &[ManagedSessionRoot],
+    self_pid: u32,
+    sampler: &mut ResourceProcessSampler,
+) -> Vec<TopProcessInfo> {
+    let index = ProcessIndex::new(processes);
+    let candidates =
+        top_process_candidate_pids(&index, processes, sessions, self_pid, &sampler.known_family);
+    let sampled_at = std::time::Instant::now();
+    let mut next_samples = HashMap::with_capacity(candidates.len());
+    let mut readings = Vec::with_capacity(candidates.len());
+    for pid in candidates {
+        let Some((creation_time_100ns, total_time_100ns, memory_bytes)) =
+            windows::query_process_cpu_memory(pid)
+        else {
+            continue;
+        };
+        let cpu_percent = sampler
+            .top_cpu_samples
+            .get(&pid)
+            .filter(|previous| previous.creation_time_100ns == creation_time_100ns)
+            .map(|previous| {
+                cpu_percent_since(
+                    previous.total_time_100ns,
+                    total_time_100ns,
+                    sampled_at.saturating_duration_since(previous.sampled_at),
+                )
+            })
+            .unwrap_or(0.0);
+        next_samples.insert(
+            pid,
+            WindowsCpuSample {
+                creation_time_100ns,
+                total_time_100ns,
+                sampled_at,
+            },
+        );
+        readings.push(TopProcessCandidate {
+            pid,
+            name: index
+                .by_pid
+                .get(&pid)
+                .map(|process| process.name.clone())
+                .unwrap_or_default(),
+            cpu_percent,
+            memory_bytes,
+        });
+    }
+    sampler.top_cpu_samples = next_samples;
+    rank_top_processes(readings)
 }
 
 #[derive(Debug, Clone)]
@@ -98,10 +242,21 @@ impl<'a> ProcessIndex<'a> {
     }
 }
 
+/// [`SystemStatsService::get_resource_tree_with`] 的选项。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResourceTreeOptions {
+    /// 要不要算"会话之外"前 3 名（整机高负载时的全表 CPU 差分）。只有弹层读它。
+    pub top_processes: bool,
+}
+
 /// 按调用采样整机资源，不创建线程或定时任务。
 pub struct SystemStatsService {
     system: Mutex<System>,
+    // Slow process enumeration must not serialize the status-bar CPU/memory query.
+    process_system: Mutex<System>,
     resource_process_sampler: Mutex<ResourceProcessSampler>,
+    /// W6：WSL 会话的 cgroup 读数（VM 没跑时零次 wsl.exe）。
+    wsl_cgroup: WslCgroupSampler,
 }
 
 impl Default for SystemStatsService {
@@ -114,7 +269,9 @@ impl SystemStatsService {
     pub fn new() -> Self {
         Self {
             system: Mutex::new(System::new()),
+            process_system: Mutex::new(System::new()),
             resource_process_sampler: Mutex::new(ResourceProcessSampler::default()),
+            wsl_cgroup: WslCgroupSampler::new(),
         }
     }
 
@@ -127,27 +284,68 @@ impl SystemStatsService {
     }
 
     /// 仅由前端资源管理器弹层按需调用，不创建后台线程或定时器。
+    /// 弹层要"会话之外"块，所以带 `top_processes`。
     pub fn get_resource_tree(&self, sessions: &[ManagedSessionRoot]) -> ResourceTree {
-        let started = std::time::Instant::now();
-        let mut system = self.system.lock();
-        let mut sampler = self.resource_process_sampler.lock();
-        let processes =
-            refresh_resource_snapshot(&mut system, std::process::id(), sessions, &mut sampler);
-        let stats = system_stats(&system);
-        let elapsed = started.elapsed().as_micros() as u64;
-        let tree = build_resource_tree_from_snapshot(
-            stats,
-            &processes,
+        self.get_resource_tree_with(
             sessions,
-            std::process::id(),
-            &sampler.known_family,
-            elapsed,
-        );
+            ResourceTreeOptions {
+                top_processes: true,
+            },
+        )
+    }
+
+    /// 带选项的建树。台账采样器用 `top_processes: false`：它只看会话树，算出来的
+    /// "会话之外"前 3 名没人读，白跑一遍全表 CPU 差分。
+    pub fn get_resource_tree_with(
+        &self,
+        sessions: &[ManagedSessionRoot],
+        options: ResourceTreeOptions,
+    ) -> ResourceTree {
+        let started = std::time::Instant::now();
+        let stats = self.get_system_stats();
+        // 两把锁只罩住进程表枚举；`wsl.exe` 可能跑满 2 s 超时，不能在锁里起——
+        // 否则状态栏 3 s 一次的 `get_system_stats` 会被它卡住。
+        let (mut tree, process_count) = {
+            let mut system = self.process_system.lock();
+            let mut sampler = self.resource_process_sampler.lock();
+            let processes =
+                refresh_resource_snapshot(&mut system, std::process::id(), sessions, &mut sampler);
+            // "会话之外"只在整机高负载时算（滞回 60/45）；平时零开销，非 Windows 不算。
+            // 不要的调用方连滞回门都不碰，免得把弹层的武装状态搅乱。
+            let compute_top = options.top_processes
+                && top_processes_gate(&mut sampler.top_processes_armed, stats.cpu_percent);
+            #[cfg(windows)]
+            let top_processes = compute_top.then(|| {
+                collect_top_processes(&processes, sessions, std::process::id(), &mut sampler)
+            });
+            #[cfg(not(windows))]
+            let top_processes: Option<Vec<TopProcessInfo>> = {
+                let _ = compute_top;
+                None
+            };
+            if options.top_processes && !compute_top {
+                #[cfg(windows)]
+                sampler.top_cpu_samples.clear();
+            }
+            let elapsed = started.elapsed().as_micros() as u64;
+            let mut tree = build_resource_tree_from_snapshot(
+                stats,
+                &processes,
+                sessions,
+                std::process::id(),
+                &sampler.known_family,
+                elapsed,
+            );
+            tree.top_processes = top_processes;
+            (tree, processes.len())
+        };
+        apply_wsl_cgroup_readings(&self.wsl_cgroup, sessions, &mut tree.sessions);
         tracing::debug!(
             elapsed_micros = tree.elapsed_micros,
-            process_count = processes.len(),
+            process_count,
             session_count = tree.sessions.len(),
             orphan_count = tree.orphans.len(),
+            top_processes = tree.top_processes.as_ref().map(Vec::len),
             "[system-stats] resource tree sample completed"
         );
         tree
@@ -160,7 +358,7 @@ impl SystemStatsService {
         sessions: &[ManagedSessionRoot],
     ) -> Vec<KillProcessResult> {
         let (processes, known_family) = {
-            let mut system = self.system.lock();
+            let mut system = self.process_system.lock();
             let mut sampler = self.resource_process_sampler.lock();
             let processes =
                 refresh_resource_snapshot(&mut system, std::process::id(), sessions, &mut sampler);
@@ -178,16 +376,54 @@ impl SystemStatsService {
     }
 }
 
+/// W6：WSL 根在 Windows 侧只有 wsl.exe 壳，读数来自 Linux 侧 `ccpanes-<session8>.scope`。
+/// 按发行版一次批量读（采样器内部缓存 2 s、VM 没跑零次 wsl.exe）；没读到的会话保留进程树聚合。
+/// **只读有 scope 的根**（`wsl_scope`）：配额关 / 降级 `nice` 的会话没有 cgroup 目录，
+/// 为它们起 `wsl.exe` 只会白跑一次 2 s 超时的子进程。
+fn apply_wsl_cgroup_readings(
+    sampler: &WslCgroupSampler,
+    sessions: &[ManagedSessionRoot],
+    usage: &mut [SessionResourceUsage],
+) {
+    let wsl_sessions: HashMap<&str, &str> = sessions
+        .iter()
+        .filter(|session| session.runtime_kind.as_deref() == Some("wsl") && session.wsl_scope)
+        .filter_map(|session| {
+            session
+                .wsl_distro
+                .as_deref()
+                .map(|distro| (session.session_id.as_str(), distro))
+        })
+        .collect();
+    if wsl_sessions.is_empty() {
+        return;
+    }
+    let mut distros: Vec<String> = wsl_sessions.values().map(|d| d.to_string()).collect();
+    distros.sort();
+    distros.dedup();
+    let readings = sampler.sample(&distros);
+    if readings.is_empty() {
+        return;
+    }
+    for entry in usage.iter_mut() {
+        if !wsl_sessions.contains_key(entry.session_id.as_str()) {
+            continue;
+        }
+        let unit = wsl_cgroup_stats::wsl_scope_unit_file(&entry.session_id);
+        if let Some(reading) = readings.get(&unit) {
+            entry.memory_bytes = reading.memory_bytes;
+            entry.cpu_percent = reading.cpu_percent;
+            entry.source = Some("cgroup".to_string());
+        }
+    }
+}
+
 fn refresh_resource_snapshot(
     system: &mut System,
     self_pid: u32,
     sessions: &[ManagedSessionRoot],
     sampler: &mut ResourceProcessSampler,
 ) -> Vec<ProcessSnapshot> {
-    #[cfg(not(windows))]
-    system.refresh_cpu_usage();
-    system.refresh_memory();
-
     // Toolhelp / procfs 只建立 PID-parent-name 拓扑，再由 sysinfo 刷新相关 PID。
     let mut processes = capture_process_topology(system);
     let index = ProcessIndex::new(&processes);
@@ -210,15 +446,24 @@ fn refresh_resource_snapshot(
     #[cfg(windows)]
     windows::refresh_process_details(&mut processes, &relevant, sampler);
     #[cfg(not(windows))]
-    if !relevant.is_empty() {
+    {
         let relevant_pids = relevant
             .iter()
             .copied()
             .map(Pid::from_u32)
+            // Include vanished cached PIDs so sysinfo evicts them without querying
+            // unrelated live processes or resetting the selected CPU baselines.
+            .chain(
+                system
+                    .processes()
+                    .keys()
+                    .filter(|pid| !index.by_pid.contains_key(&pid.as_u32()))
+                    .copied(),
+            )
             .collect::<Vec<_>>();
         system.refresh_processes_specifics(
             ProcessesToUpdate::Some(&relevant_pids),
-            false,
+            true,
             ProcessRefreshKind::nothing()
                 .with_cpu()
                 .with_memory()
@@ -384,10 +629,23 @@ fn capture_windows_process_topology() -> Result<Vec<ProcessSnapshot>, String> {
     }
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 fn capture_process_topology(system: &mut System) -> Vec<ProcessSnapshot> {
     system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
     capture_processes(system)
+}
+
+#[cfg(target_os = "macos")]
+fn capture_process_topology(system: &mut System) -> Vec<ProcessSnapshot> {
+    macos::capture_topology().unwrap_or_else(|error| {
+        tracing::warn!(%error, "[system-stats] libproc topology failed; using sysinfo fallback");
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing(),
+        );
+        capture_processes(system)
+    })
 }
 
 /// 单会话明细条数上限。`cargo build` 能挂出上百个 rustc，全量回传会把每 3 秒一次的
@@ -500,6 +758,7 @@ fn build_resource_tree_from_snapshot(
                     .count() as u32,
                 processes,
                 truncated,
+                source: None,
             }
         })
         .collect::<Vec<_>>();
@@ -543,6 +802,7 @@ fn build_resource_tree_from_snapshot(
         app_memory_percent,
         sessions: session_usage,
         orphans,
+        top_processes: None,
         sampled_at: now_millis(),
         elapsed_micros,
     }

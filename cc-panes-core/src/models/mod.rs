@@ -7,11 +7,13 @@ pub mod dsh;
 pub mod external_skill;
 pub mod filesystem;
 pub mod git;
+pub mod heavy_command;
 mod history;
 pub mod launch_profile;
 pub mod layout_snapshot;
 pub mod link_skill;
 pub mod orchestrator_settings;
+pub mod performance_settings;
 pub mod plan;
 pub mod process_info;
 mod project;
@@ -62,6 +64,10 @@ pub use git::{
     GitLogPage, GitLogQuery, GitMergeState, GitRepoInfo, GitRepoState, GitResolveConflictRequest,
     GitResolveConflictResult,
 };
+pub use heavy_command::{
+    HeavyCommandAggregate, HeavyCommandQuery, HeavyCommandRecord, HeavyCommandSource, HeavyEpisode,
+    HeavySamplerStats, HeavySessionContext, NewHeavyCommand,
+};
 pub use history::{
     // Diff 模型
     DiffChangeType,
@@ -98,7 +104,9 @@ pub use project::Project;
 pub use quick_command::{
     QuickCommand, QuickCommandConfig, QuickCommandDraft, QuickCommandKind, QuickCommandTarget,
 };
-pub use resource_policy::{PolicyOutcome, SessionResourcePolicy};
+pub use resource_policy::{
+    JobMemoryWarning, PolicyOutcome, PolicyOutcomeKind, ResourcePolicyStatus, SessionResourcePolicy,
+};
 pub use runner::{
     PortClaim, PortConflict, PortReservation, RunnerInstance, RunnerInstanceStatus,
     RunnerLaunchPlan, RunnerLaunchSuggestedAction, RunnerProfile, RunnerProfileDraft,
@@ -116,7 +124,7 @@ pub use ssh_machine::{
 };
 pub use system_stats::{
     KillProcessResult, ManagedSessionRoot, OrphanProcessInfo, ResourceTree, SessionProcessInfo,
-    SessionResourceUsage, SystemStats, TruncatedProcessSummary,
+    SessionResourceUsage, SystemStats, TopProcessInfo, TruncatedProcessSummary,
 };
 pub use task_dispatch::{
     TaskDispatchEnvelope, TaskDispatchMcpCapability, TaskDispatchMode, TaskDispatchPlan,

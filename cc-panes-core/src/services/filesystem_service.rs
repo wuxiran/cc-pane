@@ -802,6 +802,17 @@ impl FileSystemService {
     /// 回收站删除失败（文件被占用 / 目标卷无回收站，如 WSL UNC）时返回
     /// `TRASH_FAILED` 结构化错误，前端据此提供"永久删除"兜底。
     pub fn delete_entry(&self, path: &str, permanent: bool) -> AppResult<()> {
+        self.delete_entry_using(path, permanent, |path| {
+            trash::delete(path).map_err(|e| e.to_string())
+        })
+    }
+
+    fn delete_entry_using(
+        &self,
+        path: &str,
+        permanent: bool,
+        trash_entry: impl FnOnce(&Path) -> Result<(), String>,
+    ) -> AppResult<()> {
         debug!("svc::delete_entry permanent={}", permanent);
         let entry_path = Self::validate_delete_path(path)?;
         if Self::is_readonly_path(&entry_path) {
@@ -828,7 +839,7 @@ impl FileSystemService {
             }
             return Ok(());
         }
-        trash::delete(&entry_path).map_err(|e| {
+        trash_entry(&entry_path).map_err(|e| {
             AppError::coded_with_params(
                 "TRASH_FAILED",
                 format!("Failed to move to trash: {}", e),
@@ -1549,8 +1560,14 @@ mod tests {
         let link = tmp.path().join("target-link");
         symlink(&target, &link).unwrap();
 
-        // trash::delete 在 CI/无回收站环境可能失败——无论成败，目标目录都必须保留。
-        let _ = svc().delete_entry(&format!("{}/", path_str(&link)), false);
+        // Verify the exact leaf passed to the OS trash adapter without invoking
+        // Finder/desktop integration (which may require interactive permission).
+        svc()
+            .delete_entry_using(&format!("{}/", path_str(&link)), false, |path| {
+                assert!(fs::symlink_metadata(path).unwrap().file_type().is_symlink());
+                fs::remove_file(path).map_err(|e| e.to_string())
+            })
+            .unwrap();
         assert!(target.is_dir());
         assert_eq!(fs::read_to_string(target.join("keep.txt")).unwrap(), "keep");
     }

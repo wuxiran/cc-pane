@@ -19,6 +19,8 @@ mod external_skill_registry;
 pub mod external_usage_session_service;
 mod filesystem_service;
 mod git_service;
+pub mod heavy_command_normalize;
+pub mod heavy_job_gate;
 mod history_service;
 mod history_watch_manager;
 mod journal_service;
@@ -84,6 +86,7 @@ mod worktree_service;
 // 模块内部自带平台门控：Windows 编译完整实现（inner mod），非 Windows 只暴露
 // is_wsl_vm_running 恒 false stub —— 这里不能再整体 cfg 掉，否则非 Windows
 // 调用方（usage_stats_service::wsl_scan_allowed）编译失败。
+pub mod wsl_cgroup_stats;
 pub mod wsl_discovery_service;
 
 pub use agent_transcript::read_agent_transcript;
@@ -97,7 +100,7 @@ pub use daemon_client::{
     app_instance_id, TerminalDaemonClient, TerminalDaemonManifest, TerminalDaemonStatus,
 };
 pub use default_skill_service::{
-    BundledSkillInfo, DefaultSkillCleanupReport, DefaultSkillService,
+    BundledSkillInfo, DefaultSkillCleanupReport, DefaultSkillService, SkillGateContext,
     LEGACY_CLEANUP_REPORT_FILE_NAME, MANAGED_SKILLS_SUBDIR,
 };
 pub use drama_service::DramaService;
@@ -161,7 +164,7 @@ pub use ssh_connection_service::SshConnectionService;
 pub use ssh_credential_service::SshCredentialService;
 pub use ssh_file_service::SshFileService;
 pub use ssh_machine_service::{SshConnectivityResult, SshMachineService};
-pub use system_stats_service::SystemStatsService;
+pub use system_stats_service::{ResourceTreeOptions, SystemStatsService};
 pub use task_binding_service::TaskBindingService;
 pub use task_dispatch_service::{
     dispatch_permission_yolo_mode, resolve_dispatch_cwd, TaskDispatchService,
@@ -182,8 +185,8 @@ pub use terminal_path_link_service::{
     TerminalLinkContext, TerminalPathKind,
 };
 pub use terminal_service::{
-    codex_rollout_exists, KillReason, OrchestratorInfo, SessionStatusInfo, ShellInfo,
-    TerminalService,
+    codex_rollout_exists, HeavyQueueStatus, KillReason, OrchestratorInfo, SessionStatusInfo,
+    ShellInfo, TerminalService,
 };
 pub use todo_service::TodoService;
 pub use uninstall_cleanup_service::{UninstallCleanupReport, UninstallCleanupService};
