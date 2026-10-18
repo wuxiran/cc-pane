@@ -23,6 +23,7 @@ import ChatChangesPanel, { collectNetChanges } from "./ChatChangesPanel";
 import ChatComposer from "./ChatComposer";
 import ChatSessionHeader from "./ChatSessionHeader";
 import ChatTurnView from "./ChatTurnView";
+import ChatTimelineNavigation from "./ChatTimelineNavigation";
 import ChatWelcome from "./ChatWelcome";
 import ConfigOptionSelectors from "./ConfigOptionSelectors";
 import { HeaderSelect } from "./ChatItems";
@@ -122,6 +123,13 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   const availableCommands = chat?.availableCommands ?? [];
   const changesCount = useMemo(() => collectNetChanges(items ?? []).length, [items]);
   const turns = useMemo(() => groupChatItems(items ?? []), [items]);
+
+  const timelineKey = snapshot?.acpSessionId
+    ? JSON.stringify([snapshot.engineId, snapshot.acpSessionId]) : tab.id;
+  const revealTimelineTurn = useCallback((index: number) => {
+    setVisibleCount((previous) => Math.max(previous, turns.length - index));
+  }, [turns.length]);
+  const leaveLatest = useCallback(() => setAtBottom(false), []);
 
   const copyMarkdown = useCallback(() => {
     void navigator.clipboard
@@ -340,10 +348,19 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
         />
       ) : null}
       <div className="relative flex-1 overflow-hidden">
+        <ChatTimelineNavigation
+          key={timelineKey}
+          conversationKey={timelineKey}
+          turns={turns}
+          scrollRef={scrollRef}
+          visibleCount={visibleCount}
+          onReveal={revealTimelineTurn}
+          onNavigate={leaveLatest}
+        />
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="h-full overflow-y-auto px-3 py-3"
+          className={`h-full overflow-y-auto py-3 pr-3 ${turns.some((turn) => turn.kind !== "notice") ? "pl-14" : "pl-3"}`}
         >
           <div className="mx-auto flex max-w-3xl flex-col gap-4">
             {snapshot && turns.length <= visibleCount ? (
@@ -363,17 +380,18 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
               </button>
             ) : null}
             {turns.slice(-visibleCount).map((turn, index, visible) => (
-              <ChatTurnView
-                key={turn.id}
-                turn={turn}
-                engineLabel={engineLabel}
-                streaming={generating && !pendingTurn && index === visible.length - 1}
-                chatId={tab.id}
-                cwd={effectiveCwd}
-                onOpenLocation={openLocation}
-                onPlanToTodo={planToTodo}
-                expandAllSignal={toolFold}
-              />
+              <div key={turn.id} data-chat-turn-id={turn.id} data-chat-turn-index={Math.max(0, turns.length - visibleCount) + index}>
+                <ChatTurnView
+                  turn={turn}
+                  engineLabel={engineLabel}
+                  streaming={generating && !pendingTurn && index === visible.length - 1}
+                  chatId={tab.id}
+                  cwd={effectiveCwd}
+                  onOpenLocation={openLocation}
+                  onPlanToTodo={planToTodo}
+                  expandAllSignal={toolFold}
+                />
+              </div>
             ))}
             {pendingTurn ? (
               <ChatTurnView

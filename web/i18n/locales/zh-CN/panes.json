@@ -1,4 +1,12 @@
 {
+  "agentChatTimeline": "对话时间线",
+  "agentChatTimelineUntitled": "对话",
+  "agentChatTimelineJump": "跳转到第 {{number}} 轮：{{title}}",
+  "agentChatTimelinePreview": "第 {{number}} 轮预览",
+  "agentChatTimelineBookmark": "添加书签",
+  "agentChatTimelineUnbookmark": "移除书签",
+  "agentChatTimelineNoReply": "暂无回复",
+  "agentChatTimelinePosition": "第 {{number}} / {{total}} 轮",
   "rendererRecoveryFailed": "终端画面恢复失败。可以重试恢复画面，后台任务不会重新执行。",
   "retryRendererRecovery": "重试恢复画面",
   "ready": "准备就绪",
