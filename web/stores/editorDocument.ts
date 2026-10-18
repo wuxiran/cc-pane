@@ -4,6 +4,7 @@ export interface EditorDocument {
   originalContent: string;
   modified: string | null;
   loaded: boolean;
+  saving: boolean;
   readOnly: boolean;
   readOnlyReason: "path" | "encoding" | null;
 }
@@ -13,6 +14,7 @@ export const EMPTY_EDITOR_DOCUMENT: EditorDocument = {
   originalContent: "",
   modified: null,
   loaded: false,
+  saving: false,
   readOnly: false,
   readOnlyReason: null,
 };

@@ -72,6 +72,25 @@ beforeEach(() => {
 });
 
 describe("Files editor buffer ownership", () => {
+  it("refreshes clean buffers after external edits while preserving dirty buffers", async () => {
+    const a = open("a");
+    const b = open("b");
+    useEditorTabsStore.getState().selectTab(a);
+    render(<FileEditorPanel />);
+    expect(await screen.findByTestId("buffer-editor")).toHaveValue("disk:/project/a.ts");
+    act(() => useEditorTabsStore.getState().selectTab(b));
+    await screen.findByTestId("buffer-editor");
+    io.read.mockResolvedValue({ content: "external update", encoding: "utf-8" });
+    act(() => useEditorTabsStore.getState().selectTab(a));
+    await waitFor(() => expect(screen.getByTestId("buffer-editor")).toHaveValue("external update"));
+    edit("unsaved after refresh");
+    act(() => useEditorTabsStore.getState().selectTab(b));
+    await screen.findByTestId("buffer-editor");
+    act(() => useEditorTabsStore.getState().selectTab(a));
+    expect(screen.getByTestId("buffer-editor")).toHaveValue("unsaved after refresh");
+    expect(io.read.mock.calls.filter(([path]) => path === "/project/a.ts")).toHaveLength(2);
+  });
+
   it("retains unsaved text across tab and app-view unmounts with only one Monaco mounted", async () => {
     const a = open("a");
     const b = open("b");

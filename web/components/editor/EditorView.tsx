@@ -28,60 +28,7 @@ import ImagePreview from "./ImagePreview";
 import { isImageFile } from "@/lib/fileTypes";
 import { useEditorDocument } from "./useEditorDocument";
 
-/** 支持预览的图片扩展名（SVG 不纳入，保持 Monaco XML 编辑） */
-/** 文件扩展名 → Monaco 语言 ID */
-const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
-  ts: "typescript",
-  tsx: "typescriptreact",
-  js: "javascript",
-  jsx: "javascriptreact",
-  json: "json",
-  jsonc: "json",
-  md: "markdown",
-  mdx: "markdown",
-  css: "css",
-  scss: "scss",
-  less: "less",
-  html: "html",
-  htm: "html",
-  xml: "xml",
-  svg: "xml",
-  yaml: "yaml",
-  yml: "yaml",
-  toml: "ini",
-  rs: "rust",
-  py: "python",
-  go: "go",
-  java: "java",
-  c: "c",
-  cpp: "cpp",
-  h: "cpp",
-  hpp: "cpp",
-  cs: "csharp",
-  rb: "ruby",
-  php: "php",
-  sh: "shell",
-  bash: "shell",
-  zsh: "shell",
-  ps1: "powershell",
-  sql: "sql",
-  graphql: "graphql",
-  dockerfile: "dockerfile",
-  makefile: "makefile",
-  lua: "lua",
-  swift: "swift",
-  kt: "kotlin",
-  dart: "dart",
-  r: "r",
-};
-
-function getLanguageFromPath(filePath: string): string {
-  const ext = filePath.split(".").pop()?.toLowerCase() || "";
-  const name = filePath.split(/[/\\]/).pop()?.toLowerCase() || "";
-  if (name === "dockerfile") return "dockerfile";
-  if (name === "makefile" || name === "gnumakefile") return "makefile";
-  return EXTENSION_LANGUAGE_MAP[ext] || "plaintext";
-}
+import { getLanguageFromPath } from "./editorLanguage";
 
 type PreviewMode = "edit" | "preview" | "split";
 
@@ -111,9 +58,11 @@ export default function EditorView({
 }: EditorViewProps) {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const [editorMounted, setEditorMounted] = useState(false);
-  const { document, updateDocument } = useEditorDocument(bufferId);
+  const { document, updateDocument, beginSave, endSave } = useEditorDocument(bufferId);
   const { content, originalContent, readOnly, readOnlyReason } = document;
-  const [loading, setLoading] = useState(!document.loaded);
+  // Choose once per mounted view: save completion must not reload over newer edits.
+  const restoreDirtyBuffer = useRef(Boolean(bufferId && document.loaded && document.content !== document.originalContent));
+  const [loading, setLoading] = useState(!restoreDirtyBuffer.current);
   const [error, setError] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("edit");
   const [remoteImageUrl, setRemoteImageUrl] = useState<string | null>(null);
@@ -130,7 +79,6 @@ export default function EditorView({
   const language = getLanguageFromPath(filePath);
   const isMarkdown = language === "markdown";
   const dirty = content !== originalContent;
-  const bufferLoaded = Boolean(bufferId && document.loaded);
 
   // 同步 dirty 状态到 tab
   useEffect(() => {
@@ -153,7 +101,7 @@ export default function EditorView({
 
   // 加载文件
   useEffect(() => {
-    if (bufferLoaded) {
+    if (restoreDirtyBuffer.current) {
       setLoading(false);
       return;
     }
@@ -220,11 +168,12 @@ export default function EditorView({
     return () => {
       cancelled = true;
     };
-  }, [bufferLoaded, filePath, isReadOnlyPath, ssh, updateDocument]);
+  }, [filePath, isReadOnlyPath, ssh, updateDocument]);
 
   // 保存
   const handleSave = useCallback(async () => {
     if (readOnly || !dirty) return;
+    if (!beginSave()) return;
 
     try {
       // 冲突检测：比对 mtime
@@ -250,8 +199,14 @@ export default function EditorView({
       toastOk(i18n.t("fileSaved", { ns: "editor" }));
     } catch (err) {
       handleError(err, "save file");
+    } finally {
+      endSave();
     }
-  }, [filePath, content, readOnly, dirty, ssh, document.modified, updateDocument]);
+  }, [filePath, content, readOnly, dirty, ssh, document.modified, updateDocument, beginSave, endSave]);
+
+  // Monaco calls onMount once; its action must read the current save closure.
+  const saveRef = useRef(handleSave);
+  saveRef.current = handleSave;
 
   const handleRemoteBreadcrumbNavigate = useCallback((path: string) => {
     if (!ssh) return;
@@ -324,14 +279,14 @@ export default function EditorView({
           2048 | 49, // monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS
         ],
         run: () => {
-          handleSave();
+          void saveRef.current();
         },
       });
 
       // 产品动作注入 Monaco 右键菜单（复制路径 / 文件树定位）
       registerMonacoProductActions(editor, { filePath, projectPath, ssh: Boolean(ssh) });
     },
-    [handleSave, syncPreviewFromEditor, tabId, filePath, projectPath, ssh]
+    [syncPreviewFromEditor, tabId, filePath, projectPath, ssh]
   );
 
   useEffect(() => {
