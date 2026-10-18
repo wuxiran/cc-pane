@@ -1,5 +1,5 @@
-import { useState } from "react";
-import ChatForkDialog from "@/components/chatfork/ChatForkDialog";
+import { Suspense, useState } from "react";
+import { lazyWithRetry } from "@/lib/lazyRetry";
 import { buildTerminalFork, terminalForkSource } from "@/services/chatForkService";
 // tab 右键菜单：从 TabBar 拆出（行数棘轮约束），行为与外观保持不变。
 // 新增「恢复已关闭标签」入口直接读 usePanesStore（与 TabQuickCommandsMenu 直读 store 同形态），
@@ -33,6 +33,9 @@ import type { Tab } from "@/types";
 import type { TFunction } from "i18next";
 import CommandMenuItem, { CommandShortcutHint } from "@/components/commands/CommandMenuItem";
 import TabQuickCommandsMenu from "./TabQuickCommandsMenu";
+
+const ChatForkDialog = lazyWithRetry(() => import("@/components/chatfork/ChatForkDialog"), "ChatForkDialog");
+
 
 export interface PaneMoveTarget {
   id: string;
@@ -120,10 +123,10 @@ export default function TabContextMenu({
 
   return (
     <>
-    <ChatForkDialog open={forkOpen} onOpenChange={setForkOpen} allowWorktree={!forkSource?.wsl} onFork={async (mode) => {
+    {forkOpen && <Suspense fallback={null}><ChatForkDialog open={forkOpen} onOpenChange={setForkOpen} allowWorktree={!forkSource?.wsl} onFork={async (mode) => {
       const options = await buildTerminalFork(tab, mode);
       usePanesStore.getState().addTab(paneId, options);
-    }} />
+    }} /></Suspense>}
     <ContextMenu>
       <ContextMenuTrigger asChild>
         {children}

@@ -6,12 +6,12 @@
 //
 // 拆分（行数棘轮）：条目渲染在 ChatItems，输入区在 ChatComposer，引擎选择页
 // 在 EnginePicker——本文件只管会话壳（头部/滚动/审批/生命周期动作）。
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { ArrowDown, Cpu, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Tab } from "@/types";
 import type { AcpPlanEntry, AgentChatItem } from "@/types/agentChat";
-import ChatForkDialog from "@/components/chatfork/ChatForkDialog";
+import { lazyWithRetry } from "@/lib/lazyRetry";
 import { forkWorkingDirectory, supportsAcpFork, type ChatForkMode } from "@/services/chatForkService";
 import { agentChatService } from "@/services/agentChatService";
 import { todoService } from "@/services/todoService";
@@ -43,6 +43,9 @@ import {
   savePreferredMode,
   savePreferredModel,
 } from "./enginePrefs";
+
+const ChatForkDialog = lazyWithRetry(() => import("@/components/chatfork/ChatForkDialog"), "ChatForkDialog");
+
 
 /** 会话转写 → Markdown（导出用；工具卡只留标题行，diff 太重不进转写）。 */
 function transcriptMarkdown(items: AgentChatItem[]): string {
@@ -319,7 +322,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <ChatForkDialog open={forkOpen} onOpenChange={setForkOpen} onFork={forkToNewTab} />
+      {forkOpen && <Suspense fallback={null}><ChatForkDialog open={forkOpen} onOpenChange={setForkOpen} onFork={forkToNewTab} /></Suspense>}
       {snapshot ? (
         <ChatSessionHeader
           engineLabel={snapshot.engineId}
