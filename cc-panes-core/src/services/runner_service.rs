@@ -110,7 +110,7 @@ impl RunnerService {
         }
 
         let conflicts = self.find_conflicts(&profile.expected_ports, Some(&profile.id))?;
-        let suggested_actions = Self::suggest_actions(&conflicts);
+        let suggested_actions = Self::suggest_actions(&conflicts, &profile.id);
 
         Ok(RunnerLaunchPlan {
             profile_id: profile.id,
@@ -126,6 +126,8 @@ impl RunnerService {
         ports: &[u16],
         candidate_self_profile_id: Option<&str>,
     ) -> Result<Vec<PortConflict>, String> {
+        // Ownership is returned unchanged; only plan_launch decides whether it is self.
+        let _ = candidate_self_profile_id;
         let raw = PortScanner::find_by_ports(ports)?;
         let mut result = Vec::with_capacity(raw.len());
         for entry in raw {
@@ -144,7 +146,6 @@ impl RunnerService {
                 } else {
                     (None, None, None)
                 };
-            let _ = candidate_self_profile_id; // 标识保留供未来扩展（如忽略自身预占）
             result.push(PortConflict {
                 port: entry.port,
                 protocol: entry.protocol,
@@ -158,7 +159,10 @@ impl RunnerService {
         Ok(result)
     }
 
-    fn suggest_actions(conflicts: &[PortConflict]) -> Vec<RunnerLaunchSuggestedAction> {
+    fn suggest_actions(
+        conflicts: &[PortConflict],
+        candidate_profile_id: &str,
+    ) -> Vec<RunnerLaunchSuggestedAction> {
         if conflicts.is_empty() {
             return vec![RunnerLaunchSuggestedAction::StartDirect];
         }
@@ -166,11 +170,10 @@ impl RunnerService {
         if any_unknown {
             return vec![RunnerLaunchSuggestedAction::InvestigateUnknown];
         }
-        let all_share_profile = conflicts.iter().all(|c| c.owning_profile_id.is_some())
-            && conflicts
-                .windows(2)
-                .all(|w| w[0].owning_profile_id == w[1].owning_profile_id);
-        if all_share_profile {
+        let all_belong_to_candidate = conflicts
+            .iter()
+            .all(|conflict| conflict.owning_profile_id.as_deref() == Some(candidate_profile_id));
+        if all_belong_to_candidate {
             vec![RunnerLaunchSuggestedAction::KillSelfThenStart]
         } else {
             vec![RunnerLaunchSuggestedAction::AskUserBeforeKill]
@@ -560,7 +563,7 @@ mod tests {
             },
         ];
         assert_eq!(
-            RunnerService::suggest_actions(&conflicts),
+            RunnerService::suggest_actions(&conflicts, "p1"),
             vec![RunnerLaunchSuggestedAction::KillSelfThenStart]
         );
     }
@@ -588,7 +591,7 @@ mod tests {
             },
         ];
         assert_eq!(
-            RunnerService::suggest_actions(&conflicts),
+            RunnerService::suggest_actions(&conflicts, "p1"),
             vec![RunnerLaunchSuggestedAction::AskUserBeforeKill]
         );
     }

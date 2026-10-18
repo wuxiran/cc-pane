@@ -103,6 +103,8 @@ export interface ProjectPathStatus {
 export interface Workspace {
   id: string;
   name: string;
+  /** Revision of the server snapshot, echoed for optimistic write validation. */
+  revision?: string;
   alias?: string;
   createdAt: string;
   projects: WorkspaceProject[];

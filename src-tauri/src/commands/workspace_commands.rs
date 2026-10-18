@@ -229,9 +229,9 @@ pub fn update_workspace(
     name: String,
     workspace: Workspace,
     service: State<'_, Arc<WorkspaceService>>,
-) -> AppResult<()> {
+) -> AppResult<Workspace> {
     debug!(name = %name, "cmd::update_workspace");
-    Ok(service.write_workspace_json(&name, &workspace)?)
+    Ok(service.save_workspace_snapshot(&name, &workspace)?)
 }
 
 #[tauri::command]

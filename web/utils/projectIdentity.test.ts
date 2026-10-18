@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { projectIdentityKey, projectPathsEquivalent } from "./projectIdentity";
+import identityCases from "../../cc-panes-core/tests/fixtures/project_identity.json";
 
 describe("project identity", () => {
+  it.each(identityCases)("shares the Rust identity key for $input", ({ input, key }) => {
+    expect(projectIdentityKey(input)).toBe(key);
+  });
   it("统一盘符大小写、分隔符、verbatim 前缀和尾分隔符", () => {
     expect(projectPathsEquivalent(
       "\\\\?\\d:\\Repos\\Alpha\\",

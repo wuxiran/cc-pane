@@ -76,7 +76,7 @@ describe("WorkspaceEnvironmentPanel", () => {
       if (!workspace) throw new Error(`Workspace not found: ${name}`);
       return workspace;
     });
-    vi.mocked(workspaceService.saveWorkspace).mockResolvedValue();
+    vi.mocked(workspaceService.saveWorkspace).mockResolvedValue(undefined);
   });
 
   it("re-fetches and saves the full workspace draft through the store", async () => {

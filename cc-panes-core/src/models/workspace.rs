@@ -77,6 +77,10 @@ pub struct WorkspaceProject {
 pub struct Workspace {
     pub id: String,
     pub name: String,
+    /// Content revision supplied on read and checked when replacing a snapshot.
+    /// Old clients without this field retain explicit replacement semantics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
     #[serde(default)]
     pub alias: Option<String>,
     pub created_at: String,
@@ -280,6 +284,7 @@ impl Workspace {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             name,
+            revision: None,
             alias: None,
             created_at: chrono::Utc::now().to_rfc3339(),
             projects: Vec::new(),

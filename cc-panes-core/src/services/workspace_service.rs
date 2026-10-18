@@ -21,6 +21,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{error, info, warn};
 
+mod migration_paths;
+mod persistence;
+use persistence::RegistryWriteGuard;
+
 const MIGRATION_EXCLUDED_NAMES: &[&str] = &[
     "node_modules",
     "target",
@@ -101,6 +105,7 @@ impl WorkspaceService {
     pub fn migrate_project_identities(
         &self,
     ) -> Result<WorkspaceProjectIdentityMigrationReport, String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let mut report = WorkspaceProjectIdentityMigrationReport::default();
         if !self.base_dir.exists() {
             return Ok(report);
@@ -156,7 +161,7 @@ impl WorkspaceService {
 
             let content = serde_json::to_string_pretty(&workspace)
                 .map_err(|e| format!("Failed to serialize migrated workspace: {e}"))?;
-            fs::write(&json_path, content).map_err(|e| {
+            crate::utils::atomic_file::write_atomic(&json_path, content).map_err(|e| {
                 format!(
                     "Failed to write migrated workspace '{}': {e}",
                     json_path.display()
@@ -361,6 +366,7 @@ impl WorkspaceService {
     /// 即 CC-Panes 自身管理的路径，无需用户选择。
     /// 返回 `Some(ws)` 表示本次创建/补标记了默认工作空间，`None` 表示已存在。
     pub fn ensure_default_workspace(&self) -> Result<Option<Workspace>, String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         const DEFAULT_NAME: &str = "default";
 
         let workspaces = self.list_workspaces()?;
@@ -384,9 +390,9 @@ impl WorkspaceService {
         if workspace.path.is_none() {
             workspace.path = Some(ws_dir.to_string_lossy().to_string());
         }
-        self.write_workspace_json(DEFAULT_NAME, &workspace)?;
+        self.write_workspace_json_locked(DEFAULT_NAME, &workspace)?;
         self.init_workspace_files(&workspace)?;
-        Ok(Some(workspace))
+        Ok(Some(self.get_workspace(DEFAULT_NAME)?))
     }
 
     /// 确保 Agent Chat 专用工作空间存在：启动时调用，缺失则自动创建。
@@ -396,6 +402,7 @@ impl WorkspaceService {
     /// 工作空间的代价大得多，所以它必须真实存在且永不消失。
     /// 返回 `Some(ws)` 表示本次创建/补标记了它，`None` 表示已存在。
     pub fn ensure_agent_chat_workspace(&self) -> Result<Option<Workspace>, String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         const AGENT_CHAT_NAME: &str = "agent-chat";
 
         let workspaces = self.list_workspaces()?;
@@ -419,13 +426,14 @@ impl WorkspaceService {
         if workspace.path.is_none() {
             workspace.path = Some(ws_dir.to_string_lossy().to_string());
         }
-        self.write_workspace_json(AGENT_CHAT_NAME, &workspace)?;
+        self.write_workspace_json_locked(AGENT_CHAT_NAME, &workspace)?;
         self.init_workspace_files(&workspace)?;
-        Ok(Some(workspace))
+        Ok(Some(self.get_workspace(AGENT_CHAT_NAME)?))
     }
 
     /// 创建新工作空间
     pub fn create_workspace(&self, name: &str, path: Option<&str>) -> Result<Workspace, String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let ws_dir = self.workspace_dir(name);
 
         if ws_dir.exists() {
@@ -438,14 +446,14 @@ impl WorkspaceService {
 
         // 创建 workspace.json
         let workspace = Workspace::new(name.to_string(), path.map(|s| s.to_string()));
-        self.write_workspace_json(name, &workspace)?;
+        self.write_workspace_json_locked(name, &workspace)?;
 
         // 若指定了 path，在工作空间路径下生成引导文件
         if path.is_some() {
             self.init_workspace_files(&workspace)?;
         }
 
-        Ok(workspace)
+        self.get_workspace(name)
     }
 
     /// 获取工作空间
@@ -461,6 +469,7 @@ impl WorkspaceService {
 
     /// 重命名工作空间
     pub fn rename_workspace(&self, old_name: &str, new_name: &str) -> Result<(), String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let old_dir = self.workspace_dir(old_name);
         let new_dir = self.workspace_dir(new_name);
 
@@ -481,13 +490,14 @@ impl WorkspaceService {
         // 更新 workspace.json 中的 name
         let mut workspace = self.get_workspace(new_name)?;
         workspace.name = new_name.to_string();
-        self.write_workspace_json(new_name, &workspace)?;
+        self.write_workspace_json_locked(new_name, &workspace)?;
 
         Ok(())
     }
 
     /// 删除工作空间
     pub fn delete_workspace(&self, name: &str) -> Result<(), String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let ws_dir = self.workspace_dir(name);
 
         if !ws_dir.exists() {
@@ -523,6 +533,7 @@ impl WorkspaceService {
         workspace_name: &str,
         path: &str,
     ) -> Result<WorkspaceProject, String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let mut workspace = self.get_workspace(workspace_name)?;
 
         let identity = project_identity_key(path);
@@ -539,7 +550,7 @@ impl WorkspaceService {
 
         let project = WorkspaceProject::new(path.to_string());
         workspace.projects.push(project.clone());
-        self.write_workspace_json(workspace_name, &workspace)?;
+        self.write_workspace_json_locked(workspace_name, &workspace)?;
 
         // 同步 projects.csv
         self.sync_projects_csv(&workspace);
@@ -559,6 +570,7 @@ impl WorkspaceService {
         workspace_name: &str,
         ssh_info: SshConnectionInfo,
     ) -> Result<WorkspaceProject, String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let mut workspace = self.get_workspace(workspace_name)?;
 
         // 构建显示路径：ssh://[user@]host[:port]/remote_path
@@ -601,7 +613,7 @@ impl WorkspaceService {
         };
 
         workspace.projects.push(project.clone());
-        self.write_workspace_json(workspace_name, &workspace)?;
+        self.write_workspace_json_locked(workspace_name, &workspace)?;
 
         // 注意：不初始化 Local History，不同步 projects.csv
 
@@ -610,6 +622,7 @@ impl WorkspaceService {
 
     /// 从工作空间移除项目
     pub fn remove_project(&self, workspace_name: &str, project_id: &str) -> Result<(), String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let mut workspace = self.get_workspace(workspace_name)?;
 
         let original_len = workspace.projects.len();
@@ -619,7 +632,7 @@ impl WorkspaceService {
             return Err(format!("Project '{}' does not exist", project_id));
         }
 
-        self.write_workspace_json(workspace_name, &workspace)?;
+        self.write_workspace_json_locked(workspace_name, &workspace)?;
 
         // 同步 projects.csv
         self.sync_projects_csv(&workspace);
@@ -634,6 +647,7 @@ impl WorkspaceService {
         project_id: &str,
         alias: Option<&str>,
     ) -> Result<(), String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let mut workspace = self.get_workspace(workspace_name)?;
 
         let project = workspace
@@ -643,7 +657,7 @@ impl WorkspaceService {
             .ok_or_else(|| format!("Project '{}' does not exist", project_id))?;
 
         project.alias = alias.map(|s| s.to_string());
-        self.write_workspace_json(workspace_name, &workspace)?;
+        self.write_workspace_json_locked(workspace_name, &workspace)?;
 
         Ok(())
     }
@@ -654,9 +668,10 @@ impl WorkspaceService {
         workspace_name: &str,
         alias: Option<&str>,
     ) -> Result<(), String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let mut workspace = self.get_workspace(workspace_name)?;
         workspace.alias = alias.map(|s| s.to_string());
-        self.write_workspace_json(workspace_name, &workspace)?;
+        self.write_workspace_json_locked(workspace_name, &workspace)?;
         Ok(())
     }
 
@@ -666,9 +681,10 @@ impl WorkspaceService {
         workspace_name: &str,
         path: Option<&str>,
     ) -> Result<(), String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let mut workspace = self.get_workspace(workspace_name)?;
         workspace.path = path.map(|s| s.to_string());
-        self.write_workspace_json(workspace_name, &workspace)?;
+        self.write_workspace_json_locked(workspace_name, &workspace)?;
         Ok(())
     }
 
@@ -678,25 +694,28 @@ impl WorkspaceService {
         workspace_name: &str,
         provider_id: Option<&str>,
     ) -> Result<(), String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let mut workspace = self.get_workspace(workspace_name)?;
         workspace.provider_id = provider_id.map(|s| s.to_string());
-        self.write_workspace_json(workspace_name, &workspace)?;
+        self.write_workspace_json_locked(workspace_name, &workspace)?;
         Ok(())
     }
 
     /// 更新工作空间 pinned 状态
     pub fn update_workspace_pinned(&self, name: &str, pinned: bool) -> Result<(), String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let mut ws = self.get_workspace(name)?;
         ws.pinned = pinned;
-        self.write_workspace_json(name, &ws)?;
+        self.write_workspace_json_locked(name, &ws)?;
         Ok(())
     }
 
     /// 更新工作空间 hidden 状态
     pub fn update_workspace_hidden(&self, name: &str, hidden: bool) -> Result<(), String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let mut ws = self.get_workspace(name)?;
         ws.hidden = hidden;
-        self.write_workspace_json(name, &ws)?;
+        self.write_workspace_json_locked(name, &ws)?;
         Ok(())
     }
 
@@ -708,6 +727,7 @@ impl WorkspaceService {
     /// 注意：归档**不影响** [`Self::list_workspaces`] 的返回内容——过滤是消费方的事，
     /// 详见该函数的文档注释。
     pub fn set_workspace_archived(&self, name: &str, archived: bool) -> Result<(), String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let mut ws = self.get_workspace(name)?;
 
         // 默认工作空间不可归档：启动时会自动重建，归档只会造成"删了又回来"的困惑。
@@ -727,7 +747,7 @@ impl WorkspaceService {
         }
 
         ws.archived_at = archived.then(|| chrono::Utc::now().to_rfc3339());
-        self.write_workspace_json(name, &ws)?;
+        self.write_workspace_json_locked(name, &ws)?;
         Ok(())
     }
 
@@ -740,6 +760,7 @@ impl WorkspaceService {
         project_id: &str,
         archived: bool,
     ) -> Result<(), String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let mut workspace = self.get_workspace(workspace_name)?;
 
         let project = workspace
@@ -750,7 +771,7 @@ impl WorkspaceService {
 
         project.archived_at = archived.then(|| chrono::Utc::now().to_rfc3339());
 
-        self.write_workspace_json(workspace_name, &workspace)?;
+        self.write_workspace_json_locked(workspace_name, &workspace)?;
 
         // 与 remove_project 同口径：项目集合变动后同步 CSV
         self.sync_projects_csv(&workspace);
@@ -760,6 +781,7 @@ impl WorkspaceService {
 
     /// 重排工作空间顺序
     pub fn reorder_workspaces(&self, ordered_names: Vec<String>) -> Result<(), String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         if ordered_names.is_empty() {
             return Err("Ordered names cannot be empty".to_string());
         }
@@ -778,7 +800,7 @@ impl WorkspaceService {
         for (i, name) in ordered_names.iter().enumerate() {
             let mut ws = self.get_workspace(name)?;
             ws.sort_order = Some(i as i32);
-            self.write_workspace_json(name, &ws)?;
+            self.write_workspace_json_locked(name, &ws)?;
         }
         Ok(())
     }
@@ -796,6 +818,7 @@ impl WorkspaceService {
         &self,
         request: &WorkspaceMigrationRequest,
     ) -> Result<WorkspaceMigrationResult, String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let (workspace, plan) = self.build_migration_plan(request)?;
         let source_root = PathBuf::from(&plan.source_root);
         let target_root = self.resolve_physical_target_root(&plan)?;
@@ -827,8 +850,9 @@ impl WorkspaceService {
         let updated_workspace = self.build_workspace_after_migration(&workspace, &plan);
         let result_warnings = plan.warnings.clone();
 
-        self.write_workspace_json(&workspace.name, &updated_workspace)?;
+        self.write_workspace_json_locked(&workspace.name, &updated_workspace)?;
         self.sync_projects_csv(&updated_workspace);
+        let updated_workspace = self.get_workspace(&workspace.name)?;
 
         Ok(WorkspaceMigrationResult {
             status: WorkspaceMigrationStatus::Succeeded,
@@ -847,12 +871,13 @@ impl WorkspaceService {
         workspace_name: &str,
         snapshot_id: &str,
     ) -> Result<WorkspaceMigrationRollbackResult, String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let snapshot = self.read_migration_snapshot(workspace_name, snapshot_id)?;
-        self.write_workspace_json(workspace_name, &snapshot.workspace)?;
+        self.write_workspace_json_locked(workspace_name, &snapshot.workspace)?;
         self.sync_projects_csv(&snapshot.workspace);
         Ok(WorkspaceMigrationRollbackResult {
             snapshot_id: snapshot_id.to_string(),
-            workspace: snapshot.workspace,
+            workspace: self.get_workspace(workspace_name)?,
         })
     }
 
@@ -870,6 +895,7 @@ impl WorkspaceService {
         &self,
         request: &ProjectMigrationRequest,
     ) -> Result<ProjectMigrationResult, String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let (workspace, plan) = self.build_project_migration_plan(request)?;
         let source_root = PathBuf::from(&plan.source_path);
         let target_root = self.resolve_target_root_path(
@@ -886,8 +912,9 @@ impl WorkspaceService {
 
         let updated_workspace =
             self.build_workspace_after_project_migration(&workspace, &plan, &target_root);
-        self.write_workspace_json(&workspace.name, &updated_workspace)?;
+        self.write_workspace_json_locked(&workspace.name, &updated_workspace)?;
         self.sync_projects_csv(&updated_workspace);
+        let updated_workspace = self.get_workspace(&workspace.name)?;
 
         Ok(ProjectMigrationResult {
             status: WorkspaceMigrationStatus::Succeeded,
@@ -905,12 +932,13 @@ impl WorkspaceService {
         workspace_name: &str,
         snapshot_id: &str,
     ) -> Result<ProjectMigrationRollbackResult, String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let snapshot = self.read_project_migration_snapshot(workspace_name, snapshot_id)?;
-        self.write_workspace_json(workspace_name, &snapshot.workspace)?;
+        self.write_workspace_json_locked(workspace_name, &snapshot.workspace)?;
         self.sync_projects_csv(&snapshot.workspace);
         Ok(ProjectMigrationRollbackResult {
             snapshot_id: snapshot_id.to_string(),
-            workspace: snapshot.workspace,
+            workspace: self.get_workspace(workspace_name)?,
         })
     }
 
@@ -1186,22 +1214,10 @@ impl WorkspaceService {
     fn ensure_migration_target_available(
         &self,
         source_root: &Path,
-        target_kind: WorkspaceMigrationTargetKind,
+        _target_kind: WorkspaceMigrationTargetKind,
         physical_target_root: &Path,
     ) -> Result<(), String> {
-        if matches!(target_kind, WorkspaceMigrationTargetKind::Local) {
-            let normalized_source = Self::normalize_filesystem_path(&source_root.to_string_lossy());
-            let normalized_target =
-                Self::normalize_filesystem_path(&physical_target_root.to_string_lossy());
-            if normalized_source == normalized_target {
-                return Err("Migration target root cannot be the same as source root".to_string());
-            }
-            if normalized_target.starts_with(&(normalized_source.clone() + "/")) {
-                return Err(
-                    "Migration target root cannot be inside the source workspace".to_string(),
-                );
-            }
-        }
+        migration_paths::ensure_separate_target(source_root, physical_target_root)?;
 
         if physical_target_root.exists() {
             let mut entries = fs::read_dir(physical_target_root)
@@ -1519,7 +1535,9 @@ impl WorkspaceService {
         source: &Path,
         destination: &Path,
     ) -> Result<CopyStats, String> {
+        migration_paths::ensure_separate_target(source, destination)?;
         self.ensure_directory_exists(destination)?;
+        migration_paths::ensure_separate_target(source, destination)?;
         let mut stats = CopyStats::default();
         self.copy_directory_recursive_inner(source, source, destination, &mut stats)?;
         Ok(stats)
@@ -1543,7 +1561,9 @@ impl WorkspaceService {
             .map(|project| Self::normalize_compare_path(&project.path))
             .collect();
 
+        migration_paths::ensure_separate_target(source_root, destination_root)?;
         self.ensure_directory_exists(destination_root)?;
+        migration_paths::ensure_separate_target(source_root, destination_root)?;
         let mut stats = CopyStats::default();
         self.copy_directory_recursive_filtered(
             source_root,
@@ -1821,24 +1841,7 @@ impl WorkspaceService {
     }
 
     fn relative_path_from_workspace(project_path: &str, workspace_root: &str) -> Option<String> {
-        let display_root = Self::normalize_filesystem_path(workspace_root);
-        let display_project = Self::normalize_filesystem_path(project_path);
-        let compare_root = Self::normalize_compare_path(workspace_root);
-        let compare_project = Self::normalize_compare_path(project_path);
-
-        if compare_project == compare_root {
-            return Some(String::new());
-        }
-
-        let prefix = compare_root + "/";
-        if compare_project.starts_with(&prefix) {
-            let relative = display_project
-                .strip_prefix(&(display_root + "/"))
-                .unwrap_or("");
-            return Some(relative.to_string());
-        }
-
-        None
+        migration_paths::relative_project_path(project_path, workspace_root)
     }
 
     fn normalize_wsl_root(path: &str) -> Result<String, String> {
@@ -1889,17 +1892,8 @@ impl WorkspaceService {
         path.replace('\\', "/").trim_start_matches("./").to_string()
     }
 
-    fn normalize_filesystem_path(path: &str) -> String {
-        path.replace('\\', "/").trim_end_matches('/').to_string()
-    }
-
     fn normalize_compare_path(path: &str) -> String {
-        let normalized = Self::normalize_filesystem_path(path);
-        if cfg!(windows) {
-            normalized.to_lowercase()
-        } else {
-            normalized
-        }
+        migration_paths::comparison_key(path)
     }
 
     fn path_basename(path: &str) -> String {
@@ -1931,15 +1925,61 @@ impl WorkspaceService {
         let content =
             fs::read_to_string(path).map_err(|e| format!("Failed to read file: {}", e))?;
 
-        serde_json::from_str(&content).map_err(|e| format!("Failed to parse JSON: {}", e))
+        let mut workspace: Workspace =
+            serde_json::from_str(&content).map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        workspace.revision = Some(persistence::revision(content.as_bytes()));
+        Ok(workspace)
     }
 
+    /// Explicitly replace a workspace snapshot. Read/modify/write callers should use
+    /// `update_workspace_with` so their read is part of the same transaction.
     pub fn write_workspace_json(&self, name: &str, workspace: &Workspace) -> Result<(), String> {
+        self.save_workspace_snapshot(name, workspace).map(|_| ())
+    }
+
+    /// Reject a stale form snapshot instead of overwriting concurrent project edits.
+    pub fn save_workspace_snapshot(
+        &self,
+        name: &str,
+        workspace: &Workspace,
+    ) -> Result<Workspace, String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
+        if let Some(expected) = workspace.revision.as_ref() {
+            let current = self.get_workspace(name)?;
+            if current.revision.as_ref() != Some(expected) {
+                return Err(
+                    "WORKSPACE_CHANGED: Workspace changed; reload before saving".to_string()
+                );
+            }
+        }
+        self.write_workspace_json_locked(name, workspace)?;
+        self.get_workspace(name)
+    }
+
+    pub fn update_workspace_with<T>(
+        &self,
+        name: &str,
+        update: impl FnOnce(&mut Workspace) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
+        let mut workspace = self.get_workspace(name)?;
+        let result = update(&mut workspace)?;
+        self.write_workspace_json_locked(name, &workspace)?;
+        Ok(result)
+    }
+
+    fn write_workspace_json_locked(&self, name: &str, workspace: &Workspace) -> Result<(), String> {
         let json_path = self.workspace_json_path(name);
-        let content = serde_json::to_string_pretty(workspace)
+        if !self.workspace_dir(name).is_dir() {
+            return Err(format!("Workspace '{name}' does not exist"));
+        }
+        let mut persisted = workspace.clone();
+        persisted.revision = None;
+        let content = serde_json::to_string_pretty(&persisted)
             .map_err(|e| format!("Failed to serialize JSON: {}", e))?;
 
-        fs::write(&json_path, content).map_err(|e| format!("Failed to write file: {}", e))?;
+        crate::utils::atomic_file::write_atomic(&json_path, content)
+            .map_err(|e| format!("Failed to write file: {}", e))?;
 
         Ok(())
     }

@@ -67,3 +67,26 @@ export function createSettingsDraft(value: AppSettings): SettingsDraft {
     },
   };
 }
+
+// These controls live on Performance while their persisted keys remain under
+// terminal for compatibility. Reset by UI ownership, not storage object alone.
+const PERFORMANCE_TERMINAL_KEYS = ["lowerSessionPriority", "sessionCpuWeight"] as const;
+
+export function resetSettingsSection(
+  draft: SettingsDraft,
+  defaults: SettingsDraft,
+  paneId: SettingsPaneId,
+): SettingsDraft {
+  const next = { ...draft };
+  for (const key of SECTION_DRAFT_KEYS[paneId] ?? []) {
+    (next as Record<string, unknown>)[key] = defaults[key];
+  }
+  if (paneId === "terminal" || paneId === "performance") {
+    next.terminal = { ...next.terminal };
+    const policy = paneId === "performance" ? defaults.terminal : draft.terminal;
+    for (const key of PERFORMANCE_TERMINAL_KEYS) {
+      Object.assign(next.terminal, { [key]: policy[key] });
+    }
+  }
+  return next;
+}
