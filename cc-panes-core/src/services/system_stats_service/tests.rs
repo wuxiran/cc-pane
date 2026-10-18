@@ -620,3 +620,19 @@ fn wsl_roots_take_cgroup_readings_and_local_roots_keep_tree_aggregate() {
     assert_eq!(strict.spawn_count(), 0);
     assert!(tree[0].source.is_none());
 }
+
+#[test]
+fn system_stats_do_not_wait_for_process_enumeration() {
+    let service = std::sync::Arc::new(SystemStatsService::new());
+    let guard = service.process_system.lock();
+    let worker = service.clone();
+    let (sent, received) = std::sync::mpsc::channel();
+    let handle = std::thread::spawn(move || sent.send(worker.get_system_stats()).unwrap());
+    let result = received.recv_timeout(std::time::Duration::from_secs(2));
+    drop(guard);
+    handle.join().unwrap();
+    assert!(
+        result.is_ok(),
+        "status bar must not wait for process enumeration"
+    );
+}

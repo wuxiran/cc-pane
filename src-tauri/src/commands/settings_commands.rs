@@ -113,7 +113,7 @@ pub fn cleanup_before_uninstall(
 
 /// 测试代理连接
 #[tauri::command]
-pub fn test_proxy(service: State<'_, Arc<SettingsService>>) -> AppResult<bool> {
+pub async fn test_proxy(service: State<'_, Arc<SettingsService>>) -> AppResult<bool> {
     let settings = service.get_settings();
     let proxy = &settings.proxy;
     if !proxy.enabled || proxy.host.is_empty() {
@@ -125,15 +125,28 @@ pub fn test_proxy(service: State<'_, Arc<SettingsService>>) -> AppResult<bool> {
         .parse()
         .map_err(|e| format!("Failed to parse address: {}", e))?;
 
-    TcpStream::connect_timeout(&socket_addr, Duration::from_secs(5))
-        .map(|_| true)
-        .map_err(|e| format!("Failed to connect to proxy {}: {}", addr, e).into())
+    super::blocking::run(move || {
+        TcpStream::connect_timeout(&socket_addr, Duration::from_secs(5))
+            .map(|_| true)
+            .map_err(|e| format!("Failed to connect to proxy {}: {}", addr, e).into())
+    })
+    .await
 }
 
 /// 测试 CLI 启动命令。只运行 `<command> --version` 这类轻量版本探测，
 /// 不注入用户 prompt / token / provider 环境。
 #[tauri::command]
-pub fn test_cli_launcher(command: String, version_args: Option<Vec<String>>) -> AppResult<String> {
+pub async fn test_cli_launcher(
+    command: String,
+    version_args: Option<Vec<String>>,
+) -> AppResult<String> {
+    super::blocking::run(move || test_cli_launcher_blocking(command, version_args)).await
+}
+
+fn test_cli_launcher_blocking(
+    command: String,
+    version_args: Option<Vec<String>>,
+) -> AppResult<String> {
     let command = normalize_cli_command(&command);
     if command.is_empty() {
         return Err("CLI command is empty".into());

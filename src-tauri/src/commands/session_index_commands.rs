@@ -11,11 +11,13 @@ fn session_index_query(params: SessionIndexListParams) -> AppResult<SessionIndex
 }
 
 #[tauri::command]
-pub fn list_session_index(
+pub async fn list_session_index(
     service: State<'_, Arc<SessionIndexService>>,
     params: SessionIndexListParams,
 ) -> AppResult<Vec<SessionIndexEntry>> {
-    service.list_sessions(session_index_query(params)?)
+    let service = service.inner().clone();
+    let query = session_index_query(params)?;
+    super::blocking::run(move || service.list_sessions(query)).await
 }
 
 #[tauri::command]
@@ -26,12 +28,16 @@ pub async fn refresh_session_index(
 }
 
 #[tauri::command]
-pub fn check_codex_rollout_exists(
+pub async fn check_codex_rollout_exists(
     service: State<'_, Arc<SessionIndexService>>,
     session_id: String,
     wsl_distro: Option<String>,
-) -> Option<bool> {
-    service.codex_rollout_exists(&session_id, wsl_distro.as_deref())
+) -> AppResult<Option<bool>> {
+    let service = service.inner().clone();
+    super::blocking::run(move || {
+        Ok(service.codex_rollout_exists(&session_id, wsl_distro.as_deref()))
+    })
+    .await
 }
 
 #[cfg(test)]

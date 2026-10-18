@@ -91,22 +91,25 @@ pub fn clear_launch_history(service: State<'_, Arc<LaunchHistoryService>>) -> Ap
 /// Do not use this as the main restore path. The file is directory-scoped and
 /// may not identify the exact tab/snapshot/agent conversation being restored.
 #[tauri::command]
-pub fn read_session_state(project_path: String) -> AppResult<Option<SessionState>> {
-    let state_path = PathBuf::from(&project_path)
-        .join(".ccpanes")
-        .join("session-state.json");
+pub async fn read_session_state(project_path: String) -> AppResult<Option<SessionState>> {
+    super::blocking::run(move || {
+        let state_path = PathBuf::from(&project_path)
+            .join(".ccpanes")
+            .join("session-state.json");
 
-    if !state_path.exists() {
-        return Ok(None);
-    }
+        if !state_path.exists() {
+            return Ok(None);
+        }
 
-    let content = std::fs::read_to_string(&state_path)
-        .map_err(|e| format!("Failed to read session-state.json: {}", e))?;
+        let content = std::fs::read_to_string(&state_path)
+            .map_err(|e| format!("Failed to read session-state.json: {}", e))?;
 
-    let state: SessionState = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse session-state.json: {}", e))?;
+        let state: SessionState = serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse session-state.json: {}", e))?;
 
-    Ok(Some(state))
+        Ok(Some(state))
+    })
+    .await
 }
 
 /// 更新启动记录的 Claude Session ID
@@ -155,7 +158,7 @@ pub fn update_launch_last_prompt(
 /// 从 CLI 对应的本地会话目录中扫描最近的 session ID。
 /// after_ts: ISO 8601 时间戳，只返回在此时间之后修改的 session
 #[tauri::command]
-pub fn detect_resume_session(
+pub async fn detect_resume_session(
     cli_tool: String,
     runtime_kind: Option<String>,
     wsl_distro: Option<String>,
@@ -163,31 +166,37 @@ pub fn detect_resume_session(
     workspace_path: Option<String>,
     after_ts: String,
 ) -> AppResult<Option<String>> {
-    Ok(crate::services::detect_resume_session(
-        &cli_tool,
-        runtime_kind.as_deref(),
-        wsl_distro.as_deref(),
-        project_path,
-        workspace_path,
-        after_ts,
-    )?)
+    super::blocking::run(move || {
+        Ok(crate::services::detect_resume_session(
+            &cli_tool,
+            runtime_kind.as_deref(),
+            wsl_distro.as_deref(),
+            project_path,
+            workspace_path,
+            after_ts,
+        )?)
+    })
+    .await
 }
 
 /// 兼容旧前端：继续保留 Claude 专用命令。
 #[tauri::command]
-pub fn detect_claude_session(
+pub async fn detect_claude_session(
     project_path: String,
     workspace_path: Option<String>,
     after_ts: String,
 ) -> AppResult<Option<String>> {
-    Ok(crate::services::detect_resume_session(
-        "claude",
-        Some("local"),
-        None,
-        project_path,
-        workspace_path,
-        after_ts,
-    )?)
+    super::blocking::run(move || {
+        Ok(crate::services::detect_resume_session(
+            "claude",
+            Some("local"),
+            None,
+            project_path,
+            workspace_path,
+            after_ts,
+        )?)
+    })
+    .await
 }
 
 /// 后端启动一个兜底回填任务，避免前端轮询 session 文件。

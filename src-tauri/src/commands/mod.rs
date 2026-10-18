@@ -1,6 +1,7 @@
 mod acp_chat_commands;
 mod agent_transcript_commands;
 mod automation_commands;
+mod blocking;
 mod browser_commands;
 mod claude_commands;
 mod clipboard_commands;

@@ -33,7 +33,7 @@ impl SystemStatsService {
     /// Independent low-frequency recorder sampling; never walks PTY/CLI trees.
     pub fn get_diagnostic_processes(&self, daemon: Option<u32>) -> Vec<DiagnosticProcess> {
         let app = std::process::id();
-        let mut system = self.system.lock();
+        let mut system = self.process_system.lock();
         let topology = capture_process_topology(&mut system);
         let daemon = daemon.filter(|pid| {
             topology.iter().any(|p| {
@@ -70,7 +70,7 @@ impl SystemStatsService {
         }
         #[cfg(not(windows))]
         {
-            sample_unix(&selected, app, daemon, &mut system)
+            sample_unix(&selected, &topology, app, daemon, &mut system)
         }
     }
 }
@@ -126,12 +126,24 @@ fn sample_windows(
 #[cfg(not(windows))]
 fn sample_unix(
     processes: &[&super::ProcessSnapshot],
+    topology: &[super::ProcessSnapshot],
     app: u32,
     daemon: Option<u32>,
     system: &mut sysinfo::System,
 ) -> Vec<DiagnosticProcess> {
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate};
-    let pids: Vec<_> = processes.iter().map(|p| Pid::from_u32(p.pid)).collect();
+    let live = ProcessIndex::new(topology);
+    let pids: Vec<_> = processes
+        .iter()
+        .map(|p| Pid::from_u32(p.pid))
+        .chain(
+            system
+                .processes()
+                .keys()
+                .filter(|pid| !live.by_pid.contains_key(&pid.as_u32()))
+                .copied(),
+        )
+        .collect();
     system.refresh_processes_specifics(
         ProcessesToUpdate::Some(&pids),
         true,
