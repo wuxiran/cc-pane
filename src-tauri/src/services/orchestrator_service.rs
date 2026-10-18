@@ -15745,7 +15745,9 @@ mod tests {
         let (_dir, service) = orchestrator_project_profile_workspace_service();
         let mut workspace = service.get_workspace("alpha").unwrap();
         workspace.launch_profile_id = Some("profile-workspace".into());
-        service.write_workspace_json("alpha", &workspace).unwrap();
+        workspace = service
+            .save_workspace_snapshot("alpha", &workspace)
+            .unwrap();
         let resolve = |explicit| {
             resolve_project_launch_context(r"D:\Repos\App", Some("alpha"), explicit, &service)
                 .launch_profile_id
