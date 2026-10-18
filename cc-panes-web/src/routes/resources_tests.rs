@@ -267,7 +267,7 @@ async fn workspace_routes_match_core_service_operations() {
     saved_workspace.pinned = true;
     saved_workspace.hidden = true;
     saved_workspace.launch_profile_id = Some("profile-a".to_string());
-    update_workspace(
+    let Json(saved_workspace) = update_workspace(
         State(state.clone()),
         Path("team-a".to_string()),
         Json(UpdateWorkspaceRequest {
@@ -276,6 +276,7 @@ async fn workspace_routes_match_core_service_operations() {
     )
     .await
     .expect("update full workspace");
+    assert!(saved_workspace.revision.is_some());
     let Json(updated_workspace) = get_workspace(State(state.clone()), Path("team-a".to_string()))
         .await
         .expect("get updated workspace");
