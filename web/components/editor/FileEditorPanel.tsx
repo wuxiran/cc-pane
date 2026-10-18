@@ -9,6 +9,8 @@ import { useRightDockStore } from "@/stores/useRightDockStore";
 import { useSshRemoteFilesStore } from "@/stores/useSshRemoteFilesStore";
 import { getFileIcon } from "@/components/filetree/FileTreeNode";
 import EditorView from "./EditorView";
+import { useFileEditorClosing } from "./useFileEditorClosing";
+import { TabCloseConfirmDialog } from "@/components/panes/TabCloseConfirmDialog";
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem,
   ContextMenuSeparator, ContextMenuTrigger,
@@ -291,10 +293,8 @@ export default function FileEditorPanel() {
   const tabs = useEditorTabsStore((s) => s.tabs);
   const activeTabId = useEditorTabsStore((s) => s.activeTabId);
   const selectTab = useEditorTabsStore((s) => s.selectTab);
-  const closeTab = useEditorTabsStore((s) => s.closeTab);
-  const closeOtherTabs = useEditorTabsStore((s) => s.closeOtherTabs);
-  const closeTabsToRight = useEditorTabsStore((s) => s.closeTabsToRight);
-  const closeTabsToLeft = useEditorTabsStore((s) => s.closeTabsToLeft);
+  const { closeTab, closeOtherTabs, closeTabsToRight, closeTabsToLeft, guards, cancel, confirm } =
+    useFileEditorClosing(tabs);
   const togglePin = useEditorTabsStore((s) => s.togglePin);
   const reorderTabs = useEditorTabsStore((s) => s.reorderTabs);
   const setDirty = useEditorTabsStore((s) => s.setDirty);
@@ -434,6 +434,7 @@ export default function FileEditorPanel() {
         {activeTab && (
           <EditorView
             key={activeTab.id}
+            bufferId={activeTab.id}
             filePath={activeTab.filePath}
             projectPath={activeTab.projectPath}
             onDirtyChange={handleDirtyChange(activeTab.id)}
@@ -441,6 +442,7 @@ export default function FileEditorPanel() {
           />
         )}
       </div>
+      <TabCloseConfirmDialog guards={guards} onCancel={cancel} onConfirm={confirm} />
     </div>
   );
 }

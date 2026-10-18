@@ -11,6 +11,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+mod entry_ops;
+
 const MAX_TEXT_FILE_SIZE: u64 = 5 * 1024 * 1024;
 const MAX_IMAGE_FILE_SIZE: u64 = 20 * 1024 * 1024;
 
@@ -228,11 +230,7 @@ impl SshFileService {
             .map_err(|_| anyhow::anyhow!("SFTP connection lock poisoned"))?;
         let parent = resolve_remote_path(&connection.sftp, parent)?;
         let path = join_remote_path(&parent, name);
-        connection
-            .sftp
-            .create(&path)
-            .with_context(|| format!("Failed to create remote file {}", display_path(&path)))?;
-        Ok(())
+        entry_ops::create_file(&connection.sftp, &path)
     }
 
     pub fn create_directory(&self, machine_id: &str, parent: &str, name: &str) -> Result<()> {
@@ -255,7 +253,7 @@ impl SshFileService {
         let connection = connection
             .lock()
             .map_err(|_| anyhow::anyhow!("SFTP connection lock poisoned"))?;
-        let source = resolve_remote_path(&connection.sftp, path)?;
+        let source = entry_ops::resolve_entry(&connection.sftp, path)?;
         let parent = parent_remote_path(&source).context("Remote entry has no parent directory")?;
         let destination = join_remote_path(&parent, new_name);
         connection
@@ -275,11 +273,7 @@ impl SshFileService {
         let connection = connection
             .lock()
             .map_err(|_| anyhow::anyhow!("SFTP connection lock poisoned"))?;
-        let resolved = resolve_remote_path(&connection.sftp, path)?;
-        if resolved == Path::new("/") {
-            bail!("Refusing to delete the remote root directory");
-        }
-        delete_remote_entry(&connection.sftp, &resolved)
+        entry_ops::delete_entry(&connection.sftp, path)
     }
 
     pub fn upload_file(
@@ -462,26 +456,6 @@ fn parent_remote_path(path: &Path) -> Option<PathBuf> {
     } else {
         &path[..separator]
     }))
-}
-
-fn delete_remote_entry(sftp: &Sftp, path: &Path) -> Result<()> {
-    let stat = sftp
-        .lstat(path)
-        .with_context(|| format!("Failed to inspect remote entry {}", display_path(path)))?;
-    if stat.is_dir() && !stat.file_type().is_symlink() {
-        for (child, _) in sftp
-            .readdir(path)
-            .with_context(|| format!("Failed to list remote directory {}", display_path(path)))?
-        {
-            delete_remote_entry(sftp, &child)?;
-        }
-        sftp.rmdir(path)
-            .with_context(|| format!("Failed to delete remote directory {}", display_path(path)))?;
-    } else {
-        sftp.unlink(path)
-            .with_context(|| format!("Failed to delete remote file {}", display_path(path)))?;
-    }
-    Ok(())
 }
 
 fn validate_entry_name(name: &str) -> Result<()> {

@@ -26,6 +26,7 @@ import EditorBreadcrumb from "./EditorBreadcrumb";
 import MarkdownPreview from "./MarkdownPreview";
 import ImagePreview from "./ImagePreview";
 import { isImageFile } from "@/lib/fileTypes";
+import { useEditorDocument } from "./useEditorDocument";
 
 /** 支持预览的图片扩展名（SVG 不纳入，保持 Monaco XML 编辑） */
 /** 文件扩展名 → Monaco 语言 ID */
@@ -92,6 +93,8 @@ interface EditorViewProps {
   projectPath: string;
   tabId?: string;
   paneId?: string;
+  /** Files-mode tab owns the buffer even while its view is unmounted. */
+  bufferId?: string;
   /** 独立面板模式下的 dirty 状态回调（替代 paneId/tabId） */
   onDirtyChange?: (dirty: boolean) => void;
   ssh?: NonNullable<EditorTab["ssh"]>;
@@ -102,21 +105,19 @@ export default function EditorView({
   projectPath,
   tabId,
   paneId,
+  bufferId,
   onDirtyChange,
   ssh,
 }: EditorViewProps) {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const [editorMounted, setEditorMounted] = useState(false);
-  const [content, setContent] = useState<string>("");
-  const [originalContent, setOriginalContent] = useState<string>("");
-  const [loading, setLoading] = useState(true);
+  const { document, updateDocument } = useEditorDocument(bufferId);
+  const { content, originalContent, readOnly, readOnlyReason } = document;
+  const [loading, setLoading] = useState(!document.loaded);
   const [error, setError] = useState<string | null>(null);
-  const [readOnly, setReadOnly] = useState(false);
-  const [readOnlyReason, setReadOnlyReason] = useState<"path" | "encoding" | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("edit");
   const [remoteImageUrl, setRemoteImageUrl] = useState<string | null>(null);
   const [remoteImageSize, setRemoteImageSize] = useState<number | null>(null);
-  const lastSavedMtime = useRef<string | null>(null);
   // 分栏滚动同步：previewModeRef 供 Monaco 事件闭包读最新值；syncLock 防两侧互相回声
   const previewRef = useRef<HTMLDivElement | null>(null);
   const previewModeRef = useRef<PreviewMode>("edit");
@@ -129,6 +130,7 @@ export default function EditorView({
   const language = getLanguageFromPath(filePath);
   const isMarkdown = language === "markdown";
   const dirty = content !== originalContent;
+  const bufferLoaded = Boolean(bufferId && document.loaded);
 
   // 同步 dirty 状态到 tab
   useEffect(() => {
@@ -151,6 +153,10 @@ export default function EditorView({
 
   // 加载文件
   useEffect(() => {
+    if (bufferLoaded) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -190,17 +196,18 @@ export default function EditorView({
           return;
         }
 
-        setContent(result.content);
-        setOriginalContent(result.content);
         const pathReadOnly = !ssh && isReadOnlyPath(filePath);
         const encodingReadOnly = result.encoding !== "utf-8";
-        setReadOnly(pathReadOnly || encodingReadOnly);
-        setReadOnlyReason(pathReadOnly ? "path" : encodingReadOnly ? "encoding" : null);
-
-        if (!ssh) {
-          const entryInfo = await filesystemService.getEntryInfo(filePath);
-          lastSavedMtime.current = entryInfo.modified;
-        }
+        const entryInfo = !ssh ? await filesystemService.getEntryInfo(filePath) : null;
+        if (cancelled) return;
+        updateDocument({
+          content: result.content,
+          originalContent: result.content,
+          modified: entryInfo?.modified ?? null,
+          loaded: true,
+          readOnly: pathReadOnly || encodingReadOnly,
+          readOnlyReason: pathReadOnly ? "path" : encodingReadOnly ? "encoding" : null,
+        });
       } catch (err) {
         if (!cancelled) {
           setError(`Failed to load file: ${getErrorMessage(err)}`);
@@ -213,7 +220,7 @@ export default function EditorView({
     return () => {
       cancelled = true;
     };
-  }, [filePath, isReadOnlyPath, ssh]);
+  }, [bufferLoaded, filePath, isReadOnlyPath, ssh, updateDocument]);
 
   // 保存
   const handleSave = useCallback(async () => {
@@ -221,9 +228,9 @@ export default function EditorView({
 
     try {
       // 冲突检测：比对 mtime
-      if (!ssh && lastSavedMtime.current) {
+      if (!ssh && document.modified) {
         const current = await filesystemService.getEntryInfo(filePath);
-        if (current.modified && current.modified !== lastSavedMtime.current) {
+        if (current.modified && current.modified !== document.modified) {
           const overwrite = window.confirm(
             "File has been modified externally. Overwrite?"
           );
@@ -233,18 +240,18 @@ export default function EditorView({
 
       if (ssh) await sshFileService.writeFile(ssh.machineId, filePath, content);
       else await filesystemService.writeFile(filePath, content);
-      setOriginalContent(content);
+      updateDocument({ originalContent: content });
 
       if (!ssh) {
         const info = await filesystemService.getEntryInfo(filePath);
-        lastSavedMtime.current = info.modified;
+        updateDocument({ modified: info.modified });
       }
 
       toastOk(i18n.t("fileSaved", { ns: "editor" }));
     } catch (err) {
       handleError(err, "save file");
     }
-  }, [filePath, content, readOnly, dirty, ssh]);
+  }, [filePath, content, readOnly, dirty, ssh, document.modified, updateDocument]);
 
   const handleRemoteBreadcrumbNavigate = useCallback((path: string) => {
     if (!ssh) return;
@@ -360,10 +367,10 @@ export default function EditorView({
   const handleEditorChange = useCallback(
     (value: string | undefined) => {
       if (value !== undefined) {
-        setContent(value);
+        updateDocument({ content: value });
       }
     },
-    []
+    [updateDocument]
   );
 
   // 工具栏操作

@@ -842,8 +842,8 @@ impl TerminalDaemonClient {
     /// 发起请求，read 阶段使用指定超时（create/kill 等 daemon 侧慢操作需要放宽）。
     /// connect / write 始终用短超时 `self.timeout`——连不上本机 daemon 就该 fail-fast。
     ///
-    /// 优先复用池中的 keep-alive 连接；池中连接可能已被 daemon 侧关闭（stale），
-    /// 这类失败只会发生在"一个字节都没收到"之前，可以安全地换一条新连接重发一次。
+    /// 优先复用池中的 keep-alive 连接；失联后只自动重试 GET/HEAD。
+    /// 没收到响应不代表请求未执行，写入/提交等操作不能据此重放。
     fn request_with_timeout(
         &self,
         method: &str,
@@ -897,9 +897,20 @@ impl TerminalDaemonClient {
                     }
                     return Ok(response);
                 }
-                // 池里的连接已被对端关掉：还没收到任何响应字节，重发是安全的。
-                Err(ExchangeError::Stale(_)) if reused => continue,
+                // Even EOF before response headers can follow a successful PTY write.
+                // Only read-only requests are safe to repeat without a daemon request ID.
+                Err(ExchangeError::Stale(_)) if reused && matches!(method, "GET" | "HEAD") => {
+                    continue;
+                }
                 Err(ExchangeError::Stale(error)) | Err(ExchangeError::Io(error)) => {
+                    if !matches!(method, "GET" | "HEAD") {
+                        return Err(AppError::coded(
+                            "DAEMON_REQUEST_OUTCOME_UNKNOWN",
+                            format!(
+                                "The daemon request may already have been applied; its outcome is unknown and it was not retried. Check the session before sending it again. Transport error: {error}"
+                            ),
+                        ));
+                    }
                     return Err(error);
                 }
             }
@@ -940,11 +951,15 @@ struct HttpExchange {
 }
 
 enum ExchangeError {
-    /// 一个响应字节都没收到就失败了（写失败 / 对端直接 EOF）——典型的 keep-alive
-    /// 连接已被 daemon 回收。调用方可换新连接重试。
+    /// Failed before receiving response bytes. The peer may still have applied the
+    /// request (including after a partial write); this does not authorize replay.
     Stale(AppError),
     Io(AppError),
 }
+
+#[cfg(test)]
+#[path = "daemon_client/retry_tests.rs"]
+mod retry_tests;
 
 /// 响应 body 的定界方式。
 enum BodyFraming {
