@@ -14,10 +14,11 @@ pub mod utils;
 mod webview_reliability;
 
 use ccchan_commands::{
-    get_ccchan_pets, get_ccchan_pets_dir, get_ccchan_settings, hide_ccchan,
+    focus_ccchan_main, get_ccchan_pets, get_ccchan_pets_dir, get_ccchan_settings, hide_ccchan,
     is_ccchan_chat_session_alive, move_ccchan_window, open_ccchan_pets_dir,
     resize_ccchan_for_bubble, resize_ccchan_for_chat, resize_ccchan_for_menu, save_ccchan_settings,
-    send_to_ccchan, show_ccchan, start_ccchan_chat, stop_ccchan_chat,
+    send_to_ccchan, set_ccchan_window_mode, show_ccchan, start_ccchan_chat, stop_ccchan_chat,
+    take_ccchan_say,
 };
 use ccchan_service::{CCChanService, CcChanSessionNotifier};
 use commands::{
@@ -2448,9 +2449,11 @@ pub fn run() {
                 // 副作用事件时复用同一实现（行为与本地 PTY 模式一致）。
                 app.manage(session_notifier);
 
-                if ccchan_svc.settings().window_visible {
+                if ccchan_svc.settings().auto_start || ccchan_svc.settings().window_visible {
                     if let Err(error) = ccchan_svc.show_window(&app_handle) {
                         warn!("[ccchan] failed to show startup window: {}", error);
+                    } else if let Err(error) = ccchan_svc.set_window_visible(true) {
+                        warn!("[ccchan] failed to persist startup visibility: {}", error);
                     }
                 }
 
@@ -3093,9 +3096,12 @@ pub fn run() {
             get_layout_switcher_state,
             save_layout_switcher_snapshot,
             save_layout_switcher_state,
+            take_ccchan_say,
             show_ccchan,
+            focus_ccchan_main,
             hide_ccchan,
             resize_ccchan_for_bubble,
+            set_ccchan_window_mode,
             resize_ccchan_for_chat,
             resize_ccchan_for_menu,
             move_ccchan_window,

@@ -20,7 +20,7 @@ mod notification_service;
 pub mod orchestrator_service;
 pub mod performance_recorder;
 mod pi_rpc_event_bridge;
-mod process_guard;
+pub(crate) mod process_guard;
 pub mod rest_launch_history;
 mod resume_binding_service;
 pub mod screenshot_overlay;

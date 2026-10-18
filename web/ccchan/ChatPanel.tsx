@@ -1,26 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { Bot, ChevronDown, Loader2, Maximize2, RefreshCw, Send, Square, User, X } from "lucide-react";
+import { listenCCChan } from "./listen";
+import { ChevronDown, Loader2, Maximize2, RefreshCw, Send, Square, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { useCCChanStore } from "@/stores/useCCChanStore";
 import { getErrorMessage } from "@/utils";
-import { devDebugLog } from "@/utils/devLogger";
+import { ENGINE_OPTIONS, MAX_MESSAGES, createChatMessage, appendCleanAssistantMessage, cleanupTerminalOutput, engineLabel, MessageBubble, debugCCChanChat, type ChatMessage } from "./chatMessages";
+export { cleanupTerminalOutput, type ChatMessage } from "./chatMessages";
 import type { CCChanChatOutputPayload, CCChanChatStatusPayload, CCChanSettings, TerminalOutputPayload } from "./types";
 
 type AiEngine = CCChanSettings["aiEngine"];
-export type ChatRole = "assistant" | "system" | "user";
-
-export interface ChatMessage {
-  id: string;
-  role: ChatRole;
-  content: string;
-  createdAt: number;
-}
-
 interface ChatPanelProps {
   settings: CCChanSettings;
   sessionId: string | null;
@@ -36,282 +26,6 @@ interface ChatPanelProps {
 interface TerminalExitPayload {
   sessionId: string;
   exitCode: number;
-}
-
-const ENGINE_OPTIONS: Array<{ value: AiEngine; label: string }> = [
-  { value: "claude", label: "Claude" },
-  { value: "codex", label: "Codex" },
-];
-
-const MAX_MESSAGES = 80;
-const MAX_MESSAGE_CHARS = 16_000;
-const ANSI_PATTERN = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g;
-const CONTROL_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const NATURAL_TEXT_PATTERN = /[\p{Script=Han}A-Za-z]{2,}/u;
-const CJK_PATTERN = /[\p{Script=Han}]/u;
-const TERMINAL_CHROME_COMPACT_MARKERS = [
-  "tipsforgettingstarted",
-  "welcomeback",
-  "run/inittocreateaclaude.md",
-  "otel_resource_attributes",
-  "claudeagents",
-  "/mcpnowcollapses",
-  "apiusagebilling",
-  "/release-notes",
-  "1mcontext",
-  "high/effort",
-  "higheffort",
-  "thinkingwithhigheffort",
-  "thoughtfor",
-  "mulling",
-  "setupissue",
-  "/doctor",
-  "bypasspermissionson",
-  "tokenusage",
-  "contextleft",
-  "cc-panes-dev\\ccchan",
-];
-
-function createMessageId(role: ChatRole): string {
-  return `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function createChatMessage(role: ChatRole, content: string): ChatMessage {
-  return {
-    id: createMessageId(role),
-    role,
-    content,
-    createdAt: Date.now(),
-  };
-}
-
-function applyBackspaces(value: string): string {
-  let next = value;
-  while (/[^\n]\x08/.test(next)) {
-    next = next.replace(/[^\n]\x08/g, "");
-  }
-  return next.replace(/\x08/g, "");
-}
-
-function isTerminalChromeLine(line: string): boolean {
-  const trimmed = line.trim();
-  if (!trimmed) return true;
-  if (UUID_PATTERN.test(trimmed)) return true;
-  const compact = compactTerminalChromeText(trimmed);
-  if (TERMINAL_CHROME_COMPACT_MARKERS.some((marker) => compact.includes(marker))) {
-    return true;
-  }
-  if (isClaudeProgressLine(trimmed, compact)) return true;
-  const withoutFrameChars = trimmed.replace(/[│┃╭╮╰╯┌┐└┘─═━┄┈╼╾]/g, "").trim();
-  if (!withoutFrameChars) return true;
-  if (/^[>›∙•·*_\-\s]+$/.test(trimmed)) return true;
-  if (/^(saut[ée]ed|cogitated|thinking|working|running|press|enter|esc|tab|shift\+tab|ctrl\+c|creating)\b/i.test(trimmed)) {
-    return true;
-  }
-  if (/bypass\s*permissions\s*on|bypasspermissionson|for agents|token usage|context left|high\/effort|esc\s*interrupt/i.test(trimmed)) {
-    return true;
-  }
-  if (/\b\d+\s*tokens?\b/i.test(trimmed) && /Claude Code|Codex|context|effort/i.test(trimmed)) {
-    return true;
-  }
-  const alphaNum = (trimmed.match(/[A-Za-z0-9\p{Script=Han}]/gu) ?? []).length;
-  const symbols = (trimmed.match(/[^\sA-Za-z0-9\p{Script=Han}，。！？、；：,.!?;:'"()[\]{}<>/\\|-]/gu) ?? []).length;
-  if (symbols > alphaNum && !CJK_PATTERN.test(trimmed)) return true;
-  return false;
-}
-
-function isClaudeProgressLine(line: string, compact: string): boolean {
-  if (/mulling|thinking with high effort|thought for \d+s|setup issue/i.test(line)) {
-    return true;
-  }
-  if (compact.includes("thinking") && compact.includes("effort")) {
-    return true;
-  }
-  if (compact.includes("mulling") || compact.includes("thoughtfor")) {
-    return true;
-  }
-  return false;
-}
-
-function compactTerminalChromeText(line: string): string {
-  return line
-    .toLocaleLowerCase()
-    .replace(/[│┃╭╮╰╯┌┐└┘─═━┄┈╼╾|`'"()[\]{}<>\s·•∙▷▶▸▹▾▿●◆◇■□▪▫*+↓↑…!⚠]+/g, "");
-}
-
-function firstNaturalTextIndex(line: string): number {
-  const compactChromeMarkers = [
-    "用户",
-    "系统",
-    "我是",
-    "我可以",
-    "我能",
-    "看起来",
-    "这",
-    "你",
-    "错误",
-    "失败",
-    "无法",
-    "The ",
-    "I ",
-    "It ",
-    "You ",
-    "Looks ",
-    "Error",
-    "Failed",
-    "Cannot",
-  ];
-  const indexes = compactChromeMarkers
-    .map((marker) => line.indexOf(marker))
-    .filter((index) => index >= 0);
-  return indexes.length > 0 ? Math.min(...indexes) : -1;
-}
-
-function stripInlineTerminalChrome(line: string): string {
-  let next = line
-    .replace(/\(B\s*0;?/g, " ")
-    .replace(/[▷▶▸▹▾▿●◆◇■□▪▫]+/g, " ")
-    .replace(/\b(?:Claude Code|Codex)\s*[>›]?\s*/gi, " ")
-    .replace(/\bbypass\s*permissions\s*on\b/gi, " ")
-    .replace(/\bbypasspermissionson\b/gi, " ")
-    .replace(/\bshift\+?tab\s*to\s*cycle\b/gi, " ")
-    .replace(/\bshift\+?tabtocycle\b/gi, " ")
-    .replace(/\besc\s*interrupt\b/gi, " ")
-    .replace(/\bhigh\/effort\b/gi, " ")
-    .replace(/\bcreating\.{0,3}\b/gi, " ")
-    .replace(/\b\d+\s*tokens?\b/gi, " ")
-    .replace(/\.\.\.\s*\(\d+s\s*·[^)]*\)/gi, " ");
-
-  const naturalIndex = firstNaturalTextIndex(next);
-  if (naturalIndex > 0 && /Claude Code|Codex|bypass|tokens?|effort|Creating/i.test(next.slice(0, naturalIndex))) {
-    next = next.slice(naturalIndex);
-  }
-
-  return next.replace(/[ \t]{2,}/g, " ").trim();
-}
-
-export function cleanupTerminalOutput(raw: string): string {
-  const withoutAnsi = raw.replace(ANSI_PATTERN, "");
-  const normalized = applyBackspaces(withoutAnsi)
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .replace(CONTROL_PATTERN, "")
-    .replace(/\uFFFD/g, "");
-  const lines = normalized
-    .split("\n")
-    .map((line) => stripInlineTerminalChrome(line.trimEnd()))
-    .filter((line) => !isTerminalChromeLine(line))
-    .filter((line) => NATURAL_TEXT_PATTERN.test(line));
-
-  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-}
-
-function formatAssistantContent(content: string): string {
-  const trimmed = content.trim();
-  if (!trimmed || !/^[{[]/.test(trimmed)) return content;
-  try {
-    const parsed = JSON.parse(trimmed);
-    return `\`\`\`json\n${JSON.stringify(parsed, null, 2)}\n\`\`\``;
-  } catch {
-    return content;
-  }
-}
-
-function trimMessageContent(content: string): string {
-  if (content.length <= MAX_MESSAGE_CHARS) return content;
-  return `...${content.slice(content.length - MAX_MESSAGE_CHARS)}`;
-}
-
-function debugCCChanChat(event: string, payload: Record<string, unknown> = {}): void {
-  devDebugLog("ccchan-chat-debug", event, payload);
-}
-
-function appendCleanAssistantMessage(current: ChatMessage[], text: string): ChatMessage[] {
-  if (!text) return current;
-
-  const next = [...current];
-  const last = next[next.length - 1];
-  if (last?.role === "assistant") {
-    const trimmedText = text.trim();
-    const existing = last.content.trim();
-    if (!trimmedText || existing.endsWith(trimmedText) || existing.includes(trimmedText)) {
-      return current;
-    }
-    const merged = trimmedText.startsWith(existing)
-      ? trimmedText
-      : `${last.content}${last.content.endsWith("\n") ? "" : "\n"}${text}`;
-    next[next.length - 1] = { ...last, content: trimMessageContent(merged) };
-    return next.slice(-MAX_MESSAGES);
-  }
-
-  return [
-    ...next,
-    createChatMessage("assistant", trimMessageContent(text)),
-  ].slice(-MAX_MESSAGES);
-}
-
-function engineLabel(engine: AiEngine): string {
-  return ENGINE_OPTIONS.find((option) => option.value === engine)?.label ?? engine;
-}
-
-function MessageBubble({ message }: { message: ChatMessage }) {
-  if (message.role === "system") {
-    return (
-      <div className="flex justify-center px-2 py-1">
-        <div
-          className="max-w-[88%] rounded-md border px-2.5 py-1 text-center text-[11px] leading-4"
-          style={{
-            borderColor: "#cbd5e1",
-            background: "#f8fafc",
-            color: "#475569",
-          }}
-        >
-          {message.content}
-        </div>
-      </div>
-    );
-  }
-
-  const isUser = message.role === "user";
-  return (
-    <div className={`flex w-full gap-2 px-2 py-1.5 ${isUser ? "justify-end" : "justify-start"}`}>
-      {!isUser && (
-        <div
-          className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-          style={{ background: "#dbeafe", color: "#2563eb" }}
-        >
-          <Bot size={14} />
-        </div>
-      )}
-      <div
-        className="max-w-[82%] rounded-md px-3 py-2 text-[12.5px] leading-5 shadow-sm"
-        style={{
-          borderTopLeftRadius: isUser ? 8 : 2,
-          borderTopRightRadius: isUser ? 2 : 8,
-          background: isUser ? "#2563eb" : "#ffffff",
-          color: isUser ? "#ffffff" : "#0f172a",
-          border: isUser ? "1px solid #1d4ed8" : "1px solid #dbeafe",
-        }}
-      >
-        {isUser ? (
-          <div className="whitespace-pre-wrap break-words">{message.content}</div>
-        ) : (
-          <div className="ccchan-markdown min-w-0 break-words">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{formatAssistantContent(message.content)}</ReactMarkdown>
-          </div>
-        )}
-      </div>
-      {isUser && (
-        <div
-          className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-          style={{ background: "#e2e8f0", color: "#334155" }}
-        >
-          <User size={14} />
-        </div>
-      )}
-    </div>
-  );
 }
 
 export function ChatPanel({
@@ -336,6 +50,12 @@ export function ChatPanel({
   const [error, setError] = useState<string | null>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const startingRef = useRef(false);
+  const startVersionRef = useRef(0);
+  const sendVersionRef = useRef(0);
+  const sendingRef = useRef(false);
+  const sessionRef = useRef(sessionId);
+  sessionRef.current = sessionId;
+  useEffect(() => () => { sendVersionRef.current++; }, []);
   const hasSubmittedRef = useRef(false);
   const ignoredStartupOutputLoggedRef = useRef(false);
   const verifiedSessionRef = useRef<string | null>(null);
@@ -353,9 +73,34 @@ export function ChatPanel({
           ? t("chat.activityWaiting")
           : null;
 
+  const activeEngineRef = useRef(settings.aiEngine);
+  useEffect(() => {
+    if (activeEngineRef.current === settings.aiEngine) return;
+    activeEngineRef.current = settings.aiEngine;
+    let cancelled = false;
+    sendVersionRef.current++;
+    sendingRef.current = false;
+    setSending(false);
+    setAutoStartPaused(true);
+    setSwitchingEngine(settings.aiEngine);
+    const oldSession = sessionRef.current;
+    void (async () => {
+      try {
+        if (oldSession) await invoke("stop_ccchan_chat", { sessionId: oldSession });
+        if (cancelled) return;
+        onSessionIdChange(null);
+        setMessages([]);
+        setAutoStartPaused(false);
+      } catch (error) { if (!cancelled) setError(getErrorMessage(error)); }
+      finally { if (!cancelled) setSwitchingEngine(null); }
+    })();
+    return () => { cancelled = true; };
+  }, [settings.aiEngine, onSessionIdChange, setMessages]);
+
   useEffect(() => {
     if (!sessionId) {
       verifiedSessionRef.current = null;
+      setCheckingSession(false);
       return;
     }
     if (verifiedSessionRef.current === sessionId) return;
@@ -422,6 +167,7 @@ export function ChatPanel({
         return;
       }
       startingRef.current = true;
+      const attempt = ++startVersionRef.current;
       setStarting(true);
       setError(null);
       ignoredStartupOutputLoggedRef.current = false;
@@ -433,7 +179,9 @@ export function ChatPanel({
       ]);
       try {
         const nextSessionId = await invoke<string>("start_ccchan_chat", { aiEngine: settings.aiEngine });
-        if (!cancelled) {
+        if (cancelled) {
+          await invoke("stop_ccchan_chat", { sessionId: nextSessionId });
+        } else {
           setAutoStartPaused(false);
           onSessionIdChange(nextSessionId);
           setMessages((current) => [
@@ -462,10 +210,9 @@ export function ChatPanel({
           ].slice(-MAX_MESSAGES));
         }
       } finally {
-        startingRef.current = false;
-        if (!cancelled) {
-          setStarting(false);
-          setRestarting(false);
+        if (attempt === startVersionRef.current) {
+          startingRef.current = false;
+          if (!cancelled) { setStarting(false); setRestarting(false); }
         }
       }
     }
@@ -473,6 +220,7 @@ export function ChatPanel({
     void ensureSession();
     return () => {
       cancelled = true;
+      startingRef.current = false;
     };
     // t 不进 deps：切语言会换 t 的 identity，重跑该 effect 会打断在途的会话 bootstrap
     // （cleanup 置 cancelled=true → setStarting(false) 被跳过 → 控件永久禁用 + CLI 进程成孤儿）。
@@ -484,8 +232,7 @@ export function ChatPanel({
     let cancelled = false;
 
     async function attachStructuredOutput() {
-      const webview = getCurrentWebview();
-      const unlistenOutput = await webview.listen<CCChanChatOutputPayload>("ccchan-chat-output", (event) => {
+      const unlistenOutput = listenCCChan<CCChanChatOutputPayload>("ccchan-chat-output", (event) => {
         if (event.payload.sessionId !== sessionId) return;
         if (event.payload.role !== "assistant" || !event.payload.text) return;
         debugCCChanChat("structured.output", {
@@ -494,7 +241,7 @@ export function ChatPanel({
         });
         setMessages((current) => appendCleanAssistantMessage(current, event.payload.text));
       });
-      const unlistenStatus = await webview.listen<CCChanChatStatusPayload>("ccchan-chat-status", (event) => {
+      const unlistenStatus = listenCCChan<CCChanChatStatusPayload>("ccchan-chat-status", (event) => {
         if (event.payload.sessionId !== sessionId) return;
         debugCCChanChat("structured.status", {
           sessionId,
@@ -571,7 +318,7 @@ export function ChatPanel({
       debugCCChanChat("output.attach.begin", {
         sessionId,
       });
-      unlisten = await getCurrentWebview().listen<TerminalOutputPayload>("terminal-output", (event) => {
+      unlisten = listenCCChan<TerminalOutputPayload>("terminal-output", (event) => {
         if (event.payload.sessionId !== sessionId) return;
         const cleaned = cleanupTerminalOutput(event.payload.data);
         if (!hasSubmittedRef.current) {
@@ -627,7 +374,7 @@ export function ChatPanel({
     let cancelled = false;
 
     async function attachExit() {
-      unlisten = await getCurrentWebview().listen<TerminalExitPayload>("terminal-exit", (event) => {
+      unlisten = listenCCChan<TerminalExitPayload>("terminal-exit", (event) => {
         if (event.payload.sessionId !== sessionId) return;
         const exitCode = event.payload.exitCode;
         const message = t("chat.cliExitedWithCode", { engine: engineLabel(settings.aiEngine), exitCode });
@@ -683,7 +430,7 @@ export function ChatPanel({
 
   async function handleSubmit() {
     const text = input.trimEnd();
-    if (!text || !sessionId || inputDisabled) {
+    if (!text || !sessionId || inputDisabled || sendingRef.current) {
       debugCCChanChat("message.send.skip", {
         autoStartPaused,
         hasText: Boolean(text),
@@ -696,6 +443,8 @@ export function ChatPanel({
       sessionId,
       textLength: text.length,
     });
+    const attempt = ++sendVersionRef.current;
+    sendingRef.current = true;
     setInput("");
     setSending(true);
     setError(null);
@@ -710,6 +459,7 @@ export function ChatPanel({
         sessionId,
       });
     } catch (err) {
+      if (attempt !== sendVersionRef.current || sessionRef.current !== sessionId) return;
       const message = getErrorMessage(err);
       debugCCChanChat("message.send.fail", {
         sessionId,
@@ -725,11 +475,11 @@ export function ChatPanel({
       ].slice(-MAX_MESSAGES));
       onSessionIdChange(null);
     } finally {
-      setSending(false);
+      if (attempt === sendVersionRef.current) { sendingRef.current = false; setSending(false); }
     }
   }
 
-  function handleRestart() {
+  async function handleRestart() {
     if (controlsDisabled) {
       debugCCChanChat("session.restart.skip.busy", {
         sessionId,
@@ -754,54 +504,28 @@ export function ChatPanel({
     setMessages([
       createChatMessage("system", t("chat.activityRefreshing", { engine: engineLabel(settings.aiEngine) })),
     ]);
-    setRestartRequestId((id) => id + 1);
-    if (sessionId) {
-      invoke("stop_ccchan_chat", { sessionId })
-        .then(() => {
-          debugCCChanChat("session.restart.stop.end", {
-            sessionId,
-          });
-        })
-        .catch((err) => {
-          const message = getErrorMessage(err);
-          debugCCChanChat("session.restart.stop.fail", {
-            sessionId,
-            error: message,
-            rawError: err,
-          });
-        });
-    }
-    onSessionIdChange(null);
+    setAutoStartPaused(true);
+    try {
+      if (sessionId) await invoke("stop_ccchan_chat", { sessionId });
+      onSessionIdChange(null);
+      setAutoStartPaused(false);
+      setRestartRequestId((id) => id + 1);
+    } catch (err) { setError(getErrorMessage(err)); setRestarting(false); }
   }
 
   async function handleStop() {
-    if (!sessionId) {
-      debugCCChanChat("session.stop.skip.no-session", {});
-      return;
-    }
-    debugCCChanChat("session.stop.begin", {
-      sessionId,
-    });
+    if (!sessionId) return;
+    // A rejected send from the stopped process must not clear a newer session.
+    sendVersionRef.current++;
+    sendingRef.current = false;
+    setSending(false);
+    setAutoStartPaused(true);
     try {
       await invoke("stop_ccchan_chat", { sessionId });
-      debugCCChanChat("session.stop.end", {
-        sessionId,
-      });
-    } catch (err) {
-      const message = getErrorMessage(err);
-      debugCCChanChat("session.stop.fail", {
-        sessionId,
-        error: message,
-        rawError: err,
-      });
-      throw err;
-    } finally {
       hasSubmittedRef.current = false;
       setRestarting(false);
-      setAutoStartPaused(true);
       onSessionIdChange(null);
-      setMessages([]);
-    }
+    } catch (err) { setError(getErrorMessage(err)); }
   }
 
   async function handleEngineChange(nextEngine: AiEngine) {
@@ -822,12 +546,6 @@ export function ChatPanel({
     setAutoStartPaused(false);
     setError(null);
     try {
-      if (sessionId) {
-        await invoke("stop_ccchan_chat", { sessionId }).catch(() => {});
-        onSessionIdChange(null);
-      }
-      hasSubmittedRef.current = false;
-      setMessages([]);
       await saveSettings({ ...settings, aiEngine: nextEngine });
       debugCCChanChat("engine.change.end", {
         nextEngine,
@@ -902,7 +620,7 @@ export function ChatPanel({
             className="flex h-7 w-7 items-center justify-center rounded text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-40"
             title={t("chat.refreshSession")}
             disabled={controlsDisabled}
-            onClick={handleRestart}
+            onClick={() => void handleRestart()}
           >
             {restarting || starting || checkingSession ? (
               <Loader2 size={13} className="animate-spin" />
@@ -915,7 +633,7 @@ export function ChatPanel({
             className="flex h-7 w-7 items-center justify-center rounded text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-50"
             title={t("chat.stopCurrent")}
             disabled={!sessionId}
-            onClick={handleStop}
+            onClick={() => void handleStop()}
           >
             <Square size={13} />
           </button>
@@ -972,7 +690,7 @@ export function ChatPanel({
           disabled={!sessionId || inputDisabled}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
               event.preventDefault();
               void handleSubmit();
             }

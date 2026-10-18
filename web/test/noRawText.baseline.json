@@ -1,5 +1,5 @@
 {
-  "ccchan/ChatPanel.tsx": 11,
+  "ccchan/chatMessages.tsx": 11,
   "components/CommandPalette.tsx": 6,
   "components/dev/WebglReproLab.tsx": 36,
   "components/notifications/notificationActions.ts": 6,

@@ -65,6 +65,8 @@ function mockCcChanInvoke(settings = DEFAULT_CCCHAN_SETTINGS) {
 describe("CCChanApp pet interactions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockScaleFactor.mockResolvedValue(1);
+    mockOuterPosition.mockResolvedValue({ x: 200, y: 120 });
     createWebviewListenerRegistry();
     useCCChanStore.setState({
       settings: DEFAULT_CCCHAN_SETTINGS,
@@ -108,7 +110,7 @@ describe("CCChanApp pet interactions", () => {
     });
 
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("resize_ccchan_for_chat", { expanded: true });
+      expect(mockInvoke).toHaveBeenCalledWith("set_ccchan_window_mode", { mode: "chat" });
     });
     resolvePosition({ x: 200, y: 120 });
   });
@@ -151,7 +153,7 @@ describe("CCChanApp pet interactions", () => {
     fireEvent.click(openChatItem);
 
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("resize_ccchan_for_chat", { expanded: true });
+      expect(mockInvoke).toHaveBeenCalledWith("set_ccchan_window_mode", { mode: "chat" });
     });
   });
 
@@ -184,13 +186,44 @@ describe("CCChanApp pet interactions", () => {
 
     fireEvent.click(screen.getByTitle("关闭 chat"));
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("resize_ccchan_for_chat", { expanded: false });
+      expect(mockInvoke).toHaveBeenCalledWith("set_ccchan_window_mode", { mode: "collapsed" });
     });
 
     fireEvent.click(screen.getByTitle("打开 cc酱对话"));
 
     expect(await screen.findByText("这条回复关闭后还应该在。")).toBeInTheDocument();
     expect(mockInvoke.mock.calls.filter(([cmd]) => cmd === "start_ccchan_chat")).toHaveLength(1);
+  });
+
+  it("receives replies and retains the draft while chat is collapsed", async () => {
+    const listeners = createWebviewListenerRegistry();
+    mockCcChanInvoke();
+    render(<CCChanApp />);
+    fireEvent.click(screen.getByTitle("打开 cc酱对话"));
+    await waitFor(() => expect(listeners.listenerCount("ccchan-chat-output")).toBe(1));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "未发送的草稿" } });
+    fireEvent.click(screen.getByTitle("关闭 chat"));
+    act(() => listeners.emit("ccchan-chat-output", { sessionId: "chat-session", role: "assistant", text: "收起时收到的回复" }));
+    fireEvent.click(screen.getByTitle("打开 cc酱对话"));
+    expect(screen.getByText("收起时收到的回复")).toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toHaveValue("未发送的草稿");
+  });
+
+  it("does not resurrect the menu after a delayed resize finishes", async () => {
+    const mockInvoke = mockCcChanInvoke();
+    const original = mockInvoke.getMockImplementation() as (cmd: string, args?: Record<string, unknown>) => unknown;
+    let finish!: () => void;
+    mockInvoke.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "set_ccchan_window_mode" && args?.mode === "menu") return new Promise<void>((resolve) => { finish = resolve; });
+      return original(cmd, args);
+    });
+    render(<CCChanApp />);
+    fireEvent.contextMenu(screen.getByTitle("打开 cc酱 chat"));
+    await waitFor(() => expect(finish).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "打开对话" }));
+    await act(async () => finish());
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith("set_ccchan_window_mode", { mode: "chat" }));
+    expect(screen.queryByRole("button", { name: "隐藏" })).not.toBeInTheDocument();
   });
 
   it("applies settings pushed via ccchan:settings-updated without reloading", async () => {
@@ -226,6 +259,8 @@ describe("CCChanApp wandering", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockScaleFactor.mockResolvedValue(1);
+    mockOuterPosition.mockResolvedValue({ x: 200, y: 120 });
     createWebviewListenerRegistry();
     useCCChanStore.setState({
       settings: DEFAULT_CCCHAN_SETTINGS,

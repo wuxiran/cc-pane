@@ -9,7 +9,7 @@
 //! - 项目路径白名单校验
 //! - 请求频率限制
 
-use crate::ccchan_service::{CCChanService, CCChanWindowMode};
+use crate::ccchan_service::CCChanService;
 use crate::models::task_binding::{
     CreateTaskBindingRequest, TaskBinding, TaskBindingRole, TaskBindingStatus,
     UpdateTaskBindingRequest,
@@ -83,7 +83,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, LogicalSize, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tracing::{debug, error, info, warn};
 
 // ============ 数据模型 ============
@@ -11139,113 +11139,9 @@ fn emit_ccchan_say(
     duration_ms: Option<u64>,
 ) -> std::result::Result<serde_json::Value, String> {
     let (text, duration_ms) = normalize_ccchan_say(text, duration_ms)?;
-    let needs_load_wait = app_handle.get_webview_window("ccchan").is_none();
     ccchan_service
-        .show_window(app_handle)
-        .map_err(|error| format!("Failed to show ccchan: {error}"))?;
-    if needs_load_wait {
-        std::thread::sleep(std::time::Duration::from_millis(250));
-    }
-    let Some(window) = app_handle.get_webview_window("ccchan") else {
-        return Err("ccchan window was not created".to_string());
-    };
-    let pet_size = ccchan_service.pet_size();
-    let (bubble_w, bubble_h) = ccchan_service.window_size(CCChanWindowMode::Bubble);
-    window
-        .set_size(LogicalSize::new(bubble_w, bubble_h))
-        .map_err(|error| format!("Failed to resize ccchan for bubble: {error}"))?;
-    // 气泡预留区：宠物本体被下移到窗口底部，上方留给气泡。s=120 时还原
-    // 历史值 translate(10px, 96px) 与气泡宽 260px。
-    let shift_y = (bubble_h - pet_size - 4.0).max(0.0);
-    let bubble_width = (bubble_w - 40.0).max(200.0);
-    let text_json = serde_json::to_string(&text)
-        .map_err(|error| format!("Failed to encode ccchan text: {error}"))?;
-    let script = format!(
-        r#"
-(() => {{
-  const text = {text_json};
-  const durationMs = {duration_ms};
-  const root = document.getElementById("root");
-  if (root) {{
-    root.dataset.ccchanBubbleShift = "1";
-    root.style.transform = "translate(10px, {shift_y}px)";
-    root.style.transition = "transform 140ms ease";
-  }}
-  let bubble = document.getElementById("ccchan-manual-bubble");
-  if (!bubble) {{
-    bubble = document.createElement("div");
-    bubble.id = "ccchan-manual-bubble";
-    bubble.style.cssText = [
-      "position:fixed",
-      "left:12px",
-      "top:8px",
-      "z-index:2147483647",
-      "width:{bubble_width}px",
-      "box-sizing:border-box",
-      "border:2px solid #38bdf8",
-      "border-radius:8px",
-      "padding:8px 11px",
-      "background:#ffffff",
-      "color:#0f172a",
-      "font:600 13px/19px system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
-      "box-shadow:0 14px 32px rgba(15,23,42,.28), 0 0 0 3px rgba(255,255,255,.72)",
-      "pointer-events:none",
-      "white-space:normal",
-      "overflow-wrap:anywhere"
-    ].join(";");
-    const tail = document.createElement("div");
-    tail.style.cssText = [
-      "position:absolute",
-      "left:54px",
-      "bottom:-9px",
-      "width:14px",
-      "height:14px",
-      "box-sizing:border-box",
-      "background:#ffffff",
-      "border-right:2px solid #38bdf8",
-      "border-bottom:2px solid #38bdf8",
-      "transform:rotate(45deg)",
-      "box-shadow:4px 4px 8px rgba(15,23,42,.08)"
-    ].join(";");
-    const body = document.createElement("span");
-    body.id = "ccchan-manual-bubble-text";
-    body.style.cssText = "position:relative;z-index:1";
-    bubble.appendChild(tail);
-    bubble.appendChild(body);
-    document.body.appendChild(bubble);
-  }}
-  const body = document.getElementById("ccchan-manual-bubble-text") || bubble;
-  body.textContent = text;
-  clearTimeout(window.__ccchanManualBubbleTimer);
-  window.__ccchanManualBubbleTimer = setTimeout(() => {{
-    bubble.remove();
-    if (root && root.dataset.ccchanBubbleShift === "1") {{
-      root.style.transform = "";
-      delete root.dataset.ccchanBubbleShift;
-    }}
-  }}, durationMs);
-}})();
-"#
-    );
-    window
-        .eval(&script)
-        .map_err(|error| format!("Failed to dispatch ccchan-say-dom: {error}"))?;
-    let shrink_window = window.clone();
-    let (collapsed_w, collapsed_h) = ccchan_service.window_size(CCChanWindowMode::Collapsed);
-    if let Err(error) = std::thread::Builder::new()
-        .name("ccchan-collapse".to_string())
-        .spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(duration_ms));
-            if let Err(error) = shrink_window.set_size(LogicalSize::new(collapsed_w, collapsed_h)) {
-                tracing::warn!(%error, "ccchan bubble collapse resize failed; keeping visible size");
-            }
-        })
-    {
-        // The bubble was already delivered. A transient thread resource limit
-        // only degrades the later collapse timer; never turn a successful
-        // notification into a panic or lose the user's message.
-        tracing::warn!(%error, "ccchan collapse timer could not be scheduled; keeping bubble size");
-    }
+        .say(app_handle, text.clone(), duration_ms)
+        .map_err(|error| format!("Failed to deliver ccchan message: {error}"))?;
     Ok(serde_json::json!({
         "success": true,
         "text": text,

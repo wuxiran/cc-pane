@@ -63,12 +63,13 @@ interface CCChanStoreState {
   saveSettings: (settings: CCChanSettings) => Promise<void>;
   /** 只更新内存（供跨窗口 settings 同步事件用），不回写后端。 */
   applySettings: (settings: Partial<CCChanSettings>) => void;
+  applyPets: (pets: PetMeta[]) => void;
   setExpanded: (expanded: boolean) => void;
   setChatSessionId: (sessionId: string | null) => void;
   setWindowVisible: (visible: boolean) => void;
   setPosition: (x: number, y: number) => void;
   setDefaultPetId: (petId: string) => void;
-  switchPet: () => void;
+  switchPet: () => Promise<void>;
 }
 
 export function normalizeCCChanSettings(
@@ -86,6 +87,8 @@ function normalizePets(pets: PetMeta[] | null | undefined): PetMeta[] {
   return pets && pets.length > 0 ? pets : [FALLBACK_PET];
 }
 
+let settingsRevision = 0;
+
 export const useCCChanStore = create<CCChanStoreState>((set, get) => ({
   settings: DEFAULT_CCCHAN_SETTINGS,
   pets: [FALLBACK_PET],
@@ -97,6 +100,7 @@ export const useCCChanStore = create<CCChanStoreState>((set, get) => ({
   load: async () => {
     if (get().loading) return;
     set({ loading: true });
+    const revision = settingsRevision;
     try {
       if (!isTauriRuntime()) {
         set({
@@ -107,11 +111,15 @@ export const useCCChanStore = create<CCChanStoreState>((set, get) => ({
         return;
       }
       const [settings, pets] = await Promise.all([
-        invokeIfTauri<CCChanSettings>("get_ccchan_settings").catch(() => DEFAULT_CCCHAN_SETTINGS),
-        invokeIfTauri<PetMeta[]>("get_ccchan_pets").catch(() => [FALLBACK_PET]),
+        invokeIfTauri<CCChanSettings>("get_ccchan_settings").catch((error) => {
+          console.warn("[ccchan] settings load failed:", error); return get().settings;
+        }),
+        invokeIfTauri<PetMeta[]>("get_ccchan_pets").catch((error) => {
+          console.warn("[ccchan] pets load failed:", error); return get().pets;
+        }),
       ]);
       set({
-        settings: normalizeSettings(settings),
+        settings: revision === settingsRevision ? normalizeSettings(settings) : get().settings,
         pets: normalizePets(pets),
         loaded: true,
       });
@@ -122,22 +130,27 @@ export const useCCChanStore = create<CCChanStoreState>((set, get) => ({
 
   saveSettings: async (settings) => {
     const normalized = normalizeSettings(settings);
+    const revision = ++settingsRevision;
     await invokeIfTauri("save_ccchan_settings", { settings: normalized });
-    set({ settings: normalized });
+    if (revision === settingsRevision) set({ settings: normalized });
   },
 
   applySettings: (settings) => {
-    set({ settings: normalizeSettings(settings) });
+    settingsRevision++;
+    set({ settings: normalizeSettings({ ...get().settings, ...settings }) });
   },
 
+  applyPets: (pets) => set({ pets: normalizePets(pets) }),
   setExpanded: (expanded) => set({ expanded }),
   setChatSessionId: (sessionId) => set({ chatSessionId: sessionId }),
   setWindowVisible: (visible) => {
+    settingsRevision++;
     set((state) => ({
       settings: { ...state.settings, windowVisible: visible },
     }));
   },
   setPosition: (x, y) => {
+    settingsRevision++;
     set((state) => ({
       settings: { ...state.settings, windowX: x, windowY: y },
     }));
@@ -147,13 +160,11 @@ export const useCCChanStore = create<CCChanStoreState>((set, get) => ({
       settings: { ...state.settings, defaultPetId: petId },
     }));
   },
-  switchPet: () => {
+  switchPet: async () => {
     const { pets, settings } = get();
     if (pets.length === 0) return;
     const currentIndex = Math.max(0, pets.findIndex((pet) => pet.id === settings.defaultPetId));
     const nextPet = pets[(currentIndex + 1) % pets.length];
-    set((state) => ({
-      settings: { ...state.settings, defaultPetId: nextPet.id },
-    }));
+    await get().saveSettings({ ...settings, defaultPetId: nextPet.id });
   },
 }));

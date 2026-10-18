@@ -105,7 +105,7 @@ describe("ChatPanel session recovery", () => {
 
     fireEvent.click(refreshButton);
 
-    expect(screen.getByText("正在刷新 Claude CLI 会话...")).toBeInTheDocument();
+    expect(screen.getAllByText("正在刷新 Claude CLI 会话...").length).toBeGreaterThan(0);
     expect(mockInvoke).toHaveBeenCalledWith("stop_ccchan_chat", { sessionId: "live-chat" });
 
     await waitFor(() => {
@@ -198,5 +198,30 @@ describe("cleanupTerminalOutput", () => {
     expect(cleanupTerminalOutput("你好！我在，可以帮你看 CC-Panes 的会话。")).toBe(
       "你好！我在，可以帮你看 CC-Panes 的会话。",
     );
+  });
+});
+
+
+describe("chat cancellation and input", () => {
+  beforeEach(() => { vi.clearAllMocks(); createWebviewListenerRegistry(); });
+  it("does not send Enter while a Chinese input composition is active", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd) => cmd === "is_ccchan_chat_session_alive" ? true : undefined as never);
+    render(<ChatPanelHarness initialSessionId="live-chat" />);
+    const input = screen.getByRole("textbox");
+    await waitFor(() => expect(input).not.toBeDisabled());
+    fireEvent.change(input, { target: { value: "正在输入" } });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true, keyCode: 229 });
+    expect(invoke).not.toHaveBeenCalledWith("send_to_ccchan", expect.anything());
+    expect(input).toHaveValue("正在输入");
+  });
+  it("stops a session that finishes starting after the panel unmounts", async () => {
+    let finish!: (id: string) => void;
+    vi.mocked(invoke).mockImplementation((cmd) => cmd === "start_ccchan_chat"
+      ? new Promise((resolve) => { finish = resolve as (id: string) => void; }) : Promise.resolve(undefined as never));
+    const { unmount } = render(<ChatPanelHarness initialSessionId={null} />);
+    await waitFor(() => expect(finish).toBeDefined());
+    unmount();
+    await act(async () => finish("late-chat"));
+    expect(invoke).toHaveBeenCalledWith("stop_ccchan_chat", { sessionId: "late-chat" });
   });
 });
