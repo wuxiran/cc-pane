@@ -45,7 +45,7 @@ impl WorktreeService {
             }
             Ok(destination.to_string_lossy().into_owned())
         });
-        if result.is_err() {
+        if let Err(fork_error) = &result {
             // This checkout was just created by us and no session has been launched.
             let cleanup = git(&root, &["worktree", "remove", "--force", "--", &target]);
             if cleanup.is_ok() {
@@ -55,8 +55,7 @@ impl WorktreeService {
             }
             if let Err(error) = cleanup {
                 return Err(format!(
-                    "{}; could not remove failed fork at {target}: {error}",
-                    result.unwrap_err()
+                    "{fork_error}; could not remove failed fork at {target}: {error}"
                 ));
             }
         }
