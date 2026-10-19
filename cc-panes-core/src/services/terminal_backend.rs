@@ -1094,6 +1094,14 @@ mod tests {
                 }
                 let request = String::from_utf8(request_bytes).expect("utf8 request");
                 tx.send(request).ok();
+                // 本服务每个响应后都关连接，必须如实声明 `Connection: close`：
+                // 否则客户端会把连接放回 keep-alive 池，下一个非 GET 请求撞上已关闭的
+                // 连接后按设计不重放，服务线程则永远卡在 accept。
+                let response = if response.to_ascii_lowercase().contains("\r\nconnection:") {
+                    response
+                } else {
+                    response.replacen("\r\n", "\r\nConnection: close\r\n", 1)
+                };
                 stream
                     .write_all(response.as_bytes())
                     .expect("write response");
