@@ -1755,7 +1755,8 @@ impl WorkspaceService {
         let normalized_source = Self::normalize_compare_path(&source_path.to_string_lossy());
         skipped_project_roots.iter().any(|project_root| {
             normalized_source == *project_root
-                || normalized_source.starts_with(&(project_root.trim_end_matches('/').to_string() + "/"))
+                || normalized_source
+                    .starts_with(&(project_root.trim_end_matches('/').to_string() + "/"))
         })
     }
 
@@ -3045,6 +3046,36 @@ mod tests {
     fn join_relative_path_skips_empty_segments() {
         let joined = WorkspaceService::join_relative_path(Path::new("root"), "a//b/");
         assert_eq!(joined, Path::new("root").join("a").join("b"));
+    }
+
+    #[test]
+    fn shell_copy_skips_project_roots_across_path_forms_and_by_component() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        let roots = vec![WorkspaceService::normalize_compare_path(r"D:\WS\App")];
+        let skip = |source: &str| {
+            service.should_skip_workspace_shell_entry(
+                Path::new("App/src"),
+                Path::new(source),
+                &roots,
+            )
+        };
+        assert!(skip(r"d:\ws\app\src"));
+        assert!(skip("/mnt/d/ws/App/src"));
+        assert!(!skip(r"D:\WS\App-other\src"));
+
+        let wsl_roots = vec![WorkspaceService::normalize_compare_path(
+            r"\\wsl.localhost\Ubuntu\home\User\ws\App",
+        )];
+        let skip_wsl = |source: &str| {
+            service.should_skip_workspace_shell_entry(
+                Path::new("App/src"),
+                Path::new(source),
+                &wsl_roots,
+            )
+        };
+        assert!(skip_wsl(r"\\wsl$\Ubuntu\home\User\ws\App\src"));
+        assert!(!skip_wsl(r"\\wsl.localhost\Ubuntu\home\user\ws\App\src"));
     }
 
     #[test]
