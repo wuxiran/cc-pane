@@ -247,15 +247,3 @@ mod imp {
 
 #[cfg(windows)]
 pub(crate) use imp::{register, unregister, update_limit};
-
-#[cfg(not(windows))]
-mod imp {
-    /// 非 Windows 无 Job Object；保留同名 API 让调用方不必自己 cfg。
-    pub(crate) fn is_supported() -> bool {
-        false
-    }
-}
-
-#[cfg(not(windows))]
-#[allow(unused_imports)]
-pub(crate) use imp::is_supported;
