@@ -1,5 +1,7 @@
 use crate::utils::AppResult;
-use std::fs::{self, File};
+use std::fs;
+#[cfg(unix)]
+use std::fs::File;
 use std::path::{Component, Path};
 
 pub(super) struct SourceFile {

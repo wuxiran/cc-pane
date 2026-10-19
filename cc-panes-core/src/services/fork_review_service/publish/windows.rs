@@ -278,8 +278,8 @@ fn rename(file: &File, parent: &File, name: &str) -> AppResult<()> {
     bytes[pointer_size..pointer_size * 2]
         .copy_from_slice(&(parent.as_raw_handle() as usize).to_ne_bytes());
     bytes[pointer_size * 2..offset].copy_from_slice(&((wide.len() * 2) as u32).to_ne_bytes());
-    for (chunk, character) in bytes[offset..].chunks_exact_mut(2).zip(wide) {
-        chunk.copy_from_slice(&character.to_ne_bytes());
+    for (chunk, character) in bytes[offset..].as_chunks_mut::<2>().0.iter_mut().zip(wide) {
+        *chunk = character.to_ne_bytes();
     }
     set_information(file, bytes, 65) // FileRenameInformationEx; no delete-then-rename fallback.
 }
