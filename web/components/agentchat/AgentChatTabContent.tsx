@@ -121,7 +121,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   }, []);
 
   const snapshot = chat?.snapshot ?? null;
-  const phase = chat?.setup?.pending ? "starting" : chat?.setup?.error ? "failed" : snapshot?.phase;
+  const phase = chat?.setup?.pending || chat?.pendingPrompt ? "starting" : chat?.setup?.error ? "failed" : snapshot?.phase;
   // 配置失败但进程仍就绪：允许修改下次启动的偏好，继续禁止发送；真实退出不开放此入口。
   const setupRecovery = Boolean(chat?.setup?.error) && snapshot?.phase === "ready";
   const availableCommands = chat?.availableCommands ?? [];
@@ -187,7 +187,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       const current = useAgentChatStore.getState().chats[tab.id];
       const cwd = current?.cwdOverride || tab.projectPath
         || residentAgentChatCwd(useWorkspacesStore.getState().workspaces);
-      if (current?.setup?.pending || current?.setup?.error
+      if (current?.setup?.pending || current?.setup?.error || current?.pendingPrompt
         || current?.snapshot?.phase !== "ready"
         || current.snapshot.acpSessionId !== expected.sessionId
         || current.snapshot.engineId !== expected.engineId || cwd !== expected.cwd
@@ -277,7 +277,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       : null;
 
   // Recovery edits preferences only; setup-pending and exited sessions stay gated.
-  const composerToolbar = snapshot && (!ended || setupRecovery) && !chat?.setup?.pending ? (
+  const composerToolbar = snapshot && (!ended || setupRecovery) && !chat?.setup?.pending && !chat?.pendingPrompt ? (
     <ChatSessionControls
       chatId={tab.id}
       snapshot={snapshot}

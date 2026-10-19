@@ -46,6 +46,7 @@ function resetStore(): void {
     bindings: [],
     total: 0,
     hasMore: false,
+    pageLimit: 50,
     loading: false,
     filterTab: "all",
     filterWorkspace: null,
@@ -124,6 +125,33 @@ describe("useOrchestratorStore", () => {
       await useOrchestratorStore.getState().loadBindings();
 
       expect(useOrchestratorStore.getState().loading).toBe(false);
+    });
+
+    it("轮询请求不会覆盖较新的筛选结果", async () => {
+      let resolveOld!: (value: TaskBindingQueryResult) => void;
+      mockTauriInvoke({
+        query_task_bindings: (_cmd: string, args?: { query?: { workspaceName?: string } }) => args?.query?.workspaceName === "A"
+          ? new Promise<TaskBindingQueryResult>((resolve) => { resolveOld = resolve; })
+          : queryResult([createTestBinding({ workspaceName: "B" })]),
+      });
+      useOrchestratorStore.getState().setFilterWorkspace("A");
+      useOrchestratorStore.getState().setFilterWorkspace("B");
+      await flush();
+      resolveOld(queryResult([createTestBinding({ workspaceName: "A" })]));
+      await flush();
+      expect(useOrchestratorStore.getState().bindings.every((item) => item.workspaceName === "B")).toBe(true);
+    });
+
+    it("加载更多保留当前窗口并去重", async () => {
+      const first = createTestBinding({ id: "first", workspaceName: "ws" });
+      const second = createTestBinding({ id: "second", workspaceName: "ws" });
+      mockTauriInvoke({
+        query_task_bindings: (_cmd: string, args?: { query?: { offset?: number } }) => args?.query?.offset ? { items: [first, second], total: 3, hasMore: false } : { items: [first], total: 3, hasMore: true },
+      });
+      await useOrchestratorStore.getState().loadBindings({ limit: 1 });
+      await useOrchestratorStore.getState().loadMoreBindings();
+      expect(useOrchestratorStore.getState().bindings.map((item) => item.id)).toEqual(["first", "second"]);
+      expect(useOrchestratorStore.getState().hasMore).toBe(false);
     });
 
     it("加载后若已选中任务不在结果中应回退到首个", async () => {

@@ -530,6 +530,7 @@
   "chatViewTitle": "Conversation",
   "chatBackToTerminal": "Back to terminal",
   "chatRefresh": "Refresh",
+  "chatHistoryChanged": "Conversation history changed. Refresh to load it again.",
   "chatLoadEarlier": "Load earlier",
   "chatNoResumeId": "No resume id yet — conversation history is unavailable until the agent session is bound.",
   "chatNotFound": "Could not find the on-disk conversation transcript.",

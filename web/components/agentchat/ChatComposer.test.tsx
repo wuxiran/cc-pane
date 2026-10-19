@@ -76,6 +76,7 @@ beforeEach(() => {
   dropHandler = null;
   vi.clearAllMocks();
   useAgentChatStore.getState().dropChat(CHAT);
+  useAgentChatStore.getState().setSnapshot(CHAT, { chatId: CHAT, engineId: "claude", phase: "ready" });
   document.elementFromPoint = (() => null) as unknown as typeof document.elementFromPoint;
 });
 
@@ -146,6 +147,7 @@ describe("ChatComposer complete prompt retry", () => {
     const user = items[items.length - 1];
     expect(user?.type === "user" && user.text).toBe("");
     expect(user?.type === "user" && user.promptBlocks).toEqual((first?.[1] as { blocks: unknown[] }).blocks);
+    act(() => useAgentChatStore.getState().setSnapshot(CHAT, { chatId: CHAT, engineId: "claude", phase: "ready" }));
     view.unmount(); renderComposer();
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "重试上一轮" })));
     const calls = vi.mocked(invoke).mock.calls.filter(([command]) => command === "prompt_acp_chat");
@@ -184,9 +186,9 @@ describe("ChatComposer failed IPC recovery", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "发送" })));
     const items = useAgentChatStore.getState().chats[CHAT].items;
     expect(items).toEqual([
-      expect.objectContaining({ type: "user", text: "run the requested checks", promptBlocks: [{ type: "text", text: "run the requested checks" }] }),
       expect.objectContaining({ type: "notice", text: "adapter connection lost" }),
     ]);
+    expect(useAgentChatStore.getState().chats[CHAT].rejectedPrompt).toMatchObject({ text: "run the requested checks", promptBlocks: [{ type: "text", text: "run the requested checks" }] });
     expect(screen.getByRole("button", { name: "重试上一轮" })).toBeEnabled();
   });
 
@@ -204,8 +206,10 @@ describe("ChatComposer failed IPC recovery", () => {
       expect.objectContaining({ type: "notice", text: "retry transport unavailable" }),
     );
     const users = useAgentChatStore.getState().chats[CHAT].items.filter((item) => item.type === "user");
-    expect(users).toHaveLength(2);
-    expect(users[1]).toMatchObject({ text: "", attachments, promptBlocks: blocks });
+    expect(users).toHaveLength(1);
+    expect(users[0]).toMatchObject({ text: "", attachments, promptBlocks: blocks });
+    expect(useAgentChatStore.getState().chats[CHAT].rejectedPrompt).toEqual({ text: "", attachments, promptBlocks: blocks });
+    act(() => useAgentChatStore.getState().setSnapshot(CHAT, { chatId: CHAT, engineId: "claude", phase: "ready" }));
     view.unmount(); renderComposer();
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "重试上一轮" })));
     const calls = vi.mocked(invoke).mock.calls.filter(([command]) => command === "prompt_acp_chat");
@@ -225,5 +229,31 @@ describe("ChatComposer failed IPC recovery", () => {
     expect(useAgentChatStore.getState().chats[CHAT].snapshot?.phase).toBe("generating");
     expect(useAgentChatStore.getState().chats[CHAT].items).toHaveLength(1);
     expect(screen.getByRole("button", { name: "停止" })).toBeEnabled();
+  });
+});
+
+describe("ChatComposer draft attachment lifetime", () => {
+  it("keeps text and file attachments across panel remounts", async () => {
+    mockInvoke(["C:\\repo\\report.pdf"]);
+    const view = renderComposer();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "summarize the report" } });
+    await act(async () => fireEvent.paste(screen.getByRole("textbox"), pasteData()));
+    expect(await screen.findByText("report.pdf")).toBeInTheDocument();
+    view.unmount(); renderComposer();
+    expect(screen.getByRole("textbox")).toHaveValue("summarize the report");
+    expect(screen.getByText("report.pdf")).toBeInTheDocument();
+  });
+
+  it("does not resurrect an attachment after explicit chat close", async () => {
+    let resolvePaths!: (paths: string[]) => void;
+    vi.mocked(invoke).mockImplementation(((command: string) => command === "read_clipboard_file_paths"
+      ? new Promise<string[]>((resolve) => { resolvePaths = resolve; }) : Promise.resolve(null)) as typeof invoke);
+    const view = renderComposer();
+    await act(async () => fireEvent.paste(screen.getByRole("textbox"), pasteData()));
+    view.unmount();
+    useAgentChatStore.getState().dropChat(CHAT);
+    await act(async () => resolvePaths(["C:\\repo\\late.pdf"]));
+    renderComposer();
+    expect(screen.queryByText("late.pdf")).toBeNull();
   });
 });

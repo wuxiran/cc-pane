@@ -13,6 +13,7 @@
     "errors": "错误"
   },
   "searchPlaceholder": "搜索任务",
+  "loadMore": "加载更多任务",
   "view": {
     "list": "列表",
     "tree": "树"

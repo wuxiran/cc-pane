@@ -9,17 +9,14 @@ import type { AcpAvailableCommand, AcpChatPhase, AcpUsage } from "@/types/agentC
 import { agentChatService } from "@/services/agentChatService";
 import { isTauriRuntime } from "@/services/runtime";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
+import { acquireChatDraft, useAgentChatDraftStore } from "@/stores/useAgentChatDraftStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { buildPromptBlocks } from "./chatPrompt";
+import { submitReservedPrompt } from "./submitReservedPrompt";
 import { useComposerAttachments } from "./useComposerAttachments";
 import ChatVoiceButton from "./ChatVoiceButton";
 import ContextUsageRing from "./ContextUsageRing";
-
-// 草稿与发送历史按 tabId 缓存在模块级：组件卸载（切标签）不丢。
-const draftCache = new Map<string, string>();
-const sentHistoryCache = new Map<string, string[]>();
-const SENT_HISTORY_LIMIT = 50;
 
 export interface ChatComposerProps {
   chatId: string;
@@ -48,7 +45,9 @@ export default function ChatComposer({
   const { t } = useTranslation("panes");
   // 最后一条用户消息（重试上一轮用；从 store 取，重挂载不丢）。
   const lastUserMessage = useAgentChatStore((state) => {
-    const chatItems = state.chats[chatId]?.items;
+    const chat = state.chats[chatId];
+    if (chat?.rejectedPrompt) return chat.rejectedPrompt;
+    const chatItems = chat?.items;
     if (!chatItems) return null;
     for (let index = chatItems.length - 1; index >= 0; index -= 1) {
       const item = chatItems[index];
@@ -64,7 +63,13 @@ export default function ChatComposer({
       | undefined;
     return caps?.promptCapabilities?.image === true;
   });
-  const [draft, setDraftState] = useState(() => draftCache.get(chatId) ?? "");
+  const submissionBlocked = useAgentChatStore((state) => {
+    const chat = state.chats[chatId];
+    return Boolean(chat?.pendingPrompt || chat?.setup?.pending || chat?.setup?.error
+      || (chat?.snapshot && chat.snapshot.phase !== "ready"));
+  });
+  const draftToken = useMemo(() => acquireChatDraft(chatId), [chatId]);
+  const draft = useAgentChatDraftStore((state) => state.drafts[chatId]?.text ?? "");
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const historyIndexRef = useRef<number | null>(null);
@@ -82,10 +87,9 @@ export default function ChatComposer({
 
   const setDraft = useCallback(
     (value: string) => {
-      draftCache.set(chatId, value);
-      setDraftState(value);
+      useAgentChatDraftStore.getState().setText(chatId, draftToken, value);
     },
-    [chatId],
+    [chatId, draftToken],
   );
 
   // `/` 开头且未含空格 → 斜杠命令菜单（点击/键盘补全，发送仍是普通文本 prompt）。
@@ -177,29 +181,20 @@ export default function ChatComposer({
     if ((!text && attachments.length === 0) || phase !== "ready") return;
 
     const blocks = buildPromptBlocks(text, attachments, cwd);
+    const token = useAgentChatStore.getState().beginPrompt(chatId, { text, attachments, promptBlocks: blocks });
+    if (token === null) return;
 
     setDraft("");
-    const sentAttachments = attachments;
     clearAttachments();
     onBeforeSend?.();
     historyIndexRef.current = null;
-    if (text) {
-      const history = sentHistoryCache.get(chatId) ?? [];
-      history.push(text);
-      if (history.length > SENT_HISTORY_LIMIT) history.shift();
-      sentHistoryCache.set(chatId, history);
-    }
-    useAgentChatStore.getState().addUserMessage(chatId, text, sentAttachments, blocks);
-    void agentChatService.prompt(chatId, blocks).catch((error) => {
-      useAgentChatStore
-        .getState()
-        .pushNotice(chatId, error instanceof Error ? error.message : String(error));
-    });
-  }, [draft, attachments, phase, chatId, cwd, setDraft, clearAttachments, onBeforeSend]);
+    if (text) useAgentChatDraftStore.getState().rememberSent(chatId, draftToken, text);
+    void submitReservedPrompt(chatId, token, blocks).catch((error) => handleErrorSilent(error, "submit acp prompt"));
+  }, [draft, attachments, phase, chatId, cwd, draftToken, setDraft, clearAttachments, onBeforeSend]);
 
   const recallHistory = useCallback(
     (direction: -1 | 1) => {
-      const history = sentHistoryCache.get(chatId) ?? [];
+      const history = useAgentChatDraftStore.getState().drafts[chatId]?.sentHistory ?? [];
       if (history.length === 0) return false;
       const current = historyIndexRef.current;
       let next: number | null;
@@ -231,16 +226,15 @@ export default function ChatComposer({
     const blocks = lastUserMessage.promptBlocks
       ?? buildPromptBlocks(lastUserMessage.text, lastUserMessage.attachments ?? [], cwd);
     if (blocks.length === 0) return;
-    onBeforeSend?.();
-    useAgentChatStore.getState().addUserMessage(chatId, lastUserMessage.text, lastUserMessage.attachments, blocks);
-    void agentChatService.prompt(chatId, blocks).catch((error) => {
-      useAgentChatStore
-        .getState()
-        .pushNotice(chatId, error instanceof Error ? error.message : String(error));
+    const token = useAgentChatStore.getState().beginPrompt(chatId, {
+      text: lastUserMessage.text, attachments: lastUserMessage.attachments, promptBlocks: blocks,
     });
+    if (token === null) return;
+    onBeforeSend?.();
+    void submitReservedPrompt(chatId, token, blocks).catch((error) => handleErrorSilent(error, "retry acp prompt"));
   }, [chatId, lastUserMessage, phase, onBeforeSend, cwd]);
 
-  const canSend = phase === "ready" && (Boolean(draft.trim()) || attachments.length > 0);
+  const canSend = phase === "ready" && !submissionBlocked && (Boolean(draft.trim()) || attachments.length > 0);
 
   return (
     <div ref={hostRef} className="agent-chat-composer px-5 pb-5 pt-3">
@@ -382,7 +376,7 @@ export default function ChatComposer({
               {lastUserMessage && !generating ? (
                 <IconTooltipButton
                   label={t("agentChatRetry")}
-                  disabled={phase !== "ready"}
+                  disabled={phase !== "ready" || submissionBlocked}
                   className="h-8 w-8 rounded-full"
                   onClick={retryLast}
                 >
@@ -393,7 +387,7 @@ export default function ChatComposer({
                 chatId={chatId}
                 variant="ghost"
                 sizeClass="h-8 w-8 rounded-full"
-                onText={(text) => setDraft(draft ? `${draft} ${text}` : text)}
+                onText={(text) => useAgentChatDraftStore.getState().appendText(chatId, draftToken, text)}
               />
               {generating ? (
                 <IconTooltipButton

@@ -1,5 +1,6 @@
 import { agentChatService } from "@/services/agentChatService";
 import i18n from "@/i18n";
+import { submitReservedPrompt } from "./submitReservedPrompt";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import type { AcpChatSnapshot } from "@/types/agentChat";
 import {
@@ -88,8 +89,9 @@ export async function startConfiguredChat(options: StartConfiguredChatOptions): 
       const lead = preamble?.trim();
       const outbound = lead ? `${lead}\n\n---\n\n${text}` : text;
       const blocks = [{ type: "text", text: outbound }];
-      store.addUserMessage(chatId, text, [], blocks);
-      await agentChatService.prompt(chatId, blocks);
+      const submission = store.beginPrompt(chatId, { text, attachments: [], promptBlocks: blocks }, token);
+      if (submission === null) throw new Error("Agent chat is busy accepting another prompt");
+      await submitReservedPrompt(chatId, submission, blocks);
     }
     store.finishSetup(chatId, token);
     return snapshot;
@@ -98,7 +100,11 @@ export async function startConfiguredChat(options: StartConfiguredChatOptions): 
       const message = error instanceof Error ? error.message : String(error);
       if (!useAgentChatStore.getState().chats[chatId]?.snapshot) {
         store.setSnapshot(chatId, { chatId, engineId, phase: "failed", error: message });
-      } else store.pushNotice(chatId, message);
+      } else {
+        const items = useAgentChatStore.getState().chats[chatId]?.items ?? [];
+        const last = items[items.length - 1];
+        if (last?.type !== "notice" || last.text !== message) store.pushNotice(chatId, message);
+      }
       store.finishSetup(chatId, token, message);
     }
     throw error;

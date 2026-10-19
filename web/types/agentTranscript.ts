@@ -5,7 +5,8 @@ export type AgentTranscriptErrorCode =
   | "unsupportedCli"
   | "parseError"
   | "ioError"
-  | "invalidSessionId";
+  | "invalidSessionId"
+  | "cursorExpired";
 
 export interface TranscriptMessage {
   id: string;
@@ -21,6 +22,7 @@ export interface ReadAgentTranscriptParams {
   cwd?: string | null;
   limit?: number | null;
   offsetFromEnd?: number | null;
+  beforeMessageId?: string | null;
 }
 
 export interface ReadAgentTranscriptResult {
@@ -28,6 +30,9 @@ export interface ReadAgentTranscriptResult {
   filePath?: string | null;
   totalEstimate?: number | null;
   truncated: boolean;
+  /** Present on cursor-aware backends; legacy truncated still describes the whole window. */
+  hasEarlier?: boolean;
+  nextBeforeMessageId?: string | null;
   errorCode?: AgentTranscriptErrorCode | null;
   errorMessage?: string | null;
 }

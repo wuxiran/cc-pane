@@ -1068,10 +1068,13 @@ pub struct AppState {
     /// leader busy 时排队的 worker report（key = leader 的 PTY session_id），
     /// leader 状态跃迁回 Idle 时由状态机 listener 补投
     pub pending_worker_reports: Arc<Mutex<PendingReportMap>>,
+    report_delivery_locks: Arc<ReportDeliveryLocks>,
+    sent_report_keys: Arc<Mutex<HashSet<String>>>,
     /// 已发射的 report 失败键，避免 leader 清理与发送失败并发时重复发事件。
     pub failed_report_events: Arc<Mutex<HashSet<(String, u32)>>>,
     /// 目标会话 busy 时排队的通用 directive（key = 目标 PTY session_id）。
     pub pending_directives: Arc<Mutex<PendingDirectiveMap>>,
+    directive_delivery_locks: Arc<DirectiveDeliveryLocks>,
     pub pipe_event_service: Arc<PipeEventService>,
     pub cursor_bridge_hub: Arc<CursorBridgeHub>,
     /// 活跃面板集：持有事件环与当前持有者，进程内生命周期。
@@ -1767,8 +1770,11 @@ pub struct OrchestratorService {
     cancel_tx: Mutex<Option<tokio::sync::watch::Sender<bool>>>,
     pending_queries: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
     pending_worker_reports: Arc<Mutex<PendingReportMap>>,
+    report_delivery_locks: Arc<ReportDeliveryLocks>,
+    sent_report_keys: Arc<Mutex<HashSet<String>>>,
     failed_report_events: Arc<Mutex<HashSet<(String, u32)>>>,
     pending_directives: Arc<Mutex<PendingDirectiveMap>>,
+    directive_delivery_locks: Arc<DirectiveDeliveryLocks>,
     ai_panels: Arc<Mutex<AiPanelRegistry>>,
     /// hook 驱动状态机：进程级单例，所有 session 共享
     session_state_machine: Arc<cc_panes_core::services::SessionStateMachine>,
@@ -1805,8 +1811,11 @@ impl OrchestratorService {
             cancel_tx: Mutex::new(None),
             pending_queries: Arc::new(Mutex::new(HashMap::new())),
             pending_worker_reports: Arc::new(Mutex::new(HashMap::new())),
+            report_delivery_locks: Arc::new(Mutex::new(HashMap::new())),
+            sent_report_keys: Arc::new(Mutex::new(HashSet::new())),
             failed_report_events: Arc::new(Mutex::new(HashSet::new())),
             pending_directives: Arc::new(Mutex::new(HashMap::new())),
+            directive_delivery_locks: Arc::new(Mutex::new(HashMap::new())),
             ai_panels: Arc::new(Mutex::new(AiPanelRegistry::default())),
             session_state_machine: Arc::new(cc_panes_core::services::SessionStateMachine::new()),
         }
@@ -2016,8 +2025,11 @@ impl OrchestratorService {
             last_request_times: Arc::new(Mutex::new(Vec::new())),
             pending_queries: self.pending_queries.clone(),
             pending_worker_reports: self.pending_worker_reports.clone(),
+            report_delivery_locks: self.report_delivery_locks.clone(),
+            sent_report_keys: self.sent_report_keys.clone(),
             failed_report_events: self.failed_report_events.clone(),
             pending_directives: self.pending_directives.clone(),
+            directive_delivery_locks: self.directive_delivery_locks.clone(),
             pipe_event_service: Arc::new(PipeEventService::new(Arc::new(
                 crate::emitter::TauriEmitter::new(app_handle.clone()),
             ))),
@@ -8674,7 +8686,7 @@ impl McpToolHandler {
             .unwrap_or_else(|e| format!("错误: 序列化失败: {}", e))
     }
 
-    /// leader 给一个或全部 worker 下发指令；worker 忙时排队补投。
+    /// leader 给一个或全部 worker 下发独立指令；worker 忙时按接收顺序排队补投。
     #[tool]
     async fn send_to_worker(
         &self,
@@ -8732,7 +8744,6 @@ impl McpToolHandler {
             );
             let directive = PendingDirective {
                 id: directive_id,
-                logical_key: leader.id.clone(),
                 leader_binding_id: leader.id.clone(),
                 worker_binding_id: target.worker_binding_id.clone(),
                 worker_session_id: session_id.clone(),
@@ -12598,12 +12609,41 @@ impl LeaderReportResult {
 
 /// Dependencies shared by initial worker reports and every redelivery path.
 /// Keep this independent of the UI so message safety can be verified with a real queue.
+// Successful report versions are idempotent while failed attempts remain retryable.
+type ReportDeliveryLocks = Mutex<HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>;
+
+fn report_delivery_lock(state: &ReportRuntime, key: &str) -> Arc<tokio::sync::Mutex<()>> {
+    let mut locks = state
+        .report_delivery_locks
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(key).and_then(std::sync::Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(tokio::sync::Mutex::new(()));
+    locks.insert(key.to_owned(), Arc::downgrade(&lock));
+    lock
+}
+
+fn report_delivery_key(worker: &TaskBinding) -> String {
+    format!(
+        "{}|{}|{}|{}",
+        worker.id,
+        worker.status,
+        worker.updated_at,
+        worker.completion_summary.as_deref().unwrap_or("")
+    )
+}
+
 #[derive(Clone)]
 struct ReportRuntime {
     terminal_backend: Arc<TerminalBackendState>,
     session_state_machine: Arc<cc_panes_core::services::SessionStateMachine>,
     task_binding_service: Arc<crate::services::TaskBindingService>,
     pending_worker_reports: Arc<Mutex<PendingReportMap>>,
+    report_delivery_locks: Arc<ReportDeliveryLocks>,
+    sent_report_keys: Arc<Mutex<HashSet<String>>>,
     failed_report_events: Arc<Mutex<HashSet<(String, u32)>>>,
     pipe_event_service: Arc<PipeEventService>,
     dsh_service: Arc<cc_panes_core::services::DshService>,
@@ -12616,6 +12656,8 @@ impl ReportRuntime {
             session_state_machine: state.session_state_machine.clone(),
             task_binding_service: state.task_binding_service.clone(),
             pending_worker_reports: state.pending_worker_reports.clone(),
+            report_delivery_locks: state.report_delivery_locks.clone(),
+            sent_report_keys: state.sent_report_keys.clone(),
             failed_report_events: state.failed_report_events.clone(),
             pipe_event_service: state.pipe_event_service.clone(),
             dsh_service: state.dsh_service.clone(),
@@ -12630,12 +12672,33 @@ const PENDING_DIRECTIVE_MAX_PER_SESSION: usize = 32;
 const PENDING_DIRECTIVE_SCAN_INTERVAL_SECS: u64 = 60;
 const DIRECTIVE_EVENT_MAX_ITEMS: usize = 100;
 
+// Weak entries cannot keep old worker sessions alive after all in-flight sends finish.
+type DirectiveDeliveryLocks = Mutex<HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>;
+
+fn directive_delivery_lock(
+    runtime: &DirectiveRuntime,
+    session_id: &str,
+) -> Arc<tokio::sync::Mutex<()>> {
+    let mut locks = runtime
+        .directive_delivery_locks
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(session_id).and_then(std::sync::Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(tokio::sync::Mutex::new(()));
+    locks.insert(session_id.to_owned(), Arc::downgrade(&lock));
+    lock
+}
+
 #[derive(Clone)]
 struct DirectiveRuntime {
     terminal_backend: Arc<TerminalBackendState>,
     session_state_machine: Arc<cc_panes_core::services::SessionStateMachine>,
     task_binding_service: Arc<crate::services::TaskBindingService>,
     pending_directives: Arc<Mutex<PendingDirectiveMap>>,
+    directive_delivery_locks: Arc<DirectiveDeliveryLocks>,
     pipe_event_service: Arc<PipeEventService>,
 }
 
@@ -12646,6 +12709,7 @@ impl DirectiveRuntime {
             session_state_machine: state.session_state_machine.clone(),
             task_binding_service: state.task_binding_service.clone(),
             pending_directives: state.pending_directives.clone(),
+            directive_delivery_locks: state.directive_delivery_locks.clone(),
             pipe_event_service: state.pipe_event_service.clone(),
         }
     }
@@ -12661,7 +12725,6 @@ struct DirectiveTarget {
 #[derive(Debug, Clone)]
 pub struct PendingDirective {
     id: String,
-    logical_key: String,
     leader_binding_id: String,
     worker_binding_id: String,
     worker_session_id: String,
@@ -12695,7 +12758,9 @@ fn pending_directive_expired(directive: &PendingDirective, now: std::time::Insta
     now.saturating_duration_since(directive.queued_at).as_secs() > PENDING_DIRECTIVE_TTL_SECS
 }
 
-/// TTL 剪枝 → 同 logical_key 保留最新 → 超上限丢最老。
+/// Independent message IDs are FIFO. A repeated internal delivery ID retains its
+/// original position, content and TTL; another call, even with equal text, is a new message.
+/// TTL pruning and the bounded oldest-first overflow policy remain unchanged.
 fn enqueue_pending_directive(
     map: &mut PendingDirectiveMap,
     target_session_id: &str,
@@ -12707,8 +12772,6 @@ fn enqueue_pending_directive(
     queue.retain(|queued| {
         let reason = if pending_directive_expired(queued, now) {
             Some("expired")
-        } else if queued.logical_key == directive.logical_key {
-            Some("superseded")
         } else {
             None
         };
@@ -12722,6 +12785,13 @@ fn enqueue_pending_directive(
             true
         }
     });
+    if let Some(existing) = queue.iter_mut().find(|queued| queued.id == directive.id) {
+        existing.attempt = existing.attempt.max(directive.attempt);
+        return DirectiveEnqueueResult {
+            queue_len: queue.len(),
+            discarded,
+        };
+    }
     queue.push(directive);
     if queue.len() > PENDING_DIRECTIVE_MAX_PER_SESSION {
         discarded.push(DiscardedDirective {
@@ -12937,6 +13007,37 @@ async fn dispatch_directive(
     directive: PendingDirective,
     source: DirectiveDeliverySource,
 ) -> DirectiveAttempt {
+    let lock = directive_delivery_lock(&runtime, &directive.worker_session_id);
+    let _guard = lock.lock().await;
+    let ready = matches!(
+        query_directive_session_status(&runtime, &directive.worker_session_id).await,
+        Ok(Some(SessionStatus::Idle))
+    );
+    let already_pending = runtime
+        .pending_directives
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(&directive.worker_session_id)
+        .is_some_and(|queue| queue.iter().any(|queued| queued.id == directive.id));
+    if already_pending {
+        // Do not flush the original and then submit the same internal ID again.
+        if ready {
+            schedule_ready_directive_flush(runtime.clone(), directive.worker_session_id.clone());
+        }
+        return DirectiveAttempt::Queued;
+    }
+    // A fresh call must not overtake messages waiting for the same worker's idle edge.
+    if ready {
+        flush_pending_directives_locked(runtime.clone(), directive.worker_session_id.clone()).await;
+    }
+    dispatch_directive_locked(runtime, directive, source).await
+}
+
+async fn dispatch_directive_locked(
+    runtime: DirectiveRuntime,
+    directive: PendingDirective,
+    source: DirectiveDeliverySource,
+) -> DirectiveAttempt {
     let mut directive = directive;
     if matches!(source, DirectiveDeliverySource::Redelivery) {
         directive.attempt = directive.attempt.saturating_add(1);
@@ -12974,8 +13075,14 @@ async fn dispatch_directive(
         }
     };
 
+    let has_older_pending = runtime
+        .pending_directives
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(&directive.worker_session_id)
+        .is_some_and(|queue| !queue.is_empty());
     match status {
-        Some(SessionStatus::Idle) => {
+        Some(SessionStatus::Idle) if !has_older_pending => {
             emit(PipeEventPhase::Flowing, "directive flowing", None);
             match deliver_directive_text(&runtime, &directive).await {
                 Ok(()) => {
@@ -13003,7 +13110,8 @@ async fn dispatch_directive(
             }
         }
         Some(
-            SessionStatus::Initializing
+            SessionStatus::Idle
+            | SessionStatus::Initializing
             | SessionStatus::Thinking
             | SessionStatus::ToolRunning
             | SessionStatus::Compacting
@@ -13101,27 +13209,18 @@ async fn dispatch_directive(
     }
 }
 
-/// 入队后双检已经确认目标空闲；直接取走并补投，避免错过已经发生的空闲边沿。
+/// The idle recheck and transition/level scans share the same serialized drain.
 async fn flush_ready_pending_directives(runtime: DirectiveRuntime, target_session_id: String) {
-    let batch = {
-        let mut map = runtime
-            .pending_directives
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        take_pending_directives(&mut map, &target_session_id, std::time::Instant::now())
-    };
-    record_discarded_directives(&runtime, batch.discarded);
-    for directive in batch.directives {
-        let _ = dispatch_directive(
-            runtime.clone(),
-            directive,
-            DirectiveDeliverySource::Redelivery,
-        )
-        .await;
-    }
+    flush_pending_directives(runtime, target_session_id).await;
 }
 
 async fn flush_pending_directives(runtime: DirectiveRuntime, target_session_id: String) {
+    let lock = directive_delivery_lock(&runtime, &target_session_id);
+    let _guard = lock.lock().await;
+    flush_pending_directives_locked(runtime, target_session_id).await;
+}
+
+async fn flush_pending_directives_locked(runtime: DirectiveRuntime, target_session_id: String) {
     let batch = {
         let mut map = runtime
             .pending_directives
@@ -13131,7 +13230,7 @@ async fn flush_pending_directives(runtime: DirectiveRuntime, target_session_id: 
     };
     record_discarded_directives(&runtime, batch.discarded);
     for directive in batch.directives {
-        let _ = dispatch_directive(
+        let _ = dispatch_directive_locked(
             runtime.clone(),
             directive,
             DirectiveDeliverySource::Redelivery,
@@ -14093,6 +14192,11 @@ async fn send_worker_report_to_dsh_leader(
                 "worker report delivered to dsh leader session"
             );
             emit(PipeEventPhase::Delivered, "worker report delivered", None);
+            state
+                .sent_report_keys
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(report_delivery_key(worker));
             LeaderReportResult::sent()
         }
         Err(e) => {
@@ -14198,6 +14302,19 @@ async fn send_worker_report_to_leader_with_attempt_and_queued_at(
             return LeaderReportResult::skipped(reason);
         }
     };
+
+    let report_key = report_delivery_key(&worker);
+    // Serialize all versions for one worker, while sent_report_keys still distinguishes versions.
+    let report_lock = report_delivery_lock(&state, &worker.id);
+    let _report_guard = report_lock.lock().await;
+    if state
+        .sent_report_keys
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .contains(&report_key)
+    {
+        return LeaderReportResult::skipped("duplicate report version already delivered");
+    }
 
     let Some(leader_session_id) = leader.session_id.clone() else {
         warn!(
@@ -14430,6 +14547,11 @@ async fn send_worker_report_to_leader_with_attempt_and_queued_at(
                     reason: None,
                 },
             );
+            state
+                .sent_report_keys
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(report_key.clone());
             LeaderReportResult::sent()
         }
         Err(e) => {
@@ -14463,6 +14585,8 @@ mod tests {
     use super::*;
 
     include!("orchestrator_message_safety_tests.rs");
+    include!("orchestrator_directive_fifo_tests.rs");
+    include!("orchestrator_report_idempotency_tests.rs");
     use crate::models::WorkspaceCliEnvironmentDefaults;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -15175,6 +15299,7 @@ mod tests {
 
     #[derive(Default)]
     struct DirectiveTestBackend {
+        after_submit_status: Mutex<Option<SessionStatus>>,
         statuses: Mutex<HashMap<String, SessionStatus>>,
         writes: Mutex<Vec<(String, String)>>,
         submits: Mutex<Vec<(String, String)>>,
@@ -15228,6 +15353,9 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .push((session_id.to_string(), text.to_string()));
+            if let Some(status) = self.after_submit_status.lock().unwrap().take() {
+                self.set_status(session_id, status);
+            }
             Ok(())
         }
 
@@ -15585,6 +15713,7 @@ mod tests {
             session_state_machine: Arc::new(cc_panes_core::services::SessionStateMachine::new()),
             task_binding_service: service,
             pending_directives: Arc::new(Mutex::new(PendingDirectiveMap::new())),
+            directive_delivery_locks: Arc::new(Mutex::new(HashMap::new())),
             pipe_event_service: Arc::new(PipeEventService::new(Arc::new(emitter))),
         };
         (runtime, events)
@@ -15601,17 +15730,16 @@ mod tests {
         leader_id: &str,
         worker_id: &str,
         session_id: &str,
-        logical_key: &str,
+        message_key: &str,
         queued_at: std::time::Instant,
     ) -> PendingDirective {
         PendingDirective {
             id: uuid::Uuid::new_v4().to_string(),
-            logical_key: logical_key.to_string(),
             leader_binding_id: leader_id.to_string(),
             worker_binding_id: worker_id.to_string(),
             worker_session_id: session_id.to_string(),
             workspace_id: "workspace-test".to_string(),
-            message: format!("message-{logical_key}"),
+            message: format!("message-{message_key}"),
             submit: true,
             attempt: 0,
             queued_at,
@@ -16205,30 +16333,41 @@ mod tests {
     }
 
     #[test]
-    fn pending_directive_queue_enforces_dedupe_ttl_and_limit() {
+    fn pending_directive_queue_enforces_message_identity_fifo_ttl_and_limit() {
         let now = std::time::Instant::now();
         let mut map = PendingDirectiveMap::new();
-        let first = test_pending_directive("leader", "worker", "session", "leader", now);
-        let second = test_pending_directive("leader", "worker", "session", "leader", now);
-        enqueue_pending_directive(&mut map, "session", first, now);
-        let deduped = enqueue_pending_directive(&mut map, "session", second.clone(), now);
-        assert_eq!(deduped.queue_len, 1);
-        assert_eq!(deduped.discarded.len(), 1);
-        assert_eq!(deduped.discarded[0].reason, "superseded");
-        assert_eq!(map["session"][0].id, second.id);
+        let first = test_pending_directive("leader", "worker", "session", "first", now);
+        let second = test_pending_directive("leader", "worker", "session", "second", now);
+        enqueue_pending_directive(&mut map, "session", first.clone(), now);
+        enqueue_pending_directive(&mut map, "session", second.clone(), now);
+        let mut duplicate = first.clone();
+        duplicate.queued_at = now + std::time::Duration::from_secs(1);
+        duplicate.attempt = 2;
+        duplicate.message = "must not replace the original".to_owned();
+        let deduped = enqueue_pending_directive(&mut map, "session", duplicate, now);
+        assert_eq!(deduped.queue_len, 2);
+        assert!(deduped.discarded.is_empty());
+        assert_eq!(map["session"][0].id, first.id);
+        assert_eq!(map["session"][0].queued_at, now);
+        assert_eq!(map["session"][0].message, first.message);
+        assert_eq!(map["session"][0].attempt, 2);
+        assert_eq!(map["session"][1].id, second.id);
 
         let later = now + std::time::Duration::from_secs(PENDING_DIRECTIVE_TTL_SECS + 1);
         let batch = take_pending_directives(&mut map, "session", later);
         assert!(batch.directives.is_empty());
-        assert_eq!(batch.discarded.len(), 1);
-        assert_eq!(batch.discarded[0].reason, "expired");
+        assert_eq!(batch.discarded.len(), 2);
+        assert!(batch
+            .discarded
+            .iter()
+            .all(|discarded| discarded.reason == "expired"));
 
         for index in 0..=PENDING_DIRECTIVE_MAX_PER_SESSION {
             let directive = test_pending_directive(
                 "leader",
                 "worker",
                 "session",
-                &format!("logical-{index}"),
+                &format!("item-{index}"),
                 now,
             );
             enqueue_pending_directive(&mut map, "session", directive, now);
@@ -16236,7 +16375,7 @@ mod tests {
         assert_eq!(map["session"].len(), PENDING_DIRECTIVE_MAX_PER_SESSION);
         assert!(map["session"]
             .iter()
-            .all(|directive| directive.logical_key != "logical-0"));
+            .all(|directive| directive.message != "message-item-0"));
     }
 
     #[test]

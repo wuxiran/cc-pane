@@ -91,4 +91,31 @@ describe("AgentChatView", () => {
     fireEvent.click(screen.getByTestId("agent-chat-back"));
     expect(onBack).toHaveBeenCalled();
   });
+
+  it("loads earlier pages with a stable cursor and does not advance after a failed append", async () => {
+    readMock
+      .mockResolvedValueOnce({
+        messages: [{ id: "L10:m10", role: "assistant", text: "latest" }],
+        truncated: true,
+        hasEarlier: true,
+        nextBeforeMessageId: "L10:m10",
+        totalEstimate: 11,
+      })
+      .mockResolvedValueOnce({
+        messages: [],
+        truncated: false,
+        errorCode: "cursorExpired",
+        errorMessage: "refresh",
+      });
+    render(
+      <AgentChatView cliTool="grok" resumeId="session" cwd="D:\\x" onBackToTerminal={vi.fn()} />,
+    );
+    await waitFor(() => expect(screen.getByTestId("agent-chat-load-earlier")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("agent-chat-load-earlier"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("chatHistoryChanged"));
+    expect(readMock).toHaveBeenLastCalledWith(expect.objectContaining({ beforeMessageId: "L10:m10" }));
+    expect(screen.queryByTestId("agent-chat-load-earlier")).not.toBeInTheDocument();
+  });
+
+
 });

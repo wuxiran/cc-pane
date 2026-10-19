@@ -44,4 +44,25 @@ describe("conversation timeline entries", () => {
     const assistant = buildChatTimeline(groupChatItems([{ type: "assistant", id: "a", at: 1, text: "Recovered answer" }]));
     expect(assistant[0]).toMatchObject({ id: "a", preview: "Recovered answer" });
   });
+
+  it("keeps attachment-only bookmarks stable when ACP replays content blocks", () => {
+    const blocks = [{ type: "image", mimeType: "image/png", data: "AA==" }];
+    const original = buildChatTimeline(groupChatItems([{
+      type: "user", id: "u", at: 1, text: "", attachmentLabels: ["shot.png"], promptBlocks: blocks,
+    }]));
+    const replay = buildChatTimeline(groupChatItems([{
+      type: "user", id: "new-u", at: 100, text: "", promptBlocks: blocks,
+    }]));
+    expect(replay[0].bookmarkKey).toBe(original[0].bookmarkKey);
+  });
+
+  it("keeps ordinary text bookmarks compatible even when prompt blocks include a preamble", () => {
+    const original = buildChatTimeline(groupChatItems([{
+      type: "user", id: "u", at: 1, text: "Review this file", promptBlocks: [{ type: "text", text: "Review this file" }],
+    }]));
+    const replay = buildChatTimeline(groupChatItems([{
+      type: "user", id: "new-u", at: 100, text: "Review this file", promptBlocks: [{ type: "text", text: "SYSTEM PREAMBLE\\n---\\nReview this file" }],
+    }]));
+    expect(replay[0].bookmarkKey).toBe(original[0].bookmarkKey);
+  });
 });

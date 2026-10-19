@@ -66,22 +66,14 @@ async function collectAppContext(): Promise<string> {
   // 4. 系统提示
   const systemHint =
     `你是 CC-Panes 的操控助手。CC-Panes 是一个多 CLI 的多实例分屏管理桌面应用。\n` +
-    `你可以使用上面列出的 /ccbook:* skill 来帮助用户管理工作空间、Todo、Plans 等。\n\n` +
-    `你拥有 ccpanes MCP 工具，按类别分组：\n` +
-    `- 编排: launch_task（启动 Claude/Codex 实例，可用 runtimeKind 指定 local/wsl/ssh，可用 layoutId/layoutName/paneId 指定落点）、list_panes（查询布局和面板）、list_projects（已注册项目）、get_task_status（任务状态）\n` +
-    `- 工作空间: list_workspaces、get_workspace、create_workspace、add_project_to_workspace、scan_directory\n` +
+    `你可以使用上面列出的 /ccbook:* skill 来管理 Todo、Plans 和多 Agent 工作流。\n\n` +
+    `你拥有 ccpanes MCP core 工具：\n` +
+    `- 编排: dispatch_task（启动并持久化任务）、list_panes、list_projects、get_task_status、list_sessions、get_session_status、get_session_output、wait_for_session、submit_to_session、kill_session\n` +
+    `- 编排关系: register_plan_leader、register_plan_worker、report_to_leader、send_to_worker、reconcile_plan_collaboration、get_plan_collaboration\n` +
     `- 待办: query_todos、create_todo、update_todo\n` +
-    `- 运行配置: create_runtime_config（创建/更新运行配置，可选创建共享 MCP）\n` +
-    `- MCP 配置: list_mcp_servers、get_mcp_server、upsert_mcp_server、remove_mcp_server（项目级 MCP）\n` +
-    `- 共享 MCP: get_shared_mcp_config、get_shared_mcp_status、upsert_shared_mcp_server、remove_shared_mcp_server、start_shared_mcp_server、stop_shared_mcp_server、restart_shared_mcp_server、import_shared_mcp_from_claude\n` +
-    `- Skill: list_skills（查看项目可用命令模板）、list_external_skills（查看全局 Skill）\n\n` +
-    `典型场景：\n` +
-    `- 用户给目录路径 → scan_directory 发现项目 → create_workspace → add_project_to_workspace → launch_task\n` +
-    `- 需要把任务分组到某个布局 → list_panes 查看现有布局；launch_task 传 layoutName 可自动创建或复用布局，再把新 pane/tab 放进去\n` +
-    `- 用 create_todo 跟踪多 Agent 工作进度，用 update_todo 更新状态\n` +
-    `- 用户要添加 MCP → 项目专用用 upsert_mcp_server，共享复用用 upsert_shared_mcp_server\n` +
-    `- 用 list_skills 查看项目可用 Skill，指导子 Agent 使用合适的命令\n\n` +
-    `当用户需要在多个项目中并行执行任务时，使用 /ccbook:launch-task 启动新的 Claude 或 Codex 实例。\n` +
+    `- 只读发现: list_workspaces、get_workspace、list_resume_sessions、list_launch_history、list_skills\n` +
+    `管理写操作（工作空间、项目、运行配置、项目 MCP、共享 MCP、文件和 runner）不在会话 MCP 中；需要时加载 /ccbook:ccpanes-admin，再使用 \"$CC_PANES_CTL\" tools --json --name <tool> 查看 schema，最后使用 \"$CC_PANES_CTL\" call <tool> --json '<args>'。\n\n` +
+    `典型场景：用户要执行任务时先用 list_projects 核对，再用 dispatch_task 持久化派发；用 get_task_status/wait_for_session 验收。管理操作按 ccpanes-admin 的 ctl schema 执行，不要臆造已移出的 MCP 工具。\n` +
     `请用中文回复。`;
 
   const contextBlock = sections.length > 0
@@ -108,21 +100,16 @@ function collectOnboardingContext(language: string): string {
       `   - 工作空间 (Workspace)：多项目集合，包含配置和会话日志\n` +
       `   - 项目 (Project)：对应一个 Git 仓库或代码目录\n` +
       `   - 任务 (Task)：项目下的具体任务，对应一个终端标签页\n\n` +
-      `2. 引导用户创建第一个工作空间：\n` +
+      `2. 引导用户接入第一个工作空间：\n` +
       `   - 询问用户常用的项目目录路径\n` +
-      `   - 使用 ccpanes MCP 工具 scan_directory 扫描该目录发现项目\n` +
-      `   - 使用 create_workspace 创建工作空间\n` +
-      `   - 使用 add_project_to_workspace 将发现的项目添加到工作空间\n\n` +
+      `   - 加载 /ccbook:ccpanes-admin，使用 \"$CC_PANES_CTL\" tools/call 按 schema 执行 scan_directory、create_workspace、add_project_to_workspace\n` +
+      `   - 调用前先用 list_workspaces/list_projects 核对现状，避免重复创建\n\n` +
       `3. 完成后告诉用户：\n` +
       `   - 可以点击左侧活动栏的树形图标切换到 Explorer 视图\n` +
       `   - 在 Explorer 中右键项目可以启动 Claude Code\n` +
       `   - 可以通过分屏功能同时管理多个 Claude Code 实例\n\n` +
-      `## 可用的 ccpanes MCP 工具\n` +
-      `- scan_directory: 扫描指定目录发现 Git 仓库和项目\n` +
-      `- create_workspace: 创建新的工作空间\n` +
-      `- add_project_to_workspace: 将项目添加到工作空间\n` +
-      `- list_workspaces: 列出所有工作空间\n` +
-      `- list_projects: 列出所有已注册的项目\n\n` +
+      `## 可用能力\n` +
+      `- MCP core 提供只读发现；管理写操作通过 /ccbook:ccpanes-admin 与 \"$CC_PANES_CTL\" tools/call。\n` +
       `## 注意\n` +
       `- 保持对话简洁友好\n` +
       `- 每次只问一个问题，等待用户回答\n` +
@@ -138,21 +125,16 @@ function collectOnboardingContext(language: string): string {
     `   - Workspace: A collection of projects with configuration and session logs\n` +
     `   - Project: Corresponds to a Git repository or code directory\n` +
     `   - Task: A specific task under a project, displayed as a terminal tab\n\n` +
-    `2. Guide the user to create their first workspace:\n` +
-    `   - Ask the user for their commonly used project directory path\n` +
-    `   - Use the ccpanes MCP tool scan_directory to scan the directory and discover projects\n` +
-    `   - Use create_workspace to create a workspace\n` +
-    `   - Use add_project_to_workspace to add discovered projects to the workspace\n\n` +
+    `2. Guide the user to connect their first workspace:\n` +
+    `   - Ask for the project directory path\n` +
+    `   - Load /ccbook:ccpanes-admin and use \"$CC_PANES_CTL\" tools/call by schema for scan_directory, create_workspace and add_project_to_workspace\n` +
+    `   - Check existing workspaces and projects before writing\n\n` +
     `3. After completion, tell the user:\n` +
     `   - They can click the tree icon on the left activity bar to switch to Explorer view\n` +
     `   - Right-click a project in Explorer to launch Claude Code\n` +
     `   - They can use split-pane to manage multiple Claude Code instances simultaneously\n\n` +
-    `## Available ccpanes MCP Tools\n` +
-    `- scan_directory: Scan a directory to discover Git repositories and projects\n` +
-    `- create_workspace: Create a new workspace\n` +
-    `- add_project_to_workspace: Add a project to a workspace\n` +
-    `- list_workspaces: List all workspaces\n` +
-    `- list_projects: List all registered projects\n\n` +
+    `## Available capabilities\n` +
+    `- MCP core provides read-only discovery; management writes use /ccbook:ccpanes-admin and \"$CC_PANES_CTL\" tools/call.\n` +
     `## Notes\n` +
     `- Keep the conversation concise and friendly\n` +
     `- Ask one question at a time and wait for the user's response\n` +
