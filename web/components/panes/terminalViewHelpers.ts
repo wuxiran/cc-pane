@@ -29,12 +29,16 @@ export interface NativeMenuBlockDecision {
  * macOS 终端区的原生菜单拦截决策。
  *
  * 背景：mac 的 WKWebView 会给 xterm 的 textarea 弹原生编辑菜单（查找/服务/拼写检查），
- * 必须 `preventDefault` 压掉。**但 contextmenu 必须继续传播**——TerminalContextMenu
- * （Radix）挂在外层，靠冒泡阶段的 `onContextMenu` 打开自定义菜单，且它自己也会
- * preventDefault，压制原生菜单这件事不会因为放行而失效。
+ * 右键的 pointerdown/mousedown/mouseup/auxclick 在捕获阶段整条掐掉。
  *
- * 早期实现连 contextmenu 一起 `stopImmediatePropagation`，事件在捕获阶段就死了，
- * 于是 macOS 上右键**既没有原生菜单也没有自定义菜单**——表现为「面板无法右键」。
+ * **contextmenu 本身一律放行，连 preventDefault 都不能做**——TerminalContextMenu
+ * （Radix）挂在外层，靠冒泡阶段的 `onContextMenu` 打开菜单，而 Radix 的
+ * `composeEventHandlers` 见到 `event.defaultPrevented` 就跳过 handleOpen。原生菜单
+ * 由 Radix 打开时自己 preventDefault 压掉，不需要我们提前做。
+ *
+ * 踩过两次：最早连 contextmenu 一起 `stopImmediatePropagation`，事件在捕获阶段就死了；
+ * 后来改成「只 preventDefault、放行传播」，Radix 照样因 defaultPrevented 不开——
+ * 两种都表现为 macOS 上终端「无法右键」。
  *
  * 非 mac 平台一律不拦截：那些 WebView 不弹这个原生菜单，Radix 自己处理就够。
  */
@@ -48,14 +52,16 @@ export function resolveNativeMenuBlock(input: {
   const { eventType, button, ctrlKey = false, isMac } = input;
   if (!isMac) return PASS;
 
-  // contextmenu / auxclick 本身就是菜单事件，不必看 button（右键 vs ctrl+左键都会来）。
-  const isMenuEvent = eventType === "contextmenu" || eventType === "auxclick";
+  // 见上：contextmenu 交给 Radix，捕获阶段不碰。
+  if (eventType === "contextmenu") return PASS;
+  // auxclick 本身就是菜单事件，不必看 button（右键 vs ctrl+左键都会来）。
+  const isMenuEvent = eventType === "auxclick";
   // mac 惯例：ctrl + 左键 等同右键。
   const isRightButton = button === 2;
   const isCtrlLeftClick = ctrlKey && button === 0;
   if (!isMenuEvent && !isRightButton && !isCtrlLeftClick) return PASS;
 
-  return { blocked: true, stopPropagation: eventType !== "contextmenu" };
+  return { blocked: true, stopPropagation: true };
 }
 
 const TERMINAL_FONT_WAIT_TIMEOUT_MS = 1_500;
