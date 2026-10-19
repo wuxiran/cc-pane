@@ -71,5 +71,6 @@ export function useChatTimelineNavigation({ entries, scrollRef, visibleCount, on
     setPendingId(entry.id);
   }, [onNavigate, onReveal]);
 
-  return { activeId: activeId ?? entries[entries.length - 1]?.id ?? null, jumpToEntry };
+  const currentId = entries.some((entry) => entry.id === activeId) ? activeId : entries[entries.length - 1]?.id ?? null;
+  return { activeId: currentId, jumpToEntry };
 }

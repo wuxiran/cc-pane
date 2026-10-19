@@ -38,3 +38,23 @@ it("reveals real paginated turns and does not jump to the bottom when a reply st
   act(() => useAgentChatStore.getState().appendStreamText("timeline-chat", "assistant", " more tokens"));
   expect(scroller.scrollTop).toBe(100);
 });
+
+it("keeps a timeline destination rendered when later notices and whole turns arrive", async () => {
+  const user = userEvent.setup();
+  const store = useAgentChatStore.getState();
+  const firstId = store.chats["timeline-chat"].items[0].id;
+  const { container } = render(<AgentChatTabContent tab={{ id: "timeline-chat", contentType: "agent-chat", projectPath: "/fixture" } as Tab} />);
+  await user.click(screen.getByRole("button", { name: "跳转到第 1 轮：Prompt 1" }));
+  await waitFor(() => expect(screen.getByTestId(`rendered-${firstId}`)).toBeInTheDocument());
+  const scroller = container.querySelector<HTMLElement>(".agent-chat-scroll")!;
+  Object.defineProperties(scroller, { scrollHeight: { configurable: true, value: 5000 }, clientHeight: { configurable: true, value: 500 } });
+  scroller.scrollTop = 100;
+  act(() => {
+    store.pushNotice("timeline-chat", "Agent continued in the background");
+    store.appendStreamText("timeline-chat", "assistant", "A separate assistant turn");
+    store.addUserMessage("timeline-chat", "Next whole prompt");
+  });
+  expect(screen.getByTestId(`rendered-${firstId}`)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /显示.*更早|上 \d+ 条消息/ })).toBeNull();
+  expect(scroller.scrollTop).toBe(100);
+});

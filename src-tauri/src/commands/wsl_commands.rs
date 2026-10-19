@@ -17,7 +17,10 @@ pub async fn discover_wsl_distros(
 
     #[cfg(target_os = "windows")]
     {
-        let existing = _ssh_service.list();
+        let service = _ssh_service.inner().clone();
+        let existing = tauri::async_runtime::spawn_blocking(move || service.list())
+            .await
+            .map_err(|error| crate::utils::AppError::from(error.to_string()))?;
         let distros = cc_panes_core::services::wsl_discovery_service::discover(&existing).await?;
         Ok(distros)
     }

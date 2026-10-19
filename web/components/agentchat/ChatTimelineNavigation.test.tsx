@@ -9,12 +9,12 @@ import ChatTimelineNavigation from "./ChatTimelineNavigation";
 import { groupChatItems } from "./chatTurns";
 
 const onNavigate = vi.fn();
-function Harness({ count = 3, conversation = "one" }: { count?: number; conversation?: string }) {
+function Harness({ count = 3, conversation = "one", revision = "" }: { count?: number; conversation?: string; revision?: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(2);
   const turns = useMemo(() => groupChatItems(Array.from({ length: count }, (_, index): AgentChatItem => ({
-    type: "user", id: `u${index}`, at: index + 1, text: `Question ${index + 1}`,
-  }))), [count]);
+    type: "user", id: `${revision}u${index}`, at: index + 1, text: `Question ${index + 1}`,
+  }))), [count, revision]);
   return <div>
     <ChatTimelineNavigation conversationKey={conversation} turns={turns} scrollRef={scrollRef}
       visibleCount={visible} onReveal={(index) => setVisible(Math.max(visible, turns.length - index))} onNavigate={onNavigate} />
@@ -67,5 +67,18 @@ describe("chat timeline navigation", () => {
     vi.spyOn(screen.getByTestId("turn-u2"), "getBoundingClientRect").mockReturnValue({ top: 300 } as DOMRect);
     fireEvent.scroll(root);
     await waitFor(() => expect(screen.getByRole("button", { name: /第 2 轮/ })).toHaveAttribute("aria-current", "step"));
+  });
+  it("keeps a keyboard entry point after replay replaces the focused marker's local id", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<Harness />);
+    act(() => screen.getByRole("button", { name: /第 1 轮/ }).focus());
+    rerender(<Harness revision="replay-" />);
+    const navigation = screen.getByRole("navigation");
+    await waitFor(() => expect(navigation.querySelectorAll("[data-timeline-entry][tabindex='0']")).toHaveLength(1));
+    await user.tab();
+    expect(navigation).toContainElement(document.activeElement as HTMLElement);
+    await user.keyboard("{Home}");
+    expect(screen.getByRole("button", { name: /第 1 轮/ })).toHaveFocus();
+    expect(await screen.findByRole("dialog", { name: "第 1 轮预览" })).toBeInTheDocument();
   });
 });
