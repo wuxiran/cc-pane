@@ -51,6 +51,7 @@ pub const TOP_PROCESSES_ARM_CPU_PERCENT: f32 = 60.0;
 /// 低于这个值停止计算（滞回，避免在阈值附近抖动）。
 pub const TOP_PROCESSES_DISARM_CPU_PERCENT: f32 = 45.0;
 /// 回传条数。
+#[cfg(any(windows, test))]
 pub const TOP_PROCESSES_LIMIT: usize = 3;
 
 /// 滞回门：返回本次是否计算。
@@ -64,6 +65,7 @@ fn top_processes_gate(armed: &mut bool, machine_cpu_percent: f32) -> bool {
 }
 
 /// 会话外候选的一次读数（平台层只负责填这个，排序在纯函数里）。
+#[cfg(any(windows, test))]
 #[derive(Debug, Clone, PartialEq)]
 struct TopProcessCandidate {
     pid: u32,
@@ -74,6 +76,7 @@ struct TopProcessCandidate {
 
 /// 按 CPU 降序（同 CPU 按工作集），只留 CPU > 0 的（武装后第一帧没基线，全 0 → 空表，
 /// UI 不显示该块，下一帧才有值）。
+#[cfg(any(windows, test))]
 fn rank_top_processes(mut candidates: Vec<TopProcessCandidate>) -> Vec<TopProcessInfo> {
     candidates.retain(|candidate| candidate.cpu_percent > 0.0);
     candidates.sort_by(|left, right| {
@@ -98,6 +101,7 @@ fn rank_top_processes(mut candidates: Vec<TopProcessCandidate>) -> Vec<TopProces
 
 /// 会话外候选 pid：排除 CC-Panes 家族（含祖先）、受管会话树（含祖先）、孤儿树、
 /// 以及 pid 0/4（Idle / System）。
+#[cfg(any(windows, test))]
 fn top_process_candidate_pids(
     index: &ProcessIndex<'_>,
     processes: &[ProcessSnapshot],
