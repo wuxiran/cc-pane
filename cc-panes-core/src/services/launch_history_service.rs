@@ -252,6 +252,30 @@ impl LaunchHistoryService {
             .clear_session_identity_by_pty_if_matches(pty_session_id, old_resume_session_id)
     }
 
+    /// 按 PTY 补写 wsl_distro（只填空值，见 repo 同名方法）。
+    pub fn fill_wsl_distro_by_pty_if_null(
+        &self,
+        pty_session_id: &str,
+        wsl_distro: &str,
+    ) -> Result<Option<i64>, String> {
+        self.repo
+            .fill_wsl_distro_by_pty_if_null(pty_session_id, wsl_distro)
+    }
+
+    /// 把一次启动记成 failed，并给预发的 resume id 写墓碑（见 repo 同名方法）。
+    pub fn mark_launch_failed_by_pty(
+        &self,
+        pty_session_id: &str,
+        failure_reason: &str,
+        issued_resume_session_id: Option<&str>,
+    ) -> Result<Option<i64>, String> {
+        self.repo.mark_launch_failed_by_pty(
+            pty_session_id,
+            failure_reason,
+            issued_resume_session_id,
+        )
+    }
+
     /// 回填会话启动信息（upsert）：有记录则更新，无记录则创建带 pty+resume 的完整记录。
     /// 用于 GUI 经 TabBar 新建等不写 launch_history 的启动路径，使 Codex 也能 reload 恢复。
     #[allow(clippy::too_many_arguments)]

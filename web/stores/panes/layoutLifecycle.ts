@@ -135,6 +135,7 @@ export function cleanRehydratedPanes(node: PaneNode) {
             hasRestorableSession: Boolean(
               leaf.sessionId || leaf.savedSessionId || leaf.restoring,
             ),
+            launchFailure: leaf.launchFailure,
           });
           if (leaf.sessionId) {
             leaf.savedSessionId = leaf.sessionId;

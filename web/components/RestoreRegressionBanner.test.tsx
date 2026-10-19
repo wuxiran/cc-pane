@@ -4,7 +4,7 @@ import RestoreRegressionBanner from "./RestoreRegressionBanner";
 import { usePanesStore } from "@/stores/usePanesStore";
 import { useRestoreReportStore } from "@/stores/useRestoreReportStore";
 import type { Tab } from "@/types";
-import { isRestoreRegression, logRestoreReport } from "@/utils/restoreReport";
+import { hasRestoreNotice, isRestoreRegression, logRestoreReport } from "@/utils/restoreReport";
 
 function setSummary(total: number, withResumeId: number) {
   const missingResumeId = total > 0 && withResumeId === 0 ? total : 0;
@@ -18,6 +18,7 @@ function setSummary(total: number, withResumeId: number) {
       fresh: total - withResumeId - missingResumeId,
       shell: 0,
       missingResumeId,
+      failed: 0,
     },
     dismissed: false,
   });
@@ -37,6 +38,7 @@ describe("isRestoreRegression", () => {
       fresh: 0,
       shell: 0,
       missingResumeId: 18,
+      failed: 0,
     })).toBe(true);
 
     // fresh leaf 没有 resumeId 是正常的。
@@ -49,6 +51,7 @@ describe("isRestoreRegression", () => {
       fresh: 17,
       shell: 0,
       missingResumeId: 0,
+      failed: 0,
     })).toBe(false);
 
     // 没有可恢复 tab 时不能报警，否则每次空启动都要弹一条
@@ -61,6 +64,7 @@ describe("isRestoreRegression", () => {
       fresh: 0,
       shell: 0,
       missingResumeId: 0,
+      failed: 0,
     })).toBe(false);
   });
 
@@ -74,6 +78,7 @@ describe("isRestoreRegression", () => {
       fresh: 0,
       shell: 3,
       missingResumeId: 0,
+      failed: 0,
     })).toBe(false);
   });
 
@@ -133,6 +138,7 @@ describe("isRestoreRegression", () => {
       fresh: 0,
       shell: 1,
       missingResumeId: 0,
+      failed: 0,
     });
   });
 });
@@ -169,12 +175,36 @@ describe("RestoreRegressionBanner", () => {
         fresh: 0,
         shell: 3,
         missingResumeId: 0,
+        failed: 0,
       },
       dismissed: false,
     });
 
     const { container } = render(<RestoreRegressionBanner />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("有上次启动失败的 leaf 时提示「本次按新会话启动」，但不算回归", () => {
+    useRestoreReportStore.setState({
+      summary: {
+        total: 3,
+        withResumeId: 2,
+        withoutResumeId: 1,
+        adopted: 0,
+        resumed: 2,
+        fresh: 0,
+        shell: 0,
+        missingResumeId: 0,
+        failed: 1,
+      },
+      dismissed: false,
+    });
+    expect(isRestoreRegression(useRestoreReportStore.getState().summary!)).toBe(false);
+    expect(hasRestoreNotice(useRestoreReportStore.getState().summary!)).toBe(true);
+    render(<RestoreRegressionBanner />);
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("1");
+    expect(alert.textContent).not.toContain("restore-report");
   });
 
   it("报告还没出来时不渲染", () => {

@@ -327,7 +327,9 @@
   "restoreRegression": {
     "title": "{{count}} restored terminal sessions lost their conversation history",
     "impact": "Those sessions started fresh instead of resuming. The resume id may not have reached the database; check [restore-report] and bind_resume_id in the app log.",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "failedTitle": "{{count}} terminal(s) failed to launch last time and started as new sessions",
+    "failedImpact": "The WSL distro had no native Linux build of the CLI (only the Windows one on PATH). The pre-issued session id was revoked, so no nonexistent conversation is resumed; see the tab for the fix command."
   },
   "newTabMenu": "New…",
   "newTerminalTab": "New Terminal",
@@ -557,6 +559,12 @@
   "resizeLayoutListHeight": "Resize layout list height",
   "codexResumeCaptureExhausted": "Codex session id capture failed: the new resume id for this run was not recorded, so the next resume may fall back to an earlier conversation.",
   "resumeLaunchFailed": "Session resume failed: the resume target may be invalid ({{cli}}). The original conversation could not be continued; relaunch or start a new session from that tab.",
+  "nativeCliMissing": "No native Linux {{cli}} in WSL distro {{distro}}; launch failed. Run inside the distro: {{fix}}",
+  "launchFailure": {
+    "nativeCliMissingTitle": "No native Linux {{cli}} in {{distro}}; the last launch failed",
+    "genericTitle": "The last launch failed ({{reason}})",
+    "retryHint": "Run the command above inside the WSL distro, then relaunch this tab."
+  },
   "defaultLayoutName": "Layout {{index}}",
   "starredLayoutName": "Starred",
   "forkChat": "Fork conversation",

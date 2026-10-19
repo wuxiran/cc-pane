@@ -59,9 +59,12 @@ export function createTerminalColdRestoreActions(
           leaf.launchError = undefined;
           leaf.restoring = true;
           leaf.launchAttempt = (leaf.launchAttempt ?? 0) + 1;
+          // launchFailure 不在这里清：它要等新 PTY 真正建成（updateTabSession）才算
+          // 过去，否则冷恢复一开始就把「上次失败」抹掉、报告又算成 resumed。
           leaf.restoreMode = resolveRestoreMode({
             cliTool: inferCliTool(leaf.cliTool ?? tab.cliTool, leaf.launchClaude, tab.launchClaude),
             resumeId: leaf.resumeId ?? tab.resumeId,
+            launchFailure: leaf.launchFailure,
           });
         } else {
           leaf.savedSessionId = previousSessionId;

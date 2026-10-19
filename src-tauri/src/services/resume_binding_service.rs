@@ -49,6 +49,155 @@ pub struct ResumeIdDetectedPayload {
     pub wsl_distro: Option<String>,
 }
 
+/// `terminal-launch-warning` 中 `kind = nativeCliMissing` 的载荷
+/// （与 terminal_service pty-wait 线程 emit 的 JSON 对应）。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchFailurePayload {
+    pub kind: String,
+    pub session_id: String,
+    #[serde(default)]
+    pub launch_id: Option<String>,
+    #[serde(default)]
+    pub cli_tool: Option<String>,
+    #[serde(default)]
+    pub missing_cli: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub issued_resume_id: Option<String>,
+    #[serde(default)]
+    pub fix_hint: Option<String>,
+    #[serde(default)]
+    pub exit_code: Option<i32>,
+    #[serde(default)]
+    pub wsl_distro: Option<String>,
+}
+
+/// `terminal-launch-warning` 里唯一需要落库的 kind：其余 kind 只是给 WebView 的提示。
+pub const LAUNCH_WARNING_KIND_NATIVE_CLI_MISSING: &str = "nativeCliMissing";
+
+/// 该告警是否需要后端落库（而不只是 toast）。daemon control link 与本地监听器共用。
+pub fn is_launch_failure_warning(payload: &serde_json::Value) -> bool {
+    payload.get("kind").and_then(|kind| kind.as_str())
+        == Some(LAUNCH_WARNING_KIND_NATIVE_CLI_MISSING)
+}
+
+// 失败事件可能被投递两次（daemon 模式：control link 直接落库一次，再 emit 给 WebView
+// 时本地 `app.listen` 又收到一次）。落库本身幂等，但 `history-updated` 不该刷两遍。
+fn launch_failure_already_applied(session_id: &str) -> bool {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+    static APPLIED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let set = APPLIED.get_or_init(|| Mutex::new(HashSet::new()));
+    let Ok(mut guard) = set.lock() else {
+        return false;
+    };
+    if guard.len() > 4096 {
+        guard.clear();
+    }
+    !guard.insert(session_id.to_string())
+}
+
+/// 把「原生 CLI 缺失」的启动记成 failed，撤回预发的 resume id，并转发前端。
+///
+/// 与 [`bind_resume_id`] 同一个重试窗：launch_history 行由前端 `add_launch_history` /
+/// orchestrator `add_with_pty_session` 创建，失败事件（WSL 下 1 s 内就退出）可能先于
+/// `bind_pty_session` 把 PTY 写进行里。墓碑写法不依赖发号事件先到（见 repo 方法注释）。
+pub async fn apply_launch_failure(
+    app_handle: AppHandle,
+    service: Arc<LaunchHistoryService>,
+    payload: LaunchFailurePayload,
+) {
+    if payload.kind != LAUNCH_WARNING_KIND_NATIVE_CLI_MISSING {
+        return;
+    }
+    if launch_failure_already_applied(&payload.session_id) {
+        debug!(
+            pty_session_id = %payload.session_id,
+            "apply_launch_failure: duplicate delivery ignored"
+        );
+        return;
+    }
+    let reason = payload
+        .reason
+        .clone()
+        .unwrap_or_else(|| "native-cli-missing".to_string());
+    let issued = payload
+        .issued_resume_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let mut record_id: Option<i64> = None;
+    for attempt in 0..BIND_MAX_ATTEMPTS {
+        match service.mark_launch_failed_by_pty(&payload.session_id, &reason, issued) {
+            Ok(Some(id)) => {
+                record_id = Some(id);
+                break;
+            }
+            Ok(None) => {
+                debug!(
+                    pty_session_id = %payload.session_id,
+                    attempt,
+                    "apply_launch_failure: launch_history row not found yet; retrying"
+                );
+            }
+            Err(error) => {
+                warn!(
+                    pty_session_id = %payload.session_id,
+                    error = %error,
+                    "apply_launch_failure: mark failed errored"
+                );
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(BIND_RETRY_DELAY_MS)).await;
+    }
+
+    if let (Some(_), Some(distro)) = (record_id, payload.wsl_distro.as_deref()) {
+        let _ = service.fill_wsl_distro_by_pty_if_null(&payload.session_id, distro);
+    }
+
+    match record_id {
+        Some(id) => info!(
+            record_id = id,
+            pty_session_id = %payload.session_id,
+            launch_id = ?payload.launch_id,
+            cli_tool = ?payload.cli_tool,
+            missing_cli = ?payload.missing_cli,
+            issued_resume_id = ?issued,
+            reason = %reason,
+            "apply_launch_failure: launch recorded as failed"
+        ),
+        None => warn!(
+            pty_session_id = %payload.session_id,
+            launch_id = ?payload.launch_id,
+            reason = %reason,
+            "apply_launch_failure: no launch_history row matched; failure not persisted"
+        ),
+    }
+
+    // 前端：清掉 tab/leaf 上的预发 resume id（bridge 认 resumeSessionId = null），
+    // 并带上失败信息供 leaf 持久化 launchFailure。
+    let _ = app_handle.emit(
+        "history-updated",
+        serde_json::json!({
+            "source": "launch-failed",
+            "recordId": record_id,
+            "ptySessionId": payload.session_id,
+            "launchId": payload.launch_id,
+            "resumeSessionId": serde_json::Value::Null,
+            "oldResumeSessionId": issued,
+            "launchStatus": "failed",
+            "failureReason": reason,
+            "missingCli": payload.missing_cli,
+            "fixHint": payload.fix_hint,
+            "wslDistro": payload.wsl_distro,
+        }),
+    );
+}
+
 // 主窗 24×500ms = 12s：issued 事件在 PTY spawn 后立刻 emit，而
 // bind_pty_session / bind_or_add_created_session 要等 create_session **返回后**
 // 才跑——WSL 冷启动实测可超过 5s，旧的 10×500ms 窗口会在 create 返回前耗尽，
@@ -169,6 +318,18 @@ pub async fn bind_resume_id(
             );
         }
         _ => {}
+    }
+
+    // 发行版回写（L2-3）：事件里的 wslDistro 是后端解析后的实际发行版；前端建行时
+    // 请求里没带 distro（默认发行版）就留了 NULL，这里只补空值。
+    if let (Some(_), Some(distro)) = (record_id, payload.wsl_distro.as_deref()) {
+        if let Err(error) = service.fill_wsl_distro_by_pty_if_null(&payload.session_id, distro) {
+            warn!(
+                pty_session_id = %payload.session_id,
+                error = %error,
+                "bind_resume_id: wsl_distro backfill failed"
+            );
+        }
     }
 
     match record_id {
@@ -380,8 +541,50 @@ fn upsert_missing_row(
 #[cfg(test)]
 mod tests {
     use super::{
-        expected_cli_for_uuid, upsert_missing_row, ResumeIdDetectedPayload, UpsertOutcome,
+        expected_cli_for_uuid, is_launch_failure_warning, upsert_missing_row, LaunchFailurePayload,
+        ResumeIdDetectedPayload, UpsertOutcome,
     };
+
+    /// 与 terminal_service pty-wait 线程 emit 的 `nativeCliMissing` JSON 对应；
+    /// 字段名对不上就会静默丢失落库（docs/45 形态）。
+    #[test]
+    fn native_cli_missing_payload_contract() {
+        let raw = serde_json::json!({
+            "kind": "nativeCliMissing",
+            "sessionId": "pty-1",
+            "launchId": "proj-1",
+            "cliTool": "claude",
+            "missingCli": "claude",
+            "runtimeKind": "wsl",
+            "wslDistro": "Ubuntu",
+            "exitCode": 1,
+            "reason": "native-cli-missing",
+            "issuedResumeId": "6a76e4f5-7d54-436a-b29e-29285aa19b8b",
+            "fixHint": "npm i -g @anthropic-ai/claude-code",
+        });
+        assert!(is_launch_failure_warning(&raw));
+        assert!(!is_launch_failure_warning(
+            &serde_json::json!({ "kind": "profileMismatch" })
+        ));
+        let payload: LaunchFailurePayload = serde_json::from_value(raw).unwrap();
+        assert_eq!(payload.session_id, "pty-1");
+        assert_eq!(payload.launch_id.as_deref(), Some("proj-1"));
+        assert_eq!(
+            payload.issued_resume_id.as_deref(),
+            Some("6a76e4f5-7d54-436a-b29e-29285aa19b8b")
+        );
+        assert_eq!(payload.exit_code, Some(1));
+        assert_eq!(
+            payload.fix_hint.as_deref(),
+            Some("npm i -g @anthropic-ai/claude-code")
+        );
+        // 旧 daemon 不带新字段也要能解析（只有 kind + sessionId 是必填）
+        let minimal: LaunchFailurePayload = serde_json::from_value(
+            serde_json::json!({ "kind": "nativeCliMissing", "sessionId": "pty-2" }),
+        )
+        .unwrap();
+        assert!(minimal.issued_resume_id.is_none());
+    }
     use cc_panes_core::repository::{Database, HistoryRepository};
     use cc_panes_core::services::{should_replace_source, LaunchHistoryService};
     use std::sync::Arc;

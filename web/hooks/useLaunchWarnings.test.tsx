@@ -5,6 +5,10 @@ import { listenWebviewIfTauri } from "@/services/runtime";
 import { useLaunchWarnings, type LaunchWarningPayload } from "./useLaunchWarnings";
 
 vi.mock("@/lib/feedback", () => ({ toastWarn: vi.fn(), toastErr: vi.fn() }));
+const markTerminalLaunchFailed = vi.hoisted(() => vi.fn());
+vi.mock("@/stores/usePanesStore", () => ({
+  usePanesStore: { getState: () => ({ markTerminalLaunchFailed }) },
+}));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => `${key}:${JSON.stringify(opts ?? {})}`,
@@ -74,6 +78,41 @@ describe("useLaunchWarnings", () => {
 
     expect(toastWarn).toHaveBeenCalledTimes(1);
     expect(vi.mocked(toastWarn).mock.calls[0][0]).toContain("codexResumeTargetMissing");
+  });
+
+  // 与后端 L2-1 契约对应：nativeCliMissing 要同时①写 leaf.launchFailure ②toastErr 带修复命令。
+  it("nativeCliMissing 写入 leaf 启动失败并给出修复命令", async () => {
+    const { toastErr } = await import("@/lib/feedback");
+    const { handler } = await mount();
+    handler({
+      payload: {
+        kind: "nativeCliMissing",
+        sessionId: "pty-7",
+        launchId: "proj-7",
+        cliTool: "claude",
+        missingCli: "claude",
+        runtimeKind: "wsl",
+        wslDistro: "Ubuntu",
+        exitCode: 1,
+        reason: "native-cli-missing",
+        issuedResumeId: "6a76e4f5-7d54-436a-b29e-29285aa19b8b",
+        fixHint: "npm i -g @anthropic-ai/claude-code",
+      },
+    });
+    expect(markTerminalLaunchFailed).toHaveBeenCalledTimes(1);
+    const [sessionId, failure] = markTerminalLaunchFailed.mock.calls[0];
+    expect(sessionId).toBe("pty-7");
+    expect(failure).toMatchObject({
+      reason: "native-cli-missing",
+      missingCli: "claude",
+      fixHint: "npm i -g @anthropic-ai/claude-code",
+      wslDistro: "Ubuntu",
+    });
+    expect(toastErr).toHaveBeenCalledTimes(1);
+    const msg = vi.mocked(toastErr).mock.calls[0][0] as string;
+    expect(msg).toContain("nativeCliMissing");
+    expect(msg).toContain("npm i -g @anthropic-ai/claude-code");
+    expect(toastWarn).not.toHaveBeenCalled();
   });
 
   it("其他 kind 不触发 toast", async () => {

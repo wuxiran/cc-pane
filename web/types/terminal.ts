@@ -132,6 +132,23 @@ export interface TerminalLaunchError {
   params?: Record<string, string>;
 }
 
+/**
+ * 后端判定的「启动失败」（进程起了但 CLI 根本没跑，如 WSL 内没有原生 Linux CLI）。
+ * **随布局快照持久化**：重启恢复据此把该 leaf 判成 `failed` 而不是 `resumed`，
+ * 不再拿预发却从未存在过的 resume id 去 `--resume`。用户重新启动成功后清除。
+ */
+export interface TerminalLaunchFailure {
+  /** 原因码，与后端 `failure_reason` 一致，如 `native-cli-missing` */
+  reason: string;
+  /** 判定时刻（epoch ms） */
+  at: number;
+  /** 缺失的 CLI 名（native-cli-missing 时有） */
+  missingCli?: string;
+  /** 一行修复命令，在 WSL 发行版内执行 */
+  fixHint?: string;
+  wslDistro?: string;
+}
+
 export type TerminalRestoreBlockedReason =
   | "claims-unsupported"
   | "reconciliation-failed"
@@ -169,13 +186,15 @@ export interface TerminalPaneLeaf {
   /** One-shot launch identity for the PTY currently created by this leaf. */
   launchId?: string;
   /** Startup restore classification used by the one-shot regression report. */
-  restoreMode?: "adopted" | "resumed" | "fresh" | "shell";
+  restoreMode?: "adopted" | "resumed" | "fresh" | "shell" | "failed";
   /** Live PTY session id owned by CC-Panes. */
   sessionId: string | null;
   /** Agent conversation resume id, e.g. Claude/Codex resume UUID. */
   resumeId?: string;
   /** resumeId 的来源：issued / osc-title / hook / backfill / rescue / manual */
   resumeIdSource?: string;
+  /** 上次启动被后端判定失败（持久化），见 TerminalLaunchFailure。 */
+  launchFailure?: TerminalLaunchFailure;
   workspaceName?: string;
   providerId?: string;
   modelId?: string;
