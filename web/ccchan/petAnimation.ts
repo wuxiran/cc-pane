@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CCChanPetState, PetMeta } from "./types";
+import { startVisibleInterval } from "@/utils/visibleInterval";
 
 const FALLBACK_ANIMATION = { row: 0, frames: 1, fps: 1 };
 
@@ -12,35 +13,27 @@ export function usePetAnimationFrame(pet: PetMeta, state: CCChanPetState): numbe
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     const motion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
-    const count = Math.max(1, animation.frames);
-    const interval = 1000 / Math.max(1, animation.fps);
-    let rafId = 0;
-    let lastFrameAt = 0;
-    let current = 0;
-    function tick(now: number) {
-      const elapsed = Math.floor((now - lastFrameAt) / interval);
-      if (elapsed > 0) {
-        lastFrameAt += elapsed * interval;
-        current = (current + elapsed) % count;
-        setFrame(current);
-      }
-      rafId = requestAnimationFrame(tick);
-    }
+    const frameCount = Math.max(1, animation.frames);
+    let stopTimer: (() => void) | undefined;
+    // 按精灵自身帧率（通常个位数 fps）跑定时器，而不是每帧 rAF：常驻 rAF 会让主线程
+    // 每帧都去推进全页动画样式，精灵 1 fps 也要付 60 Hz 的代价。隐藏时由
+    // startVisibleInterval 停表；用户开启“减少动态效果”时停在首帧。
     function restart() {
-      cancelAnimationFrame(rafId);
-      current = 0;
+      stopTimer?.();
+      stopTimer = undefined;
       setFrame(0);
-      if (count <= 1 || document.hidden || motion?.matches) return;
-      lastFrameAt = performance.now();
-      rafId = requestAnimationFrame(tick);
+      // 单帧精灵没有可推进的帧，不必起定时器。
+      if (frameCount === 1 || motion?.matches) return;
+      stopTimer = startVisibleInterval(
+        () => setFrame((current) => (current + 1) % frameCount),
+        1000 / Math.max(1, animation.fps),
+      );
     }
     restart();
-    document.addEventListener("visibilitychange", restart);
-    motion?.addEventListener("change", restart);
+    motion?.addEventListener?.("change", restart);
     return () => {
-      cancelAnimationFrame(rafId);
-      document.removeEventListener("visibilitychange", restart);
-      motion?.removeEventListener("change", restart);
+      stopTimer?.();
+      motion?.removeEventListener?.("change", restart);
     };
   }, [animation.frames, animation.fps, animation.row, animation.colOffset, pet.id, state]);
   return frame;

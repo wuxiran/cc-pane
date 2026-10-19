@@ -14,9 +14,9 @@ use tokio_tungstenite::tungstenite::{Error as WsError, Message as WsMessage};
 use tracing::{debug, warn};
 
 use super::terminal_daemon_bridge_reliability::{
-    connect_with_retry, reconnect_when_available, skip_missed_interval, BridgeMode, BridgeStats,
-    BridgeTelemetry, ConnectRetryPolicy, PollWork, PollingSchedule, POLL_INTERVAL,
-    WEBSOCKET_STATUS_INTERVAL,
+    connect_with_retry, reconnect_when_available, skip_missed_interval, websocket_status_poll_due,
+    BridgeMode, BridgeStats, BridgeTelemetry, ConnectRetryPolicy, PollWork, PollingSchedule,
+    POLL_INTERVAL, WEBSOCKET_STATUS_INTERVAL,
 };
 use super::terminal_daemon_output_cursor::{CursorDelta, OutputCursor};
 
@@ -254,6 +254,7 @@ impl TerminalDaemonEventBridge {
         S: futures_util::Stream<Item = Result<WsMessage, WsError>> + Unpin,
     {
         let mut status_interval = skip_missed_interval(WEBSOCKET_STATUS_INTERVAL);
+        let mut status_tick = 0usize;
 
         loop {
             tokio::select! {
@@ -273,6 +274,13 @@ impl TerminalDaemonEventBridge {
                     }
                 }
                 _ = status_interval.tick() => {
+                    status_tick = status_tick.wrapping_add(1);
+                    if !websocket_status_poll_due(
+                        status_tick,
+                        crate::main_window_visibility::main_window_hidden(),
+                    ) {
+                        continue;
+                    }
                     // 状态轮询判定“会话没了”只说明 sessions map 里查不到，不代表 daemon
                     // 没有排队待发的 killed 消息——kill 路径里 remove 与事件广播之间存在空窗，
                     // 直接 return 会 drop socket 并把 reason 一起丢掉（标签因此关不掉）。

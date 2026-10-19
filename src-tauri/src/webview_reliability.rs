@@ -291,6 +291,9 @@ fn rebuild_main_window(app_handle: &tauri::AppHandle) -> anyhow::Result<()> {
         .build()
         .map_err(|error| anyhow::anyhow!("rebuild main window failed: {error}"))?;
     install_process_failed_handler(&rebuilt)?;
+    if let Err(error) = crate::main_window_visibility::install(&rebuilt) {
+        log::warn!("[window-visibility] reinstall after rebuild failed: {error}");
+    }
     Ok(())
 }
 

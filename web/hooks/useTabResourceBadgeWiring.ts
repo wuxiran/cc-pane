@@ -18,6 +18,7 @@ import {
 import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
 import type { HeavyQueueChangedPayload, HeavySessionUsagePayload } from "@/types/heavyCommand";
 import type { TerminalStatusInfo } from "@/types";
+import { startVisibleInterval } from "@/utils/visibleInterval";
 
 export const HEAVY_SESSION_USAGE_EVENT = "heavy-session-usage";
 /** W8 门禁：排队位次变化；排队中的会话每次再轮询门禁（≤25 s）也重发一遍当心跳。 */
@@ -143,7 +144,7 @@ export function useTabResourceBadgeWiring(): void {
       }
     });
 
-    const sweep = setInterval(() => {
+    const stopSweep = startVisibleInterval(() => {
       useTabResourceBadgeStore.getState().sweepStale(Date.now(), RESOURCE_BADGE_TTL_MS);
     }, SWEEP_INTERVAL_MS);
 
@@ -151,7 +152,7 @@ export function useTabResourceBadgeWiring(): void {
       unlistenUsage();
       unlistenQueue();
       unsubStatus();
-      clearInterval(sweep);
+      stopSweep();
     };
   }, []);
 }

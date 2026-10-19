@@ -6,6 +6,7 @@ mod commands;
 pub mod constants;
 pub mod emitter;
 pub mod import;
+mod main_window_visibility;
 pub mod models;
 pub mod pty;
 pub mod repository;
@@ -2338,6 +2339,11 @@ pub fn run() {
             }
 
             webview_reliability::install_main_webview_process_failed_handler(app.handle())?;
+            if let Some(main_window) = app.get_webview_window("main") {
+                if let Err(error) = main_window_visibility::install(&main_window) {
+                    warn!("[window-visibility] install failed: {error}");
+                }
+            }
 
             // ---- 注册 updater 插件（需在 setup 中注册以访问 app handle）----
             #[cfg(desktop)]

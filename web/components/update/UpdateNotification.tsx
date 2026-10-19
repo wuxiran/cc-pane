@@ -34,6 +34,7 @@ import {
 } from "@/services/updaterService";
 import { isTauriRuntime } from "@/services/runtime";
 import { getErrorMessage, handleErrorSilent } from "@/utils";
+import { startVisibleInterval } from "@/utils/visibleInterval";
 
 const NOTIFICATION_COOLDOWN_MS = 24 * 60 * 60 * 1_000;
 const RELEASES_URL = "https://github.com/wuxiran/cc-pane/releases/latest";
@@ -85,8 +86,7 @@ export default function UpdateNotification() {
   const suppressedVersionRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setClock(Date.now()), 5_000);
-    return () => window.clearInterval(timer);
+    return startVisibleInterval(() => setClock(Date.now()), 5_000);
   }, []);
 
   useEffect(() => {

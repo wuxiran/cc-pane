@@ -25,8 +25,13 @@ debug = 1
 debug = 0
 
 # Keep line tables for our release binaries. Retain matching PDB/debug files with future builds.
+# lto + 单 codegen unit：跨 crate 内联，换发布构建慢几分钟。
+# 不开 strip（要留 PDB 做崩溃分析），不开 panic = "abort"（core 用 catch_unwind 隔离
+# listener / PTY 回调的 panic，abort 会让单点 panic 直接带走 app 或 daemon）。
 [profile.release]
 debug = 1
+lto = "fat"
+codegen-units = 1
 
 [profile.release.package."*"]
 debug = 0

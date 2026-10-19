@@ -6,6 +6,7 @@ import {
 } from "@/stores";
 import type { TaskBindingChangedEvent } from "@/types";
 import { listenWebviewIfTauri } from "@/services/runtime";
+import { startVisibleInterval } from "@/utils/visibleInterval";
 
 /**
  * 编排同步 Hook — 事件增量更新 TaskBinding，并保留轮询兜底。
@@ -36,11 +37,9 @@ export default function useOrchestratorSync() {
   }, [applyChangedEvent]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
+    return startVisibleInterval(() => {
       loadBindings();
     }, 10000);
-
-    return () => window.clearInterval(interval);
   }, [loadBindings]);
 
   useEffect(() => {

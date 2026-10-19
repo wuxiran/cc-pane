@@ -13,6 +13,7 @@ import { useProvidersStore } from "@/stores/useProvidersStore";
 import { useContextUsageStore } from "@/stores/useContextUsageStore";
 import type { ContextUsageSnapshot } from "@/types/contextUsage";
 import { normalizeContextPercentage, resolveContextDisplayModel } from "@/utils/contextUsageModel";
+import { startVisibleInterval } from "@/utils/visibleInterval";
 
 const STALE_AFTER_MS = 25_000;
 
@@ -66,8 +67,7 @@ export default function ContextUsageIndicator({
     ?? (storeSessionId === sessionId ? activeLastReady : null);
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 5_000);
-    return () => clearInterval(timer);
+    return startVisibleInterval(() => setNow(Date.now()), 5_000);
   }, []);
 
   const displaySnapshot = useMemo(() => {

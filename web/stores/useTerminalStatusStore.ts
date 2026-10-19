@@ -4,13 +4,15 @@ import { registerSessionScopedResource } from "@/lib/tabLifecycle/sessionScopedR
 import type { OscProgressBadge, TerminalStatusType, TerminalStatusInfo } from "@/types";
 import { killedSessions, terminalService } from "@/services/terminalService";
 import { isTauriRuntime, listenWebviewIfTauri } from "@/services/runtime";
+import { startVisibleInterval } from "@/utils/visibleInterval";
 
 const STATUS_REFRESH_INTERVAL_MS = 15000;
 
 interface TerminalStatusState {
   statusMap: Map<string, TerminalStatusInfo>;
   _unlisten: UnlistenFn | null;
-  _idleCheckInterval: ReturnType<typeof setInterval> | null;
+  /** 停止 idle 校正轮询（仅页面可见时运行）。 */
+  _idleCheckInterval: (() => void) | null;
   _initialized: boolean;
   getStatus: (sessionId: string | null) => TerminalStatusType | null;
   /** OSC 9;4 进度徽章（F5）；null = 无信号。独立于 getStatus，绝不参与状态判定。 */
@@ -133,7 +135,7 @@ export const useTerminalStatusStore = create<TerminalStatusState>((set, get) => 
     set({ _unlisten: unlistenFn });
 
     // Web runtime 没有 Tauri event bridge，用 HTTP 轮询兜底；桌面则事件 + 轮询校正。
-    const interval = setInterval(() => {
+    const stopIdleCheck = startVisibleInterval(() => {
       const now = Date.now();
       set((state) => {
         let changed = false;
@@ -148,7 +150,7 @@ export const useTerminalStatusStore = create<TerminalStatusState>((set, get) => 
       });
       void get().refreshLiveStatuses();
     }, isTauriRuntime() ? STATUS_REFRESH_INTERVAL_MS : 3000);
-    set({ _idleCheckInterval: interval });
+    set({ _idleCheckInterval: stopIdleCheck });
   },
 
   cleanup: () => {
@@ -157,7 +159,7 @@ export const useTerminalStatusStore = create<TerminalStatusState>((set, get) => 
       state._unlisten();
     }
     if (state._idleCheckInterval) {
-      clearInterval(state._idleCheckInterval);
+      state._idleCheckInterval();
     }
     set({
       _unlisten: null,
