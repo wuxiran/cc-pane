@@ -114,8 +114,6 @@ export function useLaunchWarnings(): void {
               toastErr(
                 t("nativeCliMissing", {
                   ns: "panes",
-                  defaultValue:
-                    "WSL 发行版 {{distro}} 内没有原生 Linux 版 {{cli}}，启动失败。请在该发行版内执行：{{fix}}",
                   cli: missingCli,
                   distro: payload.wslDistro ?? "",
                   fix: payload.fixHint ?? "",
