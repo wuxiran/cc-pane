@@ -31,6 +31,8 @@ impl Fixture {
         let source = temp.path().join("source");
         fs::create_dir(&source).unwrap();
         git(&source, &["init", "-q"]);
+        // 内容逐字节断言：Windows runner 默认 core.autocrlf=true 会改写检出换行。
+        git(&source, &["config", "core.autocrlf", "false"]);
         git(&source, &["config", "user.name", "Fixture"]);
         git(
             &source,

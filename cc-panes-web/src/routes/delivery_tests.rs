@@ -19,6 +19,8 @@ fn git(path: &Path, args: &[&str]) {
 fn repo(path: &Path) {
     fs::create_dir_all(path).unwrap();
     git(path, &["init", "-q"]);
+    // 内容逐字节断言：Windows runner 默认 core.autocrlf=true 会改写检出换行。
+    git(path, &["config", "core.autocrlf", "false"]);
     git(path, &["config", "user.name", "fixture"]);
     git(path, &["config", "user.email", "fixture@example.invalid"]);
     fs::write(path.join("a.txt"), "base\n").unwrap();

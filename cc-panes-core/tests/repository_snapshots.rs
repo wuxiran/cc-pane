@@ -32,6 +32,8 @@ impl Fixture {
         let root = temp.path().join("repo");
         fs::create_dir_all(root.join("sub")).unwrap();
         git(&root, &["init", "-q"]);
+        // 内容逐字节断言：Windows runner 默认 core.autocrlf=true 会改写检出换行。
+        git(&root, &["config", "core.autocrlf", "false"]);
         git(&root, &["config", "user.name", "Fixture"]);
         git(&root, &["config", "user.email", "fixture@example.invalid"]);
         git(&root, &["config", "commit.gpgsign", "false"]);

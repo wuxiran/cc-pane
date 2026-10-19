@@ -23,6 +23,8 @@ impl Fixture {
         let data = temporary.path().join("app-data");
         std::fs::create_dir(&repo).unwrap();
         git(&repo, &["init"]);
+        // 内容逐字节断言：Windows runner 默认 core.autocrlf=true 会改写检出换行。
+        git(&repo, &["config", "core.autocrlf", "false"]);
         git(&repo, &["config", "user.name", "Verification Test"]);
         git(
             &repo,
