@@ -124,6 +124,8 @@ fn root_and_navigation_entries_are_rejected_without_deleting_files() {
     );
 }
 
+// 本地 LocalFs 模拟 Linux 远端；Windows 会剥掉文件名尾随空格（"keep " 与 "keep" 同名），无法构造该场景。
+#[cfg(unix)]
 #[test]
 fn home_paths_and_whitespace_in_existing_names_keep_their_identity() {
     let remote = LocalFs::new();

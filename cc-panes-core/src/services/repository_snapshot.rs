@@ -128,7 +128,7 @@ impl RepositorySnapshotService {
         fs::create_dir_all(&repository)?;
         restrict_directory(&repository)?;
         initialization::ensure(&repository, &identity.format)?;
-        Ok(fs::canonicalize(repository)?)
+        Ok(dunce::canonicalize(repository)?)
     }
 
     fn store_root(&self) -> AppResult<PathBuf> {
@@ -149,7 +149,7 @@ impl RepositorySnapshotService {
         }
         builder.create(&root)?;
         restrict_directory(&root)?;
-        Ok(fs::canonicalize(root)?)
+        Ok(dunce::canonicalize(root)?)
     }
 
     fn check_store_location(&self, repository_root: &Path) -> AppResult<()> {
@@ -170,7 +170,7 @@ impl RepositorySnapshotService {
                 return Err("Invalid snapshot data directory".into());
             }
         }
-        let mut resolved = fs::canonicalize(ancestor)?;
+        let mut resolved = dunce::canonicalize(ancestor)?;
         for component in missing.into_iter().rev() {
             resolved.push(component);
         }
@@ -200,7 +200,7 @@ impl RepositorySnapshotService {
         {
             return Err("Invalid snapshot repository identity".into());
         }
-        let repository = fs::canonicalize(path)?;
+        let repository = dunce::canonicalize(path)?;
         if repository.parent() != Some(self.store_root()?.as_path()) {
             return Err("Snapshot repository is outside the application's object store".into());
         }
@@ -225,8 +225,8 @@ fn repository_identity(cwd: &Path) -> AppResult<RepositoryIdentity> {
     }
     git::oid(lines[3])?;
     Ok(RepositoryIdentity {
-        root: fs::canonicalize(lines[0])?,
-        common: fs::canonicalize(lines[1])?,
+        root: dunce::canonicalize(lines[0])?,
+        common: dunce::canonicalize(lines[1])?,
         format: lines[2].to_string(),
         head: lines[3].to_string(),
     })

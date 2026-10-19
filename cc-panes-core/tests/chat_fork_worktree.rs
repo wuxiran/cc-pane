@@ -18,6 +18,8 @@ fn repository(root: &Path) {
     git(root, &["init", "-q"]);
     git(root, &["config", "user.name", "Fixture"]);
     git(root, &["config", "user.email", "fixture@example.invalid"]);
+    // 逐字节断言工作区内容：Windows runner 默认 core.autocrlf=true 会让检出/apply 改写换行。
+    git(root, &["config", "core.autocrlf", "false"]);
     fs::write(root.join("sub/file.txt"), "base\n").unwrap();
     fs::write(root.join(".gitignore"), "ignored/\n").unwrap();
     git(root, &["add", "."]);

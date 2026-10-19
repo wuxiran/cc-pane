@@ -73,6 +73,26 @@ pub(super) fn write_text(path: &Path, content: &str) -> io::Result<()> {
 }
 
 fn persist(temporary: tempfile::NamedTempFile, target: &Path) -> io::Result<()> {
+    // Windows: 并发替换同一目标时 MoveFileEx 会短暂返回 ACCESS_DENIED（目标正被另一次
+    // rename 占用），有界重试；其它错误与其它平台直接返回。
+    #[cfg(windows)]
+    let temporary = {
+        let mut temporary = temporary;
+        let mut attempt = 0;
+        loop {
+            match temporary.persist(target) {
+                Ok(_) => return Ok(()),
+                Err(error)
+                    if error.error.kind() == io::ErrorKind::PermissionDenied && attempt < 20 =>
+                {
+                    attempt += 1;
+                    temporary = error.file;
+                    std::thread::sleep(std::time::Duration::from_millis(5 * attempt));
+                }
+                Err(error) => break error.file,
+            }
+        }
+    };
     temporary.persist(target).map_err(|error| {
         #[cfg(windows)]
         if let Ok(meta) = error.file.as_file().metadata() {
