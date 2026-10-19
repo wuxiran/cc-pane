@@ -4245,20 +4245,20 @@ impl TerminalService {
                             first_output = false;
                         }
                         #[cfg(windows)]
-                        let output_bytes = sanitize_windows_output(
+                        let output_bytes = &sanitize_windows_output(
                             &buf[..n],
                             &mut sanitize_state,
                             disable_sanitize,
                         );
                         #[cfg(not(windows))]
-                        let output_bytes = buf[..n].to_vec();
+                        let output_bytes = &buf[..n];
 
                         if output_bytes.is_empty() {
                             continue;
                         }
 
                         // UTF-8 安全处理
-                        let data = match utf8_safe_process(&output_bytes, &mut utf8_carry) {
+                        let data = match utf8_safe_process(output_bytes, &mut utf8_carry) {
                             Some(s) => s,
                             None => continue,
                         };
@@ -4306,9 +4306,8 @@ impl TerminalService {
                         }
 
                         // 推断状态
-                        let raw_inferred = infer_status(&data);
-                        let raw_strong_waiting = raw_inferred == SessionStatus::WaitingInput
-                            && inferred_waiting_is_strong(&data);
+                        let (raw_inferred, strong_waiting) = infer_status_with_strength(&data);
+                        let raw_strong_waiting = raw_inferred == SessionStatus::WaitingInput && strong_waiting;
                         let inferred = stabilize_codex_waiting_status(
                             cli_tool,
                             raw_inferred,
@@ -4354,9 +4353,6 @@ impl TerminalService {
                             *prev = new_status;
                         }
 
-                        read_watch.processing("normalize-output");
-                        let normalized_prompt = normalize_prompt_text(&data);
-
                         // 追加到原始 VT 回放缓冲区，并取 push 后的 pushed_seq 作为
                         // 本 chunk 的 end seq——seq 必须与 ReplayBuffer 记账同源
                         // （同一字节流同一计数），锁失败时不产 seq（None）。
@@ -4382,7 +4378,11 @@ impl TerminalService {
                         // 并发 desync**——绝不掐断 VT 序列中段（同 ws_emitter 契约）。
                         // 字节已进 ReplayBuffer，前端走 snapshot 重放补齐。
                         read_watch.processing("batch-send");
-                        match batch_tx.try_send((data.clone(), chunk_end_seq)) {
+                        // Only SSH authentication needs this additional text view.
+                        let normalized_prompt = read_ssh_auth_runtime
+                            .as_ref()
+                            .map(|_| normalize_prompt_text(&data));
+                        match batch_tx.try_send((data, chunk_end_seq)) {
                             Ok(()) => {}
                             Err(std::sync::mpsc::TrySendError::Full(_)) => {
                                 if !read_desync_warned.swap(true, Ordering::Relaxed) {
@@ -4403,7 +4403,9 @@ impl TerminalService {
                             }
                         }
 
-                        if let Some(runtime) = read_ssh_auth_runtime.as_ref() {
+                        if let (Some(runtime), Some(normalized_prompt)) =
+                            (read_ssh_auth_runtime.as_ref(), normalized_prompt)
+                        {
                             if let Ok(mut runtime) = runtime.lock() {
                                 runtime.prompt_buffer.push_str(&normalized_prompt);
                                 if runtime.prompt_buffer.len() > 512 {
@@ -6387,76 +6389,44 @@ fn apply_osc_signal(
     sm.on_event_with_channel(session_id, &event, None, &payload, EventChannel::Osc);
 }
 
-/// 从输出内容推断终端状态
-fn infer_status(output: &str) -> SessionStatus {
-    // 先剥离 ANSI 转义序列，得到纯文本
+/// Infer status and notification strength from the same ANSI-free text view.
+/// Keep this on the reader: status, replay sequence and output must stay ordered.
+fn infer_status_with_strength(output: &str) -> (SessionStatus, bool) {
     let clean = strip_ansi_escapes(output);
     let trimmed = clean.trim();
     let tail_lower = terminal_tail_lower(trimmed, 2048);
-
-    // 优先级：waitingInput > toolRunning > thinking > 通用 prompt
-    // Cursor chrome 只匹配稳定文案，不碰 spinner 单帧（会抖动）。
-    if cursor_agent_waiting_input(&tail_lower) {
-        return SessionStatus::WaitingInput;
-    }
-    if cursor_agent_tool_running(&tail_lower) {
-        return SessionStatus::ToolRunning;
-    }
-    if cursor_agent_thinking(&tail_lower) {
-        return SessionStatus::Thinking;
-    }
-
-    if let Some(last_line) = trimmed.lines().last() {
-        let line = last_line.trim();
-
-        // Claude Code 权限提示：Yes/No 确认
-        if line.ends_with("[Y/n]") || line.ends_with("[y/N]") {
-            return SessionStatus::WaitingInput;
-        }
-
-        // Claude Code 提问：以 "?" 结尾
-        if line.ends_with('?') {
-            return SessionStatus::WaitingInput;
-        }
-
-        // Claude Code ink UI 提示符（剥离 ANSI 后就是 ">"）
-        if line == ">" {
-            return SessionStatus::WaitingInput;
-        }
-
-        // 检测 shell prompt 特征（等待输入）
-        let prompt_patterns = ["$ ", "# ", "> ", "❯ ", "λ ", "PS>", ">>> ", "... "];
-        for pattern in &prompt_patterns {
-            if line.ends_with(pattern) || line.ends_with(pattern.trim()) {
-                return SessionStatus::WaitingInput;
-            }
-        }
-    }
-
-    // 默认为活跃
-    SessionStatus::Active
+    let line = trimmed.lines().last().unwrap_or_default().trim();
+    let explicit_wait = cursor_agent_waiting_input(&tail_lower);
+    let confirmation = line.ends_with("[Y/n]") || line.ends_with("[y/N]");
+    // Preserve the existing priority: explicit waiting > tool > thinking > prompt.
+    let status = if explicit_wait {
+        SessionStatus::WaitingInput
+    } else if cursor_agent_tool_running(&tail_lower) {
+        SessionStatus::ToolRunning
+    } else if cursor_agent_thinking(&tail_lower) {
+        SessionStatus::Thinking
+    } else if confirmation
+        || line.ends_with('?')
+        || ["$", "#", ">", "❯", "λ", "PS>", ">>>", "..."]
+            .iter()
+            .any(|prompt| line.ends_with(prompt))
+    {
+        SessionStatus::WaitingInput
+    } else {
+        SessionStatus::Active
+    };
+    (status, explicit_wait || confirmation)
 }
 
-/// PTY 推断的 WaitingInput 是否值得打扰（弹桌面/IM 通知）。
-///
-/// 强判据 = 显式等待文案（Workspace Trust / needs your approval / [Y/n] 确认）；
-/// 弱判据 = `?` 结尾、裸 `>`、shell 提示符——那些只用于状态徽章。TUI 的
-/// spinner/底栏每帧重绘会让弱判据反复翻边沿，通知必须只认强判据
-///（对齐 Orca：waiting 不从输出猜，例行形态一律不打扰）。
+#[cfg(test)]
+fn infer_status(output: &str) -> SessionStatus {
+    infer_status_with_strength(output).0
+}
+
+/// Only explicit approvals notify; weak shell/TUI prompts only update the badge.
+#[cfg(test)]
 fn inferred_waiting_is_strong(output: &str) -> bool {
-    let clean = strip_ansi_escapes(output);
-    let trimmed = clean.trim();
-    let tail_lower = terminal_tail_lower(trimmed, 2048);
-    if cursor_agent_waiting_input(&tail_lower) {
-        return true;
-    }
-    if let Some(last_line) = trimmed.lines().last() {
-        let line = last_line.trim();
-        if line.ends_with("[Y/n]") || line.ends_with("[y/N]") {
-            return true;
-        }
-    }
-    false
+    infer_status_with_strength(output).1
 }
 
 /// Codex 会频繁按原始 PTY chunk 局部重绘。单个弱提示或强提示帧不足以证明

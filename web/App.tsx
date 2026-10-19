@@ -1,10 +1,9 @@
 import { useEffect } from "react";
-import LayoutSwitcherWindow from "@/components/LayoutSwitcherWindow";
 import PopupTerminalWindow from "@/components/PopupTerminalWindow";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import WebAuthGate from "@/components/WebAuthGate";
 import AppShell from "@/components/layout/AppShell";
-import MobilePrototypeRoute from "@/components/layout/MobilePrototypeRoute";
+import AuxiliaryRoute from "@/components/layout/AuxiliaryRoute";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTodoReminders } from "@/hooks/useTodoReminders";
 import { useWorkspaceWatcher } from "@/hooks/useWorkspaceWatcher";
@@ -44,13 +43,13 @@ export default function App() {
     return <PopupTerminalWindow />;
   }
   if (params.get("mode") === "layout-switcher") {
-    return <LayoutSwitcherWindow />;
+    return <ErrorBoundary><AuxiliaryRoute mode="layout-switcher" /></ErrorBoundary>;
   }
   if (params.get("mode") === "mobile-prototype") {
     return (
       <ErrorBoundary>
         <WebAuthGate>
-          <MobilePrototypeRoute />
+          <AuxiliaryRoute mode="mobile-prototype" />
         </WebAuthGate>
       </ErrorBoundary>
     );

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tauri::State;
 use tracing::debug;
 
-/// 更新截图快捷键（仅 Windows 生效，macOS 截图功能暂未实现）
+/// 更新截图快捷键（Windows / macOS 原生选区）
 #[tauri::command]
 pub fn screenshot_update_shortcut(
     app: tauri::AppHandle,
@@ -18,13 +18,13 @@ pub fn screenshot_update_shortcut(
         new_shortcut
     );
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = (&app, &settings_service, &old_shortcut, &new_shortcut);
         Ok(())
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
         use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
@@ -32,14 +32,15 @@ pub fn screenshot_update_shortcut(
             .parse()
             .map_err(|e| format!("Invalid shortcut format: {}", e))?;
 
-        // 先注销旧快捷键（忽略错误，可能已不存在）
-        if !old_shortcut.is_empty() {
-            if let Ok(old_sc) = old_shortcut.parse::<tauri_plugin_global_shortcut::Shortcut>() {
-                let _ = app.global_shortcut().unregister(old_sc);
-            }
+        let old_sc = old_shortcut
+            .parse::<tauri_plugin_global_shortcut::Shortcut>()
+            .ok();
+        if old_sc == Some(new_sc) && app.global_shortcut().is_registered(new_sc) {
+            return Ok(());
         }
 
-        // 注册新快捷键
+        // Keep the working shortcut when a new binding conflicts.
+        // Only retire the old binding after the new registration succeeds.
         let app_handle = app.clone();
         let settings_service = settings_service.inner().clone();
         app.global_shortcut()
@@ -50,8 +51,29 @@ pub fn screenshot_update_shortcut(
             })
             .map_err(|e| format!("Shortcut conflict: {}", e))?;
 
-        Ok(())
+        retire_previous_shortcut(&app, old_sc, new_sc)
     }
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn retire_previous_shortcut(
+    app: &tauri::AppHandle,
+    old: Option<tauri_plugin_global_shortcut::Shortcut>,
+    new: tauri_plugin_global_shortcut::Shortcut,
+) -> AppResult<()> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    if let Some(old) = old.filter(|old| *old != new) {
+        if app.global_shortcut().is_registered(old) {
+            if let Err(error) = app.global_shortcut().unregister(old) {
+                let rollback = app.global_shortcut().unregister(new);
+                return Err(format!(
+                    "Failed to remove previous screenshot shortcut: {error}; rollback: {rollback:?}"
+                )
+                .into());
+            }
+        }
+    }
+    Ok(())
 }
 
 /// 从应用内（命令面板/菜单）触发截图：与全局热键同一条 trigger_screenshot 路径。

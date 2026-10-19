@@ -1109,6 +1109,56 @@ mod tests {
         )
     }
 
+    #[test]
+    fn daemon_shutdown_releases_only_locally_owned_claims_without_listing_or_killing() {
+        let (addr, requests) = spawn_response_sequence(vec![
+            http_json_response("200 OK", "{}"),
+            http_json_response("200 OK", "{}"),
+        ]);
+        let backend = backend_for(addr);
+        backend.remember_owned("web-first");
+        backend.remember_owned("web-second");
+
+        backend.release_owned_sessions().expect("release claims");
+        assert!(backend.owned_sessions.lock().unwrap().is_empty());
+        // A repeated shutdown must not issue requests for released or foreign sessions.
+        backend
+            .release_owned_sessions()
+            .expect("idempotent release");
+        let mut request_lines = requests
+            .iter()
+            .map(|request| request.lines().next().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        request_lines.sort();
+        assert_eq!(
+            request_lines,
+            [
+                "DELETE /api/sessions/web-first/claim HTTP/1.1",
+                "DELETE /api/sessions/web-second/claim HTTP/1.1",
+            ]
+        );
+    }
+
+    #[test]
+    fn daemon_shutdown_release_failure_still_releases_remaining_claims_and_stops_renewal() {
+        let (addr, requests) = spawn_response_sequence(vec![
+            http_json_response("500 Internal Server Error", "{}"),
+            http_json_response("200 OK", "{}"),
+        ]);
+        let backend = backend_for(addr);
+        backend.remember_owned("web-first");
+        backend.remember_owned("web-second");
+
+        assert!(backend.release_owned_sessions().is_err());
+        assert!(backend.owned_sessions.lock().unwrap().is_empty());
+        let requests = requests.iter().collect::<Vec<_>>();
+        assert_eq!(requests.len(), 2);
+        assert!(requests.iter().all(|request| {
+            request.starts_with("DELETE /api/sessions/web-")
+                && request.lines().next().unwrap().ends_with("/claim HTTP/1.1")
+        }));
+    }
+
     fn in_process_backend_for_test() -> (
         InProcessTerminalBackend,
         Arc<TerminalService>,

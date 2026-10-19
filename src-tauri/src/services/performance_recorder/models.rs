@@ -62,9 +62,14 @@ pub struct TerminalMetric {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FrontendSnapshot {
+    #[serde(default)]
+    pub timing_version: Option<u8>,
     pub heap_used_bytes: Option<u64>,
     pub heap_total_bytes: Option<u64>,
     pub timer_lag_ms: f64,
+    /// Unobserved intervals (sleep, suspension or a long hang), not UI timer lag.
+    #[serde(default)]
+    pub sampling_gap_ms: f64,
     pub long_task_count: u32,
     pub long_task_supported: bool,
     pub playing_videos: u32,
@@ -92,7 +97,9 @@ pub(super) fn valid_session_id(value: &str) -> bool {
 impl FrontendSnapshot {
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.terminals.len() > 32
+            || self.timing_version.is_some_and(|version| version != 2)
             || !valid_duration(self.timer_lag_ms)
+            || !valid_duration(self.sampling_gap_ms)
             || !valid_duration(self.long_task_max_ms)
         {
             return Err("invalid performance snapshot limits");
@@ -152,6 +159,22 @@ pub struct RecorderStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn sampling_gaps_are_bounded_and_old_snapshots_remain_readable() {
+        let mut sample = FrontendSnapshot::default();
+        sample.sampling_gap_ms = 60_000.0;
+        assert!(sample.validate().is_ok());
+        sample.sampling_gap_ms = f64::INFINITY;
+        assert!(sample.validate().is_err());
+        let mut old = serde_json::to_value(FrontendSnapshot::default()).unwrap();
+        old.as_object_mut().unwrap().remove("samplingGapMs");
+        assert_eq!(
+            serde_json::from_value::<FrontendSnapshot>(old)
+                .unwrap()
+                .sampling_gap_ms,
+            0.0
+        );
+    }
     #[test]
     fn rejects_unbounded_or_content_bearing_input() {
         let mut sample = FrontendSnapshot {

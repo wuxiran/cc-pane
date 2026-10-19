@@ -1,13 +1,10 @@
 use super::error::AppError;
-#[cfg(test)]
-use std::cell::Cell;
-use std::io::{self, Read};
-use std::process::{Command, Output, Stdio};
-use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
-    Arc,
-};
+use std::io;
+use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
+
+mod pipe;
+use pipe::{CapturedPipe, Pipe};
 
 /// 本地 Git 命令超时（30 秒）
 pub const GIT_LOCAL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -138,8 +135,8 @@ pub fn output_with_timeout(cmd: &mut Command, timeout: Duration) -> io::Result<O
 
 /// 带超时和硬输出上限执行命令。
 ///
-/// stdout/stderr 必须在子进程运行期间并发排空，否则任一 pipe 写满后子进程会阻塞，
-/// `try_wait` 会把正常的大输出命令误判为超时。
+/// Fairly drain stdout/stderr without blocking. The deadline includes pipe EOF:
+/// a helper that inherits either pipe must not leave reader threads stuck forever.
 pub fn output_with_timeout_limit(
     cmd: &mut Command,
     timeout: Duration,
@@ -161,132 +158,81 @@ pub fn output_with_timeout_limit(
         .stderr(Stdio::piped())
         .spawn()?;
 
+    let result = capture_output(&mut child, timeout, max_output_bytes);
+    if result.is_err() {
+        // capture_output has already closed both read ends. Only reap our child;
+        // an inherited pipe is not permission to kill unrelated daemon processes.
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    result
+}
+
+fn capture_output(
+    child: &mut Child,
+    timeout: Duration,
+    max_output_bytes: usize,
+) -> io::Result<Output> {
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| io::Error::other("failed to capture command stdout"))?;
+        .ok_or_else(|| io::Error::other("missing stdout"))?;
     let stderr = child
         .stderr
         .take()
-        .ok_or_else(|| io::Error::other("failed to capture command stderr"))?;
-    let total_bytes = Arc::new(AtomicUsize::new(0));
-    let exceeded = Arc::new(AtomicBool::new(false));
-    let stdout_thread = match spawn_limited_reader(
-        stdout,
-        total_bytes.clone(),
-        exceeded.clone(),
-        max_output_bytes,
-    ) {
-        Ok(handle) => handle,
-        Err(error) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(error);
-        }
-    };
-    let stderr_thread =
-        match spawn_limited_reader(stderr, total_bytes, exceeded.clone(), max_output_bytes) {
-            Ok(handle) => handle,
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = join_reader(stdout_thread);
-                return Err(error);
-            }
-        };
-
+        .ok_or_else(|| io::Error::other("missing stderr"))?;
+    let mut stdout = CapturedPipe::new(stdout)?;
+    let mut stderr = CapturedPipe::new(stderr)?;
     let start = Instant::now();
-    let wait_result = loop {
-        if exceeded.load(Ordering::Acquire) {
-            let _ = child.kill();
-            break Err(io::Error::new(
-                io::ErrorKind::FileTooLarge,
-                format!("Command output limit exceeded ({max_output_bytes} bytes)"),
+    let mut status = None;
+    let mut idle_delay = Duration::from_millis(1);
+    loop {
+        // At most one chunk per stream before checking the child and deadline.
+        // A continuously writing stdout cannot starve stderr or timeout handling.
+        let progress = drain_pipes(&mut stdout, &mut stderr, max_output_bytes)?;
+        if status.is_none() {
+            status = child.try_wait()?;
+        }
+        if stdout.eof && stderr.eof {
+            if let Some(status) = status {
+                return Ok(Output {
+                    status,
+                    stdout: stdout.output,
+                    stderr: stderr.output,
+                });
+            }
+        }
+        let remaining = timeout.saturating_sub(start.elapsed());
+        if remaining.is_zero() {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("Command timed out (waited {} seconds)", timeout.as_secs()),
             ));
         }
-        match child.try_wait() {
-            Ok(Some(status)) => break Ok(status),
-            Ok(None) if start.elapsed() > timeout => {
-                let _ = child.kill();
-                break Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    format!("Command timed out (waited {} seconds)", timeout.as_secs()),
-                ));
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
-            Err(error) => {
-                let _ = child.kill();
-                break Err(error);
-            }
+        if progress {
+            idle_delay = Duration::from_millis(1);
+        } else {
+            // Long network commands stay cheap while idle; data on either pipe
+            // immediately restores the short wait for the next output burst.
+            pipe::wait_for_data(&stdout, &stderr, remaining.min(idle_delay))?;
+            idle_delay = (idle_delay * 2).min(Duration::from_millis(20));
         }
-    };
-
-    if wait_result.is_err() {
-        let _ = child.wait();
     }
-    let stdout_result = join_reader(stdout_thread);
-    let stderr_result = join_reader(stderr_thread);
-    let stdout = stdout_result?;
-    let stderr = stderr_result?;
-    if exceeded.load(Ordering::Acquire) {
-        return Err(io::Error::new(
-            io::ErrorKind::FileTooLarge,
-            format!("Command output limit exceeded ({max_output_bytes} bytes)"),
-        ));
-    }
-
-    wait_result.map(|status| Output {
-        status,
-        stdout,
-        stderr,
-    })
 }
 
-fn spawn_limited_reader<R>(
-    mut reader: R,
-    total_bytes: Arc<AtomicUsize>,
-    exceeded: Arc<AtomicBool>,
+fn drain_pipes(
+    stdout: &mut CapturedPipe<impl Pipe>,
+    stderr: &mut CapturedPipe<impl Pipe>,
     max_output_bytes: usize,
-) -> io::Result<std::thread::JoinHandle<io::Result<Vec<u8>>>>
-where
-    R: Read + Send + 'static,
-{
-    #[cfg(test)]
-    if TEST_FORCE_READER_THREAD_FAILURE.with(|flag| flag.replace(false)) {
-        return Err(io::Error::other("injected reader thread creation failure"));
-    }
-
-    std::thread::Builder::new()
-        .name("ccpanes-git-output-reader".to_string())
-        .spawn(move || {
-            let mut output = Vec::new();
-            let mut chunk = [0u8; 8192];
-            loop {
-                let read = reader.read(&mut chunk)?;
-                if read == 0 {
-                    break;
-                }
-                let previous = total_bytes.fetch_add(read, Ordering::AcqRel);
-                let remaining = max_output_bytes.saturating_sub(previous);
-                output.extend_from_slice(&chunk[..read.min(remaining)]);
-                if read > remaining {
-                    exceeded.store(true, Ordering::Release);
-                }
-            }
-            Ok(output)
-        })
+) -> io::Result<bool> {
+    let remaining = max_output_bytes - stdout.output.len() - stderr.output.len();
+    let progress = stdout.poll(remaining)?;
+    let remaining = max_output_bytes - stdout.output.len() - stderr.output.len();
+    Ok(stderr.poll(remaining)? || progress)
 }
 
 #[cfg(test)]
-thread_local! {
-    static TEST_FORCE_READER_THREAD_FAILURE: Cell<bool> = const { Cell::new(false) };
-}
-
-fn join_reader(handle: std::thread::JoinHandle<io::Result<Vec<u8>>>) -> io::Result<Vec<u8>> {
-    handle
-        .join()
-        .map_err(|_| io::Error::other("command output reader thread panicked"))?
-}
+mod capture_tests;
 
 #[cfg(test)]
 mod tests {
@@ -449,19 +395,6 @@ mod tests {
         let error = result.expect_err("output above the hard limit must fail");
         assert_eq!(error.kind(), io::ErrorKind::FileTooLarge);
         assert!(error.to_string().contains("output limit"));
-    }
-
-    #[test]
-    fn output_with_timeout_propagates_reader_thread_creation_failure() {
-        TEST_FORCE_READER_THREAD_FAILURE.with(|flag| flag.set(true));
-
-        let error =
-            output_with_timeout(Command::new("git").arg("--version"), Duration::from_secs(5))
-                .expect_err("reader thread creation failure must be returned");
-
-        assert!(error
-            .to_string()
-            .contains("injected reader thread creation failure"));
     }
 
     #[cfg(not(windows))]

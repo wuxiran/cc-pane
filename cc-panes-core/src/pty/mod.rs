@@ -12,6 +12,8 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 mod job;
 pub mod job_events;
 mod read_watch;
+#[cfg(unix)]
+mod unix_priority;
 pub use job_events::{JobMemoryCallback, JobMemoryNotification};
 pub mod thread;
 pub use read_watch::ReaderIoWatch;
@@ -115,6 +117,8 @@ struct PortablePtyProcess {
     exited: AtomicBool,
     /// 创建时存储 PID，kill() 通过 OS API 按 PID 终止，绕过 child 锁死锁
     pid: u32,
+    #[cfg(unix)]
+    inherited_nice: Option<i32>,
     /// Windows：KILL_ON_JOB_CLOSE Job Object。宿主进程异常终止时由 OS 回收
     /// 句柄并击杀整棵子进程树（taskkill 只覆盖显式 kill 路径）。
     /// 同时承载会话级资源策略（优先级 / CPU 权重），见 `set_resource_policy`。
@@ -202,16 +206,7 @@ impl PtyProcess for PortablePtyProcess {
         }
         #[cfg(unix)]
         {
-            match policy.nice_increment() {
-                Some(increment) => {
-                    apply_unix_nice_increment(self.pid, increment);
-                    Ok(PolicyOutcome::Applied)
-                }
-                // 提高优先级需要 CAP_SYS_NICE，普通用户降了就回不去。
-                None => Ok(PolicyOutcome::degraded(
-                    "raising priority back requires CAP_SYS_NICE",
-                )),
-            }
+            Ok(unix_priority::apply(self.pid, self.inherited_nice, policy))
         }
         #[cfg(not(any(windows, unix)))]
         {
@@ -338,20 +333,10 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
         (None, Some(PolicyOutcome::Unsupported))
     };
 
-    // Unix：优先级用 nice 表达（Windows 侧走 Job 的 PRIORITY_CLASS）。
     #[cfg(unix)]
-    let policy_outcome = if pid != 0 {
-        if let Some(increment) = policy.nice_increment() {
-            apply_unix_nice_increment(pid, increment);
-        }
-        Some(if policy.eco_qos {
-            PolicyOutcome::degraded("eco qos is Windows-only")
-        } else {
-            PolicyOutcome::Applied
-        })
-    } else {
-        Some(PolicyOutcome::Unsupported)
-    };
+    let inherited_nice = unix_priority::read(pid).ok();
+    #[cfg(unix)]
+    let policy_outcome = Some(unix_priority::apply(pid, inherited_nice, &policy));
     #[cfg(not(any(windows, unix)))]
     let policy_outcome = Some(PolicyOutcome::Unsupported);
 
@@ -361,6 +346,8 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
             master: Mutex::new(Some(pair.master)),
             exited: AtomicBool::new(false),
             pid,
+            #[cfg(unix)]
+            inherited_nice,
             #[cfg(windows)]
             job,
             #[cfg(windows)]
@@ -370,43 +357,6 @@ pub fn spawn_pty(config: PtyConfig) -> Result<PtySpawnResult> {
         writer,
         policy_outcome,
     })
-}
-
-/// Unix：基于进程继承到的当前 nice 值，按增量调低调度优先级。
-///
-/// 失败只 warn——查询或设置在容器/受限环境下可能被拒，但那不该阻断会话。
-#[cfg(unix)]
-fn apply_unix_nice_increment(pid: u32, increment: i8) {
-    errno::set_errno(errno::Errno(0));
-    // SAFETY: getpriority 只读取指定 PID 的调度属性，不解引用用户态指针。
-    let current = unsafe { libc::getpriority(libc::PRIO_PROCESS, pid) };
-    let get_error = errno::errno();
-    if current == -1 && get_error.0 != 0 {
-        tracing::warn!(
-            pid,
-            increment,
-            error = %std::io::Error::from_raw_os_error(get_error.0),
-            "getpriority failed (non-fatal, session still started)"
-        );
-        return;
-    }
-
-    let target = unix_nice_target(current, increment);
-    if target == current {
-        return;
-    }
-    // SAFETY: setpriority 对不存在的 pid 只返回 -1，不会有内存安全问题。
-    let rc = unsafe { libc::setpriority(libc::PRIO_PROCESS, pid, target) };
-    if rc != 0 {
-        tracing::warn!(
-            pid,
-            increment,
-            current,
-            target,
-            error = %std::io::Error::last_os_error(),
-            "setpriority failed (non-fatal, session still started)"
-        );
-    }
 }
 
 #[cfg(unix)]

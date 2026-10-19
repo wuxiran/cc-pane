@@ -432,7 +432,6 @@ async fn async_main() -> anyhow::Result<()> {
     .await?;
 
     shutdown::cleanup(shutdown_backend.as_ref(), owns_sessions);
-
     Ok(())
 }
 
@@ -750,6 +749,7 @@ mod tests {
         .expect("backend state");
 
         assert_eq!(state.output_mode, TerminalOutputMode::Emitter);
+        assert!(state.owns_sessions);
     }
 
     #[test]
@@ -773,6 +773,7 @@ mod tests {
         .expect("backend state");
 
         assert_eq!(state.output_mode, TerminalOutputMode::Polling);
+        assert!(!state.owns_sessions);
         let health = rx.recv().expect("health request");
         assert!(health.starts_with("GET /api/health HTTP/1.1"));
         assert!(!health.contains("Authorization: Bearer"));
