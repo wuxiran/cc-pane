@@ -77,6 +77,8 @@ fn persist(temporary: tempfile::NamedTempFile, target: &Path) -> io::Result<()> 
         #[cfg(windows)]
         if let Ok(meta) = error.file.as_file().metadata() {
             let mut permissions = meta.permissions();
+            // 仅 Windows 编译：清只读位让临时文件能被 Drop 删除，不涉及 Unix 的 world-writable。
+            #[allow(clippy::permissions_set_readonly_false)]
             permissions.set_readonly(false);
             let _ = error.file.as_file().set_permissions(permissions);
         }
