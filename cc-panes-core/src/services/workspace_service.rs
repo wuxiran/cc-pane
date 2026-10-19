@@ -1,3 +1,4 @@
+use super::workspace_projects_manifest as projects_manifest;
 use crate::constants::events as EV;
 use crate::events::EventEmitter;
 use crate::models::{
@@ -13,7 +14,6 @@ use crate::utils::{
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -37,7 +37,10 @@ const MIGRATION_EXCLUDED_NAMES: &[&str] = &[
     "__pycache__",
 ];
 
-const MIGRATION_PROJECTS_CSV_RELATIVE_PATH: &str = ".ccpanes/projects.csv";
+const MIGRATION_PROJECT_LIST_RELATIVE_PATHS: &[&str] =
+    &[".ccpanes/projects.yaml", ".ccpanes/projects.csv"];
+const LEGACY_PROJECTS_CSV_MARKER: &str = "`.ccpanes/projects.csv`";
+const PROJECTS_MANIFEST_MARKER: &str = "`.ccpanes/projects.yaml`";
 
 #[derive(Debug, Default, Clone, Copy)]
 struct CopyStats {
@@ -51,7 +54,7 @@ pub struct WorkspaceProjectIdentityMigrationReport {
     pub projects_updated: usize,
     pub duplicates_removed: usize,
     pub backups_created: usize,
-    pub csv_regenerated: usize,
+    pub projects_manifest_regenerated: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -101,7 +104,7 @@ impl WorkspaceService {
     /// Deduplicate every persisted workspace project list and repair unusable cross-host paths.
     ///
     /// Each changed `workspace.json` is backed up once as `workspace.json.bak` before writing.
-    /// CSV is regenerated when the configured workspace root is accessible on this host.
+    /// The project manifest is regenerated when the configured workspace root is accessible on this host.
     pub fn migrate_project_identities(
         &self,
     ) -> Result<WorkspaceProjectIdentityMigrationReport, String> {
@@ -155,8 +158,8 @@ impl WorkspaceService {
                 .map(Path::new)
                 .filter(|p| p.is_dir())
             {
-                self.write_projects_csv_for_root(root, &workspace)?;
-                report.csv_regenerated += 1;
+                self.write_projects_manifest_for_root(root, &workspace)?;
+                report.projects_manifest_regenerated += 1;
             }
 
             let content = serde_json::to_string_pretty(&workspace)
@@ -552,8 +555,8 @@ impl WorkspaceService {
         workspace.projects.push(project.clone());
         self.write_workspace_json_locked(workspace_name, &workspace)?;
 
-        // 同步 projects.csv
-        self.sync_projects_csv(&workspace);
+        // 同步 projects.yaml
+        self.sync_projects_manifest(&workspace);
 
         Ok(project)
     }
@@ -564,7 +567,7 @@ impl WorkspaceService {
     /// - path 为 `ssh://[user@]host[:port]/remote_path` 格式的显示路径
     /// - 携带 `SshConnectionInfo` 结构
     /// - 不初始化 Local History
-    /// - 不同步 projects.csv（远程路径无法本地 git 操作）
+    /// - 不同步 projects.yaml（远程路径无法本地 git 操作）
     pub fn add_ssh_project(
         &self,
         workspace_name: &str,
@@ -615,7 +618,7 @@ impl WorkspaceService {
         workspace.projects.push(project.clone());
         self.write_workspace_json_locked(workspace_name, &workspace)?;
 
-        // 注意：不初始化 Local History，不同步 projects.csv
+        // 注意：不初始化 Local History，不同步 projects.yaml
 
         Ok(project)
     }
@@ -634,8 +637,8 @@ impl WorkspaceService {
 
         self.write_workspace_json_locked(workspace_name, &workspace)?;
 
-        // 同步 projects.csv
-        self.sync_projects_csv(&workspace);
+        // 同步 projects.yaml
+        self.sync_projects_manifest(&workspace);
 
         Ok(())
     }
@@ -773,8 +776,8 @@ impl WorkspaceService {
 
         self.write_workspace_json_locked(workspace_name, &workspace)?;
 
-        // 与 remove_project 同口径：项目集合变动后同步 CSV
-        self.sync_projects_csv(&workspace);
+        // 与 remove_project 同口径：项目集合变动后同步项目清单
+        self.sync_projects_manifest(&workspace);
 
         Ok(())
     }
@@ -851,7 +854,7 @@ impl WorkspaceService {
         let result_warnings = plan.warnings.clone();
 
         self.write_workspace_json_locked(&workspace.name, &updated_workspace)?;
-        self.sync_projects_csv(&updated_workspace);
+        self.sync_projects_manifest(&updated_workspace);
         let updated_workspace = self.get_workspace(&workspace.name)?;
 
         Ok(WorkspaceMigrationResult {
@@ -874,7 +877,7 @@ impl WorkspaceService {
         let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let snapshot = self.read_migration_snapshot(workspace_name, snapshot_id)?;
         self.write_workspace_json_locked(workspace_name, &snapshot.workspace)?;
-        self.sync_projects_csv(&snapshot.workspace);
+        self.sync_projects_manifest(&snapshot.workspace);
         Ok(WorkspaceMigrationRollbackResult {
             snapshot_id: snapshot_id.to_string(),
             workspace: self.get_workspace(workspace_name)?,
@@ -913,7 +916,7 @@ impl WorkspaceService {
         let updated_workspace =
             self.build_workspace_after_project_migration(&workspace, &plan, &target_root);
         self.write_workspace_json_locked(&workspace.name, &updated_workspace)?;
-        self.sync_projects_csv(&updated_workspace);
+        self.sync_projects_manifest(&updated_workspace);
         let updated_workspace = self.get_workspace(&workspace.name)?;
 
         Ok(ProjectMigrationResult {
@@ -935,7 +938,7 @@ impl WorkspaceService {
         let _transaction = RegistryWriteGuard::acquire(&self.base_dir)?;
         let snapshot = self.read_project_migration_snapshot(workspace_name, snapshot_id)?;
         self.write_workspace_json_locked(workspace_name, &snapshot.workspace)?;
-        self.sync_projects_csv(&snapshot.workspace);
+        self.sync_projects_manifest(&snapshot.workspace);
         Ok(ProjectMigrationRollbackResult {
             snapshot_id: snapshot_id.to_string(),
             workspace: self.get_workspace(workspace_name)?,
@@ -1435,12 +1438,12 @@ impl WorkspaceService {
         let ccpanes_dir = target_root.join(".ccpanes");
         fs::create_dir_all(&ccpanes_dir)
             .map_err(|e| format!("Failed to create target .ccpanes directory: {}", e))?;
-        self.write_projects_csv_for_root(target_root, workspace)?;
+        self.write_projects_manifest_for_root(target_root, workspace)?;
 
         let claude_md_path = target_root.join("CLAUDE.md");
         if !claude_md_path.exists() {
             let content = format!(
-                "# {}\n\n> CC-Panes 管理的工作空间\n\n## 子项目\n项目列表见 `.ccpanes/projects.csv`。\n",
+                "# {}\n\n> CC-Panes 管理的工作空间\n\n## 子项目\n项目列表见 `.ccpanes/projects.yaml`（按机器分段，只看本机主机名那一段）。\n",
                 workspace.name
             );
             fs::write(&claude_md_path, content)
@@ -1728,7 +1731,7 @@ impl WorkspaceService {
 
     fn should_skip_migration_entry(&self, relative: &Path) -> bool {
         let normalized = Self::normalize_relative_path(&relative.to_string_lossy());
-        if normalized == MIGRATION_PROJECTS_CSV_RELATIVE_PATH {
+        if MIGRATION_PROJECT_LIST_RELATIVE_PATHS.contains(&normalized.as_str()) {
             return true;
         }
         relative.components().any(|component| {
@@ -1780,7 +1783,7 @@ impl WorkspaceService {
         ))
     }
 
-    fn write_projects_csv_for_root(
+    fn write_projects_manifest_for_root(
         &self,
         root_path: &Path,
         workspace: &Workspace,
@@ -1788,29 +1791,41 @@ impl WorkspaceService {
         let ccpanes_dir = root_path.join(".ccpanes");
         fs::create_dir_all(&ccpanes_dir)
             .map_err(|e| format!("Failed to create .ccpanes directory: {}", e))?;
-        let csv_path = ccpanes_dir.join("projects.csv");
-        let mut lines = Vec::with_capacity(workspace.projects.len() + 1);
-        lines.push("path,alias,branch,status".to_string());
-
-        for project in &workspace.projects {
-            let alias = project.alias.as_deref().unwrap_or("");
-            let branch = Self::get_git_branch_for_csv(&project.path);
-            let status = Self::get_git_status_for_csv(&project.path);
-            lines.push(format!(
-                "{},{},{},{}",
-                Self::csv_escape(&project.path),
-                Self::csv_escape(alias),
-                branch,
-                status
-            ));
-        }
-
-        let mut file = fs::File::create(&csv_path)
-            .map_err(|e| format!("Failed to create projects.csv: {}", e))?;
-        file.write_all(lines.join("\n").as_bytes())
-            .and_then(|_| file.write_all(b"\n"))
-            .map_err(|e| format!("Failed to write projects.csv: {}", e))?;
+        let local_projects = workspace
+            .projects
+            .iter()
+            .map(|project| projects_manifest::ManifestProject {
+                path: project.path.clone(),
+                alias: project.alias.clone().unwrap_or_default(),
+                branch: Self::get_git_branch_for_manifest(&project.path),
+                status: Self::get_git_status_for_manifest(&project.path).to_string(),
+            })
+            .collect();
+        // 工作空间目录可能被多台机器同步共用：只替换本机那一段，保留其他机器的段。
+        let mut manifest = projects_manifest::load(&ccpanes_dir);
+        projects_manifest::replace_machine(
+            &mut manifest,
+            &projects_manifest::current_machine_label(),
+            local_projects,
+        );
+        projects_manifest::save(&ccpanes_dir, &manifest)?;
+        Self::point_claude_md_at_manifest(root_path);
         Ok(())
+    }
+
+    /// 旧版生成的 CLAUDE.md 写的是「项目列表见 `.ccpanes/projects.csv`」，csv 删除后改指向 yaml。
+    /// 只替换这一个生成出来的路径记号，不动用户写的其他内容。
+    fn point_claude_md_at_manifest(root_path: &Path) {
+        let claude_md = root_path.join("CLAUDE.md");
+        let Ok(content) = fs::read_to_string(&claude_md) else {
+            return;
+        };
+        if content.contains(LEGACY_PROJECTS_CSV_MARKER) {
+            let _ = fs::write(
+                &claude_md,
+                content.replace(LEGACY_PROJECTS_CSV_MARKER, PROJECTS_MANIFEST_MARKER),
+            );
+        }
     }
 
     fn build_external_name_map(
@@ -1983,7 +1998,7 @@ impl WorkspaceService {
         Ok(())
     }
 
-    /// 在工作空间 path 下生成引导文件（CLAUDE.md + .ccpanes/projects.csv）
+    /// 在工作空间 path 下生成引导文件（CLAUDE.md + .ccpanes/projects.yaml）
     fn init_workspace_files(&self, ws: &Workspace) -> Result<(), String> {
         let ws_path = match &ws.path {
             Some(p) => PathBuf::from(p),
@@ -2003,30 +2018,30 @@ impl WorkspaceService {
         let claude_md_path = ws_path.join("CLAUDE.md");
         if !claude_md_path.exists() {
             let content = format!(
-                "# {}\n\n> CC-Panes 管理的工作空间\n\n## 子项目\n\n项目列表见 `.ccpanes/projects.csv`。\n",
+                "# {}\n\n> CC-Panes 管理的工作空间\n\n## 子项目\n\n项目列表见 `.ccpanes/projects.yaml`（按机器分段，只看本机主机名那一段）。\n",
                 ws.name
             );
             fs::write(&claude_md_path, content)
                 .map_err(|e| format!("Failed to write CLAUDE.md: {}", e))?;
         }
 
-        // 生成初始 projects.csv
-        self.write_projects_csv_for_root(&ws_path, ws)?;
+        // 生成初始 projects.yaml
+        self.write_projects_manifest_for_root(&ws_path, ws)?;
 
         Ok(())
     }
 
-    /// 同步 projects.csv 到工作空间 path 下的 .ccpanes/ 目录
-    fn sync_projects_csv(&self, ws: &Workspace) {
+    /// 同步 projects.yaml 到工作空间 path 下的 .ccpanes/ 目录
+    fn sync_projects_manifest(&self, ws: &Workspace) {
         let ws_path = match &ws.path {
             Some(p) => PathBuf::from(p),
             None => return,
         };
-        let _ = self.write_projects_csv_for_root(&ws_path, ws);
+        let _ = self.write_projects_manifest_for_root(&ws_path, ws);
     }
 
-    /// 获取 git 当前分支名（用于 CSV）
-    fn get_git_branch_for_csv(path: &str) -> String {
+    /// 获取 git 当前分支名（用于项目清单）
+    fn get_git_branch_for_manifest(path: &str) -> String {
         let output = output_with_timeout(
             Command::new("git")
                 .args(["branch", "--show-current"])
@@ -2039,8 +2054,8 @@ impl WorkspaceService {
         }
     }
 
-    /// 获取 git 工作区状态（用于 CSV）
-    fn get_git_status_for_csv(path: &str) -> &'static str {
+    /// 获取 git 工作区状态（用于项目清单）
+    fn get_git_status_for_manifest(path: &str) -> &'static str {
         let output = output_with_timeout(
             Command::new("git")
                 .args(["status", "--porcelain"])
@@ -2056,15 +2071,6 @@ impl WorkspaceService {
                 }
             }
             _ => "unknown",
-        }
-    }
-
-    /// CSV 字段转义
-    fn csv_escape(field: &str) -> String {
-        if field.contains(',') || field.contains('"') || field.contains('\n') {
-            format!("\"{}\"", field.replace('"', "\"\""))
-        } else {
-            field.to_string()
         }
     }
 
@@ -2361,8 +2367,10 @@ mod tests {
             .unwrap();
 
         assert!(root.join("CLAUDE.md").exists());
-        let csv = fs::read_to_string(root.join(".ccpanes").join("projects.csv")).unwrap();
-        assert!(csv.starts_with("path,alias,branch,status"));
+        let manifest = fs::read_to_string(root.join(".ccpanes").join("projects.yaml")).unwrap();
+        assert!(manifest.contains("machines:"));
+        let claude_md = fs::read_to_string(root.join("CLAUDE.md")).unwrap();
+        assert!(claude_md.contains("`.ccpanes/projects.yaml`"));
     }
 
     #[test]
@@ -2644,7 +2652,7 @@ mod tests {
         assert_eq!(first_report.workspaces_updated, 1);
         assert_eq!(first_report.duplicates_removed, 2);
         assert_eq!(first_report.backups_created, 1);
-        assert_eq!(first_report.csv_regenerated, 1);
+        assert_eq!(first_report.projects_manifest_regenerated, 1);
         assert_eq!(fs::read(&backup_path).unwrap(), original);
 
         let migrated = service.get_workspace("ws").unwrap();
@@ -2667,11 +2675,18 @@ mod tests {
             .iter()
             .any(|project| { project.path == r"\\wsl.localhost\ubuntu\home\User\App" }));
 
-        let csv_path = root.join(".ccpanes").join("projects.csv");
+        let manifest_path = root.join(".ccpanes").join("projects.yaml");
         let first_json = fs::read(&json_path).unwrap();
         let first_backup = fs::read(&backup_path).unwrap();
-        let first_csv = fs::read(&csv_path).unwrap();
-        assert_eq!(String::from_utf8_lossy(&first_csv).lines().count(), 4);
+        let first_manifest = fs::read(&manifest_path).unwrap();
+        let listed: usize =
+            serde_yaml::from_slice::<projects_manifest::ProjectsManifest>(&first_manifest)
+                .unwrap()
+                .machines
+                .values()
+                .map(|section| section.projects.len())
+                .sum();
+        assert_eq!(listed, 3);
 
         assert_eq!(
             service.migrate_project_identities().unwrap(),
@@ -2679,7 +2694,7 @@ mod tests {
         );
         assert_eq!(fs::read(&json_path).unwrap(), first_json);
         assert_eq!(fs::read(&backup_path).unwrap(), first_backup);
-        assert_eq!(fs::read(&csv_path).unwrap(), first_csv);
+        assert_eq!(fs::read(&manifest_path).unwrap(), first_manifest);
     }
 
     fn make_ssh_info(user: Option<&str>, port: u16) -> SshConnectionInfo {
@@ -2910,7 +2925,7 @@ mod tests {
     }
 
     #[test]
-    fn add_project_syncs_projects_csv_under_workspace_path() {
+    fn add_project_syncs_projects_manifest_under_workspace_path() {
         let dir = tempfile::tempdir().unwrap();
         let service = make_service(&dir);
         let root = dir.path().join("root");
@@ -2922,26 +2937,69 @@ mod tests {
 
         service.add_project("ws", &path_str(&proj)).unwrap();
 
-        let csv = fs::read_to_string(root.join(".ccpanes").join("projects.csv")).unwrap();
-        assert!(csv.lines().count() >= 2);
-        assert!(csv.contains("proj1"));
+        let manifest = fs::read_to_string(root.join(".ccpanes").join("projects.yaml")).unwrap();
+        assert!(manifest.contains("proj1"));
+    }
+
+    #[test]
+    fn projects_manifest_keeps_other_machines_and_migrates_legacy_csv() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = make_service(&dir);
+        let root = dir.path().join("root");
+        let proj = root.join("proj1");
+        fs::create_dir_all(&proj).unwrap();
+        service
+            .create_workspace("ws", Some(&path_str(&root)))
+            .unwrap();
+        let ccpanes = root.join(".ccpanes");
+        // 网盘同步过来：另一台机器的 yaml 段 + 旧版本写的 csv + 旧版生成的 CLAUDE.md
+        fs::write(
+            ccpanes.join("projects.yaml"),
+            "machines:\n  other-pc:\n    projects:\n    - path: E:\\other\\app\n",
+        )
+        .unwrap();
+        fs::write(
+            ccpanes.join("projects.csv"),
+            "path,alias,branch,status\nD:\\legacy\\app,,main,clean\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("CLAUDE.md"),
+            "# ws\n\n自定义说明\n\n项目列表见 `.ccpanes/projects.csv`。\n",
+        )
+        .unwrap();
+
+        service.add_project("ws", &path_str(&proj)).unwrap();
+
+        let machine = projects_manifest::current_machine_label();
+        let manifest = projects_manifest::load(&ccpanes);
+        let paths = |name: &str| -> Vec<String> {
+            manifest.machines[name]
+                .projects
+                .iter()
+                .map(|p| p.path.clone())
+                .collect()
+        };
+        assert_eq!(paths("other-pc"), vec![r"E:\other\app"]);
+        assert_eq!(
+            paths(projects_manifest::UNATTRIBUTED_MACHINE),
+            vec![r"D:\legacy\app"]
+        );
+        assert!(paths(&machine)[0].ends_with("proj1"));
+        assert!(!ccpanes.join("projects.csv").exists());
+        let claude_md = fs::read_to_string(root.join("CLAUDE.md")).unwrap();
+        assert!(claude_md.contains("自定义说明"));
+        assert!(claude_md.contains("`.ccpanes/projects.yaml`"));
+
+        // 本机移除项目只去掉本机那一段
+        let ws = service.get_workspace("ws").unwrap();
+        service.remove_project("ws", &ws.projects[0].id).unwrap();
+        let manifest = projects_manifest::load(&ccpanes);
+        assert!(!manifest.machines.contains_key(&machine));
+        assert_eq!(manifest.machines.len(), 2);
     }
 
     // ============ 纯函数辅助 ============
-
-    #[test]
-    fn csv_escape_quotes_special_fields() {
-        assert_eq!(WorkspaceService::csv_escape("plain"), "plain");
-        assert_eq!(WorkspaceService::csv_escape("a,b"), "\"a,b\"");
-        assert_eq!(
-            WorkspaceService::csv_escape("say \"hi\""),
-            "\"say \"\"hi\"\"\""
-        );
-        assert_eq!(
-            WorkspaceService::csv_escape("line\nbreak"),
-            "\"line\nbreak\""
-        );
-    }
 
     #[test]
     fn path_basename_and_display_project_name() {
@@ -3084,6 +3142,7 @@ mod tests {
         let service = make_service(&dir);
 
         assert!(service.should_skip_migration_entry(Path::new(".ccpanes/projects.csv")));
+        assert!(service.should_skip_migration_entry(Path::new(".ccpanes/projects.yaml")));
         assert!(service.should_skip_migration_entry(Path::new("pkg/node_modules/lib")));
         assert!(service.should_skip_migration_entry(Path::new("target")));
         assert!(!service.should_skip_migration_entry(Path::new("src/main.rs")));

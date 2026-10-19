@@ -76,8 +76,8 @@
       "name": "workspace-diagnostics",
       "file": "workspace-diagnostics.md",
       "descriptions": {
-        "zh-CN": "诊断 {{app_name}} 工作空间存储：workspace.json、projects.csv、数据目录路由、遗留文件；只读排查，不直接改。",
-        "en": "Diagnose {{app_name}} workspace storage: workspace.json, projects.csv, data-dir routing, legacy files. Read-only triage; changes go through MCP or the UI."
+        "zh-CN": "诊断 {{app_name}} 工作空间存储：workspace.json、projects.yaml、数据目录路由、遗留文件；只读排查，不直接改。",
+        "en": "Diagnose {{app_name}} workspace storage: workspace.json, projects.yaml, data-dir routing, legacy files. Read-only triage; changes go through MCP or the UI."
       }
     },
     {

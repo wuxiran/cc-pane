@@ -1,6 +1,6 @@
 ---
 name: ccpanes-workspace-diagnostics
-description: Diagnose CC-Panes workspace storage: workspace.json, projects.csv, data dir routing, legacy files. 只读排查与修复规划；真正的变更走 MCP 或 UI，不在本 skill 里改。
+description: Diagnose CC-Panes workspace storage: workspace.json, projects.yaml, data dir routing, legacy files. 只读排查与修复规划；真正的变更走 MCP 或 UI，不在本 skill 里改。
 ---
 
 # CC-Panes Workspace Diagnostics
@@ -48,7 +48,7 @@ Windows 上用 PowerShell 检查等效路径。
 ```text
 <workspace.path>/
 ├── .ccpanes/
-│   └── projects.csv
+│   └── projects.yaml
 └── CLAUDE.md
 ```
 
@@ -104,7 +104,8 @@ find "$WS_ROOT" -maxdepth 2 -name workspace.json -print
 - `projects[].path` 是否为绝对路径
 - 项目路径是否存在
 - `workspace.path` 是否存在
-- 若有 `projects.csv`，是否与 `workspace.json` 项目列表明显不一致
+- 若有 `projects.yaml`，本机主机名那一段是否与 `workspace.json` 项目列表明显不一致（其他机器的段不必与本机一致）
+- 若残留旧版 `projects.csv`：说明本机还没写过新清单，或另一台机器仍是旧版本
 
 ### 3. 常见问题
 
@@ -113,7 +114,7 @@ find "$WS_ROOT" -maxdepth 2 -name workspace.json -print
 | UI 里找不到工作空间 | data_dir 指向另一套目录 | 先确认 `config.toml` 和实际 `DATA_DIR` |
 | `dispatch_task` / `launch_task` 找不到项目 | 项目未登记或 Windows/WSL 路径不一致 | 用 `list_projects` 取原样路径，必要时用 ctl 调 `add_project_to_workspace` |
 | workspace 看起来有项目但启动失败 | path 是旧盘符/旧 WSL UNC | 用 MCP 重新添加当前真实路径 |
-| `.ccpanes/projects.csv` 和 UI 不一致 | 文件缓存或旧迁移遗留 | 以 MCP/UI 结果为准，制定修复计划 |
+| `.ccpanes/projects.yaml` 本机段和 UI 不一致 | 文件缓存或旧迁移遗留 | 以 MCP/UI 结果为准，制定修复计划 |
 | 删除后又出现 | 仍在另一个 data_dir 或 session recovery | 查 data_dir、运行实例、启动历史 |
 
 ## 输出格式

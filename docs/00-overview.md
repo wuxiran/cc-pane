@@ -171,7 +171,7 @@ cc-panes/
 └── data.db                          # SQLite 数据库
 
 <workspace.path>/.ccpanes/           # 工作空间级（注意：与上面 workspaces/<name>/ 是不同的一级）
-├── projects.csv                     # 项目清单（给 LLM 的上下文文件）
+├── projects.yaml                    # 项目清单（给 LLM 的上下文文件，按机器分段）
 ├── plans/                           # plan 归档
 └── prompts/                         # 外置长 prompt / Codex 派工文件
 
