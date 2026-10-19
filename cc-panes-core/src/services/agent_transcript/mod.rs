@@ -77,26 +77,59 @@ fn read_grok(params: ReadAgentTranscriptParams) -> ReadAgentTranscriptResult {
         }
     };
 
-    let total = messages.len() as u64;
     let limit = params
         .limit
         .unwrap_or(DEFAULT_TRANSCRIPT_LIMIT)
         .clamp(1, MAX_TRANSCRIPT_LIMIT) as usize;
     let offset_from_end = params.offset_from_end.unwrap_or(0) as usize;
 
-    // 窗口：从末尾往前 offset，再取 limit 条，保持时间正序。
-    // [0 .. total) 中取 [end-limit-offset, end-offset)
-    let end = total.saturating_sub(offset_from_end as u64) as usize;
-    let start = end.saturating_sub(limit);
-    let window = if start < end {
-        messages[start..end].to_vec()
-    } else {
-        Vec::new()
-    };
-    let truncated = start > 0 || end < messages.len();
-
-    ReadAgentTranscriptResult::ok(window, path.display().to_string(), total, truncated)
+    page_messages(
+        messages,
+        &path,
+        limit,
+        offset_from_end,
+        params.before_message_id.as_deref(),
+    )
 }
+
+fn page_messages(
+    messages: Vec<crate::models::TranscriptMessage>,
+    path: &std::path::Path,
+    limit: usize,
+    offset_from_end: usize,
+    before_message_id: Option<&str>,
+) -> ReadAgentTranscriptResult {
+    let total = messages.len();
+    let end = if let Some(id) = before_message_id {
+        let Some(index) = messages.iter().position(|message| message.id == id) else {
+            return ReadAgentTranscriptResult::err(
+                AgentTranscriptErrorCode::CursorExpired,
+                "Conversation history changed; refresh before loading earlier messages",
+            );
+        };
+        index
+    } else {
+        total.saturating_sub(offset_from_end)
+    };
+    let start = end.saturating_sub(limit);
+    let window = messages[start..end].to_vec();
+    let mut result = ReadAgentTranscriptResult::ok(
+        window,
+        path.display().to_string(),
+        total as u64,
+        start > 0 || end < total,
+    );
+    result.has_earlier = start > 0;
+    result.next_before_message_id = if result.has_earlier {
+        result.messages.first().map(|message| message.id.clone())
+    } else {
+        None
+    };
+    result
+}
+
+#[cfg(test)]
+mod pagination_tests;
 
 #[cfg(test)]
 mod tests {
@@ -147,6 +180,7 @@ mod tests {
                 cwd: Some(cwd.into()),
                 limit: Some(10),
                 offset_from_end: None,
+                before_message_id: None,
             })
         });
 
@@ -169,6 +203,7 @@ mod tests {
             cwd: None,
             limit: None,
             offset_from_end: None,
+            before_message_id: None,
         });
         assert_eq!(
             result.error_code,
@@ -201,6 +236,7 @@ mod tests {
                 cwd: None, // force scan
                 limit: Some(3),
                 offset_from_end: Some(0),
+                before_message_id: None,
             })
         });
 

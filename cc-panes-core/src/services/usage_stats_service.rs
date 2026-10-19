@@ -298,10 +298,12 @@ impl UsageStatsService {
 
         let scan_service = self.clone();
         handle.spawn(async move {
-            scan_service.ensure_scan_algo_version();
             // 启动首扫只扫本机：不做 WSL discovery，保证"单纯启动 app 不唤醒 WSL"
             // （issue #37：\\wsl$ 访问与 wsl.exe 调用会拉起/保活 Vmmem VM）。
-            scan_service.refresh_usage_stats_from_cache_logged();
+            scan_service
+                .clone()
+                .refresh_usage_stats_from_cache_logged()
+                .await;
             let mut tick = 0u32;
             loop {
                 sleep(Duration::from_secs(USAGE_SCAN_INTERVAL_SECS)).await;
@@ -316,7 +318,10 @@ impl UsageStatsService {
                 if tick.is_multiple_of(WSL_DISCOVERY_REFRESH_TICKS) || cache_empty {
                     scan_service.refresh_wsl_distros().await;
                 }
-                scan_service.refresh_usage_stats_from_cache_logged();
+                scan_service
+                    .clone()
+                    .refresh_usage_stats_from_cache_logged()
+                    .await;
             }
         });
     }
@@ -397,6 +402,7 @@ impl UsageStatsService {
         }
         let _guard = ScanGuard(&self.scan_running);
 
+        self.ensure_scan_algo_version();
         self.scan_all_usage_files().map_err(AppError::from)
     }
 
@@ -722,9 +728,13 @@ impl UsageStatsService {
         self.context_observation_snapshot(request, observation.as_ref(), observed_at)
     }
 
-    fn refresh_usage_stats_from_cache_logged(&self) {
-        if let Err(error) = self.refresh_usage_stats_from_cache() {
-            warn!(err = %error, "Usage stats refresh failed");
+    async fn refresh_usage_stats_from_cache_logged(self: Arc<Self>) {
+        // A spawned async task still occupies a Tokio worker until it yields.
+        // Directory walks, transcript parsing and SQLite belong on the blocking pool.
+        match tokio::task::spawn_blocking(move || self.refresh_usage_stats_from_cache()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => warn!(err = %error, "Usage stats refresh failed"),
+            Err(error) => warn!(err = %error, "Usage stats scan task failed"),
         }
     }
 
@@ -1944,6 +1954,8 @@ mod tests {
                 launch_profile_id: None,
                 workspace_snapshot_id: None,
                 resume_source: None,
+                launch_status: None,
+                failure_reason: None,
             },
             pty_session_id: "pty".to_string(),
             cli: cli.to_string(),
@@ -2473,3 +2485,7 @@ mod tests {
         assert_eq!(roots[0].origin, ScanOrigin::Native);
     }
 }
+
+#[cfg(test)]
+#[path = "usage_background_tests.rs"]
+mod background_tests;

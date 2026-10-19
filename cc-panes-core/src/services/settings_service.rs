@@ -103,6 +103,20 @@ impl SettingsService {
         Ok(())
     }
 
+    /// Update only companion settings under the same lock as the save.
+    pub fn update_ccchan(
+        &self,
+        update: impl FnOnce(&mut crate::models::settings::CCChanSettings),
+    ) -> Result<()> {
+        let mut current = self.settings.lock().unwrap_or_else(|e| e.into_inner());
+        let mut next = current.clone();
+        update(&mut next.ccchan);
+        next.ccchan.merge_missing_defaults();
+        self.save_to_file(&next)?;
+        *current = next;
+        Ok(())
+    }
+
     /// 获取代理环境变量
     pub fn get_proxy_env_vars(&self) -> std::collections::HashMap<String, String> {
         self.settings

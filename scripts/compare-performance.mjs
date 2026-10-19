@@ -16,25 +16,40 @@ import { pathToFileURL } from "node:url";
  * 参与比较的指标。一律「越低越好」（内存/积压/延迟）；label 用于人类可读输出，
  * get 从报告里取数。get 返回 null/undefined 视为「本侧无数据」，比较时记为 na。
  */
+function peakObservedProcessValue(report, field, roles) {
+  const values = (Array.isArray(report.processes) ? report.processes : [])
+    .filter(p => !roles || roles.includes(p.role))
+    .map(p => toNumber(p[field])).filter(value => value != null);
+  return values.length ? Math.max(...values) : null;
+}
+
 const METRICS = [
   { key: "maxHeapUsedBytes", label: "前端 JS 堆峰值 (bytes)", get: (r) => r.maxHeapUsedBytes },
   { key: "maxQueuedChars", label: "终端积压字符峰值", get: (r) => r.maxQueuedChars },
   { key: "maxFrontendAgeMs", label: "前端上报最大延迟 (ms)", get: (r) => r.maxFrontendAgeMs },
   { key: "maxTimerLagMs", label: "定时器最大延迟 (ms)", get: (r) => r.maxTimerLagMs },
+  { key: "maxSamplingGapMs", label: "未观测间隔峰值 (ms，休眠或停顿)", get: r => r.maxSamplingGapMs },
   { key: "maxSampleDurationMs", label: "采样自身最大耗时 (ms)", get: (r) => r.maxSampleDurationMs },
   {
     key: "peakProcessPrivateBytes",
     label: "进程私有内存峰值 (bytes)",
-    get: (r) =>
-      Array.isArray(r.processes) && r.processes.length > 0
-        ? Math.max(...r.processes.map((p) => p.peakPrivateBytes ?? 0))
-        : null,
+    get: r => peakObservedProcessValue(r, "peakPrivateBytes"),
   },
+  { key: "peakRendererResidentBytes", label: "渲染器常驻内存峰值 (bytes)",
+    get: r => peakObservedProcessValue(r, "peakResidentBytes", ["renderer"]) },
 ];
 
 /** 把数值收敛成「可比较的有限数」或 null。 */
 function toNumber(value) {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+// Older samplers included suspension in timer lag. Preserve that conservative
+// basis when comparing across versions instead of claiming a fake improvement.
+function legacyCompatibleLag(report) {
+  const lag = toNumber(report.maxTimerLagMs);
+  const gap = toNumber(report.maxSamplingGapMs);
+  return lag == null && gap == null ? null : Math.max(lag ?? 0, Math.max(0, (gap ?? 0) - 1000));
 }
 
 /**
@@ -60,24 +75,30 @@ export function compareReports(baseline, candidate, options = {}) {
   const rows = [];
   const regressions = [];
 
-  const metrics = toNumber(base.maxFrontendUpdateIntervalMs) != null && toNumber(cand.maxFrontendUpdateIntervalMs) != null
+  let metrics = toNumber(base.maxFrontendUpdateIntervalMs) != null && toNumber(cand.maxFrontendUpdateIntervalMs) != null
     ? METRICS.map(metric => metric.key === "maxFrontendAgeMs"
       ? { key: "maxFrontendUpdateIntervalMs", label: "前端更新最大间隔 (ms)", get: r => r.maxFrontendUpdateIntervalMs }
       : metric)
     : METRICS;
+  if (toNumber(base.maxSamplingGapMs) == null || toNumber(cand.maxSamplingGapMs) == null) {
+    metrics = metrics.map(metric => metric.key === "maxTimerLagMs"
+      ? { ...metric, get: legacyCompatibleLag } : metric);
+  }
   for (const metric of metrics) {
     const b = toNumber(metric.get(base));
     const c = toNumber(metric.get(cand));
 
-    // 任一侧缺数据，或基线为 0（无法算比例且 0 通常意味未采到）→ na，不阻断。
-    if (b == null || c == null || b === 0) {
+    // Missing observations are null. Numeric zero is a measured baseline and
+    // must not hide a newly introduced stall or queue.
+    if (b == null || c == null) {
       rows.push({ key: metric.key, label: metric.label, baseline: b, candidate: c, deltaRatio: null, verdict: "na" });
       continue;
     }
 
-    const deltaRatio = (c - b) / b;
+    const deltaRatio = b === 0 ? null : (c - b) / b;
     let verdict;
-    if (deltaRatio > tolerance) verdict = "regression";
+    if (b === 0) verdict = c === 0 ? "ok" : "regression";
+    else if (deltaRatio > tolerance) verdict = "regression";
     else if (deltaRatio < -tolerance) verdict = "improved";
     else verdict = "ok";
 
@@ -85,7 +106,8 @@ export function compareReports(baseline, candidate, options = {}) {
     if (verdict === "regression") regressions.push(metric.key);
   }
 
-  return { ok: regressions.length === 0, tolerance, rows, regressions };
+  const comparableMetrics = rows.filter(row => row.verdict !== "na").length;
+  return { ok: regressions.length === 0 && comparableMetrics > 0, tolerance, rows, regressions, comparableMetrics };
 }
 
 /** 把比较结果渲染成对齐的文本表（人类可读，CI 日志友好）。 */
@@ -109,8 +131,10 @@ export function formatComparison(result) {
   }
   lines.push("");
   lines.push(
-    result.ok
-      ? `结论：持平/改善，无回归（${result.rows.length} 项指标）。`
+    result.comparableMetrics === 0
+      ? "结论：没有可比较的数据，无法判断性能是否回归。"
+      : result.ok
+      ? `结论：已比较 ${result.comparableMetrics} 项，无回归；${result.rows.length - result.comparableMetrics} 项缺少可比较数据。`
       : `结论：检测到回归 → ${result.regressions.join(", ")}`,
   );
   return lines.join("\n");

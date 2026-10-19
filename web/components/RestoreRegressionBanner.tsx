@@ -6,7 +6,7 @@ import AlertBannerShell, {
   alertBannerTitleClass,
 } from "@/components/layout/AlertBannerShell";
 import { useRestoreReportStore } from "@/stores/useRestoreReportStore";
-import { isRestoreRegression } from "@/utils/restoreReport";
+import { hasRestoreNotice, isRestoreRegression } from "@/utils/restoreReport";
 
 /**
  * 「本应恢复的 agent leaf 丢失 resume id」时的可见告警。
@@ -17,6 +17,9 @@ import { isRestoreRegression } from "@/utils/restoreReport";
  * 为什么值得占一条横幅：resume id 落库链断掉后，表现只是「恢复出来的会话没有历史
  * 对话」——功能都在、没有任何报错，用户只会觉得是自己记错了。实测连续三天 100%
  * 未绑定无人发现（docs/69）。这条横幅是那次事故的回归防线。
+ *
+ * 另一种情形是「上次启动失败」（WSL 内缺原生 CLI，后端已判定并撤回了预发 id）：
+ * 它不是回归，但本次这些标签会按新会话启动，用户得知道为什么没有历史对话。
  */
 export default function RestoreRegressionBanner() {
   const { t } = useTranslation("panes");
@@ -24,7 +27,9 @@ export default function RestoreRegressionBanner() {
   const dismissed = useRestoreReportStore((s) => s.dismissed);
   const dismiss = useRestoreReportStore((s) => s.dismiss);
 
-  if (dismissed || !summary || !isRestoreRegression(summary)) return null;
+  if (dismissed || !summary || !hasRestoreNotice(summary)) return null;
+
+  const regression = isRestoreRegression(summary);
 
   return (
     <AlertBannerShell
@@ -43,10 +48,22 @@ export default function RestoreRegressionBanner() {
         </button>
       }
     >
-      <p className={alertBannerTitleClass}>
-        {t("restoreRegression.title", { count: summary.missingResumeId })}
-      </p>
-      <p className={alertBannerDescClass}>{t("restoreRegression.impact")}</p>
+      {regression ? (
+        <>
+          <p className={alertBannerTitleClass}>
+            {t("restoreRegression.title", { count: summary.missingResumeId })}
+          </p>
+          <p className={alertBannerDescClass}>{t("restoreRegression.impact")}</p>
+        </>
+      ) : null}
+      {summary.failed > 0 ? (
+        <>
+          <p className={alertBannerTitleClass}>
+            {t("restoreRegression.failedTitle", { count: summary.failed })}
+          </p>
+          <p className={alertBannerDescClass}>{t("restoreRegression.failedImpact")}</p>
+        </>
+      ) : null}
     </AlertBannerShell>
   );
 }

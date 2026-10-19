@@ -5,7 +5,11 @@
  */
 export function projectIdentityKey(path: string): string {
   const canonical = canonicalProjectPath(path);
-  return isWindowsDrivePath(canonical) ? canonical.toLowerCase() : canonical;
+  // Match Rust's to_ascii_lowercase exactly; Unicode case folding is a different
+  // identity contract (and can even change the number of code points).
+  return isWindowsDrivePath(canonical)
+    ? canonical.replace(/[A-Z]/g, (letter) => letter.toLowerCase())
+    : canonical;
 }
 
 export function projectPathsEquivalent(a: string, b: string): boolean {

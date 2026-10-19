@@ -30,7 +30,7 @@ use cc_panes_core::services::heavy_job_gate::{
 };
 use parking_lot::Mutex;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Notify;
@@ -305,7 +305,7 @@ async fn handle_acquire(
         .as_deref()
         .map(str::trim)
         .filter(|label| !label.is_empty())
-        .map(str::to_string)
+        .map(cc_panes_core::services::heavy_command_normalize::redact)
         .unwrap_or_else(|| cc_panes_core::services::heavy_command_normalize::normalize(&body.cmd));
     let request = AcquireRequest {
         session_id: body.session_id.trim().to_string(),
@@ -423,24 +423,44 @@ pub(crate) fn restore_policy(
     })
 }
 
-/// 记住门禁改过的会话（按租约 id），归还时据此还原。
+/// Track policy baselines by session and active lease ids. App calls are serialized by PolicyQueue.
 #[derive(Default)]
 pub(crate) struct GateEscalations {
     saved: Mutex<HashMap<String, SessionResourcePolicy>>,
+    active: Mutex<HashMap<String, HashSet<String>>>,
 }
 
 impl GateEscalations {
+    fn begin(&self, session: &str, lease: &str) {
+        self.active
+            .lock()
+            .entry(session.into())
+            .or_default()
+            .insert(lease.into());
+    }
+    fn finish(&self, session: &str, lease: &str) -> bool {
+        let mut active = self.active.lock();
+        if let Some(leases) = active.get_mut(session) {
+            leases.remove(lease);
+            if !leases.is_empty() {
+                return false;
+            }
+        }
+        active.remove(session);
+        true
+    }
+
     /// 拿槽：返回要下发的策略；`None` = 不动。`current = None`（SSH / 旧 daemon /
     /// 会话不在）也不动——看不到现状就不该改。
     pub(crate) fn plan_grant(
         &self,
-        lease_id: &str,
+        session_key: &str,
         current: Option<&ResourcePolicyStatus>,
     ) -> Option<SessionResourcePolicy> {
         let current = current?;
         let policy = grant_policy(current)?;
         self.saved.lock().insert(
-            lease_id.to_string(),
+            session_key.to_string(),
             SessionResourcePolicy {
                 lower_priority: current.lower_priority,
                 cpu_weight: current.cpu_weight,
@@ -451,13 +471,13 @@ impl GateEscalations {
         Some(policy)
     }
 
-    /// 归还：门禁没改过这张租约 → `None`；改过则按 [`restore_policy`] 决定。记录一律清掉。
+    /// 归还：门禁没改过这个会话 → `None`；改过则按 [`restore_policy`] 决定。记录一律清掉。
     pub(crate) fn plan_release(
         &self,
-        lease_id: &str,
+        session_key: &str,
         current: Option<&ResourcePolicyStatus>,
     ) -> Option<SessionResourcePolicy> {
-        let saved = self.saved.lock().remove(lease_id)?;
+        let saved = self.saved.lock().remove(session_key)?;
         restore_policy(&saved, current?)
     }
 
@@ -475,6 +495,7 @@ pub struct AppHeavyJobEnvironment {
     ledger: Arc<cc_panes_core::repository::HeavyCommandsRepository>,
     emitter: Arc<dyn cc_panes_core::events::EventEmitter>,
     escalations: Arc<GateEscalations>,
+    policy_queue: Arc<super::heavy_job_policy_queue::PolicyQueue>,
 }
 
 impl AppHeavyJobEnvironment {
@@ -490,6 +511,7 @@ impl AppHeavyJobEnvironment {
             ledger,
             emitter,
             escalations: Arc::new(GateEscalations::default()),
+            policy_queue: Arc::new(super::heavy_job_policy_queue::PolicyQueue::default()),
         }
     }
 }
@@ -528,9 +550,10 @@ impl HeavyJobEnvironment for AppHeavyJobEnvironment {
         let escalations = Arc::clone(&self.escalations);
         let session_id = lease.session_id.clone();
         let lease_id = lease.id.clone();
-        tokio::task::spawn_blocking(move || {
+        self.policy_queue.enqueue(&session_id.clone(), move || {
+            escalations.begin(&session_id, &lease_id);
             let current = current_policy_status(backend.as_ref(), &session_id);
-            let Some(policy) = escalations.plan_grant(&lease_id, current.as_ref()) else {
+            let Some(policy) = escalations.plan_grant(&session_id, current.as_ref()) else {
                 debug!(session = %session_id, ?current, "[heavy-gate] policy left as-is on grant");
                 return;
             };
@@ -556,12 +579,13 @@ impl HeavyJobEnvironment for AppHeavyJobEnvironment {
         let cmd = lease.cmd_normalized.clone();
         let target = lease.target.as_str();
         let reason = lease.forced.then_some(FORCED_REASON);
-        tokio::task::spawn_blocking(move || {
+        self.policy_queue.enqueue(&session_id.clone(), move || {
             if let Err(error) = ledger.mark_target(&session_id, &cmd, target, reason) {
                 debug!(%error, "[heavy-gate] ledger mark_target failed (best effort)");
             }
+            if !escalations.finish(&session_id, &lease_id) { return; }
             let current = current_policy_status(backend.as_ref(), &session_id);
-            if let Some(policy) = escalations.plan_release(&lease_id, current.as_ref()) {
+            if let Some(policy) = escalations.plan_release(&session_id, current.as_ref()) {
                 match backend.set_resource_policy(&session_id, policy) {
                     Ok(status) => {
                         debug!(session = %session_id, ?status, "[heavy-gate] policy restored")
@@ -979,5 +1003,14 @@ mod tests {
         *env.config.lock() = enabled(1);
         let (_, json) = post(&app, "/acquire", Some(TOKEN), acquire("a", false)).await;
         assert_eq!(json["outcome"], "granted");
+    }
+    #[test]
+    fn overlapping_lease_effects_restore_only_after_last_release() {
+        let escalations = GateEscalations::default();
+        escalations.begin("s", "old");
+        escalations.begin("s", "new");
+        assert!(!escalations.finish("s", "old"));
+        assert!(escalations.finish("s", "new"));
+        assert!(escalations.active.lock().is_empty());
     }
 }

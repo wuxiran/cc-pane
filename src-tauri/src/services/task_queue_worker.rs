@@ -16,6 +16,7 @@ use crate::utils::AppResult;
 
 const LEVEL_SCAN_INTERVAL: Duration = Duration::from_secs(3);
 const LEVEL_SCAN_BATCH_SIZE: usize = 64;
+const IMAGE_CLEANUP_INTERVAL: Duration = Duration::from_secs(60);
 const TASK_QUEUE_UPDATED_EVENT: &str = "task-queue-updated";
 
 enum WorkerCommand {
@@ -145,6 +146,8 @@ async fn run_worker(
     let mut ticker = tokio::time::interval(LEVEL_SCAN_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut scan_cursor = 0;
+    let mut image_cleanup = tokio::time::interval(IMAGE_CLEANUP_INTERVAL);
+    image_cleanup.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
         tokio::select! {
@@ -185,6 +188,9 @@ async fn run_worker(
             transition = transitions.recv() => {
                 match transition {
                     Ok(transition) => {
+                        if transition.to == cc_panes_core::services::terminal_service::SessionStatus::Exited {
+                            cleanup_queue_images(&service, Some(transition.pty_session_id.clone())).await;
+                        }
                         dispatch_and_publish(
                             &app,
                             &service,
@@ -211,6 +217,9 @@ async fn run_worker(
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
             }
+            _ = image_cleanup.tick() => {
+                cleanup_queue_images(&service, None).await;
+            }
             _ = ticker.tick() => {
                 scan_active_sessions(
                     &app,
@@ -224,6 +233,20 @@ async fn run_worker(
                 ).await;
             }
         }
+    }
+}
+
+async fn cleanup_queue_images(service: &Arc<TaskQueueService>, ended_session: Option<String>) {
+    let service = service.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || match ended_session {
+        Some(session_id) => service.release_session_images(&session_id),
+        None => service.prune_unreferenced_images(),
+    })
+    .await;
+    match result {
+        Ok(Ok(_)) => {}
+        Ok(Err(error)) => warn!(error = %error, "task queue image cleanup failed"),
+        Err(error) => warn!(error = %error, "task queue image cleanup task failed"),
     }
 }
 

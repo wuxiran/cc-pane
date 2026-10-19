@@ -142,19 +142,20 @@ impl ProcessGuard {
 
     /// Forceful termination after the graceful window elapses.
     pub fn force_kill(&self, child: &mut Child) {
+        self.kill_tree();
+        let _ = child.kill();
+    }
+
+    /// Terminate the guarded process group/job without borrowing the child.
+    /// Async process owners can request cancellation while a task waits for exit.
+    pub fn kill_tree(&self) {
         #[cfg(windows)]
         {
             self.job.terminate();
-            let _ = child.kill();
         }
         #[cfg(unix)]
         {
             self.signal_group(libc::SIGKILL);
-            let _ = child;
-        }
-        #[cfg(not(any(unix, windows)))]
-        {
-            let _ = child.kill();
         }
     }
 

@@ -1142,6 +1142,22 @@ const MIGRATIONS: &[Migration] = &[
                 ON heavy_commands(project_path, cmd_normalized, started_at DESC);
         ",
     },
+    Migration {
+        version: 41,
+        description: "remove unsafe legacy command text while retaining workload metrics",
+        up_sql: "UPDATE heavy_commands SET cmd_normalized = '(legacy command)', cmd_redacted = '[legacy command text removed for privacy]';",
+    },
+    // V42：启动失败状态（WSL 原生 CLI 缺失等「进程起了但 CLI 根本没跑」的情形）。
+    // 此前这类启动与成功启动在表里无法区分，预发的 resume id 照样落库，重启恢复
+    // 把它算作 resumed 并拿不存在的 id 去 `--resume`。两列均可空，旧二进制忽略即可。
+    Migration {
+        version: 42,
+        description: "launch_history: launch_status + failure_reason for failed launches",
+        up_sql: "
+            ALTER TABLE launch_history ADD COLUMN launch_status TEXT;
+            ALTER TABLE launch_history ADD COLUMN failure_reason TEXT;
+        ",
+    },
 ];
 
 /// 数据库连接管理
@@ -1866,6 +1882,94 @@ mod tests {
         );
 
         Database::run_migrations(&conn).expect("v35 remains idempotent");
+    }
+
+    #[test]
+    fn migration_41_removes_legacy_credentials_but_keeps_metrics() {
+        let db = Database::new_in_memory().unwrap();
+        let conn = db.connection().unwrap();
+        // 回放从 v41 起的全部迁移（v42 的 ALTER 撞上已存在列时按语句跳过）。
+        conn.execute("DELETE FROM schema_migrations WHERE version >= 41", [])
+            .unwrap();
+        conn.execute("INSERT INTO heavy_commands (session_id,cmd_normalized,cmd_redacted,started_at,created_at,duration_ms) VALUES ('s','export token=SECRET','password=*** secret suffix',1,1,42)", []).unwrap();
+        Database::run_migrations(&conn).unwrap();
+        let (key, display, duration): (String, String, i64) = conn
+            .query_row(
+                "SELECT cmd_normalized,cmd_redacted,duration_ms FROM heavy_commands",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(key, "(legacy command)");
+        assert_eq!(display, "[legacy command text removed for privacy]");
+        assert_eq!(duration, 42);
+    }
+
+    #[test]
+    fn migration_versions_are_unique_and_strictly_increasing() {
+        for pair in MIGRATIONS.windows(2) {
+            assert!(
+                pair[0].version < pair[1].version,
+                "migration v{} must come before v{}",
+                pair[0].version,
+                pair[1].version
+            );
+        }
+    }
+
+    #[test]
+    fn migration_42_adds_launch_failure_columns_after_v41_privacy_cleanup() {
+        let db = Database::new_in_memory().unwrap();
+        let conn = db.connection().unwrap();
+        // 回到 v40：撤掉 v41/v42 的版本记录与 v42 新增的列，模拟已发布版本的库。
+        conn.execute("DELETE FROM schema_migrations WHERE version >= 41", [])
+            .unwrap();
+        conn.execute_batch(
+            "ALTER TABLE launch_history DROP COLUMN launch_status;
+             ALTER TABLE launch_history DROP COLUMN failure_reason;",
+        )
+        .unwrap();
+        conn.execute("INSERT INTO heavy_commands (session_id,cmd_normalized,cmd_redacted,started_at,created_at,duration_ms) VALUES ('s','export token=SECRET','token=***',1,1,7)", []).unwrap();
+        Database::run_migrations(&conn).unwrap();
+
+        let display: String = conn
+            .query_row("SELECT cmd_redacted FROM heavy_commands", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(display, "[legacy command text removed for privacy]");
+        let columns: Vec<String> = conn
+            .prepare("SELECT name FROM pragma_table_info('launch_history')")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(columns.iter().any(|c| c == "launch_status"));
+        assert!(columns.iter().any(|c| c == "failure_reason"));
+        let applied: Vec<i64> = conn
+            .prepare("SELECT version FROM schema_migrations WHERE version >= 41 ORDER BY version")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(applied, [41, 42]);
+    }
+
+    #[test]
+    fn migration_42_tolerates_columns_from_prerelease_launch_branch() {
+        // fix/wsl-launch 的预发布构建曾把这两列记作 v41；这类库再跑 v42 时
+        // ALTER 会撞上已存在列，必须按语句跳过而不是让启动失败。
+        let db = Database::new_in_memory().unwrap();
+        let conn = db.connection().unwrap();
+        conn.execute("DELETE FROM schema_migrations WHERE version = 42", [])
+            .unwrap();
+        Database::run_migrations(&conn).expect("v42 must tolerate pre-existing columns");
+        assert_eq!(
+            Database::get_current_version(&conn).unwrap(),
+            MIGRATIONS.last().unwrap().version
+        );
     }
 
     #[test]

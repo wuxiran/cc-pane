@@ -29,6 +29,12 @@ interface ResumeIdentityEvent {
   resumeSessionId?: string | null;
   resumeSource?: string;
   oldResumeSessionId?: string;
+  /** source = "launch-failed" 时带：后端把这次启动记成了 failed（L2-1 契约）。 */
+  launchStatus?: string;
+  failureReason?: string;
+  missingCli?: string;
+  fixHint?: string;
+  wslDistro?: string;
 }
 
 function isOutdatedClear(payload: ResumeIdentityEvent): boolean {
@@ -84,8 +90,22 @@ export function useTerminalResumeIdBridge(): void {
         }
       }
       if (payload.ptySessionId && payload.resumeSessionId === null) {
-        useResumeBindingStore.getState().clearBinding(payload.ptySessionId);
+        // 清绑定并立墓碑：撤回的 id 不允许被迟到的 issued 事件写回。
+        useResumeBindingStore
+          .getState()
+          .clearBinding(payload.ptySessionId, payload.oldResumeSessionId);
         usePanesStore.getState().updateTabAgentResumeId(payload.ptySessionId, "");
+      }
+      if (payload.ptySessionId && payload.launchStatus === "failed") {
+        // 启动失败落库完成：leaf 持久化 launchFailure（terminal-launch-warning 可能
+        // 已先写过一次，幂等）。
+        usePanesStore.getState().markTerminalLaunchFailed(payload.ptySessionId, {
+          reason: payload.failureReason ?? "launch-failed",
+          at: Date.now(),
+          missingCli: payload.missingCli,
+          fixHint: payload.fixHint,
+          wslDistro: payload.wslDistro,
+        });
       }
       if (payload.ptySessionId && payload.resumeSessionId) {
         // 绑定事件可能早于 create_terminal 返回（tab.sessionId 尚未写入）到达，

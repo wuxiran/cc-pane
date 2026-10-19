@@ -118,14 +118,16 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
         void recordId;
       }).catch(console.error);
 
-      localHistoryService.initProjectHistory(path).catch(console.error);
-      // CC 启动时自动创建项目快照，方便后续项目级恢复
-      if (launchClaude || resumeId) {
-        localHistoryService.createAutoLabel(
-          workspacePath || path,
-          `CC Session: ${new Date().toLocaleString()}`,
-          "claude_session"
-        ).catch(console.error);
+      // SSH display URIs are identities, never local filesystem locations.
+      if (!ssh) {
+        localHistoryService.initProjectHistory(path).catch(console.error);
+        if (launchClaude || resumeId) {
+          localHistoryService.createAutoLabel(
+            workspacePath || path,
+            `CC Session: ${new Date().toLocaleString()}`,
+            "claude_session"
+          ).catch(console.error);
+        }
       }
     },
     [openProject]

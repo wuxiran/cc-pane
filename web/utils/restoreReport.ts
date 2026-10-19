@@ -12,14 +12,25 @@ export type RestoreReportSummary = {
   shell: number;
   /** Leaves that were expected to resume but lost their conversation id. */
   missingResumeId: number;
+  /**
+   * 上次启动被后端判定失败的 agent leaf（如 WSL 缺原生 CLI）：本次按新会话启动，
+   * 不计入 resumed，也不算 missingResumeId 回归。
+   */
+  failed: number;
 };
 
 /**
  * 只有本次明确走 resumed 恢复的 agent leaf 丢失 resume id 才算回归。
- * adopted 已热接管原 PTY，fresh 本来就是新对话，shell 没有 resume 语义，三者都不报警。
+ * adopted 已热接管原 PTY，fresh 本来就是新对话，shell 没有 resume 语义，failed 是
+ * 已知原因的启动失败（有自己的提示），四者都不报警。
  */
 export function isRestoreRegression(summary: RestoreReportSummary): boolean {
   return summary.missingResumeId > 0;
+}
+
+/** 横幅是否该出现：回归，或有上次失败的启动需要用户知道本次按新会话启动了。 */
+export function hasRestoreNotice(summary: RestoreReportSummary): boolean {
+  return isRestoreRegression(summary) || summary.failed > 0;
 }
 
 /**
@@ -45,14 +56,16 @@ export async function logRestoreReport(): Promise<RestoreReportSummary> {
       const hasResumeId = Boolean(resumeId && resumeId !== "new");
       const mode = cliTool === "none"
         ? "shell"
-        : leaf.restoreMode
-          ?? (leaf.restoring || leaf.savedSessionId
-            ? "resumed"
-            : leaf.sessionId
-              ? "adopted"
-              : hasResumeId
-                ? "resumed"
-                : "fresh");
+        : leaf.launchFailure
+          ? "failed"
+          : leaf.restoreMode
+            ?? (leaf.restoring || leaf.savedSessionId
+              ? "resumed"
+              : leaf.sessionId
+                ? "adopted"
+                : hasResumeId
+                  ? "resumed"
+                  : "fresh");
       return {
         tabId: tab.id,
         terminalPaneId: leaf.id,
@@ -88,6 +101,7 @@ export async function logRestoreReport(): Promise<RestoreReportSummary> {
     missingResumeId: entries.filter(
       (entry) => entry.mode === "resumed" && !entry.hasResumeId,
     ).length,
+    failed: entries.filter((entry) => entry.mode === "failed").length,
     byCliTool,
     tabs: entries,
   };
@@ -107,5 +121,6 @@ export async function logRestoreReport(): Promise<RestoreReportSummary> {
     fresh: summary.fresh,
     shell: summary.shell,
     missingResumeId: summary.missingResumeId,
+    failed: summary.failed,
   };
 }

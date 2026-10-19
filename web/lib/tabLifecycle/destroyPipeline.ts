@@ -15,6 +15,7 @@ import {
 import { isTauriRuntime } from "@/services/runtime";
 import { terminalService } from "@/services/terminalService";
 import { useTabAttentionStore } from "@/stores/useTabAttentionStore";
+import { useTabResourceBadgeStore } from "@/stores/useTabResourceBadgeStore";
 import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import { useTerminalStatusStore } from "@/stores/useTerminalStatusStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
@@ -228,6 +229,7 @@ export function sweepOwnerState(tabIds: Iterable<string>): void {
   for (const tabId of tabIds) {
     useTabViewStateStore.getState().removeOwner(tabId);
     useTabAttentionStore.getState().clearAttention(tabId);
+    useTabResourceBadgeStore.getState().clearResource(tabId);
   }
 }
 
@@ -267,7 +269,7 @@ async function closePoppedWindows(tabIds: string[]): Promise<void> {
 export async function commitResourceDestroy(
   tabs: readonly Tab[],
   reason: DestroyReason,
-  opts: { protectSessionIds?: ReadonlySet<string> } = {},
+  opts: ResourceDestroyOptions = {},
 ): Promise<void> {
   const plan = planTabDestroy(tabs, reason, liveGuardContext());
 
@@ -275,9 +277,25 @@ export async function commitResourceDestroy(
 
   // 阶段 4：per-tab 附属状态清理
   for (const tab of plan.tabs) {
-    TAB_LIFECYCLE[tab.contentType].onClosed(tab, { detach: false, reason });
+    // Non-terminal resources (e.g. a browser webview) belong to the tab id.
+    // Terminal tabs may have divergent leaves, so retain their sessions individually.
+    if (tab.contentType !== "terminal" && opts.keepAliveTabIds?.has(tab.id)) continue;
+    TAB_LIFECYCLE[tab.contentType].onClosed(tab, {
+      detach: false, reason, keepAliveSessionIds: opts.keepAliveSessionIds,
+    });
   }
-  for (const sessionId of plan.sessionIds) disposeSessionScopedResources(asPtySessionId(sessionId));
+  for (const sessionId of plan.sessionIds) {
+    if (!opts.keepAliveSessionIds?.has(sessionId)) disposeSessionScopedResources(asPtySessionId(sessionId));
+  }
+}
+
+export interface ResourceDestroyOptions {
+  /** Snapshot replacement keeps the process, but replaces the old view/subscriptions. */
+  protectSessionIds?: ReadonlySet<string>;
+  /** A surviving owner still uses these sessions: retain their subscriptions and state too. */
+  keepAliveSessionIds?: ReadonlySet<string>;
+  /** Surviving copies still own their popup/browser resources. */
+  keepAliveTabIds?: ReadonlySet<string>;
 }
 
 /**
@@ -294,12 +312,13 @@ export async function destroySessionsDirectly(
   sessionIds: readonly string[],
   poppedOutTabIds: readonly string[],
   reason: DestroyReason,
-  opts: { protectSessionIds?: ReadonlySet<string> } = {},
+  opts: ResourceDestroyOptions = {},
 ): Promise<void> {
   const policy = DESTROY_POLICY[reason];
+  const retiringSessions = sessionIds.filter((id) => !opts.keepAliveSessionIds?.has(id));
 
   // 阶段 1：detach 全部
-  for (const sessionId of sessionIds) {
+  for (const sessionId of retiringSessions) {
     terminalService.detachOutput(sessionId);
     terminalService.detachExit(sessionId);
   }
@@ -308,7 +327,7 @@ export async function destroySessionsDirectly(
   if (policy.kills) {
     const killReason = DESTROY_KILL_REASON[reason] ?? undefined;
     await Promise.all(
-      sessionIds
+      retiringSessions
         .filter((sessionId) => !opts.protectSessionIds?.has(sessionId))
         .map((sessionId) =>
           terminalService.killSession(sessionId, killReason).catch((error) => {
@@ -320,6 +339,6 @@ export async function destroySessionsDirectly(
 
   // 阶段 3：关弹出窗口
   if (policy.closesPopups) {
-    await closePoppedWindows([...poppedOutTabIds]);
+    await closePoppedWindows(poppedOutTabIds.filter((id) => !opts.keepAliveTabIds?.has(id)));
   }
 }

@@ -5,7 +5,7 @@
 // - 拖放：WebView2 拦截 HTML5 drop（dragDropEnabled 默认开），只有 Tauri
 //   原生 onDragDropEvent 能拿到真实路径；web 部署没有这层拦截，HTML5 兜底
 //   留在组件里。
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useTranslation } from "react-i18next";
@@ -14,6 +14,7 @@ import { agentChatService } from "@/services/agentChatService";
 import { screenshotService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
+import { acquireChatDraft, EMPTY_CHAT_ATTACHMENTS, isChatDraftCurrent, useAgentChatDraftStore } from "@/stores/useAgentChatDraftStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import { readClipboardFilePaths } from "@/components/panes/terminalClipboard";
 import { isDropInsideTerminalHost } from "@/components/panes/terminalDrop";
@@ -39,7 +40,8 @@ export function useComposerAttachments(
   imageSupported: boolean,
 ): ComposerAttachmentsApi {
   const { t } = useTranslation("panes");
-  const [attachments, setAttachments] = useState<AgentChatAttachment[]>([]);
+  const draftToken = useMemo(() => acquireChatDraft(chatId), [chatId]);
+  const attachments = useAgentChatDraftStore((state) => state.drafts[chatId]?.attachments ?? EMPTY_CHAT_ATTACHMENTS);
   const [dropHint, setDropHint] = useState(false);
   const hostRef = useRef<HTMLDivElement | null>(null);
 
@@ -48,28 +50,28 @@ export function useComposerAttachments(
   const attachPaths = useCallback(
     async (paths: string[]) => {
       for (const path of paths) {
+        if (!isChatDraftCurrent(chatId, draftToken)) return;
         const name = baseName(path);
         if (planPathAttachment(path, imageSupported) === "file") {
-          setAttachments((previous) => [
-            ...previous,
+          useAgentChatDraftStore.getState().addAttachments(chatId, draftToken, [
             { name, mimeType: "", data: "", kind: "file", path },
           ]);
           continue;
         }
         try {
           const image = await agentChatService.readImageAttachment(path);
-          setAttachments((previous) => [
-            ...previous,
+          useAgentChatDraftStore.getState().addAttachments(chatId, draftToken, [
             { name, mimeType: image.mimeType, data: image.dataBase64, kind: "image" },
           ]);
         } catch (error) {
+          if (!isChatDraftCurrent(chatId, draftToken)) return;
           useAgentChatStore
             .getState()
             .pushNotice(chatId, error instanceof Error ? error.message : String(error));
         }
       }
     },
-    [chatId, imageSupported],
+    [chatId, draftToken, imageSupported],
   );
 
   /** 无路径的剪贴板图片：引擎支持内嵌就读成 base64；不支持时落盘到截图目录
@@ -87,7 +89,7 @@ export function useComposerAttachments(
           } catch (error) {
             handleErrorSilent(error, "persist pasted image for acp attachment");
           }
-          useAgentChatStore.getState().pushNotice(chatId, t("agentChatImageUnsupported"));
+          if (isChatDraftCurrent(chatId, draftToken)) useAgentChatStore.getState().pushNotice(chatId, t("agentChatImageUnsupported"));
         })();
         return;
       }
@@ -97,14 +99,13 @@ export function useComposerAttachments(
         if (typeof result !== "string") return;
         const base64 = result.split(",", 2)[1] ?? "";
         if (!base64) return;
-        setAttachments((previous) => [
-          ...previous,
+        useAgentChatDraftStore.getState().addAttachments(chatId, draftToken, [
           { name: file.name || fallbackName, mimeType: file.type, data: base64 },
         ]);
       };
       reader.readAsDataURL(file);
     },
-    [chatId, imageSupported, t, attachPaths],
+    [chatId, draftToken, imageSupported, t, attachPaths],
   );
 
   /** 附件对话框：选中的文件走统一 attachPaths。 */
@@ -155,12 +156,12 @@ export function useComposerAttachments(
     };
   }, [attachPaths]);
 
-  const clearAttachments = useCallback(() => setAttachments([]), []);
+  const clearAttachments = useCallback(() => useAgentChatDraftStore.getState().clearAttachments(chatId, draftToken), [chatId, draftToken]);
 
   const removeAttachment = useCallback(
     (index: number) =>
-      setAttachments((previous) => previous.filter((_, itemIndex) => itemIndex !== index)),
-    [],
+      useAgentChatDraftStore.getState().removeAttachment(chatId, draftToken, index),
+    [chatId, draftToken],
   );
 
   return {

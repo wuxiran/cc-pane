@@ -7,7 +7,7 @@ import { MODULE_REGISTRY } from "@/modules/registry";
 import { toastErr, toastInfo } from "@/lib/feedback";
 import type { AppSettings } from "@/types";
 import { useSettingsStore } from "@/stores";
-import { DEFAULT_CCCHAN_SETTINGS, useCCChanStore } from "@/stores/useCCChanStore";
+import { useCCChanStore } from "@/stores/useCCChanStore";
 import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore";
 import SettingsPanel from "./SettingsPanel";
 
@@ -373,7 +373,7 @@ describe("SettingsPanel", () => {
     expect(saved.general.language).toBe("en");
     expect(saved.webAccess.passwordSalt).toBe("salt-new");
     expect(saved.webAccess.passwordHash).toBe("hash-new");
-    expect(saveCCChanSettings).toHaveBeenCalledWith(expect.objectContaining(DEFAULT_CCCHAN_SETTINGS));
+    expect(saveCCChanSettings).not.toHaveBeenCalled();
     // 自动保存不关闭面板
     expect(onOpenChange).not.toHaveBeenCalled();
   });

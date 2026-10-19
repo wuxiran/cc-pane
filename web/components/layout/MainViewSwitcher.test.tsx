@@ -246,12 +246,12 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     expect(screen.getByTestId("pane-container").closest("[data-terminal-layout-view]")).toHaveStyle({ display: "none" });
   });
 
-  it("orchestration → panes 兼容态 + overlay，且不渲染 Sidebar", () => {
+  it("orchestration → panes 兼容态 + overlay，且不渲染 Sidebar", async () => {
     setMode("orchestration", { activeView: "orchestration", sidebarVisible: false });
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
     expect(screen.getByTestId("pane-container")).toBeInTheDocument();
     expect(screen.getByTestId("pane-flow-overlay")).toBeInTheDocument();
-    expect(screen.getByTestId("orchestration-overlay")).toBeInTheDocument();
+    expect(await screen.findByTestId("orchestration-overlay")).toBeInTheDocument();
     expect(screen.queryByTestId("sidebar")).toBeNull();
   });
 

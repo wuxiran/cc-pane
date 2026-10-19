@@ -13,6 +13,7 @@
     "errors": "错误"
   },
   "searchPlaceholder": "搜索任务",
+  "loadMore": "加载更多任务",
   "view": {
     "list": "列表",
     "tree": "树"
@@ -134,5 +135,8 @@
     "failed": "失败",
     "idle": "空闲",
     "offline": "离线"
+  },
+  "verification": {
+    "title": "验收证据"
   }
 }

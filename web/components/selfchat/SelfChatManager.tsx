@@ -2,6 +2,7 @@ import { useCallback, useRef, useEffect } from "react";
 import { selfChatOwnerId, useTabViewStateStore } from "@/stores/useTabViewStateStore";
 import { useActivityBarStore } from "@/stores";
 import { useTranslation } from "react-i18next";
+import { toastErr } from "@/lib/feedback";
 import { Loader2 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { TerminalView } from "@/components/panes";
@@ -32,6 +33,7 @@ export default function SelfChatManager() {
     }),
   );
   const activeSession = useSelfChatStore((s) => s.activeSession);
+  const autoStartPaused = useSelfChatStore((s) => s.autoStartPaused);
   const startSession = useSelfChatStore((s) => s.startSession);
   const updatePtySessionId = useSelfChatStore((s) => s.updatePtySessionId);
   const setStatus = useSelfChatStore((s) => s.setStatus);
@@ -40,10 +42,12 @@ export default function SelfChatManager() {
   const terminalRef = useRef<TerminalViewHandle>(null);
   const autoStartedRef = useRef(false);
   const terminalKeyRef = useRef(0);
+  const stoppingRef = useRef(false);
 
   // 自动启动：进入 selfchat 模式时先收集上下文，再启动会话
   useEffect(() => {
-    if (activeSession || autoStartedRef.current) return;
+    if (activeSession || autoStartPaused || autoStartedRef.current) return;
+    let cancelled = false;
     autoStartedRef.current = true;
 
     const onboarding = useSelfChatStore.getState().isOnboarding;
@@ -62,7 +66,7 @@ export default function SelfChatManager() {
       collectPrompt,
     ]).then(([cwd, prompt]) => {
       // 再次检查避免竞争
-      if (useSelfChatStore.getState().activeSession) {
+      if (cancelled || useSelfChatStore.getState().autoStartPaused || useSelfChatStore.getState().activeSession) {
         console.warn(`${LOG_PREFIX} Race condition: session already exists, skipping start`);
         return;
       }
@@ -73,34 +77,27 @@ export default function SelfChatManager() {
       console.error(`${LOG_PREFIX} FAILED to init:`, err);
       autoStartedRef.current = false;
     });
-  }, [activeSession, startSession]);
+    return () => { cancelled = true; autoStartedRef.current = false; };
+  }, [activeSession, autoStartPaused, startSession]);
 
-  const handleRestart = useCallback(() => {
-    console.info(`${LOG_PREFIX} Restart requested`);
-    if (activeSession) {
-      if (activeSession.ptySessionId) {
-        console.info(`${LOG_PREFIX} Killing PTY session: ${activeSession.ptySessionId}`);
-        terminalService.killSession(activeSession.ptySessionId).catch((err) => {
-          console.error(`${LOG_PREFIX} Kill session failed:`, err);
-        });
-      }
-      endSession(activeSession.id);
-    }
-    autoStartedRef.current = false;
-    // 重置后 useEffect 会自动重新启动
-  }, [activeSession, endSession]);
+  const stopSession = useCallback(async (restart: boolean) => {
+    if (stoppingRef.current) return;
+    stoppingRef.current = true;
+    const session = useSelfChatStore.getState().activeSession;
+    try {
+      // Preserve output subscriptions if the backend rejects the stop. The
+      // mounted TerminalView owns subscription cleanup after confirmed exit.
+      if (session?.ptySessionId) await terminalService.killIdempotent(session.ptySessionId);
+      if (session) endSession(session.id);
+      autoStartedRef.current = false;
+      if (restart) useSelfChatStore.getState().resumeAutoStart();
+    } catch (error) {
+      toastErr(error instanceof Error ? error.message : String(error));
+    } finally { stoppingRef.current = false; }
+  }, [endSession]);
 
-  const handleEndSession = useCallback(() => {
-    if (!activeSession) return;
-    console.info(`${LOG_PREFIX} End session requested, id=${activeSession.id}`);
-    if (activeSession.ptySessionId) {
-      terminalService.killSession(activeSession.ptySessionId).catch((err) => {
-        console.error(`${LOG_PREFIX} Kill session failed:`, err);
-      });
-    }
-    endSession(activeSession.id);
-    autoStartedRef.current = false;
-  }, [activeSession, endSession]);
+  const handleRestart = useCallback(() => void stopSession(true), [stopSession]);
+  const handleEndSession = useCallback(() => void stopSession(false), [stopSession]);
 
   const handleSessionCreated = useCallback(
     (ptySessionId: string) => {
@@ -216,10 +213,11 @@ export default function SelfChatManager() {
   return (
     <div className="flex-1 flex items-center justify-center">
       <div className="text-center space-y-3">
-        <Loader2 className="w-8 h-8 mx-auto text-muted-foreground/60 animate-spin" />
+        {!autoStartPaused && <Loader2 className="w-8 h-8 mx-auto text-muted-foreground/60 animate-spin" />}
         <p className="text-sm text-muted-foreground">
-          {t("selfChat.emptyState")}
+          {t(autoStartPaused ? "selfChat.stopped" : "selfChat.emptyState")}
         </p>
+        {autoStartPaused && <button type="button" className="rounded border px-3 py-1.5 text-sm" onClick={handleRestart}>{t("selfChat.restart")}</button>}
       </div>
     </div>
   );

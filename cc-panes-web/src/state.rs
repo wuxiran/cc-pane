@@ -32,6 +32,8 @@ pub struct AppState {
     pub todo_service: Arc<TodoService>,
     pub spec_service: Arc<SpecService>,
     pub task_binding_service: Arc<TaskBindingService>,
+    pub task_verification_service: Arc<cc_panes_core::services::TaskVerificationService>,
+    pub fork_review_service: Arc<cc_panes_core::services::ForkReviewService>,
     pub launch_history_service: Arc<LaunchHistoryService>,
     pub drama_service: Arc<DramaService>,
     pub layout_snapshot_service: Arc<LayoutSnapshotService>,

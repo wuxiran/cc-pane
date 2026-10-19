@@ -1,4 +1,12 @@
 {
+  "agentChatTimeline": "Conversation timeline",
+  "agentChatTimelineUntitled": "Conversation",
+  "agentChatTimelineJump": "Jump to turn {{number}}: {{title}}",
+  "agentChatTimelinePreview": "Turn {{number}} preview",
+  "agentChatTimelineBookmark": "Add bookmark",
+  "agentChatTimelineUnbookmark": "Remove bookmark",
+  "agentChatTimelineNoReply": "No reply yet",
+  "agentChatTimelinePosition": "Turn {{number}} of {{total}}",
   "rendererRecoveryFailed": "The terminal display could not recover. Retrying restores the display without rerunning the task.",
   "retryRendererRecovery": "Retry display recovery",
   "ready": "Ready",
@@ -319,7 +327,9 @@
   "restoreRegression": {
     "title": "{{count}} restored terminal sessions lost their conversation history",
     "impact": "Those sessions started fresh instead of resuming. The resume id may not have reached the database; check [restore-report] and bind_resume_id in the app log.",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "failedTitle": "{{count}} terminal(s) failed to launch last time and started as new sessions",
+    "failedImpact": "The WSL distro had no native Linux build of the CLI (only the Windows one on PATH). The pre-issued session id was revoked, so no nonexistent conversation is resumed; see the tab for the fix command."
   },
   "newTabMenu": "New…",
   "newTerminalTab": "New Terminal",
@@ -330,6 +340,7 @@
   "agentChatBrowseDir": "Browse for a folder…",
   "agentChatWorkspaceRoot": "workspace root",
   "agentChatModelDefault": "Default model",
+  "agentChatModelUnavailable": "The selected model \"{{model}}\" is not available from this engine. Sending is blocked. Choose an available model and retry.",
   "agentChatChanges": "Changes",
   "agentChatChangesTitle": "Files changed this session ({{count}})",
   "agentChatNoChanges": "No file changes reported yet",
@@ -342,7 +353,9 @@
   "agentChatRenameCancel": "Cancel",
   "agentChatDeleteHistory": "Delete record",
   "agentChatDeleteConfirm": "Confirm delete",
+  "agentChatSetupRecovery": "Setup is incomplete. Choose an available option, then restart the session to retry.",
   "agentChatModeDefault": "Default mode",
+  "agentChatModeUnavailable": "The selected mode \"{{mode}}\" is not available from this engine. Sending is blocked. Choose an available mode and retry.",
   "agentChatPermTitle": "Permissions",
   "agentChatPermHint": "Checked categories skip the approval card and pick \"allow once\"; everything else still asks. Categories follow what the engine reports: Codex network access counts as \"Run commands\", MCP tools count as \"Other\". Multi-choice questions always show.",
   "agentChatPermDefault": "Default permissions",
@@ -519,6 +532,7 @@
   "chatViewTitle": "Conversation",
   "chatBackToTerminal": "Back to terminal",
   "chatRefresh": "Refresh",
+  "chatHistoryChanged": "Conversation history changed. Refresh to load it again.",
   "chatLoadEarlier": "Load earlier",
   "chatNoResumeId": "No resume id yet — conversation history is unavailable until the agent session is bound.",
   "chatNotFound": "Could not find the on-disk conversation transcript.",
@@ -545,6 +559,15 @@
   "resizeLayoutListHeight": "Resize layout list height",
   "codexResumeCaptureExhausted": "Codex session id capture failed: the new resume id for this run was not recorded, so the next resume may fall back to an earlier conversation.",
   "resumeLaunchFailed": "Session resume failed: the resume target may be invalid ({{cli}}). The original conversation could not be continued; relaunch or start a new session from that tab.",
+  "nativeCliMissing": "No native Linux {{cli}} in WSL distro {{distro}}; launch failed. Run inside the distro: {{fix}}",
+  "launchFailure": {
+    "nativeCliMissingTitle": "No native Linux {{cli}} in {{distro}}; the last launch failed",
+    "genericTitle": "The last launch failed ({{reason}})",
+    "retryHint": "Run the command above inside the WSL distro, then relaunch this tab."
+  },
   "defaultLayoutName": "Layout {{index}}",
-  "starredLayoutName": "Starred"
+  "starredLayoutName": "Starred",
+  "forkChat": "Fork conversation",
+  "forkUnsupported": "This engine does not support independent conversation forks",
+  "forkReviewTitle": "Compare fork results"
 }

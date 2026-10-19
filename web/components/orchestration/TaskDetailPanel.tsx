@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, ChevronRight, Circle, CircleDashed, CheckCircle2, Clipboard, ExternalLink, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,9 @@ import { todoService } from "@/services";
 import { asTabId } from "@/types/ids";
 import { AI_WORK_ITEM_TODO_TYPE } from "@/types/todo";
 import type { TaskBinding, TodoItem } from "@/types";
+import { lazyWithRetry } from "@/lib/lazyRetry";
+
+const TaskVerificationCard = lazyWithRetry(() => import("./TaskVerificationCard"), "TaskVerificationCard");
 
 interface TaskDetailPanelProps {
   binding: TaskBinding | null;
@@ -221,6 +224,10 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
             {t("detail.viewInPty", { defaultValue: "在终端中查看" })}
           </Button>
         </header>
+
+        <Suspense fallback={<p className="text-xs text-muted-foreground">{t("verification.title", { defaultValue: "Verification evidence" })}…</p>}>
+          <TaskVerificationCard key={binding.id} taskId={binding.id} />
+        </Suspense>
 
         <DetailSection title={t("detail.prompt", { defaultValue: "提示词" })}>
           <div className="rounded-lg" style={{ border: "1px solid var(--app-border)" }}>

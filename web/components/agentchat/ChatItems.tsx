@@ -37,7 +37,7 @@ export function CopyButton({ text, label }: { text: string; label: string }) {
       type="button"
       aria-label={label}
       title={label}
-      className="rounded p-0.5 text-[var(--app-icon-inactive)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]"
+      className="agent-chat-copy rounded-md p-1 text-[var(--app-text-tertiary)] opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--app-accent)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
       onClick={() => {
         void navigator.clipboard
           .writeText(text)
@@ -124,7 +124,7 @@ export function ItemView({ item, onPlanToTodo }: ItemViewProps) {
               </div>
             ) : null}
             {item.text ? (
-              <div className="max-w-[85%] rounded-2xl rounded-br-md bg-[var(--app-active-bg)] px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
+              <div className="agent-chat-user-message max-w-[85%] rounded-3xl px-5 py-3 whitespace-pre-wrap break-words">
                 {item.text}
               </div>
             ) : null}

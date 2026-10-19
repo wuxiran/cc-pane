@@ -230,3 +230,87 @@ fn heavy_queued_then_granted_prints_position_and_releases_with_exit_code() {
     assert_eq!(release["exitCode"], 7);
     assert!(release["durationMs"].is_number());
 }
+
+#[cfg(unix)]
+#[test]
+fn native_runner_preserves_guest_cwd_environment_arguments_and_stdin() {
+    use std::process::Stdio;
+    let (url, recorded) = spawn_gate(vec![(
+        "/api/heavy-jobs/acquire",
+        r#"{"outcome":"granted","leaseId":"native","forced":false}"#,
+    )]);
+    let dir = tempfile::tempdir().unwrap();
+    let runner = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../cc-panes-core/assets/heavy-run.sh");
+    let mut child = Command::new("bash")
+        .arg(runner)
+        .args([
+            "--heavy",
+            "--label",
+            "Linux build",
+            "--",
+            "sh",
+            "-c",
+            "read line; printf '%s\\n' \"$PWD\" \"$GUEST_ONLY\" \"$line\" \"$1\"; exit 7",
+            "sh",
+            "x\" & literal",
+        ])
+        .current_dir(dir.path())
+        .env("GUEST_ONLY", "guest environment")
+        .env("CC_PANES_CTL", env!("CARGO_BIN_EXE_cc-panes-ctl"))
+        .env("CC_PANES_RUNTIME_KIND", "wsl")
+        .env("CC_PANES_API_BASE_URL", url)
+        .env("CC_PANES_API_TOKEN", "test-token")
+        .env("CC_PANES_PTY_SESSION_ID", "native-session")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"stdin preserved\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(7), "{}", stderr_of(&output));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("guest environment\nstdin preserved\nx\" & literal"));
+    assert!(stdout.contains(dir.path().canonicalize().unwrap().to_str().unwrap()));
+    let seen = recorded.lock().unwrap();
+    assert!(seen
+        .iter()
+        .any(|(path, body)| path.ends_with("/release") && body.contains("\"exitCode\":7")));
+}
+
+#[test]
+fn gate_holder_releases_on_native_runner_pipe_eof() {
+    use std::process::Stdio;
+    let (url, recorded) = spawn_gate(vec![(
+        "/api/heavy-jobs/acquire",
+        r#"{"outcome":"granted","leaseId":"eof","forced":false}"#,
+    )]);
+    let mut command = ctl();
+    let mut child = command
+        .args(["gate-hold", "--", "cargo", "test"])
+        .env("CC_PANES_API_BASE_URL", url)
+        .env("CC_PANES_API_TOKEN", "test-token")
+        .env("CC_PANES_PTY_SESSION_ID", "eof-session")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut ready = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut ready)
+        .unwrap();
+    assert_eq!(ready.trim(), "CCPANES_GATE_READY");
+    drop(child.stdin.take());
+    assert!(child.wait().unwrap().success());
+    assert!(recorded
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(path, _)| path.ends_with("/release")));
+}

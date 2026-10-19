@@ -33,6 +33,8 @@ export interface ChatSessionHeaderProps {
   onToggleTools: () => void;
   canFork: boolean;
   onFork: () => void;
+  onReviewFork?: () => void;
+  hasForkOrigin?: boolean;
   canCopySessionId: boolean;
   onCopySessionId: () => void;
   canExport: boolean;
@@ -50,6 +52,8 @@ export default function ChatSessionHeader({
   onToggleTools,
   canFork,
   onFork,
+  onReviewFork,
+  hasForkOrigin,
   canCopySessionId,
   onCopySessionId,
   canExport,
@@ -57,25 +61,32 @@ export default function ChatSessionHeader({
 }: ChatSessionHeaderProps) {
   const { t } = useTranslation("panes");
   return (
-    <div className="flex h-9 shrink-0 items-center gap-2 border-b border-[var(--app-border)] px-3">
-      <span className="flex h-5 w-5 items-center justify-center rounded-md bg-[var(--app-active-bg)] text-[var(--app-accent)]">
-        <Bot className="h-3 w-3" />
-      </span>
-      <span className="text-xs font-medium text-[var(--app-text-primary)]">{engineLabel}</span>
-      {workspaceMenu}
-      {generating ? (
-        <span className="flex items-center gap-1 text-[11px] text-[var(--app-text-tertiary)]">
-          <Loader2 className="h-3 w-3 animate-spin" /> {t("agentChatThinking")}
+    <div className="agent-chat-header flex min-h-12 shrink-0 items-center gap-3 px-5 py-2">
+      <div className="agent-chat-header-identity flex min-w-0 items-center gap-2.5">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--app-text-secondary)]">
+          <Bot className="h-4 w-4" strokeWidth={1.6} />
         </span>
-      ) : null}
+        <span className="truncate text-[13px] font-medium text-[var(--app-text-primary)]">{engineLabel}</span>
+        {workspaceMenu ? (
+          <div className="agent-chat-header-workspace min-w-0 max-w-[50%] [&>button]:max-w-full">
+            {workspaceMenu}
+          </div>
+        ) : null}
+        {generating ? (
+          <span className="agent-chat-header-status flex shrink-0 items-center gap-1.5 text-xs text-[var(--app-text-tertiary)]">
+            <Loader2 className="h-3 w-3 animate-spin" /> {t("agentChatThinking")}
+          </span>
+        ) : null}
+      </div>
       <span className="flex-1" />
+      {hasForkOrigin && onReviewFork && <IconTooltipButton label={t("forkReviewTitle", { defaultValue: "Compare fork results" })} className="h-8 w-8" onClick={onReviewFork}><GitFork className="h-3.5 w-3.5" /></IconTooltipButton>}
       {changesCount > 0 ? (
         <button
           type="button"
           aria-label={t("agentChatChanges")}
-          className={`flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] tabular-nums transition-colors hover:bg-[var(--app-hover)] ${
+          className={`flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs tabular-nums transition-colors hover:bg-[var(--app-hover)] ${
             showChanges
-              ? "bg-[var(--app-active-bg)] text-[var(--app-accent)]"
+              ? "bg-[var(--app-hover)] text-[var(--app-text-primary)]"
               : "text-[var(--app-text-secondary)] hover:text-[var(--app-text-primary)]"
           }`}
           onClick={onToggleChanges}
@@ -86,7 +97,7 @@ export default function ChatSessionHeader({
       ) : null}
       <IconTooltipButton
         label={toolsExpanded ? t("agentChatCollapseTools") : t("agentChatExpandTools")}
-        className="h-6 w-6"
+        className="h-8 w-8"
         onClick={onToggleTools}
       >
         {toolsExpanded ? (
@@ -100,15 +111,16 @@ export default function ChatSessionHeader({
           <button
             type="button"
             aria-label={t("agentChatMore")}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
           >
             <MoreHorizontal className="h-3.5 w-3.5" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuItem disabled={!canFork} onSelect={onFork}>
-            <GitFork /> {t("agentChatContinueNewTab")}
+          <DropdownMenuItem disabled={!canFork} title={!canFork ? t("forkUnsupported") : undefined} onSelect={onFork}>
+            <GitFork /> {t("forkChat")}
           </DropdownMenuItem>
+          {onReviewFork && <DropdownMenuItem onSelect={onReviewFork}><FileDiff /> {t("forkReviewTitle", { defaultValue: "Compare fork results" })}</DropdownMenuItem>}
           <DropdownMenuItem disabled={!canCopySessionId} onSelect={onCopySessionId}>
             <Copy /> {t("agentChatCopySessionId")}
           </DropdownMenuItem>

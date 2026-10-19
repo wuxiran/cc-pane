@@ -9,17 +9,14 @@ import type { AcpAvailableCommand, AcpChatPhase, AcpUsage } from "@/types/agentC
 import { agentChatService } from "@/services/agentChatService";
 import { isTauriRuntime } from "@/services/runtime";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
+import { acquireChatDraft, useAgentChatDraftStore } from "@/stores/useAgentChatDraftStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
-import { isAbsolutePath, joinCwd, toFileUri } from "./chatPaths";
+import { buildPromptBlocks } from "./chatPrompt";
+import { submitReservedPrompt } from "./submitReservedPrompt";
 import { useComposerAttachments } from "./useComposerAttachments";
 import ChatVoiceButton from "./ChatVoiceButton";
 import ContextUsageRing from "./ContextUsageRing";
-
-// 草稿与发送历史按 tabId 缓存在模块级：组件卸载（切标签）不丢。
-const draftCache = new Map<string, string>();
-const sentHistoryCache = new Map<string, string[]>();
-const SENT_HISTORY_LIMIT = 50;
 
 export interface ChatComposerProps {
   chatId: string;
@@ -47,12 +44,14 @@ export default function ChatComposer({
 }: ChatComposerProps) {
   const { t } = useTranslation("panes");
   // 最后一条用户消息（重试上一轮用；从 store 取，重挂载不丢）。
-  const lastUserText = useAgentChatStore((state) => {
-    const chatItems = state.chats[chatId]?.items;
+  const lastUserMessage = useAgentChatStore((state) => {
+    const chat = state.chats[chatId];
+    if (chat?.rejectedPrompt) return chat.rejectedPrompt;
+    const chatItems = chat?.items;
     if (!chatItems) return null;
     for (let index = chatItems.length - 1; index >= 0; index -= 1) {
       const item = chatItems[index];
-      if (item.type === "user" && item.text) return item.text;
+      if (item.type === "user") return item;
     }
     return null;
   });
@@ -64,7 +63,13 @@ export default function ChatComposer({
       | undefined;
     return caps?.promptCapabilities?.image === true;
   });
-  const [draft, setDraftState] = useState(() => draftCache.get(chatId) ?? "");
+  const submissionBlocked = useAgentChatStore((state) => {
+    const chat = state.chats[chatId];
+    return Boolean(chat?.pendingPrompt || chat?.setup?.pending || chat?.setup?.error
+      || (chat?.snapshot && chat.snapshot.phase !== "ready"));
+  });
+  const draftToken = useMemo(() => acquireChatDraft(chatId), [chatId]);
+  const draft = useAgentChatDraftStore((state) => state.drafts[chatId]?.text ?? "");
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const historyIndexRef = useRef<number | null>(null);
@@ -82,10 +87,9 @@ export default function ChatComposer({
 
   const setDraft = useCallback(
     (value: string) => {
-      draftCache.set(chatId, value);
-      setDraftState(value);
+      useAgentChatDraftStore.getState().setText(chatId, draftToken, value);
     },
-    [chatId],
+    [chatId, draftToken],
   );
 
   // `/` 开头且未含空格 → 斜杠命令菜单（点击/键盘补全，发送仍是普通文本 prompt）。
@@ -176,41 +180,21 @@ export default function ChatComposer({
     const text = draft.trim();
     if ((!text && attachments.length === 0) || phase !== "ready") return;
 
-    const blocks: unknown[] = attachments.map((attachment) =>
-      attachment.kind === "file" && attachment.path
-        ? { type: "resource_link", uri: toFileUri(attachment.path), name: attachment.name }
-        : { type: "image", mimeType: attachment.mimeType, data: attachment.data },
-    );
-    // `@路径` → resource_link 块（ACP 基线能力，所有 agent 必须支持）。
-    for (const match of text.matchAll(/(?:^|\s)@([^\s@]+)/g)) {
-      const mention = match[1];
-      const absolute = isAbsolutePath(mention) ? mention : joinCwd(cwd || ".", mention);
-      blocks.push({ type: "resource_link", uri: toFileUri(absolute), name: mention });
-    }
-    if (text) blocks.push({ type: "text", text });
+    const blocks = buildPromptBlocks(text, attachments, cwd);
+    const token = useAgentChatStore.getState().beginPrompt(chatId, { text, attachments, promptBlocks: blocks });
+    if (token === null) return;
 
     setDraft("");
-    const sentAttachments = attachments;
     clearAttachments();
     onBeforeSend?.();
     historyIndexRef.current = null;
-    if (text) {
-      const history = sentHistoryCache.get(chatId) ?? [];
-      history.push(text);
-      if (history.length > SENT_HISTORY_LIMIT) history.shift();
-      sentHistoryCache.set(chatId, history);
-    }
-    useAgentChatStore.getState().addUserMessage(chatId, text, sentAttachments);
-    void agentChatService.prompt(chatId, blocks).catch((error) => {
-      useAgentChatStore
-        .getState()
-        .pushNotice(chatId, error instanceof Error ? error.message : String(error));
-    });
-  }, [draft, attachments, phase, chatId, cwd, setDraft, clearAttachments, onBeforeSend]);
+    if (text) useAgentChatDraftStore.getState().rememberSent(chatId, draftToken, text);
+    void submitReservedPrompt(chatId, token, blocks).catch((error) => handleErrorSilent(error, "submit acp prompt"));
+  }, [draft, attachments, phase, chatId, cwd, draftToken, setDraft, clearAttachments, onBeforeSend]);
 
   const recallHistory = useCallback(
     (direction: -1 | 1) => {
-      const history = sentHistoryCache.get(chatId) ?? [];
+      const history = useAgentChatDraftStore.getState().drafts[chatId]?.sentHistory ?? [];
       if (history.length === 0) return false;
       const current = historyIndexRef.current;
       let next: number | null;
@@ -236,25 +220,27 @@ export default function ChatComposer({
     });
   }, [chatId]);
 
-  /** 重试上一轮：原样重发最后一条用户消息（附件/文件引用不重放）。 */
+  /** 重试上一轮：保留原始 blocks，包含仅附件消息以及发送时解析出的绝对引用。 */
   const retryLast = useCallback(() => {
-    if (!lastUserText || phase !== "ready") return;
-    onBeforeSend?.();
-    useAgentChatStore.getState().addUserMessage(chatId, lastUserText);
-    void agentChatService.prompt(chatId, [{ type: "text", text: lastUserText }]).catch((error) => {
-      useAgentChatStore
-        .getState()
-        .pushNotice(chatId, error instanceof Error ? error.message : String(error));
+    if (!lastUserMessage || phase !== "ready") return;
+    const blocks = lastUserMessage.promptBlocks
+      ?? buildPromptBlocks(lastUserMessage.text, lastUserMessage.attachments ?? [], cwd);
+    if (blocks.length === 0) return;
+    const token = useAgentChatStore.getState().beginPrompt(chatId, {
+      text: lastUserMessage.text, attachments: lastUserMessage.attachments, promptBlocks: blocks,
     });
-  }, [chatId, lastUserText, phase, onBeforeSend]);
+    if (token === null) return;
+    onBeforeSend?.();
+    void submitReservedPrompt(chatId, token, blocks).catch((error) => handleErrorSilent(error, "retry acp prompt"));
+  }, [chatId, lastUserMessage, phase, onBeforeSend, cwd]);
 
-  const canSend = phase === "ready" && (Boolean(draft.trim()) || attachments.length > 0);
+  const canSend = phase === "ready" && !submissionBlocked && (Boolean(draft.trim()) || attachments.length > 0);
 
   return (
-    <div ref={hostRef} className="px-3 pb-3 pt-1">
-      <div className="mx-auto flex max-w-3xl flex-col gap-1.5">
+    <div ref={hostRef} className="agent-chat-composer px-5 pb-5 pt-3">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
         {slashMatches.length > 0 ? (
-          <div className="flex flex-col overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-overlay)] shadow-md">
+          <div className="flex flex-col overflow-hidden rounded-2xl border border-[var(--app-border)] bg-[var(--app-overlay)] py-1 shadow-md">
             {slashMatches.map((command, index) => (
               <button
                 key={command.name}
@@ -281,7 +267,8 @@ export default function ChatComposer({
           </div>
         ) : null}
         <div
-          className={`rounded-xl border bg-[var(--app-chat-composer-bg)] px-3 pb-2 pt-2.5 shadow-sm transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)] focus-within:border-[var(--app-accent)]/70 focus-within:shadow-[0_0_0_3px_var(--app-active-bg)] ${
+          data-drop-active={dropHint || undefined}
+          className={`agent-chat-composer-shell rounded-3xl border bg-[var(--app-chat-composer-bg)] px-4 pb-3 pt-4 transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)] focus-within:border-[var(--app-text-tertiary)] ${
             dropHint
               ? "border-[var(--app-accent)] shadow-[0_0_0_3px_var(--app-active-bg)]"
               : "border-[var(--app-border)]"
@@ -290,11 +277,11 @@ export default function ChatComposer({
           onDragOver={(event) => event.preventDefault()}
         >
           {attachments.length > 0 ? (
-            <div className="mb-2 flex flex-wrap gap-1.5">
+            <div className="mb-3 flex flex-wrap gap-2">
               {attachments.map((attachment, index) => (
                 <span
                   key={index}
-                  className="flex items-center gap-1 rounded-md border border-[var(--app-border)] bg-[var(--app-overlay)] px-1.5 py-0.5 text-[11px] text-[var(--app-text-secondary)]"
+                  className="flex min-w-0 items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-overlay)] px-2.5 py-1.5 text-xs text-[var(--app-text-secondary)]"
                 >
                   {attachment.kind === "file" ? (
                     <FileText className="h-3 w-3" />
@@ -371,26 +358,26 @@ export default function ChatComposer({
             }}
             placeholder={t("agentChatSendPlaceholder")}
             rows={2}
-            className="max-h-48 min-h-[2.75rem] w-full resize-none bg-transparent text-sm leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
+            className="agent-chat-composer-input max-h-48 min-h-[4.25rem] w-full resize-none bg-transparent text-[15px] leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
           />
-          <div className="mt-1.5 flex items-end justify-between gap-2">
-            <div className="flex min-w-0 flex-wrap items-center gap-1">
+          <div className="agent-chat-composer-toolbar mt-3 flex items-end justify-between gap-3">
+            <div className="agent-chat-composer-options flex min-w-0 flex-wrap items-center gap-1.5">
               <IconTooltipButton
                 label={t("agentChatAttach")}
-                className="h-7 w-7 shrink-0"
+                className="h-8 w-8 shrink-0 rounded-full"
                 onClick={() => void attachFromDialog()}
               >
                 <Plus className="h-4 w-4" />
               </IconTooltipButton>
               {toolbar}
             </div>
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="agent-chat-composer-actions flex shrink-0 items-center gap-1.5">
               {usage ? <ContextUsageRing usage={usage} /> : null}
-              {lastUserText && !generating ? (
+              {lastUserMessage && !generating ? (
                 <IconTooltipButton
                   label={t("agentChatRetry")}
-                  disabled={phase !== "ready"}
-                  className="h-7 w-7"
+                  disabled={phase !== "ready" || submissionBlocked}
+                  className="h-8 w-8 rounded-full"
                   onClick={retryLast}
                 >
                   <RotateCw className="h-3.5 w-3.5" />
@@ -399,12 +386,13 @@ export default function ChatComposer({
               <ChatVoiceButton
                 chatId={chatId}
                 variant="ghost"
-                onText={(text) => setDraft(draft ? `${draft} ${text}` : text)}
+                sizeClass="h-8 w-8 rounded-full"
+                onText={(text) => useAgentChatDraftStore.getState().appendText(chatId, draftToken, text)}
               />
               {generating ? (
                 <IconTooltipButton
                   label={t("agentChatStop")}
-                  className="h-7 w-7 rounded-full bg-[var(--app-text-primary)] text-[var(--app-panel-bg)] hover:bg-[var(--app-text-primary)] hover:text-[var(--app-panel-bg)] hover:opacity-85"
+                  className="h-8 w-8 rounded-full bg-[var(--app-text-primary)] text-[var(--app-panel-bg)] hover:bg-[var(--app-text-primary)] hover:text-[var(--app-panel-bg)] hover:opacity-85"
                   onClick={cancel}
                 >
                   <Square className="h-3 w-3 fill-current" />
@@ -414,7 +402,7 @@ export default function ChatComposer({
                   label={t("agentChatSend")}
                   kbd="Enter"
                   disabled={!canSend}
-                  className="h-7 w-7 rounded-full bg-[var(--app-accent)] text-white hover:bg-[var(--app-accent)] hover:text-white hover:opacity-90 disabled:opacity-35"
+                  className="h-8 w-8 rounded-full bg-[var(--app-text-primary)] text-[var(--app-panel-bg)] hover:bg-[var(--app-text-primary)] hover:text-[var(--app-panel-bg)] hover:opacity-85 disabled:opacity-30"
                   onClick={send}
                 >
                   <ArrowUp className="h-4 w-4" strokeWidth={2.5} />

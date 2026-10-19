@@ -6,6 +6,7 @@ mod commands;
 pub mod constants;
 pub mod emitter;
 pub mod import;
+mod main_window_visibility;
 pub mod models;
 pub mod pty;
 pub mod repository;
@@ -14,12 +15,14 @@ pub mod utils;
 mod webview_reliability;
 
 use ccchan_commands::{
-    get_ccchan_pets, get_ccchan_pets_dir, get_ccchan_settings, hide_ccchan,
+    focus_ccchan_main, get_ccchan_pets, get_ccchan_pets_dir, get_ccchan_settings, hide_ccchan,
     is_ccchan_chat_session_alive, move_ccchan_window, open_ccchan_pets_dir,
     resize_ccchan_for_bubble, resize_ccchan_for_chat, resize_ccchan_for_menu, save_ccchan_settings,
-    send_to_ccchan, show_ccchan, start_ccchan_chat, stop_ccchan_chat,
+    send_to_ccchan, set_ccchan_window_mode, show_ccchan, start_ccchan_chat, stop_ccchan_chat,
+    take_ccchan_say,
 };
 use ccchan_service::{CCChanService, CcChanSessionNotifier};
+use commands::retry_dispatched_task;
 use commands::{
     abort_pi_rpc_session,
     ack_terminal_output,
@@ -35,6 +38,7 @@ use commands::{
     add_workspace_project,
     add_worktree,
     adopt_terminal_session,
+    apply_fork_changes,
     batch_update_todo_status,
     browser_back,
     browser_close,
@@ -123,6 +127,8 @@ use commands::{
     extract_last_prompt,
     find_task_binding_by_session,
     focus_popup_terminal_window,
+    fork_acp_chat,
+    fork_chat_worktree,
     format_memory_for_injection,
     fs_copy_entry,
     fs_create_directory,
@@ -151,6 +157,7 @@ use commands::{
     // DeepSeek Harness（dsh）命令
     get_dsh_instance,
     get_file_branches,
+    get_fork_comparison,
     get_git_branch,
     get_git_changed_files,
     get_git_conflict_versions,
@@ -283,6 +290,7 @@ use commands::{
     list_external_skills,
     list_file_versions,
     list_file_versions_by_branch,
+    list_fork_reviews,
     list_git_commit_files,
     list_git_conflicts,
     list_labels,
@@ -309,6 +317,7 @@ use commands::{
     list_specs,
     // SSH Machine 命令
     list_ssh_machines,
+    list_task_verification,
     list_todo_activities,
     list_user_skills,
     list_wallpapers,
@@ -332,6 +341,7 @@ use commands::{
     open_path_in_explorer,
     open_web_access,
     parse_import_url,
+    prepare_chat_fork,
     prepare_session_context,
     preview_launch_profile_resolution,
     preview_project_migration,
@@ -392,6 +402,7 @@ use commands::{
     rollback_project_migration,
     rollback_workspace_migration,
     run_automation_now,
+    run_task_verification,
     run_terminal_path_link_action,
     // Runner Registry 命令
     runner_delete_profile,
@@ -843,18 +854,25 @@ fn should_close_main_window_to_tray(window: &tauri::Window) -> bool {
         .unwrap_or(false)
 }
 
-/// 触发截图流程：SetWindowDisplayAffinity 方案
-/// Windows: 设置 WDA_EXCLUDEFROMCAPTURE → xcap 截屏 → 选区 → 裁剪保存 → 恢复 WDA_NONE
-/// 非 Windows: Tauri hide → 截屏 → 选区 → 裁剪保存 → Tauri show
+/// 全局快捷键与应用内菜单共用的截图入口；交互、编码和文件 I/O 均在后台执行。
 pub fn trigger_screenshot(app: &tauri::AppHandle, settings_service: Arc<SettingsService>) {
-    use std::time::Instant;
-
     if CAPTURING
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
         return;
     }
+
+    let retention_days = settings_service.get_settings().screenshot.retention_days;
+    #[cfg(target_os = "macos")]
+    ScreenshotService::trigger_macos(app.clone(), retention_days, &CAPTURING);
+    #[cfg(not(target_os = "macos"))]
+    trigger_legacy_screenshot(app, retention_days);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn trigger_legacy_screenshot(app: &tauri::AppHandle, retention_days: u32) {
+    use std::time::Instant;
 
     // 获取主窗口 HWND（isize 可安全跨线程传递）
     #[cfg(target_os = "windows")]
@@ -887,7 +905,6 @@ pub fn trigger_screenshot(app: &tauri::AppHandle, settings_service: Arc<Settings
 
     #[allow(unused_variables)]
     let app = app.clone();
-    let retention_days = settings_service.get_settings().screenshot.retention_days;
     #[cfg(not(target_os = "windows"))]
     let fallback_app = app.clone();
     if let Err(error) = cc_panes_core::pty::thread::spawn_named("cc-panes-screenshot", move || {
@@ -1019,8 +1036,8 @@ fn restore_display_affinity(hwnd_val: Option<isize>) {
     }
 }
 
-/// 非 Windows 平台：通过 Tauri API 恢复主窗口
-#[cfg(not(target_os = "windows"))]
+/// 其余平台：通过 Tauri API 恢复主窗口
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn restore_main_window_tauri(app: &tauri::AppHandle) {
     if let Some(main_win) = app.get_webview_window("main") {
         let _ = main_win.show();
@@ -1680,6 +1697,13 @@ pub fn run() {
     let provider_service = Arc::new(ProviderService::new(app_paths.providers_path()));
     let todo_service = Arc::new(TodoService::new(todo_repo));
     let task_binding_service = Arc::new(TaskBindingService::new(task_binding_repo));
+    let task_verification_service = Arc::new(services::TaskVerificationService::new(
+        app_paths.data_dir().to_path_buf(),
+        task_binding_service.clone(),
+    ));
+    let fork_review_service = Arc::new(services::ForkReviewService::new(
+        app_paths.data_dir().to_path_buf(),
+    ));
     let pi_rpc_service = Arc::new(PiRpcService::new());
     let acp_chat_service = Arc::new(services::AcpChatService::new(
         app_paths.data_dir().join("agent-chats"),
@@ -1966,6 +1990,8 @@ pub fn run() {
         .manage(ccchan_service)
         .manage(todo_service)
         .manage(task_binding_service)
+        .manage(task_verification_service)
+        .manage(fork_review_service)
         .manage(task_queue_service)
         .manage(ai_panel_repo)
         .manage(mcp_tool_call_stats_repo)
@@ -2313,6 +2339,11 @@ pub fn run() {
             }
 
             webview_reliability::install_main_webview_process_failed_handler(app.handle())?;
+            if let Some(main_window) = app.get_webview_window("main") {
+                if let Err(error) = main_window_visibility::install(&main_window) {
+                    warn!("[window-visibility] install failed: {error}");
+                }
+            }
 
             // ---- 注册 updater 插件（需在 setup 中注册以访问 app handle）----
             #[cfg(desktop)]
@@ -2448,9 +2479,11 @@ pub fn run() {
                 // 副作用事件时复用同一实现（行为与本地 PTY 模式一致）。
                 app.manage(session_notifier);
 
-                if ccchan_svc.settings().window_visible {
+                if ccchan_svc.settings().auto_start || ccchan_svc.settings().window_visible {
                     if let Err(error) = ccchan_svc.show_window(&app_handle) {
                         warn!("[ccchan] failed to show startup window: {}", error);
+                    } else if let Err(error) = ccchan_svc.set_window_visible(true) {
+                        warn!("[ccchan] failed to persist startup visibility: {}", error);
                     }
                 }
 
@@ -2480,6 +2513,40 @@ pub fn run() {
                             }
                             Err(error) => {
                                 warn!(error = %error, "terminal-resume-id-detected: invalid payload");
+                            }
+                        }
+                    },
+                );
+            }
+
+            // ---- 启动失败落库：监听 terminal-launch-warning 里的 nativeCliMissing ----
+            // WSL 内没有原生 CLI 时 PTY 起了又立刻退出；不记成 failed 的话，预发的
+            // resume id 留在 launch_history 里，重启恢复会把它当 resumed 去 `--resume`。
+            // 其余 kind 只是给 WebView 的提示，这里不处理。
+            {
+                use tauri::Listener;
+                let app_handle = app.handle().clone();
+                let lh_svc = app.state::<Arc<LaunchHistoryService>>().inner().clone();
+                app.listen(
+                    cc_panes_core::constants::events::TERMINAL_LAUNCH_WARNING,
+                    move |event| {
+                        let Ok(raw) = serde_json::from_str::<serde_json::Value>(event.payload())
+                        else {
+                            return;
+                        };
+                        if !services::is_launch_failure_warning(&raw) {
+                            return;
+                        }
+                        match serde_json::from_value::<services::LaunchFailurePayload>(raw) {
+                            Ok(payload) => {
+                                let app_handle = app_handle.clone();
+                                let lh_svc = lh_svc.clone();
+                                tauri::async_runtime::spawn(services::apply_launch_failure(
+                                    app_handle, lh_svc, payload,
+                                ));
+                            }
+                            Err(error) => {
+                                warn!(error = %error, "terminal-launch-warning: invalid nativeCliMissing payload");
                             }
                         }
                     },
@@ -2525,8 +2592,8 @@ pub fn run() {
                 boot_t0.elapsed().as_millis()
             );
 
-            // ---- 注册截图全局快捷键（仅 Windows，macOS 截图功能暂未实现）----
-            #[cfg(target_os = "windows")]
+            // ---- 注册截图全局快捷键（Windows / macOS 原生选区）----
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
                 let settings_svc = app.state::<Arc<SettingsService>>();
@@ -2982,6 +3049,7 @@ pub fn run() {
             create_terminal_session,
             start_pi_rpc_session,
             start_acp_chat,
+            fork_acp_chat,
             list_automations,
             save_automation,
             delete_automation,
@@ -3093,9 +3161,12 @@ pub fn run() {
             get_layout_switcher_state,
             save_layout_switcher_snapshot,
             save_layout_switcher_state,
+            take_ccchan_say,
             show_ccchan,
+            focus_ccchan_main,
             hide_ccchan,
             resize_ccchan_for_bubble,
+            set_ccchan_window_mode,
             resize_ccchan_for_chat,
             resize_ccchan_for_menu,
             move_ccchan_window,
@@ -3196,6 +3267,9 @@ pub fn run() {
             is_git_repo,
             list_worktrees,
             add_worktree,
+            prepare_chat_fork, list_fork_reviews, get_fork_comparison, apply_fork_changes,
+            list_task_verification, run_task_verification,
+            fork_chat_worktree,
             remove_worktree,
             // Workspace 命令
             list_workspaces,
@@ -3373,6 +3447,7 @@ pub fn run() {
             // Orchestrator 命令
             get_orchestrator_port,
             get_orchestrator_status,
+            retry_dispatched_task,
             get_orchestrator_token,
             respond_orchestrator_query,
             list_ai_panels,

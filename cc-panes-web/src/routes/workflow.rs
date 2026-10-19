@@ -528,4 +528,4 @@ pub async fn reconcile_plan_collaboration(
 
 #[cfg(test)]
 #[path = "workflow_tests.rs"]
-mod workflow_tests;
+pub(super) mod workflow_tests;

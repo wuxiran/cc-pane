@@ -1,4 +1,6 @@
-use super::{capture_process_topology, ProcessIndex, SystemStatsService};
+#[cfg(not(target_os = "macos"))]
+use super::ProcessIndex;
+use super::{capture_process_topology, SystemStatsService};
 use serde::Serialize;
 
 /// Numeric process telemetry only. Command lines are used for classification,
@@ -13,6 +15,7 @@ pub struct DiagnosticProcess {
     pub cpu_percent: Option<f32>,
 }
 
+#[cfg(any(not(target_os = "macos"), test))]
 fn role(pid: u32, app: u32, daemon: Option<u32>, command: &str) -> &'static str {
     if pid == app {
         return "app";
@@ -33,7 +36,7 @@ impl SystemStatsService {
     /// Independent low-frequency recorder sampling; never walks PTY/CLI trees.
     pub fn get_diagnostic_processes(&self, daemon: Option<u32>) -> Vec<DiagnosticProcess> {
         let app = std::process::id();
-        let mut system = self.system.lock();
+        let mut system = self.process_system.lock();
         let topology = capture_process_topology(&mut system);
         let daemon = daemon.filter(|pid| {
             topology.iter().any(|p| {
@@ -44,33 +47,43 @@ impl SystemStatsService {
                     )
             })
         });
-        let family = ProcessIndex::new(&topology).descendants_including(app);
-        let mut selected: Vec<_> = topology
-            .iter()
-            .filter(|p| {
-                let name = p.name.to_ascii_lowercase();
-                p.pid == app
-                    || Some(p.pid) == daemon
-                    || (family.contains(&p.pid)
-                        && (name.contains("webview")
-                            || name.contains("webkit")
-                            || name == "cc-panes-web.exe"))
-            })
-            .collect();
-        selected.sort_by_key(|p| p.pid != app && Some(p.pid) != daemon);
-        selected.truncate(32);
-        #[cfg(windows)]
+        #[cfg(target_os = "macos")]
         {
-            sample_windows(
-                &selected,
-                app,
-                daemon,
-                &mut self.resource_process_sampler.lock(),
-            )
+            self.resource_process_sampler
+                .lock()
+                .diagnostic_sampler
+                .sample(&topology, app, daemon)
         }
-        #[cfg(not(windows))]
+        #[cfg(not(target_os = "macos"))]
         {
-            sample_unix(&selected, app, daemon, &mut system)
+            let family = ProcessIndex::new(&topology).descendants_including(app);
+            let mut selected: Vec<_> = topology
+                .iter()
+                .filter(|p| {
+                    let name = p.name.to_ascii_lowercase();
+                    p.pid == app
+                        || Some(p.pid) == daemon
+                        || (family.contains(&p.pid)
+                            && (name.contains("webview")
+                                || name.contains("webkit")
+                                || name == "cc-panes-web.exe"))
+                })
+                .collect();
+            selected.sort_by_key(|p| p.pid != app && Some(p.pid) != daemon);
+            selected.truncate(32);
+            #[cfg(windows)]
+            {
+                sample_windows(
+                    &selected,
+                    app,
+                    daemon,
+                    &mut self.resource_process_sampler.lock(),
+                )
+            }
+            #[cfg(not(any(windows, target_os = "macos")))]
+            {
+                sample_unix(&selected, &topology, app, daemon, &mut system)
+            }
         }
     }
 }
@@ -123,15 +136,27 @@ fn sample_windows(
     samples
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn sample_unix(
     processes: &[&super::ProcessSnapshot],
+    topology: &[super::ProcessSnapshot],
     app: u32,
     daemon: Option<u32>,
     system: &mut sysinfo::System,
 ) -> Vec<DiagnosticProcess> {
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate};
-    let pids: Vec<_> = processes.iter().map(|p| Pid::from_u32(p.pid)).collect();
+    let live = ProcessIndex::new(topology);
+    let pids: Vec<_> = processes
+        .iter()
+        .map(|p| Pid::from_u32(p.pid))
+        .chain(
+            system
+                .processes()
+                .keys()
+                .filter(|pid| !live.by_pid.contains_key(&pid.as_u32()))
+                .copied(),
+        )
+        .collect();
     system.refresh_processes_specifics(
         ProcessesToUpdate::Some(&pids),
         true,

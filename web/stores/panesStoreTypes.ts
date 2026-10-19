@@ -50,6 +50,8 @@ export interface CreateTabOptions {
   wsl?: WslLaunchInfo;
   machineName?: string;
   parentTabId?: string;
+  /** Durable fork baseline and origin record, independent of runtime session IDs. */
+  forkReviewId?: string;
   targetLayoutId?: string;
   launchExtras?: LaunchExtras;
 }
@@ -152,6 +154,8 @@ export interface ClosedTabSnapshot {
   pinned?: boolean;
   starred?: boolean;
   parentTabId?: string;
+  /** Durable fork baseline and origin record, independent of runtime session IDs. */
+  forkReviewId?: string;
   /**
    * 启动附加项（yolo / skipMcp / appendSystemPrompt / adapterOptions）。
    * initialPrompt 在存快照时就已剥掉——撤销出来的会话不得重放首启 prompt。
@@ -340,6 +344,14 @@ export interface PanesState extends BrowserTabActions {
     ptySessionId: string,
     agentResumeId: string,
     resumeIdSource?: string,
+  ) => boolean;
+  /**
+   * 后端判定该 PTY 的启动失败（如 WSL 缺原生 CLI）：按 sessionId 找到 leaf，写入持久化的
+   * `launchFailure`、把 restoreMode 置 `failed`。返回是否命中 leaf。
+   */
+  markTerminalLaunchFailed: (
+    ptySessionId: string,
+    failure: import("@/types").TerminalLaunchFailure,
   ) => boolean;
   setTabResumeBinding: (
     tabId: string,

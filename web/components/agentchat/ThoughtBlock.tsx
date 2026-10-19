@@ -26,7 +26,7 @@ export default function ThoughtBlock({ item, streaming }: ThoughtBlockProps) {
   const seconds = thoughtSeconds(item);
 
   return (
-    <div className="rounded-lg border border-dashed border-[var(--app-border)] text-xs">
+    <div className="agent-chat-activity text-xs">
       <button
         type="button"
         aria-expanded={expanded}
@@ -52,7 +52,7 @@ export default function ThoughtBlock({ item, streaming }: ThoughtBlockProps) {
         </span>
       </button>
       {expanded ? (
-        <div className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words border-t border-dashed border-[var(--app-border)] px-3 py-2 italic leading-relaxed text-[var(--app-text-tertiary)]">
+        <div className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words border-l border-[var(--app-border)] px-3 py-2 italic leading-relaxed text-[var(--app-text-tertiary)]">
           {item.text}
         </div>
       ) : null}

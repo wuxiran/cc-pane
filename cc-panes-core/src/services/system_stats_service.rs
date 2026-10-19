@@ -8,6 +8,8 @@ use std::collections::{HashMap, HashSet};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
 
 mod diagnostics;
+#[cfg(target_os = "macos")]
+mod macos;
 
 #[cfg(any(windows, test))]
 mod process_math;
@@ -36,6 +38,8 @@ struct WindowsCpuSample {
 #[derive(Default)]
 struct ResourceProcessSampler {
     known_family: HashSet<ProcessIdentity>,
+    #[cfg(target_os = "macos")]
+    diagnostic_sampler: macos::DiagnosticSampler,
     #[cfg(windows)]
     cpu_samples: HashMap<u32, WindowsCpuSample>,
     /// "会话之外"块的滞回状态：整机 CPU ≥ 60% 开、< 45% 关。
@@ -248,6 +252,8 @@ pub struct ResourceTreeOptions {
 /// 按调用采样整机资源，不创建线程或定时任务。
 pub struct SystemStatsService {
     system: Mutex<System>,
+    // Slow process enumeration must not serialize the status-bar CPU/memory query.
+    process_system: Mutex<System>,
     resource_process_sampler: Mutex<ResourceProcessSampler>,
     /// W6：WSL 会话的 cgroup 读数（VM 没跑时零次 wsl.exe）。
     wsl_cgroup: WslCgroupSampler,
@@ -263,6 +269,7 @@ impl SystemStatsService {
     pub fn new() -> Self {
         Self {
             system: Mutex::new(System::new()),
+            process_system: Mutex::new(System::new()),
             resource_process_sampler: Mutex::new(ResourceProcessSampler::default()),
             wsl_cgroup: WslCgroupSampler::new(),
         }
@@ -295,14 +302,14 @@ impl SystemStatsService {
         options: ResourceTreeOptions,
     ) -> ResourceTree {
         let started = std::time::Instant::now();
+        let stats = self.get_system_stats();
         // 两把锁只罩住进程表枚举；`wsl.exe` 可能跑满 2 s 超时，不能在锁里起——
         // 否则状态栏 3 s 一次的 `get_system_stats` 会被它卡住。
         let (mut tree, process_count) = {
-            let mut system = self.system.lock();
+            let mut system = self.process_system.lock();
             let mut sampler = self.resource_process_sampler.lock();
             let processes =
                 refresh_resource_snapshot(&mut system, std::process::id(), sessions, &mut sampler);
-            let stats = system_stats(&system);
             // "会话之外"只在整机高负载时算（滞回 60/45）；平时零开销，非 Windows 不算。
             // 不要的调用方连滞回门都不碰，免得把弹层的武装状态搅乱。
             let compute_top = options.top_processes
@@ -351,7 +358,7 @@ impl SystemStatsService {
         sessions: &[ManagedSessionRoot],
     ) -> Vec<KillProcessResult> {
         let (processes, known_family) = {
-            let mut system = self.system.lock();
+            let mut system = self.process_system.lock();
             let mut sampler = self.resource_process_sampler.lock();
             let processes =
                 refresh_resource_snapshot(&mut system, std::process::id(), sessions, &mut sampler);
@@ -417,10 +424,6 @@ fn refresh_resource_snapshot(
     sessions: &[ManagedSessionRoot],
     sampler: &mut ResourceProcessSampler,
 ) -> Vec<ProcessSnapshot> {
-    #[cfg(not(windows))]
-    system.refresh_cpu_usage();
-    system.refresh_memory();
-
     // Toolhelp / procfs 只建立 PID-parent-name 拓扑，再由 sysinfo 刷新相关 PID。
     let mut processes = capture_process_topology(system);
     let index = ProcessIndex::new(&processes);
@@ -443,15 +446,24 @@ fn refresh_resource_snapshot(
     #[cfg(windows)]
     windows::refresh_process_details(&mut processes, &relevant, sampler);
     #[cfg(not(windows))]
-    if !relevant.is_empty() {
+    {
         let relevant_pids = relevant
             .iter()
             .copied()
             .map(Pid::from_u32)
+            // Include vanished cached PIDs so sysinfo evicts them without querying
+            // unrelated live processes or resetting the selected CPU baselines.
+            .chain(
+                system
+                    .processes()
+                    .keys()
+                    .filter(|pid| !index.by_pid.contains_key(&pid.as_u32()))
+                    .copied(),
+            )
             .collect::<Vec<_>>();
         system.refresh_processes_specifics(
             ProcessesToUpdate::Some(&relevant_pids),
-            false,
+            true,
             ProcessRefreshKind::nothing()
                 .with_cpu()
                 .with_memory()
@@ -617,10 +629,23 @@ fn capture_windows_process_topology() -> Result<Vec<ProcessSnapshot>, String> {
     }
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 fn capture_process_topology(system: &mut System) -> Vec<ProcessSnapshot> {
     system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
     capture_processes(system)
+}
+
+#[cfg(target_os = "macos")]
+fn capture_process_topology(system: &mut System) -> Vec<ProcessSnapshot> {
+    macos::capture_topology().unwrap_or_else(|error| {
+        tracing::warn!(%error, "[system-stats] libproc topology failed; using sysinfo fallback");
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing(),
+        );
+        capture_processes(system)
+    })
 }
 
 /// 单会话明细条数上限。`cargo build` 能挂出上百个 rustc，全量回传会把每 3 秒一次的

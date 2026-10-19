@@ -31,12 +31,16 @@ export interface ResourceBadgeEntry {
   queueTotal?: number;
 }
 
+type BadgeSource = "sampler" | "queued" | "job-memory";
+type OwnerSources = Partial<Record<BadgeSource, ResourceBadgeEntry>>;
+
 interface TabResourceBadgeState {
+  sources: Record<string, OwnerSources>;
   /** owner（通常是 tabId）→ 当前徽标 */
   entries: Record<string, ResourceBadgeEntry>;
   /** 条件仍成立：刷新或按优先级覆盖（job-memory > queued > memory > cpu）。 */
   markResource: (owner: string, entry: Omit<ResourceBadgeEntry, "at"> & { at?: number }) => void;
-  /** 条件消失：某一原因撤销。只清同原因的条目；其他原因仍成立就保留。 */
+  /** 条件消失：某一原因撤销。只清同来源的条目，重新投影其余原因。 */
   clearReason: (owner: string, reason: ResourceBadgeReason) => void;
   /** 无条件清（标签关闭等）。 */
   clearResource: (owner: string) => void;
@@ -59,76 +63,74 @@ const PRIORITY: Record<ResourceBadgeReason, number> = {
   cpu: 1,
 };
 
+function sourceOf(reason: ResourceBadgeReason): BadgeSource {
+  return isSamplerReason(reason) ? "sampler" : reason as "queued" | "job-memory";
+}
+
+function project(sources: Record<string, OwnerSources>): Record<string, ResourceBadgeEntry> {
+  const entries: Record<string, ResourceBadgeEntry> = {};
+  for (const [owner, candidates] of Object.entries(sources)) {
+    for (const entry of Object.values(candidates)) {
+      if (!entries[owner] || PRIORITY[entry.reason] > PRIORITY[entries[owner].reason]) entries[owner] = entry;
+    }
+  }
+  return entries;
+}
+
 export const useTabResourceBadgeStore = create<TabResourceBadgeState>((set, get) => ({
   entries: {},
+  sources: {},
 
   markResource: (owner, entry) => {
-    const at = entry.at ?? Date.now();
-    const current = get().entries[owner];
-    // 高优先级条目仍成立时，低优先级只刷新时间戳，不换原因。
-    if (current && PRIORITY[current.reason] > PRIORITY[entry.reason]) {
-      set((state) => ({
-        entries: { ...state.entries, [owner]: { ...current, at } },
-      }));
-      return;
-    }
-    set((state) => ({
-      entries: {
-        ...state.entries,
-        [owner]: {
-          reason: entry.reason,
-          at,
-          sessionId: entry.sessionId ?? current?.sessionId,
-          cpuPercent: entry.cpuPercent,
-          memoryBytes: entry.memoryBytes,
-          queuePosition: entry.queuePosition,
-          queueTotal: entry.queueTotal,
-        },
-      },
-    }));
+    set((state) => {
+      const source = sourceOf(entry.reason);
+      const previous = state.sources[owner]?.[source];
+      const sources = { ...state.sources, [owner]: { ...state.sources[owner], [source]: {
+        ...entry, at: entry.at ?? Date.now(), sessionId: entry.sessionId ?? previous?.sessionId,
+      } } };
+      return { sources, entries: project(sources) };
+    });
   },
 
   clearReason: (owner, reason) => {
-    const current = get().entries[owner];
-    if (!current) return;
-    // cpu 与 memory 同源（同一个采样器 episode），任一撤销都算 episode 结束。
-    const sameSource =
-      current.reason === reason ||
-      (isSamplerReason(current.reason) && isSamplerReason(reason));
-    if (!sameSource) return;
+    const source = sourceOf(reason);
+    if (!get().sources[owner]?.[source]) return;
     set((state) => {
-      const entries = { ...state.entries };
-      delete entries[owner];
-      return { entries };
+      const remaining = { ...state.sources[owner] };
+      delete remaining[source];
+      const sources = { ...state.sources, [owner]: remaining };
+      if (!Object.keys(remaining).length) delete sources[owner];
+      return { sources, entries: project(sources) };
     });
   },
 
   clearResource: (owner) => {
-    if (!get().entries[owner]) return;
+    if (!get().sources[owner]) return;
     set((state) => {
-      const entries = { ...state.entries };
-      delete entries[owner];
-      return { entries };
+      const sources = { ...state.sources };
+      delete sources[owner];
+      return { sources, entries: project(sources) };
     });
   },
 
   sweepStale: (now, ttlMs, queuedTtlMs = QUEUED_BADGE_TTL_MS) => {
-    const stale = Object.entries(get().entries)
-      .filter(
-        ([, entry]) =>
-          (isSamplerReason(entry.reason) && now - entry.at > ttlMs) ||
-          (entry.reason === "queued" && now - entry.at > queuedTtlMs),
-      )
-      .map(([owner]) => owner);
-    if (stale.length === 0) return [];
-    set((state) => {
-      const entries = { ...state.entries };
-      for (const owner of stale) delete entries[owner];
-      return { entries };
-    });
-    return stale;
+    const sources = { ...get().sources };
+    const changed: string[] = [];
+    for (const [owner, original] of Object.entries(sources)) {
+      const remaining = { ...original };
+      for (const source of ["sampler", "queued"] as const) {
+        const entry = remaining[source];
+        const ttl = source === "queued" ? queuedTtlMs : ttlMs;
+        if (entry && now - entry.at > ttl) delete remaining[source];
+      }
+      if (Object.keys(remaining).length === Object.keys(original).length) continue;
+      changed.push(owner);
+      if (Object.keys(remaining).length) sources[owner] = remaining;
+      else delete sources[owner];
+    }
+    if (changed.length) set({ sources, entries: project(sources) });
+    return changed;
   },
-
   hasResourceBadge: (owner) => Boolean(get().entries[owner]),
   getResourceBadge: (owner) => get().entries[owner],
 }));

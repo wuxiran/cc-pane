@@ -78,6 +78,7 @@ function relocateAndCollect(
 ): void {
   const doomedTabs: Tab[] = [];
   const pinnedProtected = new Set<string>();
+  const pinnedOwners = new Set<string>();
   for (const tabId of tabIds) {
     for (const layout of state.layouts) {
       const tree = layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane;
@@ -85,6 +86,7 @@ function relocateAndCollect(
       const location = findTabLocation(tree, tabId);
       if (!location) continue;
       if (policy.respectsPinned && location.tab.pinned) {
+        pinnedOwners.add(location.tab.id);
         for (const sid of collectTerminalSessionIdsWithSaved(location.tab)) {
           pinnedProtected.add(sid);
         }
@@ -99,7 +101,11 @@ function relocateAndCollect(
     const protect = pinnedProtected.size > 0
       ? new Set([...(opts?.protectSessionIds ?? []), ...pinnedProtected])
       : opts?.protectSessionIds;
-    void commitResourceDestroy(doomedTabs, reason, { protectSessionIds: protect });
+    void commitResourceDestroy(doomedTabs, reason, {
+      protectSessionIds: protect,
+      keepAliveSessionIds: pinnedProtected,
+      keepAliveTabIds: pinnedOwners,
+    });
   }
 }
 
@@ -154,8 +160,13 @@ function cleanupSatelliteState(
   get: () => PanesState,
   removedIds: Set<string>,
 ): void {
-  const popped = get().poppedOutTabs;
-  const stalePopped = [...removedIds].filter((id) => popped.has(id));
+  const state = get();
+  const retiredIds = new Set([...removedIds].filter((id) => !state.layouts.some((layout) => {
+    const tree = layout.id === state.currentLayoutId ? state.rootPane : layout.rootPane;
+    return tree && findTabLocation(tree, id);
+  })));
+  const popped = state.poppedOutTabs;
+  const stalePopped = [...retiredIds].filter((id) => popped.has(id));
   if (stalePopped.length > 0) {
     const next = new Set(popped);
     for (const id of stalePopped) next.delete(id);
@@ -164,10 +175,10 @@ function cleanupSatelliteState(
     });
   }
   const fullscreen = useFullscreenStore.getState();
-  if (fullscreen.fullscreenTabId && removedIds.has(fullscreen.fullscreenTabId)) {
+  if (fullscreen.fullscreenTabId && retiredIds.has(fullscreen.fullscreenTabId)) {
     void fullscreen.exitFullscreen();
   }
-  sweepOwnerState(removedIds);
+  sweepOwnerState(retiredIds);
   notifyTerminalLayoutChanged("tab.remove");
 }
 

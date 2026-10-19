@@ -24,6 +24,7 @@ export default defineConfig({
     "marketing/**",
     "bugs/**",
     "diagnostics/**",
+    "reviews/**",
     "prototypes/**",
     "examples/**",
   ],

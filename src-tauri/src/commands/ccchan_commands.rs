@@ -1,9 +1,9 @@
-use crate::ccchan_service::{clamp_position_to_visible, CCChanService, CCChanWindowMode, PetMeta};
+use crate::ccchan_service::{CCChanService, CCChanWindowMode, PetMeta};
 use crate::models::settings::CCChanSettings;
 use crate::services::TerminalService;
 use crate::utils::{AppError, AppResult};
 use std::sync::Arc;
-use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tracing::debug;
 
 #[tauri::command]
@@ -26,15 +26,38 @@ pub async fn hide_ccchan(app: AppHandle) -> AppResult<()> {
     service.set_window_visible(false)
 }
 
+#[tauri::command]
+pub fn focus_ccchan_main(app: AppHandle) -> AppResult<()> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| AppError::from("Main window is unavailable"))?;
+    window.show().map_err(|e| AppError::from(e.to_string()))?;
+    window
+        .unminimize()
+        .map_err(|e| AppError::from(e.to_string()))?;
+    window
+        .set_focus()
+        .map_err(|e| AppError::from(e.to_string()))
+}
+
 fn resize_ccchan_window(window: &WebviewWindow, mode: CCChanWindowMode) -> AppResult<()> {
     let service = window
         .app_handle()
         .try_state::<Arc<CCChanService>>()
         .ok_or_else(|| AppError::from("CCChanService is not registered"))?;
-    let (width, height) = service.window_size(mode);
-    window
-        .set_size(LogicalSize::new(width, height))
-        .map_err(|error| AppError::from(error.to_string()))
+    service.resize_window(window, mode).map(|_| ())
+}
+
+#[tauri::command]
+pub async fn set_ccchan_window_mode(
+    window: WebviewWindow,
+    mode: CCChanWindowMode,
+) -> AppResult<crate::ccchan_service::WindowSize> {
+    let service = window
+        .app_handle()
+        .try_state::<Arc<CCChanService>>()
+        .ok_or_else(|| AppError::from("CCChanService is not registered"))?;
+    service.resize_window(&window, mode)
 }
 
 #[tauri::command]
@@ -78,21 +101,11 @@ pub async fn move_ccchan_window(
     persist: Option<bool>,
 ) -> AppResult<()> {
     debug!(x, y, persist, "cmd::move_ccchan_window");
-    let pet_size = window
+    let service = window
         .app_handle()
         .try_state::<Arc<CCChanService>>()
-        .map(|service| service.pet_size())
-        .unwrap_or(120.0);
-    let (cx, cy) = clamp_position_to_visible(&window, x, y, pet_size);
-    window
-        .set_position(LogicalPosition::new(cx, cy))
-        .map_err(|error| AppError::from(error.to_string()))?;
-    if persist.unwrap_or(true) {
-        if let Some(service) = window.app_handle().try_state::<Arc<CCChanService>>() {
-            service.save_window_position(cx, cy)?;
-        }
-    }
-    Ok(())
+        .ok_or_else(|| AppError::from("CCChanService is not registered"))?;
+    service.move_window(&window, x, y, persist.unwrap_or(true))
 }
 
 #[tauri::command]
@@ -185,12 +198,33 @@ pub fn get_ccchan_settings(service: State<'_, Arc<CCChanService>>) -> AppResult<
 }
 
 #[tauri::command]
-pub fn save_ccchan_settings(
+pub async fn save_ccchan_settings(
     service: State<'_, Arc<CCChanService>>,
     settings: CCChanSettings,
 ) -> AppResult<()> {
     debug!("cmd::save_ccchan_settings");
-    service.save_settings(settings)
+    let previous = service.settings();
+    service.save_settings(settings.clone())?;
+    if let Some(app) = service.app_handle() {
+        if settings.window_visible != previous.window_visible {
+            if settings.window_visible {
+                service.show_window(&app)?;
+            } else {
+                service.hide_window(&app)?;
+            }
+        }
+        if (settings.window_x, settings.window_y) != (previous.window_x, previous.window_y) {
+            if let Some(window) = app.get_webview_window("ccchan") {
+                service.move_window(
+                    &window,
+                    settings.window_x.unwrap_or(80.0),
+                    settings.window_y.unwrap_or(80.0),
+                    true,
+                )?;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -211,4 +245,11 @@ pub fn open_ccchan_pets_dir(
         .open_path(dir.to_string_lossy().as_ref(), None::<&str>)
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn take_ccchan_say(
+    service: State<'_, Arc<CCChanService>>,
+) -> Option<crate::ccchan_service::CCChanSay> {
+    service.take_say()
 }

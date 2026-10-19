@@ -1,6 +1,7 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
-use crate::models::task_queue::{QueueItemState, TaskQueueReason, TaskQueueState};
+use crate::models::task_queue::{QueueItemState, TaskQueueClaim, TaskQueueReason, TaskQueueState};
 use crate::services::{AutomaticWriteAuthority, SessionStateMachine, TerminalBackend};
 use crate::utils::error::{AppError, AppResult};
 
@@ -107,17 +108,33 @@ pub enum TaskQueueDispatchOutcome {
     },
 }
 
+struct ClaimRecovery {
+    claim: TaskQueueClaim,
+    delivery_possible: bool,
+    error: AppError,
+}
+
 pub struct TaskQueueDispatcher {
     service: Arc<TaskQueueService>,
     gateway: Arc<dyn TaskQueueDispatchGateway>,
+    // A transient database error must not strand a claimed head until restart.
+    // Retrying this finalization never writes to the terminal again.
+    pending_recoveries: Mutex<HashMap<String, ClaimRecovery>>,
 }
 
 impl TaskQueueDispatcher {
     pub fn new(service: Arc<TaskQueueService>, gateway: Arc<dyn TaskQueueDispatchGateway>) -> Self {
-        Self { service, gateway }
+        Self {
+            service,
+            gateway,
+            pending_recoveries: Mutex::new(HashMap::new()),
+        }
     }
 
     pub fn check_session(&self, session_id: &str, now: i64) -> AppResult<TaskQueueDispatchOutcome> {
+        if let Some(outcome) = self.retry_claim_recovery(session_id, now)? {
+            return Ok(outcome);
+        }
         let repository = self.service.repository();
         let runtime = repository.runtime()?;
         if !runtime.enabled {
@@ -145,30 +162,56 @@ impl TaskQueueDispatcher {
             return Ok(TaskQueueDispatchOutcome::Noop);
         };
 
-        let second_readiness = match self.runtime_blocker(claim.dispatch_generation)? {
-            Some(readiness) => readiness,
-            None => self.gateway.readiness(session_id)?,
-        };
-        if second_readiness != TaskQueueReadiness::Ready {
+        let mut delivery_possible = false;
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.dispatch_claim(&claim, now, &mut delivery_possible)
+        }))
+        .unwrap_or_else(|_| {
+            Err(AppError::coded(
+                "DISPATCH_PANICKED",
+                "Task dispatch was interrupted",
+            ))
+        });
+        match result {
+            Ok(outcome) => Ok(outcome),
+            Err(error) => {
+                self.pending_recoveries
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .insert(
+                        session_id.to_owned(),
+                        ClaimRecovery {
+                            claim,
+                            delivery_possible,
+                            error: error.clone(),
+                        },
+                    );
+                self.retry_claim_recovery(session_id, now)?.ok_or(error)
+            }
+        }
+    }
+
+    fn dispatch_claim(
+        &self,
+        claim: &TaskQueueClaim,
+        now: i64,
+        delivery_possible: &mut bool,
+    ) -> AppResult<TaskQueueDispatchOutcome> {
+        let session_id = &claim.item.session_id;
+        let readiness = self
+            .runtime_blocker(claim.dispatch_generation)?
+            .map(Ok)
+            .unwrap_or_else(|| self.gateway.readiness(session_id))?;
+        if readiness != TaskQueueReadiness::Ready {
             return self.requeue_for_readiness(
                 session_id,
                 &claim.item.id,
                 &claim.token,
-                second_readiness,
+                readiness,
                 now,
             );
         }
-
-        let prompt = match self.service.effective_prompt(session_id, &claim.item) {
-            Ok(prompt) => prompt,
-            Err(error) => {
-                self.fail_claim(session_id, &claim.item.id, &claim.token, &error, now)?;
-                return Ok(TaskQueueDispatchOutcome::Failed {
-                    item_id: claim.item.id,
-                });
-            }
-        };
-
+        let prompt = self.service.effective_prompt(session_id, &claim.item)?;
         if let Some(readiness) = self.runtime_blocker(claim.dispatch_generation)? {
             return self.requeue_for_readiness(
                 session_id,
@@ -179,6 +222,8 @@ impl TaskQueueDispatcher {
             );
         }
 
+        // From this point on, transport/acknowledgement errors must never cause automatic replay.
+        *delivery_possible = true;
         match self.gateway.submit_text(session_id, &prompt) {
             Ok(()) => {
                 self.gateway.mark_submit_started(session_id);
@@ -192,36 +237,68 @@ impl TaskQueueDispatcher {
                     ));
                 }
                 Ok(TaskQueueDispatchOutcome::Submitted {
-                    item_id: claim.item.id,
+                    item_id: claim.item.id.clone(),
                 })
             }
             Err(TaskQueueSubmitFailure::NotReady(readiness)) => {
+                *delivery_possible = false;
                 self.requeue_for_readiness(session_id, &claim.item.id, &claim.token, readiness, now)
             }
             Err(TaskQueueSubmitFailure::Definite(error)) => {
-                self.fail_claim(session_id, &claim.item.id, &claim.token, &error, now)?;
-                Ok(TaskQueueDispatchOutcome::Failed {
-                    item_id: claim.item.id,
-                })
+                *delivery_possible = false;
+                Err(error)
             }
-            Err(TaskQueueSubmitFailure::DeliveryUnknown(error)) => {
-                if !repository.mark_delivery_unknown(
-                    session_id,
-                    &claim.item.id,
-                    &claim.token,
-                    error.message(),
-                    now,
-                )? {
-                    return Err(AppError::coded(
-                        "QUEUE_CLAIM_CONFLICT",
-                        "Unknown-delivery task queue claim is no longer current",
-                    ));
-                }
-                Ok(TaskQueueDispatchOutcome::DeliveryUnknown {
-                    item_id: claim.item.id,
-                })
-            }
+            Err(TaskQueueSubmitFailure::DeliveryUnknown(error)) => Err(error),
         }
+    }
+
+    fn retry_claim_recovery(
+        &self,
+        session_id: &str,
+        now: i64,
+    ) -> AppResult<Option<TaskQueueDispatchOutcome>> {
+        let mut recoveries = self
+            .pending_recoveries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let Some(recovery) = recoveries.get(session_id) else {
+            return Ok(None);
+        };
+        let claim = &recovery.claim;
+        let finished = if recovery.delivery_possible {
+            self.service.repository().mark_delivery_unknown(
+                session_id,
+                &claim.item.id,
+                &claim.token,
+                recovery.error.message(),
+                now,
+            )?
+        } else {
+            self.service.repository().fail_claim(
+                session_id,
+                &claim.item.id,
+                &claim.token,
+                recovery.error.code().unwrap_or("SUBMIT_FAILED"),
+                recovery.error.message(),
+                now,
+            )?
+        };
+        let recovery = recoveries
+            .remove(session_id)
+            .expect("recovery is held under the lock");
+        if !finished {
+            // A concurrent control operation already finalized this token. Do not touch its replacement.
+            return Err(recovery.error);
+        }
+        Ok(Some(if recovery.delivery_possible {
+            TaskQueueDispatchOutcome::DeliveryUnknown {
+                item_id: recovery.claim.item.id,
+            }
+        } else {
+            TaskQueueDispatchOutcome::Failed {
+                item_id: recovery.claim.item.id,
+            }
+        }))
     }
 
     fn runtime_blocker(&self, dispatch_generation: i64) -> AppResult<Option<TaskQueueReadiness>> {
@@ -268,32 +345,6 @@ impl TaskQueueDispatcher {
             Err(AppError::coded(
                 "QUEUE_CLAIM_CONFLICT",
                 "Task queue claim is no longer current",
-            ))
-        }
-    }
-
-    fn fail_claim(
-        &self,
-        session_id: &str,
-        item_id: &str,
-        token: &str,
-        error: &AppError,
-        now: i64,
-    ) -> AppResult<()> {
-        let code = error.code().unwrap_or("SUBMIT_FAILED");
-        if self.service.repository().fail_claim(
-            session_id,
-            item_id,
-            token,
-            code,
-            error.message(),
-            now,
-        )? {
-            Ok(())
-        } else {
-            Err(AppError::coded(
-                "QUEUE_CLAIM_CONFLICT",
-                "Failed task queue claim is no longer current",
             ))
         }
     }

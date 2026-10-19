@@ -316,12 +316,12 @@ pub async fn update_workspace(
     State(state): State<AppState>,
     Path(name): Path<String>,
     Json(req): Json<UpdateWorkspaceRequest>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<Json<Workspace>, (StatusCode, String)> {
     state
         .workspace_service
-        .write_workspace_json(&name, &req.workspace)
-        .map_err(service_error)?;
-    Ok(StatusCode::NO_CONTENT)
+        .save_workspace_snapshot(&name, &req.workspace)
+        .map(Json)
+        .map_err(service_error)
 }
 
 pub async fn reorder_workspaces(

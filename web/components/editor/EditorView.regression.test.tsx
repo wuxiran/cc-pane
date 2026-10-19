@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,6 +7,7 @@ import i18n from "@/i18n";
 import EditorView from "./EditorView";
 
 const modifiedLabel = String(i18n.t("editor:modified"));
+const monaco = vi.hoisted(() => ({ save: null as (() => void) | null }));
 
 vi.mock("./MonacoCodeEditor", () => ({
   default: ({
@@ -19,15 +21,17 @@ vi.mock("./MonacoCodeEditor", () => ({
     onMount?: (editor: unknown) => void;
     options?: { readOnly?: boolean };
   }) => {
-    onMount?.({
-      addAction: vi.fn(),
+    useEffect(() => { onMount?.({
+      addAction: (action: { id: string; run: () => void }) => {
+        if (action.id === "save-file") monaco.save = action.run;
+      },
       trigger: vi.fn(),
       onDidScrollChange: vi.fn(),
       getScrollTop: vi.fn(() => 0),
       getScrollHeight: vi.fn(() => 0),
       getLayoutInfo: vi.fn(() => ({ height: 0 })),
       setScrollTop: vi.fn(),
-    });
+    }); }, []);
     return (
       <textarea
         data-testid="monaco-stub"
@@ -164,6 +168,38 @@ describe("EditorView regressions", () => {
     await waitFor(() => expect(writeFile).toHaveBeenCalledWith(FILE, "changed"));
     expect(toast.success).toHaveBeenCalledWith("文件已保存", expect.objectContaining({ duration: expect.any(Number) }));
     await waitFor(() => expect(screen.queryByText(modifiedLabel)).not.toBeInTheDocument());
+  });
+
+  it("saves the latest edits with the once-mounted Ctrl/Cmd+S action", async () => {
+    mockTextFile("original");
+    writeFile.mockResolvedValue(undefined);
+    await renderLoaded();
+    fireEvent.change(await screen.findByTestId("monaco-stub"), { target: { value: "first edit" } });
+    await act(async () => { monaco.save!(); });
+    await waitFor(() => expect(writeFile).toHaveBeenLastCalledWith(FILE, "first edit"));
+    fireEvent.change(screen.getByTestId("monaco-stub"), { target: { value: "second edit" } });
+    await act(async () => { monaco.save!(); });
+    await waitFor(() => expect(writeFile).toHaveBeenLastCalledWith(FILE, "second edit"));
+    expect(writeFile).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.queryByText(modifiedLabel)).not.toBeInTheDocument());
+  });
+
+  it("ignores repeated save shortcuts in flight and leaves newer edits dirty for the next save", async () => {
+    mockTextFile("original");
+    let finish!: () => void;
+    writeFile.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    await renderLoaded();
+    fireEvent.change(await screen.findByTestId("monaco-stub"), { target: { value: "first edit" } });
+    act(() => { monaco.save!(); monaco.save!(); });
+    await waitFor(() => expect(writeFile).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByTestId("monaco-stub"), { target: { value: "newer edit" } });
+    act(() => { monaco.save!(); });
+    expect(writeFile).toHaveBeenCalledTimes(1);
+    await act(async () => { finish(); });
+    expect(screen.getByText(modifiedLabel)).toBeInTheDocument();
+    await act(async () => { monaco.save!(); });
+    await waitFor(() => expect(writeFile).toHaveBeenLastCalledWith(FILE, "newer edit"));
+    expect(writeFile).toHaveBeenCalledTimes(2);
   });
 
   it("asks before overwriting an externally modified file and aborts on cancel", async () => {

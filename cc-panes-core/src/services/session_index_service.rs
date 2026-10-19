@@ -1,6 +1,6 @@
 use super::session_index_parser::parse_session_transcript;
 use super::session_index_roots::{
-    collect_jsonl_files, collect_scan_roots, normalize_path, path_has_prefix, path_name,
+    collect_jsonl_files, collect_scan_roots, match_registered_project, normalize_path, path_name,
     registered_projects, RegisteredProject, ScanRoot,
 };
 use crate::models::{
@@ -429,11 +429,7 @@ impl SessionIndexService {
         }
 
         let cwd_norm = normalize_path(cwd);
-        let matched = registered
-            .iter()
-            .filter(|project| path_has_prefix(&cwd_norm, &project.match_path_norm))
-            .max_by_key(|project| project.match_path_norm.len());
-        if let Some(project) = matched {
+        if let Some(project) = match_registered_project(&cwd_norm, registered, root) {
             return SessionIdentity {
                 project_path_norm: project.project_path_norm.clone(),
                 project_name: project.project_name.clone(),
@@ -604,6 +600,7 @@ mod tests {
             path: dir.path().to_path_buf(),
             source: "local",
             wsl_distro: None,
+            wsl_default_distro: false,
         };
 
         let mut first = SessionIndexScanReport::default();
@@ -659,6 +656,7 @@ mod tests {
             path: dir.path().to_path_buf(),
             source: "local",
             wsl_distro: None,
+            wsl_default_distro: false,
         };
 
         service
@@ -715,6 +713,7 @@ mod tests {
             path: dir.path().to_path_buf(),
             source: "local",
             wsl_distro: None,
+            wsl_default_distro: false,
         };
 
         service

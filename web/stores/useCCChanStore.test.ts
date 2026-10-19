@@ -206,49 +206,66 @@ describe("useCCChanStore", () => {
     });
   });
 
-  describe("switchPet", () => {
-    it("应该切换到下一个宠物", () => {
+  describe("switchPet", async () => {
+    it("应该切换到下一个宠物", async () => {
       useCCChanStore.setState({
         pets: [createPet("a"), createPet("b"), createPet("c")],
         settings: { ...DEFAULT_CCCHAN_SETTINGS, defaultPetId: "a" },
       });
 
-      useCCChanStore.getState().switchPet();
+      await useCCChanStore.getState().switchPet();
 
       expect(useCCChanStore.getState().settings.defaultPetId).toBe("b");
     });
 
-    it("在最后一个宠物时应回绕到第一个", () => {
+    it("在最后一个宠物时应回绕到第一个", async () => {
       useCCChanStore.setState({
         pets: [createPet("a"), createPet("b")],
         settings: { ...DEFAULT_CCCHAN_SETTINGS, defaultPetId: "b" },
       });
 
-      useCCChanStore.getState().switchPet();
+      await useCCChanStore.getState().switchPet();
 
       expect(useCCChanStore.getState().settings.defaultPetId).toBe("a");
     });
 
-    it("当前宠物不在列表时应从索引 0 的下一个开始", () => {
+    it("当前宠物不在列表时应从索引 0 的下一个开始", async () => {
       useCCChanStore.setState({
         pets: [createPet("a"), createPet("b")],
         settings: { ...DEFAULT_CCCHAN_SETTINGS, defaultPetId: "unknown" },
       });
 
-      useCCChanStore.getState().switchPet();
+      await useCCChanStore.getState().switchPet();
 
       expect(useCCChanStore.getState().settings.defaultPetId).toBe("b");
     });
 
-    it("宠物列表为空时不应改变设置", () => {
+    it("宠物列表为空时不应改变设置", async () => {
       useCCChanStore.setState({
         pets: [],
         settings: { ...DEFAULT_CCCHAN_SETTINGS, defaultPetId: "homie" },
       });
 
-      useCCChanStore.getState().switchPet();
+      await useCCChanStore.getState().switchPet();
 
       expect(useCCChanStore.getState().settings.defaultPetId).toBe("homie");
     });
   });
+});
+
+
+it("does not overwrite newer pushed settings with an older in-flight load", async () => {
+  let finish!: (settings: typeof DEFAULT_CCCHAN_SETTINGS) => void;
+  useCCChanStore.setState({ loading: false, settings: DEFAULT_CCCHAN_SETTINGS });
+  mockTauriInvoke({ get_ccchan_settings: () => new Promise((resolve) => { finish = resolve; }), get_ccchan_pets: [FALLBACK_PET] });
+  const loading = useCCChanStore.getState().load();
+  useCCChanStore.getState().applySettings({ petSize: 200 });
+  finish(DEFAULT_CCCHAN_SETTINGS);
+  await loading;
+  expect(useCCChanStore.getState().settings.petSize).toBe(200);
+});
+it("preserves other settings when receiving a partial update", () => {
+  useCCChanStore.setState({ settings: { ...DEFAULT_CCCHAN_SETTINGS, defaultPetId: "doro.codex-pet", windowX: 100 } });
+  useCCChanStore.getState().applySettings({ petSize: 200 });
+  expect(useCCChanStore.getState().settings).toMatchObject({ petSize: 200, defaultPetId: "doro.codex-pet", windowX: 100 });
 });

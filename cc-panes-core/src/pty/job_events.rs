@@ -17,7 +17,7 @@
 //! - 完成端口句柄进程生命周期内不关闭；监听线程用 `spawn_optional`，起不来只 warn
 //!   （内存告警是可选能力，不能因它拖垮会话创建）。
 //!
-//! 非 Windows：同名 stub，只保留类型，`register` 恒 `Err`。
+//! 非 Windows 只保留跨平台事件类型，不构建完成端口实现。
 
 use std::sync::Arc;
 

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { QUEUED_BADGE_TTL_MS, useTabResourceBadgeStore } from "./useTabResourceBadgeStore";
 
 beforeEach(() => {
-  useTabResourceBadgeStore.setState({ entries: {} });
+  useTabResourceBadgeStore.setState({ entries: {}, sources: {} });
 });
 
 describe("useTabResourceBadgeStore", () => {
@@ -16,13 +16,13 @@ describe("useTabResourceBadgeStore", () => {
     expect(useTabResourceBadgeStore.getState().hasResourceBadge("t1")).toBe(true);
   });
 
-  it("高优先级原因不被低优先级覆盖，但时间戳刷新", () => {
+  it("高优先级原因与时间戳不被其他来源更新", () => {
     const store = useTabResourceBadgeStore.getState();
     store.markResource("t1", { reason: "job-memory", at: 1 });
     store.markResource("t1", { reason: "cpu", at: 9 });
     const entry = useTabResourceBadgeStore.getState().getResourceBadge("t1")!;
     expect(entry.reason).toBe("job-memory");
-    expect(entry.at).toBe(9);
+    expect(entry.at).toBe(1);
   });
 
   it("低优先级可被高优先级升级", () => {
@@ -86,4 +86,17 @@ describe("useTabResourceBadgeStore", () => {
     store.clearResource("missing");
     expect(useTabResourceBadgeStore.getState().entries).toBe(before);
   });
+  it("CPU samples cannot keep a lost queue event alive, and become visible after queue expiry", () => {
+    const store = useTabResourceBadgeStore.getState();
+    store.markResource("t", {reason: "queued", at: 0});
+    for (let at = 10_000; at <= 120_000; at += 10_000) {
+      store.markResource("t", {reason:"cpu", at, cpuPercent:150});
+      store.sweepStale(at,30_000);
+    }
+    expect(store.getResourceBadge("t")?.reason).toBe("cpu");
+    store.markResource("t", {reason:"job-memory", at:120_001});
+    store.clearReason("t","job-memory");
+    expect(store.getResourceBadge("t")?.reason).toBe("cpu");
+  });
+
 });

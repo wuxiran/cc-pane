@@ -6,6 +6,9 @@
 //! 新增一个 CLI 工具 = 新建一个文件实现 trait + 注册一行代码
 //! ```
 
+mod session_fork;
+pub use session_fork::{fork_source, push_claude_session_args, push_codex_session_args};
+
 mod atomic_file;
 mod claude;
 mod codex;

@@ -10,6 +10,7 @@ import { immer } from "zustand/middleware/immer";
 import type {
   AcpAvailableCommand,
   AcpChatSnapshot,
+  AcpContentBlock,
   AcpPermissionRequest,
   AcpPlanEntry,
   AcpSessionUpdate,
@@ -20,19 +21,47 @@ import type {
   AgentChatItem,
 } from "@/types/agentChat";
 import { parentToolCallIdOf } from "@/types/agentChat";
+import { seedForkTranscript } from "./agentChatForkTranscript";
+import { dropAgentChatDraft } from "./useAgentChatDraftStore";
+import { createPromptSubmissionActions, emptyPromptSubmission, observePromptPhase, type PromptSubmissionActions, type PromptSubmissionState } from "./agentChatPromptSubmission";
 
 let itemSeq = 0;
+let setupSeq = 0;
 function nextItemId(): string {
   itemSeq += 1;
   return `aci-${Date.now().toString(36)}-${itemSeq}`;
 }
 
-export interface AgentChatSessionState {
+export interface PendingChatPermission extends AcpPermissionRequest {
+  responding: boolean;
+  error: string | null;
+}
+
+export interface ChatSetupState {
+  token: number;
+  pending: boolean;
+  error: string | null;
+  firstPrompt?: string;
+  preamble?: string;
+}
+
+export interface AgentChatSessionState extends PromptSubmissionState {
   snapshot: AcpChatSnapshot | null;
   items: AgentChatItem[];
+  /** 当前会话正文的起点；切项目留下的旧会话和分隔提示属于此前的只读前缀。 */
+  transcriptSessionId: string | null;
+  transcriptStart: number;
+  replay: {
+    acpSessionId: string;
+    prefixLength: number;
+    items: AgentChatItem[];
+    terminals: Record<string, AcpTerminalOutput>;
+  } | null;
   /** 由首页「对 agent 说」以编排管家身份发起的会话（决定欢迎态文案）。 */
   concierge: boolean;
-  pendingPermission: AcpPermissionRequest | null;
+  pendingPermissions: PendingChatPermission[];
+  /** 后端 ready 仅代表握手完成；前端配置/目录提交完成前仍禁止输入。 */
+  setup: ChatSetupState | null;
   /** agent 广告的斜杠命令目录（available_commands_update 整表替换）。 */
   availableCommands: AcpAvailableCommand[];
   /** 上下文窗口用量（usage_update 整体替换）；引擎不上报时为 null，UI 不显示。 */
@@ -44,12 +73,16 @@ export interface AgentChatSessionState {
   terminals: Record<string, AcpTerminalOutput>;
 }
 
-interface AgentChatStoreState {
+interface AgentChatStoreState extends PromptSubmissionActions {
   chats: Record<string, AgentChatSessionState>;
   setSnapshot: (chatId: string, snapshot: AcpChatSnapshot) => void;
+  seedFork: (chatId: string, items: AgentChatItem[], acpSessionId: string, preservedPrefixLength?: number) => void;
   setConcierge: (chatId: string, concierge: boolean) => void;
   setCwdOverride: (chatId: string, cwd: string | null) => void;
-  addUserMessage: (chatId: string, text: string, attachments?: AgentChatAttachment[]) => void;
+  addUserMessage: (chatId: string, text: string, attachments?: AgentChatAttachment[], promptBlocks?: AcpContentBlock[]) => void;
+  beginHistoryReplay: (chatId: string, acpSessionId: string) => void;
+  finishHistoryReplay: (chatId: string, acpSessionId: string, commit: boolean) => void;
+  preserveTranscriptPrefix: (chatId: string) => void;
   appendStreamText: (
     chatId: string,
     kind: "assistant" | "thought",
@@ -58,7 +91,11 @@ interface AgentChatStoreState {
   ) => void;
   pushImage: (chatId: string, mimeType: string, data: string, parentToolCallId?: string) => void;
   applySessionUpdate: (chatId: string, params: AcpSessionUpdate) => void;
-  setPermission: (chatId: string, request: AcpPermissionRequest | null) => void;
+  enqueuePermission: (chatId: string, request: AcpPermissionRequest) => void;
+  beginPermissionResponse: (chatId: string, requestKey: string) => boolean;
+  finishPermissionResponse: (chatId: string, requestKey: string, error?: string) => void;
+  beginSetup: (chatId: string, prompt?: { firstPrompt?: string; preamble?: string }) => number | null;
+  finishSetup: (chatId: string, token: number, error?: string) => void;
   pushNotice: (chatId: string, text: string) => void;
   turnEnded: (chatId: string, stopReason: string, error?: string) => void;
   setTerminalOutput: (chatId: string, output: AcpTerminalOutput) => void;
@@ -67,10 +104,15 @@ interface AgentChatStoreState {
 
 function emptySession(): AgentChatSessionState {
   return {
+    ...emptyPromptSubmission(),
     snapshot: null,
     items: [],
+    transcriptSessionId: null,
+    transcriptStart: 0,
+    replay: null,
     concierge: false,
-    pendingPermission: null,
+    pendingPermissions: [],
+    setup: null,
     availableCommands: [],
     usage: null,
     terminals: {},
@@ -85,9 +127,15 @@ function ensure(chats: Record<string, AgentChatSessionState>, chatId: string): A
   return chats[chatId];
 }
 
+/** 回放尚未确认成功时只写暂存区，让旧画面一直可读。 */
+function contentItems(chat: AgentChatSessionState): AgentChatItem[] {
+  return chat.replay?.items ?? chat.items;
+}
+
 /** 末尾若是仍在流式的思考块，记下收口时刻（"思考了 N 秒"的终点）。 */
 function closeOpenThought(chat: AgentChatSessionState): void {
-  const last = chat.items[chat.items.length - 1];
+  const items = contentItems(chat);
+  const last = items[items.length - 1];
   if (last && last.type === "thought" && last.doneAt === undefined) {
     last.doneAt = Date.now();
   }
@@ -96,7 +144,7 @@ function closeOpenThought(chat: AgentChatSessionState): void {
 /** 入列任何非思考条目前先收口思考块，再压入。 */
 function pushItem(chat: AgentChatSessionState, item: AgentChatItem): void {
   if (item.type !== "thought") closeOpenThought(chat);
-  chat.items.push(item);
+  contentItems(chat).push(item);
 }
 
 /** 从 ContentBlock 提取可显示文本；非 text 变体降级为类型占位。 */
@@ -124,13 +172,25 @@ function mergeToolCall(existing: AcpToolCall, patch: ToolCallPatch): void {
 export const useAgentChatStore = create<AgentChatStoreState>()(
   immer((set) => ({
     chats: {},
+    ...createPromptSubmissionActions(set, (state, chatId) => ensure(state.chats, chatId), pushItem, nextItemId),
+
+    seedFork: (chatId, items, acpSessionId, preservedPrefixLength = 0) => set((state) => {
+      seedForkTranscript(ensure(state.chats, chatId), items, acpSessionId, preservedPrefixLength);
+    }),
 
     setSnapshot: (chatId, snapshot) =>
       set((state) => {
         const chat = ensure(state.chats, chatId);
         const previousError = chat.snapshot?.error;
+        observePromptPhase(chat, snapshot.phase);
         // 新进程起来（starting）= 新的上下文窗口，旧用量作废。
         if (snapshot.phase === "starting") chat.usage = null;
+        if (snapshot.phase === "failed" || snapshot.phase === "exited") chat.replay = null;
+        if (["starting", "exited", "failed"].includes(snapshot.phase)) chat.pendingPermissions = [];
+        if (snapshot.phase === "ready" && snapshot.acpSessionId && snapshot.acpSessionId !== chat.transcriptSessionId) {
+          chat.transcriptSessionId = snapshot.acpSessionId;
+          chat.transcriptStart = chat.items.length;
+        }
         chat.snapshot = snapshot;
         // 失败/异常退出要成为消息流的一部分，不然用户只看到输入框变灰。
         if (snapshot.error && snapshot.error !== previousError) {
@@ -148,7 +208,38 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
         ensure(state.chats, chatId).cwdOverride = cwd;
       }),
 
-    addUserMessage: (chatId, text, attachments) =>
+    beginHistoryReplay: (chatId, acpSessionId) =>
+      set((state) => {
+        const chat = ensure(state.chats, chatId);
+        chat.replay = {
+          acpSessionId,
+          prefixLength: chat.transcriptSessionId === acpSessionId ? chat.transcriptStart : chat.items.length,
+          items: [],
+          terminals: {},
+        };
+      }),
+
+    finishHistoryReplay: (chatId, acpSessionId, commit) =>
+      set((state) => {
+        const chat = state.chats[chatId];
+        const replay = chat?.replay;
+        if (!chat || !replay || replay.acpSessionId !== acpSessionId) return;
+        if (commit) {
+          chat.items = [...chat.items.slice(0, replay.prefixLength), ...replay.items];
+          chat.terminals = { ...chat.terminals, ...replay.terminals };
+          chat.transcriptSessionId = acpSessionId;
+          chat.transcriptStart = replay.prefixLength;
+        }
+        chat.replay = null;
+      }),
+
+    preserveTranscriptPrefix: (chatId) =>
+      set((state) => {
+        const chat = state.chats[chatId];
+        if (chat && !chat.replay) chat.transcriptStart = chat.items.length;
+      }),
+
+    addUserMessage: (chatId, text, attachments, promptBlocks) =>
       set((state) => {
         const chat = ensure(state.chats, chatId);
         const labels = (attachments ?? []).map((attachment) => attachment.name);
@@ -157,6 +248,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
           id: nextItemId(),
           at: Date.now(),
           text,
+          ...(promptBlocks ? { promptBlocks } : {}),
           ...(labels.length > 0 ? { attachmentLabels: labels, attachments } : {}),
         });
       }),
@@ -166,7 +258,8 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
         if (!text) return;
         const chat = ensure(state.chats, chatId);
         const itemType = kind === "assistant" ? "assistant" : "thought";
-        const last = chat.items[chat.items.length - 1];
+        const items = contentItems(chat);
+        const last = items[items.length - 1];
         // 邻接同类且同归属 → 续写同一气泡；被工具卡等打断、或主/子 agent 交替 → 新气泡。
         if (last && last.type === itemType && last.parentToolCallId === parentToolCallId) {
           last.text += text;
@@ -197,6 +290,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
     applySessionUpdate: (chatId, params) =>
       set((state) => {
         const chat = ensure(state.chats, chatId);
+        const items = contentItems(chat);
         const update = params.update;
         if (!update || typeof update.sessionUpdate !== "string") return;
         switch (update.sessionUpdate) {
@@ -218,8 +312,8 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
           case "tool_call_update": {
             const toolCallId = update.toolCallId;
             if (!toolCallId) return;
-            for (let index = chat.items.length - 1; index >= 0; index -= 1) {
-              const item = chat.items[index];
+            for (let index = items.length - 1; index >= 0; index -= 1) {
+              const item = items[index];
               if (item.type === "tool_call" && item.call.toolCallId === toolCallId) {
                 mergeToolCall(item.call, update);
                 return;
@@ -240,8 +334,8 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
           }
           case "plan": {
             const entries = (update.entries ?? []) as AcpPlanEntry[];
-            for (let index = chat.items.length - 1; index >= 0; index -= 1) {
-              const item = chat.items[index];
+            for (let index = items.length - 1; index >= 0; index -= 1) {
+              const item = items[index];
               if (item.type === "plan") {
                 item.entries = entries;
                 return;
@@ -257,11 +351,13 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
             if (chat.snapshot?.phase === "generating") return;
             const text = contentText(update.content);
             if (!text) return;
-            const last = chat.items[chat.items.length - 1];
+            const blocks = update.content && !Array.isArray(update.content) ? [update.content] : [];
+            const last = items[items.length - 1];
             if (last && last.type === "user") {
               last.text += text;
+              last.promptBlocks = [...(last.promptBlocks ?? []), ...blocks];
             } else {
-              pushItem(chat, { type: "user", id: nextItemId(), at: Date.now(), text });
+              pushItem(chat, { type: "user", id: nextItemId(), at: Date.now(), text, promptBlocks: blocks });
             }
             return;
           }
@@ -300,7 +396,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
           default: {
             // 未知变体保持可见（v1→v2 过渡期的协议漂移探针），但同类只提示一次。
             const text = `[ACP] 未渲染的更新类型: ${update.sessionUpdate}`;
-            const seen = chat.items.some(
+            const seen = items.some(
               (item) => item.type === "notice" && item.text === text,
             );
             if (!seen) {
@@ -311,10 +407,59 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
         }
       }),
 
-    setPermission: (chatId, request) =>
+    enqueuePermission: (chatId, request) =>
       set((state) => {
         const chat = ensure(state.chats, chatId);
-        chat.pendingPermission = request;
+        const existing = chat.pendingPermissions.find((item) => item.requestKey === request.requestKey);
+        if (existing) existing.params = request.params;
+        else chat.pendingPermissions.push({ ...request, responding: false, error: null });
+      }),
+
+    beginPermissionResponse: (chatId, requestKey) => {
+      let started = false;
+      set((state) => {
+        const request = state.chats[chatId]?.pendingPermissions.find((item) => item.requestKey === requestKey);
+        if (!request || request.responding) return;
+        request.responding = true;
+        request.error = null;
+        started = true;
+      });
+      return started;
+    },
+
+    finishPermissionResponse: (chatId, requestKey, error) =>
+      set((state) => {
+        const chat = state.chats[chatId];
+        if (!chat) return;
+        const request = chat.pendingPermissions.find((item) => item.requestKey === requestKey);
+        if (!request) return;
+        if (error !== undefined) {
+          request.responding = false;
+          request.error = error;
+        } else {
+          chat.pendingPermissions = chat.pendingPermissions.filter((item) => item.requestKey !== requestKey);
+        }
+      }),
+
+    beginSetup: (chatId, prompt) => {
+      let token: number | null = null;
+      set((state) => {
+        const chat = ensure(state.chats, chatId);
+        if (chat.setup?.pending || chat.pendingPrompt) return;
+        token = ++setupSeq;
+        chat.setup = { token, pending: true, error: null, ...prompt };
+      });
+      return token;
+    },
+
+    finishSetup: (chatId, token, error) =>
+      set((state) => {
+        const chat = state.chats[chatId];
+        if (!chat?.setup || chat.setup.token !== token) return;
+        if (error !== undefined) {
+          chat.setup.pending = false;
+          chat.setup.error = error;
+        } else chat.setup = null;
       }),
 
     pushNotice: (chatId, text) =>
@@ -326,8 +471,9 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
     turnEnded: (chatId, stopReason, error) =>
       set((state) => {
         const chat = ensure(state.chats, chatId);
+        observePromptPhase(chat, "turn_ended");
         // 回合结束后审批卡必然失效（agent 已用 cancelled 收场）。
-        chat.pendingPermission = null;
+        chat.pendingPermissions = [];
         closeOpenThought(chat);
         if (stopReason !== "end_turn") {
           const text = error ? `${stopReason}: ${error}` : `[${stopReason}]`;
@@ -338,13 +484,13 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
     setTerminalOutput: (chatId, output) =>
       set((state) => {
         const chat = ensure(state.chats, chatId);
-        chat.terminals[output.terminalId] = output;
+        (chat.replay?.terminals ?? chat.terminals)[output.terminalId] = output;
       }),
 
-    dropChat: (chatId) =>
-      set((state) => {
-        delete state.chats[chatId];
-      }),
+    dropChat: (chatId) => {
+      dropAgentChatDraft(chatId);
+      set((state) => { delete state.chats[chatId]; });
+    },
   })),
 );
 

@@ -226,6 +226,19 @@ describe("TabBar", () => {
     expect(onCloneTab).toHaveBeenCalledWith(tab);
   });
 
+  it("opens the conversation fork dialog for the active terminal leaf", async () => {
+    const tab = makeTab("tab-1", "Alpha");
+    if (tab.terminalRootPane?.type === "leaf") {
+      tab.terminalRootPane.cliTool = "codex";
+      tab.terminalRootPane.resumeId = "source-id";
+    }
+    renderTabBar({ tabs: [tab] });
+    fireEvent.contextMenu(screen.getByText("Alpha"));
+    await userEvent.click(await screen.findByRole("menuitem", { name: i18n.t("panes:forkChat") }));
+    expect(await screen.findByRole("dialog", { name: i18n.t("panes:forkChat") })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: i18n.t("panes:forkWorktree") })).toBeEnabled();
+  });
+
   it("快捷命令子菜单禁用无会话的当前 pane 命令并执行可用命令", async () => {
     const user = userEvent.setup();
     const tab = makeTab("tab-1", "Alpha");

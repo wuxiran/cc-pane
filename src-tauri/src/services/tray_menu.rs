@@ -12,13 +12,14 @@
 //!   `{"action":"open-settings","section":"tray"}` / `{"action":"confirm-quit","runningCount":n}`
 //! - 通知偏好切换后 emit `notification-preferences-changed`（与前端命令同一事件名）。
 
+use super::tray_refresh::TrayRefresh;
 use cc_panes_core::models::settings::GeneralSettings;
 use cc_panes_core::services::terminal_service::SessionStatus;
 use cc_panes_core::services::{SettingsService, TaskBindingService, WorkspaceService};
 use serde_json::json;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tauri::menu::{
     CheckMenuItem, IsMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu,
 };
@@ -571,8 +572,7 @@ pub struct TrayMenuController {
     workspaces: Arc<WorkspaceService>,
     prefs: Arc<NotificationPreferenceService>,
     language_override: Mutex<Option<String>>,
-    last_refresh: Mutex<Instant>,
-    trailing_scheduled: AtomicBool,
+    refresh_scheduler: Arc<TrayRefresh>,
 }
 
 impl TrayMenuController {
@@ -597,9 +597,7 @@ impl TrayMenuController {
             workspaces,
             prefs,
             language_override: Mutex::new(None),
-            // 以「已过节流窗」初始化，首次 refresh 立即生效。
-            last_refresh: Mutex::new(Instant::now() - REFRESH_THROTTLE),
-            trailing_scheduled: AtomicBool::new(false),
+            refresh_scheduler: TrayRefresh::new(REFRESH_THROTTLE),
         }
     }
 
@@ -608,33 +606,10 @@ impl TrayMenuController {
         self.current_spec()
     }
 
-    /// 300ms 节流刷新：窗口内首次调用立即重建，其余合并为一次尾随重建。
+    /// Coalesce events at 300 ms; daemon and database reads always run off the UI thread.
     pub fn refresh(self: &Arc<Self>) {
-        let mut last = self.last_refresh.lock().unwrap_or_else(|e| e.into_inner());
-        let elapsed = last.elapsed();
-        if elapsed >= REFRESH_THROTTLE {
-            *last = Instant::now();
-            drop(last);
-            self.rebuild();
-        } else if !self.trailing_scheduled.swap(true, Ordering::SeqCst) {
-            let delay = REFRESH_THROTTLE - elapsed;
-            drop(last);
-            let this = Arc::clone(self);
-            if let Err(error) = std::thread::Builder::new()
-                .name("ccpanes-tray-refresh".to_string())
-                .spawn(move || {
-                    std::thread::sleep(delay);
-                    this.trailing_scheduled.store(false, Ordering::SeqCst);
-                    *this.last_refresh.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
-                    this.rebuild();
-                })
-            {
-                // The trailing refresh is optional.  Clear the coalescing
-                // latch so a later event can retry instead of freezing the menu.
-                self.trailing_scheduled.store(false, Ordering::SeqCst);
-                warn!("Failed to start tray refresh thread: {error}");
-            }
-        }
+        let controller = self.clone();
+        self.refresh_scheduler.request(move || controller.rebuild());
     }
 
     /// 前端启动时推送语言（settings.general.language 为空时的兜底；优先读 settings）。

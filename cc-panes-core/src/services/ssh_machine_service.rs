@@ -20,7 +20,7 @@ pub struct SshConnectivityResult {
 /// SSH 机器管理服务 — JSON 文件存储 + Mutex 内存状态
 pub struct SshMachineService {
     config_path: PathBuf,
-    config: Mutex<SshMachineConfig>,
+    config: Arc<Mutex<SshMachineConfig>>,
     credential_service: Arc<SshCredentialService>,
     connection_service: Arc<SshConnectionService>,
 }
@@ -46,7 +46,7 @@ impl SshMachineService {
         let config = Self::load_from_file(&config_path).unwrap_or_default();
         Self {
             config_path,
-            config: Mutex::new(config),
+            config: Arc::new(Mutex::new(config)),
             credential_service,
             connection_service,
         }
@@ -84,11 +84,13 @@ impl SshMachineService {
 
     /// 列出所有 SSH 机器
     pub fn list(&self) -> Vec<SshMachine> {
-        self.config
+        let machines = self
+            .config
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .machines
-            .clone()
+            .clone();
+        machines
             .into_iter()
             .map(|machine| self.hydrate_machine(machine))
             .collect()
@@ -96,14 +98,15 @@ impl SshMachineService {
 
     /// 获取指定 SSH 机器
     pub fn get(&self, id: &str) -> Option<SshMachine> {
-        self.config
+        let machine = self
+            .config
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .machines
             .iter()
             .find(|m| m.id == id)
-            .cloned()
-            .map(|machine| self.hydrate_machine(machine))
+            .cloned();
+        machine.map(|machine| self.hydrate_machine(machine))
     }
 
     pub fn load_password(&self, id: &str) -> Result<Option<String>> {
@@ -165,6 +168,10 @@ impl SshMachineService {
         let previous = config.clone();
         let mut new_config = previous.clone();
         new_config.machines.push(machine.clone());
+        super::ssh_connection_service::validate_changed_machine_routes(
+            &new_config.machines,
+            &machine.id,
+        )?;
         self.save_to_file(&new_config)?;
         if let Err(error) = self.apply_secret_update(&machine, &request, None) {
             warn!(
@@ -205,6 +212,10 @@ impl SshMachineService {
         let previous = config.clone();
         let mut new_config = previous.clone();
         new_config.machines[pos] = machine.clone();
+        super::ssh_connection_service::validate_changed_machine_routes(
+            &new_config.machines,
+            &machine.id,
+        )?;
         self.save_to_file(&new_config)?;
         if let Err(error) = self.apply_secret_update(&machine, &request, Some(&previous_machine)) {
             warn!(
@@ -439,30 +450,39 @@ impl SshMachineService {
     /// BatchMode=yes 禁止交互式密码提示，仅测试非交互 reachability。
     /// 使用临时 UserKnownHostsFile 避免修改用户的 known_hosts。
     pub async fn check_connectivity(&self, id: &str) -> Result<SshConnectivityResult> {
-        let machine = self
-            .get(id)
-            .with_context(|| format!("SSH machine '{}' not found", id))?;
-
-        Self::validate_ssh_field(&machine.host, "host")?;
-        if let Some(ref u) = machine.user {
-            Self::validate_ssh_field(u, "user")?;
-        }
-        if let Some(ref f) = machine.identity_file {
-            if machine.auth_method == AuthMethod::Key {
-                Self::validate_ssh_field(f, "identityFile")?;
+        let config = self.config.clone();
+        let credentials = self.credential_service.clone();
+        let machine_id = id.to_string();
+        // Both waiting for a config mutation and reading Keychain credentials
+        // can block. Do all preflight work away from the async runtime.
+        let (machine, has_password) = tokio::task::spawn_blocking(move || {
+            let machine = config
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .machines
+                .iter()
+                .find(|machine| machine.id == machine_id)
+                .cloned()
+                .with_context(|| format!("SSH machine '{}' not found", machine_id))?;
+            Self::validate_ssh_field(&machine.host, "host")?;
+            if let Some(ref user) = machine.user {
+                Self::validate_ssh_field(user, "user")?;
             }
-        }
+            if machine.auth_method == AuthMethod::Key {
+                if let Some(ref file) = machine.identity_file {
+                    Self::validate_ssh_field(file, "identityFile")?;
+                }
+            }
+            let has_password = machine.auth_method != AuthMethod::Password
+                || credentials.load_connection_password(&machine.id)?.is_some();
+            Ok::<_, anyhow::Error>((machine, has_password))
+        })
+        .await
+        .context("SSH connectivity preflight task failed")??;
 
         debug!(machine_id = %id, machine_name = %machine.name, "Checking SSH connectivity");
 
         let start = std::time::Instant::now();
-        let has_password = if machine.auth_method == AuthMethod::Password {
-            self.credential_service
-                .load_connection_password(&machine.id)?
-                .is_some()
-        } else {
-            true
-        };
         if machine.auth_method == AuthMethod::Password && !has_password {
             let probe_service = self.connection_service.clone();
             let probe_machine = machine.clone();

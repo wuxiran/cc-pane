@@ -29,10 +29,11 @@ interface CreateTerminalBackgroundLifecycleOptions {
   onTier2: () => void;
   onTier2Restore: () => void;
   /** 停泊层可选：不传则退化为原两档。 */
-  onPark?: () => void;
+  onPark?: () => boolean | void;
   onParkRestore?: () => void;
   tier1DelayMs?: number;
   parkDelayMs?: number;
+  parkRetryMs?: number;
   tier2DelayMs?: number;
 }
 
@@ -47,6 +48,7 @@ export function createTerminalBackgroundLifecycle({
   onParkRestore,
   tier1DelayMs = BACKGROUND_TIER1_DELAY_MS,
   parkDelayMs = BACKGROUND_PARK_DELAY_MS,
+  parkRetryMs = 5_000,
   tier2DelayMs = BACKGROUND_TIER2_DELAY_MS,
 }: CreateTerminalBackgroundLifecycleOptions): TerminalBackgroundLifecycle {
   let hidden = false;
@@ -65,6 +67,17 @@ export function createTerminalBackgroundLifecycle({
     tier1Timer = parkTimer = tier2Timer = null;
   };
 
+  const tryPark = () => {
+    parkTimer = null;
+    if (disposed || !hidden) return;
+    const parked = onPark?.();
+    if (parked === false) {
+      parkTimer = setTimeout(tryPark, Math.max(1_000, parkRetryMs));
+    } else {
+      parkFired = true;
+    }
+  };
+
   return {
     notifyVisibility(visible: boolean): void {
       if (disposed) return;
@@ -77,11 +90,7 @@ export function createTerminalBackgroundLifecycle({
           onTier1();
         }, tier1DelayMs);
         if (onPark) {
-          parkTimer = setTimeout(() => {
-            parkTimer = null;
-            parkFired = true;
-            onPark();
-          }, parkDelayMs);
+          parkTimer = setTimeout(tryPark, parkDelayMs);
         }
         tier2Timer = setTimeout(() => {
           tier2Timer = null;

@@ -328,3 +328,46 @@ describe("TerminalTabContent", () => {
     expect(screen.queryByTestId("terminal-view")).not.toBeInTheDocument();
   });
 });
+
+describe("TerminalTabContent 启动失败提示（L2-2）", () => {
+  it("leaf.launchFailure 存在且无会话时显示修复命令，且不阻断 TerminalView 重新启动", () => {
+    const tab = createTerminalTab({
+      cliTool: "claude",
+      wsl: { remotePath: "/mnt/d/repo", distro: "Ubuntu" },
+      terminalRootPane: {
+        type: "leaf",
+        id: "leaf-1",
+        sessionId: null,
+        cliTool: "claude",
+        wsl: { remotePath: "/mnt/d/repo", distro: "Ubuntu" },
+        launchFailure: {
+          reason: "native-cli-missing",
+          at: 1,
+          missingCli: "claude",
+          fixHint: "npm i -g @anthropic-ai/claude-code",
+          wslDistro: "Ubuntu",
+        },
+      },
+    });
+    renderTerminalTabContent(tab);
+    const hint = screen.getByTestId("terminal-launch-failure-hint");
+    expect(hint.textContent).toContain("npm i -g @anthropic-ai/claude-code");
+    expect(hint.textContent).toContain("claude");
+    // 提示是覆盖层，不替代终端：用户重新启动时 TerminalView 照常挂载
+    expect(screen.getByTestId("terminal-view")).toBeInTheDocument();
+  });
+
+  it("有会话后不再显示启动失败提示", () => {
+    const tab = createTerminalTab({
+      terminalRootPane: {
+        type: "leaf",
+        id: "leaf-1",
+        sessionId: "pty-live",
+        cliTool: "claude",
+        launchFailure: { reason: "native-cli-missing", at: 1, fixHint: "x" },
+      },
+    });
+    renderTerminalTabContent(tab);
+    expect(screen.queryByTestId("terminal-launch-failure-hint")).toBeNull();
+  });
+});

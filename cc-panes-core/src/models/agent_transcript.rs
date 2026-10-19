@@ -35,6 +35,9 @@ pub struct ReadAgentTranscriptParams {
     /// 从末尾再往前跳过的消息数（「加载更早」）。默认 0。
     #[serde(default)]
     pub offset_from_end: Option<u32>,
+    /// Stable exclusive boundary for older pages; takes precedence over offset.
+    #[serde(default)]
+    pub before_message_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,7 +49,13 @@ pub struct ReadAgentTranscriptResult {
     /// 解码得到的消息总数（分页前）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_estimate: Option<u64>,
+    /// Compatibility: this window omits messages on either side.
     pub truncated: bool,
+    /// Whether messages exist before this page (not merely after it).
+    #[serde(default)]
+    pub has_earlier: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_before_message_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_code: Option<AgentTranscriptErrorCode>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -61,6 +70,7 @@ pub enum AgentTranscriptErrorCode {
     ParseError,
     IoError,
     InvalidSessionId,
+    CursorExpired,
 }
 
 impl ReadAgentTranscriptResult {
@@ -70,11 +80,18 @@ impl ReadAgentTranscriptResult {
         total_estimate: u64,
         truncated: bool,
     ) -> Self {
+        let next_before_message_id = if truncated {
+            messages.first().map(|message| message.id.clone())
+        } else {
+            None
+        };
         Self {
             messages,
             file_path: Some(file_path),
             total_estimate: Some(total_estimate),
             truncated,
+            has_earlier: truncated,
+            next_before_message_id,
             error_code: None,
             error_message: None,
         }
@@ -86,6 +103,8 @@ impl ReadAgentTranscriptResult {
             file_path: None,
             total_estimate: None,
             truncated: false,
+            has_earlier: false,
+            next_before_message_id: None,
             error_code: Some(code),
             error_message: Some(message.into()),
         }

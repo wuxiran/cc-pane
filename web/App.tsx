@@ -1,10 +1,9 @@
 import { useEffect } from "react";
-import LayoutSwitcherWindow from "@/components/LayoutSwitcherWindow";
 import PopupTerminalWindow from "@/components/PopupTerminalWindow";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import WebAuthGate from "@/components/WebAuthGate";
 import AppShell from "@/components/layout/AppShell";
-import MobilePrototypeRoute from "@/components/layout/MobilePrototypeRoute";
+import AuxiliaryRoute from "@/components/layout/AuxiliaryRoute";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTodoReminders } from "@/hooks/useTodoReminders";
 import { useWorkspaceWatcher } from "@/hooks/useWorkspaceWatcher";
@@ -26,6 +25,7 @@ import {
 import { useTerminalResumeIdBridge } from "@/hooks/useTerminalSessionRestore";
 import { useAppLifecycleEarly } from "@/hooks/useAppLifecycleEarly";
 import { useAppLifecycleLate } from "@/hooks/useAppLifecycleLate";
+import { useCCChanActions } from "@/hooks/useCCChanActions";
 import { useTrayActions } from "@/hooks/useTrayActions";
 import { useShortcutRegistrations } from "@/hooks/useShortcutRegistrations";
 import { useOpenTerminal } from "@/hooks/useOpenTerminal";
@@ -43,13 +43,13 @@ export default function App() {
     return <PopupTerminalWindow />;
   }
   if (params.get("mode") === "layout-switcher") {
-    return <LayoutSwitcherWindow />;
+    return <ErrorBoundary><AuxiliaryRoute mode="layout-switcher" /></ErrorBoundary>;
   }
   if (params.get("mode") === "mobile-prototype") {
     return (
       <ErrorBoundary>
         <WebAuthGate>
-          <MobilePrototypeRoute />
+          <AuxiliaryRoute mode="mobile-prototype" />
         </WebAuthGate>
       </ErrorBoundary>
     );
@@ -120,6 +120,7 @@ function MainApp() {
   useQuickCommandsSync();
   // 系统托盘事件分发（tray-action / 通知偏好变更），独立于上面的生命周期序列。
   useTrayActions();
+  useCCChanActions();
   // 镜像「哪条会话住在快捷终端窗口里」（F1.4）：通知定位回退与「在主窗口打开」都靠它。
   // 独立订阅，不参与上面的生命周期顺序，放这里避免打乱那条序列。
   useQuickTerminalSessionSync();

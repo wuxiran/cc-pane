@@ -54,8 +54,6 @@ const ALLOWED_KILL_SESSION_FILES = {
   // ── 用户显式操作 ──────────────────────────────────────────
   "components/statusbar/SystemResourceSegment.tsx":
     "资源管理器里用户按下「结束会话」（二次确认 armed 后），reason=user-close",
-  "components/selfchat/SelfChatManager.tsx":
-    "SelfChat 重启/结束会话：该会话不在 pane 树里（无 tabId），destroyPipeline 够不着，只能自管",
 } as const;
 
 /** 调用点计数上限：现状快照。新增调用点会顶破，逼着解释「为什么又多一处」。 */
@@ -70,7 +68,6 @@ const CALL_SITE_BUDGET: Record<string, number> = {
   "stores/snapshotSessionDiff.ts": 1,
   "hooks/useSessionLayoutPersistence.ts": 1,
   "components/statusbar/SystemResourceSegment.tsx": 2,
-  "components/selfchat/SelfChatManager.tsx": 2,
 };
 
 const KILL_SESSION_PATTERN = /killSession\s*\(/g;

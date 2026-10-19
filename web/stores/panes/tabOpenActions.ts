@@ -144,6 +144,7 @@ export function createTabOpenActions({ set, get }: PanesStoreAccess): TabOpenAct
         wsl: lastClosed.wsl,
         machineName: lastClosed.machineName,
         parentTabId: lastClosed.parentTabId,
+        forkReviewId: lastClosed.forkReviewId,
         launchExtras: lastClosed.launchExtras,
       });
 

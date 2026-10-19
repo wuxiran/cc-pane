@@ -48,6 +48,7 @@ const SNAPSHOT_FIELDS = [
   "pinned",
   "starred",
   "parentTabId",
+  "forkReviewId",
   "launchExtras",
   "terminalRootPane",
   // 以下三个是非终端快照专用，由 registry 的 persistForUndo 产出，
@@ -96,6 +97,7 @@ function fullTerminalTab() {
     pinned: true,
     starred: true,
     parentTabId: "tab-parent",
+    forkReviewId: "review-1",
     launchExtras: { yolo: true, initialPrompt: "重构一下" },
     terminalRootPane: splitTree,
   };
@@ -138,6 +140,7 @@ describe("toClosedTabSnapshot：字段集双向锁", () => {
       pinned: snap.pinned,
       starred: snap.starred,
       parentTabId: snap.parentTabId,
+      forkReviewId: snap.forkReviewId,
     }).toEqual({
       projectId: "proj-1",
       projectPath: "/tmp/p",
@@ -155,6 +158,7 @@ describe("toClosedTabSnapshot：字段集双向锁", () => {
       pinned: true,
       starred: true,
       parentTabId: "tab-parent",
+      forkReviewId: "review-1",
     });
     expect(source).toBeDefined();
   });

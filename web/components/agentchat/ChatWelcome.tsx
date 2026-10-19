@@ -18,13 +18,13 @@ export default function ChatWelcome({ engineLabel, cwd, concierge }: ChatWelcome
   return (
     <div
       data-testid="chat-welcome"
-      className="flex items-start gap-3 rounded-xl border border-dashed border-[var(--app-border)] px-4 py-3"
+      className="agent-chat-welcome flex flex-col gap-5 py-12"
     >
-      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--app-active-bg)] text-[var(--app-accent)]">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-[var(--app-text-secondary)]">
         <Icon className="h-4 w-4" aria-hidden="true" />
       </span>
-      <div className="min-w-0 flex-1 text-xs leading-relaxed text-[var(--app-text-secondary)]">
-        <div className="text-[13px] font-medium text-[var(--app-text-primary)]">
+      <div className="min-w-0 flex-1 text-sm leading-7 text-[var(--app-text-secondary)]">
+        <div className="text-2xl font-medium tracking-tight text-[var(--app-text-primary)]">
           {concierge
             ? t("agentChatWelcomeConcierge", { engine: engineLabel })
             : t("agentChatWelcomeEngine", { engine: engineLabel })}

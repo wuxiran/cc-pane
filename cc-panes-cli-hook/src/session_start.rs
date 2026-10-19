@@ -22,6 +22,8 @@ fn no_window_command(program: &str) -> Command {
 
 use chrono::Local;
 
+use crate::common::env::{detect_cli_tool, detect_runtime_kind};
+
 /// Hook input from Claude Code (stdin JSON).
 #[derive(Debug, Deserialize)]
 struct HookInput {
@@ -57,44 +59,6 @@ struct MemoryRecallRequest<'a> {
     alt_project_path: Option<&'a str>,
     min_importance: u8,
     limit: u32,
-}
-
-fn detect_cli_tool() -> &'static str {
-    if let Ok(cli_tool) = std::env::var("CC_PANES_CLI_TOOL") {
-        match cli_tool.as_str() {
-            "codex" => return "codex",
-            "claude" => return "claude",
-            _ => {}
-        }
-    }
-
-    if std::env::var("CODEX_HOME").is_ok()
-        || std::env::var("CODEX_SANDBOX").is_ok()
-        || std::env::var("CODEX_REMOTE").is_ok()
-    {
-        "codex"
-    } else {
-        "claude"
-    }
-}
-
-fn detect_runtime_kind() -> &'static str {
-    if let Ok(runtime_kind) = std::env::var("CC_PANES_RUNTIME_KIND") {
-        match runtime_kind.as_str() {
-            "ssh" => return "ssh",
-            "wsl" => return "wsl",
-            "local" => return "local",
-            _ => {}
-        }
-    }
-
-    if std::env::var("SSH_CONNECTION").is_ok() || std::env::var("SSH_CLIENT").is_ok() {
-        "ssh"
-    } else if std::env::var("WSL_DISTRO_NAME").is_ok() {
-        "wsl"
-    } else {
-        "local"
-    }
 }
 
 fn load_launch_profile_skills() -> Option<String> {
@@ -360,27 +324,15 @@ fn windows_mount_tool_guidance_for(
         return None;
     }
 
-    let is_windows_backed = is_wsl_windows_mount_path(project_path)
-        || env_project_path
-            .is_some_and(|path| is_wsl_windows_mount_path(path) || is_windows_drive_path(path));
+    let is_windows_backed = is_windows_backed_path(project_path)
+        || env_project_path.is_some_and(is_windows_backed_path);
     is_windows_backed.then_some(WINDOWS_MOUNT_TOOL_GUIDANCE)
 }
 
-fn is_wsl_windows_mount_path(path: &str) -> bool {
-    let normalized = path.replace('\\', "/");
-    let mut parts = normalized.split('/').filter(|part| !part.is_empty());
-    matches!(
-        (parts.next(), parts.next()),
-        (Some("mnt"), Some(drive)) if drive.len() == 1 && drive.as_bytes()[0].is_ascii_alphabetic()
-    )
-}
-
-fn is_windows_drive_path(path: &str) -> bool {
-    let bytes = path.as_bytes();
-    bytes.len() >= 3
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':'
-        && matches!(bytes[2], b'\\' | b'/')
+/// 在 WSL 里看是否落在 Windows 挂载盘上：`/mnt/<x>/...`、盘符路径、或指向挂载盘的 WSL UNC。
+fn is_windows_backed_path(path: &str) -> bool {
+    cc_panes_paths::to_wsl_posix(path, cc_panes_paths::DEFAULT_WSL_MOUNT_ROOT)
+        .is_some_and(|posix| cc_panes_paths::mnt_drive_letter(&posix).is_some())
 }
 
 fn send_session_started(
@@ -682,17 +634,22 @@ fn get_git_status(project_dir: &Path) -> String {
 }
 
 /// Find the workspace CLAUDE.md for the given project directory.
-/// Scans `~/.cc-panes/workspaces/*/workspace.json` to find which workspace contains this project.
+/// Scans `<data_dir>/workspaces/*/workspace.json` to find which workspace contains this project.
+/// `<data_dir>` follows `CC_PANES_DATA_DIR` and the dev/release instance split
+/// (`DataDirResolver`), so a dev instance never reads the release instance's workspaces.
 fn find_workspace_claude_md(project_dir: &Path) -> Option<String> {
-    let home = dirs::home_dir()?;
-    let workspaces_dir = home.join(".cc-panes").join("workspaces");
+    let workspaces_dir = cc_panes_paths::DataDirResolver::from_env().workspaces_dir();
+    find_workspace_claude_md_in(&workspaces_dir, project_dir)
+}
+
+fn find_workspace_claude_md_in(workspaces_dir: &Path, project_dir: &Path) -> Option<String> {
     if !workspaces_dir.is_dir() {
         return None;
     }
 
     let project_path_str = project_dir.to_string_lossy();
 
-    let entries = fs::read_dir(&workspaces_dir).ok()?;
+    let entries = fs::read_dir(workspaces_dir).ok()?;
     for entry in entries.flatten() {
         let ws_dir = entry.path();
         if !ws_dir.is_dir() {
@@ -727,17 +684,17 @@ fn find_workspace_claude_md(project_dir: &Path) -> Option<String> {
     None
 }
 
-/// Normalize path separators for comparison (Windows vs Unix).
+/// Project identity key: drive / `/mnt/<x>` / WSL-UNC forms of one project compare equal,
+/// while WSL Linux paths stay case-sensitive.
 fn normalize_path(p: &str) -> String {
-    p.replace('\\', "/").to_lowercase()
+    cc_panes_paths::identity_key(p)
 }
 
 /// Find cc-memory-mcp binary and load high-importance memories.
 fn load_memory_context(project_dir: &Path) -> Option<String> {
     let cli_path = find_memory_cli()?;
 
-    let home = dirs::home_dir()?;
-    let db_path = home.join(".cc-panes").join("memory.db");
+    let db_path = cc_panes_paths::DataDirResolver::from_env().memory_db_path();
     if !db_path.exists() {
         return None;
     }
@@ -776,12 +733,12 @@ fn find_memory_cli() -> Option<String> {
         "cc-memory-mcp"
     };
 
-    // 1. Check ~/.cc-panes/bin/
-    if let Some(home) = dirs::home_dir() {
-        let cc_panes_bin = home.join(".cc-panes").join("bin").join(bin_name);
-        if cc_panes_bin.exists() {
-            return Some(cc_panes_bin.to_string_lossy().to_string());
-        }
+    // 1. Check <config_dir>/bin/ (`.cc-panes` or `.cc-panes-dev`)
+    let cc_panes_bin = cc_panes_paths::DataDirResolver::from_env()
+        .bin_dir()
+        .join(bin_name);
+    if cc_panes_bin.exists() {
+        return Some(cc_panes_bin.to_string_lossy().to_string());
     }
 
     // 2. Check PATH
@@ -814,9 +771,65 @@ fn read_hook_input_from_stdin() -> Option<HookInput> {
 #[cfg(test)]
 mod tests {
     use super::{
-        push_budgeted_line, sanitize_field, windows_mount_tool_guidance_for,
-        WINDOWS_MOUNT_TOOL_GUIDANCE,
+        find_workspace_claude_md_in, normalize_path, push_budgeted_line, sanitize_field,
+        windows_mount_tool_guidance_for, WINDOWS_MOUNT_TOOL_GUIDANCE,
     };
+    use std::path::Path;
+
+    #[test]
+    fn guidance_recognizes_unc_mount_and_ignores_mid_path_decoy() {
+        assert_eq!(
+            windows_mount_tool_guidance_for(
+                "wsl",
+                "/home/user/project",
+                Some(r"\\wsl.localhost\Ubuntu\mnt\d\work\project")
+            ),
+            Some(WINDOWS_MOUNT_TOOL_GUIDANCE)
+        );
+        assert_eq!(
+            windows_mount_tool_guidance_for("wsl", "/home/user/mnt/d/project", None),
+            None
+        );
+    }
+
+    #[test]
+    fn project_match_uses_identity_key() {
+        assert_eq!(
+            normalize_path(r"D:\Work\App"),
+            normalize_path("/mnt/d/work/app")
+        );
+        assert_ne!(
+            normalize_path("/home/u/App"),
+            normalize_path("/home/u/app"),
+            "WSL Linux paths stay case-sensitive"
+        );
+    }
+
+    #[test]
+    fn workspace_claude_md_is_read_from_the_given_workspaces_dir() {
+        let root = std::env::temp_dir().join(format!(
+            "cc-panes-hook-ws-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let ws_dir = root.join("workspaces").join("demo");
+        std::fs::create_dir_all(&ws_dir).unwrap();
+        std::fs::write(
+            ws_dir.join("workspace.json"),
+            r#"{"projects":[{"path":"D:\\Work\\App"}]}"#,
+        )
+        .unwrap();
+        std::fs::write(ws_dir.join("CLAUDE.md"), "# demo workspace").unwrap();
+
+        let found =
+            find_workspace_claude_md_in(&root.join("workspaces"), Path::new("/mnt/d/work/app"));
+        let missing =
+            find_workspace_claude_md_in(&root.join("workspaces"), Path::new("/mnt/d/work/other"));
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(found.as_deref(), Some("# demo workspace"));
+        assert_eq!(missing, None);
+    }
 
     #[test]
     fn injects_windows_native_tool_guidance_for_wsl_mount() {

@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::{debug, warn};
 
 /// 通道容量：hook 事件每秒最多几条，1024 足够吸收一次 SQLite 卡顿。
@@ -185,6 +185,7 @@ impl Worker {
                         if slot.len() > MAX_PENDING_PER_SESSION {
                             slot.remove(0);
                         }
+                        self.evict_stale_pending(at);
                     }
                     Err(error) => warn!(%error, "[heavy-ledger] insert failed"),
                 }
@@ -270,6 +271,30 @@ impl Worker {
     }
 }
 
+fn prune_due(deadline: &mut Instant, now: Instant, interval: Duration) -> bool {
+    if now < *deadline {
+        return false;
+    }
+    *deadline = now + interval;
+    true
+}
+
+/// An absolute deadline prevents a steady stream of events from starving pruning.
+fn run_worker(worker: &mut Worker, receiver: mpsc::Receiver<Message>, interval: Duration) {
+    worker.handle(Message::Prune);
+    let mut deadline = Instant::now() + interval;
+    loop {
+        if prune_due(&mut deadline, Instant::now(), interval) {
+            worker.handle(Message::Prune);
+        }
+        match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(message) => worker.handle(message),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+}
+
 /// 进程内单例；`Arc` 由 Tauri `manage`，orchestrator 经 `app_handle.try_state` 取。
 pub struct HeavyCommandRecorder {
     sender: mpsc::SyncSender<Message>,
@@ -285,14 +310,7 @@ impl HeavyCommandRecorder {
             .name("heavy-ledger".into())
             .spawn(move || {
                 let mut worker = Worker::new(worker_repo);
-                worker.handle(Message::Prune);
-                loop {
-                    match receiver.recv_timeout(PRUNE_INTERVAL) {
-                        Ok(message) => worker.handle(message),
-                        Err(mpsc::RecvTimeoutError::Timeout) => worker.handle(Message::Prune),
-                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                    }
-                }
+                run_worker(&mut worker, receiver, PRUNE_INTERVAL);
             })
             .map_err(|error| warn!(%error, "[heavy-ledger] worker thread spawn failed"))
             .ok();
@@ -540,9 +558,13 @@ mod tests {
         worker.handle(before("s1", "old", now - PENDING_MAX_AGE_MS - 1));
         worker.handle(before("s1", "fresh", now - 1_000));
         worker.handle(before("s2", "fresh-2", now));
-        assert_eq!(worker.pending_len(), 3);
+        assert_eq!(
+            worker.pending_len(),
+            2,
+            "insertion already enforces retention"
+        );
 
-        assert_eq!(worker.evict_stale_pending(now), 1);
+        assert_eq!(worker.evict_stale_pending(now), 0);
         assert_eq!(worker.pending_len(), 2, "only the 24 h old start goes");
         // 逐出后 After 匹配不上就被安静忽略；新鲜的仍可配对
         worker.handle(Message::After {
@@ -563,9 +585,12 @@ mod tests {
         for i in 0..(MAX_PENDING_KEYS + 5) {
             worker.handle(before("flood", &format!("t{i}"), now + i as i64));
         }
-        assert!(worker.pending_len() > MAX_PENDING_KEYS);
-        let evicted = worker.evict_stale_pending(now + 10);
-        assert!(evicted >= 6, "evicted={evicted}");
+        assert_eq!(
+            worker.pending_len(),
+            MAX_PENDING_KEYS,
+            "cap is enforced on every insertion"
+        );
+        assert_eq!(worker.evict_stale_pending(now + 10), 0);
         assert_eq!(worker.pending_len(), MAX_PENDING_KEYS);
         // 最老的（s2/fresh-2 at=now 与 flood/t0..）先走，最新的 flood/t1028 还在
         worker.handle(Message::After {
@@ -610,5 +635,19 @@ mod tests {
         assert_eq!(rows[0].project_path, "D:/repo");
         assert_eq!(rows[0].workspace.as_deref(), Some("ws"));
         assert_eq!(rows[0].source, HeavyCommandSource::Sampler);
+    }
+    #[test]
+    fn pruning_deadline_survives_continuous_messages() {
+        let start = Instant::now();
+        let interval = Duration::from_secs(60);
+        let mut deadline = start + interval;
+        let mut prunes = 0;
+        for second in 1..=180 {
+            // Each iteration represents a message, with no idle interval.
+            if prune_due(&mut deadline, start + Duration::from_secs(second), interval) {
+                prunes += 1;
+            }
+        }
+        assert_eq!(prunes, 3);
     }
 }

@@ -54,13 +54,9 @@ export async function checkWorkspaceProjectPaths(name: string): Promise<ProjectP
 export async function saveWorkspace(
   name: string,
   workspace: Workspace
-): Promise<void> {
-  return invokeOrApi<void>("update_workspace", { name, workspace }, () =>
-    apiNoContent(`/api/workspaces/${encodeURIComponent(name)}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workspace }),
-    }),
+): Promise<Workspace | void> {
+  return invokeOrApi<Workspace | void>("update_workspace", { name, workspace }, () =>
+    apiJson<Workspace>(`/api/workspaces/${encodeURIComponent(name)}`, "PUT", { workspace }),
   );
 }
 

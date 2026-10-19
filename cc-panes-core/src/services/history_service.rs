@@ -1,3 +1,5 @@
+mod restore;
+
 use anyhow::{Context, Result};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::{HashMap, HashSet};
@@ -522,6 +524,13 @@ impl HistoryService {
 
     /// 获取或创建项目的仓库实例
     fn get_or_create_repo(&self, project_path: &Path) -> Result<Arc<HistoryFileRepository>> {
+        // All history APIs converge here before creating directories or a database.
+        // Requiring an existing host directory rejects SSH/file URIs, including
+        // previously-created relative `ssh:/...` pollution, without touching disk.
+        anyhow::ensure!(
+            project_path.is_absolute() && project_path.is_dir(),
+            "HISTORY_LOCAL_PATH_REQUIRED: local history requires an existing absolute host directory"
+        );
         let project_path = normalize_project_path(project_path);
         if self.is_protected(&project_path) {
             anyhow::bail!(
@@ -745,6 +754,12 @@ impl HistoryService {
     ) {
         use notify::EventKind;
 
+        // 编译、装依赖时 target/、node_modules 等会刷出成千上万个事件，最后都会被下面的
+        // 过滤丢掉；先判掉，免得每个事件都读一次 .git/HEAD、拿两次锁。
+        if Self::event_is_ignored_noise(project_path, &event.paths) {
+            return;
+        }
+
         // 读取当前分支并检测是否切换。
         // read 失败返回空串——git 在很多操作中非原子重写 .git/HEAD，瞬时读不到
         // 时若把空串当成"切到空分支"，会伪造一次 BranchSwitched 并开静默窗口
@@ -832,6 +847,23 @@ impl HistoryService {
                 .any(|pattern| Self::matches_pattern(path, pattern))
     }
 
+    /// 事件路径全部落在内置忽略目录、且没有一条在 `.git/` 下（checkout 改写 HEAD
+    /// 要留给分支检测）时返回 true。空路径事件保持原流程。
+    fn event_is_ignored_noise(project_path: &Path, paths: &[PathBuf]) -> bool {
+        !paths.is_empty()
+            && paths.iter().all(|path| {
+                Self::is_builtin_ignored_event_path(project_path, path)
+                    && Self::relative_to_project(path, project_path)
+                        .and_then(|relative| {
+                            relative
+                                .components()
+                                .next()
+                                .map(|first| first.as_os_str() != ".git")
+                        })
+                        .unwrap_or(false)
+            })
+    }
+
     fn is_builtin_ignored_event_path(project_path: &Path, file_path: &Path) -> bool {
         let Some(relative) = Self::relative_to_project(file_path, project_path) else {
             return false;
@@ -886,42 +918,6 @@ impl HistoryService {
     }
 
     /// 恢复文件到指定版本（恢复前自动打标签）
-    pub fn restore_version(
-        &self,
-        project_path: &Path,
-        file_path: &str,
-        version_id: &str,
-    ) -> Result<()> {
-        let repo = self.get_or_create_repo(project_path)?;
-
-        // 恢复前自动打 "Before Restore" 标签
-        let current_branch = Self::read_current_branch(project_path).unwrap_or_default();
-        let snapshots = repo.get_all_latest_snapshots()?;
-        if !snapshots.is_empty() {
-            let label = HistoryLabel {
-                id: uuid::Uuid::new_v4().to_string(),
-                name: format!("Before Restore: {}", file_path),
-                label_type: "auto".to_string(),
-                source: "restore".to_string(),
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                file_snapshots: snapshots,
-                branch: current_branch,
-            };
-            let _ = repo.put_label(&label);
-        }
-
-        let content = repo.get_version_content(file_path, version_id)?;
-        let full_path = project_path.join(file_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-
-        // 确保父目录存在（恢复已删除文件时需要）
-        if let Some(parent) = full_path.parent() {
-            fs::create_dir_all(parent).context("Failed to create parent directory")?;
-        }
-
-        fs::write(&full_path, &content).context("Failed to restore file")?;
-        Ok(())
-    }
-
     /// 清理旧版本
     pub fn cleanup(&self, project_path: &Path) -> Result<()> {
         let repo = self.get_or_create_repo(project_path)?;
@@ -974,50 +970,6 @@ impl HistoryService {
     pub fn delete_label(&self, project_path: &Path, label_id: &str) -> Result<()> {
         let repo = self.get_or_create_repo(project_path)?;
         repo.delete_label(label_id)
-    }
-
-    /// 恢复到标签（Session 级回滚）
-    pub fn restore_to_label(&self, project_path: &Path, label_id: &str) -> Result<Vec<String>> {
-        let repo = self.get_or_create_repo(project_path)?;
-
-        // 恢复前自动打 "Before Rollback" 标签
-        let current_branch = Self::read_current_branch(project_path).unwrap_or_default();
-        let current_snapshots = repo.get_all_latest_snapshots()?;
-        if !current_snapshots.is_empty() {
-            let before_label = HistoryLabel {
-                id: uuid::Uuid::new_v4().to_string(),
-                name: "Before Rollback".to_string(),
-                label_type: "auto".to_string(),
-                source: "restore".to_string(),
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                file_snapshots: current_snapshots,
-                branch: current_branch,
-            };
-            repo.put_label(&before_label)?;
-        }
-
-        // 获取目标标签
-        let labels = repo.list_labels()?;
-        let target_label = labels
-            .into_iter()
-            .find(|l| l.id == label_id)
-            .context("Label not found")?;
-
-        let mut restored_files = Vec::new();
-        for snap in &target_label.file_snapshots {
-            if let Ok(content) = repo.get_version_content(&snap.file_path, &snap.version_id) {
-                let full_path =
-                    project_path.join(snap.file_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-                if let Some(parent) = full_path.parent() {
-                    let _ = fs::create_dir_all(parent);
-                }
-                if fs::write(&full_path, &content).is_ok() {
-                    restored_files.push(snap.file_path.clone());
-                }
-            }
-        }
-
-        Ok(restored_files)
     }
 
     /// 创建自动标签（快捷方法）
@@ -1557,6 +1509,34 @@ mod tests {
             "src/not__pycache__/module.py",
             &legacy_patterns
         ));
+    }
+
+    #[test]
+    fn ignored_noise_skips_build_output_but_keeps_git_and_mixed_events() {
+        let project = std::path::Path::new("/workspace/project");
+        let paths = |items: &[&str]| -> Vec<PathBuf> { items.iter().map(PathBuf::from).collect() };
+
+        assert!(HistoryService::event_is_ignored_noise(
+            project,
+            &paths(&[
+                "/workspace/project/target/debug/deps/a.rlib",
+                "/workspace/project/node_modules/pkg/index.js",
+            ])
+        ));
+        // checkout 改写 HEAD：必须走分支检测。
+        assert!(!HistoryService::event_is_ignored_noise(
+            project,
+            &paths(&["/workspace/project/.git/HEAD"])
+        ));
+        // 混有真实源码的事件保持原流程。
+        assert!(!HistoryService::event_is_ignored_noise(
+            project,
+            &paths(&[
+                "/workspace/project/target/x",
+                "/workspace/project/src/main.rs"
+            ])
+        ));
+        assert!(!HistoryService::event_is_ignored_noise(project, &[]));
     }
 
     #[test]

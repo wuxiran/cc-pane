@@ -23,6 +23,8 @@ export interface AssistantBlockViewProps {
   onOpenLocation: (path: string, line?: number) => void;
   onPlanToTodo: (entries: AcpPlanEntry[]) => void;
   expandAllSignal?: { seq: number; expanded: boolean };
+  /** Top-level replies share one action row; nested replies keep their own copy action. */
+  showCopyAction?: boolean;
 }
 
 type SubagentBlockData = Extract<AssistantBlock, { kind: "subagent" }>;
@@ -48,7 +50,7 @@ export function SubagentBlock({
   return (
     <div
       data-testid="chat-subagent"
-      className="rounded-lg border border-[var(--app-border)] bg-[var(--app-overlay)] text-xs shadow-sm"
+      className="agent-chat-activity agent-chat-subagent text-xs"
     >
       <button
         type="button"
@@ -120,6 +122,7 @@ export default function AssistantBlockView({
   onOpenLocation,
   onPlanToTodo,
   expandAllSignal,
+  showCopyAction = true,
 }: AssistantBlockViewProps) {
   const { t } = useTranslation("panes");
   switch (block.kind) {
@@ -149,11 +152,13 @@ export default function AssistantBlockView({
     case "text":
       return (
         <MessageCopyContextMenu text={block.item.text}>
-          <div className="group relative rounded-xl border border-[var(--app-border)] bg-[color-mix(in_srgb,var(--app-overlay)_50%,transparent)] px-4 py-3">
-            <div className="absolute right-2 top-2 z-[1]">
-              <CopyButton text={block.item.text} label={t("agentChatCopy")} />
-            </div>
+          <div className="agent-chat-answer group relative min-w-0">
             <ChatMarkdown text={block.item.text} onOpenFile={onOpenLocation} cwd={cwd} />
+            {showCopyAction ? (
+              <div className="agent-chat-answer-actions mt-2 flex h-6 items-center">
+                <CopyButton text={block.item.text} label={t("agentChatCopy")} />
+              </div>
+            ) : null}
           </div>
         </MessageCopyContextMenu>
       );

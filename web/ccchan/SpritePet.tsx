@@ -32,7 +32,9 @@ export function SpritePet({
   const { cellW, cellH, cols, rows } = pet.atlas;
   const animation = getPetAnimation(pet, state);
   const frame = usePetAnimationFrame(pet, state) % Math.max(1, animation.frames);
-  const scale = size / cellW;
+  const scale = size / Math.max(cellW, cellH);
+  const left = (size - cellW * scale) / 2;
+  const top = (size - cellH * scale) / 2;
 
   return (
     <button
@@ -49,14 +51,23 @@ export function SpritePet({
       className="block border-0 bg-transparent p-0 outline-none select-none"
       style={{
         width: size,
+        height: size,
+        touchAction: "none",
+      }}
+    >
+      <span aria-hidden="true" style={{
+        display: "block",
+        pointerEvents: "none",
+        width: cellW * scale,
         height: cellH * scale,
+        marginLeft: left,
+        marginTop: top,
         backgroundImage: `url(${pet.spritesheetUrl})`,
         backgroundRepeat: "no-repeat",
         backgroundSize: `${cols * cellW * scale}px ${rows * cellH * scale}px`,
         backgroundPosition: `${-(frame + (animation.colOffset ?? 0)) * cellW * scale}px ${-animation.row * cellH * scale}px`,
         imageRendering: "pixelated",
-        cursor: "grab",
-      }}
-    />
+      }} />
+    </button>
   );
 }

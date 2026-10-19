@@ -11,6 +11,7 @@ mod browser_service;
 pub mod bundled_skills;
 pub mod heavy_command_recorder;
 pub mod heavy_command_sampler;
+mod heavy_job_policy_queue;
 pub mod heavy_job_routes;
 pub mod im_bridge;
 mod launch_backfill_service;
@@ -19,7 +20,7 @@ mod notification_service;
 pub mod orchestrator_service;
 pub mod performance_recorder;
 mod pi_rpc_event_bridge;
-mod process_guard;
+pub(crate) mod process_guard;
 pub mod rest_launch_history;
 mod resume_binding_service;
 pub mod screenshot_overlay;
@@ -37,11 +38,14 @@ mod terminal_daemon_event_bridge;
 mod terminal_daemon_lifecycle;
 mod terminal_daemon_output_cursor;
 pub mod tray_menu;
+mod tray_refresh;
 mod turn_notify_registry;
 pub mod voice_service;
 mod web_access_lifecycle;
 
-pub use acp_chat_service::{AcpChatService, AcpChatSnapshot, AcpLaunchSpec, AUTO_APPROVE_ALL};
+pub use acp_chat_service::{
+    AcpChatPhase, AcpChatService, AcpChatSnapshot, AcpLaunchSpec, AUTO_APPROVE_ALL,
+};
 pub use automation_service::{AutomationDef, AutomationRun, AutomationService};
 pub use browser_service::{
     BrowserBounds, BrowserOpenTabEvent, BrowserSpikeReport, BrowserTabManager,
@@ -56,7 +60,10 @@ pub use notification_service::NotificationService;
 pub use notification_service::{NotificationRequest, NotificationTriggerResult};
 pub use orchestrator_service::{OrchestratorService, StartLocks};
 pub use pi_rpc_event_bridge::{PiRpcEventBridge, PI_RPC_EVENT};
-pub use resume_binding_service::{bind_resume_id, ResumeIdDetectedPayload};
+pub use resume_binding_service::{
+    apply_launch_failure, bind_resume_id, is_launch_failure_warning, LaunchFailurePayload,
+    ResumeIdDetectedPayload,
+};
 pub use screenshot_service::{CaptureResult, ScreenshotService};
 pub use session_prompt_service::extract_last_prompt;
 pub use skill_market_catalog::CATEGORY_IDS as SKILL_MARKET_CATEGORY_IDS;

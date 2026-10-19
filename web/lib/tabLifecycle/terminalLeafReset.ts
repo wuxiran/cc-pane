@@ -31,6 +31,8 @@ export function resetTerminalLeafForRelaunch(source: TerminalPaneLeaf): Terminal
     restoreMode: resolveRestoreMode({
       cliTool: inferCliTool(source.cliTool, source.launchClaude, source.resumeId),
       resumeId: source.resumeId,
+      // 重启动保留失败标记（提示还在），新 PTY 建成时由 updateTabSession 清掉。
+      launchFailure: source.launchFailure,
     }),
     sessionId: null,
     disconnected: false,

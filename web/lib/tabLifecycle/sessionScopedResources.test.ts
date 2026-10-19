@@ -26,6 +26,8 @@ const REGISTERED_SESSION_MAP_STORES = {
 const MAP_STORE_EXEMPTIONS = {
   "agentChatEvents.ts":
     "chunk buffer keyed by ACP chatId (= tab id), not ptySessionId; disposed via tabLifecycle agent-chat onClosed -> dropAgentChatState",
+  "useAgentChatDraftStore.ts":
+    "composer draft keyed by ACP chatId (= tab id); disposed by dropAgentChatState on explicit chat close",
   "useFileTreeStore.ts": "local file-tree node index, not keyed by sessionId",
   "useOrchestratorStore.ts": "task binding node index, not keyed by sessionId",
   "useShortcutsStore.ts": "shortcut action registry, not keyed by sessionId",

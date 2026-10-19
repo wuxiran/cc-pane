@@ -26,20 +26,21 @@ description: Run compile, test and repo-wide grep commands through the CC-Panes 
 ## 怎么用
 
 ```bash
-cc-panes-ctl run --heavy -- cargo check -p my-crate
-cc-panes-ctl run --heavy --label "全量测试" -- npx vitest run
-cc-panes-ctl run --heavy -- rg "TODO" --glob '!node_modules'
+"$CC_PANES_CTL" run --heavy -- cargo check -p my-crate
+"$CC_PANES_CTL" run --heavy --label "全量测试" -- npx vitest run
+"$CC_PANES_CTL" run --heavy -- rg "TODO" --glob '!node_modules'
 ```
 
 - 命令写在 `--` 之后，**原样**传给子进程：不要再包一层 `sh -c` / `cmd /c`，除非命令本身需要
   shell 特性（管道、`&&`）。需要 shell 时把整条命令作为 `sh -c '...'` 的一个参数。
 - Windows 上 `npm` / `npx` / `pnpm` / `tsc` / `vitest` 这类 `.cmd` 垫片直接写名字即可：
   `cc-panes-ctl` 自己按 PATH + PATHEXT 解析并经 cmd.exe 起它们，不需要你写 `npm.cmd` 或
-  `cmd /c`。
+  `cmd /c`。无法安全传递给批处理的特殊参数会报错；此时可使用工具的原生可执行文件或 Node CLI 入口，不要自行拼接未转义的 `cmd /c`。
 - `--label` 可选：资源管理器里显示的短名，不影响执行。
 - 子进程的 stdout / stderr / 退出码**原样透传**，你照常读输出、照常判断成败。
-- `cc-panes-ctl` 已在会话 PATH 里（`$CC_PANES_CTL` 也指向它）。找不到命令时直接跑原命令，
-  不要停下来问。
+- 控制程序的绝对路径在 `CC_PANES_CTL`，不保证在 PATH 中。POSIX shell 用 `"$CC_PANES_CTL"`，PowerShell 用 `& $env:CC_PANES_CTL`。
+- **WSL 必须在 Linux 侧执行**：使用 `bash "$CC_PANES_RUN" --heavy -- cargo check`（其余参数同上）。不要用 Windows `$CC_PANES_CTL run` 执行 Linux 命令；它只负责通过管道持有门禁租约。
+- 若对应路径缺失，说明当前会话没有可用入口：如实说明门禁未生效，再运行原命令。不要把裸命令不在 PATH 当作门禁不可用。
 
 ## stderr 上的排队提示
 
@@ -58,7 +59,7 @@ cc-panes-ctl run --heavy -- rg "TODO" --glob '!node_modules'
 
 ## 门禁关闭 / 不可达时
 
-- 用户关掉门禁：`run --heavy` 就是一次普通 exec，没有任何提示和额外开销。
+- 用户关掉门禁：不排队，直接执行命令，不打印排队提示。
 - 门禁不可达（{{app_name}} 没在跑、会话不在 {{app_name}} 管控下）：打印一行
   `[cc-panes] 门禁不可达（…），直接执行` 后照常跑。把这件事如实告诉用户即可，不要重试。
 

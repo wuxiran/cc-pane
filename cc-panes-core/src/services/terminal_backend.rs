@@ -104,6 +104,10 @@ pub trait TerminalBackend: Send + Sync {
     }
     fn resize(&self, session_id: &str, cols: u16, rows: u16) -> AppResult<()>;
     fn kill(&self, session_id: &str) -> AppResult<()>;
+    /// Release only this adapter's leases without terminating shared sessions.
+    fn release_owned_sessions(&self) -> AppResult<()> {
+        Ok(())
+    }
     /// 带来源的 kill。默认委托 `kill`（reason 丢失），真实后端覆盖之以便
     /// `session-killed` 事件携带来源、前端分流关标签/保留标签。
     fn kill_with_reason(&self, session_id: &str, _reason: KillReason) -> AppResult<()> {
@@ -859,6 +863,23 @@ impl TerminalBackend for DaemonTerminalBackend {
         self.client.resize_session(session_id, cols, rows)
     }
 
+    fn release_owned_sessions(&self) -> AppResult<()> {
+        let ids = self
+            .owned_sessions
+            .lock()
+            .map_err(|_| AppError::from("session claims lock poisoned"))?
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut failure = None;
+        for id in ids {
+            if let Err(error) = self.release_owned(&id) {
+                failure = Some(error);
+            }
+        }
+        failure.map_or(Ok(()), Err)
+    }
+
     fn kill(&self, session_id: &str) -> AppResult<()> {
         let result = self.client.kill_session(session_id);
         if result.is_ok() {
@@ -1073,6 +1094,14 @@ mod tests {
                 }
                 let request = String::from_utf8(request_bytes).expect("utf8 request");
                 tx.send(request).ok();
+                // 本服务每个响应后都关连接，必须如实声明 `Connection: close`：
+                // 否则客户端会把连接放回 keep-alive 池，下一个非 GET 请求撞上已关闭的
+                // 连接后按设计不重放，服务线程则永远卡在 accept。
+                let response = if response.to_ascii_lowercase().contains("\r\nconnection:") {
+                    response
+                } else {
+                    response.replacen("\r\n", "\r\nConnection: close\r\n", 1)
+                };
                 stream
                     .write_all(response.as_bytes())
                     .expect("write response");
@@ -1086,6 +1115,56 @@ mod tests {
             TerminalDaemonClient::new(addr.to_string(), "secret")
                 .with_timeout(Duration::from_secs(1)),
         )
+    }
+
+    #[test]
+    fn daemon_shutdown_releases_only_locally_owned_claims_without_listing_or_killing() {
+        let (addr, requests) = spawn_response_sequence(vec![
+            http_json_response("200 OK", "{}"),
+            http_json_response("200 OK", "{}"),
+        ]);
+        let backend = backend_for(addr);
+        backend.remember_owned("web-first");
+        backend.remember_owned("web-second");
+
+        backend.release_owned_sessions().expect("release claims");
+        assert!(backend.owned_sessions.lock().unwrap().is_empty());
+        // A repeated shutdown must not issue requests for released or foreign sessions.
+        backend
+            .release_owned_sessions()
+            .expect("idempotent release");
+        let mut request_lines = requests
+            .iter()
+            .map(|request| request.lines().next().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        request_lines.sort();
+        assert_eq!(
+            request_lines,
+            [
+                "DELETE /api/sessions/web-first/claim HTTP/1.1",
+                "DELETE /api/sessions/web-second/claim HTTP/1.1",
+            ]
+        );
+    }
+
+    #[test]
+    fn daemon_shutdown_release_failure_still_releases_remaining_claims_and_stops_renewal() {
+        let (addr, requests) = spawn_response_sequence(vec![
+            http_json_response("500 Internal Server Error", "{}"),
+            http_json_response("200 OK", "{}"),
+        ]);
+        let backend = backend_for(addr);
+        backend.remember_owned("web-first");
+        backend.remember_owned("web-second");
+
+        assert!(backend.release_owned_sessions().is_err());
+        assert!(backend.owned_sessions.lock().unwrap().is_empty());
+        let requests = requests.iter().collect::<Vec<_>>();
+        assert_eq!(requests.len(), 2);
+        assert!(requests.iter().all(|request| {
+            request.starts_with("DELETE /api/sessions/web-")
+                && request.lines().next().unwrap().ends_with("/claim HTTP/1.1")
+        }));
     }
 
     fn in_process_backend_for_test() -> (

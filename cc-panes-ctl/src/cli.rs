@@ -86,6 +86,14 @@ enum Command {
         #[arg(required = true, last = true, value_name = "CMD")]
         cmd: Vec<String>,
     },
+    /// Internal pipe protocol used by the native WSL runner. Never executes commands.
+    #[command(hide = true)]
+    GateHold {
+        #[arg(long)]
+        label: Option<String>,
+        #[arg(required = true, last = true)]
+        cmd: Vec<String>,
+    },
     /// Run a resilient stdio MCP proxy for Claude Code or Codex.
     McpProxy {
         #[arg(long, value_name = "ID")]
@@ -289,6 +297,9 @@ pub fn execute(cli: Cli) -> Result<(), CliExit> {
             arguments_json,
             arg,
         } => commands::call(&context, &tool, arguments_json.as_deref(), &arg),
+        Command::GateHold { label, cmd } => {
+            commands::run::hold_gate(&context, label.as_deref(), &cmd)
+        }
         Command::Run { heavy, label, cmd } => {
             commands::run::run(&context, heavy, label.as_deref(), &cmd)
         }

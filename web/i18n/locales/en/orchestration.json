@@ -13,6 +13,7 @@
     "errors": "Errors"
   },
   "searchPlaceholder": "Search tasks",
+  "loadMore": "Load more tasks",
   "view": {
     "list": "List",
     "tree": "Tree"
@@ -134,5 +135,8 @@
     "failed": "Failed",
     "idle": "Idle",
     "offline": "Offline"
+  },
+  "verification": {
+    "title": "Verification evidence"
   }
 }

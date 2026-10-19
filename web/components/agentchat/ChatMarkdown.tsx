@@ -15,24 +15,10 @@ import { isLocalAssetPath, resolveRelativeFromDir } from "@/utils/mdAssetPath";
 import { toAssetUrl } from "@/utils/assetUrl";
 import { isImagePath } from "./chatAttachments";
 
-/** `src/foo.rs:42`、`C:\a\b.ts`、`./x/y.py:10:5` 这类形态；要求带扩展名防误伤普通词。 */
-const FILE_PATH_PATTERN =
-  /^(?:[A-Za-z]:[\\/])?(?:[\w.@~-]+[\\/])*[\w.@-]+\.[A-Za-z0-9]{1,8}(?::(\d+))?(?::\d+)?$/;
-
-export interface ParsedFileRef {
-  path: string;
-  line?: number;
-}
-
-export function parseFileRef(raw: string): ParsedFileRef | null {
-  const text = raw.trim();
-  if (text.length < 3 || text.length > 512 || /\s/.test(text)) return null;
-  const match = FILE_PATH_PATTERN.exec(text);
-  if (!match) return null;
-  const line = match[1] ? Number(match[1]) : undefined;
-  const path = text.replace(/:(\d+)(?::\d+)?$/, "");
-  return { path, line };
-}
+import { parseFileLink, parseFileRef } from "./chatFileRefs";
+import { toFileUri } from "./chatPaths";
+export { parseFileRef } from "./chatFileRefs";
+export type { ParsedFileRef } from "./chatFileRefs";
 
 function childText(children: ReactNode): string {
   if (typeof children === "string") return children;
@@ -51,7 +37,7 @@ export function normalizeWindowsLinkDestinations(text: string): string {
   return text.replace(
     /(!?\[[^\]]*\]\()<?((?:[A-Za-z]:\\|\\\\)[^)\s>]*)>?/g,
     (_match, prefix: string, destination: string) =>
-      `${prefix}${destination.replace(/\\/g, "/")}`,
+      `${prefix}${destination.startsWith("\\\\") ? toFileUri(destination) : destination.replace(/\\/g, "/")}`,
   );
 }
 
@@ -62,7 +48,11 @@ export function normalizeWindowsLinkDestinations(text: string): string {
  */
 export function buildChatUrlTransform(cwd?: string) {
   return (url: string, key: string): string => {
-    if (key !== "src") return defaultUrlTransform(url);
+    if (key !== "src") return parseFileLink(url) ? url : defaultUrlTransform(url);
+    if (/^file:/i.test(url)) {
+      const ref = parseFileLink(url);
+      return ref ? toAssetUrl(ref.path) : "";
+    }
     if (/^data:image\//i.test(url)) return url;
     const kind = isLocalAssetPath(url);
     if (kind === "windows-abs") return toAssetUrl(url);
@@ -82,7 +72,7 @@ interface ChatMarkdownProps {
 
 export default memo(function ChatMarkdown({ text, onOpenFile, cwd }: ChatMarkdownProps) {
   return (
-    <div className="markdown-preview prose prose-sm dark:prose-invert max-w-none break-words [&_pre]:overflow-x-auto [&_pre]:text-[12px]">
+    <div className="agent-chat-prose markdown-preview min-w-0 max-w-none break-words">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeHighlight, { detect: false }]]}
@@ -147,9 +137,10 @@ export default memo(function ChatMarkdown({ text, onOpenFile, cwd }: ChatMarkdow
           },
           a: ({ href, children, ...props }) => {
             const target = href ?? "";
-            const isWeb = /^https?:/i.test(target);
-            if (!isWeb && onOpenFile) {
-              const ref = parseFileRef(target.replace(/^file:\/\//i, ""));
+            if (!target) return <span>{children}</span>;
+            if (target.startsWith("#")) return <a {...props} href={target}>{children}</a>;
+            if (onOpenFile) {
+              const ref = parseFileLink(target);
               if (ref) {
                 return (
                   <a

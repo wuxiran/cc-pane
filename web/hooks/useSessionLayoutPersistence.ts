@@ -16,6 +16,7 @@ import {
 import { sessionRestoreService, layoutSnapshotService, terminalService } from "@/services";
 import { getCurrentWindowIfTauri, isTauriRuntime } from "@/services/runtime";
 import { waitForDesktopRuntime, resolveRuntimeKind } from "@/utils/desktopRuntime";
+import { startVisibleInterval } from "@/utils/visibleInterval";
 import { collectAllScopeSessionIds, getActiveLayoutScope } from "@/stores/useLayoutScopeStore";
 import { collectTerminalLeaves } from "@/lib/paneSessions";
 import {
@@ -337,12 +338,13 @@ export function useSharedLayoutSnapshotSync(): void {
 
   useEffect(() => {
     let cancelled = false;
-    let layoutPoll: ReturnType<typeof setInterval> | undefined;
+    let stopLayoutPoll: (() => void) | undefined;
     waitForDesktopRuntime().then(async (ready) => {
       if (cancelled || (isTauriRuntime() && !ready)) return;
       await waitForTerminalRestoreBarrier();
       if (cancelled) return;
-      layoutPoll = setInterval(() => {
+      // 只在可见时同步其它客户端改的布局；切回来时立即补一轮。
+      stopLayoutPoll = startVisibleInterval(() => {
         applySharedLayoutSnapshot().then((applied) => {
           if (!applied) return;
           return reconcileTerminalSessions({
@@ -394,7 +396,7 @@ export function useSharedLayoutSnapshotSync(): void {
     });
     return () => {
       cancelled = true;
-      if (layoutPoll) clearInterval(layoutPoll);
+      stopLayoutPoll?.();
     };
   }, []);
 }

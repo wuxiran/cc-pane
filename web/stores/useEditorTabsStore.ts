@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
+import { EMPTY_EDITOR_DOCUMENT, type EditorDocument } from "./editorDocument";
+import { useEditorBuffersStore } from "./useEditorBuffersStore";
 
 export interface EditorTab {
   id: string;
@@ -29,6 +31,8 @@ interface EditorTabsState {
   tabs: EditorTab[];
   activeTabId: string | null;
   recentFiles: RecentFile[];
+  /** Updates owned in-memory text and the persisted dirty marker when it changes. */
+  updateBuffer: (tabId: string, patch: Partial<EditorDocument>) => void;
 
   openFile: (projectPath: string, filePath: string, title: string) => void;
   openRemoteFile: (
@@ -55,12 +59,26 @@ function generateId(): string {
   return `etab-${crypto.randomUUID()}`;
 }
 
+function pruneBuffers(state: Pick<EditorTabsState, "tabs">): void {
+  useEditorBuffersStore.getState().retain(new Set(state.tabs.map((tab) => tab.id)));
+}
+
 export const useEditorTabsStore = create<EditorTabsState>()(
   persist(
     immer((set, get) => ({
       tabs: [],
       activeTabId: null,
       recentFiles: [],
+      updateBuffer: (tabId, patch) => {
+        const tab = get().tabs.find((item) => item.id === tabId);
+        // Late reads/saves must not resurrect a buffer after its tab was closed.
+        if (!tab) return;
+        const buffers = useEditorBuffersStore.getState();
+        const next = { ...(buffers.buffers[tabId] ?? EMPTY_EDITOR_DOCUMENT), ...patch };
+        buffers.put(tabId, next);
+        const dirty = next.content !== next.originalContent;
+        if (tab.dirty !== dirty) get().setDirty(tabId, dirty);
+      },
 
       openFile: (projectPath: string, filePath: string, title: string) => {
         const state = get();
@@ -115,6 +133,7 @@ export const useEditorTabsStore = create<EditorTabsState>()(
           if (!tab || tab.pinned) return; // pinned 标签不可关闭
           const idx = s.tabs.findIndex((t) => t.id === tabId);
           s.tabs.splice(idx, 1);
+          pruneBuffers(s);
           if (s.activeTabId === tabId) {
             if (s.tabs.length > 0) {
               const newIdx = Math.min(idx, s.tabs.length - 1);
@@ -129,6 +148,7 @@ export const useEditorTabsStore = create<EditorTabsState>()(
       closeOtherTabs: (tabId: string) => {
         set((s) => {
           s.tabs = s.tabs.filter((t) => t.id === tabId || t.pinned);
+          pruneBuffers(s);
           if (!s.tabs.some((t) => t.id === s.activeTabId)) {
             s.activeTabId = tabId;
           }
@@ -142,6 +162,7 @@ export const useEditorTabsStore = create<EditorTabsState>()(
           const kept = s.tabs.slice(0, idx + 1);
           const right = s.tabs.slice(idx + 1).filter((t) => t.pinned);
           s.tabs = [...kept, ...right];
+          pruneBuffers(s);
           if (s.activeTabId && !s.tabs.some((t) => t.id === s.activeTabId)) {
             s.activeTabId = tabId;
           }
@@ -155,6 +176,7 @@ export const useEditorTabsStore = create<EditorTabsState>()(
           const left = s.tabs.slice(0, idx).filter((t) => t.pinned);
           const kept = s.tabs.slice(idx);
           s.tabs = [...left, ...kept];
+          pruneBuffers(s);
           if (s.activeTabId && !s.tabs.some((t) => t.id === s.activeTabId)) {
             s.activeTabId = tabId;
           }

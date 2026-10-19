@@ -175,4 +175,38 @@ describe("createTerminalBackgroundLifecycle", () => {
     expect(legacy.onTier1).toHaveBeenCalledTimes(1);
     expect(legacy.onTier2).toHaveBeenCalledTimes(1);
   });
+  it("retries temporary parking guards and cancels retries on visibility/disposal", () => {
+    const hooks = createHooks();
+    const onPark = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(false).mockReturnValue(true);
+    const lifecycle = createTerminalBackgroundLifecycle({ ...hooks, onPark });
+    lifecycle.notifyVisibility(false);
+    vi.advanceTimersByTime(BACKGROUND_PARK_DELAY_MS + 10_000);
+    expect(onPark).toHaveBeenCalledTimes(3);
+    vi.advanceTimersByTime(10_000);
+    expect(onPark).toHaveBeenCalledTimes(3);
+    lifecycle.dispose();
+    const blocked = vi.fn(() => false);
+    const second = createTerminalBackgroundLifecycle({...hooks, onPark: blocked});
+    second.notifyVisibility(false);
+    vi.advanceTimersByTime(BACKGROUND_PARK_DELAY_MS);
+    second.notifyVisibility(true);
+    vi.advanceTimersByTime(10_000);
+    expect(blocked).toHaveBeenCalledTimes(1);
+    second.dispose();
+  });
+
+  it("ignores late visibility notifications after disposal", () => {
+    const hooks = createHooks();
+    const onPark = vi.fn(() => false);
+    const lifecycle = createTerminalBackgroundLifecycle({ ...hooks, onPark });
+    lifecycle.dispose();
+    lifecycle.notifyVisibility(false);
+    lifecycle.notifyVisibility(true);
+    vi.runAllTimers();
+    expect(lifecycle.isBackgrounded()).toBe(false);
+    expect(onPark).not.toHaveBeenCalled();
+    expect(hooks.onTier1).not.toHaveBeenCalled();
+    expect(hooks.onTier2).not.toHaveBeenCalled();
+  });
+
 });

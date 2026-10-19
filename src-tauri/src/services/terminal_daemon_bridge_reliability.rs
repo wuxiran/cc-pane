@@ -9,6 +9,13 @@ use tracing::debug;
 
 pub(super) const POLL_INTERVAL: Duration = Duration::from_secs(1);
 pub(super) const WEBSOCKET_STATUS_INTERVAL: Duration = Duration::from_secs(5);
+// 主窗口隐藏/最小化时，WS 模式下的兜底状态查询每 6 个 tick 才真正发一次 HTTP（5 s → 30 s）。
+// status/exit/killed 仍由 WS 实时推送，这里只是“WS 漏了怎么办”的校正。
+const HIDDEN_STATUS_EVERY_TICKS: usize = 6;
+
+pub(super) fn websocket_status_poll_due(tick: usize, window_hidden: bool) -> bool {
+    !window_hidden || tick.is_multiple_of(HIDDEN_STATUS_EVERY_TICKS)
+}
 const RECONNECT_INTERVAL: Duration = Duration::from_secs(5);
 // daemon HTTP client uses `Connection: close`; one snapshot per tick plus one status per five
 // ticks caps fallback churn at 1.2 short TCP connections per second per session.
@@ -299,6 +306,15 @@ pub struct BridgeStats {
 mod tests {
     use super::*;
     use std::collections::VecDeque;
+
+    #[test]
+    fn websocket_status_poll_runs_every_tick_when_visible_and_every_sixth_when_hidden() {
+        assert!((1..=12).all(|tick| websocket_status_poll_due(tick, false)));
+        let hidden: Vec<usize> = (1..=12)
+            .filter(|&tick| websocket_status_poll_due(tick, true))
+            .collect();
+        assert_eq!(hidden, vec![6, 12]);
+    }
 
     fn test_retry_policy(max_attempts: usize, max_concurrent: usize) -> ConnectRetryPolicy {
         ConnectRetryPolicy {

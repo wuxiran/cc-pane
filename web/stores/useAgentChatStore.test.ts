@@ -185,10 +185,10 @@ describe("useAgentChatStore", () => {
 
   it("turn_ended 清掉悬挂的审批卡，非 end_turn 追加 notice", () => {
     const store = useAgentChatStore.getState();
-    store.setPermission(CHAT, { requestKey: "n1", params: { options: [] } });
+    store.enqueuePermission(CHAT, { requestKey: "n1", params: { options: [] } });
     store.turnEnded(CHAT, "cancelled");
     const chat = useAgentChatStore.getState().chats[CHAT];
-    expect(chat.pendingPermission).toBeNull();
+    expect(chat.pendingPermissions).toEqual([]);
     expect(chat.items.some((item) => item.type === "notice" && item.text.includes("cancelled"))).toBe(
       true,
     );

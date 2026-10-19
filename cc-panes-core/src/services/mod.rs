@@ -1,3 +1,9 @@
+mod fork_review_service;
+pub use fork_review_service::ForkReviewService;
+mod repository_snapshot;
+pub use repository_snapshot::RepositorySnapshotService;
+mod task_verification_service;
+pub use task_verification_service::TaskVerificationService;
 pub mod agent_transcript;
 pub mod boundary_events;
 pub mod claude_session_service;
@@ -175,6 +181,7 @@ pub use task_queue_dispatcher::{
 };
 pub use task_queue_service::{
     TaskQueueService, UnattendedPermissionDecision, TASK_QUEUE_IMAGE_MAX_BYTES,
+    TASK_QUEUE_IMAGE_RETENTION, TASK_QUEUE_IMAGE_STORAGE_MAX_BYTES,
 };
 pub use terminal_backend::{
     set_claim_lost_hook, AutomaticWriteAuthority, CreateSessionOutcome, DaemonTerminalBackend,

@@ -1894,6 +1894,51 @@ fn append_ssh_session_options(args: &mut Vec<String>) {
     }
 }
 
+/// 会话数据目录环境变量：hook（`cc-panes-paths::DataDirResolver` 的第一优先级）与
+/// cc-panes-ctl 都读它。不下发时 hook 只能按构建类型猜 `~/.cc-panes[-dev]`，用户在设置里
+/// 自定义了数据目录（`CCPANES_CONFIG_DIR`）就对不上。
+pub(crate) const SESSION_DATA_DIR_ENV_KEY: &str = "CC_PANES_DATA_DIR";
+
+/// WSLENV 条目：`/p` 让 WSL 把 Windows 路径翻成 `/mnt/...` 形式。
+const SESSION_DATA_DIR_WSLENV_ENTRY: &str = "CC_PANES_DATA_DIR/p";
+
+/// 把当前实例实际使用的数据目录下发给会话。
+///
+/// - SSH：远端看不到本机目录，不下发（与 `CC_PANES_PLANS_DIR` 同口径）。
+/// - WSL：同时写进 WSLENV（带 `/p`）。合并逻辑与 `wsl_codex::forward_wsl_env_vars`
+///   一致：保留既有条目、同键去重、追加。create_session 后面那段统一的 WSLENV 拼接
+///   会把这里已有的 WSLENV 当 `existing` 前缀保留。
+pub(crate) fn apply_session_data_dir_env(
+    env_vars: &mut HashMap<String, String>,
+    data_dir: &Path,
+    runtime: crate::utils::PerfEnvRuntime,
+) {
+    use crate::utils::PerfEnvRuntime;
+    if runtime == PerfEnvRuntime::Ssh {
+        return;
+    }
+    env_vars.insert(
+        SESSION_DATA_DIR_ENV_KEY.to_string(),
+        data_dir.to_string_lossy().into_owned(),
+    );
+    if runtime != PerfEnvRuntime::Wsl {
+        return;
+    }
+    let mut entries = env_vars
+        .get("WSLENV")
+        .map(|value| {
+            value
+                .split(':')
+                .filter(|entry| !entry.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    entries.retain(|entry| entry.split('/').next() != Some(SESSION_DATA_DIR_ENV_KEY));
+    entries.push(SESSION_DATA_DIR_WSLENV_ENTRY.to_string());
+    env_vars.insert("WSLENV".to_string(), entries.join(":"));
+}
+
 impl TerminalService {
     pub fn new(
         settings_service: Arc<SettingsService>,
@@ -2260,6 +2305,12 @@ impl TerminalService {
         env.insert(
             "CC_PANES_PROJECT_PATH".to_string(),
             request.project_path.clone(),
+        );
+        // Pi RPC 会话也是本机会话：与 PTY 路径同样下发数据目录。
+        apply_session_data_dir_env(
+            &mut env,
+            self.app_paths.data_dir(),
+            crate::utils::PerfEnvRuntime::Local,
         );
         if let Some(launch_id) = request
             .launch_id
@@ -2980,6 +3031,18 @@ impl TerminalService {
             );
         }
 
+        if wsl.is_some() {
+            match super::ctl_sidecar::materialize_wsl_runner(self.app_paths.data_dir()) {
+                Ok(path) => {
+                    env_vars.insert("CC_PANES_RUN".into(), path.to_string_lossy().into_owned());
+                }
+                Err(error) => warn!(%error, "failed to materialize native WSL heavy runner"),
+            }
+        }
+
+        // 数据目录下发（SSH 不下发；WSL 进 WSLENV 带 /p）。
+        apply_session_data_dir_env(&mut env_vars, self.app_paths.data_dir(), perf_env_runtime);
+
         // 解析 Shell 配置
         let shell_id = self.settings_service.get_settings().terminal.shell.clone();
 
@@ -3075,6 +3138,9 @@ impl TerminalService {
                 // 跑 Windows 那份 exe，它的 127.0.0.1 正好是服务在听的那个）。
                 wsl_keys.push("CC_PANES_CTL/p");
             }
+            if env_vars.contains_key("CC_PANES_RUN") {
+                wsl_keys.push("CC_PANES_RUN/p");
+            }
             let mut wsl_entries = wsl_keys
                 .iter()
                 .map(|key| key.to_string())
@@ -3104,6 +3170,10 @@ impl TerminalService {
         let mut wsl_scope_outcome: Option<PolicyOutcome> = None;
         // W6：Applied 时实际下发的配额摘要（`CPUWeight=20, MemoryHigh=25%`），进 reason。
         let mut wsl_scope_summary: Option<String> = None;
+        // 实际启动所用的发行版：请求里 `wsl.distro` 为空时回退默认发行版，解析结果只在
+        // resolve_wsl_launch 里。此前所有事件/记录都直接取请求值，默认发行版启动的
+        // launch_history.wsl_distro 与 status 事件的 wslDistro 恒为 null。
+        let mut resolved_wsl_distro: Option<String> = None;
         let (cwd, command, args, env_remove, ssh_remote_command) = if let Some(ssh_info) = ssh {
             // 新连接走应用内 SSH2 channel；旧配置缺少认证元数据时保留系统 ssh 回退。
             // 跳过 MCP 注入、Orchestrator 信息注入、--add-dir、--resume、--append-system-prompt
@@ -3169,6 +3239,13 @@ impl TerminalService {
             let mut resolved_wsl = self.resolve_wsl_launch(wsl_info, &session_id)?;
             wsl_scope_outcome = resolved_wsl.scope_outcome.clone();
             wsl_scope_summary = resolved_wsl.scope_summary.clone();
+            resolved_wsl_distro = Some(resolved_wsl.distro.clone());
+            // hook 的 session-started 上报从这个变量取 wslDistro；上面按请求值写入的
+            // 那份在默认发行版时根本没写，这里用解析结果覆盖/补上。
+            env_vars.insert(
+                "CC_PANES_WSL_DISTRO".to_string(),
+                resolved_wsl.distro.clone(),
+            );
             if let Some(cwd) = launch_cwd {
                 self.apply_wsl_launch_cwd(&mut resolved_wsl, cwd)?;
                 wsl_rollout_cwd = resolved_wsl.launch_cwd.clone();
@@ -3765,6 +3842,9 @@ impl TerminalService {
             wsl_codex::cleanup_session_mcp_configs(self.app_paths.data_dir(), &session_id);
             return Err(error);
         }
+        // 会话期间所有事件/记录统一用解析后的发行版（见 resolved_wsl_distro 注释）。
+        let effective_wsl_distro =
+            resolved_wsl_distro.or_else(|| wsl.and_then(|w| w.distro.clone()));
         // Claude 发号成功：广播确定性 resume id（后端监听写 launch_history 并转发前端）
         if let Some(ref issued) = issued_session_id {
             let _ = emitter.emit(
@@ -3778,7 +3858,7 @@ impl TerminalService {
                     "launchId": launch_id,
                     "projectPath": project_path,
                     "workspacePath": workspace_path,
-                    "wslDistro": wsl.and_then(|w| w.distro.clone()),
+                    "wslDistro": effective_wsl_distro.clone(),
                 }),
             );
         }
@@ -3816,7 +3896,7 @@ impl TerminalService {
             status: Arc::clone(&status),
             pid: process.pid(),
             runtime_kind: runtime_kind.to_string(),
-            wsl_distro: wsl.and_then(|w| w.distro.clone()),
+            wsl_distro: effective_wsl_distro.clone(),
         });
         let hook_updated_at = Arc::new(Mutex::new(None));
         let exit_code = Arc::new(Mutex::new(None));
@@ -3887,7 +3967,7 @@ impl TerminalService {
                     launch_id: launch_id.map(str::to_string),
                     project_path: project_path.to_string(),
                     runtime_kind: runtime_kind.to_string(),
-                    wsl_distro: wsl.and_then(|w| w.distro.clone()),
+                    wsl_distro: effective_wsl_distro.clone(),
                     cli_tool,
                     process: Arc::clone(&process),
                     writer_tx: writer_tx.clone(),
@@ -4073,7 +4153,7 @@ impl TerminalService {
                     launch_id: launch_id.map(str::to_string),
                     project_path: project_path.to_string(),
                     workspace_path: workspace_path.map(str::to_string),
-                    wsl_distro: wsl.and_then(|w| w.distro.clone()),
+                    wsl_distro: effective_wsl_distro.clone(),
                     rollout_cwds,
                     launch_started_at,
                     rollout_fallback: resume_id.is_none() && ssh.is_none(),
@@ -4093,7 +4173,7 @@ impl TerminalService {
                         launch_id: launch_id.map(str::to_string),
                         project_path: project_path.to_string(),
                         workspace_path: workspace_path.map(str::to_string),
-                        wsl_distro: wsl.and_then(|w| w.distro.clone()),
+                        wsl_distro: effective_wsl_distro.clone(),
                         launch_started_at,
                         capture_cwd: Some(
                             wsl_rollout_cwd
@@ -4134,7 +4214,7 @@ impl TerminalService {
         let read_policy_store = Arc::clone(&self.resource_policy_store);
         let read_memory_store = Arc::clone(&self.job_memory_warning_store);
         let read_runtime_kind = runtime_kind.to_string();
-        let read_wsl_distro = wsl.and_then(|w| w.distro.clone());
+        let read_wsl_distro = effective_wsl_distro.clone();
         let osc_state_machine = read_state_machine.clone().unwrap_or_else(|| {
             osc_fallback_state_machine(
                 read_status.clone(),
@@ -4233,20 +4313,20 @@ impl TerminalService {
                             first_output = false;
                         }
                         #[cfg(windows)]
-                        let output_bytes = sanitize_windows_output(
+                        let output_bytes = &sanitize_windows_output(
                             &buf[..n],
                             &mut sanitize_state,
                             disable_sanitize,
                         );
                         #[cfg(not(windows))]
-                        let output_bytes = buf[..n].to_vec();
+                        let output_bytes = &buf[..n];
 
                         if output_bytes.is_empty() {
                             continue;
                         }
 
                         // UTF-8 安全处理
-                        let data = match utf8_safe_process(&output_bytes, &mut utf8_carry) {
+                        let data = match utf8_safe_process(output_bytes, &mut utf8_carry) {
                             Some(s) => s,
                             None => continue,
                         };
@@ -4294,9 +4374,8 @@ impl TerminalService {
                         }
 
                         // 推断状态
-                        let raw_inferred = infer_status(&data);
-                        let raw_strong_waiting = raw_inferred == SessionStatus::WaitingInput
-                            && inferred_waiting_is_strong(&data);
+                        let (raw_inferred, strong_waiting) = infer_status_with_strength(&data);
+                        let raw_strong_waiting = raw_inferred == SessionStatus::WaitingInput && strong_waiting;
                         let inferred = stabilize_codex_waiting_status(
                             cli_tool,
                             raw_inferred,
@@ -4342,9 +4421,6 @@ impl TerminalService {
                             *prev = new_status;
                         }
 
-                        read_watch.processing("normalize-output");
-                        let normalized_prompt = normalize_prompt_text(&data);
-
                         // 追加到原始 VT 回放缓冲区，并取 push 后的 pushed_seq 作为
                         // 本 chunk 的 end seq——seq 必须与 ReplayBuffer 记账同源
                         // （同一字节流同一计数），锁失败时不产 seq（None）。
@@ -4370,7 +4446,11 @@ impl TerminalService {
                         // 并发 desync**——绝不掐断 VT 序列中段（同 ws_emitter 契约）。
                         // 字节已进 ReplayBuffer，前端走 snapshot 重放补齐。
                         read_watch.processing("batch-send");
-                        match batch_tx.try_send((data.clone(), chunk_end_seq)) {
+                        // Only SSH authentication needs this additional text view.
+                        let normalized_prompt = read_ssh_auth_runtime
+                            .as_ref()
+                            .map(|_| normalize_prompt_text(&data));
+                        match batch_tx.try_send((data, chunk_end_seq)) {
                             Ok(()) => {}
                             Err(std::sync::mpsc::TrySendError::Full(_)) => {
                                 if !read_desync_warned.swap(true, Ordering::Relaxed) {
@@ -4391,7 +4471,9 @@ impl TerminalService {
                             }
                         }
 
-                        if let Some(runtime) = read_ssh_auth_runtime.as_ref() {
+                        if let (Some(runtime), Some(normalized_prompt)) =
+                            (read_ssh_auth_runtime.as_ref(), normalized_prompt)
+                        {
                             if let Ok(mut runtime) = runtime.lock() {
                                 runtime.prompt_buffer.push_str(&normalized_prompt);
                                 if runtime.prompt_buffer.len() > 512 {
@@ -4523,8 +4605,15 @@ impl TerminalService {
         let wait_policy_store = Arc::clone(&self.resource_policy_store);
         let wait_memory_store = Arc::clone(&self.job_memory_warning_store);
         let wait_runtime_kind = runtime_kind.to_string();
-        let wait_wsl_distro = wsl.and_then(|w| w.distro.clone());
+        let wait_wsl_distro = effective_wsl_distro.clone();
         let wait_app_paths = self.app_paths.clone();
+        // 原生 CLI 缺失判定（WSL）所需的上下文：发号的 resume id 要随告警一起带回
+        // app 侧写墓碑，否则 launch_history 里留着一个从未存在过的会话 id，重启恢复
+        // 会拿它去 `claude --resume`。
+        let wait_is_wsl = wsl.is_some();
+        let wait_cli_tool_id = cli_tool.as_id().to_string();
+        let wait_launch_id = launch_id.map(str::to_string);
+        let wait_issued_resume_id = issued_session_id.clone();
         crate::pty::thread::spawn_named("cc-panes-pty-wait", move || {
             let waited_exit_code = match process_for_wait.wait() {
                 Ok(status) => Some(status.code().unwrap_or(-1)),
@@ -4603,6 +4692,48 @@ impl TerminalService {
                             );
                         }));
                     }
+                }
+            }
+
+            // 原生 CLI 缺失（WSL）：解析前置块只找到 Windows shim 时打固定标记后
+            // `exit 127`。主判据是输出尾部的标记行；exit code 只作佐证——实测 127 经
+            // scope/wsl.exe 转发到这里已是 1，不能拿它当信号，也不设时间窗（Ctrl+C、
+            // 慢启动后立刻退出都会落进时间窗）。告警带上发号的 resume id，app 侧据此
+            // 写墓碑 + 把这次启动记成 failed（重启恢复不再把它算作 resumed）。
+            if wait_is_wsl {
+                let tail = wait_output_buffer
+                    .lock()
+                    .map(|buf| buf.get_recent(40))
+                    .unwrap_or_default();
+                if let Some(missing_cli) = wsl_codex::detect_native_cli_missing(&tail) {
+                    let fix_hint = wsl_codex::native_cli_install_hint(&missing_cli);
+                    warn!(
+                        session_id = %sid,
+                        cli_tool = %wait_cli_tool_id,
+                        missing_cli = %missing_cli,
+                        distro = ?wait_wsl_distro,
+                        exit_code = process_exit_code,
+                        issued_resume_id = ?wait_issued_resume_id,
+                        "WSL launch failed: no native Linux CLI on PATH (marker matched)"
+                    );
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let _ = wait_emitter.emit(
+                            EV::TERMINAL_LAUNCH_WARNING,
+                            serde_json::json!({
+                                "kind": "nativeCliMissing",
+                                "sessionId": sid.clone(),
+                                "launchId": wait_launch_id,
+                                "cliTool": wait_cli_tool_id,
+                                "missingCli": missing_cli,
+                                "runtimeKind": wait_runtime_kind,
+                                "wslDistro": wait_wsl_distro,
+                                "exitCode": process_exit_code,
+                                "reason": "native-cli-missing",
+                                "issuedResumeId": wait_issued_resume_id,
+                                "fixHint": fix_hint,
+                            }),
+                        );
+                    }));
                 }
             }
 
@@ -6375,76 +6506,44 @@ fn apply_osc_signal(
     sm.on_event_with_channel(session_id, &event, None, &payload, EventChannel::Osc);
 }
 
-/// 从输出内容推断终端状态
-fn infer_status(output: &str) -> SessionStatus {
-    // 先剥离 ANSI 转义序列，得到纯文本
+/// Infer status and notification strength from the same ANSI-free text view.
+/// Keep this on the reader: status, replay sequence and output must stay ordered.
+fn infer_status_with_strength(output: &str) -> (SessionStatus, bool) {
     let clean = strip_ansi_escapes(output);
     let trimmed = clean.trim();
     let tail_lower = terminal_tail_lower(trimmed, 2048);
-
-    // 优先级：waitingInput > toolRunning > thinking > 通用 prompt
-    // Cursor chrome 只匹配稳定文案，不碰 spinner 单帧（会抖动）。
-    if cursor_agent_waiting_input(&tail_lower) {
-        return SessionStatus::WaitingInput;
-    }
-    if cursor_agent_tool_running(&tail_lower) {
-        return SessionStatus::ToolRunning;
-    }
-    if cursor_agent_thinking(&tail_lower) {
-        return SessionStatus::Thinking;
-    }
-
-    if let Some(last_line) = trimmed.lines().last() {
-        let line = last_line.trim();
-
-        // Claude Code 权限提示：Yes/No 确认
-        if line.ends_with("[Y/n]") || line.ends_with("[y/N]") {
-            return SessionStatus::WaitingInput;
-        }
-
-        // Claude Code 提问：以 "?" 结尾
-        if line.ends_with('?') {
-            return SessionStatus::WaitingInput;
-        }
-
-        // Claude Code ink UI 提示符（剥离 ANSI 后就是 ">"）
-        if line == ">" {
-            return SessionStatus::WaitingInput;
-        }
-
-        // 检测 shell prompt 特征（等待输入）
-        let prompt_patterns = ["$ ", "# ", "> ", "❯ ", "λ ", "PS>", ">>> ", "... "];
-        for pattern in &prompt_patterns {
-            if line.ends_with(pattern) || line.ends_with(pattern.trim()) {
-                return SessionStatus::WaitingInput;
-            }
-        }
-    }
-
-    // 默认为活跃
-    SessionStatus::Active
+    let line = trimmed.lines().last().unwrap_or_default().trim();
+    let explicit_wait = cursor_agent_waiting_input(&tail_lower);
+    let confirmation = line.ends_with("[Y/n]") || line.ends_with("[y/N]");
+    // Preserve the existing priority: explicit waiting > tool > thinking > prompt.
+    let status = if explicit_wait {
+        SessionStatus::WaitingInput
+    } else if cursor_agent_tool_running(&tail_lower) {
+        SessionStatus::ToolRunning
+    } else if cursor_agent_thinking(&tail_lower) {
+        SessionStatus::Thinking
+    } else if confirmation
+        || line.ends_with('?')
+        || ["$", "#", ">", "❯", "λ", "PS>", ">>>", "..."]
+            .iter()
+            .any(|prompt| line.ends_with(prompt))
+    {
+        SessionStatus::WaitingInput
+    } else {
+        SessionStatus::Active
+    };
+    (status, explicit_wait || confirmation)
 }
 
-/// PTY 推断的 WaitingInput 是否值得打扰（弹桌面/IM 通知）。
-///
-/// 强判据 = 显式等待文案（Workspace Trust / needs your approval / [Y/n] 确认）；
-/// 弱判据 = `?` 结尾、裸 `>`、shell 提示符——那些只用于状态徽章。TUI 的
-/// spinner/底栏每帧重绘会让弱判据反复翻边沿，通知必须只认强判据
-///（对齐 Orca：waiting 不从输出猜，例行形态一律不打扰）。
+#[cfg(test)]
+fn infer_status(output: &str) -> SessionStatus {
+    infer_status_with_strength(output).0
+}
+
+/// Only explicit approvals notify; weak shell/TUI prompts only update the badge.
+#[cfg(test)]
 fn inferred_waiting_is_strong(output: &str) -> bool {
-    let clean = strip_ansi_escapes(output);
-    let trimmed = clean.trim();
-    let tail_lower = terminal_tail_lower(trimmed, 2048);
-    if cursor_agent_waiting_input(&tail_lower) {
-        return true;
-    }
-    if let Some(last_line) = trimmed.lines().last() {
-        let line = last_line.trim();
-        if line.ends_with("[Y/n]") || line.ends_with("[y/N]") {
-            return true;
-        }
-    }
-    false
+    infer_status_with_strength(output).1
 }
 
 /// Codex 会频繁按原始 PTY chunk 局部重绘。单个弱提示或强提示帧不足以证明
@@ -6557,6 +6656,69 @@ mod tests {
     use crate::models::provider::{Provider, ProviderModel, ProviderType};
     use crate::models::settings::CliLauncherOverride;
     use crate::services::SharedMcpService;
+
+    // ---- 会话数据目录下发（hook 的 DataDirResolver 第一优先级）----
+    mod session_data_dir_env {
+        use super::super::{apply_session_data_dir_env, SESSION_DATA_DIR_ENV_KEY};
+        use crate::utils::PerfEnvRuntime;
+        use std::collections::HashMap;
+        use std::path::Path;
+
+        fn data_dir() -> &'static Path {
+            Path::new(if cfg!(windows) {
+                r"C:\Users\me\.cc-panes-dev"
+            } else {
+                "/home/me/.cc-panes-dev"
+            })
+        }
+
+        #[test]
+        fn local_session_gets_data_dir_without_wslenv() {
+            let mut env = HashMap::new();
+            apply_session_data_dir_env(&mut env, data_dir(), PerfEnvRuntime::Local);
+            assert_eq!(
+                env.get(SESSION_DATA_DIR_ENV_KEY).map(String::as_str),
+                Some(data_dir().to_string_lossy().as_ref())
+            );
+            assert!(!env.contains_key("WSLENV"));
+        }
+
+        #[test]
+        fn wsl_session_gets_data_dir_and_path_translated_wslenv_entry() {
+            let mut env = HashMap::new();
+            apply_session_data_dir_env(&mut env, data_dir(), PerfEnvRuntime::Wsl);
+            assert_eq!(
+                env.get(SESSION_DATA_DIR_ENV_KEY).map(String::as_str),
+                Some(data_dir().to_string_lossy().as_ref())
+            );
+            assert_eq!(
+                env.get("WSLENV").map(String::as_str),
+                Some("CC_PANES_DATA_DIR/p")
+            );
+        }
+
+        /// 用户进程环境里已有 WSLENV（甚至已有同键不同 flag）时：保留其它条目、同键去重。
+        #[test]
+        fn wsl_session_merges_into_existing_wslenv_without_duplicates() {
+            let mut env = HashMap::from([(
+                "WSLENV".to_string(),
+                "FOO:CC_PANES_DATA_DIR:BAR/u".to_string(),
+            )]);
+            apply_session_data_dir_env(&mut env, data_dir(), PerfEnvRuntime::Wsl);
+            assert_eq!(
+                env.get("WSLENV").map(String::as_str),
+                Some("FOO:BAR/u:CC_PANES_DATA_DIR/p")
+            );
+        }
+
+        #[test]
+        fn ssh_session_does_not_get_data_dir() {
+            let mut env = HashMap::new();
+            apply_session_data_dir_env(&mut env, data_dir(), PerfEnvRuntime::Ssh);
+            assert!(!env.contains_key(SESSION_DATA_DIR_ENV_KEY));
+            assert!(!env.contains_key("WSLENV"));
+        }
+    }
 
     // ---- F5：OSC 9;4 进度徽章旁路通道单元测试 ----
     //

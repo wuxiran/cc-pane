@@ -872,6 +872,7 @@ name = "cc-cli-adapters"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cc-panes-paths",
  "dirs",
  "serde",
  "serde_json",
@@ -983,6 +984,7 @@ dependencies = [
  "webview2-com",
  "which",
  "windows 0.62.2",
+ "windows-core 0.61.2",
  "xcap",
 ]
 
@@ -1005,6 +1007,7 @@ version = "0.94.0"
 dependencies = [
  "cc-cli-adapters",
  "cc-panes-ctl",
+ "cc-panes-paths",
  "chrono",
  "clap",
  "dirs",
@@ -1026,6 +1029,7 @@ dependencies = [
  "cc-cli-adapters",
  "cc-memory",
  "cc-notify",
+ "cc-panes-paths",
  "chrono",
  "dirs",
  "dunce",
@@ -1041,6 +1045,7 @@ dependencies = [
  "portable-pty",
  "rand 0.8.5",
  "rusqlite",
+ "security-framework 3.6.0",
  "serde",
  "serde_json",
  "sha2",
@@ -1060,6 +1065,7 @@ dependencies = [
  "vte",
  "which",
  "windows 0.62.2",
+ "windows-registry 0.6.1",
 ]
 
 [[package]]
@@ -1097,6 +1103,15 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "cc-panes-paths"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "dunce",
+ "serde_json",
 ]
 
 [[package]]

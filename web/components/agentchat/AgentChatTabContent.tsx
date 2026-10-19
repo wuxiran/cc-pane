@@ -6,14 +6,16 @@
 //
 // 拆分（行数棘轮）：条目渲染在 ChatItems，输入区在 ChatComposer，引擎选择页
 // 在 EnginePicker——本文件只管会话壳（头部/滚动/审批/生命周期动作）。
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Cpu, RotateCcw, SlidersHorizontal } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
+import { ArrowDown, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Tab } from "@/types";
 import type { AcpPlanEntry, AgentChatItem } from "@/types/agentChat";
+import { lazyWithRetry } from "@/lib/lazyRetry";
+import { supportsAcpFork, type ChatForkMode } from "@/services/chatForkService";
 import { agentChatService } from "@/services/agentChatService";
 import { todoService } from "@/services/todoService";
-import { ensureAgentChatListener } from "@/stores/agentChatEvents";
+import { dropAgentChatState, ensureAgentChatListener } from "@/stores/agentChatEvents";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { usePanesStore } from "@/stores";
@@ -23,24 +25,21 @@ import ChatChangesPanel, { collectNetChanges } from "./ChatChangesPanel";
 import ChatComposer from "./ChatComposer";
 import ChatSessionHeader from "./ChatSessionHeader";
 import ChatTurnView from "./ChatTurnView";
+import ChatTimelineNavigation from "./ChatTimelineNavigation";
 import ChatWelcome from "./ChatWelcome";
-import ConfigOptionSelectors from "./ConfigOptionSelectors";
-import { HeaderSelect } from "./ChatItems";
+import "./agentChatAppearance.css";
+import ChatSessionControls from "./ChatSessionControls";
 import { groupChatItems, type ChatTurn } from "./chatTurns";
+import { useChatTurnWindow } from "./useChatTurnWindow";
 import EnginePicker from "./EnginePicker";
 import SessionWorkspaceMenu from "./SessionWorkspaceMenu";
-import PermissionCard from "./PermissionCard";
-import PermissionPolicyDropdown from "./PermissionPolicyDropdown";
+import ChatPermissionQueue from "./ChatPermissionQueue";
+import { startConfiguredChat } from "./startConfiguredChat";
 import { isAbsolutePath, joinCwd, residentAgentChatCwd } from "./chatPaths";
-import {
-  loadAutoApproveKinds,
-  saveAutoApproveKinds,
-  saveEngineModels,
-  saveEngineModes,
-  savePreferredConfigOption,
-  savePreferredMode,
-  savePreferredModel,
-} from "./enginePrefs";
+
+const ChatForkDialog = lazyWithRetry(() => import("@/components/chatfork/ChatForkDialog"), "ChatForkDialog");
+const ForkReviewDialog = lazyWithRetry(() => import("@/components/chatfork/ForkReviewDialog"), "ForkReviewDialog");
+
 
 /** 会话转写 → Markdown（导出用；工具卡只留标题行，diff 太重不进转写）。 */
 function transcriptMarkdown(items: AgentChatItem[]): string {
@@ -62,6 +61,9 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   const { t } = useTranslation("panes");
   const chat = useAgentChatStore((state) => state.chats[tab.id]);
   const [atBottom, setAtBottom] = useState(true);
+  const [forkOpen, setForkOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const forkSource = useRef<{ engineId: string; sessionId: string; cwd: string } | null>(null);
   // 工作空间/目录覆盖存 store（切标签不丢），优先级高于标签自带项目；
   // 顶栏 chip 与启动页共用 StartProjectMenu 切换。
   const cwdOverride = chat?.cwdOverride ?? null;
@@ -74,8 +76,6 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
     [tab.id],
   );
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  // 长会话分页：只渲染最近 N 个回合，顶部按钮逐段放开（防几百条全量渲染掉帧）。
-  const [visibleCount, setVisibleCount] = useState(60);
   // 工具卡全局展开/折叠信号（seq 递增触发，各卡自行响应）。
   const [toolFold, setToolFold] = useState<{ seq: number; expanded: boolean }>({
     seq: 0,
@@ -83,6 +83,8 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   });
   // 本轮改动审查面板开关。
   const [showChanges, setShowChanges] = useState(false);
+  const [recoverySelections, setRecoverySelections] = useState<Record<string, string>>({});
+  useEffect(() => setRecoverySelections({}), [tab.id, chat?.setup?.token]);
 
   useEffect(() => {
     ensureAgentChatListener();
@@ -103,7 +105,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
     if (!atBottom) return;
     const node = scrollRef.current;
     if (node) node.scrollTop = node.scrollHeight;
-  }, [items, chat?.pendingPermission, atBottom]);
+  }, [items, chat?.pendingPermissions, atBottom]);
 
   const handleScroll = useCallback(() => {
     const node = scrollRef.current;
@@ -118,10 +120,20 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
   }, []);
 
   const snapshot = chat?.snapshot ?? null;
-  const phase = snapshot?.phase;
+  const phase = chat?.setup?.pending || chat?.pendingPrompt ? "starting" : chat?.setup?.error ? "failed" : snapshot?.phase;
+  // 配置失败但进程仍就绪：允许修改下次启动的偏好，继续禁止发送；真实退出不开放此入口。
+  const setupRecovery = Boolean(chat?.setup?.error) && snapshot?.phase === "ready";
   const availableCommands = chat?.availableCommands ?? [];
   const changesCount = useMemo(() => collectNetChanges(items ?? []).length, [items]);
   const turns = useMemo(() => groupChatItems(items ?? []), [items]);
+  const [visibleCount, setVisibleCount] = useChatTurnWindow(turns, !atBottom);
+
+  const timelineKey = snapshot?.acpSessionId
+    ? JSON.stringify([snapshot.engineId, snapshot.acpSessionId]) : tab.id;
+  const revealTimelineTurn = useCallback((index: number) => {
+    setVisibleCount((previous) => Math.max(previous, turns.length - index));
+  }, [turns.length]);
+  const leaveLatest = useCallback(() => setAtBottom(false), []);
 
   const copyMarkdown = useCallback(() => {
     void navigator.clipboard
@@ -168,29 +180,53 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
     [tab.id, t],
   );
 
-  /** 分叉：新开一个 agent-chat 标签，用 session/load 续接当前对话上下文。
-   * claude 的 resume 语义天然分叉（原会话文件不动，续接产生新线），两个
-   * 标签各自往下走。 */
-  const forkToNewTab = useCallback(() => {
-    const current = useAgentChatStore.getState().chats[tab.id]?.snapshot;
-    if (!current?.acpSessionId || !effectiveCwd) return;
-    const newTabId = usePanesStore.getState().openAgentChat(effectiveCwd);
-    if (!newTabId) return;
-    void agentChatService
-      .start(
-        newTabId,
-        current.engineId,
-        effectiveCwd,
-        current.acpSessionId,
-        current.autoApproveKinds ?? loadAutoApproveKinds(current.engineId),
-      )
-      .then((snapshot) => useAgentChatStore.getState().setSnapshot(newTabId, snapshot))
-      .catch((error) => {
-        useAgentChatStore
-          .getState()
-          .pushNotice(newTabId, error instanceof Error ? error.message : String(error));
-      });
-  }, [tab.id, effectiveCwd]);
+  const forkToNewTab = useCallback(async (mode: ChatForkMode) => {
+    const expected = forkSource.current;
+    if (!expected) throw new Error(t("forkUnsupported"));
+    const readSource = () => {
+      const current = useAgentChatStore.getState().chats[tab.id];
+      const cwd = current?.cwdOverride || tab.projectPath
+        || residentAgentChatCwd(useWorkspacesStore.getState().workspaces);
+      if (current?.setup?.pending || current?.setup?.error || current?.pendingPrompt
+        || current?.snapshot?.phase !== "ready"
+        || current.snapshot.acpSessionId !== expected.sessionId
+        || current.snapshot.engineId !== expected.engineId || cwd !== expected.cwd
+        || !supportsAcpFork(current.snapshot.agentCapabilities)) {
+        throw new Error(t("forkUnsupported"));
+      }
+      return current;
+    };
+    readSource();
+    const newTabId = `tab-${crypto.randomUUID()}`;
+    const { forkReviewService } = await import("@/services/forkReviewService");
+    readSource();
+    const prepared = await forkReviewService.prepare({
+      cwd: expected.cwd, mode, sourceTabId: tab.id, childTabId: newTabId,
+      sourceSessionId: expected.sessionId, title: tab.title, engineId: expected.engineId,
+    });
+    const cwd = prepared.cwd;
+    let started = false;
+    try {
+      // The dialog and worktree operation can outlive a restart or project switch.
+      const source = readSource();
+      const transcript = structuredClone(source.items);
+      started = true;
+      const snapshot = await agentChatService.fork(tab.id, newTabId, cwd);
+      if (!snapshot.acpSessionId) throw new Error("Fork returned no independent session ID");
+      useAgentChatStore.getState().seedFork(newTabId, transcript, snapshot.acpSessionId, source.transcriptStart);
+      useAgentChatStore.getState().setSnapshot(newTabId, snapshot);
+      if (!usePanesStore.getState().openAgentChat(cwd, { tabId: newTabId, parentTabId: tab.id, forkReviewId: prepared.record?.id })) {
+        throw new Error("Unable to open the forked conversation tab");
+      }
+    } catch (error) {
+      if (started) {
+        await agentChatService.stop(newTabId).catch((stopError) => handleErrorSilent(stopError, "stop failed fork"));
+        dropAgentChatState(newTabId);
+      }
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(mode === "worktree" ? `${detail}\n${cwd}` : detail);
+    }
+  }, [tab.id, tab.title, tab.projectPath, t]);
 
   const copySessionId = useCallback(() => {
     const sessionId = useAgentChatStore.getState().chats[tab.id]?.snapshot?.acpSessionId;
@@ -204,31 +240,29 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
     const current = useAgentChatStore.getState().chats[tab.id]?.snapshot;
     if (!current?.engineId || !effectiveCwd) return;
     useAgentChatStore.getState().pushNotice(tab.id, `— ${t("agentChatRestart")} —`);
-    void agentChatService
-      .start(
-        tab.id,
-        current.engineId,
-        effectiveCwd,
-        current.acpSessionId,
-        current.autoApproveKinds ?? loadAutoApproveKinds(current.engineId),
-      )
-      .then((snapshot) => useAgentChatStore.getState().setSnapshot(tab.id, snapshot))
-      .catch((error) => {
-        useAgentChatStore
-          .getState()
-          .pushNotice(tab.id, error instanceof Error ? error.message : String(error));
-      });
+    const setup = useAgentChatStore.getState().chats[tab.id]?.setup;
+    void startConfiguredChat({
+      chatId: tab.id,
+      engineId: current.engineId,
+      cwd: effectiveCwd,
+      resumeAcpSessionId: current.acpSessionId,
+      autoApproveKinds: current.autoApproveKinds,
+      firstPrompt: setup?.firstPrompt,
+      preamble: setup?.preamble,
+    }).catch((error) => handleErrorSilent(error, "restart acp chat"));
   }, [tab.id, effectiveCwd, t]);
 
   // 尚未启动过（没有快照也没有消息）→ 引擎选择页。
   if (!snapshot && (!items || items.length === 0)) {
     return (
-      <EnginePicker
-        chatId={tab.id}
-        cwd={effectiveCwd}
-        onPickCwd={setCwdOverride}
-        onCwdAdopted={setCwdOverride}
-      />
+      <div className="agent-chat-shell flex h-full min-w-0 flex-col overflow-hidden">
+        <EnginePicker
+          chatId={tab.id}
+          cwd={effectiveCwd}
+          onPickCwd={setCwdOverride}
+          onCwdAdopted={setCwdOverride}
+        />
+      </div>
     );
   }
 
@@ -242,81 +276,22 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       ? { kind: "assistant", id: "pending-turn", at: Date.now(), blocks: [] }
       : null;
 
-  const modeItems = (snapshot?.modes?.availableModes ?? []).map((mode) => ({
-    id: mode.id,
-    label: mode.name || mode.id,
-    description: mode.description,
-  }));
-  const modelItems = (snapshot?.models?.availableModels ?? []).map((model) => ({
-    id: model.modelId,
-    label: model.name || model.modelId,
-    description: model.description,
-  }));
-  const autoApproveKinds = snapshot?.autoApproveKinds ?? [];
-  // legacy 选择器在渲染的类别，configOptions 里同类不再重复出一个。
-  const legacyCategories = new Set<string>([
-    ...(modelItems.length > 0 ? ["model"] : []),
-    ...(modeItems.length > 0 ? ["mode"] : []),
-  ]);
-
-  const pushError = (error: unknown) => {
-    useAgentChatStore
-      .getState()
-      .pushNotice(tab.id, error instanceof Error ? error.message : String(error));
-  };
-
-  // composer 底栏：模型 / 模式 / 权限（会话结束后不再可改）。
-  const composerToolbar = snapshot && !ended ? (
-    <>
-      {modelItems.length > 0 ? (
-        <HeaderSelect
-          icon={<Cpu className="h-3.5 w-3.5 shrink-0 opacity-70" />}
-          items={modelItems}
-          currentId={snapshot.models?.currentModelId}
-          onSelect={(modelId) => {
-            // 记为该引擎的偏好模型，下次启动页直接可选并自动应用。
-            savePreferredModel(snapshot.engineId, modelId);
-            saveEngineModels(snapshot.engineId, snapshot.models?.availableModels ?? []);
-            void agentChatService.setModel(tab.id, modelId).catch(pushError);
-          }}
-        />
-      ) : null}
-      {modeItems.length > 0 ? (
-        <HeaderSelect
-          icon={<SlidersHorizontal className="h-3.5 w-3.5 shrink-0 opacity-70" />}
-          items={modeItems}
-          currentId={snapshot.modes?.currentModeId}
-          onSelect={(modeId) => {
-            savePreferredMode(snapshot.engineId, modeId);
-            saveEngineModes(snapshot.engineId, snapshot.modes?.availableModes ?? []);
-            void agentChatService.setMode(tab.id, modeId).catch(pushError);
-          }}
-        />
-      ) : null}
-      <ConfigOptionSelectors
-        options={snapshot.configOptions}
-        hiddenCategories={legacyCategories}
-        onSelect={(option, value) => {
-          // mode/model 类别（legacy 缺席时才从这里出）沿用原偏好字段；其余记进配置项偏好。
-          if (option.category === "model") savePreferredModel(snapshot.engineId, value);
-          else if (option.category === "mode") savePreferredMode(snapshot.engineId, value);
-          else savePreferredConfigOption(snapshot.engineId, option.configId, value);
-          void agentChatService.setConfigOption(tab.id, option.configId, value).catch(pushError);
-        }}
-      />
-      <PermissionPolicyDropdown
-        kinds={autoApproveKinds}
-        onChange={(kinds) => {
-          // 同时落为引擎偏好（下次启动沿用）并对当前会话立即生效。
-          saveAutoApproveKinds(snapshot.engineId, kinds);
-          void agentChatService.setAutoApprove(tab.id, kinds).catch(pushError);
-        }}
-      />
-    </>
+  // Recovery edits preferences only; setup-pending and exited sessions stay gated.
+  const composerToolbar = snapshot && (!ended || setupRecovery) && !chat?.setup?.pending && !chat?.pendingPrompt ? (
+    <ChatSessionControls
+      chatId={tab.id}
+      snapshot={snapshot}
+      setupRecovery={setupRecovery}
+      recoverySelections={recoverySelections}
+      onRecoverySelect={(key, value) => setRecoverySelections((previous) => ({ ...previous, [key]: value }))}
+    />
   ) : null;
 
   return (
+    <section className="agent-chat-shell h-full min-w-0">
     <div className="flex h-full flex-col overflow-hidden">
+      {forkOpen && <Suspense fallback={null}><ChatForkDialog open={forkOpen} onOpenChange={setForkOpen} onFork={forkToNewTab} /></Suspense>}
+      {reviewOpen && <Suspense fallback={null}><ForkReviewDialog open={reviewOpen} onOpenChange={setReviewOpen} forkReviewId={tab.forkReviewId} cwd={effectiveCwd} sourceSessionId={snapshot?.acpSessionId} /></Suspense>}
       {snapshot ? (
         <ChatSessionHeader
           engineLabel={snapshot.engineId}
@@ -331,8 +306,14 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
           onToggleTools={() =>
             setToolFold((previous) => ({ seq: previous.seq + 1, expanded: !previous.expanded }))
           }
-          canFork={Boolean(snapshot.acpSessionId && effectiveCwd)}
-          onFork={forkToNewTab}
+          canFork={Boolean(snapshot.acpSessionId && effectiveCwd && phase === "ready" && supportsAcpFork(snapshot.agentCapabilities))}
+          onFork={() => {
+            if (!snapshot.acpSessionId || !effectiveCwd) return;
+            forkSource.current = { engineId: snapshot.engineId, sessionId: snapshot.acpSessionId, cwd: effectiveCwd };
+            setForkOpen(true);
+          }}
+          onReviewFork={() => setReviewOpen(true)}
+          hasForkOrigin={Boolean(tab.forkReviewId)}
           canCopySessionId={Boolean(snapshot.acpSessionId)}
           onCopySessionId={copySessionId}
           canExport={Boolean(items && items.length > 0)}
@@ -340,13 +321,22 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
         />
       ) : null}
       <div className="relative flex-1 overflow-hidden">
+        <ChatTimelineNavigation
+          key={timelineKey}
+          conversationKey={timelineKey}
+          turns={turns}
+          scrollRef={scrollRef}
+          visibleCount={visibleCount}
+          onReveal={revealTimelineTurn}
+          onNavigate={leaveLatest}
+        />
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="h-full overflow-y-auto px-3 py-3"
+          className="agent-chat-scroll h-full overflow-y-auto"
         >
-          <div className="mx-auto flex max-w-3xl flex-col gap-4">
-            {snapshot && turns.length <= visibleCount ? (
+          <div className="agent-chat-reading-column mx-auto flex min-w-0 max-w-3xl flex-col">
+            {snapshot && turns.length === 0 ? (
               <ChatWelcome
                 engineLabel={engineLabel}
                 cwd={effectiveCwd}
@@ -356,24 +346,25 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
             {turns.length > visibleCount ? (
               <button
                 type="button"
-                className="mx-auto rounded border border-[var(--app-border)] px-2.5 py-1 text-[11px] text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)]"
+                className="agent-chat-earlier flex w-full items-center border-b border-[var(--app-border)] py-3 text-left text-xs text-[var(--app-text-tertiary)] transition-colors hover:text-[var(--app-text-primary)]"
                 onClick={() => setVisibleCount((previous) => previous + 60)}
               >
                 {t("agentChatShowEarlier", { count: turns.length - visibleCount })}
               </button>
             ) : null}
             {turns.slice(-visibleCount).map((turn, index, visible) => (
-              <ChatTurnView
-                key={turn.id}
-                turn={turn}
-                engineLabel={engineLabel}
-                streaming={generating && !pendingTurn && index === visible.length - 1}
-                chatId={tab.id}
-                cwd={effectiveCwd}
-                onOpenLocation={openLocation}
-                onPlanToTodo={planToTodo}
-                expandAllSignal={toolFold}
-              />
+              <div className="agent-chat-turn" data-turn-kind={turn.kind} key={turn.id} data-chat-turn-id={turn.id} data-chat-turn-index={Math.max(0, turns.length - visibleCount) + index}>
+                <ChatTurnView
+                  turn={turn}
+                  engineLabel={engineLabel}
+                  streaming={generating && !pendingTurn && index === visible.length - 1}
+                  chatId={tab.id}
+                  cwd={effectiveCwd}
+                  onOpenLocation={openLocation}
+                  onPlanToTodo={planToTodo}
+                  expandAllSignal={toolFold}
+                />
+              </div>
             ))}
             {pendingTurn ? (
               <ChatTurnView
@@ -408,24 +399,18 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
         />
       ) : null}
 
-      {chat?.pendingPermission ? (
-        <PermissionCard
-          request={chat.pendingPermission}
-          onRespond={(optionId) => {
-            const requestKey = chat.pendingPermission?.requestKey;
-            if (!requestKey) return;
-            useAgentChatStore.getState().setPermission(tab.id, null);
-            void agentChatService
-              .respondPermission(tab.id, requestKey, optionId)
-              .catch((error) => handleErrorSilent(error, "respond acp permission"));
-          }}
-        />
-      ) : null}
+      <ChatPermissionQueue chatId={tab.id} />
 
       {ended ? (
-        <div className="px-3 pb-3 pt-1">
+        <div className="agent-chat-ended px-3 pb-3 pt-1">
+          {setupRecovery ? (
+            <div className="mx-auto mb-2 flex max-w-3xl flex-col gap-2 text-xs text-[var(--app-text-secondary)]">
+              <span>{t("agentChatSetupRecovery")}</span>
+              <div className="flex flex-wrap items-center gap-1">{composerToolbar}</div>
+            </div>
+          ) : null}
           <div className="mx-auto flex max-w-3xl items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--app-border)] bg-[var(--app-chat-composer-bg)] px-3 py-3 text-xs text-[var(--app-text-tertiary)]">
-            <span>{t("agentChatEnded")}</span>
+            {!setupRecovery ? <span>{t("agentChatEnded")}</span> : null}
             {effectiveCwd ? (
               <button
                 type="button"
@@ -450,5 +435,6 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
         />
       )}
     </div>
+    </section>
   );
 }

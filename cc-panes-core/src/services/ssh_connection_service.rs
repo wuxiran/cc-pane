@@ -61,6 +61,47 @@ impl MachineRoute {
     }
 }
 
+/// Apply the same single-hop rule when saving, probing, and connecting. Only the
+/// changed machine and its dependents need revalidation; unrelated legacy errors
+/// must not prevent repairing another saved route.
+pub(super) fn validate_changed_machine_routes(
+    machines: &[SshMachine],
+    changed_id: &str,
+) -> Result<()> {
+    for machine in machines {
+        let Some(jump) = machine
+            .jump_host
+            .as_ref()
+            .filter(|j| j.uses_machine_reference())
+        else {
+            continue;
+        };
+        let jump_id = jump.machine_id.as_deref().unwrap_or_default();
+        if machine.id != changed_id && jump_id != changed_id {
+            continue;
+        }
+        let target = machines
+            .iter()
+            .find(|candidate| candidate.id == jump_id)
+            .with_context(|| format!("SSH jump host machine {jump_id} was not found"))?;
+        validate_jump_target(Some(&machine.id), target)?;
+    }
+    Ok(())
+}
+
+fn validate_jump_target(owner_id: Option<&str>, target: &SshMachine) -> Result<()> {
+    if owner_id == Some(target.id.as_str()) {
+        bail!("SSH jump host {} refers to itself", target.id);
+    }
+    if target.jump_host.is_some() {
+        bail!(
+            "SSH jump host {} is itself configured with a jump host; nested jump hosts are not supported",
+            target.id
+        );
+    }
+    Ok(())
+}
+
 impl SshConnectionService {
     pub fn new(credential_service: Arc<SshCredentialService>, known_hosts_path: PathBuf) -> Self {
         let machines_path = known_hosts_path
@@ -162,6 +203,10 @@ impl SshConnectionService {
         if let Some(jump) = machine.jump_host.as_ref() {
             return self.probe_jump_hop(machine, jump);
         }
+        self.probe_direct_hop(machine)
+    }
+
+    fn probe_direct_hop(&self, machine: &SshMachine) -> Result<()> {
         if let Some(proxy) = machine.proxy.as_ref() {
             let address = format_address(&proxy.host, proxy.port);
             return open_tcp_stream(&address).map(|_| ()).with_context(|| {
@@ -173,16 +218,12 @@ impl SshConnectionService {
     }
 
     fn probe_jump_hop(&self, machine: &SshMachine, jump: &SshJumpHost) -> Result<()> {
-        // 引用的跳板机：探它自己的第一跳（可能还带代理）。
+        // A saved jump may use a proxy, but it may not itself have a jump. Do
+        // not recurse: old or manually edited cyclic configs must fail safely.
         if jump.uses_machine_reference() {
             let jump_id = jump.machine_id.as_deref().unwrap_or_default();
-            let jump_machine = self
-                .lookup_machine(Some(jump_id))?
-                .with_context(|| format!("SSH jump host machine {jump_id} was not found"))?;
-            if machine.id == jump_machine.id {
-                bail!("SSH jump host {jump_id} refers to itself");
-            }
-            return self.probe_machine(&jump_machine);
+            let jump_machine = self.referenced_jump_machine(Some(&machine.id), jump_id)?;
+            return self.probe_direct_hop(&jump_machine);
         }
         // 内联跳板：探跳板主机，或所属主机的代理端点。
         if let Some(proxy) = machine.proxy.as_ref() {
@@ -343,17 +384,21 @@ impl SshConnectionService {
         self.establish_session(stream, &address, &target)
     }
 
-    /// 跳板引用了另一台已保存机器：递归解析它自己的路由。
-    fn connect_referenced_jump(&self, jump_machine_id: &str) -> Result<Session> {
+    fn referenced_jump_machine(
+        &self,
+        owner_id: Option<&str>,
+        jump_machine_id: &str,
+    ) -> Result<SshMachine> {
         let jump_machine = self
             .lookup_machine(Some(jump_machine_id))?
             .with_context(|| format!("SSH jump host machine {jump_machine_id} was not found"))?;
-        // 只支持单层跳板：跳板自己再配跳板会无限递归，必须明确拒绝。
-        if jump_machine.jump_host.is_some() {
-            bail!(
-                "SSH jump host {jump_machine_id} is itself configured with a jump host; nested jump hosts are not supported"
-            );
-        }
+        validate_jump_target(owner_id, &jump_machine)?;
+        Ok(jump_machine)
+    }
+
+    /// 跳板引用了另一台已保存机器：仅允许该机器直连或使用代理。
+    fn connect_referenced_jump(&self, jump_machine_id: &str) -> Result<Session> {
+        let jump_machine = self.referenced_jump_machine(None, jump_machine_id)?;
         // 跳板机自己的代理凭据属于它自己的 id，不能沿用所属主机的。
         let jump_route = MachineRoute::from_machine(&jump_machine);
         let address = format_address(&jump_machine.host, jump_machine.port);
@@ -504,6 +549,10 @@ impl SshConnectionService {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "ssh_connection_service/route_tests.rs"]
+mod route_tests;
 
 fn authenticate_with_agent(session: &Session, user: &str) -> Result<()> {
     let mut agent = session.agent().context("Failed to open SSH agent")?;

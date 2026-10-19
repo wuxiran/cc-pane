@@ -9,6 +9,9 @@
 //!
 //! Prompt payloads are never logged; they may contain user code and secrets.
 
+mod auth;
+mod fork;
+
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -27,6 +30,17 @@ use tracing::{debug, warn};
 use crate::services::process_guard::{self, ProcessGuard};
 use crate::utils::{AppError, AppResult};
 use cc_panes_core::utils::no_window_tokio_command;
+
+#[path = "acp_chat_service/permissions.rs"]
+mod permissions;
+use permissions::{PendingPermissions, PermissionResolution};
+#[path = "acp_chat_service/process.rs"]
+pub(super) mod process;
+use process::AcpProcess;
+#[path = "acp_chat_service/replay.rs"]
+mod replay;
+#[path = "acp_chat_service/turn.rs"]
+mod turn;
 
 pub const ACP_CHAT_EVENT: &str = "acp-chat-event";
 
@@ -184,6 +198,7 @@ pub struct AcpLaunchSpec {
     /// Resume an existing ACP conversation via `session/load` when the agent
     /// advertises `loadSession`. Falls back to a fresh session otherwise.
     pub resume_acp_session_id: Option<String>,
+    pub fork_acp_session_id: Option<String>,
     /// 自动放行的 ACP ToolKind 集合：命中的 `session/request_permission` 自动
     /// 选第一个 allow 选项，不弹审批卡。`*` = 全部（Automations 的 headless
     /// 会话）；交互式 chat 由用户在权限下拉里按类勾选，空 = 每次都问。
@@ -197,16 +212,15 @@ struct AcpChatSession {
     app: AppHandle,
     snapshot: RwLock<AcpChatSnapshot>,
     stdin: Mutex<ChildStdin>,
-    child: Mutex<Option<Child>>,
-    /// Held for the session lifetime; dropping the Windows job handle kills
-    /// the adapter tree if anything else fails to.
-    _guard: Option<ProcessGuard>,
+    process: AcpProcess,
+    /// Serialize prompt admission/sending, cancellation and turn completion.
+    turn_control: Mutex<()>,
     /// Our outgoing JSON-RPC requests awaiting a response, keyed by id.
     pending: Mutex<HashMap<u64, oneshot::Sender<PendingResult>>>,
     next_request_id: AtomicU64,
     /// Incoming `session/request_permission` request ids awaiting the user.
     /// On cancel we MUST answer them all with the `cancelled` outcome.
-    pending_permissions: Mutex<HashMap<String, Value>>,
+    pending_permissions: PendingPermissions,
     stderr_tail: Mutex<VecDeque<String>>,
     /// 自动放行策略（ToolKind 集合，`*` = 全部）。会话中可改，读写都在
     /// 微秒级临界区里，用同步锁即可。
@@ -264,6 +278,16 @@ impl AcpChatSession {
     /// Prompt turns are legitimately long-running; callers that need a
     /// deadline wrap this in `tokio::time::timeout`.
     async fn request(&self, method: &str, params: Value) -> AppResult<Value> {
+        Self::receive_response(method, self.send_request(method, params).await?).await
+    }
+
+    /// Finish writing before releasing turn_control; cancellation must never
+    /// reach the adapter ahead of the prompt whose turn it is cancelling.
+    async fn send_request(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> AppResult<oneshot::Receiver<PendingResult>> {
         let id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = oneshot::channel();
         self.pending.lock().await.insert(id, sender);
@@ -279,6 +303,13 @@ impl AcpChatSession {
             return Err(error);
         }
 
+        Ok(receiver)
+    }
+
+    async fn receive_response(
+        method: &str,
+        receiver: oneshot::Receiver<PendingResult>,
+    ) -> AppResult<Value> {
         match receiver.await {
             Ok(Ok(result)) => Ok(result),
             Ok(Err(rpc_error)) => {
@@ -330,21 +361,21 @@ impl AcpChatSession {
         for (_, sender) in pending {
             let _ = sender.send(Err(json!({"message": message})));
         }
-        self.pending_permissions.lock().await.clear();
+        self.pending_permissions.clear().await;
     }
 
     /// Answer every outstanding permission request with `cancelled`, as the
     /// spec requires after `session/cancel`.
     async fn cancel_pending_permissions(&self) {
-        let pending = {
-            let mut pending = self.pending_permissions.lock().await;
-            std::mem::take(&mut *pending)
-        };
-        for (_, id) in pending {
-            let outcome = json!({"outcome": {"outcome": "cancelled"}});
-            if let Err(error) = self.respond(&id, Ok(outcome)).await {
-                debug!(chat_id = %self.chat_id, error = %error, "failed to cancel ACP permission request");
-            }
+        let errors = self
+            .pending_permissions
+            .cancel_all(|id| async move {
+                let outcome = json!({"outcome": {"outcome": "cancelled"}});
+                self.respond(&id, Ok(outcome)).await
+            })
+            .await;
+        for error in errors {
+            debug!(chat_id = %self.chat_id, error = %error, "failed to cancel ACP permission request");
         }
     }
 
@@ -572,11 +603,11 @@ impl AcpChatService {
                 error: None,
             }),
             stdin: Mutex::new(stdin),
-            child: Mutex::new(Some(child)),
-            _guard: guard,
+            process: AcpProcess::new(child, guard),
+            turn_control: Mutex::new(()),
             pending: Mutex::new(HashMap::new()),
             next_request_id: AtomicU64::new(1),
-            pending_permissions: Mutex::new(HashMap::new()),
+            pending_permissions: PendingPermissions::default(),
             stderr_tail: Mutex::new(VecDeque::new()),
             auto_approve_kinds: std::sync::RwLock::new(spec.auto_approve_kinds.clone()),
             tool_kinds: std::sync::Mutex::new(HashMap::new()),
@@ -678,32 +709,62 @@ impl AcpChatService {
         // 新会话（旧会话可能已被 agent 侧清理），降级必须对用户可见。
         let mut resumed_session_id: Option<String> = None;
         let mut session_response: Option<Value> = None;
-        if let Some(resume_id) = spec
+        if let Some(source) = spec.fork_acp_session_id.as_deref() {
+            let (child, response) =
+                fork::fork_session(session, source, capabilities.as_ref(), cwd, &mcp_servers)
+                    .await?;
+            resumed_session_id = Some(child);
+            session_response = Some(response);
+        } else if let Some(resume_id) = spec
             .resume_acp_session_id
             .as_deref()
             .map(str::trim)
             .filter(|id| !id.is_empty())
         {
             if capability(&["loadSession"]) {
-                let load = tokio::time::timeout(
-                    HANDSHAKE_TIMEOUT,
-                    session.request(
-                        "session/load",
-                        json!({
-                            "sessionId": resume_id,
-                            "cwd": cwd,
-                            "mcpServers": mcp_servers,
-                        }),
-                    ),
-                )
-                .await
-                .map_err(|_| {
-                    AppError::coded("ACP_HANDSHAKE_TIMEOUT", "ACP session/load timed out")
-                })?;
+                let load = auth::retry(session, &initialize, || {
+                    replay::load(
+                        |phase| {
+                            session.emit(
+                                "history_replay",
+                                json!({
+                                    "phase": phase, "acpSessionId": resume_id,
+                                }),
+                            )
+                        },
+                        async {
+                            tokio::time::timeout(
+                                HANDSHAKE_TIMEOUT,
+                                session.request(
+                                    "session/load",
+                                    json!({
+                                        "sessionId": resume_id,
+                                        "cwd": cwd,
+                                        "mcpServers": mcp_servers,
+                                    }),
+                                ),
+                            )
+                            .await
+                            .map_err(|_| {
+                                AppError::coded(
+                                    "ACP_HANDSHAKE_TIMEOUT",
+                                    "ACP session/load timed out",
+                                )
+                            })?
+                        },
+                    )
+                })
+                .await;
                 match load {
                     Ok(response) => {
                         resumed_session_id = Some(resume_id.to_string());
                         session_response = Some(response);
+                    }
+                    Err(error)
+                        if error.code() == Some("ACP_HANDSHAKE_TIMEOUT")
+                            || is_auth_required(&error) =>
+                    {
+                        return Err(error);
                     }
                     Err(error) => {
                         warn!(chat_id = %session.chat_id, error = %error, "ACP session/load failed; starting a fresh session");
@@ -727,106 +788,35 @@ impl AcpChatService {
             }
         }
 
-        let (acp_session_id, response) = if let (Some(id), Some(response)) =
-            (resumed_session_id, session_response)
-        {
-            (id, response)
-        } else {
-            let new_session_params = json!({"cwd": cwd, "mcpServers": mcp_servers});
-            let first_attempt = tokio::time::timeout(
-                HANDSHAKE_TIMEOUT,
-                session.request("session/new", new_session_params.clone()),
-            )
-            .await
-            .map_err(|_| AppError::coded("ACP_HANDSHAKE_TIMEOUT", "ACP session/new timed out"))?;
-            let new_session = match first_attempt {
-                Ok(response) => response,
-                // `auth_required`（-32000）：按 initialize 广告的 authMethods 逐个
-                // `authenticate`，成功后重试一次 session/new。交互式（需要跳浏览器/
-                // 输入 key）的方法在这里不会成功，把方法列表连同错误一起抛给用户。
-                Err(error) if is_auth_required(&error) => {
-                    let auth_methods = initialize
-                        .get("authMethods")
-                        .and_then(Value::as_array)
-                        .cloned()
-                        .unwrap_or_default();
-                    let mut authenticated = false;
-                    for method in &auth_methods {
-                        let Some(method_id) = method.get("id").and_then(Value::as_str) else {
-                            continue;
-                        };
-                        match tokio::time::timeout(
-                            HANDSHAKE_TIMEOUT,
-                            session.request("authenticate", json!({"methodId": method_id})),
-                        )
-                        .await
-                        {
-                            Ok(Ok(_)) => {
-                                authenticated = true;
-                                session.emit(
-                                    "notification",
-                                    json!({
-                                        "method": "ccpanes/authenticated",
-                                        "params": {"methodId": method_id},
-                                    }),
-                                );
-                                break;
-                            }
-                            Ok(Err(auth_error)) => {
-                                debug!(chat_id = %session.chat_id, method_id, error = %auth_error, "ACP authenticate rejected");
-                            }
-                            Err(_) => {
-                                debug!(chat_id = %session.chat_id, method_id, "ACP authenticate timed out");
-                            }
-                        }
-                    }
-                    if !authenticated {
-                        let names: Vec<String> = auth_methods
-                            .iter()
-                            .filter_map(|method| {
-                                method
-                                    .get("name")
-                                    .or_else(|| method.get("id"))
-                                    .and_then(Value::as_str)
-                                    .map(str::to_string)
-                            })
-                            .collect();
-                        return Err(AppError::coded(
-                            "ACP_AUTH_REQUIRED",
-                            if names.is_empty() {
-                                format!("{error}")
-                            } else {
-                                format!(
-                                    "{error}\n该引擎需要先登录，可用方式：{}。请在终端里完成登录后重试。",
-                                    names.join(" / ")
-                                )
-                            },
-                        ));
-                    }
+        let (acp_session_id, response) =
+            if let (Some(id), Some(response)) = (resumed_session_id, session_response) {
+                (id, response)
+            } else {
+                let new_session_params = json!({"cwd": cwd, "mcpServers": mcp_servers});
+                let new_session = auth::retry(session, &initialize, || async {
                     tokio::time::timeout(
                         HANDSHAKE_TIMEOUT,
-                        session.request("session/new", new_session_params),
+                        session.request("session/new", new_session_params.clone()),
                     )
                     .await
                     .map_err(|_| {
                         AppError::coded("ACP_HANDSHAKE_TIMEOUT", "ACP session/new timed out")
-                    })??
-                }
-                Err(error) => return Err(error),
+                    })?
+                })
+                .await?;
+                let id = new_session
+                    .get("sessionId")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .map(str::to_string)
+                    .ok_or_else(|| {
+                        AppError::coded(
+                            "ACP_HANDSHAKE_FAILED",
+                            "ACP session/new returned no sessionId",
+                        )
+                    })?;
+                (id, new_session)
             };
-            let id = new_session
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .filter(|value| !value.trim().is_empty())
-                .map(str::to_string)
-                .ok_or_else(|| {
-                    AppError::coded(
-                        "ACP_HANDSHAKE_FAILED",
-                        "ACP session/new returned no sessionId",
-                    )
-                })?;
-            (id, new_session)
-        };
 
         {
             let mut snapshot = session.snapshot.write().await;
@@ -848,93 +838,27 @@ impl AcpChatService {
     /// Returns immediately; the turn streams through `session/update` events
     /// and finishes with a `turn_ended` event.
     pub async fn prompt(&self, chat_id: &str, blocks: Vec<Value>) -> AppResult<()> {
-        if blocks.is_empty() {
-            return Err(AppError::coded(
-                "ACP_PROMPT_REQUIRED",
-                "ACP prompt cannot be empty",
-            ));
-        }
-        let session = self.session(chat_id).await?;
-        let (phase, acp_session_id) = {
-            let snapshot = session.snapshot.read().await;
-            (snapshot.phase, snapshot.acp_session_id.clone())
-        };
-        let acp_session_id = acp_session_id.ok_or_else(|| {
-            AppError::coded(
-                "ACP_SESSION_NOT_READY",
-                "ACP session has not finished starting",
-            )
-        })?;
-        match phase {
-            AcpChatPhase::Ready => {}
-            AcpChatPhase::Generating => {
-                return Err(AppError::coded(
-                    "ACP_TURN_IN_PROGRESS",
-                    "ACP agent is still working on the previous message",
-                ));
-            }
-            _ => {
-                return Err(AppError::coded(
-                    "ACP_SESSION_NOT_READY",
-                    "ACP session is not ready for prompts",
-                ));
-            }
-        }
-
-        // 会话标题 = 第一条用户文本（截断），供历史列表显示。
-        if let Some(text) = blocks.iter().find_map(|block| {
-            (block.get("type").and_then(Value::as_str) == Some("text"))
-                .then(|| block.get("text").and_then(Value::as_str))
-                .flatten()
-        }) {
-            self.note_chat_title(&acp_session_id, text);
-        }
-
-        session.set_phase(AcpChatPhase::Generating).await;
-        session.emit_state().await;
-
-        let turn_session = session.clone();
+        let (session, response) = self.prepare_turn(chat_id, blocks).await?;
         tokio::spawn(async move {
-            let _ = run_turn(&turn_session, acp_session_id, blocks).await;
+            let _ = run_turn(&session, response).await;
         });
         Ok(())
     }
 
-    /// 同步版 prompt：等整个回合结束并返回 stopReason。Automations 的
-    /// headless 派发用（带超时由调用方包）。前置校验与 `prompt` 相同。
+    /// Automations use the same admission/send path, then await the turn result.
     pub async fn prompt_and_wait(&self, chat_id: &str, blocks: Vec<Value>) -> AppResult<String> {
-        if blocks.is_empty() {
-            return Err(AppError::coded(
-                "ACP_PROMPT_REQUIRED",
-                "ACP prompt cannot be empty",
-            ));
-        }
-        let session = self.session(chat_id).await?;
-        let (phase, acp_session_id) = {
-            let snapshot = session.snapshot.read().await;
-            (snapshot.phase, snapshot.acp_session_id.clone())
-        };
-        let acp_session_id = acp_session_id.ok_or_else(|| {
-            AppError::coded(
-                "ACP_SESSION_NOT_READY",
-                "ACP session has not finished starting",
-            )
-        })?;
-        if phase != AcpChatPhase::Ready {
-            return Err(AppError::coded(
-                "ACP_SESSION_NOT_READY",
-                "ACP session is not ready for prompts",
-            ));
-        }
-        session.set_phase(AcpChatPhase::Generating).await;
-        session.emit_state().await;
-        run_turn(&session, acp_session_id, blocks).await
+        let (session, response) = self.prepare_turn(chat_id, blocks).await?;
+        run_turn(&session, response).await
     }
 
     /// Cancel the in-flight turn. The agent responds to the outstanding
     /// `session/prompt` with `cancelled`, which ends the turn on our side.
     pub async fn cancel(&self, chat_id: &str) -> AppResult<()> {
         let session = self.session(chat_id).await?;
+        let _turn = session.turn_control.lock().await;
+        if session.snapshot.read().await.phase != AcpChatPhase::Generating {
+            return Ok(());
+        }
         let acp_session_id = session
             .snapshot
             .read()
@@ -1102,22 +1026,22 @@ impl AcpChatService {
         option_id: Option<String>,
     ) -> AppResult<()> {
         let session = self.session(chat_id).await?;
-        let id = session
-            .pending_permissions
-            .lock()
-            .await
-            .remove(&request_key)
-            .ok_or_else(|| {
-                AppError::coded(
-                    "ACP_PERMISSION_NOT_PENDING",
-                    "ACP permission request is no longer pending",
-                )
-            })?;
         let outcome = match option_id {
             Some(option_id) => json!({"outcome": {"outcome": "selected", "optionId": option_id}}),
             None => json!({"outcome": {"outcome": "cancelled"}}),
         };
-        session.respond(&id, Ok(outcome)).await
+        let session_ref = &session;
+        session
+            .pending_permissions
+            .respond(&request_key, |id, cancelling| async move {
+                let outcome = if cancelling {
+                    json!({"outcome": {"outcome": "cancelled"}})
+                } else {
+                    outcome
+                };
+                session_ref.respond(&id, Ok(outcome)).await
+            })
+            .await
     }
 
     pub async fn snapshot(&self, chat_id: &str) -> Option<AcpChatSnapshot> {
@@ -1147,19 +1071,12 @@ impl AcpChatService {
     ) {
         // agent 开的终端子进程不能比会话活得长。
         session.terminals.release_all().await;
-        let exit_code = {
-            let mut child_guard = session.child.lock().await;
-            match child_guard.as_mut() {
-                None => None,
-                Some(child) => match child.try_wait() {
-                    Ok(Some(status)) => status.code(),
-                    _ => {
-                        let _ = child.kill().await;
-                        child.wait().await.ok().and_then(|status| status.code())
-                    }
-                },
-            }
-        };
+        let exit_code = session
+            .process
+            .kill()
+            .await
+            .ok()
+            .and_then(|status| status.code());
         if session.mark_finished(phase, exit_code, error).await {
             session.emit_state().await;
         }
@@ -1210,32 +1127,26 @@ impl AcpChatService {
             return;
         };
         let now = unix_millis();
-        let existing = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
-        let created_at = existing
-            .as_ref()
-            .and_then(|meta| meta.get("createdAt"))
-            .and_then(Value::as_i64)
-            .unwrap_or(now);
+        // Resume refreshes identity/timestamps, while preserving user title
+        // ownership and other metadata written by newer versions of the app.
+        let mut meta = read_meta(&path)
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({}));
+        let created_at = meta.get("createdAt").and_then(Value::as_i64).unwrap_or(now);
         let kept_title = title
             .map(str::to_string)
             .or_else(|| {
-                existing
-                    .as_ref()
-                    .and_then(|meta| meta.get("title"))
+                meta.get("title")
                     .and_then(Value::as_str)
                     .map(str::to_string)
             })
             .unwrap_or_default();
-        let meta = json!({
-            "acpSessionId": acp_session_id,
-            "engineId": engine_id,
-            "cwd": cwd,
-            "title": kept_title,
-            "createdAt": created_at,
-            "updatedAt": now,
-        });
+        meta["acpSessionId"] = json!(acp_session_id);
+        meta["engineId"] = json!(engine_id);
+        meta["cwd"] = json!(cwd);
+        meta["title"] = json!(kept_title);
+        meta["createdAt"] = json!(created_at);
+        meta["updatedAt"] = json!(now);
         if std::fs::create_dir_all(&self.chats_dir).is_ok() {
             if let Err(error) = std::fs::write(&path, meta.to_string()) {
                 warn!(error = %error, "failed to write ACP chat meta");
@@ -1461,38 +1372,40 @@ async fn route_message(session: &Arc<AcpChatSession>, message: Value) {
                 } else {
                     None
                 };
-                // 通配下选不出选项也要推进（cancelled）；按类放行选不出（提问型
-                // 多选）就退回弹卡，让用户自己答。
-                if approved && (option_id.is_some() || wildcard) {
-                    let outcome = match option_id {
+                let auto_outcome = if approved && (option_id.is_some() || wildcard) {
+                    Some(match option_id {
                         Some(option_id) => {
                             json!({"outcome": {"outcome": "selected", "optionId": option_id}})
                         }
                         None => json!({"outcome": {"outcome": "cancelled"}}),
-                    };
-                    if let Err(error) = session.respond(&id, Ok(outcome)).await {
-                        debug!(chat_id = %session.chat_id, error = %error, "failed to auto-approve ACP permission");
-                    }
-                    session.emit(
-                        "notification",
-                        json!({
-                            "method": "ccpanes/auto-approved",
-                            "params": params,
-                            "resolvedKind": tool_kind,
-                        }),
-                    );
-                    return;
-                }
+                    })
+                } else {
+                    None
+                };
                 let request_key = permission_request_key(&id);
-                session
+                let resolution = session
                     .pending_permissions
-                    .lock()
-                    .await
-                    .insert(request_key.clone(), id);
-                session.emit(
-                    "permission_request",
-                    json!({"requestKey": request_key, "params": params}),
-                );
+                    .register(
+                        request_key.clone(),
+                        id,
+                        auto_outcome,
+                        |id, outcome| async move { session.respond(&id, Ok(outcome)).await },
+                    )
+                    .await;
+                match resolution {
+                    Ok(PermissionResolution::Pending) => session.emit(
+                        "permission_request", json!({"requestKey": request_key, "params": params}),
+                    ),
+                    Ok(PermissionResolution::Approved) => session.emit(
+                        "notification", json!({
+                            "method": "ccpanes/auto-approved", "params": params, "resolvedKind": tool_kind,
+                        }),
+                    ),
+                    // Cancellation also covers requests already travelling on the
+                    // wire. They must neither create a new card nor auto-approve.
+                    Ok(PermissionResolution::Cancelled) => {},
+                    Err(error) => debug!(chat_id = %session.chat_id, error = %error, "failed to answer ACP permission request"),
+                }
             } else if method.starts_with("fs/") || method.starts_with("terminal/") {
                 // 客户端能力（acp_client_ops）。`terminal/wait_for_exit` 会阻塞到进程退出，
                 // 必须离开读循环跑，否则 agent 后续的 session/update 全被卡住。
@@ -1589,18 +1502,14 @@ async fn handle_client_request(
 /// 协议层拒绝时返回 Err（进程退出的终态由 read loop 负责）。
 async fn run_turn(
     session: &Arc<AcpChatSession>,
-    acp_session_id: String,
-    blocks: Vec<Value>,
+    response: turn::TurnResponse,
 ) -> AppResult<String> {
-    let result = session
-        .request(
-            "session/prompt",
-            json!({
-                "sessionId": acp_session_id,
-                "prompt": blocks,
-            }),
-        )
-        .await;
+    let result = match response {
+        Ok(receiver) => AcpChatSession::receive_response("session/prompt", receiver).await,
+        Err(error) => Err(error),
+    };
+    // Completion cannot overwrite a newly admitted turn or overtake cancel.
+    let _turn = session.turn_control.lock().await;
     let engine_id = session.snapshot.read().await.engine_id.clone();
     let notify = |detail: String, is_error: bool| {
         // Automations 的 headless 会话不打扰（结果进运行历史）。
@@ -1853,19 +1762,12 @@ fn permission_request_key(id: &Value) -> String {
 
 async fn finish_after_stdout_closed(session: Arc<AcpChatSession>, stdout_error: Option<String>) {
     session.terminals.release_all().await;
-    let exit_code = {
-        let mut child_guard = session.child.lock().await;
-        match child_guard.as_mut() {
-            None => None,
-            Some(child) => match child.try_wait() {
-                Ok(Some(status)) => status.code(),
-                _ => {
-                    let _ = child.kill().await;
-                    child.wait().await.ok().and_then(|status| status.code())
-                }
-            },
-        }
-    };
+    let exit_code = session
+        .process
+        .kill()
+        .await
+        .ok()
+        .and_then(|status| status.code());
     let stderr_tail = session.stderr_tail().await;
     let error = if let Some(stdout_error) = stdout_error {
         Some(stdout_error)
@@ -2111,6 +2013,48 @@ mod tests {
         apply_agent_title(&dir, "missing", "x");
         assert!(!dir.join("missing.json").exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resume_preserves_user_title_ownership_and_other_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = AcpChatService::new(dir.path().into());
+        service.write_chat_meta("session-1", "fake", "/original", None);
+        service
+            .rename_chat_history("session-1", "My title")
+            .unwrap();
+        let path = dir.path().join("session-1.json");
+        let mut meta = read_meta(&path).unwrap();
+        meta["futureMetadata"] = json!({"pinned": true});
+        let created = meta["createdAt"].clone();
+        std::fs::write(&path, meta.to_string()).unwrap();
+
+        // A fresh runtime service sees the same persisted conversation on resume.
+        let resumed = AcpChatService::new(dir.path().into());
+        resumed.write_chat_meta("session-1", "fake", "/resumed", None);
+        apply_agent_title(dir.path(), "session-1", "Agent replacement");
+        let meta = read_meta(&path).unwrap();
+        assert_eq!(meta["title"], "My title");
+        assert_eq!(meta["titleSource"], "user");
+        assert_eq!(meta["createdAt"], created);
+        assert_eq!(meta["futureMetadata"], json!({"pinned": true}));
+        assert_eq!(meta["cwd"], "/resumed");
+    }
+
+    #[test]
+    fn resume_still_accepts_agent_titles_after_user_clears_their_title() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = AcpChatService::new(dir.path().into());
+        service.write_chat_meta("session-2", "fake", "/repo", None);
+        service
+            .rename_chat_history("session-2", "User title")
+            .unwrap();
+        service.rename_chat_history("session-2", "").unwrap();
+        service.write_chat_meta("session-2", "fake", "/repo", None);
+        apply_agent_title(dir.path(), "session-2", "New agent title");
+        let meta = read_meta(&dir.path().join("session-2.json")).unwrap();
+        assert_eq!(meta["title"], "New agent title");
+        assert_eq!(meta["titleSource"], "agent");
     }
 
     #[test]

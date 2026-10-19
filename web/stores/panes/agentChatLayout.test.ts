@@ -76,6 +76,15 @@ describe("openAgentChat 路由", () => {
     if (normal) state.switchLayout(normal.id);
   });
 
+  it("preserves the preallocated identity of a successfully forked backend chat", () => {
+    const id = usePanesStore.getState().openAgentChat("/fork", { tabId: "fork-child-id", parentTabId: "fork-parent", forkReviewId: "review-1" });
+    expect(id).toBe("fork-child-id");
+    const child = collectPanels(usePanesStore.getState().rootPane).flatMap((panel) => panel.tabs).find((tab) => tab.id === id);
+    expect(child?.projectPath).toBe("/fork");
+    expect(child?.parentTabId).toBe("fork-parent");
+    expect(child?.forkReviewId).toBe("review-1");
+  });
+
   it("无论当前在哪个布局，都开进专用布局并切过去", () => {
     const normalId = usePanesStore.getState().currentLayoutId;
     const tabId = usePanesStore.getState().openAgentChat("C:/proj");

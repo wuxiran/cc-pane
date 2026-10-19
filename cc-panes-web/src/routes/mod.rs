@@ -1,5 +1,6 @@
 pub mod agent_sessions;
 pub mod drama;
+pub mod fork_review;
 pub mod git;
 pub mod history;
 pub mod journal;
@@ -16,19 +17,21 @@ pub mod skills;
 pub mod ssh_machines;
 pub mod static_files;
 pub mod system;
+pub mod task_verification;
 pub mod terminal;
 pub mod usage_stats;
 pub mod workflow;
 
 #[cfg(test)]
 mod auth_tests;
+#[cfg(test)]
+mod delivery_tests;
 
 use axum::{
     middleware,
     routing::{delete, get, patch, post, put},
     Router,
 };
-use tower_http::cors::CorsLayer;
 
 use crate::state::AppState;
 use crate::ws_handler::ws_upgrade;
@@ -36,6 +39,10 @@ use crate::ws_handler::ws_upgrade;
 /// Build the axum router with all routes.
 pub fn build_router(state: AppState) -> Router {
     let api = Router::new()
+        .nest(
+            "/api",
+            fork_review::router().merge(task_verification::router()),
+        )
         .route("/api/sessions", post(terminal::create_session))
         .route(
             "/api/terminal/path-link/resolve",
@@ -224,6 +231,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/worktrees/is-git-repo", get(git::is_git_repo))
         .route("/api/worktrees", get(git::list_worktrees))
         .route("/api/worktrees", post(git::add_worktree))
+        .route("/api/worktrees/fork", post(git::fork_chat_worktree))
         .route("/api/worktrees", delete(git::remove_worktree))
         .route("/api/runtime/cwd", get(system::get_app_cwd))
         .route("/api/cli-tools", get(system::list_cli_tools))
@@ -805,6 +813,9 @@ pub fn build_router(state: AppState) -> Router {
         .merge(auth)
         .merge(protected)
         .fallback(static_files::static_handler)
-        .layer(CorsLayer::permissive())
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::browser_trust::guard,
+        ))
         .with_state(state)
 }

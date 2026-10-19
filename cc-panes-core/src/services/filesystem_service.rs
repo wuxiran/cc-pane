@@ -802,6 +802,17 @@ impl FileSystemService {
     /// 回收站删除失败（文件被占用 / 目标卷无回收站，如 WSL UNC）时返回
     /// `TRASH_FAILED` 结构化错误，前端据此提供"永久删除"兜底。
     pub fn delete_entry(&self, path: &str, permanent: bool) -> AppResult<()> {
+        self.delete_entry_using(path, permanent, |path| {
+            trash::delete(path).map_err(|e| e.to_string())
+        })
+    }
+
+    fn delete_entry_using(
+        &self,
+        path: &str,
+        permanent: bool,
+        trash_entry: impl FnOnce(&Path) -> Result<(), String>,
+    ) -> AppResult<()> {
         debug!("svc::delete_entry permanent={}", permanent);
         let entry_path = Self::validate_delete_path(path)?;
         if Self::is_readonly_path(&entry_path) {
@@ -828,7 +839,7 @@ impl FileSystemService {
             }
             return Ok(());
         }
-        trash::delete(&entry_path).map_err(|e| {
+        trash_entry(&entry_path).map_err(|e| {
             AppError::coded_with_params(
                 "TRASH_FAILED",
                 format!("Failed to move to trash: {}", e),
@@ -845,7 +856,7 @@ impl FileSystemService {
     pub fn rename_entry(&self, old_path: &str, new_name: &str) -> AppResult<()> {
         debug!("svc::rename_entry");
         Self::validate_filename(new_name)?;
-        let source = Self::validate_path(old_path)?;
+        let source = Self::validate_delete_path(old_path)?;
         if Self::is_readonly_path(&source) {
             return Err("Cannot rename read-only path".into());
         }
@@ -853,7 +864,7 @@ impl FileSystemService {
             .parent()
             .ok_or("Cannot determine parent directory")?
             .join(new_name);
-        if new_path.exists() {
+        if fs::symlink_metadata(&new_path).is_ok() {
             return Err(format!("'{}' already exists", new_name).into());
         }
         fs::rename(&source, &new_path)?;
@@ -908,15 +919,31 @@ impl FileSystemService {
             );
         }
         let source_meta = fs::symlink_metadata(&source)?;
-        // fs::rename 跨盘/跨文件系统会失败，降级为 copy + delete。
-        // 注意：rename 本身不跟随符号链接，因此同卷移动会正确地搬动链接本身。
-        if fs::rename(&source, &dest).is_err() {
+        if source_meta.is_dir()
+            && dest_parent
+                .canonicalize()?
+                .starts_with(source.canonicalize()?)
+        {
+            return Err("Cannot move a directory into itself".into());
+        }
+        // Only EXDEV permits copy/delete fallback. Permission/invalid-path errors
+        // must never trigger a second, potentially recursive filesystem operation.
+        if let Err(error) = fs::rename(&source, &dest) {
+            if error.kind() != std::io::ErrorKind::CrossesDevices {
+                return Err(error.into());
+            }
             if source_meta.file_type().is_symlink() {
                 // 符号链接跨文件系统移动：绝不 copy_dir_recursive + remove_dir_all（那会
                 // 复制并删除目标）。这里直接报错，避免数据丢失（重建链接需特权，从简）。
                 return Err("Cannot move a symbolic link across filesystems".into());
             } else if source_meta.is_dir() {
-                Self::copy_dir_recursive(&source, &dest)?;
+                fs::create_dir(&dest)?;
+                if let Err(error) = Self::copy_dir_recursive(&source, &dest) {
+                    if let Err(cleanup) = fs::remove_dir_all(&dest) {
+                        tracing::warn!(%cleanup, "failed to remove incomplete move destination");
+                    }
+                    return Err(error);
+                }
                 fs::remove_dir_all(&source)?;
             } else {
                 fs::copy(&source, &dest)?;
@@ -1549,8 +1576,14 @@ mod tests {
         let link = tmp.path().join("target-link");
         symlink(&target, &link).unwrap();
 
-        // trash::delete 在 CI/无回收站环境可能失败——无论成败，目标目录都必须保留。
-        let _ = svc().delete_entry(&format!("{}/", path_str(&link)), false);
+        // Verify the exact leaf passed to the OS trash adapter without invoking
+        // Finder/desktop integration (which may require interactive permission).
+        svc()
+            .delete_entry_using(&format!("{}/", path_str(&link)), false, |path| {
+                assert!(fs::symlink_metadata(path).unwrap().file_type().is_symlink());
+                fs::remove_file(path).map_err(|e| e.to_string())
+            })
+            .unwrap();
         assert!(target.is_dir());
         assert_eq!(fs::read_to_string(target.join("keep.txt")).unwrap(), "keep");
     }
@@ -1632,5 +1665,54 @@ mod tests {
         assert!(!FileSystemService::is_readonly_path(Path::new(
             "proj/node_modules_backup/x"
         )));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn rename_preserves_symlink_targets_including_dangling_links() {
+        let root = TempDir::new().unwrap();
+        for directory in [false, true] {
+            let target = root.path().join(if directory {
+                "target-dir"
+            } else {
+                "target-file"
+            });
+            if directory {
+                fs::create_dir(&target).unwrap();
+            } else {
+                fs::write(&target, "keep").unwrap();
+            }
+            let link = root.path().join("link");
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+            svc()
+                .rename_entry(link.to_str().unwrap(), "renamed")
+                .unwrap();
+            assert!(target.exists());
+            assert_eq!(fs::read_link(root.path().join("renamed")).unwrap(), target);
+            fs::remove_file(root.path().join("renamed")).unwrap();
+        }
+        let link = root.path().join("dangling");
+        std::os::unix::fs::symlink(root.path().join("missing"), &link).unwrap();
+        svc()
+            .rename_entry(link.to_str().unwrap(), "renamed")
+            .unwrap();
+        assert!(fs::symlink_metadata(root.path().join("renamed"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+
+    #[test]
+    fn move_into_own_descendant_rejects_before_creating_any_destination() {
+        let root = TempDir::new().unwrap();
+        let source = root.path().join("source");
+        let child = source.join("child");
+        fs::create_dir_all(&child).unwrap();
+        fs::write(source.join("keep.txt"), "keep").unwrap();
+        let error = svc()
+            .move_entry(source.to_str().unwrap(), child.to_str().unwrap())
+            .unwrap_err();
+        assert!(error.to_string().contains("itself"));
+        assert!(!child.join("source").exists());
+        assert_eq!(fs::read_to_string(source.join("keep.txt")).unwrap(), "keep");
     }
 }

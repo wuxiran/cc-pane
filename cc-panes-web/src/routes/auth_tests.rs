@@ -26,7 +26,12 @@ use tower::util::ServiceExt;
 
 use crate::{state::TerminalOutputMode, web_auth::WebAuthStore, ws_emitter::WsEmitter};
 
-struct NoopTerminalBackend;
+#[derive(Default)]
+struct NoopTerminalBackend {
+    writes: std::sync::atomic::AtomicUsize,
+    kills: std::sync::atomic::AtomicUsize,
+    releases: std::sync::atomic::AtomicUsize,
+}
 
 impl TerminalBackend for NoopTerminalBackend {
     fn create_session(
@@ -37,6 +42,8 @@ impl TerminalBackend for NoopTerminalBackend {
     }
 
     fn write(&self, _session_id: &str, _data: &str) -> AppResult<()> {
+        self.writes
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 
@@ -48,7 +55,14 @@ impl TerminalBackend for NoopTerminalBackend {
         Ok(())
     }
 
+    fn release_owned_sessions(&self) -> AppResult<()> {
+        self.releases
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+
     fn kill(&self, _session_id: &str) -> AppResult<()> {
+        self.kills.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 
@@ -150,7 +164,7 @@ fn test_state(name: &str) -> crate::state::AppState {
     ));
 
     crate::state::AppState {
-        terminal_backend: Arc::new(NoopTerminalBackend),
+        terminal_backend: Arc::new(NoopTerminalBackend::default()),
         workspace_service: Arc::new(WorkspaceService::new(app_paths.workspaces_dir())),
         project_service: Arc::new(ProjectService::new(project_repo)),
         provider_service: Arc::new(ProviderService::new(app_paths.providers_path())),
@@ -160,6 +174,13 @@ fn test_state(name: &str) -> crate::state::AppState {
         filesystem_service: Arc::new(FileSystemService::new()),
         todo_service: todo_service.clone(),
         spec_service: Arc::new(SpecService::new(spec_repo, todo_service)),
+        task_verification_service: Arc::new(cc_panes_core::services::TaskVerificationService::new(
+            app_paths.data_dir().to_path_buf(),
+            Arc::new(TaskBindingService::new(task_binding_repo.clone())),
+        )),
+        fork_review_service: Arc::new(cc_panes_core::services::ForkReviewService::new(
+            app_paths.data_dir().to_path_buf(),
+        )),
         task_binding_service: Arc::new(TaskBindingService::new(task_binding_repo)),
         launch_history_service,
         layout_snapshot_service: Arc::new(LayoutSnapshotService::new(db.clone())),
@@ -392,3 +413,6 @@ async fn remote_api_respects_lan_gate_and_whitelist() {
     let response = app.oneshot(request).await.expect("response");
     assert_eq!(response.status(), StatusCode::OK);
 }
+
+#[path = "auth_security_tests.rs"]
+mod security;

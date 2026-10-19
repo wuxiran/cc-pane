@@ -676,6 +676,40 @@ pub(super) fn build_wsl_mcp_url(windows_host: &str, port: &str, token: &str) -> 
     format!("http://{}:{}/mcp?token={}", windows_host, port, token)
 }
 
+/// 环境变量名：Codex 经 `bearer_token_env_var` 读 ccpanes MCP 的 Bearer token。
+/// 与 terminal_service 的 WSLENV 透传键一致；改名两边同步。
+pub(crate) const CODEX_MCP_BEARER_ENV: &str = "CC_PANES_API_TOKEN";
+
+/// 给 WSL 内 Codex 下发 ccpanes MCP 的 `-c` 覆盖：URL **不含 token**（只带 launchId），
+/// 认证走 `bearer_token_env_var` → orchestrator 的 Bearer 校验。argv 对同机其他用户
+/// / 进程列表可见，token 必须不在里面；Claude 那条路径仍是落盘 MCP 配置文件，不在此列。
+pub(super) fn push_codex_ccpanes_mcp_overrides(
+    codex_args: &mut Vec<String>,
+    windows_host: &str,
+    port: &str,
+    launch_id: Option<&str>,
+) {
+    let mut mcp_url = format!("http://{}:{}/mcp", windows_host, port);
+    if let Some(launch_id) = launch_id.filter(|value| !value.is_empty()) {
+        mcp_url.push_str("?launchId=");
+        mcp_url.push_str(launch_id);
+    }
+    codex_args.push("-c".to_string());
+    codex_args.push(format!(
+        "mcp_servers.ccpanes.url={}",
+        format_toml_value_for_cli(&toml::Value::String(mcp_url))
+    ));
+    codex_args.push("-c".to_string());
+    codex_args.push(format!(
+        "mcp_servers.ccpanes.bearer_token_env_var={}",
+        format_toml_value_for_cli(&toml::Value::String(CODEX_MCP_BEARER_ENV.to_string()))
+    ));
+    codex_args.push("-c".to_string());
+    codex_args.push("mcp_servers.ccpanes.enabled=true".to_string());
+    codex_args.push("-c".to_string());
+    codex_args.push(cc_cli_adapters::ccpanes_enabled_tools_override());
+}
+
 /// WSL 内跑的探活脚本：收集候选宿主地址，逐个对 orchestrator `/api/health` 发最小 HTTP
 /// 请求，命中本 orchestrator 独有的 `{"status":"ok"}` 就 echo 该 host 并退出。
 /// `$1` = 端口。全程带 `timeout 1` 逐候选兜底，缺 bash/timeout 则整体失败（调用方回退）。
@@ -1371,6 +1405,11 @@ fn is_wsl_home_path(path: &str) -> bool {
 ///
 /// 一个候选都不剩就带诊断信息 `exit 127`——宁可显式失败，
 /// 也不要静默跑 Windows 版（那是本缺陷的全部成本来源）。
+///
+/// 第一行是机器可读标记（[`WSL_NATIVE_CLI_MISSING_MARKER`]）：pty-wait 线程据此判定
+/// 「原生 CLI 缺失」并发 `nativeCliMissing` 告警。**不能靠 exit code**——实测 127 经
+/// `systemd-run --scope` + wsl.exe 到 `process_for_wait.wait()` 时已变成 1。标记行刻意
+/// 很短且独占一行：ConPTY 会按终端宽度把长行折行，折在中间的标记就匹配不到了。
 fn push_wsl_native_cli_resolution_prelude(remote_parts: &mut Vec<String>, command: &str) {
     remote_parts.push(format!(
         r#"CCPANES_CLI_NAME={cmd}
@@ -1402,6 +1441,7 @@ for __ccpanes_cand in $(type -pa "$CCPANES_CLI_NAME" 2>/dev/null || true); do
   fi
 done
 if [ -z "$CCPANES_CLI_BIN" ]; then
+  echo "{marker} $CCPANES_CLI_NAME" >&2
   echo "[cc-panes] '$CCPANES_CLI_NAME' 在该 WSL 发行版内没有原生 Linux 版本。" >&2
   if [ -n "$CCPANES_CLI_REJECTED" ]; then
     echo "[cc-panes] PATH 上只找到 Windows 可执行文件（WSL PATH interop 从 Windows 继承）：$CCPANES_CLI_REJECTED" >&2
@@ -1410,8 +1450,40 @@ if [ -z "$CCPANES_CLI_BIN" ]; then
   echo "[cc-panes] 请在该发行版内安装原生 Linux 版 '$CCPANES_CLI_NAME' 后重试。" >&2
   exit 127
 fi"#,
-        cmd = shell_escape_posix(command)
+        cmd = shell_escape_posix(command),
+        marker = WSL_NATIVE_CLI_MISSING_MARKER,
     ));
+}
+
+/// 原生 CLI 解析失败时脚本打到 stderr 的机器可读标记，后跟 CLI 名。
+/// 与 [`detect_native_cli_missing`] 配对；改任一边必须同步另一边。
+pub(crate) const WSL_NATIVE_CLI_MISSING_MARKER: &str = "[cc-panes:native-cli-missing]";
+
+/// 从会话输出尾部判定「WSL 内没有原生 Linux 版 CLI」，返回缺失的 CLI 名。
+///
+/// 只认 [`WSL_NATIVE_CLI_MISSING_MARKER`] 开头的整行（允许前导空白与 CR）；
+/// 人类可读的那几行诊断文案不参与判定——它们会随文案调整、会被 ConPTY 折行。
+pub(crate) fn detect_native_cli_missing(output_tail: &[String]) -> Option<String> {
+    output_tail.iter().rev().find_map(|line| {
+        let trimmed = line.trim_matches(|ch: char| ch.is_whitespace() || ch == '\r');
+        let rest = trimmed.strip_prefix(WSL_NATIVE_CLI_MISSING_MARKER)?;
+        let name = rest.split_whitespace().next()?;
+        Some(name.trim_matches('\'').to_string())
+    })
+}
+
+/// 给 `nativeCliMissing` 告警的一行修复命令（在 WSL 发行版内执行）。
+/// 只列有把握的官方安装方式；其余 CLI 给出通用提示，不猜包名。
+pub(crate) fn native_cli_install_hint(cli_name: &str) -> String {
+    match cli_name {
+        "claude" => "npm i -g @anthropic-ai/claude-code".to_string(),
+        "codex" => "npm i -g @openai/codex".to_string(),
+        "gemini" => "npm i -g @google/gemini-cli".to_string(),
+        "opencode" => "npm i -g opencode-ai".to_string(),
+        "grok" => "npm i -g @vibe-kit/grok-cli".to_string(),
+        "cursor-agent" => "curl https://cursor.com/install -fsS | bash".to_string(),
+        other => format!("在该 WSL 发行版内安装原生 Linux 版 {other}（当前 PATH 只有 Windows 版）"),
+    }
 }
 
 #[cfg(windows)]
@@ -2196,14 +2268,12 @@ impl TerminalService {
             }
         }
         if cli_tool == CliTool::Claude {
-            if let Some(resume_id) = resume_id {
-                cli_args.push("--resume".to_string());
-                cli_args.push(resume_id.to_string());
-            } else if let Some(issued) = issued_session_id {
-                // 新会话由 CC-Panes 发号（与本地 claude.rs build_command 一致）
-                cli_args.push("--session-id".to_string());
-                cli_args.push(issued.to_string());
-            }
+            cc_cli_adapters::push_claude_session_args(
+                &mut cli_args,
+                adapter_options,
+                resume_id,
+                issued_session_id,
+            )?;
             if workspace_remote_path.is_some()
                 && workspace_remote_path != Some(wsl.remote_path.as_str())
             {
@@ -2599,20 +2669,16 @@ impl TerminalService {
                 env_vars.get("CC_PANES_API_TOKEN"),
                 wsl.windows_host.as_deref(),
             ) {
-                let mut mcp_url = build_wsl_mcp_url(windows_host, port, token);
-                if let Some(launch_id) = env_vars.get("CC_PANES_LAUNCH_ID") {
-                    mcp_url.push_str("&launchId=");
-                    mcp_url.push_str(launch_id);
-                }
-                codex_args.push("-c".to_string());
-                codex_args.push(format!(
-                    "mcp_servers.ccpanes.url={}",
-                    format_toml_value_for_cli(&toml::Value::String(mcp_url))
-                ));
-                codex_args.push("-c".to_string());
-                codex_args.push("mcp_servers.ccpanes.enabled=true".to_string());
-                codex_args.push("-c".to_string());
-                codex_args.push(cc_cli_adapters::ccpanes_enabled_tools_override());
+                // token 不进 argv：URL 不带 `?token=`，改由 Codex 从环境变量读 bearer
+                // （`bearer_token_env_var`，0.161 实机 `codex mcp add --help` 已列出）。
+                // 变量本身由 terminal_service 经 WSLENV 透传进 guest。
+                let _ = token;
+                push_codex_ccpanes_mcp_overrides(
+                    &mut codex_args,
+                    windows_host,
+                    port,
+                    env_vars.get("CC_PANES_LAUNCH_ID").map(String::as_str),
+                );
             } else {
                 warn!(
                     distro = %wsl.distro,
@@ -2658,12 +2724,10 @@ impl TerminalService {
             codex_args.push("mcp_servers.ccpanes.enabled=false".to_string());
         }
 
-        if let Some(token) = env_vars.get("CC_PANES_API_TOKEN") {
-            remote_parts.push(format!(
-                "export CC_PANES_API_TOKEN={}",
-                Self::shell_escape(token)
-            ));
-        }
+        // CC_PANES_API_TOKEN 不再以 `export` 写进落盘的启动脚本：terminal_service 已把它
+        // 列进 WSLENV（与 CC_PANES_API_PORT / BASE_URL 一起）直接透传进 guest 进程环境，
+        // hook 与 bearer_token_env_var 都从那里读。脚本里留一份等于把 token 写到 NTFS 上
+        // （chmod 600 在 drvfs 无效）。
 
         if !is_wsl_home_path(wsl.project_cwd()) {
             codex_args.push("-C".to_string());
@@ -2719,7 +2783,12 @@ impl TerminalService {
             }
             other => other,
         };
-        append_codex_resume_args(&mut codex_args, effective_resume_id, initial_prompt);
+        cc_cli_adapters::push_codex_session_args(
+            &mut codex_args,
+            adapter_options,
+            effective_resume_id,
+        )?;
+        append_codex_resume_args(&mut codex_args, None, initial_prompt);
 
         let escaped_codex_args = codex_args
             .iter()
@@ -2797,10 +2866,12 @@ mod tests {
     use super::wsl_host_probe_bash_arg;
     use super::WslHostProbeCache;
     use super::{
-        append_codex_resume_args, push_codex_developer_instructions_arg, push_codex_yolo_mode_arg,
-        push_wsl_codex_mcp_isolation_prelude, push_wsl_native_cli_resolution_prelude,
-        render_wsl_launch_script, wsl_grok_mcp_register_command, wsl_host_probe_script,
-        wsl_model_id,
+        append_codex_resume_args, detect_native_cli_missing, native_cli_install_hint,
+        push_codex_ccpanes_mcp_overrides, push_codex_developer_instructions_arg,
+        push_codex_yolo_mode_arg, push_wsl_codex_mcp_isolation_prelude,
+        push_wsl_native_cli_resolution_prelude, render_wsl_launch_script,
+        wsl_grok_mcp_register_command, wsl_host_probe_script, wsl_model_id,
+        WSL_NATIVE_CLI_MISSING_MARKER,
     };
     #[cfg(windows)]
     use super::{
@@ -2841,6 +2912,74 @@ mod tests {
             ("CC_PANES_API_PORT".to_string(), "14300".to_string()),
             ("CC_PANES_API_TOKEN".to_string(), "tok-123".to_string()),
         ])
+    }
+
+    /// 标记行是 pty-wait 线程判定「原生 CLI 缺失」的唯一依据：必须独占一行、位于
+    /// 人类文案之前，且与 `detect_native_cli_missing` 的解析严格配对。
+    #[test]
+    fn native_cli_resolution_prelude_prints_machine_marker_before_human_text() {
+        let mut parts = Vec::new();
+        push_wsl_native_cli_resolution_prelude(&mut parts, "claude");
+        let script = parts.join("\n");
+        let marker_line = format!("echo \"{WSL_NATIVE_CLI_MISSING_MARKER} $CCPANES_CLI_NAME\" >&2");
+        let marker_at = script.find(&marker_line).expect("marker echo present");
+        let human_at = script
+            .find("没有原生 Linux 版本")
+            .expect("human text present");
+        assert!(marker_at < human_at);
+        assert!(script.contains("exit 127"));
+    }
+
+    #[test]
+    fn detect_native_cli_missing_matches_marker_line_only() {
+        let tail = vec![
+            "some earlier output".to_string(),
+            format!("  {WSL_NATIVE_CLI_MISSING_MARKER} claude\r"),
+            "[cc-panes] 'claude' 在该 WSL 发行版内没有原生 Linux 版本。".to_string(),
+        ];
+        assert_eq!(detect_native_cli_missing(&tail).as_deref(), Some("claude"));
+
+        // 只有人类文案、没有标记行：不判定（文案会改、会被 ConPTY 折行）
+        let human_only =
+            vec!["[cc-panes] 'claude' 在该 WSL 发行版内没有原生 Linux 版本。".to_string()];
+        assert_eq!(detect_native_cli_missing(&human_only), None);
+        assert_eq!(detect_native_cli_missing(&[]), None);
+        // 标记不在行首（被别的输出拼在同一行）不算
+        let mid_line = vec![format!("prompt> {WSL_NATIVE_CLI_MISSING_MARKER} codex")];
+        assert_eq!(detect_native_cli_missing(&mid_line), None);
+    }
+
+    #[test]
+    fn native_cli_install_hint_knows_official_packages_and_falls_back() {
+        assert_eq!(
+            native_cli_install_hint("claude"),
+            "npm i -g @anthropic-ai/claude-code"
+        );
+        assert_eq!(native_cli_install_hint("codex"), "npm i -g @openai/codex");
+        assert!(native_cli_install_hint("kimi").contains("kimi"));
+    }
+
+    /// token 不进 argv（L2-6 / A5）：URL 只带 launchId，认证改 bearer_token_env_var。
+    #[test]
+    fn codex_ccpanes_mcp_overrides_keep_token_out_of_argv() {
+        let mut args = Vec::new();
+        push_codex_ccpanes_mcp_overrides(&mut args, "172.20.0.1", "14300", Some("proj-1"));
+        let joined = args.join(" ");
+        assert!(
+            !joined.contains("token="),
+            "argv must not carry the token: {joined}"
+        );
+        assert!(joined
+            .contains("mcp_servers.ccpanes.url=\"http://172.20.0.1:14300/mcp?launchId=proj-1\""));
+        assert!(joined.contains("mcp_servers.ccpanes.bearer_token_env_var=\"CC_PANES_API_TOKEN\""));
+        assert!(joined.contains("mcp_servers.ccpanes.enabled=true"));
+        assert!(joined.contains("mcp_servers.ccpanes.enabled_tools="));
+
+        let mut no_launch = Vec::new();
+        push_codex_ccpanes_mcp_overrides(&mut no_launch, "127.0.0.1", "1", None);
+        assert!(no_launch
+            .iter()
+            .any(|arg| arg == "mcp_servers.ccpanes.url=\"http://127.0.0.1:1/mcp\""));
     }
 
     #[test]

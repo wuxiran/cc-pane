@@ -39,4 +39,22 @@ describe("resolveRestoreMode", () => {
   it("什么都没有是 fresh", () => {
     expect(resolveRestoreMode({ cliTool: "claude" })).toBe("fresh");
   });
+
+  // 上次启动失败（WSL 缺原生 CLI）：即使还带着预发 resumeId 也不算 resumed，
+  // 否则重启会拿一个从未存在的会话 id 去 --resume，报告也会把它记成回归。
+  it("带 launchFailure 时是 failed，压过 resumeId 与可接管会话", () => {
+    const launchFailure = { reason: "native-cli-missing", at: 1 };
+    expect(
+      resolveRestoreMode({ cliTool: "claude", resumeId: "issued-1", launchFailure }),
+    ).toBe("failed");
+    expect(
+      resolveRestoreMode({ cliTool: "claude", hasRestorableSession: true, launchFailure }),
+    ).toBe("failed");
+  });
+
+  it("纯 shell 即使带 launchFailure 也是 shell", () => {
+    expect(
+      resolveRestoreMode({ cliTool: "none", launchFailure: { reason: "x", at: 1 } }),
+    ).toBe("shell");
+  });
 });
