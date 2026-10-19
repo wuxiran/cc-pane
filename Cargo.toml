@@ -12,6 +12,7 @@ members = [
     "cc-memory-mcp",
     "cc-notify",
     "cc-cli-adapters",
+    "cc-panes-paths",
 ]
 
 # dev 构建的调试信息策略：自己的代码留行号级信息（够看栈回溯），依赖一律不生成。

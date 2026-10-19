@@ -872,6 +872,7 @@ name = "cc-cli-adapters"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cc-panes-paths",
  "dirs",
  "serde",
  "serde_json",
@@ -1006,6 +1007,7 @@ version = "0.94.0"
 dependencies = [
  "cc-cli-adapters",
  "cc-panes-ctl",
+ "cc-panes-paths",
  "chrono",
  "clap",
  "dirs",
@@ -1027,6 +1029,7 @@ dependencies = [
  "cc-cli-adapters",
  "cc-memory",
  "cc-notify",
+ "cc-panes-paths",
  "chrono",
  "dirs",
  "dunce",
@@ -1099,6 +1102,15 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "cc-panes-paths"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "dunce",
+ "serde_json",
 ]
 
 [[package]]

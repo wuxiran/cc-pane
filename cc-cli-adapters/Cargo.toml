@@ -5,6 +5,7 @@ edition = "2021"
 description = "CLI tool adapter layer for CC-Panes"
 
 [dependencies]
+cc-panes-paths = { path = "../cc-panes-paths" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

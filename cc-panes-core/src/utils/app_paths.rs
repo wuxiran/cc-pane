@@ -1,13 +1,9 @@
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
-/// dev/release 使用不同的应用目录，避免数据冲突
-pub const APP_DIR_NAME: &str = if cfg!(debug_assertions) {
-    ".cc-panes-dev"
-} else {
-    ".cc-panes"
-};
-pub const APP_CONFIG_DIR_ENV: &str = "CCPANES_CONFIG_DIR";
+/// dev/release 使用不同的应用目录，避免数据冲突。与 hook 等外部进程共用
+/// `cc-panes-paths` 的同一组常量，保证两边解析出同一个目录。
+pub use cc_panes_paths::{APP_CONFIG_DIR_ENV, APP_DIR_NAME};
 
 pub fn app_config_dir() -> PathBuf {
     resolve_app_config_dir(
@@ -27,12 +23,7 @@ fn expand_home(raw: &str) -> PathBuf {
 }
 
 fn resolve_app_config_dir(explicit: Option<PathBuf>, home: Option<PathBuf>) -> PathBuf {
-    explicit
-        .filter(|path| path.is_absolute())
-        .unwrap_or_else(|| {
-            home.unwrap_or_else(|| PathBuf::from("."))
-                .join(APP_DIR_NAME)
-        })
+    cc_panes_paths::DataDirResolver::new(home, explicit, None).config_dir()
 }
 
 /// 统一路径管理

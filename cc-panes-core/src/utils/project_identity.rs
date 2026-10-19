@@ -1,61 +1,16 @@
 //! Project identity normalization across Windows and WSL path representations.
 //!
-//! This module deliberately sits above `path_normalize`: generic path comparison must not
-//! equate a Windows drive path with a WSL mount. Project registration, however, needs that
-//! cross-runtime identity so one project record can serve local and WSL launches.
+//! The pure string logic lives in the zero-dependency `cc-panes-paths` crate so that
+//! `cc-cli-adapters` and `cc-panes-cli-hook` share the same rules. This module re-exports it
+//! under the historical names and keeps the host-dependent persisted-path repair here.
 
 use std::path::Path;
 
-use super::{normalize_project_path, HostPlatform};
+pub use cc_panes_paths::{
+    canonical_project_path, identity_key as project_identity_key, project_paths_equivalent,
+};
 
-/// Return the canonical identity representation for a project path.
-///
-/// Windows drive paths, `/mnt/<drive>` paths, and WSL UNC paths pointing at a mounted Windows
-/// drive converge on `D:\\...`. Linux paths exposed through WSL UNC converge on
-/// `\\\\wsl.localhost\\<distro>\\...`. SSH URLs and ordinary POSIX paths are preserved. This
-/// value is a comparison key input and must not replace the user-visible or executable path.
-pub fn canonical_project_path(path: &str) -> String {
-    if is_ssh_url(path) {
-        return path.to_string();
-    }
-
-    let normalized = normalize_project_path(path).to_string_lossy().into_owned();
-    let slash_path = normalized.replace('\\', "/");
-
-    if let Some(canonical) = canonical_windows_drive_path(&slash_path) {
-        return canonical;
-    }
-    if let Some(canonical) = canonical_mnt_drive_path(&slash_path) {
-        return canonical;
-    }
-    if let Some(canonical) = canonical_wsl_unc_path(&slash_path) {
-        return canonical;
-    }
-
-    if slash_path.starts_with("//") {
-        return slash_path.replace('/', "\\");
-    }
-
-    slash_path
-}
-
-/// Return the stable comparison key for a registered project.
-///
-/// Only canonical Windows drive paths are ASCII case-insensitive. WSL Linux paths, distro
-/// names, ordinary UNC paths, POSIX paths, and SSH URLs remain case-sensitive.
-pub fn project_identity_key(path: &str) -> String {
-    let canonical = canonical_project_path(path);
-    if is_windows_drive_path(&canonical) {
-        canonical.to_ascii_lowercase()
-    } else {
-        canonical
-    }
-}
-
-/// Compare two paths as project registrations, including safe Windows/WSL cross-form mapping.
-pub fn project_paths_equivalent(a: &str, b: &str) -> bool {
-    project_identity_key(a) == project_identity_key(b)
-}
+use super::HostPlatform;
 
 /// Preserve the persisted path when it is usable on this host. If an older migration stored an
 /// unusable cross-host form, repair it to an equivalent directory that is usable here.
@@ -80,7 +35,12 @@ where
     let canonical = canonical_project_path(path);
     let candidate = match host {
         HostPlatform::Windows => Some(canonical),
-        HostPlatform::Unix => windows_drive_to_mnt_path(&canonical),
+        // Only drive identities have a `/mnt` twin; WSL Linux UNC paths are left alone.
+        HostPlatform::Unix => is_windows_drive_path(&canonical)
+            .then(|| {
+                cc_panes_paths::to_wsl_posix(&canonical, cc_panes_paths::DEFAULT_WSL_MOUNT_ROOT)
+            })
+            .flatten(),
     };
     candidate
         .filter(|candidate| candidate != path && is_usable_directory(candidate))
@@ -95,104 +55,6 @@ fn is_ssh_url(path: &str) -> bool {
 fn is_windows_drive_path(path: &str) -> bool {
     let bytes = path.as_bytes();
     bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
-}
-
-fn canonical_windows_drive_path(path: &str) -> Option<String> {
-    if !is_windows_drive_path(path) {
-        return None;
-    }
-
-    let drive = (path.as_bytes()[0] as char).to_ascii_uppercase();
-    let rest = &path[2..];
-    if rest.is_empty() {
-        return Some(format!("{drive}:"));
-    }
-    if !rest.starts_with('/') {
-        return None;
-    }
-
-    Some(format_drive_path(drive, rest.trim_start_matches('/')))
-}
-
-fn windows_drive_to_mnt_path(path: &str) -> Option<String> {
-    if !is_windows_drive_path(path) {
-        return None;
-    }
-    let drive = (path.as_bytes()[0] as char).to_ascii_lowercase();
-    let tail = path[2..].trim_start_matches(['/', '\\']).replace('\\', "/");
-    if tail.is_empty() {
-        Some(format!("/mnt/{drive}"))
-    } else {
-        Some(format!("/mnt/{drive}/{tail}"))
-    }
-}
-
-fn canonical_mnt_drive_path(path: &str) -> Option<String> {
-    let rest = path.strip_prefix("/mnt/")?;
-    let bytes = rest.as_bytes();
-    if bytes.is_empty() || !bytes[0].is_ascii_alphabetic() {
-        return None;
-    }
-    if bytes.get(1).is_some_and(|byte| *byte != b'/') {
-        return None;
-    }
-
-    let drive = (bytes[0] as char).to_ascii_uppercase();
-    let tail = rest.get(1..).unwrap_or_default().trim_start_matches('/');
-    Some(format_drive_path(drive, tail))
-}
-
-fn canonical_wsl_unc_path(path: &str) -> Option<String> {
-    let without_prefix = path.strip_prefix("//")?;
-    let mut parts = without_prefix.split('/');
-    let server = parts.next()?;
-    if !matches_wsl_server(server) {
-        return None;
-    }
-
-    let distro = parts.next()?;
-    if distro.is_empty() {
-        return None;
-    }
-
-    let remote_parts: Vec<&str> = parts.filter(|part| !part.is_empty()).collect();
-    if remote_parts.first() == Some(&"mnt") {
-        if let Some(drive) = remote_parts
-            .get(1)
-            .and_then(|value| single_drive_letter(value))
-        {
-            let tail = remote_parts.get(2..).unwrap_or_default().join("/");
-            return Some(format_drive_path(drive, &tail));
-        }
-    }
-
-    let mut canonical = format!(r"\\wsl.localhost\{distro}");
-    if !remote_parts.is_empty() {
-        canonical.push('\\');
-        canonical.push_str(&remote_parts.join("\\"));
-    }
-    Some(canonical)
-}
-
-fn matches_wsl_server(server: &str) -> bool {
-    server.eq_ignore_ascii_case("wsl.localhost")
-        || server.eq_ignore_ascii_case("wsl$")
-        || server.eq_ignore_ascii_case("wsl")
-}
-
-fn single_drive_letter(value: &str) -> Option<char> {
-    let bytes = value.as_bytes();
-    (bytes.len() == 1 && bytes[0].is_ascii_alphabetic())
-        .then(|| (bytes[0] as char).to_ascii_uppercase())
-}
-
-fn format_drive_path(drive: char, tail: &str) -> String {
-    let tail = tail.trim_matches('/');
-    if tail.is_empty() {
-        format!(r"{drive}:\")
-    } else {
-        format!(r"{drive}:\{}", tail.replace('/', "\\"))
-    }
 }
 
 #[cfg(test)]
@@ -285,60 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn canonicalizes_wsl_linux_unc_without_case_folding() {
-        assert_eq!(
-            canonical_project_path(r"\\wsl$\Ubuntu\home\User\Repo\\"),
-            r"\\wsl.localhost\Ubuntu\home\User\Repo"
-        );
-        assert!(project_paths_equivalent(
-            r"\\wsl$\Ubuntu\home\User\Repo",
-            r"\\wsl.localhost\Ubuntu\home\User\Repo"
-        ));
-        assert!(!project_paths_equivalent(
-            r"\\wsl.localhost\Ubuntu\home\User\Repo",
-            r"\\wsl.localhost\Ubuntu\home\user\Repo"
-        ));
-        assert!(!project_paths_equivalent(
-            r"\\wsl.localhost\Ubuntu\home\User\Repo",
-            r"\\wsl.localhost\ubuntu\home\User\Repo"
-        ));
-    }
-
-    #[test]
-    fn keeps_unknown_unc_posix_and_ssh_case_sensitive() {
-        assert!(project_paths_equivalent(
-            r"\\server\share\Folder\\",
-            "//server/share/Folder/"
-        ));
-        assert!(!project_paths_equivalent(
-            r"\\server\share\Folder",
-            r"\\server\share\folder"
-        ));
-        assert!(!project_paths_equivalent(
-            "/home/User/Repo",
-            "/home/user/Repo"
-        ));
-
-        let ssh = "ssh://dev@example.com/home/Repo/";
-        assert_eq!(canonical_project_path(ssh), ssh);
-        assert!(!project_paths_equivalent(
-            ssh,
-            "ssh://dev@example.com/home/repo/"
-        ));
-    }
-
-    #[test]
-    fn canonicalization_is_idempotent() {
-        for path in [
-            r"d:\Repos\App\\",
-            "/mnt/d/Repos/App/",
-            r"\\wsl$\Ubuntu\mnt\d\Repos\App",
-            r"\\wsl$\Ubuntu\home\User\Repo\\",
-            r"\\server\share\Folder\\",
-            "ssh://dev@example.com/home/Repo/",
-        ] {
-            let once = canonical_project_path(path);
-            assert_eq!(canonical_project_path(&once), once, "path: {path}");
-        }
+    fn reexported_identity_key_keeps_historical_name() {
+        assert_eq!(project_identity_key("/mnt/d/Repos/App"), r"d:\repos\app");
     }
 }

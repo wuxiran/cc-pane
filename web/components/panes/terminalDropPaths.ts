@@ -5,8 +5,10 @@
 // shell 拆成多个参数，WSL 会话还会拿到无效的 Windows 盘符路径。本模块把
 // 「路径 → 可安全插入终端的文本」收成一个纯函数，便于单测锁定。
 //
-// WSL 转换语义镜像后端 `cc-panes-core/src/services/codex_session_service.rs`
-// 的 `drive_to_mnt_path` / `strip_wsl_unc_prefix`（已验证），保持前后端一致。
+// WSL 转换走 `@/utils/path` 的 toWslPath（底层 wslPath.ts，与 Rust `cc-panes-paths`
+// 共用用例表对拍），保持前后端一致。
+
+import { toWslPath } from "@/utils/path";
 
 /** 终端会话的运行时类型，决定路径如何呈现。 */
 export type TerminalRuntimeKind = "local" | "wsl" | "ssh";
@@ -30,35 +32,7 @@ export function quoteShellPath(path: string): string {
  * 入参允许反斜杠或正斜杠；内部统一按 `/` 处理。
  */
 export function windowsPathToWsl(path: string): string | null {
-  const slashed = path.replace(/\\/g, "/");
-
-  // UNC 形态：`//host/...`
-  if (slashed.startsWith("//")) {
-    const rest = slashed.slice(2);
-    const lower = rest.toLowerCase();
-    const isWslHost =
-      lower.startsWith("wsl.localhost/") ||
-      lower.startsWith("wsl$/") ||
-      lower.startsWith("wsl/");
-    if (!isWslHost) return null;
-    const hostSlash = rest.indexOf("/");
-    if (hostSlash < 0) return null;
-    const afterHost = rest.slice(hostSlash + 1); // `Distro/rest`
-    const distroSlash = afterHost.indexOf("/");
-    if (distroSlash < 0) return null;
-    return afterHost.slice(distroSlash); // `/rest`
-  }
-
-  // 盘符绝对路径：`<letter>:/...`（要求 `:` 后紧跟分隔符，排除 `C:relative`）
-  if (
-    slashed.length >= 3 &&
-    /^[A-Za-z]:\//.test(slashed)
-  ) {
-    const drive = slashed[0].toLowerCase();
-    return `/mnt/${drive}${slashed.slice(2)}`;
-  }
-
-  return null;
+  return toWslPath(path);
 }
 
 export interface FormatTerminalPathsOptions {

@@ -117,11 +117,14 @@ describe("toWslPath", () => {
 
 describe("getWslUncRemotePath", () => {
   it("提取 WSL UNC 远端路径", () => {
-    expect(getWslUncRemotePath("\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo")).toBe("/home/dev/repo");
+    expect(getWslUncRemotePath("\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo")).toEqual({
+      distro: "Ubuntu",
+      posix: "/home/dev/repo",
+    });
   });
 
   it("WSL UNC 根目录映射为 /", () => {
-    expect(getWslUncRemotePath("\\\\wsl.localhost\\Ubuntu\\")).toBe("/");
+    expect(getWslUncRemotePath("\\\\wsl.localhost\\Ubuntu\\")).toEqual({ distro: "Ubuntu", posix: "/" });
   });
 
   it("非 WSL UNC 路径返回 null", () => {

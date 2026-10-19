@@ -1,0 +1,195 @@
+{
+  "description": "cc-panes-paths 与 web/utils/wslPath.ts 共用的路径用例表。每条给出各入口的期望值：identityKey=identity_key（项目身份）、comparisonPath=comparison_path（同宿主比较/前缀判断的基础形式）、wslCompareKey=wsl_compare_key（WSL 视角会话归属比较键）、toWslPosix=to_wsl_posix(path, \"/mnt\")（形式转换）、parseWslUnc=parse_wsl_unc。null 表示该入口不接受此输入。前端只对拍 wslCompareKey / toWslPosix / parseWslUnc。",
+  "mountRoot": "/mnt",
+  "cases": [
+    {
+      "name": "盘符反斜杠",
+      "input": "D:\\Repos\\App",
+      "identityKey": "d:\\repos\\app",
+      "comparisonPath": "D:/Repos/App",
+      "wslCompareKey": "/mnt/d/repos/app",
+      "toWslPosix": "/mnt/d/Repos/App",
+      "parseWslUnc": null
+    },
+    {
+      "name": "小写盘符正斜杠带尾分隔符",
+      "input": "d:/Repos/App/",
+      "identityKey": "d:\\repos\\app",
+      "comparisonPath": "d:/Repos/App",
+      "wslCompareKey": "/mnt/d/repos/app",
+      "toWslPosix": "/mnt/d/Repos/App",
+      "parseWslUnc": null
+    },
+    {
+      "name": "仅盘符",
+      "input": "D:",
+      "identityKey": "d:",
+      "comparisonPath": "D:",
+      "wslCompareKey": "/mnt/d",
+      "toWslPosix": "/mnt/d",
+      "parseWslUnc": null
+    },
+    {
+      "name": "盘符根",
+      "input": "C:\\",
+      "identityKey": "c:\\",
+      "comparisonPath": "C:/",
+      "wslCompareKey": "/mnt/c",
+      "toWslPosix": "/mnt/c",
+      "parseWslUnc": null
+    },
+    {
+      "name": "mnt 挂载路径",
+      "input": "/mnt/d/Repos/App",
+      "identityKey": "d:\\repos\\app",
+      "comparisonPath": "/mnt/d/Repos/App",
+      "wslCompareKey": "/mnt/d/repos/app",
+      "toWslPosix": "/mnt/d/Repos/App",
+      "parseWslUnc": null
+    },
+    {
+      "name": "mnt 大写盘符目录",
+      "input": "/mnt/D/Repos",
+      "identityKey": "d:\\repos",
+      "comparisonPath": "/mnt/D/Repos",
+      "wslCompareKey": "/mnt/d/repos",
+      "toWslPosix": "/mnt/D/Repos",
+      "parseWslUnc": null
+    },
+    {
+      "name": "wsl.localhost 指向挂载盘",
+      "input": "\\\\wsl.localhost\\Ubuntu\\mnt\\d\\Repos\\App",
+      "identityKey": "d:\\repos\\app",
+      "comparisonPath": "//wsl.localhost/Ubuntu/mnt/d/Repos/App",
+      "wslCompareKey": "/mnt/d/repos/app",
+      "toWslPosix": "/mnt/d/Repos/App",
+      "parseWslUnc": { "distro": "Ubuntu", "posix": "/mnt/d/Repos/App" }
+    },
+    {
+      "name": "wsl$ 指向 Linux 路径带尾分隔符",
+      "input": "\\\\wsl$\\Ubuntu\\home\\User\\Repo\\",
+      "identityKey": "\\\\wsl.localhost\\Ubuntu\\home\\User\\Repo",
+      "comparisonPath": "//wsl$/Ubuntu/home/User/Repo",
+      "wslCompareKey": "/home/User/Repo",
+      "toWslPosix": "/home/User/Repo",
+      "parseWslUnc": { "distro": "Ubuntu", "posix": "/home/User/Repo" }
+    },
+    {
+      "name": "历史 \\\\wsl 前缀",
+      "input": "\\\\wsl\\Ubuntu\\home\\u\\x",
+      "identityKey": "\\\\wsl.localhost\\Ubuntu\\home\\u\\x",
+      "comparisonPath": "//wsl/Ubuntu/home/u/x",
+      "wslCompareKey": "/home/u/x",
+      "toWslPosix": "/home/u/x",
+      "parseWslUnc": { "distro": "Ubuntu", "posix": "/home/u/x" }
+    },
+    {
+      "name": "UNC 主机名大写",
+      "input": "\\\\WSL.LOCALHOST\\Ubuntu\\home\\u",
+      "identityKey": "\\\\wsl.localhost\\Ubuntu\\home\\u",
+      "comparisonPath": "//WSL.LOCALHOST/Ubuntu/home/u",
+      "wslCompareKey": "/home/u",
+      "toWslPosix": "/home/u",
+      "parseWslUnc": { "distro": "Ubuntu", "posix": "/home/u" }
+    },
+    {
+      "name": "发行版根",
+      "input": "\\\\wsl.localhost\\Ubuntu\\",
+      "identityKey": "\\\\wsl.localhost\\Ubuntu",
+      "comparisonPath": "//wsl.localhost/Ubuntu/",
+      "wslCompareKey": "/",
+      "toWslPosix": "/",
+      "parseWslUnc": { "distro": "Ubuntu", "posix": "/" }
+    },
+    {
+      "name": "非默认发行版",
+      "input": "\\\\wsl.localhost\\Debian\\home\\u\\x",
+      "identityKey": "\\\\wsl.localhost\\Debian\\home\\u\\x",
+      "comparisonPath": "//wsl.localhost/Debian/home/u/x",
+      "wslCompareKey": "/home/u/x",
+      "toWslPosix": "/home/u/x",
+      "parseWslUnc": { "distro": "Debian", "posix": "/home/u/x" }
+    },
+    {
+      "name": "verbatim 盘符",
+      "input": "\\\\?\\D:\\Repos\\App",
+      "identityKey": "d:\\repos\\app",
+      "comparisonPath": "D:/Repos/App",
+      "wslCompareKey": "/mnt/d/repos/app",
+      "toWslPosix": "/mnt/d/Repos/App",
+      "parseWslUnc": null
+    },
+    {
+      "name": "verbatim UNC 指向 WSL",
+      "input": "\\\\?\\UNC\\wsl.localhost\\Ubuntu\\mnt\\d\\x",
+      "identityKey": "\\\\?\\UNC\\wsl.localhost\\Ubuntu\\mnt\\d\\x",
+      "comparisonPath": "//?/UNC/wsl.localhost/Ubuntu/mnt/d/x",
+      "wslCompareKey": "/mnt/d/x",
+      "toWslPosix": "/mnt/d/x",
+      "parseWslUnc": { "distro": "Ubuntu", "posix": "/mnt/d/x" }
+    },
+    {
+      "name": "WSL home 路径保持大小写",
+      "input": "/home/u/Foo",
+      "identityKey": "/home/u/Foo",
+      "comparisonPath": "/home/u/Foo",
+      "wslCompareKey": "/home/u/Foo",
+      "toWslPosix": "/home/u/Foo",
+      "parseWslUnc": null
+    },
+    {
+      "name": "路径中部 /mnt/ 诱饵",
+      "input": "/home/u/mnt/a/foo",
+      "identityKey": "/home/u/mnt/a/foo",
+      "comparisonPath": "/home/u/mnt/a/foo",
+      "wslCompareKey": "/home/u/mnt/a/foo",
+      "toWslPosix": "/home/u/mnt/a/foo",
+      "parseWslUnc": null
+    },
+    {
+      "name": "空格与中文",
+      "input": "D:\\工作 区\\项目 A",
+      "identityKey": "d:\\工作 区\\项目 a",
+      "comparisonPath": "D:/工作 区/项目 A",
+      "wslCompareKey": "/mnt/d/工作 区/项目 a",
+      "toWslPosix": "/mnt/d/工作 区/项目 A",
+      "parseWslUnc": null
+    },
+    {
+      "name": "脏形态：mnt 套 mnt",
+      "input": "/mnt/c/mnt/d",
+      "identityKey": "c:\\mnt\\d",
+      "comparisonPath": "/mnt/c/mnt/d",
+      "wslCompareKey": "/mnt/c/mnt/d",
+      "toWslPosix": "/mnt/c/mnt/d",
+      "parseWslUnc": null
+    },
+    {
+      "name": "脏形态：POSIX 里夹盘符",
+      "input": "/x/D:/y",
+      "identityKey": "/x/D:/y",
+      "comparisonPath": "/x/D:/y",
+      "wslCompareKey": "/x/D:/y",
+      "toWslPosix": "/x/D:/y",
+      "parseWslUnc": null
+    },
+    {
+      "name": "普通网络共享",
+      "input": "\\\\server\\share\\X",
+      "identityKey": "\\\\server\\share\\X",
+      "comparisonPath": "//server/share/X",
+      "wslCompareKey": "//server/share/x",
+      "toWslPosix": null,
+      "parseWslUnc": null
+    },
+    {
+      "name": "盘符相对路径",
+      "input": "C:relative",
+      "identityKey": "c:relative",
+      "comparisonPath": "C:relative",
+      "wslCompareKey": "c:relative",
+      "toWslPosix": null,
+      "parseWslUnc": null
+    }
+  ]
+}

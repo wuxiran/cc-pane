@@ -1749,10 +1749,13 @@ impl WorkspaceService {
             return true;
         }
 
+        // 跳过根由 normalize_compare_path（跨形式身份键）生成，源路径也必须用同一口径，
+        // 否则 `/mnt/d/...` 源与 `D:\...` 注册的项目会对不上。身份键只折叠盘符部分的
+        // ASCII 大小写，WSL Linux 路径保持大小写（与 #77 的要求一致）。
         let normalized_source = Self::normalize_compare_path(&source_path.to_string_lossy());
         skipped_project_roots.iter().any(|project_root| {
             normalized_source == *project_root
-                || normalized_source.starts_with(&(project_root.clone() + "/"))
+                || normalized_source.starts_with(&(project_root.trim_end_matches('/').to_string() + "/"))
         })
     }
 
@@ -1913,12 +1916,7 @@ impl WorkspaceService {
 
     #[cfg(target_os = "windows")]
     fn wsl_remote_to_windows_path(distro: &str, remote_path: &str) -> PathBuf {
-        let tail = remote_path.trim_start_matches('/').replace('/', "\\");
-        if tail.is_empty() {
-            PathBuf::from(format!("\\\\wsl$\\{}", distro))
-        } else {
-            PathBuf::from(format!("\\\\wsl$\\{}\\{}", distro, tail))
-        }
+        PathBuf::from(cc_panes_paths::to_windows_unc(remote_path, distro))
     }
 
     fn read_workspace_json(&self, path: &PathBuf) -> Result<Workspace, String> {
@@ -2973,6 +2971,43 @@ mod tests {
         assert_eq!(
             WorkspaceService::relative_path_from_workspace("\\root\\sub", "/root/"),
             Some("sub".to_string())
+        );
+        // 前缀按组件判断，不把同名前缀的兄弟目录算进来
+        assert_eq!(
+            WorkspaceService::relative_path_from_workspace("/root-other/x", "/root"),
+            None
+        );
+    }
+
+    #[test]
+    fn relative_path_folds_only_drive_case() {
+        assert_eq!(
+            WorkspaceService::relative_path_from_workspace(r"d:\ws\Sub\Dir", r"D:\WS"),
+            Some("Sub/Dir".to_string())
+        );
+        assert_eq!(
+            WorkspaceService::relative_path_from_workspace(
+                r"\\wsl.localhost\Ubuntu\home\User\ws\App",
+                r"\\wsl.localhost\Ubuntu\home\User\ws"
+            ),
+            Some("App".to_string())
+        );
+        // WSL Linux 路径大小写敏感：旧实现在 Windows 上整体 lowercase，会把这两个当成同一棵树
+        assert_eq!(
+            WorkspaceService::relative_path_from_workspace(
+                r"\\wsl.localhost\Ubuntu\home\user\ws\App",
+                r"\\wsl.localhost\Ubuntu\home\User\ws"
+            ),
+            None
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn wsl_remote_to_windows_path_uses_wsl_localhost() {
+        assert_eq!(
+            WorkspaceService::wsl_remote_to_windows_path("Ubuntu", "/home/u/ws"),
+            PathBuf::from(r"\\wsl.localhost\Ubuntu\home\u\ws")
         );
     }
 
