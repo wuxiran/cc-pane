@@ -6,6 +6,8 @@ use std::{ffi::c_void, fs::File, os::windows::io::AsRawHandle};
 const OWNER_GROUP_DACL: u32 = 7;
 const MAX_DESCRIPTOR: u32 = 1024 * 1024;
 
+type AccessComponents<'a> = (u16, &'a [u8], &'a [u8], &'a [u8]);
+
 #[link(name = "ntdll")]
 extern "system" {
     fn NtQuerySecurityObject(
@@ -71,7 +73,7 @@ impl Descriptor {
         Ok(self.access()? == other.access()?)
     }
 
-    fn access(&self) -> AppResult<(u16, &[u8], &[u8], &[u8])> {
+    fn access(&self) -> AppResult<AccessComponents<'_>> {
         let bytes =
             unsafe { std::slice::from_raw_parts(self.storage.as_ptr().cast::<u8>(), self.length) };
         if bytes.len() < 20 {
