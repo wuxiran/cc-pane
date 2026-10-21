@@ -5,6 +5,11 @@ use std::{ffi::c_void, fs::File, os::windows::io::AsRawHandle};
 
 const OWNER_GROUP_DACL: u32 = 7;
 const MAX_DESCRIPTOR: u32 = 1024 * 1024;
+const DACL_PRESENT: u16 = 0x0004;
+const DACL_AUTO_INHERITED: u16 = 0x0400;
+const DACL_PROTECTED: u16 = 0x1000;
+const PROTECTED_AUTO_INHERITED_DACL: u16 = DACL_PRESENT | DACL_AUTO_INHERITED | DACL_PROTECTED;
+const WRITE_DAC: u32 = 0x0004_0000;
 
 type AccessComponents<'a> = (u16, &'a [u8], &'a [u8], &'a [u8]);
 
@@ -17,6 +22,19 @@ extern "system" {
         length: u32,
         needed: *mut u32,
     ) -> i32;
+}
+
+#[link(name = "advapi32")]
+extern "system" {
+    fn SetSecurityInfo(
+        handle: *mut c_void,
+        kind: u32,
+        information: u32,
+        owner: *const c_void,
+        group: *const c_void,
+        dacl: *const c_void,
+        sacl: *const c_void,
+    ) -> u32;
 }
 
 #[derive(Clone)]
@@ -67,6 +85,50 @@ impl Descriptor {
 
     pub(super) fn as_ptr(&self) -> *mut c_void {
         self.storage.as_ptr().cast_mut().cast()
+    }
+
+    pub(super) fn creation_access(&self) -> AppResult<u32> {
+        let (control, _, _, dacl) = self.access()?;
+        // NtCreateFile can clear AUTO_INHERITED on an explicitly protected DACL.
+        // Only that source policy needs permission to reapply the same DACL.
+        let needs_reapplication = control & PROTECTED_AUTO_INHERITED_DACL
+            == PROTECTED_AUTO_INHERITED_DACL
+            && !dacl.is_empty();
+        Ok(if needs_reapplication { WRITE_DAC } else { 0 })
+    }
+
+    pub(super) fn restore_created_inheritance(&self, directory: &File) -> AppResult<()> {
+        if self.creation_access()? == 0 {
+            return Ok(());
+        }
+        let expected = self.access()?;
+        let created = Self::read(directory)?;
+        let actual = created.access()?;
+        if actual.0 != (expected.0 & !DACL_AUTO_INHERITED)
+            || actual.1 != expected.1
+            || actual.2 != expected.2
+            || actual.3 != expected.3
+        {
+            return Ok(());
+        }
+        // The newly created directory is empty. Reapply its identical protected
+        // DACL so Windows establishes the saved automatic inheritance state.
+        // Keep the caller's complete descriptor comparison after this operation.
+        let status = unsafe {
+            SetSecurityInfo(
+                directory.as_raw_handle(),
+                1,           // SE_FILE_OBJECT
+                0x8000_0004, // PROTECTED_DACL_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION
+                std::ptr::null(),
+                std::ptr::null(),
+                expected.3.as_ptr().cast(),
+                std::ptr::null(),
+            )
+        };
+        if status != 0 {
+            return Err(std::io::Error::from_raw_os_error(status as i32).into());
+        }
+        Ok(())
     }
 
     pub(super) fn same_access(&self, other: &Self) -> AppResult<bool> {

@@ -103,6 +103,17 @@ fn changes(root: &Path) -> Vec<super::super::Change> {
     ]
 }
 
+fn inherited_directory_access(parent: &Path) -> security::Descriptor {
+    let child = parent.join("inheritance-check");
+    fs::create_dir(&child).unwrap();
+    let descriptor = security::Descriptor::read(&directory(&child, READ)).unwrap();
+    fs::write(child.join("item"), b"inherited access").unwrap();
+    assert_eq!(fs::read(child.join("item")).unwrap(), b"inherited access");
+    fs::remove_file(child.join("item")).unwrap();
+    fs::remove_dir(child).unwrap();
+    descriptor
+}
+
 #[test]
 fn rollback_preserves_directory_owner_group_and_protected_custom_dacl() {
     let temp = tempfile::tempdir().unwrap();
@@ -112,6 +123,7 @@ fn rollback_preserves_directory_owner_group_and_protected_custom_dacl() {
     protected_dacl(&path, "D:P(A;OICI;FA;;;OW)");
     assert_eq!(fs::read(path.join("item")).unwrap(), b"before");
     let before = security::Descriptor::read(&directory(&path, READ)).unwrap();
+    let inherited_before = inherited_directory_access(&path);
     let injected = Cell::new(false);
     let error = super::super::publish_with(temp.path(), &changes, |index| {
         if index == 0 {
@@ -130,6 +142,9 @@ fn rollback_preserves_directory_owner_group_and_protected_custom_dacl() {
     assert!(error.to_string().contains("rolled back"), "{error}");
     let after = security::Descriptor::read(&directory(&path, READ)).unwrap();
     assert!(before.same_access(&after).unwrap());
+    assert!(inherited_before
+        .same_access(&inherited_directory_access(&path))
+        .unwrap());
     assert_eq!(fs::read(path.join("item")).unwrap(), b"before");
     assert!(fs::read_dir(temp.path()).unwrap().all(|entry| !entry
         .unwrap()
