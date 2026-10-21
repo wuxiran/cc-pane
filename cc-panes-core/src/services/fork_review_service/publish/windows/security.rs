@@ -3,6 +3,9 @@ use super::native_error;
 use crate::utils::AppResult;
 use std::{ffi::c_void, fs::File, os::windows::io::AsRawHandle};
 
+/// 安全描述符的可比较部分：控制位 + owner / group / DACL 三段原始字节。
+type AccessParts<'a> = (u16, &'a [u8], &'a [u8], &'a [u8]);
+
 const OWNER_GROUP_DACL: u32 = 7;
 const MAX_DESCRIPTOR: u32 = 1024 * 1024;
 
@@ -71,7 +74,7 @@ impl Descriptor {
         Ok(self.access()? == other.access()?)
     }
 
-    fn access(&self) -> AppResult<(u16, &[u8], &[u8], &[u8])> {
+    fn access(&self) -> AppResult<AccessParts<'_>> {
         let bytes =
             unsafe { std::slice::from_raw_parts(self.storage.as_ptr().cast::<u8>(), self.length) };
         if bytes.len() < 20 {
