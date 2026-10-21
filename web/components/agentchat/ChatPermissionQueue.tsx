@@ -6,7 +6,7 @@ import PermissionCard from "./PermissionCard";
 export default function ChatPermissionQueue({ chatId }: { chatId: string }) {
   const request = useAgentChatStore((state) => state.chats[chatId]?.pendingPermissions[0]);
   if (!request) return null;
-  const respond = async (optionId: string) => {
+  const respond = async (optionId: string | null) => {
     const store = useAgentChatStore.getState();
     if (!store.beginPermissionResponse(chatId, request.requestKey)) return;
     try {

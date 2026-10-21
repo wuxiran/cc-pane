@@ -2,13 +2,14 @@
 // 选项集合由 agent 给出（allow_once / allow_always / reject_*），不在前端造。
 // 当选项集不含 allow/reject 语义时按「agent 提问」渲染（AskUserQuestion 类
 // 工具经适配器映射成 request_permission，多个中性选项就是问卷）。
-import { CircleHelp, ShieldQuestion } from "lucide-react";
+import { ShieldQuestion } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AcpPermissionRequest } from "@/types/agentChat";
+import PermissionQuestionCard from "./PermissionQuestionCard";
 
 interface PermissionCardProps {
   request: AcpPermissionRequest;
-  onRespond: (optionId: string) => void;
+  onRespond: (optionId: string | null) => void;
   responding?: boolean;
   error?: string | null;
 }
@@ -34,27 +35,19 @@ export default function PermissionCard({ request, onRespond, responding, error }
       (option) => !option.kind.startsWith("allow") && !option.kind.startsWith("reject"),
     );
 
+  if (isQuestion) return <PermissionQuestionCard key={request.requestKey} request={request} onRespond={onRespond} responding={responding} error={error} />;
+
   return (
     <div className="px-3 pb-2">
       <div
-        className={`mx-auto max-w-3xl rounded-xl border px-3.5 py-2.5 shadow-sm ${
-          isQuestion
-            ? "border-[var(--app-border)] bg-[var(--app-overlay)]"
-            : "border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)]"
-        }`}
+        className="mx-auto max-w-3xl rounded-xl border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-3.5 py-2.5 shadow-sm"
       >
         <div
-          className={`flex items-center gap-2 text-xs ${
-            isQuestion ? "text-[var(--app-text-secondary)]" : "text-[var(--app-status-warning)]"
-          }`}
+          className="flex items-center gap-2 text-xs text-[var(--app-status-warning)]"
         >
-          {isQuestion ? (
-            <CircleHelp className="h-4 w-4 shrink-0" />
-          ) : (
-            <ShieldQuestion className="h-4 w-4 shrink-0" />
-          )}
+          <ShieldQuestion className="h-4 w-4 shrink-0" />
           <span className="font-medium">
-            {isQuestion ? t("agentChatQuestionTitle") : t("agentChatPermissionTitle")}
+            {t("agentChatPermissionTitle")}
           </span>
         </div>
         {title ? (

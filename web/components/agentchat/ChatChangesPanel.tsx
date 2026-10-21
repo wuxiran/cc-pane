@@ -1,4 +1,4 @@
-// 本轮改动审查面板：聚合会话内所有 tool call 的 diff 块，按文件归并出
+// 本轮改动审查面板：聚合会话内成功完成 tool call 的完整 diff 块，按文件归并出
 // 「首个 oldText → 最后 newText」的净 diff。数据全部来自 agent 经 ACP 上报的
 // diff 内容（不扫磁盘）——agent 没报 diff 的改动这里看不见，属诚实降级。
 import { useMemo, useState } from "react";
@@ -6,6 +6,7 @@ import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AgentChatItem } from "@/types/agentChat";
 import { DiffBlockView } from "./ToolCallCard";
+import { completedFileEdits } from "./fileEdits";
 
 interface NetChange {
   path: string;
@@ -17,16 +18,15 @@ export function collectNetChanges(items: AgentChatItem[]): NetChange[] {
   const map = new Map<string, NetChange>();
   for (const item of items) {
     if (item.type !== "tool_call") continue;
-    for (const block of item.call.content ?? []) {
-      if (block.type !== "diff" || !block.path) continue;
+    for (const block of completedFileEdits(item.call)) {
       const existing = map.get(block.path);
       if (existing) {
-        existing.lastNew = block.newText ?? existing.lastNew;
+        existing.lastNew = block.newText;
       } else {
         map.set(block.path, {
           path: block.path,
           firstOld: block.oldText ?? "",
-          lastNew: block.newText ?? "",
+          lastNew: block.newText,
         });
       }
     }

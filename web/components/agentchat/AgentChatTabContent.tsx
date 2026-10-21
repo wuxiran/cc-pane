@@ -34,6 +34,7 @@ import { useChatTurnWindow } from "./useChatTurnWindow";
 import EnginePicker from "./EnginePicker";
 import SessionWorkspaceMenu from "./SessionWorkspaceMenu";
 import ChatPermissionQueue from "./ChatPermissionQueue";
+import ChatQuestionQueue from "./ChatQuestionQueue";
 import { startConfiguredChat } from "./startConfiguredChat";
 import { isAbsolutePath, joinCwd, residentAgentChatCwd } from "./chatPaths";
 
@@ -105,7 +106,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
     if (!atBottom) return;
     const node = scrollRef.current;
     if (node) node.scrollTop = node.scrollHeight;
-  }, [items, chat?.pendingPermissions, atBottom]);
+  }, [items, chat?.pendingPermissions, chat?.pendingElicitations, atBottom]);
 
   const handleScroll = useCallback(() => {
     const node = scrollRef.current;
@@ -400,6 +401,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       ) : null}
 
       <ChatPermissionQueue chatId={tab.id} />
+      <ChatQuestionQueue chatId={tab.id} />
 
       {ended ? (
         <div className="agent-chat-ended px-3 pb-3 pt-1">

@@ -465,6 +465,18 @@ pub async fn respond_acp_permission(
 }
 
 #[tauri::command]
+pub async fn respond_acp_elicitation(
+    service: State<'_, Arc<AcpChatService>>,
+    chat_id: String,
+    request_key: String,
+    response: serde_json::Value,
+) -> AppResult<()> {
+    service
+        .respond_elicitation(&chat_id, request_key, response)
+        .await
+}
+
+#[tauri::command]
 pub async fn get_acp_chat(
     service: State<'_, Arc<AcpChatService>>,
     chat_id: String,

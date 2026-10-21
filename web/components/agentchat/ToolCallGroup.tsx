@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import type { AgentChatItem } from "@/types/agentChat";
 import ToolCallCard from "./ToolCallCard";
 import { summarizeTools } from "./chatTurns";
+import { completedFileEdits } from "./fileEdits";
 
 type ToolCallItem = Extract<AgentChatItem, { type: "tool_call" }>;
 
@@ -36,6 +37,20 @@ export default function ToolCallGroup({ items, chatId, onOpenLocation, expandAll
         expandAllSignal={expandAllSignal}
       />
     );
+  }
+
+  // Successful file edits stay visible beside the reply, including when other
+  // routine tool activity is collapsed. Preserve their original ordering.
+  if (items.some((item) => completedFileEdits(item.call).length > 0)) {
+    const groups: ToolCallItem[][] = [];
+    for (const item of items) {
+      const last = groups[groups.length - 1];
+      if (completedFileEdits(item.call).length > 0 || !last || completedFileEdits(last[0].call).length > 0) groups.push([item]);
+      else last.push(item);
+    }
+    return <div className="flex flex-col gap-2">{groups.map((group) => (
+      <ToolCallGroup key={group[0].id} items={group} chatId={chatId} onOpenLocation={onOpenLocation} expandAllSignal={expandAllSignal} />
+    ))}</div>;
   }
 
   const summary = summarizeTools(items);

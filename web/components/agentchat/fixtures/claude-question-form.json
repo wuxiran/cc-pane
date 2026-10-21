@@ -1,0 +1,27 @@
+{
+  "mode": "form",
+  "sessionId": "claude-fixture-session",
+  "toolCallId": "ask-user-question-fixture",
+  "message": "截图后希望怎样处理？",
+  "requestedSchema": {
+    "type": "object",
+    "properties": {
+      "question_0": {
+        "type": "string",
+        "title": "截图行为",
+        "oneOf": [
+          { "const": "自动附加", "title": "自动附加", "description": "放入当前聊天输入框" },
+          { "const": "手动粘贴", "title": "手动粘贴", "description": "由我决定发送到哪里" }
+        ]
+      },
+      "question_0_custom": {
+        "type": "string",
+        "title": "Other",
+        "description": "Type your own answer instead of choosing an option above (optional).",
+        "_meta": {
+          "_askUserQuestionCustomAnswer": { "questionId": "question_0", "isCustomAnswer": true }
+        }
+      }
+    }
+  }
+}

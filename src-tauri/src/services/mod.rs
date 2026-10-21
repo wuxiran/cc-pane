@@ -23,6 +23,7 @@ mod pi_rpc_event_bridge;
 pub(crate) mod process_guard;
 pub mod rest_launch_history;
 mod resume_binding_service;
+pub(crate) mod screenshot_events;
 pub mod screenshot_overlay;
 mod screenshot_service;
 mod session_prompt_service;
@@ -43,6 +44,7 @@ mod turn_notify_registry;
 pub mod voice_service;
 mod web_access_lifecycle;
 
+pub use acp_chat_service::edits::UndoAcpFileEdit;
 pub use acp_chat_service::{
     AcpChatPhase, AcpChatService, AcpChatSnapshot, AcpLaunchSpec, AUTO_APPROVE_ALL,
 };

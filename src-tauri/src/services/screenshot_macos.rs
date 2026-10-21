@@ -71,12 +71,18 @@ impl Drop for CaptureSession {
     }
 }
 
-pub(super) fn trigger(app: tauri::AppHandle, retention_days: u32, capturing: &'static AtomicBool) {
+pub(super) fn trigger(
+    app: tauri::AppHandle,
+    retention_days: u32,
+    capturing: &'static AtomicBool,
+    mut events: super::super::screenshot_events::ScreenshotEvents,
+) {
     let mut session = CaptureSession {
         restore: None,
         capturing,
     };
     if let Err(error) = session.hide_visible_window(&app) {
+        events.failed(&error);
         drop(session);
         report_error(&app, error);
         return;
@@ -90,6 +96,7 @@ pub(super) fn trigger(app: tauri::AppHandle, retention_days: u32, capturing: &'s
         let result = capture_region(&ScreenshotService::screenshots_dir(), retention_days)
             .and_then(|result| {
                 if let Some(result) = result {
+                    events.saved(&result);
                     worker_app
                         .clipboard()
                         .write_text(&result.file_path)
@@ -105,6 +112,9 @@ pub(super) fn trigger(app: tauri::AppHandle, retention_days: u32, capturing: &'s
                 }
                 Ok(())
             });
+        if let Err(error) = &result {
+            events.failed(error);
+        }
         drop(session);
         if let Err(error) = result {
             report_error(&worker_app, error);

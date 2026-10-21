@@ -10,6 +10,8 @@
 //! Prompt payloads are never logged; they may contain user code and secrets.
 
 mod auth;
+pub(crate) mod edits;
+mod elicitation;
 mod fork;
 
 use std::collections::{HashMap, VecDeque};
@@ -221,6 +223,7 @@ struct AcpChatSession {
     /// Incoming `session/request_permission` request ids awaiting the user.
     /// On cancel we MUST answer them all with the `cancelled` outcome.
     pending_permissions: PendingPermissions,
+    pending_elicitations: elicitation::PendingElicitations,
     stderr_tail: Mutex<VecDeque<String>>,
     /// 自动放行策略（ToolKind 集合，`*` = 全部）。会话中可改，读写都在
     /// 微秒级临界区里，用同步锁即可。
@@ -228,6 +231,7 @@ struct AcpChatSession {
     /// toolCallId → kind，从 `tool_call` / `tool_call_update` 流里记下来，供
     /// 权限请求自身不带 kind 时回查（有界，满了整体清空）。
     tool_kinds: std::sync::Mutex<HashMap<String, String>>,
+    edits: std::sync::Mutex<edits::ObservedEdits>,
     /// 历史 meta 目录（`session_info_update` 的 agent 标题要写回去）。
     chats_dir: PathBuf,
     /// 回合结束/失败的外部通知钩子（服务级共享，lib.rs 注入桌面通知）。
@@ -362,6 +366,7 @@ impl AcpChatSession {
             let _ = sender.send(Err(json!({"message": message})));
         }
         self.pending_permissions.clear().await;
+        self.pending_elicitations.clear().await;
     }
 
     /// Answer every outstanding permission request with `cancelled`, as the
@@ -608,9 +613,11 @@ impl AcpChatService {
             pending: Mutex::new(HashMap::new()),
             next_request_id: AtomicU64::new(1),
             pending_permissions: PendingPermissions::default(),
+            pending_elicitations: elicitation::PendingElicitations::default(),
             stderr_tail: Mutex::new(VecDeque::new()),
             auto_approve_kinds: std::sync::RwLock::new(spec.auto_approve_kinds.clone()),
             tool_kinds: std::sync::Mutex::new(HashMap::new()),
+            edits: std::sync::Mutex::new(edits::ObservedEdits::default()),
             chats_dir: self.chats_dir.clone(),
             turn_notifier: self.turn_notifier.clone(),
             terminals: Arc::new(super::acp_client_ops::AcpTerminalManager::default()),
@@ -659,6 +666,7 @@ impl AcpChatService {
                     "clientCapabilities": {
                         "fs": {"readTextFile": true, "writeTextFile": true},
                         "terminal": true,
+                        "elicitation": {"form": {}},
                         // claude-agent-acp 的扩展能力：转发子 agent 的正文/思维链（条目
                         // 带 `_meta.claudeCode.parentToolUseId`），不声明则适配器一律剥掉，
                         // 前端只能看到 Task 卡和它的最终汇报。
@@ -872,6 +880,7 @@ impl AcpChatService {
                 )
             })?;
         session.cancel_pending_permissions().await;
+        elicitation::cancel_all(&session).await;
         session
             .notify("session/cancel", json!({"sessionId": acp_session_id}))
             .await
@@ -1406,6 +1415,8 @@ async fn route_message(session: &Arc<AcpChatSession>, message: Value) {
                     Ok(PermissionResolution::Cancelled) => {},
                     Err(error) => debug!(chat_id = %session.chat_id, error = %error, "failed to answer ACP permission request"),
                 }
+            } else if method == "elicitation/create" {
+                elicitation::register(session, id, params).await;
             } else if method.starts_with("fs/") || method.starts_with("terminal/") {
                 // 客户端能力（acp_client_ops）。`terminal/wait_for_exit` 会阻塞到进程退出，
                 // 必须离开读循环跑，否则 agent 后续的 session/update 全被卡住。
@@ -1430,12 +1441,23 @@ async fn route_message(session: &Arc<AcpChatSession>, message: Value) {
         // Notification from the agent.
         (Some(method), None) => {
             let params = message.get("params").cloned().unwrap_or(Value::Null);
-            if method == "session/update" {
+            if method == "$/cancel_request" {
+                if let Some(id) = params.get("requestId") {
+                    if let Some(key) = session.pending_elicitations.cancel_request(id).await {
+                        session.emit("elicitation_cancelled", json!({"requestKey":key}));
+                    }
+                }
+            } else if method == "session/update" {
                 // agent 可以自主换模式（例如 plan 模式跑完自动切回）；快照要跟上，
                 // 否则头部的模式选择器显示陈旧值。
                 sync_mode_update_into_snapshot(session, &params).await;
                 sync_config_options_into_snapshot(session, &params).await;
                 remember_tool_kind(session, &params);
+                session
+                    .edits
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .remember(&params);
                 sync_agent_title_into_meta(session, &params).await;
                 session.emit("update", params);
             } else {
@@ -1510,6 +1532,7 @@ async fn run_turn(
     };
     // Completion cannot overwrite a newly admitted turn or overtake cancel.
     let _turn = session.turn_control.lock().await;
+    elicitation::cancel_all(session).await;
     let engine_id = session.snapshot.read().await.engine_id.clone();
     let notify = |detail: String, is_error: bool| {
         // Automations 的 headless 会话不打扰（结果进运行历史）。

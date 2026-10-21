@@ -3,6 +3,7 @@ pub use fork_review_commands::*;
 mod task_verification_commands;
 pub use task_verification_commands::*;
 mod acp_chat_commands;
+mod agent_edit_commands;
 mod agent_transcript_commands;
 mod automation_commands;
 mod blocking;
@@ -69,6 +70,7 @@ mod worktree_commands;
 mod wsl_commands;
 
 pub use acp_chat_commands::*;
+pub use agent_edit_commands::*;
 pub use agent_transcript_commands::*;
 pub use automation_commands::*;
 pub use browser_commands::*;

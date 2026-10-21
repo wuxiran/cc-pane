@@ -5,6 +5,26 @@ use std::sync::Arc;
 use tauri::State;
 use tracing::debug;
 
+static IMAGE_ATTACHMENT_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
+#[tauri::command]
+pub async fn screenshot_save_image_attachment(
+    data_base64: String,
+    settings_service: State<'_, Arc<SettingsService>>,
+) -> AppResult<ScreenshotResult> {
+    let retention_days = settings_service.get_settings().screenshot.retention_days;
+    let permit = IMAGE_ATTACHMENT_SLOTS
+        .acquire()
+        .await
+        .map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        ScreenshotService::save_image_attachment(&data_base64, retention_days)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// 更新截图快捷键（Windows / macOS 原生选区）
 #[tauri::command]
 pub fn screenshot_update_shortcut(

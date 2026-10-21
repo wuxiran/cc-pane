@@ -1,3 +1,5 @@
+#[path = "screenshot_attachment.rs"]
+mod attachment;
 #[cfg(target_os = "macos")]
 #[path = "screenshot_macos.rs"]
 mod macos;
@@ -61,12 +63,21 @@ impl ScreenshotService {
     }
 
     #[cfg(target_os = "macos")]
-    pub fn trigger_macos(
+    pub(crate) fn trigger_macos(
         app: tauri::AppHandle,
         retention_days: u32,
         capturing: &'static std::sync::atomic::AtomicBool,
+        events: super::screenshot_events::ScreenshotEvents,
     ) {
-        macos::trigger(app, retention_days, capturing);
+        macos::trigger(app, retention_days, capturing, events);
+    }
+
+    pub(crate) fn save_image_attachment(
+        encoded: &str,
+        retention_days: u32,
+    ) -> AppResult<ScreenshotResult> {
+        let image = attachment::decode_attachment(encoded)?;
+        Self::save_image_to_dir(&image, &Self::screenshots_dir(), retention_days)
     }
 
     /// 截图保存目录：~/.cc-panes/screenshots/

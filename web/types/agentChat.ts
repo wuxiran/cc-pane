@@ -171,6 +171,25 @@ export interface AcpPermissionRequest {
   };
 }
 
+/** A real ACP `elicitation/create` form, kept separate from tool approval. */
+export interface AcpElicitationRequest {
+  requestKey: string;
+  params: {
+    mode: string;
+    message: string;
+    requestedSchema?: unknown;
+    sessionId?: string;
+    toolCallId?: string;
+    [key: string]: unknown;
+  };
+}
+
+export type AcpElicitationValue = string | number | boolean | string[];
+export type AcpElicitationDraft = Record<string, string | boolean | string[]>;
+export type AcpElicitationResponse =
+  | { action: "accept"; content: Record<string, AcpElicitationValue> }
+  | { action: "decline" | "cancel" };
+
 /** agent 广告的斜杠命令（available_commands_update）。 */
 export interface AcpAvailableCommand {
   name: string;

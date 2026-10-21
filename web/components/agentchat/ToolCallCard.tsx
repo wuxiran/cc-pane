@@ -26,6 +26,8 @@ import type { DiffResult } from "@/services/localHistoryService";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import DiffView from "@/components/DiffView";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
+import ChatFileChangeCard from "./ChatFileChangeCard";
+import { canUndoFileEdit, completedFileEdits } from "./fileEdits";
 
 const KIND_ICON: Record<string, LucideIcon> = {
   read: FileText,
@@ -206,6 +208,25 @@ export default function ToolCallCard({ call, chatId, onOpenLocation, expandAllSi
   const hasBody = Boolean(
     input || output || (call.content && call.content.length > 0) || locations.length > 0,
   );
+  const fileEdits = completedFileEdits(call);
+
+  if (fileEdits.length > 0) {
+    const otherContent = (call.content ?? []).filter((block) => !fileEdits.includes(block as typeof fileEdits[number]));
+    return <div className="flex flex-col gap-2">{fileEdits.map((block, index) => (
+      <ChatFileChangeCard key={`${block.path}-${index}`} block={block}
+        toolCallId={call.toolCallId} chatId={chatId} undoable={canUndoFileEdit(block, fileEdits)}
+        onOpenFile={onOpenLocation} renderDiff={() => <DiffBlockView block={block} />} />
+    ))}{input || output || otherContent.length > 0 ? (
+      <details className="px-2 text-xs text-[var(--app-text-secondary)]">
+        <summary className="cursor-pointer">{call.title || call.kind || call.toolCallId}</summary>
+        <div className="flex flex-col gap-1.5 py-2">
+          {input ? <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono">{input}</pre> : null}
+          {otherContent.map((block, index) => <ContentBlockView key={index} block={block} chatId={chatId} />)}
+          {output ? <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all font-mono">{output}</pre> : null}
+        </div>
+      </details>
+    ) : null}</div>;
+  }
 
   return (
     <div className="agent-chat-tool-card text-sm">

@@ -11,6 +11,7 @@ import type {
   AcpChatEvent,
   AcpChatSnapshot,
   AcpPermissionRequest,
+  AcpElicitationRequest,
   AcpSessionUpdate,
   AcpTerminalOutput,
 } from "@/types/agentChat";
@@ -152,6 +153,14 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
     case "permission_request":
       store.enqueuePermission(chatId, payload as AcpPermissionRequest);
       return;
+    case "elicitation_request":
+      store.enqueueElicitation(chatId, payload as AcpElicitationRequest);
+      return;
+    case "elicitation_cancelled": {
+      const data = payload as { requestKey?: string };
+      if (typeof data?.requestKey === "string") store.finishElicitationResponse(chatId, data.requestKey);
+      return;
+    }
     case "turn_ended": {
       const data = payload as { stopReason?: string; error?: string };
       store.turnEnded(chatId, data.stopReason ?? "end_turn", data.error);

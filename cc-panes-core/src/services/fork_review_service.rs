@@ -2,7 +2,7 @@ mod adoption;
 mod comparison;
 mod git;
 mod patch;
-mod publish;
+pub(crate) mod publish;
 
 use crate::models::fork_review::*;
 use crate::models::{RepositorySnapshot, SnapshotFile};

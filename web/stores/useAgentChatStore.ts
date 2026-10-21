@@ -12,6 +12,8 @@ import type {
   AcpChatSnapshot,
   AcpContentBlock,
   AcpPermissionRequest,
+  AcpElicitationRequest,
+  AcpElicitationDraft,
   AcpPlanEntry,
   AcpSessionUpdate,
   AcpTerminalOutput,
@@ -37,6 +39,12 @@ export interface PendingChatPermission extends AcpPermissionRequest {
   error: string | null;
 }
 
+export interface PendingChatElicitation extends AcpElicitationRequest {
+  responding: boolean;
+  error: string | null;
+  values: AcpElicitationDraft;
+}
+
 export interface ChatSetupState {
   token: number;
   pending: boolean;
@@ -60,6 +68,7 @@ export interface AgentChatSessionState extends PromptSubmissionState {
   /** 由首页「对 agent 说」以编排管家身份发起的会话（决定欢迎态文案）。 */
   concierge: boolean;
   pendingPermissions: PendingChatPermission[];
+  pendingElicitations: PendingChatElicitation[];
   /** 后端 ready 仅代表握手完成；前端配置/目录提交完成前仍禁止输入。 */
   setup: ChatSetupState | null;
   /** agent 广告的斜杠命令目录（available_commands_update 整表替换）。 */
@@ -94,6 +103,10 @@ interface AgentChatStoreState extends PromptSubmissionActions {
   enqueuePermission: (chatId: string, request: AcpPermissionRequest) => void;
   beginPermissionResponse: (chatId: string, requestKey: string) => boolean;
   finishPermissionResponse: (chatId: string, requestKey: string, error?: string) => void;
+  enqueueElicitation: (chatId: string, request: AcpElicitationRequest) => void;
+  setElicitationValues: (chatId: string, requestKey: string, values: AcpElicitationDraft) => void;
+  beginElicitationResponse: (chatId: string, requestKey: string) => boolean;
+  finishElicitationResponse: (chatId: string, requestKey: string, error?: string) => void;
   beginSetup: (chatId: string, prompt?: { firstPrompt?: string; preamble?: string }) => number | null;
   finishSetup: (chatId: string, token: number, error?: string) => void;
   pushNotice: (chatId: string, text: string) => void;
@@ -112,6 +125,7 @@ function emptySession(): AgentChatSessionState {
     replay: null,
     concierge: false,
     pendingPermissions: [],
+    pendingElicitations: [],
     setup: null,
     availableCommands: [],
     usage: null,
@@ -186,7 +200,10 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
         // 新进程起来（starting）= 新的上下文窗口，旧用量作废。
         if (snapshot.phase === "starting") chat.usage = null;
         if (snapshot.phase === "failed" || snapshot.phase === "exited") chat.replay = null;
-        if (["starting", "exited", "failed"].includes(snapshot.phase)) chat.pendingPermissions = [];
+        if (["starting", "exited", "failed"].includes(snapshot.phase)) {
+          chat.pendingPermissions = [];
+          chat.pendingElicitations = [];
+        }
         if (snapshot.phase === "ready" && snapshot.acpSessionId && snapshot.acpSessionId !== chat.transcriptSessionId) {
           chat.transcriptSessionId = snapshot.acpSessionId;
           chat.transcriptStart = chat.items.length;
@@ -441,6 +458,41 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
         }
       }),
 
+    enqueueElicitation: (chatId, request) => set((state) => {
+      const chat = ensure(state.chats, chatId);
+      if (!chat.pendingElicitations.some((item) => item.requestKey === request.requestKey)) {
+        chat.pendingElicitations.push({ ...request, responding: false, error: null, values: {} });
+      }
+    }),
+
+    setElicitationValues: (chatId, requestKey, values) => set((state) => {
+      const request = state.chats[chatId]?.pendingElicitations.find((item) => item.requestKey === requestKey);
+      if (request && !request.responding) request.values = values;
+    }),
+
+    beginElicitationResponse: (chatId, requestKey) => {
+      let started = false;
+      set((state) => {
+        const request = state.chats[chatId]?.pendingElicitations.find((item) => item.requestKey === requestKey);
+        if (!request || request.responding) return;
+        request.responding = true;
+        request.error = null;
+        started = true;
+      });
+      return started;
+    },
+
+    finishElicitationResponse: (chatId, requestKey, error) => set((state) => {
+      const chat = state.chats[chatId];
+      if (!chat) return;
+      const request = chat.pendingElicitations.find((item) => item.requestKey === requestKey);
+      if (!request) return;
+      if (error !== undefined) {
+        request.responding = false;
+        request.error = error;
+      } else chat.pendingElicitations = chat.pendingElicitations.filter((item) => item.requestKey !== requestKey);
+    }),
+
     beginSetup: (chatId, prompt) => {
       let token: number | null = null;
       set((state) => {
@@ -474,6 +526,7 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
         observePromptPhase(chat, "turn_ended");
         // 回合结束后审批卡必然失效（agent 已用 cancelled 收场）。
         chat.pendingPermissions = [];
+        chat.pendingElicitations = [];
         closeOpenThought(chat);
         if (stopReason !== "end_turn") {
           const text = error ? `${stopReason}: ${error}` : `[${stopReason}]`;

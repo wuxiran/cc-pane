@@ -1,4 +1,5 @@
 import "@/i18n";
+import i18n from "@/i18n";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { agentChatService } from "@/services/agentChatService";
@@ -59,4 +60,21 @@ describe("ChatPermissionQueue", () => {
     expect(useAgentChatStore.getState().chats[CHAT]).toBeUndefined();
     expect(screen.queryByRole("button")).toBeNull();
   });
+
+  it("renders legacy neutral options as a question while replying only with its option ID", async () => {
+    useAgentChatStore.getState().enqueuePermission(CHAT, { requestKey: "legacy", params: {
+      toolCall: { title: "Which layout?" }, options: [
+        { optionId: "two-columns", kind: "choice", name: "Two columns" },
+        { optionId: "three-columns", kind: "choice", name: "Three columns" },
+      ],
+    } });
+    vi.mocked(agentChatService.respondPermission).mockResolvedValue(undefined);
+    render(<ChatPermissionQueue chatId={CHAT} />);
+    expect(screen.queryByRole("textbox")).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "Two columns" }));
+    expect(agentChatService.respondPermission).not.toHaveBeenCalled();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: i18n.t("agentChatSend", { ns: "panes" }) })));
+    expect(agentChatService.respondPermission).toHaveBeenCalledWith(CHAT, "legacy", "two-columns");
+  });
+
 });

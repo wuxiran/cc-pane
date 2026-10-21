@@ -1,3 +1,4 @@
+pub mod agent_edit_service;
 mod fork_review_service;
 pub use fork_review_service::ForkReviewService;
 mod repository_snapshot;

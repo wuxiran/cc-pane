@@ -2,7 +2,7 @@
 // 原生拖放。网页层剪贴板/拖放在 WebView2 下拿不到文件，组件依赖后端命令，
 // 这里全部按 Tauri 运行时 mock。
 import "@/i18n";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { screenshotService } from "@/services/screenshotService";
@@ -16,8 +16,10 @@ vi.mock("@/services/runtime", async (importOriginal) => ({
   isTauriRuntime: () => true,
 }));
 vi.mock("@/services/screenshotService", () => ({
-  screenshotService: { saveClipboardImage: vi.fn() },
+  screenshotService: { saveClipboardImage: vi.fn(), saveImageAttachment: vi.fn(), trigger: vi.fn().mockResolvedValue(undefined) },
 }));
+
+vi.mock("@/utils/assetUrl", () => ({ toAssetUrl: (path: string) => `asset://local/${encodeURIComponent(path)}` }));
 
 vi.mock("@/utils/errorHandler", async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -75,6 +77,7 @@ function pasteData(overrides: { text?: string; imageFiles?: File[] } = {}) {
 beforeEach(() => {
   dropHandler = null;
   vi.clearAllMocks();
+  Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
   useAgentChatStore.getState().dropChat(CHAT);
   useAgentChatStore.getState().setSnapshot(CHAT, { chatId: CHAT, engineId: "claude", phase: "ready" });
   document.elementFromPoint = (() => null) as unknown as typeof document.elementFromPoint;
@@ -102,7 +105,7 @@ describe("ChatComposer 附件与粘贴", () => {
 
   it("引擎不支持内嵌图：粘贴图片落盘转文件引用，不再丢弃", async () => {
     mockInvoke([]);
-    vi.mocked(screenshotService.saveClipboardImage).mockResolvedValue({
+    vi.mocked(screenshotService.saveImageAttachment).mockResolvedValue({
       filePath: "C:\\shots\\paste-1.png",
       width: 2,
       height: 1,
@@ -113,7 +116,8 @@ describe("ChatComposer 附件与粘贴", () => {
       fireEvent.paste(screen.getByRole("textbox"), pasteData({ imageFiles: [file] }));
     });
     expect(await screen.findByText("paste-1.png")).toBeInTheDocument();
-    expect(screenshotService.saveClipboardImage).toHaveBeenCalled();
+    expect(screenshotService.saveImageAttachment).toHaveBeenCalledWith("aW1n");
+    expect(screenshotService.saveClipboardImage).not.toHaveBeenCalled();
   });
 
   it("Tauri 原生拖放：drop 落在输入区内时路径转附件", async () => {
@@ -129,6 +133,57 @@ describe("ChatComposer 附件与粘贴", () => {
       });
     });
     expect(await screen.findByText("report.pdf")).toBeInTheDocument();
+  });
+
+  it("HTML5 image drop persists the dropped bytes instead of reading unrelated clipboard contents", async () => {
+    mockInvoke([]);
+    vi.mocked(screenshotService.saveImageAttachment).mockResolvedValue({ filePath: "/tmp/dropped.png", width: 2, height: 1 });
+    const { container } = renderComposer();
+    const file = new File(["drop"], "actual.png", { type: "image/png" });
+    fireEvent.drop(container.querySelector(".agent-chat-composer-shell")!, { dataTransfer: { files: [file] } });
+    expect(await screen.findByText("dropped.png")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "dropped.png" })).toBeInTheDocument();
+    expect(screenshotService.saveImageAttachment).toHaveBeenCalledWith("ZHJvcA==");
+    expect(screenshotService.saveClipboardImage).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized image files before allocating a FileReader/base64 payload", () => {
+    renderComposer();
+    const file = new File(["small"], "large.png", { type: "image/png" });
+    Object.defineProperty(file, "size", { value: 10 * 1024 * 1024 + 1 });
+    const read = vi.spyOn(FileReader.prototype, "readAsDataURL");
+    fireEvent.paste(screen.getByRole("textbox"), pasteData({ imageFiles: [file] }));
+    expect(read).not.toHaveBeenCalled();
+    expect(screenshotService.saveImageAttachment).not.toHaveBeenCalled();
+    expect(useAgentChatStore.getState().chats[CHAT].items).toEqual(expect.arrayContaining([expect.objectContaining({ type: "notice" })]));
+    read.mockRestore();
+  });
+
+  it("keeps an inline pasted image as an unsent preview and removes it without sending", async () => {
+    useAgentChatStore.getState().setSnapshot(CHAT, { chatId: CHAT, engineId: "claude", phase: "ready", agentCapabilities: { promptCapabilities: { image: true } } });
+    renderComposer();
+    fireEvent.paste(screen.getByRole("textbox"), pasteData({ imageFiles: [new File(["image"], "pasted.png", { type: "image/png" })] }));
+    expect(await screen.findByRole("img", { name: "pasted.png" })).toHaveAttribute("src", "data:image/png;base64,aW1hZ2U=");
+    expect(screenshotService.saveImageAttachment).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "移除附件" }));
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(invoke).not.toHaveBeenCalledWith("prompt_acp_chat", expect.anything());
+  });
+
+  it("disables native region capture on Linux", () => {
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "Linux x86_64" });
+    renderComposer();
+    const button = screen.getByRole("button", { name: "截图暂仅支持 macOS 和 Windows" });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(screenshotService.trigger).not.toHaveBeenCalled();
+  });
+
+  it("starts a capture from the composer without submitting a prompt", async () => {
+    renderComposer();
+    fireEvent.click(screen.getByRole("button", { name: "截图并附加到对话" }));
+    await waitFor(() => expect(screenshotService.trigger).toHaveBeenCalledOnce());
+    expect(invoke).not.toHaveBeenCalledWith("prompt_acp_chat", expect.anything());
   });
 });
 

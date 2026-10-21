@@ -10,15 +10,15 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useTranslation } from "react-i18next";
 import type { AgentChatAttachment } from "@/types/agentChat";
-import { agentChatService } from "@/services/agentChatService";
 import { screenshotService } from "@/services";
 import { isTauriRuntime } from "@/services/runtime";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { acquireChatDraft, EMPTY_CHAT_ATTACHMENTS, isChatDraftCurrent, useAgentChatDraftStore } from "@/stores/useAgentChatDraftStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
+import { translateError } from "@/utils/errorTranslation";
 import { readClipboardFilePaths } from "@/components/panes/terminalClipboard";
 import { isDropInsideTerminalHost } from "@/components/panes/terminalDrop";
-import { baseName, planPathAttachment } from "./chatAttachments";
+import { attachChatPaths } from "./attachChatPaths";
 
 export interface ComposerAttachmentsApi {
   attachments: AgentChatAttachment[];
@@ -45,63 +45,39 @@ export function useComposerAttachments(
   const [dropHint, setDropHint] = useState(false);
   const hostRef = useRef<HTMLDivElement | null>(null);
 
-  /** 路径 → 附件的统一入口（对话框/粘贴/拖放共用）：图片且引擎支持才内嵌，
-   * 其余转 resource_link 文件引用。 */
   const attachPaths = useCallback(
-    async (paths: string[]) => {
-      for (const path of paths) {
-        if (!isChatDraftCurrent(chatId, draftToken)) return;
-        const name = baseName(path);
-        if (planPathAttachment(path, imageSupported) === "file") {
-          useAgentChatDraftStore.getState().addAttachments(chatId, draftToken, [
-            { name, mimeType: "", data: "", kind: "file", path },
-          ]);
-          continue;
-        }
-        try {
-          const image = await agentChatService.readImageAttachment(path);
-          useAgentChatDraftStore.getState().addAttachments(chatId, draftToken, [
-            { name, mimeType: image.mimeType, data: image.dataBase64, kind: "image" },
-          ]);
-        } catch (error) {
-          if (!isChatDraftCurrent(chatId, draftToken)) return;
-          useAgentChatStore
-            .getState()
-            .pushNotice(chatId, error instanceof Error ? error.message : String(error));
-        }
-      }
-    },
+    (paths: string[]) => attachChatPaths(chatId, draftToken, imageSupported, paths),
     [chatId, draftToken, imageSupported],
   );
 
-  /** 无路径的剪贴板图片：引擎支持内嵌就读成 base64；不支持时落盘到截图目录
-   * 转文件引用（ACP 基线能力），不再直接丢弃。 */
+  /** Read the supplied bitmap itself, including drops. Never substitute the system
+   * clipboard: it may already contain a different image when this read completes. */
   const pushFileAttachment = useCallback(
     (file: File, fallbackName: string) => {
-      if (!imageSupported) {
-        void (async () => {
-          try {
-            const saved = isTauriRuntime() ? await screenshotService.saveClipboardImage() : null;
-            if (saved?.filePath) {
-              await attachPaths([saved.filePath]);
-              return;
-            }
-          } catch (error) {
-            handleErrorSilent(error, "persist pasted image for acp attachment");
-          }
-          if (isChatDraftCurrent(chatId, draftToken)) useAgentChatStore.getState().pushNotice(chatId, t("agentChatImageUnsupported"));
-        })();
-        return;
-      }
+      const notice = (message: string) => {
+        if (isChatDraftCurrent(chatId, draftToken)) useAgentChatStore.getState().pushNotice(chatId, message);
+      };
+      if (file.size > 10 * 1024 * 1024) { notice(t("agentChatImageTooLarge")); return; }
       const reader = new FileReader();
+      reader.onerror = () => notice(t("agentChatImageReadFailed"));
       reader.onload = () => {
+        if (!isChatDraftCurrent(chatId, draftToken)) return;
         const result = reader.result;
-        if (typeof result !== "string") return;
-        const base64 = result.split(",", 2)[1] ?? "";
-        if (!base64) return;
-        useAgentChatDraftStore.getState().addAttachments(chatId, draftToken, [
-          { name: file.name || fallbackName, mimeType: file.type, data: base64 },
-        ]);
+        const base64 = typeof result === "string" ? result.split(",", 2)[1] : undefined;
+        if (!base64) { notice(t("agentChatImageReadFailed")); return; }
+        if (imageSupported) {
+          useAgentChatDraftStore.getState().addAttachments(chatId, draftToken, [
+            { name: file.name || fallbackName, mimeType: file.type || "image/png", data: base64, kind: "image" },
+          ]);
+          return;
+        }
+        if (!isTauriRuntime()) { notice(t("agentChatImageUnsupported")); return; }
+        void screenshotService.saveImageAttachment(base64)
+          .then((saved) => saved ? attachPaths([saved.filePath]) : notice(t("agentChatImageReadFailed")))
+          .catch((error) => {
+            handleErrorSilent(error, "persist image for acp attachment");
+            notice(translateError(error));
+          });
       };
       reader.readAsDataURL(file);
     },

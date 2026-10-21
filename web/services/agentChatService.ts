@@ -7,6 +7,7 @@ import type {
   AcpChatHistoryEntry,
   AcpChatSnapshot,
   AcpEngineInfo,
+  AcpElicitationResponse,
 } from "@/types/agentChat";
 
 export const ACP_CHAT_EVENT = "acp-chat-event";
@@ -118,6 +119,10 @@ export function respondAcpPermission(
   });
 }
 
+export function respondAcpElicitation(chatId: string, requestKey: string, response: AcpElicitationResponse): Promise<void> {
+  return call("respond_acp_elicitation", { chatId, requestKey, response });
+}
+
 export function getAcpChat(chatId: string): Promise<AcpChatSnapshot | null> {
   return call("get_acp_chat", { chatId });
 }
@@ -148,6 +153,7 @@ export const agentChatService = {
   setConfigOption: setAcpChatConfigOption,
   setAutoApprove: setAcpChatAutoApprove,
   respondPermission: respondAcpPermission,
+  respondElicitation: respondAcpElicitation,
   get: getAcpChat,
   stop: stopAcpChat,
   listHistory: listAcpChatHistory,

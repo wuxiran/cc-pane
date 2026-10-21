@@ -32,6 +32,7 @@ import { useOpenTerminal } from "@/hooks/useOpenTerminal";
 import { useQuickCommandsSync } from "@/hooks/useQuickCommandsSync";
 import { useQuickTerminalSessionSync } from "@/hooks/useQuickTerminalSessionSync";
 import { usePipeEventListener } from "@/hooks/usePipeEventListener";
+import { useChatScreenshotAttachments } from "@/hooks/useChatScreenshotAttachments";
 import LauncherDialog from "@/components/launcher/LauncherDialog";
 import { useDensityStore } from "@/stores/useDensityStore";
 import { startPerformanceSampling } from "@/services/performanceService";
@@ -80,6 +81,7 @@ function MainApp() {
 
   // 注册全局快捷键
   useKeyboardShortcuts();
+  useChatScreenshotAttachments();
 
   // Todo 提醒轮询
   useTodoReminders();

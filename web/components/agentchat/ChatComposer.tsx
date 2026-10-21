@@ -3,13 +3,16 @@
 // useComposerAttachments hook。发送块组装（text/image/resource_link）也在这里
 // ——父组件只提供会话身份与相位。
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowUp, FileText, ImageIcon, Plus, RotateCw, Square, X } from "lucide-react";
+import { ArrowUp, Camera, Plus, RotateCw, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AcpAvailableCommand, AcpChatPhase, AcpUsage } from "@/types/agentChat";
+import { screenshotService } from "@/services/screenshotService";
+import ChatAttachmentList from "./ChatAttachmentList";
 import { agentChatService } from "@/services/agentChatService";
 import { isTauriRuntime } from "@/services/runtime";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
-import { acquireChatDraft, useAgentChatDraftStore } from "@/stores/useAgentChatDraftStore";
+import { acquireChatDraft, isChatDraftCurrent, useAgentChatDraftStore } from "@/stores/useAgentChatDraftStore";
+import { detectAppPlatform } from "@/utils/workspaceLaunch";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { buildPromptBlocks } from "./chatPrompt";
@@ -56,7 +59,7 @@ export default function ChatComposer({
     return null;
   });
   // ACP promptCapabilities：image 缺省为 false（协议规定），不支持时图片不内嵌——有路径的转
-  // resource_link，粘贴/拖放的（无路径）提示并丢弃，避免 agent 直接拒绝整条 prompt。
+  // resource_link，无路径图片先落盘，避免 agent 直接拒绝整条 prompt。
   const imageSupported = useAgentChatStore((state) => {
     const caps = state.chats[chatId]?.snapshot?.agentCapabilities as
       | { promptCapabilities?: { image?: boolean } }
@@ -234,6 +237,8 @@ export default function ChatComposer({
     void submitReservedPrompt(chatId, token, blocks).catch((error) => handleErrorSilent(error, "retry acp prompt"));
   }, [chatId, lastUserMessage, phase, onBeforeSend, cwd]);
 
+  const platform = detectAppPlatform();
+  const canCapture = platform === "macos" || platform === "windows";
   const canSend = phase === "ready" && !submissionBlocked && (Boolean(draft.trim()) || attachments.length > 0);
 
   return (
@@ -277,29 +282,7 @@ export default function ChatComposer({
           onDragOver={(event) => event.preventDefault()}
         >
           {attachments.length > 0 ? (
-            <div className="mb-3 flex flex-wrap gap-2">
-              {attachments.map((attachment, index) => (
-                <span
-                  key={index}
-                  className="flex min-w-0 items-center gap-1.5 rounded-xl border border-[var(--app-border)] bg-[var(--app-overlay)] px-2.5 py-1.5 text-xs text-[var(--app-text-secondary)]"
-                >
-                  {attachment.kind === "file" ? (
-                    <FileText className="h-3 w-3" />
-                  ) : (
-                    <ImageIcon className="h-3 w-3" />
-                  )}
-                  <span className="max-w-48 truncate">{attachment.name}</span>
-                  <button
-                    type="button"
-                    aria-label={t("agentChatRemoveAttachment")}
-                    className="rounded hover:text-[var(--app-status-danger)]"
-                    onClick={() => removeAttachment(index)}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
+            <div className="mb-3"><ChatAttachmentList attachments={attachments} onRemove={removeAttachment} /></div>
           ) : null}
           <textarea
             ref={textareaRef}
@@ -369,6 +352,15 @@ export default function ChatComposer({
               >
                 <Plus className="h-4 w-4" />
               </IconTooltipButton>
+              {isTauriRuntime() ? (
+                <IconTooltipButton label={t(canCapture ? "agentChatCaptureScreenshot" : "agentChatCaptureUnavailable")} disabled={!canCapture} className="h-8 w-8 shrink-0 rounded-full"
+                  onClick={() => void screenshotService.trigger().catch((error) => {
+                    handleErrorSilent(error, "capture chat screenshot");
+                    if (isChatDraftCurrent(chatId, draftToken)) useAgentChatStore.getState().pushNotice(chatId, error instanceof Error ? error.message : String(error));
+                  })}>
+                  <Camera className="h-4 w-4" />
+                </IconTooltipButton>
+              ) : null}
               {toolbar}
             </div>
             <div className="agent-chat-composer-actions flex shrink-0 items-center gap-1.5">

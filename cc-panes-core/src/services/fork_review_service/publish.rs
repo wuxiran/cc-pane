@@ -22,7 +22,7 @@ enum Undo {
     RemovedDirectory(String, DirectoryState),
 }
 
-pub(super) fn publish(root: &Path, changes: &[Change]) -> AppResult<Vec<String>> {
+pub(crate) fn publish(root: &Path, changes: &[Change]) -> AppResult<Vec<String>> {
     publish_with(root, changes, |_| Ok(()))
 }
 

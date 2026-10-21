@@ -392,6 +392,7 @@ use commands::{
     resolve_git_conflict,
     resolve_terminal_path_link,
     resolve_wallpaper_asset,
+    respond_acp_elicitation,
     respond_acp_permission,
     respond_orchestrator_query,
     restart_shared_mcp_server,
@@ -437,6 +438,7 @@ use commands::{
     scan_workspace_directory,
     // Screenshot 命令
     screenshot_save_clipboard_image,
+    screenshot_save_image_attachment,
     screenshot_trigger,
     screenshot_update_shortcut,
     // Memory 命令
@@ -501,6 +503,7 @@ use commands::{
     transcribe_voice_input,
     tray_set_language,
     trigger_notification,
+    undo_acp_file_edit,
     update_drama_episode,
     update_drama_project,
     update_drama_shot,
@@ -864,14 +867,19 @@ pub fn trigger_screenshot(app: &tauri::AppHandle, settings_service: Arc<Settings
     }
 
     let retention_days = settings_service.get_settings().screenshot.retention_days;
+    let events = services::screenshot_events::ScreenshotEvents::begin(app);
     #[cfg(target_os = "macos")]
-    ScreenshotService::trigger_macos(app.clone(), retention_days, &CAPTURING);
+    ScreenshotService::trigger_macos(app.clone(), retention_days, &CAPTURING, events);
     #[cfg(not(target_os = "macos"))]
-    trigger_legacy_screenshot(app, retention_days);
+    trigger_legacy_screenshot(app, retention_days, events);
 }
 
 #[cfg(not(target_os = "macos"))]
-fn trigger_legacy_screenshot(app: &tauri::AppHandle, retention_days: u32) {
+fn trigger_legacy_screenshot(
+    app: &tauri::AppHandle,
+    retention_days: u32,
+    mut events: services::screenshot_events::ScreenshotEvents,
+) {
     use std::time::Instant;
 
     // 获取主窗口 HWND（isize 可安全跨线程传递）
@@ -928,6 +936,7 @@ fn trigger_legacy_screenshot(app: &tauri::AppHandle, retention_days: u32) {
         let capture = match ScreenshotService::capture_to_memory() {
             Ok(r) => r,
             Err(e) => {
+                events.failed(&e);
                 error!(
                     "[screenshot] +{}ms: capture failed: {}",
                     t0.elapsed().as_millis(),
@@ -979,6 +988,7 @@ fn trigger_legacy_screenshot(app: &tauri::AppHandle, retention_days: u32) {
                 retention_days,
             ) {
                 Ok(result) => {
+                    events.saved(&result);
                     #[cfg(target_os = "windows")]
                     copy_to_clipboard_win32(&result.file_path);
                     info!(
@@ -988,6 +998,7 @@ fn trigger_legacy_screenshot(app: &tauri::AppHandle, retention_days: u32) {
                     );
                 }
                 Err(e) => {
+                    events.failed(&e);
                     error!(
                         "[screenshot] +{}ms: crop failed: {}",
                         t0.elapsed().as_millis(),
@@ -3439,6 +3450,9 @@ pub fn run() {
             search_project_contents,
             // Screenshot 命令
             screenshot_save_clipboard_image,
+            screenshot_save_image_attachment,
+            undo_acp_file_edit,
+            respond_acp_elicitation,
             screenshot_trigger,
             screenshot_update_shortcut,
             // Clipboard 命令

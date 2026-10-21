@@ -19,6 +19,7 @@ impl AcpChatService {
         let turn = session.turn_control.lock().await;
         let acp_session_id = claim_ready_turn(&session.snapshot).await?;
         session.pending_permissions.begin_turn().await;
+        session.pending_elicitations.begin_turn().await;
         if let Some(text) = blocks.iter().find_map(|block| {
             (block.get("type").and_then(Value::as_str) == Some("text"))
                 .then(|| block.get("text").and_then(Value::as_str))
