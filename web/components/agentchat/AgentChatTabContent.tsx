@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "rea
 import { ArrowDown, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Tab } from "@/types";
-import type { AcpPlanEntry, AgentChatItem } from "@/types/agentChat";
+import type { AcpPlanEntry } from "@/types/agentChat";
 import { lazyWithRetry } from "@/lib/lazyRetry";
 import { supportsAcpFork, type ChatForkMode } from "@/services/chatForkService";
 import { agentChatService } from "@/services/agentChatService";
@@ -20,6 +20,8 @@ import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { usePanesStore } from "@/stores";
 import { handleErrorSilent } from "@/utils/errorHandler";
+import ChatRuntimeWorkspace, { useChatRuntimeTools } from "./ChatRuntimeWorkspace";
+import { transcriptMarkdown } from "./chatTranscript";
 import ChatChangesPanel, { collectNetChanges } from "./ChatChangesPanel";
 import ChatComposer from "./ChatComposer";
 import ChatSessionHeader from "./ChatSessionHeader";
@@ -42,23 +44,12 @@ const ChatForkDialog = lazyWithRetry(() => import("@/components/chatfork/ChatFor
 const ForkReviewDialog = lazyWithRetry(() => import("@/components/chatfork/ForkReviewDialog"), "ForkReviewDialog");
 
 
-/** 会话转写 → Markdown（导出用；工具卡只留标题行，diff 太重不进转写）。 */
-function transcriptMarkdown(items: AgentChatItem[]): string {
-  const sections: string[] = [];
-  for (const item of items) {
-    if (item.type === "user") sections.push(`## User\n\n${item.text}`);
-    else if (item.type === "assistant") sections.push(`## Assistant\n\n${item.text}`);
-    else if (item.type === "thought") sections.push(`> ${item.text.replace(/\n/g, "\n> ")}`);
-    else if (item.type === "tool_call") {
-      sections.push(`- \`${item.call.kind ?? "tool"}\` ${item.call.title ?? item.call.toolCallId} (${item.call.status ?? "pending"})`);
-    } else if (item.type === "plan") {
-      sections.push(item.entries.map((entry) => `- [ ] ${entry.content}`).join("\n"));
-    }
-  }
-  return sections.join("\n\n");
+export default function AgentChatTabContent({ tab }: { tab: Tab }) {
+  return <ChatRuntimeWorkspace key={tab.id} chatId={tab.id}><AgentChatLiveView tab={tab} /></ChatRuntimeWorkspace>;
 }
 
-export default function AgentChatTabContent({ tab }: { tab: Tab }) {
+function AgentChatLiveView({ tab }: { tab: Tab }) {
+  const runtimeTools = useChatRuntimeTools();
   const { t } = useTranslation("panes");
   const chat = useAgentChatStore((state) => state.chats[tab.id]);
   const [atBottom, setAtBottom] = useState(true);
@@ -248,6 +239,8 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
           cwd={effectiveCwd}
           onPickCwd={setCwdOverride}
           onCwdAdopted={setCwdOverride}
+          onHistory={runtimeTools?.openHistory}
+          onCheckpoints={runtimeTools?.openCheckpoints}
         />
       </div>
     );
@@ -282,6 +275,8 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       {snapshot ? (
         <ChatSessionHeader
           engineLabel={snapshot.engineId}
+          onHistory={runtimeTools?.openHistory}
+          onCheckpoints={runtimeTools?.openCheckpoints}
           workspaceMenu={
             <SessionWorkspaceMenu chatId={tab.id} cwd={effectiveCwd} generating={generating} />
           }

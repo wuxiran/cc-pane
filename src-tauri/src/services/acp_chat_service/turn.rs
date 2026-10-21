@@ -6,7 +6,7 @@ pub(super) type TurnResponse = AppResult<oneshot::Receiver<PendingResult>>;
 impl AcpChatService {
     pub(super) async fn prepare_turn(
         &self,
-        chat_id: &str,
+        session: Arc<AcpChatSession>,
         blocks: Vec<Value>,
     ) -> AppResult<(Arc<AcpChatSession>, TurnResponse)> {
         if blocks.is_empty() {
@@ -15,9 +15,13 @@ impl AcpChatService {
                 "ACP prompt cannot be empty",
             ));
         }
-        let session = self.session(chat_id).await?;
         let turn = session.turn_control.lock().await;
         let acp_session_id = claim_ready_turn(&session.snapshot).await?;
+        if let Err(error) = session.begin_recorded_turn(&acp_session_id, &blocks).await {
+            session.set_phase(AcpChatPhase::Ready).await;
+            session.emit_state().await;
+            return Err(error);
+        }
         session.pending_permissions.begin_turn().await;
         session.pending_elicitations.begin_turn().await;
         if let Some(text) = blocks.iter().find_map(|block| {

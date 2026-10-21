@@ -1,6 +1,7 @@
 pub mod fork_review;
 pub use fork_review::*;
 pub mod repository_snapshot;
+pub mod turn_checkpoint;
 pub use repository_snapshot::{RepositorySnapshot, SnapshotEntry, SnapshotFile};
 pub mod task_verification;
 pub use task_verification::*;

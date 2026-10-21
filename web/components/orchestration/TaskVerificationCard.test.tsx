@@ -141,6 +141,15 @@ describe("TaskVerificationCard", () => {
     expect(taskVerificationService.list).toHaveBeenCalledTimes(1);
   });
 
+  it("refreshes completion after a task result changes without clearing the drafted check", async () => {
+    const view = render(<TaskVerificationCard taskId="task-1" reportRevision={1} />);
+    await screen.findByText("尚无检查结果。任务完成不代表验收已通过。");
+    fireEvent.change(screen.getByLabelText("检查命令"), { target: { value: "npm test" } });
+    view.rerender(<TaskVerificationCard taskId="task-1" reportRevision={2} />);
+    await waitFor(() => expect(taskVerificationService.list).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText("检查命令")).toHaveValue("npm test");
+  });
+
   it("does not clobber another task with an earlier task's delayed response", async () => {
     let resolve!: (value: TaskVerificationReport) => void;
     vi.mocked(taskVerificationService.list).mockReturnValueOnce(new Promise((done) => { resolve = done; }));

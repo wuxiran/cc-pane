@@ -11,6 +11,14 @@ pub(super) struct TaskLock {
 }
 
 impl TaskLock {
+    /// Explicitly end a completed operation. Merely closing a flock descriptor
+    /// can leave it briefly held by an unrelated thread's fork-before-exec child.
+    /// A host crash never calls this, so a check child still retains its lease.
+    pub(super) fn finish<T>(self, result: AppResult<T>) -> AppResult<T> {
+        unlock_file(&self._file)?;
+        result
+    }
+
     pub(super) fn inherit_into(&self, command: &mut tokio::process::Command) {
         #[cfg(unix)]
         {
@@ -155,6 +163,28 @@ fn lock_file(file: &File) -> AppResult<bool> {
     }
 }
 
+#[cfg(unix)]
+fn unlock_file(file: &File) -> AppResult<()> {
+    use std::os::fd::AsRawFd;
+    // SAFETY: the file is owned by TaskLock and remains valid during this call.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error().into())
+    }
+}
+
+#[cfg(windows)]
+fn unlock_file(file: &File) -> AppResult<()> {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::UnlockFileEx;
+    use windows::Win32::System::IO::OVERLAPPED;
+    let mut overlapped = OVERLAPPED::default();
+    unsafe { UnlockFileEx(HANDLE(file.as_raw_handle()), Some(0), 1, 0, &mut overlapped) }
+        .map_err(|error| AppError::from(error.to_string()))
+}
+
 pub(super) fn save(directory: &Path, evidence: &TaskVerificationEvidence) -> AppResult<()> {
     prepare_directory(directory)?;
     let bytes = serde_json::to_vec(evidence).map_err(|error| AppError::from(error.to_string()))?;
@@ -224,6 +254,27 @@ mod tests {
             assert!(try_lock(&directory).unwrap().is_none());
             child.wait().await.unwrap();
             assert!(try_lock(&directory).unwrap().is_some());
+        });
+    }
+
+    #[test]
+    fn completed_operation_explicitly_releases_a_fork_inherited_descriptor() {
+        let temporary = tempfile::tempdir().unwrap();
+        let directory = temporary.path().join("task-verification/finished-task");
+        let lease = try_lock(&directory).unwrap().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let mut command = tokio::process::Command::new("/bin/sh");
+            command.args(["-c", "sleep 0.2"]);
+            // Simulate an unrelated fork retaining the open file description.
+            lease.inherit_into(&mut command);
+            let mut child = command.spawn().unwrap();
+            lease.finish(Ok(())).unwrap();
+            assert!(try_lock(&directory).unwrap().is_some());
+            child.wait().await.unwrap();
         });
     }
 

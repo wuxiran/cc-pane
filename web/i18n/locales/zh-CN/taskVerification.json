@@ -24,5 +24,33 @@
     "running": "检查运行中…",
     "run": "运行检查",
     "empty": "尚无检查结果。任务完成不代表验收已通过。"
+  },
+  "completion": {
+    "title": "完成与验收",
+    "stages": "完成阶段",
+    "agentFinished": "Agent 已结束",
+    "checksPassed": "检查通过",
+    "userAccepted": "用户验收",
+    "acceptanceStale": "之前的验收已不适用于当前任务结果、完成条件、代码或检查证据，请重新检查并验收。",
+    "criteria": "完成条件",
+    "definition": "完成标准",
+    "requiredCommands": "必需检查命令（每行一条）",
+    "criteriaHelp": "保存条件会清除之前的验收。每条必需命令仅以最新一次执行为准，必须通过且对应当前代码。文字标准由你审阅确认。",
+    "saveCriteria": "保存完成条件",
+    "runRequired": "运行此检查",
+    "manualHelp": "尚未配置自动检查。手动验收只记录你的审阅，不会标记检查通过。",
+    "note": "验收备注（选填）",
+    "accept": "验收当前结果",
+    "unsaved": "请先保存变更后的完成条件，再运行必需检查或验收。",
+    "blocked": "需先结束任务，并让所有必需检查在当前代码上通过，才能验收。",
+    "status": {
+      "not_configured": "未配置",
+      "missing": "尚未运行",
+      "running": "运行中",
+      "passed": "通过",
+      "failed": "失败",
+      "stale": "已过期 · 需要重跑",
+      "unknown": "当前未验证"
+    }
   }
 }

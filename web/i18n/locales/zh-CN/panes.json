@@ -606,5 +606,25 @@
   "agentChatOpenAttachment": "在标签页中打开 {{name}}",
   "agentChatOpenAttachmentFailed": "无法打开文件：{{error}}",
   "agentChatInvalidFile": "此附件不是可打开的本地文件。",
-  "agentChatQuickPreview": "快速预览 {{name}}"
+  "agentChatQuickPreview": "快速预览 {{name}}",
+  "turnCheckpointTitle": "整轮检查点",
+  "turnCheckpointScope": "查看每轮前后的工作区文件变化，包括工具或其他进程写入的内容。恢复仅修改文件，不会撤销提交、Git 暂存区、命令执行或外部操作。",
+  "turnCheckpointLimits": "范围：已跟踪文件及未被忽略的未跟踪文件。不包含新建的忽略文件或仓库外路径。最多 20,000 个文件，单文件 32 MiB，总计 256 MiB；超限会停用该检查点。列表展示最近 200 轮。",
+  "turnCheckpointSelect": "选择整轮检查点",
+  "turnCheckpointEmpty": "暂无检查点",
+  "turnCheckpointReload": "刷新检查",
+  "turnCheckpointLoading": "正在读取检查点和当前文件…",
+  "turnCheckpointRestored": "已恢复 {{count}} 个文件。恢复前的快照已保留，可用于找回内容。",
+  "turnCheckpointFiles": "改动文件",
+  "turnCheckpointConfirm": "我已检查本轮改动文件，将它们全部恢复为本轮开始前的内容。保留无关文件；若改动文件存在后续编辑，则阻止恢复。",
+  "turnCheckpointRestore": "恢复整轮（{{count}} 个文件）",
+  "turnCheckpointPreviewOmitted": "二进制或大文件不显示文本预览；原始内容已保存，恢复时仍会检查完整文件。",
+  "turnCheckpointBefore": "本轮之前 · 恢复目标",
+  "turnCheckpointAfter": "本轮之后",
+  "turnCheckpointAbsent": "文件不存在",
+  "turnCheckpointFileStatus": {
+    "added": "已新增",
+    "modified": "已修改",
+    "deleted": "已删除"
+  }
 }

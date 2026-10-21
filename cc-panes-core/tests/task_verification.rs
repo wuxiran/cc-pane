@@ -371,3 +371,6 @@ fn successful_shell_does_not_leave_background_children() {
     std::thread::sleep(std::time::Duration::from_millis(2100));
     assert!(!fixture.repo.join("build-output/background").exists());
 }
+
+#[path = "task_verification/completion.rs"]
+mod completion;

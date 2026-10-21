@@ -45,6 +45,7 @@ pub mod voice_service;
 mod web_access_lifecycle;
 
 pub use acp_chat_service::edits::UndoAcpFileEdit;
+pub use acp_chat_service::journal::{EventPage, RunFilter, RunPage};
 pub use acp_chat_service::{
     AcpChatPhase, AcpChatService, AcpChatSnapshot, AcpLaunchSpec, AUTO_APPROVE_ALL,
 };

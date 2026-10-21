@@ -57,10 +57,13 @@ export interface EnginePickerProps {
   onPickCwd: (cwd: string) => void;
   /** 续接历史会话时采用该会话的 cwd（供后续 restart 使用）。 */
   onCwdAdopted: (cwd: string) => void;
+  onHistory?: () => void;
+  onCheckpoints?: () => void;
 }
 
-export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: EnginePickerProps) {
+export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onHistory, onCheckpoints }: EnginePickerProps) {
   const { t } = useTranslation("panes");
+  const { t: runtimeT } = useTranslation("agentRuntime");
   const [engines, setEngines] = useState<AcpEngineInfo[] | null>(null);
   const [selectedEngine, setSelectedEngine] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -415,6 +418,10 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted }: E
         ) : null}
       </div>
 
+      {(onHistory || onCheckpoints) && <div className="flex justify-center gap-3 text-xs">
+        {onHistory && <button type="button" className="rounded px-3 py-2 text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]" onClick={onHistory}>{runtimeT("title")}</button>}
+        {onCheckpoints && <button type="button" className="rounded px-3 py-2 text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]" onClick={onCheckpoints}>{t("turnCheckpointTitle", { defaultValue: "Turn checkpoints" })}</button>}
+      </div>}
       {/* 最近会话：紧凑列表，点击续接（session/load） */}
       <StartRecentSessions
         entries={history}

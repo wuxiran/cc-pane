@@ -1,0 +1,38 @@
+{
+  "title": "Run history",
+  "readOnly": "Saved local records. Viewing history does not start an agent. Archived questions and permissions are read-only and cannot be answered here.",
+  "scope": "Scope",
+  "currentTab": "This chat tab",
+  "currentSession": "This engine session",
+  "allRuns": "All saved runs",
+  "engineFilter": "Engine ID (optional)",
+  "sessionFilter": "Session ID (optional)",
+  "applyFilters": "Apply filters",
+  "refresh": "Refresh",
+  "viewCheckpoint": "View this turn's checkpoint",
+  "runs": "Saved runs",
+  "events": "Saved events",
+  "eventCount": "{{count}} events",
+  "loading": "Reading saved runs…",
+  "loadingEvents": "Reading saved events…",
+  "empty": "No saved runs in this scope. Try all saved runs or a stable engine and session ID.",
+  "noEvents": "No recorded events for this run.",
+  "moreRuns": "Load more runs",
+  "moreEvents": "Load more events",
+  "interruptedHelp": "This run was interrupted before an end record was saved. Review its saved work before resuming the engine session; it is not marked complete.",
+  "recordingError": "Recording incomplete",
+  "archivedRequest": "Archived · read only",
+  "attachment": "Attachment",
+  "role": {
+    "user": "You",
+    "assistant": "Agent",
+    "thought": "Reasoning"
+  },
+  "status": {
+    "running": "Running",
+    "completed": "Agent finished",
+    "cancelled": "Cancelled",
+    "failed": "Failed",
+    "interrupted": "Interrupted"
+  }
+}

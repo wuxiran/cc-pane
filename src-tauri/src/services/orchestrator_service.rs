@@ -8521,7 +8521,8 @@ impl McpToolHandler {
         }
     }
 
-    /// 更新编排任务的状态、进度、摘要等信息
+    /// 更新编排任务的状态、进度、摘要等信息。completed 仅表示 Agent 执行结束，不代表检查通过或用户验收。
+    /// 检查与人工验收状态由任务详情中的完成条件和真实检查证据决定，不能通过 status 或 metadata 设置。
     #[tool]
     async fn update_task_binding(
         &self,

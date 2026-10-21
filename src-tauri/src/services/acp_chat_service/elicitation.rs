@@ -325,10 +325,16 @@ impl AcpChatService {
     ) -> AppResult<()> {
         let session = self.session(chat_id).await?;
         let session_ref = &session;
+        let recorded_key = request_key.clone();
         session
             .pending_elicitations
             .respond(&request_key, response, |id, answer| async move {
-                session_ref.respond(&id, Ok(answer)).await
+                let action = answer.get("action").cloned();
+                session_ref.respond(&id, Ok(answer)).await?;
+                // Form answers can contain passwords. Retain the decision and
+                // request identity, not a second copy of secret input fields.
+                session_ref.record_event("elicitation_resolved", &json!({"requestKey":recorded_key,"action":action,"answerContentRetained":false}));
+                Ok(())
             })
             .await
     }

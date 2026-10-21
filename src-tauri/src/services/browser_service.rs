@@ -10,6 +10,9 @@ use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Webview, WebviewUrl,
 };
 
+#[cfg(target_os = "macos")]
+mod macos;
+
 pub const CDP_SPIKE_METHODS: [&str; 2] = ["Runtime.evaluate", "Page.captureScreenshot"];
 const MAX_WEBVIEW_LABEL_LEN: usize = 64;
 const SPIKE_RESULT_LIMIT_BYTES: usize = 4096;
@@ -184,7 +187,50 @@ struct BrowserTabEntry {
     ///
     /// 截图必须知道这件事：隐藏的 WebView2 合成器停止产帧，
     /// `Page.captureScreenshot` 会一直等不到帧直到超时（见 `screenshot`）。
+    visibility: BrowserVisibility,
+    // A snapshot/click may temporarily show this native view. Serialize those
+    // operations for this tab so one cannot hide another's pending snapshot.
+    #[cfg(target_os = "macos")]
+    native_operation: std::sync::Arc<tokio::sync::Mutex<()>>,
+}
+
+/// The native visibility can be temporarily raised without becoming a user
+/// request. A fresh token also prevents an old guard affecting a reopened tab.
+#[derive(Debug, Clone)]
+struct BrowserVisibility {
     visible: bool,
+    intent: uuid::Uuid,
+}
+
+impl BrowserVisibility {
+    fn new(visible: bool) -> Self {
+        Self {
+            visible,
+            intent: uuid::Uuid::new_v4(),
+        }
+    }
+
+    fn user_requested(&mut self, visible: bool) {
+        self.visible = visible;
+        self.intent = uuid::Uuid::new_v4();
+    }
+
+    fn temporarily_show(&mut self) -> uuid::Uuid {
+        self.visible = true;
+        self.intent
+    }
+
+    fn should_restore(&self, intent: uuid::Uuid) -> bool {
+        self.visible && self.intent == intent
+    }
+
+    fn restore(&mut self, intent: uuid::Uuid) -> bool {
+        if !self.should_restore(intent) {
+            return false;
+        }
+        self.visible = false;
+        true
+    }
 }
 
 #[derive(Default)]
@@ -192,7 +238,7 @@ pub struct BrowserTabManager {
     tabs: Mutex<HashMap<String, BrowserTabEntry>>,
 }
 
-/// 截图期间临时提帧的守卫：`Drop` 时把标签恢复成原先的隐藏状态。
+/// 截图期间临时提帧的守卫：没有更新的用户可见请求时才恢复隐藏状态。
 ///
 /// 用守卫而非顺序代码，是因为截图路径中间有多个 `?` 早退点（CDP 超时、
 /// 非 PNG、写盘失败），任何一条早退都不能把用户的后台标签永久留在可见状态。
@@ -200,13 +246,14 @@ struct TemporaryVisibilityGuard<'a> {
     manager: &'a BrowserTabManager,
     app: &'a AppHandle,
     tab_id: String,
+    intent: uuid::Uuid,
 }
 
 impl Drop for TemporaryVisibilityGuard<'_> {
     fn drop(&mut self) {
-        if let Err(error) = self
-            .manager
-            .set_visible(self.app, &self.tab_id, false, false)
+        if let Err(error) =
+            self.manager
+                .restore_temporary_visibility(self.app, &self.tab_id, self.intent)
         {
             log::warn!(
                 "failed to restore hidden state for browser tab {}: {error}",
@@ -217,6 +264,16 @@ impl Drop for TemporaryVisibilityGuard<'_> {
 }
 
 impl BrowserTabManager {
+    #[cfg(target_os = "macos")]
+    fn native_operation(&self, tab_id: &str) -> AppResult<std::sync::Arc<tokio::sync::Mutex<()>>> {
+        self.tabs
+            .lock()
+            .map_err(|_| "browser tab registry lock is poisoned")?
+            .get(tab_id)
+            .map(|entry| std::sync::Arc::clone(&entry.native_operation))
+            .ok_or_else(|| format!("unknown browser tab: {tab_id}").into())
+    }
+
     pub fn contains(&self, tab_id: &str) -> bool {
         self.tabs
             .lock()
@@ -225,21 +282,72 @@ impl BrowserTabManager {
     }
 
     /// 标签当前是否可见；未注册的标签视为不可见。
+    #[cfg(test)]
     fn is_visible(&self, tab_id: &str) -> bool {
         self.tabs
             .lock()
-            .map(|tabs| tabs.get(tab_id).is_some_and(|entry| entry.visible))
+            .map(|tabs| {
+                tabs.get(tab_id)
+                    .is_some_and(|entry| entry.visibility.visible)
+            })
             .unwrap_or(false)
     }
 
-    fn mark_visible(&self, tab_id: &str, visible: bool) -> AppResult<()> {
+    fn temporarily_show<'a>(
+        &'a self,
+        app: &'a AppHandle,
+        tab_id: &str,
+    ) -> AppResult<Option<TemporaryVisibilityGuard<'a>>> {
         let mut tabs = self
             .tabs
             .lock()
-            .map_err(|_| "browser tab registry lock is poisoned".to_string())?;
-        if let Some(entry) = tabs.get_mut(tab_id) {
-            entry.visible = visible;
+            .map_err(|_| "browser tab registry lock is poisoned")?;
+        let entry = tabs
+            .get_mut(tab_id)
+            .ok_or_else(|| format!("unknown browser tab: {tab_id}"))?;
+        if entry.visibility.visible {
+            return Ok(None);
         }
+        let webview = app
+            .get_webview(&entry.label)
+            .ok_or("native browser webview is unavailable")?;
+        webview
+            .show()
+            .map_err(|error| format!("failed to show browser webview: {error}"))?;
+        let intent = entry.visibility.temporarily_show();
+        Ok(Some(TemporaryVisibilityGuard {
+            manager: self,
+            app,
+            tab_id: tab_id.into(),
+            intent,
+        }))
+    }
+
+    fn restore_temporary_visibility(
+        &self,
+        app: &AppHandle,
+        tab_id: &str,
+        intent: uuid::Uuid,
+    ) -> AppResult<()> {
+        // The same lock covers user requests and native command enqueueing, so
+        // a newer show cannot land between this check and the restoring hide.
+        let mut tabs = self
+            .tabs
+            .lock()
+            .map_err(|_| "browser tab registry lock is poisoned")?;
+        let Some(entry) = tabs.get_mut(tab_id) else {
+            return Ok(());
+        };
+        if !entry.visibility.should_restore(intent) {
+            return Ok(());
+        }
+        let Some(webview) = app.get_webview(&entry.label) else {
+            return Ok(());
+        };
+        webview
+            .hide()
+            .map_err(|error| format!("failed to hide browser webview: {error}"))?;
+        entry.visibility.restore(intent);
         Ok(())
     }
 
@@ -302,7 +410,15 @@ impl BrowserTabManager {
         self.tabs
             .lock()
             .map_err(|_| "browser tab registry lock is poisoned".to_string())?
-            .insert(tab_id.to_string(), BrowserTabEntry { label, visible });
+            .insert(
+                tab_id.to_string(),
+                BrowserTabEntry {
+                    label,
+                    visibility: BrowserVisibility::new(visible),
+                    #[cfg(target_os = "macos")]
+                    native_operation: Default::default(),
+                },
+            );
         Ok(())
     }
 
@@ -330,22 +446,33 @@ impl BrowserTabManager {
         visible: bool,
         focus: bool,
     ) -> AppResult<()> {
-        let webview = self.webview(app, tab_id)?;
+        let mut tabs = self
+            .tabs
+            .lock()
+            .map_err(|_| "browser tab registry lock is poisoned")?;
+        let entry = tabs
+            .get_mut(tab_id)
+            .ok_or_else(|| format!("unknown browser tab: {tab_id}"))?;
+        let webview = app
+            .get_webview(&entry.label)
+            .ok_or("native browser webview is unavailable")?;
         if visible {
             webview
                 .show()
                 .map_err(|error| format!("failed to show browser webview: {error}"))?;
-            if focus {
-                webview
-                    .set_focus()
-                    .map_err(|error| format!("failed to focus browser webview: {error}"))?;
-            }
         } else {
             webview
                 .hide()
                 .map_err(|error| format!("failed to hide browser webview: {error}"))?;
         }
-        self.mark_visible(tab_id, visible)
+        entry.visibility.user_requested(visible);
+        // A focus failure must not make a successful user show look temporary.
+        if visible && focus {
+            webview
+                .set_focus()
+                .map_err(|error| format!("failed to focus browser webview: {error}"))?;
+        }
+        Ok(())
     }
 
     pub fn navigate(&self, app: &AppHandle, tab_id: &str, url: &str) -> AppResult<()> {
@@ -437,18 +564,15 @@ impl BrowserTabManager {
         tab_id: &str,
         screenshots_dir: &Path,
     ) -> AppResult<PathBuf> {
+        #[cfg(target_os = "macos")]
+        let _native_operation = self.native_operation(tab_id)?.lock_owned().await;
         // 守卫在作用域内持有，任何早退路径都会复原隐藏状态。
-        let _restore = if self.is_visible(tab_id) {
-            None
-        } else {
-            self.set_visible(app, tab_id, true, false)?;
+        let _restore = self.temporarily_show(app, tab_id)?;
+        // Construct the guard before awaiting: cancellation while waiting for a
+        // frame must also restore the original visibility.
+        if _restore.is_some() {
             self.await_composited_frame(app, tab_id).await?;
-            Some(TemporaryVisibilityGuard {
-                manager: self,
-                app,
-                tab_id: tab_id.to_string(),
-            })
-        };
+        }
 
         let result = self
             .call_cdp_with_timeout(
@@ -485,7 +609,12 @@ impl BrowserTabManager {
     }
 
     pub async fn click(&self, app: &AppHandle, tab_id: &str, x: f64, y: f64) -> AppResult<()> {
-        for params in browser_click_params(x, y)? {
+        let events = browser_click_params(x, y)?;
+        #[cfg(target_os = "macos")]
+        let _native_operation = self.native_operation(tab_id)?.lock_owned().await;
+        #[cfg(target_os = "macos")]
+        let _restore = self.temporarily_show(app, tab_id)?;
+        for params in events {
             self.call_cdp(app, tab_id, "Input.dispatchMouseEvent", &params)
                 .await?;
         }
@@ -694,14 +823,24 @@ async fn call_devtools_protocol(
         .map_err(|_| "CDP response channel closed".to_string())?
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+async fn call_devtools_protocol(
+    webview: Webview,
+    method: &str,
+    params_json: &str,
+    timeout: std::time::Duration,
+) -> AppResult<String> {
+    macos::call(webview, method, params_json, timeout).await
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 async fn call_devtools_protocol(
     _webview: Webview,
     _method: &str,
     _params_json: &str,
     _timeout: std::time::Duration,
 ) -> AppResult<String> {
-    Err("native WebView2 CDP is only available on Windows".into())
+    Err("browser evaluation, screenshots and clicks are supported on Windows and macOS".into())
 }
 
 #[cfg(test)]
@@ -840,15 +979,62 @@ mod tests {
             "tab-1".to_string(),
             super::BrowserTabEntry {
                 label: "browser-tab-1".to_string(),
-                visible: false,
+                visibility: super::BrowserVisibility::new(false),
+                #[cfg(target_os = "macos")]
+                native_operation: Default::default(),
             },
         );
 
         assert!(!manager.is_visible("tab-1"));
-        manager.mark_visible("tab-1", true).unwrap();
+        manager
+            .tabs
+            .lock()
+            .unwrap()
+            .get_mut("tab-1")
+            .unwrap()
+            .visibility
+            .user_requested(true);
         assert!(manager.is_visible("tab-1"));
-        manager.mark_visible("tab-1", false).unwrap();
+        manager
+            .tabs
+            .lock()
+            .unwrap()
+            .get_mut("tab-1")
+            .unwrap()
+            .visibility
+            .user_requested(false);
         assert!(!manager.is_visible("tab-1"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn native_visibility_operations_serialize_per_tab_without_blocking_other_tabs() {
+        let manager = BrowserTabManager::default();
+        for tab_id in ["tab-a", "tab-b"] {
+            manager.tabs.lock().unwrap().insert(
+                tab_id.into(),
+                super::BrowserTabEntry {
+                    label: tab_id.into(),
+                    visibility: super::BrowserVisibility::new(false),
+                    native_operation: Default::default(),
+                },
+            );
+        }
+        let _first = manager
+            .native_operation("tab-a")
+            .unwrap()
+            .try_lock_owned()
+            .unwrap();
+        assert!(manager
+            .native_operation("tab-a")
+            .unwrap()
+            .try_lock_owned()
+            .is_err());
+        assert!(manager
+            .native_operation("tab-b")
+            .unwrap()
+            .try_lock_owned()
+            .is_ok());
     }
 
     #[test]
@@ -864,6 +1050,53 @@ mod tests {
         // 非超时错误必须原样透传，不能被这条文案盖掉真实成因。
         let other = super::describe_screenshot_failure("response is not a PNG".into());
         assert_eq!(other.to_string(), "response is not a PNG");
+    }
+
+    #[test]
+    fn temporary_capture_restores_hidden_state_without_new_user_intent() {
+        let mut visibility = super::BrowserVisibility::new(false);
+        let capture = visibility.temporarily_show();
+        assert!(visibility.visible);
+        assert!(visibility.restore(capture));
+        assert!(!visibility.visible);
+    }
+
+    #[test]
+    fn capture_cleanup_does_not_hide_a_tab_the_user_just_showed() {
+        let mut visibility = super::BrowserVisibility::new(false);
+        let capture = visibility.temporarily_show();
+        visibility.user_requested(true);
+        assert!(!visibility.restore(capture));
+        assert!(visibility.visible);
+    }
+
+    #[test]
+    fn capture_cleanup_preserves_a_new_user_hide_request() {
+        let mut visibility = super::BrowserVisibility::new(false);
+        let capture = visibility.temporarily_show();
+        visibility.user_requested(false);
+        assert!(!visibility.restore(capture));
+        assert!(!visibility.visible);
+    }
+
+    #[test]
+    fn old_capture_cleanup_cannot_hide_a_reopened_tab() {
+        let capture = super::BrowserVisibility::new(false).temporarily_show();
+        let mut reopened = super::BrowserVisibility::new(true);
+        assert!(!reopened.restore(capture));
+        assert!(reopened.visible);
+    }
+
+    #[test]
+    fn old_capture_cleanup_cannot_override_a_new_capture_after_user_request() {
+        let mut visibility = super::BrowserVisibility::new(false);
+        let first = visibility.temporarily_show();
+        visibility.user_requested(false);
+        let second = visibility.temporarily_show();
+        assert!(!visibility.restore(first));
+        assert!(visibility.visible);
+        assert!(visibility.restore(second));
+        assert!(!visibility.visible);
     }
 
     #[test]

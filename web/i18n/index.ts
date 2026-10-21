@@ -23,6 +23,7 @@ import zhDrama from "./locales/zh-CN/drama.json";
 import zhSkillMarket from "./locales/zh-CN/skillMarket.json";
 import zhProjectSkills from "./locales/zh-CN/projectSkills.json";
 import zhMobile from "./locales/zh-CN/mobile.json";
+import zhAgentRuntime from "./locales/zh-CN/agentRuntime.json";
 
 // en
 import enCommon from "./locales/en/common.json";
@@ -46,6 +47,7 @@ import enDrama from "./locales/en/drama.json";
 import enSkillMarket from "./locales/en/skillMarket.json";
 import enProjectSkills from "./locales/en/projectSkills.json";
 import enMobile from "./locales/en/mobile.json";
+import enAgentRuntime from "./locales/en/agentRuntime.json";
 
 export const defaultNS = "common";
 export const resources = {
@@ -71,6 +73,7 @@ drama: zhDrama,
 	    skillMarket: zhSkillMarket,
     projectSkills: zhProjectSkills,
     mobile: zhMobile,
+    agentRuntime: zhAgentRuntime,
   },
   en: {
     common: enCommon,
@@ -94,6 +97,7 @@ drama: enDrama,
 	    skillMarket: enSkillMarket,
     projectSkills: enProjectSkills,
     mobile: enMobile,
+    agentRuntime: enAgentRuntime,
   },
 } as const;
 

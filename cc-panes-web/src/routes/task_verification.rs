@@ -6,7 +6,8 @@ use axum::{
     Json, Router,
 };
 use cc_panes_core::models::task_verification::{
-    RunTaskVerificationRequest, TaskVerificationReport,
+    AcceptTaskCompletionRequest, RunTaskVerificationRequest, SetTaskCompletionCriteriaRequest,
+    TaskVerificationReport,
 };
 use cc_panes_core::utils::AppError;
 
@@ -14,13 +15,20 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/task-bindings/{id}/verification", get(list))
         .route("/task-bindings/{id}/verification/run", post(run))
+        .route(
+            "/task-bindings/{id}/completion/criteria",
+            post(set_criteria),
+        )
+        .route("/task-bindings/{id}/completion/accept", post(accept))
 }
 
 fn service_error(error: AppError) -> (StatusCode, String) {
     let status = match error.code() {
         Some("VERIFICATION_INVALID_REQUEST") => StatusCode::BAD_REQUEST,
         Some("NOT_FOUND") => StatusCode::NOT_FOUND,
-        Some("VERIFICATION_RUNNING") => StatusCode::CONFLICT,
+        Some("VERIFICATION_RUNNING" | "COMPLETION_CONFLICT" | "COMPLETION_NOT_READY") => {
+            StatusCode::CONFLICT
+        }
         _ => StatusCode::INTERNAL_SERVER_ERROR,
     };
     (status, error.to_string())
@@ -49,6 +57,30 @@ pub async fn run(
         .map_err(service_error)
 }
 
+pub async fn set_criteria(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<SetTaskCompletionCriteriaRequest>,
+) -> Result<Json<TaskVerificationReport>, (StatusCode, String)> {
+    tokio::task::spawn_blocking(move || state.task_verification_service.set_criteria(&id, request))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .map(Json)
+        .map_err(service_error)
+}
+
+pub async fn accept(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<AcceptTaskCompletionRequest>,
+) -> Result<Json<TaskVerificationReport>, (StatusCode, String)> {
+    tokio::task::spawn_blocking(move || state.task_verification_service.accept(&id, request))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .map(Json)
+        .map_err(service_error)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -59,6 +91,8 @@ mod tests {
             ("VERIFICATION_INVALID_REQUEST", StatusCode::BAD_REQUEST),
             ("NOT_FOUND", StatusCode::NOT_FOUND),
             ("VERIFICATION_RUNNING", StatusCode::CONFLICT),
+            ("COMPLETION_CONFLICT", StatusCode::CONFLICT),
+            ("COMPLETION_NOT_READY", StatusCode::CONFLICT),
         ] {
             assert_eq!(service_error(AppError::coded(code, "expected")).0, expected);
         }

@@ -53,3 +53,18 @@ it("keeps the refined header layout while offering fork review from the origin b
   await userEvent.click(await screen.findByRole("menuitem", { name: i18n.t("panes:forkReviewTitle") }));
   expect(review).toHaveBeenCalledTimes(2);
 });
+
+it("opens persisted turn checkpoints from the header and more menu", async () => {
+  const checkpoints = vi.fn();
+  render(<TooltipProvider><ChatSessionHeader
+    engineLabel="codex" generating={false} changesCount={0} showChanges={false} onToggleChanges={vi.fn()}
+    toolsExpanded={false} onToggleTools={vi.fn()} canFork={false} onFork={vi.fn()}
+    onCheckpoints={checkpoints} canCopySessionId={false} onCopySessionId={vi.fn()}
+    canExport={false} onExport={vi.fn()}
+  /></TooltipProvider>);
+  const label = i18n.t("panes:turnCheckpointTitle", { defaultValue: "Turn checkpoints" });
+  await userEvent.click(screen.getByRole("button", { name: label }));
+  await userEvent.click(screen.getByRole("button", { name: i18n.t("panes:agentChatMore") }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: label }));
+  expect(checkpoints).toHaveBeenCalledTimes(2);
+});

@@ -3,6 +3,8 @@ mod fork_review_service;
 pub use fork_review_service::ForkReviewService;
 mod repository_snapshot;
 pub use repository_snapshot::RepositorySnapshotService;
+mod turn_checkpoint_service;
+pub use turn_checkpoint_service::TurnCheckpointService;
 mod task_verification_service;
 pub use task_verification_service::TaskVerificationService;
 pub mod agent_transcript;

@@ -26,6 +26,28 @@ pub(crate) fn publish(root: &Path, changes: &[Change]) -> AppResult<Vec<String>>
     publish_with(root, changes, |_| Ok(()))
 }
 
+/// Check an external invariant before writing and after the last write. A failed
+/// final check runs the same conditional rollback as a publication I/O failure.
+/// Ordinary fork publication retains its existing semantics.
+pub(crate) fn publish_guarded(
+    root: &Path,
+    changes: &[Change],
+    mut guard: impl FnMut() -> AppResult<()>,
+) -> AppResult<Vec<String>> {
+    guard()?;
+    let mut remaining = changes
+        .iter()
+        .filter(|(_, before, after)| before != after)
+        .count();
+    publish_with(root, changes, |_| {
+        remaining -= 1;
+        if remaining == 0 {
+            guard()?;
+        }
+        Ok(())
+    })
+}
+
 fn publish_with(
     root: &Path,
     changes: &[Change],

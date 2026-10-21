@@ -1163,6 +1163,16 @@ const MIGRATIONS: &[Migration] = &[
         description: "task_bindings: stable report revision independent of metadata updates",
         up_sql: "ALTER TABLE task_bindings ADD COLUMN report_revision INTEGER NOT NULL DEFAULT 0 CHECK(report_revision >= 0);",
     },
+    Migration {
+        version: 44,
+        description: "task completion criteria and explicit acceptance",
+        up_sql: "CREATE TABLE IF NOT EXISTS task_completion (
+            task_id TEXT PRIMARY KEY REFERENCES task_bindings(id) ON DELETE CASCADE,
+            revision INTEGER NOT NULL DEFAULT 0,
+            criteria_json TEXT NOT NULL DEFAULT '{\"definitionOfDone\":\"\",\"requiredCommands\":[]}',
+            acceptance_json TEXT
+        );",
+    },
 ];
 
 /// 数据库连接管理
@@ -1960,7 +1970,7 @@ mod tests {
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        assert_eq!(applied, [41, 42, 43]);
+        assert_eq!(applied, [41, 42, 43, 44]);
     }
 
     #[test]

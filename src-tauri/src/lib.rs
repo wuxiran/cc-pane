@@ -25,6 +25,7 @@ use ccchan_service::{CCChanService, CcChanSessionNotifier};
 use commands::retry_dispatched_task;
 use commands::{
     abort_pi_rpc_session,
+    accept_task_completion,
     ack_terminal_output,
     // Journal 命令
     add_journal_session,
@@ -269,6 +270,7 @@ use commands::{
     link_update,
     list_acp_chat_history,
     list_acp_engines,
+    list_acp_run_records,
     list_ai_panel_history,
     list_ai_panels,
     list_all_claude_sessions,
@@ -319,6 +321,7 @@ use commands::{
     list_ssh_machines,
     list_task_verification,
     list_todo_activities,
+    list_turn_checkpoints,
     list_user_skills,
     list_wallpapers,
     list_workspace_project_skills,
@@ -358,6 +361,7 @@ use commands::{
     query_usage_stats,
     quick_terminal_update_shortcut,
     read_acp_image_attachment,
+    read_acp_run_events,
     read_agent_transcript_cmd,
     read_bundled_skill,
     read_clipboard_file_paths,
@@ -399,7 +403,9 @@ use commands::{
     restart_web_access,
     restore_file_version,
     restore_to_label,
+    restore_turn_checkpoint,
     retry_terminal_task_queue_item,
+    review_turn_checkpoint,
     rollback_project_migration,
     rollback_workspace_migration,
     run_automation_now,
@@ -459,6 +465,7 @@ use commands::{
     set_project_cli_hook_enabled,
     set_quick_terminal_session,
     set_session_resource_policy,
+    set_task_completion_criteria,
     set_web_access_password,
     set_workspace_archived,
     set_workspace_project_archived,
@@ -1977,6 +1984,7 @@ pub fn run() {
         .manage(project_service)
         .manage(terminal_service)
         .manage(pi_rpc_service)
+        .manage(acp_chat_service.checkpoint_service())
         .manage(acp_chat_service)
         .manage(automation_service.clone())
         .manage(terminal_backend_state)
@@ -3453,6 +3461,9 @@ pub fn run() {
             screenshot_save_image_attachment,
             undo_acp_file_edit,
             respond_acp_elicitation,
+            list_acp_run_records, read_acp_run_events,
+            list_turn_checkpoints, review_turn_checkpoint, restore_turn_checkpoint,
+            set_task_completion_criteria, accept_task_completion,
             screenshot_trigger,
             screenshot_update_shortcut,
             // Clipboard 命令

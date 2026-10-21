@@ -9,6 +9,8 @@ import {
   Copy,
   FileDiff,
   GitFork,
+  History,
+  ListOrdered,
   Loader2,
   MoreHorizontal,
 } from "lucide-react";
@@ -34,6 +36,8 @@ export interface ChatSessionHeaderProps {
   canFork: boolean;
   onFork: () => void;
   onReviewFork?: () => void;
+  onCheckpoints?: () => void;
+  onHistory?: () => void;
   hasForkOrigin?: boolean;
   canCopySessionId: boolean;
   onCopySessionId: () => void;
@@ -53,6 +57,8 @@ export default function ChatSessionHeader({
   canFork,
   onFork,
   onReviewFork,
+  onCheckpoints,
+  onHistory,
   hasForkOrigin,
   canCopySessionId,
   onCopySessionId,
@@ -60,6 +66,7 @@ export default function ChatSessionHeader({
   onExport,
 }: ChatSessionHeaderProps) {
   const { t } = useTranslation("panes");
+  const { t: runtimeT } = useTranslation("agentRuntime");
   return (
     <div className="agent-chat-header flex min-h-12 shrink-0 items-center gap-3 px-5 py-2">
       <div className="agent-chat-header-identity flex min-w-0 items-center gap-2.5">
@@ -79,6 +86,8 @@ export default function ChatSessionHeader({
         ) : null}
       </div>
       <span className="flex-1" />
+      {onHistory && <IconTooltipButton label={runtimeT("title")} className="h-8 w-8" onClick={onHistory}><ListOrdered className="h-3.5 w-3.5" /></IconTooltipButton>}
+      {onCheckpoints && <IconTooltipButton label={t("turnCheckpointTitle", { defaultValue: "Turn checkpoints" })} className="h-8 w-8" onClick={onCheckpoints}><History className="h-3.5 w-3.5" /></IconTooltipButton>}
       {hasForkOrigin && onReviewFork && <IconTooltipButton label={t("forkReviewTitle", { defaultValue: "Compare fork results" })} className="h-8 w-8" onClick={onReviewFork}><GitFork className="h-3.5 w-3.5" /></IconTooltipButton>}
       {changesCount > 0 ? (
         <button
@@ -121,6 +130,8 @@ export default function ChatSessionHeader({
             <GitFork /> {t("forkChat")}
           </DropdownMenuItem>
           {onReviewFork && <DropdownMenuItem onSelect={onReviewFork}><FileDiff /> {t("forkReviewTitle", { defaultValue: "Compare fork results" })}</DropdownMenuItem>}
+          {onHistory && <DropdownMenuItem onSelect={onHistory}><ListOrdered /> {runtimeT("title")}</DropdownMenuItem>}
+          {onCheckpoints && <DropdownMenuItem onSelect={onCheckpoints}><History /> {t("turnCheckpointTitle", { defaultValue: "Turn checkpoints" })}</DropdownMenuItem>}
           <DropdownMenuItem disabled={!canCopySessionId} onSelect={onCopySessionId}>
             <Copy /> {t("agentChatCopySessionId")}
           </DropdownMenuItem>

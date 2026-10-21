@@ -501,3 +501,25 @@ fn independent_services_can_capture_concurrently_during_first_initialization() {
         assert_eq!(git(&fixture.root, &["rev-parse", "HEAD"]), head);
     }
 }
+
+#[test]
+fn head_guard_observes_later_commits_without_touching_index_or_files() {
+    let f = Fixture::new();
+    let snapshot = f.service.capture(&f.root).unwrap();
+    f.service.ensure_current_head(&snapshot).unwrap();
+    fs::write(f.root.join("sub/file.txt"), "uncommitted later content").unwrap();
+    f.service.ensure_current_head(&snapshot).unwrap();
+    git(&f.root, &["commit", "--allow-empty", "-qm", "later commit"]);
+    let index = fs::read(f.root.join(".git/index")).unwrap();
+    assert!(f
+        .service
+        .ensure_current_head(&snapshot)
+        .unwrap_err()
+        .to_string()
+        .contains("HEAD"));
+    assert_eq!(
+        fs::read_to_string(f.root.join("sub/file.txt")).unwrap(),
+        "uncommitted later content"
+    );
+    assert_eq!(fs::read(f.root.join(".git/index")).unwrap(), index);
+}

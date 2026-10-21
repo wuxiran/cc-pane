@@ -36,4 +36,47 @@ export interface TaskVerificationReport {
   snapshotError: string | null;
   running: boolean;
   evidence: TaskVerificationEvidence[];
+  completion?: TaskCompletionReport;
+}
+
+export type CompletionCheckStatus = "not_configured" | "missing" | "running" | "passed" | "failed" | "stale" | "unknown";
+
+export interface TaskCompletionCriteria {
+  definitionOfDone: string;
+  requiredCommands: string[];
+}
+
+export interface TaskCompletionAcceptance {
+  acceptedAt: string;
+  note: string;
+  criteriaRevision: number;
+  reportRevision: number;
+  fingerprint: string | null;
+  evidenceIds: string[];
+}
+
+export interface TaskCompletionReport {
+  criteria: TaskCompletionCriteria;
+  criteriaRevision: number;
+  reportRevision: number;
+  agentFinished: boolean;
+  codeFingerprint: string | null;
+  checksStatus: CompletionCheckStatus;
+  checks: { command: string; evidenceId: string | null; status: CompletionCheckStatus }[];
+  acceptance: TaskCompletionAcceptance | null;
+  userAccepted: boolean;
+  canAccept: boolean;
+}
+
+export interface SetTaskCompletionCriteriaRequest {
+  expectedRevision: number;
+  criteria: TaskCompletionCriteria;
+}
+
+export interface AcceptTaskCompletionRequest {
+  expectedCriteriaRevision: number;
+  expectedReportRevision: number;
+  expectedFingerprint: string | null;
+  expectedEvidenceIds: string[];
+  note: string;
 }

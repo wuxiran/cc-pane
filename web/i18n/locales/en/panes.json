@@ -606,5 +606,25 @@
   "agentChatOpenAttachment": "Open {{name}} in a tab",
   "agentChatOpenAttachmentFailed": "Could not open file: {{error}}",
   "agentChatInvalidFile": "This attachment is not an accessible local file.",
-  "agentChatQuickPreview": "Quick preview {{name}}"
+  "agentChatQuickPreview": "Quick preview {{name}}",
+  "turnCheckpointTitle": "Turn checkpoints",
+  "turnCheckpointScope": "Review working-tree changes captured before and after each turn, including changes made by tools or other processes. Restore changes files only; it does not undo commits, the Git index, commands or external actions.",
+  "turnCheckpointLimits": "Scope: tracked files and nonignored untracked files. New ignored files and paths outside the repository are excluded. Limits: 20,000 files, 32 MiB per file, 256 MiB total. Exceeding a limit disables the checkpoint. Recent 200 turns are listed.",
+  "turnCheckpointSelect": "Select turn checkpoint",
+  "turnCheckpointEmpty": "No checkpoints yet",
+  "turnCheckpointReload": "Refresh review",
+  "turnCheckpointLoading": "Reading checkpoint and current files…",
+  "turnCheckpointRestored": "Restored {{count}} files. The pre-restore snapshot was retained for recovery.",
+  "turnCheckpointFiles": "Changed files",
+  "turnCheckpointConfirm": "I reviewed this turn's changed files. Restore all of them to their pre-turn contents; keep unrelated files and block if any changed file has later edits.",
+  "turnCheckpointRestore": "Restore whole turn ({{count}} files)",
+  "turnCheckpointPreviewOmitted": "Binary or large-file text preview omitted. The captured bytes are retained; restore still checks the complete file.",
+  "turnCheckpointBefore": "Before turn · restore target",
+  "turnCheckpointAfter": "After turn",
+  "turnCheckpointAbsent": "File absent",
+  "turnCheckpointFileStatus": {
+    "added": "Added",
+    "modified": "Modified",
+    "deleted": "Deleted"
+  }
 }

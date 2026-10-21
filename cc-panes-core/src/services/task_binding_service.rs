@@ -91,6 +91,10 @@ impl TaskBindingService {
         Ok(binding)
     }
 
+    pub(crate) fn completion_repository(&self) -> &TaskBindingRepository {
+        &self.repo
+    }
+
     /// 获取 TaskBinding
     pub fn get(&self, id: &str) -> AppResult<Option<TaskBinding>> {
         Ok(self.repo.get(id)?)

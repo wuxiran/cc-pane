@@ -7,6 +7,9 @@ use tracing::{error, warn};
 #[path = "task_binding_query_snapshot.rs"]
 mod query_snapshot;
 
+#[path = "task_completion_repo.rs"]
+mod completion;
+
 #[cfg(test)]
 #[path = "task_binding_query_tests.rs"]
 mod query_tests;

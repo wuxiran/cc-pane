@@ -24,5 +24,33 @@
     "fingerprint": "Original code fingerprint",
     "head": "Original Git commit",
     "truncated": "Output truncated; each stream retains at most 64 KiB."
+  },
+  "completion": {
+    "title": "Completion and acceptance",
+    "stages": "Completion stages",
+    "agentFinished": "Agent finished",
+    "checksPassed": "Checks passed",
+    "userAccepted": "User accepted",
+    "acceptanceStale": "Previous acceptance no longer applies to the current result, criteria, code or check evidence. Review and accept again.",
+    "criteria": "Completion criteria",
+    "definition": "Definition of done",
+    "requiredCommands": "Required check commands (one per line)",
+    "criteriaHelp": "Saving criteria clears prior acceptance. Only the latest run of every required command can count, and it must pass against current code. The written definition is reviewed by you.",
+    "saveCriteria": "Save criteria",
+    "runRequired": "Run this check",
+    "manualHelp": "No automated checks are required. Manual acceptance records your review; it does not mark checks as passed.",
+    "note": "Acceptance note (optional)",
+    "accept": "Accept this result",
+    "unsaved": "Save the changed criteria before running required checks or accepting.",
+    "blocked": "Finish the task and pass every required check on current code before accepting.",
+    "status": {
+      "not_configured": "Not configured",
+      "missing": "Not run",
+      "running": "Running",
+      "passed": "Passed",
+      "failed": "Failed",
+      "stale": "Outdated · rerun",
+      "unknown": "Not currently verified"
+    }
   }
 }

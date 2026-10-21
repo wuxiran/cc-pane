@@ -685,7 +685,7 @@
     },
     "browserTab": {
       "title": "浏览器是 AI 的手，不是你的手",
-      "body": "分屏里能开一个真正的浏览器，但没有「新建浏览器标签」按钮——它由 AI 经 MCP 打开：让它打开 dev server、截图、点几下、跑一段 JS 验证改动，而不是只回你一句「应该好了」。截图 / 点击 / 执行 JS 目前仅 Windows 可用。"
+      "body": "分屏里能开一个真正的浏览器，由 AI 经 MCP 打开：让它打开 dev server、截图、点击、执行 JS 验证改动。截图、点击和执行 JS 支持 Windows 与 macOS（执行 JS 要求 macOS 11 或更新系统）。"
     }
   },
   "openLogDir": "打开日志目录",

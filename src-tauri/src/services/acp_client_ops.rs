@@ -18,7 +18,7 @@ use crate::services::process_guard;
 use cc_panes_core::utils::no_window_tokio_command;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -163,6 +163,7 @@ pub struct AcpTerminal {
     exited: watch::Sender<Option<Value>>,
     dirty: Notify,
     released: AtomicBool,
+    cwd: PathBuf,
 }
 
 impl AcpTerminal {
@@ -205,6 +206,25 @@ struct TerminalRegistry {
 }
 
 impl AcpTerminalManager {
+    pub async fn has_running(&self) -> bool {
+        self.terminals
+            .read()
+            .await
+            .entries
+            .values()
+            .any(|terminal| terminal.exited.borrow().is_none())
+    }
+
+    pub async fn has_running_in(&self, repository: &Path) -> bool {
+        self.terminals
+            .read()
+            .await
+            .entries
+            .values()
+            .any(|terminal| {
+                terminal.cwd.starts_with(repository) && terminal.exited.borrow().is_none()
+            })
+    }
     /// `terminal/create` → `{ terminalId }`. Spawns immediately; output collection and
     /// exit tracking run in background tasks.
     pub async fn create(
@@ -298,6 +318,7 @@ impl AcpTerminalManager {
         let terminal_id = format!("term-{}", uuid::Uuid::new_v4().simple());
         let terminal = Arc::new(AcpTerminal {
             terminal_id: terminal_id.clone(),
+            cwd: dunce::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf()),
             state: RwLock::new(TerminalOutputState::default()),
             process: AcpProcess::new(child, guard),
             exited: watch::channel(None).0,
