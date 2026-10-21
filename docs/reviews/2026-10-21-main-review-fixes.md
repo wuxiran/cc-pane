@@ -2,6 +2,7 @@
 
 修复基线：`dev/v0.12.22` 的 `65ab7bb59df330f7dfeb6773a2956193b07c82d8`。
 工作分支：`codex/fix-main-review-20261021`。
+修复期间主线更新为 `7dd09e43`（PR #84），已通过 `dd70f7b7` 合入本工作分支，保留并行任务改动；没有向主线写入本轮修复。
 原始问题与复现见 [本轮审阅](2026-10-21-merged-main-review.md)。
 
 按 P1、P2 顺序实施。全部修改位于独立工作树，独立安装 npm 10 锁定依赖，并使用本任务专用 Rust target；没有切换或修改主线及其他工作树，也没有停止现有应用、daemon 或终端会话。
@@ -23,16 +24,17 @@ MCP 编辑逻辑、Todo 草稿和 LaunchProfile 写事务拆到独立模块；`P
 
 ## 验证
 
-最终代码在本机完成以下验证，全部通过。
+以下为合入主线 `7dd09e43` 后重新执行的最终验证。合入前也执行过完整套件；最终数据不混用两个代码快照。
 
 | 门禁 | 结果 |
 | --- | --- |
-| `npm run test:coverage -- --maxWorkers=4 --coverage.thresholds.autoUpdate=false` | 654 个文件、6289 项测试通过，0 失败 |
-| 前端覆盖率 | statements 79.19%、branches 72.27%、functions 76.63%、lines 82.04%；保持原门槛，关闭自动修改阈值 |
+| `npx vitest run --coverage --maxWorkers=4 --coverage.thresholds.autoUpdate=false` | 657 个文件、6325 项测试通过，0 失败 |
+| 前端覆盖率 | statements 79.30%、branches 72.47%、functions 76.76%、lines 82.10%；保留最新主线提高后的门槛，关闭自动修改阈值 |
+| `npm run test:contracts` | 18 项 worker 报告及打包内容契约测试通过 |
 | `npx tsc --noEmit` | 通过 |
 | `npm run build` 及 xterm 构建验证 | 通过 |
-| `npm run check:bundle` | 入口及首屏 JS 为 875.8 KiB gzip，低于 880 / 1100 KiB 预算 |
-| `cargo test --workspace --locked --no-fail-fast -j 2` | 3054 passed、0 failed、5 ignored；按每个测试 binary 的最终汇总计数，未重复计算子进程 fixture 输出 |
+| `npm run check:bundle` | 入口及首屏 JS 为 878.4 KiB gzip，低于 880 / 1100 KiB 预算 |
+| `cargo test --workspace --locked --no-fail-fast -j 2` | 3078 passed、0 failed、5 ignored；按每个测试 binary 的最终汇总计数，未重复计算子进程 fixture 输出 |
 | `cargo clippy --workspace --locked -j 2 -- -D warnings` | 通过 |
 | `cargo fmt --all -- --check` | 通过 |
 | 四个侧车的 debug build 和同步 | 通过；源二进制、独立工作树 `src-tauri/binaries`、本任务 target 的 `debug/binaries` 三处 SHA256 一致，未重启现有应用 |
@@ -44,9 +46,11 @@ MCP 编辑逻辑、Todo 草稿和 LaunchProfile 写事务拆到独立模块；`P
 
 提交顺序：`ad555c9e`（3 个 P1）、`6607c8c2`（P1 保存竞争边界）、`03d1c452`（5 个 P2 及其回归）。
 
-只读 `git merge-tree` 检查：与主线 `65ab7bb5`、并行分支 `codex/fix-agent-p2-completion` 的 `db3d766c` 均无冲突，与该并行分支的修改文件没有重叠。此检查没有实际执行合并，也没有将其他分支内容计入本分支测试结果。
+主线推进后，`sessionScopedResources.test.ts` 出现唯一文本冲突：保留主线的 `orchestratorProjection` 归属声明和本轮的 MCP/Todo 声明，移除已被主线重构替代的旧 `useOrchestratorStore` 声明。其余本轮修复文件在整合时没有变化。整合在独立修复分支执行，原主线工作目录及未跟踪文件保持原状。
 
-证据目录：`/Users/wuxiran/Documents/ChatGPT/ccpane/review-evidence/2026-10-21-main-fixes/`。
+最终分支包含主线 `7dd09e43`，对该主线的提交树合并预检通过。并行分支 `db3d766c` 与该主线的 tree 相同，已通过主线 squash 提交纳入；没有再次合并旧分支或修改其工作树。
+
+证据目录：`/Users/wuxiran/Documents/ChatGPT/ccpane/review-evidence/2026-10-21-main-fixes/`；最新主线整合后的门禁与侧车哈希记录位于 `combined-main/`。性能/发布脚本、主题和 Windows 模块编译检查的被测源码在整合时未变化，沿用该目录下已通过的对应检查记录。
 
 ## 平台边界
 
