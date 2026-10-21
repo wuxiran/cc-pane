@@ -224,34 +224,63 @@ fn large_output_is_bounded_without_pipe_deadlock() {
 #[test]
 fn separate_service_instances_cannot_run_the_same_task_concurrently() {
     let fixture = Fixture::new();
+    let output = fixture.repo.join("build-output");
+    std::fs::create_dir(&output).unwrap();
+    let started = output.join("verification-started");
+    let release = output.join("verification-release");
     let service = fixture.service.clone();
     let task_id = fixture.task_id.clone();
     let running = std::thread::spawn(move || {
         service.run(
             &task_id,
             RunTaskVerificationRequest {
-                command: "sleep 1; echo first".into(),
-                timeout_secs: Some(5),
+                command: ": > build-output/verification-started; \
+                    while [ ! -f build-output/verification-release ]; do sleep 0.01; done; \
+                    echo first"
+                    .into(),
+                timeout_secs: Some(15),
             },
         )
     });
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-    while !fixture.service.list(&fixture.task_id).unwrap().running {
-        assert!(std::time::Instant::now() < deadline);
-        std::thread::sleep(std::time::Duration::from_millis(10));
+    let checks = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // list() briefly takes the execution lock: never poll it before run()
+        // has acquired that lock and entered the command itself.
+        // Startup now includes snapshot preparation, rather than just acquiring
+        // the lock. Its bounded wait is not a performance assertion.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !started.exists() && !running.is_finished() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(
+            started.exists(),
+            "first verification never signaled startup"
+        );
+        assert!(fixture.service.list(&fixture.task_id).unwrap().running);
+        let second = TaskVerificationService::new(fixture.data.clone(), fixture.bindings.clone());
+        let error = second
+            .run(
+                &fixture.task_id,
+                RunTaskVerificationRequest {
+                    command: "echo second".into(),
+                    timeout_secs: Some(5),
+                },
+            )
+            .unwrap_err();
+        assert_eq!(error.code(), Some("VERIFICATION_RUNNING"));
+    }));
+    // Release and reap the command even when startup or an assertion fails.
+    // The command timeout remains a backstop if writing the release file fails.
+    let released = std::fs::write(release, b"release");
+    let first = running.join();
+    if let Err(panic) = checks {
+        eprintln!("First verification after cleanup: {first:?}; release: {released:?}");
+        std::panic::resume_unwind(panic);
     }
-    let second = TaskVerificationService::new(fixture.data.clone(), fixture.bindings.clone());
-    let error = second
-        .run(
-            &fixture.task_id,
-            RunTaskVerificationRequest {
-                command: "echo second".into(),
-                timeout_secs: Some(5),
-            },
-        )
-        .unwrap_err();
-    assert_eq!(error.code(), Some("VERIFICATION_RUNNING"));
-    assert_eq!(running.join().unwrap().unwrap().evidence.len(), 1);
+    released.unwrap();
+    let report = first.unwrap().unwrap();
+    assert_eq!(report.evidence.len(), 1);
+    assert_eq!(report.evidence[0].exit_code, Some(0));
+    assert!(report.evidence[0].stdout.contains("first"));
 }
 
 #[test]
