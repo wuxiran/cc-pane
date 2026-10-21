@@ -192,6 +192,8 @@
   "reclaimTab": "回收",
   "newLayout": "新建布局",
   "layouts": "布局",
+  "scrollLayoutsLeft": "向左滚动布局",
+  "scrollLayoutsRight": "向右滚动布局",
   "tabMovedToLayout": "已移动到「{{name}}」",
   "layoutSwitcher": "布局",
   "layoutView": "视图",

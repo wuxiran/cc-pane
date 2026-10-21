@@ -640,68 +640,7 @@ mod tests {
         }
     }
 
-    /// 第四段：64 MB 通知水位 + 子进程分配 128 MB → 3 s 内收到越线事件，且字节数来自内核。
-    /// 通知型限制**不会**让分配失败：子进程照常 Start-Sleep，不是 OOM 退出。
-    #[test]
-    fn memory_notify_limit_fires_event_without_failing_allocation() {
-        use std::sync::mpsc;
-        let mut child = Command::new("powershell.exe")
-            .args([
-                "-NoProfile",
-                "-c",
-                "$a = New-Object byte[] 134217728; Start-Sleep 5",
-            ])
-            .spawn()
-            .expect("spawn powershell");
-        let (tx, rx) = mpsc::channel();
-        let callback: JobMemoryCallback = Arc::new(move |event| {
-            let _ = tx.send(event);
-        });
-        let policy = SessionResourcePolicy {
-            lower_priority: false,
-            cpu_weight: None,
-            eco_qos: false,
-            memory_notify_bytes: Some(64 * 1024 * 1024),
-        };
-        let (job, outcome) =
-            ProcessJob::create_for_with_policy(child.id(), &policy, Some(callback))
-                .expect("create job");
-        assert_eq!(outcome, PolicyOutcome::Applied, "notify limit should apply");
-
-        let event = rx
-            .recv_timeout(Duration::from_secs(3))
-            .expect("memory notify event within 3s");
-        assert_eq!(event.limit_bytes, 64 * 1024 * 1024);
-        assert!(
-            event.bytes > 64 * 1024 * 1024,
-            "kernel-reported bytes should exceed the limit: {}",
-            event.bytes
-        );
-        // 内核会持续投递（实测 1.5 s 内 7 条），监听线程按 NOTIFY_DEBOUNCE 去抖：
-        // 去抖窗口内不得再回调。
-        let mut extra = 0usize;
-        let until = Instant::now() + Duration::from_millis(1500);
-        while Instant::now() < until {
-            if rx.recv_timeout(Duration::from_millis(50)).is_ok() {
-                extra += 1;
-            }
-        }
-        assert!(extra <= 1, "debounce leaked {extra} callbacks within 1.5s");
-        // 子进程没被硬限杀掉。
-        assert!(
-            child.try_wait().expect("try_wait").is_none(),
-            "child must survive"
-        );
-
-        // 第四段之后 KILL_ON_JOB_CLOSE 仍在。
-        let flags = query_limit_flags(&job);
-        assert_ne!(flags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.0, 0);
-        job.rearm_memory_notify().expect("rearm");
-
-        drop(job);
-        let _ = child.kill();
-        let _ = child.wait();
-    }
+    include!("job_memory_tests.rs");
 
     /// 回归护栏：通知水位走 NotificationLimit，不得把 JOB_MEMORY 混进 ExtendedLimit 变成硬限。
     #[test]

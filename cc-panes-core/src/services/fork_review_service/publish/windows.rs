@@ -314,7 +314,7 @@ fn create_secured_directory(
         parent,
         name,
         Some(true),
-        READ | DELETE | 0x100,
+        READ | DELETE | 0x100 | state.security.creation_access()?,
         2,
         Some(&state.security),
     )?
@@ -322,6 +322,7 @@ fn create_secured_directory(
     let original = directory.metadata()?.permissions();
     let result = (|| {
         reject_reparse(&directory)?;
+        state.security.restore_created_inheritance(&directory)?;
         if !security::Descriptor::read(&directory)?.same_access(&state.security)? {
             return Err("Windows could not preserve the directory owner, group and ACL".into());
         }

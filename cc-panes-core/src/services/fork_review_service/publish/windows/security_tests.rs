@@ -1,4 +1,5 @@
 use super::*;
+use std::cell::Cell;
 use std::fs;
 
 #[link(name = "advapi32")]
@@ -59,7 +60,9 @@ fn protected_dacl(path: &Path, text: &str) {
                 std::ptr::null_mut(),
             )
         },
-        0
+        0,
+        "invalid fixture SDDL {text}: {}",
+        std::io::Error::last_os_error()
     );
     let descriptor = AllocatedDescriptor(descriptor);
     let (mut present, mut defaulted, mut acl) = (0, 0, std::ptr::null_mut());
@@ -100,24 +103,48 @@ fn changes(root: &Path) -> Vec<super::super::Change> {
     ]
 }
 
+fn inherited_directory_access(parent: &Path) -> security::Descriptor {
+    let child = parent.join("inheritance-check");
+    fs::create_dir(&child).unwrap();
+    let descriptor = security::Descriptor::read(&directory(&child, READ)).unwrap();
+    fs::write(child.join("item"), b"inherited access").unwrap();
+    assert_eq!(fs::read(child.join("item")).unwrap(), b"inherited access");
+    fs::remove_file(child.join("item")).unwrap();
+    fs::remove_dir(child).unwrap();
+    descriptor
+}
+
 #[test]
 fn rollback_preserves_directory_owner_group_and_protected_custom_dacl() {
     let temp = tempfile::tempdir().unwrap();
     let changes = changes(temp.path());
     let path = temp.path().join("module");
-    protected_dacl(&path, "D:P(A;;FA;;;OW)");
+    // Keep existing children accessible when SetSecurityInfo propagates the DACL.
+    protected_dacl(&path, "D:P(A;OICI;FA;;;OW)");
+    assert_eq!(fs::read(path.join("item")).unwrap(), b"before");
     let before = security::Descriptor::read(&directory(&path, READ)).unwrap();
+    let inherited_before = inherited_directory_access(&path);
+    let injected = Cell::new(false);
     let error = super::super::publish_with(temp.path(), &changes, |index| {
         if index == 0 {
+            injected.set(true);
             Err("injected failure".into())
         } else {
             Ok(())
         }
     })
     .unwrap_err();
+    assert!(
+        injected.get(),
+        "publication failed before injection: {error}"
+    );
+    assert!(error.to_string().contains("injected failure"), "{error}");
     assert!(error.to_string().contains("rolled back"), "{error}");
     let after = security::Descriptor::read(&directory(&path, READ)).unwrap();
     assert!(before.same_access(&after).unwrap());
+    assert!(inherited_before
+        .same_access(&inherited_directory_access(&path))
+        .unwrap());
     assert_eq!(fs::read(path.join("item")).unwrap(), b"before");
     assert!(fs::read_dir(temp.path()).unwrap().all(|entry| !entry
         .unwrap()
@@ -130,8 +157,22 @@ fn rollback_preserves_directory_owner_group_and_protected_custom_dacl() {
 fn inability_to_recreate_directory_security_is_rejected_before_file_changes() {
     let temp = tempfile::tempdir().unwrap();
     let changes = changes(temp.path());
-    protected_dacl(temp.path(), "D:P(D;;AD;;;WD)(A;;FA;;;OW)");
-    assert!(super::super::publish(temp.path(), &changes).is_err());
+    // FILE_ADD_SUBDIRECTORY (0x4) has no SDDL abbreviation; deny it only here.
+    protected_dacl(temp.path(), "D:P(D;;0x4;;;WD)(A;OICI;FA;;;OW)");
+    assert_eq!(
+        fs::read(temp.path().join("module/item")).unwrap(),
+        b"before"
+    );
+    let wrote_file = Cell::new(false);
+    let result = super::super::publish_with(temp.path(), &changes, |_| {
+        wrote_file.set(true);
+        Ok(())
+    });
+    assert!(result.is_err());
+    assert!(
+        !wrote_file.get(),
+        "publication changed files before rejecting the DACL"
+    );
     assert_eq!(
         fs::read(temp.path().join("module/item")).unwrap(),
         b"before"
