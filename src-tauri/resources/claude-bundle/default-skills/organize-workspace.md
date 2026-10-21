@@ -36,7 +36,7 @@ workspace-root/
 ```text
 # 工作空间根的 .ccpanes/
 .ccpanes/
-├── projects.csv           # 项目清单
+├── projects.yaml          # 项目清单（按机器分段）
 ├── plans/                 # plan 归档
 └── prompts/               # 外置长 prompt / Codex 派工文件
 

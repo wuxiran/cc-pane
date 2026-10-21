@@ -1764,7 +1764,7 @@ pub fn run() {
             updated = report.projects_updated,
             removed = report.duplicates_removed,
             backups = report.backups_created,
-            csv = report.csv_regenerated,
+            projects_manifest = report.projects_manifest_regenerated,
             "[project-identity] workspace projects migrated"
         ),
         Ok(_) => {}
