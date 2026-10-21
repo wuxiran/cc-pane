@@ -593,5 +593,18 @@
   "agentChatQuestionUnsupported": "This question contains an unsupported form field. Skip it and reply in the chat.",
   "agentChatQuestionSkip": "Skip",
   "agentChatQuestionSending": "Sending…",
-  "agentChatCaptureUnavailable": "Screen capture is currently supported on macOS and Windows"
+  "agentChatCaptureUnavailable": "Screen capture is currently supported on macOS and Windows",
+  "agentChatAdd": "Add",
+  "agentChatAddFile": "Files",
+  "agentChatAddFolder": "Folders",
+  "agentChatAttachProject": "Attach current project",
+  "agentChatSessionModes": "Session mode",
+  "agentChatManageSkills": "Manage project skills",
+  "agentChatManageMcp": "Manage project MCP",
+  "agentChatTools": "Tools",
+  "agentChatModeChanging": "Changing mode…",
+  "agentChatOpenAttachment": "Open {{name}} in a tab",
+  "agentChatOpenAttachmentFailed": "Could not open file: {{error}}",
+  "agentChatInvalidFile": "This attachment is not an accessible local file.",
+  "agentChatQuickPreview": "Quick preview {{name}}"
 }

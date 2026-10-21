@@ -593,5 +593,18 @@
   "agentChatQuestionUnsupported": "此问题包含暂不支持的表单格式，请跳过后在聊天中补充。",
   "agentChatQuestionSkip": "跳过",
   "agentChatQuestionSending": "发送中…",
-  "agentChatCaptureUnavailable": "截图暂仅支持 macOS 和 Windows"
+  "agentChatCaptureUnavailable": "截图暂仅支持 macOS 和 Windows",
+  "agentChatAdd": "添加",
+  "agentChatAddFile": "文件",
+  "agentChatAddFolder": "文件夹",
+  "agentChatAttachProject": "附加当前项目",
+  "agentChatSessionModes": "会话模式",
+  "agentChatManageSkills": "管理项目技能",
+  "agentChatManageMcp": "管理项目 MCP",
+  "agentChatTools": "工具",
+  "agentChatModeChanging": "正在切换模式…",
+  "agentChatOpenAttachment": "在标签页中打开 {{name}}",
+  "agentChatOpenAttachmentFailed": "无法打开文件：{{error}}",
+  "agentChatInvalidFile": "此附件不是可打开的本地文件。",
+  "agentChatQuickPreview": "快速预览 {{name}}"
 }

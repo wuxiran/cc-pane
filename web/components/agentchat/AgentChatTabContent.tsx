@@ -19,7 +19,6 @@ import { dropAgentChatState, ensureAgentChatListener } from "@/stores/agentChatE
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { usePanesStore } from "@/stores";
-import { useEditorRevealStore } from "@/stores/useEditorRevealStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import ChatChangesPanel, { collectNetChanges } from "./ChatChangesPanel";
 import ChatComposer from "./ChatComposer";
@@ -36,7 +35,8 @@ import SessionWorkspaceMenu from "./SessionWorkspaceMenu";
 import ChatPermissionQueue from "./ChatPermissionQueue";
 import ChatQuestionQueue from "./ChatQuestionQueue";
 import { startConfiguredChat } from "./startConfiguredChat";
-import { isAbsolutePath, joinCwd, residentAgentChatCwd } from "./chatPaths";
+import { residentAgentChatCwd } from "./chatPaths";
+import { useChatFileActions } from "./useChatFileActions";
 
 const ChatForkDialog = lazyWithRetry(() => import("@/components/chatfork/ChatForkDialog"), "ChatForkDialog");
 const ForkReviewDialog = lazyWithRetry(() => import("@/components/chatfork/ForkReviewDialog"), "ForkReviewDialog");
@@ -145,21 +145,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       .catch((error) => handleErrorSilent(error, "copy acp transcript markdown"));
   }, [items, tab.id, t]);
 
-  const openLocation = useCallback(
-    (path: string, line?: number) => {
-      const absolute = isAbsolutePath(path) ? path : joinCwd(effectiveCwd || ".", path);
-      const title = absolute.split(/[\\/]/).pop() || absolute;
-      usePanesStore
-        .getState()
-        .openEditor(tab.projectPath || effectiveCwd, absolute, title, undefined, {
-          forcePaneTab: true,
-        });
-      if (line !== undefined) {
-        useEditorRevealStore.getState().request(absolute, line, 1);
-      }
-    },
-    [effectiveCwd, tab.projectPath],
-  );
+  const { openLocation, openAttachment } = useChatFileActions({ chatId: tab.id, cwd: effectiveCwd, projectPath: tab.projectPath });
 
   const planToTodo = useCallback(
     (entries: AcpPlanEntry[]) => {
@@ -362,6 +348,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
                   chatId={tab.id}
                   cwd={effectiveCwd}
                   onOpenLocation={openLocation}
+                  onOpenAttachment={openAttachment}
                   onPlanToTodo={planToTodo}
                   expandAllSignal={toolFold}
                 />
@@ -375,6 +362,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
                 chatId={tab.id}
                 cwd={effectiveCwd}
                 onOpenLocation={openLocation}
+                onOpenAttachment={openAttachment}
                 onPlanToTodo={planToTodo}
               />
             ) : null}
@@ -427,6 +415,7 @@ export default function AgentChatTabContent({ tab }: { tab: Tab }) {
       ) : (
         <ChatComposer
           chatId={tab.id}
+          onOpenAttachment={openAttachment}
           cwd={effectiveCwd}
           phase={phase}
           generating={generating}

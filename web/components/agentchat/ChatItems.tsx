@@ -1,7 +1,7 @@
 // agent-chat 单条目渲染（用户气泡/图片/plan/notice）与头部小选择器。
 // 从 AgentChatTabContent 拆出（行数棘轮），纯展示层：状态与动作全部经 props 注入。
 // assistant 正文、思考块、工具组在 ChatTurnView 里按回合承载，不在这里。
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Check, ChevronDown, Copy, ImageIcon, ListTodo } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -19,6 +19,7 @@ import {
 import type { AcpPlanEntry, AgentChatItem } from "@/types/agentChat";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import ChatAttachmentList from "./ChatAttachmentList";
+import type { OpenChatAttachment } from "./useChatFileActions";
 
 export function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -68,9 +69,10 @@ export function MessageCopyContextMenu({ text, children }: { text: string; child
 export interface ItemViewProps {
   item: AgentChatItem;
   onPlanToTodo: (entries: AcpPlanEntry[]) => void;
+  onOpenAttachment?: OpenChatAttachment;
 }
 
-export function ItemView({ item, onPlanToTodo }: ItemViewProps) {
+export function ItemView({ item, onPlanToTodo, onOpenAttachment }: ItemViewProps) {
   const { t } = useTranslation("panes");
   switch (item.type) {
     case "user":
@@ -80,7 +82,7 @@ export function ItemView({ item, onPlanToTodo }: ItemViewProps) {
               max-w-[85%] 会相对"内容自身宽度"算，短消息被挤成多行。 */}
           <div className="flex w-full flex-col items-end gap-1">
             {item.attachments && item.attachments.length > 0 ? (
-              <ChatAttachmentList attachments={item.attachments} align="end" />
+              <ChatAttachmentList attachments={item.attachments} align="end" onOpenAttachment={onOpenAttachment} />
             ) : item.attachmentLabels && item.attachmentLabels.length > 0 ? (
               <div className="flex flex-wrap justify-end gap-1">
                 {item.attachmentLabels.map((label, index) => (
@@ -102,13 +104,7 @@ export function ItemView({ item, onPlanToTodo }: ItemViewProps) {
         </MessageCopyContextMenu>
       );
     case "image":
-      return (
-        <img
-          src={`data:${item.mimeType};base64,${item.data}`}
-          alt="agent output"
-          className="max-h-96 max-w-full self-start rounded border border-[var(--app-border)]"
-        />
-      );
+      return <ImageItem item={item} onOpenAttachment={onOpenAttachment} />;
     case "plan":
       return (
         <div className="rounded-lg border border-[var(--app-border)] bg-[var(--app-overlay)] px-2.5 py-1.5 shadow-sm">
@@ -160,6 +156,11 @@ export function ItemView({ item, onPlanToTodo }: ItemViewProps) {
     default:
       return null;
   }
+}
+
+function ImageItem({ item, onOpenAttachment }: { item: Extract<AgentChatItem, { type: "image" }>; onOpenAttachment?: OpenChatAttachment }) {
+  const attachments = useMemo(() => [{ name: "agent-output", mimeType: item.mimeType, data: item.data, kind: "image" as const }], [item.mimeType, item.data]);
+  return <ChatAttachmentList attachments={attachments} onOpenAttachment={onOpenAttachment} />;
 }
 
 /** 会话级小型选择器（模式/模型共用，放 composer 底栏）：显示当前项，下拉列出可选项。 */

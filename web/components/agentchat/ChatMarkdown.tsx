@@ -8,6 +8,7 @@
 // 命中路径形态的行内 code 渲染成可点击，交给 onOpenFile 打开编辑器并跳行；
 // 非 http 的 markdown 链接同样拦截。
 import { memo, type ReactNode } from "react";
+import type { Element, Root, RootContent } from "hast";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -16,9 +17,17 @@ import { toAssetUrl } from "@/utils/assetUrl";
 import { isImagePath } from "./chatAttachments";
 
 import { parseFileLink, parseFileRef } from "./chatFileRefs";
-import { toFileUri } from "./chatPaths";
+import { isAbsolutePath, toFileUri } from "./chatPaths";
 export { parseFileRef } from "./chatFileRefs";
 export type { ParsedFileRef } from "./chatFileRefs";
+
+declare module "hast" {
+  interface ElementData {
+    chatLocalPath?: string;
+    chatInLink?: boolean;
+    chatInPre?: boolean;
+  }
+}
 
 function childText(children: ReactNode): string {
   if (typeof children === "string") return children;
@@ -47,8 +56,12 @@ export function normalizeWindowsLinkDestinations(text: string): string {
  * （defaultUrlTransform 会把 data: 清洗成空串）。http(s) 走默认清洗。
  */
 export function buildChatUrlTransform(cwd?: string) {
-  return (url: string, key: string): string => {
+  return (url: string, key: string, node?: Element): string => {
     if (key !== "src") return parseFileLink(url) ? url : defaultUrlTransform(url);
+    const ref = parseFileLink(url);
+    const local = ref ? isAbsolutePath(ref.path)
+      ? ref.path : cwd ? resolveRelativeFromDir(cwd, ref.path) : null : null;
+    if (local && node) node.data = { ...node.data, chatLocalPath: local };
     if (/^file:/i.test(url)) {
       const ref = parseFileLink(url);
       return ref ? toAssetUrl(ref.path) : "";
@@ -60,6 +73,21 @@ export function buildChatUrlTransform(cwd?: string) {
     // Unix 绝对路径（isLocalAssetPath 把 "/" 开头留给站内资源，聊天里它就是本地文件）。
     if (/^\/[^/]/.test(url)) return toAssetUrl(url);
     return defaultUrlTransform(url);
+  };
+}
+
+/** Keep links and fenced code valid when their children contain file references. */
+function markChatAncestors() {
+  return (tree: Root) => {
+    const walk = (node: Root | RootContent, inLink = false, inPre = false) => {
+      if (node.type === "element") {
+        node.data = { ...node.data, chatInLink: inLink, chatInPre: inPre };
+        inLink ||= node.tagName === "a";
+        inPre ||= node.tagName === "pre";
+      }
+      if ("children" in node) node.children.forEach((child) => walk(child, inLink, inPre));
+    };
+    walk(tree);
   };
 }
 
@@ -75,12 +103,20 @@ export default memo(function ChatMarkdown({ text, onOpenFile, cwd }: ChatMarkdow
     <div className="agent-chat-prose markdown-preview min-w-0 max-w-none break-words">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[[rehypeHighlight, { detect: false }]]}
+        rehypePlugins={[[rehypeHighlight, { detect: false }], markChatAncestors]}
         urlTransform={buildChatUrlTransform(cwd)}
-        components={{          code: ({ className, children, ...props }) => {
+        components={{
+          img: ({ node, src, alt, ...props }) => {
+            const path = node?.data?.chatLocalPath;
+            const image = <img {...props} src={src} alt={alt ?? ""} loading="lazy" decoding="async" className="max-h-72 max-w-full rounded-lg border border-[var(--app-border)]" />;
+            return onOpenFile && typeof path === "string" && !node?.data?.chatInLink
+              ? <button type="button" title={path} aria-label={alt || path} className="inline-block max-w-full rounded-lg text-left focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]" onClick={() => onOpenFile(path)}>{image}</button>
+              : image;
+          },
+          code: ({ node, className, children, ...props }) => {
             // 块级代码（有 language- class 或在 pre 内）原样；只处理行内。
-            const isBlock = /language-/.test(className ?? "");
-            if (!isBlock) {
+            const isBlock = /language-/.test(className ?? "") || node?.data?.chatInPre;
+            if (!isBlock && !node?.data?.chatInLink) {
               const ref = parseFileRef(childText(children));
               if (ref) {
                 // 图片路径（agent 生成截图/图表后报路径的常见形态）：直接在
@@ -98,28 +134,25 @@ export default memo(function ChatMarkdown({ text, onOpenFile, cwd }: ChatMarkdow
                   <>
                     {absolute ? (
                       <span className="my-1.5 block">
-                        <img
+                        {onOpenFile ? <button type="button" aria-label={ref.path} className="max-w-full rounded-lg text-left focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]" onClick={() => onOpenFile(ref.path, ref.line)}>
+                          <img src={toAssetUrl(absolute)} alt={ref.path} loading="lazy" decoding="async" className="max-h-72 max-w-full rounded-lg border border-[var(--app-border)]" />
+                        </button> : <img
                           src={toAssetUrl(absolute)}
                           alt={ref.path}
                           title={ref.path}
-                          onClick={
-                            onOpenFile ? () => onOpenFile(ref.path, ref.line) : undefined
-                          }
-                          className={`max-h-72 max-w-full rounded-lg border border-[var(--app-border)] ${
-                            onOpenFile ? "cursor-pointer" : ""
-                          }`}
-                        />
+                          loading="lazy" decoding="async"
+                          className="max-h-72 max-w-full rounded-lg border border-[var(--app-border)]"
+                        />}
                       </span>
                     ) : null}
                     {onOpenFile ? (
-                      <code
-                        {...props}
-                        className={`${className ?? ""} cursor-pointer underline decoration-dotted underline-offset-2 hover:text-[var(--app-icon-active)]`}
+                      <button type="button"
+                        className="cursor-pointer text-left underline decoration-dotted underline-offset-2 hover:text-[var(--app-icon-active)] focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]"
                         title={ref.path}
                         onClick={() => onOpenFile(ref.path, ref.line)}
                       >
-                        {children}
-                      </code>
+                        <code {...props} className={className}>{children}</code>
+                      </button>
                     ) : (
                       <code {...props} className={className}>
                         {children}
@@ -135,7 +168,7 @@ export default memo(function ChatMarkdown({ text, onOpenFile, cwd }: ChatMarkdow
               </code>
             );
           },
-          a: ({ href, children, ...props }) => {
+          a: ({ node: _node, href, children, ...props }) => {
             const target = href ?? "";
             if (!target) return <span>{children}</span>;
             if (target.startsWith("#")) return <a {...props} href={target}>{children}</a>;

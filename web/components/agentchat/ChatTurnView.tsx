@@ -2,6 +2,7 @@
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AcpPlanEntry } from "@/types/agentChat";
+import type { OpenChatAttachment } from "./useChatFileActions";
 import type { ChatTurn } from "./chatTurns";
 import AssistantBlockView from "./AssistantBlocks";
 import { CopyButton, ItemView } from "./ChatItems";
@@ -31,6 +32,7 @@ export interface ChatTurnViewProps {
   /** 会话工作目录：正文里相对图片路径的解析基准。 */
   cwd?: string;
   onOpenLocation: (path: string, line?: number) => void;
+  onOpenAttachment?: OpenChatAttachment;
   onPlanToTodo: (entries: AcpPlanEntry[]) => void;
   expandAllSignal?: { seq: number; expanded: boolean };
 }
@@ -42,6 +44,7 @@ export default function ChatTurnView({
   chatId,
   cwd,
   onOpenLocation,
+  onOpenAttachment,
   onPlanToTodo,
   expandAllSignal,
 }: ChatTurnViewProps) {
@@ -50,14 +53,14 @@ export default function ChatTurnView({
   if (turn.kind === "user") {
     return (
       <div className="agent-chat-turn-user flex min-w-0 flex-col items-end gap-1" data-testid="chat-turn-user">
-        <ItemView item={turn.item} onPlanToTodo={onPlanToTodo} />
+        <ItemView item={turn.item} onPlanToTodo={onPlanToTodo} onOpenAttachment={onOpenAttachment} />
         <TimeStamp at={turn.at} className="pr-1" />
       </div>
     );
   }
 
   if (turn.kind === "notice") {
-    return <ItemView item={turn.item} onPlanToTodo={onPlanToTodo} />;
+    return <ItemView item={turn.item} onPlanToTodo={onPlanToTodo} onOpenAttachment={onOpenAttachment} />;
   }
 
   const blocks = turn.blocks;
@@ -79,6 +82,7 @@ export default function ChatTurnView({
             chatId={chatId}
             cwd={cwd}
             onOpenLocation={onOpenLocation}
+            onOpenAttachment={onOpenAttachment}
             onPlanToTodo={onPlanToTodo}
             expandAllSignal={expandAllSignal}
             showCopyAction={false}

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Bot, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AcpPlanEntry } from "@/types/agentChat";
+import type { OpenChatAttachment } from "./useChatFileActions";
 import type { AssistantBlock } from "./chatTurns";
 import { isSubagentRunning } from "./chatTurns";
 import { CopyButton, ItemView, MessageCopyContextMenu } from "./ChatItems";
@@ -21,6 +22,7 @@ export interface AssistantBlockViewProps {
   /** 会话工作目录：正文 markdown 里相对图片路径的解析基准。 */
   cwd?: string;
   onOpenLocation: (path: string, line?: number) => void;
+  onOpenAttachment?: OpenChatAttachment;
   onPlanToTodo: (entries: AcpPlanEntry[]) => void;
   expandAllSignal?: { seq: number; expanded: boolean };
   /** Top-level replies share one action row; nested replies keep their own copy action. */
@@ -37,6 +39,7 @@ export function SubagentBlock({
   chatId,
   cwd,
   onOpenLocation,
+  onOpenAttachment,
   onPlanToTodo,
   expandAllSignal,
 }: Omit<AssistantBlockViewProps, "block"> & { block: SubagentBlockData }) {
@@ -87,6 +90,7 @@ export function SubagentBlock({
                 chatId={chatId}
                 cwd={cwd}
                 onOpenLocation={onOpenLocation}
+                onOpenAttachment={onOpenAttachment}
                 onPlanToTodo={onPlanToTodo}
                 expandAllSignal={expandAllSignal}
               />
@@ -120,6 +124,7 @@ export default function AssistantBlockView({
   chatId,
   cwd,
   onOpenLocation,
+  onOpenAttachment,
   onPlanToTodo,
   expandAllSignal,
   showCopyAction = true,
@@ -145,6 +150,7 @@ export default function AssistantBlockView({
           chatId={chatId}
           cwd={cwd}
           onOpenLocation={onOpenLocation}
+          onOpenAttachment={onOpenAttachment}
           onPlanToTodo={onPlanToTodo}
           expandAllSignal={expandAllSignal}
         />
@@ -164,7 +170,7 @@ export default function AssistantBlockView({
       );
     case "image":
     case "plan":
-      return <ItemView item={block.item} onPlanToTodo={onPlanToTodo} />;
+      return <ItemView item={block.item} onPlanToTodo={onPlanToTodo} onOpenAttachment={onOpenAttachment} />;
     default:
       return null;
   }

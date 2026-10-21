@@ -19,6 +19,7 @@ import { translateError } from "@/utils/errorTranslation";
 import { readClipboardFilePaths } from "@/components/panes/terminalClipboard";
 import { isDropInsideTerminalHost } from "@/components/panes/terminalDrop";
 import { attachChatPaths } from "./attachChatPaths";
+import { baseName } from "./chatAttachments";
 
 export interface ComposerAttachmentsApi {
   attachments: AgentChatAttachment[];
@@ -29,6 +30,8 @@ export interface ComposerAttachmentsApi {
   /** 拖放命中判定用的宿主元素（挂在输入区容器上）。 */
   hostRef: React.RefObject<HTMLDivElement | null>;
   attachFromDialog: () => Promise<void>;
+  attachFoldersFromDialog: () => Promise<void>;
+  attachDirectory: (path: string) => void;
   /** 无路径的剪贴板位图（截图/复制的图像数据）。 */
   pushFileAttachment: (file: File, fallbackName: string) => void;
   /** 后端剪贴板文件清单 → 附件；返回附上的数量（0 = 剪贴板里没有文件）。 */
@@ -86,10 +89,26 @@ export function useComposerAttachments(
 
   /** 附件对话框：选中的文件走统一 attachPaths。 */
   const attachFromDialog = useCallback(async () => {
-    const picked = await openFileDialog({ multiple: true, directory: false }).catch(() => null);
+    const picked = await openFileDialog({ multiple: true, directory: false });
     const paths = typeof picked === "string" ? [picked] : Array.isArray(picked) ? picked : [];
     await attachPaths(paths);
   }, [attachPaths]);
+
+  // A directory is a reference, even when its name ends in .png. Do not scan
+  // its contents or read it as an image merely to show an attachment chip.
+  const attachDirectory = useCallback((path: string) => {
+    if (!path || !isChatDraftCurrent(chatId, draftToken)) return;
+    const name = baseName(path.replace(/[\\/]+$/, "")) || path;
+    useAgentChatDraftStore.getState().addAttachments(chatId, draftToken, [
+      { name, path, kind: "file", mimeType: "", data: "", isDirectory: true },
+    ]);
+  }, [chatId, draftToken]);
+
+  const attachFoldersFromDialog = useCallback(async () => {
+    const picked = await openFileDialog({ multiple: true, directory: true });
+    const paths = typeof picked === "string" ? [picked] : Array.isArray(picked) ? picked : [];
+    paths.forEach(attachDirectory);
+  }, [attachDirectory]);
 
   const attachClipboardFiles = useCallback(async () => {
     const { paths } = await readClipboardFilePaths();
@@ -147,6 +166,8 @@ export function useComposerAttachments(
     dropHint,
     hostRef,
     attachFromDialog,
+    attachFoldersFromDialog,
+    attachDirectory,
     pushFileAttachment,
     attachClipboardFiles,
   };

@@ -16,5 +16,17 @@
   "showHidden": "显示隐藏文件",
   "hideHidden": "隐藏隐藏文件",
   "mermaidError": "Mermaid 图渲染失败，已回落为源码",
-  "fileSaved": "文件已保存"
+  "fileSaved": "文件已保存",
+  "copyPath": "复制路径",
+  "copyAbsolutePath": "复制完整路径",
+  "copyRelativePath": "复制项目相对路径",
+  "copyFileName": "复制文件名",
+  "pathCopied": "已复制",
+  "copyPathFailed": "无法复制路径",
+  "openDefaultApp": "用默认应用打开",
+  "revealInFileManager": "在文件管理器中显示",
+  "fileActionFailed": "无法打开文件，文件可能已移动或删除。",
+  "imageLoadFailed": "图片加载失败",
+  "retryImage": "重试",
+  "filePath": "文件路径"
 }

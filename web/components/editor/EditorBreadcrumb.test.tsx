@@ -49,6 +49,14 @@ describe("EditorBreadcrumb", () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it("does not navigate remote directories through the local file browser without a remote handler", async () => {
+    const user = userEvent.setup();
+    render(<EditorBreadcrumb filePath="/srv/project/app.ts" isRemote />);
+    await user.click(screen.getByRole("button", { name: "project" }));
+    expect(navigateTo).not.toHaveBeenCalled();
+    expect(toggleFilesMode).not.toHaveBeenCalled();
+  });
+
   it("navigates when clicking a directory segment", async () => {
     const user = userEvent.setup();
     render(<EditorBreadcrumb filePath="/home/user/app.ts" />);

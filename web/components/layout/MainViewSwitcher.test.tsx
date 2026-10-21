@@ -15,8 +15,8 @@ vi.mock("@/components/panes/StarredPanel", () => ({
 vi.mock("@/components/panes/DndPaneProvider", () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
-vi.mock("@/components/editor", () => ({
-  FileEditorPanel: () => <div data-testid="file-editor" />,
+vi.mock("@/components/editor/FileEditorPanel", () => ({
+  default: () => <div data-testid="file-editor" />,
 }));
 vi.mock("@/components/todo/TodoManager", () => ({
   default: ({
@@ -214,11 +214,11 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     expect(screen.getByTestId("providers-panel")).toBeVisible();
   });
 
-  it("files → Sidebar + FileEditorPanel 组合", () => {
+  it("files → Sidebar + FileEditorPanel 组合", async () => {
     setMode("files", { activeView: "files" });
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
     expect(screen.getByTestId("sidebar")).toBeInTheDocument();
-    expect(screen.getByTestId("file-editor")).toBeVisible();
+    expect(await screen.findByTestId("file-editor")).toBeVisible();
   });
 
   it("panes → Sidebar + PaneContainer，隐藏侧栏时只剩面板", () => {

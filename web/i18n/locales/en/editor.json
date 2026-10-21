@@ -16,5 +16,17 @@
   "showHidden": "Show Hidden Files",
   "hideHidden": "Hide Hidden Files",
   "mermaidError": "Mermaid render failed, showing source",
-  "fileSaved": "File saved"
+  "fileSaved": "File saved",
+  "copyPath": "Copy path",
+  "copyAbsolutePath": "Copy full path",
+  "copyRelativePath": "Copy project-relative path",
+  "copyFileName": "Copy file name",
+  "pathCopied": "Copied",
+  "copyPathFailed": "Could not copy the path",
+  "openDefaultApp": "Open in default app",
+  "revealInFileManager": "Show in file manager",
+  "fileActionFailed": "Could not open the file. It may have moved or been deleted.",
+  "imageLoadFailed": "Failed to load image",
+  "retryImage": "Retry",
+  "filePath": "File path"
 }

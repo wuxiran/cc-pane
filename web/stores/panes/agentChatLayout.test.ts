@@ -227,4 +227,32 @@ describe("enforceAgentChatLayoutPurity", () => {
     expect(after.tabs[0].contentType).toBe("agent-chat");
     expect(after.activeTabId).toBe(after.tabs[0].id);
   });
+
+  it("keeps only chat, document and chat configuration tabs in the reserved workbench", () => {
+    const { reserved, cli } = makeState();
+    collectPanels(cli.rootPane)[0].tabs = [];
+    const panel = collectPanels(reserved.rootPane)[0];
+    const allowed = ["agent-chat", "editor", "file-explorer", "skill-manager", "mcp-config"] as const;
+    const rejected = ["terminal", "browser", "dsh"] as const;
+    panel.tabs = [...allowed, ...rejected].map((type) => tab(type, type));
+    panel.activeTabId = "editor";
+    const state = { layouts: [cli, reserved], currentLayoutId: reserved.id, rootPane: reserved.rootPane };
+    enforceAgentChatLayoutPurity(state);
+    expect(panel.tabs.map((item) => item.contentType)).toEqual(allowed);
+    expect(panel.activeTabId).toBe("editor");
+    expect(collectPanels(cli.rootPane)[0].tabs.map((item) => item.contentType)).toEqual(rejected);
+    enforceAgentChatLayoutPurity(state);
+    expect(panel.tabs).toHaveLength(allowed.length);
+  });
+
+  it("replenishes the last chat without closing or stealing focus from an open preview", () => {
+    const { reserved, cli } = makeState();
+    const panel = collectPanels(reserved.rootPane)[0];
+    panel.tabs = [tab("image-preview", "editor")];
+    panel.activeTabId = "image-preview";
+    const state = { layouts: [cli, reserved], currentLayoutId: reserved.id, rootPane: reserved.rootPane };
+    enforceAgentChatLayoutPurity(state);
+    expect(panel.tabs.map((item) => item.contentType)).toEqual(["editor", "agent-chat"]);
+    expect(panel.activeTabId).toBe("image-preview");
+  });
 });

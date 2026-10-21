@@ -348,8 +348,9 @@ export default function EditorView({
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-        {error}
+      <div className="flex flex-col h-full overflow-hidden" style={{ paddingTop: "var(--notch-bar-height, 0px)" }}>
+        <EditorBreadcrumb filePath={filePath} projectPath={projectPath} isRemote={Boolean(ssh)} sourceLabel={ssh?.machineName} onNavigate={ssh ? handleRemoteBreadcrumbNavigate : undefined} />
+        <div className="flex flex-1 items-center justify-center px-4 text-sm text-muted-foreground" role="alert">{error}</div>
       </div>
     );
   }
@@ -359,6 +360,7 @@ export default function EditorView({
       <ImagePreview
         filePath={filePath}
         projectPath={projectPath}
+        isRemote={Boolean(ssh)}
         sourceUrl={ssh ? remoteImageUrl ?? undefined : undefined}
         sourceFileSize={ssh ? remoteImageSize ?? ssh.size : undefined}
         sourceLabel={ssh?.machineName}
@@ -392,6 +394,8 @@ export default function EditorView({
       />
       <EditorBreadcrumb
         filePath={filePath}
+        projectPath={projectPath}
+        isRemote={Boolean(ssh)}
         sourceLabel={ssh?.machineName}
         onNavigate={ssh ? handleRemoteBreadcrumbNavigate : undefined}
       />

@@ -1,10 +1,5 @@
-// ACP chat 状态（agent-chat 标签的消息流 + 会话快照）。
-//
-// 状态放全局 store 而不是组件里：标签切走时组件会卸载（keep-alive 不覆盖
-// pane 内容区），重挂载后消息流必须还在。会话真身在 Rust 进程里，这里只是
-// 渲染态。
-//
-// Tauri 事件 → 这里的动作的翻译（含 chunk 合批）在 agentChatEvents.ts。
+// ACP chat 全局渲染态：标签卸载后保留消息与会话快照。
+// 会话真身在 Rust；Tauri 事件翻译与 chunk 合批由 agentChatEvents.ts 负责。
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import type {
@@ -12,8 +7,6 @@ import type {
   AcpChatSnapshot,
   AcpContentBlock,
   AcpPermissionRequest,
-  AcpElicitationRequest,
-  AcpElicitationDraft,
   AcpPlanEntry,
   AcpSessionUpdate,
   AcpTerminalOutput,
@@ -23,9 +16,12 @@ import type {
   AgentChatItem,
 } from "@/types/agentChat";
 import { parentToolCallIdOf } from "@/types/agentChat";
+import { createElicitationActions, type ElicitationActions, type ElicitationState } from "./agentChatElicitation";
 import { seedForkTranscript } from "./agentChatForkTranscript";
 import { dropAgentChatDraft } from "./useAgentChatDraftStore";
 import { createPromptSubmissionActions, emptyPromptSubmission, observePromptPhase, type PromptSubmissionActions, type PromptSubmissionState } from "./agentChatPromptSubmission";
+
+export type { PendingChatElicitation } from "./agentChatElicitation";
 
 let itemSeq = 0;
 let setupSeq = 0;
@@ -39,12 +35,6 @@ export interface PendingChatPermission extends AcpPermissionRequest {
   error: string | null;
 }
 
-export interface PendingChatElicitation extends AcpElicitationRequest {
-  responding: boolean;
-  error: string | null;
-  values: AcpElicitationDraft;
-}
-
 export interface ChatSetupState {
   token: number;
   pending: boolean;
@@ -53,7 +43,7 @@ export interface ChatSetupState {
   preamble?: string;
 }
 
-export interface AgentChatSessionState extends PromptSubmissionState {
+export interface AgentChatSessionState extends PromptSubmissionState, ElicitationState {
   snapshot: AcpChatSnapshot | null;
   items: AgentChatItem[];
   /** 当前会话正文的起点；切项目留下的旧会话和分隔提示属于此前的只读前缀。 */
@@ -68,7 +58,6 @@ export interface AgentChatSessionState extends PromptSubmissionState {
   /** 由首页「对 agent 说」以编排管家身份发起的会话（决定欢迎态文案）。 */
   concierge: boolean;
   pendingPermissions: PendingChatPermission[];
-  pendingElicitations: PendingChatElicitation[];
   /** 后端 ready 仅代表握手完成；前端配置/目录提交完成前仍禁止输入。 */
   setup: ChatSetupState | null;
   /** agent 广告的斜杠命令目录（available_commands_update 整表替换）。 */
@@ -82,7 +71,7 @@ export interface AgentChatSessionState extends PromptSubmissionState {
   terminals: Record<string, AcpTerminalOutput>;
 }
 
-interface AgentChatStoreState extends PromptSubmissionActions {
+interface AgentChatStoreState extends PromptSubmissionActions, ElicitationActions {
   chats: Record<string, AgentChatSessionState>;
   setSnapshot: (chatId: string, snapshot: AcpChatSnapshot) => void;
   seedFork: (chatId: string, items: AgentChatItem[], acpSessionId: string, preservedPrefixLength?: number) => void;
@@ -103,10 +92,6 @@ interface AgentChatStoreState extends PromptSubmissionActions {
   enqueuePermission: (chatId: string, request: AcpPermissionRequest) => void;
   beginPermissionResponse: (chatId: string, requestKey: string) => boolean;
   finishPermissionResponse: (chatId: string, requestKey: string, error?: string) => void;
-  enqueueElicitation: (chatId: string, request: AcpElicitationRequest) => void;
-  setElicitationValues: (chatId: string, requestKey: string, values: AcpElicitationDraft) => void;
-  beginElicitationResponse: (chatId: string, requestKey: string) => boolean;
-  finishElicitationResponse: (chatId: string, requestKey: string, error?: string) => void;
   beginSetup: (chatId: string, prompt?: { firstPrompt?: string; preamble?: string }) => number | null;
   finishSetup: (chatId: string, token: number, error?: string) => void;
   pushNotice: (chatId: string, text: string) => void;
@@ -186,6 +171,7 @@ function mergeToolCall(existing: AcpToolCall, patch: ToolCallPatch): void {
 export const useAgentChatStore = create<AgentChatStoreState>()(
   immer((set) => ({
     chats: {},
+    ...createElicitationActions(set, (state, chatId) => ensure(state.chats, chatId)),
     ...createPromptSubmissionActions(set, (state, chatId) => ensure(state.chats, chatId), pushItem, nextItemId),
 
     seedFork: (chatId, items, acpSessionId, preservedPrefixLength = 0) => set((state) => {
@@ -457,41 +443,6 @@ export const useAgentChatStore = create<AgentChatStoreState>()(
           chat.pendingPermissions = chat.pendingPermissions.filter((item) => item.requestKey !== requestKey);
         }
       }),
-
-    enqueueElicitation: (chatId, request) => set((state) => {
-      const chat = ensure(state.chats, chatId);
-      if (!chat.pendingElicitations.some((item) => item.requestKey === request.requestKey)) {
-        chat.pendingElicitations.push({ ...request, responding: false, error: null, values: {} });
-      }
-    }),
-
-    setElicitationValues: (chatId, requestKey, values) => set((state) => {
-      const request = state.chats[chatId]?.pendingElicitations.find((item) => item.requestKey === requestKey);
-      if (request && !request.responding) request.values = values;
-    }),
-
-    beginElicitationResponse: (chatId, requestKey) => {
-      let started = false;
-      set((state) => {
-        const request = state.chats[chatId]?.pendingElicitations.find((item) => item.requestKey === requestKey);
-        if (!request || request.responding) return;
-        request.responding = true;
-        request.error = null;
-        started = true;
-      });
-      return started;
-    },
-
-    finishElicitationResponse: (chatId, requestKey, error) => set((state) => {
-      const chat = state.chats[chatId];
-      if (!chat) return;
-      const request = chat.pendingElicitations.find((item) => item.requestKey === requestKey);
-      if (!request) return;
-      if (error !== undefined) {
-        request.responding = false;
-        request.error = error;
-      } else chat.pendingElicitations = chat.pendingElicitations.filter((item) => item.requestKey !== requestKey);
-    }),
 
     beginSetup: (chatId, prompt) => {
       let token: number | null = null;

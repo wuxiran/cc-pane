@@ -14,6 +14,13 @@ export function isAgentChatLayout(layout: Pick<LayoutEntry, "id">): boolean {
   return layout.id === AGENT_CHAT_LAYOUT_ID;
 }
 
+/** Chat-local documents and configuration panels belong to the same workbench. */
+export function isAgentChatWorkbenchTab(tab: Pick<Tab, "contentType">): boolean {
+  return tab.contentType === "agent-chat" || tab.contentType === "editor"
+    || tab.contentType === "file-explorer" || tab.contentType === "skill-manager"
+    || tab.contentType === "mcp-config";
+}
+
 export function createAgentChatLayout(): LayoutEntry {
   const rootPane = createPanel();
   return {
@@ -35,8 +42,8 @@ export function ensureAgentChatLayout(layouts: LayoutEntry[]): LayoutEntry {
 }
 
 /**
- * 专用布局不变量强制：只留 agent-chat 标签（混入的其他类型搬去第一个 CLI 布局），
- * 空面板补一个新 agent-chat 标签——保证专用空间永不空白、也永不出现终端类标签。
+ * 专用布局保留对话、文件预览与聊天配置页；混入的终端等类型搬去第一个 CLI 布局。
+ * 每个面板至少保留一个对话入口，关闭最后一个对话后不丢失已打开的文件。
  *
  * 调用点都是「别名干净」的时机：rehydrate（纯对象）、switchLayout / removeTabs
  * 的 set 收尾（当前布局工作副本刚与条目树对齐）。当前布局的树真源是 rootPane
@@ -58,7 +65,7 @@ export function enforceAgentChatLayoutPurity(state: {
   for (const panel of collectPanels(tree)) {
     const stayed: Tab[] = [];
     for (const tab of panel.tabs) {
-      if (tab.contentType === "agent-chat") {
+      if (isAgentChatWorkbenchTab(tab)) {
         stayed.push(tab);
       } else if (cliPanels.length > 0) {
         cliPanels[0].tabs.push(tab);
@@ -70,10 +77,10 @@ export function enforceAgentChatLayoutPurity(state: {
       panel.tabs = stayed;
       if (lostActive && stayed.length > 0) panel.activeTabId = stayed[0].id;
     }
-    if (panel.tabs.length === 0) {
+    if (!panel.tabs.some((tab) => tab.contentType === "agent-chat")) {
       const fresh = createTabOfType("agent-chat", { projectPath: "" });
       panel.tabs.push(fresh);
-      panel.activeTabId = fresh.id;
+      if (!panel.tabs.some((tab) => tab.id === panel.activeTabId)) panel.activeTabId = fresh.id;
     }
   }
   // 当前布局时把修正后的树写回条目（此刻别名干净，写回即同步）。

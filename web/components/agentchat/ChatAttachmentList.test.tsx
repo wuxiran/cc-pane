@@ -15,6 +15,7 @@ describe("chat attachment preview", () => {
     expect(chatAttachmentPreview({ ...image, data: "", kind: "file", path: "https://other.test/image.png" })).toBeNull();
     expect(chatAttachmentPreview({ ...image, mimeType: "text/html" })).toBeNull();
     expect(chatAttachmentPreview({ ...image, mimeType: "image/svg+xml" })).toBeNull();
+    expect(chatAttachmentPreview({ ...image, path: "/tmp/assets.png", isDirectory: true })).toBeNull();
   });
 
   it("opens an accessible preview, closes with Escape, and removes the selected attachment", async () => {
@@ -36,5 +37,30 @@ describe("chat attachment preview", () => {
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "预览 screen.png" })).not.toBeInTheDocument();
     expect(screen.getByText("screen.png")).toBeInTheDocument();
+  });
+
+  it("opens attachments in a tab by default while keeping a separate quick-preview action", async () => {
+    const open = vi.fn().mockResolvedValue(true);
+    const { container } = render(<ChatAttachmentList attachments={[image]} onOpenAttachment={open} />);
+    fireEvent.click(screen.getByRole("button", { name: "在标签页中打开 screen.png" }));
+    await waitFor(() => expect(open).toHaveBeenCalledExactlyOnceWith(image));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "快速预览 screen.png" }));
+    expect(screen.getByRole("dialog", { name: "screen.png" })).toBeInTheDocument();
+    expect(container.querySelector("button button")).toBeNull();
+  });
+
+  it("falls back to the quick preview when inline persistence is unavailable", async () => {
+    render(<ChatAttachmentList attachments={[image]} onOpenAttachment={vi.fn().mockResolvedValue(false)} />);
+    fireEvent.click(screen.getByRole("button", { name: "在标签页中打开 screen.png" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "screen.png" })).toBeInTheDocument());
+  });
+
+  it("opens file and directory chips, and reports errors without silently dismissing them", async () => {
+    const folder = { name: "assets.png", path: "/tmp/assets.png", data: "", mimeType: "", isDirectory: true };
+    render(<ChatAttachmentList attachments={[folder]} onOpenAttachment={vi.fn().mockRejectedValue(new Error("Missing directory"))} />);
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "在标签页中打开 assets.png" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Missing directory"));
   });
 });

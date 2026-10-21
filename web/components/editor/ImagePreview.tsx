@@ -19,6 +19,7 @@ interface ImagePreviewProps {
   sourceUrl?: string;
   sourceFileSize?: number;
   sourceLabel?: string;
+  isRemote?: boolean;
   onNavigate?: (path: string) => void;
 }
 
@@ -41,10 +42,12 @@ function getExtensionLabel(filePath: string): string {
 
 export default function ImagePreview({
   filePath,
+  projectPath,
   sourceUrl,
   sourceFileSize,
   sourceLabel,
   onNavigate,
+  isRemote = Boolean(onNavigate),
 }: ImagePreviewProps) {
   const { t } = useTranslation("editor");
   const [zoomMode, setZoomMode] = useState<ZoomMode>("fit");
@@ -52,37 +55,36 @@ export default function ImagePreview({
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [fileSize, setFileSize] = useState<number | null>(null);
   const [imgError, setImgError] = useState(false);
-  const [webAssetUrl, setWebAssetUrl] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
   const imgRef = useRef<HTMLImageElement>(null);
 
-  const assetUrl = sourceUrl ?? (isTauriRuntime() ? convertFileSrc(filePath) : webAssetUrl);
+  const assetUrl = sourceUrl ?? (isRemote ? null : isTauriRuntime() ? convertFileSrc(filePath) : `/api/fs/raw?path=${encodeURIComponent(filePath)}`);
   const extLabel = getExtensionLabel(filePath);
 
   // 获取文件大小
   useEffect(() => {
     let cancelled = false;
+    setFileSize(null);
     if (sourceFileSize !== undefined) {
       setFileSize(sourceFileSize);
       return () => { cancelled = true; };
     }
+    if (isRemote || sourceUrl) return;
     filesystemService.getEntryInfo(filePath).then((info) => {
       if (!cancelled) setFileSize(info.size);
-    }).catch(() => { /* 忽略 */ });
+    }).catch(() => {
+      // Metadata is optional: an unreadable file must not retain another file's size.
+      if (!cancelled) setFileSize(null);
+    });
     return () => { cancelled = true; };
-  }, [filePath, sourceFileSize]);
+  }, [filePath, sourceFileSize, sourceUrl, isRemote, retry]);
 
   useEffect(() => {
     setImgError(false);
-    if (sourceUrl) {
-      setWebAssetUrl(null);
-      return;
-    }
-    if (isTauriRuntime()) {
-      setWebAssetUrl(null);
-      return;
-    }
-    setWebAssetUrl(`/api/fs/raw?path=${encodeURIComponent(filePath)}`);
-  }, [filePath, sourceUrl]);
+    setNaturalSize(null);
+    setZoomMode("fit");
+    setZoomLevel(1);
+  }, [filePath, sourceUrl, isRemote]);
 
   const handleImageLoad = useCallback(() => {
     const img = imgRef.current;
@@ -127,11 +129,15 @@ export default function ImagePreview({
         };
       case "actual":
         return {
+          maxWidth: "none",
+          maxHeight: "none",
           width: naturalSize ? naturalSize.w : "auto",
           height: naturalSize ? naturalSize.h : "auto",
         };
       case "custom":
         return {
+          maxWidth: "none",
+          maxHeight: "none",
           width: naturalSize ? naturalSize.w * zoomLevel : "auto",
           height: naturalSize ? naturalSize.h * zoomLevel : "auto",
         };
@@ -142,23 +148,13 @@ export default function ImagePreview({
     ? "Fit"
     : `${Math.round((zoomMode === "actual" ? 1 : zoomLevel) * 100)}%`;
 
-  if (imgError) {
-    return (
-      <div className="flex flex-col h-full overflow-hidden">
-        <EditorBreadcrumb filePath={filePath} sourceLabel={sourceLabel} onNavigate={onNavigate} />
-        <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-          Failed to load image
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden" style={{ paddingTop: "var(--notch-bar-height, 0px)" }}>
+      <EditorBreadcrumb filePath={filePath} projectPath={projectPath} isRemote={isRemote} sourceLabel={sourceLabel} onNavigate={onNavigate} />
       {/* 工具栏 */}
-      <TooltipProvider delayDuration={300}>
+      {!imgError && <TooltipProvider delayDuration={300}>
         <div
-          className="flex items-center gap-1 px-2 h-[26px] border-b text-xs shrink-0"
+          className="flex flex-wrap items-center gap-1 px-2 min-h-8 py-1 border-b text-xs shrink-0"
           style={{ background: "var(--editor-bg)" }}
         >
           {/* 格式 badge */}
@@ -180,6 +176,8 @@ export default function ImagePreview({
                 variant="ghost"
                 size="icon"
                 className="h-5 w-5"
+                aria-label={t("zoomOut")}
+                disabled={zoomMode === "custom" && zoomLevel <= ZOOM_MIN}
                 onClick={handleZoomOut}
               >
                 <ZoomOut size={13} />
@@ -194,6 +192,8 @@ export default function ImagePreview({
                 variant="ghost"
                 size="icon"
                 className="h-5 w-5"
+                aria-label={t("zoomIn")}
+                disabled={zoomMode === "custom" && zoomLevel >= ZOOM_MAX}
                 onClick={handleZoomIn}
               >
                 <ZoomIn size={13} />
@@ -210,6 +210,8 @@ export default function ImagePreview({
                 variant={zoomMode === "fit" ? "secondary" : "ghost"}
                 size="icon"
                 className="h-5 w-5"
+                aria-label={t("fitToView")}
+                aria-pressed={zoomMode === "fit"}
                 onClick={handleFitToView}
               >
                 <Maximize size={13} />
@@ -224,6 +226,8 @@ export default function ImagePreview({
                 variant={zoomMode === "actual" ? "secondary" : "ghost"}
                 size="icon"
                 className="h-5 w-5"
+                aria-label={t("actualSize")}
+                aria-pressed={zoomMode === "actual"}
                 onClick={handleActualSize}
               >
                 <Scan size={13} />
@@ -253,14 +257,18 @@ export default function ImagePreview({
             </span>
           )}
         </div>
-      </TooltipProvider>
-
-      {/* 面包屑 */}
-      <EditorBreadcrumb filePath={filePath} sourceLabel={sourceLabel} onNavigate={onNavigate} />
+      </TooltipProvider>}
 
       {/* 图片预览区域 - 棋盘格背景 */}
-      <div
-        className="flex-1 overflow-auto flex items-center justify-center"
+      {imgError ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-sm text-muted-foreground" role="alert">
+          <p>{t("imageLoadFailed", { defaultValue: "Failed to load image" })}</p>
+          <Button variant="outline" size="sm" onClick={() => { setImgError(false); setRetry((value) => value + 1); }}>
+            {t("retryImage", { defaultValue: "Retry" })}
+          </Button>
+        </div>
+      ) : <div
+        className="flex-1 min-h-0 overflow-auto flex"
         style={{
           backgroundImage:
             "linear-gradient(45deg, var(--checkerboard-color) 25%, transparent 25%), " +
@@ -273,6 +281,8 @@ export default function ImagePreview({
         }}
       >
         <img
+          key={`${filePath}:${retry}`}
+          className="m-auto shrink-0"
           ref={imgRef}
           src={assetUrl ?? undefined}
           alt={filePath.split(/[/\\]/).pop() || "image"}
@@ -281,7 +291,7 @@ export default function ImagePreview({
           onError={handleImageError}
           draggable={false}
         />
-      </div>
+      </div>}
     </div>
   );
 }

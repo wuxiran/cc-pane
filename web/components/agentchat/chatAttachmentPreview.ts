@@ -6,6 +6,7 @@ import { isAbsolutePath } from "./chatPaths";
 /** Legacy attachments omit kind. Only raster data and local absolute files become
  * image sources: resource links and arbitrary remote URLs remain file cards. */
 export function chatAttachmentPreview(attachment: AgentChatAttachment): string | null {
+  if (attachment.isDirectory) return null;
   if (attachment.kind !== "file" && attachment.data) {
     const mime = attachment.mimeType || "image/png";
     return /^image\/(png|jpeg|gif|webp|bmp|avif)$/i.test(mime)

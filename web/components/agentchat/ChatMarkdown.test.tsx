@@ -1,6 +1,7 @@
 // 聊天 markdown 的本地图片转换：mock 成非 Tauri 运行时，toAssetUrl 走 web
 // 部署的 /api/fs/raw 形态，断言确定（与 MarkdownPreview.test 同一手法）。
-import { render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import ChatMarkdown, { normalizeWindowsLinkDestinations } from "./ChatMarkdown";
 
@@ -88,5 +89,44 @@ describe("ChatMarkdown 行内代码图片路径预览", () => {
     );
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("code")).not.toBeNull();
+  });
+});
+
+describe("ChatMarkdown file navigation", () => {
+  it("opens local Markdown images by keyboard and resolves their paths against the chat cwd", async () => {
+    const open = vi.fn();
+    const user = userEvent.setup();
+    render(<ChatMarkdown text="![capture](out/result.png)" cwd="/work/project" onOpenFile={open} />);
+    screen.getByRole("button", { name: "capture" }).focus();
+    await user.keyboard("{Enter}");
+    expect(open).toHaveBeenCalledWith("/work/project/out/result.png");
+  });
+
+  it("never routes remote or data image sources into the local editor", () => {
+    const open = vi.fn();
+    render(<ChatMarkdown text="![remote](https://example.com/a.png) ![inline](data:image/png;base64,AA==)" cwd="/work" onOpenFile={open} />);
+    fireEvent.click(screen.getByRole("img", { name: "remote" }));
+    fireEvent.click(screen.getByRole("img", { name: "inline" }));
+    expect(open).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("keeps linked images and code free from nested controls, and fences remain plain code", () => {
+    const open = vi.fn();
+    const { container } = render(<ChatMarkdown text={'[![capture](/tmp/a.png)](/tmp/a.png) [`readme.md`](readme.md)\n\n```\nsrc/a.rs\n```'} cwd="/work" onOpenFile={open} />);
+    expect(container.querySelector("a button")).toBeNull();
+    expect(container.querySelector("pre button")).toBeNull();
+    expect(container.querySelectorAll("img")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("link", { name: "capture" }));
+    expect(open).toHaveBeenCalledWith("/tmp/a.png", undefined);
+  });
+
+  it("makes inline file code keyboard-accessible and preserves line numbers", async () => {
+    const open = vi.fn();
+    const user = userEvent.setup();
+    render(<ChatMarkdown text="See `src/main.ts:17`" cwd="/work" onOpenFile={open} />);
+    screen.getByRole("button", { name: "src/main.ts:17" }).focus();
+    await user.keyboard(" ");
+    expect(open).toHaveBeenCalledWith("src/main.ts", 17);
   });
 });

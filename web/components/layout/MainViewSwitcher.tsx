@@ -10,7 +10,7 @@ import SidebarFlyout from "@/components/layout/SidebarFlyout";
 import { PaneContainer } from "@/components/panes";
 import StarredPanel from "@/components/panes/StarredPanel";
 import DndPaneProvider from "@/components/panes/DndPaneProvider";
-import { FileEditorPanel } from "@/components/editor";
+import { lazyWithRetry } from "@/lib/lazyRetry";
 import TodoManager from "@/components/todo/TodoManager";
 import { SelfChatManager } from "@/components/selfchat";
 import { HomeDashboard } from "@/components/home";
@@ -32,6 +32,8 @@ import { collectPanels } from "@/lib/paneTree";
 const DramaStudio = lazy(() => import("@/components/drama/DramaStudio"));
 const OrchestrationOverlay = lazy(() => import("@/components/orchestration/OrchestrationOverlay"));
 const SkillMarketPage = lazy(() => import("@/components/skillmarket/SkillMarketPage"));
+// File previews and their actions load only when the file workspace is opened.
+const FileEditorPanel = lazyWithRetry(() => import("@/components/editor/FileEditorPanel"), "FileEditorPanel");
 
 interface MainViewSwitcherProps {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
@@ -311,7 +313,9 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           {...viewMotionAttr("files")}
           style={{ background: "var(--app-panel-bg)", ...viewStyle("files") }}
         >
-          <FileEditorPanel />
+          <Suspense fallback={<div role="status" className="flex h-full items-center justify-center text-sm text-muted-foreground">{commonT("loading")}</div>}>
+            <FileEditorPanel />
+          </Suspense>
         </div>
       )}
       {/* 面板区域（终端）：keep-alive 关键区——隐藏不卸载，切回即恢复。

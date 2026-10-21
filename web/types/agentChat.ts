@@ -215,6 +215,8 @@ export interface AgentChatAttachment {
   data: string;
   kind?: "image" | "file";
   path?: string;
+  /** An explicit directory reference; contents are not read or expanded on attach. */
+  isDirectory?: boolean;
 }
 
 /** 渲染层消息条目。tool_call 按 toolCallId 就地合并；plan 整表替换。

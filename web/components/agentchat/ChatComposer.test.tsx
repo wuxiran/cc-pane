@@ -5,9 +5,11 @@ import "@/i18n";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { screenshotService } from "@/services/screenshotService";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
+import { useAgentChatDraftStore } from "@/stores/useAgentChatDraftStore";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import ChatComposer from "./ChatComposer";
 
@@ -310,5 +312,54 @@ describe("ChatComposer draft attachment lifetime", () => {
     await act(async () => resolvePaths(["C:\\repo\\late.pdf"]));
     renderComposer();
     expect(screen.queryByText("late.pdf")).toBeNull();
+  });
+});
+
+describe("ChatComposer add menu", () => {
+  async function choose(label: string | RegExp) {
+    fireEvent.keyDown(screen.getByRole("button", { name: "添加" }), { key: "ArrowDown" });
+    await screen.findByRole("menu");
+    fireEvent.click(screen.getByRole("menuitem", { name: label }));
+  }
+
+  it("selects directories as references even when a directory looks like an image", async () => {
+    vi.mocked(openFileDialog).mockResolvedValue(["/repo/screens.png", "/repo/source"]);
+    useAgentChatStore.getState().setSnapshot(CHAT, { chatId: CHAT, engineId: "claude", phase: "ready", agentCapabilities: { promptCapabilities: { image: true } } });
+    renderComposer(); await choose("文件夹");
+    await waitFor(() => expect(useAgentChatDraftStore.getState().drafts[CHAT].attachments).toHaveLength(2));
+    expect(openFileDialog).toHaveBeenCalledWith({ multiple: true, directory: true });
+    expect(useAgentChatDraftStore.getState().drafts[CHAT].attachments[0]).toMatchObject({ name: "screens.png", path: "/repo/screens.png", kind: "file", isDirectory: true });
+    expect(invoke).not.toHaveBeenCalledWith("read_acp_image_attachment", expect.anything());
+    expect(invoke).not.toHaveBeenCalledWith("prompt_acp_chat", expect.anything());
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "发送" })));
+    expect(invoke).toHaveBeenCalledWith("prompt_acp_chat", { chatId: CHAT, blocks: [
+      { type: "resource_link", uri: "file:///repo/screens.png", name: "screens.png" },
+      { type: "resource_link", uri: "file:///repo/source", name: "source" },
+    ] });
+  });
+
+  it("attaches the current project explicitly without reading it or sending", async () => {
+    renderComposer(); await choose(/附加当前项目/);
+    expect(useAgentChatDraftStore.getState().drafts[CHAT].attachments).toEqual([
+      { name: "proj", path: String.raw`C:\\proj`, kind: "file", mimeType: "", data: "", isDirectory: true },
+    ]);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("keeps file selection and reports dialog failures", async () => {
+    vi.mocked(openFileDialog).mockRejectedValueOnce(new Error("dialog unavailable"));
+    renderComposer(); await choose("文件");
+    expect(openFileDialog).toHaveBeenCalledWith({ multiple: true, directory: false });
+    await waitFor(() => expect(useAgentChatStore.getState().chats[CHAT].items).toContainEqual(expect.objectContaining({ type: "notice", text: "dialog unavailable" })));
+    expect(useAgentChatDraftStore.getState().drafts[CHAT]?.attachments ?? []).toHaveLength(0);
+  });
+
+  it("does not resurrect a directory attachment after closing the chat while its picker is open", async () => {
+    let resolve!: (paths: string[]) => void;
+    vi.mocked(openFileDialog).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    const view = renderComposer(); await choose("文件夹");
+    view.unmount(); useAgentChatStore.getState().dropChat(CHAT);
+    await act(async () => resolve(["/repo/late"]));
+    expect(useAgentChatDraftStore.getState().drafts[CHAT]).toBeUndefined();
   });
 });
