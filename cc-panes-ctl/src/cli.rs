@@ -344,6 +344,10 @@ fn data_mode(cli: &Cli) -> DataDirMode {
 }
 
 #[cfg(test)]
+#[path = "cli_prompt_tests.rs"]
+mod prompt_tests;
+
+#[cfg(test)]
 mod tests {
     use super::ControlKey;
 

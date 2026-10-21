@@ -1,5 +1,5 @@
 import "@/i18n";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import OrchestratorView from "./OrchestratorView";
 import { useOrchestratorStore } from "@/stores";
@@ -37,7 +37,7 @@ function configureStore(overrides: Record<string, unknown> = {}) {
   setViewType = vi.fn();
   useOrchestratorStore.setState({
     bindings: [],
-    loading: false,
+    loading: false, hasMore: false, loadError: null,
     filterTab: "all",
     viewType: "list",
     loadBindings,
@@ -113,4 +113,14 @@ describe("OrchestratorView", () => {
     expect(screen.getByText("filter-bar-stub")).toBeVisible();
     expect(screen.queryByPlaceholderText(/Enter task|输入任务/i)).not.toBeInTheDocument();
   });
+  it("offers pagination and persistent retry without removing existing sidebar tasks", () => {
+    const more = vi.fn(); const retry = vi.fn();
+    configureStore({ bindings: [makeBinding({ title: "Retained task" })], hasMore: true, loadMoreBindings: more, retryBindings: retry });
+    render(<OrchestratorView onOpenTerminal={vi.fn()} compact />);
+    fireEvent.click(screen.getByRole("button", { name: "加载更多任务" })); expect(more).toHaveBeenCalledOnce();
+    act(() => useOrchestratorStore.setState({ loadError: "offline", hasMore: false }));
+    expect(screen.getByText("Retained task")).toBeVisible(); expect(screen.getByRole("alert")).toHaveTextContent("任务列表加载失败");
+    fireEvent.click(screen.getByRole("button", { name: "重试" })); expect(retry).toHaveBeenCalledOnce();
+  });
+
 });

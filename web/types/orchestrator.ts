@@ -27,6 +27,7 @@ export interface TaskBinding {
   metadata?: unknown;
   createdAt: string;
   updatedAt: string;
+  reportRevision?: number;
 }
 
 export interface TaskBindingNode extends TaskBinding {
@@ -111,6 +112,8 @@ export interface TaskBindingQuery {
 }
 
 export interface TaskBindingQueryResult {
+  /** Opaque backend snapshot revision; older servers may omit it. */
+  revision?: string;
   items: TaskBinding[];
   total: number;
   hasMore: boolean;

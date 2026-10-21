@@ -78,7 +78,7 @@ CC-Panes 通过 MCP 工具与本地/WSL/SSH 上已注册的 CLI 实例交互。�
 |------|------|
 | `mcp__ccpanes__register_plan_leader` | 把当前会话标记为 leader |
 | `mcp__ccpanes__get_task_dispatch` | 通过 `bindingId` 获取解析后的派发信封和持久化状态 |
-| `mcp__ccpanes__report_to_leader` | worker 完成时 PTY 推送给 leader（leader busy 时引擎排队补投，见下方） |
+| `mcp__ccpanes__report_to_leader` | 自动上报失败后的显式补投给 leader（leader busy 时引擎排队补投，见下方） |
 | `mcp__ccpanes__update_task_binding` | 持久化 worker 状态（**必做** —— PTY 反馈丢失时的兜底）|
 | `mcp__ccpanes__reconcile_plan_collaboration` | leader 端最终兜底，扫所有 worker binding 最终状态 |
 
@@ -161,12 +161,12 @@ mcp__ccpanes__kill_session(sessionId)
 
 4. worker 从 `CC_PANES_TASK_BINDING_ID` 读取自己的 binding id，完成时：
    先 update_task_binding(id=<环境变量>, status="completed", ...)
-   后 report_to_leader(workerId=<环境变量>, status, summary)
+   终态更新成功后由引擎自动上报；只有确认投递失败、或 leader 明确要求补投时才调用 report_to_leader
 
 5. Leader 等 PTY [worker-report] 行；用 get_task_status(bindingId) + get_session_status(workerSessionId) 兜底。
 ```
 
-**关键 gotcha**：`report_to_leader` 在 leader busy 时返回 `{sent: false, queued: true, skipReason: "leader busy"}`——report 进入引擎补投队列，leader 回到空闲（Idle/WaitingInput）时自动注入，**worker 无需重试**。但补投队列在 leader 崩溃/exited 时会被清空，所以 worker 仍必须配合 `update_task_binding` 持久化状态（纵深防御，也是 reconcile 的唯一依据）。多 worker 并发时这条特别重要。
+**关键 gotcha**：`report_to_leader` 在 leader busy 时返回 `{sent: false, queued: true, skipReason: "leader busy"}`——report 进入引擎补投队列，leader 回到空闲（Idle，等待用户确认时不注入）时自动注入，**worker 无需重试**。但补投队列在 leader 崩溃/exited 时会被清空，所以 worker 仍必须配合 `update_task_binding` 持久化状态（纵深防御，也是 reconcile 的唯一依据）。多 worker 并发时这条特别重要。
 
 ### E. 卡住 / 终止 / 重发
 

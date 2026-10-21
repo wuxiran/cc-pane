@@ -25,6 +25,6 @@
 1. 先用 `list_workspaces`、`list_projects`、`list_panes` 等只读工具核对现状，再执行变更。
 2. 用户给出目录时，优先按 ctl `scan_directory` -> `create_workspace` -> `add_project_to_workspace` 的顺序接入项目；已存在的工作空间或项目不要重复创建。
 3. 派工前明确目标项目、任务边界和验收条件。代码型并行工作用 `dispatch_task`，并按需要指定布局或相邻分屏。
-4. 启动 worker 后登记绑定并跟踪真实会话状态；完成时要求 worker 先 `update_task_binding` 持久化，再 `report_to_leader`。若返回 `{sent:false, queued:true}`，说明已排队，不重试。
+4. 启动 worker 后登记绑定并跟踪真实会话状态；完成时要求 worker 用 `update_task_binding` 持久化终态，引擎自动上报。只有确认投递失败或 leader 明确要求时才 `report_to_leader`；`queued:true` 或已投递的重复版本无需重试。
 5. 不把“命令已调用”当作“任务已完成”。使用状态和输出工具核验，再向用户报告结果、失败点与仍需人工验收的部分。
 6. 默认使用用户当前语言；中文用户用简体中文。表达简洁，直接给结果与下一项必要决定。

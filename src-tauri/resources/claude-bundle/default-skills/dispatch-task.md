@@ -60,7 +60,7 @@ mcp__ccpanes__update_task_binding(
 )
 ```
 
-有 `parentBindingId` 且需要立即向父会话回传时，再调用 `report_to_leader(workerId=<CC_PANES_TASK_BINDING_ID>, ...)`。`update_task_binding` 必须在前，PTY 报告只是加速反馈，不是唯一记录。
+终态 `update_task_binding` 成功后会自动向 leader 上报；不要固定再调用 `report_to_leader`。只有确认投递失败、或 leader 明确要求补投时才手动调用。返回 `queued:true` 或 `skipReason:"duplicate report version already delivered"` 时不要重试。
 
 不支持 MCP 的 worker 不要求伪造这些调用；prompt 必须要求它把同样的改动、验证和阻塞信息打印到终端，leader 通过会话输出验收。
 

@@ -13,8 +13,8 @@ async fn same_completed_report_version_is_delivered_once_and_new_version_can_fol
         task_binding_service: service,
         pending_worker_reports: Arc::new(Mutex::new(PendingReportMap::new())),
         report_delivery_locks: Arc::new(Mutex::new(HashMap::new())),
-        sent_report_keys: Arc::new(Mutex::new(HashSet::new())),
-        failed_report_events: Arc::new(Mutex::new(HashSet::new())),
+        sent_report_keys: Arc::new(Mutex::new(SentReportCache::default())),
+        failed_report_events: Arc::new(Mutex::new(FailedReportCache::default())),
         pipe_event_service: directive_runtime.pipe_event_service,
         dsh_service: Arc::new(cc_panes_core::services::DshService::new(&paths)),
     };
@@ -41,7 +41,7 @@ async fn same_completed_report_version_is_delivered_once_and_new_version_can_fol
     assert!(!duplicate.sent);
     assert_eq!(backend.submits().len(), 1);
 
-    worker.updated_at = "2026-10-19T03:50:00Z".into();
+    worker.report_revision += 1;
     worker.completion_summary = Some("revised completion".into());
     let next = send_worker_report_to_leader_with_attempt(runtime, worker, 0).await;
     assert!(next.sent);
@@ -63,8 +63,8 @@ async fn duplicate_report_race_serializes_and_only_one_transport_write_succeeds(
         task_binding_service: service,
         pending_worker_reports: Arc::new(Mutex::new(PendingReportMap::new())),
         report_delivery_locks: Arc::new(Mutex::new(HashMap::new())),
-        sent_report_keys: Arc::new(Mutex::new(HashSet::new())),
-        failed_report_events: Arc::new(Mutex::new(HashSet::new())),
+        sent_report_keys: Arc::new(Mutex::new(SentReportCache::default())),
+        failed_report_events: Arc::new(Mutex::new(FailedReportCache::default())),
         pipe_event_service: directive_runtime.pipe_event_service,
         dsh_service: Arc::new(cc_panes_core::services::DshService::new(&paths)),
     };

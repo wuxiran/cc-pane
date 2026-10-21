@@ -4,19 +4,30 @@ use rusqlite::{params, OptionalExtension};
 use std::sync::Arc;
 use tracing::{error, warn};
 
+#[path = "task_binding_query_snapshot.rs"]
+mod query_snapshot;
+
+#[cfg(test)]
+#[path = "task_binding_query_tests.rs"]
+mod query_tests;
+
 const SELECT_FIELDS: &str = "\
     id, title, role, parent_id, plan_path, normalized_plan_path, prompt, session_id, resume_id, \
     pane_id, tab_id, todo_id, project_path, workspace_name, cli_tool, status, progress, \
-    completion_summary, exit_code, sort_order, metadata, created_at, updated_at, worker_kind";
+    completion_summary, exit_code, sort_order, metadata, created_at, updated_at, worker_kind, report_revision";
 
 /// TaskBinding 数据访问层
 pub struct TaskBindingRepository {
     db: Arc<Database>,
+    query_epoch: String,
 }
 
 impl TaskBindingRepository {
     pub fn new(db: Arc<Database>) -> Self {
-        Self { db }
+        Self {
+            db,
+            query_epoch: uuid::Uuid::new_v4().to_string(),
+        }
     }
 
     /// 插入新 TaskBinding
@@ -28,9 +39,9 @@ impl TaskBindingRepository {
                 id, title, role, parent_id, plan_path, normalized_plan_path, prompt, session_id,
                 resume_id, pane_id, tab_id, todo_id, project_path, workspace_name, cli_tool,
                 status, progress, completion_summary, exit_code, sort_order, metadata,
-                created_at, updated_at, worker_kind
+                created_at, updated_at, worker_kind, report_revision
              )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
             params![
                 binding.id,
                 binding.title,
@@ -56,6 +67,7 @@ impl TaskBindingRepository {
                 binding.created_at,
                 binding.updated_at,
                 binding.worker_kind,
+                binding.report_revision,
             ],
         )
         .map_err(|e| {
@@ -200,12 +212,16 @@ impl TaskBindingRepository {
         let conn = self.db.connection().map_err(|e| e.to_string())?;
 
         let mut sets: Vec<String> = Vec::new();
+        let mut report_changes: Vec<String> = Vec::new();
         let mut values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         let mut idx = 1;
 
         macro_rules! add_field {
             ($field:expr, $val:expr) => {
                 if let Some(ref v) = $val {
+                    if matches!($field, "session_id" | "completion_summary" | "exit_code") {
+                        report_changes.push(format!("{} IS NOT ?{}", $field, idx));
+                    }
                     sets.push(format!("{} = ?{}", $field, idx));
                     values.push(Box::new(v.clone()));
                     idx += 1;
@@ -243,6 +259,7 @@ impl TaskBindingRepository {
         }
 
         if let Some(ref status) = req.status {
+            report_changes.push(format!("status IS NOT ?{}", idx));
             sets.push(format!("status = ?{}", idx));
             values.push(Box::new(status.as_str().to_string()));
             idx += 1;
@@ -257,6 +274,17 @@ impl TaskBindingRepository {
 
         if sets.is_empty() {
             return Ok(false);
+        }
+
+        // SQLite evaluates RHS expressions against the old row, so the result version
+        // changes atomically with the status/session/result instead of ordinary UI edits.
+        if reset_result {
+            sets.push("report_revision = report_revision + 1".into());
+        } else if !report_changes.is_empty() {
+            sets.push(format!(
+                "report_revision = report_revision + CASE WHEN {} THEN 1 ELSE 0 END",
+                report_changes.join(" OR ")
+            ));
         }
 
         // 始终更新 updated_at
@@ -354,97 +382,101 @@ impl TaskBindingRepository {
 
     /// 查询 TaskBindings
     pub fn query(&self, query: &TaskBindingQuery) -> Result<TaskBindingQueryResult, String> {
-        let conn = self.db.connection().map_err(|e| e.to_string())?;
+        let mut conn = self.db.connection().map_err(|e| e.to_string())?;
+        let ((items, total, has_more), revision) = query_snapshot::read(
+            &mut conn,
+            &self.query_epoch,
+            |conn| {
+                let mut conditions: Vec<String> = Vec::new();
+                let mut count_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+                let mut idx = 1;
 
-        let mut conditions: Vec<String> = Vec::new();
-        let mut count_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-        let mut idx = 1;
+                macro_rules! add_condition {
+                    ($field:expr, $val:expr) => {
+                        if let Some(ref v) = $val {
+                            conditions.push(format!("{} = ?{}", $field, idx));
+                            count_params.push(Box::new(v.clone()));
+                            idx += 1;
+                        }
+                    };
+                }
 
-        macro_rules! add_condition {
-            ($field:expr, $val:expr) => {
-                if let Some(ref v) = $val {
-                    conditions.push(format!("{} = ?{}", $field, idx));
-                    count_params.push(Box::new(v.clone()));
+                if let Some(ref status) = query.status {
+                    conditions.push(format!("status = ?{}", idx));
+                    count_params.push(Box::new(status.as_str().to_string()));
                     idx += 1;
                 }
-            };
-        }
+                if let Some(ref role) = query.role {
+                    if role == &TaskBindingRole::Worker {
+                        conditions.push("role IN ('worker', 'child')".to_string());
+                    } else {
+                        conditions.push(format!("role = ?{}", idx));
+                        count_params.push(Box::new(role.as_str().to_string()));
+                        idx += 1;
+                    }
+                }
+                add_condition!("parent_id", query.parent_id);
+                add_condition!("plan_path", query.plan_path);
+                add_condition!("normalized_plan_path", query.normalized_plan_path);
+                add_condition!("resume_id", query.resume_id);
+                add_condition!("pane_id", query.pane_id);
+                add_condition!("session_id", query.session_id);
+                add_condition!("project_path", query.project_path);
+                add_condition!("workspace_name", query.workspace_name);
+                if let Some(ref search) = query.search {
+                    conditions.push(format!("(title LIKE ?{} OR prompt LIKE ?{})", idx, idx));
+                    count_params.push(Box::new(format!("%{}%", search)));
+                    idx += 1;
+                }
 
-        if let Some(ref status) = query.status {
-            conditions.push(format!("status = ?{}", idx));
-            count_params.push(Box::new(status.as_str().to_string()));
-            idx += 1;
-        }
-        if let Some(ref role) = query.role {
-            if role == &TaskBindingRole::Worker {
-                conditions.push("role IN ('worker', 'child')".to_string());
-            } else {
-                conditions.push(format!("role = ?{}", idx));
-                count_params.push(Box::new(role.as_str().to_string()));
-                idx += 1;
-            }
-        }
-        add_condition!("parent_id", query.parent_id);
-        add_condition!("plan_path", query.plan_path);
-        add_condition!("normalized_plan_path", query.normalized_plan_path);
-        add_condition!("resume_id", query.resume_id);
-        add_condition!("pane_id", query.pane_id);
-        add_condition!("session_id", query.session_id);
-        add_condition!("project_path", query.project_path);
-        add_condition!("workspace_name", query.workspace_name);
-        if let Some(ref search) = query.search {
-            conditions.push(format!("(title LIKE ?{} OR prompt LIKE ?{})", idx, idx));
-            count_params.push(Box::new(format!("%{}%", search)));
-            idx += 1;
-        }
+                let where_clause = if conditions.is_empty() {
+                    String::new()
+                } else {
+                    format!(" WHERE {}", conditions.join(" AND "))
+                };
 
-        let where_clause = if conditions.is_empty() {
-            String::new()
-        } else {
-            format!(" WHERE {}", conditions.join(" AND "))
-        };
+                // Count
+                let count_sql = format!("SELECT COUNT(*) FROM task_bindings{}", where_clause);
+                let count_refs: Vec<&dyn rusqlite::types::ToSql> =
+                    count_params.iter().map(|v| v.as_ref()).collect();
+                let total: u32 = conn
+                    .query_row(&count_sql, count_refs.as_slice(), |row| row.get(0))
+                    .map_err(|e| e.to_string())?;
 
-        // Count
-        let count_sql = format!("SELECT COUNT(*) FROM task_bindings{}", where_clause);
-        let count_refs: Vec<&dyn rusqlite::types::ToSql> =
-            count_params.iter().map(|v| v.as_ref()).collect();
-        let total: u32 = conn
-            .query_row(&count_sql, count_refs.as_slice(), |row| row.get(0))
-            .map_err(|e| e.to_string())?;
+                // Query
+                let limit = query.limit.unwrap_or(50).min(200);
+                let offset = query.offset.unwrap_or(0);
 
-        // Query
-        let limit = query.limit.unwrap_or(50).min(200);
-        let offset = query.offset.unwrap_or(0);
-
-        let data_sql = format!(
+                let data_sql = format!(
             "SELECT {SELECT_FIELDS}
-             FROM task_bindings{} ORDER BY sort_order ASC, created_at DESC LIMIT ?{} OFFSET ?{}",
+             FROM task_bindings{} ORDER BY sort_order ASC, created_at DESC, id ASC LIMIT ?{} OFFSET ?{}",
             where_clause,
             idx,
             idx + 1
         );
 
-        let mut data_params = count_params;
-        data_params.push(Box::new(limit));
-        data_params.push(Box::new(offset));
+                let mut data_params = count_params;
+                data_params.push(Box::new(limit));
+                data_params.push(Box::new(offset));
 
-        let data_refs: Vec<&dyn rusqlite::types::ToSql> =
-            data_params.iter().map(|v| v.as_ref()).collect();
+                let data_refs: Vec<&dyn rusqlite::types::ToSql> =
+                    data_params.iter().map(|v| v.as_ref()).collect();
 
-        let mut stmt = conn.prepare(&data_sql).map_err(|e| e.to_string())?;
-        let items = stmt
-            .query_map(data_refs.as_slice(), Self::row_to_binding)
-            .map_err(|e| e.to_string())?
-            .filter_map(|r| {
-                r.map_err(|e| warn!("task_bindings row parse error: {}", e))
-                    .ok()
-            })
-            .collect::<Vec<_>>();
+                let mut stmt = conn.prepare(&data_sql).map_err(|e| e.to_string())?;
+                let items = stmt
+                    .query_map(data_refs.as_slice(), Self::row_to_binding)
+                    .map_err(|e| e.to_string())?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| format!("Unable to decode task binding page: {error}"))?;
 
+                Ok((items, total, offset.saturating_add(limit) < total))
+            },
+        )?;
         Ok(TaskBindingQueryResult {
-            has_more: (offset + limit) < total,
             items,
             total,
+            has_more,
+            revision: Some(revision),
         })
     }
 
@@ -472,6 +504,7 @@ impl TaskBindingRepository {
             workspace_name: row.get(13)?,
             cli_tool: row.get(14)?,
             status,
+            report_revision: row.get(24)?,
             progress: row.get(16)?,
             completion_summary: row.get(17)?,
             exit_code: row.get(18)?,
@@ -507,6 +540,7 @@ impl TaskBindingRepository {
 mod tests {
     use super::*;
     use crate::repository::Database;
+    include!("task_binding_report_revision_tests.rs");
 
     fn repo() -> TaskBindingRepository {
         TaskBindingRepository::new(Arc::new(
@@ -532,6 +566,7 @@ mod tests {
             workspace_name: Some("workspace".into()),
             cli_tool: "claude".into(),
             status: TaskBindingStatus::Pending,
+            report_revision: 0,
             progress: 0,
             completion_summary: None,
             exit_code: None,

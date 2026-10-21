@@ -73,6 +73,7 @@ impl TaskBindingService {
             workspace_name: clean_optional(req.workspace_name),
             cli_tool: clean_optional(req.cli_tool).unwrap_or_else(|| "claude".to_string()),
             status: TaskBindingStatus::Pending,
+            report_revision: 0,
             progress: 0,
             completion_summary: None,
             exit_code: None,
@@ -175,6 +176,21 @@ impl TaskBindingService {
         let old_status = self.repo.get(id)?.map(|binding| binding.status);
         let binding = self.update_with_emit(id, req, true)?;
         Ok((old_status, binding))
+    }
+
+    /// Keep report-version comparison atomic for concurrent completion updates.
+    pub fn update_returning_previous_report_revision(
+        &self,
+        id: &str,
+        req: UpdateTaskBindingRequest,
+    ) -> AppResult<(Option<i64>, TaskBinding)> {
+        let _guard = self
+            .update_lock
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let previous = self.repo.get(id)?.map(|binding| binding.report_revision);
+        let binding = self.update_with_emit(id, req, true)?;
+        Ok((previous, binding))
     }
 
     fn update_with_emit(

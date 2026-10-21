@@ -177,14 +177,14 @@ mcp__ccpanes__register_plan_leader(
 | Worker 类型 | 完成通知 | 主 Agent 怎么知道 |
 |-------------|---------|---------------------|
 | Claude Task 子 agent | 同步返回（Task tool 调用直接拿结果） | 等 tool result |
-| CC-Panes launch_task worker | PTY `report_to_leader` + `update_task_binding` | 等 `[worker-report]` 行 |
+| CC-Panes launch_task worker | `update_task_binding`（自动 PTY 上报） | 等 `[worker-report]` 行 |
 
 **重要**：多个 worker 并发时，PTY `report_to_leader` 在 leader busy 时返回 `{sent:false, queued:true}` 进入引擎补投队列，leader 空闲后自动注入（无需重试）。但队列在 leader 崩溃/退出时会被清空，所以代码型 worker 的 prompt **必须**包含：
 
 ```
 ## 收尾(必须执行)
 1. update_task_binding(id=<workerId>, status="completed", progress=100, completionSummary="...")
-2. report_to_leader(workerId=<workerId>, status="completed", summary="...")
+2. 终态 `update_task_binding` 成功后会自动向 leader 上报；不要固定再调用 `report_to_leader`。只有确认投递失败、或 leader 明确要求补投时才手动调用。返回 `queued:true` 或 `skipReason:"duplicate report version already delivered"` 时不要重试。
 ```
 
 主 Agent 兜底：等一阵后 `reconcile_plan_collaboration(leaderId)` 扫一遍所有 worker binding 的最终状态。

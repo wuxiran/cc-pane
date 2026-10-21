@@ -1,0 +1,4 @@
+{
+  "schema": ["--json", "tools", "--schema", "<tool>"],
+  "call": ["--json", "call", "<tool>", "--json", "<args>"]
+}

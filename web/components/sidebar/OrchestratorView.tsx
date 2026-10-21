@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import OrchestratorFilterBar from "./OrchestratorFilterBar";
 import OrchestratorTaskCard from "./OrchestratorTaskCard";
 import OrchestratorTaskTree from "./OrchestratorTaskTree";
+import OrchestratorTaskPagination from "@/components/orchestration/OrchestratorTaskPagination";
 import type { OpenTerminalOptions } from "@/types";
 
 interface OrchestratorViewProps {
@@ -147,6 +148,7 @@ export default function OrchestratorView({
             />
           ))
         )}
+        <OrchestratorTaskPagination />
       </div>
 
     </div>

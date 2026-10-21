@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import OrchestratorTaskActions from "./OrchestratorTaskActions";
+import { taskBindingService as queriedTaskBindingService } from "@/services";
 import { taskBindingService as directTaskBindingService } from "@/services/taskBindingService";
 import {
   useActivityBarStore,
@@ -124,6 +125,7 @@ describe("OrchestratorTaskActions", () => {
     const child = createBinding({ id: "durable-child", sessionId: "child-pty", metadata: { dispatchEnvelope: { bindingId: "durable-child" } } });
     const retry = vi.spyOn(directTaskBindingService, "retryDispatched").mockResolvedValue(child);
     seedStore([binding]);
+    vi.mocked(queriedTaskBindingService.query).mockResolvedValueOnce({ items: [binding, child], total: 2, hasMore: false });
     render(<OrchestratorTaskActions binding={binding} />);
     await openMenu(user);
     await user.click(await screen.findByRole("menuitem", { name: tRe("orchestration:sidebar.retry") }));
@@ -131,7 +133,7 @@ describe("OrchestratorTaskActions", () => {
     expect(createSession).not.toHaveBeenCalled();
     expect(submitToSession).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
-    expect(useOrchestratorStore.getState().bindings).toContainEqual(child);
+    await waitFor(() => expect(useOrchestratorStore.getState().bindings).toContainEqual(child));
     retry.mockRestore();
   });
 

@@ -72,7 +72,18 @@ fn migration_v34_upgrades_a_v33_database() {
             launched_at TEXT NOT NULL,
             pty_session_id TEXT,
             launch_cwd TEXT
-         );",
+         );
+         CREATE TABLE task_bindings (
+            id TEXT PRIMARY KEY, title TEXT NOT NULL, prompt TEXT, session_id TEXT,
+            todo_id TEXT, project_path TEXT NOT NULL, workspace_name TEXT,
+            cli_tool TEXT NOT NULL DEFAULT 'claude', status TEXT NOT NULL DEFAULT 'pending',
+            progress INTEGER NOT NULL DEFAULT 0, completion_summary TEXT, exit_code INTEGER,
+            sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'task', parent_id TEXT, plan_path TEXT, normalized_plan_path TEXT,
+            pane_id TEXT, tab_id TEXT, resume_id TEXT, metadata TEXT, worker_kind TEXT
+         );
+         INSERT INTO task_bindings(id,title,project_path,status,completion_summary,created_at,updated_at)
+         VALUES ('existing-worker','existing task','/repo','completed','existing result','created','updated');",
     )
     .unwrap();
     drop(conn);
@@ -96,6 +107,10 @@ fn migration_v34_upgrades_a_v33_database() {
         )
         .unwrap();
     assert_eq!(enabled, 1);
+    let existing: (String, i64) = conn
+        .query_row("SELECT completion_summary, report_revision FROM task_bindings WHERE id='existing-worker'", [], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap();
+    assert_eq!(existing, ("existing result".into(), 0));
 }
 
 #[test]

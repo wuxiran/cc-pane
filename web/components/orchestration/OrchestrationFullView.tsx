@@ -23,24 +23,18 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import OrchestratorTaskCard from "@/components/sidebar/OrchestratorTaskCard";
 import OrchestratorTaskTree from "@/components/sidebar/OrchestratorTaskTree";
 import { useActivityBarStore, useOrchestratorStore } from "@/stores";
 import { useNotificationStore, type NotificationRecord } from "@/stores/useNotificationStore";
-import type { TaskBinding } from "@/types";
 import TaskDetailPanel from "./TaskDetailPanel";
 import SessionOutputPreview from "./SessionOutputPreview";
-import LoadMoreTasks from "./LoadMoreTasks";
+import OrchestratorTaskPagination from "./OrchestratorTaskPagination";
+import OrchestrationTaskList from "./OrchestrationTaskList";
 type MainTab = "tasks" | "notifications";
 type NotificationFilter = "all" | "errors" | "completed";
 type OrchestrationFullViewProps = {
   variant?: "page" | "overlay";
   onClose?: () => void;
-};
-type TaskListProps = {
-  bindings: TaskBinding[];
-  selectedTaskId: string | null;
-  onSelect: (id: string) => void;
 };
 const RIGHT_COLLAPSED_KEY = "cc-panes-orchestration-right-collapsed";
 const RIGHT_WIDTH_KEY = "cc-panes-orchestration-right-width";
@@ -103,44 +97,6 @@ function groupedNotifications(notifications: NotificationRecord[]) {
   });
 }
 
-function TaskList({ bindings, selectedTaskId, onSelect }: TaskListProps) {
-  return (
-    <div className="space-y-1">
-      {bindings.map((binding) => {
-        const selected = binding.id === selectedTaskId;
-        return (
-          <div
-            key={binding.id}
-            role="button"
-            tabIndex={0}
-            className="relative block w-full rounded-lg text-left transition-colors duration-[var(--dur-fast)]"
-            style={{
-              background: selected ? "var(--app-active-bg)" : "transparent",
-            }}
-            onClick={() => onSelect(binding.id)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                onSelect(binding.id);
-              }
-            }}
-          >
-            {/* demo 式选中态：左缘 accent 竖条 + active-bg 弱底 */}
-            {selected && (
-              <span
-                aria-hidden
-                className="absolute left-0 top-1.5 bottom-1.5 z-10 w-[3px] rounded-full"
-                style={{ background: "var(--app-accent)" }}
-              />
-            )}
-            {/* fix(M3) review: 外层不再使用 button，避免 TaskCard 内部操作按钮嵌套。 */}
-            <OrchestratorTaskCard binding={binding} />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 export default function OrchestrationFullView({
   variant = "page",
@@ -154,8 +110,6 @@ export default function OrchestrationFullView({
   const viewType = useOrchestratorStore((state) => state.viewType);
   const selectedTaskId = useOrchestratorStore((state) => state.selectedTaskId);
   const loadBindings = useOrchestratorStore((state) => state.loadBindings);
-  const loadMoreBindings = useOrchestratorStore((state) => state.loadMoreBindings);
-  const hasMore = useOrchestratorStore((state) => state.hasMore);
   const setFilterTab = useOrchestratorStore((state) => state.setFilterTab);
   const setSearchKeyword = useOrchestratorStore((state) => state.setSearchKeyword);
   const setViewType = useOrchestratorStore((state) => state.setViewType);
@@ -373,9 +327,9 @@ export default function OrchestrationFullView({
                 ) : viewType === "tree" ? (
                   <OrchestratorTaskTree />
                 ) : (
-                  <TaskList bindings={bindings} selectedTaskId={selectedTaskId} onSelect={setSelectedTaskId} />
+                  <OrchestrationTaskList bindings={bindings} selectedTaskId={selectedTaskId} onSelect={setSelectedTaskId} />
                 )}
-                <LoadMoreTasks hasMore={hasMore} loading={loading} onLoad={() => void loadMoreBindings()} label={t("loadMore", { defaultValue: "Load more tasks" })} />
+                <OrchestratorTaskPagination />
               </div>
             </>
           ) : (
