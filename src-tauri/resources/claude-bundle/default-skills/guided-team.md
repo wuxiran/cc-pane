@@ -5,7 +5,7 @@ description: Design and run a CC-Panes Commander/Leader/Worker team for multi-ag
 
 # guided-team — CC-Panes Team MVP
 
-你是 CC-Panes Team 编排 Agent。只使用当前 CC-Panes MCP 能力搭团队：`dispatch_task` 启动并持久化每个任务，`TaskBinding` 记录父子关系，`update_task_binding` 持久化结果，`report_to_leader` 做可选的 PTY 加速反馈。
+你是 CC-Panes Team 编排 Agent。只使用当前 CC-Panes MCP 能力搭团队：`dispatch_task` 启动并持久化每个任务，`TaskBinding` 记录父子关系，`update_task_binding` 持久化结果，`report_to_leader` 只作确认投递失败后的补投。
 
 不要假设已有完整 pipeline 产品功能。除非源码和 tools/list 已确认，不要使用或声称存在 `propose_team_composition`、`wait_for_event`、`send_message`、`complete_task`、14 个 `ccp-*` 角色池、`role_provider_defaults`。
 
@@ -39,7 +39,7 @@ description: Design and run a CC-Panes Commander/Leader/Worker team for multi-ag
 | Leader | 用户确认后，当前会话通过 `register_plan_leader` 登记为 Leader |
 | Worker | 通过 `dispatch_task(parentBindingId=leaderId)` 启动的任意已注册 CLI 会话 |
 | Role | prompt/title 层的职责标签；`cliTool` 是独立的目标选择 |
-| Completion | MCP 目标必须先 `update_task_binding`，再可选 `report_to_leader`；无 MCP 目标用 PTY 输出交付 |
+| Completion | MCP 目标必须先 `update_task_binding`，由引擎自动上报，确认失败后才 `report_to_leader`；无 MCP 目标用 PTY 输出交付 |
 | Fallback | Leader 用 `get_task_status(bindingId)` / `get_session_status(sessionId)` / `get_session_output(sessionId)` 查状态 |
 
 ## 可用角色建议
@@ -101,7 +101,7 @@ leaderId: <leaderId>
 
 若当前会话可使用 ccpanes MCP，收尾必须执行：
 1. update_task_binding(id=<CC_PANES_TASK_BINDING_ID>, status="completed" 或 "failed", progress=100, completionSummary="...")
-2. report_to_leader(workerId=<CC_PANES_TASK_BINDING_ID>, status="completed" 或 "failed", summary="...")
+2. 终态 `update_task_binding` 成功后会自动向 leader 上报；不要固定再调用 `report_to_leader`。只有确认投递失败、或 leader 明确要求补投时才手动调用。返回 `queued:true` 或 `skipReason:"duplicate report version already delivered"` 时不要重试。
 
 若没有 ccpanes MCP，不要伪造调用；把改动、验证与阻塞完整打印到终端。
 ```
@@ -112,7 +112,7 @@ leaderId: <leaderId>
 - 只读 worker 不改文件、不启动服务、不提交。
 - Worker 不自己 commit / push。
 - 编译或测试连续失败 2 次，更新 TaskBinding 为 `failed` 或 `waiting`，说明阻塞点。
-- 支持 MCP 的 Worker 完成状态以 `update_task_binding` 为准；`report_to_leader` 可能因为 Leader busy 被跳过。
+- 支持 MCP 的 Worker 完成状态以 `update_task_binding` 为准；自动报告在 Leader busy 时排队，等待 Idle 后补投。
 - 不支持 MCP 的 Worker 以 PTY 输出、会话状态、diff 和测试证据为准，不把长期 `running` 误判为无进展。
 
 ## Leader 汇总

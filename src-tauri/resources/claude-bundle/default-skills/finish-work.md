@@ -90,6 +90,6 @@ cargo test --workspace
 如果当前任务来自 CC-Panes worker prompt，检查是否要求：
 
 - `update_task_binding(id, status: "completed" | "failed", progress, completionSummary)`
-- `report_to_leader(workerId, status, summary)`
+- 终态 `update_task_binding` 成功后会自动向 leader 上报；不要固定再调用 `report_to_leader`。只有确认投递失败、或 leader 明确要求补投时才手动调用。返回 `queued:true` 或 `skipReason:"duplicate report version already delivered"` 时不要重试。
 - 删除一次性 `.ccpanes/prompts/*.md` prompt 文件
 - 输出验证命令和结果

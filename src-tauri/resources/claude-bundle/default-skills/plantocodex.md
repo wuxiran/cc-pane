@@ -165,7 +165,7 @@ mcp__ccpanes__submit_to_session(
 
 **首选：等 PTY 自动反馈**
 
-worker 调 `report_to_leader` 时，PTY 会直接把 `[worker-report] id=... status=completed summary=...` 推到 leader 对话里。**不用主动 poll。**
+worker 更新终态后，引擎会自动把 `[worker-report] id=... status=completed summary=...` 推到 leader 对话里。**不用主动 poll。**
 
 **但**：如果 leader 此刻正在 thinking（执行其他工具调用），PTY 反馈返回 `{sent: false, queued: true, skipReason: "leader busy"}`——引擎会排队，leader 回到空闲时自动补投，不会丢。补投队列仅在 leader 崩溃/exited 时被清空，所以 prompt 仍必须要求 Codex 调 `update_task_binding` 持久化状态（reconcile 的唯一依据）。
 
@@ -255,15 +255,8 @@ git diff <worktree-or-main>
      progress: 100,
      completionSummary: "已完成 N 个 phase,改动 M 文件"
    )
-2. 再 PTY 上报 leader:
-   mcp__ccpanes__report_to_leader(
-     workerId: <CC_PANES_TASK_BINDING_ID>,
-     status: "completed",
-     summary: "Codex 执行完成,改动 M 文件,详见 PTY"
-   )
-3. 如果 report_to_leader 返回 {sent: false, queued: true, skipReason: "leader busy"},
-   不重试 — 引擎已排队,leader 空闲后会自动收到补投;TaskBinding 也已持久化兜底。
-4. **不要调 trigger_notification**——worker 的汇报对象是 leader 不是用户;
+2. 终态 `update_task_binding` 成功后会自动向 leader 上报；不要固定再调用 `report_to_leader`。只有确认投递失败、或 leader 明确要求补投时才手动调用。返回 `queued:true` 或 `skipReason:"duplicate report version already delivered"` 时不要重试。
+3. **不要调 trigger_notification**——worker 的汇报对象是 leader 不是用户;
    由 leader 汇总整个编队后统一发一条通知,worker 各自发 = 通知轰炸。
 ```
 

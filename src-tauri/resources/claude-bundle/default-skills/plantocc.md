@@ -51,7 +51,7 @@ Claude 收到"按 plan 实现"类 prompt 可能自己 `EnterPlanMode` 再规划�
 
 ### 4. 收尾上报（与 Codex 相同，别省）
 
-worker prompt 的收尾段照抄 plantocodex：先 `update_task_binding(status:"completed", ...)` 持久化，再 `report_to_leader(workerId, ...)`；返回 `{sent:false, queued:true}` 无需重试（引擎补投）。Claude worker 同样通过注入的 `ccpanes` MCP 调这两个工具。
+worker prompt 的收尾段照抄 plantocodex：先 `update_task_binding(status:"completed", ...)` 持久化。终态 `update_task_binding` 成功后会自动向 leader 上报；不要固定再调用 `report_to_leader`。只有确认投递失败、或 leader 明确要求补投时才手动调用。返回 `queued:true` 或 `skipReason:"duplicate report version already delivered"` 时不要重试。
 
 ### 5. launch 参数
 

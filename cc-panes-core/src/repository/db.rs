@@ -1158,6 +1158,11 @@ const MIGRATIONS: &[Migration] = &[
             ALTER TABLE launch_history ADD COLUMN failure_reason TEXT;
         ",
     },
+    Migration {
+        version: 43,
+        description: "task_bindings: stable report revision independent of metadata updates",
+        up_sql: "ALTER TABLE task_bindings ADD COLUMN report_revision INTEGER NOT NULL DEFAULT 0 CHECK(report_revision >= 0);",
+    },
 ];
 
 /// 数据库连接管理
@@ -1442,6 +1447,7 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
+    include!("task_binding_report_revision_migration_tests.rs");
     use super::*;
 
     #[test]
@@ -1954,7 +1960,7 @@ mod tests {
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        assert_eq!(applied, [41, 42]);
+        assert_eq!(applied, [41, 42, 43]);
     }
 
     #[test]

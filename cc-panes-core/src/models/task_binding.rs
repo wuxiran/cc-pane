@@ -110,6 +110,9 @@ pub struct TaskBinding {
     pub workspace_name: Option<String>,
     pub cli_tool: String,
     pub status: TaskBindingStatus,
+    /// Report-relevant changes only; metadata/title/progress edits do not create a new result.
+    #[serde(default)]
+    pub report_revision: i64,
     pub progress: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completion_summary: Option<String>,
@@ -240,6 +243,9 @@ pub struct TaskBindingQueryResult {
     pub items: Vec<TaskBinding>,
     pub total: u32,
     pub has_more: bool,
+    /// Opaque snapshot identity. Compare only for equality between pages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
 }
 
 /// Plan 协作查询键

@@ -41,7 +41,7 @@ register_plan_worker(
 
 派发 prompt 末尾必须带一句（否则 worker 不知道要回报）：
 
-> 完成后调用 ccpanes MCP 的 `report_to_leader(workerId: "<worker binding id>", status: "completed", summary: "<一句话结果>")`。失败也要报，status 用 "failed"。
+> 完成或失败时先调用 ccpanes MCP 的 `update_task_binding(id: "<worker binding id>", status: "completed" 或 "failed", completionSummary: "<一句话结果>")` 持久化终态，引擎自动向 leader 上报。终态 `update_task_binding` 成功后会自动向 leader 上报；不要固定再调用 `report_to_leader`。只有确认投递失败、或 leader 明确要求补投时才手动调用。返回 `queued:true` 或 `skipReason:"duplicate report version already delivered"` 时不要重试。
 
 ### 4. 等回执（不要忙等）
 

@@ -1,5 +1,5 @@
 import "@/i18n";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskBinding } from "@/types";
@@ -58,7 +58,7 @@ const loadBindings = vi.fn().mockResolvedValue(undefined);
 function setOrchestratorState(bindings: TaskBinding[], overrides?: Record<string, unknown>) {
   useOrchestratorStore.setState({
     bindings,
-    loading: false,
+    loading: false, hasMore: false, loadError: null,
     filterTab: "all",
     searchKeyword: "",
     viewType: "list",
@@ -261,4 +261,16 @@ describe("OrchestrationFullView", () => {
 
     expect(clear).toHaveBeenCalledTimes(1);
   });
+  it("offers pagination and retry while retaining the full-screen task and its selection", async () => {
+    const more = vi.fn(); const retry = vi.fn(); const binding = makeBinding("retained");
+    setOrchestratorState([binding], { selectedTaskId: binding.id, hasMore: true, loadMoreBindings: more, retryBindings: retry });
+    render(<OrchestrationFullView />);
+    fireEvent.click(screen.getByRole("button", { name: "加载更多任务" })); expect(more).toHaveBeenCalledOnce();
+    act(() => useOrchestratorStore.setState({ loadError: "offline", hasMore: false }));
+    expect(screen.getByTestId("task-card-retained")).toBeVisible();
+    expect(screen.getByTestId("task-detail")).toHaveAttribute("data-binding-id", binding.id);
+    expect(screen.getByRole("alert")).toHaveTextContent("任务列表加载失败");
+    fireEvent.click(screen.getByRole("button", { name: "重试" })); expect(retry).toHaveBeenCalledOnce();
+  });
+
 });

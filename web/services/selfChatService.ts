@@ -7,6 +7,7 @@
 import { useWorkspacesStore } from "@/stores";
 import { todoService } from "./todoService";
 import { apiGet, invokeOrApi } from "./apiClient";
+import { SELF_CHAT_CTL_SCHEMA, SELF_CHAT_CTL_CALL } from "./selfChatCtlCommands";
 
 /** 获取应用当前工作目录 */
 async function getAppCwd(): Promise<string> {
@@ -72,7 +73,7 @@ async function collectAppContext(): Promise<string> {
     `- 编排关系: register_plan_leader、register_plan_worker、report_to_leader、send_to_worker、reconcile_plan_collaboration、get_plan_collaboration\n` +
     `- 待办: query_todos、create_todo、update_todo\n` +
     `- 只读发现: list_workspaces、get_workspace、list_resume_sessions、list_launch_history、list_skills\n` +
-    `管理写操作（工作空间、项目、运行配置、项目 MCP、共享 MCP、文件和 runner）不在会话 MCP 中；需要时加载 /ccbook:ccpanes-admin，再使用 \"$CC_PANES_CTL\" tools --json --name <tool> 查看 schema，最后使用 \"$CC_PANES_CTL\" call <tool> --json '<args>'。\n\n` +
+    `管理写操作（工作空间、项目、运行配置、项目 MCP、共享 MCP、文件和 runner）不在会话 MCP 中；需要时加载 /ccbook:ccpanes-admin，再使用 ${SELF_CHAT_CTL_SCHEMA} 查看 schema，最后使用 ${SELF_CHAT_CTL_CALL}。替换 <tool> 和 <args> 为实际工具名及 JSON 参数。\n\n` +
     `典型场景：用户要执行任务时先用 list_projects 核对，再用 dispatch_task 持久化派发；用 get_task_status/wait_for_session 验收。管理操作按 ccpanes-admin 的 ctl schema 执行，不要臆造已移出的 MCP 工具。\n` +
     `请用中文回复。`;
 
@@ -102,7 +103,7 @@ function collectOnboardingContext(language: string): string {
       `   - 任务 (Task)：项目下的具体任务，对应一个终端标签页\n\n` +
       `2. 引导用户接入第一个工作空间：\n` +
       `   - 询问用户常用的项目目录路径\n` +
-      `   - 加载 /ccbook:ccpanes-admin，使用 \"$CC_PANES_CTL\" tools/call 按 schema 执行 scan_directory、create_workspace、add_project_to_workspace\n` +
+      `   - 加载 /ccbook:ccpanes-admin，先使用 ${SELF_CHAT_CTL_SCHEMA} 查看 schema，再用 ${SELF_CHAT_CTL_CALL} 执行 scan_directory、create_workspace、add_project_to_workspace；替换 <tool> 和 <args> 为实际值\n` +
       `   - 调用前先用 list_workspaces/list_projects 核对现状，避免重复创建\n\n` +
       `3. 完成后告诉用户：\n` +
       `   - 可以点击左侧活动栏的树形图标切换到 Explorer 视图\n` +
@@ -127,7 +128,7 @@ function collectOnboardingContext(language: string): string {
     `   - Task: A specific task under a project, displayed as a terminal tab\n\n` +
     `2. Guide the user to connect their first workspace:\n` +
     `   - Ask for the project directory path\n` +
-    `   - Load /ccbook:ccpanes-admin and use \"$CC_PANES_CTL\" tools/call by schema for scan_directory, create_workspace and add_project_to_workspace\n` +
+    `   - Load /ccbook:ccpanes-admin, inspect ${SELF_CHAT_CTL_SCHEMA}, then use ${SELF_CHAT_CTL_CALL} for scan_directory, create_workspace and add_project_to_workspace; replace <tool> and <args> with the actual tool and JSON arguments\n` +
     `   - Check existing workspaces and projects before writing\n\n` +
     `3. After completion, tell the user:\n` +
     `   - They can click the tree icon on the left activity bar to switch to Explorer view\n` +
