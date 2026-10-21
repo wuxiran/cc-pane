@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import { useTodoStore } from "@/stores/useTodoStore";
-import type { TodoItem, UpdateTodoRequest } from "@/types";
+import type { CreateTodoRequest, TodoItem, UpdateTodoRequest } from "@/types";
 import TodoManager from "./TodoManager";
 
 const service = vi.hoisted(() => ({
@@ -47,6 +47,11 @@ beforeEach(() => {
   service.get.mockImplementation(async (id: string) => structuredClone(saved.find((item) => item.id === id) ?? null));
   service.update.mockImplementation(async (id: string, request: UpdateTodoRequest) => {
     saved = saved.map((item) => item.id === id ? { ...item, ...request } : item);
+  });
+  service.create.mockImplementation(async (request: CreateTodoRequest) => {
+    const created = { ...todo("created"), ...request, tags: request.tags ?? [] };
+    saved.push(created);
+    return structuredClone(created);
   });
   service.listActivities.mockResolvedValue([]);
   service.stats.mockResolvedValue(null);
@@ -188,5 +193,86 @@ describe("Todo draft ownership during live refreshes", () => {
     confirm.mockClear().mockReturnValue(false);
     fireEvent.click(closeButton());
     expect(confirm).toHaveBeenCalledOnce();
+  });
+
+  it.each([true, false])("creation with later edits stays bound to the new ID (listed=%s)", async (listed) => {
+    let finish!: () => void;
+    service.create.mockImplementation((request: CreateTodoRequest) => new Promise<TodoItem>((resolve) => {
+      finish = () => {
+        const created = { ...todo("created"), ...request, tags: request.tags ?? [] };
+        saved.push(created);
+        resolve(structuredClone(created));
+      };
+    }));
+    if (!listed) service.query.mockImplementation(async () => ({ items: structuredClone(saved.filter((item) => item.id !== "created")), total: 2, hasMore: false }));
+    render(<TodoManager scope="" scopeRef="" enabled={false} />);
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("dialogs:todoNewTask") }));
+    fireEvent.change(titleInput(), { target: { value: "Submitted creation" } });
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("common:create") }));
+    fireEvent.change(titleInput(), { target: { value: "Later creation edit" } });
+    fireEvent.change(descriptionInput(), { target: { value: "Later body" } });
+    await act(async () => { finish(); });
+    expect(titleInput()).toHaveValue("Later creation edit");
+    expect(descriptionInput()).toHaveValue("Later body");
+    expect(useTodoStore.getState().selectedTodo?.id).toBe("created");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(closeButton());
+    expect(confirm).toHaveBeenCalledOnce();
+    await act(async () => { fireEvent.click(saveButton()); });
+    expect(service.update).toHaveBeenCalledWith("created", expect.objectContaining({ title: "Later creation edit", description: "Later body" }));
+    expect(service.create).toHaveBeenCalledOnce();
+  });
+
+  it("a refresh during save cannot overwrite an edit that returned to the old value", async () => {
+    let finish!: () => void;
+    service.update.mockImplementation((id: string, request: UpdateTodoRequest) => {
+      saved = saved.map((item) => item.id === id ? { ...item, ...request } : item);
+      return new Promise<void>((resolve) => { finish = resolve; });
+    });
+    render(<TodoManager scope="" scopeRef="" enabled={false} />);
+    editDraft();
+    fireEvent.click(saveButton());
+    fireEvent.change(titleInput(), { target: { value: "Task A" } });
+    await act(async () => useTodoStore.getState().refreshTodo("A"));
+    expect(titleInput()).toHaveValue("Task A");
+    await act(async () => { finish(); });
+    expect(titleInput()).toHaveValue("Task A");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(closeButton());
+    expect(confirm).toHaveBeenCalledOnce();
+  });
+
+  it("a rejected save retains later edits and the dirty guard", async () => {
+    let reject!: (error: Error) => void;
+    service.update.mockImplementation(() => new Promise<void>((_resolve, fail) => { reject = fail; }));
+    render(<TodoManager scope="" scopeRef="" enabled={false} />);
+    editDraft();
+    fireEvent.click(saveButton());
+    fireEvent.change(titleInput(), { target: { value: "After failed submission" } });
+    await act(async () => { reject(new Error("write failed")); });
+    expect(titleInput()).toHaveValue("After failed submission");
+    expect(descriptionInput()).toHaveValue("Unsaved description");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(closeButton());
+    expect(confirm).toHaveBeenCalledOnce();
+  });
+
+  it("an older save acknowledgement cannot replace a newer acknowledged draft", async () => {
+    const finish: (() => void)[] = [];
+    service.update.mockImplementation((id: string, request: UpdateTodoRequest) => {
+      saved = saved.map((item) => item.id === id ? { ...item, ...request } : item);
+      return new Promise<void>((resolve) => { finish.push(resolve); });
+    });
+    render(<TodoManager scope="" scopeRef="" enabled={false} />);
+    fireEvent.change(titleInput(), { target: { value: "First save" } });
+    fireEvent.click(saveButton());
+    fireEvent.change(titleInput(), { target: { value: "Second save" } });
+    fireEvent.click(saveButton());
+    await act(async () => { finish[1](); });
+    await act(async () => { finish[0](); });
+    expect(titleInput()).toHaveValue("Second save");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(closeButton());
+    expect(confirm).not.toHaveBeenCalled();
   });
 });

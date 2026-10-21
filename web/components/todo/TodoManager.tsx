@@ -125,7 +125,7 @@ export default function TodoManager({
   const [isCreating, setIsCreating] = useState(false);
   const formOwner = useRef(0);
   const [selectionMode, setSelectionMode] = useState(false);
-  const { editForm, isDirty, setEditForm, resetForm, markSaved } = useTodoDraft(selectedTodo);
+  const { editForm, isDirty, setEditForm, resetForm, captureSave, markSaved, completeCreation } = useTodoDraft(selectedTodo);
   const [groupMode, setGroupMode] = useState<GroupMode>("none");
   const [listWidth, setListWidth] = useState(loadSidebarWidth);
 
@@ -156,10 +156,10 @@ export default function TodoManager({
   }, [selectedTodo?.id]);
 
   useEffect(() => {
-    if (selectedTodo && !todos.some((todo) => todo.id === selectedTodo.id)) {
+    if (selectedTodo && !isDirty && !todos.some((todo) => todo.id === selectedTodo.id)) {
       select(null);
     }
-  }, [selectedTodo, todos, select]);
+  }, [selectedTodo, todos, select, isDirty]);
 
   useEffect(() => {
     if (selectedTodo) void loadActivities(selectedTodo.id);
@@ -189,12 +189,14 @@ export default function TodoManager({
 
   const handleSave = useCallback(async () => {
     const owner = formOwner.current;
-    if (!editForm.title.trim()) {
+    const submitted = captureSave();
+    const form = submitted.form;
+    if (!form.title.trim()) {
       toastErr(tNotify("titleRequired"));
       return;
     }
 
-    const tags = editForm.tags
+    const tags = form.tags
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean);
@@ -202,46 +204,46 @@ export default function TodoManager({
     try {
       if (isCreating) {
         const request: CreateTodoRequest = {
-          title: editForm.title.trim(),
-          description: editForm.description || undefined,
-          status: editForm.status,
-          priority: editForm.priority,
-          scope: editForm.scope,
-          scopeRef: editForm.scopeRef || undefined,
+          title: form.title.trim(),
+          description: form.description || undefined,
+          status: form.status,
+          priority: form.priority,
+          scope: form.scope,
+          scopeRef: form.scopeRef || undefined,
           tags: tags.length > 0 ? tags : undefined,
-          dueDate: editForm.dueDate || undefined,
-          reminderAt: editForm.reminderAt || undefined,
-          recurrence: editForm.recurrence || undefined,
-          todoType: editForm.todoType || undefined,
+          dueDate: form.dueDate || undefined,
+          reminderAt: form.reminderAt || undefined,
+          recurrence: form.recurrence || undefined,
+          todoType: form.todoType || undefined,
         };
-        await create(request);
+        const created = await create(request);
         if (owner !== formOwner.current) return;
         setIsCreating(false);
-        markSaved(null, editForm);
+        if (completeCreation(submitted, created)) select(created);
         toastOk(tNotify("todoCreated"));
       } else if (selectedTodo) {
         const request: UpdateTodoRequest = {
-          title: editForm.title.trim(),
-          description: editForm.description,
-          status: editForm.status,
-          priority: editForm.priority,
-          scope: editForm.scope,
-          scopeRef: editForm.scopeRef || undefined,
+          title: form.title.trim(),
+          description: form.description,
+          status: form.status,
+          priority: form.priority,
+          scope: form.scope,
+          scopeRef: form.scopeRef || undefined,
           tags,
-          dueDate: editForm.dueDate || undefined,
-          reminderAt: editForm.reminderAt || undefined,
-          recurrence: editForm.recurrence || undefined,
-          todoType: editForm.todoType || undefined,
+          dueDate: form.dueDate || undefined,
+          reminderAt: form.reminderAt || undefined,
+          recurrence: form.recurrence || undefined,
+          todoType: form.todoType || undefined,
         };
         await update(selectedTodo.id, request);
         if (owner !== formOwner.current) return;
-        markSaved(selectedTodo.id, editForm);
+        markSaved(submitted);
         toastOk(tNotify("todoUpdated"));
       }
     } catch (e) {
       toastErr(tNotify("operationFailed", { error: String(e) }));
     }
-  }, [editForm, isCreating, selectedTodo, create, update, tNotify, markSaved]);
+  }, [isCreating, selectedTodo, create, update, tNotify, captureSave, markSaved, completeCreation, select]);
 
   const handleDelete = useCallback(
     async (id: string) => {
