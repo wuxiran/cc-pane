@@ -29,8 +29,12 @@ const MAP_STORE_EXEMPTIONS = {
   "useAgentChatDraftStore.ts":
     "composer draft keyed by ACP chatId (= tab id); disposed by dropAgentChatState on explicit chat close",
   "useFileTreeStore.ts": "local file-tree node index, not keyed by sessionId",
+  "useMcpStore.ts":
+    "request generations keyed by MCP workspace/project target, not ptySessionId; invalidated by clear",
   "useOrchestratorStore.ts": "task binding node index, not keyed by sessionId",
   "useShortcutsStore.ts": "shortcut action registry, not keyed by sessionId",
+  "useTodoStore.ts":
+    "pending refresh generations keyed by todo ID, not ptySessionId; removed after completion or reset",
 } as const;
 
 function storeFileName(path: string): string {
