@@ -128,6 +128,47 @@ fn fingerprint_tracks_content_and_head_but_ignores_dependencies() {
 }
 
 #[test]
+fn baseline_capture_keeps_newly_ignored_paths_without_adding_new_ignored_files() {
+    let fixture = Fixture::new();
+    let root = &fixture.root;
+    fs::create_dir(root.join("notes")).unwrap();
+    fs::write(root.join("notes/existing.txt"), "original\n").unwrap();
+    let baseline = fixture.service.capture(root).unwrap();
+    fs::write(root.join(".gitignore"), "ignored/\nnotes/\n").unwrap();
+    fs::write(root.join("notes/dependency.txt"), "never part of baseline").unwrap();
+    let index = fs::read(root.join(".git/index")).unwrap();
+    let capture = || {
+        fixture
+            .service
+            .capture_with_baseline(root, &baseline)
+            .unwrap()
+    };
+    let read = |snapshot, path| {
+        fixture
+            .service
+            .read_file(snapshot, path)
+            .unwrap()
+            .map(|file| file.bytes)
+    };
+    let retained = capture();
+    assert_eq!(
+        read(&retained, "notes/existing.txt").unwrap(),
+        b"original\n"
+    );
+    assert!(read(&retained, "notes/dependency.txt").is_none());
+    fs::write(root.join("notes/existing.txt"), "changed while ignored\n").unwrap();
+    let changed = capture();
+    assert_ne!(retained.fingerprint, changed.fingerprint);
+    assert_eq!(
+        read(&changed, "notes/existing.txt").unwrap(),
+        b"changed while ignored\n"
+    );
+    fs::remove_file(root.join("notes/existing.txt")).unwrap();
+    assert!(read(&capture(), "notes/existing.txt").is_none());
+    assert_eq!(fs::read(root.join(".git/index")).unwrap(), index);
+}
+
+#[test]
 fn linked_worktrees_share_the_private_object_store() {
     let fixture = Fixture::new();
     let linked = fixture._temp.path().join("linked");

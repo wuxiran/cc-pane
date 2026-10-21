@@ -166,8 +166,12 @@ impl ForkReviewService {
         &self,
         record: &ForkReviewRecord,
     ) -> AppResult<(RepositorySnapshot, RepositorySnapshot)> {
-        let parent = self.snapshots.capture(Path::new(&record.source_cwd))?;
-        let child = self.snapshots.capture(Path::new(&record.target_cwd))?;
+        let parent = self
+            .snapshots
+            .capture_with_baseline(Path::new(&record.source_cwd), &record.baseline)?;
+        let child = self
+            .snapshots
+            .capture_with_baseline(Path::new(&record.target_cwd), &record.baseline)?;
         if parent.snapshot_repository != record.baseline.snapshot_repository
             || child.snapshot_repository != record.baseline.snapshot_repository
         {

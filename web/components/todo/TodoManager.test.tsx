@@ -121,6 +121,7 @@ function seedStore(overrides: Record<string, unknown> = {}) {
     addSubtask: vi.fn().mockResolvedValue(undefined),
     toggleSubtask: vi.fn().mockResolvedValue(undefined),
     deleteSubtask: vi.fn().mockResolvedValue(undefined),
+    loadActivities: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   } as never);
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { toastErr, toastOk } from "@/lib/feedback";
 import { usePanesStore, useTodoStore } from "@/stores";
@@ -9,7 +9,7 @@ import { type GroupMode } from "./TodoFilterBar";
 import TodoEditor from "./TodoEditor";
 import TodoOverview from "./TodoOverview";
 import TodoTaskListPanel from "./TodoTaskListPanel";
-import type { TodoEditForm } from "./TodoEditor";
+import { todoEditForm, useTodoDraft } from "./useTodoDraft";
 import type {
   TodoItem,
   TodoPriority,
@@ -123,23 +123,11 @@ export default function TodoManager({
   }, []);
 
   const [isCreating, setIsCreating] = useState(false);
+  const formOwner = useRef(0);
   const [selectionMode, setSelectionMode] = useState(false);
-  const [isDirty, setIsDirty] = useState(false);
+  const { editForm, isDirty, setEditForm, resetForm, markSaved } = useTodoDraft(selectedTodo);
   const [groupMode, setGroupMode] = useState<GroupMode>("none");
   const [listWidth, setListWidth] = useState(loadSidebarWidth);
-  const [editForm, setEditForm] = useState<TodoEditForm>({
-    title: "",
-    description: "",
-    status: "todo",
-    priority: "medium",
-    scope: "global",
-    scopeRef: "",
-    tags: "",
-    dueDate: "",
-    reminderAt: "",
-    recurrence: "",
-    todoType: "",
-  });
 
   // 初始化：设置上下文并加载
   useEffect(() => {
@@ -161,26 +149,11 @@ export default function TodoManager({
     return () => clearTimeout(timer);
   }, [enabled, searchText, loadList]);
 
-  // 选中时填充编辑表单
+  // A new selection ends creation; same-task refreshes are merged by the draft owner.
   useEffect(() => {
-    if (selectedTodo) {
-      setEditForm({
-        title: selectedTodo.title,
-        description: selectedTodo.description ?? "",
-        status: selectedTodo.status,
-        priority: selectedTodo.priority,
-        scope: selectedTodo.scope,
-        scopeRef: selectedTodo.scopeRef ?? "",
-        tags: selectedTodo.tags.join(", "),
-        dueDate: selectedTodo.dueDate ?? "",
-        reminderAt: selectedTodo.reminderAt ?? "",
-        recurrence: selectedTodo.recurrence ?? "",
-        todoType: selectedTodo.todoType ?? "",
-      });
-      setIsCreating(false);
-      setIsDirty(false);
-    }
-  }, [selectedTodo]);
+    formOwner.current += 1;
+    if (selectedTodo) setIsCreating(false);
+  }, [selectedTodo?.id]);
 
   useEffect(() => {
     if (selectedTodo && !todos.some((todo) => todo.id === selectedTodo.id)) {
@@ -194,34 +167,28 @@ export default function TodoManager({
 
   const handleNew = useCallback(() => {
     if (isDirty && !window.confirm(t("todoUnsavedChanges"))) return;
+    formOwner.current += 1;
     select(null);
     setIsCreating(true);
-    setIsDirty(false);
-    setEditForm({
-      title: "",
-      description: "",
-      status: "todo",
-      priority: "medium",
+    resetForm({
+      ...todoEditForm(),
       scope: (scope as TodoScope) || "global",
       scopeRef: scopeRef || "",
-      tags: "",
-      dueDate: "",
-      reminderAt: "",
-      recurrence: "",
-      todoType: "",
     });
-  }, [isDirty, select, scope, scopeRef, t]);
+  }, [isDirty, select, scope, scopeRef, t, resetForm]);
 
   const handleSelectTodo = useCallback(
     (todo: TodoItem) => {
       if (isDirty && !window.confirm(t("todoUnsavedChanges"))) return;
-      setIsDirty(false);
+      formOwner.current += 1;
+      resetForm(todoEditForm(todo), todo.id);
       select(todo);
     },
-    [isDirty, select, t],
+    [isDirty, select, t, resetForm],
   );
 
   const handleSave = useCallback(async () => {
+    const owner = formOwner.current;
     if (!editForm.title.trim()) {
       toastErr(tNotify("titleRequired"));
       return;
@@ -248,8 +215,9 @@ export default function TodoManager({
           todoType: editForm.todoType || undefined,
         };
         await create(request);
+        if (owner !== formOwner.current) return;
         setIsCreating(false);
-        setIsDirty(false);
+        markSaved(null, editForm);
         toastOk(tNotify("todoCreated"));
       } else if (selectedTodo) {
         const request: UpdateTodoRequest = {
@@ -266,13 +234,14 @@ export default function TodoManager({
           todoType: editForm.todoType || undefined,
         };
         await update(selectedTodo.id, request);
-        setIsDirty(false);
+        if (owner !== formOwner.current) return;
+        markSaved(selectedTodo.id, editForm);
         toastOk(tNotify("todoUpdated"));
       }
     } catch (e) {
       toastErr(tNotify("operationFailed", { error: String(e) }));
     }
-  }, [editForm, isCreating, selectedTodo, create, update, tNotify]);
+  }, [editForm, isCreating, selectedTodo, create, update, tNotify, markSaved]);
 
   const handleDelete = useCallback(
     async (id: string) => {
@@ -288,10 +257,11 @@ export default function TodoManager({
 
   const handleCancel = useCallback(() => {
     if (isDirty && !window.confirm(t("todoUnsavedChanges"))) return;
+    formOwner.current += 1;
     setIsCreating(false);
-    setIsDirty(false);
+    resetForm(todoEditForm());
     select(null);
-  }, [isDirty, select, t]);
+  }, [isDirty, select, t, resetForm]);
 
   const handleBatchStatus = useCallback(
     async (status: TodoStatus) => {
@@ -428,10 +398,7 @@ export default function TodoManager({
       subtasks={selectedTodo?.subtasks ?? []}
       activities={activities}
       activitiesLoading={activitiesLoading}
-      onChange={(form) => {
-        setEditForm(form);
-        setIsDirty(true);
-      }}
+      onChange={setEditForm}
       onSave={handleSave}
       onCancel={handleCancel}
       onDelete={selectedTodo ? () => handleDelete(selectedTodo.id) : undefined}

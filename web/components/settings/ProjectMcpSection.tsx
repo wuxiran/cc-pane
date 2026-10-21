@@ -1,6 +1,6 @@
 // MCP 有效集页（工作空间层 / 项目覆盖层）：会话实际会连上的 MCP 摊成一张卡片网格。
 // 启动档注入的（内置 ccpanes + 共享服务）给开关写回启动档；本层 mcp.json 的给编辑 / 删除。
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { toastErr, toastOk } from "@/lib/feedback";
 import { Import, Loader2, Pencil, Play, Plus, Server, Square, Trash2 } from "lucide-react";
@@ -26,9 +26,11 @@ import { useLaunchProfilesStore } from "@/stores/useLaunchProfilesStore";
 import { useSharedMcpStore } from "@/stores/useSharedMcpStore";
 import { workspaceNameForProject } from "@/hooks/useQuickCommandsSync";
 import { useDescriptionLang } from "@/hooks/useDescriptionLang";
-import type { LaunchProfileDraft, McpLayerTarget, McpServerConfig } from "@/types";
+import { mcpTargetKey, type LaunchProfileDraft, type McpLayerTarget } from "@/types";
 import { sharedMcpFailureMessage } from "@/types/shared-mcp";
-import { parseEnvLines, formatEnvLines, translateError } from "@/utils";
+import { translateError } from "@/utils";
+import { EMPTY_MCP_LAYER } from "@/stores/useMcpStore";
+import { useMcpServerEditor } from "./useMcpServerEditor";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import ScopeBanner from "./ScopeBanner";
 import RemoteRuntimeNotice from "@/components/providers/RemoteRuntimeNotice";
@@ -41,31 +43,6 @@ import {
   type McpHubEntry,
   type McpHubFilter,
 } from "./mcpHubModel";
-
-interface FormState {
-  name: string;
-  command: string;
-  args: string;
-  env: string;
-  descriptionZh: string;
-  descriptionEn: string;
-}
-
-const emptyForm: FormState = {
-  name: "",
-  command: "",
-  args: "",
-  env: "",
-  descriptionZh: "",
-  descriptionEn: "",
-};
-
-function descriptionsFromForm(form: FormState): Record<string, string> {
-  return {
-    "zh-CN": form.descriptionZh.trim(),
-    en: form.descriptionEn.trim(),
-  };
-}
 
 interface ProjectMcpSectionProps {
   projectPath: string;
@@ -101,13 +78,11 @@ export default function ProjectMcpSection({
     [workspaces, profileWorkspaceName],
   );
 
-  const servers = useMcpStore((s) => s.servers);
-  const legacyServers = useMcpStore((s) => s.legacyServers);
-  const loading = useMcpStore((s) => s.loading);
+  const targetKey = mcpTargetKey(target);
+  const { servers, legacyServers, loading } = useMcpStore((s) => s.layers[targetKey] ?? EMPTY_MCP_LAYER);
   const loadServers = useMcpStore((s) => s.loadServers);
   const loadLegacyServers = useMcpStore((s) => s.loadLegacyServers);
   const importLegacyServers = useMcpStore((s) => s.importLegacyServers);
-  const upsertServer = useMcpStore((s) => s.upsertServer);
   const removeServer = useMcpStore((s) => s.removeServer);
 
   const profiles = useLaunchProfilesStore((s) => s.profiles);
@@ -119,9 +94,7 @@ export default function ProjectMcpSection({
   const stopShared = useSharedMcpStore((s) => s.stopServer);
 
   const [filter, setFilter] = useState<McpHubFilter>("all");
-  const [editing, setEditing] = useState(false);
-  const [editingName, setEditingName] = useState<string | null>(null);
-  const [form, setForm] = useState<FormState>({ ...emptyForm });
+  const { editing, form, editingName, setForm, resetForm, handleNew, handleEdit, handleSave } = useMcpServerEditor(target);
   const [importing, setImporting] = useState(false);
   const [sharedBusy, setSharedBusy] = useState<string | null>(null);
 
@@ -171,55 +144,11 @@ export default function ProjectMcpSection({
     }
   }
 
-  const resetForm = useCallback(() => {
-    setForm({ ...emptyForm });
-    setEditing(false);
-    setEditingName(null);
-  }, []);
-
-  function handleNew() {
-    setForm({ ...emptyForm });
-    setEditingName(null);
-    setEditing(true);
-  }
-
-  function handleEdit(name: string, config: McpServerConfig) {
-    setEditingName(name);
-    setForm({
-      name,
-      command: config.command,
-      args: config.args.join(" "),
-      env: formatEnvLines(config.env),
-      descriptionZh: config.descriptions?.["zh-CN"] ?? "",
-      descriptionEn: config.descriptions?.en ?? "",
-    });
-    setEditing(true);
-  }
-
-  async function handleSave() {
-    if (!form.name.trim() || !form.command.trim()) {
-      toastErr(tNotify("mcpNameCommandRequired"));
-      return;
-    }
-    try {
-      const args = form.args.trim() ? form.args.trim().split(/\s+/) : [];
-      const env = parseEnvLines(form.env);
-      if (editingName && editingName !== form.name.trim()) {
-        await removeServer(target, editingName);
-      }
-      await upsertServer(target, form.name.trim(), form.command.trim(), args, env, descriptionsFromForm(form));
-      toastOk(tNotify(editingName ? "mcpServerUpdated" : "mcpServerAdded"));
-      resetForm();
-    } catch (e) {
-      toastErr(tNotify("operationFailed", { error: translateError(e) }));
-    }
-  }
-
   async function handleDelete(name: string) {
     try {
       await removeServer(target, name);
       toastOk(tNotify("mcpServerDeleted"));
-      if (editingName === name) resetForm();
+      if (editingName === name) resetForm(target);
     } catch (e) {
       toastErr(tNotify("operationFailed", { error: translateError(e) }));
     }
@@ -398,7 +327,7 @@ export default function ProjectMcpSection({
         )}
       </div>
 
-      <Dialog open={editing} onOpenChange={(open) => (open ? setEditing(true) : resetForm())}>
+      <Dialog open={editing} onOpenChange={(open) => { if (!open) resetForm(); }}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle className="text-base">{editingName ? t("mcpEditServer") : t("mcpAddServer")}</DialogTitle>
@@ -479,7 +408,7 @@ export default function ProjectMcpSection({
           </div>
 
           <DialogFooter>
-            <Button size="sm" variant="ghost" onClick={resetForm}>
+            <Button size="sm" variant="ghost" onClick={() => resetForm()}>
               {tCommon("cancel")}
             </Button>
             <Button size="sm" onClick={handleSave}>

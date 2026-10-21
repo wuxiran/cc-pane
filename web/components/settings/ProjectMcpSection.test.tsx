@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import i18n from "@/i18n";
 import { useDescriptionLangStore, useMcpStore } from "@/stores";
+import { EMPTY_MCP_LAYER } from "@/stores/useMcpStore";
 import { useLaunchProfilesStore } from "@/stores/useLaunchProfilesStore";
 import { useSharedMcpStore } from "@/stores/useSharedMcpStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
@@ -53,9 +54,7 @@ const sharedFetch: SharedMcpServerInfo = {
 
 function setServers(servers: Record<string, McpServerConfig>) {
   useMcpStore.setState({
-    servers,
-    legacyServers: {},
-    loading: false,
+    layers: { [`project:${PROJECT}`]: { ...EMPTY_MCP_LAYER, servers } },
     loadServers: loadServersMock,
     loadLegacyServers: loadLegacyServersMock,
     importLegacyServers: importLegacyServersMock,
@@ -171,7 +170,7 @@ describe("ProjectMcpSection", () => {
   });
 
   it("shows a loading spinner while servers are loading", () => {
-    useMcpStore.setState({ loading: true });
+    useMcpStore.setState({ layers: { [`project:${PROJECT}`]: { ...EMPTY_MCP_LAYER, loading: true } } });
     render(<ProjectMcpSection projectPath={PROJECT} />);
 
     expect(document.querySelector(".animate-spin")).not.toBeNull();
@@ -282,12 +281,12 @@ describe("ProjectMcpSection", () => {
   it("offers a one-click import when legacy .claude servers are not in the overlay yet", async () => {
     const user = userEvent.setup();
     setServers({ kept: { command: "npx", args: [], env: {} } });
-    useMcpStore.setState({
-      legacyServers: {
-        kept: { command: "npx", args: [], env: {} },
-        legacy: { command: "old", args: [], env: {} },
-      },
-    });
+    useMcpStore.setState((state) => ({ layers: {
+      ...state.layers,
+      [`project:${PROJECT}`]: { ...state.layers[`project:${PROJECT}`], legacyServers: {
+        kept: { command: "npx", args: [], env: {} }, legacy: { command: "old", args: [], env: {} },
+      } },
+    } }));
     render(<ProjectMcpSection projectPath={PROJECT} />);
 
     expect(screen.getByText("legacy")).toBeInTheDocument();

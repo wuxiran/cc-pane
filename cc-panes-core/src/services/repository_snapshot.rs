@@ -32,10 +32,37 @@ impl RepositorySnapshotService {
     }
 
     pub fn capture(&self, cwd: &Path) -> AppResult<RepositorySnapshot> {
+        self.capture_referencing(cwd, None)
+    }
+
+    /// Keep observing files already present in a baseline even if ignore rules
+    /// later hide them from Git's untracked-file listing. New ignored files stay
+    /// excluded, while actual deletion and changes to retained files remain visible.
+    pub fn capture_with_baseline(
+        &self,
+        cwd: &Path,
+        baseline: &RepositorySnapshot,
+    ) -> AppResult<RepositorySnapshot> {
+        self.capture_referencing(cwd, Some(baseline))
+    }
+
+    fn capture_referencing(
+        &self,
+        cwd: &Path,
+        baseline: Option<&RepositorySnapshot>,
+    ) -> AppResult<RepositorySnapshot> {
         let identity = repository_identity(cwd)?;
         let repository = self.prepare_repository(&identity)?;
         validate_file_types(&identity.root)?;
-        let paths = source_paths(&identity.root)?;
+        let mut paths = source_paths(&identity.root)?;
+        if let Some(baseline) = baseline {
+            if self.validate_snapshot(baseline)? != repository {
+                return Err("Snapshot baseline belongs to a different repository".into());
+            }
+            for entry in self.list_files(baseline)? {
+                paths.entry(entry.path).or_insert(Some(entry.mode));
+            }
+        }
         let scratch = files::Scratch::new(&repository)?;
         let entries = capture_files(&identity.root, paths, &scratch)?;
         let tree = write_tree(&repository, &scratch, &entries)?;

@@ -83,6 +83,7 @@ interface TodoState {
   loadList: (query?: TodoQuery) => Promise<void>;
   create: (request: CreateTodoRequest) => Promise<TodoItem>;
   update: (id: string, request: UpdateTodoRequest) => Promise<void>;
+  refreshTodo: (id: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
   select: (todo: TodoItem | null) => void;
   setFilterStatus: (status: TodoStatus | null) => void;
@@ -139,6 +140,8 @@ const INITIAL_STATE = {
   savedFilters: JSON.parse(localStorage.getItem("cc-panes-todo-saved-filters") || "[]") as TodoSavedFilter[],
   dispatchInfoByTodoId: {} as Record<string, TodoDispatchInfo>,
 };
+
+const pendingTodoRefreshes = new Map<string, symbol>();
 
 export const useTodoStore = create<TodoState>()(
   immer((set, get) => ({
@@ -216,12 +219,23 @@ export const useTodoStore = create<TodoState>()(
       await todoService.update(id, request);
       await get().loadList();
       // 更新选中项
-      const { selectedTodo } = get();
-      if (selectedTodo?.id === id) {
+      if (get().selectedTodo?.id === id) await get().refreshTodo(id);
+    },
+
+    refreshTodo: async (id) => {
+      const request = Symbol();
+      pendingTodoRefreshes.set(id, request);
+      try {
         const updated = await todoService.get(id);
+        if (pendingTodoRefreshes.get(id) !== request) return;
         set((state) => {
-          state.selectedTodo = updated;
+          // A late response belongs to its original task, not the current selection.
+          if (state.selectedTodo?.id === id) state.selectedTodo = updated;
+          const index = state.todos.findIndex((todo) => todo.id === id);
+          if (index !== -1 && updated) state.todos[index] = updated;
         });
+      } finally {
+        if (pendingTodoRefreshes.get(id) === request) pendingTodoRefreshes.delete(id);
       }
     },
 
@@ -363,13 +377,7 @@ export const useTodoStore = create<TodoState>()(
       await todoService.toggleMyDay(id);
       await get().loadList();
       // 更新选中项
-      const { selectedTodo } = get();
-      if (selectedTodo?.id === id) {
-        const updated = await todoService.get(id);
-        set((state) => {
-          state.selectedTodo = updated;
-        });
-      }
+      if (get().selectedTodo?.id === id) await get().refreshTodo(id);
     },
 
     loadStats: async () => {
@@ -475,57 +483,24 @@ export const useTodoStore = create<TodoState>()(
 
     addSubtask: async (todoId, title) => {
       await todoService.addSubtask(todoId, title);
-      // 刷新选中项
-      const updated = await todoService.get(todoId);
-      set((state) => {
-        if (state.selectedTodo?.id === todoId && updated) {
-          state.selectedTodo = updated;
-        }
-        // 更新列表中的项
-        const idx = state.todos.findIndex((t) => t.id === todoId);
-        if (idx !== -1 && updated) {
-          state.todos[idx] = updated;
-        }
-      });
+      await get().refreshTodo(todoId);
     },
 
     toggleSubtask: async (subtaskId) => {
+      const todoId = get().selectedTodo?.id;
       await todoService.toggleSubtask(subtaskId);
-      // 刷新选中项的 subtasks
-      const { selectedTodo } = get();
-      if (selectedTodo) {
-        const updated = await todoService.get(selectedTodo.id);
-        set((state) => {
-          if (updated) {
-            state.selectedTodo = updated;
-            const idx = state.todos.findIndex((t) => t.id === updated.id);
-            if (idx !== -1) {
-              state.todos[idx] = updated;
-            }
-          }
-        });
-      }
+      if (todoId) await get().refreshTodo(todoId);
     },
 
     deleteSubtask: async (subtaskId) => {
+      const todoId = get().selectedTodo?.id;
       await todoService.deleteSubtask(subtaskId);
-      const { selectedTodo } = get();
-      if (selectedTodo) {
-        const updated = await todoService.get(selectedTodo.id);
-        set((state) => {
-          if (updated) {
-            state.selectedTodo = updated;
-            const idx = state.todos.findIndex((t) => t.id === updated.id);
-            if (idx !== -1) {
-              state.todos[idx] = updated;
-            }
-          }
-        });
-      }
+      if (todoId) await get().refreshTodo(todoId);
     },
 
     reset: () =>
       set((state) => {
+        pendingTodoRefreshes.clear();
         Object.assign(state, INITIAL_STATE);
       }),
   }))

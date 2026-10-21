@@ -136,6 +136,94 @@ fn dirty_baseline_and_origin_survive_restart_without_polluting_source_index() {
 }
 
 #[test]
+fn adopting_ignore_rules_does_not_delete_inherited_untracked_files() {
+    let f = Fixture::new();
+    fs::write(f.source.join("notes.txt"), "keep inherited notes\n").unwrap();
+    let record = f.prepare(ForkReviewMode::Worktree);
+    let child = Path::new(&record.target_cwd);
+    fs::write(child.join(".gitignore"), "notes.txt\nnew-secret.txt\n").unwrap();
+    fs::write(child.join("new-secret.txt"), "new ignored data").unwrap();
+    let view = f.service.compare(&record.id).unwrap();
+    assert_eq!(
+        view.files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>(),
+        [".gitignore"]
+    );
+    f.apply(&view, vec![whole(".gitignore")]).unwrap();
+    for root in [f.source.as_path(), child] {
+        assert_eq!(
+            fs::read_to_string(root.join("notes.txt")).unwrap(),
+            "keep inherited notes\n"
+        );
+    }
+    assert!(!f.source.join("new-secret.txt").exists());
+    assert!(f
+        .service
+        .compare(&record.id)
+        .unwrap()
+        .files
+        .iter()
+        .all(|file| file.path == ".gitignore"));
+}
+
+#[test]
+fn ignored_baseline_file_edits_are_reviewed_and_invalidate_stale_adoption() {
+    let f = Fixture::new();
+    fs::write(f.source.join("notes.txt"), "inherited\n").unwrap();
+    let record = f.prepare(ForkReviewMode::Worktree);
+    let child = Path::new(&record.target_cwd);
+    fs::write(child.join(".gitignore"), "notes.txt\n").unwrap();
+    fs::write(child.join("notes.txt"), "first change\n").unwrap();
+    let view = f.service.compare(&record.id).unwrap();
+    let changed = view
+        .files
+        .iter()
+        .find(|file| file.path == "notes.txt")
+        .unwrap();
+    assert_eq!(changed.status, "modified");
+    assert_eq!(changed.child_content.as_deref(), Some("first change\n"));
+    fs::write(child.join("notes.txt"), "second change\n").unwrap();
+    assert_eq!(
+        f.apply(&view, vec![whole("notes.txt")]).unwrap_err().code(),
+        Some("FORK_CHANGED")
+    );
+    assert_eq!(
+        fs::read_to_string(f.source.join("notes.txt")).unwrap(),
+        "inherited\n"
+    );
+    let refreshed = f.service.compare(&record.id).unwrap();
+    f.apply(&refreshed, vec![whole(".gitignore"), whole("notes.txt")])
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(f.source.join("notes.txt")).unwrap(),
+        "second change\n"
+    );
+}
+
+#[test]
+fn actually_deleted_ignored_baseline_files_remain_adoptable_deletions() {
+    let f = Fixture::new();
+    fs::write(f.source.join("notes.txt"), "inherited\n").unwrap();
+    let record = f.prepare(ForkReviewMode::Worktree);
+    let child = Path::new(&record.target_cwd);
+    fs::write(child.join(".gitignore"), "notes.txt\n").unwrap();
+    fs::remove_file(child.join("notes.txt")).unwrap();
+    let view = f.service.compare(&record.id).unwrap();
+    let removed = view
+        .files
+        .iter()
+        .find(|file| file.path == "notes.txt")
+        .unwrap();
+    assert_eq!(removed.status, "deleted");
+    assert!(removed.supported && !removed.conflict);
+    f.apply(&view, vec![whole(".gitignore"), whole("notes.txt")])
+        .unwrap();
+    assert!(!f.source.join("notes.txt").exists());
+}
+
+#[test]
 fn selective_hunks_preserve_both_unselected_fork_changes_and_compatible_parent_changes() {
     let f = Fixture::new();
     let record = f.prepare(ForkReviewMode::Worktree);
