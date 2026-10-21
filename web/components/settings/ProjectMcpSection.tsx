@@ -31,6 +31,7 @@ import { sharedMcpFailureMessage } from "@/types/shared-mcp";
 import { translateError } from "@/utils";
 import { EMPTY_MCP_LAYER } from "@/stores/useMcpStore";
 import { useMcpServerEditor } from "./useMcpServerEditor";
+import { McpArgumentsInput } from "./McpArgumentsInput";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import ScopeBanner from "./ScopeBanner";
 import RemoteRuntimeNotice from "@/components/providers/RemoteRuntimeNotice";
@@ -94,7 +95,7 @@ export default function ProjectMcpSection({
   const stopShared = useSharedMcpStore((s) => s.stopServer);
 
   const [filter, setFilter] = useState<McpHubFilter>("all");
-  const { editing, form, editingName, setForm, resetForm, handleNew, handleEdit, handleSave } = useMcpServerEditor(target);
+  const { editing, form, editingName, setForm, argsError, resetForm, handleNew, handleEdit, handleSave } = useMcpServerEditor(target);
   const [importing, setImporting] = useState(false);
   const [sharedBusy, setSharedBusy] = useState<string | null>(null);
 
@@ -361,12 +362,11 @@ export default function ProjectMcpSection({
             </div>
             <Field label={t("mcpArgs")}>
               {(id) => (
-                <Input
+                <McpArgumentsInput
                   id={id}
                   value={form.args}
-                  onChange={(e) => setForm({ ...form, args: e.target.value })}
-                  placeholder={t("mcpArgsPlaceholder")}
-                  className="h-8 font-mono text-sm"
+                  onChange={(args) => setForm({ ...form, args })}
+                  error={argsError}
                 />
               )}
             </Field>
@@ -411,7 +411,7 @@ export default function ProjectMcpSection({
             <Button size="sm" variant="ghost" onClick={() => resetForm()}>
               {tCommon("cancel")}
             </Button>
-            <Button size="sm" onClick={handleSave}>
+            <Button size="sm" onClick={handleSave} disabled={Boolean(argsError)}>
               {tCommon("save")}
             </Button>
           </DialogFooter>

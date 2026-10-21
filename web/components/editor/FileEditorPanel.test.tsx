@@ -3,6 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import { useEditorTabsStore, type EditorTab } from "@/stores/useEditorTabsStore";
+import { useFileBrowserStore } from "@/stores/useFileBrowserStore";
+import { useFileTreeStore } from "@/stores/useFileTreeStore";
 import FileEditorPanel from "./FileEditorPanel";
 
 // EditorView 依赖 Monaco/文件系统，用桩替代
@@ -67,6 +69,22 @@ describe("FileEditorPanel", () => {
       screen.getByText(i18n.t("sidebar:noOpenFiles", { defaultValue: "No open files" }))
     ).toBeInTheDocument();
     expect(screen.queryByTestId("editor-view")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["C:/root.txt", "C:/"],
+    ["//server/share/root.txt", "//server/share"],
+  ])("reveals %s in its actual root directory", async (filePath, parent) => {
+    const navigateTo = vi.fn();
+    const revealFile = vi.fn();
+    useFileBrowserStore.setState({ navigateTo });
+    useFileTreeStore.setState({ revealFile });
+    setupStore([makeTab("root", { filePath })]);
+    render(<FileEditorPanel />);
+    fireEvent.contextMenu(tabElement("root.ts"));
+    fireEvent.click(await screen.findByText(i18n.t("panes:revealInExplorer")));
+    expect(navigateTo).toHaveBeenCalledWith(parent);
+    expect(revealFile).toHaveBeenCalledWith(parent, filePath);
   });
 
   it("renders tabs and mounts the editor for the active tab", () => {

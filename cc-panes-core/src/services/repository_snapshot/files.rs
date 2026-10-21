@@ -38,9 +38,17 @@ pub(super) fn read(
     let mut parent = root.try_clone()?;
     let components: Vec<_> = path.split('/').collect();
     for component in &components[..components.len() - 1] {
-        let Some(next) = open_at(&parent, component, true)? else {
+        let Some(next) = open_at(&parent, component, false)? else {
             return Ok(None);
         };
+        let metadata = next.metadata()?;
+        if metadata.is_file() {
+            // A regular file now occupies an old index/baseline directory.
+            return Ok(None);
+        }
+        if !metadata.is_dir() {
+            return Err(format!("Unsupported snapshot ancestor type: {path}").into());
+        }
         parent = next;
     }
     let name = std::ffi::CString::new(*components.last().ok_or("Missing snapshot filename")?)
@@ -58,6 +66,10 @@ pub(super) fn read(
         return missing_or_error(std::io::Error::last_os_error());
     }
     let stat = unsafe { stat.assume_init() };
+    if stat.st_mode & libc::S_IFMT == libc::S_IFDIR {
+        // The old file was replaced by a directory; its children are separate paths.
+        return Ok(None);
+    }
     if stat.st_mode & libc::S_IFMT == libc::S_IFLNK {
         return read_link(&parent, &name).map(Some);
     }

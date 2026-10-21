@@ -1,4 +1,5 @@
 import { useMemo, useCallback } from "react";
+import { navigationBreadcrumbs } from "@/utils/path";
 import { ChevronRight } from "lucide-react";
 import { useFileBrowserStore } from "@/stores/useFileBrowserStore";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
@@ -7,23 +8,6 @@ interface EditorBreadcrumbProps {
   filePath: string;
   sourceLabel?: string;
   onNavigate?: (path: string) => void;
-}
-
-/** 将文件路径拆分为可点击的面包屑段 */
-function parseBreadcrumbs(filePath: string): Array<{ label: string; path: string }> {
-  const normalized = filePath.replace(/\\/g, "/");
-  const parts = normalized.split("/").filter(Boolean);
-  const segments: Array<{ label: string; path: string }> = [];
-  let accumulated = "";
-  for (let i = 0; i < parts.length; i++) {
-    accumulated += (i === 0 && !normalized.startsWith("/") ? "" : "/") + parts[i];
-    // Windows 盘符处理
-    if (i === 0 && parts[i].endsWith(":")) {
-      accumulated = parts[i] + "/";
-    }
-    segments.push({ label: parts[i], path: accumulated });
-  }
-  return segments;
 }
 
 export default function EditorBreadcrumb({
@@ -35,7 +19,7 @@ export default function EditorBreadcrumb({
   const toggleFilesMode = useActivityBarStore((s) => s.toggleFilesMode);
   const appViewMode = useActivityBarStore((s) => s.appViewMode);
 
-  const segments = useMemo(() => parseBreadcrumbs(filePath), [filePath]);
+  const segments = useMemo(() => navigationBreadcrumbs(filePath, onNavigate ? "posix" : "auto"), [filePath, onNavigate]);
 
   const handleSegmentClick = useCallback(
     (path: string) => {

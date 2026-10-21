@@ -11,18 +11,11 @@ import { getFileIcon } from "@/components/filetree/FileTreeNode";
 import EditorView from "./EditorView";
 import { useFileEditorClosing } from "./useFileEditorClosing";
 import { TabCloseConfirmDialog } from "@/components/panes/TabCloseConfirmDialog";
+import { parentNavigationPath } from "@/utils/path";
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem,
   ContextMenuSeparator, ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-
-/** 提取文件所在的父目录 */
-function getParentDir(filePath: string): string {
-  const normalized = filePath.replace(/\\/g, "/");
-  const lastSlash = normalized.lastIndexOf("/");
-  if (lastSlash <= 0) return normalized;
-  return normalized.slice(0, lastSlash);
-}
 
 /** Chrome 风格密度配置 */
 const DENSITY = {
@@ -349,7 +342,7 @@ export default function FileEditorPanel() {
 
   const handleRevealInExplorer = useCallback(
     (tab: EditorTab) => {
-      const parentDir = getParentDir(tab.filePath);
+      const parentDir = parentNavigationPath(tab.filePath, tab.ssh ? "posix" : "auto");
       if (tab.ssh) {
         useSshRemoteFilesStore.getState().openMachine(tab.ssh.machineId, parentDir);
         useRightDockStore.setState({ visible: true, activeView: "sshFiles" });

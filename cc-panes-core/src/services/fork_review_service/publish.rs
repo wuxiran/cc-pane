@@ -4,9 +4,10 @@ mod unix;
 #[cfg(windows)]
 mod windows;
 #[cfg(unix)]
-use unix::SafeRoot;
+use unix::{DirectoryState, SafeRoot};
 #[cfg(windows)]
-use windows::SafeRoot;
+use windows::{DirectoryState, SafeRoot};
+mod plan;
 
 use crate::models::repository_snapshot::SnapshotFile;
 use crate::utils::AppResult;
@@ -14,6 +15,12 @@ use std::collections::HashSet;
 use std::path::{Component, Path};
 
 type Change = (String, Option<SnapshotFile>, Option<SnapshotFile>);
+
+enum Undo {
+    File(usize),
+    CreatedDirectory(String),
+    RemovedDirectory(String, DirectoryState),
+}
 
 pub(super) fn publish(root: &Path, changes: &[Change]) -> AppResult<Vec<String>> {
     publish_with(root, changes, |_| Ok(()))
@@ -25,47 +32,101 @@ fn publish_with(
     mut after_write: impl FnMut(usize) -> AppResult<()>,
 ) -> AppResult<Vec<String>> {
     validate_changes(changes)?;
+    let order = plan::order(changes)?;
     let root = SafeRoot::new(root)?;
     for (path, before, _) in changes {
         ensure_matches(&root, path, before)?;
     }
+    #[cfg(windows)]
+    for (path, before, after) in changes {
+        if before.is_none() && after.is_some() {
+            for directory in plan::replaceable_directories(changes, path) {
+                root.preflight_directory_restore(&directory)?;
+            }
+        }
+    }
     let mut applied = Vec::new();
-    let mut directories = Vec::new();
-    for (index, (path, before, after)) in changes.iter().enumerate() {
+    let mut journal = Vec::new();
+    for index in order {
+        let (_, before, after) = &changes[index];
         if before == after {
             continue;
         }
-        if let Err(error) = root.apply(path, before, after, &mut directories) {
-            return Err(rollback(&root, changes, &applied, &directories, error.to_string()).into());
+        if let Err(error) = apply_change(&root, changes, index, &mut journal) {
+            return Err(rollback(&root, changes, &journal, error.to_string()).into());
         }
         applied.push(index);
         if let Err(error) = after_write(index) {
-            return Err(rollback(&root, changes, &applied, &directories, error.to_string()).into());
+            return Err(rollback(&root, changes, &journal, error.to_string()).into());
         }
     }
+    applied.sort_unstable();
     Ok(applied
         .into_iter()
         .map(|index| changes[index].0.clone())
         .collect())
 }
 
-fn rollback(
+fn apply_change(
     root: &SafeRoot,
     changes: &[Change],
-    applied: &[usize],
-    directories: &[String],
-    cause: String,
-) -> String {
-    let mut failures = Vec::new();
-    let mut unused = Vec::new();
-    for &index in applied.iter().rev() {
-        let (path, before, after) = &changes[index];
-        if let Err(error) = root.apply(path, after, before, &mut unused) {
-            failures.push(format!("{path}: {error}"));
+    index: usize,
+    journal: &mut Vec<Undo>,
+) -> AppResult<()> {
+    let (path, before, after) = &changes[index];
+    if before.is_none() && after.is_some() {
+        for directory in plan::replaceable_directories(changes, path) {
+            // rmdir, never recursive deletion: an unselected/ignored/concurrent
+            // entry blocks replacement and triggers rollback of our own edits.
+            if let Some(permissions) = root.remove_empty_directory(&directory, true)? {
+                journal.push(Undo::RemovedDirectory(directory, permissions));
+            }
         }
     }
-    for path in directories.iter().rev() {
-        if let Err(error) = root.remove_empty_directory(path) {
+    let mut created = Vec::new();
+    let result = root.apply(path, before, after, &mut created);
+    journal.extend(created.into_iter().map(Undo::CreatedDirectory));
+    result?;
+    journal.push(Undo::File(index));
+    Ok(())
+}
+
+fn rollback(root: &SafeRoot, changes: &[Change], journal: &[Undo], cause: String) -> String {
+    let mut failures = Vec::new();
+    let mut blocked = Vec::<String>::new();
+    for operation in journal.iter().rev() {
+        let (path, result) = match operation {
+            Undo::File(index) => {
+                let (path, before, after) = &changes[*index];
+                let result = if blocked
+                    .iter()
+                    .any(|directory| path == directory || plan::descendant(path, directory))
+                {
+                    Err("Rollback parent directory could not be restored safely".into())
+                } else {
+                    root.apply(path, after, before, &mut Vec::new())
+                };
+                (path, result)
+            }
+            Undo::CreatedDirectory(path) => {
+                (path, root.remove_empty_directory(path, false).map(|_| ()))
+            }
+            Undo::RemovedDirectory(path, permissions) => {
+                let result = if blocked
+                    .iter()
+                    .any(|directory| path == directory || plan::descendant(path, directory))
+                {
+                    Err("Rollback ancestor directory could not be restored safely".into())
+                } else {
+                    root.restore_directory(path, permissions)
+                };
+                (path, result)
+            }
+        };
+        if let Err(error) = result {
+            if matches!(operation, Undo::RemovedDirectory(..)) {
+                blocked.push(path.clone());
+            }
             failures.push(format!("{path}: {error}"));
         }
     }
@@ -132,5 +193,7 @@ fn validate_path(path: &str) -> AppResult<()> {
     Ok(())
 }
 
+#[cfg(test)]
+mod shape_tests;
 #[cfg(test)]
 mod tests;

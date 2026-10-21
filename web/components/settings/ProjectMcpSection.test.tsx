@@ -1,5 +1,5 @@
 import "@/i18n";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
@@ -203,7 +203,7 @@ describe("ProjectMcpSection", () => {
     expect(upsertServerMock).not.toHaveBeenCalled();
   });
 
-  it("saves a new server with whitespace-split args, descriptions and parsed env lines", async () => {
+  it("saves a new server with arguments, descriptions and parsed env lines", async () => {
     const user = userEvent.setup();
     render(<ProjectMcpSection projectPath={PROJECT} />);
 
@@ -213,7 +213,7 @@ describe("ProjectMcpSection", () => {
     await user.type(within(dialog).getByPlaceholderText(t("mcpArgsPlaceholder")), "-y   some-pkg");
     const [zh] = within(dialog).getAllByPlaceholderText(t("mcpDescriptionPlaceholder"));
     await user.type(zh, " 装依赖 ");
-    await user.type(dialog.querySelector("textarea") as HTMLTextAreaElement, "KEY=VALUE{enter}FOO=BAR");
+    await user.type(within(dialog).getByLabelText(t("mcpEnv")), "KEY=VALUE{enter}FOO=BAR");
     await user.click(within(dialog).getByRole("button", { name: tc("save") }));
 
     await waitFor(() =>
@@ -227,6 +227,33 @@ describe("ProjectMcpSection", () => {
       ),
     );
     expect(toast.success).toHaveBeenCalled();
+  });
+
+  it("preserves existing spaced, quoted, empty and Windows arguments on an unchanged save", async () => {
+    const args = ["C:\\Program Files\\MCP\\server.js", "--label", "two words", "", 'say "hello"', "a'b", "line\nbreak"];
+    setServers({ owned: { command: "node", args, env: {} } });
+    render(<ProjectMcpSection projectPath={PROJECT} />);
+    fireEvent.click(within(card("owned")).getByRole("button", { name: t("mcpEdit") }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: tc("save") }));
+    await waitFor(() => expect(upsertServerMock).toHaveBeenCalledWith(PROJECT_TARGET, "owned", "node", args, {}, expect.anything()));
+  });
+
+  it("blocks invalid arguments before deleting a renamed server and allows correction", async () => {
+    setServers({ owned: { command: "node", args: [], env: {} } });
+    render(<ProjectMcpSection projectPath={PROJECT} />);
+    fireEvent.click(within(card("owned")).getByRole("button", { name: t("mcpEdit") }));
+    const dialog = within(screen.getByRole("dialog"));
+    fireEvent.change(dialog.getByLabelText(t("mcpServerName")), { target: { value: "renamed" } });
+    fireEvent.change(dialog.getByLabelText(t("mcpArgs")), { target: { value: '"unfinished' } });
+    expect(dialog.getByRole("alert")).toHaveTextContent(translate("notifications:mcpArgsUnclosedQuote"));
+    expect(dialog.getByRole("button", { name: tc("save") })).toBeDisabled();
+    fireEvent.click(dialog.getByRole("button", { name: tc("save") }));
+    expect(removeServerMock).not.toHaveBeenCalled();
+    expect(upsertServerMock).not.toHaveBeenCalled();
+    fireEvent.change(dialog.getByLabelText(t("mcpArgs")), { target: { value: '"fixed value" ""' } });
+    expect(dialog.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.click(dialog.getByRole("button", { name: tc("save") }));
+    await waitFor(() => expect(upsertServerMock).toHaveBeenCalledWith(PROJECT_TARGET, "renamed", "node", ["fixed value", ""], {}, expect.anything()));
   });
 
   it("removes the old entry first when a server is renamed", async () => {

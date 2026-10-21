@@ -1,8 +1,8 @@
 use std::ffi::OsStr;
+use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::{fs, io};
 
 use anyhow::{Context, Result};
 
@@ -53,35 +53,17 @@ fn sibling_temp_path(path: &Path) -> PathBuf {
 }
 
 fn replace_file(temp_path: &Path, path: &Path) -> Result<()> {
-    match fs::rename(temp_path, path) {
-        Ok(()) => Ok(()),
-        Err(error) => replace_file_after_rename_error(temp_path, path, error),
-    }
-}
-
-#[cfg(windows)]
-fn replace_file_after_rename_error(temp_path: &Path, path: &Path, error: io::Error) -> Result<()> {
-    match fs::remove_file(path) {
-        Ok(()) => {}
-        Err(remove_error) if remove_error.kind() == io::ErrorKind::NotFound => {}
-        Err(remove_error) => {
-            return Err(remove_error)
-                .with_context(|| format!("failed to replace existing file {}", path.display()));
-        }
-    }
-
+    // std::fs::rename already replaces files on Windows (MOVEFILE_REPLACE_EXISTING)
+    // as well as Unix. Never delete the destination to retry a failed rename:
+    // a missing/locked source or another I/O failure would destroy the last good file.
+    // https://doc.rust-lang.org/std/fs/fn.rename.html
     fs::rename(temp_path, path).with_context(|| {
         format!(
-            "failed to rename temp file {} after replace error: {}",
+            "failed to replace {} with temp file {}",
+            path.display(),
             temp_path.display(),
-            error
         )
     })
-}
-
-#[cfg(not(windows))]
-fn replace_file_after_rename_error(temp_path: &Path, _path: &Path, error: io::Error) -> Result<()> {
-    Err(error).with_context(|| format!("failed to rename temp file {}", temp_path.display()))
 }
 
 #[cfg(test)]
@@ -107,5 +89,61 @@ mod tests {
         write_atomic(&path, "new\n").unwrap();
 
         assert_eq!(fs::read_to_string(path).unwrap(), "new\n");
+    }
+
+    #[test]
+    fn failed_rename_never_deletes_the_previous_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let destination = dir.path().join("config.json");
+        fs::write(&destination, "last good configuration").unwrap();
+
+        // A source can disappear or become inaccessible after staging. The old
+        // Windows delete-then-retry path destroyed the destination on this error.
+        assert!(replace_file(&dir.path().join("missing.tmp"), &destination).is_err());
+        assert_eq!(
+            fs::read_to_string(&destination).unwrap(),
+            "last good configuration"
+        );
+    }
+
+    #[test]
+    fn failed_atomic_replace_preserves_the_destination_and_cleans_staging() {
+        let dir = tempfile::tempdir().unwrap();
+        let destination = dir.path().join("config");
+        fs::create_dir(&destination).unwrap();
+        fs::write(destination.join("keep"), "unchanged").unwrap();
+
+        assert!(write_atomic(&destination, "replacement").is_err());
+        assert_eq!(
+            fs::read_to_string(destination.join("keep")).unwrap(),
+            "unchanged"
+        );
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn locked_staging_file_does_not_remove_the_previous_configuration() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let destination = dir.path().join("config.json");
+        let staging = dir.path().join("staging.tmp");
+        fs::write(&destination, "last good configuration").unwrap();
+        fs::write(&staging, "replacement").unwrap();
+        // Permit reads/writes but not deletion/rename of the source. The target
+        // remains removable, exercising the old fallback's data-loss sequence.
+        let locked = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x00000001 | 0x00000002)
+            .open(&staging)
+            .unwrap();
+        let replaced = replace_file(&staging, &destination);
+        drop(locked);
+        assert!(replaced.is_err());
+        assert_eq!(
+            fs::read_to_string(destination).unwrap(),
+            "last good configuration"
+        );
+        assert_eq!(fs::read_to_string(staging).unwrap(), "replacement");
     }
 }

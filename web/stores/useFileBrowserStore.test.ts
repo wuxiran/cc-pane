@@ -62,6 +62,39 @@ describe("useFileBrowserStore", () => {
     });
   });
 
+  describe("persisted navigation migration", () => {
+    it("rehydrates and upgrades a legacy bare drive root before the browser consumes it", async () => {
+      localStorage.setItem("cc-panes-file-browser", JSON.stringify({
+        version: 0, state: { currentPath: "C:", followTerminal: false },
+      }));
+      await useFileBrowserStore.persist.rehydrate();
+      expect(useFileBrowserStore.getState().currentPath).toBe("C:/");
+      expect(useFileBrowserStore.getState().followTerminal).toBe(false);
+      expect(JSON.parse(localStorage.getItem("cc-panes-file-browser")!)).toEqual({
+        version: 1, state: { currentPath: "C:/", followTerminal: false },
+      });
+      useFileBrowserStore.getState().goUp();
+      expect(useFileBrowserStore.getState().currentPath).toBe("C:/");
+    });
+
+    it.each([
+      [0, "C:foo", "C:foo"],
+      [1, "C:", "C:"],
+      [0, "D://work/", "D:/work"],
+      [0, "/srv/a\\b/", "/srv/a\\b"],
+      [0, "ssh://User@Host:22/srv/a\\b/", "ssh://User@Host:22/srv/a\\b"],
+      [0, "\\\\server\\share\\", "//server/share"],
+      [0, "/", "/"],
+    ])("rehydrates version %s path %s without changing its root kind", async (version, path, expected) => {
+      localStorage.setItem("cc-panes-file-browser", JSON.stringify({
+        version, state: { currentPath: path, followTerminal: true },
+      }));
+      await useFileBrowserStore.persist.rehydrate();
+      expect(useFileBrowserStore.getState().currentPath).toBe(expected);
+      expect(useFileBrowserStore.getState().followTerminal).toBe(true);
+    });
+  });
+
   describe("goBack / goForward", () => {
     it("goBack 应回退到上一个路径", () => {
       const store = useFileBrowserStore.getState();
@@ -115,8 +148,9 @@ describe("useFileBrowserStore", () => {
       useFileBrowserStore.getState().goUp();
       expect(useFileBrowserStore.getState().currentPath).toBe("C:/Users");
       useFileBrowserStore.getState().goUp();
-      // getParentPath 对 "C:/Users" 返回 "C:/"，navigateTo 规范化去尾斜杠后为 "C:"
-      expect(useFileBrowserStore.getState().currentPath).toBe("C:");
+      expect(useFileBrowserStore.getState().currentPath).toBe("C:/");
+      useFileBrowserStore.getState().goUp();
+      expect(useFileBrowserStore.getState().currentPath).toBe("C:/");
     });
 
     it("父目录等于当前路径时不再导航", () => {
@@ -131,6 +165,35 @@ describe("useFileBrowserStore", () => {
       expect(state.currentPath).toBe("foo");
       expect(state.history).toEqual(["foo"]);
     });
+  });
+
+  it("retains drive roots through navigation history and deduplicates root separators", () => {
+    const store = useFileBrowserStore.getState();
+    store.navigateTo("C:\\");
+    store.navigateTo("C:/");
+    store.navigateTo("C:/work");
+    store.goBack();
+    expect(useFileBrowserStore.getState().currentPath).toBe("C:/");
+    expect(useFileBrowserStore.getState().history).toEqual(["C:/", "C:/work"]);
+    store.goForward();
+    expect(useFileBrowserStore.getState().currentPath).toBe("C:/work");
+  });
+
+  it("never navigates above a UNC share root when going up", () => {
+    const store = useFileBrowserStore.getState();
+    store.navigateTo("\\\\server\\share\\work");
+    store.goUp();
+    expect(useFileBrowserStore.getState().currentPath).toBe("//server/share");
+    store.goUp();
+    expect(useFileBrowserStore.getState().currentPath).toBe("//server/share");
+    expect(useFileBrowserStore.getState().history).toEqual(["//server/share/work", "//server/share"]);
+  });
+
+  it("keeps POSIX literal backslashes in directories", () => {
+    const store = useFileBrowserStore.getState();
+    store.navigateTo("/srv/a\\b/child");
+    store.goUp();
+    expect(useFileBrowserStore.getState().currentPath).toBe("/srv/a\\b");
   });
 
   describe("refresh", () => {

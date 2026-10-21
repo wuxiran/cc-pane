@@ -59,7 +59,7 @@ pub(super) fn read(
     let components: Vec<_> = path.split('/').collect();
     for (index, component) in components.iter().enumerate() {
         let directory = index + 1 < components.len();
-        let Some(file) = open_relative(&parent, component, directory)? else {
+        let Some(file) = open_relative(&parent, component)? else {
             return Ok(None);
         };
         if file.metadata()?.file_attributes() & 0x400 != 0 {
@@ -69,15 +69,24 @@ pub(super) fn read(
             .into());
         }
         if directory {
+            if file.metadata()?.is_file() {
+                return Ok(None);
+            }
+            if !file.metadata()?.is_dir() {
+                return Err(format!("Unsupported snapshot ancestor type: {path}").into());
+            }
             parent = file;
         } else {
+            if file.metadata()?.is_dir() {
+                return Ok(None);
+            }
             return read_regular(file, path, index_mode).map(Some);
         }
     }
     Err("Missing repository snapshot filename".into())
 }
 
-fn open_relative(parent: &File, name: &str, directory: bool) -> AppResult<Option<File>> {
+fn open_relative(parent: &File, name: &str) -> AppResult<Option<File>> {
     let mut wide: Vec<u16> = name.encode_utf16().collect();
     let length = u16::try_from(wide.len() * 2).map_err(|_| "Snapshot filename is too long")?;
     let mut name = UnicodeString {
@@ -98,7 +107,9 @@ fn open_relative(parent: &File, name: &str, directory: bool) -> AppResult<Option
         information: 0,
     };
     let mut handle = std::ptr::null_mut();
-    let options = 0x20 | 0x0020_0000 | if directory { 1 } else { 0x40 };
+    // Inspect both files and directories before deciding whether the requested
+    // file still exists. Reparse targets remain unopened and are rejected above.
+    let options = 0x20 | 0x0020_0000;
     let result = unsafe {
         NtCreateFile(
             &mut handle,

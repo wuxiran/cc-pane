@@ -1,7 +1,19 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { normalizeNavigationPath, parentNavigationPath } from "@/utils/path";
 
 const STORAGE_KEY = "cc-panes-file-browser";
+
+function persistedBrowserState(value: unknown, repairLegacyDrive = false) {
+  const stored = value !== null && typeof value === "object" ? value as Record<string, unknown> : {};
+  let currentPath = typeof stored.currentPath === "string" ? stored.currentPath : "";
+  // Version 0 stripped the separator from drive roots before writing them.
+  if (repairLegacyDrive && /^[A-Za-z]:$/.test(currentPath)) currentPath += "/";
+  return {
+    currentPath: normalizeNavigationPath(currentPath),
+    followTerminal: typeof stored.followTerminal === "boolean" ? stored.followTerminal : true,
+  };
+}
 
 interface FileBrowserState {
   currentPath: string;
@@ -20,17 +32,6 @@ interface FileBrowserState {
   canGoForward: () => boolean;
 }
 
-function getParentPath(path: string): string {
-  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
-  const lastSlash = normalized.lastIndexOf("/");
-  if (lastSlash <= 0) return normalized.charAt(0) === "/" ? "/" : normalized;
-  // Windows 根目录：C:/
-  if (lastSlash === 2 && normalized.charAt(1) === ":") {
-    return normalized.slice(0, 3);
-  }
-  return normalized.slice(0, lastSlash);
-}
-
 export const useFileBrowserStore = create<FileBrowserState>()(
   persist(
     (set, get) => ({
@@ -42,7 +43,7 @@ export const useFileBrowserStore = create<FileBrowserState>()(
 
       navigateTo: (path: string) => {
         const state = get();
-        const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "") || path;
+        const normalized = normalizeNavigationPath(path);
         if (normalized === state.currentPath) return;
 
         // 截断 forward 历史
@@ -79,7 +80,7 @@ export const useFileBrowserStore = create<FileBrowserState>()(
       goUp: () => {
         const state = get();
         if (!state.currentPath) return;
-        const parent = getParentPath(state.currentPath);
+        const parent = parentNavigationPath(state.currentPath);
         if (parent === state.currentPath) return;
         get().navigateTo(parent);
       },
@@ -97,6 +98,9 @@ export const useFileBrowserStore = create<FileBrowserState>()(
     }),
     {
       name: STORAGE_KEY,
+      version: 1,
+      migrate: (stored, version) => persistedBrowserState(stored, version < 1),
+      merge: (stored, current) => stored === undefined ? current : { ...current, ...persistedBrowserState(stored) },
       partialize: (state) => ({
         currentPath: state.currentPath,
         followTerminal: state.followTerminal,

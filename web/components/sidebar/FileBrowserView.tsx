@@ -65,7 +65,7 @@ export default function FileBrowserView() {
       } else if (isTauriRuntime()) {
         homeDir().then((home) => {
           if (home && !useFileBrowserStore.getState().currentPath) {
-            navigateTo(home.replace(/\\/g, "/").replace(/\/+$/, ""));
+            navigateTo(home);
           }
         }).catch((e) => handleErrorSilent(e, "get home dir"));
       }

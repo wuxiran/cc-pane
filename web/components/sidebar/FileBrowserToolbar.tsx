@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { navigationBreadcrumbs } from "@/utils/path";
 import { useTranslation } from "react-i18next";
 import { RefreshCw, ChevronRight } from "lucide-react";
 import {
@@ -54,22 +55,7 @@ export default function FileBrowserToolbar({
     [handleConfirmEdit]
   );
 
-  // 面包屑：将路径拆成可点击的段
-  const breadcrumbs = (() => {
-    if (!currentPath) return [];
-    const normalized = currentPath.replace(/\\/g, "/");
-    const parts = normalized.split("/").filter(Boolean);
-    const segments: { label: string; path: string }[] = [];
-    let accumulated = "";
-    for (let i = 0; i < parts.length; i++) {
-      accumulated += (i === 0 && !normalized.startsWith("/") ? "" : "/") + parts[i];
-      if (i === 0 && parts[i].endsWith(":")) {
-        accumulated = parts[i] + "/";
-      }
-      segments.push({ label: parts[i], path: accumulated });
-    }
-    return segments;
-  })();
+  const breadcrumbs = navigationBreadcrumbs(currentPath);
 
   return (
     <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-[var(--app-border)] bg-[var(--app-content)]">

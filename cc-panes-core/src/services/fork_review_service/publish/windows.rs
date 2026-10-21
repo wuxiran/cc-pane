@@ -1,11 +1,17 @@
 use super::{ensure_matches, SnapshotFile};
 use crate::utils::AppResult;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::path::Path;
+
+mod security;
+#[cfg(test)]
+mod security_tests;
 
 const READ: u32 = 0x0012_0089;
 const WRITE_DELETE: u32 = 0x0013_0116;
@@ -57,7 +63,25 @@ extern "system" {
     fn RtlNtStatusToDosError(status: i32) -> u32;
 }
 
-pub(super) struct SafeRoot(File);
+#[derive(Clone)]
+pub(super) struct DirectoryState {
+    permissions: std::fs::Permissions,
+    security: security::Descriptor,
+}
+
+impl DirectoryState {
+    fn read(file: &File) -> AppResult<Self> {
+        Ok(Self {
+            permissions: file.metadata()?.permissions(),
+            security: security::Descriptor::read(file)?,
+        })
+    }
+}
+
+pub(super) struct SafeRoot {
+    directory: File,
+    directory_states: RefCell<HashMap<String, DirectoryState>>,
+}
 
 impl SafeRoot {
     pub fn new(path: &Path) -> AppResult<Self> {
@@ -66,18 +90,24 @@ impl SafeRoot {
             .custom_flags(0x0200_0000 | 0x0020_0000)
             .open(path)?;
         reject_reparse(&file)?;
-        Ok(Self(file))
+        Ok(Self {
+            directory: file,
+            directory_states: RefCell::new(HashMap::new()),
+        })
     }
 
     pub fn read(&self, path: &str, mode_hint: Option<&str>) -> AppResult<Option<SnapshotFile>> {
         let Some((parent, name)) = self.parent(path, false, &mut vec![])? else {
             return Ok(None);
         };
-        let Some((mut file, _)) = open_relative(&parent, &name, false, READ, 1)? else {
+        let Some((mut file, _)) = open_relative(&parent, &name, None, READ, 1)? else {
             return Ok(None);
         };
         reject_reparse(&file)?;
         let before = file.metadata()?;
+        if before.is_dir() {
+            return Ok(None);
+        }
         if !before.is_file() {
             return Err(format!("Publication target is not a regular file: {path}").into());
         }
@@ -114,7 +144,7 @@ impl SafeRoot {
             rename(&temporary.file, &parent, &name)?;
             temporary.armed = false;
         } else {
-            let (file, _) = open_relative(&parent, &name, false, READ | DELETE, 1)?
+            let (file, _) = open_relative(&parent, &name, Some(false), READ | DELETE, 1)?
                 .ok_or("Publication target disappeared")?;
             reject_reparse(&file)?;
             ensure_matches(self, path, before)?;
@@ -129,7 +159,7 @@ impl SafeRoot {
         create: bool,
         directories: &mut Vec<String>,
     ) -> AppResult<Option<(File, String)>> {
-        let mut parent = self.0.try_clone()?;
+        let mut parent = self.directory.try_clone()?;
         let mut prefix = String::new();
         let parts: Vec<_> = path.split('/').collect();
         for part in &parts[..parts.len() - 1] {
@@ -137,12 +167,24 @@ impl SafeRoot {
                 prefix.push('/');
             }
             prefix.push_str(part);
-            let Some((next, created)) =
-                open_relative(&parent, part, true, READ, if create { 3 } else { 1 })?
+            let Some((next, created)) = open_relative(
+                &parent,
+                part,
+                create.then_some(true),
+                READ,
+                if create { 3 } else { 1 },
+            )?
             else {
                 return Ok(None);
             };
             reject_reparse(&next)?;
+            let metadata = next.metadata()?;
+            if metadata.is_file() && !create {
+                return Ok(None);
+            }
+            if !metadata.is_dir() {
+                return Err(format!("Publication parent is not a directory: {prefix}").into());
+            }
             if created {
                 directories.push(prefix.clone());
             }
@@ -157,14 +199,72 @@ impl SafeRoot {
         )))
     }
 
-    pub fn remove_empty_directory(&self, path: &str) -> AppResult<()> {
+    pub fn preflight_directory_restore(&self, path: &str) -> AppResult<()> {
+        if self.directory_states.borrow().contains_key(path) {
+            return Ok(());
+        }
         let Some((parent, name)) = self.parent(path, false, &mut vec![])? else {
             return Ok(());
         };
-        if let Some((directory, _)) = open_relative(&parent, &name, true, READ | DELETE, 1)? {
-            reject_reparse(&directory)?;
-            delete(&directory)?;
+        let Some((directory, _)) = open_relative(&parent, &name, Some(true), READ, 1)? else {
+            return Ok(());
+        };
+        reject_reparse(&directory)?;
+        let state = DirectoryState::read(&directory)?;
+        let probe_name = format!(".cc-panes-security-probe-{}", uuid::Uuid::new_v4());
+        let (probe, original) = create_secured_directory(&parent, &probe_name, &state)?;
+        let cleanup = probe
+            .set_permissions(original)
+            .map_err(crate::utils::AppError::from)
+            .and_then(|_| delete(&probe));
+        if let Err(error) = cleanup {
+            return Err(format!(
+                "Could not clean directory security probe {path}/../{probe_name}: {error}"
+            )
+            .into());
         }
+        self.directory_states
+            .borrow_mut()
+            .insert(path.to_string(), state);
+        Ok(())
+    }
+
+    pub fn remove_empty_directory(
+        &self,
+        path: &str,
+        restore_required: bool,
+    ) -> AppResult<Option<DirectoryState>> {
+        let Some((parent, name)) = self.parent(path, false, &mut vec![])? else {
+            return Ok(None);
+        };
+        if let Some((directory, _)) = open_relative(&parent, &name, Some(true), READ | DELETE, 1)? {
+            reject_reparse(&directory)?;
+            let state = DirectoryState::read(&directory)?;
+            let saved = self.directory_states.borrow();
+            if let Some(expected) = saved.get(path) {
+                if state.permissions != expected.permissions
+                    || !state.security.same_access(&expected.security)?
+                {
+                    return Err(
+                        format!("Directory permissions changed since preflight: {path}").into(),
+                    );
+                }
+            } else if restore_required {
+                return Err(
+                    format!("Directory appeared after permission preflight: {path}").into(),
+                );
+            }
+            delete(&directory)?;
+            return Ok(Some(state));
+        }
+        Ok(None)
+    }
+
+    pub fn restore_directory(&self, path: &str, state: &DirectoryState) -> AppResult<()> {
+        let (parent, name) = self
+            .parent(path, false, &mut vec![])?
+            .ok_or("Rollback directory parent disappeared")?;
+        create_secured_directory(&parent, &name, state)?;
         Ok(())
     }
 }
@@ -172,9 +272,20 @@ impl SafeRoot {
 fn open_relative(
     parent: &File,
     name: &str,
-    directory: bool,
+    directory: Option<bool>,
     access: u32,
     disposition: u32,
+) -> AppResult<Option<(File, bool)>> {
+    open_relative_secured(parent, name, directory, access, disposition, None)
+}
+
+fn open_relative_secured(
+    parent: &File,
+    name: &str,
+    directory: Option<bool>,
+    access: u32,
+    disposition: u32,
+    security: Option<&security::Descriptor>,
 ) -> AppResult<Option<(File, bool)>> {
     let mut wide: Vec<u16> = name.encode_utf16().collect();
     let length = u16::try_from(wide.len() * 2).map_err(|_| "Publication filename is too long")?;
@@ -188,15 +299,54 @@ fn open_relative(
         root: parent.as_raw_handle(),
         name: &mut name,
         attributes: 0x40, // OBJ_CASE_INSENSITIVE matches ordinary Windows path resolution.
-        security: std::ptr::null_mut(),
+        security: security.map_or(std::ptr::null_mut(), security::Descriptor::as_ptr),
         security_quality: std::ptr::null_mut(),
     };
     native_open(&mut attributes, directory, access, disposition)
 }
 
+fn create_secured_directory(
+    parent: &File,
+    name: &str,
+    state: &DirectoryState,
+) -> AppResult<(File, std::fs::Permissions)> {
+    let (directory, _) = open_relative_secured(
+        parent,
+        name,
+        Some(true),
+        READ | DELETE | 0x100,
+        2,
+        Some(&state.security),
+    )?
+    .ok_or("Could not create secured rollback directory")?;
+    let original = directory.metadata()?.permissions();
+    let result = (|| {
+        reject_reparse(&directory)?;
+        if !security::Descriptor::read(&directory)?.same_access(&state.security)? {
+            return Err("Windows could not preserve the directory owner, group and ACL".into());
+        }
+        directory.set_permissions(state.permissions.clone())?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let cleanup = directory
+            .set_permissions(original.clone())
+            .map_err(crate::utils::AppError::from)
+            .and_then(|_| delete(&directory));
+        return Err(match cleanup {
+            Ok(()) => error,
+            Err(cleanup) => {
+                format!("{error}; could not remove incomplete secured directory {name}: {cleanup}")
+                    .into()
+            }
+        });
+    }
+    Ok((directory, original))
+}
+
 fn native_open(
     attributes: &mut ObjectAttributes,
-    directory: bool,
+    directory: Option<bool>,
     access: u32,
     disposition: u32,
 ) -> AppResult<Option<(File, bool)>> {
@@ -205,7 +355,13 @@ fn native_open(
         information: 0,
     };
     let mut handle = std::ptr::null_mut();
-    let options = 0x20 | 0x0020_0000 | if directory { 1 } else { 0x40 };
+    let options = 0x20
+        | 0x0020_0000
+        | match directory {
+            Some(true) => 1,
+            Some(false) => 0x40,
+            None => 0,
+        };
     let result = unsafe {
         NtCreateFile(
             &mut handle,
@@ -296,7 +452,7 @@ struct Temporary {
 impl Temporary {
     fn write(parent: &File, contents: &SnapshotFile) -> AppResult<Self> {
         let name = format!(".cc-panes-publish-{}", uuid::Uuid::new_v4());
-        let (file, _) = open_relative(parent, &name, false, WRITE_DELETE, 2)?
+        let (file, _) = open_relative(parent, &name, Some(false), WRITE_DELETE, 2)?
             .ok_or("Cannot create publication temporary file")?;
         let mut temporary = Self { file, armed: true };
         temporary.file.write_all(&contents.bytes)?;

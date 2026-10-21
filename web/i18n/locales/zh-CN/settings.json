@@ -712,7 +712,7 @@
   "mcpServerNamePlaceholder": "如 playwright-server",
   "mcpCommand": "命令",
   "mcpCommandPlaceholder": "如 npx 或 node",
-  "mcpArgs": "参数（空格分隔）",
+  "mcpArgs": "参数",
   "mcpArgsPlaceholder": "如 -y @anthropic/mcp-server",
   "mcpEnv": "环境变量（每行一个，格式 KEY=VALUE）",
   "mcpEnvPlaceholder": "API_KEY=sk-xxx\nDEBUG=true",
@@ -1208,5 +1208,6 @@
   "terminalColorAuto": "跟随主题 (#RRGGBB)",
   "terminalColorHint": "留空使用主题颜色。低对比度颜色会自动调整，保证光标和选区可见、文字可读。若仍不可见，可将渲染器切换为 DOM。",
   "autoCloseCompletedTasks": "允许完成任务自动收窗",
-  "autoCloseCompletedTasksHint": "默认关闭。还需在每个任务菜单中单独选择；任务完成、进程退出且有结果摘要后保留 30 秒再收窗。结果可在任务详情回看。"
+  "autoCloseCompletedTasksHint": "默认关闭。还需在每个任务菜单中单独选择；任务完成、进程退出且有结果摘要后保留 30 秒再收窗。结果可在任务详情回看。",
+  "mcpArgsHelp": "用空格分隔参数，含空格的值加引号；空参数写成 \"\"。单引号内原样保留 Windows 反斜杠；双引号内的引号和反斜杠需用反斜杠转义。不会展开变量或执行命令。"
 }

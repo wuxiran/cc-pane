@@ -1,6 +1,9 @@
 use crate::utils::AppResult;
 use tokio::process::{Child, Command};
 
+#[cfg(target_os = "macos")]
+mod macos;
+
 pub(super) fn configure(command: &mut Command) {
     #[cfg(unix)]
     {
@@ -41,7 +44,7 @@ impl ProcessTree {
         // The runner observes exit with WNOWAIT, retaining the unreaped child
         // identity until cleanup finishes. Platform binaries may hide environ
         // on macOS, so ordinary group cleanup must not depend on the nonce.
-        let group_result = observe_child(self.pgid as u32).and_then(|_| {
+        let group_result = observe_child(self.pgid as u32).and_then(|_exited| {
             if unsafe { libc::killpg(self.pgid, libc::SIGKILL) } == 0 {
                 Ok(())
             } else {
@@ -49,6 +52,10 @@ impl ProcessTree {
                 if error.raw_os_error() == Some(libc::ESRCH) {
                     Ok(())
                 } else {
+                    #[cfg(target_os = "macos")]
+                    if macos::confirmed_finished_group(&error, _exited, self.pgid) {
+                        return Ok(());
+                    }
                     Err(error)
                 }
             }

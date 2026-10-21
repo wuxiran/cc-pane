@@ -45,4 +45,13 @@ describe("resolveWorkspaceRootPath", () => {
   it("空工作空间返回 null", () => {
     expect(resolveWorkspaceRootPath(workspace(undefined, []))).toBeNull();
   });
+
+  it("多个同盘项目的公共根保留盘符根斜杠", () => {
+    expect(resolveWorkspaceRootPath(workspace(undefined, ["C:/app", "C:/api"]))).toBe("C:/");
+  });
+
+  it("UNC 根的大小写差异不会将工作空间公共根降级成本地根", () => {
+    expect(resolveWorkspaceRootPath(workspace(undefined, ["//Server/Share/app", "//server/share/api"])))
+      .toBe("//Server/Share");
+  });
 });

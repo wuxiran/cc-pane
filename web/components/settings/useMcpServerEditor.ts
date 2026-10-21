@@ -4,6 +4,7 @@ import { toastErr, toastOk } from "@/lib/feedback";
 import { useMcpStore } from "@/stores/useMcpStore";
 import { mcpTargetKey, type McpLayerTarget, type McpServerConfig } from "@/types";
 import { formatEnvLines, parseEnvLines, translateError } from "@/utils";
+import { formatArgumentText, parseArgumentText } from "@/utils/argumentText";
 
 interface FormState {
   name: string;
@@ -25,6 +26,8 @@ export function useMcpServerEditor(target: McpLayerTarget) {
   const [editing, setEditing] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const parsedArgs = parseArgumentText(form.args);
+  const argsError = parsedArgs.error ? t(parsedArgs.error === "nul" ? "mcpArgsNul" : "mcpArgsUnclosedQuote") : null;
   const owner = useRef<{ target: McpLayerTarget; version: number } | null>(null);
   const sequence = useRef(0);
   const saving = useRef(new Set<number>());
@@ -49,7 +52,7 @@ export function useMcpServerEditor(target: McpLayerTarget) {
   };
 
   const handleEdit = (name: string, config: McpServerConfig) => openForm(name, {
-    name, command: config.command, args: config.args.join(" "), env: formatEnvLines(config.env),
+    name, command: config.command, args: formatArgumentText(config.args), env: formatEnvLines(config.env),
     descriptionZh: config.descriptions?.["zh-CN"] ?? "",
     descriptionEn: config.descriptions?.en ?? "",
   });
@@ -61,12 +64,12 @@ export function useMcpServerEditor(target: McpLayerTarget) {
       toastErr(t("mcpNameCommandRequired"));
       return;
     }
+    if (parsedArgs.error) { toastErr(argsError!); return; }
     saving.current.add(session.version);
     try {
       const store = useMcpStore.getState();
-      const args = form.args.trim() ? form.args.trim().split(/\s+/) : [];
       if (editingName && editingName !== form.name.trim()) await store.removeServer(session.target, editingName);
-      await store.upsertServer(session.target, form.name.trim(), form.command.trim(), args, parseEnvLines(form.env), {
+      await store.upsertServer(session.target, form.name.trim(), form.command.trim(), parsedArgs.args, parseEnvLines(form.env), {
         "zh-CN": form.descriptionZh.trim(), en: form.descriptionEn.trim(),
       });
       toastOk(t(editingName ? "mcpServerUpdated" : "mcpServerAdded"));
@@ -80,7 +83,7 @@ export function useMcpServerEditor(target: McpLayerTarget) {
 
   return {
     editing: editing && owner.current !== null && mcpTargetKey(owner.current.target) === targetKey,
-    editingName, form, setForm, resetForm, handleEdit, handleSave,
+    editingName, form, setForm, argsError, resetForm, handleEdit, handleSave,
     handleNew: () => openForm(null, { ...emptyForm }),
   };
 }

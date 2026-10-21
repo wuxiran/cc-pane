@@ -1,11 +1,6 @@
 import type { Workspace } from "@/types";
 
-function normalizePath(path: string): string {
-  const normalized = path.replace(/\\/g, "/");
-  if (/^\/+$/u.test(normalized)) return "/";
-  if (/^[A-Za-z]:\/+$/u.test(normalized)) return `${normalized.slice(0, 2)}/`;
-  return normalized.replace(/\/+$/u, "");
-}
+import { navigationBreadcrumbs, normalizeNavigationPath as normalizePath } from "./path";
 
 function pathRoot(path: string): string {
   const drive = path.match(/^([A-Za-z]:)(?:\/|$)/u)?.[1];
@@ -51,6 +46,8 @@ export function resolveWorkspaceRootPath(
   }
 
   const commonPath = segments[0].slice(0, commonLength).join("/");
+  if (firstRoot.startsWith("//") && commonLength < 4) return navigationBreadcrumbs(firstPath)[0].path;
+  if (/^[A-Za-z]:$/.test(commonPath) && /^[A-Za-z]:\//.test(firstPath)) return `${commonPath}/`;
   if (commonPath) return commonPath;
   return firstPath.startsWith("/") ? "/" : firstPath;
 }

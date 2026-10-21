@@ -42,6 +42,23 @@ describe("FileBrowserToolbar", () => {
     fireEvent.click(screen.getByRole("button", { name: "D:" }));
 
     expect(onNavigate).toHaveBeenCalledWith("D:/");
+    fireEvent.click(screen.getByRole("button", { name: "work" }));
+    expect(onNavigate).toHaveBeenLastCalledWith("D:/work");
+  });
+
+  it("keeps the network share as an atomic UNC breadcrumb", () => {
+    const { onNavigate } = renderToolbar("\\\\server\\share\\work\\repo");
+    fireEvent.click(screen.getByRole("button", { name: "//server/share" }));
+    expect(onNavigate).toHaveBeenLastCalledWith("//server/share");
+    fireEvent.click(screen.getByRole("button", { name: "work" }));
+    expect(onNavigate).toHaveBeenLastCalledWith("//server/share/work");
+    expect(screen.queryByRole("button", { name: "server" })).not.toBeInTheDocument();
+  });
+
+  it("shows a usable POSIX root rather than the empty-path placeholder", () => {
+    const { onNavigate } = renderToolbar("/");
+    fireEvent.click(screen.getByRole("button", { name: "/" }));
+    expect(onNavigate).toHaveBeenCalledWith("/");
   });
 
   it("shows an empty-path placeholder when currentPath is empty", () => {

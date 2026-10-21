@@ -9,6 +9,8 @@ use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
+pub(super) type DirectoryState = std::fs::Permissions;
+
 pub(super) struct SafeRoot {
     directory: File,
     original_permissions: RefCell<HashMap<String, u32>>,
@@ -34,6 +36,9 @@ impl SafeRoot {
             return Ok(None);
         };
         let before = file.metadata()?;
+        if before.is_dir() {
+            return Ok(None);
+        }
         if !before.is_file() {
             return Err(format!("Publication target is not a regular file: {path}").into());
         }
@@ -116,9 +121,20 @@ impl SafeRoot {
             }
             prefix.push_str(part);
             let name = CString::new(*part).map_err(|_| "Invalid publication path")?;
-            let next = open_at(&parent, &name, libc::O_RDONLY | libc::O_DIRECTORY)?;
+            let next = open_at(&parent, &name, libc::O_RDONLY | libc::O_NONBLOCK)?;
             parent = match next {
-                Some(next) => next,
+                Some(next) => {
+                    let metadata = next.metadata()?;
+                    if metadata.is_file() && !create {
+                        return Ok(None);
+                    }
+                    if !metadata.is_dir() {
+                        return Err(
+                            format!("Publication parent is not a directory: {prefix}").into()
+                        );
+                    }
+                    next
+                }
                 None if create => create_directory(&parent, &name, &prefix, directories)?,
                 None => return Ok(None),
             };
@@ -128,16 +144,39 @@ impl SafeRoot {
         Ok(Some((parent, name)))
     }
 
-    pub fn remove_empty_directory(&self, path: &str) -> AppResult<()> {
+    pub fn remove_empty_directory(
+        &self,
+        path: &str,
+        _restore_required: bool,
+    ) -> AppResult<Option<DirectoryState>> {
         let Some((parent, name)) = self.parent(path, false, &mut vec![])? else {
-            return Ok(());
+            return Ok(None);
         };
+        let Some(directory) = open_at(&parent, &name, libc::O_RDONLY | libc::O_DIRECTORY)? else {
+            return Ok(None);
+        };
+        let permissions = directory.metadata()?.permissions();
         if unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), libc::AT_REMOVEDIR) } != 0 {
             let error = std::io::Error::last_os_error();
-            if error.kind() != std::io::ErrorKind::NotFound {
-                return Err(error.into());
+            if error.kind() == std::io::ErrorKind::NotFound {
+                return Ok(None);
             }
+            return Err(error.into());
         }
+        Ok(Some(permissions))
+    }
+
+    pub fn restore_directory(&self, path: &str, permissions: &DirectoryState) -> AppResult<()> {
+        let (parent, name) = self
+            .parent(path, false, &mut vec![])?
+            .ok_or("Rollback directory parent disappeared")?;
+        // Exclusive creation preserves a concurrently added directory and its mode.
+        if unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) } != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        let directory = open_at(&parent, &name, libc::O_RDONLY | libc::O_DIRECTORY)?
+            .ok_or("Rollback directory disappeared")?;
+        directory.set_permissions(permissions.clone())?;
         Ok(())
     }
 

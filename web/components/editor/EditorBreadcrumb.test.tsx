@@ -28,6 +28,22 @@ describe("EditorBreadcrumb", () => {
     expect(screen.getByRole("button", { name: "main.rs" })).toBeInTheDocument();
   });
 
+  it("navigates to the full UNC share root from an editor breadcrumb", async () => {
+    const user = userEvent.setup();
+    render(<EditorBreadcrumb filePath="//server/share/app.ts" />);
+    await user.click(screen.getByRole("button", { name: "//server/share" }));
+    expect(navigateTo).toHaveBeenCalledWith("//server/share");
+  });
+
+  it("keeps remote POSIX filename backslashes and uses the remote navigation callback", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    render(<EditorBreadcrumb filePath="/srv/a\b/app.ts" onNavigate={onNavigate} sourceLabel="SSH" />);
+    await user.click(screen.getByRole("button", { name: "a\\b" }));
+    expect(onNavigate).toHaveBeenCalledWith("/srv/a\\b");
+    expect(navigateTo).not.toHaveBeenCalled();
+  });
+
   it("renders nothing for an empty path", () => {
     const { container } = render(<EditorBreadcrumb filePath="" />);
     expect(container.firstChild).toBeNull();

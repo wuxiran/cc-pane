@@ -89,6 +89,7 @@ fn retains_independent_real_results_and_survives_service_restart() {
     let first = fixture.run("echo verified");
     assert_eq!(first.evidence[0].original_head.len(), 40);
     assert_eq!(first.evidence[0].exit_code, Some(0));
+    assert_eq!(first.evidence[0].execution_error, None);
     assert!(first.evidence[0].stdout.contains("verified"));
     assert_eq!(first.evidence[0].freshness, VerificationFreshness::Current);
     let failed_command = if cfg!(windows) {
@@ -104,6 +105,7 @@ fn retains_independent_real_results_and_survives_service_restart() {
         .find(|item| item.command == failed_command)
         .unwrap();
     assert_eq!(failure.exit_code, Some(7));
+    assert_eq!(failure.execution_error, None);
     assert!(failure.stderr.contains("rejected"));
     assert_eq!(
         fixture

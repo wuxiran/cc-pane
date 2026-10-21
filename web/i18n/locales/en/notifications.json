@@ -130,5 +130,7 @@
   "errors": {
     "notificationMissing": "Notification not found",
     "sessionGoneForRespond": "The session no longer exists; input cannot be delivered"
-  }
+  },
+  "mcpArgsUnclosedQuote": "Close the unmatched quotation mark in arguments before saving.",
+  "mcpArgsNul": "Arguments cannot contain a NUL character."
 }

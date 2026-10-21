@@ -198,6 +198,64 @@ fn linked_worktrees_share_the_private_object_store() {
 }
 
 #[test]
+fn file_directory_replacements_capture_before_and_after_staging() {
+    for directory_to_file in [false, true] {
+        let fixture = Fixture::new();
+        let root = &fixture.root;
+        let path = root.join("module");
+        if directory_to_file {
+            fs::create_dir(&path).unwrap();
+            fs::write(path.join("item"), "before").unwrap();
+        } else {
+            fs::write(&path, "before").unwrap();
+        }
+        git(root, &["add", "."]);
+        git(root, &["commit", "-qm", "shape baseline"]);
+        let baseline = fixture.service.capture(root).unwrap();
+        if directory_to_file {
+            fs::remove_dir_all(&path).unwrap();
+            fs::write(&path, "after").unwrap();
+        } else {
+            fs::remove_file(&path).unwrap();
+            fs::create_dir(&path).unwrap();
+            fs::write(path.join("item"), "after").unwrap();
+        }
+        let (removed, added) = if directory_to_file {
+            ("module/item", "module")
+        } else {
+            ("module", "module/item")
+        };
+        for staged in [false, true] {
+            if staged {
+                git(root, &["add", "-A"]);
+            }
+            for snapshot in [
+                fixture.service.capture(root).unwrap(),
+                fixture
+                    .service
+                    .capture_with_baseline(root, &baseline)
+                    .unwrap(),
+            ] {
+                assert!(fixture
+                    .service
+                    .read_file(&snapshot, removed)
+                    .unwrap()
+                    .is_none());
+                assert_eq!(
+                    fixture
+                        .service
+                        .read_file(&snapshot, added)
+                        .unwrap()
+                        .unwrap()
+                        .bytes,
+                    b"after"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn raw_capture_does_not_invoke_clean_filters() {
     let fixture = Fixture::new();
     fs::write(

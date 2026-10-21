@@ -130,5 +130,7 @@
   "errors": {
     "notificationMissing": "通知不存在",
     "sessionGoneForRespond": "会话已不存在，无法回传输入"
-  }
+  },
+  "mcpArgsUnclosedQuote": "参数中有未闭合的引号，请补齐后再保存。",
+  "mcpArgsNul": "参数不能包含空字符（NUL）。"
 }

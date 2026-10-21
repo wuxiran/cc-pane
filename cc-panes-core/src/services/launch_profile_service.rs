@@ -1,7 +1,9 @@
+mod mutations;
+
 use crate::models::launch_profile::{
-    LaunchProfile, LaunchProfileConfig, LaunchProfileDraft, LaunchProfileMcpMode,
-    LaunchProfilePreviewRequest, LaunchProfileResolution, LaunchProfileSkillMode,
-    ResolvedMcpServer, ResolvedSkill, SharedMcpUrls, SkillCompatibility,
+    LaunchProfile, LaunchProfileConfig, LaunchProfileMcpMode, LaunchProfilePreviewRequest,
+    LaunchProfileResolution, LaunchProfileSkillMode, ResolvedMcpServer, ResolvedSkill,
+    SharedMcpUrls, SkillCompatibility,
 };
 use crate::models::provider::Provider;
 use crate::models::shared_mcp::SharedMcpConfig;
@@ -11,7 +13,7 @@ use crate::services::{resolve_provider_plan, validate_provider_runtime, Provider
 use crate::services::{ExternalSkillRegistry, UserSkillContent, UserSkillService};
 use crate::utils::error::AppError;
 use crate::utils::{AppResult, LaunchRuntime};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use cc_cli_adapters::CliToolRegistry;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -37,6 +39,8 @@ pub struct LaunchProfileService {
     user_skills_dir: PathBuf,
     external_skill_registry: Arc<ExternalSkillRegistry>,
     config: Mutex<LaunchProfileConfig>,
+    #[cfg(test)]
+    persistence_writer: Option<fn(&Path, &[u8]) -> Result<()>>,
 }
 
 impl LaunchProfileService {
@@ -58,6 +62,8 @@ impl LaunchProfileService {
             user_skills_dir,
             external_skill_registry,
             config: Mutex::new(config),
+            #[cfg(test)]
+            persistence_writer: None,
         }
     }
 
@@ -71,17 +77,6 @@ impl LaunchProfileService {
             return Ok(LaunchProfileConfig::default());
         }
         serde_json::from_str(&content).with_context(|| "Failed to parse launch profiles")
-    }
-
-    fn save_to_file(&self, config: &LaunchProfileConfig) -> Result<()> {
-        if let Some(parent) = self.config_path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create {}", parent.display()))?;
-        }
-        let content = serde_json::to_string_pretty(config)
-            .with_context(|| "Failed to serialize launch profiles")?;
-        std::fs::write(&self.config_path, content)
-            .with_context(|| format!("Failed to write {}", self.config_path.display()))
     }
 
     fn normalize_target_tools(target_tools: Vec<String>) -> Vec<String> {
@@ -210,155 +205,6 @@ impl LaunchProfileService {
             .iter()
             .find(|profile| profile.id == id)
             .cloned()
-    }
-
-    pub fn create_profile(&self, draft: LaunchProfileDraft) -> Result<LaunchProfile> {
-        let now = chrono::Utc::now().to_rfc3339();
-        let name = draft
-            .name
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| anyhow!("Launch profile name cannot be empty"))?
-            .to_string();
-        let mut profile = LaunchProfile {
-            id: uuid::Uuid::new_v4().to_string(),
-            alias: Self::normalize_alias(draft.alias, &name),
-            name,
-            description: draft.description,
-            model_id: Self::normalize_model_id(draft.provider_id.as_deref(), draft.model_id),
-            provider_id: draft.provider_id,
-            adapter_options: draft.adapter_options,
-            target_tools: Self::normalize_target_tools(draft.target_tools),
-            target_runtime: Self::normalize_runtime(draft.target_runtime),
-            yolo_mode: draft.yolo_mode,
-            mcp_policy: draft.mcp_policy,
-            skill_policy: draft.skill_policy,
-            is_default: draft.is_default,
-            created_at: now.clone(),
-            updated_at: now,
-        };
-
-        let mut config = self
-            .config
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if config.profiles.is_empty() {
-            profile.is_default = true;
-        }
-        if profile.is_default {
-            Self::clear_overlapping_defaults(
-                &mut config,
-                &profile.id,
-                &profile.target_tools,
-                profile.target_runtime.as_deref(),
-            );
-        }
-        config.profiles.push(profile.clone());
-        self.save_to_file(&config)?;
-        Ok(profile)
-    }
-
-    pub fn update_profile(&self, id: &str, draft: LaunchProfileDraft) -> Result<LaunchProfile> {
-        let mut config = self
-            .config
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let pos = config
-            .profiles
-            .iter()
-            .position(|profile| profile.id == id)
-            .ok_or_else(|| anyhow!("Launch profile '{}' not found", id))?;
-        let name = draft
-            .name
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| anyhow!("Launch profile name cannot be empty"))?
-            .to_string();
-        let target_tools = Self::normalize_target_tools(draft.target_tools);
-        let target_runtime = Self::normalize_runtime(draft.target_runtime);
-
-        if draft.is_default {
-            Self::clear_overlapping_defaults(
-                &mut config,
-                id,
-                &target_tools,
-                target_runtime.as_deref(),
-            );
-        }
-
-        let mut next = config.profiles[pos].clone();
-        next.alias = Self::normalize_alias(draft.alias, &name);
-        next.name = name;
-        next.description = draft.description;
-        next.model_id = Self::normalize_model_id(draft.provider_id.as_deref(), draft.model_id);
-        next.provider_id = draft.provider_id;
-        next.adapter_options = draft.adapter_options;
-        next.target_tools = target_tools;
-        next.target_runtime = target_runtime;
-        next.yolo_mode = draft.yolo_mode;
-        next.mcp_policy = draft.mcp_policy;
-        next.skill_policy = draft.skill_policy;
-        next.is_default = draft.is_default;
-        next.updated_at = chrono::Utc::now().to_rfc3339();
-        config.profiles[pos] = next.clone();
-        self.save_to_file(&config)?;
-        Ok(next)
-    }
-
-    pub fn delete_profile(&self, id: &str) -> Result<()> {
-        let mut config = self
-            .config
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let removed_default_target = config
-            .profiles
-            .iter()
-            .find(|profile| profile.id == id && profile.is_default)
-            .map(|profile| (profile.target_tools.clone(), profile.target_runtime.clone()));
-        config.profiles.retain(|profile| profile.id != id);
-        if let Some((target_tools, target_runtime)) = removed_default_target {
-            let has_replacement_default = config.profiles.iter().any(|profile| {
-                profile.is_default
-                    && Self::target_tools_overlap(&profile.target_tools, &target_tools)
-                    && Self::target_runtime_overlap(
-                        profile.target_runtime.as_deref(),
-                        target_runtime.as_deref(),
-                    )
-            });
-            if !has_replacement_default {
-                if let Some(first) = config.profiles.iter_mut().find(|profile| {
-                    Self::target_tools_overlap(&profile.target_tools, &target_tools)
-                        && Self::target_runtime_overlap(
-                            profile.target_runtime.as_deref(),
-                            target_runtime.as_deref(),
-                        )
-                }) {
-                    first.is_default = true;
-                }
-            }
-        }
-        self.save_to_file(&config)
-    }
-
-    pub fn set_default_profile(&self, id: &str) -> Result<()> {
-        let mut config = self
-            .config
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let (target_tools, target_runtime) = config
-            .profiles
-            .iter()
-            .find(|profile| profile.id == id)
-            .map(|profile| (profile.target_tools.clone(), profile.target_runtime.clone()))
-            .ok_or_else(|| anyhow!("Launch profile '{}' not found", id))?;
-        Self::clear_overlapping_defaults(&mut config, id, &target_tools, target_runtime.as_deref());
-        if let Some(profile) = config.profiles.iter_mut().find(|profile| profile.id == id) {
-            profile.is_default = true;
-            profile.updated_at = chrono::Utc::now().to_rfc3339();
-        }
-        self.save_to_file(&config)
     }
 
     pub fn resolve_launch_profile(
@@ -1448,7 +1294,7 @@ fn core_skill_ids() -> Vec<ResolvedSkill> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::launch_profile::LaunchProviderSelection;
+    use crate::models::launch_profile::{LaunchProfileDraft, LaunchProviderSelection};
     use crate::models::provider::ProviderType;
     use crate::models::shared_mcp::SharedMcpConfig;
     use crate::models::CliTool;

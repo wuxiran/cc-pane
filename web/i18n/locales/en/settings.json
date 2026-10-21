@@ -712,7 +712,7 @@
   "mcpServerNamePlaceholder": "e.g. playwright-server",
   "mcpCommand": "Command",
   "mcpCommandPlaceholder": "e.g. npx or node",
-  "mcpArgs": "Arguments (space-separated)",
+  "mcpArgs": "Arguments",
   "mcpArgsPlaceholder": "e.g. -y @anthropic/mcp-server",
   "mcpEnv": "Environment Variables (one per line, format KEY=VALUE)",
   "mcpEnvPlaceholder": "API_KEY=sk-xxx\nDEBUG=true",
@@ -1208,5 +1208,6 @@
   "terminalColorAuto": "Theme default (#RRGGBB)",
   "terminalColorHint": "Leave empty to follow the theme. Low contrast colors are adjusted for visible marks and readable text. Try the DOM renderer if the cursor or selection is still missing.",
   "autoCloseCompletedTasks": "Allow completed tasks to close automatically",
-  "autoCloseCompletedTasksHint": "Off by default. Opt in separately from each task menu. Tabs close after the task completes, the process exits, and a result summary is saved, with a 30-second grace period. Results remain in task details."
+  "autoCloseCompletedTasksHint": "Off by default. Opt in separately from each task menu. Tabs close after the task completes, the process exits, and a result summary is saved, with a 30-second grace period. Results remain in task details.",
+  "mcpArgsHelp": "Separate arguments with spaces. Quote values containing spaces; use \"\" for an empty argument. Single quotes preserve Windows backslashes. Inside double quotes, escape quotes and backslashes with a backslash. Variables and commands are never expanded."
 }
