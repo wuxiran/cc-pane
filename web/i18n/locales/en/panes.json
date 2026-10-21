@@ -192,6 +192,8 @@
   "reclaimTab": "Reclaim",
   "newLayout": "New Layout",
   "layouts": "Layouts",
+  "scrollLayoutsLeft": "Scroll layouts left",
+  "scrollLayoutsRight": "Scroll layouts right",
   "tabMovedToLayout": "Moved to \"{{name}}\"",
   "layoutSwitcher": "Layouts",
   "layoutView": "View",
