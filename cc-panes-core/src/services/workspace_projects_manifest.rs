@@ -15,6 +15,7 @@ use std::path::Path;
 
 pub(crate) const MANIFEST_FILE_NAME: &str = "projects.yaml";
 pub(crate) const LEGACY_CSV_FILE_NAME: &str = "projects.csv";
+const CORRUPT_BACKUP_FILE_NAME: &str = "projects.yaml.corrupt.bak";
 /// 旧 csv 里无法判断属于哪台机器的行
 pub(crate) const UNATTRIBUTED_MACHINE: &str = "unattributed";
 
@@ -61,11 +62,18 @@ pub(crate) fn current_machine_label() -> String {
 
 /// 读本机视角下的现有清单：yaml 解析失败按空清单处理（派生文件，下次写入即修复）；
 /// 旧 csv 还在的话并入（csv 有 machine 列则按列归属，否则归入 `unattributed`）。
+///
+/// 解析失败时先把原文件挪成 `projects.yaml.corrupt.bak`：紧接着的 save 只会写回本机那一段，
+/// 网盘冲突/半同步造成的坏文件里其他机器的段若不留底，就被静默抹掉了。
 pub(crate) fn load(ccpanes_dir: &Path) -> ProjectsManifest {
-    let mut manifest = fs::read_to_string(ccpanes_dir.join(MANIFEST_FILE_NAME))
-        .ok()
-        .and_then(|content| serde_yaml::from_str::<ProjectsManifest>(&content).ok())
-        .unwrap_or_default();
+    let path = ccpanes_dir.join(MANIFEST_FILE_NAME);
+    let mut manifest = match fs::read_to_string(&path) {
+        Ok(content) => serde_yaml::from_str::<ProjectsManifest>(&content).unwrap_or_else(|_| {
+            let _ = fs::rename(&path, ccpanes_dir.join(CORRUPT_BACKUP_FILE_NAME));
+            ProjectsManifest::default()
+        }),
+        Err(_) => ProjectsManifest::default(),
+    };
     if let Ok(csv) = fs::read_to_string(ccpanes_dir.join(LEGACY_CSV_FILE_NAME)) {
         import_legacy_csv(&mut manifest, &csv);
     }
@@ -310,6 +318,12 @@ mod tests {
         fs::write(dir.path().join(MANIFEST_FILE_NAME), "machines: [oops").unwrap();
         fs::write(dir.path().join(LEGACY_CSV_FILE_NAME), "foo,bar\n1,2\n").unwrap();
         assert_eq!(load(dir.path()), ProjectsManifest::default());
+        // 坏文件留底，不被随后的 save 覆盖掉
+        assert_eq!(
+            fs::read_to_string(dir.path().join(CORRUPT_BACKUP_FILE_NAME)).unwrap(),
+            "machines: [oops"
+        );
+        assert!(!dir.path().join(MANIFEST_FILE_NAME).exists());
     }
 
     #[test]

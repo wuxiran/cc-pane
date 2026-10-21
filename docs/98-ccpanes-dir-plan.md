@@ -45,7 +45,7 @@
 | `cli-hooks.json` | hooks 同步状态 | `.ccpanes/.cache/cli-hooks.json` |
 | `session-state.json` | legacy，早已非权威 | 删除写入路径（保留读取兼容一个版本） |
 | `handoff-latest.md` | 单次交接产物 | `.ccpanes/.cache/handoff-latest.md` |
-| `projects.csv`（工作空间根目录的项目清单） | 写在**用户的工作空间根文件夹**（不是我们数据目录），与同处的 `CLAUDE.md` 配套，是给 agent 看的工作空间意图 | **留**。之前误判成数据目录内的东西；真正无用的是 `create_workspace` 在 `~/.cc-panes/workspaces/<name>/` 里顺手建的空 `.ccpanes/`，第一批已去掉 |
+| `projects.yaml`（工作空间根目录的项目清单，旧版为 `projects.csv`） | 写在**用户的工作空间根文件夹**（不是我们数据目录），与同处的 `CLAUDE.md` 配套，是给 agent 看的工作空间意图；按主机名分段，网盘多机共用时各写各段 | **留**。之前误判成数据目录内的东西；真正无用的是 `create_workspace` 在 `~/.cc-panes/workspaces/<name>/` 里顺手建的空 `.ccpanes/`，第一批已去掉 |
 
 ### 现在还不是 workspace-first 的（本规划直接指定落点）
 
@@ -79,7 +79,7 @@
     snapshots/
 
 <workspace 根文件夹>/               # 用户自己选的工作空间根（可能不是 git 仓库）
-  CLAUDE.md  .ccpanes/projects.csv  # 给 agent 看的项目清单，保持现状
+  CLAUDE.md  .ccpanes/projects.yaml # 给 agent 看的项目清单，按机器分段（网盘同步只需排除 .ccpanes/.cache/）
 
 <project>/.ccpanes/                   # 仓库 · 团队共享，随代码提交
   .gitignore           (内容：.cache/)      ← CC-Panes 自己写，首次创建目录时
