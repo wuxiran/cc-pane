@@ -101,6 +101,22 @@ describe("selfChatService", () => {
   });
 
   describe("collectOnboardingContext", () => {
+    it("injects valid ctl schema and call examples into every actual launch prompt", async () => {
+      mockTauriInvoke({ query_todos: { items: [], total: 0 } });
+      const prompts = [
+        await selfChatService.collectAppContext(),
+        selfChatService.collectOnboardingContext("zh-CN"),
+        selfChatService.collectOnboardingContext("en"),
+      ];
+      for (const prompt of prompts) {
+        expect(prompt).toContain('"$CC_PANES_CTL" --json tools --schema <tool>');
+        expect(prompt).toContain('"$CC_PANES_CTL" --json call <tool> --json \'<args>\'');
+        expect(prompt).not.toContain("--name");
+        expect(prompt).not.toContain("tools --json");
+        expect(prompt).not.toContain('\\"$CC_PANES_CTL\\"');
+      }
+    });
+
     it("应该为中文界面返回中文引导提示", () => {
       const context = selfChatService.collectOnboardingContext("zh-CN");
 

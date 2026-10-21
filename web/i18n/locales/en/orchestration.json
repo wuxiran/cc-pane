@@ -14,6 +14,8 @@
   },
   "searchPlaceholder": "Search tasks",
   "loadMore": "Load more tasks",
+  "listLoadFailed": "Could not refresh the task list. Your current tasks are still shown.",
+  "listLoadDetails": "Details",
   "view": {
     "list": "List",
     "tree": "Tree"

@@ -62,7 +62,7 @@ Codex worker 偶尔"活着但一动不动"（prompt 到了 TUI 却没提交）�
 - `register_plan_leader(planPath, projectPath, sessionId, …)`：`sessionId` 是 leader 自己的 PTY 会话 ID（环境变量 `CC_PANES_PTY_SESSION_ID`）。从 dsh 网页会话调用时传 `leaderKind="dsh"`，`sessionId` 可空串，worker 回执会以聊天消息送回。
 - `register_plan_worker(...)`：只在复用旧会话时手动登记；新派的 worker 用 `dispatch_task(parentBindingId)` 自动登记。`workerKind="reviewer"` 表示评审员。
 - `send_to_worker(workerSessionId | planId, message, submit?)`：给一个或该 plan 全部 worker 下发；worker 忙时排队，回到 idle / waitingInput 再投。`submit=false` 只放进输入框不回车。
-- `report_to_leader(workerId, status?, summary?)`：自动上报没触发时（比如状态早已 completed）手动补一次。
+- `report_to_leader(workerId, status?, summary?)`：只在确认自动投递失败或 leader 明确要求时补投；同一结果版本会去重，queued:true 不需重试。
 - `get_plan_collaboration` / `reconcile_plan_collaboration`：默认 compact，`verbose=true` 才带 prompt / metadata / completionSummary。
 
 ## 通知与面板

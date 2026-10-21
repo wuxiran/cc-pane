@@ -43,6 +43,7 @@ function flush(): Promise<void> {
 
 function resetStore(): void {
   useOrchestratorStore.setState({
+    ...useOrchestratorStore.getInitialState(),
     bindings: [],
     total: 0,
     hasMore: false,
@@ -146,7 +147,7 @@ describe("useOrchestratorStore", () => {
       const first = createTestBinding({ id: "first", workspaceName: "ws" });
       const second = createTestBinding({ id: "second", workspaceName: "ws" });
       mockTauriInvoke({
-        query_task_bindings: (_cmd: string, args?: { query?: { offset?: number } }) => args?.query?.offset ? { items: [first, second], total: 3, hasMore: false } : { items: [first], total: 3, hasMore: true },
+        query_task_bindings: (_cmd: string, args?: { query?: { offset?: number } }) => args?.query?.offset ? { items: [second], total: 2, hasMore: false } : { items: [first], total: 2, hasMore: true },
       });
       await useOrchestratorStore.getState().loadBindings({ limit: 1 });
       await useOrchestratorStore.getState().loadMoreBindings();
@@ -214,7 +215,7 @@ describe("useOrchestratorStore", () => {
       expect(useOrchestratorStore.getState().bindings).toEqual([patched]);
     });
 
-    it("对不存在的 binding 应前插入列表", async () => {
+    it("对不存在的 binding 应按后端稳定顺序插入列表", async () => {
       const existing = createTestBinding();
       useOrchestratorStore.setState({ bindings: [existing] });
       const fresh = createTestBinding();
@@ -223,8 +224,8 @@ describe("useOrchestratorStore", () => {
       await useOrchestratorStore.getState().updatePatch(fresh.id, {});
 
       expect(useOrchestratorStore.getState().bindings).toEqual([
-        fresh,
         existing,
+        fresh,
       ]);
     });
   });

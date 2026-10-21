@@ -29,7 +29,7 @@ const MAP_STORE_EXEMPTIONS = {
   "useAgentChatDraftStore.ts":
     "composer draft keyed by ACP chatId (= tab id); disposed by dropAgentChatState on explicit chat close",
   "useFileTreeStore.ts": "local file-tree node index, not keyed by sessionId",
-  "useOrchestratorStore.ts": "task binding node index, not keyed by sessionId",
+  "orchestratorProjection.ts": "temporary task-binding tree node index, keyed by binding id rather than PTY sessionId",
   "useShortcutsStore.ts": "shortcut action registry, not keyed by sessionId",
 } as const;
 

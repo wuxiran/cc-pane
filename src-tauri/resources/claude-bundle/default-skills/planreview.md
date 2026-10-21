@@ -153,7 +153,7 @@ mcp__ccpanes__submit_to_session(
 
 **首选：等 PTY 自动反馈**（前提是 Phase 1.5 + Phase 3 都注册过了）：
 
-worker 调 `report_to_leader` 时，PTY 会直接把一行 `[worker-report] id=... status=completed summary=...` 推到 leader 的对话里——你下一步看见这行就知道完成。**不用主动 poll。** leader busy 时引擎会排队并在你空闲后自动补投（返回 `queued:true`），worker 无需重试。
+worker 更新终态后，引擎会自动把一行 `[worker-report] id=... status=completed summary=...` 推到 leader 的对话里——你下一步看见这行就知道完成。**不用主动 poll。** leader busy 时引擎会排队并在你空闲后自动补投（返回 `queued:true`），worker 无需重试。
 
 **兜底：软超时检查**（防止 worker 卡住又没 report）：
 
@@ -272,13 +272,7 @@ mcp__ccpanes__update_task_binding(
   completionSummary: "评审完成,必修 N 条/开放 M 条,详见 PTY 输出"
 )
 
-再调用：
-mcp__ccpanes__report_to_leader(
-  workerId: <新派发时为 CC_PANES_TASK_BINDING_ID；复用时为 workerId>,
-  status: "completed",
-  summary: "评审完成,必修 N 条/开放 M 条,详见 PTY 输出"
-)
-如果返回 {sent: false, queued: true} 不用重试——引擎会在 leader 空闲后自动补投。
+终态 `update_task_binding` 成功后会自动向 leader 上报；不要固定再调用 `report_to_leader`。只有确认投递失败、或 leader 明确要求补投时才手动调用。返回 `queued:true` 或 `skipReason:"duplicate report version already delivered"` 时不要重试。
 如果没有 ccpanes MCP 或调用失败，把完整评审结论、验证范围和错误信息打印到终端。
 ```
 
@@ -303,7 +297,7 @@ mcp__ccpanes__report_to_leader(
 | 发原始字节 / Ctrl+C | `mcp__ccpanes__write_to_session`（`"\x03"`）|
 | 查状态 | `mcp__ccpanes__get_session_status` |
 | 读输出 | `mcp__ccpanes__get_session_output` |
-| worker 上报（目标支持 MCP 时） | `mcp__ccpanes__update_task_binding` 后 `mcp__ccpanes__report_to_leader` |
+| worker 上报（目标支持 MCP 时） | `mcp__ccpanes__update_task_binding`（自动上报；明确失败才补投） |
 
 **Claude 内置工具**（编排/交互）：
 

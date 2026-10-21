@@ -11,6 +11,11 @@
 
 #[path = "orchestrator_service/dispatch_retry.rs"]
 mod dispatch_retry;
+#[path = "orchestrator_service/report_delivery_cache.rs"]
+mod report_delivery_cache;
+#[path = "orchestrator_service/worker_report_requests.rs"]
+mod worker_report_requests;
+use report_delivery_cache::{FailedReportCache, ReportDeliveryKey, SentReportCache};
 
 use crate::ccchan_service::CCChanService;
 use crate::models::task_binding::{
@@ -1069,9 +1074,9 @@ pub struct AppState {
     /// leader 状态跃迁回 Idle 时由状态机 listener 补投
     pub pending_worker_reports: Arc<Mutex<PendingReportMap>>,
     report_delivery_locks: Arc<ReportDeliveryLocks>,
-    sent_report_keys: Arc<Mutex<HashSet<String>>>,
+    sent_report_keys: Arc<Mutex<SentReportCache>>,
     /// 已发射的 report 失败键，避免 leader 清理与发送失败并发时重复发事件。
-    pub failed_report_events: Arc<Mutex<HashSet<(String, u32)>>>,
+    pub failed_report_events: Arc<Mutex<FailedReportCache>>,
     /// 目标会话 busy 时排队的通用 directive（key = 目标 PTY session_id）。
     pub pending_directives: Arc<Mutex<PendingDirectiveMap>>,
     directive_delivery_locks: Arc<DirectiveDeliveryLocks>,
@@ -1771,8 +1776,8 @@ pub struct OrchestratorService {
     pending_queries: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
     pending_worker_reports: Arc<Mutex<PendingReportMap>>,
     report_delivery_locks: Arc<ReportDeliveryLocks>,
-    sent_report_keys: Arc<Mutex<HashSet<String>>>,
-    failed_report_events: Arc<Mutex<HashSet<(String, u32)>>>,
+    sent_report_keys: Arc<Mutex<SentReportCache>>,
+    failed_report_events: Arc<Mutex<FailedReportCache>>,
     pending_directives: Arc<Mutex<PendingDirectiveMap>>,
     directive_delivery_locks: Arc<DirectiveDeliveryLocks>,
     ai_panels: Arc<Mutex<AiPanelRegistry>>,
@@ -1812,8 +1817,8 @@ impl OrchestratorService {
             pending_queries: Arc::new(Mutex::new(HashMap::new())),
             pending_worker_reports: Arc::new(Mutex::new(HashMap::new())),
             report_delivery_locks: Arc::new(Mutex::new(HashMap::new())),
-            sent_report_keys: Arc::new(Mutex::new(HashSet::new())),
-            failed_report_events: Arc::new(Mutex::new(HashSet::new())),
+            sent_report_keys: Arc::new(Mutex::new(SentReportCache::default())),
+            failed_report_events: Arc::new(Mutex::new(FailedReportCache::default())),
             pending_directives: Arc::new(Mutex::new(HashMap::new())),
             directive_delivery_locks: Arc::new(Mutex::new(HashMap::new())),
             ai_panels: Arc::new(Mutex::new(AiPanelRegistry::default())),
@@ -8550,17 +8555,14 @@ impl McpToolHandler {
             metadata: params.metadata,
         };
 
-        match self
-            .state
-            .task_binding_service
-            .update_returning_previous_status(&task_id, req)
-        {
-            Ok((old_status, binding)) => {
-                notify_leader_on_terminal_status(self.state.clone(), old_status, binding.clone());
-                serde_json::to_string(&binding)
-                    .unwrap_or_else(|e| format!("错误: 序列化失败: {}", e))
-            }
-            Err(e) => format!("错误: 更新 TaskBinding 失败: {}", e),
+        match worker_report_requests::update_binding_and_notify(
+            ReportRuntime::from_app_state(&self.state),
+            &task_id,
+            req,
+        ) {
+            Ok(binding) => serde_json::to_string(&binding)
+                .unwrap_or_else(|error| format!("错误: 序列化失败: {error}")),
+            Err(error) => format!("错误: 更新 TaskBinding 失败: {error}"),
         }
     }
 
@@ -8646,44 +8648,10 @@ impl McpToolHandler {
         Parameters(params): Parameters<McpReportToLeaderParams>,
     ) -> String {
         info!(worker_id = %params.worker_id, "mcp::report_to_leader");
-        let mut worker = match self.state.task_binding_service.get(&params.worker_id) {
-            Ok(Some(binding)) => binding,
-            Ok(None) => {
-                return serde_json::json!({
-                    "sent": false,
-                    "skipReason": "worker not found",
-                })
-                .to_string()
-            }
-            Err(e) => {
-                warn!(worker_id = %params.worker_id, err = %e, "mcp::report_to_leader failed to load worker");
-                return serde_json::json!({
-                    "sent": false,
-                    "skipReason": format!("failed to load worker: {}", e),
-                })
-                .to_string();
-            }
-        };
-
-        if let Some(status) = params.status {
-            match status.parse::<TaskBindingStatus>() {
-                Ok(status) => worker.status = status,
-                Err(e) => {
-                    return serde_json::json!({
-                        "sent": false,
-                        "skipReason": format!("invalid status: {}", e),
-                    })
-                    .to_string()
-                }
-            }
-        }
-
-        if let Some(summary) = params.summary {
-            worker.completion_summary = Some(summary);
-        }
-
-        serde_json::to_string(&send_worker_report_to_leader(self.state.clone(), worker).await)
-            .unwrap_or_else(|e| format!("错误: 序列化失败: {}", e))
+        let result =
+            worker_report_requests::report(ReportRuntime::from_app_state(&self.state), params)
+                .await;
+        serde_json::to_string(&result).unwrap_or_else(|error| format!("错误: 序列化失败: {error}"))
     }
 
     /// leader 给一个或全部 worker 下发独立指令；worker 忙时按接收顺序排队补投。
@@ -12626,14 +12594,13 @@ fn report_delivery_lock(state: &ReportRuntime, key: &str) -> Arc<tokio::sync::Mu
     lock
 }
 
-fn report_delivery_key(worker: &TaskBinding) -> String {
-    format!(
-        "{}|{}|{}|{}",
-        worker.id,
-        worker.status,
-        worker.updated_at,
-        worker.completion_summary.as_deref().unwrap_or("")
-    )
+fn report_delivery_key(worker: &TaskBinding, leader_session_id: &str) -> ReportDeliveryKey {
+    ReportDeliveryKey {
+        worker_id: worker.id.clone(),
+        report_revision: worker.report_revision,
+        status: worker.status.to_string(),
+        leader_session_id: leader_session_id.to_owned(),
+    }
 }
 
 #[derive(Clone)]
@@ -12643,8 +12610,8 @@ struct ReportRuntime {
     task_binding_service: Arc<crate::services::TaskBindingService>,
     pending_worker_reports: Arc<Mutex<PendingReportMap>>,
     report_delivery_locks: Arc<ReportDeliveryLocks>,
-    sent_report_keys: Arc<Mutex<HashSet<String>>>,
-    failed_report_events: Arc<Mutex<HashSet<(String, u32)>>>,
+    sent_report_keys: Arc<Mutex<SentReportCache>>,
+    failed_report_events: Arc<Mutex<FailedReportCache>>,
     pipe_event_service: Arc<PipeEventService>,
     dsh_service: Arc<cc_panes_core::services::DshService>,
 }
@@ -13499,7 +13466,7 @@ fn dropped_pending_report(
     }
 }
 
-/// 入队：TTL 剪枝 → 同 worker.id 去重（保留最新）→ push → 超上限丢最老。
+/// Queue the newest report revision per worker. Equal versions retain their first body and TTL.
 fn enqueue_pending_report_at_attempt(
     map: &mut PendingReportMap,
     leader_session_id: &str,
@@ -13529,10 +13496,53 @@ fn enqueue_pending_report_with_queued_at(
                 now,
             ));
             false
-        } else if report.worker.id == worker.id {
-            if report.queued_at > queued_at {
-                return true;
+        } else {
+            true
+        }
+    });
+    if let Some(existing) = queue
+        .iter_mut()
+        .find(|report| report.worker.id == worker.id)
+    {
+        if existing.worker.report_revision > worker.report_revision {
+            return PendingEnqueueResult {
+                queue_len: queue.len(),
+                accepted: false,
+                dropped,
+            };
+        }
+        if existing.worker.report_revision == worker.report_revision {
+            if existing.worker.status == worker.status {
+                // An old batch can be drained while an explicit retry queues the same
+                // version. Restore the earliest body/deadline, never extend its TTL.
+                if queued_at < existing.queued_at {
+                    existing.correlation_id =
+                        report_correlation_id(&worker, Some(leader_session_id));
+                    existing.workspace_id = pipe_workspace_id(
+                        worker.workspace_name.as_deref(),
+                        Some(&worker.project_path),
+                    );
+                    existing.worker = worker;
+                    existing.queued_at = queued_at;
+                }
+                existing.attempt = existing.attempt.max(attempt);
+                return PendingEnqueueResult {
+                    queue_len: queue.len(),
+                    accepted: true,
+                    dropped,
+                };
             }
+            if existing.queued_at > queued_at {
+                return PendingEnqueueResult {
+                    queue_len: queue.len(),
+                    accepted: false,
+                    dropped,
+                };
+            }
+        }
+    }
+    queue.retain(|report| {
+        if report.worker.id == worker.id {
             dropped.push(dropped_pending_report(
                 report,
                 leader_session_id,
@@ -13545,19 +13555,8 @@ fn enqueue_pending_report_with_queued_at(
         }
     });
 
-    if queue
-        .iter()
-        .any(|report| report.worker.id == worker.id && report.queued_at > queued_at)
-    {
-        return PendingEnqueueResult {
-            queue_len: queue.len(),
-            accepted: false,
-            dropped,
-        };
-    }
-
     queue.push(PendingWorkerReport {
-        correlation_id: report_correlation_id(&worker),
+        correlation_id: report_correlation_id(&worker, Some(leader_session_id)),
         workspace_id: pipe_workspace_id(
             worker.workspace_name.as_deref(),
             Some(&worker.project_path),
@@ -13632,15 +13631,21 @@ fn mark_report_dropped(
     }
 }
 
-fn report_correlation_id(worker: &TaskBinding) -> String {
-    worker
+fn report_correlation_id(worker: &TaskBinding, leader_session_id: Option<&str>) -> String {
+    let dispatch = worker
         .metadata
         .as_ref()
         .and_then(|metadata| metadata.get("dispatchEnvelope"))
         .and_then(|envelope| envelope.get("taskId"))
         .and_then(serde_json::Value::as_str)
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("report:{}", worker.id))
+        .unwrap_or(&worker.id);
+    format!(
+        "report:{dispatch}:{}:r{}:{}:to:{}",
+        worker.id,
+        worker.report_revision,
+        worker.status,
+        leader_session_id.unwrap_or("unresolved")
+    )
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -13666,15 +13671,39 @@ fn emit_pipe_event_once(state: &ReportRuntime, spec: PipeEventSpec) {
     emit_pipe_event(&state.pipe_event_service, spec);
 }
 
+fn next_report_attempt(
+    state: &ReportRuntime,
+    worker: &TaskBinding,
+    leader_session_id: &str,
+    first: u32,
+) -> u32 {
+    let correlation = report_correlation_id(worker, Some(leader_session_id));
+    let mut failed = state
+        .failed_report_events
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut attempt = first;
+    while failed.contains(&(correlation.clone(), attempt), std::time::Instant::now()) {
+        let Some(next) = attempt.checked_add(1) else {
+            break;
+        };
+        attempt = next;
+    }
+    attempt
+}
+
 fn claim_report_failure(
-    failed_report_events: &Mutex<HashSet<(String, u32)>>,
+    failed_report_events: &Mutex<FailedReportCache>,
     correlation_id: &str,
     attempt: u32,
 ) -> bool {
     failed_report_events
         .lock()
         .unwrap_or_else(|error| error.into_inner())
-        .insert((correlation_id.to_string(), attempt))
+        .insert(
+            (correlation_id.to_string(), attempt),
+            std::time::Instant::now(),
+        )
 }
 
 fn is_delivery_failure_reason(reason: &str) -> bool {
@@ -13683,7 +13712,7 @@ fn is_delivery_failure_reason(reason: &str) -> bool {
 
 fn emit_report_pipe_event(state: &ReportRuntime, worker: &TaskBinding, event: ReportPipeEvent<'_>) {
     let spec = PipeEventSpec::new(
-        report_correlation_id(worker),
+        report_correlation_id(worker, event.leader_session_id),
         pipe_workspace_id(worker.workspace_name.as_deref(), Some(&worker.project_path)),
         PipeEventKind::Report,
         event.phase,
@@ -14019,20 +14048,6 @@ async fn run_pending_report_level_scan(state: ReportRuntime) {
     }
 }
 
-fn should_notify_terminal_transition(
-    old: Option<TaskBindingStatus>,
-    new: TaskBindingStatus,
-) -> bool {
-    fn is_terminal(status: &TaskBindingStatus) -> bool {
-        matches!(
-            status,
-            TaskBindingStatus::Completed | TaskBindingStatus::Failed
-        )
-    }
-
-    is_terminal(&new) && !old.as_ref().is_some_and(is_terminal)
-}
-
 fn sanitize_pty_line(input: &str, max_len: usize) -> String {
     let normalized = input.replace(['\r', '\n'], " | ");
     normalized
@@ -14040,26 +14055,6 @@ fn sanitize_pty_line(input: &str, max_len: usize) -> String {
         .filter(|ch| *ch == '\t' || *ch >= ' ')
         .take(max_len)
         .collect()
-}
-
-fn notify_leader_on_terminal_status(
-    state: AppState,
-    old_status: Option<TaskBindingStatus>,
-    worker: TaskBinding,
-) {
-    if !should_notify_terminal_transition(old_status.clone(), worker.status.clone()) {
-        debug!(
-            worker_id = %worker.id,
-            old_status = ?old_status,
-            new_status = %worker.status,
-            "worker report auto-notify skipped: status transition is not terminal"
-        );
-        return;
-    }
-
-    tokio::spawn(async move {
-        let _ = send_worker_report_to_leader(state, worker).await;
-    });
 }
 
 /// dsh leader 的 session_id 前缀：`dsh:<workspaceKey>:<dshSessionId>`。
@@ -14196,7 +14191,10 @@ async fn send_worker_report_to_dsh_leader(
                 .sent_report_keys
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
-                .insert(report_delivery_key(worker));
+                .insert(
+                    report_delivery_key(worker, leader_session_id),
+                    std::time::Instant::now(),
+                );
             LeaderReportResult::sent()
         }
         Err(e) => {
@@ -14216,11 +14214,6 @@ async fn send_worker_report_to_dsh_leader(
             LeaderReportResult::skipped(format!("dsh session.prompt failed: {e}"))
         }
     }
-}
-
-async fn send_worker_report_to_leader(state: AppState, worker: TaskBinding) -> LeaderReportResult {
-    send_worker_report_to_leader_with_attempt(ReportRuntime::from_app_state(&state), worker, 0)
-        .await
 }
 
 async fn send_worker_report_to_leader_with_attempt(
@@ -14303,19 +14296,22 @@ async fn send_worker_report_to_leader_with_attempt_and_queued_at(
         }
     };
 
-    let report_key = report_delivery_key(&worker);
-    // Serialize all versions for one worker, while sent_report_keys still distinguishes versions.
+    // Serialize initial, explicit and redelivery paths for this worker.
     let report_lock = report_delivery_lock(&state, &worker.id);
     let _report_guard = report_lock.lock().await;
-    if state
-        .sent_report_keys
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .contains(&report_key)
-    {
-        return LeaderReportResult::skipped("duplicate report version already delivered");
+    // A delayed flush must not resurrect a completion from before a newer result/attempt.
+    match state.task_binding_service.get(&worker.id) {
+        Ok(Some(current)) if current.report_revision > worker.report_revision => {
+            // Supersession is not a transport failure. In particular, never replace an
+            // already delivered old version's pipe event with a spurious Failed event.
+            return LeaderReportResult::skipped("superseded by newer report revision");
+        }
+        Ok(Some(_)) => {}
+        Ok(None) => return LeaderReportResult::skipped("worker no longer exists"),
+        Err(error) => {
+            return LeaderReportResult::skipped(format!("failed to read report revision: {error}"))
+        }
     }
-
     let Some(leader_session_id) = leader.session_id.clone() else {
         warn!(
             worker_id = %worker.id,
@@ -14336,6 +14332,19 @@ async fn send_worker_report_to_leader_with_attempt_and_queued_at(
         );
         return LeaderReportResult::skipped("leader session missing");
     };
+
+    let report_key = report_delivery_key(&worker, &leader_session_id);
+    if state
+        .sent_report_keys
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .contains(&report_key, std::time::Instant::now())
+    {
+        return LeaderReportResult::skipped("duplicate report version already delivered");
+    }
+
+    // A genuine retry after failure is a fresh pipe attempt, not the failed attempt's duplicate.
+    let attempt = next_report_attempt(&state, &worker, &leader_session_id, attempt);
 
     // dsh leader（`dsh:<workspaceKey>:<sessionId>`）不走 PTY 链路：它没有
     // PTY 状态可查，也没有 SessionStateMachine 事件源可驱动排队补投。
@@ -14551,7 +14560,7 @@ async fn send_worker_report_to_leader_with_attempt_and_queued_at(
                 .sent_report_keys
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
-                .insert(report_key.clone());
+                .insert(report_key, std::time::Instant::now());
             LeaderReportResult::sent()
         }
         Err(e) => {
@@ -14587,6 +14596,7 @@ mod tests {
     include!("orchestrator_message_safety_tests.rs");
     include!("orchestrator_directive_fifo_tests.rs");
     include!("orchestrator_report_idempotency_tests.rs");
+    include!("orchestrator_report_request_tests.rs");
     use crate::models::WorkspaceCliEnvironmentDefaults;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -15299,6 +15309,8 @@ mod tests {
 
     #[derive(Default)]
     struct DirectiveTestBackend {
+        submit_error: Mutex<Option<String>>,
+        before_submit: Mutex<Option<Box<dyn FnOnce() + Send>>>,
         after_submit_status: Mutex<Option<SessionStatus>>,
         statuses: Mutex<HashMap<String, SessionStatus>>,
         writes: Mutex<Vec<(String, String)>>,
@@ -15349,6 +15361,12 @@ mod tests {
             session_id: &str,
             text: &str,
         ) -> cc_panes_core::utils::AppResult<()> {
+            if let Some(hook) = self.before_submit.lock().unwrap().take() {
+                hook();
+            }
+            if let Some(error) = self.submit_error.lock().unwrap().take() {
+                return Err(cc_panes_core::utils::AppError::from(error));
+            }
             self.submits
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
@@ -16915,6 +16933,7 @@ mod tests {
             workspace_name: None,
             cli_tool: "codex".to_string(),
             status: TaskBindingStatus::Completed,
+            report_revision: 0,
             progress: 100,
             completion_summary: Some(format!("summary-{id}")),
             exit_code: None,
@@ -16964,6 +16983,7 @@ mod tests {
         enqueue_pending_report(&mut map, "leader-s", test_pending_report_worker("w1"), now);
         let mut updated = test_pending_report_worker("w1");
         updated.completion_summary = Some("newer".to_string());
+        updated.report_revision += 1;
         let result = enqueue_pending_report(&mut map, "leader-s", updated, now);
 
         assert_eq!(result.queue_len, 1);
@@ -16990,6 +17010,7 @@ mod tests {
         let newer_queued_at = first_queued_at + std::time::Duration::from_secs(1);
         let mut newer = test_pending_report_worker("w1");
         newer.completion_summary = Some("newer".to_string());
+        newer.report_revision += 1;
         let newer_result =
             enqueue_pending_report_at_attempt(&mut map, "leader-s", newer, 2, newer_queued_at);
         assert!(newer_result.accepted);
@@ -17047,6 +17068,7 @@ mod tests {
         enqueue_pending_report(&mut map, "leader-s", worker.clone(), now);
         let mut updated = worker.clone();
         updated.completion_summary = Some("newer".to_string());
+        updated.report_revision += 1;
         let result = enqueue_pending_report(&mut map, "leader-s", updated, now);
         assert_eq!(record_dropped_pending_reports(&service, &result.dropped), 0);
         let persisted = service
@@ -17059,7 +17081,7 @@ mod tests {
 
     #[test]
     fn report_failure_event_claim_is_idempotent_by_correlation_and_attempt() {
-        let failures = Mutex::new(HashSet::new());
+        let failures = Mutex::new(FailedReportCache::default());
         assert!(claim_report_failure(&failures, "correlation-1", 3));
         assert!(!claim_report_failure(&failures, "correlation-1", 3));
         assert!(claim_report_failure(&failures, "correlation-1", 4));
@@ -17079,11 +17101,14 @@ mod tests {
             enqueue_pending_report_at_attempt(&mut map, "leader-s", first.clone(), 7, now);
         assert!(first_result.dropped.is_empty());
 
-        let second_result = enqueue_pending_report_at_attempt(&mut map, "leader-s", first, 8, now);
+        let first_correlation = report_correlation_id(&first, Some("leader-s"));
+        let mut next = first;
+        next.report_revision += 1;
+        let second_result = enqueue_pending_report_at_attempt(&mut map, "leader-s", next, 8, now);
         assert_eq!(second_result.dropped.len(), 1);
         let superseded = &second_result.dropped[0];
         assert_eq!(superseded.reason, "superseded");
-        assert_eq!(superseded.report.correlation_id, "correlation-1");
+        assert_eq!(superseded.report.correlation_id, first_correlation);
         assert_eq!(superseded.report.workspace_id, "workspace-a");
         assert_eq!(superseded.report.attempt, 7);
         assert_eq!(
@@ -17309,46 +17334,6 @@ mod tests {
         let queued = serde_json::to_string(&LeaderReportResult::queued("leader busy")).unwrap();
         assert!(queued.contains("\"queued\":true"));
         assert!(queued.contains("\"skipReason\":\"leader busy\""));
-    }
-
-    #[test]
-    fn test_should_notify_terminal_transition() {
-        let cases = [
-            (
-                Some(TaskBindingStatus::Running),
-                TaskBindingStatus::Completed,
-                true,
-            ),
-            (
-                Some(TaskBindingStatus::Completed),
-                TaskBindingStatus::Completed,
-                false,
-            ),
-            (
-                Some(TaskBindingStatus::Failed),
-                TaskBindingStatus::Failed,
-                false,
-            ),
-            (None, TaskBindingStatus::Completed, true),
-            (
-                Some(TaskBindingStatus::Pending),
-                TaskBindingStatus::Failed,
-                true,
-            ),
-            (
-                Some(TaskBindingStatus::Running),
-                TaskBindingStatus::Running,
-                false,
-            ),
-        ];
-
-        for (old, new, expected) in cases {
-            assert_eq!(
-                should_notify_terminal_transition(old.clone(), new.clone()),
-                expected,
-                "old={old:?} new={new:?}"
-            );
-        }
     }
 
     #[test]
