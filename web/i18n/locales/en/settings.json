@@ -132,7 +132,9 @@
     "dramaStudio": "Drama studio",
     "dramaStudioDesc": "The Drama Studio activity-bar entry and the screenplay → storyboard → shots → footage pipeline, including batch restyle (uses the media studio's provider selection).",
     "skillMarket": "Skill market",
-    "skillMarketDesc": "The Skill Market activity-bar entry, the full-screen market page, and the \"install from market\" blocks in launch profiles and the global skills panel."
+    "skillMarketDesc": "The Skill Market activity-bar entry, the full-screen market page, and the \"install from market\" blocks in launch profiles and the global skills panel.",
+    "librarySpace": "Library",
+    "librarySpaceDesc": "Activity bar “Library” entry: create an AI-maintained materials folder (default ~/CC-Panes-Library) and open a Claude Code assistant that collects, transcribes videos and organizes."
   },
   "modules": {
     "title": "Modules",

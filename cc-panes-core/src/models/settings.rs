@@ -84,6 +84,9 @@ pub struct ExperimentalSettings {
     /// Skill 市场（活动栏 Store 入口 + 全屏页 + 各处「从市场安装」区块）。
     #[serde(default = "default_experimental_flag")]
     pub skill_market: bool,
+    /// 资料空间（docs/108：活动栏 Library 入口，一键建素材库并拉起素材助手）。
+    #[serde(default = "default_experimental_flag")]
+    pub library_space: bool,
 }
 
 /// Dev（debug）构建 = true，Release = false。
@@ -96,6 +99,7 @@ impl Default for ExperimentalSettings {
         Self {
             drama_studio: default_experimental_flag(),
             skill_market: default_experimental_flag(),
+            library_space: default_experimental_flag(),
         }
     }
 }

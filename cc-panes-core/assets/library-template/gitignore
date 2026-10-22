@@ -1,0 +1,11 @@
+# 大体积媒体默认不进 Git / 同步盘；需要的话删掉对应行
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.m4a
+*.mp3
+*.wav
+*.part
+.trash/
+.DS_Store
