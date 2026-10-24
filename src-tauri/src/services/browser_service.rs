@@ -10,8 +10,10 @@ use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Webview, WebviewUrl,
 };
 
+mod computer_use;
 #[cfg(target_os = "macos")]
 mod macos;
+pub use computer_use::{BrowserDomSnapshot, BrowserElement, BrowserTabInfo, BrowserViewport};
 
 pub const CDP_SPIKE_METHODS: [&str; 2] = ["Runtime.evaluate", "Page.captureScreenshot"];
 const MAX_WEBVIEW_LABEL_LEN: usize = 64;
@@ -188,10 +190,55 @@ struct BrowserTabEntry {
     /// 截图必须知道这件事：隐藏的 WebView2 合成器停止产帧，
     /// `Page.captureScreenshot` 会一直等不到帧直到超时（见 `screenshot`）。
     visibility: BrowserVisibility,
+    automation: std::sync::Arc<tokio::sync::Mutex<()>>,
+    page_state: std::sync::Arc<Mutex<BrowserPageState>>,
     // A snapshot/click may temporarily show this native view. Serialize those
     // operations for this tab so one cannot hide another's pending snapshot.
     #[cfg(target_os = "macos")]
     native_operation: std::sync::Arc<tokio::sync::Mutex<()>>,
+}
+
+#[derive(Debug, Default)]
+struct BrowserPageState {
+    generation: u64,
+    token: Option<String>,
+    url: Option<String>,
+}
+
+impl BrowserPageState {
+    fn invalidate(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.token = None;
+        self.url = None;
+    }
+}
+
+/// Rechecked on the native UI thread immediately before dispatching input,
+/// after any queued page-load callback has had a chance to invalidate it.
+struct BrowserInputGuard {
+    page: std::sync::Arc<Mutex<BrowserPageState>>,
+    token: String,
+    url: String,
+}
+
+#[cfg_attr(
+    not(any(target_os = "windows", target_os = "macos", test)),
+    allow(dead_code)
+)]
+impl BrowserInputGuard {
+    fn validate(&self, current_url: &str) -> AppResult<()> {
+        let page = self
+            .page
+            .lock()
+            .map_err(|_| "browser page state is unavailable")?;
+        if page.token.as_deref() != Some(self.token.as_str()) || current_url != self.url {
+            return Err(crate::utils::AppError::coded(
+                "BROWSER_PAGE_CHANGED",
+                "Browser page changed before input dispatch; take a new snapshot",
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// The native visibility can be temporarily raised without becoming a user
@@ -375,6 +422,8 @@ impl BrowserTabManager {
         let load_tab_id = tab_id.to_string();
         let title_app = app.clone();
         let title_tab_id = tab_id.to_string();
+        let page_state = std::sync::Arc::new(Mutex::new(BrowserPageState::default()));
+        let load_page_state = page_state.clone();
         let webview = main_window
             .add_child(
                 WebviewBuilder::new(label.clone(), WebviewUrl::External(parsed_url))
@@ -382,6 +431,11 @@ impl BrowserTabManager {
                     .devtools(true)
                     .enable_clipboard_access()
                     .on_page_load(move |_webview, payload| {
+                        if payload.event() == PageLoadEvent::Started {
+                            if let Ok(mut page) = load_page_state.lock() {
+                                page.invalidate();
+                            }
+                        }
                         let event = BrowserPageLoadEvent {
                             tab_id: load_tab_id.clone(),
                             url: payload.url().to_string(),
@@ -415,6 +469,8 @@ impl BrowserTabManager {
                 BrowserTabEntry {
                     label,
                     visibility: BrowserVisibility::new(visible),
+                    automation: Default::default(),
+                    page_state,
                     #[cfg(target_os = "macos")]
                     native_operation: Default::default(),
                 },
@@ -476,20 +532,26 @@ impl BrowserTabManager {
     }
 
     pub fn navigate(&self, app: &AppHandle, tab_id: &str, url: &str) -> AppResult<()> {
+        let _operation = self.try_automation(tab_id)?;
         let webview = self.webview(app, tab_id)?;
         let url = validate_browser_url(url)?;
+        self.invalidate_snapshot(tab_id)?;
         webview
             .navigate(url)
             .map_err(|error| format!("failed to navigate browser webview: {error}").into())
     }
 
     pub fn reload(&self, app: &AppHandle, tab_id: &str) -> AppResult<()> {
+        let _operation = self.try_automation(tab_id)?;
+        self.invalidate_snapshot(tab_id)?;
         self.webview(app, tab_id)?
             .reload()
             .map_err(|error| format!("failed to reload browser webview: {error}").into())
     }
 
     pub fn eval(&self, app: &AppHandle, tab_id: &str, script: &str) -> AppResult<()> {
+        let _operation = self.try_automation(tab_id)?;
+        self.invalidate_snapshot(tab_id)?;
         self.webview(app, tab_id)?
             .eval(script)
             .map_err(|error| format!("failed to evaluate browser script: {error}").into())
@@ -501,6 +563,12 @@ impl BrowserTabManager {
     }
 
     pub fn close(&self, app: &AppHandle, tab_id: &str) -> AppResult<()> {
+        if !self.contains(tab_id) {
+            return Ok(());
+        }
+        // Closing is cancellation, not another queued action. Invalidate/remove
+        // immediately so a React unmount cannot leave a busy native view behind.
+        self.invalidate_snapshot(tab_id)?;
         let entry = self
             .tabs
             .lock()
@@ -536,10 +604,27 @@ impl BrowserTabManager {
         params_json: &str,
         timeout: std::time::Duration,
     ) -> AppResult<String> {
-        call_devtools_protocol(self.webview(app, tab_id)?, method, params_json, timeout).await
+        call_devtools_protocol(
+            self.webview(app, tab_id)?,
+            method,
+            params_json,
+            timeout,
+            None,
+        )
+        .await
     }
 
     pub async fn evaluate(&self, app: &AppHandle, tab_id: &str, script: &str) -> AppResult<String> {
+        let _operation = self.automation(tab_id)?.lock_owned().await;
+        self.evaluate_inner(app, tab_id, script).await
+    }
+
+    async fn evaluate_inner(
+        &self,
+        app: &AppHandle,
+        tab_id: &str,
+        script: &str,
+    ) -> AppResult<String> {
         let result = self
             .call_cdp(
                 app,
@@ -609,14 +694,31 @@ impl BrowserTabManager {
     }
 
     pub async fn click(&self, app: &AppHandle, tab_id: &str, x: f64, y: f64) -> AppResult<()> {
+        let _operation = self.automation(tab_id)?.lock_owned().await;
+        self.click_inner(app, tab_id, x, y, None).await
+    }
+
+    async fn click_inner(
+        &self,
+        app: &AppHandle,
+        tab_id: &str,
+        x: f64,
+        y: f64,
+        page_token: Option<&str>,
+    ) -> AppResult<()> {
         let events = browser_click_params(x, y)?;
         #[cfg(target_os = "macos")]
         let _native_operation = self.native_operation(tab_id)?.lock_owned().await;
         #[cfg(target_os = "macos")]
         let _restore = self.temporarily_show(app, tab_id)?;
         for params in events {
-            self.call_cdp(app, tab_id, "Input.dispatchMouseEvent", &params)
-                .await?;
+            if let Some(token) = page_token {
+                self.call_guarded_input(app, tab_id, token, "Input.dispatchMouseEvent", &params)
+                    .await?;
+            } else {
+                self.call_cdp(app, tab_id, "Input.dispatchMouseEvent", &params)
+                    .await?;
+            }
         }
         Ok(())
     }
@@ -761,6 +863,7 @@ async fn call_devtools_protocol(
     method: &str,
     params_json: &str,
     timeout: std::time::Duration,
+    input_guard: Option<BrowserInputGuard>,
 ) -> AppResult<String> {
     use std::sync::Arc;
     use webview2_com::{CallDevToolsProtocolMethodCompletedHandler, CoTaskMemPWSTR};
@@ -789,6 +892,18 @@ async fn call_devtools_protocol(
                     return;
                 }
             };
+            if let Some(guard) = input_guard {
+                let mut source = windows_core_061::PWSTR::null();
+                if let Err(error) = unsafe { core_webview.Source(&mut source) } {
+                    send_error(format!("failed to verify browser URL: {error}"));
+                    return;
+                }
+                let source = CoTaskMemPWSTR::from(source).to_string();
+                if let Err(error) = guard.validate(&source) {
+                    send_error(error.to_string());
+                    return;
+                }
+            }
             let method_wide = CoTaskMemPWSTR::from(method.as_str());
             let params_wide = CoTaskMemPWSTR::from(params_json.as_str());
             let callback = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
@@ -829,8 +944,9 @@ async fn call_devtools_protocol(
     method: &str,
     params_json: &str,
     timeout: std::time::Duration,
+    input_guard: Option<BrowserInputGuard>,
 ) -> AppResult<String> {
-    macos::call(webview, method, params_json, timeout).await
+    macos::call(webview, method, params_json, timeout, input_guard).await
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -839,6 +955,7 @@ async fn call_devtools_protocol(
     _method: &str,
     _params_json: &str,
     _timeout: std::time::Duration,
+    _input_guard: Option<BrowserInputGuard>,
 ) -> AppResult<String> {
     Err("browser evaluation, screenshots and clicks are supported on Windows and macOS".into())
 }
@@ -980,6 +1097,8 @@ mod tests {
             super::BrowserTabEntry {
                 label: "browser-tab-1".to_string(),
                 visibility: super::BrowserVisibility::new(false),
+                automation: Default::default(),
+                page_state: Default::default(),
                 #[cfg(target_os = "macos")]
                 native_operation: Default::default(),
             },
@@ -1016,6 +1135,8 @@ mod tests {
                 super::BrowserTabEntry {
                     label: tab_id.into(),
                     visibility: super::BrowserVisibility::new(false),
+                    automation: Default::default(),
+                    page_state: Default::default(),
                     native_operation: Default::default(),
                 },
             );

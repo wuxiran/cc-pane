@@ -4,11 +4,16 @@
 use crate::utils::AppResult;
 use base64::Engine;
 use block2::RcBlock;
-use objc2::{rc::Weak, runtime::AnyObject, runtime::NSObjectProtocol, MainThreadMarker};
-use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType, NSImage};
+use objc2::{
+    rc::{Retained, Weak},
+    runtime::AnyObject,
+    runtime::NSObjectProtocol,
+    MainThreadMarker,
+};
+use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType, NSImage, NSResponder};
 use objc2_foundation::{
-    NSError, NSJSONSerialization, NSJSONWritingOptions, NSNull, NSNumber, NSPoint, NSProcessInfo,
-    NSString,
+    NSError, NSJSONSerialization, NSJSONWritingOptions, NSNotFound, NSNull, NSNumber, NSPoint,
+    NSProcessInfo, NSRange, NSString,
 };
 use objc2_web_kit::{
     WKContentWorld, WKErrorCode, WKErrorDomain, WKSnapshotConfiguration, WKWebView,
@@ -31,6 +36,11 @@ enum Operation {
     Mouse {
         x: f64,
         y: f64,
+        pressed: bool,
+    },
+    Text(String),
+    Key {
+        key: String,
         pressed: bool,
     },
 }
@@ -66,6 +76,28 @@ impl Operation {
                 Ok(Self::Snapshot)
             }
             "Input.dispatchMouseEvent" => Self::mouse(&params),
+            "Input.insertText" => {
+                let text = params["text"]
+                    .as_str()
+                    .ok_or("browser input text is required")?;
+                if text.len() > 32 * 1024 || text.contains('\0') {
+                    return Err("browser input text is too large or contains NUL".into());
+                }
+                Ok(Self::Text(text.into()))
+            }
+            "Input.dispatchKeyEvent" => {
+                let key = params["key"].as_str().ok_or("browser key is required")?;
+                super::computer_use::key_description(key)?;
+                let pressed = match params["type"].as_str() {
+                    Some("keyDown") => true,
+                    Some("keyUp") => false,
+                    _ => return Err("browser key event must be keyDown or keyUp".into()),
+                };
+                Ok(Self::Key {
+                    key: key.into(),
+                    pressed,
+                })
+            }
             _ => Err(format!("browser method is not supported by WKWebView: {method}").into()),
         }
     }
@@ -91,6 +123,7 @@ pub(super) async fn call(
     method: &str,
     params: &str,
     timeout: Duration,
+    input_guard: Option<super::BrowserInputGuard>,
 ) -> AppResult<String> {
     let operation = Operation::parse(method, params)?;
     let (sender, receiver) = oneshot::channel();
@@ -113,6 +146,16 @@ pub(super) async fn call(
                 complete(&reply, Err("native WKWebView is unavailable".into()));
                 return;
             };
+            if let Some(guard) = input_guard {
+                let current_url = unsafe { wk.URL() }
+                    .and_then(|url| url.absoluteString())
+                    .map(|url| url.to_string())
+                    .unwrap_or_default();
+                if let Err(error) = guard.validate(&current_url) {
+                    complete(&reply, Err(error));
+                    return;
+                }
+            }
             match operation {
                 Operation::Evaluate {
                     expression,
@@ -120,6 +163,8 @@ pub(super) async fn call(
                 } => evaluate(wk, mtm, expression, await_promise, reply),
                 Operation::Snapshot => snapshot(wk, mtm, reply),
                 Operation::Mouse { x, y, pressed } => complete(&reply, mouse(wk, x, y, pressed)),
+                Operation::Text(text) => complete(&reply, insert_text(wk, &text)),
+                Operation::Key { key, pressed } => complete(&reply, keyboard(wk, &key, pressed)),
             }
         })
         .map_err(|error| format!("failed to access native browser webview: {error}"))?;
@@ -420,6 +465,63 @@ fn mouse(wk: &WKWebView, x: f64, y: f64, pressed: bool) -> AppResult<String> {
         target.mouseUp(&event);
     }
     Ok("{}".to_string())
+}
+
+fn input_responder(wk: &WKWebView) -> AppResult<Retained<NSResponder>> {
+    let window = wk.window().ok_or("browser webview has no host window")?;
+    if !window.makeFirstResponder(Some(wk)) {
+        return Err("browser webview could not accept keyboard focus".into());
+    }
+    window
+        .firstResponder()
+        .ok_or_else(|| "browser has no keyboard responder".into())
+}
+
+fn insert_text(wk: &WKWebView, text: &str) -> AppResult<String> {
+    let responder = input_responder(wk)?;
+    let selector = objc2::sel!(insertText:replacementRange:);
+    if !responder.respondsToSelector(selector) {
+        return Err("browser focused view does not support native text insertion".into());
+    }
+    let text = NSString::from_str(text);
+    // NSTextInputClient's public insertion method replaces the current DOM
+    // selection. The responder and NSString remain on the AppKit main thread.
+    let _: () = unsafe {
+        objc2::msg_send![&*responder, insertText: &*text, replacementRange: NSRange::new(NSNotFound as usize, 0)]
+    };
+    Ok("{}".into())
+}
+
+fn keyboard(wk: &WKWebView, key: &str, pressed: bool) -> AppResult<String> {
+    let (code, characters) = match key {
+        "Enter" => (36, "\r"),
+        "Tab" => (48, "\t"),
+        "Escape" => (53, "\u{1b}"),
+        "Backspace" => (51, "\u{7f}"),
+        "Delete" => (117, "\u{f728}"),
+        "ArrowLeft" => (123, "\u{f702}"),
+        "ArrowRight" => (124, "\u{f703}"),
+        "ArrowUp" => (126, "\u{f700}"),
+        "ArrowDown" => (125, "\u{f701}"),
+        "Home" => (115, "\u{f729}"),
+        "End" => (119, "\u{f72b}"),
+        "PageUp" => (116, "\u{f72c}"),
+        "PageDown" => (121, "\u{f72d}"),
+        _ => return Err("unsupported native browser key".into()),
+    };
+    let responder = input_responder(wk)?;
+    let window = wk.window().ok_or("browser webview has no host window")?;
+    let characters = NSString::from_str(characters);
+    let event = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
+        if pressed { NSEventType::KeyDown } else { NSEventType::KeyUp }, NSPoint::new(0.0, 0.0), NSEventModifierFlags::empty(),
+        NSProcessInfo::processInfo().systemUptime(), window.windowNumber(), None, &characters, &characters, false, code,
+    ).ok_or("failed to create native browser key event")?;
+    if pressed {
+        responder.keyDown(&event);
+    } else {
+        responder.keyUp(&event);
+    }
+    Ok("{}".into())
 }
 
 fn click_point(

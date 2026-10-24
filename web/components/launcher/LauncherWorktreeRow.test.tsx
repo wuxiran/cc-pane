@@ -1,91 +1,71 @@
 import "@/i18n";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import LauncherWorktreeRow from "./LauncherWorktreeRow";
+import LocalLaunchSettings from "./LocalLaunchSettings";
 import { createDefaultDraft } from "./launcherModel";
-import { worktreeService } from "@/services";
+import { gitService } from "@/services/gitService";
 
-// 边界纪律：禁止真实 git 操作——isGitRepo 全部 mock
-vi.mock("@/services", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/services")>();
-  return {
-    ...actual,
-    worktreeService: {
-      ...actual.worktreeService,
-      isGitRepo: vi.fn(),
-    },
-  };
+vi.mock("@/services/gitService", () => ({ gitService: {
+  getRepoInfo: vi.fn(), getLocalBranches: vi.fn(),
+} }));
+vi.mock("./LauncherProviderRow", () => ({ default: () => <div>existing profile selector</div> }));
+const info = { state: "ok" as const, branch: "main", repoRoot: "/repo", hasChanges: true };
+const openSettings = async () => userEvent.click(screen.getByRole("button", { name: "配置启动环境" }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(gitService.getRepoInfo).mockResolvedValue(info);
+  vi.mocked(gitService.getLocalBranches).mockResolvedValue(["main", "feature"]);
 });
 
-const isGitRepoMock = vi.mocked(worktreeService.isGitRepo);
-
-describe("LauncherWorktreeRow", () => {
-  beforeEach(() => {
-    isGitRepoMock.mockReset();
+describe("shared launch environment", () => {
+  it("retains CLI environment and profile controls while remote worktrees are disabled", async () => {
+    render(<LauncherWorktreeRow draft={createDefaultDraft({ environment: "ssh" })}
+      onChange={vi.fn()} projectPath="/repo" isLocal={false} />);
+    await openSettings();
+    expect(screen.getByRole("switch")).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "SSH" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("existing profile selector")).toBeInTheDocument();
+    expect(gitService.getRepoInfo).not.toHaveBeenCalled();
   });
 
-  it("非本地环境置灰且不发起 git 检测", () => {
-    render(
-      <LauncherWorktreeRow
-        draft={createDefaultDraft()}
-        onChange={vi.fn()}
-        projectPath="D:/repos/demo"
-        isLocal={false}
-      />,
-    );
-    expect(screen.getByRole("checkbox")).toBeDisabled();
-    expect(screen.getByTestId("worktree-reason")).toBeInTheDocument();
-    expect(isGitRepoMock).not.toHaveBeenCalled();
+  it("disables worktrees for a non-Git directory", async () => {
+    vi.mocked(gitService.getRepoInfo).mockResolvedValue({ ...info, state: "notARepo", branch: null });
+    render(<LocalLaunchSettings projectPath="/plain" onChange={vi.fn()} />);
+    await openSettings();
+    await waitFor(() => expect(screen.getByTestId("worktree-reason")).toHaveTextContent("该目录不是 Git 仓库"));
+    expect(screen.getByRole("switch")).toBeDisabled();
   });
 
-  it("非 Git 仓库置灰并注明原因", async () => {
-    isGitRepoMock.mockResolvedValue(false);
-    render(
-      <LauncherWorktreeRow
-        draft={createDefaultDraft()}
-        onChange={vi.fn()}
-        projectPath="D:/scratch/plain"
-        isLocal
-      />,
-    );
-    await waitFor(() => expect(isGitRepoMock).toHaveBeenCalledWith("D:/scratch/plain"));
-    expect(screen.getByRole("checkbox")).toBeDisabled();
-    expect(screen.getByTestId("worktree-reason")).toBeInTheDocument();
-  });
-
-  it("本地 Git 仓库可勾选，开启时带 cc/<yyMMdd-HHmm> 默认分支", async () => {
-    isGitRepoMock.mockResolvedValue(true);
+  it("keeps the current checkout read-only and chooses a base only for a new worktree", async () => {
     const onChange = vi.fn();
-    render(
-      <LauncherWorktreeRow
-        draft={createDefaultDraft()}
-        onChange={onChange}
-        projectPath="D:/repos/demo"
-        isLocal
-      />,
-    );
-    const toggle = screen.getByRole("checkbox");
+    const { rerender } = render(<LocalLaunchSettings projectPath="/repo" onChange={onChange} />);
+    await openSettings();
+    const toggle = screen.getByRole("switch");
     await waitFor(() => expect(toggle).toBeEnabled());
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     await userEvent.click(toggle);
-    expect(onChange).toHaveBeenCalledWith({
-      worktree: { enabled: true, branch: expect.stringMatching(/^cc\/\d{6}-\d{4}$/) },
-    });
+    expect(onChange).toHaveBeenCalledWith({ enabled: true, branch: expect.stringMatching(/^cc\//), baseRef: "HEAD" });
+    rerender(<LocalLaunchSettings projectPath="/repo" onChange={onChange}
+      worktree={{ enabled: true, branch: "cc/task", baseRef: "HEAD" }} />);
+    await waitFor(() => expect(screen.getByRole("option", { name: "feature" })).toBeInTheDocument());
+    fireEvent.change(screen.getByRole("combobox", { name: "基准分支" }), { target: { value: "refs/heads/feature" } });
+    expect(onChange).toHaveBeenLastCalledWith({ enabled: true, branch: "cc/task", baseRef: "refs/heads/feature" });
+    expect(screen.getByText(/未提交修改保留在原处/)).toBeInTheDocument();
   });
 
-  it("可用性丢失时自动关掉已勾选的 worktree", async () => {
-    isGitRepoMock.mockResolvedValue(false);
-    const onChange = vi.fn();
-    render(
-      <LauncherWorktreeRow
-        draft={createDefaultDraft({ worktree: { enabled: true, branch: "cc/x" } })}
-        onChange={onChange}
-        projectPath="D:/scratch/plain"
-        isLocal
-      />,
-    );
-    await waitFor(() =>
-      expect(onChange).toHaveBeenCalledWith({ worktree: { enabled: false, branch: "cc/x" } }),
-    );
+  it("ignores late Git responses from a previously selected project", async () => {
+    let resolveOld!: (value: typeof info) => void;
+    vi.mocked(gitService.getRepoInfo).mockImplementation((path) => path === "/old"
+      ? new Promise((resolve) => { resolveOld = resolve; })
+      : Promise.resolve({ ...info, state: "notARepo", branch: null }));
+    const { rerender } = render(<LocalLaunchSettings projectPath="/old" onChange={vi.fn()} />);
+    rerender(<LocalLaunchSettings projectPath="/plain" onChange={vi.fn()} />);
+    await act(async () => resolveOld(info));
+    await openSettings();
+    expect(screen.getByRole("switch")).toBeDisabled();
+    expect(screen.queryByText("main")).not.toBeInTheDocument();
   });
 });

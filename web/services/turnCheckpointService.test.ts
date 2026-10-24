@@ -20,3 +20,18 @@ it("explicitly rejects unsupported web runtimes", async () => {
   await expect(turnCheckpointService.list("chat-1")).rejects.toThrow("desktop app");
   expect(invoke).not.toHaveBeenCalled();
 });
+
+it("binds manual CLI intervals to the PTY identity without taking a UI directory", async () => {
+  expect(turnCheckpointService.cliChatId("pty-one")).toBe("cli:pty-one");
+  await turnCheckpointService.beginCli("pty-one");
+  await turnCheckpointService.finishCli("pty-one", "recording-one");
+  expect(invoke).toHaveBeenNthCalledWith(1, "begin_cli_turn_checkpoint", { sessionId: "pty-one" });
+  expect(invoke).toHaveBeenNthCalledWith(2, "finish_cli_turn_checkpoint", { sessionId: "pty-one", id: "recording-one" });
+});
+
+it("does not imply CLI recording is available in the web runtime", async () => {
+  runtime.desktop = false;
+  await expect(turnCheckpointService.beginCli("pty-one")).rejects.toThrow("desktop app");
+  await expect(turnCheckpointService.finishCli("pty-one", "recording-one")).rejects.toThrow("desktop app");
+  expect(invoke).not.toHaveBeenCalled();
+});

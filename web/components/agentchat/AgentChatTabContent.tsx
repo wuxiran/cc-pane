@@ -45,7 +45,7 @@ const ForkReviewDialog = lazyWithRetry(() => import("@/components/chatfork/ForkR
 
 
 export default function AgentChatTabContent({ tab }: { tab: Tab }) {
-  return <ChatRuntimeWorkspace key={tab.id} chatId={tab.id}><AgentChatLiveView tab={tab} /></ChatRuntimeWorkspace>;
+  return <ChatRuntimeWorkspace key={tab.id} chatId={tab.id} cwd={tab.projectPath}><AgentChatLiveView tab={tab} /></ChatRuntimeWorkspace>;
 }
 
 function AgentChatLiveView({ tab }: { tab: Tab }) {

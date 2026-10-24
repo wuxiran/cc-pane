@@ -1,8 +1,8 @@
 // 全局启动器弹窗（App 级唯一挂载）。提交动作 = setPendingLaunch(buildPendingLaunch(draft))
 // + closeLauncher；pendingLaunch 由 App 级 useOpenTerminal 统一消费——
 // 禁止在本 Dialog 内挂 useOpenTerminal（会双消费）。
-import { useEffect, useMemo, useState } from "react";
-import { Loader2, Rocket } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUp, Loader2, Rocket } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toastErr } from "@/lib/feedback";
 import {
@@ -20,15 +20,13 @@ import {
   useSshMachinesStore,
   useWorkspacesStore,
 } from "@/stores";
-import { worktreeService } from "@/services";
+import { prepareLocalSessionCwd } from "@/services/localLaunchService";
 import { translateError } from "@/utils";
 import LauncherProjectPicker from "./LauncherProjectPicker";
 import LauncherCliRow from "./LauncherCliRow";
-import LauncherEnvRow from "./LauncherEnvRow";
 import LauncherScenarioRow from "./LauncherScenarioRow";
 import LauncherChips from "./LauncherChips";
 import LauncherInjectionRow from "./LauncherInjectionRow";
-import LauncherProviderRow from "./LauncherProviderRow";
 import LauncherWorktreeRow from "./LauncherWorktreeRow";
 import LauncherLayoutRow from "./LauncherLayoutRow";
 import CcchanPeek from "./CcchanPeek";
@@ -40,10 +38,8 @@ import {
   cliToolDraftPatch,
   coerceDefaultCliTool,
   createDefaultDraft,
-  defaultWorktreeBranch,
   isDraftLocalEnvironment,
   resolveDraftProjectPath,
-  worktreeNameFromBranch,
   type LauncherDraft,
 } from "./launcherModel";
 
@@ -81,9 +77,12 @@ export default function LauncherDialog() {
   );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const launchLock = useRef(false);
+  const launchGeneration = useRef(0);
 
   // 每次打开按入口上下文重置草稿（workspaceName / projectPath / targetLayoutId 预选）
   useEffect(() => {
+    launchGeneration.current += 1;
     if (!open) return;
     const ctxWorkspace = context?.workspaceName
       ? workspaces.find((ws) => ws.name === context.workspaceName)
@@ -137,9 +136,17 @@ export default function LauncherDialog() {
     () => isDraftLocalEnvironment(draft, workspaces),
     [draft, workspaces],
   );
+  const recentEnvironment = draft.source?.kind === "recent" ? draft.source.options : null;
+  const selectedSource = draft.source;
+  const sshProject = selectedSource?.kind === "workspace" && workspaces
+    .find((workspace) => workspace.id === selectedSource.workspaceId)?.projects
+    .find((project) => project.id === selectedSource.projectId)?.ssh;
+  const resolvedEnvironment = localEnvironment ? "local"
+    : recentEnvironment?.ssh || sshProject ? "ssh"
+      : recentEnvironment?.wsl ? "wsl" : draft.environment;
 
   async function handleLaunch() {
-    if (submitting) return;
+    if (launchLock.current) return;
     const { launch, issue } = buildPendingLaunch(draft, {
       workspaces,
       machines: useSshMachinesStore.getState().machines,
@@ -162,23 +169,21 @@ export default function LauncherDialog() {
     }
 
     let finalLaunch = launch;
-    // worktree 开启：先建 worktree，用返回路径替换启动路径；
-    // workspaceName/workspacePath 不变 → 布局绑定推导仍命中原工作空间。
-    if (draft.worktree?.enabled && localEnvironment) {
-      const branch = draft.worktree.branch.trim() || defaultWorktreeBranch();
-      setSubmitting(true);
-      try {
-        const worktreePath = await worktreeService.add(
-          launch.path,
-          worktreeNameFromBranch(branch),
-          branch,
-        );
-        finalLaunch = { ...launch, path: worktreePath };
-      } catch (e) {
-        toastErr(t("worktreeCreateFailed", { message: translateError(e) }));
-        setSubmitting(false);
-        return;
+    const generation = launchGeneration.current;
+    launchLock.current = true;
+    setSubmitting(true);
+    try {
+      if (draft.worktree?.enabled && !localEnvironment) {
+        throw new Error(t("worktreeUnavailableRemote"));
       }
+      const path = await prepareLocalSessionCwd(launch.path, draft.worktree);
+      if (generation !== launchGeneration.current) return;
+      finalLaunch = { ...launch, path, ...(draft.worktree?.enabled ? { launchCwd: path } : {}) };
+    } catch (e) {
+      toastErr(t("worktreeCreateFailed", { message: translateError(e) }));
+      return;
+    } finally {
+      launchLock.current = false;
       setSubmitting(false);
     }
 
@@ -195,36 +200,42 @@ export default function LauncherDialog() {
     <Dialog
       open={open}
       onOpenChange={(next) =>
-        next ? useDialogStore.getState().openLauncher(context ?? undefined) : useDialogStore.getState().closeLauncher()
+        submitting ? undefined : next ? useDialogStore.getState().openLauncher(context ?? undefined) : useDialogStore.getState().closeLauncher()
       }
     >
-      <DialogContent className="max-w-xl">
+      <DialogContent className="launcher-dialog rounded-3xl border-[var(--app-border)] bg-[var(--app-content)] p-5 sm:max-w-3xl sm:p-6">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 text-base font-medium">
             <Rocket className="h-4 w-4" style={{ color: "var(--app-accent)" }} />
             {t("title")}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex max-h-[65vh] flex-col gap-4 overflow-y-auto pr-1">
+        <fieldset disabled={submitting} className="flex max-h-[65vh] flex-col gap-5 overflow-y-auto pr-1">
+          <div className="grid gap-4 rounded-2xl border border-[var(--app-border)] bg-[var(--app-sidebar)] p-4 sm:grid-cols-[minmax(0,1fr)_auto]">
           <Section label={t("sectionProject")}>
             <LauncherProjectPicker
               value={draft.source}
-              onChange={(source) => patch({ source })}
+              onChange={(source) => patch({ source, worktree: undefined })}
             />
           </Section>
+
+          <Section label={t("launchSettings")}>
+            <LauncherWorktreeRow
+              draft={draft}
+              onChange={patch}
+              projectPath={resolvedProjectPath}
+              isLocal={localEnvironment}
+              disabled={submitting}
+              environment={resolvedEnvironment}
+              environmentLocked={Boolean(sshProject)}
+            />
+          </Section>
+
+          </div>
 
           <Section label={t("sectionCli")}>
             <LauncherCliRow value={draft.cliTool} onChange={(cliTool) => patch(cliToolDraftPatch(cliTool))} />
-          </Section>
-
-          <Section label={t("sectionEnvironment")}>
-            <LauncherEnvRow
-              value={draft.source?.kind === "manual" ? "local" : draft.environment}
-              onChange={(environment) => patch({ environment })}
-              cliTool={draft.cliTool}
-              disabled={draft.source?.kind === "manual"}
-            />
           </Section>
 
           <Section label={t("sectionScenario")}>
@@ -232,7 +243,9 @@ export default function LauncherDialog() {
           </Section>
 
           <Section label={t("sectionOptions")}>
-            <LauncherChips draft={draft} onChange={patch} />
+            <div className="rounded-2xl border border-[var(--app-border)] bg-[var(--app-sidebar)] p-4 [&_textarea]:min-h-24 [&_textarea]:rounded-xl [&_textarea]:border-transparent [&_textarea]:bg-[var(--app-content)] [&_textarea]:px-3 [&_textarea]:py-3 [&_textarea]:text-sm [&_textarea]:leading-relaxed">
+              <LauncherChips draft={draft} onChange={patch} />
+            </div>
           </Section>
 
           <Section label={t("sectionInjection")}>
@@ -240,19 +253,6 @@ export default function LauncherDialog() {
               draft={draft}
               onChange={patch}
               projectPath={resolvedProjectPath}
-            />
-          </Section>
-
-          <Section label={t("sectionProvider")}>
-            <LauncherProviderRow draft={draft} onChange={patch} />
-          </Section>
-
-          <Section label={t("sectionWorktree")}>
-            <LauncherWorktreeRow
-              draft={draft}
-              onChange={patch}
-              projectPath={resolvedProjectPath}
-              isLocal={localEnvironment}
             />
           </Section>
 
@@ -283,17 +283,18 @@ export default function LauncherDialog() {
               {error}
             </div>
           )}
-        </div>
+        </fieldset>
 
-        <DialogFooter>
+        <DialogFooter className="items-center border-t border-[var(--app-border)] pt-4">
           {/* cc酱露脸：footer 左侧空白角落的静态小形象，纯装饰；窄屏堆叠时不占位 */}
           <CcchanPeek className="hidden sm:mr-auto sm:inline-block" />
-          <Button variant="outline" onClick={() => useDialogStore.getState().closeLauncher()}>
+          <Button variant="outline" disabled={submitting} onClick={() => useDialogStore.getState().closeLauncher()}>
             {t("cancel")}
           </Button>
-          <Button onClick={() => void handleLaunch()} disabled={!draft.source || submitting}>
+          <Button className="rounded-full px-5" onClick={() => void handleLaunch()} disabled={!draft.source || submitting}>
             {submitting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
             {submitting ? t("launching") : t("launch")}
+            {!submitting && <ArrowUp className="ml-1.5 h-4 w-4" />}
           </Button>
         </DialogFooter>
       </DialogContent>

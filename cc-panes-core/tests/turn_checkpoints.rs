@@ -376,3 +376,129 @@ fn changed_symlinks_are_shown_but_never_followed_or_restored() {
     assert!(!review.files[0].supported);
     assert!(!review.can_restore);
 }
+
+#[test]
+fn manual_cli_interval_keeps_dirty_baseline_and_is_review_only_after_restart() {
+    let f = Fixture::new();
+    fs::write(f.root.join("a.txt"), "user edit before recording\n").unwrap();
+    let record = f.service.begin_cli("pty-one", &f.root).unwrap();
+    assert_eq!(record.chat_id, "cli:pty-one");
+    assert!(record.turn_id.starts_with("manual-"));
+    assert!(record.unavailable_reason.is_none());
+    fs::write(f.root.join("a.txt"), "CLI interval edit\n").unwrap();
+    fs::write(f.root.join("new.txt"), "new during interval\n").unwrap();
+    let finished = f.service.finish_cli("pty-one", &record.id).unwrap();
+    assert_eq!(finished.outcome, "manual-completed");
+    let restarted = TurnCheckpointService::new(f.temp.path().join("data"));
+    let review = restarted.review(&record.id).unwrap();
+    assert_eq!(review.files.len(), 2);
+    assert_eq!(
+        review.files[0].before_content.as_deref(),
+        Some("user edit before recording\n")
+    );
+    assert_eq!(
+        review.files[0].after_content.as_deref(),
+        Some("CLI interval edit\n")
+    );
+    assert!(!review.can_restore);
+    assert!(review.blocked_reason.unwrap().contains("review-only"));
+    assert!(restarted.restore(&record.id, &review.revision).is_err());
+    assert_eq!(
+        fs::read_to_string(f.root.join("a.txt")).unwrap(),
+        "CLI interval edit\n"
+    );
+    assert_eq!(restarted.list("cli:pty-one").unwrap().len(), 1);
+    assert!(restarted.list("cli:pty-two").unwrap().is_empty());
+}
+
+#[test]
+fn wrong_cli_session_cannot_finalize_or_release_another_recording() {
+    let f = Fixture::new();
+    let record = f.service.begin_cli("pty-one", &f.root).unwrap();
+    assert_eq!(
+        f.service
+            .finish_cli("pty-two", &record.id)
+            .unwrap_err()
+            .code(),
+        Some("CHECKPOINT_SESSION_MISMATCH")
+    );
+    assert_eq!(
+        f.service.begin_cli("pty-one", &f.root).unwrap_err().code(),
+        Some("CHECKPOINT_ALREADY_RECORDING")
+    );
+    let running = &f.service.list("cli:pty-one").unwrap()[0];
+    assert_eq!(running.outcome, "running");
+    assert!(running.after.is_none());
+    f.service.finish_cli("pty-one", &record.id).unwrap();
+    assert!(f.service.begin_cli("pty-one", &f.root).is_ok());
+}
+
+#[test]
+fn interrupted_cli_interval_never_invents_after_files_from_the_current_tree() {
+    let f = Fixture::new();
+    let record = f.service.begin_cli("pty-one", &f.root).unwrap();
+    fs::write(f.root.join("a.txt"), "later changes\n").unwrap();
+    let restarted = TurnCheckpointService::new(f.temp.path().join("data"));
+    assert_eq!(
+        restarted.list("cli:pty-one").unwrap()[0].outcome,
+        "interrupted"
+    );
+    assert!(restarted.finish_cli("pty-one", &record.id).is_err());
+    let review = restarted.review(&record.id).unwrap();
+    assert!(review.record.after.is_none());
+    assert!(review.files.is_empty());
+    assert!(!review.can_restore);
+}
+
+#[test]
+fn failed_manual_capture_is_visible_and_does_not_leave_a_recording_lease() {
+    let f = Fixture::new();
+    let not_repository = f.temp.path().join("not-repo");
+    fs::create_dir(&not_repository).unwrap();
+    let failed = f.service.begin_cli("pty-one", &not_repository).unwrap();
+    assert_eq!(failed.outcome, "unavailable");
+    assert!(failed.completed_at.is_some());
+    assert!(failed.before.is_none());
+    assert!(failed.unavailable_reason.is_some());
+    assert!(f
+        .service
+        .begin_cli("pty-one", &f.root)
+        .unwrap()
+        .before
+        .is_some());
+}
+
+#[test]
+fn manual_cli_recording_blocks_agent_restore_until_recording_finishes() {
+    let f = Fixture::new();
+    let agent = f.changed();
+    let cli = f.service.begin_cli("pty-one", &f.root).unwrap();
+    assert!(!f.service.review(&agent).unwrap().can_restore);
+    f.service.finish_cli("pty-one", &cli.id).unwrap();
+    assert!(f.service.review(&agent).unwrap().can_restore);
+}
+
+#[test]
+fn concurrent_manual_starts_admit_only_one_interval_per_cli_session() {
+    let f = Fixture::new();
+    let service = std::sync::Arc::new(f.service);
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let workers = (0..2)
+        .map(|_| {
+            let service = service.clone();
+            let barrier = barrier.clone();
+            let root = f.root.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                service.begin_cli("pty-one", &root)
+            })
+        })
+        .collect::<Vec<_>>();
+    let results = workers
+        .into_iter()
+        .map(|worker| worker.join().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(results.iter().filter(|result| result.is_err()).count(), 1);
+    assert_eq!(service.list("cli:pty-one").unwrap().len(), 1);
+}

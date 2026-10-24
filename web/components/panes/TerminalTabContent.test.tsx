@@ -10,6 +10,10 @@ import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 const terminalViewMock = vi.hoisted(() => vi.fn());
 const coldRestoreMock = vi.hoisted(() => vi.fn());
 
+vi.mock("@/components/review/SessionReviewPanel", () => ({
+  default: ({ projectPath }: { projectPath: string }) => <output data-testid="terminal-review-cwd">{projectPath}</output>,
+}));
+
 vi.mock("@/hooks/coldTerminalRestore", () => ({
   coldRestoreBlockedTerminal: coldRestoreMock,
 }));
@@ -76,6 +80,26 @@ describe("TerminalTabContent", () => {
     useTerminalRestoreLogStore.getState().reset();
     terminalViewMock.mockClear();
     coldRestoreMock.mockReset();
+  });
+
+  it.each([
+    [{ launchCwd: "/repo-worktrees/task/pkg" }, "/workspace", "/repo-worktrees/task/pkg"],
+    [undefined, "/workspace", "/workspace"],
+    [undefined, undefined, "/tmp/project"],
+  ])("reviews the actual terminal cwd with launch/workspace/project precedence", async (launchExtras, workspacePath, expected) => {
+    renderTerminalTabContent(createTerminalTab({ terminalRootPane: {
+      type: "leaf", id: "leaf-1", sessionId: "live-session", launchExtras, workspacePath,
+    } }), { showStatusBar: true });
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("review:title") }));
+    expect(await screen.findByTestId("terminal-review-cwd")).toHaveTextContent(expected);
+  });
+
+  it("excludes WSL terminals from local repository review even when the host path exists", () => {
+    renderTerminalTabContent(createTerminalTab({
+      wsl: { distro: "Ubuntu", remotePath: "/repo" },
+      terminalRootPane: { type: "leaf", id: "leaf-1", sessionId: "live-session" },
+    }), { showStatusBar: true });
+    expect(screen.queryByRole("button", { name: i18n.t("review:title") })).not.toBeInTheDocument();
   });
 
   it("把 leaf 的 launchId 传给 TerminalView，而不是复用 tab projectId", () => {

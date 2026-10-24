@@ -4,6 +4,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import ChatRuntimeWorkspace from "./ChatRuntimeWorkspace";
+import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import ChatSessionHeader from "./ChatSessionHeader";
 
 it("offers a real fork from the Agent Chat menu", async () => {
@@ -67,4 +69,19 @@ it("opens persisted turn checkpoints from the header and more menu", async () =>
   await userEvent.click(screen.getByRole("button", { name: i18n.t("panes:agentChatMore") }));
   await userEvent.click(await screen.findByRole("menuitem", { name: label }));
   expect(checkpoints).toHaveBeenCalledTimes(2);
+});
+
+vi.mock("@/components/review/SessionReviewPanel", () => ({
+  default: ({ projectPath, checkpointChatId }: { projectPath: string; checkpointChatId: string }) => <output data-testid="agent-review-target">{projectPath}|{checkpointChatId}</output>,
+}));
+
+it("opens the shared review with the Agent session's adopted worktree", async () => {
+  useAgentChatStore.getState().setCwdOverride("review-chat", "/repo/worktree");
+  render(<ChatRuntimeWorkspace chatId="review-chat" cwd="/repo"><TooltipProvider><ChatSessionHeader
+    engineLabel="codex" generating={false} changesCount={0} showChanges={false} onToggleChanges={vi.fn()}
+    toolsExpanded={false} onToggleTools={vi.fn()} canFork={false} onFork={vi.fn()}
+    canCopySessionId={false} onCopySessionId={vi.fn()} canExport={false} onExport={vi.fn()}
+  /></TooltipProvider></ChatRuntimeWorkspace>);
+  await userEvent.click(screen.getByRole("button", { name: i18n.t("review:title") }));
+  expect(await screen.findByTestId("agent-review-target")).toHaveTextContent("/repo/worktree|review-chat");
 });

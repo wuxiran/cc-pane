@@ -335,6 +335,19 @@ export function useOrchestratorListener() {
       }));
 
     register(webview
+      .listen<{ tabId: string }>("orchestrator-close-browser-tab", (event) => {
+        if (typeof event.payload.tabId !== "string" || !event.payload.tabId.trim()) return;
+        const tabId = event.payload.tabId;
+        const store = usePanesStore.getState();
+        const matches = store.allPanelsAcrossLayouts().flatMap((panel) => panel.tabs)
+          .filter((tab) => tab.id === tabId);
+        // Snapshot forks can contain same-ID tabs of different types. The shared
+        // removal path closes every copy, so never admit an ambiguous identity.
+        if (!matches.length || matches.some((tab) => tab.contentType !== "browser" && tab.contentType !== "dsh")) return;
+        store.removeTabsInternal([tabId], "backend-close");
+      }));
+
+    register(webview
       .listen<{ requestId: string }>(
         "orchestrator-query-open-files",
         async (event) => {

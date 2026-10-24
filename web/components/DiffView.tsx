@@ -5,6 +5,8 @@ import type { DiffResult, DiffLine } from "@/services";
 interface DiffViewProps {
   diff: DiffResult | null;
   loading?: boolean;
+  wrap?: boolean;
+  showStats?: boolean;
 }
 
 interface Segment {
@@ -45,7 +47,7 @@ function formatBytes(size: number): string {
   return `${Number.isInteger(megabytes) ? megabytes : megabytes.toFixed(1)} MB`;
 }
 
-export default memo(function DiffView({ diff, loading }: DiffViewProps) {
+export default memo(function DiffView({ diff, loading, wrap = true, showStats = true }: DiffViewProps) {
   const { t } = useTranslation("dialogs");
   const totalLines = useMemo(() => {
     if (!diff) return 0;
@@ -101,14 +103,14 @@ export default memo(function DiffView({ diff, loading }: DiffViewProps) {
   return (
     <div className="h-full overflow-auto font-mono text-xs leading-relaxed">
       {/* 统计信息 */}
-      <div
+      {showStats && <div
         className="flex gap-3 px-3 py-2 text-xs"
         style={{ borderBottom: "1px solid var(--app-border)", background: "var(--app-sidebar)" }}
       >
         <span className="font-semibold" style={{ color: "var(--app-status-success)" }}>+{diff.stats.additions}</span>
         <span className="font-semibold" style={{ color: "var(--app-status-danger)" }}>-{diff.stats.deletions}</span>
         <span style={{ color: "var(--app-text-tertiary)" }}>{t("diffLineCount", { count: totalLines })}</span>
-      </div>
+      </div>}
 
       {/* Hunks */}
       {diff.hunks.map((hunk, hi) => (
@@ -156,7 +158,7 @@ export default memo(function DiffView({ diff, loading }: DiffViewProps) {
                 <span className="inline-block w-4 shrink-0 text-center select-none font-semibold" style={{ color: signColor }}>
                   {sign}
                 </span>
-                <span className="flex-1 pr-2 whitespace-pre-wrap break-all">
+                <span className={`flex-1 pr-2 ${wrap ? "whitespace-pre-wrap break-all" : "whitespace-pre"}`}>
                   {line.inlineChanges && line.inlineChanges.length > 0 ? (
                     getSegments(line).map((seg, si) => (
                       <span

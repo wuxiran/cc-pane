@@ -347,7 +347,8 @@ export default memo(function TerminalTabContent({
           {showStatusBar ? (
             <TerminalStatusBar
               terminalContext={terminalContextForLeaf(tab, leaf)}
-              projectPath={tab.projectPath}
+              projectPath={leaf.launchExtras?.launchCwd ?? leaf.workspacePath ?? tab.projectPath}
+              wsl={Boolean(leaf.wsl ?? tab.wsl)}
               effort={leaf.launchExtras?.adapterOptions?.effort ?? tab.launchExtras?.adapterOptions?.effort}
               enabled={primaryViewVisible}
               paneId={paneId}
@@ -393,9 +394,7 @@ export default memo(function TerminalTabContent({
     settingsShowStatusBar,
     viewModes,
     setLeafViewMode,
-    tab.activeTerminalPaneId,
-    tab.id,
-    tab.projectPath,
+    tab,
     t,
   ]);
 

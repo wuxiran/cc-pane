@@ -74,6 +74,9 @@ drama: zhDrama,
     projectSkills: zhProjectSkills,
     mobile: zhMobile,
     agentRuntime: zhAgentRuntime,
+    // Entry-point labels stay eager; panel copy loads with the corresponding lazy chunk.
+    review: { title: "审阅更改" },
+    browserTools: { title: "Computer Use" },
   },
   en: {
     common: enCommon,
@@ -98,6 +101,8 @@ drama: enDrama,
     projectSkills: enProjectSkills,
     mobile: enMobile,
     agentRuntime: enAgentRuntime,
+    review: { title: "Review changes" },
+    browserTools: { title: "Computer Use" },
   },
 } as const;
 

@@ -132,3 +132,19 @@
 }
 
 .agent-chat-composer-input::placeholder { color: var(--app-text-secondary); opacity: 1; }
+
+/* The launch surface shares the project's environment strip and a roomy prompt card. */
+.agent-chat-shell .agent-chat-start-content { max-width: 64rem; }
+.agent-chat-shell .agent-chat-start-composer {
+  background: var(--app-sidebar);
+  border-color: var(--app-border);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--app-text-primary) 3%, transparent);
+}
+.agent-chat-shell .agent-chat-start-context { border-bottom: 1px solid var(--agent-chat-rule); }
+.agent-chat-shell .agent-chat-start-composer .agent-chat-composer-input { min-height: 144px; }
+.agent-chat-shell .agent-chat-start-composer .agent-chat-composer-actions > button { width: 36px; height: 36px; }
+@container agent-chat (max-width: 540px) {
+  .agent-chat-shell .agent-chat-start-composer { padding: 14px; }
+  .agent-chat-shell .agent-chat-start-composer .agent-chat-composer-input { min-height: 112px; }
+  .agent-chat-shell .agent-chat-start-context { gap: 4px; }
+}

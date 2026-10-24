@@ -62,6 +62,7 @@ function renderBrowser(options: { visibility?: "active" | "visible" | "hidden" }
 
 describe("BrowserTabContent", () => {
   beforeEach(() => {
+    vi.mocked(browserService.close).mockClear();
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
       x: 10,
       y: 48,
@@ -96,6 +97,97 @@ describe("BrowserTabContent", () => {
 
     view.unmount();
     expect(browserService.close).toHaveBeenCalledWith("browser-tab-1");
+  });
+
+  it("does not close a newer same-tab view when an older create resolves late", async () => {
+    let finishOld!: () => void;
+    vi.mocked(browserService.create).mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve; }));
+    const view = renderBrowser();
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(1));
+    view.rerender(<TooltipProvider><BrowserTabContent tab={makeBrowserTab("https://new.test/")} /></TooltipProvider>);
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(2));
+    await act(async () => finishOld());
+    expect(browserService.close).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox")).toHaveValue("https://new.test/");
+  });
+
+  it("keeps a pending create through an early normalized page-load URL", async () => {
+    let finish!: () => void;
+    vi.mocked(browserService.create).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    useTabViewStateStore.getState().reportView("browser-tab-1", "primary", "active");
+    const view = render(<TooltipProvider><BrowserTabContent tab={makeBrowserTab("https://example.test")} /></TooltipProvider>);
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(1));
+    act(() => { pageLoadHandler?.({ tabId: "browser-tab-1", url: "https://example.test/", loading: false }); });
+    view.rerender(<TooltipProvider><BrowserTabContent tab={makeBrowserTab("https://example.test/")} /></TooltipProvider>);
+    await act(async () => finish());
+    expect(browserService.close).not.toHaveBeenCalled();
+    expect(browserService.create).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("textbox")).toHaveValue("https://example.test/");
+  });
+
+  it("applies current visibility when a pending create finishes in the background", async () => {
+    let finish!: () => void;
+    vi.mocked(browserService.create).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    renderBrowser();
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(1));
+    act(() => { useTabViewStateStore.getState().reportView("browser-tab-1", "primary", "hidden"); });
+    await act(async () => finish());
+    expect(browserService.close).not.toHaveBeenCalled();
+    expect(browserService.setVisible).toHaveBeenLastCalledWith("browser-tab-1", false, false);
+    expect(browserService.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes a genuinely unmounted view if native creation finishes afterward", async () => {
+    let finish!: () => void;
+    vi.mocked(browserService.create).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const view = renderBrowser();
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(1));
+    view.unmount();
+    expect(browserService.close).toHaveBeenCalledWith("browser-tab-1");
+    vi.mocked(browserService.close).mockClear();
+    await act(async () => finish());
+    expect(browserService.close).toHaveBeenCalledExactlyOnceWith("browser-tab-1");
+  });
+
+  it("does not close a remounted same-tab owner when the released owner's create finishes", async () => {
+    let finishOld!: () => void;
+    vi.mocked(browserService.create).mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve; }));
+    const old = renderBrowser();
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(1));
+    old.unmount();
+    vi.mocked(browserService.close).mockClear();
+    renderBrowser();
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(2));
+    await act(async () => finishOld());
+    expect(browserService.close).not.toHaveBeenCalled();
+  });
+
+  it("releases late listener registrations and ignores events after unmount", async () => {
+    let finishLoad!: (unlisten: () => void) => void;
+    let finishTitle!: (unlisten: () => void) => void;
+    let lateLoad!: (event: { tabId: string; url: string; loading: boolean }) => void;
+    let lateTitle!: (event: { tabId: string; title: string }) => void;
+    vi.mocked(browserService.onPageLoad).mockImplementationOnce((handler) => {
+      lateLoad = handler;
+      return new Promise((resolve) => { finishLoad = resolve; });
+    });
+    vi.mocked(browserService.onTitleChanged).mockImplementationOnce((handler) => {
+      lateTitle = handler;
+      return new Promise((resolve) => { finishTitle = resolve; });
+    });
+    const view = renderBrowser();
+    view.unmount();
+    const unlistenLoad = vi.fn();
+    const unlistenTitle = vi.fn();
+    await act(async () => {
+      lateLoad({ tabId: "browser-tab-1", url: "https://late.test/", loading: false });
+      lateTitle({ tabId: "browser-tab-1", title: "Late title" });
+      finishLoad(unlistenLoad);
+      finishTitle(unlistenTitle);
+    });
+    expect(unlistenLoad).toHaveBeenCalledExactlyOnceWith();
+    expect(unlistenTitle).toHaveBeenCalledExactlyOnceWith();
+    expect(usePanesStore.getState().updateBrowserTab).not.toHaveBeenCalled();
   });
 
   it("shows a localized prompt when the browser rejects a protocol", async () => {

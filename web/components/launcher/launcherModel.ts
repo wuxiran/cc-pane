@@ -13,6 +13,7 @@ import type {
   WorkspaceLaunchEnvironment,
 } from "@/types";
 import type { PendingLaunch } from "@/stores/useDialogStore";
+import type { LocalWorktreeDraft } from "@/types/localLaunch";
 import {
   resolveWorkspaceProjectLaunchOptions,
   type WorkspaceLaunchIssue,
@@ -27,10 +28,7 @@ export type LauncherProjectSource =
 /** 注入目标：拼进追加系统提示（默认）或初始 prompt */
 export type LauncherInjectionTarget = "append" | "initial";
 
-export interface LauncherWorktreeDraft {
-  enabled: boolean;
-  branch: string;
-}
+export type LauncherWorktreeDraft = LocalWorktreeDraft;
 
 export interface LauncherDraft {
   source: LauncherProjectSource | null;
@@ -149,6 +147,7 @@ export function buildPendingLaunch(
   return {
     launch: {
       path: options.path,
+      launchCwd: options.launchCwd,
       workspaceName: options.workspaceName,
       workspacePath: options.workspacePath,
       providerId:

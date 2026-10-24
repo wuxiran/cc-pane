@@ -58,4 +58,20 @@ describe("browserService", () => {
     expect(invoke).toHaveBeenCalledWith("browser_open_devtools", { tabId: "tab-1" });
     expect(invoke).toHaveBeenCalledWith("browser_close", { tabId: "tab-1" });
   });
+
+  it("binds Computer Use actions to an observed page and element", async () => {
+    mockTauriInvoke({ browser_snapshot: { pageToken: "page-1" }, browser_list_tabs: [], browser_screenshot: "/tmp/browser.png",
+      browser_fill: undefined, browser_click_element: undefined, browser_press_key: undefined, browser_scroll: undefined });
+    await browserService.snapshot("tab-1");
+    await browserService.listTabs();
+    await expect(browserService.screenshot("tab-1")).resolves.toBe("/tmp/browser.png");
+    await browserService.fill("tab-1", "page-1", 2, "a'b\n中文");
+    await browserService.clickElement("tab-1", "page-1", 3);
+    await browserService.pressKey("tab-1", "page-1", "Enter");
+    await browserService.scroll("tab-1", "page-1", 0, 600);
+    expect(invoke).toHaveBeenCalledWith("browser_fill", { tabId: "tab-1", pageToken: "page-1", elementId: 2, text: "a'b\n中文" });
+    expect(invoke).toHaveBeenCalledWith("browser_click_element", { tabId: "tab-1", pageToken: "page-1", elementId: 3 });
+    expect(invoke).toHaveBeenCalledWith("browser_press_key", { tabId: "tab-1", pageToken: "page-1", key: "Enter" });
+    expect(invoke).toHaveBeenCalledWith("browser_scroll", { tabId: "tab-1", pageToken: "page-1", deltaX: 0, deltaY: 600 });
+  });
 });

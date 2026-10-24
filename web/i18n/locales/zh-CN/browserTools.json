@@ -1,0 +1,9 @@
+{
+  "title": "Computer Use", "close": "关闭页面操作",
+  "description": "读取、检查并操作当前浏览器标签。CLI 和 Agent 会话可使用同一组浏览器工具。",
+  "readPage": "读取页面", "screenshot": "截图", "copyPage": "复制页面文本", "copied": "已复制页面文本",
+  "untitled": "未命名页面", "truncated": "当前为部分页面快照，可滚动页面后继续读取。",
+  "scrollUp": "向上滚动", "scrollDown": "向下滚动", "elements": "页面元素 · {{count}}", "searchElements": "查找按钮、链接或输入框…",
+  "elementList": "可操作的页面元素", "noElements": "没有匹配的页面元素", "clickElement": "点击元素", "fillText": "要输入的文本", "fill": "填写输入框",
+  "key": "键盘按键", "pressKey": "按下", "pageText": "页面文本", "screenshotAlt": "当前浏览器可视区域截图", "screenshotSaved": "截图已保存到本地"
+}

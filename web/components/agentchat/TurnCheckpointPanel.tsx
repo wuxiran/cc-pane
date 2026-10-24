@@ -38,11 +38,11 @@ export default function TurnCheckpointPanel({ chatId, open, onOpenChange, genera
         <Button variant="outline" disabled={state.loading || state.restoring} onClick={state.reload}>{t("turnCheckpointReload", { defaultValue: "Refresh review" })}</Button>
       </div>
       {state.loading && <p role="status">{t("turnCheckpointLoading", { defaultValue: "Reading checkpoint and current files…" })}</p>}
-      {state.error && <p role="alert" className="text-sm text-red-500">{state.error}</p>}
+      {state.error && <p role="alert" className="text-sm text-[var(--app-status-danger)]">{state.error}</p>}
       {state.result && <p role="status" className="text-sm">{t("turnCheckpointRestored", { defaultValue: "Restored {{count}} files. The pre-restore snapshot was retained for recovery.", count: state.result.restoredPaths.length })} {state.result.warning}</p>}
       {state.review && <>
         <p className="truncate text-xs text-[var(--app-text-tertiary)]" title={state.review.record.cwd}>{state.review.record.cwd}</p>
-        {state.review.blockedReason && <p role="status" className="text-sm text-amber-500">{state.review.blockedReason}</p>}
+        {state.review.blockedReason && <p role="status" className="text-sm text-[var(--app-status-warning)]">{state.review.blockedReason}</p>}
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden sm:flex-row">
           <div className="max-h-40 shrink-0 overflow-auto rounded border sm:max-h-80 sm:w-64" aria-label={t("turnCheckpointFiles", { defaultValue: "Changed files" })}>
             {state.review.files.map((file) => <button key={file.path} type="button" className={`block w-full break-all px-3 py-2 text-left text-xs hover:bg-[var(--app-hover)] ${selected?.path === file.path ? "bg-[var(--app-hover)]" : ""}`} onClick={() => setPath(file.path)}>

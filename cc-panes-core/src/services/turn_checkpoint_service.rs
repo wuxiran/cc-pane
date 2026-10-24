@@ -1,4 +1,5 @@
 //! Durable before/after working-tree checkpoints, independent of agent tool diffs.
+mod cli;
 mod review;
 mod storage;
 
@@ -34,6 +35,16 @@ impl TurnCheckpointService {
         turn_id: &str,
         cwd: &Path,
     ) -> AppResult<TurnCheckpointRecord> {
+        self.begin_inner(chat_id, turn_id, cwd, false)
+    }
+
+    fn begin_inner(
+        &self,
+        chat_id: &str,
+        turn_id: &str,
+        cwd: &Path,
+        manual_cli: bool,
+    ) -> AppResult<TurnCheckpointRecord> {
         if chat_id.is_empty()
             || chat_id.len() > 1024
             || turn_id.is_empty()
@@ -44,6 +55,17 @@ impl TurnCheckpointService {
             return Err("Invalid checkpoint chat or turn identity".into());
         }
         let mut active = self.lock()?;
+        if manual_cli
+            && self
+                .read_records(chat_id)?
+                .iter()
+                .any(|record| active.contains_key(&record.id))
+        {
+            return Err(AppError::coded(
+                "CHECKPOINT_ALREADY_RECORDING",
+                "This CLI session is already recording; finish that interval first",
+            ));
+        }
         let id = uuid::Uuid::new_v4().to_string();
         let mut record = TurnCheckpointRecord {
             id: id.clone(),
@@ -58,18 +80,31 @@ impl TurnCheckpointService {
             unavailable_reason: None,
             restored_at: None,
         };
+        self.capture_before(&mut record, cwd)?;
+        // A manual start must never look successful when its before capture
+        // failed. Retain the reason, but do not leave a recording lease behind.
+        if manual_cli && record.before.is_none() {
+            record.outcome = "unavailable".into();
+            record.completed_at = Some(now());
+        }
+        self.save(&record)?;
+        if record.completed_at.is_none() {
+            active.insert(id, canonical_or_original(Path::new(&record.cwd)));
+        }
+        Ok(record)
+    }
+
+    fn capture_before(&self, record: &mut TurnCheckpointRecord, cwd: &Path) -> AppResult<()> {
         match self.snapshots.capture_checkpoint(cwd, &[]) {
             Ok(snapshot) => {
                 self.snapshots
-                    .pin(&snapshot, &format!("turn-{id}-before"))?;
+                    .pin(&snapshot, &format!("turn-{}-before", record.id))?;
                 record.cwd = snapshot.repository_root.clone();
                 record.before = Some(snapshot);
             }
             Err(error) => record.unavailable_reason = Some(bounded_reason(&error)),
         }
-        self.save(&record)?;
-        active.insert(id, canonical_or_original(Path::new(&record.cwd)));
-        Ok(record)
+        Ok(())
     }
 
     /// Finish before admitting another prompt. Even an after-capture failure must

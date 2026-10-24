@@ -70,6 +70,16 @@ pub struct GitChangedFile {
     pub new_mode: Option<String>,
 }
 
+/// Immutable comparison endpoints for a branch review. Uncommitted files are
+/// deliberately excluded and remain available through the working-tree scope.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitBranchReview {
+    pub base_commit: String,
+    pub head_commit: String,
+    pub files: Vec<GitChangedFile>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct GitCommit {

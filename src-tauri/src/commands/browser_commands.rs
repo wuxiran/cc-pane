@@ -1,4 +1,7 @@
-use crate::services::{BrowserBounds, BrowserOpenTabEvent, BrowserTabManager};
+use crate::services::{
+    BrowserBounds, BrowserDomSnapshot, BrowserOpenTabEvent, BrowserTabInfo, BrowserTabManager,
+    ScreenshotService,
+};
 use crate::utils::AppResult;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
@@ -97,4 +100,85 @@ pub fn open_browser_tab(app: AppHandle, url: String) -> AppResult<BrowserOpenTab
     app.emit_to("main", "orchestrator-open-browser-tab", &event)
         .map_err(|error| format!("failed to emit browser tab event: {error}"))?;
     Ok(event)
+}
+
+#[tauri::command]
+pub fn browser_list_tabs(
+    app: AppHandle,
+    manager: State<'_, Arc<BrowserTabManager>>,
+) -> AppResult<Vec<BrowserTabInfo>> {
+    manager.list_tabs(&app)
+}
+
+#[tauri::command]
+pub async fn browser_snapshot(
+    app: AppHandle,
+    manager: State<'_, Arc<BrowserTabManager>>,
+    tab_id: String,
+) -> AppResult<BrowserDomSnapshot> {
+    manager.snapshot(&app, &tab_id).await
+}
+
+#[tauri::command]
+pub async fn browser_screenshot(
+    app: AppHandle,
+    manager: State<'_, Arc<BrowserTabManager>>,
+    tab_id: String,
+) -> AppResult<String> {
+    manager
+        .screenshot(&app, &tab_id, &ScreenshotService::screenshots_dir())
+        .await
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn browser_fill(
+    app: AppHandle,
+    manager: State<'_, Arc<BrowserTabManager>>,
+    tab_id: String,
+    page_token: String,
+    element_id: u32,
+    text: String,
+) -> AppResult<()> {
+    manager
+        .fill(&app, &tab_id, &page_token, element_id, &text)
+        .await
+}
+
+#[tauri::command]
+pub async fn browser_press_key(
+    app: AppHandle,
+    manager: State<'_, Arc<BrowserTabManager>>,
+    tab_id: String,
+    page_token: String,
+    key: String,
+) -> AppResult<()> {
+    manager.press_key(&app, &tab_id, &page_token, &key).await
+}
+
+#[tauri::command]
+pub async fn browser_scroll(
+    app: AppHandle,
+    manager: State<'_, Arc<BrowserTabManager>>,
+    tab_id: String,
+    page_token: String,
+    delta_x: f64,
+    delta_y: f64,
+) -> AppResult<()> {
+    manager
+        .scroll(&app, &tab_id, &page_token, delta_x, delta_y)
+        .await
+}
+
+#[tauri::command]
+pub async fn browser_click_element(
+    app: AppHandle,
+    manager: State<'_, Arc<BrowserTabManager>>,
+    tab_id: String,
+    page_token: String,
+    element_id: u32,
+) -> AppResult<()> {
+    manager
+        .click_element(&app, &tab_id, &page_token, element_id)
+        .await
 }

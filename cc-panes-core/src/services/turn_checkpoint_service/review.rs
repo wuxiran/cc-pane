@@ -235,7 +235,9 @@ fn blocked(
     current: Option<&RepositorySnapshot>,
     busy: bool,
 ) -> Option<String> {
-    let reason = if busy {
+    let reason = if record.chat_id.starts_with("cli:") {
+        super::cli::MANUAL_CLI_RESTORE_BLOCKED
+    } else if busy {
         "An agent turn is active in this repository; stop it before restoring"
     } else if record.restored_at.is_some() {
         "This checkpoint has already been restored"

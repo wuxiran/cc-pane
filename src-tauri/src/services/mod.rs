@@ -51,7 +51,8 @@ pub use acp_chat_service::{
 };
 pub use automation_service::{AutomationDef, AutomationRun, AutomationService};
 pub use browser_service::{
-    BrowserBounds, BrowserOpenTabEvent, BrowserSpikeReport, BrowserTabManager,
+    BrowserBounds, BrowserDomSnapshot, BrowserElement, BrowserOpenTabEvent, BrowserSpikeReport,
+    BrowserTabInfo, BrowserTabManager, BrowserViewport,
 };
 pub use heavy_command_recorder::HeavyCommandRecorder;
 pub use heavy_command_sampler::HeavyCommandSampler;

@@ -1332,6 +1332,16 @@ pub const CORE_MCP_TOOLS: &[&str] = &[
     "get_workspace",
     "list_projects",
     "list_launch_profiles",
+    "open_browser_tab",
+    "browser_list_tabs",
+    "browser_navigate",
+    "browser_snapshot",
+    "browser_click_element",
+    "browser_fill",
+    "browser_press_key",
+    "browser_scroll",
+    "browser_screenshot",
+    "browser_close",
 ];
 
 /// Codex `-c mcp_servers.ccpanes.enabled_tools=[...]`（不含 `-c`）。

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toastErr } from "@/lib/feedback";
 import { usePanesStore, useWorkspacesStore } from "@/stores";
 import { useLayoutScopeStore } from "@/stores/useLayoutScopeStore";
+import { useDialogStore } from "@/stores/useDialogStore";
 import { createPanel } from "@/lib/paneTree";
 import { historyService, localHistoryService } from "@/services";
 import { layoutScopePolicy } from "./useLayoutScopeSync";
@@ -15,6 +16,7 @@ vi.mock("@/lib/feedback", () => ({
 describe("useOpenTerminal host path guard", () => {
   beforeEach(() => {
     vi.mocked(toastErr).mockReset();
+    useDialogStore.setState({ pendingLaunch: null });
     useLayoutScopeStore.getState().resetForTest();
     useWorkspacesStore.setState({
       workspaces: [],
@@ -55,6 +57,25 @@ describe("useOpenTerminal host path guard", () => {
     const recorded = add.mock.calls[add.mock.calls.length - 1];
     expect(recorded?.[7]).toBe("/workspace");
     expect(recorded?.[8]).toBe("/worktree");
+  });
+
+  it("consumes a worktree launch without letting workspace ownership override its actual cwd", () => {
+    vi.spyOn(window.navigator, "platform", "get").mockReturnValue("MacIntel");
+    const add = vi.spyOn(historyService, "add").mockResolvedValue(1);
+    vi.spyOn(localHistoryService, "initProjectHistory").mockResolvedValue(undefined);
+    const openProject = vi.fn();
+    usePanesStore.setState({ openProject } as never);
+    useDialogStore.getState().setPendingLaunch({
+      path: "/repo-worktrees/task/packages/app", launchCwd: "/repo-worktrees/task/packages/app",
+      workspacePath: "/repo", providerId: "", cliTool: "none",
+    });
+    renderHook(() => useOpenTerminal());
+    expect(openProject).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      workspacePath: "/repo", projectPath: "/repo-worktrees/task/packages/app",
+      launchExtras: expect.objectContaining({ launchCwd: "/repo-worktrees/task/packages/app" }),
+    }));
+    expect(add.mock.calls[0]?.[8]).toBe("/repo-worktrees/task/packages/app");
+    expect(useDialogStore.getState().pendingLaunch).toBeNull();
   });
 
   it("新建未绑定布局后打开工作空间时留在当前布局", () => {

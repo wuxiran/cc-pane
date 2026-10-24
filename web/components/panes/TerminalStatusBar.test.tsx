@@ -1,4 +1,5 @@
 import "@/i18n";
+import i18n from "i18next";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +9,10 @@ import type { PaneNode } from "@/types";
 import { createTestSettings } from "@/test/utils/testData";
 import type { ActiveTerminalContext } from "@/hooks/useActiveTerminalSession";
 import TerminalStatusBar from "./TerminalStatusBar";
+
+vi.mock("@/components/review/SessionReviewPanel", () => ({
+  default: ({ projectPath, checkpointChatId, cliSessionId }: { projectPath: string; checkpointChatId: string; cliSessionId: string }) => <output data-testid="session-review-target">{projectPath}|{checkpointChatId}|{cliSessionId}</output>,
+}));
 
 vi.mock("@/components/ContextUsageIndicator", () => ({
   default: ({ enabled }: { enabled?: boolean }) => (
@@ -43,6 +48,21 @@ describe("TerminalStatusBar", () => {
     window.__TAURI_INTERNALS__ = {};
     useSettingsStore.setState({ settings: createTestSettings() });
     useTerminalStatusStore.setState({ statusMap: new Map() });
+  });
+
+  it("opens review for the current CLI session and excludes remote files", async () => {
+    const rendered = render(<TerminalStatusBar terminalContext={terminalContext} projectPath="/repo/worktree" />);
+    await userEvent.click(screen.getByRole("button", { name: i18n.t("review:title") }));
+    expect(await screen.findByTestId("session-review-target")).toHaveTextContent("/repo/worktree|cli:session-1|session-1");
+    rendered.rerender(<TerminalStatusBar terminalContext={{ ...terminalContext, ssh: true }} projectPath="/remote" />);
+    expect(screen.queryByRole("button", { name: i18n.t("review:title") })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("session-review-target")).not.toBeInTheDocument();
+  });
+
+  it("never opens host repository review for a WSL session", () => {
+    render(<TerminalStatusBar terminalContext={terminalContext} projectPath="C:/repo" wsl />);
+    expect(screen.queryByRole("button", { name: i18n.t("review:title") })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("session-review-target")).not.toBeInTheDocument();
   });
 
   it("shows context usage by default", () => {

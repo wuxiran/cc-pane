@@ -1,5 +1,6 @@
 // agent-chat 标签顶部的会话栏：引擎名 / 工作空间 chip / 生成中状态 / 本轮改动计数 / 工具卡全展开折叠 / 更多菜单。
 // 从 AgentChatTabContent 拆出（行数棘轮），纯展示层：状态与动作全部经 props 注入。
+import { useChatRuntimeTools } from "./ChatRuntimeWorkspace";
 import { type ReactNode } from "react";
 import {
   Bot,
@@ -67,6 +68,8 @@ export default function ChatSessionHeader({
 }: ChatSessionHeaderProps) {
   const { t } = useTranslation("panes");
   const { t: runtimeT } = useTranslation("agentRuntime");
+  const { t: reviewT } = useTranslation("review");
+  const runtimeTools = useChatRuntimeTools();
   return (
     <div className="agent-chat-header flex min-h-12 shrink-0 items-center gap-3 px-5 py-2">
       <div className="agent-chat-header-identity flex min-w-0 items-center gap-2.5">
@@ -86,6 +89,7 @@ export default function ChatSessionHeader({
         ) : null}
       </div>
       <span className="flex-1" />
+      {runtimeTools && <IconTooltipButton label={reviewT("title")} className="h-8 w-8" onClick={() => runtimeTools.openReview()}><FileDiff className="h-3.5 w-3.5" /></IconTooltipButton>}
       {onHistory && <IconTooltipButton label={runtimeT("title")} className="h-8 w-8" onClick={onHistory}><ListOrdered className="h-3.5 w-3.5" /></IconTooltipButton>}
       {onCheckpoints && <IconTooltipButton label={t("turnCheckpointTitle", { defaultValue: "Turn checkpoints" })} className="h-8 w-8" onClick={onCheckpoints}><History className="h-3.5 w-3.5" /></IconTooltipButton>}
       {hasForkOrigin && onReviewFork && <IconTooltipButton label={t("forkReviewTitle", { defaultValue: "Compare fork results" })} className="h-8 w-8" onClick={onReviewFork}><GitFork className="h-3.5 w-3.5" /></IconTooltipButton>}
@@ -130,6 +134,7 @@ export default function ChatSessionHeader({
             <GitFork /> {t("forkChat")}
           </DropdownMenuItem>
           {onReviewFork && <DropdownMenuItem onSelect={onReviewFork}><FileDiff /> {t("forkReviewTitle", { defaultValue: "Compare fork results" })}</DropdownMenuItem>}
+          {runtimeTools && <DropdownMenuItem onSelect={() => runtimeTools.openReview()}><FileDiff /> {reviewT("title")}</DropdownMenuItem>}
           {onHistory && <DropdownMenuItem onSelect={onHistory}><ListOrdered /> {runtimeT("title")}</DropdownMenuItem>}
           {onCheckpoints && <DropdownMenuItem onSelect={onCheckpoints}><History /> {t("turnCheckpointTitle", { defaultValue: "Turn checkpoints" })}</DropdownMenuItem>}
           <DropdownMenuItem disabled={!canCopySessionId} onSelect={onCopySessionId}>

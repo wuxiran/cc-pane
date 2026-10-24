@@ -16,9 +16,9 @@ mod macos {
 
     const TAB: &str = "owned-browser-acceptance";
     const HTML: &str = r#"<!doctype html><meta charset="utf-8"><title>CC-Panes owned browser fixture</title>
-<style>body{margin:0;background:#1375cb}button{position:absolute;left:20px;top:20px;width:100px;height:50px}#red{position:absolute;left:200px;top:100px;width:80px;height:80px;background:#e31c2c}</style>
-<button id="click">Click fixture</button><div id="red"></div>
-<script>window.fixture={clicks:0,trusted:false};document.getElementById('click').onclick=e=>{fixture.clicks++;fixture.trusted=e.isTrusted};</script>"#;
+<style>body{margin:0;background:#1375cb;min-height:1800px}button{position:absolute;left:20px;top:20px;width:100px;height:50px}#red{position:absolute;left:200px;top:100px;width:80px;height:80px;background:#e31c2c}input{position:absolute;left:20px;top:100px;width:120px}input[type=password]{top:140px}#field-two{top:180px}</style>
+<button id="click">Click fixture</button><div id="red"></div><input id="field" aria-label="Fixture input" value="seed"><input type="password" value="fixture-secret"><form action="/submitted"><input id="field-two" aria-label="Second input"></form>
+<script>window.fixture={clicks:0,trusted:false,inputEvents:0,inputTrusted:false,key:'',keyTrusted:false};document.getElementById('click').onclick=e=>{fixture.clicks++;fixture.trusted=e.isTrusted};document.getElementById('field').oninput=e=>{fixture.inputEvents++;fixture.inputTrusted=e.isTrusted};document.getElementById('field').onkeydown=e=>{fixture.key=e.key;fixture.keyTrusted=e.isTrusted};</script>"#;
 
     fn serve_fixture() -> std::io::Result<String> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
@@ -107,6 +107,7 @@ mod macos {
         if manager.click(&app, TAB, 10_000.0, 10_000.0).await.is_ok() {
             return Err("out-of-bounds click unexpectedly succeeded".into());
         }
+        let computer_use = computer_use_smoke(&manager, &app).await?;
         let timeout_started = std::time::Instant::now();
         // Keep the resolver reachable: WebKit detects abandoned Promises and
         // reports a JavaScript exception before the host timeout otherwise.
@@ -165,7 +166,149 @@ mod macos {
         Ok(
             json!({"success": true, "backend":"WKWebView", "promise":initial, "exception":exception, "statement":statement, "evaluationTimeoutMs":timeout_ms,
             "nativeClick":clicked, "png":image, "pngDimensions":dimensions, "hiddenPng":hidden_image,
-            "hiddenStateRestored":true, "outOfBoundsRejected":true, "closedTabRejected":true}),
+            "hiddenStateRestored":true, "outOfBoundsRejected":true, "closedTabRejected":true,"computerUse":computer_use}),
+        )
+    }
+
+    async fn computer_use_smoke(manager: &BrowserTabManager, app: &AppHandle) -> AppResult<Value> {
+        let snapshot = manager.snapshot(app, TAB).await?;
+        let serialized = serde_json::to_string(&snapshot).map_err(|error| error.to_string())?;
+        if serialized.contains("fixture-secret") || serialized.contains("seed") {
+            return Err("snapshot leaked form values".into());
+        }
+        let input = snapshot
+            .elements
+            .iter()
+            .find(|element| element.name == "Fixture input")
+            .ok_or("input missing from snapshot")?;
+        let button = snapshot
+            .elements
+            .iter()
+            .find(|element| element.tag == "button")
+            .ok_or("button missing from snapshot")?;
+        manager
+            .fill(app, TAB, &snapshot.page_token, input.id, "Native text 你好")
+            .await?;
+        manager
+            .press_key(app, TAB, &snapshot.page_token, "Enter")
+            .await?;
+        let filled = evaluate(
+            manager,
+            app,
+            "({value:document.getElementById('field').value,...fixture})",
+        )
+        .await?;
+        let value = &filled["result"]["value"];
+        if value["value"] != "Native text 你好"
+            || value["inputTrusted"] != true
+            || value["key"] != "Enter"
+            || value["keyTrusted"] != true
+        {
+            return Err(format!("native Computer Use text/key failed: {filled}").into());
+        }
+        let second = snapshot
+            .elements
+            .iter()
+            .find(|element| element.name == "Second input")
+            .ok_or("second input missing")?;
+        for round in 0..3 {
+            let first_text = format!("first-{round}");
+            let second_text = format!("second-{round}");
+            let (first, second) = tokio::join!(
+                manager.fill(app, TAB, &snapshot.page_token, input.id, &first_text),
+                manager.fill(app, TAB, &snapshot.page_token, second.id, &second_text),
+            );
+            first?;
+            second?;
+            let values = evaluate(manager, app, "[document.getElementById('field').value,document.getElementById('field-two').value]").await?;
+            if values["result"]["value"] != json!([first_text, second_text]) {
+                return Err(format!("concurrent fills crossed fields: {values}").into());
+            }
+        }
+        manager
+            .click_element(app, TAB, &snapshot.page_token, button.id)
+            .await?;
+        // Native mouse delivery reaches WebKit's content process asynchronously,
+        // as in the coordinate-click check above; await its event turn.
+        let mut clicked = Value::Null;
+        for _ in 0..20 {
+            clicked = evaluate(
+                manager,
+                app,
+                "new Promise(resolve => setTimeout(() => resolve(fixture), 50))",
+            )
+            .await?;
+            if clicked["result"]["value"]["clicks"] == 2 {
+                break;
+            }
+        }
+        if clicked["result"]["value"]["clicks"] != 2
+            || clicked["result"]["value"]["trusted"] != true
+        {
+            return Err(format!("snapshot element click failed: {clicked}").into());
+        }
+        manager
+            .scroll(app, TAB, &snapshot.page_token, 0.0, 300.0)
+            .await?;
+        let scrolled = evaluate(manager, app, "scrollY").await?;
+        if scrolled["result"]["value"].as_f64().unwrap_or_default() < 200.0 {
+            return Err(format!("Computer Use scroll failed: {scrolled}").into());
+        }
+        manager
+            .scroll(app, TAB, &snapshot.page_token, 0.0, -300.0)
+            .await?;
+        let fresh = manager.snapshot(app, TAB).await?;
+        if manager
+            .fill(app, TAB, &snapshot.page_token, input.id, "must not write")
+            .await
+            .is_ok()
+        {
+            return Err("stale snapshot was accepted".into());
+        }
+        evaluate(manager, app, "history.pushState({}, '', '#new-page')").await?;
+        if manager
+            .press_key(app, TAB, &fresh.page_token, "Enter")
+            .await
+            .is_ok()
+        {
+            return Err("navigation did not invalidate the snapshot".into());
+        }
+        if !manager.list_tabs(app)?.iter().any(|tab| tab.tab_id == TAB) {
+            return Err("browser list omitted the fixture tab".into());
+        }
+        let submit = manager.snapshot(app, TAB).await?;
+        let field = submit
+            .elements
+            .iter()
+            .find(|element| element.name == "Second input")
+            .ok_or("submit field missing")?;
+        manager
+            .fill(app, TAB, &submit.page_token, field.id, "submit once")
+            .await?;
+        manager
+            .press_key(app, TAB, &submit.page_token, "Enter")
+            .await?;
+        let mut submitted = false;
+        for _ in 0..100 {
+            if let Ok(result) = evaluate(
+                manager,
+                app,
+                "location.pathname === '/submitted' && document.readyState === 'complete'",
+            )
+            .await
+            {
+                if result["result"]["value"] == true {
+                    submitted = true;
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        if !submitted {
+            return Err("native Enter did not submit the owned fixture form".into());
+        }
+        Ok(
+            json!({"nativeFill":filled,"concurrentFillsIsolated":true,"enterNavigationDispatched":true,"trustedElementClick":true,"scroll":scrolled,"staleSnapshotRejected":true,"navigationRejected":true,"fieldValuesRedacted":true}),
         )
     }
 
@@ -198,6 +341,8 @@ mod macos {
         std::fs::create_dir_all(&dir).expect("create evidence directory");
         let url = serve_fixture().expect("start local fixture server");
         let manager = Arc::new(BrowserTabManager::default());
+        let exit_status = Arc::new(std::sync::atomic::AtomicI32::new(1));
+        let run_exit_status = exit_status.clone();
         let mut context = tauri::generate_context!();
         context.config_mut().identifier = "com.ccpanes.browser-acceptance".into();
         context.config_mut().app.windows.clear();
@@ -209,6 +354,7 @@ mod macos {
                     .build()?;
                 let handle = app.handle().clone();
                 let manager = Arc::clone(&manager);
+                let worker_exit_status = run_exit_status.clone();
                 tauri::async_runtime::spawn(async move {
                     let result = tokio::time::timeout(
                         Duration::from_secs(35),
@@ -221,6 +367,7 @@ mod macos {
                         Err(error) => json!({"success":false,"error":error.to_string()}),
                     };
                     let status = if report["success"] == true { 0 } else { 1 };
+                    worker_exit_status.store(status, std::sync::atomic::Ordering::SeqCst);
                     let serialized = serde_json::to_string_pretty(&report).unwrap();
                     let _ = std::fs::write(dir.join("browser-macos-smoke.json"), &serialized);
                     println!("{serialized}");
@@ -230,6 +377,7 @@ mod macos {
             })
             .run(context)
             .expect("run owned browser fixture");
+        std::process::exit(exit_status.load(std::sync::atomic::Ordering::SeqCst));
     }
 }
 

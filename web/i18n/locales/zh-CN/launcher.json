@@ -93,5 +93,15 @@
   "worktreeUnavailableRemote": "仅本地环境可用（WSL/SSH 暂不支持 worktree 启动）",
   "worktreeUnavailableNotGit": "该目录不是 Git 仓库",
   "worktreeCreateFailed": "创建 worktree 失败：{{message}}",
-  "launching": "启动中…"
+  "launching": "启动中…",
+  "launchSettings": "配置启动环境",
+  "launchSettingsReadFailed": "读取 Git 信息失败，请重新打开设置重试",
+  "worktreeBaseBranch": "基准分支",
+  "worktreeCurrentBranch": "当前分支",
+  "worktreeNewBranch": "新分支名称",
+  "worktreeCurrentHead": "当前提交（{{branch}}）",
+  "worktreeCleanBaseHint": "从所选分支的已提交内容创建；当前目录的未提交修改保留在原处。",
+  "worktreeCurrentBranchHint": "当前目录沿用现有分支。开启新工作树后，可选择其他基准分支。",
+  "worktreeBranchRequired": "请输入新工作树的分支名称",
+  "worktreeNewSessionOnly": "新工作树仅用于新会话；续接会话请使用原工作目录"
 }

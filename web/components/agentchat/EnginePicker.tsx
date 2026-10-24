@@ -7,7 +7,7 @@ import {
   Bug,
   ChevronDown,
   FolderOpen,
-  GitBranch,
+  FileDiff,
   Hammer,
   Loader2,
   SearchCode,
@@ -16,7 +16,9 @@ import {
 import { useTranslation } from "react-i18next";
 import type { AcpChatHistoryEntry, AcpEngineInfo } from "@/types/agentChat";
 import { agentChatService } from "@/services/agentChatService";
-import { gitService } from "@/services/gitService";
+import LocalLaunchSettings from "@/components/launcher/LocalLaunchSettings";
+import type { LocalWorktreeDraft } from "@/types/localLaunch";
+import { useChatRuntimeTools } from "./ChatRuntimeWorkspace";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { handleErrorSilent } from "@/utils/errorHandler";
@@ -64,6 +66,8 @@ export interface EnginePickerProps {
 export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onHistory, onCheckpoints }: EnginePickerProps) {
   const { t } = useTranslation("panes");
   const { t: runtimeT } = useTranslation("agentRuntime");
+  const { t: reviewT } = useTranslation("review");
+  const runtimeTools = useChatRuntimeTools();
   const [engines, setEngines] = useState<AcpEngineInfo[] | null>(null);
   const [selectedEngine, setSelectedEngine] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -72,25 +76,16 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onH
   const [error, setError] = useState<string | null>(null);
   const [modelPrefs, setModelPrefs] = useState<EngineModelPrefs | null>(null);
   const [autoApproveKinds, setAutoApproveKinds] = useState<string[]>([]);
-  const [branch, setBranch] = useState<string | null>(null);
+  const [worktree, setWorktree] = useState<LocalWorktreeDraft | undefined>();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const pickCwd = useCallback((nextCwd: string) => {
+    if (useAgentChatStore.getState().chats[chatId]?.setup?.pending) return;
+    onPickCwd(nextCwd);
+  }, [chatId, onPickCwd]);
 
-  // 分支 chip（只读展示；非 git 目录静默无 chip）。
+  // A project change starts a fresh local launch draft; it cannot reuse another repo's ref.
   useEffect(() => {
-    if (!cwd) {
-      setBranch(null);
-      return;
-    }
-    let cancelled = false;
-    gitService
-      .getRepoInfo(cwd)
-      .then((info) => {
-        if (!cancelled) setBranch(info.state === "ok" ? info.branch : null);
-      })
-      .catch(() => setBranch(null));
-    return () => {
-      cancelled = true;
-    };
+    setWorktree(undefined);
   }, [cwd]);
 
   // 模型表来自该引擎上次会话的握手缓存；首次使用时为空（下拉不显示）。
@@ -160,14 +155,16 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onH
       resumeAcpSessionId?: string,
       firstPrompt?: string,
       preamble?: string,
+      launchWorktree?: LocalWorktreeDraft,
     ) => {
-      if (!startCwd) return;
+      if (!startCwd || useAgentChatStore.getState().chats[chatId]?.setup?.pending) return;
       setError(null);
       setStartingEngine(resumeAcpSessionId ?? engineId);
       try {
         await startConfiguredChat({
           chatId, engineId, cwd: startCwd, resumeAcpSessionId, firstPrompt, preamble,
           onCwdAdopted,
+          worktree: launchWorktree,
         });
       } catch (startError) {
         setError(startError instanceof Error ? startError.message : String(startError));
@@ -180,8 +177,8 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onH
 
   const launch = useCallback(() => {
     if (!cwd || !selectedEngine || startingEngine !== null) return;
-    void start(selectedEngine, cwd, undefined, draft);
-  }, [cwd, selectedEngine, startingEngine, start, draft]);
+    void start(selectedEngine, cwd, undefined, draft, undefined, worktree);
+  }, [cwd, selectedEngine, startingEngine, start, draft, worktree]);
 
   const selected = engines?.find((engine) => engine.id === selectedEngine) ?? null;
   const workspaces = useWorkspacesStore((state) => state.workspaces);
@@ -191,14 +188,14 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onH
   const launching = startingEngine !== null && startingEngine === selectedEngine;
 
   return (
-    <div className="agent-chat-start-page flex h-full flex-col overflow-y-auto px-6">
-      <div className="agent-chat-start-content mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-8 py-12">
+    <div className="agent-chat-start-page flex h-full flex-col overflow-y-auto px-4 sm:px-8">
+      <div className="agent-chat-start-content mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center gap-7 py-12">
         {/* Hero：问候语与项目名（无项目时引导选目录） */}
-        <div className="flex flex-col items-center gap-3 text-center">
+        <div className="flex flex-col items-start gap-3 px-1 text-left">
           <div className="mb-1 flex h-11 w-11 items-center justify-center text-[var(--app-text-secondary)]">
             <Bot className="h-7 w-7" strokeWidth={1.5} />
           </div>
-          <h2 className="max-w-full break-words text-[28px] font-medium leading-snug tracking-tight text-[var(--app-text-primary)]">
+          <h2 className="max-w-full break-words text-[30px] font-medium leading-snug tracking-tight text-[var(--app-text-primary)]">
             {projectName ? (
               <>
                 {t("agentChatHeroBefore")}
@@ -219,7 +216,7 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onH
           <div className="flex justify-center">
             <StartProjectMenu
               cwd={cwd}
-              onPickCwd={onPickCwd}
+              onPickCwd={pickCwd}
               trigger={
                 <button
                   type="button"
@@ -253,30 +250,33 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onH
         )}
 
         {/* Composer 式启动栏：chips 行 + 输入 + 引擎/模型/模式/权限 + 发送 */}
-        <div className="agent-chat-start-composer agent-chat-composer-shell rounded-3xl border border-[var(--app-border)] bg-[var(--app-chat-composer-bg)] px-4 pb-3 pt-4 transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)] focus-within:border-[var(--app-text-tertiary)]">
+        <div className="agent-chat-start-composer agent-chat-composer-shell rounded-3xl border border-[var(--app-border)] bg-[var(--app-sidebar)] px-5 pb-4 pt-4 transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)] focus-within:border-[var(--app-text-tertiary)]">
           {cwd ? (
-            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-[var(--app-text-tertiary)]">
+            <div className="agent-chat-start-context flex flex-wrap items-center gap-2 pb-3 text-xs text-[var(--app-text-tertiary)]">
               <StartProjectMenu
                 cwd={cwd}
-                onPickCwd={onPickCwd}
+                onPickCwd={pickCwd}
                 trigger={
                   <button
                     type="button"
                     title={cwd}
-                    className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-1.5 py-1 text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+                    disabled={startingEngine !== null}
+                    className="flex min-w-0 max-w-full items-center gap-2 rounded-lg px-1.5 py-2 text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
                   >
-                    <FolderOpen className="h-3 w-3 shrink-0" />
+                    <FolderOpen className="h-4 w-4 shrink-0" />
                     <span className="min-w-0 max-w-64 truncate">{projectName}</span>
                     <ChevronDown className="h-2.5 w-2.5" />
                   </button>
                 }
               />
-              {branch ? (
-                <span className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-1.5 py-1">
-                  <GitBranch className="h-3 w-3 shrink-0" />
-                  <span className="min-w-0 max-w-40 truncate">{branch}</span>
-                </span>
-              ) : null}
+              <span className="min-w-0 flex-1" />
+              <LocalLaunchSettings projectPath={cwd} worktree={worktree}
+                onChange={setWorktree} disabled={startingEngine !== null} />
+              {runtimeTools && <button type="button" aria-label={reviewT("title")}
+                title={reviewT("title")} onClick={() => runtimeTools.openReview(cwd)}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-hover)] transition-colors hover:text-[var(--app-text-primary)]">
+                <FileDiff className="h-3.5 w-3.5" />
+              </button>}
             </div>
           ) : null}
           <textarea
@@ -290,8 +290,8 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onH
               }
             }}
             placeholder={t("agentChatHeroPlaceholder")}
-            rows={3}
-            className="agent-chat-composer-input max-h-48 min-h-[4.25rem] w-full resize-none bg-transparent text-[15px] leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
+            rows={5}
+            className="agent-chat-composer-input max-h-72 min-h-36 w-full resize-none bg-transparent py-4 text-[16px] leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
           />
           <div className="agent-chat-composer-toolbar mt-3 flex items-end justify-between gap-3">
             <div className="agent-chat-composer-options flex min-w-0 flex-wrap items-center gap-1.5">

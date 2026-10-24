@@ -9,6 +9,15 @@ async function call<T>(command: string, args: Record<string, unknown>): Promise<
 }
 
 export const turnCheckpointService = {
+  cliChatId(sessionId: string): string {
+    return `cli:${sessionId}`;
+  },
+  beginCli(sessionId: string): Promise<TurnCheckpointRecord> {
+    return call("begin_cli_turn_checkpoint", { sessionId });
+  },
+  finishCli(sessionId: string, id: string): Promise<TurnCheckpointRecord> {
+    return call("finish_cli_turn_checkpoint", { sessionId, id });
+  },
   list(chatId: string): Promise<TurnCheckpointRecord[]> {
     return call("list_turn_checkpoints", { chatId });
   },

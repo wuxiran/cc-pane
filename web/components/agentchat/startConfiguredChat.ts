@@ -3,6 +3,8 @@ import i18n from "@/i18n";
 import { submitReservedPrompt } from "./submitReservedPrompt";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import type { AcpChatSnapshot } from "@/types/agentChat";
+import type { LocalWorktreeDraft } from "@/types/localLaunch";
+import { prepareLocalSessionCwd } from "@/services/localLaunchService";
 import {
   loadAutoApproveKinds, loadEnginePrefs, loadPreferredConfigOptions,
   saveEngineModels, saveEngineModes,
@@ -17,6 +19,7 @@ interface StartConfiguredChatOptions {
   firstPrompt?: string;
   preamble?: string;
   onCwdAdopted?: (cwd: string) => void;
+  worktree?: LocalWorktreeDraft;
 }
 
 async function applyPreferredSelection(
@@ -74,14 +77,26 @@ export async function startConfiguredChat(options: StartConfiguredChatOptions): 
   const token = store.beginSetup(chatId, { firstPrompt, preamble });
   if (token === null) return null;
   const ownsSetup = () => useAgentChatStore.getState().chats[chatId]?.setup?.token === token;
+  let spawnAttempted = false;
   try {
+    if (options.resumeAcpSessionId && options.worktree?.enabled) {
+      throw new Error(i18n.t("worktreeNewSessionOnly", { ns: "launcher" }));
+    }
+    const launchCwd = await prepareLocalSessionCwd(cwd, options.worktree);
+    if (!ownsSetup()) return null;
+    // Adopt a successfully created worktree before spawn, so a failed engine can retry there.
+    if (launchCwd !== cwd) {
+      store.setCwdOverride(chatId, launchCwd);
+      options.onCwdAdopted?.(launchCwd);
+    }
+    spawnAttempted = true;
     const snapshot = await agentChatService.start(
-      chatId, engineId, cwd, options.resumeAcpSessionId,
+      chatId, engineId, launchCwd, options.resumeAcpSessionId,
       options.autoApproveKinds ?? loadAutoApproveKinds(engineId),
     );
     if (!ownsSetup()) return null;
     store.setSnapshot(chatId, snapshot);
-    options.onCwdAdopted?.(cwd);
+    options.onCwdAdopted?.(launchCwd);
     await applyPreferences(chatId, snapshot);
     if (!ownsSetup()) return null;
     const text = firstPrompt?.trim();
@@ -98,12 +113,16 @@ export async function startConfiguredChat(options: StartConfiguredChatOptions): 
   } catch (error) {
     if (ownsSetup()) {
       const message = error instanceof Error ? error.message : String(error);
-      if (!useAgentChatStore.getState().chats[chatId]?.snapshot) {
-        store.setSnapshot(chatId, { chatId, engineId, phase: "failed", error: message });
-      } else {
-        const items = useAgentChatStore.getState().chats[chatId]?.items ?? [];
-        const last = items[items.length - 1];
-        if (last?.type !== "notice" || last.text !== message) store.pushNotice(chatId, message);
+      // Keep launch settings available after preparation failure; retry must not silently
+      // start in the source checkout without the requested worktree.
+      if (spawnAttempted) {
+        if (!useAgentChatStore.getState().chats[chatId]?.snapshot) {
+          store.setSnapshot(chatId, { chatId, engineId, phase: "failed", error: message });
+        } else {
+          const items = useAgentChatStore.getState().chats[chatId]?.items ?? [];
+          const last = items[items.length - 1];
+          if (last?.type !== "notice" || last.text !== message) store.pushNotice(chatId, message);
+        }
       }
       store.finishSetup(chatId, token, message);
     }

@@ -1,0 +1,9 @@
+{
+  "title": "Computer Use", "close": "Close page controls",
+  "description": "Read, inspect and interact with this browser tab. CLI and Agent sessions can use the same browser tools.",
+  "readPage": "Read page", "screenshot": "Screenshot", "copyPage": "Copy page text", "copied": "Page text copied",
+  "untitled": "Untitled page", "truncated": "This is a partial page snapshot. Scroll or narrow the page to inspect more.",
+  "scrollUp": "Scroll up", "scrollDown": "Scroll down", "elements": "Page elements · {{count}}", "searchElements": "Find a button, link or input…",
+  "elementList": "Interactive page elements", "noElements": "No matching page elements", "clickElement": "Click element", "fillText": "Text to enter", "fill": "Fill field",
+  "key": "Keyboard key", "pressKey": "Press key", "pageText": "Page text", "screenshotAlt": "Current browser viewport screenshot", "screenshotSaved": "Screenshot saved locally"
+}

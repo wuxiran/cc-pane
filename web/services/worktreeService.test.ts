@@ -68,6 +68,21 @@ describe("worktreeService", () => {
   });
 
   describe("add", () => {
+    it("requests a preserved subdirectory cwd for a session launch", async () => {
+      mockTauriInvoke({ add_worktree: "/repo-worktrees/task/packages/app" });
+      await expect(worktreeService.add("/repo/packages/app", "task", "cc/task", "main", true))
+        .resolves.toBe("/repo-worktrees/task/packages/app");
+      expect(invoke).toHaveBeenCalledExactlyOnceWith("add_worktree", {
+        projectPath: "/repo/packages/app", name: "task", branch: "cc/task", baseRef: "main", preserveCwd: true,
+      });
+    });
+    it("passes an explicit base revision without changing the source branch", async () => {
+      mockTauriInvoke({ add_worktree: "/repo-worktrees/task" });
+      await worktreeService.add("/repo", "task", "cc/task", "refs/heads/main");
+      expect(invoke).toHaveBeenCalledExactlyOnceWith("add_worktree", {
+        projectPath: "/repo", name: "task", branch: "cc/task", baseRef: "refs/heads/main",
+      });
+    });
     it("应该调用 add_worktree 命令并传递 branch 参数", async () => {
       mockTauriInvoke({ add_worktree: "/path/to/project-feature" });
 
