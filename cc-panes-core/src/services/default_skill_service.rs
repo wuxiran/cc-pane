@@ -1047,6 +1047,30 @@ mod tests {
     use super::*;
     use std::fs;
 
+    #[test]
+    fn bundled_codex_dispatch_skill_materializes_without_mcp_or_user_home_changes() {
+        let templates = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../src-tauri/resources/claude-bundle/default-skills");
+        let service = DefaultSkillService::new(templates.clone());
+        let root = tempfile::tempdir().unwrap();
+        let files = service
+            .materialize_managed_bundle(root.path(), "test")
+            .unwrap();
+        let target = root.path().join("skills/ccpanes-codex/SKILL.md");
+        assert!(files.contains(&target));
+        assert_eq!(
+            fs::read_to_string(&target).unwrap().trim(),
+            fs::read_to_string(templates.join("codex.md"))
+                .unwrap()
+                .trim()
+        );
+        let plugin: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(root.path().join(".claude-plugin/plugin.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(plugin["name"], "ccpanes");
+    }
+
     fn unique_temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "cc-panes-default-skill-{}-{}",

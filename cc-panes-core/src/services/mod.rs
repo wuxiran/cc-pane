@@ -11,6 +11,7 @@ pub mod agent_transcript;
 pub mod boundary_events;
 pub mod claude_session_service;
 pub mod codex_app_server;
+pub mod codex_desktop;
 pub mod codex_session_service;
 mod ctl_sidecar;
 pub mod terminal_output_cursor;

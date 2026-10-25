@@ -39,6 +39,7 @@ import CodexMenuItems from "@/components/agentchat/CodexMenuItems";
 const ChatForkDialog = lazyWithRetry(() => import("@/components/chatfork/ChatForkDialog"), "ChatForkDialog");
 const ForkReviewDialog = lazyWithRetry(() => import("@/components/chatfork/ForkReviewDialog"), "ForkReviewDialog");
 const WorkbenchTabMenuItems = lazyWithRetry(() => import("./WorkbenchTabMenuItems"), "WorkbenchTabMenuItems");
+const CodexHandoffDialog = lazyWithRetry(() => import("@/components/agentchat/CodexHandoffDialog"), "CodexHandoffDialog");
 
 
 export interface PaneMoveTarget {
@@ -118,6 +119,7 @@ export default function TabContextMenuContent({
 }: TabContextMenuProps & { menuOpen: boolean }) {
   const [forkOpen, setForkOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [handoffCwd, setHandoffCwd] = useState<string | null>(null);
   const forkSource = terminalForkSource(tab);
   const terminalLeafCount =
     tab.contentType === "terminal" && tab.terminalRootPane
@@ -128,6 +130,7 @@ export default function TabContextMenuContent({
 
   return (
     <>
+    {handoffCwd && <Suspense fallback={null}><CodexHandoffDialog cwd={handoffCwd} chatId={tab.contentType === "agent-chat" ? tab.id : undefined} onClose={() => setHandoffCwd(null)} /></Suspense>}
     {forkOpen && <Suspense fallback={null}><ChatForkDialog open={forkOpen} onOpenChange={setForkOpen} allowWorktree={!forkSource?.wsl} onFork={async (mode) => {
       const { buildTerminalFork } = await import("@/services/chatForkLaunch");
       const options = await buildTerminalFork(tab, mode);
@@ -136,7 +139,7 @@ export default function TabContextMenuContent({
     {reviewOpen && <Suspense fallback={null}><ForkReviewDialog open={reviewOpen} onOpenChange={setReviewOpen} forkReviewId={tab.forkReviewId} cwd={tab.projectPath} sourceSessionId={forkSource?.resumeId} /></Suspense>}
       <ContextMenuContent className="w-60 rounded-2xl p-1.5">
         {menuOpen && <Suspense fallback={null}><WorkbenchTabMenuItems tab={tab} paneId={paneId} section="browser" /></Suspense>}
-        {menuOpen && <CodexMenuItems tab={tab} />}
+        {menuOpen && <CodexMenuItems tab={tab} onHandoff={setHandoffCwd} />}
         <ContextMenuItem onClick={() => startRename(tab)}>
           <Pencil /> {t("renameTab")}
         </ContextMenuItem>

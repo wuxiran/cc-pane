@@ -26,6 +26,21 @@ CLI 标签右键和 Codex Agent 的更多菜单提供 **在 Codex 中打开**：
 
 ## CLI
 
+### 交给 Codex Mac 客户端
+
+CLI 和 Agent 标签的菜单都有“交给 Codex 桌面…”。填写任务说明后打开新的桌面草稿；原会话保留。界面明确提示需要在 Codex 点击发送，聊天历史和附件不会自动附带。
+
+Claude CLI 可使用默认 Core 中的 `ccpanes-codex` Skill；它按用户指定目标选择后台执行或桌面交接，不把两者混用。Skill 随 CC-Panes 会话挂载，不写用户全局 Skill 目录。
+
+```sh
+"$CC_PANES_CTL" --json codex handoff --cwd /absolute/project --prompt-file /absolute/task.txt
+"$CC_PANES_CTL" --json codex handoff --cwd /absolute/project --prompt-file /absolute/task.txt --dry-run
+```
+
+`handoff` 不启动 App Server，也不会调用 `codex queue`。正常打开请求成功返回 `awaiting_user_send`，预演返回 `draft_prepared`；两者的 `submitted` 都是 `false`。这不是自动执行确认，也没有桌面任务回执。CLI 打开应用目前只支持 macOS；预演可跨平台检查链接。CC-Panes 自定草稿上限为 8 KiB UTF-8，超限明确拒绝；长计划用短说明引用文件路径，绝不截断。
+
+### Codex 后台执行
+
 命令不依赖已运行的 CC-Panes daemon。`--json` 放在 `codex` 前面，输出 JSONL。
 
 ```sh

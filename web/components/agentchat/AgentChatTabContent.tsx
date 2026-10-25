@@ -43,6 +43,7 @@ import { useChatFileActions } from "./useChatFileActions";
 
 const ChatForkDialog = lazyWithRetry(() => import("@/components/chatfork/ChatForkDialog"), "ChatForkDialog");
 const ForkReviewDialog = lazyWithRetry(() => import("@/components/chatfork/ForkReviewDialog"), "ForkReviewDialog");
+const CodexHandoffDialog = lazyWithRetry(() => import("./CodexHandoffDialog"), "CodexHandoffDialog");
 
 
 export default function AgentChatTabContent({ tab }: { tab: Tab }) {
@@ -56,6 +57,7 @@ function AgentChatLiveView({ tab }: { tab: Tab }) {
   const [atBottom, setAtBottom] = useState(true);
   const [forkOpen, setForkOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [handoffCwd, setHandoffCwd] = useState<string | null>(null);
   const forkSource = useRef<{ engineId: string; sessionId: string; cwd: string } | null>(null);
   // 工作空间/目录覆盖存 store（切标签不丢），优先级高于标签自带项目；
   // 顶栏 chip 与启动页共用 StartProjectMenu 切换。
@@ -277,7 +279,7 @@ function AgentChatLiveView({ tab }: { tab: Tab }) {
       {snapshot ? (
         <ChatSessionHeader
           engineLabel={snapshot.engineId}
-          extraMenuItems={<CodexMenuItems tab={tab} snapshot={snapshot} cwd={effectiveCwd} menuKind="dropdown" />}
+          extraMenuItems={<CodexMenuItems tab={tab} snapshot={snapshot} cwd={effectiveCwd} menuKind="dropdown" onHandoff={setHandoffCwd} />}
           onHistory={runtimeTools?.openHistory}
           onCheckpoints={runtimeTools?.openCheckpoints}
           workspaceMenu={
@@ -387,6 +389,7 @@ function AgentChatLiveView({ tab }: { tab: Tab }) {
       ) : null}
 
       <ChatPermissionQueue chatId={tab.id} />
+      {handoffCwd && <Suspense fallback={null}><CodexHandoffDialog cwd={handoffCwd} chatId={tab.id} onClose={() => setHandoffCwd(null)} /></Suspense>}
       <ChatQuestionQueue chatId={tab.id} />
 
       {ended ? (

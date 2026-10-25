@@ -18,6 +18,8 @@ describe("Codex desktop opener", () => {
   });
 
   it("does not invoke the backend for unsafe input or a web-only runtime", async () => {
+    await expect(codexDesktopService.open({ cwd: "/repo", threadId: "thread-id", prompt: "must not be discarded" })).rejects.toThrow("cannot append");
+    await expect(codexDesktopService.open({ cwd: "/repo", prompt: "中".repeat(3000) })).rejects.toThrow("too long");
     await expect(codexDesktopService.open({ cwd: "/repo", threadId: "../evil" })).rejects.toThrow("Invalid Codex thread ID");
     await expect(codexDesktopService.open({ cwd: "relative" })).rejects.toThrow("local absolute");
     vi.mocked(isTauriRuntime).mockReturnValue(false);

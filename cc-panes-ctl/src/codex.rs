@@ -12,12 +12,15 @@ use tokio::sync::mpsc;
 
 use crate::cli::CliExit;
 
+mod desktop;
 mod interaction;
 #[cfg(test)]
 mod tests;
 
 #[derive(Debug, Subcommand)]
 pub enum CodexCommand {
+    /// Open a task draft in Codex Mac. The user still sends it in the desktop app.
+    Handoff(desktop::HandoffArgs),
     /// List models advertised by the installed Codex App Server.
     Models,
     /// List saved Codex threads (does not resume or modify them).
@@ -89,6 +92,10 @@ fn workspace(path: PathBuf) -> Result<PathBuf, CliExit> {
 }
 
 async fn execute_async(command: CodexCommand, machine: bool) -> Result<(), CliExit> {
+    let command = match command {
+        CodexCommand::Handoff(args) => return desktop::execute(args, machine).await,
+        command => command,
+    };
     let cwd = match &command {
         CodexCommand::Run(args) => workspace(args.cwd.clone())?,
         CodexCommand::Threads { cwd: Some(cwd), .. } => workspace(cwd.clone())?,
@@ -129,6 +136,7 @@ async fn dispatch(
     active_turn: &std::sync::Mutex<Option<(String, String)>>,
 ) -> Result<(), CliExit> {
     match command {
+        CodexCommand::Handoff(_) => unreachable!("desktop handoff does not start App Server"),
         CodexCommand::Models => print_result(
             client
                 .request("model/list", json!({}))

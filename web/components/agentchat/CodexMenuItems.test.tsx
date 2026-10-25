@@ -29,6 +29,16 @@ function menu(subject = tab, snapshot?: AcpChatSnapshot) {
 }
 
 describe("Codex session actions", () => {
+  it("allows Claude to hand a task to Codex without pretending its session is a Codex thread", () => {
+    const onHandoff = vi.fn();
+    render(<DropdownMenu defaultOpen><DropdownMenuTrigger>More</DropdownMenuTrigger><DropdownMenuContent>
+      <CodexMenuItems tab={{ ...tab, cliTool: "claude" }} onHandoff={onHandoff} menuKind="dropdown" />
+    </DropdownMenuContent></DropdownMenu>);
+    expect(screen.queryByRole("menuitem", { name: "Open in Codex" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hand off to Codex desktop…" }));
+    expect(onHandoff).toHaveBeenCalledWith("/repo");
+    expect(codexDesktopService.open).not.toHaveBeenCalled();
+  });
   it("opens the verified CLI thread", async () => {
     menu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Open in Codex" }));

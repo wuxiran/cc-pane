@@ -4,5 +4,15 @@
   "openNewHint": "Open a new Codex conversation in this project",
   "native": "New Codex App Server chat",
   "nativeHint": "Prepare a separate Agent chat; keep this terminal running",
-  "unavailable": "The selected engine is unavailable. Choose an installed engine."
+  "unavailable": "The selected engine is unavailable. Choose an installed engine.",
+  "handoff": "Hand off to Codex desktop…",
+  "handoffHint": "Open a task draft in Codex, then click Send there. Only this text is handed off; chat history and attachments are not included automatically.",
+  "taskLabel": "Task instructions",
+  "taskPlaceholder": "Describe the goal, file scope and acceptance criteria. You can reference a local plan file.",
+  "taskTooLong": "The task text is too long. Save a plan file and reference its path here.",
+  "awaitingSend": "Requested the draft to open. Click Send in Codex to start execution.",
+  "openDraft": "Open Codex draft",
+  "opening": "Opening…",
+  "cancel": "Cancel",
+  "done": "Done"
 }

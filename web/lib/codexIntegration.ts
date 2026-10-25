@@ -20,6 +20,17 @@ export function codexEngineLabel(id: string, fallback = id): string {
   return id === "codex" ? "Codex (ACP)" : id === CODEX_APP_SERVER_ENGINE ? "Codex App Server" : fallback;
 }
 
+/** A task can originate in any local CLI/Agent, independently of its engine. */
+export function codexHandoffWorkspace(tab: Tab, adoptedCwd?: string): string | null {
+  if (tab.ssh || tab.wsl || !["terminal", "agent-chat"].includes(tab.contentType)) return null;
+  const leaf = tab.contentType === "terminal" ? activeTerminalLeaf(tab) : null;
+  if (leaf?.ssh || leaf?.wsl) return null;
+  const terminal = leaf ?? tab;
+  const cwd = tab.contentType === "agent-chat" ? adoptedCwd || tab.projectPath
+    : terminal.launchExtras?.launchCwd || terminal.workspacePath || tab.projectPath;
+  return isLocalCodexPath(cwd) ? cwd : null;
+}
+
 /** ACP session IDs are intentionally never used as Codex thread identifiers. */
 export function codexOpenTarget(tab: Tab, snapshot?: AcpChatSnapshot | null, adoptedCwd?: string): CodexOpenTarget | null {
   if (tab.ssh || tab.wsl) return null;
