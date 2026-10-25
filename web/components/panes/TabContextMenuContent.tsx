@@ -34,6 +34,7 @@ import type { TFunction } from "i18next";
 import CommandMenuItem, { CommandShortcutHint } from "@/components/commands/CommandMenuItem";
 import TabQuickCommandsMenu from "./TabQuickCommandsMenu";
 import { handleError } from "@/utils/errorHandler";
+import CodexMenuItems from "@/components/agentchat/CodexMenuItems";
 
 const ChatForkDialog = lazyWithRetry(() => import("@/components/chatfork/ChatForkDialog"), "ChatForkDialog");
 const ForkReviewDialog = lazyWithRetry(() => import("@/components/chatfork/ForkReviewDialog"), "ForkReviewDialog");
@@ -135,6 +136,7 @@ export default function TabContextMenuContent({
     {reviewOpen && <Suspense fallback={null}><ForkReviewDialog open={reviewOpen} onOpenChange={setReviewOpen} forkReviewId={tab.forkReviewId} cwd={tab.projectPath} sourceSessionId={forkSource?.resumeId} /></Suspense>}
       <ContextMenuContent className="w-60 rounded-2xl p-1.5">
         {menuOpen && <Suspense fallback={null}><WorkbenchTabMenuItems tab={tab} paneId={paneId} section="browser" /></Suspense>}
+        {menuOpen && <CodexMenuItems tab={tab} />}
         <ContextMenuItem onClick={() => startRename(tab)}>
           <Pencil /> {t("renameTab")}
         </ContextMenuItem>

@@ -1074,6 +1074,7 @@ dependencies = [
 name = "cc-panes-ctl"
 version = "0.1.0"
 dependencies = [
+ "cc-panes-core",
  "clap",
  "ctrlc",
  "dirs",
@@ -1081,6 +1082,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
  "ureq",
  "url",
 ]

@@ -37,6 +37,8 @@ import StartRecentSessions from "./StartRecentSessions";
 import { takePendingResume } from "./pendingResume";
 import { takePendingStart } from "./pendingStart";
 import { startConfiguredChat } from "./startConfiguredChat";
+import "@/i18n/codexIntegrationResources";
+import { CODEX_APP_SERVER_ENGINE, codexEngineLabel } from "@/lib/codexIntegration";
 import {
   loadAutoApproveKinds,
   loadEnginePrefs,
@@ -55,6 +57,7 @@ const SUGGESTIONS = [
 
 export interface EnginePickerProps {
   chatId: string;
+  preferredEngineId?: string;
   cwd: string;
   onPickCwd: (cwd: string) => void;
   /** 续接历史会话时采用该会话的 cwd（供后续 restart 使用）。 */
@@ -63,10 +66,11 @@ export interface EnginePickerProps {
   onCheckpoints?: () => void;
 }
 
-export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onHistory, onCheckpoints }: EnginePickerProps) {
+export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd, onCwdAdopted, onHistory, onCheckpoints }: EnginePickerProps) {
   const { t } = useTranslation("panes");
   const { t: runtimeT } = useTranslation("agentRuntime");
   const { t: reviewT } = useTranslation("review");
+  const { t: codexT } = useTranslation("codexIntegration");
   const runtimeTools = useChatRuntimeTools();
   const [engines, setEngines] = useState<AcpEngineInfo[] | null>(null);
   const [selectedEngine, setSelectedEngine] = useState<string | null>(null);
@@ -101,8 +105,10 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onH
       .then((list) => {
         if (cancelled) return;
         setEngines(list);
+        const defaultEngine = list.find((engine) => engine.available && engine.id !== CODEX_APP_SERVER_ENGINE)
+          ?? list.find((engine) => engine.available) ?? list[0];
         setSelectedEngine(
-          (previous) => previous ?? (list.find((engine) => engine.available) ?? list[0])?.id ?? null,
+          (previous) => previous ?? preferredEngineId ?? defaultEngine?.id ?? null,
         );
       })
       .catch((listError) => {
@@ -112,7 +118,7 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onH
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [preferredEngineId]);
 
   const loadHistory = useCallback(() => {
     agentChatService
@@ -176,9 +182,9 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onH
   );
 
   const launch = useCallback(() => {
-    if (!cwd || !selectedEngine || startingEngine !== null) return;
+    if (!cwd || !selectedEngine || !engines?.some((engine) => engine.id === selectedEngine && engine.available) || startingEngine !== null) return;
     void start(selectedEngine, cwd, undefined, draft, undefined, worktree);
-  }, [cwd, selectedEngine, startingEngine, start, draft, worktree]);
+  }, [cwd, engines, selectedEngine, startingEngine, start, draft, worktree]);
 
   const selected = engines?.find((engine) => engine.id === selectedEngine) ?? null;
   const workspaces = useWorkspacesStore((state) => state.workspaces);
@@ -313,7 +319,7 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onH
                               : "bg-[var(--app-text-tertiary)]"
                           }`}
                         />
-                        <span className="truncate">{selected?.label ?? t("agentChatPickEngine")}</span>
+                        <span className="truncate">{selected ? codexEngineLabel(selected.id, selected.label) : t("agentChatPickEngine")}</span>
                       </>
                     )}
                     <ChevronDown className="h-3 w-3 text-[var(--app-text-tertiary)]" />
@@ -334,7 +340,7 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onH
                             : "bg-[var(--app-text-tertiary)]"
                         }`}
                       />
-                      {engine.label}
+                      {codexEngineLabel(engine.id, engine.label)}
                       {!engine.available ? (
                         <span className="ml-2 text-[10px] text-[var(--app-text-tertiary)]">
                           {t("agentChatUnavailableEngine")}
@@ -397,7 +403,7 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onH
               <IconTooltipButton
                 label={t("agentChatSend")}
                 kbd="Enter"
-                disabled={!cwd || !selectedEngine || startingEngine !== null}
+                disabled={!cwd || !selected?.available || startingEngine !== null}
                 className="h-8 w-8 rounded-full bg-[var(--app-text-primary)] text-[var(--app-panel-bg)] hover:bg-[var(--app-text-primary)] hover:text-[var(--app-panel-bg)] hover:opacity-85 disabled:opacity-30"
                 onClick={launch}
               >
@@ -411,6 +417,7 @@ export default function EnginePicker({ chatId, cwd, onPickCwd, onCwdAdopted, onH
           </div>
         </div>
 
+        {selectedEngine && engines && !selected?.available && <p role="status" className="text-sm text-[var(--app-text-tertiary)]">{selected?.requirement || codexT("unavailable")}</p>}
         {error ? (
           <div className="whitespace-pre-wrap break-all rounded-lg border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-bg)] px-3 py-2 text-center text-xs text-[var(--app-status-danger)]">
             {t("agentChatStartFailed")}: {error}

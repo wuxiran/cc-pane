@@ -17,9 +17,11 @@ required-features = ["full"]
 
 [features]
 default = ["full"]
-full = ["dep:clap", "dep:rusqlite", "dep:ctrlc"]
+full = ["dep:clap", "dep:rusqlite", "dep:ctrlc", "dep:cc-panes-core", "dep:tokio"]
 
 [dependencies]
+cc-panes-core = { path = "../cc-panes-core", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "signal", "time"], optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 # `run` 子命令吞 Ctrl-C 以便归还门禁槽位（子进程自己会收到控制台事件）。
 ctrlc = { version = "3", optional = true }

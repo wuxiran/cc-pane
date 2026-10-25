@@ -35,6 +35,7 @@ export interface TabCreateInput {
   filePath?: string;
   reviewChatId?: string;
   reviewCliSessionId?: string;
+  agentEngineId?: string;
   /** dsh：所属工作空间路径——决定复用哪个 dsh 实例。 */
   workspacePath?: string;
   /** skill-manager（工作空间作用域）等：所属工作空间名。 */

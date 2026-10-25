@@ -140,6 +140,18 @@ impl AcpChatSession {
 
 impl AcpChatService {
     pub async fn has_background_tools_in(&self, repository: &Path) -> bool {
+        let native = self
+            .native_sessions
+            .read()
+            .await
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for session in native {
+            if session.background_in(repository).await {
+                return true;
+            }
+        }
         let sessions: Vec<_> = self.sessions.read().await.values().cloned().collect();
         for session in sessions {
             if session.terminals.has_running_in(repository).await {

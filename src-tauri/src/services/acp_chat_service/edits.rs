@@ -170,6 +170,9 @@ fn parse_edits(content: &Value) -> Vec<Edit> {
 
 impl AcpChatService {
     pub async fn undo_file_edit(&self, chat_id: &str, request: UndoAcpFileEdit) -> AppResult<()> {
+        if self.native_session(chat_id).await.is_some() {
+            return Err(AppError::coded("ACP_EDIT_UNAVAILABLE", "Native Codex reports patches without complete before/after contents; review and restore the recorded turn instead"));
+        }
         let session = self.session(chat_id).await?;
         // Serialize with prompt admission, so this chat cannot resume writing during undo.
         let _turn = session.turn_control.lock().await;

@@ -23,11 +23,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
+import { codexEngineLabel } from "@/lib/codexIntegration";
 
 export interface ChatSessionHeaderProps {
   engineLabel: string;
   /** 引擎名右侧的工作空间/目录 chip（StartProjectMenu trigger），由父组件注入。 */
   workspaceMenu?: ReactNode;
+  extraMenuItems?: ReactNode;
   generating: boolean;
   changesCount: number;
   showChanges: boolean;
@@ -49,6 +51,7 @@ export interface ChatSessionHeaderProps {
 export default function ChatSessionHeader({
   engineLabel,
   workspaceMenu,
+  extraMenuItems,
   generating,
   changesCount,
   showChanges,
@@ -76,7 +79,7 @@ export default function ChatSessionHeader({
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--app-text-secondary)]">
           <Bot className="h-4 w-4" strokeWidth={1.6} />
         </span>
-        <span className="truncate text-[13px] font-medium text-[var(--app-text-primary)]">{engineLabel}</span>
+        <span className="truncate text-[13px] font-medium text-[var(--app-text-primary)]">{codexEngineLabel(engineLabel)}</span>
         {workspaceMenu ? (
           <div className="agent-chat-header-workspace min-w-0 max-w-[50%] [&>button]:max-w-full">
             {workspaceMenu}
@@ -130,6 +133,7 @@ export default function ChatSessionHeader({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
+          {extraMenuItems}
           <DropdownMenuItem disabled={!canFork} title={!canFork ? t("forkUnsupported") : undefined} onSelect={onFork}>
             <GitFork /> {t("forkChat")}
           </DropdownMenuItem>

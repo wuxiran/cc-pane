@@ -25,6 +25,34 @@ beforeEach(() => {
 afterEach(() => { dropAgentChatState(CHAT); vi.runOnlyPendingTimers(); vi.useRealTimers(); });
 
 describe("history replay event transaction", () => {
+  it("removes only the native approval resolved by the server, preserving unrelated ACP requests", () => {
+    emit("permission_request", { requestKey: "native-approval", params: { options: [] } });
+    emit("permission_request", { requestKey: "acp-approval", params: { options: [] } });
+    useAgentChatStore.getState().beginPermissionResponse(CHAT, "native-approval");
+    emit("permission_resolved", { requestKey: "native-approval" });
+    emit("permission_resolved", { requestKey: "native-approval" });
+    emit("permission_resolved", null);
+    emit("permission_resolved", { requestKey: 123 });
+    expect(useAgentChatStore.getState().chats[CHAT].pendingPermissions.map((request) => request.requestKey)).toEqual(["acp-approval"]);
+    expect(useAgentChatStore.getState().beginPermissionResponse(CHAT, "acp-approval")).toBe(true);
+    useAgentChatStore.getState().finishPermissionResponse(CHAT, "acp-approval");
+    expect(useAgentChatStore.getState().chats[CHAT].pendingPermissions).toEqual([]);
+  });
+
+  it("keeps permission resolution scoped to its chat and separate from elicitation cancellation", () => {
+    const approval = { requestKey: "shared-key", params: { options: [] } };
+    emit("permission_request", approval);
+    useAgentChatStore.getState().enqueuePermission("other-chat", approval);
+    emit("elicitation_request", { requestKey: "shared-key", params: { mode: "form", message: "Question" } });
+    emit("permission_resolved", { requestKey: "shared-key" });
+    expect(useAgentChatStore.getState().chats[CHAT].pendingPermissions).toEqual([]);
+    expect(useAgentChatStore.getState().chats["other-chat"].pendingPermissions).toHaveLength(1);
+    expect(useAgentChatStore.getState().chats[CHAT].pendingElicitations).toHaveLength(1);
+    emit("elicitation_cancelled", { requestKey: "shared-key" });
+    expect(useAgentChatStore.getState().chats[CHAT].pendingElicitations).toEqual([]);
+    dropAgentChatState("other-chat");
+  });
+
   it("replaces a successful replay and flushes the final buffered token before commit", () => {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       state("starting"); replay("begin");

@@ -33,6 +33,7 @@ import ChatSessionControls from "./ChatSessionControls";
 import { groupChatItems, type ChatTurn } from "./chatTurns";
 import { useChatTurnWindow } from "./useChatTurnWindow";
 import EnginePicker from "./EnginePicker";
+import CodexMenuItems from "./CodexMenuItems";
 import SessionWorkspaceMenu from "./SessionWorkspaceMenu";
 import ChatPermissionQueue from "./ChatPermissionQueue";
 import ChatQuestionQueue from "./ChatQuestionQueue";
@@ -236,6 +237,7 @@ function AgentChatLiveView({ tab }: { tab: Tab }) {
       <div className="agent-chat-shell flex h-full min-w-0 flex-col overflow-hidden">
         <EnginePicker
           chatId={tab.id}
+          preferredEngineId={tab.agentEngineId}
           cwd={effectiveCwd}
           onPickCwd={setCwdOverride}
           onCwdAdopted={setCwdOverride}
@@ -275,6 +277,7 @@ function AgentChatLiveView({ tab }: { tab: Tab }) {
       {snapshot ? (
         <ChatSessionHeader
           engineLabel={snapshot.engineId}
+          extraMenuItems={<CodexMenuItems tab={tab} snapshot={snapshot} cwd={effectiveCwd} menuKind="dropdown" />}
           onHistory={runtimeTools?.openHistory}
           onCheckpoints={runtimeTools?.openCheckpoints}
           workspaceMenu={

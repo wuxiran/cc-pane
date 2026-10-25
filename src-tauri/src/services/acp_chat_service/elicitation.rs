@@ -220,7 +220,7 @@ fn supported_schema(schema: &Value) -> bool {
         })
 }
 
-fn validate_response(params: &Value, response: Value) -> AppResult<Value> {
+pub(super) fn validate_response(params: &Value, response: Value) -> AppResult<Value> {
     match response.get("action").and_then(Value::as_str) {
         Some("cancel") => return Ok(json!({"action":"cancel"})),
         Some("decline") => return Ok(json!({"action":"decline"})),
@@ -323,6 +323,9 @@ impl AcpChatService {
         request_key: String,
         response: Value,
     ) -> AppResult<()> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return session.respond_elicitation(request_key, response).await;
+        }
         let session = self.session(chat_id).await?;
         let session_ref = &session;
         let recorded_key = request_key.clone();

@@ -14,6 +14,7 @@ pub(crate) mod edits;
 mod elicitation;
 mod fork;
 pub(crate) mod journal;
+mod native;
 mod runtime;
 
 use std::collections::{HashMap, VecDeque};
@@ -81,6 +82,9 @@ pub struct AcpChatSnapshot {
     pub phase: AcpChatPhase,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acp_session_id: Option<String>,
+    /// A verified native App Server thread identity; ACP sessions never populate it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_thread_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_capabilities: Option<Value>,
     /// initialize 协商出的协议版本。现在只记录不分叉——v2 stabilize 且适配器
@@ -472,6 +476,8 @@ pub struct AcpTurnNotice {
 pub type AcpTurnNotifier = Box<dyn Fn(AcpTurnNotice) + Send + Sync>;
 
 pub struct AcpChatService {
+    lifecycles: std::sync::Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>,
+    native_sessions: RwLock<HashMap<String, Arc<native::Session>>>,
     sessions: RwLock<HashMap<String, Arc<AcpChatSession>>>,
     /// 会话历史元数据目录（`<data>/agent-chats/`）。按 **acpSessionId** 落
     /// 一个 JSON——那才是稳定的对话身份；chatId 是 tab 的运行时身份，
@@ -493,12 +499,33 @@ impl AcpChatService {
         ));
         Self {
             sessions: RwLock::new(HashMap::new()),
+            native_sessions: RwLock::new(HashMap::new()),
+            lifecycles: std::sync::Mutex::new(HashMap::new()),
             chats_dir,
             turn_notifier: Arc::new(std::sync::RwLock::new(None)),
             sidecar_resource_dir: std::sync::RwLock::new(None),
             journal,
             checkpoints,
         }
+    }
+
+    async fn lock_chat_lifecycle(&self, chat_id: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        let lock = {
+            let mut locks = self
+                .lifecycles
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            locks.retain(|_, lock| lock.strong_count() > 0);
+            let key = chat_id.trim().to_string();
+            if let Some(lock) = locks.get(&key).and_then(std::sync::Weak::upgrade) {
+                lock
+            } else {
+                let lock = Arc::new(Mutex::new(()));
+                locks.insert(key, Arc::downgrade(&lock));
+                lock
+            }
+        };
+        lock.lock_owned().await
     }
 
     /// 登记侧车资源目录（setup 阶段一次）。未登记时 ctl 解析退回 exe 同目录候选。
@@ -556,10 +583,22 @@ impl AcpChatService {
                 HashMap::from([("cwd".to_string(), spec.cwd.clone())]),
             ));
         }
+        let _lifecycle = self.lock_chat_lifecycle(&chat_id).await;
+        if spec.engine_id == native::ENGINE {
+            return self.start_native(app, chat_id_trimmed, spec).await;
+        }
+        if self
+            .native_sessions
+            .read()
+            .await
+            .contains_key(chat_id_trimmed)
+        {
+            self.stop_locked(chat_id_trimmed).await?;
+        }
         if self.sessions.read().await.contains_key(chat_id_trimmed) {
             // Replace semantics keep the tab as the single owner of one live
             // conversation: restarting a chat stops the previous process.
-            self.stop(chat_id_trimmed).await.ok();
+            self.stop_locked(chat_id_trimmed).await?;
         }
 
         let mut command = no_window_tokio_command(&spec.command);
@@ -617,6 +656,7 @@ impl AcpChatService {
                 engine_id: spec.engine_id.clone(),
                 phase: AcpChatPhase::Starting,
                 acp_session_id: None,
+                codex_thread_id: None,
                 agent_capabilities: None,
                 protocol_version: None,
                 modes: None,
@@ -869,6 +909,29 @@ impl AcpChatService {
     /// Returns immediately; the turn streams through `session/update` events
     /// and finishes with a `turn_ended` event.
     pub async fn prompt(self: &Arc<Self>, chat_id: &str, blocks: Vec<Value>) -> AppResult<()> {
+        if let Some(session) = self.native_session(chat_id).await {
+            if let (Some(id), Some(text)) = (
+                session.snapshot().await.acp_session_id,
+                blocks.iter().find_map(|block| block["text"].as_str()),
+            ) {
+                self.note_chat_title(&id, text);
+            }
+            let (ack, accepted) = oneshot::channel();
+            tokio::spawn(async move {
+                match session.admit(blocks).await {
+                    Ok(done) => {
+                        let _ = ack.send(Ok(()));
+                        let _ = done.await;
+                    }
+                    Err(error) => {
+                        let _ = ack.send(Err(error));
+                    }
+                }
+            });
+            return accepted
+                .await
+                .map_err(|error| AppError::from(error.to_string()))?;
+        }
         let service = self.clone();
         let session = self.session(chat_id).await?;
         let (ack, accepted) = oneshot::channel();
@@ -894,6 +957,17 @@ impl AcpChatService {
         chat_id: &str,
         blocks: Vec<Value>,
     ) -> AppResult<String> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return tokio::spawn(async move {
+                session
+                    .admit(blocks)
+                    .await?
+                    .await
+                    .map_err(|error| AppError::from(error.to_string()))?
+            })
+            .await
+            .map_err(|error| AppError::from(error.to_string()))?;
+        }
         let service = self.clone();
         let session = self.session(chat_id).await?;
         tokio::spawn(async move {
@@ -907,6 +981,9 @@ impl AcpChatService {
     /// Cancel the in-flight turn. The agent responds to the outstanding
     /// `session/prompt` with `cancelled`, which ends the turn on our side.
     pub async fn cancel(&self, chat_id: &str) -> AppResult<()> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return session.cancel().await;
+        }
         let session = self.session(chat_id).await?;
         let _turn = session.turn_control.lock().await;
         if session.snapshot.read().await.phase != AcpChatPhase::Generating {
@@ -935,6 +1012,9 @@ impl AcpChatService {
     /// Switch the session mode (approval behavior / plan mode / …).
     /// The mode id must come from `modes.availableModes` advertised by the agent.
     pub async fn set_mode(&self, chat_id: &str, mode_id: String) -> AppResult<()> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return session.set_option("mode", json!(mode_id)).await;
+        }
         let session = self.session(chat_id).await?;
         let acp_session_id = session
             .snapshot
@@ -967,6 +1047,9 @@ impl AcpChatService {
 
     /// Switch the model. Only available when the agent advertised `models`.
     pub async fn set_model(&self, chat_id: &str, model_id: String) -> AppResult<()> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return session.set_option("model", json!(model_id)).await;
+        }
         let session = self.session(chat_id).await?;
         let acp_session_id = session
             .snapshot
@@ -1008,6 +1091,9 @@ impl AcpChatService {
         config_id: String,
         value: Value,
     ) -> AppResult<()> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return session.set_option(&config_id, value).await;
+        }
         let session = self.session(chat_id).await?;
         let acp_session_id = session
             .snapshot
@@ -1058,6 +1144,9 @@ impl AcpChatService {
     /// 会话中改自动放行策略（立即对后续 `session/request_permission` 生效；
     /// 已弹出的审批卡不回收，仍由用户回答）。
     pub async fn set_auto_approve(&self, chat_id: &str, kinds: Vec<String>) -> AppResult<()> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return session.set_auto_approve(kinds).await;
+        }
         let session = self.session(chat_id).await?;
         let kinds: Vec<String> = kinds
             .into_iter()
@@ -1080,6 +1169,9 @@ impl AcpChatService {
         request_key: String,
         option_id: Option<String>,
     ) -> AppResult<()> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return session.respond_permission(request_key, option_id).await;
+        }
         let session = self.session(chat_id).await?;
         let outcome = match option_id {
             Some(option_id) => json!({"outcome": {"outcome": "selected", "optionId": option_id}}),
@@ -1106,6 +1198,9 @@ impl AcpChatService {
     }
 
     pub async fn snapshot(&self, chat_id: &str) -> Option<AcpChatSnapshot> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return Some(session.snapshot().await);
+        }
         let session = self.sessions.read().await.get(chat_id.trim()).cloned()?;
         Some(session.snapshot().await)
     }
@@ -1113,6 +1208,15 @@ impl AcpChatService {
     /// Stop the adapter process and forget the chat. Used by tab close and by
     /// explicit conversation restarts.
     pub async fn stop(&self, chat_id: &str) -> AppResult<()> {
+        let _lifecycle = self.lock_chat_lifecycle(chat_id).await;
+        self.stop_locked(chat_id).await
+    }
+
+    async fn stop_locked(&self, chat_id: &str) -> AppResult<()> {
+        let native = self.native_sessions.write().await.remove(chat_id.trim());
+        if let Some(session) = native {
+            session.stop(None).await?;
+        }
         let session = {
             let mut sessions = self.sessions.write().await;
             sessions.remove(chat_id.trim())
@@ -1162,6 +1266,18 @@ impl AcpChatService {
 
     /// Stop every adapter during application shutdown.
     pub async fn cleanup_all(&self) {
+        let native_ids = self
+            .native_sessions
+            .read()
+            .await
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for id in native_ids {
+            if let Err(error) = self.stop(&id).await {
+                tracing::warn!(%error,"Failed to stop native Codex session");
+            }
+        }
         let chat_ids = self
             .sessions
             .read()

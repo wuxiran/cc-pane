@@ -56,6 +56,8 @@ export interface AcpChatSnapshot {
   engineId: string;
   phase: AcpChatPhase;
   acpSessionId?: string;
+  /** Native Codex thread identity, populated only by a verified App Server response. */
+  codexThreadId?: string;
   agentCapabilities?: unknown;
   /** initialize 协商出的 ACP 协议版本（当前恒 1；v2 适配时的分叉依据）。 */
   protocolVersion?: number;

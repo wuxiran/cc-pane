@@ -14,6 +14,8 @@ mod blocking;
 mod browser_commands;
 mod claude_commands;
 mod clipboard_commands;
+mod codex_desktop_commands;
+pub use codex_desktop_commands::*;
 mod drama_commands;
 mod dsh_commands;
 pub(crate) mod dsh_workspace_sync;

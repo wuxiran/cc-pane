@@ -299,6 +299,7 @@ const dshEntry: TabLifecycleEntry = {
 const agentChatEntry: TabLifecycleEntry = {
   createDefaults: (input) => ({
     title: input.title?.trim() || "Agent Chat",
+    ...(input.agentEngineId ? { agentEngineId: input.agentEngineId } : {}),
   }),
   collectResources: (tab, ctx) => ({
     // ACP 会话是独立子进程，不占 CC-Panes 的 PTY——sessionIds 恒空。

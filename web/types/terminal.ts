@@ -263,6 +263,8 @@ export interface Tab {
   /** Review identity is separate from the owning terminal/Agent process. */
   reviewChatId?: string;
   reviewCliSessionId?: string;
+  /** Engine preselection for a new Agent tab; never implies an automatic start. */
+  agentEngineId?: string;
   browserUrl?: string;
   /** User label stays independent of the page's changing document title. */
   browserManualTitle?: string;

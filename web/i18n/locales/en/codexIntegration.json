@@ -1,0 +1,8 @@
+{
+  "open": "Open in Codex",
+  "openExistingHint": "Show this verified Codex thread without sending a message",
+  "openNewHint": "Open a new Codex conversation in this project",
+  "native": "New Codex App Server chat",
+  "nativeHint": "Prepare a separate Agent chat; keep this terminal running",
+  "unavailable": "The selected engine is unavailable. Choose an installed engine."
+}

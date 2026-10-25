@@ -113,6 +113,13 @@ fn resolved_engines(app_paths: &AppPaths) -> Vec<ResolvedEngine> {
 // 桥接型（npx 包）pin 版本防远端发布改协议。
 const ACP_ENGINES: &[AcpEngineSpec] = &[
     AcpEngineSpec {
+        id: "codex-app-server",
+        label: "Codex App Server",
+        executable: "codex",
+        args: &["app-server", "--listen", "stdio://"],
+        requirement: "Logged-in Codex CLI with App Server support",
+    },
+    AcpEngineSpec {
         id: "claude",
         label: "Claude Code",
         executable: "npx",
@@ -121,7 +128,7 @@ const ACP_ENGINES: &[AcpEngineSpec] = &[
     },
     AcpEngineSpec {
         id: "codex",
-        label: "Codex",
+        label: "Codex (ACP)",
         executable: "npx",
         args: &["-y", "@agentclientprotocol/codex-acp@2.2.2"],
         requirement: "npm (npx) + logged-in Codex CLI",
