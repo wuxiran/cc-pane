@@ -51,9 +51,11 @@ describe("TerminalStatusBar", () => {
   });
 
   it("opens review for the current CLI session and excludes remote files", async () => {
+    const openReview = vi.spyOn(usePanesStore.getState(), "openReviewTab").mockReturnValue("review-tab");
     const rendered = render(<TerminalStatusBar terminalContext={terminalContext} projectPath="/repo/worktree" />);
     await userEvent.click(screen.getByRole("button", { name: i18n.t("review:title") }));
-    expect(await screen.findByTestId("session-review-target")).toHaveTextContent("/repo/worktree|cli:session-1|session-1");
+    expect(openReview).toHaveBeenCalledWith("/repo/worktree", { checkpointChatId: "cli:session-1", cliSessionId: "session-1", paneId: undefined });
+    openReview.mockRestore();
     rendered.rerender(<TerminalStatusBar terminalContext={{ ...terminalContext, ssh: true }} projectPath="/remote" />);
     expect(screen.queryByRole("button", { name: i18n.t("review:title") })).not.toBeInTheDocument();
     expect(screen.queryByTestId("session-review-target")).not.toBeInTheDocument();

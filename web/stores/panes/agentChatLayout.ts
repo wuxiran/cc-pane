@@ -18,7 +18,8 @@ export function isAgentChatLayout(layout: Pick<LayoutEntry, "id">): boolean {
 export function isAgentChatWorkbenchTab(tab: Pick<Tab, "contentType">): boolean {
   return tab.contentType === "agent-chat" || tab.contentType === "editor"
     || tab.contentType === "file-explorer" || tab.contentType === "skill-manager"
-    || tab.contentType === "mcp-config";
+    || tab.contentType === "mcp-config" || tab.contentType === "browser"
+    || tab.contentType === "terminal" || tab.contentType === "review";
 }
 
 export function createAgentChatLayout(): LayoutEntry {
@@ -42,7 +43,7 @@ export function ensureAgentChatLayout(layouts: LayoutEntry[]): LayoutEntry {
 }
 
 /**
- * 专用布局保留对话、文件预览与聊天配置页；混入的终端等类型搬去第一个 CLI 布局。
+ * 对话工作台保留网页、终端、审阅、文件和聊天配置；其他工具落在 CLI 布局。
  * 每个面板至少保留一个对话入口，关闭最后一个对话后不丢失已打开的文件。
  *
  * 调用点都是「别名干净」的时机：rehydrate（纯对象）、switchLayout / removeTabs

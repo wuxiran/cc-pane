@@ -767,14 +767,22 @@ impl FileSystemService {
         if Self::is_readonly_path(&file_path) {
             return Err("Cannot create file in read-only path".into());
         }
-        if file_path.exists() {
-            return Err(format!("'{}' already exists", path).into());
-        }
         if let Some(parent) = file_path.parent() {
             Self::validate_path(&parent.to_string_lossy())?;
         }
-        fs::write(&file_path, "")?;
-        Ok(())
+        // Atomic exclusive creation also rejects dangling symlinks. Checking
+        // exists() before fs::write() can truncate a file created in between.
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&file_path)
+        {
+            Ok(_) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                Err(format!("'{}' already exists", path).into())
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// 创建目录
@@ -1327,6 +1335,43 @@ mod tests {
         fs::write(&file, "x").unwrap();
         let err = svc().create_file(&path_str(&file)).unwrap_err();
         assert!(err.message().contains("already exists"));
+        assert_eq!(fs::read_to_string(&file).unwrap(), "x");
+    }
+
+    #[test]
+    fn create_file_only_one_concurrent_creator_succeeds() {
+        let tmp = TempDir::new().unwrap();
+        let file = path_str(&tmp.path().join("concurrent.md"));
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let attempts: Vec<_> = (0..2)
+            .map(|_| {
+                let file = file.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    svc().create_file(&file).is_ok()
+                })
+            })
+            .collect();
+        let successes = attempts
+            .into_iter()
+            .map(|attempt| usize::from(attempt.join().unwrap()))
+            .sum::<usize>();
+        assert_eq!(successes, 1);
+        assert_eq!(fs::read_to_string(file).unwrap(), "");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn create_file_rejects_dangling_symlink_without_creating_target() {
+        let tmp = TempDir::new().unwrap();
+        let target = tmp.path().join("missing.md");
+        let link = tmp.path().join("link.md");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let err = svc().create_file(&path_str(&link)).unwrap_err();
+        assert!(err.message().contains("already exists"));
+        assert!(!target.exists());
+        assert!(fs::symlink_metadata(link).unwrap().file_type().is_symlink());
     }
 
     #[cfg(windows)]

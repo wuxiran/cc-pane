@@ -1,6 +1,6 @@
 import i18n from "@/i18n";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Tab } from "@/types";
 import { usePanesStore, useTerminalRestoreLogStore } from "@/stores";
@@ -9,10 +9,6 @@ import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 
 const terminalViewMock = vi.hoisted(() => vi.fn());
 const coldRestoreMock = vi.hoisted(() => vi.fn());
-
-vi.mock("@/components/review/SessionReviewPanel", () => ({
-  default: ({ projectPath }: { projectPath: string }) => <output data-testid="terminal-review-cwd">{projectPath}</output>,
-}));
 
 vi.mock("@/hooks/coldTerminalRestore", () => ({
   coldRestoreBlockedTerminal: coldRestoreMock,
@@ -76,6 +72,7 @@ function renderTerminalTabContent(
 }
 
 describe("TerminalTabContent", () => {
+  afterEach(() => { vi.restoreAllMocks(); });
   beforeEach(() => {
     useTerminalRestoreLogStore.getState().reset();
     terminalViewMock.mockClear();
@@ -87,11 +84,14 @@ describe("TerminalTabContent", () => {
     [undefined, "/workspace", "/workspace"],
     [undefined, undefined, "/tmp/project"],
   ])("reviews the actual terminal cwd with launch/workspace/project precedence", async (launchExtras, workspacePath, expected) => {
+    const openReview = vi.spyOn(usePanesStore.getState(), "openReviewTab").mockReturnValue("review-tab");
     renderTerminalTabContent(createTerminalTab({ terminalRootPane: {
       type: "leaf", id: "leaf-1", sessionId: "live-session", launchExtras, workspacePath,
     } }), { showStatusBar: true });
     fireEvent.click(screen.getByRole("button", { name: i18n.t("review:title") }));
-    expect(await screen.findByTestId("terminal-review-cwd")).toHaveTextContent(expected);
+    expect(openReview).toHaveBeenCalledExactlyOnceWith(expected, {
+      paneId: undefined, checkpointChatId: "cli:live-session", cliSessionId: "live-session",
+    });
   });
 
   it("excludes WSL terminals from local repository review even when the host path exists", () => {

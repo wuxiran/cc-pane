@@ -42,6 +42,7 @@ import {
   type TabViewState,
 } from "./tabViewState";
 import { terminalTabDefaults } from "./terminalTabDefaults";
+import i18n from "@/i18n";
 
 /** 一个 tab 关闭时需要回收的后端资源清单。 */
 export interface TabResources {
@@ -117,6 +118,9 @@ export interface PersistedUndoSnapshot {
   projectPath: string;
   title: string;
   browserUrl?: string;
+  browserManualTitle?: string;
+  browserPageTitle?: string;
+  browserFaviconUrl?: string;
   filePath?: string;
   /** 组件级视图状态（onPersist 产出，onRestoreState 消费）。 */
   viewState?: TabViewState;
@@ -213,10 +217,9 @@ const terminalEntry: TabLifecycleEntry = {
 };
 
 const browserEntry: TabLifecycleEntry = {
-  // 标题留空会让标签栏出现一个无名条目，故有兜底文案；URL 不兜底（无 URL 的
-  // browser 标签渲染层直接 return null，兜一个假 URL 只会掩盖调用方的 bug）。
+  // Empty browser targets render the local tool page without creating a WebView.
   createDefaults: (input) => ({
-    title: input.title?.trim() || "Browser",
+    title: input.title?.trim() || (!input.browserUrl || input.browserUrl === "about:blank" ? i18n.t("panes:newTabPage.title") : "Browser"),
     browserUrl: input.browserUrl,
   }),
   collectResources: (tab, ctx) => ({
@@ -240,6 +243,9 @@ const browserEntry: TabLifecycleEntry = {
           projectPath: tab.projectPath,
           title: tab.title,
           browserUrl: tab.browserUrl,
+          browserManualTitle: tab.browserManualTitle,
+          browserPageTitle: tab.browserPageTitle,
+          browserFaviconUrl: tab.browserFaviconUrl,
         }
       : null,
   onClosed: (tab) => {
@@ -389,6 +395,10 @@ export const TAB_LIFECYCLE: Record<TabContentType, TabLifecycleEntry> = {
   dsh: dshEntry,
   "agent-chat": agentChatEntry,
   editor: editorEntry,
+  review: {
+    ...inertEntry(),
+    createDefaults: (input) => ({ reviewChatId: input.reviewChatId, reviewCliSessionId: input.reviewCliSessionId }),
+  },
   "file-explorer": inertEntry(),
   "mcp-config": inertEntry(),
   "skill-manager": inertEntry(),

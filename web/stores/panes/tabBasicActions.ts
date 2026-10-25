@@ -1,8 +1,7 @@
 // 标签基础 actions：增删改查、选中/切换/最小化、pin/star、popout 标记。
 // 从 usePanesStore.ts 拆出（纯代码移动，逻辑不变）；在 usePanesStore 里 spread 挂载。
 import { collectPanels, findPane, notifyTerminalLayoutChanged, syncTabTerminalState } from "@/lib/paneTree";
-import { AGENT_CHAT_LAYOUT_ID } from "@/types";
-import { firstCliLayout, resolveLayoutWriteTarget } from "../paneLayoutHelpers";
+import { resolveLayoutWriteTarget } from "../paneLayoutHelpers";
 import type { PanesState } from "../panesStoreTypes";
 import { createTab } from "./createTab";
 import { findTabAcrossLayouts } from "./crossLayoutSearch";
@@ -34,14 +33,7 @@ export function createTabBasicActions({ set, get }: PanesStoreAccess): TabBasicA
   return {
     addTab: (paneId, opts, layoutId) => {
       set((state) => {
-        // 终端标签不进 Agent Chat 专用布局：漏进的入口回退第一个普通布局
-        // （专用布局的 + 菜单已收敛，这里是兜底防线）。
-        let targetId = layoutId;
-        if ((targetId ?? state.currentLayoutId) === AGENT_CHAT_LAYOUT_ID) {
-          const fallback = firstCliLayout(state.layouts);
-          if (fallback) targetId = fallback.id;
-        }
-        const target = resolveLayoutWriteTarget(state, targetId);
+        const target = resolveLayoutWriteTarget(state, layoutId);
         if (!target) return;
         const tree = target.tree;
         const fallbackPaneId = target.isCurrent ? state.activePaneId : "";
@@ -90,7 +82,12 @@ export function createTabBasicActions({ set, get }: PanesStoreAccess): TabBasicA
         const pane = findPane(state.rootPane, paneId);
         if (pane?.type !== "panel") return;
         const tab = pane.tabs.find((t) => t.id === tabId);
-        if (tab) tab.title = newTitle;
+        if (tab) {
+          tab.title = newTitle;
+          if (tab.contentType === "browser" || tab.contentType === "dsh") {
+            tab.browserManualTitle = newTitle;
+          }
+        }
       });
     },
 

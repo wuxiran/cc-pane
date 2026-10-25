@@ -1,0 +1,8 @@
+{
+  "title": "Annotate page", "hint": "Drag a region on the screenshot and add a note. This frozen image does not interact with the live page.", "capturing": "Capturing the current page…",
+  "frozenImage": "Frozen browser screenshot for annotation", "drawRegion": "Drag to mark an annotation region", "undo": "Undo annotation", "save": "Save image and notes", "saved": "Annotated image and metadata saved",
+  "copyReference": "Copy reference", "copyImage": "Copy image", "referenceCopied": "Image path, source and notes copied", "imageCopied": "Annotated image copied",
+  "notes": "{{count}} notes", "empty": "Mark a region on the screenshot to describe a change or issue.", "noteNumber": "Note {{number}}", "remove": "Delete note {{number}}", "notePlaceholder": "Describe the issue or requested change…",
+  "draftTarget": "Target Agent draft", "chooseAgent": "Choose a running Agent session", "addToDraft": "Add to draft", "addedToDraft": "Added to the conversation draft; not sent", "draftHint": "Agent receives a draft only. Paste the copied image or reference into a CLI session.",
+  "discard": "These annotations have not been saved. Close and discard them?"
+}

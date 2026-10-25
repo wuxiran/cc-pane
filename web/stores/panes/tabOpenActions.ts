@@ -8,7 +8,7 @@ import {
   restoreClosedTabSplitTree,
   trimClosedTabs,
 } from "../closedTabsUndo";
-import { activateFirstNormalLayout, activeLayout, firstNormalLayout, isNormalLayout } from "../paneLayoutHelpers";
+import { activateFirstNormalLayout, activeLayout, firstNormalLayout, isNormalLayout, resolveLayoutWriteTarget } from "../paneLayoutHelpers";
 import type { PanesState } from "../panesStoreTypes";
 import { createTab } from "./createTab";
 import { findLayout } from "./layoutTraversal";
@@ -238,27 +238,26 @@ export function createTabOpenActions({ set, get }: PanesStoreAccess): TabOpenAct
       });
     },
 
-    openFileExplorer: (projectPath, title) => {
-      const active = get().activePane();
-      if (!active) return;
-
-      const existing = active.tabs.find(
-        (t) => t.contentType === "file-explorer" && t.projectPath === projectPath
-      );
-      if (existing) {
-        get().selectTab(active.id, existing.id);
-        return;
-      }
-
+    openFileExplorer: (projectPath, title, options) => {
       set((state) => {
-        const pane = findPane(state.rootPane, state.activePaneId);
-        if (pane?.type !== "panel") return;
+        const target = resolveLayoutWriteTarget(state, options?.layoutId);
+        if (!target) return;
+        const requested = findPane(target.tree, options?.paneId ?? (target.isCurrent ? state.activePaneId : ""));
+        const pane = requested?.type === "panel" ? requested : collectPanels(target.tree)[0];
+        if (!pane) return;
+        const existing = pane.tabs.find((tab) => tab.contentType === "file-explorer" && tab.projectPath === projectPath);
+        if (existing) {
+          pane.activeTabId = existing.id;
+          target.setActivePaneId(pane.id);
+          return;
+        }
         const newTab = createTabOfType("file-explorer", {
           title: `Explorer - ${title}`,
           projectPath,
         });
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
+        target.setActivePaneId(pane.id);
       });
     },
   };

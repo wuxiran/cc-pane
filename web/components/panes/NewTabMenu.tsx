@@ -1,9 +1,7 @@
 // 标签栏右端的「＋」入口。
 //
-// 拆出来是因为它已经不是一个按钮了：浏览器 tab 此前**只能**靠 MCP open_browser_tab
-// 打开、桌面端完全没有入口，file-explorer 也只有移动端原型能开。现在 ＋ 左键仍是
-// 「新建终端」（保持老手感），右侧箭头展开其余类型。
-import { Bot, ChevronDown, FileText, FolderTree, Globe2, MessagesSquare, Plus, Server, Terminal } from "lucide-react";
+// ＋ 打开本地工具首页，右侧箭头可直接新建终端、浏览器和项目内容。
+import { Bot, ChevronDown, FileDiff, FileText, FolderTree, Globe2, MessagesSquare, Plus, Server, Terminal } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +17,8 @@ import type { TFunction } from "i18next";
  */
 export interface NewTabActions {
   onAdd: () => void;
+  onAddTerminal?: () => void;
+  onAddReview?: () => void;
   /** 新建浏览器 tab（桌面端此前无入口，只能靠 MCP open_browser_tab） */
   onAddBrowser?: () => void;
   /** 新建 DeepSeek Harness tab（托管 dsh web 进程 + 浏览器窗格渲染） */
@@ -37,6 +37,8 @@ export default function NewTabMenu({
   addBtnClass,
   addIconClass,
   onAdd,
+  onAddTerminal,
+  onAddReview,
   onAddBrowser,
   onAddDsh,
   onAddAgentChat,
@@ -70,9 +72,10 @@ export default function NewTabMenu({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-44">
-          <DropdownMenuItem onSelect={onAdd}>
+          <DropdownMenuItem onSelect={onAddTerminal ?? onAdd}>
             <Terminal /> {t("newTerminalTab")}
           </DropdownMenuItem>
+          {onAddReview && <DropdownMenuItem onSelect={onAddReview}><FileDiff /> {t("reviewChanges", { defaultValue: "Review changes" })}</DropdownMenuItem>}
           {onAddBrowser && (
             <DropdownMenuItem onSelect={onAddBrowser}>
               <Globe2 /> {t("newBrowserTab")}

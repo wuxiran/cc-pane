@@ -26,6 +26,8 @@ vi.mock("./BrowserTabContent", () => ({
     <div data-testid="browser-tab-content" data-tab-id={tab.id} />
   ),
 }));
+vi.mock("./NewTabPage", () => ({ default: ({ tab }: { tab: Tab }) => <div data-testid="new-tab-page">{tab.id}</div> }));
+vi.mock("@/components/review/SessionReviewContent", () => ({ default: ({ checkpointChatId }: { checkpointChatId: string }) => <div data-testid="review-content">{checkpointChatId}</div> }));
 
 vi.mock("@/services/popupWindowService", () => ({
   popOutTab: vi.fn(),
@@ -178,5 +180,19 @@ describe("TabContentRenderer", () => {
 
     const browser = await screen.findByTestId("browser-tab-content");
     expect(browser).toHaveAttribute("data-tab-id", "tab-1");
+  });
+
+  it("renders the local tool page without creating a native browser for about:blank", async () => {
+    renderContent(makeTab({ contentType: "browser", browserUrl: "about:blank" }));
+    expect(await screen.findByTestId("new-tab-page")).toHaveTextContent("tab-1");
+    expect(screen.queryByTestId("browser-tab-content")).not.toBeInTheDocument();
+  });
+
+  it("renders files opened without a project and keeps reviews in the panel", async () => {
+    const result = renderContent(makeTab({ contentType: "editor", projectPath: "", filePath: "/tmp/notes.md" }));
+    expect(await screen.findByTestId("editor-view")).toHaveAttribute("data-file-path", "/tmp/notes.md");
+    result.unmount();
+    renderContent(makeTab({ contentType: "review", reviewChatId: "agent-id" }));
+    expect(await screen.findByTestId("review-content")).toHaveTextContent("agent-id");
   });
 });

@@ -1,0 +1,21 @@
+{
+  "newTabPage": {
+    "title": "新标签页",
+    "address": "输入网址",
+    "go": "打开网页",
+    "invalidAddress": "请输入有效的 http 或 https 网址。",
+    "tools": "工具",
+    "review": "变更",
+    "reviewHint": "审阅工作区、分支或已记录轮次",
+    "terminal": "终端",
+    "terminalHint": "在此项目中打开终端",
+    "file": "文件",
+    "fileHint": "打开代码、Markdown 或图片",
+    "agent": "Agent 对话",
+    "agentHint": "在此项目中开始新对话",
+    "directory": "项目文件",
+    "directoryHint": "在标签页中浏览目录",
+    "page": "新建页面",
+    "pageHint": "创建空白 Markdown 文件"
+  }
+}

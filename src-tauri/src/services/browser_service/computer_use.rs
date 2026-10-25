@@ -28,6 +28,7 @@ pub struct BrowserElement {
 #[serde(rename_all = "camelCase")]
 pub struct BrowserDomSnapshot {
     pub page_token: String,
+    pub document_id: String,
     pub url: String,
     pub title: String,
     pub text: String,
@@ -388,6 +389,7 @@ mod tests {
     #[test]
     fn native_dispatch_guard_rejects_navigation_after_validation() {
         let page = std::sync::Arc::new(Mutex::new(BrowserPageState {
+            title: String::new(),
             generation: 1,
             token: Some("seen".into()),
             url: Some("https://fixture.test/".into()),
@@ -414,6 +416,7 @@ mod tests {
                 tab.into(),
                 BrowserTabEntry {
                     label: tab.into(),
+                    presentation: Default::default(),
                     visibility: BrowserVisibility::new(true),
                     automation: Default::default(),
                     page_state: Default::default(),

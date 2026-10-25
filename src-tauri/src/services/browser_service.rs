@@ -11,6 +11,9 @@ use tauri::{
 };
 
 mod computer_use;
+mod metadata;
+mod presentation;
+pub use presentation::{BrowserHostState, BrowserViewportRequest, BrowserViewportResult};
 #[cfg(target_os = "macos")]
 mod macos;
 pub use computer_use::{BrowserDomSnapshot, BrowserElement, BrowserTabInfo, BrowserViewport};
@@ -115,6 +118,8 @@ struct BrowserPageLoadEvent {
 struct BrowserTitleChangedEvent {
     tab_id: String,
     title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    favicon_url: Option<String>,
 }
 
 impl BrowserBounds {
@@ -185,6 +190,7 @@ pub fn truncate_cdp_result(value: &str, max_bytes: usize) -> String {
 #[derive(Debug, Clone)]
 struct BrowserTabEntry {
     label: String,
+    presentation: presentation::BrowserPresentation,
     /// 该标签的 webview 当前是否处于 `show()` 状态。
     ///
     /// 截图必须知道这件事：隐藏的 WebView2 合成器停止产帧，
@@ -200,6 +206,7 @@ struct BrowserTabEntry {
 
 #[derive(Debug, Default)]
 struct BrowserPageState {
+    title: String,
     generation: u64,
     token: Option<String>,
     url: Option<String>,
@@ -424,6 +431,7 @@ impl BrowserTabManager {
         let title_tab_id = tab_id.to_string();
         let page_state = std::sync::Arc::new(Mutex::new(BrowserPageState::default()));
         let load_page_state = page_state.clone();
+        let title_page_state = page_state.clone();
         let webview = main_window
             .add_child(
                 WebviewBuilder::new(label.clone(), WebviewUrl::External(parsed_url))
@@ -441,14 +449,40 @@ impl BrowserTabManager {
                             url: payload.url().to_string(),
                             loading: payload.event() == PageLoadEvent::Started,
                         };
-                        let _ = load_app.emit_to("main", "browser-page-load", event);
+                        if payload.event() == PageLoadEvent::Finished {
+                            metadata::refresh(
+                                load_app.clone(),
+                                _webview.clone(),
+                                load_tab_id.clone(),
+                                load_page_state.clone(),
+                            );
+                        }
+                        let _ = load_app.emit_to("main", "browser-page-load", &event);
+                        if _webview.window().label() != "main" {
+                            let _ = load_app.emit_to(
+                                _webview.window().label(),
+                                "browser-page-load",
+                                &event,
+                            );
+                        }
                     })
                     .on_document_title_changed(move |_webview, title| {
+                        if let Ok(mut page) = title_page_state.lock() {
+                            page.title = title.chars().take(512).collect();
+                        }
                         let event = BrowserTitleChangedEvent {
                             tab_id: title_tab_id.clone(),
                             title,
+                            favicon_url: None,
                         };
-                        let _ = title_app.emit_to("main", "browser-title-changed", event);
+                        let _ = title_app.emit_to("main", "browser-title-changed", &event);
+                        if _webview.window().label() != "main" {
+                            let _ = title_app.emit_to(
+                                _webview.window().label(),
+                                "browser-title-changed",
+                                &event,
+                            );
+                        }
                     }),
                 bounds.logical_position(),
                 bounds.logical_size(),
@@ -468,6 +502,7 @@ impl BrowserTabManager {
                 tab_id.to_string(),
                 BrowserTabEntry {
                     label,
+                    presentation: presentation::BrowserPresentation::new(bounds),
                     visibility: BrowserVisibility::new(visible),
                     automation: Default::default(),
                     page_state,
@@ -574,13 +609,23 @@ impl BrowserTabManager {
             .lock()
             .map_err(|_| "browser tab registry lock is poisoned".to_string())?
             .remove(tab_id);
-        let Some(BrowserTabEntry { label, .. }) = entry else {
+        let Some(BrowserTabEntry {
+            label,
+            presentation,
+            ..
+        }) = entry
+        else {
             return Ok(());
         };
         if let Some(webview) = app.get_webview(&label) {
             webview
                 .close()
                 .map_err(|error| format!("failed to close browser webview: {error}"))?;
+        }
+        if presentation.host != "main" {
+            if let Some(window) = app.get_window(&presentation.host) {
+                window.destroy().map_err(|e| e.to_string())?;
+            }
         }
         Ok(())
     }
@@ -1096,6 +1141,7 @@ mod tests {
             "tab-1".to_string(),
             super::BrowserTabEntry {
                 label: "browser-tab-1".to_string(),
+                presentation: Default::default(),
                 visibility: super::BrowserVisibility::new(false),
                 automation: Default::default(),
                 page_state: Default::default(),
@@ -1134,6 +1180,7 @@ mod tests {
                 tab_id.into(),
                 super::BrowserTabEntry {
                     label: tab_id.into(),
+                    presentation: Default::default(),
                     visibility: super::BrowserVisibility::new(false),
                     automation: Default::default(),
                     page_state: Default::default(),

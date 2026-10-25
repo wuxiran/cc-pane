@@ -17,6 +17,7 @@
     "global-shortcut:default",
     "clipboard-manager:default",
     "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-write-image",
     "clipboard-manager:allow-read-text",
     "core:window:default",
     "core:window:allow-create",

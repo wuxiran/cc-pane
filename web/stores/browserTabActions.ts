@@ -7,8 +7,15 @@ import { ensureAgentChatLayout } from "./panes/agentChatLayout";
 import { resolveLayoutWriteTarget } from "./paneLayoutHelpers";
 import { collectPanels, findPane } from "@/lib/paneTree";
 import { createTabOfType } from "@/lib/tabLifecycle/tabFactory";
+import { safeBrowserFavicon } from "@/lib/browserTabPresentation";
 
 export interface OpenBrowserOptions {
+  projectPath?: string;
+  /** Insert immediately after a specific tab in the target pane. */
+  insertAfterTabId?: string;
+  browserManualTitle?: string;
+  browserPageTitle?: string;
+  browserFaviconUrl?: string;
   /** 落位到指定窗格；缺省或找不到时回落当前活动窗格 */
   paneId?: string;
   /** 已有同 URL 标签时复用并聚焦（默认 true） */
@@ -28,7 +35,7 @@ export interface BrowserTabActions {
     tabId?: string,
     options?: OpenBrowserOptions,
   ) => string | null;
-  updateBrowserTab: (tabId: string, patch: { browserUrl?: string; title?: string }) => void;
+  updateBrowserTab: (tabId: string, patch: { browserUrl?: string; title?: string; faviconUrl?: string; manualTitle?: string | null }) => void;
   /**
    * 开一个 DeepSeek Harness 标签。
    *
@@ -155,8 +162,14 @@ export function createBrowserTabActions(
           id: tabId,
           title,
           browserUrl: url,
+          projectPath: options?.projectPath,
         });
-        pane.tabs.push(newTab);
+        newTab.browserManualTitle = options?.browserManualTitle;
+        newTab.browserPageTitle = options?.browserPageTitle;
+        newTab.browserFaviconUrl = safeBrowserFavicon(options?.browserFaviconUrl, url);
+        const after = options?.insertAfterTabId
+          ? pane.tabs.findIndex((item) => item.id === options.insertAfterTabId) : -1;
+        pane.tabs.splice(after < 0 ? pane.tabs.length : after + 1, 0, newTab);
         pane.activeTabId = newTab.id;
         target.setActivePaneId(pane.id);
         actualTabId = newTab.id;
@@ -225,8 +238,19 @@ export function createBrowserTabActions(
           findBrowserTab(state.rootPane, tabId) ??
           state.layouts.map((layout) => findBrowserTab(layout.rootPane, tabId)).find(Boolean);
         if (!tab) return;
-        if (patch.browserUrl !== undefined) tab.browserUrl = patch.browserUrl;
-        if (patch.title !== undefined && patch.title.trim()) tab.title = patch.title.trim();
+        if (patch.browserUrl !== undefined && patch.browserUrl !== tab.browserUrl) {
+          tab.browserUrl = patch.browserUrl;
+          tab.browserFaviconUrl = undefined;
+        }
+        if (patch.title?.trim()) {
+          tab.browserPageTitle = patch.title.trim();
+          if (!tab.browserManualTitle) tab.title = patch.title.trim();
+        }
+        if (patch.faviconUrl !== undefined) tab.browserFaviconUrl = safeBrowserFavicon(patch.faviconUrl, tab.browserUrl);
+        if (patch.manualTitle !== undefined) {
+          tab.browserManualTitle = patch.manualTitle?.trim() || undefined;
+          tab.title = tab.browserManualTitle || tab.browserPageTitle || tab.title;
+        }
       });
     },
   };

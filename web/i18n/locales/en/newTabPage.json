@@ -1,0 +1,21 @@
+{
+  "newTabPage": {
+    "title": "New tab",
+    "address": "Enter a website address",
+    "go": "Open website",
+    "invalidAddress": "Enter a valid http or https website address.",
+    "tools": "Tools",
+    "review": "Changes",
+    "reviewHint": "Review the working tree, branch or a recorded turn",
+    "terminal": "Terminal",
+    "terminalHint": "Open a shell in this project",
+    "file": "File",
+    "fileHint": "Open code, Markdown or an image",
+    "agent": "Agent Chat",
+    "agentHint": "Start a conversation in this project",
+    "directory": "Project files",
+    "directoryHint": "Browse a folder in a tab",
+    "page": "New page",
+    "pageHint": "Create an empty Markdown file"
+  }
+}

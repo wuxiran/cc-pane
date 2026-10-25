@@ -1,0 +1,12 @@
+{
+  "newRight": "在右侧打开新标签页",
+  "duplicate": "复制标签页",
+  "reload": "重新加载",
+  "copyUrl": "复制 URL",
+  "openExternal": "在外部浏览器中打开",
+  "popOut": "移至新窗口",
+  "moveLeft": "移至左侧面板",
+  "moveRight": "移至右侧面板",
+  "pageTitle": "使用网页标题",
+  "failed": "操作失败：{{error}}"
+}

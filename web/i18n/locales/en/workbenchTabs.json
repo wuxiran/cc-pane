@@ -1,0 +1,12 @@
+{
+  "newRight": "New tab to the right",
+  "duplicate": "Duplicate tab",
+  "reload": "Reload",
+  "copyUrl": "Copy URL",
+  "openExternal": "Open in external browser",
+  "popOut": "Move to new window",
+  "moveLeft": "Move to left panel",
+  "moveRight": "Move to right panel",
+  "pageTitle": "Use page title",
+  "failed": "Action failed: {{error}}"
+}

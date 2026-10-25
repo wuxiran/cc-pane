@@ -5,6 +5,7 @@ import rehypeHighlight from "rehype-highlight";
 import { isLocalAssetPath, resolveRelativeAssetPath } from "@/utils/mdAssetPath";
 import { toAssetUrl } from "@/utils/assetUrl";
 import MermaidBlock from "./MermaidBlock";
+import "./markdownPreview.css";
 
 interface MarkdownPreviewProps {
   content: string;
@@ -39,13 +40,15 @@ const MarkdownPreview = forwardRef<HTMLDivElement, MarkdownPreviewProps>(
       <div
         ref={ref}
         onScroll={(event) => onScroll?.(event.currentTarget)}
-        className="markdown-preview h-full overflow-y-auto px-6 py-4 prose prose-sm dark:prose-invert max-w-none"
+        className="markdown-preview h-full overflow-y-auto px-6 py-6"
       >
+        <article className="markdown-document">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[[rehypeHighlight, { detect: false }]]}
           urlTransform={urlTransform}
           components={{
+            table: ({ children, ...props }) => <div className="markdown-table-scroll"><table {...props}>{children}</table></div>,
             pre: ({ children, ...props }) => {
               const mermaid = mermaidSource(children);
               if (mermaid !== null) return <MermaidBlock code={mermaid} />;
@@ -55,6 +58,7 @@ const MarkdownPreview = forwardRef<HTMLDivElement, MarkdownPreviewProps>(
         >
           {content}
         </ReactMarkdown>
+        </article>
       </div>
     );
   },

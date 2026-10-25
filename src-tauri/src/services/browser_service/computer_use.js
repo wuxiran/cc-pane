@@ -37,7 +37,7 @@
   let state = window[key];
   if (request.action === "snapshot") {
     if (!state || state.document !== document) {
-      state = { document, ids: new WeakMap(), nextId: 1 };
+      state = { document, documentId: request.pageToken, ids: new WeakMap(), nextId: 1 };
       Object.defineProperty(window, key, { value: state, configurable: true });
     }
     state.token = request.pageToken;
@@ -73,7 +73,7 @@
       texts.push(text); length += text.length;
       if (length >= 8000) { truncated = true; break; }
     }
-    const result = { pageToken: state.token, url: location.href, title: clean(document.title, 300),
+    const result = { pageToken: state.token, documentId: state.documentId, url: location.href, title: clean(document.title, 300),
       text: texts.join("\n").slice(0, 8000), elements, truncated, viewport: { width: innerWidth, height: innerHeight } };
     while (new TextEncoder().encode(JSON.stringify(result)).length > 42000 && result.elements.length) {
       state.elements.delete(result.elements.pop().id); result.truncated = true;

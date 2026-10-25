@@ -66,6 +66,7 @@ export function collectTabsByContentType(node: PaneNode): Record<TabContentType,
     "mcp-config": [],
     "skill-manager": [],
     "memory-manager": [],
+    review: [],
   } as Record<TabContentType, Tab[]>;
   for (const tab of collectTabs(node)) {
     buckets[tab.contentType]?.push(tab);

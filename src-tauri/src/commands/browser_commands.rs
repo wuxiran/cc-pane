@@ -1,6 +1,6 @@
 use crate::services::{
-    BrowserBounds, BrowserDomSnapshot, BrowserOpenTabEvent, BrowserTabInfo, BrowserTabManager,
-    ScreenshotService,
+    BrowserBounds, BrowserDomSnapshot, BrowserHostState, BrowserOpenTabEvent, BrowserTabInfo,
+    BrowserTabManager, BrowserViewportRequest, BrowserViewportResult, ScreenshotService,
 };
 use crate::utils::AppResult;
 use std::sync::Arc;
@@ -9,34 +9,37 @@ use tauri::{AppHandle, Emitter, State};
 #[tauri::command]
 pub async fn browser_create(
     app: AppHandle,
+    window: tauri::Window,
     manager: State<'_, Arc<BrowserTabManager>>,
     tab_id: String,
     url: String,
     bounds: BrowserBounds,
     visible: bool,
 ) -> AppResult<()> {
-    manager.create(&app, &tab_id, &url, bounds, visible)
+    manager.create_for_host(&app, window.label(), &tab_id, &url, bounds, visible)
 }
 
 #[tauri::command]
 pub fn browser_set_bounds(
     app: AppHandle,
+    window: tauri::Window,
     manager: State<'_, Arc<BrowserTabManager>>,
     tab_id: String,
     bounds: BrowserBounds,
 ) -> AppResult<()> {
-    manager.set_bounds(&app, &tab_id, bounds)
+    manager.set_bounds_for_host(&app, window.label(), &tab_id, bounds)
 }
 
 #[tauri::command]
 pub fn browser_set_visible(
     app: AppHandle,
+    window: tauri::Window,
     manager: State<'_, Arc<BrowserTabManager>>,
     tab_id: String,
     visible: bool,
     focus: bool,
 ) -> AppResult<()> {
-    manager.set_visible(&app, &tab_id, visible, focus)
+    manager.set_visible_for_host(&app, window.label(), &tab_id, visible, focus)
 }
 
 #[tauri::command]
@@ -181,4 +184,59 @@ pub async fn browser_click_element(
     manager
         .click_element(&app, &tab_id, &page_token, element_id)
         .await
+}
+
+#[tauri::command]
+pub fn browser_host_state(
+    app: AppHandle,
+    manager: State<'_, Arc<BrowserTabManager>>,
+    tab_id: String,
+) -> AppResult<BrowserHostState> {
+    manager.host_state(&app, &tab_id)
+}
+
+#[tauri::command]
+pub async fn browser_set_viewport(
+    app: AppHandle,
+    window: tauri::Window,
+    manager: State<'_, Arc<BrowserTabManager>>,
+    tab_id: String,
+    bounds: BrowserBounds,
+    viewport: Option<BrowserViewportRequest>,
+) -> AppResult<BrowserViewportResult> {
+    manager
+        .set_viewport(&app, window.label(), &tab_id, bounds, viewport)
+        .await
+}
+
+#[tauri::command]
+pub async fn browser_pop_out(
+    app: AppHandle,
+    window: tauri::Window,
+    manager: State<'_, Arc<BrowserTabManager>>,
+    tab_id: String,
+) -> AppResult<()> {
+    if window.label() != "main" {
+        return Err("Only the main window can detach a browser tab".into());
+    }
+    manager.inner().pop_out(&app, &tab_id)
+}
+
+#[tauri::command]
+pub async fn browser_reclaim(
+    app: AppHandle,
+    manager: State<'_, Arc<BrowserTabManager>>,
+    tab_id: String,
+) -> AppResult<()> {
+    manager.reclaim(&app, &tab_id).await
+}
+
+#[tauri::command]
+pub fn browser_release_host(
+    app: AppHandle,
+    window: tauri::Window,
+    manager: State<'_, Arc<BrowserTabManager>>,
+    tab_id: String,
+) -> AppResult<()> {
+    manager.release_host(&app, window.label(), &tab_id)
 }

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo, memo } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, memo, Suspense } from "react";
 import { X, Pin, ChevronLeft, ChevronRight, Link2, Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
@@ -6,7 +6,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useTerminalStatusStore } from "@/stores";
 import TabBadgeDots from "./TabBadgeDots";
 import InlineRename from "@/components/ui/InlineRename";
-import SessionBindDialog from "@/components/panes/SessionBindDialog";
+import { lazyWithRetry } from "@/lib/lazyRetry";
 import { computeTabNumbers } from "@/lib/tabNumbering";
 import type { Tab, TerminalStatusType } from "@/types";
 import type { TFunction } from "i18next";
@@ -19,6 +19,7 @@ import TabContextMenu, {
   type LayoutMoveTarget,
   type PaneMoveTarget,
 } from "./TabContextMenu";
+const SessionBindDialog = lazyWithRetry(() => import("./SessionBindDialog"), "SessionBindDialog");
 interface TabBarProps {
   paneId: string;
   tabs: Tab[];
@@ -206,7 +207,8 @@ function SortableTab({
             : `${d.inactiveRadius} ${d.inactiveMargin} hover:bg-[var(--notch-tab-hover-bg)] hover:text-[var(--notch-tab-hover-fg)]`
           }`}
         style={active ? {
-          background: 'transparent',
+          background: 'var(--notch-tab-active-bg)',
+          boxShadow: 'var(--sh-sm), inset 0 0 0 1px var(--notch-tab-border)',
           color: activeTabFg ?? 'var(--app-text-primary)',
           fontWeight: 600,
         } : {
@@ -215,14 +217,6 @@ function SortableTab({
         onClick={isEditing ? undefined : () => onSelect(tab.id)}
         onDoubleClick={isEditing ? undefined : () => onFullscreen(tab.id)}
       >
-        {/* 激活态:底部 accent 下划线,一眼分明 */}
-        {active ? (
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-2.5 bottom-0 h-[2px] rounded-full"
-            style={{ background: "var(--app-accent)" }}
-          />
-        ) : null}
         <TabTypeIcon tab={tab} statusSize={d.statusSize} iconSize={d.pinSize} getStatus={getStatus} />
         {/* 会话绑定标志：绿=已确定 resume id（重启可恢复），灰=未绑定（点击手动绑定） */}
         {tab.contentType === "terminal" && tab.cliTool && tab.cliTool !== "none" && (
@@ -578,19 +572,6 @@ export default memo(function TabBar({
                 t={t}
               />
             ))}
-            <NewTabMenu
-              addBtnClass={d.addBtn}
-              addIconClass={d.addIcon}
-              {...newTab}
-              t={t}
-            />
-            <PaneSplitButtons
-              paneId={paneId}
-              addBtnClass={d.addBtn}
-              addIconClass={d.addIcon}
-              splitRightLabel={t("splitPanelRight")}
-              splitDownLabel={t("splitPanelDown")}
-            />
           </div>
         </SortableContext>
       </div>
@@ -605,13 +586,18 @@ export default memo(function TabBar({
           <ChevronRight className="h-3.5 w-3.5" />
         </button>
       )}
-      <SessionBindDialog
+      <div data-testid="pane-tabbar-tools" className="flex shrink-0 items-center gap-0.5 pr-1">
+        <NewTabMenu addBtnClass={d.addBtn} addIconClass={d.addIcon} {...newTab} t={t} />
+        <PaneSplitButtons paneId={paneId} addBtnClass={d.addBtn} addIconClass={d.addIcon}
+          splitRightLabel={t("splitPanelRight")} splitDownLabel={t("splitPanelDown")} />
+      </div>
+      {sessionBindTab && <Suspense fallback={null}><SessionBindDialog
         tab={sessionBindTab}
         open={sessionBindTab !== null}
         onOpenChange={(open) => {
           if (!open) setSessionBindTab(null);
         }}
-      />
+      /></Suspense>}
       </div>
     </PaneHeaderContextMenuWrapper>
   );

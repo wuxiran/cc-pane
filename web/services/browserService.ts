@@ -17,6 +17,7 @@ export interface BrowserPageLoadEvent {
 export interface BrowserTitleChangedEvent {
   tabId: string;
   title: string;
+  faviconUrl?: string;
 }
 
 export interface BrowserPageElement {
@@ -36,6 +37,7 @@ export interface BrowserPageElement {
 
 export interface BrowserPageSnapshot {
   pageToken: string;
+  documentId?: string;
   url: string;
   title: string;
   text: string;
@@ -51,7 +53,21 @@ export interface BrowserTabInfo {
   visible: boolean;
 }
 
+export interface BrowserHostState { tabId: string; hostWindow: string; url: string; title: string }
+export interface BrowserViewportRequest { width: number; height: number; scale: number }
+export interface BrowserViewportResult { width: number; height: number; scale: number; displayWidth?: number; displayHeight?: number }
+
 export const browserService = {
+  releaseHost(tabId: string): Promise<void> { return invoke("browser_release_host", { tabId }); },
+  hostState(tabId: string): Promise<BrowserHostState> { return invoke("browser_host_state", { tabId }); },
+  setViewport(tabId: string, bounds: BrowserBounds, viewport: BrowserViewportRequest | null): Promise<BrowserViewportResult> {
+    return invoke("browser_set_viewport", { tabId, bounds, viewport });
+  },
+  popOut(tabId: string): Promise<void> { return invoke("browser_pop_out", { tabId }); },
+  reclaim(tabId: string): Promise<void> { return invoke("browser_reclaim", { tabId }); },
+  onHostChanged(handler: (event: BrowserHostState) => void) {
+    return listenWebviewIfTauri<BrowserHostState>("browser-host-changed", (event) => handler(event.payload));
+  },
   snapshot(tabId: string): Promise<BrowserPageSnapshot> {
     return invoke("browser_snapshot", { tabId });
   },

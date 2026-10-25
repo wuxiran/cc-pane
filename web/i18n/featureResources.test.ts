@@ -2,6 +2,20 @@ import { describe, expect, it } from "vitest";
 import i18n from "./index";
 
 describe("feature translations loaded with lazy components", () => {
+  it("keeps the new-tab title eager and loads detailed page copy with the page", async () => {
+    expect(i18n.getFixedT("en", "panes")("newTabPage.title")).toBe("New tab");
+    await import("./newTabPageResources");
+    expect(i18n.getFixedT("en", "panes")("newTabPage.address")).toBe("Enter a website address");
+    expect(i18n.getFixedT("zh-CN", "panes")("newTabPage.title")).toBe("新标签页");
+    expect(i18n.getFixedT("zh-CN", "panes")("newTabPage.pageHint")).not.toContain("newTabPage.");
+  });
+
+  it("loads the binding dialog copy separately while keeping tab tooltip labels eager", async () => {
+    expect(i18n.getFixedT("en", "panes")("sessionBindUnboundTooltip")).toContain("Click to bind");
+    await import("./sessionBindResources");
+    expect(i18n.getFixedT("en", "panes")("sessionBindAction")).toBe("Bind");
+    expect(i18n.getFixedT("zh-CN", "panes")("sessionBindTitle")).toBe("会话绑定");
+  });
   it("keeps the fork-review entry translated and loads all detailed strings in both languages", async () => {
     expect(i18n.getFixedT("zh-CN", "panes")("forkReviewTitle")).toBe("比较分叉结果");
     await import("./forkReviewResources");

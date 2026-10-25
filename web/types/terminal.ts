@@ -238,7 +238,7 @@ export interface TerminalPaneSplit {
 export interface Tab {
   id: string;
   title: string;
-  contentType: "terminal" | "browser" | "dsh" | "agent-chat" | "mcp-config" | "skill-manager" | "memory-manager" | "file-explorer" | "editor";
+  contentType: "terminal" | "browser" | "dsh" | "agent-chat" | "mcp-config" | "skill-manager" | "memory-manager" | "file-explorer" | "editor" | "review";
   projectId: string;
   projectPath: string;
   /** Live PTY session id owned by CC-Panes. */
@@ -260,7 +260,14 @@ export interface Tab {
   launchClaude?: boolean;
   cliTool?: CliTool;
   filePath?: string;
+  /** Review identity is separate from the owning terminal/Agent process. */
+  reviewChatId?: string;
+  reviewCliSessionId?: string;
   browserUrl?: string;
+  /** User label stays independent of the page's changing document title. */
+  browserManualTitle?: string;
+  browserPageTitle?: string;
+  browserFaviconUrl?: string;
   dirty?: boolean;
   reclaimKey?: number;
   ssh?: import("./workspace").SshConnectionInfo;

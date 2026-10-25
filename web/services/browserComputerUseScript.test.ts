@@ -31,8 +31,17 @@ describe("production browser Computer Use page script", () => {
     const first = snapshot("first");
     const next = snapshot("next");
     expect(first.elements[0].id).toBe(next.elements[0].id);
+    expect(first.documentId).toBe(next.documentId);
     expect(run({ action: "validate", pageToken: "first" }).error).toContain("Stale");
     expect(run({ action: "validate", pageToken: "next" }).success).toBe(true);
+  });
+
+  it("changes document identity after a same-URL document replacement", () => {
+    const first = snapshot("before-reload");
+    Reflect.deleteProperty(window, "__ccpanesComputerUseV1");
+    const next = snapshot("after-reload");
+    expect(next.url).toBe(first.url);
+    expect(next.documentId).not.toBe(first.documentId);
   });
 
   it("redacts editor and field contents from interactive ancestors and wrapping labels", () => {

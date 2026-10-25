@@ -4,7 +4,7 @@
 // 类型也没有任何集中映射：图标散落在 TabBar（只有 browser 有）、文字散落在移动端
 // 原型的 tabKindLabel。这里一次性收口，新增 contentType 时**必须**同步本文件的两张
 // 表（TAB_CONTENT_GROUP / TAB_CONTENT_ICON），`tabContentType.test.ts` 会穷举断言。
-import { Bot, FileText, FolderTree, Globe2, MessagesSquare, Settings2, Terminal } from "lucide-react";
+import { Bot, FileDiff, FileText, FolderTree, Globe2, MessagesSquare, Settings2, Terminal } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Tab } from "@/types";
 
@@ -36,6 +36,7 @@ export const TAB_CONTENT_GROUP: Record<TabContentType, TabContentGroup> = {
   // 渲染），不是网页也不是文件。
   "agent-chat": "terminal",
   editor: "files",
+  review: "files",
   "file-explorer": "files",
   "mcp-config": "tools",
   "skill-manager": "tools",
@@ -56,6 +57,7 @@ export const TAB_CONTENT_ICON: Record<TabContentType, LucideIcon> = {
   dsh: Bot,
   "agent-chat": MessagesSquare,
   editor: FileText,
+  review: FileDiff,
   "file-explorer": FolderTree,
   "mcp-config": Settings2,
   "skill-manager": Settings2,

@@ -28,7 +28,7 @@ export interface EditorTabActions {
     filePath: string,
     title: string,
     layoutId?: string,
-    options?: { forcePaneTab?: boolean },
+    options?: { forcePaneTab?: boolean; paneId?: string },
   ) => string | null;
   closeEditorTabsByPath: (filePath: string) => void;
   listEditorTabsAcrossLayouts: () => EditorTabFileInfo[];
@@ -128,14 +128,13 @@ export function createEditorTabActions(
         const target = resolveLayoutWriteTarget(state, targetLayoutId);
         if (!target) return;
         const fallbackPaneId = target.isCurrent ? state.activePaneId : "";
-        const basePane = findPane(target.tree, fallbackPaneId);
+        const basePane = findPane(target.tree, options?.paneId ?? fallbackPaneId);
         const pane = basePane?.type === "panel" ? basePane : collectPanels(target.tree)[0];
         if (pane?.type !== "panel") return;
         const newTab = createTabOfType("editor", { title, projectPath, filePath });
         pane.tabs.push(newTab);
         pane.activeTabId = newTab.id;
-        // 非当前布局：把落点记进该布局的 activePaneId，用户切过去就能看到这个文件
-        if (!target.isCurrent) target.setActivePaneId(pane.id);
+        target.setActivePaneId(pane.id);
       });
       return targetLayoutId;
     },

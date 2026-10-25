@@ -140,6 +140,13 @@ describe("TabBar", () => {
     expect(onAddSsh).toHaveBeenCalledOnce();
   });
 
+  it("keeps new-tab and split tools outside the horizontal tab viewport", () => {
+    renderTabBar({ tabs: Array.from({ length: 20 }, (_, index) => makeTab(`tab-${index}`, `Long title ${index}`)) });
+    const tools = screen.getByTestId("pane-tabbar-tools");
+    expect(tools).toContainElement(screen.getByRole("button", { name: i18n.t("panes:newTab") }));
+    expect(screen.getByTestId("pane-tabbar-scroll")).not.toContainElement(tools);
+  });
+
   it("右键重命名后应进入编辑态并提交新标题", async () => {
     const user = userEvent.setup();
     const onRename = vi.fn();

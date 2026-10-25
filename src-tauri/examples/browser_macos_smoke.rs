@@ -4,7 +4,7 @@
 
 #[cfg(target_os = "macos")]
 mod macos {
-    use cc_panes_lib::services::{BrowserBounds, BrowserTabManager};
+    use cc_panes_lib::services::{BrowserBounds, BrowserTabManager, BrowserViewportRequest};
     use cc_panes_lib::utils::AppResult;
     use serde_json::{json, Value};
     use std::io::{Read, Write};
@@ -12,11 +12,11 @@ mod macos {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::Duration;
-    use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+    use tauri::{AppHandle, Listener, Manager, WebviewUrl, WebviewWindowBuilder};
 
     const TAB: &str = "owned-browser-acceptance";
     const HTML: &str = r#"<!doctype html><meta charset="utf-8"><title>CC-Panes owned browser fixture</title>
-<style>body{margin:0;background:#1375cb;min-height:1800px}button{position:absolute;left:20px;top:20px;width:100px;height:50px}#red{position:absolute;left:200px;top:100px;width:80px;height:80px;background:#e31c2c}input{position:absolute;left:20px;top:100px;width:120px}input[type=password]{top:140px}#field-two{top:180px}</style>
+<link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jY1cAAAAASUVORK5CYII="><style>body{margin:0;background:#1375cb;min-height:1800px}button{position:absolute;left:20px;top:20px;width:100px;height:50px}#red{position:absolute;left:200px;top:100px;width:80px;height:80px;background:#e31c2c}input{position:absolute;left:20px;top:100px;width:120px}input[type=password]{top:140px}#field-two{top:180px}</style>
 <button id="click">Click fixture</button><div id="red"></div><input id="field" aria-label="Fixture input" value="seed"><input type="password" value="fixture-secret"><form action="/submitted"><input id="field-two" aria-label="Second input"></form>
 <script>window.fixture={clicks:0,trusted:false,inputEvents:0,inputTrusted:false,key:'',keyTrusted:false};document.getElementById('click').onclick=e=>{fixture.clicks++;fixture.trusted=e.isTrusted};document.getElementById('field').oninput=e=>{fixture.inputEvents++;fixture.inputTrusted=e.isTrusted};document.getElementById('field').onkeydown=e=>{fixture.key=e.key;fixture.keyTrusted=e.isTrusted};</script>"#;
 
@@ -53,6 +53,19 @@ mod macos {
         dir: PathBuf,
         url: String,
     ) -> AppResult<Value> {
+        let favicon_seen = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let favicon_observed = favicon_seen.clone();
+        let favicon_listener = app.listen_any("browser-title-changed", move |event| {
+            if let Ok(value) = serde_json::from_str::<Value>(event.payload()) {
+                if value["tabId"] == TAB
+                    && value["faviconUrl"]
+                        .as_str()
+                        .is_some_and(|icon| icon.starts_with("data:image/png;base64,"))
+                {
+                    favicon_observed.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
+        });
         manager.create(
             &app,
             TAB,
@@ -159,6 +172,11 @@ mod macos {
         {
             return Err("hidden screenshot left the fixture visible".into());
         }
+        if !favicon_seen.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("Native page metadata did not emit its raster favicon".into());
+        }
+        app.unlisten(favicon_listener);
+        let presentation = presentation_smoke(&manager, &app, &dir).await?;
         manager.close(&app, TAB)?;
         if manager.evaluate(&app, TAB, "1").await.is_ok() {
             return Err("closed browser tab unexpectedly evaluated".into());
@@ -166,7 +184,196 @@ mod macos {
         Ok(
             json!({"success": true, "backend":"WKWebView", "promise":initial, "exception":exception, "statement":statement, "evaluationTimeoutMs":timeout_ms,
             "nativeClick":clicked, "png":image, "pngDimensions":dimensions, "hiddenPng":hidden_image,
-            "hiddenStateRestored":true, "outOfBoundsRejected":true, "closedTabRejected":true,"computerUse":computer_use}),
+            "faviconExtracted":true, "presentation":presentation, "hiddenStateRestored":true, "outOfBoundsRejected":true, "closedTabRejected":true,"computerUse":computer_use}),
+        )
+    }
+
+    async fn presentation_smoke(
+        manager: &Arc<BrowserTabManager>,
+        app: &AppHandle,
+        dir: &Path,
+    ) -> AppResult<Value> {
+        manager.set_visible(app, TAB, true, false)?;
+        let old = manager.snapshot(app, TAB).await?;
+        let bounds = BrowserBounds::try_new(20.0, 20.0, 1000.0, 700.0)?;
+        let actual = manager
+            .set_viewport(
+                app,
+                "main",
+                TAB,
+                bounds,
+                Some(BrowserViewportRequest {
+                    width: 1440.0,
+                    height: 1000.0,
+                    scale: 0.57,
+                }),
+            )
+            .await?;
+        if (actual.width - 1440.0).abs() > 2.0 || (actual.height - 1000.0).abs() > 2.0 {
+            let geometry = evaluate(manager, app, "JSON.stringify({width:innerWidth,height:innerHeight,outerWidth,outerHeight,dpr:devicePixelRatio,visual:{width:visualViewport.width,height:visualViewport.height},client:{width:document.documentElement.clientWidth,height:document.documentElement.clientHeight}})").await?;
+            return Err(format!(
+                "Responsive preview is not the requested real CSS viewport: {actual:?}; {geometry}"
+            )
+            .into());
+        }
+        let before_rejected = evaluate(
+            manager,
+            app,
+            "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})",
+        )
+        .await?;
+        if manager
+            .set_viewport(
+                app,
+                "main",
+                TAB,
+                bounds,
+                Some(BrowserViewportRequest {
+                    width: 1440.0,
+                    height: 1000.0,
+                    scale: 1.0,
+                }),
+            )
+            .await
+            .is_ok()
+        {
+            return Err("Oversized host viewport was accepted".into());
+        }
+        let after_rejected = evaluate(
+            manager,
+            app,
+            "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})",
+        )
+        .await?;
+        if before_rejected != after_rejected {
+            return Err("Failed viewport request changed live native geometry".into());
+        }
+        evaluate(manager, app, "window.fixtureWidthDescriptor = Object.getOwnPropertyDescriptor(window, 'innerWidth'); Object.defineProperty(window, 'innerWidth', {get:()=>0, configurable:true}); true").await?;
+        let failed_readback = manager
+            .set_viewport(
+                app,
+                "main",
+                TAB,
+                bounds,
+                Some(BrowserViewportRequest {
+                    width: 1000.0,
+                    height: 1440.0,
+                    scale: 0.45,
+                }),
+            )
+            .await
+            .is_err();
+        evaluate(manager, app, "Object.defineProperty(window, 'innerWidth', fixtureWidthDescriptor); delete window.fixtureWidthDescriptor; true").await?;
+        let after_rollback = evaluate(manager, app, "new Promise(resolve=>setTimeout(()=>resolve({width:innerWidth,height:innerHeight,dpr:devicePixelRatio}),100))").await?;
+        if !failed_readback || before_rejected != after_rollback {
+            return Err(format!("Failed readback did not roll back native viewport: {before_rejected} -> {after_rollback}").into());
+        }
+        let media = evaluate(manager, app, "matchMedia('(min-width:1400px)').matches").await?;
+        if media["result"]["value"] != true {
+            return Err("Responsive media query did not use CSS viewport".into());
+        }
+        if manager
+            .press_key(app, TAB, &old.page_token, "Enter")
+            .await
+            .is_ok()
+        {
+            return Err("Viewport resize accepted an old page token".into());
+        }
+        evaluate(manager, app, "fixture.clicks=0; document.getElementById('field').value='preserve me'; window.keepAcrossHosts=42; history.pushState({}, '', '#preserve')").await?;
+        manager.click(app, TAB, 50.0, 40.0).await?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let clicked = evaluate(
+            manager,
+            app,
+            "({clicks:fixture.clicks,trusted:fixture.trusted})",
+        )
+        .await?;
+        if clicked["result"]["value"]["clicks"] != 1
+            || clicked["result"]["value"]["trusted"] != true
+        {
+            return Err(format!("Scaled trusted click missed: {clicked}").into());
+        }
+        let scaled_png = manager.screenshot(app, TAB, dir).await?;
+        let rotated = manager
+            .set_viewport(
+                app,
+                "main",
+                TAB,
+                bounds,
+                Some(BrowserViewportRequest {
+                    width: 1000.0,
+                    height: 1440.0,
+                    scale: 0.45,
+                }),
+            )
+            .await?;
+        if (rotated.width - 1000.0).abs() > 2.0 || (rotated.height - 1440.0).abs() > 2.0 {
+            return Err(format!("Rotated CSS viewport incorrect: {rotated:?}").into());
+        }
+        manager.pop_out(app, TAB)?;
+        let detached = manager.host_state(app, TAB)?;
+        if detached.host_window == "main" {
+            return Err("Browser did not detach".into());
+        }
+        let retained = evaluate(manager, app, "({value:document.getElementById('field').value,marker:keepAcrossHosts,hash:location.hash})").await?;
+        if retained["result"]["value"]
+            != json!({"value":"preserve me","marker":42,"hash":"#preserve"})
+        {
+            return Err(format!("Reparent lost live document: {retained}").into());
+        }
+        // Stale main-window geometry/visibility cannot affect the detached page.
+        manager.set_bounds_for_host(
+            app,
+            "main",
+            TAB,
+            BrowserBounds::try_new(20.0, 20.0, 600.0, 400.0)?,
+        )?;
+        manager.set_visible_for_host(app, "main", TAB, true, false)?;
+        let rejected = manager
+            .set_viewport(app, "main", TAB, bounds, None)
+            .await
+            .is_err();
+        if !rejected {
+            return Err("Old host changed popup viewport".into());
+        }
+        manager.reclaim(app, TAB).await?;
+        let reclaimed = manager.host_state(app, TAB)?;
+        if reclaimed.host_window != "main" || app.get_window(&detached.host_window).is_some() {
+            return Err("Browser popup was not reclaimed/destroyed".into());
+        }
+        manager.create_for_host(
+            app,
+            "main",
+            TAB,
+            "http://localhost/stale-saved-url",
+            BrowserBounds::try_new(20.0, 20.0, 600.0, 400.0)?,
+            true,
+        )?;
+        let restored = evaluate(manager, app, "document.getElementById('field').value === 'preserve me' && keepAcrossHosts === 42 && location.hash === '#preserve'").await?;
+        if restored["result"]["value"] != true {
+            return Err("Reclaim lost browser state".into());
+        }
+        manager.pop_out(app, TAB)?;
+        let second_host = manager.host_state(app, TAB)?.host_window;
+        manager.release_host(app, "main", TAB)?;
+        if !manager.contains(TAB) {
+            return Err("Layout unmount destroyed detached browser".into());
+        }
+        app.get_window(&second_host)
+            .ok_or("Popup missing")?
+            .close()
+            .map_err(|e| e.to_string())?;
+        for _ in 0..100 {
+            if manager.is_host(TAB, "main") && app.get_window(&second_host).is_none() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        if !manager.is_host(TAB, "main") || app.get_window(&second_host).is_some() {
+            return Err("Native window close did not reclaim its browser".into());
+        }
+        Ok(
+            json!({"actual":actual,"rotated":rotated,"mediaQuery":true,"trustedScaledClick":clicked,"scaledPng":scaled_png,"staleTokenRejected":true,"failedViewportUnchanged":true,"readbackFailureRolledBack":true,"reattachPreservedCurrentPage":true,"staleHostRejected":true,"reparentStatePreserved":retained,"reclaimed":true,"nativeWindowCloseReclaimed":true,"layoutUnmountPreservedPopup":true}),
         )
     }
 
@@ -350,14 +557,14 @@ mod macos {
             .setup(move |app| {
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url.parse()?))
                     .title("CC-Panes owned browser acceptance fixture")
-                    .inner_size(640.0, 460.0)
+                    .inner_size(1100.0, 800.0)
                     .build()?;
                 let handle = app.handle().clone();
                 let manager = Arc::clone(&manager);
                 let worker_exit_status = run_exit_status.clone();
                 tauri::async_runtime::spawn(async move {
                     let result = tokio::time::timeout(
-                        Duration::from_secs(35),
+                        Duration::from_secs(55),
                         run(manager, handle.clone(), dir.clone(), url),
                     )
                     .await;

@@ -1,0 +1,14 @@
+{
+  "cloneTerminal": "克隆终端",
+  "splitAndMoveRight": "面板 · 移至右侧",
+  "splitAndMoveDown": "面板 · 移至下方",
+  "sendToLayout": "发送到布局",
+  "sendToPane": "发送到窗格",
+  "closeTerminalPane": "终端 · 关闭窗格",
+  "starTab": "添加星标",
+  "unstarTab": "取消星标",
+  "enterFullscreenTab": "进入全屏",
+  "exitFullscreenTab": "退出全屏",
+  "popOutWindow": "弹出为独立窗口",
+  "editWorkspaceEnvironment": "编辑运行环境"
+}

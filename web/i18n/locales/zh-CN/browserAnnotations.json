@@ -1,0 +1,8 @@
+{
+  "title": "网页批注", "hint": "在截图上拖动框选并填写说明。此处编辑定格图片，不会点击网页。", "capturing": "正在截取当前页面…",
+  "frozenImage": "用于批注的网页截图", "drawRegion": "拖动框选批注区域", "undo": "撤销标注", "save": "保存图片与说明", "saved": "批注图片与元数据已保存",
+  "copyReference": "复制引用", "copyImage": "复制图片", "referenceCopied": "已复制图片路径、来源与说明", "imageCopied": "已复制带批注图片",
+  "notes": "{{count}} 条批注", "empty": "在左侧截图上框出需要修改或讨论的区域。", "noteNumber": "批注 {{number}}", "remove": "删除批注 {{number}}", "notePlaceholder": "描述问题或希望调整的内容…",
+  "draftTarget": "目标 Agent 草稿", "chooseAgent": "选择已启动的 Agent 会话", "addToDraft": "添加到草稿", "addedToDraft": "已加入会话草稿，尚未发送", "draftHint": "Agent 只加入草稿。CLI 可粘贴复制的图片或引用。",
+  "discard": "当前批注尚未保存，关闭并放弃这些批注？"
+}

@@ -3,6 +3,10 @@ import {
   ArrowLeft,
   ArrowRight,
   Code2,
+  ExternalLink,
+  PanelTop,
+  Pencil,
+  Maximize2,
   Copy,
   LoaderCircle,
   LockKeyhole,
@@ -17,7 +21,7 @@ import type { Tab } from "@/types";
 import { usePanesStore } from "@/stores";
 import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore";
 import { useTabViewStateStore, viewKey } from "@/stores/useTabViewStateStore";
-import { browserService, type BrowserBounds } from "@/services/browserService";
+import { browserService, type BrowserBounds, type BrowserViewportResult } from "@/services/browserService";
 import { browserSecurityKind, normalizeBrowserUrl } from "@/lib/browserUrl";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import {
@@ -27,9 +31,12 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import BrowserResizeHandle from "./BrowserResizeHandle";
+import BrowserViewportToolbar, { DEFAULT_BROWSER_PREVIEW, previewScale, type BrowserPreviewSettings } from "./BrowserViewportToolbar";
 import { isTauriRuntime } from "@/services/runtime";
 import { lazyWithRetry } from "@/lib/lazyRetry";
 
+const BrowserAnnotationPanel = lazyWithRetry(() => import("./BrowserAnnotationPanel"), "BrowserAnnotationPanel");
 const BrowserComputerUsePanel = lazyWithRetry(() => import("./BrowserComputerUsePanel"), "BrowserComputerUsePanel");
 
 // A late native create may outlive its React owner, including a same-tab remount.
@@ -37,11 +44,14 @@ const browserViewOwners = new Map<string, symbol>();
 
 function closeUnownedBrowser(tabId: string) {
   if (browserViewOwners.has(tabId)) return;
-  void browserService.close(tabId).catch((cause) => console.error("[Browser] Failed to close released view:", cause));
+  void browserService.releaseHost(tabId).catch((cause) => console.error("[Browser] Failed to close released view:", cause));
 }
 
 interface BrowserTabContentProps {
   tab: Tab;
+  popup?: boolean;
+  popupVisible?: boolean;
+  popupActive?: boolean;
 }
 
 type BrowserError =
@@ -61,18 +71,31 @@ function isUnsupportedBrowserProtocolError(message: string): boolean {
     || normalized.includes("browser tabs only support http and https urls");
 }
 
-export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) {
+export default memo(function BrowserTabContent({ tab, popup = false, popupVisible = true, popupActive = true }: BrowserTabContentProps) {
   const { t } = useTranslation("panes");
   const { t: toolsT } = useTranslation("browserTools");
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [annotationOpen, setAnnotationOpen] = useState(false);
+  const [detached, setDetached] = useState(false);
+  const [preview, setPreview] = useState<BrowserPreviewSettings | null>(null);
+  const [actualViewport, setActualViewport] = useState<BrowserViewportResult | null>(null);
+  const [available, setAvailable] = useState({ width: 800, height: 600 });
+  const stageRef = useRef<HTMLDivElement>(null);
+  const viewportSequence = useRef(0);
+  const hostSequence = useRef(0);
+  const appliedPreview = useRef(false);
+  const scale = preview ? previewScale(preview, { width: available.width - 20, height: available.height - 20 }) : 1;
+  const previewFits = !preview || (preview.width * scale <= available.width && preview.height * scale <= available.height);
+  const previewRef = useRef({ preview, scale });
+  previewRef.current = { preview, scale };
   // 可见性读单视图（Panel 的 useReportPaneVisibility 对全部 contentType 上报
   // primary），渲染与 webview 焦点都看本视图，不看聚合。条目未登记视为不可见
   // ——webview 创建有 isVisible 门槛，宁可晚一帧创建也不在后台建。
   const primaryVisibility = useTabViewStateStore(
     (s) => s.views[viewKey(tab.id, "primary")]?.visibility,
   );
-  const isVisible = primaryVisibility !== undefined && primaryVisibility !== "hidden";
-  const isActive = primaryVisibility === "active";
+  const isVisible = previewFits && (popup ? popupVisible : primaryVisibility !== undefined && primaryVisibility !== "hidden");
+  const isActive = popup ? popupActive : primaryVisibility === "active";
   const viewportRef = useRef<HTMLDivElement>(null);
   const createdRef = useRef(false);
   const pendingCreates = useRef(0);
@@ -111,11 +134,20 @@ export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) 
   }, [t]);
 
   const syncBounds = useCallback(() => {
-    if (!createdRef.current || !isVisible) return;
-    const bounds = viewportBounds(viewportRef.current);
-    if (!bounds) return;
-    void browserService.setBounds(tab.id, bounds).catch(reportError);
-  }, [isVisible, reportError, tab.id]);
+    if (!createdRef.current || !isVisible || detached) return;
+    const { preview: config, scale: displayScale } = previewRef.current;
+    const rect = viewportBounds(config ? stageRef.current : viewportRef.current);
+    if (!rect) return;
+    const bounds = config ? { x: rect.x + 16, y: rect.y + 16, width: rect.width - 32, height: rect.height - 32 } : rect;
+    if (config || appliedPreview.current) {
+      const sequence = ++viewportSequence.current;
+      appliedPreview.current = Boolean(config);
+      void browserService.setViewport(tab.id, bounds, config ? { width: config.width, height: config.height, scale: displayScale } : null)
+        .then((actual) => { if (sequence === viewportSequence.current) setActualViewport(actual); }).catch(reportError);
+    } else {
+      void browserService.setBounds(tab.id, bounds).catch(reportError);
+    }
+  }, [detached, isVisible, reportError, tab.id]);
 
   // Ownership lives for the tab mount, not for URL/focus/visibility effects.
   useEffect(() => {
@@ -130,11 +162,11 @@ export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) 
     return () => {
       if (browserViewOwners.get(tab.id) !== owner) return;
       browserViewOwners.delete(tab.id);
-      if (isTauriRuntime()) closeUnownedBrowser(tab.id);
+      if (isTauriRuntime() && !popup) closeUnownedBrowser(tab.id);
     };
     // The owner is deliberately independent of navigation within this tab.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab.id]);
+  }, [tab.id, popup]);
 
   useEffect(() => {
     if (!isTauriRuntime() || !isVisible) return;
@@ -151,16 +183,28 @@ export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) 
       const shouldShow = visibilityRef.current.isVisible && !webviewBlockedRef.current;
       loadedUrlRef.current = targetUrl;
       pendingCreates.current++;
-      void browserService.create(tab.id, targetUrl, bounds, shouldShow)
-        .then(() => {
+      const attaching = !createdRef.current;
+      const operation = createdRef.current
+        ? browserService.navigate(tab.id, targetUrl)
+        : browserService.create(tab.id, targetUrl, bounds, shouldShow);
+      void operation.then(() => {
           if (browserViewOwners.get(tab.id) !== owner) {
             // No successor owns this tab: a genuinely unmounted pending create
             // needs a final close. A successor's native view must stay alive.
-            closeUnownedBrowser(tab.id);
+            if (!popup) closeUnownedBrowser(tab.id);
             return;
           }
           if (!current()) return;
           createdRef.current = true;
+          syncBounds();
+          if (!popup && attaching) {
+            const hostRequest = hostSequence.current;
+            void browserService.hostState(tab.id).then((state) => {
+              if (!current() || hostRequest !== hostSequence.current) return;
+              setDetached(state.hostWindow !== "main");
+              if (state.url && /^https?:/.test(state.url)) { loadedUrlRef.current = state.url; setAddress(state.url); usePanesStore.getState().updateBrowserTab(tab.id, { browserUrl: state.url }); }
+            }).catch(reportError);
+          }
           setAddress(loadedUrlRef.current ?? targetUrl);
           setError(null);
           const visible = visibilityRef.current.isVisible && !webviewBlockedRef.current;
@@ -179,7 +223,7 @@ export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) 
     // Cancelling an effect only cancels undispatched work. Ownership above is
     // the sole authority to destroy a native view after async creation.
     return () => window.clearTimeout(timer);
-  }, [isVisible, reportError, tab.browserUrl, tab.id]);
+  }, [isVisible, popup, reportError, syncBounds, tab.browserUrl, tab.id]);
 
   useEffect(() => {
     const restoringFromOverlay = previousWebviewBlockedRef.current && !webviewBlocked;
@@ -206,6 +250,15 @@ export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) 
   }, [syncBounds]);
 
   useEffect(() => {
+    const node = stageRef.current;
+    if (!node) return;
+    const update = () => { const bounds = node.getBoundingClientRect(); setAvailable({ width: Math.max(24, bounds.width - 32), height: Math.max(24, bounds.height - 32) }); };
+    const observer = new ResizeObserver(update); observer.observe(node); update();
+    return () => observer.disconnect();
+  }, [detached]);
+  useEffect(() => { syncBounds(); }, [preview, scale, syncBounds]);
+
+  useEffect(() => {
     const unlisteners: Array<() => void> = [];
     let disposed = false;
     const register = (pending: Promise<() => void>) => {
@@ -214,10 +267,16 @@ export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) 
         else unlisteners.push(unlisten);
       }).catch((cause) => { if (!disposed) reportError(cause); });
     };
+    register(browserService.onHostChanged((event) => {
+      if (disposed || event.tabId !== tab.id) return;
+      hostSequence.current++;
+      if (!popup) { setDetached(event.hostWindow !== "main"); if (event.hostWindow === "main") { setActualViewport(null); appliedPreview.current = Boolean(previewRef.current.preview); } }
+    }));
     register(browserService.onPageLoad((event) => {
       if (disposed || event.tabId !== tab.id) return;
       setAddress(event.url);
       setLoading(event.loading);
+      if (!event.loading && previewRef.current.preview) syncBounds();
       // 页面**自身**的导航（用户点链接、dsh 内部跳转）也会回填 browserUrl。
       // 同步记进 loadedUrlRef，否则创建 effect 会把它当成「外部换了 URL」
       // 而强制导航回去——用户点一下链接就被弹回原页。
@@ -225,11 +284,11 @@ export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) 
       usePanesStore.getState().updateBrowserTab(tab.id, { browserUrl: event.url });
     }));
     register(browserService.onTitleChanged((event) => {
-      if (disposed || event.tabId !== tab.id || !event.title.trim()) return;
-      usePanesStore.getState().updateBrowserTab(tab.id, { title: event.title });
+      if (disposed || event.tabId !== tab.id) return;
+      usePanesStore.getState().updateBrowserTab(tab.id, { ...(event.title.trim() ? { title: event.title } : {}), ...(event.faviconUrl === undefined ? {} : { faviconUrl: event.faviconUrl }) });
     }));
     return () => { disposed = true; unlisteners.forEach((unlisten) => unlisten()); };
-  }, [reportError, tab.id]);
+  }, [popup, reportError, syncBounds, tab.id]);
 
   const navigate = useCallback(() => {
     try {
@@ -316,6 +375,9 @@ export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) 
             />
           ) : null}
         </div>
+        <IconTooltipButton label={toolsT("responsive")} className="h-9 w-9 shrink-0 rounded-full bg-[var(--app-sidebar)]" disabled={!isTauriRuntime() || detached} onClick={() => setPreview((value) => value ? null : DEFAULT_BROWSER_PREVIEW)} aria-pressed={Boolean(preview)}><Maximize2 className="size-4" /></IconTooltipButton>
+        <IconTooltipButton label={toolsT("annotate")} className="h-9 w-9 shrink-0 rounded-full bg-[var(--app-sidebar)]" disabled={!isTauriRuntime() || detached} onClick={() => setAnnotationOpen(true)}><Pencil className="size-4" /></IconTooltipButton>
+        <IconTooltipButton label={toolsT(popup ? "returnToPanel" : "popOut")} className="h-9 w-9 shrink-0 rounded-full bg-[var(--app-sidebar)]" disabled={!isTauriRuntime()} onClick={() => invokeAction(() => popup ? browserService.reclaim(tab.id) : browserService.popOut(tab.id))}>{popup ? <PanelTop className="size-4" /> : <ExternalLink className="size-4" />}</IconTooltipButton>
         <IconTooltipButton label={toolsT("title")} className={`h-9 w-9 shrink-0 rounded-full ${toolsOpen ? "bg-[var(--app-active-bg)] text-[var(--app-accent)]" : "bg-[var(--app-sidebar)]"}`} disabled={!isTauriRuntime()} onClick={() => setToolsOpen((value) => !value)} aria-pressed={toolsOpen}>
           <MousePointer2 className="size-4" />
         </IconTooltipButton>
@@ -348,8 +410,14 @@ export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) 
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+      {preview && !detached && <BrowserViewportToolbar settings={preview} actual={actualViewport} onChange={setPreview} onClose={() => setPreview(null)} />}
+      {annotationOpen && <Suspense fallback={null}><BrowserAnnotationPanel tabId={tab.id} url={address} title={tab.title} onClose={() => setAnnotationOpen(false)} /></Suspense>}
       <div className="flex min-h-0 flex-1">
-      <div ref={viewportRef} className="relative min-h-0 min-w-0 flex-1 bg-[var(--app-content)]">
+      <div ref={stageRef} className={`relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden ${preview ? "bg-[var(--app-sidebar)] p-4" : ""}`}>
+      <div ref={viewportRef} style={preview ? { width: actualViewport?.displayWidth ?? preview.width * scale, height: actualViewport?.displayHeight ?? preview.height * scale, flex: "none" } : undefined} className={`relative min-h-0 min-w-0 bg-[var(--app-content)] ${preview ? "ring-1 ring-[var(--app-border)]" : "h-full flex-1"}`}>
+        {preview && !detached && <BrowserResizeHandle tabId={tab.id} settings={preview} scale={scale} onChange={setPreview} />}
+        {!previewFits && <p role="status" className="p-5 text-sm text-[var(--app-text-secondary)]">{toolsT("previewTooSmall")}</p>}
+        {detached ? <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-[var(--app-text-secondary)]"><ExternalLink className="size-7" /><p>{toolsT("detached")}</p><button className="rounded-xl border border-[var(--app-border)] px-4 py-2" onClick={() => invokeAction(() => browserService.reclaim(tab.id))}>{toolsT("returnToPanel")}</button></div> : null}
         {!isTauriRuntime() ? (
           <div className="flex h-full items-center justify-center px-6 text-sm text-[var(--app-text-secondary)]">
             {t("browserDesktopOnly")}
@@ -362,7 +430,8 @@ export default memo(function BrowserTabContent({ tab }: BrowserTabContentProps) 
           </div>
         ) : null}
       </div>
-      {toolsOpen && isTauriRuntime() && <Suspense fallback={null}><BrowserComputerUsePanel tabId={tab.id} url={tab.browserUrl ?? ""} onClose={() => setToolsOpen(false)} /></Suspense>}
+      </div>
+      {toolsOpen && !detached && isTauriRuntime() && <Suspense fallback={null}><BrowserComputerUsePanel tabId={tab.id} url={tab.browserUrl ?? ""} onClose={() => setToolsOpen(false)} /></Suspense>}
       </div>
     </div>
   );

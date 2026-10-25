@@ -1,5 +1,3 @@
-import { useState, Suspense } from "react";
-import { lazyWithRetry } from "@/lib/lazyRetry";
 import { EyeOff, FileDiff, FolderOpen, MessageSquareText, Terminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import ContextUsageIndicator from "@/components/ContextUsageIndicator";
@@ -24,7 +22,7 @@ import { isTranscriptSupportedCliTool } from "@/types/agentTranscript";
 import type { TerminalViewMode } from "./AgentChatView";
 import TaskQueuePopover from "./TaskQueuePopover";
 
-const SessionReviewPanel = lazyWithRetry(() => import("@/components/review/SessionReviewPanel"), "SessionReviewPanel");
+import "@/i18n/sessionReviewResources";
 
 interface TerminalStatusBarProps {
   terminalContext: ActiveTerminalContext;
@@ -61,7 +59,12 @@ export default function TerminalStatusBar({
 }: TerminalStatusBarProps) {
   const { t } = useTranslation("panes");
   const { t: reviewT } = useTranslation("review");
-  const [reviewOpen, setReviewOpen] = useState(false);
+  const openReview = () => {
+    usePanesStore.getState().openReviewTab(projectPath, {
+      paneId, checkpointChatId: terminalContext.sessionId ? `cli:${terminalContext.sessionId}` : undefined,
+      cliSessionId: terminalContext.sessionId ?? undefined,
+    });
+  };
   const statusInfo = useTerminalStatusStore((state) => (
     terminalContext.sessionId
       ? state.statusMap.get(terminalContext.sessionId)
@@ -162,7 +165,7 @@ export default function TerminalStatusBar({
             <TaskQueuePopover sessionId={terminalContext.sessionId} />
           ) : null}
           <span className="min-w-0 flex-1" />
-          {!terminalContext.ssh && !wsl && <button type="button" aria-label={reviewT("title")} title={reviewT("title")} className="shrink-0 rounded p-1 hover:bg-[var(--app-hover)]" onClick={() => setReviewOpen(true)}><FileDiff className="size-3.5" /></button>}
+          {!terminalContext.ssh && !wsl && <button type="button" aria-label={reviewT("title")} title={reviewT("title")} className="shrink-0 rounded p-1 hover:bg-[var(--app-hover)]" onClick={openReview}><FileDiff className="size-3.5" /></button>}
           {showViewToggle ? (
             <div
               className="flex shrink-0 overflow-hidden rounded border"
@@ -212,7 +215,6 @@ export default function TerminalStatusBar({
           </span>
         </div>
       </ContextMenuTrigger>
-      {reviewOpen && !terminalContext.ssh && !wsl && <Suspense fallback={null}><SessionReviewPanel key={`${terminalContext.sessionId}:${projectPath}`} projectPath={projectPath} cliSessionId={terminalContext.sessionId ?? undefined} checkpointChatId={terminalContext.sessionId ? `cli:${terminalContext.sessionId}` : undefined} open onOpenChange={setReviewOpen} /></Suspense>}
       <ContextMenuContent className="w-44">
         {showViewToggle ? (
           <ContextMenuItem

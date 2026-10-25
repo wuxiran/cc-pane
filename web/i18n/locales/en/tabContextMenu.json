@@ -1,0 +1,14 @@
+{
+  "cloneTerminal": "Clone Terminal",
+  "splitAndMoveRight": "Panel · Move Right",
+  "splitAndMoveDown": "Panel · Move Down",
+  "sendToLayout": "Send to Layout",
+  "sendToPane": "Send to Pane",
+  "closeTerminalPane": "Terminal · Close Pane",
+  "starTab": "Star Tab",
+  "unstarTab": "Unstar",
+  "enterFullscreenTab": "Enter Full Screen",
+  "exitFullscreenTab": "Exit Full Screen",
+  "popOutWindow": "Pop Out to Window",
+  "editWorkspaceEnvironment": "Edit Environment"
+}

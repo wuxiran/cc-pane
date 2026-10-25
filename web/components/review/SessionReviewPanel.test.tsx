@@ -49,7 +49,7 @@ describe("SessionReviewPanel", () => {
     expect(screen.getByRole("button", { name: "Wrap lines" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByText("new value")).toHaveClass("whitespace-pre");
     fireEvent.click(screen.getByRole("button", { name: "Open current file: a.ts" }));
-    expect(openEditor).toHaveBeenCalledWith("/repo", "/repo/a.ts", "a.ts");
+    expect(openEditor).toHaveBeenCalledWith("/repo", "/repo/a.ts", "a.ts", undefined, { forcePaneTab: true, paneId: undefined });
     expect(close).toHaveBeenCalledWith(false);
   });
 
