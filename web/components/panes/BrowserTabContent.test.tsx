@@ -7,12 +7,12 @@ import type { Tab } from "@/types";
 import { usePanesStore } from "@/stores";
 import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { browserService } from "@/services/browserService";
+import { browserService, type BrowserHostState } from "@/services/browserService";
 import BrowserTabContent from "./BrowserTabContent";
 import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 
 let pageLoadHandler: ((event: { tabId: string; url: string; loading: boolean }) => void) | null = null;
-let hostHandler: ((event: { tabId: string; hostWindow: string; url: string; title: string }) => void) | null = null;
+let hostHandler: ((event: BrowserHostState) => void) | null = null;
 let titleHandler: ((event: { tabId: string; title: string }) => void) | null = null;
 
 vi.mock("@/services/browserService", () => ({
@@ -21,6 +21,7 @@ vi.mock("@/services/browserService", () => ({
     onHostChanged: vi.fn(async (handler) => { hostHandler = handler; return () => { hostHandler = null; }; }),
     setViewport: vi.fn().mockResolvedValue({ width: 1440, height: 1000, scale: .57 }),
     popOut: vi.fn().mockResolvedValue(undefined),
+    setWindowMode: vi.fn().mockResolvedValue({ mode: "mini" }),
     reclaim: vi.fn().mockResolvedValue(undefined),
     create: vi.fn().mockResolvedValue(undefined),
     setBounds: vi.fn().mockResolvedValue(undefined),
@@ -115,6 +116,36 @@ describe("BrowserTabContent", () => {
     fireEvent.click(screen.getByRole("button", { name: i18n.t("returnToPanel", { ns: "browserTools" }) }));
     expect(browserService.reclaim).toHaveBeenCalledWith("browser-tab-1");
     expect(browserService.releaseHost).not.toHaveBeenCalled();
+  });
+
+  it("opens mini mode in one native operation and identifies it in the main panel", async () => {
+    renderBrowser();
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("miniOpen", { ns: "browserTools" }) }));
+    expect(browserService.setWindowMode).toHaveBeenCalledExactlyOnceWith("browser-tab-1", "mini");
+    expect(browserService.popOut).not.toHaveBeenCalled();
+    act(() => hostHandler?.({ tabId: "browser-tab-1", hostWindow: "popup-browser-test", mode: "mini", url: "http://localhost:5173/", title: "Page" }));
+    expect(screen.getByText(i18n.t("detachedMini", { ns: "browserTools" }))).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("returnToPanel", { ns: "browserTools" }) }));
+    expect(browserService.reclaim).toHaveBeenCalledWith("browser-tab-1");
+    expect(browserService.close).not.toHaveBeenCalled();
+  });
+
+  it("switches a popup to mini chrome without recreating or navigating the page", async () => {
+    const view = render(<TooltipProvider><BrowserTabContent tab={makeBrowserTab()} popup /></TooltipProvider>);
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("responsive", { ns: "browserTools" }) }));
+    await waitFor(() => expect(browserService.setViewport).toHaveBeenCalled());
+    view.rerender(<TooltipProvider><BrowserTabContent tab={makeBrowserTab()} popup popupMode="mini" /></TooltipProvider>);
+    expect(screen.getByTestId("browser-mini-toolbar")).toBeVisible();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: i18n.t("responsive", { ns: "browserTools" }) })).not.toBeInTheDocument();
+    await waitFor(() => expect(browserService.setViewport).toHaveBeenLastCalledWith("browser-tab-1", expect.any(Object), null));
+    expect(browserService.create).toHaveBeenCalledOnce();
+    expect(browserService.navigate).not.toHaveBeenCalled();
+    view.unmount();
+    expect(browserService.releaseHost).not.toHaveBeenCalled();
+    expect(browserService.close).not.toHaveBeenCalled();
   });
 
   it("sends real CSS viewport geometry and resets native zoom when leaving preview", async () => {

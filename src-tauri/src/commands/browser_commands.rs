@@ -1,6 +1,7 @@
 use crate::services::{
     BrowserBounds, BrowserDomSnapshot, BrowserHostState, BrowserOpenTabEvent, BrowserTabInfo,
-    BrowserTabManager, BrowserViewportRequest, BrowserViewportResult, ScreenshotService,
+    BrowserTabManager, BrowserViewportRequest, BrowserViewportResult, BrowserWindowMode,
+    ScreenshotService,
 };
 use crate::utils::AppResult;
 use std::sync::Arc;
@@ -239,4 +240,18 @@ pub fn browser_release_host(
     tab_id: String,
 ) -> AppResult<()> {
     manager.release_host(&app, window.label(), &tab_id)
+}
+
+#[tauri::command]
+pub async fn browser_set_window_mode(
+    app: AppHandle,
+    window: tauri::Window,
+    manager: State<'_, Arc<BrowserTabManager>>,
+    tab_id: String,
+    mode: BrowserWindowMode,
+) -> AppResult<BrowserHostState> {
+    if window.label() != "main" && !manager.is_host(&tab_id, window.label()) {
+        return Err("Only this browser's host window can change its presentation".into());
+    }
+    manager.inner().set_window_mode(&app, &tab_id, mode)
 }

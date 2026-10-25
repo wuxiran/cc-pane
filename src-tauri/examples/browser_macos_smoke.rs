@@ -4,7 +4,9 @@
 
 #[cfg(target_os = "macos")]
 mod macos {
-    use cc_panes_lib::services::{BrowserBounds, BrowserTabManager, BrowserViewportRequest};
+    use cc_panes_lib::services::{
+        BrowserBounds, BrowserTabManager, BrowserViewportRequest, BrowserWindowMode,
+    };
     use cc_panes_lib::utils::AppResult;
     use serde_json::{json, Value};
     use std::io::{Read, Write};
@@ -321,6 +323,7 @@ mod macos {
         {
             return Err(format!("Reparent lost live document: {retained}").into());
         }
+        let mini = mini_mode_smoke(manager, app, &detached.host_window).await?;
         // Stale main-window geometry/visibility cannot affect the detached page.
         manager.set_bounds_for_host(
             app,
@@ -338,7 +341,10 @@ mod macos {
         }
         manager.reclaim(app, TAB).await?;
         let reclaimed = manager.host_state(app, TAB)?;
-        if reclaimed.host_window != "main" || app.get_window(&detached.host_window).is_some() {
+        if reclaimed.host_window != "main"
+            || reclaimed.mode != BrowserWindowMode::Embedded
+            || app.get_window(&detached.host_window).is_some()
+        {
             return Err("Browser popup was not reclaimed/destroyed".into());
         }
         manager.create_for_host(
@@ -349,11 +355,11 @@ mod macos {
             BrowserBounds::try_new(20.0, 20.0, 600.0, 400.0)?,
             true,
         )?;
-        let restored = evaluate(manager, app, "document.getElementById('field').value === 'preserve me' && keepAcrossHosts === 42 && location.hash === '#preserve'").await?;
+        let restored = evaluate(manager, app, "document.getElementById('field').value === 'preserve me' && keepAcrossHosts === 42 && location.hash === '#preserve' && sessionStorage.getItem('fixtureSession') === 'keep' && document.cookie.includes('fixtureSession=keep')").await?;
         if restored["result"]["value"] != true {
             return Err("Reclaim lost browser state".into());
         }
-        manager.pop_out(app, TAB)?;
+        manager.set_window_mode(app, TAB, BrowserWindowMode::Mini)?;
         let second_host = manager.host_state(app, TAB)?.host_window;
         manager.release_host(app, "main", TAB)?;
         if !manager.contains(TAB) {
@@ -373,7 +379,115 @@ mod macos {
             return Err("Native window close did not reclaim its browser".into());
         }
         Ok(
-            json!({"actual":actual,"rotated":rotated,"mediaQuery":true,"trustedScaledClick":clicked,"scaledPng":scaled_png,"staleTokenRejected":true,"failedViewportUnchanged":true,"readbackFailureRolledBack":true,"reattachPreservedCurrentPage":true,"staleHostRejected":true,"reparentStatePreserved":retained,"reclaimed":true,"nativeWindowCloseReclaimed":true,"layoutUnmountPreservedPopup":true}),
+            json!({"actual":actual,"rotated":rotated,"mediaQuery":true,"trustedScaledClick":clicked,"scaledPng":scaled_png,"staleTokenRejected":true,"failedViewportUnchanged":true,"readbackFailureRolledBack":true,"reattachPreservedCurrentPage":true,"staleHostRejected":true,"reparentStatePreserved":retained,"reclaimed":true,"nativeWindowCloseReclaimed":true,"layoutUnmountPreservedPopup":true,"mini":mini}),
+        )
+    }
+
+    async fn mini_mode_smoke(
+        manager: &Arc<BrowserTabManager>,
+        app: &AppHandle,
+        host: &str,
+    ) -> AppResult<Value> {
+        let window = app
+            .get_window(host)
+            .ok_or("Popup missing before mini transition")?;
+        let normal_size = window.inner_size().map_err(|e| e.to_string())?;
+        let normal_position = window.outer_position().map_err(|e| e.to_string())?;
+        evaluate(manager, app, "sessionStorage.setItem('fixtureSession','keep'); document.cookie='fixtureSession=keep; SameSite=Lax'; true").await?;
+        let state = manager.set_window_mode(app, TAB, BrowserWindowMode::Mini)?;
+        if state.host_window != host || state.mode != BrowserWindowMode::Mini {
+            return Err("Mini mode did not reuse the browser popup".into());
+        }
+        let scale = window.scale_factor().map_err(|e| e.to_string())?;
+        let size = window.inner_size().map_err(|e| e.to_string())?;
+        let position = window.outer_position().map_err(|e| e.to_string())?;
+        if f64::from(size.width) / scale > 481.0
+            || f64::from(size.height) / scale > 301.0
+            || !window.is_always_on_top().map_err(|e| e.to_string())?
+            || !window.is_resizable().map_err(|e| e.to_string())?
+            || window.is_decorated().map_err(|e| e.to_string())?
+        {
+            return Err("Mini window did not apply compact, resizable, borderless always-on-top presentation".into());
+        }
+        let monitor = window
+            .current_monitor()
+            .map_err(|e| e.to_string())?
+            .ok_or("Mini monitor missing")?;
+        let area = monitor.work_area();
+        let outer = window.outer_size().map_err(|e| e.to_string())?;
+        let gap = f64::from(area.position.x) + f64::from(area.size.width)
+            - f64::from(position.x)
+            - f64::from(outer.width);
+        if gap < 0.0 || gap > 18.0 * scale || position.y < area.position.y {
+            return Err("Mini window is not inside its top-right work area".into());
+        }
+        manager.set_visible_for_host(app, "main", TAB, false, false)?;
+        manager.release_host(app, "main", TAB)?;
+        if !manager.contains(TAB)
+            || !manager
+                .list_tabs(app)?
+                .iter()
+                .any(|tab| tab.tab_id == TAB && tab.visible)
+        {
+            return Err("Switching the main tab hid or destroyed the mini browser".into());
+        }
+        window
+            .set_size(tauri::LogicalSize::new(520.0, 340.0))
+            .map_err(|e| e.to_string())?;
+        manager.set_bounds_for_host(
+            app,
+            host,
+            TAB,
+            BrowserBounds::try_new(0.0, 40.0, 520.0, 300.0)?,
+        )?;
+        let mut resized = window.inner_size().map_err(|e| e.to_string())?;
+        for _ in 0..30 {
+            if (f64::from(resized.width) / scale - 520.0).abs() <= 1.0
+                && (f64::from(resized.height) / scale - 340.0).abs() <= 1.0
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            resized = window.inner_size().map_err(|e| e.to_string())?;
+        }
+        if (f64::from(resized.width) / scale - 520.0).abs() > 1.0
+            || (f64::from(resized.height) / scale - 340.0).abs() > 1.0
+        {
+            return Err(format!("Mini window could not resize: physical={resized:?}, scale={scale}, expected logical=520x340").into());
+        }
+        manager.set_window_mode(app, TAB, BrowserWindowMode::Mini)?;
+        if window.inner_size().map_err(|e| e.to_string())? != resized {
+            return Err("Repeated mini request reset user-resized geometry".into());
+        }
+        let restored = manager.set_window_mode(app, TAB, BrowserWindowMode::Window)?;
+        for _ in 0..30 {
+            if window.inner_size().map_err(|e| e.to_string())? == normal_size
+                && window.outer_position().map_err(|e| e.to_string())? == normal_position
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        if restored.host_window != host
+            || restored.mode != BrowserWindowMode::Window
+            || window.is_always_on_top().map_err(|e| e.to_string())?
+            || !window.is_decorated().map_err(|e| e.to_string())?
+            || window.inner_size().map_err(|e| e.to_string())? != normal_size
+            || window.outer_position().map_err(|e| e.to_string())? != normal_position
+        {
+            return Err("Normal window geometry was not restored from mini mode".into());
+        }
+        let retained = evaluate(manager, app, "({value:document.getElementById('field').value,marker:keepAcrossHosts,hash:location.hash,session:sessionStorage.getItem('fixtureSession'),cookie:document.cookie.includes('fixtureSession=keep')})").await?;
+        if retained["result"]["value"]
+            != json!({"value":"preserve me","marker":42,"hash":"#preserve","session":"keep","cookie":true})
+        {
+            return Err(format!(
+                "Mini transition reloaded or lost document/session state: {retained}"
+            )
+            .into());
+        }
+        Ok(
+            json!({"sameNativeHost":true,"logicalWidth":f64::from(size.width)/scale,"logicalHeight":f64::from(size.height)/scale,"topRightInsideWorkArea":true,"alwaysOnTop":true,"resizable":true,"mainTabSwitchPreservedMini":true,"normalGeometryRestored":true,"liveStatePreserved":retained}),
         )
     }
 

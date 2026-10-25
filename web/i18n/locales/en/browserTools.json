@@ -39,5 +39,10 @@
   "returnToPanel": "Return to panel",
   "detached": "This page is open in a separate window",
   "resizeViewport": "Resize viewport (arrow keys supported)",
-  "previewTooSmall": "Enlarge this panel or choose a smaller viewport."
+  "previewTooSmall": "Enlarge this panel or choose a smaller viewport.",
+  "miniOpen": "Open in mini window",
+  "miniDrag": "Drag mini window",
+  "miniRestore": "Restore full window",
+  "miniClose": "Close mini window and return to panel",
+  "detachedMini": "This page is open in a floating mini window"
 }

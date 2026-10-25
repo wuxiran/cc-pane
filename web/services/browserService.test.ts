@@ -59,6 +59,13 @@ describe("browserService", () => {
     expect(invoke).toHaveBeenCalledWith("browser_close", { tabId: "tab-1" });
   });
 
+  it("switches native window presentation without invoking close or navigation", async () => {
+    const state = { tabId: "tab-1", hostWindow: "popup-browser-tab-1", mode: "mini", url: "https://example.com/", title: "Page" };
+    mockTauriInvoke({ browser_set_window_mode: state });
+    await expect(browserService.setWindowMode("tab-1", "mini")).resolves.toEqual(state);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("browser_set_window_mode", { tabId: "tab-1", mode: "mini" });
+  });
+
   it("binds Computer Use actions to an observed page and element", async () => {
     mockTauriInvoke({ browser_snapshot: { pageToken: "page-1" }, browser_list_tabs: [], browser_screenshot: "/tmp/browser.png",
       browser_fill: undefined, browser_click_element: undefined, browser_press_key: undefined, browser_scroll: undefined });

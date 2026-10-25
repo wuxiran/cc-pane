@@ -39,5 +39,10 @@
   "returnToPanel": "返回面板",
   "detached": "此页面已在独立窗口中打开",
   "resizeViewport": "拖动调整视口（支持方向键）",
-  "previewTooSmall": "请放大面板或选择更小的视口。"
+  "previewTooSmall": "请放大面板或选择更小的视口。",
+  "miniOpen": "小窗查看",
+  "miniDrag": "拖动小窗",
+  "miniRestore": "恢复常规窗口",
+  "miniClose": "关闭小窗并收回主面板",
+  "detachedMini": "此页面已在置顶小窗中打开"
 }

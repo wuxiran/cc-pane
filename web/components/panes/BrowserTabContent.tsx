@@ -5,6 +5,7 @@ import {
   Code2,
   ExternalLink,
   PanelTop,
+  PictureInPicture2,
   Pencil,
   Maximize2,
   Copy,
@@ -21,7 +22,7 @@ import type { Tab } from "@/types";
 import { usePanesStore } from "@/stores";
 import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore";
 import { useTabViewStateStore, viewKey } from "@/stores/useTabViewStateStore";
-import { browserService, type BrowserBounds, type BrowserViewportResult } from "@/services/browserService";
+import { browserService, type BrowserBounds, type BrowserViewportResult, type BrowserWindowMode } from "@/services/browserService";
 import { browserSecurityKind, normalizeBrowserUrl } from "@/lib/browserUrl";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import {
@@ -32,6 +33,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import BrowserResizeHandle from "./BrowserResizeHandle";
+import BrowserMiniToolbar from "./BrowserMiniToolbar";
 import BrowserViewportToolbar, { DEFAULT_BROWSER_PREVIEW, previewScale, type BrowserPreviewSettings } from "./BrowserViewportToolbar";
 import { isTauriRuntime } from "@/services/runtime";
 import { lazyWithRetry } from "@/lib/lazyRetry";
@@ -50,6 +52,7 @@ function closeUnownedBrowser(tabId: string) {
 interface BrowserTabContentProps {
   tab: Tab;
   popup?: boolean;
+  popupMode?: "mini" | "window";
   popupVisible?: boolean;
   popupActive?: boolean;
 }
@@ -71,23 +74,26 @@ function isUnsupportedBrowserProtocolError(message: string): boolean {
     || normalized.includes("browser tabs only support http and https urls");
 }
 
-export default memo(function BrowserTabContent({ tab, popup = false, popupVisible = true, popupActive = true }: BrowserTabContentProps) {
+export default memo(function BrowserTabContent({ tab, popup = false, popupMode = "window", popupVisible = true, popupActive = true }: BrowserTabContentProps) {
   const { t } = useTranslation("panes");
   const { t: toolsT } = useTranslation("browserTools");
   const [toolsOpen, setToolsOpen] = useState(false);
   const [annotationOpen, setAnnotationOpen] = useState(false);
   const [detached, setDetached] = useState(false);
+  const [detachedMode, setDetachedMode] = useState<BrowserWindowMode>("embedded");
   const [preview, setPreview] = useState<BrowserPreviewSettings | null>(null);
+  const mini = popup && popupMode === "mini";
+  const activePreview = mini ? null : preview;
   const [actualViewport, setActualViewport] = useState<BrowserViewportResult | null>(null);
   const [available, setAvailable] = useState({ width: 800, height: 600 });
   const stageRef = useRef<HTMLDivElement>(null);
   const viewportSequence = useRef(0);
   const hostSequence = useRef(0);
   const appliedPreview = useRef(false);
-  const scale = preview ? previewScale(preview, { width: available.width - 20, height: available.height - 20 }) : 1;
-  const previewFits = !preview || (preview.width * scale <= available.width && preview.height * scale <= available.height);
-  const previewRef = useRef({ preview, scale });
-  previewRef.current = { preview, scale };
+  const scale = activePreview ? previewScale(activePreview, { width: available.width - 20, height: available.height - 20 }) : 1;
+  const previewFits = !activePreview || (activePreview.width * scale <= available.width && activePreview.height * scale <= available.height);
+  const previewRef = useRef({ preview: activePreview, scale });
+  previewRef.current = { preview: activePreview, scale };
   // 可见性读单视图（Panel 的 useReportPaneVisibility 对全部 contentType 上报
   // primary），渲染与 webview 焦点都看本视图，不看聚合。条目未登记视为不可见
   // ——webview 创建有 isVisible 门槛，宁可晚一帧创建也不在后台建。
@@ -202,6 +208,7 @@ export default memo(function BrowserTabContent({ tab, popup = false, popupVisibl
             void browserService.hostState(tab.id).then((state) => {
               if (!current() || hostRequest !== hostSequence.current) return;
               setDetached(state.hostWindow !== "main");
+              setDetachedMode(state.mode ?? (state.hostWindow === "main" ? "embedded" : "window"));
               if (state.url && /^https?:/.test(state.url)) { loadedUrlRef.current = state.url; setAddress(state.url); usePanesStore.getState().updateBrowserTab(tab.id, { browserUrl: state.url }); }
             }).catch(reportError);
           }
@@ -256,7 +263,8 @@ export default memo(function BrowserTabContent({ tab, popup = false, popupVisibl
     const observer = new ResizeObserver(update); observer.observe(node); update();
     return () => observer.disconnect();
   }, [detached]);
-  useEffect(() => { syncBounds(); }, [preview, scale, syncBounds]);
+  useEffect(() => { syncBounds(); }, [activePreview, scale, syncBounds]);
+  useEffect(() => { if (mini) { setToolsOpen(false); setAnnotationOpen(false); } }, [mini]);
 
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
@@ -270,7 +278,7 @@ export default memo(function BrowserTabContent({ tab, popup = false, popupVisibl
     register(browserService.onHostChanged((event) => {
       if (disposed || event.tabId !== tab.id) return;
       hostSequence.current++;
-      if (!popup) { setDetached(event.hostWindow !== "main"); if (event.hostWindow === "main") { setActualViewport(null); appliedPreview.current = Boolean(previewRef.current.preview); } }
+      if (!popup) { setDetached(event.hostWindow !== "main"); setDetachedMode(event.mode ?? (event.hostWindow === "main" ? "embedded" : "window")); if (event.hostWindow === "main") { setActualViewport(null); appliedPreview.current = Boolean(previewRef.current.preview); } }
     }));
     register(browserService.onPageLoad((event) => {
       if (disposed || event.tabId !== tab.id) return;
@@ -327,7 +335,7 @@ export default memo(function BrowserTabContent({ tab, popup = false, popupVisibl
     >
       {/* 工具栏右键菜单：页面区是原生 webview（右键归系统 webview），
           浏览器动作的一等入口只能落在 React 渲染的工具栏上。 */}
-      <ContextMenu>
+      {mini ? <BrowserMiniToolbar tabId={tab.id} title={tab.title} onError={reportError} /> : <ContextMenu>
         <ContextMenuTrigger asChild>
           <div className="flex h-14 shrink-0 items-center gap-2 border-b border-[var(--app-border)] bg-[var(--app-content)] px-3">
         <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-[var(--app-sidebar)] p-1">
@@ -378,6 +386,7 @@ export default memo(function BrowserTabContent({ tab, popup = false, popupVisibl
         <IconTooltipButton label={toolsT("responsive")} className="h-9 w-9 shrink-0 rounded-full bg-[var(--app-sidebar)]" disabled={!isTauriRuntime() || detached} onClick={() => setPreview((value) => value ? null : DEFAULT_BROWSER_PREVIEW)} aria-pressed={Boolean(preview)}><Maximize2 className="size-4" /></IconTooltipButton>
         <IconTooltipButton label={toolsT("annotate")} className="h-9 w-9 shrink-0 rounded-full bg-[var(--app-sidebar)]" disabled={!isTauriRuntime() || detached} onClick={() => setAnnotationOpen(true)}><Pencil className="size-4" /></IconTooltipButton>
         <IconTooltipButton label={toolsT(popup ? "returnToPanel" : "popOut")} className="h-9 w-9 shrink-0 rounded-full bg-[var(--app-sidebar)]" disabled={!isTauriRuntime()} onClick={() => invokeAction(() => popup ? browserService.reclaim(tab.id) : browserService.popOut(tab.id))}>{popup ? <PanelTop className="size-4" /> : <ExternalLink className="size-4" />}</IconTooltipButton>
+        <IconTooltipButton label={toolsT("miniOpen")} className="h-9 w-9 shrink-0 rounded-full bg-[var(--app-sidebar)]" disabled={!isTauriRuntime()} onClick={() => invokeAction(async () => { await browserService.setWindowMode(tab.id, "mini"); })}><PictureInPicture2 className="size-4" /></IconTooltipButton>
         <IconTooltipButton label={toolsT("title")} className={`h-9 w-9 shrink-0 rounded-full ${toolsOpen ? "bg-[var(--app-active-bg)] text-[var(--app-accent)]" : "bg-[var(--app-sidebar)]"}`} disabled={!isTauriRuntime()} onClick={() => setToolsOpen((value) => !value)} aria-pressed={toolsOpen}>
           <MousePointer2 className="size-4" />
         </IconTooltipButton>
@@ -409,15 +418,15 @@ export default memo(function BrowserTabContent({ tab, popup = false, popupVisibl
             <Code2 /> {t("browserDevtools")}
           </ContextMenuItem>
         </ContextMenuContent>
-      </ContextMenu>
-      {preview && !detached && <BrowserViewportToolbar settings={preview} actual={actualViewport} onChange={setPreview} onClose={() => setPreview(null)} />}
-      {annotationOpen && <Suspense fallback={null}><BrowserAnnotationPanel tabId={tab.id} url={address} title={tab.title} onClose={() => setAnnotationOpen(false)} /></Suspense>}
+      </ContextMenu>}
+      {activePreview && !detached && <BrowserViewportToolbar settings={activePreview} actual={actualViewport} onChange={setPreview} onClose={() => setPreview(null)} />}
+      {annotationOpen && !mini && <Suspense fallback={null}><BrowserAnnotationPanel tabId={tab.id} url={address} title={tab.title} onClose={() => setAnnotationOpen(false)} /></Suspense>}
       <div className="flex min-h-0 flex-1">
-      <div ref={stageRef} className={`relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden ${preview ? "bg-[var(--app-sidebar)] p-4" : ""}`}>
-      <div ref={viewportRef} style={preview ? { width: actualViewport?.displayWidth ?? preview.width * scale, height: actualViewport?.displayHeight ?? preview.height * scale, flex: "none" } : undefined} className={`relative min-h-0 min-w-0 bg-[var(--app-content)] ${preview ? "ring-1 ring-[var(--app-border)]" : "h-full flex-1"}`}>
-        {preview && !detached && <BrowserResizeHandle tabId={tab.id} settings={preview} scale={scale} onChange={setPreview} />}
+      <div ref={stageRef} className={`relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden ${activePreview ? "bg-[var(--app-sidebar)] p-4" : ""}`}>
+      <div ref={viewportRef} style={activePreview ? { width: actualViewport?.displayWidth ?? activePreview.width * scale, height: actualViewport?.displayHeight ?? activePreview.height * scale, flex: "none" } : undefined} className={`relative min-h-0 min-w-0 bg-[var(--app-content)] ${activePreview ? "ring-1 ring-[var(--app-border)]" : "h-full flex-1"}`}>
+        {activePreview && !detached && <BrowserResizeHandle tabId={tab.id} settings={activePreview} scale={scale} onChange={setPreview} />}
         {!previewFits && <p role="status" className="p-5 text-sm text-[var(--app-text-secondary)]">{toolsT("previewTooSmall")}</p>}
-        {detached ? <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-[var(--app-text-secondary)]"><ExternalLink className="size-7" /><p>{toolsT("detached")}</p><button className="rounded-xl border border-[var(--app-border)] px-4 py-2" onClick={() => invokeAction(() => browserService.reclaim(tab.id))}>{toolsT("returnToPanel")}</button></div> : null}
+        {detached ? <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-[var(--app-text-secondary)]">{detachedMode === "mini" ? <PictureInPicture2 className="size-7" /> : <ExternalLink className="size-7" />}<p>{toolsT(detachedMode === "mini" ? "detachedMini" : "detached")}</p><button className="rounded-xl border border-[var(--app-border)] px-4 py-2" onClick={() => invokeAction(() => browserService.reclaim(tab.id))}>{toolsT("returnToPanel")}</button></div> : null}
         {!isTauriRuntime() ? (
           <div className="flex h-full items-center justify-center px-6 text-sm text-[var(--app-text-secondary)]">
             {t("browserDesktopOnly")}
@@ -431,7 +440,7 @@ export default memo(function BrowserTabContent({ tab, popup = false, popupVisibl
         ) : null}
       </div>
       </div>
-      {toolsOpen && !detached && isTauriRuntime() && <Suspense fallback={null}><BrowserComputerUsePanel tabId={tab.id} url={tab.browserUrl ?? ""} onClose={() => setToolsOpen(false)} /></Suspense>}
+      {toolsOpen && !mini && !detached && isTauriRuntime() && <Suspense fallback={null}><BrowserComputerUsePanel tabId={tab.id} url={tab.browserUrl ?? ""} onClose={() => setToolsOpen(false)} /></Suspense>}
       </div>
     </div>
   );

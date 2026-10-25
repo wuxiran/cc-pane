@@ -53,7 +53,7 @@ pub use automation_service::{AutomationDef, AutomationRun, AutomationService};
 pub use browser_service::{
     BrowserBounds, BrowserDomSnapshot, BrowserElement, BrowserHostState, BrowserOpenTabEvent,
     BrowserSpikeReport, BrowserTabInfo, BrowserTabManager, BrowserViewport, BrowserViewportRequest,
-    BrowserViewportResult,
+    BrowserViewportResult, BrowserWindowMode,
 };
 pub use heavy_command_recorder::HeavyCommandRecorder;
 pub use heavy_command_sampler::HeavyCommandSampler;

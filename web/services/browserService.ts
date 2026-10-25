@@ -53,7 +53,8 @@ export interface BrowserTabInfo {
   visible: boolean;
 }
 
-export interface BrowserHostState { tabId: string; hostWindow: string; url: string; title: string }
+export type BrowserWindowMode = "embedded" | "mini" | "window";
+export interface BrowserHostState { tabId: string; hostWindow: string; url: string; title: string; mode?: BrowserWindowMode }
 export interface BrowserViewportRequest { width: number; height: number; scale: number }
 export interface BrowserViewportResult { width: number; height: number; scale: number; displayWidth?: number; displayHeight?: number }
 
@@ -64,6 +65,7 @@ export const browserService = {
     return invoke("browser_set_viewport", { tabId, bounds, viewport });
   },
   popOut(tabId: string): Promise<void> { return invoke("browser_pop_out", { tabId }); },
+  setWindowMode(tabId: string, mode: "mini" | "window"): Promise<BrowserHostState> { return invoke("browser_set_window_mode", { tabId, mode }); },
   reclaim(tabId: string): Promise<void> { return invoke("browser_reclaim", { tabId }); },
   onHostChanged(handler: (event: BrowserHostState) => void) {
     return listenWebviewIfTauri<BrowserHostState>("browser-host-changed", (event) => handler(event.payload));

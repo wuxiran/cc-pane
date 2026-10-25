@@ -13,7 +13,9 @@ use tauri::{
 mod computer_use;
 mod metadata;
 mod presentation;
-pub use presentation::{BrowserHostState, BrowserViewportRequest, BrowserViewportResult};
+pub use presentation::{
+    BrowserHostState, BrowserViewportRequest, BrowserViewportResult, BrowserWindowMode,
+};
 #[cfg(target_os = "macos")]
 mod macos;
 pub use computer_use::{BrowserDomSnapshot, BrowserElement, BrowserTabInfo, BrowserViewport};

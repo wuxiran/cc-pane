@@ -1,10 +1,21 @@
 //! Native browser geometry and host ownership. Never recreate a page to move it.
 use super::*;
-use tauri::{WebviewWindowBuilder, WindowEvent};
+mod window;
+mod window_geometry;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BrowserWindowMode {
+    Embedded,
+    Mini,
+    Window,
+}
 
 #[derive(Debug, Clone)]
 pub(super) struct BrowserPresentation {
     pub host: String,
+    pub mode: BrowserWindowMode,
+    normal_geometry: Option<window_geometry::WindowGeometry>,
     pub bounds: BrowserBounds,
     pub main_bounds: BrowserBounds,
     pub main_visible: bool,
@@ -14,6 +25,8 @@ impl BrowserPresentation {
     pub fn new(bounds: BrowserBounds) -> Self {
         Self {
             host: "main".into(),
+            mode: BrowserWindowMode::Embedded,
+            normal_geometry: None,
             bounds,
             main_bounds: bounds,
             main_visible: true,
@@ -37,6 +50,7 @@ impl Default for BrowserPresentation {
 pub struct BrowserHostState {
     pub tab_id: String,
     pub host_window: String,
+    pub mode: BrowserWindowMode,
     pub url: String,
     pub title: String,
 }
@@ -140,15 +154,14 @@ impl BrowserTabManager {
 
     pub fn host_state(&self, app: &AppHandle, tab_id: &str) -> AppResult<BrowserHostState> {
         let view = self.webview(app, tab_id)?;
-        let host = self
-            .tabs
-            .lock()
-            .map_err(|_| "browser registry unavailable")?
-            .get(tab_id)
-            .ok_or("Unknown browser tab")?
-            .presentation
-            .host
-            .clone();
+        let (host, mode) = {
+            let tabs = self
+                .tabs
+                .lock()
+                .map_err(|_| "browser registry unavailable")?;
+            let presentation = &tabs.get(tab_id).ok_or("Unknown browser tab")?.presentation;
+            (presentation.host.clone(), presentation.mode)
+        };
         let title = self
             .tabs
             .lock()
@@ -163,6 +176,7 @@ impl BrowserTabManager {
         Ok(BrowserHostState {
             tab_id: tab_id.into(),
             host_window: host,
+            mode,
             url: view.url().map_err(|e| e.to_string())?.to_string(),
             title,
         })
@@ -383,75 +397,6 @@ impl BrowserTabManager {
         Ok((dimension("width")?, dimension("height")?))
     }
 
-    pub fn pop_out(self: &std::sync::Arc<Self>, app: &AppHandle, tab_id: &str) -> AppResult<()> {
-        let label = format!("popup-{}", browser_webview_label(tab_id));
-        if let Some(window) = app.get_window(&label) {
-            window.unminimize().map_err(|e| e.to_string())?;
-            window.set_focus().map_err(|e| e.to_string())?;
-            return Ok(());
-        }
-        let _operation = self.try_automation(tab_id)?;
-        #[cfg(target_os = "macos")]
-        let _native = self
-            .native_operation(tab_id)?
-            .try_lock_owned()
-            .map_err(|_| "Browser snapshot is in progress; retry moving this tab")?;
-        if !self.is_host(tab_id, "main") {
-            return Err("Browser already belongs to another window".into());
-        }
-        let window = WebviewWindowBuilder::new(
-            app,
-            &label,
-            WebviewUrl::App(
-                format!(
-                    "index.html?mode=browser-popup&tabId={}",
-                    urlencoding::encode(tab_id)
-                )
-                .into(),
-            ),
-        )
-        .title("Browser · CC-Panes")
-        .inner_size(1100.0, 800.0)
-        .min_inner_size(480.0, 360.0)
-        .visible(false)
-        .build()
-        .map_err(|e| e.to_string())?;
-        if let Err(error) = self.transfer_host(
-            app,
-            tab_id,
-            &label,
-            BrowserBounds::try_new(0.0, 56.0, 1100.0, 744.0)?,
-            true,
-        ) {
-            if self.is_host(tab_id, "main") {
-                let _ = window.destroy();
-            } else {
-                let _ = window.show();
-                let _ = self.emit_host(app, tab_id);
-            }
-            return Err(error);
-        }
-        let manager = self.clone();
-        let handle = app.clone();
-        let id = tab_id.to_string();
-        window.on_window_event(move |event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let (manager, app, id) = (manager.clone(), handle.clone(), id.clone());
-                tauri::async_runtime::spawn(async move {
-                    if let Err(error) = manager.reclaim(&app, &id).await {
-                        log::error!("Could not reclaim browser tab: {error}");
-                        let _ = app.emit_to("main", "browser-host-error", error.to_string());
-                    }
-                });
-            }
-        });
-        window.show().map_err(|e| e.to_string())?;
-        window.set_focus().map_err(|e| e.to_string())?;
-        self.emit_host(app, tab_id)?;
-        Ok(())
-    }
-
     fn transfer_host(
         &self,
         app: &AppHandle,
@@ -534,6 +479,14 @@ impl BrowserTabManager {
             return Ok(());
         }
         self.transfer_host(app, tab_id, "main", old.main_bounds, old.main_visible)?;
+        if let Some(entry) = self
+            .tabs
+            .lock()
+            .map_err(|_| "browser registry unavailable")?
+            .get_mut(tab_id)
+        {
+            entry.presentation.mode = BrowserWindowMode::Embedded;
+        }
         self.emit_host(app, tab_id)?;
         if let Some(window) = app.get_window(&old.host) {
             window.destroy().map_err(|e| e.to_string())?;
@@ -556,6 +509,25 @@ impl BrowserTabManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn presentation_metadata_distinguishes_embedding_from_both_detached_modes() {
+        assert_eq!(
+            BrowserPresentation::default().mode,
+            BrowserWindowMode::Embedded
+        );
+        for (mode, name) in [
+            (BrowserWindowMode::Embedded, "embedded"),
+            (BrowserWindowMode::Mini, "mini"),
+            (BrowserWindowMode::Window, "window"),
+        ] {
+            assert_eq!(serde_json::to_value(mode).unwrap(), name);
+            assert_eq!(
+                serde_json::from_value::<BrowserWindowMode>(serde_json::json!(name)).unwrap(),
+                mode
+            );
+        }
+    }
+
     #[test]
     fn responsive_geometry_rejects_unbounded_allocation() {
         assert!(BrowserViewportRequest {
