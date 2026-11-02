@@ -430,7 +430,14 @@ async fn git_write_routes_cover_stash_fetch_push_and_pull() {
     let remote = root.join("remote.git");
     run_git(
         &root,
-        &["init", "--bare", remote.to_string_lossy().as_ref()],
+        // 与 init_repo 同口径固定 main，否则裸库 HEAD 指向不存在的 master，clone 落到另一分支。
+        &[
+            "init",
+            "--bare",
+            "-b",
+            "main",
+            remote.to_string_lossy().as_ref(),
+        ],
     );
 
     let repo = root.join("repo");
