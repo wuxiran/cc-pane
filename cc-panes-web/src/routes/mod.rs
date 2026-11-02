@@ -395,6 +395,10 @@ pub fn build_router(state: AppState) -> Router {
             get(usage_stats::query_context_usage),
         )
         .route(
+            "/api/session-cost/{pty_session_id}",
+            get(usage_stats::query_session_cost),
+        )
+        .route(
             "/api/usage-stats/input",
             post(usage_stats::record_terminal_input),
         )

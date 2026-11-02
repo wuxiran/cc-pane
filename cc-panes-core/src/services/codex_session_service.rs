@@ -419,7 +419,7 @@ fn context_window_candidate(candidate: Option<&Value>) -> (Option<u64>, Option<S
     }
 }
 
-fn codex_model(json: &Value) -> Option<String> {
+pub(crate) fn codex_model(json: &Value) -> Option<String> {
     [
         "/payload/info/model",
         "/payload/model",

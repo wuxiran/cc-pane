@@ -1,8 +1,9 @@
 use crate::models::{
-    ContextUsageSnapshot, ContextUsageStatus, UsageDayPoint, UsageEntry, UsageQueryResult,
-    UsageStatsDelta, UsageTotals, WslDistro, WslDistroState,
+    ContextUsageSnapshot, ContextUsageStatus, SessionCostSnapshot, UsageDayPoint, UsageEntry,
+    UsageQueryResult, UsageStatsDelta, UsageTotals, WslDistro, WslDistroState,
 };
 use crate::repository::UsageStatsRepository;
+use crate::services::session_cost::{CostLedger, PRICING_AS_OF};
 use crate::services::{
     claude_session_service, codex_session_service, external_usage_session_service,
     pi_session_service, LaunchHistoryService, ProviderService,
@@ -30,6 +31,8 @@ const USAGE_SCAN_ALGO_VERSION_KEY: &str = "_algo_version";
 const CONTEXT_USAGE_PARSER_VERSION: &str = "context-v1";
 const CODEX_CONTEXT_BASELINE: u64 = 12_000;
 const MAX_CONTEXT_SCAN_FILES: usize = 20_000;
+const MAX_SESSION_COST_LEDGERS: usize = 64;
+const MAX_SESSION_SIDE_FILES: usize = 2_000;
 /// 兜底上下文窗口大小。Provider DB 三层 lookup 全 miss 时返回这个值，让状态栏
 /// `Ctx:` 段显示有效数字而非 `-%` / WINDOW_UNKNOWN。1M 贴近现代大模型上限
 /// （Sonnet-4 / Opus-4.5 都是 1M），避免错把真实 1M 模型显示成「200k 半满」。
@@ -117,6 +120,13 @@ struct ContextFileCache {
     observation: Option<ContextObservation>,
 }
 
+#[derive(Debug)]
+struct SessionCostEntry {
+    path: PathBuf,
+    resume_id: String,
+    ledger: CostLedger,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ScanOrigin {
     Native,
@@ -133,6 +143,8 @@ pub struct UsageStatsService {
     scan_running: AtomicBool,
     context_file_cache: Mutex<HashMap<String, ContextFileCache>>,
     context_reads: Mutex<HashSet<String>>,
+    session_costs: Mutex<HashMap<String, SessionCostEntry>>,
+    session_cost_reads: Mutex<HashSet<String>>,
     /// 已经告警过"解析失败"的文件。同一个坏文件每轮扫描都会再失败一次，
     /// 每次都 WARN 会把应用日志刷满（实机一天几千条），之后降为 debug。
     scan_failure_warned: Mutex<HashSet<PathBuf>>,
@@ -191,6 +203,8 @@ impl UsageStatsService {
             scan_running: AtomicBool::new(false),
             context_file_cache: Mutex::new(HashMap::new()),
             context_reads: Mutex::new(HashSet::new()),
+            session_costs: Mutex::new(HashMap::new()),
+            session_cost_reads: Mutex::new(HashSet::new()),
             scan_failure_warned: Mutex::new(HashSet::new()),
             settings,
             native_scan_home,
@@ -527,6 +541,135 @@ impl UsageStatsService {
     pub fn invalidate_context_usage(&self, pty_session_id: &str) {
         if let Ok(mut cache) = self.context_file_cache.lock() {
             cache.remove(pty_session_id);
+        }
+        if let Ok(mut costs) = self.session_costs.lock() {
+            costs.remove(pty_session_id);
+        }
+    }
+
+    /// 当前 agent 会话（含子 agent）按公开 API 价估算的累计费用。
+    pub fn session_cost_for_pty(&self, pty_session_id: &str) -> SessionCostSnapshot {
+        let acquired = self
+            .session_cost_reads
+            .lock()
+            .map(|mut reads| reads.insert(pty_session_id.to_string()))
+            .unwrap_or(false);
+        if !acquired {
+            return empty_session_cost(
+                ContextUsageStatus::Error,
+                "SOURCE_UNAVAILABLE",
+                now_millis(),
+            );
+        }
+        let result = self.session_cost_for_pty_uncached(pty_session_id);
+        if let Ok(mut reads) = self.session_cost_reads.lock() {
+            reads.remove(pty_session_id);
+        }
+        result
+    }
+
+    fn session_cost_for_pty_uncached(&self, pty_session_id: &str) -> SessionCostSnapshot {
+        let observed_at = now_millis();
+        let request = match self.context_request(pty_session_id, observed_at) {
+            Ok(request) => request,
+            Err(snapshot) => {
+                self.invalidate_context_usage(pty_session_id);
+                return empty_session_cost(
+                    snapshot.status,
+                    snapshot
+                        .diagnostic_code
+                        .as_deref()
+                        .unwrap_or("SOURCE_UNAVAILABLE"),
+                    observed_at,
+                );
+            }
+        };
+        if !matches!(request.cli.as_str(), "claude" | "codex") {
+            return empty_session_cost(
+                ContextUsageStatus::Error,
+                "RUNTIME_UNSUPPORTED",
+                observed_at,
+            );
+        }
+        // 账本取出来处理：读大文件时不持锁，别的会话的轮询不用排队。
+        let cached = self
+            .session_costs
+            .lock()
+            .ok()
+            .and_then(|mut costs| costs.remove(pty_session_id))
+            .filter(|entry| entry.resume_id == request.resume_id && entry.path.is_file());
+        let mut entry = match cached {
+            Some(entry) => entry,
+            None => {
+                let Some(path) = find_context_session_file(
+                    self,
+                    &request.cli,
+                    &request.record,
+                    &request.resume_id,
+                ) else {
+                    return empty_session_cost(
+                        ContextUsageStatus::Error,
+                        "SESSION_NOT_FOUND",
+                        observed_at,
+                    );
+                };
+                SessionCostEntry {
+                    path,
+                    resume_id: request.resume_id.clone(),
+                    ledger: CostLedger::default(),
+                }
+            }
+        };
+        let side_files = session_side_files(&request.cli, &entry.path);
+        if let Err(error) = entry.ledger.refresh(&request.cli, &entry.path, &side_files) {
+            warn!(path = %entry.path.display(), err = %error, "Failed to read session cost");
+            return empty_session_cost(
+                ContextUsageStatus::Error,
+                "SOURCE_UNAVAILABLE",
+                observed_at,
+            );
+        }
+        let totals = entry.ledger.totals();
+        // 读文件期间身份可能变了（/clear、resume），旧账不能显示给新会话。
+        let unchanged = self
+            .context_request(pty_session_id, observed_at)
+            .is_ok_and(|current| current.resume_id == request.resume_id);
+        if !unchanged {
+            return empty_session_cost(
+                ContextUsageStatus::Waiting,
+                "SESSION_IDENTITY_CHANGED",
+                observed_at,
+            );
+        }
+        if let Ok(mut costs) = self.session_costs.lock() {
+            if costs.len() >= MAX_SESSION_COST_LEDGERS {
+                // 淘汰只是下次轮询重读一遍，不会算错。
+                costs.clear();
+            }
+            costs.insert(pty_session_id.to_string(), entry);
+        }
+        if totals.calls == 0 {
+            let mut snapshot = empty_session_cost(
+                ContextUsageStatus::Waiting,
+                "WAITING_FIRST_RESPONSE",
+                observed_at,
+            );
+            snapshot.agent_session_id = Some(request.resume_id);
+            return snapshot;
+        }
+        SessionCostSnapshot {
+            status: ContextUsageStatus::Ready,
+            cost_usd: totals.cost_usd,
+            has_unpriced_usage: totals.has_unpriced_usage,
+            input_tokens: totals.input_tokens,
+            output_tokens: totals.output_tokens,
+            cache_read_tokens: totals.cache_read_tokens,
+            cache_write_tokens: totals.cache_write_tokens,
+            models: totals.models,
+            pricing_as_of: PRICING_AS_OF.to_string(),
+            agent_session_id: Some(request.resume_id),
+            observed_at,
+            diagnostic_code: None,
         }
     }
 
@@ -1410,8 +1553,18 @@ fn context_session_roots(
         }
         return Vec::new();
     }
+    if cli == "claude" {
+        let provider_dir = service.provider_service.as_ref().and_then(|providers| {
+            let provider_id = record.provider_id.as_deref()?.trim();
+            providers.get_provider(provider_id)?.config_dir
+        });
+        return claude_project_roots(
+            &home,
+            std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from),
+            provider_dir.map(PathBuf::from),
+        );
+    }
     vec![match cli {
-        "claude" => home.join(".claude").join("projects"),
         "codex" => std::env::var_os("CODEX_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".codex"))
@@ -1420,6 +1573,72 @@ fn context_session_roots(
         "omp" => home.join(".omp").join("agent").join("sessions"),
         _ => return Vec::new(),
     }]
+}
+
+/// Claude 的 transcript 跟着会话自己的 `CLAUDE_CONFIG_DIR` 走，而这个变量可能只存在于
+/// CLI 进程里（账号切换工具 reclaude 就是这样），应用进程看不到。所以除默认目录外，
+/// 还要找 Provider 配置目录和 reclaude 的账号目录。按 session UUID 精确匹配文件名，
+/// 多找几个目录不会认错会话。
+fn claude_project_roots(
+    home: &Path,
+    env_config_dir: Option<PathBuf>,
+    provider_config_dir: Option<PathBuf>,
+) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = provider_config_dir
+        .into_iter()
+        .chain(env_config_dir)
+        .map(|dir| dir.join("projects"))
+        .collect();
+    roots.push(home.join(".claude").join("projects"));
+    let reclaude_accounts = home.join(".rec").join("claude").join("accounts");
+    if let Ok(accounts) = fs::read_dir(reclaude_accounts) {
+        let mut account_roots: Vec<PathBuf> = accounts
+            .flatten()
+            .map(|account| account.path().join("config").join("projects"))
+            .collect();
+        account_roots.sort();
+        roots.extend(account_roots);
+    }
+    roots.dedup();
+    roots
+}
+
+/// Claude 把子 agent 记录放在 `<session>/subagents/*.jsonl`，费用要算进这个会话。
+fn session_side_files(cli: &str, main: &Path) -> Vec<PathBuf> {
+    if cli != "claude" {
+        return Vec::new();
+    }
+    let Some(stem) = main.file_stem() else {
+        return Vec::new();
+    };
+    let mut files = Vec::new();
+    collect_jsonl_files_limited(
+        &main.with_file_name(stem),
+        &mut files,
+        MAX_SESSION_SIDE_FILES,
+    );
+    files
+}
+
+fn empty_session_cost(
+    status: ContextUsageStatus,
+    diagnostic_code: &str,
+    observed_at: i64,
+) -> SessionCostSnapshot {
+    SessionCostSnapshot {
+        status,
+        cost_usd: None,
+        has_unpriced_usage: false,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
+        models: Vec::new(),
+        pricing_as_of: PRICING_AS_OF.to_string(),
+        agent_session_id: None,
+        observed_at,
+        diagnostic_code: Some(diagnostic_code.to_string()),
+    }
 }
 
 fn wsl_home_from_cwd(distro: &str, cwd: &str) -> Option<PathBuf> {
@@ -1826,6 +2045,222 @@ mod tests {
 
     mod identity_regression {
         include!("usage_context_identity_tests.rs");
+    }
+
+    mod session_cost_service {
+        use super::super::{
+            claude_project_roots, session_side_files, CostLedger, SessionCostEntry,
+            UsageStatsService,
+        };
+        use crate::models::ContextUsageStatus;
+        use crate::repository::{Database, HistoryRepository, UsageStatsRepository};
+        use crate::services::LaunchHistoryService;
+        use serde_json::json;
+        use std::fs;
+        use std::path::{Path, PathBuf};
+        use std::sync::Arc;
+
+        const PTY: &str = "pty-cost";
+        const RESUME: &str = "11111111-2222-3333-4444-555555555555";
+
+        fn service_with_launch(cli: &str, resume: Option<&str>) -> UsageStatsService {
+            let db = Arc::new(Database::new_in_memory().unwrap());
+            let history = Arc::new(LaunchHistoryService::new(Arc::new(HistoryRepository::new(
+                db.clone(),
+            ))));
+            history
+                .add_with_pty_session(
+                    "project", "project", "/repo", PTY, cli, "local", None, None, None, None, None,
+                    None, None, None, None,
+                )
+                .unwrap();
+            if let Some(resume) = resume {
+                history
+                    .update_resume_session_with_source_by_pty(PTY, resume, "issued")
+                    .unwrap();
+            }
+            UsageStatsService::new(Arc::new(UsageStatsRepository::new(db)), history)
+        }
+
+        fn seed_transcript(service: &UsageStatsService, path: &Path, resume: &str) {
+            service.session_costs.lock().unwrap().insert(
+                PTY.to_string(),
+                SessionCostEntry {
+                    path: path.to_path_buf(),
+                    resume_id: resume.to_string(),
+                    ledger: CostLedger::default(),
+                },
+            );
+        }
+
+        fn assistant_line(id: &str, input: u64) -> String {
+            format!(
+                "{}\n",
+                json!({
+                    "type": "assistant",
+                    "message": {
+                        "id": id,
+                        "model": "claude-opus-5-5",
+                        "usage": { "input_tokens": input },
+                    },
+                })
+            )
+        }
+
+        #[test]
+        fn claude_roots_include_every_place_a_transcript_can_live() {
+            let temp = tempfile::tempdir().unwrap();
+            let home = temp.path();
+            let account_b = home.join(".rec/claude/accounts/222/config/projects");
+            let account_a = home.join(".rec/claude/accounts/111/config/projects");
+            fs::create_dir_all(&account_a).unwrap();
+            fs::create_dir_all(&account_b).unwrap();
+
+            let roots = claude_project_roots(
+                home,
+                Some(PathBuf::from("/env-config")),
+                Some(PathBuf::from("/provider-config")),
+            );
+
+            assert_eq!(
+                roots,
+                vec![
+                    PathBuf::from("/provider-config/projects"),
+                    PathBuf::from("/env-config/projects"),
+                    home.join(".claude/projects"),
+                    account_a,
+                    account_b,
+                ]
+            );
+        }
+
+        #[test]
+        fn claude_roots_default_to_home_without_overrides() {
+            let temp = tempfile::tempdir().unwrap();
+            assert_eq!(
+                claude_project_roots(temp.path(), None, None),
+                vec![temp.path().join(".claude/projects")]
+            );
+        }
+
+        #[test]
+        fn side_files_are_the_subagent_transcripts_of_that_session_only() {
+            let temp = tempfile::tempdir().unwrap();
+            let main = temp.path().join("session-a.jsonl");
+            let subagents = temp.path().join("session-a/subagents");
+            let other = temp.path().join("session-b/subagents");
+            fs::create_dir_all(&subagents).unwrap();
+            fs::create_dir_all(&other).unwrap();
+            fs::write(&main, "").unwrap();
+            fs::write(subagents.join("agent-1.jsonl"), "").unwrap();
+            fs::write(subagents.join("agent-1.meta.json"), "").unwrap();
+            fs::write(other.join("agent-2.jsonl"), "").unwrap();
+
+            let files = session_side_files("claude", &main);
+            assert_eq!(files.len(), 1);
+            assert!(files[0].ends_with("session-a/subagents/agent-1.jsonl"));
+            assert!(session_side_files("codex", &main).is_empty());
+        }
+
+        #[test]
+        fn cost_accumulates_across_polls_and_includes_subagents() {
+            let temp = tempfile::tempdir().unwrap();
+            let main = temp.path().join(format!("{RESUME}.jsonl"));
+            let subagents = temp.path().join(RESUME).join("subagents");
+            fs::create_dir_all(&subagents).unwrap();
+            fs::write(&main, assistant_line("m1", 1_000_000)).unwrap();
+            fs::write(
+                subagents.join("agent-1.jsonl"),
+                assistant_line("s1", 500_000),
+            )
+            .unwrap();
+            let service = service_with_launch("claude", Some(RESUME));
+            seed_transcript(&service, &main, RESUME);
+
+            let first = service.session_cost_for_pty(PTY);
+            assert_eq!(first.status, ContextUsageStatus::Ready);
+            assert_eq!(first.cost_usd, Some(6.0));
+            assert_eq!(first.agent_session_id.as_deref(), Some(RESUME));
+            assert_eq!(first.diagnostic_code, None);
+
+            let mut updated = fs::read_to_string(&main).unwrap();
+            updated.push_str(&assistant_line("m2", 1_000_000));
+            fs::write(&main, updated).unwrap();
+            assert_eq!(service.session_cost_for_pty(PTY).cost_usd, Some(10.0));
+        }
+
+        #[test]
+        fn cost_of_a_cleared_session_does_not_carry_over() {
+            let temp = tempfile::tempdir().unwrap();
+            let main = temp.path().join("old.jsonl");
+            fs::write(&main, assistant_line("m1", 1_000_000)).unwrap();
+            let service = service_with_launch("claude", Some(RESUME));
+            seed_transcript(&service, &main, "previous-resume-id");
+
+            // 缓存的账属于旧 resume id：丢弃，并且这个 UUID 在任何根目录下都找不到。
+            let snapshot = service.session_cost_for_pty(PTY);
+            assert_eq!(snapshot.cost_usd, None);
+            assert_eq!(snapshot.status, ContextUsageStatus::Error);
+            assert_eq!(
+                snapshot.diagnostic_code.as_deref(),
+                Some("SESSION_NOT_FOUND")
+            );
+        }
+
+        #[test]
+        fn invalidation_forgets_the_ledger() {
+            let temp = tempfile::tempdir().unwrap();
+            let main = temp.path().join("session.jsonl");
+            fs::write(&main, "").unwrap();
+            let service = service_with_launch("claude", Some(RESUME));
+            seed_transcript(&service, &main, RESUME);
+            service.invalidate_context_usage(PTY);
+            assert!(service.session_costs.lock().unwrap().is_empty());
+        }
+
+        #[test]
+        fn no_usage_yet_is_waiting_not_zero_dollars() {
+            let temp = tempfile::tempdir().unwrap();
+            let main = temp.path().join("session.jsonl");
+            fs::write(&main, "{}\n").unwrap();
+            let service = service_with_launch("claude", Some(RESUME));
+            seed_transcript(&service, &main, RESUME);
+            let snapshot = service.session_cost_for_pty(PTY);
+            assert_eq!(snapshot.status, ContextUsageStatus::Waiting);
+            assert_eq!(snapshot.cost_usd, None);
+            assert_eq!(snapshot.agent_session_id.as_deref(), Some(RESUME));
+        }
+
+        #[test]
+        fn session_without_a_resume_id_is_waiting() {
+            let service = service_with_launch("claude", None);
+            let snapshot = service.session_cost_for_pty(PTY);
+            assert_eq!(snapshot.status, ContextUsageStatus::Waiting);
+        }
+
+        #[test]
+        fn clis_without_a_cost_parser_report_unsupported() {
+            for (cli, resume) in [("pi", Some(RESUME)), ("gemini", None)] {
+                let service = service_with_launch(cli, resume);
+                let snapshot = service.session_cost_for_pty(PTY);
+                assert_eq!(
+                    snapshot.diagnostic_code.as_deref(),
+                    Some("RUNTIME_UNSUPPORTED"),
+                    "{cli}"
+                );
+            }
+        }
+
+        #[test]
+        fn unknown_pty_is_an_error_and_releases_the_read_guard() {
+            let service = service_with_launch("claude", Some(RESUME));
+            let snapshot = service.session_cost_for_pty("missing-pty");
+            assert_eq!(
+                snapshot.diagnostic_code.as_deref(),
+                Some("SESSION_NOT_FOUND")
+            );
+            assert!(service.session_cost_reads.lock().unwrap().is_empty());
+        }
     }
 
     fn wsl_distro(name: &str, state: WslDistroState, default_user: Option<&str>) -> WslDistro {

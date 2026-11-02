@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { useContextUsageStore } from "@/stores/useContextUsageStore";
+import "@/stores/useSessionCostStore";
 import { useTaskQueueStore } from "@/stores/useTaskQueueStore";
 import { useTerminalInputActivityStore } from "@/stores/useTerminalInputActivityStore";
 import "@/stores/useTerminalRestoreLogStore";
@@ -19,6 +20,7 @@ const STORE_MODULES = import.meta.glob("../../stores/*.ts", {
 
 const REGISTERED_SESSION_MAP_STORES = {
   "useContextUsageStore.ts": "contextUsage",
+  "useSessionCostStore.ts": "sessionCost",
   "useTaskQueueStore.ts": "taskQueue",
   "useTerminalStatusStore.ts": "terminalStatus",
 } as const;

@@ -1,5 +1,6 @@
 import type { UsageQueryResult } from "@/types/usageStats";
 import type { ContextUsageSnapshot } from "@/types/contextUsage";
+import type { SessionCostSnapshot } from "@/types/sessionCost";
 import { apiGet, apiJson, invokeOrApi } from "./apiClient";
 
 export const usageStatsService = {
@@ -8,6 +9,14 @@ export const usageStatsService = {
       "query_context_usage",
       { ptySessionId },
       () => apiGet<ContextUsageSnapshot>(`/api/context-usage/${encodeURIComponent(ptySessionId)}`),
+    );
+  },
+
+  async querySessionCost(ptySessionId: string): Promise<SessionCostSnapshot> {
+    return invokeOrApi<SessionCostSnapshot>(
+      "query_session_cost",
+      { ptySessionId },
+      () => apiGet<SessionCostSnapshot>(`/api/session-cost/${encodeURIComponent(ptySessionId)}`),
     );
   },
 

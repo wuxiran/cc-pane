@@ -48,6 +48,18 @@ describe("usageStatsService", () => {
     });
   });
 
+  describe("querySessionCost", () => {
+    it("calls the session cost command with the PTY id", async () => {
+      const snapshot = { status: "ready", costUsd: 1.5, observedAt: 1 };
+      mockTauriInvoke({ query_session_cost: snapshot });
+
+      await expect(usageStatsService.querySessionCost("pty-1")).resolves.toEqual(snapshot);
+      expect(invoke).toHaveBeenCalledWith("query_session_cost", {
+        ptySessionId: "pty-1",
+      });
+    });
+  });
+
   describe("queryContextUsage", () => {
     it("calls the context usage command with the active PTY id", async () => {
       const snapshot = { status: "waiting", observedAt: 1 };

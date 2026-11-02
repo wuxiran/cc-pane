@@ -20,6 +20,12 @@ vi.mock("@/components/ContextUsageIndicator", () => ({
   ),
 }));
 
+vi.mock("./SessionCostIndicator", () => ({
+  default: ({ enabled }: { enabled?: boolean }) => (
+    <span data-testid="session-cost-indicator" data-enabled={String(enabled)} />
+  ),
+}));
+
 vi.mock("./TaskQueuePopover", () => ({
   default: ({ sessionId }: { sessionId: string }) => (
     <button type="button" aria-label={`task-queue-${sessionId}`} />

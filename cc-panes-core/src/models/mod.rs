@@ -52,7 +52,9 @@ pub use agent_transcript::{
     AgentTranscriptErrorCode, ReadAgentTranscriptParams, ReadAgentTranscriptResult,
     TranscriptMessage, TranscriptRole, DEFAULT_TRANSCRIPT_LIMIT, MAX_TRANSCRIPT_LIMIT,
 };
-pub use context_usage::{ContextUsageSnapshot, ContextUsageStatus};
+pub use context_usage::{
+    ContextUsageSnapshot, ContextUsageStatus, SessionCostModelEntry, SessionCostSnapshot,
+};
 pub use cursor_bridge::{
     CursorBridgeAction, CursorBridgeModelPref, CursorBridgeModelPreferences,
     CursorBridgeModelTarget, CursorBridgeRegistry, CursorBridgeScope, CursorBridgeSession,

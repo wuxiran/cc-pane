@@ -3,7 +3,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use cc_panes_core::models::{ContextUsageSnapshot, UsageQueryResult};
+use cc_panes_core::models::{ContextUsageSnapshot, SessionCostSnapshot, UsageQueryResult};
 use serde::Deserialize;
 
 use crate::state::AppState;
@@ -31,6 +31,18 @@ pub async fn query_context_usage(
             .usage_stats_service
             .context_usage_for_pty(&pty_session_id),
     ))
+}
+
+pub async fn query_session_cost(
+    State(state): State<AppState>,
+    Path(pty_session_id): Path<String>,
+) -> Result<Json<SessionCostSnapshot>, (StatusCode, String)> {
+    let service = state.usage_stats_service.clone();
+    // 首次读长会话的 transcript 可能要几百毫秒，不能占着 async worker。
+    tokio::task::spawn_blocking(move || service.session_cost_for_pty(&pty_session_id))
+        .await
+        .map(Json)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }
 
 fn service_error(error: impl ToString) -> (StatusCode, String) {
