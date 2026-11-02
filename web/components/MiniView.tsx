@@ -9,6 +9,7 @@ import { asTabId } from "@/types/ids";
 import type { Tab } from "@/types";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauriReady, handleErrorSilent } from "@/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface MiniSessionTab {
   tab: Tab;
@@ -78,27 +79,25 @@ export default function MiniView() {
           CC-Panes
         </span>
         <div className="flex gap-0.5">
-          <button
+          <Tooltip><TooltipTrigger asChild><button
             className="flex items-center justify-center w-[18px] h-[18px] rounded-[3px] border-none cursor-default transition-colors duration-[var(--dur-fast)]"
             style={{
               background: "transparent",
               color: isPinned ? "var(--app-accent)" : "var(--app-text-secondary)",
             }}
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); togglePin(); }}
-            title={isPinned ? t("miniUnpin") : t("miniPin")}
+            onClick={(e) => { e.stopPropagation(); togglePin(); }} aria-label={isPinned ? t("miniUnpin") : t("miniPin")}
           >
             <Pin size={10} className={isPinned ? "rotate-45" : ""} />
-          </button>
-          <button
+          </button></TooltipTrigger><TooltipContent>{isPinned ? t("miniUnpin") : t("miniPin")}</TooltipContent></Tooltip>
+          <Tooltip><TooltipTrigger asChild><button
             className="flex items-center justify-center w-[18px] h-[18px] rounded-[3px] border-none cursor-default transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
             style={{ background: "transparent", color: "var(--app-text-secondary)" }}
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); handleRestore(); }}
-            title={t("miniRestore")}
+            onClick={(e) => { e.stopPropagation(); handleRestore(); }} aria-label={t("miniRestore")}
           >
             <Maximize2 size={10} />
-          </button>
+          </button></TooltipTrigger><TooltipContent>{t("miniRestore")}</TooltipContent></Tooltip>
         </div>
       </div>
 

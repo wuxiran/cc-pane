@@ -399,6 +399,7 @@ export default function WorkspaceItem({
           <div
             role="button"
             tabIndex={0}
+            data-typeahead-label={workspace.alias || workspace.name}
             aria-expanded={expanded}
             className={`${sidebarEntityRowClass} flex items-center justify-between gap-2 hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
               dimmed ? "text-[var(--app-text-tertiary)] hover:text-[var(--app-text-secondary)]" : "text-[var(--app-text-primary)]"

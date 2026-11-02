@@ -124,7 +124,7 @@ describe("TodoListItem", () => {
   it("点击状态按钮只触发 onToggleStatus，不冒泡到 onSelect", () => {
     const { onSelect, onToggleStatus } = renderItem(createTodo());
 
-    fireEvent.click(screen.getByTitle("切换状态"));
+    fireEvent.click(screen.getByRole("button", { name: "切换状态" }));
 
     expect(onToggleStatus).toHaveBeenCalledTimes(1);
     expect(onSelect).not.toHaveBeenCalled();
@@ -134,7 +134,7 @@ describe("TodoListItem", () => {
     const onTogglePriority = vi.fn();
     const { onSelect } = renderItem(createTodo(), { onTogglePriority });
 
-    fireEvent.click(screen.getByTitle("切换优先级"));
+    fireEvent.click(screen.getByRole("button", { name: "切换优先级" }));
 
     expect(onTogglePriority).toHaveBeenCalledTimes(1);
     expect(onSelect).not.toHaveBeenCalled();
@@ -144,7 +144,7 @@ describe("TodoListItem", () => {
     const onToggleMyDay = vi.fn();
     const { onSelect } = renderItem(createTodo(), { onToggleMyDay });
 
-    fireEvent.click(screen.getByTitle("添加到我的一天"));
+    fireEvent.click(screen.getByRole("button", { name: "添加到我的一天" }));
 
     expect(onToggleMyDay).toHaveBeenCalledTimes(1);
     expect(onSelect).not.toHaveBeenCalled();
@@ -153,13 +153,13 @@ describe("TodoListItem", () => {
   it("已在我的一天时按钮提示为移除", () => {
     renderItem(createTodo({ myDay: true }), { onToggleMyDay: vi.fn() });
 
-    expect(screen.getByTitle("从我的一天移除")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "从我的一天移除" })).toBeInTheDocument();
   });
 
   it("未提供 onToggleMyDay 时不渲染太阳按钮", () => {
     renderItem(createTodo());
 
-    expect(screen.queryByTitle("添加到我的一天")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "添加到我的一天" })).not.toBeInTheDocument();
   });
 });
 

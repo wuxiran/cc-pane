@@ -32,6 +32,7 @@ import type {
   TodoStatus,
   TodoWorkView,
 } from "@/types";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface TodoTaskListPanelProps {
   width: number;
@@ -195,11 +196,11 @@ export default function TodoTaskListPanel({
               <p className="mt-0.5 text-xs text-muted-foreground">{t("todoTaskCount", { count: total })}</p>
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              <Button size="icon" variant="ghost" className="h-8 w-8" onClick={onNew} title={t("todoNewTask")} aria-label={t("todoNewTask")}><Plus size={16} /></Button>
+              <Tooltip><TooltipTrigger asChild><Button size="icon" variant="ghost" className="h-8 w-8" onClick={onNew} aria-label={t("todoNewTask")}><Plus size={16} /></Button></TooltipTrigger><TooltipContent>{t("todoNewTask")}</TooltipContent></Tooltip>
               {todos.length > 0 && (
-                <Button size="icon" variant={selectionMode ? "secondary" : "ghost"} className="h-8 w-8" onClick={() => { onSelectionModeChange(!selectionMode); onClearSelection(); }} title={t("todoMultiSelect")}>
+                <Tooltip><TooltipTrigger asChild><Button size="icon" variant={selectionMode ? "secondary" : "ghost"} className="h-8 w-8" onClick={() => { onSelectionModeChange(!selectionMode); onClearSelection(); }} aria-label={t("todoMultiSelect")}>
                   <CheckSquare size={15} />
-                </Button>
+                </Button></TooltipTrigger><TooltipContent>{t("todoMultiSelect")}</TooltipContent></Tooltip>
               )}
             </div>
           </div>
@@ -210,7 +211,7 @@ export default function TodoTaskListPanel({
             <span className="text-muted-foreground">{t("todoSelectedCount", { count: selectedIds.length })}</span>
             <Button size="sm" variant="ghost" className="h-7 gap-1 px-2" disabled={!selectedIds.length} onClick={() => onBatchStatus("in_progress")}><Loader2 size={13} />{t("todoInProgress")}</Button>
             <Button size="sm" variant="ghost" className="h-7 gap-1 px-2" disabled={!selectedIds.length} onClick={() => onBatchStatus("done")}><Check size={13} />{t("todoDone")}</Button>
-            <Button size="icon" variant="ghost" className="ml-auto h-7 w-7" onClick={() => { onClearSelection(); onSelectionModeChange(false); }} title={t("todoCancelSelection")}><X size={14} /></Button>
+            <Tooltip><TooltipTrigger asChild><Button size="icon" variant="ghost" className="ml-auto h-7 w-7" onClick={() => { onClearSelection(); onSelectionModeChange(false); }} aria-label={t("todoCancelSelection")}><X size={14} /></Button></TooltipTrigger><TooltipContent>{t("todoCancelSelection")}</TooltipContent></Tooltip>
           </div>
         )}
 

@@ -8,6 +8,7 @@ import { agentChatService } from "@/services/agentChatService";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import { samePath } from "./chatPaths";
 import { codexEngineLabel } from "@/lib/codexIntegration";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 function formatHistoryTime(timestamp: number): string {
   try {
@@ -167,15 +168,14 @@ export default function StartRecentSessions({
             )}
             {confirmDeleteId === entry.acpSessionId ? (
               <div className="flex shrink-0 items-center gap-0.5">
-                <button
+                <Tooltip><TooltipTrigger asChild><button
                   type="button"
                   aria-label={t("agentChatDeleteConfirm")}
-                  title={t("agentChatDeleteConfirm")}
                   className="rounded p-1 text-[var(--app-status-danger)] hover:bg-[var(--app-hover)]"
                   onClick={() => commitDelete(entry.acpSessionId)}
                 >
                   <Check className="h-3 w-3" />
-                </button>
+                </button></TooltipTrigger><TooltipContent>{t("agentChatDeleteConfirm")}</TooltipContent></Tooltip>
                 <button
                   type="button"
                   aria-label={t("agentChatRenameCancel")}
@@ -187,10 +187,9 @@ export default function StartRecentSessions({
               </div>
             ) : (
               <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                <button
+                <Tooltip><TooltipTrigger asChild><button
                   type="button"
                   aria-label={t("agentChatRename")}
-                  title={t("agentChatRename")}
                   className="rounded p-1 text-[var(--app-icon-inactive)] hover:bg-[var(--app-active-bg)] hover:text-[var(--app-icon-active)]"
                   onClick={() => {
                     setRenamingId(entry.acpSessionId);
@@ -198,20 +197,18 @@ export default function StartRecentSessions({
                   }}
                 >
                   <Pencil className="h-3 w-3" />
-                </button>
-                <button
+                </button></TooltipTrigger><TooltipContent>{t("agentChatRename")}</TooltipContent></Tooltip>
+                <Tooltip><TooltipTrigger asChild><button
                   type="button"
                   aria-label={t("agentChatDeleteHistory")}
-                  title={t("agentChatDeleteHistory")}
                   className="rounded p-1 text-[var(--app-icon-inactive)] hover:bg-[var(--app-active-bg)] hover:text-[var(--app-status-danger)]"
                   onClick={() => setConfirmDeleteId(entry.acpSessionId)}
                 >
                   <Trash2 className="h-3 w-3" />
-                </button>
-                <button
+                </button></TooltipTrigger><TooltipContent>{t("agentChatDeleteHistory")}</TooltipContent></Tooltip>
+                <Tooltip><TooltipTrigger asChild><button
                   type="button"
                   aria-label={t("agentChatCopySessionId")}
-                  title={t("agentChatCopySessionId")}
                   className="rounded p-1 text-[var(--app-icon-inactive)] hover:bg-[var(--app-active-bg)] hover:text-[var(--app-icon-active)]"
                   onClick={() => {
                     void navigator.clipboard
@@ -220,7 +217,7 @@ export default function StartRecentSessions({
                   }}
                 >
                   <Copy className="h-3 w-3" />
-                </button>
+                </button></TooltipTrigger><TooltipContent>{t("agentChatCopySessionId")}</TooltipContent></Tooltip>
               </div>
             )}
           </div>

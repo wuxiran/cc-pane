@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type 
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useDndContext } from "@dnd-kit/core";
 import { useTranslation } from "react-i18next";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 /** Only the cards scroll; the surrounding layout tools remain reachable. */
 export default function LayoutTabStrip({ children, activeLayoutId, revealKey }: {
@@ -113,10 +114,9 @@ export default function LayoutTabStrip({ children, activeLayoutId, revealKey }: 
     const label = t(direction < 0 ? "scrollLayoutsLeft" : "scrollLayoutsRight");
     const Icon = direction < 0 ? ChevronLeft : ChevronRight;
     return (
-      <button
+      <Tooltip><TooltipTrigger asChild><button
         type="button"
         aria-label={label}
-        title={label}
         aria-controls={viewportId}
         disabled={direction < 0 ? !edges.left : !edges.right}
         className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md hover:bg-[var(--app-hover)] disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]"
@@ -124,7 +124,7 @@ export default function LayoutTabStrip({ children, activeLayoutId, revealKey }: 
         onClick={() => scroll(direction)}
       >
         <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
+      </button></TooltipTrigger><TooltipContent>{label}</TooltipContent></Tooltip>
     );
   }
 

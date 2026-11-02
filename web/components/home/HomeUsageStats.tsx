@@ -31,6 +31,7 @@ import {
 import { useUsageStatsStore, useWorkspacesStore } from "@/stores";
 import { waitForTauri } from "@/utils";
 import type { UsageTotals } from "@/types/usageStats";
+import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 type RangeKey = "today" | "24h" | "7d" | "30d" | "90d";
 
@@ -267,9 +268,9 @@ export default function HomeUsageStats() {
               );
             })}
           </div>
-          <button type="button" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-colors hover:bg-[var(--app-home-surface-hover)]" style={{ borderColor: "var(--app-home-border)", color: "var(--app-text-secondary)" }} onClick={() => void refresh()} disabled={refreshing} title={t("usage.refresh")}>
+          <UiTooltip><TooltipTrigger asChild><button type="button" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-colors hover:bg-[var(--app-home-surface-hover)]" style={{ borderColor: "var(--app-home-border)", color: "var(--app-text-secondary)" }} onClick={() => void refresh()} disabled={refreshing} aria-label={t("usage.refresh")}>
             <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
-          </button>
+          </button></TooltipTrigger><TooltipContent>{t("usage.refresh")}</TooltipContent></UiTooltip>
         </div>
       </header>
 

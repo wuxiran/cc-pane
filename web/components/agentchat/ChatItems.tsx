@@ -20,14 +20,14 @@ import type { AcpPlanEntry, AgentChatItem } from "@/types/agentChat";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import ChatAttachmentList from "./ChatAttachmentList";
 import type { OpenChatAttachment } from "./useChatFileActions";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <button
+    <Tooltip><TooltipTrigger asChild><button
       type="button"
       aria-label={label}
-      title={label}
       className="agent-chat-copy rounded-md p-1 text-[var(--app-text-tertiary)] opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--app-accent)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
       onClick={() => {
         void navigator.clipboard
@@ -40,7 +40,7 @@ export function CopyButton({ text, label }: { text: string; label: string }) {
       }}
     >
       {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-    </button>
+    </button></TooltipTrigger><TooltipContent>{label}</TooltipContent></Tooltip>
   );
 }
 

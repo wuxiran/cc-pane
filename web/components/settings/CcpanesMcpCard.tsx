@@ -4,6 +4,7 @@ import { Check, Copy, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { mcpService } from "@/services";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 function CopyRow({
   label,
@@ -24,9 +25,9 @@ function CopyRow({
       <code className="flex-1 text-[length:var(--text-micro)] font-mono bg-muted rounded px-1.5 py-0.5 truncate">
         {value}
       </code>
-      <Button size="icon" variant="ghost" className="h-5 w-5 shrink-0" onClick={onCopy} title={title}>
+      <Tooltip><TooltipTrigger asChild><Button size="icon" variant="ghost" className="h-5 w-5 shrink-0" onClick={onCopy} aria-label={title}>
         {copied ? <Check size={10} className="text-[var(--app-status-success)]" /> : <Copy size={10} />}
-      </Button>
+      </Button></TooltipTrigger><TooltipContent>{title}</TooltipContent></Tooltip>
     </div>
   );
 }

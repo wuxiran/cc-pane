@@ -5,6 +5,7 @@
 // 只调 useDialogStore.openLauncher 唤起全局启动器（含 Provider 凭证选择），
 // 绝不在此挂 useOpenTerminal —— 全应用只有 App.tsx 一处挂载，重复挂会双消费 pendingLaunch。
 import { useTranslation } from "react-i18next";
+import { useRowTypeAhead } from "@/hooks/useTypeAhead";
 import { History, LayoutGrid, MessagesSquare, Plus, Rocket } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import WorkspaceTree from "@/components/sidebar/WorkspaceTree";
@@ -42,6 +43,7 @@ interface ExplorerViewProps {
 
 export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
   const { t } = useTranslation("sidebar");
+  const onTreeTypeAhead = useRowTypeAhead();
   const newTabBinding = useSettingsStore((s) => s.settings?.shortcuts.bindings["new-tab"] ?? "Ctrl+T");
   const activeSection = useExplorerSectionsStore((s) => s.activeSection);
   const setActiveSection = useExplorerSectionsStore((s) => s.setActiveSection);
@@ -144,6 +146,7 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
       <div
         className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-2"
         style={activeSection === "workspaces" ? undefined : { display: "none" }}
+        onKeyDown={onTreeTypeAhead}
       >
         <WorkspaceTree onOpenTerminal={onOpenTerminal} />
       </div>

@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import type { AgentChatItem } from "@/types/agentChat";
 import { DiffBlockView } from "./ToolCallCard";
 import { completedFileEdits } from "./fileEdits";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface NetChange {
   path: string;
@@ -87,15 +88,14 @@ export default function ChatChangesPanel({ items, cwd, onOpenFile }: ChatChanges
                     {relative(change.path)}
                   </span>
                 </button>
-                <button
+                <Tooltip><TooltipTrigger asChild><button
                   type="button"
                   aria-label={t("agentChatOpenFile")}
-                  title={t("agentChatOpenFile")}
                   className="mr-1 shrink-0 rounded p-1 text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]"
                   onClick={() => onOpenFile(change.path)}
                 >
                   <ExternalLink className="h-3 w-3" />
-                </button>
+                </button></TooltipTrigger><TooltipContent>{t("agentChatOpenFile")}</TooltipContent></Tooltip>
               </div>
               {expanded ? (
                 <div className="border-t border-[var(--app-border)] p-1.5">

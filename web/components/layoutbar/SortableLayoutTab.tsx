@@ -24,6 +24,7 @@ import LayoutStatusGrid from "./LayoutStatusGrid";
 import LayoutTypeCounts from "./LayoutTypeCounts";
 import type { LayoutTypeSummary } from "./layoutTypeSummary";
 import type { LayoutStatusSummary } from "./layoutStatusSummary";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 /** 舒适档第二行的绑定标签：manual 亮+链条，derived 暗+问号 */
 function LayoutBindingLabel({ layout, rootPane }: { layout: LayoutEntry; rootPane: PaneNode }) {
@@ -110,10 +111,9 @@ export default function SortableLayoutTab({
     ? null
     : <LayoutStatusRow rootPane={tree} statusMap={statusMap} />;
   const deleteButton = deletable && !reserved ? (
-    <button
+    <Tooltip><TooltipTrigger asChild><button
       type="button"
       aria-label={deleteLabel}
-      title={deleteLabel}
       className="absolute right-2 top-2 hidden h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm group-hover:flex hover:bg-[var(--app-hover)] focus-visible:flex focus-visible:outline-none"
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
@@ -122,7 +122,7 @@ export default function SortableLayoutTab({
       }}
     >
       <X className="h-3 w-3" />
-    </button>
+    </button></TooltipTrigger><TooltipContent>{deleteLabel}</TooltipContent></Tooltip>
   ) : null;
 
   // The card shell owns the sortable node while the tab button owns keyboard

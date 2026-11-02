@@ -11,6 +11,7 @@ import { useCliTools } from "@/hooks/useCliTools";
 import { settingsService } from "@/services";
 import type { CliLauncherSettings, CliToolInfo } from "@/types";
 import { CLI_TOOL_TABS } from "@/types/provider";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 type LauncherTool = Omit<CliToolInfo, "installed"> & { installed?: boolean };
 const FALLBACK_TOOL_LABELS: Record<string, string> = {
@@ -110,17 +111,16 @@ export default function CliLaunchersSection({ value, onChange }: CliLaunchersSec
                 {selectedTool.path || selectedTool.executable}
               </div>
             </div>
-            <Button
+            <Tooltip><TooltipTrigger asChild><Button
               type="button"
               size="icon-sm"
               variant="ghost"
-              title={t("cliLauncherReset")}
               aria-label={t("cliLauncherReset")}
               disabled={!selectedCommand}
               onClick={() => updateCommand(selectedTool.id, "")}
             >
               <RotateCcw size={14} />
-            </Button>
+            </Button></TooltipTrigger><TooltipContent>{t("cliLauncherReset")}</TooltipContent></Tooltip>
           </div>
 
           <div className="flex flex-col gap-1.5">

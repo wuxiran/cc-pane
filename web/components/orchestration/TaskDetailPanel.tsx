@@ -10,6 +10,7 @@ import { asTabId } from "@/types/ids";
 import { AI_WORK_ITEM_TODO_TYPE } from "@/types/todo";
 import type { TaskBinding, TodoItem } from "@/types";
 import { lazyWithRetry } from "@/lib/lazyRetry";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const TaskVerificationCard = lazyWithRetry(() => import("./TaskVerificationCard"), "TaskVerificationCard");
 
@@ -243,18 +244,17 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
                   ? t("detail.promptContent", { defaultValue: "提示词内容" })
                   : t("detail.noPromptStored", { defaultValue: "未存储提示词" })}
               </span>
-              <Button
+              <Tooltip><TooltipTrigger asChild><Button
                 variant="ghost"
                 size="icon-xs"
                 onClick={(event) => {
                   event.stopPropagation();
                   void copyPrompt();
                 }}
-                disabled={!binding.prompt}
-                title={t("detail.copyPrompt", { defaultValue: "复制提示词" })}
+                disabled={!binding.prompt} aria-label={t("detail.copyPrompt", { defaultValue: "复制提示词" })}
               >
                 {copied ? <Check className="h-3 w-3" /> : <Clipboard className="h-3 w-3" />}
-              </Button>
+              </Button></TooltipTrigger><TooltipContent>{t("detail.copyPrompt")}</TooltipContent></Tooltip>
             </button>
             {promptOpen && (
               <pre

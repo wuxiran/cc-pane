@@ -2,6 +2,7 @@ import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import DiffView from "@/components/DiffView";
 import type { ReviewFile } from "./reviewData";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export default function ReviewFileCard({ file, expanded, wrap, onToggle, onOpen }: {
   file: ReviewFile; expanded: boolean; wrap: boolean; onToggle: () => void; onOpen: () => void;
@@ -20,7 +21,7 @@ export default function ReviewFileCard({ file, expanded, wrap, onToggle, onOpen 
         <span className="text-[var(--app-status-success)]">+{file.diff.stats.additions}</span>
         <span className="text-[var(--app-status-danger)]">-{file.diff.stats.deletions}</span>
       </span>}
-      {file.canOpen && <button type="button" className="shrink-0 rounded p-1 hover:bg-[var(--app-hover)]" onClick={onOpen} aria-label={t("openFile", { path: file.path })} title={t("openCurrent")}><ExternalLink className="size-4" /></button>}
+      {file.canOpen && <Tooltip><TooltipTrigger asChild><button type="button" className="shrink-0 rounded p-1 hover:bg-[var(--app-hover)]" onClick={onOpen} aria-label={t("openFile", { path: file.path })}><ExternalLink className="size-4" /></button></TooltipTrigger><TooltipContent>{t("openCurrent")}</TooltipContent></Tooltip>}
     </div>
     {expanded && <div className="min-h-16 border-t border-[var(--app-border)]">
       {file.error ? <p role="alert" className="p-3 text-sm text-[var(--app-status-danger)]">{file.error}</p>

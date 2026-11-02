@@ -10,6 +10,7 @@ import { useSettingsStore, useVoiceInputStore } from "@/stores";
 import { blobToAudioPayload, getRecorderMimeType } from "@/lib/voiceAudio";
 import { missingApiKey, shouldPreferWav } from "@/lib/voiceProviders";
 import { isTauriRuntime } from "@/services/runtime";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 type VoiceStatus = "idle" | "recording" | "transcribing";
 
@@ -182,10 +183,9 @@ export default function ChatVoiceButton({
       : "border-[var(--app-border)] text-[var(--app-icon-inactive)] hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)]";
 
   return (
-    <button
+    <Tooltip><TooltipTrigger asChild><button
       type="button"
       aria-label={label}
-      title={label}
       disabled={status === "transcribing"}
       className={`flex ${sizeClass} shrink-0 items-center justify-center rounded-md border transition-colors ${
         status === "recording"
@@ -208,6 +208,6 @@ export default function ChatVoiceButton({
       ) : (
         <Mic className="h-3.5 w-3.5" />
       )}
-    </button>
+    </button></TooltipTrigger><TooltipContent>{label}</TooltipContent></Tooltip>
   );
 }

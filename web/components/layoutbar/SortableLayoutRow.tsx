@@ -19,6 +19,7 @@ import type { LayoutEntry, PaneNode, TerminalStatusInfo } from "@/types";
 import LayoutStatusRow from "./LayoutStatusRow";
 import LayoutTypeCounts from "./LayoutTypeCounts";
 import { deriveLayoutTypeSummary } from "./layoutTypeSummary";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function layoutRowStyle(selected: boolean): React.CSSProperties {
   return {
@@ -169,11 +170,10 @@ export function SortableLayoutRow({
               )}
             />
           )}
-          <button
+          <Tooltip><TooltipTrigger asChild><button
             ref={setActivatorNodeRef}
             type="button"
             aria-label={t("reorderLayout")}
-            title={t("reorderLayout")}
             className="flex h-6 w-5 shrink-0 cursor-grab items-center justify-center rounded text-[var(--app-text-tertiary)] transition-colors hover:bg-[var(--app-hover)] active:cursor-grabbing"
             {...attributes}
             {...listeners}
@@ -183,7 +183,7 @@ export function SortableLayoutRow({
             }}
           >
             <GripVertical className="h-3.5 w-3.5" />
-          </button>
+          </button></TooltipTrigger><TooltipContent>{t("reorderLayout")}</TooltipContent></Tooltip>
           <button
             type="button"
             className="flex min-w-0 flex-1 items-center gap-2 text-left"
@@ -214,10 +214,9 @@ export function SortableLayoutRow({
             />
           )}
           {!isReservedLayout ? (
-            <button
+            <Tooltip><TooltipTrigger asChild><button
               type="button"
               aria-label={deletingLastLayout ? t("cannotDeleteLastLayout") : t("deleteLayout")}
-              title={deletingLastLayout ? t("cannotDeleteLastLayout") : t("deleteLayout")}
               disabled={deletingLastLayout}
               className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity hover:bg-[var(--app-hover)] focus:opacity-100 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
               onPointerDown={stopLayoutRowAction}
@@ -227,7 +226,7 @@ export function SortableLayoutRow({
               }}
             >
               <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            </button></TooltipTrigger><TooltipContent>{deletingLastLayout ? t("cannotDeleteLastLayout") : t("deleteLayout")}</TooltipContent></Tooltip>
           ) : null}
         </div>
       </ContextMenuTrigger>

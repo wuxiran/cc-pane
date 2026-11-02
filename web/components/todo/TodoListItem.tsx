@@ -16,6 +16,7 @@ import { useDndContext } from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { TodoItem } from "@/types";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface TodoListItemProps {
   todo: TodoItem;
@@ -186,15 +187,14 @@ export default function TodoListItem({
         </div>
 
         {onToggleMyDay && (
-          <button
+          <Tooltip><TooltipTrigger asChild><button
             className={`flex h-6 w-6 shrink-0 items-center justify-center rounded opacity-0 transition-[opacity,background-color] hover:bg-muted group-hover:opacity-100 ${
               todo.myDay ? "!opacity-100" : ""
             }`}
             onClick={(e) => {
               e.stopPropagation();
               onToggleMyDay();
-            }}
-            title={todo.myDay ? t("todoRemoveFromMyDay") : t("todoAddToMyDay")}
+            }} aria-label={todo.myDay ? t("todoRemoveFromMyDay") : t("todoAddToMyDay")}
           >
             <Sun
               className={`h-3.5 w-3.5 transition-colors ${
@@ -203,19 +203,18 @@ export default function TodoListItem({
                   : "text-muted-foreground hover:text-[var(--app-status-warning)]"
               }`}
             />
-          </button>
+          </button></TooltipTrigger><TooltipContent>{todo.myDay ? t("todoRemoveFromMyDay") : t("todoAddToMyDay")}</TooltipContent></Tooltip>
         )}
-        <button
+        <Tooltip><TooltipTrigger asChild><button
           type="button"
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-muted"
           onClick={(event) => {
             event.stopPropagation();
             onTogglePriority?.();
-          }}
-          title={t("todoTogglePriority")}
+          }} aria-label={t("todoTogglePriority")}
         >
           <Flag className={`h-3.5 w-3.5 ${PRIORITY_FLAG_STYLE[todo.priority]}`} />
-        </button>
+        </button></TooltipTrigger><TooltipContent>{t("todoTogglePriority")}</TooltipContent></Tooltip>
       </div>
     </div>
   );
@@ -298,14 +297,13 @@ export function SortableTodoListItem({
       )}
       {/* 拖拽手柄 */}
       {!dragDisabled && (
-        <button
+        <Tooltip><TooltipTrigger asChild><button
           className="shrink-0 w-5 flex items-center justify-center cursor-grab opacity-0 group-hover/sortable:opacity-60 focus-visible:opacity-100 transition-opacity"
           {...attributes}
-          {...listeners}
-          title={t("dragToReorder")}
+          {...listeners} aria-label={t("dragToReorder")}
         >
           <GripVertical className="w-3 h-3 text-muted-foreground" />
-        </button>
+        </button></TooltipTrigger><TooltipContent>{t("dragToReorder")}</TooltipContent></Tooltip>
       )}
 
       {/* TodoListItem */}

@@ -15,6 +15,7 @@ import { worktreeService, type WorktreeInfo } from "@/services";
 import { providerService } from "@/services/providerService";
 import { isTauriRuntime } from "@/services/runtime";
 import { handleError, handleErrorSilent } from "@/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface WorktreeManagerProps {
   open: boolean;
@@ -167,16 +168,16 @@ export default function WorktreeManager({
                       <div className="text-[length:var(--text-caption)] font-mono" style={{ color: "var(--app-text-tertiary)" }}>{wt.commit}</div>
                     </div>
                     <div className="flex gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => onOpenWorktree(wt.path)} title={t("sidebar:openHere")}>
+                      <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" onClick={() => onOpenWorktree(wt.path)} aria-label={t("sidebar:openHere")}>
                         <Terminal size={14} />
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => revealWorktree(wt.path)} title={t("sidebar:openFolder")}>
+                      </Button></TooltipTrigger><TooltipContent>{t("sidebar:openHere")}</TooltipContent></Tooltip>
+                      <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" onClick={() => revealWorktree(wt.path)} aria-label={t("sidebar:openFolder")}>
                         <FolderOpen size={14} />
-                      </Button>
+                      </Button></TooltipTrigger><TooltipContent>{t("sidebar:openFolder")}</TooltipContent></Tooltip>
                       {!wt.isMain && (
-                        <Button variant="ghost" size="sm" onClick={() => requestRemoveWorktree(wt)} title={t("common:delete")}>
+                        <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" onClick={() => requestRemoveWorktree(wt)} aria-label={t("common:delete")}>
                           <Trash2 size={14} />
-                        </Button>
+                        </Button></TooltipTrigger><TooltipContent>{t("common:delete")}</TooltipContent></Tooltip>
                       )}
                     </div>
                   </div>

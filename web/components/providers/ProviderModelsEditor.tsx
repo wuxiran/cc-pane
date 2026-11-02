@@ -12,6 +12,7 @@ import {
 import type { ProviderModel } from "@/types/provider";
 import type { LaunchEffort } from "@/types/terminal";
 import { SELECT_NONE } from "./launchProfileHelpers";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 /** 当 contextWindowTokens 不在预设表内时，下拉用此虚拟选项识别「自定义」分支 */
 const CUSTOM_PRESET_VALUE = "__custom__";
@@ -225,27 +226,25 @@ export default function ProviderModelsEditor({
                   </p>
                 </div>
                 <div className="flex h-9 items-center justify-end gap-1 sm:col-start-2 lg:col-start-auto">
-                  <button
+                  <Tooltip><TooltipTrigger asChild><button
                     type="button"
                     className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--app-hover)]"
                     style={{ color: isDefault ? "var(--app-accent)" : "var(--app-text-tertiary)" }}
                     aria-label={t(isDefault ? "defaultProviderModel" : "setDefaultProviderModel")}
                     aria-pressed={isDefault}
-                    title={t(isDefault ? "defaultProviderModel" : "setDefaultProviderModel")}
                     onClick={() => onChange(models, index)}
                   >
                     <Star size={16} fill={isDefault ? "currentColor" : "none"} />
-                  </button>
-                  <button
+                  </button></TooltipTrigger><TooltipContent>{t(isDefault ? "defaultProviderModel" : "setDefaultProviderModel")}</TooltipContent></Tooltip>
+                  <Tooltip><TooltipTrigger asChild><button
                     type="button"
                     className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--app-hover)]"
                     style={{ color: "var(--app-text-tertiary)" }}
                     aria-label={t("removeProviderModel")}
-                    title={t("removeProviderModel")}
                     onClick={() => removeModel(index)}
                   >
                     <Trash2 size={16} />
-                  </button>
+                  </button></TooltipTrigger><TooltipContent>{t("removeProviderModel")}</TooltipContent></Tooltip>
                 </div>
                 {isDefault && (
                   <span className="text-[length:var(--text-micro)] font-medium sm:col-span-2 lg:col-span-4" style={{ color: "var(--app-accent)" }}>

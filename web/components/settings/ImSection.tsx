@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { settingsService } from "@/services";
 import type { ImChannelConfig, ImChannelType, ImEventKind, ImSettings } from "@/types";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface ImSectionProps {
   value: ImSettings;
@@ -181,14 +182,13 @@ export default function ImSection({ value, onChange }: ImSectionProps) {
                 className="h-8 flex-1"
                 onChange={(e) => updateChannel(channel.id, { name: e.target.value })}
               />
-              <Button
+              <Tooltip><TooltipTrigger asChild><Button
                 size="sm"
-                variant="ghost"
-                title={t("imRemoveChannel")}
+                variant="ghost" aria-label={t("imRemoveChannel")}
                 onClick={() => removeChannel(channel.id)}
               >
                 <Trash2 className="w-4 h-4" />
-              </Button>
+              </Button></TooltipTrigger><TooltipContent>{t("imRemoveChannel")}</TooltipContent></Tooltip>
             </div>
 
             <FormField label={t("imChannelUrl")} className="flex flex-col gap-1">

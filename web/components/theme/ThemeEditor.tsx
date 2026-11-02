@@ -19,6 +19,7 @@ import {
   SHAPE_BASE_RADIUS,
 } from "@/theme/themeOverrides";
 import { themeGroup, themePreset } from "@/theme/themePresets";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const formatRadius = (value: number) => `${value.toFixed(2)}rem`;
 const formatPanelDelta = (value: number) => (value > 0 ? `+${value}%` : `${value}%`);
@@ -147,12 +148,11 @@ export function ThemeEditor() {
             const variant = preset[group];
             const selected = overrides?.accent === preset.id;
             return (
-              <button
+              <Tooltip><TooltipTrigger asChild><button
                 key={preset.id}
                 type="button"
                 aria-pressed={selected}
                 aria-label={t(preset.labelKey as never)}
-                title={t(preset.labelKey as never)}
                 onClick={() => selectAccent(preset.id)}
                 className={cn(
                   "shape-control flex size-6 items-center justify-center rounded-full border border-black/10 outline-none transition-transform focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]",
@@ -161,7 +161,7 @@ export function ThemeEditor() {
                 style={{ background: variant.color, color: variant.foreground }}
               >
                 {selected && <Check aria-hidden="true" className="size-3.5" strokeWidth={3} />}
-              </button>
+              </button></TooltipTrigger><TooltipContent>{t(preset.labelKey as never)}</TooltipContent></Tooltip>
             );
           })}
         </div>

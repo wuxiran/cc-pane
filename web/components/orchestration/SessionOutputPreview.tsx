@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { RefreshCw, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { terminalService } from "@/services";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface SessionOutputPreviewProps {
   sessionId?: string | null;
@@ -64,9 +65,9 @@ export default function SessionOutputPreview({ sessionId }: SessionOutputPreview
         <div className="min-w-0 truncate text-[length:var(--text-micro)] font-semibold uppercase tracking-wider" style={{ color: "var(--app-text-tertiary)" }}>
           {t("output.recentOutput", { defaultValue: "最近输出" })}
         </div>
-        <Button variant="ghost" size="icon-xs" disabled={loading} title={t("output.refresh", { defaultValue: "刷新输出" })}>
+        <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon-xs" disabled={loading} aria-label={t("output.refresh", { defaultValue: "刷新输出" })}>
           <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} strokeWidth={1.5} />
-        </Button>
+        </Button></TooltipTrigger><TooltipContent>{t("output.refresh")}</TooltipContent></Tooltip>
       </div>
       {error ? (
         <div className="p-3 text-xs" style={{ color: "var(--app-status-danger)" }}>

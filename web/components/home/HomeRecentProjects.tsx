@@ -5,6 +5,7 @@ import { useSshMachinesStore, useWorkspacesStore } from "@/stores";
 import type { LaunchRecord } from "@/services";
 import type { OpenTerminalOptions } from "@/types";
 import { buildLaunchRecordTerminalOptions } from "@/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface HomeRecentProjectsProps {
   records: LaunchRecord[];
@@ -165,9 +166,8 @@ export default function HomeRecentProjects({ records, onOpenTerminal }: HomeRece
               </div>
             </div>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-[var(--dur-fast)] translate-x-1 group-hover:translate-x-0 shrink-0">
-              <button
-                className="p-1.5 rounded-md cursor-default transition-colors text-[var(--app-text-secondary)] hover:bg-[var(--app-accent)] hover:text-[var(--primary-foreground)]"
-                title={t("open")}
+              <Tooltip><TooltipTrigger asChild><button
+                className="p-1.5 rounded-md cursor-default transition-colors text-[var(--app-text-secondary)] hover:bg-[var(--app-accent)] hover:text-[var(--primary-foreground)]" aria-label={t("open")}
                 onClick={() =>
                   openRecentProject({
                     path: record.projectPath,
@@ -179,17 +179,16 @@ export default function HomeRecentProjects({ records, onOpenTerminal }: HomeRece
                 }
               >
                 <Play className="w-3.5 h-3.5" />
-              </button>
+              </button></TooltipTrigger><TooltipContent>{t("open")}</TooltipContent></Tooltip>
               {record.resumeSessionId && (
-                <button
-                  className="p-1.5 rounded-md cursor-default transition-colors text-[var(--app-accent)] hover:bg-[var(--app-accent)] hover:text-[var(--primary-foreground)]"
-                  title={t("resume")}
+                <Tooltip><TooltipTrigger asChild><button
+                  className="p-1.5 rounded-md cursor-default transition-colors text-[var(--app-accent)] hover:bg-[var(--app-accent)] hover:text-[var(--primary-foreground)]" aria-label={t("resume")}
                   onClick={() =>
                     openRecentProject(buildLaunchRecordTerminalOptions(record, workspaces, machines))
                   }
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                </button>
+                </button></TooltipTrigger><TooltipContent>{t("resume")}</TooltipContent></Tooltip>
               )}
             </div>
           </div>

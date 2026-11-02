@@ -64,7 +64,7 @@ describe("HomeRecentProjects", () => {
   it("最多展示 8 个项目", () => {
     renderRecent(Array.from({ length: 10 }, () => createRecord()));
 
-    expect(screen.getAllByTitle("打开")).toHaveLength(8);
+    expect(screen.getAllByRole("button", { name: "打开" })).toHaveLength(8);
   });
 
   it("按相对时间显示启动时间", () => {
@@ -94,7 +94,7 @@ describe("HomeRecentProjects", () => {
       }),
     ]);
 
-    fireEvent.click(screen.getByTitle("打开"));
+    fireEvent.click(screen.getByRole("button", { name: "打开" }));
 
     expect(onOpenTerminal).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -115,7 +115,7 @@ describe("HomeRecentProjects", () => {
       }),
     ]);
 
-    fireEvent.click(screen.getByTitle("恢复"));
+    fireEvent.click(screen.getByRole("button", { name: "恢复" }));
 
     expect(onOpenTerminal).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -129,7 +129,7 @@ describe("HomeRecentProjects", () => {
   it("没有 resumeSessionId 时不显示恢复按钮", () => {
     renderRecent([createRecord()]);
 
-    expect(screen.queryByTitle("恢复")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "恢复" })).not.toBeInTheDocument();
   });
 
   it("点击查看全部切换到 panes 的 sessions 视图", () => {

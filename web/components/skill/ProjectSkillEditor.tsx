@@ -25,6 +25,7 @@ import { handleErrorSilent } from "@/utils/errorHandler";
 import ConsumerBadges from "./ConsumerBadges";
 import { moveTargets, validateSkillName } from "./projectSkillModel";
 import { nativeConfirm } from "@/services/nativeDialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface ProjectSkillEditorProps {
   roots: ProjectSkillRoot[];
@@ -174,20 +175,19 @@ export default function ProjectSkillEditor({
                 </DropdownMenuContent>
               </DropdownMenu>
               )}
-              <Button size="sm" variant="ghost" onClick={openFolder} title={t("editor.openFolder")} aria-label={t("editor.openFolder")}>
+              <Tooltip><TooltipTrigger asChild><Button size="sm" variant="ghost" onClick={openFolder} aria-label={t("editor.openFolder")}>
                 <FolderOpen size={14} />
-              </Button>
-              <Button
+              </Button></TooltipTrigger><TooltipContent>{t("editor.openFolder")}</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger asChild><Button
                 size="sm"
                 variant="ghost"
                 className="text-destructive"
                 onClick={confirmDelete}
                 disabled={busy}
-                title={t("editor.delete")}
                 aria-label={t("editor.delete")}
               >
                 <Trash2 size={14} />
-              </Button>
+              </Button></TooltipTrigger><TooltipContent>{t("editor.delete")}</TooltipContent></Tooltip>
             </>
           )}
           <Button size="sm" variant="ghost" onClick={onCancel}>

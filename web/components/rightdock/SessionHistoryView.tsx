@@ -16,6 +16,7 @@ import type {
 } from "@/types";
 import { buildLaunchRecordTerminalOptions } from "@/utils";
 import type { LaunchRecord } from "@/services";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const PAGE_SIZE = 100;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -288,16 +289,15 @@ export default function SessionHistoryView({
               </button>
             )}
           </div>
-          <button
+          <Tooltip><TooltipTrigger asChild><button
             type="button"
             aria-label={t("sessionHistory.refresh")}
-            title={t("sessionHistory.refresh")}
             disabled={refreshing}
             onClick={() => void handleRefresh()}
             className="flex size-8 shrink-0 items-center justify-center rounded-md border border-[var(--app-border)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] disabled:opacity-50"
           >
             <RefreshCw aria-hidden="true" className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} />
-          </button>
+          </button></TooltipTrigger><TooltipContent>{t("sessionHistory.refresh")}</TooltipContent></Tooltip>
         </div>
 
         <div className="flex items-center gap-1.5" aria-label={t("sessionHistory.cliFilter")}>

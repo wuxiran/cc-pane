@@ -30,7 +30,7 @@ describe("TodoFilterBar", () => {
 
     expect(screen.getByPlaceholderText("搜索任务...")).toBeVisible();
     expect(screen.getByRole("button", { name: "筛选" })).toBeVisible();
-    expect(screen.getByTitle("更多操作")).toBeVisible();
+    expect(screen.getByRole("button", { name: "更多操作" })).toBeVisible();
     expect(screen.queryByText("进行中")).not.toBeInTheDocument();
   });
 
@@ -93,7 +93,7 @@ describe("TodoFilterBar", () => {
     const { onGroupModeChange } = renderBar();
 
     const user = userEvent.setup();
-    await user.click(screen.getByTitle("更多操作"));
+    await user.click(screen.getByRole("button", { name: "更多操作" }));
     await user.hover(await screen.findByRole("menuitem", { name: "分组模式" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "按标签分组" }));
 

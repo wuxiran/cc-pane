@@ -12,6 +12,7 @@ import ProjectSkillEditor from "./ProjectSkillEditor";
 import ProjectSkillImportDialog from "./ProjectSkillImportDialog";
 import { defaultRoot, groupByRoot } from "./projectSkillModel";
 import { useProjectSkills } from "./useProjectSkills";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface ProjectSkillsPanelProps {
   scope: SkillScope;
@@ -49,15 +50,15 @@ export default function ProjectSkillsPanel({ scope }: ProjectSkillsPanelProps) {
             <Badge variant="secondary" className="text-xs">{model.skills.length}</Badge>
           </div>
           <div className="flex items-center gap-0.5">
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => void model.reload()} title={t("refresh")} aria-label={t("refresh")} disabled={model.loading}>
+            <Tooltip><TooltipTrigger asChild><Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => void model.reload()} aria-label={t("refresh")} disabled={model.loading}>
               <RefreshCw size={13} className={model.loading ? "animate-spin" : ""} />
-            </Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setImportOpen(true)} title={t("import")} aria-label={t("import")}>
+            </Button></TooltipTrigger><TooltipContent>{t("refresh")}</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger asChild><Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setImportOpen(true)} aria-label={t("import")}>
               <Download size={14} />
-            </Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={startCreate} title={t("newSkill")} aria-label={t("newSkill")}>
+            </Button></TooltipTrigger><TooltipContent>{t("import")}</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger asChild><Button size="icon" variant="ghost" className="h-7 w-7" onClick={startCreate} aria-label={t("newSkill")}>
               <Plus size={14} />
-            </Button>
+            </Button></TooltipTrigger><TooltipContent>{t("newSkill")}</TooltipContent></Tooltip>
           </div>
         </div>
 
