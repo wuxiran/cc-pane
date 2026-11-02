@@ -24,6 +24,7 @@ import LayoutDeleteDialog, { summarizeLayoutDelete, type DeleteSummary } from ".
 import LayoutViewMenu from "./LayoutViewMenu";
 import LayoutPresetPicker from "./LayoutPresetPicker";
 import SortableLayoutTab from "./SortableLayoutTab";
+import LayoutTabStrip from "./LayoutTabStrip";
 import { deriveLayoutStatusSummary } from "./layoutStatusSummary";
 import { deriveLayoutTypeSummary } from "./layoutTypeSummary";
 
@@ -102,7 +103,7 @@ export default function LayoutTopBar() {
 
   return (
     <div
-      className={`flex flex-shrink-0 items-center gap-1 overflow-x-auto border-b px-2 ${
+      className={`flex min-w-0 max-w-full flex-shrink-0 items-center gap-1 overflow-hidden border-b px-2 ${
         density === "comfortable" ? "h-[72px]" : "h-9"
       }`}
       style={{
@@ -128,7 +129,11 @@ export default function LayoutTopBar() {
         {currentLayoutStarred ? null : <LayoutAutoFitButton stacked={density === "comfortable"} />}
       </div>
 
-      <SortableContext items={stripLayouts.map((layout) => layout.id)} strategy={horizontalListSortingStrategy}>
+      <LayoutTabStrip
+        activeLayoutId={currentLayoutId}
+        revealKey={JSON.stringify([density, editingId, stripLayouts.map((layout) => layout.id)])}
+      >
+        <SortableContext items={stripLayouts.map((layout) => layout.id)} strategy={horizontalListSortingStrategy}>
           {stripLayouts.map((layout) => {
             const selected = layout.id === currentLayoutId;
             const tree = selected ? liveRootPane : layout.rootPane;
@@ -144,6 +149,7 @@ export default function LayoutTopBar() {
                 <input
                   key={layout.id}
                   ref={editInputRef}
+                  data-layout-id={layout.id}
                   value={editingName}
                   onChange={(event) => setEditingName(event.target.value)}
                   onBlur={confirmRename}
@@ -184,7 +190,8 @@ export default function LayoutTopBar() {
               />
             );
           })}
-      </SortableContext>
+        </SortableContext>
+      </LayoutTabStrip>
 
       <Tooltip>
         <TooltipTrigger asChild>

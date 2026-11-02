@@ -3,8 +3,6 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
-  closestCenter,
-  rectIntersection,
   useSensor,
   useSensors,
   type DragStartEvent,
@@ -19,6 +17,7 @@ import { usePaneEdgeDropStore } from "@/stores/usePaneEdgeDropStore";
 import type { Tab } from "@/types";
 import { devDebugLog } from "@/utils/devLogger";
 import { resolveDndDrop } from "./paneDndRouting";
+import { detectPaneDropCollisions } from "./layoutDropVisibility";
 
 interface DndPaneProviderProps {
   children: React.ReactNode;
@@ -155,18 +154,10 @@ export default function DndPaneProvider({ children }: DndPaneProviderProps) {
     edgeDrop.setPreview(null);
   }, []);
 
-  // 碰撞算法按被拖对象分流：布局条合并进来之前用的是 closestCenter，
-  // tab 区用默认的 rectIntersection。统一成任一个都会改掉另一边的手感。
-  const collisionDetection = useCallback(
-    (args: Parameters<typeof rectIntersection>[0]) =>
-      args.active.data.current?.type === "layout" ? closestCenter(args) : rectIntersection(args),
-    [],
-  );
-
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={collisionDetection}
+      collisionDetection={detectPaneDropCollisions}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
