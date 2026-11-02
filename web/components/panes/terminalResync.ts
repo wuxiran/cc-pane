@@ -211,11 +211,18 @@ export function createTerminalDesyncHandler({
 }: CreateTerminalDesyncHandlerOptions): (() => Promise<boolean>) & { dispose: () => void } {
   let activeResync: Promise<boolean> | null = null;
   let coreResyncActive = false;
+  let snapshotRequested = false;
+  let rerunPending = false;
   let disposed = false;
 
   const handler = () => {
     if (disposed) return Promise.resolve(false);
-    if (coreResyncActive && activeResync) return activeResync;
+    if (coreResyncActive && activeResync) {
+      // 快照已发出：这次 desync 报告的缺口可能不在其中（典型是切回标签时 daemon
+      // 解除隐藏才发的 desync），并入当前轮会永久丢字，收尾后必须再重建一次。
+      if (snapshotRequested) rerunPending = true;
+      return activeResync;
+    }
     const term = terminalRef.current;
     if (!term) return Promise.resolve(false);
     if (!isRenderVisible()) {
@@ -227,6 +234,7 @@ export function createTerminalDesyncHandler({
     const canWrite = () => !disposed && terminalRef.current === term;
     // Freeze may wait one WebGL render; close the output gate before that await.
     coreResyncActive = true;
+    snapshotRequested = false;
     setResyncActive(true);
 
     const run = async (): Promise<boolean> => {
@@ -237,7 +245,10 @@ export function createTerminalDesyncHandler({
         term,
         sessionId,
         reason: "daemon-desync",
-        getRecoverySnapshot,
+        getRecoverySnapshot: (id) => {
+          snapshotRequested = true;
+          return getRecoverySnapshot(id);
+        },
         writeData,
         writeCheckpointData,
         syncTrackedBufferType,
@@ -261,6 +272,10 @@ export function createTerminalDesyncHandler({
       })
       .finally(() => {
         if (activeResync === completion) activeResync = null;
+        if (rerunPending) {
+          rerunPending = false;
+          void handler();
+        }
       });
     activeResync = completion;
     return completion;

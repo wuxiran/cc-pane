@@ -188,6 +188,15 @@ function dispatchLatchedDesync(sessionId: string): void {
   dispatchDesync(sessionId);
 }
 
+/**
+ * daemon 明确报告的缺口：穿透闩锁。闩只为本地连续丢帧去重，而 daemon 的 desync 是
+ * 边沿事件（如解除隐藏），闩住时吞掉它，这段缺口就再没有机会恢复。
+ */
+function dispatchDaemonDesync(sessionId: string): void {
+  outputDesyncLatched.add(sessionId);
+  dispatchDesync(sessionId);
+}
+
 /** 清除本轮丢帧闩锁；仅在快照重建并重新锚定成功后调用。 */
 export function clearTerminalOutputDesyncLatch(sessionId: string): void {
   outputDesyncLatched.delete(sessionId);
@@ -343,7 +352,7 @@ export async function ensureListeners(): Promise<void> {
     "terminal-desync",
     (event) => {
       if (killedSessions.has(event.payload.sessionId)) return;
-      dispatchLatchedDesync(event.payload.sessionId);
+      dispatchDaemonDesync(event.payload.sessionId);
     },
   );
 }
@@ -423,7 +432,7 @@ function ensureWebSocket(sessionId: string): void {
   socket.onmessage = (event) => {
     if (killedSessions.has(sessionId)) return;
     if (isWebSocketDesyncMessage(event.data)) {
-      dispatchLatchedDesync(sessionId);
+      dispatchDaemonDesync(sessionId);
       return;
     }
     const { data, endSeq } = parseWebSocketOutput(event.data);
