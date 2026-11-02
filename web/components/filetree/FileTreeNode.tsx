@@ -182,7 +182,7 @@ export default memo(function FileTreeNode({
       aria-posinset={posInSet}
       aria-setsize={setSize}
       tabIndex={node.entry.path === focusedPath ? 0 : -1}
-      className={`group flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-md px-2 text-[var(--app-text-primary)] outline-none transition-colors focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)] ${
+      className={`group flex h-7 cursor-default select-none items-center gap-1.5 rounded-md px-2 text-[var(--app-text-primary)] outline-none transition-colors focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)] ${
         isSelected ? "bg-[var(--editor-selection-bg)]" : "hover:bg-[var(--app-hover)]"
       }`}
       style={{ paddingLeft }}

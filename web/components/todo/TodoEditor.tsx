@@ -447,7 +447,7 @@ export default function TodoEditor({
                             }
                           }
                         }}
-                        className="absolute -top-1 -right-1 hidden group-hover/type:flex group-focus-within/type:flex focus-visible:flex w-3.5 h-3.5 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[8px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                        className="absolute -top-1 -right-1 hidden group-hover/type:flex group-focus-within/type:flex focus-visible:flex w-3.5 h-3.5 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[8px] cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
                       >
                         ×
                       </span>

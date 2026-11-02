@@ -46,7 +46,7 @@ export default function ProxySection({ value, onChange }: ProxySectionProps) {
           type="checkbox"
           checked={value.enabled}
           onChange={(e) => update("enabled", e.target.checked)}
-          className="w-4 h-4 cursor-pointer"
+          className="w-4 h-4 cursor-default"
           style={{ accentColor: "var(--app-accent)" }}
         />
       </div>

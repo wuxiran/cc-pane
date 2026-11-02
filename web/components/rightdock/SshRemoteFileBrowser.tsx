@@ -292,7 +292,7 @@ function TreeEntry({
           aria-expanded={entry.isDir ? expanded : undefined}
           tabIndex={0}
           aria-selected={selected}
-          className={`group flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-md px-2 text-[var(--app-text-primary)] outline-none transition-colors ${
+          className={`group flex h-7 cursor-default select-none items-center gap-1.5 rounded-md px-2 text-[var(--app-text-primary)] outline-none transition-colors ${
             selected ? "bg-[var(--editor-selection-bg)]" : "hover:bg-[var(--app-hover)]"
           }`}
           style={{ paddingLeft: `${depth * 14 + 12}px` }}

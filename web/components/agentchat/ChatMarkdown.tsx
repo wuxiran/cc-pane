@@ -147,7 +147,7 @@ export default memo(function ChatMarkdown({ text, onOpenFile, cwd }: ChatMarkdow
                     ) : null}
                     {onOpenFile ? (
                       <button type="button"
-                        className="cursor-pointer text-left underline decoration-dotted underline-offset-2 hover:text-[var(--app-icon-active)] focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]"
+                        className="cursor-default text-left underline decoration-dotted underline-offset-2 hover:text-[var(--app-icon-active)] focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]"
                         title={ref.path}
                         onClick={() => onOpenFile(ref.path, ref.line)}
                       >

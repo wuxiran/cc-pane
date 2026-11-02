@@ -75,6 +75,14 @@
 - 阴影三级封顶；需要第四级说明其实需要的是焦点 ring。
 - 动效只用 token；UI 永不用 ease-in；动画服务连续性不服务装饰；尊重 `prefers-reduced-motion`。
 
+### 5.1 原生手感底线（`web/components/nativeConventions.test.ts` 与 `layoutMotion.test.ts` 把关）
+
+- **同级视图直接切换，不做转场**：主视图切换、侧栏显隐都是当帧完成。不做启动入场动画。侧栏宽度动画还会让可见终端连续 refit。
+- **可点元素不换手形光标**：用 `cursor-default`；只有内容里的外链保留手形。窗口拖拽区不用抓手光标，抓手只留给真正的拖放手柄。
+- **控件和侧栏文字不可选，内容可选**：全局规则在 `index.css`。终端、编辑器、消息和弹窗正文保持可选，这样报错能复制。新增非 `input` 的可编辑控件要确认没有继承 `user-select: none`。
+- **程序化滚动不用 `behavior: smooth`**。
+- **快捷键标签走 `formatKeyCombo`**，不要把 `Ctrl+X` 写进文案。
+
 ## 6. 表单解剖与软卡片
 
 - 一个设置 pane 只保留一套页面标题：大标题在上，已有说明作为 12px muted 文案紧随其下；Section 内不得重复标题。

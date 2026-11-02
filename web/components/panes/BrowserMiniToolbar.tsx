@@ -20,7 +20,7 @@ export default function BrowserMiniToolbar({ tabId, title, onError }: {
   };
   return <div className="flex h-10 shrink-0 items-center justify-end gap-2 bg-[var(--app-content)] px-2" data-testid="browser-mini-toolbar">
     <button type="button" aria-label={t("miniDrag")} title={title || t("untitled")}
-      className="flex h-8 min-w-0 flex-1 cursor-grab items-center gap-2 rounded-lg px-2 text-left text-[var(--app-text-tertiary)] active:cursor-grabbing"
+      className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left text-[var(--app-text-tertiary)]"
       onPointerDown={(event) => { if (event.button === 0) void startBrowserWindowDrag().catch(onError); }}>
       <GripHorizontal className="size-3.5 shrink-0" /><span className="truncate text-xs">{title || t("untitled")}</span>
     </button>

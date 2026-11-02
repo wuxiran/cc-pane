@@ -469,7 +469,7 @@ export default function WorkspaceEnvironmentPanel() {
                   checked
                     ? "border-[var(--app-accent)] bg-[var(--app-active-bg)] text-[var(--app-text-primary)]"
                     : "border-[var(--app-border)] bg-transparent text-[var(--app-text-secondary)]"
-                } ${issue || saving ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+                } ${issue || saving ? "cursor-not-allowed opacity-60" : "cursor-default"}`}
               >
                 <input
                   aria-label={`${cliLabel}: ${label}`}

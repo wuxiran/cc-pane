@@ -86,10 +86,9 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
     <div
       className="shape-chrome relative flex items-center h-[calc(var(--density-row-h)+16px)] shrink-0 select-none z-10"
       data-tauri-drag-region=""
-      title={t("doubleClickWindowFullscreenHint")}
       style={{
         paddingLeft: isMac ? 78 : 12,
-        paddingRight: 12,
+        paddingRight: isMac ? 12 : 0,
         background: "var(--app-menubar)",
         borderBottom: "1px solid var(--app-border)",
         backdropFilter: `blur(var(--app-glass-blur))`,
@@ -240,7 +239,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
       {/* 中间：拖拽区 */}
       <div
         data-testid="titlebar-drag-spacer"
-        className="flex-1 h-full cursor-grab"
+        className="flex-1 h-full"
         onMouseDown={(e) => {
           if (e.button === 0 && e.target === e.currentTarget) {
             if (e.detail >= 2) {
@@ -283,12 +282,12 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
 
       {/* 窗口控件（macOS 使用原生红绿灯，不需要自定义按钮） */}
       {!isMac && (
-        <div className="flex items-center -mr-1 shrink-0" style={noDrag}>
+        <div className="flex h-full items-stretch shrink-0 ml-1" style={noDrag}>
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 aria-label={t("minimize")}
-                className="w-[36px] h-[30px] flex items-center justify-center rounded-[4px] transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
+                className="w-[46px] h-full flex items-center justify-center text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
                 onClick={minimizeWindow}
               >
                 <Minus className="w-[13px] h-[13px]" />
@@ -300,7 +299,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
             <TooltipTrigger asChild>
               <button
                 aria-label={isMaximized ? t("restoreWindow") : t("maximize")}
-                className="w-[36px] h-[30px] flex items-center justify-center rounded-[4px] transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
+                className="w-[46px] h-full flex items-center justify-center text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
                 onClick={maximizeWindow}
               >
                 {isMaximized ? <Copy className="w-3 h-3" /> : <Square className="w-3 h-3" />}
@@ -312,7 +311,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
             <TooltipTrigger asChild>
               <button
                 aria-label={t("close")}
-                className="w-[36px] h-[30px] flex items-center justify-center rounded-[4px] transition-colors duration-[var(--dur-fast)] text-[var(--app-text-secondary)] hover:bg-[var(--app-close-btn-hover-bg)] hover:text-[var(--app-close-btn-hover-fg)]"
+                className="w-[46px] h-full flex items-center justify-center text-[var(--app-text-secondary)] hover:bg-[var(--app-close-btn-hover-bg)] hover:text-[var(--app-close-btn-hover-fg)]"
                 onClick={closeWindow}
               >
                 <X className="w-[13px] h-[13px]" />

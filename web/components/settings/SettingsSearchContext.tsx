@@ -47,7 +47,7 @@ export function scrollToSettingsSection(sectionId: string): void {
     requestAnimationFrame(() => {
       const target = [...document.querySelectorAll<HTMLElement>("[data-settings-section]")]
         .find((element) => element.dataset.settingsSection === sectionId);
-      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+      target?.scrollIntoView({ block: "center" });
     });
   });
 }

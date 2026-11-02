@@ -76,7 +76,7 @@ function ProcessItem({
             type="checkbox"
             checked={selected}
             onChange={onToggle}
-            className="w-3 h-3 shrink-0 accent-[var(--app-accent)] cursor-pointer"
+            className="w-3 h-3 shrink-0 accent-[var(--app-accent)] cursor-default"
           />
           <span className="truncate text-[var(--app-text-secondary)] flex-1 min-w-0">
             {process.name}

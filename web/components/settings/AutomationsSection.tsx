@@ -366,7 +366,7 @@ export default function AutomationsSection() {
               checked={draft.autoApprove}
               onCheckedChange={(autoApprove) => setDraft({ ...draft, autoApprove })}
             />
-            <label htmlFor={autoApproveId} className="cursor-pointer">
+            <label htmlFor={autoApproveId} className="cursor-default">
               {t("automations.autoApprove")}
             </label>
           </div>

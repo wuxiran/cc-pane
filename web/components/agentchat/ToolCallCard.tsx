@@ -218,7 +218,7 @@ export default function ToolCallCard({ call, chatId, onOpenLocation, expandAllSi
         onOpenFile={onOpenLocation} renderDiff={() => <DiffBlockView block={block} />} />
     ))}{input || output || otherContent.length > 0 ? (
       <details className="px-2 text-xs text-[var(--app-text-secondary)]">
-        <summary className="cursor-pointer">{call.title || call.kind || call.toolCallId}</summary>
+        <summary className="cursor-default">{call.title || call.kind || call.toolCallId}</summary>
         <div className="flex flex-col gap-1.5 py-2">
           {input ? <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono">{input}</pre> : null}
           {otherContent.map((block, index) => <ContentBlockView key={index} block={block} chatId={chatId} />)}

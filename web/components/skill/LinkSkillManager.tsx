@@ -244,7 +244,7 @@ export default function LinkSkillManager() {
             return (
               <span
                 key={agent.name}
-                className={`cursor-pointer select-none rounded-full px-3 py-1 text-xs transition-colors ${
+                className={`cursor-default select-none rounded-full px-3 py-1 text-xs transition-colors ${
                   active ? "ring-2 ring-offset-1" : ""
                 }`}
                 style={{
@@ -260,7 +260,7 @@ export default function LinkSkillManager() {
             );
           })}
           <span
-            className={`cursor-pointer select-none rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground ${
+            className={`cursor-default select-none rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground ${
               targetAgent === "*" ? "ring-2 ring-ring ring-offset-1" : ""
             }`}
             onClick={() => setTargetAgent("*")}
@@ -312,14 +312,14 @@ export default function LinkSkillManager() {
                 ({items.length} {t("linkCountSuffix")})
               </span>
               <span
-                className="cursor-pointer rounded bg-accent/60 px-1.5 py-0.5 font-normal hover:bg-accent"
+                className="cursor-default rounded bg-accent/60 px-1.5 py-0.5 font-normal hover:bg-accent"
                 onClick={() => selectAll(items.map((r) => r.dir))}
                 title={t("linkGroupSelectAll")}
               >
                 {t("linkGroupSelectAll")}
               </span>
               <span
-                className="cursor-pointer rounded bg-accent/60 px-1.5 py-0.5 font-normal hover:bg-accent"
+                className="cursor-default rounded bg-accent/60 px-1.5 py-0.5 font-normal hover:bg-accent"
                 onClick={() => invertSelection(items.map((r) => r.dir))}
                 title={t("linkGroupInvert")}
               >
@@ -337,7 +337,7 @@ export default function LinkSkillManager() {
                 >
                   <input
                     type="checkbox"
-                    className="h-4 w-4 cursor-pointer accent-primary"
+                    className="h-4 w-4 cursor-default accent-primary"
                     checked={selection.has(row.dir)}
                     onChange={() => toggleSelect(row.dir)}
                     onClick={(e) => e.stopPropagation()}
@@ -396,7 +396,7 @@ export default function LinkSkillManager() {
                         <span
                           key={agent.name}
                           title={`${agent.name}: ${t(STATE_KEY[st])}（${t("linkToggleTooltip")}）`}
-                          className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-[11px] font-bold transition-transform hover:scale-110 ${
+                          className={`flex h-6 w-6 cursor-default items-center justify-center rounded-full text-[11px] font-bold transition-transform hover:scale-110 ${
                             st === "linked"
                               ? "text-white"
                               : st === "copied"
@@ -428,7 +428,7 @@ export default function LinkSkillManager() {
             <span className="text-muted-foreground">
               {t("linkSelected", { count: selection.size, target: targetName })}
             </span>
-            <label className="flex cursor-pointer items-center gap-1 text-muted-foreground" title={t("linkOverwriteTooltip")}>
+            <label className="flex cursor-default items-center gap-1 text-muted-foreground" title={t("linkOverwriteTooltip")}>
               <input
                 type="checkbox"
                 className="h-3.5 w-3.5"

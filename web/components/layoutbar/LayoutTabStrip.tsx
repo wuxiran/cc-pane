@@ -2,7 +2,6 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type 
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useDndContext } from "@dnd-kit/core";
 import { useTranslation } from "react-i18next";
-import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 
 /** Only the cards scroll; the surrounding layout tools remain reachable. */
 export default function LayoutTabStrip({ children, activeLayoutId, revealKey }: {
@@ -18,7 +17,6 @@ export default function LayoutTabStrip({ children, activeLayoutId, revealKey }: 
   const { active } = useDndContext();
   const draggingRef = useRef(false);
   draggingRef.current = Boolean(active);
-  const reducedMotion = usePrefersReducedMotion();
   const [overflow, setOverflow] = useState(false);
   const [edges, setEdges] = useState({ left: false, right: false });
 
@@ -108,7 +106,6 @@ export default function LayoutTabStrip({ children, activeLayoutId, revealKey }: 
     if (!viewport) return;
     viewport.scrollBy({
       left: direction * Math.max(120, viewport.clientWidth * 0.75),
-      behavior: reducedMotion ? "auto" : "smooth",
     });
   }
 

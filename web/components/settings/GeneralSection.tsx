@@ -140,7 +140,7 @@ export default function GeneralSection({
           type="checkbox"
           checked={value.closeToTray}
           onChange={(e) => update("closeToTray", e.target.checked)}
-          className="w-4 h-4 cursor-pointer"
+          className="w-4 h-4 cursor-default"
           style={{ accentColor: "var(--app-accent)" }}
         />
       </div>
@@ -165,7 +165,7 @@ export default function GeneralSection({
             type="checkbox"
             checked={value.trayShowSessionStatus ?? true}
             onChange={(e) => update("trayShowSessionStatus", e.target.checked)}
-            className="w-4 h-4 cursor-pointer shrink-0"
+            className="w-4 h-4 cursor-default shrink-0"
             style={{ accentColor: "var(--app-accent)" }}
           />
         </div>
@@ -210,7 +210,7 @@ export default function GeneralSection({
             type="checkbox"
             checked={value.trayTooltipSummary ?? true}
             onChange={(e) => update("trayTooltipSummary", e.target.checked)}
-            className="w-4 h-4 cursor-pointer shrink-0"
+            className="w-4 h-4 cursor-default shrink-0"
             style={{ accentColor: "var(--app-accent)" }}
           />
         </div>
@@ -227,7 +227,7 @@ export default function GeneralSection({
             type="checkbox"
             checked={value.trayConfirmQuit ?? true}
             onChange={(e) => update("trayConfirmQuit", e.target.checked)}
-            className="w-4 h-4 cursor-pointer shrink-0"
+            className="w-4 h-4 cursor-default shrink-0"
             style={{ accentColor: "var(--app-accent)" }}
           />
         </div>
@@ -240,7 +240,7 @@ export default function GeneralSection({
           type="checkbox"
           checked={value.autoStart}
           onChange={(e) => update("autoStart", e.target.checked)}
-          className="w-4 h-4 cursor-pointer"
+          className="w-4 h-4 cursor-default"
           style={{ accentColor: "var(--app-accent)" }}
         />
       </div>
@@ -253,7 +253,7 @@ export default function GeneralSection({
           aria-label={t("showSystemResources")}
           checked={value.showSystemResources ?? true}
           onChange={(e) => update("showSystemResources", e.target.checked)}
-          className="w-4 h-4 cursor-pointer shrink-0"
+          className="w-4 h-4 cursor-default shrink-0"
           style={{ accentColor: "var(--app-accent)" }}
         />
       </div>
@@ -271,7 +271,7 @@ export default function GeneralSection({
           aria-label={t("updateNotifyEnabled")}
           checked={updateNotifyEnabled}
           onChange={(event) => onUpdateNotifyEnabledChange?.(event.target.checked)}
-          className="w-4 h-4 cursor-pointer shrink-0"
+          className="w-4 h-4 cursor-default shrink-0"
           style={{ accentColor: "var(--app-accent)" }}
         />
       </div>
@@ -289,7 +289,7 @@ export default function GeneralSection({
           aria-label={t("featureTipsEnabled")}
           checked={featureTipsEnabled}
           onChange={(event) => onFeatureTipsEnabledChange?.(event.target.checked)}
-          className="w-4 h-4 cursor-pointer shrink-0"
+          className="w-4 h-4 cursor-default shrink-0"
           style={{ accentColor: "var(--app-accent)" }}
         />
       </div>
@@ -307,7 +307,7 @@ export default function GeneralSection({
           aria-label={t("localHistoryEnabled")}
           checked={localHistoryEnabled}
           onChange={(event) => onLocalHistoryEnabledChange?.(event.target.checked)}
-          className="w-4 h-4 cursor-pointer shrink-0"
+          className="w-4 h-4 cursor-default shrink-0"
           style={{ accentColor: "var(--app-accent)" }}
         />
       </div>
@@ -325,7 +325,7 @@ export default function GeneralSection({
             type="checkbox"
             checked={value.disableWslUsageScan ?? false}
             onChange={(e) => update("disableWslUsageScan", e.target.checked)}
-            className="w-4 h-4 cursor-pointer shrink-0"
+            className="w-4 h-4 cursor-default shrink-0"
             style={{ accentColor: "var(--app-accent)" }}
           />
         </div>
@@ -421,7 +421,7 @@ export default function GeneralSection({
                 {" · "}
                 <button
                   type="button"
-                  className="underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                  className="underline cursor-default rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
                   style={{ color: "var(--app-accent)" }}
                   onClick={handleResetDataDir}
                 >

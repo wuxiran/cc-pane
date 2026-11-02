@@ -104,7 +104,7 @@ export default function QuickTerminalSection({ value, onChange }: QuickTerminalS
           />
         ) : (
           <button
-            className="px-3 py-1 rounded text-xs font-mono cursor-pointer border"
+            className="px-3 py-1 rounded text-xs font-mono cursor-default border"
             style={{
               background: "var(--app-surface-2)",
               color: "var(--app-text-primary)",

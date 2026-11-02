@@ -112,7 +112,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
           <input
             type="checkbox"
             checked={value.autoStart}
-            className="h-4 w-4 cursor-pointer"
+            className="h-4 w-4 cursor-default"
             style={{ accentColor: "var(--app-accent)" }}
             onChange={(event) => update("autoStart", event.target.checked)}
           />
@@ -126,7 +126,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
           <input
             type="checkbox"
             checked={value.soundEnabled}
-            className="h-4 w-4 cursor-pointer"
+            className="h-4 w-4 cursor-default"
             style={{ accentColor: "var(--app-accent)" }}
             onChange={(event) => update("soundEnabled", event.target.checked)}
           />
@@ -137,7 +137,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
           <input
             type="checkbox"
             checked={value.windowVisible}
-            className="h-4 w-4 cursor-pointer"
+            className="h-4 w-4 cursor-default"
             style={{ accentColor: "var(--app-accent)" }}
             onChange={(event) => update("windowVisible", event.target.checked)}
           />
@@ -151,7 +151,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
           <input
             type="checkbox"
             checked={value.wanderEnabled}
-            className="h-4 w-4 cursor-pointer"
+            className="h-4 w-4 cursor-default"
             style={{ accentColor: "var(--app-accent)" }}
             onChange={(event) => update("wanderEnabled", event.target.checked)}
           />
@@ -174,7 +174,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
             max={CCCHAN_PET_SIZE_MAX}
             step={10}
             value={value.petSize}
-            className="w-48 cursor-pointer"
+            className="w-48 cursor-default"
             style={{ accentColor: "var(--app-accent)" }}
             onChange={(event) => update("petSize", Number(event.target.value))}
           />

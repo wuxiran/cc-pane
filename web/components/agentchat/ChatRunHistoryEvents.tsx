@@ -8,7 +8,7 @@ function ArchivedEvent({ event }: { event: AcpRunEvent }) {
   const [expanded, setExpanded] = useState(false);
   const archivedRequest = event.kind === "permission_request" || event.kind === "elicitation_request";
   return <details className="rounded border border-border p-2 text-xs" onToggle={(action) => setExpanded(action.currentTarget.open)}>
-    <summary className="cursor-pointer break-all">{historyEventTitle(event)}{archivedRequest ? ` · ${t("archivedRequest")}` : ""}</summary>
+    <summary className="cursor-default break-all">{historyEventTitle(event)}{archivedRequest ? ` · ${t("archivedRequest")}` : ""}</summary>
     {expanded && <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-muted-foreground">{historyEventDetails(event.payload)}</pre>}
   </details>;
 }

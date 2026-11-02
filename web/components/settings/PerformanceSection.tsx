@@ -185,7 +185,7 @@ export default function PerformanceSection({ value, onChange, terminal, onTermin
                 aria-label={t("lowerSessionPriority")}
                 checked={terminal.lowerSessionPriority ?? true}
                 onChange={(e) => updateTerminal("lowerSessionPriority", e.target.checked)}
-                className="w-4 h-4 cursor-pointer"
+                className="w-4 h-4 cursor-default"
                 style={{ accentColor: "var(--app-accent)" }}
               />
               <Label htmlFor="terminal-lower-session-priority">{t("lowerSessionPriority")}</Label>

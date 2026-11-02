@@ -128,7 +128,7 @@ export default function WebAccessSection({
           type="checkbox"
           checked={value.enabled}
           onChange={(event) => update("enabled", event.target.checked)}
-          className="w-4 h-4 cursor-pointer"
+          className="w-4 h-4 cursor-default"
           style={{ accentColor: "var(--app-accent)" }}
         />
       </div>
@@ -155,7 +155,7 @@ export default function WebAccessSection({
         </div>
         <input id="web-access-auto-open" type="checkbox" checked={value.autoOpen}
           onChange={(event) => update("autoOpen", event.target.checked)}
-          className="w-4 h-4 cursor-pointer" style={{ accentColor: "var(--app-accent)" }} />
+          className="w-4 h-4 cursor-default" style={{ accentColor: "var(--app-accent)" }} />
       </div>
       </div>
       </SearchableSetting>
@@ -174,7 +174,7 @@ export default function WebAccessSection({
             type="checkbox"
             checked={value.authEnabled}
             onChange={(event) => update("authEnabled", event.target.checked)}
-            className="w-4 h-4 cursor-pointer"
+            className="w-4 h-4 cursor-default"
             style={{ accentColor: "var(--app-accent)" }}
           />
         </div>
@@ -226,7 +226,7 @@ export default function WebAccessSection({
             checked={value.allowLan}
             disabled={!canUseLan}
             onChange={(event) => update("allowLan", event.target.checked)}
-            className="w-4 h-4 cursor-pointer"
+            className="w-4 h-4 cursor-default"
             style={{ accentColor: "var(--app-accent)" }}
           />
         </div>
@@ -243,7 +243,7 @@ export default function WebAccessSection({
             type="checkbox"
             checked={value.remoteReadOnly}
             onChange={(event) => update("remoteReadOnly", event.target.checked)}
-            className="w-4 h-4 cursor-pointer"
+            className="w-4 h-4 cursor-default"
             style={{ accentColor: "var(--app-accent)" }}
           />
         </div>
@@ -266,7 +266,7 @@ export default function WebAccessSection({
               checked={value.remoteAuthenticatedWrite}
               disabled={!canUseLan}
               onChange={(event) => update("remoteAuthenticatedWrite", event.target.checked)}
-              className="w-4 h-4 cursor-pointer"
+              className="w-4 h-4 cursor-default"
               style={{ accentColor: "var(--app-accent)" }}
             />
           </div>

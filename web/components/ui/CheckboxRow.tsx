@@ -31,7 +31,7 @@ export function CheckboxRow({
     <label
       data-checked={checked ? "true" : undefined}
       className={cn(
-        "ui-hoverable relative flex cursor-pointer items-center gap-2.5 rounded-lg border border-[var(--app-border)] px-3 py-2",
+        "ui-hoverable relative flex cursor-default items-center gap-2.5 rounded-lg border border-[var(--app-border)] px-3 py-2",
         "hover:bg-[var(--app-hover)]",
         checked && "ui-selected",
         disabled && "cursor-not-allowed opacity-50",

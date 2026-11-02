@@ -219,7 +219,7 @@ export default function LaunchProfileSkillCard({
                         return (
                           <label
                             key={group.kind}
-                            className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--app-border)] px-2 py-1 text-xs hover:bg-[var(--app-hover)]"
+                            className="flex cursor-default items-center gap-1.5 rounded-md border border-[var(--app-border)] px-2 py-1 text-xs hover:bg-[var(--app-hover)]"
                           >
                             <Checkbox
                               checked={included}
@@ -415,14 +415,14 @@ export default function LaunchProfileSkillCard({
                         : t("projectSkillSelectHint")}
                     </div>
                   </div>
-                  <label className="flex cursor-pointer items-center gap-2 text-xs" style={{ color: "var(--app-text-secondary)" }}>
+                  <label className="flex cursor-default items-center gap-2 text-xs" style={{ color: "var(--app-text-secondary)" }}>
                     <Checkbox
                       checked={draft.skillPolicy.includeProjectSkills}
                       onCheckedChange={(next) => setDraft((current) => ({ ...current, skillPolicy: { ...current.skillPolicy, includeProjectSkills: next === true } }))}
                     />
                     {t("enableProjectSkill")}
                   </label>
-                  <label className="flex cursor-pointer items-center gap-2 text-xs" style={{ color: "var(--app-text-secondary)" }}>
+                  <label className="flex cursor-default items-center gap-2 text-xs" style={{ color: "var(--app-text-secondary)" }}>
                     <Checkbox
                       checked={draft.skillPolicy.includeWorkspaceSkills !== false}
                       onCheckedChange={(next) => setDraft((current) => ({ ...current, skillPolicy: { ...current.skillPolicy, includeWorkspaceSkills: next === true } }))}

@@ -153,7 +153,7 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
             <HomeHeader version={version} />
           </div>
           <button
-            className="inline-flex w-full sm:w-auto shrink-0 items-center justify-center gap-2.5 px-10 py-4 xl:px-12 xl:py-5 rounded-2xl text-base xl:text-lg font-semibold cursor-pointer transition-all duration-[var(--dur-fast)] hover:-translate-y-[1px] hover:shadow-xl active:translate-y-0"
+            className="inline-flex w-full sm:w-auto shrink-0 items-center justify-center gap-2.5 px-10 py-4 xl:px-12 xl:py-5 rounded-2xl text-base xl:text-lg font-semibold cursor-default transition-all duration-[var(--dur-fast)] hover:-translate-y-[1px] hover:shadow-xl active:translate-y-0"
             style={{
               background: "linear-gradient(135deg, var(--app-accent), color-mix(in srgb, var(--app-accent) 60%, black))",
               color: "var(--primary-foreground)",

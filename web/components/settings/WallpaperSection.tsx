@@ -181,7 +181,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
         <input
           type="checkbox"
           checked={value.enabled}
-          className="h-4 w-4 cursor-pointer"
+          className="h-4 w-4 cursor-default"
           style={{ accentColor: "var(--app-accent)" }}
           onChange={(event) => update("enabled", event.target.checked)}
         />
@@ -305,7 +305,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
             <input
               type="checkbox"
               checked={value.video.autoplay}
-              className="h-4 w-4 cursor-pointer"
+              className="h-4 w-4 cursor-default"
               style={{ accentColor: "var(--app-accent)" }}
               onChange={(event) => update("video", { ...value.video, autoplay: event.target.checked })}
             />
@@ -315,7 +315,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
             <input
               type="checkbox"
               checked={value.video.pauseWhenUnfocused}
-              className="h-4 w-4 cursor-pointer"
+              className="h-4 w-4 cursor-default"
               style={{ accentColor: "var(--app-accent)" }}
               onChange={(event) =>
                 update("video", { ...value.video, pauseWhenUnfocused: event.target.checked })
@@ -360,7 +360,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
           <input
             type="checkbox"
             checked={value.music.enabled}
-            className="h-4 w-4 cursor-pointer"
+            className="h-4 w-4 cursor-default"
             style={{ accentColor: "var(--app-accent)" }}
             onChange={(event) => update("music", { ...value.music, enabled: event.target.checked })}
           />
@@ -379,7 +379,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
                 <input
                   type="checkbox"
                   checked={value.music.useVideoAudio}
-                  className="h-4 w-4 cursor-pointer"
+                  className="h-4 w-4 cursor-default"
                   style={{ accentColor: "var(--app-accent)" }}
                   onChange={(event) =>
                     update("music", { ...value.music, useVideoAudio: event.target.checked })
@@ -418,7 +418,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
               <input
                 type="checkbox"
                 checked={value.music.loopPlayback}
-                className="h-4 w-4 cursor-pointer"
+                className="h-4 w-4 cursor-default"
                 style={{ accentColor: "var(--app-accent)" }}
                 onChange={(event) =>
                   update("music", { ...value.music, loopPlayback: event.target.checked })
@@ -430,7 +430,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
               <input
                 type="checkbox"
                 checked={value.music.autoplay}
-                className="h-4 w-4 cursor-pointer"
+                className="h-4 w-4 cursor-default"
                 style={{ accentColor: "var(--app-accent)" }}
                 onChange={(event) =>
                   update("music", { ...value.music, autoplay: event.target.checked })
@@ -448,7 +448,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
               <input
                 type="checkbox"
                 checked={value.music.pauseWhenUnfocused}
-                className="h-4 w-4 cursor-pointer"
+                className="h-4 w-4 cursor-default"
                 style={{ accentColor: "var(--app-accent)" }}
                 onChange={(event) =>
                   update("music", { ...value.music, pauseWhenUnfocused: event.target.checked })

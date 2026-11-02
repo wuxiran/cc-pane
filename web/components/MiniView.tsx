@@ -63,7 +63,7 @@ export default function MiniView() {
 
   return (
     <div
-      className="h-full flex flex-col select-none cursor-grab overflow-hidden"
+      className="h-full flex flex-col select-none overflow-hidden"
       style={{
         background: "var(--app-glass-bg)",
         backdropFilter: "blur(var(--app-glass-blur-sm))",
@@ -81,7 +81,7 @@ export default function MiniView() {
         </span>
         <div className="flex gap-0.5">
           <button
-            className="flex items-center justify-center w-[18px] h-[18px] rounded-[3px] border-none cursor-pointer transition-colors duration-[var(--dur-fast)]"
+            className="flex items-center justify-center w-[18px] h-[18px] rounded-[3px] border-none cursor-default transition-colors duration-[var(--dur-fast)]"
             style={{
               background: "transparent",
               color: isPinned ? "var(--app-accent)" : "var(--app-text-secondary)",
@@ -93,7 +93,7 @@ export default function MiniView() {
             <Pin size={10} className={isPinned ? "rotate-45" : ""} />
           </button>
           <button
-            className="flex items-center justify-center w-[18px] h-[18px] rounded-[3px] border-none cursor-pointer transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
+            className="flex items-center justify-center w-[18px] h-[18px] rounded-[3px] border-none cursor-default transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
             style={{ background: "transparent", color: "var(--app-text-secondary)" }}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); handleRestore(); }}
@@ -109,7 +109,7 @@ export default function MiniView() {
         {activeTabs.map((item) => (
           <div
             key={item.tab.id}
-            className="flex items-center gap-1 px-1.5 py-1 rounded cursor-pointer transition-colors hover:bg-[var(--app-active-bg)]"
+            className="flex items-center gap-1 px-1.5 py-1 rounded cursor-default transition-colors hover:bg-[var(--app-active-bg)]"
             style={{ background: "var(--app-hover)" }}
             onDoubleClick={(e) => { e.stopPropagation(); handleRestoreTab(item); }}
           >

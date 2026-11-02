@@ -86,7 +86,7 @@ export default function MissingProjectsCleanupDialog({
   const renderRow = (row: Row, muted: boolean) => (
     <label
       key={row.project.id}
-      className={`flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--app-hover)] ${
+      className={`flex cursor-default items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--app-hover)] ${
         muted ? "text-[var(--app-text-tertiary)]" : "text-[var(--app-text-secondary)]"
       }`}
     >

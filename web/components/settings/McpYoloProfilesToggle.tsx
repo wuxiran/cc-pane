@@ -25,7 +25,7 @@ export default function McpYoloProfilesToggle({
         aria-label={t("allowMcpYoloProfiles")}
         checked={orchestrator.allowMcpYoloProfiles}
         onChange={(event) => onChange({ ...orchestrator, allowMcpYoloProfiles: event.target.checked })}
-        className="w-4 h-4 flex-none cursor-pointer"
+        className="w-4 h-4 flex-none cursor-default"
         style={{ accentColor: "var(--app-status-danger)" }}
       />
     </div>

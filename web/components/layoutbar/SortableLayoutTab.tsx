@@ -150,7 +150,7 @@ export default function SortableLayoutTab({
         title={layout.name}
         data-density={density}
         data-drop-target={dropState}
-        className={`group flex flex-shrink-0 cursor-pointer select-none whitespace-nowrap rounded-md border px-3 text-[13px] transition-[color,background-color,border-color,outline-color] duration-[var(--dur-fast)] ease-[var(--ease-out)] ${
+        className={`group flex flex-shrink-0 cursor-default select-none whitespace-nowrap rounded-md border px-3 text-[13px] transition-[color,background-color,border-color,outline-color] duration-[var(--dur-fast)] ease-[var(--ease-out)] ${
           density === "comfortable"
             ? "h-[64px] min-w-[176px] max-w-[240px] flex-col justify-center gap-0.5 py-1.5 text-left"
             : "h-[30px] items-center gap-1.5 pr-5"

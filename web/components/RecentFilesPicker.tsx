@@ -195,7 +195,7 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
                     id={`recent-file-option-${idx}`}
                     role="option"
                     aria-selected={idx === selectedIndex}
-                    className="flex items-center gap-2 px-3 py-1 cursor-pointer transition-colors"
+                    className="flex items-center gap-2 px-3 py-1 cursor-default transition-colors"
                     style={{
                       background: idx === selectedIndex ? "var(--editor-selection-bg)" : undefined,
                       color: "var(--app-text-primary)",
@@ -236,7 +236,7 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
                     id={`recent-file-option-${idx}`}
                     role="option"
                     aria-selected={idx === selectedIndex}
-                    className="flex items-center gap-2 px-3 py-1 cursor-pointer transition-colors"
+                    className="flex items-center gap-2 px-3 py-1 cursor-default transition-colors"
                     style={{
                       background: idx === selectedIndex ? "var(--editor-selection-bg)" : undefined,
                       color: "var(--app-text-primary)",

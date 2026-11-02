@@ -247,7 +247,7 @@ export const useFileTreeStore = create<FileTreeState>()(
       // 滚动到目标元素
       requestAnimationFrame(() => {
         const el = document.querySelector(`[data-file-path="${CSS.escape(filePath)}"]`);
-        el?.scrollIntoView({ block: "center", behavior: "smooth" });
+        el?.scrollIntoView({ block: "center" });
       });
     },
 

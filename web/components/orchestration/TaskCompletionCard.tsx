@@ -64,7 +64,7 @@ export default function TaskCompletionCard({ taskId, completion, checking, onRep
       {completion.acceptance && !accepted && !disabled && <p className="mb-2 text-[var(--app-status-warning)]">{t("completion.acceptanceStale")}</p>}
       {accepted && <p className="mb-2 text-muted-foreground">{new Date(completion.acceptance!.acceptedAt).toLocaleString()} {completion.acceptance!.note}</p>}
       <details className="mb-3" open={completion.criteria.requiredCommands.length === 0}>
-        <summary className="cursor-pointer">{t("completion.criteria")}</summary>
+        <summary className="cursor-default">{t("completion.criteria")}</summary>
         <label className="mt-2 flex flex-col gap-1">{t("completion.definition")}
           <textarea className="min-h-16 rounded-md border border-input bg-transparent p-2" value={definition}
             onChange={(event) => setDefinition(event.target.value)} maxLength={8192} disabled={disabled} />

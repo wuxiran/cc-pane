@@ -32,7 +32,7 @@ function ImportanceStars({ value, onChange }: { value: number; onChange?: (v: nu
           }
           className={`${n <= value ? "text-amber-400 fill-amber-400" : "text-muted-foreground/30"} ${
             onChange
-              ? "cursor-pointer rounded-sm hover:text-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+              ? "cursor-default rounded-sm hover:text-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
               : ""
           }`}
           onClick={() => onChange?.(n)}
@@ -237,7 +237,7 @@ export default function MemoryManager({ projectPath, workspaceName }: MemoryMana
               variant={selectedScope === null ? "default" : "outline"}
               role="button"
               tabIndex={0}
-              className="cursor-pointer text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+              className="cursor-default text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
               onClick={() => setSelectedScope(null)}
               onKeyDown={(e) => {
                 if (e.target !== e.currentTarget) return;
@@ -255,7 +255,7 @@ export default function MemoryManager({ projectPath, workspaceName }: MemoryMana
                 variant={selectedScope === scope ? "default" : "outline"}
                 role="button"
                 tabIndex={0}
-                className="cursor-pointer text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                className="cursor-default text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
                 onClick={() => setSelectedScope(scope)}
                 onKeyDown={(e) => {
                   if (e.target !== e.currentTarget) return;
@@ -293,7 +293,7 @@ export default function MemoryManager({ projectPath, workspaceName }: MemoryMana
               key={memory.id}
               role="button"
               tabIndex={0}
-              className={`group flex items-start gap-2 px-3 py-2 cursor-pointer border-b border-border/50 hover:bg-accent/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
+              className={`group flex items-start gap-2 px-3 py-2 cursor-default border-b border-border/50 hover:bg-accent/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
                 selectedMemory?.id === memory.id ? "bg-accent" : ""
               }`}
               onClick={() => select(memory)}

@@ -100,7 +100,7 @@ describe("LayoutTabStrip overflow navigation", () => {
     expect(viewport.scrollLeft).toBe(viewport.scrollWidth - viewport.clientWidth);
     expect(rightButton()).toBeDisabled();
     expect(leftButton()).toBeEnabled();
-    expect(scrollBy).toHaveBeenCalledWith(expect.objectContaining({ behavior: "smooth" }));
+    expect(scrollBy).toHaveBeenCalledWith(expect.not.objectContaining({ behavior: "smooth" }));
 
     for (let count = 0; count < 5; count++) fireEvent.click(leftButton());
     expect(viewport.scrollLeft).toBe(0);
@@ -202,16 +202,6 @@ describe("LayoutTabStrip overflow navigation", () => {
     size.contentWidth = 1800;
     notifyResize();
     expect(rightButton()).toBeEnabled();
-  });
-
-  it("uses immediate navigation for reduced-motion users", () => {
-    vi.stubGlobal("matchMedia", vi.fn(() => ({
-      matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn(),
-    })));
-    render(fixture());
-    const { scrollBy } = installGeometry();
-    fireEvent.click(rightButton());
-    expect(scrollBy).toHaveBeenCalledWith(expect.objectContaining({ behavior: "auto" }));
   });
 
   it("disconnects observers and removes wheel, scroll, and window listeners on unmount", () => {

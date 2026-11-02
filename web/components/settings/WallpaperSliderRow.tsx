@@ -42,7 +42,7 @@ export default function WallpaperSliderRow({
           step={step}
           value={value}
           disabled={disabled}
-          className={`${className} cursor-pointer disabled:cursor-not-allowed disabled:opacity-50`}
+          className={`${className} cursor-default disabled:cursor-not-allowed disabled:opacity-50`}
           style={{ accentColor: "var(--app-accent)" }}
           onChange={(event) => onChange(Number(event.target.value))}
         />

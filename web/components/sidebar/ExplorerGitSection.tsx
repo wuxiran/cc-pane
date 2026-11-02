@@ -242,7 +242,7 @@ function GitProjectGroup({
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") onToggle();
           }}
-          className="group/gitgroup flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 hover:bg-[var(--app-hover)]"
+          className="group/gitgroup flex min-w-0 cursor-default items-center gap-1.5 rounded-md px-2 py-1.5 hover:bg-[var(--app-hover)]"
           title={state.repoRoot ?? project.path}
         >
           <Chevron className="h-4 w-4 shrink-0 text-[var(--app-text-tertiary)]" />

@@ -11,9 +11,11 @@ import WorkspaceTree from "@/components/sidebar/WorkspaceTree";
 import SessionsView from "@/components/sidebar/SessionsView";
 import AgentChatSessionsView from "@/components/sidebar/AgentChatSessionsView";
 import {
+  formatKeyCombo,
   useDialogStore,
   useExplorerSectionsStore,
   usePanesStore,
+  useSettingsStore,
   useWorkspacesStore,
   type ExplorerSectionId,
 } from "@/stores";
@@ -40,6 +42,7 @@ interface ExplorerViewProps {
 
 export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
   const { t } = useTranslation("sidebar");
+  const newTabBinding = useSettingsStore((s) => s.settings?.shortcuts.bindings["new-tab"] ?? "Ctrl+T");
   const activeSection = useExplorerSectionsStore((s) => s.activeSection);
   const setActiveSection = useExplorerSectionsStore((s) => s.setActiveSection);
   // Agent Chat 专用布局里不放终端类入口（启动器按钮隐藏，Ctrl+T 由命令层回落）。
@@ -119,7 +122,7 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
               <Rocket className="size-4 shrink-0" strokeWidth={1.6} />
               {t("launchTerminal")}
               <kbd className="ml-auto text-[10px] font-normal tabular-nums text-[var(--app-text-tertiary)]">
-                {t("launchTerminalShortcut")}
+                {formatKeyCombo(newTabBinding)}
               </kbd>
             </button>
           )}
