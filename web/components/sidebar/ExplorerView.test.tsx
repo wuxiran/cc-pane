@@ -103,7 +103,7 @@ describe("ExplorerView", () => {
       message: null,
     });
     useExplorerSectionsStore.setState({ activeSection: "workspaces" });
-    useDialogStore.setState({ launcherOpen: false, launcherContext: null });
+    useDialogStore.setState({ launcherOpen: false, launcherContext: null, newWorkspaceRequested: false });
     useWorkspacesStore.setState({
       workspaces: [],
       expandedWorkspaceId: null,
@@ -157,7 +157,7 @@ describe("ExplorerView", () => {
     expect(onOpenTerminal).toHaveBeenCalledWith({ path: "/tmp/from-tree" });
   });
 
-  it("opens the global launcher from the persistent bottom button with the workspace context", () => {
+  it("opens the global launcher from the pinned top action with the workspace context", () => {
     selectWorkspaceWithProject(null);
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
 
@@ -179,9 +179,21 @@ describe("ExplorerView", () => {
     });
   });
 
-  it("keeps the bottom launch button mounted while the sessions tab is active", () => {
+  it("keeps the pinned launch action mounted while the sessions tab is active", () => {
     useExplorerSectionsStore.setState({ activeSection: "sessions" });
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
     expect(screen.getByRole("button", { name: /launchTerminal/ })).toBeVisible();
+  });
+
+  it("requests the new-workspace dialog from the pinned top action", () => {
+    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "newWorkspace" }));
+    expect(useDialogStore.getState().newWorkspaceRequested).toBe(true);
+  });
+
+  it("only shows the new-workspace action on the workspaces tab", () => {
+    useExplorerSectionsStore.setState({ activeSection: "sessions" });
+    render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
+    expect(screen.queryByRole("button", { name: "newWorkspace" })).not.toBeInTheDocument();
   });
 });

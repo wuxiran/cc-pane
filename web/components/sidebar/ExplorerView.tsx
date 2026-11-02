@@ -1,10 +1,11 @@
 // Explorer 侧栏：EXPLORER 标题下双按钮 segmented（工作区 / 最近启动）单选切换。
 // 文件 / Git 视图已迁往右侧 RightDock（跟随激活终端、多根），左侧不再重复入口。
 // 工作空间树 keep-alive（display 翻转），保证其挂载的 Dialogs 在切换视图时不丢失。
-// 底部常驻「启动终端」入口：只调 useDialogStore.openLauncher 唤起全局启动器（含 Provider 凭证选择），
+// 标题栏下常驻「启动终端」主操作行（Codex 式纯文本行，在滚动区之外，永远不被列表挤出视口）：
+// 只调 useDialogStore.openLauncher 唤起全局启动器（含 Provider 凭证选择），
 // 绝不在此挂 useOpenTerminal —— 全应用只有 App.tsx 一处挂载，重复挂会双消费 pendingLaunch。
 import { useTranslation } from "react-i18next";
-import { History, LayoutGrid, MessagesSquare, Rocket } from "lucide-react";
+import { History, LayoutGrid, MessagesSquare, Plus, Rocket } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import WorkspaceTree from "@/components/sidebar/WorkspaceTree";
 import SessionsView from "@/components/sidebar/SessionsView";
@@ -29,6 +30,9 @@ const SECTIONS = [
   labelKey: string;
   Icon: typeof LayoutGrid;
 }>;
+
+const ACTION_ROW_CLASS =
+  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-[var(--app-text-secondary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]";
 
 interface ExplorerViewProps {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
@@ -103,6 +107,36 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
         </div>
       </div>
 
+      {/* 主操作行（Codex 式纯文本行）：shrink-0，在滚动区之外 */}
+      {(!isAgentChatLayout || activeSection === "workspaces") && (
+        <div className="shrink-0 px-3">
+          {!isAgentChatLayout && (
+            <button
+              type="button"
+              onClick={openLauncherWithContext}
+              className={ACTION_ROW_CLASS}
+            >
+              <Rocket className="size-4 shrink-0" strokeWidth={1.6} />
+              {t("launchTerminal")}
+              <kbd className="ml-auto text-[10px] font-normal tabular-nums text-[var(--app-text-tertiary)]">
+                {t("launchTerminalShortcut")}
+              </kbd>
+            </button>
+          )}
+          {/* 新建对话框由 WorkspaceTree 承载，这里只发请求意图 */}
+          {activeSection === "workspaces" && (
+            <button
+              type="button"
+              onClick={() => useDialogStore.getState().requestNewWorkspace()}
+              className={ACTION_ROW_CLASS}
+            >
+              <Plus className="size-4 shrink-0" strokeWidth={1.6} />
+              {t("newWorkspace")}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* 工作空间视图：keep-alive，隐藏而不卸载（WorkspaceDialogs 挂在树内） */}
       <div
         className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-2"
@@ -126,28 +160,6 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
       >
         <AgentChatSessionsView />
       </div>
-
-      {/* 底部常驻启动入口：shrink-0，永远不被上方列表挤出视口 */}
-      {!isAgentChatLayout && (
-      <div
-        className="shrink-0 px-3 py-2"
-        style={{ borderTop: "1px solid var(--app-border)" }}
-      >
-        <button
-          type="button"
-          onClick={openLauncherWithContext}
-          className="flex w-full items-center justify-center gap-2 rounded-md border border-[color-mix(in_srgb,var(--app-accent)_32%,transparent)] bg-[color-mix(in_srgb,var(--app-accent)_12%,transparent)] py-2 text-xs font-medium text-[var(--app-accent)] transition-colors duration-[var(--dur-fast)] hover:border-[color-mix(in_srgb,var(--app-accent)_55%,transparent)] hover:bg-[color-mix(in_srgb,var(--app-accent)_20%,transparent)]"
-        >
-          <Rocket className="h-3.5 w-3.5" strokeWidth={1.5} />
-          {t("launchTerminal")}
-          <kbd
-            className="ml-1 rounded bg-[color-mix(in_srgb,var(--app-accent)_14%,transparent)] px-1 py-0.5 text-[10px] font-normal leading-none tabular-nums text-[var(--app-text-tertiary)]"
-          >
-            {t("launchTerminalShortcut")}
-          </kbd>
-        </button>
-      </div>
-      )}
     </div>
   );
 }

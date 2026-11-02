@@ -1,8 +1,9 @@
+// 分区标签走 Codex 式弱化小字：不大写、不加粗，让条目本身成为视觉主体
 export const sidebarSectionHeaderClass =
-  "group/section flex items-center justify-between px-3 pt-2 pb-1.5";
+  "group/section flex items-center justify-between px-2 pt-3 pb-1";
 
 export const sidebarSectionTitleClass =
-  "text-[11px] font-semibold uppercase tracking-wider text-[var(--app-text-secondary)] transition-colors";
+  "text-[11px] font-medium text-[var(--app-text-tertiary)] transition-colors";
 
 export const sidebarSectionCountClass =
   "rounded px-1.5 py-0.5 text-[11px] font-medium leading-none tabular-nums text-[var(--app-text-tertiary)] transition-colors";
@@ -19,7 +20,7 @@ export const sidebarEntityTitleClass =
   "truncate text-[13px] font-medium text-[var(--app-text-primary)]";
 
 export const sidebarEntityMetaClass =
-  "block truncate text-[10px] text-[var(--app-text-muted)]";
+  "block truncate text-[10px] text-[var(--app-text-tertiary)]";
 
 export const sidebarEntityBadgeClass =
   "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none";
