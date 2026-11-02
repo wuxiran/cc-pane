@@ -93,5 +93,15 @@
   "worktreeUnavailableRemote": "Local environment only (worktree launch is not supported for WSL/SSH)",
   "worktreeUnavailableNotGit": "This directory is not a Git repository",
   "worktreeCreateFailed": "Failed to create worktree: {{message}}",
-  "launching": "Launching…"
+  "launching": "Launching…",
+  "launchSettings": "Configure launch environment",
+  "launchSettingsReadFailed": "Could not read Git information. Reopen settings to retry.",
+  "worktreeBaseBranch": "Base branch",
+  "worktreeCurrentBranch": "Current branch",
+  "worktreeNewBranch": "New branch name",
+  "worktreeCurrentHead": "Current commit ({{branch}})",
+  "worktreeCleanBaseHint": "Creates from the selected committed revision. Uncommitted edits stay in the original directory.",
+  "worktreeCurrentBranchHint": "This directory keeps its current branch. Enable a new worktree to choose a different base branch.",
+  "worktreeBranchRequired": "Enter a branch name for the new worktree",
+  "worktreeNewSessionOnly": "New worktrees are for new sessions. Resume sessions in their original directory."
 }

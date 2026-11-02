@@ -36,13 +36,31 @@ pub async fn add_worktree(
     project_path: String,
     name: String,
     branch: Option<String>,
+    base_ref: Option<String>,
+    preserve_cwd: Option<bool>,
     service: State<'_, Arc<WorktreeService>>,
 ) -> AppResult<String> {
     debug!("cmd::add_worktree name={}", name);
     validate_path(&project_path)?;
     let service = service.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        service.add_worktree(&project_path, &name, branch.as_deref())
+        if preserve_cwd.unwrap_or(false) {
+            service.prepare_session_worktree(
+                &project_path,
+                &name,
+                branch
+                    .as_deref()
+                    .ok_or("A new session branch is required")?,
+                base_ref.as_deref(),
+            )
+        } else {
+            service.add_worktree_from_ref(
+                &project_path,
+                &name,
+                branch.as_deref(),
+                base_ref.as_deref(),
+            )
+        }
     })
     .await
     .map_err(|error| AppError::from(error.to_string()))?

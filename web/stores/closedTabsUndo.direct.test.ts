@@ -55,13 +55,16 @@ const SNAPSHOT_FIELDS = [
   // toClosedTabSnapshot（终端专用映射）不负责。
   "contentType",
   "browserUrl",
+  "browserManualTitle",
+  "browserPageTitle",
+  "browserFaviconUrl",
   "filePath",
   "viewState",
 ] as const;
 
 /** toClosedTabSnapshot 负责的字段子集（终端映射）。 */
 const TERMINAL_MAPPED_FIELDS = SNAPSHOT_FIELDS.filter(
-  (field) => !["contentType", "browserUrl", "filePath", "viewState"].includes(field),
+  (field) => !["contentType", "browserUrl", "browserManualTitle", "browserPageTitle", "browserFaviconUrl", "filePath", "viewState"].includes(field),
 );
 
 const splitTree: TerminalPaneNode = {
@@ -267,7 +270,7 @@ describe("reopenNonTerminalSnapshot（四分支）", () => {
     } as ClosedTabSnapshot);
 
     expect(handled).toBe(true);
-    expect(store.openBrowser).toHaveBeenCalledWith("https://example.com", "站点");
+    expect(store.openBrowser).toHaveBeenCalledWith("https://example.com", "站点", undefined, expect.objectContaining({ reuse: false, projectPath: "/p" }));
     expect(store.openEditor).not.toHaveBeenCalled();
   });
 

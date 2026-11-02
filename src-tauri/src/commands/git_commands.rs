@@ -1,6 +1,7 @@
 use crate::models::{
-    DiffResult, GitChangedFile, GitConflictSummary, GitConflictVersions, GitDiffSpec, GitLogPage,
-    GitLogQuery, GitRepoInfo, GitResolveConflictRequest, GitResolveConflictResult,
+    DiffResult, GitBranchReview, GitChangedFile, GitConflictSummary, GitConflictVersions,
+    GitDiffSpec, GitLogPage, GitLogQuery, GitRepoInfo, GitResolveConflictRequest,
+    GitResolveConflictResult,
 };
 use crate::services::{GitService, HistoryService};
 use crate::utils::{
@@ -88,6 +89,17 @@ pub async fn list_git_commit_files(
     spawn_git_task(move || {
         GitService::new()
             .list_commit_files(Path::new(&path), &commit, parent_index)
+            .map_err(AppError::from)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn get_git_branch_review(path: String, base_ref: String) -> AppResult<GitBranchReview> {
+    validate_path(&path)?;
+    spawn_git_task(move || {
+        GitService::new()
+            .branch_review(Path::new(&path), &base_ref)
             .map_err(AppError::from)
     })
     .await

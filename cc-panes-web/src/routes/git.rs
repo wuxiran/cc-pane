@@ -7,8 +7,9 @@ use axum::{
 };
 use cc_panes_core::{
     models::{
-        DiffResult, GitChangedFile, GitConflictSummary, GitConflictVersions, GitDiffSpec,
-        GitLogPage, GitLogQuery, GitRepoInfo, GitResolveConflictRequest, GitResolveConflictResult,
+        DiffResult, GitBranchReview, GitChangedFile, GitConflictSummary, GitConflictVersions,
+        GitDiffSpec, GitLogPage, GitLogQuery, GitRepoInfo, GitResolveConflictRequest,
+        GitResolveConflictResult,
     },
     services::{GitService, WorktreeInfo},
     utils::{
@@ -53,6 +54,13 @@ pub struct GitDiffRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GitBranchReviewQuery {
+    pub path: String,
+    pub base_ref: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitPathRequest {
     pub path: String,
 }
@@ -87,6 +95,8 @@ pub struct AddWorktreeRequest {
     pub project_path: String,
     pub name: String,
     pub branch: Option<String>,
+    pub base_ref: Option<String>,
+    pub preserve_cwd: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -322,6 +332,19 @@ pub async fn list_git_commit_files(
     .map(Json)
 }
 
+pub async fn get_git_branch_review(
+    Query(query): Query<GitBranchReviewQuery>,
+) -> Result<Json<GitBranchReview>, (StatusCode, String)> {
+    spawn_git(move || {
+        validate_path(&query.path)?;
+        GitService::new()
+            .branch_review(Path::new(&query.path), &query.base_ref)
+            .map_err(Into::into)
+    })
+    .await
+    .map(Json)
+}
+
 pub async fn get_git_diff(
     Json(request): Json<GitDiffRequest>,
 ) -> Result<Json<DiffResult>, (StatusCode, String)> {
@@ -470,7 +493,23 @@ pub async fn add_worktree(
     validate_path(&req.project_path).map_err(service_error)?;
     let service = state.worktree_service.clone();
     let path = tokio::task::spawn_blocking(move || {
-        service.add_worktree(&req.project_path, &req.name, req.branch.as_deref())
+        if req.preserve_cwd.unwrap_or(false) {
+            service.prepare_session_worktree(
+                &req.project_path,
+                &req.name,
+                req.branch
+                    .as_deref()
+                    .ok_or("A new session branch is required")?,
+                req.base_ref.as_deref(),
+            )
+        } else {
+            service.add_worktree_from_ref(
+                &req.project_path,
+                &req.name,
+                req.branch.as_deref(),
+                req.base_ref.as_deref(),
+            )
+        }
     })
     .await
     .map_err(service_error)?

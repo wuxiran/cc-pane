@@ -27,6 +27,11 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Use Codex App Server directly (independent of the desktop daemon).
+    Codex {
+        #[command(subcommand)]
+        command: crate::codex::CodexCommand,
+    },
     /// Report orchestrator and daemon lifecycle for the selected instance(s).
     Status,
     /// Inspect and control daemon-hosted terminal sessions.
@@ -242,6 +247,7 @@ pub fn execute(cli: Cli) -> Result<(), CliExit> {
         launch_id: std::env::var("CC_PANES_LAUNCH_ID").ok(),
     };
     match cli.command {
+        Command::Codex { command } => crate::codex::execute(command, cli.json),
         Command::Status => commands::status(&context),
         Command::Sessions { command } => match command {
             SessionsCommand::List => commands::sessions_list(&context),

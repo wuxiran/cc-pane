@@ -1,0 +1,37 @@
+/* Reading surface, scoped to Markdown content rather than application chrome. */
+.markdown-document {
+  max-width: 920px;
+  margin-inline: auto;
+  color: var(--app-text-primary);
+  font-size: calc(var(--text-body) + 1px);
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.markdown-document > :first-child { margin-top: 0; }
+.markdown-document :is(h1, h2, h3, h4, h5, h6) { font-weight: 650; line-height: 1.35; margin: 1.6em 0 .65em; scroll-margin-top: 24px; }
+.markdown-document h1 { font-size: var(--text-hero); margin-top: .2em; letter-spacing: -.025em; }
+.markdown-document h2 { font-size: var(--text-display); border-bottom: 1px solid var(--app-border); padding-bottom: .5em; }
+.markdown-document h3 { font-size: var(--text-title); }
+.markdown-document :is(p, ul, ol, blockquote, pre, table) { margin-block: 1em; }
+.markdown-document ul { list-style: disc; padding-left: 1.6em; }
+.markdown-document ol { list-style: decimal; padding-left: 1.6em; }
+.markdown-document li { margin-block: .25em; }
+.markdown-document li > :is(ul, ol, p) { margin-block: .4em; }
+.markdown-document .contains-task-list { padding-left: 0; list-style: none; }
+.markdown-document .task-list-item input { margin-right: .6em; accent-color: var(--app-accent); }
+.markdown-document a { color: var(--app-accent); text-decoration: underline; text-underline-offset: .2em; }
+.markdown-document a:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 3px; }
+.markdown-document strong { font-weight: 650; }
+.markdown-document blockquote { border-left: 3px solid var(--app-accent); padding: .25em 1em; color: var(--app-text-secondary); background: var(--app-hover); border-radius: 0 8px 8px 0; }
+.markdown-document blockquote > :first-child { margin-top: 0; }
+.markdown-document blockquote > :last-child { margin-bottom: 0; }
+.markdown-document pre { max-width: 100%; overflow-x: auto; border: 1px solid var(--app-border); border-radius: 12px; background: var(--app-sidebar); padding: 16px 20px; line-height: 1.6; overflow-wrap: normal; }
+.markdown-document code { font-family: "Maple Mono NF CN", ui-monospace, monospace; font-size: .9em; }
+.markdown-document :not(pre) > code { background: var(--app-hover); border: 1px solid var(--app-border); border-radius: 5px; padding: .1em .35em; }
+.markdown-table-scroll { max-width: 100%; overflow-x: auto; margin-block: 1em; }
+.markdown-document table { width: 100%; border-collapse: collapse; font-size: .95em; margin: 0; }
+.markdown-document :is(th, td) { border: 1px solid var(--app-border); padding: .65em 1em; text-align: left; }
+.markdown-document th { background: var(--app-sidebar); font-weight: 600; }
+.markdown-document tr:nth-child(even) { background: var(--app-hover); }
+.markdown-document img { max-width: 100%; height: auto; border-radius: 8px; }
+.markdown-document hr { border: 0; border-top: 1px solid var(--app-border); margin-block: 2em; }

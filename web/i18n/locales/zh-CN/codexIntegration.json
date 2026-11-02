@@ -1,0 +1,18 @@
+{
+  "open": "在 Codex 中打开",
+  "openExistingHint": "打开已确认的 Codex 会话，不发送消息",
+  "openNewHint": "在此项目中打开新的 Codex 对话",
+  "native": "新建 Codex App Server 对话",
+  "nativeHint": "准备独立 Agent 对话，保留当前终端",
+  "unavailable": "所选引擎不可用，请选择已安装的引擎。",
+  "handoff": "交给 Codex 桌面…",
+  "handoffHint": "在 Codex 中打开任务草稿，由你点击发送。只交接这段说明，聊天记录和附件不会自动附带。",
+  "taskLabel": "任务说明",
+  "taskPlaceholder": "说明目标、文件范围和验收要求；可引用本地计划文件路径。",
+  "taskTooLong": "说明过长，请保存为计划文件并在这里引用路径。",
+  "awaitingSend": "已请求打开草稿，请到 Codex 点击发送后开始执行。",
+  "openDraft": "打开 Codex 草稿",
+  "opening": "正在打开…",
+  "cancel": "取消",
+  "done": "完成"
+}

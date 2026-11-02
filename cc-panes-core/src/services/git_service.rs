@@ -141,6 +141,7 @@ impl GitService {
         let mut command = Command::new("git");
         command
             .args([
+                "--literal-pathspecs",
                 "-c",
                 "core.quotepath=false",
                 "status",
@@ -349,12 +350,13 @@ impl GitService {
         let mut command = Command::new("git");
         command
             .args([
+                "--literal-pathspecs",
                 "-c",
                 "core.quotepath=false",
                 "status",
                 "--porcelain=v1",
                 "-z",
-                "--untracked-files=normal",
+                "--untracked-files=all",
                 "--",
             ])
             .current_dir(&context.repo_root);
@@ -475,6 +477,7 @@ impl GitService {
     }
 }
 
+mod branch_review;
 mod c2;
 mod conflict;
 

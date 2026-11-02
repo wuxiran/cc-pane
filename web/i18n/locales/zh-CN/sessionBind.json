@@ -1,0 +1,12 @@
+{
+  "sessionBindTitle": "会话绑定",
+  "sessionBindCurrent": "当前绑定: {{id}}… （来源: {{source}}）。重启后将恢复该对话。",
+  "sessionBindNone": "未绑定会话 id。重启后此标签会打开全新对话；可从下方选择历史会话手动绑定。",
+  "sessionBindLoading": "正在加载历史会话…",
+  "sessionBindEmpty": "该项目暂无可绑定的历史会话。",
+  "sessionBindBoundMark": "当前绑定",
+  "sessionBindNoDescription": "（无描述）",
+  "sessionBindManualPlaceholder": "粘贴会话 UUID 手动绑定",
+  "sessionBindAction": "绑定",
+  "sessionBindUnbind": "解除绑定"
+}

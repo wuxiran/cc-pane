@@ -156,9 +156,13 @@ function dispatchAgentChatEvent(event: AcpChatEvent): void {
     case "elicitation_request":
       store.enqueueElicitation(chatId, payload as AcpElicitationRequest);
       return;
+    case "permission_resolved":
     case "elicitation_cancelled": {
       const data = payload as { requestKey?: string };
-      if (typeof data?.requestKey === "string") store.finishElicitationResponse(chatId, data.requestKey);
+      if (typeof data?.requestKey === "string") {
+        if (kind === "permission_resolved") store.finishPermissionResponse(chatId, data.requestKey);
+        else store.finishElicitationResponse(chatId, data.requestKey);
+      }
       return;
     }
     case "turn_ended": {

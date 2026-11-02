@@ -32,7 +32,7 @@ impl RepositorySnapshotService {
     }
 
     pub fn capture(&self, cwd: &Path) -> AppResult<RepositorySnapshot> {
-        self.capture_referencing(cwd, None)
+        self.capture_referencing(cwd, &[], false)
     }
 
     /// Keep observing files already present in a baseline even if ignore rules
@@ -43,19 +43,30 @@ impl RepositorySnapshotService {
         cwd: &Path,
         baseline: &RepositorySnapshot,
     ) -> AppResult<RepositorySnapshot> {
-        self.capture_referencing(cwd, Some(baseline))
+        self.capture_referencing(cwd, &[baseline], false)
+    }
+
+    /// Bounded automatic turn capture. Exceeding a limit fails the entire capture;
+    /// no partial tree is ever presented as a restorable checkpoint.
+    pub fn capture_checkpoint(
+        &self,
+        cwd: &Path,
+        baselines: &[&RepositorySnapshot],
+    ) -> AppResult<RepositorySnapshot> {
+        self.capture_referencing(cwd, baselines, true)
     }
 
     fn capture_referencing(
         &self,
         cwd: &Path,
-        baseline: Option<&RepositorySnapshot>,
+        baselines: &[&RepositorySnapshot],
+        bounded: bool,
     ) -> AppResult<RepositorySnapshot> {
         let identity = repository_identity(cwd)?;
         let repository = self.prepare_repository(&identity)?;
+        let mut paths = source_paths(&identity.root, bounded.then_some(20_000))?;
         validate_file_types(&identity.root)?;
-        let mut paths = source_paths(&identity.root)?;
-        if let Some(baseline) = baseline {
+        for baseline in baselines {
             if self.validate_snapshot(baseline)? != repository {
                 return Err("Snapshot baseline belongs to a different repository".into());
             }
@@ -64,7 +75,7 @@ impl RepositorySnapshotService {
             }
         }
         let scratch = files::Scratch::new(&repository)?;
-        let entries = capture_files(&identity.root, paths, &scratch)?;
+        let entries = capture_files(&identity.root, paths, &scratch, bounded)?;
         let tree = write_tree(&repository, &scratch, &entries)?;
         let mut check = git::command(&identity.root);
         check.args(["rev-parse", "--verify", "HEAD"]);
@@ -85,6 +96,24 @@ impl RepositorySnapshotService {
         let mut command = git::private(&repository);
         command.args(["ls-tree", "-r", "-z", "--full-tree", &snapshot.tree]);
         parse_tree(&git::run(command, vec![])?)
+    }
+
+    /// Working-tree publication must not silently cross a branch/HEAD change.
+    /// This checks repository identity only, without modifying the index or refs.
+    pub fn ensure_current_head(&self, snapshot: &RepositorySnapshot) -> AppResult<()> {
+        let identity = repository_identity(Path::new(&snapshot.repository_root))?;
+        let repository = self.validate_snapshot(snapshot)?;
+        let expected = format!(
+            "{:x}.git",
+            Sha256::digest(path_text(&identity.common)?.as_bytes())
+        );
+        if identity.head != snapshot.head
+            || path_text(&identity.root)? != snapshot.repository_root
+            || repository.file_name().and_then(|name| name.to_str()) != Some(expected.as_str())
+        {
+            return Err("Repository HEAD or identity changed during restore; file changes were not accepted".into());
+        }
+        Ok(())
     }
 
     pub fn read_file(
@@ -259,7 +288,10 @@ fn repository_identity(cwd: &Path) -> AppResult<RepositoryIdentity> {
     })
 }
 
-fn source_paths(root: &Path) -> AppResult<BTreeMap<String, Option<String>>> {
+fn source_paths(
+    root: &Path,
+    max_files: Option<usize>,
+) -> AppResult<BTreeMap<String, Option<String>>> {
     let mut command = git::command(root);
     command.args(["ls-files", "--cached", "--stage", "-z"]);
     let output = git::run(command, vec![])?;
@@ -282,6 +314,9 @@ fn source_paths(root: &Path) -> AppResult<BTreeMap<String, Option<String>>> {
             return Err(format!("Unsupported tracked snapshot file mode: {}", fields[0]).into());
         }
         paths.insert(path, Some(fields[0].to_string()));
+        if max_files.is_some_and(|maximum| paths.len() > maximum) {
+            return Err("Checkpoint exceeds 20,000 files; no partial checkpoint was saved".into());
+        }
     }
     let mut command = git::command(root);
     command.args(["ls-files", "--others", "--exclude-standard", "-z"]);
@@ -293,6 +328,9 @@ fn source_paths(root: &Path) -> AppResult<BTreeMap<String, Option<String>>> {
             .map_err(|_| "Repository snapshots require UTF-8 filenames")?;
         files::validate_path(path)?;
         paths.entry(path.to_string()).or_insert(None);
+        if max_files.is_some_and(|maximum| paths.len() > maximum) {
+            return Err("Checkpoint exceeds 20,000 files; no partial checkpoint was saved".into());
+        }
     }
     Ok(paths)
 }
@@ -301,11 +339,32 @@ fn capture_files(
     root: &Path,
     paths: BTreeMap<String, Option<String>>,
     scratch: &files::Scratch,
+    bounded: bool,
 ) -> AppResult<Vec<(String, String)>> {
+    if bounded && paths.len() > 20_000 {
+        return Err("Checkpoint exceeds 20,000 files; no partial checkpoint was saved".into());
+    }
+    let started = std::time::Instant::now();
+    let mut bytes = 0_u64;
     let root = open_root(root)?;
     let mut entries = Vec::new();
     for (path, index_mode) in paths {
-        if let Some(file) = files::read(&root, &path, index_mode.as_deref())? {
+        if bounded && started.elapsed() > std::time::Duration::from_secs(30) {
+            return Err(
+                "Checkpoint file capture exceeded 30 seconds; no partial checkpoint was saved"
+                    .into(),
+            );
+        }
+        let limit = if bounded {
+            32 * 1024 * 1024
+        } else {
+            u64::MAX - 1
+        };
+        if let Some(file) = files::read(&root, &path, index_mode.as_deref(), limit)? {
+            bytes = bytes.saturating_add(file.bytes.len() as u64);
+            if bounded && bytes > 256 * 1024 * 1024 {
+                return Err("Checkpoint exceeds 256 MiB; no partial checkpoint was saved".into());
+            }
             fs::write(scratch.path.join(entries.len().to_string()), &file.bytes)?;
             entries.push((path, file.mode.to_string()));
         }

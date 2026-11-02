@@ -27,6 +27,31 @@ use crate::{state::TerminalOutputMode, ws_emitter::WsEmitter};
 
 struct NoopTerminalBackend;
 
+#[tokio::test]
+async fn branch_review_route_returns_immutable_merge_base_comparison() {
+    let repo = test_dir("branch-review");
+    init_repo(&repo);
+    run_git(&repo, &["branch", "review-base"]);
+    std::fs::write(repo.join("README.md"), "review change\n").unwrap();
+    run_git(&repo, &["commit", "-am", "review change"]);
+    let query = GitBranchReviewQuery {
+        path: repo.to_string_lossy().into_owned(),
+        base_ref: "review-base".into(),
+    };
+    let Json(review) = get_git_branch_review(Query(query)).await.unwrap();
+    assert_eq!(review.files.len(), 1);
+    assert_ne!(review.base_commit, review.head_commit);
+    assert_eq!(review.files[0].new_path.as_deref(), Some("README.md"));
+    let error = get_git_branch_review(Query(GitBranchReviewQuery {
+        path: repo.to_string_lossy().into_owned(),
+        base_ref: "missing-branch".into(),
+    }))
+    .await
+    .unwrap_err();
+    assert_eq!(error.0, StatusCode::BAD_REQUEST);
+    std::fs::remove_dir_all(repo).unwrap();
+}
+
 impl TerminalBackend for NoopTerminalBackend {
     fn create_session(
         &self,
@@ -231,7 +256,8 @@ fn run_git(dir: &Path, args: &[&str]) {
 
 fn init_repo(path: &Path) {
     std::fs::create_dir_all(path).expect("create repo dir");
-    run_git(path, &["init"]);
+    // 固定初始分支名：CI runner 的 init.defaultBranch 是 master，用例里的 base_ref 用 main。
+    run_git(path, &["init", "-b", "main"]);
     run_git(path, &["config", "user.email", "test@example.com"]);
     run_git(path, &["config", "user.name", "Test User"]);
     // Keep line endings byte-for-byte so content round-trips through git
@@ -404,7 +430,14 @@ async fn git_write_routes_cover_stash_fetch_push_and_pull() {
     let remote = root.join("remote.git");
     run_git(
         &root,
-        &["init", "--bare", remote.to_string_lossy().as_ref()],
+        // 与 init_repo 同口径固定 main，否则裸库 HEAD 指向不存在的 master，clone 落到另一分支。
+        &[
+            "init",
+            "--bare",
+            "-b",
+            "main",
+            remote.to_string_lossy().as_ref(),
+        ],
     );
 
     let repo = root.join("repo");
@@ -666,6 +699,8 @@ async fn worktree_routes_match_core_service_operations() {
             project_path: project_path.clone(),
             name: "feature-a".to_string(),
             branch: Some("feature-a".to_string()),
+            base_ref: Some("main".to_string()),
+            preserve_cwd: Some(true),
         }),
     )
     .await

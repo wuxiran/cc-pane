@@ -6,6 +6,24 @@ import { gitService } from "./gitService";
 describe("gitService", () => {
   beforeEach(() => resetTauriInvoke());
 
+  it("pins branch review endpoints in desktop and web transports", async () => {
+    const review = { baseCommit: "base", headCommit: "head", files: [] };
+    mockTauriInvoke({ get_git_branch_review: review });
+    await expect(gitService.getBranchReview("/repo", "feature/base")).resolves.toEqual(review);
+    expect(invoke).toHaveBeenCalledWith("get_git_branch_review", { path: "/repo", baseRef: "feature/base" });
+    const original = window.__TAURI_INTERNALS__;
+    delete window.__TAURI_INTERNALS__;
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(review)));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await expect(gitService.getBranchReview("/repo", "feature/base")).resolves.toEqual(review);
+      expect(fetchMock).toHaveBeenCalledWith("/api/git/branch-review?path=%2Frepo&baseRef=feature%2Fbase", undefined);
+    } finally {
+      window.__TAURI_INTERNALS__ = original;
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("通过统一命令获取 repo info", async () => {
     const info = {
       state: "ok" as const,

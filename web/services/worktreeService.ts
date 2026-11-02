@@ -40,13 +40,17 @@ export const worktreeService = {
   async add(
     projectPath: string,
     name: string,
-    branch?: string
+    branch?: string,
+    baseRef?: string,
+    preserveCwd?: boolean,
   ): Promise<string> {
-    return invokeOrApi<string>("add_worktree", { projectPath, name, branch }, () =>
+    const launchOptions = { ...(baseRef ? { baseRef } : {}), ...(preserveCwd ? { preserveCwd } : {}) };
+    return invokeOrApi<string>("add_worktree", { projectPath, name, branch, ...launchOptions }, () =>
       apiJson<string>("/api/worktrees", "POST", {
         projectPath,
         name,
         branch: branch ?? null,
+        ...launchOptions,
       }),
     );
   },

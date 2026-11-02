@@ -125,7 +125,7 @@ describe("专用布局守卫", () => {
     ).toBe(true);
   });
 
-  it("agent 标签移不出专用布局，其他标签移不进来", () => {
+  it("agent 标签留在专用布局，终端可移入混合工作台", () => {
     const agentId = "guard-agent";
     const terminalId = "guard-term";
     // 自包含播种：整体重置 layouts，避免跨用例的工作副本别名干扰。
@@ -157,35 +157,22 @@ describe("专用布局守卫", () => {
     const normalAfter = collectPanels(
       after.layouts.find((layout) => layout.id === normalLayout.id)!.rootPane,
     )[0];
-    expect(reservedAfter.tabs.map((t) => t.id)).toEqual([agentId]);
-    expect(normalAfter.tabs.map((t) => t.id)).toEqual([terminalId]);
+    expect(reservedAfter.tabs.map((t) => t.id)).toEqual([agentId, terminalId]);
+    expect(normalAfter.tabs.map((t) => t.id)).toEqual([]);
   });
 });
 
-describe("addTab 守卫", () => {
-  it("终端标签不进专用布局：回退第一个普通布局", () => {
+describe("addTab mixed workbench", () => {
+  it("keeps terminals in the explicitly selected Agent workspace", () => {
     usePanesStore.getState().switchLayout(AGENT_CHAT_LAYOUT_ID);
-    const reservedTabsBefore = collectPanels(
-      usePanesStore.getState().layouts.find(isAgentChatLayout)!.rootPane,
-    ).flatMap((panel) => panel.tabs);
-
-    usePanesStore
-      .getState()
-      .addTab("nonexistent-pane", { projectId: "p", projectPath: "C:/x" } as never);
-
-    const state = usePanesStore.getState();
-    const reserved = state.layouts.find(isAgentChatLayout)!;
-    const reservedTabsAfter = collectPanels(reserved.rootPane).flatMap((panel) => panel.tabs);
-    expect(reservedTabsAfter).toHaveLength(reservedTabsBefore.length);
-    expect(reservedTabsAfter.some((tab) => tab.contentType === "terminal")).toBe(false);
-    const normal = state.layouts.find(
-      (layout) => layout.id !== AGENT_CHAT_LAYOUT_ID && layout.kind !== "starred",
-    )!;
-    expect(
-      collectPanels(normal.rootPane).some((panel) =>
-        panel.tabs.some((tab) => tab.contentType === "terminal"),
-      ),
-    ).toBe(true);
+    const paneId = usePanesStore.getState().activePaneId;
+    usePanesStore.getState().addTab(paneId, { projectId: "p", projectPath: "/repo" });
+    expect(collectPanels(usePanesStore.getState().rootPane).flatMap((pane) => pane.tabs)
+      .some((item) => item.contentType === "terminal")).toBe(true);
+    usePanesStore.getState().switchLayout(usePanesStore.getState().layouts.find((layout) => layout.id !== AGENT_CHAT_LAYOUT_ID)!.id);
+    usePanesStore.getState().switchLayout(AGENT_CHAT_LAYOUT_ID);
+    expect(collectPanels(usePanesStore.getState().rootPane).flatMap((pane) => pane.tabs)
+      .some((item) => item.contentType === "terminal")).toBe(true);
   });
 });
 
@@ -198,7 +185,7 @@ describe("enforceAgentChatLayoutPurity", () => {
     return { reserved, cli };
   }
 
-  it("混入的终端标签搬去 CLI 布局，原面板补新 agent 标签", () => {
+  it("保留终端并补一个对话入口，焦点保持在原标签", () => {
     const { reserved, cli } = makeState();
     const panel = collectPanels(reserved.rootPane)[0];
     panel.tabs = [
@@ -210,9 +197,9 @@ describe("enforceAgentChatLayoutPurity", () => {
     enforceAgentChatLayoutPurity(state);
 
     const after = collectPanels(reserved.rootPane)[0];
-    expect(after.tabs).toHaveLength(1);
-    expect(after.tabs[0].contentType).toBe("agent-chat");
-    expect(collectPanels(cli.rootPane)[0].tabs.map((t) => t.id)).toContain("intruder");
+    expect(after.tabs.map((item) => item.contentType)).toEqual(["terminal", "agent-chat"]);
+    expect(after.activeTabId).toBe("intruder");
+    expect(collectPanels(cli.rootPane)[0].tabs.map((t) => t.id)).not.toContain("intruder");
   });
 
   it("空面板补一个新 agent 标签（永不空白）", () => {
@@ -228,12 +215,12 @@ describe("enforceAgentChatLayoutPurity", () => {
     expect(after.activeTabId).toBe(after.tabs[0].id);
   });
 
-  it("keeps only chat, document and chat configuration tabs in the reserved workbench", () => {
+  it("keeps web, terminal, review and documents in the chat workbench", () => {
     const { reserved, cli } = makeState();
     collectPanels(cli.rootPane)[0].tabs = [];
     const panel = collectPanels(reserved.rootPane)[0];
-    const allowed = ["agent-chat", "editor", "file-explorer", "skill-manager", "mcp-config"] as const;
-    const rejected = ["terminal", "browser", "dsh"] as const;
+    const allowed = ["agent-chat", "editor", "file-explorer", "skill-manager", "mcp-config", "terminal", "browser", "review"] as const;
+    const rejected = ["dsh"] as const;
     panel.tabs = [...allowed, ...rejected].map((type) => tab(type, type));
     panel.activeTabId = "editor";
     const state = { layouts: [cli, reserved], currentLayoutId: reserved.id, rootPane: reserved.rootPane };

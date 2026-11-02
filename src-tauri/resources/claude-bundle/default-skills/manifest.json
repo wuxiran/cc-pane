@@ -7,6 +7,15 @@
   },
   "skills": [
     {
+      "name": "codex",
+      "file": "codex.md",
+      "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": false },
+      "descriptions": {
+        "zh-CN": "把独立任务交给 Codex 后台执行，或为 Codex Mac 客户端准备任务草稿；保留明确的目标、线程身份和执行状态。",
+        "en": "Delegate an independent task to Codex App Server, or prepare a task draft for Codex Mac. Preserve the requested target and report execution state accurately."
+      }
+    },
+    {
       "name": "launch-task",
       "file": "launch-task.md",
       "delivery": { "portable": true, "modes": ["nativeCommand", "nativeSkill", "sessionPrompt"], "requiresCcpanesMcp": true },

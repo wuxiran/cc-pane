@@ -1,0 +1,12 @@
+{
+  "sessionBindTitle": "Session Binding",
+  "sessionBindCurrent": "Bound to {{id}}… (source: {{source}}). This conversation will be restored after restart.",
+  "sessionBindNone": "No session id bound. This tab will open a fresh conversation after restart; pick a past session below to bind manually.",
+  "sessionBindLoading": "Loading past sessions…",
+  "sessionBindEmpty": "No past sessions found for this project.",
+  "sessionBindBoundMark": "current",
+  "sessionBindNoDescription": "(no description)",
+  "sessionBindManualPlaceholder": "Paste a session UUID to bind manually",
+  "sessionBindAction": "Bind",
+  "sessionBindUnbind": "Unbind"
+}

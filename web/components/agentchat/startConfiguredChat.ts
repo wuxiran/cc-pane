@@ -3,6 +3,8 @@ import i18n from "@/i18n";
 import { submitReservedPrompt } from "./submitReservedPrompt";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import type { AcpChatSnapshot } from "@/types/agentChat";
+import type { LocalWorktreeDraft } from "@/types/localLaunch";
+import { prepareLocalSessionCwd } from "@/services/localLaunchService";
 import {
   loadAutoApproveKinds, loadEnginePrefs, loadPreferredConfigOptions,
   saveEngineModels, saveEngineModes,
@@ -17,12 +19,13 @@ interface StartConfiguredChatOptions {
   firstPrompt?: string;
   preamble?: string;
   onCwdAdopted?: (cwd: string) => void;
+  worktree?: LocalWorktreeDraft;
 }
 
 async function applyPreferredSelection(
   chatId: string, snapshot: AcpChatSnapshot, category: "mode" | "model", value?: string | null,
-): Promise<void> {
-  if (!value) return;
+): Promise<boolean> {
+  if (!value) return false;
   const config = snapshot.configOptions?.find((option) => option.category === category);
   // 新版适配器可能只广告 configOptions，不提供 legacy modes/set_mode。
   // 用户选择来自缓存时仍须以本次广告为准，不能把不可用的限制模式静默抹掉。
@@ -35,20 +38,32 @@ async function applyPreferredSelection(
     throw new Error(i18n.t(category === "mode" ? "agentChatModeUnavailable" : "agentChatModelUnavailable", { ns: "panes", mode: value, model: value }));
   }
   if (config) {
-    if (config.currentValue !== value) await agentChatService.setConfigOption(chatId, config.configId, value);
+    if (config.currentValue === value) return false;
+    await agentChatService.setConfigOption(chatId, config.configId, value);
   } else if (category === "mode" && snapshot.modes?.currentModeId !== value) {
     await agentChatService.setMode(chatId, value);
   } else if (category === "model" && snapshot.models?.currentModelId !== value) {
     await agentChatService.setModel(chatId, value);
-  }
+  } else return false;
+  return true;
 }
 
 async function applyPreferences(chatId: string, snapshot: AcpChatSnapshot): Promise<void> {
   const engineId = snapshot.engineId;
   // 必须在刷新广告缓存前读取偏好：saveEngineModes 会移除不在新列表中的值。
   const prefs = loadEnginePrefs(engineId);
-  await applyPreferredSelection(chatId, snapshot, "mode", prefs?.preferredModeId);
-  await applyPreferredSelection(chatId, snapshot, "model", prefs?.preferredModelId);
+  const modeChanged = await applyPreferredSelection(chatId, snapshot, "mode", prefs?.preferredModeId);
+  const modelChanged = await applyPreferredSelection(chatId, snapshot, "model", prefs?.preferredModelId);
+  if (engineId === "codex-app-server" && (modeChanged || modelChanged)) {
+    // Model changes replace the advertised effort choices. Read the authoritative
+    // snapshot after the setter; the state event may still be queued in the WebView.
+    const latest = await agentChatService.get(chatId);
+    if (!latest || latest.engineId !== engineId || latest.acpSessionId !== snapshot.acpSessionId) {
+      throw new Error("Codex configuration changed before preferences could be applied");
+    }
+    snapshot = latest;
+    useAgentChatStore.getState().setSnapshot(chatId, snapshot);
+  }
   const modelConfig = snapshot.configOptions?.find((option) => option.category === "model");
   const models = modelConfig?.options?.map((choice) => ({ modelId: choice.value, name: choice.name, description: choice.description }))
     ?? snapshot.models?.availableModels ?? [];
@@ -74,14 +89,26 @@ export async function startConfiguredChat(options: StartConfiguredChatOptions): 
   const token = store.beginSetup(chatId, { firstPrompt, preamble });
   if (token === null) return null;
   const ownsSetup = () => useAgentChatStore.getState().chats[chatId]?.setup?.token === token;
+  let spawnAttempted = false;
   try {
+    if (options.resumeAcpSessionId && options.worktree?.enabled) {
+      throw new Error(i18n.t("worktreeNewSessionOnly", { ns: "launcher" }));
+    }
+    const launchCwd = await prepareLocalSessionCwd(cwd, options.worktree);
+    if (!ownsSetup()) return null;
+    // Adopt a successfully created worktree before spawn, so a failed engine can retry there.
+    if (launchCwd !== cwd) {
+      store.setCwdOverride(chatId, launchCwd);
+      options.onCwdAdopted?.(launchCwd);
+    }
+    spawnAttempted = true;
     const snapshot = await agentChatService.start(
-      chatId, engineId, cwd, options.resumeAcpSessionId,
+      chatId, engineId, launchCwd, options.resumeAcpSessionId,
       options.autoApproveKinds ?? loadAutoApproveKinds(engineId),
     );
     if (!ownsSetup()) return null;
     store.setSnapshot(chatId, snapshot);
-    options.onCwdAdopted?.(cwd);
+    options.onCwdAdopted?.(launchCwd);
     await applyPreferences(chatId, snapshot);
     if (!ownsSetup()) return null;
     const text = firstPrompt?.trim();
@@ -98,12 +125,16 @@ export async function startConfiguredChat(options: StartConfiguredChatOptions): 
   } catch (error) {
     if (ownsSetup()) {
       const message = error instanceof Error ? error.message : String(error);
-      if (!useAgentChatStore.getState().chats[chatId]?.snapshot) {
-        store.setSnapshot(chatId, { chatId, engineId, phase: "failed", error: message });
-      } else {
-        const items = useAgentChatStore.getState().chats[chatId]?.items ?? [];
-        const last = items[items.length - 1];
-        if (last?.type !== "notice" || last.text !== message) store.pushNotice(chatId, message);
+      // Keep launch settings available after preparation failure; retry must not silently
+      // start in the source checkout without the requested worktree.
+      if (spawnAttempted) {
+        if (!useAgentChatStore.getState().chats[chatId]?.snapshot) {
+          store.setSnapshot(chatId, { chatId, engineId, phase: "failed", error: message });
+        } else {
+          const items = useAgentChatStore.getState().chats[chatId]?.items ?? [];
+          const last = items[items.length - 1];
+          if (last?.type !== "notice" || last.text !== message) store.pushNotice(chatId, message);
+        }
       }
       store.finishSetup(chatId, token, message);
     }

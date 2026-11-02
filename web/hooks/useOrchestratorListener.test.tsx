@@ -56,6 +56,8 @@ describe("useOrchestratorListener layout placement", () => {
     vi.mocked(getCurrentWebview().listen).mockReset();
     mockTauriInvoke({
       exit_fullscreen: undefined,
+      browser_close: undefined,
+      stop_dsh_instance: true,
       respond_orchestrator_query: undefined,
     });
     resetStores();
@@ -146,12 +148,12 @@ describe("useOrchestratorListener layout placement", () => {
     );
 
     const { unmount } = renderHook(() => useOrchestratorListener());
-    await waitFor(() => expect(pendingResolvers).toHaveLength(7));
+    await waitFor(() => expect(pendingResolvers).toHaveLength(8));
 
     unmount();
     pendingResolvers.forEach((resolve) => resolve(unlisten));
 
-    await waitFor(() => expect(unlisten).toHaveBeenCalledTimes(7));
+    await waitFor(() => expect(unlisten).toHaveBeenCalledTimes(8));
   });
 
   it("launch-task 把显式 launchProfileId 和 modelId 保存在前端 tab 元数据", async () => {
@@ -635,6 +637,55 @@ describe("useOrchestratorListener layout placement", () => {
       requestId: "browser-request-1",
       data: JSON.stringify({ tabId: "browser-tab-1" }),
     });
+  });
+
+  it("closes an inactive layout's browser through lifecycle without switching or closing another tab", async () => {
+    const listeners = mockWebviewListeners();
+    const secondPane = createPanel();
+    usePanesStore.setState((state) => ({ layouts: [...state.layouts,
+      { id: "layout-2", name: "Second", rootPane: secondPane, activePaneId: secondPane.id }] }));
+    usePanesStore.getState().openBrowser("https://example.test/", "Remote layout", "browser-close", { layoutId: "layout-2" });
+    usePanesStore.getState().openBrowser("https://keep.test/", "Keep", "browser-keep");
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-close-browser-tab")).toBe(true));
+    await act(async () => { await listeners.get("orchestrator-close-browser-tab")?.({ payload: { tabId: "browser-close" } }); });
+    const state = usePanesStore.getState();
+    expect(state.findTabAcrossLayouts("browser-close")).toBeNull();
+    expect(state.findTabAcrossLayouts("browser-keep")).not.toBeNull();
+    expect(state.currentLayoutId).toBe("layout-1");
+    expect(state.closedTabs).toHaveLength(0);
+    expect(invoke).toHaveBeenCalledWith("browser_close", { tabId: "browser-close" });
+  });
+
+  it("closes DSH through lifecycle, including its managed process, and ignores wrong types", async () => {
+    const listeners = mockWebviewListeners();
+    const dshId = usePanesStore.getState().openDsh("/repo");
+    const paneId = usePanesStore.getState().activePaneId;
+    usePanesStore.getState().addTab(paneId, { projectId: "p", projectPath: "/repo", tabId: "terminal-keep", sessionId: "live" });
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-close-browser-tab")).toBe(true));
+    await act(async () => {
+      await listeners.get("orchestrator-close-browser-tab")?.({ payload: { tabId: "terminal-keep" } });
+      await listeners.get("orchestrator-close-browser-tab")?.({ payload: { tabId: dshId } });
+      await listeners.get("orchestrator-close-browser-tab")?.({ payload: { tabId: dshId } });
+    });
+    expect(usePanesStore.getState().findTabAcrossLayouts("terminal-keep")).not.toBeNull();
+    expect(usePanesStore.getState().findTabAcrossLayouts(dshId!)).toBeNull();
+    expect(invoke).toHaveBeenCalledWith("stop_dsh_instance", { tabId: dshId });
+    expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === "stop_dsh_instance")).toHaveLength(1);
+  });
+
+  it("refuses a browser identity shared by a different tab type in another layout", async () => {
+    const listeners = mockWebviewListeners();
+    usePanesStore.getState().openBrowser("https://example.test/", "Browser", "shared-id");
+    const secondPane = createPanel();
+    secondPane.tabs = [{ id: "shared-id", title: "Terminal", contentType: "terminal", projectId: "p", projectPath: "/repo", sessionId: "live" }];
+    usePanesStore.setState((state) => ({ layouts: [...state.layouts,
+      { id: "layout-2", name: "Second", rootPane: secondPane, activePaneId: secondPane.id }] }));
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-close-browser-tab")).toBe(true));
+    await act(async () => { await listeners.get("orchestrator-close-browser-tab")?.({ payload: { tabId: "shared-id" } }); });
+    expect(usePanesStore.getState().allPanelsAcrossLayouts().flatMap((panel) => panel.tabs).filter((tab) => tab.id === "shared-id")).toHaveLength(2);
   });
 
   it("open-browser-tab 复用时应答已有 tabId", async () => {

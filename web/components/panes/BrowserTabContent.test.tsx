@@ -7,15 +7,22 @@ import type { Tab } from "@/types";
 import { usePanesStore } from "@/stores";
 import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { browserService } from "@/services/browserService";
+import { browserService, type BrowserHostState } from "@/services/browserService";
 import BrowserTabContent from "./BrowserTabContent";
 import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
 
 let pageLoadHandler: ((event: { tabId: string; url: string; loading: boolean }) => void) | null = null;
+let hostHandler: ((event: BrowserHostState) => void) | null = null;
 let titleHandler: ((event: { tabId: string; title: string }) => void) | null = null;
 
 vi.mock("@/services/browserService", () => ({
   browserService: {
+    hostState: vi.fn().mockResolvedValue({ hostWindow: "main" }),
+    onHostChanged: vi.fn(async (handler) => { hostHandler = handler; return () => { hostHandler = null; }; }),
+    setViewport: vi.fn().mockResolvedValue({ width: 1440, height: 1000, scale: .57 }),
+    popOut: vi.fn().mockResolvedValue(undefined),
+    setWindowMode: vi.fn().mockResolvedValue({ mode: "mini" }),
+    reclaim: vi.fn().mockResolvedValue(undefined),
     create: vi.fn().mockResolvedValue(undefined),
     setBounds: vi.fn().mockResolvedValue(undefined),
     setVisible: vi.fn().mockResolvedValue(undefined),
@@ -24,6 +31,7 @@ vi.mock("@/services/browserService", () => ({
     forward: vi.fn().mockResolvedValue(undefined),
     reload: vi.fn().mockResolvedValue(undefined),
     openDevtools: vi.fn().mockResolvedValue(undefined),
+    releaseHost: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
     onPageLoad: vi.fn(async (handler) => {
       pageLoadHandler = handler;
@@ -62,6 +70,7 @@ function renderBrowser(options: { visibility?: "active" | "visible" | "hidden" }
 
 describe("BrowserTabContent", () => {
   beforeEach(() => {
+    vi.mocked(browserService.releaseHost).mockClear();
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
       x: 10,
       y: 48,
@@ -84,6 +93,70 @@ describe("BrowserTabContent", () => {
     titleHandler = null;
   });
 
+  it("keeps the live native page when a popup host unmounts", async () => {
+    const view = render(<TooltipProvider><BrowserTabContent tab={makeBrowserTab()} popup /></TooltipProvider>);
+    await waitFor(() => expect(browserService.create).toHaveBeenCalled());
+    view.unmount();
+    expect(browserService.releaseHost).not.toHaveBeenCalled();
+  });
+
+  it("restores the current native URL when a detached document is mounted again", async () => {
+    vi.mocked(browserService.hostState).mockResolvedValueOnce({ tabId: "browser-tab-1", hostWindow: "main", url: "https://retained.test/new-page", title: "Retained" });
+    renderBrowser();
+    await waitFor(() => expect(screen.getByRole("textbox")).toHaveValue("https://retained.test/new-page"));
+    expect(browserService.navigate).not.toHaveBeenCalled();
+    expect(usePanesStore.getState().updateBrowserTab).toHaveBeenCalledWith("browser-tab-1", { browserUrl: "https://retained.test/new-page" });
+  });
+
+  it("shows detached ownership and reclaims the same page", async () => {
+    renderBrowser();
+    await waitFor(() => expect(browserService.create).toHaveBeenCalled());
+    act(() => hostHandler?.({ tabId: "browser-tab-1", hostWindow: "popup-browser-test", url: "http://localhost:5173/", title: "Page" }));
+    expect(screen.getByText(i18n.t("detached", { ns: "browserTools" }))).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("returnToPanel", { ns: "browserTools" }) }));
+    expect(browserService.reclaim).toHaveBeenCalledWith("browser-tab-1");
+    expect(browserService.releaseHost).not.toHaveBeenCalled();
+  });
+
+  it("opens mini mode in one native operation and identifies it in the main panel", async () => {
+    renderBrowser();
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("miniOpen", { ns: "browserTools" }) }));
+    expect(browserService.setWindowMode).toHaveBeenCalledExactlyOnceWith("browser-tab-1", "mini");
+    expect(browserService.popOut).not.toHaveBeenCalled();
+    act(() => hostHandler?.({ tabId: "browser-tab-1", hostWindow: "popup-browser-test", mode: "mini", url: "http://localhost:5173/", title: "Page" }));
+    expect(screen.getByText(i18n.t("detachedMini", { ns: "browserTools" }))).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("returnToPanel", { ns: "browserTools" }) }));
+    expect(browserService.reclaim).toHaveBeenCalledWith("browser-tab-1");
+    expect(browserService.close).not.toHaveBeenCalled();
+  });
+
+  it("switches a popup to mini chrome without recreating or navigating the page", async () => {
+    const view = render(<TooltipProvider><BrowserTabContent tab={makeBrowserTab()} popup /></TooltipProvider>);
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("responsive", { ns: "browserTools" }) }));
+    await waitFor(() => expect(browserService.setViewport).toHaveBeenCalled());
+    view.rerender(<TooltipProvider><BrowserTabContent tab={makeBrowserTab()} popup popupMode="mini" /></TooltipProvider>);
+    expect(screen.getByTestId("browser-mini-toolbar")).toBeVisible();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: i18n.t("responsive", { ns: "browserTools" }) })).not.toBeInTheDocument();
+    await waitFor(() => expect(browserService.setViewport).toHaveBeenLastCalledWith("browser-tab-1", expect.any(Object), null));
+    expect(browserService.create).toHaveBeenCalledOnce();
+    expect(browserService.navigate).not.toHaveBeenCalled();
+    view.unmount();
+    expect(browserService.releaseHost).not.toHaveBeenCalled();
+    expect(browserService.close).not.toHaveBeenCalled();
+  });
+
+  it("sends real CSS viewport geometry and resets native zoom when leaving preview", async () => {
+    renderBrowser();
+    await waitFor(() => expect(browserService.create).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("responsive", { ns: "browserTools" }) }));
+    await waitFor(() => expect(browserService.setViewport).toHaveBeenCalledWith("browser-tab-1", expect.any(Object), expect.objectContaining({ width: 1440, height: 1000 })));
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("closePreview", { ns: "browserTools" }) }));
+    await waitFor(() => expect(browserService.setViewport).toHaveBeenLastCalledWith("browser-tab-1", expect.any(Object), null));
+  });
+
   it("creates the child webview from the measured viewport and destroys it on unmount", async () => {
     const view = renderBrowser();
 
@@ -95,7 +168,98 @@ describe("BrowserTabContent", () => {
     ));
 
     view.unmount();
-    expect(browserService.close).toHaveBeenCalledWith("browser-tab-1");
+    expect(browserService.releaseHost).toHaveBeenCalledWith("browser-tab-1");
+  });
+
+  it("does not close a newer same-tab view when an older create resolves late", async () => {
+    let finishOld!: () => void;
+    vi.mocked(browserService.create).mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve; }));
+    const view = renderBrowser();
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(1));
+    view.rerender(<TooltipProvider><BrowserTabContent tab={makeBrowserTab("https://new.test/")} /></TooltipProvider>);
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(2));
+    await act(async () => finishOld());
+    expect(browserService.releaseHost).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox")).toHaveValue("https://new.test/");
+  });
+
+  it("keeps a pending create through an early normalized page-load URL", async () => {
+    let finish!: () => void;
+    vi.mocked(browserService.create).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    useTabViewStateStore.getState().reportView("browser-tab-1", "primary", "active");
+    const view = render(<TooltipProvider><BrowserTabContent tab={makeBrowserTab("https://example.test")} /></TooltipProvider>);
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(1));
+    act(() => { pageLoadHandler?.({ tabId: "browser-tab-1", url: "https://example.test/", loading: false }); });
+    view.rerender(<TooltipProvider><BrowserTabContent tab={makeBrowserTab("https://example.test/")} /></TooltipProvider>);
+    await act(async () => finish());
+    expect(browserService.releaseHost).not.toHaveBeenCalled();
+    expect(browserService.create).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("textbox")).toHaveValue("https://example.test/");
+  });
+
+  it("applies current visibility when a pending create finishes in the background", async () => {
+    let finish!: () => void;
+    vi.mocked(browserService.create).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    renderBrowser();
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(1));
+    act(() => { useTabViewStateStore.getState().reportView("browser-tab-1", "primary", "hidden"); });
+    await act(async () => finish());
+    expect(browserService.releaseHost).not.toHaveBeenCalled();
+    expect(browserService.setVisible).toHaveBeenLastCalledWith("browser-tab-1", false, false);
+    expect(browserService.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes a genuinely unmounted view if native creation finishes afterward", async () => {
+    let finish!: () => void;
+    vi.mocked(browserService.create).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const view = renderBrowser();
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(1));
+    view.unmount();
+    expect(browserService.releaseHost).toHaveBeenCalledWith("browser-tab-1");
+    vi.mocked(browserService.releaseHost).mockClear();
+    await act(async () => finish());
+    expect(browserService.releaseHost).toHaveBeenCalledExactlyOnceWith("browser-tab-1");
+  });
+
+  it("does not close a remounted same-tab owner when the released owner's create finishes", async () => {
+    let finishOld!: () => void;
+    vi.mocked(browserService.create).mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve; }));
+    const old = renderBrowser();
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(1));
+    old.unmount();
+    vi.mocked(browserService.releaseHost).mockClear();
+    renderBrowser();
+    await waitFor(() => expect(browserService.create).toHaveBeenCalledTimes(2));
+    await act(async () => finishOld());
+    expect(browserService.releaseHost).not.toHaveBeenCalled();
+  });
+
+  it("releases late listener registrations and ignores events after unmount", async () => {
+    let finishLoad!: (unlisten: () => void) => void;
+    let finishTitle!: (unlisten: () => void) => void;
+    let lateLoad!: (event: { tabId: string; url: string; loading: boolean }) => void;
+    let lateTitle!: (event: { tabId: string; title: string }) => void;
+    vi.mocked(browserService.onPageLoad).mockImplementationOnce((handler) => {
+      lateLoad = handler;
+      return new Promise((resolve) => { finishLoad = resolve; });
+    });
+    vi.mocked(browserService.onTitleChanged).mockImplementationOnce((handler) => {
+      lateTitle = handler;
+      return new Promise((resolve) => { finishTitle = resolve; });
+    });
+    const view = renderBrowser();
+    view.unmount();
+    const unlistenLoad = vi.fn();
+    const unlistenTitle = vi.fn();
+    await act(async () => {
+      lateLoad({ tabId: "browser-tab-1", url: "https://late.test/", loading: false });
+      lateTitle({ tabId: "browser-tab-1", title: "Late title" });
+      finishLoad(unlistenLoad);
+      finishTitle(unlistenTitle);
+    });
+    expect(unlistenLoad).toHaveBeenCalledExactlyOnceWith();
+    expect(unlistenTitle).toHaveBeenCalledExactlyOnceWith();
+    expect(usePanesStore.getState().updateBrowserTab).not.toHaveBeenCalled();
   });
 
   it("shows a localized prompt when the browser rejects a protocol", async () => {
@@ -237,12 +401,10 @@ describe("BrowserTabContent", () => {
       </TooltipProvider>,
     );
 
-    await waitFor(() => expect(browserService.create).toHaveBeenCalledWith(
-      "browser-tab-1",
-      "http://127.0.0.1:51819/",
-      expect.anything(),
-      true,
+    await waitFor(() => expect(browserService.navigate).toHaveBeenCalledWith(
+      "browser-tab-1", "http://127.0.0.1:51819/",
     ));
+    expect(browserService.create).toHaveBeenCalledTimes(1);
   });
 
   // 页面自身的导航（用户点链接）会把新 URL 回填进 store。那不是「外部换 URL」，

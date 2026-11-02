@@ -29,6 +29,12 @@ export interface GitChangedFile {
   newMode: string | null;
 }
 
+export interface GitBranchReview {
+  baseCommit: string;
+  headCommit: string;
+  files: GitChangedFile[];
+}
+
 export interface GitCommit {
   hash: string;
   shortHash: string;
@@ -159,6 +165,12 @@ export const gitService = {
   getDiff(path: string, spec: GitDiffSpec): Promise<DiffResult> {
     return invokeOrApi<DiffResult>("get_git_diff", { path, spec }, () =>
       apiJson<DiffResult>("/api/git/diff", "POST", { path, spec }),
+    );
+  },
+
+  getBranchReview(path: string, baseRef: string): Promise<GitBranchReview> {
+    return invokeOrApi<GitBranchReview>("get_git_branch_review", { path, baseRef }, () =>
+      apiGet<GitBranchReview>("/api/git/branch-review", { path, baseRef }),
     );
   },
 

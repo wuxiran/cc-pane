@@ -139,6 +139,7 @@ export function useOpenTerminal(): (opts: OpenTerminalOptions) => void {
       const defaultTool = useSettingsStore.getState().settings?.general.defaultCliTool ?? "claude";
       handleOpenTerminal({
         path: pendingLaunch.path,
+        launchCwd: pendingLaunch.launchCwd,
         workspaceName: pendingLaunch.workspaceName,
         providerId: pendingLaunch.providerId,
         modelId: pendingLaunch.modelId,

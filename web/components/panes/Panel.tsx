@@ -3,7 +3,6 @@ import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import type { Panel as PanelType, Tab } from "@/types";
-import { AGENT_CHAT_LAYOUT_ID } from "@/types";
 import { useShallow } from "zustand/react/shallow";
 import {
   useActivityBarStore,
@@ -187,10 +186,8 @@ export default memo(function Panel({ pane }: PanelProps) {
     [pane.id, addTab, activeTab?.workspaceName, activeTab?.providerId, activeTab?.modelId, activeTab?.providerSelection, activeTab?.launchProfileId, activeTab?.workspacePath]
   );
 
-  const { handleAddBrowser, handleAddDsh, handleAddAgentChat, handleAddFile, handleAddFileExplorer } =
+  const { handleAddBrowser, handleAddDsh, handleAddAgentChat, handleAddFile, handleAddFileExplorer, handleAddReview } =
     useNewTabActions(pane.id, activeTab);
-  // Agent Chat 专用布局里 ＋ 只开 agent 对话（其余类型菜单项隐藏），保持空间纯净。
-  const isAgentChatLayoutCurrent = usePanesStore((s) => s.currentLayoutId === AGENT_CHAT_LAYOUT_ID);
 
   const handleAddSsh = useCallback(() => {
     useSshMachineDialogStore.getState().openAddDialog();
@@ -393,7 +390,7 @@ export default memo(function Panel({ pane }: PanelProps) {
   }, []);
 
   // Notch 浮动布局：标签栏高度计算
-  const TAB_BAR_HEIGHT = { normal: 38, compact: 30, dense: 26 } as const;
+  const TAB_BAR_HEIGHT = { normal: 42, compact: 32, dense: 28 } as const;
   const density = pane.tabs.length <= 3 ? 'normal' : pane.tabs.length <= 6 ? 'compact' : 'dense';
   const tabBarHeight = TAB_BAR_HEIGHT[density];
 
@@ -427,19 +424,17 @@ export default memo(function Panel({ pane }: PanelProps) {
             onTogglePin={handleTogglePin}
             onToggleStar={handleToggleStar}
             onRename={handleRename}
-            newTab={
-              isAgentChatLayoutCurrent
-                ? { onAdd: handleAddAgentChat, onAddAgentChat: handleAddAgentChat }
-                : {
-                    onAdd: handleAddTab,
-                    onAddBrowser: handleAddBrowser,
-                    onAddDsh: handleAddDsh,
-                    onAddAgentChat: handleAddAgentChat,
-                    onAddFile: handleAddFile,
-                    onAddFileExplorer: handleAddFileExplorer,
-                    onAddSsh: handleAddSsh,
-                  }
-            }
+            newTab={{
+              onAdd: handleAddBrowser,
+              onAddTerminal: handleAddTab,
+              onAddReview: handleAddReview,
+              onAddBrowser: handleAddBrowser,
+              onAddDsh: handleAddDsh,
+              onAddAgentChat: handleAddAgentChat,
+              onAddFile: handleAddFile,
+              onAddFileExplorer: handleAddFileExplorer,
+              onAddSsh: handleAddSsh,
+            }}
             onFullscreen={handleToggleFullscreen}
             onSplitAndMoveRight={handleSplitAndMoveRight}
             onSplitAndMoveDown={handleSplitAndMoveDown}

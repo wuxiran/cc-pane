@@ -10,6 +10,8 @@ import type { GitChangedFile } from "@/services/gitService";
 
 export interface PendingLaunch {
   path: string;
+  /** Actual launch directory, independent of workspace ownership/configuration. */
+  launchCwd?: string;
   workspaceName?: string;
   providerId: string;
   modelId?: string;

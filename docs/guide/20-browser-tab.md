@@ -81,7 +81,9 @@
 
 ### 两个必须知道的前提
 
-**一、`browser_evaluate` / `browser_screenshot` / `browser_click` 目前只在 Windows 上可用。** 这三个走的是 WebView2 的 DevTools 协议，macOS / Linux 上会直接返回「native WebView2 CDP is only available on Windows」。`open_browser_tab` 和 `browser_navigate` 三平台都能用。
+**一、`browser_evaluate` / `browser_screenshot` / `browser_click` 支持 Windows 和 macOS。** Windows 使用 WebView2 的 DevTools 协议；macOS 使用 WKWebView 原生脚本、视图快照和鼠标事件，只操作 CC-Panes 创建的浏览器标签，不需要系统屏幕录制权限。macOS 脚本求值要求 11 或更新系统，较旧系统返回明确错误。Linux 暂未提供这三项能力；`open_browser_tab` 和 `browser_navigate` 三平台都能用。
+
+macOS 支持 JavaScript 表达式、Promise 返回值以及普通同步语句的返回值。异步多语句建议写成 `(async () => { /* 操作 */ return result; })()`，让应用可以等待结果；未完成的 Promise 会在 10 秒后超时。JavaScript 异常返回 `exceptionDetails`，与页面关闭、原生执行失败等错误分开。截图只包含当前网页可视区域，不包含其他应用或整块屏幕；视频、WebGL 等 GPU 图层的表现取决于系统 WebKit 的原生快照能力。
 
 **二、`browser_evaluate` 是在页面上下文里跑任意 JS。** 它能读也能改页面上的任何数据，包括登录态里的东西。只对**你信得过的页面**和**你看得懂的脚本**用它——本地 dev server 是最合适的场景。（返回结果最大 64 KiB，超了会被截断。）
 
@@ -91,7 +93,7 @@
 
 - **我想自己开一个浏览器标签，找不到按钮？** 当前版本确实没有。让 AI 帮你开一个，之后地址栏就归你用了。
 - **打开报错说不支持这个协议？** 只支持 `http` 和 `https`。想看本地文件，用 [文件编辑器](06-files-and-editor.md)，或者起个静态服务器。
-- **AI 说截图 / 执行 JS 失败？** 先看是不是在 macOS / Linux 上——这三个工具只支持 Windows（见上）。Windows 上仍失败的话，多半是 `tabId` 不对（标签已经被关掉了），让它重新 `open_browser_tab` 拿一个新的。
+- **AI 说截图 / 执行 JS 失败？** Linux 尚不支持这三个工具。Windows / macOS 先确认标签没有被关闭、`tabId` 正确；截图超时时恢复被最小化或隐藏的 CC-Panes 窗口后重试。macOS 异步多语句使用上面的 async IIFE 写法；脚本本身抛错时检查 `exceptionDetails`。
 - **右键菜单弹出来的时候，浏览器画面消失了一下？** 内嵌浏览器是一层原生视图，压在界面上层；弹出菜单时会暂时把它藏起来，免得菜单被盖住。菜单关掉就恢复，不是崩了。
 - **页面在标签里能打开，但 AI 说它看不到内容？** `browser_screenshot` 截的是**当前可视区域**，不会滚动全页。让它先 `browser_evaluate` 滚到目标位置再截。
 

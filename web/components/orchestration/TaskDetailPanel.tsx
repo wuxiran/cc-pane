@@ -207,7 +207,7 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
               <span>·</span>
               <span>{binding.cliTool}</span>
               <span>·</span>
-              <span>{binding.status}</span>
+              <span>{binding.status === "completed" ? t("completion.agentFinished", { defaultValue: "Agent finished" }) : binding.status}</span>
             </div>
             <h2 className="mt-1 truncate text-lg font-semibold" style={{ color: "var(--app-text-primary)" }}>
               {binding.title}
@@ -226,7 +226,7 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
         </header>
 
         <Suspense fallback={<p className="text-xs text-muted-foreground">{t("verification.title", { defaultValue: "Verification evidence" })}…</p>}>
-          <TaskVerificationCard key={binding.id} taskId={binding.id} />
+          <TaskVerificationCard key={binding.id} taskId={binding.id} reportRevision={binding.reportRevision} />
         </Suspense>
 
         <DetailSection title={t("detail.prompt", { defaultValue: "提示词" })}>

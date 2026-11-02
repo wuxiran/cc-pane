@@ -13,6 +13,9 @@ mod auth;
 pub(crate) mod edits;
 mod elicitation;
 mod fork;
+pub(crate) mod journal;
+mod native;
+mod runtime;
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -79,6 +82,9 @@ pub struct AcpChatSnapshot {
     pub phase: AcpChatPhase,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acp_session_id: Option<String>,
+    /// A verified native App Server thread identity; ACP sessions never populate it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_thread_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_capabilities: Option<Value>,
     /// initialize 协商出的协议版本。现在只记录不分叉——v2 stabilize 且适配器
@@ -240,6 +246,10 @@ struct AcpChatSession {
     terminals: Arc<super::acp_client_ops::AcpTerminalManager>,
     /// 会话 cwd（`terminal/create` 不带 cwd 时的默认目录）。
     cwd: PathBuf,
+    journal: journal::RunJournal,
+    checkpoints: Arc<cc_panes_core::services::TurnCheckpointService>,
+    active_run: std::sync::Mutex<Option<runtime::ActiveRun>>,
+    client_writes: Arc<RwLock<()>>,
 }
 
 impl AcpChatSession {
@@ -427,6 +437,11 @@ impl AcpChatSession {
     }
 
     fn emit(&self, kind: &str, payload: Value) {
+        self.record_event(kind, &payload);
+        self.emit_live(kind, payload);
+    }
+
+    fn emit_live(&self, kind: &str, payload: Value) {
         if !crate::webview_reliability::webview_emits_allowed() {
             return;
         }
@@ -461,6 +476,8 @@ pub struct AcpTurnNotice {
 pub type AcpTurnNotifier = Box<dyn Fn(AcpTurnNotice) + Send + Sync>;
 
 pub struct AcpChatService {
+    lifecycles: std::sync::Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>,
+    native_sessions: RwLock<HashMap<String, Arc<native::Session>>>,
     sessions: RwLock<HashMap<String, Arc<AcpChatSession>>>,
     /// 会话历史元数据目录（`<data>/agent-chats/`）。按 **acpSessionId** 落
     /// 一个 JSON——那才是稳定的对话身份；chatId 是 tab 的运行时身份，
@@ -470,16 +487,45 @@ pub struct AcpChatService {
     /// 侧车资源目录（app setup 阶段登记，镜像 TerminalService 同名字段）：
     /// 解析 cc-panes-ctl 路径用——CC_PANES_CTL 注入与 http MCP 降级 stdio 都靠它。
     sidecar_resource_dir: std::sync::RwLock<Option<PathBuf>>,
+    journal: journal::RunJournal,
+    checkpoints: Arc<cc_panes_core::services::TurnCheckpointService>,
 }
 
 impl AcpChatService {
     pub fn new(chats_dir: PathBuf) -> Self {
+        let journal = Self::create_journal(&chats_dir);
+        let checkpoints = Arc::new(cc_panes_core::services::TurnCheckpointService::new(
+            chats_dir.parent().unwrap_or(&chats_dir).to_path_buf(),
+        ));
         Self {
             sessions: RwLock::new(HashMap::new()),
+            native_sessions: RwLock::new(HashMap::new()),
+            lifecycles: std::sync::Mutex::new(HashMap::new()),
             chats_dir,
             turn_notifier: Arc::new(std::sync::RwLock::new(None)),
             sidecar_resource_dir: std::sync::RwLock::new(None),
+            journal,
+            checkpoints,
         }
+    }
+
+    async fn lock_chat_lifecycle(&self, chat_id: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        let lock = {
+            let mut locks = self
+                .lifecycles
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            locks.retain(|_, lock| lock.strong_count() > 0);
+            let key = chat_id.trim().to_string();
+            if let Some(lock) = locks.get(&key).and_then(std::sync::Weak::upgrade) {
+                lock
+            } else {
+                let lock = Arc::new(Mutex::new(()));
+                locks.insert(key, Arc::downgrade(&lock));
+                lock
+            }
+        };
+        lock.lock_owned().await
     }
 
     /// 登记侧车资源目录（setup 阶段一次）。未登记时 ctl 解析退回 exe 同目录候选。
@@ -537,10 +583,22 @@ impl AcpChatService {
                 HashMap::from([("cwd".to_string(), spec.cwd.clone())]),
             ));
         }
+        let _lifecycle = self.lock_chat_lifecycle(&chat_id).await;
+        if spec.engine_id == native::ENGINE {
+            return self.start_native(app, chat_id_trimmed, spec).await;
+        }
+        if self
+            .native_sessions
+            .read()
+            .await
+            .contains_key(chat_id_trimmed)
+        {
+            self.stop_locked(chat_id_trimmed).await?;
+        }
         if self.sessions.read().await.contains_key(chat_id_trimmed) {
             // Replace semantics keep the tab as the single owner of one live
             // conversation: restarting a chat stops the previous process.
-            self.stop(chat_id_trimmed).await.ok();
+            self.stop_locked(chat_id_trimmed).await?;
         }
 
         let mut command = no_window_tokio_command(&spec.command);
@@ -598,6 +656,7 @@ impl AcpChatService {
                 engine_id: spec.engine_id.clone(),
                 phase: AcpChatPhase::Starting,
                 acp_session_id: None,
+                codex_thread_id: None,
                 agent_capabilities: None,
                 protocol_version: None,
                 modes: None,
@@ -622,6 +681,10 @@ impl AcpChatService {
             turn_notifier: self.turn_notifier.clone(),
             terminals: Arc::new(super::acp_client_ops::AcpTerminalManager::default()),
             cwd: cwd.to_path_buf(),
+            journal: self.journal.clone(),
+            checkpoints: self.checkpoints.clone(),
+            active_run: std::sync::Mutex::new(None),
+            client_writes: Arc::new(RwLock::new(())),
         });
         self.sessions
             .write()
@@ -845,23 +908,82 @@ impl AcpChatService {
     /// Submit a prompt as ACP ContentBlock array (text / image / resource_link).
     /// Returns immediately; the turn streams through `session/update` events
     /// and finishes with a `turn_ended` event.
-    pub async fn prompt(&self, chat_id: &str, blocks: Vec<Value>) -> AppResult<()> {
-        let (session, response) = self.prepare_turn(chat_id, blocks).await?;
+    pub async fn prompt(self: &Arc<Self>, chat_id: &str, blocks: Vec<Value>) -> AppResult<()> {
+        if let Some(session) = self.native_session(chat_id).await {
+            if let (Some(id), Some(text)) = (
+                session.snapshot().await.acp_session_id,
+                blocks.iter().find_map(|block| block["text"].as_str()),
+            ) {
+                self.note_chat_title(&id, text);
+            }
+            let (ack, accepted) = oneshot::channel();
+            tokio::spawn(async move {
+                match session.admit(blocks).await {
+                    Ok(done) => {
+                        let _ = ack.send(Ok(()));
+                        let _ = done.await;
+                    }
+                    Err(error) => {
+                        let _ = ack.send(Err(error));
+                    }
+                }
+            });
+            return accepted
+                .await
+                .map_err(|error| AppError::from(error.to_string()))?;
+        }
+        let service = self.clone();
+        let session = self.session(chat_id).await?;
+        let (ack, accepted) = oneshot::channel();
         tokio::spawn(async move {
-            let _ = run_turn(&session, response).await;
+            match service.prepare_turn(session, blocks).await {
+                Ok((session, response)) => {
+                    let _ = ack.send(Ok(()));
+                    let _ = run_turn(&session, response).await;
+                }
+                Err(error) => {
+                    let _ = ack.send(Err(error));
+                }
+            }
         });
-        Ok(())
+        accepted
+            .await
+            .map_err(|error| AppError::from(error.to_string()))?
     }
 
-    /// Automations use the same admission/send path, then await the turn result.
-    pub async fn prompt_and_wait(&self, chat_id: &str, blocks: Vec<Value>) -> AppResult<String> {
-        let (session, response) = self.prepare_turn(chat_id, blocks).await?;
-        run_turn(&session, response).await
+    /// Dropping a timeout waiter must not abandon admission or durable finalization.
+    pub async fn prompt_and_wait(
+        self: &Arc<Self>,
+        chat_id: &str,
+        blocks: Vec<Value>,
+    ) -> AppResult<String> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return tokio::spawn(async move {
+                session
+                    .admit(blocks)
+                    .await?
+                    .await
+                    .map_err(|error| AppError::from(error.to_string()))?
+            })
+            .await
+            .map_err(|error| AppError::from(error.to_string()))?;
+        }
+        let service = self.clone();
+        let session = self.session(chat_id).await?;
+        tokio::spawn(async move {
+            let (session, response) = service.prepare_turn(session, blocks).await?;
+            run_turn(&session, response).await
+        })
+        .await
+        .map_err(|error| AppError::from(error.to_string()))?
     }
 
     /// Cancel the in-flight turn. The agent responds to the outstanding
     /// `session/prompt` with `cancelled`, which ends the turn on our side.
     pub async fn cancel(&self, chat_id: &str) -> AppResult<()> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return session.cancel().await;
+        }
         let session = self.session(chat_id).await?;
         let _turn = session.turn_control.lock().await;
         if session.snapshot.read().await.phase != AcpChatPhase::Generating {
@@ -880,6 +1002,7 @@ impl AcpChatService {
                 )
             })?;
         session.cancel_pending_permissions().await;
+        session.mark_run_cancel_requested();
         elicitation::cancel_all(&session).await;
         session
             .notify("session/cancel", json!({"sessionId": acp_session_id}))
@@ -889,6 +1012,9 @@ impl AcpChatService {
     /// Switch the session mode (approval behavior / plan mode / …).
     /// The mode id must come from `modes.availableModes` advertised by the agent.
     pub async fn set_mode(&self, chat_id: &str, mode_id: String) -> AppResult<()> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return session.set_option("mode", json!(mode_id)).await;
+        }
         let session = self.session(chat_id).await?;
         let acp_session_id = session
             .snapshot
@@ -921,6 +1047,9 @@ impl AcpChatService {
 
     /// Switch the model. Only available when the agent advertised `models`.
     pub async fn set_model(&self, chat_id: &str, model_id: String) -> AppResult<()> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return session.set_option("model", json!(model_id)).await;
+        }
         let session = self.session(chat_id).await?;
         let acp_session_id = session
             .snapshot
@@ -962,6 +1091,9 @@ impl AcpChatService {
         config_id: String,
         value: Value,
     ) -> AppResult<()> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return session.set_option(&config_id, value).await;
+        }
         let session = self.session(chat_id).await?;
         let acp_session_id = session
             .snapshot
@@ -1012,6 +1144,9 @@ impl AcpChatService {
     /// 会话中改自动放行策略（立即对后续 `session/request_permission` 生效；
     /// 已弹出的审批卡不回收，仍由用户回答）。
     pub async fn set_auto_approve(&self, chat_id: &str, kinds: Vec<String>) -> AppResult<()> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return session.set_auto_approve(kinds).await;
+        }
         let session = self.session(chat_id).await?;
         let kinds: Vec<String> = kinds
             .into_iter()
@@ -1034,12 +1169,16 @@ impl AcpChatService {
         request_key: String,
         option_id: Option<String>,
     ) -> AppResult<()> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return session.respond_permission(request_key, option_id).await;
+        }
         let session = self.session(chat_id).await?;
         let outcome = match option_id {
             Some(option_id) => json!({"outcome": {"outcome": "selected", "optionId": option_id}}),
             None => json!({"outcome": {"outcome": "cancelled"}}),
         };
         let session_ref = &session;
+        let recorded_key = request_key.clone();
         session
             .pending_permissions
             .respond(&request_key, |id, cancelling| async move {
@@ -1048,12 +1187,20 @@ impl AcpChatService {
                 } else {
                     outcome
                 };
-                session_ref.respond(&id, Ok(outcome)).await
+                session_ref.respond(&id, Ok(outcome.clone())).await?;
+                session_ref.record_event(
+                    "permission_resolved",
+                    &json!({"requestKey":recorded_key,"result":outcome}),
+                );
+                Ok(())
             })
             .await
     }
 
     pub async fn snapshot(&self, chat_id: &str) -> Option<AcpChatSnapshot> {
+        if let Some(session) = self.native_session(chat_id).await {
+            return Some(session.snapshot().await);
+        }
         let session = self.sessions.read().await.get(chat_id.trim()).cloned()?;
         Some(session.snapshot().await)
     }
@@ -1061,6 +1208,15 @@ impl AcpChatService {
     /// Stop the adapter process and forget the chat. Used by tab close and by
     /// explicit conversation restarts.
     pub async fn stop(&self, chat_id: &str) -> AppResult<()> {
+        let _lifecycle = self.lock_chat_lifecycle(chat_id).await;
+        self.stop_locked(chat_id).await
+    }
+
+    async fn stop_locked(&self, chat_id: &str) -> AppResult<()> {
+        let native = self.native_sessions.write().await.remove(chat_id.trim());
+        if let Some(session) = native {
+            session.stop(None).await?;
+        }
         let session = {
             let mut sessions = self.sessions.write().await;
             sessions.remove(chat_id.trim())
@@ -1078,6 +1234,7 @@ impl AcpChatService {
         phase: AcpChatPhase,
         error: Option<String>,
     ) {
+        session.mark_run_interrupted();
         // agent 开的终端子进程不能比会话活得长。
         session.terminals.release_all().await;
         let exit_code = session
@@ -1092,6 +1249,10 @@ impl AcpChatService {
         session
             .complete_pending_with_error("ACP chat session was stopped")
             .await;
+        {
+            let _turn = session.turn_control.lock().await;
+            session.finish_recorded_turn("interrupted").await;
+        }
         // Drop the map entry if it still points at this session (start() may
         // have already replaced it).
         let mut sessions = self.sessions.write().await;
@@ -1105,6 +1266,18 @@ impl AcpChatService {
 
     /// Stop every adapter during application shutdown.
     pub async fn cleanup_all(&self) {
+        let native_ids = self
+            .native_sessions
+            .read()
+            .await
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for id in native_ids {
+            if let Err(error) = self.stop(&id).await {
+                tracing::warn!(%error,"Failed to stop native Codex session");
+            }
+        }
         let chat_ids = self
             .sessions
             .read()
@@ -1116,6 +1289,9 @@ impl AcpChatService {
             if let Err(error) = self.stop(&chat_id).await {
                 warn!(chat_id = %chat_id, error = %error, "failed to stop ACP chat during cleanup");
             }
+        }
+        if let Err(error) = self.journal.shutdown().await {
+            tracing::error!(%error, "Agent journal shutdown failed");
         }
     }
 
@@ -1422,8 +1598,23 @@ async fn route_message(session: &Arc<AcpChatSession>, message: Value) {
                 // 必须离开读循环跑，否则 agent 后续的 session/update 全被卡住。
                 let session = session.clone();
                 let method = method.to_string();
+                let mutation =
+                    if matches!(method.as_str(), "fs/write_text_file" | "terminal/create") {
+                        Some(session.client_writes.clone().read_owned().await)
+                    } else {
+                        None
+                    };
                 tokio::spawn(async move {
-                    let result = handle_client_request(&session, &method, &params).await;
+                    let _mutation = mutation;
+                    let result = if _mutation.is_some()
+                        && session.snapshot.read().await.phase != AcpChatPhase::Generating
+                    {
+                        Err(
+                            json!({"code":-32600,"message":"Mutating client tools require an active recorded turn"}),
+                        )
+                    } else {
+                        handle_client_request(&session, &method, &params).await
+                    };
                     if let Err(write_error) = session.respond(&id, result).await {
                         debug!(chat_id = %session.chat_id, method = %method, error = %write_error, "failed to answer ACP client request");
                     }
@@ -1501,8 +1692,14 @@ async fn handle_client_request(
         "fs/write_text_file" => ops::fs_write_text_file(params).await,
         "terminal/create" => {
             let emitter_session = session.clone();
+            let origin_run = session.recorded_run_id();
             let emitter: ops::TerminalEmitter = Arc::new(move |payload| {
-                emitter_session.emit("terminal_output", payload);
+                if let Some(id) = &origin_run {
+                    emitter_session
+                        .journal
+                        .event(id, "terminal_output", &payload);
+                }
+                emitter_session.emit_live("terminal_output", payload);
             });
             session
                 .terminals
@@ -1560,6 +1757,14 @@ async fn run_turn(
                 .and_then(Value::as_str)
                 .unwrap_or("end_turn")
                 .to_string();
+            session.record_event("turn_ended", &json!({"stopReason": stop_reason}));
+            session
+                .finish_recorded_turn(if stop_reason == "cancelled" {
+                    "cancelled"
+                } else {
+                    "completed"
+                })
+                .await;
             session.set_phase(AcpChatPhase::Ready).await;
             session.emit("turn_ended", json!({"stopReason": stop_reason}));
             session.emit_state().await;
@@ -1569,6 +1774,11 @@ async fn run_turn(
         Err(error) => {
             // Process-exit already emitted a terminal state; only a
             // protocol-level rejection needs surfacing here.
+            session.record_event(
+                "turn_ended",
+                &json!({"stopReason": "error", "error": error.to_string()}),
+            );
+            session.finish_recorded_turn("failed").await;
             session.set_phase(AcpChatPhase::Ready).await;
             session.emit(
                 "turn_ended",
@@ -1784,6 +1994,7 @@ fn permission_request_key(id: &Value) -> String {
 }
 
 async fn finish_after_stdout_closed(session: Arc<AcpChatSession>, stdout_error: Option<String>) {
+    session.mark_run_interrupted();
     session.terminals.release_all().await;
     let exit_code = session
         .process
@@ -1820,6 +2031,8 @@ async fn finish_after_stdout_closed(session: Arc<AcpChatSession>, stdout_error: 
     session
         .complete_pending_with_error(&error.unwrap_or_else(|| "ACP agent exited".to_string()))
         .await;
+    let _turn = session.turn_control.lock().await;
+    session.finish_recorded_turn("interrupted").await;
 }
 
 async fn read_stderr(session: Arc<AcpChatSession>, stderr: ChildStderr) {

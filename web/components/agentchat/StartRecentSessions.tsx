@@ -7,6 +7,7 @@ import type { AcpChatHistoryEntry } from "@/types/agentChat";
 import { agentChatService } from "@/services/agentChatService";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import { samePath } from "./chatPaths";
+import { codexEngineLabel } from "@/lib/codexIntegration";
 
 function formatHistoryTime(timestamp: number): string {
   try {
@@ -155,7 +156,7 @@ export default function StartRecentSessions({
                     <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
                   ) : (
                     <span className="shrink-0 text-[10px] text-[var(--app-icon-inactive)]">
-                      {entry.engineId}
+                      {codexEngineLabel(entry.engineId)}
                     </span>
                   )}
                 </span>

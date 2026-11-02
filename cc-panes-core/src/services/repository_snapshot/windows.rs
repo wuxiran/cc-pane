@@ -53,6 +53,7 @@ pub(super) fn read(
     root: &File,
     path: &str,
     index_mode: Option<&str>,
+    max_bytes: u64,
 ) -> AppResult<Option<SourceFile>> {
     validate_path(path)?;
     let mut parent = root.try_clone()?;
@@ -80,7 +81,7 @@ pub(super) fn read(
             if file.metadata()?.is_dir() {
                 return Ok(None);
             }
-            return read_regular(file, path, index_mode).map(Some);
+            return read_regular(file, path, index_mode, max_bytes).map(Some);
         }
     }
     Err("Missing repository snapshot filename".into())
@@ -133,7 +134,12 @@ fn open_relative(parent: &File, name: &str) -> AppResult<Option<File>> {
     Ok(Some(unsafe { File::from_raw_handle(handle) }))
 }
 
-fn read_regular(mut file: File, path: &str, index_mode: Option<&str>) -> AppResult<SourceFile> {
+fn read_regular(
+    file: File,
+    path: &str,
+    index_mode: Option<&str>,
+    max_bytes: u64,
+) -> AppResult<SourceFile> {
     let before = file.metadata()?;
     if !before.is_file() {
         return Err(format!("Unsupported snapshot file type: {path}").into());
@@ -143,8 +149,19 @@ fn read_regular(mut file: File, path: &str, index_mode: Option<&str>) -> AppResu
         Some("120000") => "120000", // Git's core.symlinks=false checkout representation.
         _ => "100644",
     };
+    if before.len() > max_bytes {
+        return Err(format!(
+            "Checkpoint file exceeds 32 MiB: {path}; no partial checkpoint was saved"
+        )
+        .into());
+    }
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
+    (&file)
+        .take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(format!("Snapshot file exceeded its capture limit: {path}").into());
+    }
     let after = file.metadata()?;
     if before.len() != after.len() || before.modified()? != after.modified()? {
         return Err(format!("File changed while capturing repository snapshot: {path}").into());

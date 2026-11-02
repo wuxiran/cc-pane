@@ -1,3 +1,4 @@
+mod completion;
 mod observer;
 mod process_tree;
 mod runner;
@@ -49,27 +50,47 @@ impl TaskVerificationService {
     }
 
     pub fn list(&self, task_id: &str) -> AppResult<TaskVerificationReport> {
+        let running = match storage::try_lock(&self.evidence_directory(task_id))? {
+            Some(guard) => guard.finish(Ok(false))?,
+            None => true,
+        };
+        // Read-only polling must not hold the execution lease while hashing a
+        // repository; a caller starting a check must not fail behind a reader.
+        self.list_with_running(task_id, running)
+    }
+
+    fn list_with_running(&self, task_id: &str, running: bool) -> AppResult<TaskVerificationReport> {
         let cwd = self.task_cwd(task_id)?;
-        let directory = self.evidence_directory(task_id);
-        let running = storage::try_lock(&directory)?.is_none();
-        let mut evidence = storage::load(&directory, task_id)?;
-        if evidence.is_empty() && !running {
-            return Ok(TaskVerificationReport {
-                task_id: task_id.to_string(),
-                cwd: cwd.to_string_lossy().into_owned(),
-                current_fingerprint: None,
-                snapshot_error: None,
-                running,
-                evidence,
-            });
-        }
-        let (fingerprint, snapshot_error) = match self.snapshots.capture(&cwd) {
-            Ok(snapshot) => (Some(snapshot.fingerprint), None),
-            Err(error) => (None, Some(error.to_string())),
+        let binding = self
+            .bindings
+            .get(task_id)?
+            .ok_or_else(|| AppError::NotFound("Task binding not found".into()))?;
+        let record = self
+            .bindings
+            .completion_repository()
+            .completion_record(task_id)?;
+        let mut evidence = storage::load(&self.evidence_directory(task_id), task_id)?;
+        let (fingerprint, snapshot_error) = if evidence.is_empty() && !running {
+            // Tasks without executable checks support explicit manual acceptance;
+            // this does not assert code verification or require a Git repository.
+            (None, None)
+        } else {
+            match self.snapshots.capture(&cwd) {
+                Ok(snapshot) => (Some(snapshot.fingerprint), None),
+                Err(error) => (None, Some(error.to_string())),
+            }
         };
         for item in &mut evidence {
             item.freshness = freshness(item, &cwd, fingerprint.as_deref());
         }
+        let completion = completion::report(
+            &binding,
+            record,
+            &evidence,
+            fingerprint.as_deref(),
+            running,
+            snapshot_error.is_some(),
+        );
         Ok(TaskVerificationReport {
             task_id: task_id.to_string(),
             cwd: cwd.to_string_lossy().into_owned(),
@@ -77,6 +98,7 @@ impl TaskVerificationService {
             snapshot_error,
             running,
             evidence,
+            completion,
         })
     }
 
@@ -94,10 +116,21 @@ impl TaskVerificationService {
                 "A verification check is already running for this task",
             )
         })?;
-        let evidence = self.execute_check(task_id, request, &cwd, timeout_secs, &guard)?;
-        storage::save(&directory, &evidence)?;
-        drop(guard);
-        self.list(task_id)
+        let mut cleanup_uncertain = false;
+        let saved = (|| {
+            let evidence = self.execute_check(task_id, request, &cwd, timeout_secs, &guard)?;
+            cleanup_uncertain = evidence.execution_error.is_some();
+            storage::save(&directory, &evidence)
+        })();
+        if cleanup_uncertain {
+            // Do not unlock a lease that a failed cleanup may have left with a
+            // live check child. Closing only this host descriptor preserves it.
+            drop(guard);
+            saved?;
+            return self.list(task_id);
+        }
+        let result = saved.and_then(|_| self.list_with_running(task_id, false));
+        guard.finish(result)
     }
 
     fn execute_check(

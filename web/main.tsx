@@ -64,7 +64,7 @@ async function renderRoot() {
       // Web mode and older hosts may not expose this optional diagnostics command.
     }
   }
-  if (mode === "ccchan" || mode === "popup" || mode === "webgl-lab") {
+  if (mode === "ccchan" || mode === "popup" || mode === "browser-popup" || mode === "webgl-lab") {
     isolateSpecialWindowShape();
   }
   const root = ReactDOM.createRoot(document.getElementById("root")!);
@@ -102,6 +102,9 @@ async function renderRoot() {
   } else if (mode === "popup") {
     const { default: PopupTerminalWindow } = await import("@/components/PopupTerminalWindow");
     root.render(<PopupTerminalWindow />);
+  } else if (mode === "browser-popup") {
+    const { default: BrowserPopupWindow } = await import("@/components/BrowserPopupWindow");
+    root.render(<BrowserPopupWindow />);
   } else if (mode === "webgl-lab") {
     // WebGL 花屏复现台（诊断工具）：录制回放 + GPU/WebView2 采集 + 图集诊断。
     const { default: WebglReproLab } = await import("@/components/dev/WebglReproLab");

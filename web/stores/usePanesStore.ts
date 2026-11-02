@@ -9,6 +9,7 @@ import { createBrowserTabActions } from "./browserTabActions";
 import { createWorkspaceToolTabActions } from "./workspaceToolTabActions";
 import { migratePersistedPanes } from "./panesPersistMigrations";
 import { createEditorTabActions } from "./editorTabActions";
+import { createReviewTabActions } from "./reviewTabActions";
 import { createTerminalColdRestoreActions } from "./terminalColdRestoreActions";
 import type { PanesState } from "./panesStoreTypes";
 export type {
@@ -90,6 +91,7 @@ export const usePanesStore = create<PanesState>()(
     ...createBrowserTabActions(set, get),
 
     ...createEditorTabActions(set, get),
+    ...createReviewTabActions(set, get),
 
     ...createPaneRemovalActions(set, get),
     ...createBackendCloseActions(set),

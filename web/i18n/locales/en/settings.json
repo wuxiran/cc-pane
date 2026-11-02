@@ -687,7 +687,7 @@
     },
     "browserTab": {
       "title": "The browser is the AI's hand, not yours",
-      "body": "A real browser can run in a split pane, but there is no \"new browser tab\" button — the AI opens it over MCP: let it load your dev server, take a screenshot, click around, and run a snippet of JS to verify a change instead of just claiming it works. Screenshots, clicks, and JS evaluation are Windows-only today."
+      "body": "A real browser can run in a split pane. The AI opens it over MCP: let it load your dev server, take a screenshot, click around, and run JavaScript to verify a change. Screenshots, clicks, and JS evaluation are supported on Windows and macOS (JS evaluation requires macOS 11 or later)."
     }
   },
   "openLogDir": "Open Log Directory",

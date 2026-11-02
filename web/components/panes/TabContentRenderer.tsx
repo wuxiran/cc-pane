@@ -16,6 +16,8 @@ const MemoryManager = lazyWithRetry(() => import("@/components/memory/MemoryMana
 const FileExplorerView = lazyWithRetry(() => import("@/components/explorer/FileExplorerView"), "FileExplorerView");
 const EditorView = lazyWithRetry(() => import("@/components/editor/EditorView"), "EditorView");
 const BrowserTabContent = lazyWithRetry(() => import("./BrowserTabContent"), "BrowserTabContent");
+const NewTabPage = lazyWithRetry(() => import("./NewTabPage"), "NewTabPage");
+const SessionReviewContent = lazyWithRetry(() => import("@/components/review/SessionReviewContent"), "SessionReviewContent");
 const DshTabContent = lazyWithRetry(() => import("./DshTabContent"), "DshTabContent");
 const AgentChatTabContent = lazyWithRetry(
   () => import("@/components/agentchat/AgentChatTabContent"),
@@ -149,7 +151,9 @@ export default memo(function TabContentRenderer({
       );
 
     case "browser":
-      if (!tab.browserUrl) return null;
+      if (!tab.browserUrl || tab.browserUrl === "about:blank") return (
+        <LazyContent><NotchOffset><NewTabPage tab={tab} paneId={paneId} /></NotchOffset></LazyContent>
+      );
       return (
         <LazyContent>
           <BrowserTabContent tab={tab} />
@@ -177,7 +181,7 @@ export default memo(function TabContentRenderer({
       );
 
     case "editor":
-      if (!tab.filePath || !tab.projectPath) return null;
+      if (!tab.filePath) return null;
       return (
         <LazyContent>
           <EditorView
@@ -188,6 +192,10 @@ export default memo(function TabContentRenderer({
           />
         </LazyContent>
       );
+
+    case "review":
+      return <LazyContent><NotchOffset><SessionReviewContent projectPath={tab.projectPath}
+        checkpointChatId={tab.reviewChatId} cliSessionId={tab.reviewCliSessionId} paneId={paneId} open={layoutActive} /></NotchOffset></LazyContent>;
 
     case "mcp-config":
       return (

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listenWebviewIfTauri } from "./runtime";
 
 export interface BrowserBounds {
@@ -17,9 +17,83 @@ export interface BrowserPageLoadEvent {
 export interface BrowserTitleChangedEvent {
   tabId: string;
   title: string;
+  faviconUrl?: string;
 }
 
+export interface BrowserPageElement {
+  id: number;
+  tag: string;
+  role: string;
+  name: string;
+  text: string;
+  value?: string;
+  disabled: boolean;
+  editable: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface BrowserPageSnapshot {
+  pageToken: string;
+  documentId?: string;
+  url: string;
+  title: string;
+  text: string;
+  elements: BrowserPageElement[];
+  truncated: boolean;
+  viewport: { width: number; height: number };
+}
+
+export interface BrowserTabInfo {
+  tabId: string;
+  url: string;
+  title: string;
+  visible: boolean;
+}
+
+export type BrowserWindowMode = "embedded" | "mini" | "window";
+export interface BrowserHostState { tabId: string; hostWindow: string; url: string; title: string; mode?: BrowserWindowMode }
+export interface BrowserViewportRequest { width: number; height: number; scale: number }
+export interface BrowserViewportResult { width: number; height: number; scale: number; displayWidth?: number; displayHeight?: number }
+
 export const browserService = {
+  releaseHost(tabId: string): Promise<void> { return invoke("browser_release_host", { tabId }); },
+  hostState(tabId: string): Promise<BrowserHostState> { return invoke("browser_host_state", { tabId }); },
+  setViewport(tabId: string, bounds: BrowserBounds, viewport: BrowserViewportRequest | null): Promise<BrowserViewportResult> {
+    return invoke("browser_set_viewport", { tabId, bounds, viewport });
+  },
+  popOut(tabId: string): Promise<void> { return invoke("browser_pop_out", { tabId }); },
+  setWindowMode(tabId: string, mode: "mini" | "window"): Promise<BrowserHostState> { return invoke("browser_set_window_mode", { tabId, mode }); },
+  reclaim(tabId: string): Promise<void> { return invoke("browser_reclaim", { tabId }); },
+  onHostChanged(handler: (event: BrowserHostState) => void) {
+    return listenWebviewIfTauri<BrowserHostState>("browser-host-changed", (event) => handler(event.payload));
+  },
+  snapshot(tabId: string): Promise<BrowserPageSnapshot> {
+    return invoke("browser_snapshot", { tabId });
+  },
+  listTabs(): Promise<BrowserTabInfo[]> {
+    return invoke("browser_list_tabs");
+  },
+  screenshot(tabId: string): Promise<string> {
+    return invoke("browser_screenshot", { tabId });
+  },
+  screenshotUrl(path: string): string {
+    return convertFileSrc(path);
+  },
+  fill(tabId: string, pageToken: string, elementId: number, text: string): Promise<void> {
+    return invoke("browser_fill", { tabId, pageToken, elementId, text });
+  },
+  clickElement(tabId: string, pageToken: string, elementId: number): Promise<void> {
+    return invoke("browser_click_element", { tabId, pageToken, elementId });
+  },
+  pressKey(tabId: string, pageToken: string, key: string): Promise<void> {
+    return invoke("browser_press_key", { tabId, pageToken, key });
+  },
+  scroll(tabId: string, pageToken: string, deltaX: number, deltaY: number): Promise<void> {
+    return invoke("browser_scroll", { tabId, pageToken, deltaX, deltaY });
+  },
   create(tabId: string, url: string, bounds: BrowserBounds, visible: boolean): Promise<void> {
     return invoke("browser_create", { tabId, url, bounds, visible });
   },

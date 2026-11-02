@@ -32,6 +32,7 @@ pub(super) fn read(
     root: &File,
     path: &str,
     _index_mode: Option<&str>,
+    max_bytes: u64,
 ) -> AppResult<Option<SourceFile>> {
     use std::os::fd::AsRawFd;
     validate_path(path)?;
@@ -81,7 +82,7 @@ pub(super) fn read(
     else {
         return Ok(None);
     };
-    read_regular(file, path).map(Some)
+    read_regular(file, path, max_bytes).map(Some)
 }
 
 #[cfg(unix)]
@@ -126,7 +127,7 @@ fn read_link(parent: &File, name: &std::ffi::CStr) -> AppResult<SourceFile> {
 }
 
 #[cfg(unix)]
-fn read_regular(mut file: File, path: &str) -> AppResult<SourceFile> {
+fn read_regular(file: File, path: &str, max_bytes: u64) -> AppResult<SourceFile> {
     use std::io::Read;
     use std::os::unix::fs::PermissionsExt;
     let before = file.metadata()?;
@@ -138,8 +139,19 @@ fn read_regular(mut file: File, path: &str) -> AppResult<SourceFile> {
     } else {
         "100755"
     };
+    if before.len() > max_bytes {
+        return Err(format!(
+            "Checkpoint file exceeds 32 MiB: {path}; no partial checkpoint was saved"
+        )
+        .into());
+    }
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
+    (&file)
+        .take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(format!("Snapshot file exceeded its capture limit: {path}").into());
+    }
     let after = file.metadata()?;
     if before.len() != after.len() || before.modified()? != after.modified()? {
         return Err(format!("File changed while capturing repository snapshot: {path}").into());

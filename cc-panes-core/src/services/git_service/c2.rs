@@ -360,7 +360,7 @@ impl GitService {
             .collect())
     }
 
-    fn parse_raw_diff(bytes: &[u8]) -> Result<Vec<GitChangedFile>, String> {
+    pub(super) fn parse_raw_diff(bytes: &[u8]) -> Result<Vec<GitChangedFile>, String> {
         let mut files = Vec::new();
         let mut cursor = 0;
         while cursor < bytes.len() {
@@ -447,6 +447,7 @@ impl GitService {
         max_bytes: u64,
     ) -> Result<DiffContent, String> {
         let args = [
+            OsStr::new("--literal-pathspecs"),
             OsStr::new("ls-tree"),
             OsStr::new("-z"),
             OsStr::new(oid),

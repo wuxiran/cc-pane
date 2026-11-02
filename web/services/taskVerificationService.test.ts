@@ -33,3 +33,26 @@ describe("task verification transport", () => {
     await expect(taskVerificationService.run("task-1", { command: "npm test" })).rejects.toThrow("Check already running");
   });
 });
+
+describe("task completion transport", () => {
+  it("sends review revisions with explicit acceptance and criteria edits", async () => {
+    const criteria = { expectedRevision: 1, criteria: { definitionOfDone: "Reviewed", requiredCommands: ["npm test"] } };
+    const accept = { expectedCriteriaRevision: 2, expectedReportRevision: 9, expectedFingerprint: "code", expectedEvidenceIds: ["evidence"], note: "Checked" };
+    await taskVerificationService.setCriteria("task-1", criteria);
+    await taskVerificationService.accept("task-1", accept);
+    expect(invoke).toHaveBeenNthCalledWith(1, "set_task_completion_criteria", { taskId: "task-1", request: criteria });
+    expect(invoke).toHaveBeenNthCalledWith(2, "accept_task_completion", { taskId: "task-1", request: accept });
+  });
+
+  it("uses matching REST completion endpoints", async () => {
+    delete window.__TAURI_INTERNALS__;
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response("{}", { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
+    const criteria = { expectedRevision: 0, criteria: { definitionOfDone: "Review", requiredCommands: [] } };
+    const accept = { expectedCriteriaRevision: 1, expectedReportRevision: 4, expectedFingerprint: null, expectedEvidenceIds: [], note: "" };
+    await taskVerificationService.setCriteria("task/id", criteria);
+    await taskVerificationService.accept("task/id", accept);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/task-bindings/task%2Fid/completion/criteria", expect.objectContaining({ method: "POST", body: JSON.stringify(criteria) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/task-bindings/task%2Fid/completion/accept", expect.objectContaining({ method: "POST", body: JSON.stringify(accept) }));
+  });
+});

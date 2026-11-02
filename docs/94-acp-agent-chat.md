@@ -5,6 +5,8 @@
 
 ## 1. 是什么
 
+Codex 另有原生 App Server 接入，和原有 `codex` ACP 并存；入口、CLI 用法和协议边界见 [Codex App Server 接入](./codex-app-server.md)。
+
 `agent-chat` 是第 9 种 pane 标签类型：Cursor 式的结构化 agent 对话（流式
 Markdown 气泡、工具调用卡、审批/提问卡、plan 面板、diff 内联），背后引擎
 是用户已装的 CLI（claude/codex/grok/gemini/…），经 **ACP（Agent Client

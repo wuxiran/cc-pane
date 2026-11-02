@@ -20,6 +20,7 @@ import type { LayoutPresetId } from "@/types/pane";
 import type { DestroyReason } from "@/lib/tabLifecycle/destroyPipeline";
 import type { TabViewState } from "@/lib/tabLifecycle/tabViewState";
 import type { BrowserTabActions } from "./browserTabActions";
+import type { ReviewTabActions } from "./reviewTabActions";
 
 export interface CreateTabOptions {
   projectId: string;
@@ -173,6 +174,9 @@ export interface ClosedTabSnapshot {
    */
   contentType?: "terminal" | "browser" | "editor";
   browserUrl?: string;
+  browserManualTitle?: string;
+  browserPageTitle?: string;
+  browserFaviconUrl?: string;
   filePath?: string;
   /**
    * 组件级视图状态（docs/78 批4 的 onPersist）：editor 光标等。
@@ -182,7 +186,7 @@ export interface ClosedTabSnapshot {
   viewState?: TabViewState;
 }
 
-export interface PanesState extends BrowserTabActions {
+export interface PanesState extends BrowserTabActions, ReviewTabActions {
   rootPane: PaneNode;
   activePaneId: string;
   layouts: LayoutEntry[];
@@ -314,7 +318,7 @@ export interface PanesState extends BrowserTabActions {
   openMemoryManager: (projectPath: string, title: string) => void;
   openWorkspaceMemoryManager: (workspaceName: string, title: string) => void;
   openWorkspaceMcpConfig: (workspaceName: string, title: string) => void;
-  openFileExplorer: (projectPath: string, title: string) => void;
+  openFileExplorer: (projectPath: string, title: string, options?: { paneId?: string; layoutId?: string }) => void;
   /**
    * 打开编辑器标签。`layoutId` 缺省 = 当前布局；MCP 调用方所在布局由调用者传入，
    * 避免标签落进用户此刻正看着的布局。返回标签最终所在布局 id（Files 视图分支返回 null）。
@@ -325,7 +329,7 @@ export interface PanesState extends BrowserTabActions {
     title: string,
     layoutId?: string,
     /** forcePaneTab：无视 Files 视图分支，强制落成分屏区 tab（分屏区内的新建入口用） */
-    options?: { forcePaneTab?: boolean },
+    options?: { forcePaneTab?: boolean; paneId?: string },
   ) => string | null;
   closeEditorTabsByPath: (filePath: string) => void;
   listEditorTabsAcrossLayouts: () => Array<{

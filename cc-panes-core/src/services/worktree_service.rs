@@ -1,4 +1,5 @@
 mod chat_fork;
+mod session_launch;
 
 use crate::services::GitService;
 use crate::utils::{
@@ -115,10 +116,24 @@ impl WorktreeService {
         name: &str,
         branch: Option<&str>,
     ) -> Result<String, String> {
+        self.add_worktree_from_ref(project_path, name, branch, None)
+    }
+
+    /// Create from a pinned commit without switching or modifying the source checkout.
+    pub fn add_worktree_from_ref(
+        &self,
+        project_path: &str,
+        name: &str,
+        branch: Option<&str>,
+        base_ref: Option<&str>,
+    ) -> Result<String, String> {
         // 验证 worktree 名称安全性
         crate::utils::validate_worktree_name(name).map_err(|e| e.to_string())?;
 
         let project_dir = self.repo_root(project_path)?;
+        let base_commit = base_ref
+            .map(|reference| resolve_base_commit(&project_dir, reference))
+            .transpose()?;
         let parent_dir = project_dir
             .parent()
             .ok_or("Failed to get parent directory")?;
@@ -166,6 +181,9 @@ impl WorktreeService {
 
         args.push("--".to_string());
         args.push(worktree_path_str.clone());
+        if let Some(commit) = base_commit {
+            args.push(commit);
+        }
 
         let output = output_with_timeout(
             Command::new("git")
@@ -219,6 +237,34 @@ impl WorktreeService {
         GitService::discover_repo_root(Path::new(project_path))
             .map_err(|_| "Not a Git repository".to_string())
     }
+}
+
+fn resolve_base_commit(repo: &Path, reference: &str) -> Result<String, String> {
+    if reference.trim().is_empty() || reference.starts_with('-') {
+        return Err("Invalid worktree base reference".to_string());
+    }
+    let output = output_with_timeout(
+        Command::new("git")
+            .args([
+                "rev-parse",
+                "--verify",
+                "--end-of-options",
+                &format!("{reference}^{{commit}}"),
+            ])
+            .current_dir(repo),
+        GIT_LOCAL_TIMEOUT,
+    )
+    .map_err(|error| format!("Failed to resolve worktree base reference: {error}"))?;
+    let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !output.status.success()
+        || !matches!(commit.len(), 40 | 64)
+        || !commit
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
+    {
+        return Err("Worktree base reference must resolve to a commit".to_string());
+    }
+    Ok(commit)
 }
 
 impl Default for WorktreeService {
@@ -579,5 +625,80 @@ mod tests {
             "unexpected error: {}",
             err
         );
+    }
+
+    #[test]
+    fn explicit_worktree_base_preserves_dirty_source_and_uses_selected_commit() {
+        let Some((_guard, repo)) = init_git_repo() else {
+            return;
+        };
+        let run = |args: &[&str]| {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(&repo)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        };
+        run(&["checkout", "-b", "active"]);
+        std::fs::write(Path::new(&repo).join("a.txt"), "active committed").unwrap();
+        run(&["add", "."]);
+        run(&[
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "active",
+        ]);
+        std::fs::write(Path::new(&repo).join("a.txt"), "dirty active work").unwrap();
+        std::fs::write(Path::new(&repo).join("untracked.txt"), "keep me").unwrap();
+        let before = run(&["status", "--porcelain"]);
+        let svc = WorktreeService::new();
+        let target = svc
+            .add_worktree_from_ref(&repo, "task", Some("cc/task"), Some("refs/heads/main"))
+            .unwrap();
+        assert_eq!(run(&["branch", "--show-current"]), "active");
+        assert_eq!(run(&["status", "--porcelain"]), before);
+        assert_eq!(
+            std::fs::read_to_string(Path::new(&repo).join("a.txt")).unwrap(),
+            "dirty active work"
+        );
+        assert_eq!(
+            std::fs::read_to_string(Path::new(&target).join("a.txt")).unwrap(),
+            "hello"
+        );
+        assert!(!Path::new(&target).join("untracked.txt").exists());
+    }
+
+    #[test]
+    fn invalid_worktree_base_creates_no_checkout_or_branch() {
+        let Some((_guard, repo)) = init_git_repo() else {
+            return;
+        };
+        let svc = WorktreeService::new();
+        for reference in ["", "--help", "missing-ref", "HEAD^{tree}"] {
+            assert!(svc
+                .add_worktree_from_ref(&repo, "task", Some("cc/task"), Some(reference))
+                .is_err());
+        }
+        assert_eq!(svc.list_worktrees(&repo).unwrap().len(), 1);
+        assert!(!Path::new(&repo)
+            .parent()
+            .unwrap()
+            .join("repo-worktrees")
+            .exists());
+        let output = Command::new("git")
+            .args(["branch", "--list", "cc/task"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        assert!(output.stdout.is_empty());
     }
 }

@@ -933,6 +933,7 @@ dependencies = [
  "chrono",
  "cron",
  "dirs",
+ "dunce",
  "encoding_rs",
  "flate2",
  "futures-util",
@@ -943,6 +944,7 @@ dependencies = [
  "nucleo-matcher",
  "objc2",
  "objc2-app-kit",
+ "objc2-foundation",
  "objc2-web-kit",
  "parking_lot",
  "portable-pty",
@@ -1073,6 +1075,7 @@ dependencies = [
 name = "cc-panes-ctl"
 version = "0.1.0"
 dependencies = [
+ "cc-panes-core",
  "clap",
  "ctrlc",
  "dirs",
@@ -1080,6 +1083,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
  "ureq",
  "url",
 ]

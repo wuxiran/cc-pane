@@ -10,6 +10,16 @@ use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Webview, WebviewUrl,
 };
 
+mod computer_use;
+mod metadata;
+mod presentation;
+pub use presentation::{
+    BrowserHostState, BrowserViewportRequest, BrowserViewportResult, BrowserWindowMode,
+};
+#[cfg(target_os = "macos")]
+mod macos;
+pub use computer_use::{BrowserDomSnapshot, BrowserElement, BrowserTabInfo, BrowserViewport};
+
 pub const CDP_SPIKE_METHODS: [&str; 2] = ["Runtime.evaluate", "Page.captureScreenshot"];
 const MAX_WEBVIEW_LABEL_LEN: usize = 64;
 const SPIKE_RESULT_LIMIT_BYTES: usize = 4096;
@@ -110,6 +120,8 @@ struct BrowserPageLoadEvent {
 struct BrowserTitleChangedEvent {
     tab_id: String,
     title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    favicon_url: Option<String>,
 }
 
 impl BrowserBounds {
@@ -180,11 +192,101 @@ pub fn truncate_cdp_result(value: &str, max_bytes: usize) -> String {
 #[derive(Debug, Clone)]
 struct BrowserTabEntry {
     label: String,
+    presentation: presentation::BrowserPresentation,
     /// 该标签的 webview 当前是否处于 `show()` 状态。
     ///
     /// 截图必须知道这件事：隐藏的 WebView2 合成器停止产帧，
     /// `Page.captureScreenshot` 会一直等不到帧直到超时（见 `screenshot`）。
+    visibility: BrowserVisibility,
+    automation: std::sync::Arc<tokio::sync::Mutex<()>>,
+    page_state: std::sync::Arc<Mutex<BrowserPageState>>,
+    // A snapshot/click may temporarily show this native view. Serialize those
+    // operations for this tab so one cannot hide another's pending snapshot.
+    #[cfg(target_os = "macos")]
+    native_operation: std::sync::Arc<tokio::sync::Mutex<()>>,
+}
+
+#[derive(Debug, Default)]
+struct BrowserPageState {
+    title: String,
+    generation: u64,
+    token: Option<String>,
+    url: Option<String>,
+}
+
+impl BrowserPageState {
+    fn invalidate(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.token = None;
+        self.url = None;
+    }
+}
+
+/// Rechecked on the native UI thread immediately before dispatching input,
+/// after any queued page-load callback has had a chance to invalidate it.
+struct BrowserInputGuard {
+    page: std::sync::Arc<Mutex<BrowserPageState>>,
+    token: String,
+    url: String,
+}
+
+#[cfg_attr(
+    not(any(target_os = "windows", target_os = "macos", test)),
+    allow(dead_code)
+)]
+impl BrowserInputGuard {
+    fn validate(&self, current_url: &str) -> AppResult<()> {
+        let page = self
+            .page
+            .lock()
+            .map_err(|_| "browser page state is unavailable")?;
+        if page.token.as_deref() != Some(self.token.as_str()) || current_url != self.url {
+            return Err(crate::utils::AppError::coded(
+                "BROWSER_PAGE_CHANGED",
+                "Browser page changed before input dispatch; take a new snapshot",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// The native visibility can be temporarily raised without becoming a user
+/// request. A fresh token also prevents an old guard affecting a reopened tab.
+#[derive(Debug, Clone)]
+struct BrowserVisibility {
     visible: bool,
+    intent: uuid::Uuid,
+}
+
+impl BrowserVisibility {
+    fn new(visible: bool) -> Self {
+        Self {
+            visible,
+            intent: uuid::Uuid::new_v4(),
+        }
+    }
+
+    fn user_requested(&mut self, visible: bool) {
+        self.visible = visible;
+        self.intent = uuid::Uuid::new_v4();
+    }
+
+    fn temporarily_show(&mut self) -> uuid::Uuid {
+        self.visible = true;
+        self.intent
+    }
+
+    fn should_restore(&self, intent: uuid::Uuid) -> bool {
+        self.visible && self.intent == intent
+    }
+
+    fn restore(&mut self, intent: uuid::Uuid) -> bool {
+        if !self.should_restore(intent) {
+            return false;
+        }
+        self.visible = false;
+        true
+    }
 }
 
 #[derive(Default)]
@@ -192,7 +294,7 @@ pub struct BrowserTabManager {
     tabs: Mutex<HashMap<String, BrowserTabEntry>>,
 }
 
-/// 截图期间临时提帧的守卫：`Drop` 时把标签恢复成原先的隐藏状态。
+/// 截图期间临时提帧的守卫：没有更新的用户可见请求时才恢复隐藏状态。
 ///
 /// 用守卫而非顺序代码，是因为截图路径中间有多个 `?` 早退点（CDP 超时、
 /// 非 PNG、写盘失败），任何一条早退都不能把用户的后台标签永久留在可见状态。
@@ -200,13 +302,14 @@ struct TemporaryVisibilityGuard<'a> {
     manager: &'a BrowserTabManager,
     app: &'a AppHandle,
     tab_id: String,
+    intent: uuid::Uuid,
 }
 
 impl Drop for TemporaryVisibilityGuard<'_> {
     fn drop(&mut self) {
-        if let Err(error) = self
-            .manager
-            .set_visible(self.app, &self.tab_id, false, false)
+        if let Err(error) =
+            self.manager
+                .restore_temporary_visibility(self.app, &self.tab_id, self.intent)
         {
             log::warn!(
                 "failed to restore hidden state for browser tab {}: {error}",
@@ -217,6 +320,16 @@ impl Drop for TemporaryVisibilityGuard<'_> {
 }
 
 impl BrowserTabManager {
+    #[cfg(target_os = "macos")]
+    fn native_operation(&self, tab_id: &str) -> AppResult<std::sync::Arc<tokio::sync::Mutex<()>>> {
+        self.tabs
+            .lock()
+            .map_err(|_| "browser tab registry lock is poisoned")?
+            .get(tab_id)
+            .map(|entry| std::sync::Arc::clone(&entry.native_operation))
+            .ok_or_else(|| format!("unknown browser tab: {tab_id}").into())
+    }
+
     pub fn contains(&self, tab_id: &str) -> bool {
         self.tabs
             .lock()
@@ -225,21 +338,72 @@ impl BrowserTabManager {
     }
 
     /// 标签当前是否可见；未注册的标签视为不可见。
+    #[cfg(test)]
     fn is_visible(&self, tab_id: &str) -> bool {
         self.tabs
             .lock()
-            .map(|tabs| tabs.get(tab_id).is_some_and(|entry| entry.visible))
+            .map(|tabs| {
+                tabs.get(tab_id)
+                    .is_some_and(|entry| entry.visibility.visible)
+            })
             .unwrap_or(false)
     }
 
-    fn mark_visible(&self, tab_id: &str, visible: bool) -> AppResult<()> {
+    fn temporarily_show<'a>(
+        &'a self,
+        app: &'a AppHandle,
+        tab_id: &str,
+    ) -> AppResult<Option<TemporaryVisibilityGuard<'a>>> {
         let mut tabs = self
             .tabs
             .lock()
-            .map_err(|_| "browser tab registry lock is poisoned".to_string())?;
-        if let Some(entry) = tabs.get_mut(tab_id) {
-            entry.visible = visible;
+            .map_err(|_| "browser tab registry lock is poisoned")?;
+        let entry = tabs
+            .get_mut(tab_id)
+            .ok_or_else(|| format!("unknown browser tab: {tab_id}"))?;
+        if entry.visibility.visible {
+            return Ok(None);
         }
+        let webview = app
+            .get_webview(&entry.label)
+            .ok_or("native browser webview is unavailable")?;
+        webview
+            .show()
+            .map_err(|error| format!("failed to show browser webview: {error}"))?;
+        let intent = entry.visibility.temporarily_show();
+        Ok(Some(TemporaryVisibilityGuard {
+            manager: self,
+            app,
+            tab_id: tab_id.into(),
+            intent,
+        }))
+    }
+
+    fn restore_temporary_visibility(
+        &self,
+        app: &AppHandle,
+        tab_id: &str,
+        intent: uuid::Uuid,
+    ) -> AppResult<()> {
+        // The same lock covers user requests and native command enqueueing, so
+        // a newer show cannot land between this check and the restoring hide.
+        let mut tabs = self
+            .tabs
+            .lock()
+            .map_err(|_| "browser tab registry lock is poisoned")?;
+        let Some(entry) = tabs.get_mut(tab_id) else {
+            return Ok(());
+        };
+        if !entry.visibility.should_restore(intent) {
+            return Ok(());
+        }
+        let Some(webview) = app.get_webview(&entry.label) else {
+            return Ok(());
+        };
+        webview
+            .hide()
+            .map_err(|error| format!("failed to hide browser webview: {error}"))?;
+        entry.visibility.restore(intent);
         Ok(())
     }
 
@@ -267,6 +431,9 @@ impl BrowserTabManager {
         let load_tab_id = tab_id.to_string();
         let title_app = app.clone();
         let title_tab_id = tab_id.to_string();
+        let page_state = std::sync::Arc::new(Mutex::new(BrowserPageState::default()));
+        let load_page_state = page_state.clone();
+        let title_page_state = page_state.clone();
         let webview = main_window
             .add_child(
                 WebviewBuilder::new(label.clone(), WebviewUrl::External(parsed_url))
@@ -274,19 +441,50 @@ impl BrowserTabManager {
                     .devtools(true)
                     .enable_clipboard_access()
                     .on_page_load(move |_webview, payload| {
+                        if payload.event() == PageLoadEvent::Started {
+                            if let Ok(mut page) = load_page_state.lock() {
+                                page.invalidate();
+                            }
+                        }
                         let event = BrowserPageLoadEvent {
                             tab_id: load_tab_id.clone(),
                             url: payload.url().to_string(),
                             loading: payload.event() == PageLoadEvent::Started,
                         };
-                        let _ = load_app.emit_to("main", "browser-page-load", event);
+                        if payload.event() == PageLoadEvent::Finished {
+                            metadata::refresh(
+                                load_app.clone(),
+                                _webview.clone(),
+                                load_tab_id.clone(),
+                                load_page_state.clone(),
+                            );
+                        }
+                        let _ = load_app.emit_to("main", "browser-page-load", &event);
+                        if _webview.window().label() != "main" {
+                            let _ = load_app.emit_to(
+                                _webview.window().label(),
+                                "browser-page-load",
+                                &event,
+                            );
+                        }
                     })
                     .on_document_title_changed(move |_webview, title| {
+                        if let Ok(mut page) = title_page_state.lock() {
+                            page.title = title.chars().take(512).collect();
+                        }
                         let event = BrowserTitleChangedEvent {
                             tab_id: title_tab_id.clone(),
                             title,
+                            favicon_url: None,
                         };
-                        let _ = title_app.emit_to("main", "browser-title-changed", event);
+                        let _ = title_app.emit_to("main", "browser-title-changed", &event);
+                        if _webview.window().label() != "main" {
+                            let _ = title_app.emit_to(
+                                _webview.window().label(),
+                                "browser-title-changed",
+                                &event,
+                            );
+                        }
                     }),
                 bounds.logical_position(),
                 bounds.logical_size(),
@@ -302,7 +500,18 @@ impl BrowserTabManager {
         self.tabs
             .lock()
             .map_err(|_| "browser tab registry lock is poisoned".to_string())?
-            .insert(tab_id.to_string(), BrowserTabEntry { label, visible });
+            .insert(
+                tab_id.to_string(),
+                BrowserTabEntry {
+                    label,
+                    presentation: presentation::BrowserPresentation::new(bounds),
+                    visibility: BrowserVisibility::new(visible),
+                    automation: Default::default(),
+                    page_state,
+                    #[cfg(target_os = "macos")]
+                    native_operation: Default::default(),
+                },
+            );
         Ok(())
     }
 
@@ -330,39 +539,56 @@ impl BrowserTabManager {
         visible: bool,
         focus: bool,
     ) -> AppResult<()> {
-        let webview = self.webview(app, tab_id)?;
+        let mut tabs = self
+            .tabs
+            .lock()
+            .map_err(|_| "browser tab registry lock is poisoned")?;
+        let entry = tabs
+            .get_mut(tab_id)
+            .ok_or_else(|| format!("unknown browser tab: {tab_id}"))?;
+        let webview = app
+            .get_webview(&entry.label)
+            .ok_or("native browser webview is unavailable")?;
         if visible {
             webview
                 .show()
                 .map_err(|error| format!("failed to show browser webview: {error}"))?;
-            if focus {
-                webview
-                    .set_focus()
-                    .map_err(|error| format!("failed to focus browser webview: {error}"))?;
-            }
         } else {
             webview
                 .hide()
                 .map_err(|error| format!("failed to hide browser webview: {error}"))?;
         }
-        self.mark_visible(tab_id, visible)
+        entry.visibility.user_requested(visible);
+        // A focus failure must not make a successful user show look temporary.
+        if visible && focus {
+            webview
+                .set_focus()
+                .map_err(|error| format!("failed to focus browser webview: {error}"))?;
+        }
+        Ok(())
     }
 
     pub fn navigate(&self, app: &AppHandle, tab_id: &str, url: &str) -> AppResult<()> {
+        let _operation = self.try_automation(tab_id)?;
         let webview = self.webview(app, tab_id)?;
         let url = validate_browser_url(url)?;
+        self.invalidate_snapshot(tab_id)?;
         webview
             .navigate(url)
             .map_err(|error| format!("failed to navigate browser webview: {error}").into())
     }
 
     pub fn reload(&self, app: &AppHandle, tab_id: &str) -> AppResult<()> {
+        let _operation = self.try_automation(tab_id)?;
+        self.invalidate_snapshot(tab_id)?;
         self.webview(app, tab_id)?
             .reload()
             .map_err(|error| format!("failed to reload browser webview: {error}").into())
     }
 
     pub fn eval(&self, app: &AppHandle, tab_id: &str, script: &str) -> AppResult<()> {
+        let _operation = self.try_automation(tab_id)?;
+        self.invalidate_snapshot(tab_id)?;
         self.webview(app, tab_id)?
             .eval(script)
             .map_err(|error| format!("failed to evaluate browser script: {error}").into())
@@ -374,18 +600,34 @@ impl BrowserTabManager {
     }
 
     pub fn close(&self, app: &AppHandle, tab_id: &str) -> AppResult<()> {
+        if !self.contains(tab_id) {
+            return Ok(());
+        }
+        // Closing is cancellation, not another queued action. Invalidate/remove
+        // immediately so a React unmount cannot leave a busy native view behind.
+        self.invalidate_snapshot(tab_id)?;
         let entry = self
             .tabs
             .lock()
             .map_err(|_| "browser tab registry lock is poisoned".to_string())?
             .remove(tab_id);
-        let Some(BrowserTabEntry { label, .. }) = entry else {
+        let Some(BrowserTabEntry {
+            label,
+            presentation,
+            ..
+        }) = entry
+        else {
             return Ok(());
         };
         if let Some(webview) = app.get_webview(&label) {
             webview
                 .close()
                 .map_err(|error| format!("failed to close browser webview: {error}"))?;
+        }
+        if presentation.host != "main" {
+            if let Some(window) = app.get_window(&presentation.host) {
+                window.destroy().map_err(|e| e.to_string())?;
+            }
         }
         Ok(())
     }
@@ -409,10 +651,27 @@ impl BrowserTabManager {
         params_json: &str,
         timeout: std::time::Duration,
     ) -> AppResult<String> {
-        call_devtools_protocol(self.webview(app, tab_id)?, method, params_json, timeout).await
+        call_devtools_protocol(
+            self.webview(app, tab_id)?,
+            method,
+            params_json,
+            timeout,
+            None,
+        )
+        .await
     }
 
     pub async fn evaluate(&self, app: &AppHandle, tab_id: &str, script: &str) -> AppResult<String> {
+        let _operation = self.automation(tab_id)?.lock_owned().await;
+        self.evaluate_inner(app, tab_id, script).await
+    }
+
+    async fn evaluate_inner(
+        &self,
+        app: &AppHandle,
+        tab_id: &str,
+        script: &str,
+    ) -> AppResult<String> {
         let result = self
             .call_cdp(
                 app,
@@ -437,18 +696,15 @@ impl BrowserTabManager {
         tab_id: &str,
         screenshots_dir: &Path,
     ) -> AppResult<PathBuf> {
+        #[cfg(target_os = "macos")]
+        let _native_operation = self.native_operation(tab_id)?.lock_owned().await;
         // 守卫在作用域内持有，任何早退路径都会复原隐藏状态。
-        let _restore = if self.is_visible(tab_id) {
-            None
-        } else {
-            self.set_visible(app, tab_id, true, false)?;
+        let _restore = self.temporarily_show(app, tab_id)?;
+        // Construct the guard before awaiting: cancellation while waiting for a
+        // frame must also restore the original visibility.
+        if _restore.is_some() {
             self.await_composited_frame(app, tab_id).await?;
-            Some(TemporaryVisibilityGuard {
-                manager: self,
-                app,
-                tab_id: tab_id.to_string(),
-            })
-        };
+        }
 
         let result = self
             .call_cdp_with_timeout(
@@ -485,9 +741,31 @@ impl BrowserTabManager {
     }
 
     pub async fn click(&self, app: &AppHandle, tab_id: &str, x: f64, y: f64) -> AppResult<()> {
-        for params in browser_click_params(x, y)? {
-            self.call_cdp(app, tab_id, "Input.dispatchMouseEvent", &params)
-                .await?;
+        let _operation = self.automation(tab_id)?.lock_owned().await;
+        self.click_inner(app, tab_id, x, y, None).await
+    }
+
+    async fn click_inner(
+        &self,
+        app: &AppHandle,
+        tab_id: &str,
+        x: f64,
+        y: f64,
+        page_token: Option<&str>,
+    ) -> AppResult<()> {
+        let events = browser_click_params(x, y)?;
+        #[cfg(target_os = "macos")]
+        let _native_operation = self.native_operation(tab_id)?.lock_owned().await;
+        #[cfg(target_os = "macos")]
+        let _restore = self.temporarily_show(app, tab_id)?;
+        for params in events {
+            if let Some(token) = page_token {
+                self.call_guarded_input(app, tab_id, token, "Input.dispatchMouseEvent", &params)
+                    .await?;
+            } else {
+                self.call_cdp(app, tab_id, "Input.dispatchMouseEvent", &params)
+                    .await?;
+            }
         }
         Ok(())
     }
@@ -632,6 +910,7 @@ async fn call_devtools_protocol(
     method: &str,
     params_json: &str,
     timeout: std::time::Duration,
+    input_guard: Option<BrowserInputGuard>,
 ) -> AppResult<String> {
     use std::sync::Arc;
     use webview2_com::{CallDevToolsProtocolMethodCompletedHandler, CoTaskMemPWSTR};
@@ -660,6 +939,18 @@ async fn call_devtools_protocol(
                     return;
                 }
             };
+            if let Some(guard) = input_guard {
+                let mut source = windows_core_061::PWSTR::null();
+                if let Err(error) = unsafe { core_webview.Source(&mut source) } {
+                    send_error(format!("failed to verify browser URL: {error}"));
+                    return;
+                }
+                let source = CoTaskMemPWSTR::from(source).to_string();
+                if let Err(error) = guard.validate(&source) {
+                    send_error(error.to_string());
+                    return;
+                }
+            }
             let method_wide = CoTaskMemPWSTR::from(method.as_str());
             let params_wide = CoTaskMemPWSTR::from(params_json.as_str());
             let callback = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
@@ -694,14 +985,26 @@ async fn call_devtools_protocol(
         .map_err(|_| "CDP response channel closed".to_string())?
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+async fn call_devtools_protocol(
+    webview: Webview,
+    method: &str,
+    params_json: &str,
+    timeout: std::time::Duration,
+    input_guard: Option<BrowserInputGuard>,
+) -> AppResult<String> {
+    macos::call(webview, method, params_json, timeout, input_guard).await
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 async fn call_devtools_protocol(
     _webview: Webview,
     _method: &str,
     _params_json: &str,
     _timeout: std::time::Duration,
+    _input_guard: Option<BrowserInputGuard>,
 ) -> AppResult<String> {
-    Err("native WebView2 CDP is only available on Windows".into())
+    Err("browser evaluation, screenshots and clicks are supported on Windows and macOS".into())
 }
 
 #[cfg(test)]
@@ -840,15 +1143,68 @@ mod tests {
             "tab-1".to_string(),
             super::BrowserTabEntry {
                 label: "browser-tab-1".to_string(),
-                visible: false,
+                presentation: Default::default(),
+                visibility: super::BrowserVisibility::new(false),
+                automation: Default::default(),
+                page_state: Default::default(),
+                #[cfg(target_os = "macos")]
+                native_operation: Default::default(),
             },
         );
 
         assert!(!manager.is_visible("tab-1"));
-        manager.mark_visible("tab-1", true).unwrap();
+        manager
+            .tabs
+            .lock()
+            .unwrap()
+            .get_mut("tab-1")
+            .unwrap()
+            .visibility
+            .user_requested(true);
         assert!(manager.is_visible("tab-1"));
-        manager.mark_visible("tab-1", false).unwrap();
+        manager
+            .tabs
+            .lock()
+            .unwrap()
+            .get_mut("tab-1")
+            .unwrap()
+            .visibility
+            .user_requested(false);
         assert!(!manager.is_visible("tab-1"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn native_visibility_operations_serialize_per_tab_without_blocking_other_tabs() {
+        let manager = BrowserTabManager::default();
+        for tab_id in ["tab-a", "tab-b"] {
+            manager.tabs.lock().unwrap().insert(
+                tab_id.into(),
+                super::BrowserTabEntry {
+                    label: tab_id.into(),
+                    presentation: Default::default(),
+                    visibility: super::BrowserVisibility::new(false),
+                    automation: Default::default(),
+                    page_state: Default::default(),
+                    native_operation: Default::default(),
+                },
+            );
+        }
+        let _first = manager
+            .native_operation("tab-a")
+            .unwrap()
+            .try_lock_owned()
+            .unwrap();
+        assert!(manager
+            .native_operation("tab-a")
+            .unwrap()
+            .try_lock_owned()
+            .is_err());
+        assert!(manager
+            .native_operation("tab-b")
+            .unwrap()
+            .try_lock_owned()
+            .is_ok());
     }
 
     #[test]
@@ -864,6 +1220,53 @@ mod tests {
         // 非超时错误必须原样透传，不能被这条文案盖掉真实成因。
         let other = super::describe_screenshot_failure("response is not a PNG".into());
         assert_eq!(other.to_string(), "response is not a PNG");
+    }
+
+    #[test]
+    fn temporary_capture_restores_hidden_state_without_new_user_intent() {
+        let mut visibility = super::BrowserVisibility::new(false);
+        let capture = visibility.temporarily_show();
+        assert!(visibility.visible);
+        assert!(visibility.restore(capture));
+        assert!(!visibility.visible);
+    }
+
+    #[test]
+    fn capture_cleanup_does_not_hide_a_tab_the_user_just_showed() {
+        let mut visibility = super::BrowserVisibility::new(false);
+        let capture = visibility.temporarily_show();
+        visibility.user_requested(true);
+        assert!(!visibility.restore(capture));
+        assert!(visibility.visible);
+    }
+
+    #[test]
+    fn capture_cleanup_preserves_a_new_user_hide_request() {
+        let mut visibility = super::BrowserVisibility::new(false);
+        let capture = visibility.temporarily_show();
+        visibility.user_requested(false);
+        assert!(!visibility.restore(capture));
+        assert!(!visibility.visible);
+    }
+
+    #[test]
+    fn old_capture_cleanup_cannot_hide_a_reopened_tab() {
+        let capture = super::BrowserVisibility::new(false).temporarily_show();
+        let mut reopened = super::BrowserVisibility::new(true);
+        assert!(!reopened.restore(capture));
+        assert!(reopened.visible);
+    }
+
+    #[test]
+    fn old_capture_cleanup_cannot_override_a_new_capture_after_user_request() {
+        let mut visibility = super::BrowserVisibility::new(false);
+        let first = visibility.temporarily_show();
+        visibility.user_requested(false);
+        let second = visibility.temporarily_show();
+        assert!(!visibility.restore(first));
+        assert!(visibility.visible);
+        assert!(visibility.restore(second));
+        assert!(!visibility.visible);
     }
 
     #[test]

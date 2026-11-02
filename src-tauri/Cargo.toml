@@ -38,6 +38,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 which = "7"
 notify = "7"
 sha2 = "0.10"
+dunce = "1"
 walkdir = "2"
 toml = "0.8"
 urlencoding = "2"
@@ -121,6 +122,7 @@ windows = { version = "0.62", features = [
 block2 = "0.6"
 objc2 = "0.6.4"
 objc2-app-kit = "0.3"
+objc2-foundation = "0.3"
 objc2-web-kit = "0.3"
 
 [target.'cfg(unix)'.dependencies]

@@ -1,4 +1,4 @@
-import { EyeOff, FolderOpen, MessageSquareText, Terminal } from "lucide-react";
+import { EyeOff, FileDiff, FolderOpen, MessageSquareText, Terminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import ContextUsageIndicator from "@/components/ContextUsageIndicator";
 import StatusIndicator from "@/components/StatusIndicator";
@@ -22,9 +22,13 @@ import { isTranscriptSupportedCliTool } from "@/types/agentTranscript";
 import type { TerminalViewMode } from "./AgentChatView";
 import TaskQueuePopover from "./TaskQueuePopover";
 
+import "@/i18n/sessionReviewResources";
+
 interface TerminalStatusBarProps {
   terminalContext: ActiveTerminalContext;
   projectPath: string;
+  /** WSL paths have no verified host-repository mapping for code review. */
+  wsl?: boolean;
   effort?: LaunchEffort;
   enabled?: boolean;
   /** 所属窗格（Panel）id：用于焦点渐进展示；缺省时始终全亮（独立渲染场景） */
@@ -45,6 +49,7 @@ function compactProjectPath(path: string): string {
 export default function TerminalStatusBar({
   terminalContext,
   projectPath,
+  wsl = false,
   effort,
   enabled = true,
   paneId,
@@ -53,6 +58,13 @@ export default function TerminalStatusBar({
   resumeId = null,
 }: TerminalStatusBarProps) {
   const { t } = useTranslation("panes");
+  const { t: reviewT } = useTranslation("review");
+  const openReview = () => {
+    usePanesStore.getState().openReviewTab(projectPath, {
+      paneId, checkpointChatId: terminalContext.sessionId ? `cli:${terminalContext.sessionId}` : undefined,
+      cliSessionId: terminalContext.sessionId ?? undefined,
+    });
+  };
   const statusInfo = useTerminalStatusStore((state) => (
     terminalContext.sessionId
       ? state.statusMap.get(terminalContext.sessionId)
@@ -153,6 +165,7 @@ export default function TerminalStatusBar({
             <TaskQueuePopover sessionId={terminalContext.sessionId} />
           ) : null}
           <span className="min-w-0 flex-1" />
+          {!terminalContext.ssh && !wsl && <button type="button" aria-label={reviewT("title")} title={reviewT("title")} className="shrink-0 rounded p-1 hover:bg-[var(--app-hover)]" onClick={openReview}><FileDiff className="size-3.5" /></button>}
           {showViewToggle ? (
             <div
               className="flex shrink-0 overflow-hidden rounded border"

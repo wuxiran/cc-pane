@@ -7,6 +7,8 @@ pub enum TaskBindingStatus {
     Pending,
     Running,
     Waiting,
+    /// Execution finished. This never asserts checks passed or user acceptance;
+    /// consult TaskVerificationReport.completion for delivery readiness.
     Completed,
     Failed,
 }

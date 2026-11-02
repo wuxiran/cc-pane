@@ -1,0 +1,38 @@
+{
+  "title": "运行记录",
+  "readOnly": "查看本地已保存的过程，不会启动 Agent。历史问题和权限请求仅供查阅，不能在此重新回答或批准。",
+  "scope": "范围",
+  "currentTab": "当前聊天标签",
+  "currentSession": "当前引擎会话",
+  "allRuns": "全部保存记录",
+  "engineFilter": "引擎 ID（选填）",
+  "sessionFilter": "会话 ID（选填）",
+  "applyFilters": "应用筛选",
+  "refresh": "刷新",
+  "viewCheckpoint": "查看此回合检查点",
+  "runs": "已保存的运行",
+  "events": "已保存的事件",
+  "eventCount": "{{count}} 条事件",
+  "loading": "读取运行记录…",
+  "loadingEvents": "读取事件记录…",
+  "empty": "此范围内暂无记录。可切换全部记录，或用稳定的引擎和会话 ID 查找。",
+  "noEvents": "本次运行没有已保存的事件。",
+  "moreRuns": "加载更多运行",
+  "moreEvents": "加载更多事件",
+  "interruptedHelp": "本轮在写入结束记录前中断，尚未标记完成。请先查阅已保存的工作，再决定如何续接引擎会话。",
+  "recordingError": "记录不完整",
+  "archivedRequest": "历史请求 · 只读",
+  "attachment": "附件",
+  "role": {
+    "user": "你",
+    "assistant": "Agent",
+    "thought": "思考过程"
+  },
+  "status": {
+    "running": "运行中",
+    "completed": "Agent 已结束",
+    "cancelled": "已取消",
+    "failed": "失败",
+    "interrupted": "已中断"
+  }
+}

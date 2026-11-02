@@ -1273,6 +1273,7 @@ fn core_skill_ids() -> Vec<ResolvedSkill> {
     [
         "ccpanes-launch-task",
         "ccpanes-dispatch-task",
+        "ccpanes-codex",
         "ccpanes-dispatch-todos",
         "ccpanes-browse-sessions",
         "ccpanes-memory-dual-write",
@@ -1874,6 +1875,10 @@ mod tests {
         assert!(resolution
             .skills
             .iter()
+            .any(|skill| skill.id == "builtin:ccpanes-codex" && skill.enabled));
+        assert!(resolution
+            .skills
+            .iter()
             .any(|skill| skill.id == "builtin:ccpanes-memory-dual-write"));
         // 默认 core 已瘦身，不再包含 workspace
         assert!(!resolution
@@ -1890,6 +1895,7 @@ mod tests {
             vec![
                 "launch-task",
                 "dispatch-task",
+                "codex",
                 "dispatch-todos",
                 "browse-sessions",
                 "memory-dual-write",

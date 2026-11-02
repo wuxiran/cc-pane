@@ -2,6 +2,7 @@ import "@/i18n/taskVerificationResources";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Play, RefreshCw } from "lucide-react";
+import TaskCompletionCard from "./TaskCompletionCard";
 import { Button } from "@/components/ui/button";
 import { taskVerificationService } from "@/services/taskVerificationService";
 import type { TaskVerificationEvidence, TaskVerificationReport } from "@/types/taskVerification";
@@ -67,7 +68,7 @@ function Evidence({ evidence, currentFingerprint, checking }: {
   );
 }
 
-export default function TaskVerificationCard({ taskId }: { taskId: string }) {
+export default function TaskVerificationCard({ taskId, reportRevision }: { taskId: string; reportRevision?: number }) {
   const { t } = useTranslation("orchestration");
   const [report, setReport] = useState<TaskVerificationReport | null>(null);
   const [command, setCommand] = useState("");
@@ -113,12 +114,20 @@ export default function TaskVerificationCard({ taskId }: { taskId: string }) {
     };
   }, [refresh, taskId]);
 
-  const run = async () => {
-    if (!command.trim() || busy || report?.running) return;
+  const previousReportRevision = useRef(reportRevision);
+  useEffect(() => {
+    if (previousReportRevision.current !== reportRevision) {
+      previousReportRevision.current = reportRevision;
+      void refresh();
+    }
+  }, [reportRevision, refresh]);
+
+  const run = async (requestedCommand = command) => {
+    if (!requestedCommand.trim() || busy || report?.running) return;
     setBusy(true); setError(null);
     ++sequence.current;
     try {
-      const next = await taskVerificationService.run(taskId, { command, timeoutSecs });
+      const next = await taskVerificationService.run(taskId, { command: requestedCommand, timeoutSecs });
       if (activeTask.current === taskId) { ++sequence.current; setReport(next); }
     } catch (failure) {
       if (activeTask.current === taskId) setError(errorMessage(failure));
@@ -136,6 +145,10 @@ export default function TaskVerificationCard({ taskId }: { taskId: string }) {
           {t("verification.refresh", { defaultValue: "Refresh code state" })}
         </Button>
       </div>
+      {report?.completion && <TaskCompletionCard key={taskId} taskId={taskId} completion={report.completion}
+        checking={busy || refreshing || report.running || report.snapshotError !== null || error !== null}
+        onRun={(requiredCommand) => { setCommand(requiredCommand); void run(requiredCommand); }}
+        onReport={(next) => { if (activeTask.current === taskId) { ++sequence.current; setRefreshing(false); setReport(next); } }} />}
       <p className="text-xs text-muted-foreground">{t("verification.description", { defaultValue: "Run your check command in this task’s project directory. Each execution is saved separately; changed code requires a new check." })}</p>
       <form onSubmit={(event) => { event.preventDefault(); void run(); }} className="flex flex-wrap items-end gap-2">
         <label className="flex min-w-48 flex-1 flex-col gap-1 text-xs">

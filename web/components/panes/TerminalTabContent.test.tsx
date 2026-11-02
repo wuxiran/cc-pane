@@ -1,6 +1,6 @@
 import i18n from "@/i18n";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Tab } from "@/types";
 import { usePanesStore, useTerminalRestoreLogStore } from "@/stores";
@@ -72,10 +72,34 @@ function renderTerminalTabContent(
 }
 
 describe("TerminalTabContent", () => {
+  afterEach(() => { vi.restoreAllMocks(); });
   beforeEach(() => {
     useTerminalRestoreLogStore.getState().reset();
     terminalViewMock.mockClear();
     coldRestoreMock.mockReset();
+  });
+
+  it.each([
+    [{ launchCwd: "/repo-worktrees/task/pkg" }, "/workspace", "/repo-worktrees/task/pkg"],
+    [undefined, "/workspace", "/workspace"],
+    [undefined, undefined, "/tmp/project"],
+  ])("reviews the actual terminal cwd with launch/workspace/project precedence", async (launchExtras, workspacePath, expected) => {
+    const openReview = vi.spyOn(usePanesStore.getState(), "openReviewTab").mockReturnValue("review-tab");
+    renderTerminalTabContent(createTerminalTab({ terminalRootPane: {
+      type: "leaf", id: "leaf-1", sessionId: "live-session", launchExtras, workspacePath,
+    } }), { showStatusBar: true });
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("review:title") }));
+    expect(openReview).toHaveBeenCalledExactlyOnceWith(expected, {
+      paneId: undefined, checkpointChatId: "cli:live-session", cliSessionId: "live-session",
+    });
+  });
+
+  it("excludes WSL terminals from local repository review even when the host path exists", () => {
+    renderTerminalTabContent(createTerminalTab({
+      wsl: { distro: "Ubuntu", remotePath: "/repo" },
+      terminalRootPane: { type: "leaf", id: "leaf-1", sessionId: "live-session" },
+    }), { showStatusBar: true });
+    expect(screen.queryByRole("button", { name: i18n.t("review:title") })).not.toBeInTheDocument();
   });
 
   it("把 leaf 的 launchId 传给 TerminalView，而不是复用 tab projectId", () => {

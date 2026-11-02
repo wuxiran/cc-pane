@@ -56,6 +56,44 @@ beforeEach(() => {
 });
 
 describe("configured first turn", () => {
+  it("preselects App Server without starting until the user submits", async () => {
+    vi.mocked(agentChatService.listEngines).mockResolvedValue([
+      { id: "codex", label: "Codex", available: true, requirement: "" },
+      { id: "codex-app-server", label: "Codex native", available: true, requirement: "" },
+    ]);
+    vi.mocked(agentChatService.start).mockResolvedValue({ ...snapshot, engineId: "codex-app-server", codexThreadId: "native-thread" });
+    render(<TooltipProvider><AgentChatTabContent tab={{ ...tab, agentEngineId: "codex-app-server" }} /></TooltipProvider>);
+    await screen.findByRole("button", { name: /Codex App Server/ });
+    expect(agentChatService.start).not.toHaveBeenCalled();
+    expect(agentChatService.prompt).not.toHaveBeenCalled();
+    await launch();
+    await waitFor(() => expect(agentChatService.start).toHaveBeenCalledWith(CHAT, "codex-app-server", "/project", undefined, []));
+    expect(agentChatService.prompt).toHaveBeenCalledWith(CHAT, [{ type: "text", text: "initial task" }]);
+  });
+
+  it("preserves the existing ACP default when no native engine is requested", async () => {
+    vi.mocked(agentChatService.listEngines).mockResolvedValue([
+      { id: "codex-app-server", label: "Codex native", available: true, requirement: "" },
+      { id: "codex", label: "Codex", available: true, requirement: "" },
+    ]);
+    renderChat();
+    await screen.findByRole("button", { name: /Codex \(ACP\)/ });
+    await launch();
+    await waitFor(() => expect(agentChatService.start).toHaveBeenCalledWith(CHAT, "codex", "/project", undefined, []));
+  });
+
+  it("does not silently substitute ACP for an unavailable requested native engine", async () => {
+    vi.mocked(agentChatService.listEngines).mockResolvedValue([
+      { id: "codex", label: "Codex", available: true, requirement: "" },
+      { id: "codex-app-server", label: "Codex native", available: false, requirement: "Install Codex" },
+    ]);
+    render(<TooltipProvider><AgentChatTabContent tab={{ ...tab, agentEngineId: "codex-app-server" }} /></TooltipProvider>);
+    await screen.findByText("Install Codex");
+    await launch();
+    expect(agentChatService.start).not.toHaveBeenCalled();
+    expect(agentChatService.prompt).not.toHaveBeenCalled();
+  });
+
   it("blocks a cached restriction mode that is no longer advertised without erasing the preference", async () => {
     saveEngineModes("claude", [{ id: "default" }, { id: "plan" }]);
     savePreferredMode("claude", "plan");

@@ -9,6 +9,50 @@ fn file(text: &str) -> Option<SnapshotFile> {
 }
 
 #[test]
+fn a_failed_final_invariant_rolls_back_every_published_file() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("first"), "before").unwrap();
+    let changes = vec![
+        ("first".into(), file("before"), file("after")),
+        ("new/file".into(), None, file("created")),
+    ];
+    let mut checks = 0;
+    let result = publish_guarded(temp.path(), &changes, || {
+        checks += 1;
+        if checks == 2 {
+            assert_eq!(fs::read(temp.path().join("first")).unwrap(), b"after");
+            return Err("Repository HEAD changed during restore".into());
+        }
+        Ok(())
+    });
+    assert_eq!(checks, 2);
+    assert!(result.unwrap_err().to_string().contains("rolled back"));
+    assert_eq!(fs::read(temp.path().join("first")).unwrap(), b"before");
+    assert!(!temp.path().join("new").exists());
+}
+
+#[test]
+fn a_failed_final_invariant_does_not_rollback_over_a_concurrent_edit() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("first"), "before").unwrap();
+    let changes = vec![("first".into(), file("before"), file("after"))];
+    let mut checks = 0;
+    let result = publish_guarded(temp.path(), &changes, || {
+        checks += 1;
+        if checks == 2 {
+            fs::write(temp.path().join("first"), "concurrent edit").unwrap();
+            return Err("Repository HEAD changed during restore".into());
+        }
+        Ok(())
+    });
+    assert!(result.unwrap_err().to_string().contains("partial rollback"));
+    assert_eq!(
+        fs::read(temp.path().join("first")).unwrap(),
+        b"concurrent edit"
+    );
+}
+
+#[test]
 fn publishes_add_edit_and_delete_after_preflighting_every_path() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("edited"), "before").unwrap();

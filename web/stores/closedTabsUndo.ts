@@ -172,7 +172,7 @@ function firstLeafId(node: TerminalPaneNode): string {
  */
 export function reopenNonTerminalSnapshot(
   store: {
-    openBrowser: (url: string, title?: string) => string | null;
+    openBrowser: import("./browserTabActions").BrowserTabActions["openBrowser"];
     openEditor: (
       projectPath: string,
       filePath: string,
@@ -186,7 +186,12 @@ export function reopenNonTerminalSnapshot(
   snap: ClosedTabSnapshot,
 ): boolean {
   if (snap.contentType === "browser" && snap.browserUrl) {
-    store.openBrowser(snap.browserUrl, snap.title);
+    store.openBrowser(snap.browserUrl, snap.title, undefined, {
+      reuse: false, projectPath: snap.projectPath,
+      browserManualTitle: snap.browserManualTitle,
+      browserPageTitle: snap.browserPageTitle,
+      browserFaviconUrl: snap.browserFaviconUrl,
+    });
     return true;
   }
   if (snap.contentType === "editor" && snap.filePath) {
