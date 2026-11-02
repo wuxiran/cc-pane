@@ -38,6 +38,7 @@ export interface ExperimentalSettings {
   /** 短剧制作台（DramaStudio + 批量转绘）；独立开关便于单独下线重构。 */
   dramaStudio: boolean;
   skillMarket: boolean;
+  librarySpace: boolean;
 }
 
 export type ExperimentalFeatureId = keyof ExperimentalSettings;

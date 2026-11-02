@@ -34,6 +34,7 @@ mod journal_service;
 mod launch_history_service;
 mod launch_profile_service;
 mod layout_snapshot_service;
+pub mod library_space_service;
 pub mod mcp_config_service;
 mod memory_service;
 pub mod opencode_session_service;

@@ -752,5 +752,18 @@
     "noProcesses": "未发现 Claude 进程",
     "scanning": "扫描中…"
   },
-  "chooseWorkspaceRoot": "选择工作空间根目录"
+  "chooseWorkspaceRoot": "选择工作空间根目录",
+  "librarySpace": {
+    "workspaceName": "资料空间",
+    "create": "创建资料空间",
+    "openAssistant": "打开素材助手",
+    "description": "资料空间是一个由 AI 维护的素材与作品文件夹：投进来的链接、视频、灵感会被整理成 Markdown，创作产出也放在这里。默认位置是 ~/CC-Panes-Library，也可以选择其他文件夹。",
+    "chooseFolder": "选择资料空间文件夹",
+    "browse": "浏览",
+    "createAndOpen": "创建并打开素材助手",
+    "created": "资料空间已创建：{{path}}",
+    "keptClaudeMd": "该文件夹已有 CLAUDE.md，未覆盖。素材助手可能不了解资料空间的约定，可参考模板手动合并。",
+    "createFailed": "创建资料空间失败：{{error}}",
+    "assistantPrompt": "你是资料空间的素材助手。严格按当前目录 CLAUDE.md 的约定工作：用户投来的链接、文字、图片按 ingest skill 收进 uploads/，视频链接按 video-transcribe skill 下载并转写，整理按 organize skill，创作产出写到 works/。用户刚打开你时，简短问候并说明可以直接把链接或想法发给你。"
+  }
 }

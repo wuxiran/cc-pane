@@ -1,6 +1,7 @@
-import { Clapperboard, Command, FolderTree, Settings, Store } from "lucide-react";
+import { Clapperboard, Command, FolderTree, Library, Settings, Store } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import LayoutBar from "@/components/LayoutBar";
+import { useLibrarySpaceEntry } from "@/components/library/LibrarySpaceEntry";
 import ModuleAddMenu from "@/components/modules/ModuleAddMenu";
 import ModulePlacementHint from "@/components/modules/ModulePlacementHint";
 import {
@@ -204,6 +205,8 @@ export default function ActivityBar() {
   // 实验功能入口：设置里勾选后才出现（默认关，客户装上看不到）。
   const dramaStudioEnabled = useExperimentalFeature("dramaStudio");
   const skillMarketEnabled = useExperimentalFeature("skillMarket");
+  const librarySpaceEnabled = useExperimentalFeature("librarySpace");
+  const librarySpace = useLibrarySpaceEntry();
 
   const visibleModules = MODULE_CONSUMERS.activityBar.filter((module) => {
     const preference = preferences[module.id];
@@ -257,6 +260,14 @@ export default function ActivityBar() {
               active={activeView === "explorer" && sidebarVisible && appViewMode === "panes"}
               onClick={() => toggleView("explorer")}
             />
+            {librarySpaceEnabled && librarySpace.available ? (
+              <ActivityBarIcon
+                icon={<Library className="h-[22px] w-[22px]" strokeWidth={1.5} />}
+                label={librarySpace.label}
+                active={false}
+                onClick={librarySpace.open}
+              />
+            ) : null}
             {dramaStudioEnabled ? (
               <ActivityBarIcon
                 icon={<Clapperboard className="h-[22px] w-[22px]" strokeWidth={1.5} />}
@@ -302,6 +313,7 @@ export default function ActivityBar() {
         </div>
       </ContextMenuTrigger>
       <ModuleContextMenu />
+      {librarySpace.dialog}
     </ContextMenu>
   );
 }
