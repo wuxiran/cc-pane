@@ -29,6 +29,7 @@ import type {
   TodoSubtask,
   TodoActivity,
 } from "@/types";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export interface TodoEditForm {
   title: string;
@@ -222,27 +223,25 @@ export default function TodoEditor({
             {isNew ? t("create", { ns: "common" }) : t("save", { ns: "common" })}
           </Button>
           {!isNew && onDelete && (
-            <Button
+            <Tooltip><TooltipTrigger asChild><Button
               size="icon"
               variant="ghost"
               className="h-7 w-7 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
               onClick={onDelete}
               aria-label={t("delete", { ns: "common" })}
-              title={t("delete", { ns: "common" })}
             >
               <Trash2 size={13} />
-            </Button>
+            </Button></TooltipTrigger><TooltipContent>{t("delete", { ns: "common" })}</TooltipContent></Tooltip>
           )}
-          <Button
+          <Tooltip><TooltipTrigger asChild><Button
             size="icon"
             variant="ghost"
             className="h-7 w-7 rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
             onClick={onCancel}
             aria-label={t("close", { ns: "common" })}
-            title={t("close", { ns: "common" })}
           >
             <X size={13} />
-          </Button>
+          </Button></TooltipTrigger><TooltipContent>{t("close", { ns: "common" })}</TooltipContent></Tooltip>
         </div>
       </header>
 
@@ -476,14 +475,13 @@ export default function TodoEditor({
                   className="w-[80px] h-6 text-xs bg-muted/30 border border-border/50 rounded-md px-1.5 outline-none focus:border-primary/50"
                 />
               ) : (
-                <button
+                <Tooltip><TooltipTrigger asChild><button
                   type="button"
                   onClick={() => setShowTypeInput(true)}
-                  className="rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors duration-[var(--dur-fast)] hover:bg-muted/60 hover:text-foreground"
-                  title={t("todoAddType")}
+                  className="rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors duration-[var(--dur-fast)] hover:bg-muted/60 hover:text-foreground" aria-label={t("todoAddType")}
                 >
                   <Plus size={12} />
-                </button>
+                </button></TooltipTrigger><TooltipContent>{t("todoAddType")}</TooltipContent></Tooltip>
               )}
             </div>
           </PropertyRow>

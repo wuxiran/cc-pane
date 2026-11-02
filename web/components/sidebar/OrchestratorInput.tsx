@@ -11,6 +11,7 @@ import {
   getProjectLabel,
   getProjectName,
 } from "./OrchestratorTaskUtils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const CLI_CHOICES = ["claude", "codex"] as const;
 
@@ -229,15 +230,14 @@ export default function OrchestratorInput({ compact = false }: OrchestratorInput
           rows={1}
           disabled={sending}
         />
-        <button
+        <Tooltip><TooltipTrigger asChild><button
           className="shrink-0 rounded p-1 transition-colors disabled:opacity-40"
           style={{ color: "var(--app-accent)" }}
           onClick={handleSubmit}
-          disabled={!input.trim() || sending || !targetProject}
-          title={t("orchestration:composer.send")}
+          disabled={!input.trim() || sending || !targetProject} aria-label={t("orchestration:composer.send")}
         >
           <SendHorizontal className="h-4 w-4" />
-        </button>
+        </button></TooltipTrigger><TooltipContent>{t("orchestration:composer.send")}</TooltipContent></Tooltip>
       </div>
     </div>
   );

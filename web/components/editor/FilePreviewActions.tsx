@@ -6,6 +6,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { canUseLocalFileActions, filePreviewService } from "@/services/filePreviewService";
 import { toastErr, toastOk } from "@/lib/feedback";
 import { navigationBreadcrumbs, normalizeNavigationPath } from "@/utils/path";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface FilePreviewActionsProps {
   filePath: string;
@@ -54,11 +55,11 @@ export default function FilePreviewActions({ filePath, projectPath, isRemote = f
   return (
     <div className="flex shrink-0 items-center gap-1">
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm" className="h-7 gap-1 rounded-lg px-2" aria-label={t("copyPath", { defaultValue: "Copy path" })} title={t("copyPath", { defaultValue: "Copy path" })}>
+        <Tooltip><TooltipTrigger asChild><DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm" className="h-7 gap-1 rounded-lg px-2" aria-label={t("copyPath", { defaultValue: "Copy path" })}>
             <Copy size={13} /><ChevronDown size={10} />
           </Button>
-        </DropdownMenuTrigger>
+        </DropdownMenuTrigger></TooltipTrigger><TooltipContent>{t("copyPath", { defaultValue: "Copy path" })}</TooltipContent></Tooltip>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={() => void copy(filePath)}>{t("copyAbsolutePath", { defaultValue: "Copy full path" })}</DropdownMenuItem>
           {relativePath && <DropdownMenuItem onSelect={() => void copy(relativePath)}>{t("copyRelativePath", { defaultValue: "Copy project-relative path" })}</DropdownMenuItem>}
@@ -66,12 +67,12 @@ export default function FilePreviewActions({ filePath, projectPath, isRemote = f
         </DropdownMenuContent>
       </DropdownMenu>
       {desktopActions && <>
-        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" disabled={busy} onClick={() => void run("openDefault")} aria-label={t("openDefaultApp", { defaultValue: "Open in default app" })} title={t("openDefaultApp", { defaultValue: "Open in default app" })}>
+        <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" disabled={busy} onClick={() => void run("openDefault")} aria-label={t("openDefaultApp", { defaultValue: "Open in default app" })}>
           <ExternalLink size={14} />
-        </Button>
-        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" disabled={busy} onClick={() => void run("reveal")} aria-label={t("revealInFileManager", { defaultValue: "Show in file manager" })} title={t("revealInFileManager", { defaultValue: "Show in file manager" })}>
+        </Button></TooltipTrigger><TooltipContent>{t("openDefaultApp", { defaultValue: "Open in default app" })}</TooltipContent></Tooltip>
+        <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg" disabled={busy} onClick={() => void run("reveal")} aria-label={t("revealInFileManager", { defaultValue: "Show in file manager" })}>
           <FolderOpen size={14} />
-        </Button>
+        </Button></TooltipTrigger><TooltipContent>{t("revealInFileManager", { defaultValue: "Show in file manager" })}</TooltipContent></Tooltip>
       </>}
     </div>
   );

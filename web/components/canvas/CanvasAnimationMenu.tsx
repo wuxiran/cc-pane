@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useCanvasDisplayStore, type CanvasAnimationIntensity } from "@/stores";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const INTENSITIES: CanvasAnimationIntensity[] = ["full", "reduced", "off"];
 
@@ -19,17 +20,16 @@ export default function CanvasAnimationMenu() {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+      <Tooltip><TooltipTrigger asChild><DropdownMenuTrigger asChild>
         <button
           type="button"
           aria-label={t("canvasAnimationSettings")}
-          title={t("canvasAnimationSettings")}
           data-testid="canvas-animation-menu"
           className="inline-flex items-center justify-center rounded-md bg-[var(--app-panel-bg)] p-1 text-[var(--app-text-secondary)] shadow-sm transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
         >
           <Gauge className="h-4 w-4" strokeWidth={1.5} />
         </button>
-      </DropdownMenuTrigger>
+      </DropdownMenuTrigger></TooltipTrigger><TooltipContent>{t("canvasAnimationSettings")}</TooltipContent></Tooltip>
       <DropdownMenuContent align="end" className="min-w-[160px]">
         <DropdownMenuLabel>{t("canvasAnimationSettings")}</DropdownMenuLabel>
         <DropdownMenuRadioGroup

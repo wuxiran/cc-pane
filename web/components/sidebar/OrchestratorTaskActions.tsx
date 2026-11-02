@@ -31,6 +31,7 @@ import {
 import { handleErrorSilent } from "@/utils";
 import type { TaskBinding } from "@/types";
 import { getMetadataUi, getProjectName } from "./OrchestratorTaskUtils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const sendQueues = new Map<string, Promise<void>>();
 
@@ -269,15 +270,14 @@ export default function OrchestratorTaskActions({ binding }: OrchestratorTaskAct
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
+        <Tooltip><TooltipTrigger asChild><DropdownMenuTrigger asChild>
           <button
             className="rounded p-0.5 opacity-0 transition-opacity hover:bg-[var(--app-hover)] group-hover:opacity-100 focus-visible:opacity-100"
-            onClick={(event) => event.stopPropagation()}
-            title={t("sidebar.actions")}
+            onClick={(event) => event.stopPropagation()} aria-label={t("sidebar.actions")}
           >
             <MoreHorizontal className="h-3.5 w-3.5" style={{ color: "var(--app-text-tertiary)" }} />
           </button>
-        </DropdownMenuTrigger>
+        </DropdownMenuTrigger></TooltipTrigger><TooltipContent>{t("sidebar.actions")}</TooltipContent></Tooltip>
         <DropdownMenuContent align="end" className="w-48">
           <DropdownMenuItem onClick={openDetails}>📄 {t("sidebar.details")}</DropdownMenuItem>
           <DropdownMenuSeparator />

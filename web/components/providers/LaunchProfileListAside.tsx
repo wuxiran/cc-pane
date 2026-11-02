@@ -17,6 +17,7 @@ import {
   SYSTEM_DEFAULT_PROFILE_ID,
   toolLabel,
 } from "./launchProfileHelpers";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export type LaunchProfileListMode = "profiles" | "workspaces";
 
@@ -119,15 +120,14 @@ export default function LaunchProfileListAside({
             </Select>
           </label>
 
-          <Button
+          <Tooltip><TooltipTrigger asChild><Button
             size="icon-sm"
             variant="outline"
             aria-label={t("add")}
-            title={t("add")}
             onClick={onCopySystemDefault}
           >
             <Plus size={14} />
-          </Button>
+          </Button></TooltipTrigger><TooltipContent>{t("add")}</TooltipContent></Tooltip>
         </div>
       </aside>
     );

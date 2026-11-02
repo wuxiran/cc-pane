@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogTitle, DialogClose } from "@/components/ui
 import type { AgentChatAttachment } from "@/types/agentChat";
 import { chatAttachmentPreview } from "./chatAttachmentPreview";
 import type { OpenChatAttachment } from "./useChatFileActions";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 function AttachmentCard({ attachment, onRemove, onOpenAttachment }: {
   attachment: AgentChatAttachment; onRemove?: () => void; onOpenAttachment?: OpenChatAttachment;
@@ -47,15 +48,14 @@ function AttachmentCard({ attachment, onRemove, onOpenAttachment }: {
           <Icon className="h-4 w-4 shrink-0" /><span className="truncate" title={attachment.name}>{attachment.name}</span>
         </span>
       )}
-      {preview && onOpenAttachment ? <button type="button" aria-label={t("agentChatQuickPreview", { name: attachment.name })}
-        title={t("agentChatQuickPreview", { name: attachment.name })}
+      {preview && onOpenAttachment ? <Tooltip><TooltipTrigger asChild><button type="button" aria-label={t("agentChatQuickPreview", { name: attachment.name })}
         className="absolute left-1 top-1 rounded-full border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-1 text-[var(--app-text-secondary)] shadow-sm hover:text-[var(--app-text-primary)]"
-        onClick={(event) => { previewButton.current = event.currentTarget; setOpen(true); }}><ScanSearch className="h-3 w-3" /></button> : null}
+        onClick={(event) => { previewButton.current = event.currentTarget; setOpen(true); }}><ScanSearch className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>{t("agentChatQuickPreview", { name: attachment.name })}</TooltipContent></Tooltip> : null}
       {error ? <span role="alert" className="block px-2 pb-2 text-xs text-[var(--app-status-danger)]">{error}</span> : null}
       {onRemove ? (
-        <button type="button" aria-label={t("agentChatRemoveAttachment")} title={t("agentChatRemoveAttachment")}
+        <Tooltip><TooltipTrigger asChild><button type="button" aria-label={t("agentChatRemoveAttachment")}
           className="absolute right-1 top-1 rounded-full border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-1 text-[var(--app-text-secondary)] shadow-sm hover:text-[var(--app-status-danger)] focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]"
-          onClick={onRemove}><X className="h-3 w-3" /></button>
+          onClick={onRemove}><X className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>{t("agentChatRemoveAttachment")}</TooltipContent></Tooltip>
       ) : null}
       <Dialog open={open && Boolean(preview)} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90vh] overflow-auto sm:max-w-[min(90vw,72rem)]" showCloseButton={false} aria-describedby={undefined}

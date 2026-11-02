@@ -9,6 +9,7 @@ import { layoutSwitcherService, type LayoutSwitcherSnapshot } from "@/services/l
 import { useTerminalStatusStore } from "@/stores";
 import { aggregatePaneStatus } from "@/utils/layoutStatus";
 import type { TerminalStatusInfo } from "@/types";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const STATE_EVENT = "layout-switcher:state";
 const REQUEST_STATE_EVENT = "layout-switcher:request-state";
@@ -222,10 +223,9 @@ export default function LayoutSwitcherWindow() {
         <div className="min-w-0 truncate text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--app-text-tertiary)" }}>
           {t("layoutSwitcherTitle")}
         </div>
-        <button
+        <Tooltip><TooltipTrigger asChild><button
           type="button"
           aria-label={t("closeLayoutSwitcher")}
-          title={t("closeLayoutSwitcher")}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--app-hover)]"
           onPointerDown={(event) => {
             event.preventDefault();
@@ -239,7 +239,7 @@ export default function LayoutSwitcherWindow() {
           }}
         >
           <X className="h-4 w-4" />
-        </button>
+        </button></TooltipTrigger><TooltipContent>{t("closeLayoutSwitcher")}</TooltipContent></Tooltip>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">

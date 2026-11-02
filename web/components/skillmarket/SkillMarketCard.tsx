@@ -15,6 +15,7 @@ import {
   sourceLabelKey,
   toneFor,
 } from "./skillMarketModel";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 // 沿用 UpdateNotification / openGuideDoc 的外链惯例：桌面走 opener，浏览器兜底 window.open
 async function openExternal(url: string): Promise<void> {
@@ -100,16 +101,15 @@ export default function SkillMarketCard({
           </div>
         </div>
         {entry.homepageUrl && (
-          <button
+          <Tooltip><TooltipTrigger asChild><button
             type="button"
             aria-label={t("openSource")}
-            title={t("openSource")}
             className="rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
             style={{ color: "var(--app-icon-inactive)" }}
             onClick={() => void openExternal(entry.homepageUrl as string)}
           >
             <ExternalLink className="size-3.5" />
-          </button>
+          </button></TooltipTrigger><TooltipContent>{t("openSource")}</TooltipContent></Tooltip>
         )}
       </div>
 
@@ -133,7 +133,7 @@ export default function SkillMarketCard({
         </span>
         <div className="flex shrink-0 items-center gap-1">
           {installed && (
-            <Button
+            <Tooltip><TooltipTrigger asChild><Button
               type="button"
               variant="ghost"
               size="sm"
@@ -141,10 +141,9 @@ export default function SkillMarketCard({
               disabled={busy}
               onClick={() => onRemove(entry)}
               aria-label={t("remove")}
-              title={t("remove")}
             >
               <Trash2 className="size-3.5" />
-            </Button>
+            </Button></TooltipTrigger><TooltipContent>{t("remove")}</TooltipContent></Tooltip>
           )}
           <Button
             type="button"

@@ -10,6 +10,7 @@ import {
   CANVAS_TERMINAL_INITIAL_FONT_SIZE,
   canvasTerminalZoomPersistenceKey,
 } from "./canvasTerminalZoom";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface CanvasNodeLayerProps {
   nodes: CanvasNodeProjection[];
@@ -268,17 +269,16 @@ function CanvasNodeCard({
         <span className="shrink-0 text-[length:var(--text-nano)] uppercase tracking-[0.08em]" style={{ color }}>
           {nodeTypeLabel}
         </span>
-        <button
+        <Tooltip><TooltipTrigger asChild><button
           type="button"
           aria-label={t("canvasOpenTerminal", { name: node.label, defaultValue: `Open ${node.label}` })}
-          title={t("canvasOpenTerminal", { name: node.label, defaultValue: `Open ${node.label}` })}
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--app-hover)]"
           style={{ color: "var(--app-text-secondary)" }}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={() => openNode(node)}
         >
           <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
+        </button></TooltipTrigger><TooltipContent>{t("canvasOpenTerminal", { name: node.label, defaultValue: `Open ${node.label}` })}</TooltipContent></Tooltip>
       </div>
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <CanvasTerminalMirror node={{ ...node, position }} />
@@ -297,11 +297,10 @@ function CanvasNodeCard({
         {summary ? <span className="min-w-0 flex-1 truncate">{summary}</span> : null}
         {node.cliTool ? <span className="ml-auto shrink-0 uppercase">{node.cliTool}</span> : null}
       </div>
-      <button
+      <Tooltip><TooltipTrigger asChild><button
         type="button"
         data-testid={`canvas-node-resize-${node.id}`}
         aria-label={t("canvasResizeNode", { name: node.label, defaultValue: `Resize ${node.label}` })}
-        title={t("canvasResizeNode", { name: node.label, defaultValue: `Resize ${node.label}` })}
         className="absolute bottom-0 right-0 z-20 flex h-5 w-5 cursor-se-resize items-center justify-center border-l border-t opacity-70 transition-opacity hover:opacity-100"
         style={{ color, background: "color-mix(in srgb, var(--app-menubar) 88%, transparent)", borderColor: "color-mix(in srgb, var(--app-border) 80%, transparent)" }}
         onPointerDown={(pointerEvent) => {
@@ -358,7 +357,7 @@ function CanvasNodeCard({
         }}
       >
         <Maximize2 className="h-3 w-3" aria-hidden="true" />
-      </button>
+      </button></TooltipTrigger><TooltipContent>{t("canvasResizeNode", { name: node.label, defaultValue: `Resize ${node.label}` })}</TooltipContent></Tooltip>
     </article>
   );
 }

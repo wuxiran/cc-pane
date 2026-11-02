@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import QuickCommandDialog from "./QuickCommandDialog";
 import { nativeConfirm } from "@/services/nativeDialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export default function QuickCommandsSection() {
   const { t } = useTranslation(["settings", "common"]);
@@ -146,26 +147,24 @@ export default function QuickCommandsSection() {
                       <span className="shrink-0">{t(`quickCommands.target.${command.target}`)}</span>
                     </div>
                   </div>
-                  <Button
+                  <Tooltip><TooltipTrigger asChild><Button
                     type="button"
                     variant="ghost"
                     size="icon-sm"
                     aria-label={t("quickCommands.editCommand", { name: command.name })}
-                    title={t("edit", { ns: "common" })}
                     onClick={() => openEdit(command)}
                   >
                     <Pencil />
-                  </Button>
-                  <Button
+                  </Button></TooltipTrigger><TooltipContent>{t("edit", { ns: "common" })}</TooltipContent></Tooltip>
+                  <Tooltip><TooltipTrigger asChild><Button
                     type="button"
                     variant="ghost"
                     size="icon-sm"
                     aria-label={t("quickCommands.deleteCommand", { name: command.name })}
-                    title={t("delete", { ns: "common" })}
                     onClick={() => void deleteCommand(command)}
                   >
                     <Trash2 />
-                  </Button>
+                  </Button></TooltipTrigger><TooltipContent>{t("delete", { ns: "common" })}</TooltipContent></Tooltip>
                 </div>
               );
             })}

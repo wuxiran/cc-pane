@@ -19,7 +19,12 @@ function TooltipProvider({
 function Tooltip({
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
-  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+  // 自带 Provider：弹出窗口等不经 AppShell 的路由也能安全使用（Radix 缺 Provider 会抛错）。
+  return (
+    <TooltipProvider delayDuration={300}>
+      <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+    </TooltipProvider>
+  )
 }
 
 function TooltipTrigger({

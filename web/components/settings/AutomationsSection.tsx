@@ -20,6 +20,7 @@ import {
   type ScheduleDraft,
   type SchedulePreset,
 } from "./automationsCron";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface EditorDraft {
   id: string;
@@ -418,15 +419,15 @@ export default function AutomationsSection() {
                   {def.cwd}
                 </p>
               </div>
-              <Button variant="ghost" size="sm" title={t("automations.runNow")} onClick={() => void runNow(def.id)}>
+              <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" aria-label={t("automations.runNow")} onClick={() => void runNow(def.id)}>
                 <Play className="h-3.5 w-3.5" />
-              </Button>
-              <Button variant="ghost" size="sm" title={t("automations.edit")} onClick={() => setDraft(toDraft(def, inferWorkspaceName(workspaces, def.cwd)))}>
+              </Button></TooltipTrigger><TooltipContent>{t("automations.runNow")}</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" aria-label={t("automations.edit")} onClick={() => setDraft(toDraft(def, inferWorkspaceName(workspaces, def.cwd)))}>
                 <Pencil className="h-3.5 w-3.5" />
-              </Button>
-              <Button variant="ghost" size="sm" title={t("automations.delete")} onClick={() => void remove(def.id)}>
+              </Button></TooltipTrigger><TooltipContent>{t("automations.edit")}</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" aria-label={t("automations.delete")} onClick={() => void remove(def.id)}>
                 <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+              </Button></TooltipTrigger><TooltipContent>{t("automations.delete")}</TooltipContent></Tooltip>
               <Button
                 variant="outline"
                 size="sm"

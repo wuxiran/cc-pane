@@ -62,15 +62,13 @@ function QueueItemRow({ item, busy, onDelete, onRetry }: {
         </div>
       </div>
       {retryable && (
-        <Button type="button" variant="ghost" size="icon-xs" aria-label={t("taskQueue.retry")}
-          title={t("taskQueue.retry")} disabled={busy} onClick={onRetry}>
+        <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon-xs" aria-label={t("taskQueue.retry")} disabled={busy} onClick={onRetry}>
           <RotateCcw />
-        </Button>
+        </Button></TooltipTrigger><TooltipContent>{t("taskQueue.retry")}</TooltipContent></Tooltip>
       )}
-      <Button type="button" variant="ghost" size="icon-xs" aria-label={t("taskQueue.delete")}
-        title={t("taskQueue.delete")} disabled={busy || item.state === "dispatching"} onClick={onDelete}>
+      <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon-xs" aria-label={t("taskQueue.delete")} disabled={busy || item.state === "dispatching"} onClick={onDelete}>
         <Trash2 />
-      </Button>
+      </Button></TooltipTrigger><TooltipContent>{t("taskQueue.delete")}</TooltipContent></Tooltip>
     </li>
   );
 }

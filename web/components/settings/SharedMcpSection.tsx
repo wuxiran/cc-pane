@@ -27,6 +27,7 @@ import { isSharedMcpFailed } from "@/types/shared-mcp";
 import { formatEnvLines, parseEnvLines } from "@/utils";
 import CcpanesMcpCard from "./CcpanesMcpCard";
 import ScopeBanner from "./ScopeBanner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface FormState {
   name: string;
@@ -430,19 +431,18 @@ function ServerRow({
   return (
     <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card">
       {/* 共享开关 */}
-      <Button
+      <Tooltip><TooltipTrigger asChild><Button
         size="icon"
         variant="ghost"
         className="h-7 w-7 shrink-0"
-        onClick={() => onToggleShared(server.name, !server.config.shared)}
-        title={server.config.shared ? t("sharedMcp.disableSharing") : t("sharedMcp.enableSharing")}
+        onClick={() => onToggleShared(server.name, !server.config.shared)} aria-label={server.config.shared ? t("sharedMcp.disableSharing") : t("sharedMcp.enableSharing")}
       >
         {server.config.shared ? (
           <ToggleRight size={18} className="text-primary" />
         ) : (
           <ToggleLeft size={18} className="text-muted-foreground" />
         )}
-      </Button>
+      </Button></TooltipTrigger><TooltipContent>{server.config.shared ? t("sharedMcp.disableSharing") : t("sharedMcp.enableSharing")}</TooltipContent></Tooltip>
 
       {/* 信息 */}
       <div className="flex-1 min-w-0">
@@ -465,67 +465,61 @@ function ServerRow({
       {/* 操作按钮 */}
       <div className="flex items-center gap-1">
         {isStopped && server.config.shared && (
-          <Button
+          <Tooltip><TooltipTrigger asChild><Button
             size="icon"
             variant="ghost"
             className="h-7 w-7"
-            onClick={() => onStart(server.name)}
-            title={t("sharedMcp.start")}
+            onClick={() => onStart(server.name)} aria-label={t("sharedMcp.start")}
           >
             <Play size={13} />
-          </Button>
+          </Button></TooltipTrigger><TooltipContent>{t("sharedMcp.start")}</TooltipContent></Tooltip>
         )}
         {isFailed && (
-          <Button
+          <Tooltip><TooltipTrigger asChild><Button
             size="icon"
             variant="ghost"
             className="h-7 w-7"
-            onClick={() => onRestart(server.name)}
-            title={t("sharedMcp.restart")}
+            onClick={() => onRestart(server.name)} aria-label={t("sharedMcp.restart")}
           >
             <RotateCw size={13} />
-          </Button>
+          </Button></TooltipTrigger><TooltipContent>{t("sharedMcp.restart")}</TooltipContent></Tooltip>
         )}
         {isRunning && (
           <>
-            <Button
+            <Tooltip><TooltipTrigger asChild><Button
               size="icon"
               variant="ghost"
               className="h-7 w-7"
-              onClick={() => onRestart(server.name)}
-              title={t("sharedMcp.restart")}
+              onClick={() => onRestart(server.name)} aria-label={t("sharedMcp.restart")}
             >
               <RotateCw size={13} />
-            </Button>
-            <Button
+            </Button></TooltipTrigger><TooltipContent>{t("sharedMcp.restart")}</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger asChild><Button
               size="icon"
               variant="ghost"
               className="h-7 w-7"
-              onClick={() => onStop(server.name)}
-              title={t("sharedMcp.stop")}
+              onClick={() => onStop(server.name)} aria-label={t("sharedMcp.stop")}
             >
               <Square size={13} />
-            </Button>
+            </Button></TooltipTrigger><TooltipContent>{t("sharedMcp.stop")}</TooltipContent></Tooltip>
           </>
         )}
-        <Button
+        <Tooltip><TooltipTrigger asChild><Button
           size="icon"
           variant="ghost"
           className="h-7 w-7"
-          onClick={() => onEdit(server)}
-          title={t("sharedMcp.edit")}
+          onClick={() => onEdit(server)} aria-label={t("sharedMcp.edit")}
         >
           <SquarePen size={13} />
-        </Button>
-        <Button
+        </Button></TooltipTrigger><TooltipContent>{t("sharedMcp.edit")}</TooltipContent></Tooltip>
+        <Tooltip><TooltipTrigger asChild><Button
           size="icon"
           variant="ghost"
           className="h-7 w-7 text-destructive"
-          onClick={() => onRemove(server.name)}
-          title={t("sharedMcp.remove")}
+          onClick={() => onRemove(server.name)} aria-label={t("sharedMcp.remove")}
         >
           <Trash2 size={13} />
-        </Button>
+        </Button></TooltipTrigger><TooltipContent>{t("sharedMcp.remove")}</TooltipContent></Tooltip>
       </div>
     </div>
   );

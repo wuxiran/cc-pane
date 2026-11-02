@@ -7,6 +7,7 @@ import { usePanesStore } from "@/stores/usePanesStore";
 import { useNotificationStore } from "@/stores/useNotificationStore";
 import { useNotificationPreferencesStore } from "@/stores/useNotificationPreferencesStore";
 import { notificationPreferencesService, type LayoutSound } from "@/services/notificationPreferencesService";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function snoozeUntil(kind: string, minutes: number, now = Date.now()): number {
   if (kind === "today") { const date = new Date(now); date.setHours(24, 0, 0, 0); return date.getTime(); }
@@ -28,9 +29,8 @@ export function NotificationSoundControl({ sessionId }: { sessionId?: string }) 
   };
   const save = (sound: LayoutSound) => { if (layoutId) return setSound(layoutId, sound); return Promise.resolve(); };
   if (!layoutId) return null;
-  return <Popover><PopoverTrigger asChild><button type="button" className="rounded p-1 hover:bg-[var(--app-hover)]"
-    title={t("preferences.layoutSound", { name })} aria-label={t("preferences.layoutSound", { name })}>
-    {selected?.mode === "silent" ? <BellOff size={14} /> : <Bell size={14} />}</button></PopoverTrigger>
+  return <Popover><Tooltip><TooltipTrigger asChild><PopoverTrigger asChild><button type="button" className="rounded p-1 hover:bg-[var(--app-hover)]" aria-label={t("preferences.layoutSound", { name })}>
+    {selected?.mode === "silent" ? <BellOff size={14} /> : <Bell size={14} />}</button></PopoverTrigger></TooltipTrigger><TooltipContent>{t("preferences.layoutSound", { name })}</TooltipContent></Tooltip>
     <PopoverContent side="left" className="w-64 p-3"><fieldset disabled={busy} className="space-y-2 text-xs">
       <p className="font-semibold">{t("preferences.layoutSound", { name })}</p>
       <p className="truncate" title={selected?.mode === "custom" ? selected.name : undefined}>{selected?.mode === "custom" ? selected.name : t(`preferences.${selected?.mode === "silent" ? "silent" : "default"}`)}</p>

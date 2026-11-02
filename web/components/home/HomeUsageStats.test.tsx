@@ -89,7 +89,7 @@ describe("HomeUsageStats", () => {
 
   it("refreshes and maps range controls to days", () => {
     render(<HomeUsageStats />);
-    fireEvent.click(screen.getByTitle("刷新用量统计"));
+    fireEvent.click(screen.getByRole("button", { name: "刷新用量统计" }));
     expect(useUsageStatsStore.getState().refresh).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByText("7天"));
     expect(useUsageStatsStore.getState().setRangeDays).toHaveBeenCalledWith(7);

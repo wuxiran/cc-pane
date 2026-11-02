@@ -47,6 +47,7 @@ import {
   savePreferredModel,
   type EngineModelPrefs,
 } from "./enginePrefs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const SUGGESTIONS = [
   { icon: Telescope, labelKey: "agentChatSuggestExplore", promptKey: "agentChatSuggestExplorePrompt" },
@@ -278,11 +279,10 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
               <span className="min-w-0 flex-1" />
               <LocalLaunchSettings projectPath={cwd} worktree={worktree}
                 onChange={setWorktree} disabled={startingEngine !== null} />
-              {runtimeTools && <button type="button" aria-label={reviewT("title")}
-                title={reviewT("title")} onClick={() => runtimeTools.openReview(cwd)}
+              {runtimeTools && <Tooltip><TooltipTrigger asChild><button type="button" aria-label={reviewT("title")} onClick={() => runtimeTools.openReview(cwd)}
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-hover)] transition-colors hover:text-[var(--app-text-primary)]">
                 <FileDiff className="h-3.5 w-3.5" />
-              </button>}
+              </button></TooltipTrigger><TooltipContent>{reviewT("title")}</TooltipContent></Tooltip>}
             </div>
           ) : null}
           <textarea

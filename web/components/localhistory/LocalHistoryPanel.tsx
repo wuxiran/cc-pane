@@ -38,6 +38,7 @@ import { useLocalHistoryData, getLabelColor } from "./useLocalHistoryData";
 import VersionListSidebar from "./VersionListSidebar";
 import VersionDiffView from "./VersionDiffView";
 import LabelDialog from "./LabelDialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface LocalHistoryPanelProps {
   open: boolean;
@@ -242,12 +243,11 @@ export default function LocalHistoryPanel({
                 ? t("localHistoryTitle", { path: effectiveFilePath })
                 : t("localHistoryTitleNoPath")}
               {!effectiveFilePath && (
-                <Button
+                <Tooltip><TooltipTrigger asChild><Button
                   variant="ghost"
                   size="sm"
                   className="ml-auto h-7 w-7 p-0"
                   onClick={() => setShowAllWorktrees((value) => !value)}
-                  title={t("recentChangesAllWorktrees")}
                   aria-label={t("recentChangesAllWorktrees")}
                   style={
                     showAllWorktrees
@@ -259,7 +259,7 @@ export default function LocalHistoryPanel({
                   }
                 >
                   <FolderGit2 size={14} />
-                </Button>
+                </Button></TooltipTrigger><TooltipContent>{t("recentChangesAllWorktrees")}</TooltipContent></Tooltip>
               )}
             </DialogTitle>
           </DialogHeader>

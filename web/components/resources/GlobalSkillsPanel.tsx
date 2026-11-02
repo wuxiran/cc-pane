@@ -20,6 +20,7 @@ import ScopeBanner from "@/components/settings/ScopeBanner";
 import { useExperimentalFeature } from "@/hooks/useExperimentalFeature";
 import { useDescriptionLang } from "@/hooks/useDescriptionLang";
 import { DescriptionLangToggle } from "@/components/ui/DescriptionLangToggle";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 function externalSourceLabel(s: ExternalSkillSource): string {
   if (s.kind === "plugin") return `plugin:${s.pluginId}`;
@@ -140,9 +141,9 @@ export default function GlobalSkillsPanel() {
                 subtitle={s.description}
                 meta={`v${s.version}${s.category ? " · " + s.category : ""}`}
                 action={
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" title={t("deleteBtn", { defaultValue: "删除" })} onClick={() => void handleRemove(s.id)}>
+                  <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" aria-label={t("deleteBtn", { defaultValue: "删除" })} onClick={() => void handleRemove(s.id)}>
                     <Trash2 size={14} />
-                  </Button>
+                  </Button></TooltipTrigger><TooltipContent>{t("deleteBtn")}</TooltipContent></Tooltip>
                 }
               />
             ))}

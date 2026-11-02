@@ -23,6 +23,7 @@ import type { TerminalViewMode } from "./AgentChatView";
 import TaskQueuePopover from "./TaskQueuePopover";
 
 import "@/i18n/sessionReviewResources";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface TerminalStatusBarProps {
   terminalContext: ActiveTerminalContext;
@@ -165,7 +166,7 @@ export default function TerminalStatusBar({
             <TaskQueuePopover sessionId={terminalContext.sessionId} />
           ) : null}
           <span className="min-w-0 flex-1" />
-          {!terminalContext.ssh && !wsl && <button type="button" aria-label={reviewT("title")} title={reviewT("title")} className="shrink-0 rounded p-1 hover:bg-[var(--app-hover)]" onClick={openReview}><FileDiff className="size-3.5" /></button>}
+          {!terminalContext.ssh && !wsl && <Tooltip><TooltipTrigger asChild><button type="button" aria-label={reviewT("title")} className="shrink-0 rounded p-1 hover:bg-[var(--app-hover)]" onClick={openReview}><FileDiff className="size-3.5" /></button></TooltipTrigger><TooltipContent>{reviewT("title")}</TooltipContent></Tooltip>}
           {showViewToggle ? (
             <div
               className="flex shrink-0 overflow-hidden rounded border"

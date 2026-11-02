@@ -7,6 +7,7 @@ import OrchestratorTaskCard from "./OrchestratorTaskCard";
 import OrchestratorTaskTree from "./OrchestratorTaskTree";
 import OrchestratorTaskPagination from "@/components/orchestration/OrchestratorTaskPagination";
 import type { OpenTerminalOptions } from "@/types";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface OrchestratorViewProps {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
@@ -51,13 +52,12 @@ export default function OrchestratorView({
         <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--app-text-secondary)" }}>
           {t("rightDock.orchestration", { defaultValue: "Orchestration" })}
         </span>
-        <button
+        <Tooltip><TooltipTrigger asChild><button
           className="ml-auto shrink-0 rounded p-1 transition-colors hover:bg-[var(--app-hover)]"
-          onClick={handleRefresh}
-          title={t("refresh")}
+          onClick={handleRefresh} aria-label={t("refresh")}
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} style={{ color: "var(--app-text-tertiary)" }} />
-        </button>
+        </button></TooltipTrigger><TooltipContent>{t("refresh")}</TooltipContent></Tooltip>
       </div>
 
       {/* 过滤 Tab */}
@@ -86,11 +86,10 @@ export default function OrchestratorView({
               { type: "list" as const, icon: List, label: t("orchestration:view.list") },
               { type: "tree" as const, icon: ListTree, label: t("orchestration:view.tree") },
             ]).map(({ type, icon: Icon, label }) => (
-              <button
+              <Tooltip><TooltipTrigger asChild><button
                 key={type}
                 type="button"
                 aria-label={label}
-                title={label}
                 className="flex h-6 w-6 items-center justify-center rounded transition-colors"
                 style={{
                   background: viewType === type ? "color-mix(in srgb, var(--app-accent) 16%, transparent)" : "transparent",
@@ -99,7 +98,7 @@ export default function OrchestratorView({
                 onClick={() => setViewType(type)}
               >
                 <Icon className="h-3.5 w-3.5" />
-              </button>
+              </button></TooltipTrigger><TooltipContent>{label}</TooltipContent></Tooltip>
             ))}
           </div>
         )}

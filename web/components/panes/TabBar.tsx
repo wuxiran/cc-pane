@@ -19,6 +19,7 @@ import TabContextMenu, {
   type LayoutMoveTarget,
   type PaneMoveTarget,
 } from "./TabContextMenu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 const SessionBindDialog = lazyWithRetry(() => import("./SessionBindDialog"), "SessionBindDialog");
 interface TabBarProps {
   paneId: string;
@@ -220,16 +221,13 @@ function SortableTab({
         <TabTypeIcon tab={tab} statusSize={d.statusSize} iconSize={d.pinSize} getStatus={getStatus} />
         {/* 会话绑定标志：绿=已确定 resume id（重启可恢复），灰=未绑定（点击手动绑定） */}
         {tab.contentType === "terminal" && tab.cliTool && tab.cliTool !== "none" && (
-          <button
-            type="button"
-            title={
-              tab.resumeId
+          <Tooltip><TooltipTrigger asChild><button
+            type="button" aria-label={tab.resumeId
                 ? t("sessionBindBoundTooltip", {
                     id: tab.resumeId.slice(0, 8),
                     source: tab.resumeIdSource ?? "?",
                   })
-                : t("sessionBindUnboundTooltip")
-            }
+                : t("sessionBindUnboundTooltip")}
             className="shrink-0 flex items-center cursor-default"
             onClick={(e) => {
               e.stopPropagation();
@@ -245,7 +243,12 @@ function SortableTab({
                 opacity: tab.resumeId ? 0.95 : 0.5,
               }}
             />
-          </button>
+          </button></TooltipTrigger><TooltipContent>{tab.resumeId
+                ? t("sessionBindBoundTooltip", {
+                    id: tab.resumeId.slice(0, 8),
+                    source: tab.resumeIdSource ?? "?",
+                  })
+                : t("sessionBindUnboundTooltip")}</TooltipContent></Tooltip>
         )}
         {tab.pinned && (
           <Pin size={d.pinSize} className="shrink-0 opacity-60 rotate-45" style={{ color: "var(--app-accent)" }} onDoubleClick={(e) => e.stopPropagation()} />

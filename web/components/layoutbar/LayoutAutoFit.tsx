@@ -6,17 +6,18 @@ import { usePanelPreferencesStore } from "@/stores/usePanelPreferencesStore";
 import { autoFitPaneTree } from "@/stores/panes/autoFitLayout";
 import { collectPanels } from "@/lib/paneTree";
 import { notifyTerminalLayoutChanged } from "@/lib/paneTree";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function LayoutAutoFitButton({ stacked = false }: { stacked?: boolean } = {}) {
   const { t } = useTranslation("panes");
   const id = usePanesStore(s => s.currentLayoutId);
   const enabled = usePanelPreferencesStore(s => Boolean(id && s.autoFitLayouts.includes(id)));
   const setAutoFit = usePanelPreferencesStore(s => s.setAutoFit);
-  return <button type="button" title={t("autoFitLayout")} aria-label={t("autoFitLayout")} aria-pressed={enabled}
+  return <Tooltip><TooltipTrigger asChild><button type="button" aria-label={t("autoFitLayout")} aria-pressed={enabled}
     className={`flex shrink-0 items-center justify-center rounded-md hover:bg-[var(--app-hover)] ${
       stacked ? "h-full w-7" : "size-7"
     } ${enabled ? "bg-[var(--app-active-bg)] text-[var(--app-accent)]" : ""}`}
-    disabled={!id} onClick={() => { if (id) setAutoFit(id, !enabled); }}><Scan className="size-4" /></button>;
+    disabled={!id} onClick={() => { if (id) setAutoFit(id, !enabled); }}><Scan className="size-4" /></button></TooltipTrigger><TooltipContent>{t("autoFitLayout")}</TooltipContent></Tooltip>;
 }
 
 export function LayoutAutoFitObserver() {

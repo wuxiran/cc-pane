@@ -1,3 +1,4 @@
+import { useTypeAhead } from "@/hooks/useTypeAhead";
 import { useEffect, useCallback, useRef, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -231,8 +232,16 @@ export default function FileTree({
 
   // 树键盘导航：↑/↓ 移动，→ 展开或进首个子项，← 折叠或回父项，
   // Enter 打开文件/切换目录，F2 重命名，Menu 键打开右键菜单
+  const handleTypeAhead = useTypeAhead({
+    getLabels: () => visibleItems.map((item) => item.node.entry.name),
+    getCurrentIndex: () => visibleItems.findIndex((item) => item.node.entry.path === activePath),
+    onMatch: (index) => focusItem(visibleItems[index].node.entry.path),
+  });
+
   const handleTreeKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      handleTypeAhead(e);
+      if (e.defaultPrevented) return;
       if (!activePath) return;
       const index = visibleItems.findIndex((v) => v.node.entry.path === activePath);
       if (index < 0) return;

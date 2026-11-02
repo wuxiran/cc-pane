@@ -57,20 +57,20 @@ describe("MiniView", () => {
     vi.mocked(invoke).mockResolvedValue(false);
     render(<MiniView />);
 
-    await user.click(screen.getByTitle(/取消置顶|Unpin/i));
+    await user.click(screen.getByRole("button", { name: /取消置顶|Unpin/i }));
     expect(invoke).toHaveBeenCalledWith("toggle_always_on_top");
 
     // 返回 false 后按钮切换为 "置顶" 语义
-    await waitFor(() => expect(screen.getByTitle(/窗口置顶|Pin Window/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /窗口置顶|Pin Window/i })).toBeInTheDocument());
   });
 
   it("置顶接口报错时静默处理，不崩溃", async () => {
     const user = userEvent.setup();
     vi.mocked(invoke).mockRejectedValue(new Error("boom"));
     render(<MiniView />);
-    await user.click(screen.getByTitle(/取消置顶|Unpin/i));
+    await user.click(screen.getByRole("button", { name: /取消置顶|Unpin/i }));
     // 仍保持初始置顶态
-    expect(screen.getByTitle(/取消置顶|Unpin/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /取消置顶|Unpin/i })).toBeInTheDocument();
   });
 
   it("点击恢复按钮退出迷你模式", async () => {
@@ -79,7 +79,7 @@ describe("MiniView", () => {
     useMiniModeStore.setState({ exitMiniMode: exitSpy });
     render(<MiniView />);
 
-    await user.click(screen.getByTitle(/恢复窗口|Restore Window/i));
+    await user.click(screen.getByRole("button", { name: /恢复窗口|Restore Window/i }));
     expect(exitSpy).toHaveBeenCalled();
   });
 

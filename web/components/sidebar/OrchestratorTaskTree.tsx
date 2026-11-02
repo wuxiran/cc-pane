@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { useOrchestratorStore } from "@/stores";
 import type { TaskBindingNode } from "@/types";
 import OrchestratorTaskCard from "./OrchestratorTaskCard";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 function flattenVisible(
   nodes: TaskBindingNode[],
@@ -47,7 +48,7 @@ export default function OrchestratorTaskTree() {
               style={{ marginLeft: Math.max(0, depth * 14 - 4) }}
             >
               {hasChildren ? (
-                <button
+                <Tooltip><TooltipTrigger asChild><button
                   className="rounded p-0.5 hover:bg-[var(--app-hover)]"
                   onClick={(event) => {
                     event.stopPropagation();
@@ -60,11 +61,10 @@ export default function OrchestratorTaskTree() {
                       }
                       return next;
                     });
-                  }}
-                  title={isExpanded ? t("tree.collapse", { defaultValue: "折叠" }) : t("tree.expand", { defaultValue: "展开" })}
+                  }} aria-label={isExpanded ? t("tree.collapse", { defaultValue: "折叠" }) : t("tree.expand", { defaultValue: "展开" })}
                 >
                   {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                </button>
+                </button></TooltipTrigger><TooltipContent>{isExpanded ? t("tree.collapse") : t("tree.expand")}</TooltipContent></Tooltip>
               ) : depth > 0 ? (
                 <span className="px-1 text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>
                   ↪

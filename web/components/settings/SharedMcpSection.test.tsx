@@ -210,7 +210,7 @@ describe("SharedMcpSection", () => {
     setStore([createServer({ name: "old" })]);
     await renderSection();
 
-    await user.click(screen.getByTitle(tk("sharedMcp.edit")));
+    await user.click(screen.getByRole("button", { name: tk("sharedMcp.edit") }));
     const nameInput = screen.getByDisplayValue("old");
     await user.clear(nameInput);
     await user.type(nameInput, "new");
@@ -233,9 +233,9 @@ describe("SharedMcpSection", () => {
     ]);
     await renderSection();
 
-    expect(screen.getAllByTitle(tk("sharedMcp.start"))).toHaveLength(1);
-    expect(screen.getAllByTitle(tk("sharedMcp.stop"))).toHaveLength(1);
-    expect(screen.getAllByTitle(tk("sharedMcp.restart"))).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: tk("sharedMcp.start") })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: tk("sharedMcp.stop") })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: tk("sharedMcp.restart") })).toHaveLength(1);
   });
 
   it("renders a failed status as a destructive badge with the message", async () => {
@@ -258,19 +258,19 @@ describe("SharedMcpSection", () => {
     ]);
     await renderSection();
 
-    await user.click(screen.getByTitle(tk("sharedMcp.start")));
+    await user.click(screen.getByRole("button", { name: tk("sharedMcp.start") }));
     await waitFor(() => expect(startServerMock).toHaveBeenCalledWith("stopped"));
 
-    await user.click(screen.getByTitle(tk("sharedMcp.stop")));
+    await user.click(screen.getByRole("button", { name: tk("sharedMcp.stop") }));
     await waitFor(() => expect(stopServerMock).toHaveBeenCalledWith("running"));
 
-    await user.click(screen.getByTitle(tk("sharedMcp.restart")));
+    await user.click(screen.getByRole("button", { name: tk("sharedMcp.restart") }));
     await waitFor(() => expect(restartServerMock).toHaveBeenCalledWith("running"));
 
-    await user.click(screen.getAllByTitle(tk("sharedMcp.disableSharing"))[0]);
+    await user.click(screen.getAllByRole("button", { name: tk("sharedMcp.disableSharing") })[0]);
     await waitFor(() => expect(toggleSharedMock).toHaveBeenCalledWith("stopped", false));
 
-    await user.click(screen.getAllByTitle(tk("sharedMcp.remove"))[0]);
+    await user.click(screen.getAllByRole("button", { name: tk("sharedMcp.remove") })[0]);
     await waitFor(() => expect(removeServerMock).toHaveBeenCalledWith("stopped"));
   });
 

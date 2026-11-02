@@ -22,7 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { TooltipProvider, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import OrchestratorTaskTree from "@/components/sidebar/OrchestratorTaskTree";
 import { useActivityBarStore, useOrchestratorStore } from "@/stores";
 import { useNotificationStore, type NotificationRecord } from "@/stores/useNotificationStore";
@@ -421,14 +421,13 @@ export default function OrchestrationFullView({
             background: "var(--app-content)",
           }}
         >
-          <button
+          <Tooltip><TooltipTrigger asChild><button
             type="button"
             className="absolute left-0 top-0 z-10 flex h-full w-2 cursor-col-resize items-center justify-center opacity-0 transition-opacity duration-[var(--dur-fast)] group-hover:opacity-100 focus-visible:opacity-100"
-            onPointerDown={startResize}
-            title={rightCollapsed ? t("expandPreview", { defaultValue: "展开预览" }) : t("resizePreview", { defaultValue: "调整预览宽度" })}
+            onPointerDown={startResize} aria-label={rightCollapsed ? t("expandPreview", { defaultValue: "展开预览" }) : t("resizePreview", { defaultValue: "调整预览宽度" })}
           >
             <GripVertical className="h-5 w-5" strokeWidth={1.5} style={{ color: "var(--app-text-tertiary)" }} />
-          </button>
+          </button></TooltipTrigger><TooltipContent>{rightCollapsed ? t("expandPreview") : t("resizePreview")}</TooltipContent></Tooltip>
           {!rightCollapsed && (
             <>
               <div className="flex h-10 shrink-0 items-center justify-between px-3" style={{ borderBottom: "1px solid var(--app-border)" }}>
@@ -448,14 +447,13 @@ export default function OrchestrationFullView({
             </>
           )}
           {rightCollapsed && (
-            <button
+            <Tooltip><TooltipTrigger asChild><button
               type="button"
               className="flex h-full w-full items-center justify-center opacity-0 transition-opacity duration-[var(--dur-fast)] hover:opacity-100"
-              onClick={() => setRightCollapsed(false)}
-              title={t("expandPreview", { defaultValue: "展开预览" })}
+              onClick={() => setRightCollapsed(false)} aria-label={t("expandPreview", { defaultValue: "展开预览" })}
             >
               <PanelRightOpen className="h-4 w-4" strokeWidth={1.5} style={{ color: "var(--app-text-tertiary)" }} />
-            </button>
+            </button></TooltipTrigger><TooltipContent>{t("expandPreview")}</TooltipContent></Tooltip>
           )}
         </aside>
       </div>

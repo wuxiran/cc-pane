@@ -82,13 +82,13 @@ it("requires the global gate and records exactly the chosen session and tab", as
   const location = vi.spyOn(usePanesStore.getState(), "findTabBySessionAcrossLayouts")
     .mockReturnValue({ tab: { id: "chosen-tab" } } as never);
   const view = render(<OrchestratorTaskActions binding={binding} />);
-  await user.click(screen.getByTitle(tt("orchestration:sidebar.actions")));
+  await user.click(screen.getByRole("button", { name: tt("orchestration:sidebar.actions") }));
   const option = await screen.findByRole("menuitem", { name: tt("orchestration:sidebar.autoClose") });
   expect(option).toHaveAttribute("data-disabled");
   view.unmount();
   useSettingsStore.setState({ settings: { ...settings, terminal: { ...settings.terminal, autoCloseCompletedTasks: true } } });
   render(<OrchestratorTaskActions binding={binding} />);
-  await user.click(screen.getByTitle(tt("orchestration:sidebar.actions")));
+  await user.click(screen.getByRole("button", { name: tt("orchestration:sidebar.actions") }));
   await user.click(await screen.findByRole("menuitem", { name: tt("orchestration:sidebar.autoClose") }));
   expect(updatePatch).toHaveBeenCalledWith(binding.id, { metadata: { ui: {
     autoCloseCompletedSessionId: "chosen-pty", autoCloseCompletedTabId: "chosen-tab",
@@ -106,7 +106,7 @@ function setSessionStatus(sessionId: string, status: TerminalStatusInfo["status"
 }
 
 async function openMenu(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByTitle(tt("orchestration:sidebar.actions")));
+  await user.click(screen.getByRole("button", { name: tt("orchestration:sidebar.actions") }));
 }
 
 describe("OrchestratorTaskActions", () => {
@@ -160,7 +160,7 @@ describe("OrchestratorTaskActions", () => {
     seedStore([binding]);
     render(<OrchestratorTaskActions binding={binding} />);
 
-    const trigger = screen.getByTitle(tt("orchestration:sidebar.actions"));
+    const trigger = screen.getByRole("button", { name: tt("orchestration:sidebar.actions") });
     expect(trigger.className).toContain("group-hover:opacity-100");
     expect(trigger.className).toContain("focus-visible:opacity-100");
 

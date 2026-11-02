@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dialog";
 import { BUILTIN_TODO_TYPES } from "@/stores";
 import type { TodoPriority, TodoSavedFilter, TodoSortBy, TodoStatus } from "@/types";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export type GroupMode = "none" | "tag" | "status" | "priority" | "scope";
 
@@ -221,11 +222,11 @@ export default function TodoFilterBar({
         </DropdownMenu>
 
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="icon" variant={sortBy !== "manual" || groupMode !== "none" ? "secondary" : "ghost"} className="h-9 w-9" title={t("todoMoreActions")}>
+          <Tooltip><TooltipTrigger asChild><DropdownMenuTrigger asChild>
+            <Button size="icon" variant={sortBy !== "manual" || groupMode !== "none" ? "secondary" : "ghost"} className="h-9 w-9" aria-label={t("todoMoreActions")}>
               <MoreHorizontal size={16} />
             </Button>
-          </DropdownMenuTrigger>
+          </DropdownMenuTrigger></TooltipTrigger><TooltipContent>{t("todoMoreActions")}</TooltipContent></Tooltip>
           <DropdownMenuContent align="end" className="w-52">
             <DropdownMenuSub>
               <DropdownMenuSubTrigger><ArrowDownUp size={14} />{t("todoSort")}</DropdownMenuSubTrigger>
@@ -285,9 +286,9 @@ export default function TodoFilterBar({
           {filterType && <span className="rounded bg-primary/10 px-2 py-1 text-primary">{typeLabel}</span>}
           {sortBy !== "manual" && <span className="rounded bg-muted px-2 py-1 text-muted-foreground">{sortOptions.find((option) => option.value === sortBy)?.label}</span>}
           {groupMode !== "none" && <span className="rounded bg-muted px-2 py-1 text-muted-foreground">{groupOptions.find((option) => option.value === groupMode)?.label}</span>}
-          <button type="button" onClick={onClearFilters} className="text-muted-foreground hover:text-foreground" title={t("todoClearFilters")}>
+          <Tooltip><TooltipTrigger asChild><button type="button" onClick={onClearFilters} className="text-muted-foreground hover:text-foreground" aria-label={t("todoClearFilters")}>
             <X size={12} />
-          </button>
+          </button></TooltipTrigger><TooltipContent>{t("todoClearFilters")}</TooltipContent></Tooltip>
         </div>
       )}
 

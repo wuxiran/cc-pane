@@ -134,7 +134,7 @@ describe("ProvidersView", () => {
 
     await screen.findByText("Claude Main");
     expect(screen.getByText(/^Default$|^默认$/i)).toBeVisible();
-    expect(screen.queryByTitle(/Set as default|设为默认/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Set as default|设为默认/i })).not.toBeInTheDocument();
   });
 
   it("calls set_default_provider when clicking the star on a non-default provider", async () => {
@@ -143,7 +143,7 @@ describe("ProvidersView", () => {
     render(<ProvidersView />);
 
     await screen.findByText("Claude Main");
-    fireEvent.click(screen.getByTitle(/Set as default|设为默认/i));
+    fireEvent.click(screen.getByRole("button", { name: /Set as default|设为默认/i }));
 
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith("set_default_provider", {
@@ -159,7 +159,7 @@ describe("ProvidersView", () => {
     render(<ProvidersView />);
 
     await screen.findByText("Claude Main");
-    fireEvent.click(screen.getByTitle(/^Delete$|^删除$/i));
+    fireEvent.click(screen.getByRole("button", { name: /^Delete$|^删除$/i }));
 
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith("remove_provider", { id: provider.id }),
@@ -171,7 +171,7 @@ describe("ProvidersView", () => {
     setup([provider]);
     render(<ProvidersView />);
 
-    const starButton = await screen.findByTitle(/Set as default|设为默认/i);
+    const starButton = await screen.findByRole("button", { name: /Set as default|设为默认/i });
     const actionWrap = starButton.parentElement as HTMLElement;
     expect(actionWrap.className).toContain("group-hover:opacity-100");
     expect(actionWrap.className).toContain("focus-within:opacity-100");

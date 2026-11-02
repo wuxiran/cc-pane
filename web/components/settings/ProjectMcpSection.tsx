@@ -44,7 +44,7 @@ import {
   type McpHubEntry,
   type McpHubFilter,
 } from "./mcpHubModel";
-
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 interface ProjectMcpSectionProps {
   projectPath: string;
   /** 工作空间视图（docs/98 workspace-first）：projectPath 为空时生效 */
@@ -575,12 +575,12 @@ function McpCard({
           )}
           {entry.kind === "layer" && (
             <>
-              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onEdit} aria-label={t("mcpEdit")} title={t("mcpEdit")}>
+              <Tooltip><TooltipTrigger asChild><Button size="icon" variant="ghost" className="h-7 w-7" onClick={onEdit} aria-label={t("mcpEdit")}>
                 <Pencil size={13} />
-              </Button>
-              <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={onDelete} aria-label={t("mcpDelete")} title={t("mcpDelete")}>
+              </Button></TooltipTrigger><TooltipContent>{t("mcpEdit")}</TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger asChild><Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={onDelete} aria-label={t("mcpDelete")}>
                 <Trash2 size={13} />
-              </Button>
+              </Button></TooltipTrigger><TooltipContent>{t("mcpDelete")}</TooltipContent></Tooltip>
             </>
           )}
         </div>

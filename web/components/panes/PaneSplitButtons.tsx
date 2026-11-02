@@ -2,6 +2,7 @@
 // 窄档空间紧张时同样靠 hover 显现，pane 头部右键菜单是兜底入口。
 import { PanelBottom, PanelRight } from "lucide-react";
 import { runCommand } from "@/lib/commands/registry";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface PaneSplitButtonsProps {
   paneId: string;
@@ -20,26 +21,24 @@ export default function PaneSplitButtons({
 }: PaneSplitButtonsProps) {
   return (
     <div className="flex items-center gap-0.5 self-center opacity-0 transition-opacity group-hover:opacity-100">
-      <button
+      <Tooltip><TooltipTrigger asChild><button
         type="button"
         aria-label={splitRightLabel}
-        title={splitRightLabel}
         className={`${addBtnClass} flex items-center justify-center rounded transition-colors hover:bg-[var(--app-hover)]`}
         style={{ color: "var(--app-icon-inactive)" }}
         onClick={() => runCommand("split-right", { paneId })}
       >
         <PanelRight className={addIconClass} />
-      </button>
-      <button
+      </button></TooltipTrigger><TooltipContent>{splitRightLabel}</TooltipContent></Tooltip>
+      <Tooltip><TooltipTrigger asChild><button
         type="button"
         aria-label={splitDownLabel}
-        title={splitDownLabel}
         className={`${addBtnClass} flex items-center justify-center rounded transition-colors hover:bg-[var(--app-hover)]`}
         style={{ color: "var(--app-icon-inactive)" }}
         onClick={() => runCommand("split-down", { paneId })}
       >
         <PanelBottom className={addIconClass} />
-      </button>
+      </button></TooltipTrigger><TooltipContent>{splitDownLabel}</TooltipContent></Tooltip>
     </div>
   );
 }

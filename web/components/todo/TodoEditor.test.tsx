@@ -66,7 +66,7 @@ describe("TodoEditor", () => {
 
     expect(screen.getByText("新建任务")).toBeVisible();
     expect(screen.getByText("创建")).toBeVisible();
-    expect(screen.queryByTitle("删除")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "删除" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("subtask-list")).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText("任务描述（支持 Markdown）...")).toBeVisible();
     expect(screen.queryByText("功能")).not.toBeInTheDocument();
@@ -82,7 +82,7 @@ describe("TodoEditor", () => {
     expect(screen.getByText("保存")).toBeVisible();
     expect(screen.getByTestId("subtask-list")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTitle("删除"));
+    fireEvent.click(screen.getByRole("button", { name: "删除" }));
     expect(props.onDelete).toHaveBeenCalledTimes(1);
   });
 
@@ -222,7 +222,7 @@ describe("TodoEditor", () => {
   it("添加自定义类型：输入后回车调用 addCustomType 并选中", () => {
     const props = renderEditor();
 
-    fireEvent.click(screen.getByTitle("添加类型"));
+    fireEvent.click(screen.getByRole("button", { name: "添加类型" }));
     const input = screen.getByPlaceholderText("添加类型");
     fireEvent.change(input, { target: { value: "Infra" } });
     fireEvent.keyDown(input, { key: "Enter" });

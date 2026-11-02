@@ -14,6 +14,7 @@ import {
   compatibleCliToolsForProviderType,
   isProviderTypeCompatibleWithCli,
 } from "@/utils/providerCompatibility";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export default function ProvidersView() {
   const { t } = useTranslation(["settings", "sidebar"]);
@@ -135,23 +136,21 @@ function ProviderListItem({ provider, isDefault, onDelete, onSetDefault }: {
       </div>
       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
         {!isDefault && (
-          <button
+          <Tooltip><TooltipTrigger asChild><button
             className="p-1 rounded hover:bg-[var(--app-hover)]"
             style={{ color: "var(--app-text-tertiary)" }}
-            onClick={() => onSetDefault(provider.id)}
-            title={t("setAsDefaultBtn")}
+            onClick={() => onSetDefault(provider.id)} aria-label={t("setAsDefaultBtn")}
           >
             <Star size={12} />
-          </button>
+          </button></TooltipTrigger><TooltipContent>{t("setAsDefaultBtn")}</TooltipContent></Tooltip>
         )}
-        <button
+        <Tooltip><TooltipTrigger asChild><button
           className="p-1 rounded hover:bg-[var(--app-hover)]"
           style={{ color: "var(--app-text-tertiary)" }}
-          onClick={() => onDelete(provider.id)}
-          title={t("deleteBtn")}
+          onClick={() => onDelete(provider.id)} aria-label={t("deleteBtn")}
         >
           <Trash2 size={12} />
-        </button>
+        </button></TooltipTrigger><TooltipContent>{t("deleteBtn")}</TooltipContent></Tooltip>
       </div>
     </div>
   );
