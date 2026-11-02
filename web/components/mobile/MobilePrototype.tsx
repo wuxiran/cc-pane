@@ -100,7 +100,7 @@ export default function MobilePrototype({
           <header className="flex-none border-b border-[var(--app-border)] bg-[var(--app-panel-bg)] px-4 pb-3 pt-[max(14px,env(safe-area-inset-top))]">
             <div className="flex h-11 items-center justify-between">
               <div className="min-w-0">
-                <div className="truncate text-[13px] font-medium text-[var(--app-text-tertiary)]">{t("appTitle")}</div>
+                <div className="truncate text-[length:var(--text-row)] font-medium text-[var(--app-text-tertiary)]">{t("appTitle")}</div>
                 <h1 className="truncate text-[length:var(--text-display)] font-semibold leading-6 tracking-normal">{t(`views.${view}`)}</h1>
               </div>
             </div>
@@ -112,7 +112,7 @@ export default function MobilePrototype({
               <Metric label={t("metrics.panes")} value={panels.length} tone="text-[var(--app-tag-amber)]" />
             </div>
 
-            <div className="mt-3 grid grid-cols-3 rounded-md bg-[var(--app-hover)] p-1 text-[13px] font-medium">
+            <div className="mt-3 grid grid-cols-3 rounded-md bg-[var(--app-hover)] p-1 text-[length:var(--text-row)] font-medium">
               <SegmentButton active={view === "workspaces"} onClick={() => setView("workspaces")}>{t("views.workspaces")}</SegmentButton>
               <SegmentButton active={view === "layouts"} onClick={() => setView("layouts")}>{t("views.layouts")}</SegmentButton>
               <SegmentButton active={false} onClick={() => setView("terminal")}>{t("segment.currentTerminal")}</SegmentButton>
@@ -200,7 +200,7 @@ export default function MobilePrototype({
 function Metric({ label, value, tone }: { label: string; value: number; tone: string }) {
   return (
     <div className="min-w-0 rounded-md border border-[var(--app-home-border)] bg-[var(--app-home-surface)] px-2 py-2 text-center">
-      <div className={`text-[18px] font-semibold leading-5 ${tone}`}>{value}</div>
+      <div className={`text-[length:var(--text-heading)] font-semibold leading-5 ${tone}`}>{value}</div>
       <div className="mt-1 truncate text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{label}</div>
     </div>
   );

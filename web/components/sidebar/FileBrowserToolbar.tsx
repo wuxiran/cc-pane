@@ -61,7 +61,7 @@ export default function FileBrowserToolbar({
     <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-[var(--app-border)] bg-[var(--app-content)]">
       {/* 面包屑 / 编辑框 */}
       <div
-        className="flex-1 min-w-0 px-2 py-1 rounded-md text-[13px] bg-[color-mix(in_srgb,var(--app-input-bg)_50%,transparent)] hover:bg-[var(--app-input-bg)] cursor-text transition-colors"
+        className="flex-1 min-w-0 px-2 py-1 rounded-md text-[length:var(--text-row)] bg-[color-mix(in_srgb,var(--app-input-bg)_50%,transparent)] hover:bg-[var(--app-input-bg)] cursor-text transition-colors"
         onDoubleClick={handleStartEdit}
       >
         {editing ? (

@@ -326,7 +326,7 @@ export default function SharedMcpSection() {
                     value={form.bridgeMode}
                     onValueChange={(next) => setForm({ ...form, bridgeMode: next as BridgeMode })}
                   >
-                    <SelectTrigger id={id} className="h-8 w-full bg-[var(--app-content)] text-[13px]">
+                    <SelectTrigger id={id} className="h-8 w-full bg-[var(--app-content)] text-[length:var(--text-row)]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -450,10 +450,10 @@ function ServerRow({
           <span className="text-sm font-medium truncate">
             {server.name}
           </span>
-          <Badge variant={statusVariant(server.status)} className="text-[10px]">
+          <Badge variant={statusVariant(server.status)} className="text-[length:var(--text-micro)]">
             {statusLabel(server.status)}
           </Badge>
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[length:var(--text-micro)] text-muted-foreground">
             :{server.config.port}
           </span>
         </div>

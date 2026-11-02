@@ -162,7 +162,7 @@ export default function SettingsPaneContent(props: SettingsPaneContentProps) {
           "[&>div]:gap-4",
           "[&>div>div]:rounded-lg [&>div>div]:border [&>div>div]:border-[var(--app-border)] [&>div>div]:bg-[var(--app-panel-bg)] [&>div>div]:px-5 [&>div>div]:py-4 [&>div>div]:shadow-sm",
           "[&>div>label]:rounded-lg [&>div>label]:border [&>div>label]:border-[var(--app-border)] [&>div>label]:bg-[var(--app-panel-bg)] [&>div>label]:px-5 [&>div>label]:py-4 [&>div>label]:shadow-sm",
-          "[&_label]:text-[13px] [&_p]:text-[length:var(--text-small)]",
+          "[&_label]:text-[length:var(--text-row)] [&_p]:text-[length:var(--text-small)]",
         ],
       )}
     >

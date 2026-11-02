@@ -151,7 +151,7 @@ export function HeavyCommandsTab({ active }: HeavyCommandsTabProps) {
         </div>
       ) : (
         <table className="w-full table-fixed text-[length:var(--text-caption)]">
-          <thead className="text-left text-[10px] uppercase text-[var(--app-text-tertiary)]">
+          <thead className="text-left text-[length:var(--text-micro)] uppercase text-[var(--app-text-tertiary)]">
             <tr>
               <th className="px-1 py-1 font-medium">{t("heavyCommandsColCommand")}</th>
               <th className="w-10 px-1 py-1 text-right font-medium">{t("heavyCommandsColRuns")}</th>

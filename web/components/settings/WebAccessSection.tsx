@@ -285,7 +285,7 @@ export default function WebAccessSection({
               value={whitelistText}
               onChange={(event) => update("ipWhitelist", normalizeWhitelistText(event.target.value))}
               rows={3}
-              className="px-2 py-1.5 rounded-md text-[13px] outline-none font-mono resize-none"
+              className="px-2 py-1.5 rounded-md text-[length:var(--text-row)] outline-none font-mono resize-none"
               placeholder="192.168.1.20"
               style={{
                 border: "1px solid var(--app-border)",

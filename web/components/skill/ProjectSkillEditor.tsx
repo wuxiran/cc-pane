@@ -24,6 +24,7 @@ import type { ProjectSkillContent, ProjectSkillRoot } from "@/types";
 import { handleErrorSilent } from "@/utils/errorHandler";
 import ConsumerBadges from "./ConsumerBadges";
 import { moveTargets, validateSkillName } from "./projectSkillModel";
+import { nativeConfirm } from "@/services/nativeDialog";
 
 interface ProjectSkillEditorProps {
   roots: ProjectSkillRoot[];
@@ -95,9 +96,9 @@ export default function ProjectSkillEditor({
       .catch((error) => handleErrorSilent(error, "open skill folder"));
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!existing) return;
-    if (window.confirm(t("editor.deleteConfirm", { name: existing.skill.name }))) onDelete(existing);
+    if (await nativeConfirm(t("editor.deleteConfirm", { name: existing.skill.name }))) onDelete(existing);
   };
 
   return (

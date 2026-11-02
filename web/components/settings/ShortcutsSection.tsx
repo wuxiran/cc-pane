@@ -99,7 +99,7 @@ export default function ShortcutsSection({ value, onChange }: ShortcutsSectionPr
             className="flex justify-between items-center py-1.5"
             style={{ borderBottom: "1px solid var(--app-border)" }}
           >
-            <span className="text-[13px]" style={{ color: "var(--app-text-secondary)" }}>
+            <span className="text-[length:var(--text-row)]" style={{ color: "var(--app-text-secondary)" }}>
               {getActionLabel(action)}
             </span>
             <button

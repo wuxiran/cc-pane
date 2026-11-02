@@ -97,7 +97,7 @@ export default function TodoListItem({
             onToggleSelect();
           }}
         >
-          {isMultiSelected && <span className="text-[10px]">✓</span>}
+          {isMultiSelected && <span className="text-[length:var(--text-micro)]">✓</span>}
         </button>
       )}
       {/* 状态切换 */}

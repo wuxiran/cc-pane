@@ -49,7 +49,7 @@ export default function SettingsSidebar({ pages, activePageId, onSelect, searchS
                       type="button"
                       aria-current={active ? "page" : undefined}
                       data-current={active ? "true" : undefined}
-                      className="flex min-h-8 w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] text-[var(--app-text-secondary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] data-[current=true]:bg-[var(--app-active-bg)] data-[current=true]:font-medium data-[current=true]:text-[var(--app-text-primary)] sm:text-[13px]"
+                      className="flex min-h-8 w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[length:var(--text-row)] text-[var(--app-text-secondary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] data-[current=true]:bg-[var(--app-active-bg)] data-[current=true]:font-medium data-[current=true]:text-[var(--app-text-primary)] sm:text-[length:var(--text-row)]"
                       onClick={() => onSelect(page.id)}
                     >
                       <Icon aria-hidden="true" size={16} className="shrink-0" />

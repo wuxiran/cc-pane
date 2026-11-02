@@ -35,7 +35,7 @@ export default function WebAccessOrchestratorBlock({
         </p>
       </div>
       <div className="flex items-center justify-between gap-6">
-        <span className="text-[13px] text-[var(--app-text-secondary)]">
+        <span className="text-[length:var(--text-row)] text-[var(--app-text-secondary)]">
           {t("webAccessSection.orchestrator.bindMode")}
         </span>
         <Select
@@ -44,7 +44,7 @@ export default function WebAccessOrchestratorBlock({
             onOrchestratorChange({ ...orchestrator, bindMode: next as OrchestratorBindMode })
           }
         >
-          <SelectTrigger aria-label={t("webAccessSection.orchestrator.bindMode")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+          <SelectTrigger aria-label={t("webAccessSection.orchestrator.bindMode")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

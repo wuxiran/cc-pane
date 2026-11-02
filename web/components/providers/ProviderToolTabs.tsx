@@ -67,7 +67,7 @@ export default function ProviderToolTabs({ activeTab, onTabChange, providerCount
             {count > 0 && (
               <span
                 aria-hidden="true"
-                className="absolute -right-0.5 -top-0.5 min-w-3.5 rounded-full bg-[var(--app-hover)] px-0.5 text-center text-[9px] leading-3.5 tabular-nums text-[var(--app-text-tertiary)]"
+                className="absolute -right-0.5 -top-0.5 min-w-3.5 rounded-full bg-[var(--app-hover)] px-0.5 text-center text-[length:var(--text-nano)] leading-3.5 tabular-nums text-[var(--app-text-tertiary)]"
               >
                 {count}
               </span>

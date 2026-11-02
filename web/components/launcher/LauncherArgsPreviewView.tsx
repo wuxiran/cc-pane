@@ -18,7 +18,7 @@ export default function LauncherArgsPreview({ input }: { input: ArgsPreviewInput
       >
         {lines.join("\n")}
       </div>
-      <div className="mt-1 text-[10px]" style={{ color: "var(--app-text-tertiary)" }}>
+      <div className="mt-1 text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>
         {t("argsPreviewApproximate")}
       </div>
     </div>

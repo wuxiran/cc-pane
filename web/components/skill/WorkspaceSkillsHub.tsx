@@ -417,7 +417,7 @@ export default function WorkspaceSkillsHub({ workspaceName }: WorkspaceSkillsHub
                       className="flex min-h-[128px] flex-col items-start justify-center gap-1 rounded-xl border border-dashed px-4 text-left"
                       style={{ borderColor: "var(--app-home-border)", color: "var(--app-text-tertiary)" }}
                     >
-                      <span className="text-[13px] font-medium" style={{ color: "var(--app-text-secondary)" }}>
+                      <span className="text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-secondary)" }}>
                         {t("hub.workspaceEmpty")}
                       </span>
                       <span className="text-[length:var(--text-small)]">{t("hub.selectWorkspace")}</span>
@@ -462,7 +462,7 @@ export default function WorkspaceSkillsHub({ workspaceName }: WorkspaceSkillsHub
               {showProject && (projectGroups.length > 0 || (!query && sourceFilter === "project")) && (
                 <CardSection title={t("hub.projectSection")} count={projectSkills.length}>
                   {projectGroups.length === 0 ? (
-                    <p className="col-span-full py-6 text-[13px]" style={{ color: "var(--app-text-tertiary)" }}>
+                    <p className="col-span-full py-6 text-[length:var(--text-row)]" style={{ color: "var(--app-text-tertiary)" }}>
                       {t("hub.projectEmpty")}
                     </p>
                   ) : projectGroups.flatMap((group) =>
@@ -588,7 +588,7 @@ function SkillCard({
           {glyph}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }} title={name}>
+          <div className="truncate text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-primary)" }} title={name}>
             {name}
           </div>
           <div className="mt-0.5 flex items-center gap-1.5 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
@@ -648,11 +648,11 @@ function BundledDetail({
               <h2 className="truncate text-base font-semibold" style={{ color: "var(--app-text-primary)" }}>
                 {skill.name}
               </h2>
-              <Badge variant="secondary" className="text-[10px]">{t("hub.sourceBuiltin")}</Badge>
+              <Badge variant="secondary" className="text-[length:var(--text-micro)]">{t("hub.sourceBuiltin")}</Badge>
               <ConsumerBadges consumers={["claude", "codex"]} />
             </div>
             {description && (
-              <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed" style={{ color: "var(--app-text-secondary)" }}>
+              <p className="mt-1.5 max-w-2xl text-[length:var(--text-row)] leading-relaxed" style={{ color: "var(--app-text-secondary)" }}>
                 {description}
               </p>
             )}
@@ -680,14 +680,14 @@ function BundledDetail({
           <textarea
             value={content.content}
             readOnly
-            className="h-full min-h-[280px] w-full resize-none rounded-lg border border-border p-4 font-mono text-[13px] leading-relaxed focus:outline-none"
+            className="h-full min-h-[280px] w-full resize-none rounded-lg border border-border p-4 font-mono text-[length:var(--text-row)] leading-relaxed focus:outline-none"
             style={{ background: "color-mix(in srgb, var(--app-text-primary) 3%, transparent)", color: "var(--app-text-primary)" }}
             aria-label="SKILL.md"
             spellCheck={false}
           />
         ) : (
           <div
-            className="rounded-lg border border-dashed border-border px-5 py-8 text-[13px] leading-relaxed"
+            className="rounded-lg border border-dashed border-border px-5 py-8 text-[length:var(--text-row)] leading-relaxed"
             style={{ color: "var(--app-text-tertiary)" }}
           >
             {t("hub.builtinMountNote")}

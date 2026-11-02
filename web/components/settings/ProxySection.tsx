@@ -58,7 +58,7 @@ export default function ProxySection({ value, onChange }: ProxySectionProps) {
             <div className="flex items-center justify-between gap-6">
               <Label htmlFor={proxyTypeId}>{t("proxyType")}</Label>
               <Select value={value.proxyType} onValueChange={(next) => update("proxyType", next)}>
-                <SelectTrigger id={proxyTypeId} aria-label={t("proxyType")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+                <SelectTrigger id={proxyTypeId} aria-label={t("proxyType")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

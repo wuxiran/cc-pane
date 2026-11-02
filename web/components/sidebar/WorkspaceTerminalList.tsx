@@ -65,9 +65,9 @@ export default function WorkspaceTerminalList({ workspaceName, rows }: Props) {
             }`}
             onClick={() => focusTab(asTabId(row.tabId))}
           >
-            <span className="min-w-0 flex-1 truncate text-[13px]">{name}</span>
+            <span className="min-w-0 flex-1 truncate text-[length:var(--text-row)]">{name}</span>
             {row.sessionCount > 1 && (
-              <span className="shrink-0 text-[10px]" style={{ color: "var(--app-text-tertiary)" }}>
+              <span className="shrink-0 text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>
                 {t("sidebar:terminalSplitCount", { count: row.sessionCount })}
               </span>
             )}

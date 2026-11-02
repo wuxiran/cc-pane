@@ -61,7 +61,7 @@ export default function SessionOutputPreview({ sessionId }: SessionOutputPreview
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-10 shrink-0 items-center justify-between px-3" style={{ borderBottom: "1px solid var(--app-border)" }}>
-        <div className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--app-text-tertiary)" }}>
+        <div className="min-w-0 truncate text-[length:var(--text-micro)] font-semibold uppercase tracking-wider" style={{ color: "var(--app-text-tertiary)" }}>
           {t("output.recentOutput", { defaultValue: "最近输出" })}
         </div>
         <Button variant="ghost" size="icon-xs" disabled={loading} title={t("output.refresh", { defaultValue: "刷新输出" })}>

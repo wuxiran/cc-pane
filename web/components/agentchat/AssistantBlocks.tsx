@@ -71,7 +71,7 @@ export function SubagentBlock({
         ) : (
           <Bot className="h-3.5 w-3.5 shrink-0 text-[var(--app-accent)]" aria-hidden="true" />
         )}
-        <span className="shrink-0 rounded bg-[var(--app-active-bg)] px-1.5 py-px text-[10px] font-medium text-[var(--app-accent)]">
+        <span className="shrink-0 rounded bg-[var(--app-active-bg)] px-1.5 py-px text-[length:var(--text-micro)] font-medium text-[var(--app-accent)]">
           {t("agentChatSubagent")}
         </span>
         <span className="flex-1 truncate text-[var(--app-text-primary)]">
@@ -104,7 +104,7 @@ export function SubagentBlock({
           </div>
           {report.length > 0 ? (
             <div className="flex flex-col gap-1">
-              <div className="text-[10px] font-medium uppercase tracking-wide text-[var(--app-icon-inactive)]">
+              <div className="text-[length:var(--text-micro)] font-medium uppercase tracking-wide text-[var(--app-icon-inactive)]">
                 {t("agentChatSubagentReport")}
               </div>
               {report.map((content, index) => (

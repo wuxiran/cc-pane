@@ -57,7 +57,7 @@ export default function ThemeQuickMenu() {
         </TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end" side="top" className="w-52 p-1.5">
-        <DropdownMenuLabel className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
+        <DropdownMenuLabel className="px-2 py-1 text-[length:var(--text-micro)] font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
           {settingsT("theme.groups.dark")}
         </DropdownMenuLabel>
         {visiblePresets.filter((preset) => preset.group === "dark").map(
@@ -82,7 +82,7 @@ export default function ThemeQuickMenu() {
           ),
         )}
         <DropdownMenuSeparator className="my-1" />
-        <DropdownMenuLabel className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
+        <DropdownMenuLabel className="px-2 py-1 text-[length:var(--text-micro)] font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
           {settingsT("theme.groups.light")}
         </DropdownMenuLabel>
         {visiblePresets.filter((preset) => preset.group === "light").map(

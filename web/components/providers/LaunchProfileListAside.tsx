@@ -163,7 +163,7 @@ export default function LaunchProfileListAside({
           >
             <Layers3 size={13} className="shrink-0" />
             <span className="truncate">{t("savedProfilesTab")}</span>
-            <span className="tabular-nums text-[10px] text-[var(--app-text-tertiary)]">
+            <span className="tabular-nums text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
               {filteredProfiles.length}
             </span>
           </button>
@@ -177,7 +177,7 @@ export default function LaunchProfileListAside({
           >
             <FolderKanban size={13} className="shrink-0" />
             <span className="truncate">{t("workspaceListTab")}</span>
-            <span className="tabular-nums text-[10px] text-[var(--app-text-tertiary)]">
+            <span className="tabular-nums text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
               {workspaces.length}
             </span>
           </button>
@@ -201,7 +201,7 @@ export default function LaunchProfileListAside({
                 <span className="min-w-0 flex-1 truncate text-sm font-semibold">
                   {t("systemDefaultName", { tool: toolLabel(activeTool, t) })}
                 </span>
-                <Badge variant="secondary" className="text-[10px]">{t("common:default")}</Badge>
+                <Badge variant="secondary" className="text-[length:var(--text-micro)]">{t("common:default")}</Badge>
               </div>
               <div className="mt-0.5 truncate text-[length:var(--text-caption)] text-[var(--app-text-secondary)]">
                 {t("systemDefaultCardHint")}
@@ -226,13 +226,13 @@ export default function LaunchProfileListAside({
                       {profileDisplayName(profile)}
                     </span>
                     {profile.isDefault && (
-                      <Badge variant="secondary" className="text-[10px]">{t("common:default")}</Badge>
+                      <Badge variant="secondary" className="text-[length:var(--text-micro)]">{t("common:default")}</Badge>
                     )}
                   </div>
                   <div className="mt-0.5 truncate text-[length:var(--text-caption)] text-[var(--app-text-secondary)]">
                     {providers.find((provider) => provider.id === profile.providerId)?.name ?? t("noProviderSpecified")}
                   </div>
-                  <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--app-text-tertiary)]">
+                  <div className="mt-1 flex items-center gap-2 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
                     <span>{launchEnvironmentLabel(profile.targetTools, activeTool, t)}</span>
                     <span className="rounded border border-border px-1.5 py-0.5">
                       {runtimeLabel(profile.targetRuntime ?? null, t)}
@@ -293,7 +293,7 @@ export default function LaunchProfileListAside({
                         <span className="min-w-0 flex-1 truncate text-sm font-medium">
                           {workspace.alias || workspace.name}
                         </span>
-                        {selected && <Badge variant="outline" className="text-[10px]">{t("currentWorkspace")}</Badge>}
+                        {selected && <Badge variant="outline" className="text-[length:var(--text-micro)]">{t("currentWorkspace")}</Badge>}
                       </div>
                       <div className="mt-1 truncate pl-[22px] text-[length:var(--text-caption)] text-[var(--app-text-secondary)]">
                         {compatibleBoundProfile
@@ -305,7 +305,7 @@ export default function LaunchProfileListAside({
                               })
                             : t("workspaceUsesDefault", { tool: toolLabel(activeTool, t) })}
                       </div>
-                      <div className="mt-1.5 flex gap-2 pl-[22px] text-[10px] text-[var(--app-text-tertiary)]">
+                      <div className="mt-1.5 flex gap-2 pl-[22px] text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
                         <span>{t("workspaceProjectCount", { count: workspace.projects.length })}</span>
                         {projectBindingCount > 0 && (
                           <span>{t("workspaceProjectBindings", { count: projectBindingCount })}</span>
@@ -327,7 +327,7 @@ export default function LaunchProfileListAside({
                               title={project.path}
                             >
                               <span className="min-w-0 flex-1 truncate">{projectLabel}</span>
-                              <span className="max-w-[46%] truncate text-[10px] text-[var(--app-text-secondary)]">
+                              <span className="max-w-[46%] truncate text-[length:var(--text-micro)] text-[var(--app-text-secondary)]">
                                 {profileDisplayName(profile)}
                               </span>
                             </button>

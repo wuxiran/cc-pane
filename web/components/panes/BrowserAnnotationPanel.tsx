@@ -11,6 +11,7 @@ import AnnotationSurface from "@/components/browser/annotations/AnnotationSurfac
 import { MAX_ANNOTATIONS, MAX_NOTE_LENGTH } from "@/components/browser/annotations/annotationModel";
 import { addAnnotationToDraft, annotationChatTargets } from "@/components/browser/annotations/annotationDraft";
 import { useAnnotationDocument } from "@/components/browser/annotations/useAnnotationDocument";
+import { nativeConfirm } from "@/services/nativeDialog";
 
 export default function BrowserAnnotationPanel({ tabId, url, title, onClose }: {
   tabId: string; url: string; title?: string; onClose: () => void;
@@ -24,8 +25,8 @@ export default function BrowserAnnotationPanel({ tabId, url, title, onClose }: {
   const activePaneId = usePanesStore((state) => state.activePaneId);
   const chats = useAgentChatStore((state) => state.chats);
   const targets = useMemo(() => annotationChatTargets({ rootPane: root, layouts, currentLayoutId, activePaneId }).filter((tab) => chats[tab.id]?.snapshot), [root, layouts, currentLayoutId, activePaneId, chats]);
-  const close = () => { if (!document.busy && (!document.dirty || window.confirm(t("discard")))) onClose(); };
-  return <Dialog open onOpenChange={(open) => { if (!open) close(); }}>
+  const close = async () => { if (!document.busy && (!document.dirty || await nativeConfirm(t("discard")))) onClose(); };
+  return <Dialog open onOpenChange={(open) => { if (!open) void close(); }}>
     <DialogContent className="flex h-[90vh] w-[96vw] flex-col gap-3 overflow-hidden rounded-2xl bg-[var(--app-content)] sm:max-w-[1440px]">
       <DialogHeader className="pr-8"><DialogTitle>{t("title")}</DialogTitle><DialogDescription className="truncate">{document.frame?.title || title || url}</DialogDescription></DialogHeader>
       <div className="flex flex-wrap items-center gap-2">

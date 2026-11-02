@@ -56,7 +56,7 @@ export default memo(function DiffView({ diff, loading, wrap = true, showStats = 
 
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center text-[13px]" style={{ color: "var(--app-text-tertiary)" }}>
+      <div className="h-full flex items-center justify-center text-[length:var(--text-row)]" style={{ color: "var(--app-text-tertiary)" }}>
         {t("diffComputing")}
       </div>
     );
@@ -64,7 +64,7 @@ export default memo(function DiffView({ diff, loading, wrap = true, showStats = 
 
   if (!diff) {
     return (
-      <div className="h-full flex items-center justify-center text-[13px]" style={{ color: "var(--app-text-tertiary)" }}>
+      <div className="h-full flex items-center justify-center text-[length:var(--text-row)]" style={{ color: "var(--app-text-tertiary)" }}>
         {t("diffSelectVersion")}
       </div>
     );
@@ -72,7 +72,7 @@ export default memo(function DiffView({ diff, loading, wrap = true, showStats = 
 
   if (diff.isBinary) {
     return (
-      <div className="h-full flex items-center justify-center text-[13px]" style={{ color: "var(--app-text-tertiary)" }}>
+      <div className="h-full flex items-center justify-center text-[length:var(--text-row)]" style={{ color: "var(--app-text-tertiary)" }}>
         {t("diffBinaryFile")}
       </div>
     );
@@ -86,7 +86,7 @@ export default memo(function DiffView({ diff, loading, wrap = true, showStats = 
         })
       : t("diffTooLarge");
     return (
-      <div className="h-full flex items-center justify-center text-[13px]" style={{ color: "var(--app-text-tertiary)" }}>
+      <div className="h-full flex items-center justify-center text-[length:var(--text-row)]" style={{ color: "var(--app-text-tertiary)" }}>
         {message}
       </div>
     );
@@ -94,7 +94,7 @@ export default memo(function DiffView({ diff, loading, wrap = true, showStats = 
 
   if (diff.hunks.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center text-[13px]" style={{ color: "var(--app-text-tertiary)" }}>
+      <div className="h-full flex items-center justify-center text-[length:var(--text-row)]" style={{ color: "var(--app-text-tertiary)" }}>
         {t("diffNoChanges")}
       </div>
     );

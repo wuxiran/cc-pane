@@ -79,7 +79,7 @@ export default function StartRecentSessions({
       <div className="flex items-center gap-1.5 text-[length:var(--text-caption)] font-medium text-[var(--app-icon-inactive)]">
         <History className="h-3.5 w-3.5" /> {t("agentChatHistoryTitle")}
         {cwd ? (
-          <div className="flex overflow-hidden rounded border border-[var(--app-border)] text-[10px]">
+          <div className="flex overflow-hidden rounded border border-[var(--app-border)] text-[length:var(--text-micro)]">
             {(["project", "all"] as const).map((candidate) => (
               <button
                 key={candidate}
@@ -155,12 +155,12 @@ export default function StartRecentSessions({
                   {startingId === entry.acpSessionId ? (
                     <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
                   ) : (
-                    <span className="shrink-0 text-[10px] text-[var(--app-icon-inactive)]">
+                    <span className="shrink-0 text-[length:var(--text-micro)] text-[var(--app-icon-inactive)]">
                       {codexEngineLabel(entry.engineId)}
                     </span>
                   )}
                 </span>
-                <span className="truncate text-[10px] text-[var(--app-icon-inactive)]">
+                <span className="truncate text-[length:var(--text-micro)] text-[var(--app-icon-inactive)]">
                   {formatHistoryTime(entry.updatedAt)} · {entry.cwd}
                 </span>
               </button>

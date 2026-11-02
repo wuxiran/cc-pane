@@ -91,8 +91,8 @@ export default function AboutSection() {
             className="flex justify-between items-center py-1.5"
             style={{ borderBottom: "1px solid var(--app-border)" }}
           >
-            <span className="text-[13px]" style={{ color: "var(--app-text-secondary)" }}>{label}</span>
-            <span className="text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }}>{value}</span>
+            <span className="text-[length:var(--text-row)]" style={{ color: "var(--app-text-secondary)" }}>{label}</span>
+            <span className="text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-primary)" }}>{value}</span>
           </div>
         ))}
       </div>
@@ -174,7 +174,7 @@ export default function AboutSection() {
           style={{ borderColor: "var(--app-border)" }}
           aria-live="polite"
         >
-          <h4 className="text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }}>
+          <h4 className="text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-primary)" }}>
             {t("cleanupReport")}
           </h4>
           {(["cleaned", "skipped", "failed"] as const).map((kind) => (

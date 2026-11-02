@@ -57,7 +57,7 @@ export function StepNav({
           >
             <span
               className={cn(
-                "grid size-[18px] shrink-0 place-items-center rounded-full border-[1.5px] text-[10px] font-semibold",
+                "grid size-[18px] shrink-0 place-items-center rounded-full border-[1.5px] text-[length:var(--text-micro)] font-semibold",
                 active
                   ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-white"
                   : done
@@ -99,10 +99,10 @@ export function PresetChips({ value, onChange }: { value: Preset; onChange: (pre
               {selected && <Check className="size-3 text-[var(--app-accent)]" aria-hidden="true" />}
             </span>
             <span>
-              <span className="block text-[13px] font-semibold text-[var(--app-text-primary)]">
+              <span className="block text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">
                 {t(`preset.${preset}.title` as never)}
               </span>
-              <span className="mt-0.5 block text-[11.5px] leading-4 text-[var(--app-text-secondary)]">
+              <span className="mt-0.5 block text-[length:var(--text-small)] leading-4 text-[var(--app-text-secondary)]">
                 {t(`preset.${preset}.description` as never)}
               </span>
             </span>

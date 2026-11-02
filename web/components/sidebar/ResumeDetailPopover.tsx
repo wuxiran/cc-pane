@@ -68,17 +68,17 @@ export default function ResumeDetailPopover({ record, onResume, onDelete, childr
             <span className="text-xs font-semibold text-[var(--app-text-primary)]">
               {record.projectName}
             </span>
-            <p className="text-[10px] truncate text-[var(--app-text-tertiary)]">
+            <p className="text-[length:var(--text-micro)] truncate text-[var(--app-text-tertiary)]">
               {record.projectPath}
             </p>
           </div>
 
           {/* Session ID */}
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-[var(--app-text-tertiary)]">
+            <span className="text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
               {t("sessionId")}:
             </span>
-            <code className="text-[10px] font-mono px-1 py-0.5 rounded" style={{ background: "var(--app-input-bg)", color: "var(--app-text-secondary)" }}>
+            <code className="text-[length:var(--text-micro)] font-mono px-1 py-0.5 rounded" style={{ background: "var(--app-input-bg)", color: "var(--app-text-secondary)" }}>
               {canResume ? truncatedId : t("resumeIdMissing")}
             </code>
             {canResume && (
@@ -94,10 +94,10 @@ export default function ResumeDetailPopover({ record, onResume, onDelete, childr
 
           {/* 启动时间 */}
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-[var(--app-text-tertiary)]">
+            <span className="text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
               {t("launchTime")}:
             </span>
-            <span className="text-[10px] text-[var(--app-text-secondary)]">
+            <span className="text-[length:var(--text-micro)] text-[var(--app-text-secondary)]">
               {formatFullTime(record.launchedAt)}
             </span>
           </div>
@@ -105,10 +105,10 @@ export default function ResumeDetailPopover({ record, onResume, onDelete, childr
           {/* Last Prompt */}
           {record.lastPrompt && (
             <div>
-              <span className="text-[10px] text-[var(--app-text-tertiary)]">
+              <span className="text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
                 {t("lastPromptLabel")}:
               </span>
-              <p className="text-[10px] mt-0.5 leading-relaxed line-clamp-3 text-[var(--app-text-secondary)]">
+              <p className="text-[length:var(--text-micro)] mt-0.5 leading-relaxed line-clamp-3 text-[var(--app-text-secondary)]">
                 {record.lastPrompt}
               </p>
             </div>
@@ -120,14 +120,14 @@ export default function ResumeDetailPopover({ record, onResume, onDelete, childr
               onClick={handleResume}
               disabled={!canResume}
               title={!canResume ? t("resumeIdMissing") : undefined}
-              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-[var(--app-status-success)] text-white hover:bg-[color-mix(in_srgb,var(--app-status-success)_85%,transparent)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex items-center gap-1 px-2 py-1 rounded text-[length:var(--text-micro)] font-medium bg-[var(--app-status-success)] text-white hover:bg-[color-mix(in_srgb,var(--app-status-success)_85%,transparent)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Play className="w-3 h-3" />
               {t("resumeButton")}
             </button>
             <button
               onClick={handleOpenFolder}
-              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-colors text-[var(--app-text-secondary)]"
+              className="flex items-center gap-1 px-2 py-1 rounded text-[length:var(--text-micro)] font-medium transition-colors text-[var(--app-text-secondary)]"
               style={{ background: "var(--app-hover)" }}
             >
               <FolderOpen className="w-3 h-3" />
@@ -135,7 +135,7 @@ export default function ResumeDetailPopover({ record, onResume, onDelete, childr
             </button>
             <button
               onClick={handleDelete}
-              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-colors bg-[var(--app-status-danger-bg)] text-[var(--app-status-danger)] hover:bg-[color-mix(in_srgb,var(--app-status-danger)_20%,transparent)]"
+              className="flex items-center gap-1 px-2 py-1 rounded text-[length:var(--text-micro)] font-medium transition-colors bg-[var(--app-status-danger-bg)] text-[var(--app-status-danger)] hover:bg-[color-mix(in_srgb,var(--app-status-danger)_20%,transparent)]"
             >
               <Trash2 className="w-3 h-3" />
               {t("deleteRecord")}

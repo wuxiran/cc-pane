@@ -174,7 +174,7 @@ export default function WorkspaceEmptyActions({
               {t("workspaceEmptyTitle", { name: workspace.alias || workspace.name })}
             </div>
           )}
-          <div className="truncate text-[11.5px]" style={{ color: "var(--app-text-tertiary)" }}>
+          <div className="truncate text-[length:var(--text-small)]" style={{ color: "var(--app-text-tertiary)" }}>
             {t("workspaceEmptyProjectHint", { name: projectLabel })}
           </div>
         </div>
@@ -209,7 +209,7 @@ export default function WorkspaceEmptyActions({
             </span>
             {!mini && (
               <span
-                className={`truncate font-semibold ${compact ? "flex-1 text-left text-[length:var(--text-small)]" : "text-[12.5px]"}`}
+                className={`truncate font-semibold ${compact ? "flex-1 text-left text-[length:var(--text-small)]" : "text-[length:var(--text-row)]"}`}
                 style={{ color: "var(--app-text-primary)" }}
               >
                 {action.label}
@@ -267,7 +267,7 @@ export default function WorkspaceEmptyActions({
                     {/* 时间戳是次要信息，窄档先砍 */}
                     {!compact && (
                       <span
-                        className="block truncate text-[10.5px] tabular-nums"
+                        className="block truncate text-[length:var(--text-micro)] tabular-nums"
                         style={{ color: "var(--app-text-tertiary)" }}
                       >
                         {formatRelativeTime(method.launchedAt)}
@@ -283,7 +283,7 @@ export default function WorkspaceEmptyActions({
 
       <button
         type="button"
-        className="mt-1 flex items-center gap-1.5 self-start text-[11.5px] transition-colors duration-[var(--dur-fast)] hover:text-[var(--app-accent)]"
+        className="mt-1 flex items-center gap-1.5 self-start text-[length:var(--text-small)] transition-colors duration-[var(--dur-fast)] hover:text-[var(--app-accent)]"
         style={{ color: "var(--app-text-tertiary)" }}
         title={mini ? t("customLaunch", { ns: "launcher" }) : undefined}
         onClick={() =>

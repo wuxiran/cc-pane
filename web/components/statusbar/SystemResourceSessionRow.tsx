@@ -94,7 +94,7 @@ export function SystemResourceSessionRow({
         >
           <StatusIndicator status={session.status} toolName={session.toolName} size={7} />
           <SquareTerminal className="size-3.5 shrink-0 text-[var(--app-text-tertiary)]" />
-          <span className="shrink-0 text-[10px] uppercase text-[var(--app-text-tertiary)]">
+          <span className="shrink-0 text-[length:var(--text-micro)] uppercase text-[var(--app-text-tertiary)]">
             {session.cliTool === "none" ? "CLI" : session.cliTool}
           </span>
           <span className="min-w-0 flex-1 truncate text-xs text-[var(--app-text-primary)]">
@@ -103,7 +103,7 @@ export function SystemResourceSessionRow({
           {/* W6：WSL 会话的读数来自 Linux 侧 cgroup，不是 wsl.exe 进程树——标一下免得被当成假数。 */}
           {session.source === "cgroup" && (
             <span
-              className="shrink-0 rounded bg-[var(--app-hover)] px-1 text-[10px] text-[var(--app-text-tertiary)]"
+              className="shrink-0 rounded bg-[var(--app-hover)] px-1 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]"
               title={t("resourceSourceCgroupHint")}
               data-testid="resource-source-cgroup"
             >
@@ -112,7 +112,7 @@ export function SystemResourceSessionRow({
           )}
           {/* 数字本来就是整棵进程树的聚合，但只显示 CPU/内存时"含不含子进程"完全看不出来。 */}
           {session.processCount > 1 && (
-            <span className="shrink-0 rounded bg-[var(--app-hover)] px-1 text-[10px] tabular-nums text-[var(--app-text-tertiary)]">
+            <span className="shrink-0 rounded bg-[var(--app-hover)] px-1 text-[length:var(--text-micro)] tabular-nums text-[var(--app-text-tertiary)]">
               {t("resourceManagerProcessCount", { count: session.processCount })}
             </span>
           )}
@@ -127,7 +127,7 @@ export function SystemResourceSessionRow({
         <div
           role="radiogroup"
           aria-label={t("resourcePolicyGroup", { name: session.title })}
-          className="flex shrink-0 items-center rounded border border-[var(--app-border)] text-[10px]"
+          className="flex shrink-0 items-center rounded border border-[var(--app-border)] text-[length:var(--text-micro)]"
         >
           {MODES.map((mode) => (
             <button

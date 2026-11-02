@@ -128,7 +128,7 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
         data-settings-section="theme-color"
       >
         <div>
-          <h2 id="theme-color-heading" className="text-[13px] font-semibold text-[var(--app-text-primary)]">
+          <h2 id="theme-color-heading" className="text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">
             {t("theme.colorTitle")}
           </h2>
         </div>
@@ -189,7 +189,7 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
       >
         <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
           <div className="min-w-0">
-            <h2 id="theme-shape-heading" className="text-[13px] font-semibold text-[var(--app-text-primary)]">
+            <h2 id="theme-shape-heading" className="text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">
               {t("theme.shapeTitle")}
             </h2>
           </div>
@@ -242,12 +242,12 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
                 {(shape.isDefault || shape.traits.translucent) && (
                   <span className="mt-2 flex flex-wrap gap-1.5">
                     {shape.isDefault && (
-                      <span className="rounded-sm bg-[var(--app-active-bg)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--app-accent)]">
+                      <span className="rounded-sm bg-[var(--app-active-bg)] px-1.5 py-0.5 text-[length:var(--text-micro)] font-medium text-[var(--app-accent)]">
                         {t("theme.defaultBadge")}
                       </span>
                     )}
                     {shape.traits.translucent && (
-                      <span className="rounded-sm bg-[var(--app-hover)] px-1.5 py-0.5 text-[10px] text-[var(--app-text-secondary)]">
+                      <span className="rounded-sm bg-[var(--app-hover)] px-1.5 py-0.5 text-[length:var(--text-micro)] text-[var(--app-text-secondary)]">
                         {t("theme.wallpaperBadge")}
                       </span>
                     )}
@@ -277,7 +277,7 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
         data-settings-section="theme-density"
       >
         <div>
-          <h2 id="theme-density-heading" className="text-[13px] font-semibold text-[var(--app-text-primary)]">
+          <h2 id="theme-density-heading" className="text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">
             {t("theme.density.title")}
           </h2>
           <p className="mt-1 text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">

@@ -162,8 +162,6 @@ export default function RightDock({ onOpenTerminal, overlay = false }: RightDock
         width: overlay ? "100%" : width,
         background: "var(--app-sidebar-bg)",
         borderLeft: overlay ? undefined : "1px solid var(--app-border)",
-        backdropFilter: "blur(var(--app-glass-blur))",
-        WebkitBackdropFilter: "blur(var(--app-glass-blur))",
         WebkitAppRegion: "no-drag",
       } as React.CSSProperties}
     >

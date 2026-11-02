@@ -352,7 +352,7 @@ export default function SessionHistoryView({
                       <p className="line-clamp-2 text-[length:var(--text-small)] leading-5 text-[var(--app-text-primary)]" title={summary}>
                         {summary}
                       </p>
-                      <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px] text-[var(--app-text-tertiary)]">
+                      <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
                         <span className="rounded-md bg-[var(--app-active-bg)] px-1.5 py-0.5 font-medium capitalize text-[var(--app-text-secondary)]">
                           {entry.cliTool}
                         </span>
@@ -381,7 +381,7 @@ export default function SessionHistoryView({
                     </button>
                   </div>
                   {invalid && (
-                    <p role="alert" className="mt-1.5 flex items-center gap-1 text-[10px] text-[var(--app-status-warning)]">
+                    <p role="alert" className="mt-1.5 flex items-center gap-1 text-[length:var(--text-micro)] text-[var(--app-status-warning)]">
                       <AlertTriangle aria-hidden="true" className="size-3 shrink-0" />
                       <span>{t("sessionHistory.rolloutMissing")}</span>
                     </p>

@@ -87,7 +87,7 @@ function JsonNode({ label, value, depth = 0 }: { label?: string; value: unknown;
 function DetailSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-2">
-      <h3 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--app-text-tertiary)" }}>
+      <h3 className="text-[length:var(--text-micro)] font-semibold uppercase tracking-wider" style={{ color: "var(--app-text-tertiary)" }}>
         {title}
       </h3>
       {children}

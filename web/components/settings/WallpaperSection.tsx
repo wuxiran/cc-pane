@@ -176,7 +176,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
       </p>
 
       {/* 启用开关 */}
-      <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+      <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
         <span>{t("wallpaperEnabled")}</span>
         <input
           type="checkbox"
@@ -243,7 +243,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
       <div className="flex items-center justify-between gap-3">
         <Label>{t("wallpaperFit")}</Label>
         <Select value={value.fit} onValueChange={(next) => update("fit", next as WallpaperFit)}>
-          <SelectTrigger aria-label={t("wallpaperFit")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+          <SelectTrigger aria-label={t("wallpaperFit")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -300,7 +300,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
       {/* 视频选项 */}
       {value.kind === "video" && (
         <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
-          <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+          <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
             <span>{t("wallpaperVideoAutoplay")}</span>
             <input
               type="checkbox"
@@ -310,7 +310,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
               onChange={(event) => update("video", { ...value.video, autoplay: event.target.checked })}
             />
           </label>
-          <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+          <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
             <span>{t("wallpaperVideoPauseUnfocused")}</span>
             <input
               type="checkbox"
@@ -330,7 +330,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
                 update("video", { ...value.video, powerSaver: next as WallpaperPowerSaver })
               }
             >
-              <SelectTrigger aria-label={t("wallpaperVideoPowerSaver")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+              <SelectTrigger aria-label={t("wallpaperVideoPowerSaver")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -355,7 +355,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
       {/* 背景音乐 */}
       <SearchableSetting sectionId="wallpaper-music">
       <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
-        <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+        <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
           <span>{t("wallpaperMusicEnabled")}</span>
           <input
             type="checkbox"
@@ -369,7 +369,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
           <>
             {/* 视频壁纸才有音轨可用；勾上后忽略下面的音乐文件 */}
             {value.kind === "video" && (
-              <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+              <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
                 <span>
                   {t("wallpaperMusicUseVideoAudio")}
                   <span className="ml-2 text-xs" style={{ color: "var(--app-text-tertiary)" }}>
@@ -413,7 +413,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
               (v) => `${Math.round(v * 100)}%`,
               (v) => update("music", { ...value.music, volume: v }),
             )}
-            <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+            <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
               <span>{t("wallpaperMusicLoop")}</span>
               <input
                 type="checkbox"
@@ -425,7 +425,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
                 }
               />
             </label>
-            <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+            <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
               <span>{t("wallpaperMusicAutoplay")}</span>
               <input
                 type="checkbox"
@@ -438,7 +438,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
               />
             </label>
             {/* 独立于视频的同名开关：BGM 属全局氛围，失焦默认继续放 */}
-            <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+            <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
               <span>
                 {t("wallpaperMusicPauseUnfocused")}
                 <span className="ml-2 text-xs" style={{ color: "var(--app-text-tertiary)" }}>

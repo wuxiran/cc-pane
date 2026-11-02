@@ -69,7 +69,7 @@ function SearchInput({ query, onQueryChange }: { query: string; onQueryChange: (
         onChange={(event) => onQueryChange(event.target.value)}
         onKeyDown={(event) => event.key === "Escape" && onQueryChange("")}
         placeholder={t("filetree.searchPlaceholder")}
-        className="h-7 w-full rounded-md border border-[var(--app-border)] bg-[var(--app-input-bg)] pl-7 pr-7 text-[13px] text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)] focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
+        className="h-7 w-full rounded-md border border-[var(--app-border)] bg-[var(--app-input-bg)] pl-7 pr-7 text-[length:var(--text-row)] text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)] focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
       />
       {query.trim() && (
         <button
@@ -104,7 +104,7 @@ function SearchModeTabs({ mode, onModeChange }: { mode: SearchMode; onModeChange
             aria-selected={selected}
             aria-label={t(labelKey)}
             onClick={() => onModeChange(item)}
-            className={`h-5 rounded px-1.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)] ${
+            className={`h-5 rounded px-1.5 text-[length:var(--text-row)] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)] ${
               selected
                 ? "bg-[var(--app-hover)] text-[var(--app-text-primary)]"
                 : "text-[var(--app-text-tertiary)] hover:text-[var(--app-text-primary)]"
@@ -138,7 +138,7 @@ function NameResults({ paths, onOpen }: { paths: string[]; onOpen: (path: string
       key={path}
       type="button"
       onClick={() => onOpen(path)}
-      className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-left text-[13px] text-[var(--app-text-primary)] hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
+      className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-left text-[length:var(--text-row)] text-[var(--app-text-primary)] hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
     >
       <File className="h-4 w-4 shrink-0 text-[var(--app-text-tertiary)]" />
       <span className="truncate">{path}</span>

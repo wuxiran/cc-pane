@@ -49,7 +49,7 @@ export default function ShortcutCheatsheet() {
                     return (
                       <li
                         key={cmd.id}
-                        className="flex items-center justify-between gap-3 rounded px-1.5 py-1 text-[13px] hover:bg-[var(--app-hover)]"
+                        className="flex items-center justify-between gap-3 rounded px-1.5 py-1 text-[length:var(--text-row)] hover:bg-[var(--app-hover)]"
                       >
                         <span className="min-w-0 truncate text-[var(--app-text-primary)]">
                           {resolveCommandTitle(cmd)}

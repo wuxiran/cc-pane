@@ -330,7 +330,7 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
         <div className="flex-1 overflow-y-auto">
           <div className={`mx-auto w-full ${compact ? "py-3" : "max-w-3xl px-6 py-5"}`}>
             <div className="mb-4 flex items-baseline justify-between gap-3">
-              <p className="text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }}>
+              <p className="text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-primary)" }}>
                 {t("selectPresetOrCustom")}
               </p>
               <span className="shrink-0 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
@@ -362,7 +362,7 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
                           />
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }}>
+                          <span className="block truncate text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-primary)" }}>
                             {t(preset.nameKey as never)}
                           </span>
                           <span className="mt-0.5 block truncate text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>

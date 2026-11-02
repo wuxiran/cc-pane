@@ -52,6 +52,7 @@ function renderManager(props: Partial<React.ComponentProps<typeof WorktreeManage
 
 describe("WorktreeManager", () => {
   beforeEach(() => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.mocked(worktreeService.list).mockReset().mockResolvedValue([]);
     vi.mocked(worktreeService.add).mockReset().mockResolvedValue("/home/user/repo-feat");
     vi.mocked(worktreeService.remove).mockReset().mockResolvedValue(undefined);
@@ -126,10 +127,6 @@ describe("WorktreeManager", () => {
 
     await user.click(screen.getByRole("button", { name: /删除|Delete/i }));
 
-    // 确认弹窗
-    const confirmBtn = await screen.findByRole("button", { name: /^确定$|^Confirm$/ });
-    await user.click(confirmBtn);
-
     await waitFor(() =>
       expect(worktreeService.remove).toHaveBeenCalledWith(PROJECT, "/home/user/repo-feat"),
     );
@@ -148,7 +145,6 @@ describe("WorktreeManager", () => {
     await screen.findByText("feature");
 
     await user.click(screen.getByRole("button", { name: /删除|Delete/i }));
-    await user.click(await screen.findByRole("button", { name: /^确定$|^Confirm$/ }));
 
     await waitFor(() =>
       expect(onWorktreeRemoved).toHaveBeenCalledWith("/home/user/repo-feat"),
@@ -168,7 +164,6 @@ describe("WorktreeManager", () => {
     await screen.findByText("feature");
 
     await user.click(screen.getByRole("button", { name: /删除|Delete/i }));
-    await user.click(await screen.findByRole("button", { name: /^确定$|^Confirm$/ }));
 
     // 首次挂载 1 次 + 删除后刷新 1 次
     await waitFor(() => expect(worktreeService.list).toHaveBeenCalledTimes(2));

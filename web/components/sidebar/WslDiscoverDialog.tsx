@@ -271,21 +271,21 @@ export default function WslDiscoverDialog({
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <Badge
                           variant="secondary"
-                          className={`text-[10px] px-1.5 py-0 h-4 leading-none ${stateBadgeVariant(distro.state)}`}
+                          className={`text-[length:var(--text-micro)] px-1.5 py-0 h-4 leading-none ${stateBadgeVariant(distro.state)}`}
                         >
                           {t(STATE_LABEL_KEYS[distro.state], {
                             defaultValue: distro.state,
                           })}
                         </Badge>
                         <span
-                          className="text-[10px]"
+                          className="text-[length:var(--text-micro)]"
                           style={{ color: "var(--app-text-muted)" }}
                         >
                           WSL{distro.wslVersion}
                         </span>
                         {distro.defaultUser && (
                           <span
-                            className="text-[10px]"
+                            className="text-[length:var(--text-micro)]"
                             style={{ color: "var(--app-text-muted)" }}
                           >
                             {distro.defaultUser}@localhost

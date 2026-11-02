@@ -91,7 +91,7 @@ export default function AiPanelHistoryList() {
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 items-center gap-2">
-                        <span className="truncate text-[13px] text-[var(--app-text-primary)]">
+                        <span className="truncate text-[length:var(--text-row)] text-[var(--app-text-primary)]">
                           {panel.title}
                         </span>
                         {isLive && (

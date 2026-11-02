@@ -62,7 +62,7 @@ export function EmptyState({ icon: Icon, title, description, illustration, accen
           <Icon className="h-5 w-5 text-[var(--app-text-tertiary)]" strokeWidth={1.5} />
         </div>
       )}
-      <div className="text-[13px] font-medium text-[var(--app-text-secondary)]">{title}</div>
+      <div className="text-[length:var(--text-row)] font-medium text-[var(--app-text-secondary)]">{title}</div>
       {description && (
         <p className="max-w-[260px] text-xs leading-relaxed text-[var(--app-text-tertiary)]">
           {description}
@@ -90,7 +90,7 @@ export function LoadingState({ message, className }: LoadingStateProps) {
       aria-live="polite"
       aria-busy="true"
       className={cn(
-        "flex items-center justify-center gap-2 text-[13px] text-[var(--app-text-tertiary)]",
+        "flex items-center justify-center gap-2 text-[length:var(--text-row)] text-[var(--app-text-tertiary)]",
         className,
       )}
     >

@@ -72,7 +72,7 @@ export default function CliToolSelect({
                 />
                 <span className="min-w-0 flex-1 truncate">{activeOption.label}</span>
                 {(activeOption.count ?? 0) > 0 && (
-                  <span className="text-[10px] tabular-nums text-[var(--app-text-tertiary)]">
+                  <span className="text-[length:var(--text-micro)] tabular-nums text-[var(--app-text-tertiary)]">
                     {activeOption.count}
                   </span>
                 )}
@@ -96,12 +96,12 @@ export default function CliToolSelect({
                   />
                   <span className="min-w-0 flex-1 truncate">{option.label}</span>
                   {(option.count ?? 0) > 0 && (
-                    <span className="text-[10px] tabular-nums text-[var(--app-text-tertiary)]">
+                    <span className="text-[length:var(--text-micro)] tabular-nums text-[var(--app-text-tertiary)]">
                       {option.count}
                     </span>
                   )}
                   {option.installed === false && (
-                    <span className="text-[10px] text-[var(--app-text-tertiary)]">
+                    <span className="text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
                       {t("cliNotInstalled")}
                     </span>
                   )}

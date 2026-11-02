@@ -170,7 +170,7 @@ describe("FileTreeNode", () => {
       />
     );
 
-    expect(screen.getByText("a.ts")).toHaveClass("text-[13px]");
+    expect(screen.getByText("a.ts")).toHaveClass("text-[length:var(--text-row)]");
     const row = screen.getByText("a.ts").closest("div[data-file-path]") as HTMLElement;
     expect(row).toHaveClass("h-7");
     expect(container.querySelector("svg.lucide-file-code")).toHaveAttribute("width", "16");
@@ -180,7 +180,7 @@ describe("FileTreeNode", () => {
     renderNode(makeNode(entry("/proj/src", true)));
 
     expect(screen.getByText("src")).toHaveClass(
-      "text-[13px]",
+      "text-[length:var(--text-row)]",
       "font-semibold",
       "text-[var(--app-text-primary)]",
     );

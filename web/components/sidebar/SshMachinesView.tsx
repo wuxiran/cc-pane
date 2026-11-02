@@ -36,6 +36,7 @@ import type {
   OpenTerminalOptions,
 } from "@/types";
 import type { SshConnectionInfo } from "@/types/workspace";
+import { nativeConfirm } from "@/services/nativeDialog";
 
 /** 检测当前是否为 Windows 平台 */
 const isWindows = navigator.platform?.startsWith("Win") ?? false;
@@ -187,7 +188,7 @@ export default function SshMachinesView({
 
   const handleDelete = useCallback(
     async (machine: SshMachine) => {
-      const confirmed = window.confirm(
+      const confirmed = await nativeConfirm(
         t("ssh.confirmDelete", {
           defaultValue: 'Are you sure you want to delete "{{name}}"?',
           name: machine.name,
@@ -424,7 +425,7 @@ export default function SshMachinesView({
                   >
                     <div className="flex items-center justify-between px-1">
                       <span
-                        className="text-[10px] font-medium"
+                        className="text-[length:var(--text-micro)] font-medium"
                         style={{ color: "var(--app-text-secondary)" }}
                       >
                         {group === "__untagged__"

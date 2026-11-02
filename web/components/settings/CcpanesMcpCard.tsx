@@ -20,8 +20,8 @@ function CopyRow({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-[10px] text-muted-foreground w-10 shrink-0">{label}</span>
-      <code className="flex-1 text-[10px] font-mono bg-muted rounded px-1.5 py-0.5 truncate">
+      <span className="text-[length:var(--text-micro)] text-muted-foreground w-10 shrink-0">{label}</span>
+      <code className="flex-1 text-[length:var(--text-micro)] font-mono bg-muted rounded px-1.5 py-0.5 truncate">
         {value}
       </code>
       <Button size="icon" variant="ghost" className="h-5 w-5 shrink-0" onClick={onCopy} title={title}>
@@ -57,9 +57,9 @@ export default function CcpanesMcpCard() {
       <div className="flex items-center gap-2">
         <Zap size={14} className="text-primary shrink-0" />
         <span className="text-xs font-medium">{t("sharedMcp.selfTitle")}</span>
-        <Badge variant="secondary" className="text-[10px]">HTTP</Badge>
+        <Badge variant="secondary" className="text-[length:var(--text-micro)]">HTTP</Badge>
       </div>
-      <p className="text-[10px] leading-4 text-muted-foreground">{t("sharedMcp.selfHint")}</p>
+      <p className="text-[length:var(--text-micro)] leading-4 text-muted-foreground">{t("sharedMcp.selfHint")}</p>
       <div className="space-y-1.5">
         <CopyRow label={t("sharedMcp.coreUrl")} value={coreUrl} copied={copied === "core"} onCopy={() => copy("core", coreUrl)} title={t("sharedMcp.copyUrl")} />
         <CopyRow label={t("sharedMcp.fullUrl")} value={fullUrl} copied={copied === "full"} onCopy={() => copy("full", fullUrl)} title={t("sharedMcp.copyUrl")} />

@@ -58,7 +58,7 @@ export default function HomePinnedWorkspaces({ workspaces, onOpenTerminal }: Hom
                     <FolderKanban aria-hidden="true" className="size-4" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-medium text-[var(--app-text-primary)]">
+                    <span className="block truncate text-[length:var(--text-row)] font-medium text-[var(--app-text-primary)]">
                       {workspace.alias || workspace.name}
                     </span>
                     <span className="block truncate text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">

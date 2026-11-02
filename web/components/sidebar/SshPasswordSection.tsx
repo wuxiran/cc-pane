@@ -38,7 +38,7 @@ export function SshPasswordSection({
           })}
         </span>
         {hasStoredPassword && (
-          <span className="text-[10px] text-[var(--app-text-muted)]">
+          <span className="text-[length:var(--text-micro)] text-[var(--app-text-muted)]">
             {t("ssh.passwordStored", {
               defaultValue: "Password stored in system keychain",
             })}
@@ -97,7 +97,7 @@ export function SshPasswordSection({
             })}
           </Button>
           {clear && (
-            <span className="text-[10px] text-[var(--app-text-muted)]">
+            <span className="text-[length:var(--text-micro)] text-[var(--app-text-muted)]">
               {t("ssh.passwordClearPending", {
                 defaultValue: "Stored password will be removed when you save.",
               })}
@@ -105,7 +105,7 @@ export function SshPasswordSection({
           )}
         </div>
       )}
-      <p className="mt-2 text-[10px] text-[var(--app-text-muted)]">
+      <p className="mt-2 text-[length:var(--text-micro)] text-[var(--app-text-muted)]">
         {t("ssh.passwordNote", {
           defaultValue:
             "Only the first password factor is auto-filled. MFA verification still continues interactively in the terminal.",

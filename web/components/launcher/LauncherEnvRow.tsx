@@ -44,7 +44,7 @@ export default function LauncherEnvRow({
             role="radio"
             aria-checked={active}
             disabled={disabled}
-            className="rounded-md px-3 py-1 text-[11.5px] font-medium transition-colors duration-[var(--dur-fast)] enabled:hover:bg-[var(--app-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-md px-3 py-1 text-[length:var(--text-small)] font-medium transition-colors duration-[var(--dur-fast)] enabled:hover:bg-[var(--app-hover)] disabled:cursor-not-allowed disabled:opacity-40"
             style={
               active
                 ? {

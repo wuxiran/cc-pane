@@ -264,7 +264,7 @@ export default function LaunchProfileBasicsCard({
           }}
         />
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }}>
+          <div className="text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-primary)" }}>
             YOLO mode
             {draft.yoloMode ? (
               <span className="ml-2 align-middle text-[length:var(--text-caption)] font-semibold text-destructive">

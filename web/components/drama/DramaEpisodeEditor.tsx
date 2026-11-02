@@ -80,7 +80,7 @@ export default function DramaEpisodeEditor(props: DramaEpisodeEditorProps) {
       <section className="flex-1 p-3">
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <span className="text-[length:var(--text-caption)] font-semibold" style={{ color: "var(--app-text-secondary)" }}>{t("dramaShots")}</span>
-          <span className="text-[10px]" style={{ color: "var(--app-text-tertiary)" }}>{t("dramaShotCount", { count: shots.length })}</span>
+          <span className="text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>{t("dramaShotCount", { count: shots.length })}</span>
           <div className="ml-auto flex flex-wrap items-center gap-1.5">
             <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-[length:var(--text-caption)]" onClick={onAddShot}>
               <Plus className="size-3" aria-hidden="true" />{t("dramaAddShot")}
@@ -96,7 +96,7 @@ export default function DramaEpisodeEditor(props: DramaEpisodeEditorProps) {
               data-testid={`drama-shot-${shot.id}`}
             >
               <div className="flex shrink-0 flex-col items-center gap-1 pt-1">
-                <span className="text-[10px] tabular-nums" style={{ color: "var(--app-text-tertiary)" }}>#{index + 1}</span>
+                <span className="text-[length:var(--text-micro)] tabular-nums" style={{ color: "var(--app-text-tertiary)" }}>#{index + 1}</span>
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <Input
@@ -106,14 +106,14 @@ export default function DramaEpisodeEditor(props: DramaEpisodeEditorProps) {
                   onBlur={(event) => { if (event.target.value !== shot.title) onPatchShot(shot, { title: event.target.value }); }}
                 />
                 <textarea
-                  className="h-10 w-full resize-none rounded border bg-transparent p-1 text-[10px] outline-none"
+                  className="h-10 w-full resize-none rounded border bg-transparent p-1 text-[length:var(--text-micro)] outline-none"
                   style={{ borderColor: "var(--app-border)", color: "var(--app-text-secondary)" }}
                   defaultValue={shot.dialogue}
                   placeholder={t("dramaDialoguePlaceholder")}
                   onBlur={(event) => { if (event.target.value !== shot.dialogue) onPatchShot(shot, { dialogue: event.target.value }); }}
                 />
                 <textarea
-                  className="h-12 w-full resize-none rounded border bg-transparent p-1 text-[10px] outline-none"
+                  className="h-12 w-full resize-none rounded border bg-transparent p-1 text-[length:var(--text-micro)] outline-none"
                   style={{ borderColor: "var(--app-border)", color: "var(--app-text-primary)" }}
                   defaultValue={shot.prompt}
                   placeholder={t("storyboardShotPrompt")}
@@ -121,7 +121,7 @@ export default function DramaEpisodeEditor(props: DramaEpisodeEditorProps) {
                 />
               </div>
               <div className="flex shrink-0 flex-col gap-1">
-                <Button type="button" variant="ghost" size="sm" className="h-6 gap-1 px-2 text-[10px]" onClick={() => onRemoveShot(shot)}>
+                <Button type="button" variant="ghost" size="sm" className="h-6 gap-1 px-2 text-[length:var(--text-micro)]" onClick={() => onRemoveShot(shot)}>
                   <Trash2 className="size-3" aria-hidden="true" />{t("storyboardRemoveShot")}
                 </Button>
               </div>

@@ -192,7 +192,7 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
                   )}
                   <span className="text-[length:var(--text-caption)] font-semibold truncate">{row.group.workspaceName}</span>
                   <span
-                    className="text-[9px] ml-auto shrink-0 px-1.5 py-0.5 rounded-full text-[var(--app-text-tertiary)]"
+                    className="text-[length:var(--text-nano)] ml-auto shrink-0 px-1.5 py-0.5 rounded-full text-[var(--app-text-tertiary)]"
                     style={{ background: "var(--app-hover)" }}
                   >
                     {row.group.records.length}
@@ -221,18 +221,18 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
                       <span className="text-[length:var(--text-small)] font-medium tracking-wide truncate block max-w-[120px]">
                         {row.record.projectName}
                       </span>
-                      <span className="text-[9px] font-mono truncate block max-w-[140px] text-[var(--app-text-tertiary)]">
+                      <span className="text-[length:var(--text-nano)] font-mono truncate block max-w-[140px] text-[var(--app-text-tertiary)]">
                         {row.record.resumeSessionId?.slice(0, 8)}…
                       </span>
                       {row.record.lastPrompt && (
-                        <span className="text-[10px] truncate block max-w-[120px] text-[var(--app-text-tertiary)]">
+                        <span className="text-[length:var(--text-micro)] truncate block max-w-[120px] text-[var(--app-text-tertiary)]">
                           {row.record.lastPrompt.slice(0, 40)}
                         </span>
                       )}
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <span className="text-[10px] text-[var(--app-text-tertiary)]">
+                    <span className="text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
                       {formatRelativeTime(row.record.launchedAt)}
                     </span>
                     <ResumeDetailPopover record={row.record} onResume={handleResume} onDelete={onDeleteRecord}>

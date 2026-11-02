@@ -100,11 +100,11 @@ export default function NotificationCard({
           <span aria-hidden="true" className="flex size-[15px] shrink-0 items-center justify-center">
             {style.icon}
           </span>
-          <span className="truncate text-[13px] font-semibold text-[var(--app-text-primary)]">
+          <span className="truncate text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">
             {displayTitle(record.kind, record.title, t)}
           </span>
           {record.source && (
-            <span className="shrink-0 rounded-full border border-[var(--app-border)] px-1.5 text-[10px] font-semibold text-[var(--app-text-secondary)]">
+            <span className="shrink-0 rounded-full border border-[var(--app-border)] px-1.5 text-[length:var(--text-micro)] font-semibold text-[var(--app-text-secondary)]">
               {record.source}
             </span>
           )}
@@ -132,8 +132,8 @@ export default function NotificationCard({
             <p
               className={
                 expanded
-                  ? "ml-[22px] mt-1.5 max-h-[150px] overflow-y-auto whitespace-pre-wrap pr-1 text-[12.5px] leading-5 text-[var(--app-text-secondary)]"
-                  : "ml-[22px] mt-1.5 line-clamp-2 whitespace-pre-wrap text-[12.5px] leading-5 text-[var(--app-text-secondary)]"
+                  ? "ml-[22px] mt-1.5 max-h-[150px] overflow-y-auto whitespace-pre-wrap pr-1 text-[length:var(--text-row)] leading-5 text-[var(--app-text-secondary)]"
+                  : "ml-[22px] mt-1.5 line-clamp-2 whitespace-pre-wrap text-[length:var(--text-row)] leading-5 text-[var(--app-text-secondary)]"
               }
             >
               {body}
@@ -142,7 +142,7 @@ export default function NotificationCard({
               <button
                 type="button"
                 aria-expanded={expanded}
-                className="ml-[22px] mt-1 text-[11.5px] text-[var(--app-accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                className="ml-[22px] mt-1 text-[length:var(--text-small)] text-[var(--app-accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
                 onClick={() => setExpanded((value) => !value)}
               >
                 {expanded ? t("center.collapse") : t("center.expand")}
@@ -160,7 +160,7 @@ export default function NotificationCard({
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 px-2 text-[11.5px]"
+                className="h-6 px-2 text-[length:var(--text-small)]"
                 onClick={() => jumpToNotificationTask(record.taskBindingId as string)}
               >
                 {t("center.viewTask")}
@@ -170,7 +170,7 @@ export default function NotificationCard({
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 px-2 text-[11.5px]"
+                className="h-6 px-2 text-[length:var(--text-small)]"
                 onClick={() => {
                   // 接管成功才 dismiss：失败时卡片要留着，用户还得再试或改走「聚焦会话」。
                   void handleAdoptQuickTerminal(record.sessionId, t).then((adopted) => {
@@ -185,7 +185,7 @@ export default function NotificationCard({
               <Button
                 size="sm"
                 variant="secondary"
-                className="h-6 px-2 text-[11.5px]"
+                className="h-6 px-2 text-[length:var(--text-small)]"
                 onClick={() => {
                   // 聚焦现在异步（F7.3 弹出窗口），但 dismiss 与聚焦结果无关，照旧立即执行。
                   void focusNotificationSession(record.sessionId as string);

@@ -79,7 +79,7 @@ export default function PermissionPolicyDropdown({
             className="text-xs"
           >
             <span className="flex-1">{t(group.labelKey)}</span>
-            <span className="font-mono text-[10px] text-[var(--app-text-tertiary)]">
+            <span className="font-mono text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
               {group.kinds.join(" · ")}
             </span>
           </DropdownMenuCheckboxItem>

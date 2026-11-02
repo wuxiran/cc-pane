@@ -230,7 +230,7 @@ function Section({ icon, title, count, trailing, children }: {
       <div className="flex items-center gap-2 mb-3">
         <span style={{ color: "var(--app-text-secondary)" }}>{icon}</span>
         <span className="text-sm font-semibold" style={{ color: "var(--app-text-primary)" }}>{title}</span>
-        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{count}</Badge>
+        <Badge variant="secondary" className="text-[length:var(--text-micro)] px-1.5 py-0">{count}</Badge>
         {trailing && <span className="ml-auto">{trailing}</span>}
       </div>
       {children}

@@ -66,8 +66,6 @@ export default function MiniView() {
       className="h-full flex flex-col select-none overflow-hidden"
       style={{
         background: "var(--app-glass-bg)",
-        backdropFilter: "blur(var(--app-glass-blur-sm))",
-        WebkitBackdropFilter: "blur(var(--app-glass-blur-sm))",
       }}
       onMouseDown={startDrag}
     >
@@ -114,7 +112,7 @@ export default function MiniView() {
             onDoubleClick={(e) => { e.stopPropagation(); handleRestoreTab(item); }}
           >
             <StatusIndicator status={getStatus(item.tab.sessionId)} size={8} />
-            <span className="text-[10px] overflow-hidden text-ellipsis whitespace-nowrap" style={{ color: "var(--app-text-secondary)" }}>
+            <span className="text-[length:var(--text-micro)] overflow-hidden text-ellipsis whitespace-nowrap" style={{ color: "var(--app-text-secondary)" }}>
               {item.tab.title}
             </span>
           </div>

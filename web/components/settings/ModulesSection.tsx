@@ -41,7 +41,7 @@ export default function ModulesSection() {
               <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-[var(--app-active-bg)] text-[var(--app-text-secondary)]">
                 <Icon aria-hidden="true" size={16} strokeWidth={1.6} />
               </span>
-              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--app-text-primary)]">
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-row)] font-medium text-[var(--app-text-primary)]">
                 {moduleName}
               </span>
               <Switch
@@ -55,7 +55,7 @@ export default function ModulesSection() {
                     type="button"
                     data-testid={`module-position-trigger-${module.id}`}
                     aria-label={t("modules.positionLabel", { module: moduleName })}
-                    className="flex h-8 w-36 items-center justify-between gap-2 rounded-md border border-[var(--app-border)] bg-[var(--app-content)] px-2.5 text-[13px] text-[var(--app-text-primary)] outline-none hover:bg-[var(--app-hover)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                    className="flex h-8 w-36 items-center justify-between gap-2 rounded-md border border-[var(--app-border)] bg-[var(--app-content)] px-2.5 text-[length:var(--text-row)] text-[var(--app-text-primary)] outline-none hover:bg-[var(--app-hover)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
                   >
                     <span className="truncate">
                       {t(`modules.positions.${preference.position}` as never)}
@@ -74,7 +74,7 @@ export default function ModulesSection() {
                         value={position}
                         aria-label={t(`modules.positions.${position}` as never)}
                         data-testid={`module-setting-position-${module.id}-${position}`}
-                        className="text-[13px]"
+                        className="text-[length:var(--text-row)]"
                       >
                         <span>{t(`modules.positions.${position}` as never)}</span>
                         {position !== "activityBar" && (

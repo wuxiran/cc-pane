@@ -63,10 +63,10 @@ export default function TerminalZoomHud({ fontSize }: TerminalZoomHudProps) {
       ].join(" ")}
     >
       <Search aria-hidden="true" className="size-4 text-[var(--app-text-tertiary)]" />
-      <span className="text-[13px] text-[var(--app-text-secondary)]">
+      <span className="text-[length:var(--text-row)] text-[var(--app-text-secondary)]">
         {t("terminalZoom")}
       </span>
-      <span className="text-[17px] font-semibold tabular-nums tracking-[-0.01em] text-[var(--app-text-primary)]">
+      <span className="text-[length:var(--text-heading)] font-semibold tabular-nums tracking-[-0.01em] text-[var(--app-text-primary)]">
         {percent}%
       </span>
     </div>

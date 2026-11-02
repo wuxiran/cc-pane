@@ -173,7 +173,7 @@ export default function LocalHistoryPanel({
         />
         <div className="flex-1 min-w-0">
           <div
-            className="text-[13px] truncate"
+            className="text-[length:var(--text-row)] truncate"
             style={{ color: "var(--app-text-primary)" }}
           >
             {getFileName(change.filePath)}
@@ -202,7 +202,7 @@ export default function LocalHistoryPanel({
           {change.branch && (
             <Badge
               variant="outline"
-              className="text-[10px] px-1 h-[18px]"
+              className="text-[length:var(--text-micro)] px-1 h-[18px]"
               style={{ borderColor: "var(--app-accent)", color: "var(--app-accent)" }}
             >
               <GitBranch size={10} className="mr-0.5" />
@@ -292,7 +292,7 @@ export default function LocalHistoryPanel({
                       </span>
                       <Badge
                         variant="outline"
-                        className="text-[10px] px-1 h-4"
+                        className="text-[length:var(--text-micro)] px-1 h-4"
                         style={{ borderColor: "var(--app-accent)", color: "var(--app-accent)" }}
                       >
                         <GitBranch size={10} className="mr-1" />
@@ -301,7 +301,7 @@ export default function LocalHistoryPanel({
                       {group.isMain && (
                         <Badge
                           variant="secondary"
-                          className="text-[10px] px-1 h-4 shrink-0"
+                          className="text-[length:var(--text-micro)] px-1 h-4 shrink-0"
                         >
                           {t("recentChangesMainRepo")}
                         </Badge>
@@ -427,7 +427,7 @@ export default function LocalHistoryPanel({
                         <div className="flex items-center gap-2 flex-1 min-w-0">
                           <Badge
                             variant="outline"
-                            className="text-[10px] px-1.5 h-[18px] shrink-0"
+                            className="text-[length:var(--text-micro)] px-1.5 h-[18px] shrink-0"
                             style={{
                               borderColor: getLabelColor(label.source),
                               color: getLabelColor(label.source),
@@ -440,7 +440,7 @@ export default function LocalHistoryPanel({
                                 : label.source}
                           </Badge>
                           <span
-                            className="text-[13px] truncate"
+                            className="text-[length:var(--text-row)] truncate"
                             style={{ color: "var(--app-text-primary)" }}
                           >
                             {label.name}
@@ -498,7 +498,7 @@ export default function LocalHistoryPanel({
                             className="shrink-0 text-destructive"
                           />
                           <span
-                            className="text-[13px] truncate"
+                            className="text-[length:var(--text-row)] truncate"
                             style={{ color: "var(--app-text-primary)" }}
                           >
                             {file.filePath}

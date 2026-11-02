@@ -193,7 +193,7 @@ export default function AutomationsSection() {
       <div className="rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-5 py-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="flex items-center gap-2 text-[13px] font-medium">
+            <h3 className="flex items-center gap-2 text-[length:var(--text-row)] font-medium">
               <CalendarClock className="h-4 w-4" />
               {t("automations.title")}
             </h3>
@@ -399,15 +399,15 @@ export default function AutomationsSection() {
               />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="truncate text-[13px] font-medium">{def.name}</span>
-                  <Badge variant="outline" className="font-mono text-[10px]">
+                  <span className="truncate text-[length:var(--text-row)] font-medium">{def.name}</span>
+                  <Badge variant="outline" className="font-mono text-[length:var(--text-micro)]">
                     {def.schedule}
                   </Badge>
-                  <Badge variant="secondary" className="text-[10px]">
+                  <Badge variant="secondary" className="text-[length:var(--text-micro)]">
                     {engines.find((engine) => engine.id === def.engineId)?.label ?? def.engineId}
                   </Badge>
                   {(def.workspaceName || inferWorkspaceName(workspaces, def.cwd)) && (
-                    <Badge variant="outline" className="text-[10px]" style={{ color: "var(--app-accent)" }}>
+                    <Badge variant="outline" className="text-[length:var(--text-micro)]" style={{ color: "var(--app-accent)" }}>
                       {def.workspaceName || inferWorkspaceName(workspaces, def.cwd)}
                     </Badge>
                   )}

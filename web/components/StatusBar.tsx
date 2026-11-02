@@ -231,7 +231,7 @@ export default function StatusBar() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <span
-                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[length:var(--text-micro)] font-medium"
                   style={{
                     color: "var(--app-accent)",
                     background: "var(--app-active-bg)",
@@ -254,7 +254,7 @@ export default function StatusBar() {
                 onClick={() => void handleLockWeb()}
               >
                 <LockKeyhole className="w-3 h-3" />
-                <span className="text-[10px] font-medium">{settingsT("lockWeb")}</span>
+                <span className="text-[length:var(--text-micro)] font-medium">{settingsT("lockWeb")}</span>
               </button>
             </TooltipTrigger>
             <TooltipContent side="top">
@@ -355,7 +355,7 @@ export default function StatusBar() {
             <TooltipTrigger asChild>
               <button
                 aria-label={t("switchLanguage")}
-                className="px-1 py-0.5 rounded transition-colors hover:bg-[var(--app-hover)] text-[10px] font-medium"
+                className="px-1 py-0.5 rounded transition-colors hover:bg-[var(--app-hover)] text-[length:var(--text-micro)] font-medium"
                 onClick={handleToggleLanguage}
               >
                 {i18n.language === "zh-CN" ? "中" : "EN"}
@@ -388,8 +388,6 @@ export default function StatusBar() {
       style={{
         background: "var(--app-menubar)",
         borderTop: "1px solid var(--app-border)",
-        backdropFilter: `blur(var(--app-glass-blur-sm))`,
-        WebkitBackdropFilter: `blur(var(--app-glass-blur-sm))`,
         color: "var(--app-text-secondary)",
       }}
     >
@@ -425,7 +423,7 @@ export default function StatusBar() {
                 <ArrowUpCircle
                   className={`w-3 h-3 ${updating ? "animate-spin" : ""}`}
                 />
-                <span className="text-[10px] font-medium">
+                <span className="text-[length:var(--text-micro)] font-medium">
                   v{updateVersion}
                 </span>
               </button>

@@ -91,8 +91,6 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
         paddingRight: isMac ? 12 : 0,
         background: "var(--app-menubar)",
         borderBottom: "1px solid var(--app-border)",
-        backdropFilter: `blur(var(--app-glass-blur))`,
-        WebkitBackdropFilter: `blur(var(--app-glass-blur))`,
         // Linux 下省略 -webkit-app-region（详见文件顶部 isLinux 说明），避免吞掉窗口控制按钮的点击
         ...(isLinux ? {} : { WebkitAppRegion: "drag" }),
       } as React.CSSProperties}
@@ -136,7 +134,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
               className="flex min-w-0 items-center gap-1 rounded-[5px] px-2 py-1 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
             >
               <span
-                className="hidden max-w-[110px] truncate text-[13px] font-semibold sm:inline md:max-w-[160px] lg:max-w-[220px]"
+                className="hidden max-w-[110px] truncate text-[length:var(--text-row)] font-semibold sm:inline md:max-w-[160px] lg:max-w-[220px]"
                 style={{ color: "var(--app-text-primary)" }}
               >
                 {workspaceLabel}
@@ -155,7 +153,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
                 <DropdownMenuItem
                   key={ws.id}
                   onSelect={() => expandWorkspace(ws.id)}
-                  className="flex items-center gap-2 text-[12.5px]"
+                  className="flex items-center gap-2 text-[length:var(--text-row)]"
                 >
                   <span className="flex-1 truncate">{ws.alias || ws.name}</span>
                   {ws.id === expandedWorkspaceId && (
@@ -180,7 +178,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
                   className="flex min-w-0 items-center gap-1 rounded-[5px] px-2 py-1 transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
                 >
                   <span
-                    className="max-w-[80px] truncate text-[13px] md:max-w-[140px] lg:max-w-[200px]"
+                    className="max-w-[80px] truncate text-[length:var(--text-row)] md:max-w-[140px] lg:max-w-[200px]"
                     style={{
                       color: currentProject
                         ? "var(--app-text-primary)"
@@ -201,7 +199,7 @@ export default function TitleBar({ workspaceName }: TitleBarProps) {
                   <DropdownMenuItem
                     key={project.id}
                     onSelect={() => expandProject(project.id)}
-                    className="flex items-center gap-2 text-[12.5px]"
+                    className="flex items-center gap-2 text-[length:var(--text-row)]"
                   >
                     <span className="flex-1 truncate">{projectDisplayName(project)}</span>
                     {project.id === expandedProjectId && (

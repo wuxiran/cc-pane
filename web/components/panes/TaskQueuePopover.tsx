@@ -45,14 +45,14 @@ function QueueItemRow({ item, busy, onDelete, onRetry }: {
   const retryable = item.state === "failed" || item.state === "deliveryUnknown";
   return (
     <li className="flex min-w-0 items-start gap-2 border-b border-[var(--app-border)] px-3 py-2 last:border-b-0">
-      <span className="w-5 shrink-0 pt-0.5 text-right text-[10px] tabular-nums text-[var(--app-text-tertiary)]">
+      <span className="w-5 shrink-0 pt-0.5 text-right text-[length:var(--text-micro)] tabular-nums text-[var(--app-text-tertiary)]">
         {item.position + 1}
       </span>
       <div className="min-w-0 flex-1">
         <p className="line-clamp-2 whitespace-pre-wrap break-words text-xs text-[var(--app-text-primary)]">
           {item.text || t("taskQueue.imageOnlyTask")}
         </p>
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--app-text-tertiary)]">
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
           <span>{t(`taskQueue.itemStates.${item.state}`)}</span>
           {item.imageRefs.length > 0 && (
             <span className="inline-flex items-center gap-1">
@@ -162,10 +162,10 @@ export default function TaskQueuePopover({ sessionId }: { sessionId: string }) {
             <TooltipTrigger asChild>
               <PopoverTrigger asChild>
                 <button type="button" aria-label={triggerLabel}
-                  className="relative inline-flex h-6 min-w-6 shrink-0 items-center justify-center gap-1 rounded-md px-1.5 text-[10px] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]">
+                  className="relative inline-flex h-6 min-w-6 shrink-0 items-center justify-center gap-1 rounded-md px-1.5 text-[length:var(--text-micro)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]">
                   <StatusIcon state={state} />
                   {itemCount > 0 && (
-                    <Badge className="h-4 min-w-4 px-1 text-[9px] leading-none" variant="secondary">
+                    <Badge className="h-4 min-w-4 px-1 text-[length:var(--text-nano)] leading-none" variant="secondary">
                       {countLabel(itemCount)}
                     </Badge>
                   )}
@@ -186,7 +186,7 @@ export default function TaskQueuePopover({ sessionId }: { sessionId: string }) {
               <h3 className="text-sm font-semibold text-[var(--app-text-primary)]">{t("taskQueue.title")}</h3>
               <p className="mt-0.5 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{t("taskQueue.description")}</p>
             </div>
-            <Badge variant="outline" className="gap-1 text-[10px]"><StatusIcon state={state} />{stateLabel}</Badge>
+            <Badge variant="outline" className="gap-1 text-[length:var(--text-micro)]"><StatusIcon state={state} />{stateLabel}</Badge>
           </div>
 
           <div className="flex items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 py-2">
@@ -239,7 +239,7 @@ export default function TaskQueuePopover({ sessionId }: { sessionId: string }) {
             {draftImages.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {draftImages.map((image) => (
-                  <span key={image.imageRef} className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--app-border)] px-2 text-[10px] text-[var(--app-text-secondary)]">
+                  <span key={image.imageRef} className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--app-border)] px-2 text-[length:var(--text-micro)] text-[var(--app-text-secondary)]">
                     <Image className="size-3" aria-hidden="true" />{image.width} x {image.height}
                     <button type="button" aria-label={t("taskQueue.removeImage")}
                       className="ml-0.5 rounded p-0.5 hover:bg-[var(--app-hover)]"

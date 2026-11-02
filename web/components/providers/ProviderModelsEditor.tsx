@@ -54,7 +54,7 @@ export default function ProviderModelsEditor({
     <section className="pt-1">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-[13px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
+          <h3 className="text-[length:var(--text-row)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
             {t("providerModels")}
           </h3>
           <p className="mt-0.5 text-[length:var(--text-caption)] leading-4" style={{ color: "var(--app-text-secondary)" }}>
@@ -218,7 +218,7 @@ export default function ProviderModelsEditor({
                       }}
                     />
                   </div>
-                  <p className="text-[10px] leading-4" style={{ color: "var(--app-text-tertiary)" }}>
+                  <p className="text-[length:var(--text-micro)] leading-4" style={{ color: "var(--app-text-tertiary)" }}>
                     {isCustomContextWindow
                       ? t("providerModelContextWindowCustomHint")
                       : t("providerModelContextWindowHint")}
@@ -248,7 +248,7 @@ export default function ProviderModelsEditor({
                   </button>
                 </div>
                 {isDefault && (
-                  <span className="text-[10px] font-medium sm:col-span-2 lg:col-span-4" style={{ color: "var(--app-accent)" }}>
+                  <span className="text-[length:var(--text-micro)] font-medium sm:col-span-2 lg:col-span-4" style={{ color: "var(--app-accent)" }}>
                     {t("defaultProviderModel")}
                   </span>
                 )}

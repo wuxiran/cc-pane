@@ -35,6 +35,7 @@ vi.mock("@/hooks/useCliTools", () => ({
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: vi.fn(),
+  ask: vi.fn(async (message: string) => Boolean(window.confirm(message))),
 }));
 
 vi.mock("sonner", () => ({

@@ -121,7 +121,7 @@ export default function TerminalStatusBar({
         <div
           data-testid="terminal-status-bar"
           data-pane-statusbar={dimmed ? "dimmed" : "full"}
-          className="flex h-7 min-w-0 shrink-0 select-none items-center gap-2 border-t px-2 text-[10px]"
+          className="flex h-7 min-w-0 shrink-0 select-none items-center gap-2 border-t px-2 text-[length:var(--text-micro)]"
           style={{
             background: "var(--app-menubar)",
             borderColor: "var(--app-border)",

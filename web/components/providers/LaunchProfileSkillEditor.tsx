@@ -49,7 +49,7 @@ export default function LaunchProfileSkillEditor({
                 <div className="flex flex-wrap items-center justify-between gap-2 py-1">
                   <div>
                     <div className="flex items-center gap-2">
-                      <div className="text-[12.5px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
+                      <div className="text-[length:var(--text-row)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
                         {t("profileSkill")}
                       </div>
                       <span className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
@@ -136,9 +136,9 @@ export default function LaunchProfileSkillEditor({
                           onCheckedChange={() => onToggle(skill.id)}
                         />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13px]">{skill.name}</span>
+                          <span className="block truncate text-[length:var(--text-row)]">{skill.name}</span>
                           {skill.description && (
-                            <span className="block truncate text-[11.5px]" style={{ color: "var(--app-text-tertiary)" }}>
+                            <span className="block truncate text-[length:var(--text-small)]" style={{ color: "var(--app-text-tertiary)" }}>
                               {skill.description}
                             </span>
                           )}

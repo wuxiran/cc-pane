@@ -439,7 +439,7 @@ export default function WorkspaceItem({
                 <Folder className="w-4 h-4 shrink-0 text-[var(--app-text-tertiary)] group-hover:text-[var(--app-text-secondary)] transition-colors" />
               )}
               {workspace.color ? <WorkspaceColorDot color={workspace.color} /> : null}
-              <span className="truncate text-[13px] font-medium">{displayName}</span>
+              <span className="truncate text-[length:var(--text-row)] font-medium">{displayName}</span>
               <WorkspaceBadges
                 showWsl={showWslBadge}
                 isArchived={isArchived}

@@ -79,7 +79,7 @@ export default function LauncherCliRow({ value, onChange }: LauncherCliRowProps)
               {item.label}
             </span>
             {!installed && (
-              <span className="text-[10px]" style={{ color: "var(--app-text-tertiary)" }}>
+              <span className="text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>
                 {t("notInstalled")}
               </span>
             )}
@@ -104,7 +104,7 @@ export default function LauncherCliRow({ value, onChange }: LauncherCliRowProps)
             aria-label={t("moreTools")}
           >
             <ChevronDown className="h-4 w-4" />
-            <span className="text-[10.5px] font-medium">
+            <span className="text-[length:var(--text-micro)] font-medium">
               {moreSelected ? value : t("moreTools")}
             </span>
           </button>
@@ -119,12 +119,12 @@ export default function LauncherCliRow({ value, onChange }: LauncherCliRowProps)
             <DropdownMenuItem
               key={tool.id}
               disabled={!tool.installed}
-              className="flex items-center gap-2 text-[12.5px]"
+              className="flex items-center gap-2 text-[length:var(--text-row)]"
               onSelect={() => onChange(tool.id)}
             >
               <span className="flex-1">{tool.displayName}</span>
               {!tool.installed && (
-                <span className="text-[10.5px]" style={{ color: "var(--app-text-tertiary)" }}>
+                <span className="text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>
                   {t("notInstalled")}
                 </span>
               )}

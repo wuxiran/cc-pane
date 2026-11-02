@@ -133,7 +133,7 @@ export default function EnvironmentPreflightCard({
               <XCircle className="size-4 shrink-0 text-[var(--app-status-danger)]" aria-hidden="true" />
             )}
             <div className="min-w-0 flex-1">
-              <p className="text-[13px] font-medium text-[var(--app-text-primary)]">{probe.label}</p>
+              <p className="text-[length:var(--text-row)] font-medium text-[var(--app-text-primary)]">{probe.label}</p>
               <p className="truncate text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
                 {!probe.applicable
                   ? t("environment.notApplicable")

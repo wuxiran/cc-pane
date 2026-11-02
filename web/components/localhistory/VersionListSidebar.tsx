@@ -113,18 +113,18 @@ export default function VersionListSidebar({
                         }
                       }}
                     >
-                  <div className="flex items-center gap-1.5 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+                  <div className="flex items-center gap-1.5 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
                     <Clock size={12} />
                     <span title={formatFullTime(version.createdAt)}>{formatRelativeTime(version.createdAt)}</span>
                   </div>
                   <div className="text-[length:var(--text-caption)] mt-1 pl-[18px] flex items-center gap-2" style={{ color: "var(--app-text-tertiary)" }}>
                     <span>{formatSize(version.size)}</span>
                     {version.branch ? (
-                      <Badge variant="outline" className="text-[10px] px-1 h-[18px]" style={{ borderColor: "var(--app-accent)", color: "var(--app-accent)" }}>
+                      <Badge variant="outline" className="text-[length:var(--text-micro)] px-1 h-[18px]" style={{ borderColor: "var(--app-accent)", color: "var(--app-accent)" }}>
                         <GitBranch size={10} className="mr-1" />{version.branch}
                       </Badge>
                     ) : fileBranches.length > 1 ? (
-                      <span className="text-[10px] opacity-60">{t("unknownBranch")}</span>
+                      <span className="text-[length:var(--text-micro)] opacity-60">{t("unknownBranch")}</span>
                     ) : null}
                   </div>
                   {getVersionLabels(version.id).length > 0 && (
@@ -133,7 +133,7 @@ export default function VersionListSidebar({
                         <Badge
                           key={label.id}
                           variant="outline"
-                          className="text-[10px] px-1.5 h-[18px]"
+                          className="text-[length:var(--text-micro)] px-1.5 h-[18px]"
                           style={{ borderColor: getLabelColor(label.source), color: getLabelColor(label.source) }}
                         >
                           <Tag size={10} className="mr-1" />{label.name}

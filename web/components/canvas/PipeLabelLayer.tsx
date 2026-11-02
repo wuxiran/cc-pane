@@ -138,7 +138,7 @@ export default function PipeLabelLayer({ nodes, positions, events = [] }: PipeLa
               type="button"
               title={label}
               aria-label={`Open ${label}`}
-              className="pointer-events-auto absolute min-w-0 max-w-[220px] truncate border px-1.5 py-1 text-left text-[10px] leading-3 shadow-sm transition-colors hover:bg-[var(--app-active-bg)]"
+              className="pointer-events-auto absolute min-w-0 max-w-[220px] truncate border px-1.5 py-1 text-left text-[length:var(--text-micro)] leading-3 shadow-sm transition-colors hover:bg-[var(--app-active-bg)]"
               style={{
                 left: position.x + 6,
                 top: Math.max(4, position.y + 5),

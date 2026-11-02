@@ -99,7 +99,7 @@ export default function ProjectSkillsPanel({ scope }: ProjectSkillsPanelProps) {
                       <div className="flex items-center gap-1.5">
                         <span className="truncate font-mono text-sm">{skill.name}</span>
                         {skill.hasScripts && (
-                          <span className="shrink-0 rounded px-1 text-[10px]" style={{ background: "color-mix(in srgb, var(--app-text-primary) 6%, transparent)", color: "var(--app-text-tertiary)" }}>
+                          <span className="shrink-0 rounded px-1 text-[length:var(--text-micro)]" style={{ background: "color-mix(in srgb, var(--app-text-primary) 6%, transparent)", color: "var(--app-text-tertiary)" }}>
                             {t("hasScripts")}
                           </span>
                         )}

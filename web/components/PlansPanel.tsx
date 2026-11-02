@@ -213,12 +213,12 @@ export default function PlansPanel({ open, onOpenChange, projectPath }: PlansPan
                         {plan.sessionId || "no-session"}
                       </span>
                       {plan.layer === "project-legacy" && (
-                        <span className="text-[10px] px-1 rounded" style={{ color: "var(--app-text-tertiary)", background: "var(--app-hover)" }} title={t("planLegacyLocationHint")}>
+                        <span className="text-[length:var(--text-micro)] px-1 rounded" style={{ color: "var(--app-text-tertiary)", background: "var(--app-hover)" }} title={t("planLegacyLocationHint")}>
                           {t("planLegacyLocation")}
                         </span>
                       )}
                       <span
-                        className="text-[10px]"
+                        className="text-[length:var(--text-micro)]"
                         style={{ color: "var(--app-text-tertiary)" }}
                       >
                         {formatArchivedAt(plan.archivedAt)}
@@ -245,7 +245,7 @@ export default function PlansPanel({ open, onOpenChange, projectPath }: PlansPan
                       </Button>
                     </div>
                     <span
-                      className="text-[10px] mt-0.5"
+                      className="text-[length:var(--text-micro)] mt-0.5"
                       style={{ color: "var(--app-text-tertiary)" }}
                     >
                       {formatSize(plan.size)}
@@ -277,7 +277,7 @@ export default function PlansPanel({ open, onOpenChange, projectPath }: PlansPan
                 </div>
               ) : content ? (
                 <pre
-                  className="flex-1 overflow-auto p-4 m-0 text-[13px] leading-relaxed whitespace-pre-wrap break-words"
+                  className="flex-1 overflow-auto p-4 m-0 text-[length:var(--text-row)] leading-relaxed whitespace-pre-wrap break-words"
                   style={{
                     color: "var(--app-text-primary)",
                     fontFamily: "var(--font-mono, monospace)",

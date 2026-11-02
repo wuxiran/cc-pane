@@ -1,5 +1,8 @@
+import { StrictMode } from "react";
+import { ask } from "@tauri-apps/plugin-dialog";
+import * as runtime from "@/services/runtime";
 import "@/i18n";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import WorkspaceDialogs, { ConfirmDialog } from "./WorkspaceDialogs";
@@ -239,55 +242,48 @@ describe("WorkspaceDialogs", () => {
     expect(screen.getByTestId("project-migration-dialog")).toBeInTheDocument();
   });
 
-  it("确认对话框：渲染标题描述，确认/取消调用对应回调", async () => {
-    const user = userEvent.setup();
+  it("确认对话框：走系统对话框，确认/取消调用对应回调", async () => {
     const { props, spies } = makeProps({
       confirm: { open: true, title: "删除工作空间", description: "无法恢复" },
     });
+    vi.mocked(ask).mockResolvedValueOnce(true);
     render(<WorkspaceDialogs {...props} />);
 
-    expect(screen.getByText("删除工作空间")).toBeVisible();
-    expect(screen.getByText("无法恢复")).toBeVisible();
-
-    await user.click(screen.getByRole("button", { name: /确定|OK/i }));
-    expect(spies.confirmConfirm).toHaveBeenCalledTimes(1);
-
-    await user.click(screen.getByRole("button", { name: /取消|Cancel/i }));
+    await waitFor(() => expect(spies.confirmConfirm).toHaveBeenCalledTimes(1));
+    expect(ask).toHaveBeenCalledWith("无法恢复", expect.objectContaining({ title: "删除工作空间" }));
     expect(spies.confirmSetOpen).toHaveBeenCalledWith(false);
   });
 });
 
 describe("ConfirmDialog", () => {
-  it("destructive 变体使用危险按钮样式类", () => {
+  it("destructive 变体用警告级系统对话框", async () => {
+    vi.mocked(ask).mockClear().mockResolvedValueOnce(false);
+    const onConfirm = vi.fn();
+    const setOpen = vi.fn();
     render(
-      <ConfirmDialog
-        open
-        setOpen={vi.fn()}
-        title="危险操作"
-        description="确认删除"
-        onConfirm={vi.fn()}
-        variant="destructive"
-      />,
+      <ConfirmDialog open setOpen={setOpen} title="危险操作" description="确认删除" onConfirm={onConfirm} variant="destructive" />,
     );
-
-    const confirmBtn = screen.getByRole("button", { name: /确定|OK/i });
-    // destructive variant 会带上危险背景色 class
-    expect(confirmBtn.className).toMatch(/bg-destructive/);
+    await waitFor(() => expect(setOpen).toHaveBeenCalledWith(false));
+    expect(ask).toHaveBeenCalledWith("确认删除", expect.objectContaining({ kind: "warning" }));
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it("默认变体不使用危险按钮样式类", () => {
+  it("StrictMode 下只弹一次", async () => {
+    vi.mocked(ask).mockClear().mockResolvedValueOnce(false);
+    const setOpen = vi.fn();
     render(
-      <ConfirmDialog
-        open
-        setOpen={vi.fn()}
-        title="普通操作"
-        description="确认"
-        onConfirm={vi.fn()}
-      />,
+      <StrictMode>
+        <ConfirmDialog open setOpen={setOpen} title="t" description="d" onConfirm={vi.fn()} />
+      </StrictMode>,
     );
+    await waitFor(() => expect(setOpen).toHaveBeenCalledWith(false));
+    expect(ask).toHaveBeenCalledTimes(1);
+  });
 
-    const confirmBtn = screen.getByRole("button", { name: /确定|OK/i });
-    expect(confirmBtn.className).not.toMatch(/bg-destructive/);
-    expect(confirmBtn.className).toMatch(/bg-primary/);
+  it("Web 壳仍渲染 DOM 对话框", () => {
+    vi.spyOn(runtime, "isTauriRuntime").mockReturnValue(false);
+    render(<ConfirmDialog open setOpen={vi.fn()} title="普通操作" description="确认" onConfirm={vi.fn()} variant="destructive" />);
+    expect(screen.getByRole("button", { name: /确定|OK/i }).className).toMatch(/bg-destructive/);
+    vi.restoreAllMocks();
   });
 });

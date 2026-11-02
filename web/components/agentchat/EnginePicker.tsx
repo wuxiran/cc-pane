@@ -240,7 +240,7 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
               <button
                 key={labelKey}
                 type="button"
-                className="flex items-center gap-2 rounded-full px-3.5 py-2 text-[13px] leading-snug text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+                className="flex items-center gap-2 rounded-full px-3.5 py-2 text-[length:var(--text-row)] leading-snug text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
                 onClick={() => {
                   setDraft(t(promptKey));
                   textareaRef.current?.focus();
@@ -297,7 +297,7 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
             }}
             placeholder={t("agentChatHeroPlaceholder")}
             rows={5}
-            className="agent-chat-composer-input max-h-72 min-h-36 w-full resize-none bg-transparent py-4 text-[16px] leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
+            className="agent-chat-composer-input max-h-72 min-h-36 w-full resize-none bg-transparent py-4 text-[length:var(--text-heading)] leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
           />
           <div className="agent-chat-composer-toolbar mt-3 flex items-end justify-between gap-3">
             <div className="agent-chat-composer-options flex min-w-0 flex-wrap items-center gap-1.5">
@@ -342,7 +342,7 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
                       />
                       {codexEngineLabel(engine.id, engine.label)}
                       {!engine.available ? (
-                        <span className="ml-2 text-[10px] text-[var(--app-text-tertiary)]">
+                        <span className="ml-2 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
                           {t("agentChatUnavailableEngine")}
                         </span>
                       ) : null}

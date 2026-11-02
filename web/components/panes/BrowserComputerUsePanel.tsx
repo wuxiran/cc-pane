@@ -88,7 +88,7 @@ export default function BrowserComputerUsePanel({ tabId, url, onClose }: {
           <input id={`browser-elements-${tabId}`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("searchElements")} className="h-8 w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-content)] px-2 text-xs" />
           <ul className="max-h-52 space-y-1 overflow-auto" aria-label={t("elementList")}>
             {elements.map((item) => <li key={item.id}><button type="button" disabled={busy || item.disabled} aria-pressed={selected === item.id} onClick={() => { setSelected(item.id); setText(""); }} className={`block w-full rounded-lg border px-2 py-2 text-left text-xs disabled:opacity-50 ${selected === item.id ? "border-[var(--app-accent)] bg-[var(--app-active-bg)]" : "border-transparent hover:bg-[var(--app-hover)]"}`}>
-              <span className="line-clamp-2 break-words">{item.name || item.text || item.tag}</span><span className="text-[10px] text-[var(--app-text-tertiary)]">{item.role || item.tag}</span>
+              <span className="line-clamp-2 break-words">{item.name || item.text || item.tag}</span><span className="text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">{item.role || item.tag}</span>
             </button></li>)}
             {!elements.length && <li className="py-3 text-xs text-[var(--app-text-tertiary)]">{t("noElements")}</li>}
           </ul>

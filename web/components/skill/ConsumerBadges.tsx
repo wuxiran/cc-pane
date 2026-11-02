@@ -26,7 +26,7 @@ export default function ConsumerBadges({ consumers, compact = false }: ConsumerB
         ) : (
           <span
             key={id}
-            className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px]"
+            className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[length:var(--text-micro)]"
             style={{
               background: `color-mix(in srgb, ${color} 14%, transparent)`,
               color,

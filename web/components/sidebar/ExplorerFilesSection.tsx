@@ -64,10 +64,10 @@ export default function ExplorerFilesSection({
               title={project.path}
             >
               <Chevron className="h-4 w-4 shrink-0 text-[var(--app-text-tertiary)]" />
-              <span className="shrink-0 text-[13px] font-semibold text-[var(--app-text-primary)]">
+              <span className="shrink-0 text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">
                 {name}
               </span>
-              <span className="min-w-0 truncate text-[10px] text-[var(--app-text-tertiary)]">
+              <span className="min-w-0 truncate text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
                 {project.path}
               </span>
             </button>

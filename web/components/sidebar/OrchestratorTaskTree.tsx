@@ -66,14 +66,14 @@ export default function OrchestratorTaskTree() {
                   {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                 </button>
               ) : depth > 0 ? (
-                <span className="px-1 text-[10px]" style={{ color: "var(--app-text-tertiary)" }}>
+                <span className="px-1 text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>
                   ↪
                 </span>
               ) : null}
             </div>
             {node.role === "worker" && (
               <span
-                className="absolute right-2 top-2 z-10 rounded px-1 text-[9px]"
+                className="absolute right-2 top-2 z-10 rounded px-1 text-[length:var(--text-nano)]"
                 style={{
                   color: "var(--app-text-tertiary)",
                   background: "var(--app-input-bg)",

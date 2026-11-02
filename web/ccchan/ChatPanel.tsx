@@ -587,7 +587,7 @@ export function ChatPanel({
       <header className="flex h-11 items-center justify-between px-3" style={{ borderBottom: "1px solid #bfdbfe", background: "#f8fafc" }}>
         <div className="flex min-w-0 items-center gap-2">
           <Maximize2 size={14} style={{ color: "#2563eb" }} />
-          <span className="truncate text-[13px] font-semibold" style={{ color: "#0f172a" }}>
+          <span className="truncate text-[length:var(--text-row)] font-semibold" style={{ color: "#0f172a" }}>
             {t("brand")} · {activeEngineLabel}
           </span>
         </div>
@@ -680,7 +680,7 @@ export function ChatPanel({
       <div className="flex items-end gap-2 p-2.5" style={{ borderTop: "1px solid #bfdbfe", background: "#ffffff" }}>
         <textarea
           value={input}
-          className="min-h-[42px] flex-1 resize-none rounded-md px-2.5 py-2 text-[13px] leading-5 outline-none focus:ring-2 focus:ring-sky-200"
+          className="min-h-[42px] flex-1 resize-none rounded-md px-2.5 py-2 text-[length:var(--text-row)] leading-5 outline-none focus:ring-2 focus:ring-sky-200"
           style={{
             border: "1px solid #cbd5e1",
             background: "#ffffff",

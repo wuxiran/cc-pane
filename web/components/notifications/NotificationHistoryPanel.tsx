@@ -108,7 +108,7 @@ export default function NotificationHistoryPanel() {
     >
       <SnoozedNotifications />
       <div className="flex items-center gap-2 border-b border-[var(--app-border)] px-3 py-2">
-        <span className="text-[13px] font-semibold text-[var(--app-text-primary)]">
+        <span className="text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">
           {t("center.title")}
         </span>
         {unreadCount > 0 && (
@@ -117,10 +117,10 @@ export default function NotificationHistoryPanel() {
           </span>
         )}
         <span className="flex-1" />
-        <Button size="sm" variant="ghost" className="h-6 px-2 text-[11.5px]" onClick={markAllRead}>
+        <Button size="sm" variant="ghost" className="h-6 px-2 text-[length:var(--text-small)]" onClick={markAllRead}>
           {t("center.markAllRead")}
         </Button>
-        <Button size="sm" variant="ghost" className="h-6 px-2 text-[11.5px]" onClick={clear}>
+        <Button size="sm" variant="ghost" className="h-6 px-2 text-[length:var(--text-small)]" onClick={clear}>
           {t("center.clearAll")}
         </Button>
         <IconTooltipButton label={t("center.close")} side="left" onClick={() => setHistoryOpen(false)}>
@@ -134,7 +134,7 @@ export default function NotificationHistoryPanel() {
             key={id}
             type="button"
             aria-pressed={filter === id}
-            className={`rounded-full px-2.5 py-0.5 text-[11.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
+            className={`rounded-full px-2.5 py-0.5 text-[length:var(--text-small)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
               filter === id
                 ? "bg-[var(--app-active-bg)] font-semibold text-[var(--app-accent)]"
                 : "border border-[var(--app-border)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]"
@@ -168,7 +168,7 @@ export default function NotificationHistoryPanel() {
                 />
                 <span className="min-w-0 flex-1">
                   <span
-                    className={`block truncate text-[12.5px] ${
+                    className={`block truncate text-[length:var(--text-row)] ${
                       latest.read
                         ? "text-[var(--app-text-secondary)]"
                         : "font-medium text-[var(--app-text-primary)]"

@@ -165,7 +165,7 @@ export default function PanelEmptyActions({
   const customLaunchButton = (
     <button
       type="button"
-      className="mt-1 flex items-center gap-1.5 self-start text-[11.5px] transition-colors duration-[var(--dur-fast)] hover:text-[var(--app-accent)]"
+      className="mt-1 flex items-center gap-1.5 self-start text-[length:var(--text-small)] transition-colors duration-[var(--dur-fast)] hover:text-[var(--app-accent)]"
       style={{ color: "var(--app-text-tertiary)" }}
       title={mini ? t("customLaunch", { ns: "launcher" }) : undefined}
       onClick={() =>
@@ -229,7 +229,7 @@ export default function PanelEmptyActions({
                   </span>
                   {record.runtimeKind === "wsl" && (
                     <span
-                      className="flex-shrink-0 rounded px-1.5 py-px text-[9.5px] font-semibold"
+                      className="flex-shrink-0 rounded px-1.5 py-px text-[length:var(--text-nano)] font-semibold"
                       style={{ background: "color-mix(in srgb, var(--app-identity-wsl) 16%, transparent)", color: "var(--app-identity-wsl)" }}
                     >
                       WSL
@@ -237,7 +237,7 @@ export default function PanelEmptyActions({
                   )}
                   {record.runtimeKind === "ssh" && (
                     <span
-                      className="flex-shrink-0 rounded px-1.5 py-px text-[9.5px] font-semibold"
+                      className="flex-shrink-0 rounded px-1.5 py-px text-[length:var(--text-nano)] font-semibold"
                       style={{ background: "color-mix(in srgb, var(--app-identity-ssh) 16%, transparent)", color: "var(--app-identity-ssh)" }}
                     >
                       SSH
@@ -247,7 +247,7 @@ export default function PanelEmptyActions({
                 {/* 路径是最先被挤爆的一行，窄窗格里直接砍掉 */}
                 {!compact && (
                   <div
-                    className="mt-0.5 truncate text-[11.5px]"
+                    className="mt-0.5 truncate text-[length:var(--text-small)]"
                     style={{ color: "var(--app-text-tertiary)", fontFamily: "var(--font-mono, monospace)" }}
                   >
                     {record.projectPath}
@@ -256,7 +256,7 @@ export default function PanelEmptyActions({
               </div>
             )}
             {!compact && (
-              <span className="flex-shrink-0 text-[11.5px] tabular-nums" style={{ color: "var(--app-text-tertiary)" }}>
+              <span className="flex-shrink-0 text-[length:var(--text-small)] tabular-nums" style={{ color: "var(--app-text-tertiary)" }}>
                 {formatRelativeTime(record.launchedAt)}
               </span>
             )}
@@ -267,7 +267,7 @@ export default function PanelEmptyActions({
             >
               <button
                 type="button"
-                className={`flex items-center gap-1.5 rounded-l-md py-1.5 text-[11.5px] font-semibold transition-opacity duration-[var(--dur-fast)] hover:opacity-90 ${
+                className={`flex items-center gap-1.5 rounded-l-md py-1.5 text-[length:var(--text-small)] font-semibold transition-opacity duration-[var(--dur-fast)] hover:opacity-90 ${
                   compact ? "px-1.5" : "px-2.5"
                 }`}
                 style={{ background: "var(--app-accent)", color: "var(--primary-foreground)" }}
@@ -298,7 +298,7 @@ export default function PanelEmptyActions({
               <DropdownMenuContent align="end" className="min-w-[200px]">
                 {/* 终端置顶 */}
                 <DropdownMenuItem
-                  className="flex items-center gap-2 text-[12.5px]"
+                  className="flex items-center gap-2 text-[length:var(--text-row)]"
                   onSelect={() => launch(record, "none")}
                 >
                   <Terminal className="h-3.5 w-3.5" style={{ color: "var(--app-text-tertiary)" }} />
@@ -311,7 +311,7 @@ export default function PanelEmptyActions({
                 {methods.map((method) => (
                   <DropdownMenuItem
                     key={`${method.cliTool}|${method.runtimeKind}`}
-                    className="flex items-center gap-2 text-[12.5px]"
+                    className="flex items-center gap-2 text-[length:var(--text-row)]"
                     onSelect={() => launch(method)}
                   >
                     <CliIcon
@@ -319,7 +319,7 @@ export default function PanelEmptyActions({
                       className="h-3.5 w-3.5"
                     />
                     <span className="flex-1">{methodLabel(method)}</span>
-                    <span className="text-[10.5px]" style={{ color: "var(--app-text-tertiary)" }}>
+                    <span className="text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>
                       {formatRelativeTime(method.launchedAt)}
                     </span>
                   </DropdownMenuItem>
@@ -327,7 +327,7 @@ export default function PanelEmptyActions({
                 {/* 历史里没用过的 CLI 兜底 */}
                 {!historyClis.has("claude") && (
                   <DropdownMenuItem
-                    className="flex items-center gap-2 text-[12.5px]"
+                    className="flex items-center gap-2 text-[length:var(--text-row)]"
                     onSelect={() => launch(record, "claude")}
                   >
                     <Sparkles className="h-3.5 w-3.5" style={{ color: "var(--app-accent)" }} />
@@ -336,7 +336,7 @@ export default function PanelEmptyActions({
                 )}
                 {!historyClis.has("codex") && (
                   <DropdownMenuItem
-                    className="flex items-center gap-2 text-[12.5px]"
+                    className="flex items-center gap-2 text-[length:var(--text-row)]"
                     onSelect={() => launch(record, "codex")}
                   >
                     <Bot className="h-3.5 w-3.5" style={{ color: "var(--app-status-success)" }} />

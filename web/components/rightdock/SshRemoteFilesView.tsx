@@ -51,6 +51,7 @@ import {
   type PermissionDialogState,
 } from "./SshRemoteFilesSupport";
 import { useSshRemoteTerminalNavigation } from "./useSshRemoteTerminalNavigation";
+import { nativeConfirm } from "@/services/nativeDialog";
 
 interface SshRemoteFilesViewProps {
   onOpenTerminal?: (options: OpenTerminalOptions) => void;
@@ -198,7 +199,7 @@ export default function SshRemoteFilesView({ onOpenTerminal }: SshRemoteFilesVie
 
   const handleDelete = useCallback(async (entry: FsEntry) => {
     if (!machineId) return;
-    if (!window.confirm(t("sshFiles.confirmDelete", { name: entry.name }))) return;
+    if (!await nativeConfirm(t("sshFiles.confirmDelete", { name: entry.name }))) return;
     try {
       await sshFileService.deleteEntry(machineId, entry.path);
       toastOk(t("sshFiles.deleted", { name: entry.name }));
@@ -297,7 +298,7 @@ export default function SshRemoteFilesView({ onOpenTerminal }: SshRemoteFilesVie
               {t("rightDock.remoteFiles")}
             </span>
           </div>
-          <div className="mt-0.5 truncate pl-4 text-[10px] text-[var(--app-text-muted)]">
+          <div className="mt-0.5 truncate pl-4 text-[length:var(--text-micro)] text-[var(--app-text-muted)]">
             {machine.user ? `${machine.user}@` : ""}{machine.host}:{machine.port}
           </div>
         </div>
@@ -327,7 +328,7 @@ export default function SshRemoteFilesView({ onOpenTerminal }: SshRemoteFilesVie
 
       <div className="shrink-0 px-3 pb-2">
         <Select value={machineId} onValueChange={handleMachineChange}>
-          <SelectTrigger aria-label={t("sshFiles.machine")} className="w-full bg-[var(--app-content)] text-[13px]">
+          <SelectTrigger aria-label={t("sshFiles.machine")} className="w-full bg-[var(--app-content)] text-[length:var(--text-row)]">
             <SelectValue>{machine.name}</SelectValue>
           </SelectTrigger>
           <SelectContent>

@@ -373,7 +373,7 @@ export default memo(function BrowserTabContent({ tab, popup = false, popupMode =
             onKeyDown={(event) => {
               if (event.key === "Enter") navigate();
             }}
-            className="h-full min-w-0 flex-1 bg-transparent text-center text-[13px] text-[var(--app-text-primary)] outline-none focus:text-left"
+            className="h-full min-w-0 flex-1 bg-transparent text-center text-[length:var(--text-row)] text-[var(--app-text-primary)] outline-none focus:text-left"
             spellCheck={false}
           />
           {loading ? (

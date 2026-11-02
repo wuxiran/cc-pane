@@ -56,7 +56,7 @@ export default function TodoTagGroup({
           />
           <Badge
             variant="secondary"
-            className="text-[10px] px-1.5 py-0 h-4 font-medium"
+            className="text-[length:var(--text-micro)] px-1.5 py-0 h-4 font-medium"
           >
             {displayTag}
           </Badge>

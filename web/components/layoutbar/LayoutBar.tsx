@@ -84,7 +84,7 @@ export default function LayoutBar() {
         onClick={handleLayoutButtonClick}
       >
         <Layers className="h-[15px] w-[15px]" strokeWidth={1.6} />
-        <span className="absolute -right-[4px] -top-[4px] flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[var(--app-accent)] px-[3px] text-[9px] font-bold leading-none text-white ring-1 ring-[var(--app-activity-bar-bg)]">
+        <span className="absolute -right-[4px] -top-[4px] flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[var(--app-accent)] px-[3px] text-[length:var(--text-nano)] font-bold leading-none text-white ring-1 ring-[var(--app-activity-bar-bg)]">
           {layouts.length > 99 ? "99+" : layouts.length}
         </span>
       </button>

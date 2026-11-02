@@ -187,7 +187,7 @@ export default function LaunchProfileSkillCard({
                         checked={checked}
                         onCheckedChange={() => toggleSkill(name)}
                         label={name}
-                        trailing={<Badge variant="secondary" className="text-[10px]">{t("builtinBadge")}</Badge>}
+                        trailing={<Badge variant="secondary" className="text-[length:var(--text-micro)]">{t("builtinBadge")}</Badge>}
                       />
                     );
                   })}
@@ -266,7 +266,7 @@ export default function LaunchProfileSkillCard({
                                   onCheckedChange={() => toggleExternalSkill(skill)}
                                   label={skill.name}
                                   description={skill.description || undefined}
-                                  trailing={<Badge variant="secondary" className="text-[10px]">{group.label}</Badge>}
+                                  trailing={<Badge variant="secondary" className="text-[length:var(--text-micro)]">{group.label}</Badge>}
                                 />
                               );
                             })}
@@ -333,12 +333,12 @@ export default function LaunchProfileSkillCard({
                             />
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-2">
-                                <span className="truncate text-[13px]">{entry.name}</span>
-                                {entry.recommended && <Badge variant="secondary" className="text-[10px]">{t("recommendedBadge")}</Badge>}
-                                {entry.category && <Badge variant="outline" className="text-[10px]">{entry.category}</Badge>}
+                                <span className="truncate text-[length:var(--text-row)]">{entry.name}</span>
+                                {entry.recommended && <Badge variant="secondary" className="text-[length:var(--text-micro)]">{t("recommendedBadge")}</Badge>}
+                                {entry.category && <Badge variant="outline" className="text-[length:var(--text-micro)]">{entry.category}</Badge>}
                               </div>
                               {entry.description && (
-                                <div className="mt-0.5 line-clamp-2 text-[11.5px]" style={{ color: "var(--app-text-tertiary)" }}>
+                                <div className="mt-0.5 line-clamp-2 text-[length:var(--text-small)]" style={{ color: "var(--app-text-tertiary)" }}>
                                   {entry.description}
                                 </div>
                               )}
@@ -348,7 +348,7 @@ export default function LaunchProfileSkillCard({
                               </div>
                             </div>
                             {installed ? (
-                              <Badge variant="secondary" className="shrink-0 text-[10px]">{t("installed")}</Badge>
+                              <Badge variant="secondary" className="shrink-0 text-[length:var(--text-micro)]">{t("installed")}</Badge>
                             ) : (
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -380,7 +380,7 @@ export default function LaunchProfileSkillCard({
                             onCheckedChange={() => toggleUserSkill(skill.id)}
                             label={skill.name}
                             description={skill.description || undefined}
-                            trailing={<Badge variant="secondary" className="text-[10px]">{t("userLibBadge")}</Badge>}
+                            trailing={<Badge variant="secondary" className="text-[length:var(--text-micro)]">{t("userLibBadge")}</Badge>}
                           />
                         );
                       })}
@@ -406,7 +406,7 @@ export default function LaunchProfileSkillCard({
               <div className="mt-3 border-t border-[var(--app-border)]/60 pt-2">
                 <div className="flex flex-wrap items-center justify-between gap-2 py-1">
                   <div>
-                    <div className="text-[12.5px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
+                    <div className="text-[length:var(--text-row)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
                       {t("workspaceProjectSkill")}
                     </div>
                     <div className="mt-0.5 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
@@ -449,7 +449,7 @@ export default function LaunchProfileSkillCard({
                           key={project.id}
                           className="flex items-center gap-2 rounded-lg border border-[var(--app-border)] px-3 py-2 text-sm"
                         >
-                          <span className="min-w-0 flex-1 truncate text-[13px]">{project.alias || project.path}</span>
+                          <span className="min-w-0 flex-1 truncate text-[length:var(--text-row)]">{project.alias || project.path}</span>
                           <Button
                             size="xs"
                             variant="outline"

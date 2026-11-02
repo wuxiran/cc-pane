@@ -1,7 +1,7 @@
 // 托盘退出确认对话框：确认回调 Rust（confirm_tray_quit），取消只关窗不做事。
 import "@/i18n";
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, waitFor } from "@testing-library/react";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TrayQuitConfirmDialog from "./TrayQuitConfirmDialog";
 import { trayService } from "@/services/trayService";
@@ -19,33 +19,31 @@ describe("TrayQuitConfirmDialog", () => {
     useDialogStore.setState({ trayQuitConfirmOpen: true, trayQuitRunningCount: 3 });
   });
 
-  it("打开时显示运行会话数", () => {
+  it("用系统对话框提示运行会话数", async () => {
+    vi.mocked(ask).mockResolvedValueOnce(false);
     render(<TrayQuitConfirmDialog />);
 
-    expect(screen.getByText(/仍有 3 个会话正在运行/)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(ask).toHaveBeenCalledWith(
+        expect.stringMatching(/仍有 3 个会话正在运行/),
+        expect.objectContaining({ okLabel: "退出" }),
+      ),
+    );
   });
 
   it("确认后回调 Rust 退出并关闭对话框", async () => {
-    const user = userEvent.setup();
+    vi.mocked(ask).mockResolvedValueOnce(true);
     render(<TrayQuitConfirmDialog />);
 
-    await user.click(screen.getByRole("button", { name: "退出" }));
-
-    expect(trayService.confirmTrayQuit).toHaveBeenCalled();
-    await waitFor(() =>
-      expect(useDialogStore.getState().trayQuitConfirmOpen).toBe(false),
-    );
+    await waitFor(() => expect(trayService.confirmTrayQuit).toHaveBeenCalled());
+    expect(useDialogStore.getState().trayQuitConfirmOpen).toBe(false);
   });
 
   it("取消只关闭对话框，不回调 Rust", async () => {
-    const user = userEvent.setup();
+    vi.mocked(ask).mockResolvedValueOnce(false);
     render(<TrayQuitConfirmDialog />);
 
-    await user.click(screen.getByRole("button", { name: "取消" }));
-
+    await waitFor(() => expect(useDialogStore.getState().trayQuitConfirmOpen).toBe(false));
     expect(trayService.confirmTrayQuit).not.toHaveBeenCalled();
-    await waitFor(() =>
-      expect(useDialogStore.getState().trayQuitConfirmOpen).toBe(false),
-    );
   });
 });

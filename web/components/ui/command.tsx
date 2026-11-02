@@ -43,7 +43,7 @@ function CommandDialog({ title, children, ...props }: CommandDialogProps) {
         <DialogDescription className="sr-only">{resolvedTitle}</DialogDescription>
         <Command
           shouldFilter
-          className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-[var(--app-text-tertiary)]"
+          className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[length:var(--text-micro)] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-[var(--app-text-tertiary)]"
         >
           {children}
         </Command>
@@ -62,7 +62,7 @@ function CommandInput({ className, ...props }: React.ComponentProps<typeof Comma
       <CommandPrimitive.Input
         data-slot="command-input"
         className={cn(
-          "flex h-10 w-full bg-transparent py-3 text-[13px] outline-none",
+          "flex h-10 w-full bg-transparent py-3 text-[length:var(--text-row)] outline-none",
           "placeholder:text-[var(--app-text-tertiary)] disabled:cursor-not-allowed disabled:opacity-50",
           className,
         )}
@@ -107,7 +107,7 @@ function CommandItem({ className, ...props }: React.ComponentProps<typeof Comman
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "relative flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-[13px] outline-none",
+        "relative flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-[length:var(--text-row)] outline-none",
         "data-[selected=true]:bg-[color-mix(in_srgb,var(--app-accent)_12%,transparent)] data-[selected=true]:text-[var(--app-text-primary)]",
         "data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
         "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-[var(--app-text-tertiary)]",
@@ -123,7 +123,7 @@ function CommandShortcut({ className, ...props }: React.ComponentProps<"span">) 
     <span
       data-slot="command-shortcut"
       className={cn(
-        "ml-auto rounded border border-[var(--app-border)] bg-[var(--app-hover)] px-1 py-px font-mono text-[10px] leading-none text-[var(--app-text-tertiary)]",
+        "ml-auto rounded border border-[var(--app-border)] bg-[var(--app-hover)] px-1 py-px font-mono text-[length:var(--text-micro)] leading-none text-[var(--app-text-tertiary)]",
         className,
       )}
       {...props}

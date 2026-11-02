@@ -79,7 +79,7 @@ export default function SkillMarketCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span
-              className="truncate text-[13px] font-medium"
+              className="truncate text-[length:var(--text-row)] font-medium"
               style={{ color: "var(--app-text-primary)" }}
               title={entry.name}
             >
@@ -123,7 +123,7 @@ export default function SkillMarketCard({
 
       <div className="flex items-center justify-between gap-2">
         <span
-          className="truncate rounded-full px-2 py-0.5 text-[10px]"
+          className="truncate rounded-full px-2 py-0.5 text-[length:var(--text-micro)]"
           style={{
             background: "color-mix(in srgb, var(--app-text-primary) 6%, transparent)",
             color: "var(--app-text-tertiary)",

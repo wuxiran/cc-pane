@@ -89,7 +89,7 @@ export function ThemeEditor() {
     >
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
         <div className="min-w-0">
-          <h2 id="theme-custom-heading" className="text-[13px] font-semibold text-[var(--app-text-primary)]">
+          <h2 id="theme-custom-heading" className="text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">
             {t("theme.custom.title")}
           </h2>
           <p className="mt-1 text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">

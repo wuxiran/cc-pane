@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { FolderOpen } from "lucide-react";
 import { useWorkspacesStore, normalizedWorkspaceGroup } from "@/stores/useWorkspacesStore";
@@ -18,6 +18,8 @@ import type { ProjectPathStatus, Workspace, WorkspaceProject } from "@/types";
 import ProjectMigrationDialog from "./ProjectMigrationDialog";
 import MissingProjectsCleanupDialog from "./MissingProjectsCleanupDialog";
 import type { ScannedRepo } from "@/services/workspaceService";
+import { nativeConfirm } from "@/services/nativeDialog";
+import { isTauriRuntime } from "@/services/runtime";
 
 interface DialogFieldProps {
   open: boolean;
@@ -83,6 +85,32 @@ export function ConfirmDialog({
   variant = "default",
 }: ConfirmDialogProps) {
   const { t } = useTranslation("dialogs");
+  const useNative = isTauriRuntime();
+  const latest = useRef({ title, description, onConfirm, setOpen, variant });
+  latest.current = { title, description, onConfirm, setOpen, variant };
+  useEffect(() => {
+    if (!useNative || !open) return;
+    // setOpen(false) 放在最后：StrictMode 下 effect 重入时 open 仍为 true，靠 cancelled 只消费一次。
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      const { title, description, variant } = latest.current;
+      void nativeConfirm(description, {
+        title,
+        kind: variant === "destructive" ? "warning" : "info",
+        okLabel: t("confirm", { ns: "common" }),
+        cancelLabel: t("cancel", { ns: "common" }),
+      }).then((confirmed) => {
+        if (cancelled) return;
+        latest.current.setOpen(false);
+        if (confirmed) latest.current.onConfirm();
+      });
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [open, useNative, t]);
+  if (useNative) return null;
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="sm:max-w-sm">

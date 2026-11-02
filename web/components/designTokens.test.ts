@@ -127,10 +127,14 @@ beforeAll(async () => {
 });
 
 const TYPE_SCALE = [
+  ["--text-nano", "9px"],
+  ["--text-micro", "10px"],
   ["--text-caption", "11px"],
   ["--text-small", "12px"],
+  ["--text-row", "13px"],
   ["--text-body", "14px"],
   ["--text-title", "15px"],
+  ["--text-heading", "18px"],
   ["--text-display", "20px"],
   ["--text-hero", "30px"],
 ] as const;
@@ -169,14 +173,12 @@ const TYPE_CONSUMERS: Record<string, { uses: string[]; removed: RegExp[]; kept: 
   "StatusBar.tsx": {
     uses: ["text-[length:var(--text-caption)]"],
     removed: [/text-\[11px\]/],
-    // 10px 未入阶梯（全库 254 处，是否增设 micro 档留待推广期决策），保持原值。
-    kept: ["text-[10px]"],
+    kept: [],
   },
   "TitleBar.tsx": {
     uses: ["text-[length:var(--text-small)]"],
     removed: [/text-\[12px\]/],
-    // 13px/12.5px 未入阶梯（body 取众数 14px，见 docs/typography.md），保持原值。
-    kept: ["text-[13px]", "text-[12.5px]"],
+    kept: [],
   },
 };
 

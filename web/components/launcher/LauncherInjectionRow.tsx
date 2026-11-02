@@ -165,7 +165,7 @@ export default function LauncherInjectionRow({
       </div>
 
       {draft.injection && (
-        <div className="text-[10.5px]" style={{ color: "var(--app-text-tertiary)" }}>
+        <div className="text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>
           {t("injectionLast", {
             label: draft.injection.label,
             target:

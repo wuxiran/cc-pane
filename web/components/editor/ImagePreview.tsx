@@ -159,7 +159,7 @@ export default function ImagePreview({
         >
           {/* 格式 badge */}
           <span
-            className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+            className="px-1.5 py-0.5 rounded text-[length:var(--text-micro)] font-medium"
             style={{
               background: "var(--app-accent-muted)",
               color: "var(--app-accent)",

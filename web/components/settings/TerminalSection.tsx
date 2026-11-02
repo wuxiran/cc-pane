@@ -90,7 +90,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
       <div className="flex items-center justify-between gap-6">
         <Label htmlFor="terminal-theme-mode">{t("terminalTheme")}</Label>
         <Select value={value.themeMode ?? "followApp"} onValueChange={(next) => update("themeMode", next as TerminalSettings["themeMode"])}>
-          <SelectTrigger id="terminal-theme-mode" aria-label={t("terminalTheme")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+          <SelectTrigger id="terminal-theme-mode" aria-label={t("terminalTheme")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -105,7 +105,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         <Label htmlFor="terminal-cursor-style">{t("cursorStyle")}</Label>
         <div className="flex items-center gap-4">
           <Select value={value.cursorStyle} onValueChange={(next) => update("cursorStyle", next)}>
-            <SelectTrigger id="terminal-cursor-style" aria-label={t("cursorStyle")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+            <SelectTrigger id="terminal-cursor-style" aria-label={t("cursorStyle")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -114,7 +114,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
               <SelectItem value="bar">{t("cursorBar")}</SelectItem>
             </SelectContent>
           </Select>
-          <label className="flex items-center gap-2 text-[13px] text-[var(--app-text-secondary)]">
+          <label className="flex items-center gap-2 text-[length:var(--text-row)] text-[var(--app-text-secondary)]">
             {t("cursorBlink")}
             <input
               type="checkbox"
@@ -152,7 +152,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         <div className="w-44 shrink-0">
           {shells.length > 0 ? (
             <Select value={value.shell ?? AUTO_SHELL_VALUE} onValueChange={(next) => update("shell", next === AUTO_SHELL_VALUE ? null : next)}>
-              <SelectTrigger id="terminal-shell" aria-label="Shell" className="w-full bg-[var(--app-content)] text-[13px]">
+              <SelectTrigger id="terminal-shell" aria-label="Shell" className="w-full bg-[var(--app-content)] text-[length:var(--text-row)]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -179,7 +179,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         <div className="flex items-center justify-between gap-6">
           <Label htmlFor="terminal-renderer-mode">{t("rendererMode")}</Label>
           <Select value={value.rendererMode ?? "auto"} onValueChange={(next) => update("rendererMode", next as TerminalSettings["rendererMode"])}>
-            <SelectTrigger id="terminal-renderer-mode" aria-label={t("rendererMode")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+            <SelectTrigger id="terminal-renderer-mode" aria-label={t("rendererMode")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

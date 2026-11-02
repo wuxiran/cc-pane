@@ -29,6 +29,7 @@ import { isImageFile } from "@/lib/fileTypes";
 import { useEditorDocument } from "./useEditorDocument";
 
 import { getLanguageFromPath } from "./editorLanguage";
+import { nativeConfirm } from "@/services/nativeDialog";
 
 type PreviewMode = "edit" | "preview" | "split";
 
@@ -180,7 +181,7 @@ export default function EditorView({
       if (!ssh && document.modified) {
         const current = await filesystemService.getEntryInfo(filePath);
         if (current.modified && current.modified !== document.modified) {
-          const overwrite = window.confirm(
+          const overwrite = await nativeConfirm(
             "File has been modified externally. Overwrite?"
           );
           if (!overwrite) return;
@@ -447,7 +448,7 @@ export default function EditorView({
       </div>
 
       {readOnly && (
-        <div className="px-2 py-0.5 text-[10px] border-t" style={{ color: "var(--app-status-warning)", background: "var(--app-status-warning-bg)" }}>
+        <div className="px-2 py-0.5 text-[length:var(--text-micro)] border-t" style={{ color: "var(--app-status-warning)", background: "var(--app-status-warning-bg)" }}>
           {readOnlyReason === "encoding"
             ? "Read-only (non UTF-8 encoding)"
             : "Read-only (protected path)"}

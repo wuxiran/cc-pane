@@ -102,7 +102,7 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
         {/* 活跃会话 */}
         {activeSessions.length > 0 && (
           <div className="px-3 mb-3">
-            <span className="text-[10px] font-bold uppercase tracking-wider px-1 text-[var(--app-text-tertiary)]">
+            <span className="text-[length:var(--text-micro)] font-bold uppercase tracking-wider px-1 text-[var(--app-text-tertiary)]">
               Active ({activeSessions.length})
             </span>
             <div className="mt-1 space-y-0.5">

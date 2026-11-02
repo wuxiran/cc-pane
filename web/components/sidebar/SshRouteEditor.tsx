@@ -246,7 +246,7 @@ export function SshRouteEditor({
                     })}
                   </Button>
                   {form.clearStoredProxyPassword && (
-                    <span className="text-[10px] text-[var(--app-text-muted)]">
+                    <span className="text-[length:var(--text-micro)] text-[var(--app-text-muted)]">
                       {t("ssh.route.proxyPasswordClearPending", {
                         defaultValue:
                           "Stored proxy password will be removed when you save.",
@@ -373,7 +373,7 @@ export function SshRouteEditor({
                   placeholder="~/.ssh/id_rsa"
                 />
               </Field>
-              <p className="text-[10px] text-[var(--app-text-muted)]">
+              <p className="text-[length:var(--text-micro)] text-[var(--app-text-muted)]">
                 {t("ssh.route.jumpInlineHint", {
                   defaultValue:
                     "Inline jump hosts authenticate with an identity file or ssh-agent only. To reuse a stored password, reference a saved machine instead.",

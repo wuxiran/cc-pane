@@ -352,7 +352,7 @@ export default function ProjectSkillImportDialog({
                     <div className="flex items-center gap-2">
                       <span className="truncate font-mono text-xs font-medium">{candidate.name}</span>
                       {exists && (
-                        <span className="rounded-full px-1.5 text-[10px]" style={{ background: "var(--app-status-warning-bg)", color: "var(--app-status-warning)" }}>
+                        <span className="rounded-full px-1.5 text-[length:var(--text-micro)]" style={{ background: "var(--app-status-warning-bg)", color: "var(--app-status-warning)" }}>
                           {t("importDialog.exists")}
                         </span>
                       )}
