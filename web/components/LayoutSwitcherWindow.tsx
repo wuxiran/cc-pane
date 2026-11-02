@@ -212,7 +212,7 @@ export default function LayoutSwitcherWindow() {
       style={{ background: "var(--app-panel-bg)", color: "var(--app-text-primary)" }}
     >
       <div
-        className="flex h-10 shrink-0 cursor-grab select-none items-center justify-between border-b px-3 active:cursor-grabbing"
+        className="flex h-10 shrink-0 select-none items-center justify-between border-b px-3"
         style={{ borderColor: "var(--app-border)" }}
         onPointerDown={startWindowDrag}
         onPointerMove={moveWindow}

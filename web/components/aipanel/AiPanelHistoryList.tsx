@@ -87,7 +87,7 @@ export default function AiPanelHistoryList() {
                         void handleOpen(panel);
                       }
                     }}
-                    className="group flex w-full min-w-0 cursor-pointer items-start gap-2 px-3 py-2 text-left outline-none hover:bg-[var(--app-hover)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                    className="group flex w-full min-w-0 cursor-default items-start gap-2 px-3 py-2 text-left outline-none hover:bg-[var(--app-hover)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 items-center gap-2">

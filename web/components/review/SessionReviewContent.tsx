@@ -68,7 +68,7 @@ export default function SessionReviewContent({ projectPath, checkpointChatId, cl
       <header className="shrink-0"><h2 className="text-sm font-medium">{t("title")}</h2><p className="truncate text-xs text-[var(--app-text-tertiary)]" title={state.root}>{state.root}</p></header>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--app-border)] pb-3">
         <div className="flex min-w-0 flex-wrap items-center gap-3 rounded-full bg-[var(--app-sidebar)] px-4 py-1.5">
-        <select aria-label={t("scope")} value={state.scope} onChange={(event) => state.setScope(event.target.value as ReviewScope)} className="cursor-pointer rounded-md border-0 bg-transparent py-1 pr-1 text-sm font-medium outline-none">
+        <select aria-label={t("scope")} value={state.scope} onChange={(event) => state.setScope(event.target.value as ReviewScope)} className="cursor-default rounded-md border-0 bg-transparent py-1 pr-1 text-sm font-medium outline-none">
           <option value="turn" disabled={!checkpointChatId || !isTauriRuntime()}>{t("turn")}</option>
           <option value="workspace">{t("workspace")}</option><option value="branch">{t("branch")}</option>
         </select>

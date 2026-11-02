@@ -58,7 +58,7 @@ export default function WorkspaceTerminalList({ workspaceName, rows }: Props) {
             type="button"
             title={tooltip || undefined}
             aria-label={statusLabel ? `${name} ${statusLabel}` : name}
-            className={`flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-[var(--dur-fast)] ${
+            className={`flex w-full cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-[var(--dur-fast)] ${
               active
                 ? "bg-[var(--app-hover)] text-[var(--app-text-primary)]"
                 : "text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"

@@ -252,7 +252,7 @@ export default function ProjectListItem({
           <div
             role="button"
             tabIndex={0}
-            className="flex cursor-pointer items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+            className="flex cursor-default items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
             onDoubleClick={activateProject}
             onKeyDown={(event) => {
               if (event.target !== event.currentTarget) return;

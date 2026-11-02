@@ -50,7 +50,7 @@ function Evidence({ evidence, currentFingerprint, checking }: {
       {evidence.codeChangedDuringRun && <p className="mt-2 text-[var(--app-status-warning)]">{t("verification.changedDuringRun", { defaultValue: "Code changed during this check; this result cannot verify the current code." })}</p>}
       {(evidence.executionError || evidence.observationError) && <p className="mt-2 break-words text-destructive">{evidence.executionError || evidence.observationError}</p>}
       <details className="mt-2">
-        <summary className="cursor-pointer text-muted-foreground">{t("verification.details", { defaultValue: "Execution details and output" })}</summary>
+        <summary className="cursor-default text-muted-foreground">{t("verification.details", { defaultValue: "Execution details and output" })}</summary>
         <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 break-all text-muted-foreground">
           <dt>{t("verification.cwd", { defaultValue: "Working directory" })}</dt><dd>{evidence.cwd}</dd>
           <dt>{t("verification.started", { defaultValue: "Started" })}</dt><dd>{new Date(evidence.startedAt).toLocaleString()}</dd>

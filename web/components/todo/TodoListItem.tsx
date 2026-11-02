@@ -76,7 +76,7 @@ export default function TodoListItem({
 
   return (
     <div
-      className={`group relative mx-1 flex min-h-10 cursor-pointer items-center gap-2.5 rounded-sm border-b border-border/40 px-2 py-1.5 pr-10
+      className={`group relative mx-1 flex min-h-10 cursor-default items-center gap-2.5 rounded-sm border-b border-border/40 px-2 py-1.5 pr-10
         transition-colors duration-[var(--dur-fast)]
         ${
           isSelected
@@ -138,7 +138,7 @@ export default function TodoListItem({
           {dispatchSessionId && (
             <Badge
               variant="secondary"
-              className="h-4 shrink-0 cursor-pointer px-1.5 py-0 text-xs font-medium text-[var(--app-accent)] hover:bg-accent"
+              className="h-4 shrink-0 cursor-default px-1.5 py-0 text-xs font-medium text-[var(--app-accent)] hover:bg-accent"
               title={t("todoDispatchedHint")}
               onClick={(e) => {
                 e.stopPropagation();

@@ -33,7 +33,7 @@ export default function NotificationSection({ value, onChange }: NotificationSec
           type="checkbox"
           checked={value.enabled}
           onChange={(e) => update("enabled", e.target.checked)}
-          className="w-4 h-4 cursor-pointer"
+          className="w-4 h-4 cursor-default"
           style={{ accentColor: "var(--app-accent)" }}
         />
       </div>
@@ -46,7 +46,7 @@ export default function NotificationSection({ value, onChange }: NotificationSec
           checked={value.onExit}
           disabled={!value.enabled}
           onChange={(e) => update("onExit", e.target.checked)}
-          className="w-4 h-4 cursor-pointer"
+          className="w-4 h-4 cursor-default"
           style={{ accentColor: "var(--app-accent)" }}
         />
       </div>
@@ -59,7 +59,7 @@ export default function NotificationSection({ value, onChange }: NotificationSec
           checked={value.onWaitingInput}
           disabled={!value.enabled}
           onChange={(e) => update("onWaitingInput", e.target.checked)}
-          className="w-4 h-4 cursor-pointer"
+          className="w-4 h-4 cursor-default"
           style={{ accentColor: "var(--app-accent)" }}
         />
       </div>
@@ -72,7 +72,7 @@ export default function NotificationSection({ value, onChange }: NotificationSec
           checked={value.onlyWhenUnfocused}
           disabled={!value.enabled}
           onChange={(e) => update("onlyWhenUnfocused", e.target.checked)}
-          className="w-4 h-4 cursor-pointer"
+          className="w-4 h-4 cursor-default"
           style={{ accentColor: "var(--app-accent)" }}
         />
       </div>

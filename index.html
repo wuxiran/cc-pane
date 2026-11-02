@@ -5,10 +5,15 @@
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CC-Panes</title>
+    <!-- 首帧底色：CSS bundle 到达前窗口不闪白；CSP 不允许内联脚本，这里只能按系统明暗取色。 -->
+    <style>
+      html, body { margin: 0; background: #17191e; }
+      @media (prefers-color-scheme: light) { html, body { background: #ffffff; } }
+    </style>
   </head>
 
-  <body>
-    <div id="root"><p id="loading-hint" style="color:#aaa;padding:40px;font-family:system-ui">Loading CC-Panes...</p></div>
+  <body spellcheck="false">
+    <div id="root"></div>
     <script type="module" src="/web/main.tsx"></script>
   </body>
 </html>

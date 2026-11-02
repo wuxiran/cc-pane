@@ -51,7 +51,7 @@ export default function HomeQuickActions({ onNewTerminal }: HomeQuickActionsProp
       {actions.map((action) => (
         <button
           key={action.labelKey}
-          className="home-quick-action group inline-flex h-9 xl:h-10 items-center gap-2 rounded-lg border border-[var(--app-home-border)] bg-[var(--app-home-surface)] px-3.5 xl:px-5 transition-all duration-[var(--dur-fast)] cursor-pointer hover:border-[var(--app-home-border-hover)] hover:bg-[var(--app-home-surface-hover)]"
+          className="home-quick-action group inline-flex h-9 xl:h-10 items-center gap-2 rounded-lg border border-[var(--app-home-border)] bg-[var(--app-home-surface)] px-3.5 xl:px-5 transition-all duration-[var(--dur-fast)] cursor-default hover:border-[var(--app-home-border-hover)] hover:bg-[var(--app-home-surface-hover)]"
           onClick={action.onClick}
         >
           <span

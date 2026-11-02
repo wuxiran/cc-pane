@@ -190,7 +190,6 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
 
     const todoSidebar = screen.getByTestId("todo-sidebar");
     expect(todoSidebar.parentElement?.parentElement).toBe(transition);
-    expect(transition).toHaveStyle({ gridTemplateColumns: "1fr" });
   });
 
   it("selfchat → SelfChatManager 全屏", () => {
@@ -199,7 +198,7 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     expect(screen.getByTestId("selfchat-manager")).toBeVisible();
   });
 
-  it("skillMarket → 市场页挂 main-view-layer，与其余视图共用同一 cross-fade", async () => {
+  it("skillMarket → 市场页挂 main-view-layer，与其余视图共用同一层容器", async () => {
     setMode("skillMarket");
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
     const shell = screen.getByTestId("skill-market-shell");
@@ -432,25 +431,12 @@ describe("亮色壁纸终端区纯色垫层（脏交界修复）", () => {
   });
 });
 
-describe("签名动效：视图切入视差滑动", () => {
+describe("视图切换：直接切换，无转场", () => {
   function mainViewLayer(testId: string, view: string) {
     return screen.getByTestId(testId).closest(`[data-main-view='${view}']`) as HTMLElement;
   }
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("首次挂载不播动效（无位移、无内联过渡）", () => {
-    setMode("panes");
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    const panesLayer = mainViewLayer("pane-container", "panes");
-    expect(panesLayer.hasAttribute("data-enter-motion")).toBe(false);
-    expect(panesLayer.style.transform).toBe("");
-    expect(panesLayer.style.transition).toBe("");
-  });
-
-  it("进入层 opacity + translateY(6px)→0（--dur-slow --ease-out），离场层纯 fade 无位移", async () => {
+  it("切换当帧新层即完全可见，且不带位移或内联过渡", () => {
     setMode("panes");
     const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
     const panesLayer = mainViewLayer("pane-container", "panes");
@@ -459,54 +445,11 @@ describe("签名动效：视图切入视差滑动", () => {
     rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
     const homeLayer = mainViewLayer("home-dashboard", "home");
 
-    // 起始帧：落位 6px、opacity 0、无过渡（双 rAF 的第一拍）
-    expect(homeLayer).toHaveAttribute("data-enter-motion", "from");
-    expect(homeLayer.style.transform).toBe("translateY(6px)");
-    expect(homeLayer.style.opacity).toBe("0");
-    expect(homeLayer.style.transition).toBe("none");
-    // 离场层：不带位移、不带内联过渡，纯 CSS 类 fade（opacity var(--dur)）
-    expect(panesLayer.hasAttribute("data-enter-motion")).toBe(false);
-    expect(panesLayer.style.transform).toBe("");
+    expect(homeLayer.style.opacity).toBe("1");
+    expect(homeLayer.style.transform).toBe("");
+    expect(homeLayer.style.transition).toBe("");
+    expect(panesLayer.style.opacity).toBe("0");
     expect(panesLayer.style.transition).toBe("");
-
-    // 下一帧：滑向终态，过渡走 --dur-slow + --ease-out，且只入不追（transform 终态归零）
-    await waitFor(() => expect(homeLayer).toHaveAttribute("data-enter-motion", "to"));
-    expect(homeLayer.style.transform).toBe("translateY(0)");
-    expect(homeLayer.style.opacity).toBe("1");
-    expect(homeLayer.style.transition).toContain("opacity var(--dur-slow) var(--ease-out)");
-    expect(homeLayer.style.transition).toContain("transform var(--dur-slow) var(--ease-out)");
-
-    // 收尾：摘掉内联动效，后续离场交还 .main-view-layer 的纯 fade
-    await waitFor(() => expect(homeLayer.hasAttribute("data-enter-motion")).toBe(false), {
-      timeout: 2000,
-    });
-    expect(homeLayer.style.transform).toBe("");
-    expect(homeLayer.style.transition).toBe("");
-    expect(homeLayer.style.opacity).toBe("1");
-  });
-
-  it("prefers-reduced-motion：退回纯 fade，无视差位移、无内联过渡", async () => {
-    vi.stubGlobal(
-      "matchMedia",
-      vi.fn().mockReturnValue({
-        matches: true,
-        media: "(prefers-reduced-motion: reduce)",
-        addEventListener: () => {},
-        removeEventListener: () => {},
-      }),
-    );
-    setMode("panes");
-    const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-
-    setMode("home");
-    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    const homeLayer = mainViewLayer("home-dashboard", "home");
-
-    // 直接呈现活动终态（opacity 由 CSS 类 fade 收短到 60ms），全程无位移
-    expect(homeLayer.hasAttribute("data-enter-motion")).toBe(false);
-    expect(homeLayer.style.transform).toBe("");
-    expect(homeLayer.style.transition).toBe("");
-    expect(homeLayer.style.opacity).toBe("1");
   });
 });
 
@@ -548,26 +491,5 @@ describe("inert：隐藏 keep-alive 层不持焦（aria-hidden 焦点告警修�
     expect(homeLayer).toHaveAttribute("aria-hidden", "false");
     expect(panesLayer.hasAttribute("inert")).toBe(true);
     expect(panesLayer).toHaveAttribute("aria-hidden", "true");
-  });
-
-  it("enterMotion 视差动画期间，进入层（活动层）全程不带 inert", async () => {
-    setMode("panes");
-    const { rerender } = render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-
-    setMode("home");
-    rerender(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    const homeLayer = mainViewLayer("home-dashboard", "home");
-
-    // 起始帧（from）：进入层已可交互，无 inert
-    expect(homeLayer).toHaveAttribute("data-enter-motion", "from");
-    expect(homeLayer.hasAttribute("inert")).toBe(false);
-    // 过渡帧（to）：仍无 inert
-    await waitFor(() => expect(homeLayer).toHaveAttribute("data-enter-motion", "to"));
-    expect(homeLayer.hasAttribute("inert")).toBe(false);
-    // 收尾后依然无 inert
-    await waitFor(() => expect(homeLayer.hasAttribute("data-enter-motion")).toBe(false), {
-      timeout: 2000,
-    });
-    expect(homeLayer.hasAttribute("inert")).toBe(false);
   });
 });

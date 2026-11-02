@@ -51,7 +51,7 @@ export function StepNav({
                 : done
                   ? "text-[var(--app-text-secondary)]"
                   : "text-[var(--app-text-tertiary)]",
-              reachable && "cursor-pointer hover:bg-[var(--app-hover)]",
+              reachable && "cursor-default hover:bg-[var(--app-hover)]",
             )}
             onClick={() => { if (reachable) onNavigate(index as StepIndex); }}
           >

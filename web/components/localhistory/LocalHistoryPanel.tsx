@@ -156,7 +156,7 @@ export default function LocalHistoryPanel({
         key={`${worktreePath || projectPath}:${change.filePath}:${change.versionId}`}
         role="button"
         tabIndex={0}
-        className="flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer transition-colors hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+        className="flex items-center gap-3 px-3 py-2.5 rounded-md cursor-default transition-colors hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
         onClick={() => openFileHistory(change.filePath, worktreePath)}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) return;

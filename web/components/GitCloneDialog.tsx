@@ -203,7 +203,7 @@ export default function GitCloneDialog({
             />
             <Label
               htmlFor="git-clone-shallow"
-              className="cursor-pointer select-none text-xs"
+              className="cursor-default select-none text-xs"
               style={{ color: "var(--app-text-secondary)" }}
             >
               {t("shallowClone")}
@@ -215,7 +215,7 @@ export default function GitCloneDialog({
             <button
               type="button"
               aria-expanded={showAuth}
-              className="flex cursor-pointer items-center gap-2 select-none"
+              className="flex cursor-default items-center gap-2 select-none"
               onClick={() => setShowAuth(!showAuth)}
             >
               <span className="text-xs font-medium" style={{ color: "var(--app-text-tertiary)" }}>

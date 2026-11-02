@@ -136,7 +136,6 @@
   "statusbar.more": "More tools",
   "statusbar.customize": "Customize status bar (checked items stay visible)",
   "statusbar.item.webLock": "Web Lock",
-  "doubleClickWindowFullscreenHint": "Double-click to toggle fullscreen",
   "resourceAppMemoryScope": "Working sets of this desktop instance and tracked descendants, as a share of system memory. Managed sessions may overlap; do not add the totals.",
   "resourceResize": "Resize resource panel",
   "resourceSort": "Resource order",

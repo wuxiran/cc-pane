@@ -1,3 +1,4 @@
+import { formatKeyCombo } from "@/stores";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { Save, Undo2, Redo2, Eye, SplitSquareHorizontal, Code2 } from "lucide-react";
@@ -56,7 +57,7 @@ export default function EditorToolbar({
               <Save size={13} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{t("save")}</TooltipContent>
+          <TooltipContent>{t("save", { shortcut: formatKeyCombo("Ctrl+S") })}</TooltipContent>
         </Tooltip>
 
         <Tooltip>
@@ -70,7 +71,7 @@ export default function EditorToolbar({
               <Undo2 size={13} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{t("undo")}</TooltipContent>
+          <TooltipContent>{t("undo", { shortcut: formatKeyCombo("Ctrl+Z") })}</TooltipContent>
         </Tooltip>
 
         <Tooltip>
@@ -84,7 +85,7 @@ export default function EditorToolbar({
               <Redo2 size={13} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{t("redo")}</TooltipContent>
+          <TooltipContent>{t("redo", { shortcut: formatKeyCombo("Ctrl+Shift+Z") })}</TooltipContent>
         </Tooltip>
 
         {isMarkdown && (

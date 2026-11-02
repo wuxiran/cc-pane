@@ -201,7 +201,7 @@ export default function PanelEmptyActions({
         return (
           <div
             key={record.id}
-            className={`group flex cursor-pointer items-center rounded-xl border transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:border-[var(--app-accent)] ${
+            className={`group flex cursor-default items-center rounded-xl border transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:border-[var(--app-accent)] ${
               compact ? "gap-2 px-2 py-1.5" : "gap-3.5 px-4 py-3"
             }`}
             style={{ borderColor: "var(--app-border)", background: "var(--app-hover)" }}

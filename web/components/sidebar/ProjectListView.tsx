@@ -170,7 +170,7 @@ export default function ProjectListView({
       <div
         role="button"
         tabIndex={0}
-        className="flex items-center justify-center gap-1 p-1.5 mt-1 text-[11px] rounded-lg cursor-pointer transition-colors duration-[var(--dur-fast)] border border-dashed group border-[var(--app-border)] text-[var(--app-text-tertiary)] hover:border-[var(--app-accent)] hover:text-[var(--app-accent)] hover:bg-[var(--app-active-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+        className="flex items-center justify-center gap-1 p-1.5 mt-1 text-[11px] rounded-lg cursor-default transition-colors duration-[var(--dur-fast)] border border-dashed group border-[var(--app-border)] text-[var(--app-text-tertiary)] hover:border-[var(--app-accent)] hover:text-[var(--app-accent)] hover:bg-[var(--app-active-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
         onClick={() => onImportProject(workspace)}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) return;

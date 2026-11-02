@@ -102,7 +102,7 @@ export default function ImSection({ value, onChange }: ImSectionProps) {
           type="checkbox"
           checked={value.enabled}
           onChange={(e) => update("enabled", e.target.checked)}
-          className="w-4 h-4 cursor-pointer"
+          className="w-4 h-4 cursor-default"
           style={{ accentColor: "var(--app-accent)" }}
         />
       </div>
@@ -119,7 +119,7 @@ export default function ImSection({ value, onChange }: ImSectionProps) {
           type="checkbox"
           checked={value.pushWhenFocused}
           onChange={(e) => update("pushWhenFocused", e.target.checked)}
-          className="w-4 h-4 cursor-pointer shrink-0"
+          className="w-4 h-4 cursor-default shrink-0"
           style={{ accentColor: "var(--app-accent)" }}
         />
       </div>
@@ -154,7 +154,7 @@ export default function ImSection({ value, onChange }: ImSectionProps) {
                 checked={channel.enabled}
                 title={t("imChannelEnabled")}
                 onChange={(e) => updateChannel(channel.id, { enabled: e.target.checked })}
-                className="w-4 h-4 cursor-pointer shrink-0"
+                className="w-4 h-4 cursor-default shrink-0"
                 style={{ accentColor: "var(--app-accent)" }}
               />
               <select
@@ -260,14 +260,14 @@ export default function ImSection({ value, onChange }: ImSectionProps) {
                 {EVENT_KINDS.map((kind) => (
                   <label
                     key={kind}
-                    className="flex items-center gap-1.5 text-[12px] cursor-pointer"
+                    className="flex items-center gap-1.5 text-[12px] cursor-default"
                     style={{ color: "var(--app-text-secondary)" }}
                   >
                     <input
                       type="checkbox"
                       checked={channel.events.includes(kind)}
                       onChange={() => toggleEvent(channel, kind)}
-                      className="w-3.5 h-3.5 cursor-pointer"
+                      className="w-3.5 h-3.5 cursor-default"
                       style={{ accentColor: "var(--app-accent)" }}
                     />
                     {eventLabel[kind]}

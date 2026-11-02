@@ -27,7 +27,7 @@ export default function FollowAgentLaunchToggle({
         aria-label={t("followAgentLaunch")}
         checked={orchestrator.followAgentLaunch}
         onChange={(event) => onChange({ ...orchestrator, followAgentLaunch: event.target.checked })}
-        className="w-4 h-4 flex-none cursor-pointer"
+        className="w-4 h-4 flex-none cursor-default"
         style={{ accentColor: "var(--app-accent)" }}
       />
     </div>

@@ -164,7 +164,7 @@ function EditorTabItem({
             role="button"
             tabIndex={0}
             className={`relative flex items-center ${d.tabHeight} ${d.tabPadding} ${d.tabMaxW} ${d.tabMinW}
-              cursor-pointer select-none transition-colors ${d.fontSize}
+              cursor-default select-none transition-colors ${d.fontSize}
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]
               ${isDragging ? 'opacity-50' : ''}
               ${active

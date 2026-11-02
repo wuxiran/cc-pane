@@ -20,7 +20,7 @@ export default function LoadMoreTasks({ hasMore, loading, onLoad, label, error, 
         <div role="alert" className="w-full text-center text-xs text-[var(--app-status-danger)]">
           <p>{t("listLoadFailed")}</p>
           <details className="mt-1 text-[var(--app-text-secondary)]">
-            <summary className="cursor-pointer">{t("listLoadDetails")}</summary>
+            <summary className="cursor-default">{t("listLoadDetails")}</summary>
             <p className="mt-1 break-words">{error}</p>
           </details>
         </div>

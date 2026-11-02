@@ -202,7 +202,7 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
                 <div
                   role="button"
                   tabIndex={0}
-                  className="w-full group flex items-center justify-between px-3 pl-7 py-[calc(var(--density-pad-y)+2px)] rounded-xl transition-colors duration-[var(--dur-fast)] border border-transparent cursor-pointer text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
+                  className="w-full group flex items-center justify-between px-3 pl-7 py-[calc(var(--density-pad-y)+2px)] rounded-xl transition-colors duration-[var(--dur-fast)] border border-transparent cursor-default text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"
                   onClick={() => {
                     if (!row.record.resumeSessionId) return;
                     handleResume(row.record);

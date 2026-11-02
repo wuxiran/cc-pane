@@ -521,7 +521,6 @@
   "defaultWorkspaceName": "Default Workspace",
   "defaultBadge": "Default",
   "launchTerminal": "Launch Terminal",
-  "launchTerminalShortcut": "Ctrl+T",
   "explorer.git": "Git",
   "explorer.tabWorkspaces": "Workspaces",
   "explorer.selectProjectHint": "Select a project to view",

@@ -1,7 +1,7 @@
 {
-  "save": "Save (Ctrl+S)",
-  "undo": "Undo (Ctrl+Z)",
-  "redo": "Redo (Ctrl+Shift+Z)",
+  "save": "Save ({{shortcut}})",
+  "undo": "Undo ({{shortcut}})",
+  "redo": "Redo ({{shortcut}})",
   "editMode": "Edit",
   "previewMode": "Preview",
   "splitPreview": "Split Preview",

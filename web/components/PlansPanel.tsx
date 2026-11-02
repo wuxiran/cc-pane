@@ -191,7 +191,7 @@ export default function PlansPanel({ open, onOpenChange, projectPath }: PlansPan
                     key={plan.fileName}
                     role="button"
                     tabIndex={0}
-                    className="group flex flex-col px-2.5 py-2 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                    className="group flex flex-col px-2.5 py-2 cursor-default transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
                     style={{
                       borderBottom: "1px solid var(--app-border)",
                       background: selectedFile === plan.fileName ? "var(--app-hover)" : undefined,

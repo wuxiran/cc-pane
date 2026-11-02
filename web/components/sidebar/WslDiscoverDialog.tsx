@@ -219,7 +219,7 @@ export default function WslDiscoverDialog({
                 return (
                   <label
                     key={distro.name}
-                    className={`flex items-center gap-3 px-3 py-2 rounded cursor-pointer transition-colors
+                    className={`flex items-center gap-3 px-3 py-2 rounded cursor-default transition-colors
                       ${disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-[var(--app-hover)]"}
                       ${checked ? "bg-[var(--app-hover)]" : ""}`}
                   >
@@ -228,7 +228,7 @@ export default function WslDiscoverDialog({
                       checked={checked}
                       disabled={disabled}
                       onChange={() => !disabled && toggleSelect(distro.name)}
-                      className="h-4 w-4 rounded border-[var(--app-border)] accent-[var(--app-accent)] cursor-pointer disabled:cursor-not-allowed"
+                      className="h-4 w-4 rounded border-[var(--app-border)] accent-[var(--app-accent)] cursor-default disabled:cursor-not-allowed"
                     />
 
                     <div className="flex-1 min-w-0">

@@ -12,7 +12,7 @@
 - **细描边图标**：lucide `strokeWidth={1.5}`。
 - **激活态**：accent 竖条（ActivityBar 左缘 3px `rounded-r-md`）或下划线（TabBar），配轻背景，不用整块高亮。
 - **交互隐藏化**：次要操作按钮 `group-hover` 才浮现。
-- **动效 token**：`--ease-out`（`cubic-bezier(0.23,1,0.32,1)`）+ `--ease-in-out`（`cubic-bezier(0.77,0,0.175,1)`）+ `--dur-fast/dur/dur-slow`（120/160/240ms）；UI 不使用 ease-in。
+- **动效 token**：`--ease-out`（`cubic-bezier(0.23,1,0.32,1)`）+ `--ease-in-out`（`cubic-bezier(0.77,0,0.175,1)`）+ `--dur-fast/dur/dur-slow`（120/160/240ms）；UI 不使用 ease-in。同级视图直接切换、不做启动入场动画（规则见 docs/46 §5.1）。
 - **字体栈**：UI 使用打包的 Inter Variable，并按字符回落到 Inter、SF Pro/Segoe、MiSans、HarmonyOS Sans SC、Source Han Sans SC、Microsoft YaHei UI 等系统字体；终端首选 Maple Mono NF CN。Inter 使用 `font-feature-settings: "cv02","cv03","cv04","ss01"`。
 
 ## 2.1 表面垫层与壁纸边界

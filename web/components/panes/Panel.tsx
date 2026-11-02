@@ -491,7 +491,7 @@ export default memo(function Panel({ pane }: PanelProps) {
       {/* 全屏退出按钮 */}
       {isFullscreenPanel && (
         <div
-          className="fixed top-4 right-4 z-[10000] flex items-center gap-2 px-4 py-2 rounded-lg cursor-pointer transition-colors duration-[var(--dur-fast)] hover:text-[var(--app-text-primary)]"
+          className="fixed top-4 right-4 z-[10000] flex items-center gap-2 px-4 py-2 rounded-lg cursor-default transition-colors duration-[var(--dur-fast)] hover:text-[var(--app-text-primary)]"
           style={{
             background: "var(--app-overlay)",
             border: "1px solid var(--app-border)",

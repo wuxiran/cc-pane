@@ -2,7 +2,7 @@ import { LayoutAutoFitObserver } from "@/components/layoutbar/LayoutAutoFit";
 // 主内容区视图切换：收拢 useActivityBarStore 的全部 appViewMode 分支。
 // keep-alive 语义：每个视图首次访问时挂载，之后固定在同一舞台上，仅切换 opacity。
 // 视图树（尤其终端 xterm）不会重建；重新显示时 TerminalView 的 ResizeObserver 负责 refit。
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Sidebar from "@/components/Sidebar";
 import SidebarTransition from "@/components/layout/SidebarTransition";
@@ -23,7 +23,6 @@ import { useCanvasDisplayStore, usePanesStore, useActivityBarStore, useLayoutUiS
 import type { OpenTerminalOptions } from "@/types";
 import { useExperimentalFeature } from "@/hooks/useExperimentalFeature";
 import { useResponsiveSidebar } from "@/hooks/useResponsiveSidebar";
-import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { collectPanels } from "@/lib/paneTree";
 
 // Keep the media workspace out of the initial terminal module graph. Besides
@@ -49,12 +48,6 @@ const WALLPAPER_PANEL_BG_EFFECTIVE_DARK =
 const WALLPAPER_PANEL_BG_EFFECTIVE_LIGHT =
   "color-mix(in srgb, var(--app-panel-bg) 80%, transparent)";
 
-// 签名动效（视差滑动）参数：进入层位移起点。幅度刻意小——这是全应用唯一的
-// 签名动效，只入不追；时长/缓动全部走 --dur-slow / --ease-out token（见 viewStyle）。
-const ENTER_OFFSET_Y = "translateY(6px)";
-// 收尾计时：--dur-slow(240ms) 结束后摘掉内联过渡，把离场 fade 时长交还 CSS 类
-// （var(--dur)）。JS 侧没有 token 可读，取 240ms + 一帧余量。
-const ENTER_SETTLE_MS = 300;
 
 export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherProps) {
   const { t: dramaT } = useTranslation("drama");
@@ -128,11 +121,10 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
   // 方案选 inert 而非「切视图手动移焦」：inert 是声明式状态，随活动态自动加/摘，
   // 子树即刻不可聚焦/不可命中/对 AT 隐藏，且 Chromium 会把层内滞留焦点释放到
   // body——告警根源（aria-hidden 子树持焦）被结构性消除。手动移焦要在每次切换
-  // 时抢焦点、还要记住切回时恢复到哪个元素，状态机和 enterMotion 动画期交互
+  // 时抢焦点、还要记住切回时恢复到哪个元素，状态机交互
   // 都会变复杂，收益为零。aria-hidden 保留作双保险（inert 本身已对 AT 隐藏，
   // 冗余声明无害且兼容不理解 inert 的旧 AT）。WebView2 为 Chromium 原生支持，
-  // 无需 polyfill。进入层恒为活动层（enterMotion.mode === effectiveAppViewMode），
-  // 永不带 inert，动画期间交互不受限。
+  // 无需 polyfill。
   const layerA11yAttrs = (mode: AppViewMode) => {
     const active = isActive(mode);
     return { "aria-hidden": !active, inert: !active };
@@ -159,63 +151,17 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
     canvasDisplayMode === "panel" &&
     currentLayoutHasTerminal;
 
-  // ===== 签名动效：视图切入视差滑动（全应用唯一）=====
-  // 进入层 opacity 0→1 + translateY(6px)→0（--dur-slow + --ease-out）；
-  // 离场层不加位移，仍是 .main-view-layer 的 opacity var(--dur) 纯 fade。
-  // index.css 的 .main-view-layer 规则被 layoutMotion.test.ts 锁定（不许含
-  // transform），所以位移只能走组件内联样式 + 双 rAF。reduced-motion 退回纯 fade。
-  const reduceMotion = usePrefersReducedMotion();
-  const [enterMotion, setEnterMotion] = useState<{ mode: AppViewMode; stage: "from" | "to" } | null>(null);
-  const prevViewModeRef = useRef(effectiveAppViewMode);
-  useEffect(() => {
-    if (prevViewModeRef.current === effectiveAppViewMode) return;
-    prevViewModeRef.current = effectiveAppViewMode;
-    if (reduceMotion) return;
-    setEnterMotion({ mode: effectiveAppViewMode, stage: "from" });
-    // 双 rAF：先提交起始帧（transition: none 落位 6px），下一帧再挂过渡滑向终态。
-    let rafTo = 0;
-    const rafFrom = requestAnimationFrame(() => {
-      rafTo = requestAnimationFrame(() => {
-        setEnterMotion((prev) => (prev ? { ...prev, stage: "to" } : prev));
-      });
-    });
-    const settle = window.setTimeout(() => setEnterMotion(null), ENTER_SETTLE_MS);
-    return () => {
-      cancelAnimationFrame(rafFrom);
-      cancelAnimationFrame(rafTo);
-      window.clearTimeout(settle);
-    };
-  }, [effectiveAppViewMode, reduceMotion]);
-
   // All visited views share one fixed stage. Inactive views stay mounted and
-  // are absolutely positioned, so switching modules only animates opacity and
-  // never changes the flex dimensions observed by xterm.
+  // are absolutely positioned, so switching modules is an instant cut (native
+  // apps do not fade between sibling views) and never changes the flex dimensions observed by xterm.
   const viewStyle = (mode: AppViewMode): React.CSSProperties => {
     const active = isActive(mode);
-    const entering = enterMotion?.mode === mode ? enterMotion : null;
-    if (entering) {
-      // 签名动效进行中：内联 transition 接管（opacity + transform，--dur-slow）。
-      return {
-        opacity: entering.stage === "from" ? 0 : 1,
-        transform: entering.stage === "from" ? ENTER_OFFSET_Y : "translateY(0)",
-        transition:
-          entering.stage === "from"
-            ? "none"
-            : "opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out)",
-        pointerEvents: "auto",
-        zIndex: 1,
-      };
-    }
     return {
       opacity: active ? 1 : 0,
       pointerEvents: active ? "auto" : "none",
       zIndex: active ? 1 : 0,
     };
   };
-  // 视差滑动阶段标记（from/to），供测试与排查定位进入层；非进入层不带该属性。
-  const viewMotionAttr = (mode: AppViewMode) => ({
-    "data-enter-motion": enterMotion?.mode === mode ? enterMotion.stage : undefined,
-  });
 
   return (
     <TodoManager scope="" scopeRef="" enabled={isMounted("todo")}>
@@ -239,7 +185,6 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           className="main-view-layer absolute inset-0 overflow-hidden"
           data-main-view="home"
           {...layerA11yAttrs("home")}
-          {...viewMotionAttr("home")}
           style={viewStyle("home")}
         >
           <HomeDashboard onOpenTerminal={onOpenTerminal} />
@@ -251,7 +196,6 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           className="main-view-layer absolute inset-0 overflow-hidden"
           data-main-view="todo"
           {...layerA11yAttrs("todo")}
-          {...viewMotionAttr("todo")}
           style={{ background: "var(--app-panel-bg)", ...viewStyle("todo") }}
         >
           {todoContent}
@@ -263,7 +207,6 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           className="main-view-layer absolute inset-0 overflow-hidden"
           data-main-view="selfchat"
           {...layerA11yAttrs("selfchat")}
-          {...viewMotionAttr("selfchat")}
           style={viewStyle("selfchat")}
         >
           <SelfChatManager />
@@ -275,7 +218,6 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           className="main-view-layer absolute inset-0 overflow-hidden"
           data-main-view="providers"
           {...layerA11yAttrs("providers")}
-          {...viewMotionAttr("providers")}
           style={viewStyle("providers")}
         >
           <ProvidersPanel />
@@ -295,7 +237,6 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
         <div
           className="main-view-layer flex-1 overflow-hidden"
           {...layerA11yAttrs("skillMarket")}
-          {...viewMotionAttr("skillMarket")}
           style={{ background: "var(--app-panel-bg)", ...viewStyle("skillMarket") }}
           data-testid="skill-market-shell"
         >
@@ -310,7 +251,6 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           className="main-view-layer absolute inset-0 overflow-hidden"
           data-main-view="files"
           {...layerA11yAttrs("files")}
-          {...viewMotionAttr("files")}
           style={{ background: "var(--app-panel-bg)", ...viewStyle("files") }}
         >
           <Suspense fallback={<div role="status" className="flex h-full items-center justify-center text-sm text-muted-foreground">{commonT("loading")}</div>}>
@@ -326,7 +266,6 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
           className="main-view-layer absolute inset-0 flex flex-col overflow-hidden"
           data-main-view="panes"
           {...layerA11yAttrs("panes")}
-          {...viewMotionAttr("panes")}
           style={{
             background: "var(--app-panel-bg)",
             ...(wallpaperActive

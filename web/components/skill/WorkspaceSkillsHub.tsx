@@ -568,7 +568,7 @@ function SkillCard({
           onClick();
         }
       }}
-      className="group flex min-h-[128px] cursor-pointer flex-col gap-2.5 rounded-xl border p-3.5 text-left transition-colors hover:border-[var(--app-home-border-hover)]"
+      className="group flex min-h-[128px] cursor-default flex-col gap-2.5 rounded-xl border p-3.5 text-left transition-colors hover:border-[var(--app-home-border-hover)]"
       style={{
         background: "var(--app-home-surface)",
         borderColor: "var(--app-home-border)",

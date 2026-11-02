@@ -132,7 +132,7 @@ export default function ScanImportDialog({
             onCheckedChange={() => toggleAll()}
             className="shrink-0"
           />
-          <Label htmlFor="scan-import-select-all" className="cursor-pointer">
+          <Label htmlFor="scan-import-select-all" className="cursor-default">
             {selectedPaths.size === totalPaths ? t("scanDeselectAll") : t("scanSelectAll")}
           </Label>
           <Badge variant="secondary" className="ml-auto">
@@ -145,7 +145,7 @@ export default function ScanImportDialog({
           {repos.map((repo, idx) => (
             <div key={repo.mainPath} className="rounded-md overflow-hidden" style={{ border: "1px solid var(--app-border)" }}>
               <div
-                className="flex items-center gap-1.5 px-2.5 py-2 cursor-pointer transition-colors hover:bg-accent"
+                className="flex items-center gap-1.5 px-2.5 py-2 cursor-default transition-colors hover:bg-accent"
                 onClick={() => toggleExpand(idx)}
               >
                 {expandedRepos.has(idx) ? (
@@ -179,7 +179,7 @@ export default function ScanImportDialog({
               {expandedRepos.has(idx) && (
                 <div className="flex flex-col gap-0.5 px-1.5 py-1" style={{ borderTop: "1px solid var(--app-border)" }}>
                   <div
-                    className="flex items-center gap-1.5 px-2 py-1 pl-7 rounded cursor-pointer transition-colors hover:bg-accent"
+                    className="flex items-center gap-1.5 px-2 py-1 pl-7 rounded cursor-default transition-colors hover:bg-accent"
                     onClick={() => togglePath(repo.mainPath)}
                   >
                     <Checkbox
@@ -201,7 +201,7 @@ export default function ScanImportDialog({
                   {repo.worktrees.map((wt) => (
                     <div
                       key={wt.path}
-                      className="flex items-center gap-1.5 px-2 py-1 pl-7 rounded cursor-pointer transition-colors hover:bg-accent"
+                      className="flex items-center gap-1.5 px-2 py-1 pl-7 rounded cursor-default transition-colors hover:bg-accent"
                       onClick={() => togglePath(wt.path)}
                     >
                       <Checkbox

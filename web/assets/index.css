@@ -1693,6 +1693,29 @@
   }
 }
 
+/* 原生约定：控件与侧栏文字不可选；内容区（终端/编辑器/消息/弹窗正文）保持可选。
+   输入控件必须显式恢复：WebKit 下继承到 none 的 input 无法输入。 */
+button,
+label,
+summary,
+[role="button"],
+[role="tab"],
+[role="menuitem"],
+[role="option"],
+[role="treeitem"],
+.activity-bar,
+.sidebar {
+  -webkit-user-select: none;
+  user-select: none;
+}
+input,
+textarea,
+[contenteditable="true"],
+[contenteditable=""] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 .cc-terminal-host,
 .cc-terminal-host .xterm,
 .cc-terminal-host .xterm .xterm-viewport,
@@ -2111,17 +2134,6 @@
 
 /* 主视图 keep-alive 舞台：层始终占满同一盒模型，只淡入淡出透明度（cross-fade，
    不做位移，避免布局抖动）。pointer-events 与 aria-hidden 由 MainViewSwitcher 按活动层切换。 */
-.main-view-layer {
-  transition: opacity var(--dur) var(--ease-out);
-  will-change: opacity;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .main-view-layer {
-    transition-duration: 60ms;
-  }
-}
-
 /* Activity Bar 与 Sidebar 视觉融合 — 无分隔线 */
 .activity-bar + .sidebar {
   border-left: none;

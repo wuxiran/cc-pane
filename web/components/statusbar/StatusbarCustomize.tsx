@@ -17,13 +17,13 @@ export default function StatusbarCustomize({ items, title }: StatusbarCustomizeP
       {items.map((item) => (
         <label
           key={item.id}
-          className="flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-1 text-[length:var(--text-caption)] text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)]"
+          className="flex cursor-default items-center gap-1.5 rounded px-1.5 py-1 text-[length:var(--text-caption)] text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)]"
         >
           <input
             type="checkbox"
             checked={!tucked.includes(item.id)}
             onChange={() => toggleTucked(item.id)}
-            className="h-3 w-3 cursor-pointer"
+            className="h-3 w-3 cursor-default"
             style={{ accentColor: "var(--app-accent)" }}
           />
           {item.label}

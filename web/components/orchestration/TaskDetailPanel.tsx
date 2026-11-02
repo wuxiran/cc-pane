@@ -71,7 +71,7 @@ function JsonNode({ label, value, depth = 0 }: { label?: string; value: unknown;
 
   return (
     <details open={depth < 1} className="py-0.5" style={{ paddingLeft: depth * 12 }}>
-      <summary className="cursor-pointer select-none" style={{ color: "var(--app-text-secondary)" }}>
+      <summary className="cursor-default select-none" style={{ color: "var(--app-text-secondary)" }}>
         {label && <span style={{ color: "var(--app-text-tertiary)" }}>{label}: </span>}
         {summary}
       </summary>

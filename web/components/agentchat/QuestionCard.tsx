@@ -19,7 +19,7 @@ function ChoiceField({ field, value, disabled, onChange }: FieldProps) {
   const group = useId();
   return <div className="space-y-1.5">{field.choices.map((choice, index) => {
     const selected = Array.isArray(value) ? value.includes(choice.value) : value === choice.value;
-    return <label key={choice.value} className={`flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--app-accent)] ${selected ? "bg-[var(--app-active-bg)]" : "hover:bg-[var(--app-hover)]"} ${disabled ? "pointer-events-none opacity-60" : ""}`}>
+    return <label key={choice.value} className={`flex cursor-default items-center gap-3 rounded-xl px-3 py-2.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--app-accent)] ${selected ? "bg-[var(--app-active-bg)]" : "hover:bg-[var(--app-hover)]"} ${disabled ? "pointer-events-none opacity-60" : ""}`}>
       <input className="sr-only" type={field.type === "array" ? "checkbox" : "radio"} name={group} checked={selected} disabled={disabled}
         onChange={() => onChange(field.type === "array" ? selected ? (Array.isArray(value) ? value : []).filter((item) => item !== choice.value) : [...(Array.isArray(value) ? value : []), choice.value] : choice.value)} />
       <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[var(--app-border)] text-xs text-[var(--app-text-secondary)]">{selected && field.type === "array" ? <Check className="h-4 w-4" /> : index + 1}</span>

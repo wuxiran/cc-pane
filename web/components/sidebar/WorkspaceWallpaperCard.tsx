@@ -204,7 +204,7 @@ export default function WorkspaceWallpaperCard({ workspace }: WorkspaceWallpaper
           type="checkbox"
           checked={overridden}
           aria-label={label("overrideField", "覆盖此项")}
-          className="h-3.5 w-3.5 shrink-0 cursor-pointer"
+          className="h-3.5 w-3.5 shrink-0 cursor-default"
           style={{ accentColor: "var(--app-accent)" }}
           onChange={(event) => onToggle(event.target.checked)}
         />
@@ -286,7 +286,7 @@ export default function WorkspaceWallpaperCard({ workspace }: WorkspaceWallpaper
           type="checkbox"
           checked={value}
           disabled={!overridden}
-          className="h-4 w-4 cursor-pointer disabled:cursor-not-allowed"
+          className="h-4 w-4 cursor-default disabled:cursor-not-allowed"
           style={{ accentColor: "var(--app-accent)" }}
           onChange={(event) => setNestedField(group, key, event.target.checked)}
         />

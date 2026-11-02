@@ -2894,7 +2894,12 @@ pub fn run() {
             );
 
             // ---- 系统托盘 ----
-            let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
+            // macOS 菜单栏约定用单色 template 图标，由系统按明暗着色；其余平台仍用彩色图标。
+            #[cfg(target_os = "macos")]
+            let icon_bytes: &[u8] = include_bytes!("../icons/tray-template.png");
+            #[cfg(not(target_os = "macos"))]
+            let icon_bytes: &[u8] = include_bytes!("../icons/32x32.png");
+            let icon = tauri::image::Image::from_bytes(icon_bytes)?;
 
             let tooltip = if cfg!(debug_assertions) {
                 "CC-Panes [DEV]"
@@ -2903,6 +2908,7 @@ pub fn run() {
             };
             let tray = TrayIconBuilder::new()
                 .icon(icon)
+                .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip(tooltip)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| {

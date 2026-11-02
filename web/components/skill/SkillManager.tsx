@@ -116,7 +116,7 @@ export default function SkillManager({ projectPath }: SkillManagerProps) {
               key={skill.name}
               role="button"
               tabIndex={0}
-              className={`group flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-border/50 hover:bg-accent/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
+              className={`group flex items-center gap-2 px-3 py-2 cursor-default border-b border-border/50 hover:bg-accent/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
                 activeSkill?.name === skill.name
                   ? "bg-accent"
                   : ""

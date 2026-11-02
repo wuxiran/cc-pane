@@ -1,7 +1,7 @@
 {
-  "save": "保存 (Ctrl+S)",
-  "undo": "撤销 (Ctrl+Z)",
-  "redo": "重做 (Ctrl+Shift+Z)",
+  "save": "保存 ({{shortcut}})",
+  "undo": "撤销 ({{shortcut}})",
+  "redo": "重做 ({{shortcut}})",
   "editMode": "编辑",
   "previewMode": "预览",
   "splitPreview": "分屏预览",

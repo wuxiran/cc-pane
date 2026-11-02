@@ -2,10 +2,9 @@
  * 布局动画 token 化防回潮静态测试
  * ==================================
  * 守护 layout/ 相关动画规则（web/assets/index.css）：
- *   - .main-view-layer 主视图 cross-fade：只过渡 opacity（不做位移，避免布局抖动），
- *     时长/缓动必须走 var(--dur) + var(--ease-out)，不许回潮裸时长；
- *   - prefers-reduced-motion 降级段必须存在：.main-view-layer 专属收短 +
- *     全局规则（keyframe 归零、transition 收短到 60ms，"fewer/gentler, not zero"）。
+ *   - .main-view-layer 主视图切换是直接切换（docs/46 §5）：不许回潮 CSS 过渡，
+ *     原生应用不在同级视图间淡入淡出；
+ *   - prefers-reduced-motion 全局规则（keyframe 归零、transition 收短到 60ms）。
  * 断言风格对齐 web/components/microInteractions.test.ts：直接读源码文本做静态检查。
  */
 import { describe, it, expect } from "vitest";
@@ -66,19 +65,17 @@ function reducedMotionSections(css: string): string[] {
 }
 
 describe("layout motion tokens (anti-regression)", () => {
-  it(".main-view-layer：opacity cross-fade 走 var(--dur) + var(--ease-out)，不含位移", () => {
-    const block = cssBlock(indexCss, ".main-view-layer");
-    expect(block, "缺少 .main-view-layer 规则").not.toBe("");
-    expect(block).toContain("transition: opacity var(--dur) var(--ease-out)");
-    expect(block).not.toContain("transform");
-    expect(block).not.toMatch(/\dms/); // 不许裸时长回潮
+  it(".main-view-layer：主视图切换不带 CSS 过渡或 will-change（直接切换）", () => {
+    expect(cssBlock(indexCss, ".main-view-layer")).toBe("");
   });
 
-  it("reduced-motion：.main-view-layer 有专属降级段", () => {
-    const hit = reducedMotionSections(indexCss).some((section) =>
-      section.includes(".main-view-layer"),
+  it("SidebarTransition：侧栏显隐不带过渡（避免动画期间反复 refit 终端）", () => {
+    const source = readFileSync(
+      `${nodeProcess.cwd()}/web/components/layout/SidebarTransition.tsx`,
+      "utf8",
     );
-    expect(hit, "缺少 .main-view-layer 的 prefers-reduced-motion 降级段").toBe(true);
+    expect(source).not.toContain("transition:");
+    expect(source).not.toContain("onTransitionEnd");
   });
 
   it("reduced-motion：全局规则归零 keyframe 并收短 transition（fewer/gentler, not zero）", () => {

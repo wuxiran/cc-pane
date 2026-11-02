@@ -160,7 +160,7 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
           {" "}
           <button
             type="button"
-            className="underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+            className="underline cursor-default rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
             style={{ color: "var(--app-accent)" }}
             onClick={() => navigateToSettings({ paneId: "terminal", targetSectionId: "terminal-root" })}
           >
@@ -272,7 +272,7 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
               key={option}
               htmlFor={`theme-density-${option}`}
               className={cn(
-                "shape-control flex cursor-pointer items-start gap-2.5 rounded-md border p-3 transition-colors",
+                "shape-control flex cursor-default items-start gap-2.5 rounded-md border p-3 transition-colors",
                 density === option
                   ? "border-[var(--app-accent)] bg-[var(--app-active-bg)]"
                   : "border-[var(--app-border)] bg-[var(--app-panel-bg)] hover:bg-[var(--app-hover)]",

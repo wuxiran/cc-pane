@@ -115,7 +115,7 @@ export default function OrchestratorTaskCard({ binding, depth = 0 }: Orchestrato
     <div
       role="button"
       tabIndex={0}
-      className="group my-1 flex cursor-pointer flex-col gap-1 rounded-md p-2 transition-colors hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+      className="group my-1 flex cursor-default flex-col gap-1 rounded-md p-2 transition-colors hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
       style={{
         marginLeft: depth > 0 ? Math.min(depth * 14, 42) : undefined,
         border: selected ? "1px solid var(--app-accent)" : "1px solid var(--app-border)",

@@ -261,7 +261,7 @@ const MachineItem = memo(function MachineItem(props: MachineItemProps) {
         <div
           role="button"
           tabIndex={0}
-          className={`${sidebarEntityRowClass} cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
+          className={`${sidebarEntityRowClass} cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
             selected
               ? "bg-[var(--app-active-bg)] text-[var(--app-accent)]"
               : "hover:bg-[var(--app-hover)]"

@@ -124,7 +124,7 @@ export default function MemoryPickerDialog({
           <div className="flex gap-1 flex-wrap">
             <Badge
               variant={selectedScope === null ? "default" : "outline"}
-              className="cursor-pointer text-xs"
+              className="cursor-default text-xs"
               onClick={() => setSelectedScope(null)}
             >
               {t("memoryAll")}
@@ -133,7 +133,7 @@ export default function MemoryPickerDialog({
               <Badge
                 key={scope}
                 variant={selectedScope === scope ? "default" : "outline"}
-                className="cursor-pointer text-xs"
+                className="cursor-default text-xs"
                 onClick={() => setSelectedScope(scope)}
               >
                 {SCOPE_LABELS[scope]}
@@ -157,7 +157,7 @@ export default function MemoryPickerDialog({
           {memories.map((memory) => (
             <label
               key={memory.id}
-              className="flex items-start gap-3 px-3 py-2 cursor-pointer hover:bg-accent/50 transition-colors border-b border-border/50 last:border-b-0"
+              className="flex items-start gap-3 px-3 py-2 cursor-default hover:bg-accent/50 transition-colors border-b border-border/50 last:border-b-0"
             >
               <input
                 type="checkbox"

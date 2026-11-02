@@ -521,7 +521,6 @@
   "defaultWorkspaceName": "默认工作空间",
   "defaultBadge": "默认",
   "launchTerminal": "启动终端",
-  "launchTerminalShortcut": "Ctrl+T",
   "explorer.git": "Git",
   "explorer.tabWorkspaces": "工作区",
   "explorer.selectProjectHint": "选择项目后显示",

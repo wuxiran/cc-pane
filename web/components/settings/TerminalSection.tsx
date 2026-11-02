@@ -120,7 +120,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
               type="checkbox"
               checked={value.cursorBlink}
               onChange={(e) => update("cursorBlink", e.target.checked)}
-              className="w-4 h-4 cursor-pointer"
+              className="w-4 h-4 cursor-default"
               style={{ accentColor: "var(--app-accent)" }}
             />
           </label>
@@ -237,7 +237,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
               aria-label={t("showContextUsage")}
               checked={value.showContextUsage ?? true}
               onChange={(e) => update("showContextUsage", e.target.checked)}
-              className="h-4 w-4 cursor-pointer"
+              className="h-4 w-4 cursor-default"
               style={{ accentColor: "var(--app-accent)" }}
             />
             <Label htmlFor="terminal-show-context-usage">{t("showContextUsage")}</Label>
@@ -257,7 +257,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
               aria-label={t("showStatusBar")}
               checked={value.showStatusBar ?? true}
               onChange={(e) => update("showStatusBar", e.target.checked)}
-              className="h-4 w-4 cursor-pointer"
+              className="h-4 w-4 cursor-default"
               style={{ accentColor: "var(--app-accent)" }}
             />
             <Label htmlFor="terminal-show-status-bar">{t("showStatusBar")}</Label>
@@ -311,7 +311,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
             type="checkbox"
             checked={value.daemonEnabled ?? true}
             onChange={(e) => update("daemonEnabled", e.target.checked)}
-            className="w-4 h-4 cursor-pointer"
+            className="w-4 h-4 cursor-default"
             style={{ accentColor: "var(--app-accent)" }}
           />
           <Label htmlFor="terminal-daemon-enabled">{t("terminalDaemon")}</Label>
@@ -329,7 +329,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
               type="checkbox"
               checked={value.resumeIdBackfillEnabled ?? false}
               onChange={(e) => update("resumeIdBackfillEnabled", e.target.checked)}
-              className="w-4 h-4 cursor-pointer"
+              className="w-4 h-4 cursor-default"
               style={{ accentColor: "var(--app-accent)" }}
             />
             <Label htmlFor="terminal-resume-id-backfill">{t("resumeIdBackfill")}</Label>
@@ -346,7 +346,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
               type="checkbox"
               checked={value.daemonOrphanReaperDisabled ?? false}
               onChange={(e) => update("daemonOrphanReaperDisabled", e.target.checked)}
-              className="w-4 h-4 cursor-pointer"
+              className="w-4 h-4 cursor-default"
               style={{ accentColor: "var(--app-accent)" }}
               disabled={!(value.daemonEnabled ?? true)}
             />

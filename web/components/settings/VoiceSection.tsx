@@ -93,7 +93,7 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
           type="checkbox"
           checked={value.enabled}
           onChange={(event) => update("enabled", event.target.checked)}
-          className="h-4 w-4 cursor-pointer"
+          className="h-4 w-4 cursor-default"
           style={{ accentColor: "var(--app-accent)" }}
         />
         {t("voiceEnable")}
@@ -105,7 +105,7 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
             type="checkbox"
             checked={value.showFloatingButton}
             onChange={(event) => update("showFloatingButton", event.target.checked)}
-            className="h-4 w-4 cursor-pointer"
+            className="h-4 w-4 cursor-default"
             style={{ accentColor: "var(--app-accent)" }}
           />
           {t("voiceShowFloatingButton", { defaultValue: "在终端显示悬浮按钮" })}
@@ -217,7 +217,7 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
             type="checkbox"
             checked={value.enableItn}
             onChange={(event) => update("enableItn", event.target.checked)}
-            className="h-4 w-4 cursor-pointer"
+            className="h-4 w-4 cursor-default"
             style={{ accentColor: "var(--app-accent)" }}
           />
           {t("voiceEnableItn")}
@@ -231,7 +231,7 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
               type="checkbox"
               checked={value.customPreferWav}
               onChange={(event) => update("customPreferWav", event.target.checked)}
-              className="h-4 w-4 cursor-pointer"
+              className="h-4 w-4 cursor-default"
               style={{ accentColor: "var(--app-accent)" }}
             />
             {t("voiceCustomPreferWav")}

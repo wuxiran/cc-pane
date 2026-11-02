@@ -76,7 +76,7 @@ export function CollapsibleCheckGroup({
         }
         className={cn(
           "flex items-center gap-1.5 py-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--app-text-primary)]",
-          collapsible && "cursor-pointer select-none",
+          collapsible && "cursor-default select-none",
         )}
       >
         {collapsible &&

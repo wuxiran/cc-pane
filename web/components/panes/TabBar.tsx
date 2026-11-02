@@ -201,7 +201,7 @@ function SortableTab({
       <div
         title={`${tab.title} · ${t("doubleClickFullscreenHint")}`}
         className={`relative flex shrink-0 items-center gap-1.5 ${d.tabHeight} ${d.tabPadding} ${d.tabMaxW} ${d.tabMinW}
-          ${isEditing ? "cursor-text" : "cursor-pointer"} select-none transition-colors ${d.fontSize} font-medium
+          ${isEditing ? "cursor-text" : "cursor-default"} select-none transition-colors ${d.fontSize} font-medium
           ${active
             ? `${d.tabRadius} z-20`
             : `${d.inactiveRadius} ${d.inactiveMargin} hover:bg-[var(--notch-tab-hover-bg)] hover:text-[var(--notch-tab-hover-fg)]`
@@ -230,7 +230,7 @@ function SortableTab({
                   })
                 : t("sessionBindUnboundTooltip")
             }
-            className="shrink-0 flex items-center cursor-pointer"
+            className="shrink-0 flex items-center cursor-default"
             onClick={(e) => {
               e.stopPropagation();
               onOpenSessionBind(tab);
@@ -451,7 +451,6 @@ export default memo(function TabBar({
     if (!el) return;
     el.scrollBy({
       left: direction * Math.max(180, Math.floor(el.clientWidth * 0.75)),
-      behavior: "smooth",
     });
     window.requestAnimationFrame(updateScrollAffordance);
   }, [updateScrollAffordance]);
@@ -475,7 +474,6 @@ export default memo(function TabBar({
     if (!activeTabNode || !scrollContainerRef.current) return;
     if (typeof activeTabNode.scrollIntoView !== "function") return;
     activeTabNode.scrollIntoView({
-      behavior: "smooth",
       block: "nearest",
       inline: "nearest",
     });

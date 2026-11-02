@@ -44,7 +44,7 @@ export default function ScopeBanner({ scope, descriptionKey, link }: ScopeBanner
             {" "}
             <button
               type="button"
-              className="underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+              className="underline cursor-default rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
               style={{ color: "var(--app-accent)" }}
               onClick={() => navigateToSettings({ paneId: link.paneId })}
             >
