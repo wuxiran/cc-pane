@@ -18,6 +18,7 @@ pub mod terminal_output_cursor;
 // ACP 聊天会话与 PTY 终端共用同一条 CC_PANES_CTL 注入链（src-tauri 侧也要用）。
 pub use ctl_sidecar::{session_ctl_env_value, SESSION_CTL_ENV_KEY};
 mod cc_switch_import;
+pub mod claude_trust_service;
 mod cursor_bridge_hub;
 pub mod cursor_bridge_prompts;
 pub mod cursor_bridge_service;

@@ -146,6 +146,20 @@ describe("TerminalSection", () => {
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ pathLinksEnabled: false }));
   });
 
+  it("keeps auto-trust off by default and emits changes", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<TerminalSection value={createValue()} onChange={onChange} />);
+
+    const toggle = screen.getByRole("checkbox", { name: /auto-trust|自动信任/i });
+    expect(toggle).not.toBeChecked();
+    await user.click(toggle);
+
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ autoTrustRegisteredProjects: true }),
+    );
+  });
+
   it("emits showStatusBar changes", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

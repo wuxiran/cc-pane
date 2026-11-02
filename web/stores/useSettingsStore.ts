@@ -336,6 +336,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       themeMode: "followApp",
       rendererMode: "auto",
       showContextUsage: true,
+      autoTrustRegisteredProjects: false,
       showStatusBar: true,
       taskQueueEnabled: true,
       pathLinksEnabled: true,

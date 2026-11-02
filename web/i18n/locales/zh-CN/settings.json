@@ -477,6 +477,8 @@
   "pathLinksEnabledHint": "将终端输出中的文件和目录路径显示为可点击链接，点击后选择打开方式。",
   "inlineImagesEnabled": "终端内联图片（beta）",
   "inlineImagesEnabledHint": "在终端内渲染通过 OSC 1337（iTerm 内联图片协议）和 SIXEL 发送的图片。实验性，默认关闭：每个终端最多预留 32 MB 缓存图片，且图片不会在休眠唤醒后恢复。仅对新开的终端会话生效。",
+  "autoTrustRegisteredProjects": "自动信任已登记的项目（Claude）",
+  "autoTrustRegisteredProjectsHint": "启动 Claude 时跳过目录信任确认，范围是加入 CC-Panes 的项目、工作空间及其 git worktree。信任后仓库里的 hooks 和 MCP 配置可以运行，所以只登记你信任的仓库。",
   "showContextUsage": "显示上下文使用量",
   "showContextUsageHint": "在全局和每个终端的状态栏中显示上下文使用量指示器。",
   "showStatusBar": "显示终端状态栏",
