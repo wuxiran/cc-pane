@@ -132,11 +132,11 @@ describe("StatusBar", () => {
     renderSB();
 
     await user.click(screen.getByRole("button", { name: "选择配色主题" }));
-    await user.click(screen.getByRole("menuitem", { name: /霓虹紫/ }));
+    await user.click(screen.getByRole("menuitem", { name: /夜泊蓝/ }));
 
     await waitFor(() => expect(useThemeStore.getState().isDark).toBe(true));
-    expect(useThemeStore.getState().themeId).toBe("cyber-purple");
-    expect(useSettingsStore.getState().settings?.theme.mode).toBe("cyber-purple");
+    expect(useThemeStore.getState().themeId).toBe("tokyo-night");
+    expect(useSettingsStore.getState().settings?.theme.mode).toBe("tokyo-night");
   });
 
   it("切换 cc酱 浮窗调用 IPC 并更新可见状态", async () => {

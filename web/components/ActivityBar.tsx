@@ -1,4 +1,4 @@
-import { Clapperboard, Command, FolderTree, Library, Settings, Store } from "lucide-react";
+import { Clapperboard, FolderTree, House, Library, Settings, Store } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import LayoutBar from "@/components/LayoutBar";
 import { useLibrarySpaceEntry } from "@/components/library/LibrarySpaceEntry";
@@ -68,7 +68,7 @@ function ActivityBarIcon({
           <button
             type="button"
             aria-label={label}
-            className={`relative flex h-10 w-10 items-center justify-center rounded-xl transition-[color,background-color,transform] duration-[var(--dur)] ease-[var(--ease-out)] active:scale-[0.96] ${
+            className={`relative flex h-8 w-8 items-center justify-center rounded-md transition-[color,background-color,transform] duration-[var(--dur)] ease-[var(--ease-out)] active:scale-[0.96] ${
               active
                 ? "text-[var(--app-accent)]"
                 : "text-[var(--app-icon-inactive)] hover:bg-[var(--app-activity-item-hover)] hover:text-[var(--app-icon-hover)]"
@@ -82,7 +82,7 @@ function ActivityBarIcon({
             {icon}
             {showBadge && (
               <span
-                className={`absolute right-[4px] top-[4px] flex h-[14px] min-w-[14px] items-center justify-center rounded-full px-[3px] text-[9px] font-bold leading-none text-white ${
+                className={`absolute -right-[3px] -top-[3px] flex h-[14px] min-w-[14px] items-center justify-center rounded-full px-[3px] text-[9px] font-bold leading-none text-white ${
                   badgeTone === "red"
                     ? "bg-[var(--app-status-danger)]"
                     : badgeTone === "amber"
@@ -231,7 +231,7 @@ export default function ActivityBar() {
           data-testid="activity-bar"
           className="activity-bar shape-surface flex shrink-0 select-none flex-col items-center py-2"
           style={{
-            width: 56,
+            width: 44,
             height: "100%",
             background: "var(--app-activity-bar-bg)",
             borderRight: "1px solid var(--app-activity-border)",
@@ -242,7 +242,7 @@ export default function ActivityBar() {
         >
           <div className="flex w-full flex-col items-center gap-2 pb-2">
             <ActivityBarIcon
-              icon={<Command className="h-[22px] w-[22px]" strokeWidth={1.6} />}
+              icon={<House className="h-[18px] w-[18px]" strokeWidth={1.6} />}
               label={t("home")}
               active={appViewMode === "home"}
               onClick={useActivityBarStore.getState().toggleHomeMode}
@@ -255,14 +255,14 @@ export default function ActivityBar() {
 
           <div className="flex w-full flex-col gap-1.5">
             <ActivityBarIcon
-              icon={<FolderTree className="h-[22px] w-[22px]" strokeWidth={1.5} />}
+              icon={<FolderTree className="h-[18px] w-[18px]" strokeWidth={1.5} />}
               label={t("workspaces")}
               active={activeView === "explorer" && sidebarVisible && appViewMode === "panes"}
               onClick={() => toggleView("explorer")}
             />
             {librarySpaceEnabled && librarySpace.available ? (
               <ActivityBarIcon
-                icon={<Library className="h-[22px] w-[22px]" strokeWidth={1.5} />}
+                icon={<Library className="h-[18px] w-[18px]" strokeWidth={1.5} />}
                 label={librarySpace.label}
                 active={false}
                 onClick={librarySpace.open}
@@ -270,7 +270,7 @@ export default function ActivityBar() {
             ) : null}
             {dramaStudioEnabled ? (
               <ActivityBarIcon
-                icon={<Clapperboard className="h-[22px] w-[22px]" strokeWidth={1.5} />}
+                icon={<Clapperboard className="h-[18px] w-[18px]" strokeWidth={1.5} />}
                 label={t("dramaStudio")}
                 active={appViewMode === "dramaGen"}
                 onClick={toggleDramaGenMode}
@@ -278,7 +278,7 @@ export default function ActivityBar() {
             ) : null}
             {skillMarketEnabled ? (
               <ActivityBarIcon
-                icon={<Store className="h-[22px] w-[22px]" strokeWidth={1.5} />}
+                icon={<Store className="h-[18px] w-[18px]" strokeWidth={1.5} />}
                 label={t("skillMarket")}
                 active={appViewMode === "skillMarket"}
                 onClick={toggleSkillMarketMode}
@@ -290,7 +290,7 @@ export default function ActivityBar() {
                 <ActivityBarIcon
                   key={module.id}
                   moduleId={module.id}
-                  icon={<Icon className="h-[22px] w-[22px]" strokeWidth={1.5} />}
+                  icon={<Icon className="h-[18px] w-[18px]" strokeWidth={1.5} />}
                   label={t(module.titleKey as never)}
                   active={isModuleActive(module.id)}
                   onClick={() => module.open("activityBar")}
@@ -304,7 +304,7 @@ export default function ActivityBar() {
             {layoutSwitcherMode === "corner" && <LayoutBar />}
             <ModuleAddMenu />
             <ActivityBarIcon
-              icon={<Settings className="h-[22px] w-[22px]" strokeWidth={1.5} />}
+              icon={<Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />}
               label={t("settings", { ns: "common", defaultValue: "Settings" })}
               active={false}
               onClick={openSettings}

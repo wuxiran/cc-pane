@@ -63,9 +63,9 @@ export default function ModuleAddMenu() {
               type="button"
               data-testid="module-add-trigger"
               aria-label={t("moduleAdd.trigger")}
-              className="flex h-10 w-10 items-center justify-center rounded-xl text-[var(--app-icon-inactive)] transition-[color,background-color,transform] duration-[var(--dur)] ease-[var(--ease-out)] hover:bg-[var(--app-activity-item-hover)] hover:text-[var(--app-icon-hover)] active:scale-[0.96]"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--app-icon-inactive)] transition-[color,background-color,transform] duration-[var(--dur)] ease-[var(--ease-out)] hover:bg-[var(--app-activity-item-hover)] hover:text-[var(--app-icon-hover)] active:scale-[0.96]"
             >
-              <Plus className="h-[22px] w-[22px]" strokeWidth={1.5} />
+              <Plus className="h-[18px] w-[18px]" strokeWidth={1.5} />
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>

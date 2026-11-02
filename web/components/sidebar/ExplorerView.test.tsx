@@ -111,9 +111,9 @@ describe("ExplorerView", () => {
     });
   });
 
-  it("renders the EXPLORER header and three segmented tabs, workspaces active by default", () => {
+  it("renders the explorer header and three segmented tabs, workspaces active by default", () => {
     render(<TooltipProvider><ExplorerView onOpenTerminal={vi.fn()} /></TooltipProvider>);
-    expect(screen.getByText("EXPLORER")).toBeVisible();
+    expect(screen.getByText("explorer.title")).toBeVisible();
     expect(screen.queryByRole("button", { name: "openLauncher" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /launchTerminal/ })).toHaveLength(1);
     expect(screen.getByRole("tab", { name: "explorer.tabWorkspaces" })).toHaveAttribute(

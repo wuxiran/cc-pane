@@ -4,13 +4,20 @@ import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ThemeSettings } from "@/types/settings";
 import { useThemeStore } from "@/stores/useThemeStore";
-import { THEME_PRESETS } from "@/theme/themePresets";
-import { THEME_SHAPES } from "@/theme/themeShapes";
+import { FEATURED_THEME_IDS, THEME_PRESETS } from "@/theme/themePresets";
+import { FEATURED_THEME_SHAPES, THEME_SHAPES } from "@/theme/themeShapes";
 import ThemeSection from "./ThemeSection";
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn() },
 }));
+
+function showAll() {
+  for (const name of [/显示全部 \d+ 种配色/, /显示全部 \d+ 种形态/]) {
+    const button = screen.queryByRole("button", { name });
+    if (button) fireEvent.click(button);
+  }
+}
 
 describe("ThemeSection", () => {
   beforeEach(() => {
@@ -30,10 +37,25 @@ describe("ThemeSection", () => {
     vi.unstubAllGlobals();
   });
 
+  it("默认只显示精选配色和形态，已选的非精选项仍可见，可展开全部", () => {
+    render(<ThemeSection value={{ mode: "cyber-purple", shape: "carbon" }} onChange={vi.fn()} />);
+    const colors = document.querySelector("[data-settings-section='theme-color']")!;
+    const shapes = document.querySelector("[data-settings-section='theme-shape']")!;
+    expect(colors.querySelectorAll("[data-theme]")).toHaveLength(FEATURED_THEME_IDS.length + 1);
+    expect(colors.querySelector("[data-theme='cyber-purple']")).not.toBeNull();
+    expect(shapes.querySelectorAll("[data-shape]")).toHaveLength(FEATURED_THEME_SHAPES.length + 1);
+    expect(shapes.querySelector("[data-shape='carbon']")).not.toBeNull();
+
+    showAll();
+    expect(colors.querySelectorAll("[data-theme]")).toHaveLength(THEME_PRESETS.length);
+    expect(shapes.querySelectorAll("[data-shape]")).toHaveLength(THEME_SHAPES.length);
+  });
+
   it("shows the named presets and applies the selected theme", () => {
     const onChange = vi.fn();
     const value: ThemeSettings = { mode: "deep-ink", shape: "soft" };
     render(<ThemeSection value={value} onChange={onChange} />);
+    showAll();
 
     expect(screen.getByRole("button", { name: /午夜蓝/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /晴空蓝/ })).toBeInTheDocument();
@@ -63,6 +85,7 @@ describe("ThemeSection", () => {
       />,
     );
 
+    showAll();
     expect(screen.queryByRole("heading", { name: "配色与形态" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "配色主题" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "界面形态" })).toBeInTheDocument();
@@ -157,6 +180,7 @@ describe("ThemeSection", () => {
       <ThemeSection value={{ mode: "deep-ink", shape: "carbon" }} onChange={vi.fn()} />,
     );
 
+    showAll();
     const colorSection = document.querySelector("[data-settings-section='theme-color']")!;
     const previews = colorSection.querySelectorAll("[data-theme]");
     expect(previews).toHaveLength(THEME_PRESETS.length);
@@ -184,6 +208,7 @@ describe("ThemeSection", () => {
       <ThemeSection value={{ mode: "tokyo-night", shape: "soft" }} onChange={vi.fn()} />,
     );
 
+    showAll();
     const colorSection = document.querySelector("[data-settings-section='theme-color']")!;
     for (const preset of THEME_PRESETS) {
       const preview = colorSection.querySelector(`[data-theme="${preset.id}"]`);
@@ -200,6 +225,7 @@ describe("ThemeSection", () => {
       <ThemeSection value={{ mode: "deep-ink", shape: "soft" }} onChange={vi.fn()} />,
     );
 
+    showAll();
     const previews = document.querySelectorAll("[data-settings-section='theme-color'] [data-theme]");
     expect(previews).toHaveLength(THEME_PRESETS.length);
     for (const preview of previews) {
@@ -216,6 +242,7 @@ describe("ThemeSection", () => {
       <ThemeSection value={{ mode: "deep-ink", shape: "carbon" }} onChange={vi.fn()} />,
     );
 
+    showAll();
     const shapeSection = document.querySelector("[data-settings-section='theme-shape']")!;
     const previews = shapeSection.querySelectorAll("[data-shape]");
     expect(previews).toHaveLength(THEME_SHAPES.length);

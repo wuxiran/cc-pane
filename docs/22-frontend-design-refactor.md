@@ -25,6 +25,7 @@
 
 - 配色与形态是两个独立维度。配色预设由 `web/theme/themePresets.ts` 维护（当前 10 个：`deep-ink`、`cyber-purple`、`amber-gold`、`classic-white`、`warm-gray`、`sky-blue`、`nord-frost`、`tokyo-night`、`rice-paper`、`mint-mist`；其中四个浅色主题由 `color-scheme: light` 标记）。
 - 形态预设由 `web/theme/themeShapes.ts` 维护，当前为 Soft、Slab、Sharp、Glass、Panel、Carbon 六值；`theme.mode` 与 `theme.shape` 可自由组合，旧配置缺少形态时回落 `soft`。
+- 配色默认只展示 `FEATURED_THEME_IDS`（deep-ink、tokyo-night、classic-white、warm-gray），形态默认只展示 `FEATURED_THEME_SHAPES`（soft、sharp），新视觉只保证这 8 种组合的质量；其余收进「显示全部」，已选用户不受影响。
 - 预设只消费固定 CSS token，不开放用户 CSS 或任意数值。浅色主题的 app chrome 实际 token 由 `npm run check:theme-contrast` 门禁解析 `var()`、`rgba()`、hex、`transparent` 和 `color-mix(in srgb, ...)` 后检查。
 
 五区骨架（`web/components/layout/AppShell.tsx`）：

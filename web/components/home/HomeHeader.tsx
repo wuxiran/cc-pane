@@ -23,44 +23,25 @@ export default function HomeHeader({ version }: HomeHeaderProps) {
   const greetingKey = useMemo(getGreetingKey, []);
 
   return (
-    <div className="flex items-center justify-between gap-5 px-1">
-      <div className="flex items-center gap-5 xl:gap-6 min-w-0">
-        {/* Logo 图标 */}
+    <div className="flex items-center justify-between gap-4 px-1">
+      <div className="flex items-center gap-3 min-w-0">
         <img
           src={logoUrl}
           alt="CC-Panes"
-          className="w-16 h-16 xl:w-[72px] xl:h-[72px] 2xl:w-20 2xl:h-20 rounded-2xl shrink-0 shadow-lg"
-          style={{ boxShadow: "0 10px 28px color-mix(in srgb, var(--app-accent) 20%, transparent)" }}
+          className="size-9 rounded-lg shrink-0"
           draggable={false}
         />
-
-        {/* 文字区域 */}
-        <div className="min-w-0">
-          <h1
-            className="text-[28px] xl:text-[30px] 2xl:text-[32px] font-bold tracking-tight"
-            style={{ color: "var(--app-text-primary)" }}
-          >
-            {t(greetingKey)}
-          </h1>
-          <p
-            className="text-sm xl:text-base mt-0.5"
-            style={{ color: "var(--app-text-secondary)" }}
-          >
-            {t("welcomeBack")} — CC-Panes
-          </p>
-        </div>
+        <h1
+          className="text-[length:var(--text-display)] font-semibold tracking-tight"
+          style={{ color: "var(--app-text-primary)" }}
+        >
+          {t(greetingKey)}
+        </h1>
       </div>
 
       {/* 右侧：版本 + 更新状态 */}
-      <div className="flex flex-col items-end gap-1 shrink-0">
-        <span
-          className="text-xs font-mono px-2.5 py-1 rounded-full border"
-          style={{
-            background: "color-mix(in srgb, var(--chart-2) 10%, transparent)",
-            borderColor: "color-mix(in srgb, var(--chart-2) 20%, transparent)",
-            color: "var(--chart-2)",
-          }}
-        >
+      <div className="flex items-center gap-2 shrink-0">
+        <span className="text-xs tabular-nums" style={{ color: "var(--app-text-tertiary)" }}>
           v{version}
         </span>
         {updateAvailable ? (
@@ -69,7 +50,6 @@ export default function HomeHeader({ version }: HomeHeaderProps) {
             style={{
               background: "color-mix(in srgb, var(--app-accent) 15%, transparent)",
               color: "var(--app-accent)",
-              animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
             }}
             onClick={() => triggerUpdate()}
           >
@@ -79,7 +59,7 @@ export default function HomeHeader({ version }: HomeHeaderProps) {
         ) : (
           <span
             className="inline-flex items-center gap-1 text-xs"
-            style={{ color: "var(--chart-2)" }}
+            style={{ color: "var(--app-text-tertiary)" }}
           >
             <CheckCircle2 className="w-3 h-3" />
             {t("upToDate")}

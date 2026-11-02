@@ -23,6 +23,9 @@ export interface ThemeShapeDefinition {
   };
 }
 
+/** 默认展示的形态；其余收进「显示全部」，已选用户不受影响。 */
+export const FEATURED_THEME_SHAPES: readonly ThemeShape[] = ["soft", "sharp"];
+
 export const THEME_SHAPES: readonly ThemeShapeDefinition[] = [
   {
     code: "soft",

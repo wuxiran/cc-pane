@@ -50,7 +50,7 @@
   },
   "pages": {
     "general": {
-      "title": "常规与外观"
+      "title": "常规"
     },
     "terminal": {
       "title": "终端与快捷键"
@@ -163,6 +163,9 @@
     "styleTitle": "配色与形态",
     "styleDescription": "分别选择界面配色和结构形态。两项可以自由组合，修改后立即生效并自动保存。",
     "openMenu": "选择配色主题",
+    "showAllPresets": "显示全部 {{count}} 种配色",
+    "showAllShapes": "显示全部 {{count}} 种形态",
+    "morePresets": "更多配色…",
     "colorTitle": "配色主题",
     "colorDescription": "控制应用的背景、文字、强调色和状态色。",
     "shapeTitle": "界面形态",

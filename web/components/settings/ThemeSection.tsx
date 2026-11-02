@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Check, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toastOk } from "@/lib/feedback";
@@ -14,6 +14,7 @@ import { useThemeStore } from "@/stores/useThemeStore";
 import { navigateToSettings } from "./settingsNavigation";
 import {
   canonicalThemePreference,
+  FEATURED_THEME_IDS,
   THEME_PRESETS,
   type ThemeGroup,
   type ThemePreference,
@@ -21,6 +22,7 @@ import {
 import {
   canonicalThemeShape,
   DEFAULT_THEME_SHAPE,
+  FEATURED_THEME_SHAPES,
   THEME_SHAPES,
 } from "@/theme/themeShapes";
 import type { ThemeSettings } from "@/types/settings";
@@ -41,6 +43,8 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
   const { t } = useTranslation("settings");
   const preference = canonicalThemePreference(value.mode);
   const selectedShape = canonicalThemeShape(value.shape);
+  const [showAllPresets, setShowAllPresets] = useState(false);
+  const [showAllShapes, setShowAllShapes] = useState(false);
   const density = useDensityStore((state) => state.density);
   const setDensity = useDensityStore((state) => state.setDensity);
   const showBlurFallback = THEME_SHAPES.find((shape) => shape.code === selectedShape)?.traits.translucent
@@ -72,7 +76,11 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
   }
 
   function renderGroup(group: ThemeGroup) {
-    const presets = THEME_PRESETS.filter((preset) => preset.group === group);
+    const presets = THEME_PRESETS.filter(
+      (preset) =>
+        preset.group === group
+        && (showAllPresets || FEATURED_THEME_IDS.includes(preset.id) || preference === preset.id),
+    );
     return (
       <section className="space-y-2" aria-labelledby={`theme-group-${group}`}>
         <h3
@@ -127,6 +135,11 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
 
         {renderGroup("dark")}
         {renderGroup("light")}
+        {!showAllPresets && (
+          <Button variant="ghost" size="sm" onClick={() => setShowAllPresets(true)}>
+            {t("theme.showAllPresets", { count: THEME_PRESETS.length })}
+          </Button>
+        )}
 
         <section className="space-y-2" aria-labelledby="theme-group-system">
           <h3 id="theme-group-system" className="text-[12px] font-medium text-[var(--app-text-secondary)]">
@@ -194,7 +207,12 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {THEME_SHAPES.map((shape) => {
+          {THEME_SHAPES.filter(
+            (shape) =>
+              showAllShapes
+              || FEATURED_THEME_SHAPES.includes(shape.code)
+              || selectedShape === shape.code,
+          ).map((shape) => {
             const selected = selectedShape === shape.code;
             const name = t(`theme.shapes.${shape.code}.name` as never);
             const description = t(shape.descriptionKey as never);
@@ -239,6 +257,12 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
             );
           })}
         </div>
+
+        {!showAllShapes && (
+          <Button variant="ghost" size="sm" onClick={() => setShowAllShapes(true)}>
+            {t("theme.showAllShapes", { count: THEME_SHAPES.length })}
+          </Button>
+        )}
 
         {showBlurFallback && (
           <p className="text-[11px] leading-4 text-[var(--app-text-tertiary)]">

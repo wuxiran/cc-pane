@@ -23,6 +23,14 @@ export interface ThemePreset {
 export const DEFAULT_DARK_THEME: ThemeId = "deep-ink";
 export const DEFAULT_LIGHT_THEME: ThemeId = "classic-white";
 
+/** 默认展示的配色（新视觉只保证这几种的质量）；其余收进「显示全部」，已选用户不受影响。 */
+export const FEATURED_THEME_IDS: readonly ThemeId[] = [
+  "deep-ink",
+  "tokyo-night",
+  "classic-white",
+  "warm-gray",
+];
+
 export const THEME_PRESETS: readonly ThemePreset[] = [
   {
     id: "deep-ink",

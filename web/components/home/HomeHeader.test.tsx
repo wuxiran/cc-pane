@@ -20,11 +20,10 @@ describe("HomeHeader", () => {
     vi.useRealTimers();
   });
 
-  it("显示版本号徽章与欢迎语", () => {
+  it("显示版本号与 logo", () => {
     render(<HomeHeader version="1.2.3" />);
 
     expect(screen.getByText("v1.2.3")).toBeVisible();
-    expect(screen.getByText(/欢迎回来/)).toBeVisible();
     expect(screen.getByAltText("CC-Panes")).toBeInTheDocument();
   });
 
@@ -41,14 +40,12 @@ describe("HomeHeader", () => {
     expect(screen.getByText(greeting)).toBeVisible();
   });
 
-  it("问候语标题使用 28px 级 tight 排版阶梯", () => {
+  it("问候语标题走 display 字号 token", () => {
     render(<HomeHeader version="1.0.0" />);
 
     const heading = screen.getByRole("heading", { level: 1 });
     expect(heading).toHaveClass("tracking-tight");
-    expect(heading.className).toContain("text-[28px]");
-    expect(heading.className).toContain("xl:text-[30px]");
-    expect(heading.className).toContain("2xl:text-[32px]");
+    expect(heading.className).toContain("text-[length:var(--text-display)]");
   });
 
   it("无可用更新时显示已是最新", () => {

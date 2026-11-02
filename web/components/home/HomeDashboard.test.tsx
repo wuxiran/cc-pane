@@ -68,7 +68,7 @@ describe("HomeDashboard", () => {
   it("switches to panes and expands the sidebar when entering the workspace", async () => {
     render(<HomeDashboard onOpenTerminal={vi.fn()} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /进入工作区/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /打开工作空间/ }));
 
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
     expect(useActivityBarStore.getState().sidebarVisible).toBe(true);
@@ -82,13 +82,13 @@ describe("HomeDashboard", () => {
     expect(useDialogStore.getState().launcherOpen).toBe(true);
   });
 
-  it("renders welcome, quick actions, active sessions and the compact product overview", () => {
+  it("renders welcome, quick actions and active sessions without marketing cards for established users", () => {
     render(<HomeDashboard onOpenTerminal={vi.fn()} />);
 
     expect(screen.getByTestId("header")).toBeInTheDocument();
     expect(screen.getByTestId("quick-actions")).toBeInTheDocument();
     expect(screen.getByTestId("active-sessions")).toBeInTheDocument();
-    expect(screen.getByTestId("highlights-compact")).toBeInTheDocument();
+    expect(screen.queryByTestId("highlights-compact")).not.toBeInTheDocument();
     expect(screen.queryByTestId("highlights-card")).not.toBeInTheDocument();
   });
 });

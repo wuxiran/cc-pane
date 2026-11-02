@@ -302,4 +302,18 @@ describe("useActivityBarStore", () => {
       expect(useActivityBarStore.getState().orchestrationOverlayOpen).toBe(false);
     });
   });
+
+  describe("持久化：启动回到工作现场", () => {
+    const partialize = useActivityBarStore.persist.getOptions().partialize!;
+
+    it.each([
+      ["home", "home"],
+      ["panes", "panes"],
+      ["todo", "panes"],
+      ["skillMarket", "panes"],
+    ] as const)("appViewMode=%s 保存为 %s", (mode, saved) => {
+      const state = { ...useActivityBarStore.getState(), appViewMode: mode };
+      expect(partialize(state)).toMatchObject({ appViewMode: saved });
+    });
+  });
 });
