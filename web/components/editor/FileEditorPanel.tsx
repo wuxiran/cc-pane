@@ -24,7 +24,7 @@ const DENSITY = {
     tabHeight: 'h-[34px]', tabPadding: 'px-3',
     tabRadius: 'rounded-t-[10px]', tabMaxW: 'max-w-[240px]', tabMinW: 'min-w-[140px]',
     inactiveRadius: 'rounded-[8px]', inactiveMargin: 'mx-0.5 mb-[4px]',
-    skirtSize: 10, fontSize: 'text-[13px]', titleMaxW: 'max-w-[140px]',
+    skirtSize: 10, fontSize: 'text-[length:var(--text-row)]', titleMaxW: 'max-w-[140px]',
     iconSize: 14, closeBtnSize: 'w-[22px] h-[22px]', closeIconSize: 13,
     separatorH: 'h-5', pinSize: 11, iconGap: 'mr-2.5', titleGap: 'pr-2',
   },

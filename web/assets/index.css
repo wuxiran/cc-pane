@@ -245,10 +245,14 @@
      裸 text-[var(--text-*)] 会被 Tailwind 判定为 color 工具类（护栏见
      web/components/designTokens.test.ts 的 typography tokens 块）。
      字号与颜色/密度正交：.dark、各 [data-theme] 与 [data-density] 块不重复定义。 */
+  --text-nano: 9px;
+  --text-micro: 10px;
   --text-caption: 11px;
   --text-small: 12px;
+  --text-row: 13px;
   --text-body: 14px;
   --text-title: 15px;
+  --text-heading: 18px;
   --text-display: 20px;
   --text-hero: 30px;
 

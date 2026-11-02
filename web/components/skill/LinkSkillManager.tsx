@@ -306,7 +306,7 @@ export default function LinkSkillManager() {
         {groups.map(({ repo, items }) => (
           <div key={repo} className="mt-4">
             <div className="mb-2 flex items-center gap-2 px-1 text-xs font-semibold text-muted-foreground">
-              <span className="text-[10px]">◆</span>
+              <span className="text-[length:var(--text-micro)]">◆</span>
               <span>{repo}</span>
               <span className="font-normal">
                 ({items.length} {t("linkCountSuffix")})

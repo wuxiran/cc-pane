@@ -55,7 +55,7 @@ export default function MobileLayoutBoard({
               >
                 <div className="flex min-w-0 items-center gap-2">
                   <Columns3 className="h-4 w-4 flex-none" />
-                  <span className="truncate text-[13px] font-semibold">{layout.name}</span>
+                  <span className="truncate text-[length:var(--text-row)] font-semibold">{layout.name}</span>
                 </div>
                 <div className="mt-1 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{t("layouts.paneCount", { count: panelCount })}</div>
               </button>
@@ -86,7 +86,7 @@ export default function MobileLayoutBoard({
                   onClick={() => onSelectPane(panel.id)}
                   className="flex w-full items-center justify-between gap-2 text-left"
                 >
-                  <span className="min-w-0 truncate text-[13px] font-semibold text-[var(--app-text-primary)]">{t("layouts.paneLabel", { index: panelIndex + 1 })}</span>
+                  <span className="min-w-0 truncate text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">{t("layouts.paneLabel", { index: panelIndex + 1 })}</span>
                   <span className="flex-none text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{t("layouts.tabCount", { count: panel.tabs.length })}</span>
                 </button>
                 <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
@@ -104,7 +104,7 @@ export default function MobileLayoutBoard({
                         }`}
                       >
                         <div className="truncate text-[length:var(--text-small)] font-semibold">{tab.title}</div>
-                        <div className="mt-0.5 truncate text-[10px] uppercase text-[var(--app-text-tertiary)]">{tabKindLabel(tab)}</div>
+                        <div className="mt-0.5 truncate text-[length:var(--text-micro)] uppercase text-[var(--app-text-tertiary)]">{tabKindLabel(tab)}</div>
                       </button>
                     );
                   })}

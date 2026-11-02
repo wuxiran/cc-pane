@@ -87,7 +87,7 @@ export default function StartProjectMenu({ cwd, onPickCwd, trigger }: StartProje
               <DropdownMenuItem
                 title={`${t("agentChatWorkspaceRoot")} · ${workspace.rootPath}`}
                 onSelect={() => onPickCwd(workspace.rootPath!)}
-                className="text-[10px] uppercase tracking-wide text-[var(--app-icon-inactive)] data-[highlighted]:text-[var(--app-text-primary)]"
+                className="text-[length:var(--text-micro)] uppercase tracking-wide text-[var(--app-icon-inactive)] data-[highlighted]:text-[var(--app-text-primary)]"
               >
                 <Layers className="mr-2 h-3.5 w-3.5 shrink-0" />
                 <span className="max-w-56 truncate">{workspace.name}</span>
@@ -99,7 +99,7 @@ export default function StartProjectMenu({ cwd, onPickCwd, trigger }: StartProje
                 ) : null}
               </DropdownMenuItem>
             ) : (
-              <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-[var(--app-icon-inactive)]">
+              <DropdownMenuLabel className="text-[length:var(--text-micro)] uppercase tracking-wide text-[var(--app-icon-inactive)]">
                 {workspace.name}
               </DropdownMenuLabel>
             )}

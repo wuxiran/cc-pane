@@ -81,13 +81,13 @@ function ProcessItem({
           <span className="truncate text-[var(--app-text-secondary)] flex-1 min-w-0">
             {process.name}
           </span>
-          <span className={`shrink-0 text-[10px] font-mono ${typeInfo.color}`}>
+          <span className={`shrink-0 text-[length:var(--text-micro)] font-mono ${typeInfo.color}`}>
             {typeInfo.label}
           </span>
-          <span className="shrink-0 text-[10px] text-[var(--app-text-tertiary)] font-mono w-[40px] text-right">
+          <span className="shrink-0 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)] font-mono w-[40px] text-right">
             {formatSize(process.memoryBytes)}
           </span>
-          <span className="shrink-0 text-[10px] text-[var(--app-text-tertiary)] font-mono w-[32px] text-right">
+          <span className="shrink-0 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)] font-mono w-[32px] text-right">
             {formatUptime(process.startTime)}
           </span>
           <button
@@ -141,7 +141,7 @@ function CwdGroup({
           : <ChevronRight className="w-3 h-3 shrink-0" />
         }
         <span className="truncate flex-1 text-left">{getFolderName(cwdPath)}</span>
-        <span className="shrink-0 text-[10px] text-[var(--app-text-tertiary)]">
+        <span className="shrink-0 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
           {processes.length} · {formatSize(groupMemory)}
         </span>
       </button>
@@ -226,11 +226,11 @@ export default function ProcessMonitorSection() {
             ? <ChevronDown className="w-3 h-3 shrink-0 text-[var(--app-text-tertiary)]" />
             : <ChevronRight className="w-3 h-3 shrink-0 text-[var(--app-text-tertiary)]" />
           }
-          <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--app-text-tertiary)]">
+          <span className="text-[length:var(--text-micro)] font-bold uppercase tracking-wider text-[var(--app-text-tertiary)]">
             System Processes
           </span>
           {totalCount > 0 && (
-            <span className="text-[10px] text-[var(--app-text-tertiary)]">
+            <span className="text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
               ({totalCount} · {formatSize(totalMemory)})
             </span>
           )}
@@ -310,13 +310,13 @@ export default function ProcessMonitorSection() {
           <div className="flex gap-1.5">
             <button
               onClick={handleConfirmKill}
-              className="px-2 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-status-danger)_80%,transparent)] text-white text-[10px] hover:bg-[var(--app-status-danger)] transition-colors"
+              className="px-2 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-status-danger)_80%,transparent)] text-white text-[length:var(--text-micro)] hover:bg-[var(--app-status-danger)] transition-colors"
             >
               {t("processMonitor.confirm")}
             </button>
             <button
               onClick={() => setConfirmAction(null)}
-              className="px-2 py-0.5 rounded bg-[var(--app-hover)] text-[var(--app-text-secondary)] text-[10px] hover:bg-[var(--app-active)] transition-colors"
+              className="px-2 py-0.5 rounded bg-[var(--app-hover)] text-[var(--app-text-secondary)] text-[length:var(--text-micro)] hover:bg-[var(--app-active)] transition-colors"
             >
               {t("processMonitor.cancel")}
             </button>

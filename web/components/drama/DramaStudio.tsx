@@ -187,7 +187,7 @@ export default function DramaStudio() {
       <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-[var(--app-border)] px-4 py-1.5" style={{ background: "var(--app-menubar)" }}>
         <Clapperboard className="size-4 shrink-0" style={{ color: "var(--app-accent)" }} aria-hidden="true" />
         <h1 className="truncate text-sm font-semibold" style={{ color: "var(--app-text-primary)" }}>{t("dramaStudioTitle")}</h1>
-        <span className="hidden truncate text-[10px] sm:inline" style={{ color: "var(--app-text-tertiary)" }}>
+        <span className="hidden truncate text-[length:var(--text-micro)] sm:inline" style={{ color: "var(--app-text-tertiary)" }}>
           {t("dramaStudioSubtitle")}
         </span>
       </header>

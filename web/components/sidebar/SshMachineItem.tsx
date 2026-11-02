@@ -57,7 +57,7 @@ export function FilterButton({
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className="inline-flex h-6 shrink-0 items-center gap-1 rounded px-2 text-[10px] transition-colors"
+      className="inline-flex h-6 shrink-0 items-center gap-1 rounded px-2 text-[length:var(--text-micro)] transition-colors"
       style={{
         color: active ? "var(--app-accent)" : "var(--app-text-secondary)",
         background: active ? "var(--app-accent-muted)" : "transparent",
@@ -83,7 +83,7 @@ export function SummaryMetric({
         {Icon && <Icon className="h-3 w-3 text-[var(--app-text-muted)]" />}
         {value}
       </span>
-      <span className="text-[9px] text-[var(--app-text-muted)]">{label}</span>
+      <span className="text-[length:var(--text-nano)] text-[var(--app-text-muted)]">{label}</span>
     </div>
   );
 }

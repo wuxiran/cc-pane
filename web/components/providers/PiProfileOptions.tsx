@@ -35,7 +35,7 @@ export default function PiProfileOptions({ draft, setDraft }: PiProfileOptionsPr
 
   return (
     <div className="mt-3 border-t border-[var(--app-border)]/60 pt-3">
-      <div className="mb-2 text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }}>
+      <div className="mb-2 text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-primary)" }}>
         {t("sectionPiTitle")}
       </div>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">

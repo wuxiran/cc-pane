@@ -135,7 +135,7 @@ export default function WallpaperPreview({
         )}
 
         <div
-          className="relative z-10 h-full p-2 font-mono text-[10px] leading-tight"
+          className="relative z-10 h-full p-2 font-mono text-[length:var(--text-micro)] leading-tight"
           data-terminal-opacity={terminalOpacity}
           data-testid="wallpaper-preview-terminal"
           style={{

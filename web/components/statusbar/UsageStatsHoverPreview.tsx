@@ -121,7 +121,7 @@ export default function UsageStatsHoverPreview({
           </span>
           <DropdownMenu onOpenChange={onSourceMenuOpenChange}>
             <DropdownMenuTrigger asChild>
-              <button type="button" className="inline-flex h-4.5 max-w-[86px] items-center gap-0.5 truncate rounded px-1 text-[9px] hover:bg-[var(--app-hover)]" style={{ color: "var(--app-text-secondary)" }}>
+              <button type="button" className="inline-flex h-4.5 max-w-[86px] items-center gap-0.5 truncate rounded px-1 text-[length:var(--text-nano)] hover:bg-[var(--app-hover)]" style={{ color: "var(--app-text-secondary)" }}>
                 <span className="truncate">{sourceFilter === null ? t("usage.allSources") : cliLabel(sourceFilter)}</span>
                 <ChevronDown className="h-2.5 w-2.5 shrink-0" />
               </button>
@@ -136,7 +136,7 @@ export default function UsageStatsHoverPreview({
         </div>
         <button
           type="button"
-          className="inline-flex items-center text-[10px] transition-colors hover:text-[var(--app-text-primary)]"
+          className="inline-flex items-center text-[length:var(--text-micro)] transition-colors hover:text-[var(--app-text-primary)]"
           style={{ color: "var(--app-text-secondary)" }}
           onClick={() => navigateToSettings({ paneId: "usage-stats" })}
         >
@@ -163,7 +163,7 @@ export default function UsageStatsHoverPreview({
               }}
             >
               <div
-                className="truncate text-[10px]"
+                className="truncate text-[length:var(--text-micro)]"
                 style={{ color: "var(--app-text-secondary)" }}
               >
                 {metric.label}

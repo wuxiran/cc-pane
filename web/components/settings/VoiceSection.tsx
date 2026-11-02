@@ -29,7 +29,7 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
     onChange({ ...value, [key]: next });
   }
 
-  const selectClassName = "h-9 rounded-md px-2 text-[13px] outline-none";
+  const selectClassName = "h-9 rounded-md px-2 text-[length:var(--text-row)] outline-none";
   const selectStyle = {
     border: "1px solid var(--app-border)",
     background: "var(--app-content)",
@@ -88,7 +88,7 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
     <div className="flex flex-col gap-4">
       <SearchableSetting sectionId="voice-enable">
       <div className="flex flex-col gap-4">
-      <label className="flex items-center gap-2 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+      <label className="flex items-center gap-2 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
         <input
           type="checkbox"
           checked={value.enabled}
@@ -100,7 +100,7 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
       </label>
 
       <div className="flex flex-col gap-0.5">
-        <label className="flex items-center gap-2 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+        <label className="flex items-center gap-2 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
           <input
             type="checkbox"
             checked={value.showFloatingButton}
@@ -133,7 +133,7 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
                 type="button"
                 onClick={() => update("provider", providerId)}
                 className={cn(
-                  "h-9 rounded-md border px-3 text-[13px] font-medium transition-colors",
+                  "h-9 rounded-md border px-3 text-[length:var(--text-row)] font-medium transition-colors",
                   active
                     ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-white"
                     : "border-[var(--app-border)] bg-[var(--app-content)] text-[var(--app-text-secondary)] hover:text-[var(--app-text-primary)]"
@@ -212,7 +212,7 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
       )}
 
       {capability.showEnableItn ? (
-        <label className="flex items-center gap-2 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+        <label className="flex items-center gap-2 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
           <input
             type="checkbox"
             checked={value.enableItn}
@@ -226,7 +226,7 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
 
       {capability.showPreferWavToggle ? (
         <div className="flex flex-col gap-0.5">
-          <label className="flex items-center gap-2 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+          <label className="flex items-center gap-2 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
             <input
               type="checkbox"
               checked={value.customPreferWav}

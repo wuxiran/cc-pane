@@ -408,7 +408,7 @@ export function CCChanApp() {
     >
       {bubbleVisible && bubble && (
         <div
-          className="pointer-events-none absolute left-3 top-2 z-20 rounded-lg border-2 px-3 py-2 text-[13px] font-semibold leading-[19px] shadow-xl"
+          className="pointer-events-none absolute left-3 top-2 z-20 rounded-lg border-2 px-3 py-2 text-[length:var(--text-row)] font-semibold leading-[19px] shadow-xl"
           style={{
             width: Math.min(layout.bubbleTextW, (viewport?.width ?? layout.bubbleW) - 24),
             maxHeight: layout.bubblePetTop - 16,

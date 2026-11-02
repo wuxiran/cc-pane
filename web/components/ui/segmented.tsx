@@ -49,7 +49,7 @@ export function SegmentedTabs<V extends string = string>({
             data-state={active ? "active" : "inactive"}
             className={cn(
               "ui-hoverable rounded-[7px] font-medium",
-              size === "sm" ? "px-2.5 py-1 text-xs" : "px-3.5 py-1.5 text-[13px]",
+              size === "sm" ? "px-2.5 py-1 text-xs" : "px-3.5 py-1.5 text-[length:var(--text-row)]",
               active
                 ? // 选中签名统一为 ui-selected 左侧 2px primary 条（box-shadow 不可叠加，
                   // 与原 shadow-sm 二选一）；panel 底浮起 + 指示条已足够区分激活项。

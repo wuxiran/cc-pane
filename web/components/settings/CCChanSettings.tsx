@@ -68,7 +68,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
                 key={option.value}
                 type="button"
                 className={cn(
-                  "h-9 rounded-md border px-3 text-[13px] font-medium transition-colors",
+                  "h-9 rounded-md border px-3 text-[length:var(--text-row)] font-medium transition-colors",
                   active
                     ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-white"
                     : "border-[var(--app-border)] bg-[var(--app-content)] text-[var(--app-text-secondary)] hover:text-[var(--app-text-primary)]",
@@ -92,7 +92,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
           </p>
         </div>
         <Select value={value.defaultPetId} onValueChange={(next) => update("defaultPetId", next)}>
-          <SelectTrigger id="ccchan-default-pet" aria-label={t("ccchanDefaultPet")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+          <SelectTrigger id="ccchan-default-pet" aria-label={t("ccchanDefaultPet")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -104,7 +104,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
       </div>
 
       <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
-        <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+        <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
           <span className="flex items-center gap-2">
             <Power size={14} />
             {t("ccchanAutoStart")}
@@ -118,7 +118,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
           />
         </label>
 
-        <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+        <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
           <span className="flex items-center gap-2">
             <Music size={14} />
             {t("ccchanSoundEnabled")}
@@ -132,7 +132,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
           />
         </label>
 
-        <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+        <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
           <span>{t("ccchanWindowVisible")}</span>
           <input
             type="checkbox"
@@ -143,7 +143,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
           />
         </label>
 
-        <label className="flex items-center justify-between gap-3 text-[13px]" style={{ color: "var(--app-text-primary)" }}>
+        <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>
           <span className="flex items-center gap-2">
             <Footprints size={14} />
             {t("ccchanWanderEnabled")}

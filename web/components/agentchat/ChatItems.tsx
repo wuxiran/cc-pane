@@ -113,7 +113,7 @@ export function ItemView({ item, onPlanToTodo, onOpenAttachment }: ItemViewProps
             <span className="flex-1" />
             <button
               type="button"
-              className="rounded border border-[var(--app-border)] px-1.5 py-0.5 text-[10px] transition-colors hover:bg-[var(--app-hover)]"
+              className="rounded border border-[var(--app-border)] px-1.5 py-0.5 text-[length:var(--text-micro)] transition-colors hover:bg-[var(--app-hover)]"
               onClick={() => onPlanToTodo(item.entries)}
             >
               {t("agentChatPlanToTodo")}

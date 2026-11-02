@@ -89,7 +89,7 @@ export default function SessionCleanerPanel({ open, onOpenChange, projectPath }:
         </DialogHeader>
 
         <p
-          className="text-[13px] leading-relaxed m-0 mb-3 [&_code]:px-1 [&_code]:py-px [&_code]:rounded [&_code]:text-xs"
+          className="text-[length:var(--text-row)] leading-relaxed m-0 mb-3 [&_code]:px-1 [&_code]:py-px [&_code]:rounded [&_code]:text-xs"
           style={{ color: "var(--app-text-secondary)" }}
           dangerouslySetInnerHTML={{ __html: t("sessionCleanerDesc") }}
         />
@@ -110,7 +110,7 @@ export default function SessionCleanerPanel({ open, onOpenChange, projectPath }:
 
             {sessions.length > 0 && (
               <div className="flex flex-col gap-2">
-                <div className="flex justify-between items-center text-[13px] font-medium" style={{ color: "var(--app-text-secondary)" }}>
+                <div className="flex justify-between items-center text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-secondary)" }}>
                   <span>{t("sessionCleanerFound", { count: sessions.length })}</span>
                   <Button size="sm" variant="destructive" disabled={cleaning} onClick={cleanAll}>
                     {cleaning ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Trash2 size={14} className="mr-1" />}
@@ -126,7 +126,7 @@ export default function SessionCleanerPanel({ open, onOpenChange, projectPath }:
                       style={{ borderBottom: "1px solid var(--app-border)" }}
                     >
                       <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-                        <span className="text-[13px] font-medium truncate" style={{ color: "var(--app-text-primary)" }}>
+                        <span className="text-[length:var(--text-row)] font-medium truncate" style={{ color: "var(--app-text-primary)" }}>
                           {getFileName(session.file_path)}
                         </span>
                         <span className="text-[length:var(--text-caption)] truncate" style={{ color: "var(--app-text-tertiary)" }}>
@@ -148,11 +148,11 @@ export default function SessionCleanerPanel({ open, onOpenChange, projectPath }:
 
             {cleanResults.length > 0 && (
               <div className="flex flex-col gap-1.5 mt-3">
-                <div className="text-[13px] font-medium" style={{ color: "var(--app-text-secondary)" }}>{t("sessionCleanerResults")}</div>
+                <div className="text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-secondary)" }}>{t("sessionCleanerResults")}</div>
                 {cleanResults.map((result) => (
                   <div
                     key={result.file_path}
-                    className="flex items-center gap-2 px-3 py-2 rounded-md text-[13px]"
+                    className="flex items-center gap-2 px-3 py-2 rounded-md text-[length:var(--text-row)]"
                     style={{
                       background: result.success ? "var(--app-status-success-bg)" : "var(--app-status-danger-bg)",
                       color: result.success ? "var(--app-status-success)" : "var(--app-status-danger)",

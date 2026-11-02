@@ -204,7 +204,7 @@ export default function ProjectMcpSection({
             <h1 className="flex items-center gap-2 text-[length:var(--text-title)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
               <Server size={16} style={{ color: "var(--app-accent)" }} />
               <span className="truncate">{t("mcpTitle")}</span>
-              <Badge variant="outline" className="max-w-48 truncate text-[10px] font-normal" title={workspaceMode ? workspaceName : projectPath}>
+              <Badge variant="outline" className="max-w-48 truncate text-[length:var(--text-micro)] font-normal" title={workspaceMode ? workspaceName : projectPath}>
                 {workspaceMode ? t("mcpLayerWorkspace", { name: workspaceName }) : t("mcpLayerProject")}
               </Badge>
             </h1>
@@ -310,7 +310,7 @@ export default function ProjectMcpSection({
                 style={{ borderColor: "var(--app-home-border)" }}
                 data-testid="mcp-add-card"
               >
-                <span className="flex items-center gap-1.5 text-[13px] font-medium" style={{ color: "var(--app-text-secondary)" }}>
+                <span className="flex items-center gap-1.5 text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-secondary)" }}>
                   <Plus size={14} />
                   {t("mcpAddServer")}
                 </span>
@@ -320,7 +320,7 @@ export default function ProjectMcpSection({
               </button>
             )}
             {visible.length === 0 && filter === "profile" && (
-              <p className="col-span-full py-6 text-[13px]" style={{ color: "var(--app-text-tertiary)" }}>
+              <p className="col-span-full py-6 text-[length:var(--text-row)]" style={{ color: "var(--app-text-tertiary)" }}>
                 {t("mcpEmptyFiltered")}
               </p>
             )}
@@ -500,7 +500,7 @@ function McpCard({
           {iconGlyph(entry.name.replace(/^CC-Panes\s*/, ""))}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }} title={entry.name}>
+          <div className="truncate text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-primary)" }} title={entry.name}>
             {entry.name}
           </div>
           <div className="mt-0.5 flex items-center gap-1.5 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
@@ -551,12 +551,12 @@ function McpCard({
             </span>
           )}
           {envKeys.map((key) => (
-            <Badge key={key} variant="outline" className="shrink-0 text-[10px]">{key}</Badge>
+            <Badge key={key} variant="outline" className="shrink-0 text-[length:var(--text-micro)]">{key}</Badge>
           ))}
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           {entry.kind === "shared" && entry.enabled && !running && status !== "starting" && (
-            <span className="mr-1 text-[10px]" style={{ color: "var(--app-status-warning, var(--app-text-tertiary))" }}>
+            <span className="mr-1 text-[length:var(--text-micro)]" style={{ color: "var(--app-status-warning, var(--app-text-tertiary))" }}>
               {t("mcpEnabledNotRunning")}
             </span>
           )}

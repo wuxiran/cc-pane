@@ -1,5 +1,6 @@
+import { ask } from "@tauri-apps/plugin-dialog";
 import "@/i18n";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
@@ -301,7 +302,9 @@ describe("WorkspaceEnvironmentPanel", () => {
     const closeButtons = screen.getAllByRole("button", { name: /关闭|Close/i });
     await user.click(closeButtons[0]);
 
-    expect(await screen.findByText(/放弃未保存的更改|Discard unsaved changes/i)).toBeVisible();
+    await waitFor(() =>
+      expect(JSON.stringify(vi.mocked(ask).mock.calls)).toMatch(/放弃未保存的更改|Discard unsaved changes/i),
+    );
     expect(useDialogStore.getState().workspaceEnvironmentOpen).toBe(true);
   });
 

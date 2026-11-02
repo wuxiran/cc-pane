@@ -123,11 +123,11 @@ export default function AgentChatSessionsView() {
                 <span className="flex-1 truncate text-xs text-[var(--app-text-primary)]">
                   {entry.title || entry.acpSessionId}
                 </span>
-                <span className="shrink-0 text-[10px] text-[var(--app-icon-inactive)]">
+                <span className="shrink-0 text-[length:var(--text-micro)] text-[var(--app-icon-inactive)]">
                   {entry.engineId}
                 </span>
               </span>
-              <span className="truncate text-[10px] text-[var(--app-icon-inactive)]">
+              <span className="truncate text-[length:var(--text-micro)] text-[var(--app-icon-inactive)]">
                 {projectNameOf(entry.cwd)} · {formatTime(entry.updatedAt)}
               </span>
             </button>

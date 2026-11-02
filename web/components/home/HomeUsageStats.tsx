@@ -224,7 +224,7 @@ export default function HomeUsageStats() {
             <BarChart3 className="h-[18px] w-[18px]" style={{ color: "var(--app-accent)" }} />
             <h2 className="text-lg font-semibold" style={{ color: "var(--app-text-primary)" }}>{t("usage.title")}</h2>
           </div>
-          <p className="mt-1 max-w-[280px] text-[13px]" style={{ color: "var(--app-text-secondary)" }}>{t("usage.subtitle")}</p>
+          <p className="mt-1 max-w-[280px] text-[length:var(--text-row)]" style={{ color: "var(--app-text-secondary)" }}>{t("usage.subtitle")}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <DropdownMenu>
@@ -288,7 +288,7 @@ export default function HomeUsageStats() {
                   <Zap className="h-5 w-5" />
                 </span>
                 <div className="min-w-0">
-                  <div className="text-[13px] font-medium" style={{ color: "var(--app-text-secondary)" }}>{t("usage.processedTokens")}</div>
+                  <div className="text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-secondary)" }}>{t("usage.processedTokens")}</div>
                   <div className="mt-1 flex items-baseline gap-2">
                     <strong className="truncate text-2xl font-semibold tabular-nums" style={{ color: "var(--app-text-primary)" }} title={formatNumber(totalTokens, language)}>{formatCompact(totalTokens, language)}</strong>
                     <span className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("usage.tokensUnit")}</span>

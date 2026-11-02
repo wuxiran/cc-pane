@@ -40,9 +40,9 @@ export function CheckboxRow({
     >
       <Checkbox checked={checked} onCheckedChange={(v) => onCheckedChange(v === true)} disabled={disabled} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] text-[var(--app-text-primary)]">{label}</span>
+        <span className="block truncate text-[length:var(--text-row)] text-[var(--app-text-primary)]">{label}</span>
         {description && (
-          <span className="mt-0.5 block text-[11.5px] leading-snug text-[var(--app-text-tertiary)]">
+          <span className="mt-0.5 block text-[length:var(--text-small)] leading-snug text-[var(--app-text-tertiary)]">
             {description}
           </span>
         )}

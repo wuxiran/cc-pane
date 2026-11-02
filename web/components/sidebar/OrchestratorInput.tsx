@@ -152,7 +152,7 @@ export default function OrchestratorInput({ compact = false }: OrchestratorInput
           <PopoverContent align="start" className="w-80 p-2">
             <div className="space-y-2">
               <div>
-                <div className="mb-1 px-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                <div className="mb-1 px-1 text-[length:var(--text-micro)] uppercase tracking-wide text-muted-foreground">
                   {t("orchestration:composer.project")}
                 </div>
                 <div className="max-h-56 overflow-y-auto pr-1">
@@ -172,7 +172,7 @@ export default function OrchestratorInput({ compact = false }: OrchestratorInput
                           >
                             <Folder className="h-3.5 w-3.5 shrink-0" />
                             <span className="min-w-0 flex-1 truncate">{getProjectLabel(project)}</span>
-                            <span className="text-[10px] text-muted-foreground">
+                            <span className="text-[length:var(--text-micro)] text-muted-foreground">
                               {getProjectName(project.path)}
                             </span>
                             {selected && <Check className="h-3.5 w-3.5 text-[var(--app-accent)]" />}
@@ -185,7 +185,7 @@ export default function OrchestratorInput({ compact = false }: OrchestratorInput
               </div>
 
               <div>
-                <div className="mb-1 px-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                <div className="mb-1 px-1 text-[length:var(--text-micro)] uppercase tracking-wide text-muted-foreground">
                   {t("orchestration:composer.cli")}
                 </div>
                 <div className="grid grid-cols-2 gap-1">

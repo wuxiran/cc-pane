@@ -57,7 +57,7 @@ export default function ExperimentalSection({ value, onChange }: ExperimentalSec
                 <Icon aria-hidden="true" className="size-[18px]" strokeWidth={1.6} />
               </span>
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <Label htmlFor={switchId} className="text-[13px] text-[var(--app-text-primary)]">
+                <Label htmlFor={switchId} className="text-[length:var(--text-row)] text-[var(--app-text-primary)]">
                   {t(labelKey)}
                 </Label>
                 <p className="m-0 text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">{t(descKey)}</p>

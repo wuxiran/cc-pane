@@ -93,7 +93,7 @@ export default function WorkspaceCreateGroupDialog({
                   </span>
                   <span className="min-w-0 flex-1 truncate">{ws.alias || ws.name}</span>
                   {currentGroup ? (
-                    <span className="shrink-0 text-[10px] text-[var(--app-text-tertiary)]">{currentGroup}</span>
+                    <span className="shrink-0 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">{currentGroup}</span>
                   ) : null}
                 </button>
               );

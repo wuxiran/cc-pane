@@ -72,7 +72,7 @@ export default function MobileWorkspaceActionSheet({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="text-[length:var(--text-small)] font-medium text-[var(--app-text-tertiary)]">{t("sheet.title")}</div>
-            <h2 className="mt-1 truncate text-[18px] font-semibold text-[var(--app-text-primary)]">{workspace.alias ?? workspace.name}</h2>
+            <h2 className="mt-1 truncate text-[length:var(--text-heading)] font-semibold text-[var(--app-text-primary)]">{workspace.alias ?? workspace.name}</h2>
             <p className="mt-1 truncate text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">{workspace.path ?? workspace.name}</p>
           </div>
           <button
@@ -187,7 +187,7 @@ function ActionGroup({
   return (
     <div className="mt-4">
       <div className="mb-2">
-        <h3 className="text-[13px] font-semibold text-[var(--app-text-primary)]">{title}</h3>
+        <h3 className="text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">{title}</h3>
       </div>
       <div className="overflow-hidden rounded-md border border-[var(--app-border)]">
         {children}
@@ -220,7 +220,7 @@ function ActionRow({
         {icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className={`block truncate text-[13px] font-semibold ${disabled ? "text-[var(--app-text-tertiary)]" : destructive ? "text-[var(--app-status-danger)]" : "text-[var(--app-text-primary)]"}`}>{busy ? t("sheet.busy") : label}</span>
+        <span className={`block truncate text-[length:var(--text-row)] font-semibold ${disabled ? "text-[var(--app-text-tertiary)]" : destructive ? "text-[var(--app-status-danger)]" : "text-[var(--app-text-primary)]"}`}>{busy ? t("sheet.busy") : label}</span>
         <span className="mt-0.5 block truncate text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{detail}</span>
       </span>
       <ChevronRight className="h-4 w-4 flex-none text-[var(--app-text-tertiary)]" />

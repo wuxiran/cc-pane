@@ -73,8 +73,8 @@ export default function ModuleAddMenu() {
           <p>{t("moduleAdd.trigger")}</p>
         </TooltipContent>
       </Tooltip>
-      <DropdownMenuContent side="right" align="end" className="w-56 text-[13px]">
-        <DropdownMenuLabel className="text-[13px]">
+      <DropdownMenuContent side="right" align="end" className="w-56 text-[length:var(--text-row)]">
+        <DropdownMenuLabel className="text-[length:var(--text-row)]">
           {t("moduleAdd.title")}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
@@ -88,7 +88,7 @@ export default function ModuleAddMenu() {
               data-testid={`module-add-${module.id}`}
               checked={onBar}
               aria-label={t(onBar ? "moduleAdd.onBar" : "moduleAdd.offBar")}
-              className="text-[13px]"
+              className="text-[length:var(--text-row)]"
               // 保持面板打开，便于连续勾选多个模块。
               onSelect={(event) => event.preventDefault()}
               onCheckedChange={() => toggle(module.id, onBar)}

@@ -220,7 +220,7 @@ export default memo(function FileTreeNode({
       )}
 
       <span
-        className={`min-w-0 flex-1 truncate text-[13px] leading-5 text-[var(--app-text-primary)] ${
+        className={`min-w-0 flex-1 truncate text-[length:var(--text-row)] leading-5 text-[var(--app-text-primary)] ${
           node.entry.isDir ? "font-semibold" : ""
         } ${isIgnored ? "italic opacity-55" : ""}`}
         title={isIgnored ? ignoredLabel : undefined}

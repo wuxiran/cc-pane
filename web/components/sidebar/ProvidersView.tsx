@@ -127,7 +127,7 @@ function ProviderListItem({ provider, isDefault, onDelete, onSetDefault }: {
             {provider.name}
           </span>
           {isDefault && (
-            <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
+            <Badge variant="outline" className="text-[length:var(--text-micro)] px-1 py-0 h-4">
               {t("defaultBadge")}
             </Badge>
           )}

@@ -60,7 +60,7 @@ export default function NotificationInputCard({ record, onDismiss }: Notificatio
           value={text}
           disabled={sending}
           placeholder={record.inputPlaceholder || t("center.inputPlaceholder")}
-          className="min-w-0 flex-1 rounded-md border border-[var(--app-border)] bg-[var(--app-input-bg)] px-2 py-1 text-[12.5px] text-[var(--app-text-primary)] placeholder:text-[var(--app-text-tertiary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+          className="min-w-0 flex-1 rounded-md border border-[var(--app-border)] bg-[var(--app-input-bg)] px-2 py-1 text-[length:var(--text-row)] text-[var(--app-text-primary)] placeholder:text-[var(--app-text-tertiary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.nativeEvent.isComposing) {
@@ -71,7 +71,7 @@ export default function NotificationInputCard({ record, onDismiss }: Notificatio
         />
         <Button
           size="sm"
-          className="h-[26px] shrink-0 px-2.5 text-[11.5px]"
+          className="h-[26px] shrink-0 px-2.5 text-[length:var(--text-small)]"
           disabled={sending || !text.trim()}
           onClick={() => void submit()}
         >
@@ -82,14 +82,14 @@ export default function NotificationInputCard({ record, onDismiss }: Notificatio
         </Button>
       </div>
       {error && (
-        <p className="mt-1 text-[11.5px] text-[var(--app-status-danger)]">{error}</p>
+        <p className="mt-1 text-[length:var(--text-small)] text-[var(--app-status-danger)]">{error}</p>
       )}
       <div className="mt-1.5 flex justify-end gap-1.5">
         {record.sessionId && (
           <Button
             size="sm"
             variant="ghost"
-            className="h-6 px-2 text-[11.5px]"
+            className="h-6 px-2 text-[length:var(--text-small)]"
             onClick={() => {
               // 聚焦现在异步（F7.3 弹出窗口），但 dismiss 与聚焦结果无关，照旧立即执行。
               void focusNotificationSession(record.sessionId as string);
@@ -102,7 +102,7 @@ export default function NotificationInputCard({ record, onDismiss }: Notificatio
         <Button
           size="sm"
           variant="ghost"
-          className="h-6 px-2 text-[11.5px]"
+          className="h-6 px-2 text-[length:var(--text-small)]"
           onClick={() => onDismiss(record.id)}
         >
           {t("center.ignore")}

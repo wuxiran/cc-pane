@@ -25,7 +25,7 @@ export function clampNumber(raw: unknown, limits: NumberLimits, fallback: number
 export function GroupTitle({ children, hint }: { children: ReactNode; hint?: ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5 mt-2">
-      <h4 className="text-[13px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
+      <h4 className="text-[length:var(--text-row)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
         {children}
       </h4>
       {hint ? (

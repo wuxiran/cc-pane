@@ -82,7 +82,7 @@ function ActivityBarIcon({
             {icon}
             {showBadge && (
               <span
-                className={`absolute -right-[3px] -top-[3px] flex h-[14px] min-w-[14px] items-center justify-center rounded-full px-[3px] text-[9px] font-bold leading-none text-white ${
+                className={`absolute -right-[3px] -top-[3px] flex h-[14px] min-w-[14px] items-center justify-center rounded-full px-[3px] text-[length:var(--text-nano)] font-bold leading-none text-white ${
                   badgeTone === "red"
                     ? "bg-[var(--app-status-danger)]"
                     : badgeTone === "amber"
@@ -115,8 +115,8 @@ function ModuleContextMenu() {
   };
 
   return (
-    <ContextMenuContent className="w-56 text-[13px]">
-      <ContextMenuLabel className="text-[13px]">
+    <ContextMenuContent className="w-56 text-[length:var(--text-row)]">
+      <ContextMenuLabel className="text-[length:var(--text-row)]">
         {t("moduleMenu.title")}
       </ContextMenuLabel>
       <ContextMenuSeparator />
@@ -127,16 +127,16 @@ function ModuleContextMenu() {
           <ContextMenuSub key={module.id}>
             <ContextMenuSubTrigger
               data-testid={`module-menu-${module.id}`}
-              className="text-[13px]"
+              className="text-[length:var(--text-row)]"
             >
               <Icon aria-hidden="true" className="size-4" strokeWidth={1.6} />
               <span className="truncate">{t(module.titleKey as never)}</span>
             </ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-52 text-[13px]">
+            <ContextMenuSubContent className="w-52 text-[length:var(--text-row)]">
               <ContextMenuCheckboxItem
                 data-testid={`module-enabled-${module.id}`}
                 checked={preference.enabled}
-                className="text-[13px]"
+                className="text-[length:var(--text-row)]"
                 onCheckedChange={(checked) => setEnabled(module.id, checked === true)}
               >
                 {t("moduleMenu.enabled")}
@@ -150,7 +150,7 @@ function ModuleContextMenu() {
                   data-testid={`module-position-${module.id}-activityBar`}
                   value="activityBar"
                   aria-label={t("moduleMenu.activityBar")}
-                  className="text-[13px]"
+                  className="text-[length:var(--text-row)]"
                   onSelect={() => changePosition(module.id, "activityBar")}
                 >
                   {t("moduleMenu.activityBar")}
@@ -161,7 +161,7 @@ function ModuleContextMenu() {
                   data-testid={`module-position-${module.id}-rightDock`}
                   value="rightDock"
                   aria-label={t("moduleMenu.rightDock")}
-                  className="text-[13px]"
+                  className="text-[length:var(--text-row)]"
                   onSelect={() => changePosition(module.id, "rightDock")}
                 >
                   <span>{t("moduleMenu.rightDock")}</span>
@@ -172,7 +172,7 @@ function ModuleContextMenu() {
                   data-testid={`module-position-${module.id}-hidden`}
                   value="hidden"
                   aria-label={t("moduleMenu.hidden")}
-                  className="text-[13px]"
+                  className="text-[length:var(--text-row)]"
                   onSelect={() => changePosition(module.id, "hidden")}
                 >
                   <span>{t("moduleMenu.hidden")}</span>
@@ -235,8 +235,6 @@ export default function ActivityBar() {
             height: "100%",
             background: "var(--app-activity-bar-bg)",
             borderRight: "1px solid var(--app-activity-border)",
-            backdropFilter: "blur(var(--app-glass-blur))",
-            WebkitBackdropFilter: "blur(var(--app-glass-blur))",
             WebkitAppRegion: "no-drag",
           } as React.CSSProperties}
         >

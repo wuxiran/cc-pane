@@ -34,7 +34,7 @@ const SECTIONS = [
 }>;
 
 const ACTION_ROW_CLASS =
-  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-[var(--app-text-secondary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]";
+  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[length:var(--text-row)] text-[var(--app-text-secondary)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]";
 
 interface ExplorerViewProps {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
@@ -121,7 +121,7 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
             >
               <Rocket className="size-4 shrink-0" strokeWidth={1.6} />
               {t("launchTerminal")}
-              <kbd className="ml-auto text-[10px] font-normal tabular-nums text-[var(--app-text-tertiary)]">
+              <kbd className="ml-auto text-[length:var(--text-micro)] font-normal tabular-nums text-[var(--app-text-tertiary)]">
                 {formatKeyCombo(newTabBinding)}
               </kbd>
             </button>

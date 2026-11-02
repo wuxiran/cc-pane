@@ -185,13 +185,13 @@ export default function PaneFlowOverlay() {
           <Network className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--app-accent)" }} aria-hidden="true" />
           <span className="text-xs font-semibold" style={{ color: "var(--app-text-primary)" }}>Canvas</span>
           <span
-            className="max-w-[16rem] truncate text-[10px]"
+            className="max-w-[16rem] truncate text-[length:var(--text-micro)]"
             style={{ color: "var(--app-text-secondary)" }}
             title={currentLayoutName ?? currentLayoutId}
           >
             {currentLayoutName ?? currentLayoutId}
           </span>
-          <span className="text-[10px] tabular-nums" style={{ color: "var(--app-text-tertiary)" }}>{nodes.length}</span>
+          <span className="text-[length:var(--text-micro)] tabular-nums" style={{ color: "var(--app-text-tertiary)" }}>{nodes.length}</span>
         </div>
         <div className="flex items-center gap-1">
           <CanvasDisplayToggle />

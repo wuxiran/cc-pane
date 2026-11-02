@@ -72,7 +72,7 @@ export default function LaunchProfileMcpCard({
         title="MCP"
         description={t("sectionMcpDesc")}
         icon={<Cable size={16} />}
-        headerActions={<Badge variant="outline" className="text-[10px]">{t("mcpUnsupported")}</Badge>}
+        headerActions={<Badge variant="outline" className="text-[length:var(--text-micro)]">{t("mcpUnsupported")}</Badge>}
       >
         <div
           data-testid="mcp-unsupported"
@@ -174,7 +174,7 @@ export default function LaunchProfileMcpCard({
                             onCheckedChange={() => toggleServer(server.name)}
                             label={server.name}
                             trailing={
-                              <Badge variant={server.status === "running" ? "default" : "secondary"} className="text-[10px]">
+                              <Badge variant={server.status === "running" ? "default" : "secondary"} className="text-[length:var(--text-micro)]">
                                 {typeof server.status === "string" ? server.status : "failed"}
                               </Badge>
                             }

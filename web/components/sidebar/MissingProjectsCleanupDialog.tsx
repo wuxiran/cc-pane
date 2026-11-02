@@ -97,7 +97,7 @@ export default function MissingProjectsCleanupDialog({
         onChange={() => toggle(row.project.id)}
       />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] text-[var(--app-text-primary)]">
+        <span className="block truncate text-[length:var(--text-row)] text-[var(--app-text-primary)]">
           {row.project.alias || getProjectName(row.path)}
         </span>
         <span className="block truncate text-[length:var(--text-caption)]" title={row.path}>{row.path}</span>

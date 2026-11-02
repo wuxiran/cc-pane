@@ -149,7 +149,7 @@ export default function ChatTimelineNavigation({ conversationKey, turns, ...navi
                 onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) closeSoon(); }}
               >
                 <div className="flex items-start gap-2">
-                  <button type="button" className="min-w-0 flex-1 text-left text-[13px] font-medium leading-5 outline-none focus-visible:underline" onClick={() => jump(entry)}>
+                  <button type="button" className="min-w-0 flex-1 text-left text-[length:var(--text-row)] font-medium leading-5 outline-none focus-visible:underline" onClick={() => jump(entry)}>
                     <span className="line-clamp-2 break-words">{title}</span>
                   </button>
                   <button
@@ -165,7 +165,7 @@ export default function ChatTimelineNavigation({ conversationKey, turns, ...navi
                 <p className="mt-1.5 line-clamp-4 break-words text-xs leading-5 text-[var(--app-text-secondary)]">
                   {entry.preview || t("agentChatTimelineNoReply")}
                 </p>
-                <div className="mt-2 text-[10px] tabular-nums text-[var(--app-text-tertiary)]">
+                <div className="mt-2 text-[length:var(--text-micro)] tabular-nums text-[var(--app-text-tertiary)]">
                   {t("agentChatTimelinePosition", { number: index + 1, total: entries.length })}
                 </div>
               </PopoverContent>

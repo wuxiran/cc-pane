@@ -48,12 +48,12 @@ export default function FeatureTip({
         if (!open) onDismiss();
       }}
       nav={(
-        <span className="mb-3 inline-flex rounded-full border border-[var(--app-accent)] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--app-accent)]">
+        <span className="mb-3 inline-flex rounded-full border border-[var(--app-accent)] px-2.5 py-0.5 text-[length:var(--text-micro)] font-bold uppercase tracking-[0.08em] text-[var(--app-accent)]">
           {t("featureTips.badge")}
         </span>
       )}
       title={(
-        <span className="flex flex-wrap items-center gap-2 text-[18px]">
+        <span className="flex flex-wrap items-center gap-2 text-[length:var(--text-heading)]">
           <span>{t(definition.titleKey as never)}</span>
           {formattedBinding && (
             <kbd className="rounded-md border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-2 py-1 font-mono text-[length:var(--text-caption)] font-medium text-[var(--app-text-secondary)]">

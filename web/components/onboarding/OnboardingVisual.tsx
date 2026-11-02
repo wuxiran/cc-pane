@@ -28,7 +28,7 @@ function PreflightVisual() {
           <span className="size-2.5 shrink-0 rounded-full" style={{ background: row.color }} />
           <span className="h-[7px] rounded-sm bg-[var(--app-hover)]" style={{ width: row.width }} />
           {row.pending ? (
-            <span className="ml-auto text-[10px] text-[var(--app-status-warning)]">…</span>
+            <span className="ml-auto text-[length:var(--text-micro)] text-[var(--app-status-warning)]">…</span>
           ) : (
             <svg className="ml-auto" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--app-status-success)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
           )}
@@ -88,7 +88,7 @@ function TerminalPair({ typeIn = false }: { typeIn?: boolean }) {
         <div key={terminal.name} className="rounded-lg border border-[var(--app-border)] bg-[var(--app-content)] p-3 shadow-sm">
           <div className="mb-2.5 flex items-center gap-1.5">
             <span className="size-2 rounded-full" style={{ background: terminal.color }} />
-            <span className="text-[10px] font-medium text-[var(--app-text-secondary)]">{terminal.name}</span>
+            <span className="text-[length:var(--text-micro)] font-medium text-[var(--app-text-secondary)]">{terminal.name}</span>
           </div>
           {terminal.widths.map((width, index) => (
             <div

@@ -49,7 +49,7 @@ export default function WorkspaceGroupHeader({
     >
       <Chevron className="size-3.5 shrink-0 text-[var(--app-text-tertiary)]" />
       <span className="min-w-0 flex-1 truncate">{group}</span>
-      <span className="min-w-5 text-right tabular-nums text-[10px] font-medium text-[var(--app-text-tertiary)]">
+      <span className="min-w-5 text-right tabular-nums text-[length:var(--text-micro)] font-medium text-[var(--app-text-tertiary)]">
         {count}
       </span>
     </button>

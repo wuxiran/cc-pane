@@ -50,7 +50,7 @@ function PaneStatusDots({
         )
       ))}
       {overflow > 0 ? (
-        <span className="text-[9px] leading-none" style={{ color: "var(--app-text-tertiary)" }}>
+        <span className="text-[length:var(--text-nano)] leading-none" style={{ color: "var(--app-text-tertiary)" }}>
           +{overflow}
         </span>
       ) : null}

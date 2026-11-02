@@ -63,12 +63,12 @@ export default function StarredMirrorTile({ tile, onJump }: StarredMirrorTilePro
           style={{ color: "var(--app-accent)" }}
         />
         <span className="min-w-0 flex-1 truncate text-xs font-medium">{tile.title}</span>
-        <span className="shrink-0 text-[10px]" style={{ color: "var(--app-text-tertiary)" }}>
+        <span className="shrink-0 text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>
           {tile.layoutName}
         </span>
         <button
           type="button"
-          className="shrink-0 rounded px-1.5 py-0.5 text-[10px] transition-colors hover:bg-[var(--app-hover)]"
+          className="shrink-0 rounded px-1.5 py-0.5 text-[length:var(--text-micro)] transition-colors hover:bg-[var(--app-hover)]"
           style={{ color: "var(--app-text-secondary)" }}
           onClick={() => onJump(tile.tabId)}
         >

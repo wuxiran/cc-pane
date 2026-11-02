@@ -128,7 +128,7 @@ export default function QuickCommandDialog({
                   }));
                 }}
               >
-                <SelectTrigger id="quick-command-kind" className="w-full bg-[var(--app-content)] text-[13px]">
+                <SelectTrigger id="quick-command-kind" className="w-full bg-[var(--app-content)] text-[length:var(--text-row)]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -144,7 +144,7 @@ export default function QuickCommandDialog({
                 value={scope}
                 onValueChange={(next) => setScope(next as QuickCommandScope)}
               >
-                <SelectTrigger id="quick-command-scope" className="w-full bg-[var(--app-content)] text-[13px]">
+                <SelectTrigger id="quick-command-scope" className="w-full bg-[var(--app-content)] text-[length:var(--text-row)]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -181,7 +181,7 @@ export default function QuickCommandDialog({
                   value={draft.cliTool ?? ""}
                   onValueChange={(next) => setDraft((current) => ({ ...current, cliTool: next }))}
                 >
-                  <SelectTrigger id="quick-command-cli" className="w-full bg-[var(--app-content)] text-[13px]">
+                  <SelectTrigger id="quick-command-cli" className="w-full bg-[var(--app-content)] text-[length:var(--text-row)]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -214,7 +214,7 @@ export default function QuickCommandDialog({
                   target: next as QuickCommandTarget,
                 }))}
               >
-                <SelectTrigger id="quick-command-target" className="w-full bg-[var(--app-content)] text-[13px]">
+                <SelectTrigger id="quick-command-target" className="w-full bg-[var(--app-content)] text-[length:var(--text-row)]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

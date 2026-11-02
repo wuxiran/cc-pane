@@ -106,7 +106,7 @@ export default function OrchestratorFilterBar({ compact = false }: OrchestratorF
                 title={project.path}
               >
                 <span className="min-w-0 flex-1 truncate">{getProjectLabel(project)}</span>
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-[length:var(--text-micro)] text-muted-foreground">
                   {getProjectName(project.path)}
                 </span>
               </button>

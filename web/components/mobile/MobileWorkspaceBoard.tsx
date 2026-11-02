@@ -102,7 +102,7 @@ export default function MobileWorkspaceBoard({
                     <div className="flex items-center gap-2">
                       <Terminal className="h-4 w-4 flex-none text-[var(--app-text-tertiary)]" />
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] font-semibold text-[var(--app-text-primary)]">{projectName}</div>
+                        <div className="truncate text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">{projectName}</div>
                         <div className="mt-0.5 truncate text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{project.path}</div>
                       </div>
                       <ChevronRight className="h-4 w-4 flex-none text-[var(--app-text-tertiary)]" />

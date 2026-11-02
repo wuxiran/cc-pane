@@ -114,21 +114,21 @@ describe("Todo draft ownership during live refreshes", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     await act(async () => { fireEvent.click(screen.getByText("Task B")); });
     expect(titleInput()).toHaveValue("Unsaved title");
-    fireEvent.click(screen.getByRole("button", { name: i18n.t("dialogs:todoNewTask") }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: i18n.t("dialogs:todoNewTask") })); });
     expect(titleInput()).toHaveValue("Unsaved title");
     expect(confirm).toHaveBeenCalledTimes(2);
     confirm.mockReturnValue(true);
     await act(async () => { fireEvent.click(screen.getByText("Task B")); });
     expect(titleInput()).toHaveValue("Task B");
     expect(descriptionInput()).toHaveValue("Description B");
-    fireEvent.click(screen.getByRole("button", { name: i18n.t("dialogs:todoNewTask") }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: i18n.t("dialogs:todoNewTask") })); });
     expect(titleInput()).toHaveValue("");
     fireEvent.change(titleInput(), { target: { value: "New draft" } });
     confirm.mockReturnValue(false);
-    fireEvent.click(closeButton());
+    await act(async () => { fireEvent.click(closeButton()); });
     expect(titleInput()).toHaveValue("New draft");
     confirm.mockReturnValue(true);
-    fireEvent.click(closeButton());
+    await act(async () => { fireEvent.click(closeButton()); });
     expect(screen.queryByPlaceholderText(i18n.t("dialogs:todoTitlePlaceholder"))).not.toBeInTheDocument();
   });
 
@@ -185,13 +185,13 @@ describe("Todo draft ownership during live refreshes", () => {
     fireEvent.change(titleInput(), { target: { value: "First creation" } });
     fireEvent.click(screen.getByRole("button", { name: i18n.t("common:create") }));
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    fireEvent.click(newButton());
+    await act(async () => { fireEvent.click(newButton()); });
     fireEvent.change(titleInput(), { target: { value: "Second creation draft" } });
     await act(async () => { finish(); });
     expect(titleInput()).toHaveValue("Second creation draft");
     expect(screen.getByRole("button", { name: i18n.t("common:create") })).toBeVisible();
     confirm.mockClear().mockReturnValue(false);
-    fireEvent.click(closeButton());
+    await act(async () => { fireEvent.click(closeButton()); });
     expect(confirm).toHaveBeenCalledOnce();
   });
 

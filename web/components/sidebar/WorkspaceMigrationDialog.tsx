@@ -359,7 +359,7 @@ export default function WorkspaceMigrationDialog({
                             {item.projectName}
                           </div>
                           {item.external ? (
-                            <span className="rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--app-text-secondary)]">
+                            <span className="rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[length:var(--text-micro)] uppercase tracking-wide text-[var(--app-text-secondary)]">
                               external
                             </span>
                           ) : null}

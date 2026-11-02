@@ -79,7 +79,7 @@ export default function ChatSessionHeader({
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--app-text-secondary)]">
           <Bot className="h-4 w-4" strokeWidth={1.6} />
         </span>
-        <span className="truncate text-[13px] font-medium text-[var(--app-text-primary)]">{codexEngineLabel(engineLabel)}</span>
+        <span className="truncate text-[length:var(--text-row)] font-medium text-[var(--app-text-primary)]">{codexEngineLabel(engineLabel)}</span>
         {workspaceMenu ? (
           <div className="agent-chat-header-workspace min-w-0 max-w-[50%] [&>button]:max-w-full">
             {workspaceMenu}

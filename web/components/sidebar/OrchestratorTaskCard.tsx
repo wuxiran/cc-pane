@@ -144,13 +144,13 @@ export default function OrchestratorTaskCard({ binding, depth = 0 }: Orchestrato
             >
               {binding.title}
             </span>
-            <span className="shrink-0 text-[10px]" style={{ color: config.color }}>
+            <span className="shrink-0 text-[length:var(--text-micro)]" style={{ color: config.color }}>
               {config.emoji}
             </span>
           </div>
           {leader && (
             <button
-              className="mt-0.5 block max-w-full truncate text-left text-[10px] hover:underline"
+              className="mt-0.5 block max-w-full truncate text-left text-[length:var(--text-micro)] hover:underline"
               style={{ color: "var(--chart-3)" }}
               onClick={(event) => {
                 event.stopPropagation();
@@ -165,7 +165,7 @@ export default function OrchestratorTaskCard({ binding, depth = 0 }: Orchestrato
         <OrchestratorTaskActions binding={binding} />
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5 text-[10px]" style={{ color: "var(--app-text-tertiary)" }}>
+      <div className="flex flex-wrap items-center gap-1.5 text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>
         <span>{binding.cliTool}</span>
         <span>·</span>
         <span className="max-w-[120px] truncate">{getProjectName(binding.projectPath)}</span>
@@ -177,7 +177,7 @@ export default function OrchestratorTaskCard({ binding, depth = 0 }: Orchestrato
         <CurrentActivityBadge binding={binding} />
         {gitBranch && (
           <span
-            className="inline-flex min-w-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px]"
+            className="inline-flex min-w-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[length:var(--text-micro)]"
             style={{
               color: "var(--app-text-secondary)",
               background: "var(--app-input-bg)",
@@ -191,7 +191,7 @@ export default function OrchestratorTaskCard({ binding, depth = 0 }: Orchestrato
         )}
         {workers.length > 0 && (
           <span
-            className="ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px]"
+            className="ml-auto shrink-0 rounded px-1.5 py-0.5 text-[length:var(--text-micro)]"
             style={{
               color: "var(--app-accent)",
               background: "var(--app-input-bg)",
@@ -221,14 +221,14 @@ export default function OrchestratorTaskCard({ binding, depth = 0 }: Orchestrato
       )}
 
       {binding.status !== "failed" && binding.completionSummary && (
-        <p className="mt-0.5 line-clamp-2 text-[10px]" style={{ color: "var(--app-text-secondary)" }}>
+        <p className="mt-0.5 line-clamp-2 text-[length:var(--text-micro)]" style={{ color: "var(--app-text-secondary)" }}>
           {binding.completionSummary}
         </p>
       )}
 
       {binding.status === "failed" && (
         <button
-          className="mt-1 rounded-sm border-l-2 px-2 py-1 text-left text-[10px]"
+          className="mt-1 rounded-sm border-l-2 px-2 py-1 text-left text-[length:var(--text-micro)]"
           style={{
             borderColor: "var(--app-status-danger)",
             background: "color-mix(in srgb, var(--app-status-danger) 12%, transparent)",

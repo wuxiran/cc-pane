@@ -75,7 +75,7 @@ export function ContextMenu({
             <button
               key={item.label}
               type="button"
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] font-medium transition-colors hover:bg-[var(--accent)]"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[length:var(--text-row)] font-medium transition-colors hover:bg-[var(--accent)]"
               onClick={() => {
                 item.action();
                 if (item.closeAfter !== false) onClose();

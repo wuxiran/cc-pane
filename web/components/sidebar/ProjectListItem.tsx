@@ -80,7 +80,7 @@ export function getRelativePath(projectPath: string, wsPath?: string | null): st
 // 样式表顺序决定、不看 class 串顺序，这里又是纯字符串拼接（不过 tailwind-merge），
 // 所以只能拆开写，不能靠后缀覆盖。
 const PROJECT_BADGE_SHAPE =
-  "rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none border";
+  "rounded-full px-1.5 py-0.5 text-[length:var(--text-micro)] font-medium leading-none border";
 const PROJECT_BADGE_BASE = `shrink-0 ${PROJECT_BADGE_SHAPE}`;
 
 // 分支徽章是行内唯一可收缩项：宽度不够时它先截断，把空间让给项目名。
@@ -271,7 +271,7 @@ export default function ProjectListItem({
             }
             {/* min-w 保底：窄侧栏下名称不再被徽章挤成 "cc…" */}
             <span
-              className={`flex-1 min-w-[4rem] text-[13px] truncate ${isMissing ? "line-through text-[var(--app-text-tertiary)]" : ""}`}
+              className={`flex-1 min-w-[4rem] text-[length:var(--text-row)] truncate ${isMissing ? "line-through text-[var(--app-text-tertiary)]" : ""}`}
               title={isMissing ? project.path : undefined}
             >
               {displayName}
@@ -395,7 +395,7 @@ export default function ProjectListItem({
                       specs.map((spec) => (
                         <ContextMenuItem key={spec.id} onClick={() => handleOpenSpec(project.path, spec)}>
                           <span className="flex-1 truncate">{spec.title}</span>
-                          <span className={`text-[9px] ml-2 px-1 py-0.5 rounded ${
+                          <span className={`text-[length:var(--text-nano)] ml-2 px-1 py-0.5 rounded ${
                             spec.status === "active"
                               ? "bg-[var(--app-status-success-bg)] text-[var(--app-status-success)]"
                               : spec.status === "archived"

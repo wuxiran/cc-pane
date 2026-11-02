@@ -75,7 +75,7 @@ function MessageBubble({ message }: { message: TranscriptMessage }) {
       data-role={message.role}
     >
       <div
-        className="mb-1 text-[10px] font-medium uppercase tracking-wide"
+        className="mb-1 text-[length:var(--text-micro)] font-medium uppercase tracking-wide"
         style={{ color: roleColor(message.role) }}
       >
         {t(roleLabelKey(message.role))}
@@ -162,18 +162,18 @@ function TranscriptView({
         <MessageSquareText className="size-3.5 opacity-60" aria-hidden="true" />
         <span className="text-[length:var(--text-caption)] font-medium">{t("chatViewTitle")}</span>
         {cliTool ? (
-          <span className="rounded px-1 text-[10px] opacity-70" style={{ background: "var(--app-hover)" }}>
+          <span className="rounded px-1 text-[length:var(--text-micro)] opacity-70" style={{ background: "var(--app-hover)" }}>
             {cliTool}
           </span>
         ) : null}
         {resumeId && resumeId !== "new" ? (
-          <span className="max-w-[28%] truncate font-mono text-[10px] opacity-50" title={resumeId}>
+          <span className="max-w-[28%] truncate font-mono text-[length:var(--text-micro)] opacity-50" title={resumeId}>
             {resumeId}
           </span>
         ) : null}
         <span className="flex-1" />
         {!loading && !resultError ? (
-          <span className="text-[10px] opacity-50">{headerMeta}</span>
+          <span className="text-[length:var(--text-micro)] opacity-50">{headerMeta}</span>
         ) : null}
         <Button
           type="button"

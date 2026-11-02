@@ -74,7 +74,7 @@ export default function PanelEmptyState({
             className={
               density === "full"
                 ? "text-lg font-semibold mb-2 tracking-tight"
-                : "text-[13px] font-semibold tracking-tight"
+                : "text-[length:var(--text-row)] font-semibold tracking-tight"
             }
             style={{ color: "var(--app-text-primary)" }}
           >
@@ -83,7 +83,7 @@ export default function PanelEmptyState({
         )}
         {density === "full" && (
           <p
-            className="text-center max-w-sm leading-relaxed text-[13px]"
+            className="text-center max-w-sm leading-relaxed text-[length:var(--text-row)]"
             style={{ color: "var(--app-text-tertiary)" }}
           >
             {t("selectProject")}

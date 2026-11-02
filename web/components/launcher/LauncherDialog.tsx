@@ -47,7 +47,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   return (
     <div className="flex flex-col gap-1.5">
       <div
-        className="text-[10.5px] font-semibold uppercase tracking-[0.09em]"
+        className="text-[length:var(--text-micro)] font-semibold uppercase tracking-[0.09em]"
         style={{ color: "var(--app-text-tertiary)" }}
       >
         {label}
@@ -279,7 +279,7 @@ export default function LauncherDialog() {
           />
 
           {error && (
-            <div className="text-[11.5px]" style={{ color: "var(--app-status-danger)" }}>
+            <div className="text-[length:var(--text-small)]" style={{ color: "var(--app-status-danger)" }}>
               {error}
             </div>
           )}

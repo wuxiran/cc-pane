@@ -162,7 +162,7 @@ export default function ImSection({ value, onChange }: ImSectionProps) {
                 onChange={(e) =>
                   updateChannel(channel.id, { channelType: e.target.value as ImChannelType })
                 }
-                className="h-8 px-2 rounded-md text-[13px] outline-none"
+                className="h-8 px-2 rounded-md text-[length:var(--text-row)] outline-none"
                 style={{
                   border: "1px solid var(--app-border)",
                   background: "var(--app-content)",

@@ -77,10 +77,10 @@ export function Section({
 export function SummaryStat({ label, value, meta }: { label: string; value: string; meta?: string }) {
   return (
     <div className="min-w-0 px-4 py-3 first:pl-1 last:pr-1">
-      <div className="text-[10.5px] font-semibold uppercase tracking-[0.05em]" style={{ color: "var(--app-text-tertiary)" }}>
+      <div className="text-[length:var(--text-micro)] font-semibold uppercase tracking-[0.05em]" style={{ color: "var(--app-text-tertiary)" }}>
         {label}
       </div>
-      <div className="mt-0.5 truncate text-[13px]" style={{ color: "var(--app-text-primary)" }}>{value}</div>
+      <div className="mt-0.5 truncate text-[length:var(--text-row)]" style={{ color: "var(--app-text-primary)" }}>{value}</div>
       {meta && (
         <div className="truncate text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>{meta}</div>
       )}

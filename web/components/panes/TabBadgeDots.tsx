@@ -33,7 +33,7 @@ export default function TabBadgeDots({ tabId, t }: TabBadgeDotsProps) {
         // 排队 chip（docs/107 W8）：位次是用户要看的数字，光一个点不够
         <span
           aria-label={queueChipLabel(resource.queuePosition, resource.queueTotal, t)}
-          className="shrink-0 rounded px-1 text-[10px] leading-4"
+          className="shrink-0 rounded px-1 text-[length:var(--text-micro)] leading-4"
           style={{
             background: "color-mix(in srgb, var(--app-status-warning) 18%, transparent)",
             color: "var(--app-status-warning)",

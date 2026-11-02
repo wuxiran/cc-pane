@@ -91,6 +91,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: vi.fn(),
   save: vi.fn(),
   message: vi.fn(),
-  ask: vi.fn(),
+  // 桌面确认框：测试里委托给 window.confirm，现有 spy 断言继续覆盖确认分支。
+  ask: vi.fn(async (message: string) => Boolean(window.confirm(message))),
   confirm: vi.fn(),
 }));

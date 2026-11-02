@@ -208,7 +208,7 @@ export default function TodoEditor({
     <div className="@container/editor flex h-full flex-col">
       {/* 头部工具栏 */}
       <header className="flex h-11 shrink-0 items-center justify-between border-b border-border/35 bg-card px-4">
-        <h2 className="truncate text-[13px] font-semibold">
+        <h2 className="truncate text-[length:var(--text-row)] font-semibold">
           {isNew ? t("todoNewTask") : t("todoDetail")}
         </h2>
         <div className="flex items-center gap-0.5">
@@ -356,7 +356,7 @@ export default function TodoEditor({
           <section className="space-y-2">
             <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
               <span>{t("todoDescription")}</span>
-              <span className="rounded bg-muted/50 px-1.5 py-0.5 text-[10px] font-normal">Markdown</span>
+              <span className="rounded bg-muted/50 px-1.5 py-0.5 text-[length:var(--text-micro)] font-normal">Markdown</span>
             </div>
             <textarea
               value={form.description}
@@ -447,7 +447,7 @@ export default function TodoEditor({
                             }
                           }
                         }}
-                        className="absolute -top-1 -right-1 hidden group-hover/type:flex group-focus-within/type:flex focus-visible:flex w-3.5 h-3.5 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[8px] cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                        className="absolute -top-1 -right-1 hidden group-hover/type:flex group-focus-within/type:flex focus-visible:flex w-3.5 h-3.5 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[length:var(--text-nano)] cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
                       >
                         ×
                       </span>

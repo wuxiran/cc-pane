@@ -95,11 +95,11 @@ export default function LaunchProfileSummaryCard({
             <h2 className="truncate text-[length:var(--text-title)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
               {currentTitle}
             </h2>
-            {(isSystemDefaultSelected || selectedProfile?.isDefault) && <Badge variant="secondary" className="text-[10px]">{t("common:default")}</Badge>}
+            {(isSystemDefaultSelected || selectedProfile?.isDefault) && <Badge variant="secondary" className="text-[length:var(--text-micro)]">{t("common:default")}</Badge>}
             {!isSystemDefaultSelected && (
-              <Badge variant="outline" className="text-[10px]">{toolLabel(activeTool, t)}</Badge>
+              <Badge variant="outline" className="text-[length:var(--text-micro)]">{toolLabel(activeTool, t)}</Badge>
             )}
-            <Badge variant="outline" className="text-[10px]">{runtimeLabel(draft.targetRuntime ?? null, t)}</Badge>
+            <Badge variant="outline" className="text-[length:var(--text-micro)]">{runtimeLabel(draft.targetRuntime ?? null, t)}</Badge>
           </div>
         </div>
 
@@ -171,13 +171,13 @@ export default function LaunchProfileSummaryCard({
           <span style={{ color: "var(--app-text-primary)" }}>
             {deliveryModesLabel || t("skillDeliveryMode.none")}
           </span>
-          <Badge variant={skillCompatibility.canUsePortableSkills ? "secondary" : "outline"} className="text-[10px]">
+          <Badge variant={skillCompatibility.canUsePortableSkills ? "secondary" : "outline"} className="text-[length:var(--text-micro)]">
             {skillCompatibility.canUsePortableSkills ? t("portableSkillReady") : t("portableSkillUnavailable")}
           </Badge>
-          <Badge variant={skillCompatibility.canControlOrchestration ? "secondary" : "outline"} className="text-[10px]">
+          <Badge variant={skillCompatibility.canControlOrchestration ? "secondary" : "outline"} className="text-[length:var(--text-micro)]">
             {skillCompatibility.canControlOrchestration ? t("orchestrationReady") : t("orchestrationUnavailable")}
           </Badge>
-          <Badge variant={skillCompatibility.canReportResult ? "secondary" : "outline"} className="text-[10px]">
+          <Badge variant={skillCompatibility.canReportResult ? "secondary" : "outline"} className="text-[length:var(--text-micro)]">
             {skillCompatibility.canReportResult ? t("resultReportingReady") : t("resultReportingUnavailable")}
           </Badge>
           {compatibilityReason && (
@@ -215,10 +215,10 @@ export default function LaunchProfileSummaryCard({
 
       {workspaceBindingOpen && selectedProfileId && (
         <div className="mx-4 mb-1 mt-2 border-t border-[var(--app-border)]/60 pt-3">
-          <div className="mb-2 flex items-center gap-2 text-[12.5px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
+          <div className="mb-2 flex items-center gap-2 text-[length:var(--text-row)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
             <Link2 size={14} className="text-[var(--app-text-tertiary)]" />
             {t("workspaceBinding")}
-            <Badge variant="secondary" className="text-[10px]">{boundWorkspaces.length}</Badge>
+            <Badge variant="secondary" className="text-[length:var(--text-micro)]">{boundWorkspaces.length}</Badge>
           </div>
           {workspacesLoading && workspaces.length === 0 ? (
             <div className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>

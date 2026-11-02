@@ -12,7 +12,7 @@ export default function InjectionBadges({ summary, className }: { summary: Injec
     { key: "memory", label: t("injection.memoryLabel"), state: summary.memory },
   ];
   return (
-    <span className={`inline-flex items-center gap-1.5 text-[10px] ${className ?? ""}`} data-testid="injection-badges">
+    <span className={`inline-flex items-center gap-1.5 text-[length:var(--text-micro)] ${className ?? ""}`} data-testid="injection-badges">
       {items.map((item) => (
         <span
           key={item.key}

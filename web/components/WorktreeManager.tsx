@@ -158,7 +158,7 @@ export default function WorktreeManager({
                         <GitBranch size={14} />
                         <span>{wt.branch || "(detached)"}</span>
                         {wt.isMain && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded text-white" style={{ background: "var(--app-accent)" }}>
+                          <span className="text-[length:var(--text-micro)] px-1.5 py-0.5 rounded text-white" style={{ background: "var(--app-accent)" }}>
                             {t("mainBadge")}
                           </span>
                         )}

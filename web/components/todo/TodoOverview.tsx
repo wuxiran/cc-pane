@@ -124,7 +124,7 @@ function FocusTask({
             {todo.title}
           </span>
           {todo.description && (
-            <span className="mt-1.5 block max-h-10 overflow-hidden text-[13px] leading-5 text-muted-foreground">
+            <span className="mt-1.5 block max-h-10 overflow-hidden text-[length:var(--text-row)] leading-5 text-muted-foreground">
               {todo.description}
             </span>
           )}
@@ -191,7 +191,7 @@ function CompactTaskRow({
       <button type="button" className="flex min-w-0 flex-1 items-center gap-3 py-2 pr-1 text-left" onClick={onSelect}>
         <span
           data-testid="todo-overview-task-title"
-          className={`min-w-0 flex-1 truncate text-[13px] font-medium ${
+          className={`min-w-0 flex-1 truncate text-[length:var(--text-row)] font-medium ${
             todo.status === "done" ? "text-muted-foreground line-through" : "text-foreground"
           }`}
         >
@@ -230,7 +230,7 @@ export default function TodoOverview({
   return (
     <div className="@container/overview flex h-full flex-col">
       <header className="flex h-12 shrink-0 items-center border-b border-border/35 px-5">
-        <h2 className="text-[13px] font-semibold">{t("todoOverviewTitle")}</h2>
+        <h2 className="text-[length:var(--text-row)] font-semibold">{t("todoOverviewTitle")}</h2>
         <span className="ml-3 border-l border-border/50 pl-3 text-xs text-muted-foreground">
           {t("todoOverviewOpenCount", { count: openCount })}
         </span>

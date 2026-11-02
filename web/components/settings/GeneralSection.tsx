@@ -26,6 +26,7 @@ import { useCliTools } from "@/hooks/useCliTools";
 import type { GeneralSettings, DataDirInfo, SearchScope } from "@/types";
 import { formatSize } from "@/utils";
 import AdvancedSettings from "./AdvancedSettings";
+import { nativeConfirm } from "@/services/nativeDialog";
 
 // 托盘「待处理会话最多显示条数」的可选域（1-10）。
 const TRAY_MAX_PENDING_OPTIONS = Array.from(
@@ -80,7 +81,7 @@ export default function GeneralSection({
       toastInfo(t("dataDirSame"));
       return;
     }
-    const confirmed = window.confirm(
+    const confirmed = await nativeConfirm(
       t("migrationConfirm", {
         from: dataDirInfo?.currentPath,
         to: selected,
@@ -105,7 +106,7 @@ export default function GeneralSection({
 
   async function handleResetDataDir() {
     if (!dataDirInfo || dataDirInfo.isDefault) return;
-    const confirmed = window.confirm(
+    const confirmed = await nativeConfirm(
       t("resetMigrationConfirm", {
         from: dataDirInfo.currentPath,
         to: dataDirInfo.defaultPath,
@@ -184,7 +185,7 @@ export default function GeneralSection({
             <SelectTrigger
               id="general-tray-max-pending"
               aria-label={t("trayMaxPendingEntries")}
-              className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]"
+              className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]"
             >
               <SelectValue />
             </SelectTrigger>
@@ -334,7 +335,7 @@ export default function GeneralSection({
       <div className="flex items-center justify-between gap-6">
         <Label htmlFor="general-language">{t("language")}</Label>
         <Select value={value.language} onValueChange={(next) => update("language", next)}>
-          <SelectTrigger id="general-language" aria-label={t("language")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+          <SelectTrigger id="general-language" aria-label={t("language")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -353,7 +354,7 @@ export default function GeneralSection({
           </p>
         </div>
         <Select value={value.defaultCliTool ?? "claude"} onValueChange={(next) => update("defaultCliTool", next)}>
-          <SelectTrigger id="general-default-cli-tool" aria-label={t("defaultCliTool")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+          <SelectTrigger id="general-default-cli-tool" aria-label={t("defaultCliTool")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -374,7 +375,7 @@ export default function GeneralSection({
             </p>
           </div>
           <Select value={value.searchScope} onValueChange={(next) => update("searchScope", next as SearchScope)}>
-            <SelectTrigger id="general-search-scope" aria-label={t("searchScope")} className="w-44 shrink-0 bg-[var(--app-content)] text-[13px]">
+            <SelectTrigger id="general-search-scope" aria-label={t("searchScope")} className="w-44 shrink-0 bg-[var(--app-content)] text-[length:var(--text-row)]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -399,7 +400,7 @@ export default function GeneralSection({
         </p>
         <div className="flex items-center gap-2">
           <span
-            className="flex-1 text-[13px] px-2.5 py-1.5 rounded-md overflow-hidden text-ellipsis whitespace-nowrap font-mono"
+            className="flex-1 text-[length:var(--text-row)] px-2.5 py-1.5 rounded-md overflow-hidden text-ellipsis whitespace-nowrap font-mono"
             style={{
               color: "var(--app-text-secondary)",
               background: "var(--app-hover)",

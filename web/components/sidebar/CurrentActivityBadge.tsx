@@ -86,7 +86,7 @@ export default function CurrentActivityBadge({ binding }: CurrentActivityBadgePr
 
   return (
     <span
-      className="inline-flex min-w-0 items-center rounded px-1.5 py-0.5 text-[10px]"
+      className="inline-flex min-w-0 items-center rounded px-1.5 py-0.5 text-[length:var(--text-micro)]"
       style={{
         color: "var(--app-text-secondary)",
         background: "var(--app-input-bg)",

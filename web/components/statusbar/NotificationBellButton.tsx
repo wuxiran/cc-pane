@@ -33,7 +33,7 @@ export default function NotificationBellButton() {
           {unreadCount > 0 && (
             <span
               aria-hidden="true"
-              className="absolute -top-0.5 right-0 flex h-[13px] min-w-[13px] items-center justify-center rounded-full px-0.5 text-[9px] font-bold tabular-nums text-white"
+              className="absolute -top-0.5 right-0 flex h-[13px] min-w-[13px] items-center justify-center rounded-full px-0.5 text-[length:var(--text-nano)] font-bold tabular-nums text-white"
               style={{ background: "var(--app-status-danger)" }}
             >
               {unreadCount > 99 ? "99+" : unreadCount}

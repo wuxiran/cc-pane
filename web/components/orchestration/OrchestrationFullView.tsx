@@ -389,7 +389,7 @@ export default function OrchestrationFullView({
                                 {latest.body}
                               </span>
                             )}
-                            <span className="mt-1 flex items-center gap-1 text-[10px]" style={{ color: "var(--app-text-tertiary)" }}>
+                            <span className="mt-1 flex items-center gap-1 text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>
                               <span>{latest.kind}</span>
                               <span>·</span>
                               <span>{formatTime(latest.timestamp)}</span>
@@ -432,7 +432,7 @@ export default function OrchestrationFullView({
           {!rightCollapsed && (
             <>
               <div className="flex h-10 shrink-0 items-center justify-between px-3" style={{ borderBottom: "1px solid var(--app-border)" }}>
-                <div className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--app-text-tertiary)" }}>
+                <div className="min-w-0 truncate text-[length:var(--text-micro)] font-semibold uppercase tracking-wider" style={{ color: "var(--app-text-tertiary)" }}>
                   {t("outputPreview", { defaultValue: "输出预览" })}
                 </div>
                 <IconTooltipButton

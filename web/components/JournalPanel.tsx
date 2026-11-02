@@ -104,7 +104,7 @@ export default function JournalPanel({ open, onOpenChange, workspaceName, onSave
                 <textarea
                   value={summary}
                   onChange={(e) => setSummary(e.target.value)}
-                  className="w-full p-2 rounded-md text-[13px] resize-none outline-none"
+                  className="w-full p-2 rounded-md text-[length:var(--text-row)] resize-none outline-none"
                   style={{
                     border: "1px solid var(--app-border)",
                     background: "var(--background)",

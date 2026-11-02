@@ -163,7 +163,7 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
             aria-label={t("recentFiles.placeholder")}
             aria-controls={listId}
             aria-activedescendant={activeOptionId}
-            className="flex-1 bg-transparent text-[13px] outline-none placeholder:opacity-50"
+            className="flex-1 bg-transparent text-[length:var(--text-row)] outline-none placeholder:opacity-50"
             style={{ color: "var(--app-text-primary)" }}
           />
         </div>
@@ -171,7 +171,7 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
         {/* 结果列表 */}
         <div ref={listRef} id={listId} role="listbox" className="flex-1 overflow-y-auto max-h-[340px]">
           {items.length === 0 ? (
-            <div className="text-[13px] text-center py-8 text-muted-foreground">
+            <div className="text-[length:var(--text-row)] text-center py-8 text-muted-foreground">
               {query.trim() ? t("recentFiles.noMatch") : t("recentFiles.noRecent")}
             </div>
           ) : (
@@ -205,7 +205,7 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
                   >
                     {getFileIcon(getExt(item.title), 16)}
                     <div className="min-w-0 flex-1">
-                      <span className="text-[13px] truncate block">{item.title}</span>
+                      <span className="text-[length:var(--text-row)] truncate block">{item.title}</span>
                       <span
                         className="text-[length:var(--text-caption)] truncate block"
                         style={{ color: "var(--app-text-tertiary)" }}
@@ -246,7 +246,7 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
                   >
                     {getFileIcon(getExt(item.title), 16)}
                     <div className="min-w-0 flex-1">
-                      <span className="text-[13px] truncate block">{item.title}</span>
+                      <span className="text-[length:var(--text-row)] truncate block">{item.title}</span>
                       <span
                         className="text-[length:var(--text-caption)] truncate block"
                         style={{ color: "var(--app-text-tertiary)" }}

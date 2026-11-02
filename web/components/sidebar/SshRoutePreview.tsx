@@ -51,7 +51,7 @@ export function SshRoutePreview({ machine, machines }: SshRoutePreviewProps) {
 
   return (
     <div className="rounded-md border border-[var(--app-border)] bg-[var(--app-bg-secondary)] p-2">
-      <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-[var(--app-text-muted)]">
+      <div className="mb-1.5 text-[length:var(--text-micro)] font-medium uppercase tracking-wide text-[var(--app-text-muted)]">
         {preview.direct
           ? t("ssh.route.direct", { defaultValue: "Direct connection" })
           : t("ssh.route.title", { defaultValue: "Connection route" })}
@@ -69,7 +69,7 @@ export function SshRoutePreview({ machine, machines }: SshRoutePreviewProps) {
             >
               <HopIcon hop={hop} />
               <span>{labelFor(hop)}</span>
-              <span className="text-[10px] text-[var(--app-text-muted)]">
+              <span className="text-[length:var(--text-micro)] text-[var(--app-text-muted)]">
                 {hop.endpoint}
               </span>
             </span>
@@ -81,7 +81,7 @@ export function SshRoutePreview({ machine, machines }: SshRoutePreviewProps) {
           {preview.warnings.map((warning) => (
             <span
               key={`${warning.code}-${warning.machineId}`}
-              className="inline-flex items-center gap-1 text-[10px] text-[var(--app-status-warning)]"
+              className="inline-flex items-center gap-1 text-[length:var(--text-micro)] text-[var(--app-status-warning)]"
             >
               <TriangleAlert className="h-3 w-3 shrink-0" />
               {warning.code === "jumpMachineMissing"

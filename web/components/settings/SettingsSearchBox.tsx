@@ -31,7 +31,7 @@ export default function SettingsSearchBox({
         onChange={(event) => onQueryChange(event.target.value)}
         onFocus={() => setFocused(true)}
         onBlur={() => window.setTimeout(() => setFocused(false), 100)}
-        className="h-8 w-full rounded-md border border-[var(--app-border)] bg-[var(--app-content)] pl-9 pr-9 text-[13px] text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)] focus:border-[var(--app-accent)] focus:ring-2 focus:ring-[var(--app-active-bg)]"
+        className="h-8 w-full rounded-md border border-[var(--app-border)] bg-[var(--app-content)] pl-9 pr-9 text-[length:var(--text-row)] text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)] focus:border-[var(--app-accent)] focus:ring-2 focus:ring-[var(--app-active-bg)]"
       />
       {query && (
         <button
@@ -56,7 +56,7 @@ export default function SettingsSearchBox({
               onClick={() => onSelect(result)}
             >
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-medium text-[var(--app-text-primary)]">{result.title}</span>
+                <span className="block truncate text-[length:var(--text-row)] font-medium text-[var(--app-text-primary)]">{result.title}</span>
                 {result.description && (
                   <span className="mt-0.5 block line-clamp-2 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{result.description}</span>
                 )}

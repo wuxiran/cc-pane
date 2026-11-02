@@ -164,7 +164,7 @@ function RefBadge({ gitRef }: RefBadgeProps) {
   if (gitRef.kind === "tag") {
     return (
       <span
-        className="flex min-w-0 items-center gap-1 rounded border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-1 py-px text-[10px] leading-none text-[var(--app-status-warning)]"
+        className="flex min-w-0 items-center gap-1 rounded border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-1 py-px text-[length:var(--text-micro)] leading-none text-[var(--app-status-warning)]"
         title={t("gitGraph.tag")}
       >
         <Tag className="h-2.5 w-2.5 shrink-0" />
@@ -176,7 +176,7 @@ function RefBadge({ gitRef }: RefBadgeProps) {
   const isRemote = gitRef.kind === "remoteBranch";
   return (
     <span
-      className={`flex min-w-0 items-center gap-1 rounded border px-1 py-px text-[10px] leading-none ${
+      className={`flex min-w-0 items-center gap-1 rounded border px-1 py-px text-[length:var(--text-micro)] leading-none ${
         gitRef.isHead
           ? "border-[var(--app-accent)] bg-[var(--app-active-bg)] font-semibold text-[var(--app-accent)]"
           : isRemote
@@ -259,13 +259,13 @@ export default function GitGraphView({
                     </span>
                   </span>
                   <span className="flex min-w-0 items-center gap-1.5">
-                    <code className="shrink-0 text-[10px] text-[var(--app-text-tertiary)]">
+                    <code className="shrink-0 text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
                       {node.commit.shortHash}
                     </code>
                     {node.refs.slice(0, 3).map((gitRef) => (
                       <RefBadge key={gitRef.raw} gitRef={gitRef} />
                     ))}
-                    <span className="ml-auto shrink-0 truncate text-[10px] text-[var(--app-text-tertiary)]">
+                    <span className="ml-auto shrink-0 truncate text-[length:var(--text-micro)] text-[var(--app-text-tertiary)]">
                       {shortDate(node.commit.date)}
                     </span>
                   </span>

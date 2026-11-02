@@ -18,6 +18,7 @@ import type {
   CreateTodoRequest,
   UpdateTodoRequest,
 } from "@/types";
+import { nativeConfirm } from "@/services/nativeDialog";
 
 interface TodoManagerProps {
   /** Tab 的 scope 值（如 "workspace" / "project" / ""） */
@@ -165,8 +166,8 @@ export default function TodoManager({
     if (selectedTodo) void loadActivities(selectedTodo.id);
   }, [selectedTodo, loadActivities]);
 
-  const handleNew = useCallback(() => {
-    if (isDirty && !window.confirm(t("todoUnsavedChanges"))) return;
+  const handleNew = useCallback(async () => {
+    if (isDirty && !await nativeConfirm(t("todoUnsavedChanges"))) return;
     formOwner.current += 1;
     select(null);
     setIsCreating(true);
@@ -178,8 +179,8 @@ export default function TodoManager({
   }, [isDirty, select, scope, scopeRef, t, resetForm]);
 
   const handleSelectTodo = useCallback(
-    (todo: TodoItem) => {
-      if (isDirty && !window.confirm(t("todoUnsavedChanges"))) return;
+    async (todo: TodoItem) => {
+      if (isDirty && !await nativeConfirm(t("todoUnsavedChanges"))) return;
       formOwner.current += 1;
       resetForm(todoEditForm(todo), todo.id);
       select(todo);
@@ -257,8 +258,8 @@ export default function TodoManager({
     [remove, tNotify]
   );
 
-  const handleCancel = useCallback(() => {
-    if (isDirty && !window.confirm(t("todoUnsavedChanges"))) return;
+  const handleCancel = useCallback(async () => {
+    if (isDirty && !await nativeConfirm(t("todoUnsavedChanges"))) return;
     formOwner.current += 1;
     setIsCreating(false);
     resetForm(todoEditForm());

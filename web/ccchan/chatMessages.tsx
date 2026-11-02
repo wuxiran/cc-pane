@@ -253,7 +253,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
         </div>
       )}
       <div
-        className="max-w-[82%] rounded-md px-3 py-2 text-[12.5px] leading-5 shadow-sm"
+        className="max-w-[82%] rounded-md px-3 py-2 text-[length:var(--text-row)] leading-5 shadow-sm"
         style={{
           borderTopLeftRadius: isUser ? 8 : 2,
           borderTopRightRadius: isUser ? 2 : 8,

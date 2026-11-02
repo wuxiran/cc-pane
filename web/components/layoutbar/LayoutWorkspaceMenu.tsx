@@ -84,7 +84,7 @@ export function LayoutWorkspaceBadge({
       title={title}
       data-binding-source={binding.source}
       className={`inline-flex shrink-0 items-center overflow-hidden rounded px-1 leading-none ${
-        mini ? "max-w-[72px] py-0 text-[9px]" : "max-w-[88px] py-px text-[10px]"
+        mini ? "max-w-[72px] py-0 text-[length:var(--text-nano)]" : "max-w-[88px] py-px text-[length:var(--text-micro)]"
       }`}
       style={
         manual

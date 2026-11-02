@@ -143,7 +143,7 @@ export default function LauncherChips({ draft, onChange }: LauncherChipsProps) {
 
       <textarea
         rows={2}
-        className="w-full resize-none rounded-md border bg-background px-2 py-1.5 text-[11.5px]"
+        className="w-full resize-none rounded-md border bg-background px-2 py-1.5 text-[length:var(--text-small)]"
         placeholder={t("appendSystemPromptPlaceholder")}
         value={draft.appendSystemPrompt}
         onChange={(event) => onChange({ appendSystemPrompt: event.target.value })}
@@ -151,7 +151,7 @@ export default function LauncherChips({ draft, onChange }: LauncherChipsProps) {
       />
       <textarea
         rows={2}
-        className="w-full resize-none rounded-md border bg-background px-2 py-1.5 text-[11.5px]"
+        className="w-full resize-none rounded-md border bg-background px-2 py-1.5 text-[length:var(--text-small)]"
         placeholder={t("initialPromptPlaceholder")}
         value={draft.initialPrompt}
         onChange={(event) => onChange({ initialPrompt: event.target.value })}

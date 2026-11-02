@@ -175,11 +175,11 @@ export default function SetupGuideChecklist({
         )}
         data-testid={variant === "home" ? "getting-started" : "setup-guide-checklist"}
       >
-        <span className="flex flex-1 basis-60 items-center gap-2 text-[13px] font-semibold text-[var(--app-text-primary)]">
+        <span className="flex flex-1 basis-60 items-center gap-2 text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">
           <BadgeCheck className="size-[18px] shrink-0 text-[var(--app-status-success)]" aria-hidden="true" />
           <span>
             {t("setupGuide.doneTitle")}
-            <span className="block text-[11.5px] font-normal text-[var(--app-text-secondary)]">
+            <span className="block text-[length:var(--text-small)] font-normal text-[var(--app-text-secondary)]">
               {t("setupGuide.doneSummary")}
             </span>
           </span>
@@ -292,10 +292,10 @@ export default function SetupGuideChecklist({
           )}
         >
           <div className="min-w-0 flex-1 basis-64">
-            <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--app-accent)]">
+            <span className="text-[length:var(--text-micro)] font-bold uppercase tracking-[0.1em] text-[var(--app-accent)]">
               {t("setupGuide.nextStep")}
             </span>
-            <div className="mt-0.5 text-[13.5px] font-semibold text-[var(--app-text-primary)]">
+            <div className="mt-0.5 text-[length:var(--text-body)] font-semibold text-[var(--app-text-primary)]">
               {t(`setupGuide.items.${nextItem.id}.title`)}
             </div>
             <div className="mt-0.5 text-xs text-[var(--app-text-secondary)]">

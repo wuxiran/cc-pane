@@ -440,12 +440,12 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
                         <FileText size={12} className="shrink-0" />
                         <span className="truncate">{f}</span>
                         {f === "settings.json" && (
-                          <Badge variant={configDirInfo.hasSettings ? "secondary" : "destructive"} className="text-[9px] px-1 py-0 ml-auto">
+                          <Badge variant={configDirInfo.hasSettings ? "secondary" : "destructive"} className="text-[length:var(--text-nano)] px-1 py-0 ml-auto">
                             {configDirInfo.hasSettings ? "\u2713" : "\u2717"}
                           </Badge>
                         )}
                         {f === ".credentials.json" && (
-                          <Badge variant={configDirInfo.hasCredentials ? "secondary" : "destructive"} className="text-[9px] px-1 py-0 ml-auto">
+                          <Badge variant={configDirInfo.hasCredentials ? "secondary" : "destructive"} className="text-[length:var(--text-nano)] px-1 py-0 ml-auto">
                             {configDirInfo.hasCredentials ? "\u2713" : "\u2717"}
                           </Badge>
                         )}
@@ -477,7 +477,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
                       <Label className="text-xs font-medium">{t("jsonConfigFileContent")}</Label>
                       <div className="flex items-center gap-2">
                         {configFileIsDirty && (
-                          <Badge variant="outline" className="text-[9px] px-1.5 py-0">
+                          <Badge variant="outline" className="text-[length:var(--text-nano)] px-1.5 py-0">
                             {t("unsavedJsonChanges")}
                           </Badge>
                         )}

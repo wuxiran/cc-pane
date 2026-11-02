@@ -121,7 +121,7 @@ function RemoteTable({
       <div role="table" className="min-w-[490px] text-[length:var(--text-caption)]">
         <div
           role="row"
-          className="sticky top-0 z-10 grid h-7 grid-cols-[minmax(170px,1fr)_72px_96px_132px] items-center border-b bg-[var(--app-sidebar-bg)] text-[10px] text-[var(--app-text-muted)]"
+          className="sticky top-0 z-10 grid h-7 grid-cols-[minmax(170px,1fr)_72px_96px_132px] items-center border-b bg-[var(--app-sidebar-bg)] text-[length:var(--text-micro)] text-[var(--app-text-muted)]"
           style={{ borderColor: "var(--app-border)" }}
         >
           <SortHeader label={t("sshFiles.name")} column="name" {...{ sortKey, sortDirection, onSort }} />
@@ -225,7 +225,7 @@ function RemoteTree(props: SshRemoteFileBrowserProps) {
       >
         <ChevronDown size={16} className="shrink-0 text-[var(--app-text-tertiary)]" />
         <FolderOpen size={16} className="shrink-0 text-[var(--app-accent)]" />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5">
+        <span className="min-w-0 flex-1 truncate text-[length:var(--text-row)] font-semibold leading-5">
           {remoteRootLabel(props.currentPath)}
         </span>
       </div>
@@ -314,7 +314,7 @@ function TreeEntry({
           )}
           <EntryIcon entry={entry} open={expanded} />
           <span
-            className={`min-w-0 flex-1 truncate text-[13px] leading-5 text-[var(--app-text-primary)] ${
+            className={`min-w-0 flex-1 truncate text-[length:var(--text-row)] leading-5 text-[var(--app-text-primary)] ${
               entry.isDir ? "font-semibold" : ""
             }`}
           >

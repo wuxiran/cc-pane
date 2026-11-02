@@ -311,7 +311,7 @@ export default function MemoryManager({ projectPath, workspaceName }: MemoryMana
                 </div>
                 <div className="flex items-center gap-2 mt-0.5">
                   <ImportanceStars value={memory.importance} />
-                  <Badge variant="outline" className="text-[10px] h-4">
+                  <Badge variant="outline" className="text-[length:var(--text-micro)] h-4">
                     {CATEGORY_OPTIONS.find((c) => c.value === memory.category)?.label ?? memory.category}
                   </Badge>
                 </div>

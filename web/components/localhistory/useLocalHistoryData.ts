@@ -9,6 +9,7 @@ import {
   type RecentChange,
 } from "@/services";
 import { formatRelativeTime, getErrorMessage } from "@/utils";
+import { nativeConfirm } from "@/services/nativeDialog";
 
 export type ViewMode = "diff" | "content" | "deleted" | "project-restore";
 
@@ -298,7 +299,7 @@ export function useLocalHistoryData({
   }
 
   async function restoreLabelSnapshot(label: HistoryLabel) {
-    if (!confirm(t("confirmRestoreToLabel", { name: label.name, count: label.fileSnapshots.length }))) return;
+    if (!await nativeConfirm(t("confirmRestoreToLabel", { name: label.name, count: label.fileSnapshots.length }))) return;
     setRestoring(true);
     try {
       const restored = await localHistoryService.restoreToLabel(projectPath, label.id);

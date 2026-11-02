@@ -296,7 +296,7 @@ export default function UpdateNotification() {
             <div className="flex gap-2 py-1">
               <AlertTriangle aria-hidden="true" className="mt-0.5 shrink-0 text-[var(--app-status-warning)]" size={16} />
               <div>
-                <p className="text-[13px] font-medium text-[var(--app-text-primary)]">{t("updateRestartTitle")}</p>
+                <p className="text-[length:var(--text-row)] font-medium text-[var(--app-text-primary)]">{t("updateRestartTitle")}</p>
                 <p className="mt-1 text-[length:var(--text-small)] leading-5 text-[var(--app-text-secondary)]">{t("updateRestartWarning")}</p>
                 {busyAtConfirmation && (
                   <p className="mt-1 text-[length:var(--text-small)] leading-5 text-[var(--app-status-warning)]">{t("updateRestartBusyWarning")}</p>

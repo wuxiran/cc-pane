@@ -161,16 +161,16 @@ export default function ScanImportDialog({
                   className="shrink-0"
                 />
                 <Folder size={14} className="shrink-0" style={{ color: "var(--app-accent)" }} />
-                <span className="flex-1 text-[13px] font-medium truncate" style={{ color: "var(--app-text-primary)" }}>
+                <span className="flex-1 text-[length:var(--text-row)] font-medium truncate" style={{ color: "var(--app-text-primary)" }}>
                   {pathName(repo.mainPath)}
                 </span>
                 {repo.mainBranch && (
-                  <Badge variant="outline" className="text-[10px] px-1 shrink-0">
+                  <Badge variant="outline" className="text-[length:var(--text-micro)] px-1 shrink-0">
                     {repo.mainBranch}
                   </Badge>
                 )}
                 {repo.worktrees.length > 0 && (
-                  <Badge variant="secondary" className="text-[10px] px-1 shrink-0">
+                  <Badge variant="secondary" className="text-[length:var(--text-micro)] px-1 shrink-0">
                     +{repo.worktrees.length} wt
                   </Badge>
                 )}
@@ -193,7 +193,7 @@ export default function ScanImportDialog({
                     <span className="flex-1 text-xs truncate" style={{ color: "var(--app-text-primary)" }}>
                       {pathName(repo.mainPath)}
                     </span>
-                    <Badge variant="outline" className="text-[9px] px-1 h-4 shrink-0">
+                    <Badge variant="outline" className="text-[length:var(--text-nano)] px-1 h-4 shrink-0">
                       {t("mainBadge")}
                     </Badge>
                   </div>
@@ -216,7 +216,7 @@ export default function ScanImportDialog({
                         {pathName(wt.path)}
                       </span>
                       {wt.branch && (
-                        <Badge variant="outline" className="text-[9px] px-1 shrink-0">
+                        <Badge variant="outline" className="text-[length:var(--text-nano)] px-1 shrink-0">
                           {wt.branch}
                         </Badge>
                       )}

@@ -185,7 +185,7 @@ export default function MobileTerminalBoard({
             }}
             disabled={!canSend}
             placeholder={canSend ? t("terminal.inputPlaceholder") : t("terminal.waitingSession")}
-            className="h-10 min-w-0 flex-1 rounded-md border border-[var(--app-border)] bg-[var(--app-input-bg)] px-3 text-[13px] text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-tertiary)] focus:border-[var(--app-accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--app-accent)_25%,transparent)] disabled:cursor-not-allowed disabled:text-[var(--app-text-tertiary)]"
+            className="h-10 min-w-0 flex-1 rounded-md border border-[var(--app-border)] bg-[var(--app-input-bg)] px-3 text-[length:var(--text-row)] text-[var(--app-text-primary)] outline-none transition placeholder:text-[var(--app-text-tertiary)] focus:border-[var(--app-accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--app-accent)_25%,transparent)] disabled:cursor-not-allowed disabled:text-[var(--app-text-tertiary)]"
           />
           <button
             type="button"
@@ -219,7 +219,7 @@ function CommandChip({
       aria-label={t("terminal.shortcutLabel", { char: label })}
       disabled={disabled}
       onClick={onClick}
-      className="grid h-10 w-10 flex-none place-items-center rounded-md border border-[var(--app-border)] bg-[var(--app-hover)] font-mono text-[18px] font-semibold text-[var(--app-text-secondary)] active:scale-[0.98] disabled:cursor-not-allowed disabled:text-[var(--app-text-tertiary)]"
+      className="grid h-10 w-10 flex-none place-items-center rounded-md border border-[var(--app-border)] bg-[var(--app-hover)] font-mono text-[length:var(--text-heading)] font-semibold text-[var(--app-text-secondary)] active:scale-[0.98] disabled:cursor-not-allowed disabled:text-[var(--app-text-tertiary)]"
     >
       {label}
     </button>

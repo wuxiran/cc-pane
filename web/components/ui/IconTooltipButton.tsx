@@ -45,7 +45,7 @@ export const IconTooltipButton = React.forwardRef<HTMLButtonElement, IconTooltip
           <span className="flex items-center gap-1.5">
             {label}
             {kbd && (
-              <kbd className="rounded border border-[var(--app-border)] bg-[var(--app-hover)] px-1 py-px font-mono text-[10px] leading-none text-[var(--app-text-tertiary)]">
+              <kbd className="rounded border border-[var(--app-border)] bg-[var(--app-hover)] px-1 py-px font-mono text-[length:var(--text-micro)] leading-none text-[var(--app-text-tertiary)]">
                 {kbd}
               </kbd>
             )}

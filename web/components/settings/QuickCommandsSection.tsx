@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import QuickCommandDialog from "./QuickCommandDialog";
+import { nativeConfirm } from "@/services/nativeDialog";
 
 export default function QuickCommandsSection() {
   const { t } = useTranslation(["settings", "common"]);
@@ -60,7 +61,7 @@ export default function QuickCommandsSection() {
   };
 
   const deleteCommand = async (command: ScopedQuickCommand) => {
-    if (!window.confirm(t("quickCommands.deleteConfirm", { name: command.name }))) return;
+    if (!await nativeConfirm(t("quickCommands.deleteConfirm", { name: command.name }))) return;
     try {
       await remove(command.id, command.scope);
       toastOk(t("quickCommands.deleted"));

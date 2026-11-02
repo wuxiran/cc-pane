@@ -341,7 +341,7 @@ export default function SshMachineDialog({
                     parseQuickConnect(e.currentTarget.value);
                 }}
               />
-              <p className="mt-0.5 text-[10px] text-[var(--app-text-muted)]">
+              <p className="mt-0.5 text-[length:var(--text-micro)] text-[var(--app-text-muted)]">
                 {t("ssh.quickConnectHint", {
                   defaultValue: "Parse user@host:port to fill fields below",
                 })}

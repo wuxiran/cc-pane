@@ -265,7 +265,7 @@ function CanvasNodeCard({
         <span className="min-w-0 flex-1 truncate text-[length:var(--text-caption)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
           {node.label}
         </span>
-        <span className="shrink-0 text-[9px] uppercase tracking-[0.08em]" style={{ color }}>
+        <span className="shrink-0 text-[length:var(--text-nano)] uppercase tracking-[0.08em]" style={{ color }}>
           {nodeTypeLabel}
         </span>
         <button
@@ -284,7 +284,7 @@ function CanvasNodeCard({
         <CanvasTerminalMirror node={{ ...node, position }} />
       </div>
       <div
-        className="flex h-6 shrink-0 items-center gap-2 border-t px-2 text-[9px]"
+        className="flex h-6 shrink-0 items-center gap-2 border-t px-2 text-[length:var(--text-nano)]"
         style={{
           color: "var(--app-text-tertiary)",
           background: "var(--app-menubar)",

@@ -280,7 +280,7 @@ export default function WorkspaceWallpaperCard({ workspace }: WorkspaceWallpaper
     return overrideRow(
       overridden,
       (checked) => setNestedField(group, key, checked ? value : undefined),
-      <label className="flex items-center justify-between gap-3 text-[13px] text-[var(--app-text-primary)]">
+      <label className="flex items-center justify-between gap-3 text-[length:var(--text-row)] text-[var(--app-text-primary)]">
         <span>{text}</span>
         <input
           type="checkbox"

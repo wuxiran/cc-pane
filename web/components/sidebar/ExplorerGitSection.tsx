@@ -318,7 +318,7 @@ function GitProjectGroup({
                 <button
                   type="button"
                   key={`${file.oldPath ?? ""}:${file.newPath ?? ""}`}
-                  className={`flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left hover:bg-[var(--app-hover)] ${showHeader ? "text-xs" : "text-[13px]"}`}
+                  className={`flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left hover:bg-[var(--app-hover)] ${showHeader ? "text-xs" : "text-[length:var(--text-row)]"}`}
                   title={`${path} · ${t("explorer.gitContentComparison")}`}
                   onClick={() =>
                     conflicted
