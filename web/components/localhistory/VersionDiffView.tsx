@@ -38,7 +38,7 @@ export default function VersionDiffView({
       ) : viewMode === "diff" ? (
         <div className="flex-1 flex flex-col overflow-hidden">
           {diffDescription && (
-            <div className="px-3 py-1.5 text-[11px] flex items-center gap-2 border-b shrink-0"
+            <div className="px-3 py-1.5 text-[length:var(--text-caption)] flex items-center gap-2 border-b shrink-0"
                  style={{ color: "var(--app-text-tertiary)", borderColor: "var(--app-border)" }}>
               <Diff size={12} />
               <span>{diffDescription}</span>

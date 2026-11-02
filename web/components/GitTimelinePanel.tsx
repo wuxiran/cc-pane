@@ -304,7 +304,7 @@ export default function GitTimelinePanel({
                   aria-label={t("gitTimeline.parent")}
                   value={parentIndex}
                   onChange={(event) => setParentIndex(Number(event.target.value))}
-                  className="ml-auto h-7 min-w-0 max-w-32 rounded border bg-transparent px-1 text-[11px]"
+                  className="ml-auto h-7 min-w-0 max-w-32 rounded border bg-transparent px-1 text-[length:var(--text-caption)]"
                 >
                   {selectedCommit.parents.map((parent, index) => (
                     <option key={parent} value={index}>{t("gitTimeline.parentOption", { index: index + 1 })}</option>

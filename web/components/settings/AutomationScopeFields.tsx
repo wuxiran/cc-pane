@@ -41,7 +41,7 @@ export default function AutomationScopeFields({
 
   return (
     <div className="flex flex-wrap items-end gap-3">
-      <FormField label={t("automations.workspace")} className="flex min-w-[200px] flex-col gap-1.5" labelClassName="text-[12px]">
+      <FormField label={t("automations.workspace")} className="flex min-w-[200px] flex-col gap-1.5" labelClassName="text-[length:var(--text-small)]">
         {({ id }) => (
           <select
             id={id}
@@ -62,7 +62,7 @@ export default function AutomationScopeFields({
           </select>
         )}
       </FormField>
-      <FormField label={t("automations.cwd")} className="flex min-w-[260px] flex-1 flex-col gap-1.5" labelClassName="text-[12px]">
+      <FormField label={t("automations.cwd")} className="flex min-w-[260px] flex-1 flex-col gap-1.5" labelClassName="text-[length:var(--text-small)]">
         {({ id }) =>
           workspaceName && projects.length > 0 ? (
             <select

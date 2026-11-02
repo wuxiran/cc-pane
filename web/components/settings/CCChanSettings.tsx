@@ -85,7 +85,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
       <div className="flex items-start justify-between gap-6">
         <div className="min-w-0">
           <Label htmlFor="ccchan-default-pet">{t("ccchanDefaultPet")}</Label>
-          <p className="m-0 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+          <p className="m-0 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
             {selectedPetDescriptionKey
               ? t(selectedPetDescriptionKey)
               : selectedPet?.description ?? t("ccchanCurrentPet")}
@@ -156,7 +156,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
             onChange={(event) => update("wanderEnabled", event.target.checked)}
           />
         </label>
-        <p className="m-0 -mt-2 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+        <p className="m-0 -mt-2 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
           {t("ccchanWanderHint")}
         </p>
       </div>
@@ -178,7 +178,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
             style={{ accentColor: "var(--app-accent)" }}
             onChange={(event) => update("petSize", Number(event.target.value))}
           />
-          <span className="w-14 font-mono text-[12px]" style={{ color: "var(--app-text-secondary)" }}>
+          <span className="w-14 font-mono text-[length:var(--text-small)]" style={{ color: "var(--app-text-secondary)" }}>
             {value.petSize}px
           </span>
           <Button
@@ -200,7 +200,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
         </Label>
         {petsDir && (
           <span
-            className="break-all rounded-md px-2.5 py-1.5 font-mono text-[11px]"
+            className="break-all rounded-md px-2.5 py-1.5 font-mono text-[length:var(--text-caption)]"
             style={{
               background: "var(--app-hover)",
               color: "var(--app-text-secondary)",
@@ -229,7 +229,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
             {t("ccchanRefreshPets")}
           </Button>
         </div>
-        <p className="m-0 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+        <p className="m-0 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
           {t("ccchanSkinDirHint")}
         </p>
       </div>
@@ -241,7 +241,7 @@ export default function CCChanSettings({ value, onChange }: CCChanSettingsProps)
         </Label>
         <div className="flex items-center gap-2">
           <span
-            className="rounded-md px-2.5 py-1.5 font-mono text-[12px]"
+            className="rounded-md px-2.5 py-1.5 font-mono text-[length:var(--text-small)]"
             style={{
               background: "var(--app-hover)",
               color: "var(--app-text-secondary)",

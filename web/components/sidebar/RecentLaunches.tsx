@@ -111,7 +111,7 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
     return (
       <div className="px-3 py-3">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--app-text-tertiary)]">
+          <span className="text-[length:var(--text-caption)] font-bold uppercase tracking-wider text-[var(--app-text-tertiary)]">
             {t("recentLaunches")}
           </span>
           {launchHistory.length > 0 && (
@@ -138,7 +138,7 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
     <>
       {/* 标题行 */}
       <div className="flex items-center justify-between px-3 py-3 mt-4 mb-1">
-        <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--app-text-tertiary)]">
+        <span className="text-[length:var(--text-caption)] font-bold uppercase tracking-wider text-[var(--app-text-tertiary)]">
           {t("recentLaunches")}
         </span>
         <Tooltip>
@@ -190,7 +190,7 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
                   ) : (
                     <ChevronDown className="w-3 h-3 shrink-0" />
                   )}
-                  <span className="text-[11px] font-semibold truncate">{row.group.workspaceName}</span>
+                  <span className="text-[length:var(--text-caption)] font-semibold truncate">{row.group.workspaceName}</span>
                   <span
                     className="text-[9px] ml-auto shrink-0 px-1.5 py-0.5 rounded-full text-[var(--app-text-tertiary)]"
                     style={{ background: "var(--app-hover)" }}
@@ -218,7 +218,7 @@ export default function RecentLaunches({ launchHistory, onOpenTerminal, onClearH
                   <div className="flex items-center gap-2 min-w-0">
                     <Play className="w-3.5 h-3.5 text-[var(--app-status-success)] shrink-0" />
                     <div className="min-w-0 text-left">
-                      <span className="text-[12px] font-medium tracking-wide truncate block max-w-[120px]">
+                      <span className="text-[length:var(--text-small)] font-medium tracking-wide truncate block max-w-[120px]">
                         {row.record.projectName}
                       </span>
                       <span className="text-[9px] font-mono truncate block max-w-[140px] text-[var(--app-text-tertiary)]">

@@ -210,7 +210,7 @@ export default function LaunchProfileSkillCard({
                       </Button>
                     }
                   >
-                    <div className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+                    <div className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
                       {t("externalSkillHint")}
                     </div>
                     <div className="flex flex-wrap gap-2 py-1">
@@ -248,7 +248,7 @@ export default function LaunchProfileSkillCard({
                       const selectedCount = selectedExternalSkillCount(draft.skillPolicy, group.skills);
                       return (
                         <div key={group.kind} className="pt-1">
-                          <div className="pb-1.5 text-[11px] font-semibold uppercase tracking-[0.05em]" style={{ color: "var(--app-text-tertiary)" }}>
+                          <div className="pb-1.5 text-[length:var(--text-caption)] font-semibold uppercase tracking-[0.05em]" style={{ color: "var(--app-text-tertiary)" }}>
                             {group.label} ({selectedCount}/{group.skills.length})
                           </div>
                           <div className="space-y-1.5">
@@ -295,7 +295,7 @@ export default function LaunchProfileSkillCard({
                     </Button>
                   }
                 >
-                  <div className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+                  <div className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
                     {skillMarketEnabled ? t("skillMarketHint") : t("userSkillLibraryHint")}
                   </div>
                   {skillMarketLoading && marketEntries.length === 0 && standaloneUserSkills.length === 0 ? (
@@ -342,7 +342,7 @@ export default function LaunchProfileSkillCard({
                                   {entry.description}
                                 </div>
                               )}
-                              <div className="mt-0.5 flex flex-wrap gap-2 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+                              <div className="mt-0.5 flex flex-wrap gap-2 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
                                 <span>v{entry.version}</span>
                                 {entry.license ? <span>{entry.license}</span> : <span>{t("missingLicense")}</span>}
                               </div>
@@ -409,7 +409,7 @@ export default function LaunchProfileSkillCard({
                     <div className="text-[12.5px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
                       {t("workspaceProjectSkill")}
                     </div>
-                    <div className="mt-0.5 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+                    <div className="mt-0.5 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
                       {workspaceContext
                         ? t("projectSkillWorkspaceHint")
                         : t("projectSkillSelectHint")}

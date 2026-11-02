@@ -116,10 +116,10 @@ export function SystemResourceSessionRow({
               {t("resourceManagerProcessCount", { count: session.processCount })}
             </span>
           )}
-          <span className="w-10 shrink-0 text-right text-[11px] tabular-nums text-[var(--app-text-secondary)]">
+          <span className="w-10 shrink-0 text-right text-[length:var(--text-caption)] tabular-nums text-[var(--app-text-secondary)]">
             {formatCpu(session.cpuPercent)}
           </span>
-          <span className="w-[58px] shrink-0 text-right text-[11px] tabular-nums text-[var(--app-text-secondary)]">
+          <span className="w-[58px] shrink-0 text-right text-[length:var(--text-caption)] tabular-nums text-[var(--app-text-secondary)]">
             {formatSize(session.memoryBytes)}
           </span>
         </button>
@@ -152,7 +152,7 @@ export function SystemResourceSessionRow({
           <Button
             size="sm"
             variant="destructive"
-            className="h-6 px-2 text-[11px]"
+            className="h-6 px-2 text-[length:var(--text-caption)]"
             disabled={killing}
             onClick={() => onKill(session.sessionId)}
           >
@@ -171,7 +171,7 @@ export function SystemResourceSessionRow({
       {/* 降级必须可见（docs/45）：不是 applied 就把原因贴在行下。 */}
       {policy.status && policy.status.outcome !== "applied" && (
         <div
-          className="flex min-h-5 items-center pl-9 pr-2 text-[11px]"
+          className="flex min-h-5 items-center pl-9 pr-2 text-[length:var(--text-caption)]"
           style={{ color: "var(--app-status-warning)" }}
           data-testid="resource-policy-degraded"
         >
@@ -186,7 +186,7 @@ export function SystemResourceSessionRow({
       {/* W5：Job 内存越线只是观测——窗格没停、build 没失败，但要让用户知道是哪一格在吃内存。 */}
       {jobMemoryWarning && (
         <div
-          className="flex min-h-5 items-center pl-9 pr-2 text-[11px]"
+          className="flex min-h-5 items-center pl-9 pr-2 text-[length:var(--text-caption)]"
           style={{ color: "var(--app-status-warning)" }}
           data-testid="job-memory-warning"
         >
@@ -199,7 +199,7 @@ export function SystemResourceSessionRow({
       {expanded && (
         <div className="mb-1">
           {processes.map((process) => (
-            <div key={process.pid} className="flex min-h-6 items-center gap-2 pl-9 pr-2 text-[11px]">
+            <div key={process.pid} className="flex min-h-6 items-center gap-2 pl-9 pr-2 text-[length:var(--text-caption)]">
               <span className="min-w-0 flex-1 truncate text-[var(--app-text-secondary)]" title={process.command}>
                 {process.name}
               </span>
@@ -210,7 +210,7 @@ export function SystemResourceSessionRow({
           ))}
           {/* 截断必须可见：不说"另有 N 个"，用户会以为上面就是全部。 */}
           {session.truncated && (
-            <div className="flex min-h-6 items-center gap-2 pl-9 pr-2 text-[11px] text-[var(--app-text-tertiary)]">
+            <div className="flex min-h-6 items-center gap-2 pl-9 pr-2 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
               <span className="min-w-0 flex-1 truncate italic">
                 {t("resourceManagerMoreProcesses", { count: session.truncated.processCount })}
               </span>

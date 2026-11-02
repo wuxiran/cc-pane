@@ -282,7 +282,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
         >
           <ArrowLeft size={18} />
         </button>
-        <h2 className="text-[14px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
+        <h2 className="text-[length:var(--text-body)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
           {isEditMode ? t("editProvider") : t("addProvider")}
         </h2>
       </div>
@@ -298,7 +298,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
               size={40}
             />
             <div>
-              <div className="text-[14px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
+              <div className="text-[length:var(--text-body)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
                 {form.name || t("providerNamePlaceholder")}
               </div>
               {preset?.website && (
@@ -452,12 +452,12 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
                       </div>
                     ))}
                     {configDirInfo.settingsSummary && (
-                      <div className="text-[11px] pt-2" style={{ color: "var(--app-text-tertiary)", borderTop: "1px solid var(--app-border)" }}>
+                      <div className="text-[length:var(--text-caption)] pt-2" style={{ color: "var(--app-text-tertiary)", borderTop: "1px solid var(--app-border)" }}>
                         {configDirInfo.settingsSummary}
                       </div>
                     )}
                     <div className="flex gap-1 pt-2" style={{ borderTop: "1px solid var(--app-border)" }}>
-                      <Button variant="ghost" size="sm" className="h-7 text-[11px] px-2" onClick={() => handleOpenInExplorer(form.configDir)}>
+                      <Button variant="ghost" size="sm" className="h-7 text-[length:var(--text-caption)] px-2" onClick={() => handleOpenInExplorer(form.configDir)}>
                         <ExternalLink size={12} className="mr-1" /> {t("openDir")}
                       </Button>
                     </div>
@@ -483,7 +483,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
                         )}
                         <button
                           type="button"
-                          className="inline-flex items-center gap-1 text-[11px] hover:underline"
+                          className="inline-flex items-center gap-1 text-[length:var(--text-caption)] hover:underline"
                           style={{ color: "var(--app-text-link, var(--app-accent))" }}
                           onClick={() => setShowSensitiveJson((current) => !current)}
                         >
@@ -520,7 +520,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
-                      className="inline-flex items-center gap-1 text-[11px] hover:underline"
+                      className="inline-flex items-center gap-1 text-[length:var(--text-caption)] hover:underline"
                       style={{ color: "var(--app-text-link, var(--app-accent))" }}
                       onClick={() => setShowSensitiveJson((current) => !current)}
                     >
@@ -529,7 +529,7 @@ export default function ProviderFormPanel({ editProvider, duplicateSeed, preset,
                     </button>
                     <button
                       type="button"
-                      className="inline-flex items-center gap-1 text-[11px] hover:underline"
+                      className="inline-flex items-center gap-1 text-[length:var(--text-caption)] hover:underline"
                       style={{ color: "var(--app-text-link, var(--app-accent))" }}
                       onClick={() => {
                         providerService.openPathInExplorer("").catch(() => {});

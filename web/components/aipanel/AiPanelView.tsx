@@ -42,7 +42,7 @@ export default function AiPanelView() {
             <div className="truncate text-[13px] font-semibold text-[var(--app-text-primary)]">
               {t("aiPanel.historyTitle")}
             </div>
-            <div className="mt-1 truncate text-[11px] text-[var(--app-text-tertiary)]">
+            <div className="mt-1 truncate text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
               {t("aiPanel.historySubtitle")}
             </div>
           </div>
@@ -80,7 +80,7 @@ export default function AiPanelView() {
               </span>
             )}
           </div>
-          <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-[var(--app-text-tertiary)]">
+          <div className="mt-1 flex min-w-0 items-center gap-2 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
             <span className="truncate">
               {t("aiPanel.drivenBy", { name: activePanel.driverName })}
             </span>

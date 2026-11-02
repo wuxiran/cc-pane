@@ -57,7 +57,7 @@ export default function ProviderModelsEditor({
           <h3 className="text-[13px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
             {t("providerModels")}
           </h3>
-          <p className="mt-0.5 text-[11px] leading-4" style={{ color: "var(--app-text-secondary)" }}>
+          <p className="mt-0.5 text-[length:var(--text-caption)] leading-4" style={{ color: "var(--app-text-secondary)" }}>
             {t("providerModelsHint")}
           </p>
         </div>
@@ -108,7 +108,7 @@ export default function ProviderModelsEditor({
                 style={{ borderColor: "var(--app-border)", background: "var(--app-panel-bg)" }}
               >
                 <div className="min-w-0 space-y-1.5">
-                  <Label htmlFor={idInputId} className="text-[11px]">{t("providerModelId")}</Label>
+                  <Label htmlFor={idInputId} className="text-[length:var(--text-caption)]">{t("providerModelId")}</Label>
                   <Input
                     id={idInputId}
                     className="h-9 text-sm"
@@ -119,7 +119,7 @@ export default function ProviderModelsEditor({
                   />
                 </div>
                 <div className="min-w-0 space-y-1.5">
-                  <Label htmlFor={labelInputId} className="text-[11px]">{t("providerModelLabel")}</Label>
+                  <Label htmlFor={labelInputId} className="text-[length:var(--text-caption)]">{t("providerModelLabel")}</Label>
                   <Input
                     id={labelInputId}
                     className="h-9 text-sm"
@@ -130,7 +130,7 @@ export default function ProviderModelsEditor({
                   />
                 </div>
                 <div className="min-w-0 space-y-1.5">
-                  <Label htmlFor={effortInputId} className="text-[11px]">
+                  <Label htmlFor={effortInputId} className="text-[length:var(--text-caption)]">
                     {t("providerModelDefaultEffort")}
                   </Label>
                   {/* Radix Select 不接受空串 value，「使用 CLI 默认」走 SELECT_NONE 哨兵再转回 null */}
@@ -156,7 +156,7 @@ export default function ProviderModelsEditor({
                   </Select>
                 </div>
                 <div className="min-w-0 space-y-1.5 sm:col-span-2 lg:col-span-3">
-                  <Label htmlFor={contextWindowInputId} className="text-[11px]">
+                  <Label htmlFor={contextWindowInputId} className="text-[length:var(--text-caption)]">
                     {t("providerModelContextWindow")}
                   </Label>
                   <div className="flex items-center gap-1.5">

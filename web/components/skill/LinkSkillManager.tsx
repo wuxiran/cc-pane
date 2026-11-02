@@ -357,7 +357,7 @@ export default function LinkSkillManager() {
                           ↗
                         </a>
                       )}
-                      <Badge variant="secondary" className="text-[11px] font-normal">
+                      <Badge variant="secondary" className="text-[length:var(--text-caption)] font-normal">
                         {row.repo}
                       </Badge>
                       {row.url && (
@@ -396,7 +396,7 @@ export default function LinkSkillManager() {
                         <span
                           key={agent.name}
                           title={`${agent.name}: ${t(STATE_KEY[st])}（${t("linkToggleTooltip")}）`}
-                          className={`flex h-6 w-6 cursor-default items-center justify-center rounded-full text-[11px] font-bold transition-transform hover:scale-110 ${
+                          className={`flex h-6 w-6 cursor-default items-center justify-center rounded-full text-[length:var(--text-caption)] font-bold transition-transform hover:scale-110 ${
                             st === "linked"
                               ? "text-white"
                               : st === "copied"

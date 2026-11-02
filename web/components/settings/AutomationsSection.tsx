@@ -186,7 +186,7 @@ export default function AutomationsSection() {
 
   const weekdays = weekdayLabels(i18n.language);
   const selectClass =
-    "h-8 rounded-md border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-2 text-[12px]";
+    "h-8 rounded-md border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-2 text-[length:var(--text-small)]";
 
   return (
     <div className="flex flex-col gap-4" data-testid="automations-section">
@@ -197,7 +197,7 @@ export default function AutomationsSection() {
               <CalendarClock className="h-4 w-4" />
               {t("automations.title")}
             </h3>
-            <p className="mt-1 text-[12px] text-[var(--app-text-muted)]">
+            <p className="mt-1 text-[length:var(--text-small)] text-[var(--app-text-muted)]">
               {t("automations.description")}
             </p>
           </div>
@@ -222,7 +222,7 @@ export default function AutomationsSection() {
       {draft && (
         <div className="flex flex-col gap-3 rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-5 py-4 shadow-sm">
           <div className="grid grid-cols-2 gap-3">
-            <FormField label={t("automations.name")} className="flex flex-col gap-1.5" labelClassName="text-[12px]">
+            <FormField label={t("automations.name")} className="flex flex-col gap-1.5" labelClassName="text-[length:var(--text-small)]">
               {({ id }) => (
                 <Input
                   id={id}
@@ -231,7 +231,7 @@ export default function AutomationsSection() {
                 />
               )}
             </FormField>
-            <FormField label={t("automations.engine")} className="flex flex-col gap-1.5" labelClassName="text-[12px]">
+            <FormField label={t("automations.engine")} className="flex flex-col gap-1.5" labelClassName="text-[length:var(--text-small)]">
               {({ id }) => (
                 <select
                   id={id}
@@ -248,11 +248,11 @@ export default function AutomationsSection() {
               )}
             </FormField>
           </div>
-          <FormField label={t("automations.prompt")} className="flex flex-col gap-1.5" labelClassName="text-[12px]">
+          <FormField label={t("automations.prompt")} className="flex flex-col gap-1.5" labelClassName="text-[length:var(--text-small)]">
             {({ id }) => (
               <textarea
                 id={id}
-                className="min-h-[72px] rounded-md border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-2 py-1.5 text-[12px]"
+                className="min-h-[72px] rounded-md border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-2 py-1.5 text-[length:var(--text-small)]"
                 value={draft.prompt}
                 onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
               />
@@ -266,7 +266,7 @@ export default function AutomationsSection() {
             onBrowse={() => void browseCwd()}
           />
           <div className="flex flex-wrap items-end gap-3">
-            <FormField label={t("automations.schedule")} className="flex flex-col gap-1.5" labelClassName="text-[12px]">
+            <FormField label={t("automations.schedule")} className="flex flex-col gap-1.5" labelClassName="text-[length:var(--text-small)]">
               {({ id }) => (
                 <select
                   id={id}
@@ -288,7 +288,7 @@ export default function AutomationsSection() {
               )}
             </FormField>
             {draft.schedule.preset !== "hourly" && draft.schedule.preset !== "custom" && (
-              <FormField label={t("automations.time")} className="flex flex-col gap-1.5" labelClassName="text-[12px]">
+              <FormField label={t("automations.time")} className="flex flex-col gap-1.5" labelClassName="text-[length:var(--text-small)]">
                 {({ id }) => (
                   <Input
                     id={id}
@@ -306,7 +306,7 @@ export default function AutomationsSection() {
               </FormField>
             )}
             {draft.schedule.preset === "weekly" && (
-              <FormField label={t("automations.weekday")} className="flex flex-col gap-1.5" labelClassName="text-[12px]">
+              <FormField label={t("automations.weekday")} className="flex flex-col gap-1.5" labelClassName="text-[length:var(--text-small)]">
                 {({ id }) => (
                   <select
                     id={id}
@@ -329,7 +329,7 @@ export default function AutomationsSection() {
               </FormField>
             )}
             {draft.schedule.preset === "custom" && (
-              <FormField label={t("automations.cron")} className="flex flex-col gap-1.5" labelClassName="text-[12px]">
+              <FormField label={t("automations.cron")} className="flex flex-col gap-1.5" labelClassName="text-[length:var(--text-small)]">
                 {({ id }) => (
                   <Input
                     id={id}
@@ -345,7 +345,7 @@ export default function AutomationsSection() {
                 )}
               </FormField>
             )}
-            <FormField label={t("automations.timeoutMinutes")} className="flex flex-col gap-1.5" labelClassName="text-[12px]">
+            <FormField label={t("automations.timeoutMinutes")} className="flex flex-col gap-1.5" labelClassName="text-[length:var(--text-small)]">
               {({ id }) => (
                 <Input
                   id={id}
@@ -360,7 +360,7 @@ export default function AutomationsSection() {
               )}
             </FormField>
           </div>
-          <div className="flex items-center gap-2 text-[12px]">
+          <div className="flex items-center gap-2 text-[length:var(--text-small)]">
             <Switch
               id={autoApproveId}
               checked={draft.autoApprove}
@@ -370,7 +370,7 @@ export default function AutomationsSection() {
               {t("automations.autoApprove")}
             </label>
           </div>
-          <p className="text-[11px] text-[var(--app-text-muted)]">
+          <p className="text-[length:var(--text-caption)] text-[var(--app-text-muted)]">
             {t("automations.autoApproveHint")}
           </p>
           <div className="flex justify-end gap-2">
@@ -412,7 +412,7 @@ export default function AutomationsSection() {
                     </Badge>
                   )}
                 </div>
-                <p className="mt-0.5 truncate text-[11px] text-[var(--app-text-muted)]">
+                <p className="mt-0.5 truncate text-[length:var(--text-caption)] text-[var(--app-text-muted)]">
                   {t("automations.nextRun")}: {def.enabled ? formatMillis(def.nextRunAt) : "—"}
                   {" · "}
                   {def.cwd}
@@ -438,10 +438,10 @@ export default function AutomationsSection() {
             {runsFor === def.id && (
               <div className="mt-3 flex flex-col gap-1 border-t border-[var(--app-border)] pt-2">
                 {runs.length === 0 ? (
-                  <p className="text-[11px] text-[var(--app-text-muted)]">{t("automations.noRuns")}</p>
+                  <p className="text-[length:var(--text-caption)] text-[var(--app-text-muted)]">{t("automations.noRuns")}</p>
                 ) : (
                   runs.map((run) => (
-                    <div key={run.id} className="flex items-center gap-2 text-[11px]">
+                    <div key={run.id} className="flex items-center gap-2 text-[length:var(--text-caption)]">
                       <Badge
                         variant={run.status === "completed" ? "secondary" : "outline"}
                         className={

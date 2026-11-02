@@ -72,7 +72,7 @@ export default function ThemeQuickMenu() {
               }
             >
               <PresetSwatches preset={preset} />
-              <span className="min-w-0 flex-1 truncate text-[12px]">
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-small)]">
                 {settingsT(preset.labelKey as never)}
               </span>
               {themePreference === preset.id && (
@@ -97,7 +97,7 @@ export default function ThemeQuickMenu() {
               }
             >
               <PresetSwatches preset={preset} />
-              <span className="min-w-0 flex-1 truncate text-[12px]">
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-small)]">
                 {settingsT(preset.labelKey as never)}
               </span>
               {themePreference === preset.id && (
@@ -116,7 +116,7 @@ export default function ThemeQuickMenu() {
           }
         >
           <MonitorCog className="size-4 text-[var(--app-text-secondary)]" />
-          <span className="min-w-0 flex-1 truncate text-[12px]">
+          <span className="min-w-0 flex-1 truncate text-[length:var(--text-small)]">
             {settingsT("theme.followSystem")}
           </span>
           {themePreference === "system" && (
@@ -124,7 +124,7 @@ export default function ThemeQuickMenu() {
           )}
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => navigateToSettings({ paneId: "theme" })}>
-          <span className="min-w-0 flex-1 truncate pl-6 text-[12px] text-[var(--app-text-secondary)]">
+          <span className="min-w-0 flex-1 truncate pl-6 text-[length:var(--text-small)] text-[var(--app-text-secondary)]">
             {settingsT("theme.morePresets")}
           </span>
         </DropdownMenuItem>

@@ -70,7 +70,7 @@ export default function LayoutStatusGrid({ summary }: { summary: LayoutStatusSum
               strokeWidth={filled ? 1 : 2.5}
               fill={filled ? "currentColor" : "none"}
             />
-            <span className="text-[11px] leading-none tabular-nums">{count}</span>
+            <span className="text-[length:var(--text-caption)] leading-none tabular-nums">{count}</span>
           </span>
         );
       })}

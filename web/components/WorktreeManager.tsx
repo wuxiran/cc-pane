@@ -164,7 +164,7 @@ export default function WorktreeManager({
                         )}
                       </div>
                       <div className="text-xs mt-1" style={{ color: "var(--app-text-secondary)" }}>{wt.path}</div>
-                      <div className="text-[11px] font-mono" style={{ color: "var(--app-text-tertiary)" }}>{wt.commit}</div>
+                      <div className="text-[length:var(--text-caption)] font-mono" style={{ color: "var(--app-text-tertiary)" }}>{wt.commit}</div>
                     </div>
                     <div className="flex gap-1">
                       <Button variant="ghost" size="sm" onClick={() => onOpenWorktree(wt.path)} title={t("sidebar:openHere")}>

@@ -85,7 +85,7 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
       <section className="space-y-2" aria-labelledby={`theme-group-${group}`}>
         <h3
           id={`theme-group-${group}`}
-          className="text-[12px] font-medium text-[var(--app-text-secondary)]"
+          className="text-[length:var(--text-small)] font-medium text-[var(--app-text-secondary)]"
         >
           {t(`theme.groups.${group}` as never)}
         </h3>
@@ -107,7 +107,7 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
               >
                 <PresetSwatches preset={preset} size="card" />
                 <span className="mt-2 flex min-w-0 items-center gap-1.5">
-                  <span className="truncate text-[12px] font-medium text-[var(--app-text-primary)]">
+                  <span className="truncate text-[length:var(--text-small)] font-medium text-[var(--app-text-primary)]">
                     {t(preset.labelKey as never)}
                   </span>
                   {selected && <Check className="ml-auto size-3.5 shrink-0 text-[var(--app-accent)]" />}
@@ -142,7 +142,7 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
         )}
 
         <section className="space-y-2" aria-labelledby="theme-group-system">
-          <h3 id="theme-group-system" className="text-[12px] font-medium text-[var(--app-text-secondary)]">
+          <h3 id="theme-group-system" className="text-[length:var(--text-small)] font-medium text-[var(--app-text-secondary)]">
             {t("theme.groups.system")}
           </h3>
           <button
@@ -157,7 +157,7 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
             )}
           >
             <SystemThemePreview selected={preference === "system"} />
-            <span className="mt-2 block truncate text-[12px] font-medium text-[var(--app-text-primary)]">
+            <span className="mt-2 block truncate text-[length:var(--text-small)] font-medium text-[var(--app-text-primary)]">
               {t("theme.followSystem")}
             </span>
           </button>
@@ -231,12 +231,12 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
               >
                 <MiniUiPreview shape={shape.code} />
                 <span className="mt-2.5 flex min-w-0 items-center gap-1.5">
-                  <span className="min-w-0 truncate text-[12px] font-semibold text-[var(--app-text-primary)]">
+                  <span className="min-w-0 truncate text-[length:var(--text-small)] font-semibold text-[var(--app-text-primary)]">
                     {name}
                   </span>
                   {selected && <Check aria-hidden="true" className="ml-auto size-3.5 shrink-0 text-[var(--app-accent)]" />}
                 </span>
-                <span className="mt-1 text-[11px] leading-4 text-[var(--app-text-tertiary)]">
+                <span className="mt-1 text-[length:var(--text-caption)] leading-4 text-[var(--app-text-tertiary)]">
                   {description}
                 </span>
                 {(shape.isDefault || shape.traits.translucent) && (
@@ -265,7 +265,7 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
         )}
 
         {showBlurFallback && (
-          <p className="text-[11px] leading-4 text-[var(--app-text-tertiary)]">
+          <p className="text-[length:var(--text-caption)] leading-4 text-[var(--app-text-tertiary)]">
             {t("theme.blurFallback")}
           </p>
         )}
@@ -280,7 +280,7 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
           <h2 id="theme-density-heading" className="text-[13px] font-semibold text-[var(--app-text-primary)]">
             {t("theme.density.title")}
           </h2>
-          <p className="mt-1 text-[12px] text-[var(--app-text-tertiary)]">
+          <p className="mt-1 text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">
             {t("theme.density.description")}
           </p>
         </div>
@@ -308,10 +308,10 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
                 className="mt-0.5"
               />
               <span className="min-w-0">
-                <span className="block text-[12px] font-medium text-[var(--app-text-primary)]">
+                <span className="block text-[length:var(--text-small)] font-medium text-[var(--app-text-primary)]">
                   {t(`theme.density.options.${option}.name` as never)}
                 </span>
-                <span className="mt-0.5 block text-[11px] leading-4 text-[var(--app-text-tertiary)]">
+                <span className="mt-0.5 block text-[length:var(--text-caption)] leading-4 text-[var(--app-text-tertiary)]">
                   {t(`theme.density.options.${option}.description` as never)}
                 </span>
               </span>

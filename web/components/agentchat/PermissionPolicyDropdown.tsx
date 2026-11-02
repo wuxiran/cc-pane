@@ -63,10 +63,10 @@ export default function PermissionPolicyDropdown({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-64">
-        <DropdownMenuLabel className="text-[11px] font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
+        <DropdownMenuLabel className="text-[length:var(--text-caption)] font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
           {t("agentChatPermTitle")}
         </DropdownMenuLabel>
-        <div className="px-2 pb-1.5 text-[11px] leading-snug text-[var(--app-text-tertiary)]">
+        <div className="px-2 pb-1.5 text-[length:var(--text-caption)] leading-snug text-[var(--app-text-tertiary)]">
           {t("agentChatPermHint")}
         </div>
         <DropdownMenuSeparator />

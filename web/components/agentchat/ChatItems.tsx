@@ -88,7 +88,7 @@ export function ItemView({ item, onPlanToTodo, onOpenAttachment }: ItemViewProps
                 {item.attachmentLabels.map((label, index) => (
                   <span
                     key={index}
-                    className="flex items-center gap-1 rounded border border-[var(--app-border)] px-1.5 py-0.5 text-[11px] text-[var(--app-icon-inactive)]"
+                    className="flex items-center gap-1 rounded border border-[var(--app-border)] px-1.5 py-0.5 text-[length:var(--text-caption)] text-[var(--app-icon-inactive)]"
                   >
                     <ImageIcon className="h-3 w-3" /> {label}
                   </span>
@@ -149,7 +149,7 @@ export function ItemView({ item, onPlanToTodo, onOpenAttachment }: ItemViewProps
       );
     case "notice":
       return (
-        <div className="text-center text-[11px] text-[var(--app-icon-inactive)] break-all">
+        <div className="text-center text-[length:var(--text-caption)] text-[var(--app-icon-inactive)] break-all">
           {item.text}
         </div>
       );

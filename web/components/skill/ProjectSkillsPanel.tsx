@@ -80,7 +80,7 @@ export default function ProjectSkillsPanel({ scope }: ProjectSkillsPanelProps) {
           {groups.map((group) => (
             <section key={group.root.root} aria-label={group.root.root}>
               <div className="flex items-center justify-between px-3 pb-1 pt-3">
-                <span className="truncate font-mono text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+                <span className="truncate font-mono text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
                   {isWorkspace ? t("workspaceRootLabel") : group.root.root}
                 </span>
                 <ConsumerBadges consumers={group.root.consumers} compact />

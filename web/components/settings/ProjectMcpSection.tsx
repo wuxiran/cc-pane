@@ -201,14 +201,14 @@ export default function ProjectMcpSection({
       <header className="shrink-0 px-6 pb-3 pt-5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="flex items-center gap-2 text-[15px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
+            <h1 className="flex items-center gap-2 text-[length:var(--text-title)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
               <Server size={16} style={{ color: "var(--app-accent)" }} />
               <span className="truncate">{t("mcpTitle")}</span>
               <Badge variant="outline" className="max-w-48 truncate text-[10px] font-normal" title={workspaceMode ? workspaceName : projectPath}>
                 {workspaceMode ? t("mcpLayerWorkspace", { name: workspaceName }) : t("mcpLayerProject")}
               </Badge>
             </h1>
-            <p className="mt-1 text-[12px] leading-relaxed" style={{ color: "var(--app-text-tertiary)" }}>
+            <p className="mt-1 text-[length:var(--text-small)] leading-relaxed" style={{ color: "var(--app-text-tertiary)" }}>
               {t("mcpHubSummary", { injected, layer: layerCount })}
               {profile && (
                 <>
@@ -253,7 +253,7 @@ export default function ProjectMcpSection({
         </div>
 
         {profileNotice && filter !== "layer" && (
-          <p className="mb-3 text-[12px]" style={{ color: "var(--app-status-warning, var(--app-text-tertiary))" }}>
+          <p className="mb-3 text-[length:var(--text-small)]" style={{ color: "var(--app-status-warning, var(--app-text-tertiary))" }}>
             {profileNotice}
           </p>
         )}
@@ -314,7 +314,7 @@ export default function ProjectMcpSection({
                   <Plus size={14} />
                   {t("mcpAddServer")}
                 </span>
-                <span className="text-[12px]" style={{ color: "var(--app-text-tertiary)" }}>
+                <span className="text-[length:var(--text-small)]" style={{ color: "var(--app-text-tertiary)" }}>
                   {layerCount === 0 ? t("mcpNoServers") : t("mcpAddCardHint")}
                 </span>
               </button>
@@ -503,7 +503,7 @@ function McpCard({
           <div className="truncate text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }} title={entry.name}>
             {entry.name}
           </div>
-          <div className="mt-0.5 flex items-center gap-1.5 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+          <div className="mt-0.5 flex items-center gap-1.5 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
             <span>{source}</span>
             {status && (
               <>
@@ -534,7 +534,7 @@ function McpCard({
       </p>
       {failure && (
         <p
-          className="line-clamp-2 break-all font-mono text-[11px] leading-relaxed"
+          className="line-clamp-2 break-all font-mono text-[length:var(--text-caption)] leading-relaxed"
           style={{ color: "var(--app-status-danger)" }}
           title={failure}
           data-testid="mcp-card-failure"
@@ -546,7 +546,7 @@ function McpCard({
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
           {command && (
-            <span className="truncate font-mono text-[11px]" style={{ color: "var(--app-text-tertiary)" }} title={command}>
+            <span className="truncate font-mono text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }} title={command}>
               {command}
             </span>
           )}

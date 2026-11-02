@@ -140,7 +140,7 @@ export default function ProjectListView({
   return (
     <div className="flex flex-col gap-0.5 px-0 pb-2 pt-1">
       {invalidProjectCount > 0 ? (
-        <div className="rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-2 py-1.5 text-[11px] text-[var(--app-status-warning)]">
+        <div className="rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-2 py-1.5 text-[length:var(--text-caption)] text-[var(--app-status-warning)]">
           {t("invalidProjectsSkipped", {
             count: invalidProjectCount,
             defaultValue: `已隐藏 ${invalidProjectCount} 个异常项目`,
@@ -148,7 +148,7 @@ export default function ProjectListView({
         </div>
       ) : null}
       {missingCount > 0 && onCleanupMissingProjects ? (
-        <div className="flex items-center gap-2 rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-2 py-1.5 text-[11px] text-[var(--app-status-warning)]">
+        <div className="flex items-center gap-2 rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-2 py-1.5 text-[length:var(--text-caption)] text-[var(--app-status-warning)]">
           <span className="flex-1">
             {t("missingProjectsBanner", { count: missingCount })}
           </span>
@@ -170,7 +170,7 @@ export default function ProjectListView({
       <div
         role="button"
         tabIndex={0}
-        className="flex items-center justify-center gap-1 p-1.5 mt-1 text-[11px] rounded-lg cursor-default transition-colors duration-[var(--dur-fast)] border border-dashed group border-[var(--app-border)] text-[var(--app-text-tertiary)] hover:border-[var(--app-accent)] hover:text-[var(--app-accent)] hover:bg-[var(--app-active-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+        className="flex items-center justify-center gap-1 p-1.5 mt-1 text-[length:var(--text-caption)] rounded-lg cursor-default transition-colors duration-[var(--dur-fast)] border border-dashed group border-[var(--app-border)] text-[var(--app-text-tertiary)] hover:border-[var(--app-accent)] hover:text-[var(--app-accent)] hover:bg-[var(--app-active-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
         onClick={() => onImportProject(workspace)}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) return;

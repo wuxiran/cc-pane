@@ -335,7 +335,7 @@ export default function WebAccessSection({
             <div className="flex flex-col gap-2">
               <div className="grid grid-cols-[1fr_auto] gap-2 items-center">
                 <code
-                  className="px-2 py-1.5 rounded-md text-[12px] font-mono overflow-x-auto whitespace-nowrap"
+                  className="px-2 py-1.5 rounded-md text-[length:var(--text-small)] font-mono overflow-x-auto whitespace-nowrap"
                   style={{ border: "1px solid var(--app-border)", background: "var(--app-content)", color: "var(--app-text-primary)" }}
                 >
                   {`tailscale serve --bg --https=443 http://127.0.0.1:${value.port}`}
@@ -357,7 +357,7 @@ export default function WebAccessSection({
               {tailscale.dnsName && (
                 <div className="grid grid-cols-[1fr_auto] gap-2 items-center">
                   <code
-                    className="px-2 py-1.5 rounded-md text-[12px] font-mono overflow-x-auto whitespace-nowrap"
+                    className="px-2 py-1.5 rounded-md text-[length:var(--text-small)] font-mono overflow-x-auto whitespace-nowrap"
                     style={{ border: "1px solid var(--app-border)", background: "var(--app-content)", color: "var(--app-text-primary)" }}
                   >
                     {`https://${tailscale.dnsName}`}

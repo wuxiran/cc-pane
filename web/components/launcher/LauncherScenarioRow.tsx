@@ -27,7 +27,7 @@ export default function LauncherScenarioRow({ draft, onChange }: LauncherScenari
             type="button"
             role="radio"
             aria-checked={active}
-            className="rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
+            className="rounded-full border px-2.5 py-1 text-[length:var(--text-caption)] font-medium transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
             style={
               active
                 ? {

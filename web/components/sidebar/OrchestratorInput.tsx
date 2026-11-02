@@ -136,7 +136,7 @@ export default function OrchestratorInput({ compact = false }: OrchestratorInput
         <Popover open={targetOpen} onOpenChange={setTargetOpen}>
           <PopoverTrigger asChild>
             <button
-              className={`flex min-w-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors hover:bg-[var(--app-hover)] ${compact ? "w-full" : "max-w-full"}`}
+              className={`flex min-w-0 items-center gap-1 rounded-md px-2 py-1 text-[length:var(--text-caption)] transition-colors hover:bg-[var(--app-hover)] ${compact ? "w-full" : "max-w-full"}`}
               style={{
                 color: "var(--app-text-secondary)",
                 border: "1px solid var(--app-border)",
@@ -158,7 +158,7 @@ export default function OrchestratorInput({ compact = false }: OrchestratorInput
                 <div className="max-h-56 overflow-y-auto pr-1">
                   {workspaces.map((workspace) => (
                     <div key={workspace.id} className="mb-1">
-                      <div className="px-1 py-1 text-[11px] font-medium text-muted-foreground">
+                      <div className="px-1 py-1 text-[length:var(--text-caption)] font-medium text-muted-foreground">
                         {workspace.alias || workspace.name}
                       </div>
                       {workspace.projects.map((project) => {

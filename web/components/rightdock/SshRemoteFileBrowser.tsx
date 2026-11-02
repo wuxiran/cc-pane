@@ -118,7 +118,7 @@ function RemoteTable({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   return (
     <div className="app-scrollbar min-h-0 flex-1 overflow-auto">
-      <div role="table" className="min-w-[490px] text-[11px]">
+      <div role="table" className="min-w-[490px] text-[length:var(--text-caption)]">
         <div
           role="row"
           className="sticky top-0 z-10 grid h-7 grid-cols-[minmax(170px,1fr)_72px_96px_132px] items-center border-b bg-[var(--app-sidebar-bg)] text-[10px] text-[var(--app-text-muted)]"

@@ -241,12 +241,12 @@ export default function UpdateNotification() {
           {view === "error" ? <AlertTriangle size={17} /> : <ArrowUpCircle size={17} />}
         </span>
         <div className="min-w-0 flex-1">
-          <h2 className="text-[14px] font-semibold text-[var(--app-text-primary)]">
+          <h2 className="text-[length:var(--text-body)] font-semibold text-[var(--app-text-primary)]">
             {view === "error"
               ? t("updateFailed")
               : t("updateCardTitle", { version: normalizedNextVersion })}
           </h2>
-          <p className="mt-0.5 text-[11px] text-[var(--app-text-tertiary)]">
+          <p className="mt-0.5 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
             {t("updateVersionTransition", {
               current: normalizedCurrentVersion,
               next: normalizedNextVersion,
@@ -265,15 +265,15 @@ export default function UpdateNotification() {
           <>
             <p
               className={expanded
-                ? "max-h-44 overflow-y-auto whitespace-pre-wrap text-[12px] leading-5 text-[var(--app-text-secondary)]"
-                : "line-clamp-4 whitespace-pre-wrap text-[12px] leading-5 text-[var(--app-text-secondary)]"}
+                ? "max-h-44 overflow-y-auto whitespace-pre-wrap text-[length:var(--text-small)] leading-5 text-[var(--app-text-secondary)]"
+                : "line-clamp-4 whitespace-pre-wrap text-[length:var(--text-small)] leading-5 text-[var(--app-text-secondary)]"}
             >
               {releaseNotes}
             </p>
             {body?.trim() && (
               <button
                 type="button"
-                className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-[var(--app-accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                className="mt-1.5 inline-flex items-center gap-1 text-[length:var(--text-caption)] text-[var(--app-accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
                 onClick={() => setExpanded((value) => !value)}
               >
                 {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
@@ -297,9 +297,9 @@ export default function UpdateNotification() {
               <AlertTriangle aria-hidden="true" className="mt-0.5 shrink-0 text-[var(--app-status-warning)]" size={16} />
               <div>
                 <p className="text-[13px] font-medium text-[var(--app-text-primary)]">{t("updateRestartTitle")}</p>
-                <p className="mt-1 text-[12px] leading-5 text-[var(--app-text-secondary)]">{t("updateRestartWarning")}</p>
+                <p className="mt-1 text-[length:var(--text-small)] leading-5 text-[var(--app-text-secondary)]">{t("updateRestartWarning")}</p>
                 {busyAtConfirmation && (
-                  <p className="mt-1 text-[12px] leading-5 text-[var(--app-status-warning)]">{t("updateRestartBusyWarning")}</p>
+                  <p className="mt-1 text-[length:var(--text-small)] leading-5 text-[var(--app-status-warning)]">{t("updateRestartBusyWarning")}</p>
                 )}
               </div>
             </div>
@@ -312,7 +312,7 @@ export default function UpdateNotification() {
 
         {view === "installing" && (
           <div className="space-y-3">
-            <div className="flex items-center gap-2 text-[12px] text-[var(--app-text-secondary)]">
+            <div className="flex items-center gap-2 text-[length:var(--text-small)] text-[var(--app-text-secondary)]">
               {progress?.phase === "installing"
                 ? <CheckCircle2 aria-hidden="true" size={16} className="text-[var(--app-status-success)]" />
                 : <LoaderCircle aria-hidden="true" size={16} className="text-[var(--app-accent)] motion-safe:animate-spin" />}
@@ -332,7 +332,7 @@ export default function UpdateNotification() {
 
         {view === "error" && (
           <div className="space-y-3">
-            <p className="whitespace-pre-wrap text-[12px] leading-5 text-[var(--app-text-secondary)]">{error}</p>
+            <p className="whitespace-pre-wrap text-[length:var(--text-small)] leading-5 text-[var(--app-text-secondary)]">{error}</p>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" onClick={requestInstall}>
                 <RotateCcw aria-hidden="true" size={14} />

@@ -189,7 +189,7 @@ export default function SkillMarketPage() {
                   </span>
                 </SectionTitle>
                 {market.isSearchMode && (
-                  <span className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+                  <span className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
                     {t("remoteResultsHint")}
                   </span>
                 )}

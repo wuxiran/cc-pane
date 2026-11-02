@@ -83,7 +83,7 @@ export default function HomeAgentPrompt() {
       data-testid="home-agent-prompt"
       className="rounded-xl border border-[var(--app-home-border)] bg-[var(--app-home-surface)] px-3 pb-2 pt-2.5 transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)] focus-within:border-[var(--app-accent)]/70 focus-within:shadow-[0_0_0_3px_var(--app-active-bg)]"
     >
-      <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--app-text-tertiary)]">
+      <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
         <span className="inline-flex items-center gap-1 font-medium text-[var(--app-text-secondary)]">
           <Bot className="h-3.5 w-3.5 text-[var(--app-accent)]" aria-hidden="true" />
           {t("agentPrompt.title")}

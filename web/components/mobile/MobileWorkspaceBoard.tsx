@@ -45,8 +45,8 @@ export default function MobileWorkspaceBoard({
       )}
 
       <div className="flex items-center justify-between">
-        <h2 className="text-[15px] font-semibold text-[var(--app-text-primary)]">{t("views.workspaces")}</h2>
-        <span className="text-[12px] text-[var(--app-text-tertiary)]">
+        <h2 className="text-[length:var(--text-title)] font-semibold text-[var(--app-text-primary)]">{t("views.workspaces")}</h2>
+        <span className="text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">
           {loading ? t("status.loading") : connected ? t("status.connected") : t("status.disconnected")}
         </span>
       </div>
@@ -62,8 +62,8 @@ export default function MobileWorkspaceBoard({
                     <FolderOpen className="h-4 w-4" />
                   </div>
                   <div className="min-w-0">
-                    <h3 className="truncate text-[14px] font-semibold text-[var(--app-text-primary)]">{workspace.alias ?? workspace.name}</h3>
-                    <p className="mt-0.5 truncate text-[12px] text-[var(--app-text-tertiary)]">{workspace.path ?? workspace.name}</p>
+                    <h3 className="truncate text-[length:var(--text-body)] font-semibold text-[var(--app-text-primary)]">{workspace.alias ?? workspace.name}</h3>
+                    <p className="mt-0.5 truncate text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">{workspace.path ?? workspace.name}</p>
                   </div>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1.5">
@@ -103,11 +103,11 @@ export default function MobileWorkspaceBoard({
                       <Terminal className="h-4 w-4 flex-none text-[var(--app-text-tertiary)]" />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[13px] font-semibold text-[var(--app-text-primary)]">{projectName}</div>
-                        <div className="mt-0.5 truncate text-[11px] text-[var(--app-text-tertiary)]">{project.path}</div>
+                        <div className="mt-0.5 truncate text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{project.path}</div>
                       </div>
                       <ChevronRight className="h-4 w-4 flex-none text-[var(--app-text-tertiary)]" />
                     </div>
-                    <div className="mt-2 flex items-center justify-between gap-2 border-t border-[var(--app-home-row-border)] pt-2 text-[11px] text-[var(--app-text-tertiary)]">
+                    <div className="mt-2 flex items-center justify-between gap-2 border-t border-[var(--app-home-row-border)] pt-2 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
                       <span className="truncate">{t("workspace.tapToOpen")}</span>
                       {project.launchProfileId && <span className="flex-none">{t("workspace.hasLaunchProfile")}</span>}
                     </div>

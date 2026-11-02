@@ -197,7 +197,7 @@ function CompactTaskRow({
         >
           {todo.title}
         </span>
-        <span className="flex shrink-0 items-center gap-3 text-[11px] text-muted-foreground">
+        <span className="flex shrink-0 items-center gap-3 text-[length:var(--text-caption)] text-muted-foreground">
           <PriorityLabel priority={todo.priority} />
           {todo.dueDate && <span>{formatDate(todo.dueDate, i18n.language)}</span>}
           <ChevronRight size={13} className="text-muted-foreground/45" />

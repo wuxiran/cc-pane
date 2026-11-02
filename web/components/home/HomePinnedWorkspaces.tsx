@@ -61,7 +61,7 @@ export default function HomePinnedWorkspaces({ workspaces, onOpenTerminal }: Hom
                     <span className="block truncate text-[13px] font-medium text-[var(--app-text-primary)]">
                       {workspace.alias || workspace.name}
                     </span>
-                    <span className="block truncate text-[11px] text-[var(--app-text-tertiary)]">
+                    <span className="block truncate text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
                       {project?.alias || project?.path || t("workspaceNoProjects")}
                     </span>
                   </span>

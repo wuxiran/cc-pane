@@ -30,14 +30,14 @@ export default function MobileLayoutBoard({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-[15px] font-semibold text-[var(--app-text-primary)]">{t("views.layouts")}</h2>
-        <span className="text-[12px] text-[var(--app-text-tertiary)]">
+        <h2 className="text-[length:var(--text-title)] font-semibold text-[var(--app-text-primary)]">{t("views.layouts")}</h2>
+        <span className="text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">
           {t("layouts.paneTabSummary", { panes: panels.length, tabs: activeTabCount })}
         </span>
       </div>
 
       <section className="rounded-md border border-[var(--app-home-border)] bg-[var(--app-home-surface)] p-3">
-        <div className="mb-2 text-[12px] font-semibold text-[var(--app-text-tertiary)]">{t("layouts.currentSection")}</div>
+        <div className="mb-2 text-[length:var(--text-small)] font-semibold text-[var(--app-text-tertiary)]">{t("layouts.currentSection")}</div>
         <div className="grid grid-cols-2 gap-2">
           {layouts.map((layout) => {
             const active = layout.id === currentLayoutId;
@@ -57,7 +57,7 @@ export default function MobileLayoutBoard({
                   <Columns3 className="h-4 w-4 flex-none" />
                   <span className="truncate text-[13px] font-semibold">{layout.name}</span>
                 </div>
-                <div className="mt-1 text-[11px] text-[var(--app-text-tertiary)]">{t("layouts.paneCount", { count: panelCount })}</div>
+                <div className="mt-1 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{t("layouts.paneCount", { count: panelCount })}</div>
               </button>
             );
           })}
@@ -68,7 +68,7 @@ export default function MobileLayoutBoard({
       </section>
 
       <section className="rounded-md border border-[var(--app-home-border)] bg-[var(--app-home-surface)] p-3">
-        <div className="mb-2 text-[12px] font-semibold text-[var(--app-text-tertiary)]">{t("layouts.paneTabSection")}</div>
+        <div className="mb-2 text-[length:var(--text-small)] font-semibold text-[var(--app-text-tertiary)]">{t("layouts.paneTabSection")}</div>
         <div className="space-y-2">
           {panels.map((panel, panelIndex) => {
             const activePane = panel.id === activePaneId;
@@ -87,7 +87,7 @@ export default function MobileLayoutBoard({
                   className="flex w-full items-center justify-between gap-2 text-left"
                 >
                   <span className="min-w-0 truncate text-[13px] font-semibold text-[var(--app-text-primary)]">{t("layouts.paneLabel", { index: panelIndex + 1 })}</span>
-                  <span className="flex-none text-[11px] text-[var(--app-text-tertiary)]">{t("layouts.tabCount", { count: panel.tabs.length })}</span>
+                  <span className="flex-none text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{t("layouts.tabCount", { count: panel.tabs.length })}</span>
                 </button>
                 <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
                   {panel.tabs.map((tab) => {
@@ -103,7 +103,7 @@ export default function MobileLayoutBoard({
                             : "border-[var(--app-home-border)] bg-[var(--app-panel-bg)] text-[var(--app-text-secondary)]"
                         }`}
                       >
-                        <div className="truncate text-[12px] font-semibold">{tab.title}</div>
+                        <div className="truncate text-[length:var(--text-small)] font-semibold">{tab.title}</div>
                         <div className="mt-0.5 truncate text-[10px] uppercase text-[var(--app-text-tertiary)]">{tabKindLabel(tab)}</div>
                       </button>
                     );

@@ -249,7 +249,7 @@ function Row({ title, subtitle, meta, action, readonly }: {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium truncate" style={{ color: "var(--app-text-primary)" }}>{title}</span>
-          {meta && <span className="text-[11px] shrink-0" style={{ color: "var(--app-text-tertiary)" }}>{meta}</span>}
+          {meta && <span className="text-[length:var(--text-caption)] shrink-0" style={{ color: "var(--app-text-tertiary)" }}>{meta}</span>}
         </div>
         {subtitle && <div className="text-xs truncate mt-0.5" style={{ color: "var(--app-text-tertiary)" }}>{subtitle}</div>}
       </div>

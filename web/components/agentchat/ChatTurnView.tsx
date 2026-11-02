@@ -16,7 +16,7 @@ function TimeStamp({ at, className }: { at: number; className?: string }) {
     <time
       dateTime={new Date(at).toISOString()}
       title={new Date(at).toLocaleString()}
-      className={`tabular-nums text-[11px] text-[var(--app-text-tertiary)] ${className ?? ""}`}
+      className={`tabular-nums text-[length:var(--text-caption)] text-[var(--app-text-tertiary)] ${className ?? ""}`}
     >
       {formatClock(at)}
     </time>

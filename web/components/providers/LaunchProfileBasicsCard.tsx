@@ -226,7 +226,7 @@ export default function LaunchProfileBasicsCard({
       </div>
         </>
       )}
-      <div className="mt-1 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+      <div className="mt-1 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
         {t("runtimeHint")}
       </div>
       <div className="mt-3">
@@ -267,13 +267,13 @@ export default function LaunchProfileBasicsCard({
           <div className="text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }}>
             YOLO mode
             {draft.yoloMode ? (
-              <span className="ml-2 align-middle text-[11px] font-semibold text-destructive">
+              <span className="ml-2 align-middle text-[length:var(--text-caption)] font-semibold text-destructive">
                 {t("yoloBypassed")}
               </span>
             ) : null}
           </div>
           <div className="mt-0.5 text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("yoloDesc")}</div>
-          <div className="mt-1 text-[11px] leading-5" style={{ color: "var(--app-text-tertiary)" }}>
+          <div className="mt-1 text-[length:var(--text-caption)] leading-5" style={{ color: "var(--app-text-tertiary)" }}>
             {t("yoloFootnote")}
           </div>
 

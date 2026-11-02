@@ -56,7 +56,7 @@ export default function FeatureTip({
         <span className="flex flex-wrap items-center gap-2 text-[18px]">
           <span>{t(definition.titleKey as never)}</span>
           {formattedBinding && (
-            <kbd className="rounded-md border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-2 py-1 font-mono text-[11px] font-medium text-[var(--app-text-secondary)]">
+            <kbd className="rounded-md border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-2 py-1 font-mono text-[length:var(--text-caption)] font-medium text-[var(--app-text-secondary)]">
               {formattedBinding}
             </kbd>
           )}
@@ -68,7 +68,7 @@ export default function FeatureTip({
         <div className="flex w-full flex-wrap items-center gap-2">
           <button
             type="button"
-            className="text-left text-[11px] text-[var(--app-text-tertiary)] hover:text-[var(--app-text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+            className="text-left text-[length:var(--text-caption)] text-[var(--app-text-tertiary)] hover:text-[var(--app-text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
             onClick={onDisable}
           >
             {t("featureTips.disable")}
@@ -93,7 +93,7 @@ export default function FeatureTip({
             <button
               type="button"
               data-testid="feature-tip-guide-link"
-              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[12px] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)]"
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[length:var(--text-small)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)]"
               onClick={() => void openGuideDoc(definition.guidePath!)}
             >
               <BookOpen aria-hidden="true" size={15} />
@@ -103,7 +103,7 @@ export default function FeatureTip({
           {definition.actionId && (
             <button
               type="button"
-              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[12px] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)]"
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[length:var(--text-small)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--app-accent)]"
               onClick={onOpenShortcuts}
             >
               <Keyboard aria-hidden="true" size={15} />
@@ -114,7 +114,7 @@ export default function FeatureTip({
           )}
           {showPassthroughHint && (
             <p
-              className="flex items-start gap-2 bg-[var(--app-status-warning-bg)] px-3 py-2.5 text-[12px] leading-relaxed text-[var(--app-text-secondary)]"
+              className="flex items-start gap-2 bg-[var(--app-status-warning-bg)] px-3 py-2.5 text-[length:var(--text-small)] leading-relaxed text-[var(--app-text-secondary)]"
               data-testid="feature-tip-passthrough-hint"
             >
               <TriangleAlert aria-hidden="true" size={14} className="mt-0.5 shrink-0 text-[var(--app-status-warning)]" />

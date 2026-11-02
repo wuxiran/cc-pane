@@ -67,7 +67,7 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
       {/* 视图标题栏 + IDEA 风格图标 tab（同一行：左标题右图标组，节省纵向空间） */}
       <div className="flex shrink-0 items-center px-4 pt-3 pb-2">
         <span
-          className="text-[11px] font-semibold"
+          className="text-[length:var(--text-caption)] font-semibold"
           style={{ color: "var(--app-text-tertiary)" }}
         >
           {t("explorer.title")}

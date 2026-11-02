@@ -385,7 +385,7 @@ export default function OrchestrationFullView({
                               {groupTitle(count, latest)}
                             </span>
                             {latest.body && (
-                              <span className="mt-0.5 line-clamp-2 text-[11px]" style={{ color: "var(--app-text-secondary)" }}>
+                              <span className="mt-0.5 line-clamp-2 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-secondary)" }}>
                                 {latest.body}
                               </span>
                             )}

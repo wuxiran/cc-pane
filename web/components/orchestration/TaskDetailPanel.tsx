@@ -331,7 +331,7 @@ export default function TaskDetailPanel({ binding }: TaskDetailPanelProps) {
 
         <DetailSection title={t("detail.metadata", { defaultValue: "元数据" })}>
           <div
-            className="max-h-96 overflow-auto rounded-lg p-3 font-mono text-[11px] leading-5"
+            className="max-h-96 overflow-auto rounded-lg p-3 font-mono text-[length:var(--text-caption)] leading-5"
             style={{ border: "1px solid var(--app-border)", color: "var(--app-text-secondary)" }}
           >
             {binding.metadata === undefined || binding.metadata === null ? (

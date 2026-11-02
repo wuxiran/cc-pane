@@ -101,7 +101,7 @@ export default function MobilePrototype({
             <div className="flex h-11 items-center justify-between">
               <div className="min-w-0">
                 <div className="truncate text-[13px] font-medium text-[var(--app-text-tertiary)]">{t("appTitle")}</div>
-                <h1 className="truncate text-[20px] font-semibold leading-6 tracking-normal">{t(`views.${view}`)}</h1>
+                <h1 className="truncate text-[length:var(--text-display)] font-semibold leading-6 tracking-normal">{t(`views.${view}`)}</h1>
               </div>
             </div>
 
@@ -201,7 +201,7 @@ function Metric({ label, value, tone }: { label: string; value: number; tone: st
   return (
     <div className="min-w-0 rounded-md border border-[var(--app-home-border)] bg-[var(--app-home-surface)] px-2 py-2 text-center">
       <div className={`text-[18px] font-semibold leading-5 ${tone}`}>{value}</div>
-      <div className="mt-1 truncate text-[11px] text-[var(--app-text-tertiary)]">{label}</div>
+      <div className="mt-1 truncate text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{label}</div>
     </div>
   );
 }
@@ -248,7 +248,7 @@ function BottomNav({ view, setView }: { view: ViewId; setView: (view: ViewId) =>
               key={item.id}
               type="button"
               onClick={() => setView(item.id)}
-              className={`flex h-12 flex-col items-center justify-center gap-0.5 rounded-md text-[11px] font-medium transition ${
+              className={`flex h-12 flex-col items-center justify-center gap-0.5 rounded-md text-[length:var(--text-caption)] font-medium transition ${
                 active
                   ? "bg-[color-mix(in_srgb,var(--app-accent)_12%,transparent)] text-[var(--app-accent)]"
                   : "text-[var(--app-text-tertiary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)]"

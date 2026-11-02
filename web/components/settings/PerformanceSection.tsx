@@ -66,7 +66,7 @@ export default function PerformanceSection({ value, onChange, terminal, onTermin
 
   return (
     <div className="flex flex-col gap-3">
-      <h3 className="text-[15px] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
+      <h3 className="text-[length:var(--text-title)] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
         {t("performance.title")}
       </h3>
       <Hint>{t("performance.description")}</Hint>
@@ -195,7 +195,7 @@ export default function PerformanceSection({ value, onChange, terminal, onTermin
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-6">
               <Label htmlFor="terminal-session-cpu-weight">{t("performance.sessionCpuWeight")}</Label>
-              <span className="text-[12px] tabular-nums" style={{ color: "var(--app-text-secondary)" }}>
+              <span className="text-[length:var(--text-small)] tabular-nums" style={{ color: "var(--app-text-secondary)" }}>
                 {cpuWeight === CPU_WEIGHT_NEUTRAL
                   ? t("performance.sessionCpuWeightNeutral", { value: cpuWeight })
                   : cpuWeight}

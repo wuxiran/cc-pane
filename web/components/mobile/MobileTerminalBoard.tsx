@@ -91,7 +91,7 @@ export default function MobileTerminalBoard({
                 key={layout.id}
                 type="button"
                 onClick={() => onSwitchLayout?.(layout.id)}
-                className={`h-8 max-w-[150px] flex-none rounded-md border px-2 text-[12px] font-semibold ${
+                className={`h-8 max-w-[150px] flex-none rounded-md border px-2 text-[length:var(--text-small)] font-semibold ${
                   active
                     ? "border-[color-mix(in_srgb,var(--app-accent)_40%,transparent)] bg-[color-mix(in_srgb,var(--app-accent)_10%,transparent)] text-[var(--app-accent)]"
                     : "border-[var(--app-home-border)] bg-[var(--app-home-surface)] text-[var(--app-text-secondary)]"
@@ -102,7 +102,7 @@ export default function MobileTerminalBoard({
             );
           })}
           {layouts.length === 0 && (
-            <div className="flex h-8 items-center px-2 text-[12px] text-[var(--app-text-tertiary)]">{t("terminal.noLayouts")}</div>
+            <div className="flex h-8 items-center px-2 text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">{t("terminal.noLayouts")}</div>
           )}
         </div>
         <div className="flex gap-1.5 overflow-x-auto">
@@ -117,7 +117,7 @@ export default function MobileTerminalBoard({
                   onSelectPane?.(panel.id);
                   if (activeTab) onSelectTab?.(panel.id, activeTab.id);
                 }}
-                className={`h-8 max-w-[170px] flex-none rounded-md border px-2 text-left text-[11px] ${
+                className={`h-8 max-w-[170px] flex-none rounded-md border px-2 text-left text-[length:var(--text-caption)] ${
                   activePane
                     ? "border-[color-mix(in_srgb,var(--app-accent)_40%,transparent)] bg-[var(--app-panel-bg)] text-[var(--app-accent)]"
                     : "border-[var(--app-home-border)] bg-[var(--app-home-surface)] text-[var(--app-text-secondary)]"
@@ -132,7 +132,7 @@ export default function MobileTerminalBoard({
         </div>
       </section>
 
-      <section className="min-h-0 flex-1 overflow-hidden rounded-md border border-[var(--app-border)] bg-[var(--app-terminal-bg)] text-[12px] leading-5 text-[var(--app-terminal-fg)] shadow-inner">
+      <section className="min-h-0 flex-1 overflow-hidden rounded-md border border-[var(--app-border)] bg-[var(--app-terminal-bg)] text-[length:var(--text-small)] leading-5 text-[var(--app-terminal-fg)] shadow-inner">
         {terminal?.tab.contentType === "terminal" && terminal.tab.projectPath ? (
           <TerminalTabContent
             tab={terminal.tab}
@@ -145,8 +145,8 @@ export default function MobileTerminalBoard({
         ) : (
           <div className="flex h-full min-h-[68dvh] flex-col items-center justify-center px-6 text-center">
             <Terminal className="mb-4 h-10 w-10 text-[color-mix(in_srgb,var(--app-terminal-fg)_45%,transparent)]" />
-            <h3 className="text-[15px] font-semibold text-[var(--app-terminal-fg)]">{t("terminal.emptyTitle")}</h3>
-            <p className="mt-2 max-w-[280px] text-[12px] leading-5 text-[color-mix(in_srgb,var(--app-terminal-fg)_65%,transparent)]">
+            <h3 className="text-[length:var(--text-title)] font-semibold text-[var(--app-terminal-fg)]">{t("terminal.emptyTitle")}</h3>
+            <p className="mt-2 max-w-[280px] text-[length:var(--text-small)] leading-5 text-[color-mix(in_srgb,var(--app-terminal-fg)_65%,transparent)]">
               {t("terminal.emptyDescription")}
               {openedProject ? ` ${t("terminal.currentSelection", { workspace: openedProject.workspaceName, project: openedProject.projectName })}` : ""}
             </p>
@@ -197,7 +197,7 @@ export default function MobileTerminalBoard({
             <Send className="h-4 w-4" />
           </button>
         </div>
-        {sendError && <div className="mt-1 px-1 text-[11px] text-[var(--app-status-danger)]">{sendError}</div>}
+        {sendError && <div className="mt-1 px-1 text-[length:var(--text-caption)] text-[var(--app-status-danger)]">{sendError}</div>}
       </section>
     </div>
   );

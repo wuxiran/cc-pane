@@ -143,7 +143,7 @@ export default function LauncherProjectPicker({ value, onChange }: LauncherProje
             <button
               key={record.id}
               type="button"
-              className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
+              className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-[length:var(--text-caption)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
               style={
                 active
                   ? {
@@ -163,7 +163,7 @@ export default function LauncherProjectPicker({ value, onChange }: LauncherProje
         })}
         <button
           type="button"
-          className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
+          className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-[length:var(--text-caption)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
           style={
             value?.kind === "manual"
               ? {

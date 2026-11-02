@@ -55,7 +55,7 @@ export default function LayoutTypeCounts({
             onDoubleClick={(event) => event.stopPropagation()}
           >
             <Icon aria-hidden className="size-3 shrink-0" />
-            <span className="text-[11px] leading-none tabular-nums">{tabs.length}</span>
+            <span className="text-[length:var(--text-caption)] leading-none tabular-nums">{tabs.length}</span>
           </button>
         );
       })}

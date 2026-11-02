@@ -238,7 +238,7 @@ export default function CommandPalette() {
                 >
                   <Play strokeWidth={1.5} />
                   <span className="min-w-0 flex-1 truncate">{command.name}</span>
-                  <span className="truncate text-[11px] text-[var(--app-text-tertiary)]">
+                  <span className="truncate text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
                     {t(`quickCommands.scope.${command.scope}`, { ns: "settings" })}
                   </span>
                 </CommandItem>
@@ -269,7 +269,7 @@ export default function CommandPalette() {
               >
                 <Icon strokeWidth={1.5} />
                 <span className="min-w-0 flex-1 truncate">{title}</span>
-                <span className="truncate text-[11px] text-[var(--app-text-tertiary)]">{paneTitle}</span>
+                <span className="truncate text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{paneTitle}</span>
               </CommandItem>
             );
           })}

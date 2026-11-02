@@ -179,7 +179,7 @@ function Field({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
   return (
     <div className="flex gap-3">
       <span className="w-16 shrink-0" style={{ color: "var(--app-text-tertiary)" }}>{k}</span>
-      <span className={`flex-1 break-all ${mono ? "font-mono text-[12px]" : ""}`} style={{ color: "var(--app-text-primary)" }}>{v}</span>
+      <span className={`flex-1 break-all ${mono ? "font-mono text-[length:var(--text-small)]" : ""}`} style={{ color: "var(--app-text-primary)" }}>{v}</span>
     </div>
   );
 }

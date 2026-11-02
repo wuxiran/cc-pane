@@ -74,7 +74,7 @@ export default function AgentChatSessionsView() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 items-center gap-1 px-3 pb-1">
-        <span className="text-[11px] font-medium text-[var(--app-text-secondary)]">
+        <span className="text-[length:var(--text-caption)] font-medium text-[var(--app-text-secondary)]">
           {t("agentChatsTitle")}
         </span>
         <span className="flex-1" />
@@ -107,7 +107,7 @@ export default function AgentChatSessionsView() {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {entries.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 px-3 py-8 text-center text-[11px] text-[var(--app-icon-inactive)]">
+          <div className="flex flex-col items-center gap-2 px-3 py-8 text-center text-[length:var(--text-caption)] text-[var(--app-icon-inactive)]">
             <MessagesSquare className="h-6 w-6 opacity-40" />
             {t("agentChatsEmpty")}
           </div>

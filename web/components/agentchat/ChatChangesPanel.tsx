@@ -56,7 +56,7 @@ export default function ChatChangesPanel({ items, cwd, onOpenFile }: ChatChanges
 
   if (changes.length === 0) {
     return (
-      <div className="border-t border-[var(--app-border)] px-4 py-3 text-center text-[11px] text-[var(--app-icon-inactive)]">
+      <div className="border-t border-[var(--app-border)] px-4 py-3 text-center text-[length:var(--text-caption)] text-[var(--app-icon-inactive)]">
         {t("agentChatNoChanges")}
       </div>
     );
@@ -65,7 +65,7 @@ export default function ChatChangesPanel({ items, cwd, onOpenFile }: ChatChanges
   return (
     <div className="max-h-[45%] overflow-y-auto border-t border-[var(--app-border)] px-3 py-2">
       <div className="mx-auto flex max-w-3xl flex-col gap-1">
-        <div className="text-[11px] font-medium text-[var(--app-icon-inactive)]">
+        <div className="text-[length:var(--text-caption)] font-medium text-[var(--app-icon-inactive)]">
           {t("agentChatChangesTitle", { count: changes.length })}
         </div>
         {changes.map((change) => {

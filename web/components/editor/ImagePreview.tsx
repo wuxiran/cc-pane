@@ -239,20 +239,20 @@ export default function ImagePreview({
           <div className="flex-1" />
 
           {/* 缩放信息 */}
-          <span className="text-[11px] text-muted-foreground mr-2">
+          <span className="text-[length:var(--text-caption)] text-muted-foreground mr-2">
             {zoomPercent}
           </span>
 
           {/* 尺寸信息 */}
           {naturalSize && (
-            <span className="text-[11px] text-muted-foreground mr-2">
+            <span className="text-[length:var(--text-caption)] text-muted-foreground mr-2">
               {naturalSize.w} × {naturalSize.h}
             </span>
           )}
 
           {/* 文件大小 */}
           {fileSize !== null && (
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-[length:var(--text-caption)] text-muted-foreground">
               {formatFileSize(fileSize)}
             </span>
           )}

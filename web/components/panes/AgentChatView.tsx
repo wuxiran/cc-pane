@@ -84,7 +84,7 @@ function MessageBubble({ message }: { message: TranscriptMessage }) {
         ) : null}
       </div>
       <div
-        className="whitespace-pre-wrap break-words text-[12px] leading-5"
+        className="whitespace-pre-wrap break-words text-[length:var(--text-small)] leading-5"
         style={{
           color:
             message.role === "reasoning"
@@ -152,7 +152,7 @@ function TranscriptView({
           type="button"
           size="sm"
           variant="ghost"
-          className="h-6 gap-1 px-1.5 text-[11px]"
+          className="h-6 gap-1 px-1.5 text-[length:var(--text-caption)]"
           onClick={onBackToTerminal}
           data-testid="agent-chat-back"
         >
@@ -160,7 +160,7 @@ function TranscriptView({
           {t("chatBackToTerminal")}
         </Button>
         <MessageSquareText className="size-3.5 opacity-60" aria-hidden="true" />
-        <span className="text-[11px] font-medium">{t("chatViewTitle")}</span>
+        <span className="text-[length:var(--text-caption)] font-medium">{t("chatViewTitle")}</span>
         {cliTool ? (
           <span className="rounded px-1 text-[10px] opacity-70" style={{ background: "var(--app-hover)" }}>
             {cliTool}
@@ -179,7 +179,7 @@ function TranscriptView({
           type="button"
           size="sm"
           variant="ghost"
-          className="h-6 px-1.5 text-[11px]"
+          className="h-6 px-1.5 text-[length:var(--text-caption)]"
           onClick={handleRefresh}
           disabled={loading || !hasResume || !supported}
           data-testid="agent-chat-refresh"
@@ -217,7 +217,7 @@ function TranscriptView({
                   type="button"
                   size="sm"
                   variant="outline"
-                  className="h-7 text-[11px]"
+                  className="h-7 text-[length:var(--text-caption)]"
                   onClick={handleLoadEarlier}
                   disabled={loadingMore}
                   data-testid="agent-chat-load-earlier"

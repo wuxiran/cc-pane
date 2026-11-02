@@ -31,7 +31,7 @@ export default function ScopeBanner({ scope, descriptionKey, link }: ScopeBanner
       className="flex items-start gap-2.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-overlay)] px-3 py-2.5"
     >
       <span
-        className="mt-0.5 flex shrink-0 items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--app-accent)_45%,transparent)] px-2 py-0.5 text-[11px] font-medium"
+        className="mt-0.5 flex shrink-0 items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--app-accent)_45%,transparent)] px-2 py-0.5 text-[length:var(--text-caption)] font-medium"
         style={{ color: "var(--app-accent)" }}
       >
         <Icon size={12} />

@@ -602,7 +602,7 @@ export function ChatPanel({
                 <button
                   key={option.value}
                   type="button"
-                  className="h-full px-2 text-[11px] font-medium transition-colors disabled:opacity-50"
+                  className="h-full px-2 text-[length:var(--text-caption)] font-medium transition-colors disabled:opacity-50"
                   style={{
                     background: active ? "#bfdbfe" : "transparent",
                     color: active ? "#1d4ed8" : "#475569",
@@ -656,7 +656,7 @@ export function ChatPanel({
         {!starting && messages.length === 0 && (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
             <ChevronDown size={22} style={{ color: "#64748b" }} />
-            <p className="m-0 text-[12px]" style={{ color: "#64748b" }}>
+            <p className="m-0 text-[length:var(--text-small)]" style={{ color: "#64748b" }}>
               {t("chat.empty")}
             </p>
           </div>
@@ -665,13 +665,13 @@ export function ChatPanel({
           <MessageBubble key={message.id} message={message} />
         ))}
         {activityLabel && (
-          <div className="flex items-center justify-center gap-2 py-2 text-[12px]" style={{ color: "#475569" }}>
+          <div className="flex items-center justify-center gap-2 py-2 text-[length:var(--text-small)]" style={{ color: "#475569" }}>
             <Loader2 size={13} className="animate-spin" />
             {activityLabel}
           </div>
         )}
         {error && (
-          <div className="mx-2 mt-2 rounded-md border border-red-300 bg-red-50 px-2.5 py-2 text-[12px] text-red-700">
+          <div className="mx-2 mt-2 rounded-md border border-red-300 bg-red-50 px-2.5 py-2 text-[length:var(--text-small)] text-red-700">
             {error}
           </div>
         )}

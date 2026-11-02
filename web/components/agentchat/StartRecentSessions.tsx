@@ -76,7 +76,7 @@ export default function StartRecentSessions({
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-1.5 pb-6">
-      <div className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--app-icon-inactive)]">
+      <div className="flex items-center gap-1.5 text-[length:var(--text-caption)] font-medium text-[var(--app-icon-inactive)]">
         <History className="h-3.5 w-3.5" /> {t("agentChatHistoryTitle")}
         {cwd ? (
           <div className="flex overflow-hidden rounded border border-[var(--app-border)] text-[10px]">
@@ -103,7 +103,7 @@ export default function StartRecentSessions({
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
           placeholder={t("agentChatHistoryFilter")}
-          className="w-32 rounded border border-[var(--app-border)] bg-transparent px-1.5 py-0.5 text-[11px] outline-none focus:border-[var(--app-icon-active)]"
+          className="w-32 rounded border border-[var(--app-border)] bg-transparent px-1.5 py-0.5 text-[length:var(--text-caption)] outline-none focus:border-[var(--app-icon-active)]"
         />
       </div>
       <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">

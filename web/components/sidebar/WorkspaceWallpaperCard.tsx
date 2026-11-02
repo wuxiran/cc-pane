@@ -306,7 +306,7 @@ export default function WorkspaceWallpaperCard({ workspace }: WorkspaceWallpaper
         <select
           value={value}
           disabled={!overridden}
-          className="h-8 w-28 rounded-md px-2 text-[12px] outline-none disabled:cursor-not-allowed"
+          className="h-8 w-28 rounded-md px-2 text-[length:var(--text-small)] outline-none disabled:cursor-not-allowed"
           style={{
             background: "var(--app-input-bg)",
             border: "1px solid var(--app-border)",
@@ -325,7 +325,7 @@ export default function WorkspaceWallpaperCard({ workspace }: WorkspaceWallpaper
   }
 
   const groupClass = "mt-3 flex flex-col gap-2 border-t border-[var(--app-border)] pt-3";
-  const groupTitleClass = "text-[11px] font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]";
+  const groupTitleClass = "text-[length:var(--text-caption)] font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]";
 
   return (
     <div className="mt-4 rounded-xl border border-[var(--app-border)] bg-[var(--app-glass-bg)] p-4">
@@ -363,7 +363,7 @@ export default function WorkspaceWallpaperCard({ workspace }: WorkspaceWallpaper
               />
             ) : (
               <div
-                className="flex h-14 w-24 items-center justify-center rounded-md text-[11px] text-[var(--app-text-tertiary)]"
+                className="flex h-14 w-24 items-center justify-center rounded-md text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]"
                 style={{ border: "1px dashed var(--app-border)" }}
               >
                 {t("workspaceWallpaper.noImage", { ns: "sidebar", defaultValue: "未选择" })}

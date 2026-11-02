@@ -26,7 +26,7 @@ export default function RemoteRuntimeNotice({ workspace, profile, subject, class
     <div
       role="note"
       data-testid="remote-runtime-notice"
-      className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-[12px] leading-relaxed ${className ?? ""}`}
+      className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-[length:var(--text-small)] leading-relaxed ${className ?? ""}`}
       style={{
         borderColor: "color-mix(in srgb, var(--app-status-warning) 40%, transparent)",
         background: "color-mix(in srgb, var(--app-status-warning) 8%, transparent)",

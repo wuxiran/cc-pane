@@ -29,7 +29,7 @@ export function GroupTitle({ children, hint }: { children: ReactNode; hint?: Rea
         {children}
       </h4>
       {hint ? (
-        <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+        <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
           {hint}
         </p>
       ) : null}
@@ -39,7 +39,7 @@ export function GroupTitle({ children, hint }: { children: ReactNode; hint?: Rea
 
 export function Hint({ children }: { children: ReactNode }) {
   return (
-    <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+    <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
       {children}
     </p>
   );
@@ -123,7 +123,7 @@ export function NumberRow({ id, label, hint, value, limits, fallback, onChange, 
           }}
         />
         {suffix ? (
-          <span className="text-[12px]" style={{ color: "var(--app-text-secondary)" }}>{suffix}</span>
+          <span className="text-[length:var(--text-small)]" style={{ color: "var(--app-text-secondary)" }}>{suffix}</span>
         ) : null}
       </div>
     </div>

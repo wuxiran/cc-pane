@@ -113,15 +113,15 @@ export default function SessionBindDialog({ tab, open, onOpenChange }: SessionBi
 
         <div className="flex flex-col gap-1 max-h-72 overflow-y-auto">
           {loading && (
-            <p className="text-[12px]" style={{ color: "var(--app-text-tertiary)" }}>
+            <p className="text-[length:var(--text-small)]" style={{ color: "var(--app-text-tertiary)" }}>
               {t("sessionBindLoading")}
             </p>
           )}
           {!loading && loadError && (
-            <p className="text-[12px] text-[var(--app-status-danger)]">{loadError}</p>
+            <p className="text-[length:var(--text-small)] text-[var(--app-status-danger)]">{loadError}</p>
           )}
           {!loading && !loadError && candidates.length === 0 && (
-            <p className="text-[12px]" style={{ color: "var(--app-text-tertiary)" }}>
+            <p className="text-[length:var(--text-small)]" style={{ color: "var(--app-text-tertiary)" }}>
               {t("sessionBindEmpty")}
             </p>
           )}
@@ -134,15 +134,15 @@ export default function SessionBindDialog({ tab, open, onOpenChange }: SessionBi
               style={{ border: "1px solid var(--app-border)" }}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-[11px]" style={{ color: "var(--app-text-secondary)" }}>
+                <span className="font-mono text-[length:var(--text-caption)]" style={{ color: "var(--app-text-secondary)" }}>
                   {candidate.id.slice(0, 8)}
                   {tab.resumeId === candidate.id ? ` · ${t("sessionBindBoundMark")}` : ""}
                 </span>
-                <span className="text-[11px] shrink-0" style={{ color: "var(--app-text-tertiary)" }}>
+                <span className="text-[length:var(--text-caption)] shrink-0" style={{ color: "var(--app-text-tertiary)" }}>
                   {new Date(candidate.modifiedAt * 1000).toLocaleString()}
                 </span>
               </div>
-              <div className="text-[12px] truncate" style={{ color: "var(--app-text-primary)" }}>
+              <div className="text-[length:var(--text-small)] truncate" style={{ color: "var(--app-text-primary)" }}>
                 {candidate.description || t("sessionBindNoDescription")}
               </div>
             </button>
@@ -154,7 +154,7 @@ export default function SessionBindDialog({ tab, open, onOpenChange }: SessionBi
             value={manualId}
             onChange={(e) => setManualId(e.target.value)}
             placeholder={t("sessionBindManualPlaceholder")}
-            className="font-mono text-[12px]"
+            className="font-mono text-[length:var(--text-small)]"
           />
           <Button size="sm" disabled={!manualIdValid} onClick={() => bind(manualId.trim())}>
             {t("sessionBindAction")}

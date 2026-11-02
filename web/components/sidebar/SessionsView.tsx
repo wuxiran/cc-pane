@@ -90,7 +90,7 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
       {/* 视图标题栏 */}
       <div className="flex items-center justify-between px-4 py-2 shrink-0">
         <span
-          className="text-[11px] font-bold tracking-wider"
+          className="text-[length:var(--text-caption)] font-bold tracking-wider"
           style={{ color: "var(--app-text-secondary)" }}
         >
           SESSIONS
@@ -118,7 +118,7 @@ export default function SessionsView({ onOpenTerminal }: SessionsViewProps) {
                       isBusyStatus(s.status) ? "bg-[var(--app-status-success)]" : "bg-[var(--app-text-tertiary)]"
                     }`} />
                   </div>
-                  <span className="text-[12px] truncate">{s.title || "Terminal"}</span>
+                  <span className="text-[length:var(--text-small)] truncate">{s.title || "Terminal"}</span>
                 </button>
               ))}
             </div>

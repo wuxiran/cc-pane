@@ -115,7 +115,7 @@ export default function OrchestratorView({
           {(["list", "tree"] as const).map((type) => (
             <button
               key={type}
-              className="rounded px-2 py-0.5 text-[11px] capitalize transition-colors"
+              className="rounded px-2 py-0.5 text-[length:var(--text-caption)] capitalize transition-colors"
               style={{
                 background: viewType === type ? "var(--app-accent)" : "transparent",
                 color: viewType === type ? "white" : "var(--app-text-secondary)",

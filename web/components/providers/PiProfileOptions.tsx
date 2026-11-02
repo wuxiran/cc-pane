@@ -73,10 +73,10 @@ export default function PiProfileOptions({ draft, setDraft }: PiProfileOptionsPr
           />
         </Field>
       </div>
-      <p className="mt-1.5 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+      <p className="mt-1.5 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
         {t("piNativeAuthHint")}
       </p>
-      <p className="mt-1 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+      <p className="mt-1 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
         {t("piProjectTrustHint")}
       </p>
     </div>

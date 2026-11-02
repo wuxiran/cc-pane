@@ -80,7 +80,7 @@ function SidePane({ label, side, editable, value, onChange, onAccept, acceptLabe
         )}
       </div>
       {notice ? (
-        <p className="flex min-h-0 flex-1 items-start gap-1.5 px-2 py-2 text-[11px] leading-snug text-[var(--app-status-warning)]">
+        <p className="flex min-h-0 flex-1 items-start gap-1.5 px-2 py-2 text-[length:var(--text-caption)] leading-snug text-[var(--app-status-warning)]">
           <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
           {notice}
         </p>
@@ -239,7 +239,7 @@ export default function ConflictResolveDialog({
           <GitMerge className="h-4 w-4 shrink-0 text-[var(--app-status-danger)]" />
           <DialogTitle className="min-w-0 truncate text-sm">{t("gitConflict.title")}</DialogTitle>
           {summary && (
-            <span className="ml-auto shrink-0 rounded border px-1.5 py-0.5 text-[11px] text-[var(--app-text-secondary)]">
+            <span className="ml-auto shrink-0 rounded border px-1.5 py-0.5 text-[length:var(--text-caption)] text-[var(--app-text-secondary)]">
               {t(MERGE_STATE_KEYS[summary.mergeState])}
               {summary.theirsRef ? ` · ${t("gitConflict.theirsRef", { ref: summary.theirsRef })}` : ""}
             </span>

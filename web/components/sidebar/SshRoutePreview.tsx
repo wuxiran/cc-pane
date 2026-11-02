@@ -63,7 +63,7 @@ export function SshRoutePreview({ machine, machines }: SshRoutePreviewProps) {
               <ArrowRight className="h-3 w-3 shrink-0 text-[var(--app-text-muted)]" />
             )}
             <span
-              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--app-text-primary)]"
+              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[length:var(--text-caption)] text-[var(--app-text-primary)]"
               style={{ background: "var(--app-hover)" }}
               title={hop.endpoint}
             >

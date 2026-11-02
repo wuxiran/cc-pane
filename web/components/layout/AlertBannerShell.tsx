@@ -34,7 +34,7 @@ const TONE: Record<AlertBannerTone, { fg: string; bg: string; border: string; ch
 
 export const alertBannerTitleClass = "m-0 font-medium text-[var(--app-text-primary)]";
 
-export const alertBannerDescClass = "m-0 mt-0.5 text-[11px] text-[var(--app-text-secondary)]";
+export const alertBannerDescClass = "m-0 mt-0.5 text-[length:var(--text-caption)] text-[var(--app-text-secondary)]";
 
 export const alertBannerCloseButtonClass =
   "shrink-0 rounded-md p-1 text-[var(--app-text-tertiary)] " +

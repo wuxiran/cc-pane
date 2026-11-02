@@ -290,7 +290,7 @@ export default function WorkspaceItem({
                   <span className="truncate">{profileDisplayName(profile)}</span>
                   <InjectionBadges summary={summarizeInjection(profile, effectiveEnvironment, item.cliTool)} />
                 </span>
-                <span className="ml-auto shrink-0 self-start text-[11px] opacity-70">
+                <span className="ml-auto shrink-0 self-start text-[length:var(--text-caption)] opacity-70">
                   {profile.id === workspace.launchProfileId
                     ? t("launchProfileBoundBadge", { defaultValue: "已绑定" })
                     : runtimeLabel(profile.targetRuntime ?? null)}

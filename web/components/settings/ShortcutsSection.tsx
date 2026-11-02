@@ -84,7 +84,7 @@ export default function ShortcutsSection({ value, onChange }: ShortcutsSectionPr
 
   return (
     <div className="flex flex-col gap-3 outline-none" tabIndex={-1} onKeyDown={handleKeyDown}>
-      <h3 className="text-[15px] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
+      <h3 className="text-[length:var(--text-title)] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
         {t("settings:shortcutsTitle")}
       </h3>
       <p className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>

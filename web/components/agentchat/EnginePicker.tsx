@@ -201,7 +201,7 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
           <div className="mb-1 flex h-11 w-11 items-center justify-center text-[var(--app-text-secondary)]">
             <Bot className="h-7 w-7" strokeWidth={1.5} />
           </div>
-          <h2 className="max-w-full break-words text-[30px] font-medium leading-snug tracking-tight text-[var(--app-text-primary)]">
+          <h2 className="max-w-full break-words text-[length:var(--text-hero)] font-medium leading-snug tracking-tight text-[var(--app-text-primary)]">
             {projectName ? (
               <>
                 {t("agentChatHeroBefore")}

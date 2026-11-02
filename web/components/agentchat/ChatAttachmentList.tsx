@@ -36,7 +36,7 @@ function AttachmentCard({ attachment, onRemove, onOpenAttachment }: {
           onClick={() => { void openFile(); }}>
           <img src={preview} alt={attachment.name} loading="lazy" decoding="async" onError={() => setFailedSource(source)}
             className="h-24 w-full bg-black/10 object-contain" />
-          <span className="block truncate px-2 py-1.5 text-[11px] text-[var(--app-text-secondary)]" title={attachment.name}>{attachment.name}</span>
+          <span className="block truncate px-2 py-1.5 text-[length:var(--text-caption)] text-[var(--app-text-secondary)]" title={attachment.name}>{attachment.name}</span>
         </button>
       ) : (
         onOpenAttachment ? <button type="button" aria-label={label} aria-busy={opening} disabled={opening}

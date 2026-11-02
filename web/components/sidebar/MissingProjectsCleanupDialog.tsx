@@ -100,7 +100,7 @@ export default function MissingProjectsCleanupDialog({
         <span className="block truncate text-[13px] text-[var(--app-text-primary)]">
           {row.project.alias || getProjectName(row.path)}
         </span>
-        <span className="block truncate text-[11px]" title={row.path}>{row.path}</span>
+        <span className="block truncate text-[length:var(--text-caption)]" title={row.path}>{row.path}</span>
       </span>
     </label>
   );
@@ -127,11 +127,11 @@ export default function MissingProjectsCleanupDialog({
           {missing.map((row) => renderRow(row, false))}
           {unverifiable.length > 0 ? (
             <div className="mt-3 border-t border-[var(--app-border)] pt-3">
-              <div className="flex items-center gap-1.5 px-2 pb-1 text-[11px] font-medium text-[var(--app-text-tertiary)]">
+              <div className="flex items-center gap-1.5 px-2 pb-1 text-[length:var(--text-caption)] font-medium text-[var(--app-text-tertiary)]">
                 <HelpCircle size={12} />
                 {t("missingProjectsUnverifiableTitle")}
               </div>
-              <div className="px-2 pb-1 text-[11px] text-[var(--app-text-tertiary)]">
+              <div className="px-2 pb-1 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
                 {t("missingProjectsUnverifiableHint")}
               </div>
               {unverifiable.map((row) => renderRow(row, true))}

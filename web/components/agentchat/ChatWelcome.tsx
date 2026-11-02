@@ -34,7 +34,7 @@ export default function ChatWelcome({ engineLabel, cwd, concierge }: ChatWelcome
         </p>
         {cwd ? (
           <p
-            className="mt-1.5 flex items-center gap-1 font-mono text-[11px] text-[var(--app-text-tertiary)]"
+            className="mt-1.5 flex items-center gap-1 font-mono text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]"
             title={cwd}
           >
             <FolderOpen className="h-3 w-3 shrink-0" aria-hidden="true" />

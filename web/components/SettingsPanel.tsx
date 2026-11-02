@@ -243,7 +243,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
             <span aria-hidden="true" className="hidden size-7 shrink-0 items-center justify-center rounded bg-[var(--app-active-bg)] text-[var(--app-accent)] sm:flex">
               <Settings size={16} />
             </span>
-            <DialogTitle className="hidden truncate text-[14px] font-semibold sm:block">{t("title")}</DialogTitle>
+            <DialogTitle className="hidden truncate text-[length:var(--text-body)] font-semibold sm:block">{t("title")}</DialogTitle>
             <DialogDescription className="sr-only">{t("panelDescription")}</DialogDescription>
           </div>
           <div className="min-w-0 overflow-x-auto">

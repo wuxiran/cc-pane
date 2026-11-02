@@ -64,7 +64,7 @@ export default function AiPanelHistoryList() {
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
       {groups.map((group) => (
         <section key={group.workspaceName ?? "__ungrouped__"} className="min-w-0">
-          <header className="sticky top-0 z-10 flex items-center gap-2 bg-[var(--app-panel-bg)] px-3 py-2 text-[11px] font-medium text-[var(--app-text-tertiary)]">
+          <header className="sticky top-0 z-10 flex items-center gap-2 bg-[var(--app-panel-bg)] px-3 py-2 text-[length:var(--text-caption)] font-medium text-[var(--app-text-tertiary)]">
             <FolderOpen aria-hidden="true" className="size-3.5 shrink-0" />
             <span className="truncate">
               {group.workspaceName ?? t("aiPanel.ungroupedWorkspace")}
@@ -101,7 +101,7 @@ export default function AiPanelHistoryList() {
                           />
                         )}
                       </div>
-                      <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[11px] text-[var(--app-text-tertiary)]">
+                      <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
                         <span className="truncate">{panel.driverName}</span>
                         <span aria-hidden="true">/</span>
                         <span className="shrink-0">

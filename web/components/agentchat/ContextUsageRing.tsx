@@ -36,7 +36,7 @@ export default function ContextUsageRing({ usage }: { usage: AcpUsage }) {
         <div
           role="img"
           aria-label={t("agentChatContextUsage", { percent })}
-          className={`flex h-7 items-center gap-1.5 rounded-md px-1.5 text-[11px] tabular-nums ${tone}`}
+          className={`flex h-7 items-center gap-1.5 rounded-md px-1.5 text-[length:var(--text-caption)] tabular-nums ${tone}`}
         >
           <svg width="18" height="18" viewBox="0 0 18 18" className="-rotate-90 shrink-0">
             <circle

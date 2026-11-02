@@ -129,13 +129,13 @@ export default function SessionCleanerPanel({ open, onOpenChange, projectPath }:
                         <span className="text-[13px] font-medium truncate" style={{ color: "var(--app-text-primary)" }}>
                           {getFileName(session.file_path)}
                         </span>
-                        <span className="text-[11px] truncate" style={{ color: "var(--app-text-tertiary)" }}>
+                        <span className="text-[length:var(--text-caption)] truncate" style={{ color: "var(--app-text-tertiary)" }}>
                           {session.project_path}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <Badge variant="secondary">{t("sessionCleanerBlocks", { count: session.thinking_blocks })}</Badge>
-                        <span className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>{formatSize(session.file_size)}</span>
+                        <span className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>{formatSize(session.file_size)}</span>
                         <Button size="sm" variant="outline" disabled={cleaning} onClick={() => cleanOne(session)}>
                           {t("sessionCleanerClean")}
                         </Button>

@@ -357,7 +357,7 @@ export default function ProjectSkillImportDialog({
                         </span>
                       )}
                     </div>
-                    <div className="truncate text-[11px]" style={{ color: "var(--app-text-tertiary)" }} title={candidate.description ?? undefined}>
+                    <div className="truncate text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }} title={candidate.description ?? undefined}>
                       {candidate.description || candidate.meta}
                     </div>
                   </div>
