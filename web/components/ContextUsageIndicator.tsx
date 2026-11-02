@@ -148,7 +148,7 @@ export default function ContextUsageIndicator({
       <TooltipContent
         side="top"
         sideOffset={8}
-        className="w-[200px] space-y-1 rounded-sm border border-[var(--app-border)] bg-[var(--app-overlay)] px-2.5 py-2 text-left text-[11px] text-[var(--app-text-secondary)] shadow-lg text-pretty"
+        className="w-[200px] space-y-1 rounded-sm border border-[var(--app-border)] bg-[var(--app-overlay)] px-2.5 py-2 text-left text-[length:var(--text-caption)] text-[var(--app-text-secondary)] shadow-lg text-pretty"
       >
         <p className="flex items-center gap-1.5 font-semibold text-[var(--app-text-primary)]">
           <Gauge className="h-3 w-3 text-[var(--app-accent)]" />

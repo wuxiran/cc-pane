@@ -54,7 +54,7 @@ export default function OrchestratorFilterBar({ compact = false }: OrchestratorF
       <Popover>
         <PopoverTrigger asChild>
           <button
-            className={`min-w-0 truncate rounded px-2 py-1 text-[11px] ${compact ? "w-full" : "max-w-[88px]"}`}
+            className={`min-w-0 truncate rounded px-2 py-1 text-[length:var(--text-caption)] ${compact ? "w-full" : "max-w-[88px]"}`}
             style={chipStyle(Boolean(filterWorkspace))}
             title={filterWorkspace ?? t("sidebar.allWorkspaces")}
           >
@@ -83,7 +83,7 @@ export default function OrchestratorFilterBar({ compact = false }: OrchestratorF
       <Popover>
         <PopoverTrigger asChild>
           <button
-            className={`min-w-0 truncate rounded px-2 py-1 text-[11px] ${compact ? "w-full" : "max-w-[86px]"}`}
+            className={`min-w-0 truncate rounded px-2 py-1 text-[length:var(--text-caption)] ${compact ? "w-full" : "max-w-[86px]"}`}
             style={chipStyle(Boolean(filterProjectPath))}
             title={selectedProject?.path ?? t("sidebar.allProjects")}
           >
@@ -119,7 +119,7 @@ export default function OrchestratorFilterBar({ compact = false }: OrchestratorF
         {ROLE_OPTIONS.map((option) => (
           <button
             key={option.value ?? "all"}
-            className={`h-6 min-w-6 px-1.5 text-[11px] ${compact ? "flex-1" : ""}`}
+            className={`h-6 min-w-6 px-1.5 text-[length:var(--text-caption)] ${compact ? "flex-1" : ""}`}
             style={{
               background:
                 filterRole === option.value

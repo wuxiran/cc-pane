@@ -40,11 +40,11 @@ export default function DramaEpisodeEditor(props: DramaEpisodeEditorProps) {
     <>
       <section className="border-b border-[var(--app-border)] p-3">
         <div className="mb-1.5 flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-semibold" style={{ color: "var(--app-text-secondary)" }}>{t("dramaScreenplay")}</span>
+          <span className="text-[length:var(--text-caption)] font-semibold" style={{ color: "var(--app-text-secondary)" }}>{t("dramaScreenplay")}</span>
           <div className="ml-auto flex items-center gap-2">
             {llmProviders.length > 1 ? (
               <Select value={splitProviderId ?? ""} onValueChange={onSplitProviderChange}>
-                <SelectTrigger size="sm" className="h-7 w-36 text-[11px]">
+                <SelectTrigger size="sm" className="h-7 w-36 text-[length:var(--text-caption)]">
                   <SelectValue placeholder={t("copilotProvider")} />
                 </SelectTrigger>
                 <SelectContent>
@@ -79,10 +79,10 @@ export default function DramaEpisodeEditor(props: DramaEpisodeEditorProps) {
       </section>
       <section className="flex-1 p-3">
         <div className="mb-2 flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-semibold" style={{ color: "var(--app-text-secondary)" }}>{t("dramaShots")}</span>
+          <span className="text-[length:var(--text-caption)] font-semibold" style={{ color: "var(--app-text-secondary)" }}>{t("dramaShots")}</span>
           <span className="text-[10px]" style={{ color: "var(--app-text-tertiary)" }}>{t("dramaShotCount", { count: shots.length })}</span>
           <div className="ml-auto flex flex-wrap items-center gap-1.5">
-            <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-[11px]" onClick={onAddShot}>
+            <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-[length:var(--text-caption)]" onClick={onAddShot}>
               <Plus className="size-3" aria-hidden="true" />{t("dramaAddShot")}
             </Button>
           </div>
@@ -100,7 +100,7 @@ export default function DramaEpisodeEditor(props: DramaEpisodeEditorProps) {
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <Input
-                  className="h-6 text-[11px]"
+                  className="h-6 text-[length:var(--text-caption)]"
                   defaultValue={shot.title}
                   placeholder={t("storyboardShotTitle")}
                   onBlur={(event) => { if (event.target.value !== shot.title) onPatchShot(shot, { title: event.target.value }); }}

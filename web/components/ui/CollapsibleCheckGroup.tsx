@@ -75,7 +75,7 @@ export function CollapsibleCheckGroup({
             : undefined
         }
         className={cn(
-          "flex items-center gap-1.5 py-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--app-text-primary)]",
+          "flex items-center gap-1.5 py-2 text-[length:var(--text-caption)] font-semibold uppercase tracking-wide text-[var(--app-text-primary)]",
           collapsible && "cursor-default select-none",
         )}
       >
@@ -86,7 +86,7 @@ export function CollapsibleCheckGroup({
             <ChevronRight className="size-3 text-[var(--app-text-tertiary)]" />
           ))}
         <span>{title}</span>
-        <span className="text-[11px] font-normal text-[var(--app-text-tertiary)]">
+        <span className="text-[length:var(--text-caption)] font-normal text-[var(--app-text-tertiary)]">
           {formatCount(total, enabledCount)}
         </span>
         {actions && (
@@ -101,7 +101,7 @@ export function CollapsibleCheckGroup({
           {shownChips.map((name) => (
             <span
               key={name}
-              className="rounded-full border border-[var(--app-border)] bg-[var(--app-hover)] px-2 py-0.5 text-[11px] text-[var(--app-text-secondary)]"
+              className="rounded-full border border-[var(--app-border)] bg-[var(--app-hover)] px-2 py-0.5 text-[length:var(--text-caption)] text-[var(--app-text-secondary)]"
             >
               {name}
             </span>
@@ -110,7 +110,7 @@ export function CollapsibleCheckGroup({
             <button
               type="button"
               onClick={() => setOpen(true)}
-              className="rounded-full border border-dashed border-[var(--app-border)] px-2 py-0.5 text-[11px] text-[var(--app-accent)] transition-[color,background-color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-[var(--app-hover)] active:scale-[0.97] motion-reduce:active:scale-100"
+              className="rounded-full border border-dashed border-[var(--app-border)] px-2 py-0.5 text-[length:var(--text-caption)] text-[var(--app-accent)] transition-[color,background-color,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-[var(--app-hover)] active:scale-[0.97] motion-reduce:active:scale-100"
             >
               {formatMore(hiddenCount)}
             </button>
@@ -131,7 +131,7 @@ export function CollapsibleCheckGroup({
 
       {/* 长分组展开后滚动区会截断视野，底部复述一遍计数，避免「看到的就是全部」的错觉 */}
       {expanded && collapsible && (
-        <div className="pb-2 pl-[18px] text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+        <div className="pb-2 pl-[18px] text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
           {formatCount(total, enabledCount)}
         </div>
       )}

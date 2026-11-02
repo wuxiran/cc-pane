@@ -140,7 +140,7 @@ export default function JournalPanel({ open, onOpenChange, workspaceName, onSave
                 {t("history")}
               </h3>
               {journalIndex && (
-                <div className="flex gap-3 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+                <div className="flex gap-3 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
                   <span>{t("sessionCount", { count: journalIndex.totalSessions })}</span>
                   <span>{journalIndex.activeFile}</span>
                 </div>

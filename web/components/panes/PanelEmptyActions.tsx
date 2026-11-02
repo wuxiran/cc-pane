@@ -188,7 +188,7 @@ export default function PanelEmptyActions({
     <div className={containerClass}>
       {!mini && (
         <div
-          className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.09em]"
+          className="mb-1.5 flex items-center gap-2 text-[length:var(--text-caption)] font-semibold uppercase tracking-[0.09em]"
           style={{ color: "var(--app-text-tertiary)" }}
         >
           <Clock className="h-3.5 w-3.5" />
@@ -222,7 +222,7 @@ export default function PanelEmptyActions({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span
-                    className={`truncate font-semibold ${compact ? "text-[12px]" : "text-[14px]"}`}
+                    className={`truncate font-semibold ${compact ? "text-[length:var(--text-small)]" : "text-[length:var(--text-body)]"}`}
                     style={{ color: "var(--app-text-primary)" }}
                   >
                     {record.projectName}

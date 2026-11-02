@@ -106,7 +106,7 @@ export default function CliLaunchersSection({ value, onChange }: CliLaunchersSec
                     : selectedTool.installed ? t("cliInstalled") : t("cliNotInstalled")}
                 </Badge>
               </div>
-              <div className="mt-1 truncate font-mono text-[11px] text-[var(--app-text-tertiary)]">
+              <div className="mt-1 truncate font-mono text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
                 {selectedTool.path || selectedTool.executable}
               </div>
             </div>
@@ -149,7 +149,7 @@ export default function CliLaunchersSection({ value, onChange }: CliLaunchersSec
                 {testingId === selectedTool.id ? t("testing") : t("cliLauncherTest")}
               </Button>
             </div>
-            <p className="m-0 text-[11px] text-[var(--app-text-tertiary)]">
+            <p className="m-0 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
               {selectedCommand.trim()
                 ? t("cliLauncherOverrideActive", { command: selectedEffectiveCommand })
                 : t("cliLauncherDefaultActive", { command: selectedTool.executable })}

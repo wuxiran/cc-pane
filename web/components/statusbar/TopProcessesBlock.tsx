@@ -25,7 +25,7 @@ export function TopProcessesBlock({ topProcesses }: TopProcessesBlockProps) {
         <span className="text-xs font-medium" style={{ color: "var(--app-status-warning)" }}>
           {t("resourceManagerTopProcesses")}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--app-text-tertiary)]">
+        <span className="min-w-0 flex-1 truncate text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
           {t("resourceManagerTopProcessesHint")}
         </span>
       </div>
@@ -34,7 +34,7 @@ export function TopProcessesBlock({ topProcesses }: TopProcessesBlockProps) {
           <span className="min-w-0 flex-1 truncate text-[var(--app-text-secondary)]">
             {process.name}
           </span>
-          <span className="shrink-0 tabular-nums text-[11px] text-[var(--app-text-tertiary)]">
+          <span className="shrink-0 tabular-nums text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
             PID {process.pid} · {formatCpu(process.cpuPercent)} · {formatSize(process.memoryBytes)}
           </span>
         </div>

@@ -44,7 +44,7 @@ export default function ExperimentalSection({ value, onChange }: ExperimentalSec
     <div className="flex flex-col gap-3">
       <div className="flex items-start gap-3 rounded-lg border border-[var(--app-status-warning-border)] bg-[var(--app-status-warning-bg)] px-4 py-3">
         <FlaskConical aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-[var(--app-status-warning)]" />
-        <p className="m-0 text-[12px] leading-relaxed text-[var(--app-text-secondary)]">
+        <p className="m-0 text-[length:var(--text-small)] leading-relaxed text-[var(--app-text-secondary)]">
           {t("experimental.notice")}
         </p>
       </div>
@@ -60,7 +60,7 @@ export default function ExperimentalSection({ value, onChange }: ExperimentalSec
                 <Label htmlFor={switchId} className="text-[13px] text-[var(--app-text-primary)]">
                   {t(labelKey)}
                 </Label>
-                <p className="m-0 text-[12px] text-[var(--app-text-tertiary)]">{t(descKey)}</p>
+                <p className="m-0 text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">{t(descKey)}</p>
               </div>
               <Switch
                 id={switchId}

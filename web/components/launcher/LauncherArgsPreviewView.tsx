@@ -13,7 +13,7 @@ export default function LauncherArgsPreview({ input }: { input: ArgsPreviewInput
       style={{ borderColor: "var(--app-border)", background: "var(--app-hover)" }}
     >
       <div
-        className="overflow-x-auto whitespace-pre text-[11px] leading-5"
+        className="overflow-x-auto whitespace-pre text-[length:var(--text-caption)] leading-5"
         style={{ color: "var(--app-text-secondary)", fontFamily: "var(--font-mono, monospace)" }}
       >
         {lines.join("\n")}

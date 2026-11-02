@@ -184,7 +184,7 @@ export default function TaskQueuePopover({ sessionId }: { sessionId: string }) {
           <div className="flex items-start justify-between gap-3 border-b border-[var(--app-border)] px-3 py-2.5">
             <div className="min-w-0">
               <h3 className="text-sm font-semibold text-[var(--app-text-primary)]">{t("taskQueue.title")}</h3>
-              <p className="mt-0.5 text-[11px] text-[var(--app-text-tertiary)]">{t("taskQueue.description")}</p>
+              <p className="mt-0.5 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{t("taskQueue.description")}</p>
             </div>
             <Badge variant="outline" className="gap-1 text-[10px]"><StatusIcon state={state} />{stateLabel}</Badge>
           </div>
@@ -202,7 +202,7 @@ export default function TaskQueuePopover({ sessionId }: { sessionId: string }) {
                 <Trash2 />{t("taskQueue.clear")}
               </Button>
             </div>
-            <label className="flex items-center gap-2 text-[11px] text-[var(--app-text-secondary)]">
+            <label className="flex items-center gap-2 text-[length:var(--text-caption)] text-[var(--app-text-secondary)]">
               {t("taskQueue.unattended")}
               <Switch aria-label={t("taskQueue.unattended")} checked={snapshot?.unattended ?? false}
                 disabled={!snapshot?.unattendedSupported || busy}
@@ -213,7 +213,7 @@ export default function TaskQueuePopover({ sessionId }: { sessionId: string }) {
           </div>
 
           {visibleReason && (
-            <div className="flex items-start gap-2 border-b border-[var(--app-border)] bg-[var(--app-hover)] px-3 py-2 text-[11px] text-[var(--app-text-secondary)]">
+            <div className="flex items-start gap-2 border-b border-[var(--app-border)] bg-[var(--app-hover)] px-3 py-2 text-[length:var(--text-caption)] text-[var(--app-text-secondary)]">
               <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
               {t(`taskQueue.reasons.${visibleReason}`)}
             </div>
@@ -270,7 +270,7 @@ export default function TaskQueuePopover({ sessionId }: { sessionId: string }) {
               ))}
             </div>
             {(draftError || requestError) && (
-              <p role="alert" className="text-[11px] text-[var(--app-status-error)]">
+              <p role="alert" className="text-[length:var(--text-caption)] text-[var(--app-status-error)]">
                 {draftError || t("taskQueue.operationFailed", { error: requestError })}
               </p>
             )}

@@ -47,7 +47,7 @@ export default function WallpaperSliderRow({
           onChange={(event) => onChange(Number(event.target.value))}
         />
         <span
-          className="w-12 text-right font-mono text-[12px]"
+          className="w-12 text-right font-mono text-[length:var(--text-small)]"
           style={{ color: "var(--app-text-secondary)" }}
         >
           {format(value)}

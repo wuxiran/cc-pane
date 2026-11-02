@@ -228,7 +228,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
     return (
       <div className="flex justify-center px-2 py-1">
         <div
-          className="max-w-[88%] rounded-md border px-2.5 py-1 text-center text-[11px] leading-4"
+          className="max-w-[88%] rounded-md border px-2.5 py-1 text-center text-[length:var(--text-caption)] leading-4"
           style={{
             borderColor: "#cbd5e1",
             background: "#f8fafc",

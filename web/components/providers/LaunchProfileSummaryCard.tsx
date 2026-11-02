@@ -92,7 +92,7 @@ export default function LaunchProfileSummaryCard({
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h2 className="truncate text-[15px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
+            <h2 className="truncate text-[length:var(--text-title)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
               {currentTitle}
             </h2>
             {(isSystemDefaultSelected || selectedProfile?.isDefault) && <Badge variant="secondary" className="text-[10px]">{t("common:default")}</Badge>}
@@ -188,7 +188,7 @@ export default function LaunchProfileSummaryCard({
 
       {/* 原「生效预览」卡并入：上下文提示 + 解析 warnings（色+形冗余） */}
       {!isNewProfile && (
-        <div className="px-4 pb-2 pt-1 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+        <div className="px-4 pb-2 pt-1 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
           {workspaceContext && (
             <span>
               {t("previewBoundProfile")}

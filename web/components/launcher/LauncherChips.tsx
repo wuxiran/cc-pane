@@ -40,7 +40,7 @@ function ToggleChip({
       aria-disabled={disabled}
       disabled={disabled}
       title={title}
-      className="rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+      className="rounded-full border px-2.5 py-1 text-[length:var(--text-caption)] font-medium transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
       style={
         active && !disabled
           ? {
@@ -98,13 +98,13 @@ export default function LauncherChips({ draft, onChange }: LauncherChipsProps) {
           onClick={() => onChange({ verbose: !draft.verbose })}
         />
         <label
-          className="flex items-center gap-1.5 text-[11px]"
+          className="flex items-center gap-1.5 text-[length:var(--text-caption)]"
           style={{ color: "var(--app-text-secondary)", opacity: support.effort ? 1 : 0.4 }}
           title={support.effort ? undefined : unsupportedHint}
         >
           {t("effort")}
           <select
-            className="h-7 rounded-md border bg-background px-1.5 text-[11px] disabled:cursor-not-allowed"
+            className="h-7 rounded-md border bg-background px-1.5 text-[length:var(--text-caption)] disabled:cursor-not-allowed"
             value={draft.effort ?? ""}
             disabled={!support.effort}
             title={support.effort ? t("effortHint") : unsupportedHint}
@@ -121,7 +121,7 @@ export default function LauncherChips({ draft, onChange }: LauncherChipsProps) {
           </select>
         </label>
         <label
-          className="flex items-center gap-1.5 text-[11px]"
+          className="flex items-center gap-1.5 text-[length:var(--text-caption)]"
           style={{ color: "var(--app-text-secondary)", opacity: support.maxTurns ? 1 : 0.4 }}
           title={support.maxTurns ? undefined : unsupportedHint}
         >
@@ -129,7 +129,7 @@ export default function LauncherChips({ draft, onChange }: LauncherChipsProps) {
           <input
             type="number"
             min={1}
-            className="h-7 w-16 rounded-md border bg-background px-1.5 text-[11px] disabled:cursor-not-allowed"
+            className="h-7 w-16 rounded-md border bg-background px-1.5 text-[length:var(--text-caption)] disabled:cursor-not-allowed"
             value={draft.maxTurns ?? ""}
             disabled={!support.maxTurns}
             title={support.maxTurns ? undefined : unsupportedHint}

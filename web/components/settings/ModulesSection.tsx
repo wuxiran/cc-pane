@@ -88,7 +88,7 @@ export default function ModulesSection() {
             </div>
             {module.id === "aiPanel" && (
               <div className="flex items-center gap-3 pb-2 pl-11">
-                <span className="min-w-0 flex-1 text-[12px] text-[var(--app-text-secondary)]">
+                <span className="min-w-0 flex-1 text-[length:var(--text-small)] text-[var(--app-text-secondary)]">
                   {t("modules.autoOpenLabel")}
                 </span>
                 <Switch
@@ -100,7 +100,7 @@ export default function ModulesSection() {
             )}
             {module.id === "aiPanel" && (
               <div className="flex items-center gap-3 pb-2 pl-11">
-                <span className="min-w-0 flex-1 text-[12px] text-[var(--app-text-secondary)]">
+                <span className="min-w-0 flex-1 text-[length:var(--text-small)] text-[var(--app-text-secondary)]">
                   {t("modules.allowAiDialogLabel")}
                 </span>
                 <Switch

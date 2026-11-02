@@ -112,7 +112,7 @@ export default function NotificationHistoryPanel() {
           {t("center.title")}
         </span>
         {unreadCount > 0 && (
-          <span className="rounded-full bg-[var(--app-active-bg)] px-1.5 text-[11px] font-semibold tabular-nums text-[var(--app-accent)]">
+          <span className="rounded-full bg-[var(--app-active-bg)] px-1.5 text-[length:var(--text-caption)] font-semibold tabular-nums text-[var(--app-accent)]">
             {t("center.unreadCount", { count: unreadCount })}
           </span>
         )}
@@ -148,7 +148,7 @@ export default function NotificationHistoryPanel() {
 
       <div className="max-h-[320px] overflow-y-auto px-1.5 pb-2 pt-1">
         {groups.length === 0 ? (
-          <p className="px-3 py-6 text-center text-[12px] text-[var(--app-text-tertiary)]">
+          <p className="px-3 py-6 text-center text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">
             {t("center.empty")}
           </p>
         ) : (
@@ -178,7 +178,7 @@ export default function NotificationHistoryPanel() {
                     {latest.body ? ` — ${latest.body}` : ""}
                     {count > 1 ? ` ×${count}` : ""}
                   </span>
-                  <span className="block text-[11px] text-[var(--app-text-tertiary)]">
+                  <span className="block text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
                     {latest.source ? `${latest.source} · ` : ""}
                     {formatRelativeTime(latest.timestamp, t)}
                     {latest.respondedAt !== undefined && (

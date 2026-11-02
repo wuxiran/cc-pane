@@ -187,7 +187,7 @@ export default function GitCloneDialog({
               disabled={cloning}
             />
             {parentDir && folderName && (
-              <span className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+              <span className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
                 {t("cloneTo", { path: `${parentDir.replace(/[\\/]$/, "")}\\${folderName}` })}
               </span>
             )}
@@ -259,7 +259,7 @@ export default function GitCloneDialog({
                   }}
                 />
               </div>
-              <span className="text-[11px] truncate" style={{ color: "var(--app-text-tertiary)" }}>
+              <span className="text-[length:var(--text-caption)] truncate" style={{ color: "var(--app-text-tertiary)" }}>
                 {progress?.message || t("cloning")}
               </span>
             </div>

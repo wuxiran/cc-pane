@@ -233,7 +233,7 @@ export default memo(function TerminalTabContent({
                 </span>
                 {leaf.launchFailure.fixHint ? (
                   <code
-                    className="select-text break-all rounded px-1.5 py-0.5 text-[11px] leading-4"
+                    className="select-text break-all rounded px-1.5 py-0.5 text-[length:var(--text-caption)] leading-4"
                     style={{
                       background: "var(--app-bg)",
                       color: "var(--app-text-secondary)",
@@ -244,7 +244,7 @@ export default memo(function TerminalTabContent({
                   </code>
                 ) : null}
                 <span
-                  className="text-[11px] leading-4"
+                  className="text-[length:var(--text-caption)] leading-4"
                   style={{ color: "var(--app-text-secondary)" }}
                 >
                   {t("launchFailure.retryHint")}
@@ -277,7 +277,7 @@ export default memo(function TerminalTabContent({
                     {isLaunching ? t("startingTerminal") : t("ready")}
                   </span>
                   <span
-                    className="text-[11px] leading-4"
+                    className="text-[length:var(--text-caption)] leading-4"
                     style={{ color: "var(--app-text-secondary)" }}
                   >
                     {isLaunching ? t("startingTerminalHint") : t("selectProject")}
@@ -327,7 +327,7 @@ export default memo(function TerminalTabContent({
             && !(showStatusBar && settingsShowStatusBar) ? (
             <button
               type="button"
-              className="absolute right-3 z-[2] flex items-center gap-1 rounded-md px-2 py-1 text-[11px]"
+              className="absolute right-3 z-[2] flex items-center gap-1 rounded-md px-2 py-1 text-[length:var(--text-caption)]"
               style={{
                 top: "calc(var(--notch-bar-height, 0px) + 12px)",
                 background: "var(--app-hover)",

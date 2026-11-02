@@ -117,7 +117,7 @@ export default function VersionListSidebar({
                     <Clock size={12} />
                     <span title={formatFullTime(version.createdAt)}>{formatRelativeTime(version.createdAt)}</span>
                   </div>
-                  <div className="text-[11px] mt-1 pl-[18px] flex items-center gap-2" style={{ color: "var(--app-text-tertiary)" }}>
+                  <div className="text-[length:var(--text-caption)] mt-1 pl-[18px] flex items-center gap-2" style={{ color: "var(--app-text-tertiary)" }}>
                     <span>{formatSize(version.size)}</span>
                     {version.branch ? (
                       <Badge variant="outline" className="text-[10px] px-1 h-[18px]" style={{ borderColor: "var(--app-accent)", color: "var(--app-accent)" }}>

@@ -47,7 +47,7 @@ export default function StarredPanel() {
         <Star className="h-4 w-4" fill="currentColor" style={{ color: "var(--app-accent)" }} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold">{t("starredPanelTitle")}</div>
-          <div className="truncate text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+          <div className="truncate text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
             {t("starredPanelCount", { count: starredTabs.length })}
           </div>
         </div>

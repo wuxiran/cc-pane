@@ -82,7 +82,7 @@ export function SummaryStat({ label, value, meta }: { label: string; value: stri
       </div>
       <div className="mt-0.5 truncate text-[13px]" style={{ color: "var(--app-text-primary)" }}>{value}</div>
       {meta && (
-        <div className="truncate text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>{meta}</div>
+        <div className="truncate text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>{meta}</div>
       )}
     </div>
   );

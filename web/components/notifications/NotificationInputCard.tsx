@@ -44,12 +44,12 @@ export default function NotificationInputCard({ record, onDismiss }: Notificatio
   };
 
   const footer = responded ? (
-    <p className="ml-[22px] mt-2 flex items-center gap-1.5 text-[12px] font-medium text-[var(--app-status-success)]">
+    <p className="ml-[22px] mt-2 flex items-center gap-1.5 text-[length:var(--text-small)] font-medium text-[var(--app-status-success)]">
       <Check aria-hidden="true" size={13} />
       {t("center.responded")}
     </p>
   ) : !sessionAlive ? (
-    <p className="ml-[22px] mt-2 rounded-md border border-dashed border-[var(--app-border)] bg-[var(--app-input-bg)] px-2 py-1 text-[12px] text-[var(--app-text-tertiary)]">
+    <p className="ml-[22px] mt-2 rounded-md border border-dashed border-[var(--app-border)] bg-[var(--app-input-bg)] px-2 py-1 text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">
       {t("center.sessionGone")}
     </p>
   ) : (

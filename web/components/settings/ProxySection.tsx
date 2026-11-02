@@ -35,7 +35,7 @@ export default function ProxySection({ value, onChange }: ProxySectionProps) {
 
   return (
     <div className="flex flex-col gap-3">
-      <h3 className="text-[15px] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
+      <h3 className="text-[length:var(--text-title)] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
         {t("proxyTitle")}
       </h3>
 
@@ -122,7 +122,7 @@ export default function ProxySection({ value, onChange }: ProxySectionProps) {
             label={t("excludeList")}
             hint={t("excludeListHint")}
             className="flex flex-col gap-1"
-            hintClassName="text-[11px] text-[var(--app-text-tertiary)]"
+            hintClassName="text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]"
           >
             {({ id, hintId }) => (
               <Input

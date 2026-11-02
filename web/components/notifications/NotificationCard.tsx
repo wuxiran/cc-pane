@@ -115,7 +115,7 @@ export default function NotificationCard({
           </IconTooltipButton>
         </div>
 
-        <p className="ml-[22px] mt-0.5 text-[11px] text-[var(--app-text-tertiary)]">
+        <p className="ml-[22px] mt-0.5 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
           {location && (
             <span className="text-[var(--app-text-secondary)]">
               {location.kind === "layout"

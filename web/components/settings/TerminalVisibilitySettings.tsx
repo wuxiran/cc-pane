@@ -24,13 +24,13 @@ export default function TerminalVisibilitySettings({ value, onChange }: {
           />
         </div>
       ))}
-      <p className="text-[11px] text-[var(--app-text-tertiary)]">{t("terminalColorHint")}</p>
+      <p className="text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{t("terminalColorHint")}</p>
       <div className="flex items-center justify-between gap-6">
         <Label htmlFor="terminal-auto-close-completed">{t("autoCloseCompletedTasks")}</Label>
         <Switch id="terminal-auto-close-completed" checked={value.autoCloseCompletedTasks ?? false}
           onCheckedChange={(checked) => onChange({ ...value, autoCloseCompletedTasks: checked })} />
       </div>
-      <p className="text-[11px] text-[var(--app-text-tertiary)]">{t("autoCloseCompletedTasksHint")}</p>
+      <p className="text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{t("autoCloseCompletedTasksHint")}</p>
     </div>
   );
 }

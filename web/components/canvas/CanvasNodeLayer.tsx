@@ -113,7 +113,7 @@ function CanvasTerminalMirror({ node }: { node: CanvasNodeProjection }) {
 
   if (!node.sessionId) {
     return (
-      <div className="flex h-full items-center justify-center px-4 text-center text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+      <div className="flex h-full items-center justify-center px-4 text-center text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
         {node.status === "offline" ? "Session unavailable" : "No active session"}
       </div>
     );
@@ -262,7 +262,7 @@ function CanvasNodeCard({
         onPointerCancel={finishDrag}
       >
         <Grip className="h-3.5 w-3.5 shrink-0" style={{ color }} aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
+        <span className="min-w-0 flex-1 truncate text-[length:var(--text-caption)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
           {node.label}
         </span>
         <span className="shrink-0 text-[9px] uppercase tracking-[0.08em]" style={{ color }}>

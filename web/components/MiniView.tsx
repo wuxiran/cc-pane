@@ -76,7 +76,7 @@ export default function MiniView() {
         className="flex justify-between items-center px-2 py-1 shrink-0"
         style={{ background: "var(--app-glass-bg-heavy)", borderBottom: "1px solid var(--app-glass-border)" }}
       >
-        <span className="text-[11px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
+        <span className="text-[length:var(--text-caption)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
           CC-Panes
         </span>
         <div className="flex gap-0.5">
@@ -120,7 +120,7 @@ export default function MiniView() {
           </div>
         ))}
         {activeTabs.length === 0 && (
-          <div className="col-span-2 flex items-center justify-center text-[11px] py-4" style={{ color: "var(--app-text-tertiary)" }}>
+          <div className="col-span-2 flex items-center justify-center text-[length:var(--text-caption)] py-4" style={{ color: "var(--app-text-tertiary)" }}>
             {t("miniNoActiveSessions")}
           </div>
         )}

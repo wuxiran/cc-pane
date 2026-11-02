@@ -179,7 +179,7 @@ export default function LocalHistoryPanel({
             {getFileName(change.filePath)}
           </div>
           <div
-            className="text-[11px] truncate"
+            className="text-[length:var(--text-caption)] truncate"
             style={{ color: "var(--app-text-tertiary)" }}
           >
             {getDirName(change.filePath)}
@@ -187,14 +187,14 @@ export default function LocalHistoryPanel({
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span
-            className="text-[11px]"
+            className="text-[length:var(--text-caption)]"
             style={{ color: "var(--app-text-tertiary)" }}
             title={formatFullTime(change.timestamp)}
           >
             {formatRelativeTime(change.timestamp)}
           </span>
           <span
-            className="text-[11px]"
+            className="text-[length:var(--text-caption)]"
             style={{ color: "var(--app-text-tertiary)" }}
           >
             {formatSize(change.size)}
@@ -446,14 +446,14 @@ export default function LocalHistoryPanel({
                             {label.name}
                           </span>
                           <span
-                            className="text-[11px] shrink-0"
+                            className="text-[length:var(--text-caption)] shrink-0"
                             style={{ color: "var(--app-text-tertiary)" }}
                             title={formatFullTime(label.timestamp)}
                           >
                             {formatRelativeTime(label.timestamp)}
                           </span>
                           <span
-                            className="text-[11px] shrink-0"
+                            className="text-[length:var(--text-caption)] shrink-0"
                             style={{ color: "var(--app-text-tertiary)" }}
                           >
                             {t("fileCount", {
@@ -504,14 +504,14 @@ export default function LocalHistoryPanel({
                             {file.filePath}
                           </span>
                           <span
-                            className="text-[11px] shrink-0"
+                            className="text-[length:var(--text-caption)] shrink-0"
                             style={{ color: "var(--app-text-tertiary)" }}
                             title={formatFullTime(file.createdAt)}
                           >
                             {formatRelativeTime(file.createdAt)}
                           </span>
                           <span
-                            className="text-[11px] shrink-0"
+                            className="text-[length:var(--text-caption)] shrink-0"
                             style={{ color: "var(--app-text-tertiary)" }}
                           >
                             {formatSize(file.size)}

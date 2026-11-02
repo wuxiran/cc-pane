@@ -214,7 +214,7 @@ export default function WallpaperSection({ value, onChange }: WallpaperSectionPr
             />
           ) : (
             <div
-              className="flex h-20 w-32 items-center justify-center rounded-md text-[11px]"
+              className="flex h-20 w-32 items-center justify-center rounded-md text-[length:var(--text-caption)]"
               style={{
                 border: "1px dashed var(--app-border)",
                 color: "var(--app-text-tertiary)",

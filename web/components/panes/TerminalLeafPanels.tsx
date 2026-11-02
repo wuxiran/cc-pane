@@ -29,7 +29,7 @@ export function RestoreLogSurface({ entries }: { entries: TerminalRestoreLogEntr
           type="button"
           aria-pressed={showRaw}
           onClick={() => setShowRaw((value) => !value)}
-          className="ml-auto shrink-0 rounded px-1.5 py-0.5 text-[11px] leading-4 hover:bg-[var(--app-hover)]"
+          className="ml-auto shrink-0 rounded px-1.5 py-0.5 text-[length:var(--text-caption)] leading-4 hover:bg-[var(--app-hover)]"
           style={{ color: showRaw ? "var(--app-text-primary)" : "var(--app-text-tertiary)" }}
         >
           {t("restoreLogDetails")}
@@ -38,7 +38,7 @@ export function RestoreLogSurface({ entries }: { entries: TerminalRestoreLogEntr
       <div
         role="log"
         aria-live="polite"
-        className="max-h-52 overflow-y-auto border-t border-[var(--app-border)] px-3 py-2 text-[11px] leading-4 text-muted-foreground"
+        className="max-h-52 overflow-y-auto border-t border-[var(--app-border)] px-3 py-2 text-[length:var(--text-caption)] leading-4 text-muted-foreground"
       >
         {formatted.length > 0
           ? formatted.map((entry) => (

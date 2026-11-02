@@ -92,7 +92,7 @@ export function ThemeEditor() {
           <h2 id="theme-custom-heading" className="text-[13px] font-semibold text-[var(--app-text-primary)]">
             {t("theme.custom.title")}
           </h2>
-          <p className="mt-1 text-[12px] text-[var(--app-text-tertiary)]">
+          <p className="mt-1 text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">
             {t("theme.custom.description")}
           </p>
         </div>
@@ -126,7 +126,7 @@ export function ThemeEditor() {
       </div>
 
       <div className="space-y-2" role="group" aria-label={t("theme.custom.accentLabel")}>
-        <span className="text-[12px] font-medium text-[var(--app-text-secondary)]">
+        <span className="text-[length:var(--text-small)] font-medium text-[var(--app-text-secondary)]">
           {t("theme.custom.accentLabel")}
         </span>
         <div className="flex flex-wrap items-center gap-2">
@@ -135,7 +135,7 @@ export function ThemeEditor() {
             aria-pressed={overrides?.accent === undefined}
             onClick={() => selectAccent(undefined)}
             className={cn(
-              "shape-control flex h-6 items-center rounded-full border px-2 text-[11px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]",
+              "shape-control flex h-6 items-center rounded-full border px-2 text-[length:var(--text-caption)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]",
               overrides?.accent === undefined
                 ? "border-[var(--app-accent)] bg-[var(--app-active-bg)] text-[var(--app-accent)]"
                 : "border-dashed border-[var(--app-border)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]",

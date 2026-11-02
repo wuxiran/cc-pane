@@ -279,10 +279,10 @@ export default function WorkspaceSkillsHub({ workspaceName }: WorkspaceSkillsHub
       <header className="shrink-0 px-6 pb-3 pt-5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="text-[15px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
+            <h1 className="text-[length:var(--text-title)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
               {t("workspaceTitle")}
             </h1>
-            <p className="mt-1 text-[12px] leading-relaxed" style={{ color: "var(--app-text-tertiary)" }}>
+            <p className="mt-1 text-[length:var(--text-small)] leading-relaxed" style={{ color: "var(--app-text-tertiary)" }}>
               {t("hub.summary", {
                 workspace: model.skills.length,
                 bundled: bundled.length,
@@ -420,7 +420,7 @@ export default function WorkspaceSkillsHub({ workspaceName }: WorkspaceSkillsHub
                       <span className="text-[13px] font-medium" style={{ color: "var(--app-text-secondary)" }}>
                         {t("hub.workspaceEmpty")}
                       </span>
-                      <span className="text-[12px]">{t("hub.selectWorkspace")}</span>
+                      <span className="text-[length:var(--text-small)]">{t("hub.selectWorkspace")}</span>
                     </button>
                   ) : visibleWorkspace.map((skill) => (
                     <SkillCard
@@ -591,7 +591,7 @@ function SkillCard({
           <div className="truncate text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }} title={name}>
             {name}
           </div>
-          <div className="mt-0.5 flex items-center gap-1.5 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+          <div className="mt-0.5 flex items-center gap-1.5 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
             <span className="truncate">{badge}</span>
             {meta && (
               <>
@@ -656,14 +656,14 @@ function BundledDetail({
                 {description}
               </p>
             )}
-            <p className="mt-2 text-[11px] leading-relaxed" style={{ color: "var(--app-text-tertiary)" }}>
+            <p className="mt-2 text-[length:var(--text-caption)] leading-relaxed" style={{ color: "var(--app-text-tertiary)" }}>
               {profileName ? t("hub.profileLabel", { name: profileName }) : t("hub.noProfile")}
               {" · "}
               {t("hub.readonlyHint")}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-3">
-            <label className="flex items-center gap-2 text-[12px]" style={{ color: "var(--app-text-secondary)" }}>
+            <label className="flex items-center gap-2 text-[length:var(--text-small)]" style={{ color: "var(--app-text-secondary)" }}>
               <span>{t("hub.enabled")}</span>
               <Switch checked={enabled} disabled={!canToggle} onCheckedChange={onToggle} aria-label={skill.name} />
             </label>

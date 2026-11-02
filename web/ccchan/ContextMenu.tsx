@@ -64,7 +64,7 @@ export function ContextMenu({
           color: "var(--popover-foreground)",
         }}
       >
-        <div className="flex items-center gap-2 px-3 py-2 text-[12px] font-semibold">
+        <div className="flex items-center gap-2 px-3 py-2 text-[length:var(--text-small)] font-semibold">
           <Bot size={14} />
           <span>{t("contextMenu.title")}</span>
         </div>

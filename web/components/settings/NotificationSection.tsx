@@ -17,7 +17,7 @@ export default function NotificationSection({ value, onChange }: NotificationSec
 
   return (
     <div className="flex flex-col gap-3">
-      <h3 className="text-[15px] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
+      <h3 className="text-[length:var(--text-title)] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
         {t("notificationTitle")}
       </h3>
       <p className="text-xs mb-3" style={{ color: "var(--app-text-tertiary)" }}>

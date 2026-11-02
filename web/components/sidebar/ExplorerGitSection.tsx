@@ -248,21 +248,21 @@ function GitProjectGroup({
           <Chevron className="h-4 w-4 shrink-0 text-[var(--app-text-tertiary)]" />
           <span className="shrink-0 text-xs font-semibold text-[var(--app-text-primary)]">{name}</span>
           {state.kind === "git" && state.branch && (
-            <span className="flex min-w-0 items-center gap-1 text-[11px] text-[var(--app-text-secondary)]">
+            <span className="flex min-w-0 items-center gap-1 text-[length:var(--text-caption)] text-[var(--app-text-secondary)]">
               <GitBranch className="h-3.5 w-3.5 shrink-0 text-[var(--app-accent)]" />
               <span className="truncate" title={state.branch}>{state.branch}</span>
             </span>
           )}
           {state.kind === "git" && state.changes.length > 0 && (
             <span
-              className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums leading-none text-[var(--app-text-tertiary)]"
+              className="shrink-0 rounded px-1.5 py-0.5 text-[length:var(--text-caption)] font-medium tabular-nums leading-none text-[var(--app-text-tertiary)]"
               style={{ background: "color-mix(in srgb, var(--app-text-primary) 8%, transparent)" }}
             >
               {state.changes.length}
             </span>
           )}
           {stateHint && (
-            <span className="min-w-0 truncate text-[11px] text-[var(--app-status-danger)]" title={stateHint}>
+            <span className="min-w-0 truncate text-[length:var(--text-caption)] text-[var(--app-status-danger)]" title={stateHint}>
               {stateHint}
             </span>
           )}
@@ -292,7 +292,7 @@ function GitProjectGroup({
       {expanded && (
         <div className={`flex flex-col ${showHeader ? "pb-1 pl-3" : ""}`}>
           {state.kind === "git" && state.repoRoot && state.repoRoot !== project.path && (
-            <div className="truncate px-2 py-1 text-[11px] text-[var(--app-text-tertiary)]" title={state.repoRoot}>
+            <div className="truncate px-2 py-1 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]" title={state.repoRoot}>
               {t("explorer.gitRepoRoot", { path: state.repoRoot })}
             </div>
           )}

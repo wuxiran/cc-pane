@@ -203,7 +203,7 @@ export default function LaunchProfileListAside({
                 </span>
                 <Badge variant="secondary" className="text-[10px]">{t("common:default")}</Badge>
               </div>
-              <div className="mt-0.5 truncate text-[11px] text-[var(--app-text-secondary)]">
+              <div className="mt-0.5 truncate text-[length:var(--text-caption)] text-[var(--app-text-secondary)]">
                 {t("systemDefaultCardHint")}
               </div>
             </button>
@@ -229,7 +229,7 @@ export default function LaunchProfileListAside({
                       <Badge variant="secondary" className="text-[10px]">{t("common:default")}</Badge>
                     )}
                   </div>
-                  <div className="mt-0.5 truncate text-[11px] text-[var(--app-text-secondary)]">
+                  <div className="mt-0.5 truncate text-[length:var(--text-caption)] text-[var(--app-text-secondary)]">
                     {providers.find((provider) => provider.id === profile.providerId)?.name ?? t("noProviderSpecified")}
                   </div>
                   <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--app-text-tertiary)]">
@@ -244,7 +244,7 @@ export default function LaunchProfileListAside({
 
             {!compact && filteredProfiles.length === 0 && (
               <div className="mt-2 rounded-md border border-dashed border-[var(--app-border)] px-3 py-3">
-                <p className="text-[11px] leading-4 text-[var(--app-text-secondary)]">
+                <p className="text-[length:var(--text-caption)] leading-4 text-[var(--app-text-secondary)]">
                   {t("listEmptyAll")}
                 </p>
                 <Button size="xs" variant="outline" className="mt-2" onClick={onCopySystemDefault}>
@@ -295,7 +295,7 @@ export default function LaunchProfileListAside({
                         </span>
                         {selected && <Badge variant="outline" className="text-[10px]">{t("currentWorkspace")}</Badge>}
                       </div>
-                      <div className="mt-1 truncate pl-[22px] text-[11px] text-[var(--app-text-secondary)]">
+                      <div className="mt-1 truncate pl-[22px] text-[length:var(--text-caption)] text-[var(--app-text-secondary)]">
                         {compatibleBoundProfile
                           ? profileDisplayName(compatibleBoundProfile)
                           : boundProfile
@@ -322,7 +322,7 @@ export default function LaunchProfileListAside({
                               key={project.id}
                               type="button"
                               disabled={!compatible}
-                              className="flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left text-[11px] transition-colors hover:bg-[var(--app-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+                              className="flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left text-[length:var(--text-caption)] transition-colors hover:bg-[var(--app-hover)] disabled:cursor-not-allowed disabled:opacity-60"
                               onClick={() => onSelectWorkspaceProfile(workspace, profile)}
                               title={project.path}
                             >

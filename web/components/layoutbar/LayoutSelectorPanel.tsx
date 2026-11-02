@@ -182,7 +182,7 @@ export function LayoutSelectorPanel({
           className="flex min-w-0 flex-1 cursor-move select-none items-center self-stretch pr-2"
           onPointerDown={handlePanelTitlePointerDown}
         >
-          <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--app-text-tertiary)" }}>
+          <span className="text-[length:var(--text-caption)] font-semibold uppercase tracking-wide" style={{ color: "var(--app-text-tertiary)" }}>
             {t("layouts")}
           </span>
         </div>

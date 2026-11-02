@@ -135,7 +135,7 @@ export default function ProjectSkillEditor({
                 aria-invalid={nameState === "invalid"}
               />
               {nameState === "invalid" && (
-                <p className="text-[11px]" style={{ color: "var(--app-status-danger)" }}>
+                <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-status-danger)" }}>
                   {t("editor.nameInvalid")}
                 </p>
               )}
@@ -147,7 +147,7 @@ export default function ProjectSkillEditor({
               <span className="truncate font-mono text-sm font-medium">{existing.skill.name}</span>
               <ConsumerBadges consumers={existing.skill.consumers} />
             </div>
-            <div className="mt-0.5 truncate font-mono text-[11px]" style={{ color: "var(--app-text-tertiary)" }} title={existing.skill.dirPath}>
+            <div className="mt-0.5 truncate font-mono text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }} title={existing.skill.dirPath}>
               {singleRoot ? existing.skill.dirPath : `${existing.skill.root}/${existing.skill.relDir}`}
             </div>
           </div>
@@ -214,12 +214,12 @@ export default function ProjectSkillEditor({
         />
         {!isNew && existing.files.length > 1 && (
           <aside className="w-56 shrink-0 overflow-y-auto border-l border-border p-3">
-            <div className="mb-2 text-[11px] font-medium" style={{ color: "var(--app-text-secondary)" }}>
+            <div className="mb-2 text-[length:var(--text-caption)] font-medium" style={{ color: "var(--app-text-secondary)" }}>
               {t("editor.filesTitle")}
             </div>
             <ul className="space-y-1">
               {existing.files.map((file) => (
-                <li key={file} className="flex items-center gap-1.5 truncate font-mono text-[11px]" style={{ color: "var(--app-text-tertiary)" }} title={file}>
+                <li key={file} className="flex items-center gap-1.5 truncate font-mono text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }} title={file}>
                   <FileText size={11} className="shrink-0" />
                   <span className="truncate">{file}</span>
                 </li>

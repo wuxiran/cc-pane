@@ -168,7 +168,7 @@ export default function WorkspaceEmptyActions({
         <div className="flex flex-col gap-0.5">
           {!compact && (
             <div
-              className="text-[11px] font-semibold uppercase tracking-[0.09em]"
+              className="text-[length:var(--text-caption)] font-semibold uppercase tracking-[0.09em]"
               style={{ color: "var(--app-text-tertiary)" }}
             >
               {t("workspaceEmptyTitle", { name: workspace.alias || workspace.name })}
@@ -209,7 +209,7 @@ export default function WorkspaceEmptyActions({
             </span>
             {!mini && (
               <span
-                className={`truncate font-semibold ${compact ? "flex-1 text-left text-[12px]" : "text-[12.5px]"}`}
+                className={`truncate font-semibold ${compact ? "flex-1 text-left text-[length:var(--text-small)]" : "text-[12.5px]"}`}
                 style={{ color: "var(--app-text-primary)" }}
               >
                 {action.label}
@@ -223,7 +223,7 @@ export default function WorkspaceEmptyActions({
         <>
           {!mini && (
             <div
-              className="mt-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.09em]"
+              className="mt-1 flex items-center gap-2 text-[length:var(--text-caption)] font-semibold uppercase tracking-[0.09em]"
               style={{ color: "var(--app-text-tertiary)" }}
             >
               <History className="h-3.5 w-3.5" />
@@ -259,7 +259,7 @@ export default function WorkspaceEmptyActions({
                 {!mini && (
                   <span className="min-w-0 flex-1 text-left">
                     <span
-                      className="block truncate text-[12px] font-semibold"
+                      className="block truncate text-[length:var(--text-small)] font-semibold"
                       style={{ color: "var(--app-text-primary)" }}
                     >
                       {methodLabel(method)}

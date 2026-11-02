@@ -73,7 +73,7 @@ export default function LauncherCliRow({ value, onChange }: LauncherCliRowProps)
               className="h-[18px] w-[18px]"
             />
             <span
-              className="text-[12px] font-semibold"
+              className="text-[length:var(--text-small)] font-semibold"
               style={{ color: active ? "var(--app-accent)" : "var(--app-text-primary)" }}
             >
               {item.label}
@@ -111,7 +111,7 @@ export default function LauncherCliRow({ value, onChange }: LauncherCliRowProps)
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-[180px]">
           {moreTools.length === 0 && (
-            <DropdownMenuItem disabled className="text-[12px]">
+            <DropdownMenuItem disabled className="text-[length:var(--text-small)]">
               {t("noMoreTools")}
             </DropdownMenuItem>
           )}

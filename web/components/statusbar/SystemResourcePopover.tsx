@@ -163,7 +163,7 @@ export function SystemResourcePopover({
         </div>
       ) : (
       <div className="max-h-[430px] overflow-y-auto p-2">
-        <div className="mb-1 px-1 text-[11px] font-semibold text-[var(--app-text-tertiary)]">
+        <div className="mb-1 px-1 text-[length:var(--text-caption)] font-semibold text-[var(--app-text-tertiary)]">
           {t("resourceManagerManagedSessions")}
         </div>
         {groups.length === 0 ? (
@@ -183,7 +183,7 @@ export function SystemResourcePopover({
                 >
                   {collapsed ? <ChevronRight className="size-3" /> : <ChevronDown className="size-3" />}
                   <span title={group.name} className="min-w-0 flex-1 truncate">{group.name}</span>
-                  <span className="shrink-0 tabular-nums text-[11px] text-[var(--app-text-tertiary)]">
+                  <span className="shrink-0 tabular-nums text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
                     {formatCpu(group.cpuPercent)} · {formatSize(group.memoryBytes)}
                   </span>
                 </button>
@@ -230,7 +230,7 @@ export function SystemResourcePopover({
               <Button
                 size="sm"
                 variant="destructive"
-                className="h-7 px-2 text-[11px]"
+                className="h-7 px-2 text-[length:var(--text-caption)]"
                 disabled={killingOrphans}
                 onClick={onKillOrphans}
               >
@@ -240,7 +240,7 @@ export function SystemResourcePopover({
               <Button
                 size="sm"
                 variant="outline"
-                className="h-7 px-2 text-[11px] text-[var(--app-status-danger)]"
+                className="h-7 px-2 text-[length:var(--text-caption)] text-[var(--app-status-danger)]"
                 onClick={onArmOrphanKill}
               >
                 <Trash2 className="size-3" />
@@ -253,7 +253,7 @@ export function SystemResourcePopover({
               <span className="min-w-0 flex-1 truncate text-[var(--app-text-secondary)]" title={orphan.command}>
                 {orphan.name}
               </span>
-              <span className="shrink-0 tabular-nums text-[11px] text-[var(--app-text-tertiary)]">
+              <span className="shrink-0 tabular-nums text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
                 PID {orphan.pid} · {formatCpu(orphan.cpuPercent)} · {formatSize(orphan.memoryBytes)}
               </span>
             </div>

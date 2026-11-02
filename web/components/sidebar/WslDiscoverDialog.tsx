@@ -302,7 +302,7 @@ export default function WslDiscoverDialog({
           {/* 底部提示：非加载、非错误状态时显示 */}
           {!loading && !error && (
             <p
-              className="text-[11px] mt-3 px-1"
+              className="text-[length:var(--text-caption)] mt-3 px-1"
               style={{ color: "var(--app-text-muted)" }}
             >
               {t("ssh.wsl.sshdHint", {

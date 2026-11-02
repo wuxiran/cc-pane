@@ -35,7 +35,7 @@ export default function SettingsSidebar({ pages, activePageId, onSelect, searchS
             <section key={group.id} aria-labelledby={`settings-group-${group.id}`}>
               <h2
                 id={`settings-group-${group.id}`}
-                className="mb-1 px-2 text-[12px] font-medium text-[var(--app-text-tertiary)]"
+                className="mb-1 px-2 text-[length:var(--text-small)] font-medium text-[var(--app-text-tertiary)]"
               >
                 {t(group.titleKey)}
               </h2>
@@ -62,7 +62,7 @@ export default function SettingsSidebar({ pages, activePageId, onSelect, searchS
           );
         })}
       </div>
-      <div className="shrink-0 border-t border-[var(--app-border)] px-3 py-2.5 text-[12px] leading-4 text-[var(--app-text-tertiary)] sm:text-[12px]">
+      <div className="shrink-0 border-t border-[var(--app-border)] px-3 py-2.5 text-[length:var(--text-small)] leading-4 text-[var(--app-text-tertiary)] sm:text-[length:var(--text-small)]">
         <div className="truncate">CC-Panes</div>
         <div className="truncate">v{packageJson.version}</div>
       </div>

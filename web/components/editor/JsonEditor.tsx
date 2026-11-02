@@ -225,7 +225,7 @@ export default function JsonEditor({
         <button
           type="button"
           onClick={handleFormat}
-          className="mt-1.5 inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded hover:bg-[var(--app-hover)] transition-colors"
+          className="mt-1.5 inline-flex items-center gap-1 px-2.5 py-1 text-[length:var(--text-caption)] font-medium rounded hover:bg-[var(--app-hover)] transition-colors"
           style={{ color: "var(--app-text-secondary)" }}
         >
           <Wand2 className="w-3 h-3" />

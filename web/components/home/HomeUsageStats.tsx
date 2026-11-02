@@ -229,7 +229,7 @@ export default function HomeUsageStats() {
         <div className="flex shrink-0 items-center gap-1.5">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button type="button" className="inline-flex h-8 w-[104px] shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-[12px]" style={{ background: "var(--app-home-surface)", borderColor: "var(--app-home-border)", color: "var(--app-text-primary)" }}>
+              <button type="button" className="inline-flex h-8 w-[104px] shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-[length:var(--text-small)]" style={{ background: "var(--app-home-surface)", borderColor: "var(--app-home-border)", color: "var(--app-text-primary)" }}>
                 <span className="min-w-0 flex-1 truncate">{currentSourceLabel}</span>
                 <ChevronDown className="h-3.5 w-3.5 opacity-60" />
               </button>
@@ -243,7 +243,7 @@ export default function HomeUsageStats() {
           </DropdownMenu>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button type="button" className="inline-flex h-8 w-[130px] shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-[12px]" style={{ background: "var(--app-home-surface)", borderColor: "var(--app-home-border)", color: "var(--app-text-primary)" }}>
+              <button type="button" className="inline-flex h-8 w-[130px] shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-[length:var(--text-small)]" style={{ background: "var(--app-home-surface)", borderColor: "var(--app-home-border)", color: "var(--app-text-primary)" }}>
                 <span className="min-w-0 flex-1 truncate">{currentWorkspaceLabel}</span>
                 <ChevronDown className="h-3.5 w-3.5 opacity-60" />
               </button>
@@ -261,7 +261,7 @@ export default function HomeUsageStats() {
             {RANGE_OPTIONS.map((option) => {
               const active = rangeKey === option.key;
               return (
-                <button key={option.key} type="button" className="min-w-9 shrink-0 whitespace-nowrap px-1.5 text-[12px] transition-colors" style={{ background: active ? "var(--app-accent)" : "var(--app-home-surface)", color: active ? "var(--primary-foreground)" : "var(--app-text-secondary)" }} onClick={() => void handleRangeKeyChange(option.key)}>
+                <button key={option.key} type="button" className="min-w-9 shrink-0 whitespace-nowrap px-1.5 text-[length:var(--text-small)] transition-colors" style={{ background: active ? "var(--app-accent)" : "var(--app-home-surface)", color: active ? "var(--primary-foreground)" : "var(--app-text-secondary)" }} onClick={() => void handleRangeKeyChange(option.key)}>
                   {t(option.labelKey)}
                 </button>
               );
@@ -312,7 +312,7 @@ export default function HomeUsageStats() {
                 const Icon = item.icon;
                 return (
                   <div key={item.key} className="min-w-0 border-b px-4 py-3 sm:border-r last:border-r-0" style={{ borderColor: "var(--app-home-row-border)" }}>
-                    <div className="flex items-center gap-2 text-[12px] font-medium" style={{ color: "var(--app-text-secondary)" }}>
+                    <div className="flex items-center gap-2 text-[length:var(--text-small)] font-medium" style={{ color: "var(--app-text-secondary)" }}>
                       <Icon className="h-3.5 w-3.5" style={{ color: item.color }} />
                       {item.label}
                     </div>
@@ -321,7 +321,7 @@ export default function HomeUsageStats() {
                 );
               })}
               <div className="min-w-0 px-4 py-3 sm:col-span-2 lg:col-span-2">
-                <div className="flex items-center justify-between gap-3 text-[12px] font-medium" style={{ color: "var(--app-text-secondary)" }}>
+                <div className="flex items-center justify-between gap-3 text-[length:var(--text-small)] font-medium" style={{ color: "var(--app-text-secondary)" }}>
                   <span className="flex items-center gap-2"><Gauge className="h-3.5 w-3.5" style={{ color: "var(--chart-2)" }} />{t("usage.cacheHitRate")}</span>
                   <span className="tabular-nums" style={{ color: "var(--chart-2)" }}>{formatPercent(hitRate(totals))}</span>
                 </div>
@@ -335,7 +335,7 @@ export default function HomeUsageStats() {
           <section className="rounded-lg border p-4" style={{ background: "var(--app-home-surface)", borderColor: "var(--app-home-border)" }}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-[15px] font-semibold" style={{ color: "var(--app-text-primary)" }}>{t("usage.tokenChartTitle")}</h3>
+                <h3 className="text-[length:var(--text-title)] font-semibold" style={{ color: "var(--app-text-primary)" }}>{t("usage.tokenChartTitle")}</h3>
                 <p className="mt-1 text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("usage.trendDescription")}</p>
               </div>
               <span className="text-sm" style={{ color: "var(--app-text-secondary)" }}>{activeRangeLabel}</span>

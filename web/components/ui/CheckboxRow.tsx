@@ -47,7 +47,7 @@ export function CheckboxRow({
           </span>
         )}
       </span>
-      {trailing && <span className="ml-auto shrink-0 text-[11px] text-[var(--app-text-tertiary)]">{trailing}</span>}
+      {trailing && <span className="ml-auto shrink-0 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{trailing}</span>}
     </label>
   );
 }

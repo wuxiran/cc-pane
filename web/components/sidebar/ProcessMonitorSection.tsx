@@ -71,7 +71,7 @@ function ProcessItem({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className="group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-[var(--app-hover)] transition-colors text-[11px]">
+        <div className="group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-[var(--app-hover)] transition-colors text-[length:var(--text-caption)]">
           <input
             type="checkbox"
             checked={selected}
@@ -101,7 +101,7 @@ function ProcessItem({
         </div>
       </TooltipTrigger>
       <TooltipContent side="right" className="max-w-[400px]">
-        <div className="text-[11px] space-y-1">
+        <div className="text-[length:var(--text-caption)] space-y-1">
           <div><strong>PID:</strong> {process.pid}</div>
           <div><strong>Command:</strong> <span className="break-all">{process.command || "(empty)"}</span></div>
           {process.cwd && <div><strong>CWD:</strong> {process.cwd}</div>}
@@ -133,7 +133,7 @@ function CwdGroup({
   return (
     <div>
       <button
-        className="flex items-center gap-1 w-full px-2 py-1 text-[11px] font-medium text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] rounded transition-colors"
+        className="flex items-center gap-1 w-full px-2 py-1 text-[length:var(--text-caption)] font-medium text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] rounded transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
         {expanded
@@ -288,7 +288,7 @@ export default function ProcessMonitorSection() {
 
       {/* 确认弹窗 */}
       {confirmAction && (
-        <div className="mt-1 p-2 rounded-lg border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-bg)] text-[11px]">
+        <div className="mt-1 p-2 rounded-lg border border-[var(--app-status-danger-border)] bg-[var(--app-status-danger-bg)] text-[length:var(--text-caption)]">
           <div className="flex items-center gap-1 text-[var(--app-status-danger)] mb-1.5">
             <AlertTriangle className="w-3 h-3" />
             <span className="font-medium">
@@ -328,13 +328,13 @@ export default function ProcessMonitorSection() {
       {expanded && (
         <div className="mt-1">
           {totalCount === 0 && !scanning && (
-            <div className="flex items-center gap-1.5 px-2 py-2 text-[11px] text-[var(--app-text-tertiary)]">
+            <div className="flex items-center gap-1.5 px-2 py-2 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
               <Cpu className="w-3 h-3" />
               <span>{t("processMonitor.noProcesses")}</span>
             </div>
           )}
           {totalCount === 0 && scanning && (
-            <div className="flex items-center gap-1.5 px-2 py-2 text-[11px] text-[var(--app-text-tertiary)]">
+            <div className="flex items-center gap-1.5 px-2 py-2 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
               <RefreshCw className="w-3 h-3 animate-spin" />
               <span>{t("processMonitor.scanning")}</span>
             </div>

@@ -71,9 +71,9 @@ export default function MobileWorkspaceActionSheet({
         <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[var(--app-border)]" />
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-[12px] font-medium text-[var(--app-text-tertiary)]">{t("sheet.title")}</div>
+            <div className="text-[length:var(--text-small)] font-medium text-[var(--app-text-tertiary)]">{t("sheet.title")}</div>
             <h2 className="mt-1 truncate text-[18px] font-semibold text-[var(--app-text-primary)]">{workspace.alias ?? workspace.name}</h2>
-            <p className="mt-1 truncate text-[12px] text-[var(--app-text-tertiary)]">{workspace.path ?? workspace.name}</p>
+            <p className="mt-1 truncate text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">{workspace.path ?? workspace.name}</p>
           </div>
           <button
             type="button"
@@ -168,7 +168,7 @@ export default function MobileWorkspaceActionSheet({
         </ActionGroup>
 
         {error && (
-          <div className="mt-3 rounded-md border border-[color-mix(in_srgb,var(--app-status-danger)_30%,transparent)] bg-[var(--app-status-danger-bg)] px-3 py-2 text-[12px] text-[var(--app-status-danger)]">
+          <div className="mt-3 rounded-md border border-[color-mix(in_srgb,var(--app-status-danger)_30%,transparent)] bg-[var(--app-status-danger-bg)] px-3 py-2 text-[length:var(--text-small)] text-[var(--app-status-danger)]">
             {error}
           </div>
         )}
@@ -221,7 +221,7 @@ function ActionRow({
       </span>
       <span className="min-w-0 flex-1">
         <span className={`block truncate text-[13px] font-semibold ${disabled ? "text-[var(--app-text-tertiary)]" : destructive ? "text-[var(--app-status-danger)]" : "text-[var(--app-text-primary)]"}`}>{busy ? t("sheet.busy") : label}</span>
-        <span className="mt-0.5 block truncate text-[11px] text-[var(--app-text-tertiary)]">{detail}</span>
+        <span className="mt-0.5 block truncate text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{detail}</span>
       </span>
       <ChevronRight className="h-4 w-4 flex-none text-[var(--app-text-tertiary)]" />
     </>

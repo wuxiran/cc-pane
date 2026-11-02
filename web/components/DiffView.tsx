@@ -116,7 +116,7 @@ export default memo(function DiffView({ diff, loading, wrap = true, showStats = 
       {diff.hunks.map((hunk, hi) => (
         <div key={hi} className="mb-0.5">
           <div
-            className="px-3 py-1 text-[11px]"
+            className="px-3 py-1 text-[length:var(--text-caption)]"
             style={{
               background: "var(--app-active-bg)",
               color: "var(--app-text-secondary)",
@@ -149,10 +149,10 @@ export default memo(function DiffView({ diff, loading, wrap = true, showStats = 
 
             return (
               <div key={li} className="flex whitespace-pre min-h-[20px]" style={{ background: bgColor }}>
-                <span className="inline-block w-11 shrink-0 text-right pr-2 text-[11px] select-none" style={{ color: "var(--app-text-tertiary)" }}>
+                <span className="inline-block w-11 shrink-0 text-right pr-2 text-[length:var(--text-caption)] select-none" style={{ color: "var(--app-text-tertiary)" }}>
                   {line.oldLineNo ?? ""}
                 </span>
-                <span className="inline-block w-11 shrink-0 text-right pr-2 text-[11px] select-none" style={{ color: "var(--app-text-tertiary)" }}>
+                <span className="inline-block w-11 shrink-0 text-right pr-2 text-[length:var(--text-caption)] select-none" style={{ color: "var(--app-text-tertiary)" }}>
                   {line.newLineNo ?? ""}
                 </span>
                 <span className="inline-block w-4 shrink-0 text-center select-none font-semibold" style={{ color: signColor }}>

@@ -51,7 +51,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
 
   return (
     <div className="flex flex-col gap-3">
-      <h3 className="text-[15px] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
+      <h3 className="text-[length:var(--text-title)] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
         {t("terminalTitle")}
       </h3>
 
@@ -81,7 +81,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
               )}
             </FormField>
           </div>
-          <p className="text-[12px]" style={{ color: "var(--app-text-secondary)" }}>
+          <p className="text-[length:var(--text-small)]" style={{ color: "var(--app-text-secondary)" }}>
             {t("fontFamilyCjkHint")}
           </p>
         </div>
@@ -189,7 +189,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
             </SelectContent>
           </Select>
         </div>
-        <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+        <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
           {t("rendererHint")}
         </p>
       </div>
@@ -198,7 +198,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 flex-col gap-1">
             <Label htmlFor="terminal-path-links-enabled">{t("pathLinksEnabled")}</Label>
-            <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+            <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
               {t("pathLinksEnabledHint")}
             </p>
           </div>
@@ -215,7 +215,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 flex-col gap-1">
             <Label htmlFor="terminal-inline-images-enabled">{t("inlineImagesEnabled")}</Label>
-            <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+            <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
               {t("inlineImagesEnabledHint")}
             </p>
           </div>
@@ -242,7 +242,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
             />
             <Label htmlFor="terminal-show-context-usage">{t("showContextUsage")}</Label>
           </div>
-          <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+          <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
             {t("showContextUsageHint")}
           </p>
         </div>
@@ -262,7 +262,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
             />
             <Label htmlFor="terminal-show-status-bar">{t("showStatusBar")}</Label>
           </div>
-          <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+          <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
             {t("showStatusBarHint")}
           </p>
         </div>
@@ -272,7 +272,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 flex-col gap-1">
             <Label htmlFor="terminal-task-queue-enabled">{t("taskQueueEnabled")}</Label>
-            <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+            <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
               {t("taskQueueEnabledHint")}
             </p>
           </div>
@@ -289,7 +289,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 flex-col gap-1">
             <Label htmlFor="terminal-split-passthrough-enabled">{t("splitShortcutPassthrough")}</Label>
-            <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+            <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
               {t("splitShortcutPassthroughHint")}
             </p>
           </div>
@@ -316,7 +316,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
           />
           <Label htmlFor="terminal-daemon-enabled">{t("terminalDaemon")}</Label>
         </div>
-        <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+        <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
           {t("terminalDaemonHint")}
         </p>
       </div>
@@ -334,7 +334,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
             />
             <Label htmlFor="terminal-resume-id-backfill">{t("resumeIdBackfill")}</Label>
           </div>
-          <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+          <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
             {t("resumeIdBackfillHint")}
           </p>
         </div>
@@ -352,7 +352,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
             />
             <Label htmlFor="terminal-daemon-orphan-reaper-disabled">{t("daemonOrphanReaperDisabled")}</Label>
           </div>
-          <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+          <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
             {t("daemonOrphanReaperDisabledHint")}
           </p>
         </div>
@@ -376,7 +376,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
               />
             )}
           </FormField>
-          <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+          <p className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
             {t("daemonOrphanTtlHint")}
           </p>
         </div>

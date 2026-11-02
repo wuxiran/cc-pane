@@ -46,7 +46,7 @@ export default function SettingsSearchBox({
       {showResults && (
         <div className="absolute left-0 right-0 top-10 z-50 max-h-80 overflow-y-auto rounded-md border border-[var(--app-border)] bg-[var(--app-panel-bg)] p-1 shadow-lg">
           {results.length === 0 ? (
-            <p className="px-3 py-5 text-center text-[12px] text-[var(--app-text-tertiary)]">{t("searchEmpty")}</p>
+            <p className="px-3 py-5 text-center text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">{t("searchEmpty")}</p>
           ) : results.slice(0, 12).map((result) => (
             <button
               key={result.id}
@@ -58,10 +58,10 @@ export default function SettingsSearchBox({
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[13px] font-medium text-[var(--app-text-primary)]">{result.title}</span>
                 {result.description && (
-                  <span className="mt-0.5 block line-clamp-2 text-[11px] text-[var(--app-text-tertiary)]">{result.description}</span>
+                  <span className="mt-0.5 block line-clamp-2 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{result.description}</span>
                 )}
               </span>
-              <span className="text-[11px] text-[var(--app-text-tertiary)]">{t(`searchLayers.${result.layer}`)}</span>
+              <span className="text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">{t(`searchLayers.${result.layer}`)}</span>
             </button>
           ))}
         </div>

@@ -100,7 +100,7 @@ function ProgressRing({ completed, total, label }: { completed: number; total: n
           strokeDashoffset={offset}
         />
       </svg>
-      <span className="absolute inset-0 grid place-items-center text-[11px] font-semibold text-[var(--app-accent)]">
+      <span className="absolute inset-0 grid place-items-center text-[length:var(--text-caption)] font-semibold text-[var(--app-accent)]">
         {completed}/{total}
       </span>
     </div>
@@ -211,7 +211,7 @@ export default function SetupGuideChecklist({
     >
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
-          <Heading className="text-[15px] font-semibold text-[var(--app-text-primary)]">
+          <Heading className="text-[length:var(--text-title)] font-semibold text-[var(--app-text-primary)]">
             {t("setupGuide.title")}
           </Heading>
           <p className="mt-0.5 text-xs leading-relaxed text-[var(--app-text-tertiary)]">
@@ -253,7 +253,7 @@ export default function SetupGuideChecklist({
               <div className="flex shrink-0 flex-col items-center gap-2">
                 <span
                   className={cn(
-                    "relative z-[1] grid place-items-center rounded-full border-[1.5px] text-[11px] font-semibold",
+                    "relative z-[1] grid place-items-center rounded-full border-[1.5px] text-[length:var(--text-caption)] font-semibold",
                     isCurrent
                       ? "guide-node-pulse size-[30px] border-[var(--app-accent)] bg-[var(--app-accent)] text-white"
                       : "size-[26px]",
@@ -267,7 +267,7 @@ export default function SetupGuideChecklist({
                 </span>
                 <span
                   className={cn(
-                    "whitespace-nowrap text-[11px]",
+                    "whitespace-nowrap text-[length:var(--text-caption)]",
                     isCurrent
                       ? "font-semibold text-[var(--app-text-primary)]"
                       : item.complete

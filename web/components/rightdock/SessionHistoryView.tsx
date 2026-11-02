@@ -260,7 +260,7 @@ export default function SessionHistoryView({
               aria-pressed={effectiveScope === option}
               disabled={(option === "workspace" && !workspace) || (option === "project" && !project)}
               onClick={() => setScope(option)}
-              className="min-w-0 px-1 text-[11px] text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] aria-pressed:bg-[var(--app-active-bg)] aria-pressed:text-[var(--app-text-primary)] disabled:opacity-40"
+              className="min-w-0 px-1 text-[length:var(--text-caption)] text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] aria-pressed:bg-[var(--app-active-bg)] aria-pressed:text-[var(--app-text-primary)] disabled:opacity-40"
             >
               <span className="block truncate">{t(`sessionHistory.scope.${option}` as never)}</span>
             </button>
@@ -275,7 +275,7 @@ export default function SessionHistoryView({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={t("sessionHistory.searchPlaceholder")}
-              className="h-7 min-w-0 flex-1 bg-transparent px-1.5 text-[12px] text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
+              className="h-7 min-w-0 flex-1 bg-transparent px-1.5 text-[length:var(--text-small)] text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
             />
             {search && (
               <button
@@ -307,7 +307,7 @@ export default function SessionHistoryView({
               type="button"
               aria-pressed={cliFilter === cli}
               onClick={() => setCliFilter((current) => current === cli ? null : cli)}
-              className="h-6 rounded-md border border-[var(--app-border)] px-2 text-[11px] font-medium capitalize text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] aria-pressed:border-[var(--app-accent)] aria-pressed:bg-[var(--app-active-bg)] aria-pressed:text-[var(--app-text-primary)]"
+              className="h-6 rounded-md border border-[var(--app-border)] px-2 text-[length:var(--text-caption)] font-medium capitalize text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] aria-pressed:border-[var(--app-accent)] aria-pressed:bg-[var(--app-active-bg)] aria-pressed:text-[var(--app-text-primary)]"
             >
               {t(`sessionHistory.cli.${cli}` as never)}
             </button>
@@ -317,18 +317,18 @@ export default function SessionHistoryView({
 
       <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto">
         {loading ? (
-          <div className="flex h-full items-center justify-center gap-2 text-[12px] text-[var(--app-text-tertiary)]">
+          <div className="flex h-full items-center justify-center gap-2 text-[length:var(--text-small)] text-[var(--app-text-tertiary)]">
             <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
             <span>{t("sessionHistory.loading")}</span>
           </div>
         ) : loadFailed ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-5 text-center">
             <AlertTriangle aria-hidden="true" className="size-5 text-[var(--app-status-warning)]" />
-            <p className="text-[12px] text-[var(--app-text-secondary)]">{t("sessionHistory.loadError")}</p>
+            <p className="text-[length:var(--text-small)] text-[var(--app-text-secondary)]">{t("sessionHistory.loadError")}</p>
             <button
               type="button"
               onClick={() => setReloadVersion((version) => version + 1)}
-              className="h-7 rounded-md border border-[var(--app-border)] px-2.5 text-[11px] text-[var(--app-text-primary)] hover:bg-[var(--app-hover)]"
+              className="h-7 rounded-md border border-[var(--app-border)] px-2.5 text-[length:var(--text-caption)] text-[var(--app-text-primary)] hover:bg-[var(--app-hover)]"
             >
               {t("sessionHistory.retry")}
             </button>
@@ -336,7 +336,7 @@ export default function SessionHistoryView({
         ) : sessions.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-5 text-center text-[var(--app-text-tertiary)]">
             <History aria-hidden="true" className="size-5" />
-            <p className="text-[12px]">{t("sessionHistory.empty")}</p>
+            <p className="text-[length:var(--text-small)]">{t("sessionHistory.empty")}</p>
           </div>
         ) : (
           <div className="divide-y divide-[var(--app-border)]">
@@ -349,7 +349,7 @@ export default function SessionHistoryView({
                 <article key={entry.sessionId} className="px-2.5 py-2.5 hover:bg-[var(--app-hover)]">
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
-                      <p className="line-clamp-2 text-[12px] leading-5 text-[var(--app-text-primary)]" title={summary}>
+                      <p className="line-clamp-2 text-[length:var(--text-small)] leading-5 text-[var(--app-text-primary)]" title={summary}>
                         {summary}
                       </p>
                       <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px] text-[var(--app-text-tertiary)]">
@@ -372,7 +372,7 @@ export default function SessionHistoryView({
                       disabled={invalid || checking}
                       aria-busy={checking}
                       onClick={() => void handleResume(entry)}
-                      className="flex h-7 shrink-0 items-center gap-1 rounded-md border border-[var(--app-border)] px-2 text-[11px] font-medium text-[var(--app-text-primary)] hover:bg-[var(--app-active-bg)] disabled:cursor-not-allowed disabled:opacity-45"
+                      className="flex h-7 shrink-0 items-center gap-1 rounded-md border border-[var(--app-border)] px-2 text-[length:var(--text-caption)] font-medium text-[var(--app-text-primary)] hover:bg-[var(--app-active-bg)] disabled:cursor-not-allowed disabled:opacity-45"
                     >
                       {checking
                         ? <LoaderCircle aria-hidden="true" className="size-3 animate-spin" />
@@ -395,7 +395,7 @@ export default function SessionHistoryView({
                   type="button"
                   disabled={loadingMore}
                   onClick={() => void handleLoadMore()}
-                  className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md text-[11px] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] disabled:opacity-50"
+                  className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md text-[length:var(--text-caption)] text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] disabled:opacity-50"
                 >
                   {loadingMore && <LoaderCircle aria-hidden="true" className="size-3.5 animate-spin" />}
                   <span>{t("sessionHistory.loadMore")}</span>

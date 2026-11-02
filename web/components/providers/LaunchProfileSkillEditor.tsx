@@ -52,11 +52,11 @@ export default function LaunchProfileSkillEditor({
                       <div className="text-[12.5px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
                         {t("profileSkill")}
                       </div>
-                      <span className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+                      <span className="text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
                         {t("groupCount", { total: draft.skillPolicy.profileSkills.length, enabled: profileSkillSelectedCount })}
                       </span>
                     </div>
-                    <div className="mt-0.5 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+                    <div className="mt-0.5 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
                       {t("profileSkillHint")}
                     </div>
                   </div>

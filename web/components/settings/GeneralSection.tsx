@@ -129,7 +129,7 @@ export default function GeneralSection({
 
   return (
     <div className="flex flex-col gap-3">
-      <h3 className="text-[15px] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
+      <h3 className="text-[length:var(--text-title)] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
         {t("generalTitle")}
       </h3>
 

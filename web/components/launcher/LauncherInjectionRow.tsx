@@ -109,7 +109,7 @@ export default function LauncherInjectionRow({
                 type="button"
                 role="radio"
                 aria-checked={active}
-                className="rounded-md px-2 py-1 text-[11px] font-medium transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
+                className="rounded-md px-2 py-1 text-[length:var(--text-caption)] font-medium transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
                 style={
                   active
                     ? {
@@ -128,7 +128,7 @@ export default function LauncherInjectionRow({
 
         <button
           type="button"
-          className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
+          className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-[length:var(--text-caption)] transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]"
           style={{ borderColor: "var(--app-border)", color: "var(--app-text-secondary)" }}
           onClick={() => void injectLocalFile()}
         >
@@ -137,12 +137,12 @@ export default function LauncherInjectionRow({
         </button>
 
         <label
-          className="flex items-center gap-1.5 text-[11px]"
+          className="flex items-center gap-1.5 text-[length:var(--text-caption)]"
           style={{ color: "var(--app-text-secondary)" }}
         >
           <Sparkles className="h-3 w-3" />
           <select
-            className="h-7 max-w-[180px] rounded-md border bg-background px-1.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-40"
+            className="h-7 max-w-[180px] rounded-md border bg-background px-1.5 text-[length:var(--text-caption)] disabled:cursor-not-allowed disabled:opacity-40"
             value=""
             disabled={!projectPath || skills.length === 0}
             aria-label={t("injectSkill")}

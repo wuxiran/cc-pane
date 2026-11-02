@@ -178,7 +178,7 @@ export default function HomeDesignHighlights({ compact = false, onDismiss }: Hom
                       {t(item.titleKey as never)}
                     </div>
                     <p
-                      className="mt-0.5 text-[11px] xl:text-xs leading-snug"
+                      className="mt-0.5 text-[length:var(--text-caption)] xl:text-xs leading-snug"
                       style={{ color: "var(--app-text-tertiary)" }}
                     >
                       {t(item.descKey as never)}

@@ -136,7 +136,7 @@ export default function QuickCommandsSection() {
                       <span className="truncate text-sm font-medium text-[var(--app-text-primary)]">
                         {command.name}
                       </span>
-                      <span className="shrink-0 rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[11px] text-[var(--app-text-tertiary)]">
+                      <span className="shrink-0 rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
                         {t(`quickCommands.scope.${command.scope}`)}
                       </span>
                     </div>

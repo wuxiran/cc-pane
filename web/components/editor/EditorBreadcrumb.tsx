@@ -48,7 +48,7 @@ export default function EditorBreadcrumb({
 
   return (
     <div
-      className="flex shrink-0 items-center gap-2 min-h-9 px-2 py-1 overflow-hidden border-b text-[12px]"
+      className="flex shrink-0 items-center gap-2 min-h-9 px-2 py-1 overflow-hidden border-b text-[length:var(--text-small)]"
       style={{
         background: "var(--editor-breadcrumb-bg)",
         borderColor: "var(--app-border)",

@@ -180,7 +180,7 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
               {openCount > 0 && (
                 <div
                   role="presentation"
-                  className="text-[11px] font-medium px-3 py-1.5 uppercase tracking-wider"
+                  className="text-[length:var(--text-caption)] font-medium px-3 py-1.5 uppercase tracking-wider"
                   style={{ color: "var(--app-text-tertiary)" }}
                 >
                   <FileText size={12} className="inline mr-1 -mt-0.5" />
@@ -207,7 +207,7 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
                     <div className="min-w-0 flex-1">
                       <span className="text-[13px] truncate block">{item.title}</span>
                       <span
-                        className="text-[11px] truncate block"
+                        className="text-[length:var(--text-caption)] truncate block"
                         style={{ color: "var(--app-text-tertiary)" }}
                       >
                         {getRelPath(item.filePath, item.projectPath)}
@@ -221,7 +221,7 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
               {items.length > openCount && (
                 <div
                   role="presentation"
-                  className="text-[11px] font-medium px-3 py-1.5 uppercase tracking-wider"
+                  className="text-[length:var(--text-caption)] font-medium px-3 py-1.5 uppercase tracking-wider"
                   style={{ color: "var(--app-text-tertiary)" }}
                 >
                   <Clock size={12} className="inline mr-1 -mt-0.5" />
@@ -248,7 +248,7 @@ export default function RecentFilesPicker({ open, onClose }: RecentFilesPickerPr
                     <div className="min-w-0 flex-1">
                       <span className="text-[13px] truncate block">{item.title}</span>
                       <span
-                        className="text-[11px] truncate block"
+                        className="text-[length:var(--text-caption)] truncate block"
                         style={{ color: "var(--app-text-tertiary)" }}
                       >
                         {getRelPath(item.filePath, item.projectPath)}

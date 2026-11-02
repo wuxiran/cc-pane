@@ -28,7 +28,7 @@ export default function PerformanceDiagnosticsCard() {
     finally { setBusy(false); }
   };
   if (!isTauriRuntime()) return null;
-  return <div className="border-t pt-3 space-y-2 text-[12px]">
+  return <div className="border-t pt-3 space-y-2 text-[length:var(--text-small)]">
     <div className="font-medium">{t("performanceRecords")}</div>
     <p style={{ color: "var(--app-text-secondary)" }}>{t("performanceRecordsDescription")}</p>
     <p role="status">{status?.running && !status.lastError ? t("performanceRecording") : t("performanceRecorderUnavailable")}</p>

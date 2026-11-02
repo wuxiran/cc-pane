@@ -207,7 +207,7 @@ export default function PlansPanel({ open, onOpenChange, projectPath }: PlansPan
                   >
                     <div className="flex items-center justify-between">
                       <span
-                        className="text-[11px] font-mono"
+                        className="text-[length:var(--text-caption)] font-mono"
                         style={{ color: "var(--app-accent)" }}
                       >
                         {plan.sessionId || "no-session"}
@@ -226,7 +226,7 @@ export default function PlansPanel({ open, onOpenChange, projectPath }: PlansPan
                     </div>
                     <div className="flex items-center justify-between mt-0.5">
                       <span
-                        className="text-[12px] truncate flex-1 mr-1"
+                        className="text-[length:var(--text-small)] truncate flex-1 mr-1"
                         style={{ color: "var(--app-text-primary)" }}
                         title={plan.originalName}
                       >

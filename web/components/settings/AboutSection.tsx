@@ -75,7 +75,7 @@ export default function AboutSection() {
 
   return (
     <div className="flex flex-col gap-3">
-      <h3 className="text-[15px] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
+      <h3 className="text-[length:var(--text-title)] font-semibold mb-1" style={{ color: "var(--app-text-primary)" }}>
         {t("aboutTitle")}
       </h3>
 
@@ -100,7 +100,7 @@ export default function AboutSection() {
       {/* 更新状态提示 */}
       {updateAvailable && updateVersion && (
         <div
-          className="flex items-center gap-2 px-3 py-2 rounded-md text-[12px]"
+          className="flex items-center gap-2 px-3 py-2 rounded-md text-[length:var(--text-small)]"
           style={{
             background: "var(--app-active-bg)",
             color: "var(--app-accent)",
@@ -115,7 +115,7 @@ export default function AboutSection() {
           「需注意但可等」→ 用 warning 而非 danger（docs/46 §状态色映射）。 */}
       {lastCheckError && (
         <div
-          className="px-3 py-2 rounded-md text-[12px] break-all"
+          className="px-3 py-2 rounded-md text-[length:var(--text-small)] break-all"
           style={{
             background: "var(--app-status-warning-bg)",
             color: "var(--app-status-warning)",
@@ -170,7 +170,7 @@ export default function AboutSection() {
       <PerformanceDiagnosticsCard />
       {cleanupReport && (
         <div
-          className="mt-2 space-y-2 border-t pt-3 text-[12px]"
+          className="mt-2 space-y-2 border-t pt-3 text-[length:var(--text-small)]"
           style={{ borderColor: "var(--app-border)" }}
           aria-live="polite"
         >

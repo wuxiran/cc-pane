@@ -115,7 +115,7 @@ export default function UsageStatsHoverPreview({
         style={{ borderColor: "var(--app-home-border)" }}
       >
         <div className="flex min-w-0 items-center gap-1.5">
-          <span className="flex shrink-0 items-center gap-1 text-[12px] font-semibold">
+          <span className="flex shrink-0 items-center gap-1 text-[length:var(--text-small)] font-semibold">
             <BarChart3 className="h-3 w-3" style={{ color: "var(--app-accent)" }} />
             {t("usage.title")}
           </span>
@@ -127,9 +127,9 @@ export default function UsageStatsHoverPreview({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-[104px] p-0.5">
-              <DropdownMenuItem className="px-2 py-1 text-[12px]" onSelect={() => setSourceFilter(null)}>{t("usage.allSources")}</DropdownMenuItem>
+              <DropdownMenuItem className="px-2 py-1 text-[length:var(--text-small)]" onSelect={() => setSourceFilter(null)}>{t("usage.allSources")}</DropdownMenuItem>
               {availableSources.map((source) => (
-                <DropdownMenuItem className="px-2 py-1 text-[12px]" key={source} onSelect={() => setSourceFilter(source)}>{cliLabel(source)}</DropdownMenuItem>
+                <DropdownMenuItem className="px-2 py-1 text-[length:var(--text-small)]" key={source} onSelect={() => setSourceFilter(source)}>{cliLabel(source)}</DropdownMenuItem>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -147,7 +147,7 @@ export default function UsageStatsHoverPreview({
 
       {loading && !data ? (
         <div
-          className="flex h-[58px] items-center justify-center text-[11px]"
+          className="flex h-[58px] items-center justify-center text-[length:var(--text-caption)]"
           style={{ color: "var(--app-text-tertiary)" }}
         >
           {t("usage.loading")}
@@ -169,7 +169,7 @@ export default function UsageStatsHoverPreview({
                 {metric.label}
               </div>
               <div
-                className="mt-0.5 truncate text-[15px] font-semibold tabular-nums"
+                className="mt-0.5 truncate text-[length:var(--text-title)] font-semibold tabular-nums"
                 style={{ color: metric.color }}
                 title={metric.value}
               >

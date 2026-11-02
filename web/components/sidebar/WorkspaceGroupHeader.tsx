@@ -45,7 +45,7 @@ export default function WorkspaceGroupHeader({
       onClick={onToggle}
       data-drop-target={dropActive ? "active" : dropCandidate ? "candidate" : undefined}
       style={dropStyle}
-      className="mt-1 flex h-7 w-full items-center gap-1.5 rounded-md border px-2 text-left text-[11px] font-semibold text-[var(--app-text-secondary)] outline-none transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+      className="mt-1 flex h-7 w-full items-center gap-1.5 rounded-md border px-2 text-left text-[length:var(--text-caption)] font-semibold text-[var(--app-text-secondary)] outline-none transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
     >
       <Chevron className="size-3.5 shrink-0 text-[var(--app-text-tertiary)]" />
       <span className="min-w-0 flex-1 truncate">{group}</span>

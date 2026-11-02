@@ -134,7 +134,7 @@ export default function EnvironmentPreflightCard({
             )}
             <div className="min-w-0 flex-1">
               <p className="text-[13px] font-medium text-[var(--app-text-primary)]">{probe.label}</p>
-              <p className="truncate text-[11px] text-[var(--app-text-tertiary)]">
+              <p className="truncate text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
                 {!probe.applicable
                   ? t("environment.notApplicable")
                   : probe.installed

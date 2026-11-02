@@ -89,7 +89,7 @@ export default function SkillMarketCard({
               <Check className="size-3.5 shrink-0" style={{ color: "var(--app-status-success)" }} aria-label={t("installed")} />
             )}
           </div>
-          <div className="mt-0.5 flex items-center gap-1.5 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+          <div className="mt-0.5 flex items-center gap-1.5 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
             <span className="truncate" title={repo ?? undefined}>{repo ?? t(sourceKey)}</span>
             {installs && (
               <>

@@ -43,7 +43,7 @@ export default function TodoActivityTimeline({ activities, loading }: TodoActivi
                 {t(`todoActivity_${activity.action}`, { defaultValue: activity.action })}
                 {activity.detail && <span className="text-muted-foreground">: {activity.detail}</span>}
               </p>
-              <time className="text-[11px] text-muted-foreground">{formatTimestamp(activity.createdAt, i18n.language)}</time>
+              <time className="text-[length:var(--text-caption)] text-muted-foreground">{formatTimestamp(activity.createdAt, i18n.language)}</time>
             </li>
           ))}
         </ol>

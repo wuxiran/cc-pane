@@ -88,7 +88,7 @@ export default function WorkspaceFilterBar() {
           <button
             type="button"
             aria-label={t("workspaceGroupFilter")}
-            className={`flex h-6 max-w-24 items-center gap-1 rounded-md border px-1.5 text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${filter.group != null ? "border-[var(--app-accent)] text-[var(--app-accent)]" : "border-[var(--app-border)] text-[var(--app-text-secondary)]"}`}
+            className={`flex h-6 max-w-24 items-center gap-1 rounded-md border px-1.5 text-[length:var(--text-caption)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${filter.group != null ? "border-[var(--app-accent)] text-[var(--app-accent)]" : "border-[var(--app-border)] text-[var(--app-text-secondary)]"}`}
           >
             <FolderTree className="size-3 shrink-0" />
             <span className="truncate">{selectedGroupLabel}</span>

@@ -279,7 +279,7 @@ export default function TodoFilterBar({
       </div>
 
       {(filterStatus || filterPriority || filterType || sortBy !== "manual" || groupMode !== "none") && (
-        <div className="flex items-center gap-1.5 overflow-x-auto text-[11px]">
+        <div className="flex items-center gap-1.5 overflow-x-auto text-[length:var(--text-caption)]">
           {filterStatus && <span className="rounded bg-primary/10 px-2 py-1 text-primary">{statusLabel}</span>}
           {filterPriority && <span className="rounded bg-primary/10 px-2 py-1 text-primary">{t("todoPriority")}: {priorityLabel}</span>}
           {filterType && <span className="rounded bg-primary/10 px-2 py-1 text-primary">{typeLabel}</span>}

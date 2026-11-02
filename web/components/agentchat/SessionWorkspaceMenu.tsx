@@ -82,7 +82,7 @@ export default function SessionWorkspaceMenu({
           disabled={generating || switching}
           title={cwd}
           aria-label={t("agentChatWorkspaceChipTip")}
-          className="flex h-6 max-w-44 items-center gap-1 rounded-md border border-[var(--app-border)] bg-[var(--app-overlay)] px-1.5 text-[11px] text-[var(--app-text-secondary)] transition-colors hover:text-[var(--app-text-primary)] disabled:opacity-50"
+          className="flex h-6 max-w-44 items-center gap-1 rounded-md border border-[var(--app-border)] bg-[var(--app-overlay)] px-1.5 text-[length:var(--text-caption)] text-[var(--app-text-secondary)] transition-colors hover:text-[var(--app-text-primary)] disabled:opacity-50"
         >
           <Layers className="h-3 w-3 shrink-0" />
           <span className="truncate">{label}</span>

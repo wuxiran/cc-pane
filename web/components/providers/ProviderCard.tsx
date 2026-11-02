@@ -197,7 +197,7 @@ export default function ProviderCard({
             {provider.apiKey && (
               <>
                 <span className="opacity-40">·</span>
-                <span className="font-mono text-[11px]">{maskApiKey(provider.apiKey)}</span>
+                <span className="font-mono text-[length:var(--text-caption)]">{maskApiKey(provider.apiKey)}</span>
               </>
             )}
           </div>

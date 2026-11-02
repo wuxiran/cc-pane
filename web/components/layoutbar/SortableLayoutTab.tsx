@@ -206,7 +206,7 @@ export default function SortableLayoutTab({
               </span>
               {tabCount > 0 ? (
                 <span
-                  className="shrink-0 text-[11px] tabular-nums"
+                  className="shrink-0 text-[length:var(--text-caption)] tabular-nums"
                   style={{ color: selected ? "inherit" : "var(--app-text-tertiary)" }}
                 >
                   {tabCount}
@@ -214,7 +214,7 @@ export default function SortableLayoutTab({
               ) : null}
             </span>
             <span
-              className="flex h-[13px] w-full min-w-0 items-center gap-1.5 overflow-hidden text-[12px] leading-none"
+              className="flex h-[13px] w-full min-w-0 items-center gap-1.5 overflow-hidden text-[length:var(--text-small)] leading-none"
               style={{ color: "var(--app-text-tertiary)" }}
             >
               <LayoutBindingLabel layout={layout} rootPane={tree} />
@@ -232,7 +232,7 @@ export default function SortableLayoutTab({
             {layout.kind !== "starred" && <LayoutWorkspaceBadge layout={layout} rootPane={tree} mini />}
             {tabCount > 0 ? (
               <span
-                className="text-[11px] tabular-nums"
+                className="text-[length:var(--text-caption)] tabular-nums"
                 style={{ color: selected ? "inherit" : "var(--app-text-tertiary)" }}
               >
                 {tabCount}

@@ -54,7 +54,7 @@ export default function ShortcutCheatsheet() {
                         <span className="min-w-0 truncate text-[var(--app-text-primary)]">
                           {resolveCommandTitle(cmd)}
                         </span>
-                        <kbd className="shrink-0 rounded border border-[var(--app-border)] bg-[var(--app-content)] px-1.5 py-0.5 text-[11px] text-[var(--app-text-tertiary)]">
+                        <kbd className="shrink-0 rounded border border-[var(--app-border)] bg-[var(--app-content)] px-1.5 py-0.5 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
                           {binding ? formatKeyCombo(binding) : "—"}
                         </kbd>
                       </li>
@@ -65,7 +65,7 @@ export default function ShortcutCheatsheet() {
             );
           })}
         </div>
-        <p className="m-0 text-[11px] text-[var(--app-text-tertiary)]">
+        <p className="m-0 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
           {t("cheatsheetRebindHint")}
         </p>
       </DialogContent>

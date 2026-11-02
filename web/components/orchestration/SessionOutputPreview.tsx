@@ -74,7 +74,7 @@ export default function SessionOutputPreview({ sessionId }: SessionOutputPreview
         </div>
       ) : (
         <pre
-          className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-5"
+          className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[length:var(--text-caption)] leading-5"
           style={{ color: "var(--app-text-secondary)" }}
         >
           {output || t("output.noOutput", { defaultValue: "暂无输出" })}

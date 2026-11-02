@@ -268,7 +268,7 @@ export default function ChatComposer({
               >
                 <span className="font-mono text-xs">/{command.name}</span>
                 {command.description ? (
-                  <span className="truncate text-[11px] text-[var(--app-text-tertiary)]">
+                  <span className="truncate text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
                     {command.description}
                   </span>
                 ) : null}
@@ -277,7 +277,7 @@ export default function ChatComposer({
           </div>
         ) : null}
         {mentionQuery !== null ? (
-          <div className="px-1 text-[11px] text-[var(--app-text-tertiary)]">
+          <div className="px-1 text-[length:var(--text-caption)] text-[var(--app-text-tertiary)]">
             {t("agentChatMentionHint", { query: mentionQuery || "…" })}
           </div>
         ) : null}
@@ -351,7 +351,7 @@ export default function ChatComposer({
             }}
             placeholder={t("agentChatSendPlaceholder")}
             rows={2}
-            className="agent-chat-composer-input max-h-48 min-h-[4.25rem] w-full resize-none bg-transparent text-[15px] leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
+            className="agent-chat-composer-input max-h-48 min-h-[4.25rem] w-full resize-none bg-transparent text-[length:var(--text-title)] leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
           />
           <div className="agent-chat-composer-toolbar mt-3 flex items-end justify-between gap-3">
             <div className="agent-chat-composer-options flex min-w-0 flex-wrap items-center gap-1.5">

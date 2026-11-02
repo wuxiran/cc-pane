@@ -113,7 +113,7 @@ export function HeavyCommandsTab({ active }: HeavyCommandsTabProps) {
             </option>
           ))}
         </select>
-        <span className="shrink-0 text-[11px] tabular-nums text-[var(--app-text-tertiary)]">
+        <span className="shrink-0 text-[length:var(--text-caption)] tabular-nums text-[var(--app-text-tertiary)]">
           {t("heavyCommandsWindow")} · {t("heavyCommandsTotalCpu", { seconds: formatCpuSeconds(totalCpu) })}
         </span>
         <IconTooltipButton
@@ -128,7 +128,7 @@ export function HeavyCommandsTab({ active }: HeavyCommandsTabProps) {
           <Button
             size="sm"
             variant="destructive"
-            className="h-7 px-2 text-[11px]"
+            className="h-7 px-2 text-[length:var(--text-caption)]"
             onClick={() => void clear()}
           >
             {t("heavyCommandsConfirmClear")}
@@ -150,7 +150,7 @@ export function HeavyCommandsTab({ active }: HeavyCommandsTabProps) {
           {t("heavyCommandsEmpty")}
         </div>
       ) : (
-        <table className="w-full table-fixed text-[11px]">
+        <table className="w-full table-fixed text-[length:var(--text-caption)]">
           <thead className="text-left text-[10px] uppercase text-[var(--app-text-tertiary)]">
             <tr>
               <th className="px-1 py-1 font-medium">{t("heavyCommandsColCommand")}</th>

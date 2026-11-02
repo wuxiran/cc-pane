@@ -73,7 +73,7 @@ export default function WorkspaceTerminalList({ workspaceName, rows }: Props) {
             )}
             {needsAttention && statusLabel && (
               <span
-                className="shrink-0 text-[11px]"
+                className="shrink-0 text-[length:var(--text-caption)]"
                 style={{ color: row.status ? statusColorToken(row.status) : DEFAULT_STATUS_COLOR_TOKEN }}
               >
                 {statusLabel}

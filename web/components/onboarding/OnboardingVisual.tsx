@@ -66,7 +66,7 @@ function WorkspaceVisual() {
         </div>
         <div className="ml-1.5 mt-2.5 space-y-2 border-l border-[var(--app-border)] pl-4">
           {["frontend", "backend", "research-notes"].map((name, index) => (
-            <div key={name} className="flex items-center gap-1.5 text-[11px] text-[var(--app-text-secondary)]">
+            <div key={name} className="flex items-center gap-1.5 text-[length:var(--text-caption)] text-[var(--app-text-secondary)]">
               {index < 2 ? <GitBranch className="size-3" aria-hidden="true" /> : <Folder className="size-3" aria-hidden="true" />}
               {name}
             </div>

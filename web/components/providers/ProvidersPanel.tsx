@@ -322,7 +322,7 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
           >
             <ArrowLeft size={18} />
           </button>
-          <h2 className="text-[14px] font-semibold" style={{ color: "var(--app-text-primary)" }}>
+          <h2 className="text-[length:var(--text-body)] font-semibold" style={{ color: "var(--app-text-primary)" }}>
             {t("fromPreset")}
           </h2>
         </div>
@@ -333,7 +333,7 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
               <p className="text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }}>
                 {t("selectPresetOrCustom")}
               </p>
-              <span className="shrink-0 text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+              <span className="shrink-0 text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
                 {t(CLI_TOOL_TABS.find((tab) => tab.id === activeTab)?.labelKey ?? "tabClaude")}
               </span>
             </div>
@@ -341,7 +341,7 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
             <div className="flex flex-col gap-4">
               {grouped.map((group) => (
                 <section key={group.key}>
-                  <div className="mb-2 text-[11px] font-medium" style={{ color: "var(--app-text-tertiary)" }}>
+                  <div className="mb-2 text-[length:var(--text-caption)] font-medium" style={{ color: "var(--app-text-tertiary)" }}>
                     {t(group.labelKey as never)}
                   </div>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -365,7 +365,7 @@ export default function ProvidersPanel({ compact, view: fixedTopView, onDirtyCha
                           <span className="block truncate text-[13px] font-medium" style={{ color: "var(--app-text-primary)" }}>
                             {t(preset.nameKey as never)}
                           </span>
-                          <span className="mt-0.5 block truncate text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+                          <span className="mt-0.5 block truncate text-[length:var(--text-caption)]" style={{ color: "var(--app-text-tertiary)" }}>
                             {t(preset.descKey as never)}
                           </span>
                         </span>

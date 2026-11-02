@@ -20,7 +20,7 @@ export default function ProviderPresetPicker({ onSelect, showCustom, onCustom }:
         if (presets.length === 0) return null;
         return (
           <div key={cat.key} className="flex flex-col gap-1.5">
-            <div className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--app-text-tertiary)" }}>
+            <div className="text-[length:var(--text-caption)] font-medium uppercase tracking-wide" style={{ color: "var(--app-text-tertiary)" }}>
               {t(cat.labelKey as any)}
             </div>
             <div className="flex flex-wrap gap-2">
@@ -28,7 +28,7 @@ export default function ProviderPresetPicker({ onSelect, showCustom, onCustom }:
                 <button
                   key={preset.id}
                   type="button"
-                  className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-medium transition-all duration-[var(--dur-fast)] hover:shadow-sm"
+                  className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[length:var(--text-small)] font-medium transition-all duration-[var(--dur-fast)] hover:shadow-sm"
                   style={{
                     background: "var(--app-content)",
                     border: "1px solid var(--app-border)",
@@ -60,7 +60,7 @@ export default function ProviderPresetPicker({ onSelect, showCustom, onCustom }:
       {showCustom && onCustom && (
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-medium transition-all duration-[var(--dur-fast)] hover:shadow-sm w-fit"
+          className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[length:var(--text-small)] font-medium transition-all duration-[var(--dur-fast)] hover:shadow-sm w-fit"
           style={{
             background: "var(--app-accent)",
             color: "white",

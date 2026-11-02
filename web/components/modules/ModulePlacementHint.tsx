@@ -36,7 +36,7 @@ export default function ModulePlacementHint({ label }: ModulePlacementHintProps)
           <CircleHelp aria-hidden="true" className="size-3.5" />
         </span>
       </TooltipTrigger>
-      <TooltipContent side="right" className="max-w-64 text-[12px]">
+      <TooltipContent side="right" className="max-w-64 text-[length:var(--text-small)]">
         {label}
       </TooltipContent>
     </Tooltip>

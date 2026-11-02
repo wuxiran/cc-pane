@@ -40,12 +40,12 @@ export default function NotificationToastStack() {
         <button
           type="button"
           data-testid="notification-fold-bar"
-          className="flex w-full items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 py-1.5 text-[12px] text-[var(--app-text-secondary)] shadow-sm transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+          className="flex w-full items-center gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-panel-bg)] px-3 py-1.5 text-[length:var(--text-small)] text-[var(--app-text-secondary)] shadow-sm transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
           onClick={() => setHistoryOpen(true)}
         >
           <ChevronDown aria-hidden="true" size={12} className="text-[var(--app-text-tertiary)]" />
           {t("center.foldBar")}
-          <span className="ml-auto rounded-full bg-[var(--app-active-bg)] px-1.5 text-[11px] font-semibold tabular-nums text-[var(--app-accent)]">
+          <span className="ml-auto rounded-full bg-[var(--app-active-bg)] px-1.5 text-[length:var(--text-caption)] font-semibold tabular-nums text-[var(--app-accent)]">
             {foldedUnread}
           </span>
         </button>

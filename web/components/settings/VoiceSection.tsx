@@ -110,7 +110,7 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
           />
           {t("voiceShowFloatingButton", { defaultValue: "在终端显示悬浮按钮" })}
         </label>
-        <p className="text-[12px] pl-6 m-0" style={{ color: "var(--app-text-tertiary)" }}>
+        <p className="text-[length:var(--text-small)] pl-6 m-0" style={{ color: "var(--app-text-tertiary)" }}>
           {t("voiceShowFloatingButtonDesc", {
             defaultValue: "关闭后终端右下角不再显示麦克风按钮；语音快捷键仍然可用。",
           })}
@@ -236,13 +236,13 @@ export default function VoiceSection({ value, onChange }: VoiceSectionProps) {
             />
             {t("voiceCustomPreferWav")}
           </label>
-          <p className="text-[12px] pl-6 m-0" style={{ color: "var(--app-text-tertiary)" }}>
+          <p className="text-[length:var(--text-small)] pl-6 m-0" style={{ color: "var(--app-text-tertiary)" }}>
             {t("voiceCustomPreferWavDesc")}
           </p>
         </div>
       ) : null}
 
-      <p className="text-[11px] leading-5" style={{ color: "var(--app-text-tertiary)" }}>
+      <p className="text-[length:var(--text-caption)] leading-5" style={{ color: "var(--app-text-tertiary)" }}>
         {t(capability.hintKey)}
       </p>
       </div>

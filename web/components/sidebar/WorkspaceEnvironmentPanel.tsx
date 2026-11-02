@@ -719,7 +719,7 @@ export default function WorkspaceEnvironmentPanel() {
           {workspace ? (
             <>
               <SheetHeader className="gap-2 border-b border-[var(--app-border)] px-5 py-4 pr-12">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--app-text-tertiary)]">
+                <div className="text-[length:var(--text-caption)] font-bold uppercase tracking-wider text-[var(--app-text-tertiary)]">
                   {t("workspaceEnv.title", { ns: "sidebar", defaultValue: "运行环境" })}
                 </div>
                 <SheetTitle className="text-base text-[var(--app-text-primary)]">

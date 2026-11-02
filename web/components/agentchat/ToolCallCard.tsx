@@ -91,17 +91,17 @@ export function DiffBlockView({ block }: { block: AcpToolCallContent }) {
 
   return (
     <div className="rounded border border-[var(--app-border)] overflow-hidden">
-      <div className="px-2 py-1 text-[11px] font-mono bg-[var(--app-hover)] text-[var(--app-icon-inactive)]">
+      <div className="px-2 py-1 text-[length:var(--text-caption)] font-mono bg-[var(--app-hover)] text-[var(--app-icon-inactive)]">
         diff · {block.path ?? ""}
       </div>
       {failed ? (
         <>
           {block.oldText ? (
-            <pre className="px-2 py-1 text-[11px] font-mono whitespace-pre-wrap break-all bg-[var(--app-status-danger-bg)] text-[var(--app-status-danger)] max-h-40 overflow-auto">
+            <pre className="px-2 py-1 text-[length:var(--text-caption)] font-mono whitespace-pre-wrap break-all bg-[var(--app-status-danger-bg)] text-[var(--app-status-danger)] max-h-40 overflow-auto">
               {block.oldText}
             </pre>
           ) : null}
-          <pre className="px-2 py-1 text-[11px] font-mono whitespace-pre-wrap break-all bg-[var(--app-status-success-bg)] text-[var(--app-status-success)] max-h-60 overflow-auto">
+          <pre className="px-2 py-1 text-[length:var(--text-caption)] font-mono whitespace-pre-wrap break-all bg-[var(--app-status-success-bg)] text-[var(--app-status-success)] max-h-60 overflow-auto">
             {newText}
           </pre>
         </>
@@ -128,7 +128,7 @@ function TerminalBlockView({ chatId, terminalId }: { chatId: string; terminalId:
       : "running";
   return (
     <div className="rounded border border-[var(--app-border)] overflow-hidden">
-      <div className="flex items-center justify-between px-2 py-1 text-[11px] font-mono bg-[var(--app-hover)] text-[var(--app-icon-inactive)]">
+      <div className="flex items-center justify-between px-2 py-1 text-[length:var(--text-caption)] font-mono bg-[var(--app-hover)] text-[var(--app-icon-inactive)]">
         <span>terminal · {terminalId}</span>
         <span
           className={
@@ -142,7 +142,7 @@ function TerminalBlockView({ chatId, terminalId }: { chatId: string; terminalId:
         </span>
       </div>
       {terminal?.output ? (
-        <pre className="px-2 py-1 text-[11px] font-mono whitespace-pre-wrap break-all max-h-60 overflow-auto">
+        <pre className="px-2 py-1 text-[length:var(--text-caption)] font-mono whitespace-pre-wrap break-all max-h-60 overflow-auto">
           {terminal.output}
         </pre>
       ) : null}
@@ -177,7 +177,7 @@ export function ContentBlockView({ block, chatId }: { block: AcpToolCallContent;
       : stringifyCompact(block);
   if (!text) return null;
   return (
-    <pre className="px-2 py-1 text-[11px] font-mono whitespace-pre-wrap break-all max-h-60 overflow-auto rounded bg-[var(--app-hover)]">
+    <pre className="px-2 py-1 text-[length:var(--text-caption)] font-mono whitespace-pre-wrap break-all max-h-60 overflow-auto rounded bg-[var(--app-hover)]">
       {text}
     </pre>
   );
@@ -259,7 +259,7 @@ export default function ToolCallCard({ call, chatId, onOpenLocation, expandAllSi
                 <button
                   key={`${location.path}-${index}`}
                   type="button"
-                  className="flex items-center gap-1 rounded border border-[var(--app-border)] px-1.5 py-0.5 text-[11px] font-mono text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)] disabled:cursor-default"
+                  className="flex items-center gap-1 rounded border border-[var(--app-border)] px-1.5 py-0.5 text-[length:var(--text-caption)] font-mono text-[var(--app-icon-inactive)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-icon-active)] disabled:cursor-default"
                   disabled={!onOpenLocation}
                   onClick={() => onOpenLocation?.(location.path, location.line)}
                   title={location.path}
@@ -274,7 +274,7 @@ export default function ToolCallCard({ call, chatId, onOpenLocation, expandAllSi
             </div>
           ) : null}
           {input ? (
-            <pre className="px-2 py-1 text-[11px] font-mono whitespace-pre-wrap break-all max-h-40 overflow-auto rounded bg-[var(--app-hover)]">
+            <pre className="px-2 py-1 text-[length:var(--text-caption)] font-mono whitespace-pre-wrap break-all max-h-40 overflow-auto rounded bg-[var(--app-hover)]">
               {input}
             </pre>
           ) : null}
@@ -282,7 +282,7 @@ export default function ToolCallCard({ call, chatId, onOpenLocation, expandAllSi
             <ContentBlockView key={index} block={block} chatId={chatId} />
           ))}
           {output ? (
-            <pre className="px-2 py-1 text-[11px] font-mono whitespace-pre-wrap break-all max-h-60 overflow-auto rounded bg-[var(--app-hover)]">
+            <pre className="px-2 py-1 text-[length:var(--text-caption)] font-mono whitespace-pre-wrap break-all max-h-60 overflow-auto rounded bg-[var(--app-hover)]">
               {output}
             </pre>
           ) : null}
