@@ -1048,6 +1048,7 @@ dependencies = [
  "security-framework 3.6.0",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sha2",
  "similar",
  "ssh2",

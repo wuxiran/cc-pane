@@ -87,6 +87,7 @@ pub mod usage_stats_service;
 mod user_skill_service;
 mod wallpaper_service;
 mod workspace_health;
+mod workspace_projects_manifest;
 mod workspace_service;
 mod workspace_skill_service;
 mod worktree_service;

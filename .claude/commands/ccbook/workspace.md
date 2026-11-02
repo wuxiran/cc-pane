@@ -70,7 +70,7 @@ WS_ROOT="$DATA_DIR/workspaces"
 ```
 <workspace.path>/
 ├── .ccpanes/
-│   └── projects.csv
+│   └── projects.yaml  (按机器分段的项目清单)
 └── CLAUDE.md          (仅首次生成，不覆盖)
 ```
 
@@ -124,14 +124,14 @@ WS_ROOT="$DATA_DIR/workspaces"
 4. 生成新 project 条目（id 为 UUID v4）
 5. 追加到 projects 数组
 6. 写回 `workspace.json`
-7. 若 workspace.path 有值，同步 `projects.csv`
+7. 若 workspace.path 有值，同步 `projects.yaml`（只改写本机那一段）
 
 ### `remove-project <ws> <project-id>` — 移除项目
 
 1. 读取 `workspace.json`
 2. 从 projects 数组中删除匹配 id 的条目
 3. 写回 `workspace.json`
-4. 若 workspace.path 有值，同步 `projects.csv`
+4. 若 workspace.path 有值，同步 `projects.yaml`（只改写本机那一段）
 
 ### `set-alias <ws> [alias]` — 设置/清除工作空间别名
 
@@ -161,7 +161,7 @@ WS_ROOT="$DATA_DIR/workspaces"
    - 若 `workspace.path` 有值:
      - `<path>/.ccpanes/` 目录
      - `<path>/CLAUDE.md`（模板见下方）
-     - `<path>/.ccpanes/projects.csv`（根据 projects 数组生成）
+     - `<path>/.ccpanes/projects.yaml`（根据 projects 数组生成本机那一段）
 3. 输出修复报告（列出补全了哪些内容）
 
 **CLAUDE.md 模板**:
@@ -172,14 +172,25 @@ WS_ROOT="$DATA_DIR/workspaces"
 
 ## 子项目
 
-项目列表见 `.ccpanes/projects.csv`。
+项目列表见 `.ccpanes/projects.yaml`（按机器分段，只看本机主机名那一段）。
 ```
 
-**projects.csv 格式**:
-```csv
-path,alias,branch,status
-<project-path>,<alias>,<git-branch>,<clean|dirty|unknown>
+**projects.yaml 格式**:
+```yaml
+# 工作空间目录可能被多台机器同步共用：按主机名分段，每台机器只改写自己那一段，
+# 其他机器的段原样保留；本机项目清空时删掉本机那一段。
+machines:
+  <hostname>:              # 主机名，macOS 去掉 .local 后缀
+    projects:
+    - path: <project-path>
+      alias: <alias>       # 为空时省略
+      branch: <git-branch>
+      status: <clean|dirty|unknown>
+  unattributed:            # 旧版 projects.csv 迁移来、无法判断归属机器的项目
+    projects: [...]
 ```
+
+旧版的 `.ccpanes/projects.csv` 在本机首次写入时并入 yaml（属于本机项目的行由本机接管，其余归入 `unattributed`）后删除；CLAUDE.md 里的 `` `.ccpanes/projects.csv` `` 记号同步改为 yaml。
 
 branch 和 status 通过 `git branch --show-current` 和 `git status --porcelain` 获取。
 
