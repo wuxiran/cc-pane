@@ -132,7 +132,9 @@
     "dramaStudio": "短剧制作台",
     "dramaStudioDesc": "活动栏「短剧制作台」入口与剧本 → 分镜 → 镜头 → 成片流水线全屏页，含批量转绘（依赖媒体工作台的 Provider 选择）。",
     "skillMarket": "Skill 市场",
-    "skillMarketDesc": "活动栏「Skill 市场」入口、全屏市场页，以及启动配置 / 全局 Skill 面板里的「从市场安装」区块。"
+    "skillMarketDesc": "活动栏「Skill 市场」入口、全屏市场页，以及启动配置 / 全局 Skill 面板里的「从市场安装」区块。",
+    "librarySpace": "资料空间",
+    "librarySpaceDesc": "活动栏「资料空间」入口：一键创建 AI 维护的素材文件夹（默认 ~/CC-Panes-Library），并拉起 Claude Code 素材助手负责收集、视频转写与整理。"
   },
   "modules": {
     "title": "模块",

@@ -91,6 +91,7 @@ use commands::{
     create_drama_project,
     create_drama_shot,
     create_launch_profile,
+    create_library_space,
     create_popup_terminal_window,
     create_quick_command,
     // Spec 命令
@@ -1788,7 +1789,7 @@ pub fn run() {
             updated = report.projects_updated,
             removed = report.duplicates_removed,
             backups = report.backups_created,
-            csv = report.csv_regenerated,
+            projects_manifest = report.projects_manifest_regenerated,
             "[project-identity] workspace projects migrated"
         ),
         Ok(_) => {}
@@ -3325,6 +3326,7 @@ pub fn run() {
             // Workspace 命令
             list_workspaces,
             create_workspace,
+            create_library_space,
             get_workspace,
             rename_workspace,
             delete_workspace,

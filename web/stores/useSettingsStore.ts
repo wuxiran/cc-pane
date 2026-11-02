@@ -136,6 +136,7 @@ export const EXPERIMENTAL_DEFAULT_ON = import.meta.env.DEV;
 export const DEFAULT_EXPERIMENTAL_SETTINGS: ExperimentalSettings = {
   dramaStudio: EXPERIMENTAL_DEFAULT_ON,
   skillMarket: EXPERIMENTAL_DEFAULT_ON,
+  librarySpace: EXPERIMENTAL_DEFAULT_ON,
 };
 
 export const DEFAULT_WALLPAPER_SETTINGS: WallpaperSettings = {

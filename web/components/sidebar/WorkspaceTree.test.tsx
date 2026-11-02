@@ -205,26 +205,25 @@ describe("WorkspaceTree component", () => {
     expect(screen.getByTestId("ws-item")).toHaveAttribute("data-cli-availability", "claude");
   });
 
-  it("空工作空间时显示 noWorkspaces 与计数 0", () => {
+  it("空工作空间时显示 noWorkspaces，分区头不显示计数", () => {
     render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
     expect(screen.getByText("noWorkspaces")).toBeInTheDocument();
-    expect(screen.getByText("0")).toBeInTheDocument();
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 
-  it("渲染工作空间条目与计数", () => {
+  it("渲染工作空间条目", () => {
     storeState.workspaces = [
       makeWorkspace({ id: "a", name: "alpha" }),
       makeWorkspace({ id: "b", name: "bravo" }),
     ];
     render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
     expect(screen.getAllByTestId("ws-item")).toHaveLength(2);
-    expect(screen.getByText("2")).toBeInTheDocument();
     expect(screen.queryByText("noWorkspaces")).not.toBeInTheDocument();
   });
 
   it("点击新建工作空间按钮触发 handleCreateWorkspace", () => {
     render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
-    // 空态下存在多个「新建工作空间」入口（空状态 CTA + 底部按钮），点击其一即可
+    // 空态 CTA（常驻入口已移到 Explorer 顶部）
     fireEvent.click(screen.getAllByText("newWorkspace")[0]);
     expect(handleCreateWorkspace).toHaveBeenCalledTimes(1);
   });

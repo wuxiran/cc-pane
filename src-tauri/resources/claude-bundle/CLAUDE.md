@@ -273,7 +273,7 @@ flutter pub get && flutter analyze && flutter test
 
 ```
 <workspace.path>/.ccpanes/           # 用户自选的工作空间根（可能不是 git 仓库）
-├── projects.csv                     # 项目清单（给 LLM 的上下文文件，代码无消费方）
+├── projects.yaml                    # 项目清单（给 LLM 的上下文文件，代码无消费方；按机器分段，多机同步共用时每台只改自己那段）
 └── plans/                           # plan 归档（CC_PANES_WORKSPACE_PATH 存在时落这里；第三批将归拢到数据目录）
 
 <project.path>/.ccpanes/             # 仓库层：随代码提交给团队

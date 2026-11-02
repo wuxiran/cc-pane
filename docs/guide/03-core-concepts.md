@@ -100,7 +100,7 @@ D:\work\erp-workspace\        ← 工作空间目录（本身不是 Git 仓库�
 └── data.db                   # SQLite：项目、启动历史、Todo 等
 
 <工作空间路径>/.ccpanes/      # 工作空间级数据（在你自己指定的工作空间目录下，
-├── projects.csv              #   与上面的 workspaces/<名字>/ 不是同一个地方）
+├── projects.yaml             #   与上面的 workspaces/<名字>/ 不是同一个地方）
 ├── plans/                    # 归档的 plan
 └── prompts/                  # 派给 AI 的长任务描述文件
 

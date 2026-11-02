@@ -47,16 +47,24 @@ describe("WorkspaceTerminalList", () => {
     expect(openLauncher).toHaveBeenCalledWith({ workspaceName: "ws-alpha" });
   });
 
-  it("renders title, status word and focuses the tab on click", async () => {
+  it("renders title, keeps routine status out of the row text and focuses the tab on click", async () => {
     const user = userEvent.setup();
     render(<WorkspaceTerminalList workspaceName="ws-alpha" rows={[row()]} />);
-    const item = screen.getByRole("button", { name: new RegExp("cc-book") });
-    expect(item).toHaveTextContent(i18n.t("dialogs:statusThinking"));
+    const thinking = i18n.t("dialogs:statusThinking");
+    const item = screen.getByRole("button", { name: new RegExp(`cc-book.*${thinking}`) });
+    expect(item).not.toHaveTextContent(thinking);
     await user.click(item);
     expect(focusTab).toHaveBeenCalledWith("tab-1");
   });
 
-  it("prefers the first prompt as row name with title demoted to second line", () => {
+  it("shows the status word for states that need attention", () => {
+    render(<WorkspaceTerminalList workspaceName="ws-alpha" rows={[row({ status: "waitingInput" })]} />);
+    expect(screen.getByRole("button", { name: /cc-book/ })).toHaveTextContent(
+      i18n.t("dialogs:statusWaitingInput"),
+    );
+  });
+
+  it("prefers the first prompt as row name with title moved to the tooltip", () => {
     render(
       <WorkspaceTerminalList
         workspaceName="ws-alpha"
@@ -64,7 +72,11 @@ describe("WorkspaceTerminalList", () => {
       />,
     );
     expect(screen.getByText("修复恢复日志的中文化问题")).toBeInTheDocument();
-    expect(screen.getByText("cc-book (Claude)")).toBeInTheDocument();
+    expect(screen.queryByText("cc-book (Claude)")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /修复恢复日志/ })).toHaveAttribute(
+      "title",
+      expect.stringContaining("cc-book (Claude)"),
+    );
   });
 
   it("falls back to tab title when no first prompt is known", () => {

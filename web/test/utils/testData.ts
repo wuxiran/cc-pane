@@ -255,6 +255,7 @@ export function createTestSettings(overrides?: Partial<AppSettings>): AppSetting
     experimental: {
       dramaStudio: false,
       skillMarket: false,
+      librarySpace: false,
     },
     performance: {
       buildParallelismEnabled: true,

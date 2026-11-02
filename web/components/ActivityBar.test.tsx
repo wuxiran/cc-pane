@@ -46,7 +46,7 @@ function setExperimental(flags: Partial<ExperimentalSettings>) {
   useSettingsStore.setState({
     settings: {
       ...defaults,
-      experimental: { dramaStudio: false, skillMarket: false, ...flags },
+      experimental: { dramaStudio: false, skillMarket: false, librarySpace: false, ...flags },
     },
   });
 }
@@ -96,6 +96,15 @@ describe("ActivityBar", () => {
     const { container } = renderBar();
     expect(container.querySelectorAll("button")).toHaveLength(7);
     expect(screen.getByRole("button", { name: "技能市场" })).toBeInTheDocument();
+  });
+
+  it("勾选资料空间后出现入口，尚未创建时点击弹出创建框", async () => {
+    setExperimental({ librarySpace: true });
+    const user = userEvent.setup();
+    const { container } = renderBar();
+    expect(container.querySelectorAll("button")).toHaveLength(7);
+    await user.click(screen.getByRole("button", { name: "创建资料空间" }));
+    expect(await screen.findByRole("button", { name: "创建并打开素材助手" })).toBeInTheDocument();
   });
 
   it("技能市场入口切换全屏市场页，再点一次回到 panes", async () => {

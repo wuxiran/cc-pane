@@ -752,5 +752,18 @@
     "noProcesses": "No Claude processes found",
     "scanning": "Scanning…"
   },
-  "chooseWorkspaceRoot": "Choose workspace root"
+  "chooseWorkspaceRoot": "Choose workspace root",
+  "librarySpace": {
+    "workspaceName": "Library",
+    "create": "Create Library",
+    "openAssistant": "Open Library Assistant",
+    "description": "The Library is an AI-maintained folder for materials and work: links, videos and ideas you drop in are organized as Markdown, and everything you create lands here too. Defaults to ~/CC-Panes-Library; you can pick another folder.",
+    "chooseFolder": "Choose Library folder",
+    "browse": "Browse",
+    "createAndOpen": "Create and open assistant",
+    "created": "Library created: {{path}}",
+    "keptClaudeMd": "This folder already has a CLAUDE.md and it was not overwritten. The assistant may not know the Library conventions; merge them from the template manually.",
+    "createFailed": "Failed to create Library: {{error}}",
+    "assistantPrompt": "You are the Library assistant. Follow the conventions in CLAUDE.md in the current directory: file links, text and images the user sends into uploads/ with the ingest skill, download and transcribe video links with the video-transcribe skill, organize with the organize skill, and write created work to works/. When first opened, greet briefly and say the user can just send you links or ideas."
+  }
 }

@@ -75,7 +75,9 @@ interface WorkspaceItemProps {
   onOpenEnvironment: (ws: Workspace) => void;
   onOpenInFileBrowser?: (path: string) => void;
   dragHandleProps?: ButtonHTMLAttributes<HTMLButtonElement>;
-  countOverride?: number; // 头部计数徽章覆盖值（终端模式=终端数）
+  countOverride?: number; // 头部计数覆盖值（终端模式=终端数）
+  /** 弱化显示（终端模式下无运行终端的工作空间），让有活动的工作空间更突出 */
+  dimmed?: boolean;
   availableCliToolIds?: ReadonlySet<string>;
 }
 
@@ -94,7 +96,7 @@ export default function WorkspaceItem({
   onSetPath,
   onClearPath,
   onOpenEnvironment, onOpenInFileBrowser,
-  dragHandleProps, countOverride, availableCliToolIds,
+  dragHandleProps, countOverride, availableCliToolIds, dimmed = false,
 }: WorkspaceItemProps) {
   const { t } = useTranslation(["sidebar", "common"]);
   const projects = normalizeWorkspaceProjects(ws.projects);
@@ -398,12 +400,8 @@ export default function WorkspaceItem({
             role="button"
             tabIndex={0}
             aria-expanded={expanded}
-            className={`${sidebarEntityRowClass} flex items-center justify-between gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
-              expanded
-                ? "bg-[var(--app-active-bg)] text-[var(--app-accent)]"
-                : isDefaultWorkspace
-                  ? "text-[var(--app-text-primary)] bg-[color-mix(in_srgb,var(--app-accent)_5%,transparent)] hover:bg-[color-mix(in_srgb,var(--app-accent)_10%,transparent)]"
-                  : "text-[var(--app-text-primary)] hover:bg-[var(--app-hover)]"
+            className={`${sidebarEntityRowClass} flex items-center justify-between gap-2 hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
+              dimmed ? "text-[var(--app-text-tertiary)] hover:text-[var(--app-text-secondary)]" : "text-[var(--app-text-primary)]"
             }`}
             onClick={() => onExpand(workspace.id)}
             onKeyDown={(event) => {
@@ -414,12 +412,6 @@ export default function WorkspaceItem({
               }
             }}
           >
-            {expanded ? (
-              <span
-                aria-hidden="true"
-                className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-[var(--app-accent)]"
-              />
-            ) : null}
             <div className="flex min-w-0 items-center gap-1.5">
               {dragHandleProps ? (
                 <button
@@ -435,21 +427,20 @@ export default function WorkspaceItem({
                 </button>
               ) : <span aria-hidden="true" className="h-4 w-3 -ml-1 shrink-0" />}
               <ChevronRight
-                className={`w-3.5 h-3.5 shrink-0 transition-transform ${expanded ? "rotate-90 text-[var(--app-accent)]" : "text-[var(--app-text-tertiary)]"}`}
+                className={`w-3.5 h-3.5 shrink-0 transition-transform text-[var(--app-text-tertiary)] ${expanded ? "rotate-90" : ""}`}
               />
               {isDefaultWorkspace ? (
-                <House className="w-4 h-4 shrink-0 text-[var(--app-accent)]" strokeWidth={1.5} />
+                <House className="w-4 h-4 shrink-0 text-[var(--app-text-secondary)]" strokeWidth={1.5} />
               ) : isAgentChatWorkspace ? (
-                <Bot className="w-4 h-4 shrink-0 text-[var(--app-accent)]" strokeWidth={1.5} />
+                <Bot className="w-4 h-4 shrink-0 text-[var(--app-text-secondary)]" strokeWidth={1.5} />
               ) : expanded ? (
-                <FolderOpen className="w-4 h-4 shrink-0 text-[var(--app-accent)]" />
+                <FolderOpen className="w-4 h-4 shrink-0 text-[var(--app-text-secondary)]" />
               ) : (
                 <Folder className="w-4 h-4 shrink-0 text-[var(--app-text-tertiary)] group-hover:text-[var(--app-text-secondary)] transition-colors" />
               )}
               {workspace.color ? <WorkspaceColorDot color={workspace.color} /> : null}
               <span className="truncate text-[13px] font-medium">{displayName}</span>
               <WorkspaceBadges
-                isDefault={isDefaultWorkspace}
                 showWsl={showWslBadge}
                 isArchived={isArchived}
                 providerName={
@@ -459,12 +450,10 @@ export default function WorkspaceItem({
                 }
               />
             </div>
-            <span
-              className={sidebarEntityCountClass}
-              style={{ background: "color-mix(in srgb, var(--app-text-primary) 8%, transparent)" }}
-            >
-              {countOverride ?? projects.length}
-            </span>
+            {/* 计数为 0 不渲染，避免一列「0」的噪音 */}
+            {(countOverride ?? projects.length) > 0 ? (
+              <span className={sidebarEntityCountClass}>{countOverride ?? projects.length}</span>
+            ) : null}
           </div>
         </ContextMenuTrigger>
 
@@ -690,7 +679,7 @@ export default function WorkspaceItem({
       </ContextMenu>
 
       {expanded ? (
-        <div className="mb-1 ml-[22px] border-l border-[var(--app-border)] pl-3">
+        <div className="mb-1 ml-[34px]">
           {children}
         </div>
       ) : null}

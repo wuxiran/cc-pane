@@ -139,13 +139,24 @@ describe("WorkspaceItem", () => {
     });
   });
 
-  it("projects 运行时缺失时仍渲染工作空间并显示 0", () => {
+  it("projects 运行时缺失时仍渲染工作空间，计数为 0 不渲染", () => {
     renderWorkspaceItem("local", false, {
       projects: undefined as unknown as Workspace["projects"],
     });
 
     expect(screen.getByText("workspace-alpha")).toBeVisible();
-    expect(screen.getByText("0")).toBeVisible();
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
+  });
+
+  it("计数大于 0 时显示项目数", () => {
+    renderWorkspaceItem("local", false, {
+      projects: [
+        { id: "p1", path: "D:/workspace-alpha/a" },
+        { id: "p2", path: "D:/workspace-alpha/b" },
+      ] as Workspace["projects"],
+    });
+
+    expect(screen.getByText("2")).toBeVisible();
   });
 
   it("在工作空间名称前渲染颜色点", () => {

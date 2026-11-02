@@ -8,15 +8,14 @@ const MUTED_BADGE = `${sidebarEntityBadgeClass} bg-[color-mix(in_srgb,var(--app-
 const FADED_BADGE = `${sidebarEntityBadgeClass} bg-[color-mix(in_srgb,var(--app-text-primary)_8%,transparent)] text-[var(--app-text-tertiary)]`;
 
 interface WorkspaceBadgesProps {
-  isDefault: boolean;
   showWsl: boolean;
   isArchived: boolean;
   providerName?: string;
 }
 
 /** 工作空间行尾的状态徽章簇。 */
+// 默认工作空间不再挂「默认」徽章：house 图标 + 置顶位置已足够表达
 export default function WorkspaceBadges({
-  isDefault,
   showWsl,
   isArchived,
   providerName,
@@ -25,8 +24,6 @@ export default function WorkspaceBadges({
 
   return (
     <>
-      {/* defaultBadge 在 zh-CN/en 两份 locale 里都有，不再带裸中文 defaultValue 兜底 */}
-      {isDefault ? <span className={ACCENT_BADGE}>{t("defaultBadge")}</span> : null}
       {showWsl ? <span className={ACCENT_BADGE}>WSL</span> : null}
       {/* 已归档条目只在打开「含已归档」时可见，必须一眼能与正常条目区分 */}
       {isArchived ? (

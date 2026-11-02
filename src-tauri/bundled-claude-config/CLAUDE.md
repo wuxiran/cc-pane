@@ -248,7 +248,7 @@ npm run tauri build
 
 ```
 <workspace.path>/.ccpanes/           # 【二级】工作空间实际路径下
-├── projects.csv                     # 项目清单（给 LLM 的上下文文件）
+├── projects.yaml                    # 项目清单（给 LLM 的上下文文件，按机器分段）
 ├── plans/                           # plan 归档（优先落这里）
 └── prompts/                         # 外置长 prompt / Codex 派工文件
 

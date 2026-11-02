@@ -17,7 +17,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
-import { Plus, FolderGit2, FolderTree, ListFilter, TerminalSquare, CalendarClock } from "lucide-react";
+import { FolderGit2, FolderTree, ListFilter, TerminalSquare, CalendarClock } from "lucide-react";
 import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { navigateToSettings } from "@/components/settings/settingsNavigation";
 import WorkspaceCreateGroupDialog from "./WorkspaceCreateGroupDialog";
@@ -47,7 +47,6 @@ import WorkspaceFilterBar from "./WorkspaceFilterBar";
 import WorkspaceGroupDropZone from "./WorkspaceGroupDropZone";
 import ProjectListView from "./ProjectListView";
 import {
-  sidebarSectionCountClass,
   sidebarSectionHeaderClass,
   sidebarSectionTitleClass,
 } from "./sidebarStyles";
@@ -85,6 +84,8 @@ interface SortableWorkspaceItemProps {
   onOpenInFileBrowser?: (path: string) => void;
   /** 头部计数徽章覆盖值（终端模式显示终端数而非项目数） */
   countOverride?: number;
+  /** 终端模式下无运行终端时弱化显示 */
+  dimmed?: boolean;
   /** 已安装或显式配置的 CLI；undefined 表示环境探测尚未完成。 */
   availableCliToolIds?: ReadonlySet<string>;
   children: ReactNode;
@@ -208,6 +209,15 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
     }
   }, [handleOpenWorktreeManager, workspaces, worktreeManagerRequestPath]);
 
+  // Explorer 顶部固定的「新建工作空间」入口：对话框状态在 useWorkspaceActions 里，只能由树消费意图
+  const newWorkspaceRequested = useDialogStore((s) => s.newWorkspaceRequested);
+  const handleCreateWorkspace = actions.handleCreateWorkspace;
+  useEffect(() => {
+    if (!newWorkspaceRequested) return;
+    useDialogStore.getState().clearNewWorkspaceRequest();
+    handleCreateWorkspace();
+  }, [handleCreateWorkspace, newWorkspaceRequested]);
+
   const handleOpenInFileBrowser = useCallback((path: string) => {
     import("@/stores/useFileBrowserStore").then(({ useFileBrowserStore }) => {
       useFileBrowserStore.getState().navigateTo(path);
@@ -267,6 +277,7 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
         onOpenEnvironment={(workspace) => openWorkspaceEnvironment(workspace.id)}
         onOpenInFileBrowser={handleOpenInFileBrowser}
         countOverride={treeMode === "terminals" ? terminalRows.length : undefined}
+        dimmed={treeMode === "terminals" && terminalRows.length === 0 && expandedWorkspaceId !== ws.id}
         availableCliToolIds={availableCliToolIds}
       >
         {treeMode === "terminals" ? (
@@ -313,47 +324,20 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
           onToggleFilter: () => setFilterOpen((open) => !open),
         })
       ) : (
+      <>
       <div className={sidebarSectionHeaderClass}>
-        <div className="flex items-center gap-2">
-          <span className={sidebarSectionTitleClass}>
-            {t("workspaces")}
-          </span>
-          <span
-            className={sidebarSectionCountClass}
-            style={{ background: "color-mix(in srgb, var(--app-text-primary) 8%, transparent)" }}
-          >
-            {workspaces.length}
-          </span>
-        </div>
+        <span className={sidebarSectionTitleClass}>{t("workspaces")}</span>
         <div className="flex items-center gap-0.5">
-          {/* 树模式切换：项目列表 / 运行中的终端（常驻，不做 hover 才显示） */}
+          {/* 树模式：单按钮切换，图标表示当前模式，tooltip 表示点了会切到哪 */}
           <IconTooltipButton
-            label={t("treeModeProjects")}
-            aria-pressed={treeMode === "projects"}
-            onClick={() => setTreeMode("projects")}
-            className="size-5 p-0"
-            style={
-              treeMode === "projects"
-                ? { color: "var(--app-accent)", background: "color-mix(in srgb, var(--app-accent) 12%, transparent)" }
-                : { color: "var(--app-text-tertiary)" }
-            }
-          >
-            <FolderGit2 className="size-3.5" />
-          </IconTooltipButton>
-          <IconTooltipButton
-            label={t("treeModeTerminals")}
+            label={treeMode === "projects" ? t("treeModeTerminals") : t("treeModeProjects")}
             aria-pressed={treeMode === "terminals"}
-            onClick={() => setTreeMode("terminals")}
-            className="size-5 p-0"
-            style={
-              treeMode === "terminals"
-                ? { color: "var(--app-accent)", background: "color-mix(in srgb, var(--app-accent) 12%, transparent)" }
-                : { color: "var(--app-text-tertiary)" }
-            }
+            onClick={() => setTreeMode(treeMode === "projects" ? "terminals" : "projects")}
+            className="size-5 p-0 text-[var(--app-text-tertiary)] hover:text-[var(--app-text-primary)]"
           >
-            <TerminalSquare className="size-3.5" />
+            {treeMode === "projects" ? <FolderGit2 className="size-3.5" /> : <TerminalSquare className="size-3.5" />}
           </IconTooltipButton>
-          <IconTooltipButton label={t("agentChatsAutomations")} onClick={() => navigateToSettings({ paneId: "automations" })} className="size-5 p-0 text-[var(--app-text-tertiary)] hover:text-[var(--app-accent)]">
+          <IconTooltipButton label={t("agentChatsAutomations")} onClick={() => navigateToSettings({ paneId: "automations" })} className="size-5 p-0 text-[var(--app-text-tertiary)] opacity-0 group-hover/section:opacity-100 hover:text-[var(--app-text-primary)]">
             <CalendarClock className="size-3.5" />
           </IconTooltipButton>
           <IconTooltipButton
@@ -366,19 +350,13 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
           <IconTooltipButton
             label={t("workspaceNewGroup")}
             onClick={() => setCreateGroupOpen(true)}
-            className="size-5 p-0 text-[var(--app-text-tertiary)] opacity-0 group-hover/section:opacity-100 hover:text-[var(--app-accent)]"
+            className="size-5 p-0 text-[var(--app-text-tertiary)] opacity-0 group-hover/section:opacity-100 hover:text-[var(--app-text-primary)]"
           >
             <FolderTree className="size-3.5" />
           </IconTooltipButton>
-          <IconTooltipButton
-            label={t("newWorkspace")}
-            onClick={actions.handleCreateWorkspace}
-            className="size-5 p-0 text-[var(--app-text-tertiary)] opacity-0 group-hover/section:opacity-100 hover:text-[var(--app-accent)]"
-          >
-            <Plus className="size-3.5" />
-          </IconTooltipButton>
         </div>
       </div>
+      </>
       )}
 
       {!collapsed && (
@@ -461,15 +439,6 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
           </div>
         </SortableContext>
       </DndContext>
-
-      {/* 新建工作空间按钮 */}
-      <button
-        className="group w-full mt-3 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition-colors duration-[var(--dur-fast)] border border-[var(--app-border)] bg-[var(--app-hover)] text-[var(--app-text-secondary)] hover:border-[color-mix(in_srgb,var(--app-accent)_45%,transparent)] hover:text-[var(--app-accent)] hover:bg-[color-mix(in_srgb,var(--app-accent)_8%,transparent)]"
-        onClick={actions.handleCreateWorkspace}
-      >
-        <Plus className="w-3.5 h-3.5 transition-transform duration-[var(--dur-fast)] group-hover:rotate-90" />
-        {t("newWorkspace")}
-      </button>
       </>
       )}
 

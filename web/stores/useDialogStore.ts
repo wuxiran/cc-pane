@@ -124,6 +124,11 @@ interface DialogState {
   requestWorktreeManager: (projectPath: string) => void;
   clearWorktreeManagerRequest: () => void;
 
+  // 新建工作空间（对话框同样由侧栏树承载；Explorer 顶部固定入口只发意图，树消费后清空）
+  newWorkspaceRequested: boolean;
+  requestNewWorkspace: () => void;
+  clearNewWorkspaceRequest: () => void;
+
   // Launcher（全局启动器弹窗）
   launcherOpen: boolean;
   launcherContext: LauncherContext | null;
@@ -239,6 +244,11 @@ export const useDialogStore = create<DialogState>((set) => ({
   worktreeManagerRequestPath: null,
   requestWorktreeManager: (projectPath) => set({ worktreeManagerRequestPath: projectPath }),
   clearWorktreeManagerRequest: () => set({ worktreeManagerRequestPath: null }),
+
+  // 新建工作空间
+  newWorkspaceRequested: false,
+  requestNewWorkspace: () => set({ newWorkspaceRequested: true }),
+  clearNewWorkspaceRequest: () => set({ newWorkspaceRequested: false }),
 
   // Launcher
   launcherOpen: false,
