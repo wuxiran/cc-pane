@@ -22,6 +22,7 @@ const ProxySection = lazyWithRetry(() => import("./ProxySection"), "ProxySection
 const QuickCommandsSection = lazyWithRetry(() => import("./QuickCommandsSection"), "QuickCommandsSection");
 const QuickTerminalSection = lazyWithRetry(() => import("./QuickTerminalSection"), "QuickTerminalSection");
 const ScreenshotSection = lazyWithRetry(() => import("./ScreenshotSection"), "ScreenshotSection");
+const ResourceCenter = lazyWithRetry(() => import("@/components/resources/ResourceCenter"), "ResourceCenter");
 const SharedMcpSection = lazyWithRetry(() => import("./SharedMcpSection"), "SharedMcpSection");
 const GlobalSkillsPanel = lazyWithRetry(() => import("@/components/resources/GlobalSkillsPanel"), "GlobalSkillsPanel");
 const LinkSkillManager = lazyWithRetry(() => import("@/components/skill/LinkSkillManager"), "LinkSkillManager");
@@ -115,6 +116,8 @@ function Pane({ paneId, draft, updateDraft, onUnsavedChangesChange }: SettingsPa
       return <CCChanSettings value={draft.ccchan} onChange={(ccchan) => updateDraft({ ...draft, ccchan })} />;
     case "shortcuts":
       return <ShortcutsSection value={draft.shortcuts} onChange={(shortcuts) => updateDraft({ ...draft, shortcuts })} />;
+    case "resource-center":
+      return <ResourceCenter />;
     case "shared-mcp":
       return <SharedMcpSection />;
     case "skills":
@@ -150,7 +153,7 @@ function Pane({ paneId, draft, updateDraft, onUnsavedChangesChange }: SettingsPa
 }
 
 export default function SettingsPaneContent(props: SettingsPaneContentProps) {
-  const hasOwnCardLayout = ["setup-guide", "theme", "theme-shape", "provider", "provider-credentials", "cli-launchers", "shared-mcp", "skills", "quick-commands", "automations", "experimental"].includes(props.paneId);
+  const hasOwnCardLayout = ["setup-guide", "theme", "theme-shape", "provider", "provider-credentials", "cli-launchers", "resource-center", "shared-mcp", "skills", "quick-commands", "automations", "experimental"].includes(props.paneId);
   const fillsAvailableHeight = ["provider", "provider-credentials", "skills", "quick-commands"].includes(props.paneId);
   return (
     <div

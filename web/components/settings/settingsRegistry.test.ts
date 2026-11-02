@@ -67,6 +67,7 @@ describe("settings registry", () => {
       "provider",
       "provider-credentials",
       "cli-launchers",
+      "resource-center",
       "shared-mcp",
       "skills",
       "quick-commands",
