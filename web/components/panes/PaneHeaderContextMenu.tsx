@@ -5,12 +5,12 @@ import { useTranslation } from "react-i18next";
 import {
   ContextMenu,
   ContextMenuContent,
-  ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import CommandMenuItem, { CommandShortcutHint } from "@/components/commands/CommandMenuItem";
+import CommandMenuItem from "@/components/commands/CommandMenuItem";
 import { usePanesStore } from "@/stores";
+import RestoreClosedTabsMenu from "./RestoreClosedTabsMenu";
 
 interface PaneHeaderContextMenuProps {
   paneId: string;
@@ -42,7 +42,6 @@ export function PaneHeaderContextMenuWrapper({
 
 export default function PaneHeaderContextMenu({ paneId }: PaneHeaderContextMenuProps) {
   const { t } = useTranslation("panes");
-  const closedTabCount = usePanesStore((s) => s.closedTabs.length);
   const zoomed = usePanesStore((s) => s.zoomedPaneId === paneId);
 
   return (
@@ -70,14 +69,7 @@ export default function PaneHeaderContextMenu({ paneId }: PaneHeaderContextMenuP
       />
       <CommandMenuItem commandId="equalize-panes" />
       <ContextMenuSeparator />
-      <ContextMenuItem
-        inset
-        disabled={closedTabCount === 0}
-        onSelect={() => usePanesStore.getState().reopenClosedTab(paneId)}
-      >
-        {t("restoreClosedTabs", { count: closedTabCount })}
-        <CommandShortcutHint commandId="reopen-closed-tab" />
-      </ContextMenuItem>
+      <RestoreClosedTabsMenu paneId={paneId} />
       <CommandMenuItem
         commandId="close-pane"
         ctx={{ paneId }}

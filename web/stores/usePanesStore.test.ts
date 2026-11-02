@@ -945,6 +945,42 @@ describe("usePanesStore", () => {
       expect(usePanesStore.getState().closedTabs).toHaveLength(0);
     });
 
+    it("可以恢复指定的标签，其余仍留在栈中", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().addTab(paneId, { projectId: "keep", projectPath: "/tmp/keep" });
+      usePanesStore.getState().addTab(paneId, { projectId: "older", projectPath: "/tmp/older" });
+      usePanesStore.getState().addTab(paneId, { projectId: "newer", projectPath: "/tmp/newer" });
+      const tabs = (usePanesStore.getState().rootPane as Panel).tabs;
+      const tabAt = (path: string) => tabs.find((t) => t.projectPath === path)!;
+      usePanesStore.getState().removeTabsInternal([tabAt("/tmp/older").id], "user-close");
+      usePanesStore.getState().removeTabsInternal([tabAt("/tmp/newer").id], "user-close");
+
+      const target = usePanesStore.getState().closedTabs[0];
+      expect(target.projectPath).toBe("/tmp/older");
+      usePanesStore.getState().reopenClosedTab(paneId, target);
+
+      const paths = (usePanesStore.getState().rootPane as Panel).tabs.map((t) => t.projectPath);
+      expect(paths).toContain("/tmp/older");
+      expect(paths).not.toContain("/tmp/newer");
+      expect(usePanesStore.getState().closedTabs.map((s) => s.projectPath)).toEqual(["/tmp/newer"]);
+    });
+
+    it("快照已不在栈中时不恢复别的标签", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().addTab(paneId, { projectId: "keep", projectPath: "/tmp/keep" });
+      usePanesStore.getState().addTab(paneId, { projectId: "gone", projectPath: "/tmp/gone" });
+      const gone = (usePanesStore.getState().rootPane as Panel).tabs
+        .find((t) => t.projectPath === "/tmp/gone")!;
+      usePanesStore.getState().removeTabsInternal([gone.id], "user-close");
+
+      const stale = { ...usePanesStore.getState().closedTabs[0] };
+      usePanesStore.getState().reopenClosedTab(paneId, stale);
+
+      const paths = (usePanesStore.getState().rootPane as Panel).tabs.map((t) => t.projectPath);
+      expect(paths).not.toContain("/tmp/gone");
+      expect(usePanesStore.getState().closedTabs).toHaveLength(1);
+    });
+
     it("无已关闭标签时应无操作", () => {
       const paneId = usePanesStore.getState().rootPane.id;
       const tabCountBefore = (usePanesStore.getState().rootPane as Panel).tabs.length;
