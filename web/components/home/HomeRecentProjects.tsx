@@ -127,7 +127,7 @@ export default function HomeRecentProjects({ records, onOpenTerminal }: HomeRece
           <ChevronRight className="w-3 h-3" />
         </button>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
         {uniqueRecords.map((record) => (
           <div
             key={record.id}

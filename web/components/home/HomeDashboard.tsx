@@ -123,7 +123,7 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
   return (
     <div className="app-scrollbar relative flex h-full flex-col overflow-y-auto" data-testid="home-dashboard" style={{ background: "var(--app-bg-deep)" }}>
       {/* 首页是启动器：内容靠上、限宽，打开后眼睛不用找 */}
-      <div className="relative flex w-full max-w-[1100px] flex-col mx-auto px-6 pt-6 pb-10 space-y-5">
+      <div className="relative flex w-full max-w-[1280px] flex-col mx-auto px-6 pt-6 pb-10 space-y-5">
         {/* 问候区 + 打开工作空间 */}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="min-w-0 flex-1 basis-[420px]">
