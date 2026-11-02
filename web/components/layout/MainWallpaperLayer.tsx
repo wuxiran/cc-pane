@@ -1,5 +1,5 @@
 // 主区壁纸层：挂在 MainViewSwitcher 的 panes 容器内（不挂 AppShell，避免铺到
-// TitleBar/ActivityBar/StatusBar 底下）。遵循装饰层惯例（参考 DarkOrbsBackground）：
+// TitleBar/ActivityBar/StatusBar 底下）。遵循装饰层惯例：
 // absolute inset-0 z-0 pointer-events-none + aria-hidden。
 // 内部自下而上：媒体层（img / video）→ blur/scale 容器 → dim 遮罩 → 顶部渐变 scrim。
 //
@@ -76,8 +76,7 @@ export default function MainWallpaperLayer() {
   // 有效可见性 = 所在视图层可见 && 未被垫层完全遮挡
   const effectivelyVisible = viewVisible && !underlayOccluded;
 
-  // orbs 的 mix-blend-screen 叠在照片上会洗白：壁纸激活时在文档根把 orbs 压到 0。
-  // orbs 层挂在 AppShell（主区根节点之外），只能走文档根 token。
+  // 仍保留 --app-orbs-opacity 给 token 消费方：壁纸激活时压到 0。
   useEffect(() => {
     if (!active) return;
     const root = document.documentElement;

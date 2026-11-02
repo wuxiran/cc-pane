@@ -110,7 +110,7 @@ describe("Sidebar", () => {
     localStorage.setItem("cc-panes-sidebar-width", "9999");
     const { container } = renderSidebar();
 
-    expect(container.querySelector<HTMLElement>(".sidebar")!.style.width).toBe("280px");
+    expect(container.querySelector<HTMLElement>(".sidebar")!.style.width).toBe("248px");
   });
 
   it("resizes via the sash within min/max bounds and persists the final width", () => {
@@ -122,9 +122,9 @@ describe("Sidebar", () => {
     const sidebar = container.querySelector<HTMLElement>(".sidebar")!;
     const sash = container.querySelector<HTMLElement>(".splitview-sash")!;
 
-    fireEvent.pointerDown(sash, { clientX: 280 });
-    fireEvent.pointerMove(document, { clientX: 380 });
-    expect(sidebar.style.width).toBe("380px");
+    fireEvent.pointerDown(sash, { clientX: 248 });
+    fireEvent.pointerMove(document, { clientX: 348 });
+    expect(sidebar.style.width).toBe("348px");
 
     // 拖过最大宽度：钳到 500
     fireEvent.pointerMove(document, { clientX: 900 });

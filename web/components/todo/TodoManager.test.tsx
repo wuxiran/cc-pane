@@ -245,10 +245,10 @@ describe("TodoManager", () => {
     const detailsPanel = layoutHandle.parentElement?.nextElementSibling as HTMLElement;
 
     expect(screen.getByTestId("todo-view-switcher")).toBeInTheDocument();
-    expect(listPanel).toHaveStyle({ width: "280px" });
+    expect(listPanel).toHaveStyle({ width: "248px" });
     expect(detailsPanel).toHaveClass("flex-1");
 
-    fireEvent.pointerDown(layoutHandle, { clientX: 280 });
+    fireEvent.pointerDown(layoutHandle, { clientX: 248 });
     fireEvent.pointerMove(window, { clientX: 320 });
     fireEvent.pointerUp(window);
     expect(listPanel).toHaveStyle({ width: "320px" });

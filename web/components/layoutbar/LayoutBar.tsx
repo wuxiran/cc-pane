@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Command } from "lucide-react";
+import { Layers } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePanesStore, useTerminalStatusStore } from "@/stores";
 import { isAgentChatLayout } from "@/stores/panes/agentChatLayout";
@@ -59,7 +59,7 @@ export default function LayoutBar() {
   return (
     <div
       ref={rootRef}
-      className="relative flex h-10 w-full items-center justify-center"
+      className="relative flex h-8 w-full items-center justify-center"
       onMouseEnter={openSelector}
       onMouseLeave={scheduleClose}
     >
@@ -69,7 +69,7 @@ export default function LayoutBar() {
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-pressed={panelPinned}
-        className={`relative flex h-10 w-10 cursor-default items-center justify-center rounded-xl transition-colors duration-[var(--dur-fast)] ${
+        className={`relative flex h-8 w-8 cursor-default items-center justify-center rounded-md transition-colors duration-[var(--dur-fast)] ${
           active
             ? "text-[var(--primary-foreground)]"
             : "text-[var(--app-accent)] hover:bg-[var(--app-activity-item-hover)]"
@@ -83,7 +83,7 @@ export default function LayoutBar() {
         }}
         onClick={handleLayoutButtonClick}
       >
-        <Command className="h-[14px] w-[14px]" />
+        <Layers className="h-[15px] w-[15px]" strokeWidth={1.6} />
         <span className="absolute -right-[4px] -top-[4px] flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[var(--app-accent)] px-[3px] text-[9px] font-bold leading-none text-white ring-1 ring-[var(--app-activity-bar-bg)]">
           {layouts.length > 99 ? "99+" : layouts.length}
         </span>

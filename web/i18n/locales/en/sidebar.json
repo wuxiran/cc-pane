@@ -522,6 +522,7 @@
   "defaultBadge": "Default",
   "launchTerminal": "Launch Terminal",
   "explorer.git": "Git",
+  "explorer.title": "Explorer",
   "explorer.tabWorkspaces": "Workspaces",
   "explorer.selectProjectHint": "Select a project to view",
   "explorer.selectWorkspaceHint": "Select a workspace to view",

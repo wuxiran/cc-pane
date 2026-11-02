@@ -10,7 +10,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PresetSwatches } from "@/components/theme/ThemeSwatches";
-import { THEME_PRESETS, type ThemePreference } from "@/theme/themePresets";
+import { navigateToSettings } from "@/components/settings/settingsNavigation";
+import { FEATURED_THEME_IDS, THEME_PRESETS, type ThemePreference } from "@/theme/themePresets";
 import { useSettingsStore, useThemeStore } from "@/stores";
 import { handleErrorSilent } from "@/utils";
 
@@ -18,6 +19,9 @@ import { handleErrorSilent } from "@/utils";
 export default function ThemeQuickMenu() {
   const { t: settingsT } = useTranslation("settings");
   const themePreference = useThemeStore((s) => s.preference);
+  const visiblePresets = THEME_PRESETS.filter(
+    (preset) => FEATURED_THEME_IDS.includes(preset.id) || themePreference === preset.id,
+  );
 
   async function handleSelectTheme(nextTheme: ThemePreference) {
     useThemeStore.getState().setThemeMode(nextTheme);
@@ -56,7 +60,7 @@ export default function ThemeQuickMenu() {
         <DropdownMenuLabel className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
           {settingsT("theme.groups.dark")}
         </DropdownMenuLabel>
-        {THEME_PRESETS.filter((preset) => preset.group === "dark").map(
+        {visiblePresets.filter((preset) => preset.group === "dark").map(
           (preset) => (
             <DropdownMenuItem
               key={preset.id}
@@ -81,7 +85,7 @@ export default function ThemeQuickMenu() {
         <DropdownMenuLabel className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--app-text-tertiary)]">
           {settingsT("theme.groups.light")}
         </DropdownMenuLabel>
-        {THEME_PRESETS.filter((preset) => preset.group === "light").map(
+        {visiblePresets.filter((preset) => preset.group === "light").map(
           (preset) => (
             <DropdownMenuItem
               key={preset.id}
@@ -118,6 +122,11 @@ export default function ThemeQuickMenu() {
           {themePreference === "system" && (
             <Check className="ml-auto size-3.5 text-[var(--app-accent)]" />
           )}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => navigateToSettings({ paneId: "theme" })}>
+          <span className="min-w-0 flex-1 truncate pl-6 text-[12px] text-[var(--app-text-secondary)]">
+            {settingsT("theme.morePresets")}
+          </span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

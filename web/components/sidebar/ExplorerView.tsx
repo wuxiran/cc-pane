@@ -1,4 +1,4 @@
-// Explorer 侧栏：EXPLORER 标题下双按钮 segmented（工作区 / 最近启动）单选切换。
+// Explorer 侧栏：标题下双按钮 segmented（工作空间 / 最近启动）单选切换。
 // 文件 / Git 视图已迁往右侧 RightDock（跟随激活终端、多根），左侧不再重复入口。
 // 工作空间树 keep-alive（display 翻转），保证其挂载的 Dialogs 在切换视图时不丢失。
 // 标题栏下常驻「启动终端」主操作行（Codex 式纯文本行，在滚动区之外，永远不被列表挤出视口）：
@@ -67,15 +67,15 @@ export default function ExplorerView({ onOpenTerminal }: ExplorerViewProps) {
       {/* 视图标题栏 + IDEA 风格图标 tab（同一行：左标题右图标组，节省纵向空间） */}
       <div className="flex shrink-0 items-center px-4 pt-3 pb-2">
         <span
-          className="text-[10px] font-semibold uppercase tracking-[0.09em]"
+          className="text-[11px] font-semibold"
           style={{ color: "var(--app-text-tertiary)" }}
         >
-          EXPLORER
+          {t("explorer.title")}
         </span>
         <div
           className="ml-auto flex items-center gap-0.5"
           role="tablist"
-          aria-label="EXPLORER"
+          aria-label={t("explorer.title")}
         >
           {SECTIONS.map(({ id, labelKey, Icon }) => {
             const selected = id === activeSection;

@@ -50,7 +50,7 @@
   },
   "pages": {
     "general": {
-      "title": "General & Appearance"
+      "title": "General"
     },
     "terminal": {
       "title": "Terminal & Shortcuts"
@@ -163,6 +163,9 @@
     "styleTitle": "Color & Shape",
     "styleDescription": "Choose the color theme and interface shape separately. Any combination can be used, and changes apply immediately and save automatically.",
     "openMenu": "Choose color theme",
+    "showAllPresets": "Show all {{count}} color themes",
+    "showAllShapes": "Show all {{count}} shapes",
+    "morePresets": "More themes…",
     "colorTitle": "Color theme",
     "colorDescription": "Controls application backgrounds, text, accents, and status colors.",
     "shapeTitle": "Interface shape",

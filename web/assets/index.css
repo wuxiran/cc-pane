@@ -548,8 +548,8 @@
   --app-glass-shadow: var(--sh-lg);
   --app-glass-shadow-sidebar: 1px 0 0 rgba(255, 255, 255, 0.04);
   --app-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.045);
-  --app-glass-blur: 12px;
-  --app-glass-blur-sm: 8px;
+  --app-glass-blur: 0px;
+  --app-glass-blur-sm: 0px;
   --app-orb-1: rgba(76, 141, 245, 0.10);
   --app-orb-2: rgba(124, 92, 255, 0.08);
   --app-orb-3: rgba(63, 185, 80, 0.06);

@@ -10,8 +10,8 @@
   "aiAssistant": "AI 助手",
   "settings": "设置",
   "recentProjects": "最近项目",
-  "pinnedWorkspaces": "置顶工作区",
-  "noPinnedWorkspaces": "在侧栏置顶工作区后，会固定显示在这里",
+  "pinnedWorkspaces": "置顶工作空间",
+  "noPinnedWorkspaces": "在侧栏置顶工作空间后，会固定显示在这里",
   "workspaceNoProjects": "暂无活跃项目",
   "hideHighlights": "不再显示这组概览",
   "showHighlights": "显示产品概览",
@@ -32,7 +32,7 @@
   "notInstalled": "未安装",
   "detecting": "检测中...",
   "shortcuts": "快捷键速查",
-  "enterWorkspace": "进入工作区",
+  "enterWorkspace": "打开工作空间",
   "lastLaunch": "上次启动",
   "goodMorning": "早上好",
   "goodAfternoon": "下午好",
@@ -43,12 +43,12 @@
   "daysAgo": "{{count}}天前",
   "agentPrompt": {
     "title": "对 agent 说",
-    "placeholder": "告诉 agent 你想做什么，例如：把这个项目接进来，开两个 worker 分别跑测试和补文档。回车发送并进入工作区",
+    "placeholder": "告诉 agent 你想做什么，例如：把这个项目接进来，开两个 worker 分别跑测试和补文档。回车发送并打开工作空间",
     "placeholderNoTarget": "先选择一个项目或目录，再告诉 agent 你想做什么",
     "pickTarget": "选择项目",
     "pickEngine": "选择引擎",
     "noEngine": "未检测到可用的 agent 引擎",
-    "send": "发送并进入工作区"
+    "send": "发送并打开工作空间"
   },
   "highlights": {
     "title": "它能为你做什么",

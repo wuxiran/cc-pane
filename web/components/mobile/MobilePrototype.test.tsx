@@ -120,7 +120,7 @@ describe("MobilePrototype", () => {
       render(<MobilePrototype workspaces={[makeWorkspace({ pinned: true })]} />);
       expect(screen.getByTestId("pinned-workspaces")).toBeInTheDocument();
       // 复用组件自身的 home 命名空间标题
-      expect(screen.getByText("置顶工作区")).toBeInTheDocument();
+      expect(screen.getByText("置顶工作空间")).toBeInTheDocument();
     });
 
     it("does not render the pinned section when nothing is pinned", () => {

@@ -11,7 +11,6 @@ import MiniView from "@/components/MiniView";
 import BorderlessFloatingButton from "@/components/BorderlessFloatingButton";
 import ImportConfirmDialog from "@/components/resources/ImportConfirmDialog";
 import OnboardingGuide from "@/components/OnboardingGuide";
-import DarkOrbsBackground from "@/components/layout/DarkOrbsBackground";
 import MainViewSwitcher from "@/components/layout/MainViewSwitcher";
 import AppDialogs from "@/components/layout/AppDialogs";
 import ResponsiveRightDock from "@/components/layout/ResponsiveRightDock";
@@ -42,8 +41,6 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
         className="app h-full flex flex-col relative z-[1]"
         data-shape-surface="app-shell"
       >
-        <DarkOrbsBackground />
-
         {/* Sonner Toast：bottom-center 避开右下通知中心栈，offset 抬到 StatusBar（28px）上方 */}
         <Toaster
           position={TOASTER_POSITION}

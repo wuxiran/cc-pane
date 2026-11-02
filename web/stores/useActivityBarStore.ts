@@ -215,7 +215,9 @@ export const useActivityBarStore = create<ActivityBarState>()(
         activeView: state.activeView,
         sidebarVisible: state.sidebarVisible,
         activityBarVisible: state.activityBarVisible,
-        // appViewMode 不持久化（每次启动默认回到 home 模式）
+        // 只记「首页 / 分屏」：下次启动回到上次的工作现场。其余全屏模式属于临时任务，
+        // 重启后不应再落回去；首次安装没有记录时落在首页。
+        appViewMode: state.appViewMode === "home" ? "home" : "panes",
       }),
     }
   )
