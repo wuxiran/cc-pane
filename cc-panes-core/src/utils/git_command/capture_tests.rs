@@ -94,12 +94,16 @@ fn deadline_closes_inherited_pipes_after_parent_exit_or_timeout() {
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
         let started = Instant::now();
         let marker = directory.path().join("pipe-result");
-        while !marker.exists() && started.elapsed() < Duration::from_secs(5) {
+        // fs::write creates the file before writing its bytes; wait for content, not
+        // mere existence, or a loaded runner reads the empty file in between.
+        let mut result = String::new();
+        while result.is_empty() && started.elapsed() < Duration::from_secs(5) {
             std::thread::sleep(Duration::from_millis(10));
+            result = std::fs::read_to_string(&marker).unwrap_or_default();
         }
         // The descendant's write fails only if all our read ends were closed.
         // A detached blocked reader would still consume these late bytes.
-        assert_eq!(std::fs::read_to_string(marker).unwrap(), "closed");
+        assert_eq!(result, "closed");
         // The descendant has finished its work; do not kill a potentially reused PID.
         std::fs::remove_file(directory.path().join("descendant.pid")).unwrap();
     }
