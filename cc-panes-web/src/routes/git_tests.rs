@@ -256,7 +256,8 @@ fn run_git(dir: &Path, args: &[&str]) {
 
 fn init_repo(path: &Path) {
     std::fs::create_dir_all(path).expect("create repo dir");
-    run_git(path, &["init"]);
+    // 固定初始分支名：CI runner 的 init.defaultBranch 是 master，用例里的 base_ref 用 main。
+    run_git(path, &["init", "-b", "main"]);
     run_git(path, &["config", "user.email", "test@example.com"]);
     run_git(path, &["config", "user.name", "Test User"]);
     // Keep line endings byte-for-byte so content round-trips through git
