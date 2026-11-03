@@ -22,16 +22,16 @@
 
 .mini-ui-scope[data-theme="deep-ink"] {
   --app-bg-deep: #1A1C20;
-  --app-sidebar: #26282D;
-  --app-tabbar: #1E2024;
-  --app-content: #1E2024;
-  --app-panel-bg: #2E3137;
+  --app-sidebar: #202226;
+  --app-tabbar: #1A1C20;
+  --app-content: #1A1C20;
+  --app-panel-bg: #1A1C20;
   --app-border: rgba(255, 255, 255, 0.09);
   --app-active-bg: rgba(76, 141, 245, 0.14);
   --app-accent: #5E99F6;
-  --app-text-primary: #E6E8EB;
-  --app-text-secondary: #9BA1A9;
-  --app-text-tertiary: #949AA0;
+  --app-text-primary: #ECEDEF;
+  --app-text-secondary: #A0A6AE;
+  --app-text-tertiary: #8E949C;
   --app-tab-highlight: rgba(255, 255, 255, 0.10);
   --app-terminal-bg: #17191E;
   --app-terminal-fg: #f5f5f7;

@@ -1,6 +1,6 @@
 // 应用外壳：五区骨架 TitleBar → ActivityBar | Sidebar | Main → StatusBar。
-// 区域用明度分层划分（外框最深、侧栏次深、主区最亮），各区组件自绘背景但
-// 统一取对应 --app-* token；分区容器与边框归本壳所有。
+// 区域用明度分层划分（深色：主区最暗、外壳略浮，浮起面最亮；亮色：外壳灰、主区白），
+// 各区组件自绘背景但统一取对应 --app-* token；分区容器与边框归本壳所有。
 import { Toaster } from "sonner";
 import { TOASTER_OFFSET_MAIN, TOASTER_POSITION } from "@/lib/feedback";
 import { TooltipProvider } from "@/components/ui/tooltip";

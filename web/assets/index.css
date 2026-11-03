@@ -483,25 +483,26 @@
   --sh-lg: 0 16px 40px rgba(0, 0, 0, 0.55), 0 3px 10px rgba(0, 0, 0, 0.38);
   --hi: inset 0 1px 0 rgba(255, 255, 255, 0.045);
 
-  /* shadcn 语义变量 — 冷调近黑,靠明度分层而非边框 */
-  --background: #1E2024;
-  --foreground: #E6E8EB;
-  /* 2026-09 主区提亮联动：--card 与 panel 锁步 #26282D → #2E3137（同 hex），
-     --popover 保持对 panel 差值 #2C2F35 → #34383F（保 H/S，L +3.53%） */
-  --card: #2E3137;
-  --card-foreground: #E6E8EB;
-  --popover: #34383F;
-  --popover-foreground: #E6E8EB;
+  /* shadcn 语义变量 — 冷调近黑,靠明度分层而非边框。
+     2026-11 阶梯反向（docs/46 §5，对标 macOS 深色与 Codex 桌面版）：
+     内容区最暗 #1A1C20（与终端 #17191E 同档，开终端不再跳 22 个灰阶）
+     < 外壳 #202226 < 卡片 #24272C < 弹层/浮起面 #2A2D33 < 浮起面 hover #32363D。
+     此前「主区最亮 #2E3137」那一版（2026-09 提亮）整体作废。 */
+  --background: #1A1C20;
+  --foreground: #ECEDEF;
+  --card: #24272C;
+  --card-foreground: #ECEDEF;
+  --popover: #2A2D33;
+  --popover-foreground: #ECEDEF;
   --primary: #4C8DF5;
   --primary-foreground: #ffffff;
-  --secondary: #34383F;
-  --secondary-foreground: #E6E8EB;
-  /* --muted 与 --card 同语义锁步：#26282D → #2E3137；muted-foreground 在其上 5.01 ≥4.5 */
-  --muted: #2E3137;
-  --muted-foreground: #9BA1A9;
-  /* --accent（浮起面 hover 填充）同档联动 #32363E → #3A3F48，保住 card < popover < accent 明度阶梯 */
-  --accent: #3A3F48;
-  --accent-foreground: #E6E8EB;
+  --secondary: #2A2D33;
+  --secondary-foreground: #ECEDEF;
+  /* --muted 与 --card 同档；muted-foreground 在其上 5.6 ≥4.5 */
+  --muted: #24272C;
+  --muted-foreground: #A0A6AE;
+  --accent: #32363D;
+  --accent-foreground: #ECEDEF;
   --destructive: #F85149;
   --border: rgba(255, 255, 255, 0.09);
   --input: rgba(255, 255, 255, 0.12);
@@ -513,25 +514,23 @@
   --chart-4: #A371F7;
   --chart-5: #F85149;
 
-  --sidebar: #26282D;
-  --sidebar-foreground: #E6E8EB;
+  --sidebar: #202226;
+  --sidebar-foreground: #ECEDEF;
   --sidebar-primary: #4C8DF5;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #2C2F35;
-  --sidebar-accent-foreground: #E6E8EB;
+  --sidebar-accent: #2A2D33;
+  --sidebar-accent-foreground: #ECEDEF;
   --sidebar-border: rgba(255, 255, 255, 0.08);
   --sidebar-ring: #4C8DF5;
 
-  /* 自定义应用层级变量 — 实色明度分层 */
-  --app-menubar: #1A1C20;
-  --app-sidebar: #26282D;
-  --app-tabbar: #1E2024;
-  --app-content: #1E2024;
+  /* 自定义应用层级变量 — 实色明度分层（阶梯方向见上：内容最暗、外壳次之、浮起面最亮） */
+  --app-menubar: #202226;
+  --app-sidebar: #202226;
+  --app-tabbar: #1A1C20;
+  --app-content: #1A1C20;
   --app-bg-deep: #1A1C20;
-  --app-bg-sidebar-deep: #1A1C20;
-  /* 2026-09 主区提亮联动：与 --popover 锁步 #2C2F35 → #34383F（保 H/S，L +3.53%） */
-  --app-overlay: #34383F;
-  /* 2026-09 主区提亮联动：#4C8DF5 → #5E99F6（保 H/S，L 62.9%→66.7%），新 panel 上 4.57 */
+  --app-bg-sidebar-deep: #202226;
+  --app-overlay: #2A2D33;
   --app-accent: #5E99F6;
   --app-tag-red: #FF7B72;
   --app-tag-amber: #E3B341;
@@ -541,11 +540,11 @@
   --app-tag-pink: #FF9BCE;
   --app-tag-cyan: #56D4DD;
   --app-tag-gray: #A6ADB7;
-  --app-text-primary: #E6E8EB;
-  --app-text-secondary: #9BA1A9;
-  /* 对比度修正：仅提明度保色相，panel/sidebar 上 ≥4.5（check-theme-contrast 强约束）。
-     2026-09 主区提亮联动：#8A9097 → #949AA0（L 56.7%→60.4%），panel #2E3137 上 4.59 */
-  --app-text-tertiary: #949AA0;
+  /* 正文不取纯白：#F2F2F2 在 #1A1C20 上 15:1 偏刺眼（终端旁长时间看），#ECEDEF 约 13:1。 */
+  --app-text-primary: #ECEDEF;
+  --app-text-secondary: #A0A6AE;
+  /* 对比度修正：panel/sidebar 上 ≥4.5（check-theme-contrast 强约束），#8E949C 在 #202226 上 5.2 */
+  --app-text-tertiary: #8E949C;
   --app-border: rgba(255, 255, 255, 0.09);
   --app-hover: rgba(255, 255, 255, 0.06);
   --app-active-bg: rgba(76, 141, 245, 0.14);
@@ -601,9 +600,10 @@
   --app-warning: var(--app-status-warning);
   --app-warning-bg: var(--app-status-warning-bg);
   --app-input-bg: rgba(255, 255, 255, 0.04);
-  --app-chat-composer-bg: var(--app-content);
+  /* 输入框是浮起面，取卡片档，不与内容区同色 */
+  --app-chat-composer-bg: #24272C;
   --app-status-success: #3FB950;
-  /* 2026-09 主区提亮联动：#F96B64 → #FA7D76（保 H/S），绑定约束为最亮的 nord-frost 新 panel（4.56） */
+  /* 绑定约束为最亮的 nord-frost panel（4.56），deep-ink 自身余量更大 */
   --app-status-danger: #FA7D76; /* 对比度修正：仅提明度，五暗色上下文共用此值 */
   --app-status-success-bg: color-mix(in srgb, var(--app-status-success) 10%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
   --app-status-success-border: color-mix(in srgb, var(--app-status-success) 30%, transparent); /* TODO(0111-theme): 暗色专属值待设计评审 */
@@ -655,14 +655,13 @@
   /* TitleBar 高光线 */
   --app-titlebar-highlight: linear-gradient(90deg, transparent, rgba(255,255,255,0.05) 20%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.05) 80%, transparent);
 
-  /* 组件级变量 —— 明度三档：活动栏最深(#1A1C20) < 侧边栏(#212328) < 主区(#2E3137)。
-     主区 2026-09 提亮：#26282D → #2E3137（HSL 保 H/S，L 16.3%→19.8%，+3.5%），
-     主区-侧栏明度差由 ~2% 拉宽到 ~5.5%，暗色下「主区浮起」肉眼可辨；
-     ActivityBar/侧栏不动，阶梯差全部来自主区一档。 */
+  /* 组件级变量 —— 明度阶梯（2026-11 反向）：主区最暗(#1A1C20) < 活动栏/侧栏(#202226)。
+     内容区沉下去、外壳略浮，是 macOS 深色（Finder/Notes）与 Codex 桌面版的方向；
+     开启系统材质时外壳再被材质拉亮一档，方向一致。 */
   --app-activity-bar-bg: var(--app-bg-sidebar-deep);
-  --app-sidebar-bg: #212328;
-  --app-panel-bg: #2E3137;
-  --app-icon-active: #E6E8EB;
+  --app-sidebar-bg: #202226;
+  --app-panel-bg: #1A1C20;
+  --app-icon-active: #ECEDEF;
   --app-icon-inactive: #767C85;
   --app-icon-hover: #9BA1A9;
   --app-close-btn-hover-bg: #F85149;
@@ -1705,7 +1704,8 @@
 /* 系统材质（vibrancy / Mica）：只让外壳透出，主内容区保持不透明，保证终端和正文对比度。
    透出用的底色必须是各区**自己的** token（标题栏/状态栏 menubar、活动栏 activity-bar、侧栏 sidebar），
    不能统一用 panel-bg：那样外壳与主区同色，暗色下明度分层整个消失，只剩 1px 边线分区
-   （deep-ink 实测外壳 #2d3137 vs 主区 #2e3137）。 */
+   （deep-ink 旧版实测外壳 #2d3137 vs 主区 #2e3137）。材质底色在深色外观下约 #47 灰，
+   会把 tint 拉亮——阶梯反向后（外壳本就比内容区亮）这是顺方向的，透出比例取 65%。 */
 :root[data-material="on"],
 :root[data-material="on"] body,
 :root[data-material="on"] #root,
@@ -1713,13 +1713,13 @@
   background: transparent !important;
 }
 :root[data-material="on"] [data-material-surface] {
-  background: color-mix(in srgb, var(--app-menubar) 78%, transparent) !important;
+  background: color-mix(in srgb, var(--app-menubar) 65%, transparent) !important;
 }
 :root[data-material="on"] .activity-bar[data-material-surface] {
-  background: color-mix(in srgb, var(--app-activity-bar-bg) 78%, transparent) !important;
+  background: color-mix(in srgb, var(--app-activity-bar-bg) 65%, transparent) !important;
 }
 :root[data-material="on"] .sidebar[data-material-surface] {
-  background: color-mix(in srgb, var(--app-sidebar-bg) 78%, transparent) !important;
+  background: color-mix(in srgb, var(--app-sidebar-bg) 65%, transparent) !important;
 }
 
 /* 原生约定：控件与侧栏文字不可选；内容区（终端/编辑器/消息/弹窗正文）保持可选。
