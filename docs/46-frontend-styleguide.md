@@ -83,7 +83,8 @@
 - **程序化滚动不用 `behavior: smooth`**。
 - **不模拟系统材质**：默认没有 `backdrop-filter` 和装饰光球；模糊只留给 Glass 形态和壁纸，因为那里背后确实有内容。
 - **系统材质**：外壳（标题栏、活动栏、侧栏、状态栏）标 `data-material-surface`，由 `:root[data-material="on"]` 透出；主内容区保持不透明。透出的底色取各区自己的 token（menubar / activity-bar / sidebar），不要统一用 panel-bg，否则外壳与主区同色、暗色下明度分层消失。
-- **空态是素底 + 图标 + 一行字**：不铺点阵、不给图标砖投影，启动动作可以保留。透明窗口只能在创建时决定，开关重启后生效。窗口外观要随应用主题同步（`useSystemAppearance`），否则材质按系统明暗绘制。
+- **空态是素底 + 图标 + 一行字**：不铺点阵、不给图标砖投影，启动动作可以保留。
+- **深色阶梯是内容最暗、外壳略浮、浮起面最亮**（deep-ink：`#1A1C20` < `#202226` < 卡片 `#24272C` < 弹层 `#2A2D33`）。内容区与终端底同档，开终端不跳灰阶；这是 macOS 深色的方向，不是 VS Code 的"主区最亮"。透明窗口只能在创建时决定，开关重启后生效。窗口外观要随应用主题同步（`useSystemAppearance`），否则材质按系统明暗绘制。
 - **确认框走 `nativeConfirm`**（`services/nativeDialog.ts`），纯文字 + 两个按钮用系统对话框；要列清单或多个动作时才用 `Dialog`。
 - **设置是独立窗口**（`SettingsWindowRoute`），Web 壳回退弹窗。两个窗口的 store 不相通：配置走 `settings-changed` 事件，本地偏好走 `storage` 事件，需要主窗口状态的操作走 `sendActionToMainWindow`。设置页里新增这类操作要接进这条桥，否则点了没反应。
 - **快捷键标签走 `formatKeyCombo`**，不要把 `Ctrl+X` 写进文案。

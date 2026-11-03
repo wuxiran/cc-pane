@@ -135,7 +135,7 @@ export function accentPreset(id: string | null | undefined): AccentPreset | unde
  * 明度偏移以 color-mix 叠加在基值上，避免运行时读取 computed style。
  */
 export const PANEL_BG_BASE: Record<ThemeId, string> = {
-  "deep-ink": "#2E3137",
+  "deep-ink": "#1A1C20",
   "cyber-purple": "#322e3a",
   "amber-gold": "#35312a",
   "classic-white": "#FFFFFF",

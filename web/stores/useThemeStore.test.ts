@@ -209,7 +209,7 @@ describe("useThemeStore", () => {
       useThemeStore.getState().setThemeOverrides({ panelLightnessDelta: 5 });
 
       expect(document.documentElement.style.getPropertyValue("--app-panel-bg")).toBe(
-        "color-mix(in srgb, #2E3137 95%, white)",
+        "color-mix(in srgb, #1A1C20 95%, white)",
       );
     });
 
