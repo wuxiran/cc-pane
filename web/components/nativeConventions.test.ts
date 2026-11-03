@@ -22,13 +22,10 @@ const sources = readdirSync(webRoot, { recursive: true, encoding: "utf8" })
   .filter((file) => /\.tsx?$/.test(file) && !file.includes(".test.") && !file.startsWith("components/dev/"))
   .map((file) => ({ file, text: readFileSync(`${webRoot}/${file}`, "utf8") }));
 
-// 内容里的外链保留手形光标，这是平台约定的例外。
-const POINTER_ALLOWLIST = new Set(["components/skill/LinkSkillManager.tsx"]);
-
 describe("native conventions (anti-regression)", () => {
   it("可点元素不使用 cursor-pointer", () => {
     const offenders = sources
-      .filter(({ file, text }) => text.includes("cursor-pointer") && !POINTER_ALLOWLIST.has(file))
+      .filter(({ text }) => text.includes("cursor-pointer"))
       .map(({ file }) => file);
     expect(offenders).toEqual([]);
   });
@@ -37,6 +34,30 @@ describe("native conventions (anti-regression)", () => {
     const offenders = sources
       .filter(({ text }) => /behavior:[^,\n]*["']smooth["']/.test(text))
       .map(({ file }) => file);
+    expect(offenders).toEqual([]);
+  });
+
+  it("macOS 上 UI 字体走系统字体，Inter 只在其它平台优先", () => {
+    const css = readFileSync(`${webRoot}/assets/index.css`, "utf8");
+    const mac = css.match(/:root\[data-platform="macos"\]\s*\{\s*--font-sans:([^;]+);/);
+    expect(mac?.[1].trim().startsWith("-apple-system")).toBe(true);
+    expect(mac?.[1]).not.toContain("Inter");
+    expect(css).toContain('font-family: "Inter Variable";');
+  });
+
+  it("全局与 .app-scrollbar 的 ::-webkit-scrollbar 自绘只在非 macOS 生效", () => {
+    const css = readFileSync(`${webRoot}/assets/index.css`, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    // 有意保留的局部例外：隐藏滚动条、xterm v5 兜底、标签条可发现性
+    const allowed = [".no-scrollbar", ".xterm-viewport", ".cc-tabbar-scroll"];
+    const offenders = css
+      .split("}")
+      // 取每段最后一个 "{" 前的选择器，覆盖 @media 内嵌规则
+      .map((rule) => rule.split("{").slice(-2, -1)[0] ?? "")
+      .flatMap((selector) => selector.split(","))
+      .map((selector) => selector.trim())
+      .filter((selector) => selector.includes("::-webkit-scrollbar"))
+      .filter((selector) => !selector.startsWith(':where(:root:not([data-platform="macos"]))'))
+      .filter((selector) => !allowed.some((token) => selector.includes(token)));
     expect(offenders).toEqual([]);
   });
 

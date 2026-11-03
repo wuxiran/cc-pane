@@ -20,6 +20,7 @@ import NotificationCenter from "@/components/notifications/NotificationCenter";
 import FeatureTips from "@/components/tips/FeatureTips";
 import { useThemeStore, useMiniModeStore, useWorkspacesStore } from "@/stores";
 import { useFollowActiveTerminalContext } from "@/hooks/useFollowActiveTerminalContext";
+import { useSuppressChromeContextMenu } from "@/hooks/useSuppressChromeContextMenu";
 import type { OpenTerminalOptions } from "@/types";
 
 interface AppShellProps {
@@ -33,6 +34,8 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
   const isMiniMode = useMiniModeStore((s) => s.isMiniMode);
   const selectedWorkspace = useWorkspacesStore((s) => s.selectedWorkspace);
   useFollowActiveTerminalContext();
+  // chrome 区域不弹 WebView 原生右键菜单；终端/输入框/前端自处理的右键放行
+  useSuppressChromeContextMenu();
 
 
   return (

@@ -219,6 +219,13 @@
   --font-sans: "Inter Variable", "Inter", "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
+/* macOS：UI 正文交给系统字体（SF Pro + 苹方），与原生控件/菜单同一字形与度量；
+   打包的 Inter 只在 Windows/Linux 优先。data-platform 由 web/main.tsx 在挂载前写到 <html>。
+   覆盖的是运行期变量（body 经 var(--font-sans) 消费），@font-face Inter 声明保留。 */
+:root[data-platform="macos"] {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+}
+
 /* ===== Light 主题（默认）— Refined Developer Tool（冷调 off-white / 发丝边框 / 柔和 elevation）===== */
 :root {
   --radius: 0.5rem;
@@ -1766,42 +1773,53 @@ textarea,
    默认完全透明 → 容器 hover 淡入 → slider hover 增强 → 拖拽最强
    ============================================ */
 
-/* --- 全局 webkit scrollbar --- */
-::-webkit-scrollbar {
+/* --- 全局 webkit scrollbar（非 macOS）---
+   macOS 上任何 ::-webkit-scrollbar 规则命中都会让 WebKit 退出系统 overlay 滚动条
+   （哪怕只设 width），所以整段限定到非 macOS，macOS 交给系统（跟随「显示滚动条」偏好）。
+   用 :where() 包平台条件，保持与原规则相同的特异性，不压过下方 .app-scrollbar 等局部规则。
+   每条同时写「根元素自身」与「后代」两种形态，覆盖文档根滚动条。 */
+:where(:root:not([data-platform="macos"]))::-webkit-scrollbar,
+:where(:root:not([data-platform="macos"])) ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
-::-webkit-scrollbar-track {
+:where(:root:not([data-platform="macos"]))::-webkit-scrollbar-track,
+:where(:root:not([data-platform="macos"])) ::-webkit-scrollbar-track {
   background: transparent;
 }
-::-webkit-scrollbar-corner {
+:where(:root:not([data-platform="macos"]))::-webkit-scrollbar-corner,
+:where(:root:not([data-platform="macos"])) ::-webkit-scrollbar-corner {
   background: transparent;
 }
-::-webkit-scrollbar-thumb {
+:where(:root:not([data-platform="macos"]))::-webkit-scrollbar-thumb,
+:where(:root:not([data-platform="macos"])) ::-webkit-scrollbar-thumb {
   background-color: transparent;
   border-radius: 3px;
   border: 1px solid transparent;
   background-clip: padding-box;
   transition: background-color 0.2s ease;
 }
-::-webkit-scrollbar-thumb:hover {
+:where(:root:not([data-platform="macos"]))::-webkit-scrollbar-thumb:hover,
+:where(:root:not([data-platform="macos"])) ::-webkit-scrollbar-thumb:hover {
   background-color: rgba(0, 0, 0, 0.32);
   background-clip: padding-box;
 }
 
 /* Light 模式：容器 hover 才淡入 */
-:hover::-webkit-scrollbar-thumb {
+:where(:root:not([data-platform="macos"])):hover::-webkit-scrollbar-thumb,
+:where(:root:not([data-platform="macos"])) :hover::-webkit-scrollbar-thumb {
   background-color: rgba(0, 0, 0, 0.16);
 }
-:hover::-webkit-scrollbar-thumb:hover {
+:where(:root:not([data-platform="macos"])):hover::-webkit-scrollbar-thumb:hover,
+:where(:root:not([data-platform="macos"])) :hover::-webkit-scrollbar-thumb:hover {
   background-color: rgba(0, 0, 0, 0.32);
 }
 
-/* Dark 模式 */
-.dark :hover::-webkit-scrollbar-thumb {
+/* Dark 模式（.dark 挂在 <html> 上） */
+:where(:root:not([data-platform="macos"])).dark :hover::-webkit-scrollbar-thumb {
   background-color: rgba(255, 255, 255, 0.14);
 }
-.dark :hover::-webkit-scrollbar-thumb:hover {
+:where(:root:not([data-platform="macos"])).dark :hover::-webkit-scrollbar-thumb:hover {
   background-color: rgba(255, 255, 255, 0.30);
 }
 
@@ -2171,24 +2189,30 @@ textarea,
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* 非终端面板/列表的统一细 overlay 滚动条。终端区域使用上方的 xterm
-   专用规则，不给 .cc-terminal-host 追加此类，避免覆盖其 slider 生命周期。 */
+   专用规则，不给 .cc-terminal-host 追加此类，避免覆盖其 slider 生命周期。
+   仅非 macOS 生效：macOS 上 .app-scrollbar 退化为无样式，滚动条交给系统 overlay
+   （理由同上方全局段）。:where() 保持原特异性。 */
+/* gutter 不涉及 ::-webkit-scrollbar，全平台保留：macOS 用户开「始终显示滚动条」时也不跳版 */
 .app-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
   scrollbar-gutter: stable;
 }
 
-.app-scrollbar::-webkit-scrollbar {
+:where(:root:not([data-platform="macos"])) .app-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+:where(:root:not([data-platform="macos"])) .app-scrollbar::-webkit-scrollbar {
   width: 5px;
   height: 5px;
 }
 
-.app-scrollbar::-webkit-scrollbar-track,
-.app-scrollbar::-webkit-scrollbar-corner {
+:where(:root:not([data-platform="macos"])) .app-scrollbar::-webkit-scrollbar-track,
+:where(:root:not([data-platform="macos"])) .app-scrollbar::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-.app-scrollbar::-webkit-scrollbar-thumb {
+:where(:root:not([data-platform="macos"])) .app-scrollbar::-webkit-scrollbar-thumb {
   border: 1px solid transparent;
   border-radius: 999px;
   background: transparent;
@@ -2196,20 +2220,20 @@ textarea,
   transition: background-color var(--dur-fast) var(--ease-out);
 }
 
-.app-scrollbar:hover {
+:where(:root:not([data-platform="macos"])) .app-scrollbar:hover {
   scrollbar-color: color-mix(in srgb, var(--app-text-tertiary) 45%, transparent) transparent;
 }
 
-.app-scrollbar:hover::-webkit-scrollbar-thumb {
+:where(:root:not([data-platform="macos"])) .app-scrollbar:hover::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--app-text-tertiary) 45%, transparent);
 }
 
-.app-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+:where(:root:not([data-platform="macos"])) .app-scrollbar:hover::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--app-text-primary) 58%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-scrollbar::-webkit-scrollbar-thumb {
+  :where(:root:not([data-platform="macos"])) .app-scrollbar::-webkit-scrollbar-thumb {
     transition: none;
   }
 }

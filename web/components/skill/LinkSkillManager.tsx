@@ -362,7 +362,7 @@ export default function LinkSkillManager() {
                       </Badge>
                       {row.url && (
                         <a
-                          className="cursor-pointer text-xs text-muted-foreground/70 hover:text-primary"
+                          className="cursor-default text-xs text-muted-foreground/70 hover:text-primary"
                           title={t("linkUpdateOne")}
                           onClick={async (e) => {
                             e.stopPropagation();

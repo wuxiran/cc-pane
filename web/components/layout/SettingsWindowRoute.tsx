@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import SettingsPanel from "@/components/SettingsPanel";
 import { SETTINGS_NAVIGATE_EVENT } from "@/components/settings/settingsNavigation";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useSuppressChromeContextMenu } from "@/hooks/useSuppressChromeContextMenu";
 import { useSystemAppearance } from "@/hooks/useSystemAppearance";
 import i18n from "@/i18n";
 import { getCurrentWindowIfTauri, listenIfTauri } from "@/services/runtime";
@@ -27,6 +28,8 @@ export default function SettingsWindowRoute() {
   const themeMode = useSettingsStore((state) => state.settings?.theme.mode);
   const themeShape = useSettingsStore((state) => state.settings?.theme.shape);
   useSystemAppearance();
+  // 设置窗口同样是 chrome 为主，右键拦截与主窗口口径一致。
+  useSuppressChromeContextMenu();
 
   useEffect(() => {
     let disposed = false;
