@@ -462,7 +462,6 @@
      壁纸激活时仅在主区 panes 根节点把 effective 覆盖为 transparent，
      未启用/亮色场景变量恒等，零行为变化。 */
   --app-panel-bg-effective: var(--app-panel-bg);
-  --app-panel-dots-opacity: 0.03;
   --app-orbs-opacity: 1;
   --app-wallpaper-dim: 0.35;
 
@@ -676,7 +675,6 @@
 
   /* 壁纸间接 token（暗色同语义；effective 恒等 panel-bg，由主区根节点按需覆盖） */
   --app-panel-bg-effective: var(--app-panel-bg);
-  --app-panel-dots-opacity: 0.03;
   --app-orbs-opacity: 1;
   --app-wallpaper-dim: 0.35;
 
@@ -1704,7 +1702,10 @@
   }
 }
 
-/* 系统材质（vibrancy / Mica）：只让外壳透出，主内容区保持不透明，保证终端和正文对比度。 */
+/* 系统材质（vibrancy / Mica）：只让外壳透出，主内容区保持不透明，保证终端和正文对比度。
+   透出用的底色必须是各区**自己的** token（标题栏/状态栏 menubar、活动栏 activity-bar、侧栏 sidebar），
+   不能统一用 panel-bg：那样外壳与主区同色，暗色下明度分层整个消失，只剩 1px 边线分区
+   （deep-ink 实测外壳 #2d3137 vs 主区 #2e3137）。 */
 :root[data-material="on"],
 :root[data-material="on"] body,
 :root[data-material="on"] #root,
@@ -1712,7 +1713,13 @@
   background: transparent !important;
 }
 :root[data-material="on"] [data-material-surface] {
-  background: color-mix(in srgb, var(--app-panel-bg) 58%, transparent) !important;
+  background: color-mix(in srgb, var(--app-menubar) 78%, transparent) !important;
+}
+:root[data-material="on"] .activity-bar[data-material-surface] {
+  background: color-mix(in srgb, var(--app-activity-bar-bg) 78%, transparent) !important;
+}
+:root[data-material="on"] .sidebar[data-material-surface] {
+  background: color-mix(in srgb, var(--app-sidebar-bg) 78%, transparent) !important;
 }
 
 /* 原生约定：控件与侧栏文字不可选；内容区（终端/编辑器/消息/弹窗正文）保持可选。
