@@ -101,6 +101,7 @@ windows-core-061 = { package = "windows-core", version = "0.61" }
 socket2 = "0.6"
 windows = { version = "0.62", features = [
     "Win32_System_SystemInformation",
+    "Win32_System_Registry",
     "Win32_System_Threading",
     "Win32_System_LibraryLoader",
     "Win32_System_DataExchange",

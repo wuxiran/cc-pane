@@ -1697,6 +1697,17 @@
   }
 }
 
+/* 系统材质（vibrancy / Mica）：只让外壳透出，主内容区保持不透明，保证终端和正文对比度。 */
+:root[data-material="on"],
+:root[data-material="on"] body,
+:root[data-material="on"] #root,
+:root[data-material="on"] .app {
+  background: transparent !important;
+}
+:root[data-material="on"] [data-material-surface] {
+  background: color-mix(in srgb, var(--app-panel-bg) 58%, transparent) !important;
+}
+
 /* 原生约定：控件与侧栏文字不可选；内容区（终端/编辑器/消息/弹窗正文）保持可选。
    输入控件必须显式恢复：WebKit 下继承到 none 的 input 无法输入。 */
 button,

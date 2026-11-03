@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { settingsService } from "@/services";
+import { broadcastSettingsChanged } from "@/services/settingsWindowService";
 import type { AppSettings } from "@/types";
 import { DEFAULT_PERFORMANCE_SETTINGS } from "@/types/performanceSettings";
 import { handleErrorSilent } from "@/utils";
@@ -283,6 +284,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const normalized = withCCChanSettings(newSettings);
       await settingsService.updateSettings(normalized);
       set({ settings: normalized });
+      broadcastSettingsChanged();
     } catch (e) {
       handleErrorSilent(e, "save settings");
       throw e;

@@ -5,16 +5,21 @@ import { lazyWithRetry } from "@/lib/lazyRetry";
 const LayoutSwitcherWindow = lazyWithRetry(
   () => import("@/components/LayoutSwitcherWindow"), "LayoutSwitcherWindow",
 );
+const SettingsWindowRoute = lazyWithRetry(
+  () => import("./SettingsWindowRoute"), "SettingsWindowRoute",
+);
 const MobilePrototypeRoute = lazyWithRetry(
   () => import("./MobilePrototypeRoute"), "MobilePrototypeRoute",
 );
 
 /** Auxiliary window code is fetched only by the window that needs it. */
-export default function AuxiliaryRoute({ mode }: { mode: "layout-switcher" | "mobile-prototype" }) {
+export default function AuxiliaryRoute({ mode }: { mode: "layout-switcher" | "mobile-prototype" | "settings" }) {
   const { t } = useTranslation("common");
   return (
     <Suspense fallback={<div role="status">{t("loading")}</div>}>
-      {mode === "layout-switcher" ? <LayoutSwitcherWindow /> : <MobilePrototypeRoute />}
+      {mode === "layout-switcher"
+        ? <LayoutSwitcherWindow />
+        : mode === "settings" ? <SettingsWindowRoute /> : <MobilePrototypeRoute />}
     </Suspense>
   );
 }

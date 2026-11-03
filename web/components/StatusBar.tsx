@@ -384,6 +384,7 @@ export default function StatusBar() {
     <div
       // relative 不能省：backdrop-filter 已让本元素成为堆叠上下文，无定位时 z-10 不生效
       // （按 auto 层级 0 排序），会被主内容行 relative z-[1] 压住，栏内 absolute z-50 悬停面板因此被遮。
+      data-material-surface=""
       className="shape-chrome relative flex items-center h-[calc(var(--density-row-h)-4px)] px-2.5 shrink-0 select-none z-10 text-[length:var(--text-caption)] tabular-nums"
       style={{
         background: "var(--app-menubar)",

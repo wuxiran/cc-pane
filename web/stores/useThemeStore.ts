@@ -67,7 +67,7 @@ export function resolveThemeId(theme: string | null | undefined): ThemeId {
  * 被覆盖；overrides 依附的 baseThemeId 与当前主题不一致时只清除不套用
  * （数据保留，切回原主题即恢复）。
  */
-function applyThemeOverrides(
+export function applyThemeOverrides(
   overrides: ThemeOverrides | null,
   themeId: ThemeId,
 ): void {

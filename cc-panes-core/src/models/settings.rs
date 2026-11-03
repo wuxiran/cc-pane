@@ -448,6 +448,12 @@ pub struct ThemeSettings {
     pub mode: String, // theme preset id | "light" | "dark" | "system"
     #[serde(default = "default_theme_shape")]
     pub shape: String,
+    /// 强调色跟随系统；关闭时用主题自带的强调色。
+    #[serde(default)]
+    pub system_accent: bool,
+    /// 主窗口系统材质（vibrancy / Mica）。缺省按平台决定，重启后生效。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_material: Option<bool>,
 }
 
 fn default_theme_shape() -> String {
@@ -1276,6 +1282,8 @@ impl Default for ProxySettings {
 impl Default for ThemeSettings {
     fn default() -> Self {
         Self {
+            system_accent: false,
+            system_material: None,
             mode: "dark".to_string(),
             shape: default_theme_shape(),
         }

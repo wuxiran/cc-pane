@@ -226,6 +226,7 @@ use commands::{
     get_skill,
     get_spec_content,
     get_ssh_machine,
+    get_system_accent_color,
     get_system_stats,
     get_task_binding,
     get_terminal_adoption_snapshot,
@@ -360,6 +361,7 @@ use commands::{
     open_in_codex,
     open_layout_switcher_window,
     open_path_in_explorer,
+    open_settings_window,
     open_web_access,
     parse_import_url,
     prepare_chat_fork,
@@ -560,6 +562,7 @@ use commands::{
     upload_terminal_checkpoint,
     upsert_mcp_server,
     upsert_shared_mcp_server,
+    window_material_active,
     write_terminal,
 };
 use repository::{
@@ -1591,6 +1594,12 @@ fn persist_main_window_geometry(app: &tauri::AppHandle) {
 // ============ 应用入口 ============
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+fn main_context() -> tauri::Context<tauri::Wry> {
+    let mut context = tauri::generate_context!();
+    commands::prepare_main_window_material(&mut context);
+    context
+}
+
 pub fn run() {
     let boot_t0 = std::time::Instant::now();
     // 早期启动打点收集（log 插件尚未初始化，先存到 Vec，setup 后 replay 到 info!）
@@ -3034,6 +3043,10 @@ pub fn run() {
                 }
             }
 
+            if let Some(window) = app.get_webview_window("main") {
+                commands::apply_main_window_material(&window);
+            }
+
             restore_main_window_geometry(app.handle());
 
             info!(
@@ -3215,6 +3228,9 @@ pub fn run() {
             get_quick_terminal_session,
             destroy_quick_terminal,
             open_layout_switcher_window,
+            open_settings_window,
+            window_material_active,
+            get_system_accent_color,
             close_layout_switcher_window,
             get_layout_switcher_snapshot,
             get_layout_switcher_state,
@@ -3647,7 +3663,7 @@ pub fn run() {
             remove_wallpaper,
             resolve_wallpaper_asset
         ])
-        .build(tauri::generate_context!())
+        .build(main_context())
         .expect("error while building tauri application")
         .run(move |app_handle, event| {
             // 注：macOS 的 RunEvent::Opened 已由 tauri-plugin-deep-link 转成 on_open_url（见 setup），

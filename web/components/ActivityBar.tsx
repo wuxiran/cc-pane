@@ -229,6 +229,7 @@ export default function ActivityBar() {
       <ContextMenuTrigger asChild>
         <div
           data-testid="activity-bar"
+          data-material-surface=""
           className="activity-bar shape-surface flex shrink-0 select-none flex-col items-center py-2"
           style={{
             width: 44,
