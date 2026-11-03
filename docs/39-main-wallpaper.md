@@ -69,7 +69,7 @@
 在 `web/assets/index.css` 加一层间接 token（亮暗两套）：
 
 - `--app-panel-bg-effective`（默认恒等于 `--app-panel-bg`）
-- `--app-panel-dots-opacity`（默认 0.03，对应 `Panel.tsx:580` 的点阵）
+- ~~`--app-panel-dots-opacity`（默认 0.03，对应 `Panel.tsx:580` 的点阵）~~ —— 空态点阵已随原生手感改造移除（docs/46 §5），token 一并删除
 - `--app-orbs-opacity`（`DarkOrbsBackground` 外层，壁纸时置 0——`mix-blend-screen`
   叠在照片上会洗白）
 - `--app-wallpaper-dim`

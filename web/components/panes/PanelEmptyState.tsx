@@ -28,15 +28,8 @@ export default function PanelEmptyState({
       className="absolute inset-0 flex flex-col items-center justify-center select-none overflow-hidden"
       style={{ background: "var(--app-panel-bg-effective)", paddingTop: tabBarHeight }}
     >
-      {/* 点阵背景（opacity 走壁纸 token，壁纸激活时可整体压 0） */}
-      <div
-        className="absolute inset-0"
-        style={{
-          opacity: "var(--app-panel-dots-opacity)",
-          backgroundImage: "radial-gradient(var(--app-text-primary) 1px, transparent 1px)",
-          backgroundSize: "24px 24px",
-        }}
-      />
+      {/* 不铺点阵背景：原生空态是素底 + 图标 + 一行字（docs/46 原生手感），点阵是网页式装饰，
+          且 inset-0 会延伸到标签条下面。 */}
 
       {/* 内容块 — 壁纸激活时自带磨砂玻璃底，否则文字直接糊在壁纸上读不出。
           只包内容不铺满窗格：铺满会盖掉壁纸，那正是壁纸要透出来的地方。 */}
@@ -55,14 +48,13 @@ export default function PanelEmptyState({
             : undefined
         }
       >
-        {/* 图标容器 — 窄窗格里是纯装饰，先砍它 */}
+        {/* 图标容器 — 窄窗格里是纯装饰，先砍它。平铺不带投影：空态不是浮起的卡片。 */}
         {density === "full" && (
           <div
-            className="relative w-20 h-20 rounded-2xl flex items-center justify-center mb-6 transition-transform duration-700"
+            className="relative w-20 h-20 rounded-2xl flex items-center justify-center mb-6"
             style={{
               background: "color-mix(in srgb, var(--app-accent) 8%, var(--app-hover))",
               border: "1px solid var(--app-border)",
-              boxShadow: "var(--sh-md), var(--hi)",
             }}
           >
             <Terminal className="w-9 h-9" style={{ color: "var(--app-accent)", opacity: 0.85 }} />
