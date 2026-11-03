@@ -267,9 +267,9 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
           }}
         >
           <div className="flex min-w-0 items-center gap-2.5">
-            <span aria-hidden="true" className="hidden size-7 shrink-0 items-center justify-center rounded bg-[var(--app-active-bg)] text-[var(--app-accent)] sm:flex">
+            {!isWindow && <span aria-hidden="true" className="hidden size-7 shrink-0 items-center justify-center rounded bg-[var(--app-active-bg)] text-[var(--app-accent)] sm:flex">
               <Settings size={16} />
-            </span>
+            </span>}
             <DialogTitle className={isWindow ? "sr-only" : "hidden truncate text-[length:var(--text-body)] font-semibold sm:block"}>{t("title")}</DialogTitle>
             <DialogDescription className="sr-only">{t("panelDescription")}</DialogDescription>
           </div>
@@ -290,14 +290,14 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
               </div>
             )}
           </div>
-          <button
+          {!isWindow && (<button
             type="button"
             aria-label={t("close", { ns: "common" })}
             onClick={() => handleClose(false)}
             className="shape-control ml-2 flex size-8 items-center justify-center rounded-md text-[var(--app-text-secondary)] transition-colors hover:bg-[var(--app-hover)] hover:text-[var(--app-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
           >
             <X aria-hidden="true" size={16} />
-          </button>
+          </button>)}
         </DialogHeader>
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -355,9 +355,9 @@ export default function SettingsPanel({ open, onOpenChange, presentation = "dial
             <span className="hidden text-xs text-[var(--app-text-tertiary)] sm:inline">
               {lastSavedAt ? t("autoSaved", { time: lastSavedAt }) : t("autoSaveHint")}
             </span>
-            <Button variant="secondary" size="sm" onClick={() => handleClose(false)}>
+            {!isWindow && <Button variant="secondary" size="sm" onClick={() => handleClose(false)}>
               {t("close", { ns: "common" })}
-            </Button>
+            </Button>}
           </div>
         </footer>
       </DialogContent>

@@ -9,6 +9,7 @@ import type { AppSettings } from "@/types";
 import { useSettingsStore } from "@/stores";
 import { useCCChanStore } from "@/stores/useCCChanStore";
 import { useBrowserWebviewOverlayStore } from "@/stores/useBrowserWebviewOverlayStore";
+import * as runtime from "@/services/runtime";
 import SettingsPanel from "./SettingsPanel";
 
 vi.mock("@/lib/feedback", () => ({
@@ -436,5 +437,14 @@ describe("SettingsPanel", () => {
     expect(getDefaults).toHaveBeenCalled();
     expect(toastInfo).toHaveBeenCalledWith(tSettings("sectionResetDone"));
     expect(generalSectionProps?.value).toEqual(getDefaults().general);
+  });
+});
+
+describe("SettingsPanel window presentation", () => {
+  it("独立窗口形态不显示重复的关闭入口", () => {
+    vi.spyOn(runtime, "getCurrentWindowIfTauri").mockReturnValue(null);
+    render(<SettingsPanel open onOpenChange={vi.fn()} presentation="window" />);
+    expect(screen.getByTestId("settings-dialog")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^关闭$|^Close$/ })).not.toBeInTheDocument();
   });
 });

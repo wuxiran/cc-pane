@@ -18,7 +18,7 @@
 | 点击展开的动作菜单 | `DropdownMenu` | Popover 里手搓列表 |
 | 右键上下文动作 | `ContextMenu` | DropdownMenu（触发方式不同） |
 | 点击展开的任意内容面（表单/选择器） | `Popover` | Dialog（会锁焦点+压暗） |
-| 必须先做决定才能继续的模态 | `Dialog`；全局可唤起的经 useDialogStore 管理，局部确认框由组件自持 | Popover、内联遮罩 |
+| 必须先做决定才能继续的模态 | 纯文字确认用 `nativeConfirm`；其余用 `Dialog`，全局可唤起的经 useDialogStore 管理，局部确认框由组件自持 | Popover、内联遮罩 |
 | 从边缘滑入的抽屉 | `Sheet` | 居中 Dialog |
 | 已知列表单选 | shadcn/Radix select 封装 `[目标态:补入 ui/]`；落地前用现有 DropdownMenu 单选模式 | 自造 listbox |
 | 带搜索的单选 | `Command`（cmdk）套 Popover | 无搜索 select |
@@ -82,6 +82,9 @@
 - **控件和侧栏文字不可选，内容可选**：全局规则在 `index.css`。终端、编辑器、消息和弹窗正文保持可选，这样报错能复制。新增非 `input` 的可编辑控件要确认没有继承 `user-select: none`。
 - **程序化滚动不用 `behavior: smooth`**。
 - **不模拟系统材质**：默认没有 `backdrop-filter` 和装饰光球；模糊只留给 Glass 形态和壁纸，因为那里背后确实有内容。
+- **系统材质**：外壳（标题栏、活动栏、侧栏、状态栏）标 `data-material-surface`，由 `:root[data-material="on"]` 透出；主内容区保持不透明。透明窗口只能在创建时决定，开关重启后生效。窗口外观要随应用主题同步（`useSystemAppearance`），否则材质按系统明暗绘制。
+- **确认框走 `nativeConfirm`**（`services/nativeDialog.ts`），纯文字 + 两个按钮用系统对话框；要列清单或多个动作时才用 `Dialog`。
+- **设置是独立窗口**（`SettingsWindowRoute`），Web 壳回退弹窗。两个窗口的 store 不相通：配置走 `settings-changed` 事件，本地偏好走 `storage` 事件，需要主窗口状态的操作走 `sendActionToMainWindow`。设置页里新增这类操作要接进这条桥，否则点了没反应。
 - **快捷键标签走 `formatKeyCombo`**，不要把 `Ctrl+X` 写进文案。
 
 ## 6. 表单解剖与软卡片
