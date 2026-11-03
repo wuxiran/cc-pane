@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
 import packageJson from "../../../package.json";
@@ -20,11 +20,13 @@ import HomeHeader from "./HomeHeader";
 import HomeQuickActions from "./HomeQuickActions";
 import HomeAgentPrompt from "./HomeAgentPrompt";
 import HomeActiveSessions from "./HomeActiveSessions";
-import HomeDesignHighlights from "./HomeDesignHighlights";
 import HomeGettingStarted from "./HomeGettingStarted";
 import HomeRecentProjects from "./HomeRecentProjects";
 import HomePinnedWorkspaces from "./HomePinnedWorkspaces";
 import type { OpenTerminalOptions } from "@/types";
+
+// 宣传卡只给新用户看，不进入口 chunk。
+const HomeDesignHighlights = lazy(() => import("./HomeDesignHighlights"));
 
 interface HomeDashboardProps {
   onOpenTerminal: (opts: OpenTerminalOptions) => void;
@@ -155,10 +157,12 @@ export default function HomeDashboard({ onOpenTerminal }: HomeDashboardProps) {
 
         {/* 功能介绍只给新用户：老用户每次打开都看宣传卡是干扰。 */}
         {isNovice && showDesignHighlights && (
-          <HomeDesignHighlights
-            compact={false}
-            onDismiss={() => setShowDesignHighlights(false)}
-          />
+          <Suspense fallback={null}>
+            <HomeDesignHighlights
+              compact={false}
+              onDismiss={() => setShowDesignHighlights(false)}
+            />
+          </Suspense>
         )}
       </div>
     </div>

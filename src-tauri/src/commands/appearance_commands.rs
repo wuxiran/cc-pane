@@ -72,9 +72,9 @@ fn read_system_accent() -> Option<String> {
     let channel = |value: f64| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
     Some(format!(
         "#{:02x}{:02x}{:02x}",
-        channel(srgb.redComponent() as f64),
-        channel(srgb.greenComponent() as f64),
-        channel(srgb.blueComponent() as f64),
+        channel(srgb.redComponent()),
+        channel(srgb.greenComponent()),
+        channel(srgb.blueComponent()),
     ))
 }
 

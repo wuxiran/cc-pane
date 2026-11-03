@@ -1,11 +1,10 @@
 // 全局 Dialog 挂载点：所有由 useDialogStore 驱动的弹窗集中在此。
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { openSettingsWindow, usesSettingsWindow } from "@/services/settingsWindowService";
 import { handleErrorSilent } from "@/utils";
-import SettingsPanel from "@/components/SettingsPanel";
+import { lazyWithRetry } from "@/lib/lazyRetry";
 import JournalPanel from "@/components/JournalPanel";
 import LocalHistoryPanel from "@/components/LocalHistoryPanel";
-import GitTimelinePanel from "@/components/GitTimelinePanel";
 import ConflictResolveDialog from "@/components/git/ConflictResolveDialog";
 import SessionCleanerPanel from "@/components/SessionCleanerPanel";
 import TodoPanel from "@/components/TodoPanel";
@@ -18,6 +17,10 @@ import ShortcutCheatsheet from "@/components/ShortcutCheatsheet";
 import TerminalPathLinkDialog from "@/components/panes/TerminalPathLinkDialog";
 import TrayQuitConfirmDialog from "@/components/tray/TrayQuitConfirmDialog";
 import { useDialogStore } from "@/stores";
+
+// 桌面设置在独立窗口里，只有 Web 壳和建窗失败时才用到，不进入口 chunk。
+const SettingsPanel = lazyWithRetry(() => import("@/components/SettingsPanel"), "SettingsPanel");
+const GitTimelinePanel = lazyWithRetry(() => import("@/components/GitTimelinePanel"), "GitTimelinePanel");
 
 interface AppDialogsProps {
   recentFilesOpen: boolean;
@@ -61,10 +64,14 @@ export default function AppDialogs({ recentFilesOpen, onCloseRecentFiles }: AppD
 
   return (
     <>
+      {settingsOpen && !useWindow && (
+        <Suspense fallback={null}>
       <SettingsPanel
-        open={settingsOpen && !useWindow}
+        open
         onOpenChange={(open) => open ? useDialogStore.getState().openSettings() : useDialogStore.getState().closeSettings()}
       />
+        </Suspense>
+      )}
       <JournalPanel
         open={journalOpen}
         onOpenChange={(open) => open ? useDialogStore.getState().openJournal(journalWorkspaceName) : useDialogStore.getState().closeJournal()}
@@ -79,14 +86,18 @@ export default function AppDialogs({ recentFilesOpen, onCloseRecentFiles }: AppD
           useDialogStore.getState().openLocalHistory(worktreePath || localHistoryProjectPath, filePath);
         }}
       />
-      <GitTimelinePanel
-        open={gitTimelineOpen}
-        onOpenChange={(open) => open
-          ? useDialogStore.getState().openGitTimeline(gitTimelineProjectPath, gitTimelineInitialFile ?? undefined)
-          : useDialogStore.getState().closeGitTimeline()}
-        projectPath={gitTimelineProjectPath}
-        initialFile={gitTimelineInitialFile}
-      />
+      {gitTimelineOpen && (
+        <Suspense fallback={null}>
+          <GitTimelinePanel
+            open
+            onOpenChange={(open) => open
+              ? useDialogStore.getState().openGitTimeline(gitTimelineProjectPath, gitTimelineInitialFile ?? undefined)
+              : useDialogStore.getState().closeGitTimeline()}
+            projectPath={gitTimelineProjectPath}
+            initialFile={gitTimelineInitialFile}
+          />
+        </Suspense>
+      )}
       <ConflictResolveDialog
         open={gitConflictOpen}
         onOpenChange={(open) => open
