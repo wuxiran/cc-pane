@@ -51,6 +51,7 @@ export default function SettingsWindowRoute() {
 
   useEffect(() => {
     if (!ready) return;
+    void getCurrentWindowIfTauri()?.setTitle(i18n.t("settings:title"));
     const params = new URLSearchParams(window.location.search);
     const paneId = params.get("pane");
     if (paneId) dispatchNavigate({ paneId, targetSectionId: params.get("section") ?? undefined });

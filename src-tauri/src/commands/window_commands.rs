@@ -473,13 +473,18 @@ pub async fn open_settings_window(
     if let Some(section) = &section_id {
         url.push_str(&format!("&section={section}"));
     }
-    WebviewWindowBuilder::new(&app, SETTINGS_WINDOW_LABEL, WebviewUrl::App(url.into()))
-        .title("Settings")
-        .inner_size(1040.0, 720.0)
-        .min_inner_size(760.0, 520.0)
-        .center()
-        .focused(true)
-        .build()
-        .map_err(|e| AppError::from(format!("Failed to create settings window: {e}")))?;
+    let window =
+        WebviewWindowBuilder::new(&app, SETTINGS_WINDOW_LABEL, WebviewUrl::App(url.into()))
+            .title("Settings")
+            .inner_size(1040.0, 720.0)
+            .min_inner_size(760.0, 520.0)
+            .center()
+            .focused(true)
+            .build()
+            .map_err(|e| AppError::from(format!("Failed to create settings window: {e}")))?;
+    // 从托盘打开时应用不在前台：被遮挡的 WKWebView 不绘制，窗口会一直白屏，必须主动激活。
+    window
+        .set_focus()
+        .map_err(|e| AppError::from(e.to_string()))?;
     Ok(())
 }

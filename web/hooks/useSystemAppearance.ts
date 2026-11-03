@@ -36,6 +36,25 @@ export function useSystemAppearance(): void {
     };
   }, [enabled, themeId]);
 
+  // 窗口外观跟随应用主题：系统材质和原生标题栏按窗口外观绘制，不同步的话
+  // 系统浅色 + 应用暗色时外壳会是亮底配亮字。跟随系统时交还给系统，并响应系统切换。
+  const preference = useThemeStore((state) => state.preference);
+  const isDark = useThemeStore((state) => state.isDark);
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    const followSystem = preference === "system";
+    Promise.resolve(
+      getCurrentWindowIfTauri()?.setTheme(followSystem ? null : isDark ? "dark" : "light"),
+    ).catch((error) => handleErrorSilent(error, "sync window theme"));
+  }, [preference, isDark]);
+  useEffect(() => {
+    if (preference !== "system" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => useThemeStore.getState().setThemeMode("system");
+    media.addEventListener?.("change", onChange);
+    return () => media.removeEventListener?.("change", onChange);
+  }, [preference]);
+
   useEffect(() => {
     if (!isTauriRuntime() || isSettingsWindow()) return;
     let disposed = false;
