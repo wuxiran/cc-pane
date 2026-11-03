@@ -1,6 +1,7 @@
 // useTrayActions 的监听注册与事件分发测试：tray-action 四个 action 的落点 +
 // notification-preferences-changed 的快照/重取两条路径。listenIfTauri 被 mock
 // 成同步可用的注册表；非 Tauri 的 no-op 由 runtime 自身保证（runtime.test.ts 覆盖）。
+import { invokeIfTauri } from "@/services/runtime";
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -10,10 +11,6 @@ import {
 } from "./useTrayActions";
 import { focusNotificationSession } from "@/components/notifications/notificationActions";
 import { takePendingStart } from "@/components/agentchat/pendingStart";
-import {
-  SETTINGS_NAVIGATE_EVENT,
-  type SettingsNavigationTarget,
-} from "@/components/settings/settingsNavigation";
 import { notificationPreferencesService } from "@/services/notificationPreferencesService";
 import { checkForAppUpdates } from "@/services/updaterService";
 import { useDialogStore, usePanesStore, useWorkspacesStore } from "@/stores";
@@ -103,18 +100,13 @@ describe("handleTrayAction", () => {
     expect(takePendingStart("tab-tray")).toBeNull();
   });
 
-  it("open-settings 打开设置对话框并导航到通用页的托盘子区", () => {
-    const seen: SettingsNavigationTarget[] = [];
-    const onNavigate = (event: Event) => {
-      seen.push((event as CustomEvent<SettingsNavigationTarget>).detail);
-    };
-    window.addEventListener(SETTINGS_NAVIGATE_EVENT, onNavigate);
-
+  it("open-settings 打开设置窗口并导航到通用页的托盘子区", async () => {
     handleTrayAction({ action: "open-settings", section: "tray" });
 
-    window.removeEventListener(SETTINGS_NAVIGATE_EVENT, onNavigate);
-    expect(useDialogStore.getState().settingsOpen).toBe(true);
-    expect(seen).toEqual([{ paneId: "general", targetSectionId: "general-tray" }]);
+    expect(vi.mocked(invokeIfTauri)).toHaveBeenCalledWith("open_settings_window", {
+      paneId: "general",
+      sectionId: "general-tray",
+    });
   });
 
   it("confirm-quit 打开退出确认对话框并携带运行会话数", () => {

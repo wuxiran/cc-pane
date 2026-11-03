@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main", "screenshot", "popup-*", "ccchan"],
+  "windows": ["main", "screenshot", "popup-*", "ccchan", "settings"],
   "permissions": [
     "core:default",
     "deep-link:default",
@@ -22,6 +22,8 @@
     "core:window:default",
     "core:window:allow-create",
     "core:window:allow-close",
+    "core:window:allow-destroy",
+    "core:window:allow-set-focus",
     "core:window:allow-hide",
     "core:window:allow-show",
     "core:event:default",

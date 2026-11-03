@@ -26,6 +26,8 @@ import { useTerminalResumeIdBridge } from "@/hooks/useTerminalSessionRestore";
 import { useAppLifecycleEarly } from "@/hooks/useAppLifecycleEarly";
 import { useAppLifecycleLate } from "@/hooks/useAppLifecycleLate";
 import { useCCChanActions } from "@/hooks/useCCChanActions";
+import { useSystemAppearance } from "@/hooks/useSystemAppearance";
+import { useSettingsWindowBridge } from "@/hooks/useSettingsWindowBridge";
 import { useTrayActions } from "@/hooks/useTrayActions";
 import { useShortcutRegistrations } from "@/hooks/useShortcutRegistrations";
 import { useOpenTerminal } from "@/hooks/useOpenTerminal";
@@ -45,6 +47,9 @@ export default function App() {
   }
   if (params.get("mode") === "layout-switcher") {
     return <ErrorBoundary><AuxiliaryRoute mode="layout-switcher" /></ErrorBoundary>;
+  }
+  if (params.get("mode") === "settings") {
+    return <ErrorBoundary><AuxiliaryRoute mode="settings" /></ErrorBoundary>;
   }
   if (params.get("mode") === "mobile-prototype") {
     return (
@@ -67,6 +72,8 @@ export default function App() {
 
 function MainApp() {
   useEffect(startPerformanceSampling, []);
+  useSystemAppearance();
+  useSettingsWindowBridge();
   useLayoutScopeSync();
   useSessionLayoutPersistence();
   useSharedLayoutSnapshotSync();

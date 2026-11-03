@@ -4,7 +4,8 @@ use crate::utils::{AppError, AppPaths, AppResult};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{
-    AppHandle, LogicalSize, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window,
+    AppHandle, Emitter, LogicalSize, Manager, State, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, Window,
 };
 use tracing::debug;
 
@@ -420,4 +421,65 @@ mod tests {
         assert!(!is_popup_window_label("screenshot"));
         assert!(!is_popup_window_label(""));
     }
+}
+
+/// 设置窗口 label，capabilities/default.json 需同步。
+pub const SETTINGS_WINDOW_LABEL: &str = "settings";
+pub const SETTINGS_WINDOW_NAVIGATE_EVENT: &str = "settings-window-navigate";
+
+fn settings_target_is_safe(value: &str) -> bool {
+    value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+}
+
+/// 打开独立设置窗口（按需创建，见 CLAUDE.md 隐藏 WebView 的说明）。
+/// 必须是 async：Windows 上同步命令里建窗口会死锁。
+#[tauri::command]
+pub async fn open_settings_window(
+    app: AppHandle,
+    pane_id: Option<String>,
+    section_id: Option<String>,
+) -> AppResult<()> {
+    debug!("cmd::open_settings_window");
+    for value in [pane_id.as_deref(), section_id.as_deref()]
+        .into_iter()
+        .flatten()
+    {
+        if !settings_target_is_safe(value) {
+            return Err(AppError::from(format!("invalid settings target: {value}")));
+        }
+    }
+    if let Some(window) = app.get_webview_window(SETTINGS_WINDOW_LABEL) {
+        let _ = window.unminimize();
+        window.show().map_err(|e| AppError::from(e.to_string()))?;
+        window
+            .set_focus()
+            .map_err(|e| AppError::from(e.to_string()))?;
+        if pane_id.is_some() {
+            window
+                .emit(
+                    SETTINGS_WINDOW_NAVIGATE_EVENT,
+                    serde_json::json!({ "paneId": pane_id, "targetSectionId": section_id }),
+                )
+                .map_err(|e| AppError::from(e.to_string()))?;
+        }
+        return Ok(());
+    }
+    let mut url = String::from("index.html?mode=settings");
+    if let Some(pane) = &pane_id {
+        url.push_str(&format!("&pane={pane}"));
+    }
+    if let Some(section) = &section_id {
+        url.push_str(&format!("&section={section}"));
+    }
+    WebviewWindowBuilder::new(&app, SETTINGS_WINDOW_LABEL, WebviewUrl::App(url.into()))
+        .title("Settings")
+        .inner_size(1040.0, 720.0)
+        .min_inner_size(760.0, 520.0)
+        .center()
+        .focused(true)
+        .build()
+        .map_err(|e| AppError::from(format!("Failed to create settings window: {e}")))?;
+    Ok(())
 }

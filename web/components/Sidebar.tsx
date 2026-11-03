@@ -60,6 +60,7 @@ export default function Sidebar({
   return (
     <div
       ref={sidebarRef}
+      data-material-surface=""
       className="sidebar @container/sidebar shape-surface relative z-10 flex flex-row overflow-hidden"
       style={{
         width: sidebarWidth,

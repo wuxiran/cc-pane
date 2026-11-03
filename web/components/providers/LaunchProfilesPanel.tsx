@@ -1,3 +1,4 @@
+import { routeSkillManager } from "@/services/settingsWindowService";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toastErr, toastInfo, toastOk } from "@/lib/feedback";
@@ -44,7 +45,6 @@ import {
   nextToggleServer,
   nextToggleUserSkill,
 } from "./launchProfileSkillPolicy";
-
 interface LaunchProfilesPanelProps {
   compact?: boolean;
   initialTool?: KnownCliTool;
@@ -551,7 +551,7 @@ export default function LaunchProfilesPanel({
               toggleUserSkill={toggleUserSkill}
               installAndEnableSkill={installAndEnableSkill}
               workspaceContext={workspaceContext}
-              openProjectSkillManager={openSkillManager}
+              openProjectSkillManager={routeSkillManager(openSkillManager)}
               profileSkillEditorOpen={profileSkillEditorOpen}
               editingProfileSkillId={editingProfileSkillId}
               profileSkillForm={profileSkillForm}

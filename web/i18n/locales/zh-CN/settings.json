@@ -162,6 +162,11 @@
     "shapeTabTitle": "形态",
     "styleTitle": "配色与形态",
     "styleDescription": "分别选择界面配色和结构形态。两项可以自由组合，修改后立即生效并自动保存。",
+    "system": {
+      "title": "系统外观",
+      "accent": "强调色跟随系统",
+      "material": "窗口外壳使用系统材质（重启后生效）"
+    },
     "openMenu": "选择配色主题",
     "showAllPresets": "显示全部 {{count}} 种配色",
     "showAllShapes": "显示全部 {{count}} 种形态",

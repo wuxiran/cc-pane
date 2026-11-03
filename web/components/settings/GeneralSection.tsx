@@ -1,3 +1,4 @@
+import { isSettingsWindow, sendActionToMainWindow } from "@/services/settingsWindowService";
 import { useState, useEffect } from "react";
 import { toastInfo, toastOk, toastErr } from "@/lib/feedback";
 import { useTranslation } from "react-i18next";
@@ -468,7 +469,8 @@ export default function GeneralSection({
           className="w-fit mt-1"
           onClick={() => {
             onChange({ ...value, onboardingCompleted: false });
-            useDialogStore.getState().openOnboarding();
+            if (isSettingsWindow()) void sendActionToMainWindow({ type: "openOnboarding" });
+            else useDialogStore.getState().openOnboarding();
           }}
         >
           {t("restartOnboarding", { ns: "onboarding" })}

@@ -1,3 +1,4 @@
+import { getCurrentWindowIfTauri } from "@/services/runtime";
 import { type CSSProperties, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Settings, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -48,6 +49,8 @@ const SettingsPaneContent = lazy(() => import("./settings/SettingsPaneContent"))
 interface SettingsPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** window：独立原生窗口，占满窗口且不压暗；关闭走窗口事件。 */
+  presentation?: "dialog" | "window";
 }
 
 const SETTINGS_WEBVIEW_BLOCKER_ID = "settings-panel";
@@ -58,8 +61,9 @@ const SETTINGS_LAYOUT_STYLE = {
   "--settings-chrome-gutter": "clamp(0.75rem, 1cqw, 1rem)",
 } as CSSProperties;
 
-export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
+export default function SettingsPanel({ open, onOpenChange, presentation = "dialog" }: SettingsPanelProps) {
   const { t } = useTranslation("settings");
+  const isWindow = presentation === "window";
   const getDefaults = useSettingsStore((state) => state.getDefaults);
   const setBrowserWebviewBlocked = useBrowserWebviewOverlayStore((state) => state.setBlocked);
   const { draft, updateDraft, lastSavedAt, flush, discard } = useSettingsAutosave(open);
@@ -154,6 +158,27 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
     return () => window.removeEventListener(SETTINGS_NAVIGATE_EVENT, handleNavigate);
   }, [panes, requestProviderNavigation]);
 
+  const requestCloseRef = useRef<() => void>(() => undefined);
+  requestCloseRef.current = () => handleClose(false);
+  useEffect(() => {
+    if (!isWindow) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "w") {
+        event.preventDefault();
+        requestCloseRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    const unlisten = getCurrentWindowIfTauri()?.onCloseRequested((event) => {
+      event.preventDefault();
+      requestCloseRef.current();
+    });
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      void unlisten?.then((fn) => fn()).catch(() => undefined);
+    };
+  }, [isWindow]);
+
   function closeNow(nextOpen: boolean) {
     if (nextOpen) onOpenChange(true);
     else void flush().then((saved) => {
@@ -215,19 +240,21 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
 
   return (
     <>
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={open} onOpenChange={handleClose} modal={!isWindow}>
       <DialogContent
         data-testid="settings-dialog"
         scaleAnimation={false}
         showCloseButton={false}
-        resizable
-        className="shape-panel !flex flex-col !gap-0 overflow-hidden !rounded-lg !p-0 shadow-2xl"
+        resizable={!isWindow}
+        className={isWindow
+          ? "!flex flex-col !gap-0 overflow-hidden !rounded-none !border-0 !p-0 !top-0 !left-0 !translate-x-0 !translate-y-0 !shadow-none"
+          : "shape-panel !flex flex-col !gap-0 overflow-hidden !rounded-lg !p-0 shadow-2xl"}
         style={{
           ...SETTINGS_LAYOUT_STYLE,
-          width: "88vw",
-          height: "82vh",
-          maxWidth: "calc(100vw - 2rem)",
-          maxHeight: "calc(100vh - 2rem)",
+          width: isWindow ? "100vw" : "88vw",
+          height: isWindow ? "100vh" : "82vh",
+          maxWidth: isWindow ? "100vw" : "calc(100vw - 2rem)",
+          maxHeight: isWindow ? "100vh" : "calc(100vh - 2rem)",
           background: "var(--app-content)",
           containerType: "inline-size",
         }}
@@ -243,7 +270,7 @@ export default function SettingsPanel({ open, onOpenChange }: SettingsPanelProps
             <span aria-hidden="true" className="hidden size-7 shrink-0 items-center justify-center rounded bg-[var(--app-active-bg)] text-[var(--app-accent)] sm:flex">
               <Settings size={16} />
             </span>
-            <DialogTitle className="hidden truncate text-[length:var(--text-body)] font-semibold sm:block">{t("title")}</DialogTitle>
+            <DialogTitle className={isWindow ? "sr-only" : "hidden truncate text-[length:var(--text-body)] font-semibold sm:block"}>{t("title")}</DialogTitle>
             <DialogDescription className="sr-only">{t("panelDescription")}</DialogDescription>
           </div>
           <div className="min-w-0 overflow-x-auto">

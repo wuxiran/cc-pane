@@ -6,6 +6,8 @@ import { MiniUiPreview } from "@/components/theme/MiniUiPreview";
 import { ThemeEditor } from "@/components/theme/ThemeEditor";
 import { PresetSwatches, SystemThemePreview } from "@/components/theme/ThemeSwatches";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { isTauriRuntime } from "@/services/runtime";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
@@ -43,6 +45,9 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
   const { t } = useTranslation("settings");
   const preference = canonicalThemePreference(value.mode);
   const selectedShape = canonicalThemeShape(value.shape);
+  const platform = document.documentElement.dataset.platform;
+  const materialDefault = platform === "macos";
+  const materialSupported = platform === "macos" || platform === "windows";
   const [showAllPresets, setShowAllPresets] = useState(false);
   const [showAllShapes, setShowAllShapes] = useState(false);
   const density = useDensityStore((state) => state.density);
@@ -268,6 +273,28 @@ export default function ThemeSection({ view = "all", value, onChange }: ThemeSec
           <p className="text-[length:var(--text-caption)] leading-4 text-[var(--app-text-tertiary)]">
             {t("theme.blurFallback")}
           </p>
+        )}
+      </section>}
+
+      {view !== "shape" && isTauriRuntime() && <section className="space-y-3 border-t border-[var(--app-border)] pt-6" data-settings-section="theme-system">
+        <h2 className="text-[length:var(--text-row)] font-semibold text-[var(--app-text-primary)]">
+          {t("theme.system.title")}
+        </h2>
+        <label className="flex items-start gap-2 text-[length:var(--text-small)] text-[var(--app-text-secondary)]">
+          <Checkbox
+            checked={value.systemAccent === true}
+            onCheckedChange={(checked) => onChange({ ...value, systemAccent: checked === true })}
+          />
+          <span>{t("theme.system.accent")}</span>
+        </label>
+        {materialSupported && (
+          <label className="flex items-start gap-2 text-[length:var(--text-small)] text-[var(--app-text-secondary)]">
+            <Checkbox
+              checked={value.systemMaterial ?? materialDefault}
+              onCheckedChange={(checked) => onChange({ ...value, systemMaterial: checked === true })}
+            />
+            <span>{t("theme.system.material")}</span>
+          </label>
         )}
       </section>}
 

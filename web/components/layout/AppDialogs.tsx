@@ -1,4 +1,7 @@
 // 全局 Dialog 挂载点：所有由 useDialogStore 驱动的弹窗集中在此。
+import { useEffect, useState } from "react";
+import { openSettingsWindow, usesSettingsWindow } from "@/services/settingsWindowService";
+import { handleErrorSilent } from "@/utils";
 import SettingsPanel from "@/components/SettingsPanel";
 import JournalPanel from "@/components/JournalPanel";
 import LocalHistoryPanel from "@/components/LocalHistoryPanel";
@@ -43,10 +46,23 @@ export default function AppDialogs({ recentFilesOpen, onCloseRecentFiles }: AppD
   const plansProjectPath = useDialogStore((s) => s.plansProjectPath);
   const selfChatOpen = useDialogStore((s) => s.selfChatOpen);
 
+  // 桌面设置用独立窗口；建窗失败时退回弹窗，不让入口失效。
+  const [settingsWindowFailed, setSettingsWindowFailed] = useState(false);
+  const useWindow = usesSettingsWindow() && !settingsWindowFailed;
+  useEffect(() => {
+    if (!settingsOpen || !useWindow) return;
+    openSettingsWindow()
+      .then(() => useDialogStore.getState().closeSettings())
+      .catch((error) => {
+        handleErrorSilent(error, "open settings window");
+        setSettingsWindowFailed(true);
+      });
+  }, [settingsOpen, useWindow]);
+
   return (
     <>
       <SettingsPanel
-        open={settingsOpen}
+        open={settingsOpen && !useWindow}
         onOpenChange={(open) => open ? useDialogStore.getState().openSettings() : useDialogStore.getState().closeSettings()}
       />
       <JournalPanel

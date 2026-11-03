@@ -162,6 +162,11 @@
     "shapeTabTitle": "Shape",
     "styleTitle": "Color & Shape",
     "styleDescription": "Choose the color theme and interface shape separately. Any combination can be used, and changes apply immediately and save automatically.",
+    "system": {
+      "title": "System appearance",
+      "accent": "Use the system accent color",
+      "material": "Use the system material for window chrome (takes effect after restart)"
+    },
     "openMenu": "Choose color theme",
     "showAllPresets": "Show all {{count}} color themes",
     "showAllShapes": "Show all {{count}} shapes",

@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useDialogStore } from "@/stores/useDialogStore";
@@ -8,7 +9,6 @@ import {
 import { useRightDockStore } from "@/stores/useRightDockStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import type { Workspace } from "@/types";
-import { SETTINGS_NAVIGATE_EVENT } from "@/components/settings/settingsNavigation";
 import { FEATURE_TIPS, resolveTipProjectPath } from "./featureTipRegistry";
 
 const workspace: Workspace = {
@@ -206,17 +206,11 @@ describe("界面形态 tip", () => {
   });
 
   it("打开主题设置的形态区域", () => {
-    const navigate = vi.fn();
-    window.addEventListener(SETTINGS_NAVIGATE_EVENT, navigate);
-
     tip("interface-shapes").tryAction?.();
 
-    expect(useDialogStore.getState().settingsOpen).toBe(true);
-    expect(navigate).toHaveBeenCalledOnce();
-    expect((navigate.mock.calls[0][0] as CustomEvent).detail).toEqual({
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("open_settings_window", {
       paneId: "theme",
-      targetSectionId: "theme-shape",
+      sectionId: "theme-shape",
     });
-    window.removeEventListener(SETTINGS_NAVIGATE_EVENT, navigate);
   });
 });

@@ -1,6 +1,7 @@
 // 系统托盘事件前端分发：Rust 托盘菜单点击 emit「tray-action」，偏好即改即生效
 // 走「notification-preferences-changed」。Web 运行时 listenIfTauri 全部 no-op。
 // 事件名与 payload 契约与 src-tauri 托盘实现共同约定，勿擅改。
+import { currentWindowLabel, type SettingsChangedPayload } from "@/services/settingsWindowService";
 import { useEffect } from "react";
 import { focusNotificationSession } from "@/components/notifications/notificationActions";
 import { navigateToSettings } from "@/components/settings/settingsNavigation";
@@ -100,8 +101,10 @@ export function useTrayActions(): void {
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
-    listenIfTauri(SETTINGS_CHANGED_EVENT, () => {
-      if (!cancelled) void useSettingsStore.getState().loadSettings();
+    listenIfTauri<SettingsChangedPayload | null>(SETTINGS_CHANGED_EVENT, (event) => {
+      if (cancelled) return;
+      if (event.payload?.source && event.payload.source === currentWindowLabel()) return;
+      void useSettingsStore.getState().loadSettings();
     }).then((fn) => {
       if (cancelled) fn();
       else unlisten = fn;

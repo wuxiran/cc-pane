@@ -1,3 +1,4 @@
+import type { ThemeSystemPrefs } from "./themeSystemPrefs";
 import type { ThemeShape } from "@/theme/themeShapes";
 import type { PerformanceSettings } from "./performanceSettings";
 
@@ -122,8 +123,7 @@ export interface ProxySettings {
 }
 
 /** 主题设置 */
-export interface ThemeSettings {
-  /** Theme preset id, or the legacy light/dark/system values. */
+export interface ThemeSettings extends ThemeSystemPrefs {
   mode: string;
   /** Independent surface shape applied to application chrome and controls. */
   shape: ThemeShape;
