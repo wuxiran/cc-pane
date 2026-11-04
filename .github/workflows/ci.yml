@@ -124,6 +124,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 恢复 Cargo 缓存时曾把系统盘写满（No space left on device），job 直接崩、连日志都没有
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
         timeout-minutes: 45
