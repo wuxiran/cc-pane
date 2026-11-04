@@ -504,6 +504,9 @@ pub struct TerminalSettings {
     /// Display context usage indicators in terminal status bars.
     #[serde(default = "default_true")]
     pub show_context_usage: bool,
+    /// 启动 Claude 前自动信任已登记的项目与工作空间，不再弹目录信任确认。默认关闭。
+    #[serde(default)]
+    pub auto_trust_registered_projects: bool,
     /// Display the bottom status bar of each terminal tab. When off, the whole
     /// status bar (cli label / model / effort / context usage / project path)
     /// collapses and the tab gains the vertical space.
@@ -1307,6 +1310,7 @@ impl Default for TerminalSettings {
             renderer_mode: default_terminal_renderer_mode(),
             cli_buffer_modes: None,
             show_context_usage: true,
+            auto_trust_registered_projects: false,
             show_status_bar: true,
             task_queue_enabled: true,
             path_links_enabled: true,
@@ -1605,6 +1609,7 @@ mod tests {
     fn terminal_settings_enable_auto_adoption_by_default() {
         assert!(TerminalSettings::default().auto_adopt_daemon_sessions);
         assert!(TerminalSettings::default().show_context_usage);
+        assert!(!TerminalSettings::default().auto_trust_registered_projects);
         assert!(TerminalSettings::default().show_status_bar);
         assert!(TerminalSettings::default().path_links_enabled);
     }

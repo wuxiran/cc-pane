@@ -1,11 +1,14 @@
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::models::{AuthMethod, CreateSessionRequest};
+use crate::models::{AuthMethod, CliTool, CreateSessionRequest};
 use crate::services::{
-    DaemonTerminalBackend, InProcessTerminalBackend, SshMachineService, TerminalBackend,
-    TerminalDaemonClient, TerminalDaemonControlLink, TerminalDaemonLifecycle, TerminalService,
+    DaemonTerminalBackend, InProcessTerminalBackend, ProviderService, SettingsService,
+    SshMachineService, TerminalBackend, TerminalDaemonClient, TerminalDaemonControlLink,
+    TerminalDaemonLifecycle, TerminalService, WorkspaceService,
 };
 use crate::utils::{AppPaths, AppResult};
+use cc_panes_core::services::claude_trust_service::{self, TrustWriteOutcome};
 use tauri::Manager;
 use tracing::{info, warn};
 
@@ -163,6 +166,7 @@ impl TerminalBackendState {
         request: CreateSessionRequest,
     ) -> AppResult<CreatedTerminalSession> {
         self.recheck_daemon_upgrade_before_create(app_handle);
+        trust_registered_claude_directories(app_handle, &request);
         let ssh_password = load_ssh_connection_password(app_handle, &request)?;
         if let Some(client) = self.daemon_client() {
             sync_ssh_password(&client, ssh_password.as_ref())?;
@@ -261,6 +265,90 @@ impl TerminalBackendState {
             .unwrap_or_else(|error| error.into_inner())
             .daemon_client
             .clone()
+    }
+}
+
+/// 只处理本地 Claude 会话；任何失败都不影响启动，最坏情况是 CLI 照常弹一次确认。
+fn trust_registered_claude_directories(
+    app_handle: &tauri::AppHandle,
+    request: &CreateSessionRequest,
+) {
+    let is_claude = request.launch_claude || matches!(request.cli_tool, CliTool::Claude);
+    if !is_claude || request.ssh.is_some() || request.wsl.is_some() {
+        return;
+    }
+    let settings = app_handle.state::<Arc<SettingsService>>().get_settings();
+    if !settings.terminal.auto_trust_registered_projects {
+        return;
+    }
+    let Some(home) = dirs::home_dir() else {
+        return;
+    };
+    let workspaces = match app_handle
+        .state::<Arc<WorkspaceService>>()
+        .list_workspaces()
+    {
+        Ok(workspaces) => workspaces,
+        Err(error) => {
+            warn!(error = %error, "Skipping Claude auto-trust: cannot list workspaces");
+            return;
+        }
+    };
+    let registered: Vec<PathBuf> = workspaces
+        .iter()
+        .flat_map(|workspace| {
+            let projects = workspace
+                .projects
+                .iter()
+                .map(|project| PathBuf::from(&project.path));
+            projects.chain(workspace.path.iter().map(PathBuf::from))
+        })
+        .collect();
+
+    let keys: Vec<String> = [
+        request.launch_cwd.as_deref(),
+        request.workspace_path.as_deref(),
+        Some(request.project_path.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .map(Path::new)
+    .filter(|path| claude_trust_service::is_registered(path, &registered))
+    .flat_map(claude_trust_service::trust_keys_for)
+    .collect();
+    if keys.is_empty() {
+        return;
+    }
+
+    let mut config_dirs: Vec<PathBuf> = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .into_iter()
+        .collect();
+    let providers = app_handle.state::<Arc<ProviderService>>();
+    let provider = request
+        .provider_id
+        .as_deref()
+        .and_then(|id| providers.get_provider(id))
+        .or_else(|| providers.get_default_provider_for_cli("claude"));
+    config_dirs.extend(
+        provider
+            .and_then(|provider| provider.config_dir)
+            .map(PathBuf::from),
+    );
+
+    for file in claude_trust_service::existing_config_files(&home, &config_dirs) {
+        match claude_trust_service::ensure_trusted(&file, &keys) {
+            Ok(TrustWriteOutcome::Written) => {
+                info!(config = %file.display(), "Recorded Claude directory trust");
+            }
+            Ok(TrustWriteOutcome::AlreadyTrusted) => {}
+            Ok(TrustWriteOutcome::LockBusy) => {
+                warn!(config = %file.display(), "Skipped Claude auto-trust: config is locked");
+            }
+            Err(error) => {
+                warn!(config = %file.display(), error = %error, "Skipped Claude auto-trust");
+            }
+        }
     }
 }
 

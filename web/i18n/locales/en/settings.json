@@ -485,6 +485,8 @@
   "pathLinksEnabledHint": "Show file and directory paths in terminal output as clickable links with open actions.",
   "inlineImagesEnabled": "Terminal inline images (beta)",
   "inlineImagesEnabledHint": "Render images sent via OSC 1337 (iTerm inline image protocol) and SIXEL inside the terminal. Experimental and off by default: each terminal reserves up to 32 MB for cached images, and images are not restored after hibernation. Applies to newly opened terminal sessions.",
+  "autoTrustRegisteredProjects": "Auto-trust registered projects in Claude",
+  "autoTrustRegisteredProjectsHint": "Skip Claude's folder trust prompt for projects and workspaces added to CC-Panes, including their git worktrees. Trust lets a repository's hooks and MCP settings run, so only register repositories you trust.",
   "showContextUsage": "Show context usage",
   "showContextUsageHint": "Show the context usage indicator in the global and per-terminal status bars.",
   "showStatusBar": "Show terminal status bar",

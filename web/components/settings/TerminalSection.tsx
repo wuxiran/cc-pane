@@ -302,6 +302,26 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
         </div>
       </SearchableSetting>
 
+      <SearchableSetting sectionId="terminal-auto-trust">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <input
+              id="terminal-auto-trust"
+              type="checkbox"
+              aria-label={t("autoTrustRegisteredProjects")}
+              checked={value.autoTrustRegisteredProjects ?? false}
+              onChange={(e) => update("autoTrustRegisteredProjects", e.target.checked)}
+              className="h-4 w-4 cursor-pointer"
+              style={{ accentColor: "var(--app-accent)" }}
+            />
+            <Label htmlFor="terminal-auto-trust">{t("autoTrustRegisteredProjects")}</Label>
+          </div>
+          <p className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>
+            {t("autoTrustRegisteredProjectsHint")}
+          </p>
+        </div>
+      </SearchableSetting>
+
       {/* lowerSessionPriority / sessionCpuWeight 的 UI 已搬到 PerformanceSection「会话资源策略」，存储位置不变 */}
 
       <div className="flex flex-col gap-1">

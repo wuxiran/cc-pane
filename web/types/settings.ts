@@ -150,13 +150,12 @@ export interface TerminalSettings {
   themeMode: TerminalThemeMode;
   /** 终端渲染器: auto 默认优先 WebGL, webgl 强制尝试, dom 诊断降级 */
   rendererMode: TerminalRendererMode;
-  /**
-   * 按 CLI 覆盖终端缓冲模式: cliToolId -> "strip"(剥 alt-screen 保滚动历史) | "native"(原样透传)。
-   * 缺省/无效值走内置默认(claude=strip, 其余=native), 见 terminalBufferMode.ts 与 docs/73 §2.x。
-   */
+  /** 按 CLI 覆盖缓冲模式: strip(剥 alt-screen 保滚动历史) | native(透传)。缺省走内置默认(claude=strip, 其余=native), 见 terminalBufferMode.ts、docs/73 §2.x */
   cliBufferModes?: Record<string, string> | null;
   /** Display the context usage indicator in terminal status surfaces. */
   showContextUsage: boolean;
+  /** 启动 Claude 前自动信任已登记的项目与工作空间，不再弹目录信任确认。默认关闭。 */
+  autoTrustRegisteredProjects?: boolean;
   /** 终端底部状态栏(整条)的开关。关闭后状态栏整段不渲染,把空间让给终端区。 */
   showStatusBar: boolean;
   /** Enable backend-owned task queues and show their controls in CLI status bars. */
