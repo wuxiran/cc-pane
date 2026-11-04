@@ -118,10 +118,9 @@ fn config_key(path: &Path) -> String {
     let text = path.to_string_lossy();
     #[cfg(windows)]
     {
-        return text
-            .strip_prefix(r"\\?\")
+        text.strip_prefix(r"\\?\")
             .unwrap_or(&text)
-            .replace('\\', "/");
+            .replace('\\', "/")
     }
     #[cfg(not(windows))]
     text.into_owned()
