@@ -1,8 +1,13 @@
 # 109 · 资源库：把 MCP、技能、Hooks 收进左侧一个入口
 
-> **2026-11-04 更新：** 本文下面的「资源中心」三标签方案已被取代。现在的做法是活动栏「资源库」图标 + 侧栏子页，旧入口全部下线，不留跳转。
+> **2026-11-04 更新：** 本文下面的「资源中心」三标签方案已被取代。现在以 magpie（`a3768cd`，MIT）的资源库为界面蓝本：活动栏「资源库」图标 + 侧栏子页，旧入口全部下线，不留跳转。
+>
+> **和 magpie 的取舍：** 页面结构、发现卡片、精选清单、Registry 搜索照抄；**生效方式不抄**：继续按会话注入、按启动档开关，不写 `~/.claude` 等目录，所以没有备份按钮，「Agent 中已有」也只导入不删除。图标不走 magpie 的代理，由后端直连并缓存（`web` 的 CSP 不允许直接加载外部图片）。
+>
 > - **第 1 批（MCP）已落地：** `web/components/resources/McpLibraryPage.tsx`，视图模式 `resources`（`library` 已被资料空间占用）。设置里的资源中心、共享 MCP 和 `mcp-config` 标签已删除，旧布局快照里的这类标签在恢复时丢弃（`stores/panes/layoutLifecycle.ts`）。
-> - **第 2 批技能、第 3 批 Hooks：** 待实施。
+> - **远程 MCP：** `SharedMcpServerConfig.remote`，不起进程、不占端口。只有本机的 Claude、Codex 能带请求头，Codex 不支持 SSE，jcode 只认 stdio；不支持的组合不注入（`remote_mcp_supported`），前端按同一规则置灰（`remoteUnsupportedByProfile`），两处要同步改。
+> - **发现：** `src-tauri/src/services/mcp_market/`：`curated.json`（27 条精选）+ `registry_snapshot.json`（热门快照）+ 官方 Registry 搜索。空查询不联网。
+> - **第 2 批技能、第 3 批 Hooks：** 待实施。指令、子代理、RTK 排在第 4–6 批。
 > - 启动档卡片只保留 MCP 模式和共享总开关；每个 MCP 开给哪些启动档只在资源库改。
 > - 工作空间 / 项目层的 MCP **也受启动档过滤**（`allowed_mcp_server_ids_for_profile`），下文「始终生效」的说法是错的。
 

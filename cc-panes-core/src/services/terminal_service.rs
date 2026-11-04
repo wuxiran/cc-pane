@@ -278,6 +278,66 @@ fn launch_profile_isolates_mcp(profile: Option<&LaunchProfile>) -> bool {
 /// 共享 MCP 服务器的原始 stdio 定义（Claude 条目形状，docs/104）。
 /// 只认 stdio 的 CLI（jcode）用它绕过 HTTP 桥直接注入源命令；只收本次实际
 /// 暴露（出现在 URL 表）的服务器。HTTP 原生型共享服务器没有 stdio 源，不在表中。
+/// 这个 CLI 能不能连上这条远程 MCP。只有 Claude、Codex 能带请求头，Codex 不支持 SSE，
+/// jcode 只认 stdio；WSL / SSH 走另一条注入路径，也带不了请求头。前端按同一规则置灰。
+fn remote_mcp_supported(
+    remote: &crate::models::shared_mcp::SharedMcpRemote,
+    cli_tool: CliTool,
+    runtime_kind: &str,
+) -> bool {
+    if matches!(cli_tool, CliTool::Jcode) {
+        return false;
+    }
+    let sse = remote.transport == "sse";
+    let headers = !remote.headers.is_empty();
+    if runtime_kind != "local" {
+        return !headers && !sse;
+    }
+    match cli_tool {
+        CliTool::Claude => true,
+        CliTool::Codex => !sse,
+        _ => !headers && !sse,
+    }
+}
+
+fn retain_supported_remote_mcp(
+    mut urls: HashMap<String, String>,
+    shared_mcp_config: &SharedMcpConfig,
+    cli_tool: CliTool,
+    runtime_kind: &str,
+) -> HashMap<String, String> {
+    urls.retain(|name, _| {
+        shared_mcp_config
+            .servers
+            .get(name)
+            .and_then(|server| server.remote.as_ref())
+            .is_none_or(|remote| remote_mcp_supported(remote, cli_tool, runtime_kind))
+    });
+    urls
+}
+
+fn shared_mcp_remote_specs(
+    urls: &HashMap<String, String>,
+    shared_mcp_config: &SharedMcpConfig,
+) -> std::collections::BTreeMap<String, cc_cli_adapters::RemoteMcpSpec> {
+    urls.keys()
+        .filter_map(|name| {
+            let remote = shared_mcp_config.servers.get(name)?.remote.as_ref()?;
+            Some((
+                name.clone(),
+                cc_cli_adapters::RemoteMcpSpec {
+                    transport: remote.transport.clone(),
+                    headers: remote
+                        .headers
+                        .iter()
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect(),
+                },
+            ))
+        })
+        .collect()
+}
+
 fn shared_mcp_stdio_specs(
     urls: &HashMap<String, String>,
     shared_mcp_config: &SharedMcpConfig,
@@ -285,6 +345,9 @@ fn shared_mcp_stdio_specs(
     urls.keys()
         .filter_map(|name| {
             let server = shared_mcp_config.servers.get(name)?;
+            if server.remote.is_some() {
+                return None;
+            }
             Some((
                 name.clone(),
                 serde_json::json!({
@@ -383,7 +446,7 @@ fn selected_shared_mcp_config_toml_for_codex(
     let mut servers = toml::map::Map::new();
 
     for (name, config) in &shared_mcp_config.servers {
-        if !allowed.contains(name.as_str()) {
+        if !allowed.contains(name.as_str()) || config.remote.is_some() {
             continue;
         }
 
@@ -2388,6 +2451,7 @@ impl TerminalService {
             data_dir: self.app_paths.data_dir().to_path_buf(),
             shared_mcp_urls: HashMap::new(),
             shared_mcp_stdio: Default::default(),
+            shared_mcp_remote: Default::default(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: true,
             skill_mount_paths: Vec::new(),
@@ -2788,17 +2852,23 @@ impl TerminalService {
             }
         }
         let shared_mcp_service = self.shared_mcp_service.read().clone();
+        // daemon 进程不经手配置修改，内存里的副本可能是旧的；远程 MCP 的请求头只存在文件里
         let shared_mcp_config = shared_mcp_service
             .as_ref()
-            .map(|svc| svc.get_config())
+            .map(|svc| svc.load_config())
             .unwrap_or_default();
-        let effective_shared_mcp_urls = self.resolve_effective_shared_mcp_urls(
-            shared_mcp_service.as_deref(),
-            launch_profile_id,
-            resolved_workspace.as_ref(),
+        let effective_shared_mcp_urls = retain_supported_remote_mcp(
+            self.resolve_effective_shared_mcp_urls(
+                shared_mcp_service.as_deref(),
+                launch_profile_id,
+                resolved_workspace.as_ref(),
+                cli_tool,
+                runtime_kind,
+                effective_skip_mcp,
+            ),
+            &shared_mcp_config,
             cli_tool,
             runtime_kind,
-            effective_skip_mcp,
         );
         log_launch_stage(
             launch_id,
@@ -2839,6 +2909,8 @@ impl TerminalService {
         // 只认 stdio 的 CLI（jcode）需要共享服务器的源命令而非 HTTP 桥 URL（docs/104）
         let shared_mcp_stdio =
             shared_mcp_stdio_specs(&effective_shared_mcp_urls, &shared_mcp_config);
+        let shared_mcp_remote =
+            shared_mcp_remote_specs(&effective_shared_mcp_urls, &shared_mcp_config);
         let allowed_mcp_server_ids = allowed_mcp_server_ids_for_profile(
             resolved_profile.as_ref(),
             &shared_mcp_config,
@@ -3592,6 +3664,7 @@ impl TerminalService {
                     data_dir: self.app_paths.data_dir().to_path_buf(),
                     shared_mcp_urls: effective_shared_mcp_urls,
                     shared_mcp_stdio,
+                    shared_mcp_remote,
                     allowed_mcp_server_ids,
                     disable_unlisted_mcp_servers,
                     skill_mount_paths: skill_mount_paths_for_profile(
@@ -7832,6 +7905,60 @@ mod tests {
     }
 
     #[test]
+    fn remote_mcp_support_matches_each_cli() {
+        use crate::models::shared_mcp::SharedMcpRemote;
+        let remote = |transport: &str, header: bool| SharedMcpRemote {
+            url: "https://example.com/mcp".to_string(),
+            transport: transport.to_string(),
+            headers: if header {
+                HashMap::from([("Authorization".to_string(), "x".to_string())])
+            } else {
+                HashMap::new()
+            },
+        };
+        assert!(remote_mcp_supported(
+            &remote("sse", true),
+            CliTool::Claude,
+            "local"
+        ));
+        assert!(remote_mcp_supported(
+            &remote("http", true),
+            CliTool::Codex,
+            "local"
+        ));
+        assert!(!remote_mcp_supported(
+            &remote("sse", false),
+            CliTool::Codex,
+            "local"
+        ));
+        assert!(!remote_mcp_supported(
+            &remote("http", false),
+            CliTool::Jcode,
+            "local"
+        ));
+        assert!(!remote_mcp_supported(
+            &remote("http", true),
+            CliTool::Opencode,
+            "local"
+        ));
+        assert!(remote_mcp_supported(
+            &remote("http", false),
+            CliTool::Opencode,
+            "local"
+        ));
+        assert!(!remote_mcp_supported(
+            &remote("http", true),
+            CliTool::Claude,
+            "wsl"
+        ));
+        assert!(remote_mcp_supported(
+            &remote("http", false),
+            CliTool::Claude,
+            "wsl"
+        ));
+    }
+
+    #[test]
     fn effective_shared_mcp_urls_prefer_override_and_preserve_empty_state() {
         let (service, temp_dir) = terminal_service_for_test();
         let shared_paths = AppPaths::new(Some(temp_dir.path().to_string_lossy().to_string()));
@@ -8794,6 +8921,7 @@ mod tests {
                 shared: true,
                 port: 3104,
                 bridge_mode: BridgeMode::McpProxy,
+                remote: None,
             },
         );
         shared_mcp.servers.insert(
@@ -8805,6 +8933,7 @@ mod tests {
                 shared: true,
                 port: 3101,
                 bridge_mode: BridgeMode::McpProxy,
+                remote: None,
             },
         );
 

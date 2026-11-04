@@ -456,8 +456,12 @@ pub fn build_router(state: AppState) -> Router {
             put(mcp::upsert_shared_mcp_server),
         )
         .route(
-            "/api/shared-mcp/claude-user-servers",
-            get(mcp::list_claude_user_mcp_servers),
+            "/api/shared-mcp/agent-servers",
+            get(mcp::list_agent_mcp_servers),
+        )
+        .route(
+            "/api/shared-mcp/agent-servers/{name}/import",
+            post(mcp::import_agent_mcp_server),
         )
         .route(
             "/api/shared-mcp/servers/import-from-claude",

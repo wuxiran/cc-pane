@@ -1,3 +1,4 @@
+use crate::services::{McpMarketResult, McpMarketService};
 use crate::utils::AppResult;
 use cc_panes_core::models::shared_mcp::{
     SharedMcpConfig, SharedMcpServerConfig, SharedMcpServerInfo,
@@ -81,10 +82,18 @@ pub fn update_shared_mcp_global_config(
 }
 
 #[tauri::command]
-pub fn list_claude_user_mcp_servers(
+pub fn list_agent_mcp_servers(
     service: State<'_, Arc<SharedMcpService>>,
-) -> AppResult<Vec<cc_panes_core::services::ClaudeUserMcpServer>> {
-    service.list_claude_user_servers().map_err(|e| e.into())
+) -> AppResult<Vec<cc_panes_core::services::AgentMcpServer>> {
+    service.list_agent_servers().map_err(|e| e.into())
+}
+
+#[tauri::command]
+pub fn import_agent_mcp_server(
+    name: String,
+    service: State<'_, Arc<SharedMcpService>>,
+) -> AppResult<()> {
+    service.import_agent_server(&name).map_err(|e| e.into())
 }
 
 #[tauri::command]
@@ -92,4 +101,22 @@ pub fn import_shared_mcp_from_claude(
     service: State<'_, Arc<SharedMcpService>>,
 ) -> AppResult<Vec<String>> {
     service.import_from_claude_json().map_err(|e| e.into())
+}
+
+/// 发现市场：精选 + 热门快照，有查询词时再搜官方 Registry。空查询不联网。
+#[tauri::command]
+pub async fn search_mcp_market(
+    query: String,
+    service: State<'_, Arc<McpMarketService>>,
+) -> AppResult<McpMarketResult> {
+    Ok(service.search(&query).await)
+}
+
+/// 市场图标的 data URL；拿不到时返回 None，页面显示首字母。
+#[tauri::command]
+pub async fn get_mcp_market_icon(
+    url: String,
+    service: State<'_, Arc<McpMarketService>>,
+) -> AppResult<Option<String>> {
+    service.icon(&url).await
 }

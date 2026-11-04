@@ -332,6 +332,7 @@ async fn shared_mcp_routes_manage_config_without_starting_processes() {
                 shared: true,
                 port: 3131,
                 bridge_mode: Default::default(),
+                remote: None,
             },
         }),
     )

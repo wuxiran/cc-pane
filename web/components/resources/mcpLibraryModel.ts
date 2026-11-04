@@ -1,7 +1,6 @@
-// MCP 页的纯函数层：把四种来源摊成一张表。
+// MCP 页的纯函数层：把内置、共享、工作空间和项目的 MCP 摊成一张表。
 import { commandLine } from "@/components/settings/mcpCommandLine";
 import type { McpLayerTarget, McpServerConfig, SharedMcpServerInfo } from "@/types";
-import type { ClaudeUserMcpServer } from "@/types/shared-mcp";
 
 export type McpLayerKind = "workspace" | "project";
 
@@ -17,21 +16,19 @@ export type McpLibraryEntry =
       config: McpServerConfig;
       /** 同名时项目覆盖工作空间，这一条实际不会生效 */
       shadowed: boolean;
-    }
-  | { key: string; kind: "user"; name: string; server: ClaudeUserMcpServer };
+    };
 
 export interface McpLibraryInput {
   sharedServers: readonly SharedMcpServerInfo[];
   workspace?: { target: McpLayerTarget; servers: Record<string, McpServerConfig> } | null;
   project?: { target: McpLayerTarget; servers: Record<string, McpServerConfig> } | null;
-  userServers: readonly ClaudeUserMcpServer[];
 }
 
 function sortedNames(servers: Record<string, McpServerConfig>): string[] {
   return Object.keys(servers).sort((a, b) => a.localeCompare(b));
 }
 
-export function buildMcpLibraryEntries({ sharedServers, workspace, project, userServers }: McpLibraryInput): McpLibraryEntry[] {
+export function buildMcpLibraryEntries({ sharedServers, workspace, project }: McpLibraryInput): McpLibraryEntry[] {
   const entries: McpLibraryEntry[] = [{ key: "ccpanes", kind: "ccpanes", name: "CC-Panes MCP" }];
   for (const server of [...sharedServers].sort((a, b) => a.name.localeCompare(b.name))) {
     entries.push({ key: `shared:${server.name}`, kind: "shared", name: server.name, server });
@@ -54,9 +51,6 @@ export function buildMcpLibraryEntries({ sharedServers, workspace, project, user
       });
     }
   }
-  for (const server of userServers) {
-    entries.push({ key: `user:${server.name}`, kind: "user", name: server.name, server });
-  }
   return entries;
 }
 
@@ -66,11 +60,9 @@ export function entryDetail(entry: McpLibraryEntry): string {
     case "ccpanes":
       return "";
     case "shared":
-      return commandLine(entry.server.config);
+      return entry.server.config.remote?.url ?? commandLine(entry.server.config);
     case "layer":
       return entry.config.url ?? commandLine(entry.config);
-    case "user":
-      return entry.server.url ?? commandLine({ command: entry.server.command ?? "", args: entry.server.args });
   }
 }
 

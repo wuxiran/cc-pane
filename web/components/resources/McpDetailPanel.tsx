@@ -1,7 +1,7 @@
 // MCP 页右侧详情：显示这条资源的完整信息和只属于它的操作。
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Download, Loader2, Pencil, Play, RotateCw, Square, Trash2, X } from "lucide-react";
+import { Loader2, Pencil, Play, RotateCw, Square, Trash2, X } from "lucide-react";
 import CcpanesMcpCard from "@/components/settings/CcpanesMcpCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,10 +23,9 @@ interface McpDetailPanelProps {
   onClose: () => void;
   onEditShared: (name: string) => void;
   onEditLayer: (request: LayerEditorRequest) => void;
-  onImportUser: () => void;
 }
 
-export default function McpDetailPanel({ entry, sourceLabel, onClose, onEditShared, onEditLayer, onImportUser }: McpDetailPanelProps) {
+export default function McpDetailPanel({ entry, sourceLabel, onClose, onEditShared, onEditLayer }: McpDetailPanelProps) {
   const { t } = useTranslation("settings");
   const { t: tProviders } = useTranslation("providers");
   const { describe } = useDescriptionLang();
@@ -60,14 +59,15 @@ export default function McpDetailPanel({ entry, sourceLabel, onClose, onEditShar
   };
 
   const detail = entryDetail(entry);
-  const status = entry.kind === "shared" ? mcpStatusOf(entry.server.status) : null;
+  const remote = entry.kind === "shared" ? entry.server.config.remote ?? null : null;
+  // 远程 MCP 没有进程，运行状态对它没有意义
+  const status = entry.kind === "shared" && !remote ? mcpStatusOf(entry.server.status) : null;
   const description =
     entry.kind === "ccpanes" ? tProviders("ccpanesMcpDesc") : entry.kind === "layer" ? describe(entry.config.descriptions) : null;
   const envKeys =
     entry.kind === "shared" ? Object.keys(entry.server.config.env)
       : entry.kind === "layer" ? Object.keys(entry.config.env)
-        : entry.kind === "user" ? entry.server.envKeys
-          : [];
+        : [];
 
   return (
     <aside
@@ -102,8 +102,15 @@ export default function McpDetailPanel({ entry, sourceLabel, onClose, onEditShar
         {entry.kind === "shared" && (
           <>
             <p className="text-[length:var(--text-small)]" style={{ color: "var(--app-text-tertiary)" }}>
-              {t("resourceLibrary.endpoint", { port: entry.server.config.port, bridge: entry.server.config.bridgeMode })}
+              {remote
+                ? t("resourceLibrary.remoteEndpoint", { transport: remote.transport })
+                : t("resourceLibrary.endpoint", { port: entry.server.config.port, bridge: entry.server.config.bridgeMode })}
             </p>
+            {remote && Object.keys(remote.headers).length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {Object.keys(remote.headers).map((key) => <Badge key={key} variant="outline" className="text-[length:var(--text-micro)]">{key}</Badge>)}
+              </div>
+            )}
             <label className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--app-text-secondary)" }}>
               {t("sharedMcp.enableShared")}
               <Switch
@@ -111,7 +118,7 @@ export default function McpDetailPanel({ entry, sourceLabel, onClose, onEditShar
                 onCheckedChange={(checked) => void run(() => toggleShared(entry.name, checked))}
               />
             </label>
-            <div className="flex flex-wrap gap-1.5">
+            {!remote && <div className="flex flex-wrap gap-1.5">
               {status?.level === "running" ? (
                 <Button size="sm" variant="outline" disabled={busy} onClick={() => void run(() => stopServer(entry.name))}><Square size={13} className="mr-1" />{t("mcpStop")}</Button>
               ) : status?.level === "failed" ? null : (
@@ -122,7 +129,7 @@ export default function McpDetailPanel({ entry, sourceLabel, onClose, onEditShar
                 <Button size="sm" variant="outline" disabled={busy} onClick={() => void run(() => restartServer(entry.name))}><RotateCw size={13} className="mr-1" />{t("sharedMcp.restart")}</Button>
               )}
               {busy && <Loader2 size={13} className="self-center animate-spin" />}
-            </div>
+            </div>}
           </>
         )}
 
@@ -131,17 +138,6 @@ export default function McpDetailPanel({ entry, sourceLabel, onClose, onEditShar
         {entry.kind === "layer" && entry.shadowed && (
           <p className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("resourceLibrary.shadowedHint")}</p>
         )}
-        {entry.kind === "user" && (
-          <>
-            <p className="text-xs leading-relaxed" style={{ color: "var(--app-text-tertiary)" }}>{t("resourceLibrary.userHint")}</p>
-            {(entry.server.transport !== "stdio") ? (
-              <p className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("resourceLibrary.userRemoteHint")}</p>
-            ) : (
-              <Button size="sm" variant="outline" onClick={onImportUser}><Download size={13} className="mr-1" />{t("resourceLibrary.importUser")}</Button>
-            )}
-          </>
-        )}
-
         {(entry.kind === "shared" || entry.kind === "layer") && (
           <div className="flex flex-wrap gap-1.5 border-t pt-3" style={{ borderColor: "var(--app-border)" }}>
             <Button

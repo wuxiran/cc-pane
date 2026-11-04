@@ -1,7 +1,7 @@
 // 资源库 · MCP：一张表列出所有来源，开关决定注入哪些启动档，点行看详情。
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ClipboardPaste, Download, Import, Plus, Search, Server } from "lucide-react";
+import { ChevronDown, ClipboardPaste, Compass, FolderOpen, Import, Plus, Search, Server } from "lucide-react";
 import { resolveWorkspaceLaunchProfile, toolLabel } from "@/components/providers/launchProfileHelpers";
 import RemoteRuntimeNotice from "@/components/providers/RemoteRuntimeNotice";
 import { Button } from "@/components/ui/button";
@@ -17,17 +17,18 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { workspaceNameForProject } from "@/hooks/useQuickCommandsSync";
-import { toastErr, toastInfo, toastOk } from "@/lib/feedback";
-import { sharedMcpService } from "@/services";
+import { toastErr, toastOk } from "@/lib/feedback";
+import { settingsService } from "@/services";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useActivityBarStore, useWorkspacesStore } from "@/stores";
 import { useLaunchProfilesStore } from "@/stores/useLaunchProfilesStore";
 import { EMPTY_MCP_LAYER, useMcpStore } from "@/stores/useMcpStore";
 import { useResourceLibraryStore } from "@/stores/useResourceLibraryStore";
 import { useSharedMcpStore } from "@/stores/useSharedMcpStore";
 import { mcpTargetKey, type LaunchProfile, type McpLayerTarget } from "@/types";
-import type { ClaudeUserMcpServer } from "@/types/shared-mcp";
 import { translateError } from "@/utils";
 import { handleErrorSilent } from "@/utils/errorHandler";
+import AgentMcpServersSection from "./AgentMcpServersSection";
 import LayerMcpEditorDialog, { type LayerEditorRequest } from "./LayerMcpEditorDialog";
 import McpDetailPanel from "./McpDetailPanel";
 import { buildMcpLibraryEntries, entryDetail, filterMcpLibraryEntries, type McpLibraryEntry } from "./mcpLibraryModel";
@@ -36,6 +37,7 @@ import ProfileChips, { type ProfileChipItem } from "./ProfileChips";
 import {
   mcpChipState,
   mcpStatusOf,
+  remoteUnsupportedByProfile,
   setMcpResource,
   visibleProfiles,
   type ChipBlockReason,
@@ -45,9 +47,14 @@ import {
 import SharedMcpEditorDialog from "./SharedMcpEditorDialog";
 import { useProfilePolicyWriter } from "./useProfilePolicyWriter";
 
+// 市场带 500 条快照逻辑和卡片，首屏用不到，单独分包
+const McpMarketSection = lazy(() => import("./McpMarketSection"));
+
 const CHOSEN_PROFILES_KEY = "cc-panes.resourceCenter.profiles";
 const NO_SCOPE = "__none__";
 const STATUS_POLL_MS = 5000;
+/** 条目少时用眼睛扫比搜索快，搜索框只在列表变长后出现 */
+const SEARCH_THRESHOLD = 8;
 
 const STATUS_COLOR: Record<McpStatusLevel, string> = {
   running: "var(--app-status-success)",
@@ -84,11 +91,10 @@ function scopeValue(scope: McpLayerTarget | null): string {
   return NO_SCOPE;
 }
 
-function resourceOf(entry: McpLibraryEntry): ProfileMcpResource | null {
+function resourceOf(entry: McpLibraryEntry): ProfileMcpResource {
   if (entry.kind === "ccpanes") return { kind: "ccpanes" };
   if (entry.kind === "shared") return { kind: "shared", name: entry.name };
-  if (entry.kind === "layer") return { kind: "layer", name: entry.name };
-  return null;
+  return { kind: "layer", name: entry.name };
 }
 
 export default function McpLibraryPage() {
@@ -103,7 +109,6 @@ export default function McpLibraryPage() {
   const loadProfiles = useLaunchProfilesStore((s) => s.load);
   const sharedServers = useSharedMcpStore((s) => s.servers);
   const fetchStatus = useSharedMcpStore((s) => s.fetchStatus);
-  const importFromClaude = useSharedMcpStore((s) => s.importFromClaude);
   const loadLayer = useMcpStore((s) => s.loadServers);
   const loadLegacy = useMcpStore((s) => s.loadLegacyServers);
   const importLegacy = useMcpStore((s) => s.importLegacyServers);
@@ -119,7 +124,7 @@ export default function McpLibraryPage() {
   const workspaceLayer = useMcpStore((s) => (workspaceTarget ? s.layers[mcpTargetKey(workspaceTarget)] ?? EMPTY_MCP_LAYER : EMPTY_MCP_LAYER));
   const projectLayer = useMcpStore((s) => (projectTarget ? s.layers[mcpTargetKey(projectTarget)] ?? EMPTY_MCP_LAYER : EMPTY_MCP_LAYER));
 
-  const [userServers, setUserServers] = useState<ClaudeUserMcpServer[]>([]);
+  const marketRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [chosen, setChosen] = useState<string[] | null>(readChosenProfiles);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -133,19 +138,11 @@ export default function McpLibraryPage() {
     void loadProfiles();
   });
 
-  const loadUserServers = useCallback(() => {
-    sharedMcpService.listClaudeUserServers().then(setUserServers).catch((error) => {
-      setUserServers([]);
-      handleErrorSilent(error, "list claude user mcp servers");
-    });
-  }, []);
-
   useEffect(() => {
     if (!active) return;
     // 启动档可能刚在设置窗口改过，两个窗口的 store 不通，回到这里就重读
     const refresh = () => {
       loadProfiles().catch((error) => handleErrorSilent(error, "load launch profiles"));
-      loadUserServers();
       void fetchStatus();
     };
     refresh();
@@ -158,7 +155,7 @@ export default function McpLibraryPage() {
       window.removeEventListener("focus", refresh);
       window.clearInterval(timer);
     };
-  }, [active, fetchStatus, loadProfiles, loadUserServers, loadWorkspaces]);
+  }, [active, fetchStatus, loadProfiles, loadWorkspaces]);
 
   useEffect(() => {
     if (workspaceTarget) void loadLayer(workspaceTarget);
@@ -196,9 +193,8 @@ export default function McpLibraryPage() {
         sharedServers,
         workspace: workspaceTarget ? { target: workspaceTarget, servers: workspaceLayer.servers } : null,
         project: projectTarget ? { target: projectTarget, servers: projectLayer.servers } : null,
-        userServers,
       }),
-    [sharedServers, workspaceTarget, workspaceLayer.servers, projectTarget, projectLayer.servers, userServers],
+    [sharedServers, workspaceTarget, workspaceLayer.servers, projectTarget, projectLayer.servers],
   );
   const visible = useMemo(() => filterMcpLibraryEntries(entries, query), [entries, query]);
   const selected = entries.find((entry) => entry.key === selectedKey) ?? null;
@@ -210,12 +206,17 @@ export default function McpLibraryPage() {
   const workspaceProfile = useMemo(() => resolveWorkspaceLaunchProfile(workspace, profiles), [workspace, profiles]);
 
   const profileName = (profile: LaunchProfile) => profile.alias || profile.name;
-  const chipsFor = (resource: ProfileMcpResource): ProfileChipItem[] =>
-    shown.map((profile) => ({
+  const chipsFor = (entry: McpLibraryEntry): ProfileChipItem[] => {
+    const resource = resourceOf(entry);
+    const remote = entry.kind === "shared" ? entry.server.config.remote : null;
+    return shown.map((profile) => ({
       profileId: profile.id,
       label: `${profileName(profile)}${profile.targetTools.length === 1 ? ` · ${toolLabel(profile.targetTools[0], tProviders)}` : ""}`,
-      state: mcpChipState(overlay[profile.id]?.mcpPolicy ?? profile.mcpPolicy, resource),
+      state: remote && remoteUnsupportedByProfile(profile, remote)
+        ? { on: false, blocked: "remoteUnsupported" }
+        : mcpChipState(overlay[profile.id]?.mcpPolicy ?? profile.mcpPolicy, resource),
     }));
+  };
 
   const handleChipChange = (key: string, resource: ProfileMcpResource) => (profileId: string, on: boolean) => {
     setNotice({ key, text: t("resourceCenter.nextLaunch") });
@@ -232,14 +233,17 @@ export default function McpLibraryPage() {
     writeChosenProfiles(next);
   };
 
-  const handleImportClaude = async () => {
+  const openFolder = async () => {
     try {
-      const imported = await importFromClaude();
-      if (imported.length > 0) toastOk(t("sharedMcp.importedCount", { count: imported.length }));
-      else toastInfo(t("sharedMcp.noNewServers"));
+      const info = await settingsService.getDataDirInfo();
+      await revealItemInDir(`${info.currentPath}/shared-mcp.json`);
     } catch (error) {
-      toastErr(t("sharedMcp.importFailed", { error: translateError(error) }));
+      toastErr(t("resourceCenter.saveFailed", { error: translateError(error) }));
     }
+  };
+  const scrollToMarket = () => {
+    marketRef.current?.scrollIntoView({ block: "start" });
+    marketRef.current?.querySelector("input")?.focus();
   };
   const handleImportLegacy = async () => {
     if (!projectPath) return;
@@ -262,24 +266,15 @@ export default function McpLibraryPage() {
   const sourceLabel = (entry: McpLibraryEntry) =>
     entry.kind === "ccpanes" ? t("mcpSourceCcpanes")
       : entry.kind === "shared" ? t("mcpSourceShared")
-        : entry.kind === "user" ? t("resourceLibrary.sourceUser")
-          : entry.layer === "workspace" ? t("mcpSourceWorkspace") : t("mcpSourceProject");
+        : entry.layer === "workspace" ? t("mcpSourceWorkspace") : t("mcpSourceProject");
 
   return (
     <div className="flex h-full" data-testid="mcp-library-page" style={{ background: "var(--app-panel-bg)" }}>
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 flex-wrap items-center gap-2 px-6 pb-3 pt-5">
           <h1 className="mr-auto text-[length:var(--text-title)] font-semibold" style={{ color: "var(--app-text-primary)" }}>{t("resourceLibrary.mcp")}</h1>
-          <div className="relative">
-            <Search size={13} aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2" style={{ color: "var(--app-text-tertiary)" }} />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("resourceLibrary.search")}
-              aria-label={t("resourceLibrary.search")}
-              className="h-8 w-44 pl-7 text-xs"
-            />
-          </div>
+          <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={scrollToMarket}><Compass size={13} className="mr-1" />{t("resourceLibrary.discover")}</Button>
+          <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => void openFolder()}><FolderOpen size={13} className="mr-1" />{t("resourceLibrary.folder")}</Button>
           <Select value={scopeValue(scope)} onValueChange={onScopeChange}>
             <SelectTrigger className="h-8 w-48 text-xs" aria-label={t("resourceCenter.scope")}>
               <SelectValue />
@@ -329,10 +324,11 @@ export default function McpLibraryPage() {
               {projectTarget && (
                 <DropdownMenuItem onSelect={() => setLayerEditor({ target: projectTarget, layer: "project" })}><Plus />{t("resourceLibrary.addLayer", { name: scopeLabel ?? "" })}</DropdownMenuItem>
               )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => void handleImportClaude()}><Download />{t("resourceLibrary.importUser")}</DropdownMenuItem>
               {legacyPending.length > 0 && (
-                <DropdownMenuItem onSelect={() => void handleImportLegacy()}><Import />{t("resourceLibrary.importLegacy", { count: legacyPending.length })}</DropdownMenuItem>
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => void handleImportLegacy()}><Import />{t("resourceLibrary.importLegacy", { count: legacyPending.length })}</DropdownMenuItem>
+                </>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -340,15 +336,29 @@ export default function McpLibraryPage() {
 
         <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-6 pb-6">
           <RemoteRuntimeNotice workspace={workspace} profile={workspaceProfile} subject="mcp" className="mb-3" />
+          <p className="mb-3 text-xs leading-relaxed" style={{ color: "var(--app-text-tertiary)" }}>{t("resourceLibrary.mcpIntro")}</p>
           {profiles.length === 0 && <p className="mb-2 text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("resourceCenter.noProfiles")}</p>}
+          {entries.length > SEARCH_THRESHOLD && (
+            <div className="relative mb-2">
+              <Search size={13} aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2" style={{ color: "var(--app-text-tertiary)" }} />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t("resourceLibrary.search")}
+                aria-label={t("resourceLibrary.search")}
+                className="h-8 pl-7 text-xs"
+              />
+            </div>
+          )}
           {visible.length === 0 ? (
             <EmptyState icon={Server} title={t("resourceLibrary.noMatch")} />
           ) : (
             <div className="divide-y rounded-lg border" style={{ borderColor: "var(--app-border)" }}>
               {visible.map((entry) => {
+                const chips = chipsFor(entry);
                 const resource = resourceOf(entry);
-                const chips = resource ? chipsFor(resource) : [];
-                const status = entry.kind === "shared" ? mcpStatusOf(entry.server.status) : null;
+                const remote = entry.kind === "shared" && Boolean(entry.server.config.remote);
+                const status = entry.kind === "shared" && !remote ? mcpStatusOf(entry.server.status) : null;
                 const notInjected = status !== null && status.level !== "running" && status.level !== "starting" && chips.some((chip) => chip.state.on);
                 return (
                   <McpRow
@@ -357,26 +367,41 @@ export default function McpLibraryPage() {
                     source={sourceLabel(entry)}
                     current={entry.key === selectedKey}
                     onSelect={() => setSelectedKey(entry.key === selectedKey ? null : entry.key)}
-                    status={status && <span style={{ color: STATUS_COLOR[status.level] }}>{t(`mcpStatus.${status.level}`)}</span>}
+                    status={remote ? <span style={{ color: "var(--app-text-tertiary)" }}>{t("resourceLibrary.remote")}</span> : status && <span style={{ color: STATUS_COLOR[status.level] }}>{t(`mcpStatus.${status.level}`)}</span>}
                     warning={notInjected ? t("resourceLibrary.notInjected") : entry.kind === "layer" && entry.shadowed ? t("resourceLibrary.shadowed") : null}
                     notice={notice?.key === entry.key ? notice.text : null}
                     trailing={
-                      resource ? (
-                        <ProfileChips
-                          resourceName={entry.name}
-                          items={chips}
-                          onChange={handleChipChange(entry.key, resource)}
-                          onBlocked={handleBlocked(entry.key)}
-                        />
-                      ) : (
-                        <span className="text-[length:var(--text-micro)]" style={{ color: "var(--app-text-tertiary)" }}>{t("resourceLibrary.userNotControlled")}</span>
-                      )
+                      <ProfileChips
+                        resourceName={entry.name}
+                        items={chips}
+                        onChange={handleChipChange(entry.key, resource)}
+                        onBlocked={handleBlocked(entry.key)}
+                      />
                     }
                   />
                 );
               })}
             </div>
           )}
+          {sharedServers.length === 0 && !query && (
+            <div
+              className="mt-3 flex flex-col items-center gap-1 rounded-lg border border-dashed px-4 py-8 text-center"
+              style={{ borderColor: "var(--app-border)" }}
+              data-testid="mcp-empty-card"
+            >
+              <p className="text-[length:var(--text-row)] font-medium" style={{ color: "var(--app-text-primary)" }}>{t("resourceLibrary.emptyTitle")}</p>
+              <p className="text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("resourceLibrary.emptyHint")}</p>
+              <Button size="sm" variant="outline" className="mt-2 h-8" onClick={() => setSharedEditor({ name: null })}>
+                <Plus size={13} className="mr-1" />{t("resourceLibrary.addServer")}
+              </Button>
+            </div>
+          )}
+          <AgentMcpServersSection active={active} />
+          <div ref={marketRef} className="mt-6 scroll-mt-2">
+            <Suspense fallback={null}>
+              <McpMarketSection active={active} />
+            </Suspense>
+          </div>
         </div>
       </div>
 
@@ -387,7 +412,6 @@ export default function McpLibraryPage() {
           onClose={() => setSelectedKey(null)}
           onEditShared={(name) => setSharedEditor({ name })}
           onEditLayer={setLayerEditor}
-          onImportUser={() => void handleImportClaude()}
         />
       )}
 

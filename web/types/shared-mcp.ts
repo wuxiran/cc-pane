@@ -1,11 +1,61 @@
-/** `~/.claude.json` 里的用户级 MCP（只读）：并入 Claude 会话且不受启动档控制 */
-export interface ClaudeUserMcpServer {
+/** Agent 自己配置文件里的 MCP（只读），环境变量只有键名 */
+export interface AgentMcpServer {
   name: string;
+  /** 配了它的 Agent，如 `claude`、`codex` */
+  agents: string[];
   transport: string;
   command?: string | null;
   args: string[];
   url?: string | null;
   envKeys: string[];
+}
+
+/** 远程 MCP：不起本地进程、不占端口 */
+export interface SharedMcpRemote {
+  url: string;
+  transport: "http" | "sse";
+  headers: Record<string, string>;
+}
+
+/** 添加前要用户填的值 */
+export interface McpMarketInput {
+  key: string;
+  where: "env" | "header" | "arg";
+  label: string;
+  description?: string;
+  placeholder?: string;
+  secret: boolean;
+  required: boolean;
+  /** 请求头的值模板，如 `Bearer {}` */
+  format?: string;
+}
+
+/** 发现市场里的一条 MCP */
+export interface McpMarketServer {
+  id: string;
+  name: string;
+  title: string;
+  description: string;
+  descriptionZh?: string;
+  publisher: string;
+  icon: string;
+  homepage: string;
+  transport: string;
+  runs: string;
+  signIn: boolean;
+  featured: boolean;
+  inputs: McpMarketInput[];
+  command: string;
+  args: string[];
+  url: string;
+  headers: Record<string, string>;
+}
+
+export interface McpMarketResult {
+  servers: McpMarketServer[];
+  /** 联网搜索失败，当前只有本地结果 */
+  partial: boolean;
+  error?: string | null;
 }
 
 /** 桥接模式 */
@@ -19,6 +69,7 @@ export interface SharedMcpServerConfig {
   shared: boolean;
   port: number;
   bridgeMode: BridgeMode;
+  remote?: SharedMcpRemote | null;
 }
 
 /** 运行时状态。线格式由 Rust `SharedMcpServerStatus` 的 `rename_all = "camelCase"` 决定 */

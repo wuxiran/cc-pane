@@ -20,10 +20,13 @@ interface FormState {
   shared: boolean;
   port: string;
   bridgeMode: BridgeMode;
+  kind: "stdio" | "http" | "sse";
+  url: string;
+  headers: string;
 }
 
 function formFor(server: SharedMcpServerInfo | null, port: string): FormState {
-  if (!server) return { name: "", command: "", args: "", env: "", shared: true, port, bridgeMode: "mcp-proxy" };
+  if (!server) return { name: "", command: "", args: "", env: "", shared: true, port, bridgeMode: "mcp-proxy", kind: "stdio", url: "", headers: "" };
   return {
     name: server.name,
     command: server.config.command,
@@ -32,6 +35,9 @@ function formFor(server: SharedMcpServerInfo | null, port: string): FormState {
     shared: server.config.shared,
     port: String(server.config.port),
     bridgeMode: server.config.bridgeMode,
+    kind: server.config.remote?.transport ?? "stdio",
+    url: server.config.remote?.url ?? "",
+    headers: formatEnvLines(server.config.remote?.headers ?? {}),
   };
 }
 
@@ -76,18 +82,26 @@ export default function SharedMcpEditorDialog({ open, server, onOpenChange }: Sh
     const command = form.command.trim();
     const port = Number.parseInt(form.port, 10);
     const others = servers.filter((item) => item.name !== server?.name);
-    if (!name || !command) return toastErr(t("sharedMcp.nameCommandRequired"));
-    if (!Number.isInteger(port) || port < 1 || port > 65535) return toastErr(t("sharedMcp.portInvalid"));
+    const isRemote = form.kind !== "stdio";
+    const url = form.url.trim();
+    if (!name) return toastErr(t("sharedMcp.nameCommandRequired"));
     if (others.some((item) => item.name === name)) return toastErr(t("sharedMcp.nameExists"));
-    if (others.some((item) => item.config.port === port)) return toastErr(t("sharedMcp.portInUse"));
+    if (isRemote) {
+      if (!/^https?:\/\//.test(url)) return toastErr(t("resourceLibrary.urlInvalid"));
+    } else {
+      if (!command) return toastErr(t("sharedMcp.nameCommandRequired"));
+      if (!Number.isInteger(port) || port < 1 || port > 65535) return toastErr(t("sharedMcp.portInvalid"));
+      if (others.some((item) => !item.config.remote && item.config.port === port)) return toastErr(t("sharedMcp.portInUse"));
+    }
 
     const updated: SharedMcpServerConfig = {
-      command,
-      args: form.args.trim() ? form.args.trim().split(/\s+/) : [],
-      env: parseEnvLines(form.env),
+      command: isRemote ? "" : command,
+      args: !isRemote && form.args.trim() ? form.args.trim().split(/\s+/) : [],
+      env: isRemote ? {} : parseEnvLines(form.env),
       shared: form.shared,
-      port,
+      port: isRemote ? 0 : port,
       bridgeMode: form.bridgeMode,
+      remote: isRemote ? { url, transport: form.kind as "http" | "sse", headers: parseEnvLines(form.headers) } : null,
     };
     setSaving(true);
     try {
@@ -112,38 +126,60 @@ export default function SharedMcpEditorDialog({ open, server, onOpenChange }: Sh
           <FormField label={t("sharedMcp.fieldName")} className="space-y-1" labelClassName="text-xs">
             {({ id }) => <Input id={id} value={form.name} placeholder="context7" className="h-8 text-sm" onChange={(e) => setForm({ ...form, name: e.target.value })} />}
           </FormField>
-          <FormField label={t("sharedMcp.fieldCommand")} className="space-y-1" labelClassName="text-xs">
-            {({ id }) => <Input id={id} value={form.command} placeholder="npx" className="h-8 font-mono text-sm" onChange={(e) => setForm({ ...form, command: e.target.value })} />}
+          <FormField label={t("resourceLibrary.kind")} className="space-y-1" labelClassName="text-xs">
+            {({ id }) => (
+              <Select value={form.kind} onValueChange={(next) => setForm({ ...form, kind: next as FormState["kind"] })}>
+                <SelectTrigger id={id} className="h-8 w-full text-[length:var(--text-row)]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="stdio">{t("resourceLibrary.kindLocal")}</SelectItem>
+                  <SelectItem value="http">{t("resourceLibrary.kindHttp")}</SelectItem>
+                  <SelectItem value="sse">{t("resourceLibrary.kindSse")}</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
           </FormField>
-          <FormField label={t("sharedMcp.fieldArgs")} className="space-y-1" labelClassName="text-xs">
-            {({ id }) => <Input id={id} value={form.args} placeholder="-y @upstash/context7-mcp" className="h-8 font-mono text-sm" onChange={(e) => setForm({ ...form, args: e.target.value })} />}
-          </FormField>
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label={t("sharedMcp.fieldPort")} className="space-y-1" labelClassName="text-xs">
-              {({ id }) => <Input id={id} value={form.port} placeholder="3100" className="h-8 font-mono text-sm" onChange={(e) => setForm({ ...form, port: e.target.value })} />}
-            </FormField>
-            <FormField label={t("sharedMcp.fieldBridge")} className="space-y-1" labelClassName="text-xs">
-              {({ id }) => (
-                <Select value={form.bridgeMode} onValueChange={(next) => setForm({ ...form, bridgeMode: next as BridgeMode })}>
-                  <SelectTrigger id={id} className="h-8 w-full text-[length:var(--text-row)]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="mcp-proxy">mcp-proxy</SelectItem>
-                    <SelectItem value="native-http">native-http</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-            </FormField>
-          </div>
+          {form.kind === "stdio" ? (
+            <>
+              <FormField label={t("sharedMcp.fieldCommand")} className="space-y-1" labelClassName="text-xs">
+                {({ id }) => <Input id={id} value={form.command} placeholder="npx" className="h-8 font-mono text-sm" onChange={(e) => setForm({ ...form, command: e.target.value })} />}
+              </FormField>
+              <FormField label={t("sharedMcp.fieldArgs")} className="space-y-1" labelClassName="text-xs">
+                {({ id }) => <Input id={id} value={form.args} placeholder="-y @upstash/context7-mcp" className="h-8 font-mono text-sm" onChange={(e) => setForm({ ...form, args: e.target.value })} />}
+              </FormField>
+              <FormField label={t("sharedMcp.fieldPort")} className="space-y-1" labelClassName="text-xs">
+                {({ id }) => <Input id={id} value={form.port} placeholder="3100" className="h-8 font-mono text-sm" onChange={(e) => setForm({ ...form, port: e.target.value })} />}
+              </FormField>
+              <FormField label={t("sharedMcp.fieldBridge")} className="space-y-1" labelClassName="text-xs">
+                {({ id }) => (
+                  <Select value={form.bridgeMode} onValueChange={(next) => setForm({ ...form, bridgeMode: next as BridgeMode })}>
+                    <SelectTrigger id={id} className="h-8 w-full text-[length:var(--text-row)]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="mcp-proxy">mcp-proxy</SelectItem>
+                      <SelectItem value="native-http">native-http</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </FormField>
+            </>
+          ) : (
+            <div className="md:col-span-2">
+              <FormField label="URL" className="space-y-1" labelClassName="text-xs">
+                {({ id }) => <Input id={id} value={form.url} placeholder="https://mcp.example.com/mcp" className="h-8 font-mono text-sm" onChange={(e) => setForm({ ...form, url: e.target.value })} />}
+              </FormField>
+            </div>
+          )}
         </div>
-        <FormField label={t("sharedMcp.fieldEnv")} className="space-y-1" labelClassName="text-xs">
+        <FormField label={form.kind === "stdio" ? t("sharedMcp.fieldEnv") : t("resourceLibrary.fieldHeaders")} className="space-y-1" labelClassName="text-xs">
           {({ id }) => (
             <textarea
               id={id}
-              value={form.env}
-              onChange={(e) => setForm({ ...form, env: e.target.value })}
-              placeholder="KEY=VALUE"
+              value={form.kind === "stdio" ? form.env : form.headers}
+              onChange={(e) => setForm(form.kind === "stdio" ? { ...form, env: e.target.value } : { ...form, headers: e.target.value })}
+              placeholder={form.kind === "stdio" ? "KEY=VALUE" : "Authorization=Bearer xxx"}
               className="h-20 w-full resize-none rounded-md border border-input bg-background px-3 py-2 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-ring"
             />
           )}

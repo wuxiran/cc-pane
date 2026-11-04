@@ -34,6 +34,25 @@ pub struct SharedMcpServerConfig {
     /// 桥接模式
     #[serde(default)]
     pub bridge_mode: BridgeMode,
+    /// 远程 MCP：不起本地进程、不占端口，启动档开启后直接把地址注入会话
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<SharedMcpRemote>,
+}
+
+/// 远程 MCP 的连接信息
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedMcpRemote {
+    pub url: String,
+    /// `http` 或 `sse`
+    #[serde(default = "default_remote_transport")]
+    pub transport: String,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+}
+
+fn default_remote_transport() -> String {
+    "http".to_string()
 }
 
 fn default_true() -> bool {

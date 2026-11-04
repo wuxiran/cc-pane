@@ -1364,6 +1364,7 @@ mod tests {
                 shared: true,
                 port: 3100,
                 bridge_mode: Default::default(),
+                remote: None,
             },
         );
         config

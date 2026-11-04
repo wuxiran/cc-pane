@@ -3,7 +3,7 @@
 import { isSharedMcpServerSelected } from "@/components/providers/launchProfileHelpers";
 import { nextToggleServer } from "@/components/providers/launchProfileSkillPolicy";
 import type { LaunchProfile, LaunchProfileDraft } from "@/types";
-import type { SharedMcpServerStatus } from "@/types/shared-mcp";
+import type { SharedMcpRemote, SharedMcpServerStatus } from "@/types/shared-mcp";
 import { isSharedMcpFailed } from "@/types/shared-mcp";
 
 /** 受启动档控制的 MCP：内置 ccpanes、共享 server，或工作空间 / 项目层的 server */
@@ -13,7 +13,7 @@ export type ProfileMcpResource =
   | { kind: "layer"; name: string };
 
 /** 不能切换的原因，对应 i18n `resourceCenter.blocked.*` */
-export type ChipBlockReason = "mcpDisabled" | "sharedOff";
+export type ChipBlockReason = "mcpDisabled" | "sharedOff" | "remoteUnsupported";
 
 export interface ProfileChipState {
   on: boolean;
@@ -34,6 +34,25 @@ export function mcpChipState(policy: McpPolicy, resource: ProfileMcpResource): P
   }
   if (!policy.includeSharedMcp) return { on: false, blocked: "sharedOff" };
   return { on: isSharedMcpServerSelected(policy, resource.name), blocked: null };
+}
+
+/**
+ * 这个启动档连不上这条远程 MCP。规则与 terminal_service.rs 的 remote_mcp_supported 一致：
+ * 只有本机的 Claude、Codex 能带请求头，Codex 不支持 SSE，jcode 只认 stdio。
+ * 没指定 CLI 的启动档可能用到任一家，不算不支持。
+ */
+export function remoteUnsupportedByProfile(profile: Pick<LaunchProfile, "targetTools" | "targetRuntime">, remote: SharedMcpRemote): boolean {
+  if (profile.targetTools.length === 0) return false;
+  const sse = remote.transport === "sse";
+  const headers = Object.keys(remote.headers).length > 0;
+  const local = !profile.targetRuntime || profile.targetRuntime === "local";
+  return profile.targetTools.every((tool) => {
+    if (tool === "jcode") return true;
+    if (!local) return headers || sse;
+    if (tool === "claude") return false;
+    if (tool === "codex") return sse;
+    return headers || sse;
+  });
 }
 
 export function toggleMcpResource(draft: LaunchProfileDraft, resource: ProfileMcpResource): LaunchProfileDraft {
@@ -84,12 +103,13 @@ export function visibleProfiles(
   return ordered.slice(0, limit);
 }
 
-/** 粘贴行能否添加。远程条目现有写入接口存不了；重名默认不选，由用户决定。 */
+/** 粘贴行能否添加。工作空间 / 项目层存不了远程条目，共享层可以；重名默认不选，由用户决定。 */
 export function pasteRowProblem(
   server: { name: string; url?: string },
   existingNames: ReadonlySet<string>,
+  allowRemote = false,
 ): "remote" | "noName" | "exists" | null {
-  if (server.url) return "remote";
+  if (server.url && !allowRemote) return "remote";
   if (!server.name) return "noName";
   return existingNames.has(server.name) ? "exists" : null;
 }

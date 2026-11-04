@@ -4364,6 +4364,7 @@ fn build_runtime_shared_mcp_servers(
             shared: param.shared.unwrap_or(true),
             port,
             bridge_mode,
+            remote: None,
         };
         claimed_ports.insert(port, name.clone());
         servers.push((name, server));
@@ -4414,6 +4415,7 @@ fn build_upsert_shared_mcp_server_config(
             .unwrap_or(true),
         port,
         bridge_mode,
+        remote: None,
     };
 
     Ok((name, server))
@@ -18739,6 +18741,7 @@ mod tests {
                 shared: true,
                 port: 3100,
                 bridge_mode: BridgeMode::McpProxy,
+                remote: None,
             },
         );
         let params = vec![
@@ -18782,6 +18785,7 @@ mod tests {
                 shared: true,
                 port: 3100,
                 bridge_mode: BridgeMode::McpProxy,
+                remote: None,
             },
         );
 
@@ -18819,6 +18823,7 @@ mod tests {
                 shared: false,
                 port: 3110,
                 bridge_mode: BridgeMode::NativeHttp,
+                remote: None,
             },
         );
 
@@ -18861,6 +18866,7 @@ mod tests {
             shared: true,
             port: 3100,
             bridge_mode: BridgeMode::McpProxy,
+            remote: None,
         };
 
         let value = to_masked_mcp_json(&serde_json::json!({

@@ -10,14 +10,13 @@ const policy = (patch: Partial<LaunchProfile["mcpPolicy"]>) =>
   ({ mode: "default", includeCcpanesMcp: true, includeSharedMcp: true, enabledServerIds: [], disabledServerIds: [], ...patch }) as LaunchProfile["mcpPolicy"];
 
 describe("buildMcpLibraryEntries", () => {
-  it("按内置、共享、项目、工作空间、用户全局排列", () => {
+  it("按内置、共享、项目、工作空间排列", () => {
     const entries = buildMcpLibraryEntries({
       sharedServers: [shared("b"), shared("a")],
       workspace: { target: { workspaceName: "w" }, servers: { w1: config("x") } },
       project: { target: { projectPath: "/p" }, servers: { p1: config("y") } },
-      userServers: [{ name: "u", transport: "stdio", command: "z", args: [], envKeys: [] }],
     });
-    expect(entries.map((entry) => entry.key)).toEqual(["ccpanes", "shared:a", "shared:b", "project:p1", "workspace:w1", "user:u"]);
+    expect(entries.map((entry) => entry.key)).toEqual(["ccpanes", "shared:a", "shared:b", "project:p1", "workspace:w1"]);
   });
 
   it("同名时只标记工作空间那条被项目覆盖", () => {
@@ -25,7 +24,6 @@ describe("buildMcpLibraryEntries", () => {
       sharedServers: [],
       workspace: { target: { workspaceName: "w" }, servers: { same: config("x") } },
       project: { target: { projectPath: "/p" }, servers: { same: config("y") } },
-      userServers: [],
     });
     const layers = entries.filter((entry) => entry.kind === "layer");
     expect(layers.map((entry) => [entry.key, entry.kind === "layer" && entry.shadowed])).toEqual([
@@ -37,7 +35,7 @@ describe("buildMcpLibraryEntries", () => {
 
 describe("filterMcpLibraryEntries", () => {
   it("同时搜索名称和命令", () => {
-    const entries = buildMcpLibraryEntries({ sharedServers: [shared("alpha")], userServers: [] });
+    const entries = buildMcpLibraryEntries({ sharedServers: [shared("alpha")] });
     expect(filterMcpLibraryEntries(entries, "ALPHA").map((entry) => entry.name)).toEqual(["alpha"]);
     expect(filterMcpLibraryEntries(entries, "npx").map((entry) => entry.name)).toEqual(["alpha"]);
     expect(filterMcpLibraryEntries(entries, " ")).toHaveLength(2);
