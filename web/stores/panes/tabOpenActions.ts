@@ -10,6 +10,7 @@ import {
 } from "../closedTabsUndo";
 import { activateFirstNormalLayout, activeLayout, firstNormalLayout, isNormalLayout, resolveLayoutWriteTarget } from "../paneLayoutHelpers";
 import type { PanesState } from "../panesStoreTypes";
+import type { Panel, Tab } from "@/types";
 import { createTab } from "./createTab";
 import { findLayout } from "./layoutTraversal";
 import { findTabAcrossLayouts } from "./crossLayoutSearch";
@@ -26,6 +27,21 @@ export type TabOpenActions = Pick<
   | "openFileExplorer"
 >;
 
+/**
+ * 空白终端标签只是启动入口，启动时由新标签顶替它，否则空态页会一直留在标签栏里。
+ * 判据与 Panel 的空态一致，必须带 contentType：agent-chat 等标签的 projectPath 也是空的，
+ * 只看路径会把它们顶掉。
+ */
+function placeTabInPane(pane: Panel, newTab: Tab) {
+  const activeTab = pane.tabs.find((t) => t.id === pane.activeTabId);
+  if (activeTab?.contentType === "terminal" && !activeTab.projectPath && !activeTab.pinned) {
+    pane.tabs.splice(pane.tabs.indexOf(activeTab), 1, newTab);
+  } else {
+    pane.tabs.push(newTab);
+  }
+  pane.activeTabId = newTab.id;
+}
+
 export function createTabOpenActions({ set, get }: PanesStoreAccess): TabOpenActions {
   return {
     openProjectInPane: (paneId, opts) => {
@@ -36,9 +52,7 @@ export function createTabOpenActions({ set, get }: PanesStoreAccess): TabOpenAct
         if (pane?.type !== "panel") return;
 
         if (resumeId || (cliTool && cliTool !== "none")) {
-          const newTab = createTab(opts);
-          pane.tabs.push(newTab);
-          pane.activeTabId = newTab.id;
+          placeTabInPane(pane, createTab(opts));
           state.activePaneId = pane.id;
           return;
         }
@@ -49,17 +63,7 @@ export function createTabOpenActions({ set, get }: PanesStoreAccess): TabOpenAct
         if (existingTab) {
           pane.activeTabId = existingTab.id;
         } else {
-          const activeTab = pane.tabs.find((t) => t.id === pane.activeTabId);
-          if (activeTab && !activeTab.projectPath) {
-            const tabIndex = pane.tabs.indexOf(activeTab);
-            const newTab = createTab({ ...opts, resumeId: undefined });
-            pane.tabs.splice(tabIndex, 1, newTab);
-            pane.activeTabId = newTab.id;
-          } else {
-            const newTab = createTab({ ...opts, resumeId: undefined });
-            pane.tabs.push(newTab);
-            pane.activeTabId = newTab.id;
-          }
+          placeTabInPane(pane, createTab({ ...opts, resumeId: undefined }));
         }
         state.activePaneId = pane.id;
       });

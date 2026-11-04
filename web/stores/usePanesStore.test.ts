@@ -696,6 +696,55 @@ describe("usePanesStore", () => {
       expect(paneAfter.tabs.length).toBe(originalTabCount);
       expect(paneAfter.tabs[0].projectId).toBe("proj-1");
     });
+
+    it("启动 CLI 时应顶替活动的空白终端标签", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      const blankId = (usePanesStore.getState().rootPane as Panel).activeTabId;
+
+      usePanesStore.getState().openProjectInPane(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1", cliTool: "claude" });
+
+      const paneAfter = usePanesStore.getState().rootPane as Panel;
+      expect(paneAfter.tabs).toHaveLength(1);
+      expect(paneAfter.tabs[0].cliTool).toBe("claude");
+      expect(paneAfter.tabs.some((t) => t.id === blankId)).toBe(false);
+      expect(paneAfter.activeTabId).toBe(paneAfter.tabs[0].id);
+    });
+
+    it("活动标签不是空白终端时，启动 CLI 应新建标签", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      usePanesStore.getState().openProjectInPane(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
+
+      usePanesStore.getState().openProjectInPane(paneId, { projectId: "proj-2", projectPath: "/tmp/proj1", cliTool: "claude" });
+
+      const paneAfter = usePanesStore.getState().rootPane as Panel;
+      expect(paneAfter.tabs.map((t) => t.projectId)).toEqual(["proj-1", "proj-2"]);
+    });
+
+    it("已固定的空白终端标签不应被顶替", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      const blankId = (usePanesStore.getState().rootPane as Panel).activeTabId!;
+      usePanesStore.getState().togglePinTab(paneId, blankId);
+
+      usePanesStore.getState().openProjectInPane(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1", cliTool: "claude" });
+
+      const paneAfter = usePanesStore.getState().rootPane as Panel;
+      expect(paneAfter.tabs).toHaveLength(2);
+      expect(paneAfter.tabs[0].id).toBe(blankId);
+    });
+
+    it("路径为空的非终端标签不应被顶替", () => {
+      const paneId = usePanesStore.getState().rootPane.id;
+      const chatId = (usePanesStore.getState().rootPane as Panel).activeTabId!;
+      usePanesStore.setState((state) => {
+        (state.rootPane as Panel).tabs[0].contentType = "agent-chat";
+      });
+
+      usePanesStore.getState().openProjectInPane(paneId, { projectId: "proj-1", projectPath: "/tmp/proj1" });
+
+      const paneAfter = usePanesStore.getState().rootPane as Panel;
+      expect(paneAfter.tabs).toHaveLength(2);
+      expect(paneAfter.tabs[0].id).toBe(chatId);
+    });
   });
 
   describe("openProject", () => {
