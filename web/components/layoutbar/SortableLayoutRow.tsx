@@ -209,7 +209,6 @@ export function SortableLayoutRow({
           {isStarredLayout ? null : (
             <LayoutTypeCounts
               summary={typeCounts}
-              selected={selected}
               onJump={(paneId, tabId) => onJumpToTab(layout.id, paneId, tabId)}
             />
           )}

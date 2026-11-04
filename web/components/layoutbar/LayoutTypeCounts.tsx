@@ -14,11 +14,9 @@ import type { LayoutTypeSummary } from "./layoutTypeSummary";
 // 游标只存在组件内 ref——纯瞬时交互状态，进 store 只会多一份要持久化/迁移的负担。
 export default function LayoutTypeCounts({
   summary,
-  selected,
   onJump,
 }: {
   summary: LayoutTypeSummary;
-  selected: boolean;
   /** 跳转到指定 tab；调用方负责先切到本布局 */
   onJump: (paneId: string, tabId: string) => void;
 }) {
@@ -41,7 +39,7 @@ export default function LayoutTypeCounts({
             aria-label={`${tabs.length} ${name}`}
             data-type-group={group}
             className="flex shrink-0 items-center gap-1 rounded-sm px-0.5 hover:bg-[var(--app-hover)]"
-            style={{ color: selected ? "inherit" : "var(--app-text-tertiary)" }}
+            style={{ color: "var(--app-text-tertiary)" }}
             onClick={(event) => {
               // 卡片本身是 role="tab" 的按钮，不拦住就会连带触发切布局+可能的拖拽
               event.preventDefault();

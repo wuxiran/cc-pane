@@ -42,6 +42,7 @@ function renderTab(overrides: {
   layout?: Partial<LayoutEntry>;
   tree?: PaneNode;
   deletable?: boolean;
+  selected?: boolean;
 } = {}) {
   const tree = overrides.tree ?? paneWith(tab("t1", "terminal"));
   const layout = {
@@ -62,7 +63,7 @@ function renderTab(overrides: {
     <SortableLayoutTab
       layout={layout}
       tree={tree}
-      selected={false}
+      selected={overrides.selected ?? false}
       tabCount={typeCounts.total}
       density="comfortable"
       typeCounts={typeCounts}
@@ -84,15 +85,15 @@ describe("SortableLayoutTab", () => {
   });
 
   describe("工作空间绑定标签", () => {
-    it("manual 绑定：亮色 + 链条图标，名字后不带问号", () => {
+    it("manual 绑定：无图标，名字后不带问号", () => {
       renderTab({ layout: { workspaceName: "cc-book" } });
       const label = document.querySelector("[data-binding-source='manual']");
       expect(label).toBeTruthy();
       expect(label?.textContent).toBe("cc-book");
-      expect(label?.querySelector("svg")).toBeTruthy(); // Link2
+      expect(label?.querySelector("svg")).toBeFalsy();
     });
 
-    it("derived 绑定：按标签推导，名字后带 ? 且无链条图标", () => {
+    it("derived 绑定：按标签推导，名字后带 ?", () => {
       renderTab({ tree: paneWith(tab("t1", "terminal", "erp")) });
       const label = document.querySelector("[data-binding-source='derived']");
       expect(label).toBeTruthy();
@@ -102,8 +103,8 @@ describe("SortableLayoutTab", () => {
   });
 
   describe("计数", () => {
-    // 此前 tabCount 只数 terminal，其余六类完全不计——顶部数字与卡片内容对不上
-    it("顶部总数覆盖全类型，且等于类型计数桁各桁之和", () => {
+    // 总数不再单列：它和计数桁重复，各桁之和就是全类型总数
+    it("计数桁覆盖全类型，卡片内不再重复显示总数", () => {
       renderTab({
         tree: paneWith(
           tab("t1", "terminal"),
@@ -117,7 +118,14 @@ describe("SortableLayoutTab", () => {
         Number(el.textContent),
       );
       expect(perGroup.reduce((a, b) => a + b, 0)).toBe(4);
-      expect(screen.getByRole("tab")).toHaveTextContent("4");
+      expect(screen.getByRole("tab")).not.toHaveTextContent("4");
+    });
+
+    it("选中态是中性浮起面：不用 accent 描边和蓝字，蓝色只留给运行中", () => {
+      renderTab({ selected: true });
+      const card = screen.getByRole("tab");
+      expect(card.style.borderColor).toBe("var(--app-border)");
+      expect(card.style.color).toBe("var(--app-text-primary)");
     });
 
     it("空布局不渲染类型计数桁", () => {

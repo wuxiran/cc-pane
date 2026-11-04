@@ -104,7 +104,7 @@ export default function LayoutTopBar() {
   return (
     <div
       className={`flex min-w-0 max-w-full flex-shrink-0 items-center gap-1 overflow-hidden border-b px-2 ${
-        density === "comfortable" ? "h-[72px]" : "h-9"
+        density === "comfortable" ? "h-[52px]" : "h-9"
       }`}
       style={{
         background: "var(--app-panel-bg)",
@@ -121,7 +121,7 @@ export default function LayoutTopBar() {
         data-density={density}
         className={
           density === "comfortable"
-            ? "ml-1.5 flex h-[64px] flex-shrink-0 items-stretch gap-0.5"
+            ? "ml-1.5 flex h-[44px] flex-shrink-0 items-stretch gap-0.5"
             : "flex flex-shrink-0 items-center gap-0.5 pl-1.5"
         }
       >
