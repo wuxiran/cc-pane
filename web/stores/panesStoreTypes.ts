@@ -310,7 +310,8 @@ export interface PanesState extends BrowserTabActions, ReviewTabActions {
   switchToTab: (paneId: string, index: number) => void;
   minimizeTab: (paneId: string, tabId: string) => void;
   restoreTab: (paneId: string, tabId: string) => void;
-  reopenClosedTab: (paneId: string) => void;
+  /** 恢复指定快照；缺省恢复最近关闭的标签。快照已不在栈中时不动作。 */
+  reopenClosedTab: (paneId: string, snapshot?: ClosedTabSnapshot) => void;
   openMcpConfig: (projectPath: string, title: string) => void;
   openSkillManager: (projectPath: string, title: string) => void;
   /** 工作空间级 Agent Skills 管理（复用 skill-manager tab，projectPath 为空 + workspaceName） */

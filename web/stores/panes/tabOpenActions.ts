@@ -98,13 +98,15 @@ export function createTabOpenActions({ set, get }: PanesStoreAccess): TabOpenAct
       }
     },
 
-    reopenClosedTab: (paneId) => {
+    reopenClosedTab: (paneId, snapshot) => {
       const { closedTabs } = get();
-      if (closedTabs.length === 0) return;
+      // 菜单打开期间栈可能已变：快照不在栈里就不动作，不能退回去恢复别的标签。
+      const index = snapshot ? closedTabs.indexOf(snapshot) : closedTabs.length - 1;
+      if (index < 0) return;
 
-      const lastClosed = closedTabs[closedTabs.length - 1];
+      const reopened = closedTabs[index];
       set((state) => {
-        state.closedTabs.pop();
+        state.closedTabs.splice(index, 1);
         // 惰性裁剪兜底（严格上限在 removeTabsInternal 的 push 后）
         trimClosedTabs(state.closedTabs);
       });
@@ -124,28 +126,28 @@ export function createTabOpenActions({ set, get }: PanesStoreAccess): TabOpenAct
           return null;
         },
       };
-      if (reopenNonTerminalSnapshot(reopenHost, lastClosed)) return;
+      if (reopenNonTerminalSnapshot(reopenHost, reopened)) return;
 
       get().addTab(paneId, {
-        projectId: lastClosed.projectId,
-        projectPath: lastClosed.projectPath,
-        resumeId: lastClosed.resumeId,
-        workspaceName: lastClosed.workspaceName,
-        providerId: lastClosed.providerId,
-        modelId: lastClosed.modelId,
-        providerSelection: lastClosed.providerSelection,
-        launchProfileId: lastClosed.launchProfileId,
-        workspacePath: lastClosed.workspacePath,
-        workspaceSnapshotId: lastClosed.workspaceSnapshotId,
+        projectId: reopened.projectId,
+        projectPath: reopened.projectPath,
+        resumeId: reopened.resumeId,
+        workspaceName: reopened.workspaceName,
+        providerId: reopened.providerId,
+        modelId: reopened.modelId,
+        providerSelection: reopened.providerSelection,
+        launchProfileId: reopened.launchProfileId,
+        workspacePath: reopened.workspacePath,
+        workspaceSnapshotId: reopened.workspaceSnapshotId,
         // title/launchClaude 此前被丢弃（docs/68 §2.2）；写法对齐 Panel.handleCloneTab
-        customTitle: lastClosed.title,
-        cliTool: lastClosed.cliTool ?? (lastClosed.launchClaude ? "claude" : undefined),
-        ssh: lastClosed.ssh,
-        wsl: lastClosed.wsl,
-        machineName: lastClosed.machineName,
-        parentTabId: lastClosed.parentTabId,
-        forkReviewId: lastClosed.forkReviewId,
-        launchExtras: lastClosed.launchExtras,
+        customTitle: reopened.title,
+        cliTool: reopened.cliTool ?? (reopened.launchClaude ? "claude" : undefined),
+        ssh: reopened.ssh,
+        wsl: reopened.wsl,
+        machineName: reopened.machineName,
+        parentTabId: reopened.parentTabId,
+        forkReviewId: reopened.forkReviewId,
+        launchExtras: reopened.launchExtras,
       });
 
       // 分屏结构回放（docs/78 批4）：addTab 只建单格。
@@ -160,9 +162,9 @@ export function createTabOpenActions({ set, get }: PanesStoreAccess): TabOpenAct
         },
         get().findPaneById,
         paneId,
-        lastClosed,
+        reopened,
       );
-      restoreClosedTabIdentity(get(), paneId, lastClosed);
+      restoreClosedTabIdentity(get(), paneId, reopened);
     },
 
     openMcpConfig: (projectPath, title) => {

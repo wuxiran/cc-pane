@@ -1,5 +1,5 @@
 use crate::utils::{AppError, AppResult};
-use cc_panes_core::models::{ContextUsageSnapshot, UsageQueryResult};
+use cc_panes_core::models::{ContextUsageSnapshot, SessionCostSnapshot, UsageQueryResult};
 use cc_panes_core::services::UsageStatsService;
 use std::sync::Arc;
 use tauri::State;
@@ -38,6 +38,15 @@ pub async fn query_context_usage(
 ) -> AppResult<ContextUsageSnapshot> {
     let service = service.inner().clone();
     run_usage_blocking(move || Ok(service.context_usage_for_pty(&pty_session_id))).await
+}
+
+#[tauri::command]
+pub async fn query_session_cost(
+    service: State<'_, Arc<UsageStatsService>>,
+    pty_session_id: String,
+) -> AppResult<SessionCostSnapshot> {
+    let service = service.inner().clone();
+    run_usage_blocking(move || Ok(service.session_cost_for_pty(&pty_session_id))).await
 }
 
 async fn run_usage_blocking<T: Send + 'static>(

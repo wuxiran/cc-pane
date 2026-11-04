@@ -28,6 +28,33 @@ pub struct ContextUsageSnapshot {
     pub diagnostic_code: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCostModelEntry {
+    pub model: String,
+    /// None when the model has no published price.
+    pub cost_usd: Option<f64>,
+}
+
+/// Estimated spend of one agent session, including its subagents, at public API prices.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCostSnapshot {
+    pub status: ContextUsageStatus,
+    /// Sum of the priced usage. None when nothing could be priced.
+    pub cost_usd: Option<f64>,
+    pub has_unpriced_usage: bool,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub models: Vec<SessionCostModelEntry>,
+    pub pricing_as_of: String,
+    pub agent_session_id: Option<String>,
+    pub observed_at: i64,
+    pub diagnostic_code: Option<String>,
+}
+
 impl ContextUsageSnapshot {
     pub fn waiting(diagnostic_code: &str, observed_at: i64) -> Self {
         Self {

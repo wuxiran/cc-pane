@@ -20,6 +20,7 @@ import {
 import type { LaunchEffort } from "@/types";
 import { isTranscriptSupportedCliTool } from "@/types/agentTranscript";
 import type { TerminalViewMode } from "./AgentChatView";
+import SessionCostIndicator from "./SessionCostIndicator";
 import TaskQueuePopover from "./TaskQueuePopover";
 
 import "@/i18n/sessionReviewResources";
@@ -161,6 +162,7 @@ export default function TerminalStatusBar({
           {showContextUsage && (
             <ContextUsageIndicator terminalContext={terminalContext} enabled={enabled} />
           )}
+          <SessionCostIndicator terminalContext={terminalContext} enabled={enabled} />
           {taskQueueEnabled && isTauriRuntime() && terminalContext.sessionId && cliLabel ? (
             <TaskQueuePopover sessionId={terminalContext.sessionId} />
           ) : null}

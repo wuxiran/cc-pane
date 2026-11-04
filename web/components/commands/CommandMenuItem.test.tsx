@@ -1,5 +1,6 @@
 import "@/i18n";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { PanelRight } from "lucide-react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ContextMenu,
@@ -68,6 +69,23 @@ describe("CommandMenuItem", () => {
 
     const item = await screen.findByRole("menuitem");
     expect(item).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("带图标的命令不留无图标项的缩进（data-[inset] 只看属性是否存在）", async () => {
+    useCommandsStore.getState().registerCommands([
+      makeCommand({ id: "with-icon", title: "有图标", icon: PanelRight }),
+      makeCommand({ id: "no-icon", title: "无图标" }),
+    ]);
+
+    renderMenu(
+      <>
+        <CommandMenuItem commandId="with-icon" />
+        <CommandMenuItem commandId="no-icon" />
+      </>,
+    );
+
+    expect(await screen.findByRole("menuitem", { name: "有图标" })).not.toHaveAttribute("data-inset");
+    expect(screen.getByRole("menuitem", { name: "无图标" })).toHaveAttribute("data-inset");
   });
 
   it("label 覆盖全局命令标题（菜单内文案可不同）", async () => {

@@ -31,7 +31,8 @@ import {
 import { usePanesStore } from "@/stores";
 import type { Tab } from "@/types";
 import type { TFunction } from "i18next";
-import CommandMenuItem, { CommandShortcutHint } from "@/components/commands/CommandMenuItem";
+import CommandMenuItem from "@/components/commands/CommandMenuItem";
+import RestoreClosedTabsMenu from "./RestoreClosedTabsMenu";
 import TabQuickCommandsMenu from "./TabQuickCommandsMenu";
 import { handleError } from "@/utils/errorHandler";
 import CodexMenuItems from "@/components/agentchat/CodexMenuItems";
@@ -125,8 +126,6 @@ export default function TabContextMenuContent({
     tab.contentType === "terminal" && tab.terminalRootPane
       ? countTerminalLeaves(tab.terminalRootPane)
       : 0;
-  // 选 .length（原始值）而非数组引用：数组本体每次 push 都是新引用，但长度快照稳定。
-  const closedTabCount = usePanesStore((s) => s.closedTabs.length);
 
   return (
     <>
@@ -205,7 +204,7 @@ export default function TabContextMenuContent({
         )}
         {moveTargets.length > 0 && (
           <ContextMenuSub>
-            <ContextMenuSubTrigger inset>
+            <ContextMenuSubTrigger>
               <Send /> {t("sendToPane")}
             </ContextMenuSubTrigger>
             <ContextMenuSubContent>
@@ -219,7 +218,7 @@ export default function TabContextMenuContent({
         )}
         {layoutMoveTargets.length > 0 && (
           <ContextMenuSub>
-            <ContextMenuSubTrigger inset>
+            <ContextMenuSubTrigger>
               <Send /> {t("sendToLayout")}
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-56">
@@ -303,15 +302,8 @@ export default function TabContextMenuContent({
             {t("closeTab")}
           </ContextMenuItem>
         )}
-        {/* 撤销误关：closedTabs 栈顶弹回本窗格（快照带 resumeId，可 resume 回原对话） */}
-        <ContextMenuItem
-          inset
-          disabled={closedTabCount === 0}
-          onClick={() => usePanesStore.getState().reopenClosedTab(paneId)}
-        >
-          {t("restoreClosedTabs", { count: closedTabCount })}
-          <CommandShortcutHint commandId="reopen-closed-tab" />
-        </ContextMenuItem>
+        {/* 撤销误关：恢复到本窗格（快照带 resumeId，可 resume 回原对话） */}
+        <RestoreClosedTabsMenu paneId={paneId} />
       </ContextMenuContent>
     </>
   );

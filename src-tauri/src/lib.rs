@@ -374,6 +374,7 @@ use commands::{
     // Local History - 标签
     put_label,
     query_context_usage,
+    query_session_cost,
     query_task_bindings,
     query_todos,
     query_usage_stats,
@@ -3149,6 +3150,7 @@ pub fn run() {
             upload_terminal_checkpoint,
             record_terminal_input,
             query_context_usage,
+            query_session_cost,
             query_usage_stats,
             refresh_usage_stats,
             list_session_index,
