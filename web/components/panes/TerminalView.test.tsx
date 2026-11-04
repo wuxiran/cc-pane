@@ -1,6 +1,7 @@
 import "@/i18n";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { toast } from "sonner";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { terminalReplaySemaphore } from "./terminalReplaySemaphore";
@@ -1397,12 +1398,19 @@ describe("TerminalView", () => {
     expect(term.selectAll).toHaveBeenCalled();
 
     fireEvent.contextMenu(host!);
-    await user.click(await screen.findByRole("menuitem", { name: /清空缓冲区|Clear Buffer/i }));
+    const warning = vi.spyOn(toast, "warning");
+    await user.hover(await screen.findByRole("menuitem", { name: /^(更多|More)$/i }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /清空输出|Clear Output/i }));
+    expect(term.clear).not.toHaveBeenCalled();
+    const clearAction = warning.mock.calls[0]?.[1]?.action as unknown as { onClick: () => void };
+    clearAction.onClick();
     expect(term.clear).toHaveBeenCalled();
+    warning.mockRestore();
 
     fireEvent.contextMenu(host!);
-    await user.click(
-      await screen.findByRole("menuitem", { name: /复制整个缓冲区|Copy Entire Buffer/i })
+    await user.hover(await screen.findByRole("menuitem", { name: /^(复制|Copy)$/i }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: /终端全部输出|All Terminal Output/i })
     );
     await waitFor(() => expect(vi.mocked(writeText)).toHaveBeenCalledWith("line-0\nline-1"));
   });
@@ -1428,10 +1436,11 @@ describe("TerminalView", () => {
     resize.mockClear();
     scheduler.flush.mockClear();
     fireEvent.contextMenu(host!);
-    await user.click(await screen.findByRole("menuitem", { name: /刷新终端|Refresh Terminal/i }));
-    expect(controller.clearTextureAtlas).toHaveBeenCalledWith("context-menu.refresh");
-    expect(scheduler.flush).toHaveBeenCalledWith("context-menu.refresh", {
+    await user.click(await screen.findByRole("menuitem", { name: /修复显示|Repair Display/i }));
+    expect(controller.clearTextureAtlas).toHaveBeenCalledWith("context-menu.repair");
+    expect(scheduler.flush).toHaveBeenCalledWith("context-menu.repair", {
       force: true,
+      forceBackendSync: true,
       focusIfSafe: true,
       allowInactive: true,
     });
@@ -1439,7 +1448,8 @@ describe("TerminalView", () => {
     expect(scheduler.redrawBackend).toHaveBeenCalledTimes(1);
 
     fireEvent.contextMenu(host!);
-    await user.click(await screen.findByRole("menuitem", { name: /复制会话 ID|Copy Session ID/i }));
+    await user.hover(await screen.findByRole("menuitem", { name: /^(复制|Copy)$/i }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^(会话 ID|Session ID)$/i }));
     await waitFor(() => expect(vi.mocked(writeText)).toHaveBeenCalledWith("new-session-1"));
   });
 
@@ -1457,14 +1467,14 @@ describe("TerminalView", () => {
 
     resize.mockClear();
     fireEvent.contextMenu(host!);
-    await user.click(await screen.findByRole("menuitem", { name: /刷新终端|Refresh Terminal/i }));
+    await user.click(await screen.findByRole("menuitem", { name: /修复显示|Repair Display/i }));
 
     // 镜像面板改后端尺寸会连带改掉主视图的 PTY，必须完全不发。
     await new Promise((resolve) => setTimeout(resolve, SIGWINCH_SETTLE_WINDOW_MS));
     expect(resize).not.toHaveBeenCalled();
   });
 
-  it("terminal context menu fits the current terminal and requests all terminals to fit", async () => {
+  it("terminal context menu requests all terminals to fit", async () => {
     const user = userEvent.setup();
     const view = renderTerminalView();
     await waitFor(() => expect(createSession).toHaveBeenCalled());
@@ -1481,18 +1491,8 @@ describe("TerminalView", () => {
     window.addEventListener(TERMINAL_FIT_ALL_EVENT, fitAllListener);
 
     fireEvent.contextMenu(host!);
-    await user.click(
-      await screen.findByRole("menuitem", { name: /^(适应大小|Fit Terminal)$/i }),
-    );
-    expect(scheduler.flush).toHaveBeenCalledWith("context-menu.fit", {
-      force: true,
-      forceBackendSync: true,
-      focusIfSafe: true,
-      allowInactive: true,
-    });
-
-    fireEvent.contextMenu(host!);
-    await user.click(
+    await user.hover(await screen.findByRole("menuitem", { name: /^(更多|More)$/i }));
+    fireEvent.click(
       await screen.findByRole("menuitem", { name: /全部终端适应大小|Fit All Terminals/i }),
     );
     expect(fitAllListener).toHaveBeenCalledTimes(1);

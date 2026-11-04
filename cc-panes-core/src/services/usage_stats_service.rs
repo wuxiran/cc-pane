@@ -1603,6 +1603,33 @@ fn claude_project_roots(
     roots
 }
 
+/// 不绑定具体 Provider 时的 Claude 记录目录（Provider 专属 config_dir 需调用方自行补充）。
+pub(crate) fn claude_session_roots() -> Vec<PathBuf> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    claude_project_roots(
+        &home,
+        std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from),
+        None,
+    )
+}
+
+/// Codex 记录目录：当前 CODEX_HOME（或 `~/.codex`），加上旧版隔离目录里的历史记录。
+pub(crate) fn codex_session_roots() -> Vec<PathBuf> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    let mut roots = vec![std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".codex"))
+        .join("sessions")];
+    let mut legacy = Vec::new();
+    collect_codex_home_scan_roots(&home, ScanOrigin::Native, &mut legacy);
+    roots.extend(legacy.into_iter().map(|root| root.path));
+    roots
+}
+
 /// Claude 把子 agent 记录放在 `<session>/subagents/*.jsonl`，费用要算进这个会话。
 fn session_side_files(cli: &str, main: &Path) -> Vec<PathBuf> {
     if cli != "claude" {

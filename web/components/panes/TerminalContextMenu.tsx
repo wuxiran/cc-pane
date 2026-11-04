@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { Suspense, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ClipboardPaste,
@@ -7,8 +7,9 @@ import {
   Eraser,
   FileDown,
   FolderOpen,
+  GitFork,
   Hash,
-  Maximize2,
+  MoreHorizontal,
   PanelsTopLeft,
   RefreshCw,
   RotateCcw,
@@ -19,8 +20,21 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { lazyWithRetry } from "@/lib/lazyRetry";
+import type {
+  TerminalSessionMenu,
+  TerminalSessionMenuState,
+} from "./terminal/useTerminalSessionMenu";
+
+const TerminalForkDialog = lazyWithRetry(
+  () => import("@/components/chatfork/TerminalForkDialog"),
+  "TerminalForkDialog",
+);
 
 interface TerminalContextMenuProps {
   children: ReactNode;
@@ -39,10 +53,9 @@ interface TerminalContextMenuProps {
   onCopySelection: () => void;
   onSelectAll: () => void;
   onPaste: () => void;
-  onFitTerminal: () => void;
+  /** 修复显示：清字形图集 + 强制 refit 并同步后端 + 让 CLI 重绘，修花屏/变形/未铺满/错行。 */
+  onRepairDisplay: () => void;
   onFitAllTerminals: () => void;
-  /** 刷新显示：清字形图集 + 强制 refit + 重绘，修花屏/变形/未铺满。 */
-  onRefreshTerminal: () => void;
   /**
    * 重置缓冲区：优先从后端快照重建画面（含可恢复的回滚历史），快照不可得才
    * 回退成破坏性 xterm.reset()；随后 SIGWINCH 让 CLI 补画当前帧。修「刷新显示」
@@ -56,9 +69,19 @@ interface TerminalContextMenuProps {
   onCopySessionId: () => void;
   /** 未提供时（无 projectPath）不渲染该菜单项。 */
   onOpenProjectDir?: () => void;
+  /** 未提供时（无 tab 的视图，如 SelfChat）不显示分叉和会话相关的复制项。 */
+  sessionMenu?: TerminalSessionMenu;
 }
 
-/** 终端区右键菜单：剪贴板操作 / 缓冲区操作 / 项目目录，分组用 Separator 隔开。 */
+const NO_SESSION_STATE: TerminalSessionMenuState = {
+  canFork: false,
+  hasResumeCommand: false,
+  hasWorkingDir: false,
+  hasTranscript: false,
+  hasDeepLink: false,
+};
+
+/** 终端区右键菜单：第一层只留常用项，低频和有破坏性的操作收进「复制」「更多」子菜单。 */
 export default function TerminalContextMenu({
   children,
   enabled = true,
@@ -67,31 +90,35 @@ export default function TerminalContextMenu({
   onCopySelection,
   onSelectAll,
   onPaste,
-  onFitTerminal,
+  onRepairDisplay,
   onFitAllTerminals,
-  onRefreshTerminal,
   onResetBuffer,
   onClearBuffer,
   onCopyBuffer,
   onExportBuffer,
   onCopySessionId,
   onOpenProjectDir,
+  sessionMenu,
 }: TerminalContextMenuProps) {
   const { t } = useTranslation("panes");
   // 打开瞬间快照选区/会话状态，决定对应菜单项是否可用。
   const [hasSelection, setHasSelection] = useState(false);
   const [hasSession, setHasSession] = useState(false);
+  const [sessionState, setSessionState] = useState(NO_SESSION_STATE);
+  const [forkOpen, setForkOpen] = useState(false);
 
   if (!enabled) {
     return <>{children}</>;
   }
 
   return (
+    <>
     <ContextMenu
       onOpenChange={(open) => {
         if (open) {
           setHasSelection(getSelection().length > 0);
           setHasSession(Boolean(getSessionId()));
+          setSessionState(sessionMenu?.getState() ?? NO_SESSION_STATE);
         }
       }}
     >
@@ -106,40 +133,106 @@ export default function TerminalContextMenu({
         <ContextMenuItem onSelect={onPaste}>
           <ClipboardPaste /> {t("terminalPaste")}
         </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={onFitTerminal}>
-          <Maximize2 /> {t("terminalFit")}
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={onFitAllTerminals}>
-          <PanelsTopLeft /> {t("terminalFitAll")}
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={onRefreshTerminal}>
-          <RefreshCw /> {t("terminalRefresh")}
-        </ContextMenuItem>
-        {onResetBuffer && (
-          <ContextMenuItem onSelect={onResetBuffer}>
-            <RotateCcw /> {t("terminalResetBuffer")}
-          </ContextMenuItem>
+        {sessionState.canFork && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => setForkOpen(true)}>
+              <GitFork /> {t("terminalForkSession")}
+            </ContextMenuItem>
+          </>
         )}
-        <ContextMenuItem onSelect={onClearBuffer}>
-          <Eraser /> {t("terminalClearBuffer")}
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={onCopyBuffer}>
-          <ClipboardCopy /> {t("terminalCopyBuffer")}
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={onExportBuffer}>
-          <FileDown /> {t("terminalExportBuffer")}
-        </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem disabled={!hasSession} onSelect={onCopySessionId}>
-          <Hash /> {t("terminalCopySessionId")}
+        <ContextMenuItem onSelect={onRepairDisplay}>
+          <RefreshCw /> {t("terminalRepairDisplay")}
         </ContextMenuItem>
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>
+            <ClipboardCopy /> {t("terminalCopyMenu")}
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent className="w-52">
+            <ContextMenuItem onSelect={onCopyBuffer}>{t("terminalCopyBuffer")}</ContextMenuItem>
+            <ContextMenuItem disabled={!hasSession} onSelect={onCopySessionId}>
+              <Hash /> {t("terminalCopySessionId")}
+            </ContextMenuItem>
+            {sessionState.hasResumeCommand && (
+              <ContextMenuItem onSelect={sessionMenu?.onCopyResumeCommand}>
+                {t("terminalCopyResumeCommand")}
+              </ContextMenuItem>
+            )}
+            {sessionState.hasWorkingDir && (
+              <ContextMenuItem onSelect={sessionMenu?.onCopyWorkingDir}>
+                {t("terminalCopyWorkingDir")}
+              </ContextMenuItem>
+            )}
+            {sessionMenu && (
+              <ContextMenuItem onSelect={sessionMenu.onCopySessionInfo}>
+                {t("terminalCopySessionInfo")}
+              </ContextMenuItem>
+            )}
+            {sessionState.hasTranscript && (
+              <>
+                <ContextMenuItem onSelect={sessionMenu?.onCopyMarkdown}>
+                  {t("terminalCopyMarkdown")}
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={sessionMenu?.onCopyTranscriptPath}>
+                  {t("terminalCopyTranscriptPath")}
+                </ContextMenuItem>
+              </>
+            )}
+            {sessionState.hasDeepLink && (
+              <ContextMenuItem onSelect={sessionMenu?.onCopyDeepLink}>
+                {t("terminalCopyDeepLink")}
+              </ContextMenuItem>
+            )}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>
+            <MoreHorizontal /> {t("terminalMoreMenu")}
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent className="w-56">
+            <ContextMenuItem onSelect={onFitAllTerminals}>
+              <PanelsTopLeft /> {t("terminalFitAll")}
+            </ContextMenuItem>
+            {onResetBuffer && (
+              <ContextMenuItem onSelect={onResetBuffer}>
+                <RotateCcw /> {t("terminalResetBuffer")}
+              </ContextMenuItem>
+            )}
+            <ContextMenuItem onSelect={onExportBuffer}>
+              <FileDown /> {t("terminalExportBuffer")}
+            </ContextMenuItem>
+            {sessionState.hasTranscript && (
+              <ContextMenuItem onSelect={sessionMenu?.onExportTranscript}>
+                <FileDown /> {t("terminalExportTranscript")}
+              </ContextMenuItem>
+            )}
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={onClearBuffer}>
+              <Eraser /> {t("terminalClearBuffer")}
+            </ContextMenuItem>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
         {onOpenProjectDir && (
-          <ContextMenuItem onSelect={onOpenProjectDir}>
-            <FolderOpen /> {t("terminalOpenProjectDir")}
-          </ContextMenuItem>
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={onOpenProjectDir}>
+              <FolderOpen /> {t("terminalOpenProjectDir")}
+            </ContextMenuItem>
+          </>
         )}
       </ContextMenuContent>
     </ContextMenu>
+    {forkOpen && sessionMenu && (
+      <Suspense fallback={null}>
+        <TerminalForkDialog
+          open={forkOpen}
+          onOpenChange={setForkOpen}
+          tabId={sessionMenu.tabId}
+          leafId={sessionMenu.leafId}
+        />
+      </Suspense>
+    )}
+    </>
   );
 }

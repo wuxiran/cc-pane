@@ -104,7 +104,7 @@ mod worktree_service;
 pub mod wsl_cgroup_stats;
 pub mod wsl_discovery_service;
 
-pub use agent_transcript::read_agent_transcript;
+pub use agent_transcript::{export_agent_transcript, read_agent_transcript};
 pub use cc_switch_import::CcSwitchImportReport;
 pub use cursor_bridge_hub::CursorBridgeHub;
 pub use cursor_bridge_prompts::{

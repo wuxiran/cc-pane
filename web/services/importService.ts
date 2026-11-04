@@ -5,10 +5,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listenIfTauri } from "@/services/runtime";
 
+/** `ccpanes://v1/session?...`：确认后恢复会话，不走 executeImport。 */
+export interface SessionLinkRequest {
+  resource: "session";
+  cli: "claude" | "codex";
+  id: string;
+  project: string;
+}
+
 export type ImportRequest =
   | { resource: "provider"; name: string; app: string; endpoints: string[]; apiKey?: string | null }
   | { resource: "skill"; id?: string | null; repo?: string | null }
-  | { resource: "mcp"; name: string; config: unknown };
+  | { resource: "mcp"; name: string; config: unknown }
+  | SessionLinkRequest;
 
 export const importService = {
   /** 解析 ccpanes:// 链接（不落盘，供确认弹窗展示） */

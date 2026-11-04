@@ -145,3 +145,19 @@ deep-link 负责「应用关着也能唤起」；若应用**已在运行**，网
 ## 9. 版本与兼容
 
 - 当前版本 `v1`。新增字段应保持**向后兼容**（未知参数忽略）。破坏性变更走 `v2`（新 host 段），旧版拒绝并提示「不支持的协议版本」。
+
+---
+
+## 会话深度链接
+
+```
+ccpanes://v1/session?cli=<claude|codex>&id=<resumeId>&project=<项目路径>
+```
+
+由终端右键「复制 → 深度链接」生成，复用本协议的 scheme 与冷启动补领，但**不落盘、不走 `execute_import`**：
+
+- 后端校验 `cli` 白名单和 `id` 字符集（`src-tauri/src/import/mod.rs`）。
+- 会话已打开：直接跳到对应标签，无副作用，不需要确认。
+- 未打开：`project` 必须与已注册项目完全相同，并由用户确认后才恢复（`web/components/resources/SessionLinkDialog.tsx`）。
+
+链接可能来自任何网页，所以不接受任意目录，也不带 provider、prompt 等启动参数。

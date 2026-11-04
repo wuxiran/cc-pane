@@ -117,16 +117,21 @@ export function useTerminalContextMenuActions({
     if (canResizeBackend()) redrawBackend?.();
   }, [canResizeBackend, onExplicitGeometryChange, redrawBackend]);
 
-  const handleMenuRefreshTerminal = useCallback(() => {
-    const term = terminalRef.current;
-    if (!term) return;
-    rendererControllerRef.current?.clearTextureAtlas("context-menu.refresh");
-    refitAndRepaintTerminal("context-menu.refresh", {
+  /**
+   * 修复显示：合并原「适应大小」与「刷新终端显示」。清字形图集修花屏，强制 refit 并同步后端
+   * 修尺寸不对，再让 CLI 重画修错行。无权驱动 PTY 的视图由 requestCliRedraw 拦下重绘。
+   * 救不了已沉入 scrollback 的错帧，那种情况走「重建终端画面」。
+   */
+  const handleMenuRepairDisplay = useCallback(() => {
+    if (!terminalRef.current) return;
+    rendererControllerRef.current?.clearTextureAtlas("context-menu.repair");
+    refitAndRepaintTerminal("context-menu.repair", {
       force: true,
+      forceBackendSync: true,
       focusIfSafe: true,
       allowInactive: true,
     });
-    repaintTerminal("context-menu.refresh");
+    repaintTerminal("context-menu.repair");
     requestCliRedraw();
   }, [
     refitAndRepaintTerminal,
@@ -140,7 +145,7 @@ export function useTerminalContextMenuActions({
    * 重置终端缓冲区：优先走快照重建（desync 恢复器：reset → photo 直写 → delta
    * 渲染写，含可恢复的回滚历史），重建失败才回退成裸 `xterm.reset()`；两条路
    * 都跟一次 SIGWINCH 让 CLI 补画当前帧。这是 buffer 级错乱（docs/73 A 类）的
-   * 对症药——错帧一旦沉入 scrollback，「刷新终端显示」（渲染层）与单纯
+   * 对症药——错帧一旦沉入 scrollback，「修复显示」（渲染层）与单纯
    * SIGWINCH（只重画视口）都救不回来。
    *
    * 为什么不能只做裸 reset：inline CLI（如 grok）收到重绘信号只补画底部活动
@@ -180,16 +185,6 @@ export function useTerminalContextMenuActions({
     });
   }, [debugLog, requestBufferResync, requestCliRedraw, t, terminalRef]);
 
-  const handleMenuFitTerminal = useCallback(() => {
-    onExplicitGeometryChange?.();
-    refitAndRepaintTerminal("context-menu.fit", {
-      force: true,
-      forceBackendSync: true,
-      focusIfSafe: true,
-      allowInactive: true,
-    });
-  }, [onExplicitGeometryChange, refitAndRepaintTerminal]);
-
   const handleMenuFitAllTerminals = useCallback(() => {
     requestTerminalFitAll();
   }, []);
@@ -204,12 +199,22 @@ export function useTerminalContextMenuActions({
       });
   }, [currentSessionIdRef, sessionId, t]);
 
+  /** 清空不可恢复，且紧邻可恢复的「重建」，所以和它一样要确认。 */
   const handleMenuClearBuffer = useCallback(() => {
-    const term = terminalRef.current;
-    if (!term) return;
-    term.clear();
-    term.focus();
-  }, [terminalRef]);
+    if (!terminalRef.current) return;
+    toast.warning(t("terminalClearBufferConfirmTitle"), {
+      description: t("terminalClearBufferConfirmDesc"),
+      action: {
+        label: t("terminalClearBufferConfirmAction"),
+        onClick: () => {
+          const term = terminalRef.current;
+          if (!term) return;
+          term.clear();
+          term.focus();
+        },
+      },
+    });
+  }, [t, terminalRef]);
 
   const handleMenuCopyBuffer = useCallback(() => {
     const term = terminalRef.current;
@@ -264,9 +269,8 @@ export function useTerminalContextMenuActions({
     handleMenuCopySelection,
     handleMenuSelectAll,
     handleMenuPaste,
-    handleMenuFitTerminal,
     handleMenuFitAllTerminals,
-    handleMenuRefreshTerminal,
+    handleMenuRepairDisplay,
     handleMenuResetBuffer,
     handleMenuCopySessionId,
     handleMenuClearBuffer,

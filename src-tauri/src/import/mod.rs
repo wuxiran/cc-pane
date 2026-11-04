@@ -16,6 +16,7 @@ pub enum ImportRequest {
     Provider(ProviderImport),
     Skill(SkillImport),
     Mcp(McpImport),
+    Session(SessionLink),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -50,6 +51,42 @@ pub struct McpImport {
     pub config: serde_json::Value,
 }
 
+/// 会话深度链接：`ccpanes://v1/session?cli=claude&id=<resumeId>&project=<path>`。
+/// 链接可来自任何网页，所以这里只做格式校验；前端还要核对 project 已注册、并经用户确认才会恢复。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionLink {
+    pub cli: String,
+    pub id: String,
+    pub project: String,
+}
+
+fn parse_session(params: &HashMap<String, String>) -> Result<SessionLink, String> {
+    let field = |key: &str| {
+        params
+            .get(key)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| format!("缺少 {key} 参数"))
+    };
+    let cli = field("cli")?;
+    if !matches!(cli.as_str(), "claude" | "codex") {
+        return Err(format!("不支持的 CLI: {cli}"));
+    }
+    let id = field("id")?;
+    let safe = id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !safe {
+        return Err("非法会话 ID".into());
+    }
+    Ok(SessionLink {
+        cli,
+        id,
+        project: field("project")?,
+    })
+}
+
 /// 该 URL 是否是本协议的 deep-link。仅认**当前构建**对应的 scheme：
 /// release 只认 `ccpanes://`、dev 只认 `ccpanes-dev://`——避免手工 argv / 陈旧注册跨版触发。
 pub fn is_import_url(url: &str) -> bool {
@@ -67,6 +104,7 @@ pub fn request_kind(req: &ImportRequest) -> &'static str {
         ImportRequest::Provider(_) => "provider",
         ImportRequest::Skill(_) => "skill",
         ImportRequest::Mcp(_) => "mcp",
+        ImportRequest::Session(_) => "session",
     }
 }
 
@@ -98,11 +136,13 @@ pub fn parse_import_url(url_str: &str) -> Result<ImportRequest, String> {
         Some(v) => return Err(format!("不支持的协议版本: {v}")),
         None => return Err("链接缺少版本(host)".into()),
     }
-    if url.path() != "/import" {
-        return Err(format!("路径应为 /import，实际 '{}'", url.path()));
+    let params: HashMap<String, String> = url.query_pairs().into_owned().collect();
+    match url.path() {
+        "/import" => {}
+        "/session" => return parse_session(&params).map(ImportRequest::Session),
+        other => return Err(format!("路径应为 /import 或 /session，实际 '{other}'")),
     }
 
-    let params: HashMap<String, String> = url.query_pairs().into_owned().collect();
     let resource = params.get("resource").ok_or("缺少 resource 参数")?.as_str();
 
     match resource {
@@ -227,11 +267,41 @@ mod tests {
             parse_import_url("ccpanes://v2/import?resource=provider&name=a&app=claude").is_err()
         );
         assert!(parse_import_url("ccpanes://v1/import?resource=skill").is_err());
+        assert!(parse_import_url("ccpanes://v1/other?resource=skill&id=a").is_err());
     }
 
     #[test]
     fn dev_scheme_accepted() {
         assert!(is_import_url("ccpanes-dev://v1/import?resource=skill&id=x"));
         assert!(parse_import_url("ccpanes-dev://v1/import?resource=skill&id=x").is_ok());
+    }
+
+    #[test]
+    fn parses_session_link() {
+        let r = parse_import_url(
+            "ccpanes://v1/session?cli=claude&id=abc-1_2&project=%2Fwork%2Fmy%20app",
+        )
+        .unwrap();
+        assert_eq!(
+            r,
+            ImportRequest::Session(SessionLink {
+                cli: "claude".into(),
+                id: "abc-1_2".into(),
+                project: "/work/my app".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_unsafe_session_links() {
+        for url in [
+            "ccpanes://v1/session?cli=bash&id=a&project=/w",
+            "ccpanes://v1/session?cli=claude&id=a;rm&project=/w",
+            "ccpanes://v1/session?cli=claude&id=../a&project=/w",
+            "ccpanes://v1/session?cli=claude&project=/w",
+            "ccpanes://v1/session?cli=claude&id=a",
+        ] {
+            assert!(parse_import_url(url).is_err(), "{url}");
+        }
     }
 }

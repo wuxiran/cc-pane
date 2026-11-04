@@ -3,11 +3,12 @@ import { collectTerminalLeaves } from "@/lib/paneSessions";
 
 export type ChatForkMode = "same-directory" | "worktree";
 
-export function terminalForkSource(tab: Tab) {
+/** leafId：分屏时指定 leaf（右键的不一定是焦点 leaf）；缺省取焦点 leaf。 */
+export function terminalForkSource(tab: Tab, leafId?: string) {
   if (tab.contentType !== "terminal" || !tab.projectPath) return null;
   const leaf = tab.terminalRootPane
     ? collectTerminalLeaves(tab.terminalRootPane).find(
-        (item) => item.id === tab.activeTerminalPaneId,
+        (item) => item.id === (leafId ?? tab.activeTerminalPaneId),
       )
     : undefined;
   const source = leaf ? { ...tab, ...leaf } : tab;

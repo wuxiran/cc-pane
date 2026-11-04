@@ -41,6 +41,8 @@ pub async fn execute_import(
             Ok(format!("已安装 skill：{}", installed.name))
         }
         ImportRequest::Mcp(m) => import_mcp(&shared_mcp, m),
+        // 会话链接不落盘：前端确认后走正常的打开终端流程。
+        ImportRequest::Session(_) => Err("会话链接不能作为导入执行".into()),
     }
 }
 
