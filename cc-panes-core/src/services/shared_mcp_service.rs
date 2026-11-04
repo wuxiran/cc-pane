@@ -217,16 +217,20 @@ impl SharedMcpService {
 
     /// 添加或更新一个 server 配置
     pub fn upsert_server(&self, name: &str, server: SharedMcpServerConfig) -> Result<(), String> {
-        {
+        let involves_remote = {
             let mut config = self
                 .config
                 .lock()
                 .map_err(|e| format!("Lock error: {}", e))?;
-            config.servers.insert(name.to_string(), server);
-        }
+            let remote = server.remote.is_some();
+            let previous = config.servers.insert(name.to_string(), server);
+            remote || previous.is_some_and(|old| old.remote.is_some())
+        };
         self.save_config()?;
-        // 远程 MCP 不经过 start_server，要在这里把新地址推给 daemon
-        self.notify_running_changed();
+        // 远程 MCP 不经过 start_server / stop_server，地址变化要在这里推给 daemon
+        if involves_remote {
+            self.notify_running_changed();
+        }
         Ok(())
     }
 
@@ -281,14 +285,19 @@ impl SharedMcpService {
     /// 删除一个 server 配置（先停止运行中的进程）
     pub fn remove_server(&self, name: &str) -> Result<(), String> {
         self.stop_server(name);
-        {
+        let removed = {
             let mut config = self
                 .config
                 .lock()
                 .map_err(|e| format!("Lock error: {}", e))?;
-            config.servers.remove(name);
+            config.servers.remove(name)
+        };
+        self.save_config()?;
+        // 否则 daemon 手里还留着旧地址，新会话会继续连一个已删除的远程 MCP
+        if removed.is_some_and(|old| old.remote.is_some()) {
+            self.notify_running_changed();
         }
-        self.save_config()
+        Ok(())
     }
 
     /// 获取当前配置
@@ -1428,6 +1437,38 @@ url = "https://b.example/mcp"
         let status = svc.get_all_status();
         assert_eq!(status[0].status, SharedMcpServerStatus::Running);
         assert_eq!(status[0].pid, None);
+    }
+
+    #[test]
+    fn remote_changes_notify_daemon_but_local_upserts_do_not() {
+        let (_tmp, paths) = test_paths();
+        let svc = SharedMcpService::new(&paths);
+        let observed: Arc<Mutex<Vec<HashMap<String, String>>>> = Arc::default();
+        let sink = observed.clone();
+        svc.set_on_running_changed(move |urls| sink.lock().unwrap().push(urls));
+        let server = |remote: Option<SharedMcpRemote>| SharedMcpServerConfig {
+            command: "npx".to_string(),
+            args: vec![],
+            env: HashMap::new(),
+            shared: true,
+            port: 3100,
+            bridge_mode: BridgeMode::default(),
+            remote,
+        };
+
+        svc.upsert_server("local", server(None)).unwrap();
+        assert!(observed.lock().unwrap().is_empty());
+
+        let remote = SharedMcpRemote {
+            url: "https://mcp.example/mcp".to_string(),
+            transport: "http".to_string(),
+            headers: HashMap::new(),
+        };
+        svc.upsert_server("ctx", server(Some(remote))).unwrap();
+        assert!(observed.lock().unwrap().last().unwrap().contains_key("ctx"));
+
+        svc.remove_server("ctx").unwrap();
+        assert!(!observed.lock().unwrap().last().unwrap().contains_key("ctx"));
     }
 
     #[test]
