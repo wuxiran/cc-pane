@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useTerminalWriteWatchdog } from "./useTerminalWriteWatchdog";
 import type { TerminalHiddenWriteBuffer } from "../terminalHiddenWriteBuffer";
@@ -191,6 +191,102 @@ describe("useTerminalWriteWatchdog", () => {
       await vi.advanceTimersByTimeAsync(27_000);
       expect(rebindOutput).toHaveBeenCalledTimes(1);
       expect(overflowResync).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  describe("有意断流不算饿死", () => {
+    function setDocumentVisibility(state: DocumentVisibilityState) {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+    }
+
+    afterEach(() => {
+      delete (document as unknown as { visibilityState?: unknown }).visibilityState;
+    });
+
+    it("ignores starvation while the whole document is hidden", async () => {
+      vi.useFakeTimers();
+      try {
+        setDocumentVisibility("hidden");
+        const rebindOutput = vi.fn().mockResolvedValue(undefined);
+        const { overflowResync } = setup({
+          sessionId: "s1",
+          visible: true,
+          lastReceived: Date.now() - 60_000,
+          daemonRecent: true,
+          rebindOutput,
+        });
+        await vi.advanceTimersByTimeAsync(40_000);
+        expect(rebindOutput).not.toHaveBeenCalled();
+        expect(overflowResync).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("restarts the starvation window when the document returns", async () => {
+      vi.useFakeTimers();
+      try {
+        setDocumentVisibility("hidden");
+        const rebindOutput = vi.fn().mockResolvedValue(undefined);
+        setup({
+          sessionId: "s1",
+          visible: true,
+          lastReceived: Date.now() - 60_000,
+          daemonRecent: true,
+          rebindOutput,
+        });
+        await vi.advanceTimersByTimeAsync(4_000);
+
+        setDocumentVisibility("visible");
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(rebindOutput).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(6_000);
+        expect(rebindOutput).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not count output produced before the view came back", async () => {
+      vi.useFakeTimers();
+      try {
+        setDocumentVisibility("hidden");
+        const rebindOutput = vi.fn().mockResolvedValue(undefined);
+        const daemonLast = Date.now() + 2_000;
+        setup({
+          sessionId: "s1",
+          visible: true,
+          lastReceived: Date.now() - 60_000,
+          daemonLast,
+          rebindOutput,
+        });
+        await vi.advanceTimersByTimeAsync(4_000);
+
+        setDocumentVisibility("visible");
+        await vi.advanceTimersByTimeAsync(14_000);
+        expect(rebindOutput).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  it("never rebinds underneath an in-flight resync", async () => {
+    vi.useFakeTimers();
+    try {
+      const rebindOutput = vi.fn().mockResolvedValue(undefined);
+      setup({
+        sessionId: "s1",
+        resync: true,
+        lastReceived: Date.now() - 30_000,
+        daemonRecent: true,
+        rebindOutput,
+      });
+      await vi.advanceTimersByTimeAsync(6_000);
+      expect(rebindOutput).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

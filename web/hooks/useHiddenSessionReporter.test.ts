@@ -1,8 +1,20 @@
 // hidden 上报派生逻辑测试（批3 闸门接线）。
-import { describe, it, expect } from "vitest";
-import { deriveHiddenSessions } from "./useHiddenSessionReporter";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { renderHook } from "@testing-library/react";
+import { deriveHiddenSessions, useHiddenSessionReporter } from "./useHiddenSessionReporter";
+import { usePanesStore } from "@/stores";
+import { useTabViewStateStore } from "@/stores/useTabViewStateStore";
+import { setHiddenTerminalOutputSessions } from "@/services/terminalService";
 import type { ViewAggregate } from "@/stores/useTabViewStateStore";
 import type { Panel, Tab, TerminalPaneLeaf } from "@/types";
+
+const { invokeIfTauriMock } = vi.hoisted(() => ({ invokeIfTauriMock: vi.fn() }));
+
+vi.mock("@/services/runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/services/runtime")>()),
+  isTauriRuntime: () => true,
+  invokeIfTauri: invokeIfTauriMock,
+}));
 
 function agg(anyVisible: boolean): ViewAggregate {
   return { anyVisible, anyActive: false, foregroundLastSeenAt: null, lastReportedVisible: anyVisible };
@@ -76,5 +88,67 @@ describe("deriveHiddenSessions", () => {
       (tabId) => tabId === "t-popped",
     );
     expect(hidden).toEqual(["s-normal"]);
+  });
+});
+
+describe("useHiddenSessionReporter", () => {
+  const LEFT = "tab-left";
+  const RIGHT = "tab-right";
+
+  function reports(): string[][] {
+    return invokeIfTauriMock.mock.calls
+      .filter(([command]) => command === "set_hidden_terminal_sessions")
+      .map(([, args]) => (args as { sessions: string[] }).sessions);
+  }
+
+  function lastReport(): string[] | undefined {
+    const all = reports();
+    return all[all.length - 1];
+  }
+
+  function setVisible(left: boolean, right: boolean) {
+    useTabViewStateStore.setState({
+      aggregate: { [LEFT]: agg(left), [RIGHT]: agg(right) },
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    invokeIfTauriMock.mockReset().mockResolvedValue(undefined);
+    const rootPane = panel("panel-1", [tab(LEFT, "s-left"), tab(RIGHT, "s-right")]);
+    usePanesStore.setState({
+      rootPane,
+      currentLayoutId: "layout-1",
+      layouts: [{ id: "layout-1", rootPane }],
+      poppedOutTabs: new Set<string>(),
+    } as never);
+    setVisible(true, false);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    setHiddenTerminalOutputSessions([]);
+  });
+
+  it("解除隐藏立即上报：快照请求必须排在 daemon 恢复投递之后", async () => {
+    renderHook(() => useHiddenSessionReporter());
+    await vi.advanceTimersByTimeAsync(150);
+    expect(lastReport()).toEqual(["s-right"]);
+
+    setVisible(true, true);
+
+    expect(lastReport()).toEqual([]);
+  });
+
+  it("新增隐藏仍走去抖：高频切换不必每次打到 daemon", async () => {
+    renderHook(() => useHiddenSessionReporter());
+    await vi.advanceTimersByTimeAsync(150);
+    const before = reports().length;
+
+    setVisible(false, false);
+    expect(reports().length).toBe(before);
+
+    await vi.advanceTimersByTimeAsync(150);
+    expect(lastReport()).toEqual(["s-left", "s-right"]);
   });
 });

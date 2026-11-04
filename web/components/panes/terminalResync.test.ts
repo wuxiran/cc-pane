@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTerminalDesyncHandler, resyncFromReplaySnapshot } from "./terminalResync";
+import { terminalReplaySemaphore } from "./terminalReplaySemaphore";
 import {
   _resetSeqTrackersForTest,
   anchorCandidate,
@@ -425,6 +426,91 @@ describe("createTerminalDesyncHandler", () => {
     expect(order.indexOf("gate:false")).toBeLessThan(order.indexOf("settled:true"));
     // 手动重置路径靠这个返回值决定要不要回退成裸 reset。
     await expect(completion).resolves.toBe(true);
+  });
+
+  describe("快照已发出后到达的 desync", () => {
+    function deferredSnapshots() {
+      const resolvers: Array<() => void> = [];
+      const getRecoverySnapshot = () =>
+        new Promise<TerminalRecoverySnapshot | null>((resolve) => {
+          resolvers.push(() => resolve(recoverySnapshot({ delta: "D" })));
+        });
+      return { resolvers, getRecoverySnapshot };
+    }
+
+    it("补跑一轮：它报告的缺口可能不在已发出的快照里", async () => {
+      const { resolvers, getRecoverySnapshot } = deferredSnapshots();
+      const h = harness({ getRecoverySnapshot });
+
+      const first = h.handler();
+      await flush();
+      expect(h.getRecoverySnapshot).toHaveBeenCalledTimes(1);
+
+      expect(h.handler()).toBe(first);
+      resolvers[0]();
+      await first;
+      await flush();
+
+      expect(h.getRecoverySnapshot).toHaveBeenCalledTimes(2);
+      resolvers[1]();
+      await flush();
+      expect(h.onResyncSettled).toHaveBeenCalledTimes(2);
+      expect(h.setResyncActive).toHaveBeenLastCalledWith(false);
+    });
+
+    it("同一轮内多次 desync 只补跑一次", async () => {
+      const { resolvers, getRecoverySnapshot } = deferredSnapshots();
+      const h = harness({ getRecoverySnapshot });
+
+      const first = h.handler();
+      await flush();
+      void h.handler();
+      void h.handler();
+      void h.handler();
+      resolvers[0]();
+      await first;
+      await flush();
+      resolvers[1]();
+      await flush();
+
+      expect(h.getRecoverySnapshot).toHaveBeenCalledTimes(2);
+    });
+
+    it("快照发出前到达的 desync 不补跑：快照一定包含它", async () => {
+      // 占住重放信号量，让快照请求排队：两次 desync 都落在请求发出之前。
+      let release!: () => void;
+      const holder = terminalReplaySemaphore.run(() => new Promise<void>((resolve) => {
+        release = resolve;
+      }), { label: "test.hold" });
+      await flush();
+      const h = harness();
+
+      const first = h.handler();
+      expect(h.handler()).toBe(first);
+      expect(h.getRecoverySnapshot).not.toHaveBeenCalled();
+
+      release();
+      await holder;
+      await first;
+      await flush();
+
+      expect(h.getRecoverySnapshot).toHaveBeenCalledTimes(1);
+    });
+
+    it("视图已销毁时不补跑", async () => {
+      const { resolvers, getRecoverySnapshot } = deferredSnapshots();
+      const h = harness({ getRecoverySnapshot });
+
+      const first = h.handler();
+      await flush();
+      void h.handler();
+      h.handler.dispose();
+      resolvers[0]();
+      await first;
+      await flush();
+
+      expect(h.getRecoverySnapshot).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("returns one shared promise that includes asynchronous settled cleanup", async () => {

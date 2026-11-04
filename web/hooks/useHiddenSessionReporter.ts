@@ -72,11 +72,11 @@ export function useHiddenSessionReporter(): void {
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     let lastReported = "";
+    let lastHidden: readonly string[] = [];
 
-    const report = () => {
+    const computeHidden = (): string[] => {
       const panes = usePanesStore.getState();
-      const documentHidden = document.visibilityState === "hidden";
-      const hidden = documentHidden
+      return document.visibilityState === "hidden"
         ? [...new Set(
             panes.layouts.flatMap((layout) =>
               collectTabs(layout.id === panes.currentLayoutId ? panes.rootPane : layout.rootPane)
@@ -91,6 +91,11 @@ export function useHiddenSessionReporter(): void {
             panes.rootPane,
             (tabId) => panes.poppedOutTabs.has(tabId),
           );
+    };
+
+    const report = () => {
+      const hidden = computeHidden();
+      lastHidden = hidden;
       const key = hidden.join(",");
       setHiddenTerminalOutputSessions(hidden);
       // 同值不重发：聚合高频变化，但 hidden 全集往往不变
@@ -118,7 +123,12 @@ export function useHiddenSessionReporter(): void {
 
     const onDocumentVisibilityChange = () => schedule(true);
 
-    const unsubscribe = useTabViewStateStore.subscribe(() => schedule());
+    // 解除隐藏不走去抖：视图一可见就会请求恢复快照，daemon 恢复投递若排在其后，
+    // 这段输出既不在快照里也收不到。新增隐藏仍去抖，高频切换不必每次打到 daemon。
+    const unsubscribe = useTabViewStateStore.subscribe(() => {
+      const next = new Set(computeHidden());
+      schedule(lastHidden.some((sessionId) => !next.has(sessionId)));
+    });
     // poppedOutTabs 的翻转也影响派生（弹出/收回不经过可见性聚合），
     // 同值去抖比较会吸收无关的 panes store 变化。
     const unsubscribePanes = usePanesStore.subscribe(() => schedule());

@@ -213,6 +213,32 @@ describe("terminalService", () => {
       expect(desync).toHaveBeenCalledTimes(3);
     });
 
+    it("daemon 的 desync 穿透本地丢帧闩：闩住期间它报告的是另一个缺口", async () => {
+      mockTauriInvoke({});
+      const desync = vi.fn();
+      await terminalService.registerOutput("s-daemon-desync", vi.fn());
+      await terminalService.registerDesync("s-daemon-desync", desync);
+      const outputHandler = await getOutputHandler();
+      const flood = "x".repeat(512 * 1024 + 1);
+      outputHandler({ payload: { sessionId: "s-daemon-desync", data: flood } });
+      outputHandler({ payload: { sessionId: "s-daemon-desync", data: flood } });
+      expect(desync).toHaveBeenCalledTimes(1);
+
+      const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+      const entry = vi.mocked(getCurrentWebview().listen).mock.calls
+        .find(([event]) => event === "terminal-desync");
+      const daemonDesync = entry![1] as unknown as (event: {
+        payload: { sessionId: string };
+      }) => void;
+      daemonDesync({ payload: { sessionId: "s-daemon-desync" } });
+      expect(desync).toHaveBeenCalledTimes(2);
+
+      // 闩保持闭合：之后的本地丢帧仍不重复触发。
+      outputHandler({ payload: { sessionId: "s-daemon-desync", data: flood } });
+      expect(desync).toHaveBeenCalledTimes(2);
+      clearTerminalOutputDesyncLatch("s-daemon-desync");
+    });
+
     it("salvages parser queries while dropping hidden pane正文", async () => {
       mockTauriInvoke({});
       const output = vi.fn();

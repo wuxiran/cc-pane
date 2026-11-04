@@ -67,6 +67,8 @@ export function useTerminalWriteWatchdog({
     let resyncSince: number | null = null;
     let starvedSince: number | null = null;
     let rebindAttempted = false;
+    let wasDeliverable = true;
+    let deliverableSince = 0;
     const lastRecoveryAt: Record<string, number> = {};
     const cooledDown = (key: string, now: number): boolean => {
       if (now - (lastRecoveryAt[key] ?? 0) < RECOVERY_COOLDOWN_MS) return false;
@@ -132,26 +134,36 @@ export function useTerminalWriteWatchdog({
       // **只查可见视图**：隐藏/休眠的视图唤醒时本来就走 resync，没必要盯着；
       // 而每次对照都是一次 daemon 往返，几十个后台标签一起查曾把本机端口打爆
       // （每 2s × N 个视图 → WSAENOBUFS → WebSocket 掉线 → 全量重放）。
+      //
+      // 文档隐藏（窗口被遮挡/切走）时全部会话都在源头断流，不是故障；回到可见后
+      // 由 daemon 的 desync 补画面，所以饿死窗口从回到可见那一刻重新算，此前的
+      // 产出不算数。重建在途时也不判：重绑会废掉它，留下只写了一半的画面。
+      const deliverable =
+        (typeof document === "undefined" || document.visibilityState === "visible")
+        && (isRenderVisible() || domVisible());
+      if (deliverable && !wasDeliverable) deliverableSince = now;
+      wasDeliverable = deliverable;
       const sessionId = currentSessionIdRef?.current ?? null;
-      const lastReceived = lastOutputReceivedAtRef?.current ?? 0;
+      const starveBaseline = Math.max(lastOutputReceivedAtRef?.current ?? 0, deliverableSince);
       if (
         sessionId
         && lastOutputReceivedAtRef
         && getDaemonLastOutputAt
-        && now - lastReceived >= STARVE_CHECK_MS
-        && (isRenderVisible() || domVisible())
+        && now - starveBaseline >= STARVE_CHECK_MS
+        && deliverable
+        && !resyncInProgressRef.current
       ) {
         starvedSince ??= now;
         void (async () => {
           const daemonLast = await getDaemonLastOutputAt(sessionId).catch(() => null);
-          if (daemonLast === null) return;
-          if (daemonLast > lastReceived && now - daemonLast <= STARVE_CHECK_MS) {
+          if (daemonLast === null || resyncInProgressRef.current) return;
+          if (daemonLast > starveBaseline && now - daemonLast <= STARVE_CHECK_MS) {
             if (!rebindAttempted && rebindOutput) {
               rebindAttempted = true;
-              debugLog("watchdog.output-starved.rebind", { sessionId, daemonLast, lastReceived });
+              debugLog("watchdog.output-starved.rebind", { sessionId, daemonLast, lastReceived: starveBaseline });
               void rebindOutput().catch(() => undefined);
             } else if (now - (starvedSince ?? 0) >= STARVE_RESYNC_MS && cooledDown("output-starved-resync", now)) {
-              debugLog("watchdog.output-starved.resync", { sessionId, daemonLast, lastReceived });
+              debugLog("watchdog.output-starved.resync", { sessionId, daemonLast, lastReceived: starveBaseline });
               starvedSince = null;
               rebindAttempted = false;
               void overflowResyncRef.current?.();
