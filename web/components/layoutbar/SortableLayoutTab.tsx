@@ -1,8 +1,9 @@
 // 布局条上的单个可拖拽布局标签：拖动阈值 8px，点击/双击行为不受影响。
-// 舒适档为三行卡片（名称+总数 / 绑定+状态桁 / 内容类型计数桁），紧凑档为单行；
+// 舒适档为两行卡片（名称+状态桁 / 绑定+内容类型计数桁），紧凑档为单行；
 // 右键菜单含重命名、绑定、密度切换、删除（与 corner 面板的行保持能力对等）。
-// 绑定视觉语言：链条图标 + secondary 亮 = 右键显式绑定；无链 + tertiary 暗 + ? = 自动派生。
-import { Link2, Pencil, Rows2, Rows3, Star, Trash2, X } from "lucide-react";
+// 绑定视觉语言：secondary 亮 = 右键显式绑定；tertiary 暗 + ? = 自动派生。
+// 选中态是中性浮起面：accent 蓝只表示「运行中」，accent 描边只留给拖放落点。
+import { Pencil, Rows2, Rows3, Star, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useDndContext } from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
@@ -22,11 +23,15 @@ import type { LayoutEntry, PaneNode, TerminalStatusInfo } from "@/types";
 import LayoutStatusRow from "./LayoutStatusRow";
 import LayoutStatusGrid from "./LayoutStatusGrid";
 import LayoutTypeCounts from "./LayoutTypeCounts";
+import { nonEmptyGroups } from "./layoutTypeSummary";
 import type { LayoutTypeSummary } from "./layoutTypeSummary";
 import type { LayoutStatusSummary } from "./layoutStatusSummary";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-/** 舒适档第二行的绑定标签：manual 亮+链条，derived 暗+问号 */
+/** 计数桁是卡片按钮的兄弟节点（避免嵌套 button），绑定名要按桁数给它让位。 */
+const TYPE_COUNT_SLOT_PX = 34;
+
+/** 舒适档第二行的绑定标签：manual 亮，derived 暗+问号 */
 function LayoutBindingLabel({ layout, rootPane }: { layout: LayoutEntry; rootPane: PaneNode }) {
   const { t } = useTranslation("panes");
   const binding = getLayoutWorkspaceBinding({
@@ -45,7 +50,6 @@ function LayoutBindingLabel({ layout, rootPane }: { layout: LayoutEntry; rootPan
       className="flex min-w-0 items-center gap-1"
       style={{ color: manual ? "var(--app-text-secondary)" : "var(--app-text-tertiary)" }}
     >
-      {manual ? <Link2 className="size-2.5 shrink-0" aria-hidden /> : null}
       <span className="truncate">
         {binding.workspaceName}
         {manual ? "" : "?"}
@@ -152,7 +156,7 @@ export default function SortableLayoutTab({
         data-drop-target={dropState}
         className={`group flex flex-shrink-0 cursor-default select-none whitespace-nowrap rounded-md border px-3 text-[length:var(--text-row)] transition-[color,background-color,border-color,outline-color] duration-[var(--dur-fast)] ease-[var(--ease-out)] ${
           density === "comfortable"
-            ? "h-[64px] min-w-[176px] max-w-[240px] flex-col justify-center gap-0.5 py-1.5 text-left"
+            ? "h-[44px] min-w-[150px] max-w-[240px] flex-col justify-center py-1 text-left"
             : "h-[30px] items-center gap-1.5 pr-5"
         } ${
           selected ? "" : "hover:bg-[var(--app-hover)]"
@@ -164,9 +168,9 @@ export default function SortableLayoutTab({
           outlineOffset: "1px",
           ...(selected
             ? {
-                background: "color-mix(in srgb, var(--app-accent) 12%, transparent)",
-                borderColor: "var(--app-accent)",
-                color: "var(--app-accent)",
+                background: "color-mix(in srgb, var(--app-text-primary) 11%, transparent)",
+                borderColor: "var(--app-border)",
+                color: "var(--app-text-primary)",
                 fontWeight: 600,
               }
             : {
@@ -194,9 +198,9 @@ export default function SortableLayoutTab({
         onDoubleClick={onStartRename}
       >
         {density === "comfortable" ? (
-          // 三行：①名称 + 全类型总数 ②绑定标签 + 状态桁 ③为计数桁预留高度
+          // 两行：①名称 + 状态桁 ②绑定标签 + 计数桁（各桁之和即总数，不再单列总数）。
           <span className="flex w-full min-w-0 flex-col gap-1">
-            <span className="flex w-full min-w-0 items-center gap-1.5 pr-5">
+            <span className="flex w-full min-w-0 items-center gap-1.5">
               {layout.kind === "starred" && <Star className="h-3 w-3 shrink-0" aria-hidden />}
               <span
                 className="min-w-0 flex-1 overflow-hidden text-ellipsis font-semibold"
@@ -204,26 +208,27 @@ export default function SortableLayoutTab({
               >
                 {layout.name}
               </span>
-              {tabCount > 0 ? (
-                <span
-                  className="shrink-0 text-[length:var(--text-caption)] tabular-nums"
-                  style={{ color: selected ? "inherit" : "var(--app-text-tertiary)" }}
-                >
-                  {tabCount}
-                </span>
-              ) : null}
-            </span>
-            <span
-              className="flex h-[13px] w-full min-w-0 items-center gap-1.5 overflow-hidden text-[length:var(--text-small)] leading-none"
-              style={{ color: "var(--app-text-tertiary)" }}
-            >
-              <LayoutBindingLabel layout={layout} rootPane={tree} />
-              {statusSummary.total === 0 ? <span className="shrink-0">{idleLabel}</span> : null}
-              <span className="ml-auto shrink-0">
-                {layout.kind !== "starred" ? <LayoutStatusGrid summary={statusSummary} /> : null}
+              {/* hover 时右移让出删除按钮的位置，静止时状态桁与计数桁右缘对齐 */}
+              <span
+                className="flex shrink-0 items-center text-[length:var(--text-small)] font-normal leading-none group-focus-within:mr-4 group-hover:mr-4"
+                style={{ color: "var(--app-text-tertiary)" }}
+              >
+                {layout.kind === "starred" ? null : statusSummary.total === 0 ? (
+                  <span>{idleLabel}</span>
+                ) : (
+                  <LayoutStatusGrid summary={statusSummary} />
+                )}
               </span>
             </span>
-            <span className="flex h-[13px] w-full min-w-0 overflow-hidden" aria-hidden="true" />
+            <span
+              className="flex h-[13px] w-full min-w-0 items-center overflow-hidden text-[length:var(--text-small)] leading-none"
+              style={{
+                color: "var(--app-text-tertiary)",
+                paddingRight: nonEmptyGroups(typeCounts).length * TYPE_COUNT_SLOT_PX,
+              }}
+            >
+              <LayoutBindingLabel layout={layout} rootPane={tree} />
+            </span>
           </span>
         ) : (
           <>
@@ -243,9 +248,9 @@ export default function SortableLayoutTab({
         )}
       </button>
       {density === "comfortable" && layout.kind !== "starred" ? (
-        <span className="pointer-events-none absolute inset-x-3 bottom-1 z-10 flex h-[13px] min-w-0 items-center overflow-hidden">
+        <span className="pointer-events-none absolute inset-x-3 bottom-1 z-10 flex h-[13px] min-w-0 items-center justify-end overflow-hidden">
           <span className="pointer-events-auto min-w-0">
-            <LayoutTypeCounts summary={typeCounts} selected={selected} onJump={onJumpToTab} />
+            <LayoutTypeCounts summary={typeCounts} onJump={onJumpToTab} />
           </span>
         </span>
       ) : null}

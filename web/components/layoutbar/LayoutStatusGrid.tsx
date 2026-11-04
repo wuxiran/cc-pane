@@ -15,6 +15,7 @@ import type { TerminalStatusType } from "@/types";
 // 色 token 不变，仍是 styleguide 第 3 节的四分类：idle 用中性 tertiary 而非
 // success —— 空闲是中性事实，不是好消息。
 // 零值桶不渲染（不再占位），所以无告警时这一桁自然收敛成两个符号。
+// 报错与等授权是「需要我处理」的信号，图标放大、数字加粗；运行中和空闲保持安静。
 const CELLS = [
   {
     key: "blocked",
@@ -55,22 +56,24 @@ export default function LayoutStatusGrid({ summary }: { summary: LayoutStatusSum
         // title 只给状态名——数字就在旁边，重复一遍是噪音；
         // aria-label 才带计数，屏幕阅读器读不到那个视觉上的相邻关系。
         const name = t(presentation.labelKey);
+        const attention = cell.key === "blocked" || cell.key === "waitingInput";
         return (
           <span
             key={cell.key}
             title={name}
             aria-label={`${count} ${name}`}
             data-status-cell={cell.key}
+            data-attention={attention ? "true" : undefined}
             className="flex items-center gap-0.5"
             style={{ color: presentation.colorToken }}
           >
             <Icon
               aria-hidden
-              className="size-[9px] shrink-0"
+              className={`${attention ? "size-[11px]" : "size-[9px]"} shrink-0`}
               strokeWidth={filled ? 1 : 2.5}
               fill={filled ? "currentColor" : "none"}
             />
-            <span className="text-[length:var(--text-caption)] leading-none tabular-nums">{count}</span>
+            <span className={`text-[length:var(--text-caption)] leading-none tabular-nums ${attention ? "font-semibold" : ""}`}>{count}</span>
           </span>
         );
       })}

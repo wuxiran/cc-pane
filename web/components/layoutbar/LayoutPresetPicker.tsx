@@ -113,7 +113,7 @@ export default function LayoutPresetPicker({
     clampFloatingPosition,
   } = useFloatingPanelPosition();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const chipHeight = stacked ? "h-[30px]" : "h-[26px]";
+  const chipHeight = stacked ? "h-[21px]" : "h-[26px]";
   const chipClass = `flex min-w-0 items-center gap-1 rounded-md px-1.5 text-xs transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)] ${chipHeight}`;
   const iconChipClass = `flex shrink-0 items-center justify-center rounded-md ${chipHeight} w-[30px] px-0 text-xs transition-colors duration-[var(--dur-fast)] hover:bg-[var(--app-hover)]`;
 
@@ -267,7 +267,7 @@ export default function LayoutPresetPicker({
         ref={rootRef}
         className={
           stacked
-            ? "flex h-full min-w-0 flex-col justify-center gap-1"
+            ? "flex h-full min-w-0 flex-col justify-center gap-0.5"
             : "flex flex-shrink-0 items-center gap-0.5"
         }
       >

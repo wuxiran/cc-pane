@@ -24,7 +24,6 @@ describe("LayoutTypeCounts", () => {
     render(
       <LayoutTypeCounts
         summary={summaryOf({ terminal: [ref("t1"), ref("t2")] })}
-        selected={false}
         onJump={vi.fn()}
       />,
     );
@@ -34,7 +33,7 @@ describe("LayoutTypeCounts", () => {
 
   it("完全没有 tab 时整块不渲染", () => {
     const { container } = render(
-      <LayoutTypeCounts summary={summaryOf({})} selected={false} onJump={vi.fn()} />,
+      <LayoutTypeCounts summary={summaryOf({})} onJump={vi.fn()} />,
     );
     expect(container).toBeEmptyDOMElement();
   });
@@ -45,7 +44,6 @@ describe("LayoutTypeCounts", () => {
     render(
       <LayoutTypeCounts
         summary={summaryOf({ terminal: [ref("t1", "pane-a"), ref("t2", "pane-b")] })}
-        selected={false}
         onJump={onJump}
       />,
     );
@@ -69,7 +67,6 @@ describe("LayoutTypeCounts", () => {
     render(
       <LayoutTypeCounts
         summary={summaryOf({ browser: [ref("b1", "pane-x")] })}
-        selected={false}
         onJump={onJump}
       />,
     );
@@ -90,7 +87,6 @@ describe("LayoutTypeCounts", () => {
       <div role="tab" tabIndex={0} onClick={onCardClick}>
         <LayoutTypeCounts
           summary={summaryOf({ files: [ref("e1")] })}
-          selected={false}
           onJump={vi.fn()}
         />
       </div>,
