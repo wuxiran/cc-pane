@@ -9,6 +9,8 @@ export interface PanelResizeOptions {
   direction?: 1 | -1;
   onCommit: (width: number) => void;
   onCollapse?: () => void;
+  /** 拖拽开始/结束时通知调用方（例如给 sash 打 data-dragging） */
+  onDragStateChange?: (dragging: boolean) => void;
 }
 
 /** Preview on the DOM; persist once. Cancellation never changes the saved width. */
@@ -41,6 +43,7 @@ export function usePanelResize(options: PanelResizeOptions) {
       document.body.style.cursor = previousCursor; document.body.style.userSelect = previousSelection;
       cleanup.current = null;
       setDragging(false);
+      config.onDragStateChange?.(false);
       if (cancelled) { target.style.width = `${original}px`; return; }
       if (config.onCollapse && raw < config.min - 40) { target.style.width = `${original}px`; config.onCollapse(); }
       else { preview(); config.onCommit(next); }
@@ -48,6 +51,7 @@ export function usePanelResize(options: PanelResizeOptions) {
     const up = () => finish(false), cancel = () => finish(true);
     cleanup.current = cancel;
     setDragging(true);
+    config.onDragStateChange?.(true);
     document.body.style.cursor = "col-resize"; document.body.style.userSelect = "none";
     document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
     document.addEventListener("pointercancel", cancel); window.addEventListener("blur", cancel);

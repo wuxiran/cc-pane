@@ -35,7 +35,7 @@ vi.mock("@dnd-kit/sortable", () => ({
     copy.splice(to, 0, moved);
     return copy;
   },
-  useSortable: () => ({ attributes: {}, listeners: {}, setNodeRef: vi.fn(), transform: null, transition: undefined, isDragging: false }),
+  useSortable: () => ({ attributes: {}, listeners: { onPointerDown: vi.fn() }, setNodeRef: vi.fn(), transform: null, transition: undefined, isDragging: false }),
   verticalListSortingStrategy: vi.fn(),
 }));
 vi.mock("@dnd-kit/utilities", () => ({ CSS: { Transform: { toString: () => "" } } }));
@@ -63,8 +63,12 @@ vi.mock("@/components/WorktreeManager", () => ({ default: () => null }));
 vi.mock("./WorkspaceDialogs", () => ({ default: () => null }));
 vi.mock("./ProjectListView", () => ({ default: () => null }));
 vi.mock("./WorkspaceItem", () => ({
-  default: ({ ws, availableCliToolIds }: { ws: Workspace; availableCliToolIds?: ReadonlySet<string> }) => (
-    <div data-testid="ws-item" data-cli-availability={availableCliToolIds === undefined ? "unknown" : [...availableCliToolIds].join(",")}>{ws.name}</div>
+  default: ({ ws, availableCliToolIds, dragListeners }: { ws: Workspace; availableCliToolIds?: ReadonlySet<string>; dragListeners?: Record<string, unknown> }) => (
+    <div
+      data-testid="ws-item"
+      data-cli-availability={availableCliToolIds === undefined ? "unknown" : [...availableCliToolIds].join(",")}
+      data-draggable={dragListeners ? "true" : "false"}
+    >{ws.name}</div>
   ),
 }));
 
@@ -219,6 +223,17 @@ describe("WorkspaceTree component", () => {
     render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
     expect(screen.getAllByTestId("ws-item")).toHaveLength(2);
     expect(screen.queryByText("noWorkspaces")).not.toBeInTheDocument();
+  });
+
+  it("行级拖拽监听只给用户工作空间，系统工作空间不可拖", () => {
+    storeState.workspaces = [
+      makeWorkspace({ id: "d", name: "default", isDefault: true }),
+      makeWorkspace({ id: "c", name: "agent-chat", isAgentChat: true }),
+      makeWorkspace({ id: "a", name: "alpha" }),
+    ];
+    render(<WorkspaceTree onOpenTerminal={vi.fn()} />);
+    const items = screen.getAllByTestId("ws-item");
+    expect(items.map((item) => item.getAttribute("data-draggable"))).toEqual(["false", "false", "true"]);
   });
 
   it("点击新建工作空间按钮触发 handleCreateWorkspace", () => {

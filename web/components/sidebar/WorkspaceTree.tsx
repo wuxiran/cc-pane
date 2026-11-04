@@ -4,7 +4,6 @@ import { open } from "@tauri-apps/plugin-dialog";
 import {
   closestCenter,
   DndContext,
-  KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
@@ -94,7 +93,6 @@ interface SortableWorkspaceItemProps {
 function SortableWorkspaceItem(props: SortableWorkspaceItemProps) {
   const { ws } = props;
   const {
-    attributes,
     listeners,
     setNodeRef,
     transform,
@@ -102,6 +100,9 @@ function SortableWorkspaceItem(props: SortableWorkspaceItemProps) {
     isDragging,
   } = useSortable({ id: ws.id, disabled: !!ws.isDefault });
 
+  // 长按整行即可拖（见 sensors 的 delay 约束）；不展开 attributes——行本身已有 role/tabIndex，
+  // 再叠 dnd-kit 的键盘激活会和 Enter/Space 展开冲突。
+  const draggable = !ws.isDefault && !ws.isAgentChat;
   return (
     <div
       ref={setNodeRef}
@@ -113,10 +114,8 @@ function SortableWorkspaceItem(props: SortableWorkspaceItemProps) {
     >
       <WorkspaceItem
         {...props}
-        dragHandleProps={ws.isDefault || ws.isAgentChat ? undefined : {
-          ...attributes,
-          ...listeners,
-        }}
+        dragListeners={draggable ? listeners : undefined}
+        isDragging={isDragging}
       />
     </div>
   );
@@ -225,9 +224,9 @@ export default function WorkspaceTree({ onOpenTerminal, renderSectionHeader, col
     useActivityBarStore.getState().toggleFilesMode();
   }, []);
 
+  // 长按 350ms 不动才进入拖拽；松得早就是普通点击，拖过之后 dnd-kit 会拦掉紧随的 click
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor),
+    useSensor(PointerSensor, { activationConstraint: { delay: 350, tolerance: 6 } }),
   );
 
   const { draggingId, handleDragStart, handleDragEnd, handleDragCancel } = useWorkspaceDragDrop();
