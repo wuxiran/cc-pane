@@ -117,12 +117,12 @@ export interface BindTerminalSessionCallbacksOptions {
 
 /**
  * snapshot 重放失败（快照缺失/请求失败）时的兜底提示：画面可能有缺口，
- * 指路右键「刷新终端显示」（Refresh Terminal Display）——它会强制 resize 让
+ * 指路右键「修复显示」（Repair Display）——它会强制 resize 让
  * CLI 自行重绘，TUI 场景基本都能救回来。不能静默留残画面。
  */
 const RESYNC_FAILED_NOTICE =
   "\r\n\x1b[33m[CC-Panes] Some output could not be restored. " +
-  'Right-click → "Refresh Terminal Display" to force a redraw.\x1b[0m\r\n';
+  'Right-click → "Repair Display" to force a redraw.\x1b[0m\r\n';
 
 interface CreateHiddenWriteFlusherOptions {
   hiddenWriteBufferRef: RefValue<TerminalHiddenWriteBuffer | null>;

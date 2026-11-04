@@ -398,5 +398,14 @@
   "gitConflict.loadError": "加载冲突失败：{{message}}",
   "gitConflict.saveError": "保存失败：{{message}}",
   "deleteWorktree": "删除 Worktree",
-  "dragToReorder": "拖动排序"
+  "dragToReorder": "拖动排序",
+  "sessionLink": {
+    "title": "恢复这个会话？",
+    "description": "这个请求来自外部链接。只有确认链接可信时才恢复，恢复后 CLI 会在下面的目录里运行。",
+    "sessionId": "会话 ID",
+    "project": "项目",
+    "cancel": "取消",
+    "resume": "恢复会话",
+    "unregistered": "无法打开会话链接：{{path}} 不是已注册的项目"
+  }
 }

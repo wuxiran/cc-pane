@@ -41,6 +41,7 @@ import {
   withTransparentTerminalBackground,
 } from "./terminalTheme";
 import { normalizeTerminalFontFamily } from "./terminalFont";
+import { useTerminalSessionMenu } from "./terminal/useTerminalSessionMenu";
 import TerminalContextMenu from "./TerminalContextMenu";
 import TerminalZoomHud from "./TerminalZoomHud";
 import { useTerminalContextMenuActions } from "./useTerminalContextMenuActions";
@@ -735,9 +736,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       handleMenuCopySelection,
       handleMenuSelectAll,
       handleMenuPaste,
-      handleMenuFitTerminal,
       handleMenuFitAllTerminals,
-      handleMenuRefreshTerminal,
+      handleMenuRepairDisplay,
       handleMenuResetBuffer,
       handleMenuCopySessionId,
       handleMenuClearBuffer,
@@ -760,6 +760,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       redrawBackend: () => layoutSchedulerRef.current?.redrawBackend(),
     });
 
+    const sessionMenu = useTerminalSessionMenu({
+      tabId: props.tabId,
+      leafId: props.paneId,
+      sessionId: props.sessionId,
+    });
+
     return (
       <div
         className="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden"
@@ -777,9 +783,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           onCopySelection={handleMenuCopySelection}
           onSelectAll={handleMenuSelectAll}
           onPaste={handleMenuPaste}
-          onFitTerminal={handleMenuFitTerminal}
+          onRepairDisplay={handleMenuRepairDisplay}
           onFitAllTerminals={handleMenuFitAllTerminals}
-          onRefreshTerminal={handleMenuRefreshTerminal}
           onResetBuffer={
             // 只在本视图有权驱动 PTY 时提供：镜像/只读视图 reset 后无法触发 CLI 重绘，只会空屏。
             drivesBackendPty && !readOnlyRef.current ? handleMenuResetBuffer : undefined
@@ -789,6 +794,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           onCopyBuffer={handleMenuCopyBuffer}
           onExportBuffer={handleMenuExportBuffer}
           onOpenProjectDir={props.projectPath ? handleMenuOpenProjectDir : undefined}
+          sessionMenu={sessionMenu}
         >
           <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
             {/* 这里不要再挂 onContextMenu：原生菜单由外层 TerminalContextMenu（Radix）打开时

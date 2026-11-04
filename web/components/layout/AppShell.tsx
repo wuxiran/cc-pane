@@ -90,7 +90,7 @@ export default function AppShell({ onOpenTerminal, recentFilesOpen, onCloseRecen
         <BorderlessFloatingButton />
 
         {/* 一键导入确认弹窗（deep-link ccpanes://…） */}
-        <ImportConfirmDialog />
+        <ImportConfirmDialog onOpenTerminal={onOpenTerminal} />
 
         {/* Dialog 组件 */}
         <AppDialogs recentFilesOpen={recentFilesOpen} onCloseRecentFiles={onCloseRecentFiles} />

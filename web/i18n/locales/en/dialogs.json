@@ -398,5 +398,14 @@
   "gitConflict.loadError": "Failed to load conflict: {{message}}",
   "gitConflict.saveError": "Failed to save: {{message}}",
   "deleteWorktree": "Delete worktree",
-  "dragToReorder": "Drag to reorder"
+  "dragToReorder": "Drag to reorder",
+  "sessionLink": {
+    "title": "Resume this session?",
+    "description": "This request came from an external link. Only resume if you trust it. The CLI will run in the directory below.",
+    "sessionId": "Session ID",
+    "project": "Project",
+    "cancel": "Cancel",
+    "resume": "Resume Session",
+    "unregistered": "Can't open session link: {{path}} isn't a registered project"
+  }
 }

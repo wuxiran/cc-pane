@@ -28,7 +28,6 @@ import {
   ContextMenuSubContent,
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
-import { usePanesStore } from "@/stores";
 import type { Tab } from "@/types";
 import type { TFunction } from "i18next";
 import CommandMenuItem from "@/components/commands/CommandMenuItem";
@@ -37,7 +36,7 @@ import TabQuickCommandsMenu from "./TabQuickCommandsMenu";
 import { handleError } from "@/utils/errorHandler";
 import CodexMenuItems from "@/components/agentchat/CodexMenuItems";
 
-const ChatForkDialog = lazyWithRetry(() => import("@/components/chatfork/ChatForkDialog"), "ChatForkDialog");
+const TerminalForkDialog = lazyWithRetry(() => import("@/components/chatfork/TerminalForkDialog"), "TerminalForkDialog");
 const ForkReviewDialog = lazyWithRetry(() => import("@/components/chatfork/ForkReviewDialog"), "ForkReviewDialog");
 const WorkbenchTabMenuItems = lazyWithRetry(() => import("./WorkbenchTabMenuItems"), "WorkbenchTabMenuItems");
 const CodexHandoffDialog = lazyWithRetry(() => import("@/components/agentchat/CodexHandoffDialog"), "CodexHandoffDialog");
@@ -130,11 +129,7 @@ export default function TabContextMenuContent({
   return (
     <>
     {handoffCwd && <Suspense fallback={null}><CodexHandoffDialog cwd={handoffCwd} chatId={tab.contentType === "agent-chat" ? tab.id : undefined} onClose={() => setHandoffCwd(null)} /></Suspense>}
-    {forkOpen && <Suspense fallback={null}><ChatForkDialog open={forkOpen} onOpenChange={setForkOpen} allowWorktree={!forkSource?.wsl} onFork={async (mode) => {
-      const { buildTerminalFork } = await import("@/services/chatForkLaunch");
-      const options = await buildTerminalFork(tab, mode);
-      usePanesStore.getState().addTab(paneId, options);
-    }} /></Suspense>}
+    {forkOpen && <Suspense fallback={null}><TerminalForkDialog open={forkOpen} onOpenChange={setForkOpen} tabId={tab.id} /></Suspense>}
     {reviewOpen && <Suspense fallback={null}><ForkReviewDialog open={reviewOpen} onOpenChange={setReviewOpen} forkReviewId={tab.forkReviewId} cwd={tab.projectPath} sourceSessionId={forkSource?.resumeId} /></Suspense>}
       <ContextMenuContent className="w-60 rounded-2xl p-1.5">
         {menuOpen && <Suspense fallback={null}><WorkbenchTabMenuItems tab={tab} paneId={paneId} section="browser" /></Suspense>}

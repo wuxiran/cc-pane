@@ -13,8 +13,9 @@ export async function forkWorkingDirectory(
 export async function buildTerminalFork(
   tab: Tab,
   mode: ChatForkMode,
+  leafId?: string,
 ): Promise<CreateTabOptions> {
-  const source = terminalForkSource(tab);
+  const source = terminalForkSource(tab, leafId);
   if (!source)
     throw new Error("This terminal has no supported conversation to fork");
   if (source.ssh)

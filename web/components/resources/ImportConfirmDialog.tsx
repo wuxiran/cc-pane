@@ -13,6 +13,8 @@ import {
 import { importService, type ImportRequest } from "@/services/importService";
 import { useProvidersStore } from "@/stores/useProvidersStore";
 import { useSharedMcpStore } from "@/stores";
+import type { OpenTerminalOptions } from "@/types";
+import SessionLinkDialog from "./SessionLinkDialog";
 
 function maskKey(k?: string | null): string {
   if (!k) return "";
@@ -25,7 +27,7 @@ function maskKey(k?: string | null): string {
  * **用户确认后**才真正落盘（execute_import）。挂在 App 顶层，全局常驻。
  * 基于 Radix Dialog：自带焦点陷阱、Esc 关闭与焦点还原。
  */
-export default function ImportConfirmDialog() {
+export default function ImportConfirmDialog({ onOpenTerminal }: { onOpenTerminal?: (options: OpenTerminalOptions) => void }) {
   const { t } = useTranslation(["dialogs", "common"]);
   const [req, setReq] = useState<ImportRequest | null>(null);
   const [busy, setBusy] = useState(false);
@@ -57,6 +59,9 @@ export default function ImportConfirmDialog() {
   }, [t]);
 
   if (!req) return null;
+  if (req.resource === "session") {
+    return <SessionLinkDialog link={req} onOpenTerminal={onOpenTerminal} onDone={() => setReq(null)} />;
+  }
 
   // 类别色：Provider/Skill/MCP 分类编码，不随主题变化（见 colorGuard allowlist）
   const meta =

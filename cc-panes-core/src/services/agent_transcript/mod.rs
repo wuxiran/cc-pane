@@ -1,6 +1,7 @@
 //! 只读 agent transcript（Terminal|Chat 互切）。
-//! 首批 Grok；Claude/Codex 返回 unsupported，后续补 decoder。
+//! Grok / Claude / Codex 都能读；对话视图是否开放由前端 TRANSCRIPT_SUPPORTED_CLI_TOOLS 决定。
 
+mod claude_codex;
 mod grok;
 
 pub use grok::{
@@ -11,8 +12,10 @@ pub use grok::{
 
 use crate::models::{
     AgentTranscriptErrorCode, ReadAgentTranscriptParams, ReadAgentTranscriptResult,
-    DEFAULT_TRANSCRIPT_LIMIT, MAX_TRANSCRIPT_LIMIT,
+    TranscriptMessage, DEFAULT_TRANSCRIPT_LIMIT, MAX_TRANSCRIPT_LIMIT,
 };
+use crate::services::usage_stats_service::{claude_session_roots, codex_session_roots};
+use std::path::{Path, PathBuf};
 
 /// 读取 agent 对话 transcript（不经 PTY）。错误以 result.errorCode 返回，不抛 IPC 失败，
 /// 方便前端展示空态。
@@ -28,12 +31,8 @@ pub fn read_agent_transcript(params: ReadAgentTranscriptParams) -> ReadAgentTran
 
     match cli.as_str() {
         "grok" => read_grok(params),
-        "claude" | "codex" => ReadAgentTranscriptResult::err(
-            AgentTranscriptErrorCode::UnsupportedCli,
-            format!(
-                "Chat transcript for '{cli}' is not implemented yet (Grok only in this release)"
-            ),
-        ),
+        "claude" => read_native(params, &cli, claude_codex::read_claude_messages),
+        "codex" => read_native(params, &cli, claude_codex::read_codex_messages),
         "none" | "" => ReadAgentTranscriptResult::err(
             AgentTranscriptErrorCode::UnsupportedCli,
             "shell sessions have no agent transcript",
@@ -43,6 +42,82 @@ pub fn read_agent_transcript(params: ReadAgentTranscriptParams) -> ReadAgentTran
             format!("unsupported cliTool: {other}"),
         ),
     }
+}
+
+/// 只认「一个安全的 id + 已知目录」，文件路径绝不来自调用方。
+fn native_transcript_file(cli: &str, session_id: &str) -> Option<PathBuf> {
+    match cli {
+        "claude" => claude_codex::find_claude_file(session_id, &claude_session_roots()),
+        "codex" => claude_codex::find_codex_file(session_id, &codex_session_roots()),
+        _ => None,
+    }
+}
+
+fn read_native(
+    params: ReadAgentTranscriptParams,
+    cli: &str,
+    decode: fn(&Path) -> Result<Vec<TranscriptMessage>, String>,
+) -> ReadAgentTranscriptResult {
+    let resume_id = params.resume_session_id.trim();
+    if !is_safe_grok_session_id(resume_id) {
+        return ReadAgentTranscriptResult::err(
+            AgentTranscriptErrorCode::InvalidSessionId,
+            "invalid session id",
+        );
+    }
+    let Some(path) = native_transcript_file(cli, resume_id) else {
+        return ReadAgentTranscriptResult::err(
+            AgentTranscriptErrorCode::NotFound,
+            format!("no {cli} transcript for session {resume_id}"),
+        );
+    };
+    let messages = match decode(&path) {
+        Ok(messages) => messages,
+        Err(e) => {
+            return ReadAgentTranscriptResult::err(
+                AgentTranscriptErrorCode::IoError,
+                format!("failed to read {}: {e}", path.display()),
+            );
+        }
+    };
+    let limit = params
+        .limit
+        .unwrap_or(DEFAULT_TRANSCRIPT_LIMIT)
+        .clamp(1, MAX_TRANSCRIPT_LIMIT) as usize;
+    page_messages(
+        messages,
+        &path,
+        limit,
+        params.offset_from_end.unwrap_or(0) as usize,
+        params.before_message_id.as_deref(),
+    )
+}
+
+/// 把会话的原始记录文件复制到用户选定的位置（「导出完整记录」）。
+pub fn export_agent_transcript(
+    cli_tool: &str,
+    resume_session_id: &str,
+    cwd: Option<&str>,
+    destination: &Path,
+) -> Result<u64, String> {
+    let cli = cli_tool.trim().to_ascii_lowercase();
+    let id = resume_session_id.trim();
+    if !is_safe_grok_session_id(id) {
+        return Err("invalid session id".to_string());
+    }
+    let source = match cli.as_str() {
+        "grok" => resolve_grok_transcript_file(id, cwd.map(str::trim).filter(|c| !c.is_empty())),
+        "claude" | "codex" => native_transcript_file(&cli, id),
+        other => return Err(format!("unsupported cliTool: {other}")),
+    }
+    .ok_or_else(|| format!("no {cli} transcript for session {id}"))?;
+    std::fs::copy(&source, destination).map_err(|e| {
+        format!(
+            "failed to copy {} to {}: {e}",
+            source.display(),
+            destination.display()
+        )
+    })
 }
 
 fn read_grok(params: ReadAgentTranscriptParams) -> ReadAgentTranscriptResult {
@@ -196,9 +271,9 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_claude_returns_code() {
+    fn unsupported_cli_returns_code() {
         let result = read_agent_transcript(ReadAgentTranscriptParams {
-            cli_tool: "claude".into(),
+            cli_tool: "gemini".into(),
             resume_session_id: "x".into(),
             cwd: None,
             limit: None,
@@ -209,6 +284,64 @@ mod tests {
             result.error_code,
             Some(AgentTranscriptErrorCode::UnsupportedCli)
         );
+    }
+
+    #[test]
+    fn claude_rejects_session_ids_that_could_escape_the_projects_dir() {
+        let result = read_agent_transcript(ReadAgentTranscriptParams {
+            cli_tool: "claude".into(),
+            resume_session_id: "../../secret".into(),
+            cwd: None,
+            limit: None,
+            offset_from_end: None,
+            before_message_id: None,
+        });
+        assert_eq!(
+            result.error_code,
+            Some(AgentTranscriptErrorCode::InvalidSessionId)
+        );
+        let dest = tempdir().unwrap();
+        assert!(export_agent_transcript(
+            "claude",
+            "../../secret",
+            None,
+            &dest.path().join("out.jsonl")
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn claude_transcript_reads_and_exports_from_config_dir() {
+        let _guard = GROK_HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempdir().unwrap();
+        let project = dir.path().join("config/projects/-work");
+        fs::create_dir_all(&project).unwrap();
+        let sid = "11111111-2222-3333-4444-555555555555";
+        let body = r#"{"type":"user","uuid":"u","message":{"content":"你好"}}"#;
+        fs::write(project.join(format!("{sid}.jsonl")), body).unwrap();
+
+        let prev = std::env::var_os("CLAUDE_CONFIG_DIR");
+        std::env::set_var("CLAUDE_CONFIG_DIR", dir.path().join("config"));
+        let result = read_agent_transcript(ReadAgentTranscriptParams {
+            cli_tool: "claude".into(),
+            resume_session_id: sid.into(),
+            cwd: None,
+            limit: None,
+            offset_from_end: None,
+            before_message_id: None,
+        });
+        let dest = dir.path().join("out.jsonl");
+        let exported = export_agent_transcript("claude", sid, None, &dest);
+        match prev {
+            Some(v) => std::env::set_var("CLAUDE_CONFIG_DIR", v),
+            None => std::env::remove_var("CLAUDE_CONFIG_DIR"),
+        }
+
+        assert_eq!(result.error_code, None);
+        assert_eq!(result.messages.len(), 1);
+        assert_eq!(result.messages[0].text, "你好");
+        assert_eq!(exported.unwrap(), body.len() as u64);
+        assert_eq!(fs::read_to_string(dest).unwrap(), body);
     }
 
     #[test]
