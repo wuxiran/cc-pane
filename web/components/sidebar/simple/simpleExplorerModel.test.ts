@@ -59,6 +59,17 @@ describe("mergeSessions", () => {
     const [c] = mergeSessions([], [chat({ acpSessionId: "abcdefgh-rest" })]);
     expect(c.title).toBe("abcdefgh");
   });
+
+  it("prefers the indexed first prompt over lastPrompt, collapsing whitespace", () => {
+    const firstPrompts = new Map([["sess-1", "  帮我看看\n这个面板  "]]);
+    const [indexed, fallback] = mergeSessions(
+      [record({ id: 1, lastPrompt: "last words" }), record({ id: 2, lastPrompt: "last words", launchedAt: "2026-11-02T10:00:00Z" })],
+      [],
+      firstPrompts,
+    );
+    expect(indexed.title).toBe("帮我看看 这个面板");
+    expect(fallback.title).toBe("last words");
+  });
 });
 
 describe("userWorkspaces", () => {

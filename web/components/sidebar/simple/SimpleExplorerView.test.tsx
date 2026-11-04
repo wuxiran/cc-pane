@@ -27,6 +27,8 @@ vi.mock("../agentChatResume", () => ({
   openNewAgentChat: (...args: unknown[]) => openNewAgentChat(...args),
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+const firstPrompts = new Map<string, string>();
+vi.mock("@/hooks/useFirstPromptIndex", () => ({ useFirstPromptIndex: () => firstPrompts }));
 
 function ws(partial: Partial<Workspace> & { name: string }): Workspace {
   return { id: partial.name, createdAt: "", projects: [], ...partial } as Workspace;
@@ -53,6 +55,7 @@ async function renderView(onOpenTerminal = vi.fn()) {
 describe("SimpleExplorerView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    firstPrompts.clear();
     listHistory.mockResolvedValue([terminalRecord]);
     listChats.mockResolvedValue([chatEntry]);
     deleteHistory.mockResolvedValue(undefined);
@@ -75,6 +78,14 @@ describe("SimpleExplorerView", () => {
     const rows = screen.getAllByTestId("simple-session-row");
     expect(rows.map((row) => row.getAttribute("data-session-key"))).toEqual(["chat:chat-1", "launch:1", "chat:chat-1", "launch:1"]);
     expect(within(rows[1]).getByText("fix the build")).toBeInTheDocument();
+  });
+
+  it("titles terminal rows with the indexed first prompt when available", async () => {
+    firstPrompts.set("sess-1", "optimize the sidebar");
+    await renderView();
+    const terminalRow = screen.getAllByTestId("simple-session-row")[1];
+    expect(within(terminalRow).getByText("optimize the sidebar")).toBeInTheDocument();
+    expect(within(terminalRow).queryByText("fix the build")).not.toBeInTheDocument();
   });
 
   it("shows workspace captions when there is more than one user workspace", async () => {

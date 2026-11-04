@@ -30,13 +30,28 @@ export function chatSessionKey(entry: Pick<AcpChatHistoryEntry, "acpSessionId">)
   return `chat:${entry.acpSessionId}`;
 }
 
-function terminalTitle(record: LaunchRecord): string {
-  const prompt = record.lastPrompt?.trim();
-  if (prompt) return prompt.length > TITLE_LIMIT ? `${prompt.slice(0, TITLE_LIMIT)}…` : prompt;
+function clampTitle(text: string): string {
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  return oneLine.length > TITLE_LIMIT ? `${oneLine.slice(0, TITLE_LIMIT)}…` : oneLine;
+}
+
+/**
+ * 标题优先级：会话索引里的首条输入（session_index.first_prompt，按 resume id 查）
+ * → 启动记录自带的最后一句（只在会话退出时回填，正在跑的记录为空）→ 项目名。
+ */
+function terminalTitle(record: LaunchRecord, firstPrompts?: ReadonlyMap<string, string>): string {
+  const first = record.resumeSessionId ? firstPrompts?.get(record.resumeSessionId)?.trim() : undefined;
+  if (first) return clampTitle(first);
+  const last = record.lastPrompt?.trim();
+  if (last) return clampTitle(last);
   return record.projectName;
 }
 
-export function mergeSessions(records: readonly LaunchRecord[], entries: readonly AcpChatHistoryEntry[]): SimpleSession[] {
+export function mergeSessions(
+  records: readonly LaunchRecord[],
+  entries: readonly AcpChatHistoryEntry[],
+  firstPrompts?: ReadonlyMap<string, string>,
+): SimpleSession[] {
   const terminals: SimpleSession[] = records
     .filter((record) => !!record.resumeSessionId)
     .map((record) => ({
@@ -44,7 +59,7 @@ export function mergeSessions(records: readonly LaunchRecord[], entries: readonl
       key: terminalSessionKey(record),
       record,
       path: record.projectPath,
-      title: terminalTitle(record),
+      title: terminalTitle(record, firstPrompts),
       time: Date.parse(record.launchedAt) || 0,
     }));
   const chats: SimpleSession[] = entries

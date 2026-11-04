@@ -7,6 +7,7 @@ import { agentChatService } from "@/services/agentChatService";
 import { AGENT_CHAT_HISTORY_CHANGED_EVENT } from "@/stores/agentChatEvents";
 import type { AcpChatHistoryEntry } from "@/types/agentChat";
 import { handleErrorSilent } from "@/utils/errorHandler";
+import { useFirstPromptIndex } from "@/hooks/useFirstPromptIndex";
 import { mergeSessions, type SimpleSession } from "./simpleExplorerModel";
 
 export const HISTORY_UPDATED_EVENT = "cc-panes:history-updated";
@@ -54,6 +55,12 @@ export function useSimpleSessions(): { sessions: SimpleSession[]; loaded: boolea
     };
   }, [fetchHistory, fetchChats]);
 
-  const sessions = useMemo(() => mergeSessions(records, entries), [records, entries]);
+  // 终端行标题用会话首条输入：launch_history 只在退出时回填 last_prompt，
+  // 正在跑的会话靠 session_index（本 hook 会主动触发增量扫描）。
+  const firstPrompts = useFirstPromptIndex(true);
+  const sessions = useMemo(
+    () => mergeSessions(records, entries, firstPrompts),
+    [records, entries, firstPrompts],
+  );
   return { sessions, loaded };
 }
