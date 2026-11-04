@@ -2179,6 +2179,39 @@ textarea,
   border-left: none;
 }
 
+/* 侧边栏右缘 sash：绝对定位叠在 1px 边框上，不占布局宽度；静止时不画线（边框本身就是分隔），
+   hover / 拖拽时才在边框位置亮出 2px accent 线。热区只向内扩，不盖住右侧主区域。 */
+.sidebar > .splitview-sash.sidebar-sash {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  min-width: 0;
+  z-index: 20;
+}
+
+.sidebar > .splitview-sash.sidebar-sash::before {
+  left: -4px;
+  right: 0;
+}
+
+.sidebar > .splitview-sash.sidebar-sash::after {
+  top: 0;
+  bottom: 0;
+  left: auto;
+  right: 0;
+  width: 2px;
+  transform: none;
+  border-radius: 0;
+  opacity: 0;
+}
+
+.sidebar > .splitview-sash.sidebar-sash:hover::after,
+.sidebar > .splitview-sash.sidebar-sash[data-dragging="true"]::after {
+  opacity: 1;
+}
+
 /* 侧边栏内部区域之间的水平分割线 */
 .sidebar .splitview-sash.horizontal {
   margin: 0 12px;

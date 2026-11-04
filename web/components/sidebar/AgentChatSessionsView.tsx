@@ -7,11 +7,11 @@ import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { AcpChatHistoryEntry } from "@/types/agentChat";
 import { agentChatService } from "@/services/agentChatService";
-import { setPendingResume } from "@/components/agentchat/pendingResume";
 import { navigateToSettings } from "@/components/settings/settingsNavigation";
-import { useActivityBarStore, usePanesStore, useWorkspacesStore } from "@/stores";
+import { useWorkspacesStore } from "@/stores";
 import { AGENT_CHAT_HISTORY_CHANGED_EVENT } from "@/stores/agentChatEvents";
 import { handleErrorSilent } from "@/utils/errorHandler";
+import { openNewAgentChat, resumeAgentChat } from "./agentChatResume";
 
 function projectNameOf(cwd: string): string {
   return cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd;
@@ -55,21 +55,8 @@ export default function AgentChatSessionsView() {
     const projectPath = expandedWorkspace?.projects.find(
       (project) => project.id === expandedProjectId,
     )?.path;
-    usePanesStore.getState().openAgentChat(projectPath || undefined);
-    useActivityBarStore.getState().setAppViewMode("panes");
+    openNewAgentChat(projectPath);
   }, [expandedWorkspace, expandedProjectId]);
-
-  const resume = useCallback((entry: AcpChatHistoryEntry) => {
-    const tabId = usePanesStore.getState().openAgentChat(entry.cwd);
-    if (tabId) {
-      setPendingResume(tabId, {
-        engineId: entry.engineId,
-        cwd: entry.cwd,
-        acpSessionId: entry.acpSessionId,
-      });
-    }
-    useActivityBarStore.getState().setAppViewMode("panes");
-  }, []);
 
   return (
     <div className="flex h-full flex-col">
@@ -117,7 +104,7 @@ export default function AgentChatSessionsView() {
               key={entry.acpSessionId}
               type="button"
               className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--app-hover)]"
-              onClick={() => resume(entry)}
+              onClick={() => resumeAgentChat(entry)}
             >
               <span className="flex items-center gap-1.5">
                 <span className="flex-1 truncate text-xs text-[var(--app-text-primary)]">

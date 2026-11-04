@@ -1,9 +1,10 @@
-import { useCallback, useMemo, useState, type ButtonHTMLAttributes } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import type { DraggableSyntheticListeners } from "@dnd-kit/core";
 import {
-  Bot, ChevronRight, Files, Folder, FolderOpen, FolderSearch, GitBranch, Globe,
-  GripVertical, House, Settings2, Star, Terminal,
+  Bot, Check, ChevronRight, Files, Folder, FolderOpen, FolderSearch, GitBranch, Globe,
+  House, Settings2, Star, Terminal,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -16,7 +17,9 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { useLaunchProfilesStore, useProvidersStore, useSettingsStore, useSshMachinesStore } from "@/stores";
+import {
+  useExplorerSectionsStore, useLaunchProfilesStore, useProvidersStore, useSettingsStore, useSshMachinesStore,
+} from "@/stores";
 import AgentChatMenuItem from "./AgentChatMenuItem";
 import WorkspaceSkillsMenuItem from "./WorkspaceSkillsMenuItem";
 import InjectionBadges from "./InjectionBadges";
@@ -74,7 +77,9 @@ interface WorkspaceItemProps {
   onClearPath: (ws: Workspace) => void;
   onOpenEnvironment: (ws: Workspace) => void;
   onOpenInFileBrowser?: (path: string) => void;
-  dragHandleProps?: ButtonHTMLAttributes<HTMLButtonElement>;
+  /** dnd-kit 的行级监听（长按整行拖动排序）；系统工作空间不传 */
+  dragListeners?: DraggableSyntheticListeners;
+  isDragging?: boolean;
   countOverride?: number; // 头部计数覆盖值（终端模式=终端数）
   /** 弱化显示（终端模式下无运行终端的工作空间），让有活动的工作空间更突出 */
   dimmed?: boolean;
@@ -96,7 +101,7 @@ export default function WorkspaceItem({
   onSetPath,
   onClearPath,
   onOpenEnvironment, onOpenInFileBrowser,
-  dragHandleProps, countOverride, availableCliToolIds, dimmed = false,
+  dragListeners, isDragging = false, countOverride, availableCliToolIds, dimmed = false,
 }: WorkspaceItemProps) {
   const { t } = useTranslation(["sidebar", "common"]);
   const projects = normalizeWorkspaceProjects(ws.projects);
@@ -110,6 +115,8 @@ export default function WorkspaceItem({
   const saveSettings = useSettingsStore((s) => s.saveSettings);
   const sshMachines = useSshMachinesStore((s) => s.machines);
   const launchProfiles = useLaunchProfilesStore((s) => s.profiles);
+  const preferredContextName = useExplorerSectionsStore((s) => s.preferredContextWorkspaceName);
+  const setPreferredContext = useExplorerSectionsStore((s) => s.setPreferredContextWorkspace);
   const [hookGroups, setHookGroups] = useState<ProjectCliHookGroupStatus[]>([]);
   const [sshDialogOpen, setSshDialogOpen] = useState(false);
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
@@ -403,7 +410,8 @@ export default function WorkspaceItem({
             aria-expanded={expanded}
             className={`${sidebarEntityRowClass} flex items-center justify-between gap-2 hover:bg-[var(--app-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] ${
               dimmed ? "text-[var(--app-text-tertiary)] hover:text-[var(--app-text-secondary)]" : "text-[var(--app-text-primary)]"
-            }`}
+            } ${isDragging ? "cursor-grabbing bg-[var(--app-hover)]" : ""}`}
+            {...dragListeners}
             onClick={() => onExpand(workspace.id)}
             onKeyDown={(event) => {
               if (event.target !== event.currentTarget) return;
@@ -414,19 +422,6 @@ export default function WorkspaceItem({
             }}
           >
             <div className="flex min-w-0 items-center gap-1.5">
-              {dragHandleProps ? (
-                <button
-                  type="button"
-                  aria-label={t("workspaceReorderHandle", {
-                    defaultValue: "拖动排序工作空间",
-                  })}
-                  className="flex h-4 w-3 -ml-1 shrink-0 items-center justify-center rounded text-[var(--app-text-tertiary)] opacity-0 transition-opacity duration-[var(--dur-fast)] cursor-grab group-hover:opacity-50 hover:!opacity-90 hover:text-[var(--app-text-secondary)] active:cursor-grabbing"
-                  onClick={(event) => event.stopPropagation()}
-                  {...dragHandleProps}
-                >
-                  <GripVertical className="h-3 w-3" />
-                </button>
-              ) : <span aria-hidden="true" className="h-4 w-3 -ml-1 shrink-0" />}
               <ChevronRight
                 className={`w-3.5 h-3.5 shrink-0 transition-transform text-[var(--app-text-tertiary)] ${expanded ? "rotate-90" : ""}`}
               />
@@ -574,6 +569,14 @@ export default function WorkspaceItem({
           >
             <Files /> {t("openInFileBrowser")}
           </ContextMenuItem>
+          {!isDefaultWorkspace && !isAgentChatWorkspace && (
+            <ContextMenuCheckboxItem
+              checked={preferredContextName === workspace.name}
+              onCheckedChange={(checked) => setPreferredContext(checked === true ? workspace.name : null)}
+            >
+              <Check /> {t("simple.setDefaultContext")}
+            </ContextMenuCheckboxItem>
+          )}
 
           <ContextMenuSeparator />
 

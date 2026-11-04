@@ -38,7 +38,7 @@ export {
   type LayoutBarDensity,
   type LayoutSwitcherMode,
 } from "./useLayoutUiStore";
-export { useExplorerSectionsStore, type ExplorerSectionId } from "./useExplorerSectionsStore";
+export { useExplorerSectionsStore, type ExplorerSectionId, type ExplorerMode } from "./useExplorerSectionsStore";
 export { useShortcutsStore } from "./useShortcutsStore";
 export { useDialogStore } from "./useDialogStore";
 export { useTodoStore, BUILTIN_TODO_TYPES } from "./useTodoStore";

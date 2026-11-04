@@ -148,6 +148,28 @@ describe("WorkspaceItem", () => {
     expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 
+  it("没有拖拽把手；传入行级监听时挂在整行上，拖拽中行高亮", () => {
+    const onPointerDown = vi.fn();
+    const ws = createTestWorkspace({ name: "workspace-drag", path: "D:/drag" });
+    useWorkspacesStore.setState({ workspaces: [ws] });
+    render(
+      <TooltipProvider>
+        <WorkspaceItem
+          ws={ws} expanded={false} onExpand={vi.fn()} onOpenTerminal={vi.fn()} onRename={vi.fn()} onDelete={vi.fn()}
+          onSetAlias={vi.fn()} onImportProject={vi.fn()} onScanImport={vi.fn()} onGitClone={vi.fn()} onSetPath={vi.fn()}
+          onClearPath={vi.fn()} onOpenEnvironment={vi.fn()} dragListeners={{ onPointerDown }} isDragging
+        >
+          <div>children</div>
+        </WorkspaceItem>
+      </TooltipProvider>,
+    );
+    expect(screen.queryByRole("button", { name: /拖动排序/ })).not.toBeInTheDocument();
+    const row = screen.getByRole("button", { expanded: false });
+    fireEvent.pointerDown(row);
+    expect(onPointerDown).toHaveBeenCalled();
+    expect(row.className).toContain("cursor-grabbing");
+  });
+
   it("计数大于 0 时显示项目数", () => {
     renderWorkspaceItem("local", false, {
       projects: [

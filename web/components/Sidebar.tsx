@@ -41,11 +41,12 @@ export default function Sidebar({
   const loadSshMachines = useSshMachinesStore((s) => s.load);
 
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
+  const [resizing, setResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const saveWidth = (width: number) => { const value = clampSidebarWidth(width); setSidebarWidth(value); saveSidebarWidth(value); };
   const collapse = () => useActivityBarStore.getState().setSidebarVisible(false);
   const handleResizePointerDown = usePanelResize({ element: sidebarRef, width: sidebarWidth,
-    min: MIN_SIDEBAR_WIDTH, max: MAX_SIDEBAR_WIDTH, onCommit: saveWidth, onCollapse: collapse });
+    min: MIN_SIDEBAR_WIDTH, max: MAX_SIDEBAR_WIDTH, onCommit: saveWidth, onCollapse: collapse, onDragStateChange: setResizing });
 
   useEffect(() => {
     waitForRuntimeReady().then(async (ready) => {
@@ -97,12 +98,13 @@ export default function Sidebar({
 
       <WorkspaceEnvironmentPanel />
 
-      {/* 右边界 resize sash */}
+      {/* 右边界 resize sash：绝对定位贴在边框上（.sidebar-sash），静止时不画线，只在 hover/拖拽时显示 */}
       <div
-        className="splitview-sash vertical"
+        className="splitview-sash vertical sidebar-sash"
         role="separator" aria-label={t("resizeSidebar")} aria-orientation="vertical" tabIndex={0}
         aria-valuemin={MIN_SIDEBAR_WIDTH} aria-valuemax={MAX_SIDEBAR_WIDTH} aria-valuenow={sidebarWidth}
-        style={{ width: 12, right: 0, cursor: "col-resize", touchAction: "none" }}
+        data-dragging={resizing ? "true" : undefined}
+        style={{ touchAction: "none" }}
         onDoubleClick={collapse}
         onKeyDown={e => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); saveWidth(sidebarWidth + (e.key === "ArrowRight" ? 10 : -10)); } }}
         onPointerDown={handleResizePointerDown}
