@@ -1,4 +1,6 @@
 import { emit, emitTo } from "@tauri-apps/api/event";
+import type { McpLayerTarget } from "@/types";
+import type { ResourceSection } from "@/types/resourceLibrary";
 import { getCurrentWindowIfTauri, invokeIfTauri, isTauriRuntime } from "./runtime";
 
 export const SETTINGS_CHANGED_EVENT = "settings-changed";
@@ -13,7 +15,8 @@ export interface SettingsWindowTarget {
 /** 设置窗口里触发、必须在主窗口执行的操作（两个窗口的 store 互不相通）。 */
 export type SettingsWindowAction =
   | { type: "openOnboarding" }
-  | { type: "openSkillManager"; args: unknown[] };
+  | { type: "openSkillManager"; args: unknown[] }
+  | { type: "openResourceLibrary"; section: ResourceSection; scope: McpLayerTarget | null };
 
 export interface SettingsChangedPayload {
   source?: string;

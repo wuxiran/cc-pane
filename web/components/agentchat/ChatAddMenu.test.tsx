@@ -8,7 +8,9 @@ import type { AcpChatSnapshot } from "@/types/agentChat";
 import { loadEnginePrefs } from "./enginePrefs";
 import ChatAddMenu from "./ChatAddMenu";
 
-const actions = vi.hoisted(() => ({ openSkillManager: vi.fn(), openMcpConfig: vi.fn() }));
+import { useActivityBarStore } from "@/stores/useActivityBarStore";
+import { useResourceLibraryStore } from "@/stores/useResourceLibraryStore";
+const actions = vi.hoisted(() => ({ openSkillManager: vi.fn() }));
 vi.mock("@/stores/usePanesStore", () => ({ usePanesStore: { getState: () => actions } }));
 const chatId = "chat-add-menu";
 const callbacks = { onFiles: vi.fn().mockResolvedValue(undefined), onFolders: vi.fn().mockResolvedValue(undefined), onProject: vi.fn(), onCapture: vi.fn() };
@@ -57,7 +59,14 @@ describe("ChatAddMenu", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it.each([["管理项目技能", "openSkillManager"], ["管理项目 MCP", "openMcpConfig"]] as const)("opens %s for the current project", async (label, action) => {
+  it("opens the resource library scoped to the current project", async () => {
+    renderMenu(); await openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "管理项目 MCP" }));
+    expect(useResourceLibraryStore.getState().scope).toEqual({ projectPath: "/repo/demo" });
+    expect(useActivityBarStore.getState().appViewMode).toBe("resources");
+  });
+
+  it.each([["管理项目技能", "openSkillManager"]] as const)("opens %s for the current project", async (label, action) => {
     renderMenu(); await openMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: label }));
     expect(actions[action]).toHaveBeenCalledWith("/repo/demo", "demo");

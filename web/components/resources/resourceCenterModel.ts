@@ -6,8 +6,11 @@ import type { LaunchProfile, LaunchProfileDraft } from "@/types";
 import type { SharedMcpServerStatus } from "@/types/shared-mcp";
 import { isSharedMcpFailed } from "@/types/shared-mcp";
 
-/** 受启动档控制的 MCP：内置 ccpanes，或某个共享 server */
-export type ProfileMcpResource = { kind: "ccpanes" } | { kind: "shared"; name: string };
+/** 受启动档控制的 MCP：内置 ccpanes、共享 server，或工作空间 / 项目层的 server */
+export type ProfileMcpResource =
+  | { kind: "ccpanes" }
+  | { kind: "shared"; name: string }
+  | { kind: "layer"; name: string };
 
 /** 不能切换的原因，对应 i18n `resourceCenter.blocked.*` */
 export type ChipBlockReason = "mcpDisabled" | "sharedOff";
@@ -22,6 +25,13 @@ type McpPolicy = LaunchProfile["mcpPolicy"];
 export function mcpChipState(policy: McpPolicy, resource: ProfileMcpResource): ProfileChipState {
   if (policy.mode === "disabled") return { on: false, blocked: "mcpDisabled" };
   if (resource.kind === "ccpanes") return { on: policy.includeCcpanesMcp, blocked: null };
+  // 层配置和共享开关无关，规则见 terminal_service.rs 的 allowed_mcp_server_ids_for_profile
+  if (resource.kind === "layer") {
+    const on = policy.mode === "custom"
+      ? policy.enabledServerIds.includes(resource.name)
+      : !policy.disabledServerIds.includes(resource.name);
+    return { on, blocked: null };
+  }
   if (!policy.includeSharedMcp) return { on: false, blocked: "sharedOff" };
   return { on: isSharedMcpServerSelected(policy, resource.name), blocked: null };
 }

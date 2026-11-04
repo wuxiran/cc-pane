@@ -22,8 +22,6 @@ const ProxySection = lazyWithRetry(() => import("./ProxySection"), "ProxySection
 const QuickCommandsSection = lazyWithRetry(() => import("./QuickCommandsSection"), "QuickCommandsSection");
 const QuickTerminalSection = lazyWithRetry(() => import("./QuickTerminalSection"), "QuickTerminalSection");
 const ScreenshotSection = lazyWithRetry(() => import("./ScreenshotSection"), "ScreenshotSection");
-const ResourceCenter = lazyWithRetry(() => import("@/components/resources/ResourceCenter"), "ResourceCenter");
-const SharedMcpSection = lazyWithRetry(() => import("./SharedMcpSection"), "SharedMcpSection");
 const GlobalSkillsPanel = lazyWithRetry(() => import("@/components/resources/GlobalSkillsPanel"), "GlobalSkillsPanel");
 const LinkSkillManager = lazyWithRetry(() => import("@/components/skill/LinkSkillManager"), "LinkSkillManager");
 const ShortcutsSection = lazyWithRetry(() => import("./ShortcutsSection"), "ShortcutsSection");
@@ -116,10 +114,6 @@ function Pane({ paneId, draft, updateDraft, onUnsavedChangesChange }: SettingsPa
       return <CCChanSettings value={draft.ccchan} onChange={(ccchan) => updateDraft({ ...draft, ccchan })} />;
     case "shortcuts":
       return <ShortcutsSection value={draft.shortcuts} onChange={(shortcuts) => updateDraft({ ...draft, shortcuts })} />;
-    case "resource-center":
-      return <ResourceCenter />;
-    case "shared-mcp":
-      return <SharedMcpSection />;
     case "skills":
       // wide 布局下外层是 overflow-hidden，高度链必须一路传到两个面板：
       // 两个子面板各自 h-full + 内部 overflow-y-auto，包一层 bounded flex 容器

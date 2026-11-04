@@ -81,6 +81,13 @@ pub fn update_shared_mcp_global_config(
 }
 
 #[tauri::command]
+pub fn list_claude_user_mcp_servers(
+    service: State<'_, Arc<SharedMcpService>>,
+) -> AppResult<Vec<cc_panes_core::services::ClaudeUserMcpServer>> {
+    service.list_claude_user_servers().map_err(|e| e.into())
+}
+
+#[tauri::command]
 pub fn import_shared_mcp_from_claude(
     service: State<'_, Arc<SharedMcpService>>,
 ) -> AppResult<Vec<String>> {

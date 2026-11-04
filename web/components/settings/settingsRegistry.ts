@@ -23,11 +23,9 @@ import {
   Palette,
   PanelsTopLeft,
   Settings,
-  Share2,
   SquareTerminal,
   Terminal,
   Wifi,
-  Boxes,
 } from "lucide-react";
 
 export type SettingsGroupId =
@@ -118,7 +116,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     icon: Bot,
     titleKey: "pages.aiTools.title",
     group: "application",
-    paneIds: ["provider", "provider-credentials", "cli-launchers", "resource-center", "shared-mcp", "skills", "quick-commands", "automations"],
+    paneIds: ["provider", "provider-credentials", "cli-launchers", "skills", "quick-commands", "automations"],
   },
   {
     id: "system",
@@ -320,12 +318,6 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   },
   { id: "cli-launchers", icon: Cable, titleKey: "cliLaunchers", descriptionKey: "cliLaunchersDesc", page: "ai-tools", searchEntries: [
     { id: "commands", titleKey: "cliLaunchersTitle", descriptionKey: "cliLaunchersDesc", targetSectionId: "cli-launchers-root" },
-  ] },
-  { id: "resource-center", icon: Boxes, titleKey: "resourceCenter.title", descriptionKey: "resourceCenter.description", page: "ai-tools", searchEntries: [
-    { id: "mcp", titleKey: "resourceCenter.title", keywordsKey: "searchKeywords.mcp", targetSectionId: "resource-center-root" },
-  ] },
-  { id: "shared-mcp", icon: Share2, titleKey: "sharedMcp.title", descriptionKey: "sharedMcp.importHint", page: "ai-tools", searchEntries: [
-    { id: "servers", titleKey: "sharedMcp.title", keywordsKey: "searchKeywords.mcp", targetSectionId: "shared-mcp-root" },
   ] },
   { id: "skills", icon: Package, titleKey: "skills", page: "ai-tools", searchEntries: [
     { id: "library", titleKey: "skills", keywordsKey: "searchKeywords.skills", targetSectionId: "skills-root" },

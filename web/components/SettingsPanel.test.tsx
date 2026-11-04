@@ -59,9 +59,6 @@ vi.mock("./settings/AboutSection", () => ({
 vi.mock("./settings/ScreenshotSection", () => ({
   default: () => <div data-testid="screenshot-section" />,
 }));
-vi.mock("./settings/SharedMcpSection", () => ({
-  default: () => <div data-testid="shared-mcp-section" />,
-}));
 vi.mock("@/components/resources/GlobalSkillsPanel", () => ({
   default: () => <div data-testid="skills-section" />,
 }));
@@ -205,9 +202,6 @@ describe("SettingsPanel", () => {
     expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
-    await user.click(screen.getByRole("tab", { name: tSettings("sharedMcp.title") }));
-    expect(await screen.findByTestId("shared-mcp-section")).toBeInTheDocument();
-
     await user.click(screen.getByRole("tab", { name: tSettings("skills") }));
     const skillsSection = await screen.findByTestId("skills-section");
     expect(skillsSection).toBeInTheDocument();

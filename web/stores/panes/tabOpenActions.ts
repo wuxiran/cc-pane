@@ -21,7 +21,6 @@ export type TabOpenActions = Pick<
   | "openProjectInPane"
   | "openProject"
   | "reopenClosedTab"
-  | "openMcpConfig"
   | "openSkillManager"
   | "openMemoryManager"
   | "openFileExplorer"
@@ -169,31 +168,6 @@ export function createTabOpenActions({ set, get }: PanesStoreAccess): TabOpenAct
         reopened,
       );
       restoreClosedTabIdentity(get(), paneId, reopened);
-    },
-
-    openMcpConfig: (projectPath, title) => {
-      const active = get().activePane();
-      if (!active) return;
-
-      // Reuse the existing tab if the project is already open here.
-      const existing = active.tabs.find(
-        (t) => t.contentType === "mcp-config" && t.projectPath === projectPath
-      );
-      if (existing) {
-        get().selectTab(active.id, existing.id);
-        return;
-      }
-
-      set((state) => {
-        const pane = findPane(state.rootPane, state.activePaneId);
-        if (pane?.type !== "panel") return;
-        const newTab = createTabOfType("mcp-config", {
-          title: `MCP - ${title}`,
-          projectPath,
-        });
-        pane.tabs.push(newTab);
-        pane.activeTabId = newTab.id;
-      });
     },
 
     openSkillManager: (projectPath, title) => {

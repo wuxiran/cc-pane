@@ -4,6 +4,7 @@ import type {
   SharedMcpServerConfig,
   SharedMcpServerInfo,
 } from "@/types";
+import type { ClaudeUserMcpServer } from "@/types/shared-mcp";
 
 export const sharedMcpService = {
   getConfig(): Promise<SharedMcpConfig> {
@@ -66,6 +67,12 @@ export const sharedMcpService = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       }),
+    );
+  },
+
+  listClaudeUserServers(): Promise<ClaudeUserMcpServer[]> {
+    return invokeOrApi<ClaudeUserMcpServer[]>("list_claude_user_mcp_servers", undefined, () =>
+      apiGet<ClaudeUserMcpServer[]>("/api/shared-mcp/claude-user-servers"),
     );
   },
 

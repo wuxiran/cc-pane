@@ -45,7 +45,7 @@
   "moduleNames": {
     "ssh": "SSH 机器",
     "orchestration": "任务编排",
-    "resources": "资源中心",
+    "resources": "资源库",
     "todo": "TodoList",
     "aiPanel": "AI 面板",
     "sessionHistory": "会话历史"

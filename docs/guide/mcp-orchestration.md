@@ -33,7 +33,7 @@
 
 当你用 CC-Panes 启动一个 Claude / Codex 时，CC-Panes 会**自动把这套 orchestrator MCP 注入**进去——所以实例一跑起来，AI 就已经“长出了操控 CC-Panes 的手”，不需要你额外配置。
 
-如果你还想接入别的 MCP server（比如某个第三方工具），可以到 **设置 → 共享 MCP** 里统一管理。
+如果你还想接入别的 MCP server（比如某个第三方工具），可以到左侧活动栏的 **资源库 → MCP 服务器** 里统一管理。
 
 ## 配套的现成玩法（Skills）
 

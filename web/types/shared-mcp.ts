@@ -1,3 +1,13 @@
+/** `~/.claude.json` 里的用户级 MCP（只读）：并入 Claude 会话且不受启动档控制 */
+export interface ClaudeUserMcpServer {
+  name: string;
+  transport: string;
+  command?: string | null;
+  args: string[];
+  url?: string | null;
+  envKeys: string[];
+}
+
 /** 桥接模式 */
 export type BridgeMode = "mcp-proxy" | "native-http";
 

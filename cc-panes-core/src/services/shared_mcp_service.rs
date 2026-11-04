@@ -49,6 +49,58 @@ pub struct SharedMcpService {
     health_check_thread: Mutex<Option<std::thread::Thread>>,
 }
 
+/// `~/.claude.json` 里的一条用户级 MCP（只读展示用）
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeUserMcpServer {
+    pub name: String,
+    pub transport: String,
+    pub command: Option<String>,
+    pub args: Vec<String>,
+    pub url: Option<String>,
+    pub env_keys: Vec<String>,
+}
+
+fn parse_claude_user_servers(content: &str) -> Result<Vec<ClaudeUserMcpServer>, String> {
+    let parsed: serde_json::Value = serde_json::from_str(content)
+        .map_err(|e| format!("Failed to parse ~/.claude.json: {}", e))?;
+    let Some(servers) = parsed.get("mcpServers").and_then(|v| v.as_object()) else {
+        return Ok(Vec::new());
+    };
+    let mut list: Vec<ClaudeUserMcpServer> = servers
+        .iter()
+        .map(|(name, value)| {
+            let text = |key: &str| value.get(key).and_then(|v| v.as_str()).map(str::to_string);
+            let url = text("url");
+            let default_transport = if url.is_some() { "http" } else { "stdio" };
+            let mut env_keys: Vec<String> = value
+                .get("env")
+                .and_then(|v| v.as_object())
+                .map(|env| env.keys().cloned().collect())
+                .unwrap_or_default();
+            env_keys.sort();
+            ClaudeUserMcpServer {
+                name: name.clone(),
+                transport: text("type").unwrap_or_else(|| default_transport.to_string()),
+                command: text("command"),
+                args: value
+                    .get("args")
+                    .and_then(|v| v.as_array())
+                    .map(|args| {
+                        args.iter()
+                            .filter_map(|arg| arg.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                url,
+                env_keys,
+            }
+        })
+        .collect();
+    list.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(list)
+}
+
 impl SharedMcpService {
     pub fn new(app_paths: &AppPaths) -> Self {
         let config_path = app_paths.data_dir().join("shared-mcp.json");
@@ -554,6 +606,19 @@ impl SharedMcpService {
     }
 
     // ========== 导入 ==========
+
+    /// 只读列出 ~/.claude.json 的 mcpServers：这些服务器会并入 Claude 会话且不受启动档控制。
+    /// 文件不存在算空列表；环境变量只返回键名，不把值送到前端。
+    pub fn list_claude_user_servers(&self) -> Result<Vec<ClaudeUserMcpServer>, String> {
+        let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
+        let path = home.join(".claude.json");
+        let content = match std::fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(format!("Failed to read ~/.claude.json: {}", error)),
+        };
+        parse_claude_user_servers(&content)
+    }
 
     /// 从 ~/.claude.json 的 mcpServers 导入
     pub fn import_from_claude_json(&self) -> Result<Vec<String>, String> {
@@ -1130,6 +1195,28 @@ mod tests {
         svc.start_server("flaky")
             .expect("failed runtime must be reclaimed");
         svc.stop_server("flaky");
+    }
+
+    #[test]
+    fn parse_claude_user_servers_returns_env_keys_only() {
+        let list = parse_claude_user_servers(
+            r#"{"mcpServers":{
+                "zeta":{"url":"https://example.com/mcp"},
+                "alpha":{"command":"npx","args":["-y","pkg"],"env":{"TOKEN":"secret"}}
+            }}"#,
+        )
+        .unwrap();
+        assert_eq!(list[0].name, "alpha");
+        assert_eq!(list[0].transport, "stdio");
+        assert_eq!(list[0].env_keys, vec!["TOKEN".to_string()]);
+        assert!(!format!("{:?}", list[0]).contains("secret"));
+        assert_eq!(list[1].transport, "http");
+    }
+
+    #[test]
+    fn parse_claude_user_servers_without_section_is_empty() {
+        assert!(parse_claude_user_servers("{}").unwrap().is_empty());
+        assert!(parse_claude_user_servers("not json").is_err());
     }
 
     #[test]

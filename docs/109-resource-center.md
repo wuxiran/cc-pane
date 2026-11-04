@@ -1,4 +1,14 @@
-# 109 · 资源中心：按启动档统一管理 MCP、Skills、Hooks
+# 109 · 资源库：把 MCP、技能、Hooks 收进左侧一个入口
+
+> **2026-11-04 更新：** 本文下面的「资源中心」三标签方案已被取代。现在的做法是活动栏「资源库」图标 + 侧栏子页，旧入口全部下线，不留跳转。
+> - **第 1 批（MCP）已落地：** `web/components/resources/McpLibraryPage.tsx`，视图模式 `resources`（`library` 已被资料空间占用）。设置里的资源中心、共享 MCP 和 `mcp-config` 标签已删除，旧布局快照里的这类标签在恢复时丢弃（`stores/panes/layoutLifecycle.ts`）。
+> - **第 2 批技能、第 3 批 Hooks：** 待实施。
+> - 启动档卡片只保留 MCP 模式和共享总开关；每个 MCP 开给哪些启动档只在资源库改。
+> - 工作空间 / 项目层的 MCP **也受启动档过滤**（`allowed_mcp_server_ids_for_profile`），下文「始终生效」的说法是错的。
+
+---
+
+# 原方案：按启动档统一管理 MCP、Skills、Hooks
 
 > 状态：**Proposal + Design（评审中）**（2026-11-02，基线 `feat/session-cost-status@0052ddb9`）。
 > 参照：magpie `a3768cd` 的 Library 页（`docs/subsystems/library.md`、`mcp-router.md`，`internal/gui/assets/plugins/library/client.js`）。

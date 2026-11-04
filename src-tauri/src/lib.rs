@@ -298,6 +298,7 @@ use commands::{
     // Provider 命令
     list_bundled_skills,
     list_claude_sessions,
+    list_claude_user_mcp_servers,
     list_cli_tools,
     list_codex_sessions,
     // Local History - 删除文件 + 压缩
@@ -3619,6 +3620,7 @@ pub fn run() {
             restart_shared_mcp_server,
             update_shared_mcp_global_config,
             import_shared_mcp_from_claude,
+            list_claude_user_mcp_servers,
             // DeepSeek Harness（dsh）实例命令
             start_dsh_instance,
             stop_dsh_instance,

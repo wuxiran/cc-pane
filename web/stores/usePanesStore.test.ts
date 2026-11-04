@@ -760,28 +760,6 @@ describe("usePanesStore", () => {
 
   // ========== 特殊标签打开 ==========
 
-  describe("openMcpConfig", () => {
-    it("应创建 mcp-config 类型的 tab", () => {
-      usePanesStore.getState().openMcpConfig("/tmp/project", "MyProject");
-
-      const pane = usePanesStore.getState().activePane()!;
-      const mcpTab = pane.tabs.find((t) => t.contentType === "mcp-config");
-      expect(mcpTab).toBeDefined();
-      expect(mcpTab!.title).toBe("MCP - MyProject");
-      expect(mcpTab!.projectPath).toBe("/tmp/project");
-    });
-
-    it("重复打开应复用已有 tab", () => {
-      usePanesStore.getState().openMcpConfig("/tmp/project", "MyProject");
-      const tabCountAfterFirst = usePanesStore.getState().activePane()!.tabs.length;
-
-      usePanesStore.getState().openMcpConfig("/tmp/project", "MyProject");
-      const tabCountAfterSecond = usePanesStore.getState().activePane()!.tabs.length;
-
-      expect(tabCountAfterSecond).toBe(tabCountAfterFirst);
-    });
-  });
-
   describe("openSkillManager", () => {
     it("应创建 skill-manager 类型的 tab", () => {
       usePanesStore.getState().openSkillManager("/tmp/project", "MyProject");
@@ -835,24 +813,6 @@ describe("usePanesStore", () => {
       expect(usePanesStore.getState().activePane()!.tabs.length).toBe(before);
 
       usePanesStore.getState().openMemoryManager("/tmp/project", "MyProject");
-      expect(usePanesStore.getState().activePane()!.tabs.length).toBe(before + 1);
-    });
-  });
-
-  describe("openWorkspaceMcpConfig", () => {
-    it("复用 mcp-config tab 类型，projectPath 为空并带 workspaceName；与项目 tab 互不复用", () => {
-      usePanesStore.getState().openWorkspaceMcpConfig("alpha", "Alpha");
-      const pane = usePanesStore.getState().activePane()!;
-      const wsTab = pane.tabs.find((t) => t.contentType === "mcp-config" && t.workspaceName === "alpha");
-      expect(wsTab).toBeDefined();
-      expect(wsTab!.projectPath).toBe("");
-      expect(wsTab!.title).toBe("MCP - Alpha");
-
-      const before = pane.tabs.length;
-      usePanesStore.getState().openWorkspaceMcpConfig("alpha", "Alpha");
-      expect(usePanesStore.getState().activePane()!.tabs.length).toBe(before);
-
-      usePanesStore.getState().openMcpConfig("/tmp/project", "MyProject");
       expect(usePanesStore.getState().activePane()!.tabs.length).toBe(before + 1);
     });
   });

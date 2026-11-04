@@ -4,6 +4,7 @@ import { Database, Layers, Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ContextMenuItem } from "@/components/ui/context-menu";
 import { usePanesStore } from "@/stores";
+import { openResourceLibrary } from "@/stores/useResourceLibraryStore";
 import type { Workspace } from "@/types";
 
 export default function WorkspaceSkillsMenuItem({ workspace }: { workspace: Workspace }) {
@@ -18,7 +19,7 @@ export default function WorkspaceSkillsMenuItem({ workspace }: { workspace: Work
       <ContextMenuItem onClick={() => open().openWorkspaceMemoryManager(workspace.name, title)}>
         <Database /> {t("workspaceMemory")}
       </ContextMenuItem>
-      <ContextMenuItem onClick={() => open().openWorkspaceMcpConfig(workspace.name, title)}>
+      <ContextMenuItem onClick={() => openResourceLibrary("mcp", { workspaceName: workspace.name })}>
         <Server /> {t("workspaceMcp")}
       </ContextMenuItem>
     </>

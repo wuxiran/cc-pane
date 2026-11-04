@@ -25,7 +25,6 @@ interface UseLaunchProfileNavigationArgs {
   setDraft: Dispatch<SetStateAction<LaunchProfileDraft>>;
   setWorkspaceFilterName: Dispatch<SetStateAction<string>>;
   setPreview: Dispatch<SetStateAction<LaunchProfileResolution | null>>;
-  setMcpManagerOpen: Dispatch<SetStateAction<boolean>>;
   setWorkspaceBindingOpen: Dispatch<SetStateAction<boolean>>;
   setBindingWorkspaceName: Dispatch<SetStateAction<string | null>>;
 }
@@ -43,7 +42,6 @@ export function useLaunchProfileNavigation({
   setDraft,
   setWorkspaceFilterName,
   setPreview,
-  setMcpManagerOpen,
   setWorkspaceBindingOpen,
   setBindingWorkspaceName,
 }: UseLaunchProfileNavigationArgs) {
@@ -81,11 +79,10 @@ export function useLaunchProfileNavigation({
     setSelectedId(null);
     setDraft({ ...base, name, alias: name, targetTools: [activeTool], targetRuntime: draft.targetRuntime ?? null, isDefault: false });
     setPreview(null);
-    setMcpManagerOpen(false);
     setWorkspaceBindingOpen(false);
     setBindingWorkspaceName(null);
     toastOk(t("toast.draftCreated", { tool: toolLabel(activeTool, t) }));
-  }, [activeTool, draft, selectedId, setBindingWorkspaceName, setDraft, setMcpManagerOpen, setPreview, setSelectedId, setWorkspaceBindingOpen, t]);
+  }, [activeTool, draft, selectedId, setBindingWorkspaceName, setDraft, setPreview, setSelectedId, setWorkspaceBindingOpen, t]);
   const handleCopySystemDefault = useCallback(() => requestDiscard(copySystemDefault), [copySystemDefault, requestDiscard]);
 
   return {

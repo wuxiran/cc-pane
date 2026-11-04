@@ -295,6 +295,16 @@ pub async fn update_shared_mcp_global_config(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn list_claude_user_mcp_servers(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<cc_panes_core::services::ClaudeUserMcpServer>>, (StatusCode, String)> {
+    state
+        .shared_mcp_service
+        .list_claude_user_servers()
+        .map(Json)
+        .map_err(service_error)
+}
+
 pub async fn import_shared_mcp_from_claude(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<String>>, (StatusCode, String)> {
