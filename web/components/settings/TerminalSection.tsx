@@ -311,7 +311,7 @@ export default function TerminalSection({ value, onChange }: TerminalSectionProp
               aria-label={t("autoTrustRegisteredProjects")}
               checked={value.autoTrustRegisteredProjects ?? false}
               onChange={(e) => update("autoTrustRegisteredProjects", e.target.checked)}
-              className="h-4 w-4 cursor-pointer"
+              className="h-4 w-4 cursor-default"
               style={{ accentColor: "var(--app-accent)" }}
             />
             <Label htmlFor="terminal-auto-trust">{t("autoTrustRegisteredProjects")}</Label>
