@@ -1102,6 +1102,56 @@
     "noActiveProject": "没有可用的活动项目",
     "noCliTool": "Agent Prompt 未配置 CLI 工具"
   },
+  "resourceCenter": {
+    "title": "资源中心",
+    "description": "按启动档管理 MCP 等资源，改动在下次启动时生效",
+    "scope": "工作空间或项目",
+    "scopeNone": "不显示本层配置",
+    "shownProfiles": "显示 {{shown}}/{{total}} 个启动档",
+    "chipsLabel": "{{name}} 的启动档开关",
+    "all": "全部",
+    "nextLaunch": "已更新，下次启动生效；运行中的会话不受影响",
+    "saveFailed": "操作失败：{{error}}",
+    "mcpIntro": "每行末尾的开关决定该 MCP 注入哪些启动档。",
+    "profileManaged": "由启动档管理",
+    "noProfiles": "还没有启动档，无法分配资源。",
+    "noShared": "还没有共享 MCP",
+    "noSharedHint": "粘贴 README 里的配置即可添加。",
+    "layerManaged": "本层配置",
+    "layerHint": "对所选工作空间或项目始终生效，不受启动档控制。",
+    "layerEmpty": "这一层没有配置 MCP。",
+    "startsWithSession": "随会话启动",
+    "notProfileControlled": "不受启动档控制",
+    "blocked": {
+      "mcpDisabled": "启动档「{{name}}」已关闭 MCP，请先在启动档中开启。",
+      "sharedOff": "启动档「{{name}}」未启用共享 MCP，请先在启动档中开启。"
+    },
+    "paste": {
+      "open": "粘贴添加",
+      "title": "粘贴添加 MCP",
+      "hint": "粘贴 README 里的 JSON，支持 mcpServers 格式和单个条目。确认前不会写入。",
+      "inputLabel": "MCP 配置 JSON",
+      "target": "添加到",
+      "targetShared": "共享 MCP",
+      "targetLayer": "本层：{{name}}",
+      "nameLabel": "名称",
+      "namePlaceholder": "填写名称",
+      "add": "添加 {{count}} 项",
+      "added": "已添加 {{count}} 项",
+      "failed": "部分添加失败：{{error}}",
+      "configNotReady": "配置还没读取完成，请稍后再试",
+      "duplicate": "所选条目中有重复的名称，请修改。",
+      "error": {
+        "invalidJson": "无法识别为 JSON，请检查粘贴内容。",
+        "noServers": "没有找到带 command 或 url 的 MCP 条目。"
+      },
+      "problem": {
+        "remote": "暂不支持远程地址",
+        "noName": "需要名称",
+        "exists": "已存在，改名后可添加"
+      }
+    }
+  },
   "sharedMcp": {
     "title": "共享 MCP",
     "add": "新增",

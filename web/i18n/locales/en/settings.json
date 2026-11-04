@@ -1102,6 +1102,56 @@
     "noActiveProject": "No active project is available",
     "noCliTool": "The agent prompt has no CLI tool configured"
   },
+  "resourceCenter": {
+    "title": "Resource Center",
+    "description": "Manage MCP and other resources by launch profile. Changes apply on the next launch.",
+    "scope": "Workspace or project",
+    "scopeNone": "Hide layer configuration",
+    "shownProfiles": "Showing {{shown}}/{{total}} profiles",
+    "chipsLabel": "Launch profile switches for {{name}}",
+    "all": "All",
+    "nextLaunch": "Updated. Applies on the next launch; running sessions are unaffected.",
+    "saveFailed": "Operation failed: {{error}}",
+    "mcpIntro": "The switches on each row decide which launch profiles inject that MCP server.",
+    "profileManaged": "Managed by launch profiles",
+    "noProfiles": "No launch profiles yet, so resources can't be assigned.",
+    "noShared": "No shared MCP servers yet",
+    "noSharedHint": "Paste the config from a README to add one.",
+    "layerManaged": "Layer configuration",
+    "layerHint": "Always active for the selected workspace or project, regardless of launch profile.",
+    "layerEmpty": "No MCP servers in this layer.",
+    "startsWithSession": "Starts with the session",
+    "notProfileControlled": "Not controlled by profiles",
+    "blocked": {
+      "mcpDisabled": "Profile \"{{name}}\" has MCP turned off. Turn it on in the profile first.",
+      "sharedOff": "Profile \"{{name}}\" doesn't use shared MCP. Turn it on in the profile first."
+    },
+    "paste": {
+      "open": "Paste to add",
+      "title": "Paste to add MCP servers",
+      "hint": "Paste the JSON from a README. The mcpServers format and single entries both work. Nothing is written until you confirm.",
+      "inputLabel": "MCP config JSON",
+      "target": "Add to",
+      "targetShared": "Shared MCP",
+      "targetLayer": "Layer: {{name}}",
+      "nameLabel": "Name",
+      "namePlaceholder": "Enter a name",
+      "add": "Add {{count}}",
+      "added": "Added {{count}}",
+      "failed": "Some couldn't be added: {{error}}",
+      "configNotReady": "Configuration is still loading. Try again in a moment.",
+      "duplicate": "Two selected entries share a name. Rename one.",
+      "error": {
+        "invalidJson": "This doesn't look like JSON. Check what you pasted.",
+        "noServers": "No MCP entries with a command or url were found."
+      },
+      "problem": {
+        "remote": "Remote addresses aren't supported yet",
+        "noName": "Needs a name",
+        "exists": "Already exists. Rename to add."
+      }
+    }
+  },
   "sharedMcp": {
     "title": "Shared MCP",
     "add": "Add",

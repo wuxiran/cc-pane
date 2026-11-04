@@ -1,4 +1,5 @@
 import type { ParseKeys } from "i18next";
+import type { SettingsPaneId } from "./settingsPaneIds";
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
@@ -26,6 +27,7 @@ import {
   SquareTerminal,
   Terminal,
   Wifi,
+  Boxes,
 } from "lucide-react";
 
 export type SettingsGroupId =
@@ -44,34 +46,7 @@ export type SettingsPageId =
   | "usage-stats"
   | "about";
 
-export type SettingsPaneId =
-  | "setup-guide"
-  | "automations"
-  | "theme"
-  | "theme-shape"
-  | "general"
-  | "usage-stats"
-  | "wallpaper"
-  | "terminal"
-  | "quick-terminal"
-  | "shortcuts"
-  | "quick-commands"
-  | "modules"
-  | "provider"
-  | "provider-credentials"
-  | "cli-launchers"
-  | "shared-mcp"
-  | "skills"
-  | "proxy"
-  | "web-access"
-  | "notification"
-  | "performance"
-  | "im-bridge"
-  | "screenshot"
-  | "voice"
-  | "ccchan"
-  | "experimental"
-  | "about";
+export type { SettingsPaneId } from "./settingsPaneIds";
 
 type SettingsTranslationKey = ParseKeys<"settings">;
 
@@ -143,7 +118,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     icon: Bot,
     titleKey: "pages.aiTools.title",
     group: "application",
-    paneIds: ["provider", "provider-credentials", "cli-launchers", "shared-mcp", "skills", "quick-commands", "automations"],
+    paneIds: ["provider", "provider-credentials", "cli-launchers", "resource-center", "shared-mcp", "skills", "quick-commands", "automations"],
   },
   {
     id: "system",
@@ -344,6 +319,9 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   },
   { id: "cli-launchers", icon: Cable, titleKey: "cliLaunchers", descriptionKey: "cliLaunchersDesc", page: "ai-tools", searchEntries: [
     { id: "commands", titleKey: "cliLaunchersTitle", descriptionKey: "cliLaunchersDesc", targetSectionId: "cli-launchers-root" },
+  ] },
+  { id: "resource-center", icon: Boxes, titleKey: "resourceCenter.title", descriptionKey: "resourceCenter.description", page: "ai-tools", searchEntries: [
+    { id: "mcp", titleKey: "resourceCenter.title", keywordsKey: "searchKeywords.mcp", targetSectionId: "resource-center-root" },
   ] },
   { id: "shared-mcp", icon: Share2, titleKey: "sharedMcp.title", descriptionKey: "sharedMcp.importHint", page: "ai-tools", searchEntries: [
     { id: "servers", titleKey: "sharedMcp.title", keywordsKey: "searchKeywords.mcp", targetSectionId: "shared-mcp-root" },
