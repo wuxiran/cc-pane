@@ -731,9 +731,9 @@ describe("非终端标签的撤销（persistForUndo）", () => {
       .toBe("/tmp/p/src/main.rs");
   });
 
-  it("mcp-config 等无 persistForUndo 的类型不进撤销栈", () => {
+  it("skill-manager 等无 persistForUndo 的类型不进撤销栈", () => {
     const tool: Tab = {
-      id: "m1", title: "MCP", contentType: "mcp-config",
+      id: "m1", title: "Skill", contentType: "skill-manager",
       projectId: "p", projectPath: "/tmp/p", sessionId: null,
     } as Tab;
     setPanesState(makePanel("p1", [tool, makeTerminalTab("t1")]), "p1");

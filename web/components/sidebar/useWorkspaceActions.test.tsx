@@ -64,7 +64,6 @@ const storeActions = {
 };
 
 const paneActions = {
-  openMcpConfig: vi.fn(),
   openSkillManager: vi.fn(),
   openMemoryManager: vi.fn(),
 };
@@ -394,11 +393,8 @@ describe("useWorkspaceActions", () => {
       expect(onOpenTerminal).toHaveBeenCalledWith({ path: "D:/repos/beta-wt" });
     });
 
-    it("MCP/Skill/Memory 管理器用别名（缺省回退目录名）打开", () => {
+    it("Skill/Memory 管理器用别名（缺省回退目录名）打开", () => {
       const { result } = setup();
-      act(() => result.current.handleOpenMcpConfig(makeProject({ alias: "别名" })));
-      expect(paneActions.openMcpConfig).toHaveBeenCalledWith("D:/repos/alpha", "别名");
-
       act(() => result.current.handleOpenSkillManager(makeProject({ alias: undefined })));
       expect(paneActions.openSkillManager).toHaveBeenCalledWith("D:/repos/alpha", "alpha");
 

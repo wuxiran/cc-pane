@@ -369,10 +369,6 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
     onOpenTerminal({ path });
   }
 
-  function handleOpenMcpConfig(project: WorkspaceProject) {
-    usePanesStore.getState().openMcpConfig(project.path, project.alias || getProjectName(project.path));
-  }
-
   function handleOpenSkillManager(project: WorkspaceProject) {
     usePanesStore.getState().openSkillManager(project.path, project.alias || getProjectName(project.path));
   }
@@ -409,7 +405,6 @@ export function useWorkspaceActions({ onOpenTerminal }: UseWorkspaceActionsParam
     handleSetAlias,
     handleOpenProject,
     handleOpenWorktree,
-    handleOpenMcpConfig,
     handleOpenSkillManager,
     handleOpenMemoryManager,
     handleOpenTodoManager,

@@ -42,7 +42,6 @@ const ALL_CONTENT_TYPES: TabContentType[] = [
   "editor",
   "review",
   "file-explorer",
-  "mcp-config",
   "skill-manager",
   "memory-manager",
 ];
@@ -301,10 +300,9 @@ describe("editor", () => {
   });
 });
 
-describe("无资源类型（file-explorer / mcp-config / skill-manager / memory-manager）", () => {
+describe("无资源类型（file-explorer / skill-manager / memory-manager）", () => {
   const inertTypes: TabContentType[] = [
     "file-explorer",
-    "mcp-config",
     "skill-manager",
     "memory-manager",
   ];

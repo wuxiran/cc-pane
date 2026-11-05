@@ -49,8 +49,6 @@ export function tabKindLabel(tab: Tab): string {
       return "files";
     case "editor":
       return "editor";
-    case "mcp-config":
-      return "mcp";
     case "skill-manager":
       return "skills";
     case "memory-manager":

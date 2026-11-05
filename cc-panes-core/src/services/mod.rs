@@ -171,7 +171,7 @@ pub use session_restore_service::{
 };
 pub use session_state_machine::{SessionStateMachine, StateTransition, TransitionListener};
 pub use settings_service::SettingsService;
-pub use shared_mcp_service::SharedMcpService;
+pub use shared_mcp_service::{AgentMcpServer, SharedMcpService};
 pub use skill_link_service::SkillLinkService;
 pub use skill_service::SkillService;
 pub use spec_service::SpecService;

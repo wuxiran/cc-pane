@@ -18,7 +18,7 @@ export function isAgentChatLayout(layout: Pick<LayoutEntry, "id">): boolean {
 export function isAgentChatWorkbenchTab(tab: Pick<Tab, "contentType">): boolean {
   return tab.contentType === "agent-chat" || tab.contentType === "editor"
     || tab.contentType === "file-explorer" || tab.contentType === "skill-manager"
-    || tab.contentType === "mcp-config" || tab.contentType === "browser"
+    || tab.contentType === "browser"
     || tab.contentType === "terminal" || tab.contentType === "review";
 }
 

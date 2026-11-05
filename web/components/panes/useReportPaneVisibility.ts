@@ -1,7 +1,7 @@
 // Panel 的可见性上报（docs/78）——primary 视图的唯一写侧。
 //
 // 为什么上报点在 Panel 而不是各内容组件：**后台标签也必须有记录**。
-// 五种 contentType（editor/file-explorer/mcp-config/skill-manager/memory-manager）
+// 四种 contentType（editor/file-explorer/skill-manager/memory-manager）
 // 根本收不到可见性 props，若等组件自报，它们永远不会出现在 store 里；而降档
 // 判据是「任一视图可见」，缺记录与「全部隐藏」在聚合上同形，会误判成可休眠。
 import { useEffect, useRef } from "react";

@@ -9,6 +9,7 @@ import { IconTooltipButton } from "@/components/ui/IconTooltipButton";
 import { useAgentChatStore } from "@/stores/useAgentChatStore";
 import { acquireChatDraft, isChatDraftCurrent } from "@/stores/useAgentChatDraftStore";
 import { usePanesStore } from "@/stores/usePanesStore";
+import { openResourceLibrary } from "@/stores/useResourceLibraryStore";
 import { agentChatService } from "@/services/agentChatService";
 import type { AcpChatPhase } from "@/types/agentChat";
 import { translateError } from "@/utils/errorTranslation";
@@ -107,7 +108,7 @@ export default function ChatAddMenu({ chatId, cwd, phase, generating, blocked, o
           <DropdownMenuSeparator />
           <DropdownMenuLabel className="text-xs text-[var(--app-text-tertiary)]">{t("agentChatTools")}</DropdownMenuLabel>
           <DropdownMenuItem onSelect={() => usePanesStore.getState().openSkillManager(cwd, projectName)}><Layers />{t("agentChatManageSkills")}</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => usePanesStore.getState().openMcpConfig(cwd, projectName)}><Server />{t("agentChatManageMcp")}</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => openResourceLibrary("mcp", { projectPath: cwd })}><Server />{t("agentChatManageMcp")}</DropdownMenuItem>
         </> : null}
       </DropdownMenuContent>
     </DropdownMenu>

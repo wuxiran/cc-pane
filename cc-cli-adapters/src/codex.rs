@@ -459,6 +459,28 @@ impl CodexAdapter {
 
         for (name, url) in &ctx.shared_mcp_urls {
             Self::push_mcp_url_override(args, name, url);
+            if let Some(remote) = ctx.shared_mcp_remote.get(name) {
+                if !remote.headers.is_empty() {
+                    let headers = remote
+                        .headers
+                        .iter()
+                        .map(|(key, value)| {
+                            format!(
+                                "{} = {}",
+                                Self::format_toml_string_for_cli(key),
+                                Self::format_toml_string_for_cli(value)
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    args.push("-c".to_string());
+                    args.push(format!(
+                        "mcp_servers.{}.http_headers={{ {} }}",
+                        Self::format_toml_key_segment_for_cli(name),
+                        headers
+                    ));
+                }
+            }
         }
 
         info!(
@@ -2013,6 +2035,7 @@ mod tests {
             data_dir: std::env::temp_dir(),
             shared_mcp_urls: HashMap::new(),
             shared_mcp_stdio: Default::default(),
+            shared_mcp_remote: Default::default(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),

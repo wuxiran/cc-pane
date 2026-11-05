@@ -824,6 +824,7 @@ mod tests {
             data_dir: PathBuf::from("/tmp/data"),
             shared_mcp_urls: HashMap::new(),
             shared_mcp_stdio: BTreeMap::new(),
+            shared_mcp_remote: Default::default(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),

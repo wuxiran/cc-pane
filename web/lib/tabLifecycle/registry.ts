@@ -401,7 +401,6 @@ export const TAB_LIFECYCLE: Record<TabContentType, TabLifecycleEntry> = {
     createDefaults: (input) => ({ reviewChatId: input.reviewChatId, reviewCliSessionId: input.reviewCliSessionId }),
   },
   "file-explorer": inertEntry(),
-  "mcp-config": inertEntry(),
   "skill-manager": inertEntry(),
   "memory-manager": inertEntry(),
 };

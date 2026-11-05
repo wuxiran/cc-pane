@@ -15,8 +15,6 @@ export type SettingsPaneId =
   | "provider"
   | "provider-credentials"
   | "cli-launchers"
-  | "resource-center"
-  | "shared-mcp"
   | "skills"
   | "proxy"
   | "web-access"

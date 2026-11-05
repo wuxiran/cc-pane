@@ -1206,6 +1206,14 @@ pub struct ProjectHookStatus {
     pub reason: Option<String>,
 }
 
+/// 远程 MCP 注入规格
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RemoteMcpSpec {
+    /// `http` 或 `sse`
+    pub transport: String,
+    pub headers: BTreeMap<String, String>,
+}
+
 /// 构建命令的上下文（扁平字段，避免依赖主 crate 类型）
 #[derive(Clone)]
 pub struct CliAdapterContext {
@@ -1245,6 +1253,8 @@ pub struct CliAdapterContext {
     /// 与 `shared_mcp_urls` 同名集合。只认 stdio 的 CLI（jcode）用它绕过 HTTP 桥
     /// 直接注入源命令；HTTP 型共享服务器没有 stdio 源，不在此表中（docs/104）。
     pub shared_mcp_stdio: BTreeMap<String, serde_json::Value>,
+    /// `shared_mcp_urls` 里哪些是远程 MCP，以及它们的传输方式和请求头
+    pub shared_mcp_remote: BTreeMap<String, RemoteMcpSpec>,
     /// 运行配置允许保留的 MCP server id。
     /// Codex 需要这个列表来禁用用户 config.toml 中未被本次运行配置选中的 MCP。
     #[allow(dead_code)]
@@ -2392,6 +2402,7 @@ mod registry_tests {
             data_dir: std::env::temp_dir(),
             shared_mcp_urls: HashMap::new(),
             shared_mcp_stdio: Default::default(),
+            shared_mcp_remote: Default::default(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),

@@ -31,6 +31,8 @@ import { collectPanels } from "@/lib/paneTree";
 const DramaStudio = lazy(() => import("@/components/drama/DramaStudio"));
 const OrchestrationOverlay = lazy(() => import("@/components/orchestration/OrchestrationOverlay"));
 const SkillMarketPage = lazy(() => import("@/components/skillmarket/SkillMarketPage"));
+const ResourceLibraryPage = lazyWithRetry(() => import("@/components/resources/ResourceLibraryPage"), "ResourceLibraryPage");
+const ResourceLibrarySidebar = lazyWithRetry(() => import("@/components/resources/ResourceLibrarySidebar"), "ResourceLibrarySidebar");
 // File previews and their actions load only when the file workspace is opened.
 const FileEditorPanel = lazyWithRetry(() => import("@/components/editor/FileEditorPanel"), "FileEditorPanel");
 
@@ -93,7 +95,8 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
     activeView !== "orchestration" &&
     (effectiveAppViewMode === "panes"
       || effectiveAppViewMode === "files"
-      || effectiveAppViewMode === "todo");
+      || effectiveAppViewMode === "todo"
+      || effectiveAppViewMode === "resources");
   // 窄档（<1024px）：侧栏改浮出层，常驻过渡容器让位（0fr 收起并卸载）。
   const { isFlyout } = useResponsiveSidebar();
 
@@ -170,7 +173,9 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
       {/* panes/files/todo 共用同一侧栏实例，模块切换不会触发不同的进出场动画。
           窄档下 inline 侧栏让位给 main 内的浮出层（见下方 SidebarFlyout）。 */}
       <SidebarTransition visible={shouldShowSidebar && !isFlyout}>
-        {isActive("todo") ? todoSidebar : (
+        {isActive("todo") ? todoSidebar : isActive("resources") ? (
+          <Suspense fallback={null}><ResourceLibrarySidebar /></Suspense>
+        ) : (
           <Sidebar
             activeView={activeView}
             onOpenTerminal={onOpenTerminal}
@@ -246,6 +251,18 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
         </div>
       )}
       {/* Files 模式：文件编辑面板（侧边栏文件浏览器在上方共用 Sidebar） */}
+      {isMounted("resources") && (
+        <div
+          className="main-view-layer absolute inset-0 overflow-hidden"
+          data-main-view="resources"
+          {...layerA11yAttrs("resources")}
+          style={{ background: "var(--app-panel-bg)", ...viewStyle("resources") }}
+        >
+          <Suspense fallback={null}>
+            <ResourceLibraryPage />
+          </Suspense>
+        </div>
+      )}
       {isMounted("files") && (
         <div
           className="main-view-layer absolute inset-0 overflow-hidden"
@@ -355,7 +372,9 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
         open={isFlyout && shouldShowSidebar}
         onClose={() => setSidebarVisible(false)}
       >
-        {isActive("todo") ? todoSidebar : (
+        {isActive("todo") ? todoSidebar : isActive("resources") ? (
+          <Suspense fallback={null}><ResourceLibrarySidebar /></Suspense>
+        ) : (
           <Sidebar
             activeView={activeView}
             onOpenTerminal={onOpenTerminal}

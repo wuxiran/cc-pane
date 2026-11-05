@@ -36,11 +36,6 @@ vi.mock("@/services/popupWindowService", () => ({
   getPoppedTabs: vi.fn(() => []),
 }));
 
-vi.mock("@/components/settings/ProjectMcpSection", () => ({
-  default: ({ projectPath }: { projectPath: string }) => (
-    <div data-testid="mcp-config" data-project-path={projectPath} />
-  ),
-}));
 vi.mock("@/components/skill/ProjectSkillsManager", () => ({
   default: () => <div data-testid="skill-manager" />,
 }));
@@ -147,15 +142,6 @@ describe("TabContentRenderer", () => {
     expect(editor).toHaveAttribute("data-file-path", "/tmp/proj/a.ts");
     expect(editor).toHaveAttribute("data-tab-id", "tab-1");
     expect(editor).toHaveAttribute("data-pane-id", "pane-1");
-  });
-
-  it("renders the MCP config panel for an mcp-config tab", async () => {
-    renderContent(makeTab({ contentType: "mcp-config" }));
-
-    expect(await screen.findByTestId("mcp-config")).toHaveAttribute(
-      "data-project-path",
-      "/tmp/proj"
-    );
   });
 
   it("renders skill and memory managers for their tab types", async () => {

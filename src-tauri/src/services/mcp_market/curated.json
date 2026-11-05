@@ -1,0 +1,487 @@
+[
+ {
+  "id": "context7",
+  "name": "context7",
+  "title": "Context7",
+  "publisher": "Upstash",
+  "icon": "https://github.com/upstash.png?size=96",
+  "homepage": "https://context7.com",
+  "transport": "http",
+  "signIn": false,
+  "description": "Up-to-date documentation and code examples for any library, straight into the prompt.",
+  "descriptionZh": "任意库的最新文档与代码示例，直接送进提示词。",
+  "inputs": [
+   {
+    "key": "CONTEXT7_API_KEY",
+    "where": "header",
+    "label": "API key",
+    "description": "Optional — raises the rate limit. From context7.com/dashboard",
+    "secret": true,
+    "format": "{}"
+   }
+  ],
+  "url": "https://mcp.context7.com/mcp"
+ },
+ {
+  "id": "playwright",
+  "name": "playwright",
+  "title": "Playwright",
+  "publisher": "Microsoft",
+  "icon": "https://playwright.dev/img/playwright-logo.svg",
+  "homepage": "https://github.com/microsoft/playwright-mcp",
+  "transport": "stdio",
+  "runs": "npx",
+  "description": "Drive a real browser: open pages, click, type and read them through the accessibility tree.",
+  "descriptionZh": "驱动真实浏览器：打开页面、点击、输入，并通过无障碍树读取页面。",
+  "inputs": [],
+  "command": "npx",
+  "args": [
+   "-y",
+   "@playwright/mcp@latest"
+  ]
+ },
+ {
+  "id": "chrome-devtools",
+  "name": "chrome-devtools",
+  "title": "Chrome DevTools",
+  "publisher": "Google",
+  "icon": "https://github.com/ChromeDevTools.png?size=96",
+  "homepage": "https://github.com/ChromeDevTools/chrome-devtools-mcp",
+  "transport": "stdio",
+  "runs": "npx",
+  "description": "Control and inspect a live Chrome: console, network, performance traces and screenshots.",
+  "descriptionZh": "控制并检查运行中的 Chrome：控制台、网络、性能追踪和截图。",
+  "inputs": [],
+  "command": "npx",
+  "args": [
+   "-y",
+   "chrome-devtools-mcp@latest"
+  ]
+ },
+ {
+  "id": "github",
+  "name": "github",
+  "title": "GitHub",
+  "publisher": "GitHub",
+  "icon": "https://github.com/github.png?size=96",
+  "homepage": "https://github.com/github/github-mcp-server",
+  "transport": "http",
+  "signIn": false,
+  "description": "Repositories, issues, pull requests, Actions and code search on GitHub.",
+  "descriptionZh": "GitHub 上的仓库、Issue、PR、Actions 和代码搜索。",
+  "inputs": [
+   {
+    "key": "Authorization",
+    "where": "header",
+    "label": "Personal access token",
+    "description": "github.com/settings/personal-access-tokens",
+    "placeholder": "github_pat_…",
+    "secret": true,
+    "required": true,
+    "format": "Bearer {}"
+   }
+  ],
+  "url": "https://api.githubcopilot.com/mcp/"
+ },
+ {
+  "id": "deepwiki",
+  "name": "deepwiki",
+  "title": "DeepWiki",
+  "publisher": "Cognition",
+  "icon": "https://github.com/CognitionAI.png?size=96",
+  "homepage": "https://deepwiki.com",
+  "transport": "http",
+  "signIn": false,
+  "description": "Ask questions about any public GitHub repository and read its generated wiki.",
+  "descriptionZh": "就任意公开 GitHub 仓库提问，并阅读自动生成的 Wiki。",
+  "inputs": [],
+  "url": "https://mcp.deepwiki.com/mcp"
+ },
+ {
+  "id": "exa",
+  "name": "exa",
+  "title": "Exa",
+  "publisher": "Exa",
+  "icon": "https://github.com/exa-labs.png?size=96",
+  "homepage": "https://docs.exa.ai/reference/exa-mcp",
+  "transport": "http",
+  "signIn": false,
+  "description": "Web search and code search built for agents, with clean page contents.",
+  "descriptionZh": "为 Agent 打造的网页与代码搜索，返回干净的页面内容。",
+  "inputs": [],
+  "url": "https://mcp.exa.ai/mcp"
+ },
+ {
+  "id": "anysearch",
+  "name": "anysearch",
+  "title": "AnySearch",
+  "publisher": "AnySearch",
+  "icon": "https://github.com/anysearch-ai.png?size=96",
+  "homepage": "https://github.com/anysearch-ai/anysearch-mcp-server",
+  "transport": "http",
+  "signIn": false,
+  "description": "Real-time web search, vertical searches (finance, papers, code, security and more) and full pages as Markdown.",
+  "descriptionZh": "实时网页搜索、垂直搜索（金融、论文、代码、安全等）以及整页内容转 Markdown。",
+  "inputs": [
+   {
+    "key": "Authorization",
+    "where": "header",
+    "label": "API key",
+    "description": "Optional — raises the rate limit. From anysearch.com/console/api-keys",
+    "placeholder": "as_sk_…",
+    "secret": true,
+    "format": "Bearer {}"
+   }
+  ],
+  "url": "https://api.anysearch.com/mcp"
+ },
+ {
+  "id": "filesystem",
+  "name": "filesystem",
+  "title": "Filesystem",
+  "publisher": "Model Context Protocol",
+  "icon": "https://github.com/modelcontextprotocol.png?size=96",
+  "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+  "transport": "stdio",
+  "runs": "npx",
+  "description": "Read, write and search files, limited to the folders you allow.",
+  "descriptionZh": "读、写、搜索文件，仅限你允许的文件夹。",
+  "inputs": [
+   {
+    "key": "dir",
+    "where": "arg",
+    "label": "Folder",
+    "description": "The folder it may read and write",
+    "placeholder": "/path/to/code",
+    "required": true
+   }
+  ],
+  "command": "npx",
+  "args": [
+   "-y",
+   "@modelcontextprotocol/server-filesystem"
+  ]
+ },
+ {
+  "id": "fetch",
+  "name": "fetch",
+  "title": "Fetch",
+  "publisher": "Model Context Protocol",
+  "icon": "https://github.com/modelcontextprotocol.png?size=96",
+  "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
+  "transport": "stdio",
+  "runs": "uvx",
+  "description": "Fetch a web page and hand it over as Markdown.",
+  "descriptionZh": "抓取网页并以 Markdown 返回。",
+  "inputs": [],
+  "command": "uvx",
+  "args": [
+   "mcp-server-fetch"
+  ]
+ },
+ {
+  "id": "memory",
+  "name": "memory",
+  "title": "Memory",
+  "publisher": "Model Context Protocol",
+  "icon": "https://github.com/modelcontextprotocol.png?size=96",
+  "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
+  "transport": "stdio",
+  "runs": "npx",
+  "description": "A knowledge graph the agent keeps across conversations.",
+  "descriptionZh": "Agent 跨对话保留的知识图谱。",
+  "inputs": [],
+  "command": "npx",
+  "args": [
+   "-y",
+   "@modelcontextprotocol/server-memory"
+  ]
+ },
+ {
+  "id": "sequential-thinking",
+  "name": "sequential-thinking",
+  "title": "Sequential Thinking",
+  "publisher": "Model Context Protocol",
+  "icon": "https://github.com/modelcontextprotocol.png?size=96",
+  "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
+  "transport": "stdio",
+  "runs": "npx",
+  "description": "Think a problem through step by step, revising and branching as it goes.",
+  "descriptionZh": "逐步思考问题，可随时修正和分支。",
+  "inputs": [],
+  "command": "npx",
+  "args": [
+   "-y",
+   "@modelcontextprotocol/server-sequential-thinking"
+  ]
+ },
+ {
+  "id": "git",
+  "name": "git",
+  "title": "Git",
+  "publisher": "Model Context Protocol",
+  "icon": "https://github.com/modelcontextprotocol.png?size=96",
+  "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/git",
+  "transport": "stdio",
+  "runs": "uvx",
+  "description": "Read, search and change Git repositories.",
+  "descriptionZh": "读取、搜索和修改 Git 仓库。",
+  "inputs": [],
+  "command": "uvx",
+  "args": [
+   "mcp-server-git"
+  ]
+ },
+ {
+  "id": "time",
+  "name": "time",
+  "title": "Time",
+  "publisher": "Model Context Protocol",
+  "icon": "https://github.com/modelcontextprotocol.png?size=96",
+  "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/time",
+  "transport": "stdio",
+  "runs": "uvx",
+  "description": "The current time anywhere, and conversions between time zones.",
+  "descriptionZh": "任意地点的当前时间，以及时区换算。",
+  "inputs": [],
+  "command": "uvx",
+  "args": [
+   "mcp-server-time"
+  ]
+ },
+ {
+  "id": "sentry",
+  "name": "sentry",
+  "title": "Sentry",
+  "publisher": "Sentry",
+  "icon": "https://github.com/getsentry.png?size=96",
+  "homepage": "https://docs.sentry.io/product/sentry-mcp/",
+  "transport": "http",
+  "signIn": true,
+  "description": "Issues, errors and traces from Sentry, and Seer's analysis of them.",
+  "descriptionZh": "来自 Sentry 的问题、错误和追踪，以及 Seer 的分析。",
+  "inputs": [],
+  "url": "https://mcp.sentry.dev/mcp"
+ },
+ {
+  "id": "linear",
+  "name": "linear",
+  "title": "Linear",
+  "publisher": "Linear",
+  "icon": "https://github.com/linear.png?size=96",
+  "homepage": "https://linear.app/docs/mcp",
+  "transport": "http",
+  "signIn": true,
+  "description": "Find, create and update Linear issues, projects and comments.",
+  "descriptionZh": "查找、创建和更新 Linear 的 Issue、项目和评论。",
+  "inputs": [],
+  "url": "https://mcp.linear.app/mcp"
+ },
+ {
+  "id": "notion",
+  "name": "notion",
+  "title": "Notion",
+  "publisher": "Notion",
+  "icon": "https://github.com/makenotion.png?size=96",
+  "homepage": "https://developers.notion.com/docs/mcp",
+  "transport": "http",
+  "signIn": true,
+  "description": "Search, read and write pages and databases in your Notion workspace.",
+  "descriptionZh": "搜索、读写 Notion 工作区里的页面和数据库。",
+  "inputs": [],
+  "url": "https://mcp.notion.com/mcp"
+ },
+ {
+  "id": "atlassian",
+  "name": "atlassian",
+  "title": "Atlassian",
+  "publisher": "Atlassian",
+  "icon": "https://github.com/atlassian.png?size=96",
+  "homepage": "https://www.atlassian.com/platform/remote-mcp-server",
+  "transport": "http",
+  "signIn": true,
+  "description": "Jira issues and Confluence pages from Atlassian Cloud.",
+  "descriptionZh": "Atlassian Cloud 上的 Jira Issue 和 Confluence 页面。",
+  "inputs": [],
+  "url": "https://mcp.atlassian.com/v1/mcp"
+ },
+ {
+  "id": "supabase",
+  "name": "supabase",
+  "title": "Supabase",
+  "publisher": "Supabase",
+  "icon": "https://github.com/supabase.png?size=96",
+  "homepage": "https://supabase.com/docs/guides/getting-started/mcp",
+  "transport": "http",
+  "signIn": true,
+  "description": "Manage Supabase projects: tables, SQL, migrations, logs and edge functions.",
+  "descriptionZh": "管理 Supabase 项目：表、SQL、迁移、日志和 Edge Functions。",
+  "inputs": [],
+  "url": "https://mcp.supabase.com/mcp"
+ },
+ {
+  "id": "stripe",
+  "name": "stripe",
+  "title": "Stripe",
+  "publisher": "Stripe",
+  "icon": "https://github.com/stripe.png?size=96",
+  "homepage": "https://docs.stripe.com/mcp",
+  "transport": "http",
+  "signIn": true,
+  "description": "Customers, payments, subscriptions and Stripe's documentation.",
+  "descriptionZh": "客户、支付、订阅以及 Stripe 文档。",
+  "inputs": [],
+  "url": "https://mcp.stripe.com"
+ },
+ {
+  "id": "vercel",
+  "name": "vercel",
+  "title": "Vercel",
+  "publisher": "Vercel",
+  "icon": "https://github.com/vercel.png?size=96",
+  "homepage": "https://vercel.com/docs/mcp/vercel-mcp",
+  "transport": "http",
+  "signIn": true,
+  "description": "Projects, deployments and logs on Vercel, and its documentation.",
+  "descriptionZh": "Vercel 上的项目、部署和日志，以及它的文档。",
+  "inputs": [],
+  "url": "https://mcp.vercel.com"
+ },
+ {
+  "id": "neon",
+  "name": "neon",
+  "title": "Neon",
+  "publisher": "Neon",
+  "icon": "https://github.com/neondatabase.png?size=96",
+  "homepage": "https://neon.com/docs/ai/neon-mcp-server",
+  "transport": "http",
+  "signIn": true,
+  "description": "Serverless Postgres on Neon: projects, branches and SQL.",
+  "descriptionZh": "Neon 上的 Serverless Postgres：项目、分支和 SQL。",
+  "inputs": [],
+  "url": "https://mcp.neon.tech/mcp"
+ },
+ {
+  "id": "cloudflare-docs",
+  "name": "cloudflare-docs",
+  "title": "Cloudflare Docs",
+  "publisher": "Cloudflare",
+  "icon": "https://github.com/cloudflare.png?size=96",
+  "homepage": "https://github.com/cloudflare/mcp-server-cloudflare",
+  "transport": "http",
+  "signIn": false,
+  "description": "Search Cloudflare's documentation.",
+  "descriptionZh": "搜索 Cloudflare 文档。",
+  "inputs": [],
+  "url": "https://docs.mcp.cloudflare.com/mcp"
+ },
+ {
+  "id": "microsoft-learn",
+  "name": "microsoft-learn",
+  "title": "Microsoft Learn",
+  "publisher": "Microsoft",
+  "icon": "https://github.com/microsoft.png?size=96",
+  "homepage": "https://github.com/MicrosoftDocs/mcp",
+  "transport": "http",
+  "signIn": false,
+  "description": "Official Microsoft and Azure documentation and code samples.",
+  "descriptionZh": "微软和 Azure 官方文档与代码示例。",
+  "inputs": [],
+  "url": "https://learn.microsoft.com/api/mcp"
+ },
+ {
+  "id": "huggingface",
+  "name": "huggingface",
+  "title": "Hugging Face",
+  "publisher": "Hugging Face",
+  "icon": "https://github.com/huggingface.png?size=96",
+  "homepage": "https://huggingface.co/settings/mcp",
+  "transport": "http",
+  "signIn": false,
+  "description": "Search models, datasets, Spaces and papers on the Hugging Face Hub.",
+  "descriptionZh": "搜索 Hugging Face Hub 上的模型、数据集、Spaces 和论文。",
+  "inputs": [],
+  "url": "https://huggingface.co/mcp"
+ },
+ {
+  "id": "brave-search",
+  "name": "brave-search",
+  "title": "Brave Search",
+  "publisher": "Brave",
+  "icon": "https://github.com/brave.png?size=96",
+  "homepage": "https://github.com/brave/brave-search-mcp-server",
+  "transport": "stdio",
+  "runs": "npx",
+  "description": "Web, news, image and local search from Brave's independent index.",
+  "descriptionZh": "来自 Brave 独立索引的网页、新闻、图片和本地搜索。",
+  "inputs": [
+   {
+    "key": "BRAVE_API_KEY",
+    "where": "env",
+    "label": "API key",
+    "description": "brave.com/search/api",
+    "secret": true,
+    "required": true
+   }
+  ],
+  "command": "npx",
+  "args": [
+   "-y",
+   "@brave/brave-search-mcp-server"
+  ]
+ },
+ {
+  "id": "firecrawl",
+  "name": "firecrawl",
+  "title": "Firecrawl",
+  "publisher": "Firecrawl",
+  "icon": "https://github.com/firecrawl.png?size=96",
+  "homepage": "https://github.com/firecrawl/firecrawl-mcp-server",
+  "transport": "stdio",
+  "runs": "npx",
+  "description": "Scrape, crawl and search the web into clean Markdown.",
+  "descriptionZh": "抓取、爬取和搜索网页，输出干净的 Markdown。",
+  "inputs": [
+   {
+    "key": "FIRECRAWL_API_KEY",
+    "where": "env",
+    "label": "API key",
+    "description": "firecrawl.dev/app/api-keys",
+    "secret": true,
+    "required": true
+   }
+  ],
+  "command": "npx",
+  "args": [
+   "-y",
+   "firecrawl-mcp"
+  ]
+ },
+ {
+  "id": "tavily",
+  "name": "tavily",
+  "title": "Tavily",
+  "publisher": "Tavily",
+  "icon": "https://github.com/tavily-ai.png?size=96",
+  "homepage": "https://github.com/tavily-ai/tavily-mcp",
+  "transport": "stdio",
+  "runs": "npx",
+  "description": "Search and extract from the web with Tavily.",
+  "descriptionZh": "用 Tavily 搜索和提取网页内容。",
+  "inputs": [
+   {
+    "key": "TAVILY_API_KEY",
+    "where": "env",
+    "label": "API key",
+    "description": "app.tavily.com",
+    "secret": true,
+    "required": true
+   }
+  ],
+  "command": "npx",
+  "args": [
+   "-y",
+   "tavily-mcp"
+  ]
+ }
+]

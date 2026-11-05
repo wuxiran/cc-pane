@@ -12,6 +12,7 @@ export type AppViewMode =
   | "providers"
   | "dramaGen"
   | "skillMarket"
+  | "resources"
   | "orchestration";
 
 /** 受实验开关门禁的全屏模式 → 对应开关。 */
@@ -51,6 +52,7 @@ interface ActivityBarState {
   toggleProvidersMode: () => void;
   toggleDramaGenMode: () => void;
   toggleSkillMarketMode: () => void;
+  toggleResourcesMode: () => void;
 }
 
 export const useActivityBarStore = create<ActivityBarState>()(
@@ -197,6 +199,18 @@ export const useActivityBarStore = create<ActivityBarState>()(
           if (!leaving && !gatedModeEnabled("skillMarket")) return {};
           return {
             appViewMode: leaving ? "panes" : "skillMarket",
+            orchestrationOverlayOpen: false,
+          };
+        }),
+
+      // 资源库保留侧栏（放三个子页）；从编排态进入时要把 activeView 还原，否则侧栏不显示。
+      toggleResourcesMode: () =>
+        set((s) => {
+          const leaving = s.appViewMode === "resources";
+          return {
+            appViewMode: leaving ? "panes" : "resources",
+            activeView: s.activeView === "orchestration" ? "explorer" : s.activeView,
+            sidebarVisible: true,
             orchestrationOverlayOpen: false,
           };
         }),

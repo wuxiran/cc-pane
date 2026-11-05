@@ -4,7 +4,8 @@
 //! 由 CC-Panes 统一管理子进程的启动/停止/健康检查。
 
 use crate::models::shared_mcp::{
-    BridgeMode, SharedMcpConfig, SharedMcpServerConfig, SharedMcpServerInfo, SharedMcpServerStatus,
+    BridgeMode, SharedMcpConfig, SharedMcpRemote, SharedMcpServerConfig, SharedMcpServerInfo,
+    SharedMcpServerStatus,
 };
 use crate::utils::AppPaths;
 use cc_cli_adapters::no_window_command;
@@ -47,6 +48,117 @@ pub struct SharedMcpService {
     health_check_stop: Arc<AtomicBool>,
     /// 健康检查线程句柄，stop 时 unpark 让它不必等满一个检查间隔。
     health_check_thread: Mutex<Option<std::thread::Thread>>,
+}
+
+/// Agent 自己配置文件里的一条 MCP（只读展示用）
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMcpServer {
+    pub name: String,
+    /// 配了它的 Agent，如 `claude`、`codex`
+    pub agents: Vec<String>,
+    pub transport: String,
+    pub command: Option<String>,
+    pub args: Vec<String>,
+    pub url: Option<String>,
+    pub env_keys: Vec<String>,
+}
+
+/// 一条未归一的 Agent 配置：`(agent, name, 原始定义)`
+type RawAgentServer = (&'static str, String, serde_json::Value);
+
+fn claude_raw_servers(content: &str) -> Result<Vec<RawAgentServer>, String> {
+    let parsed: serde_json::Value = serde_json::from_str(content)
+        .map_err(|e| format!("Failed to parse ~/.claude.json: {}", e))?;
+    Ok(parsed
+        .get("mcpServers")
+        .and_then(|v| v.as_object())
+        .map(|servers| {
+            servers
+                .iter()
+                .map(|(name, value)| ("claude", name.clone(), value.clone()))
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+fn codex_raw_servers(content: &str) -> Result<Vec<RawAgentServer>, String> {
+    let parsed: toml::Value = toml::from_str(content)
+        .map_err(|e| format!("Failed to parse ~/.codex/config.toml: {}", e))?;
+    Ok(parsed
+        .get("mcp_servers")
+        .and_then(|v| v.as_table())
+        .map(|servers| {
+            servers
+                .iter()
+                .filter_map(|(name, value)| {
+                    Some(("codex", name.clone(), serde_json::to_value(value).ok()?))
+                })
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+fn raw_text(value: &serde_json::Value, key: &str) -> Option<String> {
+    value.get(key).and_then(|v| v.as_str()).map(str::to_string)
+}
+
+fn raw_args(value: &serde_json::Value) -> Vec<String> {
+    value
+        .get("args")
+        .and_then(|v| v.as_array())
+        .map(|args| {
+            args.iter()
+                .filter_map(|arg| arg.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn raw_string_map(value: &serde_json::Value, keys: &[&str]) -> HashMap<String, String> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(|v| v.as_object()))
+        .map(|map| {
+            map.iter()
+                .filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string())))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn raw_transport(value: &serde_json::Value) -> String {
+    let default = if value.get("url").is_some() {
+        "http"
+    } else {
+        "stdio"
+    };
+    raw_text(value, "type").unwrap_or_else(|| default.to_string())
+}
+
+/// 按名称合并；同名的第一条作展示，并记下所有配了它的 Agent。环境变量只留键名。
+fn merge_agent_servers(raw: Vec<RawAgentServer>) -> Vec<AgentMcpServer> {
+    let mut merged: Vec<AgentMcpServer> = Vec::new();
+    for (agent, name, value) in raw {
+        if let Some(existing) = merged.iter_mut().find(|server| server.name == name) {
+            if !existing.agents.iter().any(|item| item == agent) {
+                existing.agents.push(agent.to_string());
+            }
+            continue;
+        }
+        let mut env_keys: Vec<String> = raw_string_map(&value, &["env"]).into_keys().collect();
+        env_keys.sort();
+        merged.push(AgentMcpServer {
+            name,
+            agents: vec![agent.to_string()],
+            transport: raw_transport(&value),
+            command: raw_text(&value, "command"),
+            args: raw_args(&value),
+            url: raw_text(&value, "url"),
+            env_keys,
+        });
+    }
+    merged.sort_by(|a, b| a.name.cmp(&b.name));
+    merged
 }
 
 impl SharedMcpService {
@@ -105,14 +217,21 @@ impl SharedMcpService {
 
     /// 添加或更新一个 server 配置
     pub fn upsert_server(&self, name: &str, server: SharedMcpServerConfig) -> Result<(), String> {
-        {
+        let involves_remote = {
             let mut config = self
                 .config
                 .lock()
                 .map_err(|e| format!("Lock error: {}", e))?;
-            config.servers.insert(name.to_string(), server);
+            let remote = server.remote.is_some();
+            let previous = config.servers.insert(name.to_string(), server);
+            remote || previous.is_some_and(|old| old.remote.is_some())
+        };
+        self.save_config()?;
+        // 远程 MCP 不经过 start_server / stop_server，地址变化要在这里推给 daemon
+        if involves_remote {
+            self.notify_running_changed();
         }
-        self.save_config()
+        Ok(())
     }
 
     /// 原子导入一个 server（供一键导入）：在**同一把锁**内校验重名 + 在端口范围内找空位 +
@@ -154,6 +273,7 @@ impl SharedMcpService {
                     shared: false,
                     port,
                     bridge_mode: BridgeMode::McpProxy,
+                    remote: None,
                 },
             );
             port
@@ -165,14 +285,19 @@ impl SharedMcpService {
     /// 删除一个 server 配置（先停止运行中的进程）
     pub fn remove_server(&self, name: &str) -> Result<(), String> {
         self.stop_server(name);
-        {
+        let removed = {
             let mut config = self
                 .config
                 .lock()
                 .map_err(|e| format!("Lock error: {}", e))?;
-            config.servers.remove(name);
+            config.servers.remove(name)
+        };
+        self.save_config()?;
+        // 否则 daemon 手里还留着旧地址，新会话会继续连一个已删除的远程 MCP
+        if removed.is_some_and(|old| old.remote.is_some()) {
+            self.notify_running_changed();
         }
-        self.save_config()
+        Ok(())
     }
 
     /// 获取当前配置
@@ -279,6 +404,11 @@ impl SharedMcpService {
             .ok_or_else(|| format!("Server '{}' not found in config", name))?
             .clone();
 
+        // 远程 MCP 没有本地进程，启动档开了就能注入
+        if server_config.remote.is_some() {
+            return Ok(());
+        }
+
         let (child, stdin) = self.spawn_server_process(name, &server_config)?;
         let pid = child.id();
 
@@ -336,6 +466,21 @@ impl SharedMcpService {
             .servers
             .iter()
             .map(|(name, server_config)| {
+                if let Some(remote) = &server_config.remote {
+                    return SharedMcpServerInfo {
+                        name: name.clone(),
+                        config: server_config.clone(),
+                        status: if server_config.shared {
+                            SharedMcpServerStatus::Running
+                        } else {
+                            SharedMcpServerStatus::Stopped
+                        },
+                        pid: None,
+                        url: Some(remote.url.clone()),
+                        restart_count: 0,
+                    };
+                }
+
                 let (status, pid, restart_count) = running
                     .as_ref()
                     .and_then(|r| r.get(name))
@@ -366,9 +511,17 @@ impl SharedMcpService {
         let config = self.get_config();
         let running = self.running.lock().ok();
 
-        let mut urls = HashMap::new();
+        let mut urls: HashMap<String, String> = config
+            .servers
+            .iter()
+            .filter(|(_, server)| server.shared)
+            .filter_map(|(name, server)| Some((name.clone(), server.remote.as_ref()?.url.clone())))
+            .collect();
         if let Some(ref running) = running {
             for (name, server_config) in &config.servers {
+                if server_config.remote.is_some() {
+                    continue;
+                }
                 // 只注入状态确为 Running 的 server：熔断/失败的死进程仍留在
                 // running map 里供 UI 展示，仅凭 contains_key 会把死端点
                 // 注入新会话。
@@ -555,6 +708,81 @@ impl SharedMcpService {
 
     // ========== 导入 ==========
 
+    /// 读 Agent 配置里的 MCP。文件不存在算空；解析失败只跳过那一家并记日志，不影响另一家。
+    fn raw_agent_servers(&self) -> Result<Vec<RawAgentServer>, String> {
+        let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
+        let mut raw = Vec::new();
+        type Parser = fn(&str) -> Result<Vec<RawAgentServer>, String>;
+        let sources: [(std::path::PathBuf, Parser); 2] = [
+            (home.join(".claude.json"), claude_raw_servers),
+            (home.join(".codex").join("config.toml"), codex_raw_servers),
+        ];
+        for (path, parse) in sources {
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            match parse(&content) {
+                Ok(mut servers) => raw.append(&mut servers),
+                Err(error) => warn!("[shared-mcp] {}", error),
+            }
+        }
+        Ok(raw)
+    }
+
+    /// 只读列出 Agent 配置里还没进资源库的 MCP；环境变量不会送到前端。
+    pub fn list_agent_servers(&self) -> Result<Vec<AgentMcpServer>, String> {
+        let library = self.get_config();
+        let raw = self
+            .raw_agent_servers()?
+            .into_iter()
+            .filter(|(_, name, _)| !library.servers.contains_key(name))
+            .collect();
+        Ok(merge_agent_servers(raw))
+    }
+
+    /// 把 Agent 配置里的一条 MCP 导入共享层，不改动 Agent 的配置文件。
+    pub fn import_agent_server(&self, name: &str) -> Result<(), String> {
+        let (_, _, value) = self
+            .raw_agent_servers()?
+            .into_iter()
+            .find(|(_, candidate, _)| candidate == name)
+            .ok_or_else(|| format!("Agent config has no MCP named '{}'", name))?;
+        let transport = raw_transport(&value);
+        let remote = raw_text(&value, "url").map(|url| SharedMcpRemote {
+            url,
+            transport: if transport == "sse" { "sse" } else { "http" }.to_string(),
+            headers: raw_string_map(&value, &["headers", "http_headers"]),
+        });
+        if remote.is_none() && raw_text(&value, "command").is_none() {
+            return Err(format!("MCP '{}' has neither a command nor a URL", name));
+        }
+        let config = self.get_config();
+        if config.servers.contains_key(name) {
+            return Err(format!("Shared MCP '{}' already exists", name));
+        }
+        let port = if remote.is_some() {
+            0
+        } else {
+            let used: std::collections::HashSet<u16> =
+                config.servers.values().map(|s| s.port).collect();
+            (config.port_range_start..=config.port_range_end)
+                .find(|port| !used.contains(port))
+                .ok_or("No free shared MCP port")?
+        };
+        self.upsert_server(
+            name,
+            SharedMcpServerConfig {
+                command: raw_text(&value, "command").unwrap_or_default(),
+                args: raw_args(&value),
+                env: raw_string_map(&value, &["env"]),
+                shared: true,
+                port,
+                bridge_mode: BridgeMode::default(),
+                remote,
+            },
+        )
+    }
+
     /// 从 ~/.claude.json 的 mcpServers 导入
     pub fn import_from_claude_json(&self) -> Result<Vec<String>, String> {
         let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
@@ -635,6 +863,7 @@ impl SharedMcpService {
                 shared: false, // 导入后默认不启用，需手动开启
                 port: next_port,
                 bridge_mode: BridgeMode::McpProxy,
+                remote: None,
             };
 
             if let Err(e) = self.upsert_server(name, server) {
@@ -895,6 +1124,7 @@ mod tests {
             shared: true,
             port: 3100,
             bridge_mode: BridgeMode::McpProxy,
+            remote: None,
         };
 
         let (command, args) = SharedMcpService::build_mcp_proxy_invocation(&server);
@@ -925,6 +1155,7 @@ mod tests {
             shared: true,
             port: 3100,
             bridge_mode: BridgeMode::McpProxy,
+            remote: None,
         };
         let (command, args) = if cfg!(windows) {
             (
@@ -966,6 +1197,7 @@ mod tests {
             shared: true,
             port: 3100,
             bridge_mode: BridgeMode::McpProxy,
+            remote: None,
         };
 
         svc.upsert_server("test", server.clone()).unwrap();
@@ -990,6 +1222,7 @@ mod tests {
             shared: true,
             port: 3101,
             bridge_mode: BridgeMode::NativeHttp,
+            remote: None,
         };
         svc.upsert_server("my-server", server).unwrap();
 
@@ -1043,6 +1276,7 @@ mod tests {
                 shared: true,
                 port: 3199,
                 bridge_mode: BridgeMode::NativeHttp,
+                remote: None,
             },
         )
         .expect("configure callback server");
@@ -1094,6 +1328,7 @@ mod tests {
                 shared: true,
                 port: 3198,
                 bridge_mode: BridgeMode::NativeHttp,
+                remote: None,
             },
         )
         .unwrap();
@@ -1130,6 +1365,117 @@ mod tests {
         svc.start_server("flaky")
             .expect("failed runtime must be reclaimed");
         svc.stop_server("flaky");
+    }
+
+    #[test]
+    fn agent_servers_merge_by_name_and_hide_env_values() {
+        let mut raw = claude_raw_servers(
+            r#"{"mcpServers":{
+                "zeta":{"url":"https://example.com/mcp"},
+                "alpha":{"command":"npx","args":["-y","pkg"],"env":{"TOKEN":"secret"}}
+            }}"#,
+        )
+        .unwrap();
+        raw.extend(
+            codex_raw_servers(
+                r#"
+[mcp_servers.alpha]
+command = "other"
+[mcp_servers.beta]
+url = "https://b.example/mcp"
+"#,
+            )
+            .unwrap(),
+        );
+        let list = merge_agent_servers(raw);
+        assert_eq!(
+            list.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+            vec!["alpha", "beta", "zeta"]
+        );
+        assert_eq!(list[0].agents, vec!["claude", "codex"]);
+        assert_eq!(list[0].env_keys, vec!["TOKEN".to_string()]);
+        assert!(!format!("{:?}", list[0]).contains("secret"));
+        assert_eq!(list[1].transport, "http");
+        assert_eq!(list[2].agents, vec!["claude"]);
+    }
+
+    #[test]
+    fn agent_servers_without_section_is_empty() {
+        assert!(claude_raw_servers("{}").unwrap().is_empty());
+        assert!(claude_raw_servers("not json").is_err());
+        assert!(codex_raw_servers("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn remote_server_is_injected_without_a_process() {
+        let (_tmp, paths) = test_paths();
+        let svc = SharedMcpService::new(&paths);
+        svc.upsert_server(
+            "ctx",
+            SharedMcpServerConfig {
+                command: String::new(),
+                args: vec![],
+                env: HashMap::new(),
+                shared: true,
+                port: 0,
+                bridge_mode: BridgeMode::default(),
+                remote: Some(SharedMcpRemote {
+                    url: "https://mcp.example/mcp".to_string(),
+                    transport: "http".to_string(),
+                    headers: HashMap::new(),
+                }),
+            },
+        )
+        .unwrap();
+        svc.start_server("ctx").unwrap();
+        assert_eq!(
+            svc.get_running_servers_urls()
+                .get("ctx")
+                .map(String::as_str),
+            Some("https://mcp.example/mcp")
+        );
+        let status = svc.get_all_status();
+        assert_eq!(status[0].status, SharedMcpServerStatus::Running);
+        assert_eq!(status[0].pid, None);
+    }
+
+    #[test]
+    fn remote_changes_notify_daemon_but_local_upserts_do_not() {
+        let (_tmp, paths) = test_paths();
+        let svc = SharedMcpService::new(&paths);
+        let observed: Arc<Mutex<Vec<HashMap<String, String>>>> = Arc::default();
+        let sink = observed.clone();
+        svc.set_on_running_changed(move |urls| sink.lock().unwrap().push(urls));
+        let server = |remote: Option<SharedMcpRemote>| SharedMcpServerConfig {
+            command: "npx".to_string(),
+            args: vec![],
+            env: HashMap::new(),
+            shared: true,
+            port: 3100,
+            bridge_mode: BridgeMode::default(),
+            remote,
+        };
+
+        svc.upsert_server("local", server(None)).unwrap();
+        assert!(observed.lock().unwrap().is_empty());
+
+        let remote = SharedMcpRemote {
+            url: "https://mcp.example/mcp".to_string(),
+            transport: "http".to_string(),
+            headers: HashMap::new(),
+        };
+        svc.upsert_server("ctx", server(Some(remote))).unwrap();
+        assert!(observed.lock().unwrap().last().unwrap().contains_key("ctx"));
+
+        svc.remove_server("ctx").unwrap();
+        assert!(!observed.lock().unwrap().last().unwrap().contains_key("ctx"));
+    }
+
+    #[test]
+    fn old_config_without_remote_field_still_loads() {
+        let config: SharedMcpServerConfig =
+            serde_json::from_str(r#"{"command":"npx","port":3100}"#).unwrap();
+        assert!(config.remote.is_none());
     }
 
     #[test]

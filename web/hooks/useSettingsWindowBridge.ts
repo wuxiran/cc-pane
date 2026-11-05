@@ -7,6 +7,7 @@ import {
   type SettingsWindowAction,
 } from "@/services/settingsWindowService";
 import { useDialogStore, usePanesStore, useSettingsStore, useThemeStore } from "@/stores";
+import { openResourceLibrary } from "@/stores/useResourceLibraryStore";
 import { useDescriptionLangStore } from "@/stores/useDescriptionLangStore";
 import { UI_DENSITY_STORAGE_KEY, useDensityStore } from "@/stores/useDensityStore";
 import { useModulePrefsStore } from "@/stores/useModulePrefsStore";
@@ -23,6 +24,8 @@ export function useSettingsWindowBridge(): void {
       if (action.type === "openOnboarding") useDialogStore.getState().openOnboarding();
       else if (action.type === "openSkillManager") {
         (usePanesStore.getState().openSkillManager as unknown as OpenSkillManager)(...action.args);
+      } else if (action.type === "openResourceLibrary") {
+        openResourceLibrary(action.section, action.scope);
       }
       void getCurrentWindowIfTauri()?.setFocus();
     });

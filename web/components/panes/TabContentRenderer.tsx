@@ -10,7 +10,6 @@ import TerminalTabContent from "./TerminalTabContent";
 import type { TerminalViewHandle } from "./TerminalView";
 
 // 懒加载非终端组件（lazyWithRetry：分片取回失败时自愈，见 lib/lazyRetry.ts）
-const McpConfigPanel = lazyWithRetry(() => import("@/components/settings/ProjectMcpSection"), "ProjectMcpSection");
 const ProjectSkillsManager = lazyWithRetry(() => import("@/components/skill/ProjectSkillsManager"), "ProjectSkillsManager");
 const MemoryManager = lazyWithRetry(() => import("@/components/memory/MemoryManager"), "MemoryManager");
 const FileExplorerView = lazyWithRetry(() => import("@/components/explorer/FileExplorerView"), "FileExplorerView");
@@ -196,15 +195,6 @@ export default memo(function TabContentRenderer({
     case "review":
       return <LazyContent><NotchOffset><SessionReviewContent projectPath={tab.projectPath}
         checkpointChatId={tab.reviewChatId} cliSessionId={tab.reviewCliSessionId} paneId={paneId} open={layoutActive} /></NotchOffset></LazyContent>;
-
-    case "mcp-config":
-      return (
-        <LazyContent>
-          <NotchOffset>
-            <McpConfigPanel projectPath={tab.projectPath} workspaceName={tab.workspaceName} />
-          </NotchOffset>
-        </LazyContent>
-      );
 
     case "skill-manager":
       return (

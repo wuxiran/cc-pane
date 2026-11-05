@@ -4,6 +4,7 @@ import type {
   SharedMcpServerConfig,
   SharedMcpServerInfo,
 } from "@/types";
+import type { AgentMcpServer, McpMarketResult } from "@/types/shared-mcp";
 
 export const sharedMcpService = {
   getConfig(): Promise<SharedMcpConfig> {
@@ -67,6 +68,28 @@ export const sharedMcpService = {
         body: JSON.stringify(body),
       }),
     );
+  },
+
+  listAgentServers(): Promise<AgentMcpServer[]> {
+    return invokeOrApi<AgentMcpServer[]>("list_agent_mcp_servers", undefined, () =>
+      apiGet<AgentMcpServer[]>("/api/shared-mcp/agent-servers"),
+    );
+  },
+
+  importAgentServer(name: string): Promise<void> {
+    return invokeOrApi<void>("import_agent_mcp_server", { name }, () =>
+      apiNoContent(`/api/shared-mcp/agent-servers/${encodeURIComponent(name)}/import`, { method: "POST" }),
+    );
+  },
+
+  /** 发现市场。Web 壳没有这条后端路由，返回空列表。 */
+  searchMarket(query: string): Promise<McpMarketResult> {
+    return invokeOrApi<McpMarketResult>("search_mcp_market", { query }, async () => ({ servers: [], partial: false }));
+  },
+
+  /** 市场图标的 data URL；拿不到时为 null */
+  getMarketIcon(url: string): Promise<string | null> {
+    return invokeOrApi<string | null>("get_mcp_market_icon", { url }, async () => null);
   },
 
   importFromClaude(): Promise<string[]> {

@@ -60,7 +60,7 @@ export default function PasteMcpDialog({ open, onOpenChange, layerTarget, layerL
 
   const rows = servers.map((server, index) => {
     const name = normalizeMcpName(names[index] ?? server.name);
-    const problem = pasteRowProblem({ name, url: server.url }, existing);
+    const problem = pasteRowProblem({ name, url: server.url }, existing, targetKind === "shared");
     return { server, index, name, problem, selected: !problem && !unchecked.has(index) };
   });
   const selected = rows.filter((row) => row.selected);
@@ -77,7 +77,7 @@ export default function PasteMcpDialog({ open, onOpenChange, layerTarget, layerL
         if (!sharedConfig) throw new Error(t("resourceCenter.paste.configNotReady"));
         ports = nextSharedPorts(
           sharedServers.map((server) => server.config.port),
-          selected.length,
+          selected.filter((row) => !row.server.url).length,
           { start: sharedConfig.portRangeStart, end: sharedConfig.portRangeEnd },
         );
       } catch (error) {
@@ -86,16 +86,19 @@ export default function PasteMcpDialog({ open, onOpenChange, layerTarget, layerL
         return;
       }
     }
-    for (const [position, { server, name }] of selected.entries()) {
+    let nextPort = 0;
+    for (const { server, name } of selected) {
       try {
         if (targetKind === "shared") {
+          const remote = server.url ? { url: server.url, transport: "http" as const, headers: server.headers ?? {} } : null;
           await upsertShared(name, {
             command: server.command,
             args: server.args,
             env: server.env,
             shared: true,
-            port: ports[position],
+            port: remote ? 0 : ports[nextPort++],
             bridgeMode: "mcp-proxy",
+            remote,
           });
         } else if (layerTarget) {
           await upsertLayer(layerTarget, name, server.command, server.args, server.env);

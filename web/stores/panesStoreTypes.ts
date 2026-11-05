@@ -312,13 +312,11 @@ export interface PanesState extends BrowserTabActions, ReviewTabActions {
   restoreTab: (paneId: string, tabId: string) => void;
   /** 恢复指定快照；缺省恢复最近关闭的标签。快照已不在栈中时不动作。 */
   reopenClosedTab: (paneId: string, snapshot?: ClosedTabSnapshot) => void;
-  openMcpConfig: (projectPath: string, title: string) => void;
   openSkillManager: (projectPath: string, title: string) => void;
   /** 工作空间级 Agent Skills 管理（复用 skill-manager tab，projectPath 为空 + workspaceName） */
   openWorkspaceSkillManager: (workspaceName: string, title: string) => void;
   openMemoryManager: (projectPath: string, title: string) => void;
   openWorkspaceMemoryManager: (workspaceName: string, title: string) => void;
-  openWorkspaceMcpConfig: (workspaceName: string, title: string) => void;
   openFileExplorer: (projectPath: string, title: string, options?: { paneId?: string; layoutId?: string }) => void;
   /**
    * 打开编辑器标签。`layoutId` 缺省 = 当前布局；MCP 调用方所在布局由调用者传入，

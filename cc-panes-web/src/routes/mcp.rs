@@ -295,6 +295,27 @@ pub async fn update_shared_mcp_global_config(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn list_agent_mcp_servers(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<cc_panes_core::services::AgentMcpServer>>, (StatusCode, String)> {
+    state
+        .shared_mcp_service
+        .list_agent_servers()
+        .map(Json)
+        .map_err(service_error)
+}
+
+pub async fn import_agent_mcp_server(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    state
+        .shared_mcp_service
+        .import_agent_server(&name)
+        .map_err(service_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn import_shared_mcp_from_claude(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<String>>, (StatusCode, String)> {

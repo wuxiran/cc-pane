@@ -42,7 +42,6 @@ import {
   nextToggleExternalSkill,
   nextToggleExternalSource,
   nextToggleProfileSkill,
-  nextToggleServer,
   nextToggleUserSkill,
 } from "./launchProfileSkillPolicy";
 interface LaunchProfilesPanelProps {
@@ -87,7 +86,6 @@ export default function LaunchProfilesPanel({
   const [selectedId, setSelectedId] = useState<string | null>(SYSTEM_DEFAULT_PROFILE_ID);
   const { draft, setDraft, replaceDraft, userEditedRef } = useLaunchProfileDraft(() => systemDefaultLaunchProfileDraft(resolvedInitialTool, initialRuntime, t));
   const [preview, setPreview] = useState<LaunchProfileResolution | null>(null);
-  const [mcpManagerOpen, setMcpManagerOpen] = useState(false);
   const [workspaceBindingOpen, setWorkspaceBindingOpen] = useState(false);
   const [bindingWorkspaceName, setBindingWorkspaceName] = useState<string | null>(null);
   const [workspaceFilterName, setWorkspaceFilterName] = useState(WORKSPACE_FILTER_ALL);
@@ -273,7 +271,6 @@ export default function LaunchProfilesPanel({
 
   const resetTransientState = useCallback(() => {
     setPreview(null);
-    setMcpManagerOpen(false);
     setWorkspaceBindingOpen(false);
     setBindingWorkspaceName(null);
     cancelProfileSkillEdit();
@@ -309,7 +306,7 @@ export default function LaunchProfilesPanel({
   } = useLaunchProfileNavigation({
     activeTool, draft, profiles, selectedId, toolDefaultProfile, translate: t, requestDiscard,
     resetTransientState, setSelectedId, setDraft: replaceDraft, setWorkspaceFilterName, setPreview,
-    setMcpManagerOpen, setWorkspaceBindingOpen, setBindingWorkspaceName,
+    setWorkspaceBindingOpen, setBindingWorkspaceName,
   });
 
   const handleSave = useCallback(async () => {
@@ -411,9 +408,6 @@ export default function LaunchProfilesPanel({
   };
   const setSkillMode = (mode: LaunchProfileDraft["skillPolicy"]["mode"]) => {
     setDraft((current) => nextSkillMode(current, mode, externalSkills));
-  };
-  const toggleServer = (name: string) => {
-    setDraft((current) => nextToggleServer(current, name));
   };
   const toggleSkill = (name: string) => {
     setDraft((current) => nextToggleBuiltinSkill(current, name));
@@ -524,12 +518,8 @@ export default function LaunchProfilesPanel({
             <LaunchProfileMcpCard
               draft={draft}
               setDraft={setDraft}
-              servers={servers}
-              mcpManagerOpen={mcpManagerOpen}
-              setMcpManagerOpen={setMcpManagerOpen}
               activeTool={activeTool}
               setMcpMode={setMcpMode}
-              toggleServer={toggleServer}
             />
 
             <LaunchProfileSkillCard

@@ -1,4 +1,4 @@
-import { Clapperboard, FolderTree, House, Library, Settings, Store } from "lucide-react";
+import { Boxes, Clapperboard, FolderTree, House, Library, Settings, Store } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import LayoutBar from "@/components/LayoutBar";
 import { useLibrarySpaceEntry } from "@/components/library/LibrarySpaceEntry";
@@ -196,6 +196,7 @@ export default function ActivityBar() {
   const toggleView = useActivityBarStore((state) => state.toggleView);
   const toggleDramaGenMode = useActivityBarStore((state) => state.toggleDramaGenMode);
   const toggleSkillMarketMode = useActivityBarStore((state) => state.toggleSkillMarketMode);
+  const toggleResourcesMode = useActivityBarStore((state) => state.toggleResourcesMode);
   const appViewMode = useActivityBarStore((state) => state.appViewMode);
   const orchestrationOverlayOpen = useActivityBarStore((state) => state.orchestrationOverlayOpen);
   const openSettings = useDialogStore((state) => state.openSettings);
@@ -258,6 +259,12 @@ export default function ActivityBar() {
               label={t("workspaces")}
               active={activeView === "explorer" && sidebarVisible && appViewMode === "panes"}
               onClick={() => toggleView("explorer")}
+            />
+            <ActivityBarIcon
+              icon={<Boxes className="h-[18px] w-[18px]" strokeWidth={1.5} />}
+              label={t("moduleNames.resources")}
+              active={appViewMode === "resources"}
+              onClick={toggleResourcesMode}
             />
             {librarySpaceEnabled && librarySpace.available ? (
               <ActivityBarIcon

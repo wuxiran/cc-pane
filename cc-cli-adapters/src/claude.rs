@@ -372,6 +372,14 @@ impl ClaudeAdapter {
 
         // 注入共享 MCP Server（HTTP 模式）
         for (name, url) in &ctx.shared_mcp_urls {
+            if let Some(remote) = ctx.shared_mcp_remote.get(name) {
+                let mut entry = serde_json::json!({ "type": remote.transport, "url": url });
+                if !remote.headers.is_empty() {
+                    entry["headers"] = serde_json::json!(remote.headers);
+                }
+                mcp_servers.insert(name.clone(), entry);
+                continue;
+            }
             let shared_server = serde_json::json!({
                 "type": "http",
                 "url": url
@@ -1391,6 +1399,7 @@ mod tests {
             data_dir: std::env::temp_dir(),
             shared_mcp_urls: HashMap::new(),
             shared_mcp_stdio: Default::default(),
+            shared_mcp_remote: Default::default(),
             allowed_mcp_server_ids: Vec::new(),
             disable_unlisted_mcp_servers: false,
             skill_mount_paths: Vec::new(),

@@ -197,6 +197,7 @@ use commands::{
     get_layout_switcher_state,
     // 日志命令
     get_log_dir,
+    get_mcp_market_icon,
     get_mcp_server,
     get_memory,
     get_memory_stats,
@@ -258,6 +259,7 @@ use commands::{
     handle_terminal_exit_spec,
     handle_terminal_exit_spec_by_session,
     hide_quick_terminal,
+    import_agent_mcp_server,
     import_cc_switch_providers,
     import_legacy_mcp_servers,
     import_notification_sound,
@@ -290,6 +292,7 @@ use commands::{
     list_acp_chat_history,
     list_acp_engines,
     list_acp_run_records,
+    list_agent_mcp_servers,
     list_ai_panel_history,
     list_ai_panels,
     list_all_claude_sessions,
@@ -469,6 +472,7 @@ use commands::{
     screenshot_save_image_attachment,
     screenshot_trigger,
     screenshot_update_shortcut,
+    search_mcp_market,
     // Memory 命令
     search_memory,
     search_project_contents,
@@ -575,7 +579,7 @@ use services::BrowserTabManager;
 use services::{
     DramaService, DshService, ExternalSkillRegistry, FileSystemService, HistoryService,
     HistoryWatchManager, JournalService, LaunchHistoryService, LaunchProfileService,
-    LayoutSnapshotService, McpConfigService, MemoryService, NotificationService,
+    LayoutSnapshotService, McpConfigService, McpMarketService, MemoryService, NotificationService,
     OrchestratorService, PiRpcEventBridge, PiRpcService, PlanArchiveService, PlanService,
     ProcessMonitorService, ProjectCliHooksService, ProjectContextService, ProjectService,
     ProviderService, QuickCommandService, ScreenshotService, SessionIndexService,
@@ -1856,6 +1860,9 @@ pub fn run() {
     let workspace_skill_service = Arc::new(cc_panes_core::services::WorkspaceSkillService::new(
         app_paths.clone(),
     ));
+    let mcp_market_service = Arc::new(McpMarketService::new(
+        app_paths.data_dir().join("market").join("mcp-icons"),
+    ));
     let skill_market_service = Arc::new(SkillMarketService::new(
         app_paths.skills_dir(),
         app_paths.user_skills_dir(),
@@ -2049,6 +2056,7 @@ pub fn run() {
         .manage(skill_service)
         .manage(project_skill_service)
         .manage(workspace_skill_service)
+        .manage(mcp_market_service)
         .manage(skill_market_service)
         .manage(skill_link_service)
         .manage(skill_remote_update_service)
@@ -3619,6 +3627,10 @@ pub fn run() {
             restart_shared_mcp_server,
             update_shared_mcp_global_config,
             import_shared_mcp_from_claude,
+            import_agent_mcp_server,
+            get_mcp_market_icon,
+            list_agent_mcp_servers,
+            search_mcp_market,
             // DeepSeek Harness（dsh）实例命令
             start_dsh_instance,
             stop_dsh_instance,
