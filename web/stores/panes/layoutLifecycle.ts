@@ -114,8 +114,8 @@ export function flattenTerminalPaneTreeForImport(node: TerminalPaneNode): Termin
 }
 
 /** Clean non-restorable runtime state after layout rehydration. */
-/** 已下线的标签类型（MCP 配置移到资源库）：旧快照里可能还存着，恢复时直接丢弃。 */
-const RETIRED_CONTENT_TYPES: ReadonlySet<string> = new Set(["mcp-config"]);
+/** 已下线的标签类型（MCP 配置、技能管理移到资源库）：旧快照里可能还存着，恢复时直接丢弃。 */
+const RETIRED_CONTENT_TYPES: ReadonlySet<string> = new Set(["mcp-config", "skill-manager"]);
 
 export function cleanRehydratedPanes(node: PaneNode) {
   if (node.type === "panel") {

@@ -110,7 +110,7 @@ describe("SortableLayoutTab", () => {
           tab("t1", "terminal"),
           tab("b1", "browser"),
           tab("e1", "editor"),
-          tab("m1", "skill-manager"),
+          tab("m1", "memory-manager"),
         ),
       });
       const row = screen.getByTestId("layout-type-counts");

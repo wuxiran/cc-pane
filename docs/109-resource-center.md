@@ -13,6 +13,122 @@
 
 ---
 
+# 第 2 批：技能（2026-11-04 设计，照 magpie 技能页）
+
+用户已定：**LinkSkill 下线**（`~/.agents/skills` 里的技能出现在「Agent 中已有」可导入，已写进工作空间的软链接不动）；**粘贴安装全做**（GitHub、任意 git、本地文件夹）；**内置技能真按单个关闭**（按选择物化子集目录再挂载）。
+
+## A. 资源库 = 用户技能目录
+
+资源库就是现有 `<data>/skills/user/<id>/`（`InstalledUserSkill`）。注入方式不变：按启动档 `user:<id>` 选中后内联进会话提示词。`skill.json` 新增可选字段 `provenance`（`#[serde(default)]`，旧文件照常加载）：
+
+```ts
+type SkillSourceKind = "github" | "git" | "folder" | "imported" | "unknown";
+interface SkillProvenance {
+  kind: SkillSourceKind;
+  repo?: string;        // github: "owner/repo"；git: 克隆地址
+  gitRef?: string;      // 分支或 tag；缺省为默认分支
+  path?: string;        // 技能在仓库内的目录，根目录为 ""
+  commit?: string;      // github: 最后改动该目录的提交；git: 安装时仓库 HEAD
+  treeHash?: string;    // 安装/更新时的文件哈希，用于判断本地改动
+  linkedPath?: string;  // folder: 链接的本机目录（不复制，内容从这里读）
+  importedFrom?: string;// imported: 原路径
+}
+```
+
+- 市场里的仓库技能安装后记为 `github`（填 repo/path/commit/treeHash），这样也能检查更新。
+- `folder`：只写 `skill.json`，不复制文件；读内容、提示词里的 `Skill directory:` 都指向 `linkedPath`。目录消失时 `folderMissing=true`。
+- **treeHash**：对目录内文件按相对路径排序，`sha256(路径 + \0 + 文件sha256 + \n …)`。忽略 `skill.json`、`.DS_Store`、`node_modules/`、`.venv/`、`__pycache__/`、`.git/`、`package-lock.json`、`pnpm-lock.yaml`、`yarn.lock`、`bun.lockb`、`uv.lock`。
+- **edited**：`"yes"`（当前哈希≠treeHash）、`"no"`、`"unknown"`（没有 treeHash 的旧安装；更新时同样要确认）。`folder` 永远 `"no"`。
+
+## B. 后端接口（Tauri 命令 + `cc-panes-web` REST，前端走 `invokeOrApi`）
+
+```ts
+interface LibrarySkill {
+  id: string; name: string; description?: string;
+  provenance: SkillProvenance;
+  edited: "yes" | "no" | "unknown";
+  gone: boolean;            // 上次完整抓取确认上游已删除（持久化在 skill.json 的 provenance 旁：`gone: true`）
+  folderMissing: boolean;
+  dirPath: string;
+  installedAt: string;
+}
+interface SkillCheck {
+  id: string;
+  status: "current" | "update" | "gone" | "unknown";
+  latestCommit?: string; compareUrl?: string;
+  error?: string; rateLimitedUntil?: string;
+}
+interface SkillProbeCandidate {
+  path: string; name: string; description?: string;
+  have: boolean; haveAs?: string;   // 已在资源库（同来源）
+  installAs: string;                // 将使用的 id；与其他来源重名时为 `<name>-<owner>`
+}
+interface SkillProbe {
+  probeId: string; source: string; kind: SkillSourceKind;
+  candidates: SkillProbeCandidate[];
+  tooBig: { path: string; reason: string }[];
+}
+interface SkillInstallResult { installed: string[]; had: string[]; skipped: { path: string; reason: string }[] }
+interface SkillUpdateResult {
+  updated: string[]; keptEdited: string[]; gone: string[];
+  failed: { id: string; error: string }[]; backupDir?: string;
+}
+interface SkillRemoveResult { removed: string[]; backupDir?: string }
+interface FoundSkill {
+  key: string;              // 绝对路径
+  name: string; description?: string; dirPath: string;
+  origin: "claude" | "codex" | "agents";   // ~/.claude/skills、~/.codex/skills、~/.agents/skills
+  isLink: boolean; linkTarget?: string;
+  inLibraryAs?: string;     // 资源库已有同名
+}
+interface SkillImportResult { imported: string[]; failed: { key: string; error: string }[] }
+```
+
+| 命令 | 参数 → 返回 | REST |
+|---|---|---|
+| `skill_library_list` | → `LibrarySkill[]` | `GET /api/skill-library` |
+| `skill_library_read` | `{id}` → `{content: string, dirPath: string, files: string[]}` | `GET /api/skill-library/{id}` |
+| `skill_library_probe` | `{source}` → `SkillProbe` | `POST /api/skill-library/probe` |
+| `skill_library_install` | `{probeId, paths}` → `SkillInstallResult` | `POST /api/skill-library/install` |
+| `skill_library_check` | `{ids?: string[]}` → `SkillCheck[]` | `POST /api/skill-library/check` |
+| `skill_library_update` | `{ids, replaceEdited}` → `SkillUpdateResult` | `POST /api/skill-library/update` |
+| `skill_library_remove` | `{ids}` → `SkillRemoveResult` | `POST /api/skill-library/remove` |
+| `skill_library_found` | → `FoundSkill[]` | `GET /api/skill-library/found` |
+| `skill_library_import` | `{keys}` → `SkillImportResult` | `POST /api/skill-library/import` |
+
+规则：
+
+- **probe**：接受 `npx|bunx|pnpm dlx … skills add <src>`（只取 src）、绝对路径或 `~/` 路径（folder）、`owner/repo` 和 GitHub `tree/<ref>/<path>` 链接（github，复用 `skill_repo_fetcher`）、其他 git 地址（https、ssh、`git@`、`file://`、GitLab/Gitea tree 链接，用本机 `git clone --depth 1`）。拒绝以 `-` 开头、含 `::`、URL 里带账号密码的地址。递归找含 `SKILL.md` 的目录作为候选（跳过 `node_modules`、`.git`）。下载结果缓存 15 分钟供 install 复用（`probeId`）。单技能超过 50 MB 列入 `tooBig`。
+- **install**：每个技能独立安装，先写暂存目录再改名，失败不留半成品。同来源已存在 → `had`；与其他来源重名 → 用 `installAs`。
+- **check**：github 用 `GET /repos/{o}/{r}/commits?path=&sha=&per_page=1`（带 ETag 缓存，`GITHUB_TOKEN` 环境变量有则带上），提交不同为 `update` 并给 compare 链接；git 用 `git ls-remote`，HEAD 变了再浅克隆比 treeHash。并发 4。结果存内存，同时返回。只有**完整抓取成功且目录或 SKILL.md 不存在**才算 `gone`（并持久化 `gone`）；网络、限流、解析失败一律 `unknown`。重新出现时清除 `gone`。folder/imported/unknown 来源返回 `unknown` 且 `error: "unsupported"`。
+- **update**：`replaceEdited=false` 时跳过 edited 为 yes/unknown 的，列入 `keptEdited`；`gone` 的列入 `gone` 不算失败。被替换的旧目录移到备份。
+- **remove**：目录移到备份；folder 来源只删 `skill.json` 所在的库目录，不碰链接的原目录。同时从所有启动档的 `skillPolicy.enabledSkillIds`/`disabledSkillIds` 去掉 `user:<id>`。
+- **备份**：`<data>/backups/skills/<YYYYMMDD-HHMMSS>/<id>/`，保留最近 30 个时间目录。
+- **found**：扫 `~/.claude/skills`、`~/.codex/skills`、`~/.agents/skills` 下含 `SKILL.md` 的一级目录。**import** 复制进资源库，`kind: "imported"`，原目录不动。
+- **市场安装**（`install_skill_market_entry` 不带工作空间）：写 provenance，与 install 共用落盘逻辑。
+
+## C. 内置技能按单个挂载
+
+`skill_mount_paths_for_profile`：若启动档选中的内置技能不是全部，在 `<data>/skills/builtin-sets/<sha256(排序后的名字)[..16]>/` 物化一份子集（复制内置根目录的非技能文件如 `.claude-plugin/plugin.json`，技能子目录 Unix 用符号链接、Windows 复制），挂载它而不是整个内置目录。选中为空则不挂内置目录。同一选择复用同一目录；内置目录更新（`default_skill_service` 重新物化）后清空 `builtin-sets/`。Rust 内置列表有 `ccpanes-codex`，TS 的 `BUILTIN_SKILLS` 补上。
+
+实现说明（`cc-panes-core/src/services/builtin_skill_sets.rs`）：
+
+- **「选中」按模式算，对象是内置根目录里实际存在的全部技能**（不止界面上那 8 个）：core 模式 = 全部减去 `disabledSkillIds` 里的 `builtin:*`（没关任何一个时挂原目录，与以前一致）；custom 模式 = 只挂 `enabledSkillIds` 里的 `builtin:*`（白名单，与 `<allowed-skills>` 提示词一致，界面上不能单独勾选的其余内置技能在 custom 模式下不再挂载）。没有启动档时挂原目录。
+- **「清空」实际是按原选择原地重建**：每个子集目录里记有所选名字（`.ccpanes-builtin-set`），重新物化后先删再按同名重建，路径不变，daemon 里跨重启存活的会话不会丢挂载；所选技能已下架的子集只删不建。调用点在 `src-tauri/src/services/bundled_skills.rs`（物化之后）。
+- 子集物化失败时退回挂整个内置目录并记告警。
+
+## D. 前端
+
+- `ResourceSection` 增加 `"skills"`，侧栏加「技能」，`ResourceLibraryPage` 按 section 切换。
+- `SkillsLibraryPage`（结构照 `McpLibraryPage` 和 magpie `renderSkills`）：页头（标题、发现、打开资源库文件夹、作用域、显示的启动档——与 MCP 页共用 localStorage key）→ 安装卡（粘贴 → 候选勾选列表 → 安装 N 个）→「资源库中」（筛选 >8 条、检查更新、更新 N 个、按来源分组卡片：GitHub 按 owner/repo、git 按地址、本机/导入；组头显示数量和「清理 N 个」）→ 内置技能分组（逐条开关，现在真实生效）→ 工作空间技能 / CLI 自带技能分组（组级开关 `includeWorkspaceSkills` / `includeExternal*Skills`，条目只读）→「Agent 中已有」（导入、全部导入）→「发现」（复用 `useSkillMarket` 数据层，不再受 `skillMarket` 实验开关限制）。
+- 行：名称 + 状态标签（上游已删除 / 有更新 / 未能检查 / 本地已改动 / 文件夹不存在）、单行描述、来源行、悬停操作（更新、删除）、`ProfileChips`。点行在右侧详情显示 SKILL.md（只读）、文件列表、来源。
+- 本地改动的更新确认：「用上游版本替换你对 {name} 的改动？你的版本会移到备份。」[保留我的] [更新]。批量更新跳过改动过的并提示名字。清理上游已删除：列出并标注其中本地改动过的，确认后移到备份。
+- 进入页面时若距上次检查超过 12 小时自动静默检查一次（时间记 localStorage）。
+- 开关：`resourceCenterModel` 增加 `skillChipState` / `setSkillResource`。用户技能直接增删 `user:<id>`，**不改 mode**；内置技能 core 模式翻 `disabledSkillIds`、custom 模式翻 `enabledSkillIds`；`mode === "disabled"` 时置灰并给原因。写入走 `useProfilePolicyWriter`。
+- **旧入口全部下线**：设置里的 Skills 页（`LinkSkillManager`、`GlobalSkillsPanel`）、`skill-manager` 标签类型（加入 `RETIRED_CONTENT_TYPES`）、活动栏技能市场模式、`WorkspaceSkillsHub`/`ProjectSkillsManager`；`ChatAddMenu`、`useWorkspaceActions`、`WorkspaceSkillsMenuItem`、设置窗口桥接改为 `openResourceLibrary("skills", scope)`；`LaunchProfileSkillCard` 照 `LaunchProfileMcpCard` 收成模式 + 组开关 + 「在资源库中管理」。LinkSkill 的 Tauri 命令、`skill_link_service`、`skill_remote_update_service` 一并删除。
+
+---
+
 # 原方案：按启动档统一管理 MCP、Skills、Hooks
 
 > 状态：**Proposal + Design（评审中）**（2026-11-02，基线 `feat/session-cost-status@0052ddb9`）。
@@ -358,3 +474,8 @@ UI 重设计会话（worktree `cc-pane-wt-ui-native-feel`）正在修改 `MainVi
 - 调研主流 CLI。更正：Codex 最初“未触发”的原因是 Hook 信任机制。
 - 一期首轮实现（未提交）：MCP tab、启动档开关、粘贴添加，临时入口放在设置页。
 - 确定 Hooks 首批支持 Claude、Codex、Grok、OpenCode、Pi。实测 Codex 可按会话预置单条信任，无需跳过全部信任检查；查明 Grok `--plugin-dir` 和 Pi `-e` 两个入口。
+
+### 2026-11-04
+- 第 2 批前端（未提交）：`web/components/resources/SkillsLibraryPage.tsx` 及安装卡、资源库分组、内置/工作空间/CLI 自带分组、Agent 中已有、发现、详情和两个确认框；纯函数在 `skillLibraryModel.ts`，开关在 `resourceCenterModel.ts` 的 `skillChipState` / `setSkillResource`；检查结果放 `stores/useSkillLibraryStore.ts`（后端只存内存，切子页不丢）。MCP 页和技能页共用 `libraryChrome.tsx`（作用域、显示的启动档、焦点重读启动档）。
+- 旧入口：设置 Skills 页、`skill-manager` 标签（旧快照恢复时丢弃）、活动栏技能市场、`components/skill/` 整个目录、LinkSkill 前端（service/store/types/i18n）删除；`ChatAddMenu`、工作空间右键菜单、`useWorkspaceActions.handleOpenSkillManager` 改为 `openResourceLibrary("skills", scope)`。启动档技能卡只剩模式、工作空间/项目/CLI 自带组开关、启动档内联技能和「在资源库管理各技能」。
+- `experimental.skillMarket` 的设置开关已从界面移除，`ExperimentalSettings.skillMarket` 字段仍留着（与 Rust 设置结构同步，后端可一并删除）。

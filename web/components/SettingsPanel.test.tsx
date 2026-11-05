@@ -59,9 +59,6 @@ vi.mock("./settings/AboutSection", () => ({
 vi.mock("./settings/ScreenshotSection", () => ({
   default: () => <div data-testid="screenshot-section" />,
 }));
-vi.mock("@/components/resources/GlobalSkillsPanel", () => ({
-  default: () => <div data-testid="skills-section" />,
-}));
 vi.mock("./settings/VoiceSection", () => ({
   default: () => <div data-testid="voice-section" />,
 }));
@@ -202,10 +199,9 @@ describe("SettingsPanel", () => {
     expect(screen.queryByTestId("general-section")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: tSettings("pages.aiTools.title") }));
-    await user.click(screen.getByRole("tab", { name: tSettings("skills") }));
-    const skillsSection = await screen.findByTestId("skills-section");
-    expect(skillsSection).toBeInTheDocument();
-    expect(skillsSection.closest('[data-settings-section="skills-root"]')).toHaveClass("h-full", "min-h-0");
+    expect(await screen.findByTestId("provider-section")).toBeInTheDocument();
+    // 技能已移到资源库，AI 工具页不再有 Skills 标签
+    expect(screen.queryByRole("tab", { name: "Skills" })).not.toBeInTheDocument();
   });
 
   it("lets full-height settings panes constrain their internal scroll areas", async () => {

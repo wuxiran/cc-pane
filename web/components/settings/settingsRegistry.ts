@@ -19,7 +19,6 @@ import {
   ListChecks,
   MessageSquare,
   Mic,
-  Package,
   Palette,
   PanelsTopLeft,
   Settings,
@@ -116,7 +115,7 @@ export const SETTINGS_PAGES: readonly SettingsPageDefinition[] = [
     icon: Bot,
     titleKey: "pages.aiTools.title",
     group: "application",
-    paneIds: ["provider", "provider-credentials", "cli-launchers", "skills", "quick-commands", "automations"],
+    paneIds: ["provider", "provider-credentials", "cli-launchers", "quick-commands", "automations"],
   },
   {
     id: "system",
@@ -319,9 +318,6 @@ export const SETTINGS_PANES: readonly SettingsPaneDefinition[] = [
   { id: "cli-launchers", icon: Cable, titleKey: "cliLaunchers", descriptionKey: "cliLaunchersDesc", page: "ai-tools", searchEntries: [
     { id: "commands", titleKey: "cliLaunchersTitle", descriptionKey: "cliLaunchersDesc", targetSectionId: "cli-launchers-root" },
   ] },
-  { id: "skills", icon: Package, titleKey: "skills", page: "ai-tools", searchEntries: [
-    { id: "library", titleKey: "skills", keywordsKey: "searchKeywords.skills", targetSectionId: "skills-root" },
-  ], layout: "wide" },
   { id: "proxy", icon: Globe, titleKey: "proxy", page: "system", searchEntries: [
     { id: "connection", titleKey: "proxyTitle", keywordsKey: "searchKeywords.proxy", targetSectionId: "proxy-root" },
     { id: "server", titleKey: "enableProxy", descriptionKey: "excludeListHint", targetSectionId: "proxy-server" },

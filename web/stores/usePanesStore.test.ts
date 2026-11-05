@@ -760,45 +760,6 @@ describe("usePanesStore", () => {
 
   // ========== 特殊标签打开 ==========
 
-  describe("openSkillManager", () => {
-    it("应创建 skill-manager 类型的 tab", () => {
-      usePanesStore.getState().openSkillManager("/tmp/project", "MyProject");
-
-      const pane = usePanesStore.getState().activePane()!;
-      const skillTab = pane.tabs.find((t) => t.contentType === "skill-manager");
-      expect(skillTab).toBeDefined();
-      expect(skillTab!.title).toBe("Skill - MyProject");
-    });
-
-    it("重复打开应复用已有 tab", () => {
-      usePanesStore.getState().openSkillManager("/tmp/project", "MyProject");
-      const count1 = usePanesStore.getState().activePane()!.tabs.length;
-
-      usePanesStore.getState().openSkillManager("/tmp/project", "MyProject");
-      const count2 = usePanesStore.getState().activePane()!.tabs.length;
-
-      expect(count2).toBe(count1);
-    });
-  });
-
-  describe("openWorkspaceSkillManager", () => {
-    it("复用 skill-manager tab 类型，projectPath 为空并带 workspaceName；与项目 tab 互不复用", () => {
-      usePanesStore.getState().openWorkspaceSkillManager("alpha", "Alpha");
-      const pane = usePanesStore.getState().activePane()!;
-      const wsTab = pane.tabs.find((t) => t.contentType === "skill-manager" && t.workspaceName === "alpha");
-      expect(wsTab).toBeDefined();
-      expect(wsTab!.projectPath).toBe("");
-      expect(wsTab!.title).toBe("Skill - Alpha");
-
-      const before = pane.tabs.length;
-      usePanesStore.getState().openWorkspaceSkillManager("alpha", "Alpha");
-      expect(usePanesStore.getState().activePane()!.tabs.length).toBe(before);
-
-      usePanesStore.getState().openSkillManager("/tmp/project", "MyProject");
-      expect(usePanesStore.getState().activePane()!.tabs.length).toBe(before + 1);
-    });
-  });
-
   describe("openWorkspaceMemoryManager", () => {
     it("复用 memory-manager tab 类型，projectPath 为空并带 workspaceName；与项目 tab 互不复用", () => {
       usePanesStore.getState().openWorkspaceMemoryManager("alpha", "Alpha");

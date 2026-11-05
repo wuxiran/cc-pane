@@ -30,7 +30,6 @@ import { collectPanels } from "@/lib/paneTree";
 // lightweight web deployments omit specific dependencies until opened.
 const DramaStudio = lazy(() => import("@/components/drama/DramaStudio"));
 const OrchestrationOverlay = lazy(() => import("@/components/orchestration/OrchestrationOverlay"));
-const SkillMarketPage = lazy(() => import("@/components/skillmarket/SkillMarketPage"));
 const ResourceLibraryPage = lazyWithRetry(() => import("@/components/resources/ResourceLibraryPage"), "ResourceLibraryPage");
 const ResourceLibrarySidebar = lazyWithRetry(() => import("@/components/resources/ResourceLibrarySidebar"), "ResourceLibrarySidebar");
 // File previews and their actions load only when the file workspace is opened.
@@ -79,13 +78,10 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
   // orchestration 是"panes + overlay"的兼容态，不是独立全屏视图
   const effectiveAppViewMode = appViewMode === "orchestration" ? "panes" : appViewMode;
   const dramaStudioEnabled = useExperimentalFeature("dramaStudio");
-  const skillMarketEnabled = useExperimentalFeature("skillMarket");
   // 实验功能被关掉时（设置里取消勾选、或旧链路仍把模式设成了它）退回 panes，
   // 不能停在一个既不渲染又没有出口的空视图上。
   const dramaActive = effectiveAppViewMode === "dramaGen" && dramaStudioEnabled;
-  const gatedModeBlocked =
-    (effectiveAppViewMode === "dramaGen" && !dramaStudioEnabled)
-    || (effectiveAppViewMode === "skillMarket" && !skillMarketEnabled);
+  const gatedModeBlocked = effectiveAppViewMode === "dramaGen" && !dramaStudioEnabled;
   useEffect(() => {
     if (gatedModeBlocked) setAppViewMode("panes");
   }, [gatedModeBlocked, setAppViewMode]);
@@ -233,20 +229,6 @@ export default function MainViewSwitcher({ onOpenTerminal }: MainViewSwitcherPro
         <div className="flex h-full min-w-0 flex-1 overflow-hidden" data-testid="drama-workspace-shell">
           <Suspense fallback={<div className="flex h-full w-full items-center justify-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>{dramaT("loadingDramaWorkspace")}</div>}>
             <DramaStudio />
-          </Suspense>
-        </div>
-      )}
-      {/* 技能市场：全屏浏览/安装 agent skills（keep-alive，保留搜索与分类状态）。
-          挂 main-view-layer 与其余视图共用同一 cross-fade 过渡（见 index.css）。 */}
-      {skillMarketEnabled && isMounted("skillMarket") && (
-        <div
-          className="main-view-layer flex-1 overflow-hidden"
-          {...layerA11yAttrs("skillMarket")}
-          style={{ background: "var(--app-panel-bg)", ...viewStyle("skillMarket") }}
-          data-testid="skill-market-shell"
-        >
-          <Suspense fallback={<div className="flex h-full w-full items-center justify-center text-xs" style={{ color: "var(--app-text-tertiary)" }}>{commonT("loading")}</div>}>
-            <SkillMarketPage />
           </Suspense>
         </div>
       )}

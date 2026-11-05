@@ -52,9 +52,6 @@ vi.mock("@/components/layoutbar/LayoutTopBar", () => ({
 vi.mock("@/components/layout/MainWallpaperLayer", () => ({
   default: () => <div data-testid="main-wallpaper-layer" />,
 }));
-vi.mock("@/components/skillmarket/SkillMarketPage", () => ({
-  default: () => <div data-testid="skill-market-page" />,
-}));
 
 const activityState = vi.hoisted(() => ({
   sidebarVisible: true,
@@ -130,14 +127,6 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     experimentalState.skillMarket = true;
   });
 
-  it("实验功能未勾选时，skillMarket 不挂市场页并退回 panes", async () => {
-    experimentalState.skillMarket = false;
-    setMode("skillMarket");
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    expect(screen.queryByTestId("skill-market-shell")).toBeNull();
-    await waitFor(() => expect(activityState.appViewMode).toBe("panes"));
-  });
-
   it("home → HomeDashboard 全屏", () => {
     setMode("home");
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
@@ -196,15 +185,6 @@ describe("MainViewSwitcher 覆盖全部 appViewMode", () => {
     setMode("selfchat");
     render(<MainViewSwitcher onOpenTerminal={() => {}} />);
     expect(screen.getByTestId("selfchat-manager")).toBeVisible();
-  });
-
-  it("skillMarket → 市场页挂 main-view-layer，与其余视图共用同一层容器", async () => {
-    setMode("skillMarket");
-    render(<MainViewSwitcher onOpenTerminal={() => {}} />);
-    const shell = screen.getByTestId("skill-market-shell");
-    expect(shell).toHaveClass("main-view-layer");
-    expect(shell).toHaveStyle({ opacity: "1", pointerEvents: "auto" });
-    await waitFor(() => expect(screen.getByTestId("skill-market-page")).toBeInTheDocument());
   });
 
   it("providers → ProvidersPanel 全屏", () => {

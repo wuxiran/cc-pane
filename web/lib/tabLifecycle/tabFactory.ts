@@ -38,7 +38,7 @@ export interface TabCreateInput {
   agentEngineId?: string;
   /** dsh：所属工作空间路径——决定复用哪个 dsh 实例。 */
   workspacePath?: string;
-  /** skill-manager（工作空间作用域）等：所属工作空间名。 */
+  /** memory-manager（工作空间作用域）等：所属工作空间名。 */
   workspaceName?: string;
   /** terminal：启动身份全集（原 createTab 的入参）。 */
   terminal?: CreateTabOptions;

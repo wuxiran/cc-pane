@@ -55,7 +55,7 @@
     "hint": "Could not reach any skill source. Try “Refresh catalog” later"
   },
   "toast": {
-    "installed": "Installed {{name}} — enable it in a launch profile's skill policy",
+    "installed": "Installed {{name}}; turn it on for launch profiles in the library",
     "installedToWorkspace": "Installed {{name}} into workspace {{workspace}} — new sessions there pick it up automatically",
     "installFailed": "Install failed: {{error}}",
     "removed": "Uninstalled {{name}}",

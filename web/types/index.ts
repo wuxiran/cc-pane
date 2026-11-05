@@ -385,6 +385,7 @@ export type {
   CanvasProjectionInput,
 } from "./canvas";
 export type {
-  AddWorkspaceOutcome, DisableCounts, EnableCounts, LinkAgent, LinkSnapshot, LinkState,
-  LinkWorkspace, ManagedSkill, SkillAgentState, UpdateOutcome,
-} from "./linkSkill";
+  FoundSkill, FoundSkillOrigin, LibrarySkill, SkillCheck, SkillCheckStatus, SkillEdited,
+  SkillImportResult, SkillInstallResult, SkillLibraryContent, SkillProbe, SkillProbeCandidate,
+  SkillProvenance, SkillRemoveResult, SkillSourceKind, SkillUpdateResult,
+} from "./skillLibrary";

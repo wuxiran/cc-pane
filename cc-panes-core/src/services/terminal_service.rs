@@ -187,9 +187,8 @@ fn log_launch_stage(
 /// （Claude `--plugin-dir` / Codex `-c skills.config=`），**不写用户的 CLI Home**。
 /// `LaunchProfileSkillMode::Disabled` 时返回空——此时 adapter 完全不碰 skill 配置。
 ///
-/// 注：`Core` / `Custom` 的**逐条**筛选目前仍只作用于 prompt 侧
-/// （`LaunchProfileService::resolve_*`）；挂载是目录粒度的，两者粒度不同，
-/// 这里只判「挂不挂」。要做到逐条挂载需按 profile 物化子集目录，另行处理。
+/// 内置技能按单个生效：没选全部时挂 `builtin-sets/<hash>/` 子集，一个都没选则不挂
+/// （`builtin_skill_sets::builtin_mount_dir`）。
 fn skill_mount_paths_for_profile(
     profile: Option<&LaunchProfile>,
     builtin_skills_dir: &std::path::Path,
@@ -202,8 +201,11 @@ fn skill_mount_paths_for_profile(
         return Vec::new();
     }
     let mut paths = Vec::new();
-    if builtin_skills_dir.is_dir() {
-        paths.push(builtin_skills_dir.to_string_lossy().into_owned());
+    let selection = LaunchProfileService::builtin_skill_selection(profile);
+    if let Some(dir) =
+        crate::services::builtin_skill_sets::builtin_mount_dir(builtin_skills_dir, &selection)
+    {
+        paths.push(dir.to_string_lossy().into_owned());
     }
     // Workspace skills ride the same per-session mount; the profile can opt out.
     let include_workspace = profile
@@ -7650,6 +7652,52 @@ mod tests {
         assert_eq!(
             skill_mount_paths_for_profile(None, &builtin, Some(&missing)).len(),
             1
+        );
+    }
+
+    #[test]
+    fn skill_mount_paths_mount_builtin_subset_per_profile_selection() {
+        let temp = tempfile::tempdir().unwrap();
+        let builtin = temp.path().join("skills").join("builtin");
+        std::fs::create_dir_all(builtin.join(".claude-plugin")).unwrap();
+        std::fs::write(builtin.join(".claude-plugin/plugin.json"), "{}").unwrap();
+        for name in ["ccpanes-launch-task", "ccpanes-admin"] {
+            let dir = builtin.join("skills").join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("SKILL.md"), name).unwrap();
+        }
+        let builtin_str = builtin.to_string_lossy().into_owned();
+
+        // core 模式、没有关掉任何内置技能 → 原目录
+        let mut profile = minimal_profile();
+        assert_eq!(
+            skill_mount_paths_for_profile(Some(&profile), &builtin, None),
+            vec![builtin_str.clone()]
+        );
+
+        // core 模式关掉一个 → 子集目录，只含剩下的技能
+        profile.skill_policy.disabled_skill_ids = vec!["builtin:ccpanes-admin".into()];
+        let paths = skill_mount_paths_for_profile(Some(&profile), &builtin, None);
+        assert_eq!(paths.len(), 1);
+        let subset = std::path::PathBuf::from(&paths[0]);
+        assert!(subset.starts_with(temp.path().join("skills").join("builtin-sets")));
+        assert!(subset.join("skills/ccpanes-launch-task/SKILL.md").is_file());
+        assert!(!subset.join("skills/ccpanes-admin").exists());
+        assert!(subset.join(".claude-plugin/plugin.json").is_file());
+
+        // custom 模式一个内置技能都没选 → 不挂内置目录
+        profile.skill_policy.mode = LaunchProfileSkillMode::Custom;
+        profile.skill_policy.enabled_skill_ids = vec!["user:mine".into()];
+        assert!(skill_mount_paths_for_profile(Some(&profile), &builtin, None).is_empty());
+
+        // custom 模式选全了 → 原目录
+        profile.skill_policy.enabled_skill_ids = vec![
+            "builtin:ccpanes-launch-task".into(),
+            "builtin:ccpanes-admin".into(),
+        ];
+        assert_eq!(
+            skill_mount_paths_for_profile(Some(&profile), &builtin, None),
+            vec![builtin_str]
         );
     }
 

@@ -3,7 +3,6 @@ import { initReactI18next } from "react-i18next";
 
 // zh-CN
 import zhCommon from "./locales/zh-CN/common.json";
-import zhLinkSkills from "./locales/zh-CN/linkSkills.json";
 import zhSidebar from "./locales/zh-CN/sidebar.json";
 import zhSettings from "./locales/zh-CN/settings.json";
 import zhPanes from "./locales/zh-CN/panes.json";
@@ -21,13 +20,11 @@ import zhLauncher from "./locales/zh-CN/launcher.json";
 import zhCcchan from "./locales/zh-CN/ccchan.json";
 import zhDrama from "./locales/zh-CN/drama.json";
 import zhSkillMarket from "./locales/zh-CN/skillMarket.json";
-import zhProjectSkills from "./locales/zh-CN/projectSkills.json";
 import zhMobile from "./locales/zh-CN/mobile.json";
 import zhAgentRuntime from "./locales/zh-CN/agentRuntime.json";
 
 // en
 import enCommon from "./locales/en/common.json";
-import enLinkSkills from "./locales/en/linkSkills.json";
 import enSidebar from "./locales/en/sidebar.json";
 import enSettings from "./locales/en/settings.json";
 import enPanes from "./locales/en/panes.json";
@@ -45,7 +42,6 @@ import enLauncher from "./locales/en/launcher.json";
 import enCcchan from "./locales/en/ccchan.json";
 import enDrama from "./locales/en/drama.json";
 import enSkillMarket from "./locales/en/skillMarket.json";
-import enProjectSkills from "./locales/en/projectSkills.json";
 import enMobile from "./locales/en/mobile.json";
 import enAgentRuntime from "./locales/en/agentRuntime.json";
 
@@ -53,7 +49,6 @@ export const defaultNS = "common";
 export const resources = {
   "zh-CN": {
     common: zhCommon,
-    linkSkills: zhLinkSkills,
     sidebar: zhSidebar,
     settings: zhSettings,
     panes: zhPanes,
@@ -71,7 +66,6 @@ export const resources = {
     ccchan: zhCcchan,
 drama: zhDrama,
 	    skillMarket: zhSkillMarket,
-    projectSkills: zhProjectSkills,
     mobile: zhMobile,
     agentRuntime: zhAgentRuntime,
     // Entry-point labels stay eager; panel copy loads with the corresponding lazy chunk.
@@ -80,7 +74,6 @@ drama: zhDrama,
   },
   en: {
     common: enCommon,
-    linkSkills: enLinkSkills,
     sidebar: enSidebar,
     settings: enSettings,
     panes: enPanes,
@@ -98,7 +91,6 @@ drama: zhDrama,
     ccchan: enCcchan,
 drama: enDrama,
 	    skillMarket: enSkillMarket,
-    projectSkills: enProjectSkills,
     mobile: enMobile,
     agentRuntime: enAgentRuntime,
     review: { title: "Review changes" },
