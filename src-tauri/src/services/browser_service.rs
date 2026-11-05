@@ -292,7 +292,13 @@ impl BrowserVisibility {
 #[derive(Default)]
 pub struct BrowserTabManager {
     tabs: Mutex<HashMap<String, BrowserTabEntry>>,
+    /// 串行化「检查是否已注册 → 建原生 webview → 登记」。前端挂载和 MCP 后台补建
+    /// 可能同时为同一个 tabId 建 webview，不串行会撞同名 label。
+    create_lock: Mutex<()>,
 }
+
+/// 后台补建 webview 时的兜底尺寸：标签还没挂载，拿不到真实视口。
+const BACKGROUND_BROWSER_BOUNDS: (f64, f64) = (1280.0, 800.0);
 
 /// 截图期间临时提帧的守卫：没有更新的用户可见请求时才恢复隐藏状态。
 ///
@@ -407,7 +413,34 @@ impl BrowserTabManager {
         Ok(())
     }
 
-    pub fn create(
+    /// 确保 tabId 有原生 webview，没有就按隐藏状态补建。
+    ///
+    /// webview 原本只在标签组件挂载且可见时由前端创建；MCP 打开的标签若落在用户
+    /// 没在看的布局里，就一直没有 webview，后续 evaluate/截图全报 unknown browser tab。
+    /// 已注册时什么都不做（不重载页面）；前端之后挂载会按真实视口接管。
+    /// 返回值表示这次是否真的补建了。
+    pub fn ensure_background(&self, app: &AppHandle, tab_id: &str, url: &str) -> AppResult<bool> {
+        let _create = self
+            .create_lock
+            .lock()
+            .map_err(|_| "browser create lock is poisoned")?;
+        if self.contains(tab_id) {
+            return Ok(false);
+        }
+        let (width, height) = app
+            .get_window("main")
+            .and_then(|window| {
+                let scale = window.scale_factor().ok()?;
+                let size = window.inner_size().ok()?.to_logical::<f64>(scale);
+                (size.width >= 1.0 && size.height >= 1.0).then_some((size.width, size.height))
+            })
+            .unwrap_or(BACKGROUND_BROWSER_BOUNDS);
+        let bounds = BrowserBounds::try_new(0.0, 0.0, width, height)?;
+        self.create_unlocked(app, tab_id, url, bounds, false)?;
+        Ok(true)
+    }
+
+    fn create_unlocked(
         &self,
         app: &AppHandle,
         tab_id: &str,
@@ -1125,6 +1158,34 @@ mod tests {
         );
         assert!(!path.file_name().unwrap().to_string_lossy().contains('/'));
         assert_eq!(std::fs::read(path).unwrap(), png);
+    }
+
+    /// 原生 webview 的建立必须串行：前端挂载和 MCP 后台补建可能同时为同一个
+    /// tabId 建 webview。两条入口都得拿 create_lock，并都走 create_unlocked。
+    /// （建 webview 需要 Wry 的 AppHandle，mock_app 构造不出，只能扫源码守住接线。）
+    #[test]
+    fn every_native_create_path_holds_the_create_lock() {
+        let manager = include_str!("browser_service.rs");
+        let presentation = include_str!("browser_service/presentation.rs");
+        let production = manager.split("#[cfg(test)]\nmod tests").next().unwrap();
+        let ensure = production
+            .split("pub fn ensure_background(")
+            .nth(1)
+            .expect("ensure_background exists");
+        let ensure = &ensure[..ensure.find("\n    }\n").unwrap()];
+        assert!(ensure.contains("self\n            .create_lock\n            .lock()"));
+        assert!(ensure.contains("self.contains(tab_id)"));
+        assert!(ensure.contains("self.create_unlocked(app, tab_id, url, bounds, false)"));
+
+        let host = presentation
+            .split("pub fn create_for_host(")
+            .nth(1)
+            .expect("create_for_host exists");
+        let host = &host[..host.find("\n    }\n").unwrap()];
+        assert!(host.find(".create_lock").unwrap() < host.find("self.contains(tab_id)").unwrap());
+        assert!(host.contains("self.create_unlocked("));
+        // 不允许再出现绕过锁的公开入口。
+        assert!(!production.contains("pub fn create(\n"));
     }
 
     #[test]
