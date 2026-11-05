@@ -1342,6 +1342,7 @@ pub const CORE_MCP_TOOLS: &[&str] = &[
     "get_workspace",
     "list_projects",
     "list_launch_profiles",
+    "open_terminal_tab",
     "open_browser_tab",
     "browser_list_tabs",
     "browser_navigate",
