@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
+import { useDockChatStore } from "@/stores/useDockChatStore";
 import { useRightDockStore } from "@/stores/useRightDockStore";
 import { useDialogStore } from "@/stores/useDialogStore";
 import { useAiPanelStore } from "@/stores/useAiPanelStore";
@@ -166,20 +167,17 @@ describe("module registry", () => {
     expect(useDialogStore.getState().aiPanelOpen).toBe(true);
   });
 
-  it("opens session history in the right dock from every entry surface", () => {
+  it("opens session history as the terminal page of the dock chat history from every entry surface", () => {
     const history = MODULE_REGISTRY.find((module) => module.id === "sessionHistory");
 
     history?.open("rightDock");
-    expect(useRightDockStore.getState()).toMatchObject({
-      visible: true,
-      activeView: "sessionHistory",
-    });
+    expect(useRightDockStore.getState()).toMatchObject({ visible: true, activeView: "chat" });
+    expect(useDockChatStore.getState()).toMatchObject({ historyOpen: true, historyTab: "terminal" });
 
     useRightDockStore.setState({ visible: false, activeView: "git" });
+    useDockChatStore.setState({ historyOpen: false, historyTab: "chat" });
     history?.open("hidden");
-    expect(useRightDockStore.getState()).toMatchObject({
-      visible: true,
-      activeView: "sessionHistory",
-    });
+    expect(useRightDockStore.getState()).toMatchObject({ visible: true, activeView: "chat" });
+    expect(useDockChatStore.getState()).toMatchObject({ historyOpen: true, historyTab: "terminal" });
   });
 });

@@ -47,7 +47,7 @@
     "orchestration": "任务编排",
     "resources": "资源库",
     "todo": "TodoList",
-    "aiPanel": "AI 面板",
+    "aiPanel": "通知",
     "sessionHistory": "会话历史"
   },
   "moduleMenu": {
@@ -782,5 +782,18 @@
     "keptClaudeMd": "该文件夹已有 CLAUDE.md，未覆盖。素材助手可能不了解资料空间的约定，可参考模板手动合并。",
     "createFailed": "创建资料空间失败：{{error}}",
     "assistantPrompt": "你是资料空间的素材助手。严格按当前目录 CLAUDE.md 的约定工作：用户投来的链接、文字、图片按 ingest skill 收进 uploads/，视频链接按 video-transcribe skill 下载并转写，整理按 organize skill，创作产出写到 works/。用户刚打开你时，简短问候并说明可以直接把链接或想法发给你。"
-  }
+  },
+  "rightDock.chat": "对话",
+  "rightDock.chatTabs": "对话标签",
+  "rightDock.newChat": "新对话",
+  "rightDock.chatHistory": "历史",
+  "rightDock.chatMore": "更多",
+  "rightDock.moveChatToPane": "在窗格中打开",
+  "rightDock.closeChat": "关闭对话",
+  "rightDock.chatRunning": "正在运行",
+  "rightDock.chatNeedsYou": "等你批准",
+  "rightDock.historyChats": "对话",
+  "rightDock.historyTerminals": "终端会话",
+  "rightDock.searchChats": "搜索对话",
+  "rightDock.noMatchingChats": "没有匹配的对话"
 }

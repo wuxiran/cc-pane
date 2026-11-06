@@ -14,6 +14,7 @@ import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { useAiPanelStore } from "@/stores/useAiPanelStore";
 import { useOrchestratorStore } from "@/stores/useOrchestratorStore";
 import { useSshRemoteFilesStore } from "@/stores/useSshRemoteFilesStore";
+import { useDockChatStore } from "@/stores/useDockChatStore";
 import type { OpenTerminalOptions, Workspace } from "@/types";
 import RightDock from "./RightDock";
 
@@ -72,6 +73,12 @@ vi.mock("./SessionHistoryView", () => ({
   ),
 }));
 
+vi.mock("@/components/agentchat/AgentChatTabContent", () => ({
+  default: ({ tab }: { tab: { id: string; projectPath: string } }) => (
+    <div data-testid="right-dock-chat-body">{tab.projectPath}</div>
+  ),
+}));
+
 vi.mock("@/components/sidebar/OrchestratorView", () => ({
   default: ({ compact }: { compact?: boolean }) => (
     <div data-testid="right-dock-orchestration">{compact ? "compact orchestration" : "orchestration"}</div>
@@ -110,6 +117,7 @@ describe("RightDock", () => {
     useAiPanelStore.setState({ panels: [], activePanelId: null, unreadPanelIds: [] });
     useOrchestratorStore.setState({ bindings: [] });
     useSshRemoteFilesStore.getState().clear();
+    useDockChatStore.setState({ chats: [], activeId: null, historyOpen: false, historyTab: "chat" });
     useWorkspacesStore.setState({
       workspaces: [workspace],
       expandedWorkspaceId: workspace.id,
@@ -222,7 +230,18 @@ describe("RightDock", () => {
     expect(screen.getByRole("tab", { name: "SSH 机器" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "TodoList" })).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "任务编排" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "AI 面板" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "通知" })).toBeInTheDocument();
+    // 会话历史并进了对话的历史面板，竖栏里不再单独占一格。
+    expect(screen.queryByRole("tab", { name: "会话历史" })).not.toBeInTheDocument();
+  });
+
+  it("视图图标竖排在最右侧，对话排第一", () => {
+    renderDock();
+
+    const rail = screen.getByTestId("right-dock-rail");
+    const ids = Array.from(rail.querySelectorAll("[data-rail-id]")).map((node) => node.getAttribute("data-rail-id"));
+    expect(ids.slice(0, 3)).toEqual(["chat", "files", "git"]);
+    expect(screen.getByTestId("right-dock-panel").lastElementChild).toBe(rail);
   });
 
   it("AI 面板 tab 显示琥珀未读点并切换到驻留内容", async () => {
@@ -230,21 +249,31 @@ describe("RightDock", () => {
     useAiPanelStore.setState({ activePanelId: "panel-1", unreadPanelIds: ["panel-1"] });
     renderDock();
 
-    expect(screen.getByTestId("right-dock-module-badge-aiPanel")).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "AI 面板" }));
+    expect(screen.getByTestId("right-dock-rail-badge-aiPanel")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "通知" }));
 
     expect(useRightDockStore.getState().activeView).toBe("aiPanel");
     expect(screen.getByTestId("right-dock-ai-panel")).toBeInTheDocument();
     expect(useAiPanelStore.getState().unreadPanelIds).toEqual([]);
   });
 
-  it("会话历史模块驻留右坞并接收当前项目上下文", async () => {
-    const user = userEvent.setup();
+  it("对话视图开一个跟随当前项目的新对话", () => {
+    useRightDockStore.setState({ activeView: "chat" });
+
     renderDock();
 
-    await user.click(screen.getByRole("tab", { name: "会话历史" }));
+    expect(screen.getByRole("tab", { name: "对话" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("right-dock-chat-body")).toHaveTextContent("/workspace/alpha");
+    expect(useDockChatStore.getState().chats).toHaveLength(1);
+  });
 
-    expect(useRightDockStore.getState().activeView).toBe("sessionHistory");
+  it("旧的会话历史视图转到对话历史面板的终端会话页，并接收当前项目上下文", () => {
+    useRightDockStore.setState({ activeView: "sessionHistory" });
+
+    renderDock();
+
+    expect(useRightDockStore.getState().activeView).toBe("chat");
+    expect(useDockChatStore.getState()).toMatchObject({ historyOpen: true, historyTab: "terminal" });
     expect(screen.getByTestId("right-dock-session-history")).toHaveTextContent("project-1");
   });
 
@@ -297,11 +326,11 @@ describe("RightDock", () => {
     fireEvent.pointerMove(document, { clientX: 400 });
     expect(panel).toHaveStyle({ width: "440px" });
 
-    fireEvent.pointerMove(document, { clientX: -100 });
-    expect(panel).toHaveStyle({ width: "560px" });
+    fireEvent.pointerMove(document, { clientX: -300 });
+    expect(panel).toHaveStyle({ width: "720px" });
 
     fireEvent.pointerUp(document);
-    expect(useRightDockStore.getState().width).toBe(560);
+    expect(useRightDockStore.getState().width).toBe(720);
   });
 
   it("提供可发现的鼠标拖拽热区且不会延伸进标题栏", () => {
