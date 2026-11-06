@@ -9,8 +9,8 @@ import { usePanesStore } from "@/stores/usePanesStore";
 import DockChatView, { dockChatStatus, dockChatTitle } from "./DockChatView";
 
 vi.mock("@/components/agentchat/AgentChatTabContent", () => ({
-  default: ({ tab }: { tab: { id: string; projectPath: string; contentType: string } }) => (
-    <div data-testid="chat-body" data-chat-id={tab.id}>{tab.contentType}:{tab.projectPath}</div>
+  default: ({ tab, compact }: { tab: { id: string; projectPath: string; contentType: string }; compact?: boolean }) => (
+    <div data-testid="chat-body" data-chat-id={tab.id} data-compact={String(Boolean(compact))}>{tab.contentType}:{tab.projectPath}</div>
   ),
 }));
 vi.mock("./DockChatHistory", () => ({ default: () => <div data-testid="history" /> }));
@@ -41,6 +41,8 @@ describe("DockChatView", () => {
     expect(entry).toMatchObject({ cwd: "/repo" });
     expect(screen.getByTestId("chat-body")).toHaveAttribute("data-chat-id", entry.id);
     expect(screen.getByTestId("chat-body")).toHaveTextContent("agent-chat:/repo");
+    // 面板里走窄版：不带会话顶栏、启动页问候和最近会话。
+    expect(screen.getByTestId("chat-body")).toHaveAttribute("data-compact", "true");
     expect(screen.getByRole("tab", { name: "新对话" })).toHaveAttribute("aria-selected", "true");
   });
 

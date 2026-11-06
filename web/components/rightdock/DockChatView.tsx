@@ -199,7 +199,7 @@ export default function DockChatView({ defaultCwd, workspaces, workspace, projec
         {historyOpen ? (
           <DockChatHistory workspaces={workspaces} workspace={workspace} project={project} onOpenTerminal={onOpenTerminal} />
         ) : virtualTab ? (
-          <AgentChatTabContent key={virtualTab.id} tab={virtualTab} />
+          <AgentChatTabContent key={virtualTab.id} tab={virtualTab} compact />
         ) : null}
       </div>
     </div>

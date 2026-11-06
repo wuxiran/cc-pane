@@ -65,9 +65,11 @@ export interface EnginePickerProps {
   onCwdAdopted: (cwd: string) => void;
   onHistory?: () => void;
   onCheckpoints?: () => void;
+  /** 右侧面板窄版：只留输入框（项目 / 引擎 / 权限 / 发送），贴底。 */
+  compact?: boolean;
 }
 
-export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd, onCwdAdopted, onHistory, onCheckpoints }: EnginePickerProps) {
+export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd, onCwdAdopted, onHistory, onCheckpoints, compact = false }: EnginePickerProps) {
   const { t } = useTranslation("panes");
   const { t: runtimeT } = useTranslation("agentRuntime");
   const { t: reviewT } = useTranslation("review");
@@ -195,10 +197,12 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
   const launching = startingEngine !== null && startingEngine === selectedEngine;
 
   return (
-    <div className="agent-chat-start-page flex h-full flex-col overflow-y-auto px-4 sm:px-8">
-      <div className="agent-chat-start-content mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center gap-7 py-12">
+    <div className={compact ? "agent-chat-start-page flex h-full flex-col overflow-y-auto px-2.5" : "agent-chat-start-page flex h-full flex-col overflow-y-auto px-4 sm:px-8"}>
+      <div className={compact
+        ? "agent-chat-start-content flex w-full flex-1 flex-col justify-end gap-3 pb-2.5"
+        : "agent-chat-start-content mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center gap-7 py-12"}>
         {/* Hero：问候语与项目名（无项目时引导选目录） */}
-        <div className="flex flex-col items-start gap-3 px-1 text-left">
+        {!compact && <div className="flex flex-col items-start gap-3 px-1 text-left">
           <div className="mb-1 flex h-11 w-11 items-center justify-center text-[var(--app-text-secondary)]">
             <Bot className="h-7 w-7" strokeWidth={1.5} />
           </div>
@@ -218,7 +222,7 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
           {projectName ? (
             <p className="text-sm leading-relaxed text-[var(--app-text-tertiary)]">{t("agentChatHeroSub")}</p>
           ) : null}
-        </div>
+        </div>}
         {!cwd ? (
           <div className="flex justify-center">
             <StartProjectMenu
@@ -235,7 +239,7 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
               }
             />
           </div>
-        ) : (
+        ) : compact ? null : (
           <div className="flex flex-wrap justify-center gap-1.5">
             {SUGGESTIONS.map(({ icon: Icon, labelKey, promptKey }) => (
               <button
@@ -257,9 +261,9 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
         )}
 
         {/* Composer 式启动栏：chips 行 + 输入 + 引擎/模型/模式/权限 + 发送 */}
-        <div className="agent-chat-start-composer agent-chat-composer-shell rounded-3xl border border-[var(--app-border)] bg-[var(--app-sidebar)] px-5 pb-4 pt-4 transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)] focus-within:border-[var(--app-text-tertiary)]">
+        <div className={`agent-chat-start-composer agent-chat-composer-shell border border-[var(--app-border)] bg-[var(--app-sidebar)] ${compact ? "rounded-xl px-3 pb-2.5 pt-2" : "rounded-3xl px-5 pb-4 pt-4"} transition-[border-color,box-shadow] duration-[var(--dur)] ease-[var(--ease-out)] focus-within:border-[var(--app-text-tertiary)]`}>
           {cwd ? (
-            <div className="agent-chat-start-context flex flex-wrap items-center gap-2 pb-3 text-xs text-[var(--app-text-tertiary)]">
+            <div className={`agent-chat-start-context flex flex-wrap items-center gap-2 text-xs text-[var(--app-text-tertiary)] ${compact ? "pb-1" : "pb-3"}`}>
               <StartProjectMenu
                 cwd={cwd}
                 onPickCwd={pickCwd}
@@ -277,9 +281,9 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
                 }
               />
               <span className="min-w-0 flex-1" />
-              <LocalLaunchSettings projectPath={cwd} worktree={worktree}
-                onChange={setWorktree} disabled={startingEngine !== null} />
-              {runtimeTools && <Tooltip><TooltipTrigger asChild><button type="button" aria-label={reviewT("title")} onClick={() => runtimeTools.openReview(cwd)}
+              {!compact && <LocalLaunchSettings projectPath={cwd} worktree={worktree}
+                onChange={setWorktree} disabled={startingEngine !== null} />}
+              {runtimeTools && !compact && <Tooltip><TooltipTrigger asChild><button type="button" aria-label={reviewT("title")} onClick={() => runtimeTools.openReview(cwd)}
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-hover)] transition-colors hover:text-[var(--app-text-primary)]">
                 <FileDiff className="h-3.5 w-3.5" />
               </button></TooltipTrigger><TooltipContent>{reviewT("title")}</TooltipContent></Tooltip>}
@@ -296,10 +300,10 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
               }
             }}
             placeholder={t("agentChatHeroPlaceholder")}
-            rows={5}
-            className="agent-chat-composer-input max-h-72 min-h-36 w-full resize-none bg-transparent py-4 text-[length:var(--text-heading)] leading-relaxed text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]"
+            rows={compact ? 3 : 5}
+            className={`agent-chat-composer-input w-full resize-none bg-transparent leading-relaxed ${compact ? "max-h-48 min-h-16 py-1.5 text-[length:var(--text-row)]" : "max-h-72 min-h-36 py-4 text-[length:var(--text-heading)]"} text-[var(--app-text-primary)] outline-none placeholder:text-[var(--app-text-tertiary)]`}
           />
-          <div className="agent-chat-composer-toolbar mt-3 flex items-end justify-between gap-3">
+          <div className={`agent-chat-composer-toolbar flex ${compact ? "mt-1" : "mt-3"} items-end justify-between gap-3`}>
             <div className="agent-chat-composer-options flex min-w-0 flex-wrap items-center gap-1.5">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -425,18 +429,18 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
         ) : null}
       </div>
 
-      {(onHistory || onCheckpoints) && <div className="flex justify-center gap-3 text-xs">
+      {!compact && (onHistory || onCheckpoints) && <div className="flex justify-center gap-3 text-xs">
         {onHistory && <button type="button" className="rounded px-3 py-2 text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]" onClick={onHistory}>{runtimeT("title")}</button>}
         {onCheckpoints && <button type="button" className="rounded px-3 py-2 text-[var(--app-text-secondary)] hover:bg-[var(--app-hover)]" onClick={onCheckpoints}>{t("turnCheckpointTitle", { defaultValue: "Turn checkpoints" })}</button>}
       </div>}
       {/* 最近会话：紧凑列表，点击续接（session/load） */}
-      <StartRecentSessions
+      {!compact && <StartRecentSessions
         entries={history}
         cwd={cwd}
         startingId={startingEngine}
         onResume={(entry) => void start(entry.engineId, entry.cwd, entry.acpSessionId)}
         onMutate={loadHistory}
-      />
+      />}
     </div>
   );
 }
