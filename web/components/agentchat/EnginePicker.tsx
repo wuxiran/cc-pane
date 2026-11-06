@@ -4,14 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowUp,
   Bot,
-  Bug,
   ChevronDown,
   FolderOpen,
   FileDiff,
-  Hammer,
   Loader2,
-  SearchCode,
-  Telescope,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AcpChatHistoryEntry, AcpEngineInfo } from "@/types/agentChat";
@@ -34,6 +30,7 @@ import PermissionPolicyDropdown from "./PermissionPolicyDropdown";
 import StartPrefDropdown from "./StartPrefDropdown";
 import StartProjectMenu, { workspaceLabelFor } from "./StartProjectMenu";
 import StartRecentSessions from "./StartRecentSessions";
+import CompactStartIntro, { START_SUGGESTIONS } from "./CompactStartIntro";
 import { takePendingResume } from "./pendingResume";
 import { takePendingStart } from "./pendingStart";
 import { startConfiguredChat } from "./startConfiguredChat";
@@ -49,12 +46,6 @@ import {
 } from "./enginePrefs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-const SUGGESTIONS = [
-  { icon: Telescope, labelKey: "agentChatSuggestExplore", promptKey: "agentChatSuggestExplorePrompt" },
-  { icon: Hammer, labelKey: "agentChatSuggestBuild", promptKey: "agentChatSuggestBuildPrompt" },
-  { icon: SearchCode, labelKey: "agentChatSuggestReview", promptKey: "agentChatSuggestReviewPrompt" },
-  { icon: Bug, labelKey: "agentChatSuggestFix", promptKey: "agentChatSuggestFixPrompt" },
-] as const;
 
 export interface EnginePickerProps {
   chatId: string;
@@ -239,9 +230,21 @@ export default function EnginePicker({ chatId, preferredEngineId, cwd, onPickCwd
               }
             />
           </div>
-        ) : compact ? null : (
+        ) : compact ? (
+          <CompactStartIntro
+            projectName={projectName}
+            cwd={cwd}
+            entries={history}
+            disabled={startingEngine !== null}
+            onSuggest={(prompt) => {
+              setDraft(prompt);
+              textareaRef.current?.focus();
+            }}
+            onResume={(entry) => void start(entry.engineId, entry.cwd, entry.acpSessionId)}
+          />
+        ) : (
           <div className="flex flex-wrap justify-center gap-1.5">
-            {SUGGESTIONS.map(({ icon: Icon, labelKey, promptKey }) => (
+            {START_SUGGESTIONS.map(({ icon: Icon, labelKey, promptKey }) => (
               <button
                 key={labelKey}
                 type="button"
