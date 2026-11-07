@@ -1,6 +1,6 @@
 // 开发环境探测：Node.js / Git / WSL / CLI 工具安装状态（首启预检与设置页共用）。
 // 从 terminalService 拆出（行数棘轮约束），语义不变。
-import { invokeOrApi } from "./apiClient";
+import { apiGet, invokeOrApi } from "./apiClient";
 import type { EnvironmentInfo } from "@/types";
 import type { EnvironmentInfoRaw } from "@/types/settings";
 
@@ -25,11 +25,8 @@ export function normalizeEnvironmentInfo(raw: EnvironmentInfoRaw): EnvironmentIn
 
 /** 检测开发环境（Node.js + Git + WSL + CLI 工具） */
 export async function checkEnvironment(): Promise<EnvironmentInfo> {
-  const raw = await invokeOrApi<EnvironmentInfoRaw>("check_environment", undefined, async () => ({
-    node: { installed: false, version: null },
-    git: { installed: false, version: null },
-    wsl: { installed: false, version: null, applicable: false },
-    cliTools: [],
-  }));
+  const raw = await invokeOrApi<EnvironmentInfoRaw>("check_environment", undefined, () =>
+    apiGet<EnvironmentInfoRaw>("/api/environment"),
+  );
   return normalizeEnvironmentInfo(raw);
 }

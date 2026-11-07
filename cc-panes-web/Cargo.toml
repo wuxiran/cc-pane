@@ -6,6 +6,10 @@ authors = ["wuxiran"]
 license = "GPL-3.0"
 edition = "2021"
 
+[features]
+# 把仓库根目录的 dist/（前端构建产物）编进二进制，用于远程服务器单文件部署。
+embed-dist = []
+
 [dependencies]
 cc-panes-core = { path = "../cc-panes-core" }
 cc-cli-adapters = { path = "../cc-cli-adapters" }
@@ -30,6 +34,7 @@ urlencoding = "2"
 encoding_rs = "0.8"
 chrono = "0.4"
 rand = "0.8"
+sysinfo = "0.33"
 
 [target.'cfg(windows)'.dependencies]
 socket2 = "0.6"

@@ -25,8 +25,10 @@ pub mod cursor_bridge_service;
 pub mod cursor_session_service;
 mod daemon_client;
 pub mod default_skill_service;
+pub mod device_token_service;
 mod drama_service;
 pub mod dsh_service;
+pub mod environment_check;
 mod external_skill_registry;
 pub mod external_usage_session_service;
 mod filesystem_service;
@@ -118,6 +120,7 @@ pub use default_skill_service::{
     BundledSkillInfo, DefaultSkillCleanupReport, DefaultSkillService, SkillGateContext,
     LEGACY_CLEANUP_REPORT_FILE_NAME, MANAGED_SKILLS_SUBDIR,
 };
+pub use device_token_service::{DeviceTokenRecord, DeviceTokenService};
 pub use drama_service::DramaService;
 pub use dsh_service::DshService;
 pub use external_skill_registry::{

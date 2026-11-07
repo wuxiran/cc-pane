@@ -1,4 +1,5 @@
 pub mod agent_sessions;
+pub mod device;
 pub mod drama;
 pub mod fork_review;
 pub mod git;
@@ -236,6 +237,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/worktrees", delete(git::remove_worktree))
         .route("/api/runtime/cwd", get(system::get_app_cwd))
         .route("/api/cli-tools", get(system::list_cli_tools))
+        .route("/api/device/info", get(device::get_device_info))
+        .route("/api/environment", get(device::get_environment))
         .route("/api/project-cli-hooks", get(system::get_project_cli_hooks))
         .route(
             "/api/project-cli-hooks",

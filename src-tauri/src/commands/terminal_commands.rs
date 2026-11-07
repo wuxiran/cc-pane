@@ -630,42 +630,7 @@ pub async fn check_environment(
 ) -> AppResult<serde_json::Value> {
     let registry = registry.inner().clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let node_path = which::which("node").ok();
-        let node_installed = node_path.is_some();
-        let node_version = node_path.and_then(|path| {
-            cc_cli_adapters::run_with_timeout(
-                &path,
-                &["--version".to_string()],
-                std::time::Duration::from_secs(5),
-            )
-        });
-
-        let cli_tools = registry.detect_all();
-        let git_path = which::which("git").ok();
-        let git_installed = git_path.is_some();
-        let git_version = git_path.and_then(|path| {
-            cc_cli_adapters::run_with_timeout(
-                &path,
-                &["--version".to_string()],
-                std::time::Duration::from_secs(5),
-            )
-        });
-        let wsl_applicable = cfg!(target_os = "windows");
-        let wsl_path = if wsl_applicable {
-            which::which("wsl.exe")
-                .or_else(|_| which::which("wsl"))
-                .ok()
-        } else {
-            None
-        };
-        let wsl_installed = wsl_path.is_some();
-
-        serde_json::json!({
-            "node": { "installed": node_installed, "version": node_version },
-            "git": { "installed": git_installed, "version": git_version },
-            "wsl": { "installed": wsl_installed, "version": null, "applicable": wsl_applicable },
-            "cliTools": cli_tools
-        })
+        cc_panes_core::services::environment_check::check_environment(&registry)
     })
     .await
     .map_err(|e| AppError::from(format!("Environment check failed: {}", e)))?;

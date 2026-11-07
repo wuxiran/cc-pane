@@ -9,6 +9,8 @@ use std::net::IpAddr;
 
 pub struct Access {
     token: Option<String>,
+    /// 设备令牌（Bearer）。存在时以它为准，不看 cookie。
+    device_token: Option<String>,
     peer: Option<IpAddr>,
     origin: RequestOrigin,
     credentials: WebAccessSettings,
@@ -23,6 +25,7 @@ impl Access {
     ) -> Self {
         Self {
             token: web_auth::session_from_headers(headers),
+            device_token: web_auth::bearer_from_headers(headers),
             peer,
             origin,
             credentials: state.settings_service.get_settings().web_access,
@@ -32,10 +35,20 @@ impl Access {
     /// Does not refresh idle time: output/heartbeats must not keep a session unlocked.
     pub fn permissions(&self, state: &AppState) -> Option<bool> {
         let settings = state.settings_service.get_settings().web_access;
+        if let Some(token) = &self.device_token {
+            let allowed = state.web_auth.verify_device_token(token)
+                && self.peer.is_none_or(|ip| {
+                    web_auth::device_peer_allowed(ip, &settings, state.web_auth.require_auth())
+                });
+            return allowed.then_some(false);
+        }
         if self
             .peer
             .is_some_and(|ip| !web_auth::remote_allowed(ip, &settings))
         {
+            return None;
+        }
+        if state.web_auth.require_auth() && !settings.auth_required() {
             return None;
         }
         if settings.auth_required() != self.credentials.auth_required()
@@ -58,7 +71,13 @@ impl Access {
     }
 
     pub fn touch_input(&self, state: &AppState) -> bool {
+        if let Some(token) = &self.device_token {
+            return state.web_auth.verify_device_token(token);
+        }
         let settings = state.settings_service.get_settings().web_access;
+        if state.web_auth.require_auth() && !settings.auth_required() {
+            return false;
+        }
         !settings.auth_required()
             || self.token.as_ref().is_some_and(|token| {
                 state

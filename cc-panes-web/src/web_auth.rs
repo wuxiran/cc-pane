@@ -13,6 +13,10 @@ use axum::Json;
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 
+use cc_panes_core::models::settings::WebAccessSettings;
+use cc_panes_core::services::DeviceTokenService;
+use std::sync::Arc;
+
 use crate::state::AppState;
 
 const SESSION_COOKIE: &str = "ccp_web_session";
@@ -117,6 +121,11 @@ pub async fn read_only_guard(
 pub struct WebAuthStore {
     revocations: tokio::sync::watch::Sender<u64>,
     sessions: Mutex<HashMap<String, Instant>>,
+    /// 其他 CC-Panes 设备的 Bearer 令牌（docs/111-multi-device.md）
+    device_tokens: Option<Arc<DeviceTokenService>>,
+    /// headless / `--require-token`：未配置密码时也不放行任何未鉴权请求（含回环）。
+    /// SSH 隧道进来的流量在本机看来是 127.0.0.1，默认的"回环即本人"假设不成立。
+    require_auth: bool,
 }
 
 impl Default for WebAuthStore {
@@ -124,11 +133,36 @@ impl Default for WebAuthStore {
         Self {
             sessions: Mutex::new(HashMap::new()),
             revocations: tokio::sync::watch::channel(0).0,
+            device_tokens: None,
+            require_auth: false,
         }
     }
 }
 
 impl WebAuthStore {
+    pub fn with_device_tokens(device_tokens: Arc<DeviceTokenService>, require_auth: bool) -> Self {
+        Self {
+            device_tokens: Some(device_tokens),
+            require_auth,
+            ..Self::default()
+        }
+    }
+
+    pub fn require_auth(&self) -> bool {
+        self.require_auth
+    }
+
+    /// 校验设备令牌。每次都按文件状态判断，吊销后下一个请求即失效。
+    pub fn verify_device_token(&self, token: &str) -> bool {
+        self.device_tokens
+            .as_ref()
+            .is_some_and(|tokens| tokens.verify(token).is_some())
+    }
+
+    /// 未配置密码时，是否仍需拒绝未鉴权请求。
+    fn locked_without_password(&self, settings: &WebAccessSettings) -> bool {
+        self.require_auth && !settings.auth_required()
+    }
     pub fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
         self.revocations.subscribe()
     }
@@ -208,13 +242,17 @@ pub struct LoginResponse {
 
 pub async fn status(State(state): State<AppState>, request: Request<Body>) -> Json<AuthStatus> {
     let settings = state.settings_service.get_settings().web_access;
-    let authenticated = !settings.auth_required()
+    let device_authenticated = bearer_from_headers(request.headers())
+        .is_some_and(|token| state.web_auth.verify_device_token(&token));
+    let auth_required =
+        settings.auth_required() || state.web_auth.locked_without_password(&settings);
+    let authenticated = device_authenticated
+        || !auth_required
         || session_from_request(&request).is_some_and(|token| {
             state
                 .web_auth
                 .validate_session(&token, idle_timeout(&settings))
         });
-    let auth_required = settings.auth_required();
     let password_configured = settings.password_configured();
     // /api/auth/status 在免鉴权组，access_control 不经过它——这里独立分类来源
     let remote_ip = request
@@ -224,8 +262,9 @@ pub async fn status(State(state): State<AppState>, request: Request<Body>) -> Js
     let origin = classify_origin(remote_ip, request.headers());
     // status 在免鉴权组，effective_read_only 的"已鉴权"前提在这里需显式核对：
     // 未登录的远程请求即使开了 remote_authenticated_write 也如实报告只读。
-    let read_only = effective_read_only(origin, &settings)
-        || (settings.remote_read_only && origin == RequestOrigin::Remote && !authenticated);
+    let read_only = !device_authenticated
+        && (effective_read_only(origin, &settings)
+            || (settings.remote_read_only && origin == RequestOrigin::Remote && !authenticated));
 
     Json(AuthStatus {
         auth_required,
@@ -297,6 +336,30 @@ pub async fn access_control(
         .extensions()
         .get::<axum::extract::connect_info::ConnectInfo<SocketAddr>>()
         .map(|info| info.0.ip());
+
+    // 设备令牌：已配对的 CC-Panes 设备视同本机主人（不受远程只读限制），
+    // 但仍受局域网开关和 IP 白名单约束。带了 Bearer 却无效时直接拒绝，不回落到 cookie。
+    if let Some(token) = bearer_from_headers(request.headers()) {
+        if !state.web_auth.verify_device_token(&token) {
+            return json_error(
+                StatusCode::UNAUTHORIZED,
+                "INVALID_DEVICE_TOKEN",
+                "Device token is invalid or has been revoked",
+            );
+        }
+        if remote_ip
+            .is_some_and(|ip| !device_peer_allowed(ip, &settings, state.web_auth.require_auth()))
+        {
+            return json_error(
+                StatusCode::FORBIDDEN,
+                "REMOTE_FORBIDDEN",
+                "Remote access is not allowed by Web access settings",
+            );
+        }
+        request.extensions_mut().insert(RequestOrigin::Local);
+        return next.run(request).await;
+    }
+
     if let Some(ip) = remote_ip {
         if !remote_allowed(ip, &settings) {
             return json_error(
@@ -310,6 +373,13 @@ pub async fn access_control(
     request.extensions_mut().insert(origin);
 
     if !settings.auth_required() {
+        if state.web_auth.locked_without_password(&settings) {
+            return json_error(
+                StatusCode::UNAUTHORIZED,
+                "UNAUTHORIZED",
+                "This server requires a device token",
+            );
+        }
         return next.run(request).await;
     }
 
@@ -355,6 +425,36 @@ pub(crate) fn remote_allowed(
         .iter()
         .filter_map(|value| value.parse::<IpAddr>().ok())
         .any(|allowed| allowed == ip)
+}
+
+/// 设备令牌允许的对端：回环（含 SSH 隧道）始终放行；非回环需打开 allow_lan
+/// （或服务以 `--require-token` 启动——运营者已显式选择"只认凭据"，如 Docker 里
+/// 对端总是网桥地址），有白名单时还要命中白名单。与 `remote_allowed` 不同，
+/// 这里不要求配置了密码——设备令牌本身就是凭据。
+pub(crate) fn device_peer_allowed(
+    ip: IpAddr,
+    settings: &WebAccessSettings,
+    token_only_server: bool,
+) -> bool {
+    if ip.is_loopback() {
+        return true;
+    }
+    if !settings.allow_lan && !token_only_server {
+        return false;
+    }
+    settings.ip_whitelist.is_empty()
+        || settings
+            .ip_whitelist
+            .iter()
+            .filter_map(|value| value.parse::<IpAddr>().ok())
+            .any(|allowed| allowed == ip)
+}
+
+pub(crate) fn bearer_from_headers(headers: &HeaderMap) -> Option<String> {
+    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+    let (scheme, token) = value.trim().split_once(' ')?;
+    let token = token.trim();
+    (scheme.eq_ignore_ascii_case("bearer") && !token.is_empty()).then(|| token.to_string())
 }
 
 fn session_from_request(request: &Request<Body>) -> Option<String> {
