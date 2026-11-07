@@ -1126,6 +1126,7 @@
     "openSkillsInLibrary": "Manage skills in the library",
     "mcpIntro": "Add a server once, then turn it on for the launch profiles that need it. CC-Panes injects it when a session starts and doesn't change ~/.claude or similar folders.",
     "discover": "Discover",
+    "backToServers": "My servers",
     "folder": "Library folder",
     "emptyTitle": "No servers in the library yet",
     "emptyHint": "Add one, or import what your agents already have (below).",

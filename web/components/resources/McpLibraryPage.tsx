@@ -1,7 +1,7 @@
 // 资源库 · MCP：一张表列出所有来源，开关决定注入哪些启动档，点行看详情。
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ClipboardPaste, Compass, FolderOpen, Import, Plus, Search, Server } from "lucide-react";
+import { ArrowUp, ChevronDown, ClipboardPaste, Compass, FolderOpen, Import, Plus, Search, Server } from "lucide-react";
 import { resolveWorkspaceLaunchProfile } from "@/components/providers/launchProfileHelpers";
 import RemoteRuntimeNotice from "@/components/providers/RemoteRuntimeNotice";
 import { Button } from "@/components/ui/button";
@@ -79,6 +79,8 @@ export default function McpLibraryPage() {
   const projectLayer = useMcpStore((s) => (projectTarget ? s.layers[mcpTargetKey(projectTarget)] ?? EMPTY_MCP_LAYER : EMPTY_MCP_LAYER));
 
   const marketRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [inMarket, setInMarket] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ key: string; text: string } | null>(null);
@@ -154,8 +156,17 @@ export default function McpLibraryPage() {
     }
   };
   const scrollToMarket = () => {
-    marketRef.current?.scrollIntoView({ block: "start" });
-    marketRef.current?.querySelector("input")?.focus();
+    marketRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    marketRef.current?.querySelector("input")?.focus({ preventScroll: true });
+  };
+  const scrollToTop = () => scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  // 「发现」区就在同一滚动容器底部：滚到那里后按钮变成「回到我的服务器」，否则用户以为进了新页面回不去
+  const syncInMarket = () => {
+    const container = scrollRef.current;
+    const market = marketRef.current;
+    if (!container || !market) return;
+    const offset = market.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    setInMarket(offset < container.clientHeight / 3);
   };
   const handleImportLegacy = async () => {
     if (!projectPath) return;
@@ -178,7 +189,11 @@ export default function McpLibraryPage() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 flex-wrap items-center gap-2 px-6 pb-3 pt-5">
           <h1 className="mr-auto text-[length:var(--text-title)] font-semibold" style={{ color: "var(--app-text-primary)" }}>{t("resourceLibrary.mcp")}</h1>
-          <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={scrollToMarket}><Compass size={13} className="mr-1" />{t("resourceLibrary.discover")}</Button>
+          {inMarket ? (
+            <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={scrollToTop}><ArrowUp size={13} className="mr-1" />{t("resourceLibrary.backToServers")}</Button>
+          ) : (
+            <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={scrollToMarket}><Compass size={13} className="mr-1" />{t("resourceLibrary.discover")}</Button>
+          )}
           <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => void openFolder()}><FolderOpen size={13} className="mr-1" />{t("resourceLibrary.folder")}</Button>
           <ScopeSelect onChange={() => setSelectedKey(null)} />
           <ShownProfilesMenu profiles={profiles} shownIds={shownIds} onToggle={toggleShown} />
@@ -209,7 +224,7 @@ export default function McpLibraryPage() {
           </DropdownMenu>
         </header>
 
-        <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-6 pb-6">
+        <div ref={scrollRef} onScroll={syncInMarket} className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-6 pb-6">
           <RemoteRuntimeNotice workspace={workspace} profile={workspaceProfile} subject="mcp" className="mb-3" />
           <p className="mb-3 text-xs leading-relaxed" style={{ color: "var(--app-text-tertiary)" }}>{t("resourceLibrary.mcpIntro")}</p>
           {profiles.length === 0 && <p className="mb-2 text-xs" style={{ color: "var(--app-text-tertiary)" }}>{t("resourceCenter.noProfiles")}</p>}
