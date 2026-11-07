@@ -48,7 +48,8 @@
     "resources": "资源库",
     "todo": "TodoList",
     "aiPanel": "AI 面板",
-    "sessionHistory": "会话历史"
+    "sessionHistory": "会话历史",
+    "devices": "设备"
   },
   "moduleMenu": {
     "title": "模块位置",
@@ -782,5 +783,75 @@
     "keptClaudeMd": "该文件夹已有 CLAUDE.md，未覆盖。素材助手可能不了解资料空间的约定，可参考模板手动合并。",
     "createFailed": "创建资料空间失败：{{error}}",
     "assistantPrompt": "你是资料空间的素材助手。严格按当前目录 CLAUDE.md 的约定工作：用户投来的链接、文字、图片按 ingest skill 收进 uploads/，视频链接按 video-transcribe skill 下载并转写，整理按 organize skill，创作产出写到 works/。用户刚打开你时，简短问候并说明可以直接把链接或想法发给你。"
+  },
+  "devices": {
+    "title": "设备",
+    "intro": "其他运行 CC-Panes 的服务器或电脑。会话在对方机器上启动，MCP、技能、记忆都按对方的配置注入。",
+    "add": "添加设备",
+    "refresh": "刷新",
+    "empty": "还没有设备。添加一台 SSH 服务器，CC-Panes 会把服务端部署过去；或直连另一台开着 CC-Panes 的电脑。",
+    "status": {
+      "unknown": "检查中…",
+      "online": "在线",
+      "sshFailed": "SSH 连不上",
+      "notRunning": "未运行 CC-Panes",
+      "unauthorized": "令牌无效",
+      "error": "连接失败"
+    },
+    "hint": {
+      "notRunning": "这台机器上还没有运行 CC-Panes 服务端。",
+      "unauthorized": "对方拒绝了保存的令牌。",
+      "unauthorizedDirect": "对方拒绝了保存的令牌，请在对方机器上重新生成并更新。",
+      "versionMismatch": "对方是 {{remote}}，本机是 {{local}}"
+    },
+    "deploy": "部署",
+    "redeploy": "重新部署",
+    "upgrade": "升级到 {{version}}",
+    "updateToken": "更新令牌",
+    "remove": "移除",
+    "removeConfirm": "移除设备“{{name}}”？只会删除本机的记录和令牌，不会停掉对方的服务。",
+    "deployStep": {
+      "connect": "正在连接…",
+      "detect": "正在检测系统…",
+      "download": "正在下载服务端…",
+      "upload": "正在上传…",
+      "install": "正在安装服务…",
+      "start": "正在启动…",
+      "token": "正在配置令牌…",
+      "verify": "正在验证…",
+      "done": "完成"
+    },
+    "deployed": "已部署到 {{name}}（{{version}}）",
+    "deployFailed": "部署失败：{{error}}",
+    "cli": {
+      "notInstalled": "未安装"
+    },
+    "workspaces": "工作空间",
+    "noWorkspaces": "对方还没有工作空间",
+    "sessions": "运行中的会话",
+    "noSessions": "没有运行中的会话",
+    "unknownProject": "未知项目",
+    "dialog": {
+      "title": "添加设备",
+      "kindSsh": "SSH 服务器",
+      "kindDirect": "直连",
+      "kindSshHint": "通过已保存的 SSH 机器连接，服务端只监听对方的 127.0.0.1，经 SSH 隧道访问。",
+      "kindDirectHint": "另一台开着 CC-Panes 的电脑（局域网或 Tailscale）。在对方机器上运行 cc-panes-web token create 生成令牌。",
+      "name": "名称",
+      "machine": "SSH 机器",
+      "noMachines": "还没有 SSH 机器，请先在「SSH 机器」里添加。",
+      "remotePort": "服务端口（对方机器上）",
+      "deployNow": "添加后立即部署",
+      "baseUrl": "地址",
+      "baseUrlPlaceholder": "http://studio.tailnet.ts.net:8080",
+      "token": "设备令牌",
+      "insecureHint": "这是明文 HTTP 地址，令牌和终端内容会以明文传输。建议只在 Tailscale 或本机回环上使用。",
+      "submit": "添加",
+      "cancel": "取消"
+    },
+    "tokenDialog": {
+      "title": "更新令牌",
+      "description": "在对方机器上运行 cc-panes-web token create --name <本机名>，把输出粘贴到这里。"
+    }
   }
 }

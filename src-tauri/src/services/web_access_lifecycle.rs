@@ -274,7 +274,7 @@ fn desired_bind_host(settings: &WebAccessSettings) -> String {
     }
 }
 
-fn resolve_web_binary(resource_dir: Option<&Path>) -> AppResult<PathBuf> {
+pub fn resolve_web_binary(resource_dir: Option<&Path>) -> AppResult<PathBuf> {
     let binary_name = web_binary_name();
 
     if let Ok(explicit) = std::env::var(WEB_BIN_ENV) {

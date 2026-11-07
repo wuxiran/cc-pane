@@ -48,7 +48,8 @@
     "resources": "Resources",
     "todo": "TodoList",
     "aiPanel": "AI Panel",
-    "sessionHistory": "Session History"
+    "sessionHistory": "Session History",
+    "devices": "Devices"
   },
   "moduleMenu": {
     "title": "Module placement",
@@ -782,5 +783,75 @@
     "keptClaudeMd": "This folder already has a CLAUDE.md and it was not overwritten. The assistant may not know the Library conventions; merge them from the template manually.",
     "createFailed": "Failed to create Library: {{error}}",
     "assistantPrompt": "You are the Library assistant. Follow the conventions in CLAUDE.md in the current directory: file links, text and images the user sends into uploads/ with the ingest skill, download and transcribe video links with the video-transcribe skill, organize with the organize skill, and write created work to works/. When first opened, greet briefly and say the user can just send you links or ideas."
+  },
+  "devices": {
+    "title": "Devices",
+    "intro": "Servers or computers running CC-Panes. Sessions start on that machine, with its own MCP, skills and memory.",
+    "add": "Add device",
+    "refresh": "Refresh",
+    "empty": "No devices yet. Add an SSH server and CC-Panes deploys the server there, or connect directly to another computer running CC-Panes.",
+    "status": {
+      "unknown": "Checking…",
+      "online": "Online",
+      "sshFailed": "SSH unreachable",
+      "notRunning": "CC-Panes not running",
+      "unauthorized": "Token rejected",
+      "error": "Connection failed"
+    },
+    "hint": {
+      "notRunning": "The CC-Panes server is not running on this machine yet.",
+      "unauthorized": "The device rejected the saved token.",
+      "unauthorizedDirect": "The device rejected the saved token. Create a new one on that machine and update it here.",
+      "versionMismatch": "Remote {{remote}}, this computer {{local}}"
+    },
+    "deploy": "Deploy",
+    "redeploy": "Redeploy",
+    "upgrade": "Upgrade to {{version}}",
+    "updateToken": "Update token",
+    "remove": "Remove",
+    "removeConfirm": "Remove device \"{{name}}\"? Only the local record and token are deleted; the remote server keeps running.",
+    "deployStep": {
+      "connect": "Connecting…",
+      "detect": "Detecting system…",
+      "download": "Downloading server…",
+      "upload": "Uploading…",
+      "install": "Installing service…",
+      "start": "Starting…",
+      "token": "Setting up token…",
+      "verify": "Verifying…",
+      "done": "Done"
+    },
+    "deployed": "Deployed to {{name}} ({{version}})",
+    "deployFailed": "Deploy failed: {{error}}",
+    "cli": {
+      "notInstalled": "not installed"
+    },
+    "workspaces": "Workspaces",
+    "noWorkspaces": "No workspaces on this device",
+    "sessions": "Running sessions",
+    "noSessions": "No running sessions",
+    "unknownProject": "Unknown project",
+    "dialog": {
+      "title": "Add device",
+      "kindSsh": "SSH server",
+      "kindDirect": "Direct",
+      "kindSshHint": "Connects through a saved SSH machine. The server only listens on that machine's 127.0.0.1 and is reached through an SSH tunnel.",
+      "kindDirectHint": "Another computer running CC-Panes (LAN or Tailscale). Run cc-panes-web token create on that machine to get a token.",
+      "name": "Name",
+      "machine": "SSH machine",
+      "noMachines": "No SSH machines yet. Add one under SSH Machines first.",
+      "remotePort": "Server port (on that machine)",
+      "deployNow": "Deploy right after adding",
+      "baseUrl": "Address",
+      "baseUrlPlaceholder": "http://studio.tailnet.ts.net:8080",
+      "token": "Device token",
+      "insecureHint": "This is a plain HTTP address: the token and terminal traffic travel unencrypted. Use it only over Tailscale or loopback.",
+      "submit": "Add",
+      "cancel": "Cancel"
+    },
+    "tokenDialog": {
+      "title": "Update token",
+      "description": "Run cc-panes-web token create --name <this computer> on that machine and paste the output here."
+    }
   }
 }

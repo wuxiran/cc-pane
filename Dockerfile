@@ -16,20 +16,18 @@ RUN npm run build
 
 # ============ Server ============
 FROM rust:1-bookworm AS builder
-RUN apt-get update && apt-get install -y --no-install-recommends libdbus-1-dev pkg-config && \
-    rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY . .
 COPY --from=frontend /app/dist ./dist
 # .cargo/config.toml 把 target 放在仓库外；容器里固定回仓库内，便于下一阶段拷贝。
 ENV CARGO_TARGET_DIR=/app/target
-RUN cargo build --release -p cc-panes-web --features embed-dist
+RUN cargo build --release -p cc-panes-web --no-default-features --features embed-dist
 
 # ============ Runtime ============
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates procps git libdbus-1-3 libssl3 && \
+    ca-certificates procps git libssl3 && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/cc-panes-web /usr/local/bin/

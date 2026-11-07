@@ -38,6 +38,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 which = "7"
 notify = "7"
 sha2 = "0.10"
+sysinfo = "0.33"
 dunce = "1"
 walkdir = "2"
 toml = "0.8"

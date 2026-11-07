@@ -85,5 +85,5 @@ pub use terminal_daemon_event_bridge::TerminalDaemonEventBridge;
 pub use terminal_daemon_lifecycle::TerminalDaemonLifecycle;
 pub use turn_notify_registry::{TurnMark, TurnNotifyRegistry};
 pub use web_access_lifecycle::{
-    local_url as web_access_local_url, WebAccessLifecycle, WebAccessStatus,
+    local_url as web_access_local_url, resolve_web_binary, WebAccessLifecycle, WebAccessStatus,
 };

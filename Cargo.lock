@@ -959,6 +959,7 @@ dependencies = [
  "similar",
  "socket2",
  "strip-ansi-escapes",
+ "sysinfo",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",

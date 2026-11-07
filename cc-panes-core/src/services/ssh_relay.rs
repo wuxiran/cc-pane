@@ -104,23 +104,64 @@ fn retryable(error: &io::Error) -> bool {
     matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted)
 }
 
+/// One bidirectional byte relay, advanced one non-blocking round at a time.
+///
+/// Several relays can share one thread (and therefore one `ssh2::Session`, whose
+/// channels must not be driven from two threads at once): see `ssh_port_forward`.
+pub(super) struct Relay {
+    up: Box<Pending>,
+    down: Box<Pending>,
+    local_open: bool,
+    remote_open: bool,
+}
+
+pub(super) enum RelayStep {
+    Idle,
+    Progressed,
+    Finished,
+}
+
+impl Relay {
+    pub(super) fn new() -> Self {
+        Self {
+            up: Box::new(Pending::new()),
+            down: Box::new(Pending::new()),
+            local_open: true,
+            remote_open: true,
+        }
+    }
+
+    pub(super) fn step(
+        &mut self,
+        local: &mut (impl Read + Write),
+        remote: &mut (impl Read + Write),
+    ) -> io::Result<RelayStep> {
+        // Service both reads even when one write needs EAGAIN/window updates.
+        let mut progressed = self.up.read_from(local, &mut self.local_open)?;
+        progressed |= self.down.read_from(remote, &mut self.remote_open)?;
+        progressed |= self.up.write_to(remote)?;
+        progressed |= self.down.write_to(local)?;
+        if (!self.local_open || !self.remote_open) && self.up.empty() && self.down.empty() {
+            return Ok(RelayStep::Finished);
+        }
+        Ok(if progressed {
+            RelayStep::Progressed
+        } else {
+            RelayStep::Idle
+        })
+    }
+}
+
 pub(super) fn pump_bidirectional(
     local: &mut (impl Read + Write),
     remote: &mut (impl Read + Write),
 ) -> io::Result<()> {
-    let (mut up, mut down) = (Pending::new(), Pending::new());
-    let (mut local_open, mut remote_open) = (true, true);
+    let mut relay = Relay::new();
     loop {
-        // Service both reads even when one write needs EAGAIN/window updates.
-        let mut progressed = up.read_from(local, &mut local_open)?;
-        progressed |= down.read_from(remote, &mut remote_open)?;
-        progressed |= up.write_to(remote)?;
-        progressed |= down.write_to(local)?;
-        if (!local_open || !remote_open) && up.empty() && down.empty() {
-            return Ok(());
-        }
-        if !progressed {
-            std::thread::sleep(Duration::from_millis(1));
+        match relay.step(local, remote)? {
+            RelayStep::Finished => return Ok(()),
+            RelayStep::Progressed => {}
+            RelayStep::Idle => std::thread::sleep(Duration::from_millis(1)),
         }
     }
 }

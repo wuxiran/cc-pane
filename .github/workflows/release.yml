@@ -382,7 +382,7 @@ jobs:
 
   server-binaries:
     # 远程设备一键部署用的 headless 服务端（docs/111-multi-device.md）。
-    # 用 glibc 而非 musl：keyring(secret-service→libdbus) 与 ssh2(openssl) 静态链接成本高；
+    # 不带系统密钥环（--no-default-features），运行时不依赖 libdbus；ssh2 仍链接系统 OpenSSL 3。
     # 在 22.04 上构建以兼容 glibc ≥ 2.35 的发行版（Ubuntu 22.04+ / Debian 12+ / RHEL 9+）。
     name: Build server binary (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
@@ -407,7 +407,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libdbus-1-dev libssl-dev pkg-config
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libssl-dev pkg-config
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -435,7 +435,7 @@ jobs:
           npm run build
 
       - name: Build cc-panes-web
-        run: cargo build --release -p cc-panes-web --features embed-dist
+        run: cargo build --release -p cc-panes-web --no-default-features --features embed-dist
 
       - name: Package and upload
         env:

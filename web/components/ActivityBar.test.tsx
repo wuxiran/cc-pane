@@ -73,9 +73,9 @@ describe("ActivityBar", () => {
   it("实验功能全关（release 默认）时不渲染技能市场入口", () => {
     const { container } = renderBar();
     expect(screen.getByTestId("layout-bar-stub")).toBeInTheDocument();
-    // Home + explorer + ssh/todo + 添加模块 + settings = 6 按钮
+    // Home + explorer + ssh/devices/todo + 添加模块 + settings
     //（files 与 sessions 图标已移除：Explorer 侧栏自带 文件 / 最近启动 tab）
-    expect(container.querySelectorAll("button")).toHaveLength(7);
+    expect(container.querySelectorAll("button")).toHaveLength(8);
     expect(screen.queryByRole("button", { name: "技能市场" })).not.toBeInTheDocument();
   });
 
@@ -91,10 +91,10 @@ describe("ActivityBar", () => {
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
   });
 
-  it("勾选后技能市场入口出现，按钮总数回到 8", () => {
+  it("勾选后技能市场入口出现，按钮总数回到 9", () => {
     setExperimental({ skillMarket: true });
     const { container } = renderBar();
-    expect(container.querySelectorAll("button")).toHaveLength(8);
+    expect(container.querySelectorAll("button")).toHaveLength(9);
     expect(screen.getByRole("button", { name: "技能市场" })).toBeInTheDocument();
   });
 
@@ -102,7 +102,7 @@ describe("ActivityBar", () => {
     setExperimental({ librarySpace: true });
     const user = userEvent.setup();
     const { container } = renderBar();
-    expect(container.querySelectorAll("button")).toHaveLength(8);
+    expect(container.querySelectorAll("button")).toHaveLength(9);
     await user.click(screen.getByRole("button", { name: "创建资料空间" }));
     expect(await screen.findByRole("button", { name: "创建并打开素材助手" })).toBeInTheDocument();
   });
