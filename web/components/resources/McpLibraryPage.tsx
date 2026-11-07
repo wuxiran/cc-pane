@@ -156,10 +156,10 @@ export default function McpLibraryPage() {
     }
   };
   const scrollToMarket = () => {
-    marketRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    marketRef.current?.scrollIntoView({ block: "start" });
     marketRef.current?.querySelector("input")?.focus({ preventScroll: true });
   };
-  const scrollToTop = () => scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  const scrollToTop = () => scrollRef.current?.scrollTo({ top: 0 });
   // 「发现」区就在同一滚动容器底部：滚到那里后按钮变成「回到我的服务器」，否则用户以为进了新页面回不去
   const syncInMarket = () => {
     const container = scrollRef.current;
