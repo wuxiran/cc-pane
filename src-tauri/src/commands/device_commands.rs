@@ -220,6 +220,8 @@ impl DeviceSnapshot {
     }
 }
 
+// 失败时直接返回给前端的离线快照；只在本模块内部流转，装箱没有收益。
+#[allow(clippy::result_large_err)]
 async fn resolve_endpoint(
     service: &Arc<DeviceService>,
     id: &str,
@@ -583,7 +585,7 @@ fn local_addresses(port: u16) -> Vec<String> {
         addresses.push(format!("http://{ip}:{port}"));
     }
     let networks = sysinfo::Networks::new_with_refreshed_list();
-    for (_, data) in networks.iter() {
+    for data in networks.values() {
         for network in data.ip_networks() {
             let ip = network.addr;
             if ip.is_loopback() || !ip.is_ipv4() {

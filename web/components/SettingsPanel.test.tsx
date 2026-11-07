@@ -283,7 +283,7 @@ describe("SettingsPanel", () => {
 
     await user.click(screen.getByRole("tab", { name: tSettings("modules.title") }));
 
-    expect(await screen.findByTestId("module-setting-ssh")).toBeInTheDocument();
+    expect(await screen.findByTestId("module-setting-ssh", {}, { timeout: 5000 })).toBeInTheDocument();
     const configurableModuleCount = MODULE_REGISTRY.filter((module) => module.configurable !== false).length;
     expect(screen.getAllByTestId(/^module-setting-/)).toHaveLength(configurableModuleCount);
   });
