@@ -1,21 +1,20 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Files, FolderOpen, FolderSync, GitBranch, type LucideIcon } from "lucide-react";
+import { Folder, FolderOpen, FolderSync, GitBranch, MessageSquare } from "lucide-react";
 import ExplorerFilesSection from "@/components/sidebar/ExplorerFilesSection";
 import ExplorerGitSection from "@/components/sidebar/ExplorerGitSection";
 import SshMachinesView from "@/components/sidebar/SshMachinesView";
 import OrchestratorView from "@/components/sidebar/OrchestratorView";
 import AiPanelView from "@/components/aipanel/AiPanelView";
-import SessionHistoryView from "./SessionHistoryView";
+import DockChatView from "./DockChatView";
+import DockRail, { type DockRailItem } from "./DockRail";
 import SshRemoteFilesView from "./SshRemoteFilesView";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePanelResize } from "@/hooks/usePanelResize";
 import {
   MAX_RIGHT_DOCK_WIDTH,
   MIN_RIGHT_DOCK_WIDTH,
   useRightDockStore,
-  type RightDockView,
 } from "@/stores/useRightDockStore";
 import { useWorkspacesStore } from "@/stores/useWorkspacesStore";
 import { usePanesStore } from "@/stores/usePanesStore";
@@ -28,26 +27,12 @@ import { MODULE_CONSUMERS } from "@/modules/registry";
 import { useModulePrefsStore } from "@/stores/useModulePrefsStore";
 import { useAiPanelStore } from "@/stores/useAiPanelStore";
 import { useOrchestratorStore } from "@/stores/useOrchestratorStore";
+import { useAgentChatStore } from "@/stores/useAgentChatStore";
+import { useDockChatStore } from "@/stores/useDockChatStore";
 import { useSshRemoteFilesStore } from "@/stores/useSshRemoteFilesStore";
 
-interface RightDockViewDefinition {
-  id: RightDockView;
-  icon: LucideIcon;
-  titleKey: "rightDock.git" | "rightDock.files" | "rightDock.orchestration";
-}
-
-const RIGHT_DOCK_VIEWS: readonly RightDockViewDefinition[] = [
-  {
-    id: "files",
-    icon: Files,
-    titleKey: "rightDock.files",
-  },
-  {
-    id: "git",
-    icon: GitBranch,
-    titleKey: "rightDock.git",
-  },
-];
+/** 会话历史并进了对话视图的历史面板，不再单独占竖栏一格。 */
+const MODULES_MERGED_INTO_CHAT = new Set(["sessionHistory"]);
 
 export function resolveRightDockProject(
   workspace: Workspace | null,
@@ -141,12 +126,42 @@ export default function RightDock({ onOpenTerminal, overlay = false }: RightDock
     || (activeView === "aiPanel" && !aiPanelDocked)
     || (activeView === "orchestration" && !orchestrationDocked)
     || (activeView === "sshFiles" && !remoteMachineId);
-  const resolvedActiveView = activeDockModuleMissing ? "git" : activeView;
+  const resolvedActiveView = activeDockModuleMissing ? "git" : activeView === "sessionHistory" ? "chat" : activeView;
+  // 有对话在跑而用户在看别的视图时，对话图标上挂个点。
+  const dockChatIds = useDockChatStore((state) => state.chats.map((chat) => chat.id).join("\n"));
+  const dockChatBusy = useAgentChatStore((state) => dockChatIds.split("\n").some((id) => {
+    const chat = state.chats[id];
+    return Boolean(chat && (chat.pendingPermissions.length > 0 || chat.snapshot?.phase === "generating" || chat.pendingPrompt));
+  }));
+  const railItems: DockRailItem[] = [
+    { id: "chat", icon: MessageSquare, label: t("rightDock.chat"), onSelect: () => setActiveView("chat"),
+      badge: dockChatBusy && resolvedActiveView !== "chat" ? "amber" : undefined },
+    { id: "files", icon: Folder, label: t("rightDock.files"), onSelect: () => setActiveView("files") },
+    { id: "git", icon: GitBranch, label: t("rightDock.git"), onSelect: () => setActiveView("git") },
+    ...(remoteMachineId
+      ? [{ id: "sshFiles", icon: FolderSync, label: t("rightDock.remoteFiles"), onSelect: () => setActiveView("sshFiles") }]
+      : []),
+    ...dockModules.filter((module) => !MODULES_MERGED_INTO_CHAT.has(module.id)).map((module): DockRailItem => {
+      const badge = module.badge?.({ bindings, aiPanelUnreadCount });
+      return {
+        id: module.id,
+        icon: module.icon,
+        label: t(module.titleKey as never),
+        onSelect: () => module.open("rightDock"),
+        badge: badge == null ? undefined : typeof badge === "number" ? "blue" : badge.tone,
+      };
+    }),
+  ];
 
 
   useEffect(() => {
     if (activeDockModuleMissing) setActiveView("git");
-  }, [activeDockModuleMissing, setActiveView]);
+    // 旧入口（模块菜单、命令面板）仍可能把视图设成会话历史：转到对话的历史面板。
+    else if (activeView === "sessionHistory") {
+      setActiveView("chat");
+      useDockChatStore.getState().openHistory("terminal");
+    }
+  }, [activeDockModuleMissing, activeView, setActiveView]);
 
   const handleResizePointerDown = usePanelResize({ element: panelRef, width, min: MIN_RIGHT_DOCK_WIDTH,
     max: MAX_RIGHT_DOCK_WIDTH, direction: -1, onCommit: setWidth, onCollapse: () => setVisible(false) });
@@ -157,7 +172,7 @@ export default function RightDock({ onOpenTerminal, overlay = false }: RightDock
     <div
       ref={panelRef}
       data-testid="right-dock-panel"
-      className="relative flex h-full shrink-0 flex-col"
+      className="relative flex h-full shrink-0 flex-row"
       style={{
         width: overlay ? "100%" : width,
         background: "var(--app-sidebar-bg)",
@@ -202,126 +217,20 @@ export default function RightDock({ onOpenTerminal, overlay = false }: RightDock
       </div>
       )}
 
-      <div className="flex h-11 shrink-0 items-center gap-2 px-2 pl-2">
-        <div
-          className="flex items-center gap-0.5"
-          role="tablist"
-          aria-label={[
-            t("rightDock.git"),
-            t("rightDock.files"),
-            ...dockModules.map((module) => t(module.titleKey as never)),
-          ].join(" / ")}
-        >
-          {RIGHT_DOCK_VIEWS.map(({ id, icon: Icon, titleKey }) => {
-            const selected = id === resolvedActiveView;
-            return (
-              <Tooltip key={id}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={selected}
-                    aria-label={t(titleKey)}
-                    onClick={() => setActiveView(id)}
-                    className={`relative flex h-[36px] w-[38px] items-center justify-center transition-colors duration-[var(--dur-fast)] ${
-                      selected ? "" : "hover:text-[var(--app-text-primary)]"
-                    }`}
-                    style={{
-                      color: selected ? "var(--app-text-primary)" : "var(--app-text-tertiary)",
-                    }}
-                  >
-                    <Icon className="h-[19px] w-[19px]" strokeWidth={1.6} />
-                    {selected && (
-                      <span
-                        aria-hidden
-                        className="absolute inset-x-2 bottom-0 h-[2px] rounded-full"
-                        style={{ background: "var(--app-text-primary)" }}
-                      />
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">{t(titleKey)}</TooltipContent>
-              </Tooltip>
-            );
-          })}
-          {remoteMachineId && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={resolvedActiveView === "sshFiles"}
-                  aria-label={t("rightDock.remoteFiles")}
-                  onClick={() => setActiveView("sshFiles")}
-                  className="relative flex h-[36px] w-[38px] items-center justify-center transition-colors duration-[var(--dur-fast)]"
-                  style={{
-                    color: resolvedActiveView === "sshFiles"
-                      ? "var(--app-text-primary)"
-                      : "var(--app-text-tertiary)",
-                  }}
-                >
-                  <FolderSync className="h-[19px] w-[19px]" strokeWidth={1.6} />
-                  {resolvedActiveView === "sshFiles" && (
-                    <span aria-hidden className="absolute inset-x-2 bottom-0 h-[2px] rounded-full" style={{ background: "var(--app-text-primary)" }} />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{t("rightDock.remoteFiles")}</TooltipContent>
-            </Tooltip>
-          )}
-          {dockModules.map((module) => {
-            const Icon = module.icon;
-            const selected = module.id === resolvedActiveView;
-            const label = t(module.titleKey as never);
-            const badge = module.badge?.({ bindings, aiPanelUnreadCount });
-            const badgeTone = typeof badge === "number" ? "blue" : badge?.tone;
-            return (
-              <Tooltip key={module.id}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    role="tab"
-                    data-module-id={module.id}
-                    aria-selected={selected}
-                    aria-label={label}
-                    onClick={() => module.open("rightDock")}
-                    className={`relative flex h-[36px] w-[38px] items-center justify-center transition-colors duration-[var(--dur-fast)] ${
-                      selected ? "" : "hover:text-[var(--app-text-primary)]"
-                    }`}
-                    style={{
-                      color: selected ? "var(--app-text-primary)" : "var(--app-text-tertiary)",
-                    }}
-                  >
-                    <Icon className="h-[19px] w-[19px]" strokeWidth={1.6} />
-                    {badge != null && (
-                      <span
-                        data-testid={`right-dock-module-badge-${module.id}`}
-                        aria-hidden="true"
-                        className={`absolute right-1.5 top-1.5 size-1.5 rounded-full ${
-                          badgeTone === "red"
-                            ? "bg-[var(--app-status-danger)]"
-                            : badgeTone === "amber"
-                              ? "bg-[var(--app-status-warning)]"
-                              : "bg-[var(--app-accent)]"
-                        }`}
-                      />
-                    )}
-                    {selected && (
-                      <span
-                        aria-hidden
-                        className="absolute inset-x-2 bottom-0 h-[2px] rounded-full"
-                        style={{ background: "var(--app-text-primary)" }}
-                      />
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">{label}</TooltipContent>
-              </Tooltip>
-            );
-          })}
-        </div>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {resolvedActiveView === "chat" ? (
+        <DockChatView
+          defaultCwd={selectedProject?.path ?? null}
+          workspaces={workspaces}
+          workspace={workspace}
+          project={selectedProject}
+          onOpenTerminal={onOpenTerminal}
+        />
+      ) : (
+      <>
+      <div className="flex h-10 shrink-0 items-center border-b px-3 text-xs font-medium" style={{ borderColor: "var(--app-border)", color: "var(--app-text-secondary)" }}>
+        {railItems.find((item) => item.id === resolvedActiveView)?.label}
       </div>
-
       {resolvedActiveView === "sshFiles" ? (
         <div className="min-h-0 flex-1 overflow-hidden">
           <SshRemoteFilesView onOpenTerminal={onOpenTerminal} />
@@ -337,15 +246,6 @@ export default function RightDock({ onOpenTerminal, overlay = false }: RightDock
       ) : resolvedActiveView === "ssh" ? (
         <div className="min-h-0 flex-1 overflow-hidden px-2 pb-2 pt-2">
           <SshMachinesView onOpenTerminal={onOpenTerminal} />
-        </div>
-      ) : resolvedActiveView === "sessionHistory" ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <SessionHistoryView
-            workspaces={workspaces}
-            workspace={workspace}
-            project={selectedProject}
-            onOpenTerminal={onOpenTerminal}
-          />
         </div>
       ) : workspace && selectedProject ? (
         <>
@@ -378,6 +278,16 @@ export default function RightDock({ onOpenTerminal, overlay = false }: RightDock
           />
         </div>
       )}
+      </>
+      )}
+      </div>
+
+      <DockRail
+        items={railItems}
+        activeId={resolvedActiveView}
+        collapseLabel={t("rightDock.collapse")}
+        onCollapse={() => setVisible(false)}
+      />
     </div>
   );
 }

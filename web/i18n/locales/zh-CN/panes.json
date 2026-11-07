@@ -627,5 +627,6 @@
   "newTabPage": {
     "title": "新标签页"
   },
-  "reviewChanges": "审阅更改"
+  "reviewChanges": "审阅更改",
+  "agentChatCompactPlaceholder": "随心输入"
 }

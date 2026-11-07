@@ -46,11 +46,15 @@ const ForkReviewDialog = lazyWithRetry(() => import("@/components/chatfork/ForkR
 const CodexHandoffDialog = lazyWithRetry(() => import("./CodexHandoffDialog"), "CodexHandoffDialog");
 
 
-export default function AgentChatTabContent({ tab }: { tab: Tab }) {
-  return <ChatRuntimeWorkspace key={tab.id} chatId={tab.id} cwd={tab.projectPath}><AgentChatLiveView tab={tab} /></ChatRuntimeWorkspace>;
+/**
+ * compact：右侧面板里的窄版。只留对话本体和输入框——会话顶栏、时间线导航、
+ * 启动页的问候/建议/最近会话都不渲染（面板顶部已有对话标签和历史）。
+ */
+export default function AgentChatTabContent({ tab, compact = false }: { tab: Tab; compact?: boolean }) {
+  return <ChatRuntimeWorkspace key={tab.id} chatId={tab.id} cwd={tab.projectPath}><AgentChatLiveView tab={tab} compact={compact} /></ChatRuntimeWorkspace>;
 }
 
-function AgentChatLiveView({ tab }: { tab: Tab }) {
+function AgentChatLiveView({ tab, compact }: { tab: Tab; compact: boolean }) {
   const runtimeTools = useChatRuntimeTools();
   const { t } = useTranslation("panes");
   const chat = useAgentChatStore((state) => state.chats[tab.id]);
@@ -245,6 +249,7 @@ function AgentChatLiveView({ tab }: { tab: Tab }) {
           onCwdAdopted={setCwdOverride}
           onHistory={runtimeTools?.openHistory}
           onCheckpoints={runtimeTools?.openCheckpoints}
+          compact={compact}
         />
       </div>
     );
@@ -272,11 +277,11 @@ function AgentChatLiveView({ tab }: { tab: Tab }) {
   ) : null;
 
   return (
-    <section className="agent-chat-shell h-full min-w-0">
+    <section className="agent-chat-shell h-full min-w-0" data-density={compact ? "compact" : undefined}>
     <div className="flex h-full flex-col overflow-hidden">
       {forkOpen && <Suspense fallback={null}><ChatForkDialog open={forkOpen} onOpenChange={setForkOpen} onFork={forkToNewTab} /></Suspense>}
       {reviewOpen && <Suspense fallback={null}><ForkReviewDialog open={reviewOpen} onOpenChange={setReviewOpen} forkReviewId={tab.forkReviewId} cwd={effectiveCwd} sourceSessionId={snapshot?.acpSessionId} /></Suspense>}
-      {snapshot ? (
+      {snapshot && !compact ? (
         <ChatSessionHeader
           engineLabel={snapshot.engineId}
           extraMenuItems={<CodexMenuItems tab={tab} snapshot={snapshot} cwd={effectiveCwd} menuKind="dropdown" onHandoff={setHandoffCwd} />}
@@ -308,7 +313,7 @@ function AgentChatLiveView({ tab }: { tab: Tab }) {
         />
       ) : null}
       <div className="relative flex-1 overflow-hidden">
-        <ChatTimelineNavigation
+        {!compact && <ChatTimelineNavigation
           key={timelineKey}
           conversationKey={timelineKey}
           turns={turns}
@@ -316,7 +321,7 @@ function AgentChatLiveView({ tab }: { tab: Tab }) {
           visibleCount={visibleCount}
           onReveal={revealTimelineTurn}
           onNavigate={leaveLatest}
-        />
+        />}
         <div
           ref={scrollRef}
           onScroll={handleScroll}

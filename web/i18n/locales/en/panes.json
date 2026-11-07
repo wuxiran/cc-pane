@@ -627,5 +627,6 @@
   "newTabPage": {
     "title": "New tab"
   },
-  "reviewChanges": "Review changes"
+  "reviewChanges": "Review changes",
+  "agentChatCompactPlaceholder": "Ask anything"
 }

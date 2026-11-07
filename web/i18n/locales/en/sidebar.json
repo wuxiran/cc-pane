@@ -46,7 +46,7 @@
     "orchestration": "Orchestration",
     "resources": "Resources",
     "todo": "TodoList",
-    "aiPanel": "AI Panel",
+    "aiPanel": "Notifications",
     "sessionHistory": "Session History"
   },
   "moduleMenu": {
@@ -781,5 +781,18 @@
     "keptClaudeMd": "This folder already has a CLAUDE.md and it was not overwritten. The assistant may not know the Library conventions; merge them from the template manually.",
     "createFailed": "Failed to create Library: {{error}}",
     "assistantPrompt": "You are the Library assistant. Follow the conventions in CLAUDE.md in the current directory: file links, text and images the user sends into uploads/ with the ingest skill, download and transcribe video links with the video-transcribe skill, organize with the organize skill, and write created work to works/. When first opened, greet briefly and say the user can just send you links or ideas."
-  }
+  },
+  "rightDock.chat": "Chat",
+  "rightDock.chatTabs": "Chats",
+  "rightDock.newChat": "New chat",
+  "rightDock.chatHistory": "History",
+  "rightDock.chatMore": "More",
+  "rightDock.moveChatToPane": "Open in pane",
+  "rightDock.closeChat": "Close chat",
+  "rightDock.chatRunning": "Running",
+  "rightDock.chatNeedsYou": "Waiting for approval",
+  "rightDock.historyChats": "Chats",
+  "rightDock.historyTerminals": "Terminal sessions",
+  "rightDock.searchChats": "Search chats",
+  "rightDock.noMatchingChats": "No matching chats"
 }
