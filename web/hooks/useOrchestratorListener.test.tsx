@@ -228,6 +228,60 @@ describe("useOrchestratorListener layout placement", () => {
     expect(state.activePaneId).toBe(childPanel!.id);
   });
 
+  // open_terminal_tab 复用 launch-task 事件：cliTool=none + placement=tab，
+  // 前端必须落成普通 shell 标签（与用户手开的「仅终端」一致），且原样采用出生锚点。
+  it("open_terminal_tab 事件(cliTool=none, placement=tab)在调用者窗格落成普通 shell 标签", async () => {
+    const panes = usePanesStore.getState();
+    panes.addTab(panes.rootPane.id, {
+      projectId: "project-a",
+      projectPath: "/tmp/project-a",
+      sessionId: "caller-1",
+      cliTool: "claude",
+    });
+    const listeners = mockWebviewListeners();
+    renderHook(() => useOrchestratorListener());
+    await waitFor(() => expect(listeners.has("orchestrator-launch-task")).toBe(true));
+
+    await act(async () => {
+      await listeners.get("orchestrator-launch-task")?.({
+        payload: {
+          taskId: "task-shell",
+          sessionId: "shell-1",
+          projectPath: "/tmp/project-a",
+          projectId: "orch-shell",
+          launchCwd: "/tmp/project-a/sub",
+          tabId: "tab-shell",
+          terminalPaneId: "terminal-pane-shell",
+          title: "ssh heze",
+          cliTool: "none",
+          providerSelection: "none",
+          runtimeKind: "local",
+          placement: "tab",
+          parentSessionId: "caller-1",
+        },
+      });
+    });
+
+    const state = usePanesStore.getState();
+    // tab 落位：不分屏，进调用者所在窗格。
+    expect(state.rootPane.type).toBe("panel");
+    const panel = collectPanels(state.rootPane)[0];
+    expect(panel.tabs.some((t) => t.sessionId === "caller-1")).toBe(true);
+    const shellTab = panel.tabs.find((t) => t.sessionId === "shell-1");
+    expect(shellTab?.id).toBe("tab-shell");
+    expect(shellTab?.title).toBe("ssh heze");
+    expect(shellTab?.cliTool).toBe("none");
+    expect(shellTab?.launchClaude).toBeFalsy();
+    expect(shellTab?.launchExtras?.launchCwd).toBe("/tmp/project-a/sub");
+    expect(shellTab?.terminalRootPane).toMatchObject({
+      type: "leaf",
+      id: "terminal-pane-shell",
+      restoreMode: "shell",
+      sessionId: "shell-1",
+    });
+    expect(panel.activeTabId).toBe("tab-shell");
+  });
+
   // 落位规则（resolveWorkspaceLaunchLayout）：无父会话的外部/headless 调用才走
   // workspaceName 路由；当前布局未绑定时留在原地，绑了别的工作空间才自动跳。
   function seedBoundLayout(workspaceName: string) {
