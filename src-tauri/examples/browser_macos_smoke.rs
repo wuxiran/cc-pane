@@ -68,8 +68,9 @@ mod macos {
                 }
             }
         });
-        manager.create(
+        manager.create_for_host(
             &app,
+            "main",
             TAB,
             &url,
             BrowserBounds::try_new(20.0, 20.0, 600.0, 400.0)?,
