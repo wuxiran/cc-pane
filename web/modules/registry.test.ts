@@ -37,13 +37,14 @@ describe("module registry", () => {
   it("defines the v1 module list once with compatible defaults", () => {
     expect(MODULE_IDS).toEqual([
       "ssh",
+      "devices",
       "orchestration",
       "todo",
       "aiPanel",
       "sessionHistory",
     ]);
     expect(MODULE_REGISTRY.map((module) => module.id)).toEqual(MODULE_IDS);
-    expect(MODULE_REGISTRY).toHaveLength(5);
+    expect(MODULE_REGISTRY).toHaveLength(6);
     expect(MODULE_REGISTRY.every((module) => module.minimal === false)).toBe(true);
     expect(MODULE_REGISTRY.find((module) => module.id === "aiPanel")?.defaultPosition)
       .toBe("rightDock");
@@ -54,6 +55,7 @@ describe("module registry", () => {
   it("declares the presentation shape with orchestration fixed to the right dock", () => {
     expect(MODULE_REGISTRY.map(({ id, surfaces }) => [id, surfaces])).toEqual([
       ["ssh", ["activityBar", "rightDock"]],
+      ["devices", ["activityBar"]],
       ["orchestration", ["rightDock", "overlay"]],
       ["todo", ["activityBar", "rightDock", "fullscreen"]],
       ["aiPanel", ["rightDock", "dialog"]],

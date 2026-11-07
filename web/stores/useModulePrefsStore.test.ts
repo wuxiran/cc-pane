@@ -18,6 +18,7 @@ describe("useModulePrefsStore", () => {
   it("defaults modules to their registered enabled positions", () => {
     expect(useModulePrefsStore.getState().preferences).toEqual({
       ssh: { enabled: true, position: "activityBar" },
+      devices: { enabled: true, position: "activityBar" },
       orchestration: { enabled: true, position: "rightDock" },
       todo: { enabled: true, position: "activityBar" },
       aiPanel: { enabled: true, position: "rightDock", autoOpen: false, allowAiDialog: true },
@@ -31,6 +32,7 @@ describe("useModulePrefsStore", () => {
     );
     expect(createModulePreferencesForPreset("minimal")).toEqual({
       ssh: { enabled: false, position: "activityBar" },
+      devices: { enabled: false, position: "activityBar" },
       orchestration: { enabled: true, position: "rightDock" },
       todo: { enabled: false, position: "activityBar" },
       aiPanel: { enabled: false, position: "rightDock", autoOpen: false, allowAiDialog: true },
@@ -106,6 +108,7 @@ describe("useModulePrefsStore", () => {
 
     expect(useModulePrefsStore.getState().preferences).toEqual({
       ssh: { enabled: false, position: "rightDock" },
+      devices: { enabled: true, position: "activityBar" },
       orchestration: { enabled: true, position: "rightDock" },
       todo: { enabled: true, position: "activityBar" },
       aiPanel: { enabled: true, position: "rightDock", autoOpen: false, allowAiDialog: true },

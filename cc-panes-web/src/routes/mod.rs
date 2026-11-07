@@ -1,4 +1,5 @@
 pub mod agent_sessions;
+pub mod device;
 pub mod drama;
 pub mod fork_review;
 pub mod git;
@@ -237,6 +238,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/worktrees", delete(git::remove_worktree))
         .route("/api/runtime/cwd", get(system::get_app_cwd))
         .route("/api/cli-tools", get(system::list_cli_tools))
+        .route("/api/device/info", get(device::get_device_info))
+        .route("/api/environment", get(device::get_environment))
         .route("/api/project-cli-hooks", get(system::get_project_cli_hooks))
         .route(
             "/api/project-cli-hooks",
@@ -814,7 +817,13 @@ pub fn build_router(state: AppState) -> Router {
         );
 
     let ws = Router::new().route("/ws/{session_id}", get(ws_upgrade));
+    // 免鉴权的存活探针：远程部署等待服务起来、设备视图区分"没在跑"和"令牌无效"。
     let auth = Router::new()
+        .route(
+            "/api/health",
+            get(|| async { axum::Json(serde_json::json!({ "ok": true })) }),
+        )
+        .route("/api/device/pair", post(device::pair_device))
         .route("/api/auth/status", get(crate::web_auth::status))
         .route("/api/auth/login", post(crate::web_auth::login))
         .route("/api/auth/logout", post(crate::web_auth::logout));

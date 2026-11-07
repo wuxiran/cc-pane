@@ -10,6 +10,7 @@ import SessionsView from "@/components/sidebar/SessionsView";
 import OrchestratorView from "@/components/sidebar/OrchestratorView";
 import FileBrowserView from "@/components/sidebar/FileBrowserView";
 import SshMachinesView from "@/components/sidebar/SshMachinesView";
+import DevicesView from "@/components/devices/DevicesView";
 import { usePanelResize } from "@/hooks/usePanelResize";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import {
@@ -90,6 +91,9 @@ export default function Sidebar({
         */}
         {activeView === "ssh" && (
           <SshMachinesView onOpenTerminal={onOpenTerminal} />
+        )}
+        {activeView === "devices" && (
+          <DevicesView />
         )}
         {activeView === "orchestration" && (
           <OrchestratorView onOpenTerminal={onOpenTerminal} />

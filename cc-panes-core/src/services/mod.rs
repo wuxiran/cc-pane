@@ -26,8 +26,12 @@ pub mod cursor_bridge_service;
 pub mod cursor_session_service;
 mod daemon_client;
 pub mod default_skill_service;
+pub mod device_deploy;
+pub mod device_service;
+pub mod device_token_service;
 mod drama_service;
 pub mod dsh_service;
+pub mod environment_check;
 mod external_skill_registry;
 pub mod external_usage_session_service;
 mod filesystem_service;
@@ -58,6 +62,7 @@ mod project_skill_service;
 mod provider_resolver;
 mod provider_service;
 mod quick_command_service;
+pub mod remote_terminal;
 pub mod resume_identity;
 mod runner_service;
 mod session_cost;
@@ -78,6 +83,7 @@ mod ssh_credential_service;
 mod ssh_file_service;
 mod ssh_handshake;
 mod ssh_machine_service;
+pub mod ssh_port_forward;
 mod ssh_proxy_bridge;
 mod ssh_relay;
 mod ssh_terminal_service;
@@ -120,6 +126,10 @@ pub use default_skill_service::{
     BundledSkillInfo, DefaultSkillCleanupReport, DefaultSkillService, SkillGateContext,
     LEGACY_CLEANUP_REPORT_FILE_NAME, MANAGED_SKILLS_SUBDIR,
 };
+pub use device_service::{
+    DeviceService, DeviceTokenStore, KeyringDeviceTokenStore, MemoryDeviceTokenStore,
+};
+pub use device_token_service::{DeviceTokenRecord, DeviceTokenService, PairingOutcome};
 pub use drama_service::DramaService;
 pub use dsh_service::DshService;
 pub use external_skill_registry::{

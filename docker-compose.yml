@@ -5,5 +5,10 @@ services:
       - "8080:8080"
     volumes:
       - ./:/workspace
+      # 工作空间、设备令牌、数据库等持久化；容器重建不丢失
+      - cc-panes-data:/data
     environment:
       - RUST_LOG=cc_panes_web=info,cc_panes_core=info
+
+volumes:
+  cc-panes-data:

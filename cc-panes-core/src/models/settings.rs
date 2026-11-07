@@ -1047,6 +1047,10 @@ pub struct WebAccessSettings {
     /// 未配置密码时该开关不放行任何写入（fail-safe）。
     #[serde(default)]
     pub remote_authenticated_write: bool,
+    /// 允许其他 CC-Panes 设备用设备令牌连接本机（docs/111）。开启后 Web 服务监听所有网卡；
+    /// 浏览器访问仍受 allow_lan + 密码约束，未带令牌的局域网请求一律拒绝。
+    #[serde(default)]
+    pub allow_devices: bool,
 }
 
 impl WebAccessSettings {
@@ -1443,6 +1447,7 @@ impl Default for WebAccessSettings {
             lock_on_idle_minutes: default_web_lock_on_idle_minutes(),
             remote_read_only: false,
             remote_authenticated_write: false,
+            allow_devices: false,
         }
     }
 }

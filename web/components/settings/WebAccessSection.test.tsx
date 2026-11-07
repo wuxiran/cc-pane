@@ -21,6 +21,13 @@ vi.mock("@/services/runtime", () => ({
   logInfoSafe: vi.fn(),
 }));
 
+vi.mock("@/services/deviceService", () => ({
+  listDeviceAccess: vi.fn(async () => []),
+  startDevicePairing: vi.fn(),
+  cancelDevicePairing: vi.fn(async () => undefined),
+  revokeDeviceAccess: vi.fn(async () => undefined),
+}));
+
 vi.mock("@/hooks/useOrchestratorStatus", () => ({
   useOrchestratorStatus: vi.fn(() => null),
 }));

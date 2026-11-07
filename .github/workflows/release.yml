@@ -380,10 +380,80 @@ jobs:
           cp cc-panes-mobile/build/app/outputs/flutter-apk/app-release.apk "$APK_NAME"
           gh release upload "v${{ steps.tag.outputs.version }}" "$APK_NAME" --repo "$GITHUB_REPOSITORY" --clobber
 
+  server-binaries:
+    # 远程设备一键部署用的 headless 服务端（docs/111-multi-device.md）。
+    # 不带系统密钥环（--no-default-features），运行时不依赖 libdbus；ssh2 仍链接系统 OpenSSL 3。
+    # 在 22.04 上构建以兼容 glibc ≥ 2.35 的发行版（Ubuntu 22.04+ / Debian 12+ / RHEL 9+）。
+    name: Build server binary (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    needs: [validate-version, prepare-release]
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract tag version
+        id: tag
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libssl-dev pkg-config
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: server-${{ matrix.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: server-${{ matrix.arch }}-cargo-
+
+      - name: Build frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build cc-panes-web
+        run: cargo build --release -p cc-panes-web --no-default-features --features embed-dist
+
+      - name: Package and upload
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          NAME="cc-panes-web_${{ steps.tag.outputs.version }}_linux-${{ matrix.arch }}"
+          mkdir -p "pkg/$NAME"
+          cp "${CARGO_TARGET_DIR}/release/cc-panes-web" "pkg/$NAME/"
+          "pkg/$NAME/cc-panes-web" version
+          tar -C pkg -czf "$NAME.tar.gz" "$NAME"
+          sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256"
+          gh release upload "v${{ steps.tag.outputs.version }}" "$NAME.tar.gz" "$NAME.tar.gz.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+
   publish-release:
     name: Publish complete release
     runs-on: ubuntu-latest
-    needs: [build, windows-portable, mobile-apk, publish-updater-json]
+    needs: [build, windows-portable, mobile-apk, server-binaries, publish-updater-json]
     permissions:
       actions: read
       contents: write

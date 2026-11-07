@@ -6,8 +6,15 @@ authors = ["wuxiran"]
 license = "GPL-3.0"
 edition = "2021"
 
+[features]
+default = ["secret-service"]
+# 把仓库根目录的 dist/（前端构建产物）编进二进制，用于远程服务器单文件部署。
+embed-dist = []
+# 桌面随包的 sidecar 保留系统密钥环；远程服务器构建用 --no-default-features 去掉 libdbus 依赖。
+secret-service = ["cc-panes-core/secret-service"]
+
 [dependencies]
-cc-panes-core = { path = "../cc-panes-core" }
+cc-panes-core = { path = "../cc-panes-core", default-features = false }
 cc-cli-adapters = { path = "../cc-cli-adapters" }
 cc-memory = { path = "../cc-memory" }
 axum = { version = "0.8", features = ["ws"] }
@@ -30,6 +37,7 @@ urlencoding = "2"
 encoding_rs = "0.8"
 chrono = "0.4"
 rand = "0.8"
+sysinfo = "0.33"
 
 [target.'cfg(windows)'.dependencies]
 socket2 = "0.6"

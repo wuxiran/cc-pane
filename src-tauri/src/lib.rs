@@ -132,6 +132,20 @@ use commands::{
     detect_resume_session,
     detect_system_provider,
     detect_tailscale_status,
+    device_access_list,
+    device_access_pairing_cancel,
+    device_access_pairing_start,
+    device_access_revoke,
+    device_add,
+    device_attach_session,
+    device_create_session,
+    device_deploy,
+    device_list,
+    device_pair,
+    device_remove,
+    device_rename,
+    device_set_token,
+    device_snapshot,
     discover_wsl_distros,
     enter_fullscreen,
     enter_mini_mode,
@@ -1915,6 +1929,27 @@ pub fn run() {
         ssh_machine_service.clone(),
         terminal_service.ssh_connection_service(),
     ));
+    let device_service = Arc::new(cc_panes_core::services::DeviceService::new(
+        app_paths
+            .data_dir()
+            .join(cc_panes_core::services::device_service::DEVICES_FILE),
+        Arc::new(cc_panes_core::services::KeyringDeviceTokenStore::default()),
+        ssh_machine_service.clone(),
+        terminal_service.ssh_connection_service(),
+    ));
+    let remote_session_router = Arc::new(
+        cc_panes_core::services::remote_terminal::RemoteSessionRouter::new(
+            app_paths
+                .data_dir()
+                .join(cc_panes_core::services::remote_terminal::REMOTE_SESSIONS_FILE),
+            device_service.clone(),
+        ),
+    );
+    terminal_backend_state.set_remote_router(remote_session_router.clone());
+    // 与 cc-panes-web 进程共用同一份 device-tokens.json（配对码由本进程生成、由 web 兑换）。
+    let device_token_service = Arc::new(cc_panes_core::services::DeviceTokenService::in_data_dir(
+        app_paths.data_dir(),
+    ));
 
     let process_monitor_service = Arc::new(ProcessMonitorService::new());
     let system_stats_service = Arc::new(SystemStatsService::new());
@@ -2066,6 +2101,9 @@ pub fn run() {
         .manage(memory_service)
         .manage(ssh_machine_service)
         .manage(ssh_file_service)
+        .manage(device_service)
+        .manage(remote_session_router)
+        .manage(device_token_service)
         .manage(process_monitor_service)
         .manage(system_stats_service)
         .manage(runner_service)
@@ -3575,6 +3613,21 @@ pub fn run() {
             get_memory_stats,
             prepare_session_context,
             format_memory_for_injection,
+            // 设备（多设备，docs/111）
+            device_list,
+            device_add,
+            device_rename,
+            device_remove,
+            device_set_token,
+            device_snapshot,
+            device_deploy,
+            device_create_session,
+            device_attach_session,
+            device_pair,
+            device_access_pairing_start,
+            device_access_pairing_cancel,
+            device_access_list,
+            device_access_revoke,
             // SSH Machine 命令
             list_ssh_machines,
             get_ssh_machine,

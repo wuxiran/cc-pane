@@ -11,7 +11,8 @@ function fixture() {
   const platforms = Object.fromEntries(REQUIRED_PLATFORMS.map(platform => [platform,
     { signature: 'signed', url: `https://github.com/${repo}/releases/download/v${version}/${platform}.bin` }]));
   const assets = [...REQUIRED_PLATFORMS.map(platform => ({ name: `${platform}.bin` })),
-    { name: `cc-panes_${version}_x64-portable.zip` }, { name: `cc-panes-mobile_${version}.apk` }, { name: 'latest.json' }];
+    { name: `cc-panes_${version}_x64-portable.zip` }, { name: `cc-panes-mobile_${version}.apk` }, { name: 'latest.json' },
+    { name: `cc-panes-web_${version}_linux-x86_64.tar.gz` }, { name: `cc-panes-web_${version}_linux-aarch64.tar.gz` }];
   return { latest: { version, platforms }, assets, version, repo };
 }
 
@@ -20,7 +21,7 @@ test('complete five-platform metadata includes portable and mobile', () => {
   assert.equal(validateReleaseMetadata(f.latest, f.assets, f.version, f.repo).length, 5);
 });
 
-for (const defect of ['platform', 'signature', 'asset', 'version', 'wrong-tag', 'portable', 'mobile']) {
+for (const defect of ['platform', 'signature', 'asset', 'version', 'wrong-tag', 'portable', 'mobile', 'server']) {
   test(`rejects ${defect} before publication`, () => {
     const f = fixture(), first = f.latest.platforms['windows-x86_64'];
     if (defect === 'platform') delete f.latest.platforms['windows-x86_64'];
@@ -30,6 +31,7 @@ for (const defect of ['platform', 'signature', 'asset', 'version', 'wrong-tag', 
     if (defect === 'wrong-tag') first.url = first.url.replace('v0.12.18', 'v0.12.17');
     if (defect === 'portable') f.assets = f.assets.filter(asset => !asset.name.endsWith('.zip'));
     if (defect === 'mobile') f.assets = f.assets.filter(asset => !asset.name.endsWith('.apk'));
+    if (defect === 'server') f.assets = f.assets.filter(asset => !asset.name.includes('cc-panes-web_'));
     assert.throws(() => validateReleaseMetadata(f.latest, f.assets, f.version, f.repo));
   });
 }

@@ -17,7 +17,7 @@ use cc_panes_core::{
         SpecRepository, TaskBindingRepository, TodoRepository, UsageStatsRepository,
     },
     services::{
-        DaemonTerminalBackend, DramaService, FileSystemService, HistoryService,
+        DaemonTerminalBackend, DeviceTokenService, DramaService, FileSystemService, HistoryService,
         InProcessTerminalBackend, JournalService, LaunchHistoryService, LaunchProfileService,
         LayoutSnapshotService, McpConfigService, MemoryService, PlanService, ProcessMonitorService,
         ProjectCliHooksService, ProjectService, ProviderService, QuickCommandService,
@@ -54,12 +54,56 @@ struct Args {
     shell: Option<String>,
 
     /// Data directory for cc-panes config/db. Defaults to the desktop dev/release data dir.
-    #[arg(long)]
+    #[arg(long, global = true)]
     data_dir: Option<String>,
+
+    /// Server mode for remote machines: binds loopback only (reach it through an SSH tunnel)
+    /// and implies --require-token. See docs/111-multi-device.md.
+    #[arg(long)]
+    headless: bool,
+
+    /// Reject every unauthenticated request, including loopback ones, unless a web password
+    /// is configured. Other CC-Panes devices authenticate with `token create` tokens.
+    #[arg(long)]
+    require_token: bool,
 
     /// Connect terminal operations to an existing cc-panes-daemon manifest.
     #[arg(long, env = "CCPANES_TERMINAL_DAEMON_MANIFEST")]
     daemon_manifest: Option<String>,
+
+    #[command(subcommand)]
+    command: Option<CliCommand>,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum CliCommand {
+    /// Manage device tokens used by other CC-Panes installations to connect here.
+    Token {
+        #[command(subcommand)]
+        action: TokenAction,
+    },
+    /// Print version information as JSON (used by remote deploy to detect upgrades).
+    Version,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum TokenAction {
+    /// Create a token. Prints the token once; it cannot be shown again.
+    Create {
+        /// Name of the device that will use the token
+        #[arg(long, default_value = "device")]
+        name: String,
+        /// Print a JSON object instead of the bare token
+        #[arg(long)]
+        json: bool,
+    },
+    /// List tokens (without secrets)
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Revoke a token by id or device name
+    Revoke { id: String },
 }
 
 struct WebPathResolution {
@@ -217,7 +261,79 @@ fn windows_path_to_wsl_path(path: &str) -> Option<PathBuf> {
     Some(PathBuf::from(format!("/mnt/{drive}/{rest}")))
 }
 
+/// 与服务启动时相同的数据目录解析（CLI 参数 > 环境变量 > 设置 > 默认）。
+fn resolve_cli_data_dir(explicit_data_dir: Option<&str>) -> PathBuf {
+    let web_paths = resolve_web_paths(explicit_data_dir);
+    let settings_service = match &web_paths.config_path {
+        Some(path) => SettingsService::new_with_config_path(path.clone()),
+        None => SettingsService::new(),
+    };
+    let settings_data_dir = settings_service.get_settings().general.data_dir;
+    let data_dir = resolve_data_dir(explicit_data_dir, settings_data_dir, &web_paths);
+    AppPaths::new(data_dir).data_dir().to_path_buf()
+}
+
+fn run_cli_command(command: CliCommand, data_dir: Option<&str>) -> anyhow::Result<()> {
+    match command {
+        CliCommand::Version => {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "name": "cc-panes-web",
+                    "version": env!("CC_PANES_APP_VERSION"),
+                    "os": std::env::consts::OS,
+                    "arch": std::env::consts::ARCH,
+                })
+            );
+            Ok(())
+        }
+        CliCommand::Token { action } => {
+            let tokens = DeviceTokenService::in_data_dir(&resolve_cli_data_dir(data_dir));
+            match action {
+                TokenAction::Create { name, json } => {
+                    let (record, token) = tokens.create(&name)?;
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::json!({ "id": record.id, "name": record.name, "token": token })
+                        );
+                    } else {
+                        println!("{token}");
+                    }
+                }
+                TokenAction::List { json } => {
+                    let list = tokens.list();
+                    if json {
+                        println!("{}", serde_json::to_string(&list)?);
+                    } else if list.is_empty() {
+                        println!("(no device tokens)");
+                    } else {
+                        for record in list {
+                            println!(
+                                "{}  {}  {}…  {}",
+                                record.id, record.name, record.hint, record.created_at
+                            );
+                        }
+                    }
+                }
+                TokenAction::Revoke { id } => {
+                    let removed = tokens.revoke(&id)?;
+                    if removed == 0 {
+                        anyhow::bail!("no device token matches '{id}'");
+                    }
+                    println!("revoked {removed} token(s)");
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
 fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+    if let Some(command) = args.command {
+        return run_cli_command(command, args.data_dir.as_deref());
+    }
     // 不用 `#[tokio::main]`：默认 worker = 逻辑核数，I/O 转发型进程没必要起 32 条。
     // 收口到 2..=8（默认 4，`CC_PANES_TOKIO_WORKERS` 可调）。
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -225,10 +341,10 @@ fn main() -> anyhow::Result<()> {
         .enable_all()
         .thread_name("cc-panes-web-tokio")
         .build()?;
-    runtime.block_on(async_main())
+    runtime.block_on(async_main(args))
 }
 
-async fn async_main() -> anyhow::Result<()> {
+async fn async_main(args: Args) -> anyhow::Result<()> {
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -237,7 +353,8 @@ async fn async_main() -> anyhow::Result<()> {
         )
         .init();
 
-    let args = Args::parse();
+    routes::device::mark_started();
+    let require_token = args.headless || args.require_token;
 
     // Resolve cwd to absolute path；剥掉 Windows `\\?\` verbatim 前缀：该值会作为
     // default_cwd 回落给缺少 project_path 的会话（routes/terminal.rs），带前缀会让
@@ -356,6 +473,7 @@ async fn async_main() -> anyhow::Result<()> {
     ));
     session_index_service.start_background_tasks();
 
+    let device_tokens = Arc::new(DeviceTokenService::in_data_dir(app_paths.data_dir()));
     let ws_emitter = Arc::new(WsEmitter::new());
     let backend_config = BackendConfig {
         app_paths: app_paths.clone(),
@@ -415,19 +533,37 @@ async fn async_main() -> anyhow::Result<()> {
         usage_stats_service,
         session_index_service,
         ws_emitter: ws_emitter.clone(),
-        web_auth: Arc::new(web_auth::WebAuthStore::default()),
+        web_auth: Arc::new(web_auth::WebAuthStore::with_device_tokens(
+            device_tokens.clone(),
+            require_token,
+        )),
         default_cwd: cwd_str.clone(),
         output_mode: backend_state.output_mode,
     };
 
     let app = routes::build_router(state);
 
-    let host = resolve_bind_host(args.host, &loaded_settings.web_access)?;
+    // 只认凭据的服务（headless / --require-token）每个请求都要鉴权，可以显式绑定非回环地址
+    // （例如 Docker 里的 0.0.0.0）；headless 未指定 --host 时只绑回环，经 SSH 隧道访问。
+    let host = if require_token {
+        args.host.unwrap_or_else(|| "127.0.0.1".to_string())
+    } else {
+        resolve_bind_host(args.host, &loaded_settings.web_access)?
+    };
     let addr: SocketAddr = format!("{host}:{}", args.port).parse()?;
     info!(addr = %addr, cwd = cwd_str, "CC-Panes Web starting");
 
     let listener = bind_non_inheritable_listener(addr)?;
     info!("Listening on http://{}", addr);
+    if require_token {
+        let local_addr = listener.local_addr().unwrap_or(addr);
+        info!(
+            endpoint = %format!("http://{local_addr}"),
+            version = env!("CC_PANES_APP_VERSION"),
+            device_tokens = device_tokens.list().len(),
+            "headless mode: device token required (create one with `cc-panes-web token create`)"
+        );
+    }
 
     axum::serve(
         listener,
@@ -486,7 +622,8 @@ fn resolve_bind_host(
     let is_loopback = |host: &str| matches!(host, "127.0.0.1" | "::1" | "[::1]" | "localhost");
     match explicit {
         None => {
-            if web_access.allow_lan && web_access.auth_required() {
+            // allow_devices：其他 CC-Panes 设备凭令牌访问；未带令牌的非回环请求仍被拒绝。
+            if (web_access.allow_lan && web_access.auth_required()) || web_access.allow_devices {
                 Ok("0.0.0.0".to_string())
             } else {
                 Ok("127.0.0.1".to_string())

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { experimentalFeatureEnabled } from "@/lib/experimentalGate";
 
-export type ActivityView = "explorer" | "sessions" | "files" | "ssh" | "process" | "orchestration";
+export type ActivityView = "explorer" | "sessions" | "files" | "ssh" | "devices" | "process" | "orchestration";
 export type AppViewMode =
   | "home"
   | "panes"

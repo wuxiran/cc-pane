@@ -29,7 +29,8 @@ describe("summarizeInjection", () => {
 
   it("SSH：工作空间层完全不注入", () => {
     const s = summarizeInjection(base, "ssh", "claude");
-    expect(s.mcp).toBe("partial");
+    expect(s.mcp).toBe("off");
+    expect(s.reasons.mcp).toBe("injection.mcpSshNone");
     expect(s.skills).toBe("off");
     expect(s.reasons.skills).toBe("injection.skillsSshNone");
   });

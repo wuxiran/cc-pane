@@ -1,5 +1,6 @@
 import {
   History,
+  MonitorSmartphone,
   ListTodo,
   Bell,
   Server,
@@ -15,6 +16,7 @@ import type { TaskBinding } from "@/types";
 
 export const MODULE_IDS = [
   "ssh",
+  "devices",
   "orchestration",
   "todo",
   "aiPanel",
@@ -63,6 +65,19 @@ function openSsh(position: ModulePosition) {
   }
   useActivityBarStore.setState({
     activeView: "ssh",
+    sidebarVisible: true,
+    appViewMode: "panes",
+    orchestrationOverlayOpen: false,
+  });
+}
+
+function openDevices(position: ModulePosition) {
+  if (position === "activityBar") {
+    useActivityBarStore.getState().toggleView("devices");
+    return;
+  }
+  useActivityBarStore.setState({
+    activeView: "devices",
     sidebarVisible: true,
     appViewMode: "panes",
     orchestrationOverlayOpen: false,
@@ -127,6 +142,15 @@ export const MODULE_REGISTRY: readonly ModuleDef[] = [
     surfaces: ["activityBar", "rightDock"],
     defaultPosition: "activityBar",
     open: openSsh,
+    minimal: false,
+  },
+  {
+    id: "devices",
+    icon: MonitorSmartphone,
+    titleKey: "moduleNames.devices",
+    surfaces: ["activityBar"],
+    defaultPosition: "activityBar",
+    open: openDevices,
     minimal: false,
   },
   {

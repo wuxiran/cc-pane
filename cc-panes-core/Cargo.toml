@@ -42,12 +42,19 @@ sysinfo = "0.33"
 netstat2 = "0.11"
 tracing = "0.1"
 log = "0.4"
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
 ssh2 = "0.9.6"
 # 资源库技能（docs/109 第 2 批）要在 cc-panes-web 的 REST 里也能探测 / 检查 GitHub 仓库，
 # 抓取器因此从 src-tauri 挪进 core。版本与特性和 src-tauri 对齐，工作区内不会多编一份。
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 futures-util = "0.3"
+
+[features]
+default = ["secret-service"]
+# Linux 桌面密钥环（Secret Service，运行时依赖 libdbus）。headless 服务端
+# （cc-panes-web --no-default-features）不需要它，关掉后可在没有 libdbus 的精简服务器上运行。
+secret-service = ["keyring/sync-secret-service", "keyring/crypto-rust"]
+
 [dev-dependencies]
 tempfile = "3"
 

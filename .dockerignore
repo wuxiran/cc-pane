@@ -1,0 +1,6 @@
+node_modules
+dist
+target
+.git
+cc-panes-mobile/build
+cc-panes-mobile/.dart_tool

@@ -14,8 +14,8 @@
   },
   "remoteRuntimeNotice": {
     "ssh": {
-      "mcp": "这个工作空间的会话默认在 SSH 启动。本层 MCP 不会注入 SSH 会话；远端只拿到启动档里的共享 MCP（HTTP）和 ccpanes。",
-      "skills": "这个工作空间的会话默认在 SSH 启动。工作空间 skills 不会挂进 SSH 会话。"
+      "mcp": "这个工作空间的会话默认在 SSH 启动。SSH 会话不注入任何 MCP（包括共享 MCP 和 ccpanes）。要完整功能，请在「设备」里把这台机器添加进来，由它本机的 CC-Panes 启动会话。",
+      "skills": "这个工作空间的会话默认在 SSH 启动。工作空间 skills 不会挂进 SSH 会话。要完整功能，请在「设备」里添加这台机器。"
     },
     "wsl": {
       "mcp": "这个工作空间的会话默认在 WSL 启动。本层里 HTTP 型 MCP 会注入；stdio 型（command 启动的）是宿主命令，进不了 WSL——需要的话改成共享服务（HTTP 桥接）。"

@@ -22,6 +22,7 @@ pub async fn ws_upgrade(
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     Path(session_id): Path<String>,
     origin: Option<Extension<RequestOrigin>>,
+    device_token: Option<Extension<crate::web_auth::DeviceTokenAuth>>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     let origin = origin.map_or(RequestOrigin::Remote, |Extension(origin)| origin);
@@ -30,6 +31,7 @@ pub async fn ws_upgrade(
         &headers,
         peer.map(|Extension(ConnectInfo(addr))| addr.ip()),
         origin,
+        device_token.map(|Extension(auth)| auth.0),
     );
     ws.on_upgrade(move |socket| handle_ws(socket, session_id, state, access))
 }

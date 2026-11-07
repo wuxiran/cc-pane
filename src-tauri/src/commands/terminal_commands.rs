@@ -345,7 +345,7 @@ pub async fn create_terminal_session(
         _ => {}
     }
 
-    if service.kind() == TerminalBackendKind::Daemon {
+    if service.kind() == TerminalBackendKind::Daemon || service.is_remote_session(&session_id) {
         let bridge = app_handle.state::<Arc<TerminalDaemonEventBridge>>();
         bridge.start_session(session_id.clone(), backend);
     }
@@ -630,42 +630,7 @@ pub async fn check_environment(
 ) -> AppResult<serde_json::Value> {
     let registry = registry.inner().clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let node_path = which::which("node").ok();
-        let node_installed = node_path.is_some();
-        let node_version = node_path.and_then(|path| {
-            cc_cli_adapters::run_with_timeout(
-                &path,
-                &["--version".to_string()],
-                std::time::Duration::from_secs(5),
-            )
-        });
-
-        let cli_tools = registry.detect_all();
-        let git_path = which::which("git").ok();
-        let git_installed = git_path.is_some();
-        let git_version = git_path.and_then(|path| {
-            cc_cli_adapters::run_with_timeout(
-                &path,
-                &["--version".to_string()],
-                std::time::Duration::from_secs(5),
-            )
-        });
-        let wsl_applicable = cfg!(target_os = "windows");
-        let wsl_path = if wsl_applicable {
-            which::which("wsl.exe")
-                .or_else(|_| which::which("wsl"))
-                .ok()
-        } else {
-            None
-        };
-        let wsl_installed = wsl_path.is_some();
-
-        serde_json::json!({
-            "node": { "installed": node_installed, "version": node_version },
-            "git": { "installed": git_installed, "version": git_version },
-            "wsl": { "installed": wsl_installed, "version": null, "applicable": wsl_applicable },
-            "cliTools": cli_tools
-        })
+        cc_panes_core::services::environment_check::check_environment(&registry)
     })
     .await
     .map_err(|e| AppError::from(format!("Environment check failed: {}", e)))?;
@@ -738,7 +703,10 @@ pub async fn get_terminal_replay_snapshot(
 
         if let Some(snapshot) = snapshot
             .as_ref()
-            .filter(|_| service.kind() == TerminalBackendKind::Daemon)
+            .filter(|_| {
+                service.kind() == TerminalBackendKind::Daemon
+                    || service.is_remote_session(&session_id)
+            })
         {
             if let Ok(Some(record)) = launch_history_service.find_by_pty_session_id(&session_id) {
                 if let Err(error) =
@@ -1048,7 +1016,9 @@ pub async fn get_terminal_recovery_snapshot(
 ) -> AppResult<Option<RecoverySnapshotDto>> {
     debug!(session_id = %session_id, "cmd::get_terminal_recovery_snapshot");
     let backend = service.backend();
-    let uses_daemon = service.kind() == TerminalBackendKind::Daemon;
+    // 远程设备会话同样经事件桥拉取输出（docs/111）。
+    let uses_daemon =
+        service.kind() == TerminalBackendKind::Daemon || service.is_remote_session(&session_id);
     let launch_history_service = launch_history_service.inner().clone();
     let history_watch_manager = history_watch_manager.inner().clone();
     // REST, JSON decoding, snapshot copies and history-watch restoration can

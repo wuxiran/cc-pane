@@ -267,14 +267,15 @@ pub fn local_url(port: u16) -> String {
 }
 
 fn desired_bind_host(settings: &WebAccessSettings) -> String {
-    if settings.allow_lan && settings.auth_required() {
+    // 允许其他设备连接时也要监听所有网卡（docs/111）；鉴权由 cc-panes-web 按令牌把关。
+    if (settings.allow_lan && settings.auth_required()) || settings.allow_devices {
         "0.0.0.0".to_string()
     } else {
         "127.0.0.1".to_string()
     }
 }
 
-fn resolve_web_binary(resource_dir: Option<&Path>) -> AppResult<PathBuf> {
+pub fn resolve_web_binary(resource_dir: Option<&Path>) -> AppResult<PathBuf> {
     let binary_name = web_binary_name();
 
     if let Ok(explicit) = std::env::var(WEB_BIN_ENV) {

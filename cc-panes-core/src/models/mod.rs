@@ -9,6 +9,7 @@ pub mod agent_transcript;
 pub mod ai_panel;
 pub mod context_usage;
 pub mod cursor_bridge;
+pub mod device;
 pub mod drama;
 pub mod dsh;
 pub mod external_skill;
@@ -60,6 +61,10 @@ pub use cursor_bridge::{
     CursorBridgeModelTarget, CursorBridgeRegistry, CursorBridgeScope, CursorBridgeSession,
     CursorBridgeSessionControl, CursorBridgeSessionMode, CursorBridgeSessionStatus,
     CursorBridgeTurnPlan, CursorBridgeWorkspaceBinding, CURSOR_BRIDGE_SCHEMA_VERSION,
+};
+pub use device::{
+    Device, DeviceAddRequest, DeviceConfig, DeviceConnection, DeviceEndpoint, DeviceSummary,
+    DEFAULT_DEVICE_REMOTE_PORT,
 };
 pub use drama::{
     CreateDramaEpisodeRequest, CreateDramaProjectRequest, CreateDramaShotRequest, DramaEpisode,

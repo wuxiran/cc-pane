@@ -22,7 +22,8 @@ export function validateReleaseMetadata(latest, assets, version, repo) {
     assert.ok(name && !/[\\/?#]/.test(name) && names.has(name), `missing/invalid asset: ${platform}`);
     packages.push({ platform, name, signature: entry.signature });
   }
-  for (const name of [`cc-panes_${version}_x64-portable.zip`, `cc-panes-mobile_${version}.apk`, 'latest.json']) {
+  const serverBinaries = ['x86_64', 'aarch64'].map(arch => `cc-panes-web_${version}_linux-${arch}.tar.gz`);
+  for (const name of [`cc-panes_${version}_x64-portable.zip`, `cc-panes-mobile_${version}.apk`, 'latest.json', ...serverBinaries]) {
     assert.ok(names.has(name), `missing release asset: ${name}`);
   }
   return packages;

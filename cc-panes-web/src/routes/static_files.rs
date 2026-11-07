@@ -10,18 +10,45 @@ use std::path::{Path, PathBuf};
 #[folder = "static/"]
 struct StaticAssets;
 
+/// 发布给远程服务器的单文件二进制把前端构建产物一起打进去（`--features embed-dist`，
+/// 编译前须先 `npm run build` 生成仓库根目录的 `dist/`）。磁盘上的 dist 仍优先，便于热替换。
+#[cfg(feature = "embed-dist")]
+#[derive(Embed)]
+#[folder = "../dist/"]
+struct DistAssets;
+
+#[cfg(feature = "embed-dist")]
+fn serve_embedded_dist(path: &str) -> Option<Response> {
+    let file = DistAssets::get(path)?;
+    Some(file_response(path, file.data))
+}
+
+#[cfg(not(feature = "embed-dist"))]
+fn serve_embedded_dist(_path: &str) -> Option<Response> {
+    None
+}
+
 /// Serve the built React client from `dist/` when available.
 /// Falls back to the embedded legacy terminal page for older standalone builds.
 pub async fn static_handler(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
+    // 未知 API / WS 路径如实返回 404：其他 CC-Panes（设备）把本服务当 daemon 用时，
+    // 靠 404 识别"对端不支持这个能力"，返回 200 的 HTML 会被误当成成功响应。
+    if path.starts_with("api/") || path.starts_with("ws/") {
+        return (StatusCode::NOT_FOUND, "Not Found").into_response();
+    }
     let requested_path = if path.is_empty() { "index.html" } else { path };
 
-    if let Some(response) = serve_dist_file(requested_path) {
+    if let Some(response) =
+        serve_dist_file(requested_path).or_else(|| serve_embedded_dist(requested_path))
+    {
         return response;
     }
 
     if is_spa_route(requested_path) {
-        if let Some(response) = serve_dist_file("index.html") {
+        if let Some(response) =
+            serve_dist_file("index.html").or_else(|| serve_embedded_dist("index.html"))
+        {
             return response;
         }
     }

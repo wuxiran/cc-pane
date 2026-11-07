@@ -419,3 +419,6 @@ async fn remote_api_respects_lan_gate_and_whitelist() {
 
 #[path = "auth_security_tests.rs"]
 mod security;
+
+#[path = "device_auth_tests.rs"]
+mod device_auth;
