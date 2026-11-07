@@ -22,10 +22,11 @@ impl Access {
         headers: &HeaderMap,
         peer: Option<IpAddr>,
         origin: RequestOrigin,
+        device_token: Option<String>,
     ) -> Self {
         Self {
             token: web_auth::session_from_headers(headers),
-            device_token: web_auth::bearer_from_headers(headers),
+            device_token: device_token.or_else(|| web_auth::bearer_from_headers(headers)),
             peer,
             origin,
             credentials: state.settings_service.get_settings().web_access,

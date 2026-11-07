@@ -345,7 +345,7 @@ pub async fn create_terminal_session(
         _ => {}
     }
 
-    if service.kind() == TerminalBackendKind::Daemon {
+    if service.kind() == TerminalBackendKind::Daemon || service.is_remote_session(&session_id) {
         let bridge = app_handle.state::<Arc<TerminalDaemonEventBridge>>();
         bridge.start_session(session_id.clone(), backend);
     }
@@ -703,7 +703,10 @@ pub async fn get_terminal_replay_snapshot(
 
         if let Some(snapshot) = snapshot
             .as_ref()
-            .filter(|_| service.kind() == TerminalBackendKind::Daemon)
+            .filter(|_| {
+                service.kind() == TerminalBackendKind::Daemon
+                    || service.is_remote_session(&session_id)
+            })
         {
             if let Ok(Some(record)) = launch_history_service.find_by_pty_session_id(&session_id) {
                 if let Err(error) =
@@ -1013,7 +1016,9 @@ pub async fn get_terminal_recovery_snapshot(
 ) -> AppResult<Option<RecoverySnapshotDto>> {
     debug!(session_id = %session_id, "cmd::get_terminal_recovery_snapshot");
     let backend = service.backend();
-    let uses_daemon = service.kind() == TerminalBackendKind::Daemon;
+    // 远程设备会话同样经事件桥拉取输出（docs/111）。
+    let uses_daemon =
+        service.kind() == TerminalBackendKind::Daemon || service.is_remote_session(&session_id);
     let launch_history_service = launch_history_service.inner().clone();
     let history_watch_manager = history_watch_manager.inner().clone();
     // REST, JSON decoding, snapshot copies and history-watch restoration can

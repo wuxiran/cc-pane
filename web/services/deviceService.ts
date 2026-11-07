@@ -44,3 +44,23 @@ export function deployDevice(id: string): Promise<DeployReport> {
 export function onDeployProgress(handler: (progress: DeployProgress) => void): Promise<UnlistenFn> {
   return listenIfTauri<DeployProgress>("device-deploy-progress", (event) => handler(event.payload));
 }
+
+export interface DeviceSessionRequest {
+  projectPath: string;
+  workspaceName?: string;
+  workspacePath?: string;
+  /** "claude" / "codex" / … ；"none" = 纯 shell */
+  cliTool: string;
+  cols: number;
+  rows: number;
+}
+
+/** 在设备上新建会话，返回对端的会话 id（随后用 adoptSession 打开标签）。 */
+export function createDeviceSession(id: string, request: DeviceSessionRequest): Promise<string> {
+  return invokeOrApi<string>("device_create_session", { id, request }, DESKTOP_ONLY);
+}
+
+/** 登记设备上已在运行的会话，随后用 adoptSession 打开标签。 */
+export function attachDeviceSession(id: string, sessionId: string): Promise<void> {
+  return invokeOrApi<void>("device_attach_session", { id, sessionId }, DESKTOP_ONLY);
+}

@@ -852,6 +852,10 @@
     "tokenDialog": {
       "title": "更新令牌",
       "description": "在对方机器上运行 cc-panes-web token create --name <本机名>，把输出粘贴到这里。"
-    }
+    },
+    "open": "打开",
+    "newSession": "在此新建会话",
+    "shell": "终端（Shell）",
+    "openFailed": "打开失败：{{error}}"
   }
 }

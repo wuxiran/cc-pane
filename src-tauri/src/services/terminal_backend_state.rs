@@ -9,6 +9,7 @@ use crate::services::{
 };
 use crate::utils::{AppPaths, AppResult};
 use cc_panes_core::services::claude_trust_service::{self, TrustWriteOutcome};
+use cc_panes_core::services::remote_terminal::{RemoteSessionRouter, RoutingTerminalBackend};
 use tauri::Manager;
 use tracing::{info, warn};
 
@@ -17,6 +18,8 @@ pub struct TerminalBackendState {
     inner: Arc<RwLock<TerminalBackendStateInner>>,
     /// Serializes the slow retire/start sequence without holding `inner` across I/O.
     daemon_upgrade_lock: Arc<Mutex<()>>,
+    /// 其他设备上的会话登记（docs/111）。setup 后注入；为空时 `backend()` 零开销直通本地。
+    remote: Arc<std::sync::OnceLock<Arc<RemoteSessionRouter>>>,
 }
 
 struct TerminalBackendStateInner {
@@ -60,7 +63,23 @@ impl TerminalBackendState {
                 daemon_client: None,
             })),
             daemon_upgrade_lock: Arc::new(Mutex::new(())),
+            remote: Arc::default(),
         }
+    }
+
+    pub fn set_remote_router(&self, router: Arc<RemoteSessionRouter>) {
+        let _ = self.remote.set(router);
+    }
+
+    pub fn remote_router(&self) -> Option<Arc<RemoteSessionRouter>> {
+        self.remote.get().cloned()
+    }
+
+    /// 该会话是否在其他设备上（输出要经事件桥从对端拉取）。
+    pub fn is_remote_session(&self, session_id: &str) -> bool {
+        self.remote
+            .get()
+            .is_some_and(|router| router.device_of(session_id).is_some())
     }
 
     pub fn from_env_or_in_process(
@@ -75,6 +94,7 @@ impl TerminalBackendState {
                     daemon_client: Some(client),
                 })),
                 daemon_upgrade_lock: Arc::new(Mutex::new(())),
+                remote: Arc::default(),
             };
         }
 
@@ -82,6 +102,17 @@ impl TerminalBackendState {
     }
 
     pub fn backend(&self) -> Arc<dyn TerminalBackend> {
+        let local = self.local_backend();
+        match self.remote.get() {
+            Some(router) if !router.is_empty() => {
+                Arc::new(RoutingTerminalBackend::new(local, router.clone()))
+            }
+            _ => local,
+        }
+    }
+
+    /// 只要本机后端（跳过远程会话路由）。
+    pub fn local_backend(&self) -> Arc<dyn TerminalBackend> {
         self.inner
             .read()
             .unwrap_or_else(|error| error.into_inner())
@@ -115,6 +146,38 @@ impl TerminalBackendState {
         inner.daemon_client = Some(client);
     }
 
+    /// 恢复期待复用的是其他设备上的会话（docs/111）：只在对端接回，**绝不**回落到本机新建
+    /// ——请求里的项目路径是对端路径，在本机启动会落到错误目录甚至不存在的目录。
+    fn reattach_remote_session(
+        &self,
+        request: &CreateSessionRequest,
+    ) -> AppResult<Option<CreatedTerminalSession>> {
+        let Some(expected) = request.expected_saved_session_id.as_deref() else {
+            return Ok(None);
+        };
+        let Some(router) = self.remote.get() else {
+            return Ok(None);
+        };
+        let Some(remote) = router.backend_for_session(expected) else {
+            return Ok(None);
+        };
+        let alive = remote
+            .get_session_status(expected)?
+            .is_some_and(|status| !status.status.is_terminal());
+        if !alive {
+            router.unregister(expected);
+            return Err(crate::utils::AppError::from(
+                "The session on the remote device has ended",
+            ));
+        }
+        Ok(Some(CreatedTerminalSession {
+            session_id: expected.to_string(),
+            backend: self.backend(),
+            reused_existing: true,
+            resolved_model_id: request.model_id.clone(),
+        }))
+    }
+
     /// 创建会话，daemon 掉线时自动重连并重试一次。
     ///
     /// **所有创建入口都该走这里**，而不是各自 `backend().create_session()`。
@@ -131,6 +194,9 @@ impl TerminalBackendState {
         recover_if_down: impl FnOnce(Option<&TerminalDaemonClient>) -> Option<RecoveredTerminalDaemon>,
         on_recovered: impl FnOnce(&TerminalDaemonClient),
     ) -> AppResult<CreatedTerminalSession> {
+        if let Some(created) = self.reattach_remote_session(&request)? {
+            return Ok(created);
+        }
         let initial_backend = self.backend();
         match initial_backend.create_session_with_outcome(request.clone()) {
             Ok(outcome) => Ok(CreatedTerminalSession {
@@ -595,6 +661,7 @@ mod tests {
                 daemon_client: Some(TerminalDaemonClient::new("127.0.0.1:1", "old-token")),
             })),
             daemon_upgrade_lock: Arc::new(Mutex::new(())),
+            remote: Arc::default(),
         }
     }
 

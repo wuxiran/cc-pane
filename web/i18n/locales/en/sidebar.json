@@ -852,6 +852,10 @@
     "tokenDialog": {
       "title": "Update token",
       "description": "Run cc-panes-web token create --name <this computer> on that machine and paste the output here."
-    }
+    },
+    "open": "Open",
+    "newSession": "New session here",
+    "shell": "Terminal (shell)",
+    "openFailed": "Could not open: {{error}}"
   }
 }

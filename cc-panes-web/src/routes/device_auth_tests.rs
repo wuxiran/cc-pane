@@ -172,3 +172,55 @@ async fn token_only_server_accepts_device_token_from_lan_but_honors_whitelist() 
         .expect("response");
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
+
+#[tokio::test]
+async fn query_token_is_accepted_only_on_websocket_paths() {
+    let (state, tokens) = headless_state("dev-ws-query");
+    let (_, token) = tokens.create("desk").expect("token");
+    let app = super::super::build_router(state);
+
+    // WS 路径：令牌通过鉴权（没有 Upgrade 头，所以由 WS 提取器拒绝，但不是 401）
+    let response = app
+        .clone()
+        .oneshot(request(
+            &format!("/ws/session-1?token={token}"),
+            None,
+            [127, 0, 0, 1],
+        ))
+        .await
+        .expect("response");
+    assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let response = app
+        .clone()
+        .oneshot(request(
+            "/ws/session-1?token=ccp_dev_bogus",
+            None,
+            [127, 0, 0, 1],
+        ))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    // 非 WS 路径不接受查询参数里的令牌
+    let response = app
+        .oneshot(request(
+            &format!("/api/settings?token={token}"),
+            None,
+            [127, 0, 0, 1],
+        ))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn health_is_public_even_in_token_only_mode() {
+    let (state, _) = headless_state("dev-health");
+    let app = super::super::build_router(state);
+    let response = app
+        .oneshot(request("/api/health", None, [127, 0, 0, 1]))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+}

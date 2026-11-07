@@ -1,6 +1,7 @@
 // 单台设备：状态、CLI 安装情况、工作空间与运行中的会话。docs/111-multi-device.md
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import {
   ChevronDown,
   ChevronRight,
@@ -8,6 +9,7 @@ import {
   Loader2,
   Monitor,
   MoreHorizontal,
+  Plus,
   Server,
   SquareTerminal,
 } from "lucide-react";
@@ -19,7 +21,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useDevicesStore } from "@/stores/useDevicesStore";
-import type { DeviceSummary } from "@/types/device";
+import { getErrorMessage } from "@/utils";
+import type { DeviceSummary, DeviceWorkspace, DeviceWorkspaceProject } from "@/types/device";
+import { openRemoteSession, startRemoteSession } from "./openRemoteSession";
 import {
   deviceStatus,
   joinSessions,
@@ -88,6 +92,31 @@ export default function DeviceCard({
   const sessions = joinSessions(snapshot?.sessions, snapshot?.launches);
   const workspaces = snapshot?.workspaces ?? [];
   const DeviceIcon = info?.headless || isSsh ? Server : Monitor;
+  const launchableClis = cliTools.filter((tool) => tool.installed);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const run = async (key: string, action: () => Promise<unknown>) => {
+    if (busy) return;
+    setBusy(key);
+    try {
+      await action();
+    } catch (error) {
+      toast.error(t("devices.openFailed", { error: getErrorMessage(error) }));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const projectName = (project: DeviceWorkspaceProject) =>
+    project.alias || project.path.split("/").filter(Boolean).pop() || project.path;
+
+  const newSession = (workspace: DeviceWorkspace, project: DeviceWorkspaceProject, cliTool: string) =>
+    run(`new:${project.id}`, () => startRemoteSession(
+      device,
+      { path: project.path, name: projectName(project) },
+      { name: workspace.name, path: workspace.path },
+      cliTool,
+    ));
 
   const hint = (() => {
     if (progress) return null;
@@ -223,8 +252,21 @@ export default function DeviceCard({
             {sessions.length === 0 ? (
               <div className="text-[11px]" style={{ color: "var(--app-text-tertiary)" }}>{t("devices.noSessions")}</div>
             ) : sessions.map((session) => (
-              <div key={session.sessionId} className="flex min-w-0 items-center gap-1.5 py-0.5 text-[11px]">
-                <SquareTerminal className="h-3 w-3 shrink-0" style={{ color: "var(--app-text-tertiary)" }} />
+              <button
+                type="button"
+                key={session.sessionId}
+                title={t("devices.open")}
+                disabled={busy !== null}
+                onClick={() => void run(`open:${session.sessionId}`, () => openRemoteSession(device, session.sessionId, {
+                  projectPath: session.projectPath ?? info?.homeDir ?? "~",
+                  projectName: session.projectName,
+                  cliTool: session.cliTool,
+                }))}
+                className="-mx-1 flex w-[calc(100%+0.5rem)] min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left text-[11px] transition-colors hover:bg-[var(--app-active)] disabled:opacity-60"
+              >
+                {busy === `open:${session.sessionId}`
+                  ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                  : <SquareTerminal className="h-3 w-3 shrink-0" style={{ color: "var(--app-text-tertiary)" }} />}
                 <span className="truncate" style={{ color: "var(--app-text-primary)" }}>
                   {session.projectName ?? t("devices.unknownProject")}
                 </span>
@@ -232,7 +274,7 @@ export default function DeviceCard({
                   <span className="shrink-0" style={{ color: "var(--app-text-tertiary)" }}>{session.cliTool}</span>
                 )}
                 <span className="ml-auto shrink-0" style={{ color: "var(--app-text-tertiary)" }}>{session.status}</span>
-              </div>
+              </button>
             ))}
           </div>
 
@@ -248,11 +290,37 @@ export default function DeviceCard({
                   {workspace.alias || workspace.name}
                 </div>
                 {workspace.projects.map((project) => (
-                  <div key={project.id} className="flex min-w-0 items-center gap-1.5 pl-2 text-[11px]" title={project.path}>
-                    <Folder className="h-3 w-3 shrink-0" style={{ color: "var(--app-text-tertiary)" }} />
+                  <div key={project.id} className="group/project flex min-w-0 items-center gap-1.5 pl-2 text-[11px]" title={project.path}>
+                    {busy === `new:${project.id}`
+                      ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                      : <Folder className="h-3 w-3 shrink-0" style={{ color: "var(--app-text-tertiary)" }} />}
                     <span className="truncate" style={{ color: "var(--app-text-secondary)" }}>
-                      {project.alias || project.path.split("/").filter(Boolean).pop() || project.path}
+                      {projectName(project)}
                     </span>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={t("devices.newSession")}
+                          title={t("devices.newSession")}
+                          disabled={busy !== null}
+                          className="ml-auto flex h-4 w-4 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-[var(--app-active)] focus:opacity-100 group-hover/project:opacity-100"
+                        >
+                          <Plus className="h-3 w-3" style={{ color: "var(--app-text-secondary)" }} />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {launchableClis.map((tool) => (
+                          <DropdownMenuItem key={tool.id} onSelect={() => void newSession(workspace, project, tool.id)}>
+                            {tool.displayName ?? tool.id}
+                          </DropdownMenuItem>
+                        ))}
+                        {launchableClis.length > 0 && <DropdownMenuSeparator />}
+                        <DropdownMenuItem onSelect={() => void newSession(workspace, project, "none")}>
+                          {t("devices.shell")}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 ))}
               </div>

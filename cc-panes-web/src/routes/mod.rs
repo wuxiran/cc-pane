@@ -807,7 +807,12 @@ pub fn build_router(state: AppState) -> Router {
         );
 
     let ws = Router::new().route("/ws/{session_id}", get(ws_upgrade));
+    // 免鉴权的存活探针：远程部署等待服务起来、设备视图区分"没在跑"和"令牌无效"。
     let auth = Router::new()
+        .route(
+            "/api/health",
+            get(|| async { axum::Json(serde_json::json!({ "ok": true })) }),
+        )
         .route("/api/auth/status", get(crate::web_auth::status))
         .route("/api/auth/login", post(crate::web_auth::login))
         .route("/api/auth/logout", post(crate::web_auth::logout));

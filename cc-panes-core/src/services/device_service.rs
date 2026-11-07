@@ -110,6 +110,8 @@ pub struct DeviceService {
     ssh_machines: Arc<SshMachineService>,
     ssh_connection: Arc<SshConnectionService>,
     forwards: Mutex<HashMap<String, SshPortForward>>,
+    /// keyring 读取可能很慢（macOS 还可能弹授权），终端每次读写都要解析端点，必须缓存。
+    token_cache: Mutex<HashMap<String, Option<String>>>,
 }
 
 impl DeviceService {
@@ -130,7 +132,32 @@ impl DeviceService {
             ssh_machines,
             ssh_connection,
             forwards: Mutex::new(HashMap::new()),
+            token_cache: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn token(&self, id: &str) -> Result<Option<String>> {
+        if let Some(cached) = self
+            .token_cache
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .get(id)
+        {
+            return Ok(cached.clone());
+        }
+        let token = self.tokens.get(id)?;
+        self.token_cache
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .insert(id.to_string(), token.clone());
+        Ok(token)
+    }
+
+    fn forget_cached_token(&self, id: &str) {
+        self.token_cache
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .remove(id);
     }
 
     pub fn ssh_machines(&self) -> &Arc<SshMachineService> {
@@ -167,7 +194,7 @@ impl DeviceService {
     }
 
     fn summarize(&self, device: Device) -> DeviceSummary {
-        let has_token = self.tokens.get(&device.id).ok().flatten().is_some();
+        let has_token = self.token(&device.id).ok().flatten().is_some();
         let target_label = match &device.connection {
             DeviceConnection::Ssh { machine_id, .. } => self
                 .ssh_machines
@@ -237,6 +264,7 @@ impl DeviceService {
         config.devices.retain(|device| device.id != id);
         self.save(&config)?;
         drop(config);
+        self.forget_cached_token(id);
         self.tokens.delete(id)
     }
 
@@ -244,6 +272,7 @@ impl DeviceService {
         if self.get(id).is_none() {
             bail!("Device {id} not found");
         }
+        self.forget_cached_token(id);
         self.tokens.set(id, token.trim())
     }
 
@@ -252,7 +281,7 @@ impl DeviceService {
         let device = self
             .get(id)
             .with_context(|| format!("Device {id} not found"))?;
-        let token = self.tokens.get(id)?;
+        let token = self.token(id)?;
         let base_url = match &device.connection {
             DeviceConnection::Direct { base_url } => base_url.clone(),
             DeviceConnection::Ssh {

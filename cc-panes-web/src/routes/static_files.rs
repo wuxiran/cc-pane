@@ -32,6 +32,11 @@ fn serve_embedded_dist(_path: &str) -> Option<Response> {
 /// Falls back to the embedded legacy terminal page for older standalone builds.
 pub async fn static_handler(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
+    // 未知 API / WS 路径如实返回 404：其他 CC-Panes（设备）把本服务当 daemon 用时，
+    // 靠 404 识别"对端不支持这个能力"，返回 200 的 HTML 会被误当成成功响应。
+    if path.starts_with("api/") || path.starts_with("ws/") {
+        return (StatusCode::NOT_FOUND, "Not Found").into_response();
+    }
     let requested_path = if path.is_empty() { "index.html" } else { path };
 
     if let Some(response) =

@@ -339,7 +339,7 @@ pub async fn access_control(
 
     // 设备令牌：已配对的 CC-Panes 设备视同本机主人（不受远程只读限制），
     // 但仍受局域网开关和 IP 白名单约束。带了 Bearer 却无效时直接拒绝，不回落到 cookie。
-    if let Some(token) = bearer_from_headers(request.headers()) {
+    if let Some(token) = device_token_from_request(&request) {
         if !state.web_auth.verify_device_token(&token) {
             return json_error(
                 StatusCode::UNAUTHORIZED,
@@ -357,6 +357,7 @@ pub async fn access_control(
             );
         }
         request.extensions_mut().insert(RequestOrigin::Local);
+        request.extensions_mut().insert(DeviceTokenAuth(token));
         return next.run(request).await;
     }
 
@@ -448,6 +449,32 @@ pub(crate) fn device_peer_allowed(
             .iter()
             .filter_map(|value| value.parse::<IpAddr>().ok())
             .any(|allowed| allowed == ip)
+}
+
+/// 已通过校验的设备令牌，供 WebSocket 处理器在连接存续期间反复核验（吊销即断开）。
+#[derive(Debug, Clone)]
+pub struct DeviceTokenAuth(pub String);
+
+/// 设备令牌来源：`Authorization: Bearer`，或仅对 `/ws/` 路径的 `?token=`
+/// （WebSocket 客户端——包括把本服务当 daemon 用的 `TerminalDaemonClient`——
+/// 不方便设置请求头）。查询参数只接受 `ccp_dev_` 前缀，不会和 cookie 会话混淆。
+fn device_token_from_request(request: &Request<Body>) -> Option<String> {
+    if let Some(token) = bearer_from_headers(request.headers()) {
+        return Some(token);
+    }
+    if !request.uri().path().starts_with("/ws/") {
+        return None;
+    }
+    request.uri().query()?.split('&').find_map(|pair| {
+        let (key, value) = pair.split_once('=')?;
+        if key != "token" {
+            return None;
+        }
+        let value = urlencoding::decode(value).ok()?.into_owned();
+        value
+            .starts_with(cc_panes_core::services::device_token_service::DEVICE_TOKEN_PREFIX)
+            .then_some(value)
+    })
 }
 
 pub(crate) fn bearer_from_headers(headers: &HeaderMap) -> Option<String> {

@@ -9,9 +9,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use cc_panes_core::models::CreateSessionRequest;
 use cc_panes_core::models::{DeviceAddRequest, DeviceConnection, DeviceEndpoint, DeviceSummary};
 use cc_panes_core::services::device_deploy::{self, RemotePlatform};
-use cc_panes_core::services::DeviceService;
+use cc_panes_core::services::remote_terminal::RemoteSessionRouter;
+use cc_panes_core::services::{DeviceService, TerminalBackend};
 use cc_panes_core::utils::AppPaths;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -123,9 +125,56 @@ pub async fn device_rename(
 }
 
 #[tauri::command]
-pub async fn device_remove(id: String, service: State<'_, Arc<DeviceService>>) -> AppResult<()> {
+pub async fn device_remove(
+    id: String,
+    service: State<'_, Arc<DeviceService>>,
+    router: State<'_, Arc<RemoteSessionRouter>>,
+) -> AppResult<()> {
     let service = service.inner().clone();
+    router.forget_device(&id);
     blocking(move || service.remove(&id)).await
+}
+
+/// 在设备上新建会话（由对方按它自己的工作空间配置启动，MCP / 技能 / 记忆齐全）。
+///
+/// 只负责创建和登记路由；前端随后用 `adoptSession` 打开标签，经现有恢复路径
+/// （`get_terminal_recovery_snapshot`）接上输出流，与重连本机会话走同一条路。
+#[tauri::command]
+pub async fn device_create_session(
+    id: String,
+    request: CreateSessionRequest,
+    router: State<'_, Arc<RemoteSessionRouter>>,
+) -> AppResult<String> {
+    let router = router.inner().clone();
+    let backend = router.device_backend(&id);
+    let session_id = tauri::async_runtime::spawn_blocking(move || backend.create_session(request))
+        .await
+        .map_err(|error| AppError::from(error.to_string()))??;
+    router.register(&session_id, &id);
+    Ok(session_id)
+}
+
+/// 把设备上已在运行的会话登记到本机，随后由前端 `adoptSession` 打开。
+#[tauri::command]
+pub async fn device_attach_session(
+    id: String,
+    session_id: String,
+    router: State<'_, Arc<RemoteSessionRouter>>,
+) -> AppResult<()> {
+    let router = router.inner().clone();
+    let backend = router.device_backend(&id);
+    let probe_id = session_id.clone();
+    let status =
+        tauri::async_runtime::spawn_blocking(move || backend.get_session_status(&probe_id))
+            .await
+            .map_err(|error| AppError::from(error.to_string()))??;
+    if status.is_none() {
+        return Err(AppError::from(format!(
+            "Session {session_id} no longer exists on this device"
+        )));
+    }
+    router.register(&session_id, &id);
+    Ok(())
 }
 
 #[tauri::command]

@@ -61,6 +61,7 @@ mod project_skill_service;
 mod provider_resolver;
 mod provider_service;
 mod quick_command_service;
+pub mod remote_terminal;
 pub mod resume_identity;
 mod runner_service;
 mod session_cost;

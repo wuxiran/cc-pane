@@ -10,12 +10,17 @@ use std::net::TcpStream;
 use std::sync::Arc;
 use std::time::Duration;
 
-use cc_panes_core::models::{DeviceAddRequest, DeviceConnection, SshMachineUpsertRequest};
+use cc_panes_core::models::{
+    CreateSessionRequest, DeviceAddRequest, DeviceConnection, SshMachineUpsertRequest,
+};
 use cc_panes_core::services::device_deploy;
+use cc_panes_core::services::remote_terminal::{RemoteSessionRouter, RoutingTerminalBackend};
+use cc_panes_core::services::TerminalBackend;
 use cc_panes_core::services::{
     DeviceService, MemoryDeviceTokenStore, SshConnectionService, SshCredentialService,
     SshMachineService,
 };
+use cc_panes_core::utils::{AppError, AppResult};
 
 fn http_get(addr: &str, path: &str, token: Option<&str>) -> anyhow::Result<(u16, String)> {
     let mut stream = TcpStream::connect(addr)?;
@@ -151,6 +156,110 @@ fn main() -> anyhow::Result<()> {
     let (status, _) = http_get(&addr, "/api/device/info", endpoint.token.as_deref())?;
     println!("after redeploy -> HTTP {status}");
     assert_eq!(status, 200);
+
+    // ---- 阶段 3：远程终端，经路由后端透明访问 ----
+    let devices = Arc::new(devices);
+    let router = Arc::new(RemoteSessionRouter::new(
+        dir.path().join("remote-sessions.json"),
+        devices.clone(),
+    ));
+    let local: Arc<dyn TerminalBackend> = Arc::new(NoLocalBackend);
+    let routing = RoutingTerminalBackend::new(local, router.clone());
+    let remote = router.device_backend(&device.id);
+    let request: CreateSessionRequest = serde_json::from_value(serde_json::json!({
+        "projectPath": platform.home,
+        "cols": 100, "rows": 30,
+        "cliTool": "none",
+    }))?;
+    let session_id = remote.create_session(request)?;
+    router.register(&session_id, &device.id);
+    println!("remote session: {session_id}");
+    routing.write(&session_id, "echo REMOTE_$((40+2))\n")?;
+    let mut seen = false;
+    for _ in 0..40 {
+        std::thread::sleep(Duration::from_millis(250));
+        let output = routing.get_session_output(&session_id, 50)?;
+        if format!("{output:?}").contains("REMOTE_42") {
+            seen = true;
+            break;
+        }
+    }
+    assert!(seen, "remote shell output never arrived");
+    println!("write -> remote shell -> output: ok");
+    routing.resize(&session_id, 120, 40)?;
+    let status = routing.get_session_status(&session_id)?;
+    println!("status: {:?}", status.map(|status| status.status));
+    assert!(routing
+        .get_all_status()?
+        .iter()
+        .any(|status| status.session_id == session_id));
+    println!("get_all_status includes cached remote status: ok");
+
+    // WebSocket 握手（daemon 事件桥用的就是这个 URL，令牌在查询参数里）
+    let url = routing.event_stream_url(&session_id).expect("ws url");
+    let rest = url.trim_start_matches("ws://");
+    let (host, path) = rest.split_once('/').expect("ws path");
+    let mut stream = TcpStream::connect(host)?;
+    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+    write!(
+        stream,
+        "GET /{path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+    )?;
+    let mut head = [0_u8; 64];
+    let read = stream.read(&mut head)?;
+    let head = String::from_utf8_lossy(&head[..read]);
+    println!("ws handshake: {}", head.lines().next().unwrap_or_default());
+    assert!(head.starts_with("HTTP/1.1 101"));
+
+    routing.kill(&session_id)?;
+    assert!(
+        router.device_of(&session_id).is_none(),
+        "kill must unregister"
+    );
+    println!("kill + unregister: ok");
     println!("E2E OK");
     Ok(())
+}
+
+/// 本地后端占位：e2e 里只走远程会话，任何本地调用都算路由错误。
+struct NoLocalBackend;
+
+impl TerminalBackend for NoLocalBackend {
+    fn create_session(&self, _request: CreateSessionRequest) -> AppResult<String> {
+        Err(AppError::from("local backend must not be used"))
+    }
+    fn write(&self, _session_id: &str, _data: &str) -> AppResult<()> {
+        Err(AppError::from("local backend must not be used"))
+    }
+    fn submit_text_to_session(&self, _session_id: &str, _text: &str) -> AppResult<()> {
+        Err(AppError::from("local backend must not be used"))
+    }
+    fn resize(&self, _session_id: &str, _cols: u16, _rows: u16) -> AppResult<()> {
+        Err(AppError::from("local backend must not be used"))
+    }
+    fn kill(&self, _session_id: &str) -> AppResult<()> {
+        Err(AppError::from("local backend must not be used"))
+    }
+    fn get_all_status(&self) -> AppResult<Vec<cc_panes_core::services::SessionStatusInfo>> {
+        Ok(Vec::new())
+    }
+    fn get_session_status(
+        &self,
+        _session_id: &str,
+    ) -> AppResult<Option<cc_panes_core::services::SessionStatusInfo>> {
+        Err(AppError::from("local backend must not be used"))
+    }
+    fn get_session_output(
+        &self,
+        _session_id: &str,
+        _lines: usize,
+    ) -> AppResult<cc_panes_core::services::terminal_service::SessionOutput> {
+        Err(AppError::from("local backend must not be used"))
+    }
+    fn get_session_replay_snapshot(
+        &self,
+        _session_id: &str,
+    ) -> AppResult<Option<cc_panes_core::models::TerminalReplaySnapshot>> {
+        Err(AppError::from("local backend must not be used"))
+    }
 }

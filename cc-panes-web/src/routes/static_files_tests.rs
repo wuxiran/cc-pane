@@ -87,6 +87,7 @@ async fn static_handler_serves_dist_files_and_spa_fallback() {
 
     // API-looking paths must not receive the SPA index from dist.
     let response = static_handler(Uri::from_static("/api/unknown")).await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
     let body = body_string(response).await;
     assert!(!body.contains("dist index"));
 
