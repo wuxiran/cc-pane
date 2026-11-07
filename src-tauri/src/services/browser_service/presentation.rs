@@ -202,6 +202,10 @@ impl BrowserTabManager {
         bounds: BrowserBounds,
         visible: bool,
     ) -> AppResult<()> {
+        let _create = self
+            .create_lock
+            .lock()
+            .map_err(|_| "browser create lock is poisoned")?;
         if self.contains(tab_id) {
             if !self.is_host(tab_id, host) {
                 return Ok(());
@@ -214,7 +218,7 @@ impl BrowserTabManager {
         if host != "main" {
             return Err("Only the main window can create browser tabs".into());
         }
-        self.create(app, tab_id, url, bounds, visible)
+        self.create_unlocked(app, tab_id, url, bounds, visible)
     }
 
     pub fn set_bounds_for_host(
