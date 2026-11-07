@@ -15,7 +15,6 @@ export interface SettingsWindowTarget {
 /** 设置窗口里触发、必须在主窗口执行的操作（两个窗口的 store 互不相通）。 */
 export type SettingsWindowAction =
   | { type: "openOnboarding" }
-  | { type: "openSkillManager"; args: unknown[] }
   | { type: "openResourceLibrary"; section: ResourceSection; scope: McpLayerTarget | null };
 
 export interface SettingsChangedPayload {
@@ -63,12 +62,4 @@ export function broadcastSettingsChanged(): void {
 
 export function sendActionToMainWindow(action: SettingsWindowAction): Promise<void> {
   return emitTo("main", SETTINGS_WINDOW_ACTION_EVENT, action);
-}
-
-/** 设置窗口里的 store 没有分屏，Skill 管理标签要在主窗口打开。 */
-export function routeSkillManager<F extends (...args: never[]) => unknown>(openSkillManager: F): F {
-  if (!isSettingsWindow()) return openSkillManager;
-  return ((...args: unknown[]) => {
-    void sendActionToMainWindow({ type: "openSkillManager", args });
-  }) as unknown as F;
 }

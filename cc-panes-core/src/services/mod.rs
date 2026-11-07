@@ -17,6 +17,7 @@ mod ctl_sidecar;
 pub mod terminal_output_cursor;
 // ACP 聊天会话与 PTY 终端共用同一条 CC_PANES_CTL 注入链（src-tauri 侧也要用）。
 pub use ctl_sidecar::{session_ctl_env_value, SESSION_CTL_ENV_KEY};
+pub mod builtin_skill_sets;
 mod cc_switch_import;
 pub mod claude_trust_service;
 mod cursor_bridge_hub;
@@ -73,7 +74,8 @@ mod session_restore_service;
 pub mod session_state_machine;
 mod settings_service;
 mod shared_mcp_service;
-pub mod skill_link_service;
+pub mod skill_library_service;
+pub mod skill_repo_fetcher;
 pub mod skill_service;
 mod spec_service;
 mod ssh_connection_service;
@@ -182,7 +184,7 @@ pub use session_restore_service::{
 pub use session_state_machine::{SessionStateMachine, StateTransition, TransitionListener};
 pub use settings_service::SettingsService;
 pub use shared_mcp_service::{AgentMcpServer, SharedMcpService};
-pub use skill_link_service::SkillLinkService;
+pub use skill_library_service::SkillLibraryService;
 pub use skill_service::SkillService;
 pub use spec_service::SpecService;
 pub use ssh_connection_service::SshConnectionService;
@@ -217,7 +219,10 @@ pub use terminal_service::{
 pub use todo_service::TodoService;
 pub use uninstall_cleanup_service::{UninstallCleanupReport, UninstallCleanupService};
 pub use usage_stats_service::UsageStatsService;
-pub use user_skill_service::{InstalledUserSkill, UserSkillContent, UserSkillService};
+pub use user_skill_service::{
+    InstalledUserSkill, UserSkillContent, UserSkillService, USER_SKILL_MARKDOWN_FILE,
+    USER_SKILL_METADATA_FILE,
+};
 pub use wallpaper_service::{WallpaperFileInfo, WallpaperService};
 pub use workspace_health::{check_project_paths, classify_path, PathStatusKind, ProjectPathStatus};
 pub use workspace_service::{WorkspaceProjectIdentityMigrationReport, WorkspaceService};

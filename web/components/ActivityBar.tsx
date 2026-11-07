@@ -1,4 +1,4 @@
-import { Boxes, Clapperboard, FolderTree, House, Library, Settings, Store } from "lucide-react";
+import { Boxes, Clapperboard, FolderTree, House, Library, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import LayoutBar from "@/components/LayoutBar";
 import { useLibrarySpaceEntry } from "@/components/library/LibrarySpaceEntry";
@@ -195,7 +195,6 @@ export default function ActivityBar() {
   const activityBarVisible = useActivityBarStore((state) => state.activityBarVisible);
   const toggleView = useActivityBarStore((state) => state.toggleView);
   const toggleDramaGenMode = useActivityBarStore((state) => state.toggleDramaGenMode);
-  const toggleSkillMarketMode = useActivityBarStore((state) => state.toggleSkillMarketMode);
   const toggleResourcesMode = useActivityBarStore((state) => state.toggleResourcesMode);
   const appViewMode = useActivityBarStore((state) => state.appViewMode);
   const orchestrationOverlayOpen = useActivityBarStore((state) => state.orchestrationOverlayOpen);
@@ -205,7 +204,6 @@ export default function ActivityBar() {
   const preferences = useModulePrefsStore((state) => state.preferences);
   // 实验功能入口：设置里勾选后才出现（默认关，客户装上看不到）。
   const dramaStudioEnabled = useExperimentalFeature("dramaStudio");
-  const skillMarketEnabled = useExperimentalFeature("skillMarket");
   const librarySpaceEnabled = useExperimentalFeature("librarySpace");
   const librarySpace = useLibrarySpaceEntry();
 
@@ -280,14 +278,6 @@ export default function ActivityBar() {
                 label={t("dramaStudio")}
                 active={appViewMode === "dramaGen"}
                 onClick={toggleDramaGenMode}
-              />
-            ) : null}
-            {skillMarketEnabled ? (
-              <ActivityBarIcon
-                icon={<Store className="h-[18px] w-[18px]" strokeWidth={1.5} />}
-                label={t("skillMarket")}
-                active={appViewMode === "skillMarket"}
-                onClick={toggleSkillMarketMode}
               />
             ) : null}
             {visibleModules.map((module) => {

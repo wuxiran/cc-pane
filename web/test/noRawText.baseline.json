@@ -7,7 +7,6 @@
   "components/orchestration/SessionOutputPreview.tsx": 4,
   "components/orchestration/TaskDetailPanel.tsx": 26,
   "components/panes/terminalFont.ts": 5,
-  "components/resources/GlobalSkillsPanel.tsx": 16,
   "components/selfchat/SelfChatManager.tsx": 1,
   "components/settings/AboutSection.tsx": 1,
   "components/settings/VoiceSection.tsx": 2,

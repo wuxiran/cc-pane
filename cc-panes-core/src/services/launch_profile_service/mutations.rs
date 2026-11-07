@@ -149,6 +149,43 @@ impl LaunchProfileService {
         })
     }
 
+    /// 从所有启动档的 `skillPolicy.enabledSkillIds` / `disabledSkillIds` 去掉这些 id
+    /// （资源库删除技能时调用）。没有任何启动档引用时不写盘。返回改动的启动档数。
+    pub fn remove_skill_ids_from_profiles(&self, skill_ids: &[String]) -> Result<usize> {
+        let doomed: std::collections::HashSet<&str> =
+            skill_ids.iter().map(String::as_str).collect();
+        let references = |profile: &LaunchProfile| {
+            profile
+                .skill_policy
+                .enabled_skill_ids
+                .iter()
+                .chain(profile.skill_policy.disabled_skill_ids.iter())
+                .any(|id| doomed.contains(id.as_str()))
+        };
+        if !self.list_profiles().iter().any(references) {
+            return Ok(0);
+        }
+        self.mutate_config(|config| {
+            let mut changed = 0;
+            for profile in config
+                .profiles
+                .iter_mut()
+                .filter(|profile| references(profile))
+            {
+                let policy = &mut profile.skill_policy;
+                policy
+                    .enabled_skill_ids
+                    .retain(|id| !doomed.contains(id.as_str()));
+                policy
+                    .disabled_skill_ids
+                    .retain(|id| !doomed.contains(id.as_str()));
+                profile.updated_at = chrono::Utc::now().to_rfc3339();
+                changed += 1;
+            }
+            Ok(changed)
+        })
+    }
+
     pub fn set_default_profile(&self, id: &str) -> Result<()> {
         self.mutate_config(|config| {
             let (target_tools, target_runtime) = config

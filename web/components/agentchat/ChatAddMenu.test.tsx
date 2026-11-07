@@ -10,8 +10,6 @@ import ChatAddMenu from "./ChatAddMenu";
 
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useResourceLibraryStore } from "@/stores/useResourceLibraryStore";
-const actions = vi.hoisted(() => ({ openSkillManager: vi.fn() }));
-vi.mock("@/stores/usePanesStore", () => ({ usePanesStore: { getState: () => actions } }));
 const chatId = "chat-add-menu";
 const callbacks = { onFiles: vi.fn().mockResolvedValue(undefined), onFolders: vi.fn().mockResolvedValue(undefined), onProject: vi.fn(), onCapture: vi.fn() };
 
@@ -66,10 +64,13 @@ describe("ChatAddMenu", () => {
     expect(useActivityBarStore.getState().appViewMode).toBe("resources");
   });
 
-  it.each([["管理项目技能", "openSkillManager"]] as const)("opens %s for the current project", async (label, action) => {
+  it("opens the skills page of the resource library scoped to the current project", async () => {
+    useActivityBarStore.setState({ appViewMode: "panes" });
     renderMenu(); await openMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: label }));
-    expect(actions[action]).toHaveBeenCalledWith("/repo/demo", "demo");
+    fireEvent.click(screen.getByRole("menuitem", { name: "管理项目技能" }));
+    expect(useResourceLibraryStore.getState().section).toBe("skills");
+    expect(useResourceLibraryStore.getState().scope).toEqual({ projectPath: "/repo/demo" });
+    expect(useActivityBarStore.getState().appViewMode).toBe("resources");
   });
 
   it("does not show capture or project tools without those capabilities", async () => {

@@ -173,6 +173,16 @@ impl AppPaths {
         self.skills_dir().join("builtin")
     }
 
+    /// 内置 skill 按启动档选择物化的子集目录（`builtin-sets/<hash>/`）。
+    pub fn builtin_skill_sets_dir(&self) -> PathBuf {
+        self.skills_dir().join("builtin-sets")
+    }
+
+    /// 资源库技能被替换 / 删除时的备份根目录。
+    pub fn skill_backups_dir(&self) -> PathBuf {
+        self.data_dir.join("backups").join("skills")
+    }
+
     /// 壁纸文件目录（导入的图片/视频/音乐统一放这里，配置只存相对文件名）。
     pub fn wallpapers_dir(&self) -> PathBuf {
         self.data_dir.join("wallpapers")

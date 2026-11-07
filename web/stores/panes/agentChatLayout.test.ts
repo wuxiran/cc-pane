@@ -219,7 +219,7 @@ describe("enforceAgentChatLayoutPurity", () => {
     const { reserved, cli } = makeState();
     collectPanels(cli.rootPane)[0].tabs = [];
     const panel = collectPanels(reserved.rootPane)[0];
-    const allowed = ["agent-chat", "editor", "file-explorer", "skill-manager", "terminal", "browser", "review"] as const;
+    const allowed = ["agent-chat", "editor", "file-explorer", "terminal", "browser", "review"] as const;
     const rejected = ["dsh"] as const;
     panel.tabs = [...allowed, ...rejected].map((type) => tab(type, type));
     panel.activeTabId = "editor";

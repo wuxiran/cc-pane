@@ -1,8 +1,11 @@
 use super::skill_market_catalog::SkillMarketCatalog;
 use super::skill_repo_fetcher::{RepoListing, RepoRef, SkillRepoFetcher};
 use crate::utils::{AppError, AppResult};
+use cc_panes_core::models::skill_library::SkillProvenance;
+use cc_panes_core::services::skill_library_service::GithubDirInstall;
 use cc_panes_core::services::{
-    parse_skill_metadata, skill_frontmatter_field, InstalledUserSkill, UserSkillService,
+    parse_skill_metadata, skill_frontmatter_field, InstalledUserSkill, SkillLibraryService,
+    UserSkillService,
 };
 use futures_util::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -136,15 +139,6 @@ enum SkillMarketIndexPayload {
     Entries(Vec<SkillMarketEntry>),
 }
 
-/// Outcome of placing a repository skill folder on disk.
-struct RepoSkillPlacement {
-    repo: RepoRef,
-    listing: RepoListing,
-    skill_dir: String,
-    skill_md: String,
-    file_count: usize,
-}
-
 pub struct SkillMarketService {
     index_url: String,
     cache_path: PathBuf,
@@ -152,10 +146,15 @@ pub struct SkillMarketService {
     client: reqwest::Client,
     fetcher: Arc<SkillRepoFetcher>,
     catalog: SkillMarketCatalog,
+    library: Arc<SkillLibraryService>,
 }
 
 impl SkillMarketService {
-    pub fn new(skills_dir: PathBuf, user_skills_dir: PathBuf) -> Self {
+    pub fn new(
+        skills_dir: PathBuf,
+        user_skills_dir: PathBuf,
+        library: Arc<SkillLibraryService>,
+    ) -> Self {
         let index_url = std::env::var("CCPANES_SKILL_MARKET_INDEX_URL")
             .ok()
             .filter(|value| !value.trim().is_empty())
@@ -173,6 +172,7 @@ impl SkillMarketService {
             client,
             fetcher,
             catalog,
+            library,
         }
     }
 
@@ -308,6 +308,8 @@ impl SkillMarketService {
             content_sha256: actual_sha,
             installed_at: chrono::Utc::now().to_rfc3339(),
             file_path: None,
+            provenance: None,
+            gone: false,
         };
         self.user_skill_service.write_skill(&installed, &content)?;
         self.user_skill_service
@@ -317,37 +319,64 @@ impl SkillMarketService {
     }
 
     /// Download a whole skill folder (`SKILL.md` + scripts/references/assets) into the user
-    /// skills directory. Files land in a staging folder first so a failed download never leaves
-    /// a half-installed skill behind.
+    /// skills directory through the skill library, which stages the files, records the
+    /// provenance (repo/path/commit/treeHash) and swaps the folder in atomically — so market
+    /// installs can be checked for updates like pasted ones.
     async fn install_from_repo(&self, entry: SkillMarketEntry) -> AppResult<InstalledUserSkill> {
         UserSkillService::validate_skill_id(&entry.id)?;
         if entry.name.trim().is_empty() {
             return Err(AppError::from("Market skill name cannot be empty"));
         }
-        let root = self.user_skill_service.user_skills_dir().to_path_buf();
-        let target = UserSkillService::skill_dir_for(&root, &entry.id)?;
-        let placed = self.download_repo_skill_to(&entry, &target).await?;
-        let RepoSkillPlacement {
-            repo,
-            listing,
-            skill_dir,
-            skill_md,
-            file_count,
-        } = placed;
+        let (repo, listing, skill_dir, files) = self.resolve_repo_skill(&entry).await?;
         let leaf = entry.repo_skill_leaf();
+        let request = GithubDirInstall {
+            repo: &repo,
+            listing: &listing,
+            skill_dir: &skill_dir,
+            files: &files,
+            git_ref: entry.git_ref.as_deref(),
+            id: &entry.id,
+        };
+        let installed = self
+            .library
+            .install_github_dir(request, |skill_md, provenance| {
+                Self::repo_skill_metadata(&entry, &repo, &leaf, skill_md, provenance)
+            })
+            .await?;
+        info!(
+            "[skill_market] installed repo skill id={} repo={} dir={} files={}",
+            entry.id,
+            repo.slug(),
+            skill_dir,
+            files.len()
+        );
+        Ok(installed)
+    }
 
-        let (parsed_name, parsed_description) = parse_skill_metadata(&skill_md, &leaf);
+    fn repo_skill_metadata(
+        entry: &SkillMarketEntry,
+        repo: &RepoRef,
+        leaf: &str,
+        skill_md: &str,
+        provenance: SkillProvenance,
+    ) -> InstalledUserSkill {
+        let (parsed_name, parsed_description) = parse_skill_metadata(skill_md, leaf);
         let license = entry
             .license
             .clone()
-            .or_else(|| skill_frontmatter_field(&skill_md, "license"));
-        let short_ref: String = listing.git_ref.chars().take(12).collect();
+            .or_else(|| skill_frontmatter_field(skill_md, "license"));
+        let pinned = provenance
+            .commit
+            .clone()
+            .unwrap_or_else(|| "HEAD".to_string());
+        let short_ref: String = pinned.chars().take(12).collect();
+        let skill_dir = provenance.path.clone().unwrap_or_default();
         let source_url = if skill_dir.is_empty() {
-            format!("{}/tree/{}", repo.homepage(), listing.git_ref)
+            format!("{}/tree/{}", repo.homepage(), pinned)
         } else {
-            format!("{}/tree/{}/{}", repo.homepage(), listing.git_ref, skill_dir)
+            format!("{}/tree/{}/{}", repo.homepage(), pinned, skill_dir)
         };
-        let installed = InstalledUserSkill {
+        InstalledUserSkill {
             id: entry.id.clone(),
             name: if entry.name.trim().is_empty() {
                 parsed_name
@@ -365,22 +394,12 @@ impl SkillMarketService {
             license,
             homepage_url: entry.homepage_url.clone().or_else(|| Some(repo.homepage())),
             source_url: Some(source_url),
-            content_sha256: hex_sha256(&skill_md),
+            content_sha256: hex_sha256(skill_md),
             installed_at: chrono::Utc::now().to_rfc3339(),
             file_path: None,
-        };
-        self.user_skill_service.write_skill(&installed, &skill_md)?;
-        info!(
-            "[skill_market] installed repo skill id={} repo={} dir={} files={}",
-            entry.id,
-            repo.slug(),
-            skill_dir,
-            file_count
-        );
-        self.user_skill_service
-            .read_skill(&installed.id)?
-            .map(|content| content.skill)
-            .ok_or_else(|| AppError::from("Installed skill could not be read back"))
+            provenance: Some(provenance),
+            gone: false,
+        }
     }
 
     /// Download a repository skill folder into an arbitrary `target` directory (used for
@@ -396,17 +415,14 @@ impl SkillMarketService {
                 "Only repository-backed market entries can be installed into a project",
             ));
         }
-        let placed = self.download_repo_skill_to(entry, target).await?;
-        Ok(placed.file_count)
+        self.download_repo_skill_to(entry, target).await
     }
 
-    /// Resolve, download and atomically place a repo skill folder at `target`. Files land in
-    /// a sibling staging folder first so a failed download never leaves a half-installed skill.
-    async fn download_repo_skill_to(
+    /// List the repository and pick the skill folder plus the files to download.
+    async fn resolve_repo_skill(
         &self,
         entry: &SkillMarketEntry,
-        target: &Path,
-    ) -> AppResult<RepoSkillPlacement> {
+    ) -> AppResult<(RepoRef, RepoListing, String, Vec<String>)> {
         let repo = SkillRepoFetcher::parse_repo(entry.repo.as_deref().unwrap_or_default())?;
         let listing = self
             .fetcher
@@ -424,6 +440,17 @@ impl SkillMarketService {
                 ))
             })?;
         let files = Self::select_repo_files(&listing, &skill_dir)?;
+        Ok((repo, listing, skill_dir, files))
+    }
+
+    /// Resolve, download and atomically place a repo skill folder at `target`. Files land in
+    /// a sibling staging folder first so a failed download never leaves a half-installed skill.
+    async fn download_repo_skill_to(
+        &self,
+        entry: &SkillMarketEntry,
+        target: &Path,
+    ) -> AppResult<usize> {
+        let (repo, listing, skill_dir, files) = self.resolve_repo_skill(entry).await?;
 
         let parent = target
             .parent()
@@ -440,24 +467,15 @@ impl SkillMarketService {
         let download = self
             .download_repo_files(&repo, &listing, &skill_dir, &files, &staging)
             .await;
-        let skill_md = match download {
-            Ok(skill_md) => skill_md,
-            Err(error) => {
-                let _ = std::fs::remove_dir_all(&staging);
-                return Err(error);
-            }
-        };
+        if let Err(error) = download {
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(error);
+        }
         if target.exists() {
             std::fs::remove_dir_all(target)?;
         }
         std::fs::rename(&staging, target)?;
-        Ok(RepoSkillPlacement {
-            repo,
-            listing,
-            skill_dir,
-            skill_md,
-            file_count: files.len(),
-        })
+        Ok(files.len())
     }
 
     /// Pick the files to download for a skill folder, enforcing size/count limits. Oversized
@@ -716,6 +734,7 @@ mod tests {
                     size: Some(*size),
                 })
                 .collect(),
+            truncated: false,
         }
     }
 
@@ -787,7 +806,19 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let skills_dir = temp.path().join("skills");
         let user_skills_dir = temp.path().join("user-skills");
-        let service = SkillMarketService::new(skills_dir, user_skills_dir);
+        let library = Arc::new(SkillLibraryService::with_remote(
+            user_skills_dir.clone(),
+            temp.path().join("backups"),
+            None,
+            temp.path().join("probes"),
+            Arc::new(
+                cc_panes_core::services::skill_library_service::remote::DefaultSkillRemote::new(
+                    Arc::new(SkillRepoFetcher::with_default_client()),
+                ),
+            ),
+            None,
+        ));
+        let service = SkillMarketService::new(skills_dir, user_skills_dir, library);
         (temp, service)
     }
 
@@ -1043,6 +1074,10 @@ mod tests {
         };
         let installed = service.install_entry(entry).await.expect("install");
         assert_eq!(installed.id, "pdf");
+        let provenance = installed.provenance.clone().expect("provenance");
+        assert_eq!(provenance.repo.as_deref(), Some("anthropics/skills"));
+        assert_eq!(provenance.path.as_deref(), Some("skills/pdf"));
+        assert!(provenance.tree_hash.is_some());
         assert!(installed.description.is_some());
         let dir = service.user_skill_service.user_skills_dir().join("pdf");
         assert!(dir.join("SKILL.md").is_file());

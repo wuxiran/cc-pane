@@ -70,32 +70,24 @@ describe("ActivityBar", () => {
     resetStores();
   });
 
-  it("实验功能全关（release 默认）时不渲染技能市场入口", () => {
+  it("实验功能全关（release 默认）时只有常驻入口", () => {
     const { container } = renderBar();
     expect(screen.getByTestId("layout-bar-stub")).toBeInTheDocument();
     // Home + explorer + ssh/devices/todo + 添加模块 + settings
     //（files 与 sessions 图标已移除：Explorer 侧栏自带 文件 / 最近启动 tab）
     expect(container.querySelectorAll("button")).toHaveLength(8);
+    // 技能市场已并入资源库，活动栏不再有单独入口
     expect(screen.queryByRole("button", { name: "技能市场" })).not.toBeInTheDocument();
   });
 
   it("实验功能未勾选时，store 动作也不能进入对应全屏页", () => {
-    useActivityBarStore.getState().toggleSkillMarketMode();
-    expect(useActivityBarStore.getState().appViewMode).toBe("home");
     useActivityBarStore.getState().toggleDramaGenMode();
     expect(useActivityBarStore.getState().appViewMode).toBe("home");
-    useActivityBarStore.getState().setAppViewMode("skillMarket");
+    useActivityBarStore.getState().setAppViewMode("dramaGen");
     expect(useActivityBarStore.getState().appViewMode).toBe("home");
     // 非门禁模式照常
     useActivityBarStore.getState().setAppViewMode("panes");
     expect(useActivityBarStore.getState().appViewMode).toBe("panes");
-  });
-
-  it("勾选后技能市场入口出现，按钮总数回到 9", () => {
-    setExperimental({ skillMarket: true });
-    const { container } = renderBar();
-    expect(container.querySelectorAll("button")).toHaveLength(9);
-    expect(screen.getByRole("button", { name: "技能市场" })).toBeInTheDocument();
   });
 
   it("勾选资料空间后出现入口，尚未创建时点击弹出创建框", async () => {
@@ -105,17 +97,6 @@ describe("ActivityBar", () => {
     expect(container.querySelectorAll("button")).toHaveLength(9);
     await user.click(screen.getByRole("button", { name: "创建资料空间" }));
     expect(await screen.findByRole("button", { name: "创建并打开素材助手" })).toBeInTheDocument();
-  });
-
-  it("技能市场入口切换全屏市场页，再点一次回到 panes", async () => {
-    setExperimental({ skillMarket: true });
-    const user = userEvent.setup();
-    renderBar();
-    const marketButton = screen.getByRole("button", { name: "技能市场" });
-    await user.click(marketButton);
-    expect(useActivityBarStore.getState().appViewMode).toBe("skillMarket");
-    await user.click(marketButton);
-    expect(useActivityBarStore.getState().appViewMode).toBe("panes");
   });
 
   it("不再有 sessions 竖排入口：explorer 之后紧跟 ssh（最近启动已迁至 Explorer 顶部 tab）", async () => {

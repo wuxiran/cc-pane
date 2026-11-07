@@ -24,7 +24,11 @@ pub fn materialize_bundled_skills(
 ) -> Result<Vec<PathBuf>, String> {
     let svc = DefaultSkillService::new(bundled_templates_dir(resource_dir));
     let gate = SkillGateContext::from_app_settings(settings);
-    svc.materialize_managed_bundle_gated(&app_paths.builtin_skills_dir(), app_version, &gate)
+    let builtin_root = app_paths.builtin_skills_dir();
+    let written = svc.materialize_managed_bundle_gated(&builtin_root, app_version, &gate)?;
+    // 按启动档选择物化的子集要跟着内置目录更新（docs/109 第 2 批 C）。
+    cc_panes_core::services::builtin_skill_sets::refresh_builtin_sets(&builtin_root);
+    Ok(written)
 }
 
 /// 设置保存后是否需要重物化：只有门控相关的键变了才动（物化会碰磁盘、清目录）。

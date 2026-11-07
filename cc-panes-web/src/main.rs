@@ -454,6 +454,10 @@ async fn async_main(args: Args) -> anyhow::Result<()> {
         MemoryService::new_memory().expect("MemoryService fallback failed")
     }));
     let user_skill_service = Arc::new(UserSkillService::new(app_paths.user_skills_dir()));
+    let skill_library_service = Arc::new(cc_panes_core::services::SkillLibraryService::new(
+        &app_paths,
+        Some(launch_profile_service.clone()),
+    ));
     let usage_stats_service = Arc::new(UsageStatsService::new_with_provider_and_settings(
         usage_stats_repo,
         launch_history_service.clone(),
@@ -525,6 +529,7 @@ async fn async_main(args: Args) -> anyhow::Result<()> {
         plan_service,
         external_skill_registry,
         user_skill_service,
+        skill_library_service,
         usage_stats_service,
         session_index_service,
         ws_emitter: ws_emitter.clone(),

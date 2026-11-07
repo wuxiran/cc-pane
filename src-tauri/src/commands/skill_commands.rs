@@ -152,6 +152,8 @@ pub async fn install_skill_market_entry(
         content_sha256: String::new(),
         installed_at: chrono::Utc::now().to_rfc3339(),
         file_path: Some(placed.skill_md_path),
+        provenance: None,
+        gone: false,
     })
 }
 

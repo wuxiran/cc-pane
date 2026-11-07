@@ -296,13 +296,6 @@ use commands::{
     kill_orphan_processes,
     kill_terminal,
     kill_terminal_idempotent,
-    link_add_workspace,
-    link_annotate_repo,
-    link_disable,
-    link_enable,
-    link_set_workspace,
-    link_snapshot,
-    link_update,
     list_acp_chat_history,
     list_acp_engines,
     list_acp_run_records,
@@ -509,6 +502,15 @@ use commands::{
     set_web_access_password,
     set_workspace_archived,
     set_workspace_project_archived,
+    skill_library_check,
+    skill_library_found,
+    skill_library_import,
+    skill_library_install,
+    skill_library_list,
+    skill_library_probe,
+    skill_library_read,
+    skill_library_remove,
+    skill_library_update,
     ssh_fs_configure_password,
     ssh_fs_create_directory,
     ssh_fs_create_file,
@@ -597,8 +599,8 @@ use services::{
     OrchestratorService, PiRpcEventBridge, PiRpcService, PlanArchiveService, PlanService,
     ProcessMonitorService, ProjectCliHooksService, ProjectContextService, ProjectService,
     ProviderService, QuickCommandService, ScreenshotService, SessionIndexService,
-    SessionRestoreService, SettingsService, SharedMcpService, SkillLinkService, SkillMarketService,
-    SkillRemoteUpdateService, SkillService, SpecService, SshCredentialService, SshFileService,
+    SessionRestoreService, SettingsService, SharedMcpService, SkillLibraryService,
+    SkillMarketService, SkillService, SpecService, SshCredentialService, SshFileService,
     SshMachineService, StartLocks, SystemStatsService, TaskBindingService, TaskQueueService,
     TaskQueueWorker, TerminalBackendKind, TerminalBackendState, TerminalDaemonControlLink,
     TerminalDaemonEventBridge, TerminalDaemonLifecycle, TerminalService, TodoService,
@@ -1877,17 +1879,15 @@ pub fn run() {
     let mcp_market_service = Arc::new(McpMarketService::new(
         app_paths.data_dir().join("market").join("mcp-icons"),
     ));
+    let skill_library_service = Arc::new(SkillLibraryService::new(
+        &app_paths,
+        Some(launch_profile_service.clone()),
+    ));
     let skill_market_service = Arc::new(SkillMarketService::new(
         app_paths.skills_dir(),
         app_paths.user_skills_dir(),
+        skill_library_service.clone(),
     ));
-    let skill_link_service = Arc::new(SkillLinkService::new(
-        dirs::home_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join(".skill-manager")
-            .join("config.json"),
-    ));
-    let skill_remote_update_service = Arc::new(SkillRemoteUpdateService::new());
     let plan_service = Arc::new(PlanService::new(
         app_paths.clone(),
         workspace_service.clone(),
@@ -2093,8 +2093,7 @@ pub fn run() {
         .manage(workspace_skill_service)
         .manage(mcp_market_service)
         .manage(skill_market_service)
-        .manage(skill_link_service)
-        .manage(skill_remote_update_service)
+        .manage(skill_library_service)
         .manage(external_skill_registry)
         .manage(plan_service)
         .manage(plan_archive_service)
@@ -3512,13 +3511,6 @@ pub fn run() {
             delete_skill,
             copy_skill,
             list_skill_market_entries,
-            link_add_workspace,
-            link_annotate_repo,
-            link_disable,
-            link_enable,
-            link_set_workspace,
-            link_snapshot,
-            link_update,
             search_skill_market,
             describe_skill_market_entry,
             install_skill_market_entry,
@@ -3527,6 +3519,16 @@ pub fn run() {
             install_market_skill,
             remove_user_skill,
             list_bundled_skills,
+            // 资源库技能（docs/109 第 2 批）
+            skill_library_list,
+            skill_library_read,
+            skill_library_probe,
+            skill_library_install,
+            skill_library_check,
+            skill_library_update,
+            skill_library_remove,
+            skill_library_found,
+            skill_library_import,
             // Project Agent Skills（目录型，跨 CLI 根目录）
             list_project_skill_roots,
             list_project_skills,

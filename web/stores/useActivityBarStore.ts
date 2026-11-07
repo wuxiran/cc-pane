@@ -11,14 +11,12 @@ export type AppViewMode =
   | "files"
   | "providers"
   | "dramaGen"
-  | "skillMarket"
   | "resources"
   | "orchestration";
 
 /** 受实验开关门禁的全屏模式 → 对应开关。 */
 const GATED_MODES = {
   dramaGen: "dramaStudio",
-  skillMarket: "skillMarket",
 } as const;
 
 type GatedMode = keyof typeof GATED_MODES;
@@ -51,7 +49,6 @@ interface ActivityBarState {
   toggleHomeMode: () => void;
   toggleProvidersMode: () => void;
   toggleDramaGenMode: () => void;
-  toggleSkillMarketMode: () => void;
   toggleResourcesMode: () => void;
 }
 
@@ -188,17 +185,6 @@ export const useActivityBarStore = create<ActivityBarState>()(
           return {
             appViewMode: leaving ? "panes" : "dramaGen",
             sidebarVisible: leaving,
-            orchestrationOverlayOpen: false,
-          };
-        }),
-
-      // 技能市场是全屏页；侧栏显隐由 MainViewSwitcher 按模式决定，这里不动 sidebarVisible。
-      toggleSkillMarketMode: () =>
-        set((s) => {
-          const leaving = s.appViewMode === "skillMarket";
-          if (!leaving && !gatedModeEnabled("skillMarket")) return {};
-          return {
-            appViewMode: leaving ? "panes" : "skillMarket",
             orchestrationOverlayOpen: false,
           };
         }),

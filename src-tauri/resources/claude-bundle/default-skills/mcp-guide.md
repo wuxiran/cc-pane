@@ -44,6 +44,22 @@ wait_for_session / get_session_output → 真正的进度
 - 已退出会话能否读取取决于后端保留输出；若无可读归档，工具会返回无可读取的保留输出。
 - 判断任务是否完成看输出和 `get_session_status`，不要只看 `get_task_status(taskId)`。
 
+## 打开普通终端标签
+
+需要一个**用户看得见**的普通 shell（不是 AI CLI）时用 `open_terminal_tab`，例如在标签里 `ssh heze`、跑 dev server、看日志：
+
+```
+open_terminal_tab(cwd?, command?, title?, runtimeKind?, projectPath?, paneId?, layoutId?, layoutName?, placement?)
+  → { success, sessionId, taskId, tabId, terminalPaneId, paneId, cwd, runtimeKind, commandSent, commandError? }
+```
+
+- 默认作为新标签落在**调用者所在窗格**（`placement=tab`）；`beside` 改为在旁边分屏。`paneId` / `layoutId` / `layoutName` 同 dispatch_task。
+- `cwd` 省略时用调用者自己的工作目录，否则项目根；本地 `cwd` 必须是已存在的绝对目录。项目按 `projectPath` → 包含 `cwd` 的已注册项目 → 调用者所在项目推断，都推不出时报错。
+- `runtimeKind` 默认 `local`（不继承工作空间默认环境）；`ssh` / `wsl` 按项目所在工作空间的运行环境配置连接。
+- `command` 是**单行**命令，shell 出现提示符后才发送（和 `submit_to_session` 同一机制）。`commandSent=false` 时看 `commandError`：提示符超时、shell 已退出，或者 shell 正停在密码 / 确认提示——这些情况都**不会**发送，等用户处理完再 `submit_to_session`。
+- 之后用 `submit_to_session` / `get_session_output` / `wait_for_session` / `kill_session` 操作这个 `sessionId`。普通 shell 没有 AI CLI 的 hook 状态上报，判断命令是否跑完以 `get_session_output` 为准。
+- 只想后台跑命令、不需要用户看见：用 `start_runner`（管理台）。
+
 ## 往会话里写东西
 
 | 想做什么 | 用哪个 |

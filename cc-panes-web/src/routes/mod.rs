@@ -14,6 +14,7 @@ pub mod process;
 pub mod quick_commands;
 pub mod resources;
 pub mod runner;
+pub mod skill_library;
 pub mod skills;
 pub mod ssh_machines;
 pub mod static_files;
@@ -320,6 +321,15 @@ pub fn build_router(state: AppState) -> Router {
             "/api/user-skills/{skill_id}",
             delete(skills::remove_user_skill),
         )
+        .route("/api/skill-library", get(skill_library::list))
+        .route("/api/skill-library/found", get(skill_library::found))
+        .route("/api/skill-library/probe", post(skill_library::probe))
+        .route("/api/skill-library/install", post(skill_library::install))
+        .route("/api/skill-library/check", post(skill_library::check))
+        .route("/api/skill-library/update", post(skill_library::update))
+        .route("/api/skill-library/remove", post(skill_library::remove))
+        .route("/api/skill-library/import", post(skill_library::import))
+        .route("/api/skill-library/{id}", get(skill_library::read))
         .route("/api/ssh-machines", get(ssh_machines::list_ssh_machines))
         .route("/api/ssh-machines", post(ssh_machines::add_ssh_machine))
         .route("/api/ssh-machines", put(ssh_machines::update_ssh_machine))

@@ -21,7 +21,6 @@ export type TabOpenActions = Pick<
   | "openProjectInPane"
   | "openProject"
   | "reopenClosedTab"
-  | "openSkillManager"
   | "openMemoryManager"
   | "openFileExplorer"
 >;
@@ -168,30 +167,6 @@ export function createTabOpenActions({ set, get }: PanesStoreAccess): TabOpenAct
         reopened,
       );
       restoreClosedTabIdentity(get(), paneId, reopened);
-    },
-
-    openSkillManager: (projectPath, title) => {
-      const active = get().activePane();
-      if (!active) return;
-
-      const existing = active.tabs.find(
-        (t) => t.contentType === "skill-manager" && t.projectPath === projectPath
-      );
-      if (existing) {
-        get().selectTab(active.id, existing.id);
-        return;
-      }
-
-      set((state) => {
-        const pane = findPane(state.rootPane, state.activePaneId);
-        if (pane?.type !== "panel") return;
-        const newTab = createTabOfType("skill-manager", {
-          title: `Skill - ${title}`,
-          projectPath,
-        });
-        pane.tabs.push(newTab);
-        pane.activeTabId = newTab.id;
-      });
     },
 
     openMemoryManager: (projectPath, title) => {

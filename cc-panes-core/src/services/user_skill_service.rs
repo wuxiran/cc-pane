@@ -1,3 +1,4 @@
+use crate::models::skill_library::{SkillProvenance, SkillSourceKind};
 use crate::utils::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -27,6 +28,39 @@ pub struct InstalledUserSkill {
     pub installed_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_path: Option<String>,
+    /// 来源（docs/109 第 2 批）。旧 `skill.json` 没有这个字段，按 `None` 加载。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<SkillProvenance>,
+    /// 上次完整抓取确认上游已删除。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub gone: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+impl InstalledUserSkill {
+    /// `folder` 来源链接的本机目录；其余来源返回 `None`（内容就在库目录里）。
+    pub fn linked_path(&self) -> Option<&Path> {
+        let provenance = self.provenance.as_ref()?;
+        if provenance.kind != SkillSourceKind::Folder {
+            return None;
+        }
+        provenance
+            .linked_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(Path::new)
+    }
+
+    /// 技能文件实际所在目录：`folder` 来源指向链接目录，其余为库目录本身。
+    pub fn content_dir(&self, library_dir: &Path) -> PathBuf {
+        self.linked_path()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| library_dir.to_path_buf())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -83,13 +117,26 @@ impl UserSkillService {
                 continue;
             }
             let metadata_path = path.join(USER_SKILL_METADATA_FILE);
-            let markdown_path = path.join(USER_SKILL_MARKDOWN_FILE);
-            if !metadata_path.is_file() || !markdown_path.is_file() {
+            if !metadata_path.is_file() {
                 continue;
             }
+            // 先看本地 SKILL.md 再解析 metadata：半成品目录（只有 skill.json）照旧跳过，
+            // 不让一个坏目录拖垮整个列表。folder 来源没有本地 SKILL.md，按链接目录算，
+            // 链接目录消失时仍列出（资源库显示「文件夹不存在」）。
+            let local_markdown = path.join(USER_SKILL_MARKDOWN_FILE);
             let content = std::fs::read_to_string(&metadata_path)?;
-            let mut skill: InstalledUserSkill = serde_json::from_str(&content)
-                .map_err(|err| AppError::from(format!("Invalid user skill metadata: {}", err)))?;
+            let parsed = serde_json::from_str::<InstalledUserSkill>(&content);
+            let mut skill = if local_markdown.is_file() {
+                parsed.map_err(|err| {
+                    AppError::from(format!("Invalid user skill metadata: {}", err))
+                })?
+            } else {
+                match parsed {
+                    Ok(skill) if skill.linked_path().is_some() => skill,
+                    _ => continue,
+                }
+            };
+            let markdown_path = skill.content_dir(&path).join(USER_SKILL_MARKDOWN_FILE);
             skill.file_path = Some(markdown_path.to_string_lossy().to_string());
             skills.push(skill);
         }
@@ -106,14 +153,17 @@ impl UserSkillService {
     pub fn read_from_dir(root: &Path, id: &str) -> AppResult<Option<UserSkillContent>> {
         let skill_dir = Self::skill_dir_for(root, id)?;
         let metadata_path = skill_dir.join(USER_SKILL_METADATA_FILE);
-        let markdown_path = skill_dir.join(USER_SKILL_MARKDOWN_FILE);
-        if !metadata_path.is_file() || !markdown_path.is_file() {
+        if !metadata_path.is_file() {
             return Ok(None);
         }
 
         let metadata = std::fs::read_to_string(&metadata_path)?;
         let mut skill: InstalledUserSkill = serde_json::from_str(&metadata)
             .map_err(|err| AppError::from(format!("Invalid user skill metadata: {}", err)))?;
+        let markdown_path = skill.content_dir(&skill_dir).join(USER_SKILL_MARKDOWN_FILE);
+        if !markdown_path.is_file() {
+            return Ok(None);
+        }
         let content = std::fs::read_to_string(&markdown_path)?;
         skill.file_path = Some(markdown_path.to_string_lossy().to_string());
         Ok(Some(UserSkillContent { skill, content }))
@@ -130,14 +180,22 @@ impl UserSkillService {
     pub fn write_skill(&self, skill: &InstalledUserSkill, content: &str) -> AppResult<()> {
         let dir = Self::skill_dir_for(&self.user_skills_dir, &skill.id)?;
         std::fs::create_dir_all(&dir)?;
+        Self::write_metadata(&dir, skill)?;
+        std::fs::write(dir.join(USER_SKILL_MARKDOWN_FILE), content)?;
+        Ok(())
+    }
 
+    /// 只写 `skill.json`（不带运行时回填的 `filePath`）。folder 来源只有这一个文件。
+    pub fn write_metadata(dir: &Path, skill: &InstalledUserSkill) -> AppResult<()> {
         let mut metadata = skill.clone();
         metadata.file_path = None;
         let metadata_json = serde_json::to_string_pretty(&metadata)
             .map_err(|err| AppError::from(format!("Failed to serialize user skill: {}", err)))?;
-        std::fs::write(dir.join(USER_SKILL_METADATA_FILE), metadata_json)?;
-        std::fs::write(dir.join(USER_SKILL_MARKDOWN_FILE), content)?;
-        Ok(())
+        crate::utils::atomic_file::write_atomic(
+            &dir.join(USER_SKILL_METADATA_FILE),
+            metadata_json.as_bytes(),
+        )
+        .map_err(|err| AppError::from(format!("Failed to write user skill metadata: {}", err)))
     }
 
     pub fn remove_skill(&self, id: &str) -> AppResult<bool> {
@@ -174,6 +232,8 @@ mod tests {
             content_sha256: "abc123".to_string(),
             installed_at: "2026-01-01T00:00:00Z".to_string(),
             file_path: None,
+            provenance: None,
+            gone: false,
         }
     }
 
@@ -324,5 +384,75 @@ mod tests {
         let dir = UserSkillService::skill_dir_for(root, "my-skill").unwrap();
         assert_eq!(dir, root.join("my-skill"));
         assert!(UserSkillService::skill_dir_for(root, "../up").is_err());
+    }
+
+    #[test]
+    fn legacy_metadata_without_provenance_still_loads() {
+        let (service, _tmp) = make_service();
+        let dir = service.user_skills_dir().join("legacy");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(USER_SKILL_METADATA_FILE),
+            r#"{"id":"legacy","name":"Legacy","version":"1","contentSha256":"x","installedAt":"2026-01-01T00:00:00Z","tags":[]}"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join(USER_SKILL_MARKDOWN_FILE), "body").unwrap();
+
+        let skill = service.read_skill("legacy").unwrap().unwrap().skill;
+        assert!(skill.provenance.is_none());
+        assert!(!skill.gone);
+        assert_eq!(service.list_skills().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn provenance_roundtrips_and_unknown_kind_falls_back() {
+        let mut skill = sample_skill("p", "P");
+        skill.provenance = Some(SkillProvenance {
+            kind: SkillSourceKind::Github,
+            repo: Some("o/r".into()),
+            path: Some(String::new()),
+            ..Default::default()
+        });
+        skill.gone = true;
+        let json = serde_json::to_string(&skill).unwrap();
+        assert!(json.contains("\"gone\":true"));
+        assert!(json.contains("\"kind\":\"github\""));
+        let back: InstalledUserSkill = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, skill);
+
+        let future: SkillProvenance = serde_json::from_str(r#"{"kind":"svn"}"#).unwrap();
+        assert_eq!(future.kind, SkillSourceKind::Unknown);
+        // gone=false 不写盘，旧版本读到的文件不变
+        skill.gone = false;
+        assert!(!serde_json::to_string(&skill).unwrap().contains("gone"));
+    }
+
+    #[test]
+    fn folder_skill_reads_from_linked_dir_and_lists_when_missing() {
+        let (service, tmp) = make_service();
+        let linked = tmp.path().join("linked");
+        std::fs::create_dir_all(&linked).unwrap();
+        std::fs::write(linked.join(USER_SKILL_MARKDOWN_FILE), "linked body").unwrap();
+        let mut skill = sample_skill("f", "F");
+        skill.provenance = Some(SkillProvenance {
+            kind: SkillSourceKind::Folder,
+            linked_path: Some(linked.to_string_lossy().to_string()),
+            ..Default::default()
+        });
+        let dir = service.user_skills_dir().join("f");
+        std::fs::create_dir_all(&dir).unwrap();
+        UserSkillService::write_metadata(&dir, &skill).unwrap();
+
+        let read = service.read_skill("f").unwrap().unwrap();
+        assert_eq!(read.content, "linked body");
+        assert!(read
+            .skill
+            .file_path
+            .unwrap()
+            .starts_with(&*linked.to_string_lossy()));
+
+        std::fs::remove_dir_all(&linked).unwrap();
+        assert!(service.read_skill("f").unwrap().is_none());
+        assert_eq!(service.list_skills().unwrap().len(), 1);
     }
 }

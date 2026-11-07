@@ -3,14 +3,14 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { useLaunchProfilesStore, useProvidersStore, useSharedMcpStore, useWorkspacesStore } from "@/stores";
-import { useSettingsStore } from "@/stores/useSettingsStore";
 import { createTestWorkspace, createTestWorkspaceProject } from "@/test/utils/testData";
 import { mockTauriInvoke, resetTauriInvoke } from "@/test/utils/mockTauriInvoke";
 import type { CliToolInfo, DiscoveredExternalSkill, LaunchProfile, LaunchProfileDraft, LaunchProfileResolution, Provider } from "@/types";
 import { defaultLaunchProfileDraft } from "@/types/launch-profile";
-import type { SkillMarketEntry } from "@/types/skill";
+import { invoke } from "@tauri-apps/api/core";
+import { useActivityBarStore } from "@/stores/useActivityBarStore";
+import { useResourceLibraryStore } from "@/stores/useResourceLibraryStore";
 import LaunchProfilesPanel from "./LaunchProfilesPanel";
 
 vi.mock("sonner", () => ({
@@ -102,44 +102,6 @@ function renderPanelWithExternalSkills(onSave: (draft: LaunchProfileDraft) => vo
   });
 
   render(<LaunchProfilesPanel initialTool="claude" />);
-}
-
-/** 12 条市场技能：超过 CollapsibleCheckGroup 的 collapseThreshold(8)，默认折叠 */
-const marketEntries: SkillMarketEntry[] = Array.from({ length: 12 }, (_, i) => ({
-  id: `market-${i}`,
-  name: i === 0 ? "Git Flow Helper" : `Market Skill ${i}`,
-  description: i === 0 ? "branch and rebase helpers" : `filler ${i}`,
-  tags: [],
-  version: "1.0.0",
-  recommended: false,
-  source: "curated",
-  featured: false,
-}));
-
-function renderPanelWithMarketSkills() {
-  // Skill 市场是实验功能：市场组只有在设置里勾选后才会拉取/渲染。
-  const defaults = useSettingsStore.getState().getDefaults();
-  useSettingsStore.setState({
-    settings: { ...defaults, experimental: { ...defaults.experimental, skillMarket: true } },
-  });
-  mockTauriInvoke({
-    list_launch_profiles: [],
-    list_providers: [],
-    list_workspaces: [],
-    get_shared_mcp_status: [],
-    list_skill_market_entries: marketEntries,
-    list_user_skills: [],
-    list_external_skills: [],
-    list_cli_tools: [],
-    preview_launch_profile_resolution: emptyResolution,
-  });
-
-  // 市场技能行带 Tooltip，需 provider 包裹（其余用例不渲染市场组，故无此依赖）
-  render(
-    <TooltipProvider>
-      <LaunchProfilesPanel initialTool="claude" />
-    </TooltipProvider>,
-  );
 }
 
 function renderKimiPanel(onSave: (draft: LaunchProfileDraft) => void) {
@@ -316,7 +278,7 @@ describe("LaunchProfilesPanel external skills", () => {
     });
   });
 
-  it("writes external skill checkbox selection to enabledSkillIds in custom mode", async () => {
+  it("expands external skills into the selection when switching to custom mode", async () => {
     const user = userEvent.setup();
     let savedDraft: LaunchProfileDraft | null = null;
     renderPanelWithExternalSkills((draft) => {
@@ -326,10 +288,11 @@ describe("LaunchProfilesPanel external skills", () => {
     // Skill 卡现为 ui/card（data-slot=card），mode 三连改 SegmentedTabs（role=tab）
     const skillSection = (await screen.findByRole("heading", { name: "Skill" })).closest('[data-slot="card"]');
     expect(skillSection).not.toBeNull();
-    await screen.findByText("Idiomatic Rust");
+    // 逐条勾选已移到资源库，卡片里只剩组开关和「在资源库管理」
+    expect(within(skillSection as HTMLElement).getByTestId("open-skills-library")).toBeInTheDocument();
+    expect(within(skillSection as HTMLElement).queryByRole("checkbox", { name: /Idiomatic Rust/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(vi.mocked(invoke)).toHaveBeenCalledWith("list_external_skills", { source: null }));
     await user.click(within(skillSection as HTMLElement).getByRole("tab", { name: tp("skillMode.custom") }));
-    await user.click(within(skillSection as HTMLElement).getByRole("checkbox", { name: /Idiomatic Rust/ }));
-    await user.click(within(skillSection as HTMLElement).getByRole("checkbox", { name: /Idiomatic Rust/ }));
     const saveButtons = screen.getAllByRole("button", { name: new RegExp(tp("saveDefault")) });
     await user.click(saveButtons[saveButtons.length - 1]);
 
@@ -337,6 +300,15 @@ describe("LaunchProfilesPanel external skills", () => {
       expect(savedDraft?.skillPolicy.mode).toBe("custom");
       expect(savedDraft?.skillPolicy.enabledSkillIds).toContain("claude:rust-patterns");
     });
+  });
+
+  it("opens the skills page of the resource library from the skill card", async () => {
+    const user = userEvent.setup();
+    useActivityBarStore.setState({ appViewMode: "providers" });
+    renderPanelWithExternalSkills(() => {});
+    await user.click(await screen.findByTestId("open-skills-library"));
+    expect(useResourceLibraryStore.getState().section).toBe("skills");
+    expect(useActivityBarStore.getState().appViewMode).toBe("resources");
   });
 
   it("saves yolo mode on the launch profile draft", async () => {
@@ -551,43 +523,9 @@ describe("LaunchProfilesPanel external skills", () => {
     });
   });
 
-  it("filters skills by query across the market group", async () => {
-    const user = userEvent.setup();
-    renderPanelWithMarketSkills();
-
-    const skillSection = (await screen.findByRole("heading", { name: "Skill" }))
-      .closest('[data-slot="card"]') as HTMLElement;
-    await within(skillSection).findByText("Market Skill 3");
-
-    await user.type(
-      within(skillSection).getByLabelText(tp("searchSkillPlaceholder")),
-      "git",
-    );
-
-    // 只裁剪可见行，不改分组计数（forceOpen 的单测见 CollapsibleCheckGroup.test.tsx）
-    expect(await within(skillSection).findByText("Git Flow Helper")).toBeInTheDocument();
-    expect(within(skillSection).queryByText("Market Skill 3")).not.toBeInTheDocument();
-  });
-
-  it("shows the no-match hint when the query matches nothing", async () => {
-    const user = userEvent.setup();
-    renderPanelWithMarketSkills();
-
-    const skillSection = (await screen.findByRole("heading", { name: "Skill" }))
-      .closest('[data-slot="card"]') as HTMLElement;
-    await user.type(
-      within(skillSection).getByLabelText(tp("searchSkillPlaceholder")),
-      "zzz-nothing-matches",
-    );
-
-    expect(
-      await within(skillSection).findAllByText(tp("searchNoMatch")),
-    ).not.toHaveLength(0);
-  });
-
   it("creates a profile from the empty-state action in the list aside", async () => {
     const user = userEvent.setup();
-    renderPanelWithMarketSkills();
+    renderPanelWithExternalSkills(() => {});
 
     // 无运行配置 → 左列表空态，其动作与顶部「复制为运行配置」同一回调
     await user.click(await screen.findByRole("button", { name: tp("listEmptyAction") }));

@@ -55,6 +55,7 @@ pub struct AppState {
     pub plan_service: Arc<PlanService>,
     pub external_skill_registry: Arc<ExternalSkillRegistry>,
     pub user_skill_service: Arc<UserSkillService>,
+    pub skill_library_service: Arc<cc_panes_core::services::SkillLibraryService>,
     pub usage_stats_service: Arc<UsageStatsService>,
     pub session_index_service: Arc<SessionIndexService>,
     pub ws_emitter: Arc<WsEmitter>,

@@ -7,7 +7,6 @@ import {
   externalSkillSourceKind,
   isExternalSourceIncluded,
   profileSkillId,
-  userSkillId,
   type ExternalSkillSourceKind,
 } from "./launchProfileHelpers";
 
@@ -167,34 +166,6 @@ export function nextToggleProfileSkill(current: LaunchProfileDraft, id: string):
   };
 }
 
-/** custom 模式下的「当前实际启用集」：非 custom 时按 core 语义展开成显式 id 集合 */
-export function enabledSkillIdsForCustomMode(
-  policy: LaunchProfileDraft["skillPolicy"],
-  externalSkills: DiscoveredExternalSkill[],
-): Set<string> {
-  const enabled = new Set(policy.enabledSkillIds);
-  if (policy.mode !== "custom") {
-    const disabled = new Set(policy.disabledSkillIds);
-    for (const name of BUILTIN_SKILLS) {
-      const id = builtinSkillId(name);
-      if (!disabled.has(id)) enabled.add(id);
-    }
-    for (const skill of policy.profileSkills) {
-      const id = profileSkillId(skill.id);
-      if (!disabled.has(id)) enabled.add(id);
-    }
-    for (const skill of externalSkills) {
-      if (
-        isExternalSourceIncluded(policy, externalSkillSourceKind(skill))
-        && !disabled.has(skill.id)
-      ) {
-        enabled.add(skill.id);
-      }
-    }
-  }
-  return enabled;
-}
-
 export function nextToggleExternalSource(
   current: LaunchProfileDraft,
   kind: ExternalSkillSourceKind,
@@ -207,108 +178,6 @@ export function nextToggleExternalSource(
     skillPolicy: {
       ...current.skillPolicy,
       [group.policyKey]: included,
-    },
-  };
-}
-
-export function nextToggleExternalSkill(
-  current: LaunchProfileDraft,
-  skill: DiscoveredExternalSkill,
-  externalSkills: DiscoveredExternalSkill[],
-): LaunchProfileDraft {
-  const disabled = new Set(current.skillPolicy.disabledSkillIds);
-  if (current.skillPolicy.mode === "core") {
-    if (disabled.has(skill.id)) disabled.delete(skill.id);
-    else disabled.add(skill.id);
-    return {
-      ...current,
-      skillPolicy: {
-        ...current.skillPolicy,
-        disabledSkillIds: Array.from(disabled),
-      },
-    };
-  }
-
-  const customEnabled = enabledSkillIdsForCustomMode(current.skillPolicy, externalSkills);
-  if (customEnabled.has(skill.id)) customEnabled.delete(skill.id);
-  else customEnabled.add(skill.id);
-  return {
-    ...current,
-    skillPolicy: {
-      ...current.skillPolicy,
-      mode: "custom",
-      enabledSkillIds: Array.from(customEnabled),
-      disabledSkillIds: Array.from(disabled).filter((item) => item !== skill.id),
-    },
-  };
-}
-
-export function nextToggleUserSkill(
-  current: LaunchProfileDraft,
-  id: string,
-  externalSkills: DiscoveredExternalSkill[],
-): LaunchProfileDraft {
-  const skillId = userSkillId(id);
-  const enabled = enabledSkillIdsForCustomMode(current.skillPolicy, externalSkills);
-  if (enabled.has(skillId)) enabled.delete(skillId);
-  else enabled.add(skillId);
-  return {
-    ...current,
-    skillPolicy: {
-      ...current.skillPolicy,
-      mode: "custom",
-      enabledSkillIds: Array.from(enabled),
-      disabledSkillIds: current.skillPolicy.disabledSkillIds.filter((item) => item !== skillId),
-    },
-  };
-}
-
-/** 安装市场 skill 后把它启用（不 toggle，恒为启用） */
-export function nextEnableUserSkill(
-  current: LaunchProfileDraft,
-  id: string,
-  externalSkills: DiscoveredExternalSkill[],
-): LaunchProfileDraft {
-  const skillId = userSkillId(id);
-  const enabled = enabledSkillIdsForCustomMode(current.skillPolicy, externalSkills);
-  enabled.add(skillId);
-  return {
-    ...current,
-    skillPolicy: {
-      ...current.skillPolicy,
-      mode: "custom",
-      enabledSkillIds: Array.from(enabled),
-      disabledSkillIds: current.skillPolicy.disabledSkillIds.filter((item) => item !== skillId),
-    },
-  };
-}
-
-export function nextSelectAllBuiltinSkills(current: LaunchProfileDraft): LaunchProfileDraft {
-  const builtinIds = BUILTIN_SKILLS.map(builtinSkillId);
-  const enabled = new Set(current.skillPolicy.enabledSkillIds);
-  for (const id of builtinIds) enabled.add(id);
-  const disabled = current.skillPolicy.disabledSkillIds.filter((id) => !builtinIds.includes(id));
-  return {
-    ...current,
-    skillPolicy: {
-      ...current.skillPolicy,
-      mode: current.skillPolicy.mode === "core" ? "core" : "custom",
-      enabledSkillIds: Array.from(enabled),
-      disabledSkillIds: disabled,
-    },
-  };
-}
-
-export function nextClearBuiltinSkills(current: LaunchProfileDraft): LaunchProfileDraft {
-  const disabled = new Set(current.skillPolicy.disabledSkillIds.filter((id) => !id.startsWith("builtin:")));
-  for (const id of BUILTIN_SKILLS.map(builtinSkillId)) disabled.add(id);
-  return {
-    ...current,
-    skillPolicy: {
-      ...current.skillPolicy,
-      mode: "custom",
-      enabledSkillIds: current.skillPolicy.enabledSkillIds.filter((id) => !id.startsWith("builtin:")),
-      disabledSkillIds: Array.from(disabled),
     },
   };
 }
