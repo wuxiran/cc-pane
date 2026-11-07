@@ -383,6 +383,20 @@
       "repo": "microsoft/playwright-cli",
       "path": "playwright-cli",
       "recommended": true
+    },
+    {
+      "id": "agent-desktop",
+      "name": "agent-desktop",
+      "description": "Vercel 出品的桌面 Computer Use：经系统无障碍树读取并操作 macOS / Windows / Linux 桌面应用（点击、填表、菜单、窗口、剪贴板），不靠截图。需先 npm i -g agent-desktop，macOS 还要授予辅助功能权限。",
+      "category": "agent",
+      "tags": ["computer-use", "desktop", "automation", "accessibility", "vercel"],
+      "version": "latest",
+      "license": "Apache-2.0",
+      "homepageUrl": "https://github.com/vercel-labs/agent-desktop",
+      "repo": "vercel-labs/agent-desktop",
+      "path": "skills/agent-desktop",
+      "recommended": true,
+      "featured": true
     }
   ]
 }
