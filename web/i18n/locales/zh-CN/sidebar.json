@@ -46,7 +46,7 @@
     "orchestration": "任务编排",
     "resources": "资源库",
     "todo": "TodoList",
-    "aiPanel": "AI 面板",
+    "aiPanel": "通知",
     "sessionHistory": "会话历史",
     "devices": "设备"
   },
@@ -875,5 +875,18 @@
       "revoke": "移除",
       "revokeConfirm": "移除“{{name}}”的访问权限？它将立即无法再连接本机。"
     }
-  }
+  },
+  "rightDock.chat": "对话",
+  "rightDock.chatTabs": "对话标签",
+  "rightDock.newChat": "新对话",
+  "rightDock.chatHistory": "历史",
+  "rightDock.chatMore": "更多",
+  "rightDock.moveChatToPane": "在窗格中打开",
+  "rightDock.closeChat": "关闭对话",
+  "rightDock.chatRunning": "正在运行",
+  "rightDock.chatNeedsYou": "等你批准",
+  "rightDock.historyChats": "对话",
+  "rightDock.historyTerminals": "终端会话",
+  "rightDock.searchChats": "搜索对话",
+  "rightDock.noMatchingChats": "没有匹配的对话"
 }

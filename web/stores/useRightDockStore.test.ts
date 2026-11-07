@@ -82,7 +82,7 @@ describe("useRightDockStore", () => {
     });
   });
 
-  it("持久化白名单允许恢复会话历史视图", async () => {
+  it("旧版持久化的会话历史视图恢复成对话视图", async () => {
     localStorage.setItem(
       RIGHT_DOCK_STORAGE_KEY,
       JSON.stringify({ state: { activeView: "sessionHistory", width: 360 }, version: 0 }),
@@ -92,7 +92,7 @@ describe("useRightDockStore", () => {
 
     expect(useRightDockStore.getState()).toMatchObject({
       visible: false,
-      activeView: "sessionHistory",
+      activeView: "chat",
       width: 360,
     });
   });

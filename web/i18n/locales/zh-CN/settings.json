@@ -1126,6 +1126,7 @@
     "openSkillsInLibrary": "在资源库管理各技能",
     "mcpIntro": "服务器只需添加一次，再为需要的启动档开启；CC-Panes 在启动会话时注入，不会改动 ~/.claude 等目录。",
     "discover": "发现",
+    "backToServers": "我的服务器",
     "folder": "资源库文件夹",
     "emptyTitle": "资源库里还没有服务器",
     "emptyHint": "添加一个，或把 Agent 里已有的导入进来（见下方）。",

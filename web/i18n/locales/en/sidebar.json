@@ -46,7 +46,7 @@
     "orchestration": "Orchestration",
     "resources": "Resources",
     "todo": "TodoList",
-    "aiPanel": "AI Panel",
+    "aiPanel": "Notifications",
     "sessionHistory": "Session History",
     "devices": "Devices"
   },
@@ -875,5 +875,18 @@
       "revoke": "Remove",
       "revokeConfirm": "Remove access for \"{{name}}\"? It will be disconnected immediately."
     }
-  }
+  },
+  "rightDock.chat": "Chat",
+  "rightDock.chatTabs": "Chats",
+  "rightDock.newChat": "New chat",
+  "rightDock.chatHistory": "History",
+  "rightDock.chatMore": "More",
+  "rightDock.moveChatToPane": "Open in pane",
+  "rightDock.closeChat": "Close chat",
+  "rightDock.chatRunning": "Running",
+  "rightDock.chatNeedsYou": "Waiting for approval",
+  "rightDock.historyChats": "Chats",
+  "rightDock.historyTerminals": "Terminal sessions",
+  "rightDock.searchChats": "Search chats",
+  "rightDock.noMatchingChats": "No matching chats"
 }

@@ -6237,6 +6237,48 @@ fn dispatch_running_status(status: TaskBindingStatus) -> Option<TaskBindingStatu
     }
 }
 
+/// open_browser_tab 之后原生 webview 的来源。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BrowserWebviewAttach {
+    /// 前端挂载时建好的（标签可见）。
+    Frontend,
+    /// 前端没建，后端按隐藏状态补建的。
+    Background,
+}
+
+/// 给前端一点时间按真实视口建 webview；超时仍没有就由后端隐藏补建。
+async fn ensure_browser_webview(
+    app: &AppHandle,
+    tab_id: &str,
+    url: &str,
+) -> Result<BrowserWebviewAttach, String> {
+    const FRONTEND_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
+    const POLL: std::time::Duration = std::time::Duration::from_millis(50);
+    let manager = Arc::clone(app.state::<Arc<BrowserTabManager>>().inner());
+    let deadline = tokio::time::Instant::now() + FRONTEND_GRACE;
+    while tokio::time::Instant::now() < deadline {
+        if manager.contains(tab_id) {
+            return Ok(BrowserWebviewAttach::Frontend);
+        }
+        tokio::time::sleep(POLL).await;
+    }
+    let app = app.clone();
+    let tab_id = tab_id.to_string();
+    let url = url.to_string();
+    let created = tokio::task::spawn_blocking(move || {
+        manager
+            .ensure_background(&app, &tab_id, &url)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("browser create task failed: {error}"))??;
+    Ok(if created {
+        BrowserWebviewAttach::Background
+    } else {
+        BrowserWebviewAttach::Frontend
+    })
+}
+
 #[tool_router]
 impl McpToolHandler {
     /// 派任务给任意已注册 CLI：新建会话（prompt）或恢复（resumeId），总是建 TaskBinding 便于跟踪；
@@ -7841,13 +7883,35 @@ impl McpToolHandler {
         let Some(actual_tab_id) = actual_tab_id else {
             return "错误: 前端未返回有效的浏览器 tabId".to_string();
         };
-        serde_json::json!({
+        // 前端只在标签可见时建原生 webview。标签落在用户没在看的布局里时，
+        // 不补建的话后续 browser_* 工具全会报 unknown browser tab。
+        let attached = match ensure_browser_webview(
+            &self.state.app_handle,
+            &actual_tab_id,
+            &event.url,
+        )
+        .await
+        {
+            Ok(attached) => attached,
+            Err(error) => {
+                return format!(
+                    "错误: 标签 {actual_tab_id} 已打开，但浏览器页面没能创建，后续浏览器工具无法操作它: {error}"
+                )
+            }
+        };
+        let mut result = serde_json::json!({
             "success": true,
             "tabId": actual_tab_id,
             "url": event.url,
             "title": event.title,
-        })
-        .to_string()
+        });
+        if attached == BrowserWebviewAttach::Background {
+            result["background"] = serde_json::Value::Bool(true);
+            result["note"] = serde_json::Value::String(
+                "标签在用户当前没在看的布局里，页面已在后台加载，browser_* 工具可以直接用".into(),
+            );
+        }
+        result.to_string()
     }
 
     /// 导航已由 CC-Panes 创建的浏览器标签；只接受 http/https URL。
@@ -14828,6 +14892,42 @@ mod tests {
     include!("orchestrator_open_terminal_tests.rs");
     use crate::models::WorkspaceCliEnvironmentDefaults;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    /// open_browser_tab 返回 tabId 前必须保证原生 webview 已存在。前端只在标签可见时
+    /// 建 webview，标签落在用户没在看的布局里时，不补建就会让后续 browser_* 全报
+    /// unknown browser tab。依赖 Wry AppHandle，只能扫源码守住接线。
+    #[test]
+    fn open_browser_tab_ensures_a_webview_before_reporting_success() {
+        let source = include_str!("orchestrator_service.rs");
+        let production = source.split("#[cfg(test)]\nmod tests").next().unwrap();
+        let body = production
+            .split("async fn open_browser_tab(")
+            .nth(1)
+            .expect("open_browser_tab exists");
+        let body = &body[..body.find("\n    }\n").unwrap()];
+        let ensure = body
+            .find("ensure_browser_webview(")
+            .expect("open_browser_tab must ensure the native webview");
+        let success = body.find("\"success\": true").unwrap();
+        assert!(
+            ensure < success,
+            "webview must exist before success is reported"
+        );
+
+        let helper = production
+            .split("async fn ensure_browser_webview(")
+            .nth(1)
+            .expect("ensure_browser_webview exists");
+        let helper = &helper[..helper.find("\n}\n").unwrap()];
+        assert!(
+            helper.contains("manager.contains(tab_id)"),
+            "frontend gets a grace period first"
+        );
+        assert!(
+            helper.contains(".ensure_background("),
+            "falls back to a hidden backend webview"
+        );
+    }
 
     /// core 清单里的每个名字都必须真有对应 `#[tool]`，否则是拼错了、会静默从 core 消失。
     #[test]

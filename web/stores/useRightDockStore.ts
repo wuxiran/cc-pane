@@ -1,12 +1,13 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type RightDockView = "git" | "files" | "ssh" | "sshFiles" | "aiPanel" | "sessionHistory" | "orchestration";
+export type RightDockView = "chat" | "git" | "files" | "ssh" | "sshFiles" | "aiPanel" | "sessionHistory" | "orchestration";
 
 export const RIGHT_DOCK_STORAGE_KEY = "cc-panes-right-dock";
-export const DEFAULT_RIGHT_DOCK_WIDTH = 340;
-export const MIN_RIGHT_DOCK_WIDTH = 280;
-export const MAX_RIGHT_DOCK_WIDTH = 560;
+// 宽度含最右 40px 的视图竖栏；对话需要比文件树更宽的阅读列。
+export const DEFAULT_RIGHT_DOCK_WIDTH = 420;
+export const MIN_RIGHT_DOCK_WIDTH = 320;
+export const MAX_RIGHT_DOCK_WIDTH = 720;
 
 export function clampRightDockWidth(width: number): number {
   return Math.min(MAX_RIGHT_DOCK_WIDTH, Math.max(MIN_RIGHT_DOCK_WIDTH, width));
@@ -26,7 +27,7 @@ export const useRightDockStore = create<RightDockState>()(
   persist(
     (set) => ({
       visible: false,
-      activeView: "git",
+      activeView: "chat",
       width: DEFAULT_RIGHT_DOCK_WIDTH,
       setActiveView: (activeView) => set({ activeView }),
       toggleVisible: () => set((state) => ({ visible: !state.visible })),
@@ -44,11 +45,13 @@ export const useRightDockStore = create<RightDockState>()(
         return {
           ...currentState,
           visible: false,
-          activeView: persisted.activeView === "git"
+          activeView: persisted.activeView === "sessionHistory"
+            ? "chat"
+            : persisted.activeView === "chat"
+            || persisted.activeView === "git"
             || persisted.activeView === "files"
             || persisted.activeView === "ssh"
             || persisted.activeView === "aiPanel"
-            || persisted.activeView === "sessionHistory"
             || persisted.activeView === "orchestration"
             ? persisted.activeView
             : currentState.activeView,

@@ -2,14 +2,15 @@ import {
   History,
   MonitorSmartphone,
   ListTodo,
-  PanelTopOpen,
+  Bell,
   Server,
-  Workflow,
+  Network,
   type LucideIcon,
 } from "lucide-react";
 import { useActivityBarStore } from "@/stores/useActivityBarStore";
 import { useAiPanelStore } from "@/stores/useAiPanelStore";
 import { useDialogStore } from "@/stores/useDialogStore";
+import { useDockChatStore } from "@/stores/useDockChatStore";
 import { useRightDockStore } from "@/stores/useRightDockStore";
 import type { TaskBinding } from "@/types";
 
@@ -111,8 +112,10 @@ function openAiPanel(position: ModulePosition) {
   useAiPanelStore.getState().markActiveRead();
 }
 
+/** 会话历史已并进右侧面板对话的历史面板（「终端会话」页）。 */
 function openSessionHistory() {
-  useRightDockStore.setState({ visible: true, activeView: "sessionHistory" });
+  useRightDockStore.setState({ visible: true, activeView: "chat" });
+  useDockChatStore.getState().openHistory("terminal");
 }
 
 function orchestrationBadge({ bindings }: ModuleBadgeContext): ModuleBadge | undefined {
@@ -152,7 +155,7 @@ export const MODULE_REGISTRY: readonly ModuleDef[] = [
   },
   {
     id: "orchestration",
-    icon: Workflow,
+    icon: Network,
     titleKey: "moduleNames.orchestration",
     surfaces: ["rightDock", "overlay"],
     defaultPosition: "rightDock",
@@ -172,7 +175,7 @@ export const MODULE_REGISTRY: readonly ModuleDef[] = [
   },
   {
     id: "aiPanel",
-    icon: PanelTopOpen,
+    icon: Bell,
     titleKey: "moduleNames.aiPanel",
     surfaces: ["rightDock", "dialog"],
     defaultPosition: "rightDock",
