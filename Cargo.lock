@@ -919,7 +919,7 @@ dependencies = [
 
 [[package]]
 name = "cc-panes"
-version = "0.12.21"
+version = "0.12.22"
 dependencies = [
  "anyhow",
  "arboard",

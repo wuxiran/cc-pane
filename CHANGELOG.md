@@ -4,6 +4,82 @@
 > file. Add the entry to both — a missing Chinese entry fails `validate-version` before any build
 > starts.
 
+## 0.12.22 - 2026-11-07
+
+This release has four main threads. A performance pass keeps many open panes and parallel builds from bogging down the machine. Multi-device support connects to CC-Panes running on a server or another computer. A new resource library manages MCP servers and skills in one place. The interface also gets a broad native-feel polish. Conversation forking, Agent chat, WSL paths and launch reliability get a batch of fixes as well.
+
+### Added
+
+- **Multi-device**: a new Devices view connects to CC-Panes running on another machine.
+  - SSH servers: the desktop app deploys a headless `cc-panes-web` in one click and reaches it through an SSH tunnel. It runs as a systemd user service, or falls back to nohup when systemd is unavailable.
+  - Other computers: connect directly over LAN or Tailscale, and exchange a 6-digit pairing code for a device token.
+  - Device cards show online state, version, claude/codex install status, the remote workspaces and running sessions. A remote session opens as a tab in a local pane, and new sessions can be started on a remote project. Sessions are launched by the remote machine, so MCP, skills and memory follow its own configuration. Design notes: `docs/111-multi-device.md`.
+- **Performance settings panel**: 15 performance switches in one place; only low-risk ones are on by default.
+  - New sessions get build-parallelism environment variables (`CARGO_BUILD_JOBS`, `MAKEFLAGS`, …), defaulting to the core count minus 8. Existing user settings are never overridden. Local, WSL, SSH and Codex sessions behave the same.
+  - Managed Codex sessions disable animations and auto recap by default, so the running status line redraws once per second instead of every 32 ms.
+  - Hidden pane parking: after 30 s hidden, a pane's xterm instance is unloaded and only 6 warm instances are kept; switching back rebuilds from the recovery snapshot. At most 6 hidden WebGL contexts are kept, evicted by LRU. Cold-restore replays run one at a time, foreground first.
+- **Resource Monitor 2.0**: lists heavy processes outside sessions when the machine is under load. Each session can switch between Normal, Yield and Efficiency mode, and the reason for any policy downgrade is shown. Tabs using a lot of resources show an amber dot that jumps to the monitor.
+- **Heavy-command ledger and gate**:
+  - Resource-hungry commands in each session are recorded automatically (hooks plus edge-triggered sampling, no sampling while idle), with a new "Most expensive commands" tab.
+  - New `cc-panes-ctl run [--heavy] -- <cmd>`. The gate is off by default; when on, heavy commands request a slot from CC-Panes before running, the queue state shows on the tab, and the `ccpanes-heavy-run` skill is injected automatically.
+  - On Windows, a pane whose process tree crosses the Job memory notification threshold is flagged on its tab and in the monitor; the build itself is never failed.
+  - WSL sessions run inside a systemd scope (CPUWeight / MemoryHigh), and the monitor shows real cgroup readings.
+- **Resource library**: a new sidebar library manages MCP servers and skills.
+  - MCP servers are managed per launch profile, can be added by pasting a config, and come with a discovery market.
+  - The Skills page replaces the old skill-market entry; the curated list now includes vercel-labs/agent-desktop (desktop computer use).
+- **Conversation forks**: terminal sessions and Agent conversations can be forked into independent chats, and fork changes can be compared and adopted with task verification evidence.
+- **Agent chat**:
+  - Timeline navigation and bookmarks; question cards, screenshot attachment previews, file-change undo and file tag previews.
+  - Durable records, completion acceptance and whole-turn checkpoints.
+  - Codex App Server integration, shared by the CLI and Agent forms.
+- **Right dock**: a Cursor-style chat panel, with view icons moved to a rightmost vertical bar.
+- **Session review and browser**:
+  - Session review and worktree launch.
+  - Browser computer use and annotations, unified content tabs, and a compact always-on-top browser window.
+  - A Codex task skill and explicit desktop draft handoff.
+- **MCP `open_terminal_tab`**: AI can open a plain shell terminal tab in a pane.
+- **Terminal**:
+  - The context menu is reorganized, with fork session, copy and deep links.
+  - Optionally auto-trust registered projects, so Claude no longer asks for trust per directory and per account.
+  - The status bar shows a per-session cost estimate.
+- **Workspaces**: the project manifest becomes `.ccpanes/projects.yaml`, split into per-machine sections. When a workspace folder is shared across machines through a synced drive, each machine only rewrites its own section.
+- **Library space (experimental, off by default)**: templates and skills to create a material workspace and start an assistant in one click.
+- **Native feel**:
+  - Settings open in a separate native window; system accent color support; macOS vibrancy and Windows Mica.
+  - Confirmations use system dialogs; icon-button titles become tooltips; the file tree and workspace tree support type-ahead.
+  - Transition animations and hand cursors are gone, and startup no longer flashes.
+  - The app reopens where you left off, and the home page becomes a launcher.
+  - The activity bar, title bar, status bar and sidebar are slimmer; the sidebar uses a simpler Codex-style look; layout cards fit in two rows.
+
+### Fixed
+
+- **WSL**:
+  - A new dependency-free crate, `cc-panes-paths`, is the single source of path normalization, sharing one case table with the frontend. Session ownership matching is isolated per distro, and WSL UNC paths are no longer lowercased wholesale.
+  - Failed launches are recorded as failed and the pre-issued resume id is withdrawn. Launches on the default distro write back the resolved distro.
+  - Tokens no longer appear in launch scripts or Codex argv; they travel through `WSLENV`. Sessions get `CC_PANES_DATA_DIR`, so hooks see the real data directory.
+- The terminal context menu did not open on macOS.
+- Terminal output had a gap after switching back to a tab; the watchdog no longer treats an intentional stream pause as a fault.
+- Launching a CLI now replaces the active blank terminal tab instead of leaving an empty placeholder behind.
+- Browser tabs opened by MCP in a layout the user was not viewing failed with "unknown browser tab"; the native webview is now created in the background.
+- The MCP library's Discover button had no way back: once scrolled to the market it becomes "Back to my servers".
+- Later layouts could not be reached when there were many layout cards.
+- Workspaces: stale snapshots can no longer overwrite the registry, migration paths are validated, and an unparsable `projects.yaml` is backed up before being rewritten.
+- History restore, deletion semantics and settings-reset ownership are stricter; settings edits are serialized and editor drafts are no longer lost.
+- Gaps in Agent approval and process lifecycle, cancellation and concurrent submission, and recovery and task retry are closed.
+- SSH credential checks moved off the UI thread, SSH and daemon calls no longer retry destructively, and shared daemon sessions survive when web access exits.
+- When the main window is closed to the tray or minimized, WebView2 enters its hidden state and display-only frontend polling pauses.
+- daemon and cc-panes-web tokio workers are bounded to 2..=8. The daemon re-reads settings before creating a session (at most every 2 s). A lost WebGL context is retried at most 3 times within 60 s.
+- Windows failures in repository snapshots, concurrent ACP writes and several tests.
+
+### Compatibility
+
+- The database moves to v42: v40 adds the `heavy_commands` table and v42 adds launch-failure columns.
+- An existing `.ccpanes/projects.csv` is merged into `projects.yaml` on the first local write and then removed; rows that do not belong to this machine go to an `unattributed` section and are kept.
+- `SessionStatusInfo` gains several optional fields that are empty when an older daemon does not send them. New daemon routes return 404 on an older daemon, and the UI shows "unsupported (daemon too old)".
+- An older `config.toml` without a `[performance]` section uses all defaults.
+- Release assets now include Linux server packages `cc-panes-web_<version>_linux-<x86_64|aarch64>.tar.gz` (with `.sha256`) for device deployment; they require glibc ≥ 2.35.
+- Release builds enable fat LTO and a single codegen unit.
+
 ## 0.12.21 - 2026-10-12
 
 Fix the launch, terminal observation, identity and interaction issues under CC-Panes control from Issue #64, including gaps found during cross-layer release review. A follow-up field investigation removes the root cause of terminals that occasionally stop updating, and Codex's new fullscreen transcript mode gets the same per-process injection as Grok.
