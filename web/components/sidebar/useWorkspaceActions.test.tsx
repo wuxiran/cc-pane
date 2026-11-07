@@ -10,6 +10,8 @@ import { invokeOrApi } from "@/services/apiClient";
 import { checkWorkspaceProjectPaths, scanDirectory } from "@/services/workspaceService";
 import type { Workspace, WorkspaceProject } from "@/types";
 
+import { useActivityBarStore } from "@/stores/useActivityBarStore";
+import { useResourceLibraryStore } from "@/stores/useResourceLibraryStore";
 vi.mock("sonner", () => ({
   toast: {
     info: vi.fn(),
@@ -64,7 +66,6 @@ const storeActions = {
 };
 
 const paneActions = {
-  openSkillManager: vi.fn(),
   openMemoryManager: vi.fn(),
 };
 
@@ -393,10 +394,12 @@ describe("useWorkspaceActions", () => {
       expect(onOpenTerminal).toHaveBeenCalledWith({ path: "D:/repos/beta-wt" });
     });
 
-    it("Skill/Memory 管理器用别名（缺省回退目录名）打开", () => {
+    it("技能打开资源库并选中项目，Memory 管理器用别名打开", () => {
       const { result } = setup();
+      useActivityBarStore.setState({ appViewMode: "panes" });
       act(() => result.current.handleOpenSkillManager(makeProject({ alias: undefined })));
-      expect(paneActions.openSkillManager).toHaveBeenCalledWith("D:/repos/alpha", "alpha");
+      expect(useResourceLibraryStore.getState()).toMatchObject({ section: "skills", scope: { projectPath: "D:/repos/alpha" } });
+      expect(useActivityBarStore.getState().appViewMode).toBe("resources");
 
       act(() => result.current.handleOpenMemoryManager(makeProject({ alias: "记忆" })));
       expect(paneActions.openMemoryManager).toHaveBeenCalledWith("D:/repos/alpha", "记忆");

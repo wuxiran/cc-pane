@@ -152,9 +152,8 @@ describe("createTabOfType", () => {
   // 6 处内联字面量改道的对照（docs/78 批4「逐处 diff，不顺手统一」）：
   // 每处的原字面量按当时源码逐字抄在这里，工厂输出必须与之逐字段相等。
   describe("改道的 6 处内联字面量", () => {
-    it("openSkillManager / openMemoryManager / openFileExplorer", () => {
+    it("openMemoryManager / openFileExplorer", () => {
       const sites: Array<[TabContentType, string]> = [
-        ["skill-manager", "Skill"],
         ["memory-manager", "Memory"],
         ["file-explorer", "Explorer"],
       ];

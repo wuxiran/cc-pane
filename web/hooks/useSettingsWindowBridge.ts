@@ -6,7 +6,7 @@ import {
   SETTINGS_WINDOW_ACTION_EVENT,
   type SettingsWindowAction,
 } from "@/services/settingsWindowService";
-import { useDialogStore, usePanesStore, useSettingsStore, useThemeStore } from "@/stores";
+import { useDialogStore, useSettingsStore, useThemeStore } from "@/stores";
 import { openResourceLibrary } from "@/stores/useResourceLibraryStore";
 import { useDescriptionLangStore } from "@/stores/useDescriptionLangStore";
 import { UI_DENSITY_STORAGE_KEY, useDensityStore } from "@/stores/useDensityStore";
@@ -14,17 +14,13 @@ import { useModulePrefsStore } from "@/stores/useModulePrefsStore";
 import { restoreThemeOverridesFromStorage } from "@/stores/useThemeStore";
 import { THEME_OVERRIDES_STORAGE_KEY } from "@/theme/themeOverrides";
 
-type OpenSkillManager = (...args: unknown[]) => void;
-
 /** 主窗口一侧：接收设置窗口转发的操作，并同步它改动的本地偏好。 */
 export function useSettingsWindowBridge(): void {
   useEffect(() => {
     const actions = listenIfTauri<SettingsWindowAction>(SETTINGS_WINDOW_ACTION_EVENT, (event) => {
       const action = event.payload;
       if (action.type === "openOnboarding") useDialogStore.getState().openOnboarding();
-      else if (action.type === "openSkillManager") {
-        (usePanesStore.getState().openSkillManager as unknown as OpenSkillManager)(...action.args);
-      } else if (action.type === "openResourceLibrary") {
+      else if (action.type === "openResourceLibrary") {
         openResourceLibrary(action.section, action.scope);
       }
       void getCurrentWindowIfTauri()?.setFocus();

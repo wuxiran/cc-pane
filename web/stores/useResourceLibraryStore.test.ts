@@ -35,6 +35,18 @@ describe("openResourceLibrary", () => {
     expect(useResourceLibraryStore.getState().scope).toEqual({ projectPath: "/p" });
   });
 
+  it("技能入口切到技能子页并带上工作空间", () => {
+    openResourceLibrary("skills", { workspaceName: "alpha" });
+    expect(useResourceLibraryStore.getState()).toMatchObject({ section: "skills", scope: { workspaceName: "alpha" } });
+    expect(useActivityBarStore.getState().appViewMode).toBe("resources");
+  });
+
+  it("设置窗口里的技能入口同样转发到主窗口", () => {
+    bridge.settingsWindow = true;
+    openResourceLibrary("skills");
+    expect(bridge.send).toHaveBeenCalledWith({ type: "openResourceLibrary", section: "skills", scope: null });
+  });
+
   it("设置窗口里转发到主窗口，不改本窗口状态", () => {
     bridge.settingsWindow = true;
     openResourceLibrary("mcp", { projectPath: "/p" });

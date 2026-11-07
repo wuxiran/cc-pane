@@ -238,7 +238,7 @@ export interface TerminalPaneSplit {
 export interface Tab {
   id: string;
   title: string;
-  contentType: "terminal" | "browser" | "dsh" | "agent-chat" | "skill-manager" | "memory-manager" | "file-explorer" | "editor" | "review";
+  contentType: "terminal" | "browser" | "dsh" | "agent-chat" | "memory-manager" | "file-explorer" | "editor" | "review";
   projectId: string;
   projectPath: string;
   /** Live PTY session id owned by CC-Panes. */

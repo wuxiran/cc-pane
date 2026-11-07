@@ -1,12 +1,13 @@
 // 资源库的侧栏：只放子页导航，内容都在主区。
-import { Server, type LucideIcon } from "lucide-react";
+import { Server, Sparkles, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { sidebarSectionTitleClass } from "@/components/sidebar/sidebarStyles";
 import { useResourceLibraryStore } from "@/stores/useResourceLibraryStore";
 import type { ResourceSection } from "@/types/resourceLibrary";
 
-const SECTIONS: ReadonlyArray<{ id: ResourceSection; icon: LucideIcon; labelKey: "resourceLibrary.mcp" }> = [
+const SECTIONS: ReadonlyArray<{ id: ResourceSection; icon: LucideIcon; labelKey: "resourceLibrary.mcp" | "resourceLibrary.skills" }> = [
   { id: "mcp", icon: Server, labelKey: "resourceLibrary.mcp" },
+  { id: "skills", icon: Sparkles, labelKey: "resourceLibrary.skills" },
 ];
 
 export default function ResourceLibrarySidebar() {

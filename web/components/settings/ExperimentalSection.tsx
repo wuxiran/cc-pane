@@ -1,6 +1,6 @@
 // 设置 → 实验性功能：每个开关对应 ExperimentalSettings 的一个字段。默认全关，
 // 用户勾选后相关入口（活动栏图标 / 全屏页 / 面板区块）才渲染。
-import { Clapperboard, FlaskConical, Library, Store } from "lucide-react";
+import { Clapperboard, FlaskConical, Library } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -14,20 +14,14 @@ interface ExperimentalSectionProps {
 const FEATURES: {
   id: ExperimentalFeatureId;
   icon: typeof Clapperboard;
-  labelKey: "experimental.dramaStudio" | "experimental.skillMarket" | "experimental.librarySpace";
-  descKey: "experimental.dramaStudioDesc" | "experimental.skillMarketDesc" | "experimental.librarySpaceDesc";
+  labelKey: "experimental.dramaStudio" | "experimental.librarySpace";
+  descKey: "experimental.dramaStudioDesc" | "experimental.librarySpaceDesc";
 }[] = [
   {
     id: "dramaStudio",
     icon: Clapperboard,
     labelKey: "experimental.dramaStudio",
     descKey: "experimental.dramaStudioDesc",
-  },
-  {
-    id: "skillMarket",
-    icon: Store,
-    labelKey: "experimental.skillMarket",
-    descKey: "experimental.skillMarketDesc",
   },
   {
     id: "librarySpace",

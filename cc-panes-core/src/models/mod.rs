@@ -18,7 +18,6 @@ pub mod heavy_command;
 mod history;
 pub mod launch_profile;
 pub mod layout_snapshot;
-pub mod link_skill;
 pub mod orchestrator_settings;
 pub mod performance_settings;
 pub mod plan;
@@ -34,6 +33,7 @@ pub mod session_index;
 pub mod session_restore;
 pub mod settings;
 pub mod shared_mcp;
+pub mod skill_library;
 pub mod spec;
 pub mod ssh_machine;
 pub mod system_stats;
@@ -104,10 +104,6 @@ pub use launch_profile::{
     ResolvedSkill, SharedMcpUrls, SkillCompatibility,
 };
 pub use layout_snapshot::{LayoutSnapshot, SaveLayoutSnapshotRequest};
-pub use link_skill::{
-    AddWorkspaceOutcome, DisableCounts, EnableCounts, LinkAgent, LinkSnapshot, LinkState,
-    LinkWorkspace, ManagedSkill, SkillAgentState, UpdateOutcome,
-};
 pub use process_info::{ClaudeProcess, ClaudeProcessType, ProcessScanResult, ResourceStats};
 pub use project::Project;
 pub use quick_command::{
@@ -127,6 +123,12 @@ pub use session_index::{
     SessionIndexScanReport, SessionIndexScope, SessionScanState,
 };
 pub use session_restore::{SavedSession, TerminalSessionProvenance};
+pub use skill_library::{
+    FoundSkill, FoundSkillOrigin, LibrarySkill, SkillCheck, SkillCheckStatus, SkillEditedState,
+    SkillIdError, SkillImportResult, SkillInstallResult, SkillKeyError, SkillLibraryContent,
+    SkillPathReason, SkillProbe, SkillProbeCandidate, SkillProvenance, SkillRemoveResult,
+    SkillSourceKind, SkillUpdateResult,
+};
 pub use ssh_machine::{
     AuthMethod, SshJumpHost, SshMachine, SshMachineConfig, SshMachineUpsertRequest, SshProxyConfig,
     SshProxyKind,

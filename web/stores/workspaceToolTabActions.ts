@@ -1,19 +1,17 @@
-// 工作空间级工具标签（Skills / Memory）：复用项目级 contentType，以「projectPath 为空 +
+// 工作空间级工具标签（Memory）：复用项目级 contentType，以「projectPath 为空 +
 // workspaceName」标识工作空间视图（docs/98 workspace-first）。同一窗格内同工作空间只开一个。
 import type { PanesDraft } from "./panesStoreTypes";
 import type { PaneNode, Panel } from "@/types";
 import { findPane } from "@/lib/paneTree";
 import { createTabOfType } from "@/lib/tabLifecycle/tabFactory";
 
-type WorkspaceToolType = "skill-manager" | "memory-manager";
+type WorkspaceToolType = "memory-manager";
 
 const TITLE_PREFIX: Record<WorkspaceToolType, string> = {
-  "skill-manager": "Skill",
   "memory-manager": "Memory",
 };
 
 export interface WorkspaceToolTabActions {
-  openWorkspaceSkillManager: (workspaceName: string, title: string) => void;
   openWorkspaceMemoryManager: (workspaceName: string, title: string) => void;
 }
 
@@ -51,7 +49,6 @@ export function createWorkspaceToolTabActions({ set, get }: StoreAccess): Worksp
     });
   };
   return {
-    openWorkspaceSkillManager: (workspaceName, title) => open("skill-manager", workspaceName, title),
     openWorkspaceMemoryManager: (workspaceName, title) => open("memory-manager", workspaceName, title),
   };
 }

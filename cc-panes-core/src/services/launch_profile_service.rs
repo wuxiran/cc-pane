@@ -398,6 +398,38 @@ impl LaunchProfileService {
         names
     }
 
+    /// 本次会话挂载哪些内置技能（docs/109 第 2 批 C）。core 模式 = 全部减去
+    /// `disabledSkillIds` 里的 `builtin:*`；custom 模式 = 只挂 `enabledSkillIds` 里的 `builtin:*`。
+    /// `Disabled` 模式由调用方整体跳过挂载，这里按「一个都不选」处理。
+    pub fn builtin_skill_selection(
+        profile: Option<&LaunchProfile>,
+    ) -> crate::services::builtin_skill_sets::BuiltinSkillSelection {
+        use crate::services::builtin_skill_sets::BuiltinSkillSelection;
+        let builtin_names = |ids: &[String]| -> Vec<String> {
+            ids.iter()
+                .filter_map(|id| id.strip_prefix("builtin:"))
+                .map(str::to_string)
+                .collect()
+        };
+        let Some(profile) = profile else {
+            return BuiltinSkillSelection::All;
+        };
+        match profile.skill_policy.mode {
+            LaunchProfileSkillMode::Disabled => BuiltinSkillSelection::Only(Vec::new()),
+            LaunchProfileSkillMode::Core => {
+                let disabled = builtin_names(&profile.skill_policy.disabled_skill_ids);
+                if disabled.is_empty() {
+                    BuiltinSkillSelection::All
+                } else {
+                    BuiltinSkillSelection::Except(disabled)
+                }
+            }
+            LaunchProfileSkillMode::Custom => {
+                BuiltinSkillSelection::Only(builtin_names(&profile.skill_policy.enabled_skill_ids))
+            }
+        }
+    }
+
     pub fn session_skill_prompt_for_profile(
         &self,
         profile: Option<&LaunchProfile>,
@@ -2383,6 +2415,8 @@ mod tests {
                     content_sha256: "sha".into(),
                     installed_at: "2026-05-12T00:00:00Z".into(),
                     file_path: None,
+                    provenance: None,
+                    gone: false,
                 },
                 "Use layout, spacing, and typography deliberately.",
             )

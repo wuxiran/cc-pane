@@ -203,6 +203,9 @@ fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
         user_skill_service: Arc::new(cc_panes_core::services::UserSkillService::new(
             app_paths.user_skills_dir(),
         )),
+        skill_library_service: Arc::new(cc_panes_core::services::SkillLibraryService::new(
+            &app_paths, None,
+        )),
         usage_stats_service,
         session_index_service: crate::state::test_session_index_service(app_paths.workspaces_dir()),
         ws_emitter: Arc::new(WsEmitter::new()),

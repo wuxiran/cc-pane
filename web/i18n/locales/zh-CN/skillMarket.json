@@ -55,7 +55,7 @@
     "hint": "无法连接技能源，稍后点击「刷新目录」重试"
   },
   "toast": {
-    "installed": "已安装 {{name}}，在启动档的技能策略里勾选即可启用",
+    "installed": "已安装 {{name}}，在资源库里为启动档开启即可使用",
     "installedToWorkspace": "已装进工作空间 {{workspace}}：{{name}}，该工作空间下的新会话自动生效",
     "installFailed": "安装失败：{{error}}",
     "removed": "已卸载 {{name}}",

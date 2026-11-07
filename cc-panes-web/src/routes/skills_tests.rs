@@ -204,6 +204,9 @@ fn test_state(name: &str) -> (AppState, std::path::PathBuf) {
         user_skill_service: Arc::new(cc_panes_core::services::UserSkillService::new(
             app_paths.user_skills_dir(),
         )),
+        skill_library_service: Arc::new(cc_panes_core::services::SkillLibraryService::new(
+            &app_paths, None,
+        )),
         usage_stats_service,
         session_index_service: crate::state::test_session_index_service(app_paths.workspaces_dir()),
         ws_emitter: Arc::new(WsEmitter::new()),
@@ -228,6 +231,8 @@ fn installed_skill(id: &str) -> cc_panes_core::services::InstalledUserSkill {
         content_sha256: "abc".to_string(),
         installed_at: "2026-06-20T00:00:00Z".to_string(),
         file_path: None,
+        provenance: None,
+        gone: false,
     }
 }
 
@@ -390,4 +395,78 @@ async fn external_and_user_skill_routes_are_exposed() {
         .await
         .expect("list after remove");
     assert!(user_skills.is_empty());
+}
+
+#[tokio::test]
+async fn skill_library_routes_list_read_probe_install_and_remove() {
+    use crate::routes::skill_library;
+    let (state, root) = test_state("library");
+    let folder = root.join("my-skill");
+    std::fs::create_dir_all(&folder).expect("skill dir");
+    std::fs::write(
+        folder.join("SKILL.md"),
+        "---\nname: my-skill\ndescription: Mine\n---\n# body\n",
+    )
+    .expect("skill md");
+
+    let Json(probe) = skill_library::probe(
+        State(state.clone()),
+        Json(skill_library::ProbeRequest {
+            source: folder.to_string_lossy().to_string(),
+        }),
+    )
+    .await
+    .expect("probe");
+    assert_eq!(probe.candidates.len(), 1);
+    assert_eq!(probe.candidates[0].install_as, "my-skill");
+
+    let Json(installed) = skill_library::install(
+        State(state.clone()),
+        Json(skill_library::InstallRequest {
+            probe_id: probe.probe_id.clone(),
+            paths: vec![String::new()],
+        }),
+    )
+    .await
+    .expect("install");
+    assert_eq!(installed.installed, vec!["my-skill"]);
+
+    let Json(listed) = skill_library::list(State(state.clone()))
+        .await
+        .expect("list");
+    assert_eq!(listed.len(), 1);
+    let json = serde_json::to_value(&listed[0]).expect("json");
+    assert_eq!(json["provenance"]["kind"], "folder");
+    assert_eq!(json["edited"], "no");
+    assert_eq!(json["folderMissing"], false);
+
+    let Json(content) = skill_library::read(State(state.clone()), Path("my-skill".to_string()))
+        .await
+        .expect("read");
+    assert!(content.content.contains("# body"));
+
+    let Json(checks) = skill_library::check(State(state.clone()), None)
+        .await
+        .expect("check");
+    assert_eq!(checks[0].error.as_deref(), Some("unsupported"));
+
+    let Json(removed) = skill_library::remove(
+        State(state.clone()),
+        Json(skill_library::IdsRequest {
+            ids: vec!["my-skill".to_string()],
+        }),
+    )
+    .await
+    .expect("remove");
+    assert_eq!(removed.removed, vec!["my-skill"]);
+    assert!(folder.join("SKILL.md").is_file(), "linked folder untouched");
+
+    let bad = skill_library::probe(
+        State(state),
+        Json(skill_library::ProbeRequest {
+            source: "--upload-pack=x".to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(bad.unwrap_err().0, StatusCode::BAD_REQUEST);
 }

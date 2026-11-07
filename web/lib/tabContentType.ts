@@ -38,7 +38,6 @@ export const TAB_CONTENT_GROUP: Record<TabContentType, TabContentGroup> = {
   editor: "files",
   review: "files",
   "file-explorer": "files",
-  "skill-manager": "tools",
   "memory-manager": "tools",
 };
 
@@ -58,7 +57,6 @@ export const TAB_CONTENT_ICON: Record<TabContentType, LucideIcon> = {
   editor: FileText,
   review: FileDiff,
   "file-explorer": FolderTree,
-  "skill-manager": Settings2,
   "memory-manager": Settings2,
 };
 

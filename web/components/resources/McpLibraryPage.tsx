@@ -2,12 +2,11 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ClipboardPaste, Compass, FolderOpen, Import, Plus, Search, Server } from "lucide-react";
-import { resolveWorkspaceLaunchProfile, toolLabel } from "@/components/providers/launchProfileHelpers";
+import { resolveWorkspaceLaunchProfile } from "@/components/providers/launchProfileHelpers";
 import RemoteRuntimeNotice from "@/components/providers/RemoteRuntimeNotice";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -15,21 +14,17 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { workspaceNameForProject } from "@/hooks/useQuickCommandsSync";
 import { toastErr, toastOk } from "@/lib/feedback";
 import { settingsService } from "@/services";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { useActivityBarStore, useWorkspacesStore } from "@/stores";
-import { useLaunchProfilesStore } from "@/stores/useLaunchProfilesStore";
+import { useActivityBarStore } from "@/stores";
 import { EMPTY_MCP_LAYER, useMcpStore } from "@/stores/useMcpStore";
-import { useResourceLibraryStore } from "@/stores/useResourceLibraryStore";
 import { useSharedMcpStore } from "@/stores/useSharedMcpStore";
-import { mcpTargetKey, type LaunchProfile, type McpLayerTarget } from "@/types";
+import { mcpTargetKey, type McpLayerTarget } from "@/types";
 import { translateError } from "@/utils";
-import { handleErrorSilent } from "@/utils/errorHandler";
 import AgentMcpServersSection from "./AgentMcpServersSection";
 import LayerMcpEditorDialog, { type LayerEditorRequest } from "./LayerMcpEditorDialog";
+import { profileChipLabel, profileName, ScopeSelect, ShownProfilesMenu, useLibraryProfiles, useResourceScope, useScopeOptions } from "./libraryChrome";
 import McpDetailPanel from "./McpDetailPanel";
 import { buildMcpLibraryEntries, entryDetail, filterMcpLibraryEntries, type McpLibraryEntry } from "./mcpLibraryModel";
 import PasteMcpDialog from "./PasteMcpDialog";
@@ -39,19 +34,15 @@ import {
   mcpStatusOf,
   remoteUnsupportedByProfile,
   setMcpResource,
-  visibleProfiles,
   type ChipBlockReason,
   type McpStatusLevel,
   type ProfileMcpResource,
 } from "./resourceCenterModel";
 import SharedMcpEditorDialog from "./SharedMcpEditorDialog";
-import { useProfilePolicyWriter } from "./useProfilePolicyWriter";
 
 // 市场带 500 条快照逻辑和卡片，首屏用不到，单独分包
 const McpMarketSection = lazy(() => import("./McpMarketSection"));
 
-const CHOSEN_PROFILES_KEY = "cc-panes.resourceCenter.profiles";
-const NO_SCOPE = "__none__";
 const STATUS_POLL_MS = 5000;
 /** 条目少时用眼睛扫比搜索快，搜索框只在列表变长后出现 */
 const SEARCH_THRESHOLD = 8;
@@ -63,34 +54,6 @@ const STATUS_COLOR: Record<McpStatusLevel, string> = {
   failed: "var(--app-status-danger)",
 };
 
-function readChosenProfiles(): string[] | null {
-  try {
-    const raw = localStorage.getItem(CHOSEN_PROFILES_KEY);
-    const value: unknown = raw ? JSON.parse(raw) : null;
-    return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeChosenProfiles(ids: readonly string[]) {
-  try {
-    localStorage.setItem(CHOSEN_PROFILES_KEY, JSON.stringify(ids));
-  } catch {
-    // 只是显示偏好，存不下就下次回到默认
-  }
-}
-
-function basename(path: string): string {
-  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
-}
-
-function scopeValue(scope: McpLayerTarget | null): string {
-  if (scope?.workspaceName) return `ws:${scope.workspaceName}`;
-  if (scope?.projectPath) return `project:${scope.projectPath}`;
-  return NO_SCOPE;
-}
-
 function resourceOf(entry: McpLibraryEntry): ProfileMcpResource {
   if (entry.kind === "ccpanes") return { kind: "ccpanes" };
   if (entry.kind === "shared") return { kind: "shared", name: entry.name };
@@ -101,24 +64,15 @@ export default function McpLibraryPage() {
   const { t } = useTranslation("settings");
   const { t: tProviders } = useTranslation("providers");
   const active = useActivityBarStore((s) => s.appViewMode === "resources");
-  const scope = useResourceLibraryStore((s) => s.scope);
-  const setScope = useResourceLibraryStore((s) => s.setScope);
-  const workspaces = useWorkspacesStore((s) => s.workspaces);
-  const loadWorkspaces = useWorkspacesStore((s) => s.load);
-  const profiles = useLaunchProfilesStore((s) => s.profiles);
-  const loadProfiles = useLaunchProfilesStore((s) => s.load);
+  const { projectPath, owningWorkspace, workspaceName, workspace } = useResourceScope();
+  const { label: scopeLabel } = useScopeOptions();
+  const { profiles, shown, toggleShown, shownIds, overlay, apply } = useLibraryProfiles(active);
   const sharedServers = useSharedMcpStore((s) => s.servers);
   const fetchStatus = useSharedMcpStore((s) => s.fetchStatus);
   const loadLayer = useMcpStore((s) => s.loadServers);
   const loadLegacy = useMcpStore((s) => s.loadLegacyServers);
   const importLegacy = useMcpStore((s) => s.importLegacyServers);
 
-  const projectPath = scope?.projectPath ?? null;
-  const owningWorkspace = useMemo(
-    () => (projectPath ? workspaceNameForProject(workspaces, projectPath) : undefined),
-    [workspaces, projectPath],
-  );
-  const workspaceName = scope?.workspaceName ?? owningWorkspace ?? null;
   const workspaceTarget = useMemo<McpLayerTarget | null>(() => (workspaceName ? { workspaceName } : null), [workspaceName]);
   const projectTarget = useMemo<McpLayerTarget | null>(() => (projectPath ? { projectPath } : null), [projectPath]);
   const workspaceLayer = useMcpStore((s) => (workspaceTarget ? s.layers[mcpTargetKey(workspaceTarget)] ?? EMPTY_MCP_LAYER : EMPTY_MCP_LAYER));
@@ -126,36 +80,23 @@ export default function McpLibraryPage() {
 
   const marketRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
-  const [chosen, setChosen] = useState<string[] | null>(readChosenProfiles);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ key: string; text: string } | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [sharedEditor, setSharedEditor] = useState<{ name: string | null } | null>(null);
   const [layerEditor, setLayerEditor] = useState<LayerEditorRequest | null>(null);
 
-  const { overlay, apply } = useProfilePolicyWriter((error) => {
-    toastErr(t("resourceCenter.saveFailed", { error: translateError(error) }));
-    void loadProfiles();
-  });
-
   useEffect(() => {
     if (!active) return;
-    // 启动档可能刚在设置窗口改过，两个窗口的 store 不通，回到这里就重读
-    const refresh = () => {
-      loadProfiles().catch((error) => handleErrorSilent(error, "load launch profiles"));
-      void fetchStatus();
-    };
+    const refresh = () => void fetchStatus();
     refresh();
-    if (useWorkspacesStore.getState().workspaces.length === 0) {
-      void Promise.resolve(loadWorkspaces()).catch((error) => handleErrorSilent(error, "load workspaces"));
-    }
     window.addEventListener("focus", refresh);
-    const timer = window.setInterval(() => void fetchStatus(), STATUS_POLL_MS);
+    const timer = window.setInterval(refresh, STATUS_POLL_MS);
     return () => {
       window.removeEventListener("focus", refresh);
       window.clearInterval(timer);
     };
-  }, [active, fetchStatus, loadProfiles, loadWorkspaces]);
+  }, [active, fetchStatus]);
 
   useEffect(() => {
     if (workspaceTarget) void loadLayer(workspaceTarget);
@@ -166,26 +107,6 @@ export default function McpLibraryPage() {
     void loadLegacy(projectPath);
   }, [projectTarget, projectPath, loadLayer, loadLegacy]);
 
-  const shown = useMemo(() => visibleProfiles(profiles, chosen), [profiles, chosen]);
-  const shownIds = useMemo(() => new Set(shown.map((profile) => profile.id)), [shown]);
-  const scopes = useMemo(
-    () =>
-      workspaces.filter((workspace) => !workspace.archivedAt).flatMap((workspace) => [
-        { value: `ws:${workspace.name}`, label: workspace.alias || workspace.name, indent: false },
-        ...workspace.projects
-          .filter((project) => !project.archivedAt)
-          .map((project) => ({ value: `project:${project.path}`, label: project.alias || basename(project.path), indent: true })),
-      ]),
-    [workspaces],
-  );
-  // 从 Agent Chat 跳来时 cwd 可能不是已登记的项目，也要能显示和取消
-  const scopeOptions = useMemo(() => {
-    const value = scopeValue(scope);
-    if (value === NO_SCOPE || scopes.some((item) => item.value === value)) return scopes;
-    const label = scope?.workspaceName ?? basename(scope?.projectPath ?? "");
-    return [...scopes, { value, label, indent: false }];
-  }, [scope, scopes]);
-  const scopeLabel = scopeOptions.find((item) => item.value === scopeValue(scope))?.label ?? null;
 
   const entries = useMemo(
     () =>
@@ -202,16 +123,14 @@ export default function McpLibraryPage() {
     () => Object.keys(projectLayer.legacyServers).filter((name) => !(name in projectLayer.servers)),
     [projectLayer.legacyServers, projectLayer.servers],
   );
-  const workspace = useMemo(() => workspaces.find((item) => item.name === workspaceName), [workspaces, workspaceName]);
   const workspaceProfile = useMemo(() => resolveWorkspaceLaunchProfile(workspace, profiles), [workspace, profiles]);
 
-  const profileName = (profile: LaunchProfile) => profile.alias || profile.name;
   const chipsFor = (entry: McpLibraryEntry): ProfileChipItem[] => {
     const resource = resourceOf(entry);
     const remote = entry.kind === "shared" ? entry.server.config.remote : null;
     return shown.map((profile) => ({
       profileId: profile.id,
-      label: `${profileName(profile)}${profile.targetTools.length === 1 ? ` · ${toolLabel(profile.targetTools[0], tProviders)}` : ""}`,
+      label: profileChipLabel(profile, tProviders),
       state: remote && remoteUnsupportedByProfile(profile, remote)
         ? { on: false, blocked: "remoteUnsupported" }
         : mcpChipState(overlay[profile.id]?.mcpPolicy ?? profile.mcpPolicy, resource),
@@ -226,13 +145,6 @@ export default function McpLibraryPage() {
     const profile = shown.find((item) => item.id === profileId);
     setNotice({ key, text: t(`resourceCenter.blocked.${reason}`, { name: profile ? profileName(profile) : "" }) });
   };
-  const toggleShown = (id: string, on: boolean) => {
-    const next = on ? [...shownIds, id] : [...shownIds].filter((item) => item !== id);
-    if (next.length === 0) return;
-    setChosen(next);
-    writeChosenProfiles(next);
-  };
-
   const openFolder = async () => {
     try {
       const info = await settingsService.getDataDirInfo();
@@ -256,13 +168,6 @@ export default function McpLibraryPage() {
     }
   };
 
-  const onScopeChange = (value: string) => {
-    if (value.startsWith("ws:")) setScope({ workspaceName: value.slice(3) });
-    else if (value.startsWith("project:")) setScope({ projectPath: value.slice(8) });
-    else setScope(null);
-    setSelectedKey(null);
-  };
-
   const sourceLabel = (entry: McpLibraryEntry) =>
     entry.kind === "ccpanes" ? t("mcpSourceCcpanes")
       : entry.kind === "shared" ? t("mcpSourceShared")
@@ -275,38 +180,8 @@ export default function McpLibraryPage() {
           <h1 className="mr-auto text-[length:var(--text-title)] font-semibold" style={{ color: "var(--app-text-primary)" }}>{t("resourceLibrary.mcp")}</h1>
           <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={scrollToMarket}><Compass size={13} className="mr-1" />{t("resourceLibrary.discover")}</Button>
           <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => void openFolder()}><FolderOpen size={13} className="mr-1" />{t("resourceLibrary.folder")}</Button>
-          <Select value={scopeValue(scope)} onValueChange={onScopeChange}>
-            <SelectTrigger className="h-8 w-48 text-xs" aria-label={t("resourceCenter.scope")}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NO_SCOPE}>{t("resourceCenter.scopeNone")}</SelectItem>
-              {scopeOptions.map((item) => (
-                <SelectItem key={item.value} value={item.value} className={item.indent ? "pl-6" : undefined}>{item.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {profiles.length > 1 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" className="h-8 text-xs">
-                  {t("resourceCenter.shownProfiles", { shown: shown.length, total: profiles.length })}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {profiles.map((profile) => (
-                  <DropdownMenuCheckboxItem
-                    key={profile.id}
-                    checked={shownIds.has(profile.id)}
-                    onCheckedChange={(checked) => toggleShown(profile.id, checked === true)}
-                    onSelect={(event) => event.preventDefault()}
-                  >
-                    {profileName(profile)}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+          <ScopeSelect onChange={() => setSelectedKey(null)} />
+          <ShownProfilesMenu profiles={profiles} shownIds={shownIds} onToggle={toggleShown} />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" className="h-8" data-testid="mcp-add-menu">

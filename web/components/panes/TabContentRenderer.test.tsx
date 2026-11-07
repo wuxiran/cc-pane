@@ -36,9 +36,6 @@ vi.mock("@/services/popupWindowService", () => ({
   getPoppedTabs: vi.fn(() => []),
 }));
 
-vi.mock("@/components/skill/ProjectSkillsManager", () => ({
-  default: () => <div data-testid="skill-manager" />,
-}));
 vi.mock("@/components/memory/MemoryManager", () => ({
   default: () => <div data-testid="memory-manager" />,
 }));
@@ -144,10 +141,7 @@ describe("TabContentRenderer", () => {
     expect(editor).toHaveAttribute("data-pane-id", "pane-1");
   });
 
-  it("renders skill and memory managers for their tab types", async () => {
-    renderContent(makeTab({ contentType: "skill-manager" }));
-    expect(await screen.findByTestId("skill-manager")).toBeInTheDocument();
-
+  it("renders the memory manager for its tab type", async () => {
     renderContent(makeTab({ contentType: "memory-manager" }));
     expect(await screen.findByTestId("memory-manager")).toBeInTheDocument();
   });

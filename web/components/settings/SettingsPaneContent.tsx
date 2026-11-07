@@ -22,8 +22,6 @@ const ProxySection = lazyWithRetry(() => import("./ProxySection"), "ProxySection
 const QuickCommandsSection = lazyWithRetry(() => import("./QuickCommandsSection"), "QuickCommandsSection");
 const QuickTerminalSection = lazyWithRetry(() => import("./QuickTerminalSection"), "QuickTerminalSection");
 const ScreenshotSection = lazyWithRetry(() => import("./ScreenshotSection"), "ScreenshotSection");
-const GlobalSkillsPanel = lazyWithRetry(() => import("@/components/resources/GlobalSkillsPanel"), "GlobalSkillsPanel");
-const LinkSkillManager = lazyWithRetry(() => import("@/components/skill/LinkSkillManager"), "LinkSkillManager");
 const ShortcutsSection = lazyWithRetry(() => import("./ShortcutsSection"), "ShortcutsSection");
 const TerminalSection = lazyWithRetry(() => import("./TerminalSection"), "TerminalSection");
 const ThemeSection = lazyWithRetry(() => import("./ThemeSection"), "ThemeSection");
@@ -114,20 +112,6 @@ function Pane({ paneId, draft, updateDraft, onUnsavedChangesChange }: SettingsPa
       return <CCChanSettings value={draft.ccchan} onChange={(ccchan) => updateDraft({ ...draft, ccchan })} />;
     case "shortcuts":
       return <ShortcutsSection value={draft.shortcuts} onChange={(shortcuts) => updateDraft({ ...draft, shortcuts })} />;
-    case "skills":
-      // wide 布局下外层是 overflow-hidden，高度链必须一路传到两个面板：
-      // 两个子面板各自 h-full + 内部 overflow-y-auto，包一层 bounded flex 容器
-      // 才能各分到一半高度并内部滚动；裸 flex-col 会被内容撑高，溢出部分直接裁掉。
-      return (
-        <div className="flex h-full min-h-0 flex-col gap-4">
-          <div className="min-h-0 flex-1 basis-0">
-            <LinkSkillManager />
-          </div>
-          <div className="min-h-0 flex-1 basis-0">
-            <GlobalSkillsPanel />
-          </div>
-        </div>
-      );
     case "screenshot":
       return <ScreenshotSection value={draft.screenshot} onChange={(screenshot) => updateDraft({ ...draft, screenshot })} />;
     case "wallpaper":

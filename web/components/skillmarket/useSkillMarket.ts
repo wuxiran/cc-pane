@@ -207,6 +207,7 @@ export function useSkillMarket(initialTarget: string = USER_INSTALL_TARGET) {
     searching,
     busyId,
     refresh: () => loadCatalog(true),
+    reloadInstalled,
     ensureDescribed,
     install,
     remove,

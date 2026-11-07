@@ -28,7 +28,7 @@ describe("deriveLayoutTypeSummary", () => {
       tab("b1", "browser"),
       tab("e1", "editor"),
       tab("f1", "file-explorer"),
-      tab("m1", "skill-manager"),
+      tab("m1", "memory-manager"),
     );
 
     const summary = deriveLayoutTypeSummary(rootPane);
@@ -78,7 +78,7 @@ describe("deriveLayoutTypeSummary", () => {
 describe("nonEmptyGroups", () => {
   it("只返回非空桁，且顺序固定为 终端 → 浏览器 → 文件 → 工具", () => {
     const rootPane = panelWith(
-      tab("m1", "skill-manager"),
+      tab("m1", "memory-manager"),
       tab("e1", "editor"),
       tab("t1", "terminal"),
     );

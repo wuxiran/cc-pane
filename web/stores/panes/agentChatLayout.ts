@@ -17,8 +17,7 @@ export function isAgentChatLayout(layout: Pick<LayoutEntry, "id">): boolean {
 /** Chat-local documents and configuration panels belong to the same workbench. */
 export function isAgentChatWorkbenchTab(tab: Pick<Tab, "contentType">): boolean {
   return tab.contentType === "agent-chat" || tab.contentType === "editor"
-    || tab.contentType === "file-explorer" || tab.contentType === "skill-manager"
-    || tab.contentType === "browser"
+    || tab.contentType === "file-explorer" || tab.contentType === "browser"
     || tab.contentType === "terminal" || tab.contentType === "review";
 }
 

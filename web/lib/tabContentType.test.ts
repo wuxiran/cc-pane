@@ -20,7 +20,6 @@ const ALL_CONTENT_TYPES: TabContentType[] = [
   "editor",
   "review",
   "file-explorer",
-  "skill-manager",
   "memory-manager",
 ];
 
@@ -56,7 +55,6 @@ describe("tabContentType", () => {
     expect(tabContentGroup("browser")).toBe("browser");
     expect(tabContentGroup("editor")).toBe("files");
     expect(tabContentGroup("file-explorer")).toBe("files");
-    expect(tabContentGroup("skill-manager")).toBe("tools");
     expect(tabContentGroup("memory-manager")).toBe("tools");
   });
 });

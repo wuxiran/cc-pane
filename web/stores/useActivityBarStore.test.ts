@@ -310,7 +310,7 @@ describe("useActivityBarStore", () => {
       ["home", "home"],
       ["panes", "panes"],
       ["todo", "panes"],
-      ["skillMarket", "panes"],
+      ["resources", "panes"],
     ] as const)("appViewMode=%s 保存为 %s", (mode, saved) => {
       const state = { ...useActivityBarStore.getState(), appViewMode: mode };
       expect(partialize(state)).toMatchObject({ appViewMode: saved });

@@ -1,9 +1,8 @@
-import { routeSkillManager } from "@/services/settingsWindowService";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toastErr, toastInfo, toastOk } from "@/lib/feedback";
-import { useLaunchProfilesStore, usePanesStore, useProvidersStore, useSharedMcpStore, useWorkspacesStore } from "@/stores";
-import type { DiscoveredExternalSkill, LaunchProfileDraft, LaunchProfileResolution, LaunchProfileRuntime, SkillMarketEntry } from "@/types";
+import { useLaunchProfilesStore, useProvidersStore, useSharedMcpStore, useWorkspacesStore } from "@/stores";
+import type { LaunchProfileDraft, LaunchProfileResolution, LaunchProfileRuntime } from "@/types";
 import { useCliTools } from "@/hooks/useCliTools";
 import { isProviderTypeCompatibleWithCli } from "@/utils/providerCompatibility";
 import { isLocalWslOnlyCliTool, localWslOnlySshUnsupportedKey } from "@/utils/cliTool";
@@ -19,7 +18,7 @@ import UnsavedChangesDialog from "./UnsavedChangesDialog";
 import { useLaunchProfileUnsavedChanges } from "./useLaunchProfileUnsavedChanges";
 import { useLaunchProfileNavigation } from "./useLaunchProfileNavigation";
 import { useLaunchProfileDraft } from "./useLaunchProfileDraft";
-import { useSkillMarketData } from "./useSkillMarketData";
+import { useExternalSkills } from "./useExternalSkills";
 import { useLaunchProfileSkillEditor } from "./useLaunchProfileSkillEditor";
 import {
   SYSTEM_DEFAULT_PROFILE_ID,
@@ -33,16 +32,10 @@ import {
   type ExternalSkillSourceKind,
 } from "./launchProfileHelpers";
 import {
-  nextClearBuiltinSkills,
-  nextEnableUserSkill,
   nextMcpMode,
-  nextSelectAllBuiltinSkills,
   nextSkillMode,
-  nextToggleBuiltinSkill,
-  nextToggleExternalSkill,
   nextToggleExternalSource,
   nextToggleProfileSkill,
-  nextToggleUserSkill,
 } from "./launchProfileSkillPolicy";
 interface LaunchProfilesPanelProps {
   compact?: boolean;
@@ -79,7 +72,6 @@ export default function LaunchProfilesPanel({
   const workspacesLoading = useWorkspacesStore((s) => s.loading);
   const loadWorkspaces = useWorkspacesStore((s) => s.load);
   const updateWorkspaceLaunchProfile = useWorkspacesStore((s) => s.updateWorkspaceLaunchProfile);
-  const openSkillManager = usePanesStore((s) => s.openSkillManager);
 
   const resolvedInitialTool = tool ?? initialTool ?? "claude";
   const [activeTool, setActiveTool] = useState<KnownCliTool>(resolvedInitialTool);
@@ -90,15 +82,7 @@ export default function LaunchProfilesPanel({
   const [bindingWorkspaceName, setBindingWorkspaceName] = useState<string | null>(null);
   const [workspaceFilterName, setWorkspaceFilterName] = useState(WORKSPACE_FILTER_ALL);
   const [listMode, setListMode] = useState<LaunchProfileListMode>("profiles");
-  const {
-    marketEntries,
-    userSkills,
-    externalSkills,
-    skillMarketLoading,
-    installingSkillId,
-    refreshSkillMarket,
-    installSkill,
-  } = useSkillMarketData();
+  const externalSkills = useExternalSkills();
   const {
     profileSkillEditorOpen,
     editingProfileSkillId,
@@ -409,32 +393,11 @@ export default function LaunchProfilesPanel({
   const setSkillMode = (mode: LaunchProfileDraft["skillPolicy"]["mode"]) => {
     setDraft((current) => nextSkillMode(current, mode, externalSkills));
   };
-  const toggleSkill = (name: string) => {
-    setDraft((current) => nextToggleBuiltinSkill(current, name));
-  };
   const toggleProfileSkill = (id: string) => {
     setDraft((current) => nextToggleProfileSkill(current, id));
   };
   const toggleExternalSource = (kind: ExternalSkillSourceKind, included: boolean) => {
     setDraft((current) => nextToggleExternalSource(current, kind, included));
-  };
-  const toggleExternalSkill = (skill: DiscoveredExternalSkill) => {
-    setDraft((current) => nextToggleExternalSkill(current, skill, externalSkills));
-  };
-  const toggleUserSkill = (id: string) => {
-    setDraft((current) => nextToggleUserSkill(current, id, externalSkills));
-  };
-  const installAndEnableSkill = async (entry: SkillMarketEntry) => {
-    // 安装动作在 hook 里，装完回调这里把它写进草稿（hook 不依赖 draft）
-    await installSkill(entry, (installed) => {
-      setDraft((current) => nextEnableUserSkill(current, installed.id, externalSkills));
-    });
-  };
-  const selectAllBuiltinSkills = () => {
-    setDraft(nextSelectAllBuiltinSkills);
-  };
-  const clearBuiltinSkills = () => {
-    setDraft(nextClearBuiltinSkills);
   };
 
   const previewProviderLabel = isSystemDefaultSelected
@@ -526,22 +489,8 @@ export default function LaunchProfilesPanel({
               draft={draft}
               setDraft={setDraft}
               activeTool={activeTool}
-              externalSkills={externalSkills}
-              userSkills={userSkills}
-              marketEntries={marketEntries}
-              skillMarketLoading={skillMarketLoading}
-              installingSkillId={installingSkillId}
-              refreshSkillMarket={refreshSkillMarket}
               setSkillMode={setSkillMode}
-              selectAllBuiltinSkills={selectAllBuiltinSkills}
-              clearBuiltinSkills={clearBuiltinSkills}
-              toggleSkill={toggleSkill}
               toggleExternalSource={toggleExternalSource}
-              toggleExternalSkill={toggleExternalSkill}
-              toggleUserSkill={toggleUserSkill}
-              installAndEnableSkill={installAndEnableSkill}
-              workspaceContext={workspaceContext}
-              openProjectSkillManager={routeSkillManager(openSkillManager)}
               profileSkillEditorOpen={profileSkillEditorOpen}
               editingProfileSkillId={editingProfileSkillId}
               profileSkillForm={profileSkillForm}
