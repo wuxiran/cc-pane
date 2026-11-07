@@ -13,7 +13,7 @@ use cc_panes_core::models::CreateSessionRequest;
 use cc_panes_core::models::{DeviceAddRequest, DeviceConnection, DeviceEndpoint, DeviceSummary};
 use cc_panes_core::services::device_deploy::{self, RemotePlatform};
 use cc_panes_core::services::remote_terminal::RemoteSessionRouter;
-use cc_panes_core::services::{DeviceService, TerminalBackend};
+use cc_panes_core::services::{DeviceService, DeviceTokenService, TerminalBackend};
 use cc_panes_core::utils::AppPaths;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -557,4 +557,155 @@ pub async fn device_deploy(
         manager: install.manager,
         warnings: install.warnings,
     })
+}
+
+// ---------------------------------------------------------------------------
+// 本机作为被连接方（阶段 4）：允许其他电脑上的 CC-Panes 凭配对码连进来
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairingInfo {
+    pub code: String,
+    pub expires_at: String,
+    /// 对方在「添加设备 → 直连」里可填的地址，Tailscale 优先
+    pub addresses: Vec<String>,
+}
+
+fn local_addresses(port: u16) -> Vec<String> {
+    let mut addresses = Vec::new();
+    let tailscale = crate::services::detect_tailscale();
+    for ip in tailscale
+        .tailscale_ips
+        .iter()
+        .filter(|ip| !ip.contains(':'))
+    {
+        addresses.push(format!("http://{ip}:{port}"));
+    }
+    let networks = sysinfo::Networks::new_with_refreshed_list();
+    for (_, data) in networks.iter() {
+        for network in data.ip_networks() {
+            let ip = network.addr;
+            if ip.is_loopback() || !ip.is_ipv4() {
+                continue;
+            }
+            let url = format!("http://{ip}:{port}");
+            if !addresses.contains(&url) {
+                addresses.push(url);
+            }
+        }
+    }
+    addresses
+}
+
+/// 生成一次性配对码。需要先在设置里打开「允许其他设备连接」，Web 服务才会监听局域网。
+#[tauri::command]
+pub async fn device_access_pairing_start(
+    tokens: State<'_, Arc<DeviceTokenService>>,
+    settings: State<'_, Arc<cc_panes_core::services::SettingsService>>,
+) -> AppResult<PairingInfo> {
+    let web_access = settings.get_settings().web_access;
+    if !web_access.allow_devices {
+        return Err(AppError::from(
+            "Turn on \"Allow other devices\" in Web access settings first",
+        ));
+    }
+    if !web_access.enabled {
+        return Err(AppError::from(
+            "The Web access server is turned off; enable it so other devices can reach this computer",
+        ));
+    }
+    let tokens = tokens.inner().clone();
+    blocking(move || {
+        let (code, expires_at) = tokens.create_pairing_code()?;
+        Ok(PairingInfo {
+            code,
+            expires_at: expires_at.to_rfc3339(),
+            addresses: local_addresses(web_access.port),
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn device_access_pairing_cancel(
+    tokens: State<'_, Arc<DeviceTokenService>>,
+) -> AppResult<()> {
+    let tokens = tokens.inner().clone();
+    blocking(move || tokens.cancel_pairing()).await
+}
+
+/// 哪些设备可以访问本机（不含令牌明文）。
+#[tauri::command]
+pub async fn device_access_list(
+    tokens: State<'_, Arc<DeviceTokenService>>,
+) -> AppResult<Vec<cc_panes_core::services::DeviceTokenRecord>> {
+    let tokens = tokens.inner().clone();
+    blocking(move || Ok(tokens.list())).await
+}
+
+#[tauri::command]
+pub async fn device_access_revoke(
+    id: String,
+    tokens: State<'_, Arc<DeviceTokenService>>,
+) -> AppResult<()> {
+    let tokens = tokens.inner().clone();
+    blocking(move || tokens.revoke(&id).map(|_| ())).await
+}
+
+/// 本机作为连接方：用对方给出的配对码换令牌，并把对方添加为直连设备。
+#[tauri::command]
+pub async fn device_pair(
+    name: String,
+    base_url: String,
+    code: String,
+    service: State<'_, Arc<DeviceService>>,
+) -> AppResult<DeviceSummary> {
+    let base_url = base_url.trim().trim_end_matches('/').to_string();
+    let client = device_http_client(Duration::from_secs(15))?;
+    let response = client
+        .post(format!("{base_url}/api/device/pair"))
+        .json(&serde_json::json!({ "code": code.trim(), "name": local_hostname() }))
+        .send()
+        .await
+        .map_err(|error| AppError::from(format!("Cannot reach {base_url}: {error}")))?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(AppError::from(match status.as_u16() {
+            401 => "Pairing code is wrong or has expired".to_string(),
+            403 => format!("The other computer refused the connection: {body}"),
+            404 => "The other computer runs an older CC-Panes without device pairing".to_string(),
+            code => format!("Pairing failed (HTTP {code}): {body}"),
+        }));
+    }
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| AppError::from(error.to_string()))?;
+    let token = json
+        .get("token")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| AppError::from("Pairing response did not include a token"))?
+        .to_string();
+    let display_name = if name.trim().is_empty() {
+        json.get("hostname")
+            .and_then(|value| value.as_str())
+            .unwrap_or("device")
+            .to_string()
+    } else {
+        name
+    };
+    let service = service.inner().clone();
+    blocking(move || {
+        let device = service.add(DeviceAddRequest {
+            name: display_name,
+            connection: DeviceConnection::Direct { base_url },
+            token: Some(token),
+        })?;
+        service
+            .summary(&device.id)
+            .ok_or_else(|| anyhow::anyhow!("device vanished after add"))
+    })
+    .await
 }

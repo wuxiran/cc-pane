@@ -813,6 +813,7 @@ pub fn build_router(state: AppState) -> Router {
             "/api/health",
             get(|| async { axum::Json(serde_json::json!({ "ok": true })) }),
         )
+        .route("/api/device/pair", post(device::pair_device))
         .route("/api/auth/status", get(crate::web_auth::status))
         .route("/api/auth/login", post(crate::web_auth::login))
         .route("/api/auth/logout", post(crate::web_auth::logout));

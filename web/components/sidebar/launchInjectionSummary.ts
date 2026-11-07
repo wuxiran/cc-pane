@@ -35,8 +35,10 @@ export function summarizeInjection(
     mcp = "off";
     mcpReason = mcpPolicy.mode === "disabled" ? "injection.mcpDisabledByProfile" : "injection.mcpCcpanesOff";
   } else if (environment === "ssh") {
-    mcp = "partial";
-    mcpReason = "injection.mcpSshOnlyShared";
+    // SSH 远端命令只导出环境变量再跑裸 CLI（build_ssh_remote_command），任何 MCP 都带不过去。
+    // 想要完整注入，要把那台机器添加为「设备」，由它本机的 CC-Panes 启动会话（docs/111）。
+    mcp = "off";
+    mcpReason = "injection.mcpSshNone";
   } else if (environment === "wsl") {
     // WSL 拿到共享 MCP + 工作空间 / 项目层里的 HTTP 型；stdio 型是宿主命令，进不去
     mcp = "partial";

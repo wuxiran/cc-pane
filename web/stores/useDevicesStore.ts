@@ -20,6 +20,7 @@ interface DevicesState {
   refresh: (id: string) => Promise<void>;
   refreshAll: () => Promise<void>;
   add: (request: DeviceAddRequest) => Promise<DeviceSummary>;
+  pair: (name: string, baseUrl: string, code: string) => Promise<DeviceSummary>;
   remove: (id: string) => Promise<void>;
   setToken: (id: string, token: string) => Promise<void>;
   deploy: (id: string) => Promise<DeployReport>;
@@ -73,6 +74,12 @@ export const useDevicesStore = create<DevicesState>((set, get) => ({
 
   add: async (request) => {
     const device = await deviceService.addDevice(request);
+    set((s) => ({ devices: [...s.devices, device] }));
+    return device;
+  },
+
+  pair: async (name, baseUrl, code) => {
+    const device = await deviceService.pairDevice(name, baseUrl, code);
     set((s) => ({ devices: [...s.devices, device] }));
     return device;
   },

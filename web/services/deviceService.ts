@@ -64,3 +64,39 @@ export function createDeviceSession(id: string, request: DeviceSessionRequest): 
 export function attachDeviceSession(id: string, sessionId: string): Promise<void> {
   return invokeOrApi<void>("device_attach_session", { id, sessionId }, DESKTOP_ONLY);
 }
+
+/** 用对方给出的配对码换令牌，并把对方添加为直连设备。 */
+export function pairDevice(name: string, baseUrl: string, code: string): Promise<DeviceSummary> {
+  return invokeOrApi<DeviceSummary>("device_pair", { name, baseUrl, code }, DESKTOP_ONLY);
+}
+
+export interface PairingInfo {
+  code: string;
+  expiresAt: string;
+  addresses: string[];
+}
+
+export interface DeviceAccessRecord {
+  id: string;
+  name: string;
+  hint: string;
+  createdAt: string;
+}
+
+/** 本机作为被连接方：生成一次性配对码。 */
+export function startDevicePairing(): Promise<PairingInfo> {
+  return invokeOrApi<PairingInfo>("device_access_pairing_start", undefined, DESKTOP_ONLY);
+}
+
+export function cancelDevicePairing(): Promise<void> {
+  return invokeOrApi<void>("device_access_pairing_cancel", undefined, DESKTOP_ONLY);
+}
+
+/** 哪些设备可以访问本机。 */
+export function listDeviceAccess(): Promise<DeviceAccessRecord[]> {
+  return invokeOrApi<DeviceAccessRecord[]>("device_access_list", undefined, async () => []);
+}
+
+export function revokeDeviceAccess(id: string): Promise<void> {
+  return invokeOrApi<void>("device_access_revoke", { id }, DESKTOP_ONLY);
+}

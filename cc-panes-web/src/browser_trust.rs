@@ -9,17 +9,27 @@ use axum::{
 };
 
 pub async fn guard(State(state): State<AppState>, request: Request<Body>, next: Next) -> Response {
-    if !trusted(
-        request.headers(),
-        state
-            .settings_service
-            .get_settings()
-            .web_access
-            .auth_required(),
-    ) {
-        return (StatusCode::FORBIDDEN, "Untrusted browser origin or host").into_response();
+    let web_access = state.settings_service.get_settings().web_access;
+    let accepts_devices = web_access.allow_devices || state.web_auth.require_auth();
+    let device_client = accepts_devices && device_client_request(&request);
+    if device_client || trusted(request.headers(), web_access.auth_required()) {
+        return next.run(request).await;
     }
-    next.run(request).await
+    (StatusCode::FORBIDDEN, "Untrusted browser origin or host").into_response()
+}
+
+/// 其他 CC-Panes 设备的请求（docs/111）：不是浏览器（没有 Origin），且带设备凭据或只访问
+/// 配对 / 存活探针。这类请求按设备 IP 访问本机，Host 必然不是回环，但 DNS 重绑定攻击
+/// 只能借浏览器发起，而浏览器的 POST / 跨源请求总会带 Origin；凭据本身仍由
+/// access_control / 配对码校验。
+fn device_client_request(request: &Request<Body>) -> bool {
+    if request.headers().contains_key(header::ORIGIN) {
+        return false;
+    }
+    let path = request.uri().path();
+    path == "/api/device/pair"
+        || path == "/api/health"
+        || crate::web_auth::carries_device_credential(request)
 }
 
 fn trusted(headers: &HeaderMap, authenticated_server: bool) -> bool {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SearchableSetting } from "./SettingsSearchContext";
 import WebAccessOrchestratorBlock from "./WebAccessOrchestratorBlock";
+import DeviceAccessPanel from "@/components/devices/DeviceAccessPanel";
 import { toastErr, toastOk } from "@/lib/feedback";
 import { ExternalLink, RefreshCw, RotateCcw, ShieldCheck, Square, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -302,6 +303,13 @@ export default function WebAccessSection({
         orchestrator={orchestrator}
         onOrchestratorChange={onOrchestratorChange}
       />
+
+      {isTauriRuntime() && (
+        <DeviceAccessPanel
+          allowDevices={Boolean(value.allowDevices)}
+          onAllowDevicesChange={(allow) => update("allowDevices", allow)}
+        />
+      )}
 
       {isTauriRuntime() && (
         <div className="flex flex-col gap-2 pt-3" style={{ borderTop: "1px solid var(--app-border)" }}>

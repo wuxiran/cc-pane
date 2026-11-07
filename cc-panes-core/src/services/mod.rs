@@ -127,7 +127,7 @@ pub use default_skill_service::{
 pub use device_service::{
     DeviceService, DeviceTokenStore, KeyringDeviceTokenStore, MemoryDeviceTokenStore,
 };
-pub use device_token_service::{DeviceTokenRecord, DeviceTokenService};
+pub use device_token_service::{DeviceTokenRecord, DeviceTokenService, PairingOutcome};
 pub use drama_service::DramaService;
 pub use dsh_service::DshService;
 pub use external_skill_registry::{

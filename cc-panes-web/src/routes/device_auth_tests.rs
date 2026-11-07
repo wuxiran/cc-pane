@@ -224,3 +224,136 @@ async fn health_is_public_even_in_token_only_mode() {
         .expect("response");
     assert_eq!(response.status(), StatusCode::OK);
 }
+
+fn pair_request(code: &str, peer: [u8; 4]) -> Request<Body> {
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/api/device/pair")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(format!(
+            r#"{{"code":"{code}","name":"laptop"}}"#
+        )))
+        .expect("request");
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(SocketAddr::new(IpAddr::from(peer), 40000)));
+    request
+}
+
+#[tokio::test]
+async fn pairing_requires_allow_devices_and_a_valid_code() {
+    // 桌面端的 web 服务（非 headless）：没开「允许其他设备连接」时拒绝配对
+    let mut state = super::test_state("dev-pair");
+    let tokens = Arc::new(DeviceTokenService::in_data_dir(&super::test_dir(
+        "dev-pair",
+    )));
+    state.web_auth = Arc::new(WebAuthStore::with_device_tokens(tokens.clone(), false));
+    let app = super::super::build_router(state.clone());
+    let (code, _) = tokens.create_pairing_code().expect("code");
+
+    let response = app
+        .clone()
+        .oneshot(pair_request(&code, [192, 168, 1, 20]))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let mut settings = state.settings_service.get_settings();
+    settings.web_access.allow_devices = true;
+    state
+        .settings_service
+        .update_settings(settings)
+        .expect("allow devices");
+
+    let wrong = if code == "000000" { "111111" } else { "000000" };
+    let response = app
+        .clone()
+        .oneshot(pair_request(wrong, [192, 168, 1, 20]))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let response = app
+        .clone()
+        .oneshot(pair_request(&code, [192, 168, 1, 20]))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let json: serde_json::Value = serde_json::from_slice(&body).expect("json");
+    let token = json["token"].as_str().expect("token").to_string();
+
+    // 配对得到的令牌可直接从局域网访问（allow_devices 放行设备令牌）
+    let response = app
+        .oneshot(request("/api/device/info", Some(&token), [192, 168, 1, 20]))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn allow_devices_does_not_open_lan_to_cookie_or_anonymous_requests() {
+    let state = super::test_state("dev-allow-devices-anon");
+    let mut settings = state.settings_service.get_settings();
+    settings.web_access.allow_devices = true;
+    state
+        .settings_service
+        .update_settings(settings)
+        .expect("allow devices");
+    let app = super::super::build_router(state);
+    let response = app
+        .oneshot(request("/api/settings", None, [192, 168, 1, 20]))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn lan_host_header_is_allowed_for_device_clients_only() {
+    let mut state = super::test_state("dev-host");
+    let tokens = Arc::new(DeviceTokenService::in_data_dir(&super::test_dir(
+        "dev-host",
+    )));
+    state.web_auth = Arc::new(WebAuthStore::with_device_tokens(tokens.clone(), false));
+    let mut settings = state.settings_service.get_settings();
+    settings.web_access.allow_devices = true;
+    state
+        .settings_service
+        .update_settings(settings)
+        .expect("allow devices");
+    let (_, token) = tokens.create("desk").expect("token");
+    let app = super::super::build_router(state);
+
+    let with_host = |bearer: Option<&str>, origin: Option<&str>| {
+        let mut request = request("/api/device/info", bearer, [192, 168, 1, 20]);
+        request
+            .headers_mut()
+            .insert(header::HOST, "192.168.1.5:18080".parse().expect("host"));
+        if let Some(origin) = origin {
+            request
+                .headers_mut()
+                .insert(header::ORIGIN, origin.parse().expect("origin"));
+        }
+        request
+    };
+
+    // 设备客户端：LAN Host + 令牌，无 Origin → 放行
+    let response = app
+        .clone()
+        .oneshot(with_host(Some(&token), None))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    // 浏览器（带 Origin）即使带令牌也走原有的 Host / Origin 校验
+    let response = app
+        .clone()
+        .oneshot(with_host(Some(&token), Some("http://evil.example")))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    // 无凭据的 LAN Host 请求仍被拒绝
+    let response = app.oneshot(with_host(None, None)).await.expect("response");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}

@@ -152,6 +152,10 @@ impl WebAuthStore {
         self.require_auth
     }
 
+    pub fn device_tokens(&self) -> Option<&Arc<DeviceTokenService>> {
+        self.device_tokens.as_ref()
+    }
+
     /// 校验设备令牌。每次都按文件状态判断，吊销后下一个请求即失效。
     pub fn verify_device_token(&self, token: &str) -> bool {
         self.device_tokens
@@ -440,7 +444,7 @@ pub(crate) fn device_peer_allowed(
     if ip.is_loopback() {
         return true;
     }
-    if !settings.allow_lan && !token_only_server {
+    if !settings.allow_lan && !settings.allow_devices && !token_only_server {
         return false;
     }
     settings.ip_whitelist.is_empty()
@@ -458,6 +462,12 @@ pub struct DeviceTokenAuth(pub String);
 /// 设备令牌来源：`Authorization: Bearer`，或仅对 `/ws/` 路径的 `?token=`
 /// （WebSocket 客户端——包括把本服务当 daemon 用的 `TerminalDaemonClient`——
 /// 不方便设置请求头）。查询参数只接受 `ccp_dev_` 前缀，不会和 cookie 会话混淆。
+pub(crate) fn carries_device_credential(request: &Request<Body>) -> bool {
+    device_token_from_request(request).is_some_and(|token| {
+        token.starts_with(cc_panes_core::services::device_token_service::DEVICE_TOKEN_PREFIX)
+    })
+}
+
 fn device_token_from_request(request: &Request<Body>) -> Option<String> {
     if let Some(token) = bearer_from_headers(request.headers()) {
         return Some(token);

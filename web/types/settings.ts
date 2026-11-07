@@ -348,6 +348,7 @@ export interface WebAccessSettings {
   remoteReadOnly: boolean;
   /** 远程只读的例外：已通过密码登录的远程会话允许写入；未配置密码时不生效 */
   remoteAuthenticatedWrite: boolean;
+  allowDevices?: boolean; // 允许其他 CC-Panes 设备凭令牌连接本机（docs/111）
 }
 
 /** Orchestrator（HTTP+MCP server）绑定模式 */

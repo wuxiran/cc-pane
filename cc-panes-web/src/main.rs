@@ -617,7 +617,8 @@ fn resolve_bind_host(
     let is_loopback = |host: &str| matches!(host, "127.0.0.1" | "::1" | "[::1]" | "localhost");
     match explicit {
         None => {
-            if web_access.allow_lan && web_access.auth_required() {
+            // allow_devices：其他 CC-Panes 设备凭令牌访问；未带令牌的非回环请求仍被拒绝。
+            if (web_access.allow_lan && web_access.auth_required()) || web_access.allow_devices {
                 Ok("0.0.0.0".to_string())
             } else {
                 Ok("127.0.0.1".to_string())

@@ -231,13 +231,13 @@
     "memoryLabel": "Memory",
     "mcpFull": "Injects ccpanes, shared MCP, and workspace / project MCP",
     "mcpWslHttpOnly": "WSL sessions get ccpanes, shared MCP, and HTTP-type workspace / project MCP; stdio entries are host commands and cannot run inside WSL",
-    "mcpSshOnlyShared": "SSH sessions only get shared MCP (HTTP) and ccpanes; workspace / project MCP is not injected",
+    "mcpSshNone": "SSH sessions run the bare CLI on the remote machine and get no MCP. Add the machine under Devices for the full setup",
     "mcpDisabledByProfile": "This launch profile has MCP turned off",
     "mcpCcpanesOff": "This launch profile turned off CC-Panes MCP, which also disables the other MCP injection",
     "mcpUnsupportedCli": "This CLI does not support MCP",
     "skillsFull": "Mounts bundled and workspace skills",
     "skillsWslMounted": "Bundled and workspace skills are mounted into the WSL session via /mnt paths",
-    "skillsSshNone": "SSH sessions do not receive CC-Panes mounted skills",
+    "skillsSshNone": "SSH sessions do not receive CC-Panes mounted skills. Add the machine under Devices for the full setup",
     "skillsWorkspaceOff": "This launch profile does not include workspace skills; bundled only",
     "skillsDisabledByProfile": "This launch profile has skills turned off",
     "memoryFull": "Recalls memory at session start: project → workspace → global",
@@ -836,7 +836,7 @@
       "kindSsh": "SSH server",
       "kindDirect": "Direct",
       "kindSshHint": "Connects through a saved SSH machine. The server only listens on that machine's 127.0.0.1 and is reached through an SSH tunnel.",
-      "kindDirectHint": "Another computer running CC-Panes (LAN or Tailscale). Run cc-panes-web token create on that machine to get a token.",
+      "kindDirectHint": "Another computer running CC-Panes (LAN or Tailscale). On that computer, turn on \"Allow other devices\" and generate a pairing code.",
       "name": "Name",
       "machine": "SSH machine",
       "noMachines": "No SSH machines yet. Add one under SSH Machines first.",
@@ -847,7 +847,11 @@
       "token": "Device token",
       "insecureHint": "This is a plain HTTP address: the token and terminal traffic travel unencrypted. Use it only over Tailscale or loopback.",
       "submit": "Add",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "pairingCode": "Pairing code",
+      "pairingCodeHint": "Generate it on the other computer under Settings → Web access → Other devices. Valid for 5 minutes.",
+      "useToken": "Use a token instead",
+      "usePairingCode": "Use a pairing code"
     },
     "tokenDialog": {
       "title": "Update token",
@@ -856,6 +860,21 @@
     "open": "Open",
     "newSession": "New session here",
     "shell": "Terminal (shell)",
-    "openFailed": "Could not open: {{error}}"
+    "openFailed": "Could not open: {{error}}",
+    "access": {
+      "title": "Allow other devices",
+      "description": "CC-Panes on other computers can see this computer's workspaces and sessions and start sessions here. Only devices that exchanged a pairing code for a token get access.",
+      "saveFirst": "Save settings before generating a pairing code (the Web server will start listening on the network).",
+      "generate": "Generate pairing code",
+      "expiresIn": "expires in {{minutes}}:{{seconds}}",
+      "cancel": "Cancel pairing",
+      "addressHint": "On the other computer, open Devices → Add device → Direct and enter one of these addresses with the code:",
+      "noAddress": "No usable network address was found.",
+      "copy": "Copy",
+      "copied": "Copied",
+      "paired": "Devices that can access this computer",
+      "revoke": "Remove",
+      "revokeConfirm": "Remove access for \"{{name}}\"? It will be disconnected immediately."
+    }
   }
 }

@@ -44,6 +44,7 @@ export default function AddDeviceDialog({ open, onOpenChange, onAdded }: AddDevi
   const machines = useSshMachinesStore((s) => s.machines);
   const loadMachines = useSshMachinesStore((s) => s.load);
   const addDevice = useDevicesStore((s) => s.add);
+  const pairDevice = useDevicesStore((s) => s.pair);
 
   const [kind, setKind] = useState<Kind>("ssh");
   const [name, setName] = useState("");
@@ -52,6 +53,8 @@ export default function AddDeviceDialog({ open, onOpenChange, onAdded }: AddDevi
   const [deployNow, setDeployNow] = useState(true);
   const [baseUrl, setBaseUrl] = useState("");
   const [token, setToken] = useState("");
+  const [pairingCode, setPairingCode] = useState("");
+  const [useToken, setUseToken] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -63,6 +66,8 @@ export default function AddDeviceDialog({ open, onOpenChange, onAdded }: AddDevi
     setDeployNow(true);
     setBaseUrl("");
     setToken("");
+    setPairingCode("");
+    setUseToken(false);
     loadMachines().catch(() => {});
   }, [open, loadMachines]);
 
@@ -71,15 +76,25 @@ export default function AddDeviceDialog({ open, onOpenChange, onAdded }: AddDevi
   const portValid = Number.isInteger(port) && port > 0 && port <= 65535;
   const urlValid = /^https?:\/\/\S+$/.test(baseUrl.trim());
   const effectiveName = name.trim() || (kind === "ssh" ? machine?.name ?? "" : "");
-  const canSubmit = !saving && effectiveName.length > 0 && (kind === "ssh"
-    ? Boolean(machine) && portValid
-    : urlValid && token.trim().length > 0);
+  const codeValid = /^\d{6}$/.test(pairingCode.trim());
+  const canSubmit = !saving && (kind === "ssh"
+    ? effectiveName.length > 0 && Boolean(machine) && portValid
+    : urlValid && (useToken
+      ? effectiveName.length > 0 && token.trim().length > 0
+      // 配对时名称可留空，用对方主机名
+      : codeValid));
   const insecure = useMemo(() => kind === "direct" && isInsecureRemoteUrl(baseUrl), [kind, baseUrl]);
 
   const submit = async () => {
     if (!canSubmit) return;
     setSaving(true);
     try {
+      if (kind === "direct" && !useToken) {
+        const device = await pairDevice(name.trim(), baseUrl.trim(), pairingCode.trim());
+        onOpenChange(false);
+        onAdded(device, false);
+        return;
+      }
       const device = await addDevice({
         name: effectiveName,
         connection: kind === "ssh"
@@ -176,17 +191,42 @@ export default function AddDeviceDialog({ open, onOpenChange, onAdded }: AddDevi
                   onChange={(event) => setBaseUrl(event.target.value)}
                 />
               </label>
-              <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--app-text-secondary)" }}>
-                {t("devices.dialog.token")}
-                <Input
-                  className="h-8 font-mono text-xs"
-                  type="password"
-                  autoComplete="off"
-                  value={token}
-                  placeholder="ccp_dev_…"
-                  onChange={(event) => setToken(event.target.value)}
-                />
-              </label>
+              {useToken ? (
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--app-text-secondary)" }}>
+                  {t("devices.dialog.token")}
+                  <Input
+                    className="h-8 font-mono text-xs"
+                    type="password"
+                    autoComplete="off"
+                    value={token}
+                    placeholder="ccp_dev_…"
+                    onChange={(event) => setToken(event.target.value)}
+                  />
+                </label>
+              ) : (
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--app-text-secondary)" }}>
+                  {t("devices.dialog.pairingCode")}
+                  <Input
+                    className="h-8 w-32 font-mono text-sm tracking-[0.3em]"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    maxLength={6}
+                    value={pairingCode}
+                    placeholder="000000"
+                    onChange={(event) => setPairingCode(event.target.value.replace(/\D/g, ""))}
+                    data-testid="device-pairing-code"
+                  />
+                  <span style={{ color: "var(--app-text-tertiary)" }}>{t("devices.dialog.pairingCodeHint")}</span>
+                </label>
+              )}
+              <button
+                type="button"
+                className="self-start text-xs underline-offset-2 hover:underline"
+                style={{ color: "var(--app-text-tertiary)" }}
+                onClick={() => setUseToken((value) => !value)}
+              >
+                {useToken ? t("devices.dialog.usePairingCode") : t("devices.dialog.useToken")}
+              </button>
               {insecure && (
                 <p className="text-xs" style={{ color: "var(--app-status-warning)" }}>
                   {t("devices.dialog.insecureHint")}

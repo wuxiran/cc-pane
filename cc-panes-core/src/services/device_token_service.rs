@@ -32,9 +32,36 @@ pub struct DeviceTokenRecord {
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct DeviceTokenFile {
     #[serde(default)]
     tokens: Vec<DeviceTokenRecord>,
+    /// 当前有效的一次性配对码（只存摘要）。桌面端生成，cc-panes-web 进程兑换。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pairing: Option<PairingCode>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PairingCode {
+    code_sha256: String,
+    expires_at: chrono::DateTime<chrono::Utc>,
+    /// 剩余可尝试次数；用完即作废，防止在有效期内暴力枚举 6 位码。
+    attempts_left: u8,
+}
+
+pub const PAIRING_CODE_TTL_SECS: i64 = 5 * 60;
+const PAIRING_MAX_ATTEMPTS: u8 = 5;
+
+/// 配对码兑换结果。
+#[derive(Debug)]
+pub enum PairingOutcome {
+    Paired {
+        record: DeviceTokenRecord,
+        token: String,
+    },
+    /// 没有进行中的配对、已过期，或码不对
+    Rejected,
 }
 
 #[derive(Default)]
@@ -47,6 +74,8 @@ struct Cache {
 pub struct DeviceTokenService {
     path: PathBuf,
     cache: Mutex<Cache>,
+    /// 进程内串行化读-改-写（并发配对请求不能互相覆盖）。
+    write_lock: Mutex<()>,
 }
 
 impl DeviceTokenService {
@@ -54,6 +83,7 @@ impl DeviceTokenService {
         Self {
             path,
             cache: Mutex::new(Cache::default()),
+            write_lock: Mutex::new(()),
         }
     }
 
@@ -85,20 +115,107 @@ impl DeviceTokenService {
             token_sha256: sha256_hex(&token),
             created_at: chrono::Utc::now().to_rfc3339(),
         };
-        let mut tokens = self.read_file()?;
-        tokens.push(record.clone());
-        self.write_file(&tokens)?;
+        let _guard = self
+            .write_lock
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let mut file = self.read_file()?;
+        file.tokens.push(record.clone());
+        self.write_file(&file)?;
         Ok((record, token))
+    }
+
+    /// 生成新的 6 位一次性配对码（覆盖旧的），返回明文码和过期时间。
+    pub fn create_pairing_code(&self) -> Result<(String, chrono::DateTime<chrono::Utc>)> {
+        let code = format!("{:06}", OsRng.next_u32() % 1_000_000);
+        let expires_at = chrono::Utc::now() + chrono::Duration::seconds(PAIRING_CODE_TTL_SECS);
+        let _guard = self
+            .write_lock
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let mut file = self.read_file()?;
+        file.pairing = Some(PairingCode {
+            code_sha256: sha256_hex(&code),
+            expires_at,
+            attempts_left: PAIRING_MAX_ATTEMPTS,
+        });
+        self.write_file(&file)?;
+        Ok((code, expires_at))
+    }
+
+    pub fn cancel_pairing(&self) -> Result<()> {
+        let _guard = self
+            .write_lock
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let mut file = self.read_file()?;
+        if file.pairing.take().is_some() {
+            self.write_file(&file)?;
+        }
+        Ok(())
+    }
+
+    /// 是否有进行中（未过期、还有尝试次数）的配对。
+    pub fn pairing_active(&self) -> bool {
+        self.read_file()
+            .ok()
+            .and_then(|file| file.pairing)
+            .is_some_and(|pairing| {
+                pairing.attempts_left > 0 && pairing.expires_at > chrono::Utc::now()
+            })
+    }
+
+    /// 用配对码换设备令牌。成功后配对码立即作废；失败会消耗一次尝试机会。
+    pub fn redeem_pairing_code(&self, code: &str, device_name: &str) -> Result<PairingOutcome> {
+        let _guard = self
+            .write_lock
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let mut file = self.read_file()?;
+        let Some(mut pairing) = file.pairing.take() else {
+            return Ok(PairingOutcome::Rejected);
+        };
+        if pairing.expires_at <= chrono::Utc::now() || pairing.attempts_left == 0 {
+            self.write_file(&file)?;
+            return Ok(PairingOutcome::Rejected);
+        }
+        let digest = sha256_hex(code.trim());
+        if !constant_time_eq(pairing.code_sha256.as_bytes(), digest.as_bytes()) {
+            pairing.attempts_left -= 1;
+            if pairing.attempts_left > 0 {
+                file.pairing = Some(pairing);
+            }
+            self.write_file(&file)?;
+            return Ok(PairingOutcome::Rejected);
+        }
+        let name = device_name.trim();
+        let name = if name.is_empty() { "device" } else { name };
+        let token = generate_token();
+        let record = DeviceTokenRecord {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.to_string(),
+            hint: token.chars().take(DEVICE_TOKEN_PREFIX.len() + 6).collect(),
+            token_sha256: sha256_hex(&token),
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+        file.tokens.push(record.clone());
+        self.write_file(&file)?;
+        Ok(PairingOutcome::Paired { record, token })
     }
 
     /// 按 id 吊销；`id` 也接受设备名（同名全部吊销），方便命令行使用。
     pub fn revoke(&self, id_or_name: &str) -> Result<usize> {
-        let mut tokens = self.read_file()?;
-        let before = tokens.len();
-        tokens.retain(|record| record.id != id_or_name && record.name != id_or_name);
-        let removed = before - tokens.len();
+        let _guard = self
+            .write_lock
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let mut file = self.read_file()?;
+        let before = file.tokens.len();
+        file.tokens
+            .retain(|record| record.id != id_or_name && record.name != id_or_name);
+        let removed = before - file.tokens.len();
         if removed > 0 {
-            self.write_file(&tokens)?;
+            self.write_file(&file)?;
         }
         Ok(removed)
     }
@@ -127,8 +244,8 @@ impl DeviceTokenService {
         }
         if cache.modified != modified || cache.len != len {
             match self.read_file() {
-                Ok(tokens) => {
-                    cache.tokens = tokens;
+                Ok(file) => {
+                    cache.tokens = file.tokens;
                     cache.modified = modified;
                     cache.len = len;
                 }
@@ -144,23 +261,20 @@ impl DeviceTokenService {
         cache.tokens.clone()
     }
 
-    fn read_file(&self) -> Result<Vec<DeviceTokenRecord>> {
+    fn read_file(&self) -> Result<DeviceTokenFile> {
         match std::fs::read_to_string(&self.path) {
-            Ok(text) if text.trim().is_empty() => Ok(Vec::new()),
-            Ok(text) => {
-                let file: DeviceTokenFile = serde_json::from_str(&text)
-                    .with_context(|| format!("invalid {}", self.path.display()))?;
-                Ok(file.tokens)
+            Ok(text) if text.trim().is_empty() => Ok(DeviceTokenFile::default()),
+            Ok(text) => serde_json::from_str(&text)
+                .with_context(|| format!("invalid {}", self.path.display())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(DeviceTokenFile::default())
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
             Err(error) => Err(error).with_context(|| format!("read {}", self.path.display())),
         }
     }
 
-    fn write_file(&self, tokens: &[DeviceTokenRecord]) -> Result<()> {
-        let json = serde_json::to_string_pretty(&DeviceTokenFile {
-            tokens: tokens.to_vec(),
-        })?;
+    fn write_file(&self, file: &DeviceTokenFile) -> Result<()> {
+        let json = serde_json::to_string_pretty(file)?;
         write_atomic(&self.path, json)?;
         restrict_permissions(&self.path);
         // 下一次 load 按新的 mtime 重读
@@ -241,6 +355,52 @@ mod tests {
         assert!(service.verify(&token).is_some());
         other.revoke("desk").expect("revoke by name");
         assert!(service.verify(&token).is_none());
+    }
+
+    #[test]
+    fn pairing_code_is_single_use_and_limited_in_attempts() {
+        let service = temp_service("pairing");
+        assert!(matches!(
+            service.redeem_pairing_code("123456", "x").expect("redeem"),
+            PairingOutcome::Rejected
+        ));
+
+        let (code, _) = service.create_pairing_code().expect("code");
+        assert_eq!(code.len(), 6);
+        assert!(service.pairing_active());
+        let wrong = if code == "000000" { "111111" } else { "000000" };
+        assert!(matches!(
+            service.redeem_pairing_code(wrong, "x").expect("redeem"),
+            PairingOutcome::Rejected
+        ));
+        let PairingOutcome::Paired { record, token } = service
+            .redeem_pairing_code(&code, "laptop")
+            .expect("redeem")
+        else {
+            panic!("correct code must pair");
+        };
+        assert_eq!(record.name, "laptop");
+        assert!(service.verify(&token).is_some());
+        // 用过即作废
+        assert!(!service.pairing_active());
+        assert!(matches!(
+            service.redeem_pairing_code(&code, "again").expect("redeem"),
+            PairingOutcome::Rejected
+        ));
+
+        // 错 5 次作废，正确码也不再可用
+        let (code, _) = service.create_pairing_code().expect("code");
+        let wrong = if code == "000000" { "111111" } else { "000000" };
+        for _ in 0..PAIRING_MAX_ATTEMPTS {
+            service.redeem_pairing_code(wrong, "x").expect("redeem");
+        }
+        assert!(!service.pairing_active());
+        assert!(matches!(
+            service.redeem_pairing_code(&code, "x").expect("redeem"),
+            PairingOutcome::Rejected
+        ));
+        // 令牌没有被配对码逻辑冲掉
+        assert!(service.verify(&token).is_some());
     }
 
     #[test]
