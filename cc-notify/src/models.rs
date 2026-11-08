@@ -54,6 +54,12 @@ pub struct ChannelConfig {
     #[serde(default)]
     pub events: Vec<String>,
     pub enabled: bool,
+    /// 入站：接收该渠道发来的消息并交给 Bot（目前仅 Telegram 支持）。默认关。
+    #[serde(default)]
+    pub inbound_enabled: bool,
+    /// 入站消息默认交给哪个 Bot（空 = 第一个 Bot）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_bot_id: Option<String>,
 }
 
 impl ChannelConfig {
@@ -88,6 +94,8 @@ mod tests {
             chat_id: None,
             events: vec![],
             enabled: true,
+            inbound_enabled: false,
+            default_bot_id: None,
         };
         assert!(cfg.subscribes("turn_end"));
         assert!(cfg.subscribes("anything"));
@@ -105,6 +113,8 @@ mod tests {
             chat_id: None,
             events: vec!["error".into(), "waiting_input".into()],
             enabled: true,
+            inbound_enabled: false,
+            default_bot_id: None,
         };
         assert!(cfg.subscribes("error"));
         assert!(!cfg.subscribes("turn_end"));

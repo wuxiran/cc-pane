@@ -3,10 +3,13 @@
 //! 与桌面通知（NotificationService）刻意分离——IM 推送在用户不在电脑前时
 //! 才最有价值，因此默认聚焦时也推（`ImSettings.push_when_focused`）。
 //! 协议构造在 cc-notify（纯函数），本模块只负责闸门判定与 reqwest 传输。
-//! 批次1 仅出站单向；双向长连接（钉钉 Stream / 企微智能机器人）在后续批次。
+//! 批次1 出站单向；批次2 入站先做 Telegram（`inbound.rs`，getUpdates 长轮询交给 Bot）。
+//! 钉钉 Stream / 飞书长连接需要企业应用凭据，留到后续批次。
 
+mod inbound;
 mod outbound;
 
+pub use inbound::spawn_im_inbound;
 pub use outbound::spawn_im_transition_consumer;
 
 use cc_notify::{BuiltRequest, NotifyPayload};
@@ -259,8 +262,16 @@ impl ResultsHandle {
 fn build_http_client(
     proxy: &cc_panes_core::models::settings::ProxySettings,
 ) -> Result<reqwest::Client, String> {
+    build_http_client_with_timeout(proxy, SEND_TIMEOUT_SECS)
+}
+
+/// 同上，自定超时（入站长轮询要比服务端 hold 的时长更久）。
+fn build_http_client_with_timeout(
+    proxy: &cc_panes_core::models::settings::ProxySettings,
+    timeout_secs: u64,
+) -> Result<reqwest::Client, String> {
     let mut builder =
-        reqwest::Client::builder().timeout(std::time::Duration::from_secs(SEND_TIMEOUT_SECS));
+        reqwest::Client::builder().timeout(std::time::Duration::from_secs(timeout_secs));
     if proxy.enabled && !proxy.host.is_empty() {
         let scheme = if proxy.proxy_type == "socks5" {
             "socks5h"

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { settingsService } from "@/services";
 import type { ImChannelConfig, ImChannelType, ImEventKind, ImSettings } from "@/types";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import ImInboundFields from "./ImInboundFields";
 
 interface ImSectionProps {
   value: ImSettings;
@@ -248,6 +249,10 @@ export default function ImSection({ value, onChange }: ImSectionProps) {
                   />
                 )}
               </FormField>
+            )}
+
+            {channel.channelType === "telegram" && (
+              <ImInboundFields channel={channel} onChange={(patch) => updateChannel(channel.id, patch)} />
             )}
 
             <div className="flex flex-col gap-1">

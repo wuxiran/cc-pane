@@ -2862,6 +2862,14 @@ pub fn run() {
                     turn_notify_registry_state.inner().clone(),
                     orch_svc.session_state_machine().subscribe_transitions(),
                 );
+                // IM 入站（批次2）：Telegram 长轮询，把消息交给 Bot 联系人。
+                services::im_bridge::spawn_im_inbound(
+                    app.handle().clone(),
+                    settings_svc.inner().clone(),
+                    app.state::<Arc<services::BotService>>().inner().clone(),
+                    app.state::<Arc<services::AcpChatService>>().inner().clone(),
+                    app.state::<Arc<AppPaths>>().data_dir().join("im-inbound"),
+                );
             }
             info!(
                 "[boot] +{}ms: orchestrator started",
